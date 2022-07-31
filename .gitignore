@@ -1,3 +1,15 @@
+accounts/
+blocks/
+private/
+common/
+peers/
+transactions/
+peer_sets/
+logs/
+index/
+*.build/
+.idea/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
