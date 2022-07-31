@@ -3,6 +3,7 @@ import json
 import os
 import signal
 import socket
+import sys
 
 import tornado.ioloop
 import tornado.web
@@ -13,7 +14,7 @@ from consensus import ConsensusClient
 from core_loop import CoreClient
 from data_ops import set_and_sort
 from genesis import make_genesis, make_folders
-from keys import keyfile_found, generate_keys, save_keys
+from keys import keyfile_found, generate_keys, save_keys, load_keys
 from logs import get_logger
 from memserver import MemServer
 from message_loop import MessageClient
@@ -31,6 +32,7 @@ def handler(signum, frame):
     logger.info("Terminating..")
     memserver.terminate = True
     tornado.ioloop.IOLoop.current().stop()
+    sys.exit(0)
 
 
 class HomeHandler(tornado.web.RequestHandler):
@@ -379,6 +381,7 @@ if __name__ == "__main__":
 
     if not keyfile_found():
         save_keys(generate_keys())
+        save_peer(ip=get_config()["ip"], address=load_keys()["address"], port=get_config()["port"], peer_trust=10000)
 
     assert not is_port_in_use(get_config()["port"]), "Port already in use, exiting"
     signal.signal(signal.SIGINT, handler)
