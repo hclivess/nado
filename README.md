@@ -84,6 +84,8 @@ users to make mining as inclusive as possible.
 - Variant of Proof of Diversity mixed with Proof of Majority and Proof of Trust
 - noSQL JSON file-based database system
 - The logo is a vortexed version of the Impossible Toroidal Polyhedron
+- Shared mining protocol
+- Periodic intervals to enforce consensus stabilization
 
 ## Where can I learn more?
 
