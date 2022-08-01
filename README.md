@@ -1,5 +1,8 @@
 # NADO
 
+## Warning
+NADO is currently running on alpha testnet only. This means that by joining the network, you are not receiving any rewards of value. This type of network will only be used for testing, development and troubleshooting. NADO mainnet will be released when ready.
+
 ## Installation
 
 ```
