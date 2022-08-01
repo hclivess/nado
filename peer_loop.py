@@ -87,4 +87,4 @@ class PeerClient(threading.Thread):
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)
             except Exception as e:
-                self.logger.info(f"Error: {e}")
+                self.logger.info(f"Error in peer loop: {e}")

@@ -76,4 +76,4 @@ class MessageClient(threading.Thread):
 
                 time.sleep(10)
             except Exception as e:
-                self.logger.info(f"Error: {e}")
+                self.logger.info(f"Error in message loop: {e}")

@@ -394,15 +394,18 @@ class CoreClient(threading.Thread):
         self.init_hashes()
 
         while not self.memserver.terminate:
-            start = get_timestamp_seconds()
-            self.check_mode()
+            try:
+                start = get_timestamp_seconds()
+                self.check_mode()
 
-            if not self.memserver.sync_mode:
-                self.normal_mode()
-            else:
-                self.sync_mode()
+                if not self.memserver.sync_mode:
+                    self.normal_mode()
+                else:
+                    self.sync_mode()
 
-            self.duration = get_timestamp_seconds() - start
-            time.sleep(self.run_interval)
+                self.duration = get_timestamp_seconds() - start
+                time.sleep(self.run_interval)
+            except Exception as e:
+                self.logger.warning(f"Error in core loop: {e}")
 
         self.logger.info("Termination code reached, bye")

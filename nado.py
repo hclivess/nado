@@ -10,7 +10,7 @@ import tornado.web
 
 from block_ops import get_block, get_latest_block_info
 from config import get_config
-from consensus import ConsensusClient
+from consensus_loop import ConsensusClient
 from core_loop import CoreClient
 from data_ops import set_and_sort
 from genesis import make_genesis, make_folders
