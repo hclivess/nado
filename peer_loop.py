@@ -41,6 +41,7 @@ class PeerClient(threading.Thread):
                     self.memserver.peers.append(peer)
                 if peer not in self.memserver.block_producers:
                     self.memserver.block_producers.append(peer)
+                    self.logger.warning(f"Added {peer} to block producers")
 
             self.merge_and_sort_peers()
 

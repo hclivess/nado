@@ -129,6 +129,9 @@ class ConsensusClient(threading.Thread):
                 self.memserver.peers.remove(entry)
             if entry not in self.memserver.unreachable:
                 self.memserver.unreachable.append(entry)
+            if entry in self.memserver.block_producers:
+                self.memserver.block_producers.remove(entry)  # experimental
+                self.logger.warning(f"Removed {entry} from block producers")
 
             adjust_trust(
                 entry=entry, value=-10, logger=self.logger, trust_pool=self.trust_pool
