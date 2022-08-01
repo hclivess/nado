@@ -11,7 +11,8 @@ from peers import (
     get_majority,
     percentage,
     adjust_trust,
-    get_average_int
+    get_average_int,
+    load_ips
 )
 
 
@@ -60,6 +61,7 @@ class ConsensusClient(threading.Thread):
         self.block_hash_pool_percentage = 0
 
         self.memserver.peers = me_to(self.memserver.peers)
+
         dump_peers(logger=self.logger, peers=self.memserver.peers)
         self.memserver.block_producers = me_to(self.memserver.block_producers)
         save_block_producers(self.memserver.block_producers)

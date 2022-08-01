@@ -6,7 +6,7 @@ from block_ops import save_block_producers
 from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
 from data_ops import set_and_sort
-from peers import announce_me, get_list_of_peers, store_producer_set
+from peers import announce_me, get_list_of_peers, store_producer_set, load_ips
 
 
 class PeerClient(threading.Thread):
@@ -61,9 +61,10 @@ class PeerClient(threading.Thread):
                     fail_storage=self.memserver.purge_peers_list,
                 )
 
-                if not self.memserver.peers:
+                if len(self.memserver.peers) <= 1:
                     self.logger.info("No peers, reloading from drive")
                     self.memserver.unreachable.clear()
+                    self.memserver.peers = load_ips()
                     self.sniff_peers_and_producers()
 
                 self.consensus.status_pool = asyncio.run(
