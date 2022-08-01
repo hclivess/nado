@@ -75,7 +75,6 @@ class PeerClient(threading.Thread):
                     self.logger.info("No peers, reloading from drive")
                     self.memserver.unreachable.clear()
                     self.memserver.peers = load_ips()
-                    self.sniff_peers_and_producers()
 
                 self.consensus.status_pool = asyncio.run(
                     compound_get_status_pool(
