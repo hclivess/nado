@@ -11,7 +11,7 @@ from logs import get_logger
 """this module is optimized for low memory and bandwidth usage"""
 
 
-async def get_list_of(key, peer, fail_storage, logger, retries=10):
+async def get_list_of(key, peer, fail_storage, logger, retries=3):
     """method compounded by compound_get_list_of, fail storage external by reference (obj)"""
     """bandwith usage of this grows exponentially with number of peers"""
     """peers include themselves in their peer lists"""
@@ -19,7 +19,7 @@ async def get_list_of(key, peer, fail_storage, logger, retries=10):
     url_construct = f"http://{peer}:{get_config()['port']}/{key}"
     while retries > 0:
         try:
-            timeout = aiohttp.ClientTimeout(total=10)
+            timeout = aiohttp.ClientTimeout(total=3)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url_construct) as response:
                     fetched = json.loads(await response.text())[key]
