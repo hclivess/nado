@@ -21,6 +21,7 @@ from message_loop import MessageClient
 from peer_loop import PeerClient
 from peers import save_peer, get_remote_peer_address, get_producer_set
 from transaction_ops import get_account, get_transaction, get_transactions_of_account
+from config import get_timestamp_seconds
 
 
 def is_port_in_use(port: int) -> bool:
@@ -313,7 +314,12 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
                     address = get_remote_peer_address(peer_ip, logger=logger)
                     assert address, "No address detected"
 
-                    save_peer(ip=peer_ip, address=address, port=get_config()["port"])
+                    save_peer(ip=peer_ip,
+                              address=address,
+                              port=get_config()["port"],
+                              last_seen=get_timestamp_seconds()
+                              )
+
                     if peer_ip not in memserver.peers + memserver.peer_buffer:
                         if memserver.period == 3:
                             memserver.peer_buffer.append(peer_ip)
@@ -381,7 +387,11 @@ if __name__ == "__main__":
 
     if not keyfile_found():
         save_keys(generate_keys())
-        save_peer(ip=get_config()["ip"], address=load_keys()["address"], port=get_config()["port"], peer_trust=10000)
+        save_peer(ip=get_config()["ip"],
+                  address=load_keys()["address"],
+                  port=get_config()["port"],
+                  peer_trust=10000,
+                  last_seen=get_timestamp_seconds())
 
     assert not is_port_in_use(get_config()["port"]), "Port already in use, exiting"
     signal.signal(signal.SIGINT, handler)

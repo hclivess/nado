@@ -198,7 +198,8 @@ class CoreClient(threading.Thread):
                     if address:
                         save_peer(ip=block_producer,
                                   address=address,
-                                  port=get_config()["port"])
+                                  port=get_config()["port"],
+                                  last_seen=get_timestamp_seconds())
                     else:
                         suggested_block_producers.pop(block_producer)
                         self.logger.error(f"{block_producer} not added to block producers")

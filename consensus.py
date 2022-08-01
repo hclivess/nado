@@ -12,7 +12,6 @@ from peers import (
     percentage,
     adjust_trust,
     get_average_int,
-    load_ips
 )
 
 
@@ -133,9 +132,15 @@ class ConsensusClient(threading.Thread):
                 self.memserver.block_producers.remove(entry)  # experimental
                 self.logger.warning(f"Removed {entry} from block producers")
 
-            adjust_trust(
-                entry=entry, value=-10, logger=self.logger, trust_pool=self.trust_pool
-            )
+            adjust_trust(entry=entry,
+                         value=-10,
+                         logger=self.logger,
+                         trust_pool=self.trust_pool)
+
+            update_peer(ip=entry,
+                        logger=self.logger,
+                        key="last_seen",
+                        value=get_timestamp_seconds())
 
             if entry in self.status_pool.keys():
                 self.status_pool.pop(entry)

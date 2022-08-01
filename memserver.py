@@ -59,6 +59,7 @@ class MemServer:
 
         self.sync_mode = False
         self.waiting = 0
+        self.min_peers = 2
 
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:

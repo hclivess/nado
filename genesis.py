@@ -5,6 +5,7 @@ from hashing import blake2b_hash_link
 from logs import get_logger
 from peers import save_peer
 from transaction_ops import create_account
+from config import get_timestamp_seconds
 
 
 def make_folders():
@@ -35,7 +36,12 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
 
     create_account(address=address, balance=balance)
 
-    save_peer(ip=ip, address=address, port=port, peer_trust=10000)
+    save_peer(ip=ip,
+              address=address,
+              port=port,
+              peer_trust=10000,
+              last_seen=get_timestamp_seconds())
+
     save_block(block_message=genesis_block_message, logger=logger)
     set_latest_block_info(block_message=genesis_block_message)
 

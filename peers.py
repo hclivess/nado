@@ -8,7 +8,7 @@ import requests
 
 from address import validate_address
 from compounder import compound_get_list_of, compound_announce_self
-from config import get_port, get_config
+from config import get_port, get_config, get_timestamp_seconds
 from data_ops import set_and_sort
 from hashing import base64encode, blake2b_hash
 
@@ -65,6 +65,18 @@ async def get_remote_peer_address_async(ip) -> str:
             return address
 
 
+def delete_old_peers(older_than, logger):
+    peer_files = glob.glob("peers/*.dat")
+
+    for file in peer_files:
+        with open(file, "r") as peer_file:
+            peer = json.load(peer_file)
+            last_seen = peer["last_seen"]
+            peer_ip = peer["peer_ip"]
+
+        if last_seen < older_than:
+            delete_peer(peer_ip, logger=logger)
+
 def delete_peer(ip, logger):
     peer_path = f"peers/{base64encode(ip)}.dat"
     if os.path.exists(peer_path):
@@ -72,7 +84,7 @@ def delete_peer(ip, logger):
         logger.warning(f"Deleted peer {ip}")
 
 
-def save_peer(ip, port, address, peer_trust=50):
+def save_peer(ip, port, address, last_seen, peer_trust=50):
     peer_path = f"peers/{base64encode(ip)}.dat"
     if not ip_stored(ip):
         peers_message = {
@@ -80,6 +92,7 @@ def save_peer(ip, port, address, peer_trust=50):
             "peer_ip": ip,
             "peer_port": port,
             "peer_trust": peer_trust,
+            "last_seen": last_seen
         }
 
         with open(peer_path, "w") as outfile:
@@ -185,6 +198,7 @@ def dump_peers(peers, logger):
                     ip=peer,
                     port=get_port(),
                     address=address,
+                    last_seen=get_timestamp_seconds()
                 )
 
 
