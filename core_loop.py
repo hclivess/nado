@@ -259,7 +259,7 @@ class CoreClient(threading.Thread):
 
                         else:
                             self.logger.info(f"No newer blocks found from {peer}")
-                            self.check_mode()
+                            break
 
                     else:
                         rollback_one_block(logger=self.logger, lock=self.memserver.buffer_lock)
