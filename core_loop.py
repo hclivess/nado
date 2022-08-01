@@ -70,9 +70,6 @@ class CoreClient(threading.Thread):
         try:
             self.update_periods()
 
-            if self.memserver.period in [0, 1]:
-                self.memserver.merge_remote_transactions(user=False)
-
             if self.memserver.period == 0 and self.memserver.user_tx_buffer:
                 """merge user buffer inside 0 period"""
                 buffered = merge_buffer(from_buffer=self.memserver.user_tx_buffer,
