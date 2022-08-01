@@ -162,8 +162,6 @@ class ConsensusClient(threading.Thread):
 
         self.memserver.since_last_block = get_since_last_block(logger=self.logger)
 
-        self.purge_peers()
-
         self.get_transaction_hash_pool()
         self.get_block_hash_pool()
         self.get_block_producers_hash_pool()
@@ -218,6 +216,10 @@ class ConsensusClient(threading.Thread):
                 # self.logger.info(self.purge_peers_list) # test
 
                 self.refresh_hashes()
+
+                if self.memserver.period in [0, 1]:
+                    self.purge_peers()
+
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)
             except Exception as e:
