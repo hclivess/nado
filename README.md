@@ -83,6 +83,7 @@ users to make mining as inclusive as possible.
 - Transaction throughput: 7 transactions per second
 - Variant of Proof of Diversity mixed with Proof of Majority and Proof of Trust
 - noSQL JSON file-based database system
+- The logo is a vortexed version of the Impossible Toroidal Polyhedron
 
 ## Where can I learn more?
 
