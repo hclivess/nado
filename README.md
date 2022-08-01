@@ -15,12 +15,12 @@ python3.7 nado.py
 ```
 
 After installation, go to your browser and announce your peer to one of the nodes like this:
-[http://207.180.218.90:9173/announce_peer?ip=89.176.130.244]() but put your own IP as the argument after ```ip=```
+http://207.180.218.90:9173/announce_peer?ip=89.176.130.244 but put your own IP as the argument after ```ip=```
 
 ## Remote access
 
 After running the node, you can access it at http://127.0.0.1:9173 from where all API calls used by the node itself are accessible. Here are some examples:
-- [http://127.0.0.1:9173/get_account?address=ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29]()
+- http://127.0.0.1:9173/get_account?address=ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29
 
 ## What is NADO?
 
