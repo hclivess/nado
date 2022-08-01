@@ -1,5 +1,19 @@
 # NADO
 
+## Installation
+
+```
+python -m pip install pip --upgrade
+git clone https://github.com/hclivess/nado
+cd nado
+python -m pip install -r requirements.txt
+python nado.py
+```
+
+After installation, go to your browser and announce your peer to one of the nodes like this:
+[http://207.180.218.90:9173/announce_peer?ip=89.176.130.244](http://207.180.218.90:9173/announce_peer?ip=89.176.130.244) but put your own IP as the argument after ```ip=```
+
+
 ## What is NADO?
 
 Nado is just another blockchain written from scratch with a highly experimental consensus algorithm, which is supposed
