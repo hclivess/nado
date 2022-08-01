@@ -6,11 +6,12 @@ NADO is currently running on alpha testnet only. This means that by joining the 
 ## Installation
 
 ```
-python -m pip install pip --upgrade
+screen -S nado
+python3.7 -m pip install pip --upgrade
 git clone https://github.com/hclivess/nado
 cd nado
-python -m pip install -r requirements.txt
-python nado.py
+python3.7 -m pip install -r requirements.txt
+python3.7 nado.py
 ```
 
 After installation, go to your browser and announce your peer to one of the nodes like this:
