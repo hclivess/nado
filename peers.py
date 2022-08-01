@@ -132,23 +132,27 @@ def load_ips(limit=8) -> list:
     return ip_pool
 
 
-def load_trust(peer, logger):
-    return load_peer(ip=peer, key="peer_trust", logger=logger)
+def load_trust(peer, logger, peer_file_lock):
+    return load_peer(ip=peer,
+                     key="peer_trust",
+                     logger=logger,
+                     peer_file_lock=peer_file_lock)
 
 
-def load_peer(logger, ip, key=None) -> str:
+def load_peer(logger, ip, peer_file_lock, key=None) -> str:
     peer_file = f"peers/{base64encode(ip)}.dat"
-    try:
-        if not key:
-            with open(peer_file, "r") as peer_file:
-                peer_key = json.load(peer_file)
-            return peer_key
-        else:
-            with open(peer_file, "r") as peer_file:
-                peer_key = json.load(peer_file)[key]
-            return peer_key
-    except Exception as e:
-        logger.info(f"Failed to load peer {ip} from drive: {e}")
+    with peer_file_lock:
+        try:
+            if not key:
+                with open(peer_file, "r") as peer_file:
+                    peer_key = json.load(peer_file)
+                return peer_key
+            else:
+                with open(peer_file, "r") as peer_file:
+                    peer_key = json.load(peer_file)[key]
+                return peer_key
+        except Exception as e:
+            logger.info(f"Failed to load peer {ip} from drive: {e}")
 
 
 def update_peer(ip, value, logger, key="peer_trust") -> None:

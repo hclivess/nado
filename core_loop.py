@@ -106,6 +106,7 @@ class CoreClient(threading.Thread):
                                                           block_producers_hash=self.memserver.block_producers_hash,
                                                           logger=self.logger,
                                                           transaction_pool=self.memserver.transaction_pool.copy(),
+                                                          peer_file_lock=self.memserver.peer_file_lock
                                                           )
                     self.produce_block(block=block_candidate)
 
@@ -141,7 +142,9 @@ class CoreClient(threading.Thread):
                 """go from the most common sample_hash to the least common one"""
                 for peer, value in shuffled_pool.items():
                     """pick random peer"""
-                    peer_trust = load_trust(logger=self.logger, peer=peer)
+                    peer_trust = load_trust(logger=self.logger,
+                                            peer=peer,
+                                            peer_file_lock=self.memserver.peer_file_lock)
                     """load trust score"""
 
                     if self.consensus.average_trust <= peer_trust and participants > 2:

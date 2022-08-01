@@ -27,6 +27,7 @@ class MemServer:
 
         self.unreachable = []
         self.buffer_lock = Lock()
+        self.peer_file_lock = Lock()
 
         self.start_time = get_timestamp_seconds()
         self.keydict = load_keys()

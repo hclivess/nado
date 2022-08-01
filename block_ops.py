@@ -64,7 +64,7 @@ def valid_block_gap(logger, new_block, gap=60):
 
 
 def get_block_candidate(
-        block_producers, block_producers_hash, transaction_pool, logger
+        block_producers, block_producers_hash, transaction_pool, logger, peer_file_lock
 ):
     latest_block = get_latest_block_info(logger=logger)
     best_producer = pick_best_producer(block_producers, logger=logger)
@@ -77,7 +77,10 @@ def get_block_candidate(
         block_number=latest_block["block_number"] + 1,
         parent_hash=latest_block["block_hash"],
         block_ip=best_producer,
-        creator=load_peer(logger=logger, ip=best_producer, key="peer_address"),
+        creator=load_peer(logger=logger,
+                          ip=best_producer,
+                          key="peer_address",
+                          peer_file_lock=peer_file_lock),
         transaction_pool=transaction_pool.copy(),
         block_producers_hash=block_producers_hash,
         block_reward=get_block_reward(logger=logger),

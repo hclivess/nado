@@ -97,7 +97,10 @@ class ConsensusClient(threading.Thread):
 
     def add_peers_to_trust_pool(self) -> None:
         for peer in self.memserver.peers.copy():
-            peer_trust = load_peer(ip=peer, key="peer_trust", logger=self.logger)
+            peer_trust = load_peer(ip=peer,
+                                   key="peer_trust",
+                                   logger=self.logger,
+                                   peer_file_lock=self.memserver.peer_file_lock)
             if peer not in self.trust_pool.keys():
                 self.trust_pool[peer] = peer_trust
 
