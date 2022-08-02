@@ -38,7 +38,7 @@ def handler(signum, frame):
 
 class HomeHandler(tornado.web.RequestHandler):
     def get(self):
-        self.render("templates/homepage.html")
+        self.render("templates/homepage.html", ip=get_config()["ip"])
 
 
 class StatusHandler(tornado.web.RequestHandler):
