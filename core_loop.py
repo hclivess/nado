@@ -56,9 +56,9 @@ class CoreClient(threading.Thread):
 
         if 20 > self.memserver.since_last_block > 0:
             self.memserver.period = 0
-        elif 50 > self.memserver.since_last_block > 20:
+        elif 40 > self.memserver.since_last_block > 20:
             self.memserver.period = 1
-        elif self.memserver.block_time > self.memserver.since_last_block > 50:
+        elif self.memserver.block_time > self.memserver.since_last_block > 40:
             self.memserver.period = 2
         elif self.memserver.since_last_block > self.memserver.block_time:
             self.memserver.period = 3
