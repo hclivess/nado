@@ -27,8 +27,8 @@ After running the node, you can access it at http://127.0.0.1:9173 from where al
 
 ## What is NADO?
 
-Nado is just another blockchain written from scratch with a highly experimental consensus algorithm, which is supposed
-to provide effortless mining for all participants with a public IP address. Nado is not a classic proof-of-work
+NADO is just another blockchain written from scratch with a highly experimental consensus algorithm, which is supposed
+to provide effortless mining for all participants with a public IP address. NADO is not a classic proof-of-work
 blockchain like Bitcoin. Unlike most other crypto, its focus is on accessibility to rewards for everyone. It has a fully
 elastic reward mechanism, rewarding users only when transactions are happening on the chain.
 
