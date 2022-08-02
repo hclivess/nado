@@ -39,7 +39,7 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
     save_peer(ip=ip,
               address=address,
               port=port,
-              peer_trust=10000,
+              peer_trust=1000000000,
               last_seen=get_timestamp_seconds())
 
     save_block(block_message=genesis_block_message, logger=logger)
