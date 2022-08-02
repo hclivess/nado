@@ -11,7 +11,7 @@ from config import get_timestamp_seconds, get_port
 from keys import load_keys
 from logs import get_logger
 from peers import load_ips
-from transaction_ops import create_transaction, to_readable_amount
+from transaction_ops import create_transaction, to_readable_amount, to_raw_amount
 
 
 def address_copy():
@@ -29,6 +29,7 @@ class Wallet:
         self.target = random.choice(load_ips())
         self.port = get_port()
         self.connected = True
+        self.refresh_counter = 10
 
     def reconnect(self):
         self.target = random.choice(load_ips())
@@ -37,7 +38,7 @@ class Wallet:
             url = f"http://{self.target}:{self.port}/status"
             requests.get(url, timeout=3)
             self.connected = True
-            status_label.set_text("Reconnected")
+            connection_label.set_text("Reconnected")
         except Exception as e:
             print(f"Failed to reconnect: {e}")
 
@@ -47,30 +48,37 @@ class Wallet:
             balance_raw = requests.get(url, timeout=3)
             balance = to_readable_amount(json.loads(balance_raw.text)["account_balance"])
             balance_var.set(balance)
-            status_label.set_text(f"Connected to {self.target}")
+            connection_label.set_text(f"Connected to {self.target}")
+
+            self.refresh_counter -= 1
+            if self.refresh_counter < 1:
+                status_label.set_text("")
 
         except Exception as e:
             print(f"Could not connect to get balance: {e}")
-            status_label.set_text("Disconnected")
+            connection_label.set_text("Disconnected")
             self.connected = False
 
     def send_transaction(self):
         transaction = create_transaction(sender=address,
                                          recipient=recipient.get(),
-                                         amount=int(amount.get()),
+                                         amount=to_raw_amount(int(amount.get())),
                                          data={"data": data.get(), "command": command.get()},
                                          fee=int(fee.get()),
                                          public_key=public_key,
                                          private_key=private_key,
                                          timestamp=get_timestamp_seconds())
 
+        print(transaction)
         try:
             url = f"http://{self.target}:{self.port}/submit_transaction?data={json.dumps(transaction)}"
             result = json.loads(requests.get(url, timeout=3).text)
             status_label.set_text(f"{result['message']}")
+            self.refresh_counter = 10
+
         except Exception as e:
             print(f"Could not connect to submit transaction: {e}")
-            status_label.set_text("Disconnected")
+            connection_label.set_text("Disconnected")
             self.connected = False
 
 
@@ -106,12 +114,14 @@ if __name__ == "__main__":
     customtkinter.set_default_color_theme("green")
 
     app = customtkinter.CTk()
-    app.geometry("600x320")
+    app.geometry("600x350")
     app.title("NADO MicroWallet")
     app.resizable(0, 0)
 
     status_label = customtkinter.CTkLabel(master=app, text="", anchor="w")
     status_label.grid(row=7, column=1, columnspan=10, padx=2, pady=2, sticky="w")
+    connection_label = customtkinter.CTkLabel(master=app, text="", anchor="w")
+    connection_label.grid(row=8, column=1, columnspan=10, padx=2, pady=2, sticky="w")
 
     sender_button = customtkinter.CTkButton(master=app, text="Sender:", command=lambda: address_copy(), width=50)
     sender_button.grid(row=0, column=0, padx=2, pady=2, sticky="e")
@@ -158,10 +168,10 @@ if __name__ == "__main__":
     data.grid(row=6, column=1, padx=2, pady=2, sticky="w")
 
     send_button = customtkinter.CTkButton(master=app, text="Send", command=lambda: wallet.send_transaction())
-    send_button.grid(row=8, column=1, padx=2, pady=2, sticky="w")
+    send_button.grid(row=9, column=1, padx=2, pady=2, sticky="w")
 
     quit_button = customtkinter.CTkButton(master=app, text="Quit", command=lambda: exit_app())
-    quit_button.grid(row=9, column=1, padx=2, pady=2, sticky="w")
+    quit_button.grid(row=10, column=1, padx=2, pady=2, sticky="w")
 
     wallet = Wallet()
     refresh = RefreshClient(wallet=wallet)

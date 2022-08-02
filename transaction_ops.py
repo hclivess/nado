@@ -192,7 +192,7 @@ def to_readable_amount(raw_amount: int) -> str:
 
 
 def to_raw_amount(amount: [int, float]) -> int:
-    return int(amount * 1000000000)
+    return int(int(amount) * 1000000000)
 
 
 def check_balance(account, amount, fee):
