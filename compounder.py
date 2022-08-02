@@ -59,13 +59,13 @@ async def compound_get_list_of(key, entries, logger, fail_storage):
     return success_storage
 
 
-async def get_status(peer, logger, fail_storage, retries=10):
+async def get_status(peer, logger, fail_storage, retries=3):
     """method compounded by compound_get_status_pool"""
 
     url_construct = f"http://{peer}:{get_config()['port']}/status"
     while retries > 0:
         try:
-            timeout = aiohttp.ClientTimeout(total=10)
+            timeout = aiohttp.ClientTimeout(total=3)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url_construct) as response:
                     fetched = json.loads(await response.text())
@@ -98,7 +98,7 @@ async def compound_get_status_pool(ips, logger, fail_storage):
     return result_dict
 
 
-async def announce_self(peer, logger, fail_storage, retries=10):
+async def announce_self(peer, logger, fail_storage, retries=3):
     """method compounded by compound_announce_self"""
     url_construct = (
         f"http://{peer}:{get_config()['port']}/announce_peer?ip={get_config()['ip']}"
@@ -106,7 +106,7 @@ async def announce_self(peer, logger, fail_storage, retries=10):
 
     while retries > 0:
         try:
-            timeout = aiohttp.ClientTimeout(total=10)
+            timeout = aiohttp.ClientTimeout(total=3)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url_construct) as response:
                     fetched = await response.text()
