@@ -71,7 +71,7 @@ class PeerClient(threading.Thread):
                 self.logger.warning(f"Removed {entry} from block producers")
 
             adjust_trust(entry=entry,
-                         value=-10,
+                         value=-1000,
                          logger=self.logger,
                          trust_pool=self.consensus.trust_pool,
                          peer_file_lock=self.memserver.peer_file_lock)
