@@ -46,7 +46,8 @@ class PeerClient(threading.Thread):
 
             update_peer(ip=peer,
                         logger=self.logger,
-                        value=get_timestamp_seconds())
+                        value=get_timestamp_seconds(),
+                        peer_file_lock=self.memserver.peer_file_lock)
 
         self.merge_and_sort_peers()
 

@@ -107,10 +107,14 @@ def ip_stored(ip) -> bool:
         return False
 
 
-def adjust_trust(trust_pool, entry, value, logger):
+def adjust_trust(trust_pool, entry, value, logger, peer_file_lock):
     if entry in trust_pool.keys():
         trust_pool[entry] += value
-        update_peer(ip=entry, key="peer_trust", value=trust_pool[entry], logger=logger)
+        update_peer(ip=entry,
+                    key="peer_trust",
+                    value=trust_pool[entry],
+                    logger=logger,
+                    peer_file_lock=peer_file_lock)
         trust_pool.pop(entry)
 
 
@@ -138,11 +142,10 @@ def load_trust(peer, logger, peer_file_lock):
                      logger=logger,
                      peer_file_lock=peer_file_lock)
 
-
 def load_peer(logger, ip, peer_file_lock, key=None) -> str:
-    peer_file = f"peers/{base64encode(ip)}.dat"
     with peer_file_lock:
         try:
+            peer_file = f"peers/{base64encode(ip)}.dat"
             if not key:
                 with open(peer_file, "r") as peer_file:
                     peer_key = json.load(peer_file)
@@ -155,19 +158,20 @@ def load_peer(logger, ip, peer_file_lock, key=None) -> str:
             logger.info(f"Failed to load peer {ip} from drive: {e}")
 
 
-def update_peer(ip, value, logger, key="peer_trust") -> None:
-    try:
-        peer_file = f"peers/{base64encode(ip)}.dat"
+def update_peer(ip, value, logger, peer_file_lock, key="peer_trust") -> None:
+    with peer_file_lock:
+        try:
+            peer_file = f"peers/{base64encode(ip)}.dat"
 
-        with open(peer_file, "r") as infile:
-            peer = json.load(infile)
-            addition = {key: value}
-            peer.update(addition)
+            with open(peer_file, "r") as infile:
+                peer = json.load(infile)
+                addition = {key: value}
+                peer.update(addition)
 
-        with open(peer_file, "w") as outfile:
-            json.dump(peer, outfile)
-    except Exception as e:
-        logger.info(f"Failed to update peer file of {ip}: {e}")
+            with open(peer_file, "w") as outfile:
+                json.dump(peer, outfile)
+        except Exception as e:
+            logger.info(f"Failed to update peer file of {ip}: {e}")
 
 
 def store_producer_set(producer_set):

@@ -193,7 +193,8 @@ class CoreClient(threading.Thread):
                 adjust_trust(trust_pool=self.consensus.trust_pool,
                              entry=sync_from,
                              value=-25,
-                             logger=self.logger)
+                             logger=self.logger,
+                             peer_file_lock=self.memserver.peer_file_lock)
 
             for block_producer in suggested_block_producers:
                 if block_producer != get_config()["ip"]:
@@ -225,7 +226,8 @@ class CoreClient(threading.Thread):
             adjust_trust(trust_pool=self.consensus.trust_pool,
                          entry=peer,
                          value=-50,
-                         logger=self.logger)
+                         logger=self.logger,
+                         peer_file_lock=self.memserver.peer_file_lock)
 
     def sync_mode(self):
         self.logger.warning("Entering sync mode")
@@ -271,6 +273,7 @@ class CoreClient(threading.Thread):
                             value=-100,
                             logger=self.logger,
                             trust_pool=self.consensus.trust_pool,
+                            peer_file_lock=self.memserver.peer_file_lock
                         )
 
                 self.consensus.refresh_hashes()
@@ -310,7 +313,8 @@ class CoreClient(threading.Thread):
                 adjust_trust(trust_pool=self.memserver.transaction_pool,
                              entry=remote_peer,
                              value=-10,
-                             logger=self.logger)
+                             logger=self.logger,
+                             peer_file_lock=self.memserver.peer_file_lock)
         else:
             for transaction in transactions:
 
@@ -331,7 +335,8 @@ class CoreClient(threading.Thread):
                         adjust_trust(trust_pool=self.consensus.trust_pool,
                                      entry=remote_peer,
                                      value=-10,
-                                     logger=self.logger)
+                                     logger=self.logger,
+                                     peer_file_lock=self.memserver.peer_file_lock)
 
     def produce_block(self, block, remote=False, remote_peer=None) -> None:
         with self.memserver.buffer_lock:
@@ -355,6 +360,7 @@ class CoreClient(threading.Thread):
                             value=-25,
                             logger=self.logger,
                             trust_pool=self.consensus.trust_pool,
+                            peer_file_lock=self.memserver.peer_file_lock
                         )
 
                 self.incorporate_block(block)

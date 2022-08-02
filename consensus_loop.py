@@ -91,6 +91,7 @@ class ConsensusClient(threading.Thread):
                         key="peer_trust",
                         value=self.trust_pool[peer],
                         logger=self.logger,
+                        peer_file_lock=self.memserver.peer_file_lock
                     )
         except Exception as e:
             self.logger.info(f"Failed to update trust: {e}")
@@ -138,7 +139,8 @@ class ConsensusClient(threading.Thread):
             adjust_trust(entry=entry,
                          value=-10,
                          logger=self.logger,
-                         trust_pool=self.trust_pool)
+                         trust_pool=self.trust_pool,
+                         peer_file_lock=self.memserver.peer_file_lock)
 
             if entry in self.status_pool.keys():
                 self.status_pool.pop(entry)
