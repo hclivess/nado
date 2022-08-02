@@ -38,18 +38,18 @@ class PeerClient(threading.Thread):
         dump_peers(candidates, logger=self.logger)
 
         for peer in candidates:
-            if peer in self.memserver.unreachable:
-                self.memserver.unreachable.remove(peer)
-            if peer not in self.memserver.peers and len(self.memserver.peers) < 8:
-                self.memserver.peers.append(peer)
-            if peer not in self.memserver.block_producers:
-                self.memserver.block_producers.append(peer)
-                self.logger.warning(f"Added {peer} to block producers")
+            if peer not in self.memserver.unreachable:
+                """the only way to remove self from unreachable is by announce"""
+                if peer not in self.memserver.peers and len(self.memserver.peers) < 8:
+                    self.memserver.peers.append(peer)
+                if peer not in self.memserver.block_producers:
+                    self.memserver.block_producers.append(peer)
+                    self.logger.warning(f"Added {peer} to block producers")
 
-                update_peer(ip=peer,
-                            logger=self.logger,
-                            value=get_timestamp_seconds(),
-                            peer_file_lock=self.memserver.peer_file_lock)
+                    update_peer(ip=peer,
+                                logger=self.logger,
+                                value=get_timestamp_seconds(),
+                                peer_file_lock=self.memserver.peer_file_lock)
 
         self.merge_and_sort_peers()
 
@@ -106,7 +106,7 @@ class PeerClient(threading.Thread):
                     self.sniff_peers_and_producers()
 
                 announce_me(
-                    targets=self.memserver.peers,
+                    targets=self.memserver.block_producers,
                     logger=self.logger,
                     fail_storage=self.memserver.purge_peers_list,
                 )
