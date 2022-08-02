@@ -38,12 +38,13 @@ class PeerClient(threading.Thread):
         dump_peers(candidates, logger=self.logger)
 
         for peer in candidates:
-            if peer not in self.memserver.unreachable:
-                if peer not in self.memserver.peers:
-                    self.memserver.peers.append(peer)
-                if peer not in self.memserver.block_producers:
-                    self.memserver.block_producers.append(peer)
-                    self.logger.warning(f"Added {peer} to block producers")
+            if peer in self.memserver.unreachable:
+                self.memserver.unreachable.remove(peer)
+            if peer not in self.memserver.peers and len(self.memserver.peers) < 8:
+                self.memserver.peers.append(peer)
+            if peer not in self.memserver.block_producers:
+                self.memserver.block_producers.append(peer)
+                self.logger.warning(f"Added {peer} to block producers")
 
                 update_peer(ip=peer,
                             logger=self.logger,
