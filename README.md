@@ -81,7 +81,7 @@ users to make mining as inclusive as possible.
 - Block capacity: Capped at 250Kb per minute
 - Block reward: Between 0 and 5 depending on network usage
 - Transaction throughput: 7 transactions per second
-- Variant of Proof of Diversity mixed with Proof of Majority and Proof of Trust
+- Variant of Proof of Diversity mixed with Proof of Majority and Proof of Fidelity
 - noSQL JSON file-based database system
 - The logo is a vortexed version of the Impossible Toroidal Polyhedron
 - Shared mining protocol

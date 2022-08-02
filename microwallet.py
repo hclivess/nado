@@ -47,7 +47,7 @@ class Wallet:
             balance_raw = requests.get(url, timeout=3)
             balance = to_readable_amount(json.loads(balance_raw.text)["account_balance"])
             balance_var.set(balance)
-
+            status_label.set_text(f"Connected to {self.target}")
 
         except Exception as e:
             print(f"Could not connect to get balance: {e}")
@@ -107,7 +107,7 @@ if __name__ == "__main__":
 
     app = customtkinter.CTk()
     app.geometry("600x320")
-    app.title("Nado MicroWallet")
+    app.title("NADO MicroWallet")
     app.resizable(0, 0)
 
     status_label = customtkinter.CTkLabel(master=app, text="", anchor="w")
