@@ -64,10 +64,11 @@ async def get_remote_peer_address_async(ip) -> str:
             assert validate_address(address)
             return address
 
-
+"""
 def delete_old_peers(older_than, logger):
     peer_files = glob.glob("peers/*.dat")
-
+    deleted = []
+    
     for file in peer_files:
         with open(file, "r") as peer_file:
             peer = json.load(peer_file)
@@ -76,6 +77,9 @@ def delete_old_peers(older_than, logger):
 
         if last_seen < older_than:
             delete_peer(peer_ip, logger=logger)
+            deleted.append(file)
+    return deleted
+"""
 
 def delete_peer(ip, logger):
     peer_path = f"peers/{base64encode(ip)}.dat"

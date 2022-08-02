@@ -19,7 +19,7 @@ from logs import get_logger
 from memserver import MemServer
 from message_loop import MessageClient
 from peer_loop import PeerClient
-from peers import save_peer, get_remote_peer_address, get_producer_set
+from peers import save_peer, get_remote_peer_address, get_producer_set, update_peer, load_peer
 from transaction_ops import get_account, get_transaction, get_transactions_of_account
 from config import get_timestamp_seconds
 
@@ -298,6 +298,7 @@ class ProducerSetHandler(tornado.web.RequestHandler):
 
 
 class AnnouncePeerHandler(tornado.web.RequestHandler):
+    print("beep")
     def get(self, parameter):
         try:
             peer_ip = AnnouncePeerHandler.get_argument(self, "ip")
@@ -306,10 +307,25 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
             if peer_ip == "127.0.0.1" or peer_ip == get_config()["ip"]:
                 self.write("Cannot add home address")
             else:
-
                 if peer_ip in memserver.unreachable:
                     logger.info(f"Removed {peer_ip} from unreachable")
                     memserver.unreachable.remove(peer_ip)
+
+                    address = get_remote_peer_address(peer_ip, logger=logger)
+                    """get address from peer itself in case they decided to change it"""
+                    old_address = load_peer(logger=logger,
+                                            ip=peer_ip,
+                                            peer_file_lock=memserver.peer_file_lock,
+                                            key="peer_address")
+
+                    if address and address != old_address:
+                        update_peer(ip=peer_ip,
+                                    logger=logger,
+                                    peer_file_lock=memserver.peer_file_lock,
+                                    key="address",
+                                    value="address")
+                        logger.info(f"{peer_ip} address updated")
+
                 if peer_ip not in memserver.peers:
                     address = get_remote_peer_address(peer_ip, logger=logger)
                     assert address, "No address detected"

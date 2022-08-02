@@ -281,7 +281,7 @@ class CoreClient(threading.Thread):
 
         except Exception as e:
             self.logger.info(f"Error: {e}")
-            raise  # test
+            raise
 
     def incorporate_block(self, block):
         transactions = sort_list_dict(block["block_transactions"])
@@ -412,6 +412,7 @@ class CoreClient(threading.Thread):
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(self.run_interval)
             except Exception as e:
-                self.logger.warning(f"Error in core loop: {e}")
+                self.logger.error(f"Error in core loop: {e}")
+                time.sleep(1)
 
         self.logger.info("Termination code reached, bye")

@@ -124,44 +124,6 @@ class ConsensusClient(threading.Thread):
         for entry in self.memserver.purge_producers_list:
             self.memserver.block_producers.remove(entry)
 
-    def purge_peers(self) -> None:
-        """put purge_peers_list into effect and empty it"""
-
-        for entry in self.memserver.purge_peers_list:
-            if entry in self.memserver.peers:
-                self.memserver.peers.remove(entry)
-            if entry not in self.memserver.unreachable:
-                self.memserver.unreachable.append(entry)
-            if entry in self.memserver.block_producers:
-                self.memserver.block_producers.remove(entry)  # experimental
-                self.logger.warning(f"Removed {entry} from block producers")
-
-            adjust_trust(entry=entry,
-                         value=-10,
-                         logger=self.logger,
-                         trust_pool=self.trust_pool,
-                         peer_file_lock=self.memserver.peer_file_lock)
-
-            if entry in self.status_pool.keys():
-                self.status_pool.pop(entry)
-
-            if entry in self.block_producers_hash_pool.keys():
-                self.block_producers_hash_pool.pop(entry)
-
-            if entry in self.transaction_hash_pool.keys():
-                self.transaction_hash_pool.pop(entry)
-
-            if entry in self.block_hash_pool.keys():
-                self.block_hash_pool.pop(entry)
-
-            self.logger.warning(f"Disconnected from {entry}")
-            # delete_peer(entry, logger=self.logger)
-
-            self.memserver.purge_peers_list.remove(entry)
-
-        # self.memserver.peers = me_to(self.memserver.peers)
-        # self.memserver.block_producers = me_to(self.memserver.block_producers)
-
     def refresh_hashes(self):
         """make sure our node knows the current state of affairs quickly"""
 
@@ -222,11 +184,9 @@ class ConsensusClient(threading.Thread):
 
                 self.refresh_hashes()
 
-                if self.memserver.period in [0, 1]:
-                    self.purge_peers()
-
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)
             except Exception as e:
-                self.logger.info(f"Error in consensus loop: {e}")
+                self.logger.error(f"Error in consensus loop: {e}")
+                time.sleep(1)
                 #raise  # test

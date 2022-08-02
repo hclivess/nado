@@ -6,7 +6,7 @@ from block_ops import save_block_producers
 from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
 from data_ops import set_and_sort
-from peers import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, delete_old_peers, dump_peers
+from peers import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, dump_peers, adjust_trust
 
 
 class PeerClient(threading.Thread):
@@ -55,16 +55,53 @@ class PeerClient(threading.Thread):
         store_producer_set(self.memserver.block_producers)
         save_block_producers(self.memserver.block_producers)
 
+    def purge_peers(self) -> None:
+        """put purge_peers_list into effect and empty it"""
+
+        for entry in self.memserver.purge_peers_list:
+            if entry in self.memserver.peers:
+                self.memserver.peers.remove(entry)
+            if entry not in self.memserver.unreachable:
+                self.memserver.unreachable.append(entry)
+            if entry in self.memserver.block_producers:
+                self.memserver.block_producers.remove(entry)  # experimental
+                self.logger.warning(f"Removed {entry} from block producers")
+
+            adjust_trust(entry=entry,
+                         value=-10,
+                         logger=self.logger,
+                         trust_pool=self.consensus.trust_pool,
+                         peer_file_lock=self.memserver.peer_file_lock)
+
+            if entry in self.consensus.status_pool.keys():
+                self.consensus.status_pool.pop(entry)
+
+            if entry in self.consensus.block_producers_hash_pool.keys():
+                self.consensus.block_producers_hash_pool.pop(entry)
+
+            if entry in self.consensus.transaction_hash_pool.keys():
+                self.consensus.transaction_hash_pool.pop(entry)
+
+            if entry in self.consensus.block_hash_pool.keys():
+                self.consensus.block_hash_pool.pop(entry)
+
+            self.logger.warning(f"Disconnected from {entry}")
+            # delete_peer(entry, logger=self.logger)
+
+            self.memserver.purge_peers_list.remove(entry)
+
+        # self.memserver.peers = me_to(self.memserver.peers)
+        # self.memserver.block_producers = me_to(self.memserver.block_producers)
+
     def run(self) -> None:
         while not self.memserver.terminate:
             try:
                 start = get_timestamp_seconds()
 
                 if self.memserver.period in [0, 1]:
+                    self.purge_peers()
                     self.memserver.merge_remote_transactions(user=False)
                     self.sniff_peers_and_producers()
-                    delete_old_peers(logger=self.logger,
-                                     older_than=get_timestamp_seconds()-3600)
 
                 announce_me(
                     targets=self.memserver.peers,
@@ -88,4 +125,5 @@ class PeerClient(threading.Thread):
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)
             except Exception as e:
-                self.logger.info(f"Error in peer loop: {e}")
+                self.logger.error(f"Error in peer loop: {e}")
+                time.sleep(1)
