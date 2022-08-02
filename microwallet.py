@@ -84,7 +84,7 @@ class Wallet:
 
 def exit_app():
     refresh.quit = True
-    quit(0)
+    app.quit()
 
 
 class RefreshClient(threading.Thread):
