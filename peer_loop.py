@@ -101,7 +101,7 @@ class PeerClient(threading.Thread):
             try:
                 start = get_timestamp_seconds()
 
-                if self.memserver.period in [0, 1, 2]:
+                if self.memserver.period in [0, 1]:
                     self.purge_peers()
                     self.memserver.merge_remote_transactions(user=False)
                     self.sniff_peers_and_producers()
