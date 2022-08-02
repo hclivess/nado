@@ -81,7 +81,7 @@ users to make mining as inclusive as possible.
 ## Got some sci-fi tech mumbo jumbo?
 - Cryptography: Edwards-curve Digital Signature Algorithm (Ed25519)
 - Link hashing: BLAKE2b
-- Block capacity: Capped at 250Kb per minute
+- Block capacity: Capped at 250KB per minute
 - Block reward: Between 0 and 5 depending on network usage
 - Transaction throughput: 7 transactions per second
 - Variant of Proof of Diversity mixed with Proof of Majority and Proof of Fidelity

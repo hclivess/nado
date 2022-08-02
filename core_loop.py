@@ -125,7 +125,7 @@ class CoreClient(threading.Thread):
 
     def get_peer_to_sync_from(self, hash_pool):
         """peer to synchronize pool when out of sync, critical part
-        not based on majority, but on trust matching until majority is achieved, sample_hash pool
+        not based on majority, but on trust matching until majority is achieved, hash pool
         is looped by occurrence until a trusted peer is found with one of the hashes"""
         try:
             sorted_hashes = sort_occurence(dict_to_val_list(hash_pool))
@@ -139,7 +139,7 @@ class CoreClient(threading.Thread):
                 """do not sync from self"""
 
             for hash_candidate in sorted_hashes:
-                """go from the most common sample_hash to the least common one"""
+                """go from the most common hash to the least common one"""
                 for peer, value in shuffled_pool.items():
                     """pick random peer"""
                     peer_trust = load_trust(logger=self.logger,
@@ -155,7 +155,7 @@ class CoreClient(threading.Thread):
                         return peer
 
             else:
-                self.logger.info("Ran out of options when picking trusted sample_hash")
+                self.logger.info("Ran out of options when picking trusted hash")
                 return None
 
         except Exception as e:
