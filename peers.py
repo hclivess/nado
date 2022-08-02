@@ -64,6 +64,7 @@ async def get_remote_peer_address_async(ip) -> str:
             assert validate_address(address)
             return address
 
+
 """
 def delete_old_peers(older_than, logger):
     peer_files = glob.glob("peers/*.dat")
@@ -80,6 +81,7 @@ def delete_old_peers(older_than, logger):
             deleted.append(file)
     return deleted
 """
+
 
 def delete_peer(ip, logger):
     peer_path = f"peers/{base64encode(ip)}.dat"
@@ -122,6 +124,15 @@ def adjust_trust(trust_pool, entry, value, logger, peer_file_lock):
         trust_pool.pop(entry)
 
 
+def is_online(peer_ip):
+    url = f"http://{peer_ip}:{get_config()['port']}/status"
+    try:
+        requests.get(url, timeout=1)
+        return True
+    except Exception as e:
+        return False
+
+
 def load_ips(limit=8) -> list:
     """load ips from drive"""
 
@@ -135,7 +146,8 @@ def load_ips(limit=8) -> list:
         for file in peer_files:
             with open(file, "r") as peer_file:
                 peer = json.load(peer_file)
-                ip_pool.append(peer["peer_ip"])
+                if is_online(peer["peer_ip"]):
+                    ip_pool.append(peer["peer_ip"])
 
     return ip_pool
 
@@ -145,6 +157,7 @@ def load_trust(peer, logger, peer_file_lock):
                      key="peer_trust",
                      logger=logger,
                      peer_file_lock=peer_file_lock)
+
 
 def load_peer(logger, ip, peer_file_lock, key=None) -> str:
     with peer_file_lock:
@@ -274,7 +287,7 @@ if __name__ == "__main__":
     print(load_ips())
     # save_peer(ip="1.1.1.1", port=0, address="haha")
     # delete_peers(["1.1.1.1"])
-    save_peer(ip="1.1.2", port=0, address="haha2")
+    # save_peer(ip="1.1.2", port=0, address="haha2")
     # save_peer(ip="127.0.0.1", port=9173, address="sop3a7f8a5af60b15460181d9b2ff76ad5f5cfc7c5766ab77")
     # print(asyncio.run(get_remote_peer_address_async('89.176.130.244')))
     # update_peer("89.176.130.244",value=0,key="greeting")

@@ -25,6 +25,7 @@ class PeerClient(threading.Thread):
         for peer_ip in self.memserver.peer_buffer.copy():
             if peer_ip not in self.memserver.peers:
                 self.memserver.peers.append(peer_ip)
+                self.logger.info(f"{peer_ip} connected")
 
         self.memserver.peers = set_and_sort(self.memserver.peers)
         self.memserver.peer_buffer.clear()
