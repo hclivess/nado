@@ -298,7 +298,6 @@ class ProducerSetHandler(tornado.web.RequestHandler):
 
 
 class AnnouncePeerHandler(tornado.web.RequestHandler):
-    print("beep")
     def get(self, parameter):
         try:
             peer_ip = AnnouncePeerHandler.get_argument(self, "ip")
@@ -322,8 +321,8 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
                         update_peer(ip=peer_ip,
                                     logger=logger,
                                     peer_file_lock=memserver.peer_file_lock,
-                                    key="address",
-                                    value="address")
+                                    key="peer_address",
+                                    value=address)
                         logger.info(f"{peer_ip} address updated")
 
                 if peer_ip not in memserver.peers:
