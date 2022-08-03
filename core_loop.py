@@ -368,7 +368,8 @@ class CoreClient(threading.Thread):
                 gen_elapsed = get_timestamp_seconds() - gen_start
                 self.logger.warning(f"Block hash: {block['block_hash']}")
                 self.logger.warning(f"Block number: {block['block_number']}")
-                self.logger.warning(f"Reward winner: {block['block_ip']}")
+                self.logger.warning(f"Winner IP: {block['block_ip']}")
+                self.logger.warning(f"Winner address: {block['block_creator']}")
                 self.logger.warning(
                     f"Block reward: {to_readable_amount(block['block_reward'])}"
                 )
