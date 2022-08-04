@@ -11,6 +11,7 @@ from compounder import compound_get_list_of, compound_announce_self
 from config import get_port, get_config, get_timestamp_seconds
 from data_ops import set_and_sort
 from hashing import base64encode, blake2b_hash
+from keys import load_keys
 
 
 def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
@@ -19,6 +20,20 @@ def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
     else:
         return True
 
+
+def update_local_address(logger, peer_file_lock):
+    my_ip = get_config()["ip"]
+    old_address = load_peer(logger=logger,
+                            ip=my_ip,
+                            peer_file_lock=peer_file_lock)
+    new_address = load_keys()["address"]
+    if new_address != old_address:
+        update_peer(ip=my_ip,
+                    logger=logger,
+                    peer_file_lock=peer_file_lock,
+                    key="peer_address",
+                    value=new_address)
+        logger.info(f"Local address updated to {new_address}")
 
 def get_remote_peer_address(target_peer, logger) -> bool:
     try:
