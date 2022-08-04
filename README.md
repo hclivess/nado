@@ -1,4 +1,6 @@
-![logo](https://nado.live/wp-content/uploads/2022/07/180-150x150.png)
+<p align="center">
+  <img src="https://nado.live/wp-content/uploads/2022/07/180-150x150.png" />
+</p>
 
 # NADO
 
