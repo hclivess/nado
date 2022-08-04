@@ -239,7 +239,7 @@ class CoreClient(threading.Thread):
             if not peer:
                 self.logger.info("Could not find suitably trusted peer")
             else:
-                while self.memserver.sync_mode:
+                while self.memserver.sync_mode and not self.memserver.terminate:
 
                     if knows_block(
                             peer,
