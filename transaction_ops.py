@@ -163,9 +163,6 @@ def get_transactions_of_account(account, logger, batch):
     transaction_files = glob.glob(f"{account_path}/*.lin")
     tx_list = []
 
-    print(f"{account_path}/*.lin")
-    print(transaction_files)
-
     for transaction in transaction_files:
         no_ext_no_path = os.path.basename(os.path.splitext(transaction)[0])
         tx_data = get_transaction(no_ext_no_path, logger=logger)
