@@ -173,7 +173,9 @@ class AccountTransactionsHandler(tornado.web.RequestHandler):
     def get(self, parameter):
         try:
             address = AccountTransactionsHandler.get_argument(self, "address")
-            output = get_transactions_of_account(address, logger=logger)
+            batch = AccountTransactionsHandler.get_argument(self, "batch")
+
+            output = get_transactions_of_account(account=address, logger=logger, batch=batch)
             if not output:
                 output = "Not found"
                 self.set_status(403)

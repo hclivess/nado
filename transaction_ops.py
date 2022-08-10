@@ -120,12 +120,33 @@ def change_balance(address: str, amount: int):
 
 def unindex_transaction(transaction):
     tx_path = f"transactions/{transaction['txid']}.dat"
-    sender_path = (
-        f"accounts/{transaction['sender']}/transactions/{transaction['txid']}.lin"
-    )
-    recipient_path = (
-        f"accounts/{transaction['recipient']}/transactions/{transaction['txid']}.lin"
-    )
+
+    sender_address = transaction['sender']
+    if tx_index_empty(sender_address):
+        update_tx_index_folder(sender_address, get_tx_index_number(sender_address) - 1)
+    index_number = get_tx_index_number(sender_address)
+
+    sender_path = f"accounts/{transaction['sender']}/transactions/{index_number}/{transaction['txid']}.lin"
+    while not os.path.exists(sender_path):
+        index_number -= 1
+        sender_path = f"accounts/{transaction['sender']}/transactions/{index_number}/{transaction['txid']}.lin"
+        if index_number < 0:
+            raise ValueError(f"Transaction {transaction['txid']} rollback index seeking below zero")
+
+    recipient_address = transaction['sender']
+    if tx_index_empty(recipient_address):
+        update_tx_index_folder(recipient_address, get_tx_index_number(recipient_address) - 1)
+    index_number = get_tx_index_number(recipient_address)
+
+    recipient_path = f"accounts/{transaction['recipient']}/transactions/{index_number}/{transaction['txid']}.lin"
+
+    if sender_path != recipient_path:
+        while not os.path.exists(recipient_path):
+            index_number -= 1
+            recipient_path = f"accounts/{transaction['recipient']}/transactions/{index_number}/{transaction['txid']}.lin"
+            if index_number < 0:
+                raise ValueError(f"Transaction {transaction['txid']} rollback index seeking below zero")
+
     while True:
         try:
             os.remove(tx_path)
@@ -133,16 +154,17 @@ def unindex_transaction(transaction):
             if sender_path != recipient_path:
                 os.remove(recipient_path)
         except Exception as e:
-            raise ValueError(
-                f"Failed to unindex transaction {transaction['txid']}: {e}"
-            )
+            raise ValueError(f"Failed to unindex transaction {transaction['txid']}: {e}")
         break
 
 
-def get_transactions_of_account(account, logger):
-    account_path = f"accounts/{account}/transactions"
+def get_transactions_of_account(account, logger, batch):
+    account_path = f"accounts/{account}/transactions/{batch}"
     transaction_files = glob.glob(f"{account_path}/*.lin")
     tx_list = []
+
+    print(f"{account_path}/*.lin")
+    print(transaction_files)
 
     for transaction in transaction_files:
         no_ext_no_path = os.path.basename(os.path.splitext(transaction)[0])
@@ -172,6 +194,16 @@ def get_tx_index_number(address):
     with open(tx_index, "r") as infile:
         index_number = json.load(infile)["index_folder"]
     return index_number
+
+
+def tx_index_empty(address):
+    index_number = get_tx_index_number(address)
+    transaction_files = glob.glob(f"accounts/{address}/transactions/{index_number}/*.lin")
+    if len(transaction_files) == 0:
+        os.rmdir(f"accounts/{address}/transactions/{index_number}")
+        return True
+    else:
+        return False
 
 
 def tx_index_full(address, full=500):

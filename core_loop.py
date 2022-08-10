@@ -259,8 +259,9 @@ class CoreClient(threading.Thread):
                             logger=self.logger,
                         )
                         if new_blocks:
-                            for block in new_blocks:
-                                self.process_remote_block(block, remote_peer=peer)
+                            while not self.memserver.terminate:
+                                for block in new_blocks:
+                                    self.process_remote_block(block, remote_peer=peer)
 
                         else:
                             self.logger.info(f"No newer blocks found from {peer}")
