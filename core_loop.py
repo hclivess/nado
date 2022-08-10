@@ -252,15 +252,13 @@ class CoreClient(threading.Thread):
 
                         new_blocks = get_blocks_after(
                             target_peer=peer,
-                            from_hash=get_latest_block_info(logger=self.logger)[
-                                "block_hash"
-                            ],
+                            from_hash=get_latest_block_info(logger=self.logger)["block_hash"],
                             count=50,
                             logger=self.logger,
                         )
                         if new_blocks:
-                            while not self.memserver.terminate:
-                                for block in new_blocks:
+                            for block in new_blocks:
+                                if not self.memserver.terminate:
                                     self.process_remote_block(block, remote_peer=peer)
 
                         else:
@@ -271,7 +269,7 @@ class CoreClient(threading.Thread):
                         rollback_one_block(logger=self.logger, lock=self.memserver.buffer_lock)
                         adjust_trust(
                             entry=peer,
-                            value=-100,
+                            value=-1000,
                             logger=self.logger,
                             trust_pool=self.consensus.trust_pool,
                             peer_file_lock=self.memserver.peer_file_lock
