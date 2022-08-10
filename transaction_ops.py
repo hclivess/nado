@@ -1,6 +1,7 @@
 import glob
 import json
 import os
+import time
 
 import requests
 
@@ -149,6 +150,39 @@ def get_transactions_of_account(account, logger):
         tx_list.append(tx_data)
 
     return {"tx_list": tx_list}
+
+
+
+
+
+def update_tx_index_folder(address, number):
+    tx_index = f"accounts/{address}/index.dat"
+    index = {"index_folder": number}
+    with open(tx_index, "w") as outfile:
+        json.dump(index, outfile)
+
+def create_tx_indexer(address):
+    tx_index = f"accounts/{address}/index.dat"
+    if not os.path.exists(tx_index):
+        index = {"index_folder": 0}
+        with open(tx_index, "w") as outfile:
+            json.dump(index, outfile)
+
+
+def get_tx_index_folder(address):
+    tx_index = f"accounts/{address}/index.dat"
+    with open(tx_index, "r") as infile:
+        index_number = json.load(infile)["index_folder"]
+    return index_number
+
+
+def tx_index_full(address, full=50):
+    index_folder = get_tx_index_folder(address)
+    transaction_files = glob.glob(f"{address}/{index_folder}/*.lin")
+    if len(transaction_files) >= full:
+        return True
+    else:
+        return False
 
 
 def index_transaction(transaction, block_hash):
@@ -327,21 +361,30 @@ if __name__ == "__main__":
     ip = config["ip"]
     port = config["port"]
 
+    create_tx_indexer(address)
+    if tx_index_full(address):
+        update_tx_index_folder(address, get_tx_index_folder(address)+1)
+    get_tx_index_folder(address)
+
+
     for x in range(0, 50000):
-        transaction = create_transaction(
-            sender=address,
-            recipient=recipient,
-            amount=amount,
-            data=data,
-            public_key=public_key,
-            timestamp=get_timestamp_seconds(),
-            fee=calculate_fee(),
-            private_key=private_key
-        )
+        try:
+            transaction = create_transaction(
+                sender=address,
+                recipient=recipient,
+                amount=amount,
+                data=data,
+                public_key=public_key,
+                timestamp=get_timestamp_seconds(),
+                fee=calculate_fee(),
+                private_key=private_key
+            )
 
-        print(transaction)
-        print(validate_transaction(transaction, logger=logger))
+            print(transaction)
+            print(validate_transaction(transaction, logger=logger))
 
-        requests.get(f"http://{ip}:{port}/submit_transaction?data={json.dumps(transaction)}", timeout=30)
+            requests.get(f"http://{ip}:{port}/submit_transaction?data={json.dumps(transaction)}", timeout=30)
+        except Exception as e:
+            print(e)
 
-    tx_pool = json.loads(requests.get(f"http://{ip}:{port}/transaction_pool").text, timeout=30)
+    # tx_pool = json.loads(requests.get(f"http://{ip}:{port}/transaction_pool").text, timeout=30)
