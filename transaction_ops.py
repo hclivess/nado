@@ -152,14 +152,12 @@ def get_transactions_of_account(account, logger):
     return {"tx_list": tx_list}
 
 
-
-
-
 def update_tx_index_folder(address, number):
     tx_index = f"accounts/{address}/index.dat"
     index = {"index_folder": number}
     with open(tx_index, "w") as outfile:
         json.dump(index, outfile)
+
 
 def create_tx_indexer(address):
     tx_index = f"accounts/{address}/index.dat"
@@ -169,16 +167,16 @@ def create_tx_indexer(address):
             json.dump(index, outfile)
 
 
-def get_tx_index_folder(address):
+def get_tx_index_number(address):
     tx_index = f"accounts/{address}/index.dat"
     with open(tx_index, "r") as infile:
         index_number = json.load(infile)["index_folder"]
     return index_number
 
 
-def tx_index_full(address, full=50):
-    index_folder = get_tx_index_folder(address)
-    transaction_files = glob.glob(f"{address}/{index_folder}/*.lin")
+def tx_index_full(address, full=500):
+    index_number = get_tx_index_number(address)
+    transaction_files = glob.glob(f"accounts/{address}/transactions/{index_number}/*.lin")
     if len(transaction_files) >= full:
         return True
     else:
@@ -190,17 +188,28 @@ def index_transaction(transaction, block_hash):
     with open(tx_path, "w") as tx_file:
         tx_file.write(json.dumps(block_hash))
 
-    sender_path = f"accounts/{transaction['sender']}/transactions"
+    sender_address = transaction['sender']
+    create_tx_indexer(sender_address)
+    if tx_index_full(sender_address):
+        update_tx_index_folder(sender_address, get_tx_index_number(sender_address) + 1)
+    index_number = get_tx_index_number(sender_address)
+    sender_path = f"accounts/{sender_address}/transactions/{index_number}"
     if not os.path.exists(sender_path):
         os.makedirs(sender_path)
     with open(f"{sender_path}/{transaction['txid']}.lin", "w") as tx_file:
-        tx_file.write("")
+        json.dump("", tx_file)
 
-    recipient_path = f"accounts/{transaction['recipient']}/transactions"
-    if not os.path.exists(recipient_path):
-        os.makedirs(recipient_path)
-    with open(f"{recipient_path}/{transaction['txid']}.lin", "w") as tx_file:
-        tx_file.write("")
+    recipient_address = transaction['recipient']
+    if recipient_address != sender_address:
+        create_tx_indexer(recipient_address)
+        if tx_index_full(recipient_address):
+            update_tx_index_folder(recipient_address, get_tx_index_number(recipient_address) + 1)
+        index_number = get_tx_index_number(recipient_address)
+        recipient_path = f"accounts/{recipient_address}/transactions/{index_number}"
+        if not os.path.exists(recipient_path):
+            os.makedirs(recipient_path)
+        with open(f"{recipient_path}/{transaction['txid']}.lin", "w") as tx_file:
+            json.dump("", tx_file)
 
 
 def create_account(address, balance=0):
@@ -363,9 +372,8 @@ if __name__ == "__main__":
 
     create_tx_indexer(address)
     if tx_index_full(address):
-        update_tx_index_folder(address, get_tx_index_folder(address)+1)
-    get_tx_index_folder(address)
-
+        update_tx_index_folder(address, get_tx_index_number(address) + 1)
+    get_tx_index_number(address)
 
     for x in range(0, 50000):
         try:
