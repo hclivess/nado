@@ -7,6 +7,13 @@ import requests
 from hashing import create_nonce
 
 
+def config_found(file="private/config.dat"):
+    if os.path.isfile(file):
+        return True
+    else:
+        return False
+
+
 def get_timestamp():
     return float(time.time())
 
