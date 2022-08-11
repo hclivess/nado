@@ -3,7 +3,7 @@ import time
 
 from block_ops import get_since_last_block, save_block_producers
 from config import get_timestamp_seconds
-from peers import (
+from peer_ops import (
     load_peer,
     update_peer,
     dump_peers,

@@ -7,8 +7,8 @@ from config import get_timestamp_seconds, get_config
 from data_ops import set_and_sort, average
 from hashing import blake2b_hash_link
 from keys import load_keys
-from logs import get_logger
-from peers import load_peer
+from log_ops import get_logger
+from peer_ops import load_peer
 
 
 def check_block_structure():
@@ -89,7 +89,7 @@ def get_block_candidate(
     return block
 
 
-def fee_over_blocks(logger, number_of_blocks=15):
+def fee_over_blocks(logger, number_of_blocks=250):
     """returns average fee over last x blocks"""
     last_block = get_latest_block_info(logger=logger)
 

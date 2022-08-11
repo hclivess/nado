@@ -6,7 +6,7 @@ import aiohttp
 
 from config import get_config
 from data_ops import sort_list_dict
-from logs import get_logger
+from log_ops import get_logger
 
 """this module is optimized for low memory and bandwidth usage"""
 

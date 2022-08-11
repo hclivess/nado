@@ -14,7 +14,7 @@ from config import get_timestamp_seconds
 from data_ops import sort_list_dict
 from hashing import create_nonce, blake2b_hash
 from keys import load_keys
-from logs import get_logger
+from log_ops import get_logger
 
 
 def calculate_fee():

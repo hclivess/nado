@@ -8,18 +8,18 @@ import sys
 import tornado.ioloop
 import tornado.web
 
-from block_ops import get_block, get_latest_block_info
+from block_ops import get_block, get_latest_block_info, fee_over_blocks
 from config import get_config
 from consensus_loop import ConsensusClient
 from core_loop import CoreClient
 from data_ops import set_and_sort
 from genesis import make_genesis, make_folders
 from keys import keyfile_found, generate_keys, save_keys, load_keys
-from logs import get_logger
+from log_ops import get_logger
 from memserver import MemServer
 from message_loop import MessageClient
 from peer_loop import PeerClient
-from peers import save_peer, get_remote_peer_address, get_producer_set, update_peer, load_peer
+from peer_ops import save_peer, get_remote_peer_address, get_producer_set, update_peer, load_peer
 from transaction_ops import get_account, get_transaction, get_transactions_of_account
 from config import get_timestamp_seconds
 
@@ -115,6 +115,11 @@ class BlockHashPoolHandler(tornado.web.RequestHandler):
         )
 
 
+class FeeHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.write({"fee": fee_over_blocks(logger=logger)})
+
+
 class StatusPoolHandler(tornado.web.RequestHandler):
     def get(self):
         self.write(consensus.status_pool)
@@ -172,6 +177,7 @@ class TransactionHandler(tornado.web.RequestHandler):
 class AccountTransactionsHandler(tornado.web.RequestHandler):
     """get transactions from a transaction index batch"""
     """batch takes number or max"""
+
     def get(self, parameter):
         try:
             address = AccountTransactionsHandler.get_argument(self, "address")
@@ -384,6 +390,7 @@ def make_app():
             (r"/block_producers", BlockProducerPoolHandler),
             (r"/block_producers_hash_pool", BlockProducersHashPoolHandler),
             (r"/block_hash_pool", BlockHashPoolHandler),
+            (r"/get_recommended_fee", FeeHandler),
             (r"/terminate(.*)", TerminateHandler),
             (r"/submit_transaction(.*)", SubmitTransactionHandler),
             (r"/log", LogHandler),
