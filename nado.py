@@ -170,6 +170,8 @@ class TransactionHandler(tornado.web.RequestHandler):
 
 
 class AccountTransactionsHandler(tornado.web.RequestHandler):
+    """get transactions from a transaction index batch"""
+    """batch takes number or max"""
     def get(self, parameter):
         try:
             address = AccountTransactionsHandler.get_argument(self, "address")

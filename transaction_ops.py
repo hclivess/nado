@@ -159,6 +159,9 @@ def unindex_transaction(transaction):
 
 
 def get_transactions_of_account(account, logger, batch):
+    if batch == "max":
+        batch = get_tx_index_number(account)
+
     account_path = f"accounts/{account}/transactions/{batch}"
     transaction_files = glob.glob(f"{account_path}/*.lin")
     tx_list = []
@@ -168,7 +171,7 @@ def get_transactions_of_account(account, logger, batch):
         tx_data = get_transaction(no_ext_no_path, logger=logger)
         tx_list.append(tx_data)
 
-    return {"tx_list": tx_list}
+    return {batch: tx_list}
 
 
 def update_tx_index_folder(address, number):
