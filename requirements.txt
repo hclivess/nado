@@ -8,3 +8,4 @@ coloredlogs~=15.0.1
 customtkinter~=4.5.5
 tk-tools~=0.16.0
 py7zr
+ordered-set
