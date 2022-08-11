@@ -12,6 +12,7 @@ from transaction_ops import (
     validate_single_spending,
     validate_transaction,
     sort_transaction_pool,
+    get_account
 )
 
 
@@ -103,7 +104,12 @@ class MemServer:
         self.waiting -= 1
 
         with self.buffer_lock:
-            if transaction not in united_pools:
+            if not get_account(transaction["sender"], create_on_error=False):
+                msg = {"result": False,
+                       "message": f"Empty account"}
+                return msg
+
+            elif transaction not in united_pools:
                 try:
                     validate_transaction(transaction, logger=self.logger)
                 except Exception as e:
