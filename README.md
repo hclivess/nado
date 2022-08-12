@@ -84,7 +84,7 @@ adoption simply because there were no hurdles to adoption.
 in them: Bitcoinnect and Onecoin. All users had to do there was to go on a website and click a button to invest
 money into something that did not exist. Why did they do it? Because it was easy.
 
-- Combining great and accessible technology with perfect distribution and great marketing is the key to successful adoption. 
+- Combining great and accessible technology with perfect distribution and effective marketing is the key to successful adoption. 
 
 ## Why not only use the existing projects?
 
