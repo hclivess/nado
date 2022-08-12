@@ -61,15 +61,14 @@ node, which makes it more resilient regarding SPOF but less efficient.
 
 The premise of NADO is that users stop being interested in decentralized value distributing projects because it becomes
 progressively more difficult for them to join them or remain as time goes on.
+The main reason for users to leave is not the lack of adoption, but the mismatch between adoption, 
+distribution and inflation. Distribution is the single one most important aspect of a cryptocurrency project as proven 
+in the success of NANO, where no single entity was capable of obtaining a high amount of tokens through monopolizing 
+token distribution. 
 
 - Constant rewards are counterproductive: Users will keep running their nodes even though they are not receiving rewards
 in a particular moment because there is no block reward for a particular block because network activity is low. Fighting
 inflation is more important than hoping for users to not stop running nodes.
-
-- The main reason for users to leave cryptocurrency projects is not lack of adoption, but the mismatch between adoption, 
-distribution and inflation. Distribution is the single one most important aspect of a cryptocurrency project as proven 
-in the success of NANO, where no single entity was capable of obtaining a high amount of tokens through monopolizing 
-token distribution. 
 
 - Elastic distribution was one of the key promises of Vertcoin, one of the most popular cryptocurrencies 
 of 2014. NADO puts these promises into practice. 
