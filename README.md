@@ -62,9 +62,36 @@ node, which makes it more resilient regarding SPOF but less efficient.
 The premise of NADO is that users stop being interested in decentralized value distributing projects because it becomes
 progressively more difficult for them to join them or remain as time goes on.
 
+- Constant rewards are counterproductive: Users will keep running their nodes even though they are not receiving rewards
+in a particular moment because there is no block reward for a particular block because network activity is low. Fighting
+inflation is more important than hoping for users to not stop running nodes.
+
+- The main reason for users to leave cryptocurrency projects is not lack of adoption, but the mismatch between adoption, 
+distribution and inflation. Distribution is the single one most important aspect of a cryptocurrency project as proven 
+in the success of NANO, where no single entity was capable of obtaining a high amount of tokens through monopolizing 
+token distribution. 
+
+- Elastic distribution was one of the key promises of Vertcoin, one of the most popular cryptocurrencies 
+of 2014. NADO puts these promises into practice. 
+
+- Litecoin was created as a Bitcoin with fair distribution. None of the projects mentioned above put large 
+effort into marketing and were extremely popular nonetheless.
+
+- Barrier of entry is directly correlated to fairness of distribution. This is an idea on which Steve Jobs built his
+entire business. Removal of hassles in Apple operating systems and simplicity of their mobile devices led to widespread 
+adoption simply because there were no hurdles to adoption.
+
+- Interestingly enough, some of the most successful "cryptocurrency projects" where pyramid schemes that had zero technology
+in them: Bitcoinnect and Onecoin. All users had to do there was to go on a website and click a button to invest
+money into something that did not exist. Why did they do it? Because it was easy.
+
+- Combining great and accessible technology with perfect distribution and great marketing is the key to successful adoption. 
+
+## Why not only use the existing projects?
+
 - With PoW, the problem is in the arms race.
 - With PoS, the problem is in the rising price.
-- With PoD, the problem is in the increasing number of cycle participants.
+- With PoD, the problem is in the increasing difficulty to re-join mesh with more participants.
 
 ## Proof of what?
 
