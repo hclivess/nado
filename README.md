@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://nado.live/wp-content/uploads/2022/07/180-150x150.png" />
+  <img src="http://nado.live/wp-content/uploads/2022/08/bauhaus.png" />
 </p>
 
 # NADO
