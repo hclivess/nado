@@ -33,6 +33,7 @@ class MemServer:
         self.start_time = get_timestamp_seconds()
         self.keydict = load_keys()
         self.config = get_config()
+        self.protocol = self.config["protocol"]
         self.private_key = self.keydict["private_key"]
         self.public_key = self.keydict["public_key"]
         self.address = self.keydict["address"]

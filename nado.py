@@ -50,6 +50,7 @@ class StatusHandler(tornado.web.RequestHandler):
                 "transaction_pool_hash": memserver.transaction_pool_hash,
                 "block_producers_hash": memserver.block_producers_hash,
                 "latest_block_hash": get_latest_block_info(logger=logger)["block_hash"],
+                "protocol": memserver.protocol,
             }
             self.write(status_dict)
         except Exception as e:
