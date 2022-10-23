@@ -351,6 +351,7 @@ def get_since_last_block(logger) -> [str, None]:
 def get_penalty(producer, block_hash, logger):
     miner_penalty = get_producer_penalty(producer=producer, logger=logger)
     block_penalty = get_hash_penalty(a=producer, b=block_hash) + miner_penalty * 100
+
     return block_penalty
 def pick_best_producer(block_producers, logger):
     block_hash = get_latest_block_info(logger=logger)["block_hash"]

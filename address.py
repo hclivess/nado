@@ -9,6 +9,8 @@ def proof_sender(public_key, sender):
 def validate_address(address: str, checksum_size: str = 2):
     if address[-4:] == make_checksum(address[: -checksum_size * 2]):
         return True
+    elif address == "burn":
+        return True
     else:
         return False
 

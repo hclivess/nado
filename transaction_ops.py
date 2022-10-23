@@ -244,7 +244,7 @@ def index_transaction(transaction, block_hash):
             json.dump("", tx_file)
 
 
-def create_account(address, balance=0):
+def create_account(address, balance=0, burned=0):
     """create account if it does not exist"""
     account_path = f"accounts/{address}/balance.dat"
     if not os.path.exists(account_path):
@@ -252,6 +252,7 @@ def create_account(address, balance=0):
 
         account = {
             "account_balance": balance,
+            "account_burned": burned,
             "account_address": address,
         }
 
