@@ -102,7 +102,7 @@ def change_balance(address: str, amount: int, is_burn=False):
             assert (account_message["account_balance"] >= 0), "Cannot change balance into negative"
 
             if is_burn:
-                account_message["account_burned"] += amount
+                account_message["account_burned"] -= amount
                 assert (account_message["account_burned"] >= 0), "Cannot change burn into negative"
 
             with open(f"accounts/{address}/balance.dat", "w") as account_file:
