@@ -20,8 +20,9 @@ from memserver import MemServer
 from message_loop import MessageClient
 from peer_loop import PeerClient
 from peer_ops import save_peer, get_remote_peer_address, get_producer_set, update_peer, load_peer
-from transaction_ops import get_account, get_transaction, get_transactions_of_account
+from transaction_ops import get_transaction, get_transactions_of_account
 from config import get_timestamp_seconds
+from account_ops import get_account
 
 
 def is_port_in_use(port: int) -> bool:

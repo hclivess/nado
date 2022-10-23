@@ -15,6 +15,7 @@ from data_ops import sort_list_dict
 from hashing import create_nonce, blake2b_hash
 from keys import load_keys
 from log_ops import get_logger
+from account_ops import get_account
 
 
 def calculate_fee():
@@ -75,19 +76,6 @@ def sort_transaction_pool(transactions: list, key="txid") -> list:
     )
 
 
-def get_account(address, create_on_error=True):
-    """return all account information if account exists else create it"""
-    account_path = f"accounts/{address}/balance.dat"
-    if os.path.exists(account_path):
-        with open(account_path, "r") as account_file:
-            account = json.load(account_file)
-        return account
-    elif create_on_error:
-        return create_account(address)
-    else:
-        return None
-
-
 def reflect_transaction(transaction, revert=False):
     sender = transaction["sender"]
     recipient = transaction["recipient"]
@@ -114,8 +102,8 @@ def change_balance(address: str, amount: int, is_burn=False):
             assert (account_message["account_balance"] >= 0), "Cannot change balance into negative"
 
             if is_burn:
-                account_message["account_burn"] += amount
-                assert (account_message["account_burn"] >= 0), "Cannot change burn into negative"
+                account_message["account_burned"] += amount
+                assert (account_message["account_burned"] >= 0), "Cannot change burn into negative"
 
             with open(f"accounts/{address}/balance.dat", "w") as account_file:
                 account_file.write(json.dumps(account_message))
@@ -249,25 +237,6 @@ def index_transaction(transaction, block_hash):
             os.makedirs(recipient_path)
         with open(f"{recipient_path}/{transaction['txid']}.lin", "w") as tx_file:
             json.dump("", tx_file)
-
-
-def create_account(address, balance=0, burned=0):
-    """create account if it does not exist"""
-    account_path = f"accounts/{address}/balance.dat"
-    if not os.path.exists(account_path):
-        os.makedirs(f"accounts/{address}")
-
-        account = {
-            "account_balance": balance,
-            "account_burned": burned,
-            "account_address": address,
-        }
-
-        with open(account_path, "w") as outfile:
-            json.dump(account, outfile)
-        return account
-    else:
-        return get_account(address)
 
 
 def to_readable_amount(raw_amount: int) -> str:

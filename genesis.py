@@ -4,7 +4,7 @@ from dircheck import make_folder
 from hashing import blake2b_hash_link
 from log_ops import get_logger
 from peer_ops import save_peer
-from transaction_ops import create_account
+from account_ops import create_account
 from config import get_timestamp_seconds
 
 
