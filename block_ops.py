@@ -257,7 +257,8 @@ def construct_block(
     block_message.update(block_timestamp=get_timestamp_seconds())
 
     producer = block_message["block_creator"]
-    block_penalty = get_penalty(producer=producer,
+    block_penalty = get_penalty(producer_ip=producer,
+                                producer_address=creator,
                                 block_hash=block_hash,
                                 logger=logger)
 
@@ -363,13 +364,13 @@ def pick_best_producer(block_producers, logger, peer_file_lock):
     previous_block_penalty = None
     best_producer = None
 
-    for producer in block_producers:
+    for producer_ip in block_producers:
         producer_address = load_peer(logger=logger,
-                                     ip=best_producer,
+                                     ip=producer_ip,
                                      key="peer_address",
                                      peer_file_lock=peer_file_lock)
 
-        block_penalty = get_penalty(producer_ip=producer,
+        block_penalty = get_penalty(producer_ip=producer_ip,
                                     producer_address=producer_address,
                                     block_hash=block_hash,
                                     logger=logger)
@@ -378,7 +379,8 @@ def pick_best_producer(block_producers, logger, peer_file_lock):
             previous_block_penalty = block_penalty
 
         if block_penalty <= previous_block_penalty:
-            best_producer = producer
+            best_producer = producer_ip
+
 
     return best_producer
 
