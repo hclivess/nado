@@ -252,8 +252,11 @@ def construct_block(
     block_hash = blake2b_hash_link(link_from=parent_hash, link_to=block_message)
     block_message.update(block_hash=block_hash)
     block_message.update(block_timestamp=get_timestamp_seconds())
-    miner_penalty = get_producer_penalty(block_message["block_creator"], logger=logger)
-    block_penalty = get_hash_penalty(a=creator, b=block_hash) + miner_penalty * 100
+
+    producer = block_message["block_creator"]
+    block_penalty = get_penalty(producer=producer,
+                                block_hash=block_hash,
+                                logger=logger)
 
     block_message.update(block_penalty=block_penalty)
     return block_message
@@ -344,6 +347,11 @@ def get_since_last_block(logger) -> [str, None]:
     return since_last_block
 
 
+
+def get_penalty(producer, block_hash, logger):
+    miner_penalty = get_producer_penalty(producer=producer, logger=logger)
+    block_penalty = get_hash_penalty(a=producer, b=block_hash) + miner_penalty * 100
+    return block_penalty
 def pick_best_producer(block_producers, logger):
     block_hash = get_latest_block_info(logger=logger)["block_hash"]
 
@@ -351,8 +359,9 @@ def pick_best_producer(block_producers, logger):
     best_producer = None
 
     for producer in block_producers:
-        miner_penalty = get_producer_penalty(producer=producer, logger=logger)
-        block_penalty = get_hash_penalty(a=producer, b=block_hash) + miner_penalty * 100
+        block_penalty = get_penalty(producer=producer,
+                                    block_hash=block_hash,
+                                    logger=logger)
 
         if not previous_block_penalty:
             previous_block_penalty = block_penalty
