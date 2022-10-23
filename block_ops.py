@@ -353,8 +353,8 @@ def get_since_last_block(logger) -> [str, None]:
 
 def get_penalty(producer_ip, producer_address, block_hash, logger):
     miner_penalty = get_producer_penalty(producer_ip=producer_ip, logger=logger)
-    hash_miner_penalty = get_hash_penalty(a=producer_address, b=block_hash) + miner_penalty * 1000000000
-    block_penalty = hash_miner_penalty - (get_burn_bonus(producer_address) / hash_miner_penalty)
+    combined_penalty = get_hash_penalty(a=producer_address, b=block_hash) + miner_penalty * 1000000000
+    block_penalty = combined_penalty - (get_burn_bonus(producer_address) / combined_penalty)
     return block_penalty
 
 
