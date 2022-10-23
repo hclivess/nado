@@ -93,22 +93,29 @@ def reflect_transaction(transaction, revert=False):
     recipient = transaction["recipient"]
     amount = transaction["amount"]
 
+    is_burn = False
+    if recipient == "burn":
+        is_burn = True
+
     if revert:
-        change_balance(address=sender, amount=amount)
+        change_balance(address=sender, amount=amount, is_burn=is_burn)
         change_balance(address=recipient, amount=-amount)
+
     else:
-        change_balance(address=sender, amount=-amount)
+        change_balance(address=sender, amount=-amount, is_burn=is_burn)
         change_balance(address=recipient, amount=amount)
 
 
-def change_balance(address: str, amount: int):
+def change_balance(address: str, amount: int, is_burn=False):
     while True:
         try:
             account_message = get_account(address)
             account_message["account_balance"] += amount
-            assert (
-                    account_message["account_balance"] >= 0
-            ), "Cannot change balance into negative"
+            assert (account_message["account_balance"] >= 0), "Cannot change balance into negative"
+
+            if is_burn:
+                account_message["account_burn"] += amount
+                assert (account_message["account_burn"] >= 0), "Cannot change burn into negative"
 
             with open(f"accounts/{address}/balance.dat", "w") as account_file:
                 account_file.write(json.dumps(account_message))
