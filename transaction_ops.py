@@ -15,7 +15,7 @@ from data_ops import sort_list_dict
 from hashing import create_nonce, blake2b_hash
 from keys import load_keys
 from log_ops import get_logger
-from account_ops import get_account
+from account_ops import get_account, reflect_transaction
 
 
 def calculate_fee():
@@ -76,41 +76,7 @@ def sort_transaction_pool(transactions: list, key="txid") -> list:
     )
 
 
-def reflect_transaction(transaction, revert=False):
-    sender = transaction["sender"]
-    recipient = transaction["recipient"]
-    amount = transaction["amount"]
 
-    is_burn = False
-    if recipient == "burn":
-        is_burn = True
-
-    if revert:
-        change_balance(address=sender, amount=amount, is_burn=is_burn)
-        change_balance(address=recipient, amount=-amount)
-
-    else:
-        change_balance(address=sender, amount=-amount, is_burn=is_burn)
-        change_balance(address=recipient, amount=amount)
-
-
-def change_balance(address: str, amount: int, is_burn=False):
-    while True:
-        try:
-            account_message = get_account(address)
-            account_message["account_balance"] += amount
-            assert (account_message["account_balance"] >= 0), "Cannot change balance into negative"
-
-            if is_burn:
-                account_message["account_burned"] -= amount
-                assert (account_message["account_burned"] >= 0), "Cannot change burn into negative"
-
-            with open(f"accounts/{address}/balance.dat", "w") as account_file:
-                account_file.write(json.dumps(account_message))
-        except Exception as e:
-            raise ValueError(f"Failed setting balance for {address}: {e}")
-        break
-    return True
 
 
 def unindex_transaction(transaction):
@@ -244,7 +210,7 @@ def to_readable_amount(raw_amount: int) -> str:
 
 
 def to_raw_amount(amount: [int, float]) -> int:
-    return int(int(amount) * 1000000000)
+    return int(float(amount) * 1000000000)
 
 
 def check_balance(account, amount, fee):

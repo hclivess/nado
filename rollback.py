@@ -2,7 +2,8 @@ import json
 import os
 
 from block_ops import load_block, get_latest_block_info, set_latest_block_info
-from transaction_ops import unindex_transaction, reflect_transaction, change_balance
+from transaction_ops import unindex_transaction
+from account_ops import reflect_transaction, change_balance, increase_produced_count
 
 
 def rollback_one_block(logger, lock):
@@ -22,6 +23,9 @@ def rollback_one_block(logger, lock):
                 address=block_message["block_creator"],
                 amount=-block_message["block_reward"],
             )
+
+            increase_produced_count(address=block_message["block_creator"], revert=True)
+
             set_latest_block_info(previous_block)
 
             with open(f"blocks/block_numbers/index.dat", "w") as outfile:

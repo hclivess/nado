@@ -22,11 +22,11 @@ from pool_ops import merge_buffer
 from rollback import rollback_one_block
 from transaction_ops import (
     incorporate_transaction,
-    change_balance,
     to_readable_amount,
     validate_transaction,
     validate_all_spending,
 )
+from account_ops import increase_produced_count, change_balance
 
 
 def minority_consensus(majority_hash, sample_hash):
@@ -295,6 +295,8 @@ class CoreClient(threading.Thread):
             set_latest_block_info(block_message=block)
             change_balance(address=block["block_creator"],
                            amount=block["block_reward"])
+
+            increase_produced_count(address=block["block_creator"])
 
         except Exception as e:
             self.logger.error(f"Failed to incorporate block: {e}")

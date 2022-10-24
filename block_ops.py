@@ -9,7 +9,7 @@ from hashing import blake2b_hash_link
 from keys import load_keys
 from log_ops import get_logger
 from peer_ops import load_peer
-from account_ops import get_burn_bonus
+from account_ops import get_account_value
 
 
 def check_block_structure():
@@ -107,27 +107,6 @@ def fee_over_blocks(logger, number_of_blocks=250):
         return average(fees)
     else:
         return 0
-
-
-def get_producer_penalty(producer_ip, logger, blocks_backward=50):
-    """calculates how many blocks a miner mined over a given period"""
-    latest_block_info = get_latest_block_info(logger=logger)
-    parent = latest_block_info["block_hash"]
-    latest_block_number = latest_block_info["block_number"]
-    block_number = latest_block_number
-    produced_count = 0
-
-    while 0 < block_number > (latest_block_number - blocks_backward):
-        block = load_block(parent, logger=logger)
-        parent = block["parent_hash"]
-        block_number = block["block_number"]
-
-        if block["block_ip"] == producer_ip:
-            produced_count += 1
-
-    return produced_count
-
-
 def get_transaction_pool_demo():
     """use for demo only"""
     config = get_config()
@@ -256,11 +235,8 @@ def construct_block(
     block_message.update(block_hash=block_hash)
     block_message.update(block_timestamp=get_timestamp_seconds())
 
-    producer_ip = block_ip
-    block_penalty = get_penalty(producer_ip=producer_ip,
-                                producer_address=creator,
-                                block_hash=block_hash,
-                                logger=logger)
+    block_penalty = get_penalty(producer_address=creator,
+                                block_hash=block_hash)
 
     block_message.update(block_penalty=block_penalty)
     return block_message
@@ -351,10 +327,10 @@ def get_since_last_block(logger) -> [str, None]:
     return since_last_block
 
 
-def get_penalty(producer_ip, producer_address, block_hash, logger):
-    miner_penalty = get_producer_penalty(producer_ip=producer_ip, logger=logger)
+def get_penalty(producer_address, block_hash):
+    miner_penalty = get_account_value(address=producer_address, key="account_produced")
     combined_penalty = get_hash_penalty(a=producer_address, b=block_hash) + miner_penalty * 1000000000
-    block_penalty = combined_penalty - get_burn_bonus(producer_address)
+    block_penalty = combined_penalty - get_account_value(producer_address, key="account_burned")
     return block_penalty
 
 
@@ -370,10 +346,8 @@ def pick_best_producer(block_producers, logger, peer_file_lock):
                                      key="peer_address",
                                      peer_file_lock=peer_file_lock)
 
-        block_penalty = get_penalty(producer_ip=producer_ip,
-                                    producer_address=producer_address,
-                                    block_hash=block_hash,
-                                    logger=logger)
+        block_penalty = get_penalty(producer_address=producer_address,
+                                    block_hash=block_hash)
 
         if not previous_block_penalty:
             previous_block_penalty = block_penalty
