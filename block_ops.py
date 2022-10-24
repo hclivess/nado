@@ -330,7 +330,7 @@ def get_since_last_block(logger) -> [str, None]:
 def get_penalty(producer_address, block_hash):
     miner_penalty = get_account_value(address=producer_address, key="account_produced")
     combined_penalty = get_hash_penalty(a=producer_address, b=block_hash) + miner_penalty
-    block_penalty = combined_penalty - get_account_value(producer_address, key="account_burned")
+    block_penalty = combined_penalty - get_account_value(producer_address, key="account_burned") * 100
     return block_penalty
 
 
