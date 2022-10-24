@@ -34,7 +34,8 @@ After running the node, you can access it at http://127.0.0.1:9173 from where al
 NADO is just another blockchain written from scratch with a highly experimental consensus algorithm, which is supposed
 to provide effortless mining for all participants with a public IP address. NADO is not a classic proof-of-work
 blockchain like Bitcoin. Unlike most other crypto, its focus is on accessibility to rewards for everyone. It has a fully
-elastic reward mechanism, rewarding users only when transactions are happening on the chain.
+elastic reward mechanism, rewarding users only when transactions are happening on the chain. Users can burn their share
+of tokens in order to increase their chances of winning more rewards in the future.
 
 ## Why is NADO?
 
@@ -54,7 +55,7 @@ generating node. While this excludes users without public addresses, it prevents
 
 There are multiple cycles for every block. It starts with accepting peers and transactions directly. In the second
 stage, transactions and peers are stored in a buffer for the following block so that transactions can stabilize across
-the network. NADO prefers decentralization over efficiency, which means it exposes consensus more than the invidual
+the network. NADO prefers decentralization to efficiency, which means it exposes consensus more than the individual
 node, which makes it more resilient regarding SPOF but less efficient.
 
 ## But is there a premise?
@@ -114,11 +115,12 @@ users to make mining as inclusive as possible.
 - Block capacity: Capped at 250KB per minute
 - Block reward: Between 0 and 5 depending on network usage
 - Transaction throughput: 7 transactions per second
-- Variant of Proof of Diversity mixed with Proof of Majority and Proof of Fidelity
+- Proof of Fidelity with aspects of majority and diversity
 - noSQL JSON file-based database system
 - The logo is a vortexed version of the Impossible Toroidal Polyhedron
 - Shared mining protocol
 - Periodic intervals to enforce consensus stabilization
+- Incentivization of token burning
 
 ## Where can I learn more?
 
