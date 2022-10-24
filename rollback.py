@@ -24,7 +24,9 @@ def rollback_one_block(logger, lock):
                 amount=-block_message["block_reward"],
             )
 
-            increase_produced_count(address=block_message["block_creator"], revert=True)
+            increase_produced_count(address=block_message["block_creator"],
+                                    amount=block_message["block_reward"],
+                                    revert=True)
 
             set_latest_block_info(previous_block)
 

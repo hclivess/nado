@@ -52,14 +52,14 @@ def change_balance(address: str, amount: int, is_burn=False):
     return True
 
 
-def increase_produced_count(address, revert=False):
+def increase_produced_count(address, amount, revert=False):
     account_path = f"accounts/{address}/balance.dat"
     account = get_account(address)
     produced = account["account_produced"]
     if revert:
-        account.update(account_produced=produced - 1)
+        account.update(account_produced=produced - amount)
     else:
-        account.update(account_produced=produced + 1)
+        account.update(account_produced=produced + amount)
 
     with open(account_path, "w") as outfile:
         json.dump(account, outfile)

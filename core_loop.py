@@ -296,7 +296,8 @@ class CoreClient(threading.Thread):
             change_balance(address=block["block_creator"],
                            amount=block["block_reward"])
 
-            increase_produced_count(address=block["block_creator"])
+            increase_produced_count(address=block["block_creator"],
+                                    amount=block["block_reward"])
 
         except Exception as e:
             self.logger.error(f"Failed to incorporate block: {e}")
