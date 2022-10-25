@@ -99,6 +99,15 @@ Every node in the NADO ecosystem keeps track of what opinions other nodes have b
 block producer pools, transaction pools, peer pools and block hash pools. Participants add credibility over time to
 those who share their opinions on what the state of the network is.
 
+## Burn-to-Bribe system
+In the beginning, all users have the same chance at receiving a reward every block. If they succeed, they are issued
+both tokens and a penalty. This penalty lowers chance of further finding rewards in relation to other users, but it can 
+be negated by burning a portion of the coins they mined or obtained otherwise. Currently, the model is set up in 1:10 
+ratio, which means that 1 portion of burn negates 10 portions of  penalty. Both penalty and burn are counted from the 
+smallest unit of NADO, so the lowest penalty resolution is 0.0000000001 and the lowest burn/bribe resolution is 
+0.0000000100. This system was created as an additional measure against inflation after implementation of elastic 
+distribution.
+
 ## What about security?
 
 There are no guarantees for security of NADO, mainly because of its highly experimental character. Compared to more
@@ -114,13 +123,13 @@ users to make mining as inclusive as possible.
 - Link hashing: BLAKE2b
 - Block capacity: Capped at 250KB per minute
 - Block reward: Between 0 and 5 depending on network usage
-- Transaction throughput: 7 transactions per second
+- Transaction throughput: 7 raw transactions per second
 - Proof of Fidelity with aspects of majority and diversity
-- noSQL JSON file-based database system
-- The logo is a vortexed version of the Impossible Toroidal Polyhedron
+- noSQL JSON file-based atomized database system
 - Shared mining protocol
 - Periodic intervals to enforce consensus stabilization
-- Incentivization of token burning
+- Burn-to-Bribe deflationary incentive
+- The logo is a vortexed version of the Impossible Toroidal Polyhedron
 
 ## Where can I learn more?
 
