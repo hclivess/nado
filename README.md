@@ -99,14 +99,14 @@ Every node in the NADO ecosystem keeps track of what opinions other nodes have b
 block producer pools, transaction pools, peer pools and block hash pools. Participants add credibility over time to
 those who share their opinions on what the state of the network is.
 
-## Burn-to-Bribe system
+## Burn-to-Bribe system and governance
 In the beginning, all users have the same chance at receiving a reward every block. If they succeed, they are issued
 both tokens and a penalty. This penalty lowers chance of further finding rewards in relation to users who have not been 
-rewarded yet, but it can be negated by burning a portion of the coins they mined or obtained otherwise. Currently, the 
+rewarded yet, but it can be negated by burning a portion of the coins they generated or obtained otherwise. Currently, the 
 model is set up in 1:10 ratio, which means that 1 portion of burn negates 10 portions of  penalty. Both penalty and burn 
-are counted from the  smallest unit of NADO, so the lowest penalty resolution is 0.0000000001 and the lowest burn/bribe 
+are counted from the smallest unit of NADO, so the lowest penalty resolution is 0.0000000001 and the lowest burn/bribe 
 resolution is 0.0000000010. This system was created as an additional measure against inflation after implementation of 
-elastic distribution.
+elastic distribution and burned tokens are used for governance purposes.
 
 ## What about security?
 
