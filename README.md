@@ -103,9 +103,9 @@ money into something that did not exist. Why did they do it? Because it was easy
 Every node in the NADO ecosystem keeps track of what opinions other nodes have by sharing state checksums for current
 block producer pools, transaction pools, peer pools and block hash pools. Participants add credibility over time to
 those who share their opinions on what the state of the network is. The security principle is that any
-attacker needs to be connected to the network for a longer time than the legitimate nodes and postpone attack until
-their network participation duration is longer than that of other nodes. If the legitimate nodes
-stay in the network for longer than the attackers, it is impossible to attack.
+attacker needs to be connected to the network for a longer time than the legitimate nodes and postpone the attack until
+their network participation duration is longer than that of other nodes - to perform a 51% attack. If the legitimate nodes
+stay in the network longer than the attackers, it is impossible to attack.
 
 ## Burn-to-Bribe system and governance
 In the beginning, all users have the same chance at receiving a reward every block. If they succeed, they are issued
