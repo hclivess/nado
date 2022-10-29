@@ -29,9 +29,14 @@ you must have [port 9173 open](https://www.google.com/search?q=port+forwarding+g
 After running the node, you can access it at http://127.0.0.1:9173 from where all API calls used by the node itself are accessible. Here are some examples:
 - http://127.0.0.1:9173/get_account?address=ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29
 
+## Is there anything unique?
+
+Yes. No mining, minting, block production happens in every node at once, based on the deterministic principles of the
+blockchain.
+
 ## What is NADO?
 
-NADO is just another blockchain written from scratch with a highly experimental consensus algorithm, which is supposed
+Short for Tornado. NADO is just another blockchain written from scratch with a highly experimental consensus algorithm, which is supposed
 to provide effortless mining for all participants with a public IP address. NADO is not a classic proof-of-work
 blockchain like Bitcoin. Unlike most other crypto, its focus is on accessibility to rewards for everyone. It has a fully
 elastic reward mechanism, rewarding users only when transactions are happening on the chain. Users can burn their share
@@ -97,7 +102,10 @@ money into something that did not exist. Why did they do it? Because it was easy
 
 Every node in the NADO ecosystem keeps track of what opinions other nodes have by sharing state checksums for current
 block producer pools, transaction pools, peer pools and block hash pools. Participants add credibility over time to
-those who share their opinions on what the state of the network is.
+those who share their opinions on what the state of the network is. The security principle is that any
+attacker needs to be connected to the network for a longer time than the legitimate nodes and postpone attack until
+their network participation duration is longer than that of other nodes. If the legitimate nodes
+stay in the network for longer than the attackers, it is impossible to attack.
 
 ## Burn-to-Bribe system and governance
 In the beginning, all users have the same chance at receiving a reward every block. If they succeed, they are issued
@@ -128,7 +136,7 @@ users to make mining as inclusive as possible.
 - noSQL JSON file-based atomized database system
 - Shared mining protocol
 - Periodic intervals to enforce consensus stabilization
-- Burn-to-Bribe deflationary incentive
+- Burn-to-Bribe deflationary incentive and governance
 - The logo is a vortexed version of the Impossible Toroidal Polyhedron
 
 ## Where can I learn more?
