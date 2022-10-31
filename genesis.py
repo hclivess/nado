@@ -54,7 +54,7 @@ if __name__ == "__main__":
     make_genesis(
         address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b",
         balance=1000000000000000,
-        ip="89.176.130.244",
+        ip="78.102.98.72",
         port=9173,
         timestamp=1657829259,
         logger=logger,

@@ -5,6 +5,7 @@ import signal
 import socket
 import sys
 
+import msgpack
 import tornado.ioloop
 import tornado.web
 
@@ -130,7 +131,7 @@ class StatusPoolHandler(tornado.web.RequestHandler):
 class SubmitTransactionHandler(tornado.web.RequestHandler):
     def get(self, parameter):
         try:
-            transaction = json.loads(SubmitTransactionHandler.get_argument(self, "data"))
+            transaction = msgpack.unpackb(SubmitTransactionHandler.get_argument(self, "data"))
             output = memserver.merge_transaction(transaction, user=True)
             self.write(output)
 
@@ -214,6 +215,7 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
         try:
             block_hash = GetBlocksBeforeHandler.get_argument(self, "hash")
             count = int(GetBlocksBeforeHandler.get_argument(self, "count"))
+            raw = GetBlocksAfterHandler.get_argument(self, "raw")
 
             parent_hash = get_block(block_hash)["parent_hash"]
 
@@ -228,14 +230,21 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
                     print(e)
                     break
 
-            output = collected_blocks
-            output.reverse()
+            collected_blocks.reverse()
+
+            if raw == "true":
+                output = msgpack.packb(collected_blocks)
+            else:
+                output = collected_blocks
 
             if not output:
                 output = "Not found"
                 self.set_status(403)
 
-            self.write({"blocks_before": output})
+            if raw == "true":
+                self.write(output)
+            else:
+                self.write({"blocks_before": output})
 
         except Exception as e:
             self.set_status(403)
@@ -247,6 +256,7 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
         try:
             block_hash = GetBlocksAfterHandler.get_argument(self, "hash")
             count = int(GetBlocksAfterHandler.get_argument(self, "count"))
+            raw = GetBlocksAfterHandler.get_argument(self, "raw")
 
             child_hash = get_block(block_hash)["child_hash"]
 
@@ -261,13 +271,19 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
                 except:
                     break
 
-            output = collected_blocks
+            if raw == "true":
+                output = msgpack.packb(collected_blocks)
+            else:
+                output = collected_blocks
 
             if not output:
                 output = "Not found"
                 self.set_status(403)
 
-            self.write({"blocks_after": output})
+            if raw == "true":
+                self.write(output)
+            else:
+                self.write({"blocks_after": output})
 
         except Exception as e:
             self.set_status(403)

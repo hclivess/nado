@@ -3,6 +3,7 @@ import json
 import os
 import time
 
+import msgpack
 import requests
 
 from Curve25519 import sign, verify
@@ -366,7 +367,7 @@ if __name__ == "__main__":
             print(transaction)
             print(validate_transaction(transaction, logger=logger))
 
-            requests.get(f"http://{ip}:{port}/submit_transaction?data={json.dumps(transaction)}", timeout=30)
+            requests.get(f"http://{ip}:{port}/submit_transaction?data={msgpack.packb(transaction)}", timeout=30)
         except Exception as e:
             print(e)
 

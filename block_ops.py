@@ -10,7 +10,7 @@ from keys import load_keys
 from log_ops import get_logger
 from peer_ops import load_peer
 from account_ops import get_account_value
-
+import msgpack
 
 def check_block_structure():
     """check timestamp, etc if syncing blocks from others"""
@@ -121,8 +121,8 @@ def get_block(block):
     """return transaction based on txid"""
     block_path = f"blocks/{block}.block"
     if os.path.exists(block_path):
-        with open(block_path, "r") as file:
-            block = json.load(file)
+        with open(block_path, "rb") as file:
+            block = msgpack.load(file)
         return block
     else:
         return None
@@ -140,8 +140,8 @@ def get_block_producers_hash_demo():
 
 def load_block(block_hash: str, logger):
     try:
-        with open(f"blocks/{block_hash}.block", "r") as infile:
-            return json.load(infile)
+        with open(f"blocks/{block_hash}.block", "rb") as infile:
+            return msgpack.unpack(infile)
     except Exception as e:
         logger.info(f"Failed to load block {block_hash}: {e}")
 
@@ -165,8 +165,8 @@ def save_block_producers(block_producers: list):
 def save_block(block_message: dict, logger):
     try:
         block_hash = block_message["block_hash"]
-        with open(f"blocks/{block_hash}.block", "w") as outfile:
-            json.dump(block_message, outfile)
+        with open(f"blocks/{block_hash}.block", "wb") as outfile:
+            msgpack.pack(block_message, outfile)
         return True
     except Exception as e:
         logger.warning(f"Failed to save block {block_message['block_hash']} due to {e}")
@@ -263,14 +263,16 @@ def update_child_in_latest_block(child_hash, logger):
     return True
 
 
-def get_blocks_after(target_peer, from_hash, logger, count=50):
+def get_blocks_after(target_peer, from_hash, logger, count=50, raw="true"):
     try:
-        url = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}"
+        url = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&count={raw}"
         result = requests.get(url, timeout=3)
         text = result.text
         code = result.status_code
-        if code == 200:
+        if code == 200 and raw == "false":
             return json.loads(text)["blocks_after"]
+        elif code == 200 and raw == "true":
+            return msgpack.unpackb(text)["blocks_after"]
         else:
             return False
 
@@ -279,14 +281,16 @@ def get_blocks_after(target_peer, from_hash, logger, count=50):
         return False
 
 
-def get_blocks_before(target_peer, from_hash, logger, count=50):
+def get_blocks_before(target_peer, from_hash, logger, count=50, raw="true"):
     try:
-        url = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}"
+        url = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&count={raw}"
         result = requests.get(url, timeout=3)
         text = result.text
         code = result.status_code
-        if code == 200:
+        if code == 200 and raw == "false":
             return json.loads(text)["blocks_before"]
+        elif code == 200 and raw == "true":
+            return msgpack.unpackb(text)["blocks_before"]
         else:
             return False
 
