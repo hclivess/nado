@@ -215,7 +215,7 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
         try:
             block_hash = GetBlocksBeforeHandler.get_argument(self, "hash")
             count = int(GetBlocksBeforeHandler.get_argument(self, "count"))
-            raw = GetBlocksAfterHandler.get_argument(self, "raw")
+            pack = GetBlocksAfterHandler.get_argument(self, "pack")
 
             parent_hash = get_block(block_hash)["parent_hash"]
 
@@ -232,7 +232,7 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
 
             collected_blocks.reverse()
 
-            if raw == "true":
+            if pack == "true":
                 output = msgpack.packb(collected_blocks)
             else:
                 output = collected_blocks
@@ -241,7 +241,7 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
                 output = "Not found"
                 self.set_status(403)
 
-            if raw == "true":
+            if pack == "true":
                 self.write(output)
             else:
                 self.write({"blocks_before": output})
@@ -256,7 +256,7 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
         try:
             block_hash = GetBlocksAfterHandler.get_argument(self, "hash")
             count = int(GetBlocksAfterHandler.get_argument(self, "count"))
-            raw = GetBlocksAfterHandler.get_argument(self, "raw")
+            pack = GetBlocksAfterHandler.get_argument(self, "pack")
 
             child_hash = get_block(block_hash)["child_hash"]
 
@@ -271,7 +271,7 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
                 except:
                     break
 
-            if raw == "true":
+            if pack == "true":
                 output = msgpack.packb(collected_blocks)
             else:
                 output = collected_blocks
@@ -280,7 +280,7 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
                 output = "Not found"
                 self.set_status(403)
 
-            if raw == "true":
+            if pack == "true":
                 self.write(output)
             else:
                 self.write({"blocks_after": output})

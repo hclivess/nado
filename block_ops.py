@@ -263,15 +263,15 @@ def update_child_in_latest_block(child_hash, logger):
     return True
 
 
-def get_blocks_after(target_peer, from_hash, logger, count=50, raw="true"):
+def get_blocks_after(target_peer, from_hash, logger, count=50, pack="true"):
     try:
-        url = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&count={raw}"
+        url = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&count={pack}"
         result = requests.get(url, timeout=3)
         text = result.text
         code = result.status_code
-        if code == 200 and raw == "false":
+        if code == 200 and pack == "false":
             return json.loads(text)["blocks_after"]
-        elif code == 200 and raw == "true":
+        elif code == 200 and pack == "true":
             return msgpack.unpackb(text)["blocks_after"]
         else:
             return False
@@ -281,15 +281,15 @@ def get_blocks_after(target_peer, from_hash, logger, count=50, raw="true"):
         return False
 
 
-def get_blocks_before(target_peer, from_hash, logger, count=50, raw="true"):
+def get_blocks_before(target_peer, from_hash, logger, count=50, pack="true"):
     try:
-        url = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&count={raw}"
+        url = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&count={pack}"
         result = requests.get(url, timeout=3)
         text = result.text
         code = result.status_code
-        if code == 200 and raw == "false":
+        if code == 200 and pack == "false":
             return json.loads(text)["blocks_before"]
-        elif code == 200 and raw == "true":
+        elif code == 200 and pack == "true":
             return msgpack.unpackb(text)["blocks_before"]
         else:
             return False
