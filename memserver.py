@@ -92,6 +92,7 @@ class MemServer:
                 self.peers,
                 logger=self.logger,
                 fail_storage=self.purge_peers_list,
+                compress="msgpack"
             )
         )
         self.merge_transactions(remote_transactions, user)
@@ -117,8 +118,8 @@ class MemServer:
                 except Exception as e:
                     msg = {"result": False,
                            "message": f"Could not merge remote transaction: {e}"}
-
                     # self.logger.info(msg) spam
+                    raise #test
                     return msg
                 else:
                     try:

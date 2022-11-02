@@ -1,6 +1,8 @@
 import json
 import os
 
+import msgpack
+
 from block_ops import load_block, get_latest_block_info, set_latest_block_info
 from transaction_ops import unindex_transaction
 from account_ops import reflect_transaction, change_balance, increase_produced_count
@@ -28,10 +30,11 @@ def rollback_one_block(logger, lock):
                                     amount=block_message["block_reward"],
                                     revert=True)
 
-            set_latest_block_info(previous_block)
+            set_latest_block_info(block_message=previous_block,
+                                  logger=logger)
 
-            with open(f"blocks/block_numbers/index.dat", "w") as outfile:
-                json.dump({"last_number": previous_block["block_number"]}, outfile)
+            with open(f"blocks/block_numbers/index.dat", "wb") as outfile:
+                msgpack.pack({"last_number": previous_block["block_number"]}, outfile)
 
             os.remove(f"blocks/block_numbers/{block_message['block_number']}.dat")
             os.remove(f"blocks/{block_message['block_hash']}.block")

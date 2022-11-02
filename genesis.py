@@ -42,8 +42,10 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
               peer_trust=1000000000,
               last_seen=get_timestamp_seconds())
 
-    save_block(block_message=genesis_block_message, logger=logger)
-    set_latest_block_info(block_message=genesis_block_message)
+    save_block(block_message=genesis_block_message,
+               logger=logger)
+    set_latest_block_info(block_message=genesis_block_message,
+                          logger=logger)
 
 
 if __name__ == "__main__":
@@ -54,7 +56,7 @@ if __name__ == "__main__":
     make_genesis(
         address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b",
         balance=1000000000000000,
-        ip="78.102.98.72",
+        ip="89.176.130.244",
         port=9173,
         timestamp=1657829259,
         logger=logger,

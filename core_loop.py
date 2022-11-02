@@ -292,7 +292,8 @@ class CoreClient(threading.Thread):
 
             update_child_in_latest_block(block["block_hash"], self.logger)
             save_block(block, self.logger)
-            set_latest_block_info(block_message=block)
+            set_latest_block_info(block_message=block,
+                                  logger=self.logger)
             change_balance(address=block["block_creator"],
                            amount=block["block_reward"])
 
@@ -419,5 +420,6 @@ class CoreClient(threading.Thread):
             except Exception as e:
                 self.logger.error(f"Error in core loop: {e}")
                 time.sleep(1)
+                raise #test
 
         self.logger.info("Termination code reached, bye")

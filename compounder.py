@@ -3,6 +3,7 @@ import json
 import time
 
 import aiohttp
+import msgpack
 
 from config import get_config
 from data_ops import sort_list_dict
@@ -11,18 +12,25 @@ from log_ops import get_logger
 """this module is optimized for low memory and bandwidth usage"""
 
 
-async def get_list_of(key, peer, fail_storage, logger, retries=3):
+async def get_list_of(key, peer, fail_storage, logger, compress=None, retries=3):
     """method compounded by compound_get_list_of, fail storage external by reference (obj)"""
     """bandwith usage of this grows exponentially with number of peers"""
     """peers include themselves in their peer lists"""
 
-    url_construct = f"http://{peer}:{get_config()['port']}/{key}"
+    if compress:
+        url_construct = f"http://{peer}:{get_config()['port']}/{key}?compress={compress}"
+    else:
+        url_construct = f"http://{peer}:{get_config()['port']}/{key}"
+
     while retries > 0:
         try:
             timeout = aiohttp.ClientTimeout(total=3)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url_construct) as response:
-                    fetched = json.loads(await response.text())[key]
+                    if compress == "msgpack":
+                        fetched = msgpack.unpackb(await response.read())[key]
+                    else:
+                        fetched = json.loads(await response.text())[key]
                     return fetched
 
         except Exception:
@@ -31,19 +39,19 @@ async def get_list_of(key, peer, fail_storage, logger, retries=3):
 
         if retries < 1:
             if peer not in fail_storage:
-                logger.info(f"Failed to get peers of {peer} from {url_construct}")
+                logger.info(f"Failed to get {key} of {peer} from {url_construct}")
                 fail_storage.append(peer)
             break
 
 
-async def compound_get_list_of(key, entries, logger, fail_storage):
+async def compound_get_list_of(key, entries, logger, fail_storage, compress=None):
     """returns a list of lists of raw peers from multiple peers at once"""
 
     result = list(
         filter(
             None,
             await asyncio.gather(
-                *[get_list_of(key, entry, fail_storage, logger) for entry in entries]
+                *[get_list_of(key, entry, fail_storage, logger, compress) for entry in entries]
             ),
         )
     )
@@ -136,7 +144,7 @@ async def compound_announce_self(ips, logger, fail_storage):
 
 
 if __name__ == "__main__":
-    peers = ["127.0.0.1"]
+    peers = ["127.0.0.1", "89.176.130.244"]
     logger = get_logger(file="compounder.log")
     fail_storage = []  # needs to be object because it is changed on the go
 

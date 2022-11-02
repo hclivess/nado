@@ -130,3 +130,4 @@ class PeerClient(threading.Thread):
             except Exception as e:
                 self.logger.error(f"Error in peer loop: {e}")
                 time.sleep(1)
+                raise #test

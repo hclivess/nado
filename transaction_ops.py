@@ -22,6 +22,10 @@ from account_ops import get_account, reflect_transaction
 def calculate_fee():
     return 1
 
+def get_recommneded_fee(target, port):
+    url = f"http://{target}:{port}/get_recommended_fee"
+    result = json.loads(requests.get(url, timeout=3).text)
+    return result['fee']
 
 def get_transaction(txid, logger):
     """return transaction based on txid"""
@@ -295,7 +299,7 @@ def validate_origin(transaction: dict):
 
     assert verify(
         signed=signature,
-        message=json.dumps(transaction),
+        message=msgpack.packb(transaction),
         public_key=transaction["public_key"],
     ), "Invalid sender"
 
@@ -317,7 +321,7 @@ def create_transaction(sender, recipient, amount, public_key, private_key, times
     txid = create_txid(transaction_message)
     transaction_message.update(txid=txid)
 
-    signature = sign(private_key=private_key, message=json.dumps(transaction_message))
+    signature = sign(private_key=private_key, message=msgpack.packb(transaction_message))
     transaction_message.update(signature=signature)
 
     return transaction_message
@@ -367,7 +371,7 @@ if __name__ == "__main__":
             print(transaction)
             print(validate_transaction(transaction, logger=logger))
 
-            requests.get(f"http://{ip}:{port}/submit_transaction?data={msgpack.packb(transaction)}", timeout=30)
+            requests.get(f"http://{ip}:{port}/submit_transaction?data={json.dumps(transaction)}", timeout=30)
         except Exception as e:
             print(e)
 

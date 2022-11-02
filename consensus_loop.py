@@ -189,4 +189,4 @@ class ConsensusClient(threading.Thread):
             except Exception as e:
                 self.logger.error(f"Error in consensus loop: {e}")
                 time.sleep(1)
-                #raise  # test
+                raise  # test
