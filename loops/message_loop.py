@@ -1,7 +1,7 @@
 import threading
 import time
 
-from block_ops import get_latest_block_info
+from ops.block_ops import get_latest_block_info
 
 
 class MessageClient(threading.Thread):

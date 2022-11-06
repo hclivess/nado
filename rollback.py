@@ -1,9 +1,8 @@
-import json
 import os
 
 import msgpack
 
-from block_ops import load_block, get_latest_block_info, set_latest_block_info
+from ops.block_ops import load_block, get_latest_block_info, set_latest_block_info
 from transaction_ops import unindex_transaction
 from account_ops import reflect_transaction, change_balance, increase_produced_count
 

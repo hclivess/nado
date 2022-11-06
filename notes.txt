@@ -1,1 +1,0 @@
-when receiving block producers, process peers (get peer config from the same node)

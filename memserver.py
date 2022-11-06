@@ -2,10 +2,10 @@ import asyncio
 import time
 from threading import Lock
 
-from block_ops import load_block_producers
+from ops.block_ops import load_block_producers
 from compounder import compound_get_list_of
 from config import get_timestamp_seconds, get_config
-from data_ops import set_and_sort, sort_list_dict
+from ops.data_ops import set_and_sort, sort_list_dict
 from hashing import blake2b_hash
 from keys import load_keys
 from transaction_ops import (

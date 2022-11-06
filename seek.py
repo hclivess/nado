@@ -1,6 +1,6 @@
-from block_ops import get_latest_block_info, load_block
+from ops.block_ops import get_latest_block_info, load_block
 from config import get_timestamp_seconds
-from log_ops import get_logger
+from ops.log_ops import get_logger
 
 
 #  not used
