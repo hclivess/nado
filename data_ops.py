@@ -1,6 +1,12 @@
 import random
 import sys
 import os
+import re
+
+def check_traversal(to_check):
+    allowed = "^\w+$"
+    if re.search(allowed, to_check):
+        raise ValueError(f"Traversal attack attempt with [{to_check}]")
 
 def dict_to_val_list(some_dict) -> list:
     return_list = []

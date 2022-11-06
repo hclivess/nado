@@ -1,11 +1,12 @@
 import os
-
+from data_ops import check_traversal
 import msgpack
-
 
 def get_account(address, create_on_error=True):
     """return all account information if account exists else create it"""
+    check_traversal(address)
     account_path = f"accounts/{address}/balance.dat"
+
     if os.path.exists(account_path):
         with open(account_path, "rb") as account_file:
             account = msgpack.unpack(account_file)
@@ -35,6 +36,7 @@ def reflect_transaction(transaction, revert=False):
 
 
 def change_balance(address: str, amount: int, is_burn=False):
+    check_traversal(address)
     while True:
         try:
             account_message = get_account(address)
@@ -54,6 +56,8 @@ def change_balance(address: str, amount: int, is_burn=False):
 
 
 def increase_produced_count(address, amount, revert=False):
+    check_traversal(address)
+
     account_path = f"accounts/{address}/balance.dat"
     account = get_account(address)
     produced = account["account_produced"]
@@ -69,6 +73,8 @@ def increase_produced_count(address, amount, revert=False):
 
 def create_account(address, balance=0, burned=0, produced=0):
     """create account if it does not exist"""
+    check_traversal(address)
+
     account_path = f"accounts/{address}/balance.dat"
     if not os.path.exists(account_path):
         os.makedirs(f"accounts/{address}")
@@ -88,6 +94,8 @@ def create_account(address, balance=0, burned=0, produced=0):
 
 
 def get_account_value(address, key):
+    check_traversal(address)
+
     account = get_account(address)
     value = account[key]
     return value
