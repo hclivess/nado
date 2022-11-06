@@ -44,6 +44,14 @@ class HomeHandler(tornado.web.RequestHandler):
         self.render("templates/homepage.html", ip=get_config()["ip"])
 
 
+def serialize(output, name=None, compress=None):
+    if compress == "msgpack":
+        output = msgpack.packb(output)
+    elif name:
+        output[f"{name}"] = output
+    return output
+
+
 class StatusHandler(tornado.web.RequestHandler):
     def get(self, parameter):
         compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
@@ -58,12 +66,7 @@ class StatusHandler(tornado.web.RequestHandler):
                 "protocol": memserver.protocol,
             }
 
-            if compress == "msgpack":
-                output = msgpack.packb(status_dict)
-            else:
-                output = status_dict
-
-            self.write(output)
+            self.write(serialize(status_dict, compress=compress))
 
         except Exception as e:
             self.set_status(403)
@@ -74,69 +77,87 @@ class TransactionPoolHandler(tornado.web.RequestHandler):
 
     def get(self, parameter):
         compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        transaction_pool_data = memserver.transaction_pool
 
-        if compress == "msgpack":
-            transaction_pool = msgpack.packb({"transaction_pool": memserver.transaction_pool})
-        else:
-            transaction_pool = {"transaction_pool": memserver.transaction_pool}
-        self.write(transaction_pool)
+        self.write(serialize(transaction_pool_data, compress=compress))
 
 
 class TransactionBufferHandler(tornado.web.RequestHandler):
-    def get(self):
-        tx_buffer = {"transaction_buffer": memserver.tx_buffer}
-        self.write(tx_buffer)
+    def get(self, parameter):
+        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        buffer_data = memserver.tx_buffer
+
+        self.write(serialize(buffer_data,
+                             compress=compress))
 
 
 class TrustPoolHandler(tornado.web.RequestHandler):
-    def get(self):
-        trust_pool = {"trust_pool": consensus.trust_pool}
-        self.write(trust_pool)
+    def get(self, parameter):
+        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        trust_pool_data = consensus.trust_pool
+
+        self.write(serialize(trust_pool_data,
+                             compress=compress,
+                             name="trust_pool_data"))
 
 
 class PeerPoolHandler(tornado.web.RequestHandler):
     def get(self, parameter):
         compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        peers_data = list(memserver.peers)
 
-        if compress == "msgpack":
-            self.write(msgpack.packb({"peers": list(memserver.peers)}))
-        else:
-            self.write({"peers": list(memserver.peers)})
+        self.write(serialize(peers_data,
+                             compress=compress,
+                             name="peers"))
 
 
 class BlockProducerPoolHandler(tornado.web.RequestHandler):
-    def get(self):
-        self.write({"block_producers": list(memserver.block_producers)})
+    def get(self, parameter):
+        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        producer_data = list(memserver.block_producers)
+
+        self.write(serialize(producer_data,
+                             compress=compress,
+                             name="block_producers"))
 
 
 class BlockProducersHashPoolHandler(tornado.web.RequestHandler):
-    def get(self):
-        self.write(
-            {
-                "block_producers_hash_pool": consensus.block_producers_hash_pool,
-                "majority_block_producers_hash_pool": consensus.majority_block_producers_hash,
-            }
-        )
+    def get(self, parameter):
+        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+
+        output = {
+            "block_producers_hash_pool": consensus.block_producers_hash_pool,
+            "majority_block_producers_hash_pool": consensus.majority_block_producers_hash,
+        }
+
+        self.write(serialize(output,
+                             compress=compress))
 
 
 class TransactionHashPoolHandler(tornado.web.RequestHandler):
-    def get(self):
-        self.write(
-            {
-                "transactions_hash_pool": consensus.transaction_hash_pool,
-                "majority_transactions_hash_pool": consensus.majority_transaction_pool_hash,
-            }
-        )
+    def get(self, parameter):
+        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+
+        output = {
+            "transactions_hash_pool": consensus.transaction_hash_pool,
+            "majority_transactions_hash_pool": consensus.majority_transaction_pool_hash,
+        }
+
+        self.write(serialize(output,
+                             compress=compress))
 
 
 class BlockHashPoolHandler(tornado.web.RequestHandler):
-    def get(self):
-        self.write(
-            {
-                "block_opinions": consensus.block_hash_pool,
-                "majority_block_opinion": consensus.majority_block_hash,
-            }
-        )
+    def get(self, parameter):
+        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+
+        output = {
+            "block_opinions": consensus.block_hash_pool,
+            "majority_block_opinion": consensus.majority_block_hash,
+        }
+
+        self.write(serialize(output,
+                             compress=compress))
 
 
 class FeeHandler(tornado.web.RequestHandler):
@@ -144,14 +165,13 @@ class FeeHandler(tornado.web.RequestHandler):
         self.write({"fee": fee_over_blocks(logger=logger)})
 
 
-class StatusPoolHandler(tornado.web.RequestHandler):
+class StatusPoolHandler(tornado.web.RequestHandler):  # validate
     def get(self, parameter):
         compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        status_pool_data = consensus.status_pool
 
-        if compress == "msgpack":
-            self.write(msgpack.packb(consensus.status_pool).encode())
-        else:
-            self.write(consensus.status_pool)
+        self.write(serialize(status_pool_data,
+                             compress=compress))
 
 
 class SubmitTransactionHandler(tornado.web.RequestHandler):
@@ -159,6 +179,7 @@ class SubmitTransactionHandler(tornado.web.RequestHandler):
         try:
             transaction_raw = SubmitTransactionHandler.get_argument(self, "data")
             transaction = json.loads(transaction_raw)
+
             output = memserver.merge_transaction(transaction, user=True)
             self.write(msgpack.packb(output))
 
@@ -205,16 +226,13 @@ class TransactionHandler(tornado.web.RequestHandler):
             transaction_data = get_transaction(transaction, logger=logger)
             compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
 
-            if compress == "msgpack":
-                output = msgpack.packb(transaction_data)
-            else:
-                output = transaction_data
-
             if not transaction_data:
-                output = "Not found"
+                transaction_data = "Not found"
                 self.set_status(403)
 
-            self.write(output)
+            self.write(serialize(transaction_data,
+                                 compress=compress))
+
         except Exception as e:
             self.set_status(403)
             self.write(f"Error: {e}")
@@ -230,16 +248,16 @@ class AccountTransactionsHandler(tornado.web.RequestHandler):
             batch = AccountTransactionsHandler.get_argument(self, "batch")
             compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
 
-            transaction_data = get_transactions_of_account(account=address, logger=logger, batch=batch)
-            if compress == "msgpack":
-                output = msgpack.packb(transaction_data)
-            else:
-                output = transaction_data
+            transaction_data = get_transactions_of_account(account=address,
+                                                           logger=logger,
+                                                           batch=batch)
 
             if not transaction_data:
-                output = "Not found"
+                transaction_data = "Not found"
                 self.set_status(403)
-            self.write(output)
+
+            self.write(serialize(transaction_data,
+                                 compress=compress))
         except Exception as e:
             self.set_status(403)
             self.write(f"Error: {e}")
@@ -252,15 +270,13 @@ class GetBlockHandler(tornado.web.RequestHandler):
             compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
             block_data = get_block(block)
 
-            if compress == "msgpack":
-                output = msgpack.packb(block_data)
-            else:
-                output = block_data
-
             if not block_data:
-                output = "Not found"
+                block_data = "Not found"
                 self.set_status(403)
-            self.write(output)
+
+            self.write(serialize(block_data,
+                                 compress=compress))
+
         except Exception as e:
             self.set_status(403)
             self.write(f"Error: {e}")
@@ -288,19 +304,14 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
 
             collected_blocks.reverse()
 
-            if compress == "msgpack":
-                output = msgpack.packb(collected_blocks)
-            else:
-                output = collected_blocks
-
             if not collected_blocks:
-                output = "Not found"
+                collected_blocks = "Not found"
                 self.set_status(403)
 
-            if compress == "msgpack":
-                self.write(output)
-            else:
-                self.write({"blocks_before": output})
+            self.write(serialize(collected_blocks,
+                                 compress=compress,
+                                 name="blocks_before"))
+
 
         except Exception as e:
             self.set_status(403)
@@ -327,16 +338,13 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
                 except:
                     break
 
-            if compress == "msgpack":
-                output = msgpack.packb(collected_blocks)
-            else:
-                output = {"blocks_after": collected_blocks}
-
             if not collected_blocks:
-                output = "Not found"
+                collected_blocks = "Not found"
                 self.set_status(403)
 
-            self.write(output)
+            self.write(serialize(collected_blocks,
+                                 compress=compress,
+                                 name="blocks_after"))
 
         except Exception as e:
             self.set_status(403)
@@ -348,14 +356,8 @@ class GetLatestBlockHandler(tornado.web.RequestHandler):
         latest_block_data = get_latest_block_info(logger=logger)
         compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
 
-
-        if compress == "msgpack":
-            output = msgpack.packb(latest_block_data)
-        else:
-            output = latest_block_data
-
-        self.write(output)
-
+        self.write(serialize(latest_block_data,
+                             compress=compress))
 
 class AccountHandler(tornado.web.RequestHandler):
     def get(self, parameter):
@@ -364,16 +366,12 @@ class AccountHandler(tornado.web.RequestHandler):
             compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
             account_data = get_account(account, create_on_error=False)
 
-            if compress == "msgpack":
-                output = msgpack.packb(account_data)
-            else:
-                output = account_data
-
             if not account_data:
-                output = "Not found"
+                account_data = "Not found"
                 self.set_status(403)
 
-            self.write(output)
+            self.write(serialize(account_data,
+                                 compress=compress))
 
         except Exception as e:
             self.set_status(403)
@@ -387,16 +385,13 @@ class ProducerSetHandler(tornado.web.RequestHandler):
             compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
 
             producer_data = get_producer_set(producer_set_hash)
-            if compress == "msgpack":
-                output = msgpack.packb(producer_data)
-            else:
-                output = producer_data
 
             if not producer_data:
-                output = "Not found"
+                producer_data = "Not found"
                 self.set_status(403)
-            self.write(output)
 
+            self.write(serialize(producer_data,
+                                 compress=compress))
         except Exception as e:
             self.set_status(403)
             self.write(f"Error: {e}")
@@ -475,20 +470,20 @@ def make_app():
             (r"/get_account(.*)", AccountHandler),
             (r"/get_producer_set_from_hash(.*)", ProducerSetHandler),
             (r"/transaction_pool(.*)", TransactionPoolHandler),
-            (r"/transaction_hash_pool", TransactionHashPoolHandler),
-            (r"/transaction_buffer", TransactionBufferHandler),
-            (r"/trust_pool", TrustPoolHandler),
-            (r"/get_latest_block", GetLatestBlockHandler),
+            (r"/transaction_hash_pool(.*)", TransactionHashPoolHandler),
+            (r"/transaction_buffer(.*)", TransactionBufferHandler),
+            (r"/trust_pool(.*)", TrustPoolHandler),
+            (r"/get_latest_block(.*)", GetLatestBlockHandler),
             (r"/announce_peer(.*)", AnnouncePeerHandler),
-            (r"/status_pool", StatusPoolHandler),
+            (r"/status_pool(.*)", StatusPoolHandler),
             (r"/peers(.*)", PeerPoolHandler),
-            (r"/block_producers", BlockProducerPoolHandler),
-            (r"/block_producers_hash_pool", BlockProducersHashPoolHandler),
-            (r"/block_hash_pool", BlockHashPoolHandler),
+            (r"/block_producers(.*)", BlockProducerPoolHandler),
+            (r"/block_producers_hash_pool(.*)", BlockProducersHashPoolHandler),
+            (r"/block_hash_pool(.*)", BlockHashPoolHandler),
             (r"/get_recommended_fee", FeeHandler),
             (r"/terminate(.*)", TerminateHandler),
             (r"/submit_transaction(.*)", SubmitTransactionHandler),
-            (r"/log", LogHandler),
+            (r"/log(.*)", LogHandler),
             (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": "static"}),
             (r'/(favicon.ico)', tornado.web.StaticFileHandler, {"path": ""}),
 

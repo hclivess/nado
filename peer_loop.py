@@ -122,6 +122,7 @@ class PeerClient(threading.Thread):
                         self.memserver.peers,
                         logger=self.logger,
                         fail_storage=self.memserver.purge_peers_list,
+                        compress="msgpack"
                     )
                 )
 

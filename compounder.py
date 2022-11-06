@@ -28,7 +28,7 @@ async def get_list_of(key, peer, fail_storage, logger, compress=None, retries=3)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url_construct) as response:
                     if compress == "msgpack":
-                        fetched = msgpack.unpackb(await response.read())[key]
+                        fetched = msgpack.unpackb(await response.read())
                     else:
                         fetched = json.loads(await response.text())[key]
                     return fetched
@@ -67,16 +67,24 @@ async def compound_get_list_of(key, entries, logger, fail_storage, compress=None
     return success_storage
 
 
-async def get_status(peer, logger, fail_storage, retries=3):
+async def get_status(peer, logger, fail_storage, compress=None, retries=3):
     """method compounded by compound_get_status_pool"""
 
-    url_construct = f"http://{peer}:{get_config()['port']}/status"
+    if compress:
+        url_construct = f"http://{peer}:{get_config()['port']}/status?compress={compress}"
+    else:
+        url_construct = f"http://{peer}:{get_config()['port']}/status"
     while retries > 0:
         try:
             timeout = aiohttp.ClientTimeout(total=3)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(url_construct) as response:
-                    fetched = json.loads(await response.text())
+
+                    if compress == "msgpack":
+                        fetched = msgpack.unpackb(await response.read())
+                    else:
+                        fetched = json.loads(await response.text())
+
                     return peer, fetched
 
         except Exception:
@@ -90,7 +98,7 @@ async def get_status(peer, logger, fail_storage, retries=3):
             break
 
 
-async def compound_get_status_pool(ips, logger, fail_storage):
+async def compound_get_status_pool(ips, logger, fail_storage, compress=None):
     """returns a list of dicts where ip addresses are keys"""
     result = list(
         filter(
