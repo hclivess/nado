@@ -299,7 +299,7 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
                         collected_blocks.append(block)
                         parent_hash = block["parent_hash"]
                 except Exception as e:
-                    print(e)
+                    logger.debug("Block collection hit a roadblock")
                     break
 
             collected_blocks.reverse()
@@ -335,7 +335,8 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
                     if block:
                         collected_blocks.append(block)
                         child_hash = block["child_hash"]
-                except:
+                except Exception as e:
+                    logger.debug("Block collection hit a roadblock")
                     break
 
             if not collected_blocks:
