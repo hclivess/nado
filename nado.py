@@ -171,11 +171,17 @@ class SubmitTransactionHandler(tornado.web.RequestHandler):
 
 
 class LogHandler(tornado.web.RequestHandler):
-    def get(self):
+    def get(self, parameter):
+        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+
         with open("logs/log.log") as logfile:
             lines = logfile.readlines()
             for line in lines:
-                self.write(line)
+                if compress == "msgpack":
+                    output = msgpack.packb(line)
+                else:
+                    output = line
+                self.write(output)
                 self.write("<br>")
 
 
@@ -183,6 +189,7 @@ class TerminateHandler(tornado.web.RequestHandler):
     def get(self, parameter):
         try:
             server_key = TerminateHandler.get_argument(self, "key")
+
             if server_key == memserver.server_key:
                 memserver.terminate = True
                 tornado.ioloop.IOLoop.current().stop()
@@ -195,10 +202,18 @@ class TransactionHandler(tornado.web.RequestHandler):
     def get(self, parameter):
         try:
             transaction = TransactionHandler.get_argument(self, "txid")
-            output = get_transaction(transaction, logger=logger)
-            if not output:
+            transaction_data = get_transaction(transaction, logger=logger)
+            compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+
+            if compress == "msgpack":
+                output = msgpack.packb(transaction_data)
+            else:
+                output = transaction_data
+
+            if not transaction_data:
                 output = "Not found"
                 self.set_status(403)
+
             self.write(output)
         except Exception as e:
             self.set_status(403)
@@ -213,9 +228,15 @@ class AccountTransactionsHandler(tornado.web.RequestHandler):
         try:
             address = AccountTransactionsHandler.get_argument(self, "address")
             batch = AccountTransactionsHandler.get_argument(self, "batch")
+            compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
 
-            output = get_transactions_of_account(account=address, logger=logger, batch=batch)
-            if not output:
+            transaction_data = get_transactions_of_account(account=address, logger=logger, batch=batch)
+            if compress == "msgpack":
+                output = msgpack.packb(transaction_data)
+            else:
+                output = transaction_data
+
+            if not transaction_data:
                 output = "Not found"
                 self.set_status(403)
             self.write(output)
@@ -228,8 +249,15 @@ class GetBlockHandler(tornado.web.RequestHandler):
     def get(self, parameter):
         try:
             block = GetBlockHandler.get_argument(self, "hash")
-            output = get_block(block)
-            if not output:
+            compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+            block_data = get_block(block)
+
+            if compress == "msgpack":
+                output = msgpack.packb(block_data)
+            else:
+                output = block_data
+
+            if not block_data:
                 output = "Not found"
                 self.set_status(403)
             self.write(output)
@@ -265,7 +293,7 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
             else:
                 output = collected_blocks
 
-            if not output:
+            if not collected_blocks:
                 output = "Not found"
                 self.set_status(403)
 
@@ -302,16 +330,13 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
             if compress == "msgpack":
                 output = msgpack.packb(collected_blocks)
             else:
-                output = collected_blocks
+                output = {"blocks_after": collected_blocks}
 
-            if not output:
+            if not collected_blocks:
                 output = "Not found"
                 self.set_status(403)
 
-            if compress == "msgpack":
-                self.write(output)
-            else:
-                self.write({"blocks_after": output})
+            self.write(output)
 
         except Exception as e:
             self.set_status(403)
@@ -319,18 +344,35 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
 
 
 class GetLatestBlockHandler(tornado.web.RequestHandler):
-    def get(self):
-        self.write(get_latest_block_info(logger=logger))
+    def get(self, parameter):
+        latest_block_data = get_latest_block_info(logger=logger)
+        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+
+
+        if compress == "msgpack":
+            output = msgpack.packb(latest_block_data)
+        else:
+            output = latest_block_data
+
+        self.write(output)
 
 
 class AccountHandler(tornado.web.RequestHandler):
     def get(self, parameter):
         try:
             account = AccountHandler.get_argument(self, "address")
-            output = get_account(account, create_on_error=False)
-            if not output:
+            compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+            account_data = get_account(account, create_on_error=False)
+
+            if compress == "msgpack":
+                output = msgpack.packb(account_data)
+            else:
+                output = account_data
+
+            if not account_data:
                 output = "Not found"
                 self.set_status(403)
+
             self.write(output)
 
         except Exception as e:
@@ -342,8 +384,15 @@ class ProducerSetHandler(tornado.web.RequestHandler):
     def get(self, parameter):
         try:
             producer_set_hash = ProducerSetHandler.get_argument(self, "hash")
-            output = get_producer_set(producer_set_hash)
-            if not output:
+            compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+
+            producer_data = get_producer_set(producer_set_hash)
+            if compress == "msgpack":
+                output = msgpack.packb(producer_data)
+            else:
+                output = producer_data
+
+            if not producer_data:
                 output = "Not found"
                 self.set_status(403)
             self.write(output)
