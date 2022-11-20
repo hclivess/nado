@@ -2,11 +2,11 @@ import asyncio
 import threading
 import time
 
-from ops.block_ops import save_block_producers
+from block_ops import save_block_producers
 from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
-from ops.data_ops import set_and_sort
-from ops.peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, dump_peers, adjust_trust
+from data_ops import set_and_sort
+from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, dump_peers, adjust_trust
 
 
 class PeerClient(threading.Thread):

@@ -1,5 +1,5 @@
 import os
-from ops.data_ops import check_traversal
+from data_ops import check_traversal
 import msgpack
 
 def get_account(address, create_on_error=True):

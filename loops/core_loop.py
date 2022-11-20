@@ -1,7 +1,7 @@
 import threading
 import time
 
-from ops.block_ops import (
+from block_ops import (
     knows_block,
     get_blocks_after,
     get_from_single_target,
@@ -16,9 +16,9 @@ from ops.block_ops import (
     get_block
 )
 from config import get_timestamp_seconds, get_config
-from ops.data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurence, dict_to_val_list
-from ops.peer_ops import load_trust, adjust_trust, save_peer, get_remote_peer_address, update_local_address
-from ops.pool_ops import merge_buffer
+from data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurence, dict_to_val_list
+from peer_ops import load_trust, adjust_trust, save_peer, get_remote_peer_address, update_local_address
+from pool_ops import merge_buffer
 from rollback import rollback_one_block
 from transaction_ops import (
     incorporate_transaction,

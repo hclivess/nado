@@ -1,9 +1,9 @@
 import threading
 import time
 
-from ops.block_ops import get_since_last_block, save_block_producers
+from block_ops import get_since_last_block, save_block_producers
 from config import get_timestamp_seconds
-from ops.peer_ops import (
+from peer_ops import (
     load_peer,
     update_peer,
     dump_peers,

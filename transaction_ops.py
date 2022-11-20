@@ -8,13 +8,13 @@ import requests
 from Curve25519 import sign, verify
 from address import proof_sender
 from address import validate_address
-from ops.block_ops import load_block
+from block_ops import load_block
 from config import get_config
 from config import get_timestamp_seconds
-from ops.data_ops import sort_list_dict
+from data_ops import sort_list_dict
 from hashing import create_nonce, blake2b_hash
 from keys import load_keys
-from ops.log_ops import get_logger
+from log_ops import get_logger
 from account_ops import get_account, reflect_transaction
 
 
