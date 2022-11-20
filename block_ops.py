@@ -263,35 +263,37 @@ def update_child_in_latest_block(child_hash, logger):
     return True
 
 
-def get_blocks_after(target_peer, from_hash, logger, count=50, pack="msgpack"):
+def get_blocks_after(target_peer, from_hash, logger, count=50, compress="msgpack"):
     try:
-        url = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&pack={pack}"
+        url = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
         result = requests.get(url, timeout=3)
-        text = result.text
         code = result.status_code
 
-        if code == 200 and pack == "msgpack":
-            return msgpack.unpackb(text)
+        if code == 200 and compress == "msgpack":
+            read = result.content
+            return msgpack.unpackb(read)
         elif code == 200:
+            text = result.text
             return json.loads(text)["blocks_after"]
         else:
             return False
 
     except Exception as e:
         logger.error(f"Failed to get blocks after {from_hash} from {target_peer}: {e}")
-        return False
+        raise
 
-
-def get_blocks_before(target_peer, from_hash, logger, count=50, pack="true"):
+def get_blocks_before(target_peer, from_hash, logger, count=50, compress="true"):
     try:
-        url = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&pack={pack}"
+        url = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
         result = requests.get(url, timeout=3)
-        text = result.text
         code = result.status_code
-        if code == 200 and pack == "false":
+
+        if code == 200 and compress == "msgpack":
+            read = result.content
+            return msgpack.unpackb(read)
+        elif code == 200:
+            text = result.text
             return json.loads(text)["blocks_before"]
-        elif code == 200 and pack == "msgpack":
-            return msgpack.unpackb(text)
         else:
             return False
 
