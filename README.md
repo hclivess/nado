@@ -18,7 +18,6 @@ python3.10 -m pip install pip --upgrade
 git clone https://github.com/hclivess/nado
 cd nado
 python3.10 -m pip install -r requirements.txt
-python3.10 nado.py
 ```
 
 #### Virtual environment installation
@@ -33,9 +32,10 @@ git clone https://github.com/hclivess/nado
 cd nado
 pip install -r requirements.txt
 ```
-To go back to your screen, use `screen -r nado` 
-To update your nado installation, use `git pull origin main` from the directory where you have it installed.
+To run NADO, execute the following command: `python3.10 nado.py`
 
+To go back to your screen, use `screen -r nado` 
+To update your NADO installation, use `git pull origin main` from the directory where you have it installed.
 
 After installation, go to your browser and announce your peer to one of the nodes like this:
 http://207.180.218.90:9173/announce_peer?ip=89.176.130.244 but put your own IP as the argument after ```ip=```. For this,
