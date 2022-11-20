@@ -119,7 +119,7 @@ class MemServer:
                     msg = {"result": False,
                            "message": f"Could not merge remote transaction: {e}"}
                     # self.logger.info(msg) spam
-                    raise #test
+                    #raise #test
                     return msg
                 else:
                     try:
