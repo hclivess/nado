@@ -47,7 +47,7 @@ def serialize(output, name=None, compress=None):
     if compress == "msgpack":
         output = msgpack.packb(output)
     elif name:
-        output[f"{name}"] = output
+        output = {name: output}
     return output
 
 
