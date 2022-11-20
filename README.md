@@ -9,6 +9,7 @@ NADO is currently running on alpha testnet only. This means that by joining the 
 
 ## Installation
 
+#### Direct installation
 ```
 screen -S nado
 sudo apt-get update
@@ -19,6 +20,22 @@ cd nado
 python3.10 -m pip install -r requirements.txt
 python3.10 nado.py
 ```
+
+#### Virtual environment installation
+
+```
+screen -S nado
+apt-get install python3.10-dev python3.10-venv
+python3.10 -m venv nado_venv
+source nado_venv/bin/activate
+pip install --upgrade pip
+git clone https://github.com/hclivess/nado
+cd nado
+pip install -r requirements.txt
+```
+To go back to your screen, use `screen -r nado` 
+To update your nado installation, use `git pull origin main` from the directory where you have it installed.
+
 
 After installation, go to your browser and announce your peer to one of the nodes like this:
 http://207.180.218.90:9173/announce_peer?ip=89.176.130.244 but put your own IP as the argument after ```ip=```. For this,
