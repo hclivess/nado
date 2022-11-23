@@ -420,6 +420,6 @@ class CoreClient(threading.Thread):
             except Exception as e:
                 self.logger.error(f"Error in core loop: {e}")
                 time.sleep(1)
-                raise #test
+                #raise #test
 
         self.logger.info("Termination code reached, bye")
