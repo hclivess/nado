@@ -479,7 +479,6 @@ def make_app():
     return tornado.web.Application(
         [
             (r"/", HomeHandler),
-            (r"/status(.*)", StatusHandler),
             (r"/get_transactions_of_account(.*)", AccountTransactionsHandler),
             (r"/get_transaction(.*)", TransactionHandler),
             (r"/get_blocks_after(.*)", GetBlocksAfterHandler),
@@ -494,6 +493,7 @@ def make_app():
             (r"/get_latest_block(.*)", GetLatestBlockHandler),
             (r"/announce_peer(.*)", AnnouncePeerHandler),
             (r"/status_pool(.*)", StatusPoolHandler),
+            (r"/status(.*)", StatusHandler),
             (r"/peers(.*)", PeerPoolHandler),
             (r"/block_producers(.*)", BlockProducerPoolHandler),
             (r"/block_producers_hash_pool(.*)", BlockProducersHashPoolHandler),
