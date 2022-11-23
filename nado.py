@@ -65,7 +65,9 @@ class StatusHandler(tornado.web.RequestHandler):
                 "protocol": memserver.protocol,
             }
 
-            self.write(serialize(status_dict, compress=compress))
+            self.write(serialize(name="status",
+                                 output=status_dict,
+                                 compress=compress))
 
         except Exception as e:
             self.set_status(403)
@@ -77,8 +79,9 @@ class TransactionPoolHandler(tornado.web.RequestHandler):
     def get(self, parameter):
         compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
         transaction_pool_data = memserver.transaction_pool
-
-        self.write(serialize(transaction_pool_data, compress=compress))
+        self.write(serialize(name="transaction_pool",
+                             output=transaction_pool_data,
+                             compress=compress))
 
 
 class TransactionBufferHandler(tornado.web.RequestHandler):
@@ -86,7 +89,8 @@ class TransactionBufferHandler(tornado.web.RequestHandler):
         compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
         buffer_data = memserver.tx_buffer
 
-        self.write(serialize(buffer_data,
+        self.write(serialize(name="transaction_buffer",
+                             output=buffer_data,
                              compress=compress))
 
 
@@ -95,9 +99,10 @@ class TrustPoolHandler(tornado.web.RequestHandler):
         compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
         trust_pool_data = consensus.trust_pool
 
-        self.write(serialize(trust_pool_data,
+        self.write(serialize(name="trust_pool_data",
+                             output=trust_pool_data,
                              compress=compress,
-                             name="trust_pool_data"))
+                             ))
 
 
 class PeerPoolHandler(tornado.web.RequestHandler):
@@ -105,9 +110,10 @@ class PeerPoolHandler(tornado.web.RequestHandler):
         compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
         peers_data = list(memserver.peers)
 
-        self.write(serialize(peers_data,
-                             compress=compress,
-                             name="peers"))
+        self.write(serialize(name="peers",
+                             output=peers_data,
+                             compress=compress
+                             ))
 
 
 class BlockProducerPoolHandler(tornado.web.RequestHandler):
@@ -115,9 +121,9 @@ class BlockProducerPoolHandler(tornado.web.RequestHandler):
         compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
         producer_data = list(memserver.block_producers)
 
-        self.write(serialize(producer_data,
-                             compress=compress,
-                             name="block_producers"))
+        self.write(serialize(name="block_producers",
+                             output=producer_data,
+                             compress=compress))
 
 
 class BlockProducersHashPoolHandler(tornado.web.RequestHandler):
@@ -129,7 +135,8 @@ class BlockProducersHashPoolHandler(tornado.web.RequestHandler):
             "majority_block_producers_hash_pool": consensus.majority_block_producers_hash,
         }
 
-        self.write(serialize(output,
+        self.write(serialize(name="block_producers_hash_pool",
+                             output=output,
                              compress=compress))
 
 
@@ -142,20 +149,22 @@ class TransactionHashPoolHandler(tornado.web.RequestHandler):
             "majority_transactions_hash_pool": consensus.majority_transaction_pool_hash,
         }
 
-        self.write(serialize(output,
+        self.write(serialize(name="transactions_hash_pool",
+                             output=output,
                              compress=compress))
 
 
 class BlockHashPoolHandler(tornado.web.RequestHandler):
     def get(self, parameter):
-        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        compress = BlockHashPoolHandler.get_argument(self, "compress", default="none")
 
         output = {
             "block_opinions": consensus.block_hash_pool,
             "majority_block_opinion": consensus.majority_block_hash,
         }
 
-        self.write(serialize(output,
+        self.write(serialize(name="block_hash_pool",
+                             output=output,
                              compress=compress))
 
 
@@ -169,7 +178,8 @@ class StatusPoolHandler(tornado.web.RequestHandler):  # validate
         compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
         status_pool_data = consensus.status_pool
 
-        self.write(serialize(status_pool_data,
+        self.write(serialize(name="status_pool",
+                             output=status_pool_data,
                              compress=compress))
 
 
@@ -229,7 +239,8 @@ class TransactionHandler(tornado.web.RequestHandler):
                 transaction_data = "Not found"
                 self.set_status(403)
 
-            self.write(serialize(transaction_data,
+            self.write(serialize(name="transaction",
+                                 output=transaction_data,
                                  compress=compress))
 
         except Exception as e:
@@ -255,7 +266,8 @@ class AccountTransactionsHandler(tornado.web.RequestHandler):
                 transaction_data = "Not found"
                 self.set_status(403)
 
-            self.write(serialize(transaction_data,
+            self.write(serialize(name="account_transactions",
+                                 output=transaction_data,
                                  compress=compress))
         except Exception as e:
             self.set_status(403)
@@ -273,7 +285,8 @@ class GetBlockHandler(tornado.web.RequestHandler):
                 block_data = "Not found"
                 self.set_status(403)
 
-            self.write(serialize(block_data,
+            self.write(serialize(name="block",
+                                 output=block_data,
                                  compress=compress))
 
         except Exception as e:
@@ -307,9 +320,10 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
                 collected_blocks = "Not found"
                 self.set_status(403)
 
-            self.write(serialize(collected_blocks,
-                                 compress=compress,
-                                 name="blocks_before"))
+            self.write(serialize(name="blocks_before",
+                                 output=collected_blocks,
+                                 compress=compress
+                                 ))
 
 
         except Exception as e:
@@ -342,9 +356,10 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
                 collected_blocks = "Not found"
                 self.set_status(403)
 
-            self.write(serialize(collected_blocks,
+            self.write(serialize(name="blocks_after",
+                                 output=collected_blocks,
                                  compress=compress,
-                                 name="blocks_after"))
+                                 ))
 
         except Exception as e:
             self.set_status(403)
@@ -356,7 +371,8 @@ class GetLatestBlockHandler(tornado.web.RequestHandler):
         latest_block_data = get_latest_block_info(logger=logger)
         compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
 
-        self.write(serialize(latest_block_data,
+        self.write(serialize(name="latest_block",
+                             output=latest_block_data,
                              compress=compress))
 
 class AccountHandler(tornado.web.RequestHandler):
@@ -370,7 +386,8 @@ class AccountHandler(tornado.web.RequestHandler):
                 account_data = "Not found"
                 self.set_status(403)
 
-            self.write(serialize(account_data,
+            self.write(serialize(name="account",
+                                 output=account_data,
                                  compress=compress))
 
         except Exception as e:
@@ -390,7 +407,8 @@ class ProducerSetHandler(tornado.web.RequestHandler):
                 producer_data = "Not found"
                 self.set_status(403)
 
-            self.write(serialize(producer_data,
+            self.write(serialize(name="producer_set",
+                                 output=producer_data,
                                  compress=compress))
         except Exception as e:
             self.set_status(403)
