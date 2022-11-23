@@ -46,7 +46,7 @@ class HomeHandler(tornado.web.RequestHandler):
 def serialize(output, name=None, compress=None):
     if compress == "msgpack":
         output = msgpack.packb(output)
-    elif name:
+    elif not isinstance(output, dict) and name:
         output = {name: output}
     return output
 
@@ -175,7 +175,7 @@ class FeeHandler(tornado.web.RequestHandler):
 
 class StatusPoolHandler(tornado.web.RequestHandler):  # validate
     def get(self, parameter):
-        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        compress = StatusPoolHandler.get_argument(self, "compress", default="none")
         status_pool_data = consensus.status_pool
 
         self.write(serialize(name="status_pool",
