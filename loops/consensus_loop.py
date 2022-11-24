@@ -104,20 +104,9 @@ class ConsensusClient(threading.Thread):
             if peer not in self.trust_pool.keys():
                 self.trust_pool[peer] = peer_trust
 
-    def get_transaction_hash_pool(self) -> None:
-        """abstract from status pool"""
+    def get_from_status_pool(self, source, target):
         for item in self.status_pool.copy().items():
-            self.transaction_hash_pool[item[0]] = item[1]["transaction_pool_hash"]
-
-    def get_block_hash_pool(self) -> None:
-        """abstract from status pool"""
-        for item in self.status_pool.copy().items():
-            self.block_hash_pool[item[0]] = item[1]["latest_block_hash"]
-
-    def get_block_producers_hash_pool(self) -> None:
-        """abstract from status pool"""
-        for item in self.status_pool.copy().items():
-            self.block_producers_hash_pool[item[0]] = item[1]["block_producers_hash"]
+            target[item[0]] = item[1][source]
 
     def purge_block_producers(self) -> None:
         for entry in self.memserver.purge_producers_list:
@@ -128,9 +117,12 @@ class ConsensusClient(threading.Thread):
 
         self.memserver.since_last_block = get_since_last_block(logger=self.logger)
 
-        self.get_transaction_hash_pool()
-        self.get_block_hash_pool()
-        self.get_block_producers_hash_pool()
+        self.get_from_status_pool(source="transaction_pool_hash",
+                                  target=self.transaction_hash_pool)
+        self.get_from_status_pool(source="latest_block_hash",
+                                  target=self.block_hash_pool)
+        self.get_from_status_pool(source="block_producers_hash",
+                                  target=self.block_producers_hash_pool)
 
         self.block_hash_pool_percentage = get_pool_percentage(
             self.block_hash_pool, self.majority_block_hash
@@ -188,4 +180,4 @@ class ConsensusClient(threading.Thread):
             except Exception as e:
                 self.logger.error(f"Error in consensus loop: {e}")
                 time.sleep(1)
-                #raise  # test
+                # raise  # test
