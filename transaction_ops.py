@@ -21,10 +21,12 @@ from account_ops import get_account, reflect_transaction
 def calculate_fee():
     return 1
 
+
 def get_recommneded_fee(target, port):
     url = f"http://{target}:{port}/get_recommended_fee"
     result = json.loads(requests.get(url, timeout=3).text)
     return result['fee']
+
 
 def get_transaction(txid, logger):
     """return transaction based on txid"""
@@ -80,16 +82,14 @@ def sort_transaction_pool(transactions: list, key="txid") -> list:
     )
 
 
-
-
-
 def unindex_transaction(transaction):
     tx_path = f"transactions/{transaction['txid']}.dat"
 
     sender_address = transaction['sender']
+    index_number = get_tx_index_number(sender_address)
+
     if tx_index_empty(sender_address):
         update_tx_index_folder(sender_address, get_tx_index_number(sender_address) - 1)
-    index_number = get_tx_index_number(sender_address)
 
     sender_path = f"accounts/{transaction['sender']}/transactions/{index_number}/{transaction['txid']}.lin"
     while not os.path.exists(sender_path):
@@ -99,12 +99,12 @@ def unindex_transaction(transaction):
             raise ValueError(f"Sender transaction {sender_path} rollback index seeking below zero")
 
     recipient_address = transaction['sender']
-    if tx_index_empty(recipient_address):
-        update_tx_index_folder(recipient_address, get_tx_index_number(recipient_address) - 1)
     index_number = get_tx_index_number(recipient_address)
 
-    recipient_path = f"accounts/{transaction['recipient']}/transactions/{index_number}/{transaction['txid']}.lin"
+    if tx_index_empty(recipient_address):
+        update_tx_index_folder(recipient_address, get_tx_index_number(recipient_address) - 1)
 
+    recipient_path = f"accounts/{transaction['recipient']}/transactions/{index_number}/{transaction['txid']}.lin"
     if sender_path != recipient_path:
         while not os.path.exists(recipient_path):
             index_number -= 1
