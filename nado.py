@@ -306,8 +306,13 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
             collected_blocks = []
             for blocks in range(0, count):
                 try:
+
                     block = get_block(parent_hash)
-                    if block:
+                    next_block = None
+                    if next_block == block:
+                        break
+
+                    elif block:
                         collected_blocks.append(block)
                         parent_hash = block["parent_hash"]
                 except Exception as e:
@@ -344,8 +349,13 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
 
             for blocks in range(0, count):
                 try:
+
+                    previous_block = None
                     block = get_block(child_hash)
-                    if block:
+                    if previous_block == block:
+                        break
+
+                    elif block:
                         collected_blocks.append(block)
                         child_hash = block["child_hash"]
                 except Exception as e:
