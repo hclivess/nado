@@ -86,30 +86,30 @@ def unindex_transaction(transaction):
     tx_path = f"transactions/{transaction['txid']}.dat"
 
     sender_address = transaction['sender']
-    index_number = get_tx_index_number(sender_address)
+    sender_index = get_tx_index_number(sender_address)
 
     if tx_index_empty(sender_address):
         update_tx_index_folder(sender_address, get_tx_index_number(sender_address) - 1)
 
-    sender_path = f"accounts/{transaction['sender']}/transactions/{index_number}/{transaction['txid']}.lin"
+    sender_path = f"accounts/{transaction['sender']}/transactions/{sender_index}/{transaction['txid']}.lin"
     while not os.path.exists(sender_path):
-        index_number -= 1
-        sender_path = f"accounts/{transaction['sender']}/transactions/{index_number}/{transaction['txid']}.lin"
-        if index_number < 0:
+        sender_index -= 1
+        sender_path = f"accounts/{transaction['sender']}/transactions/{sender_index}/{transaction['txid']}.lin"
+        if sender_index < 0:
             raise ValueError(f"Sender transaction {sender_path} rollback index seeking below zero")
 
-    recipient_address = transaction['sender']
-    index_number = get_tx_index_number(recipient_address)
+    recipient_address = transaction['recipient']
+    recipient_index = get_tx_index_number(recipient_address)
 
     if tx_index_empty(recipient_address):
         update_tx_index_folder(recipient_address, get_tx_index_number(recipient_address) - 1)
 
-    recipient_path = f"accounts/{transaction['recipient']}/transactions/{index_number}/{transaction['txid']}.lin"
+    recipient_path = f"accounts/{transaction['recipient']}/transactions/{recipient_index}/{transaction['txid']}.lin"
     if sender_path != recipient_path:
         while not os.path.exists(recipient_path):
-            index_number -= 1
-            recipient_path = f"accounts/{transaction['recipient']}/transactions/{index_number}/{transaction['txid']}.lin"
-            if index_number < 0:
+            recipient_index -= 1
+            recipient_path = f"accounts/{transaction['recipient']}/transactions/{recipient_index}/{transaction['txid']}.lin"
+            if recipient_index < 0:
                 raise ValueError(f"Recipient transaction {recipient_path} rollback index seeking below zero")
 
     while True:
