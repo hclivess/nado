@@ -53,7 +53,7 @@ def serialize(output, name=None, compress=None):
 
 class StatusHandler(tornado.web.RequestHandler):
     def get(self, parameter):
-        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        compress = StatusHandler.get_argument(self, "compress", default="none")
 
         try:
             status_dict = {
@@ -77,7 +77,7 @@ class StatusHandler(tornado.web.RequestHandler):
 class TransactionPoolHandler(tornado.web.RequestHandler):
 
     def get(self, parameter):
-        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        compress = TransactionPoolHandler.get_argument(self, "compress", default="none")
         transaction_pool_data = memserver.transaction_pool
         self.write(serialize(name="transaction_pool",
                              output=transaction_pool_data,
@@ -86,7 +86,7 @@ class TransactionPoolHandler(tornado.web.RequestHandler):
 
 class TransactionBufferHandler(tornado.web.RequestHandler):
     def get(self, parameter):
-        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        compress = TransactionBufferHandler.get_argument(self, "compress", default="none")
         buffer_data = memserver.tx_buffer
 
         self.write(serialize(name="transaction_buffer",
@@ -96,7 +96,7 @@ class TransactionBufferHandler(tornado.web.RequestHandler):
 
 class TrustPoolHandler(tornado.web.RequestHandler):
     def get(self, parameter):
-        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        compress = TrustPoolHandler.get_argument(self, "compress", default="none")
         trust_pool_data = consensus.trust_pool
 
         self.write(serialize(name="trust_pool_data",
@@ -107,7 +107,7 @@ class TrustPoolHandler(tornado.web.RequestHandler):
 
 class PeerPoolHandler(tornado.web.RequestHandler):
     def get(self, parameter):
-        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        compress = PeerPoolHandler.get_argument(self, "compress", default="none")
         peers_data = list(memserver.peers)
 
         self.write(serialize(name="peers",
@@ -118,7 +118,7 @@ class PeerPoolHandler(tornado.web.RequestHandler):
 
 class BlockProducerPoolHandler(tornado.web.RequestHandler):
     def get(self, parameter):
-        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        compress = BlockProducerPoolHandler.get_argument(self, "compress", default="none")
         producer_data = list(memserver.block_producers)
 
         self.write(serialize(name="block_producers",
@@ -128,7 +128,7 @@ class BlockProducerPoolHandler(tornado.web.RequestHandler):
 
 class BlockProducersHashPoolHandler(tornado.web.RequestHandler):
     def get(self, parameter):
-        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        compress = BlockProducersHashPoolHandler.get_argument(self, "compress", default="none")
 
         output = {
             "block_producers_hash_pool": consensus.block_producers_hash_pool,
@@ -142,7 +142,7 @@ class BlockProducersHashPoolHandler(tornado.web.RequestHandler):
 
 class TransactionHashPoolHandler(tornado.web.RequestHandler):
     def get(self, parameter):
-        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        compress = TransactionHashPoolHandler.get_argument(self, "compress", default="none")
 
         output = {
             "transactions_hash_pool": consensus.transaction_hash_pool,
@@ -202,7 +202,7 @@ class SubmitTransactionHandler(tornado.web.RequestHandler):
 
 class LogHandler(tornado.web.RequestHandler):
     def get(self, parameter):
-        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        compress = LogHandler.get_argument(self, "compress", default="none")
 
         with open("logs/log.log") as logfile:
             lines = logfile.readlines()
@@ -233,7 +233,7 @@ class TransactionHandler(tornado.web.RequestHandler):
         try:
             transaction = TransactionHandler.get_argument(self, "txid")
             transaction_data = get_transaction(transaction, logger=logger)
-            compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+            compress = TransactionHandler.get_argument(self, "compress", default="none")
 
             if not transaction_data:
                 transaction_data = "Not found"
@@ -256,7 +256,7 @@ class AccountTransactionsHandler(tornado.web.RequestHandler):
         try:
             address = AccountTransactionsHandler.get_argument(self, "address")
             batch = AccountTransactionsHandler.get_argument(self, "batch")
-            compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+            compress = AccountTransactionsHandler.get_argument(self, "compress", default="none")
 
             transaction_data = get_transactions_of_account(account=address,
                                                            logger=logger,
@@ -278,7 +278,7 @@ class GetBlockHandler(tornado.web.RequestHandler):
     def get(self, parameter):
         try:
             block = GetBlockHandler.get_argument(self, "hash")
-            compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+            compress = GetBlockHandler.get_argument(self, "compress", default="none")
             block_data = get_block(block)
 
             if not block_data:
@@ -299,7 +299,7 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
         try:
             block_hash = GetBlocksBeforeHandler.get_argument(self, "hash")
             count = int(GetBlocksBeforeHandler.get_argument(self, "count"))
-            compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+            compress = GetBlocksBeforeHandler.get_argument(self, "compress", default="none")
 
             parent_hash = get_block(block_hash)["parent_hash"]
 
@@ -369,7 +369,7 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
 class GetLatestBlockHandler(tornado.web.RequestHandler):
     def get(self, parameter):
         latest_block_data = get_latest_block_info(logger=logger)
-        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        compress = GetLatestBlockHandler.get_argument(self, "compress", default="none")
 
         self.write(serialize(name="latest_block",
                              output=latest_block_data,
@@ -379,7 +379,7 @@ class AccountHandler(tornado.web.RequestHandler):
     def get(self, parameter):
         try:
             account = AccountHandler.get_argument(self, "address")
-            compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+            compress = AccountHandler.get_argument(self, "compress", default="none")
             account_data = get_account(account, create_on_error=False)
 
             if not account_data:
@@ -399,7 +399,7 @@ class ProducerSetHandler(tornado.web.RequestHandler):
     def get(self, parameter):
         try:
             producer_set_hash = ProducerSetHandler.get_argument(self, "hash")
-            compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+            compress = ProducerSetHandler.get_argument(self, "compress", default="none")
 
             producer_data = get_producer_set(producer_set_hash)
 

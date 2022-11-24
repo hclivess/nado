@@ -8,6 +8,7 @@
 NADO is currently running on alpha testnet only. This means that by joining the network, you are not receiving any rewards of value. This type of network will only be used for testing, development and troubleshooting. NADO mainnet will be released when ready.
 
 ## Installation
+### Linux
 
 #### Direct installation
 ```
@@ -33,10 +34,25 @@ git clone https://github.com/hclivess/nado
 cd nado
 pip install -r requirements.txt
 ```
-To run NADO, execute the following command: `python3.10 nado.py`
 
 To go back to your screen, use `screen -r nado` 
 To update your NADO installation, use `git pull origin main` from the directory where you have it installed.
+
+### Windows
+
+There is a [release page in GitHub](https://github.com/hclivess/nado/releases), which is periodically updated when major changes occur. 
+The easiest way to run NADO for Windows users is to use the `nado.exe` binary from there.
+
+It is also possible to install [Python on Windows](https://www.python.org/downloads/) and run NADO directly. Command line instructions:
+
+#### Direct installation
+First [download](https://github.com/hclivess/nado/archive/refs/heads/main.zip) the master branch from Github and extract the archive.
+Run the command line as Administrator and enter the following commands:
+```
+python -m pip install -r requirements.txt
+```
+
+**To run NADO, execute the following command: `python3.10 nado.py`**
 
 After installation, go to your browser and announce your peer to one of the nodes like this:
 http://207.180.218.90:9173/announce_peer?ip=89.176.130.244 but put your own IP as the argument after ```ip=```. For this,
@@ -50,7 +66,8 @@ After running the node, you can access it at http://127.0.0.1:9173 from where al
 ## Is there anything unique?
 
 Yes. No mining, minting, block production happens in every node at once, based on the deterministic principles of the
-blockchain.
+blockchain. This is possible because block production is separated from the consensual layer. This removes all the selfish
+miner incentives, which cause issues like mempool exclusion in traditional PoW systems.
 
 ## What is NADO?
 
@@ -60,7 +77,7 @@ blockchain like Bitcoin. Unlike most other crypto, its focus is on accessibility
 elastic reward mechanism, rewarding users only when transactions are happening on the chain. Users can burn their share
 of tokens in order to increase their chances of winning more rewards in the future.
 
-## Why is NADO?
+## What's the reason for NADO?
 
 NADO is a take on one of the newer trends, where users do not use graphics cards or specialized hardware for mining, nor
 do they have to own a large portion of tokens in order to be rewarded. It is inspired by IDENA and NYZO, while
