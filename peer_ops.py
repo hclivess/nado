@@ -246,7 +246,7 @@ def dump_peers(peers, logger):
 def get_list_of_peers(fetch_from, failed, logger) -> list:
     """gets peers of peers"""
     returned_peers = asyncio.run(
-        compound_get_list_of("peers", fetch_from, logger=logger, fail_storage=failed)
+        compound_get_list_of("peers", fetch_from, logger=logger, fail_storage=failed, compress="msgpack")
     )
 
     pool = []
