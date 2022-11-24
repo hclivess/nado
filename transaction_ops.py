@@ -96,7 +96,7 @@ def unindex_transaction(transaction):
         index_number -= 1
         sender_path = f"accounts/{transaction['sender']}/transactions/{index_number}/{transaction['txid']}.lin"
         if index_number < 0:
-            raise ValueError(f"Transaction {transaction['txid']} rollback index seeking below zero")
+            raise ValueError(f"Transaction {sender_path} rollback index seeking below zero")
 
     recipient_address = transaction['sender']
     if tx_index_empty(recipient_address):
@@ -110,7 +110,7 @@ def unindex_transaction(transaction):
             index_number -= 1
             recipient_path = f"accounts/{transaction['recipient']}/transactions/{index_number}/{transaction['txid']}.lin"
             if index_number < 0:
-                raise ValueError(f"Transaction {transaction['txid']} rollback index seeking below zero")
+                raise ValueError(f"Transaction {recipient_path} rollback index seeking below zero")
 
     while True:
         try:
