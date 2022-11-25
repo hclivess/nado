@@ -359,6 +359,7 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
                     elif block:
                         collected_blocks.append(block)
                         child_hash = block["child_hash"]
+
                 except Exception as e:
                     logger.debug("Block collection hit a roadblock")
                     break

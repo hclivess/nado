@@ -240,29 +240,42 @@ class CoreClient(threading.Thread):
                 self.logger.info("Could not find suitably trusted peer")
             else:
                 while self.memserver.sync_mode and not self.memserver.terminate:
-
+                    hash = get_latest_block_info(logger=self.logger)["block_hash"]
                     if knows_block(
                             peer,
-                            hash=get_latest_block_info(logger=self.logger)["block_hash"],
+                            hash=hash,
                             logger=self.logger,
                     ):
                         self.logger.info(
                             f"{peer} knows block {get_latest_block_info(logger=self.logger)['block_hash']}"
                         )
 
-                        new_blocks = get_blocks_after(
-                            target_peer=peer,
-                            from_hash=get_latest_block_info(logger=self.logger)["block_hash"],
-                            count=50,
-                            logger=self.logger,
-                        )
-                        if new_blocks:
-                            for block in new_blocks:
-                                if not self.memserver.terminate:
-                                    self.process_remote_block(block, remote_peer=peer)
+                        try:
+                            new_blocks = get_blocks_after(
+                                target_peer=peer,
+                                from_hash=hash,
+                                count=50,
+                            )
 
-                        else:
-                            self.logger.info(f"No newer blocks found from {peer}")
+                            if new_blocks:
+                                for block in new_blocks:
+                                    if not self.memserver.terminate:
+                                        self.process_remote_block(block, remote_peer=peer)
+
+                            else:
+                                self.logger.info(f"No newer blocks found from {peer}")
+                                break
+
+                        except Exception as e:
+                            adjust_trust(
+                                entry=peer,
+                                value=-1000,
+                                logger=self.logger,
+                                trust_pool=self.consensus.trust_pool,
+                                peer_file_lock=self.memserver.peer_file_lock
+                            )
+
+                            self.logger.error(f"Failed to get blocks after {hash} from {peer}: {e}")
                             break
 
                     else:
@@ -420,6 +433,6 @@ class CoreClient(threading.Thread):
             except Exception as e:
                 self.logger.error(f"Error in core loop: {e}")
                 time.sleep(1)
-                #raise #test
+                # raise #test
 
         self.logger.info("Termination code reached, bye")

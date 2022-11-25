@@ -263,26 +263,23 @@ def update_child_in_latest_block(child_hash, logger):
     return True
 
 
-def get_blocks_after(target_peer, from_hash, logger, count=50, compress="msgpack"):
-    try:
-        url = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
-        result = requests.get(url, timeout=10)
-        code = result.status_code
+def get_blocks_after(target_peer, from_hash, count=50, compress="msgpack"):
 
-        if code == 200 and compress == "msgpack":
-            read = result.content
-            return msgpack.unpackb(read)
-        elif code == 200:
-            text = result.text
-            return json.loads(text)["blocks_after"]
-        else:
-            return False
+    url = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
+    result = requests.get(url, timeout=10)
+    code = result.status_code
 
-    except Exception as e:
-        logger.error(f"Failed to get blocks after {from_hash} from {target_peer}: {e}")
-        raise
+    if code == 200 and compress == "msgpack":
+        read = result.content
+        return msgpack.unpackb(read)
+    elif code == 200:
+        text = result.text
+        return json.loads(text)["blocks_after"]
+    else:
+        return False
 
-def get_blocks_before(target_peer, from_hash, logger, count=50, compress="true"):
+
+def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
     try:
         url = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
         result = requests.get(url, timeout=10)
@@ -304,24 +301,19 @@ def get_blocks_before(target_peer, from_hash, logger, count=50, compress="true")
 
 def get_from_single_target(key, target_peer, logger):
     """obtain from a single target"""
-    retries = 10
 
-    while retries > 0:
-        try:
-            url = f"http://{target_peer}:{get_config()['port']}/{key}"
-            result = requests.get(url, timeout=10)
-            text = result.text
-            code = result.status_code
+    try:
+        url = f"http://{target_peer}:{get_config()['port']}/{key}"
+        result = requests.get(url, timeout=10)
+        text = result.text
+        code = result.status_code
 
-            if code == 200:
-                return json.loads(text)[key]
-            else:
-                return False
+        if code == 200:
+            return json.loads(text)[key]
+        else:
+            return False
 
-        except Exception as e:
-            retries -= 1
-
-    if retries < 1:
+    except Exception as e:
         logger.error(f"Failed to get block producers from {target_peer}")
         return False
 
