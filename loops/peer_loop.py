@@ -23,7 +23,7 @@ class PeerClient(threading.Thread):
     def merge_and_sort_peers(self) -> None:
         """abstract from status pool"""
         for peer_ip in self.memserver.peer_buffer.copy():
-            if peer_ip not in self.memserver.peers:
+            if peer_ip not in self.memserver.peers and peer_ip not in self.memserver.unreachable:
                 self.memserver.peers.append(peer_ip)
                 self.logger.info(f"{peer_ip} connected")
 
@@ -89,9 +89,9 @@ class PeerClient(threading.Thread):
                 self.consensus.block_hash_pool.pop(entry)
 
             self.logger.warning(f"Disconnected from {entry}")
-            # delete_peer(entry, logger=self.logger)
-
             self.memserver.purge_peers_list.remove(entry)
+
+            # delete_peer(entry, logger=self.logger)
 
         # self.memserver.peers = me_to(self.memserver.peers)
         # self.memserver.block_producers = me_to(self.memserver.block_producers)
