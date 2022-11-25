@@ -1,11 +1,14 @@
 <p align="center">
-  <img src="http://nado.live/wp-content/uploads/2022/08/bauhaus.png" />
+  <img src="graphics/bauhaus.png" />
 </p>
 
-# NADO
+<p align="center">
+  <a href="https://discord.gg/vnWTBym3wM"><img src="graphics/discord.png" /></a>
+
+</p>
 
 ## Warning
-NADO is currently running on alpha testnet only. This means that by joining the network, you are not receiving any rewards of value. This type of network will only be used for testing, development and troubleshooting. NADO mainnet will be released when ready.
+NADO is currently running in betanet stage. This means that all transactions within the network are considered valid and there will be no further rollbacks or wipeouts. NADO mainnet will be released when ready.
 
 ## Installation
 ### Linux

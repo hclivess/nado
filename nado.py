@@ -513,7 +513,7 @@ def make_app():
             (r"/submit_transaction(.*)", SubmitTransactionHandler),
             (r"/log(.*)", LogHandler),
             (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": "static"}),
-            (r'/(favicon.ico)', tornado.web.StaticFileHandler, {"path": ""}),
+            (r'/(favicon.ico)', tornado.web.StaticFileHandler, {"path": "graphics"}),
 
         ]
     )
