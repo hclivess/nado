@@ -19,6 +19,7 @@ class PeerClient(threading.Thread):
         self.memserver = memserver
         self.consensus = consensus
         self.duration = 0
+        self.heavy_refresh = 0
 
     def merge_and_sort_peers(self) -> None:
         """abstract from status pool"""
@@ -40,7 +41,6 @@ class PeerClient(threading.Thread):
 
         for peer in candidates:
             if peer not in self.memserver.unreachable:
-                """the only way to remove self from unreachable is by announce"""
                 if peer not in self.memserver.peers and len(self.memserver.peers) < 8:
                     self.memserver.peers.append(peer)
                 if peer not in self.memserver.block_producers:
@@ -106,11 +106,15 @@ class PeerClient(threading.Thread):
                     self.memserver.merge_remote_transactions(user=False)
                     self.sniff_peers_and_producers()
 
-                announce_me(
-                    targets=self.memserver.block_producers,
-                    logger=self.logger,
-                    fail_storage=self.memserver.purge_peers_list,
-                )
+                if get_timestamp_seconds() > self.heavy_refresh + 360:
+                    self.heavy_refresh = get_timestamp_seconds()
+
+                    announce_me(
+                        targets=self.memserver.block_producers,
+                        logger=self.logger,
+                        fail_storage=self.memserver.purge_peers_list,
+                    )
+                    dump_peers(peers=self.memserver.peers, logger=self.logger)
 
                 if len(self.memserver.peers) < self.memserver.min_peers:
                     self.logger.info("No peers, reloading from drive")
@@ -131,4 +135,4 @@ class PeerClient(threading.Thread):
             except Exception as e:
                 self.logger.error(f"Error in peer loop: {e}")
                 time.sleep(1)
-                #raise #test
+                # raise #test

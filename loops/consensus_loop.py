@@ -6,7 +6,6 @@ from config import get_timestamp_seconds
 from peer_ops import (
     load_peer,
     update_peer,
-    dump_peers,
     me_to,
     get_majority,
     percentage,
@@ -60,7 +59,6 @@ class ConsensusClient(threading.Thread):
 
         self.memserver.peers = me_to(self.memserver.peers)
 
-        dump_peers(logger=self.logger, peers=self.memserver.peers)
         self.memserver.block_producers = me_to(self.memserver.block_producers)
         save_block_producers(self.memserver.block_producers)
 
@@ -143,9 +141,6 @@ class ConsensusClient(threading.Thread):
         self.majority_block_producers_hash = get_pool_majority(
             self.block_producers_hash_pool
         )
-
-        dump_peers(peers=self.memserver.peers, logger=self.logger)
-
     def run(self) -> None:
         while not self.memserver.terminate:
             try:

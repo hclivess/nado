@@ -38,7 +38,7 @@ def update_local_address(logger, peer_file_lock):
 def get_remote_peer_address(target_peer, logger) -> bool:
     try:
         url = f"http://{target_peer}:{get_port()}/status"
-        result = requests.get(url=url, timeout=10)
+        result = requests.get(url=url, timeout=1)
         text = result.text
         code = result.status_code
 
@@ -55,7 +55,7 @@ def get_remote_peer_address(target_peer, logger) -> bool:
 def get_reported_uptime(target_peer, logger) -> int:
     try:
         url = f"http://{target_peer}:{get_port()}/status"
-        result = requests.get(url=url, timeout=10)
+        result = requests.get(url=url, timeout=1)
 
         text = result.text
         code = result.status_code
@@ -105,9 +105,9 @@ def delete_peer(ip, logger):
         logger.warning(f"Deleted peer {ip}")
 
 
-def save_peer(ip, port, address, last_seen, peer_trust=50):
+def save_peer(ip, port, address, last_seen, peer_trust=50, overwrite=False):
     peer_path = f"peers/{base64encode(ip)}.dat"
-    if not ip_stored(ip):
+    if overwrite or not ip_stored(ip):
         peers_message = {
             "peer_address": address,
             "peer_ip": ip,
@@ -148,7 +148,7 @@ def is_online(peer_ip):
         return False
 
 
-def load_ips(limit=8, tries=5) -> list:
+def load_ips(limit=8) -> list:
     """load ips from drive"""
 
     peer_files = glob.glob("peers/*.dat")
@@ -157,13 +157,14 @@ def load_ips(limit=8, tries=5) -> list:
 
     ip_pool = []
 
-    while len(ip_pool) < limit and tries > 0:
-        tries -= 1
-        for file in peer_files:
+    for file in peer_files:
+        if len(ip_pool) < limit:
             with open(file, "r") as peer_file:
                 peer = json.load(peer_file)
                 if is_online(peer["peer_ip"]):
                     ip_pool.append(peer["peer_ip"])
+        else:
+            break
 
     return ip_pool
 
@@ -200,6 +201,7 @@ def update_peer(ip, value, logger, peer_file_lock, key="peer_trust") -> None:
                 peer = json.load(infile)
                 addition = {key: value}
                 peer.update(addition)
+                peer["last_seen"] = get_timestamp_seconds()
 
             with open(peer_file, "w") as outfile:
                 json.dump(peer, outfile)
@@ -239,7 +241,7 @@ def dump_peers(peers, logger):
                     ip=peer,
                     port=get_port(),
                     address=address,
-                    last_seen=get_timestamp_seconds()
+                    last_seen=get_timestamp_seconds(),
                 )
 
 

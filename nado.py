@@ -448,25 +448,7 @@ class ProducerSetHandler(tornado.web.RequestHandler):
             self.write(f"Error: {e}")
 
 
-def update_address(peer_ip):
-    address = get_remote_peer_address(peer_ip, logger=logger)
-    """get address from peer itself in case they decided to change it"""
-    old_address = load_peer(logger=logger,
-                            ip=peer_ip,
-                            peer_file_lock=memserver.peer_file_lock,
-                            key="peer_address")
-
-    if address and address != old_address:
-        update_peer(ip=peer_ip,
-                    logger=logger,
-                    peer_file_lock=memserver.peer_file_lock,
-                    key="peer_address",
-                    value=address)
-        logger.info(f"{peer_ip} address updated")
-
-
 class AnnouncePeerHandler(tornado.web.RequestHandler):
-
     async def get(self, parameter):
         try:
             peer_ip = AnnouncePeerHandler.get_argument(self, "ip")
@@ -475,13 +457,11 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
             if peer_ip == "127.0.0.1" or peer_ip == get_config()["ip"]:
                 self.write("Cannot add home address")
             else:
-                update_address(peer_ip)
 
-                """
-                if peer_ip in memserver.unreachable:
-                    logger.info(f"Removed {peer_ip} from unreachable")
+                if peer_ip in memserver.block_producers:
+                    logger.info(f"Restored {peer_ip} because of majority vote on its block production presence")
                     memserver.unreachable.remove(peer_ip)
-                """
+
 
                 if peer_ip not in memserver.peers and peer_ip not in memserver.unreachable:
                     address = get_remote_peer_address(peer_ip, logger=logger)
@@ -490,7 +470,8 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
                     save_peer(ip=peer_ip,
                               address=address,
                               port=get_config()["port"],
-                              last_seen=get_timestamp_seconds()
+                              last_seen=get_timestamp_seconds(),
+                              overwrite=True
                               )
 
                     if peer_ip not in memserver.peers + memserver.peer_buffer:
@@ -549,6 +530,8 @@ async def make_app(port):
 
 
 if __name__ == "__main__":
+    """warning, no intensive operations or locks should be invoked from API interface"""
+
     logger = get_logger()
 
     if not os.path.exists("blocks"):
