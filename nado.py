@@ -1,3 +1,4 @@
+import asyncio
 import ipaddress
 import json
 import os
@@ -485,8 +486,8 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
             self.write(f"Error: {e}")
 
 
-def make_app():
-    return tornado.web.Application(
+async def make_app(port):
+    application = tornado.web.Application(
         [
             (r"/", HomeHandler),
             (r"/get_transactions_of_account(.*)", AccountTransactionsHandler),
@@ -518,6 +519,8 @@ def make_app():
         ]
     )
 
+    application.listen(port)
+    await asyncio.Event().wait()
 
 if __name__ == "__main__":
     logger = get_logger()
@@ -560,6 +563,6 @@ if __name__ == "__main__":
 
     logger.info("Starting Request Handler")
 
-    app = make_app()
-    app.listen(get_config()["port"])
-    tornado.ioloop.IOLoop.current().start()
+    asyncio.run(make_app(get_config()["port"]))
+    #app.listen(get_config()["port"])
+    #tornado.ioloop.IOLoop.current().start()
