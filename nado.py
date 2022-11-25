@@ -530,6 +530,8 @@ async def make_app(port):
 
 
 if __name__ == "__main__":
+    """warning, no intensive operations or locks should be invoked from API interface"""
+
     logger = get_logger()
 
     if not os.path.exists("blocks"):
