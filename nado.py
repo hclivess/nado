@@ -449,8 +449,8 @@ class ProducerSetHandler(tornado.web.RequestHandler):
 
 
 def update_address(peer_ip):
+    """
     address = get_remote_peer_address(peer_ip, logger=logger)
-    """get address from peer itself in case they decided to change it"""
     old_address = load_peer(logger=logger,
                             ip=peer_ip,
                             peer_file_lock=memserver.peer_file_lock,
@@ -463,11 +463,13 @@ def update_address(peer_ip):
                     key="peer_address",
                     value=address)
         logger.info(f"{peer_ip} address updated")
+    """
+    return
 
 
 class AnnouncePeerHandler(tornado.web.RequestHandler):
 
-    async def get(self, parameter):
+    async def get(self, parameter):  # fixme too intensive
         try:
             peer_ip = AnnouncePeerHandler.get_argument(self, "ip")
             assert ipaddress.ip_address(peer_ip)
