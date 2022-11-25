@@ -1,4 +1,4 @@
-from crypto_libs.hashing import blake2b_hash
+from hashing import blake2b_hash
 
 
 def proof_sender(public_key, sender):
