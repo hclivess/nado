@@ -240,7 +240,7 @@ def dump_peers(peers, logger):
                     ip=peer,
                     port=get_port(),
                     address=address,
-                    last_seen=get_timestamp_seconds()
+                    last_seen=get_timestamp_seconds(),
                 )
 
 
