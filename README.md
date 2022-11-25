@@ -55,7 +55,7 @@ Run the command line as Administrator and enter the following commands:
 python -m pip install -r requirements.txt
 ```
 
-**To run NADO, execute the following command: `python3.10 nado.py`**
+### To run NADO, execute the following command: `python3.10 nado.py`
 
 After installation, go to your browser and announce your peer to one of the nodes like this:
 http://207.180.218.90:9173/announce_peer?ip=89.176.130.244 but put your own IP as the argument after ```ip=```. For this,
