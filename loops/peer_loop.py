@@ -40,18 +40,20 @@ class PeerClient(threading.Thread):
         dump_peers(candidates, logger=self.logger)
 
         for peer in candidates:
-            if peer not in self.memserver.unreachable:
-                """the only way to remove self from unreachable is by announce"""
-                if peer not in self.memserver.peers and len(self.memserver.peers) < 8:
-                    self.memserver.peers.append(peer)
-                if peer not in self.memserver.block_producers:
-                    self.memserver.block_producers.append(peer)
-                    self.logger.warning(f"Added {peer} to block producers")
+            if peer in self.memserver.unreachable:
+                """permit addition of unreachable node from other nodes"""
+                self.memserver.unreachable.remove(peer)
 
-                    update_peer(ip=peer,
-                                logger=self.logger,
-                                value=get_timestamp_seconds(),
-                                peer_file_lock=self.memserver.peer_file_lock)
+            if peer not in self.memserver.peers and len(self.memserver.peers) < 8:
+                self.memserver.peers.append(peer)
+            if peer not in self.memserver.block_producers:
+                self.memserver.block_producers.append(peer)
+                self.logger.warning(f"Added {peer} to block producers")
+
+                update_peer(ip=peer,
+                            logger=self.logger,
+                            value=get_timestamp_seconds(),
+                            peer_file_lock=self.memserver.peer_file_lock)
 
         self.merge_and_sort_peers()
 
