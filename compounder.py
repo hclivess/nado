@@ -12,7 +12,7 @@ from log_ops import get_logger
 """this module is optimized for low memory and bandwidth usage"""
 
 
-async def get_list_of(key, peer, fail_storage, logger, compress=None, retries=3):
+async def get_list_of(key, peer, fail_storage, logger, compress=None):
     """method compounded by compound_get_list_of, fail storage external by reference (obj)"""
     """bandwith usage of this grows exponentially with number of peers"""
     """peers include themselves in their peer lists"""
@@ -22,26 +22,20 @@ async def get_list_of(key, peer, fail_storage, logger, compress=None, retries=3)
     else:
         url_construct = f"http://{peer}:{get_config()['port']}/{key}"
 
-    while retries > 0:
-        try:
-            timeout = aiohttp.ClientTimeout(total=3)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url_construct) as response:
-                    if compress == "msgpack":
-                        fetched = msgpack.unpackb(await response.read())
-                    else:
-                        fetched = json.loads(await response.text())[key]
-                    return fetched
+    try:
+        timeout = aiohttp.ClientTimeout(total=3)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url_construct) as response:
+                if compress == "msgpack":
+                    fetched = msgpack.unpackb(await response.read())
+                else:
+                    fetched = json.loads(await response.text())[key]
+                return fetched
 
-        except Exception:
-            retries -= 1
-            #time.sleep(0.3)
-
-        if retries < 1:
-            if peer not in fail_storage:
-                logger.info(f"Failed to get {key} of {peer} from {url_construct}")
-                fail_storage.append(peer)
-            break
+    except Exception:
+        if peer not in fail_storage:
+            logger.info(f"Failed to get {key} of {peer} from {url_construct}")
+            fail_storage.append(peer)
 
 
 async def compound_get_list_of(key, entries, logger, fail_storage, compress=None):
@@ -67,36 +61,29 @@ async def compound_get_list_of(key, entries, logger, fail_storage, compress=None
     return success_storage
 
 
-async def get_status(peer, logger, fail_storage, compress=None, retries=3):
+async def get_status(peer, logger, fail_storage, compress=None):
     """method compounded by compound_get_status_pool"""
 
     if compress:
         url_construct = f"http://{peer}:{get_config()['port']}/status?compress={compress}"
     else:
         url_construct = f"http://{peer}:{get_config()['port']}/status"
-    while retries > 0:
-        try:
-            timeout = aiohttp.ClientTimeout(total=3)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url_construct) as response:
+    try:
+        timeout = aiohttp.ClientTimeout(total=3)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url_construct) as response:
 
-                    if compress == "msgpack":
-                        fetched = msgpack.unpackb(await response.read())
-                    else:
-                        fetched = json.loads(await response.text())
+                if compress == "msgpack":
+                    fetched = msgpack.unpackb(await response.read())
+                else:
+                    fetched = json.loads(await response.text())
 
-                    return peer, fetched
+                return peer, fetched
 
-        except Exception:
-            retries -= 1
-            #time.sleep(0.3)
-
-        if retries < 1:
-            if peer not in fail_storage:
-                logger.info(f"Failed to get status from {url_construct}")
-                fail_storage.append(peer)
-            break
-
+    except Exception:
+        if peer not in fail_storage:
+            logger.info(f"Failed to get status from {url_construct}")
+            fail_storage.append(peer)
 
 async def compound_get_status_pool(ips, logger, fail_storage, compress=None):
     """returns a list of dicts where ip addresses are keys"""
@@ -114,29 +101,23 @@ async def compound_get_status_pool(ips, logger, fail_storage, compress=None):
     return result_dict
 
 
-async def announce_self(peer, logger, fail_storage, retries=3):
+async def announce_self(peer, logger, fail_storage):
     """method compounded by compound_announce_self"""
     url_construct = (
         f"http://{peer}:{get_config()['port']}/announce_peer?ip={get_config()['ip']}"
     )
 
-    while retries > 0:
-        try:
-            timeout = aiohttp.ClientTimeout(total=3)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url_construct) as response:
-                    fetched = await response.text()
-                    return fetched
+    try:
+        timeout = aiohttp.ClientTimeout(total=3)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url_construct) as response:
+                fetched = await response.text()
+                return fetched
 
-        except Exception:
-            retries -= 1
-            #time.sleep(0.3)
-
-        if retries < 1:
-            if peer not in fail_storage:
-                logger.info(f"Failed to announce self to {url_construct}")
-                fail_storage.append(peer)
-            break
+    except Exception:
+        if peer not in fail_storage:
+            logger.info(f"Failed to announce self to {url_construct}")
+            fail_storage.append(peer)
 
 
 async def compound_announce_self(ips, logger, fail_storage):
