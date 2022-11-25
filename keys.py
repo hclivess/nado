@@ -1,7 +1,7 @@
 import json
 import os
 
-from .Curve25519 import generate_keydict
+from Curve25519 import generate_keydict
 
 
 def save_keys(keydict, file="private/keys.dat"):
