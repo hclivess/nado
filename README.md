@@ -74,6 +74,10 @@ miner incentives, which cause issues like mempool exclusion in traditional PoW s
 
 ## What is NADO?
 
+<p align="center">
+  <img src="graphics/overview.png" />
+</p>
+
 Short for Tornado. NADO is just another blockchain written from scratch with a highly experimental consensus algorithm, which is supposed
 to provide effortless mining for all participants with a public IP address. NADO is not a classic proof-of-work
 blockchain like Bitcoin. Unlike most other crypto, its focus is on accessibility to rewards for everyone. It has a fully
