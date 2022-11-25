@@ -38,7 +38,7 @@ def update_local_address(logger, peer_file_lock):
 def get_remote_peer_address(target_peer, logger) -> bool:
     try:
         url = f"http://{target_peer}:{get_port()}/status"
-        result = requests.get(url=url, timeout=10)
+        result = requests.get(url=url, timeout=1)
         text = result.text
         code = result.status_code
 
@@ -55,7 +55,7 @@ def get_remote_peer_address(target_peer, logger) -> bool:
 def get_reported_uptime(target_peer, logger) -> int:
     try:
         url = f"http://{target_peer}:{get_port()}/status"
-        result = requests.get(url=url, timeout=10)
+        result = requests.get(url=url, timeout=1)
 
         text = result.text
         code = result.status_code
@@ -105,9 +105,9 @@ def delete_peer(ip, logger):
         logger.warning(f"Deleted peer {ip}")
 
 
-def save_peer(ip, port, address, last_seen, peer_trust=50):
+def save_peer(ip, port, address, last_seen, peer_trust=50, overwrite=False):
     peer_path = f"peers/{base64encode(ip)}.dat"
-    if not ip_stored(ip):
+    if not ip_stored(ip) or overwrite:
         peers_message = {
             "peer_address": address,
             "peer_ip": ip,

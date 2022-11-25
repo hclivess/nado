@@ -447,26 +447,6 @@ class ProducerSetHandler(tornado.web.RequestHandler):
             self.set_status(403)
             self.write(f"Error: {e}")
 
-
-def update_address(peer_ip):
-    """
-    address = get_remote_peer_address(peer_ip, logger=logger)
-    old_address = load_peer(logger=logger,
-                            ip=peer_ip,
-                            peer_file_lock=memserver.peer_file_lock,
-                            key="peer_address")
-
-    if address and address != old_address:
-        update_peer(ip=peer_ip,
-                    logger=logger,
-                    peer_file_lock=memserver.peer_file_lock,
-                    key="peer_address",
-                    value=address)
-        logger.info(f"{peer_ip} address updated")
-    """
-    return
-
-
 class AnnouncePeerHandler(tornado.web.RequestHandler):
 
     async def get(self, parameter):  # fixme too intensive
@@ -480,9 +460,9 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
                 update_address(peer_ip)
 
                 # todo below
-                if peer_ip in memserver.unreachable:
-                    logger.info(f"Removed {peer_ip} from unreachable")
-                    memserver.unreachable.remove(peer_ip)
+                #if peer_ip in memserver.unreachable:
+                #    logger.info(f"Removed {peer_ip} from unreachable")
+                #    memserver.unreachable.remove(peer_ip)
                 # todo above code is a crutch against slow node response, improve and comment
 
                 if peer_ip not in memserver.peers and peer_ip not in memserver.unreachable:
@@ -492,7 +472,8 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
                     save_peer(ip=peer_ip,
                               address=address,
                               port=get_config()["port"],
-                              last_seen=get_timestamp_seconds()
+                              last_seen=get_timestamp_seconds(),
+                              overwrite=True
                               )
 
                     if peer_ip not in memserver.peers + memserver.peer_buffer:
