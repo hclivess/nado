@@ -447,9 +447,9 @@ class ProducerSetHandler(tornado.web.RequestHandler):
             self.set_status(403)
             self.write(f"Error: {e}")
 
-class AnnouncePeerHandler(tornado.web.RequestHandler):
 
-    async def get(self, parameter):  # fixme too intensive
+class AnnouncePeerHandler(tornado.web.RequestHandler):
+    async def get(self, parameter):
         try:
             peer_ip = AnnouncePeerHandler.get_argument(self, "ip")
             assert ipaddress.ip_address(peer_ip)
@@ -457,13 +457,11 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
             if peer_ip == "127.0.0.1" or peer_ip == get_config()["ip"]:
                 self.write("Cannot add home address")
             else:
-                update_address(peer_ip)
-
-                # todo below
-                #if peer_ip in memserver.unreachable:
-                #    logger.info(f"Removed {peer_ip} from unreachable")
-                #    memserver.unreachable.remove(peer_ip)
-                # todo above code is a crutch against slow node response, improve and comment
+                """
+                if peer_ip in memserver.unreachable:
+                    logger.info(f"Removed {peer_ip} from unreachable")
+                    memserver.unreachable.remove(peer_ip)
+                """
 
                 if peer_ip not in memserver.peers and peer_ip not in memserver.unreachable:
                     address = get_remote_peer_address(peer_ip, logger=logger)
