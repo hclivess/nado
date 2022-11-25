@@ -564,5 +564,3 @@ if __name__ == "__main__":
     logger.info("Starting Request Handler")
 
     asyncio.run(make_app(get_config()["port"]))
-    #app.listen(get_config()["port"])
-    #tornado.ioloop.IOLoop.current().start()

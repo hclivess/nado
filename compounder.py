@@ -35,7 +35,7 @@ async def get_list_of(key, peer, fail_storage, logger, compress=None, retries=3)
 
         except Exception:
             retries -= 1
-            time.sleep(0.3)
+            #time.sleep(0.3)
 
         if retries < 1:
             if peer not in fail_storage:
@@ -89,7 +89,7 @@ async def get_status(peer, logger, fail_storage, compress=None, retries=3):
 
         except Exception:
             retries -= 1
-            time.sleep(0.3)
+            #time.sleep(0.3)
 
         if retries < 1:
             if peer not in fail_storage:
@@ -130,7 +130,7 @@ async def announce_self(peer, logger, fail_storage, retries=3):
 
         except Exception:
             retries -= 1
-            time.sleep(0.3)
+            #time.sleep(0.3)
 
         if retries < 1:
             if peer not in fail_storage:
