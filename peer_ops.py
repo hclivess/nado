@@ -148,7 +148,7 @@ def is_online(peer_ip):
         return False
 
 
-def load_ips(limit=8, tries=5) -> list:
+def load_ips(limit=8) -> list:
     """load ips from drive"""
 
     peer_files = glob.glob("peers/*.dat")
@@ -157,13 +157,14 @@ def load_ips(limit=8, tries=5) -> list:
 
     ip_pool = []
 
-    while len(ip_pool) < limit and tries > 0:
-        tries -= 1
-        for file in peer_files:
+    for file in peer_files:
+        if len(ip_pool) < limit:
             with open(file, "r") as peer_file:
                 peer = json.load(peer_file)
                 if is_online(peer["peer_ip"]):
                     ip_pool.append(peer["peer_ip"])
+        else:
+            break
 
     return ip_pool
 
