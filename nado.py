@@ -457,11 +457,11 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
             if peer_ip == "127.0.0.1" or peer_ip == get_config()["ip"]:
                 self.write("Cannot add home address")
             else:
-                """
-                if peer_ip in memserver.unreachable:
-                    logger.info(f"Removed {peer_ip} from unreachable")
+
+                if peer_ip in memserver.block_producers:
+                    logger.info(f"Restored {peer_ip} because of majority vote on its block production presence")
                     memserver.unreachable.remove(peer_ip)
-                """
+
 
                 if peer_ip not in memserver.peers and peer_ip not in memserver.unreachable:
                     address = get_remote_peer_address(peer_ip, logger=logger)
