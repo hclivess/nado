@@ -201,6 +201,7 @@ def update_peer(ip, value, logger, peer_file_lock, key="peer_trust") -> None:
                 peer = json.load(infile)
                 addition = {key: value}
                 peer.update(addition)
+                peer["last_seen"] = get_timestamp_seconds()
 
             with open(peer_file, "w") as outfile:
                 json.dump(peer, outfile)

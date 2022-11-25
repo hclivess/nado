@@ -59,7 +59,6 @@ class ConsensusClient(threading.Thread):
 
         self.memserver.peers = me_to(self.memserver.peers)
 
-        dump_peers(logger=self.logger, peers=self.memserver.peers)
         self.memserver.block_producers = me_to(self.memserver.block_producers)
         save_block_producers(self.memserver.block_producers)
 

@@ -114,7 +114,6 @@ class PeerClient(threading.Thread):
                         logger=self.logger,
                         fail_storage=self.memserver.purge_peers_list,
                     )
-
                     dump_peers(peers=self.memserver.peers, logger=self.logger)
 
                 if len(self.memserver.peers) < self.memserver.min_peers:
