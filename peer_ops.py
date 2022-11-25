@@ -107,7 +107,7 @@ def delete_peer(ip, logger):
 
 def save_peer(ip, port, address, last_seen, peer_trust=50, overwrite=False):
     peer_path = f"peers/{base64encode(ip)}.dat"
-    if not ip_stored(ip) or overwrite:
+    if overwrite or not ip_stored(ip):
         peers_message = {
             "peer_address": address,
             "peer_ip": ip,
