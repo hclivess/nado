@@ -454,9 +454,11 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
             else:
                 update_address(peer_ip)
 
+                """
                 if peer_ip in memserver.unreachable:
                     logger.info(f"Removed {peer_ip} from unreachable")
                     memserver.unreachable.remove(peer_ip)
+                """
 
                 if peer_ip not in memserver.peers:
                     address = get_remote_peer_address(peer_ip, logger=logger)
