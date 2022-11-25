@@ -34,7 +34,7 @@ async def get_list_of(key, peer, fail_storage, logger, compress=None):
 
     except Exception:
         if peer not in fail_storage:
-            logger.info(f"Failed to get {key} of {peer} from {url_construct}")
+            logger.info(f"Compounder: Failed to get {key} of {peer} from {url_construct}")
             fail_storage.append(peer)
 
 
@@ -82,7 +82,7 @@ async def get_status(peer, logger, fail_storage, compress=None):
 
     except Exception:
         if peer not in fail_storage:
-            logger.info(f"Failed to get status from {url_construct}")
+            logger.info(f"Compounder: Failed to get status from {url_construct}")
             fail_storage.append(peer)
 
 async def compound_get_status_pool(ips, logger, fail_storage, compress=None):
