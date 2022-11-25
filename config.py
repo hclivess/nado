@@ -31,7 +31,7 @@ def get_port():
 
 
 def get_public_ip():
-    ip = requests.get("https://api.ipify.org", timeout=3).text
+    ip = requests.get("https://api.ipify.org", timeout=5).text
     return ip
 
 
