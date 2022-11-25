@@ -4,7 +4,7 @@ import time
 
 import requests
 
-from hashing import create_nonce
+from crypto_libs.hashing import create_nonce
 
 
 def config_found(file="private/config.dat"):
