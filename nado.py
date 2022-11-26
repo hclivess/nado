@@ -458,7 +458,7 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
                 self.write("Cannot add home address")
             else:
 
-                if peer_ip in memserver.block_producers:
+                if peer_ip in memserver.block_producers and peer_ip in memserver.unreachable.keys():
                     memserver.unreachable.pop(peer_ip)
                     logger.info(f"Restored {peer_ip} because of majority vote on its block production presence")
 
