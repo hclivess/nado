@@ -10,3 +10,4 @@ tk-tools~=0.16.0
 py7zr
 ordered-set
 msgpack
+zstandard
