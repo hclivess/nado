@@ -176,6 +176,7 @@ users to make mining as inclusive as possible.
 - Transaction throughput: 7 raw transactions per second
 - Proof of Fidelity with aspects of majority and diversity
 - noSQL JSON file-based atomized database system
+- Optional MessagePack formatting
 - Shared mining protocol
 - Periodic intervals to enforce consensus stabilization
 - Burn-to-Bribe deflationary incentive and governance
