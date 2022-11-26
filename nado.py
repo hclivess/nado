@@ -11,6 +11,7 @@ import tornado.ioloop
 import tornado.web
 from tornado import gen
 
+import versioner
 from block_ops import get_block, get_latest_block_info, fee_over_blocks
 from config import get_config
 from loops.consensus_loop import ConsensusClient
@@ -538,6 +539,7 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     logger = get_logger()
+    logger.info(f"NADO version {versioner.get_version()} started")
 
     if not os.path.exists("blocks"):
         make_folders()
