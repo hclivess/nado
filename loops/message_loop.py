@@ -73,7 +73,11 @@ class MessageClient(threading.Thread):
                 self.logger.warning(f"Queues: {self.memserver.waiting}")
 
                 for key, value in self.memserver.unreachable.items():
-                    self.logger.warning(f"Unreachable: {key} [timeout {360 + value - get_timestamp_seconds()}s]")
+                    timeout = 360 + value - get_timestamp_seconds()
+                    extra_info = None
+                    if timeout < 0:
+                        extra_info = "(awaiting announce)"
+                    self.logger.warning(f"Unreachable: {key} [timeout {timeout}s {extra_info}]")
 
                 self.logger.info(f"Loop durations: Core: {self.core.duration}; "
                                  f"Consensus: {self.consensus.duration}; "
