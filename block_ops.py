@@ -112,7 +112,7 @@ def get_transaction_pool_demo():
     config = get_config()
     ip = config["ip"]
     port = config["port"]
-    tx_pool_message = requests.get(f"http://{ip}:{port}/transaction_pool?compress=msgpack", timeout=1).text
+    tx_pool_message = requests.get(f"http://{ip}:{port}/transaction_pool?compress=msgpack", timeout=5).text
     tx_pool_dict = msgpack.unpackb(tx_pool_message)
     return tx_pool_dict
 
@@ -133,7 +133,7 @@ def get_block_producers_hash_demo():
     config = get_config()
     ip = config["ip"]
     port = config["port"]
-    status_message = requests.get(f"http://{ip}:{port}/status", timeout=1).text
+    status_message = requests.get(f"http://{ip}:{port}/status", timeout=5).text
     block_producers_hash = json.loads(status_message)["block_producers_hash"]
     return block_producers_hash
 
@@ -245,7 +245,7 @@ def construct_block(
 def knows_block(target_peer, hash, logger):
     try:
         url = f"http://{target_peer}:{get_config()['port']}/get_block?hash={hash}"
-        if requests.get(url, timeout=1).status_code == 200:
+        if requests.get(url, timeout=5).status_code == 200:
             return True
         else:
             return False
@@ -266,7 +266,7 @@ def update_child_in_latest_block(child_hash, logger):
 def get_blocks_after(target_peer, from_hash, count=50, compress="msgpack"):
 
     url = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
-    result = requests.get(url, timeout=1)
+    result = requests.get(url, timeout=5)
     code = result.status_code
 
     if code == 200 and compress == "msgpack":
@@ -282,7 +282,7 @@ def get_blocks_after(target_peer, from_hash, count=50, compress="msgpack"):
 def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
     try:
         url = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
-        result = requests.get(url, timeout=1)
+        result = requests.get(url, timeout=5)
         code = result.status_code
 
         if code == 200 and compress == "msgpack":
@@ -304,7 +304,7 @@ def get_from_single_target(key, target_peer, logger):
 
     try:
         url = f"http://{target_peer}:{get_config()['port']}/{key}"
-        result = requests.get(url, timeout=1)
+        result = requests.get(url, timeout=5)
         text = result.text
         code = result.status_code
 
@@ -383,4 +383,4 @@ if __name__ == "__main__":
         ip = config["ip"]
         port = config["port"]
         server_key = config["server_key"]
-        requests.get(f"http://{ip}:{port}/submit_block?data={json.dumps(block_message)}&key={server_key}", timeout=1)
+        requests.get(f"http://{ip}:{port}/submit_block?data={json.dumps(block_message)}&key={server_key}", timeout=5)

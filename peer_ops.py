@@ -38,7 +38,7 @@ def update_local_address(logger, peer_file_lock):
 def get_remote_peer_address(target_peer, logger) -> bool:
     try:
         url = f"http://{target_peer}:{get_port()}/status"
-        result = requests.get(url=url, timeout=1)
+        result = requests.get(url=url, timeout=5)
         text = result.text
         code = result.status_code
 
@@ -55,7 +55,7 @@ def get_remote_peer_address(target_peer, logger) -> bool:
 def get_reported_uptime(target_peer, logger) -> int:
     try:
         url = f"http://{target_peer}:{get_port()}/status"
-        result = requests.get(url=url, timeout=1)
+        result = requests.get(url=url, timeout=5)
 
         text = result.text
         code = result.status_code
@@ -142,7 +142,7 @@ def adjust_trust(trust_pool, entry, value, logger, peer_file_lock):
 def is_online(peer_ip):
     url = f"http://{peer_ip}:{get_config()['port']}/status"
     try:
-        requests.get(url, timeout=1)
+        requests.get(url, timeout=5)
         return True
     except Exception as e:
         return False

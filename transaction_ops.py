@@ -24,7 +24,7 @@ def calculate_fee():
 
 def get_recommneded_fee(target, port):
     url = f"http://{target}:{port}/get_recommended_fee"
-    result = json.loads(requests.get(url, timeout=1).text)
+    result = json.loads(requests.get(url, timeout=5).text)
     return result['fee']
 
 
@@ -370,8 +370,8 @@ if __name__ == "__main__":
             print(transaction)
             print(validate_transaction(transaction, logger=logger))
 
-            requests.get(f"http://{ip}:{port}/submit_transaction?data={json.dumps(transaction)}", timeout=1)
+            requests.get(f"http://{ip}:{port}/submit_transaction?data={json.dumps(transaction)}", timeout=5)
         except Exception as e:
             print(e)
 
-    # tx_pool = json.loads(requests.get(f"http://{ip}:{port}/transaction_pool").text, timeout=1)
+    # tx_pool = json.loads(requests.get(f"http://{ip}:{port}/transaction_pool").text, timeout=5)
