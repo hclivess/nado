@@ -74,7 +74,7 @@ class MessageClient(threading.Thread):
 
                 for key, value in self.memserver.unreachable.items():
                     timeout = 360 + value - get_timestamp_seconds()
-                    extra_info = None
+                    extra_info = ""
                     if timeout < 0:
                         extra_info = "(awaiting announce)"
                     self.logger.warning(f"Unreachable: {key} [timeout {timeout}s {extra_info}]")
