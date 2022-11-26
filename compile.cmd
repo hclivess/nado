@@ -1,2 +1,2 @@
-python -m nuitka nado.py --follow-imports
+python -m nuitka nado.py --standalone --windows-icon-from-ico=graphics\icon.ico
 pause

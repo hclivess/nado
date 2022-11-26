@@ -311,7 +311,6 @@ class GetBlockHandler(tornado.web.RequestHandler):
 
 
 class GetBlocksBeforeHandler(tornado.web.RequestHandler):
-
     async def get(self, parameter):
         try:
             block_hash = GetBlocksBeforeHandler.get_argument(self, "hash")
@@ -535,6 +534,8 @@ async def make_app(port):
 
 if __name__ == "__main__":
     """warning, no intensive operations or locks should be invoked from API interface"""
+    if sys.platform == "win32" and sys.version_info >= (3, 8, 0):
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     logger = get_logger()
 
