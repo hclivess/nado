@@ -126,18 +126,13 @@ def ip_stored(ip) -> bool:
         return True
     else:
         return False
-
-
-def adjust_trust(trust_pool, entry, value, logger, peer_file_lock):
-    if entry in trust_pool.keys():
-        trust_pool[entry] += value
-        update_peer(ip=entry,
-                    key="peer_trust",
-                    value=trust_pool[entry],
+def dump_peer_data(pool_data, pool_type, logger, peer_file_lock):
+    for key, value in pool_data.items():
+        update_peer(ip=key,
+                    key=pool_type,
+                    value=value,
                     logger=logger,
                     peer_file_lock=peer_file_lock)
-        trust_pool.pop(entry)
-
 
 def is_online(peer_ip):
     url = f"http://{peer_ip}:{get_config()['port']}/status"

@@ -6,7 +6,7 @@ from block_ops import save_block_producers
 from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
 from data_ops import set_and_sort
-from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, dump_peers, adjust_trust
+from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, dump_peers, dump_peer_data
 
 
 class PeerClient(threading.Thread):
@@ -70,11 +70,7 @@ class PeerClient(threading.Thread):
                 self.memserver.block_producers.remove(entry)  # experimental
                 self.logger.warning(f"Removed {entry} from block producers")
 
-            adjust_trust(entry=entry,
-                         value=-1000,
-                         logger=self.logger,
-                         trust_pool=self.consensus.trust_pool,
-                         peer_file_lock=self.memserver.peer_file_lock)
+            self.consensus.trust_pool[entry] -= 1000
 
             if entry in self.consensus.status_pool.keys():
                 self.consensus.status_pool.pop(entry)
@@ -114,7 +110,13 @@ class PeerClient(threading.Thread):
                         logger=self.logger,
                         fail_storage=self.memserver.purge_peers_list,
                     )
-                    dump_peers(peers=self.memserver.peers, logger=self.logger)
+
+                    dump_peers(peers=self.memserver.peers, logger=self.logger)  # wip
+
+                    dump_peer_data(logger=self.logger,
+                                   peer_file_lock=self.memserver.peer_file_lock,
+                                   pool_data=self.consensus.trust_pool,
+                                   pool_type="peer_trust")
 
                 if len(self.memserver.peers) < self.memserver.min_peers:
                     self.logger.info("No peers, reloading from drive")
