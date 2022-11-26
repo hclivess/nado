@@ -2,6 +2,8 @@ import threading
 import time
 
 from block_ops import get_latest_block_info
+from config import get_timestamp_seconds
+
 
 
 class MessageClient(threading.Thread):
@@ -69,7 +71,10 @@ class MessageClient(threading.Thread):
 
                 self.logger.warning(f"Buffer protection: {self.memserver.buffer_lock.locked()}")
                 self.logger.warning(f"Queues: {self.memserver.waiting}")
-                self.logger.warning(f"Unreachable: {len(self.memserver.unreachable)}")
+
+                for key, value in self.memserver.unreachable.items():
+                    self.logger.warning(f"Unreachable: {key} [timeout {360 + value - get_timestamp_seconds()}s]")
+
                 self.logger.info(f"Loop durations: Core: {self.core.duration}; "
                                  f"Consensus: {self.consensus.duration}; "
                                  f"Peers: {self.peers.duration}")
