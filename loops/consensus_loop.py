@@ -83,13 +83,7 @@ class ConsensusClient(threading.Thread):
                         self.trust_pool[peer] += 1
                     else:
                         self.trust_pool[peer] -= 1
-                    update_peer(
-                        ip=peer,
-                        key="peer_trust",
-                        value=self.trust_pool[peer],
-                        logger=self.logger,
-                        peer_file_lock=self.memserver.peer_file_lock
-                    )
+
         except Exception as e:
             self.logger.info(f"Failed to update trust: {e}")
 
