@@ -27,7 +27,6 @@ class MemServer:
         self.purge_peers_list = []
         self.purge_producers_list = []
 
-        self.unreachable = []
         self.buffer_lock = Lock()
         self.peer_file_lock = Lock()
 
@@ -52,7 +51,7 @@ class MemServer:
         self.block_time = 60
         self.period = None
 
-        self.unreachable = []
+        self.unreachable = {}
         self.peers = []
 
         self.transaction_pool_hash = None

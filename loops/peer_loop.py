@@ -64,8 +64,8 @@ class PeerClient(threading.Thread):
         for entry in self.memserver.purge_peers_list:
             if entry in self.memserver.peers:
                 self.memserver.peers.remove(entry)
-            if entry not in self.memserver.unreachable:
-                self.memserver.unreachable.append(entry)
+            if entry not in self.memserver.unreachable.keys():
+                self.memserver.unreachable[entry] = get_timestamp_seconds()
             if entry in self.memserver.block_producers:
                 self.memserver.block_producers.remove(entry)  # experimental
                 self.logger.warning(f"Removed {entry} from block producers")
