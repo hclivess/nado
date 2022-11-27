@@ -1,5 +1,4 @@
 import asyncio
-import time
 from threading import Lock
 
 from block_ops import load_block_producers
@@ -83,7 +82,7 @@ class MemServer:
     def get_uptime(self) -> int:
         return get_timestamp_seconds() - self.start_time
 
-    def merge_remote_transactions(self, user=False) -> None:
+    def merge_remote_transactions(self, user_origin=False) -> None:
         """reach out to all peers and merge their transactions to our transaction pool"""
         remote_transactions = asyncio.run(
             compound_get_list_of(
@@ -94,7 +93,7 @@ class MemServer:
                 compress="msgpack"
             )
         )
-        self.merge_transactions(remote_transactions, user)
+        self.merge_transactions(remote_transactions, user_origin)
 
     def merge_transaction(self, transaction, user_origin=False) -> dict:
         """warning, can get stuck if not efficient"""
@@ -136,9 +135,9 @@ class MemServer:
 
                 return {"message": "Success", "result": True}
 
-    def merge_transactions(self, transactions, user=False) -> None:
+    def merge_transactions(self, transactions, user_origin=False) -> None:
         for transaction in transactions:
-            self.merge_transaction(transaction, user)
+            self.merge_transaction(transaction, user_origin)
 
     def purge_txs_of_sender(self, sender) -> None:
         """remove all transactions of sender to prevent possible double spending attempt"""

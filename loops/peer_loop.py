@@ -99,7 +99,7 @@ class PeerClient(threading.Thread):
 
                 if self.memserver.period in [0, 1]:
                     self.purge_peers()
-                    self.memserver.merge_remote_transactions(user=False)
+                    self.memserver.merge_remote_transactions(user_origin=False)
                     self.sniff_peers_and_producers()
 
                 if get_timestamp_seconds() > self.heavy_refresh + 360:
