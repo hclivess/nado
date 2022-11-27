@@ -196,13 +196,13 @@ class StatusPoolHandler(tornado.web.RequestHandler):  # validate
 
 
 class SubmitTransactionHandler(tornado.web.RequestHandler):
-    """todo this should be on a separate thread to prevent blocking"""
+    """synchronous to asynchronous conversion"""
     async def get(self, parameter):
         try:
             transaction_raw = SubmitTransactionHandler.get_argument(self, "data")
             transaction = json.loads(transaction_raw)
 
-            output = memserver.merge_transaction(transaction, user_origin=True)
+            output = await asyncio.to_thread(memserver.merge_transaction, transaction, user_origin=True)
             self.write(msgpack.packb(output))
 
             if not output["result"]:
