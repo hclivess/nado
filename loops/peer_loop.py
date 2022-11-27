@@ -6,7 +6,7 @@ from block_ops import save_block_producers
 from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
 from data_ops import set_and_sort
-from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, dump_peers, dump_peer_data
+from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, dump_peers, dump_trust
 
 
 class PeerClient(threading.Thread):
@@ -113,11 +113,9 @@ class PeerClient(threading.Thread):
 
                     dump_peers(peers=self.memserver.peers, logger=self.logger)  # wip
 
-                    dump_peer_data(logger=self.logger,
+                    dump_trust(logger=self.logger,
                                    peer_file_lock=self.memserver.peer_file_lock,
-                                   pool_data=self.consensus.trust_pool,
-                                   pool_type="peer_trust")
-
+                                   pool_data=self.consensus.trust_pool)
 
                 if len(self.memserver.peers) < self.memserver.min_peers:
                     self.logger.info("No peers, reloading from drive")

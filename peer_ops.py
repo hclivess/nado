@@ -125,10 +125,10 @@ def ip_stored(ip) -> bool:
         return True
     else:
         return False
-def dump_peer_data(pool_data, pool_type, logger, peer_file_lock):
+def dump_trust(pool_data, logger, peer_file_lock):
     for key, value in pool_data.items():
         update_peer(ip=key,
-                    key=pool_type,
+                    key="trust",
                     value=value,
                     logger=logger,
                     peer_file_lock=peer_file_lock)
