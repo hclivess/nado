@@ -462,11 +462,6 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
                     memserver.unreachable.pop(peer_ip)
                     logger.info(f"Restored {peer_ip} because of majority vote on its block production presence")
 
-                elif peer_ip in memserver.unreachable.keys():
-                    if memserver.unreachable[peer_ip] + 360 < get_timestamp_seconds():
-                        memserver.unreachable.pop(peer_ip)
-                        logger.info(f"Restored {peer_ip} because it has been banned for too long")
-
                 if peer_ip not in memserver.peers and peer_ip not in memserver.unreachable.keys():
                     address = get_remote_peer_address(peer_ip, logger=logger)
                     assert address, "No address detected"
