@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="graphics/bauhaus.png" />
+  <a href="https://nado.live"><img src="graphics/bauhaus.png" /></a>
 </p>
 
 <p align="center">
