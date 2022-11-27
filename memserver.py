@@ -96,14 +96,9 @@ class MemServer:
         )
         self.merge_transactions(remote_transactions, user)
 
-    def merge_transaction(self, transaction, user=False) -> dict:
+    def merge_transaction(self, transaction, user_origin=False) -> dict:
         """warning, can get stuck if not efficient"""
         united_pools = self.transaction_pool.copy() + self.tx_buffer.copy() + self.user_tx_buffer.copy()
-
-        self.waiting += 1
-        while self.period == 3:
-            time.sleep(1)
-        self.waiting -= 1
 
         with self.buffer_lock:
             if not get_account(transaction["sender"], create_on_error=False):
@@ -125,7 +120,7 @@ class MemServer:
                         validate_single_spending(transaction_pool=united_pools, transaction=transaction)
 
                         if transaction not in self.transaction_pool:
-                            if user and transaction not in self.tx_buffer:
+                            if user_origin and transaction not in self.tx_buffer:
                                 self.user_tx_buffer.append(transaction)
                                 self.user_tx_buffer = sort_list_dict(self.user_tx_buffer)
                             elif transaction not in self.user_tx_buffer:
