@@ -17,7 +17,7 @@ from block_ops import (
 )
 from config import get_timestamp_seconds, get_config
 from data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurence, dict_to_val_list
-from peer_ops import load_trust, adjust_trust, save_peer, get_remote_peer_address, update_local_address
+from peer_ops import load_trust, save_peer, get_remote_peer_address, update_local_address
 from pool_ops import merge_buffer
 from rollback import rollback_one_block
 from transaction_ops import (
@@ -190,11 +190,7 @@ class CoreClient(threading.Thread):
 
         if suggested_block_producers:
             if get_config()["ip"] not in suggested_block_producers:
-                adjust_trust(trust_pool=self.consensus.trust_pool,
-                             entry=sync_from,
-                             value=-25,
-                             logger=self.logger,
-                             peer_file_lock=self.memserver.peer_file_lock)
+                self.consensus.trust_pool[sync_from] -= 25
 
             for block_producer in suggested_block_producers:
                 if block_producer != get_config()["ip"]:
@@ -202,8 +198,7 @@ class CoreClient(threading.Thread):
                     if address:
                         save_peer(ip=block_producer,
                                   address=address,
-                                  port=get_config()["port"],
-                                  last_seen=get_timestamp_seconds())
+                                  port=get_config()["port"])
                     else:
                         suggested_block_producers.pop(block_producer)
                         self.logger.error(f"{block_producer} not added to block producers")
@@ -223,11 +218,7 @@ class CoreClient(threading.Thread):
         if suggested_pool:
             return suggested_pool
         else:
-            adjust_trust(trust_pool=self.consensus.trust_pool,
-                         entry=peer,
-                         value=-50,
-                         logger=self.logger,
-                         peer_file_lock=self.memserver.peer_file_lock)
+            self.consensus.trust_pool[peer] -= 50
 
     def sync_mode(self):
         self.logger.warning("Entering sync mode")
@@ -267,26 +258,14 @@ class CoreClient(threading.Thread):
                                 break
 
                         except Exception as e:
-                            adjust_trust(
-                                entry=peer,
-                                value=-1000,
-                                logger=self.logger,
-                                trust_pool=self.consensus.trust_pool,
-                                peer_file_lock=self.memserver.peer_file_lock
-                            )
+                            self.consensus.trust_pool[peer] -= 1000
 
                             self.logger.error(f"Failed to get blocks after {hash} from {peer}: {e}")
                             break
 
                     else:
                         rollback_one_block(logger=self.logger, lock=self.memserver.buffer_lock)
-                        adjust_trust(
-                            entry=peer,
-                            value=-1000,
-                            logger=self.logger,
-                            trust_pool=self.consensus.trust_pool,
-                            peer_file_lock=self.memserver.peer_file_lock
-                        )
+                        self.consensus.trust_pool[peer] -= 1000
 
                 self.consensus.refresh_hashes()
                 # self.replace_block_producers(peer=peer)
@@ -326,11 +305,8 @@ class CoreClient(threading.Thread):
         except Exception as e:
             self.logger.error(f"Failed to validate spending during block production: {e}")
             if remote:
-                adjust_trust(trust_pool=self.memserver.transaction_pool,
-                             entry=remote_peer,
-                             value=-10,
-                             logger=self.logger,
-                             peer_file_lock=self.memserver.peer_file_lock)
+                self.consensus.trust_pool[remote_peer] -= 100
+
         else:
             for transaction in transactions:
 
@@ -348,11 +324,7 @@ class CoreClient(threading.Thread):
                 except Exception as e:
                     self.logger.error(f"Failed to validate transaction during block production: {e}")
                     if remote:
-                        adjust_trust(trust_pool=self.consensus.trust_pool,
-                                     entry=remote_peer,
-                                     value=-10,
-                                     logger=self.logger,
-                                     peer_file_lock=self.memserver.peer_file_lock)
+                        self.consensus.trust_pool[remote_peer] -= 25
 
     def produce_block(self, block, remote=False, remote_peer=None) -> None:
         with self.memserver.buffer_lock:
@@ -371,13 +343,7 @@ class CoreClient(threading.Thread):
 
                     self.logger.info("Block gap too tight")
                     if remote:
-                        adjust_trust(
-                            entry=remote_peer,
-                            value=-25,
-                            logger=self.logger,
-                            trust_pool=self.consensus.trust_pool,
-                            peer_file_lock=self.memserver.peer_file_lock
-                        )
+                        self.consensus.trust_pool[remote_peer] -= 25
 
                 self.incorporate_block(block)
 
