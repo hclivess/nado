@@ -3,7 +3,9 @@
 </p>
 
 <p align="center">
-  <a href="https://discord.gg/vnWTBym3wM"><img src="graphics/discord.png" /></a>
+    <a href="https://discord.gg/vnWTBym3wM"><img src="graphics/discord.png" /></a>
+    &emsp;
+    <a href="https://twitter.com/nadodigital"><img src="graphics/twitter.png" /></a>
 
 </p>
 
