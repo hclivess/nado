@@ -105,7 +105,7 @@ def delete_peer(ip, logger):
         logger.warning(f"Deleted peer {ip}")
 
 
-def save_peer(ip, port, address, last_seen, peer_trust=50, overwrite=False):
+def save_peer(ip, port, address, peer_trust=50, overwrite=False):
     peer_path = f"peers/{base64encode(ip)}.dat"
     if overwrite or not ip_stored(ip):
         peers_message = {
@@ -113,7 +113,6 @@ def save_peer(ip, port, address, last_seen, peer_trust=50, overwrite=False):
             "peer_ip": ip,
             "peer_port": port,
             "peer_trust": peer_trust,
-            "last_seen": last_seen
         }
 
         with open(peer_path, "w") as outfile:
@@ -236,7 +235,6 @@ def dump_peers(peers, logger):
                     ip=peer,
                     port=get_port(),
                     address=address,
-                    last_seen=get_timestamp_seconds(),
                 )
 
 

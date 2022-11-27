@@ -23,7 +23,7 @@ from log_ops import get_logger
 from memserver import MemServer
 from loops.message_loop import MessageClient
 from loops.peer_loop import PeerClient
-from peer_ops import save_peer, get_remote_peer_address, get_producer_set, update_peer, load_peer
+from peer_ops import save_peer, get_remote_peer_address, get_producer_set
 from transaction_ops import get_transaction, get_transactions_of_account
 from config import get_timestamp_seconds
 from account_ops import get_account
@@ -474,7 +474,6 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
                     save_peer(ip=peer_ip,
                               address=address,
                               port=get_config()["port"],
-                              last_seen=get_timestamp_seconds(),
                               overwrite=True
                               )
 
@@ -557,8 +556,7 @@ if __name__ == "__main__":
         save_peer(ip=get_config()["ip"],
                   address=load_keys()["address"],
                   port=get_config()["port"],
-                  peer_trust=10000,
-                  last_seen=get_timestamp_seconds())
+                  peer_trust=10000)
 
     assert not is_port_in_use(get_config()["port"]), "Port already in use, exiting"
     signal.signal(signal.SIGINT, handler)

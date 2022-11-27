@@ -118,6 +118,7 @@ class PeerClient(threading.Thread):
                                    pool_data=self.consensus.trust_pool,
                                    pool_type="peer_trust")
 
+
                 if len(self.memserver.peers) < self.memserver.min_peers:
                     self.logger.info("No peers, reloading from drive")
                     self.memserver.unreachable.clear()
