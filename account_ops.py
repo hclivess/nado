@@ -1,11 +1,11 @@
 import os
-from data_ops import check_traversal
+from data_ops import check_traversal, get_home
 import msgpack
 
 def get_account(address, create_on_error=True):
     """return all account information if account exists else create it"""
     check_traversal(address)
-    account_path = f"accounts/{address}/balance.dat"
+    account_path = f"{get_home()}/accounts/{address}/balance.dat"
 
     if os.path.exists(account_path):
         with open(account_path, "rb") as account_file:
@@ -47,7 +47,7 @@ def change_balance(address: str, amount: int, is_burn=False):
                 account_message["account_burned"] -= amount
                 assert (account_message["account_burned"] >= 0), "Cannot change burn into negative"
 
-            with open(f"accounts/{address}/balance.dat", "wb") as account_file:
+            with open(f"{get_home()}/accounts/{address}/balance.dat", "wb") as account_file:
                 msgpack.pack(account_message, account_file)
         except Exception as e:
             raise ValueError(f"Failed setting balance for {address}: {e}")
@@ -58,7 +58,7 @@ def change_balance(address: str, amount: int, is_burn=False):
 def increase_produced_count(address, amount, revert=False):
     check_traversal(address)
 
-    account_path = f"accounts/{address}/balance.dat"
+    account_path = f"{get_home()}/accounts/{address}/balance.dat"
     account = get_account(address)
     produced = account["account_produced"]
     if revert:
@@ -75,9 +75,9 @@ def create_account(address, balance=0, burned=0, produced=0):
     """create account if it does not exist"""
     check_traversal(address)
 
-    account_path = f"accounts/{address}/balance.dat"
+    account_path = f"{get_home()}/accounts/{address}/balance.dat"
     if not os.path.exists(account_path):
-        os.makedirs(f"accounts/{address}")
+        os.makedirs(f"{get_home()}/accounts/{address}")
 
         account = {
             "account_balance": balance,

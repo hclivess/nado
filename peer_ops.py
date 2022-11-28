@@ -9,7 +9,7 @@ import requests
 from address import validate_address
 from compounder import compound_get_list_of, compound_announce_self
 from config import get_port, get_config, get_timestamp_seconds
-from data_ops import set_and_sort
+from data_ops import set_and_sort, get_home
 from hashing import base64encode, blake2b_hash
 from keys import load_keys
 
@@ -99,14 +99,14 @@ def delete_old_peers(older_than, logger):
 
 
 def delete_peer(ip, logger):
-    peer_path = f"peers/{base64encode(ip)}.dat"
+    peer_path = f"{get_home()}/peers/{base64encode(ip)}.dat"
     if os.path.exists(peer_path):
         os.remove(peer_path)
         logger.warning(f"Deleted peer {ip}")
 
 
 def save_peer(ip, port, address, peer_trust=50, overwrite=False):
-    peer_path = f"peers/{base64encode(ip)}.dat"
+    peer_path = f"{get_home()}/peers/{base64encode(ip)}.dat"
     if overwrite or not ip_stored(ip):
         peers_message = {
             "peer_address": address,
@@ -120,7 +120,7 @@ def save_peer(ip, port, address, peer_trust=50, overwrite=False):
 
 
 def ip_stored(ip) -> bool:
-    peer_path = f"peers/{base64encode(ip)}.dat"
+    peer_path = f"{get_home()}/peers/{base64encode(ip)}.dat"
     if os.path.exists(peer_path):
         return True
     else:
@@ -145,7 +145,7 @@ def is_online(peer_ip):
 def load_ips(limit=8) -> list:
     """load ips from drive"""
 
-    peer_files = glob.glob("peers/*.dat")
+    peer_files = glob.glob(f"{get_home()}/peers/*.dat")
     if len(peer_files) < limit:
         limit = len(peer_files)
 
@@ -173,7 +173,7 @@ def load_trust(peer, logger, peer_file_lock):
 def load_peer(logger, ip, peer_file_lock, key=None) -> str:
     with peer_file_lock:
         try:
-            peer_file = f"peers/{base64encode(ip)}.dat"
+            peer_file = f"{get_home()}/peers/{base64encode(ip)}.dat"
             if not key:
                 with open(peer_file, "r") as peer_file:
                     peer_key = json.load(peer_file)
@@ -189,7 +189,7 @@ def load_peer(logger, ip, peer_file_lock, key=None) -> str:
 def update_peer(ip, value, logger, peer_file_lock, key="peer_trust") -> None:
     with peer_file_lock:
         try:
-            peer_file = f"peers/{base64encode(ip)}.dat"
+            peer_file = f"{get_home()}/peers/{base64encode(ip)}.dat"
 
             with open(peer_file, "r") as infile:
                 peer = json.load(infile)
@@ -205,7 +205,7 @@ def update_peer(ip, value, logger, peer_file_lock, key="peer_trust") -> None:
 
 def store_producer_set(producer_set):
     producer_set_hash = blake2b_hash(producer_set)
-    path = f"index/producer_sets/{producer_set_hash}.dat"
+    path = f"{get_home()}/index/producer_sets/{producer_set_hash}.dat"
     producer_set_dict = {
         "producer_set_hash": producer_set_hash,
         "producer_set": producer_set,
@@ -216,7 +216,7 @@ def store_producer_set(producer_set):
 
 
 def get_producer_set(producer_set_hash):
-    path = f"index/producer_sets/{producer_set_hash}.dat"
+    path = f"{get_home()}/index/producer_sets/{producer_set_hash}.dat"
     if os.path.exists(path):
         with open(path) as infile:
             fetched = json.load(infile)

@@ -4,7 +4,7 @@ import os
 import requests
 
 from config import get_timestamp_seconds, get_config
-from data_ops import set_and_sort, average
+from data_ops import set_and_sort, average, get_home
 from hashing import blake2b_hash_link
 from keys import load_keys
 from log_ops import get_logger
@@ -119,7 +119,7 @@ def get_transaction_pool_demo():
 
 def get_block(block):
     """return transaction based on txid"""
-    block_path = f"blocks/{block}.block"
+    block_path = f"{get_home()}/blocks/{block}.block"
     if os.path.exists(block_path):
         with open(block_path, "rb") as file:
             block = msgpack.load(file)
@@ -140,14 +140,14 @@ def get_block_producers_hash_demo():
 
 def load_block(block_hash: str, logger):
     try:
-        with open(f"blocks/{block_hash}.block", "rb") as infile:
+        with open(f"{get_home()}/blocks/{block_hash}.block", "rb") as infile:
             return msgpack.unpack(infile)
     except Exception as e:
         logger.info(f"Failed to load block {block_hash}: {e}")
 
 
 def load_block_producers() -> list:
-    block_producers_path = "index/block_producers.dat"
+    block_producers_path = f"{get_home()}/index/block_producers.dat"
     if os.path.exists(block_producers_path):
         with open(block_producers_path, "r") as infile:
             return json.load(infile)
@@ -156,7 +156,7 @@ def load_block_producers() -> list:
 
 
 def save_block_producers(block_producers: list):
-    block_producers_path = "index/block_producers.dat"
+    block_producers_path = f"{get_home()}/index/block_producers.dat"
     with open(block_producers_path, "w") as outfile:
         json.dump(set_and_sort(block_producers), outfile)
     return True
@@ -165,7 +165,7 @@ def save_block_producers(block_producers: list):
 def save_block(block_message: dict, logger):
     try:
         block_hash = block_message["block_hash"]
-        with open(f"blocks/{block_hash}.block", "wb") as outfile:
+        with open(f"{get_home()}/blocks/{block_hash}.block", "wb") as outfile:
             msgpack.pack(block_message, outfile)
         return True
     except Exception as e:
@@ -181,7 +181,7 @@ def latest_block_divisible_by(divisor, logger):
 
 def get_latest_block_info(logger):
     try:
-        with open("index/latest_block.dat", "r") as infile:
+        with open(f"{get_home()}/index/latest_block.dat", "r") as infile:
             info = load_block(block_hash=json.load(infile),
                               logger=logger)
             return info
@@ -191,13 +191,13 @@ def get_latest_block_info(logger):
 
 def set_latest_block_info(block_message: dict, logger):
     try:
-        with open("index/latest_block.dat", "w") as outfile:
+        with open(f"{get_home()}/index/latest_block.dat", "w") as outfile:
             json.dump(block_message["block_hash"], outfile)
 
-        with open(f"blocks/block_numbers/{block_message['block_number']}.dat", "w") as outfile:
+        with open(f"{get_home()}/blocks/block_numbers/{block_message['block_number']}.dat", "w") as outfile:
             json.dump(block_message["block_hash"], outfile)
 
-        with open(f"blocks/block_numbers/index.dat", "w") as outfile:
+        with open(f"{get_home()}/blocks/block_numbers/index.dat", "w") as outfile:
             json.dump({"last_number": block_message["block_number"]}, outfile)
         return True
 

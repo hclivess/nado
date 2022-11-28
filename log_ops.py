@@ -1,15 +1,15 @@
 import logging
 import os.path
 from logging.handlers import RotatingFileHandler
-
+from data_ops import get_home
 import coloredlogs
 
 from dircheck import make_folder
 
 
 def get_logger(max_detail=False, file="log.log"):
-    if not os.path.exists("logs"):
-        make_folder("logs", strict=False)
+    if not os.path.exists(f"{get_home()}/logs"):
+        make_folder(f"{get_home()}/logs", strict=False)
 
     # Create a logger object.
     format = "%(asctime)s %(levelname)s %(message)s"
@@ -17,7 +17,7 @@ def get_logger(max_detail=False, file="log.log"):
     logger = logging.getLogger(__name__)
     logger.propagate = False
     file_handler = RotatingFileHandler(
-        f"logs/{file}", maxBytes=1000000, backupCount=2, mode="a"
+        f"{get_home()}/logs/{file}", maxBytes=1000000, backupCount=2, mode="a"
     )
     file_handler.setFormatter(logging.Formatter(format))
     logger.addHandler(file_handler)
@@ -31,7 +31,7 @@ def get_logger(max_detail=False, file="log.log"):
 
 if __name__ == "__main__":
     # Some examples.
-    logger = get_logger(file="logs.log")
+    logger = get_logger(file=f"{get_home()}/logs.log")
 
     logger.debug("this is a debugging message")
     logger.info("this is an informational message")

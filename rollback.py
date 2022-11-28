@@ -1,5 +1,5 @@
 import os
-
+from data_ops import get_home
 import msgpack
 
 from block_ops import load_block, get_latest_block_info, set_latest_block_info
@@ -32,11 +32,11 @@ def rollback_one_block(logger, lock):
             set_latest_block_info(block_message=previous_block,
                                   logger=logger)
 
-            with open(f"blocks/block_numbers/index.dat", "wb") as outfile:
+            with open(f"{get_home()}/blocks/block_numbers/index.dat", "wb") as outfile:
                 msgpack.pack({"last_number": previous_block["block_number"]}, outfile)
 
-            os.remove(f"blocks/block_numbers/{block_message['block_number']}.dat")
-            os.remove(f"blocks/{block_message['block_hash']}.block")
+            os.remove(f"{get_home()}/blocks/block_numbers/{block_message['block_number']}.dat")
+            os.remove(f"{get_home()}/blocks/{block_message['block_hash']}.block")
 
             logger.info(f"Rolled back {block_message['block_hash']} successfully")
 

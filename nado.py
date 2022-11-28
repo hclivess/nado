@@ -16,7 +16,7 @@ from block_ops import get_block, get_latest_block_info, fee_over_blocks
 from config import get_config
 from loops.consensus_loop import ConsensusClient
 from loops.core_loop import CoreClient
-from data_ops import set_and_sort
+from data_ops import set_and_sort, get_home
 from genesis import make_genesis, make_folders
 from keys import keyfile_found, generate_keys, save_keys, load_keys
 from log_ops import get_logger
@@ -218,7 +218,7 @@ class LogHandler(tornado.web.RequestHandler):
     async def get(self, parameter):
         compress = LogHandler.get_argument(self, "compress", default="none")
 
-        with open("logs/log.log") as logfile:
+        with open(f"{get_home()}/logs/log.log") as logfile:
             lines = logfile.readlines()
             for line in lines:
                 if compress == "msgpack":
@@ -535,7 +535,7 @@ if __name__ == "__main__":
     logger = get_logger()
     logger.info(f"NADO version {versioner.get_version()} started")
 
-    if not os.path.exists("blocks"):
+    if not os.path.exists(f"{get_home()}/blocks"):
         make_folders()
         make_genesis(
             address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b",

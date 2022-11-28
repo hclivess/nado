@@ -5,17 +5,17 @@ from hashing import blake2b_hash_link
 from log_ops import get_logger
 from peer_ops import save_peer
 from account_ops import create_account
-from config import get_timestamp_seconds
+from data_ops import get_home
 
 
 def make_folders():
-    make_folder("blocks/block_numbers")
-    make_folder("accounts")
-    make_folder("peers")
-    make_folder("private", strict=False)
-    make_folder("transactions")
-    make_folder("index")
-    make_folder("index/producer_sets")
+    make_folder(f"{get_home()}/blocks/block_numbers")
+    make_folder(f"{get_home()}/accounts")
+    make_folder(f"{get_home()}/peers")
+    make_folder(f"{get_home()}/private", strict=False)
+    make_folder(f"{get_home()}/transactions")
+    make_folder(f"{get_home()}/index")
+    make_folder(f"{get_home()}/index/producer_sets")
 
 
 def make_genesis(address, balance, ip, port, timestamp, logger):
@@ -48,7 +48,7 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
 
 
 if __name__ == "__main__":
-    logger = get_logger(file="genesis.log")
+    logger = get_logger(file=f"{get_home()}/genesis.log")
 
     input("Not supposed to be run directly, continue?\n")
     make_folders()

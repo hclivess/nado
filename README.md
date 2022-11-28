@@ -60,7 +60,7 @@ python -m pip install -r requirements.txt
 ### To run NADO, execute the following command: `python3.10 nado.py`
 
 After installation, go to your browser and announce your peer to one of the nodes like this:
-http://207.180.218.90:9173/announce_peer?ip=89.176.130.244 but put your own IP as the argument after ```ip=```. For this,
+http://127.0.0.1:9173/announce_peer?ip=207.180.218.90 but put your own IP as the argument after ```http://```. For this,
 you must have [port 9173 open](https://www.google.com/search?q=port+forwarding+guide) so the node is accessible from the internet. 
 
 ## Remote access
