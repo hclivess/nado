@@ -63,6 +63,9 @@ After installation, go to your browser and announce your peer to one of the node
 http://127.0.0.1:9173/announce_peer?ip=207.180.218.90 but put your own IP as the argument after ```http://```. For this,
 you must have [port 9173 open](https://www.google.com/search?q=port+forwarding+guide) so the node is accessible from the internet. 
 
+## Wallet
+You can download the [official NADO wallet here](https://github.com/hclivess/nado-microwallet) or on the [release page of NADO](https://github.com/hclivess/nado/releases).
+
 ## Remote access
 
 After running the node, you can access it at http://127.0.0.1:9173 from where all API calls used by the node itself are accessible. Here are some examples:

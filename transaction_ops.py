@@ -342,11 +342,12 @@ if __name__ == "__main__":
     recipient = "ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29"
     private_key = key_dict["private_key"]
     public_key = key_dict["public_key"]
-    amount = to_raw_amount(0.1)
+    amount = to_raw_amount(0)
     data = {"data_id": "seek_id", "data_content": "some_actual_content"}
 
     config = get_config()
-    ip = config["ip"]
+    #ip = config["ip"]
+    ip = "159.65.123.12"
     port = config["port"]
 
     create_tx_indexer(address)
