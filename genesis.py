@@ -22,7 +22,7 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
     create_config()
 
     block_transactions = []
-    block_hash = blake2b_hash_link(link_from=None, link_to=block_transactions)
+    block_hash = blake2b_hash_link(link_from=timestamp, link_to=block_transactions)
 
     genesis_block_message = {
         "block_number": 0,
