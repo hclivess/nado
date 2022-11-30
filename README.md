@@ -30,6 +30,7 @@ python3.10 -m pip install -r requirements.txt
 
 ```
 screen -S nado
+sudo apt-get update
 sudo apt-get install software-properties-common
 sudo add-apt-repository ppa:deadsnakes/ppa
 apt-get install python3.10-dev python3.10-venv
@@ -52,7 +53,7 @@ The easiest way to run NADO for Windows users is to use the `nado.exe` binary fr
 It is also possible to install [Python on Windows](https://www.python.org/downloads/) and run NADO directly. Command line instructions:
 
 #### Direct installation
-First [download](https://github.com/hclivess/nado/archive/refs/heads/main.zip) the master branch from Github and extract the archive.
+First [download](https://github.com/hclivess/nado/archive/refs/heads/main.zip) the master branch from GitHub and extract the archive.
 Run the command line as Administrator and enter the following commands:
 ```
 python -m pip install -r requirements.txt
