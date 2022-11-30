@@ -9,8 +9,8 @@
 
 </p>
 
-## Warning
-NADO is currently running in betanet stage. This means that all transactions within the network are considered valid and there will be no further rollbacks or wipeouts. NADO mainnet will be released when ready.
+## Notice
+NADO mainnet is released.
 
 ## Installation
 ### Linux
