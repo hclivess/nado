@@ -539,7 +539,7 @@ if __name__ == "__main__":
         make_folders()
         make_genesis(
             address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b",
-            balance=100000000000000000,
+            balance=1000000000000000000,
             ip="78.102.98.72",
             port=9173,
             timestamp=1669852800,
