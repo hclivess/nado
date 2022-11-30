@@ -30,6 +30,7 @@ python3.10 -m pip install -r requirements.txt
 
 ```
 screen -S nado
+sudo apt-get install software-properties-common
 sudo add-apt-repository ppa:deadsnakes/ppa
 apt-get install python3.10-dev python3.10-venv
 python3.10 -m venv nado_venv
