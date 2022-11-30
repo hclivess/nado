@@ -17,7 +17,7 @@ from block_ops import (
 )
 from config import get_timestamp_seconds, get_config
 from data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurence, dict_to_val_list
-from peer_ops import load_trust, save_peer, get_remote_peer_address, update_local_address
+from peer_ops import load_trust, save_peer, get_remote_status, update_local_address
 from pool_ops import merge_buffer
 from rollback import rollback_one_block
 from transaction_ops import (
@@ -194,7 +194,7 @@ class CoreClient(threading.Thread):
 
             for block_producer in suggested_block_producers:
                 if block_producer != get_config()["ip"]:
-                    address = get_remote_peer_address(sync_from, logger=self.logger)
+                    address = get_remote_status(sync_from, logger=self.logger)["address"]
                     if address:
                         save_peer(ip=block_producer,
                                   address=address,

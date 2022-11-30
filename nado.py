@@ -11,6 +11,7 @@ import tornado.ioloop
 import tornado.web
 from tornado import gen
 
+import config
 import versioner
 from block_ops import get_block, get_latest_block_info, fee_over_blocks
 from config import get_config
@@ -23,9 +24,8 @@ from log_ops import get_logger
 from memserver import MemServer
 from loops.message_loop import MessageClient
 from loops.peer_loop import PeerClient
-from peer_ops import save_peer, get_remote_peer_address, get_producer_set
+from peer_ops import save_peer, get_remote_status, get_producer_set
 from transaction_ops import get_transaction, get_transactions_of_account
-from config import get_timestamp_seconds
 from account_ops import get_account
 
 
@@ -463,8 +463,12 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
                     logger.info(f"Restored {peer_ip} because of majority vote on its block production presence")
 
                 if peer_ip not in memserver.peers and peer_ip not in memserver.unreachable.keys():
-                    address = get_remote_peer_address(peer_ip, logger=logger)
+                    status = get_remote_status(peer_ip, logger=logger)
+                    address = status["address"]
+                    protocol = status["protocol"]
+
                     assert address, "No address detected"
+                    assert protocol >= config.get_config()["protocol"], f"Protocol of {peer_ip} is too low"
 
                     save_peer(ip=peer_ip,
                               address=address,

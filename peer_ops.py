@@ -35,7 +35,7 @@ def update_local_address(logger, peer_file_lock):
                     value=new_address)
         logger.info(f"Local address updated to {new_address}")
 
-def get_remote_peer_address(target_peer, logger) -> bool:
+def get_remote_status(target_peer, logger) -> [dict, bool]:
     try:
         url = f"http://{target_peer}:{get_port()}/status"
         result = requests.get(url=url, timeout=5)
@@ -43,7 +43,7 @@ def get_remote_peer_address(target_peer, logger) -> bool:
         code = result.status_code
 
         if code == 200:
-            return json.loads(text)["address"]
+            return json.loads(text)
         else:
             return False
 
@@ -71,6 +71,7 @@ def get_reported_uptime(target_peer, logger) -> int:
 
 async def get_remote_peer_address_async(ip) -> str:
     """fetch address of a raw peer to save it"""
+    """unused"""
     url = f"http://{ip}:{get_port()}/status"
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as response:
@@ -229,7 +230,7 @@ def dump_peers(peers, logger):
     """save all peers to drive if new to drive"""
     for peer in peers:
         if not ip_stored(peer):
-            address = get_remote_peer_address(peer, logger=logger)
+            address = get_remote_status(peer, logger=logger)["address"]
             if address:
                 save_peer(
                     ip=peer,
