@@ -79,7 +79,7 @@ this file is stored in user's home directory, `/~/nado/private/keys.dat` in Linu
 
 Yes. No mining, minting, block production happens in every node at once, based on the deterministic principles of the
 blockchain. This is possible because block production is separated from the consensual layer. This removes all the selfish
-miner incentives, which cause issues like mempool exclusion in traditional PoW systems.
+miner incentives, which cause issues like transaction exclusion in traditional PoW systems.
 
 ## What is NADO?
 
@@ -87,8 +87,8 @@ miner incentives, which cause issues like mempool exclusion in traditional PoW s
   <img src="graphics/overview.png" />
 </p>
 
-Short for Tornado. NADO is just another blockchain written from scratch with a highly experimental consensus algorithm, which is supposed
-to provide effortless mining for all participants with a public IP address. NADO is not a classic proof-of-work
+NADO is short for Tornado. It is just another blockchain written from scratch with a highly experimental consensus algorithm, 
+which was created to provide effortless mining for all participants with a public IP address. NADO is not a classic proof-of-work
 blockchain like Bitcoin. Unlike most other crypto, its focus is on accessibility to rewards for everyone. It has a fully
 elastic reward mechanism, rewarding users only when transactions are happening on the chain. Users can burn their share
 of tokens in order to increase their chances of winning more rewards in the future.
@@ -167,6 +167,9 @@ are counted from the smallest unit of NADO, so the lowest penalty resolution is 
 resolution is 0.0000000010. This system was created as an additional measure against inflation after implementation of 
 elastic distribution and burned tokens are used for governance purposes.
 
+To burn your NADO, send it to the following address: `burn`
+
+
 ## What about security?
 
 There are no guarantees for security of NADO, mainly because of its highly experimental character. Compared to more
@@ -184,8 +187,8 @@ users to make mining as inclusive as possible.
 - Block reward: Between 0 and 5 depending on network usage
 - Transaction throughput: 7 raw transactions per second
 - Proof of Fidelity with aspects of majority and diversity
-- noSQL JSON file-based atomized database system
-- Optional MessagePack formatting
+- noSQL MessagePack file-based atomized database system
+- Optional MessagePack formatting in API
 - Shared mining protocol
 - Periodic intervals to enforce consensus stabilization
 - Burn-to-Bribe deflationary incentive and governance
