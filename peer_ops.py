@@ -48,7 +48,7 @@ def get_remote_status(target_peer, logger) -> [dict, bool]:
             return False
 
     except Exception as e:
-        logger.error(f"Failed to get wallet address from {target_peer}: {e}")
+        logger.error(f"Failed to get status from {target_peer}: {e}")
         return False
 
 

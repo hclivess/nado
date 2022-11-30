@@ -464,6 +464,9 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
 
                 if peer_ip not in memserver.peers and peer_ip not in memserver.unreachable.keys():
                     status = get_remote_status(peer_ip, logger=logger)
+
+                    assert status, f"{peer_ip} unreachable"
+
                     address = status["address"]
                     protocol = status["protocol"]
 
