@@ -57,6 +57,6 @@ if __name__ == "__main__":
         balance=100000000000000000,
         ip="78.102.98.72",
         port=9173,
-        timestamp=1669808949,
+        timestamp=1669852800,
         logger=logger,
     )
