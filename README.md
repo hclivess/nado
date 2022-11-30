@@ -61,7 +61,7 @@ python -m pip install -r requirements.txt
 
 After installation, go to your browser and announce your peer to one of the nodes like this:
 http://127.0.0.1:9173/announce_peer?ip=207.180.218.90. For this,
-you must have [port 9173 open](https://www.google.com/search?q=port+forwarding+guide) so the node is accessible from the internet. 
+you should have [port 9173 open](https://www.google.com/search?q=port+forwarding+guide) so the node is accessible from the internet if you want to receive rewards. After this step, synchronization should start shortly. 
 
 ## Wallet
 You can download the [official NADO wallet here](https://github.com/hclivess/nado-microwallet) or on the [release page of NADO](https://github.com/hclivess/nado/releases).
