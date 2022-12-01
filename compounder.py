@@ -8,6 +8,7 @@ import msgpack
 from config import get_config
 from data_ops import sort_list_dict
 from log_ops import get_logger
+from tornado.httpclient import AsyncHTTPClient
 
 """this module is optimized for low memory and bandwidth usage"""
 
@@ -23,14 +24,14 @@ async def get_list_of(key, peer, fail_storage, logger, compress=None):
         url_construct = f"http://{peer}:{get_config()['port']}/{key}"
 
     try:
-        timeout = aiohttp.ClientTimeout(total=3)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url_construct) as response:
-                if compress == "msgpack":
-                    fetched = msgpack.unpackb(await response.read())
-                else:
-                    fetched = json.loads(await response.text())[key]
-                return fetched
+        http_client = AsyncHTTPClient()
+        response = await http_client.fetch(url_construct)
+
+        if compress == "msgpack":
+            fetched = msgpack.unpackb(response.body)
+        else:
+            fetched = json.loads(response.body)[key]
+        return fetched
 
     except Exception:
         if peer not in fail_storage:
@@ -69,16 +70,15 @@ async def get_status(peer, logger, fail_storage, compress=None):
     else:
         url_construct = f"http://{peer}:{get_config()['port']}/status"
     try:
-        timeout = aiohttp.ClientTimeout(total=3)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url_construct) as response:
+        http_client = AsyncHTTPClient()
+        response = await http_client.fetch(url_construct)
 
-                if compress == "msgpack":
-                    fetched = msgpack.unpackb(await response.read())
-                else:
-                    fetched = json.loads(await response.text())
+        if compress == "msgpack":
+            fetched = msgpack.unpackb(response.body)
+        else:
+            fetched = json.loads(response.body)
 
-                return peer, fetched
+        return peer, fetched
 
     except Exception:
         if peer not in fail_storage:
@@ -108,11 +108,11 @@ async def announce_self(peer, logger, fail_storage):
     )
 
     try:
-        timeout = aiohttp.ClientTimeout(total=3)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url_construct) as response:
-                fetched = await response.text()
-                return fetched
+        http_client = AsyncHTTPClient()
+        response = await http_client.fetch(url_construct)
+
+        fetched = response.body
+        return fetched
 
     except Exception:
         if peer not in fail_storage:
