@@ -214,10 +214,10 @@ class CoreClient(threading.Thread):
         """when out of sync to prevent forking"""
         self.logger.info(f"{key} out of sync with majority at critical time, replacing from trusted peer")
 
-        suggested_pool = get_from_single_target(
+        suggested_pool = asyncio.run(get_from_single_target(
             key=key,
             target_peer=peer,
-            logger=self.logger)
+            logger=self.logger))
 
         if suggested_pool:
             return suggested_pool

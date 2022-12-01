@@ -87,10 +87,11 @@ def dump_trust(pool_data, logger, peer_file_lock):
                     logger=logger,
                     peer_file_lock=peer_file_lock)
 
-def is_online(peer_ip):
+async def is_online(peer_ip):
+    http_client = AsyncHTTPClient()
     url = f"http://{peer_ip}:{get_config()['port']}/status"
     try:
-        requests.get(url, timeout=5)
+        await http_client.fetch(url)
         return True
     except Exception as e:
         return False
@@ -109,7 +110,7 @@ def load_ips(limit=8) -> list:
         if len(ip_pool) < limit:
             with open(file, "r") as peer_file:
                 peer = json.load(peer_file)
-                if is_online(peer["peer_ip"]):
+                if asyncio.run(is_online(peer["peer_ip"])):
                     ip_pool.append(peer["peer_ip"])
         else:
             break
