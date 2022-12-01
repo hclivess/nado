@@ -41,11 +41,6 @@ def handler(signum, frame):
     sys.exit(0)
 
 
-class HomeHandler(tornado.web.RequestHandler):
-    async def get(self):
-        await self.render("templates/homepage.html", ip=get_config()["ip"])
-
-
 def serialize(output, name=None, compress=None):
     if compress == "msgpack":
         output = msgpack.packb(output)
@@ -54,8 +49,16 @@ def serialize(output, name=None, compress=None):
     return output
 
 
+class HomeHandler(tornado.web.RequestHandler):
+    def home(self):
+        await self.render("templates/homepage.html", ip=get_config()["ip"])
+
+    async def get(self):
+        await asyncio.to_thread(self.home)
+
+
 class StatusHandler(tornado.web.RequestHandler):
-    async def get(self, parameter):
+    def status(self):
         compress = StatusHandler.get_argument(self, "compress", default="none")
 
         try:
@@ -76,20 +79,24 @@ class StatusHandler(tornado.web.RequestHandler):
             self.set_status(403)
             self.write(f"Error: {e}")
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.status)
+
 
 class TransactionPoolHandler(tornado.web.RequestHandler):
-
-    async def get(self, parameter):
+    def transaction_pool(self):
         compress = TransactionPoolHandler.get_argument(self, "compress", default="none")
         transaction_pool_data = memserver.transaction_pool
         self.write(serialize(name="transaction_pool",
                              output=transaction_pool_data,
                              compress=compress))
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.transaction_pool)
+
 
 class TransactionBufferHandler(tornado.web.RequestHandler):
-
-    async def get(self, parameter):
+    def transaction_buffer(self):
         compress = TransactionBufferHandler.get_argument(self, "compress", default="none")
         buffer_data = memserver.tx_buffer
 
@@ -97,10 +104,12 @@ class TransactionBufferHandler(tornado.web.RequestHandler):
                              output=buffer_data,
                              compress=compress))
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.transaction_buffer)
+
 
 class TrustPoolHandler(tornado.web.RequestHandler):
-
-    async def get(self, parameter):
+    def trust_pool(self):
         compress = TrustPoolHandler.get_argument(self, "compress", default="none")
         trust_pool_data = consensus.trust_pool
 
@@ -109,10 +118,12 @@ class TrustPoolHandler(tornado.web.RequestHandler):
                              compress=compress,
                              ))
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.trust_pool)
+
 
 class PeerPoolHandler(tornado.web.RequestHandler):
-
-    async def get(self, parameter):
+    def peer_pool(self):
         compress = PeerPoolHandler.get_argument(self, "compress", default="none")
         peers_data = list(memserver.peers)
 
@@ -121,10 +132,12 @@ class PeerPoolHandler(tornado.web.RequestHandler):
                              compress=compress
                              ))
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.peer_pool)
+
 
 class BlockProducerPoolHandler(tornado.web.RequestHandler):
-
-    async def get(self, parameter):
+    def block_producers(self):
         compress = BlockProducerPoolHandler.get_argument(self, "compress", default="none")
         producer_data = list(memserver.block_producers)
 
@@ -132,10 +145,12 @@ class BlockProducerPoolHandler(tornado.web.RequestHandler):
                              output=producer_data,
                              compress=compress))
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.block_producers)
+
 
 class BlockProducersHashPoolHandler(tornado.web.RequestHandler):
-
-    async def get(self, parameter):
+    def block_producers_hash_pool(self):
         compress = BlockProducersHashPoolHandler.get_argument(self, "compress", default="none")
 
         output = {
@@ -147,10 +162,12 @@ class BlockProducersHashPoolHandler(tornado.web.RequestHandler):
                              output=output,
                              compress=compress))
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.block_producers_hash_pool)
+
 
 class TransactionHashPoolHandler(tornado.web.RequestHandler):
-
-    async def get(self, parameter):
+    def transaction_hash_pool(self):
         compress = TransactionHashPoolHandler.get_argument(self, "compress", default="none")
 
         output = {
@@ -162,10 +179,12 @@ class TransactionHashPoolHandler(tornado.web.RequestHandler):
                              output=output,
                              compress=compress))
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.transaction_hash_pool)
+
 
 class BlockHashPoolHandler(tornado.web.RequestHandler):
-
-    async def get(self, parameter):
+    def block_hash_pool(self):
         compress = BlockHashPoolHandler.get_argument(self, "compress", default="none")
 
         output = {
@@ -177,16 +196,20 @@ class BlockHashPoolHandler(tornado.web.RequestHandler):
                              output=output,
                              compress=compress))
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.block_hash_pool)
+
 
 class FeeHandler(tornado.web.RequestHandler):
-
-    async def get(self):
+    def fee(self):
         self.write({"fee": fee_over_blocks(logger=logger)})
 
+    async def get(self):
+        await asyncio.to_thread(self.fee)
 
-class StatusPoolHandler(tornado.web.RequestHandler):  # validate
 
-    async def get(self, parameter):
+class StatusPoolHandler(tornado.web.RequestHandler):
+    def status_pool(self):
         compress = StatusPoolHandler.get_argument(self, "compress", default="none")
         status_pool_data = consensus.status_pool
 
@@ -194,15 +217,17 @@ class StatusPoolHandler(tornado.web.RequestHandler):  # validate
                              output=status_pool_data,
                              compress=compress))
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.status_pool)
+
 
 class SubmitTransactionHandler(tornado.web.RequestHandler):
-    """synchronous to asynchronous conversion"""
-    async def get(self, parameter):
+    def submit_transaction(self):
         try:
             transaction_raw = SubmitTransactionHandler.get_argument(self, "data")
             transaction = json.loads(transaction_raw)
 
-            output = await asyncio.to_thread(memserver.merge_transaction, transaction, user_origin=True)
+            output = memserver.merge_transaction(transaction, user_origin=True)
             self.write(msgpack.packb(output))
 
             if not output["result"]:
@@ -212,10 +237,12 @@ class SubmitTransactionHandler(tornado.web.RequestHandler):
             self.write(msgpack.packb(f"Invalid tx structure: {e}"))
             raise
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.submit_transaction)
+
 
 class LogHandler(tornado.web.RequestHandler):
-
-    async def get(self, parameter):
+    def log(self):
         compress = LogHandler.get_argument(self, "compress", default="none")
 
         with open(f"{get_home()}/logs/log.log") as logfile:
@@ -228,10 +255,12 @@ class LogHandler(tornado.web.RequestHandler):
                 self.write(output)
                 self.write("<br>")
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.log)
+
 
 class TerminateHandler(tornado.web.RequestHandler):
-
-    async def get(self, parameter):
+    def terminate(self):
         try:
             server_key = TerminateHandler.get_argument(self, "key")
 
@@ -242,10 +271,12 @@ class TerminateHandler(tornado.web.RequestHandler):
             self.set_status(403)
             self.write(f"Error: {e}")
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.terminate)
+
 
 class TransactionHandler(tornado.web.RequestHandler):
-
-    async def get(self, parameter):
+    def transaction(self):
         try:
             transaction = TransactionHandler.get_argument(self, "txid")
             transaction_data = get_transaction(transaction, logger=logger)
@@ -263,12 +294,15 @@ class TransactionHandler(tornado.web.RequestHandler):
             self.set_status(403)
             self.write(f"Error: {e}")
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.transaction)
+
 
 class AccountTransactionsHandler(tornado.web.RequestHandler):
     """get transactions from a transaction index batch"""
     """batch takes number or max"""
 
-    async def get(self, parameter):
+    def account_transactions(self):
         try:
             address = AccountTransactionsHandler.get_argument(self, "address")
             batch = AccountTransactionsHandler.get_argument(self, "batch")
@@ -289,10 +323,12 @@ class AccountTransactionsHandler(tornado.web.RequestHandler):
             self.set_status(403)
             self.write(f"Error: {e}")
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.account_transactions)
+
 
 class GetBlockHandler(tornado.web.RequestHandler):
-
-    async def get(self, parameter):
+    def block(self):
         try:
             block = GetBlockHandler.get_argument(self, "hash")
             compress = GetBlockHandler.get_argument(self, "compress", default="none")
@@ -310,9 +346,13 @@ class GetBlockHandler(tornado.web.RequestHandler):
             self.set_status(403)
             self.write(f"Error: {e}")
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.block)
+
 
 class GetBlocksBeforeHandler(tornado.web.RequestHandler):
-    async def get(self, parameter):
+
+    def blocks_before(self):
         try:
             block_hash = GetBlocksBeforeHandler.get_argument(self, "hash")
             count = int(GetBlocksBeforeHandler.get_argument(self, "count"))
@@ -352,10 +392,12 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
             self.set_status(403)
             self.write(f"Error: {e}")
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.blocks_before)
+
 
 class GetBlocksAfterHandler(tornado.web.RequestHandler):
-
-    async def get(self, parameter):
+    def blocks_after(self):
         try:
             block_hash = GetBlocksAfterHandler.get_argument(self, "hash")
             count = int(GetBlocksAfterHandler.get_argument(self, "count"))
@@ -394,10 +436,12 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
             self.set_status(403)
             self.write(f"Error: {e}")
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.blocks_after)
+
 
 class GetLatestBlockHandler(tornado.web.RequestHandler):
-
-    async def get(self, parameter):
+    def latest_block(self):
         latest_block_data = get_latest_block_info(logger=logger)
         compress = GetLatestBlockHandler.get_argument(self, "compress", default="none")
 
@@ -405,10 +449,12 @@ class GetLatestBlockHandler(tornado.web.RequestHandler):
                              output=latest_block_data,
                              compress=compress))
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.latest_block)
+
 
 class AccountHandler(tornado.web.RequestHandler):
-
-    async def get(self, parameter):
+    def account(self):
         try:
             account = AccountHandler.get_argument(self, "address")
             compress = AccountHandler.get_argument(self, "compress", default="none")
@@ -426,10 +472,12 @@ class AccountHandler(tornado.web.RequestHandler):
             self.set_status(403)
             self.write(f"Error: {e}")
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.account)
+
 
 class ProducerSetHandler(tornado.web.RequestHandler):
-
-    async def get(self, parameter):
+    def producer_set(self):
         try:
             producer_set_hash = ProducerSetHandler.get_argument(self, "hash")
             compress = ProducerSetHandler.get_argument(self, "compress", default="none")
@@ -447,9 +495,12 @@ class ProducerSetHandler(tornado.web.RequestHandler):
             self.set_status(403)
             self.write(f"Error: {e}")
 
+    async def get(self, parameter):
+        await asyncio.to_thread(self.producer_set)
+
 
 class AnnouncePeerHandler(tornado.web.RequestHandler):
-    async def get(self, parameter):
+    def announce(self):
         try:
             peer_ip = AnnouncePeerHandler.get_argument(self, "ip")
             assert ipaddress.ip_address(peer_ip)
@@ -495,6 +546,9 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
         except Exception as e:
             self.set_status(403)
             self.write(f"Error: {e}")
+
+    async def get(self, parameter):
+        await asyncio.to_thread(self.announce)
 
 
 async def make_app(port):
