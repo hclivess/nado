@@ -236,11 +236,11 @@ class CoreClient(threading.Thread):
             else:
                 while self.memserver.sync_mode and not self.memserver.terminate:
                     hash = get_latest_block_info(logger=self.logger)["block_hash"]
-                    if knows_block(
+                    if asyncio.run(knows_block(
                             peer,
                             hash=hash,
                             logger=self.logger,
-                    ):
+                    )):
                         self.logger.info(
                             f"{peer} knows block {get_latest_block_info(logger=self.logger)['block_hash']}"
                         )

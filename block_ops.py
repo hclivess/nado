@@ -11,6 +11,7 @@ from log_ops import get_logger
 from peer_ops import load_peer
 from account_ops import get_account_value
 import msgpack
+from tornado.httpclient import AsyncHTTPClient
 
 def check_block_structure():
     """check timestamp, etc if syncing blocks from others"""
@@ -242,10 +243,13 @@ def construct_block(
     return block_message
 
 
-def knows_block(target_peer, hash, logger):
+async def knows_block(target_peer, hash, logger):
     try:
+        http_client = AsyncHTTPClient()
         url = f"http://{target_peer}:{get_config()['port']}/get_block?hash={hash}"
-        if requests.get(url, timeout=5).status_code == 200:
+        result = await http_client.fetch(url)
+
+        if result.code == 200:
             return True
         else:
             return False
