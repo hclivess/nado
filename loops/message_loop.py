@@ -72,7 +72,7 @@ class MessageClient(threading.Thread):
                 self.logger.warning(f"Buffer protection: {self.memserver.buffer_lock.locked()}")
                 self.logger.warning(f"Queues: {self.memserver.waiting}")
 
-                for peer, ban_time in self.memserver.unreachable.items():
+                for peer, ban_time in self.memserver.unreachable.copy().items():
                     timeout = 360 + ban_time - get_timestamp_seconds()
                     if timeout < 0:
                         self.memserver.unreachable.pop(peer)
