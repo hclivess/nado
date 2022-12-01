@@ -53,8 +53,8 @@ class HomeHandler(tornado.web.RequestHandler):
     def home(self):
         self.render("templates/homepage.html", ip=get_config()["ip"])
 
-    async def get(self):
-        await asyncio.to_thread(self.home)
+    def get(self):
+        self.home()
 
 
 class StatusHandler(tornado.web.RequestHandler):
