@@ -1,6 +1,7 @@
 import glob
 import json
 import os
+import time
 
 import msgpack
 import requests
@@ -30,7 +31,7 @@ def get_recommneded_fee(target, port):
 
 def get_transaction(txid, logger):
     """return transaction based on txid"""
-    transaction_path = f"transactions/{txid}.dat"
+    transaction_path = f"{get_home()}/transactions/{txid}.dat"
     if os.path.exists(transaction_path):
         with open(transaction_path, "r") as file:
             block_hash = json.load(file)
@@ -83,7 +84,7 @@ def sort_transaction_pool(transactions: list, key="txid") -> list:
 
 
 def unindex_transaction(transaction):
-    tx_path = f"transactions/{transaction['txid']}.dat"
+    tx_path = f"{get_home()}/transactions/{transaction['txid']}.dat"
 
     sender_address = transaction['sender']
     sender_index = get_tx_index_number(sender_address)
@@ -372,6 +373,8 @@ if __name__ == "__main__":
             print(validate_transaction(transaction, logger=logger))
 
             requests.get(f"http://{ip}:{port}/submit_transaction?data={json.dumps(transaction)}", timeout=5)
+
+            time.sleep(5)
         except Exception as e:
             print(e)
 
