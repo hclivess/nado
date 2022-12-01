@@ -278,7 +278,7 @@ async def get_blocks_after(target_peer, from_hash, count=50, compress="msgpack")
         read = result.body
         return msgpack.unpackb(read)
     elif code == 200:
-        text = result.body
+        text = result.body.decode()
         return json.loads(text)["blocks_after"]
     else:
         return False
@@ -296,7 +296,7 @@ async def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
             read = result.body
             return msgpack.unpackb(read)
         elif code == 200:
-            text = result.body
+            text = result.body.decode()
             return json.loads(text)["blocks_before"]
         else:
             return False
@@ -313,7 +313,7 @@ async def get_from_single_target(key, target_peer, logger): #todo add msgpack su
         http_client = AsyncHTTPClient()
         url = f"http://{target_peer}:{get_config()['port']}/{key}"
         result = await http_client.fetch(url)
-        text = result.body
+        text = result.body.decode()
         code = result.code
 
         if code == 200:

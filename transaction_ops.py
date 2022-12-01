@@ -24,7 +24,7 @@ async def get_recommneded_fee(target, port):
     http_client = AsyncHTTPClient()
     url = f"http://{target}:{port}/get_recommended_fee"
     response = await http_client.fetch(url)
-    result = json.loads(response.body)
+    result = json.loads(response.body.decode())
     return result['fee']
 
 

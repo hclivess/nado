@@ -33,7 +33,7 @@ async def get_public_ip():
     http_client = AsyncHTTPClient()
     url = "https://api.ipify.org"
     ip = await http_client.fetch(url)
-    return ip.body
+    return ip.body.decode()
 
 
 def get_config(config_path: str = f"{get_home()}/private/config.dat"):

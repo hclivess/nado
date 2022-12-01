@@ -30,7 +30,7 @@ async def get_list_of(key, peer, fail_storage, logger, compress=None):
         if compress == "msgpack":
             fetched = msgpack.unpackb(response.body)
         else:
-            fetched = json.loads(response.body)[key]
+            fetched = json.loads(response.body.decode())[key]
         return fetched
 
     except Exception:
@@ -76,7 +76,7 @@ async def get_status(peer, logger, fail_storage, compress=None):
         if compress == "msgpack":
             fetched = msgpack.unpackb(response.body)
         else:
-            fetched = json.loads(response.body)
+            fetched = json.loads(response.body.decode())
 
         return peer, fetched
 
@@ -111,7 +111,7 @@ async def announce_self(peer, logger, fail_storage):
         http_client = AsyncHTTPClient()
         response = await http_client.fetch(url_construct)
 
-        fetched = response.body
+        fetched = response.body.decode()
         return fetched
 
     except Exception:

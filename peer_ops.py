@@ -35,12 +35,12 @@ def update_local_address(logger, peer_file_lock):
                     value=new_address)
         logger.info(f"Local address updated to {new_address}")
 
-async def get_remote_status(target_peer, logger) -> [dict, bool]:
+async def get_remote_status(target_peer, logger) -> [dict, bool]: #todo add msgpack support
     try:
         http_client = AsyncHTTPClient()
         url = f"http://{target_peer}:{get_port()}/status"
         result = await http_client.fetch(url)
-        text = result.body
+        text = result.body.decode()
         code = result.code
 
         if code == 200:
