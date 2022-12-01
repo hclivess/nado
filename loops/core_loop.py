@@ -246,11 +246,11 @@ class CoreClient(threading.Thread):
                         )
 
                         try:
-                            new_blocks = get_blocks_after(
+                            new_blocks = asyncio.run(get_blocks_after(
                                 target_peer=peer,
                                 from_hash=hash,
                                 count=50,
-                            )
+                            ))
 
                             if new_blocks:
                                 for block in new_blocks:

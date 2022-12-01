@@ -52,54 +52,6 @@ async def get_remote_status(target_peer, logger) -> [dict, bool]:
         logger.error(f"Failed to get status from {target_peer}: {e}")
         return False
 
-
-def get_reported_uptime(target_peer, logger) -> int:
-    try:
-        url = f"http://{target_peer}:{get_port()}/status"
-        result = requests.get(url=url, timeout=5)
-
-        text = result.text
-        code = result.status_code
-
-        if code == 200:
-            return json.loads(text)["reported_uptime"]
-        else:
-            return False
-    except Exception as e:
-        logger.error(f"Failed to get reported uptime from {target_peer}: {e}")
-        return False
-
-
-async def get_remote_peer_address_async(ip) -> str:
-    """fetch address of a raw peer to save it"""
-    """unused"""
-    url = f"http://{ip}:{get_port()}/status"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            html = await response.text()
-            address = json.loads(html)["peer_address"]
-            assert validate_address(address)
-            return address
-
-
-"""
-def delete_old_peers(older_than, logger):
-    peer_files = glob.glob("peers/*.dat")
-    deleted = []
-    
-    for file in peer_files:
-        with open(file, "r") as peer_file:
-            peer = json.load(peer_file)
-            last_seen = peer["last_seen"]
-            peer_ip = peer["peer_ip"]
-
-        if last_seen < older_than:
-            delete_peer(peer_ip, logger=logger)
-            deleted.append(file)
-    return deleted
-"""
-
-
 def delete_peer(ip, logger):
     peer_path = f"{get_home()}/peers/{base64encode(ip)}.dat"
     if os.path.exists(peer_path):

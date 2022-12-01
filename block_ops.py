@@ -267,17 +267,18 @@ def update_child_in_latest_block(child_hash, logger):
     return True
 
 
-def get_blocks_after(target_peer, from_hash, count=50, compress="msgpack"):
+async def get_blocks_after(target_peer, from_hash, count=50, compress="msgpack"):
+    http_client = AsyncHTTPClient()
 
     url = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
-    result = requests.get(url, timeout=5)
-    code = result.status_code
+    result = await http_client.fetch(url)
+    code = result.code
 
     if code == 200 and compress == "msgpack":
-        read = result.content
+        read = result.body
         return msgpack.unpackb(read)
     elif code == 200:
-        text = result.text
+        text = result.body
         return json.loads(text)["blocks_after"]
     else:
         return False
