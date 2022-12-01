@@ -70,7 +70,8 @@ class PeerClient(threading.Thread):
                 self.memserver.block_producers.remove(entry)  # experimental
                 self.logger.warning(f"Removed {entry} from block producers")
 
-            self.consensus.trust_pool[entry] -= 1000
+            if entry in self.consensus.trust_pool.keys():
+                self.consensus.trust_pool[entry] -= 1000
 
             if entry in self.consensus.status_pool.keys():
                 self.consensus.status_pool.pop(entry)
@@ -136,4 +137,4 @@ class PeerClient(threading.Thread):
             except Exception as e:
                 self.logger.error(f"Error in peer loop: {e}")
                 time.sleep(1)
-                # raise #test
+                #raise #test
