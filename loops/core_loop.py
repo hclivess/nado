@@ -128,9 +128,10 @@ class CoreClient(threading.Thread):
         not based on majority, but on trust matching until majority is achieved, hash pool
         is looped by occurrence until a trusted peer is found with one of the hashes"""
         try:
-            sorted_hashes = sort_occurence(dict_to_val_list(hash_pool))
+            hash_pool_copy = hash_pool.copy()
+            sorted_hashes = sort_occurence(dict_to_val_list(hash_pool_copy))
 
-            shuffled_pool = shuffle_dict(hash_pool)
+            shuffled_pool = shuffle_dict(hash_pool_copy)
             participants = len(shuffled_pool.items())
 
             me = get_config()["ip"]
@@ -159,7 +160,7 @@ class CoreClient(threading.Thread):
                 return None
 
         except Exception as e:
-            self.logger.info(f"Failed to get a peer to sync from: hash_pool: {hash_pool} error: {e}")
+            self.logger.info(f"Failed to get a peer to sync from: hash_pool: {hash_pool_copy} error: {e}")
             return None
 
     def minority_block_consensus(self):
