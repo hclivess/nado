@@ -127,8 +127,10 @@ class CoreClient(threading.Thread):
         """peer to synchronize pool when out of sync, critical part
         not based on majority, but on trust matching until majority is achieved, hash pool
         is looped by occurrence until a trusted peer is found with one of the hashes"""
+        hash_pool_copy = hash_pool.copy()
+
         try:
-            hash_pool_copy = hash_pool.copy()
+
             sorted_hashes = sort_occurence(dict_to_val_list(hash_pool_copy))
 
             shuffled_pool = shuffle_dict(hash_pool_copy)
