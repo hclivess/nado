@@ -51,7 +51,7 @@ def serialize(output, name=None, compress=None):
 
 class HomeHandler(tornado.web.RequestHandler):
     def home(self):
-        await self.render("templates/homepage.html", ip=get_config()["ip"])
+        self.render("templates/homepage.html", ip=get_config()["ip"])
 
     async def get(self):
         await asyncio.to_thread(self.home)
