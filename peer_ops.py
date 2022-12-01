@@ -12,7 +12,7 @@ from config import get_port, get_config, get_timestamp_seconds
 from data_ops import set_and_sort, get_home
 from hashing import base64encode, blake2b_hash
 from keys import load_keys
-
+from tornado.httpclient import AsyncHTTPClient
 
 def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
     if not all(key in requirements for key in dictionary):
@@ -35,12 +35,13 @@ def update_local_address(logger, peer_file_lock):
                     value=new_address)
         logger.info(f"Local address updated to {new_address}")
 
-def get_remote_status(target_peer, logger) -> [dict, bool]:
+async def get_remote_status(target_peer, logger) -> [dict, bool]:
     try:
+        http_client = AsyncHTTPClient()
         url = f"http://{target_peer}:{get_port()}/status"
-        result = requests.get(url=url, timeout=5)
-        text = result.text
-        code = result.status_code
+        result = await http_client.fetch(url)
+        text = result.body
+        code = result.code
 
         if code == 200:
             return json.loads(text)
@@ -230,7 +231,7 @@ def dump_peers(peers, logger):
     """save all peers to drive if new to drive"""
     for peer in peers:
         if not ip_stored(peer):
-            address = get_remote_status(peer, logger=logger)["address"]
+            address = asyncio.run(get_remote_status(peer, logger=logger)["address"])
             if address:
                 save_peer(
                     ip=peer,

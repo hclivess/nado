@@ -1,5 +1,6 @@
 import threading
 import time
+import asyncio
 
 from block_ops import (
     knows_block,
@@ -197,7 +198,7 @@ class CoreClient(threading.Thread):
 
             for block_producer in suggested_block_producers:
                 if block_producer != get_config()["ip"]:
-                    address = get_remote_status(sync_from, logger=self.logger)["address"]
+                    address = asyncio.run(get_remote_status(sync_from, logger=self.logger))["address"]
                     if address:
                         save_peer(ip=block_producer,
                                   address=address,
