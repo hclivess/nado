@@ -24,12 +24,13 @@ class PeerClient(threading.Thread):
     def merge_and_sort_peers(self) -> None:
         """abstract from status pool"""
         for peer_ip in self.memserver.peer_buffer.copy():
-            if peer_ip not in self.memserver.peers and peer_ip not in self.memserver.unreachable:
+            if peer_ip not in self.memserver.peers and peer_ip not in self.memserver.unreachable and len(self.memserver.peers) < 24:
+
                 self.memserver.peers.append(peer_ip)
                 self.logger.info(f"{peer_ip} connected")
 
-        self.memserver.peers = set_and_sort(self.memserver.peers)
-        self.memserver.peer_buffer.clear()
+                self.memserver.peers = set_and_sort(self.memserver.peers)
+                self.memserver.peer_buffer.clear()
 
     def sniff_peers_and_producers(self):
         candidates = get_list_of_peers(
@@ -43,6 +44,7 @@ class PeerClient(threading.Thread):
             if peer not in self.memserver.unreachable:
                 if peer not in self.memserver.peers and len(self.memserver.peers) < 24:
                     self.memserver.peers.append(peer)
+
                 if peer not in self.memserver.block_producers:
                     self.memserver.block_producers.append(peer)
                     self.logger.warning(f"Added {peer} to block producers")

@@ -534,7 +534,7 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
                         if memserver.period == 3:
                             memserver.peer_buffer.append(peer_ip)
                             memserver.peer_buffer = set_and_sort(memserver.peer_buffer)
-                        else:
+                        elif len(memserver.peers) < 24:
                             memserver.peers.append(peer_ip)
                             memserver.peers = set_and_sort(memserver.peers)
 
