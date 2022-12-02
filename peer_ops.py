@@ -184,7 +184,7 @@ def dump_peers(peers, logger):
     """save all peers to drive if new to drive"""
     for peer in peers:
         if not ip_stored(peer):
-            address = asyncio.run(get_remote_status(peer, logger=logger)["address"])
+            address = asyncio.run(get_remote_status(peer, logger=logger))["address"]
             if address:
                 save_peer(
                     ip=peer,

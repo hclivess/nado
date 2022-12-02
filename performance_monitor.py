@@ -3,7 +3,7 @@ import time
 import matplotlib.pyplot as plt
 
 url_dict = [{"name": "status",
-             "url": "http://127.0.0.1:9173/status"}]
+             "url": "http://89.25.168.195:9173/status"}]
 
 
 while True:
