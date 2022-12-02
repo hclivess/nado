@@ -143,7 +143,7 @@ def is_online(peer_ip):
         return False
 
 
-def load_ips(limit=8) -> list:
+def load_ips(limit=24) -> list:
     """load ips from drive"""
 
     peer_files = glob.glob(f"{get_home()}/peers/*.dat")
