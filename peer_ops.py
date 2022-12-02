@@ -12,7 +12,7 @@ from config import get_port, get_config, get_timestamp_seconds
 from data_ops import set_and_sort, get_home
 from hashing import base64encode, blake2b_hash
 from keys import load_keys
-
+from tornado.httpclient import AsyncHTTPClient
 
 def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
     if not all(key in requirements for key in dictionary):
@@ -35,12 +35,13 @@ def update_local_address(logger, peer_file_lock):
                     value=new_address)
         logger.info(f"Local address updated to {new_address}")
 
-def get_remote_status(target_peer, logger) -> [dict, bool]:
+async def get_remote_status(target_peer, logger) -> [dict, bool]: #todo add msgpack support
     try:
+        http_client = AsyncHTTPClient()
         url = f"http://{target_peer}:{get_port()}/status"
-        result = requests.get(url=url, timeout=5)
-        text = result.text
-        code = result.status_code
+        result = await http_client.fetch(url)
+        text = result.body.decode()
+        code = result.code
 
         if code == 200:
             return json.loads(text)
@@ -50,54 +51,6 @@ def get_remote_status(target_peer, logger) -> [dict, bool]:
     except Exception as e:
         logger.error(f"Failed to get status from {target_peer}: {e}")
         return False
-
-
-def get_reported_uptime(target_peer, logger) -> int:
-    try:
-        url = f"http://{target_peer}:{get_port()}/status"
-        result = requests.get(url=url, timeout=5)
-
-        text = result.text
-        code = result.status_code
-
-        if code == 200:
-            return json.loads(text)["reported_uptime"]
-        else:
-            return False
-    except Exception as e:
-        logger.error(f"Failed to get reported uptime from {target_peer}: {e}")
-        return False
-
-
-async def get_remote_peer_address_async(ip) -> str:
-    """fetch address of a raw peer to save it"""
-    """unused"""
-    url = f"http://{ip}:{get_port()}/status"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            html = await response.text()
-            address = json.loads(html)["peer_address"]
-            assert validate_address(address)
-            return address
-
-
-"""
-def delete_old_peers(older_than, logger):
-    peer_files = glob.glob("peers/*.dat")
-    deleted = []
-    
-    for file in peer_files:
-        with open(file, "r") as peer_file:
-            peer = json.load(peer_file)
-            last_seen = peer["last_seen"]
-            peer_ip = peer["peer_ip"]
-
-        if last_seen < older_than:
-            delete_peer(peer_ip, logger=logger)
-            deleted.append(file)
-    return deleted
-"""
-
 
 def delete_peer(ip, logger):
     peer_path = f"{get_home()}/peers/{base64encode(ip)}.dat"
@@ -134,10 +87,11 @@ def dump_trust(pool_data, logger, peer_file_lock):
                     logger=logger,
                     peer_file_lock=peer_file_lock)
 
-def is_online(peer_ip):
+async def is_online(peer_ip):
+    http_client = AsyncHTTPClient()
     url = f"http://{peer_ip}:{get_config()['port']}/status"
     try:
-        requests.get(url, timeout=5)
+        await http_client.fetch(url)
         return True
     except Exception as e:
         return False
@@ -156,7 +110,7 @@ def load_ips(limit=24) -> list:
         if len(ip_pool) < limit:
             with open(file, "r") as peer_file:
                 peer = json.load(peer_file)
-                if is_online(peer["peer_ip"]):
+                if asyncio.run(is_online(peer["peer_ip"])):
                     ip_pool.append(peer["peer_ip"])
         else:
             break
@@ -230,7 +184,7 @@ def dump_peers(peers, logger):
     """save all peers to drive if new to drive"""
     for peer in peers:
         if not ip_stored(peer):
-            address = get_remote_status(peer, logger=logger)["address"]
+            address = asyncio.run(get_remote_status(peer, logger=logger)["address"])
             if address:
                 save_peer(
                     ip=peer,

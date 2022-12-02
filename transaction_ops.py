@@ -17,15 +17,14 @@ from hashing import create_nonce, blake2b_hash
 from keys import load_keys
 from log_ops import get_logger
 from account_ops import get_account, reflect_transaction
+from tornado.httpclient import AsyncHTTPClient
 
 
-def calculate_fee():
-    return 1
-
-
-def get_recommneded_fee(target, port):
+async def get_recommneded_fee(target, port):
+    http_client = AsyncHTTPClient()
     url = f"http://{target}:{port}/get_recommended_fee"
-    result = json.loads(requests.get(url, timeout=5).text)
+    response = await http_client.fetch(url)
+    result = json.loads(response.body.decode())
     return result['fee']
 
 
@@ -365,7 +364,7 @@ if __name__ == "__main__":
                 data=data,
                 public_key=public_key,
                 timestamp=get_timestamp_seconds(),
-                fee=calculate_fee(),
+                fee=0,
                 private_key=private_key
             )
 
