@@ -514,7 +514,7 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
                     logger.info(f"Restored {peer_ip} because of majority vote on its block production presence")
 
                 if peer_ip not in memserver.peers and peer_ip not in memserver.unreachable.keys():
-                    status = get_remote_status(peer_ip, logger=logger)
+                    status = asyncio.run(get_remote_status(peer_ip, logger=logger))
 
                     assert status, f"{peer_ip} unreachable"
 
