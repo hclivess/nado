@@ -41,7 +41,7 @@ class PeerClient(threading.Thread):
 
         for peer in candidates:
             if peer not in self.memserver.unreachable:
-                if peer not in self.memserver.peers and len(self.memserver.peers) < 8:
+                if peer not in self.memserver.peers and len(self.memserver.peers) < 24:
                     self.memserver.peers.append(peer)
                 if peer not in self.memserver.block_producers:
                     self.memserver.block_producers.append(peer)
