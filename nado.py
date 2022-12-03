@@ -414,13 +414,14 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
             count = int(GetBlocksAfterHandler.get_argument(self, "count"))
             compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
 
-            child_hash = get_block(block_hash)["child_hash"]
-
             collected_blocks = []
 
-            for blocks in range(0, count):
-                try:
+            try:
+                child_hash = get_block(block_hash)["child_hash"]
 
+
+
+                for blocks in range(0, count):
                     previous_block = None
                     block = get_block(child_hash)
                     if previous_block == block:
@@ -430,13 +431,13 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
                         collected_blocks.append(block)
                         child_hash = block["child_hash"]
 
-                except Exception as e:
-                    logger.debug("Block collection hit a roadblock")
-                    break
+            except Exception as e:
+                logger.debug("Block collection hit a roadblock")
 
-            if not collected_blocks:
-                collected_blocks = "Not found"
-                self.set_status(403)
+
+                if not collected_blocks:
+                    collected_blocks = "Not found"
+                    self.set_status(403)
 
             self.write(serialize(name="blocks_after",
                                  output=collected_blocks,
@@ -446,6 +447,7 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
         except Exception as e:
             self.set_status(403)
             self.write(f"Error: {e}")
+            raise
 
     async def get(self, parameter):
         await asyncio.to_thread(self.blocks_after)
