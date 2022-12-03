@@ -98,22 +98,31 @@ def is_online(peer_ip):
     except Exception as e:
         return False
 
+def sort_dict_value(values, key):
+    return sorted(values, key=lambda d: d[key], reverse=True)
 
 def load_ips(limit=24) -> list:
     """load ips from drive"""
 
     peer_files = glob.glob(f"{get_home()}/peers/*.dat")
+
     if len(peer_files) < limit:
         limit = len(peer_files)
 
+    candidates = []
     ip_pool = []
 
     for file in peer_files:
         if len(ip_pool) < limit:
             with open(file, "r") as peer_file:
                 peer = json.load(peer_file)
-                if is_online(peer["peer_ip"]):
-                    ip_pool.append(peer["peer_ip"])
+                candidates.append(peer)
+
+            candidates_sorted = sort_dict_value(candidates, key="peer_trust")
+
+            for candidate in candidates_sorted:
+                if is_online(candidate["peer_ip"]):
+                    ip_pool.append(candidate["peer_ip"])
         else:
             break
 

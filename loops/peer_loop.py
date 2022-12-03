@@ -60,14 +60,22 @@ class PeerClient(threading.Thread):
         store_producer_set(self.memserver.block_producers)
         save_block_producers(self.memserver.block_producers)
 
+    def disconnect_peer(self, entry):
+        if entry in self.memserver.peers:
+            self.memserver.peers.remove(entry)
+
+        if entry not in self.memserver.unreachable.keys():
+            self.memserver.unreachable[entry] = get_timestamp_seconds()
+
+        self.logger.warning(f"{entry} is unreachable")
+
+
     def purge_peers(self) -> None:
         """put purge_peers_list into effect and empty it"""
 
         for entry in self.memserver.purge_peers_list:
-            if entry in self.memserver.peers:
-                self.memserver.peers.remove(entry)
-            if entry not in self.memserver.unreachable.keys():
-                self.memserver.unreachable[entry] = get_timestamp_seconds()
+            self.disconnect_peer(entry)
+
             if entry in self.memserver.block_producers:
                 self.memserver.block_producers.remove(entry)  # experimental
                 self.logger.warning(f"Removed {entry} from block producers")
