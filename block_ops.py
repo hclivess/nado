@@ -340,11 +340,12 @@ def get_since_last_block(logger) -> [str, None]:
 def get_penalty(producer_address, block_hash):
     miner_penalty = get_account_value(address=producer_address, key="account_produced")
     combined_penalty = get_hash_penalty(a=producer_address, b=block_hash) + miner_penalty
-    block_penalty = combined_penalty - get_account_value(producer_address, key="account_burned") * 100
+    burn_bonus = get_account_value(producer_address, key="account_burned")
+    block_penalty = combined_penalty - burn_bonus * 100
     return block_penalty
 
 
-def get_mining_uniqueness(logger, blocks_backward=50):
+def get_mining_congestion(logger, blocks_backward=100):
     """compare the number of blocks to number of unique miners"""
     latest_block_info = get_latest_block_info(logger=logger)
     parent = latest_block_info["block_hash"]
@@ -362,8 +363,8 @@ def get_mining_uniqueness(logger, blocks_backward=50):
         if creator not in miners_list:
             miners_list.append(creator)
 
-    uniqueness = (len(miners_list) / blocks_backward) * 100
-    return uniqueness
+    congestion = blocks_backward / len(miners_list)
+    return congestion
 
 
 def pick_best_producer(block_producers, logger, peer_file_lock):
