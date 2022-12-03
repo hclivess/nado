@@ -74,7 +74,7 @@ def get_block_candidate(
                                        peer_file_lock=peer_file_lock)
 
     logger.info(
-        f"Producing block candidate for: {block_producers} won by {best_producer}"
+        f"Producing block candidate for: {len(block_producers)} block producers won by {best_producer}"
     )
 
     block = construct_block(

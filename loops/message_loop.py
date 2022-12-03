@@ -71,14 +71,7 @@ class MessageClient(threading.Thread):
 
                 self.logger.warning(f"Buffer protection: {self.memserver.buffer_lock.locked()}")
                 self.logger.warning(f"Queues: {self.memserver.waiting}")
-
-                for peer, ban_time in self.memserver.unreachable.copy().items():
-                    timeout = 360 + ban_time - get_timestamp_seconds()
-                    if timeout < 0:
-                        self.memserver.unreachable.pop(peer)
-                        self.logger.info(f"Restored {peer} because it has been banned for too long")
-                    else:
-                        self.logger.warning(f"Unreachable: {peer} [timeout {timeout}s]")
+                self.logger.warning(f"Unreachable: {len(self.memserver.unreachable)}")
 
                 self.logger.info(f"Loop durations: Core: {self.core.duration}; "
                                  f"Consensus: {self.consensus.duration}; "

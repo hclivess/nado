@@ -116,7 +116,7 @@ async def announce_self(peer, logger, fail_storage):
 
     except Exception:
         if peer not in fail_storage:
-            logger.info(f"Failed to announce self to {url_construct}")
+            #logger.info(f"Failed to announce self to {url_construct}")
             fail_storage.append(peer)
 
 

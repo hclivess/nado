@@ -262,14 +262,14 @@ class CoreClient(threading.Thread):
                                 break
 
                         except Exception as e:
-                            self.consensus.trust_pool[peer] -= 1000
+                            self.consensus.trust_pool[peer] -= 10000
 
                             self.logger.error(f"Failed to get blocks after {hash} from {peer}: {e}")
                             break
 
                     else:
                         rollback_one_block(logger=self.logger, lock=self.memserver.buffer_lock)
-                        self.consensus.trust_pool[peer] -= 1000
+                        self.consensus.trust_pool[peer] -= 10000
 
                 self.consensus.refresh_hashes()
                 # self.replace_block_producers(peer=peer)

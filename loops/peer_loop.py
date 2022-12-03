@@ -67,9 +67,6 @@ class PeerClient(threading.Thread):
         if entry not in self.memserver.unreachable.keys():
             self.memserver.unreachable[entry] = get_timestamp_seconds()
 
-        self.logger.warning(f"{entry} is unreachable")
-
-
     def purge_peers(self) -> None:
         """put purge_peers_list into effect and empty it"""
 
@@ -77,8 +74,8 @@ class PeerClient(threading.Thread):
             self.disconnect_peer(entry)
 
             if entry in self.memserver.block_producers:
-                self.memserver.block_producers.remove(entry)  # experimental
-                self.logger.warning(f"Removed {entry} from block producers")
+                self.memserver.block_producers.remove(entry)
+                #self.logger.warning(f"Removed {entry} from block producers")
 
             if entry in self.consensus.trust_pool.keys():
                 self.consensus.trust_pool[entry] -= 1000
@@ -95,7 +92,7 @@ class PeerClient(threading.Thread):
             if entry in self.consensus.block_hash_pool.keys():
                 self.consensus.block_hash_pool.pop(entry)
 
-            self.logger.warning(f"Disconnected from {entry}")
+            #self.logger.warning(f"Cannot connect to {entry}")
             self.memserver.purge_peers_list.remove(entry)
 
             # delete_peer(entry, logger=self.logger)
@@ -113,7 +110,13 @@ class PeerClient(threading.Thread):
                     self.memserver.merge_remote_transactions(user_origin=False)
                     self.sniff_peers_and_producers()
 
-                if get_timestamp_seconds() > self.heavy_refresh + 360:
+                for peer, ban_time in self.memserver.unreachable.copy().items():
+                    timeout = 360 + ban_time - get_timestamp_seconds()
+                    if timeout < 0:
+                        self.memserver.unreachable.pop(peer)
+                        self.logger.info(f"Restored {peer} because it has been banned for too long")
+
+                if get_timestamp_seconds() > self.heavy_refresh + 3600:
                     self.heavy_refresh = get_timestamp_seconds()
 
                     announce_me(
