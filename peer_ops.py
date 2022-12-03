@@ -12,6 +12,7 @@ from hashing import base64encode, blake2b_hash
 from keys import load_keys
 from config import get_public_ip, update_config
 
+
 def update_local_ip(logger, peer_file_lock):
     old_ip = get_config()["ip"]
     new_ip = asyncio.run(get_public_ip())
@@ -31,6 +32,7 @@ def update_local_ip(logger, peer_file_lock):
         update_config(new_config)
 
         logger.info(f"Local IP updated to {new_ip}")
+
 
 def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
     if not all(key in requirements for key in dictionary):
@@ -163,14 +165,14 @@ def load_trust(peer, logger, peer_file_lock):
                      peer_file_lock=peer_file_lock)
 
 
-def load_peer(logger, ip, peer_file_lock, key=None) -> str:
+def load_peer(logger, ip, peer_file_lock, key=None) -> [str, dict]:
     with peer_file_lock:
         try:
             peer_file = f"{get_home()}/peers/{base64encode(ip)}.dat"
             if not key:
                 with open(peer_file, "r") as peer_file:
-                    peer_key = json.load(peer_file)
-                return peer_key
+                    peer_dict = json.load(peer_file)
+                return peer_dict
             else:
                 with open(peer_file, "r") as peer_file:
                     peer_key = json.load(peer_file)[key]
