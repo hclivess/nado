@@ -91,7 +91,7 @@ async def is_online(peer_ip):
     http_client = AsyncHTTPClient()
     url = f"http://{peer_ip}:{get_config()['port']}/status"
     try:
-        await http_client.fetch(url)
+        await http_client.fetch(url, connect_timeout=0.1)
         return True
     except Exception as e:
         return False
