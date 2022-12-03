@@ -11,7 +11,7 @@ from log_ops import get_logger
 from peer_ops import load_peer
 from account_ops import get_account_value
 import msgpack
-from tornado.httpclient import HTTPClient
+from tornado.httpclient import AsyncHTTPClient
 
 def check_block_structure():
     """check timestamp, etc if syncing blocks from others"""
@@ -243,11 +243,11 @@ def construct_block(
     return block_message
 
 
-def knows_block(target_peer, hash, logger):
+async def knows_block(target_peer, hash, logger):
     try:
-        http_client = HTTPClient()
+        http_client = AsyncHTTPClient()
         url = f"http://{target_peer}:{get_config()['port']}/get_block?hash={hash}"
-        result = http_client.fetch(url)
+        result = await http_client.fetch(url)
 
         if result.code == 200:
             return True
@@ -267,11 +267,11 @@ def update_child_in_latest_block(child_hash, logger):
     return True
 
 
-def get_blocks_after(target_peer, from_hash, count=50, compress="msgpack"):
-    http_client = HTTPClient()
+async def get_blocks_after(target_peer, from_hash, count=50, compress="msgpack"):
+    http_client = AsyncHTTPClient()
 
     url = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
-    result = http_client.fetch(url)
+    result = await http_client.fetch(url)
     code = result.code
 
     if code == 200 and compress == "msgpack":
@@ -283,12 +283,12 @@ def get_blocks_after(target_peer, from_hash, count=50, compress="msgpack"):
     else:
         return False
 
-def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
+async def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
     try:
-        http_client = HTTPClient()
+        http_client = AsyncHTTPClient()
 
         url = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
-        result = http_client.fetch(url)
+        result = await http_client.fetch(url)
         code = result.code
 
         if code == 200 and compress == "msgpack":
@@ -305,13 +305,13 @@ def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
         return False
 
 
-def get_from_single_target(key, target_peer, logger): #todo add msgpack support
+async def get_from_single_target(key, target_peer, logger): #todo add msgpack support
     """obtain from a single target"""
 
     try:
-        http_client = HTTPClient()
+        http_client = AsyncHTTPClient()
         url = f"http://{target_peer}:{get_config()['port']}/{key}"
-        result = http_client.fetch(url)
+        result = await http_client.fetch(url)
         text = result.body.decode()
         code = result.code
 

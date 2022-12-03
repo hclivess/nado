@@ -8,7 +8,7 @@ from config import get_port, get_config, get_timestamp_seconds
 from data_ops import set_and_sort, get_home
 from hashing import base64encode, blake2b_hash
 from keys import load_keys
-from tornado.httpclient import HTTPClient
+from tornado.httpclient import AsyncHTTPClient
 
 
 def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
@@ -33,11 +33,11 @@ def update_local_address(logger, peer_file_lock):
         logger.info(f"Local address updated to {new_address}")
 
 
-def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add msgpack support
+async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add msgpack support
     try:
-        http_client = HTTPClient()
+        http_client = AsyncHTTPClient()
         url = f"http://{target_peer}:{get_port()}/status"
-        result = http_client.fetch(url)
+        result = await http_client.fetch(url)
         text = result.body.decode()
         code = result.code
 
@@ -89,11 +89,12 @@ def dump_trust(pool_data, logger, peer_file_lock):
                     peer_file_lock=peer_file_lock)
 
 
-def is_online(peer_ip):
-    http_client = HTTPClient()
+async def is_online(peer_ip):
+    http_client = AsyncHTTPClient()
+
     url = f"http://{peer_ip}:{get_config()['port']}/status"
     try:
-        http_client.fetch(url, connect_timeout=0.1)
+        await http_client.fetch(url, connect_timeout=0.1)
         return True
     except Exception as e:
         return False
@@ -120,7 +121,7 @@ def load_ips(limit=24) -> list:
         candidates_sorted = sort_dict_value(candidates, key="peer_trust")
 
         for candidate in candidates_sorted:
-            if is_online(candidate["peer_ip"]):
+            if asyncio.run(is_online(candidate["peer_ip"])):
                 if len(ip_pool) < limit:
                     ip_pool.append(candidate["peer_ip"])
                 else:
@@ -195,7 +196,7 @@ def dump_peers(peers, logger):
     """save all peers to drive if new to drive"""
     for peer in peers:
         if not ip_stored(peer):
-            address = get_remote_status(peer, logger=logger)["address"]
+            address = asyncio.run(get_remote_status(peer, logger=logger))["address"]
             if address:
                 save_peer(
                     ip=peer,

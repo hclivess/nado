@@ -17,13 +17,13 @@ from hashing import create_nonce, blake2b_hash
 from keys import load_keys
 from log_ops import get_logger
 from account_ops import get_account, reflect_transaction
-from tornado.httpclient import HTTPClient
+from tornado.httpclient import AsyncHTTPClient
 
 
-def get_recommneded_fee(target, port):
-    http_client = HTTPClient()
+async def get_recommneded_fee(target, port):
+    http_client = AsyncHTTPClient()
     url = f"http://{target}:{port}/get_recommended_fee"
-    response = http_client.fetch(url)
+    response = await http_client.fetch(url)
     result = json.loads(response.body.decode())
     return result['fee']
 

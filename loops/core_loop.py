@@ -27,6 +27,7 @@ from transaction_ops import (
     validate_all_spending,
 )
 from account_ops import increase_produced_count, change_balance
+import asyncio
 
 
 def minority_consensus(majority_hash, sample_hash):
@@ -197,7 +198,7 @@ class CoreClient(threading.Thread):
 
             for block_producer in suggested_block_producers:
                 if block_producer != get_config()["ip"]:
-                    address = get_remote_status(sync_from, logger=self.logger)["address"]
+                    address = asyncio.run(get_remote_status(sync_from, logger=self.logger))["address"]
                     if address:
                         save_peer(ip=block_producer,
                                   address=address,
@@ -213,10 +214,10 @@ class CoreClient(threading.Thread):
         """when out of sync to prevent forking"""
         self.logger.info(f"{key} out of sync with majority at critical time, replacing from trusted peer")
 
-        suggested_pool = get_from_single_target(
+        suggested_pool = asyncio.run(get_from_single_target(
             key=key,
             target_peer=peer,
-            logger=self.logger)
+            logger=self.logger))
 
         if suggested_pool:
             return suggested_pool
@@ -235,21 +236,21 @@ class CoreClient(threading.Thread):
             else:
                 while self.memserver.sync_mode and not self.memserver.terminate:
                     hash = get_latest_block_info(logger=self.logger)["block_hash"]
-                    if knows_block(
+                    if asyncio.run(knows_block(
                             peer,
                             hash=hash,
                             logger=self.logger,
-                    ):
+                    )):
                         self.logger.info(
                             f"{peer} knows block {get_latest_block_info(logger=self.logger)['block_hash']}"
                         )
 
                         try:
-                            new_blocks = get_blocks_after(
+                            new_blocks = asyncio.run(get_blocks_after(
                                 target_peer=peer,
                                 from_hash=hash,
                                 count=50,
-                            )
+                            ))
 
                             if new_blocks:
                                 for block in new_blocks:
