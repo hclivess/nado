@@ -46,6 +46,7 @@ class MemServer:
         self.port = get_config()["port"]
         self.terminate = False
         self.producers_refresh_interval = 10
+        self.peer_limit = 24
 
         self.block_time = 60
         self.period = None

@@ -24,7 +24,7 @@ class PeerClient(threading.Thread):
     def merge_and_sort_peers(self) -> None:
         """abstract from status pool"""
         for peer_ip in self.memserver.peer_buffer.copy():
-            if peer_ip not in self.memserver.peers and peer_ip not in self.memserver.unreachable and len(self.memserver.peers) < 24:
+            if peer_ip not in self.memserver.peers and peer_ip not in self.memserver.unreachable and len(self.memserver.peers) < self.memserver.peer_limit:
 
                 self.memserver.peers.append(peer_ip)
                 self.logger.info(f"{peer_ip} connected")
@@ -42,7 +42,7 @@ class PeerClient(threading.Thread):
 
         for peer in candidates:
             if peer not in self.memserver.unreachable:
-                if peer not in self.memserver.peers and len(self.memserver.peers) < 24:
+                if peer not in self.memserver.peers and len(self.memserver.peers) < self.memserver.peer_limit:
                     self.memserver.peers.append(peer)
 
                 if peer not in self.memserver.block_producers:
@@ -123,7 +123,7 @@ class PeerClient(threading.Thread):
                 if len(self.memserver.peers) < self.memserver.min_peers:
                     self.logger.info("No peers, reloading from drive")
                     self.memserver.unreachable.clear()
-                    self.memserver.peers = load_ips()
+                    self.memserver.peers = load_ips(limit=self.memserver.peer_limit)
 
                 self.consensus.status_pool = asyncio.run(
                     compound_get_status_pool(
