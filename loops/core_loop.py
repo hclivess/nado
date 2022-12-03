@@ -236,11 +236,13 @@ class CoreClient(threading.Thread):
             else:
                 while self.memserver.sync_mode and not self.memserver.terminate:
                     hash = get_latest_block_info(logger=self.logger)["block_hash"]
-                    if asyncio.run(knows_block(
-                            peer,
+
+                    known_block = asyncio.run(knows_block(
+                            target_peer=peer,
                             hash=hash,
-                            logger=self.logger,
-                    )):
+                            logger=self.logger))
+
+                    if known_block:
                         self.logger.info(
                             f"{peer} knows block {get_latest_block_info(logger=self.logger)['block_hash']}"
                         )
@@ -267,7 +269,7 @@ class CoreClient(threading.Thread):
                             self.logger.error(f"Failed to get blocks after {hash} from {peer}: {e}")
                             break
 
-                    else:
+                    elif not known_block:
                         rollback_one_block(logger=self.logger, lock=self.memserver.buffer_lock)
                         self.consensus.trust_pool[peer] -= 10000
 

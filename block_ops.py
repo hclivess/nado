@@ -256,7 +256,7 @@ async def knows_block(target_peer, hash, logger):
 
     except Exception as e:
         logger.error(f"Failed to check block {hash} from {target_peer}: {e}")
-        return False
+        return True #prevent rollback
 
 
 def update_child_in_latest_block(child_hash, logger):
