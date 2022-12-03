@@ -233,8 +233,8 @@ class SubmitTransactionHandler(tornado.web.RequestHandler):
                 self.set_status(403)
 
         except Exception as e:
-            self.write(msgpack.packb(f"Invalid tx structure: {e}"))
-            raise
+            self.set_status(403)
+            self.write(f"Error: {e}")
 
     async def get(self, parameter):
         await asyncio.to_thread(self.submit_transaction)
