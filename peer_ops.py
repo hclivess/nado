@@ -113,18 +113,18 @@ def load_ips(limit=24) -> list:
     ip_pool = []
 
     for file in peer_files:
-        if len(ip_pool) < limit:
-            with open(file, "r") as peer_file:
-                peer = json.load(peer_file)
-                candidates.append(peer)
+        with open(file, "r") as peer_file:
+            peer = json.load(peer_file)
+            candidates.append(peer)
 
-            candidates_sorted = sort_dict_value(candidates, key="peer_trust")
+        candidates_sorted = sort_dict_value(candidates, key="peer_trust")
 
-            for candidate in candidates_sorted:
-                if is_online(candidate["peer_ip"]):
+        for candidate in candidates_sorted:
+            if is_online(candidate["peer_ip"]):
+                if len(ip_pool) < limit:
                     ip_pool.append(candidate["peer_ip"])
-        else:
-            break
+                else:
+                    break
 
     return ip_pool
 

@@ -36,7 +36,7 @@ def is_port_in_use(port: int) -> bool:
 def handler(signum, frame):
     logger.info("Terminating..")
     memserver.terminate = True
-    tornado.ioloop.IOLoop.current().stop()
+    #tornado.ioloop.IOLoop.current().stop()
     sys.exit(0)
 
 
@@ -265,7 +265,7 @@ class TerminateHandler(tornado.web.RequestHandler):
 
             if server_key == memserver.server_key:
                 memserver.terminate = True
-                tornado.ioloop.IOLoop.current().stop()
+                #tornado.ioloop.IOLoop.current().stop()
         except Exception as e:
             self.set_status(403)
             self.write(f"Error: {e}")
