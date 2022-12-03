@@ -343,30 +343,6 @@ def get_penalty(producer_address, block_hash):
     burn_bonus = get_account_value(producer_address, key="account_burned")
     block_penalty = combined_penalty - burn_bonus * 100
     return block_penalty
-
-
-def get_mining_congestion(logger, blocks_backward=100):
-    """compare the number of blocks to number of unique miners"""
-    latest_block_info = get_latest_block_info(logger=logger)
-    parent = latest_block_info["block_hash"]
-    latest_block_number = latest_block_info["block_number"]
-    block_number = latest_block_number
-
-    miners_list = []
-
-    while 0 < block_number > (latest_block_number - blocks_backward):
-        block = load_block(parent, logger=logger)
-        parent = block["parent_hash"]
-        block_number = block["block_number"]
-        creator = block["block_creator"]
-
-        if creator not in miners_list:
-            miners_list.append(creator)
-
-    congestion = blocks_backward / len(miners_list)
-    return congestion
-
-
 def pick_best_producer(block_producers, logger, peer_file_lock):
     block_hash = get_latest_block_info(logger=logger)["block_hash"]
 
