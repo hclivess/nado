@@ -24,8 +24,8 @@ class PeerClient(threading.Thread):
     def merge_and_sort_peers(self) -> None:
         """abstract from status pool"""
         for peer_ip in self.memserver.peer_buffer.copy():
-            if peer_ip not in self.memserver.peers and peer_ip not in self.memserver.unreachable and len(self.memserver.peers) < self.memserver.peer_limit:
-
+            if peer_ip not in self.memserver.peers and peer_ip not in self.memserver.unreachable and len(
+                    self.memserver.peers) < self.memserver.peer_limit:
                 self.memserver.peers.append(peer_ip)
                 self.logger.info(f"{peer_ip} connected")
 
@@ -117,8 +117,8 @@ class PeerClient(threading.Thread):
                     dump_peers(peers=self.memserver.peers, logger=self.logger)  # wip
 
                     dump_trust(logger=self.logger,
-                                   peer_file_lock=self.memserver.peer_file_lock,
-                                   pool_data=self.consensus.trust_pool)
+                               peer_file_lock=self.memserver.peer_file_lock,
+                               pool_data=self.consensus.trust_pool)
 
                 if len(self.memserver.peers) < self.memserver.min_peers:
                     self.logger.info("No peers, reloading from drive")
@@ -139,4 +139,4 @@ class PeerClient(threading.Thread):
             except Exception as e:
                 self.logger.error(f"Error in peer loop: {e}")
                 time.sleep(1)
-                #raise #test
+                # raise #test

@@ -46,7 +46,6 @@ class MemServer:
         self.port = get_config()["port"]
         self.terminate = False
         self.producers_refresh_interval = 10
-        self.peer_limit = 24
 
         self.block_time = 60
         self.period = None
@@ -63,6 +62,7 @@ class MemServer:
         self.sync_mode = False
         self.waiting = 0
         self.min_peers = 2
+        self.peer_limit = 24
 
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:
