@@ -6,7 +6,7 @@ from block_ops import save_block_producers
 from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
 from data_ops import set_and_sort
-from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, dump_peers, dump_trust
+from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, dump_peers, dump_trust, update_local_ip
 
 
 class PeerClient(threading.Thread):
