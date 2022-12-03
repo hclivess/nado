@@ -3,16 +3,13 @@ import glob
 import json
 import os.path
 
-import aiohttp
-import requests
-
-from address import validate_address
 from compounder import compound_get_list_of, compound_announce_self
 from config import get_port, get_config, get_timestamp_seconds
 from data_ops import set_and_sort, get_home
 from hashing import base64encode, blake2b_hash
 from keys import load_keys
-from tornado.httpclient import AsyncHTTPClient
+from tornado.httpclient import HTTPClient
+
 
 def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
     if not all(key in requirements for key in dictionary):
@@ -35,11 +32,12 @@ def update_local_address(logger, peer_file_lock):
                     value=new_address)
         logger.info(f"Local address updated to {new_address}")
 
-async def get_remote_status(target_peer, logger) -> [dict, bool]: #todo add msgpack support
+
+def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add msgpack support
     try:
-        http_client = AsyncHTTPClient()
+        http_client = HTTPClient()
         url = f"http://{target_peer}:{get_port()}/status"
-        result = await http_client.fetch(url)
+        result = http_client.fetch(url)
         text = result.body.decode()
         code = result.code
 
@@ -51,6 +49,7 @@ async def get_remote_status(target_peer, logger) -> [dict, bool]: #todo add msgp
     except Exception as e:
         logger.error(f"Failed to get status from {target_peer}: {e}")
         return False
+
 
 def delete_peer(ip, logger):
     peer_path = f"{get_home()}/peers/{base64encode(ip)}.dat"
@@ -79,6 +78,8 @@ def ip_stored(ip) -> bool:
         return True
     else:
         return False
+
+
 def dump_trust(pool_data, logger, peer_file_lock):
     for key, value in pool_data.items():
         update_peer(ip=key,
@@ -87,11 +88,12 @@ def dump_trust(pool_data, logger, peer_file_lock):
                     logger=logger,
                     peer_file_lock=peer_file_lock)
 
-async def is_online(peer_ip):
-    http_client = AsyncHTTPClient()
+
+def is_online(peer_ip):
+    http_client = HTTPClient()
     url = f"http://{peer_ip}:{get_config()['port']}/status"
     try:
-        await http_client.fetch(url, connect_timeout=0.1)
+        http_client.fetch(url, connect_timeout=0.1)
         return True
     except Exception as e:
         return False
@@ -110,7 +112,7 @@ def load_ips(limit=24) -> list:
         if len(ip_pool) < limit:
             with open(file, "r") as peer_file:
                 peer = json.load(peer_file)
-                if asyncio.run(is_online(peer["peer_ip"])):
+                if is_online(peer["peer_ip"]):
                     ip_pool.append(peer["peer_ip"])
         else:
             break
@@ -184,7 +186,7 @@ def dump_peers(peers, logger):
     """save all peers to drive if new to drive"""
     for peer in peers:
         if not ip_stored(peer):
-            address = asyncio.run(get_remote_status(peer, logger=logger))["address"]
+            address = get_remote_status(peer, logger=logger)["address"]
             if address:
                 save_peer(
                     ip=peer,

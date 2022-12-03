@@ -9,7 +9,6 @@ import sys
 import msgpack
 import tornado.ioloop
 import tornado.web
-from tornado import gen
 
 import config
 import versioner
