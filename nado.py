@@ -36,7 +36,7 @@ def is_port_in_use(port: int) -> bool:
 def handler(signum, frame):
     logger.info("Terminating..")
     memserver.terminate = True
-    #tornado.ioloop.IOLoop.current().stop()
+    # tornado.ioloop.IOLoop.current().stop()
     sys.exit(0)
 
 
@@ -134,6 +134,7 @@ class PeerPoolHandler(tornado.web.RequestHandler):
     async def get(self, parameter):
         await asyncio.to_thread(self.peer_pool)
 
+
 class UnreachableHandler(tornado.web.RequestHandler):
     def unreachable(self):
         compress = PeerPoolHandler.get_argument(self, "compress", default="none")
@@ -146,6 +147,7 @@ class UnreachableHandler(tornado.web.RequestHandler):
 
     async def get(self, parameter):
         await asyncio.to_thread(self.unreachable)
+
 
 class BlockProducerPoolHandler(tornado.web.RequestHandler):
     def block_producers(self):
@@ -277,7 +279,7 @@ class TerminateHandler(tornado.web.RequestHandler):
 
             if server_key == memserver.server_key:
                 memserver.terminate = True
-                #tornado.ioloop.IOLoop.current().stop()
+                # tornado.ioloop.IOLoop.current().stop()
         except Exception as e:
             self.set_status(403)
             self.write(f"Error: {e}")
@@ -364,17 +366,15 @@ class GetBlockHandler(tornado.web.RequestHandler):
 class GetBlocksBeforeHandler(tornado.web.RequestHandler):
 
     def blocks_before(self):
-        try:
             block_hash = GetBlocksBeforeHandler.get_argument(self, "hash")
-            count = int(GetBlocksBeforeHandler.get_argument(self, "count"))
+            count = int(GetBlocksBeforeHandler.get_argument(self, "count", default="1"))
             compress = GetBlocksBeforeHandler.get_argument(self, "compress", default="none")
-
-            parent_hash = get_block(block_hash)["parent_hash"]
-
             collected_blocks = []
-            for blocks in range(0, count):
-                try:
 
+            try:
+                parent_hash = get_block(block_hash)["parent_hash"]
+
+                for blocks in range(0, count):
                     block = get_block(parent_hash)
                     next_block = None
                     if next_block == block:
@@ -383,68 +383,56 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
                     elif block:
                         collected_blocks.append(block)
                         parent_hash = block["parent_hash"]
-                except Exception as e:
-                    logger.debug("Block collection hit a roadblock")
-                    break
 
-            collected_blocks.reverse()
+                collected_blocks.reverse()
 
-            if not collected_blocks:
+            except Exception as e:
                 self.set_status(403)
+                logger.debug(f"Block collection hit a roadblock: {e}")
 
-            self.write(serialize(name="blocks_before",
-                                 output=collected_blocks,
-                                 compress=compress
-                                 ))
+                if not collected_blocks:
+                    self.set_status(403)
 
-
-        except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
-
+            finally:
+                self.write(serialize(name="blocks_before",
+                                     output=collected_blocks,
+                                     compress=compress
+                                     ))
     async def get(self, parameter):
         await asyncio.to_thread(self.blocks_before)
 
 
 class GetBlocksAfterHandler(tornado.web.RequestHandler):
     def blocks_after(self):
+
+        block_hash = GetBlocksAfterHandler.get_argument(self, "hash")
+        count = int(GetBlocksAfterHandler.get_argument(self, "count", default="1"))
+        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        collected_blocks = []
         try:
-            block_hash = GetBlocksAfterHandler.get_argument(self, "hash")
-            count = int(GetBlocksAfterHandler.get_argument(self, "count"))
-            compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+            child_hash = get_block(block_hash)["child_hash"]
 
-            collected_blocks = []
+            for blocks in range(0, count):
+                previous_block = None
+                block = get_block(child_hash)
+                if previous_block == block:
+                    break
 
-            try:
-                child_hash = get_block(block_hash)["child_hash"]
+                elif block:
+                    collected_blocks.append(block)
+                    child_hash = block["child_hash"]
 
-                for blocks in range(0, count):
-                    previous_block = None
-                    block = get_block(child_hash)
-                    if previous_block == block:
-                        break
+        except Exception as e:
+            logger.debug(f"Block collection hit a roadblock: {e}")
 
-                    elif block:
-                        collected_blocks.append(block)
-                        child_hash = block["child_hash"]
+            if not collected_blocks:
+                self.set_status(403)
 
-            except Exception as e:
-                logger.debug("Block collection hit a roadblock")
-
-
-                if not collected_blocks:
-                    collected_blocks = "Not found"
-                    self.set_status(403)
-
+        finally:
             self.write(serialize(name="blocks_after",
                                  output=collected_blocks,
                                  compress=compress,
                                  ))
-
-        except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
-            raise
 
     async def get(self, parameter):
         await asyncio.to_thread(self.blocks_after)
