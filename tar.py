@@ -1,5 +1,4 @@
 import py7zr
-import os.path
 
 
 def make_archive(output_filename, source_dirs):

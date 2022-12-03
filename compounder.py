@@ -1,14 +1,12 @@
 import asyncio
 import json
-import time
 
-import aiohttp
 import msgpack
+from tornado.httpclient import AsyncHTTPClient
 
 from config import get_config
 from data_ops import sort_list_dict
 from log_ops import get_logger
-from tornado.httpclient import AsyncHTTPClient
 
 """this module is optimized for low memory and bandwidth usage"""
 

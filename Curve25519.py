@@ -1,5 +1,3 @@
-import json
-
 import msgpack
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (

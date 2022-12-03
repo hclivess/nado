@@ -75,7 +75,7 @@ class PeerClient(threading.Thread):
 
             if entry in self.memserver.block_producers:
                 self.memserver.block_producers.remove(entry)
-                #self.logger.warning(f"Removed {entry} from block producers")
+                # self.logger.warning(f"Removed {entry} from block producers")
 
             if entry in self.consensus.trust_pool.keys():
                 self.consensus.trust_pool[entry] -= 1000
@@ -92,7 +92,7 @@ class PeerClient(threading.Thread):
             if entry in self.consensus.block_hash_pool.keys():
                 self.consensus.block_hash_pool.pop(entry)
 
-            #self.logger.warning(f"Cannot connect to {entry}")
+            # self.logger.warning(f"Cannot connect to {entry}")
             self.memserver.purge_peers_list.remove(entry)
 
             # delete_peer(entry, logger=self.logger)
@@ -130,6 +130,9 @@ class PeerClient(threading.Thread):
                     dump_trust(logger=self.logger,
                                peer_file_lock=self.memserver.peer_file_lock,
                                pool_data=self.consensus.trust_pool)
+
+                    update_local_ip(logger=self.logger,
+                                    peer_file_lock=self.memserver.peer_file_lock)
 
                 if len(self.memserver.peers) < self.memserver.min_peers:
                     self.logger.info("No peers, reloading from drive")

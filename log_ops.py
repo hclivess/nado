@@ -1,9 +1,10 @@
 import logging
 import os.path
 from logging.handlers import RotatingFileHandler
-from data_ops import get_home
+
 import coloredlogs
 
+from data_ops import get_home
 from dircheck import make_folder
 
 

@@ -2,9 +2,11 @@ import asyncio
 import json
 import os
 import time
+
+from tornado.httpclient import AsyncHTTPClient
+
 from data_ops import get_home
 from hashing import create_nonce
-from tornado.httpclient import AsyncHTTPClient
 
 
 def config_found(file=f"{get_home()}/private/config.dat"):
@@ -40,6 +42,15 @@ async def get_public_ip():
 def get_config(config_path: str = f"{get_home()}/private/config.dat"):
     with open(config_path) as infile:
         return json.loads(infile.read())
+
+
+def update_config(new_config: dict, config_path: str = f"{get_home()}/private/config.dat"):
+    config = get_config()
+    for key, value in new_config.items():
+        config[key] = value
+
+    with open(config_path, "w") as outfile:
+        json.dump(config, outfile)
 
 
 def create_config(config_path: str = f"{get_home()}/private/config.dat"):

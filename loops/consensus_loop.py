@@ -5,7 +5,6 @@ from block_ops import get_since_last_block, save_block_producers
 from config import get_timestamp_seconds
 from peer_ops import (
     load_peer,
-    update_peer,
     me_to,
     get_majority,
     percentage,

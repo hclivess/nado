@@ -3,13 +3,34 @@ import glob
 import json
 import os.path
 
+from tornado.httpclient import AsyncHTTPClient
+
 from compounder import compound_get_list_of, compound_announce_self
 from config import get_port, get_config, get_timestamp_seconds
 from data_ops import set_and_sort, get_home
 from hashing import base64encode, blake2b_hash
 from keys import load_keys
-from tornado.httpclient import AsyncHTTPClient
+from config import get_public_ip, update_config
 
+def update_local_ip(logger, peer_file_lock):
+    old_ip = get_config()["ip"]
+    new_ip = asyncio.run(get_public_ip())
+
+    if old_ip != new_ip:
+        peer_me = load_peer(ip=old_ip,
+                            logger=logger,
+                            peer_file_lock=peer_file_lock)
+
+        save_peer(ip=new_ip,
+                  address=peer_me["peer_address"],
+                  port=peer_me["peer_port"],
+                  overwrite=True
+                  )
+
+        new_config = {"ip": new_ip}
+        update_config(new_config)
+
+        logger.info(f"Local IP updated to {new_ip}")
 
 def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
     if not all(key in requirements for key in dictionary):
@@ -22,8 +43,11 @@ def update_local_address(logger, peer_file_lock):
     my_ip = get_config()["ip"]
     old_address = load_peer(logger=logger,
                             ip=my_ip,
-                            peer_file_lock=peer_file_lock)
+                            peer_file_lock=peer_file_lock,
+                            key="peer_address")
+
     new_address = load_keys()["address"]
+
     if new_address != old_address:
         update_peer(ip=my_ip,
                     logger=logger,
@@ -99,8 +123,10 @@ async def is_online(peer_ip):
     except Exception as e:
         return False
 
+
 def sort_dict_value(values, key):
     return sorted(values, key=lambda d: d[key], reverse=True)
+
 
 def load_ips(limit=24) -> list:
     """load ips from drive"""

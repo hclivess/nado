@@ -1,10 +1,11 @@
 import os
-from data_ops import get_home
+
 import msgpack
 
-from block_ops import load_block, get_latest_block_info, set_latest_block_info
-from transaction_ops import unindex_transaction
 from account_ops import reflect_transaction, change_balance, increase_produced_count
+from block_ops import load_block, get_latest_block_info, set_latest_block_info
+from data_ops import get_home
+from transaction_ops import unindex_transaction
 
 
 def rollback_one_block(logger, lock):

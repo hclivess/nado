@@ -1,8 +1,8 @@
 import random
-import sys
-import os
 import re
+import sys
 from pathlib import Path
+
 
 def get_home():
     return f"{Path.home()}/nado"

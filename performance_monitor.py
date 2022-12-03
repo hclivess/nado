@@ -1,6 +1,7 @@
-import requests
 import time
+
 import matplotlib.pyplot as plt
+import requests
 
 url_dict = [{"name": "status",
              "url": "http://89.25.168.195:9173/status"}]

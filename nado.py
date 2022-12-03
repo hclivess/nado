@@ -10,22 +10,21 @@ import msgpack
 import tornado.ioloop
 import tornado.web
 
-import config
 import versioner
+from account_ops import get_account
 from block_ops import get_block, get_latest_block_info, fee_over_blocks
 from config import get_config
-from loops.consensus_loop import ConsensusClient
-from loops.core_loop import CoreClient
 from data_ops import set_and_sort, get_home
 from genesis import make_genesis, make_folders
 from keys import keyfile_found, generate_keys, save_keys, load_keys
 from log_ops import get_logger
-from memserver import MemServer
+from loops.consensus_loop import ConsensusClient
+from loops.core_loop import CoreClient
 from loops.message_loop import MessageClient
 from loops.peer_loop import PeerClient
+from memserver import MemServer
 from peer_ops import save_peer, get_remote_status, get_producer_set
 from transaction_ops import get_transaction, get_transactions_of_account
-from account_ops import get_account
 
 
 def is_port_in_use(port: int) -> bool:
@@ -520,7 +519,7 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
                     protocol = status["protocol"]
 
                     assert address, "No address detected"
-                    assert protocol >= config.get_config()["protocol"], f"Protocol of {peer_ip} is too low"
+                    assert protocol >= get_config()["protocol"], f"Protocol of {peer_ip} is too low"
 
                     save_peer(ip=peer_ip,
                               address=address,

@@ -1,6 +1,7 @@
 import asyncio
 from threading import Lock
 
+from account_ops import get_account
 from block_ops import load_block_producers
 from compounder import compound_get_list_of
 from config import get_timestamp_seconds, get_config
@@ -13,7 +14,6 @@ from transaction_ops import (
     sort_transaction_pool,
 
 )
-from account_ops import get_account
 
 
 class MemServer:

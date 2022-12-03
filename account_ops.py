@@ -1,6 +1,9 @@
 import os
-from data_ops import check_traversal, get_home
+
 import msgpack
+
+from data_ops import check_traversal, get_home
+
 
 def get_account(address, create_on_error=True):
     """return all account information if account exists else create it"""

@@ -1,6 +1,8 @@
+import asyncio
 import threading
 import time
 
+from account_ops import increase_produced_count, change_balance
 from block_ops import (
     knows_block,
     get_blocks_after,
@@ -26,8 +28,6 @@ from transaction_ops import (
     validate_transaction,
     validate_all_spending,
 )
-from account_ops import increase_produced_count, change_balance
-import asyncio
 
 
 def minority_consensus(majority_hash, sample_hash):
