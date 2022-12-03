@@ -13,6 +13,7 @@ from account_ops import get_account_value
 import msgpack
 from tornado.httpclient import AsyncHTTPClient
 
+
 def check_block_structure():
     """check timestamp, etc if syncing blocks from others"""
     pass
@@ -108,6 +109,8 @@ def fee_over_blocks(logger, number_of_blocks=250):
         return average(fees)
     else:
         return 0
+
+
 def get_transaction_pool_demo():
     """use for demo only"""
     config = get_config()
@@ -283,6 +286,7 @@ async def get_blocks_after(target_peer, from_hash, count=50, compress="msgpack")
     else:
         return False
 
+
 async def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
     try:
         http_client = AsyncHTTPClient()
@@ -305,7 +309,7 @@ async def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
         return False
 
 
-async def get_from_single_target(key, target_peer, logger): #todo add msgpack support
+async def get_from_single_target(key, target_peer, logger):  # todo add msgpack support
     """obtain from a single target"""
 
     try:
@@ -338,6 +342,28 @@ def get_penalty(producer_address, block_hash):
     combined_penalty = get_hash_penalty(a=producer_address, b=block_hash) + miner_penalty
     block_penalty = combined_penalty - get_account_value(producer_address, key="account_burned") * 100
     return block_penalty
+
+
+def get_mining_uniqueness(logger, blocks_backward=50):
+    """compare the number of blocks to number of unique miners"""
+    latest_block_info = get_latest_block_info(logger=logger)
+    parent = latest_block_info["block_hash"]
+    latest_block_number = latest_block_info["block_number"]
+    block_number = latest_block_number
+
+    miners_list = []
+
+    while 0 < block_number > (latest_block_number - blocks_backward):
+        block = load_block(parent, logger=logger)
+        parent = block["parent_hash"]
+        block_number = block["block_number"]
+        creator = block["block_creator"]
+
+        if creator not in miners_list:
+            miners_list.append(creator)
+
+    uniqueness = (len(miners_list) / blocks_backward) * 100
+    return uniqueness
 
 
 def pick_best_producer(block_producers, logger, peer_file_lock):

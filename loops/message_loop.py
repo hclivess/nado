@@ -1,9 +1,7 @@
 import threading
 import time
 
-from block_ops import get_latest_block_info
-from config import get_timestamp_seconds
-
+from block_ops import get_latest_block_info, get_mining_uniqueness
 
 
 class MessageClient(threading.Thread):
@@ -70,6 +68,7 @@ class MessageClient(threading.Thread):
                 )
 
                 self.logger.warning(f"Buffer protection: {self.memserver.buffer_lock.locked()}")
+                self.logger.warning(f"Miner uniqueness: {get_mining_uniqueness(logger=self.logger)}")
                 self.logger.warning(f"Queues: {self.memserver.waiting}")
                 self.logger.warning(f"Unreachable: {len(self.memserver.unreachable)}")
 
