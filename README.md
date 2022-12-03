@@ -80,7 +80,8 @@ After running the node, you can access it at http://127.0.0.1:9173 from where al
 
 ## Private key storage
 In previous versions, private key was stored in the folder where NADO is installed, under `private` directory, specifically in the `keys.dat` file. With the latest version,
-this file is stored in user's home directory, `/~/nado/private/keys.dat` in Linux and `C:\Users\[username]\nado\private` in Windows. 
+this file is stored in user's home directory, `/~/nado/private/keys.dat` in Linux and `C:\Users\[username]\nado\private` in Windows.
+Copy and replace file "keys.dat" from "C:\Users\[username]\nado\private\" to wallet dirrectory(default "C:\Program Files (x86)\NADO MicroWallet\private" in windows )
 
 ## Is there anything unique?
 
