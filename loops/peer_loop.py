@@ -111,12 +111,12 @@ class PeerClient(threading.Thread):
                     self.sniff_peers_and_producers()
 
                 for peer, ban_time in self.memserver.unreachable.copy().items():
-                    timeout = 360 + ban_time - get_timestamp_seconds()
+                    timeout = 3600 + ban_time - get_timestamp_seconds()
                     if timeout < 0:
                         self.memserver.unreachable.pop(peer)
                         self.logger.info(f"Restored {peer} because it has been banned for too long")
 
-                if get_timestamp_seconds() > self.heavy_refresh + 3600:
+                if get_timestamp_seconds() > self.heavy_refresh + 360:
                     self.heavy_refresh = get_timestamp_seconds()
 
                     announce_me(
