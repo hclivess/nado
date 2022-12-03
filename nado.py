@@ -390,7 +390,6 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
             collected_blocks.reverse()
 
             if not collected_blocks:
-                collected_blocks = "Not found"
                 self.set_status(403)
 
             self.write(serialize(name="blocks_before",
@@ -418,8 +417,6 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
 
             try:
                 child_hash = get_block(block_hash)["child_hash"]
-
-
 
                 for blocks in range(0, count):
                     previous_block = None
