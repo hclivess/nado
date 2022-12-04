@@ -115,23 +115,12 @@ def dump_trust(pool_data, logger, peer_file_lock):
                     peer_file_lock=peer_file_lock)
 
 
-async def is_online(peer_ip):
-    http_client = AsyncHTTPClient()
-
-    url = f"http://{peer_ip}:{get_config()['port']}/status"
-    try:
-        await http_client.fetch(url, connect_timeout=0.1)
-        return True
-    except Exception as e:
-        return False
-
-
 def sort_dict_value(values, key):
     return sorted(values, key=lambda d: d[key], reverse=True)
 
 
-def load_ips(limit=24) -> list:  #todo asynchronous check
-    """load ips from drive"""
+async def load_ips(logger, fail_storage, limit=24) -> list:
+    """load ips from drive, may be improved by running until limit is saturated"""
 
     peer_files = glob.glob(f"{get_home()}/peers/*.dat")
 
@@ -146,14 +135,19 @@ def load_ips(limit=24) -> list:  #todo asynchronous check
             peer = json.load(peer_file)
             candidates.append(peer)
 
-        candidates_sorted = sort_dict_value(candidates, key="peer_trust")
+    ip_sorted = []
+    candidates_sorted = sort_dict_value(candidates, key="peer_trust")[:limit]
+    for entry in candidates_sorted:
+        ip_sorted.append(entry["peer_ip"])
 
-        for candidate in candidates_sorted:
-            if asyncio.run(is_online(candidate["peer_ip"])):
-                if len(ip_pool) < limit:
-                    ip_pool.append(candidate["peer_ip"])
-                else:
-                    break
+    from compounder import compound_get_status_pool
+
+    status_pool = await asyncio.gather(compound_get_status_pool(ip_sorted,
+                                                                fail_storage=fail_storage,
+                                                                logger=logger,
+                                                                compress="msgpack"))
+    for entry in status_pool:
+        ip_pool.extend(list(entry.keys()))
 
     return ip_pool
 

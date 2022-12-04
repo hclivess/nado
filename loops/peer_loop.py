@@ -6,7 +6,8 @@ from block_ops import save_block_producers
 from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
 from data_ops import set_and_sort
-from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, dump_peers, dump_trust, update_local_ip
+from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, dump_peers, dump_trust, \
+    update_local_ip
 
 
 class PeerClient(threading.Thread):
@@ -105,6 +106,13 @@ class PeerClient(threading.Thread):
             try:
                 start = get_timestamp_seconds()
 
+                if len(self.memserver.peers) < self.memserver.min_peers:
+                    self.logger.info("No peers, reloading from drive")
+                    self.memserver.unreachable.clear()
+                    self.memserver.peers = asyncio.run(load_ips(limit=self.memserver.peer_limit,
+                                                                fail_storage=self.memserver.purge_peers_list,
+                                                                logger=self.logger))
+
                 if self.memserver.period in [0, 1]:
                     self.purge_peers()
                     self.memserver.merge_remote_transactions(user_origin=False)
@@ -133,11 +141,6 @@ class PeerClient(threading.Thread):
 
                     update_local_ip(logger=self.logger,
                                     peer_file_lock=self.memserver.peer_file_lock)
-
-                if len(self.memserver.peers) < self.memserver.min_peers:
-                    self.logger.info("No peers, reloading from drive")
-                    self.memserver.unreachable.clear()
-                    self.memserver.peers = load_ips(limit=self.memserver.peer_limit)
 
                 self.consensus.status_pool = asyncio.run(
                     compound_get_status_pool(
