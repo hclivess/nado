@@ -268,15 +268,16 @@ class CoreClient(threading.Thread):
                             self.logger.error(f"Failed to get blocks after {hash} from {peer}: {e}")
                             break
 
-                    elif not known_block and self.memserver.rollbacks >= self.memserver.max_rollbacks:
-                        rollback_one_block(logger=self.logger, lock=self.memserver.buffer_lock)
-                        self.memserver.rollbacks += 1
-                        self.consensus.trust_pool[peer] -= 100000
-                    else:
-                        self.logger.error(f"Rollbacks exhausted")
-                        self.memserver.rollbacks = 0
-                        self.memserver.purge_peers_list.append(peer)
-                        break
+                    elif not known_block:
+                        if self.memserver.rollbacks >= self.memserver.max_rollbacks:
+                            rollback_one_block(logger=self.logger, lock=self.memserver.buffer_lock)
+                            self.memserver.rollbacks += 1
+                            self.consensus.trust_pool[peer] -= 100000
+                        else:
+                            self.logger.error(f"Rollbacks exhausted")
+                            self.memserver.rollbacks = 0
+                            self.memserver.purge_peers_list.append(peer)
+                            break
 
                     self.consensus.refresh_hashes()
                     # self.replace_block_producers(peer=peer)
