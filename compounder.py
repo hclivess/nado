@@ -8,7 +8,7 @@ from config import get_config
 from data_ops import sort_list_dict
 from log_ops import get_logger
 
-sem = asyncio.Semaphore(100)
+sem = asyncio.Semaphore(50)
 
 """this module is optimized for low memory and bandwidth usage"""
 

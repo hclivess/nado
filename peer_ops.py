@@ -157,7 +157,7 @@ async def load_ips(logger, fail_storage, limit=3) -> list:
                                                                          logger=logger,
                                                                          compress="msgpack")))
 
-        logger.info(f"Gathered {len(status_pool)} reachable peers from drive, {len(fail_storage)} failed")
+        logger.info(f"Gathered {len(status_pool)}/{limit} peers in {i+1} steps, {len(fail_storage)} failed")
 
         if len(status_pool) > limit:
             break
