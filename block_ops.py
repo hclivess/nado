@@ -129,7 +129,7 @@ def get_block(block):
             block = msgpack.load(file)
         return block
     else:
-        return None
+        return False
 
 
 def get_block_producers_hash_demo():

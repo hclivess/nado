@@ -341,22 +341,27 @@ class AccountTransactionsHandler(tornado.web.RequestHandler):
 
 class GetBlockHandler(tornado.web.RequestHandler):
     def block(self):
+        output = ""
+
         try:
             block = GetBlockHandler.get_argument(self, "hash")
             compress = GetBlockHandler.get_argument(self, "compress", default="none")
             block_data = get_block(block)
 
             if not block_data:
-                block_data = "Not found"
                 self.set_status(403)
+                block_data = "Not found"
 
-            self.write(serialize(name="block",
-                                 output=block_data,
-                                 compress=compress))
+            output = serialize(name="block",
+                               output=block_data,
+                               compress=compress)
 
         except Exception as e:
             self.set_status(403)
             self.write(f"Error: {e}")
+
+        finally:
+            self.write(output)
 
     async def get(self, parameter):
         await asyncio.to_thread(self.block)
@@ -365,38 +370,39 @@ class GetBlockHandler(tornado.web.RequestHandler):
 class GetBlocksBeforeHandler(tornado.web.RequestHandler):
 
     def blocks_before(self):
-            block_hash = GetBlocksBeforeHandler.get_argument(self, "hash")
-            count = int(GetBlocksBeforeHandler.get_argument(self, "count", default="1"))
-            compress = GetBlocksBeforeHandler.get_argument(self, "compress", default="none")
-            collected_blocks = []
+        block_hash = GetBlocksBeforeHandler.get_argument(self, "hash")
+        count = int(GetBlocksBeforeHandler.get_argument(self, "count", default="1"))
+        compress = GetBlocksBeforeHandler.get_argument(self, "compress", default="none")
+        collected_blocks = []
 
-            try:
-                parent_hash = get_block(block_hash)["parent_hash"]
+        try:
+            parent_hash = get_block(block_hash)["parent_hash"]
 
-                for blocks in range(0, count):
-                    block = get_block(parent_hash)
-                    next_block = None
-                    if next_block == block:
-                        break
+            for blocks in range(0, count):
+                block = get_block(parent_hash)
+                next_block = None
+                if next_block == block:
+                    break
 
-                    elif block:
-                        collected_blocks.append(block)
-                        parent_hash = block["parent_hash"]
+                elif block:
+                    collected_blocks.append(block)
+                    parent_hash = block["parent_hash"]
 
-                collected_blocks.reverse()
+            collected_blocks.reverse()
 
-            except Exception as e:
+        except Exception as e:
+            self.set_status(403)
+            logger.debug(f"Block collection hit a roadblock: {e}")
+
+            if not collected_blocks:
                 self.set_status(403)
-                logger.debug(f"Block collection hit a roadblock: {e}")
 
-                if not collected_blocks:
-                    self.set_status(403)
+        finally:
+            self.write(serialize(name="blocks_before",
+                                 output=collected_blocks,
+                                 compress=compress
+                                 ))
 
-            finally:
-                self.write(serialize(name="blocks_before",
-                                     output=collected_blocks,
-                                     compress=compress
-                                     ))
     async def get(self, parameter):
         await asyncio.to_thread(self.blocks_before)
 
