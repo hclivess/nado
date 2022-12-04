@@ -130,7 +130,7 @@ def sort_dict_value(values, key):
     return sorted(values, key=lambda d: d[key], reverse=True)
 
 
-def load_ips(limit=24) -> list:
+def load_ips(limit=24) -> list:  #todo asynchronous check
     """load ips from drive"""
 
     peer_files = glob.glob(f"{get_home()}/peers/*.dat")
