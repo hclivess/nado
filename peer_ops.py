@@ -4,6 +4,7 @@ import json
 import os.path
 
 from tornado.httpclient import AsyncHTTPClient
+from compounder import compound_get_status_pool
 
 from compounder import compound_get_list_of, compound_announce_self
 from config import get_port, get_config, get_timestamp_seconds
@@ -119,8 +120,9 @@ def sort_dict_value(values, key):
     return sorted(values, key=lambda d: d[key], reverse=True)
 
 
-async def load_ips(logger, fail_storage, limit=24) -> list:
-    """load ips from drive, may be improved by running until limit is saturated"""
+async def load_ips(logger, fail_storage, limit=3) -> list:
+    """load peers from drive, sort by trust, test in batches asynchronously,
+    return when limit is reached"""
 
     peer_files = glob.glob(f"{get_home()}/peers/*.dat")
 
@@ -129,6 +131,7 @@ async def load_ips(logger, fail_storage, limit=24) -> list:
 
     candidates = []
     ip_pool = []
+    status_pool = []
 
     for file in peer_files:
         with open(file, "r") as peer_file:
@@ -136,18 +139,33 @@ async def load_ips(logger, fail_storage, limit=24) -> list:
             candidates.append(peer)
 
     ip_sorted = []
-    candidates_sorted = sort_dict_value(candidates, key="peer_trust")[:limit]
+    candidates_sorted = sort_dict_value(candidates, key="peer_trust")
+
     for entry in candidates_sorted:
         ip_sorted.append(entry["peer_ip"])
 
-    from compounder import compound_get_status_pool
+    start = 0
+    end = limit
+    step = 5
 
-    status_pool = await asyncio.gather(compound_get_status_pool(ip_sorted,
-                                                                fail_storage=fail_storage,
-                                                                logger=logger,
-                                                                compress="msgpack"))
+    for i in range(start, end, step):
+        x = i
+        chunk = ip_sorted[x:x + step]
+
+        status_pool.extend(await asyncio.gather(compound_get_status_pool(chunk,
+                                                                         fail_storage=fail_storage,
+                                                                         logger=logger,
+                                                                         compress="msgpack")))
+
+        logger.info(f"Gathered {len(status_pool)} reachable peers from drive, {len(fail_storage)} failed")
+
+        if len(status_pool) > limit:
+            break
+
     for entry in status_pool:
         ip_pool.extend(list(entry.keys()))
+
+    logger.info(f"Loaded {len(ip_pool)} reachable peers from drive, {len(fail_storage)} failed")
 
     return ip_pool
 

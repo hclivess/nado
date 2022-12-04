@@ -270,7 +270,6 @@ class CoreClient(threading.Thread):
                             break
 
                     elif not known_block:
-                        print(self.memserver.rollbacks, self.memserver.max_rollbacks)
                         if self.memserver.rollbacks <= self.memserver.max_rollbacks:
                             rollback_one_block(logger=self.logger, lock=self.memserver.buffer_lock)
                             self.memserver.rollbacks += 1
