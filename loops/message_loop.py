@@ -16,6 +16,13 @@ class MessageClient(threading.Thread):
         self.core = core
         self.peers = peers
 
+    def is_all_fine(self):
+        if len(self.memserver.peers) > 10:
+            if self.memserver.block_producers_hash == self.consensus.majority_block_producers_hash:
+                if self.memserver.since_last_block < self.memserver.block_time:
+                    return True
+        return False
+
     def run(self) -> None:
         while not self.memserver.terminate:
             try:
@@ -70,6 +77,9 @@ class MessageClient(threading.Thread):
                 self.logger.warning(f"Buffer protection: {self.memserver.buffer_lock.locked()}")
                 self.logger.warning(f"Queues: {self.memserver.waiting}")
                 self.logger.warning(f"Unreachable: {len(self.memserver.unreachable)}")
+
+                if self.is_all_fine():
+                    self.logger.info(f"=== NODE IS OK! ===")
 
                 self.logger.info(f"Loop durations: Core: {self.core.duration}; "
                                  f"Consensus: {self.consensus.duration}; "
