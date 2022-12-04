@@ -276,6 +276,7 @@ class CoreClient(threading.Thread):
                         self.logger.error(f"Rollbacks exhausted")
                         self.memserver.rollbacks = 0
                         self.memserver.purge_peers_list.append(peer)
+                        break
 
                     self.consensus.refresh_hashes()
                     # self.replace_block_producers(peer=peer)
