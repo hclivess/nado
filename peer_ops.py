@@ -145,29 +145,29 @@ async def load_ips(logger, fail_storage, limit=3) -> list:
         ip_sorted.append(entry["peer_ip"])
 
     start = 0
-    end = limit
-    step = 5
+    end = len(peer_files)
+    step = 12
 
     for i in range(start, end, step):
         x = i
         chunk = ip_sorted[x:x + step]
+        logger.info(f"Testing {chunk}")
 
-        status_pool.extend(await asyncio.gather(compound_get_status_pool(chunk,
-                                                                         fail_storage=fail_storage,
-                                                                         logger=logger,
-                                                                         compress="msgpack")))
+        gathered = (await asyncio.gather(compound_get_status_pool(chunk,
+                                                                  fail_storage=fail_storage,
+                                                                  logger=logger,
+                                                                  compress="msgpack")))
+        for entry in gathered:
+            status_pool.extend(list(entry.keys()))
 
-        logger.info(f"Gathered {len(status_pool)}/{limit} peers in {i+1} steps, {len(fail_storage)} failed")
+        logger.info(f"Gathered {len(status_pool)}/{limit} peers in {i + 1} steps, {len(fail_storage)} failed")
 
         if len(status_pool) > limit:
             break
 
-    for entry in status_pool:
-        ip_pool.extend(list(entry.keys()))
+    logger.info(f"Loaded {len(status_pool)} reachable peers from drive, {len(fail_storage)} failed")
 
-    logger.info(f"Loaded {len(ip_pool)} reachable peers from drive, {len(fail_storage)} failed")
-
-    return ip_pool
+    return status_pool
 
 
 def load_trust(peer, logger, peer_file_lock):
