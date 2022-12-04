@@ -64,7 +64,7 @@ class MemServer:
         self.min_peers = 2
         self.peer_limit = 24
         self.rollbacks = 0
-        self.max_rollbacks = 0
+        self.max_rollbacks = 10
 
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:
