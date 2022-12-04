@@ -618,6 +618,9 @@ if __name__ == "__main__":
                   port=get_config()["port"],
                   peer_trust=10000)
 
+    info_path = os.path.normpath(f'{get_home()}/private/keys.dat')
+    logger.info(f"Key location: {info_path}")
+
     assert not is_port_in_use(get_config()["port"]), "Port already in use, exiting"
     signal.signal(signal.SIGINT, handler)
 
