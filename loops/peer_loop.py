@@ -49,6 +49,7 @@ class PeerClient(threading.Thread):
                 if peer not in self.memserver.block_producers:
                     self.memserver.block_producers.append(peer)
                     self.logger.warning(f"Added {peer} to block producers")
+                    """address is sniffed before block is produced"""
 
                     update_peer(ip=peer,
                                 logger=self.logger,
