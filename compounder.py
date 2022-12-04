@@ -15,7 +15,7 @@ async def get_list_of(key, peer, fail_storage, logger, compress=None):
     """method compounded by compound_get_list_of, fail storage external by reference (obj)"""
     """bandwith usage of this grows exponentially with number of peers"""
     """peers include themselves in their peer lists"""
-    sem = asyncio.Semaphore(n := 25)
+    sem = asyncio.Semaphore(25)
 
     if compress:
         url_construct = f"http://{peer}:{get_config()['port']}/{key}?compress={compress}"
@@ -23,7 +23,7 @@ async def get_list_of(key, peer, fail_storage, logger, compress=None):
         url_construct = f"http://{peer}:{get_config()['port']}/{key}"
 
     try:
-        with sem:
+        async with sem:
             http_client = AsyncHTTPClient()
             response = await http_client.fetch(url_construct)
 
@@ -64,14 +64,14 @@ async def compound_get_list_of(key, entries, logger, fail_storage, compress=None
 
 async def get_status(peer, logger, fail_storage, compress=None):
     """method compounded by compound_get_status_pool"""
-    sem = asyncio.Semaphore(n := 25)
+    sem = asyncio.Semaphore(25)
 
     if compress:
         url_construct = f"http://{peer}:{get_config()['port']}/status?compress={compress}"
     else:
         url_construct = f"http://{peer}:{get_config()['port']}/status"
     try:
-        with sem:
+        async with sem:
             http_client = AsyncHTTPClient()
             response = await http_client.fetch(url_construct)
 
@@ -105,14 +105,14 @@ async def compound_get_status_pool(ips, logger, fail_storage, compress=None):
 
 async def announce_self(peer, logger, fail_storage):
     """method compounded by compound_announce_self"""
-    sem = asyncio.Semaphore(n := 25)
+    sem = asyncio.Semaphore(25)
 
     url_construct = (
         f"http://{peer}:{get_config()['port']}/announce_peer?ip={get_config()['ip']}"
     )
 
     try:
-        with sem:
+        async with sem:
             http_client = AsyncHTTPClient()
             response = await http_client.fetch(url_construct)
 
