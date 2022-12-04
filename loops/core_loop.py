@@ -160,6 +160,7 @@ class CoreClient(threading.Thread):
 
             else:
                 self.logger.info("Ran out of options when picking trusted hash")
+                time.sleep(1)
                 return None
 
         except Exception as e:
