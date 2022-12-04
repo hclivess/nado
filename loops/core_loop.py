@@ -226,15 +226,14 @@ class CoreClient(threading.Thread):
 
     def sync_mode(self):
         self.logger.warning("Entering sync mode")
-
+        peer = None
         try:
-            peer = self.get_peer_to_sync_from(
-                hash_pool=self.consensus.block_hash_pool)
-
-            if not peer:
-                self.logger.info("Could not find suitably trusted peer")
-            else:
-                while self.memserver.sync_mode and not self.memserver.terminate:
+            while self.memserver.sync_mode and not self.memserver.terminate:
+                peer = self.get_peer_to_sync_from(
+                    hash_pool=self.consensus.block_hash_pool)
+                if not peer:
+                    self.logger.info("Could not find suitably trusted peer")
+                else:
                     hash = get_latest_block_info(logger=self.logger)["block_hash"]
 
                     known_block = asyncio.run(knows_block(
@@ -269,12 +268,17 @@ class CoreClient(threading.Thread):
                             self.logger.error(f"Failed to get blocks after {hash} from {peer}: {e}")
                             break
 
-                    elif not known_block:
+                    elif not known_block and self.memserver.rollbacks <= self.memserver.max_rollbacks:
+                        print(self.memserver.rollbacks)
                         rollback_one_block(logger=self.logger, lock=self.memserver.buffer_lock)
+                        self.memserver.rollbacks += 1
                         self.consensus.trust_pool[peer] -= 10000
+                    else:
+                        self.logger.error(f"Rollbacks exhausted")
+                        self.memserver.rollbacks = 0
 
-                self.consensus.refresh_hashes()
-                # self.replace_block_producers(peer=peer)
+                    self.consensus.refresh_hashes()
+                    # self.replace_block_producers(peer=peer)
 
         except Exception as e:
             self.logger.info(f"Error: {e}")
