@@ -60,8 +60,7 @@ class MemServer:
         self.reported_uptime = self.get_uptime()
         self.block_producers = load_block_producers()
 
-        self.sync_mode = False
-        self.waiting = 0
+        self.emergency_mode = False
         self.min_peers = 2
         self.peer_limit = 24
         self.rollbacks = 0

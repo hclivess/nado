@@ -337,7 +337,24 @@ def get_since_last_block(logger) -> [str, None]:
     )
     return since_last_block
 
+def get_ip_penalty(producer, logger, blocks_backward=50):
+    """calculates how many blocks an ip received over a given period"""
+    latest_block_info = get_latest_block_info(logger=logger)
 
+    parent = latest_block_info["block_hash"]
+    latest_block_number = latest_block_info["block_number"]
+    block_number = latest_block_number
+    produced_count = 0
+
+    while 0 < block_number > (latest_block_number - blocks_backward):
+        block = load_block(parent, logger=logger)
+        parent = block["parent_hash"]
+        block_number = block["block_number"]
+
+        if block["block_ip"] == producer:
+            produced_count += 1
+
+    return produced_count
 def get_penalty(producer_address, block_hash, block_number):
     miner_penalty = get_account_value(address=producer_address, key="account_produced")
     combined_penalty = get_hash_penalty(a=producer_address, b=block_hash) + miner_penalty

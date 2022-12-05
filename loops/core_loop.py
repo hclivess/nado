@@ -225,11 +225,11 @@ class CoreClient(threading.Thread):
         else:
             self.consensus.trust_pool[peer] -= 50
 
-    def sync_mode(self):
-        self.logger.warning("Entering sync mode")
+    def emergency_mode(self):
+        self.logger.warning("Entering emergency mode")
         peer = None
         try:
-            while self.memserver.sync_mode and not self.memserver.terminate:
+            while self.memserver.emergency_mode and not self.memserver.terminate:
                 peer = self.get_peer_to_sync_from(
                     hash_pool=self.consensus.block_hash_pool)
                 if not peer:
@@ -391,10 +391,10 @@ class CoreClient(threading.Thread):
 
     def check_mode(self):
         if self.minority_block_consensus():
-            self.memserver.sync_mode = True
+            self.memserver.emergency_mode = True
             self.logger.warning("We are out of consensus")
         else:
-            self.memserver.sync_mode = False
+            self.memserver.emergency_mode = False
 
     def run(self) -> None:
         self.init_hashes()
@@ -406,10 +406,10 @@ class CoreClient(threading.Thread):
                 start = get_timestamp_seconds()
                 self.check_mode()
 
-                if not self.memserver.sync_mode:
+                if not self.memserver.emergency_mode:
                     self.normal_mode()
                 else:
-                    self.sync_mode()
+                    self.emergency_mode()
 
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(self.run_interval)

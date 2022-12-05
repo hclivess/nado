@@ -67,15 +67,13 @@ class MessageClient(threading.Thread):
                     f"Transaction pool: {len(self.memserver.transaction_pool)} + {len(self.memserver.tx_buffer)} + {len(self.memserver.user_tx_buffer)}")
                 self.logger.debug(f"Active Peers: {len(self.memserver.peers)}")
                 self.logger.debug(f"Block Producers: {len(self.memserver.block_producers)}")
-                self.logger.debug(f"Average Trust: {self.consensus.average_trust}")
-                self.logger.warning(f"Sync Mode: {self.memserver.sync_mode}")
+                self.logger.warning(f"Emergency Mode: {self.memserver.emergency_mode}")
 
                 self.logger.warning(
                     f"Seconds since last block: {self.memserver.since_last_block}"
                 )
 
                 self.logger.warning(f"Buffer protection: {self.memserver.buffer_lock.locked()}")
-                self.logger.warning(f"Queues: {self.memserver.waiting}")
                 self.logger.warning(f"Unreachable: {len(self.memserver.unreachable)}")
 
                 if self.is_all_fine():
