@@ -50,7 +50,14 @@ pip install -r requirements.txt
 ```
 
 To go back to your screen, use `screen -r nado` 
-To update your NADO installation, use `git pull origin main` from the directory where you have it installed.
+To update your NADO installation, use 
+
+```
+git reset --hard origin/master
+git pull origin master
+```
+
+from the directory where you have it installed.
 
 ### Windows
 
@@ -176,10 +183,8 @@ The model is set up in 1:100 ratio, which means that 1 portion of burn negates 1
 are counted from the smallest unit of NADO, so the lowest penalty resolution is 0.0000000001 and the lowest burn/bribe 
 resolution is 0.0000000100.
 
-To prevent monopolization of reward distribution, the burn bonus is in effect only every third
-block, where all burners are contesting for the reward. One with the best ratio of burned coins 
-to mined rewards will be rewarded. Those who are not rewarded do not lose their bonus, they need to wait
-longer until the burn bonus of those who burned more is exhausted through receiving rewards.
+To prevent monopolization of reward distribution, the burn bonus is in effect only to the level of default value for the
+account, which means that any account can at best have a bonus of an entirely fresh address.
 
 This system was created as an additional measure against inflation 
 after implementation of elastic distribution and burned tokens are used for governance purposes.
