@@ -206,3 +206,12 @@ users to make mining as inclusive as possible.
 ## Where can I learn more?
 
 www.nado.live
+
+## For developers
+### Design philosophy
+
+When implementing new functionalities to NADO, existing routines/loops should be used instead of instant invocation of functions.
+Every function should have its place in the particular routine, which is responsible for it. If such routine does not exist, create it.
+
+Standard development rules apply. Functions should be as small and as independent as possible, responsible for small tasks
+after which they are named. Assignment of returns is preferred to object fungibility passed as arguments.
