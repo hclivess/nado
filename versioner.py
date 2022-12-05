@@ -1,25 +1,24 @@
-import glob
-import hashlib
+import os
+from os import getcwd
+import json
+def update_version():
+    version_path = f"{getcwd()}/.git/refs/heads/main"
+    if os.path.exists(version_path):
+        with open(version_path) as version_file:
+            return version_file.read().strip()
+    else:
+        return False
 
+def set_version(version):
+    with open("version", "w") as version_file:
+        json.dump(version, version_file)
 
-def get_version():
-    base = glob.glob("*.py")
-    loops = glob.glob("loops/*.py")
-    htmls = glob.glob("templates/*.html")
-
-    joint = base + loops + htmls
-
-    hashes = []
-    for file in joint:
-        with open(file, "r") as infile:
-            file_contents = infile.read()
-
-            file_hash = hashlib.blake2b(repr((infile, file_contents)).encode()).hexdigest()
-            hashes.append(file_hash)
-
-    joint_hash = hashlib.blake2b(repr(hashes).encode(), digest_size=6).hexdigest()
-    return joint_hash
-
+def read_version():
+    with open("version", "r") as version_file:
+        return json.load(version_file)
 
 if __name__ == "__main__":
-    print(get_version())
+    new_version = update_version()
+    if new_version:
+        set_version(new_version)
+    print(read_version())

@@ -598,7 +598,12 @@ if __name__ == "__main__":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     logger = get_logger()
-    logger.info(f"NADO version {versioner.get_version()} started")
+
+    updated_version = versioner.update_version()
+    if updated_version:
+        versioner.set_version(updated_version)
+
+    logger.info(f"NADO version {versioner.read_version()} started")
 
     if not os.path.exists(f"{get_home()}/blocks"):
         make_folders()
