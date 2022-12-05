@@ -13,12 +13,6 @@ from keys import load_keys
 from log_ops import get_logger
 from peer_ops import load_peer
 
-
-def check_block_structure():
-    """check timestamp, etc if syncing blocks from others"""
-    pass
-
-
 def get_hash_penalty(a: str, b: str):
     assert a and b, "One of the values to hash is empty"
 
@@ -337,6 +331,7 @@ def get_since_last_block(logger) -> [str, None]:
     )
     return since_last_block
 
+
 def get_ip_penalty(producer, logger, blocks_backward=50):
     """calculates how many blocks an ip received over a given period"""
     latest_block_info = get_latest_block_info(logger=logger)
@@ -355,20 +350,21 @@ def get_ip_penalty(producer, logger, blocks_backward=50):
             produced_count += 1
 
     return produced_count
+
+
 def get_penalty(producer_address, block_hash, block_number):
+    hash_penalty = get_hash_penalty(a=producer_address, b=block_hash)
     miner_penalty = get_account_value(address=producer_address, key="account_produced")
-    combined_penalty = get_hash_penalty(a=producer_address, b=block_hash) + miner_penalty
-
-    if block_number > 12000:
-        if block_number % 3 == 0:
-            burn_bonus = get_account_value(producer_address, key="account_burned")
-        else:
-            burn_bonus = 0
-    else:
-        burn_bonus = get_account_value(producer_address, key="account_burned")
-
+    combined_penalty = hash_penalty + miner_penalty
+    burn_bonus = get_account_value(producer_address, key="account_burned")
     block_penalty = combined_penalty - burn_bonus * 100
+
+    if block_number > 12000:  # fork 1
+        if block_penalty < hash_penalty:
+            block_penalty = hash_penalty
+
     return block_penalty
+
 
 def pick_best_producer(block_producers, logger, peer_file_lock):
     latest_block = get_latest_block_info(logger=logger)
