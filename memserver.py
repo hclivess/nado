@@ -8,6 +8,7 @@ from config import get_timestamp_seconds, get_config
 from data_ops import set_and_sort, sort_list_dict
 from hashing import blake2b_hash
 from keys import load_keys
+from versioner import read_version
 from transaction_ops import (
     validate_single_spending,
     validate_transaction,
@@ -65,6 +66,7 @@ class MemServer:
         self.peer_limit = 24
         self.rollbacks = 0
         self.max_rollbacks = 10
+        self.version = read_version()
 
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:
