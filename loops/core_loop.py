@@ -366,7 +366,6 @@ class CoreClient(threading.Thread):
                     self.logger.warning(f"$$$ Congratulations! You won! $$$")
 
                 self.logger.warning(f"Block hash: {block['block_hash']}")
-                self.logger.warning(f"Block hash: {block['block_hash']}")
                 self.logger.warning(f"Block number: {block['block_number']}")
                 self.logger.warning(f"Winner IP: {block['block_ip']}")
                 self.logger.warning(f"Winner address: {block['block_creator']}")
