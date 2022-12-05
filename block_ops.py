@@ -240,7 +240,8 @@ def construct_block(
     block_message.update(block_timestamp=get_timestamp_seconds())
 
     block_penalty = get_penalty(producer_address=creator,
-                                block_hash=block_hash)
+                                block_hash=block_hash,
+                                block_number=block_number)
 
     block_message.update(block_penalty=block_penalty)
     return block_message
@@ -337,14 +338,24 @@ def get_since_last_block(logger) -> [str, None]:
     return since_last_block
 
 
-def get_penalty(producer_address, block_hash):
+def get_penalty(producer_address, block_hash, block_number):
     miner_penalty = get_account_value(address=producer_address, key="account_produced")
     combined_penalty = get_hash_penalty(a=producer_address, b=block_hash) + miner_penalty
-    burn_bonus = get_account_value(producer_address, key="account_burned")
+
+    if block_number > 12000:
+        if block_number % 3 == 0:
+            burn_bonus = get_account_value(producer_address, key="account_burned")
+        else:
+            burn_bonus = 0
+    else:
+        burn_bonus = get_account_value(producer_address, key="account_burned")
+
     block_penalty = combined_penalty - burn_bonus * 100
     return block_penalty
+
 def pick_best_producer(block_producers, logger, peer_file_lock):
-    block_hash = get_latest_block_info(logger=logger)["block_hash"]
+    latest_block = get_latest_block_info(logger=logger)
+    block_hash = latest_block["block_hash"]
 
     previous_block_penalty = None
     best_producer = None
@@ -356,7 +367,8 @@ def pick_best_producer(block_producers, logger, peer_file_lock):
                                      peer_file_lock=peer_file_lock)
 
         block_penalty = get_penalty(producer_address=producer_address,
-                                    block_hash=block_hash)
+                                    block_hash=block_hash,
+                                    block_number=latest_block["block_number"])
 
         if not previous_block_penalty:
             previous_block_penalty = block_penalty

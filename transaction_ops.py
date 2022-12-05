@@ -373,7 +373,7 @@ if __name__ == "__main__":
 
             requests.get(f"http://{ip}:{port}/submit_transaction?data={json.dumps(transaction)}", timeout=5)
 
-            time.sleep(5)
+            #time.sleep(5)
         except Exception as e:
             print(e)
 
