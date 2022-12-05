@@ -120,17 +120,16 @@ def sort_dict_value(values, key):
     return sorted(values, key=lambda d: d[key], reverse=True)
 
 
-async def load_ips(logger, fail_storage, limit=3) -> list:
+async def load_ips(logger, fail_storage, minimum=3) -> list:
     """load peers from drive, sort by trust, test in batches asynchronously,
     return when limit is reached"""
 
     peer_files = glob.glob(f"{get_home()}/peers/*.dat")
 
-    if len(peer_files) < limit:
-        limit = len(peer_files)
+    if len(peer_files) < minimum:
+        minimum = len(peer_files)
 
     candidates = []
-    ip_pool = []
     status_pool = []
 
     for file in peer_files:
@@ -160,9 +159,9 @@ async def load_ips(logger, fail_storage, limit=3) -> list:
         for entry in gathered:
             status_pool.extend(list(entry.keys()))
 
-        logger.info(f"Gathered {len(status_pool)}/{limit} peers in {i + 1} steps, {len(fail_storage)} failed")
+        logger.info(f"Gathered {len(status_pool)}/{minimum} peers in {i + 1} steps, {len(fail_storage)} failed")
 
-        if len(status_pool) > limit:
+        if len(status_pool) > minimum:
             break
 
     logger.info(f"Loaded {len(status_pool)} reachable peers from drive, {len(fail_storage)} failed")
