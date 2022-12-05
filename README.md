@@ -170,11 +170,19 @@ stay in the network longer than the attackers, it is impossible to attack.
 ## Burn-to-Bribe system and governance
 In the beginning, all users have the same chance at receiving a reward every block. If they succeed, they are issued
 both tokens and a penalty. This penalty lowers chance of further finding rewards in relation to users who have not been 
-rewarded yet, but it can be negated by burning a portion of the coins they generated or obtained otherwise. Currently, the 
-model is set up in 1:10 ratio, which means that 1 portion of burn negates 10 portions of  penalty. Both penalty and burn 
+rewarded yet, but it can be negated by burning a portion of the coins they generated or obtained otherwise. 
+
+The model is set up in 1:100 ratio, which means that 1 portion of burn negates 100 portions of penalty. Both penalty and burn 
 are counted from the smallest unit of NADO, so the lowest penalty resolution is 0.0000000001 and the lowest burn/bribe 
-resolution is 0.0000000010. This system was created as an additional measure against inflation after implementation of 
-elastic distribution and burned tokens are used for governance purposes.
+resolution is 0.0000000100.
+
+To prevent monopolization of reward distribution, the burn bonus is in effect only every third
+block, where all burners are contesting for the reward. One with the best ratio of burned coins 
+to mined rewards will be rewarded. Those who are not rewarded do not lose their bonus, they need to wait
+longer until the burn bonus of those who burned more is exhausted through receiving rewards.
+
+This system was created as an additional measure against inflation 
+after implementation of elastic distribution and burned tokens are used for governance purposes.
 
 To burn your NADO, send it to the following address: `burn`
 
