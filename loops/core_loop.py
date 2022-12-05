@@ -361,6 +361,11 @@ class CoreClient(threading.Thread):
                 self.incorporate_block(block)
 
                 gen_elapsed = get_timestamp_seconds() - gen_start
+
+                if self.memserver.ip == block['block_ip'] and self.memserver.address == ['block_creator']:
+                    self.logger.warning(f"$$$ Congratulations! You won! $$$")
+
+                self.logger.warning(f"Block hash: {block['block_hash']}")
                 self.logger.warning(f"Block hash: {block['block_hash']}")
                 self.logger.warning(f"Block number: {block['block_number']}")
                 self.logger.warning(f"Winner IP: {block['block_ip']}")
