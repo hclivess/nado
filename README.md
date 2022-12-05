@@ -53,8 +53,8 @@ To go back to your screen, use `screen -r nado`
 To update your NADO installation, use 
 
 ```
-git reset --hard origin/master
-git pull origin master
+git reset --hard origin/main
+git pull origin main
 ```
 
 from the directory where you have it installed.
