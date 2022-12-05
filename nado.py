@@ -604,8 +604,6 @@ if __name__ == "__main__":
     if updated_version:
         versioner.set_version(updated_version)
 
-    logger.info(f"NADO version {versioner.read_version()} started")
-
     if not os.path.exists(f"{get_home()}/blocks"):
         make_folders()
         make_genesis(
@@ -631,6 +629,10 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, handler)
 
     memserver = MemServer(logger=logger)
+
+    logger.info(f"NADO version {memserver.version} started")
+    logger.info(f"Your address: {memserver.address}")
+    logger.info(f"Your IP: {memserver.ip}")
 
     consensus = ConsensusClient(memserver=memserver, logger=logger)
     consensus.start()
