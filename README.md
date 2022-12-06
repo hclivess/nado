@@ -219,3 +219,8 @@ after which they are named. Assignment of returns is preferred to object fungibi
 
 Synchronous loops are not allowed for multiple targets, always use the existing compounder. If you require a specific new
 compounder function, feel free to add it.
+
+### How to contribute
+
+To contribute, you first have to fork this repository here on GitHub. After that, you make changes to your fork.
+When you are done, you can ask for a merge request to have your changes to the code accepted to the repository.
