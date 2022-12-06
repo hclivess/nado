@@ -216,3 +216,6 @@ Every function should have its place in the particular routine, which is respons
 
 Standard development rules apply. Functions should be as small and as independent as possible, responsible for small tasks
 after which they are named. Assignment of returns is preferred to object fungibility passed as arguments.
+
+Synchronous loops are not allowed for multiple targets, always use the existing compounder. If you require a specific new
+compounder function, feel free to add it.

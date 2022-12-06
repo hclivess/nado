@@ -19,7 +19,7 @@ from block_ops import (
 )
 from config import get_timestamp_seconds, get_config
 from data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurence, dict_to_val_list
-from peer_ops import load_trust, save_peer, get_remote_status, update_local_address
+from peer_ops import load_trust, update_local_address, ip_stored
 from pool_ops import merge_buffer
 from rollback import rollback_one_block
 from transaction_ops import (
@@ -195,7 +195,12 @@ class CoreClient(threading.Thread):
 
         if suggested_block_producers:
             if get_config()["ip"] not in suggested_block_producers:
-                self.consensus.trust_pool[sync_from] -= 25
+                self.consensus.trust_pool[sync_from] -= 2500
+
+            replacements = []
+            for block_producer in suggested_block_producers:
+                if ip_stored(block_producer):
+                    replacements.append(block_producer)
 
             """
             for block_producer in suggested_block_producers:
@@ -210,7 +215,7 @@ class CoreClient(threading.Thread):
                         self.logger.error(f"{block_producer} not added to block producers: {e}")
             """
 
-            self.memserver.block_producers = set_and_sort(suggested_block_producers)
+            self.memserver.block_producers = set_and_sort(replacements)
             save_block_producers(self.memserver.block_producers)
 
     def replace_pool(self, peer, key):
