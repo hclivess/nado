@@ -197,6 +197,7 @@ class CoreClient(threading.Thread):
             if get_config()["ip"] not in suggested_block_producers:
                 self.consensus.trust_pool[sync_from] -= 25
 
+            """
             for block_producer in suggested_block_producers:
                 if block_producer != get_config()["ip"]:
                     try:
@@ -207,6 +208,7 @@ class CoreClient(threading.Thread):
                     except Exception as e:
                         suggested_block_producers.pop(block_producer)
                         self.logger.error(f"{block_producer} not added to block producers: {e}")
+            """
 
             self.memserver.block_producers = set_and_sort(suggested_block_producers)
             save_block_producers(self.memserver.block_producers)
