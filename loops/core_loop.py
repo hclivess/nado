@@ -199,8 +199,9 @@ class CoreClient(threading.Thread):
 
             for block_producer in suggested_block_producers:
                 if block_producer != get_config()["ip"]:
-                    address = asyncio.run(get_remote_status(sync_from, logger=self.logger))["address"]
-                    if address:
+                    status = asyncio.run(get_remote_status(sync_from, logger=self.logger))
+                    if status:
+                        address = status["address"]
                         save_peer(ip=block_producer,
                                   address=address,
                                   port=get_config()["port"])
@@ -238,9 +239,9 @@ class CoreClient(threading.Thread):
                     hash = get_latest_block_info(logger=self.logger)["block_hash"]
 
                     known_block = asyncio.run(knows_block(
-                            target_peer=peer,
-                            hash=hash,
-                            logger=self.logger))
+                        target_peer=peer,
+                        hash=hash,
+                        logger=self.logger))
 
                     if known_block:
                         self.logger.info(
