@@ -199,15 +199,14 @@ class CoreClient(threading.Thread):
 
             for block_producer in suggested_block_producers:
                 if block_producer != get_config()["ip"]:
-                    status = asyncio.run(get_remote_status(sync_from, logger=self.logger))
-                    if status:
-                        address = status["address"]
+                    try:
+                        address = asyncio.run(get_remote_status(sync_from, logger=self.logger))["address"]
                         save_peer(ip=block_producer,
                                   address=address,
                                   port=get_config()["port"])
-                    else:
+                    except Exception as e:
                         suggested_block_producers.pop(block_producer)
-                        self.logger.error(f"{block_producer} not added to block producers")
+                        self.logger.error(f"{block_producer} not added to block producers: {e}")
 
             self.memserver.block_producers = set_and_sort(suggested_block_producers)
             save_block_producers(self.memserver.block_producers)
