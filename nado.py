@@ -12,7 +12,7 @@ import tornado.web
 
 import versioner
 from account_ops import get_account
-from block_ops import get_block, get_latest_block_info, fee_over_blocks, get_block_by_number
+from block_ops import get_block, fee_over_blocks, get_block_number
 from config import get_config
 from data_ops import set_and_sort, get_home
 from genesis import make_genesis, make_folders
@@ -376,7 +376,7 @@ class GetBlockByNumberHandler(tornado.web.RequestHandler):
         try:
             number = GetBlockHandler.get_argument(self, "number")
             compress = GetBlockHandler.get_argument(self, "compress", default="none")
-            block_data = get_block_by_number(number)
+            block_data = get_block_number(number)
 
             if not block_data:
                 self.set_status(403)
@@ -592,7 +592,7 @@ async def make_app(port):
             (r"/get_transaction(.*)", TransactionHandler),
             (r"/get_blocks_after(.*)", GetBlocksAfterHandler),
             (r"/get_blocks_before(.*)", GetBlocksBeforeHandler),
-            (r"/get_block_by_number(.*)", GetBlockByNumberHandler),
+            (r"/get_block_number(.*)", GetBlockByNumberHandler),
             (r"/get_block(.*)", GetBlockHandler),
             (r"/get_account(.*)", AccountHandler),
             (r"/get_producer_set_from_hash(.*)", ProducerSetHandler),

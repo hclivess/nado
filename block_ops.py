@@ -126,7 +126,7 @@ def get_block(block):
         return False
 
 
-def get_block_by_number(number):
+def get_block_number(number):
     """return transaction based on block number"""
     block_number_path = f"{get_home()}/blocks/block_numbers/{number}.dat"
     if os.path.exists(block_number_path):
