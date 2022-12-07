@@ -8,7 +8,7 @@ from data_ops import get_home
 from transaction_ops import unindex_transaction
 
 
-def rollback_one_block(logger, lock):
+def rollback_one_block(logger, lock) -> dict:
     with lock:
         block_message = get_latest_block_info(logger=logger)
 
