@@ -12,7 +12,7 @@ import tornado.web
 
 import versioner
 from account_ops import get_account
-from block_ops import get_block, get_latest_block_info, fee_over_blocks
+from block_ops import get_block, fee_over_blocks
 from config import get_config
 from data_ops import set_and_sort, get_home
 from genesis import make_genesis, make_folders
@@ -447,7 +447,7 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
 
 class GetLatestBlockHandler(tornado.web.RequestHandler):
     def latest_block(self):
-        latest_block_data = get_latest_block_info(logger=logger)
+        latest_block_data = memserver.latest_block
         compress = GetLatestBlockHandler.get_argument(self, "compress", default="none")
 
         self.write(serialize(name="latest_block",

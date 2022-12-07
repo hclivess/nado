@@ -1,6 +1,5 @@
 import threading
 import time
-from config import test_self_port
 
 from block_ops import get_latest_block_info
 
@@ -31,7 +30,7 @@ class MessageClient(threading.Thread):
 
                 # self.logger.debug(f"Block Hash Pool: {self.consensus.block_hash_pool}")
                 self.logger.debug(
-                    f"My Block Hash: {get_latest_block_info(logger=self.logger)['block_hash']}"
+                    f"My Block Hash: {self.memserver.latest_block['block_hash']}"
                 )
                 self.logger.debug(
                     f"Majority Block Hash: {self.consensus.majority_block_hash}"
