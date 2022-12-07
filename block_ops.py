@@ -126,6 +126,17 @@ def get_block(block):
         return False
 
 
+def get_block_by_number(number):
+    """return transaction based on block number"""
+    block_number_path = f"{get_home()}/blocks/block_numbers/{number}.dat"
+    if os.path.exists(block_number_path):
+        with open(block_number_path, "rb") as file:
+            block = json.load(file)
+        return get_block(block)
+    else:
+        return False
+
+
 def get_block_producers_hash_demo():
     """use for demo only"""
     config = get_config()
