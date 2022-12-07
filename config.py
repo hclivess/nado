@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import time
+import socket
 
 from tornado.httpclient import AsyncHTTPClient
 
@@ -30,6 +31,16 @@ def get_protcol():
 
 def get_port():
     return 9173
+
+
+def test_self_port(ip, port):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.3)
+        result = sock.connect_ex((ip, port))
+        if not result:
+            return "Yes! Hooray!"
+        else:
+            return "No, ports are blocked"
 
 
 async def get_public_ip():

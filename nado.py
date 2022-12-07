@@ -25,6 +25,7 @@ from loops.peer_loop import PeerClient
 from memserver import MemServer
 from peer_ops import save_peer, get_remote_status, get_producer_set
 from transaction_ops import get_transaction, get_transactions_of_account
+from config import test_self_port
 
 
 def is_port_in_use(port: int) -> bool:
@@ -588,10 +589,9 @@ async def make_app(port):
 
         ]
     )
-
     application.listen(port)
+    logger.warning(f"Able to mine: {test_self_port(memserver.ip, memserver.port)}")
     await asyncio.Event().wait()
-
 
 if __name__ == "__main__":
     """warning, no intensive operations or locks should be invoked from API interface"""

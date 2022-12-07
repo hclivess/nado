@@ -1,5 +1,6 @@
 import threading
 import time
+from config import test_self_port
 
 from block_ops import get_latest_block_info
 
