@@ -70,7 +70,6 @@ class CoreClient(threading.Thread):
     def normal_mode(self):
         try:
             self.update_periods()
-            self.memserver.latest_block = get_latest_block_info(logger=self.logger)
 
             if self.memserver.period == 0 and self.memserver.user_tx_buffer:
                 """merge user buffer inside 0 period"""
@@ -110,7 +109,7 @@ class CoreClient(threading.Thread):
                                                           transaction_pool=self.memserver.transaction_pool.copy(),
                                                           peer_file_lock=self.memserver.peer_file_lock
                                                           )
-                    self.produce_block(block=block_candidate)
+                    self.memserver.latest_block = self.produce_block(block=block_candidate)
 
                 else:
                     self.logger.warning("Criteria for block production not met")
@@ -121,9 +120,9 @@ class CoreClient(threading.Thread):
 
     def process_remote_block(self, block_message, remote_peer):
         """for blocks received by syncing that are not constructed locally"""
-        self.produce_block(block=block_message,
-                           remote=True,
-                           remote_peer=remote_peer)
+        self.memserver.latest_block = self.produce_block(block=block_message,
+                                                         remote=True,
+                                                         remote_peer=remote_peer)
 
     def get_peer_to_sync_from(self, hash_pool):
         """peer to synchronize pool when out of sync, critical part
@@ -267,7 +266,8 @@ class CoreClient(threading.Thread):
 
                     elif not known_block:
                         if self.memserver.rollbacks <= self.memserver.max_rollbacks:
-                            rollback_one_block(logger=self.logger, lock=self.memserver.buffer_lock)
+                            self.memserver.latest_block = rollback_one_block(logger=self.logger,
+                                                                             lock=self.memserver.buffer_lock)
                             self.memserver.rollbacks += 1
                             self.consensus.trust_pool[peer] -= 100000
                         else:
@@ -335,7 +335,7 @@ class CoreClient(threading.Thread):
                     if remote:
                         self.consensus.trust_pool[remote_peer] -= 25
 
-    def produce_block(self, block, remote=False, remote_peer=None) -> None:
+    def produce_block(self, block, remote=False, remote_peer=None) -> dict:
         with self.memserver.buffer_lock:
             try:
                 gen_start = get_timestamp_seconds()
@@ -358,7 +358,8 @@ class CoreClient(threading.Thread):
 
                 gen_elapsed = get_timestamp_seconds() - gen_start
 
-                if self.memserver.ip == block['block_ip'] and self.memserver.address == block['block_creator'] and block['block_reward'] > 0:
+                if self.memserver.ip == block['block_ip'] and self.memserver.address == block['block_creator'] and \
+                        block['block_reward'] > 0:
                     self.logger.warning(f"$$$ Congratulations! You won! $$$")
 
                 self.logger.warning(f"Block hash: {block['block_hash']}")
@@ -374,10 +375,12 @@ class CoreClient(threading.Thread):
                 self.logger.warning(f"Remote block: {remote}")
                 self.logger.warning(f"Block size: {get_byte_size(block)} bytes")
                 self.logger.warning(f"Production time: {gen_elapsed}")
+
             except Exception as e:
                 self.logger.warning(f"Block production skipped due to {e}")
 
-            self.consensus.refresh_hashes()
+        self.consensus.refresh_hashes()
+        return block
 
     def init_hashes(self):
         self.memserver.transaction_pool_hash = (

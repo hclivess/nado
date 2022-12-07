@@ -41,6 +41,8 @@ def rollback_one_block(logger, lock):
 
             logger.info(f"Rolled back {block_message['block_hash']} successfully")
 
+            return previous_block
+
         except Exception as e:
             logger.error(f"Failed to remove block {block_message['block_hash']}")
             raise
