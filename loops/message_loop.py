@@ -19,7 +19,7 @@ class MessageClient(threading.Thread):
 
     def is_all_fine(self):
         if len(self.memserver.peers) > 10:
-            if self.memserver.block_producers_hash == self.consensus.majority_block_producers_hash:
+            if self.memserver.latest_block["block_hash"] == self.consensus.majority_block_hash:
                 if self.memserver.since_last_block < self.memserver.block_time:
                     return True
         return False

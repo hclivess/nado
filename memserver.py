@@ -2,7 +2,7 @@ import asyncio
 from threading import Lock
 
 from account_ops import get_account
-from block_ops import load_block_producers
+from block_ops import load_block_producers, get_latest_block_info
 from compounder import compound_get_list_of
 from config import get_timestamp_seconds, get_config
 from data_ops import set_and_sort, sort_list_dict
@@ -66,7 +66,7 @@ class MemServer:
         self.rollbacks = 0
         self.max_rollbacks = 10
         self.version = read_version()
-
+        self.latest_block = get_latest_block_info(logger=logger)
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:
             sorted_transaction_pool = sort_transaction_pool(self.transaction_pool)

@@ -66,7 +66,7 @@ class StatusHandler(tornado.web.RequestHandler):
                 "address": memserver.address,
                 "transaction_pool_hash": memserver.transaction_pool_hash,
                 "block_producers_hash": memserver.block_producers_hash,
-                "latest_block_hash": get_latest_block_info(logger=logger)["block_hash"],
+                "latest_block_hash": memserver.latest_block["block_hash"],
                 "protocol": memserver.protocol,
                 "version": memserver.version,
             }

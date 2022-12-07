@@ -70,6 +70,7 @@ class CoreClient(threading.Thread):
     def normal_mode(self):
         try:
             self.update_periods()
+            self.memserver.latest_block = get_latest_block_info(logger=self.logger)
 
             if self.memserver.period == 0 and self.memserver.user_tx_buffer:
                 """merge user buffer inside 0 period"""
@@ -201,19 +202,6 @@ class CoreClient(threading.Thread):
             for block_producer in suggested_block_producers:
                 if ip_stored(block_producer):
                     replacements.append(block_producer)
-
-            """
-            for block_producer in suggested_block_producers:
-                if block_producer != get_config()["ip"]:
-                    try:
-                        address = asyncio.run(get_remote_status(sync_from, logger=self.logger))["address"]
-                        save_peer(ip=block_producer,
-                                  address=address,
-                                  port=get_config()["port"])
-                    except Exception as e:
-                        suggested_block_producers.pop(block_producer)
-                        self.logger.error(f"{block_producer} not added to block producers: {e}")
-            """
 
             self.memserver.block_producers = set_and_sort(replacements)
             save_block_producers(self.memserver.block_producers)
