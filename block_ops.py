@@ -37,7 +37,7 @@ def get_block_reward(logger, blocks_backward=100, reward_cap=5000000000):
     reward = 0
 
     while 0 < block_number > (latest_block_number - blocks_backward):
-        block = load_block(parent, logger=logger)
+        block = load_block_from_hash(parent, logger=logger)
         parent = block["parent_hash"]
         block_number = block["block_number"]
 
@@ -147,7 +147,7 @@ def get_block_producers_hash_demo():
     return block_producers_hash
 
 
-def load_block(block_hash: str, logger):
+def load_block_from_hash(block_hash: str, logger):
     try:
         with open(f"{get_home()}/blocks/{block_hash}.block", "rb") as infile:
             return msgpack.unpack(infile)
@@ -191,8 +191,8 @@ def latest_block_divisible_by(divisor, logger):
 def get_latest_block_info(logger):
     try:
         with open(f"{get_home()}/index/latest_block.dat", "r") as infile:
-            info = load_block(block_hash=json.load(infile),
-                              logger=logger)
+            info = load_block_from_hash(block_hash=json.load(infile),
+                                        logger=logger)
             return info
     except Exception as e:
         logger.info("Failed to get latest block info")
@@ -353,7 +353,7 @@ def get_ip_penalty(producer, logger, blocks_backward=50):
     produced_count = 0
 
     while 0 < block_number > (latest_block_number - blocks_backward):
-        block = load_block(parent, logger=logger)
+        block = load_block_from_hash(parent, logger=logger)
         parent = block["parent_hash"]
         block_number = block["block_number"]
 

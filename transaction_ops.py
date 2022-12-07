@@ -11,7 +11,7 @@ from Curve25519 import sign, verify
 from account_ops import get_account, reflect_transaction
 from address import proof_sender
 from address import validate_address
-from block_ops import load_block
+from block_ops import load_block_from_hash
 from config import get_config
 from config import get_timestamp_seconds
 from data_ops import sort_list_dict, get_home
@@ -34,7 +34,7 @@ def get_transaction(txid, logger):
     if os.path.exists(transaction_path):
         with open(transaction_path, "r") as file:
             block_hash = json.load(file)
-            block = load_block(block_hash=block_hash, logger=logger)
+            block = load_block_from_hash(block_hash=block_hash, logger=logger)
 
             for transaction in block["block_transactions"]:
                 if transaction["txid"] == txid:

@@ -3,7 +3,7 @@ import os
 import msgpack
 
 from account_ops import reflect_transaction, change_balance, increase_produced_count
-from block_ops import load_block, get_latest_block_info, set_latest_block_info
+from block_ops import load_block_from_hash, get_latest_block_info, set_latest_block_info
 from data_ops import get_home
 from transaction_ops import unindex_transaction
 
@@ -13,7 +13,7 @@ def rollback_one_block(logger, lock) -> dict:
         block_message = get_latest_block_info(logger=logger)
 
         try:
-            previous_block = load_block(
+            previous_block = load_block_from_hash(
                 block_hash=block_message["parent_hash"], logger=logger
             )
 
