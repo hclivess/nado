@@ -176,7 +176,8 @@ class CoreClient(threading.Thread):
         elif get_block(self.consensus.majority_block_hash) and self.memserver.peers:
             """we are not out of sync when we know the majority block"""
             return False
-        elif get_latest_block_info(logger=self.logger)["block_hash"] != self.consensus.majority_block_hash:
+        elif self.memserver.latest_block["block_hash"] != self.consensus.majority_block_hash:
+            """we are out of consensus and need to sync"""
             return True
         else:
             return False
