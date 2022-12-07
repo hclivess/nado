@@ -12,7 +12,7 @@ import tornado.web
 
 import versioner
 from account_ops import get_account
-from block_ops import get_block, get_latest_block_info, fee_over_blocks
+from block_ops import get_block, get_latest_block_info, fee_over_blocks, get_block_by_number
 from config import get_config
 from data_ops import set_and_sort, get_home
 from genesis import make_genesis, make_folders
@@ -369,6 +369,34 @@ class GetBlockHandler(tornado.web.RequestHandler):
         await asyncio.to_thread(self.block)
 
 
+class GetBlockByNumberHandler(tornado.web.RequestHandler):
+    def block(self):
+        output = ""
+
+        try:
+            number = GetBlockHandler.get_argument(self, "number")
+            compress = GetBlockHandler.get_argument(self, "compress", default="none")
+            block_data = get_block_by_number(number)
+
+            if not block_data:
+                self.set_status(403)
+                block_data = "Not found"
+
+            output = serialize(name="block",
+                               output=block_data,
+                               compress=compress)
+
+        except Exception as e:
+            self.set_status(403)
+            self.write(f"Error: {e}")
+
+        finally:
+            self.write(output)
+
+    async def get(self, parameter):
+        await asyncio.to_thread(self.block)
+
+
 class GetBlocksBeforeHandler(tornado.web.RequestHandler):
 
     def blocks_before(self):
@@ -564,6 +592,7 @@ async def make_app(port):
             (r"/get_transaction(.*)", TransactionHandler),
             (r"/get_blocks_after(.*)", GetBlocksAfterHandler),
             (r"/get_blocks_before(.*)", GetBlocksBeforeHandler),
+            (r"/get_block_by_number(.*)", GetBlockByNumberHandler),
             (r"/get_block(.*)", GetBlockHandler),
             (r"/get_account(.*)", AccountHandler),
             (r"/get_producer_set_from_hash(.*)", ProducerSetHandler),
