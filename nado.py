@@ -369,7 +369,7 @@ class GetBlockHandler(tornado.web.RequestHandler):
         await asyncio.to_thread(self.block)
 
 
-class GetBlockByNumberHandler(tornado.web.RequestHandler):
+class GetBlockNumberHandler(tornado.web.RequestHandler):
     def block(self):
         output = ""
 
@@ -410,8 +410,7 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
 
             for blocks in range(0, count):
                 block = get_block(parent_hash)
-                next_block = None
-                if next_block == block:
+                if not block:
                     break
 
                 elif block:
@@ -448,9 +447,8 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
             child_hash = get_block(block_hash)["child_hash"]
 
             for blocks in range(0, count):
-                previous_block = None
                 block = get_block(child_hash)
-                if previous_block == block:
+                if not block:
                     break
 
                 elif block:
@@ -592,7 +590,7 @@ async def make_app(port):
             (r"/get_transaction(.*)", TransactionHandler),
             (r"/get_blocks_after(.*)", GetBlocksAfterHandler),
             (r"/get_blocks_before(.*)", GetBlocksBeforeHandler),
-            (r"/get_block_number(.*)", GetBlockByNumberHandler),
+            (r"/get_block_number(.*)", GetBlockNumberHandler),
             (r"/get_block(.*)", GetBlockHandler),
             (r"/get_account(.*)", AccountHandler),
             (r"/get_producer_set_from_hash(.*)", ProducerSetHandler),
