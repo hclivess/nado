@@ -405,6 +405,9 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
         compress = GetBlocksBeforeHandler.get_argument(self, "compress", default="none")
         collected_blocks = []
 
+        if count > 100:
+            count = 100
+
         try:
             parent_hash = get_block(block_hash)["parent_hash"]
 
@@ -443,6 +446,10 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
         count = int(GetBlocksAfterHandler.get_argument(self, "count", default="1"))
         compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
         collected_blocks = []
+
+        if count > 100:
+            count = 100
+
         try:
             child_hash = get_block(block_hash)["child_hash"]
 
