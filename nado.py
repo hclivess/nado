@@ -480,7 +480,7 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
 
 class GetLatestBlockHandler(tornado.web.RequestHandler):
     def latest_block(self):
-        latest_block_data = memserver.latest_block["block_hash"]
+        latest_block_data = memserver.latest_block
         compress = GetLatestBlockHandler.get_argument(self, "compress", default="none")
 
         self.write(serialize(name="latest_block",

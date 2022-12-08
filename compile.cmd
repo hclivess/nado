@@ -1,3 +1,4 @@
+python versioner.py
 python -m nuitka nado.py --standalone --windows-icon-from-ico=graphics\icon.ico
 xcopy /i /y version nado.dist
 xcopy /e /i /y templates nado.dist\templates
