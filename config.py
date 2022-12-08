@@ -38,9 +38,9 @@ def test_self_port(ip, port):
         sock.settimeout(0.3)
         result = sock.connect_ex((ip, port))
         if not result:
-            return "Yes! Hooray!"
+            return True
         else:
-            return "No, ports are blocked"
+            return False
 
 
 async def get_public_ip():
