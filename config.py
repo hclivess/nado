@@ -26,7 +26,7 @@ def get_timestamp_seconds():
 
 
 def get_protcol():
-    return 3
+    return 2
 
 
 def get_port():
