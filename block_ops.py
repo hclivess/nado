@@ -370,9 +370,8 @@ def get_penalty(producer_address, block_hash, block_number):
     burn_bonus = get_account_value(producer_address, key="account_burned")
     block_penalty = combined_penalty - burn_bonus * 100
 
-    if block_number > 12000:  # fork 1
-        if block_penalty < hash_penalty:
-            block_penalty = hash_penalty
+    if block_penalty < hash_penalty:
+        block_penalty = hash_penalty
 
     return block_penalty
 
