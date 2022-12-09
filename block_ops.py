@@ -67,7 +67,6 @@ def get_block_candidate(
     best_producer = pick_best_producer(block_producers,
                                        logger=logger,
                                        peer_file_lock=peer_file_lock)
-    print("best_producer", best_producer)
 
     logger.info(
         f"Producing block candidate for: {len(block_producers)} block producers won by {best_producer}"
@@ -374,7 +373,6 @@ def get_penalty(producer_address, block_hash, block_number):
     if block_penalty < hash_penalty:
         block_penalty = hash_penalty
 
-    print(producer_address, block_penalty)
     return block_penalty
 
 
