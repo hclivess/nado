@@ -494,7 +494,7 @@ class GetLatestBlockHandler(tornado.web.RequestHandler):
 class AccountHandler(tornado.web.RequestHandler):
     def account(self):
         try:
-            account = AccountHandler.get_argument(self, "address")
+            account = AccountHandler.get_argument(self, "address", default=load_keys()["address"])
             compress = AccountHandler.get_argument(self, "compress", default="none")
             account_data = get_account(account, create_on_error=False)
 
