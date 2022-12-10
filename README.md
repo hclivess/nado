@@ -17,13 +17,14 @@ NADO mainnet is released.
 
 #### Direct installation one-liner
 ```
-sysctl -w fs.file-max=65535 && sudo apt-get update && sudo add-apt-repository ppa:deadsnakes/ppa -y && sudo apt-get install python3.10 python3.10-distutils git screen curl -y && curl -sS https://bootstrap.pypa.io/get-pip.py | sudo python3.10 && sudo ufw allow 9173 && git clone https://github.com/hclivess/nado && cd nado && python3.10 -m pip install -r requirements.txt && screen -dmS nado python3.10 nado.py
+sysctl -w fs.file-max=65535 && ulimit -n 1000000 && sudo apt-get update && sudo add-apt-repository ppa:deadsnakes/ppa -y && sudo apt-get install python3.10 python3.10-distutils git screen curl -y && curl -sS https://bootstrap.pypa.io/get-pip.py | sudo python3.10 && sudo ufw allow 9173 && git clone https://github.com/hclivess/nado && cd nado && python3.10 -m pip install -r requirements.txt && screen -dmS nado python3.10 nado.py
 ```
 
 #### Virtual environment installation
 
 ```
 sysctl -w fs.file-max=65535
+ulimit -n 1000000
 screen -S nado
 sudo apt-get update
 sudo apt-get install software-properties-common
