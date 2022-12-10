@@ -225,3 +225,17 @@ compounder function, feel free to add it.
 
 To contribute, you first have to fork this repository here on GitHub. After that, you make changes to your fork.
 When you are done, you can ask for a merge request to have your changes to the code accepted to the repository.
+
+### How NADO is structured
+
+#### Level III
+The main module is `nado.py`, which runs all loops and governs API endpoints. 
+
+#### Level II
+There is a central memory element named memserver in `memserver.py`. Values are stored in its variables and accessed
+mostly by the main loops: `consensus_loop.py`, `core_loop.py`, `message_loop.py` and `peer_loop.py`. 
+
+#### Level I
+Files that end in
+`_ops.py` like `block_ops.py`, `data_ops.py`, `account_ops.py`, `transaction_ops.py` and `peer_ops.py` handle low level 
+operations and are populated with functions, which should be minimalistic both in length and complexity. 
