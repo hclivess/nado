@@ -4,6 +4,10 @@ import sys
 from pathlib import Path
 
 
+def get_from_pool(pool, source, target):
+    for item in pool.copy().items():
+        target[item[0]] = item[1][source]
+
 def get_home():
     return f"{Path.home()}/nado"
 def check_traversal(to_check):

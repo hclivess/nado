@@ -67,6 +67,7 @@ class MemServer:
         self.max_rollbacks = 10
         self.version = read_version()
         self.latest_block = get_latest_block_info(logger=logger)
+
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:
             sorted_transaction_pool = sort_transaction_pool(self.transaction_pool)
@@ -116,7 +117,7 @@ class MemServer:
                     msg = {"result": False,
                            "message": f"Could not merge remote transaction: {e}"}
                     # self.logger.info(msg) spam
-                    #raise #test
+                    # raise #test
                     return msg
                 else:
                     try:

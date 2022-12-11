@@ -2,6 +2,7 @@ import threading
 import time
 
 from block_ops import get_since_last_block, save_block_producers
+from data_ops import get_from_pool
 from config import get_timestamp_seconds
 from peer_ops import (
     load_peer,
@@ -95,10 +96,6 @@ class ConsensusClient(threading.Thread):
             if peer not in self.trust_pool.keys():
                 self.trust_pool[peer] = peer_trust
 
-    def get_from_status_pool(self, source, target):
-        for item in self.status_pool.copy().items():
-            target[item[0]] = item[1][source]
-
     def purge_block_producers(self) -> None:
         for entry in self.memserver.purge_producers_list:
             self.memserver.block_producers.remove(entry)
@@ -108,12 +105,15 @@ class ConsensusClient(threading.Thread):
 
         self.memserver.since_last_block = get_since_last_block(logger=self.logger)
 
-        self.get_from_status_pool(source="transaction_pool_hash",
-                                  target=self.transaction_hash_pool)
-        self.get_from_status_pool(source="latest_block_hash",
-                                  target=self.block_hash_pool)
-        self.get_from_status_pool(source="block_producers_hash",
-                                  target=self.block_producers_hash_pool)
+        get_from_pool(source="transaction_pool_hash",
+                      target=self.transaction_hash_pool,
+                      pool=self.status_pool)
+        get_from_pool(source="latest_block_hash",
+                      target=self.block_hash_pool,
+                      pool=self.status_pool)
+        get_from_pool(source="block_producers_hash",
+                      target=self.block_producers_hash_pool,
+                      pool=self.status_pool)
 
         self.block_hash_pool_percentage = get_pool_percentage(
             self.block_hash_pool, self.majority_block_hash
@@ -134,6 +134,7 @@ class ConsensusClient(threading.Thread):
         self.majority_block_producers_hash = get_pool_majority(
             self.block_producers_hash_pool
         )
+
     def run(self) -> None:
         while not self.memserver.terminate:
             try:
