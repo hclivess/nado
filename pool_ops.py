@@ -15,3 +15,8 @@ def merge_buffer(from_buffer, to_buffer) -> dict:
 
     return {"from_buffer": from_buffer,
             "to_buffer": to_buffer}
+
+
+def get_from_pool(pool, source, target):
+    for item in pool.copy().items():
+        target[item[0]] = item[1][source]

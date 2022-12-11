@@ -2,7 +2,7 @@ import threading
 import time
 
 from block_ops import get_since_last_block, save_block_producers
-from data_ops import get_from_pool
+from pool_ops import get_from_pool
 from config import get_timestamp_seconds
 from peer_ops import (
     load_peer,
