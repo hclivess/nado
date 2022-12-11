@@ -151,7 +151,10 @@ class CoreClient(threading.Thread):
                                             peer_file_lock=self.memserver.peer_file_lock)
                     """load trust score"""
 
-                    if self.consensus.average_trust <= peer_trust and participants > 2:
+                    peer_protocol = self.consensus.status_pool[peer]["protocol"]
+                    """get protocol version"""
+
+                    if self.consensus.average_trust <= peer_trust and participants > 2 and peer_protocol >= self.memserver.protocol:
                         if value == hash_candidate:
                             return peer
 
