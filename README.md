@@ -233,7 +233,8 @@ The main module is `nado.py`, which runs all loops and governs API endpoints.
 
 #### Level II
 There is a central memory element named memserver in `memserver.py`. Values are stored in its variables and accessed
-mostly by the main loops: `consensus_loop.py`, `core_loop.py`, `message_loop.py` and `peer_loop.py`. 
+mostly by the main loops: `consensus_loop.py`, `core_loop.py`, `message_loop.py` and `peer_loop.py`. Apart from memserver,
+variables related to pools are stored in `consensus_loop.py`
 
 #### Level I
 Files that end in
