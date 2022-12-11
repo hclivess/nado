@@ -6,7 +6,8 @@ nuitka
 coloredlogs~=15.0.1
 customtkinter~=4.5.5
 tk-tools~=0.16.0
-py7zr
+py7zr~=0.20.2
 ordered-set
-msgpack
+msgpack~=1.0.4
 zstandard
+pywin32
