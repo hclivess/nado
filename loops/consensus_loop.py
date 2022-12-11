@@ -1,5 +1,6 @@
 import threading
 import time
+import traceback
 
 from block_ops import get_since_last_block, save_block_producers
 from pool_ops import get_from_pool
@@ -167,6 +168,6 @@ class ConsensusClient(threading.Thread):
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)
             except Exception as e:
-                self.logger.error(f"Error in consensus loop: {e}")
+                self.logger.error(f"Error in consensus loop: {traceback.print_exc()}")
                 time.sleep(1)
                 # raise  # test

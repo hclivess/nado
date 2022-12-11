@@ -1,6 +1,7 @@
 import asyncio
 import threading
 import time
+import traceback
 
 from block_ops import save_block_producers
 from compounder import compound_get_status_pool
@@ -154,6 +155,6 @@ class PeerClient(threading.Thread):
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)
             except Exception as e:
-                self.logger.error(f"Error in peer loop: {e}")
+                self.logger.error(f"Error in peer loop: {traceback.print_exc()}")
                 time.sleep(1)
                 # raise #test

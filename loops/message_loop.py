@@ -1,7 +1,6 @@
 import threading
 import time
-
-from block_ops import get_latest_block_info
+import traceback
 
 
 class MessageClient(threading.Thread):
@@ -85,5 +84,5 @@ class MessageClient(threading.Thread):
 
                 time.sleep(10)
             except Exception as e:
-                self.logger.error(f"Error in message loop: {e}")
+                self.logger.error(f"Error in message loop: {traceback.print_exc()}")
                 time.sleep(1)

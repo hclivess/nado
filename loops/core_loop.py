@@ -1,6 +1,7 @@
 import asyncio
 import threading
 import time
+import traceback
 
 from account_ops import increase_produced_count, change_balance
 from block_ops import (
@@ -416,7 +417,7 @@ class CoreClient(threading.Thread):
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(self.run_interval)
             except Exception as e:
-                self.logger.error(f"Error in core loop: {e}")
+                self.logger.error(f"Error in core loop: {traceback.print_exc()}")
                 time.sleep(1)
                 # raise #test
 
