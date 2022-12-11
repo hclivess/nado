@@ -107,6 +107,17 @@ class TransactionBufferHandler(tornado.web.RequestHandler):
     async def get(self, parameter):
         await asyncio.to_thread(self.transaction_buffer)
 
+class UserTxBufferHandler(tornado.web.RequestHandler):
+    def transaction_buffer(self):
+        compress = UserTxBufferHandler.get_argument(self, "compress", default="none")
+        buffer_data = memserver.user_tx_buffer
+
+        self.write(serialize(name="user_transaction_buffer",
+                             output=buffer_data,
+                             compress=compress))
+
+    async def get(self, parameter):
+        await asyncio.to_thread(self.transaction_buffer)
 
 class TrustPoolHandler(tornado.web.RequestHandler):
     def trust_pool(self):
@@ -606,6 +617,7 @@ async def make_app(port):
             (r"/transaction_pool(.*)", TransactionPoolHandler),
             (r"/transaction_hash_pool(.*)", TransactionHashPoolHandler),
             (r"/transaction_buffer(.*)", TransactionBufferHandler),
+            (r"/user_transaction_buffer(.*)", UserTxBufferHandler),
             (r"/trust_pool(.*)", TrustPoolHandler),
             (r"/get_latest_block(.*)", GetLatestBlockHandler),
             (r"/announce_peer(.*)", AnnouncePeerHandler),
