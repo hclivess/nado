@@ -107,6 +107,7 @@ class TransactionBufferHandler(tornado.web.RequestHandler):
     async def get(self, parameter):
         await asyncio.to_thread(self.transaction_buffer)
 
+
 class UserTxBufferHandler(tornado.web.RequestHandler):
     def transaction_buffer(self):
         compress = UserTxBufferHandler.get_argument(self, "compress", default="none")
@@ -118,6 +119,7 @@ class UserTxBufferHandler(tornado.web.RequestHandler):
 
     async def get(self, parameter):
         await asyncio.to_thread(self.transaction_buffer)
+
 
 class TrustPoolHandler(tornado.web.RequestHandler):
     def trust_pool(self):
@@ -641,7 +643,9 @@ async def make_app(port):
     logger.warning(f"Able to mine: {test_self_port(memserver.ip, memserver.port)}")
     await asyncio.Event().wait()
 
+
 def disable_close():
+    """
     import win32console, win32gui, win32con
 
     if sys.platform == "win32":
@@ -651,9 +655,13 @@ def disable_close():
             hMenu = win32gui.GetSystemMenu(hwnd, 0)
             if hMenu:
                 win32gui.DeleteMenu(hMenu, win32con.SC_CLOSE, win32con.MF_BYCOMMAND)
+    """
+
+
 def allow_async():
     if sys.platform == "win32" and sys.version_info >= (3, 8, 0):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 
 if __name__ == "__main__":
     """warning, no intensive operations or locks should be invoked from API interface"""
