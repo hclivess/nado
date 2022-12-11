@@ -18,7 +18,7 @@ from block_ops import (
     get_block
 )
 from config import get_timestamp_seconds, get_config
-from data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurence, dict_to_val_list
+from data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
 from peer_ops import load_trust, update_local_address, ip_stored
 from pool_ops import merge_buffer
 from rollback import rollback_one_block
@@ -132,7 +132,7 @@ class CoreClient(threading.Thread):
 
         try:
 
-            sorted_hashes = sort_occurence(dict_to_val_list(hash_pool_copy))
+            sorted_hashes = sort_occurrence(dict_to_val_list(hash_pool_copy))
 
             shuffled_pool = shuffle_dict(hash_pool_copy)
             participants = len(shuffled_pool.items())

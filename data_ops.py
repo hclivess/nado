@@ -8,12 +8,16 @@ def get_from_pool(pool, source, target):
     for item in pool.copy().items():
         target[item[0]] = item[1][source]
 
+
 def get_home():
     return f"{Path.home()}/nado"
+
+
 def check_traversal(to_check):
     allowed = "^\w+$"
     if not re.search(allowed, to_check):
         raise ValueError(f"Traversal attack attempt with [{to_check}]")
+
 
 def dict_to_val_list(some_dict) -> list:
     return_list = []
@@ -22,7 +26,7 @@ def dict_to_val_list(some_dict) -> list:
     return return_list
 
 
-def sort_occurence(some_list) -> list:
+def sort_occurrence(some_list) -> list:
     """takes list of values, returns list with unique values sorted by occurrence"""
     total = {value: some_list.count(value) for value in some_list}
     sorted_total = sorted(total, key=total.get, reverse=True)
@@ -34,11 +38,11 @@ def set_and_sort(entries: list) -> list:
     return sorted_entries
 
 
-def average(list) -> int:
-    sum = 0
-    for value in list:
-        sum = sum + value
-    return int(sum / len(list))
+def average(list_of_values) -> int:
+    total = 0
+    for value in list_of_values:
+        total = total + value
+    return int(total / len(list_of_values))
 
 
 def sort_list_dict(entries) -> list:
@@ -49,8 +53,8 @@ def sort_list_dict(entries) -> list:
     return clean_list
 
 
-def get_byte_size(object) -> int:
-    return sys.getsizeof(repr(object))
+def get_byte_size(size_of) -> int:
+    return sys.getsizeof(repr(size_of))
 
 
 def shuffle_dict(dictionary) -> dict:
