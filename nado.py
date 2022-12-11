@@ -292,7 +292,7 @@ class TerminateHandler(tornado.web.RequestHandler):
             server_key = TerminateHandler.get_argument(self, "key", default="none")
 
             client_ip = self.request.remote_ip
-            if server_key == client_ip == "127.0.0.1" or memserver.server_key:
+            if client_ip == "127.0.0.1" or server_key == memserver.server_key:
                 memserver.terminate = True
                 self.write("Termination signal sent, node is shutting down...")
                 sys.exit(0)
