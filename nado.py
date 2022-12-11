@@ -276,11 +276,13 @@ class LogHandler(tornado.web.RequestHandler):
 class TerminateHandler(tornado.web.RequestHandler):
     def terminate(self):
         try:
-            server_key = TerminateHandler.get_argument(self, "key")
+            server_key = TerminateHandler.get_argument(self, "key", default="none")
 
-            if server_key == memserver.server_key:
+            client_ip = self.request.remote_ip
+            if server_key == client_ip == "127.0.0.1" or memserver.server_key:
                 memserver.terminate = True
-                # tornado.ioloop.IOLoop.current().stop()
+                self.write("Termination signal sent, node is shutting down...")
+                sys.exit(0)
         except Exception as e:
             self.set_status(403)
             self.write(f"Error: {e}")
