@@ -17,7 +17,6 @@ async def get_list_of(key, peer, fail_storage, logger, compress=None):
     """method compounded by compound_get_list_of, fail storage external by reference (obj)"""
     """bandwith usage of this grows exponentially with number of peers"""
     """peers include themselves in their peer lists"""
-    
 
     if compress:
         url_construct = f"http://{peer}:{get_config()['port']}/{key}?compress={compress}"
@@ -64,9 +63,42 @@ async def compound_get_list_of(key, entries, logger, fail_storage, compress=None
     return success_storage
 
 
+async def send_transaction(peer, logger, fail_storage, transaction, compress=None):
+    """method compounded by compound_get_status_pool"""
+
+    url_construct = f"http://{peer}:{get_config()['port']}/submit_transaction?data={json.dumps(transaction)}"
+
+    try:
+        async with sem:
+            http_client = AsyncHTTPClient()
+            response = await http_client.fetch(url_construct)
+            fetched = msgpack.unpackb(response.body)["message"]
+            return peer, fetched
+
+    except Exception:
+        if peer not in fail_storage:
+            logger.info(f"Compounder: Failed to send transaction to {url_construct}")
+            fail_storage.append(peer)
+
+
+async def compound_send_transaction(ips, logger, fail_storage, transaction, compress=None):
+    """returns a list of dicts where ip addresses are keys"""
+    result = list(
+        filter(
+            None,
+            await asyncio.gather(*[send_transaction(ip, logger, fail_storage, transaction) for ip in ips]),
+        )
+    )
+
+    result_dict = {}
+    for entry in result:
+        result_dict[entry[0]] = entry[1]
+
+    return result_dict
+
+
 async def get_status(peer, logger, fail_storage, compress=None):
     """method compounded by compound_get_status_pool"""
-    
 
     if compress:
         url_construct = f"http://{peer}:{get_config()['port']}/status?compress={compress}"
@@ -89,6 +121,7 @@ async def get_status(peer, logger, fail_storage, compress=None):
             logger.info(f"Compounder: Failed to get status from {url_construct}")
             fail_storage.append(peer)
 
+
 async def compound_get_status_pool(ips, logger, fail_storage, compress=None):
     """returns a list of dicts where ip addresses are keys"""
     result = list(
@@ -107,7 +140,6 @@ async def compound_get_status_pool(ips, logger, fail_storage, compress=None):
 
 async def announce_self(peer, logger, fail_storage):
     """method compounded by compound_announce_self"""
-    
 
     url_construct = (
         f"http://{peer}:{get_config()['port']}/announce_peer?ip={get_config()['ip']}"
@@ -123,7 +155,7 @@ async def announce_self(peer, logger, fail_storage):
 
     except Exception:
         if peer not in fail_storage:
-            #logger.info(f"Failed to announce self to {url_construct}")
+            # logger.info(f"Failed to announce self to {url_construct}")
             fail_storage.append(peer)
 
 
