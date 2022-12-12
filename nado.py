@@ -149,6 +149,22 @@ class PeerPoolHandler(tornado.web.RequestHandler):
         await asyncio.to_thread(self.peer_pool)
 
 
+class PenaltiesHandler(tornado.web.RequestHandler):
+    def penalties(self):
+        compress = PenaltiesHandler.get_argument(self, "compress", default="none")
+        output = {
+            "penalties": memserver.penalties
+        }
+
+        self.write(serialize(name="penalties",
+                             output=output,
+                             compress=compress
+                             ))
+
+    async def get(self, parameter):
+        await asyncio.to_thread(self.penalties)
+
+
 class UnreachableHandler(tornado.web.RequestHandler):
     def unreachable(self):
         compress = PeerPoolHandler.get_argument(self, "compress", default="none")
@@ -626,6 +642,7 @@ async def make_app(port):
             (r"/status_pool(.*)", StatusPoolHandler),
             (r"/status(.*)", StatusHandler),
             (r"/peers(.*)", PeerPoolHandler),
+            (r"/penalties(.*)", PenaltiesHandler),
             (r"/unreachable(.*)", UnreachableHandler),
             (r"/block_producers_hash_pool(.*)", BlockProducersHashPoolHandler),
             (r"/block_producers(.*)", BlockProducerPoolHandler),
