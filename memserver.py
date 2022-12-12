@@ -53,6 +53,7 @@ class MemServer:
 
         self.unreachable = {}
         self.peers = []
+        self.penalties = {}
 
         self.transaction_pool_hash = None
         self.block_producers_hash = None
