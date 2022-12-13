@@ -49,6 +49,8 @@ git pull origin main
 from the directory where you have it installed.
 
 ### Windows
+When running in window console, please terminate your node using [/terminate](http://127.0.0.1/terminate) or **CTRL+C**.
+Never use the **X** in the upper right corner to avoid possible database corruption.
 
 There is a [release page in GitHub](https://github.com/hclivess/nado/releases), which is periodically updated when major changes occur. 
 The easiest way to run NADO for Windows users is to use the `nado.exe` binary from there.

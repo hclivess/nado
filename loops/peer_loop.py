@@ -138,7 +138,7 @@ class PeerClient(threading.Thread):
                         fail_storage=self.memserver.purge_peers_list,
                     )
 
-                    dump_peers(peers=self.memserver.peers, logger=self.logger)  # wip
+                    dump_peers(peers=self.memserver.peers, logger=self.logger)
 
                     dump_trust(logger=self.logger,
                                peer_file_lock=self.memserver.peer_file_lock,
