@@ -20,6 +20,7 @@ from block_ops import (
 )
 from config import get_timestamp_seconds, get_config
 from data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
+from event_bus import EventBus
 from peer_ops import load_trust, update_local_address, ip_stored
 from pool_ops import merge_buffer
 from rollback import rollback_one_block
@@ -51,6 +52,7 @@ class CoreClient(threading.Thread):
         self.memserver = memserver
         self.consensus = consensus
         self.run_interval = 1
+        self.event_bus = EventBus()
 
     def update_periods(self):
         old_period = self.memserver.period
@@ -107,6 +109,7 @@ class CoreClient(threading.Thread):
                     block_candidate = get_block_candidate(block_producers=self.memserver.block_producers,
                                                           block_producers_hash=self.memserver.block_producers_hash,
                                                           logger=self.logger,
+                                                          event_bus=self.event_bus,
                                                           transaction_pool=self.memserver.transaction_pool.copy(),
                                                           peer_file_lock=self.memserver.peer_file_lock
                                                           )
@@ -399,10 +402,14 @@ class CoreClient(threading.Thread):
         else:
             self.memserver.emergency_mode = False
 
+    async def penalty_list_update_handler(self, event):
+        self.memserver.penalties = event
+
     def run(self) -> None:
         self.init_hashes()
         update_local_address(logger=self.logger,
                              peer_file_lock=self.memserver.peer_file_lock)
+        self.event_bus.add_listener('penalty-list-update', self.penalty_list_update_handler)
 
         while not self.memserver.terminate:
             try:
@@ -420,5 +427,7 @@ class CoreClient(threading.Thread):
                 self.logger.error(f"Error in core loop: {traceback.print_exc()}")
                 time.sleep(1)
                 # raise #test
+
+        self.event_bus.remove_listener('penalty-list-update', self.penalty_list_update_handler)
 
         self.logger.info("Termination code reached, bye")

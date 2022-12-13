@@ -43,8 +43,8 @@ class MemServer:
         self.user_tx_buffer = []
         self.tx_buffer = []
         self.peer_buffer = []
-        self.ip = get_config()["ip"]
-        self.port = get_config()["port"]
+        self.ip = self.config["ip"]
+        self.port = self.config["port"]
         self.terminate = False
         self.producers_refresh_interval = 10
 
@@ -53,6 +53,7 @@ class MemServer:
 
         self.unreachable = {}
         self.peers = []
+        self.penalties = {}
 
         self.transaction_pool_hash = None
         self.block_producers_hash = None
@@ -62,7 +63,7 @@ class MemServer:
 
         self.emergency_mode = False
         self.min_peers = 2
-        self.peer_limit = 24
+        self.peer_limit = self.config.get("peer_limit") or 24
         self.rollbacks = 0
         self.max_rollbacks = 10
         self.version = read_version()

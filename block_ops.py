@@ -8,6 +8,7 @@ from tornado.httpclient import AsyncHTTPClient
 from account_ops import get_account_value
 from config import get_timestamp_seconds, get_config
 from data_ops import set_and_sort, average, get_home
+from event_bus import EventBus
 from hashing import blake2b_hash_link
 from keys import load_keys
 from log_ops import get_logger
@@ -61,11 +62,12 @@ def valid_block_gap(logger, new_block, gap=60):
 
 
 def get_block_candidate(
-        block_producers, block_producers_hash, transaction_pool, logger, peer_file_lock
+        block_producers, block_producers_hash, transaction_pool, logger, event_bus, peer_file_lock
 ):
     latest_block = get_latest_block_info(logger=logger)
     best_producer = pick_best_producer(block_producers,
                                        logger=logger,
+                                       event_bus=event_bus,
                                        peer_file_lock=peer_file_lock)
 
     logger.info(
@@ -376,13 +378,14 @@ def get_penalty(producer_address, block_hash, block_number):
     return block_penalty
 
 
-def pick_best_producer(block_producers, logger, peer_file_lock):
+def pick_best_producer(block_producers, logger, event_bus, peer_file_lock):
     latest_block = get_latest_block_info(logger=logger)
     block_hash = latest_block["block_hash"]
 
     previous_block_penalty = None
     best_producer = None
 
+    penalty_list = {}
     for producer_ip in block_producers:
         producer_address = load_peer(logger=logger,
                                      ip=producer_ip,
@@ -393,9 +396,13 @@ def pick_best_producer(block_producers, logger, peer_file_lock):
                                     block_hash=block_hash,
                                     block_number=latest_block["block_number"])
 
+        penalty_list.update({producer_address: block_penalty})
+
         if not previous_block_penalty or block_penalty <= previous_block_penalty:
             previous_block_penalty = block_penalty
             best_producer = producer_ip
+
+    event_bus.emit('penalty-list-update', penalty_list)
 
     return best_producer
 
