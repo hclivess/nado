@@ -92,8 +92,9 @@ class MemServer:
         """reach out to all peers and merge their transactions to our transaction pool"""
         remote_transactions = asyncio.run(
             compound_get_list_of(
-                "transaction_pool",
-                self.peers,
+                key="transaction_pool",
+                entries=self.peers,
+                port=self.port,
                 logger=self.logger,
                 fail_storage=self.purge_peers_list,
                 compress="msgpack"

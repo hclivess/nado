@@ -120,7 +120,7 @@ def sort_dict_value(values, key):
     return sorted(values, key=lambda d: d[key], reverse=True)
 
 
-async def load_ips(logger, fail_storage, minimum=3) -> list:
+async def load_ips(logger, port, fail_storage, minimum=3) -> list:
     """load peers from drive, sort by trust, test in batches asynchronously,
     return when limit is reached"""
 
@@ -152,7 +152,8 @@ async def load_ips(logger, fail_storage, minimum=3) -> list:
         chunk = ip_sorted[x:x + step]
         logger.info(f"Testing {chunk}")
 
-        gathered = (await asyncio.gather(compound_get_status_pool(chunk,
+        gathered = (await asyncio.gather(compound_get_status_pool(ips=chunk,
+                                                                  port=port,
                                                                   fail_storage=fail_storage,
                                                                   logger=logger,
                                                                   compress="msgpack")))
@@ -248,10 +249,15 @@ def dump_peers(peers, logger):
                 logger.error(f"Unable to reach {peer} to get their address: {e}")
 
 
-def get_list_of_peers(fetch_from, failed, logger) -> list:
+def get_list_of_peers(fetch_from, port, failed, logger) -> list:
     """gets peers of peers"""
     returned_peers = asyncio.run(
-        compound_get_list_of("peers", fetch_from, logger=logger, fail_storage=failed, compress="msgpack")
+        compound_get_list_of(key="peers",
+                             entries=fetch_from,
+                             port=port,
+                             logger=logger,
+                             fail_storage=failed,
+                             compress="msgpack")
     )
 
     pool = []
@@ -299,9 +305,13 @@ def me_to(target) -> list:
     return target
 
 
-def announce_me(targets, logger, fail_storage) -> None:
+def announce_me(targets, port, my_ip, logger, fail_storage) -> None:
     """announce self node to other peers"""
-    asyncio.run(compound_announce_self(targets, logger, fail_storage=fail_storage))
+    asyncio.run(compound_announce_self(ips=targets,
+                                       port=port,
+                                       my_ip=my_ip,
+                                       logger=logger,
+                                       fail_storage=fail_storage))
 
 
 if __name__ == "__main__":

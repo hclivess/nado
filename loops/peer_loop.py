@@ -12,7 +12,7 @@ from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ip
 
 
 class PeerClient(threading.Thread):
-    """thread which handles poors because timeouts take long"""
+    """thread which handles peers because timeouts take long"""
 
     def __init__(self, memserver, consensus, logger):
         threading.Thread.__init__(self)
@@ -37,6 +37,7 @@ class PeerClient(threading.Thread):
     def sniff_peers_and_producers(self):
         candidates = get_list_of_peers(
             fetch_from=self.memserver.peers,
+            port=self.memserver.port,
             failed=self.memserver.purge_peers_list,
             logger=self.logger)
 
@@ -112,7 +113,8 @@ class PeerClient(threading.Thread):
                     self.logger.info("No peers, reloading from drive")
                     self.memserver.unreachable.clear()
                     self.memserver.peers = asyncio.run(load_ips(fail_storage=self.memserver.purge_peers_list,
-                                                                logger=self.logger))
+                                                                logger=self.logger,
+                                                                port=self.memserver.port))
 
                 if self.memserver.period in [0, 1]:
                     self.purge_peers()
@@ -130,6 +132,8 @@ class PeerClient(threading.Thread):
 
                     announce_me(
                         targets=self.memserver.block_producers,
+                        port=self.memserver.port,
+                        my_ip=self.memserver.ip,
                         logger=self.logger,
                         fail_storage=self.memserver.purge_peers_list,
                     )
@@ -145,7 +149,8 @@ class PeerClient(threading.Thread):
 
                 self.consensus.status_pool = asyncio.run(
                     compound_get_status_pool(
-                        self.memserver.peers,
+                        ips=self.memserver.peers,
+                        port=self.memserver.port,
                         logger=self.logger,
                         fail_storage=self.memserver.purge_peers_list,
                         compress="msgpack"
@@ -155,6 +160,6 @@ class PeerClient(threading.Thread):
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)
             except Exception as e:
-                self.logger.error(f"Error in peer loop: {traceback.print_exc()}")
+                self.logger.error(f"Error in peer loop: {e} {traceback.print_exc()}")
                 time.sleep(1)
                 # raise #test

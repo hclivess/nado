@@ -197,7 +197,7 @@ def get_latest_block_info(logger):
                                         logger=logger)
             return info
     except Exception as e:
-        logger.info("Failed to get latest block info")
+        logger.info(f"Failed to get latest block info: {e}")
 
 
 def set_latest_block_info(block_message: dict, logger):
@@ -213,7 +213,7 @@ def set_latest_block_info(block_message: dict, logger):
         return True
 
     except Exception as e:
-        logger.info(f"Failed to set latest block info to {block_message['block_hash']}")
+        logger.info(f"Failed to set latest block info to {block_message['block_hash']}: {e}")
         return False
 
 
@@ -333,7 +333,7 @@ async def get_from_single_target(key, target_peer, logger):  # todo add msgpack 
             return False
 
     except Exception as e:
-        logger.error(f"Failed to get {key} from {target_peer}")
+        logger.error(f"Failed to get {key} from {target_peer}: {e}")
         return False
 
 

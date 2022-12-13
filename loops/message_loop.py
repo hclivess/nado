@@ -84,5 +84,5 @@ class MessageClient(threading.Thread):
 
                 time.sleep(10)
             except Exception as e:
-                self.logger.error(f"Error in message loop: {traceback.print_exc()}")
+                self.logger.error(f"Error in message loop: {e} {traceback.print_exc()}")
                 time.sleep(1)

@@ -169,6 +169,6 @@ class ConsensusClient(threading.Thread):
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)
             except Exception as e:
-                self.logger.error(f"Error in consensus loop: {traceback.print_exc()}")
+                self.logger.error(f"Error in consensus loop: {e} {traceback.print_exc()}")
                 time.sleep(1)
                 # raise  # test

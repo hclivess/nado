@@ -424,7 +424,7 @@ class CoreClient(threading.Thread):
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(self.run_interval)
             except Exception as e:
-                self.logger.error(f"Error in core loop: {traceback.print_exc()}")
+                self.logger.error(f"Error in core loop: {e} {traceback.print_exc()}")
                 time.sleep(1)
                 # raise #test
 
