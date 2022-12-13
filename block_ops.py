@@ -402,7 +402,6 @@ def pick_best_producer(block_producers, logger, event_bus, peer_file_lock):
             previous_block_penalty = block_penalty
             best_producer = producer_ip
 
-    logger.debug(f"Penalty list: {penalty_list}")
     event_bus.emit('penalty-list-update', penalty_list)
 
     return best_producer
