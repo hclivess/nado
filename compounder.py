@@ -34,7 +34,7 @@ async def get_list_of(key, peer, port, fail_storage, logger, compress=None):
                 fetched = json.loads(response.body.decode())[key]
             return fetched
 
-    except Exception:
+    except Exception as e:
         if peer not in fail_storage:
             logger.info(f"Compounder: Failed to get {key} of {peer} from {url_construct}: {e}")
             fail_storage.append(peer)
@@ -75,7 +75,7 @@ async def send_transaction(peer, port, logger, fail_storage, transaction, compre
             fetched = msgpack.unpackb(response.body)["message"]
             return peer, fetched
 
-    except Exception:
+    except Exception as e:
         if peer not in fail_storage:
             logger.info(f"Compounder: Failed to send transaction to {url_construct}: {e}")
             fail_storage.append(peer)
@@ -116,7 +116,7 @@ async def get_status(peer, port, logger, fail_storage, compress=None):
 
             return peer, fetched
 
-    except Exception:
+    except Exception as e:
         if peer not in fail_storage:
             logger.info(f"Compounder: Failed to get status from {url_construct}: {e}")
             fail_storage.append(peer)
