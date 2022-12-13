@@ -64,7 +64,7 @@ async def compound_get_list_of(key, entries, logger, fail_storage, compress=None
 
 
 async def send_transaction(peer, logger, fail_storage, transaction, compress=None):
-    """method compounded by compound_get_status_pool"""
+    """method compounded by compound_send_transaction"""
 
     url_construct = f"http://{peer}:{get_config()['port']}/submit_transaction?data={json.dumps(transaction)}"
 
