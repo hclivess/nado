@@ -428,4 +428,6 @@ class CoreClient(threading.Thread):
                 time.sleep(1)
                 # raise #test
 
+        self.event_bus.remove_listener('penalty-list-update', self.penalty_list_update_handler)
+
         self.logger.info("Termination code reached, bye")
