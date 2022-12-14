@@ -254,10 +254,10 @@ def construct_block(
     return block_message
 
 
-async def knows_block(target_peer, hash, logger):
+async def knows_block(target_peer, port, hash, logger):
     try:
         http_client = AsyncHTTPClient()
-        url = f"http://{target_peer}:{get_config()['port']}/get_block?hash={hash}"
+        url = f"http://{target_peer}:{port}/get_block?hash={hash}"
         result = await http_client.fetch(url)
 
         if result.code == 200:

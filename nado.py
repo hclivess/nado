@@ -382,7 +382,7 @@ class GetBlockHandler(tornado.web.RequestHandler):
             block_data = get_block(block)
 
             if not block_data:
-                self.set_status(403)
+                self.set_status(404)
                 block_data = "Not found"
 
             output = serialize(name="block",

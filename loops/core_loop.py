@@ -8,7 +8,6 @@ from block_ops import (
     knows_block,
     get_blocks_after,
     get_from_single_target,
-    get_latest_block_info,
     get_since_last_block,
     get_block_candidate,
     save_block_producers,
@@ -237,22 +236,23 @@ class CoreClient(threading.Thread):
                 if not peer:
                     self.logger.info("Could not find suitably trusted peer")
                 else:
-                    hash = get_latest_block_info(logger=self.logger)["block_hash"]
+                    block_hash = self.memserver.latest_block["block_hash"]
 
                     known_block = asyncio.run(knows_block(
                         target_peer=peer,
-                        hash=hash,
+                        port=self.memserver.port,
+                        hash=block_hash,
                         logger=self.logger))
 
                     if known_block:
                         self.logger.info(
-                            f"{peer} knows block {get_latest_block_info(logger=self.logger)['block_hash']}"
+                            f"{peer} knows block {self.memserver.latest_block['block_hash']}"
                         )
 
                         try:
                             new_blocks = asyncio.run(get_blocks_after(
                                 target_peer=peer,
-                                from_hash=hash,
+                                from_hash=block_hash,
                                 count=50,
                             ))
 
@@ -268,7 +268,7 @@ class CoreClient(threading.Thread):
                         except Exception as e:
                             self.consensus.trust_pool[peer] -= 10000
 
-                            self.logger.error(f"Failed to get blocks after {hash} from {peer}: {e}")
+                            self.logger.error(f"Failed to get blocks after {block_hash} from {peer}: {e}")
                             break
 
                     elif not known_block:
