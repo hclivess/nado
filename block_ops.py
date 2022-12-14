@@ -8,11 +8,11 @@ from tornado.httpclient import AsyncHTTPClient
 from account_ops import get_account_value
 from config import get_timestamp_seconds, get_config
 from data_ops import set_and_sort, average, get_home
-from event_bus import EventBus
 from hashing import blake2b_hash_link
 from keys import load_keys
 from log_ops import get_logger
 from peer_ops import load_peer
+
 
 def get_hash_penalty(a: str, b: str):
     assert a and b, "One of the values to hash is empty"

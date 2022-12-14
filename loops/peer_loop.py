@@ -144,7 +144,7 @@ class PeerClient(threading.Thread):
                                peer_file_lock=self.memserver.peer_file_lock,
                                pool_data=self.consensus.trust_pool)
 
-                    update_local_ip(ip = asyncio.run(get_public_ip()),
+                    update_local_ip(ip=asyncio.run(get_public_ip(logger=self.logger)),
                                     logger=self.logger,
                                     peer_file_lock=self.memserver.peer_file_lock)
 

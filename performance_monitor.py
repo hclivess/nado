@@ -6,7 +6,6 @@ import requests
 url_dict = [{"name": "status",
              "url": "http://89.25.168.195:9173/status"}]
 
-
 while True:
     for item in url_dict:
 
@@ -32,4 +31,3 @@ while True:
         plt.draw()
         plt.pause(0.01)
         plt.clf()
-    

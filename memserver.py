@@ -8,13 +8,13 @@ from config import get_timestamp_seconds, get_config
 from data_ops import set_and_sort, sort_list_dict
 from hashing import blake2b_hash
 from keys import load_keys
-from versioner import read_version
 from transaction_ops import (
     validate_single_spending,
     validate_transaction,
     sort_transaction_pool,
 
 )
+from versioner import read_version
 
 
 class MemServer:

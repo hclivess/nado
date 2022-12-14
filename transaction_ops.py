@@ -1,7 +1,6 @@
 import glob
 import json
 import os
-import time
 
 import msgpack
 import requests
@@ -346,7 +345,7 @@ if __name__ == "__main__":
     data = {"data_id": "seek_id", "data_content": "some_actual_content"}
 
     config = get_config()
-    #ip = config["ip"]
+    # ip = config["ip"]
     ip = "159.65.123.12"
     port = config["port"]
 
@@ -373,7 +372,7 @@ if __name__ == "__main__":
 
             requests.get(f"http://{ip}:{port}/submit_transaction?data={json.dumps(transaction)}", timeout=5)
 
-            #time.sleep(5)
+            # time.sleep(5)
         except Exception as e:
             print(e)
 

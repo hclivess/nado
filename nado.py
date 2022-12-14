@@ -14,6 +14,7 @@ import versioner
 from account_ops import get_account
 from block_ops import get_block, fee_over_blocks, get_block_number
 from config import get_config
+from config import test_self_port
 from data_ops import set_and_sort, get_home
 from genesis import make_genesis, make_folders
 from keys import keyfile_found, generate_keys, save_keys, load_keys
@@ -25,7 +26,6 @@ from loops.peer_loop import PeerClient
 from memserver import MemServer
 from peer_ops import save_peer, get_remote_status, get_producer_set
 from transaction_ops import get_transaction, get_transactions_of_account
-from config import test_self_port
 
 
 def is_port_in_use(port: int) -> bool:
@@ -300,6 +300,7 @@ class LogHandler(tornado.web.RequestHandler):
 
     async def get(self, parameter):
         await asyncio.to_thread(self.log)
+
 
 class IpHandler(tornado.web.RequestHandler):
     def log(self):

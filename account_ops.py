@@ -74,6 +74,7 @@ def increase_produced_count(address, amount, revert=False):
 
     return produced
 
+
 def create_account(address, balance=0, burned=0, produced=0):
     """create account if it does not exist"""
     check_traversal(address)

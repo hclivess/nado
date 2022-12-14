@@ -1,7 +1,7 @@
 import json
 import os
-import time
 import socket
+import time
 
 from data_ops import get_home
 from hashing import create_nonce

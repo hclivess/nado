@@ -3,7 +3,6 @@ import time
 import traceback
 
 from block_ops import get_since_last_block, save_block_producers
-from pool_ops import get_from_pool
 from config import get_timestamp_seconds
 from peer_ops import (
     load_peer,
@@ -12,6 +11,7 @@ from peer_ops import (
     percentage,
     get_average_int,
 )
+from pool_ops import get_from_pool
 
 
 def get_pool_majority(pool):

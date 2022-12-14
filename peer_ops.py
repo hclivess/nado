@@ -5,9 +5,9 @@ import os
 import os.path
 
 from tornado.httpclient import AsyncHTTPClient
-from compounder import compound_get_status_pool
 
-from compounder import compound_get_list_of, compound_announce_self, compound_get_url
+from compounder import compound_get_list_of, compound_announce_self
+from compounder import compound_get_status_pool
 from config import get_port, get_config, get_timestamp_seconds, update_config
 from data_ops import set_and_sort, get_home
 from hashing import base64encode, blake2b_hash
@@ -293,11 +293,16 @@ def announce_me(targets, port, my_ip, logger, fail_storage) -> None:
                                        fail_storage=fail_storage))
 
 
-async def get_public_ip():
+async def get_public_ip(logger):
     http_client = AsyncHTTPClient()
-    url = "https://api.ipify.org"
-    ip = await http_client.fetch(url)
-    return ip.body.decode()
+    urls = ["https://api.ipify.org", "https://ipinfo.io/ip"]
+    for url in urls:
+        try:
+            ip = await http_client.fetch(url)
+            return ip.body.decode()
+        except Exception as e:
+            logger.error(f"Unable to fetch IP from {url}: {e}")
+
 
 def update_local_ip(ip, logger, peer_file_lock):
     old_ip = get_config()["ip"]
@@ -328,5 +333,3 @@ if __name__ == "__main__":
     # save_peer(ip="127.0.0.1", port=9173, address="sop3a7f8a5af60b15460181d9b2ff76ad5f5cfc7c5766ab77")
     # print(asyncio.run(get_remote_peer_address_async('89.176.130.244')))
     # update_peer("89.176.130.244",value=0,key="greeting")
-
-
