@@ -301,6 +301,20 @@ class LogHandler(tornado.web.RequestHandler):
     async def get(self, parameter):
         await asyncio.to_thread(self.log)
 
+class IpHandler(tornado.web.RequestHandler):
+    def log(self):
+        compress = IpHandler.get_argument(self, "compress", default="none")
+        client_ip = self.request.remote_ip
+
+        if compress == "msgpack":
+            output = msgpack.packb(client_ip)
+        else:
+            output = client_ip
+        self.write(output)
+
+    async def get(self, parameter):
+        await asyncio.to_thread(self.log)
+
 
 class TerminateHandler(tornado.web.RequestHandler):
     def terminate(self):
@@ -651,6 +665,7 @@ async def make_app(port):
             (r"/terminate(.*)", TerminateHandler),
             (r"/submit_transaction(.*)", SubmitTransactionHandler),
             (r"/log(.*)", LogHandler),
+            (r"/get_ip(.*)", IpHandler),
             (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": "static"}),
             (r'/(favicon.ico)', tornado.web.StaticFileHandler, {"path": "graphics"}),
 

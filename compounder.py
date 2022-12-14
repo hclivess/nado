@@ -63,6 +63,34 @@ async def compound_get_list_of(key, entries, port, logger, fail_storage, compres
     return success_storage
 
 
+async def get_url(peer, port, url, logger, fail_storage, transaction, compress=None):
+    """method compounded by compound_send_transaction"""
+
+    try:
+        async with sem:
+            http_client = AsyncHTTPClient()
+            response = await http_client.fetch(url)
+            fetched = msgpack.unpackb(response.body)["message"]
+            return peer, fetched
+
+    except Exception as e:
+        if peer not in fail_storage:
+            logger.info(f"Compounder: Failed to get URL {url}: {e}")
+            fail_storage.append(peer)
+
+
+async def compound_get_url(ips, port, url, logger, fail_storage, transaction, compress=None):
+    """returns a list of dicts where ip addresses are keys"""
+    result = list(
+        filter(
+            None,
+            await asyncio.gather(*[send_transaction(ip, port, url, logger, fail_storage, transaction) for ip in ips]),
+        )
+    )
+
+    return result
+
+
 async def send_transaction(peer, port, logger, fail_storage, transaction, compress=None):
     """method compounded by compound_send_transaction"""
 
