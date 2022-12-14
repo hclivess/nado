@@ -9,9 +9,6 @@
 
 </p>
 
-## Notice
-NADO mainnet is released.
-
 ## Installation
 ### Linux
 Please close your node using [/terminate](http://127.0.0.1/terminate) or **CTRL+C** before shutting down your machine.
@@ -80,9 +77,9 @@ You can download the [official NADO wallet here](https://github.com/hclivess/nad
 After running the node, you can access it at http://127.0.0.1:9173 from where all API calls used by the node itself are accessible. Here are some examples:
 - http://127.0.0.1:9173/get_account?address=ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29
 
-## Private key storage
-In previous versions, private key was stored in the folder where NADO is installed, under `private` directory, specifically in the `keys.dat` file. With the latest version,
-this file is stored in user's home directory, `/~/nado/private/keys.dat` in Linux and `C:\Users\[username]\nado\private` in Windows. 
+## Private key storage 
+- Linux: `/~/nado/private/keys.dat`
+- Windows: `C:\Users\[username]\nado\private`
 
 ## Is there anything unique?
 
