@@ -1,11 +1,11 @@
 from account_ops import create_account
 from block_ops import save_block, set_latest_block_info
-from config import create_config
 from data_ops import get_home
 from dircheck import make_folder
 from hashing import blake2b_hash_link
 from log_ops import get_logger
 from peer_ops import save_peer
+from config import create_config
 
 
 def make_folders():
@@ -19,7 +19,7 @@ def make_folders():
 
 
 def make_genesis(address, balance, ip, port, timestamp, logger):
-    create_config()
+    create_config(ip=ip)
 
     block_transactions = []
     block_hash = blake2b_hash_link(link_from=timestamp, link_to=block_transactions)

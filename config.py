@@ -1,10 +1,7 @@
-import asyncio
 import json
 import os
 import time
 import socket
-
-from tornado.httpclient import AsyncHTTPClient
 
 from data_ops import get_home
 from hashing import create_nonce
@@ -43,13 +40,6 @@ def test_self_port(ip, port):
             return False
 
 
-async def get_public_ip():
-    http_client = AsyncHTTPClient()
-    url = "https://api.ipify.org"
-    ip = await http_client.fetch(url)
-    return ip.body.decode()
-
-
 def get_config(config_path: str = f"{get_home()}/private/config.dat"):
     with open(config_path) as infile:
         return json.loads(infile.read())
@@ -64,10 +54,10 @@ def update_config(new_config: dict, config_path: str = f"{get_home()}/private/co
         json.dump(config, outfile)
 
 
-def create_config(config_path: str = f"{get_home()}/private/config.dat"):
+def create_config(ip: str, config_path: str = f"{get_home()}/private/config.dat"):
     config_contents = {
         "port": get_port(),
-        "ip": asyncio.run(get_public_ip()),
+        "ip": ip,
         "protocol": get_protcol(),
         "server_key": create_nonce(length=64),
     }
@@ -78,4 +68,4 @@ def create_config(config_path: str = f"{get_home()}/private/config.dat"):
 
 
 if __name__ == "__main__":
-    create_config()
+    pass

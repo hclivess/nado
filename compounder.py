@@ -3,8 +3,6 @@ import json
 
 import msgpack
 from tornado.httpclient import AsyncHTTPClient
-
-from config import get_config
 from data_ops import sort_list_dict
 from log_ops import get_logger
 
@@ -214,19 +212,20 @@ if __name__ == "__main__":
     logger.info(
         asyncio.run(
             compound_get_list_of(
-                "peers", peers, logger=logger, fail_storage=fail_storage, port=get_config()["port"]
+                "peers", peers, logger=logger, fail_storage=fail_storage, port=9173
             )
         )
     )
     logger.info(
         asyncio.run(
-            compound_get_status_pool(peers, logger=logger, fail_storage=fail_storage, port=get_config()["port"])
+            compound_get_status_pool(peers, logger=logger, fail_storage=fail_storage, port=9173
+                                     )
         )
     )
     logger.info(
         asyncio.run(
             compound_get_list_of(
-                "transaction_pool", peers, logger=logger, fail_storage=fail_storage, port=get_config()["port"]
+                "transaction_pool", peers, logger=logger, fail_storage=fail_storage, port=9173
             )
         )
     )

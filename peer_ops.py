@@ -1,38 +1,17 @@
 import asyncio
 import glob
 import json
+import os
 import os.path
 
 from tornado.httpclient import AsyncHTTPClient
 from compounder import compound_get_status_pool
 
-from compounder import compound_get_list_of, compound_announce_self
-from config import get_port, get_config, get_timestamp_seconds
+from compounder import compound_get_list_of, compound_announce_self, compound_get_url
+from config import get_port, get_config, get_timestamp_seconds, update_config
 from data_ops import set_and_sort, get_home
 from hashing import base64encode, blake2b_hash
 from keys import load_keys
-from config import get_public_ip, update_config
-
-
-def update_local_ip(logger, peer_file_lock):
-    old_ip = get_config()["ip"]
-    new_ip = asyncio.run(get_public_ip())
-
-    if old_ip != new_ip:
-        peer_me = load_peer(ip=old_ip,
-                            logger=logger,
-                            peer_file_lock=peer_file_lock)
-
-        save_peer(ip=new_ip,
-                  address=peer_me["peer_address"],
-                  port=peer_me["peer_port"],
-                  overwrite=True
-                  )
-
-        new_config = {"ip": new_ip}
-        update_config(new_config)
-
-        logger.info(f"Local IP updated to {new_ip}")
 
 
 def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
@@ -314,6 +293,33 @@ def announce_me(targets, port, my_ip, logger, fail_storage) -> None:
                                        fail_storage=fail_storage))
 
 
+async def get_public_ip():
+    http_client = AsyncHTTPClient()
+    url = "https://api.ipify.org"
+    ip = await http_client.fetch(url)
+    return ip.body.decode()
+
+def update_local_ip(ip, logger, peer_file_lock):
+    old_ip = get_config()["ip"]
+    new_ip = ip
+
+    if old_ip != new_ip:
+        peer_me = load_peer(ip=old_ip,
+                            logger=logger,
+                            peer_file_lock=peer_file_lock)
+
+        save_peer(ip=new_ip,
+                  address=peer_me["peer_address"],
+                  port=peer_me["peer_port"],
+                  overwrite=True
+                  )
+
+        new_config = {"ip": new_ip}
+        update_config(new_config)
+
+        logger.info(f"Local IP updated to {new_ip}")
+
+
 if __name__ == "__main__":
     print(load_ips())
     # save_peer(ip="1.1.1.1", port=0, address="haha")
@@ -322,3 +328,5 @@ if __name__ == "__main__":
     # save_peer(ip="127.0.0.1", port=9173, address="sop3a7f8a5af60b15460181d9b2ff76ad5f5cfc7c5766ab77")
     # print(asyncio.run(get_remote_peer_address_async('89.176.130.244')))
     # update_peer("89.176.130.244",value=0,key="greeting")
+
+
