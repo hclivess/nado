@@ -666,7 +666,7 @@ async def make_app(port):
             (r"/terminate(.*)", TerminateHandler),
             (r"/submit_transaction(.*)", SubmitTransactionHandler),
             (r"/log(.*)", LogHandler),
-            (r"/get_ip(.*)", IpHandler),
+            (r"/whats_my_ip(.*)", IpHandler),
             (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": "static"}),
             (r'/(favicon.ico)', tornado.web.StaticFileHandler, {"path": "graphics"}),
 
