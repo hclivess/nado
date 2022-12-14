@@ -24,9 +24,11 @@ Source: "nado.dist\*" ; DestDir: "{app}"; Flags: recursesubdirs;
 
 [Icons]
 Name: "{group}\NADO"; Filename: "{app}\nado.exe"
+Name: "{group}\Shutdown NADO"; Filename: "http://127.0.0.1:9173/terminate"
 Name: "{group}\Uninstall NADO"; Filename: "{uninstallexe}"
 
 Name: "{commondesktop}\NADO"; Filename: "{app}\nado.exe"
+Name: "{commondesktop}\Shutdown NADO"; Filename: "http://127.0.0.1:9173/terminate"
 
 [Registry]
 ; keys for 32-bit systems
