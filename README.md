@@ -14,6 +14,8 @@ NADO mainnet is released.
 
 ## Installation
 ### Linux
+Please close your node using [/terminate](http://127.0.0.1/terminate) or **CTRL+C** before shutting down your machine.
+You can also use `wget localhost:9173/terminate --timeout 1 -t 1` from anywhere in your environment to force shutdown.
 
 #### Direct installation one-liner
 ```
@@ -49,7 +51,7 @@ git pull origin main
 from the directory where you have it installed.
 
 ### Windows
-When running in window console, please terminate your node using [/terminate](http://127.0.0.1/terminate) or **CTRL+C**.
+When running in window console, please close your node using [/terminate](http://127.0.0.1/terminate) or **CTRL+C**.
 Never use the **X** in the upper right corner to avoid possible database corruption.
 
 There is a [release page in GitHub](https://github.com/hclivess/nado/releases), which is periodically updated when major changes occur. 
