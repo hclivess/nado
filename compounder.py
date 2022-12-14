@@ -63,32 +63,39 @@ async def compound_get_list_of(key, entries, port, logger, fail_storage, compres
     return success_storage
 
 
-async def get_url(peer, port, url, logger, fail_storage, transaction, compress=None):
-    """method compounded by compound_send_transaction"""
+async def get_url(peer, port, url, logger, fail_storage, compress=None):
+    """method compounded by compound_get_url"""
+
+    url_construct = f"http://{peer}:{port}/{url}"
 
     try:
         async with sem:
             http_client = AsyncHTTPClient()
-            response = await http_client.fetch(url)
-            fetched = msgpack.unpackb(response.body)["message"]
+            response = await http_client.fetch(url_construct)
+            fetched = response.body.decode()
+
             return peer, fetched
 
     except Exception as e:
         if peer not in fail_storage:
-            logger.info(f"Compounder: Failed to get URL {url}: {e}")
+            logger.info(f"Compounder: Failed to get URL {url_construct}: {e}")
             fail_storage.append(peer)
 
 
-async def compound_get_url(ips, port, url, logger, fail_storage, transaction, compress=None):
-    """returns a list of dicts where ip addresses are keys"""
+async def compound_get_url(ips, port, url, logger, fail_storage, compress=None):
+    """returns result of urls with arbitrary data past slash"""
     result = list(
         filter(
             None,
-            await asyncio.gather(*[send_transaction(ip, port, url, logger, fail_storage, transaction) for ip in ips]),
+            await asyncio.gather(*[get_url(ip, port, url, logger, fail_storage) for ip in ips]),
         )
     )
 
-    return result
+    result_dict = {}
+    for entry in result:
+        result_dict[entry[0]] = entry[1]
+
+    return result_dict
 
 
 async def send_transaction(peer, port, logger, fail_storage, transaction, compress=None):
