@@ -83,6 +83,7 @@ def sort_transaction_pool(transactions: list, key="txid") -> list:
 
 
 def unindex_transaction(transaction, logger):
+    #print("unindex triggered for", transaction)
     tx_path = f"{get_home()}/transactions/{transaction['txid']}.dat"
 
     sender_address = transaction['sender']

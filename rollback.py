@@ -9,10 +9,9 @@ from data_ops import get_home
 from transaction_ops import unindex_transaction
 
 
-def rollback_one_block(logger, lock) -> dict:
+def rollback_one_block(logger, lock, block_message) -> dict:
+    #print("rollback triggered for", block_message)
     with lock:
-        block_message = get_latest_block_info(logger=logger)
-
         try:
             previous_block = load_block_from_hash(
                 block_hash=block_message["parent_hash"], logger=logger
