@@ -97,6 +97,7 @@ def unindex_transaction(transaction, logger):
         sender_path = f"{get_home()}/accounts/{transaction['sender']}/transactions/{sender_index}/{transaction['txid']}.lin"
         if sender_index < 0:
             logger.error(f"Sender transaction {sender_path} rollback index seeking below zero")
+            break
 
     recipient_address = transaction['recipient']
     recipient_index = get_tx_index_number(recipient_address)
@@ -111,6 +112,7 @@ def unindex_transaction(transaction, logger):
             recipient_path = f"{get_home()}/accounts/{transaction['recipient']}/transactions/{recipient_index}/{transaction['txid']}.lin"
             if recipient_index < 0:
                 logger.error(f"Recipient transaction {recipient_path} rollback index seeking below zero")
+                break
 
     try:
         os.remove(tx_path)
