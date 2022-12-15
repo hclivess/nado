@@ -19,7 +19,7 @@ def rollback_one_block(logger, lock) -> dict:
             )
 
             for transaction in block_message["block_transactions"]:
-                unindex_transaction(transaction)
+                unindex_transaction(transaction, logger)
                 reflect_transaction(transaction, revert=True)
 
             change_balance(

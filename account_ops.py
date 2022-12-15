@@ -20,7 +20,7 @@ def get_account(address, create_on_error=True):
         return None
 
 
-def reflect_transaction(transaction, revert=False):
+def reflect_transaction(transaction, revert=False): #todo hardening
     sender = transaction["sender"]
     recipient = transaction["recipient"]
     amount = transaction["amount"]

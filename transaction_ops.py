@@ -1,6 +1,7 @@
 import glob
 import json
 import os
+import time
 
 import msgpack
 import requests
@@ -81,7 +82,7 @@ def sort_transaction_pool(transactions: list, key="txid") -> list:
     )
 
 
-def unindex_transaction(transaction):
+def unindex_transaction(transaction, logger):
     tx_path = f"{get_home()}/transactions/{transaction['txid']}.dat"
 
     sender_address = transaction['sender']
@@ -95,7 +96,7 @@ def unindex_transaction(transaction):
         sender_index -= 1
         sender_path = f"{get_home()}/accounts/{transaction['sender']}/transactions/{sender_index}/{transaction['txid']}.lin"
         if sender_index < 0:
-            raise ValueError(f"Sender transaction {sender_path} rollback index seeking below zero")
+            logger.error(f"Sender transaction {sender_path} rollback index seeking below zero")
 
     recipient_address = transaction['recipient']
     recipient_index = get_tx_index_number(recipient_address)
@@ -109,17 +110,32 @@ def unindex_transaction(transaction):
             recipient_index -= 1
             recipient_path = f"{get_home()}/accounts/{transaction['recipient']}/transactions/{recipient_index}/{transaction['txid']}.lin"
             if recipient_index < 0:
-                raise ValueError(f"Recipient transaction {recipient_path} rollback index seeking below zero")
+                logger.error(f"Recipient transaction {recipient_path} rollback index seeking below zero")
 
     while True:
         try:
             os.remove(tx_path)
+            break
+        except Exception as e:
+            logger.error(f"Failed to remove tx path {transaction['txid']}: {e}")
+            time.sleep(1)
+
+    while True:
+        try:
             os.remove(sender_path)
+            break
+        except Exception as e:
+            logger.error(f"Failed to remove sender path {transaction['txid']}: {e}")
+            time.sleep(1)
+
+    while True:
+        try:
             if sender_path != recipient_path:
                 os.remove(recipient_path)
             break
         except Exception as e:
-            raise ValueError(f"Failed to unindex transaction {transaction['txid']}: {e}")
+            logger.error(f"Failed to remove recipient path {transaction['txid']}: {e}")
+            time.sleep(1)
 
 def get_transactions_of_account(account, logger, batch):
     if batch == "max":
