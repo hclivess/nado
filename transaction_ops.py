@@ -117,10 +117,9 @@ def unindex_transaction(transaction):
             os.remove(sender_path)
             if sender_path != recipient_path:
                 os.remove(recipient_path)
+            break
         except Exception as e:
             raise ValueError(f"Failed to unindex transaction {transaction['txid']}: {e}")
-        break
-
 
 def get_transactions_of_account(account, logger, batch):
     if batch == "max":
