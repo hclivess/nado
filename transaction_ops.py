@@ -115,21 +115,27 @@ def unindex_transaction(transaction, logger):
                 logger.error(f"Recipient transaction {recipient_path} rollback index seeking below zero")
                 break
 
-    try:
-        os.remove(tx_path)
-    except Exception as e:
-        logger.error(f"Failed to remove tx path {transaction['txid']}: {e}")
+    while os.path.exists(tx_path):
+        try:
+            os.remove(tx_path)
+        except Exception as e:
+            logger.error(f"Failed to remove tx path {transaction['txid']}: {e}")
+            time.sleep(1)
 
-    try:
-        os.remove(sender_path)
-    except Exception as e:
-        logger.error(f"Failed to remove sender path {transaction['txid']}: {e}")
+    while os.path.exists(sender_path):
+        try:
+            os.remove(sender_path)
+        except Exception as e:
+            logger.error(f"Failed to remove sender path {transaction['txid']}: {e}")
+            time.sleep(1)
 
-    try:
-        if sender_path != recipient_path:
-            os.remove(recipient_path)
-    except Exception as e:
-        logger.error(f"Failed to remove recipient path {transaction['txid']}: {e}")
+    if sender_path != recipient_path:
+        while os.path.exists(recipient_path):
+            try:
+                os.remove(recipient_path)
+            except Exception as e:
+                logger.error(f"Failed to remove recipient path {transaction['txid']}: {e}")
+                time.sleep(1)
 
 def get_transactions_of_account(account, logger, batch):
     if batch == "max":
