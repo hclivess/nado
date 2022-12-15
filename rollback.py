@@ -1,4 +1,5 @@
 import os
+import time
 
 import msgpack
 
@@ -36,8 +37,20 @@ def rollback_one_block(logger, lock) -> dict:
             with open(f"{get_home()}/blocks/block_numbers/index.dat", "wb") as outfile:
                 msgpack.pack({"last_number": previous_block["block_number"]}, outfile)
 
-            os.remove(f"{get_home()}/blocks/block_numbers/{block_message['block_number']}.dat")
-            os.remove(f"{get_home()}/blocks/{block_message['block_hash']}.block")
+            while True:
+                try:
+                    os.remove(f"{get_home()}/blocks/block_numbers/{block_message['block_number']}.dat")
+                    break
+                except Exception as e:
+                    logger.error(f"Error deleting block number information: {e}")
+                    time.sleep(1)
+            while True:
+                try:
+                    os.remove(f"{get_home()}/blocks/{block_message['block_hash']}.block")
+                    break
+                except Exception as e:
+                    logger.error(f"Error deleting block data: {e}")
+                    time.sleep(1)
 
             logger.info(f"Rolled back {block_message['block_hash']} successfully")
 
