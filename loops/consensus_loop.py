@@ -10,6 +10,7 @@ from peer_ops import (
     get_majority,
     percentage,
     get_average_int,
+    ip_stored
 )
 from pool_ops import get_from_pool
 
@@ -90,12 +91,13 @@ class ConsensusClient(threading.Thread):
 
     def add_peers_to_trust_pool(self) -> None:
         for peer in self.memserver.peers.copy():
-            peer_trust = load_peer(ip=peer,
-                                   key="peer_trust",
-                                   logger=self.logger,
-                                   peer_file_lock=self.memserver.peer_file_lock)
-            if peer not in self.trust_pool.keys():
-                self.trust_pool[peer] = peer_trust
+            if ip_stored(peer):
+                peer_trust = load_peer(ip=peer,
+                                       key="peer_trust",
+                                       logger=self.logger,
+                                       peer_file_lock=self.memserver.peer_file_lock)
+                if peer not in self.trust_pool.keys():
+                    self.trust_pool[peer] = peer_trust
 
     def purge_block_producers(self) -> None:
         for entry in self.memserver.purge_producers_list:
@@ -160,10 +162,6 @@ class ConsensusClient(threading.Thread):
 
                 self.memserver.transaction_pool_hash = self.memserver.get_transaction_pool_hash()
                 self.memserver.block_producers_hash = self.memserver.get_block_producers_hash()
-
-                # inject_peer(peer="5.5.5.5", target_pool=self.memserver.peers)  # test
-                # inject_peer(peer="127.0.0.1", target_pool=self.memserver.peers)  # test
-                # self.logger.info(self.purge_peers_list) # test
 
                 self.refresh_hashes()
 

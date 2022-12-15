@@ -3,12 +3,13 @@ import threading
 import time
 import traceback
 
+import peer_ops
 from block_ops import save_block_producers
 from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
 from data_ops import set_and_sort
 from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, dump_peers, dump_trust, \
-    get_public_ip, update_local_ip
+    get_public_ip, update_local_ip, ip_stored
 
 
 class PeerClient(threading.Thread):
@@ -48,7 +49,7 @@ class PeerClient(threading.Thread):
                 if peer not in self.memserver.peers and len(self.memserver.peers) < self.memserver.peer_limit:
                     self.memserver.peers.append(peer)
 
-                if peer not in self.memserver.block_producers:
+                if peer not in self.memserver.block_producers and ip_stored(peer):
                     self.memserver.block_producers.append(peer)
                     self.logger.warning(f"Added {peer} to block producers")
                     """address is sniffed before block is produced"""
@@ -82,7 +83,8 @@ class PeerClient(threading.Thread):
                 # self.logger.warning(f"Removed {entry} from block producers")
 
             if entry in self.consensus.trust_pool.keys():
-                self.consensus.trust_pool[entry] -= 1000
+                if self.consensus.trust_pool[entry]:
+                    self.consensus.trust_pool[entry] -= 1000
 
             if entry in self.consensus.status_pool.keys():
                 self.consensus.status_pool.pop(entry)

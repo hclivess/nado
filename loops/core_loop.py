@@ -224,7 +224,8 @@ class CoreClient(threading.Thread):
         if suggested_pool:
             return suggested_pool
         else:
-            self.consensus.trust_pool[peer] -= 50
+            if peer in self.consensus.trust_pool:
+                self.consensus.trust_pool[peer] -= 2500
 
     def emergency_mode(self):
         self.logger.warning("Entering emergency mode")
