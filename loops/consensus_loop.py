@@ -144,7 +144,8 @@ class ConsensusClient(threading.Thread):
                 # self.add_block_producers()
 
                 self.add_peers_to_trust_pool()
-                if self.trust_pool:
+
+                if None not in self.trust_pool.values():
                     self.average_trust = get_average_int(
                         list_of_values=self.trust_pool.values()
                     )
