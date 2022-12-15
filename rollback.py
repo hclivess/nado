@@ -4,7 +4,7 @@ import time
 import msgpack
 
 from account_ops import reflect_transaction, change_balance, increase_produced_count
-from block_ops import load_block_from_hash, get_latest_block_info, set_latest_block_info
+from block_ops import load_block_from_hash, set_latest_block_info
 from data_ops import get_home
 from transaction_ops import unindex_transaction
 
@@ -36,20 +36,13 @@ def rollback_one_block(logger, lock, block_message) -> dict:
             with open(f"{get_home()}/blocks/block_numbers/index.dat", "wb") as outfile:
                 msgpack.pack({"last_number": previous_block["block_number"]}, outfile)
 
-            try:
-                os.remove(f"{get_home()}/blocks/block_numbers/{block_message['block_number']}.dat")
-            except Exception as e:
-                logger.error(f"Error deleting block number information: {e}")
-
-            try:
-                os.remove(f"{get_home()}/blocks/{block_message['block_hash']}.block")
-            except Exception as e:
-                logger.error(f"Error deleting block data: {e}")
+            os.remove(f"{get_home()}/blocks/block_numbers/{block_message['block_number']}.dat")
+            os.remove(f"{get_home()}/blocks/{block_message['block_hash']}.block")
 
             logger.info(f"Rolled back {block_message['block_hash']} successfully")
 
-            return previous_block
-
         except Exception as e:
-            logger.error(f"Failed to remove block {block_message['block_hash']}")
-            raise
+            logger.error(f"Failed to remove block {block_message['block_hash']}: {e}")
+
+        finally:
+            return previous_block
