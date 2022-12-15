@@ -62,9 +62,8 @@ def valid_block_gap(logger, new_block, gap=60):
 
 
 def get_block_candidate(
-        block_producers, block_producers_hash, transaction_pool, logger, event_bus, peer_file_lock
+        block_producers, block_producers_hash, transaction_pool, logger, event_bus, peer_file_lock, latest_block
 ):
-    latest_block = get_latest_block_info(logger=logger)
     best_producer = pick_best_producer(block_producers,
                                        logger=logger,
                                        event_bus=event_bus,
@@ -85,7 +84,6 @@ def get_block_candidate(
         transaction_pool=transaction_pool.copy(),
         block_producers_hash=block_producers_hash,
         block_reward=get_block_reward(logger=logger),
-        logger=logger,
     )
     return block
 
@@ -218,7 +216,6 @@ def set_latest_block_info(block_message: dict, logger):
 
 
 def construct_block(
-        logger,
         block_number: int,
         parent_hash: str,
         creator: str,
@@ -418,7 +415,6 @@ if __name__ == "__main__":
         latest_block_info = get_latest_block_info(logger=logger)
 
         block_message = construct_block(
-            logger=logger,
             block_number=latest_block_info["block_number"] + 1,
             parent_hash=latest_block_info["block_hash"],
             block_ip=block_ip,

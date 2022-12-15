@@ -110,7 +110,8 @@ class CoreClient(threading.Thread):
                                                           logger=self.logger,
                                                           event_bus=self.event_bus,
                                                           transaction_pool=self.memserver.transaction_pool.copy(),
-                                                          peer_file_lock=self.memserver.peer_file_lock
+                                                          peer_file_lock=self.memserver.peer_file_lock,
+                                                          latest_block=self.memserver.latest_block
                                                           )
                     self.memserver.latest_block = self.produce_block(block=block_candidate)
 
