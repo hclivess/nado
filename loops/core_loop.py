@@ -113,7 +113,8 @@ class CoreClient(threading.Thread):
                                                           peer_file_lock=self.memserver.peer_file_lock,
                                                           latest_block=self.memserver.latest_block
                                                           )
-                    self.memserver.latest_block = self.produce_block(block=block_candidate)
+
+                    self.produce_block(block=block_candidate)
 
                 else:
                     self.logger.warning("Criteria for block production not met")
@@ -303,13 +304,16 @@ class CoreClient(threading.Thread):
 
             update_child_in_latest_block(block["block_hash"], self.logger)
             save_block(block, self.logger)
-            set_latest_block_info(block_message=block,
-                                  logger=self.logger)
+
             change_balance(address=block["block_creator"],
                            amount=block["block_reward"])
 
             increase_produced_count(address=block["block_creator"],
                                     amount=block["block_reward"])
+
+            set_latest_block_info(block_message=block,
+                                  logger=self.logger)
+            self.memserver.latest_block = block
 
         except Exception as e:
             self.logger.error(f"Failed to incorporate block: {e}")
