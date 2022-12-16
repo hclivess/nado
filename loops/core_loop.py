@@ -340,6 +340,7 @@ class CoreClient(threading.Thread):
             self.logger.error(f"Failed to validate spending during block production: {e}")
             if remote:
                 self.consensus.trust_pool[remote_peer] -= 100
+            raise
 
         else:
             for transaction in transactions:
