@@ -77,7 +77,8 @@ class CoreClient(threading.Thread):
             if self.memserver.period == 0 and self.memserver.user_tx_buffer:
                 """merge user buffer inside 0 period"""
                 buffered = merge_buffer(from_buffer=self.memserver.user_tx_buffer,
-                                        to_buffer=self.memserver.tx_buffer)
+                                        to_buffer=self.memserver.tx_buffer,
+                                        limit=self.memserver.buffer_limit)
 
                 self.memserver.user_tx_buffer = buffered["from_buffer"]
                 self.memserver.tx_buffer = buffered["to_buffer"]
@@ -85,7 +86,8 @@ class CoreClient(threading.Thread):
             if self.memserver.period == 1 and self.memserver.tx_buffer:
                 """merge node buffer inside 1 period"""
                 buffered = merge_buffer(from_buffer=self.memserver.tx_buffer,
-                                        to_buffer=self.memserver.transaction_pool)
+                                        to_buffer=self.memserver.transaction_pool,
+                                        limit=self.memserver.buffer_limit)
 
                 self.memserver.tx_buffer = buffered["from_buffer"]
                 self.memserver.transaction_pool = buffered["to_buffer"]
