@@ -68,6 +68,7 @@ class MemServer:
         self.max_rollbacks = 10
         self.version = read_version()
         self.latest_block = get_latest_block_info(logger=logger)
+        self.buffer_limit = 250
 
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:

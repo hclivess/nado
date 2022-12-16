@@ -295,6 +295,16 @@ class CoreClient(threading.Thread):
             self.logger.info(f"Error: {e}")
             raise
 
+    def restructure_remote_block(self, block):
+        return construct_block(block_timestamp=block["block_timestamp"],
+                               block_number=self.memserver.latest_block["block_number"] + 1,
+                               parent_hash=self.memserver.latest_block["block_hash"],
+                               block_ip=block["block_ip"],
+                               creator=block["block_creator"],
+                               transaction_pool=block["block_transactions"],
+                               block_producers_hash=block["block_producers_hash"],
+                               block_reward=block["block_reward"])
+
     def incorporate_block(self, block):
         transactions = sort_list_dict(block["block_transactions"])
         try:
@@ -349,6 +359,7 @@ class CoreClient(threading.Thread):
                     self.logger.error(f"Failed to validate transaction during block production: {e}")
                     if remote:
                         self.consensus.trust_pool[remote_peer] -= 25
+                    raise
 
     def produce_block(self, block, remote=False, remote_peer=None) -> dict:
         with self.memserver.buffer_lock:
@@ -357,16 +368,7 @@ class CoreClient(threading.Thread):
                 self.logger.warning(f"Producing block")
 
                 if remote:
-                    """restructure remote block"""
-                    block = construct_block(block_timestamp=block["block_timestamp"],
-                                            block_number=self.memserver.latest_block["block_number"] + 1,
-                                            parent_hash=self.memserver.latest_block["block_hash"],
-                                            block_ip=block["block_ip"],
-                                            creator=block["block_creator"],
-                                            transaction_pool=block["block_transactions"],
-                                            block_producers_hash=block["block_producers_hash"],
-                                            block_reward=block["block_reward"])
-
+                    block = self.restructure_remote_block(block)
 
                 self.validate_transactions_in_block(block=block,
                                                     logger=self.logger,

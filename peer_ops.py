@@ -216,7 +216,8 @@ def dump_peers(peers, logger):
     for peer in peers:
         if not ip_stored(peer):
             try:
-                address = asyncio.run(get_remote_status(peer, logger=logger))["address"]
+                status = asyncio.run(get_remote_status(peer, logger=logger))
+                address = status["address"]
 
                 save_peer(
                     ip=peer,
