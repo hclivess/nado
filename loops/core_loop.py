@@ -15,7 +15,8 @@ from block_ops import (
     update_child_in_latest_block,
     save_block,
     set_latest_block_info,
-    get_block
+    get_block,
+    construct_block
 )
 from config import get_timestamp_seconds, get_config
 from data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
@@ -354,6 +355,18 @@ class CoreClient(threading.Thread):
             try:
                 gen_start = get_timestamp_seconds()
                 self.logger.warning(f"Producing block")
+
+                if remote:
+                    """restructure remote block"""
+                    block = construct_block(block_timestamp=block["block_timestamp"],
+                                            block_number=self.memserver.latest_block["block_number"] + 1,
+                                            parent_hash=self.memserver.latest_block["block_hash"],
+                                            block_ip=block["block_ip"],
+                                            creator=block["block_creator"],
+                                            transaction_pool=block["block_transactions"],
+                                            block_producers_hash=block["block_producers_hash"],
+                                            block_reward=block["block_reward"])
+
 
                 self.validate_transactions_in_block(block=block,
                                                     logger=self.logger,
