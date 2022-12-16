@@ -74,6 +74,7 @@ def get_block_candidate(
     )
 
     block = construct_block(
+        block_timestamp=get_timestamp_seconds(),
         block_number=latest_block["block_number"] + 1,
         parent_hash=latest_block["block_hash"],
         block_ip=best_producer,
@@ -216,6 +217,7 @@ def set_latest_block_info(block_message: dict, logger):
 
 
 def construct_block(
+        block_timestamp: int,
         block_number: int,
         parent_hash: str,
         creator: str,
@@ -241,7 +243,7 @@ def construct_block(
     }
     block_hash = blake2b_hash_link(link_from=parent_hash, link_to=block_message)
     block_message.update(block_hash=block_hash)
-    block_message.update(block_timestamp=get_timestamp_seconds())
+    block_message.update(block_timestamp=block_timestamp)
 
     block_penalty = get_penalty(producer_address=creator,
                                 block_hash=block_hash,
@@ -415,6 +417,7 @@ if __name__ == "__main__":
         latest_block_info = get_latest_block_info(logger=logger)
 
         block_message = construct_block(
+            block_timestamp=get_timestamp_seconds(),
             block_number=latest_block_info["block_number"] + 1,
             parent_hash=latest_block_info["block_hash"],
             block_ip=block_ip,

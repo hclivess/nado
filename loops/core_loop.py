@@ -358,7 +358,8 @@ class CoreClient(threading.Thread):
 
                 if remote:
                     """restructure remote block"""
-                    block = construct_block(block_number=self.memserver.latest_block["block_number"] + 1,
+                    block = construct_block(block_timestamp=block["block_timestamp"],
+                                            block_number=self.memserver.latest_block["block_number"] + 1,
                                             parent_hash=self.memserver.latest_block["block_hash"],
                                             block_ip=block["block_ip"],
                                             creator=block["block_creator"],
