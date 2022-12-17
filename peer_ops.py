@@ -198,7 +198,7 @@ def store_producer_set(producer_set):
     }
     if not os.path.exists(path):
         with open(path, "w") as outfile:
-            json.dump(list(producer_set_dict), outfile)
+            json.dump(producer_set_dict, outfile)
 
 
 def get_producer_set(producer_set_hash):
