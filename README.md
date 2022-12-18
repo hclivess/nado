@@ -71,6 +71,7 @@ you should have [port 9173 open](https://www.google.com/search?q=port+forwarding
 
 ## Wallet
 You can download the [official NADO wallet here](https://github.com/hclivess/nado-microwallet) or on the [release page of NADO](https://github.com/hclivess/nado/releases).
+Alternatively, you can use the linewallet by running `python3.10 linewallet.py`
 
 ## Remote access
 
