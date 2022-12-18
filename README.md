@@ -79,6 +79,9 @@ After running the node, you can access it at http://127.0.0.1:9173 from where al
 
 ## Private key storage 
 - Linux: `/~/nado/private/keys.dat`
+
+To view your file, you can use the following command: `cat ~/nado/private/keys.dat`. You may need to exit screen first using `CTRL+a` and then `CTRL+d`.
+
 - Windows: `C:\Users\[username]\nado\private`
 
 ## Is there anything unique?

@@ -1,3 +1,5 @@
+rmdir /s /q nado.build
+rmdir /s /q nado.dist
 python versioner.py
 python -m nuitka nado.py --standalone --windows-icon-from-ico=graphics\icon.ico
 xcopy /i /y version nado.dist
