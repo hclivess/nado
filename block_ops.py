@@ -183,13 +183,6 @@ def save_block(block_message: dict, logger):
         logger.warning(f"Failed to save block {block_message['block_hash']} due to {e}")
 
 
-def latest_block_divisible_by(divisor, logger):
-    if get_latest_block_info(logger=logger)["block_number"] % divisor == 0:
-        return True
-    else:
-        return False
-
-
 def get_latest_block_info(logger):
     try:
         with open(f"{get_home()}/index/latest_block.dat", "r") as infile:
