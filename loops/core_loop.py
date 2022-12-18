@@ -273,7 +273,6 @@ class CoreClient(threading.Thread):
 
                         except Exception as e:
                             self.consensus.trust_pool[peer] -= 10000
-
                             self.logger.error(f"Failed to get blocks after {block_hash} from {peer}: {e}")
                             break
 

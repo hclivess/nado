@@ -1,5 +1,6 @@
 import json
 import os
+import time
 
 import msgpack
 import requests
@@ -200,21 +201,21 @@ def get_latest_block_info(logger):
 
 
 def set_latest_block_info(block_message: dict, logger):
-    try:
-        with open(f"{get_home()}/index/latest_block.dat", "w") as outfile:
-            json.dump(block_message["block_hash"], outfile)
+    while True:
+        try:
+            with open(f"{get_home()}/index/latest_block.dat", "w") as outfile:
+                json.dump(block_message["block_hash"], outfile)
 
-        with open(f"{get_home()}/blocks/block_numbers/{block_message['block_number']}.dat", "w") as outfile:
-            json.dump(block_message["block_hash"], outfile)
+            with open(f"{get_home()}/blocks/block_numbers/{block_message['block_number']}.dat", "w") as outfile:
+                json.dump(block_message["block_hash"], outfile)
 
-        with open(f"{get_home()}/blocks/block_numbers/index.dat", "w") as outfile:
-            json.dump({"last_number": block_message["block_number"]}, outfile)
-        return True
+            with open(f"{get_home()}/blocks/block_numbers/index.dat", "w") as outfile:
+                json.dump({"last_number": block_message["block_number"]}, outfile)
+            return True
 
-    except Exception as e:
-        logger.info(f"Failed to set latest block info to {block_message['block_hash']}: {e}")
-        return False
-
+        except Exception as e:
+            logger.info(f"Failed to set latest block info to {block_message['block_hash']}: {e}")
+            time.sleep(1)
 
 def construct_block(
         block_timestamp: int,
