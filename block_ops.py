@@ -174,13 +174,15 @@ def save_block_producers(block_producers: list):
 
 
 def save_block(block_message: dict, logger):
-    try:
-        block_hash = block_message["block_hash"]
-        with open(f"{get_home()}/blocks/{block_hash}.block", "wb") as outfile:
-            msgpack.pack(block_message, outfile)
-        return True
-    except Exception as e:
-        logger.warning(f"Failed to save block {block_message['block_hash']} due to {e}")
+    while True:
+        try:
+            block_hash = block_message["block_hash"]
+            with open(f"{get_home()}/blocks/{block_hash}.block", "wb") as outfile:
+                msgpack.pack(block_message, outfile)
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to save block {block_message['block_hash']} due to {e}")
+            time.sleep(1)
 
 
 def get_latest_block_info(logger):
