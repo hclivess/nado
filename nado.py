@@ -12,7 +12,7 @@ import tornado.web
 
 import versioner
 from account_ops import get_account
-from block_ops import get_block, fee_over_blocks, get_block_number
+from block_ops import get_block, fee_over_blocks, get_block_number, get_penalty
 from config import get_config
 from config import test_self_port
 from data_ops import set_and_sort, get_home
@@ -164,6 +164,24 @@ class PenaltiesHandler(tornado.web.RequestHandler):
     async def get(self, parameter):
         await asyncio.to_thread(self.penalties)
 
+class PenaltyHandler(tornado.web.RequestHandler):
+    def penalty(self):
+        compress = PenaltyHandler.get_argument(self, "compress", default="none")
+        address = PenaltyHandler.get_argument(self, "address", default=memserver.address)
+        output = {
+            "address": address,
+            "penalty": get_penalty(producer_address=address,
+                                     block_hash=memserver.latest_block["block_hash"],
+                                     block_number=memserver.latest_block["block_number"])
+        }
+
+        self.write(serialize(name="penalty",
+                             output=output,
+                             compress=compress
+                             ))
+
+    async def get(self, parameter):
+        await asyncio.to_thread(self.penalty)
 
 class UnreachableHandler(tornado.web.RequestHandler):
     def unreachable(self):
@@ -658,6 +676,7 @@ async def make_app(port):
             (r"/status(.*)", StatusHandler),
             (r"/peers(.*)", PeerPoolHandler),
             (r"/penalties(.*)", PenaltiesHandler),
+            (r"/penalty(.*)", PenaltyHandler),
             (r"/unreachable(.*)", UnreachableHandler),
             (r"/block_producers_hash_pool(.*)", BlockProducersHashPoolHandler),
             (r"/block_producers(.*)", BlockProducerPoolHandler),
