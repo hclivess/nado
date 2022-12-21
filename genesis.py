@@ -5,8 +5,8 @@ from data_ops import get_home
 from dircheck import make_folder
 from hashing import blake2b_hash_link
 from log_ops import get_logger
-from peer_ops import save_peer
-
+from peer_ops import save_peer, get_public_ip
+import asyncio
 
 def make_folders():
     make_folder(f"{get_home()}/blocks/block_numbers")
@@ -19,7 +19,9 @@ def make_folders():
 
 
 def make_genesis(address, balance, ip, port, timestamp, logger):
-    create_config(ip=ip)
+
+    config_ip = asyncio.run(get_public_ip(logger=logger))
+    create_config(ip=config_ip)
 
     block_transactions = []
     block_hash = blake2b_hash_link(link_from=timestamp, link_to=block_transactions)

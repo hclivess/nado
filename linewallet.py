@@ -11,6 +11,7 @@ import asyncio
 from data_ops import get_home
 from compounder import compound_send_transaction
 from block_ops import get_penalty
+from peer_ops import get_public_ip
 
 def send_transaction(address, recipient, amount, data, public_key, private_key, ips, fee):
     transaction = create_transaction(sender=address,
@@ -38,7 +39,8 @@ if __name__ == "__main__":
 
     make_folder(f"{get_home()}/private", strict=False)
     if not config_found():
-        create_config()
+        ip = asyncio.run(get_public_ip(logger=logger))
+        create_config(ip=ip)
     if not keyfile_found():
         save_keys(generate_keys())
     keydict = load_keys()
