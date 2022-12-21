@@ -12,6 +12,10 @@ from data_ops import get_home
 from compounder import compound_send_transaction
 from block_ops import get_penalty
 from peer_ops import get_public_ip
+import argparse
+import json
+from Curve25519 import from_private_key
+
 
 def send_transaction(address, recipient, amount, data, public_key, private_key, ips, fee):
     transaction = create_transaction(sender=address,
@@ -37,27 +41,36 @@ def send_transaction(address, recipient, amount, data, public_key, private_key, 
 if __name__ == "__main__":
     logger = get_logger(file=f"linewallet.log")
 
-    make_folder(f"{get_home()}/private", strict=False)
-    if not config_found():
-        ip = asyncio.run(get_public_ip(logger=logger))
-        create_config(ip=ip)
-    if not keyfile_found():
-        save_keys(generate_keys())
-    keydict = load_keys()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--sk", help="Use private key instead of the default key location", default=False)
+    args = parser.parse_args()
+    if args.sk:
+        key_dictionary = from_private_key(args.sk)
 
-    private_key = keydict["private_key"]
-    public_key = keydict["public_key"]
-    address = keydict["address"]
+        print(key_dictionary)
+        print(f"Loaded {key_dictionary['address']} wallet")
+
+    else:
+        make_folder(f"{get_home()}/private", strict=False)
+        if not config_found():
+            ip = asyncio.run(get_public_ip(logger=logger))
+            create_config(ip=ip)
+        if not keyfile_found():
+            save_keys(generate_keys())
+        key_dictionary = load_keys()
+
+    private_key = key_dictionary["private_key"]
+    public_key = key_dictionary["public_key"]
+    address = key_dictionary["address"]
     ips = asyncio.run(load_ips(fail_storage=[], logger=logger, port=9173))
     target = random.choice(ips)
     port = get_port()
     balance = get_account_value(address, key="account_balance")
     balance_readable = to_readable_amount(balance)
 
-
     print(f"Sending from {address}")
     print(f"Balance: {balance_readable}")
-    #print(f"Mining Penalty: {penalty}")
+    # print(f"Mining Penalty: {penalty}")
     recipient = input("Recipient: ")
     amount = input("Amount: ")
     fee = input(f"Fee: (Recommended: {get_recommneded_fee(target=target, port=port)})")
@@ -70,4 +83,3 @@ if __name__ == "__main__":
                      recipient=recipient,
                      ips=ips,
                      fee=fee)
-

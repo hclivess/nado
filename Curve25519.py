@@ -25,6 +25,23 @@ def verify(signed, public_key, message):
     public_key_raw.verify(unhex(signed), message)
     return True
 
+def from_private_key(private_key):
+    private_bytes = unhex(private_key)
+    private_key_raw = Ed25519PrivateKey.from_private_bytes(private_bytes)
+    public_key_raw = private_key_raw.public_key()
+
+    public_bytes = public_key_raw.public_bytes(
+        encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+    )
+
+    keydict = {
+        "private_key": private_bytes.hex(),
+        "public_key": public_bytes.hex(),
+        "address": make_address(public_bytes.hex()),
+    }
+
+    return keydict
+
 
 def generate_keydict():
     private_key_raw = Ed25519PrivateKey.generate()
