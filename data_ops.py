@@ -1,3 +1,4 @@
+import asyncio
 import random
 import re
 import sys
@@ -59,3 +60,8 @@ def shuffle_dict(dictionary) -> dict:
     for key, value in items:
         shuffled_dict[key] = value
     return shuffled_dict
+
+
+def allow_async():
+    if sys.platform == "win32" and sys.version_info >= (3, 8, 0):
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())

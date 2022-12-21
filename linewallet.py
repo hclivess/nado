@@ -15,6 +15,7 @@ from peer_ops import get_public_ip
 import argparse
 import json
 from Curve25519 import from_private_key
+from data_ops import allow_async
 
 
 def send_transaction(address, recipient, amount, data, public_key, private_key, ips, fee):
@@ -39,7 +40,10 @@ def send_transaction(address, recipient, amount, data, public_key, private_key, 
 
     print(f"Submitted to {len(results)} nodes successfully")
 
+
 if __name__ == "__main__":
+    allow_async()
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     logger = get_logger(file=f"linewallet.log")
 
     parser = argparse.ArgumentParser()

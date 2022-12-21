@@ -15,7 +15,7 @@ from account_ops import get_account
 from block_ops import get_block, fee_over_blocks, get_block_number, get_penalty
 from config import get_config
 from config import test_self_port
-from data_ops import set_and_sort, get_home
+from data_ops import set_and_sort, get_home, allow_async
 from genesis import make_genesis, make_folders
 from keys import keyfile_found, generate_keys, save_keys, load_keys
 from log_ops import get_logger, logging
@@ -709,11 +709,6 @@ def disable_close():
             if hMenu:
                 win32gui.DeleteMenu(hMenu, win32con.SC_CLOSE, win32con.MF_BYCOMMAND)
     """
-
-
-def allow_async():
-    if sys.platform == "win32" and sys.version_info >= (3, 8, 0):
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 if __name__ == "__main__":
