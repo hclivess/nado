@@ -28,10 +28,13 @@ class MessageClient(threading.Thread):
                 self.logger.info(f"Period: {self.memserver.period}")
 
                 self.logger.info(
-                    f"Transaction Hash Agreement: {self.consensus.transaction_hash_pool_percentage}%"
+                    f"Block Hash Agreement: {int(self.consensus.block_hash_pool_percentage)}%"
                 )
                 self.logger.info(
-                    f"Block Producer Agreement: {self.consensus.block_producers_hash_pool_percentage}%"
+                    f"Transaction Hash Agreement: {int(self.consensus.transaction_hash_pool_percentage)}%"
+                )
+                self.logger.info(
+                    f"Block Producer Agreement: {int(self.consensus.block_producers_hash_pool_percentage)}%"
                 )
 
                 self.logger.debug(
