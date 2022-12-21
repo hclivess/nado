@@ -27,34 +27,6 @@ class MessageClient(threading.Thread):
             try:
                 self.logger.info(f"Period: {self.memserver.period}")
 
-                # self.logger.debug(f"Block Hash Pool: {self.consensus.block_hash_pool}")
-                self.logger.debug(
-                    f"My Block Hash: {self.memserver.latest_block['block_hash']}"
-                )
-                self.logger.debug(
-                    f"Majority Block Hash: {self.consensus.majority_block_hash}"
-                )
-
-                # self.logger.debug(f"Transaction Pool: {self.consensus.transaction_hash_pool}")
-                self.logger.debug(
-                    f"My Transaction Pool Hash: {self.memserver.transaction_pool_hash}"
-                )
-                self.logger.debug(
-                    f"Majority Transaction Pool Hash: {self.consensus.majority_transaction_pool_hash}"
-                )
-
-                # self.logger.debug(f"Block Producer Pool: {self.consensus.block_producers_hash_pool}")
-                self.logger.debug(
-                    f"My Block Producer Hash: {self.memserver.block_producers_hash}"
-                )
-                self.logger.debug(
-                    f"Majority Block Producer Hash: {self.consensus.majority_block_producers_hash}"
-                )
-
-                self.logger.info(
-                    f"Block Hash Agreement: {self.consensus.block_hash_pool_percentage}%"
-                )
-
                 self.logger.info(
                     f"Transaction Hash Agreement: {self.consensus.transaction_hash_pool_percentage}%"
                 )
