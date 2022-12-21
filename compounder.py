@@ -6,6 +6,7 @@ from tornado.httpclient import AsyncHTTPClient
 
 from data_ops import sort_list_dict
 from log_ops import get_logger
+from urllib.parse import quote
 
 sem = asyncio.Semaphore(50)
 
@@ -100,7 +101,7 @@ async def compound_get_url(ips, port, url, logger, fail_storage, compress=None):
 async def send_transaction(peer, port, logger, fail_storage, transaction, compress=None):
     """method compounded by compound_send_transaction"""
 
-    url_construct = f"http://{peer}:{port}/submit_transaction?data={json.dumps(transaction)}"
+    url_construct = f"http://{peer}:{port}/submit_transaction?data={quote(json.dumps(transaction))}"
 
     try:
         async with sem:

@@ -29,20 +29,21 @@ def send_transaction(address, recipient, amount, data, public_key, private_key, 
 
     print(json.dumps(transaction, indent=4))
     input("Press any key to continue")
+
+    fails = []
     results = asyncio.run(compound_send_transaction(ips=ips,
                                                     port=9173,
-                                                    fail_storage=[],
+                                                    fail_storage=fails,
                                                     logger=logger,
                                                     transaction=transaction))
 
     print(f"Submitted to {len(results)} nodes successfully")
 
-
 if __name__ == "__main__":
     logger = get_logger(file=f"linewallet.log")
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--sk", help="Use private key instead of the default key location", default=False)
+    parser.add_argument("--sk", help="Use private key, ignore default key location", default=False)
     args = parser.parse_args()
     if args.sk:
         key_dictionary = from_private_key(args.sk)
@@ -73,7 +74,8 @@ if __name__ == "__main__":
     # print(f"Mining Penalty: {penalty}")
     recipient = input("Recipient: ")
     amount = input("Amount: ")
-    fee = input(f"Fee: (Recommended: {get_recommneded_fee(target=target, port=port)})")
+    recommended_fee = asyncio.run(get_recommneded_fee(target=target, port=port))
+    fee = input(f"Fee: (Recommended: {recommended_fee})")
 
     send_transaction(address=address,
                      amount=amount,
