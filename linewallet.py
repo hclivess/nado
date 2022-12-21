@@ -79,7 +79,8 @@ if __name__ == "__main__":
     recipient = input("Recipient: ")
     amount = input("Amount: ")
     recommended_fee = asyncio.run(get_recommneded_fee(target=target, port=port))
-    fee = input(f"Fee: (Recommended: {recommended_fee})")
+    print(f"Recommended fee: {recommended_fee}")
+    fee = input(f"Fee: ")
 
     send_transaction(address=address,
                      amount=amount,
