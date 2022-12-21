@@ -18,7 +18,7 @@ from config import test_self_port
 from data_ops import set_and_sort, get_home
 from genesis import make_genesis, make_folders
 from keys import keyfile_found, generate_keys, save_keys, load_keys
-from log_ops import get_logger
+from log_ops import get_logger, logging
 from loops.consensus_loop import ConsensusClient
 from loops.core_loop import CoreClient
 from loops.message_loop import MessageClient
@@ -26,6 +26,7 @@ from loops.peer_loop import PeerClient
 from memserver import MemServer
 from peer_ops import save_peer, get_remote_status, get_producer_set
 from transaction_ops import get_transaction, get_transactions_of_account
+
 
 
 def is_port_in_use(port: int) -> bool:
@@ -717,6 +718,7 @@ def allow_async():
 
 if __name__ == "__main__":
     """warning, no intensive operations or locks should be invoked from API interface"""
+    logging.getLogger('tornado.access').disabled = True
     logger = get_logger()
 
     disable_close()
