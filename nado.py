@@ -28,7 +28,6 @@ from peer_ops import save_peer, get_remote_status, get_producer_set
 from transaction_ops import get_transaction, get_transactions_of_account
 
 
-
 def is_port_in_use(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(("localhost", port)) == 0
@@ -165,6 +164,7 @@ class PenaltiesHandler(tornado.web.RequestHandler):
     async def get(self, parameter):
         await asyncio.to_thread(self.penalties)
 
+
 class PenaltyHandler(tornado.web.RequestHandler):
     def penalty(self):
         compress = PenaltyHandler.get_argument(self, "compress", default="none")
@@ -172,8 +172,8 @@ class PenaltyHandler(tornado.web.RequestHandler):
         output = {
             "address": address,
             "penalty": get_penalty(producer_address=address,
-                                     block_hash=memserver.latest_block["block_hash"],
-                                     block_number=memserver.latest_block["block_number"])
+                                   block_hash=memserver.latest_block["block_hash"],
+                                   block_number=memserver.latest_block["block_number"])
         }
 
         self.write(serialize(name="penalty",
@@ -183,6 +183,7 @@ class PenaltyHandler(tornado.web.RequestHandler):
 
     async def get(self, parameter):
         await asyncio.to_thread(self.penalty)
+
 
 class UnreachableHandler(tornado.web.RequestHandler):
     def unreachable(self):

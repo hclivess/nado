@@ -48,6 +48,9 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--sk", help="Use private key, ignore default key location", default=False)
+    parser.add_argument("--amount", help="Amount to send", default=False)
+    parser.add_argument("--recipient", help="Recipient address", default=False)
+    parser.add_argument("--fee", help="Fee to spend", default=False)
     args = parser.parse_args()
     if args.sk:
         key_dictionary = from_private_key(args.sk)
@@ -76,11 +79,24 @@ if __name__ == "__main__":
     print(f"Sending from {address}")
     print(f"Balance: {balance_readable}")
     # print(f"Mining Penalty: {penalty}")
-    recipient = input("Recipient: ")
-    amount = input("Amount: ")
+
+    if args.recipient:
+        recipient = args.recipient
+    else:
+        recipient = input("Recipient: ")
+
+    if args.amount:
+        amount = args.amount
+    else:
+        amount = input("Amount: ")
+
     recommended_fee = asyncio.run(get_recommneded_fee(target=target, port=port))
     print(f"Recommended fee: {recommended_fee}")
-    fee = input(f"Fee: ")
+
+    if args.fee:
+        fee = args.fee
+    else:
+        fee = input(f"Fee: ")
     if not fee:
         fee = 0
 
