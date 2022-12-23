@@ -298,7 +298,8 @@ class CoreClient(threading.Thread):
                                                                              lock=self.memserver.buffer_lock,
                                                                              block_message=self.memserver.latest_block)
                             self.memserver.rollbacks += 1
-                            self.consensus.trust_pool[peer] -= 100000
+                            if not self.memserver.force_sync_ip:
+                                self.consensus.trust_pool[peer] -= 100000
                         else:
                             self.logger.error(f"Rollbacks exhausted")
                             self.memserver.rollbacks = 0
