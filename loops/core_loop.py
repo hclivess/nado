@@ -207,6 +207,8 @@ class CoreClient(threading.Thread):
 
     def replace_transaction_pool(self):
         sync_from = self.get_peer_to_sync_from(hash_pool=self.consensus.block_hash_pool)
+        """get peer which is in majority for the given hash_pool"""
+
         if sync_from:
             self.memserver.transaction_pool = self.replace_pool(
                 peer=sync_from,
@@ -214,6 +216,8 @@ class CoreClient(threading.Thread):
 
     def replace_block_producers(self):
         sync_from = self.get_peer_to_sync_from(hash_pool=self.consensus.block_hash_pool)
+        """get peer which is in majority for the given hash_pool"""
+
         suggested_block_producers = self.replace_pool(
             peer=sync_from,
             key="block_producers")
@@ -231,8 +235,8 @@ class CoreClient(threading.Thread):
             save_block_producers(self.memserver.block_producers)
 
     def replace_pool(self, peer, key):
-        """when out of sync to prevent forking"""
-        self.logger.info(f"{key} out of sync with majority at critical time, replacing from trusted peer")
+        """replace pool (block, tx, block producers) when out of sync to prevent forking"""
+        self.logger.info(f"Replacing {key} from {peer}")
 
         suggested_pool = asyncio.run(get_from_single_target(
             key=key,
