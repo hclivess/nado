@@ -341,14 +341,19 @@ def update_local_ip(ip, logger, peer_file_lock):
 
 def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, average_trust, unreachable, purge_list, peer_hash, hash_candidate):
     if average_trust > peer_trust:
+        """peer trust worse than average"""
         return False
     if peer in unreachable:
+        """peer assigned to unreachable"""
         return False
     if peer in purge_list:
+        """peer about to be assigned to unreachable"""
         return False
     if peer_protocol < memserver_protocol:
+        """peer protocol too low"""
         return False
     if not peer_hash == hash_candidate:
+        """hash of the peer not in the currently cascaded one"""
         return False
 
     return True
