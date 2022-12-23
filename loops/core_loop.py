@@ -193,8 +193,6 @@ class CoreClient(threading.Thread):
 
         finally:
             self.logger.info(f"Maximum reached cascade depth: {self.memserver.cascade_depth}")
-            if self.memserver.cascade_depth > 5:
-                self.memserver.unreachable.clear()
 
     def minority_block_consensus(self):
         """loads from drive to get latest info"""
