@@ -212,6 +212,7 @@ def set_latest_block_info(block_message: dict, logger):
             logger.info(f"Failed to set latest block info to {block_message['block_hash']}: {e}")
             time.sleep(1)
 
+
 def construct_block(
         block_timestamp: int,
         block_number: int,
@@ -330,14 +331,6 @@ async def get_from_single_target(key, target_peer, logger):  # todo add msgpack 
     except Exception as e:
         logger.error(f"Failed to get {key} from {target_peer}: {e}")
         return False
-
-
-def get_since_last_block(logger) -> [str, None]:
-    since_last_block = (
-            get_timestamp_seconds()
-            - get_latest_block_info(logger=logger)["block_timestamp"]
-    )
-    return since_last_block
 
 
 def get_ip_penalty(producer, logger, blocks_backward=50):

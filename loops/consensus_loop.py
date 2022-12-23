@@ -2,7 +2,7 @@ import threading
 import time
 import traceback
 
-from block_ops import get_since_last_block, save_block_producers
+from block_ops import save_block_producers
 from config import get_timestamp_seconds
 from peer_ops import (
     load_peer,
@@ -106,7 +106,7 @@ class ConsensusClient(threading.Thread):
     def refresh_hashes(self):
         """make sure our node knows the current state of affairs quickly"""
 
-        self.memserver.since_last_block = get_since_last_block(logger=self.logger)
+        self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
 
         get_from_pool(source="transaction_pool_hash",
                       target=self.transaction_hash_pool,

@@ -9,7 +9,6 @@ from block_ops import (
     knows_block,
     get_blocks_after,
     get_from_single_target,
-    get_since_last_block,
     get_block_candidate,
     save_block_producers,
     valid_block_gap,
@@ -57,7 +56,7 @@ class CoreClient(threading.Thread):
 
     def update_periods(self):
         old_period = self.memserver.period
-        self.memserver.since_last_block = get_since_last_block(logger=self.logger)
+        self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
 
         if 20 > self.memserver.since_last_block > 0:
             self.memserver.period = 0
@@ -93,17 +92,19 @@ class CoreClient(threading.Thread):
                 self.memserver.tx_buffer = buffered["from_buffer"]
                 self.memserver.transaction_pool = buffered["to_buffer"]
 
-            if self.memserver.period == 2 and minority_consensus(
-                    majority_hash=self.consensus.majority_transaction_pool_hash,
-                    sample_hash=self.memserver.transaction_pool_hash):
-                """replace mempool in 2 period in case it is different from majority as last effort"""
-                self.replace_transaction_pool()
+            if self.memserver.period == 2:
 
-            if self.memserver.period == 2 and minority_consensus(
-                    majority_hash=self.consensus.majority_block_producers_hash,
-                    sample_hash=self.memserver.block_producers_hash):
-                """replace block producers in peace period in case it is different from majority as last effort"""
-                self.replace_block_producers()
+                if minority_consensus(
+                        majority_hash=self.consensus.majority_transaction_pool_hash,
+                        sample_hash=self.memserver.transaction_pool_hash):
+                    """replace mempool in 2 period in case it is different from majority as last effort"""
+                    self.replace_transaction_pool()
+
+                if minority_consensus(
+                        majority_hash=self.consensus.majority_block_producers_hash,
+                        sample_hash=self.memserver.block_producers_hash):
+                    """replace block producers in peace period in case it is different from majority as last effort"""
+                    self.replace_block_producers()
 
             self.memserver.reported_uptime = self.memserver.get_uptime()
 
@@ -123,6 +124,7 @@ class CoreClient(threading.Thread):
                 else:
                     self.logger.warning("Criteria for block production not met")
 
+            self.consensus.refresh_hashes()
         except Exception as e:
             self.logger.info(f"Error: {e}")
             raise
@@ -133,7 +135,7 @@ class CoreClient(threading.Thread):
                                                          remote=True,
                                                          remote_peer=remote_peer)
 
-    def get_peer_to_sync_from(self, hash_pool):
+    def get_peer_to_sync_from(self, source_pool):
         """peer to synchronize pool when out of sync, critical part
         not based on majority, but on trust matching until majority is achieved, hash pool
         is looped by occurrence until a trusted peer is found with one of the hashes
@@ -143,13 +145,13 @@ class CoreClient(threading.Thread):
             """force sync"""
             return self.memserver.force_sync_ip
 
-        hash_pool_copy = hash_pool.copy()
+        source_pool_copy = source_pool.copy()
 
         try:
-            sorted_hashes = sort_occurrence(dict_to_val_list(hash_pool_copy))
+            sorted_hashes = sort_occurrence(dict_to_val_list(source_pool_copy))
 
-            shuffled_pool = shuffle_dict(hash_pool_copy)
-            #participants = len(shuffled_pool.items())
+            shuffled_pool = shuffle_dict(source_pool_copy)
+            # participants = len(shuffled_pool.items())
 
             me = get_config()["ip"]
             if me in shuffled_pool:
@@ -187,9 +189,8 @@ class CoreClient(threading.Thread):
                 return random_peer
 
         except Exception as e:
-            self.logger.info(f"Failed to get a peer to sync from: hash_pool: {hash_pool_copy} error: {e}")
+            self.logger.info(f"Failed to get a peer to sync from: hash_pool: {source_pool_copy} error: {e}")
             return None
-
 
     def minority_block_consensus(self):
         """loads from drive to get latest info"""
@@ -206,7 +207,7 @@ class CoreClient(threading.Thread):
             return False
 
     def replace_transaction_pool(self):
-        sync_from = self.get_peer_to_sync_from(hash_pool=self.consensus.block_hash_pool)
+        sync_from = self.get_peer_to_sync_from(source_pool=self.consensus.block_hash_pool)
         """get peer which is in majority for the given hash_pool"""
 
         if sync_from:
@@ -215,7 +216,7 @@ class CoreClient(threading.Thread):
                 key="transaction_pool")
 
     def replace_block_producers(self):
-        sync_from = self.get_peer_to_sync_from(hash_pool=self.consensus.block_hash_pool)
+        sync_from = self.get_peer_to_sync_from(source_pool=self.consensus.block_hash_pool)
         """get peer which is in majority for the given hash_pool"""
 
         suggested_block_producers = self.replace_pool(
@@ -255,7 +256,7 @@ class CoreClient(threading.Thread):
         try:
             while self.memserver.emergency_mode and not self.memserver.terminate:
                 peer = self.get_peer_to_sync_from(
-                    hash_pool=self.consensus.block_hash_pool)
+                    source_pool=self.consensus.block_hash_pool)
                 if not peer:
                     self.logger.info("Could not find a suitably trusted peer")
                 else:
@@ -429,7 +430,6 @@ class CoreClient(threading.Thread):
             except Exception as e:
                 self.logger.warning(f"Block production skipped due to {e}")
 
-        self.consensus.refresh_hashes()
         return block
 
     def init_hashes(self):
