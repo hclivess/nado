@@ -162,7 +162,7 @@ class CoreClient(threading.Thread):
                     peer_protocol = self.consensus.status_pool[peer]["protocol"]
                     """get protocol version"""
 
-                    if self.consensus.average_trust <= peer_trust and participants > 2 and peer_protocol >= self.memserver.protocol:
+                    if self.consensus.average_trust <= peer_trust and participants > 2 and peer_protocol >= self.memserver.protocol and peer not in self.memserver.unreachable:
                         if value == hash_candidate:
                             return peer
 

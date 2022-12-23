@@ -122,8 +122,7 @@ async def load_ips(logger, port, fail_storage, minimum=3) -> list:
 
     for entry in candidates_sorted:
         ip = entry["peer_ip"]
-        if check_ip(ip):
-            ip_sorted.append(ip)
+        ip_sorted.append(ip)
 
     start = 0
     end = len(peer_files)
@@ -297,16 +296,15 @@ def announce_me(targets, port, my_ip, logger, fail_storage) -> None:
                                        fail_storage=fail_storage))
 
 
-def check_ip(peer_ip):
+def check_ip(ip):
     try:
-        ipaddress.ip_address(peer_ip)
+        ipaddress.IPv4Address(ip)
     except:
         return False
-    if peer_ip == get_config()["ip"]:
+    if ip == get_config()["ip"] or ipaddress.ip_address(ip).is_loopback or ip == "0.0.0.0":
         return False
-    elif ipaddress.ip_address(peer_ip).is_loopback:
-        return False
-    return True
+    else:
+        return True
 
 
 async def get_public_ip(logger):
