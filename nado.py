@@ -607,10 +607,13 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
     def announce(self):
         try:
             peer_ip = AnnouncePeerHandler.get_argument(self, "ip")
-            assert ipaddress.ip_address(peer_ip)
+            assert ipaddress.ip_address(peer_ip) #fixme update
 
             if peer_ip == "127.0.0.1" or peer_ip == get_config()["ip"]:
                 self.write("Cannot add home address")
+            elif ipaddress.ip_address(peer_ip).is_loopback:
+                self.write("Cannot add loopback address")
+
             else:
 
                 if peer_ip in memserver.block_producers and peer_ip in memserver.unreachable.keys():
