@@ -335,7 +335,7 @@ class ForceSyncHandler(tornado.web.RequestHandler):
                 else:
                     self.write(f"Failed to force to sync from {forced_ip}")
             else:
-                self.write(f"Wrong server key")
+                self.write(f"Wrong server key {server_key}")
 
         except Exception as e:
             self.set_status(403)
