@@ -165,7 +165,7 @@ class CoreClient(threading.Thread):
                     if check_ip(peer):
 
 
-                        if self.consensus.average_trust <= peer_trust and peer_protocol >= self.memserver.protocol and peer not in self.memserver.unreachable:
+                        if self.consensus.average_trust <= peer_trust and peer_protocol >= self.memserver.protocol and peer not in self.memserver.unreachable.keys():
                             if value == hash_candidate:
                                 return peer
 
