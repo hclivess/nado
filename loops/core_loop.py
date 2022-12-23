@@ -190,8 +190,6 @@ class CoreClient(threading.Thread):
             self.logger.info(f"Failed to get a peer to sync from: hash_pool: {hash_pool_copy} error: {e}")
             return None
 
-        finally:
-            self.logger.info(f"Maximum reached cascade depth: {self.memserver.cascade_depth}")
 
     def minority_block_consensus(self):
         """loads from drive to get latest info"""
@@ -305,6 +303,7 @@ class CoreClient(threading.Thread):
                             self.memserver.purge_peers_list.append(peer)
                             break
 
+                    self.logger.info(f"Maximum reached cascade depth: {self.memserver.cascade_depth}")
                     self.consensus.refresh_hashes()
                     # self.replace_block_producers(peer=peer)
 
