@@ -69,6 +69,7 @@ class MemServer:
         self.version = read_version()
         self.latest_block = get_latest_block_info(logger=logger)
         self.buffer_limit = 150000
+        self.cascade_depth = 0
 
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:
