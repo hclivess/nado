@@ -175,7 +175,7 @@ class CoreClient(threading.Thread):
                                              peer_protocol=peer_protocol,
                                              peer_trust=peer_trust,
                                              memserver_protocol=self.memserver.protocol,
-                                             unreachable=self.memserver.unreachable.keys(),
+                                             unreachable_list=self.memserver.unreachable.keys(),
                                              average_trust=self.consensus.average_trust,
                                              purge_list=self.memserver.purge_peers_list,
                                              peer_hash=value,
