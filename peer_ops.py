@@ -339,7 +339,7 @@ def update_local_ip(ip, logger, peer_file_lock):
         logger.info(f"Local IP updated to {new_ip}")
 
 
-def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, average_trust, unreachable_list, purge_list, peer_hash, hash_candidate) -> bool:
+def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, average_trust, unreachable_list, purge_list, peer_hash, required_hash) -> bool:
     if average_trust > peer_trust:
         """peer trust worse than average"""
         return False
@@ -352,7 +352,7 @@ def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, avera
     if peer_protocol < memserver_protocol:
         """peer protocol too low"""
         return False
-    if not peer_hash == hash_candidate:
+    if not peer_hash == required_hash:
         """hash of the peer not in the currently cascaded one"""
         return False
 
