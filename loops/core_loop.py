@@ -191,7 +191,7 @@ class CoreClient(threading.Thread):
             return None
 
         finally:
-            self.logger.info(f"Iterated to hash level {cascade_depth}")
+            self.logger.info(f"Maximum reached cascade depth: {cascade_depth}")
 
     def minority_block_consensus(self):
         """loads from drive to get latest info"""
