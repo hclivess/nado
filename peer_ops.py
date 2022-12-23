@@ -1,3 +1,4 @@
+import ipaddress
 import asyncio
 import glob
 import json
@@ -120,7 +121,9 @@ async def load_ips(logger, port, fail_storage, minimum=3) -> list:
     candidates_sorted = sort_dict_value(candidates, key="peer_trust")
 
     for entry in candidates_sorted:
-        ip_sorted.append(entry["peer_ip"])
+        ip = entry["peer_ip"]
+        if check_ip(ip):
+            ip_sorted.append(ip)
 
     start = 0
     end = len(peer_files)
@@ -292,6 +295,18 @@ def announce_me(targets, port, my_ip, logger, fail_storage) -> None:
                                        my_ip=my_ip,
                                        logger=logger,
                                        fail_storage=fail_storage))
+
+
+def check_ip(peer_ip):
+    try:
+        ipaddress.ip_address(peer_ip)
+    except:
+        return False
+    if peer_ip == get_config()["ip"]:
+        return False
+    elif ipaddress.ip_address(peer_ip).is_loopback:
+        return False
+    return True
 
 
 async def get_public_ip(logger):

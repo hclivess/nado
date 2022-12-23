@@ -1,5 +1,4 @@
 import asyncio
-import ipaddress
 import json
 import os
 import signal
@@ -24,7 +23,7 @@ from loops.core_loop import CoreClient
 from loops.message_loop import MessageClient
 from loops.peer_loop import PeerClient
 from memserver import MemServer
-from peer_ops import save_peer, get_remote_status, get_producer_set
+from peer_ops import save_peer, get_remote_status, get_producer_set, check_ip
 from transaction_ops import get_transaction, get_transactions_of_account
 
 
@@ -607,12 +606,8 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
     def announce(self):
         try:
             peer_ip = AnnouncePeerHandler.get_argument(self, "ip")
-            assert ipaddress.ip_address(peer_ip) #fixme update
-
-            if peer_ip == "127.0.0.1" or peer_ip == get_config()["ip"]:
-                self.write("Cannot add home address")
-            elif ipaddress.ip_address(peer_ip).is_loopback:
-                self.write("Cannot add loopback address")
+            if not check_ip(peer_ip):
+                self.write("Invalid IP address")
 
             else:
 
