@@ -423,7 +423,7 @@ class CoreClient(threading.Thread):
                 self.logger.warning(
                     f"Transactions in block: {len(block['block_transactions'])}"
                 )
-                self.logger.warning(f"Remote block: {remote}")
+                self.logger.warning(f"Remote block: {remote} ({remote_peer})")
                 self.logger.warning(f"Block size: {get_byte_size(block)} bytes")
                 self.logger.warning(f"Production time: {gen_elapsed}")
 
@@ -444,7 +444,9 @@ class CoreClient(threading.Thread):
             self.logger.warning("We are out of consensus")
         else:
             self.memserver.emergency_mode = False
-            self.memserver.force_sync_ip = None
+
+            if self.consensus.block_hash_pool_percentage > 80:
+                self.memserver.force_sync_ip = None
 
     async def penalty_list_update_handler(self, event):
         self.memserver.penalties = event
