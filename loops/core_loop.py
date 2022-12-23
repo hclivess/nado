@@ -138,6 +138,7 @@ class CoreClient(threading.Thread):
         not based on majority, but on trust matching until majority is achieved, hash pool
         is looped by occurrence until a trusted peer is found with one of the hashes"""
         hash_pool_copy = hash_pool.copy()
+        cascade_depth = 0
 
         try:
 
@@ -153,6 +154,8 @@ class CoreClient(threading.Thread):
 
             for hash_candidate in sorted_hashes:
                 """go from the most common hash to the least common one"""
+                cascade_depth = sorted_hashes.index(hash_candidate)+1
+
                 for peer, value in shuffled_pool.items():
                     """pick random peer"""
                     peer_trust = load_trust(logger=self.logger,
@@ -177,6 +180,7 @@ class CoreClient(threading.Thread):
 
                             return peer
 
+
             else:
                 random_peer = random.choice(list(shuffled_pool.keys()))
                 self.logger.info(f"Ran out of options when picking trusted hash, picking random peer {random_peer}")
@@ -185,6 +189,9 @@ class CoreClient(threading.Thread):
         except Exception as e:
             self.logger.info(f"Failed to get a peer to sync from: hash_pool: {hash_pool_copy} error: {e}")
             return None
+
+        finally:
+            self.logger.info(f"Iterated to hash level {cascade_depth}")
 
     def minority_block_consensus(self):
         """loads from drive to get latest info"""
