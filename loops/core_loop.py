@@ -137,6 +137,11 @@ class CoreClient(threading.Thread):
         """peer to synchronize pool when out of sync, critical part
         not based on majority, but on trust matching until majority is achieved, hash pool
         is looped by occurrence until a trusted peer is found with one of the hashes"""
+
+        if self.memserver.force_sync_ip:
+            """force sync"""
+            return self.memserver.force_sync_ip
+
         hash_pool_copy = hash_pool.copy()
 
         try:
@@ -144,7 +149,7 @@ class CoreClient(threading.Thread):
             sorted_hashes = sort_occurrence(dict_to_val_list(hash_pool_copy))
 
             shuffled_pool = shuffle_dict(hash_pool_copy)
-            participants = len(shuffled_pool.items())
+            #participants = len(shuffled_pool.items())
 
             me = get_config()["ip"]
             if me in shuffled_pool:
@@ -177,8 +182,6 @@ class CoreClient(threading.Thread):
                                              peer_hash=value,
                                              hash_candidate=hash_candidate):
                             return peer
-
-
             else:
                 random_peer = random.choice(list(shuffled_pool.keys()))
                 self.logger.info(f"Ran out of options when picking trusted hash, picking random peer {random_peer}")

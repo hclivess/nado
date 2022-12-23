@@ -321,6 +321,30 @@ class LogHandler(tornado.web.RequestHandler):
         await asyncio.to_thread(self.log)
 
 
+class ForceSyncHandler(tornado.web.RequestHandler):
+    def force_sync(self):
+        try:
+            forced_ip = ForceSyncHandler.get_argument(self, "ip")
+            server_key = ForceSyncHandler.get_argument(self, "key", default="none")
+
+            client_ip = self.request.remote_ip
+            if server_key == memserver.server_key or client_ip == "127.0.0.1":
+                if client_ip == "127.0.0.1" or check_ip(client_ip):
+                    memserver.force_sync_ip = forced_ip
+                    self.write(f"Synchronization is now only forced from {forced_ip}")
+                else:
+                    self.write(f"Failed to force to sync from {forced_ip}")
+            else:
+                self.write(f"Wrong server key")
+
+        except Exception as e:
+            self.set_status(403)
+            self.write(f"Error: {e}")
+
+    async def get(self, parameter):
+        await asyncio.to_thread(self.force_sync)
+
+
 class IpHandler(tornado.web.RequestHandler):
     def log(self):
         compress = IpHandler.get_argument(self, "compress", default="none")
@@ -686,6 +710,7 @@ async def make_app(port):
             (r"/submit_transaction(.*)", SubmitTransactionHandler),
             (r"/log(.*)", LogHandler),
             (r"/whats_my_ip(.*)", IpHandler),
+            (r"/force_sync(.*)", ForceSyncHandler),
             (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": "static"}),
             (r'/(favicon.ico)', tornado.web.StaticFileHandler, {"path": "graphics"}),
 
