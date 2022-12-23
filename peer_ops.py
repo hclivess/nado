@@ -339,7 +339,7 @@ def update_local_ip(ip, logger, peer_file_lock):
         logger.info(f"Local IP updated to {new_ip}")
 
 
-def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, average_trust, unreachable, purge_list):
+def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, average_trust, unreachable, purge_list, peer_hash, hash_candidate):
     if average_trust >= peer_trust:
         return False
     if peer in unreachable:
@@ -347,6 +347,8 @@ def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, avera
     if peer in purge_list:
         return False
     if peer_protocol <= memserver_protocol:
+        return False
+    if not peer_hash == hash_candidate:
         return False
 
     return True

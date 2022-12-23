@@ -1,4 +1,5 @@
 import asyncio
+import random
 import threading
 import time
 import traceback
@@ -170,18 +171,16 @@ class CoreClient(threading.Thread):
                                              memserver_protocol=self.memserver.protocol,
                                              unreachable=self.memserver.unreachable.keys(),
                                              average_trust=self.consensus.average_trust,
-                                             purge_list=self.memserver.purge_peers_list):
+                                             purge_list=self.memserver.purge_peers_list,
+                                             peer_hash=value,
+                                             hash_candidate=hash_candidate):
 
-                            if value == hash_candidate:
-                                return peer
-
-                    elif value == hash_candidate:
-                        return peer
+                            return peer
 
             else:
-                self.logger.info("Ran out of options when picking trusted hash")
-                time.sleep(1)
-                return None
+                random_peer = random.choice(list(shuffled_pool.keys()))
+                self.logger.info(f"Ran out of options when picking trusted hash, picking random peer {random_peer}")
+                return random_peer
 
         except Exception as e:
             self.logger.info(f"Failed to get a peer to sync from: hash_pool: {hash_pool_copy} error: {e}")
@@ -249,7 +248,7 @@ class CoreClient(threading.Thread):
                 peer = self.get_peer_to_sync_from(
                     hash_pool=self.consensus.block_hash_pool)
                 if not peer:
-                    self.logger.info("Could not find suitably trusted peer")
+                    self.logger.info("Could not find a suitably trusted peer")
                 else:
                     block_hash = self.memserver.latest_block["block_hash"]
 
