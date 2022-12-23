@@ -136,7 +136,8 @@ class CoreClient(threading.Thread):
     def get_peer_to_sync_from(self, hash_pool):
         """peer to synchronize pool when out of sync, critical part
         not based on majority, but on trust matching until majority is achieved, hash pool
-        is looped by occurrence until a trusted peer is found with one of the hashes"""
+        is looped by occurrence until a trusted peer is found with one of the hashes
+        hash_pool argument is the pool to sort and sync from (block, tx, block producer pools)"""
 
         if self.memserver.force_sync_ip:
             """force sync"""
@@ -170,7 +171,6 @@ class CoreClient(threading.Thread):
                     """get protocol version"""
 
                     if check_ip(peer):
-
                         if qualifies_to_sync(peer=peer,
                                              peer_protocol=peer_protocol,
                                              peer_trust=peer_trust,
