@@ -12,7 +12,7 @@
 ## Installation
 ### Linux
 Please close your node using [/terminate](http://127.0.0.1/terminate) or **CTRL+C** before shutting down your machine.
-You can also use `wget --spider localhost:9173/terminate --timeout 1 -t 1` from anywhere in your environment to force shutdown.
+You can also use `wget --delete-after localhost:9173/terminate --timeout 1 -t 1` from anywhere in your environment to force shutdown.
 
 #### Direct installation one-liner
 ```
