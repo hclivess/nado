@@ -216,7 +216,7 @@ def get_producer_set(producer_set_hash):
 def dump_peers(peers, logger):
     """save all peers to drive if new to drive"""
     for peer in peers:
-        if not ip_stored(peer):
+        if not ip_stored(peer) and check_ip(peer):
             try:
                 status = asyncio.run(get_remote_status(peer, logger=logger))
                 address = status["address"]
