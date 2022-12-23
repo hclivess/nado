@@ -145,7 +145,6 @@ class CoreClient(threading.Thread):
         hash_pool_copy = hash_pool.copy()
 
         try:
-
             sorted_hashes = sort_occurrence(dict_to_val_list(hash_pool_copy))
 
             shuffled_pool = shuffle_dict(hash_pool_copy)
@@ -216,7 +215,7 @@ class CoreClient(threading.Thread):
                 key="transaction_pool")
 
     def replace_block_producers(self):
-        sync_from = self.get_peer_to_sync_from(hash_pool=self.consensus.block_producers_hash_pool)
+        sync_from = self.get_peer_to_sync_from(hash_pool=self.consensus.block_hash_pool)
         suggested_block_producers = self.replace_pool(
             peer=sync_from,
             key="block_producers")
