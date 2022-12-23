@@ -441,6 +441,7 @@ class CoreClient(threading.Thread):
             self.logger.warning("We are out of consensus")
         else:
             self.memserver.emergency_mode = False
+            self.memserver.force_sync_ip = None
 
     async def penalty_list_update_handler(self, event):
         self.memserver.penalties = event

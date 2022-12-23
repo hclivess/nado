@@ -331,7 +331,7 @@ class ForceSyncHandler(tornado.web.RequestHandler):
             if server_key == memserver.server_key or client_ip == "127.0.0.1":
                 if client_ip == "127.0.0.1" or check_ip(client_ip):
                     memserver.force_sync_ip = forced_ip
-                    self.write(f"Synchronization is now only forced from {forced_ip}")
+                    self.write(f"Synchronization is now forced only from until majority consensus is reached {forced_ip}")
                 else:
                     self.write(f"Failed to force to sync from {forced_ip}")
             else:
