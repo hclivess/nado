@@ -339,6 +339,19 @@ def update_local_ip(ip, logger, peer_file_lock):
         logger.info(f"Local IP updated to {new_ip}")
 
 
+def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, average_trust, unreachable, purge_list):
+    if average_trust >= peer_trust:
+        return False
+    if peer in unreachable:
+        return False
+    if peer in purge_list:
+        return False
+    if peer_protocol <= memserver_protocol:
+        return False
+
+    return True
+
+
 if __name__ == "__main__":
     print(load_ips())
     # save_peer(ip="1.1.1.1", port=0, address="haha")

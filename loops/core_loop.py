@@ -21,7 +21,7 @@ from block_ops import (
 from config import get_timestamp_seconds, get_config
 from data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
 from event_bus import EventBus
-from peer_ops import load_trust, update_local_address, ip_stored, check_ip
+from peer_ops import load_trust, update_local_address, ip_stored, check_ip, qualifies_to_sync
 from pool_ops import merge_buffer
 from rollback import rollback_one_block
 from transaction_ops import (
@@ -164,8 +164,14 @@ class CoreClient(threading.Thread):
 
                     if check_ip(peer):
 
+                        if qualifies_to_sync(peer=peer,
+                                             peer_protocol=peer_protocol,
+                                             peer_trust=peer_trust,
+                                             memserver_protocol=self.memserver.protocol,
+                                             unreachable=self.memserver.unreachable.keys(),
+                                             average_trust=self.consensus.average_trust,
+                                             purge_list=self.memserver.purge_peers_list):
 
-                        if self.consensus.average_trust <= peer_trust and peer_protocol >= self.memserver.protocol and peer not in self.memserver.unreachable.keys():
                             if value == hash_candidate:
                                 return peer
 
