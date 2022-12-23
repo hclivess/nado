@@ -208,7 +208,7 @@ class CoreClient(threading.Thread):
             return False
 
     def replace_transaction_pool(self):
-        sync_from = self.get_peer_to_sync_from(hash_pool=self.consensus.transaction_hash_pool)
+        sync_from = self.get_peer_to_sync_from(hash_pool=self.consensus.block_hash_pool)
         if sync_from:
             self.memserver.transaction_pool = self.replace_pool(
                 peer=sync_from,
