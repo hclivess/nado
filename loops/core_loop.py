@@ -153,9 +153,8 @@ class CoreClient(threading.Thread):
             shuffled_pool = shuffle_dict(source_pool_copy)
             # participants = len(shuffled_pool.items())
 
-            me = get_config()["ip"]
-            if me in shuffled_pool:
-                shuffled_pool.pop(me)
+            if self.memserver.ip in shuffled_pool:
+                shuffled_pool.pop(self.memserver.ip)
                 """do not sync from self"""
 
             for hash_candidate in sorted_hashes:
@@ -224,7 +223,7 @@ class CoreClient(threading.Thread):
             key="block_producers")
 
         if suggested_block_producers:
-            if get_config()["ip"] not in suggested_block_producers:
+            if self.memserver.ip not in suggested_block_producers and sync_from in self.consensus.trust_pool.keys():
                 self.consensus.trust_pool[sync_from] -= 2500
 
             replacements = []
@@ -300,7 +299,7 @@ class CoreClient(threading.Thread):
                                                                              lock=self.memserver.buffer_lock,
                                                                              block_message=self.memserver.latest_block)
                             self.memserver.rollbacks += 1
-                            if not self.memserver.force_sync_ip:
+                            if peer in self.consensus.trust_pool.keys():
                                 self.consensus.trust_pool[peer] -= 100000
                         else:
                             self.logger.error(f"Rollbacks exhausted")
