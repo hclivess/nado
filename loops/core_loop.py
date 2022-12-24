@@ -18,9 +18,10 @@ from block_ops import (
     get_block,
     construct_block
 )
-from config import get_timestamp_seconds, get_config
+from config import get_timestamp_seconds
 from data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
 from event_bus import EventBus
+from loops.consensus_loop import change_trust
 from peer_ops import load_trust, update_local_address, ip_stored, check_ip, qualifies_to_sync
 from pool_ops import merge_buffer
 from rollback import rollback_one_block
@@ -223,8 +224,8 @@ class CoreClient(threading.Thread):
             key="block_producers")
 
         if suggested_block_producers:
-            if self.memserver.ip not in suggested_block_producers and sync_from in self.consensus.trust_pool.keys():
-                self.consensus.trust_pool[sync_from] -= 2500
+            if self.memserver.ip not in suggested_block_producers:
+                change_trust(self.consensus, peer=sync_from, value=-10000)
 
             replacements = []
             for block_producer in suggested_block_producers:
@@ -246,8 +247,7 @@ class CoreClient(threading.Thread):
         if suggested_pool:
             return suggested_pool
         else:
-            if peer in self.consensus.trust_pool:
-                self.consensus.trust_pool[peer] -= 2500
+            change_trust(self.consensus, peer=peer, value=-10000)
 
     def emergency_mode(self):
         self.logger.warning("Entering emergency mode")
@@ -289,7 +289,7 @@ class CoreClient(threading.Thread):
                                 break
 
                         except Exception as e:
-                            self.consensus.trust_pool[peer] -= 10000
+                            change_trust(self.consensus, peer=peer, value=-10000)
                             self.logger.error(f"Failed to get blocks after {block_hash} from {peer}: {e}")
                             break
 
@@ -299,8 +299,7 @@ class CoreClient(threading.Thread):
                                                                              lock=self.memserver.buffer_lock,
                                                                              block_message=self.memserver.latest_block)
                             self.memserver.rollbacks += 1
-                            if peer in self.consensus.trust_pool.keys():
-                                self.consensus.trust_pool[peer] -= 100000
+                            change_trust(self.consensus, peer=peer, value=-100000)
                         else:
                             self.logger.error(f"Rollbacks exhausted")
                             self.memserver.rollbacks = 0
@@ -359,7 +358,7 @@ class CoreClient(threading.Thread):
         except Exception as e:
             self.logger.error(f"Failed to validate spending during block production: {e}")
             if remote:
-                self.consensus.trust_pool[remote_peer] -= 100
+                change_trust(self.consensus, peer=remote_peer, value=-1000)
             raise
 
         else:
@@ -379,7 +378,7 @@ class CoreClient(threading.Thread):
                 except Exception as e:
                     self.logger.error(f"Failed to validate transaction during block production: {e}")
                     if remote:
-                        self.consensus.trust_pool[remote_peer] -= 25
+                        change_trust(self.consensus, peer=remote_peer, value=-1000)
                     raise
 
     def produce_block(self, block, remote=False, remote_peer=None) -> dict:
@@ -402,7 +401,7 @@ class CoreClient(threading.Thread):
 
                     self.logger.info("Block gap too tight")
                     if remote:
-                        self.consensus.trust_pool[remote_peer] -= 25
+                        change_trust(self.consensus, peer=remote_peer, value=-1000)
 
                 self.incorporate_block(block)
 

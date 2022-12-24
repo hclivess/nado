@@ -82,9 +82,9 @@ class ConsensusClient(threading.Thread):
             for peer in self.trust_pool.copy().keys():
                 if peer in pool.keys():
                     if pool[peer] == majority_pool:
-                        self.trust_pool[peer] += 1
+                        change_trust(consensus=self, peer=peer, value=100)
                     else:
-                        self.trust_pool[peer] -= 1
+                        change_trust(consensus=self, peer=peer, value=-100)
 
         except Exception as e:
             self.logger.info(f"Failed to update trust: {e}")
@@ -171,3 +171,8 @@ class ConsensusClient(threading.Thread):
                 self.logger.error(f"Error in consensus loop: {e} {traceback.print_exc()}")
                 time.sleep(1)
                 # raise  # test
+
+
+def change_trust(consensus, peer, value):
+    if peer in consensus.trust_pool.keys():
+        consensus.trust_pool[peer] += value

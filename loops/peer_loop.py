@@ -3,6 +3,7 @@ import threading
 import time
 import traceback
 
+from loops.consensus_loop import change_trust
 import peer_ops
 from block_ops import save_block_producers
 from compounder import compound_get_status_pool
@@ -83,9 +84,7 @@ class PeerClient(threading.Thread):
                 self.memserver.block_producers.remove(entry)
                 # self.logger.warning(f"Removed {entry} from block producers")
 
-            if entry in self.consensus.trust_pool.keys():
-                if self.consensus.trust_pool[entry]:
-                    self.consensus.trust_pool[entry] -= 1000
+            change_trust(consensus=self.consensus, peer=entry, value=-10000)
 
             if entry in self.consensus.status_pool.keys():
                 self.consensus.status_pool.pop(entry)
