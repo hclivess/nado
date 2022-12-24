@@ -72,7 +72,7 @@ class MemServer:
         self.cascade_depth = 0
         self.force_sync_ip = None
         self.cascade_limit = self.config.get("cascade_limit") or 1
-        self.promiscuous = self.config.get("cascade_limit") or True
+        self.promiscuous = self.config.get("promiscuous") or True
 
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:
