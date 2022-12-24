@@ -73,6 +73,8 @@ class MemServer:
         self.force_sync_ip = None
         self.cascade_limit = 1
 
+        self.promiscuous = True
+
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:
             sorted_transaction_pool = sort_transaction_pool(self.transaction_pool)

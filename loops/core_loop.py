@@ -181,7 +181,8 @@ class CoreClient(threading.Thread):
                                              average_trust=self.consensus.average_trust,
                                              purge_list=self.memserver.purge_peers_list,
                                              peer_hash=value,
-                                             required_hash=hash_candidate):
+                                             required_hash=hash_candidate,
+                                             promiscuous=self.memserver.promiscuous):
                             return peer
             else:
                 #random_peer = random.choice(list(shuffled_pool.keys()))
