@@ -71,6 +71,7 @@ class MemServer:
         self.buffer_limit = 150000
         self.cascade_depth = 0
         self.force_sync_ip = None
+        self.cascade_limit = 1
 
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:

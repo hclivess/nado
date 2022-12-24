@@ -149,7 +149,7 @@ class CoreClient(threading.Thread):
         source_pool_copy = source_pool.copy()
 
         try:
-            sorted_hashes = sort_occurrence(dict_to_val_list(source_pool_copy))
+            sorted_hashes = sort_occurrence(dict_to_val_list(source_pool_copy))[:self.memserver.cascade_limit]
 
             shuffled_pool = shuffle_dict(source_pool_copy)
             # participants = len(shuffled_pool.items())
@@ -184,9 +184,9 @@ class CoreClient(threading.Thread):
                                              required_hash=hash_candidate):
                             return peer
             else:
-                random_peer = random.choice(list(shuffled_pool.keys()))
-                self.logger.info(f"Ran out of options when picking trusted hash, picking random peer {random_peer}")
-                return random_peer
+                #random_peer = random.choice(list(shuffled_pool.keys()))
+                #self.logger.info(f"Ran out of options when picking trusted hash, picking random peer {random_peer}")
+                return None
 
         except Exception as e:
             self.logger.info(f"Failed to get a peer to sync from: hash_pool: {source_pool_copy} error: {e}")
@@ -303,7 +303,7 @@ class CoreClient(threading.Thread):
                         else:
                             self.logger.error(f"Rollbacks exhausted")
                             self.memserver.rollbacks = 0
-                            self.memserver.purge_peers_list.append(peer)
+                            #self.memserver.purge_peers_list.append(peer)
                             break
 
                     self.logger.info(f"Maximum reached cascade depth: {self.memserver.cascade_depth}")
