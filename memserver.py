@@ -62,18 +62,17 @@ class MemServer:
         self.block_producers = load_block_producers()
 
         self.emergency_mode = False
-        self.min_peers = 2 #add to config file
+        self.min_peers = self.config.get("min_peers") or 2
         self.peer_limit = self.config.get("peer_limit") or 24
         self.rollbacks = 0
-        self.max_rollbacks = 10 #add to config file
+        self.max_rollbacks = self.config.get("max_rollbacks") or 10
         self.version = read_version()
         self.latest_block = get_latest_block_info(logger=logger)
         self.buffer_limit = 150000
         self.cascade_depth = 0
         self.force_sync_ip = None
-        self.cascade_limit = 1 #add to config file
-
-        self.promiscuous = True #add to config file
+        self.cascade_limit = self.config.get("cascade_limit") or 1
+        self.promiscuous = self.config.get("cascade_limit") or True
 
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:

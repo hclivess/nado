@@ -60,6 +60,10 @@ def create_config(ip: str, config_path: str = f"{get_home()}/private/config.dat"
         "ip": ip,
         "protocol": get_protcol(),
         "server_key": create_nonce(length=64),
+        "min_peers": 2,
+        "max_rollbacks": 10,
+        "cascade_limit": 1,
+        "promiscuous": False
     }
 
     if not os.path.exists(config_path):
