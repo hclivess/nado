@@ -110,6 +110,26 @@ do they have to own a large portion of tokens in order to be rewarded. It is ins
 attempting to bring the barrier of entry even lower than those two by not requiring solving of puzzles or highly
 efficient machines for users to remain in a reward distribution cycle.
 
+
+## Emergency measures
+
+When the network consensus drops too low, you can take the following measures to help improve it. This trades
+security for quicker and less ambiguous synchronization.
+
+`wget --delete-after http://127.0.0.1:9173/force_sync_ip?ip=207.180.203.132` forces synchronization
+from a particular target IP, in this case 207.180.203.132. This feature turns off automatically once the network
+consensus rises above 80%. For Windows and UI-based environments, simply access http://127.0.0.1:9173/force_sync_ip?ip=207.180.203.132
+
+You can enable promiscuity mode, which ignores peer trust when synchronizing. This will default the synchronization
+to a typical 51% scenario, which is less experimental. To set it up, go to your config file and add `"promiscuous": True`.
+Restart your node to put it into effect.
+
+It is also possible to decrease the synchronization cascading level to a given value, like 1. You can do that by
+adding the following to your configuration file and restarting your node: `"cascade_limit": 1`. This setting will only
+have effect when running in non-promiscuous mode. Value represents depth of hash pools to iterate through, choosing
+based on trust. For example, there can be 50 nodes in state A, but there is no node with sufficient trust there,
+so the node goes into the second most popular hash pool, let's say 30 nodes in state B and sync from those. 
+
 ## What does NADO do differently?
 
 In NADO, every user generates new blocks at the same time. This is possible because users are not rewarded for mining
