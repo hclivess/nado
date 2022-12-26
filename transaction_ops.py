@@ -6,7 +6,9 @@ import time
 import msgpack
 import requests
 from tornado.httpclient import AsyncHTTPClient
-
+import asyncio
+from peer_ops import load_ips
+from compounder import compound_send_transaction
 from Curve25519 import sign, verify
 from account_ops import get_account, reflect_transaction
 from address import proof_sender
@@ -83,7 +85,7 @@ def sort_transaction_pool(transactions: list, key="txid") -> list:
 
 
 def unindex_transaction(transaction, logger):
-    #print("unindex triggered for", transaction)
+    # print("unindex triggered for", transaction)
     tx_path = f"{get_home()}/transactions/{transaction['txid']}.dat"
 
     sender_address = transaction['sender']
@@ -136,6 +138,7 @@ def unindex_transaction(transaction, logger):
             except Exception as e:
                 logger.error(f"Failed to remove recipient path {transaction['txid']}: {e}")
                 time.sleep(1)
+
 
 def get_transactions_of_account(account, logger, batch):
     if batch == "max":
@@ -342,13 +345,6 @@ def create_transaction(sender, recipient, amount, public_key, private_key, times
 
 if __name__ == "__main__":
     logger = get_logger(file="transactions.log")
-
-    print(
-        get_transaction(
-            "210777f644d43ff694f3d1b2f6412114bd53bf2db726388a1001440d214ff499",
-            logger=logger,
-        )
-    )
     # print(get_account("noob23"))
 
     key_dict = load_keys()
@@ -369,26 +365,36 @@ if __name__ == "__main__":
         update_tx_index_folder(address, get_tx_index_number(address) + 1)
     get_tx_index_number(address)
 
+    ips = asyncio.run(load_ips(logger=logger,
+                               fail_storage=[],
+                               port=port))
+
     for x in range(0, 50000):
         try:
-            transaction = create_transaction(
-                sender=address,
-                recipient=recipient,
-                amount=amount,
-                data=data,
-                public_key=public_key,
-                timestamp=get_timestamp_seconds(),
-                fee=0,
-                private_key=private_key
-            )
+            transaction = create_transaction(sender=address,
+                                             recipient=recipient,
+                                             amount=to_raw_amount(amount),
+                                             data=data,
+                                             fee=0,
+                                             public_key=public_key,
+                                             private_key=private_key,
+                                             timestamp=get_timestamp_seconds())
 
             print(transaction)
             print(validate_transaction(transaction, logger=logger))
 
-            requests.get(f"http://{ip}:{port}/submit_transaction?data={json.dumps(transaction)}", timeout=5)
+            fails = []
+            results = asyncio.run(compound_send_transaction(ips=ips,
+                                                            port=port,
+                                                            fail_storage=fails,
+                                                            logger=logger,
+                                                            transaction=transaction))
+
+            print(f"Submitted to {len(results)} nodes successfully")
 
             # time.sleep(5)
         except Exception as e:
             print(e)
+            raise
 
     # tx_pool = json.loads(requests.get(f"http://{ip}:{port}/transaction_pool").text, timeout=5)
