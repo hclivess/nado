@@ -43,7 +43,6 @@ def send_transaction(address, recipient, amount, data, public_key, private_key, 
 
 if __name__ == "__main__":
     allow_async()
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     logger = get_logger(file=f"linewallet.log")
 
     parser = argparse.ArgumentParser()

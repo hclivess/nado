@@ -79,8 +79,6 @@ class MemServer:
         self.cascade_limit = self.config.get("cascade_limit") or 1
         self.promiscuous = True if self.config.get("promiscuous") is True else False
 
-
-
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:
             sorted_transaction_pool = sort_transaction_pool(self.transaction_pool)
