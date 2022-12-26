@@ -14,6 +14,8 @@ from transaction_ops import (
     sort_transaction_pool,
 
 )
+from config import test_self_port
+
 from versioner import read_version
 
 
@@ -69,12 +71,15 @@ class MemServer:
         self.cascade_depth = 0
         self.force_sync_ip = None
         self.rollbacks = 0
+        self.can_mine = test_self_port(self.ip, self.port)
 
         self.min_peers = self.config.get("min_peers") or 2
         self.peer_limit = self.config.get("peer_limit") or 24
         self.max_rollbacks = self.config.get("max_rollbacks") or 10
         self.cascade_limit = self.config.get("cascade_limit") or 1
         self.promiscuous = True if self.config.get("promiscuous") is True else False
+
+
 
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:

@@ -13,7 +13,6 @@ import versioner
 from account_ops import get_account
 from block_ops import get_block, fee_over_blocks, get_block_number, get_penalty
 from config import get_config
-from config import test_self_port
 from data_ops import set_and_sort, get_home, allow_async
 from genesis import make_genesis, make_folders
 from keys import keyfile_found, generate_keys, save_keys, load_keys
@@ -717,7 +716,6 @@ async def make_app(port):
         ]
     )
     application.listen(port)
-    logger.warning(f"Able to mine: {test_self_port(memserver.ip, memserver.port)}")
     await asyncio.Event().wait()
 
 

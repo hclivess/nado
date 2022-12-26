@@ -16,11 +16,16 @@ class MessageClient(threading.Thread):
         self.peers = peers
 
     def is_all_fine(self):
-        if len(self.memserver.peers) > 10:
-            if self.memserver.latest_block["block_hash"] == self.consensus.majority_block_hash:
-                if self.memserver.since_last_block < self.memserver.block_time:
-                    return True
-        return False
+
+        if len(self.memserver.peers) < 10:
+            return False
+        if self.memserver.latest_block["block_hash"] != self.consensus.majority_block_hash:
+            return False
+        if self.memserver.since_last_block > self.memserver.block_time:
+            return False
+        if not self.memserver.can_mine:
+            return False
+        return True
 
     def run(self) -> None:
         while not self.memserver.terminate:
