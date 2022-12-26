@@ -49,7 +49,6 @@ class MessageClient(threading.Thread):
 
                 self.logger.warning(f"Buffer protection: {self.memserver.buffer_lock.locked()}")
                 self.logger.warning(f"Unreachable: {len(self.memserver.unreachable)}")
-                self.logger.warning(f"Promiscuity mode: {self.memserver.promiscuous}")
                 self.logger.warning(f"Forced sync: {self.memserver.force_sync_ip}")
 
                 if self.is_all_fine():

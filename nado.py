@@ -776,6 +776,8 @@ if __name__ == "__main__":
     logger.info(f"NADO version {memserver.version} started")
     logger.info(f"Your address: {memserver.address}")
     logger.info(f"Your IP: {memserver.ip}")
+    logger.info(f"Promiscuity mode: {memserver.promiscuous}")
+    logger.info(f"Cascade depth limit: {memserver.cascade_limit}")
 
     consensus = ConsensusClient(memserver=memserver, logger=logger)
     consensus.start()
