@@ -46,10 +46,10 @@ if __name__ == "__main__":
     logger = get_logger(file=f"linewallet.log")
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--sk", help="Use private key, ignore default key location", default=False)
-    parser.add_argument("--amount", help="Amount to send", default=False)
-    parser.add_argument("--recipient", help="Recipient address", default=False)
-    parser.add_argument("--fee", help="Fee to spend", default=False)
+    parser.add_argument("--sk", help="[private key] Use private key, ignore default key location", default=False)
+    parser.add_argument("--amount", help="[number] Amount to send", default=False)
+    parser.add_argument("--recipient", help="[NADO address] Recipient address", default=False)
+    parser.add_argument("--fee", help="[number] Fee to spend", default=False)
     args = parser.parse_args()
     if args.sk:
         key_dictionary = from_private_key(args.sk)

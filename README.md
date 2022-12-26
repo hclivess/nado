@@ -74,13 +74,13 @@ You can download the [official NADO wallet here](https://github.com/hclivess/nad
 
 ## CLI Wallet
 You can use the CLI wallet by running `python3.10 linewallet.py`
-This wallet takes arguments, which enables you to access more wallets from one place and also automate your routines.
+This wallet takes arguments, which enable you to access more wallets from one place and also automate your routines.
 All arguments can be displayed with `python3.10 linewallet.py --help`, here are some examples:
 
-- `--sk` Use private key, ignore default key location
-- `--amount` Amount to send
-- `--recipient` Recipient address
-- `--fee` Fee to spend
+- `--sk [private key]` Use private key, ignore default key location
+- `--amount [number]` Amount to send
+- `--recipient [NADO address]` Recipient address
+- `--fee [number]` Fee to spend
 
 ## Remote access
 
