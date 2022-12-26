@@ -69,9 +69,18 @@ After installation, go to your browser and announce your peer to one of the node
 http://127.0.0.1:9173/announce_peer?ip=207.180.203.132. For this,
 you should have [port 9173 open](https://www.google.com/search?q=port+forwarding+guide) so the node is accessible from the internet if you want to receive rewards. After this step, synchronization should start shortly. 
 
-## Wallet
+## GUI Wallet
 You can download the [official NADO wallet here](https://github.com/hclivess/nado-microwallet) or on the [release page of NADO](https://github.com/hclivess/nado/releases).
-Alternatively, you can use the linewallet by running `python3.10 linewallet.py`
+
+## CLI Wallet
+You can use the CLI wallet by running `python3.10 linewallet.py`
+This wallet takes arguments, which enables you to access more wallets from one place and also automate your routines.
+All arguments can be displayed with `python3.10 linewallet.py --help`, here are some examples:
+
+- `--sk` Use private key, ignore default key location
+- `--amount` Amount to send
+- `--recipient` Recipient address
+- `--fee` Fee to spend
 
 ## Remote access
 
