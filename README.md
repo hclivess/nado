@@ -121,7 +121,7 @@ from a particular target IP, in this case 207.180.203.132. This feature turns of
 consensus rises above 80%. For Windows and UI-based environments, simply access http://127.0.0.1:9173/force_sync_ip?ip=207.180.203.132
 
 You can enable promiscuity mode, which ignores peer trust when synchronizing. This will default the synchronization
-to a typical 51% scenario, which is less experimental. To set it up, go to your config file and add `"promiscuous": True`.
+to a typical 51% scenario, which is less experimental. To set it up, go to your config file and add `"promiscuous": true`.
 Restart your node to put it into effect.
 
 It is also possible to decrease the synchronization cascading level to a given value, like 1. You can do that by
