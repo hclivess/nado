@@ -259,6 +259,7 @@ class CoreClient(threading.Thread):
                     source_pool=self.consensus.block_hash_pool)
                 if not peer:
                     self.logger.info("Could not find a suitably trusted peer")
+                    time.sleep(1)
                 else:
                     block_hash = self.memserver.latest_block["block_hash"]
 
