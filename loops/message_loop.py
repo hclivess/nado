@@ -43,8 +43,8 @@ class MessageClient(threading.Thread):
                 )
 
                 self.logger.debug(
-                    f"Transaction pool: {len(self.memserver.transaction_pool)}tp/{len(self.memserver.tx_buffer)}tb/{len(self.memserver.user_tx_buffer)}ub")
-                self.logger.debug(f"Active Peers: {len(self.memserver.peers)}")
+                    f"Transactions: {len(self.memserver.transaction_pool)}tp/{len(self.memserver.tx_buffer)}tb/{len(self.memserver.user_tx_buffer)}ub")
+                self.logger.debug(f"Linked Peers: {len(self.memserver.peers)}")
                 self.logger.debug(f"Block Producers: {len(self.memserver.block_producers)}")
                 self.logger.warning(f"Emergency Mode: {self.memserver.emergency_mode}")
 
@@ -52,7 +52,6 @@ class MessageClient(threading.Thread):
                     f"Seconds since last block: {self.memserver.since_last_block}"
                 )
 
-                self.logger.warning(f"Buffer protection: {self.memserver.buffer_lock.locked()}")
                 self.logger.warning(f"Unreachable: {len(self.memserver.unreachable)}")
                 self.logger.warning(f"Forced sync: {self.memserver.force_sync_ip}")
 

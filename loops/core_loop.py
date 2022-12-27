@@ -111,6 +111,7 @@ class CoreClient(threading.Thread):
 
             if self.memserver.period == 3:
                 if self.memserver.peers and self.memserver.block_producers:
+                    #todo change block_producers ordering based on previous block hash instead of alphabetical sorting so first one has no advantage
                     block_candidate = get_block_candidate(block_producers=self.memserver.block_producers,
                                                           block_producers_hash=self.memserver.block_producers_hash,
                                                           logger=self.logger,
