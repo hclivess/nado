@@ -23,9 +23,13 @@ def keyfile_found(file=f"{get_home()}/private/keys.dat"):
     else:
         return False
 
+def uniqueness(value):
+    return len(set(value))
 
 def generate_keys():
-    keydict = generate_keydict()
+    keydict = None
+    while not keydict or uniqueness(keydict["address"]) < 18:
+        keydict = generate_keydict()
     return keydict
 
 
