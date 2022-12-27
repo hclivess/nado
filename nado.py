@@ -32,9 +32,8 @@ def is_port_in_use(port: int) -> bool:
 
 
 def handler(signum, frame):
-    logger.info("Terminating..")
+    logger.info(f"Terminating: {signum}: {frame}")
     memserver.terminate = True
-    # tornado.ioloop.IOLoop.current().stop()
     sys.exit(0)
 
 
@@ -679,6 +678,9 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
 
 
 async def make_app(port):
+    signal.signal(signal.SIGINT, handler)
+    signal.signal(signal.SIGTERM, handler)
+
     application = tornado.web.Application(
         [
             (r"/", HomeHandler),

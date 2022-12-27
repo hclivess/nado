@@ -1,5 +1,6 @@
 import asyncio
-import random
+import signal
+import sys
 import threading
 import time
 import traceback
@@ -54,7 +55,6 @@ class CoreClient(threading.Thread):
         self.consensus = consensus
         self.run_interval = 1
         self.event_bus = EventBus()
-
     def update_periods(self):
         old_period = self.memserver.period
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
@@ -476,3 +476,4 @@ class CoreClient(threading.Thread):
         self.event_bus.remove_listener('penalty-list-update', self.penalty_list_update_handler)
 
         self.logger.info("Termination code reached, bye")
+        sys.exit(0)
