@@ -370,7 +370,7 @@ class TerminateHandler(tornado.web.RequestHandler):
                 self.write("Termination signal sent, node is shutting down...")
                 sys.exit(0)
             elif server_key != memserver.server_key:
-                self.write("Wrong or missing key for a remote machine")
+                self.write("Wrong or missing key for a remote node")
         except Exception as e:
             self.set_status(403)
             self.write(f"Error: {e}")
