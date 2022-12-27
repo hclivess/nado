@@ -678,9 +678,6 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
 
 
 async def make_app(port):
-    signal.signal(signal.SIGINT, handler)
-    signal.signal(signal.SIGTERM, handler)
-
     application = tornado.web.Application(
         [
             (r"/", HomeHandler),
@@ -772,6 +769,7 @@ if __name__ == "__main__":
 
     assert not is_port_in_use(get_config()["port"]), "Port already in use, exiting"
     signal.signal(signal.SIGINT, handler)
+    signal.signal(signal.SIGTERM, handler)
 
     memserver = MemServer(logger=logger)
 
