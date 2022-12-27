@@ -142,6 +142,8 @@ class CoreClient(threading.Thread):
         is looped by occurrence until a trusted peer is found with one of the hashes
         hash_pool argument is the pool to sort and sync from (block, tx, block producer pools)"""
 
+        first_peer = None
+
         if self.memserver.force_sync_ip:
             """force sync"""
             return self.memserver.force_sync_ip
@@ -150,7 +152,6 @@ class CoreClient(threading.Thread):
 
         try:
             sorted_hashes = sort_occurrence(dict_to_val_list(source_pool_copy))[:self.memserver.cascade_limit]
-
             shuffled_pool = shuffle_dict(source_pool_copy)
             # participants = len(shuffled_pool.items())
 
@@ -172,6 +173,10 @@ class CoreClient(threading.Thread):
                     peer_protocol = self.consensus.status_pool[peer]["protocol"]
                     """get protocol version"""
 
+                    if not first_peer:
+                        if value == hash_candidate:
+                            first_peer = peer
+
                     if check_ip(peer):
                         if qualifies_to_sync(peer=peer,
                                              peer_protocol=peer_protocol,
@@ -185,9 +190,8 @@ class CoreClient(threading.Thread):
                                              promiscuous=self.memserver.promiscuous):
                             return peer
             else:
-                #random_peer = random.choice(list(shuffled_pool.keys()))
-                #self.logger.info(f"Ran out of options when picking trusted hash, picking random peer {random_peer}")
-                return None
+                self.logger.info(f"Ran out of options when picking trusted hash, using the first tested {first_peer}")
+                return first_peer
 
         except Exception as e:
             self.logger.info(f"Failed to get a peer to sync from: hash_pool: {source_pool_copy} error: {e}")
