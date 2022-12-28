@@ -130,13 +130,12 @@ def get_block(block):
 
 
 def get_block_number(number):
-    dbhandler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
-    fetched = dbhandler.db_fetch(query=f"SELECT block_hash FROM block_index WHERE block_number = '{number}'")
-    dbhandler.close()
-
-    if fetched:
-        return get_block(fetched[0][0])
-    else:
+    try:
+        dbhandler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
+        fetched = dbhandler.db_fetch(query=f"SELECT block_hash FROM block_index WHERE block_number = '{number}'")[0][0]
+        dbhandler.close()
+        return get_block(fetched)
+    except Exception as e:
         return False
 
 

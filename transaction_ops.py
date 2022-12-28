@@ -13,7 +13,7 @@ from Curve25519 import sign, verify
 from account_ops import get_account, reflect_transaction
 from address import proof_sender
 from address import validate_address
-from block_ops import load_block_from_hash
+from block_ops import get_block_number
 from config import get_config
 from config import get_timestamp_seconds
 from data_ops import sort_list_dict, get_home
@@ -33,16 +33,19 @@ async def get_recommneded_fee(target, port):
 
 def get_transaction(txid, logger):
     """return transaction based on txid"""
-    transaction_path = f"{get_home()}/transactions/{txid}.dat"
-    if os.path.exists(transaction_path):
-        with open(transaction_path, "r") as file:
-            block_hash = json.load(file)
-            block = load_block_from_hash(block_hash=block_hash, logger=logger)
 
-            for transaction in block["block_transactions"]:
-                if transaction["txid"] == txid:
-                    return transaction
-    else:
+    try:
+        dbhandler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+        block_number = dbhandler.db_fetch(query=f"SELECT block_number FROM tx_index WHERE txid = '{txid}'")[0][0]
+        dbhandler.close()
+
+        block = get_block_number(number=block_number)
+
+        for transaction in block["block_transactions"]:
+            if transaction["txid"] == txid:
+                return transaction
+
+    except Exception as e:
         return None
 
 
@@ -100,9 +103,28 @@ def unindex_transaction(transaction, logger):
             query=f"DELETE FROM tx_index WHERE txid = '{transaction['txid']}'")
         dbhandler.close()
 
-def get_transactions_of_account(account, logger, batch):
+
+def get_transactions_of_account(account, min_block: int, logger):
     """rework"""
-    #return {batch: tx_list}
+
+    max_block = min_block + 100
+    dbhandler = DbHandler(db_file=f"{get_home()}/accounts/{account}/account.db")
+
+    fetched = dbhandler.db_fetch(
+        query=f"SELECT * FROM tx_index WHERE block_number >= '{min_block}' AND block_number <= '{max_block}' "
+              f"ORDER BY block_number")
+
+    dbhandler.close()
+
+    tx_list = []
+    for tx in fetched:
+        print(tx[0])
+        tx_list.append(get_transaction(logger=logger,
+                                       txid=tx[0]))
+
+    return {f"{min_block}-{max_block}": tx_list}
+    # return {batch: tx_list}
+
 
 def index_transaction(transaction, block):
     dbhandler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
