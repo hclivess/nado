@@ -239,6 +239,9 @@ users to make mining as inclusive as possible.
 - Burn-to-Bribe deflationary incentive and governance
 - The logo is a vortexed version of the Impossible Toroidal Polyhedron
 
+## NADO .NET SDK
+https://github.com/blocksentinel/nado-dotnet-sdk
+
 ## Where can I learn more?
 
 www.nado.live
