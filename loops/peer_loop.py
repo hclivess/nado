@@ -11,6 +11,7 @@ from config import get_timestamp_seconds
 from data_ops import set_and_sort
 from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, dump_peers, dump_trust
 from peer_ops import get_public_ip, update_local_ip, ip_stored, check_ip
+from config import test_self_port
 
 
 class PeerClient(threading.Thread):
@@ -149,6 +150,8 @@ class PeerClient(threading.Thread):
                     update_local_ip(ip=asyncio.run(get_public_ip(logger=self.logger)),
                                     logger=self.logger,
                                     peer_file_lock=self.memserver.peer_file_lock)
+
+                    self.memserver.can_mine = test_self_port(self.memserver.ip, self.memserver.port)
 
                 self.consensus.status_pool = asyncio.run(
                     compound_get_status_pool(
