@@ -101,7 +101,7 @@ def unindex_transaction(transaction, logger):
         acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{recipient}/account.db")
         acc_handler.db_execute(
             query=f"DELETE FROM tx_index WHERE txid = '{transaction['txid']}'")
-        acc_bhandler.close()
+        acc_handler.close()
 
 
 def get_transactions_of_account(account, min_block: int, logger):
