@@ -13,6 +13,7 @@ from hashing import blake2b_hash_link
 from keys import load_keys
 from log_ops import get_logger
 from peer_ops import load_peer
+from sqlite_ops import DbHandler
 
 
 def get_hash_penalty(a: str, b: str):
@@ -129,7 +130,7 @@ def get_block(block):
 
 
 def get_block_number(number):
-    """return transaction based on block number"""
+    """rework"""
     block_number_path = f"{get_home()}/blocks/block_numbers/{number}.dat"
     if os.path.exists(block_number_path):
         with open(block_number_path, "rb") as file:
@@ -195,21 +196,20 @@ def get_latest_block_info(logger):
         logger.info(f"Failed to get latest block info: {e}")
 
 
-def set_latest_block_info(block_message: dict, logger):
+def set_latest_block_info(block: dict, logger):
     while True:
         try:
             with open(f"{get_home()}/index/latest_block.dat", "w") as outfile:
-                json.dump(block_message["block_hash"], outfile)
+                json.dump(block["block_hash"], outfile)
 
-            with open(f"{get_home()}/blocks/block_numbers/{block_message['block_number']}.dat", "w") as outfile:
-                json.dump(block_message["block_hash"], outfile)
+                dbhandler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
+                dbhandler.db_execute(query=f"INSERT INTO block_index VALUES('{block['block_hash']}', '{block['block_number']}')")
+                dbhandler.close()
 
-            with open(f"{get_home()}/blocks/block_numbers/index.dat", "w") as outfile:
-                json.dump({"last_number": block_message["block_number"]}, outfile)
             return True
 
         except Exception as e:
-            logger.info(f"Failed to set latest block info to {block_message['block_hash']}: {e}")
+            logger.info(f"Failed to set latest block info to {block['block_hash']}: {e}")
             time.sleep(1)
 
 
