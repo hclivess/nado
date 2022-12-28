@@ -30,10 +30,10 @@ class DbHandler:
 
 if __name__ == "__main__":
     dbhandler = DbHandler(db_file="test.db")
-    dbhandler.db_execute(query="CREATE TABLE IF NOT EXISTS tx_index(txid UNIQUE, block)")
+    dbhandler.db_execute(query="CREATE TABLE IF NOT EXISTS tx_index(txid UNIQUE, block_number)")
     dbhandler.db_execute(query="INSERT INTO tx_index VALUES('a', '1')")
     dbhandler.db_execute(query="INSERT INTO tx_index VALUES('b', '2')")
-    dbhandler.db_execute(query="DELETE FROM tx_index WHERE block = '1'")
+    dbhandler.db_execute(query="DELETE FROM tx_index WHERE block_number = '1'")
 
-    print(dbhandler.db_fetch(query="SELECT txid,block FROM tx_index"))
+    print(dbhandler.db_fetch(query="SELECT * FROM tx_index WHERE block_number = '2'"))
     dbhandler.close()

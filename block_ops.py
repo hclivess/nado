@@ -130,12 +130,12 @@ def get_block(block):
 
 
 def get_block_number(number):
-    """rework"""
-    block_number_path = f"{get_home()}/blocks/block_numbers/{number}.dat"
-    if os.path.exists(block_number_path):
-        with open(block_number_path, "rb") as file:
-            block = json.load(file)
-        return get_block(block)
+    dbhandler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
+    fetched = dbhandler.db_fetch(query=f"SELECT block_hash FROM block_index WHERE block_number = '{number}'")
+    dbhandler.close()
+
+    if fetched:
+        return get_block(fetched[0][0])
     else:
         return False
 
