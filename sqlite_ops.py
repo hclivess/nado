@@ -6,7 +6,7 @@ class DbHandler:
         self.con = sqlite3.connect(db_file)
         self.cur = self.con.cursor()
 
-    def db_insert(self, query):
+    def db_execute(self, query):
         try:
             with self.con:
                 self.cur.execute(query)
@@ -30,7 +30,7 @@ class DbHandler:
 
 if __name__ == "__main__":
     dbhandler = DbHandler(db_file="test.db")
-    dbhandler.db_insert(query="CREATE TABLE IF NOT EXISTS tx_index(tx UNIQUE, block)")
-    dbhandler.db_insert(query="INSERT INTO tx_index VALUES('a', '1')")
+    dbhandler.db_execute(query="CREATE TABLE IF NOT EXISTS tx_index(tx UNIQUE, account, block)")
+    dbhandler.db_execute(query="INSERT INTO tx_index VALUES('a', '1')")
     print(dbhandler.db_fetch(query="SELECT tx,block FROM tx_index"))
     dbhandler.close()

@@ -7,7 +7,12 @@ from hashing import blake2b_hash_link
 from log_ops import get_logger
 from peer_ops import save_peer, get_public_ip
 import asyncio
+from sqlite_ops import DbHandler
 
+def create_tx_indexer():
+    dbhandler = DbHandler(db_file=f"{get_home()}/transactions/transactions.db")
+    dbhandler.db_execute(query="CREATE TABLE IF NOT EXISTS tx_index(tx UNIQUE, block)")
+    dbhandler.close()
 def make_folders():
     make_folder(f"{get_home()}/blocks/block_numbers")
     make_folder(f"{get_home()}/accounts")
@@ -16,6 +21,8 @@ def make_folders():
     make_folder(f"{get_home()}/transactions")
     make_folder(f"{get_home()}/index")
     make_folder(f"{get_home()}/index/producer_sets")
+
+    create_tx_indexer()
 
 
 def make_genesis(address, balance, ip, port, timestamp, logger):
