@@ -131,9 +131,9 @@ def get_block(block):
 
 def get_block_number(number):
     try:
-        dbhandler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
-        fetched = dbhandler.db_fetch(query=f"SELECT block_hash FROM block_index WHERE block_number = '{number}'")[0][0]
-        dbhandler.close()
+        block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
+        fetched = block_handler.db_fetch(query=f"SELECT block_hash FROM block_index WHERE block_number = '{number}'")[0][0]
+        block_handler.close()
         return get_block(fetched)
     except Exception as e:
         return False
@@ -201,9 +201,9 @@ def set_latest_block_info(block: dict, logger):
             with open(f"{get_home()}/index/latest_block.dat", "w") as outfile:
                 json.dump(block["block_hash"], outfile)
 
-                dbhandler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
-                dbhandler.db_execute(query=f"INSERT INTO block_index VALUES('{block['block_hash']}', '{block['block_number']}')")
-                dbhandler.close()
+                blocks_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
+                blocks_handler.db_execute(query=f"INSERT INTO block_index VALUES('{block['block_hash']}', '{block['block_number']}')")
+                blocks_handler.close()
 
             return True
 

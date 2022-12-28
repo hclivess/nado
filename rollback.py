@@ -34,10 +34,10 @@ def rollback_one_block(logger, lock, block_message) -> dict:
             set_latest_block_info(block=previous_block,
                                   logger=logger)
 
-            dbhandler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
-            dbhandler.db_execute(
+            block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
+            block_handler.db_execute(
                 query=f"DELETE FROM block_index WHERE block_number = '{block_message['block_number']}'")
-            dbhandler.close()
+            block_handler.close()
 
             block_data = f"{get_home()}/blocks/{block_message['block_hash']}.block"
             while os.path.exists(block_data):

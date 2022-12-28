@@ -35,9 +35,9 @@ def get_transaction(txid, logger):
     """return transaction based on txid"""
 
     try:
-        dbhandler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
-        block_number = dbhandler.db_fetch(query=f"SELECT block_number FROM tx_index WHERE txid = '{txid}'")[0][0]
-        dbhandler.close()
+        tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+        block_number = tx_handler.db_fetch(query=f"SELECT block_number FROM tx_index WHERE txid = '{txid}'")[0][0]
+        tx_handler.close()
 
         block = get_block_number(number=block_number)
 
@@ -92,29 +92,29 @@ def unindex_transaction(transaction, logger):
     sender = transaction['sender']
     recipient = transaction['recipient']
 
-    dbhandler = DbHandler(db_file=f"{get_home()}/accounts/{sender}/account.db")
-    dbhandler.db_execute(
+    acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{sender}/account.db")
+    acc_handler.db_execute(
         query=f"DELETE FROM tx_index WHERE txid = '{transaction['txid']}'")
-    dbhandler.close()
+    acc_handler.close()
 
     if sender != recipient:
-        dbhandler = DbHandler(db_file=f"{get_home()}/accounts/{recipient}/account.db")
-        dbhandler.db_execute(
+        acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{recipient}/account.db")
+        acc_handler.db_execute(
             query=f"DELETE FROM tx_index WHERE txid = '{transaction['txid']}'")
-        dbhandler.close()
+        acc_bhandler.close()
 
 
 def get_transactions_of_account(account, min_block: int, logger):
     """rework"""
 
     max_block = min_block + 100
-    dbhandler = DbHandler(db_file=f"{get_home()}/accounts/{account}/account.db")
+    acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{account}/account.db")
 
-    fetched = dbhandler.db_fetch(
+    fetched = acc_handler.db_fetch(
         query=f"SELECT * FROM tx_index WHERE block_number >= '{min_block}' AND block_number <= '{max_block}' "
               f"ORDER BY block_number")
 
-    dbhandler.close()
+    acc_handler.close()
 
     tx_list = []
     for tx in fetched:
@@ -127,22 +127,22 @@ def get_transactions_of_account(account, min_block: int, logger):
 
 
 def index_transaction(transaction, block):
-    dbhandler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
-    dbhandler.db_execute(query=f"INSERT INTO tx_index VALUES('{transaction['txid']}', '{block['block_number']}')")
-    dbhandler.close()
+    tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+    tx_handler.db_execute(query=f"INSERT INTO tx_index VALUES('{transaction['txid']}', '{block['block_number']}')")
+    tx_handler.close()
 
     sender_address = transaction['sender']
     recipient_address = transaction['recipient']
 
-    dbhandler = DbHandler(db_file=f"{get_home()}/accounts/{sender_address}/account.db")
-    dbhandler.db_execute(query=f"INSERT INTO tx_index VALUES('{transaction['txid']}', '{block['block_number']}')")
-    dbhandler.close()
+    acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{sender_address}/account.db")
+    acc_handler.db_execute(query=f"INSERT INTO tx_index VALUES('{transaction['txid']}', '{block['block_number']}')")
+    acc_handler.close()
 
     if recipient_address != sender_address:
-        dbhandler = DbHandler(db_file=f"{get_home()}/accounts/{recipient_address}/account.db")
-        dbhandler.db_execute(
+        acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{recipient_address}/account.db")
+        acc_handler.db_execute(
             query=f"INSERT INTO tx_index VALUES('{transaction['txid']}', '{block['block_number']}')")
-        dbhandler.close()
+        acc_handler.close()
 
 
 def to_readable_amount(raw_amount: int) -> str:
