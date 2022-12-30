@@ -132,7 +132,7 @@ def get_block(block):
 def get_block_number(number):
     try:
         block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
-        fetched = block_handler.db_fetch(query=f"SELECT block_hash FROM block_index WHERE block_number = '{number}'")[0][0]
+        fetched = block_handler.db_fetch("SELECT block_hash FROM block_index WHERE block_number = ?", number)[0][0]
         block_handler.close()
         return get_block(fetched)
     except Exception as e:
@@ -202,7 +202,7 @@ def set_latest_block_info(block: dict, logger):
                 json.dump(block["block_hash"], outfile)
 
                 blocks_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
-                blocks_handler.db_execute(f"INSERT INTO block_index VALUES (?, ?)", block['block_hash'], block['block_number'])
+                blocks_handler.db_execute("INSERT INTO block_index VALUES (?, ?)", (block['block_hash'], block['block_number']))
 
                 blocks_handler.close()
 

@@ -36,7 +36,7 @@ def get_transaction(txid, logger):
 
     try:
         tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
-        block_number = tx_handler.db_fetch(query=f"SELECT block_number FROM tx_index WHERE txid = '{txid}'")[0][0]
+        block_number = tx_handler.db_fetch("SELECT block_number FROM tx_index WHERE txid = ?", txid)[0][0]
         tx_handler.close()
 
         block = get_block_number(number=block_number)
@@ -111,8 +111,7 @@ def get_transactions_of_account(account, min_block: int, logger):
     acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{account}/account.db")
 
     fetched = acc_handler.db_fetch(
-        query=f"SELECT * FROM tx_index WHERE block_number >= '{min_block}' AND block_number <= '{max_block}' "
-              f"ORDER BY block_number")
+        "SELECT * FROM tx_index WHERE block_number >= ? AND block_number <= ? ORDER BY block_number", (min_block, max_block))
 
     acc_handler.close()
 
@@ -128,20 +127,20 @@ def get_transactions_of_account(account, min_block: int, logger):
 
 def index_transaction(transaction, block):
     tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
-    tx_handler.db_execute(f"INSERT INTO tx_index VALUES (?,?)", transaction['txid'], block['block_number'])
+    tx_handler.db_execute("INSERT INTO tx_index VALUES (?,?)", (transaction['txid'], block['block_number']))
     tx_handler.close()
 
     sender_address = transaction['sender']
     recipient_address = transaction['recipient']
 
     acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{sender_address}/account.db")
-    acc_handler.db_execute(f"INSERT INTO tx_index VALUES (?,?)", transaction['txid'], block['block_number'])
+    acc_handler.db_execute("INSERT INTO tx_index VALUES (?,?)", (transaction['txid'], block['block_number']))
     acc_handler.close()
 
     if recipient_address != sender_address:
         acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{recipient_address}/account.db")
         acc_handler.db_execute(
-            f"INSERT INTO tx_index VALUES (?, ?)", transaction['txid'], block['block_number'])
+            "INSERT INTO tx_index VALUES (?, ?)", (transaction['txid'], block['block_number']))
         acc_handler.close()
 
 
