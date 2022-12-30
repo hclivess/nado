@@ -337,7 +337,7 @@ class CoreClient(threading.Thread):
             for transaction in transactions:
                 incorporate_transaction(
                     transaction=transaction,
-                    block_hash=block["block_hash"])
+                    block=block)
 
             update_child_in_latest_block(block["block_hash"], self.logger)
             save_block(block, self.logger)
@@ -348,7 +348,7 @@ class CoreClient(threading.Thread):
             increase_produced_count(address=block["block_creator"],
                                     amount=block["block_reward"])
 
-            set_latest_block_info(block_message=block,
+            set_latest_block_info(block=block,
                                   logger=self.logger)
             self.memserver.latest_block = block
 

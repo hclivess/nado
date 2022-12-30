@@ -7,6 +7,7 @@ from account_ops import reflect_transaction, change_balance, increase_produced_c
 from block_ops import load_block_from_hash, set_latest_block_info
 from data_ops import get_home
 from transaction_ops import unindex_transaction
+from sqlite_ops import DbHandler
 
 
 def rollback_one_block(logger, lock, block_message) -> dict:
@@ -30,19 +31,13 @@ def rollback_one_block(logger, lock, block_message) -> dict:
                                     amount=block_message["block_reward"],
                                     revert=True)
 
-            set_latest_block_info(block_message=previous_block,
+            set_latest_block_info(block=previous_block,
                                   logger=logger)
 
-            with open(f"{get_home()}/blocks/block_numbers/index.dat", "wb") as outfile:
-                msgpack.pack({"last_number": previous_block["block_number"]}, outfile)
-
-            block_number = f"{get_home()}/blocks/block_numbers/{block_message['block_number']}.dat"
-            while os.path.exists(block_number):
-                try:
-                    os.remove(block_number)
-                except Exception as e:
-                    logger.error(f"Failed to remove {block_number}: {e}, retrying")
-                    time.sleep(1)
+            block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
+            block_handler.db_execute(
+                query=f"DELETE FROM block_index WHERE block_number = '{block_message['block_number']}'")
+            block_handler.close()
 
             block_data = f"{get_home()}/blocks/{block_message['block_hash']}.block"
             while os.path.exists(block_data):

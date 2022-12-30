@@ -13,13 +13,14 @@ from Curve25519 import sign, verify
 from account_ops import get_account, reflect_transaction
 from address import proof_sender
 from address import validate_address
-from block_ops import load_block_from_hash
+from block_ops import get_block_number
 from config import get_config
 from config import get_timestamp_seconds
 from data_ops import sort_list_dict, get_home
 from hashing import create_nonce, blake2b_hash
 from keys import load_keys
 from log_ops import get_logger
+from sqlite_ops import DbHandler
 
 
 async def get_recommneded_fee(target, port):
@@ -32,16 +33,19 @@ async def get_recommneded_fee(target, port):
 
 def get_transaction(txid, logger):
     """return transaction based on txid"""
-    transaction_path = f"{get_home()}/transactions/{txid}.dat"
-    if os.path.exists(transaction_path):
-        with open(transaction_path, "r") as file:
-            block_hash = json.load(file)
-            block = load_block_from_hash(block_hash=block_hash, logger=logger)
 
-            for transaction in block["block_transactions"]:
-                if transaction["txid"] == txid:
-                    return transaction
-    else:
+    try:
+        tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+        block_number = tx_handler.db_fetch(query=f"SELECT block_number FROM tx_index WHERE txid = '{txid}'")[0][0]
+        tx_handler.close()
+
+        block = get_block_number(number=block_number)
+
+        for transaction in block["block_transactions"]:
+            if transaction["txid"] == txid:
+                return transaction
+
+    except Exception as e:
         return None
 
 
@@ -56,9 +60,9 @@ def validate_uniqueness(transaction, logger):
         return True
 
 
-def incorporate_transaction(transaction, block_hash):
+def incorporate_transaction(transaction, block):
     reflect_transaction(transaction)
-    index_transaction(transaction, block_hash=block_hash)
+    index_transaction(transaction, block=block)
 
 
 def validate_transaction(transaction, logger):
@@ -85,145 +89,60 @@ def sort_transaction_pool(transactions: list, key="txid") -> list:
 
 
 def unindex_transaction(transaction, logger):
-    # print("unindex triggered for", transaction)
-    tx_path = f"{get_home()}/transactions/{transaction['txid']}.dat"
+    sender = transaction['sender']
+    recipient = transaction['recipient']
 
-    sender_address = transaction['sender']
-    sender_index = get_tx_index_number(sender_address)
+    acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{sender}/account.db")
+    acc_handler.db_execute(
+        query=f"DELETE FROM tx_index WHERE txid = '{transaction['txid']}'")
+    acc_handler.close()
 
-    if tx_index_empty(sender_address):
-        update_tx_index_folder(sender_address, get_tx_index_number(sender_address) - 1)
-
-    sender_path = f"{get_home()}/accounts/{transaction['sender']}/transactions/{sender_index}/{transaction['txid']}.lin"
-    while not os.path.exists(sender_path):
-        sender_index -= 1
-        sender_path = f"{get_home()}/accounts/{transaction['sender']}/transactions/{sender_index}/{transaction['txid']}.lin"
-        if sender_index < 0:
-            logger.error(f"Sender transaction {sender_path} rollback index seeking below zero")
-            break
-
-    recipient_address = transaction['recipient']
-    recipient_index = get_tx_index_number(recipient_address)
-
-    if tx_index_empty(recipient_address):
-        update_tx_index_folder(recipient_address, get_tx_index_number(recipient_address) - 1)
-
-    recipient_path = f"{get_home()}/accounts/{transaction['recipient']}/transactions/{recipient_index}/{transaction['txid']}.lin"
-    if sender_path != recipient_path:
-        while not os.path.exists(recipient_path):
-            recipient_index -= 1
-            recipient_path = f"{get_home()}/accounts/{transaction['recipient']}/transactions/{recipient_index}/{transaction['txid']}.lin"
-            if recipient_index < 0:
-                logger.error(f"Recipient transaction {recipient_path} rollback index seeking below zero")
-                break
-
-    while os.path.exists(tx_path):
-        try:
-            os.remove(tx_path)
-        except Exception as e:
-            logger.error(f"Failed to remove tx path {transaction['txid']}: {e}")
-            time.sleep(1)
-
-    while os.path.exists(sender_path):
-        try:
-            os.remove(sender_path)
-        except Exception as e:
-            logger.error(f"Failed to remove sender path {transaction['txid']}: {e}")
-            time.sleep(1)
-
-    if sender_path != recipient_path:
-        while os.path.exists(recipient_path):
-            try:
-                os.remove(recipient_path)
-            except Exception as e:
-                logger.error(f"Failed to remove recipient path {transaction['txid']}: {e}")
-                time.sleep(1)
+    if sender != recipient:
+        acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{recipient}/account.db")
+        acc_handler.db_execute(
+            query=f"DELETE FROM tx_index WHERE txid = '{transaction['txid']}'")
+        acc_handler.close()
 
 
-def get_transactions_of_account(account, logger, batch):
-    if batch == "max":
-        batch = get_tx_index_number(account)
+def get_transactions_of_account(account, min_block: int, logger):
+    """rework"""
 
-    account_path = f"{get_home()}/accounts/{account}/transactions/{batch}"
-    transaction_files = glob.glob(f"{account_path}/*.lin")
+    max_block = min_block + 100
+    acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{account}/account.db")
+
+    fetched = acc_handler.db_fetch(
+        query=f"SELECT * FROM tx_index WHERE block_number >= '{min_block}' AND block_number <= '{max_block}' "
+              f"ORDER BY block_number")
+
+    acc_handler.close()
+
     tx_list = []
+    for tx in fetched:
+        print(tx[0])
+        tx_list.append(get_transaction(logger=logger,
+                                       txid=tx[0]))
 
-    for transaction in transaction_files:
-        no_ext_no_path = os.path.basename(os.path.splitext(transaction)[0])
-        tx_data = get_transaction(no_ext_no_path, logger=logger)
-        tx_list.append(tx_data)
-
-    return {batch: tx_list}
-
-
-def update_tx_index_folder(address, number):
-    tx_index = f"{get_home()}/accounts/{address}/index.dat"
-    index = {"index_folder": number}
-    with open(tx_index, "w") as outfile:
-        json.dump(index, outfile)
+    return {f"{min_block}-{max_block}": tx_list}
+    # return {batch: tx_list}
 
 
-def create_tx_indexer(address):
-    tx_index = f"{get_home()}/accounts/{address}/index.dat"
-    if not os.path.exists(tx_index):
-        index = {"index_folder": 0}
-        with open(tx_index, "w") as outfile:
-            json.dump(index, outfile)
-
-
-def get_tx_index_number(address):
-    tx_index = f"{get_home()}/accounts/{address}/index.dat"
-    with open(tx_index, "r") as infile:
-        index_number = json.load(infile)["index_folder"]
-    return index_number
-
-
-def tx_index_empty(address):
-    index_number = get_tx_index_number(address)
-    transaction_files = glob.glob(f"{get_home()}/accounts/{address}/transactions/{index_number}/*.lin")
-    if len(transaction_files) == 0:
-        os.rmdir(f"{get_home()}/accounts/{address}/transactions/{index_number}")
-        return True
-    else:
-        return False
-
-
-def tx_index_full(address, full=500):
-    index_number = get_tx_index_number(address)
-    transaction_files = glob.glob(f"{get_home()}/accounts/{address}/transactions/{index_number}/*.lin")
-    if len(transaction_files) >= full:
-        return True
-    else:
-        return False
-
-
-def index_transaction(transaction, block_hash):
-    tx_path = f"{get_home()}/transactions/{transaction['txid']}.dat"
-    with open(tx_path, "w") as tx_file:
-        tx_file.write(json.dumps(block_hash))
+def index_transaction(transaction, block):
+    tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+    tx_handler.db_execute(query=f"INSERT INTO tx_index VALUES('{transaction['txid']}', '{block['block_number']}')")
+    tx_handler.close()
 
     sender_address = transaction['sender']
-    create_tx_indexer(sender_address)
-    if tx_index_full(sender_address):
-        update_tx_index_folder(sender_address, get_tx_index_number(sender_address) + 1)
-    index_number = get_tx_index_number(sender_address)
-    sender_path = f"{get_home()}/accounts/{sender_address}/transactions/{index_number}"
-    if not os.path.exists(sender_path):
-        os.makedirs(sender_path)
-    with open(f"{sender_path}/{transaction['txid']}.lin", "w") as tx_file:
-        json.dump("", tx_file)
-
     recipient_address = transaction['recipient']
+
+    acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{sender_address}/account.db")
+    acc_handler.db_execute(query=f"INSERT INTO tx_index VALUES('{transaction['txid']}', '{block['block_number']}')")
+    acc_handler.close()
+
     if recipient_address != sender_address:
-        create_tx_indexer(recipient_address)
-        if tx_index_full(recipient_address):
-            update_tx_index_folder(recipient_address, get_tx_index_number(recipient_address) + 1)
-        index_number = get_tx_index_number(recipient_address)
-        recipient_path = f"{get_home()}/accounts/{recipient_address}/transactions/{index_number}"
-        if not os.path.exists(recipient_path):
-            os.makedirs(recipient_path)
-        with open(f"{recipient_path}/{transaction['txid']}.lin", "w") as tx_file:
-            json.dump("", tx_file)
+        acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{recipient_address}/account.db")
+        acc_handler.db_execute(
+            query=f"INSERT INTO tx_index VALUES('{transaction['txid']}', '{block['block_number']}')")
+        acc_handler.close()
 
 
 def to_readable_amount(raw_amount: int) -> str:
@@ -359,11 +278,6 @@ if __name__ == "__main__":
     # ip = config["ip"]
     ip = "127.0.0.1"
     port = config["port"]
-
-    create_tx_indexer(address)
-    if tx_index_full(address):
-        update_tx_index_folder(address, get_tx_index_number(address) + 1)
-    get_tx_index_number(address)
 
     ips = asyncio.run(load_ips(logger=logger,
                                fail_storage=[],

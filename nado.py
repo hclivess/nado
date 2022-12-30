@@ -408,12 +408,12 @@ class AccountTransactionsHandler(tornado.web.RequestHandler):
     def account_transactions(self):
         try:
             address = AccountTransactionsHandler.get_argument(self, "address", default=memserver.address)
-            batch = AccountTransactionsHandler.get_argument(self, "batch", default="max")
+            min_block = AccountTransactionsHandler.get_argument(self, "min_block", default="0")
             compress = AccountTransactionsHandler.get_argument(self, "compress", default="none")
 
             transaction_data = get_transactions_of_account(account=address,
-                                                           logger=logger,
-                                                           batch=batch)
+                                                           min_block=int(min_block),
+                                                           logger=logger)
 
             if not transaction_data:
                 transaction_data = "Not found"
