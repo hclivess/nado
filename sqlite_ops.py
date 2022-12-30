@@ -6,10 +6,10 @@ class DbHandler:
         self.con = sqlite3.connect(db_file)
         self.cur = self.con.cursor()
 
-    def db_execute(self, query):
+    def db_execute(self, query, *args):
         try:
             with self.con:
-                self.cur.execute(query)
+                self.cur.execute(query, *args)
                 self.con.commit()
             return True
         except Exception as e:
@@ -31,9 +31,9 @@ class DbHandler:
 if __name__ == "__main__":
     dbhandler = DbHandler(db_file="test.db")
     dbhandler.db_execute(query="CREATE TABLE IF NOT EXISTS tx_index(txid UNIQUE, block_number INTEGER)")
-    dbhandler.db_execute(query="INSERT INTO tx_index VALUES('a', '1')")
-    dbhandler.db_execute(query="INSERT INTO tx_index VALUES('b', '2')")
-    dbhandler.db_execute(query="DELETE FROM tx_index WHERE block_number = '1'")
+    dbhandler.db_execute("INSERT INTO tx_index VALUES (?, ?)", 'a', '1')
+    dbhandler.db_execute("INSERT INTO tx_index VALUES (?, ?)", 'b', '2')
+    dbhandler.db_execute("DELETE FROM tx_index WHERE block_number = ?", '1')
 
     print(dbhandler.db_fetch(query="SELECT * FROM tx_index WHERE block_number = '2'"))
     dbhandler.close()

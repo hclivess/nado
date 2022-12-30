@@ -94,13 +94,13 @@ def unindex_transaction(transaction, logger):
 
     acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{sender}/account.db")
     acc_handler.db_execute(
-        query=f"DELETE FROM tx_index WHERE txid = '{transaction['txid']}'")
+        f"DELETE FROM tx_index WHERE txid = ?", transaction['txid'])
     acc_handler.close()
 
     if sender != recipient:
         acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{recipient}/account.db")
         acc_handler.db_execute(
-            query=f"DELETE FROM tx_index WHERE txid = '{transaction['txid']}'")
+            f"DELETE FROM tx_index WHERE txid = ?", transaction['txid'])
         acc_handler.close()
 
 
@@ -128,20 +128,20 @@ def get_transactions_of_account(account, min_block: int, logger):
 
 def index_transaction(transaction, block):
     tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
-    tx_handler.db_execute(query=f"INSERT INTO tx_index VALUES('{transaction['txid']}', '{block['block_number']}')")
+    tx_handler.db_execute(f"INSERT INTO tx_index VALUES (?,?)", transaction['txid'], block['block_number'])
     tx_handler.close()
 
     sender_address = transaction['sender']
     recipient_address = transaction['recipient']
 
     acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{sender_address}/account.db")
-    acc_handler.db_execute(query=f"INSERT INTO tx_index VALUES('{transaction['txid']}', '{block['block_number']}')")
+    acc_handler.db_execute(f"INSERT INTO tx_index VALUES (?,?)", transaction['txid'], block['block_number'])
     acc_handler.close()
 
     if recipient_address != sender_address:
         acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{recipient_address}/account.db")
         acc_handler.db_execute(
-            query=f"INSERT INTO tx_index VALUES('{transaction['txid']}', '{block['block_number']}')")
+            f"INSERT INTO tx_index VALUES (?, ?)", transaction['txid'], block['block_number'])
         acc_handler.close()
 
 
