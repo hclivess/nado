@@ -94,13 +94,13 @@ def unindex_transaction(transaction, logger):
 
     acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{sender}/account.db")
     acc_handler.db_execute(
-        f"DELETE FROM tx_index WHERE txid = ?", transaction['txid'])
+        "DELETE FROM tx_index WHERE txid = ?", transaction['txid'])
     acc_handler.close()
 
     if sender != recipient:
         acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{recipient}/account.db")
         acc_handler.db_execute(
-            f"DELETE FROM tx_index WHERE txid = ?", transaction['txid'])
+            "DELETE FROM tx_index WHERE txid = ?", transaction['txid'])
         acc_handler.close()
 
 
