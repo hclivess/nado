@@ -83,19 +83,10 @@ def sort_transaction_pool(transactions: list, key="txid") -> list:
 
 
 def unindex_transaction(transaction, logger):
-    sender = transaction['sender']
-    recipient = transaction['recipient']
-
-    acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{sender}/account.db")
-    acc_handler.db_execute(
+    tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+    tx_handler.db_execute(
         "DELETE FROM tx_index WHERE txid = ?", transaction['txid'])
-    acc_handler.close()
-
-    if sender != recipient:
-        acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{recipient}/account.db")
-        acc_handler.db_execute(
-            "DELETE FROM tx_index WHERE txid = ?", transaction['txid'])
-        acc_handler.close()
+    tx_handler.close()
 
 
 def get_transactions_of_account(account, min_block: int, logger):

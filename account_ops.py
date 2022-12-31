@@ -74,11 +74,6 @@ def increase_produced_count(address, amount, revert=False):
 
     return produced
 
-def create_account_indexer(address):
-    acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{address}/account.db")
-    acc_handler.db_execute(query="CREATE TABLE IF NOT EXISTS tx_index(txid TEXT, block_number INTEGER)")
-    acc_handler.close()
-
 def create_account(address, balance=0, burned=0, produced=0):
     """create account if it does not exist"""
     check_traversal(address)
@@ -86,8 +81,6 @@ def create_account(address, balance=0, burned=0, produced=0):
     account_path = f"{get_home()}/accounts/{address}/balance.dat"
     if not os.path.exists(account_path):
         os.makedirs(f"{get_home()}/accounts/{address}")
-
-        create_account_indexer(address)
 
         account = {
             "account_balance": balance,
