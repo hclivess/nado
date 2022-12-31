@@ -36,7 +36,7 @@ def get_transaction(txid, logger):
 
     try:
         tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
-        block_number = tx_handler.db_fetch("SELECT block_number FROM tx_index WHERE txid = ?", txid)[0][0]
+        block_number = tx_handler.db_fetch("SELECT block_number FROM tx_index WHERE txid = ?", (txid,))[0][0]
         tx_handler.close()
 
         block = get_block_number(number=block_number)
@@ -102,18 +102,17 @@ def get_transactions_of_account(account, min_block: int, logger):
     """rework"""
 
     max_block = min_block + 100
-    acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{account}/account.db")
+    acc_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
 
     fetched = acc_handler.db_fetch(
-        "SELECT * FROM tx_index WHERE block_number >= ? AND block_number <= ? ORDER BY block_number", (min_block, max_block))
+        "SELECT txid FROM tx_index WHERE (sender = ? OR recipient = ?) AND (block_number >= ? AND block_number <= ?) ORDER BY block_number", (account, account, min_block, max_block,))
 
     acc_handler.close()
 
     tx_list = []
-    for tx in fetched:
-        print(tx[0])
+    for txid in fetched:
         tx_list.append(get_transaction(logger=logger,
-                                       txid=tx[0]))
+                                       txid=txid[0]))
 
     return {f"{min_block}-{max_block}": tx_list}
     # return {batch: tx_list}
