@@ -6,6 +6,8 @@ import time
 import traceback
 from sqlite_ops import DbHandler
 from data_ops import get_home
+from transaction_ops import reflect_transaction
+
 
 from account_ops import increase_produced_count, change_balance
 from block_ops import (
@@ -29,7 +31,6 @@ from peer_ops import load_trust, update_local_address, ip_stored, check_ip, qual
 from pool_ops import merge_buffer
 from rollback import rollback_one_block
 from transaction_ops import (
-    incorporate_transaction,
     to_readable_amount,
     validate_transaction,
     validate_all_spending,
@@ -337,15 +338,18 @@ class CoreClient(threading.Thread):
     def incorporate_block(self, block):
         transactions = sort_list_dict(block["block_transactions"])
         try:
-            tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")  # todo make this nicer
-
+            txs_to_index = []
             for transaction in transactions:
-                tx_handler.db_execute("INSERT INTO tx_index VALUES (?,?)", (transaction['txid'], block['block_number']))
-                incorporate_transaction(
-                    transaction=transaction,
-                    block=block)
+                reflect_transaction(transaction)
+                txs_to_index.append((transaction['txid'],
+                                     block['block_number'],
+                                     transaction['sender'],
+                                     transaction['recipient']))
 
-            tx_handler.close()  # todo make this nicer
+
+            tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+            tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
+            tx_handler.close()
 
             update_child_in_latest_block(block["block_hash"], self.logger)
             save_block(block, self.logger)

@@ -59,12 +59,6 @@ def validate_uniqueness(transaction, logger):
     else:
         return True
 
-
-def incorporate_transaction(transaction, block):
-    reflect_transaction(transaction)
-    index_transaction(transaction, block=block)
-
-
 def validate_transaction(transaction, logger):
     assert isinstance(transaction, dict), "Data structure incomplete"
     assert validate_origin(transaction), "Invalid origin"
@@ -124,21 +118,6 @@ def get_transactions_of_account(account, min_block: int, logger):
     return {f"{min_block}-{max_block}": tx_list}
     # return {batch: tx_list}
 
-
-def index_transaction(transaction, block):
-
-    sender_address = transaction['sender']
-    recipient_address = transaction['recipient']
-
-    acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{sender_address}/account.db")
-    acc_handler.db_execute("INSERT INTO tx_index VALUES (?,?)", (transaction['txid'], block['block_number']))
-    acc_handler.close()
-
-    if recipient_address != sender_address:
-        acc_handler = DbHandler(db_file=f"{get_home()}/accounts/{recipient_address}/account.db")
-        acc_handler.db_execute(
-            "INSERT INTO tx_index VALUES (?, ?)", (transaction['txid'], block['block_number']))
-        acc_handler.close()
 
 
 def to_readable_amount(raw_amount: int) -> str:
