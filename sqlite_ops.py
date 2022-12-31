@@ -15,6 +15,16 @@ class DbHandler:
         except Exception as e:
             return False
 
+    def db_executemany(self, query, *args):
+        try:
+            with self.con:
+                self.cur.executemany(query, *args)
+                self.con.commit()
+            return True
+        except Exception as e:
+            return False
+
+
     def db_fetch(self, query, *args):
         try:
             with self.con:
@@ -34,6 +44,9 @@ if __name__ == "__main__":
     dbhandler.db_execute("INSERT INTO tx_index VALUES (?, ?)", ('a', '1'))
     dbhandler.db_execute("INSERT INTO tx_index VALUES (?, ?)", ('b', '2'))
     dbhandler.db_execute("DELETE FROM tx_index WHERE block_number = ?", '1')
+    rows = [('d', '3'), ('e', '4')]
+    query = "INSERT INTO tx_index VALUES (?, ?)"
+    dbhandler.db_executemany(query, rows)
 
     print(dbhandler.db_fetch("SELECT * FROM tx_index WHERE block_number = ?", '2'))
     dbhandler.close()
