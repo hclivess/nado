@@ -4,6 +4,8 @@ import sys
 import threading
 import time
 import traceback
+from sqlite_ops import DbHandler
+from data_ops import get_home
 
 from account_ops import increase_produced_count, change_balance
 from block_ops import (
@@ -55,6 +57,7 @@ class CoreClient(threading.Thread):
         self.consensus = consensus
         self.run_interval = 1
         self.event_bus = EventBus()
+
     def update_periods(self):
         old_period = self.memserver.period
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
@@ -111,7 +114,7 @@ class CoreClient(threading.Thread):
 
             if self.memserver.period == 3:
                 if self.memserver.peers and self.memserver.block_producers:
-                    #todo change block_producers ordering based on previous block hash instead of alphabetical sorting so first one has no advantage
+                    # todo change block_producers ordering based on previous block hash instead of alphabetical sorting so first one has no advantage
                     block_candidate = get_block_candidate(block_producers=self.memserver.block_producers,
                                                           block_producers_hash=self.memserver.block_producers_hash,
                                                           logger=self.logger,
@@ -310,7 +313,7 @@ class CoreClient(threading.Thread):
                         else:
                             self.logger.error(f"Rollbacks exhausted")
                             self.memserver.rollbacks = 0
-                            #self.memserver.purge_peers_list.append(peer)
+                            # self.memserver.purge_peers_list.append(peer)
                             break
 
                     self.logger.info(f"Maximum reached cascade depth: {self.memserver.cascade_depth}")
@@ -334,10 +337,15 @@ class CoreClient(threading.Thread):
     def incorporate_block(self, block):
         transactions = sort_list_dict(block["block_transactions"])
         try:
+            tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")  # todo make this nicer
+
             for transaction in transactions:
+                tx_handler.db_execute("INSERT INTO tx_index VALUES (?,?)", (transaction['txid'], block['block_number']))
                 incorporate_transaction(
                     transaction=transaction,
                     block=block)
+
+            tx_handler.close()  # todo make this nicer
 
             update_child_in_latest_block(block["block_hash"], self.logger)
             save_block(block, self.logger)
@@ -357,7 +365,6 @@ class CoreClient(threading.Thread):
             raise
 
     def validate_transactions_in_block(self, block, logger, remote_peer, remote):
-
         transactions = sort_list_dict(block["block_transactions"])
 
         try:

@@ -126,9 +126,6 @@ def get_transactions_of_account(account, min_block: int, logger):
 
 
 def index_transaction(transaction, block):
-    tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
-    tx_handler.db_execute("INSERT INTO tx_index VALUES (?,?)", (transaction['txid'], block['block_number']))
-    tx_handler.close()
 
     sender_address = transaction['sender']
     recipient_address = transaction['recipient']
