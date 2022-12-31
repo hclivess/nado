@@ -13,6 +13,7 @@ from sqlite_ops import DbHandler
 def create_indexers():
     tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
     tx_handler.db_execute(query="CREATE TABLE IF NOT EXISTS tx_index(txid TEXT, block_number INTEGER)")
+    tx_handler.db_execute(query="CREATE INDEX txid_index ON tx_index(txid)")
     tx_handler.close()
 
     block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
