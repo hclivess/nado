@@ -6,7 +6,6 @@ import msgpack
 from account_ops import reflect_transaction, change_balance, increase_produced_count
 from block_ops import load_block_from_hash, set_latest_block_info
 from data_ops import get_home
-from transaction_ops import unindex_transaction
 from sqlite_ops import DbHandler
 
 
@@ -18,9 +17,14 @@ def rollback_one_block(logger, lock, block_message) -> dict:
                 block_hash=block_message["parent_hash"], logger=logger
             )
 
+            txs_to_unindex = []
             for transaction in block_message["block_transactions"]:
-                unindex_transaction(transaction, logger)
+                txs_to_unindex.append(transaction["txid"])
                 reflect_transaction(transaction, revert=True)
+
+            tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+            tx_handler.db_executemany("DELETE FROM tx_index WHERE txid = ?", txs_to_unindex)
+            tx_handler.close()
 
             change_balance(
                 address=block_message["block_creator"],

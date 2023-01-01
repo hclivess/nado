@@ -48,5 +48,9 @@ if __name__ == "__main__":
     query = "INSERT INTO tx_index VALUES (?, ?)"
     dbhandler.db_executemany(query, rows)
 
+    rows = ['1', '2']
+    query = "DELETE FROM tx_index WHERE block_number = ?"
+    dbhandler.db_executemany(query, rows)
+
     print(dbhandler.db_fetch("SELECT * FROM tx_index WHERE block_number = ?", '2'))
     dbhandler.close()
