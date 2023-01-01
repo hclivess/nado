@@ -196,11 +196,18 @@ def get_latest_block_info(logger):
 
 
 def set_latest_block_info(block: dict, logger):
-    assert isinstance(block, dict), "Data structure incomplete"
     while True:
         try:
-            with open(f"{get_home()}/index/latest_block.dat", "w") as outfile:
-                json.dump(block["block_hash"], outfile)
+            new_hash = block["block_hash"]
+            old_hash = None
+
+            while not old_hash == new_hash:
+                with open(f"{get_home()}/index/latest_block.dat", "w") as outfile:
+                    json.dump(new_hash, outfile)
+
+                with open(f"{get_home()}/index/latest_block.dat", "r") as infile:
+                    """read data to verify they have been saved properly"""
+                    old_hash = json.load(infile)
 
             blocks_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
             blocks_handler.db_execute("INSERT INTO block_index VALUES (?, ?)", (block['block_hash'], block['block_number']))
