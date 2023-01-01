@@ -113,7 +113,7 @@ def to_raw_amount(amount: [int, float]) -> int:
 
 def check_balance(account, amount, fee):
     """for single transaction, check if the fee and the amount spend are allowable"""
-    balance = get_account(account)["account_balance"]
+    balance = get_account(account)["balance"]
     assert (
             balance - amount - fee > 0 <= amount
     ), f"{account} spending more than owned in a single transaction"
@@ -134,7 +134,7 @@ def validate_single_spending(transaction_pool: list, transaction):
 
     sender = transaction["sender"]
 
-    standing_balance = get_account(sender)["account_balance"]
+    standing_balance = get_account(sender)["balance"]
     amount_sum = 0
     fee_sum = 0
 
@@ -159,7 +159,7 @@ def validate_all_spending(transaction_pool: list):
     sender_pool = get_senders(transaction_pool)
 
     for sender in sender_pool:
-        standing_balance = get_account(sender)["account_balance"]
+        standing_balance = get_account(sender)["balance"]
         amount_sum = 0
         fee_sum = 0
 

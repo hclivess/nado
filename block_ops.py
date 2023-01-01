@@ -355,9 +355,9 @@ def get_ip_penalty(producer, logger, blocks_backward=50):
 
 def get_penalty(producer_address, block_hash, block_number):
     hash_penalty = get_hash_penalty(a=producer_address, b=block_hash)
-    miner_penalty = get_account_value(address=producer_address, key="account_produced")
+    miner_penalty = get_account_value(address=producer_address, key="produced")
     combined_penalty = hash_penalty + miner_penalty
-    burn_bonus = get_account_value(producer_address, key="account_burned")
+    burn_bonus = get_account_value(producer_address, key="burned")
     block_penalty = combined_penalty - burn_bonus * 100
 
     if block_penalty < hash_penalty:

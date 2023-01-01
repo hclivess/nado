@@ -72,7 +72,7 @@ if __name__ == "__main__":
     ips = asyncio.run(load_ips(fail_storage=[], logger=logger, port=9173))
     target = random.choice(ips)
     port = get_port()
-    balance = get_account_value(address, key="account_balance")
+    balance = get_account_value(address, key="balance")
     balance_readable = to_readable_amount(balance)
 
     print(f"Sending from {address}")
