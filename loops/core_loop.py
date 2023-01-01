@@ -362,6 +362,7 @@ class CoreClient(threading.Thread):
 
             set_latest_block_info(block=block,
                                   logger=self.logger)
+
             self.memserver.latest_block = block
 
         except Exception as e:

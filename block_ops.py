@@ -196,6 +196,7 @@ def get_latest_block_info(logger):
 
 
 def set_latest_block_info(block: dict, logger):
+    assert isinstance(block, dict), "Data structure incomplete"
     while True:
         try:
             with open(f"{get_home()}/index/latest_block.dat", "w") as outfile:
