@@ -70,16 +70,16 @@ def increase_produced_count(address, amount, revert=False):
     account = get_account(address)
     produced = account["produced"]
     if revert:
-        account.update(produced=produced - amount)
-        produced = produced - amount
+        produced_updated = produced - amount
+        account.update(produced=produced_updated)
     else:
-        account.update(produced=produced + amount)
-        produced = produced + amount
+        produced_updated = produced + amount
+        account.update(produced=produced_updated)
 
     acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
     acc_handler.db_execute("UPDATE acc_index SET produced = ? WHERE address = ?", (produced, address,))
 
-    return produced
+    return produced_updated
 
 
 def create_account(address, balance=0, burned=0, produced=0):
