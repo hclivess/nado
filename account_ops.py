@@ -55,7 +55,7 @@ def change_balance(address: str, amount: int, is_burn=False):
             acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
             acc_handler.db_execute("UPDATE acc_index SET balance = ?, burned = ? WHERE address = ?", (acc["balance"],
                                                                                                       acc["burned"],
-                                                                                                      address))
+                                                                                                      address,))
             acc_handler.close()
 
         except Exception as e:
@@ -71,11 +71,13 @@ def increase_produced_count(address, amount, revert=False):
     produced = account["produced"]
     if revert:
         account.update(produced=produced - amount)
+        produced = produced - amount
     else:
         account.update(produced=produced + amount)
+        produced = produced + amount
 
     acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-    acc_handler.db_execute("UPDATE acc_index SET produced = ? WHERE address = ?", (produced, address))
+    acc_handler.db_execute("UPDATE acc_index SET produced = ? WHERE address = ?", (produced, address,))
 
     return produced
 
