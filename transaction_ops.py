@@ -30,6 +30,12 @@ async def get_recommneded_fee(target, port):
     result = json.loads(response.body.decode())
     return result['fee']
 
+async def get_target_block(target, port):
+    http_client = AsyncHTTPClient()
+    url = f"http://{target}:{port}/get_latest_block"
+    response = await http_client.fetch(url)
+    result = json.loads(response.body.decode())
+    return result['block_number']+2
 
 def get_transaction(txid, logger):
     """return transaction based on txid"""
@@ -199,7 +205,7 @@ def validate_origin(transaction: dict):
     return True
 
 
-def create_transaction(sender, recipient, amount, public_key, private_key, timestamp, data, fee):
+def create_transaction(sender, recipient, amount, public_key, private_key, timestamp, data, fee, target_block):
     """construct transaction, then add txid, then add signature as last"""
     transaction_message = {
         "sender": sender,
@@ -210,6 +216,7 @@ def create_transaction(sender, recipient, amount, public_key, private_key, times
         "nonce": create_nonce(),
         "fee": fee,
         "public_key": public_key,
+        "target_block": target_block
     }
     txid = create_txid(transaction_message)
     transaction_message.update(txid=txid)

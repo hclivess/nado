@@ -1,16 +1,14 @@
 from config import get_timestamp_seconds, create_config, config_found, get_port
 from keys import load_keys, keyfile_found, save_keys, generate_keys
 from log_ops import get_logger
-from transaction_ops import create_transaction, to_raw_amount, get_recommneded_fee, to_readable_amount
+from transaction_ops import create_transaction, to_raw_amount, get_recommneded_fee, to_readable_amount, get_target_block
 import random
 from dircheck import make_folder
 from peer_ops import load_ips
-import json
 from account_ops import get_account_value
 import asyncio
 from data_ops import get_home
 from compounder import compound_send_transaction
-from block_ops import get_penalty
 from peer_ops import get_public_ip
 import argparse
 import json
@@ -18,7 +16,7 @@ from Curve25519 import from_private_key
 from data_ops import allow_async
 
 
-def send_transaction(address, recipient, amount, data, public_key, private_key, ips, fee):
+def send_transaction(address, recipient, amount, data, public_key, private_key, ips, fee, target_block):
     transaction = create_transaction(sender=address,
                                      recipient=recipient,
                                      amount=to_raw_amount(amount),
@@ -26,7 +24,8 @@ def send_transaction(address, recipient, amount, data, public_key, private_key, 
                                      fee=int(fee),
                                      public_key=public_key,
                                      private_key=private_key,
-                                     timestamp=get_timestamp_seconds())
+                                     timestamp=get_timestamp_seconds(),
+                                     target_block=target_block)
 
     print(json.dumps(transaction, indent=4))
     input("Press any key to continue")
@@ -90,6 +89,8 @@ if __name__ == "__main__":
         amount = input("Amount: ")
 
     recommended_fee = asyncio.run(get_recommneded_fee(target=target, port=port))
+    target_block = asyncio.run(get_target_block(target=target, port=port))
+    print(f"Target block: {target_block}")
     print(f"Recommended fee: {recommended_fee}")
 
     if args.fee:
@@ -106,4 +107,5 @@ if __name__ == "__main__":
                      public_key=public_key,
                      recipient=recipient,
                      ips=ips,
-                     fee=fee)
+                     fee=fee,
+                     target_block=target_block)
