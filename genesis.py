@@ -22,7 +22,7 @@ def create_indexers():
     tx_handler.close()
 
     block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
-    block_handler.db_execute(query="CREATE TABLE IF NOT EXISTS block_index(block_hash TEXT, block_number INTEGER)")
+    block_handler.db_execute(query="CREATE TABLE IF NOT EXISTS block_index(block_hash TEXT, block_number INTEGER UNIQUE)")
     block_handler.close()
 
 

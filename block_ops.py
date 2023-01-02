@@ -220,7 +220,7 @@ def set_latest_block_info(block: dict, logger):
                     old_hash = json.load(infile)
 
             blocks_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
-            blocks_handler.db_execute("INSERT INTO block_index VALUES (?, ?)", (block['block_hash'], block['block_number']))
+            blocks_handler.db_execute("INSERT OR IGNORE INTO block_index VALUES (?, ?)", (block['block_hash'], block['block_number']))
 
             blocks_handler.close()
 
