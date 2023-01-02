@@ -1,15 +1,11 @@
-import glob
 import json
-import os
-import time
-
 import msgpack
 from tornado.httpclient import AsyncHTTPClient
 import asyncio
 from peer_ops import load_ips
 from compounder import compound_send_transaction
 from Curve25519 import sign, verify
-from account_ops import get_account
+from account_ops import get_account, reflect_transaction
 from address import proof_sender
 from address import validate_address
 from block_ops import get_block_number
@@ -287,3 +283,23 @@ if __name__ == "__main__":
             raise
 
     # tx_pool = json.loads(requests.get(f"http://{ip}:{port}/transaction_pool").text, timeout=5)
+
+
+def index_transactions(block, sorted_transactions, logger):
+    while True:
+        try:
+            txs_to_index = []
+            for transaction in sorted_transactions:
+                reflect_transaction(transaction, logger=logger)
+                txs_to_index.append((transaction['txid'],
+                                     block['block_number'],
+                                     transaction['sender'],
+                                     transaction['recipient']))
+
+            tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+            tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
+            tx_handler.close()
+            break
+
+        except Exception as e:
+            logger.error(f"Failed to index transactions: {e}")

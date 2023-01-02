@@ -3,9 +3,8 @@ import sys
 import threading
 import time
 import traceback
-from sqlite_ops import DbHandler
-from data_ops import get_home
-from account_ops import increase_produced_count, change_balance, reflect_transaction
+
+from account_ops import increase_produced_count, change_balance
 from block_ops import (
     knows_block,
     get_blocks_after,
@@ -29,7 +28,7 @@ from rollback import rollback_one_block
 from transaction_ops import (
     to_readable_amount,
     validate_transaction,
-    validate_all_spending,
+    validate_all_spending, index_transactions,
 )
 
 
@@ -333,44 +332,29 @@ class CoreClient(threading.Thread):
 
     def incorporate_block(self, block, sorted_transactions):
         """successful execution mandatory"""
-        while True:
-            try:
-                txs_to_index = []
-                for transaction in sorted_transactions:
-                    reflect_transaction(transaction, logger=self.logger)
-                    txs_to_index.append((transaction['txid'],
-                                         block['block_number'],
-                                         transaction['sender'],
-                                         transaction['recipient']))
 
-                tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
-                tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
-                tx_handler.close()
-                break
+        index_transactions(block=block,
+                           sorted_transactions=sorted_transactions,
+                           logger=self.logger)
 
-            except Exception as e:
-                self.logger.error(f"Failed to index transactions: {e}")
+        update_child_in_latest_block(child_hash=block["block_hash"],
+                                     logger=self.logger,
+                                     parent=self.memserver.latest_block)
 
-            update_child_in_latest_block(child_hash=block["block_hash"],
-                                         logger=self.logger,
-                                         parent=self.memserver.latest_block)
+        save_block(block, self.logger)
 
-            save_block(block, self.logger)
+        change_balance(address=block["block_creator"],
+                       amount=block["block_reward"],
+                       logger=self.logger
+                       )
 
-            change_balance(address=block["block_creator"],
-                           amount=block["block_reward"],
-                           logger=self.logger
-                           )
+        increase_produced_count(address=block["block_creator"],
+                                amount=block["block_reward"],
+                                logger=self.logger
+                                )
 
-            increase_produced_count(address=block["block_creator"],
-                                    amount=block["block_reward"],
-                                    logger=self.logger
-                                    )
-
-            set_latest_block_info(block=block,
-                                  logger=self.logger)
-
-
+        set_latest_block_info(block=block,
+                              logger=self.logger)
 
     def validate_transactions_in_block(self, block, logger, remote_peer, remote):
         # todo add target_block check (hard fork)
@@ -430,7 +414,6 @@ class CoreClient(threading.Thread):
                     self.logger.info("Block gap too tight")
                     if remote:
                         change_trust(self.consensus, peer=remote_peer, value=-1000)
-
 
                 sorted_transactions = sort_list_dict(block["block_transactions"])
                 self.incorporate_block(block, sorted_transactions=sorted_transactions)
