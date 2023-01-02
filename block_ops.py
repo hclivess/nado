@@ -174,10 +174,11 @@ def save_block_producers(block_producers: list):
 
 
 def save_block(block_message: dict, logger):
-    while True:
+    path = f"{get_home()}/blocks/{block_message['block_hash']}.block'"
+
+    while not os.path.exists(path):
         try:
-            block_hash = block_message["block_hash"]
-            with open(f"{get_home()}/blocks/{block_hash}.block", "wb") as outfile:
+            with open(path, "wb") as outfile:
                 msgpack.pack(block_message, outfile)
             return True
         except Exception as e:
