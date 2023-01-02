@@ -74,10 +74,10 @@ def rollback_one_block(logger, lock, block_message) -> dict:
             except Exception as e:
                 logger.error(f"Failed to unindex block: {e}")
 
-            while os.path.exists(block_data):
-                try:
-                    os.remove(block_data)
-                except Exception as e:
-                    logger.error(f"Failed to remove {block_data}: {e}, retrying")
+        while os.path.exists(block_data):
+            try:
+                os.remove(block_data)
+            except Exception as e:
+                logger.error(f"Failed to remove {block_data}: {e}, retrying")
 
         return previous_block
