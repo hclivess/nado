@@ -174,13 +174,22 @@ def save_block_producers(block_producers: list):
 
 
 def save_block(block_message: dict, logger):
-    path = f"{get_home()}/blocks/{block_message['block_hash']}.block'"
+    path = f"{get_home()}/blocks/{block_message['block_hash']}.block"
 
-    while not os.path.exists(path):
+    while True:
         try:
             with open(path, "wb") as outfile:
                 msgpack.pack(block_message, outfile)
-            return True
+
+            with open(path, "rb") as infile:
+                """validate"""
+                read_block = msgpack.load(infile)
+
+            if read_block == block_message:
+                return True
+            else:
+                logger.warning("Block incoherence encountered")
+
         except Exception as e:
             logger.warning(f"Failed to save block {block_message['block_hash']} due to {e}")
             time.sleep(1)
