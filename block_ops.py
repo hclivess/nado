@@ -284,9 +284,8 @@ async def knows_block(target_peer, port, hash, logger):
         return False
 
 
-def update_child_in_latest_block(child_hash, logger):
+def update_child_in_latest_block(child_hash, logger, parent):
     """the only method to save block except for creation to avoid read/write collision"""
-    parent = get_latest_block_info(logger=logger)
     parent["child_hash"] = child_hash
     save_block(parent, logger=logger)
     return True

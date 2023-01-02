@@ -349,7 +349,10 @@ class CoreClient(threading.Thread):
             tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
             tx_handler.close()
 
-            update_child_in_latest_block(block["block_hash"], self.logger)
+            update_child_in_latest_block(child_hash=block["block_hash"],
+                                         logger=self.logger,
+                                         parent=self.memserver.latest_block)
+
             save_block(block, self.logger)
 
             change_balance(address=block["block_creator"],
