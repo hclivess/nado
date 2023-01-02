@@ -23,7 +23,7 @@ def rollback_one_block(logger, lock, block_message) -> dict:
                 reflect_transaction(transaction, revert=True)
 
             tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
-            tx_handler.db_executemany("DELETE FROM tx_index WHERE txid = ?", txs_to_unindex)
+            tx_handler.db_executemany("DELETE FROM tx_index WHERE txid = ?", (txs_to_unindex,))
             tx_handler.close()
 
             change_balance(
@@ -40,7 +40,7 @@ def rollback_one_block(logger, lock, block_message) -> dict:
 
             block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
             block_handler.db_execute(
-                "DELETE FROM block_index WHERE block_number = ?", block_message['block_number'])
+                "DELETE FROM block_index WHERE block_number = ?", (block_message['block_number'],))
             block_handler.close()
 
             block_data = f"{get_home()}/blocks/{block_message['block_hash']}.block"
