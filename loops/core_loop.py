@@ -331,20 +331,12 @@ class CoreClient(threading.Thread):
                                block_producers_hash=block["block_producers_hash"],
                                block_reward=block["block_reward"])
 
-    def incorporate_block(self, block):
+    def incorporate_block(self, block, sorted_transactions):
         """successful execution mandatory"""
         while True:
             try:
-                transactions = sort_list_dict(block["block_transactions"])
-                break
-            except Exception as e:
-                self.logger.error(f"Failed to sort transactions: {e}")
-                raise
-
-        while True:
-            try:
                 txs_to_index = []
-                for transaction in transactions:
+                for transaction in sorted_transactions:
                     reflect_transaction(transaction, logger=self.logger)
                     txs_to_index.append((transaction['txid'],
                                          block['block_number'],
@@ -439,7 +431,10 @@ class CoreClient(threading.Thread):
                     if remote:
                         change_trust(self.consensus, peer=remote_peer, value=-1000)
 
-                self.incorporate_block(block)
+
+                sorted_transactions = sort_list_dict(block["block_transactions"]
+                self.incorporate_block(block, sorted_transactions=sorted_transactions))
+
                 self.memserver.latest_block = block
 
                 gen_elapsed = get_timestamp_seconds() - gen_start
