@@ -303,7 +303,7 @@ class CoreClient(threading.Thread):
                         if self.memserver.rollbacks <= self.memserver.max_rollbacks:
                             self.memserver.latest_block = rollback_one_block(logger=self.logger,
                                                                              lock=self.memserver.buffer_lock,
-                                                                             block_message=self.memserver.latest_block)
+                                                                             block=self.memserver.latest_block)
                             self.memserver.rollbacks += 1
                             change_trust(self.consensus, peer=peer, value=-100000)
                         else:
@@ -341,8 +341,6 @@ class CoreClient(threading.Thread):
                                      logger=self.logger,
                                      parent=self.memserver.latest_block)
 
-        save_block(block, self.logger)
-
         change_balance(address=block["block_creator"],
                        amount=block["block_reward"],
                        logger=self.logger
@@ -353,6 +351,7 @@ class CoreClient(threading.Thread):
                                 logger=self.logger
                                 )
 
+        save_block(block, self.logger)
         set_latest_block_info(block=block,
                               logger=self.logger)
 

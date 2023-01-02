@@ -41,7 +41,10 @@ def reflect_transaction(transaction, logger, revert=False):
         change_balance(address=recipient, amount=amount, logger=logger)
 
 
-def change_balance(address: str, amount: int, logger, is_burn=False):
+def change_balance(address: str, amount: int, logger, is_burn=False, revert=False):
+    if revert:
+        amount = -amount
+
     while True:
         try:
             acc = get_account(address)

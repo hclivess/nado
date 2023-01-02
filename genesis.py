@@ -60,7 +60,7 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
               port=port,
               peer_trust=1000000000)
 
-    save_block(block_message=genesis_block_message,
+    save_block(block=genesis_block_message,
                logger=logger)
     set_latest_block_info(block=genesis_block_message,
                           logger=logger)

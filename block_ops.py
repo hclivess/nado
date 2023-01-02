@@ -6,7 +6,7 @@ import msgpack
 import requests
 from tornado.httpclient import AsyncHTTPClient
 
-from account_ops import get_account_value
+from account_ops import get_account_value, change_balance, increase_produced_count
 from config import get_timestamp_seconds, get_config
 from data_ops import set_and_sort, average, get_home
 from hashing import blake2b_hash_link
@@ -71,6 +71,7 @@ def match_transactions_target(transaction_list, block_number):
             matched_txs.append(transaction)
 
     return matched_txs
+
 
 def get_block_candidate(
         block_producers, block_producers_hash, transaction_pool, logger, event_bus, peer_file_lock, latest_block
@@ -187,25 +188,25 @@ def save_block_producers(block_producers: list):
     return True
 
 
-def save_block(block_message: dict, logger):
-    path = f"{get_home()}/blocks/{block_message['block_hash']}.block"
+def save_block(block: dict, logger):
+    path = f"{get_home()}/blocks/{block['block_hash']}.block"
 
     while True:
         try:
             with open(path, "wb") as outfile:
-                msgpack.pack(block_message, outfile)
+                msgpack.pack(block, outfile)
 
             with open(path, "rb") as infile:
                 """validate"""
                 read_block = msgpack.load(infile)
 
-            if read_block == block_message:
+            if read_block == block:
                 return True
             else:
                 logger.warning("Block incoherence encountered")
 
         except Exception as e:
-            logger.warning(f"Failed to save block {block_message['block_hash']} due to {e}")
+            logger.warning(f"Failed to save block {block['block_hash']} due to {e}")
             time.sleep(1)
 
 
@@ -217,6 +218,25 @@ def get_latest_block_info(logger):
             return info
     except Exception as e:
         logger.info(f"Failed to get latest block info: {e}")
+
+
+def unindex_block(block):
+    while True:
+        try:
+            block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
+            block_handler.db_execute(
+                "DELETE FROM block_index WHERE block_number = ?", (block['block_number'],))
+            block_handler.close()
+
+            block_data = f"{get_home()}/blocks/{block['block_hash']}.block"
+            while os.path.exists(block_data):
+                try:
+                    os.remove(block_data)
+                except Exception as e:
+                    logger.error(f"Failed to remove {block_data}: {e}, retrying")
+            break
+        except Exception as e:
+            logger.error(f"Failed to unindex block: {e}")
 
 
 def set_latest_block_info(block: dict, logger):
@@ -234,7 +254,8 @@ def set_latest_block_info(block: dict, logger):
                     old_hash = json.load(infile)
 
             blocks_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
-            blocks_handler.db_execute("INSERT OR IGNORE INTO block_index VALUES (?, ?)", (block['block_hash'], block['block_number']))
+            blocks_handler.db_execute("INSERT OR IGNORE INTO block_index VALUES (?, ?)",
+                                      (block['block_hash'], block['block_number']))
 
             blocks_handler.close()
 

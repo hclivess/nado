@@ -33,6 +33,7 @@ async def get_target_block(target, port):
     result = json.loads(response.body.decode())
     return result['block_number'] + 2
 
+
 def remove_outdated_transactions(transaction_list, block_number):
     cleaned = []
     for transaction in transaction_list:
@@ -40,6 +41,7 @@ def remove_outdated_transactions(transaction_list, block_number):
             cleaned.append(transaction)
 
     return cleaned
+
 
 def get_transaction(txid, logger):
     """return transaction based on txid"""
@@ -232,6 +234,42 @@ def create_transaction(sender, recipient, amount, public_key, private_key, times
     return transaction_message
 
 
+def unindex_transactions(block):
+    while True:
+        try:
+            txs_to_unindex = []
+            for transaction in block["block_transactions"]:
+                txs_to_unindex.append(transaction["txid"])
+                reflect_transaction(transaction, revert=True, logger=logger)
+
+            tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+            tx_handler.db_executemany("DELETE FROM tx_index WHERE txid = ?", (txs_to_unindex,))
+            tx_handler.close()
+            break
+
+        except Exception as e:
+            logger.error(f"Failed to unindex transactions: {e}")
+
+def index_transactions(block, sorted_transactions, logger):
+    while True:
+        try:
+            txs_to_index = []
+            for transaction in sorted_transactions:
+                reflect_transaction(transaction, logger=logger)
+                txs_to_index.append((transaction['txid'],
+                                     block['block_number'],
+                                     transaction['sender'],
+                                     transaction['recipient']))
+
+            tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+            tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
+            tx_handler.close()
+            break
+
+        except Exception as e:
+            logger.error(f"Failed to index transactions: {e}")
+
+
 if __name__ == "__main__":
     logger = get_logger(file="transactions.log")
     # print(get_account("noob23"))
@@ -283,23 +321,3 @@ if __name__ == "__main__":
             raise
 
     # tx_pool = json.loads(requests.get(f"http://{ip}:{port}/transaction_pool").text, timeout=5)
-
-
-def index_transactions(block, sorted_transactions, logger):
-    while True:
-        try:
-            txs_to_index = []
-            for transaction in sorted_transactions:
-                reflect_transaction(transaction, logger=logger)
-                txs_to_index.append((transaction['txid'],
-                                     block['block_number'],
-                                     transaction['sender'],
-                                     transaction['recipient']))
-
-            tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
-            tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
-            tx_handler.close()
-            break
-
-        except Exception as e:
-            logger.error(f"Failed to index transactions: {e}")
