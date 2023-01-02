@@ -77,14 +77,14 @@ def increase_produced_count(address, amount, revert=False):
         account.update(produced=produced_updated)
 
     acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-    acc_handler.db_execute("UPDATE acc_index SET produced = ? WHERE address = ?", (produced, address,))
+    acc_handler.db_execute("UPDATE acc_index SET produced = ? WHERE address = ?", (produced_updated, address,))
 
     return produced_updated
 
 
 def create_account(address, balance=0, burned=0, produced=0):
     acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-    acc_handler.db_execute("INSERT INTO acc_index VALUES (?,?,?,?)", (address, balance, burned, produced))
+    acc_handler.db_execute("INSERT INTO acc_index VALUES (?,?,?,?)", (address, balance, burned, produced,))
     acc_handler.close()
 
     account = {"address": address,
