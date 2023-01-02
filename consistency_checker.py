@@ -7,12 +7,17 @@ old_block_number = 0
 oks = 0
 
 while block_hash:
-    block = load_block_from_hash(block_hash, logger=logger)
-    block_hash = block["child_hash"]
-    block_number = block["block_number"]
+    try:
+        block = load_block_from_hash(block_hash, logger=logger)
+        block_hash = block["child_hash"]
+        block_number = block["block_number"]
 
-    if block_number == old_block_number + 1:
-        oks += 1
-        old_block_number = block_number
+        if block_number == old_block_number + 1:
+            oks += 1
+            old_block_number = block_number
+    except Exception as e:
+        print(e)
+        print(block_number)
+        break
 
-print(f"consistent blocks: {oks}/{old_block_number}")
+print(f"consistent blocks: {oks}")

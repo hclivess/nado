@@ -238,7 +238,7 @@ def set_latest_block_info(block: dict, logger):
 
             blocks_handler.close()
 
-            return True
+            return block
 
         except Exception as e:
             logger.info(f"Failed to set latest block info to {block['block_hash']}: {e}")
@@ -300,9 +300,13 @@ async def knows_block(target_peer, port, hash, logger):
 
 def update_child_in_latest_block(child_hash, logger, parent):
     """the only method to save block except for creation to avoid read/write collision"""
-    parent["child_hash"] = child_hash
-    save_block(parent, logger=logger)
-    return True
+    while True:
+        try:
+            parent["child_hash"] = child_hash
+            save_block(parent, logger=logger)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update child hash in {parent}: {e}")
 
 
 async def get_blocks_after(target_peer, from_hash, count=50, compress="msgpack"):

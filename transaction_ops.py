@@ -4,13 +4,12 @@ import os
 import time
 
 import msgpack
-import requests
 from tornado.httpclient import AsyncHTTPClient
 import asyncio
 from peer_ops import load_ips
 from compounder import compound_send_transaction
 from Curve25519 import sign, verify
-from account_ops import get_account, reflect_transaction
+from account_ops import get_account
 from address import proof_sender
 from address import validate_address
 from block_ops import get_block_number

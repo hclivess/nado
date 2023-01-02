@@ -23,7 +23,7 @@ def get_account(address, create_on_error=True):
         return None
 
 
-def reflect_transaction(transaction, revert=False):
+def reflect_transaction(transaction, logger, revert=False):
     sender = transaction["sender"]
     recipient = transaction["recipient"]
     amount = transaction["amount"]
@@ -33,15 +33,15 @@ def reflect_transaction(transaction, revert=False):
         is_burn = True
 
     if revert:
-        change_balance(address=sender, amount=amount, is_burn=is_burn)
-        change_balance(address=recipient, amount=-amount)
+        change_balance(address=sender, amount=amount, is_burn=is_burn, logger=logger)
+        change_balance(address=recipient, amount=-amount, logger=logger)
 
     else:
-        change_balance(address=sender, amount=-amount, is_burn=is_burn)
-        change_balance(address=recipient, amount=amount)
+        change_balance(address=sender, amount=-amount, is_burn=is_burn, logger=logger)
+        change_balance(address=recipient, amount=amount, logger=logger)
 
 
-def change_balance(address: str, amount: int, is_burn=False):
+def change_balance(address: str, amount: int, logger, is_burn=False):
     while True:
         try:
             acc = get_account(address)
@@ -57,30 +57,30 @@ def change_balance(address: str, amount: int, is_burn=False):
                                                                                                       acc["burned"],
                                                                                                       address,))
             acc_handler.close()
+            return True
 
         except Exception as e:
-            raise ValueError(f"Failed setting balance for {address}: {e}")
-        break
-    return True
+            logger.error(f"Failed setting balance for {address}: {e}")
 
+def increase_produced_count(address, amount, logger, revert=False):
+    while True:
+        try:
+            account = get_account(address)
+            produced = account["produced"]
+            if revert:
+                produced_updated = produced - amount
+                account.update(produced=produced_updated)
+            else:
+                produced_updated = produced + amount
+                account.update(produced=produced_updated)
 
-def increase_produced_count(address, amount, revert=False):
-    check_traversal(address)
+            acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
+            acc_handler.db_execute("UPDATE acc_index SET produced = ? WHERE address = ?", (produced_updated, address,))
 
-    account = get_account(address)
-    produced = account["produced"]
-    if revert:
-        produced_updated = produced - amount
-        account.update(produced=produced_updated)
-    else:
-        produced_updated = produced + amount
-        account.update(produced=produced_updated)
+            return produced_updated
 
-    acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-    acc_handler.db_execute("UPDATE acc_index SET produced = ? WHERE address = ?", (produced_updated, address,))
-
-    return produced_updated
-
+        except Exception as e:
+            logger.error(f"Failed to validate spending during block production: {e}")
 
 def create_account(address, balance=0, burned=0, produced=0):
     acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")

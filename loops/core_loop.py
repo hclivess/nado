@@ -5,9 +5,7 @@ import time
 import traceback
 from sqlite_ops import DbHandler
 from data_ops import get_home
-from transaction_ops import reflect_transaction
-
-from account_ops import increase_produced_count, change_balance
+from account_ops import increase_produced_count, change_balance, reflect_transaction
 from block_ops import (
     knows_block,
     get_blocks_after,
@@ -334,19 +332,32 @@ class CoreClient(threading.Thread):
                                block_reward=block["block_reward"])
 
     def incorporate_block(self, block):
-        transactions = sort_list_dict(block["block_transactions"])
-        try:
-            txs_to_index = []
-            for transaction in transactions:
-                reflect_transaction(transaction)
-                txs_to_index.append((transaction['txid'],
-                                     block['block_number'],
-                                     transaction['sender'],
-                                     transaction['recipient']))
+        """successful execution mandatory"""
+        while True:
+            try:
+                transactions = sort_list_dict(block["block_transactions"])
+                break
+            except Exception as e:
+                self.logger.error(f"Failed to sort transactions: {e}")
+                raise
 
-            tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
-            tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
-            tx_handler.close()
+        while True:
+            try:
+                txs_to_index = []
+                for transaction in transactions:
+                    reflect_transaction(transaction, logger=self.logger)
+                    txs_to_index.append((transaction['txid'],
+                                         block['block_number'],
+                                         transaction['sender'],
+                                         transaction['recipient']))
+
+                tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+                tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
+                tx_handler.close()
+                break
+
+            except Exception as e:
+                self.logger.error(f"Failed to index transactions: {e}")
 
             update_child_in_latest_block(child_hash=block["block_hash"],
                                          logger=self.logger,
@@ -355,19 +366,19 @@ class CoreClient(threading.Thread):
             save_block(block, self.logger)
 
             change_balance(address=block["block_creator"],
-                           amount=block["block_reward"])
+                           amount=block["block_reward"],
+                           logger=self.logger
+                           )
 
             increase_produced_count(address=block["block_creator"],
-                                    amount=block["block_reward"])
+                                    amount=block["block_reward"],
+                                    logger=self.logger
+                                    )
 
             set_latest_block_info(block=block,
                                   logger=self.logger)
 
-            self.memserver.latest_block = block
 
-        except Exception as e:
-            self.logger.error(f"Failed to incorporate block: {e}")
-            raise
 
     def validate_transactions_in_block(self, block, logger, remote_peer, remote):
         # todo add target_block check (hard fork)
@@ -408,7 +419,12 @@ class CoreClient(threading.Thread):
                 self.logger.warning(f"Producing block")
 
                 if remote and self.memserver.latest_block["block_number"]:
-                    block = self.restructure_remote_block(block)
+                    while True:
+                        try:
+                            block = self.restructure_remote_block(block)
+                            break
+                        except Exception as e:
+                            self.logger.warning(f"Failed to reconstruct block {e}")
 
                 self.validate_transactions_in_block(block=block,
                                                     logger=self.logger,
@@ -424,6 +440,7 @@ class CoreClient(threading.Thread):
                         change_trust(self.consensus, peer=remote_peer, value=-1000)
 
                 self.incorporate_block(block)
+                self.memserver.latest_block = block
 
                 gen_elapsed = get_timestamp_seconds() - gen_start
 
