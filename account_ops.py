@@ -45,22 +45,25 @@ def change_balance(address: str, amount: int, logger, is_burn=False):
     while True:
         try:
             acc = get_account(address)
-            acc["balance"] += amount
-            assert (acc["balance"] >= 0), "Cannot change balance into negative"
+            new_balance = acc["balance"] + amount
+            assert (new_balance >= 0), f"Cannot change balance into negative: {new_balance}"
 
             if is_burn:
-                acc["burned"] -= amount
-                assert (acc["burned"] >= 0), "Cannot change burn into negative"
+                new_burned = acc["burned"] - amount
+                assert (new_burned >= 0), f"Cannot change burn into negative: {new_burned}"
+            else:
+                new_burned = acc["burned"]
 
             acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-            acc_handler.db_execute("UPDATE acc_index SET balance = ?, burned = ? WHERE address = ?", (acc["balance"],
-                                                                                                      acc["burned"],
+            acc_handler.db_execute("UPDATE acc_index SET balance = ?, burned = ? WHERE address = ?", (new_balance,
+                                                                                                      new_burned,
                                                                                                       address,))
             acc_handler.close()
             return True
 
         except Exception as e:
             logger.error(f"Failed setting balance for {address}: {e}")
+
 
 def increase_produced_count(address, amount, logger, revert=False):
     while True:
@@ -81,6 +84,7 @@ def increase_produced_count(address, amount, logger, revert=False):
 
         except Exception as e:
             logger.error(f"Failed to validate spending during block production: {e}")
+
 
 def create_account(address, balance=0, burned=0, produced=0):
     acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
