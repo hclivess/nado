@@ -257,7 +257,8 @@ if __name__ == "__main__":
                                              fee=0,
                                              public_key=public_key,
                                              private_key=private_key,
-                                             timestamp=get_timestamp_seconds())
+                                             timestamp=get_timestamp_seconds(),
+                                             target_block=asyncio.run(get_target_block(target=ip, port=port)))
 
             print(transaction)
             print(validate_transaction(transaction, logger=logger))
