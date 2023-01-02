@@ -30,12 +30,14 @@ async def get_recommneded_fee(target, port):
     result = json.loads(response.body.decode())
     return result['fee']
 
+
 async def get_target_block(target, port):
     http_client = AsyncHTTPClient()
     url = f"http://{target}:{port}/get_latest_block"
     response = await http_client.fetch(url)
     result = json.loads(response.body.decode())
-    return result['block_number']+2
+    return result['block_number'] + 2
+
 
 def get_transaction(txid, logger):
     """return transaction based on txid"""
@@ -64,6 +66,7 @@ def validate_uniqueness(transaction, logger):
         return False
     else:
         return True
+
 
 def validate_transaction(transaction, logger):
     assert isinstance(transaction, dict), "Data structure incomplete"
@@ -95,7 +98,8 @@ def get_transactions_of_account(account, min_block: int, logger):
     acc_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
 
     fetched = acc_handler.db_fetch(
-        "SELECT txid FROM tx_index WHERE (sender = ? OR recipient = ?) AND (block_number >= ? AND block_number <= ?) ORDER BY block_number", (account, account, min_block, max_block,))
+        "SELECT txid FROM tx_index WHERE (sender = ? OR recipient = ?) AND (block_number >= ? AND block_number <= ?) ORDER BY block_number",
+        (account, account, min_block, max_block,))
 
     acc_handler.close()
 
@@ -106,7 +110,6 @@ def get_transactions_of_account(account, min_block: int, logger):
 
     return {f"{min_block}-{max_block}": tx_list}
     # return {batch: tx_list}
-
 
 
 def to_readable_amount(raw_amount: int) -> str:
@@ -241,7 +244,7 @@ if __name__ == "__main__":
 
     config = get_config()
     # ip = config["ip"]
-    ip = "127.0.0.1"
+    # ips = ["127.0.0.1"]
     port = config["port"]
 
     ips = asyncio.run(load_ips(logger=logger,
@@ -258,7 +261,7 @@ if __name__ == "__main__":
                                              public_key=public_key,
                                              private_key=private_key,
                                              timestamp=get_timestamp_seconds(),
-                                             target_block=asyncio.run(get_target_block(target=ip, port=port)))
+                                             target_block=asyncio.run(get_target_block(target=ips[0], port=port)))
 
             print(transaction)
             print(validate_transaction(transaction, logger=logger))

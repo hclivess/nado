@@ -63,6 +63,15 @@ def valid_block_gap(logger, new_block, gap=60):
         return False
 
 
+def match_transactions_target(transaction_list, block_number):
+    matched_txs = []
+
+    for transaction in transaction_list:
+        if transaction["target_block"] == block_number:
+            matched_txs.append(transaction)
+
+    return matched_txs
+
 def get_block_candidate(
         block_producers, block_producers_hash, transaction_pool, logger, event_bus, peer_file_lock, latest_block
 ):
@@ -75,16 +84,21 @@ def get_block_candidate(
         f"Producing block candidate for: {len(block_producers)} block producers won by {best_producer}"
     )
 
+    block_number = latest_block["block_number"] + 1
+
+    targeted_transactions = match_transactions_target(transaction_list=transaction_pool.copy(),
+                                                      block_number=block_number)
+
     block = construct_block(
         block_timestamp=get_timestamp_seconds(),
-        block_number=latest_block["block_number"] + 1,
+        block_number=block_number,
         parent_hash=latest_block["block_hash"],
         block_ip=best_producer,
         creator=load_peer(logger=logger,
                           ip=best_producer,
                           key="peer_address",
                           peer_file_lock=peer_file_lock),
-        transaction_pool=transaction_pool.copy(),
+        transaction_pool=targeted_transactions,
         block_producers_hash=block_producers_hash,
         block_reward=get_block_reward(logger=logger),
     )
