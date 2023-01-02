@@ -432,8 +432,8 @@ class CoreClient(threading.Thread):
                         change_trust(self.consensus, peer=remote_peer, value=-1000)
 
 
-                sorted_transactions = sort_list_dict(block["block_transactions"]
-                self.incorporate_block(block, sorted_transactions=sorted_transactions))
+                sorted_transactions = sort_list_dict(block["block_transactions"])
+                self.incorporate_block(block, sorted_transactions=sorted_transactions)
 
                 self.memserver.latest_block = block
 
