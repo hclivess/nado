@@ -32,13 +32,11 @@ def reflect_transaction(transaction, logger, revert=False):
     if recipient == "burn":
         is_burn = True
 
-    if revert:
-        change_balance(address=sender, amount=amount, is_burn=is_burn, logger=logger)
-        change_balance(address=recipient, amount=-amount, logger=logger)
 
-    else:
-        change_balance(address=sender, amount=-amount, is_burn=is_burn, logger=logger)
-        change_balance(address=recipient, amount=amount, logger=logger)
+    change_balance(address=sender, amount=amount, is_burn=is_burn, logger=logger, revert=revert)
+    change_balance(address=recipient, amount=-amount, logger=logger, revert=revert)
+
+
 
 
 def change_balance(address: str, amount: int, logger, is_burn=False, revert=False):
