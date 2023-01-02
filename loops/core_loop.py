@@ -446,7 +446,7 @@ class CoreClient(threading.Thread):
                 self.logger.warning(f"Production time: {gen_elapsed}")
 
             except Exception as e:
-                self.logger.warning(f"Block production skipped due to {e}")
+                self.logger.warning(f"Block production failed due to {e}")
 
         return block
 
