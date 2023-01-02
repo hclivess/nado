@@ -407,7 +407,7 @@ class CoreClient(threading.Thread):
                 gen_start = get_timestamp_seconds()
                 self.logger.warning(f"Producing block")
 
-                if remote and self.memserver.latest_block["block_number"] > 35000:  # compatibility comparator
+                if remote and self.memserver.latest_block["block_number"]:
                     block = self.restructure_remote_block(block)
 
                 self.validate_transactions_in_block(block=block,
