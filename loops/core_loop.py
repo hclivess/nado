@@ -8,7 +8,6 @@ from sqlite_ops import DbHandler
 from data_ops import get_home
 from transaction_ops import reflect_transaction
 
-
 from account_ops import increase_produced_count, change_balance
 from block_ops import (
     knows_block,
@@ -346,7 +345,6 @@ class CoreClient(threading.Thread):
                                      transaction['sender'],
                                      transaction['recipient']))
 
-
             tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
             tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
             tx_handler.close()
@@ -406,7 +404,7 @@ class CoreClient(threading.Thread):
                 gen_start = get_timestamp_seconds()
                 self.logger.warning(f"Producing block")
 
-                if remote and self.memserver.latest_block["block_number"] > 19000:
+                if remote and self.memserver.latest_block["block_number"] > 25000:  # compatibility comparator
                     block = self.restructure_remote_block(block)
 
                 self.validate_transactions_in_block(block=block,
