@@ -38,6 +38,13 @@ async def get_target_block(target, port):
     result = json.loads(response.body.decode())
     return result['block_number'] + 2
 
+def remove_outdated_transactions(transaction_list, block_number):
+    cleaned = []
+    for transaction in transaction_list:
+        if transaction["target_block"] > block_number:
+            cleaned.append(transaction)
+
+    return cleaned
 
 def get_transaction(txid, logger):
     """return transaction based on txid"""

@@ -1,5 +1,4 @@
 import asyncio
-import signal
 import sys
 import threading
 import time
@@ -371,6 +370,7 @@ class CoreClient(threading.Thread):
             raise
 
     def validate_transactions_in_block(self, block, logger, remote_peer, remote):
+        # todo add target_block check (hard fork)
         transactions = sort_list_dict(block["block_transactions"])
 
         try:

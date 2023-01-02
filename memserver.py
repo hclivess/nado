@@ -12,6 +12,7 @@ from transaction_ops import (
     validate_single_spending,
     validate_transaction,
     sort_transaction_pool,
+    remove_outdated_transactions
 
 )
 
@@ -80,7 +81,8 @@ class MemServer:
 
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:
-            sorted_transaction_pool = sort_transaction_pool(self.transaction_pool)
+            cleaned_transaction_pool = remove_outdated_transactions(self.transaction_pool)
+            sorted_transaction_pool = sort_transaction_pool(cleaned_transaction_pool)
             transaction_pool_hash = blake2b_hash(sorted_transaction_pool)
         else:
             transaction_pool_hash = None
