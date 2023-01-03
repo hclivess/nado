@@ -82,19 +82,22 @@ def check_target_match(transaction_list, block_number, logger):
                 return False
         return True
     except Exception as e:
-        logger.error(f"Error when checking transaction block target: {e}")
+        logger.error(f"Error when checking transaction target block: {e}")
         return False
 
 
-def match_transactions_target(transaction_list, block_number):
-    matched_txs = []
+def match_transactions_target(transaction_list, block_number, logger):
+    try:
+        matched_txs = []
 
-    for transaction in transaction_list:
-        if transaction["target_block"] == block_number:
-            matched_txs.append(transaction)
+        for transaction in transaction_list:
+            if transaction["target_block"] == block_number:
+                matched_txs.append(transaction)
 
-    return matched_txs
-
+        return matched_txs
+    except Exception as e:
+        logger.error(f"Error when matching transactions to target block: {e}")
+        return False
 
 def get_block_candidate(
         block_producers, block_producers_hash, transaction_pool, logger, event_bus, peer_file_lock, latest_block
