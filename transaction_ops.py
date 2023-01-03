@@ -283,7 +283,7 @@ if __name__ == "__main__":
     data = {"data_id": "seek_id", "data_content": "some_actual_content"}
 
     config = get_config()
-    # ip = config["ip"]
+    ip = config["ip"]
     # ips = ["127.0.0.1"]
     port = config["port"]
 
