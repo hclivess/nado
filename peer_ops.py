@@ -217,8 +217,9 @@ def dump_peers(peers, logger):
     """save all peers to drive if new to drive"""
     for peer in peers:
         if not ip_stored(peer) and check_ip(peer):
-            try:
-                status = asyncio.run(get_remote_status(peer, logger=logger))
+            status = asyncio.run(get_remote_status(peer, logger=logger))
+
+            if status:
                 address = status["address"]
 
                 save_peer(
@@ -226,9 +227,8 @@ def dump_peers(peers, logger):
                     port=get_port(),
                     address=address,
                 )
-
-            except Exception as e:
-                logger.error(f"Unable to reach {peer} to get their address: {e}")
+            else:
+                logger.error(f"Unable to reach {peer} to get their address")
 
 
 def get_list_of_peers(fetch_from, port, failed, logger) -> list:
