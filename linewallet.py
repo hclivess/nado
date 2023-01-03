@@ -91,7 +91,7 @@ if __name__ == "__main__":
 
     recommended_fee = asyncio.run(get_recommneded_fee(target=target, port=port))
     recommended_block = asyncio.run(get_target_block(target=target, port=port))
-    print(f"Recommended Target block: {recommended_block}")
+    print(f"Recommended target block: {recommended_block}")
     print(f"Recommended fee: {recommended_fee}")
 
     if args.target:

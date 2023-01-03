@@ -37,7 +37,7 @@ async def get_target_block(target, port):
 def remove_outdated_transactions(transaction_list, block_number):
     cleaned = []
     for transaction in transaction_list:
-        if transaction["target_block"] > block_number:
+        if block_number + 360 < transaction["target_block"] > block_number:
             cleaned.append(transaction)
 
     return cleaned

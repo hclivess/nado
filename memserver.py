@@ -128,6 +128,11 @@ class MemServer:
                        "message": f"Target block too low"}
                 return msg
 
+            elif transaction["target_block"] > self.latest_block["block_number"] + 360:
+                msg = {"result": False,
+                       "message": f"Target block too high"}
+                return msg
+
             elif transaction not in united_pools:
                 try:
                     validate_transaction(transaction, logger=self.logger)
