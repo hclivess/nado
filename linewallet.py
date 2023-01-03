@@ -49,6 +49,7 @@ if __name__ == "__main__":
     parser.add_argument("--amount", help="[number] Amount to send", default=False)
     parser.add_argument("--recipient", help="[NADO address] Recipient address", default=False)
     parser.add_argument("--fee", help="[number] Fee to spend", default=False)
+    parser.add_argument("--target", help="[number] Target block number", default=False)
     args = parser.parse_args()
     if args.sk:
         key_dictionary = from_private_key(args.sk)
@@ -89,9 +90,16 @@ if __name__ == "__main__":
         amount = input("Amount: ")
 
     recommended_fee = asyncio.run(get_recommneded_fee(target=target, port=port))
-    target_block = asyncio.run(get_target_block(target=target, port=port))
-    print(f"Target block: {target_block}")
+    recommended_block = asyncio.run(get_target_block(target=target, port=port))
+    print(f"Recommended Target block: {recommended_block}")
     print(f"Recommended fee: {recommended_fee}")
+
+    if args.target:
+        target_block = args.target
+    else:
+        target_block = input(f"Target block: ")
+    if not target_block:
+        target_block = recommended_block
 
     if args.fee:
         fee = args.fee
