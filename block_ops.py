@@ -6,7 +6,7 @@ import msgpack
 import requests
 from tornado.httpclient import AsyncHTTPClient
 
-from account_ops import get_account_value, change_balance, increase_produced_count
+from account_ops import get_account_value
 from config import get_timestamp_seconds, get_config
 from data_ops import set_and_sort, average, get_home
 from hashing import blake2b_hash_link

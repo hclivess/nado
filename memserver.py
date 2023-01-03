@@ -78,6 +78,8 @@ class MemServer:
         self.max_rollbacks = self.config.get("max_rollbacks") or 10
         self.cascade_limit = self.config.get("cascade_limit") or 1
         self.promiscuous = True if self.config.get("promiscuous") is True else False
+        self.quick_sync = True if self.config.get("quick_sync") is True else False
+
 
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:

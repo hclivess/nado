@@ -416,7 +416,7 @@ class CoreClient(threading.Thread):
                             self.logger.warning(f"Failed to reconstruct block {e}")
 
                 is_old = self.old_block(block)
-                if not is_old:
+                if not is_old or not self.memserver.quick_sync:
                     self.validate_transactions_in_block(block=block,
                                                         logger=self.logger,
                                                         remote_peer=remote_peer,
