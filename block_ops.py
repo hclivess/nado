@@ -69,6 +69,8 @@ def valid_block_timestamp(new_block, old_block):
 
     if get_timestamp_seconds() >= new_timestamp > old_timestamp:
         return True
+    elif new_block["block_number"] < 20000:  # compatibility
+        return True
     else:
         return False
 

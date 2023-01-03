@@ -398,7 +398,7 @@ class CoreClient(threading.Thread):
                 if not valid_block_timestamp(new_block=block,
                                              old_block=self.memserver.latest_block):
                     self.logger.error(f"Invalid block timestamp")
-                    #return
+                    return
 
                 gen_start = get_timestamp_seconds()
                 self.logger.warning(f"Producing block")
