@@ -115,7 +115,8 @@ def get_block_candidate(
     block_number = latest_block["block_number"] + 1
 
     targeted_transactions = match_transactions_target(transaction_list=transaction_pool.copy(),
-                                                      block_number=block_number)
+                                                      block_number=block_number,
+                                                      logger=logger)
 
     block = construct_block(
         block_timestamp=get_timestamp_seconds(),
