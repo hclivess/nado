@@ -75,6 +75,17 @@ def valid_block_timestamp(new_block, old_block):
         return False
 
 
+def check_target_match(transaction_list, block_number, logger):
+    try:
+        for transaction in transaction_list:
+            if transaction["target_block"] != block_number:
+                return False
+        return True
+    except Exception as e:
+        logger.error(f"Error when checking transaction block target: {e}")
+        return False
+
+
 def match_transactions_target(transaction_list, block_number):
     matched_txs = []
 

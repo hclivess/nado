@@ -17,7 +17,8 @@ from block_ops import (
     set_latest_block_info,
     get_block,
     construct_block,
-    valid_block_timestamp
+    valid_block_timestamp,
+    check_target_match
 )
 from config import get_timestamp_seconds
 from data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
@@ -29,7 +30,7 @@ from rollback import rollback_one_block
 from transaction_ops import (
     to_readable_amount,
     validate_transaction,
-    validate_all_spending, index_transactions,
+    validate_all_spending, index_transactions
 )
 
 
@@ -40,7 +41,6 @@ def minority_consensus(majority_hash, sample_hash):
         return True
     else:
         return False
-
 
 class CoreClient(threading.Thread):
     """thread which takes control of basic mode switching, block creation and transaction pools operations"""
@@ -353,8 +353,12 @@ class CoreClient(threading.Thread):
                               logger=self.logger)
 
     def validate_transactions_in_block(self, block, logger, remote_peer, remote):
-        # todo add target_block check, if transaction has target number  (hard fork)
         transactions = sort_list_dict(block["block_transactions"])
+
+        if block["block_number"] > 20000: #compat
+            if not check_target_match(transactions, block["block_number"]):
+                self.logger.error(f"Transactions mismatch target block")
+                raise
 
         try:
             validate_all_spending(transaction_pool=transactions)
