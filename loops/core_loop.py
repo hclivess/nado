@@ -16,7 +16,8 @@ from block_ops import (
     save_block,
     set_latest_block_info,
     get_block,
-    construct_block
+    construct_block,
+    valid_block_timestamp
 )
 from config import get_timestamp_seconds
 from data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
@@ -384,7 +385,7 @@ class CoreClient(threading.Thread):
                     raise
 
     def old_block(self, block):
-        if block["block_timestamp"] < self.memserver.latest_block["block_timestamp"] - 86400:
+        if block["block_timestamp"] < get_timestamp_seconds() - 86400:
             return True
         else:
             return False
@@ -394,6 +395,11 @@ class CoreClient(threading.Thread):
         with self.memserver.buffer_lock:
             try:
                 """preparation start"""
+                if not valid_block_timestamp(new_block=block,
+                                             old_block=self.memserver.latest_block):
+                    self.logger.error(f"Invalid block timestamp")
+                    #return
+
                 gen_start = get_timestamp_seconds()
                 self.logger.warning(f"Producing block")
 
@@ -405,14 +411,15 @@ class CoreClient(threading.Thread):
                         except Exception as e:
                             self.logger.warning(f"Failed to reconstruct block {e}")
 
-                self.validate_transactions_in_block(block=block,
-                                                    logger=self.logger,
-                                                    remote_peer=remote_peer,
-                                                    remote=remote)
+                is_old = self.old_block(block)
+                if not is_old:
+                    self.validate_transactions_in_block(block=block,
+                                                        logger=self.logger,
+                                                        remote_peer=remote_peer,
+                                                        remote=remote)
 
-                if not valid_block_gap(logger=self.logger,
-                                       new_block=block,
-                                       gap=self.memserver.block_time):
+                if not valid_block_gap(old_block=self.memserver.latest_block,
+                                       new_block=block):
 
                     self.logger.info("Block gap too tight")
                     if remote:
@@ -444,6 +451,7 @@ class CoreClient(threading.Thread):
                 self.logger.warning(f"Remote block: {remote} ({remote_peer})")
                 self.logger.warning(f"Block size: {get_byte_size(block)} bytes")
                 self.logger.warning(f"Production time: {gen_elapsed}")
+                self.logger.warning(f"Old block: {is_old}")
 
             except Exception as e:
                 self.logger.warning(f"Block production failed due to {e}")
