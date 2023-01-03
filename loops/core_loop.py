@@ -129,14 +129,6 @@ class CoreClient(threading.Thread):
         except Exception as e:
             self.logger.info(f"Error: {e}")
             raise
-
-    def process_remote_block(self, block_message, remote_peer):
-        """for blocks received by syncing that are not constructed locally"""
-        self.produce_block(block=block_message,
-                           remote=True,
-                           remote_peer=remote_peer)
-
-
     def get_peer_to_sync_from(self, source_pool):
         """peer to synchronize pool when out of sync, critical part
         not based on majority, but on trust matching until majority is achieved, hash pool
@@ -289,7 +281,9 @@ class CoreClient(threading.Thread):
                             if new_blocks:
                                 for block in new_blocks:
                                     if not self.memserver.terminate:
-                                        self.process_remote_block(block, remote_peer=peer)
+                                        self.produce_block(block=block,
+                                                           remote=True,
+                                                           remote_peer=peer)
 
                             else:
                                 self.logger.info(f"No newer blocks found from {peer}")
@@ -393,7 +387,7 @@ class CoreClient(threading.Thread):
             return True
         else:
             return False
-    def produce_block(self, block, remote=False, remote_peer=None) -> dict:
+    def produce_block(self, block, remote=False, remote_peer=None) -> None:
         with self.memserver.buffer_lock:
             try:
                 gen_start = get_timestamp_seconds()
