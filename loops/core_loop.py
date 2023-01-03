@@ -132,9 +132,10 @@ class CoreClient(threading.Thread):
 
     def process_remote_block(self, block_message, remote_peer):
         """for blocks received by syncing that are not constructed locally"""
-        self.memserver.latest_block = self.produce_block(block=block_message,
-                                                         remote=True,
-                                                         remote_peer=remote_peer)
+        self.produce_block(block=block_message,
+                           remote=True,
+                           remote_peer=remote_peer)
+
 
     def get_peer_to_sync_from(self, source_pool):
         """peer to synchronize pool when out of sync, critical part
@@ -356,7 +357,7 @@ class CoreClient(threading.Thread):
                               logger=self.logger)
 
     def validate_transactions_in_block(self, block, logger, remote_peer, remote):
-        # todo add target_block check (hard fork)
+        # todo add target_block check, if transaction has target number  (hard fork)
         transactions = sort_list_dict(block["block_transactions"])
 
         try:
@@ -387,6 +388,11 @@ class CoreClient(threading.Thread):
                         change_trust(self.consensus, peer=remote_peer, value=-1000)
                     raise
 
+    def old_block(self, block):
+        if block["block_timestamp"] < self.memserver.latest_block["block_timestamp"] - 86400:
+            return True
+        else:
+            return False
     def produce_block(self, block, remote=False, remote_peer=None) -> dict:
         with self.memserver.buffer_lock:
             try:
@@ -441,9 +447,6 @@ class CoreClient(threading.Thread):
 
             except Exception as e:
                 self.logger.warning(f"Block production failed due to {e}")
-
-        return block
-
     def init_hashes(self):
         self.memserver.transaction_pool_hash = (
             self.memserver.get_transaction_pool_hash()
