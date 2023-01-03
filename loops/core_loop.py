@@ -129,6 +129,7 @@ class CoreClient(threading.Thread):
         except Exception as e:
             self.logger.info(f"Error: {e}")
             raise
+
     def get_peer_to_sync_from(self, source_pool):
         """peer to synchronize pool when out of sync, critical part
         not based on majority, but on trust matching until majority is achieved, hash pool
@@ -387,9 +388,12 @@ class CoreClient(threading.Thread):
             return True
         else:
             return False
+
     def produce_block(self, block, remote=False, remote_peer=None) -> None:
+        """break up into more functions"""
         with self.memserver.buffer_lock:
             try:
+                """preparation start"""
                 gen_start = get_timestamp_seconds()
                 self.logger.warning(f"Producing block")
 
@@ -415,6 +419,8 @@ class CoreClient(threading.Thread):
                         change_trust(self.consensus, peer=remote_peer, value=-1000)
 
                 sorted_transactions = sort_list_dict(block["block_transactions"])
+                """preparation end"""
+
                 self.incorporate_block(block, sorted_transactions=sorted_transactions)
 
                 self.memserver.latest_block = block
@@ -441,6 +447,7 @@ class CoreClient(threading.Thread):
 
             except Exception as e:
                 self.logger.warning(f"Block production failed due to {e}")
+
     def init_hashes(self):
         self.memserver.transaction_pool_hash = (
             self.memserver.get_transaction_pool_hash()
