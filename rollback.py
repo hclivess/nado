@@ -6,36 +6,31 @@ from transaction_ops import unindex_transactions
 def rollback_one_block(logger, lock, block) -> dict:
     """successful execution mandatory"""
     with lock:
-        while True:
-            try:
-                previous_block = load_block_from_hash(
-                    block_hash=block["parent_hash"], logger=logger
-                )
-                set_latest_block_info(block=previous_block,
-                                      logger=logger)
-                break
-            except Exception as e:
-                logger.error(f"Failed to set to previous block: {e}")
 
-        while True:
-            try:
-                change_balance(
-                    address=block["block_creator"],
-                    amount=block["block_reward"],
-                    revert=True,
-                    logger=logger
-                )
+        previous_block = load_block_from_hash(
+            block_hash=block["parent_hash"], logger=logger)
 
-                increase_produced_count(address=block["block_creator"],
-                                        amount=block["block_reward"],
-                                        revert=True,
-                                        logger=logger
-                                        )
-                break
-            except Exception as e:
-                logger.error(f"Failed to adjust account: {e}")
+        if previous_block:
+            set_latest_block_info(block=previous_block,
+                                  logger=logger)
 
-        unindex_transactions(block)
-        unindex_block(block)
+            change_balance(
+                address=block["block_creator"],
+                amount=block["block_reward"],
+                revert=True,
+                logger=logger
+            )
 
-        return previous_block
+            increase_produced_count(address=block["block_creator"],
+                                    amount=block["block_reward"],
+                                    revert=True,
+                                    logger=logger
+                                    )
+
+            unindex_transactions(block, logger=logger)
+            unindex_block(block, logger=logger)
+
+            return previous_block
+
+        else:
+            return block

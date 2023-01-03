@@ -234,7 +234,7 @@ def create_transaction(sender, recipient, amount, public_key, private_key, times
     return transaction_message
 
 
-def unindex_transactions(block):
+def unindex_transactions(block, logger):
     while True:
         try:
             txs_to_unindex = []

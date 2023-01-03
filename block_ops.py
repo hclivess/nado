@@ -170,6 +170,7 @@ def load_block_from_hash(block_hash: str, logger):
             return msgpack.unpack(infile)
     except Exception as e:
         logger.info(f"Failed to load block {block_hash}: {e}")
+        return False
 
 
 def load_block_producers() -> list:
@@ -220,7 +221,7 @@ def get_latest_block_info(logger):
         logger.info(f"Failed to get latest block info: {e}")
 
 
-def unindex_block(block):
+def unindex_block(block, logger):
     while True:
         try:
             block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")

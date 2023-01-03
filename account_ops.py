@@ -1,4 +1,5 @@
 import os
+import time
 
 import msgpack
 from sqlite_ops import DbHandler
@@ -32,19 +33,16 @@ def reflect_transaction(transaction, logger, revert=False):
     if recipient == "burn":
         is_burn = True
 
-
-    change_balance(address=sender, amount=amount, is_burn=is_burn, logger=logger, revert=revert)
-    change_balance(address=recipient, amount=-amount, logger=logger, revert=revert)
-
-
+    change_balance(address=sender, amount=-amount, is_burn=is_burn, logger=logger, revert=revert)
+    change_balance(address=recipient, amount=amount, is_burn=False, logger=logger, revert=revert)
 
 
 def change_balance(address: str, amount: int, logger, is_burn=False, revert=False):
-    if revert:
-        amount = -amount
-
     while True:
         try:
+            if revert:
+                amount = -amount
+
             acc = get_account(address)
             new_balance = acc["balance"] + amount
             assert (new_balance >= 0), f"Cannot change balance into negative: {new_balance}"
@@ -63,7 +61,8 @@ def change_balance(address: str, amount: int, logger, is_burn=False, revert=Fals
             return True
 
         except Exception as e:
-            logger.error(f"Failed setting balance for {address}: {e}")
+            logger.error(f"Failed setting balance for {address}: {e}, is_burn: {is_burn}, revert: {revert}")
+            time.sleep(1)
 
 
 def increase_produced_count(address, amount, logger, revert=False):
