@@ -91,7 +91,8 @@ def get_block_candidate(
     best_producer = pick_best_producer(block_producers,
                                        logger=logger,
                                        event_bus=event_bus,
-                                       peer_file_lock=peer_file_lock)
+                                       peer_file_lock=peer_file_lock,
+                                       latest_block=latest_block)
 
     logger.info(
         f"Producing block candidate for: {len(block_producers)} block producers won by {best_producer}"
@@ -435,8 +436,7 @@ def get_penalty(producer_address, block_hash, block_number):
     return block_penalty
 
 
-def pick_best_producer(block_producers, logger, event_bus, peer_file_lock):
-    latest_block = get_latest_block_info(logger=logger)
+def pick_best_producer(block_producers, logger, event_bus, peer_file_lock, latest_block):
     block_hash = latest_block["block_hash"]
 
     previous_block_penalty = None
@@ -444,20 +444,25 @@ def pick_best_producer(block_producers, logger, event_bus, peer_file_lock):
 
     penalty_list = {}
     for producer_ip in block_producers:
-        producer_address = load_peer(logger=logger,
-                                     ip=producer_ip,
-                                     key="peer_address",
-                                     peer_file_lock=peer_file_lock)
+        try:
+            producer_address = load_peer(logger=logger,
+                                         ip=producer_ip,
+                                         key="peer_address",
+                                         peer_file_lock=peer_file_lock)
 
-        block_penalty = get_penalty(producer_address=producer_address,
-                                    block_hash=block_hash,
-                                    block_number=latest_block["block_number"])
+            block_penalty = get_penalty(producer_address=producer_address,
+                                        block_hash=block_hash,
+                                        block_number=latest_block["block_number"])
 
-        penalty_list.update({producer_address: block_penalty})
+            penalty_list.update({producer_address: block_penalty})
+        except Exception as e:
+            logger.info(f"Failed to load block producer {producer_ip} from drive: {e}")
+            block_penalty = None
 
-        if not previous_block_penalty or block_penalty <= previous_block_penalty:
-            previous_block_penalty = block_penalty
-            best_producer = producer_ip
+        if block_penalty:
+            if not previous_block_penalty or block_penalty <= previous_block_penalty:
+                previous_block_penalty = block_penalty
+                best_producer = producer_ip
 
     event_bus.emit('penalty-list-update', penalty_list)
 
