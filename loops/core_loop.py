@@ -3,6 +3,7 @@ import sys
 import threading
 import time
 import traceback
+from transaction_ops import remove_outdated_transactions
 
 from account_ops import increase_produced_count, change_balance
 from block_ops import (
@@ -127,7 +128,13 @@ class CoreClient(threading.Thread):
                 else:
                     self.logger.warning("Criteria for block production not met")
 
+            self.memserver.transaction_pool = remove_outdated_transactions(self.memserver.transaction_pool.copy(),
+                                                                           self.memserver.latest_block["block_number"])
+
             self.consensus.refresh_hashes()
+
+
+
         except Exception as e:
             self.logger.info(f"Error: {e}")
             raise
