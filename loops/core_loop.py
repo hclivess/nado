@@ -310,9 +310,12 @@ class CoreClient(threading.Thread):
                             if new_blocks:
                                 for block in new_blocks:
                                     if not self.memserver.terminate:
-                                        self.produce_block(block=block,
-                                                           remote=True,
-                                                           remote_peer=peer)
+                                        uninterrupted = self.produce_block(block=block,
+                                                                           remote=True,
+                                                                           remote_peer=peer)
+                                        if not uninterrupted:
+                                            break
+
 
                             else:
                                 self.logger.info(f"No newer blocks found from {peer}")
@@ -449,7 +452,7 @@ class CoreClient(threading.Thread):
         except Exception as e:
             self.logger.warning(f"Block preparation failed due to: {e}")
 
-    def produce_block(self, block, remote=False, remote_peer=None) -> None:
+    def produce_block(self, block, remote=False, remote_peer=None) -> bool:
         """break up into more functions"""
         with self.memserver.buffer_lock:
             try:
@@ -481,9 +484,12 @@ class CoreClient(threading.Thread):
                 self.logger.warning(f"Block size: {get_byte_size(block)} bytes")
                 self.logger.warning(f"Production time: {gen_elapsed}")
                 self.logger.warning(f"Old block: {is_old}")
+                return True
 
             except Exception as e:
                 self.logger.warning(f"Block production failed due to {e}")
+                return False
+
 
     def init_hashes(self):
         self.memserver.transaction_pool_hash = (
