@@ -284,9 +284,12 @@ if __name__ == "__main__":
 
     config = get_config()
     ip = config["ip"]
-    ips = ["127.0.0.1"]
+    # ips = ["127.0.0.1"]
     port = config["port"]
 
+    ips = asyncio.run(load_ips(logger=logger,
+                               fail_storage=[],
+                               port=port))
 
     for x in range(0, 50000):
         try:
