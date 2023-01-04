@@ -31,7 +31,7 @@ async def get_target_block(target, port):
     url = f"http://{target}:{port}/get_latest_block"
     response = await http_client.fetch(url)
     result = json.loads(response.body.decode())
-    return result['block_number'] + 2
+    return result['block_number'] + 3
 
 
 def remove_outdated_transactions(transaction_list, block_number):
