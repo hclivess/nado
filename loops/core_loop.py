@@ -435,7 +435,7 @@ class CoreClient(threading.Thread):
                 gen_start = get_timestamp_seconds()
                 is_old = self.old_block(block=block)
 
-                prepared_block = self.prepare_block(block, remote=False, remote_peer=None, is_old=is_old)
+                prepared_block = self.prepare_block(block, remote=remote, remote_peer=remote_peer, is_old=is_old)
 
                 self.incorporate_block(block=block, sorted_transactions=prepared_block)
                 self.memserver.latest_block = block
