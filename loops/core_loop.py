@@ -125,11 +125,12 @@ class CoreClient(threading.Thread):
 
                     self.produce_block(block=block_candidate)
 
+                    self.memserver.transaction_pool = remove_outdated_transactions(
+                        self.memserver.transaction_pool.copy(),
+                        self.memserver.latest_block["block_number"])
+
                 else:
                     self.logger.warning("Criteria for block production not met")
-
-            self.memserver.transaction_pool = remove_outdated_transactions(self.memserver.transaction_pool.copy(),
-                                                                           self.memserver.latest_block["block_number"])
 
             self.consensus.refresh_hashes()
 
