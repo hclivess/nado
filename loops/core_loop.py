@@ -42,6 +42,7 @@ def minority_consensus(majority_hash, sample_hash):
     else:
         return False
 
+
 class CoreClient(threading.Thread):
     """thread which takes control of basic mode switching, block creation and transaction pools operations"""
 
@@ -317,7 +318,7 @@ class CoreClient(threading.Thread):
             self.logger.info(f"Error: {e}")
             raise
 
-    def restructure_remote_block(self, block):
+    def rebuild_block(self, block):
         return construct_block(block_timestamp=block["block_timestamp"],
                                block_number=self.memserver.latest_block["block_number"] + 1,
                                parent_hash=self.memserver.latest_block["block_hash"],
@@ -327,7 +328,7 @@ class CoreClient(threading.Thread):
                                block_producers_hash=block["block_producers_hash"],
                                block_reward=block["block_reward"])
 
-    def incorporate_block(self, block, sorted_transactions):
+    def incorporate_block(self, block: dict, sorted_transactions: list):
         """successful execution mandatory"""
 
         index_transactions(block=block,
@@ -355,7 +356,7 @@ class CoreClient(threading.Thread):
     def validate_transactions_in_block(self, block, logger, remote_peer, remote):
         transactions = sort_list_dict(block["block_transactions"])
 
-        if block["block_number"] > 20000: #compat
+        if block["block_number"] > 20000:  # compat
             if not check_target_match(transactions, block["block_number"]):
                 self.logger.error(f"Transactions mismatch target block")
                 raise
@@ -394,46 +395,49 @@ class CoreClient(threading.Thread):
         else:
             return False
 
+    def prepare_block(self, block, remote=False, remote_peer=None, is_old=False) -> list:
+        try:
+            if not valid_block_timestamp(new_block=block,
+                                         old_block=self.memserver.latest_block):
+                raise ValueError(f"Invalid block timestamp")
+
+            self.logger.warning(f"Producing block")
+
+            if remote and self.memserver.latest_block["block_number"]:
+                try:
+                    block = self.rebuild_block(block)
+                except Exception as e:
+                    raise ValueError(f"Failed to reconstruct block {e}")
+
+            if not is_old or not self.memserver.quick_sync:
+                self.validate_transactions_in_block(block=block,
+                                                    logger=self.logger,
+                                                    remote_peer=remote_peer,
+                                                    remote=remote)
+
+            if not valid_block_gap(old_block=self.memserver.latest_block,
+                                   new_block=block):
+
+                self.logger.info("Block gap too tight")
+                if remote:
+                    change_trust(self.consensus, peer=remote_peer, value=-1000)
+
+            sorted_transactions = sort_list_dict(block["block_transactions"])
+            return sorted_transactions
+
+        except Exception as e:
+            self.logger.warning(f"Block preparation failed due to: {e}")
+
     def produce_block(self, block, remote=False, remote_peer=None) -> None:
         """break up into more functions"""
         with self.memserver.buffer_lock:
             try:
-                """preparation start"""
-                if not valid_block_timestamp(new_block=block,
-                                             old_block=self.memserver.latest_block):
-                    self.logger.error(f"Invalid block timestamp")
-                    return
-
                 gen_start = get_timestamp_seconds()
-                self.logger.warning(f"Producing block")
+                is_old = self.old_block(block=block)
 
-                if remote and self.memserver.latest_block["block_number"]:
-                    while True:
-                        try:
-                            block = self.restructure_remote_block(block)
-                            break
-                        except Exception as e:
-                            self.logger.warning(f"Failed to reconstruct block {e}")
+                prepared_block = self.prepare_block(block, remote=False, remote_peer=None, is_old=is_old)
 
-                is_old = self.old_block(block)
-                if not is_old or not self.memserver.quick_sync:
-                    self.validate_transactions_in_block(block=block,
-                                                        logger=self.logger,
-                                                        remote_peer=remote_peer,
-                                                        remote=remote)
-
-                if not valid_block_gap(old_block=self.memserver.latest_block,
-                                       new_block=block):
-
-                    self.logger.info("Block gap too tight")
-                    if remote:
-                        change_trust(self.consensus, peer=remote_peer, value=-1000)
-
-                sorted_transactions = sort_list_dict(block["block_transactions"])
-                """preparation end"""
-
-                self.incorporate_block(block, sorted_transactions=sorted_transactions)
-
+                self.incorporate_block(block=block, sorted_transactions=prepared_block)
                 self.memserver.latest_block = block
 
                 gen_elapsed = get_timestamp_seconds() - gen_start
