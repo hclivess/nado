@@ -262,7 +262,7 @@ class BlockHashPoolHandler(tornado.web.RequestHandler):
 
 class FeeHandler(tornado.web.RequestHandler):
     def fee(self):
-        self.write({"fee": fee_over_blocks(logger=logger)})
+        self.write({"fee": fee_over_blocks(logger=logger) + 1})
 
     async def get(self):
         await asyncio.to_thread(self.fee)
