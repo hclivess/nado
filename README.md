@@ -11,6 +11,7 @@
 
 ## Installation
 ### Linux
+#### Before you start
 Please close your node using [/terminate](http://127.0.0.1/terminate) or **CTRL+C** before shutting down your machine.
 You can also use `wget --delete-after localhost:9173/terminate --timeout 1 -t 1` from anywhere in your environment to force shutdown.
 
@@ -48,6 +49,7 @@ git pull origin main
 from the directory where you have it installed.
 
 ### Windows
+#### Before you start
 When running in window console, please close your node using [/terminate](http://127.0.0.1/terminate) or **CTRL+C**.
 Never use the **X** in the upper right corner to avoid possible database corruption.
 
