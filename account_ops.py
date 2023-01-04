@@ -1,18 +1,22 @@
 import os
+import time
 
 import msgpack
-
+from sqlite_ops import DbHandler
 from data_ops import check_traversal, get_home
 
 
 def get_account(address, create_on_error=True):
     """return all account information if account exists else create it"""
-    check_traversal(address)
-    account_path = f"{get_home()}/accounts/{address}/balance.dat"
+    acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
+    fetched = acc_handler.db_fetch("SELECT * FROM acc_index WHERE address = ?", (address,))
+    acc_handler.close()
 
-    if os.path.exists(account_path):
-        with open(account_path, "rb") as account_file:
-            account = msgpack.unpack(account_file)
+    if fetched:
+        account = {"address": fetched[0][0],
+                   "balance": fetched[0][1],
+                   "produced": fetched[0][2],
+                   "burned": fetched[0][3]}
         return account
     elif create_on_error:
         return create_account(address)
@@ -20,7 +24,7 @@ def get_account(address, create_on_error=True):
         return None
 
 
-def reflect_transaction(transaction, revert=False):
+def reflect_transaction(transaction, logger, revert=False):
     sender = transaction["sender"]
     recipient = transaction["recipient"]
     amount = transaction["amount"]
@@ -29,77 +33,74 @@ def reflect_transaction(transaction, revert=False):
     if recipient == "burn":
         is_burn = True
 
-    if revert:
-        change_balance(address=sender, amount=amount, is_burn=is_burn)
-        change_balance(address=recipient, amount=-amount)
-
-    else:
-        change_balance(address=sender, amount=-amount, is_burn=is_burn)
-        change_balance(address=recipient, amount=amount)
+    change_balance(address=sender, amount=-amount, is_burn=is_burn, logger=logger, revert=revert)
+    change_balance(address=recipient, amount=amount, is_burn=False, logger=logger, revert=revert)
 
 
-def change_balance(address: str, amount: int, is_burn=False):
-    check_traversal(address)
+def change_balance(address: str, amount: int, logger, is_burn=False, revert=False):
     while True:
         try:
-            account_message = get_account(address)
-            account_message["account_balance"] += amount
-            assert (account_message["account_balance"] >= 0), "Cannot change balance into negative"
+            if revert:
+                amount = -amount
+
+            acc = get_account(address)
+            new_balance = acc["balance"] + amount
+            assert (new_balance >= 0), f"Cannot change balance into negative: {new_balance}"
 
             if is_burn:
-                account_message["account_burned"] -= amount
-                assert (account_message["account_burned"] >= 0), "Cannot change burn into negative"
+                new_burned = acc["burned"] - amount
+                assert (new_burned >= 0), f"Cannot change burn into negative: {new_burned}"
+            else:
+                new_burned = acc["burned"]
 
-            with open(f"{get_home()}/accounts/{address}/balance.dat", "wb") as account_file:
-                msgpack.pack(account_message, account_file)
+            acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
+            acc_handler.db_execute("UPDATE acc_index SET balance = ?, burned = ? WHERE address = ?", (new_balance,
+                                                                                                      new_burned,
+                                                                                                      address,))
+            acc_handler.close()
+            return True
+
         except Exception as e:
-            raise ValueError(f"Failed setting balance for {address}: {e}")
-        break
-    return True
+            logger.error(f"Failed setting balance for {address}: {e}, is_burn: {is_burn}, revert: {revert}")
+            time.sleep(1)
 
 
-def increase_produced_count(address, amount, revert=False):
-    check_traversal(address)
+def increase_produced_count(address, amount, logger, revert=False):
+    while True:
+        try:
+            account = get_account(address)
+            produced = account["produced"]
+            if revert:
+                produced_updated = produced - amount
+                account.update(produced=produced_updated)
+            else:
+                produced_updated = produced + amount
+                account.update(produced=produced_updated)
 
-    account_path = f"{get_home()}/accounts/{address}/balance.dat"
-    account = get_account(address)
-    produced = account["account_produced"]
-    if revert:
-        account.update(account_produced=produced - amount)
-    else:
-        account.update(account_produced=produced + amount)
+            acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
+            acc_handler.db_execute("UPDATE acc_index SET produced = ? WHERE address = ?", (produced_updated, address,))
 
-    with open(account_path, "wb") as outfile:
-        msgpack.pack(account, outfile)
+            return produced_updated
 
-    return produced
+        except Exception as e:
+            logger.error(f"Failed to validate spending during block production: {e}")
 
 
 def create_account(address, balance=0, burned=0, produced=0):
-    """create account if it does not exist"""
-    check_traversal(address)
+    acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
+    acc_handler.db_execute("INSERT INTO acc_index VALUES (?,?,?,?)", (address, balance, burned, produced,))
+    acc_handler.close()
 
-    account_path = f"{get_home()}/accounts/{address}/balance.dat"
-    if not os.path.exists(account_path):
-        os.makedirs(f"{get_home()}/accounts/{address}")
+    account = {"address": address,
+               "balance": balance,
+               "produced": produced,
+               "burned": burned,
+               }
 
-        account = {
-            "account_balance": balance,
-            "account_burned": burned,
-            "account_address": address,
-            "account_produced": produced,
-        }
-
-        with open(account_path, "wb") as outfile:
-            msgpack.pack(account, outfile)
-        return account
-    else:
-        return get_account(address)
+    return account
 
 
 def get_account_value(address, key):
-    check_traversal(address)
-
     account = get_account(address)
     value = account[key]
     return value

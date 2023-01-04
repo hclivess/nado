@@ -1,3 +1,4 @@
+import ipaddress
 import asyncio
 import glob
 import json
@@ -120,7 +121,8 @@ async def load_ips(logger, port, fail_storage, minimum=3) -> list:
     candidates_sorted = sort_dict_value(candidates, key="peer_trust")
 
     for entry in candidates_sorted:
-        ip_sorted.append(entry["peer_ip"])
+        ip = entry["peer_ip"]
+        ip_sorted.append(ip)
 
     start = 0
     end = len(peer_files)
@@ -214,9 +216,10 @@ def get_producer_set(producer_set_hash):
 def dump_peers(peers, logger):
     """save all peers to drive if new to drive"""
     for peer in peers:
-        if not ip_stored(peer):
-            try:
-                status = asyncio.run(get_remote_status(peer, logger=logger))
+        if not ip_stored(peer) and check_ip(peer):
+            status = asyncio.run(get_remote_status(peer, logger=logger))
+
+            if status:
                 address = status["address"]
 
                 save_peer(
@@ -224,9 +227,8 @@ def dump_peers(peers, logger):
                     port=get_port(),
                     address=address,
                 )
-
-            except Exception as e:
-                logger.error(f"Unable to reach {peer} to get their address: {e}")
+            else:
+                logger.error(f"Unable to reach {peer} to get their address")
 
 
 def get_list_of_peers(fetch_from, port, failed, logger) -> list:
@@ -294,6 +296,17 @@ def announce_me(targets, port, my_ip, logger, fail_storage) -> None:
                                        fail_storage=fail_storage))
 
 
+def check_ip(ip):
+    try:
+        ipaddress.IPv4Address(ip)
+    except:
+        return False
+    if ip == get_config()["ip"] or ipaddress.ip_address(ip).is_loopback or ip == "0.0.0.0":
+        return False
+    else:
+        return True
+
+
 async def get_public_ip(logger):
     http_client = AsyncHTTPClient()
     urls = ["https://api.ipify.org", "https://ipinfo.io/ip"]
@@ -324,6 +337,26 @@ def update_local_ip(ip, logger, peer_file_lock):
         update_config(new_config)
 
         logger.info(f"Local IP updated to {new_ip}")
+
+
+def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, average_trust, unreachable_list, purge_list, peer_hash, required_hash, promiscuous) -> bool:
+    if average_trust > peer_trust and not promiscuous:
+        """peer trust worse than average"""
+        return False
+    if peer in unreachable_list:
+        """peer assigned to unreachable"""
+        return False
+    if peer in purge_list:
+        """peer about to be assigned to unreachable"""
+        return False
+    if peer_protocol < memserver_protocol:
+        """peer protocol too low"""
+        return False
+    if not peer_hash == required_hash:
+        """hash of the peer not in the currently cascaded one"""
+        return False
+
+    return True
 
 
 if __name__ == "__main__":

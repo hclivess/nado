@@ -18,7 +18,7 @@ def get_logger(max_detail=False, file="log.log"):
     logger = logging.getLogger(__name__)
     logger.propagate = False
     file_handler = RotatingFileHandler(
-        f"{get_home()}/logs/{file}", maxBytes=1000000, backupCount=2, mode="a"
+        f"{get_home()}/logs/{file}", maxBytes=10000000, backupCount=10, mode="a"
     )
     file_handler.setFormatter(logging.Formatter(format))
     logger.addHandler(file_handler)

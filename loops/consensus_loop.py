@@ -2,7 +2,7 @@ import threading
 import time
 import traceback
 
-from block_ops import get_since_last_block, save_block_producers
+from block_ops import save_block_producers
 from config import get_timestamp_seconds
 from peer_ops import (
     load_peer,
@@ -82,9 +82,9 @@ class ConsensusClient(threading.Thread):
             for peer in self.trust_pool.copy().keys():
                 if peer in pool.keys():
                     if pool[peer] == majority_pool:
-                        self.trust_pool[peer] += 1
+                        change_trust(consensus=self, peer=peer, value=100)
                     else:
-                        self.trust_pool[peer] -= 1
+                        change_trust(consensus=self, peer=peer, value=-100)
 
         except Exception as e:
             self.logger.info(f"Failed to update trust: {e}")
@@ -106,7 +106,7 @@ class ConsensusClient(threading.Thread):
     def refresh_hashes(self):
         """make sure our node knows the current state of affairs quickly"""
 
-        self.memserver.since_last_block = get_since_last_block(logger=self.logger)
+        self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
 
         get_from_pool(source="transaction_pool_hash",
                       target=self.transaction_hash_pool,
@@ -171,3 +171,8 @@ class ConsensusClient(threading.Thread):
                 self.logger.error(f"Error in consensus loop: {e} {traceback.print_exc()}")
                 time.sleep(1)
                 # raise  # test
+
+
+def change_trust(consensus, peer, value):
+    if peer in consensus.trust_pool.keys():
+        consensus.trust_pool[peer] += value

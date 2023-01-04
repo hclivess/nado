@@ -1,23 +1,21 @@
-import glob
 import json
-import os
-import time
-
 import msgpack
-import requests
 from tornado.httpclient import AsyncHTTPClient
-
+import asyncio
+from peer_ops import load_ips
+from compounder import compound_send_transaction
 from Curve25519 import sign, verify
 from account_ops import get_account, reflect_transaction
 from address import proof_sender
 from address import validate_address
-from block_ops import load_block_from_hash
+from block_ops import get_block_number
 from config import get_config
 from config import get_timestamp_seconds
 from data_ops import sort_list_dict, get_home
 from hashing import create_nonce, blake2b_hash
 from keys import load_keys
 from log_ops import get_logger
+from sqlite_ops import DbHandler
 
 
 async def get_recommneded_fee(target, port):
@@ -28,18 +26,38 @@ async def get_recommneded_fee(target, port):
     return result['fee']
 
 
+async def get_target_block(target, port):
+    http_client = AsyncHTTPClient()
+    url = f"http://{target}:{port}/get_latest_block"
+    response = await http_client.fetch(url)
+    result = json.loads(response.body.decode())
+    return result['block_number'] + 3
+
+
+def remove_outdated_transactions(transaction_list, block_number):
+    cleaned = []
+    for transaction in transaction_list:
+        if block_number < transaction["target_block"] < block_number + 360:
+            cleaned.append(transaction)
+
+    return cleaned
+
+
 def get_transaction(txid, logger):
     """return transaction based on txid"""
-    transaction_path = f"{get_home()}/transactions/{txid}.dat"
-    if os.path.exists(transaction_path):
-        with open(transaction_path, "r") as file:
-            block_hash = json.load(file)
-            block = load_block_from_hash(block_hash=block_hash, logger=logger)
 
-            for transaction in block["block_transactions"]:
-                if transaction["txid"] == txid:
-                    return transaction
-    else:
+    try:
+        tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+        block_number = tx_handler.db_fetch("SELECT block_number FROM tx_index WHERE txid = ?", (txid,))[0][0]
+        tx_handler.close()
+
+        block = get_block_number(number=block_number)
+
+        for transaction in block["block_transactions"]:
+            if transaction["txid"] == txid:
+                return transaction
+
+    except Exception as e:
         return None
 
 
@@ -52,11 +70,6 @@ def validate_uniqueness(transaction, logger):
         return False
     else:
         return True
-
-
-def incorporate_transaction(transaction, block_hash):
-    reflect_transaction(transaction)
-    index_transaction(transaction, block_hash=block_hash)
 
 
 def validate_transaction(transaction, logger):
@@ -82,145 +95,25 @@ def sort_transaction_pool(transactions: list, key="txid") -> list:
     )
 
 
-def unindex_transaction(transaction, logger):
-    #print("unindex triggered for", transaction)
-    tx_path = f"{get_home()}/transactions/{transaction['txid']}.dat"
+def get_transactions_of_account(account, min_block: int, logger):
+    """rework"""
 
-    sender_address = transaction['sender']
-    sender_index = get_tx_index_number(sender_address)
+    max_block = min_block + 100
+    acc_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
 
-    if tx_index_empty(sender_address):
-        update_tx_index_folder(sender_address, get_tx_index_number(sender_address) - 1)
+    fetched = acc_handler.db_fetch(
+        "SELECT txid FROM tx_index WHERE (sender = ? OR recipient = ?) AND (block_number >= ? AND block_number <= ?) ORDER BY block_number",
+        (account, account, min_block, max_block,))
 
-    sender_path = f"{get_home()}/accounts/{transaction['sender']}/transactions/{sender_index}/{transaction['txid']}.lin"
-    while not os.path.exists(sender_path):
-        sender_index -= 1
-        sender_path = f"{get_home()}/accounts/{transaction['sender']}/transactions/{sender_index}/{transaction['txid']}.lin"
-        if sender_index < 0:
-            logger.error(f"Sender transaction {sender_path} rollback index seeking below zero")
-            break
+    acc_handler.close()
 
-    recipient_address = transaction['recipient']
-    recipient_index = get_tx_index_number(recipient_address)
-
-    if tx_index_empty(recipient_address):
-        update_tx_index_folder(recipient_address, get_tx_index_number(recipient_address) - 1)
-
-    recipient_path = f"{get_home()}/accounts/{transaction['recipient']}/transactions/{recipient_index}/{transaction['txid']}.lin"
-    if sender_path != recipient_path:
-        while not os.path.exists(recipient_path):
-            recipient_index -= 1
-            recipient_path = f"{get_home()}/accounts/{transaction['recipient']}/transactions/{recipient_index}/{transaction['txid']}.lin"
-            if recipient_index < 0:
-                logger.error(f"Recipient transaction {recipient_path} rollback index seeking below zero")
-                break
-
-    while os.path.exists(tx_path):
-        try:
-            os.remove(tx_path)
-        except Exception as e:
-            logger.error(f"Failed to remove tx path {transaction['txid']}: {e}")
-            time.sleep(1)
-
-    while os.path.exists(sender_path):
-        try:
-            os.remove(sender_path)
-        except Exception as e:
-            logger.error(f"Failed to remove sender path {transaction['txid']}: {e}")
-            time.sleep(1)
-
-    if sender_path != recipient_path:
-        while os.path.exists(recipient_path):
-            try:
-                os.remove(recipient_path)
-            except Exception as e:
-                logger.error(f"Failed to remove recipient path {transaction['txid']}: {e}")
-                time.sleep(1)
-
-def get_transactions_of_account(account, logger, batch):
-    if batch == "max":
-        batch = get_tx_index_number(account)
-
-    account_path = f"{get_home()}/accounts/{account}/transactions/{batch}"
-    transaction_files = glob.glob(f"{account_path}/*.lin")
     tx_list = []
+    for txid in fetched:
+        tx_list.append(get_transaction(logger=logger,
+                                       txid=txid[0]))
 
-    for transaction in transaction_files:
-        no_ext_no_path = os.path.basename(os.path.splitext(transaction)[0])
-        tx_data = get_transaction(no_ext_no_path, logger=logger)
-        tx_list.append(tx_data)
-
-    return {batch: tx_list}
-
-
-def update_tx_index_folder(address, number):
-    tx_index = f"{get_home()}/accounts/{address}/index.dat"
-    index = {"index_folder": number}
-    with open(tx_index, "w") as outfile:
-        json.dump(index, outfile)
-
-
-def create_tx_indexer(address):
-    tx_index = f"{get_home()}/accounts/{address}/index.dat"
-    if not os.path.exists(tx_index):
-        index = {"index_folder": 0}
-        with open(tx_index, "w") as outfile:
-            json.dump(index, outfile)
-
-
-def get_tx_index_number(address):
-    tx_index = f"{get_home()}/accounts/{address}/index.dat"
-    with open(tx_index, "r") as infile:
-        index_number = json.load(infile)["index_folder"]
-    return index_number
-
-
-def tx_index_empty(address):
-    index_number = get_tx_index_number(address)
-    transaction_files = glob.glob(f"{get_home()}/accounts/{address}/transactions/{index_number}/*.lin")
-    if len(transaction_files) == 0:
-        os.rmdir(f"{get_home()}/accounts/{address}/transactions/{index_number}")
-        return True
-    else:
-        return False
-
-
-def tx_index_full(address, full=500):
-    index_number = get_tx_index_number(address)
-    transaction_files = glob.glob(f"{get_home()}/accounts/{address}/transactions/{index_number}/*.lin")
-    if len(transaction_files) >= full:
-        return True
-    else:
-        return False
-
-
-def index_transaction(transaction, block_hash):
-    tx_path = f"{get_home()}/transactions/{transaction['txid']}.dat"
-    with open(tx_path, "w") as tx_file:
-        tx_file.write(json.dumps(block_hash))
-
-    sender_address = transaction['sender']
-    create_tx_indexer(sender_address)
-    if tx_index_full(sender_address):
-        update_tx_index_folder(sender_address, get_tx_index_number(sender_address) + 1)
-    index_number = get_tx_index_number(sender_address)
-    sender_path = f"{get_home()}/accounts/{sender_address}/transactions/{index_number}"
-    if not os.path.exists(sender_path):
-        os.makedirs(sender_path)
-    with open(f"{sender_path}/{transaction['txid']}.lin", "w") as tx_file:
-        json.dump("", tx_file)
-
-    recipient_address = transaction['recipient']
-    if recipient_address != sender_address:
-        create_tx_indexer(recipient_address)
-        if tx_index_full(recipient_address):
-            update_tx_index_folder(recipient_address, get_tx_index_number(recipient_address) + 1)
-        index_number = get_tx_index_number(recipient_address)
-        recipient_path = f"{get_home()}/accounts/{recipient_address}/transactions/{index_number}"
-        if not os.path.exists(recipient_path):
-            os.makedirs(recipient_path)
-        with open(f"{recipient_path}/{transaction['txid']}.lin", "w") as tx_file:
-            json.dump("", tx_file)
+    return {f"{min_block}-{max_block}": tx_list}
+    # return {batch: tx_list}
 
 
 def to_readable_amount(raw_amount: int) -> str:
@@ -233,7 +126,7 @@ def to_raw_amount(amount: [int, float]) -> int:
 
 def check_balance(account, amount, fee):
     """for single transaction, check if the fee and the amount spend are allowable"""
-    balance = get_account(account)["account_balance"]
+    balance = get_account(account)["balance"]
     assert (
             balance - amount - fee > 0 <= amount
     ), f"{account} spending more than owned in a single transaction"
@@ -254,7 +147,7 @@ def validate_single_spending(transaction_pool: list, transaction):
 
     sender = transaction["sender"]
 
-    standing_balance = get_account(sender)["account_balance"]
+    standing_balance = get_account(sender)["balance"]
     amount_sum = 0
     fee_sum = 0
 
@@ -279,7 +172,7 @@ def validate_all_spending(transaction_pool: list):
     sender_pool = get_senders(transaction_pool)
 
     for sender in sender_pool:
-        standing_balance = get_account(sender)["account_balance"]
+        standing_balance = get_account(sender)["balance"]
         amount_sum = 0
         fee_sum = 0
 
@@ -319,7 +212,7 @@ def validate_origin(transaction: dict):
     return True
 
 
-def create_transaction(sender, recipient, amount, public_key, private_key, timestamp, data, fee):
+def create_transaction(sender, recipient, amount, public_key, private_key, timestamp, data, fee, target_block):
     """construct transaction, then add txid, then add signature as last"""
     transaction_message = {
         "sender": sender,
@@ -330,6 +223,7 @@ def create_transaction(sender, recipient, amount, public_key, private_key, times
         "nonce": create_nonce(),
         "fee": fee,
         "public_key": public_key,
+        "target_block": target_block
     }
     txid = create_txid(transaction_message)
     transaction_message.update(txid=txid)
@@ -340,15 +234,44 @@ def create_transaction(sender, recipient, amount, public_key, private_key, times
     return transaction_message
 
 
+def unindex_transactions(block, logger):
+    while True:
+        try:
+            txs_to_unindex = []
+            for transaction in block["block_transactions"]:
+                txs_to_unindex.append(transaction["txid"])
+                reflect_transaction(transaction, revert=True, logger=logger)
+
+            tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+            tx_handler.db_executemany("DELETE FROM tx_index WHERE txid = ?", (txs_to_unindex,))
+            tx_handler.close()
+            break
+
+        except Exception as e:
+            logger.error(f"Failed to unindex transactions: {e}")
+
+def index_transactions(block, sorted_transactions, logger):
+    while True:
+        try:
+            txs_to_index = []
+            for transaction in sorted_transactions:
+                reflect_transaction(transaction, logger=logger)
+                txs_to_index.append((transaction['txid'],
+                                     block['block_number'],
+                                     transaction['sender'],
+                                     transaction['recipient']))
+
+            tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+            tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
+            tx_handler.close()
+            break
+
+        except Exception as e:
+            logger.error(f"Failed to index transactions: {e}")
+
+
 if __name__ == "__main__":
     logger = get_logger(file="transactions.log")
-
-    print(
-        get_transaction(
-            "210777f644d43ff694f3d1b2f6412114bd53bf2db726388a1001440d214ff499",
-            logger=logger,
-        )
-    )
     # print(get_account("noob23"))
 
     key_dict = load_keys()
@@ -360,35 +283,41 @@ if __name__ == "__main__":
     data = {"data_id": "seek_id", "data_content": "some_actual_content"}
 
     config = get_config()
-    # ip = config["ip"]
-    ip = "127.0.0.1"
+    ip = config["ip"]
+    # ips = ["127.0.0.1"]
     port = config["port"]
 
-    create_tx_indexer(address)
-    if tx_index_full(address):
-        update_tx_index_folder(address, get_tx_index_number(address) + 1)
-    get_tx_index_number(address)
+    ips = asyncio.run(load_ips(logger=logger,
+                               fail_storage=[],
+                               port=port))
 
     for x in range(0, 50000):
         try:
-            transaction = create_transaction(
-                sender=address,
-                recipient=recipient,
-                amount=amount,
-                data=data,
-                public_key=public_key,
-                timestamp=get_timestamp_seconds(),
-                fee=0,
-                private_key=private_key
-            )
+            transaction = create_transaction(sender=address,
+                                             recipient=recipient,
+                                             amount=to_raw_amount(amount),
+                                             data=data,
+                                             fee=0,
+                                             public_key=public_key,
+                                             private_key=private_key,
+                                             timestamp=get_timestamp_seconds(),
+                                             target_block=asyncio.run(get_target_block(target=ips[0], port=port)))
 
             print(transaction)
             print(validate_transaction(transaction, logger=logger))
 
-            requests.get(f"http://{ip}:{port}/submit_transaction?data={json.dumps(transaction)}", timeout=5)
+            fails = []
+            results = asyncio.run(compound_send_transaction(ips=ips,
+                                                            port=port,
+                                                            fail_storage=fails,
+                                                            logger=logger,
+                                                            transaction=transaction))
+
+            print(f"Submitted to {len(results)} nodes successfully")
 
             # time.sleep(5)
         except Exception as e:
             print(e)
+            raise
 
     # tx_pool = json.loads(requests.get(f"http://{ip}:{port}/transaction_pool").text, timeout=5)

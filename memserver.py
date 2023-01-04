@@ -14,6 +14,7 @@ from transaction_ops import (
     sort_transaction_pool,
 
 )
+
 from versioner import read_version
 
 
@@ -62,17 +63,25 @@ class MemServer:
         self.block_producers = load_block_producers()
 
         self.emergency_mode = False
-        self.min_peers = 2
-        self.peer_limit = self.config.get("peer_limit") or 24
-        self.rollbacks = 0
-        self.max_rollbacks = 10
+
         self.version = read_version()
         self.latest_block = get_latest_block_info(logger=logger)
         self.buffer_limit = 150000
+        self.cascade_depth = 0
+        self.force_sync_ip = None
+        self.rollbacks = 0
+        self.can_mine = False
+
+        self.min_peers = self.config.get("min_peers") or 2
+        self.peer_limit = self.config.get("peer_limit") or 24
+        self.max_rollbacks = self.config.get("max_rollbacks") or 10
+        self.cascade_limit = self.config.get("cascade_limit") or 1
+        self.promiscuous = True if self.config.get("promiscuous") is True else False
+        self.quick_sync = True if self.config.get("quick_sync") is True else False
 
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:
-            sorted_transaction_pool = sort_transaction_pool(self.transaction_pool)
+            sorted_transaction_pool = sort_transaction_pool(self.transaction_pool.copy())
             transaction_pool_hash = blake2b_hash(sorted_transaction_pool)
         else:
             transaction_pool_hash = None
@@ -111,6 +120,16 @@ class MemServer:
             if not get_account(transaction["sender"], create_on_error=False):
                 msg = {"result": False,
                        "message": f"Empty account"}
+                return msg
+
+            elif transaction["target_block"] < self.latest_block["block_number"]:
+                msg = {"result": False,
+                       "message": f"Target block too low"}
+                return msg
+
+            elif transaction["target_block"] > self.latest_block["block_number"] + 360:
+                msg = {"result": False,
+                       "message": f"Target block too high"}
                 return msg
 
             elif transaction not in united_pools:

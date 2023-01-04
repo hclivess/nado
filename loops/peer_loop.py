@@ -3,13 +3,15 @@ import threading
 import time
 import traceback
 
+from loops.consensus_loop import change_trust
 import peer_ops
 from block_ops import save_block_producers
 from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
 from data_ops import set_and_sort
-from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, dump_peers, dump_trust, \
-    get_public_ip, update_local_ip, ip_stored
+from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, dump_peers, dump_trust
+from peer_ops import get_public_ip, update_local_ip, ip_stored, check_ip
+from config import test_self_port
 
 
 class PeerClient(threading.Thread):
@@ -45,19 +47,20 @@ class PeerClient(threading.Thread):
         dump_peers(candidates, logger=self.logger)
 
         for peer in candidates:
-            if peer not in self.memserver.unreachable:
-                if peer not in self.memserver.peers and len(self.memserver.peers) < self.memserver.peer_limit:
-                    self.memserver.peers.append(peer)
+            if check_ip(peer):
+                if peer not in self.memserver.unreachable:
+                    if peer not in self.memserver.peers and len(self.memserver.peers) < self.memserver.peer_limit:
+                        self.memserver.peers.append(peer)
 
-                if peer not in self.memserver.block_producers and ip_stored(peer):
-                    self.memserver.block_producers.append(peer)
-                    self.logger.warning(f"Added {peer} to block producers")
-                    """address is sniffed before block is produced"""
+                    if peer not in self.memserver.block_producers and ip_stored(peer):
+                        self.memserver.block_producers.append(peer)
+                        self.logger.warning(f"Added {peer} to block producers")
+                        """address is sniffed before block is produced"""
 
-                    update_peer(ip=peer,
-                                logger=self.logger,
-                                value=get_timestamp_seconds(),
-                                peer_file_lock=self.memserver.peer_file_lock)
+                        update_peer(ip=peer,
+                                    logger=self.logger,
+                                    value=get_timestamp_seconds(),
+                                    peer_file_lock=self.memserver.peer_file_lock)
 
         self.merge_and_sort_peers()
 
@@ -82,9 +85,7 @@ class PeerClient(threading.Thread):
                 self.memserver.block_producers.remove(entry)
                 # self.logger.warning(f"Removed {entry} from block producers")
 
-            if entry in self.consensus.trust_pool.keys():
-                if self.consensus.trust_pool[entry]:
-                    self.consensus.trust_pool[entry] -= 1000
+            change_trust(consensus=self.consensus, peer=entry, value=-10000)
 
             if entry in self.consensus.status_pool.keys():
                 self.consensus.status_pool.pop(entry)
@@ -149,6 +150,8 @@ class PeerClient(threading.Thread):
                     update_local_ip(ip=asyncio.run(get_public_ip(logger=self.logger)),
                                     logger=self.logger,
                                     peer_file_lock=self.memserver.peer_file_lock)
+
+                    self.memserver.can_mine = test_self_port(self.memserver.ip, self.memserver.port)
 
                 self.consensus.status_pool = asyncio.run(
                     compound_get_status_pool(

@@ -1,5 +1,4 @@
 import asyncio
-import ipaddress
 import json
 import os
 import signal
@@ -14,7 +13,6 @@ import versioner
 from account_ops import get_account
 from block_ops import get_block, fee_over_blocks, get_block_number, get_penalty
 from config import get_config
-from config import test_self_port
 from data_ops import set_and_sort, get_home, allow_async
 from genesis import make_genesis, make_folders
 from keys import keyfile_found, generate_keys, save_keys, load_keys
@@ -24,9 +22,8 @@ from loops.core_loop import CoreClient
 from loops.message_loop import MessageClient
 from loops.peer_loop import PeerClient
 from memserver import MemServer
-from peer_ops import save_peer, get_remote_status, get_producer_set
+from peer_ops import save_peer, get_remote_status, get_producer_set, check_ip
 from transaction_ops import get_transaction, get_transactions_of_account
-
 
 
 def is_port_in_use(port: int) -> bool:
@@ -35,9 +32,8 @@ def is_port_in_use(port: int) -> bool:
 
 
 def handler(signum, frame):
-    logger.info("Terminating..")
+    logger.info(f"Terminating: {signum}: {frame}")
     memserver.terminate = True
-    # tornado.ioloop.IOLoop.current().stop()
     sys.exit(0)
 
 
@@ -165,6 +161,7 @@ class PenaltiesHandler(tornado.web.RequestHandler):
     async def get(self, parameter):
         await asyncio.to_thread(self.penalties)
 
+
 class PenaltyHandler(tornado.web.RequestHandler):
     def penalty(self):
         compress = PenaltyHandler.get_argument(self, "compress", default="none")
@@ -172,8 +169,8 @@ class PenaltyHandler(tornado.web.RequestHandler):
         output = {
             "address": address,
             "penalty": get_penalty(producer_address=address,
-                                     block_hash=memserver.latest_block["block_hash"],
-                                     block_number=memserver.latest_block["block_number"])
+                                   block_hash=memserver.latest_block["block_hash"],
+                                   block_number=memserver.latest_block["block_number"])
         }
 
         self.write(serialize(name="penalty",
@@ -183,6 +180,7 @@ class PenaltyHandler(tornado.web.RequestHandler):
 
     async def get(self, parameter):
         await asyncio.to_thread(self.penalty)
+
 
 class UnreachableHandler(tornado.web.RequestHandler):
     def unreachable(self):
@@ -264,7 +262,7 @@ class BlockHashPoolHandler(tornado.web.RequestHandler):
 
 class FeeHandler(tornado.web.RequestHandler):
     def fee(self):
-        self.write({"fee": fee_over_blocks(logger=logger)})
+        self.write({"fee": fee_over_blocks(logger=logger) + 1})
 
     async def get(self):
         await asyncio.to_thread(self.fee)
@@ -321,6 +319,30 @@ class LogHandler(tornado.web.RequestHandler):
         await asyncio.to_thread(self.log)
 
 
+class ForceSyncHandler(tornado.web.RequestHandler):
+    def force_sync(self):
+        try:
+            forced_ip = ForceSyncHandler.get_argument(self, "ip")
+            server_key = ForceSyncHandler.get_argument(self, "key", default="none")
+
+            client_ip = self.request.remote_ip
+            if server_key == memserver.server_key or client_ip == "127.0.0.1":
+                if client_ip == "127.0.0.1" or check_ip(client_ip):
+                    memserver.force_sync_ip = forced_ip
+                    self.write(f"Synchronization is now forced only from {forced_ip} until majority consensus is reached")
+                else:
+                    self.write(f"Failed to force to sync from {forced_ip}")
+            else:
+                self.write(f"Wrong server key {server_key}")
+
+        except Exception as e:
+            self.set_status(403)
+            self.write(f"Error: {e}")
+
+    async def get(self, parameter):
+        await asyncio.to_thread(self.force_sync)
+
+
 class IpHandler(tornado.web.RequestHandler):
     def log(self):
         compress = IpHandler.get_argument(self, "compress", default="none")
@@ -343,9 +365,11 @@ class TerminateHandler(tornado.web.RequestHandler):
 
             client_ip = self.request.remote_ip
             if client_ip == "127.0.0.1" or server_key == memserver.server_key:
-                memserver.terminate = True
                 self.write("Termination signal sent, node is shutting down...")
+                memserver.terminate = True
                 sys.exit(0)
+            elif server_key != memserver.server_key:
+                self.write("Wrong or missing key for a remote node")
         except Exception as e:
             self.set_status(403)
             self.write(f"Error: {e}")
@@ -384,12 +408,12 @@ class AccountTransactionsHandler(tornado.web.RequestHandler):
     def account_transactions(self):
         try:
             address = AccountTransactionsHandler.get_argument(self, "address", default=memserver.address)
-            batch = AccountTransactionsHandler.get_argument(self, "batch", default="max")
+            min_block = AccountTransactionsHandler.get_argument(self, "min_block", default="0")
             compress = AccountTransactionsHandler.get_argument(self, "compress", default="none")
 
             transaction_data = get_transactions_of_account(account=address,
-                                                           logger=logger,
-                                                           batch=batch)
+                                                           min_block=int(min_block),
+                                                           logger=logger)
 
             if not transaction_data:
                 transaction_data = "Not found"
@@ -606,10 +630,9 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
     def announce(self):
         try:
             peer_ip = AnnouncePeerHandler.get_argument(self, "ip")
-            assert ipaddress.ip_address(peer_ip)
+            if not check_ip(peer_ip):
+                self.write("Invalid IP address")
 
-            if peer_ip == "127.0.0.1" or peer_ip == get_config()["ip"]:
-                self.write("Cannot add home address")
             else:
 
                 if peer_ip in memserver.block_producers and peer_ip in memserver.unreachable.keys():
@@ -687,13 +710,13 @@ async def make_app(port):
             (r"/submit_transaction(.*)", SubmitTransactionHandler),
             (r"/log(.*)", LogHandler),
             (r"/whats_my_ip(.*)", IpHandler),
+            (r"/force_sync(.*)", ForceSyncHandler),
             (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": "static"}),
             (r'/(favicon.ico)', tornado.web.StaticFileHandler, {"path": "graphics"}),
 
         ]
     )
     application.listen(port)
-    logger.warning(f"Able to mine: {test_self_port(memserver.ip, memserver.port)}")
     await asyncio.Event().wait()
 
 
@@ -746,12 +769,15 @@ if __name__ == "__main__":
 
     assert not is_port_in_use(get_config()["port"]), "Port already in use, exiting"
     signal.signal(signal.SIGINT, handler)
+    signal.signal(signal.SIGTERM, handler)
 
     memserver = MemServer(logger=logger)
 
     logger.info(f"NADO version {memserver.version} started")
     logger.info(f"Your address: {memserver.address}")
     logger.info(f"Your IP: {memserver.ip}")
+    logger.info(f"Promiscuity mode: {memserver.promiscuous}")
+    logger.info(f"Cascade depth limit: {memserver.cascade_limit}")
 
     consensus = ConsensusClient(memserver=memserver, logger=logger)
     consensus.start()

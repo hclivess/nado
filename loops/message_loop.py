@@ -16,11 +16,16 @@ class MessageClient(threading.Thread):
         self.peers = peers
 
     def is_all_fine(self):
-        if len(self.memserver.peers) > 10:
-            if self.memserver.latest_block["block_hash"] == self.consensus.majority_block_hash:
-                if self.memserver.since_last_block < self.memserver.block_time:
-                    return True
-        return False
+
+        if len(self.memserver.peers) < 10:
+            return False
+        if self.memserver.latest_block["block_hash"] != self.consensus.majority_block_hash:
+            return False
+        if self.memserver.since_last_block > self.memserver.block_time:
+            return False
+        if not self.memserver.can_mine:
+            return False
+        return True
 
     def run(self) -> None:
         while not self.memserver.terminate:
@@ -38,8 +43,8 @@ class MessageClient(threading.Thread):
                 )
 
                 self.logger.debug(
-                    f"Transaction pool: {len(self.memserver.transaction_pool)} + {len(self.memserver.tx_buffer)} + {len(self.memserver.user_tx_buffer)}")
-                self.logger.debug(f"Active Peers: {len(self.memserver.peers)}")
+                    f"Transactions: {len(self.memserver.transaction_pool)}tp/{len(self.memserver.tx_buffer)}tb/{len(self.memserver.user_tx_buffer)}ub")
+                self.logger.debug(f"Linked Peers: {len(self.memserver.peers)}")
                 self.logger.debug(f"Block Producers: {len(self.memserver.block_producers)}")
                 self.logger.warning(f"Emergency Mode: {self.memserver.emergency_mode}")
 
@@ -47,8 +52,8 @@ class MessageClient(threading.Thread):
                     f"Seconds since last block: {self.memserver.since_last_block}"
                 )
 
-                self.logger.warning(f"Buffer protection: {self.memserver.buffer_lock.locked()}")
                 self.logger.warning(f"Unreachable: {len(self.memserver.unreachable)}")
+                self.logger.warning(f"Forced sync: {self.memserver.force_sync_ip}")
 
                 if self.is_all_fine():
                     self.logger.info(f"=== NODE IS OK! ===")

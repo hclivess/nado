@@ -10,6 +10,6 @@ def make_archive(output_filename, source_dirs):
 
 if __name__ == "__main__":
     source_dirs = ["blocks", "index", "peers", "transactions", "accounts"]
-    output_filename = "archive.7z"
+    output_filename = "nado_archive.7z"
 
     make_archive(output_filename, source_dirs)
