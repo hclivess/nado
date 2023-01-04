@@ -44,6 +44,13 @@ def minority_consensus(majority_hash, sample_hash):
         return False
 
 
+def old_block(block):
+    if block["block_timestamp"] < get_timestamp_seconds() - 86400:
+        return True
+    else:
+        return False
+
+
 class CoreClient(threading.Thread):
     """thread which takes control of basic mode switching, block creation and transaction pools operations"""
 
@@ -338,6 +345,7 @@ class CoreClient(threading.Thread):
             raise
 
     def rebuild_block(self, block):
+        #todo add block size check?
         return construct_block(block_timestamp=block["block_timestamp"],
                                block_number=self.memserver.latest_block["block_number"] + 1,
                                parent_hash=self.memserver.latest_block["block_hash"],
@@ -408,12 +416,6 @@ class CoreClient(threading.Thread):
                         change_trust(self.consensus, peer=remote_peer, value=-1000)
                     raise
 
-    def old_block(self, block):
-        if block["block_timestamp"] < get_timestamp_seconds() - 86400:
-            return True
-        else:
-            return False
-
     def prepare_block(self, block, remote=False, remote_peer=None, is_old=False) -> list:
         try:
             if not valid_block_timestamp(new_block=block,
@@ -452,7 +454,7 @@ class CoreClient(threading.Thread):
         with self.memserver.buffer_lock:
             try:
                 gen_start = get_timestamp_seconds()
-                is_old = self.old_block(block=block)
+                is_old = old_block(block=block)
 
                 prepared_block = self.prepare_block(block, remote=remote, remote_peer=remote_peer, is_old=is_old)
 
