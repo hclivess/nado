@@ -129,6 +129,14 @@ class CoreClient(threading.Thread):
                         self.memserver.transaction_pool.copy(),
                         self.memserver.latest_block["block_number"])
 
+                    self.memserver.tx_buffer = remove_outdated_transactions(
+                        self.memserver.tx_buffer.copy(),
+                        self.memserver.latest_block["block_number"])
+
+                    self.memserver.user_tx_buffer = remove_outdated_transactions(
+                        self.memserver.user_tx_buffer.copy(),
+                        self.memserver.latest_block["block_number"])
+
                 else:
                     self.logger.warning("Criteria for block production not met")
 

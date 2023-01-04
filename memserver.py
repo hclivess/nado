@@ -79,7 +79,6 @@ class MemServer:
         self.promiscuous = True if self.config.get("promiscuous") is True else False
         self.quick_sync = True if self.config.get("quick_sync") is True else False
 
-
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:
             sorted_transaction_pool = sort_transaction_pool(self.transaction_pool.copy())
