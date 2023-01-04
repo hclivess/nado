@@ -37,7 +37,7 @@ async def get_target_block(target, port):
 def remove_outdated_transactions(transaction_list, block_number):
     cleaned = []
     for transaction in transaction_list:
-        if block_number + 360 < transaction["target_block"] > block_number:
+        if block_number < transaction["target_block"] < block_number + 360:
             cleaned.append(transaction)
 
     return cleaned
@@ -284,12 +284,9 @@ if __name__ == "__main__":
 
     config = get_config()
     ip = config["ip"]
-    # ips = ["127.0.0.1"]
+    ips = ["127.0.0.1"]
     port = config["port"]
 
-    ips = asyncio.run(load_ips(logger=logger,
-                               fail_storage=[],
-                               port=port))
 
     for x in range(0, 50000):
         try:
