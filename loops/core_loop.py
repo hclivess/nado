@@ -361,6 +361,7 @@ class CoreClient(threading.Thread):
 
     def incorporate_block(self, block: dict, sorted_transactions: list):
         """successful execution mandatory"""
+        self.logger.warning(f"Producing block")
 
         index_transactions(block=block,
                            sorted_transactions=sorted_transactions,
@@ -420,13 +421,13 @@ class CoreClient(threading.Thread):
                         change_trust(self.consensus, peer=remote_peer, value=-1000)
                     raise
 
-    def prepare_block(self, block, remote=False, remote_peer=None, is_old=False) -> [list, bool]:
+    def prepare_block(self, block, remote=False, remote_peer=None, is_old=False):
         try:
             if not valid_block_timestamp(new_block=block,
                                          old_block=self.memserver.latest_block):
                 raise ValueError(f"Invalid block timestamp")
 
-            self.logger.warning(f"Producing block")
+            self.logger.warning(f"Preparing block")
 
             if remote and self.memserver.latest_block["block_number"]:
                 try:
@@ -452,7 +453,6 @@ class CoreClient(threading.Thread):
 
         except Exception as e:
             self.logger.warning(f"Block preparation failed due to: {e}")
-            return False
 
     def produce_block(self, block, remote=False, remote_peer=None) -> bool:
         """break up into more functions"""
@@ -463,7 +463,7 @@ class CoreClient(threading.Thread):
 
                 prepared_block = self.prepare_block(block, remote=remote, remote_peer=remote_peer, is_old=is_old)
 
-                if prepared_block:
+                if isinstance(prepared_block, list): #todo improve this and returns of the fucntion
                     self.incorporate_block(block=block, sorted_transactions=prepared_block)
                     self.memserver.latest_block = block
 
