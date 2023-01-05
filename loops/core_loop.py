@@ -83,24 +83,22 @@ class CoreClient(threading.Thread):
     def normal_mode(self):
         try:
             self.update_periods()
-
             if self.memserver.period == 0 and self.memserver.user_tx_buffer:
-                """merge user buffer inside 0 period"""
+                """merge user buffer to tx buffer inside 0 period"""
                 buffered = merge_buffer(from_buffer=self.memserver.user_tx_buffer,
                                         to_buffer=self.memserver.tx_buffer,
-                                        limit=self.memserver.buffer_limit,
-                                        block_number=self.memserver.latest_block["block_number"] + 1)
+                                        limit=self.memserver.transaction_buffer_limit,
+                                        block_max=self.memserver.latest_block["block_number"] + 4)
 
                 self.memserver.user_tx_buffer = buffered["from_buffer"]
                 self.memserver.tx_buffer = buffered["to_buffer"]
 
             if self.memserver.period == 1 and self.memserver.tx_buffer:
-                """merge node buffer inside 1 period"""
+                """merge tx buffer to transaction pool inside 1 period"""
                 buffered = merge_buffer(from_buffer=self.memserver.tx_buffer,
                                         to_buffer=self.memserver.transaction_pool,
-                                        limit=self.memserver.buffer_limit,
-                                        block_number=self.memserver.latest_block["block_number"] + 1
-                                        )
+                                        limit=self.memserver.transaction_pool_limit,
+                                        block_max=self.memserver.latest_block["block_number"] + 1)
 
                 self.memserver.tx_buffer = buffered["from_buffer"]
                 self.memserver.transaction_pool = buffered["to_buffer"]

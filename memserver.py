@@ -66,7 +66,8 @@ class MemServer:
 
         self.version = read_version()
         self.latest_block = get_latest_block_info(logger=logger)
-        self.buffer_limit = 150000
+        self.transaction_pool_limit = 150000
+        self.transaction_buffer_limit = 600000
         self.cascade_depth = 0
         self.force_sync_ip = None
         self.rollbacks = 0
