@@ -279,7 +279,6 @@ class CoreClient(threading.Thread):
 
     def emergency_mode(self):
         self.logger.warning("Entering emergency mode")
-        peer = None
         try:
             while self.memserver.emergency_mode and not self.memserver.terminate:
                 peer = self.get_peer_to_sync_from(
@@ -288,61 +287,60 @@ class CoreClient(threading.Thread):
                     self.logger.info("Could not find a suitably trusted peer")
                     time.sleep(1)
                 else:
-                    block_hash = self.memserver.latest_block["block_hash"]
+                    with self.memserver.buffer_lock:
+                        block_hash = self.memserver.latest_block["block_hash"]
+                        known_block = asyncio.run(knows_block(
+                            target_peer=peer,
+                            port=self.memserver.port,
+                            hash=block_hash,
+                            logger=self.logger))
 
-                    known_block = asyncio.run(knows_block(
-                        target_peer=peer,
-                        port=self.memserver.port,
-                        hash=block_hash,
-                        logger=self.logger))
+                        if known_block:
+                            self.logger.info(
+                                f"{peer} knows block {self.memserver.latest_block['block_hash']}"
+                            )
 
-                    if known_block:
-                        self.logger.info(
-                            f"{peer} knows block {self.memserver.latest_block['block_hash']}"
-                        )
+                            try:
+                                new_blocks = asyncio.run(get_blocks_after(
+                                    target_peer=peer,
+                                    from_hash=block_hash,
+                                    count=50,
+                                ))
 
-                        try:
-                            new_blocks = asyncio.run(get_blocks_after(
-                                target_peer=peer,
-                                from_hash=block_hash,
-                                count=50,
-                            ))
-
-                            if new_blocks:
-                                for block in new_blocks:
-                                    if not self.memserver.terminate:
-                                        uninterrupted = self.produce_block(block=block,
-                                                                           remote=True,
-                                                                           remote_peer=peer)
-                                        if not uninterrupted:
-                                            break
+                                if new_blocks:
+                                    for block in new_blocks:
+                                        if not self.memserver.terminate:
+                                            uninterrupted = self.produce_block(block=block,
+                                                                               remote=True,
+                                                                               remote_peer=peer)
+                                            if not uninterrupted:
+                                                break
 
 
-                            else:
-                                self.logger.info(f"No newer blocks found from {peer}")
+                                else:
+                                    self.logger.info(f"No newer blocks found from {peer}")
+                                    break
+
+                            except Exception as e:
+                                change_trust(self.consensus, peer=peer, value=-10000)
+                                self.logger.error(f"Failed to get blocks after {block_hash} from {peer}: {e}")
                                 break
 
-                        except Exception as e:
-                            change_trust(self.consensus, peer=peer, value=-10000)
-                            self.logger.error(f"Failed to get blocks after {block_hash} from {peer}: {e}")
-                            break
-
-                    elif not known_block:
-                        if self.memserver.rollbacks <= self.memserver.max_rollbacks:
-                            with self.memserver.buffer_lock:
+                        elif not known_block:
+                            if self.memserver.rollbacks <= self.memserver.max_rollbacks:
                                 self.memserver.latest_block = rollback_one_block(logger=self.logger,
                                                                                  block=self.memserver.latest_block)
-                            self.memserver.rollbacks += 1
-                            change_trust(self.consensus, peer=peer, value=-100000)
-                        else:
-                            self.logger.error(f"Rollbacks exhausted")
-                            self.memserver.rollbacks = 0
-                            # self.memserver.purge_peers_list.append(peer)
-                            break
+                                self.memserver.rollbacks += 1
+                                change_trust(self.consensus, peer=peer, value=-100000)
+                            else:
+                                self.logger.error(f"Rollbacks exhausted")
+                                self.memserver.rollbacks = 0
+                                # self.memserver.purge_peers_list.append(peer)
+                                break
 
-                    self.logger.info(f"Maximum reached cascade depth: {self.memserver.cascade_depth}")
-                    self.consensus.refresh_hashes()
-                    # self.replace_block_producers(peer=peer)
+                        self.logger.info(f"Maximum reached cascade depth: {self.memserver.cascade_depth}")
+                        self.consensus.refresh_hashes()
+                        # self.replace_block_producers(peer=peer)
 
         except Exception as e:
             self.logger.info(f"Error: {e}")
@@ -423,7 +421,7 @@ class CoreClient(threading.Thread):
 
     def verify_block(self, block, remote=False, remote_peer=None, is_old=False):
         """this function has critical checks and must raise a failure/halt if there is one"""
-        #todo move exceptions lower (as in rollback) and avoid rising here directly
+        # todo move exceptions lower (as in rollback) and avoid rising here directly
         try:
             if not valid_block_timestamp(new_block=block,
                                          old_block=self.memserver.latest_block):
@@ -459,42 +457,41 @@ class CoreClient(threading.Thread):
 
     def produce_block(self, block, remote=False, remote_peer=None) -> bool:
         """This function returns boolean so node can decide whether to continue with sync"""
-        with self.memserver.buffer_lock:
-            try:
-                gen_start = get_timestamp_seconds()
-                is_old = old_block(block=block)
+        try:
+            gen_start = get_timestamp_seconds()
+            is_old = old_block(block=block)
 
-                verified_block = self.verify_block(block, remote=remote, remote_peer=remote_peer, is_old=is_old)
+            verified_block = self.verify_block(block, remote=remote, remote_peer=remote_peer, is_old=is_old)
 
-                self.incorporate_block(block=block, sorted_transactions=verified_block)
-                self.memserver.latest_block = block
+            self.incorporate_block(block=block, sorted_transactions=verified_block)
+            self.memserver.latest_block = block
 
-                gen_elapsed = get_timestamp_seconds() - gen_start
+            gen_elapsed = get_timestamp_seconds() - gen_start
 
-                if self.memserver.ip == block['block_ip'] and self.memserver.address == block['block_creator'] and \
-                        block['block_reward'] > 0:
-                    self.logger.warning(f"$$$ Congratulations! You won! $$$")
+            if self.memserver.ip == block['block_ip'] and self.memserver.address == block['block_creator'] and \
+                    block['block_reward'] > 0:
+                self.logger.warning(f"$$$ Congratulations! You won! $$$")
 
-                self.logger.warning(f"Block hash: {block['block_hash']}")
-                self.logger.warning(f"Block number: {block['block_number']}")
-                self.logger.warning(f"Winner IP: {block['block_ip']}")
-                self.logger.warning(f"Winner address: {block['block_creator']}")
-                self.logger.warning(
-                    f"Block reward: {to_readable_amount(block['block_reward'])}"
-                )
-                self.logger.warning(
-                    f"Transactions in block: {len(block['block_transactions'])}"
-                )
-                self.logger.warning(f"Remote block: {remote} ({remote_peer})")
-                self.logger.warning(f"Block size: {get_byte_size(block)} bytes")
-                self.logger.warning(f"Production time: {gen_elapsed}")
-                self.logger.warning(f"Old block: {is_old}")
-                return True
+            self.logger.warning(f"Block hash: {block['block_hash']}")
+            self.logger.warning(f"Block number: {block['block_number']}")
+            self.logger.warning(f"Winner IP: {block['block_ip']}")
+            self.logger.warning(f"Winner address: {block['block_creator']}")
+            self.logger.warning(
+                f"Block reward: {to_readable_amount(block['block_reward'])}"
+            )
+            self.logger.warning(
+                f"Transactions in block: {len(block['block_transactions'])}"
+            )
+            self.logger.warning(f"Remote block: {remote} ({remote_peer})")
+            self.logger.warning(f"Block size: {get_byte_size(block)} bytes")
+            self.logger.warning(f"Production time: {gen_elapsed}")
+            self.logger.warning(f"Old block: {is_old}")
+            return True
 
-            except Exception as e:
-                self.logger.warning(f"Block production skipped due to: {e}")
-                time.sleep(1)
-                return False
+        except Exception as e:
+            self.logger.warning(f"Block production skipped due to: {e}")
+            time.sleep(1)
+            return False
 
     def init_hashes(self):
         self.memserver.transaction_pool_hash = (
