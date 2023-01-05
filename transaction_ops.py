@@ -309,7 +309,7 @@ if __name__ == "__main__":
                                              public_key=public_key,
                                              private_key=private_key,
                                              timestamp=get_timestamp_seconds(),
-                                             target_block=asyncio.run(get_target_block(target=ips[0], port=port))+20)
+                                             target_block=asyncio.run(get_target_block(target=ips[0], port=port)))
 
             print(transaction)
             print(validate_transaction(transaction, logger=logger))
