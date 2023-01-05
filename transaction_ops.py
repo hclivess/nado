@@ -1,4 +1,6 @@
 import json
+import time
+
 import msgpack
 from tornado.httpclient import AsyncHTTPClient
 import asyncio
@@ -267,7 +269,8 @@ def index_transactions(block, sorted_transactions, logger):
             break
 
         except Exception as e:
-            logger.error(f"Failed to index transactions: {e}")
+            logger.error(f"Failed to index transactions of {block['block_hash']}: {e}")
+            time.sleep(1)
 
 
 if __name__ == "__main__":
