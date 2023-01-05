@@ -387,14 +387,14 @@ class CoreClient(threading.Thread):
         transactions = sort_list_dict(block["block_transactions"])
 
         if block["block_number"] > 20000:  # compat
-            if not check_target_match(transactions, block["block_number"]):
+            if not check_target_match(transactions, block["block_number"], logger=logger):
                 self.logger.error(f"Transactions mismatch target block")
                 raise
 
         try:
             validate_all_spending(transaction_pool=transactions)
         except Exception as e:
-            self.logger.error(f"Failed to validate spending during block production: {e}")
+            self.logger.error(f"Failed to validate spending during block preparation: {e}")
             if remote:
                 change_trust(self.consensus, peer=remote_peer, value=-1000)
             raise
@@ -414,7 +414,7 @@ class CoreClient(threading.Thread):
                 try:
                     validate_transaction(transaction, logger=logger)
                 except Exception as e:
-                    self.logger.error(f"Failed to validate transaction during block production: {e}")
+                    self.logger.error(f"Failed to validate transaction during block preparation: {e}")
                     if remote:
                         change_trust(self.consensus, peer=remote_peer, value=-1000)
                     raise
