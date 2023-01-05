@@ -360,7 +360,7 @@ class CoreClient(threading.Thread):
                                block_reward=block["block_reward"])
 
     def incorporate_block(self, block: dict, sorted_transactions: list):
-        """successful execution mandatory"""
+        """successful execution mandatory, must not raise a failure"""
         self.logger.warning(f"Producing block")
 
         index_transactions(block=block,
@@ -422,7 +422,7 @@ class CoreClient(threading.Thread):
                     raise
 
     def prepare_block(self, block, remote=False, remote_peer=None, is_old=False):
-        """this function must raise a failure"""
+        """this function has critical checks and must raise a failure if there is one"""
         try:
             if not valid_block_timestamp(new_block=block,
                                          old_block=self.memserver.latest_block):
@@ -453,11 +453,10 @@ class CoreClient(threading.Thread):
             return sorted_transactions
 
         except Exception as e:
-            self.logger.warning(f"Block preparation failed due to: {e}")
+            self.logger.error(f"Block preparation failed due to: {e}")
             raise
 
     def produce_block(self, block, remote=False, remote_peer=None) -> bool:
-        """break up into more functions"""
         with self.memserver.buffer_lock:
             try:
                 gen_start = get_timestamp_seconds()
@@ -491,7 +490,7 @@ class CoreClient(threading.Thread):
                 return True
 
             except Exception as e:
-                self.logger.warning(f"Block production failed due to {e}")
+                self.logger.error(f"Block production failed due to {e}")
                 return False
 
 
