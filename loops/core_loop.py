@@ -133,7 +133,9 @@ class CoreClient(threading.Thread):
                                                           latest_block=self.memserver.latest_block
                                                           )
 
-                    self.produce_block(block=block_candidate)
+                    self.produce_block(block=block_candidate,
+                                       remote=False,
+                                       remote_peer=None)
 
                     self.memserver.transaction_pool = remove_outdated_transactions(
                         self.memserver.transaction_pool.copy(),
@@ -419,7 +421,7 @@ class CoreClient(threading.Thread):
                         change_trust(self.consensus, peer=remote_peer, value=-1000)
                     raise
 
-    def verify_block(self, block, remote=False, remote_peer=None, is_old=False):
+    def verify_block(self, block, remote, remote_peer=None, is_old=False):
         """this function has critical checks and must raise a failure/halt if there is one"""
         # todo move exceptions lower (as in rollback) and avoid rising here directly
         try:
@@ -429,7 +431,7 @@ class CoreClient(threading.Thread):
 
             self.logger.warning(f"Preparing block {block['block_hash']}")
 
-            if remote and self.memserver.latest_block["block_number"]:
+            if remote:
                 try:
                     block = self.rebuild_block(block)
                 except Exception as e:
@@ -455,7 +457,7 @@ class CoreClient(threading.Thread):
             self.logger.error(f"Block preparation failed due to: {e}")
             raise
 
-    def produce_block(self, block, remote=False, remote_peer=None) -> bool:
+    def produce_block(self, block, remote, remote_peer) -> bool:
         """This function returns boolean so node can decide whether to continue with sync"""
         try:
             gen_start = get_timestamp_seconds()
