@@ -428,7 +428,7 @@ class CoreClient(threading.Thread):
                                          old_block=self.memserver.latest_block):
                 raise ValueError(f"Invalid block timestamp")
 
-            self.logger.warning(f"Preparing block")
+            self.logger.warning(f"Preparing block {block['block_hash']}")
 
             if remote and self.memserver.latest_block["block_number"]:
                 try:
@@ -457,6 +457,7 @@ class CoreClient(threading.Thread):
             raise
 
     def produce_block(self, block, remote=False, remote_peer=None) -> bool:
+        """This function returns boolean so node can decide whether to continue with sync"""
         with self.memserver.buffer_lock:
             try:
                 gen_start = get_timestamp_seconds()
@@ -490,7 +491,8 @@ class CoreClient(threading.Thread):
                 return True
 
             except Exception as e:
-                self.logger.error(f"Block production failed due to {e}")
+                self.logger.warning(f"Block production skipped due to: {e}")
+                time.sleep(1)
                 return False
 
 

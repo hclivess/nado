@@ -141,6 +141,9 @@ have effect when running in non-promiscuous mode. Value represents depth of hash
 based on trust. For example, there can be 50 nodes in state A, but there is no node with sufficient trust there,
 so the node goes into the second most popular hash pool, let's say 30 nodes in state B and sync from those. 
 
+### Resyncing
+Should you choose to wipe out your database and resync the chain from scratch, you can use the bundled script: `python3.10 purge.py`
+
 ## What does NADO do differently?
 
 In NADO, every user generates new blocks at the same time. This is possible because users are not rewarded for mining
