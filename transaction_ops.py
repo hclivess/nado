@@ -33,7 +33,7 @@ async def get_target_block(target, port):
     url = f"http://{target}:{port}/get_latest_block"
     response = await http_client.fetch(url)
     result = json.loads(response.body.decode())
-    return result['block_number'] + 3
+    return result['block_number'] + 5
 
 
 def remove_outdated_transactions(transaction_list, block_number):
@@ -309,7 +309,7 @@ if __name__ == "__main__":
                                              public_key=public_key,
                                              private_key=private_key,
                                              timestamp=get_timestamp_seconds(),
-                                             target_block=asyncio.run(get_target_block(target=ips[0], port=port)))
+                                             target_block=asyncio.run(get_target_block(target=ips[0], port=port))+20)
 
             print(transaction)
             print(validate_transaction(transaction, logger=logger))
