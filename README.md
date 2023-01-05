@@ -281,4 +281,11 @@ variables related to pools are stored in `consensus_loop.py`
 #### Level I
 Files that end in
 `_ops.py` like `block_ops.py`, `data_ops.py`, `account_ops.py`, `transaction_ops.py` and `peer_ops.py` handle low level 
-operations and are populated with functions, which should be minimalistic both in length and complexity. 
+operations and are populated with functions, which should be minimalistic both in length and complexity.
+
+### Parts of NADO
+
+#### Block production
+There are several phases in which blocks are created. First a block is constructed from data using `construct_block()`. 
+Then this structure is submitted for block production in `produce_block()`, which consists of `prepare_block()` and
+the final `incorporate_block()`.

@@ -349,7 +349,7 @@ class CoreClient(threading.Thread):
             raise
 
     def rebuild_block(self, block):
-        #todo add block size check?
+        # todo add block size check?
         return construct_block(block_timestamp=block["block_timestamp"],
                                block_number=self.memserver.latest_block["block_number"] + 1,
                                parent_hash=self.memserver.latest_block["block_hash"],
@@ -422,7 +422,7 @@ class CoreClient(threading.Thread):
                     raise
 
     def prepare_block(self, block, remote=False, remote_peer=None, is_old=False):
-        """this function has critical checks and must raise a failure if there is one"""
+        """this function has critical checks and must raise a failure/halt if there is one"""
         try:
             if not valid_block_timestamp(new_block=block,
                                          old_block=self.memserver.latest_block):
@@ -494,7 +494,6 @@ class CoreClient(threading.Thread):
                 self.logger.warning(f"Block production skipped due to: {e}")
                 time.sleep(1)
                 return False
-
 
     def init_hashes(self):
         self.memserver.transaction_pool_hash = (
