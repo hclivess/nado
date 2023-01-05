@@ -88,7 +88,8 @@ class CoreClient(threading.Thread):
                 buffered = merge_buffer(from_buffer=self.memserver.user_tx_buffer,
                                         to_buffer=self.memserver.tx_buffer,
                                         limit=self.memserver.transaction_buffer_limit,
-                                        block_max=self.memserver.latest_block["block_number"] + 4)
+                                        block_max=self.memserver.latest_block["block_number"] + 10,
+                                        block_min=self.memserver.latest_block["block_number"])
 
                 self.memserver.user_tx_buffer = buffered["from_buffer"]
                 self.memserver.tx_buffer = buffered["to_buffer"]
@@ -98,7 +99,8 @@ class CoreClient(threading.Thread):
                 buffered = merge_buffer(from_buffer=self.memserver.tx_buffer,
                                         to_buffer=self.memserver.transaction_pool,
                                         limit=self.memserver.transaction_pool_limit,
-                                        block_max=self.memserver.latest_block["block_number"] + 1)
+                                        block_max=self.memserver.latest_block["block_number"] + 1,
+                                        block_min=self.memserver.latest_block["block_number"])
 
                 self.memserver.tx_buffer = buffered["from_buffer"]
                 self.memserver.transaction_pool = buffered["to_buffer"]
