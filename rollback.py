@@ -31,3 +31,5 @@ def rollback_one_block(logger, lock, block) -> dict:
             unindex_block(block, logger=logger)
 
             return previous_block
+        else:
+            logger.error("Failed to load parent block during rollback")
