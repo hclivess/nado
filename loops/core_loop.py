@@ -213,6 +213,7 @@ class CoreClient(threading.Thread):
                             return peer
             else:
                 self.logger.info(f"Ran out of options when picking trusted hash, using the first tested {first_peer}")
+                time.sleep(1)
                 return first_peer
 
         except Exception as e:
