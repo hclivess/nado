@@ -252,6 +252,7 @@ def unindex_transactions(block, logger):
         except Exception as e:
             logger.error(f"Failed to unindex transactions: {e}")
 
+
 def index_transactions(block, sorted_transactions, logger):
     while True:
         try:
@@ -276,6 +277,7 @@ def index_transactions(block, sorted_transactions, logger):
 if __name__ == "__main__":
     logger = get_logger(file="transactions.log")
     # print(get_account("noob23"))
+    LOCAL = True
 
     key_dict = load_keys()
     address = key_dict["address"]
@@ -287,12 +289,15 @@ if __name__ == "__main__":
 
     config = get_config()
     ip = config["ip"]
-    # ips = ["127.0.0.1"]
+
     port = config["port"]
 
-    ips = asyncio.run(load_ips(logger=logger,
-                               fail_storage=[],
-                               port=port))
+    if LOCAL:
+        ips = ["127.0.0.1"]
+    else:
+        ips = asyncio.run(load_ips(logger=logger,
+                                   fail_storage=[],
+                                   port=port))
 
     for x in range(0, 50000):
         try:
