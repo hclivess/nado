@@ -419,7 +419,7 @@ class CoreClient(threading.Thread):
                         change_trust(self.consensus, peer=remote_peer, value=-1000)
                     raise
 
-    def prepare_block(self, block, remote=False, remote_peer=None, is_old=False) -> list:
+    def prepare_block(self, block, remote=False, remote_peer=None, is_old=False) -> [list, bool]:
         try:
             if not valid_block_timestamp(new_block=block,
                                          old_block=self.memserver.latest_block):
@@ -451,6 +451,7 @@ class CoreClient(threading.Thread):
 
         except Exception as e:
             self.logger.warning(f"Block preparation failed due to: {e}")
+            return False
 
     def produce_block(self, block, remote=False, remote_peer=None) -> bool:
         """break up into more functions"""
