@@ -425,10 +425,6 @@ class CoreClient(threading.Thread):
         """this function has critical checks and must raise a failure/halt if there is one"""
         # todo move exceptions lower (as in rollback) and avoid rising here directly
         try:
-            if not valid_block_timestamp(new_block=block,
-                                         old_block=self.memserver.latest_block):
-                raise ValueError(f"Invalid block timestamp")
-
             self.logger.warning(f"Preparing block {block['block_hash']}")
 
             if remote:
@@ -436,6 +432,10 @@ class CoreClient(threading.Thread):
                     block = self.rebuild_block(block)
                 except Exception as e:
                     raise ValueError(f"Failed to reconstruct block {e}")
+
+            if not valid_block_timestamp(new_block=block,
+                                         old_block=self.memserver.latest_block):
+                raise ValueError(f"Invalid block timestamp")
 
             if not is_old or not self.memserver.quick_sync:
                 self.validate_transactions_in_block(block=block,
