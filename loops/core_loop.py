@@ -329,9 +329,9 @@ class CoreClient(threading.Thread):
 
                     elif not known_block:
                         if self.memserver.rollbacks <= self.memserver.max_rollbacks:
-                            self.memserver.latest_block = rollback_one_block(logger=self.logger,
-                                                                             lock=self.memserver.buffer_lock,
-                                                                             block=self.memserver.latest_block)
+                            with self.memserver.buffer_lock:
+                                self.memserver.latest_block = rollback_one_block(logger=self.logger,
+                                                                                 block=self.memserver.latest_block)
                             self.memserver.rollbacks += 1
                             change_trust(self.consensus, peer=peer, value=-100000)
                         else:
