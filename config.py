@@ -64,7 +64,7 @@ def create_config(ip: str, config_path: str = f"{get_home()}/private/config.dat"
         "max_rollbacks": 10,
         "cascade_limit": 1,
         "promiscuous": False,
-        "quick_sync": True
+        "quick_sync": False
     }
 
     if not os.path.exists(config_path):
