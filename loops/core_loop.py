@@ -427,12 +427,6 @@ class CoreClient(threading.Thread):
         try:
             self.logger.warning(f"Preparing block {block['block_hash']}")
 
-            if remote:
-                try:
-                    block = self.rebuild_block(block)
-                except Exception as e:
-                    raise ValueError(f"Failed to reconstruct block {e}")
-
             if not valid_block_timestamp(new_block=block,
                                          old_block=self.memserver.latest_block):
                 raise ValueError(f"Invalid block timestamp")
@@ -462,6 +456,12 @@ class CoreClient(threading.Thread):
         try:
             gen_start = get_timestamp_seconds()
             is_old = old_block(block=block)
+
+            if remote:
+                try:
+                    block = self.rebuild_block(block)
+                except Exception as e:
+                    raise ValueError(f"Failed to reconstruct block {e}")
 
             verified_block = self.verify_block(block, remote=remote, remote_peer=remote_peer, is_old=is_old)
 
