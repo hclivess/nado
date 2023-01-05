@@ -31,6 +31,3 @@ def rollback_one_block(logger, lock, block) -> dict:
             unindex_block(block, logger=logger)
 
             return previous_block
-
-        else:
-            return block
