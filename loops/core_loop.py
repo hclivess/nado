@@ -421,7 +421,7 @@ class CoreClient(threading.Thread):
                         change_trust(self.consensus, peer=remote_peer, value=-1000)
                     raise
 
-    def prepare_block(self, block, remote=False, remote_peer=None, is_old=False):
+    def verify_block(self, block, remote=False, remote_peer=None, is_old=False):
         """this function has critical checks and must raise a failure/halt if there is one"""
         try:
             if not valid_block_timestamp(new_block=block,
@@ -463,9 +463,9 @@ class CoreClient(threading.Thread):
                 gen_start = get_timestamp_seconds()
                 is_old = old_block(block=block)
 
-                prepared_block = self.prepare_block(block, remote=remote, remote_peer=remote_peer, is_old=is_old)
+                verified_block = self.verify_block(block, remote=remote, remote_peer=remote_peer, is_old=is_old)
 
-                self.incorporate_block(block=block, sorted_transactions=prepared_block)
+                self.incorporate_block(block=block, sorted_transactions=verified_block)
                 self.memserver.latest_block = block
 
                 gen_elapsed = get_timestamp_seconds() - gen_start

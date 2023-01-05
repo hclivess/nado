@@ -287,5 +287,5 @@ operations and are populated with functions, which should be minimalistic both i
 
 #### Block production
 There are several phases in which blocks are created. First a block is constructed from data using `construct_block()`. 
-Then this structure is submitted for block production in `produce_block()`, which consists of `prepare_block()` and
-the final `incorporate_block()`.
+Then this structure is submitted for block production in `produce_block()`, which consists of `verify_block()` with 
+`rebuild_block()` for restructuring hashes of remotely received blocks and the final `incorporate_block()`.
