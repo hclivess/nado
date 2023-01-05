@@ -423,6 +423,7 @@ class CoreClient(threading.Thread):
 
     def verify_block(self, block, remote=False, remote_peer=None, is_old=False):
         """this function has critical checks and must raise a failure/halt if there is one"""
+        #todo move exceptions lower (as in rollback) and avoid rising here directly
         try:
             if not valid_block_timestamp(new_block=block,
                                          old_block=self.memserver.latest_block):
