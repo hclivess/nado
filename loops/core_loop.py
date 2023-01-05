@@ -461,30 +461,31 @@ class CoreClient(threading.Thread):
 
                 prepared_block = self.prepare_block(block, remote=remote, remote_peer=remote_peer, is_old=is_old)
 
-                self.incorporate_block(block=block, sorted_transactions=prepared_block)
-                self.memserver.latest_block = block
+                if prepared_block:
+                    self.incorporate_block(block=block, sorted_transactions=prepared_block)
+                    self.memserver.latest_block = block
 
-                gen_elapsed = get_timestamp_seconds() - gen_start
+                    gen_elapsed = get_timestamp_seconds() - gen_start
 
-                if self.memserver.ip == block['block_ip'] and self.memserver.address == block['block_creator'] and \
-                        block['block_reward'] > 0:
-                    self.logger.warning(f"$$$ Congratulations! You won! $$$")
+                    if self.memserver.ip == block['block_ip'] and self.memserver.address == block['block_creator'] and \
+                            block['block_reward'] > 0:
+                        self.logger.warning(f"$$$ Congratulations! You won! $$$")
 
-                self.logger.warning(f"Block hash: {block['block_hash']}")
-                self.logger.warning(f"Block number: {block['block_number']}")
-                self.logger.warning(f"Winner IP: {block['block_ip']}")
-                self.logger.warning(f"Winner address: {block['block_creator']}")
-                self.logger.warning(
-                    f"Block reward: {to_readable_amount(block['block_reward'])}"
-                )
-                self.logger.warning(
-                    f"Transactions in block: {len(block['block_transactions'])}"
-                )
-                self.logger.warning(f"Remote block: {remote} ({remote_peer})")
-                self.logger.warning(f"Block size: {get_byte_size(block)} bytes")
-                self.logger.warning(f"Production time: {gen_elapsed}")
-                self.logger.warning(f"Old block: {is_old}")
-                return True
+                    self.logger.warning(f"Block hash: {block['block_hash']}")
+                    self.logger.warning(f"Block number: {block['block_number']}")
+                    self.logger.warning(f"Winner IP: {block['block_ip']}")
+                    self.logger.warning(f"Winner address: {block['block_creator']}")
+                    self.logger.warning(
+                        f"Block reward: {to_readable_amount(block['block_reward'])}"
+                    )
+                    self.logger.warning(
+                        f"Transactions in block: {len(block['block_transactions'])}"
+                    )
+                    self.logger.warning(f"Remote block: {remote} ({remote_peer})")
+                    self.logger.warning(f"Block size: {get_byte_size(block)} bytes")
+                    self.logger.warning(f"Production time: {gen_elapsed}")
+                    self.logger.warning(f"Old block: {is_old}")
+                    return True
 
             except Exception as e:
                 self.logger.warning(f"Block production failed due to {e}")
