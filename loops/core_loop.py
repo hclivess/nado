@@ -425,7 +425,7 @@ class CoreClient(threading.Thread):
         """this function has critical checks and must raise a failure/halt if there is one"""
         # todo move exceptions lower (as in rollback) and avoid rising here directly
         try:
-            self.logger.warning(f"Preparing block {block['block_hash']}")
+            self.logger.warning(f"Preparing block")
 
             if not valid_block_timestamp(new_block=block,
                                          old_block=self.memserver.latest_block):
