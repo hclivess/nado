@@ -9,15 +9,19 @@ def check_consistency(block_hash, logger):
     old_block_number = 0
     oks = 0
 
-    while block_hash:
-        block = load_block_from_hash(block_hash, logger=logger)
-        block_hash = block["child_hash"]
-        block_number = block["block_number"]
+    try:
+        while block_hash:
+            block = load_block_from_hash(block_hash, logger=logger)
+            block_hash = block["child_hash"]
+            block_number = block["block_number"]
 
-        if block_number == old_block_number + 1:
-            oks += 1
-            old_block_number = block_number
-    return True
+            if block_number == old_block_number + 1:
+                oks += 1
+                old_block_number = block_number
+    except Exception as e:
+        print(e)
+    finally:
+        return oks
 
 
 print(check_consistency(block_hash, logger))
