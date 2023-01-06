@@ -47,7 +47,7 @@ def get_hash_penalty(a: str, b: str, block_number: int):
             score = score + a.count(letters[1])
             score = score + b.count(letters[1])
 
-    return score
+        return score
 
 
 def get_block_reward(logger, blocks_backward=100, reward_cap=5000000000):
