@@ -18,16 +18,25 @@ import difflib
 import math
 
 
-def floatToInt(x):
+def float_to_int(x):
     return math.floor(x * (2 ** 31))
 
 
 def get_hash_penalty(a: str, b: str, block_number: int):
+    assert a and b, "One of the values to hash is empty"
+
     if block_number > 20000:
-        score = floatToInt(difflib.SequenceMatcher(None, a, b).ratio())
+
+        shorter_string = min([a, b], key=len)
+        longer_string = max([a, b], key=len)
+
+        score = 0
+        for letters in enumerate(shorter_string):
+            score = score + longer_string.count(letters[1])
+
+        return score
 
     else:
-        assert a and b, "One of the values to hash is empty"
 
         shorter_string = min([a, b], key=len)
 
