@@ -14,19 +14,30 @@ from keys import load_keys
 from log_ops import get_logger
 from peer_ops import load_peer
 from sqlite_ops import DbHandler
+import difflib
+import math
 
 
-def get_hash_penalty(a: str, b: str):
-    assert a and b, "One of the values to hash is empty"
+def floatToInt(x):
+    return math.floor(x * (2 ** 31))
 
-    shorter_string = min([a, b], key=len)
 
-    score = 0
-    for letters in enumerate(shorter_string):
-        if b[letters[0]] == (letters[1]):
-            score += 1
-        score = score + a.count(letters[1])
-        score = score + b.count(letters[1])
+def get_hash_penalty(a: str, b: str, block_number: int):
+    if block_number > 20000:
+        score = floatToInt(difflib.SequenceMatcher(None, a, b).ratio())
+
+    else:
+        assert a and b, "One of the values to hash is empty"
+
+        shorter_string = min([a, b], key=len)
+
+        score = 0
+        for letters in enumerate(shorter_string):
+            if b[letters[0]] == (letters[1]):
+                score += 1
+            score = score + a.count(letters[1])
+            score = score + b.count(letters[1])
+
     return score
 
 
@@ -98,6 +109,7 @@ def match_transactions_target(transaction_list, block_number, logger):
     except Exception as e:
         logger.error(f"Error when matching transactions to target block: {e}")
         return False
+
 
 def get_block_candidate(
         block_producers, block_producers_hash, transaction_pool, logger, event_bus, peer_file_lock, latest_block
@@ -439,7 +451,7 @@ def get_ip_penalty(producer, logger, blocks_backward=50):
 
 
 def get_penalty(producer_address, block_hash, block_number):
-    hash_penalty = get_hash_penalty(a=producer_address, b=block_hash)
+    hash_penalty = get_hash_penalty(a=producer_address, b=block_hash, block_number=block_number)
     miner_penalty = get_account_value(address=producer_address, key="produced")
     combined_penalty = hash_penalty + miner_penalty
     burn_bonus = get_account_value(producer_address, key="burned")
