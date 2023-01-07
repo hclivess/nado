@@ -477,25 +477,27 @@ def pick_best_producer(block_producers, logger, event_bus, peer_file_lock, lates
 
     penalty_list = {}
     for producer_ip in block_producers:
+        producer_address = None
+
         try:
             producer_address = load_peer(logger=logger,
                                          ip=producer_ip,
                                          key="peer_address",
                                          peer_file_lock=peer_file_lock)
+        except Exception as e:
+            logger.warning(f"{producer_ip} is not stored locally and will be skipped: {e}")
 
+        if producer_address:
             block_penalty = get_penalty(producer_address=producer_address,
                                         block_hash=block_hash,
                                         block_number=latest_block["block_number"])
 
             penalty_list.update({producer_address: block_penalty})
-        except Exception as e:
-            logger.info(f"Failed to load block producer {producer_ip} from drive: {e}")
-            block_penalty = None
 
-        if block_penalty:
-            if not previous_block_penalty or block_penalty <= previous_block_penalty:
-                previous_block_penalty = block_penalty
-                best_producer = producer_ip
+            if block_penalty:
+                if not previous_block_penalty or block_penalty <= previous_block_penalty:
+                    previous_block_penalty = block_penalty
+                    best_producer = producer_ip
 
     event_bus.emit('penalty-list-update', penalty_list)
 
