@@ -23,7 +23,8 @@ def float_to_int(x):
 
 
 def get_hash_penalty(address: str, block_hash: str, block_number: int):
-    assert address and block_hash, "One of the values to hash is empty"
+    if not address or not block_hash:
+        return 1000000000
 
     if block_number > 20000:
         address_mingled = blake2b_hash_link(address, block_hash)
@@ -477,27 +478,21 @@ def pick_best_producer(block_producers, logger, event_bus, peer_file_lock, lates
 
     penalty_list = {}
     for producer_ip in block_producers:
-        producer_address = None
+        producer_address = load_peer(logger=logger,
+                                     ip=producer_ip,
+                                     key="peer_address",
+                                     peer_file_lock=peer_file_lock)
 
-        try:
-            producer_address = load_peer(logger=logger,
-                                         ip=producer_ip,
-                                         key="peer_address",
-                                         peer_file_lock=peer_file_lock)
-        except Exception as e:
-            logger.warning(f"{producer_ip} is not stored locally and will be skipped: {e}")
+        block_penalty = get_penalty(producer_address=producer_address,
+                                    block_hash=block_hash,
+                                    block_number=latest_block["block_number"])
 
-        if producer_address:
-            block_penalty = get_penalty(producer_address=producer_address,
-                                        block_hash=block_hash,
-                                        block_number=latest_block["block_number"])
+        penalty_list.update({producer_address: block_penalty})
 
-            penalty_list.update({producer_address: block_penalty})
-
-            if block_penalty:
-                if not previous_block_penalty or block_penalty <= previous_block_penalty:
-                    previous_block_penalty = block_penalty
-                    best_producer = producer_ip
+        if block_penalty:
+            if not previous_block_penalty or block_penalty <= previous_block_penalty:
+                previous_block_penalty = block_penalty
+                best_producer = producer_ip
 
     event_bus.emit('penalty-list-update', penalty_list)
 
