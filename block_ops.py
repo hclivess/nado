@@ -22,30 +22,27 @@ def float_to_int(x):
     return math.floor(x * (2 ** 31))
 
 
-def get_hash_penalty(a: str, b: str, block_number: int):
-    assert a and b, "One of the values to hash is empty"
+def get_hash_penalty(address: str, block_hash: str, block_number: int):
+    assert address and block_hash, "One of the values to hash is empty"
 
     if block_number > 20000:
-
-        shorter_string = min([a, b], key=len)
-        longer_string = max([a, b], key=len)
-
+        address_mingled = blake2b_hash_link(address, block_hash)
         score = 0
-        for letters in enumerate(shorter_string):
-            score = score + longer_string.count(letters[1])
+        for letters in enumerate(address_mingled):
+            score = score + block_hash.count(letters[1])
 
         return score
 
     else:
 
-        shorter_string = min([a, b], key=len)
+        shorter_string = min([address, block_hash], key=len)
 
         score = 0
         for letters in enumerate(shorter_string):
-            if b[letters[0]] == (letters[1]):
+            if block_hash[letters[0]] == (letters[1]):
                 score += 1
-            score = score + a.count(letters[1])
-            score = score + b.count(letters[1])
+            score = score + address.count(letters[1])
+            score = score + block_hash.count(letters[1])
 
         return score
 
@@ -460,7 +457,7 @@ def get_ip_penalty(producer, logger, blocks_backward=50):
 
 
 def get_penalty(producer_address, block_hash, block_number):
-    hash_penalty = get_hash_penalty(a=producer_address, b=block_hash, block_number=block_number)
+    hash_penalty = get_hash_penalty(address=producer_address, block_hash=block_hash, block_number=block_number)
     miner_penalty = get_account_value(address=producer_address, key="produced")
     combined_penalty = hash_penalty + miner_penalty
     burn_bonus = get_account_value(producer_address, key="burned")

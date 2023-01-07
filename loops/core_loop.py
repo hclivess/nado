@@ -152,10 +152,6 @@ class CoreClient(threading.Thread):
                 else:
                     self.logger.warning("Criteria for block production not met")
 
-            self.consensus.refresh_hashes()
-
-
-
         except Exception as e:
             self.logger.info(f"Error: {e}")
             raise
@@ -341,8 +337,6 @@ class CoreClient(threading.Thread):
                                 break
 
                         self.logger.info(f"Maximum reached cascade depth: {self.memserver.cascade_depth}")
-                        self.consensus.refresh_hashes()
-                        # self.replace_block_producers(peer=peer)
 
         except Exception as e:
             self.logger.info(f"Error: {e}")
@@ -530,6 +524,7 @@ class CoreClient(threading.Thread):
                 else:
                     self.emergency_mode()
 
+                self.consensus.refresh_hashes()
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(self.run_interval)
             except Exception as e:
