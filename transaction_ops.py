@@ -33,7 +33,7 @@ async def get_target_block(target, port):
     url = f"http://{target}:{port}/get_latest_block"
     response = await http_client.fetch(url)
     result = json.loads(response.body.decode())
-    return result['block_number'] + 5
+    return result['block_number'] + 2
 
 
 def remove_outdated_transactions(transaction_list, block_number):
@@ -277,7 +277,7 @@ def index_transactions(block, sorted_transactions, logger):
 if __name__ == "__main__":
     logger = get_logger(file="transactions.log")
     # print(get_account("noob23"))
-    LOCAL = True
+    LOCAL = False
 
     key_dict = load_keys()
     address = key_dict["address"]
