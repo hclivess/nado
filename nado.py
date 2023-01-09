@@ -670,11 +670,15 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
                     if memserver.period == 3:
                         memserver.peer_buffer.append(peer_ip)
                         memserver.peer_buffer = set_and_sort(memserver.peer_buffer)
+                        message = f"Peer {peer_ip} added to peer buffer"
+
                     elif len(memserver.peers) < memserver.peer_limit:
                         memserver.peers.append(peer_ip)
                         memserver.peers = set_and_sort(memserver.peers)
+                        message = f"Peer {peer_ip} added to peer list"
+                    else:
+                        message = f"Peer list is full, {peer_ip} not added"
 
-                    message = f"Peer {peer_ip} added"
                 else:
                     message = f"Peer {peer_ip} is known or invalid"
                 self.write(message)
