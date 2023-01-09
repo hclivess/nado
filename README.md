@@ -141,6 +141,9 @@ have effect when running in non-promiscuous mode. Value represents depth of hash
 based on trust. For example, there can be 50 nodes in state A, but there is no node with sufficient trust there,
 so the node goes into the second most popular hash pool, let's say 30 nodes in state B and sync from those. 
 
+### Resyncing
+Should you choose to wipe out your database and resync the chain from scratch, you can use the bundled script: `python3.10 purge.py`
+
 ## What does NADO do differently?
 
 In NADO, every user generates new blocks at the same time. This is possible because users are not rewarded for mining
@@ -278,4 +281,18 @@ variables related to pools are stored in `consensus_loop.py`
 #### Level I
 Files that end in
 `_ops.py` like `block_ops.py`, `data_ops.py`, `account_ops.py`, `transaction_ops.py` and `peer_ops.py` handle low level 
-operations and are populated with functions, which should be minimalistic both in length and complexity. 
+operations and are populated with functions, which should be minimalistic both in length and complexity.
+
+### Parts of NADO
+
+#### Block production
+There are several phases in which blocks are created. First a block is constructed from data using `construct_block()`. 
+Then this structure is submitted for block production in `produce_block()`, which consists of `verify_block()` with 
+`rebuild_block()` for restructuring hashes of remotely received blocks and the final `incorporate_block()`.
+
+#### Transaction pool flow
+Transaction, aka mempool, is divided into three levels.
+- `user_tx_buffer`: Where users directly submit transactions from wallets
+- `tx_buffer`: Where user buffer and transaction pools of other nodes are moved into
+- `transaction_pool`: The pool which will be incorporated into the block, transaction buffer
+is merged into it before block production. Transaction pools of other nodes are also merged into it.

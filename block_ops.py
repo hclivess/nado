@@ -14,20 +14,35 @@ from keys import load_keys
 from log_ops import get_logger
 from peer_ops import load_peer
 from sqlite_ops import DbHandler
+import difflib
+import math
 
 
-def get_hash_penalty(a: str, b: str):
-    assert a and b, "One of the values to hash is empty"
+def float_to_int(x):
+    return math.floor(x * (2 ** 31))
 
-    shorter_string = min([a, b], key=len)
 
-    score = 0
-    for letters in enumerate(shorter_string):
-        if b[letters[0]] == (letters[1]):
-            score += 1
-        score = score + a.count(letters[1])
-        score = score + b.count(letters[1])
-    return score
+def get_hash_penalty(address: str, block_hash: str, block_number: int):
+    if block_number > 20000:
+        address_mingled = blake2b_hash_link(address, block_hash)
+        score = 0
+        for letters in enumerate(address_mingled):
+            score = score + block_hash.count(letters[1])
+
+        return score
+
+    else:
+
+        shorter_string = min([address, block_hash], key=len)
+
+        score = 0
+        for letters in enumerate(shorter_string):
+            if block_hash[letters[0]] == (letters[1]):
+                score += 1
+            score = score + address.count(letters[1])
+            score = score + block_hash.count(letters[1])
+
+        return score
 
 
 def get_block_reward(logger, blocks_backward=100, reward_cap=5000000000):
@@ -99,6 +114,7 @@ def match_transactions_target(transaction_list, block_number, logger):
         logger.error(f"Error when matching transactions to target block: {e}")
         return False
 
+
 def get_block_candidate(
         block_producers, block_producers_hash, transaction_pool, logger, event_bus, peer_file_lock, latest_block
 ):
@@ -118,15 +134,17 @@ def get_block_candidate(
                                                       block_number=block_number,
                                                       logger=logger)
 
+    creator = load_peer(logger=logger,
+                        ip=best_producer,
+                        key="peer_address",
+                        peer_file_lock=peer_file_lock)
+
     block = construct_block(
         block_timestamp=get_timestamp_seconds(),
         block_number=block_number,
         parent_hash=latest_block["block_hash"],
         block_ip=best_producer,
-        creator=load_peer(logger=logger,
-                          ip=best_producer,
-                          key="peer_address",
-                          peer_file_lock=peer_file_lock),
+        creator=creator,
         transaction_pool=targeted_transactions,
         block_producers_hash=block_producers_hash,
         block_reward=get_block_reward(logger=logger),
@@ -439,7 +457,7 @@ def get_ip_penalty(producer, logger, blocks_backward=50):
 
 
 def get_penalty(producer_address, block_hash, block_number):
-    hash_penalty = get_hash_penalty(a=producer_address, b=block_hash)
+    hash_penalty = get_hash_penalty(address=producer_address, block_hash=block_hash, block_number=block_number)
     miner_penalty = get_account_value(address=producer_address, key="produced")
     combined_penalty = hash_penalty + miner_penalty
     burn_bonus = get_account_value(producer_address, key="burned")
@@ -459,25 +477,21 @@ def pick_best_producer(block_producers, logger, event_bus, peer_file_lock, lates
 
     penalty_list = {}
     for producer_ip in block_producers:
-        try:
-            producer_address = load_peer(logger=logger,
-                                         ip=producer_ip,
-                                         key="peer_address",
-                                         peer_file_lock=peer_file_lock)
-
+        producer_address = load_peer(logger=logger,
+                                     ip=producer_ip,
+                                     key="peer_address",
+                                     peer_file_lock=peer_file_lock)
+        if producer_address:
             block_penalty = get_penalty(producer_address=producer_address,
                                         block_hash=block_hash,
                                         block_number=latest_block["block_number"])
 
             penalty_list.update({producer_address: block_penalty})
-        except Exception as e:
-            logger.info(f"Failed to load block producer {producer_ip} from drive: {e}")
-            block_penalty = None
 
-        if block_penalty:
-            if not previous_block_penalty or block_penalty <= previous_block_penalty:
-                previous_block_penalty = block_penalty
-                best_producer = producer_ip
+            if block_penalty:
+                if not previous_block_penalty or block_penalty <= previous_block_penalty:
+                    previous_block_penalty = block_penalty
+                    best_producer = producer_ip
 
     event_bus.emit('penalty-list-update', penalty_list)
 

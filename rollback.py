@@ -1,16 +1,17 @@
+import time
+
 from account_ops import change_balance, increase_produced_count
 from block_ops import load_block_from_hash, set_latest_block_info, unindex_block
 from transaction_ops import unindex_transactions
 
 
-def rollback_one_block(logger, lock, block) -> dict:
+def rollback_one_block(logger, block) -> dict:
     """successful execution mandatory"""
-    with lock:
+    while True:
+        try:
+            previous_block = load_block_from_hash(
+                block_hash=block["parent_hash"], logger=logger)
 
-        previous_block = load_block_from_hash(
-            block_hash=block["parent_hash"], logger=logger)
-
-        if previous_block:
             set_latest_block_info(block=previous_block,
                                   logger=logger)
 
@@ -30,7 +31,10 @@ def rollback_one_block(logger, lock, block) -> dict:
             unindex_transactions(block, logger=logger)
             unindex_block(block, logger=logger)
 
+            logger.info(f"Rolled back {block['block_hash']} successfully")
+
             return previous_block
 
-        else:
-            return block
+        except Exception as e:
+            logger.error(f"Retrying rollback due to: {e}")
+            time.sleep(1)

@@ -34,7 +34,6 @@ from transaction_ops import (
     validate_all_spending, index_transactions
 )
 
-
 def minority_consensus(majority_hash, sample_hash):
     if not majority_hash:
         return False
@@ -83,24 +82,24 @@ class CoreClient(threading.Thread):
     def normal_mode(self):
         try:
             self.update_periods()
-
             if self.memserver.period == 0 and self.memserver.user_tx_buffer:
-                """merge user buffer inside 0 period"""
+                """merge user buffer to tx buffer inside 0 period"""
                 buffered = merge_buffer(from_buffer=self.memserver.user_tx_buffer,
                                         to_buffer=self.memserver.tx_buffer,
-                                        limit=self.memserver.buffer_limit,
-                                        block_number=self.memserver.latest_block["block_number"] + 1)
+                                        limit=self.memserver.transaction_buffer_limit,
+                                        block_max=self.memserver.latest_block["block_number"] + 25,
+                                        block_min=self.memserver.latest_block["block_number"])
 
                 self.memserver.user_tx_buffer = buffered["from_buffer"]
                 self.memserver.tx_buffer = buffered["to_buffer"]
 
             if self.memserver.period == 1 and self.memserver.tx_buffer:
-                """merge node buffer inside 1 period"""
+                """merge tx buffer to transaction pool inside 1 period"""
                 buffered = merge_buffer(from_buffer=self.memserver.tx_buffer,
                                         to_buffer=self.memserver.transaction_pool,
-                                        limit=self.memserver.buffer_limit,
-                                        block_number=self.memserver.latest_block["block_number"] + 1
-                                        )
+                                        limit=self.memserver.transaction_pool_limit,
+                                        block_max=self.memserver.latest_block["block_number"] + 1,
+                                        block_min=self.memserver.latest_block["block_number"])
 
                 self.memserver.tx_buffer = buffered["from_buffer"]
                 self.memserver.transaction_pool = buffered["to_buffer"]
@@ -133,7 +132,9 @@ class CoreClient(threading.Thread):
                                                           latest_block=self.memserver.latest_block
                                                           )
 
-                    self.produce_block(block=block_candidate)
+                    self.produce_block(block=block_candidate,
+                                       remote=False,
+                                       remote_peer=None)
 
                     self.memserver.transaction_pool = remove_outdated_transactions(
                         self.memserver.transaction_pool.copy(),
@@ -149,10 +150,6 @@ class CoreClient(threading.Thread):
 
                 else:
                     self.logger.warning("Criteria for block production not met")
-
-            self.consensus.refresh_hashes()
-
-
 
         except Exception as e:
             self.logger.info(f"Error: {e}")
@@ -213,6 +210,7 @@ class CoreClient(threading.Thread):
                             return peer
             else:
                 self.logger.info(f"Ran out of options when picking trusted hash, using the first tested {first_peer}")
+                time.sleep(1)
                 return first_peer
 
         except Exception as e:
@@ -278,7 +276,6 @@ class CoreClient(threading.Thread):
 
     def emergency_mode(self):
         self.logger.warning("Entering emergency mode")
-        peer = None
         try:
             while self.memserver.emergency_mode and not self.memserver.terminate:
                 peer = self.get_peer_to_sync_from(
@@ -287,68 +284,65 @@ class CoreClient(threading.Thread):
                     self.logger.info("Could not find a suitably trusted peer")
                     time.sleep(1)
                 else:
-                    block_hash = self.memserver.latest_block["block_hash"]
+                    with self.memserver.buffer_lock:
+                        block_hash = self.memserver.latest_block["block_hash"]
+                        known_block = asyncio.run(knows_block(
+                            target_peer=peer,
+                            port=self.memserver.port,
+                            hash=block_hash,
+                            logger=self.logger))
 
-                    known_block = asyncio.run(knows_block(
-                        target_peer=peer,
-                        port=self.memserver.port,
-                        hash=block_hash,
-                        logger=self.logger))
+                        if known_block:
+                            self.logger.info(
+                                f"{peer} knows block {self.memserver.latest_block['block_hash']}"
+                            )
 
-                    if known_block:
-                        self.logger.info(
-                            f"{peer} knows block {self.memserver.latest_block['block_hash']}"
-                        )
+                            try:
+                                new_blocks = asyncio.run(get_blocks_after(
+                                    target_peer=peer,
+                                    from_hash=block_hash,
+                                    count=50,
+                                ))
 
-                        try:
-                            new_blocks = asyncio.run(get_blocks_after(
-                                target_peer=peer,
-                                from_hash=block_hash,
-                                count=50,
-                            ))
-
-                            if new_blocks:
-                                for block in new_blocks:
-                                    if not self.memserver.terminate:
-                                        uninterrupted = self.produce_block(block=block,
-                                                                           remote=True,
-                                                                           remote_peer=peer)
-                                        if not uninterrupted:
-                                            break
+                                if new_blocks:
+                                    for block in new_blocks:
+                                        if not self.memserver.terminate:
+                                            uninterrupted = self.produce_block(block=block,
+                                                                               remote=True,
+                                                                               remote_peer=peer)
+                                            if not uninterrupted:
+                                                break
 
 
-                            else:
-                                self.logger.info(f"No newer blocks found from {peer}")
+                                else:
+                                    self.logger.info(f"No newer blocks found from {peer}")
+                                    break
+
+                            except Exception as e:
+                                change_trust(self.consensus, peer=peer, value=-10000)
+                                self.logger.error(f"Failed to get blocks after {block_hash} from {peer}: {e}")
                                 break
 
-                        except Exception as e:
-                            change_trust(self.consensus, peer=peer, value=-10000)
-                            self.logger.error(f"Failed to get blocks after {block_hash} from {peer}: {e}")
-                            break
+                        elif not known_block:
+                            if self.memserver.rollbacks <= self.memserver.max_rollbacks:
+                                self.memserver.latest_block = rollback_one_block(logger=self.logger,
+                                                                                 block=self.memserver.latest_block)
+                                self.memserver.rollbacks += 1
+                                change_trust(self.consensus, peer=peer, value=-100000)
+                            else:
+                                self.logger.error(f"Rollbacks exhausted")
+                                self.memserver.rollbacks = 0
+                                # self.memserver.purge_peers_list.append(peer)
+                                break
 
-                    elif not known_block:
-                        if self.memserver.rollbacks <= self.memserver.max_rollbacks:
-                            self.memserver.latest_block = rollback_one_block(logger=self.logger,
-                                                                             lock=self.memserver.buffer_lock,
-                                                                             block=self.memserver.latest_block)
-                            self.memserver.rollbacks += 1
-                            change_trust(self.consensus, peer=peer, value=-100000)
-                        else:
-                            self.logger.error(f"Rollbacks exhausted")
-                            self.memserver.rollbacks = 0
-                            # self.memserver.purge_peers_list.append(peer)
-                            break
-
-                    self.logger.info(f"Maximum reached cascade depth: {self.memserver.cascade_depth}")
-                    self.consensus.refresh_hashes()
-                    # self.replace_block_producers(peer=peer)
+                        self.logger.info(f"Maximum reached cascade depth: {self.memserver.cascade_depth}")
 
         except Exception as e:
             self.logger.info(f"Error: {e}")
             raise
 
     def rebuild_block(self, block):
-        #todo add block size check?
+        # todo add block size check?
         return construct_block(block_timestamp=block["block_timestamp"],
                                block_number=self.memserver.latest_block["block_number"] + 1,
                                parent_hash=self.memserver.latest_block["block_hash"],
@@ -359,7 +353,8 @@ class CoreClient(threading.Thread):
                                block_reward=block["block_reward"])
 
     def incorporate_block(self, block: dict, sorted_transactions: list):
-        """successful execution mandatory"""
+        """successful execution mandatory, must not raise a failure"""
+        self.logger.warning(f"Producing block")
 
         index_transactions(block=block,
                            sorted_transactions=sorted_transactions,
@@ -387,14 +382,14 @@ class CoreClient(threading.Thread):
         transactions = sort_list_dict(block["block_transactions"])
 
         if block["block_number"] > 20000:  # compat
-            if not check_target_match(transactions, block["block_number"]):
+            if not check_target_match(transactions, block["block_number"], logger=logger):
                 self.logger.error(f"Transactions mismatch target block")
                 raise
 
         try:
             validate_all_spending(transaction_pool=transactions)
         except Exception as e:
-            self.logger.error(f"Failed to validate spending during block production: {e}")
+            self.logger.error(f"Failed to validate spending during block preparation: {e}")
             if remote:
                 change_trust(self.consensus, peer=remote_peer, value=-1000)
             raise
@@ -414,24 +409,20 @@ class CoreClient(threading.Thread):
                 try:
                     validate_transaction(transaction, logger=logger)
                 except Exception as e:
-                    self.logger.error(f"Failed to validate transaction during block production: {e}")
+                    self.logger.error(f"Failed to validate transaction during block preparation: {e}")
                     if remote:
                         change_trust(self.consensus, peer=remote_peer, value=-1000)
                     raise
 
-    def prepare_block(self, block, remote=False, remote_peer=None, is_old=False) -> list:
+    def verify_block(self, block, remote, remote_peer=None, is_old=False):
+        """this function has critical checks and must raise a failure/halt if there is one"""
+        # todo move exceptions lower (as in rollback) and avoid rising here directly
         try:
+            self.logger.warning(f"Preparing block")
+
             if not valid_block_timestamp(new_block=block,
                                          old_block=self.memserver.latest_block):
                 raise ValueError(f"Invalid block timestamp")
-
-            self.logger.warning(f"Producing block")
-
-            if remote and self.memserver.latest_block["block_number"]:
-                try:
-                    block = self.rebuild_block(block)
-                except Exception as e:
-                    raise ValueError(f"Failed to reconstruct block {e}")
 
             if not is_old or not self.memserver.quick_sync:
                 self.validate_transactions_in_block(block=block,
@@ -450,46 +441,52 @@ class CoreClient(threading.Thread):
             return sorted_transactions
 
         except Exception as e:
-            self.logger.warning(f"Block preparation failed due to: {e}")
+            self.logger.error(f"Block preparation failed due to: {e}")
+            raise
 
-    def produce_block(self, block, remote=False, remote_peer=None) -> bool:
-        """break up into more functions"""
-        with self.memserver.buffer_lock:
-            try:
-                gen_start = get_timestamp_seconds()
-                is_old = old_block(block=block)
+    def produce_block(self, block, remote, remote_peer) -> bool:
+        """This function returns boolean so node can decide whether to continue with sync"""
+        try:
+            gen_start = get_timestamp_seconds()
+            is_old = old_block(block=block)
 
-                prepared_block = self.prepare_block(block, remote=remote, remote_peer=remote_peer, is_old=is_old)
+            if remote:
+                try:
+                    block = self.rebuild_block(block)
+                except Exception as e:
+                    raise ValueError(f"Failed to reconstruct block {e}")
 
-                self.incorporate_block(block=block, sorted_transactions=prepared_block)
-                self.memserver.latest_block = block
+            verified_block = self.verify_block(block, remote=remote, remote_peer=remote_peer, is_old=is_old)
 
-                gen_elapsed = get_timestamp_seconds() - gen_start
+            self.incorporate_block(block=block, sorted_transactions=verified_block)
+            self.memserver.latest_block = block
 
-                if self.memserver.ip == block['block_ip'] and self.memserver.address == block['block_creator'] and \
-                        block['block_reward'] > 0:
-                    self.logger.warning(f"$$$ Congratulations! You won! $$$")
+            gen_elapsed = get_timestamp_seconds() - gen_start
 
-                self.logger.warning(f"Block hash: {block['block_hash']}")
-                self.logger.warning(f"Block number: {block['block_number']}")
-                self.logger.warning(f"Winner IP: {block['block_ip']}")
-                self.logger.warning(f"Winner address: {block['block_creator']}")
-                self.logger.warning(
-                    f"Block reward: {to_readable_amount(block['block_reward'])}"
-                )
-                self.logger.warning(
-                    f"Transactions in block: {len(block['block_transactions'])}"
-                )
-                self.logger.warning(f"Remote block: {remote} ({remote_peer})")
-                self.logger.warning(f"Block size: {get_byte_size(block)} bytes")
-                self.logger.warning(f"Production time: {gen_elapsed}")
-                self.logger.warning(f"Old block: {is_old}")
-                return True
+            if self.memserver.ip == block['block_ip'] and self.memserver.address == block['block_creator'] and \
+                    block['block_reward'] > 0:
+                self.logger.warning(f"$$$ Congratulations! You won! $$$")
 
-            except Exception as e:
-                self.logger.warning(f"Block production failed due to {e}")
-                return False
+            self.logger.warning(f"Block hash: {block['block_hash']}")
+            self.logger.warning(f"Block number: {block['block_number']}")
+            self.logger.warning(f"Winner IP: {block['block_ip']}")
+            self.logger.warning(f"Winner address: {block['block_creator']}")
+            self.logger.warning(
+                f"Block reward: {to_readable_amount(block['block_reward'])}"
+            )
+            self.logger.warning(
+                f"Transactions in block: {len(block['block_transactions'])}"
+            )
+            self.logger.warning(f"Remote block: {remote} ({remote_peer})")
+            self.logger.warning(f"Block size: {get_byte_size(block)} bytes")
+            self.logger.warning(f"Production time: {gen_elapsed}")
+            self.logger.warning(f"Old block: {is_old}")
+            return True
 
+        except Exception as e:
+            self.logger.warning(f"Block production skipped due to: {e}")
+            time.sleep(1)
+            return False
 
     def init_hashes(self):
         self.memserver.transaction_pool_hash = (
@@ -526,6 +523,7 @@ class CoreClient(threading.Thread):
                 else:
                     self.emergency_mode()
 
+                self.consensus.refresh_hashes()
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(self.run_interval)
             except Exception as e:

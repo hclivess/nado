@@ -1,4 +1,6 @@
 import json
+import time
+
 import msgpack
 from tornado.httpclient import AsyncHTTPClient
 import asyncio
@@ -31,7 +33,7 @@ async def get_target_block(target, port):
     url = f"http://{target}:{port}/get_latest_block"
     response = await http_client.fetch(url)
     result = json.loads(response.body.decode())
-    return result['block_number'] + 3
+    return result['block_number'] + 2
 
 
 def remove_outdated_transactions(transaction_list, block_number):
@@ -250,6 +252,7 @@ def unindex_transactions(block, logger):
         except Exception as e:
             logger.error(f"Failed to unindex transactions: {e}")
 
+
 def index_transactions(block, sorted_transactions, logger):
     while True:
         try:
@@ -267,12 +270,14 @@ def index_transactions(block, sorted_transactions, logger):
             break
 
         except Exception as e:
-            logger.error(f"Failed to index transactions: {e}")
+            logger.error(f"Failed to index transactions of {block['block_hash']}: {e}")
+            time.sleep(1)
 
 
 if __name__ == "__main__":
     logger = get_logger(file="transactions.log")
     # print(get_account("noob23"))
+    LOCAL = False
 
     key_dict = load_keys()
     address = key_dict["address"]
@@ -284,12 +289,15 @@ if __name__ == "__main__":
 
     config = get_config()
     ip = config["ip"]
-    # ips = ["127.0.0.1"]
+
     port = config["port"]
 
-    ips = asyncio.run(load_ips(logger=logger,
-                               fail_storage=[],
-                               port=port))
+    if LOCAL:
+        ips = ["127.0.0.1"]
+    else:
+        ips = asyncio.run(load_ips(logger=logger,
+                                   fail_storage=[],
+                                   port=port))
 
     for x in range(0, 50000):
         try:

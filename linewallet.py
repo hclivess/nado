@@ -25,7 +25,7 @@ def send_transaction(address, recipient, amount, data, public_key, private_key, 
                                      public_key=public_key,
                                      private_key=private_key,
                                      timestamp=get_timestamp_seconds(),
-                                     target_block=target_block)
+                                     target_block=int(target_block))
 
     print(json.dumps(transaction, indent=4))
     input("Press any key to continue")
