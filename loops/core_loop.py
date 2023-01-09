@@ -34,7 +34,6 @@ from transaction_ops import (
     validate_all_spending, index_transactions
 )
 
-
 def minority_consensus(majority_hash, sample_hash):
     if not majority_hash:
         return False
