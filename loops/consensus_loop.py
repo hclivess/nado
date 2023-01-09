@@ -28,7 +28,7 @@ def get_pool_percentage(pool, majority_pool_hash):
         pool_percentage = percentage(majority_pool_hash, sorted(pool.values()))
         return pool_percentage
     else:
-        return 0
+        return 100
 
 
 class ConsensusClient(threading.Thread):

@@ -4,7 +4,6 @@ import time
 import traceback
 
 from loops.consensus_loop import change_trust
-import peer_ops
 from block_ops import save_block_producers
 from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
