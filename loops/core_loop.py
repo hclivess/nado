@@ -121,9 +121,12 @@ class CoreClient(threading.Thread):
             self.memserver.reported_uptime = self.memserver.get_uptime()
 
             if self.memserver.period == 3:
-                if self.memserver.peers and self.memserver.block_producers:
-                    # todo change block_producers ordering based on previous block hash instead of alphabetical sorting so first one has no advantage
-                    block_candidate = get_block_candidate(block_producers=self.memserver.block_producers,
+                block_producers = self.memserver.block_producers.copy()
+                peers = self.memserver.peers.copy()
+                """make copies to avoid errors in case content changes"""
+
+                if peers and block_producers:
+                    block_candidate = get_block_candidate(block_producers=block_producers,
                                                           block_producers_hash=self.memserver.block_producers_hash,
                                                           logger=self.logger,
                                                           event_bus=self.event_bus,
