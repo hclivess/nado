@@ -32,7 +32,7 @@ def get_logger(max_detail=False, file="log.log"):
 
 if __name__ == "__main__":
     # Some examples.
-    logger = get_logger(file=f"{get_home()}/logs.log")
+    logger = get_logger(file=f"demo.log")
 
     logger.debug("this is a debugging message")
     logger.info("this is an informational message")

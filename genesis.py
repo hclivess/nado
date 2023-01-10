@@ -67,7 +67,7 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
 
 
 if __name__ == "__main__":
-    logger = get_logger(file=f"{get_home()}/genesis.log")
+    logger = get_logger(file="genesis.log")
 
     input("Not supposed to be run directly, continue?\n")
     make_folders()
