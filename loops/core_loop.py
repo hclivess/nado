@@ -254,11 +254,14 @@ class CoreClient(threading.Thread):
         if suggested_block_producers:
             if self.memserver.ip not in suggested_block_producers:
                 change_trust(self.consensus, peer=sync_from, value=-10000)
+                self.logger.info(f"Our node not present in suggested block producers from {sync_from}")
 
             replacements = []
             for block_producer in suggested_block_producers:
                 if ip_stored(block_producer):
                     replacements.append(block_producer)
+                else:
+                    self.logger.info(f"{block_producer} not added to block producers, because it is not locally stored")
 
             self.memserver.block_producers = set_and_sort(replacements)
             save_block_producers(self.memserver.block_producers)
@@ -276,6 +279,7 @@ class CoreClient(threading.Thread):
             return suggested_pool
         else:
             change_trust(self.consensus, peer=peer, value=-10000)
+            self.logger.info(f"Could not replace {key} from {peer}")
 
     def emergency_mode(self):
         self.logger.warning("Entering emergency mode")
