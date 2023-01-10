@@ -29,9 +29,9 @@ def get_logger(max_detail=False, file="log.log"):
 
     coloredlogs.DEFAULT_LEVEL_STYLES = dict(
     spam=dict(color='green', faint=True),
-    debug=dict(color='green'),
+    debug=dict(color='magenta'),
     verbose=dict(color='blue'),
-    info=dict(color='magenta'),
+    info=dict(color='green'),
     notice=dict(color='magenta'),
     warning=dict(color='yellow'),
     success=dict(color='green', bold=True),
