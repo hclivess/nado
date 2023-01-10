@@ -26,6 +26,19 @@ def get_logger(max_detail=False, file="log.log"):
     if max_detail:
         coloredlogs.install(level="DEBUG")
 
+
+    coloredlogs.DEFAULT_LEVEL_STYLES = dict(
+    spam=dict(color='green', faint=True),
+    debug=dict(color='green'),
+    verbose=dict(color='blue'),
+    info=dict(color='magenta'),
+    notice=dict(color='magenta'),
+    warning=dict(color='yellow'),
+    success=dict(color='green', bold=True),
+    error=dict(color='red'),
+    critical=dict(color='red', bold=True),
+)
+
     coloredlogs.install(level="DEBUG", logger=logger, fmt=format)
     return logger
 
