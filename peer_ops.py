@@ -340,7 +340,7 @@ def update_local_ip(ip, logger, peer_file_lock):
 
 
 def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, average_trust, unreachable_list, purge_list, peer_hash, required_hash, promiscuous) -> bool:
-    if average_trust > peer_trust and not promiscuous:
+    if average_trust >= peer_trust and not promiscuous:
         """peer trust worse than average"""
         return False
     if peer in unreachable_list:
