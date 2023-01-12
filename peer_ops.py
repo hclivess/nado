@@ -223,17 +223,20 @@ def direct_save_peer(peer, address):
 
 def check_save_peers(peers, logger):
     """save all peers to drive if new to drive"""
+    fails = []
     candidates = asyncio.run(compound_get_status_pool(
         ips=peers,
         port=get_port(),
-        fail_storage=[],
+        fail_storage=fails,
         logger=logger))
 
     for key, value in candidates.items():
         if not ip_stored(key) and check_ip(key):
             direct_save_peer(peer=key, address=value["address"])
-        else:
-            logger.error(f"Unable to reach {key} to get their address")
+
+    for peer in fails:
+        logger.error(f"Unable to reach {peer} to get their address")
+
 
 def get_list_of_peers(ips, port, fail_storage, logger) -> list:
     """gets peers of peers"""
