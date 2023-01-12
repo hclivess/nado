@@ -50,8 +50,6 @@ class PeerClient(threading.Thread):
                                     value=get_timestamp_seconds(),
                                     peer_file_lock=self.memserver.peer_file_lock)
 
-        self.merge_and_sort_peers()
-
         self.memserver.block_producers = set_and_sort(self.memserver.block_producers)
         store_producer_set(self.memserver.block_producers)
         save_block_producers(self.memserver.block_producers)
