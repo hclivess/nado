@@ -71,7 +71,8 @@ class PeerClient(threading.Thread):
                 self.memserver.block_producers.remove(entry)
                 # self.logger.warning(f"Removed {entry} from block producers")
 
-            change_trust(consensus=self.consensus, peer=entry, value=-10000)
+            if entry in self.consensus.trust_pool:
+                change_trust(consensus=self.consensus, peer=entry, value=-10000)
 
             if entry in self.consensus.status_pool.keys():
                 self.consensus.status_pool.pop(entry)
