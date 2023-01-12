@@ -112,6 +112,8 @@ class PeerClient(threading.Thread):
             if candidate in self.memserver.peer_buffer:
                 self.memserver.peer_buffer.remove(candidate)
 
+        self.memserver.block_producers = set_and_sort(self.memserver.block_producers)
+
     def run(self) -> None:
         while not self.memserver.terminate:
             try:
