@@ -650,7 +650,7 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
                     memserver.unreachable.pop(peer_ip)
                     logger.info(f"Restored {peer_ip} because of majority vote on its block production presence")
 
-                if peer_ip not in memserver.peers + memserver.peer_buffer and peer_ip not in memserver.unreachable.keys():
+                if peer_ip not in memserver.peers and peer_ip not in memserver.unreachable.keys():
                     status = asyncio.run(get_remote_status(peer_ip, logger=logger))
 
                     assert status, f"{peer_ip} unreachable"
@@ -667,17 +667,11 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
                               overwrite=True
                               )
 
-                    if memserver.period == 3:
+                    if peer_ip not in memserver.peer_buffer:
                         memserver.peer_buffer.append(peer_ip)
-                        memserver.peer_buffer = set_and_sort(memserver.peer_buffer)
                         message = f"Peer {peer_ip} added to peer buffer"
-
-                    elif len(memserver.peers) < memserver.peer_limit:
-                        memserver.peers.append(peer_ip)
-                        memserver.peers = set_and_sort(memserver.peers)
-                        message = f"Peer {peer_ip} added to peer list"
                     else:
-                        message = f"Peer list is full, {peer_ip} not added"
+                        message = f"{peer_ip} already waiting in peer buffer"
 
                 else:
                     message = f"Peer {peer_ip} is known or invalid"

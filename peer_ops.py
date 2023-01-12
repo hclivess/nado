@@ -212,24 +212,27 @@ def get_producer_set(producer_set_hash):
     else:
         return None
 
+def check_save_peer(peer, logger):
+    if not ip_stored(peer) and check_ip(peer):
+        status = asyncio.run(get_remote_status(peer, logger=logger))
 
-def dump_peers(peers, logger):
+        if status:
+            address = status["address"]
+
+            save_peer(
+                ip=peer,
+                port=get_port(),
+                address=address,
+            )
+
+            return True
+        else:
+            logger.error(f"Unable to reach {peer} to get their address")
+            return False
+def check_save_peers(peers, logger):
     """save all peers to drive if new to drive"""
     for peer in peers:
-        if not ip_stored(peer) and check_ip(peer):
-            status = asyncio.run(get_remote_status(peer, logger=logger))
-
-            if status:
-                address = status["address"]
-
-                save_peer(
-                    ip=peer,
-                    port=get_port(),
-                    address=address,
-                )
-            else:
-                logger.error(f"Unable to reach {peer} to get their address")
-
+        check_save_peer(peer, logger)
 
 def get_list_of_peers(fetch_from, port, failed, logger) -> list:
     """gets peers of peers"""
