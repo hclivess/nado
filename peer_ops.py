@@ -213,14 +213,6 @@ def get_producer_set(producer_set_hash):
     else:
         return None
 
-def direct_save_peer(peer, address):
-    if not ip_stored(peer) and check_ip(peer):
-        save_peer(
-            ip=peer,
-            port=get_port(),
-            address=address,
-        )
-
 def check_save_peers(peers, logger):
     """save all peers to drive if new to drive"""
     fails = []
@@ -232,10 +224,17 @@ def check_save_peers(peers, logger):
 
     for key, value in candidates.items():
         if not ip_stored(key) and check_ip(key):
-            direct_save_peer(peer=key, address=value["address"])
+            save_peer(
+                ip=key,
+                port=get_port(),
+                address=value["address"],
+            )
 
     for peer in fails:
         logger.error(f"Unable to reach {peer} to get their address")
+
+    return {"success": candidates.keys(),
+            "fails": fails}
 
 
 def get_list_of_peers(ips, port, fail_storage, logger) -> list:

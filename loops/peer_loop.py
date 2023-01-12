@@ -96,21 +96,14 @@ class PeerClient(threading.Thread):
 
     def target_load_peers(self):
         """this is separate from sniffing peers"""
-        failed = []
-        candidates = asyncio.run(compound_get_status_pool(
-            ips=self.memserver.peer_buffer,
-            port=self.memserver.port,
-            fail_storage=failed,
-            logger=self.logger))
+        result = check_save_peers(peers=self.memserver.peer_buffer, logger=self.logger)
 
-        #check_save_peers(peers=candidates, logger=self.logger)
-        for key, value in candidates.items():
-            direct_save_peer(peer=key, address=value["address"])
-            if key not in self.memserver.block_producers:
-                self.logger.info(f"{key} loaded remotely and added to block producers")
-                self.memserver.block_producers.append(key)
-            if key in self.memserver.peer_buffer:
-                self.memserver.peer_buffer.remove(key)
+        for entry in result["success"]:
+            if entry not in self.memserver.block_producers:
+                self.logger.info(f"{entry} loaded remotely and added to block producers")
+                self.memserver.block_producers.append(entry)
+            if entry in self.memserver.peer_buffer:
+                self.memserver.peer_buffer.remove(entry)
 
         self.memserver.block_producers = set_and_sort(self.memserver.block_producers)
 
