@@ -108,7 +108,8 @@ class PeerClient(threading.Thread):
             self.logger.info(f"{candidate} loaded remotely and added to block producers")
             if candidate not in self.memserver.block_producers:
                 self.memserver.block_producers.append(candidate)
-            self.memserver.peer_buffer.remove(candidate)
+            if candidate in self.memserver.peer_buffer:
+                self.memserver.peer_buffer.remove(candidate)
 
     def run(self) -> None:
         while not self.memserver.terminate:
