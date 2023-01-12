@@ -255,13 +255,14 @@ class CoreClient(threading.Thread):
             if self.memserver.ip not in suggested_block_producers:
                 change_trust(self.consensus, peer=sync_from, value=-10000)
                 self.logger.info(f"Our node not present in suggested block producers from {sync_from}")
+                #todo announce in peer_loop
 
             replacements = []
             for block_producer in suggested_block_producers:
                 if ip_stored(block_producer):
                     replacements.append(block_producer)
-                else:
-                    self.logger.info(f"{block_producer} not stored locally")
+                elif block_producer not in self.memserver.peer_buffer:
+                    self.logger.info(f"{block_producer} not stored locally and will be probed")
                     self.memserver.peer_buffer.append(block_producer)
 
             self.memserver.block_producers = set_and_sort(replacements)
