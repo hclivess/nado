@@ -7,6 +7,7 @@ import os.path
 
 from tornado.httpclient import AsyncHTTPClient
 
+import config
 from compounder import compound_get_list_of, compound_announce_self
 from compounder import compound_get_status_pool
 from config import get_port, get_config, get_timestamp_seconds, update_config
@@ -219,27 +220,20 @@ def direct_save_peer(peer, address):
             port=get_port(),
             address=address,
         )
-def check_save_peer(peer, logger):
-    if not ip_stored(peer) and check_ip(peer):
-        status = asyncio.run(get_remote_status(peer, logger=logger))
 
-        if status:
-            address = status["address"]
-
-            save_peer(
-                ip=peer,
-                port=get_port(),
-                address=address,
-            )
-
-            return True
-        else:
-            logger.error(f"Unable to reach {peer} to get their address")
-            return False
 def check_save_peers(peers, logger):
     """save all peers to drive if new to drive"""
-    for peer in peers:
-        check_save_peer(peer, logger)
+    candidates = asyncio.run(compound_get_status_pool(
+        ips=peers,
+        port=get_port(),
+        fail_storage=[],
+        logger=logger))
+
+    for key, value in candidates.items():
+        if not ip_stored(key) and check_ip(key):
+            direct_save_peer(peer=key, address=value["address"])
+        else:
+            logger.error(f"Unable to reach {key} to get their address")
 
 def get_list_of_peers(ips, port, fail_storage, logger) -> list:
     """gets peers of peers"""
