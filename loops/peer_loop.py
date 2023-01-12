@@ -123,12 +123,11 @@ class PeerClient(threading.Thread):
                                                                 logger=self.logger,
                                                                 port=self.memserver.port))
 
-                self.target_load_peers()
-
                 if self.memserver.period in [0, 1]:
                     self.purge_peers()
                     self.memserver.merge_remote_transactions(user_origin=False)
                     self.sniff_peers_and_producers()
+                    self.target_load_peers()
 
                 for peer, ban_time in self.memserver.unreachable.copy().items():
                     timeout = 3600 + ban_time - get_timestamp_seconds()
