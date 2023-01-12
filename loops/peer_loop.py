@@ -93,6 +93,23 @@ class PeerClient(threading.Thread):
         # self.memserver.peers = me_to(self.memserver.peers)
         # self.memserver.block_producers = me_to(self.memserver.block_producers)
 
+    def target_load_peers(self):
+        """this is separate from sniffing peers"""
+        failed = []
+        candidates = get_list_of_peers(
+            fetch_from=self.memserver.peer_buffer,
+            port=self.memserver.port,
+            failed=failed,
+            logger=self.logger)
+
+        check_save_peers(peers=candidates, logger=self.logger)
+
+        for candidate in candidates:
+            self.logger.info(f"{candidate} loaded remotely and added to block producers")
+            if candidate not in self.memserver.block_producers:
+                self.memserver.block_producers.append(candidate)
+            self.memserver.peer_buffer.remove(candidate)
+
     def run(self) -> None:
         while not self.memserver.terminate:
             try:
@@ -105,18 +122,12 @@ class PeerClient(threading.Thread):
                                                                 logger=self.logger,
                                                                 port=self.memserver.port))
 
+                self.target_load_peers()
+
                 if self.memserver.period in [0, 1]:
                     self.purge_peers()
                     self.memserver.merge_remote_transactions(user_origin=False)
                     self.sniff_peers_and_producers()
-
-                for peer in self.memserver.peer_buffer:
-                    """this is separate from sniffing peers"""
-                    if check_save_peer(peer=peer, logger=self.logger):
-                        self.logger.info(f"{peer} loaded remotely and added to block producers")
-                        if peer not in self.memserver.block_producers:
-                            self.memserver.block_producers.append(peer)
-                    self.memserver.peer_buffer.remove(peer)
 
                 for peer, ban_time in self.memserver.unreachable.copy().items():
                     timeout = 3600 + ban_time - get_timestamp_seconds()
