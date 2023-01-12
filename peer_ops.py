@@ -212,6 +212,13 @@ def get_producer_set(producer_set_hash):
     else:
         return None
 
+def direct_save_peer(peer, address):
+    if not ip_stored(peer) and check_ip(peer):
+        save_peer(
+            ip=peer,
+            port=get_port(),
+            address=address,
+        )
 def check_save_peer(peer, logger):
     if not ip_stored(peer) and check_ip(peer):
         status = asyncio.run(get_remote_status(peer, logger=logger))

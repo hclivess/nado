@@ -8,7 +8,7 @@ from block_ops import save_block_producers
 from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
 from data_ops import set_and_sort
-from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, check_save_peers, dump_trust, check_save_peer
+from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, check_save_peers, dump_trust, direct_save_peer
 from peer_ops import get_public_ip, update_local_ip, ip_stored, check_ip
 from config import test_self_port
 
@@ -103,14 +103,14 @@ class PeerClient(threading.Thread):
             fail_storage=failed,
             logger=self.logger))
 
-        check_save_peers(peers=candidates, logger=self.logger)
-
-        for candidate in candidates:
-            self.logger.info(f"{candidate} loaded remotely and added to block producers")
-            if candidate not in self.memserver.block_producers:
-                self.memserver.block_producers.append(candidate)
-            if candidate in self.memserver.peer_buffer:
-                self.memserver.peer_buffer.remove(candidate)
+        #check_save_peers(peers=candidates, logger=self.logger)
+        for key, value in candidates.items():
+            direct_save_peer(peer=key, address=value["address"])
+            if key not in self.memserver.block_producers:
+                self.logger.info(f"{key} loaded remotely and added to block producers")
+                self.memserver.block_producers.append(key)
+            if key in self.memserver.peer_buffer:
+                self.memserver.peer_buffer.remove(key)
 
         self.memserver.block_producers = set_and_sort(self.memserver.block_producers)
 
