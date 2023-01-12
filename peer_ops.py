@@ -234,14 +234,14 @@ def check_save_peers(peers, logger):
     for peer in peers:
         check_save_peer(peer, logger)
 
-def get_list_of_peers(fetch_from, port, failed, logger) -> list:
+def get_list_of_peers(ips, port, fail_storage, logger) -> list:
     """gets peers of peers"""
     returned_peers = asyncio.run(
         compound_get_list_of(key="peers",
-                             entries=fetch_from,
+                             entries=ips,
                              port=port,
                              logger=logger,
-                             fail_storage=failed,
+                             fail_storage=fail_storage,
                              compress="msgpack")
     )
 

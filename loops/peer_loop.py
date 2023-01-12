@@ -27,9 +27,9 @@ class PeerClient(threading.Thread):
 
     def sniff_peers_and_producers(self):
         candidates = get_list_of_peers(
-            fetch_from=self.memserver.peers,
+            ips=self.memserver.peers,
             port=self.memserver.port,
-            failed=self.memserver.purge_peers_list,
+            fail_storage=self.memserver.purge_peers_list,
             logger=self.logger)
 
         check_save_peers(candidates, logger=self.logger)
