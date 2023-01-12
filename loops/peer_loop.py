@@ -116,7 +116,7 @@ class PeerClient(threading.Thread):
                         self.logger.info(f"{peer} loaded remotely and added to block producers")
                         if peer not in self.memserver.block_producers:
                             self.memserver.block_producers.append(peer)
-                        self.memserver.peer_buffer.remote(peer)
+                    self.memserver.peer_buffer.remove(peer)
 
                 for peer, ban_time in self.memserver.unreachable.copy().items():
                     timeout = 3600 + ban_time - get_timestamp_seconds()
