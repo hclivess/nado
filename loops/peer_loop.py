@@ -96,11 +96,11 @@ class PeerClient(threading.Thread):
     def target_load_peers(self):
         """this is separate from sniffing peers"""
         failed = []
-        candidates = get_list_of_peers(
-            fetch_from=self.memserver.peer_buffer,
+        candidates = asyncio.run(compound_get_status_pool(
+            ips=self.memserver.peer_buffer,
             port=self.memserver.port,
-            failed=failed,
-            logger=self.logger)
+            fail_storage=failed,
+            logger=self.logger))
 
         check_save_peers(peers=candidates, logger=self.logger)
 
