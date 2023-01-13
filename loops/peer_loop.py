@@ -8,7 +8,8 @@ from block_ops import save_block_producers
 from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
 from data_ops import set_and_sort
-from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, check_save_peers, dump_trust
+from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, check_save_peers, \
+    dump_trust
 from peer_ops import get_public_ip, update_local_ip, ip_stored, check_ip
 from config import test_self_port
 
@@ -25,7 +26,25 @@ class PeerClient(threading.Thread):
         self.duration = 0
         self.heavy_refresh = 0
 
+    def sniff_buffered_peers(self):
+        """gets peers from buffer and adds them to routine"""
+        result = check_save_peers(peers=self.memserver.peer_buffer, logger=self.logger)
+
+        for entry in result["success"]:
+            if entry not in self.memserver.block_producers and ip_stored(entry):
+                self.logger.info(f"{entry} loaded remotely and added to block producers")
+                self.memserver.block_producers.append(entry)
+            if entry in self.memserver.peer_buffer:
+                self.memserver.peer_buffer.remove(entry)
+            if entry not in self.memserver.peers and len(self.memserver.peers) < self.memserver.peer_limit:
+                self.memserver.peers.append(entry)
+
+        self.memserver.block_producers = set_and_sort(self.memserver.block_producers)
+        store_producer_set(self.memserver.block_producers)
+        save_block_producers(self.memserver.block_producers)
+
     def sniff_peers_and_producers(self):
+        """gets peers of peers and adds them to routines"""
         candidates = get_list_of_peers(
             ips=self.memserver.peers,
             port=self.memserver.port,
@@ -94,21 +113,6 @@ class PeerClient(threading.Thread):
         # self.memserver.peers = me_to(self.memserver.peers)
         # self.memserver.block_producers = me_to(self.memserver.block_producers)
 
-    def target_load_peers(self):
-        """this is separate from sniffing peers"""
-        result = check_save_peers(peers=self.memserver.peer_buffer, logger=self.logger)
-
-        for entry in result["success"]:
-            if entry not in self.memserver.block_producers:
-                self.logger.info(f"{entry} loaded remotely and added to block producers")
-                self.memserver.block_producers.append(entry)
-            if entry in self.memserver.peer_buffer:
-                self.memserver.peer_buffer.remove(entry)
-
-        self.memserver.block_producers = set_and_sort(self.memserver.block_producers)
-        store_producer_set(self.memserver.block_producers)
-        save_block_producers(self.memserver.block_producers)
-
     def run(self) -> None:
         while not self.memserver.terminate:
             try:
@@ -125,7 +129,7 @@ class PeerClient(threading.Thread):
                     self.purge_peers()
                     self.memserver.merge_remote_transactions(user_origin=False)
                     self.sniff_peers_and_producers()
-                    self.target_load_peers()
+                    self.sniff_buffered_peers()
 
                 for peer, ban_time in self.memserver.unreachable.copy().items():
                     timeout = 3600 + ban_time - get_timestamp_seconds()

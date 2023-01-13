@@ -41,7 +41,7 @@ print(check_consistency(block_hash, logger))
 
 #print(miners)
 pd.set_option("display.max_rows", None)
-count = pd.Series(miners).value_counts().sample(50)
+count = pd.Series(miners).value_counts()
 
 plt.title("Block Rewards")
 plt.xlabel("Address")

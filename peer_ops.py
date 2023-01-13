@@ -213,6 +213,7 @@ def get_producer_set(producer_set_hash):
     else:
         return None
 
+
 def check_save_peers(peers, logger):
     """save all peers to drive if new to drive"""
     fails = []
@@ -345,7 +346,8 @@ def update_local_ip(ip, logger, peer_file_lock):
         logger.info(f"Local IP updated to {new_ip}")
 
 
-def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, average_trust, unreachable_list, purge_list, peer_hash, required_hash, promiscuous) -> bool:
+def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, average_trust, unreachable_list, purge_list,
+                      peer_hash, required_hash, promiscuous) -> bool:
     if average_trust > peer_trust and not promiscuous:
         """peer trust worse than average"""
         return False
