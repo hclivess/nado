@@ -41,30 +41,26 @@ print(check_consistency(block_hash, logger))
 
 #print(miners)
 pd.set_option("display.max_rows", None)
-count = pd.Series(miners).value_counts()
+count = pd.Series(miners).value_counts().sample(50)
 
+plt.title("Block Rewards")
+plt.xlabel("Address")
+plt.ylabel("Block Reward Count")
+plt.locator_params(axis='both', nbins=4)
 p = plt.bar(count.index, count.values)
 plt.xticks(rotation=-90)
 plt.show()
-
 
 print("Element Count")
 print(count)
 print(tx_count)
 
-x_axis = []
-y_axis = []
-
-for x in enumerate(tx_count):
-
-    if x[1] != 0:
-        print(x[1])
-        x_axis.append(x[0])
-        y_axis.append(x[1])
-
-plt.scatter(x_axis, y_axis)
-plt.draw()
-
+txs = pd.Series(tx_count)
+print(txs)
+plt.title("Transactions per Blocks")
+plt.xlabel("Block Number")
+plt.ylabel("Transaction Count")
+plt.scatter(txs.index, txs.values)
 plt.xticks(rotation=-90)
 plt.show()
 
