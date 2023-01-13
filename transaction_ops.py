@@ -297,7 +297,8 @@ if __name__ == "__main__":
     else:
         ips = asyncio.run(load_ips(logger=logger,
                                    fail_storage=[],
-                                   port=port))
+                                   port=port,
+                                   semaphore=asyncio.Semaphore(50)))
 
     for x in range(0, 50000):
         try:
@@ -319,7 +320,8 @@ if __name__ == "__main__":
                                                             port=port,
                                                             fail_storage=fails,
                                                             logger=logger,
-                                                            transaction=transaction))
+                                                            transaction=transaction,
+                                                            semaphore=asyncio.Semaphore(50)))
 
             print(f"Submitted to {len(results)} nodes successfully")
 

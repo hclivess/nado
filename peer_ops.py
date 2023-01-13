@@ -7,7 +7,6 @@ import os.path
 
 from tornado.httpclient import AsyncHTTPClient
 
-import config
 from compounder import compound_get_list_of, compound_announce_self
 from compounder import compound_get_status_pool
 from config import get_port, get_config, get_timestamp_seconds, update_config
@@ -101,7 +100,7 @@ def sort_dict_value(values, key):
     return sorted(values, key=lambda d: d[key], reverse=True)
 
 
-async def load_ips(logger, port, fail_storage, minimum=3) -> list:
+async def load_ips(logger, port, fail_storage, semaphore, minimum=3) -> list:
     """load peers from drive, sort by trust, test in batches asynchronously,
     return when limit is reached"""
 
@@ -138,7 +137,8 @@ async def load_ips(logger, port, fail_storage, minimum=3) -> list:
                                                                   port=port,
                                                                   fail_storage=fail_storage,
                                                                   logger=logger,
-                                                                  compress="msgpack")))
+                                                                  compress="msgpack",
+                                                                  semaphore=semaphore)))
         for entry in gathered:
             status_pool.extend(list(entry.keys()))
 
@@ -214,14 +214,15 @@ def get_producer_set(producer_set_hash):
         return None
 
 
-def check_save_peers(peers, logger):
+def check_save_peers(peers, semaphore, logger):
     """save all peers to drive if new to drive"""
     fails = []
     candidates = asyncio.run(compound_get_status_pool(
         ips=peers,
         port=get_port(),
         fail_storage=fails,
-        logger=logger))
+        logger=logger,
+        semaphore=semaphore))
 
     for key, value in candidates.items():
         if not ip_stored(key) and check_ip(key):
@@ -238,7 +239,7 @@ def check_save_peers(peers, logger):
             "fails": fails}
 
 
-def get_list_of_peers(ips, port, fail_storage, logger) -> list:
+def get_list_of_peers(ips, port, fail_storage, semaphore, logger) -> list:
     """gets peers of peers"""
     returned_peers = asyncio.run(
         compound_get_list_of(key="peers",
@@ -246,7 +247,8 @@ def get_list_of_peers(ips, port, fail_storage, logger) -> list:
                              port=port,
                              logger=logger,
                              fail_storage=fail_storage,
-                             compress="msgpack")
+                             compress="msgpack",
+                             semaphore=semaphore)
     )
 
     pool = []
@@ -294,13 +296,14 @@ def me_to(target) -> list:
     return target
 
 
-def announce_me(targets, port, my_ip, logger, fail_storage) -> None:
+def announce_me(targets, port, my_ip, logger, fail_storage, semaphore) -> None:
     """announce self node to other peers"""
     asyncio.run(compound_announce_self(ips=targets,
                                        port=port,
                                        my_ip=my_ip,
                                        logger=logger,
-                                       fail_storage=fail_storage))
+                                       fail_storage=fail_storage,
+                                       semaphore=semaphore))
 
 
 def check_ip(ip):

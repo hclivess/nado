@@ -13,7 +13,7 @@ from peer_ops import (
     ip_stored
 )
 from pool_ops import get_from_pool
-
+import asyncio
 
 def get_pool_majority(pool):
     if pool and None not in pool.values():
@@ -63,19 +63,6 @@ class ConsensusClient(threading.Thread):
 
         self.memserver.block_producers = me_to(self.memserver.block_producers)
         save_block_producers(self.memserver.block_producers)
-
-    """
-    def add_block_producers(self):
-        producers = load_block_producers()
-        if producers:
-            self.memserver.block_producers = producers
-        else:
-            get_list_of_block_producers(
-                fetch_from=self.memserver.block_producers,
-                logger=self.logger,
-                fail_storage=self.memserver.purge_producers_list,
-            )
-    """
 
     def reward_pool_consensus(self, pool, majority_pool) -> None:
         try:

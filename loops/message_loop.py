@@ -1,7 +1,7 @@
 import threading
 import time
 import traceback
-
+import asyncio
 
 class MessageClient(threading.Thread):
     """thread which displays output messages and logs them"""

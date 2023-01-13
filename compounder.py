@@ -8,12 +8,10 @@ from data_ops import sort_list_dict
 from log_ops import get_logger
 from urllib.parse import quote
 
-sem = asyncio.Semaphore(50)
-
 """this module is optimized for low memory and bandwidth usage"""
 
 
-async def get_list_of(key, peer, port, fail_storage, logger, compress=None):
+async def get_list_of(key, peer, port, fail_storage, logger, semaphore, compress=None):
     """method compounded by compound_get_list_of, fail storage external by reference (obj)"""
     """bandwith usage of this grows exponentially with number of peers"""
     """peers include themselves in their peer lists"""
@@ -24,7 +22,7 @@ async def get_list_of(key, peer, port, fail_storage, logger, compress=None):
         url_construct = f"http://{peer}:{port}/{key}"
 
     try:
-        async with sem:
+        async with semaphore:
             http_client = AsyncHTTPClient()
             response = await http_client.fetch(url_construct)
 
@@ -40,14 +38,14 @@ async def get_list_of(key, peer, port, fail_storage, logger, compress=None):
             fail_storage.append(peer)
 
 
-async def compound_get_list_of(key, entries, port, logger, fail_storage, compress=None):
+async def compound_get_list_of(key, entries, port, logger, fail_storage, semaphore, compress=None):
     """returns a list of lists of raw peers from multiple peers at once"""
 
     result = list(
         filter(
             None,
             await asyncio.gather(
-                *[get_list_of(key, entry, port, fail_storage, logger, compress) for entry in entries]
+                *[get_list_of(key, entry, port, fail_storage, logger, semaphore, compress) for entry in entries]
             ),
         )
     )
@@ -63,13 +61,13 @@ async def compound_get_list_of(key, entries, port, logger, fail_storage, compres
     return success_storage
 
 
-async def get_url(peer, port, url, logger, fail_storage, compress=None):
+async def get_url(peer, port, url, logger, fail_storage, semaphore, compress=None):
     """method compounded by compound_get_url"""
 
     url_construct = f"http://{peer}:{port}/{url}"
 
     try:
-        async with sem:
+        async with semaphore:
             http_client = AsyncHTTPClient()
             response = await http_client.fetch(url_construct)
             fetched = response.body.decode()
@@ -82,12 +80,12 @@ async def get_url(peer, port, url, logger, fail_storage, compress=None):
             fail_storage.append(peer)
 
 
-async def compound_get_url(ips, port, url, logger, fail_storage, compress=None):
+async def compound_get_url(ips, port, url, logger, fail_storage, semaphore, compress=None):
     """returns result of urls with arbitrary data past slash"""
     result = list(
         filter(
             None,
-            await asyncio.gather(*[get_url(ip, port, url, logger, fail_storage) for ip in ips]),
+            await asyncio.gather(*[get_url(ip, port, url, logger, fail_storage, semaphore) for ip in ips]),
         )
     )
 
@@ -98,13 +96,13 @@ async def compound_get_url(ips, port, url, logger, fail_storage, compress=None):
     return result_dict
 
 
-async def send_transaction(peer, port, logger, fail_storage, transaction, compress=None):
+async def send_transaction(peer, port, logger, fail_storage, transaction, semaphore, compress=None):
     """method compounded by compound_send_transaction"""
 
     url_construct = f"http://{peer}:{port}/submit_transaction?data={quote(json.dumps(transaction))}"
 
     try:
-        async with sem:
+        async with semaphore:
             http_client = AsyncHTTPClient()
             response = await http_client.fetch(url_construct)
             fetched = msgpack.unpackb(response.body)["message"]
@@ -116,12 +114,13 @@ async def send_transaction(peer, port, logger, fail_storage, transaction, compre
             fail_storage.append(peer)
 
 
-async def compound_send_transaction(ips, port, logger, fail_storage, transaction, compress=None):
+async def compound_send_transaction(ips, port, logger, fail_storage, transaction, semaphore, compress=None):
     """returns a list of dicts where ip addresses are keys"""
     result = list(
         filter(
             None,
-            await asyncio.gather(*[send_transaction(ip, port, logger, fail_storage, transaction) for ip in ips]),
+            await asyncio.gather(
+                *[send_transaction(ip, port, logger, fail_storage, transaction, semaphore) for ip in ips]),
         )
     )
 
@@ -132,7 +131,7 @@ async def compound_send_transaction(ips, port, logger, fail_storage, transaction
     return result_dict
 
 
-async def get_status(peer, port, logger, fail_storage, compress=None):
+async def get_status(peer, port, logger, fail_storage, semaphore, compress=None):
     """method compounded by compound_get_status_pool"""
 
     if compress:
@@ -140,7 +139,7 @@ async def get_status(peer, port, logger, fail_storage, compress=None):
     else:
         url_construct = f"http://{peer}:{port}/status"
     try:
-        async with sem:
+        async with semaphore:
             http_client = AsyncHTTPClient()
             response = await http_client.fetch(url_construct)
 
@@ -157,12 +156,12 @@ async def get_status(peer, port, logger, fail_storage, compress=None):
             fail_storage.append(peer)
 
 
-async def compound_get_status_pool(ips, port, logger, fail_storage, compress=None):
+async def compound_get_status_pool(ips, port, logger, fail_storage, semaphore, compress=None):
     """returns a list of dicts where ip addresses are keys"""
     result = list(
         filter(
             None,
-            await asyncio.gather(*[get_status(ip, port, logger, fail_storage) for ip in ips]),
+            await asyncio.gather(*[get_status(ip, port, logger, fail_storage, semaphore) for ip in ips]),
         )
     )
 
@@ -173,7 +172,7 @@ async def compound_get_status_pool(ips, port, logger, fail_storage, compress=Non
     return result_dict
 
 
-async def announce_self(peer, port, my_ip, logger, fail_storage):
+async def announce_self(peer, port, my_ip, logger, fail_storage, semaphore):
     """method compounded by compound_announce_self"""
 
     url_construct = (
@@ -181,7 +180,7 @@ async def announce_self(peer, port, my_ip, logger, fail_storage):
     )
 
     try:
-        async with sem:
+        async with semaphore:
             http_client = AsyncHTTPClient()
             response = await http_client.fetch(url_construct)
 
@@ -194,12 +193,12 @@ async def announce_self(peer, port, my_ip, logger, fail_storage):
             fail_storage.append(peer)
 
 
-async def compound_announce_self(ips, port, my_ip, logger, fail_storage):
+async def compound_announce_self(ips, port, my_ip, logger, fail_storage, semaphore):
     result = list(
         filter(
             None,
             await asyncio.gather(
-                *[announce_self(ip, port, my_ip, logger, fail_storage) for ip in ips]
+                *[announce_self(ip, port, my_ip, logger, fail_storage, semaphore) for ip in ips]
             ),
         )
     )
@@ -214,20 +213,20 @@ if __name__ == "__main__":
     logger.info(
         asyncio.run(
             compound_get_list_of(
-                "peers", peers, logger=logger, fail_storage=fail_storage, port=9173
+                "peers", peers, logger=logger, fail_storage=fail_storage, port=9173, semaphore=asyncio.Semaphore(50)
             )
         )
     )
     logger.info(
         asyncio.run(
-            compound_get_status_pool(peers, logger=logger, fail_storage=fail_storage, port=9173
+            compound_get_status_pool(peers, logger=logger, fail_storage=fail_storage, port=9173, semaphore=asyncio.Semaphore(50)
                                      )
         )
     )
     logger.info(
         asyncio.run(
             compound_get_list_of(
-                "transaction_pool", peers, logger=logger, fail_storage=fail_storage, port=9173
+                "transaction_pool", peers, logger=logger, fail_storage=fail_storage, port=9173, semaphore=asyncio.Semaphore(50)
             )
         )
     )

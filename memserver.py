@@ -24,6 +24,7 @@ class MemServer:
     def __init__(self, logger):
         self.logger = logger
         self.logger.info("Starting MemServer")
+        self.semaphore = asyncio.Semaphore(50)
 
         self.purge_peers_list = []
         self.purge_producers_list = []
@@ -108,7 +109,8 @@ class MemServer:
                 port=self.port,
                 logger=self.logger,
                 fail_storage=self.purge_peers_list,
-                compress="msgpack"
+                compress="msgpack",
+                semaphore=self.semaphore
             )
         )
         self.merge_transactions(remote_transactions, user_origin)
