@@ -232,8 +232,8 @@ def check_save_peers(peers, semaphore, logger):
                 address=value["address"],
             )
 
-    for peer in fails:
-        logger.error(f"Unable to reach {peer} to get their address")
+    if fails:
+        logger.error(f"Unable to reach peers to get their addresses: {fails}")
 
     return {"success": candidates.keys(),
             "fails": fails}
