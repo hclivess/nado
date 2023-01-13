@@ -78,16 +78,18 @@ def valid_block_gap(old_block, new_block):
         return False
 
 
-def valid_block_timestamp(new_block, old_block):
+def valid_block_timestamp(new_block, old_block, block_time, tolerance=5):
     new_timestamp = new_block["block_timestamp"]
     old_timestamp = old_block["block_timestamp"]
 
-    if get_timestamp_seconds() >= new_timestamp > old_timestamp:
+    if new_block["block_number"] < 20000:  # compatibility
         return True
-    elif new_block["block_number"] < 20000:  # compatibility
-        return True
-    else:
+    if not get_timestamp_seconds() >= new_timestamp > old_timestamp:
         return False
+    if not new_timestamp <= old_timestamp + (block_time + tolerance):
+        return False
+    else:
+        return True
 
 
 def check_target_match(transaction_list, block_number, logger):
