@@ -69,11 +69,6 @@ class PeerClient(threading.Thread):
                         self.logger.warning(f"Added {peer} to block producers")
                         """address is sniffed before block is produced"""
 
-                        update_peer(ip=peer,
-                                    logger=self.logger,
-                                    value=get_timestamp_seconds(),
-                                    peer_file_lock=self.memserver.peer_file_lock)
-
         self.memserver.block_producers = set_and_sort(self.memserver.block_producers)
         store_producer_set(self.memserver.block_producers)
         save_block_producers(self.memserver.block_producers)
