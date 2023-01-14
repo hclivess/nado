@@ -158,6 +158,8 @@ class CoreClient(threading.Thread):
                 else:
                     self.logger.warning("Criteria for block production not met")
 
+                self.memserver.period = 0
+
         except Exception as e:
             self.logger.info(f"Error: {e}")
             raise
