@@ -119,7 +119,7 @@ class CoreClient(threading.Thread):
             self.memserver.reported_uptime = self.memserver.get_uptime()
 
             if self.memserver.period == 3:
-                while not self.memserver.since_last_block == self.memserver.block_time:
+                while not self.memserver.since_last_block >= self.memserver.block_time:
                     self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
                     self.logger.warning("Waiting for block production")
                     time.sleep(1)
