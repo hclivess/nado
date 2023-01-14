@@ -117,6 +117,8 @@ class PeerClient(threading.Thread):
         while not self.memserver.terminate:
             try:
                 start = get_timestamp_seconds()
+                self.sniff_peers_and_producers()
+                self.sniff_buffered_peers()
 
                 if len(self.memserver.peers) < self.memserver.min_peers:
                     self.logger.info("No peers, reloading from drive")
@@ -129,8 +131,6 @@ class PeerClient(threading.Thread):
                 if self.memserver.period in [0, 1]:
                     self.purge_peers()
                     self.memserver.merge_remote_transactions(user_origin=False)
-                    self.sniff_peers_and_producers()
-                    self.sniff_buffered_peers()
 
                 for peer, ban_time in self.memserver.unreachable.copy().items():
                     timeout = 3600 + ban_time - get_timestamp_seconds()
