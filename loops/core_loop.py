@@ -63,7 +63,9 @@ class CoreClient(threading.Thread):
         self.consecutive = 0
 
     def update_periods(self):
-        """Enter every period at least period_counter times. Iterator is present in case node is stuck in phase 3"""
+        """Enter every period at least period_counter times. Iterator is present in case node is stuck in phase 3
+        should always start from 0 and be at 3 when enough time passed for block to be produced"""
+
         self.memserver.period_counter -= 1
         old_period = self.memserver.period
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
@@ -76,13 +78,12 @@ class CoreClient(threading.Thread):
 
             if self.memserver.period == 3:
                 if not self.memserver.since_last_block > self.memserver.block_time:
-                    self.memserver.period = 0
-            elif 20 > self.memserver.since_last_block:
-                self.memserver.period = 0
-            elif 40 > self.memserver.since_last_block > 20:
-                self.memserver.period = 1
-            elif self.memserver.block_time > self.memserver.since_last_block > 40:
-                self.memserver.period = 2
+                    if 20 > self.memserver.since_last_block:
+                        self.memserver.period = 0
+                    elif 40 > self.memserver.since_last_block > 20:
+                        self.memserver.period = 1
+                    elif self.memserver.block_time > self.memserver.since_last_block > 40:
+                        self.memserver.period = 2
 
 
 
