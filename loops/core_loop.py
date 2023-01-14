@@ -72,6 +72,7 @@ class CoreClient(threading.Thread):
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
 
         if self.memserver.reported_uptime > 360:
+            """stable mode"""
             if 20 > self.memserver.since_last_block > 0 or self.consecutive > 0 or self.memserver.force_sync_ip:
                 self.consecutive = 0
                 self.memserver.period = 0
@@ -81,7 +82,9 @@ class CoreClient(threading.Thread):
                 self.memserver.period = 2
             elif self.memserver.since_last_block > self.memserver.block_time:
                 self.memserver.period = 3
+
         elif self.memserver.period < 3:
+            """quick switch mode"""
             self.memserver.period += 1
             if self.memserver.period == 3 and self.memserver.since_last_block < self.memserver.block_time:
                 self.memserver.period = 0
