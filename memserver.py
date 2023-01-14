@@ -52,7 +52,7 @@ class MemServer:
 
 
         self.block_time = 60
-        self.period = None
+        self.period = 0
 
         self.unreachable = {}
         self.peers = []
