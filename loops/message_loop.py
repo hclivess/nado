@@ -47,6 +47,7 @@ class MessageClient(threading.Thread):
                 self.logger.debug(f"Linked Peers: {len(self.memserver.peers)}")
                 self.logger.debug(f"Block Producers: {len(self.memserver.block_producers)}")
                 self.logger.warning(f"Emergency Mode: {self.memserver.emergency_mode}")
+                self.logger.warning(f"Current Block: {self.memserver.latest_block['block_number']}/{self.memserver.latest_block['block_hash']}")
 
                 self.logger.warning(
                     f"Seconds since last block: {self.memserver.since_last_block}"
