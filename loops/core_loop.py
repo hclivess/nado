@@ -60,6 +60,7 @@ class CoreClient(threading.Thread):
         self.consensus = consensus
         self.run_interval = 1
         self.event_bus = EventBus()
+        self.consecutive = 0
 
     def update_periods(self):
         old_period = self.memserver.period
@@ -123,7 +124,10 @@ class CoreClient(threading.Thread):
                 peers = self.memserver.peers.copy()
                 """make copies to avoid errors in case content changes"""
 
-                if peers and block_producers:
+                if self.consecutive:
+                    self.logger.error("Consecutive local block production not allowed")
+
+                elif peers and block_producers:
                     block_candidate = get_block_candidate(block_producers=block_producers,
                                                           block_producers_hash=self.memserver.block_producers_hash,
                                                           logger=self.logger,
@@ -466,6 +470,11 @@ class CoreClient(threading.Thread):
                     raise ValueError(f"Failed to reconstruct block {e}")
 
             verified_block = self.verify_block(block, remote=remote, remote_peer=remote_peer, is_old=is_old)
+
+            if self.memserver.latest_block["block_creator"] == block["block_creator"]:
+                self.consecutive += 1
+            else:
+                self.consecutive = 0
 
             self.incorporate_block(block=block, sorted_transactions=verified_block)
             self.memserver.latest_block = block

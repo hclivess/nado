@@ -50,6 +50,7 @@ class MemServer:
         self.terminate = False
         self.producers_refresh_interval = 10
 
+
         self.block_time = 60
         self.period = None
 
