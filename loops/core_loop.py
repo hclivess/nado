@@ -63,18 +63,16 @@ class CoreClient(threading.Thread):
         self.consecutive = 0
 
     def update_periods(self):
+        self.memserver.period_counter -= 1
         old_period = self.memserver.period
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
 
-        if 20 > self.memserver.since_last_block > 0 or self.consecutive > 0 or self.memserver.force_sync_ip:
-            self.consecutive = 0
-            self.memserver.period = 0
-        elif 40 > self.memserver.since_last_block > 20:
-            self.memserver.period = 1
-        elif self.memserver.block_time > self.memserver.since_last_block > 40:
-            self.memserver.period = 2
-        elif self.memserver.since_last_block > self.memserver.block_time:
-            self.memserver.period = 3
+        if self.memserver.period_counter < 1:
+            self.memserver.period_counter = 10
+            if self.memserver.period < 3:
+                self.memserver.period += 1
+            else:
+                self.memserver.period = 0
 
         if old_period != self.memserver.period:
             self.logger.info(f"Switched to period {self.memserver.period}")
