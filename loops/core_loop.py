@@ -67,6 +67,7 @@ class CoreClient(threading.Thread):
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
 
         if 20 > self.memserver.since_last_block > 0 or self.consecutive > 0:
+            self.consecutive = 0
             self.memserver.period = 0
         elif 40 > self.memserver.since_last_block > 20:
             self.memserver.period = 1
