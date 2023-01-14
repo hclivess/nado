@@ -66,7 +66,7 @@ class CoreClient(threading.Thread):
         old_period = self.memserver.period
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
 
-        if 20 > self.memserver.since_last_block > 0:
+        if 20 > self.memserver.since_last_block > 0 or self.consecutive:
             self.memserver.period = 0
         elif 40 > self.memserver.since_last_block > 20:
             self.memserver.period = 1
@@ -184,39 +184,43 @@ class CoreClient(threading.Thread):
                 shuffled_pool.pop(self.memserver.ip)
                 """do not sync from self"""
 
-            for hash_candidate in sorted_hashes:
-                """go from the most common hash to the least common one"""
-                self.memserver.cascade_depth = sorted_hashes.index(hash_candidate) + 1
+            if not sorted_hashes:
+                self.logger.info(f"No hashes to sync from")
 
-                for peer, value in shuffled_pool.items():
-                    """pick random peer"""
-                    peer_trust = load_trust(logger=self.logger,
-                                            peer=peer,
-                                            peer_file_lock=self.memserver.peer_file_lock)
-                    """load trust score"""
-
-                    peer_protocol = self.consensus.status_pool[peer]["protocol"]
-                    """get protocol version"""
-
-                    if not first_peer:
-                        if value == hash_candidate:
-                            first_peer = peer
-
-                    if check_ip(peer):
-                        if qualifies_to_sync(peer=peer,
-                                             peer_protocol=peer_protocol,
-                                             peer_trust=peer_trust,
-                                             memserver_protocol=self.memserver.protocol,
-                                             unreachable_list=self.memserver.unreachable.keys(),
-                                             average_trust=self.consensus.average_trust,
-                                             purge_list=self.memserver.purge_peers_list,
-                                             peer_hash=value,
-                                             required_hash=hash_candidate,
-                                             promiscuous=self.memserver.promiscuous):
-                            return peer
             else:
-                self.logger.info(f"Ran out of options when picking trusted hash, using the first tested {first_peer}")
-                return first_peer
+                for hash_candidate in sorted_hashes:
+                    """go from the most common hash to the least common one"""
+                    self.memserver.cascade_depth = sorted_hashes.index(hash_candidate) + 1
+
+                    for peer, value in shuffled_pool.items():
+                        """pick random peer"""
+                        peer_trust = load_trust(logger=self.logger,
+                                                peer=peer,
+                                                peer_file_lock=self.memserver.peer_file_lock)
+                        """load trust score"""
+
+                        peer_protocol = self.consensus.status_pool[peer]["protocol"]
+                        """get protocol version"""
+
+                        if not first_peer:
+                            if value == hash_candidate:
+                                first_peer = peer
+
+                        if check_ip(peer):
+                            if qualifies_to_sync(peer=peer,
+                                                 peer_protocol=peer_protocol,
+                                                 peer_trust=peer_trust,
+                                                 memserver_protocol=self.memserver.protocol,
+                                                 unreachable_list=self.memserver.unreachable.keys(),
+                                                 average_trust=self.consensus.average_trust,
+                                                 purge_list=self.memserver.purge_peers_list,
+                                                 peer_hash=value,
+                                                 required_hash=hash_candidate,
+                                                 promiscuous=self.memserver.promiscuous):
+                                return peer
+                else:
+                    self.logger.info(f"Ran out of options when picking trusted hash, using the first tested {first_peer}")
+                    return first_peer
 
         except Exception as e:
             self.logger.info(f"Failed to get a peer to sync from: hash_pool: {source_pool_copy} error: {e}")
