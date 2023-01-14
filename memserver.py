@@ -75,7 +75,7 @@ class MemServer:
         self.rollbacks = 0
         self.can_mine = False
 
-        self.min_peers = self.config.get("min_peers") or 2
+        self.min_peers = self.config.get("min_peers") or 5
         self.peer_limit = self.config.get("peer_limit") or 24
         self.max_rollbacks = self.config.get("max_rollbacks") or 10
         self.cascade_limit = self.config.get("cascade_limit") or 1
