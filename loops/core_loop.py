@@ -63,6 +63,7 @@ class CoreClient(threading.Thread):
         self.consecutive = 0
 
     def update_periods(self):
+        """enter every period at least period_counter times"""
         self.memserver.period_counter -= 1
         old_period = self.memserver.period
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
@@ -74,6 +75,10 @@ class CoreClient(threading.Thread):
                 self.memserver.period += 1
             else:
                 self.memserver.period = 0
+
+            if self.memserver.period == 3:
+                if not self.memserver.since_last_block > self.memserver.block_time:
+                    self.memserver.period = 0
 
         if old_period != self.memserver.period:
             self.logger.info(f"Switched to period {self.memserver.period}")
@@ -120,11 +125,6 @@ class CoreClient(threading.Thread):
             self.memserver.reported_uptime = self.memserver.get_uptime()
 
             if self.memserver.period == 3:
-                self.logger.warning("Entering block production period and waiting for block time")
-                while not self.memserver.since_last_block >= self.memserver.block_time and not self.memserver.force_sync_ip:
-                    self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
-                    time.sleep(1)
-
                 block_producers = self.memserver.block_producers.copy()
                 peers = self.memserver.peers.copy()
                 """make copies to avoid errors in case content changes"""
@@ -158,8 +158,6 @@ class CoreClient(threading.Thread):
 
                 else:
                     self.logger.warning("Criteria for block production not met")
-
-                self.memserver.period = 0
 
         except Exception as e:
             self.logger.info(f"Error: {e}")
