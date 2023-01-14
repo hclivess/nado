@@ -90,7 +90,7 @@ def ip_stored(ip) -> bool:
 def dump_trust(pool_data, logger, peer_file_lock):
     for key, value in pool_data.items():
         update_peer(ip=key,
-                    key="trust",
+                    key="peer_trust",
                     value=value,
                     logger=logger,
                     peer_file_lock=peer_file_lock)
