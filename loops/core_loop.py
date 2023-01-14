@@ -58,7 +58,7 @@ class CoreClient(threading.Thread):
         self.logger.info(f"Starting Core")
         self.memserver = memserver
         self.consensus = consensus
-        self.run_interval = 0
+        self.run_interval = 1
         self.event_bus = EventBus()
         self.consecutive = 0
 
