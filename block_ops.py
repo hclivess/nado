@@ -67,7 +67,7 @@ def get_block_reward(logger, blocks_backward=100, reward_cap=5000000000):
 
     return reward
 
-
+"""
 def valid_block_gap(old_block, new_block):
     old_timestamp = old_block["block_timestamp"]
     new_timestamp = new_block["block_timestamp"]
@@ -90,8 +90,7 @@ def valid_block_timestamp(new_block, old_block, block_time, tolerance=5):
         return False
     else:
         return True
-
-
+"""
 def check_target_match(transaction_list, block_number, logger):
     try:
         for transaction in transaction_list:
@@ -118,7 +117,7 @@ def match_transactions_target(transaction_list, block_number, logger):
 
 
 def get_block_candidate(
-        block_producers, block_producers_hash, transaction_pool, logger, event_bus, peer_file_lock, latest_block
+        block_producers, block_producers_hash, transaction_pool, logger, event_bus, peer_file_lock, latest_block, block_time
 ):
     best_producer = pick_best_producer(block_producers,
                                        logger=logger,
@@ -142,7 +141,7 @@ def get_block_candidate(
                         peer_file_lock=peer_file_lock)
 
     block = construct_block(
-        block_timestamp=get_timestamp_seconds(),
+        block_timestamp=latest_block["block_timestamp"]+block_time,
         block_number=block_number,
         parent_hash=latest_block["block_hash"],
         block_ip=best_producer,

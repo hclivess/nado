@@ -12,13 +12,11 @@ from block_ops import (
     get_from_single_target,
     get_block_candidate,
     save_block_producers,
-    valid_block_gap,
     update_child_in_latest_block,
     save_block,
     set_latest_block_info,
     get_block,
     construct_block,
-    valid_block_timestamp,
     check_target_match
 )
 from config import get_timestamp_seconds
@@ -132,7 +130,8 @@ class CoreClient(threading.Thread):
                                                           event_bus=self.event_bus,
                                                           transaction_pool=self.memserver.transaction_pool.copy(),
                                                           peer_file_lock=self.memserver.peer_file_lock,
-                                                          latest_block=self.memserver.latest_block
+                                                          latest_block=self.memserver.latest_block,
+                                                          block_time=self.memserver.block_time
                                                           )
 
                     self.produce_block(block=block_candidate,
@@ -351,7 +350,7 @@ class CoreClient(threading.Thread):
 
     def rebuild_block(self, block):
         # todo add block size check?
-        return construct_block(block_timestamp=block["block_timestamp"],
+        return construct_block(block_timestamp=self.memserver.latest_block["block_timestamp"] + self.memserver.block_time,
                                block_number=self.memserver.latest_block["block_number"] + 1,
                                parent_hash=self.memserver.latest_block["block_hash"],
                                block_ip=block["block_ip"],
@@ -428,24 +427,25 @@ class CoreClient(threading.Thread):
         try:
             self.logger.warning(f"Preparing block")
 
+            """
             if not valid_block_timestamp(new_block=block,
                                          old_block=self.memserver.latest_block,
                                          block_time=self.memserver.block_time):
                 raise ValueError(f"Invalid block timestamp {block['block_timestamp']}")
-
+            """
             if not is_old or not self.memserver.quick_sync:
                 self.validate_transactions_in_block(block=block,
                                                     logger=self.logger,
                                                     remote_peer=remote_peer,
                                                     remote=remote)
-
+            """
             if not valid_block_gap(old_block=self.memserver.latest_block,
                                    new_block=block):
 
                 self.logger.info("Block gap too tight")
                 if remote:
                     change_trust(self.consensus, peer=remote_peer, value=-1000)
-
+            """
             sorted_transactions = sort_list_dict(block["block_transactions"])
             return sorted_transactions
 
