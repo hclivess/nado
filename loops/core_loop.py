@@ -124,10 +124,7 @@ class CoreClient(threading.Thread):
                 peers = self.memserver.peers.copy()
                 """make copies to avoid errors in case content changes"""
 
-                if self.consecutive:
-                    self.logger.error("Consecutive local block production not allowed")
-
-                elif peers and block_producers:
+                if peers and block_producers:
                     block_candidate = get_block_candidate(block_producers=block_producers,
                                                           block_producers_hash=self.memserver.block_producers_hash,
                                                           logger=self.logger,
