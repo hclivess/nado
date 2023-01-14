@@ -125,7 +125,7 @@ class CoreClient(threading.Thread):
                 peers = self.memserver.peers.copy()
                 """make copies to avoid errors in case content changes"""
 
-                if len(peers) > self.memserver.min_peers and block_producers:
+                if len(peers) > self.memserver.min_peers and block_producers and not self.memserver.force_sync_ip:
                     block_candidate = get_block_candidate(block_producers=block_producers,
                                                           block_producers_hash=self.memserver.block_producers_hash,
                                                           logger=self.logger,
