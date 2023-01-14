@@ -76,9 +76,9 @@ class CoreClient(threading.Thread):
             else:
                 self.memserver.period = 0
 
-            if self.memserver.period == 3:
-                if not self.memserver.since_last_block > self.memserver.block_time:
-                    self.memserver.period = 0
+        if self.memserver.period == 3:
+            if not self.memserver.since_last_block > self.memserver.block_time:
+                self.memserver.period = 0
 
         if old_period != self.memserver.period:
             self.logger.info(f"Switched to period {self.memserver.period}")
