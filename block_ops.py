@@ -67,17 +67,6 @@ def get_block_reward(logger, blocks_backward=100, reward_cap=5000000000):
 
     return reward
 
-"""
-def valid_block_gap(old_block, new_block):
-    old_timestamp = old_block["block_timestamp"]
-    new_timestamp = new_block["block_timestamp"]
-
-    if get_timestamp_seconds() >= new_timestamp >= old_timestamp:
-        return True
-    else:
-        return False
-
-
 def valid_block_timestamp(new_block, old_block, block_time, tolerance=5):
     new_timestamp = new_block["block_timestamp"]
     old_timestamp = old_block["block_timestamp"]
@@ -90,7 +79,8 @@ def valid_block_timestamp(new_block, old_block, block_time, tolerance=5):
         return False
     else:
         return True
-"""
+
+
 def check_target_match(transaction_list, block_number, logger):
     try:
         for transaction in transaction_list:

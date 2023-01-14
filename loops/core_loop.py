@@ -17,7 +17,8 @@ from block_ops import (
     set_latest_block_info,
     get_block,
     construct_block,
-    check_target_match
+    check_target_match,
+    valid_block_timestamp
 )
 from config import get_timestamp_seconds
 from data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
@@ -444,12 +445,12 @@ class CoreClient(threading.Thread):
         try:
             self.logger.warning(f"Preparing block")
 
-            """
+
             if not valid_block_timestamp(new_block=block,
                                          old_block=self.memserver.latest_block,
                                          block_time=self.memserver.block_time):
                 raise ValueError(f"Invalid block timestamp {block['block_timestamp']}")
-            """
+
             if not is_old or not self.memserver.quick_sync:
                 self.validate_transactions_in_block(block=block,
                                                     logger=self.logger,
