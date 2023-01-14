@@ -66,7 +66,7 @@ class CoreClient(threading.Thread):
         old_period = self.memserver.period
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
 
-        if 20 > self.memserver.since_last_block > 0 or self.consecutive > 0:
+        if 20 > self.memserver.since_last_block > 0 or self.consecutive > 0 or self.memserver.force_sync_ip:
             self.consecutive = 0
             self.memserver.period = 0
         elif 40 > self.memserver.since_last_block > 20:
