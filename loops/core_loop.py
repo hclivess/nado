@@ -63,29 +63,27 @@ class CoreClient(threading.Thread):
         self.consecutive = 0
 
     def update_periods(self):
-        """Enter every period at least period_counter times. Iterator is present in case node is stuck in phase 3
-        should always start from 0 and be at 3 when enough time passed for block to be produced"""
+        """Enter every period at least period_counter times. Iterator is present in case node is stuck in phase 3.
+        Routine should always start from 0 when node is initiated and be at 3 when enough time passed for block
+        to be produced"""
 
-        self.memserver.period_counter -= 1
         old_period = self.memserver.period
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
 
-        if self.memserver.period_counter < 1:
-            self.memserver.period_counter = 1
-
-            if self.memserver.period < 3:
-                self.memserver.period += 1
-
-            if self.memserver.period == 3:
-                if not self.memserver.since_last_block > self.memserver.block_time:
-                    if 20 > self.memserver.since_last_block:
-                        self.memserver.period = 0
-                    elif 40 > self.memserver.since_last_block > 20:
-                        self.memserver.period = 1
-                    elif self.memserver.block_time > self.memserver.since_last_block > 40:
-                        self.memserver.period = 2
-
-
+        if self.memserver.reported_uptime > 360:
+            if 20 > self.memserver.since_last_block > 0 or self.consecutive > 0 or self.memserver.force_sync_ip:
+                self.consecutive = 0
+                self.memserver.period = 0
+            elif 40 > self.memserver.since_last_block > 20:
+                self.memserver.period = 1
+            elif self.memserver.block_time > self.memserver.since_last_block > 40:
+                self.memserver.period = 2
+            elif self.memserver.since_last_block > self.memserver.block_time:
+                self.memserver.period = 3
+        elif self.memserver.period < 3:
+            self.memserver.period += 1
+        else:
+            self.memserver.period = 0
 
         if old_period != self.memserver.period:
             self.logger.info(f"Switched to period {self.memserver.period}")
