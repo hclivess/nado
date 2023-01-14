@@ -68,7 +68,7 @@ class CoreClient(threading.Thread):
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
 
         if self.memserver.period_counter < 1:
-            self.memserver.period_counter = 10
+            self.memserver.period_counter = 3
             if self.memserver.period < 3:
                 self.memserver.period += 1
             else:
@@ -119,6 +119,10 @@ class CoreClient(threading.Thread):
             self.memserver.reported_uptime = self.memserver.get_uptime()
 
             if self.memserver.period == 3:
+                while not self.memserver.since_last_block == self.memserver.block_time:
+                    self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
+                    self.logger.warning("Waiting for block production")
+
                 block_producers = self.memserver.block_producers.copy()
                 peers = self.memserver.peers.copy()
                 """make copies to avoid errors in case content changes"""
