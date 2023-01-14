@@ -521,11 +521,14 @@ class CoreClient(threading.Thread):
         if self.minority_block_consensus():
             self.memserver.emergency_mode = True
             self.logger.warning("We are out of consensus")
+        elif self.memserver.force_sync_ip:
+            self.memserver.emergency_mode = True
+            self.logger.warning("Forced sync switched to emergency mode")
         else:
             self.memserver.emergency_mode = False
 
-            if self.consensus.block_hash_pool_percentage > 80:
-                self.memserver.force_sync_ip = None
+        if self.consensus.block_hash_pool_percentage > 80:
+            self.memserver.force_sync_ip = None
 
     async def penalty_list_update_handler(self, event):
         self.memserver.penalties = event
