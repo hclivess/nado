@@ -527,7 +527,7 @@ class CoreClient(threading.Thread):
         else:
             self.memserver.emergency_mode = False
 
-        if self.consensus.block_hash_pool_percentage > 80:
+        if self.consensus.block_hash_pool_percentage > 80 and self.memserver.since_last_block < self.memserver.block_time:
             self.memserver.force_sync_ip = None
 
     async def penalty_list_update_handler(self, event):
