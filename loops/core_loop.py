@@ -69,7 +69,7 @@ class CoreClient(threading.Thread):
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
 
         if self.memserver.period_counter < 1:
-            self.memserver.period_counter = 5
+            self.memserver.period_counter = 1
 
             if self.memserver.period < 3:
                 self.memserver.period += 1
