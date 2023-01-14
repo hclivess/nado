@@ -446,9 +446,7 @@ class CoreClient(threading.Thread):
             self.logger.warning(f"Preparing block")
 
 
-            if not valid_block_timestamp(new_block=block,
-                                         old_block=self.memserver.latest_block,
-                                         block_time=self.memserver.block_time):
+            if not valid_block_timestamp(new_block=block):
                 raise ValueError(f"Invalid block timestamp {block['block_timestamp']}")
 
             if not is_old or not self.memserver.quick_sync:
