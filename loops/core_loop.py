@@ -82,6 +82,8 @@ class CoreClient(threading.Thread):
                 self.memserver.period = 3
         elif self.memserver.period < 3:
             self.memserver.period += 1
+            if self.memserver.period == 3 and self.memserver.since_last_block < self.memserver.block_time:
+                self.memserver.period = 0
         else:
             self.memserver.period = 0
 
