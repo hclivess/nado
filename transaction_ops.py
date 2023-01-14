@@ -68,6 +68,7 @@ def create_txid(transaction):
 
 
 def validate_uniqueness(transaction, logger):
+    """no longer needed, better safe than sorry"""
     if get_transaction(transaction, logger=logger):
         return False
     else:
