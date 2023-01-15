@@ -50,7 +50,7 @@ class MessageClient(threading.Thread):
                 self.logger.warning(f"Current Block: {self.memserver.latest_block['block_number']} / {self.memserver.latest_block['block_hash']}")
 
                 self.logger.warning(
-                    f"Seconds since last block: {self.memserver.since_last_block}"
+                    f"Seconds since last target: {self.memserver.since_last_block}"
                 )
 
                 self.logger.warning(f"Unreachable: {len(self.memserver.unreachable)}")
