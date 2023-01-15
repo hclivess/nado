@@ -21,29 +21,13 @@ import math
 def float_to_int(x):
     return math.floor(x * (2 ** 31))
 
-
 def get_hash_penalty(address: str, block_hash: str, block_number: int):
-    if block_number > 20000:
-        address_mingled = blake2b_hash_link(address, block_hash)
-        score = 0
-        for letters in enumerate(address_mingled):
-            score = score + block_hash.count(letters[1])
+    address_mingled = blake2b_hash_link(address, block_hash)
+    score = 0
+    for letters in enumerate(address_mingled):
+        score = score + block_hash.count(letters[1])
 
-        return score
-
-    else:
-
-        shorter_string = min([address, block_hash], key=len)
-
-        score = 0
-        for letters in enumerate(shorter_string):
-            if block_hash[letters[0]] == (letters[1]):
-                score += 1
-            score = score + address.count(letters[1])
-            score = score + block_hash.count(letters[1])
-
-        return score
-
+    return score
 
 def get_block_reward(logger, blocks_backward=100, reward_cap=5000000000):
     """based on number of transactions"""
@@ -69,9 +53,6 @@ def get_block_reward(logger, blocks_backward=100, reward_cap=5000000000):
 
 def valid_block_timestamp(new_block):
     new_timestamp = new_block["block_timestamp"]
-
-    if new_block["block_number"] < 20000:  # compatibility
-        return True
     if not get_timestamp_seconds() >= new_timestamp:
         return False
     else:
