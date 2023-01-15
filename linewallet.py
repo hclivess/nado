@@ -70,7 +70,7 @@ if __name__ == "__main__":
     private_key = key_dictionary["private_key"]
     public_key = key_dictionary["public_key"]
     address = key_dictionary["address"]
-    ips = asyncio.run(load_ips(fail_storage=[], logger=logger, port=9173, semaphore=asyncio.Semaphore(50)))
+    ips = asyncio.run(load_ips(fail_storage=[], logger=logger, port=9173))
     target = random.choice(ips)
     port = get_port()
     balance = get_account_value(address, key="balance")

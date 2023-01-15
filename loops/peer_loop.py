@@ -29,8 +29,7 @@ class PeerClient(threading.Thread):
     def sniff_buffered_peers(self):
         """gets peers from buffer and adds them to routine"""
         result = check_save_peers(peers=self.memserver.peer_buffer,
-                                  logger=self.logger,
-                                  semaphore=self.memserver.semaphore)
+                                  logger=self.logger)
 
         for entry in result["success"]:
             if entry not in self.memserver.block_producers and ip_stored(entry):
@@ -51,12 +50,10 @@ class PeerClient(threading.Thread):
             ips=self.memserver.peers,
             port=self.memserver.port,
             fail_storage=self.memserver.purge_peers_list,
-            logger=self.logger,
-            semaphore=self.memserver.semaphore)
+            logger=self.logger)
 
         check_save_peers(peers=candidates,
-                         logger=self.logger,
-                         semaphore=self.memserver.semaphore)
+                         logger=self.logger)
 
         for peer in candidates:
             if check_ip(peer):
@@ -125,8 +122,7 @@ class PeerClient(threading.Thread):
                     self.memserver.unreachable.clear()
                     self.memserver.peers = asyncio.run(load_ips(fail_storage=self.memserver.purge_peers_list,
                                                                 logger=self.logger,
-                                                                port=self.memserver.port,
-                                                                semaphore=self.memserver.semaphore))
+                                                                port=self.memserver.port))
 
                 if self.memserver.period in [0, 1]:
                     self.purge_peers()
@@ -146,13 +142,11 @@ class PeerClient(threading.Thread):
                         port=self.memserver.port,
                         my_ip=self.memserver.ip,
                         logger=self.logger,
-                        fail_storage=self.memserver.purge_peers_list,
-                        semaphore=self.memserver.semaphore
+                        fail_storage=self.memserver.purge_peers_list
                     )
 
                     check_save_peers(peers=self.memserver.peers,
-                                     logger=self.logger,
-                                     semaphore=self.memserver.semaphore)
+                                     logger=self.logger)
 
                     dump_trust(logger=self.logger,
                                peer_file_lock=self.memserver.peer_file_lock,
@@ -171,7 +165,7 @@ class PeerClient(threading.Thread):
                         logger=self.logger,
                         fail_storage=self.memserver.purge_peers_list,
                         compress="msgpack",
-                        semaphore=self.memserver.semaphore
+                        semaphore=asyncio.Semaphore(50)
                     )
                 )
 

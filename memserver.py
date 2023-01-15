@@ -111,7 +111,7 @@ class MemServer:
                 logger=self.logger,
                 fail_storage=self.purge_peers_list,
                 compress="msgpack",
-                semaphore=self.semaphore
+                semaphore=asyncio.Semaphore(50)
             )
         )
         self.merge_transactions(remote_transactions, user_origin)
