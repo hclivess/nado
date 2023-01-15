@@ -71,7 +71,7 @@ class CoreClient(threading.Thread):
         old_period = self.memserver.period
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
 
-        if self.memserver.reported_uptime > 360 and self.memserver.since_last_block < self.memserver.block_time:
+        if self.memserver.since_last_block < self.memserver.block_time:
             """stable mode"""
             if 20 > self.memserver.since_last_block > 0 or self.consecutive > 0 or self.memserver.force_sync_ip:
                 self.consecutive = 0
