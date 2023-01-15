@@ -4,12 +4,16 @@ from os import getcwd
 
 
 def update_version():
-    version_path = f"{getcwd()}/.git/refs/heads/main"
-    if os.path.exists(version_path):
-        with open(version_path) as version_file:
-            return version_file.read().strip()
-    else:
-        return False
+    try:
+        version_path = f"{getcwd()}/.git/refs/heads/main"
+        if os.path.exists(version_path):
+            with open(version_path) as version_file:
+                return version_file.read().strip()
+        else:
+            return False
+    except Exception as e:
+        print(f"Unable to obtain version, switching to N/A: {e}")
+        return "na"
 
 
 def set_version(version):
