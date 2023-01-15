@@ -232,8 +232,8 @@ class CoreClient(threading.Thread):
                                                  promiscuous=self.memserver.promiscuous):
                                 return peer
                 else:
-                    self.logger.info(f"Ran out of options when picking trusted hash, using the first tested {first_peer}")
-                    return first_peer
+                    self.logger.info(f"Ran out of options when picking trusted hash")
+                    return None
 
         except Exception as e:
             self.logger.info(f"Failed to get a peer to sync from: hash_pool: {source_pool_copy} error: {e}")
