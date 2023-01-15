@@ -181,6 +181,9 @@ class PeerClient(threading.Thread):
                     else:
                         self.logger.error(f"Protocol of {key} too low: {value['protocol']}")
 
+                        if key not in self.memserver.purge_peers_list:
+                            self.memserver.purge_peers_list.append(key)
+
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)
             except Exception as e:
