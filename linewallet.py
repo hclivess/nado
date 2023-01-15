@@ -35,7 +35,8 @@ def send_transaction(address, recipient, amount, data, public_key, private_key, 
                                                     port=9173,
                                                     fail_storage=fails,
                                                     logger=logger,
-                                                    transaction=transaction))
+                                                    transaction=transaction,
+                                                    semaphore=asyncio.Semaphore(50)))
 
     print(f"Submitted to {len(results)} nodes successfully")
 
@@ -69,7 +70,7 @@ if __name__ == "__main__":
     private_key = key_dictionary["private_key"]
     public_key = key_dictionary["public_key"]
     address = key_dictionary["address"]
-    ips = asyncio.run(load_ips(fail_storage=[], logger=logger, port=9173))
+    ips = asyncio.run(load_ips(fail_storage=[], logger=logger, port=9173, semaphore=asyncio.Semaphore(50)))
     target = random.choice(ips)
     port = get_port()
     balance = get_account_value(address, key="balance")

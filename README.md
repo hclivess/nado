@@ -98,8 +98,8 @@ To view your file, you can use the following command: `cat ~/nado/private/keys.d
 
 ## Is there anything unique?
 
-Yes. No mining, minting, block production happens in every node at once, based on the deterministic principles of the
-blockchain. This is possible because block production is separated from the consensual layer. This removes all the selfish
+Yes. No mining or minting. Block production happens in every node at once, based on the deterministic principles of the
+participant addresses mixed with the blockchain state. This is possible because block production is separated from the consensual layer. This removes all the selfish
 miner incentives, which cause issues like transaction exclusion in traditional PoW systems.
 
 ## What is NADO?
@@ -109,7 +109,7 @@ miner incentives, which cause issues like transaction exclusion in traditional P
 </p>
 
 NADO is short for Tornado. It is just another blockchain written from scratch with a highly experimental consensus algorithm, 
-which was created to provide effortless mining for all participants with a public IP address. NADO is not a classic proof-of-work
+which was created to provide effortless block production for all participants with a public IP address. NADO is not a classic proof-of-work
 blockchain like Bitcoin. Unlike most other crypto, its focus is on accessibility to rewards for everyone. It has a fully
 elastic reward mechanism, rewarding users only when transactions are happening on the chain. Users can burn their share
 of tokens in order to increase their chances of winning more rewards in the future.
@@ -146,7 +146,7 @@ Should you choose to wipe out your database and resync the chain from scratch, y
 
 ## What does NADO do differently?
 
-In NADO, every user generates new blocks at the same time. This is possible because users are not rewarded for mining
+In NADO, every user generates new blocks at the same time. This is possible because users are not rewarded for producing
 blocks but for keeping the network running. After generating a block and receiving a reward, chances of receiving more
 block rewards are temporarily lowered based on the public IP address. Every IP address can only have one block
 generating node. While this excludes users without public addresses, it prevents node spamming to a degree.
@@ -194,13 +194,19 @@ money into something that did not exist. Why did they do it? Because it was easy
 - With PoD, the problem is in the increasing difficulty to re-join mesh with more participants.
 
 ## Proof of what?
-
 Every node in the NADO ecosystem keeps track of what opinions other nodes have by sharing state checksums for current
 block producer pools, transaction pools, peer pools and block hash pools. Participants add credibility over time to
 those who share their opinions on what the state of the network is. The security principle is that any
 attacker needs to be connected to the network for a longer time than the legitimate nodes and postpone the attack until
 their network participation duration is longer than that of other nodes - to perform a 51% attack. If the legitimate nodes
 stay in the network longer than the attackers, it is impossible to attack.
+
+## Ideal way to receive rewards (optimal mining)
+User chance to be rewarded for a block is random and depends on their address. This is because of how NADO is designed,
+IPs are important only for users to join the network, while addresses are critical. Reason for this is that IP address
+management is out of reach for most users, so IP-centered system would lead to problems. Meanwhile, addresses are entirely
+in user control. You could mine to one address on more nodes than one, but that would effectively decrease your chance
+of receiving rewards. One address per node is recommended.
 
 ## Burn-to-Bribe system and governance
 In the beginning, all users have the same chance at receiving a reward every block. If they succeed, they are issued
@@ -224,7 +230,7 @@ To burn your NADO, send it to the following address: `burn`
 
 There are no guarantees for security of NADO, mainly because of its highly experimental character. Compared to more
 excluding networks like Bitcoin, security will always be lower as the main focus is on lowering the entry level for new
-users to make mining as inclusive as possible.
+users to make block production and rewards as inclusive as possible.
 
 ## How many decimals are there and what are the units called?
 
@@ -239,7 +245,7 @@ users to make mining as inclusive as possible.
 - Proof of Fidelity with aspects of majority and diversity
 - noSQL MessagePack file-based atomized database system
 - Optional MessagePack formatting in API
-- Shared mining protocol
+- Shared block production and reward protocol
 - Periodic intervals to enforce consensus stabilization
 - Burn-to-Bribe deflationary incentive and governance
 - The logo is a vortexed version of the Impossible Toroidal Polyhedron

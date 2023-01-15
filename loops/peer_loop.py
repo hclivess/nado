@@ -4,12 +4,12 @@ import time
 import traceback
 
 from loops.consensus_loop import change_trust
-import peer_ops
 from block_ops import save_block_producers
 from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
 from data_ops import set_and_sort
-from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, dump_peers, dump_trust
+from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, check_save_peers, \
+    dump_trust
 from peer_ops import get_public_ip, update_local_ip, ip_stored, check_ip
 from config import test_self_port
 
@@ -26,25 +26,37 @@ class PeerClient(threading.Thread):
         self.duration = 0
         self.heavy_refresh = 0
 
-    def merge_and_sort_peers(self) -> None:
-        """abstract from status pool"""
-        for peer_ip in self.memserver.peer_buffer.copy():
-            if peer_ip not in self.memserver.peers and peer_ip not in self.memserver.unreachable and len(
-                    self.memserver.peers) < self.memserver.peer_limit:
-                self.memserver.peers.append(peer_ip)
-                self.logger.info(f"{peer_ip} connected")
+    def sniff_buffered_peers(self):
+        """gets peers from buffer and adds them to routine"""
+        result = check_save_peers(peers=self.memserver.peer_buffer,
+                                  logger=self.logger,
+                                  semaphore=self.memserver.semaphore)
 
-                self.memserver.peers = set_and_sort(self.memserver.peers)
-                self.memserver.peer_buffer.clear()
+        for entry in result["success"]:
+            if entry not in self.memserver.block_producers and ip_stored(entry):
+                self.logger.info(f"{entry} loaded remotely and added to block producers")
+                self.memserver.block_producers.append(entry)
+            if entry in self.memserver.peer_buffer:
+                self.memserver.peer_buffer.remove(entry)
+            if entry not in self.memserver.peers and len(self.memserver.peers) < self.memserver.peer_limit:
+                self.memserver.peers.append(entry)
+
+        self.memserver.block_producers = set_and_sort(self.memserver.block_producers)
+        store_producer_set(self.memserver.block_producers)
+        save_block_producers(self.memserver.block_producers)
 
     def sniff_peers_and_producers(self):
+        """gets peers of peers and adds them to routines"""
         candidates = get_list_of_peers(
-            fetch_from=self.memserver.peers,
+            ips=self.memserver.peers,
             port=self.memserver.port,
-            failed=self.memserver.purge_peers_list,
-            logger=self.logger)
+            fail_storage=self.memserver.purge_peers_list,
+            logger=self.logger,
+            semaphore=self.memserver.semaphore)
 
-        dump_peers(candidates, logger=self.logger)
+        check_save_peers(peers=candidates,
+                         logger=self.logger,
+                         semaphore=self.memserver.semaphore)
 
         for peer in candidates:
             if check_ip(peer):
@@ -56,13 +68,6 @@ class PeerClient(threading.Thread):
                         self.memserver.block_producers.append(peer)
                         self.logger.warning(f"Added {peer} to block producers")
                         """address is sniffed before block is produced"""
-
-                        update_peer(ip=peer,
-                                    logger=self.logger,
-                                    value=get_timestamp_seconds(),
-                                    peer_file_lock=self.memserver.peer_file_lock)
-
-        self.merge_and_sort_peers()
 
         self.memserver.block_producers = set_and_sort(self.memserver.block_producers)
         store_producer_set(self.memserver.block_producers)
@@ -85,7 +90,8 @@ class PeerClient(threading.Thread):
                 self.memserver.block_producers.remove(entry)
                 # self.logger.warning(f"Removed {entry} from block producers")
 
-            change_trust(consensus=self.consensus, peer=entry, value=-10000)
+            if entry in self.consensus.trust_pool:
+                change_trust(consensus=self.consensus, peer=entry, value=-10000)
 
             if entry in self.consensus.status_pool.keys():
                 self.consensus.status_pool.pop(entry)
@@ -111,18 +117,20 @@ class PeerClient(threading.Thread):
         while not self.memserver.terminate:
             try:
                 start = get_timestamp_seconds()
+                self.sniff_peers_and_producers()
+                self.sniff_buffered_peers()
 
                 if len(self.memserver.peers) < self.memserver.min_peers:
                     self.logger.info("No peers, reloading from drive")
                     self.memserver.unreachable.clear()
                     self.memserver.peers = asyncio.run(load_ips(fail_storage=self.memserver.purge_peers_list,
                                                                 logger=self.logger,
-                                                                port=self.memserver.port))
+                                                                port=self.memserver.port,
+                                                                semaphore=self.memserver.semaphore))
 
                 if self.memserver.period in [0, 1]:
                     self.purge_peers()
                     self.memserver.merge_remote_transactions(user_origin=False)
-                    self.sniff_peers_and_producers()
 
                 for peer, ban_time in self.memserver.unreachable.copy().items():
                     timeout = 3600 + ban_time - get_timestamp_seconds()
@@ -139,9 +147,12 @@ class PeerClient(threading.Thread):
                         my_ip=self.memserver.ip,
                         logger=self.logger,
                         fail_storage=self.memserver.purge_peers_list,
+                        semaphore=self.memserver.semaphore
                     )
 
-                    dump_peers(peers=self.memserver.peers, logger=self.logger)
+                    check_save_peers(peers=self.memserver.peers,
+                                     logger=self.logger,
+                                     semaphore=self.memserver.semaphore)
 
                     dump_trust(logger=self.logger,
                                peer_file_lock=self.memserver.peer_file_lock,
@@ -159,7 +170,8 @@ class PeerClient(threading.Thread):
                         port=self.memserver.port,
                         logger=self.logger,
                         fail_storage=self.memserver.purge_peers_list,
-                        compress="msgpack"
+                        compress="msgpack",
+                        semaphore=self.memserver.semaphore
                     )
                 )
 

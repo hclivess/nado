@@ -24,6 +24,7 @@ class MemServer:
     def __init__(self, logger):
         self.logger = logger
         self.logger.info("Starting MemServer")
+        self.semaphore = asyncio.Semaphore(50)
 
         self.purge_peers_list = []
         self.purge_producers_list = []
@@ -49,8 +50,9 @@ class MemServer:
         self.terminate = False
         self.producers_refresh_interval = 10
 
+
         self.block_time = 60
-        self.period = None
+        self.period = 0
 
         self.unreachable = {}
         self.peers = []
@@ -73,7 +75,7 @@ class MemServer:
         self.rollbacks = 0
         self.can_mine = False
 
-        self.min_peers = self.config.get("min_peers") or 2
+        self.min_peers = self.config.get("min_peers") or 5
         self.peer_limit = self.config.get("peer_limit") or 24
         self.max_rollbacks = self.config.get("max_rollbacks") or 10
         self.cascade_limit = self.config.get("cascade_limit") or 1
@@ -108,7 +110,8 @@ class MemServer:
                 port=self.port,
                 logger=self.logger,
                 fail_storage=self.purge_peers_list,
-                compress="msgpack"
+                compress="msgpack",
+                semaphore=self.semaphore
             )
         )
         self.merge_transactions(remote_transactions, user_origin)

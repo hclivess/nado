@@ -145,7 +145,18 @@ class PeerPoolHandler(tornado.web.RequestHandler):
     async def get(self, parameter):
         await asyncio.to_thread(self.peer_pool)
 
+class PeerBufferHandler(tornado.web.RequestHandler):
+    def peer_buffer(self):
+        compress = PeerBufferHandler.get_argument(self, "compress", default="none")
+        peers_data = list(memserver.peer_buffer)
 
+        self.write(serialize(name="peer_buffer",
+                             output=peers_data,
+                             compress=compress
+                             ))
+
+    async def get(self, parameter):
+        await asyncio.to_thread(self.peer_buffer)
 class PenaltiesHandler(tornado.web.RequestHandler):
     def penalties(self):
         compress = PenaltiesHandler.get_argument(self, "compress", default="none")
@@ -329,6 +340,7 @@ class ForceSyncHandler(tornado.web.RequestHandler):
             if server_key == memserver.server_key or client_ip == "127.0.0.1":
                 if client_ip == "127.0.0.1" or check_ip(client_ip):
                     memserver.force_sync_ip = forced_ip
+                    memserver.peers = [forced_ip]
                     self.write(f"Synchronization is now forced only from {forced_ip} until majority consensus is reached")
                 else:
                     self.write(f"Failed to force to sync from {forced_ip}")
@@ -656,15 +668,12 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
                               overwrite=True
                               )
 
-                    if peer_ip not in memserver.peers + memserver.peer_buffer:
-                        if memserver.period == 3:
-                            memserver.peer_buffer.append(peer_ip)
-                            memserver.peer_buffer = set_and_sort(memserver.peer_buffer)
-                        elif len(memserver.peers) < memserver.peer_limit:
-                            memserver.peers.append(peer_ip)
-                            memserver.peers = set_and_sort(memserver.peers)
+                    if peer_ip not in memserver.peer_buffer:
+                        memserver.peer_buffer.append(peer_ip)
+                        message = f"Peer {peer_ip} added to peer buffer"
+                    else:
+                        message = f"{peer_ip} already waiting in peer buffer"
 
-                    message = f"Peer {peer_ip} added"
                 else:
                     message = f"Peer {peer_ip} is known or invalid"
                 self.write(message)
@@ -699,6 +708,7 @@ async def make_app(port):
             (r"/status_pool(.*)", StatusPoolHandler),
             (r"/status(.*)", StatusHandler),
             (r"/peers(.*)", PeerPoolHandler),
+            (r"/peer_buffer(.*)", PeerBufferHandler),
             (r"/penalties(.*)", PenaltiesHandler),
             (r"/penalty(.*)", PenaltyHandler),
             (r"/unreachable(.*)", UnreachableHandler),

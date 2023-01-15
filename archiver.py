@@ -1,4 +1,5 @@
 import py7zr
+from data_ops import get_home
 
 
 def make_archive(output_filename, source_dirs):
@@ -9,7 +10,7 @@ def make_archive(output_filename, source_dirs):
 
 
 if __name__ == "__main__":
-    source_dirs = ["blocks", "index", "peers", "transactions", "accounts"]
+    source_dirs = [f"{get_home()}/blocks", f"{get_home()}/index", f"{get_home()}/peers"]
     output_filename = "nado_archive.7z"
 
     make_archive(output_filename, source_dirs)

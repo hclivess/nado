@@ -12,14 +12,13 @@ from block_ops import (
     get_from_single_target,
     get_block_candidate,
     save_block_producers,
-    valid_block_gap,
     update_child_in_latest_block,
     save_block,
     set_latest_block_info,
     get_block,
     construct_block,
-    valid_block_timestamp,
-    check_target_match
+    check_target_match,
+    valid_block_timestamp
 )
 from config import get_timestamp_seconds
 from data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
@@ -62,19 +61,35 @@ class CoreClient(threading.Thread):
         self.consensus = consensus
         self.run_interval = 1
         self.event_bus = EventBus()
+        self.consecutive = 0
 
     def update_periods(self):
+        """Enter every period at least period_counter times. Iterator is present in case node is stuck in phase 3.
+        Routine should always start from 0 when node is initiated and be at 3 when enough time passed for block
+        to be produced"""
+
         old_period = self.memserver.period
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
 
-        if 20 > self.memserver.since_last_block > 0:
+        if self.memserver.reported_uptime > 360 and self.memserver.since_last_block < self.memserver.block_time:
+            """stable mode"""
+            if 20 > self.memserver.since_last_block > 0 or self.consecutive > 0 or self.memserver.force_sync_ip:
+                self.consecutive = 0
+                self.memserver.period = 0
+            elif 40 > self.memserver.since_last_block > 20:
+                self.memserver.period = 1
+            elif self.memserver.block_time > self.memserver.since_last_block > 40:
+                self.memserver.period = 2
+            elif self.memserver.since_last_block > self.memserver.block_time:
+                self.memserver.period = 3
+
+        elif self.memserver.period < 3:
+            """quick switch mode"""
+            self.memserver.period += 1
+            if self.memserver.period == 3 and self.memserver.since_last_block < self.memserver.block_time:
+                self.memserver.period = 0
+        else:
             self.memserver.period = 0
-        elif 40 > self.memserver.since_last_block > 20:
-            self.memserver.period = 1
-        elif self.memserver.block_time > self.memserver.since_last_block > 40:
-            self.memserver.period = 2
-        elif self.memserver.since_last_block > self.memserver.block_time:
-            self.memserver.period = 3
 
         if old_period != self.memserver.period:
             self.logger.info(f"Switched to period {self.memserver.period}")
@@ -121,15 +136,19 @@ class CoreClient(threading.Thread):
             self.memserver.reported_uptime = self.memserver.get_uptime()
 
             if self.memserver.period == 3:
-                if self.memserver.peers and self.memserver.block_producers:
-                    # todo change block_producers ordering based on previous block hash instead of alphabetical sorting so first one has no advantage
-                    block_candidate = get_block_candidate(block_producers=self.memserver.block_producers,
+                block_producers = self.memserver.block_producers.copy()
+                peers = self.memserver.peers.copy()
+                """make copies to avoid errors in case content changes"""
+
+                if len(peers) > self.memserver.min_peers and block_producers and not self.memserver.force_sync_ip:
+                    block_candidate = get_block_candidate(block_producers=block_producers,
                                                           block_producers_hash=self.memserver.block_producers_hash,
                                                           logger=self.logger,
                                                           event_bus=self.event_bus,
                                                           transaction_pool=self.memserver.transaction_pool.copy(),
                                                           peer_file_lock=self.memserver.peer_file_lock,
-                                                          latest_block=self.memserver.latest_block
+                                                          latest_block=self.memserver.latest_block,
+                                                          block_time=self.memserver.block_time
                                                           )
 
                     self.produce_block(block=block_candidate,
@@ -178,40 +197,43 @@ class CoreClient(threading.Thread):
                 shuffled_pool.pop(self.memserver.ip)
                 """do not sync from self"""
 
-            for hash_candidate in sorted_hashes:
-                """go from the most common hash to the least common one"""
-                self.memserver.cascade_depth = sorted_hashes.index(hash_candidate) + 1
+            if not sorted_hashes:
+                self.logger.info(f"No hashes to sync from")
 
-                for peer, value in shuffled_pool.items():
-                    """pick random peer"""
-                    peer_trust = load_trust(logger=self.logger,
-                                            peer=peer,
-                                            peer_file_lock=self.memserver.peer_file_lock)
-                    """load trust score"""
-
-                    peer_protocol = self.consensus.status_pool[peer]["protocol"]
-                    """get protocol version"""
-
-                    if not first_peer:
-                        if value == hash_candidate:
-                            first_peer = peer
-
-                    if check_ip(peer):
-                        if qualifies_to_sync(peer=peer,
-                                             peer_protocol=peer_protocol,
-                                             peer_trust=peer_trust,
-                                             memserver_protocol=self.memserver.protocol,
-                                             unreachable_list=self.memserver.unreachable.keys(),
-                                             average_trust=self.consensus.average_trust,
-                                             purge_list=self.memserver.purge_peers_list,
-                                             peer_hash=value,
-                                             required_hash=hash_candidate,
-                                             promiscuous=self.memserver.promiscuous):
-                            return peer
             else:
-                self.logger.info(f"Ran out of options when picking trusted hash, using the first tested {first_peer}")
-                time.sleep(1)
-                return first_peer
+                for hash_candidate in sorted_hashes:
+                    """go from the most common hash to the least common one"""
+                    self.memserver.cascade_depth = sorted_hashes.index(hash_candidate) + 1
+
+                    for peer, value in shuffled_pool.items():
+                        """pick random peer"""
+                        peer_trust = load_trust(logger=self.logger,
+                                                peer=peer,
+                                                peer_file_lock=self.memserver.peer_file_lock)
+                        """load trust score"""
+
+                        peer_protocol = self.consensus.status_pool[peer]["protocol"]
+                        """get protocol version"""
+
+                        if not first_peer:
+                            if value == hash_candidate:
+                                first_peer = peer
+
+                        if check_ip(peer):
+                            if qualifies_to_sync(peer=peer,
+                                                 peer_protocol=peer_protocol,
+                                                 peer_trust=peer_trust,
+                                                 memserver_protocol=self.memserver.protocol,
+                                                 unreachable_list=self.memserver.unreachable.keys(),
+                                                 average_trust=self.consensus.average_trust,
+                                                 purge_list=self.memserver.purge_peers_list,
+                                                 peer_hash=value,
+                                                 required_hash=hash_candidate,
+                                                 promiscuous=self.memserver.promiscuous):
+                                return peer
+                else:
+                    self.logger.info(f"Ran out of options when picking trusted hash")
+                    return None
 
         except Exception as e:
             self.logger.info(f"Failed to get a peer to sync from: hash_pool: {source_pool_copy} error: {e}")
@@ -251,11 +273,16 @@ class CoreClient(threading.Thread):
         if suggested_block_producers:
             if self.memserver.ip not in suggested_block_producers:
                 change_trust(self.consensus, peer=sync_from, value=-10000)
+                self.logger.info(f"Our node not present in suggested block producers from {sync_from}")
+                #todo announce in peer_loop
 
             replacements = []
             for block_producer in suggested_block_producers:
                 if ip_stored(block_producer):
                     replacements.append(block_producer)
+                elif block_producer not in self.memserver.peer_buffer:
+                    self.logger.info(f"{block_producer} not stored locally and will be probed")
+                    self.memserver.peer_buffer.append(block_producer)
 
             self.memserver.block_producers = set_and_sort(replacements)
             save_block_producers(self.memserver.block_producers)
@@ -273,6 +300,7 @@ class CoreClient(threading.Thread):
             return suggested_pool
         else:
             change_trust(self.consensus, peer=peer, value=-10000)
+            self.logger.info(f"Could not replace {key} from {peer}")
 
     def emergency_mode(self):
         self.logger.warning("Entering emergency mode")
@@ -343,7 +371,7 @@ class CoreClient(threading.Thread):
 
     def rebuild_block(self, block):
         # todo add block size check?
-        return construct_block(block_timestamp=block["block_timestamp"],
+        return construct_block(block_timestamp=self.memserver.latest_block["block_timestamp"] + self.memserver.block_time,
                                block_number=self.memserver.latest_block["block_number"] + 1,
                                parent_hash=self.memserver.latest_block["block_hash"],
                                block_ip=block["block_ip"],
@@ -420,23 +448,23 @@ class CoreClient(threading.Thread):
         try:
             self.logger.warning(f"Preparing block")
 
-            if not valid_block_timestamp(new_block=block,
-                                         old_block=self.memserver.latest_block):
-                raise ValueError(f"Invalid block timestamp")
+
+            if not valid_block_timestamp(new_block=block):
+                raise ValueError(f"Invalid block timestamp {block['block_timestamp']}")
 
             if not is_old or not self.memserver.quick_sync:
                 self.validate_transactions_in_block(block=block,
                                                     logger=self.logger,
                                                     remote_peer=remote_peer,
                                                     remote=remote)
-
+            """
             if not valid_block_gap(old_block=self.memserver.latest_block,
                                    new_block=block):
 
                 self.logger.info("Block gap too tight")
                 if remote:
                     change_trust(self.consensus, peer=remote_peer, value=-1000)
-
+            """
             sorted_transactions = sort_list_dict(block["block_transactions"])
             return sorted_transactions
 
@@ -458,6 +486,11 @@ class CoreClient(threading.Thread):
 
             verified_block = self.verify_block(block, remote=remote, remote_peer=remote_peer, is_old=is_old)
 
+            if self.memserver.latest_block["block_creator"] == block["block_creator"]:
+                self.consecutive += 1
+            else:
+                self.consecutive = 0
+
             self.incorporate_block(block=block, sorted_transactions=verified_block)
             self.memserver.latest_block = block
 
@@ -469,8 +502,7 @@ class CoreClient(threading.Thread):
 
             self.logger.warning(f"Block hash: {block['block_hash']}")
             self.logger.warning(f"Block number: {block['block_number']}")
-            self.logger.warning(f"Winner IP: {block['block_ip']}")
-            self.logger.warning(f"Winner address: {block['block_creator']}")
+            self.logger.warning(f"Winner: {block['block_creator']} of {block['block_ip']}")
             self.logger.warning(
                 f"Block reward: {to_readable_amount(block['block_reward'])}"
             )
@@ -498,11 +530,14 @@ class CoreClient(threading.Thread):
         if self.minority_block_consensus():
             self.memserver.emergency_mode = True
             self.logger.warning("We are out of consensus")
+        elif self.memserver.force_sync_ip:
+            self.memserver.emergency_mode = True
+            self.logger.warning("Forced sync switched to emergency mode")
         else:
             self.memserver.emergency_mode = False
 
-            if self.consensus.block_hash_pool_percentage > 80:
-                self.memserver.force_sync_ip = None
+        if self.consensus.block_hash_pool_percentage > 80 and self.memserver.since_last_block < self.memserver.block_time:
+            self.memserver.force_sync_ip = None
 
     async def penalty_list_update_handler(self, event):
         self.memserver.penalties = event
