@@ -298,8 +298,7 @@ if __name__ == "__main__":
     else:
         ips = asyncio.run(load_ips(logger=logger,
                                    fail_storage=[],
-                                   port=port,
-                                   semaphore=asyncio.Semaphore(50)))
+                                   port=port))
 
     for x in range(0, 50000):
         try:
