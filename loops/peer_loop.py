@@ -164,7 +164,7 @@ class PeerClient(threading.Thread):
 
                     self.memserver.can_mine = test_self_port(self.memserver.ip, self.memserver.port)
 
-                self.consensus.status_pool = asyncio.run(
+                candidates = asyncio.run(
                     compound_get_status_pool(
                         ips=self.memserver.peers,
                         port=self.memserver.port,
@@ -174,6 +174,12 @@ class PeerClient(threading.Thread):
                         semaphore=self.memserver.semaphore
                     )
                 )
+
+                for key, value in candidates.items():
+                    if value['protocol'] >= self.memserver.protocol:
+                        self.consensus.status_pool[key]=value
+                    else:
+                        self.logger.error(f"Protocol of {key} too low: {value['protocol']}")
 
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)
