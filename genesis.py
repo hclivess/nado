@@ -28,7 +28,7 @@ def create_indexers():
 
 def make_folders():
     make_folder(f"{get_home()}/blocks")
-    make_folder(f"{get_home()}/peers")
+    make_folder(f"{get_home()}/peers", strict=False)
     make_folder(f"{get_home()}/private", strict=False)
     make_folder(f"{get_home()}/index")
     make_folder(f"{get_home()}/index/producer_sets")
