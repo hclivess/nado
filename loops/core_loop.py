@@ -535,7 +535,7 @@ class CoreClient(threading.Thread):
             self.logger.warning("We are out of consensus")
         elif self.memserver.force_sync_ip:
             self.memserver.emergency_mode = True
-            self.logger.warning("Forced sync switched to emergency mode")
+            self.logger.debug("Forced sync switched to emergency mode")
         else:
             self.memserver.emergency_mode = False
 
