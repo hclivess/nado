@@ -63,7 +63,7 @@ class CoreClient(threading.Thread):
         self.event_bus = EventBus()
         self.consecutive = 0
 
-    def update_periods(self):
+    def get_period(self):
         """Enter every period at least period_counter times. Iterator is present in case node is stuck in phase 3.
         Routine should always start from 0 when node is initiated and be at 3 when enough time passed for block
         to be produced"""
@@ -83,7 +83,7 @@ class CoreClient(threading.Thread):
             elif self.memserver.since_last_block > self.memserver.block_time:
                 self.memserver.period = 3
 
-        elif self.memserver.period < 3:
+        elif self.memserver.period < 3 and not self.memserver.reported_uptime > self.memserver.block_time:
             """quick switch mode"""
             self.memserver.period += 1
             if self.memserver.period == 3 and self.memserver.since_last_block < self.memserver.block_time:
@@ -96,7 +96,7 @@ class CoreClient(threading.Thread):
 
     def normal_mode(self):
         try:
-            self.update_periods()
+            self.get_period()
             if self.memserver.period == 0 and self.memserver.user_tx_buffer:
                 """merge user buffer to tx buffer inside 0 period"""
                 buffered = merge_buffer(from_buffer=self.memserver.user_tx_buffer,

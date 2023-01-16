@@ -24,7 +24,7 @@ class MemServer:
     def __init__(self, logger):
         self.logger = logger
         self.logger.info("Starting MemServer")
-        self.semaphore = asyncio.Semaphore(50)
+        self.genesis_timestamp = 1669852800
 
         self.purge_peers_list = []
         self.purge_producers_list = []
