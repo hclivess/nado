@@ -4,7 +4,7 @@ import shutil
 
 from ops.data_ops import get_home
 
-to_wipeout = ["blocks", "logs", "index", "peers", "transactions"]
+to_wipeout = ["blocks", "logs", "index"]
 
 
 def delete(to_wipeout):
