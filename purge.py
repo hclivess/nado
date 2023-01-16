@@ -1,7 +1,7 @@
 import os.path
 import os
 import shutil
-from data_ops import get_home
+from ops.data_ops import get_home
 
 to_wipeout = ["blocks", "logs", "index", "peers", "transactions"]
 

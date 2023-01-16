@@ -4,13 +4,13 @@ import time
 import traceback
 
 from loops.consensus_loop import change_trust
-from block_ops import save_block_producers
+from ops.block_ops import save_block_producers
 from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
-from data_ops import set_and_sort
-from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, check_save_peers, \
+from ops.data_ops import set_and_sort
+from ops.peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, check_save_peers, \
     dump_trust
-from peer_ops import get_public_ip, update_local_ip, ip_stored, check_ip
+from ops.peer_ops import get_public_ip, update_local_ip, ip_stored, check_ip
 from config import test_self_port
 
 

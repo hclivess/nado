@@ -15,7 +15,7 @@ from config import get_config
 from config import get_timestamp_seconds
 from data_ops import sort_list_dict, get_home
 from hashing import create_nonce, blake2b_hash
-from keys import load_keys
+from key_ops import load_keys
 from log_ops import get_logger
 from sqlite_ops import DbHandler
 

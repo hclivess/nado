@@ -1,14 +1,14 @@
 import asyncio
 from threading import Lock
 
-from account_ops import get_account
-from block_ops import load_block_producers, get_latest_block_info
+from ops.account_ops import get_account
+from ops.block_ops import load_block_producers, get_latest_block_info
 from compounder import compound_get_list_of
 from config import get_timestamp_seconds, get_config
-from data_ops import set_and_sort, sort_list_dict
+from ops.data_ops import set_and_sort, sort_list_dict
 from hashing import blake2b_hash
-from keys import load_keys
-from transaction_ops import (
+from ops.key_ops import load_keys
+from ops.transaction_ops import (
     validate_single_spending,
     validate_transaction,
     sort_transaction_pool,

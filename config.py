@@ -3,7 +3,7 @@ import os
 import socket
 import time
 
-from data_ops import get_home
+from ops.data_ops import get_home
 from hashing import create_nonce
 
 

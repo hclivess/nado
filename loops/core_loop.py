@@ -3,10 +3,10 @@ import sys
 import threading
 import time
 import traceback
-from transaction_ops import remove_outdated_transactions
+from ops.transaction_ops import remove_outdated_transactions
 
-from account_ops import increase_produced_count, change_balance
-from block_ops import (
+from ops.account_ops import increase_produced_count, change_balance
+from ops.block_ops import (
     knows_block,
     get_blocks_after,
     get_from_single_target,
@@ -21,13 +21,13 @@ from block_ops import (
     valid_block_timestamp
 )
 from config import get_timestamp_seconds
-from data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
+from ops.data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
 from event_bus import EventBus
 from loops.consensus_loop import change_trust
-from peer_ops import load_trust, update_local_address, ip_stored, check_ip, qualifies_to_sync
-from pool_ops import merge_buffer
+from ops.peer_ops import load_trust, update_local_address, ip_stored, check_ip, qualifies_to_sync
+from ops.pool_ops import merge_buffer
 from rollback import rollback_one_block
-from transaction_ops import (
+from ops.transaction_ops import (
     to_readable_amount,
     validate_transaction,
     validate_all_spending, index_transactions

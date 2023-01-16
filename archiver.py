@@ -1,5 +1,5 @@
 import py7zr
-from data_ops import get_home
+from ops.data_ops import get_home
 
 
 def make_archive(output_filename, source_dirs):

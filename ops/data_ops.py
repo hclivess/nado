@@ -1,4 +1,5 @@
 import asyncio
+import os
 import random
 import re
 import sys
@@ -65,3 +66,14 @@ def shuffle_dict(dictionary) -> dict:
 def allow_async():
     if sys.platform == "win32" and sys.version_info >= (3, 8, 0):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+def make_folder(folder_name: str, strict: bool = True):
+    if not os.path.exists(folder_name):
+        os.makedirs(folder_name)
+        return True
+    else:
+        if strict:
+            raise ValueError(f"{folder_name} folder already exists")
+        else:
+            return False

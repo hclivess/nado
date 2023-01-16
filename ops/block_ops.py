@@ -10,7 +10,7 @@ from account_ops import get_account_value
 from config import get_timestamp_seconds, get_config
 from data_ops import set_and_sort, average, get_home
 from hashing import blake2b_hash_link
-from keys import load_keys
+from key_ops import load_keys
 from log_ops import get_logger
 from peer_ops import load_peer
 from sqlite_ops import DbHandler

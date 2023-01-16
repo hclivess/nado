@@ -1,8 +1,8 @@
-from log_ops import get_logger
-from block_ops import load_block_from_hash
+from ops.log_ops import get_logger
+from ops.block_ops import load_block_from_hash
 import pandas as pd
 import matplotlib.pyplot as plt
-from transaction_ops import to_readable_amount
+from ops.transaction_ops import to_readable_amount
 MIN_BLOCK = 20000
 
 logger = get_logger()

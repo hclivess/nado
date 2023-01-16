@@ -1,13 +1,12 @@
-from account_ops import create_account
-from block_ops import save_block, set_latest_block_info
+from ops.account_ops import create_account
+from ops.block_ops import save_block, set_latest_block_info
 from config import create_config
-from data_ops import get_home
-from dircheck import make_folder
+from ops.data_ops import get_home, make_folder
 from hashing import blake2b_hash_link
-from log_ops import get_logger
-from peer_ops import save_peer, get_public_ip
+from ops.log_ops import get_logger
+from ops.peer_ops import save_peer, get_public_ip
 import asyncio
-from sqlite_ops import DbHandler
+from ops.sqlite_ops import DbHandler
 
 
 def create_indexers():
