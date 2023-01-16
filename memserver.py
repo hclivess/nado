@@ -102,7 +102,7 @@ class MemServer:
 
     def merge_remote_transactions(self, user_origin=False) -> None:
         """reach out to all peers and merge their transactions to our transaction pool"""
-        remote_transactions = asyncio.run(
+        remote_pool_transactions = asyncio.run(
             compound_get_list_of(
                 key="transaction_pool",
                 entries=self.peers,
@@ -113,7 +113,22 @@ class MemServer:
                 semaphore=asyncio.Semaphore(50)
             )
         )
-        self.merge_transactions(remote_transactions, user_origin)
+        self.merge_transactions(remote_pool_transactions, user_origin)
+
+        remote_buffer_transactions = asyncio.run(
+            compound_get_list_of(
+                key="transaction_buffer",
+                entries=self.peers,
+                port=self.port,
+                logger=self.logger,
+                fail_storage=self.purge_peers_list,
+                compress="msgpack",
+                semaphore=asyncio.Semaphore(50)
+            )
+        )
+
+        self.merge_transactions(remote_buffer_transactions, user_origin)
+
 
     def merge_transaction(self, transaction, user_origin=False) -> dict:
         """warning, can get stuck if not efficient"""

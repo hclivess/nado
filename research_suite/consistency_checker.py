@@ -5,10 +5,10 @@ from ops.block_ops import load_block_from_hash
 from ops.log_ops import get_logger
 from ops.transaction_ops import to_readable_amount
 
-MIN_BLOCK = 20000
+MIN_BLOCK = 65000
 
 logger = get_logger()
-block_hash = "6514c2b2fac0d1e820c1d24dbcf36dd34532b59ed4c268b15c341663ce505b9f"
+block_hash = "d3996da8cd07efa3c69f37641ea822cd66492a00b50f393a802880d9455a3539"
 miners = []
 tx_count = []
 
