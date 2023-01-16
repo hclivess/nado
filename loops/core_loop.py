@@ -87,17 +87,17 @@ class CoreClient(threading.Thread):
                 self.memserver.period = 2
             elif self.memserver.since_last_block > self.memserver.block_time:
                 self.memserver.period = 3
-            mode = "Stable Switch"
+            mode = "Stable switch"
 
         elif self.memserver.period < 3:
             """quick switch mode"""
             self.memserver.period += 1
             if self.memserver.period == 3 and self.memserver.since_last_block < self.memserver.block_time:
                 self.memserver.period = 0
-            mode = "Quick Switch"
+            mode = "Quick switch"
         else:
             self.memserver.period = 0
-            mode = "Quick Switch"
+            mode = "Quick switch"
 
         if old_period != self.memserver.period:
             self.logger.debug(f"Switched to period {self.memserver.period}; Mode: {mode}")
