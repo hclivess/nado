@@ -1,8 +1,11 @@
 import threading
 import time
 import traceback
-from config import get_timestamp_seconds
 from math import floor
+
+from config import get_timestamp_seconds
+
+
 class MessageClient(threading.Thread):
     """thread which displays output messages and logs them"""
 

@@ -1,18 +1,20 @@
+import argparse
+import asyncio
+import json
+import random
+
+from Curve25519 import from_private_key
+from compounder import compound_send_transaction
 from config import get_timestamp_seconds, create_config, config_found, get_port
+from ops.account_ops import get_account_value
+from ops.data_ops import allow_async
+from ops.data_ops import get_home, make_folder
 from ops.key_ops import load_keys, keyfile_found, save_keys, generate_keys
 from ops.log_ops import get_logger
-from ops.transaction_ops import create_transaction, to_raw_amount, get_recommneded_fee, to_readable_amount, get_target_block
-import random
-from ops.peer_ops import load_ips
-from ops.account_ops import get_account_value
-import asyncio
-from ops.data_ops import get_home, make_folder
-from compounder import compound_send_transaction
 from ops.peer_ops import get_public_ip
-import argparse
-import json
-from Curve25519 import from_private_key
-from ops.data_ops import allow_async
+from ops.peer_ops import load_ips
+from ops.transaction_ops import create_transaction, to_raw_amount, get_recommneded_fee, to_readable_amount, \
+    get_target_block
 
 
 def send_transaction(address, recipient, amount, data, public_key, private_key, ips, fee, target_block):

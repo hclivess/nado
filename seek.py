@@ -1,5 +1,5 @@
-from ops.block_ops import get_latest_block_info, load_block_from_hash
 from config import get_timestamp_seconds
+from ops.block_ops import get_latest_block_info, load_block_from_hash
 from ops.log_ops import get_logger
 
 

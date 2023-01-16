@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import time
 
@@ -14,8 +15,6 @@ from key_ops import load_keys
 from log_ops import get_logger
 from peer_ops import load_peer
 from sqlite_ops import DbHandler
-import difflib
-import math
 
 
 def float_to_int(x):

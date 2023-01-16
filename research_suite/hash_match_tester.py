@@ -1,9 +1,11 @@
 from hashlib import blake2b
+from random import shuffle
+
+import matplotlib.pyplot as plt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey)
-from random import random, shuffle
-import matplotlib.pyplot as plt
+
 from hashing import create_nonce
 
 BLOCKS = 1000

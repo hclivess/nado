@@ -2,8 +2,8 @@ import threading
 import time
 import traceback
 
-from ops.block_ops import save_block_producers
 from config import get_timestamp_seconds
+from ops.block_ops import save_block_producers
 from ops.peer_ops import (
     load_peer,
     me_to,

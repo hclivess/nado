@@ -1,6 +1,6 @@
-import ipaddress
 import asyncio
 import glob
+import ipaddress
 import json
 import os
 import os.path
