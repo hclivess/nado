@@ -2,7 +2,7 @@ import json
 import os
 
 from Curve25519 import generate_keydict
-from data_ops import get_home
+from .data_ops import get_home
 
 
 def save_keys(keydict, file=f"{get_home()}/private/keys.dat"):

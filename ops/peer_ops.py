@@ -10,9 +10,9 @@ from tornado.httpclient import AsyncHTTPClient
 from compounder import compound_get_list_of, compound_announce_self
 from compounder import compound_get_status_pool
 from config import get_port, get_config, get_timestamp_seconds, update_config
-from data_ops import set_and_sort, get_home
+from .data_ops import set_and_sort, get_home
 from hashing import base64encode, blake2b_hash
-from key_ops import load_keys
+from .key_ops import load_keys
 
 
 def validate_dict_structure(dictionary: dict, requirements: list) -> bool:

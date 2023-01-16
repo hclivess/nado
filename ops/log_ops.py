@@ -4,7 +4,7 @@ from logging.handlers import RotatingFileHandler
 
 import coloredlogs
 
-from data_ops import get_home, make_folder
+from .data_ops import get_home, make_folder
 
 
 def get_logger(max_detail=False, file="log.log"):

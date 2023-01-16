@@ -1,7 +1,7 @@
 import time
 
-from data_ops import get_home
-from sqlite_ops import DbHandler
+from .data_ops import get_home
+from .sqlite_ops import DbHandler
 
 
 def get_account(address, create_on_error=True):
