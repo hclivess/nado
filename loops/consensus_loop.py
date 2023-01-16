@@ -2,9 +2,9 @@ import threading
 import time
 import traceback
 
-from block_ops import save_block_producers
 from config import get_timestamp_seconds
-from peer_ops import (
+from ops.block_ops import save_block_producers
+from ops.peer_ops import (
     load_peer,
     me_to,
     get_majority,
@@ -12,8 +12,8 @@ from peer_ops import (
     get_average_int,
     ip_stored
 )
-from pool_ops import get_from_pool
-import asyncio
+from ops.pool_ops import get_from_pool
+
 
 def get_pool_majority(pool):
     if pool and None not in pool.values():
