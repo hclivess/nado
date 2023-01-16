@@ -71,7 +71,12 @@ class CoreClient(threading.Thread):
         old_period = self.memserver.period
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
 
-        if self.memserver.since_last_block < self.memserver.block_time:
+        if self.memserver.reported_uptime < self.memserver.block_time:
+            """init mode"""
+            self.memserver.period = 0
+            mode = "Initialization period..."
+
+        elif self.memserver.since_last_block < self.memserver.block_time:
             """stable mode"""
             if 20 > self.memserver.since_last_block > 0 or self.consecutive > 0 or self.memserver.force_sync_ip:
                 self.consecutive = 0
@@ -82,20 +87,20 @@ class CoreClient(threading.Thread):
                 self.memserver.period = 2
             elif self.memserver.since_last_block > self.memserver.block_time:
                 self.memserver.period = 3
-            quick_switch = False
+            mode = "Stable Switch"
 
-        elif self.memserver.period < 3 and not self.memserver.reported_uptime > self.memserver.block_time:
+        elif self.memserver.period < 3:
             """quick switch mode"""
             self.memserver.period += 1
             if self.memserver.period == 3 and self.memserver.since_last_block < self.memserver.block_time:
                 self.memserver.period = 0
-            quick_switch = True
+            mode = "Quick Switch"
         else:
             self.memserver.period = 0
-            quick_switch = True
+            mode = "Quick Switch"
 
         if old_period != self.memserver.period:
-            self.logger.debug(f"Switched to period {self.memserver.period}; Quick switch: {quick_switch}")
+            self.logger.debug(f"Switched to period {self.memserver.period}; Mode: {mode}")
 
     def normal_mode(self):
         try:
