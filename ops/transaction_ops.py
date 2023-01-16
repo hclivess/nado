@@ -13,7 +13,7 @@ from .block_ops import get_block_number
 from compounder import compound_send_transaction
 from config import get_config
 from config import get_timestamp_seconds
-from data_ops import sort_list_dict, get_home
+from .data_ops import sort_list_dict, get_home
 from hashing import create_nonce, blake2b_hash
 from .key_ops import load_keys
 from .log_ops import get_logger
