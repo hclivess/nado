@@ -82,17 +82,20 @@ class CoreClient(threading.Thread):
                 self.memserver.period = 2
             elif self.memserver.since_last_block > self.memserver.block_time:
                 self.memserver.period = 3
+            quick_switch = False
 
         elif self.memserver.period < 3 and not self.memserver.reported_uptime > self.memserver.block_time:
             """quick switch mode"""
             self.memserver.period += 1
             if self.memserver.period == 3 and self.memserver.since_last_block < self.memserver.block_time:
                 self.memserver.period = 0
+            quick_switch = True
         else:
             self.memserver.period = 0
+            quick_switch = True
 
         if old_period != self.memserver.period:
-            self.logger.info(f"Switched to period {self.memserver.period}")
+            self.logger.warning(f"Switched to period {self.memserver.period}. Quick switch: {quick_switch}")
 
     def normal_mode(self):
         try:
