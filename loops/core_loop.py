@@ -95,7 +95,7 @@ class CoreClient(threading.Thread):
             quick_switch = True
 
         if old_period != self.memserver.period:
-            self.logger.warning(f"Switched to period {self.memserver.period}. Quick switch: {quick_switch}")
+            self.logger.debug(f"Switched to period {self.memserver.period}; Quick switch: {quick_switch}")
 
     def normal_mode(self):
         try:
@@ -535,7 +535,7 @@ class CoreClient(threading.Thread):
             self.logger.warning("We are out of consensus")
         elif self.memserver.force_sync_ip:
             self.memserver.emergency_mode = True
-            self.logger.debug("Forced sync switched to emergency mode")
+            self.logger.warning("Forced sync switched to emergency mode")
         else:
             self.memserver.emergency_mode = False
 
