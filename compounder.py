@@ -24,7 +24,7 @@ async def get_list_of(key, peer, port, fail_storage, logger, semaphore, compress
     try:
         async with semaphore:
             http_client = AsyncHTTPClient()
-            response = await http_client.fetch(url_construct)
+            response = await http_client.fetch(url_construct, request_timeout=5)
 
             if compress == "msgpack":
                 fetched = msgpack.unpackb(response.body)
@@ -69,7 +69,7 @@ async def get_url(peer, port, url, logger, fail_storage, semaphore, compress=Non
     try:
         async with semaphore:
             http_client = AsyncHTTPClient()
-            response = await http_client.fetch(url_construct)
+            response = await http_client.fetch(url_construct, request_timeout=5)
             fetched = response.body.decode()
 
             return peer, fetched
@@ -104,7 +104,7 @@ async def send_transaction(peer, port, logger, fail_storage, transaction, semaph
     try:
         async with semaphore:
             http_client = AsyncHTTPClient()
-            response = await http_client.fetch(url_construct)
+            response = await http_client.fetch(url_construct, request_timeout=5)
             fetched = msgpack.unpackb(response.body)["message"]
             return peer, fetched
 
@@ -141,7 +141,7 @@ async def get_status(peer, port, logger, fail_storage, semaphore, compress=None)
     try:
         async with semaphore:
             http_client = AsyncHTTPClient()
-            response = await http_client.fetch(url_construct)
+            response = await http_client.fetch(url_construct, request_timeout=5)
 
             if compress == "msgpack":
                 fetched = msgpack.unpackb(response.body)
@@ -182,7 +182,7 @@ async def announce_self(peer, port, my_ip, logger, fail_storage, semaphore):
     try:
         async with semaphore:
             http_client = AsyncHTTPClient()
-            response = await http_client.fetch(url_construct)
+            response = await http_client.fetch(url_construct, request_timeout=5)
 
             fetched = response.body.decode()
             return fetched

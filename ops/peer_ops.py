@@ -44,7 +44,7 @@ async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add ms
     try:
         http_client = AsyncHTTPClient()
         url = f"http://{target_peer}:{get_port()}/status"
-        result = await http_client.fetch(url)
+        result = await http_client.fetch(url, request_timeout=5)
         text = result.body.decode()
         code = result.code
 
@@ -322,7 +322,7 @@ async def get_public_ip(logger):
     urls = ["https://api.ipify.org", "https://ipinfo.io/ip"]
     for url in urls:
         try:
-            ip = await http_client.fetch(url)
+            ip = await http_client.fetch(url, request_timeout=5)
             return ip.body.decode()
         except Exception as e:
             logger.error(f"Unable to fetch IP from {url}: {e}")

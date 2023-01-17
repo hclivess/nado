@@ -322,7 +322,7 @@ async def knows_block(target_peer, port, hash, logger):
     try:
         http_client = AsyncHTTPClient()
         url = f"http://{target_peer}:{port}/get_block?hash={hash}"
-        result = await http_client.fetch(url)
+        result = await http_client.fetch(url, request_timeout=5)
 
         if result.code == 200:
             return True
@@ -349,7 +349,7 @@ async def get_blocks_after(target_peer, from_hash, count=50, compress="msgpack")
     http_client = AsyncHTTPClient()
 
     url = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
-    result = await http_client.fetch(url)
+    result = await http_client.fetch(url, request_timeout=5)
     code = result.code
 
     if code == 200 and compress == "msgpack":
@@ -367,7 +367,7 @@ async def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
         http_client = AsyncHTTPClient()
 
         url = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
-        result = await http_client.fetch(url)
+        result = await http_client.fetch(url, request_timeout=5)
         code = result.code
 
         if code == 200 and compress == "msgpack":
@@ -390,7 +390,7 @@ async def get_from_single_target(key, target_peer, logger):  # todo add msgpack 
     try:
         http_client = AsyncHTTPClient()
         url = f"http://{target_peer}:{get_config()['port']}/{key}"
-        result = await http_client.fetch(url)
+        result = await http_client.fetch(url, request_timeout=5)
         text = result.body.decode()
         code = result.code
 

@@ -24,7 +24,7 @@ from .sqlite_ops import DbHandler
 async def get_recommneded_fee(target, port):
     http_client = AsyncHTTPClient()
     url = f"http://{target}:{port}/get_recommended_fee"
-    response = await http_client.fetch(url)
+    response = await http_client.fetch(url, request_timeout=5)
     result = json.loads(response.body.decode())
     return result['fee']
 
@@ -32,7 +32,7 @@ async def get_recommneded_fee(target, port):
 async def get_target_block(target, port):
     http_client = AsyncHTTPClient()
     url = f"http://{target}:{port}/get_latest_block"
-    response = await http_client.fetch(url)
+    response = await http_client.fetch(url, request_timeout=5)
     result = json.loads(response.body.decode())
     return result['block_number'] + 2
 
