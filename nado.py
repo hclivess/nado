@@ -510,18 +510,23 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
             count = 100
 
         try:
-            parent_hash = get_block(block_hash)["parent_hash"]
+            parent = get_block(block_hash)
+            if parent:
+                parent_hash=["parent_hash"]
 
-            for blocks in range(0, count):
-                block = get_block(parent_hash)
-                if not block:
-                    break
+                for blocks in range(0, count):
+                    block = get_block(parent_hash)
+                    if not block:
+                        break
 
-                elif block:
-                    collected_blocks.append(block)
-                    parent_hash = block["parent_hash"]
+                    elif block:
+                        collected_blocks.append(block)
+                        parent_hash = block["parent_hash"]
 
-            collected_blocks.reverse()
+                collected_blocks.reverse()
+            else:
+                logger.debug(f"Parent hash of {block_hash} not found")
+                self.set_status(404)
 
         except Exception as e:
             self.set_status(403)
@@ -552,16 +557,21 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
             count = 100
 
         try:
-            child_hash = get_block(block_hash)["child_hash"]
+            child = get_block(block_hash)
+            if child:
+                child_hash = child["child_hash"]
 
-            for blocks in range(0, count):
-                block = get_block(child_hash)
-                if not block:
-                    break
+                for blocks in range(0, count):
+                    block = get_block(child_hash)
+                    if not block:
+                        break
 
-                elif block:
-                    collected_blocks.append(block)
-                    child_hash = block["child_hash"]
+                    elif block:
+                        collected_blocks.append(block)
+                        child_hash = block["child_hash"]
+            else:
+                logger.debug(f"Child hash of {block_hash} not found")
+                self.set_status(404)
 
         except Exception as e:
             logger.debug(f"Block collection hit a roadblock: {e}")

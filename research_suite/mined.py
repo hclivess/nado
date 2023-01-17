@@ -18,7 +18,7 @@ print(mined)
 #mined.plot.bar()
 
 
-plt.title("Rewards received")
+plt.title("Rewards")
 plt.xlabel("Address")
 plt.ylabel("Block Reward Count")
 plt.locator_params(axis='both', nbins=4)
