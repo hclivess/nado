@@ -3,10 +3,12 @@ import sys
 import threading
 import time
 import traceback
-from transaction_ops import remove_outdated_transactions
 
-from account_ops import increase_produced_count, change_balance
-from block_ops import (
+from config import get_timestamp_seconds
+from event_bus import EventBus
+from loops.consensus_loop import change_trust
+from ops.account_ops import increase_produced_count, change_balance
+from ops.block_ops import (
     knows_block,
     get_blocks_after,
     get_from_single_target,
@@ -20,18 +22,17 @@ from block_ops import (
     check_target_match,
     valid_block_timestamp
 )
-from config import get_timestamp_seconds
-from data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
-from event_bus import EventBus
-from loops.consensus_loop import change_trust
-from peer_ops import load_trust, update_local_address, ip_stored, check_ip, qualifies_to_sync
-from pool_ops import merge_buffer
-from rollback import rollback_one_block
-from transaction_ops import (
+from ops.data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
+from ops.peer_ops import load_trust, update_local_address, ip_stored, check_ip, qualifies_to_sync
+from ops.pool_ops import merge_buffer, cull_buffer
+from ops.transaction_ops import remove_outdated_transactions
+from ops.transaction_ops import (
     to_readable_amount,
     validate_transaction,
     validate_all_spending, index_transactions
 )
+from rollback import rollback_one_block
+
 
 def minority_consensus(majority_hash, sample_hash):
     if not majority_hash:
@@ -63,7 +64,7 @@ class CoreClient(threading.Thread):
         self.event_bus = EventBus()
         self.consecutive = 0
 
-    def update_periods(self):
+    def get_period(self):
         """Enter every period at least period_counter times. Iterator is present in case node is stuck in phase 3.
         Routine should always start from 0 when node is initiated and be at 3 when enough time passed for block
         to be produced"""
@@ -71,7 +72,12 @@ class CoreClient(threading.Thread):
         old_period = self.memserver.period
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
 
-        if self.memserver.since_last_block < self.memserver.block_time:
+        if self.memserver.reported_uptime < self.memserver.block_time:
+            """init mode"""
+            self.memserver.period = 0
+            mode = "Initialization period..."
+
+        elif self.memserver.since_last_block < self.memserver.block_time:
             """stable mode"""
             if 20 > self.memserver.since_last_block > 0 or self.consecutive > 0 or self.memserver.force_sync_ip:
                 self.consecutive = 0
@@ -82,26 +88,28 @@ class CoreClient(threading.Thread):
                 self.memserver.period = 2
             elif self.memserver.since_last_block > self.memserver.block_time:
                 self.memserver.period = 3
+            mode = "Stable switch"
 
         elif self.memserver.period < 3:
             """quick switch mode"""
             self.memserver.period += 1
             if self.memserver.period == 3 and self.memserver.since_last_block < self.memserver.block_time:
                 self.memserver.period = 0
+            mode = "Quick switch"
         else:
             self.memserver.period = 0
+            mode = "Quick switch"
 
         if old_period != self.memserver.period:
-            self.logger.info(f"Switched to period {self.memserver.period}")
+            self.logger.debug(f"Switched to period {self.memserver.period}; Mode: {mode}")
 
     def normal_mode(self):
         try:
-            self.update_periods()
+            self.get_period()
             if self.memserver.period == 0 and self.memserver.user_tx_buffer:
                 """merge user buffer to tx buffer inside 0 period"""
                 buffered = merge_buffer(from_buffer=self.memserver.user_tx_buffer,
                                         to_buffer=self.memserver.tx_buffer,
-                                        limit=self.memserver.transaction_buffer_limit,
                                         block_max=self.memserver.latest_block["block_number"] + 25,
                                         block_min=self.memserver.latest_block["block_number"])
 
@@ -112,12 +120,14 @@ class CoreClient(threading.Thread):
                 """merge tx buffer to transaction pool inside 1 period"""
                 buffered = merge_buffer(from_buffer=self.memserver.tx_buffer,
                                         to_buffer=self.memserver.transaction_pool,
-                                        limit=self.memserver.transaction_pool_limit,
                                         block_max=self.memserver.latest_block["block_number"] + 1,
                                         block_min=self.memserver.latest_block["block_number"])
 
-                self.memserver.tx_buffer = buffered["from_buffer"]
-                self.memserver.transaction_pool = buffered["to_buffer"]
+                self.memserver.tx_buffer = cull_buffer(buffer=buffered["from_buffer"],
+                                                       limit=self.memserver.transaction_buffer_limit)
+
+                self.memserver.transaction_pool = cull_buffer(buffer=buffered["to_buffer"],
+                                                              limit=self.memserver.transaction_pool_limit)
 
             if self.memserver.period == 2:
 

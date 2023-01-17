@@ -1,20 +1,19 @@
 import asyncio
 from threading import Lock
 
-from account_ops import get_account
-from block_ops import load_block_producers, get_latest_block_info
 from compounder import compound_get_list_of
 from config import get_timestamp_seconds, get_config
-from data_ops import set_and_sort, sort_list_dict
 from hashing import blake2b_hash
-from keys import load_keys
-from transaction_ops import (
+from ops.account_ops import get_account
+from ops.block_ops import load_block_producers, get_latest_block_info
+from ops.data_ops import set_and_sort, sort_list_dict
+from ops.key_ops import load_keys
+from ops.transaction_ops import (
     validate_single_spending,
     validate_transaction,
     sort_transaction_pool,
 
 )
-
 from versioner import read_version
 
 
@@ -24,7 +23,7 @@ class MemServer:
     def __init__(self, logger):
         self.logger = logger
         self.logger.info("Starting MemServer")
-        self.semaphore = asyncio.Semaphore(50)
+        self.genesis_timestamp = 1669852800
 
         self.purge_peers_list = []
         self.purge_producers_list = []
@@ -69,7 +68,7 @@ class MemServer:
         self.version = read_version()
         self.latest_block = get_latest_block_info(logger=logger)
         self.transaction_pool_limit = 150000
-        self.transaction_buffer_limit = 600000
+        self.transaction_buffer_limit = 1500000
         self.cascade_depth = 0
         self.force_sync_ip = None
         self.rollbacks = 0
@@ -103,7 +102,7 @@ class MemServer:
 
     def merge_remote_transactions(self, user_origin=False) -> None:
         """reach out to all peers and merge their transactions to our transaction pool"""
-        remote_transactions = asyncio.run(
+        remote_pool_transactions = asyncio.run(
             compound_get_list_of(
                 key="transaction_pool",
                 entries=self.peers,
@@ -111,10 +110,25 @@ class MemServer:
                 logger=self.logger,
                 fail_storage=self.purge_peers_list,
                 compress="msgpack",
-                semaphore=self.semaphore
+                semaphore=asyncio.Semaphore(50)
             )
         )
-        self.merge_transactions(remote_transactions, user_origin)
+        self.merge_transactions(remote_pool_transactions, user_origin)
+
+        remote_buffer_transactions = asyncio.run(
+            compound_get_list_of(
+                key="transaction_buffer",
+                entries=self.peers,
+                port=self.port,
+                logger=self.logger,
+                fail_storage=self.purge_peers_list,
+                compress="msgpack",
+                semaphore=asyncio.Semaphore(50)
+            )
+        )
+
+        self.merge_transactions(remote_buffer_transactions, user_origin)
+
 
     def merge_transaction(self, transaction, user_origin=False) -> dict:
         """warning, can get stuck if not efficient"""

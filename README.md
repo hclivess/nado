@@ -87,7 +87,8 @@ All arguments can be displayed with `python3.10 linewallet.py --help`, here are 
 ## Remote access
 
 After running the node, you can access it at http://127.0.0.1:9173 from where all API calls used by the node itself are accessible. Here are some examples:
-- http://127.0.0.1:9173/get_account?address=ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29
+- Raw: http://127.0.0.1:9173/get_account?address=ndo5ccd6e3aaaf4764161a29ef13d4bbda832e2cf4a94016c
+- User-friendly using the `readable=true` argument: http://127.0.0.1:9173/get_account?readable=true&address=ndo5ccd6e3aaaf4764161a29ef13d4bbda832e2cf4a94016c
 
 ## Private key storage 
 - Linux: `/~/nado/private/keys.dat`

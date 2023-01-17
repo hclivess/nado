@@ -38,7 +38,7 @@ class DbHandler:
 
 
 if __name__ == "__main__":
-    dbhandler = DbHandler(db_file="test.db")
+    dbhandler = DbHandler(db_file="../test.db")
     dbhandler.db_execute("CREATE TABLE IF NOT EXISTS tx_index(txid TEXT, block_number INTEGER)")
     dbhandler.db_execute("INSERT INTO tx_index VALUES (?, ?)", ('a', '1'))
     dbhandler.db_execute("INSERT INTO tx_index VALUES (?, ?)", ('b', '2'))

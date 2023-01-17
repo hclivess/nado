@@ -3,8 +3,8 @@ import os
 import socket
 import time
 
-from data_ops import get_home
 from hashing import create_nonce
+from ops.data_ops import get_home
 
 
 def config_found(file=f"{get_home()}/private/config.dat"):

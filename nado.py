@@ -10,20 +10,20 @@ import tornado.ioloop
 import tornado.web
 
 import versioner
-from account_ops import get_account
-from block_ops import get_block, fee_over_blocks, get_block_number, get_penalty
 from config import get_config
-from data_ops import set_and_sort, get_home, allow_async
 from genesis import make_genesis, make_folders
-from keys import keyfile_found, generate_keys, save_keys, load_keys
-from log_ops import get_logger, logging
 from loops.consensus_loop import ConsensusClient
 from loops.core_loop import CoreClient
 from loops.message_loop import MessageClient
 from loops.peer_loop import PeerClient
 from memserver import MemServer
-from peer_ops import save_peer, get_remote_status, get_producer_set, check_ip
-from transaction_ops import get_transaction, get_transactions_of_account
+from ops.account_ops import get_account
+from ops.block_ops import get_block, fee_over_blocks, get_block_number, get_penalty
+from ops.data_ops import get_home, allow_async
+from ops.key_ops import keyfile_found, generate_keys, save_keys, load_keys
+from ops.log_ops import get_logger, logging
+from ops.peer_ops import save_peer, get_remote_status, get_producer_set, check_ip
+from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
 
 
 def is_port_in_use(port: int) -> bool:
@@ -510,18 +510,23 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
             count = 100
 
         try:
-            parent_hash = get_block(block_hash)["parent_hash"]
+            parent = get_block(block_hash)
+            if parent:
+                parent_hash=["parent_hash"]
 
-            for blocks in range(0, count):
-                block = get_block(parent_hash)
-                if not block:
-                    break
+                for blocks in range(0, count):
+                    block = get_block(parent_hash)
+                    if not block:
+                        break
 
-                elif block:
-                    collected_blocks.append(block)
-                    parent_hash = block["parent_hash"]
+                    elif block:
+                        collected_blocks.append(block)
+                        parent_hash = block["parent_hash"]
 
-            collected_blocks.reverse()
+                collected_blocks.reverse()
+            else:
+                logger.debug(f"Parent hash of {block_hash} not found")
+                self.set_status(404)
 
         except Exception as e:
             self.set_status(403)
@@ -552,16 +557,21 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
             count = 100
 
         try:
-            child_hash = get_block(block_hash)["child_hash"]
+            child = get_block(block_hash)
+            if child:
+                child_hash = child["child_hash"]
 
-            for blocks in range(0, count):
-                block = get_block(child_hash)
-                if not block:
-                    break
+                for blocks in range(0, count):
+                    block = get_block(child_hash)
+                    if not block:
+                        break
 
-                elif block:
-                    collected_blocks.append(block)
-                    child_hash = block["child_hash"]
+                    elif block:
+                        collected_blocks.append(block)
+                        child_hash = block["child_hash"]
+            else:
+                logger.debug(f"Child hash of {block_hash} not found")
+                self.set_status(404)
 
         except Exception as e:
             logger.debug(f"Block collection hit a roadblock: {e}")
@@ -597,7 +607,13 @@ class AccountHandler(tornado.web.RequestHandler):
         try:
             account = AccountHandler.get_argument(self, "address", default=memserver.address)
             compress = AccountHandler.get_argument(self, "compress", default="none")
+            readable = AccountHandler.get_argument(self, "readable", default="none")
             account_data = get_account(account, create_on_error=False)
+
+            if readable == "true":
+                account_data.update({"balance": to_readable_amount(account_data["balance"])})
+                account_data.update({"produced": to_readable_amount(account_data["produced"])})
+                account_data.update({"burned": to_readable_amount(account_data["burned"])})
 
             if not account_data:
                 account_data = "Not found"

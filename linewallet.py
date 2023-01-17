@@ -1,19 +1,20 @@
-from config import get_timestamp_seconds, create_config, config_found, get_port
-from keys import load_keys, keyfile_found, save_keys, generate_keys
-from log_ops import get_logger
-from transaction_ops import create_transaction, to_raw_amount, get_recommneded_fee, to_readable_amount, get_target_block
-import random
-from dircheck import make_folder
-from peer_ops import load_ips
-from account_ops import get_account_value
-import asyncio
-from data_ops import get_home
-from compounder import compound_send_transaction
-from peer_ops import get_public_ip
 import argparse
+import asyncio
 import json
+import random
+
 from Curve25519 import from_private_key
-from data_ops import allow_async
+from compounder import compound_send_transaction
+from config import get_timestamp_seconds, create_config, config_found, get_port
+from ops.account_ops import get_account_value
+from ops.data_ops import allow_async
+from ops.data_ops import get_home, make_folder
+from ops.key_ops import load_keys, keyfile_found, save_keys, generate_keys
+from ops.log_ops import get_logger
+from ops.peer_ops import get_public_ip
+from ops.peer_ops import load_ips
+from ops.transaction_ops import create_transaction, to_raw_amount, get_recommneded_fee, to_readable_amount, \
+    get_target_block
 
 
 def send_transaction(address, recipient, amount, data, public_key, private_key, ips, fee, target_block):
@@ -70,7 +71,7 @@ if __name__ == "__main__":
     private_key = key_dictionary["private_key"]
     public_key = key_dictionary["public_key"]
     address = key_dictionary["address"]
-    ips = asyncio.run(load_ips(fail_storage=[], logger=logger, port=9173, semaphore=asyncio.Semaphore(50)))
+    ips = asyncio.run(load_ips(fail_storage=[], logger=logger, port=9173))
     target = random.choice(ips)
     port = get_port()
     balance = get_account_value(address, key="balance")

@@ -1,9 +1,11 @@
-from log_ops import get_logger
-from block_ops import load_block_from_hash
-import pandas as pd
 import matplotlib.pyplot as plt
-from transaction_ops import to_readable_amount
-MIN_BLOCK = 20000
+import pandas as pd
+
+from ops.block_ops import load_block_from_hash
+from ops.log_ops import get_logger
+from ops.transaction_ops import to_readable_amount
+
+MIN_BLOCK = 1
 
 logger = get_logger()
 block_hash = "6514c2b2fac0d1e820c1d24dbcf36dd34532b59ed4c268b15c341663ce505b9f"
@@ -21,6 +23,7 @@ def check_consistency(block_hash, logger):
             block = load_block_from_hash(block_hash, logger=logger)
             block_hash = block["child_hash"]
             block_number = block["block_number"]
+            print(f"Processing {block_number}")
             if block_number >= MIN_BLOCK:
                 miners.append(block["block_creator"])
                 tx_count.append(len(block["block_transactions"]))
@@ -63,4 +66,6 @@ plt.ylabel("Transaction Count")
 plt.scatter(txs.index, txs.values)
 plt.xticks(rotation=-90)
 plt.show()
+
+
 

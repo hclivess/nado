@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import time
 
@@ -6,44 +7,26 @@ import msgpack
 import requests
 from tornado.httpclient import AsyncHTTPClient
 
-from account_ops import get_account_value
+from .account_ops import get_account_value
 from config import get_timestamp_seconds, get_config
-from data_ops import set_and_sort, average, get_home
+from .data_ops import set_and_sort, average, get_home
 from hashing import blake2b_hash_link
-from keys import load_keys
-from log_ops import get_logger
-from peer_ops import load_peer
-from sqlite_ops import DbHandler
-import difflib
-import math
+from .key_ops import load_keys
+from .log_ops import get_logger
+from .peer_ops import load_peer
+from .sqlite_ops import DbHandler
 
 
 def float_to_int(x):
     return math.floor(x * (2 ** 31))
 
-
 def get_hash_penalty(address: str, block_hash: str, block_number: int):
-    if block_number > 20000:
-        address_mingled = blake2b_hash_link(address, block_hash)
-        score = 0
-        for letters in enumerate(address_mingled):
-            score = score + block_hash.count(letters[1])
+    address_mingled = blake2b_hash_link(address, block_hash)
+    score = 0
+    for letters in enumerate(address_mingled):
+        score = score + block_hash.count(letters[1])
 
-        return score
-
-    else:
-
-        shorter_string = min([address, block_hash], key=len)
-
-        score = 0
-        for letters in enumerate(shorter_string):
-            if block_hash[letters[0]] == (letters[1]):
-                score += 1
-            score = score + address.count(letters[1])
-            score = score + block_hash.count(letters[1])
-
-        return score
-
+    return score
 
 def get_block_reward(logger, blocks_backward=100, reward_cap=5000000000):
     """based on number of transactions"""
@@ -69,9 +52,6 @@ def get_block_reward(logger, blocks_backward=100, reward_cap=5000000000):
 
 def valid_block_timestamp(new_block):
     new_timestamp = new_block["block_timestamp"]
-
-    if new_block["block_number"] < 20000:  # compatibility
-        return True
     if not get_timestamp_seconds() >= new_timestamp:
         return False
     else:
@@ -342,7 +322,7 @@ async def knows_block(target_peer, port, hash, logger):
     try:
         http_client = AsyncHTTPClient()
         url = f"http://{target_peer}:{port}/get_block?hash={hash}"
-        result = await http_client.fetch(url)
+        result = await http_client.fetch(url, request_timeout=5)
 
         if result.code == 200:
             return True
@@ -369,7 +349,7 @@ async def get_blocks_after(target_peer, from_hash, count=50, compress="msgpack")
     http_client = AsyncHTTPClient()
 
     url = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
-    result = await http_client.fetch(url)
+    result = await http_client.fetch(url, request_timeout=5)
     code = result.code
 
     if code == 200 and compress == "msgpack":
@@ -387,7 +367,7 @@ async def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
         http_client = AsyncHTTPClient()
 
         url = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
-        result = await http_client.fetch(url)
+        result = await http_client.fetch(url, request_timeout=5)
         code = result.code
 
         if code == 200 and compress == "msgpack":
@@ -410,7 +390,7 @@ async def get_from_single_target(key, target_peer, logger):  # todo add msgpack 
     try:
         http_client = AsyncHTTPClient()
         url = f"http://{target_peer}:{get_config()['port']}/{key}"
-        result = await http_client.fetch(url)
+        result = await http_client.fetch(url, request_timeout=5)
         text = result.body.decode()
         code = result.code
 

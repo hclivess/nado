@@ -1,29 +1,30 @@
+import asyncio
 import json
 import time
 
 import msgpack
 from tornado.httpclient import AsyncHTTPClient
-import asyncio
-from peer_ops import load_ips
-from compounder import compound_send_transaction
+
 from Curve25519 import sign, verify
-from account_ops import get_account, reflect_transaction
+from .account_ops import get_account, reflect_transaction
 from address import proof_sender
 from address import validate_address
-from block_ops import get_block_number
+from .block_ops import get_block_number
+from compounder import compound_send_transaction
 from config import get_config
 from config import get_timestamp_seconds
-from data_ops import sort_list_dict, get_home
+from .data_ops import sort_list_dict, get_home
 from hashing import create_nonce, blake2b_hash
-from keys import load_keys
-from log_ops import get_logger
-from sqlite_ops import DbHandler
+from .key_ops import load_keys
+from .log_ops import get_logger
+from .peer_ops import load_ips
+from .sqlite_ops import DbHandler
 
 
 async def get_recommneded_fee(target, port):
     http_client = AsyncHTTPClient()
     url = f"http://{target}:{port}/get_recommended_fee"
-    response = await http_client.fetch(url)
+    response = await http_client.fetch(url, request_timeout=5)
     result = json.loads(response.body.decode())
     return result['fee']
 
@@ -31,7 +32,7 @@ async def get_recommneded_fee(target, port):
 async def get_target_block(target, port):
     http_client = AsyncHTTPClient()
     url = f"http://{target}:{port}/get_latest_block"
-    response = await http_client.fetch(url)
+    response = await http_client.fetch(url, request_timeout=5)
     result = json.loads(response.body.decode())
     return result['block_number'] + 2
 
@@ -85,7 +86,9 @@ def validate_transaction(transaction, logger):
     assert transaction["fee"] >= 0, "Transaction fee lower than zero"
     return True
 
-
+def min_from_transaction_pool(transactions: list, key="fee") -> dict:
+    """returns dictionary from a list of dictionaries with minimum value"""
+    return min(sort_list_dict(transactions), key=lambda transaction: transaction[key])
 def max_from_transaction_pool(transactions: list, key="fee") -> dict:
     """returns dictionary from a list of dictionaries with maximum value"""
     return max(sort_list_dict(transactions), key=lambda transaction: transaction[key])
@@ -298,8 +301,7 @@ if __name__ == "__main__":
     else:
         ips = asyncio.run(load_ips(logger=logger,
                                    fail_storage=[],
-                                   port=port,
-                                   semaphore=asyncio.Semaphore(50)))
+                                   port=port))
 
     for x in range(0, 50000):
         try:

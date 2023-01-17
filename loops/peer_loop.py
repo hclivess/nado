@@ -3,15 +3,15 @@ import threading
 import time
 import traceback
 
-from loops.consensus_loop import change_trust
-from block_ops import save_block_producers
 from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
-from data_ops import set_and_sort
-from peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, update_peer, check_save_peers, \
-    dump_trust
-from peer_ops import get_public_ip, update_local_ip, ip_stored, check_ip
 from config import test_self_port
+from loops.consensus_loop import change_trust
+from ops.block_ops import save_block_producers
+from ops.data_ops import set_and_sort
+from ops.peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, check_save_peers, \
+    dump_trust
+from ops.peer_ops import get_public_ip, update_local_ip, ip_stored, check_ip
 
 
 class PeerClient(threading.Thread):
@@ -29,8 +29,7 @@ class PeerClient(threading.Thread):
     def sniff_buffered_peers(self):
         """gets peers from buffer and adds them to routine"""
         result = check_save_peers(peers=self.memserver.peer_buffer,
-                                  logger=self.logger,
-                                  semaphore=self.memserver.semaphore)
+                                  logger=self.logger)
 
         for entry in result["success"]:
             if entry not in self.memserver.block_producers and ip_stored(entry):
@@ -51,12 +50,10 @@ class PeerClient(threading.Thread):
             ips=self.memserver.peers,
             port=self.memserver.port,
             fail_storage=self.memserver.purge_peers_list,
-            logger=self.logger,
-            semaphore=self.memserver.semaphore)
+            logger=self.logger)
 
         check_save_peers(peers=candidates,
-                         logger=self.logger,
-                         semaphore=self.memserver.semaphore)
+                         logger=self.logger)
 
         for peer in candidates:
             if check_ip(peer):
@@ -125,8 +122,7 @@ class PeerClient(threading.Thread):
                     self.memserver.unreachable.clear()
                     self.memserver.peers = asyncio.run(load_ips(fail_storage=self.memserver.purge_peers_list,
                                                                 logger=self.logger,
-                                                                port=self.memserver.port,
-                                                                semaphore=self.memserver.semaphore))
+                                                                port=self.memserver.port))
 
                 if self.memserver.period in [0, 1]:
                     self.purge_peers()
@@ -146,13 +142,11 @@ class PeerClient(threading.Thread):
                         port=self.memserver.port,
                         my_ip=self.memserver.ip,
                         logger=self.logger,
-                        fail_storage=self.memserver.purge_peers_list,
-                        semaphore=self.memserver.semaphore
+                        fail_storage=self.memserver.purge_peers_list
                     )
 
                     check_save_peers(peers=self.memserver.peers,
-                                     logger=self.logger,
-                                     semaphore=self.memserver.semaphore)
+                                     logger=self.logger)
 
                     dump_trust(logger=self.logger,
                                peer_file_lock=self.memserver.peer_file_lock,
@@ -171,7 +165,7 @@ class PeerClient(threading.Thread):
                         logger=self.logger,
                         fail_storage=self.memserver.purge_peers_list,
                         compress="msgpack",
-                        semaphore=self.memserver.semaphore
+                        semaphore=asyncio.Semaphore(50)
                     )
                 )
 
@@ -180,6 +174,9 @@ class PeerClient(threading.Thread):
                         self.consensus.status_pool[key]=value
                     else:
                         self.logger.error(f"Protocol of {key} too low: {value['protocol']}")
+
+                        if key not in self.memserver.purge_peers_list:
+                            self.memserver.purge_peers_list.append(key)
 
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)

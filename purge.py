@@ -1,9 +1,10 @@
-import os.path
 import os
+import os.path
 import shutil
-from data_ops import get_home
 
-to_wipeout = ["blocks", "logs", "index", "peers", "transactions"]
+from ops.data_ops import get_home
+
+to_wipeout = ["blocks", "logs", "index"]
 
 
 def delete(to_wipeout):
