@@ -18,9 +18,9 @@ print(mined)
 #mined.plot.bar()
 
 
-plt.title("Rewards")
+plt.title("NADO produced (mined)")
 plt.xlabel("Address")
-plt.ylabel("Block Reward Count")
+plt.ylabel("Produced")
 plt.locator_params(axis='both', nbins=4)
 p = plt.bar(mined.Address, mined.Produced)
 plt.xticks(rotation=-90)
