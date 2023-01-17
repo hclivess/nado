@@ -23,7 +23,7 @@ from ops.data_ops import get_home, allow_async
 from ops.key_ops import keyfile_found, generate_keys, save_keys, load_keys
 from ops.log_ops import get_logger, logging
 from ops.peer_ops import save_peer, get_remote_status, get_producer_set, check_ip
-from ops.transaction_ops import get_transaction, get_transactions_of_account
+from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
 
 
 def is_port_in_use(port: int) -> bool:
@@ -607,7 +607,13 @@ class AccountHandler(tornado.web.RequestHandler):
         try:
             account = AccountHandler.get_argument(self, "address", default=memserver.address)
             compress = AccountHandler.get_argument(self, "compress", default="none")
+            readable = AccountHandler.get_argument(self, "readable", default="none")
             account_data = get_account(account, create_on_error=False)
+
+            if readable == "true":
+                account_data.update({"balance": to_readable_amount(account_data["balance"])})
+                account_data.update({"produced": to_readable_amount(account_data["produced"])})
+                account_data.update({"burned": to_readable_amount(account_data["burned"])})
 
             if not account_data:
                 account_data = "Not found"
