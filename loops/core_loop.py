@@ -123,7 +123,9 @@ class CoreClient(threading.Thread):
                                         block_max=self.memserver.latest_block["block_number"] + 1,
                                         block_min=self.memserver.latest_block["block_number"])
 
-                self.memserver.tx_buffer = buffered["from_buffer"]
+                self.memserver.tx_buffer = cull_buffer(buffer=buffered["from_buffer"],
+                                                       limit=self.memserver.transaction_buffer_limit)
+
                 self.memserver.transaction_pool = cull_buffer(buffer=buffered["to_buffer"],
                                                               limit=self.memserver.transaction_pool_limit)
 
