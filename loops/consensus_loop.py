@@ -69,7 +69,7 @@ class ConsensusClient(threading.Thread):
             for peer in self.trust_pool.copy().keys():
                 if peer in pool.keys():
                     if pool[peer] == majority_pool:
-                        change_trust(consensus=self, peer=peer, value=100)
+                        change_trust(consensus=self, peer=peer, value=3000)
                     else:
                         change_trust(consensus=self, peer=peer, value=-100)
 

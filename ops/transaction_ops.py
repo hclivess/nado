@@ -86,7 +86,9 @@ def validate_transaction(transaction, logger):
     assert transaction["fee"] >= 0, "Transaction fee lower than zero"
     return True
 
-
+def min_from_transaction_pool(transactions: list, key="fee") -> dict:
+    """returns dictionary from a list of dictionaries with minimum value"""
+    return min(sort_list_dict(transactions), key=lambda transaction: transaction[key])
 def max_from_transaction_pool(transactions: list, key="fee") -> dict:
     """returns dictionary from a list of dictionaries with maximum value"""
     return max(sort_list_dict(transactions), key=lambda transaction: transaction[key])
