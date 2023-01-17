@@ -24,7 +24,7 @@ from ops.block_ops import (
 )
 from ops.data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
 from ops.peer_ops import load_trust, update_local_address, ip_stored, check_ip, qualifies_to_sync
-from ops.pool_ops import merge_buffer
+from ops.pool_ops import merge_buffer, cull_buffer
 from ops.transaction_ops import remove_outdated_transactions
 from ops.transaction_ops import (
     to_readable_amount,
@@ -110,7 +110,6 @@ class CoreClient(threading.Thread):
                 """merge user buffer to tx buffer inside 0 period"""
                 buffered = merge_buffer(from_buffer=self.memserver.user_tx_buffer,
                                         to_buffer=self.memserver.tx_buffer,
-                                        limit=self.memserver.transaction_buffer_limit,
                                         block_max=self.memserver.latest_block["block_number"] + 25,
                                         block_min=self.memserver.latest_block["block_number"])
 
@@ -121,12 +120,12 @@ class CoreClient(threading.Thread):
                 """merge tx buffer to transaction pool inside 1 period"""
                 buffered = merge_buffer(from_buffer=self.memserver.tx_buffer,
                                         to_buffer=self.memserver.transaction_pool,
-                                        limit=self.memserver.transaction_pool_limit,
                                         block_max=self.memserver.latest_block["block_number"] + 1,
                                         block_min=self.memserver.latest_block["block_number"])
 
                 self.memserver.tx_buffer = buffered["from_buffer"]
-                self.memserver.transaction_pool = buffered["to_buffer"]
+                self.memserver.transaction_pool = cull_buffer(buffer=buffered["to_buffer"],
+                                                              limit=self.memserver.transaction_pool_limit)
 
             if self.memserver.period == 2:
 
