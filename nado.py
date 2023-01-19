@@ -173,25 +173,6 @@ class PenaltiesHandler(tornado.web.RequestHandler):
         await asyncio.to_thread(self.penalties)
 
 
-class PenaltyHandler(tornado.web.RequestHandler):
-    def penalty(self):
-        compress = PenaltyHandler.get_argument(self, "compress", default="none")
-        address = PenaltyHandler.get_argument(self, "address", default=memserver.address)
-        output = {
-            "address": address,
-            "penalty": get_penalty(producer_address=address,
-                                   block_hash=memserver.latest_block["block_hash"],
-                                   block_number=memserver.latest_block["block_number"])
-        }
-
-        self.write(serialize(name="penalty",
-                             output=output,
-                             compress=compress
-                             ))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.penalty)
-
 
 class UnreachableHandler(tornado.web.RequestHandler):
     def unreachable(self):
@@ -610,10 +591,16 @@ class AccountHandler(tornado.web.RequestHandler):
             readable = AccountHandler.get_argument(self, "readable", default="none")
             account_data = get_account(account, create_on_error=False)
 
+            account_data.update({"penalty": get_penalty(producer_address=account,
+                                   block_hash=memserver.latest_block["block_hash"],
+                                   block_number=memserver.latest_block["block_number"])})
+
             if readable == "true":
                 account_data.update({"balance": to_readable_amount(account_data["balance"])})
                 account_data.update({"produced": to_readable_amount(account_data["produced"])})
                 account_data.update({"burned": to_readable_amount(account_data["burned"])})
+                account_data.update({"penalty": to_readable_amount(account_data["penalty"])})
+
 
             if not account_data:
                 account_data = "Not found"
@@ -726,7 +713,6 @@ async def make_app(port):
             (r"/peers(.*)", PeerPoolHandler),
             (r"/peer_buffer(.*)", PeerBufferHandler),
             (r"/penalties(.*)", PenaltiesHandler),
-            (r"/penalty(.*)", PenaltyHandler),
             (r"/unreachable(.*)", UnreachableHandler),
             (r"/block_producers_hash_pool(.*)", BlockProducersHashPoolHandler),
             (r"/block_producers(.*)", BlockProducerPoolHandler),
