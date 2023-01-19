@@ -96,7 +96,7 @@ def dump_trust(pool_data, logger, peer_file_lock):
                     peer_file_lock=peer_file_lock)
 
 
-def sort_dict_value(values, key):
+def sort_dict_value(values: list, key: str) -> list:
     if values:
         return sorted(values, key=lambda d: d[key], reverse=True)
     else:
