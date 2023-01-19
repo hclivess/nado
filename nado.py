@@ -591,18 +591,19 @@ class AccountHandler(tornado.web.RequestHandler):
             readable = AccountHandler.get_argument(self, "readable", default="none")
             account_data = get_account(account, create_on_error=False)
 
-            account_data.update({"penalty": get_penalty(producer_address=account,
-                                   block_hash=memserver.latest_block["block_hash"],
-                                   block_number=memserver.latest_block["block_number"])})
+            if account_data:
+                account_data.update({"penalty": get_penalty(producer_address=account,
+                                       block_hash=memserver.latest_block["block_hash"],
+                                       block_number=memserver.latest_block["block_number"])})
 
-            if readable == "true":
-                account_data.update({"balance": to_readable_amount(account_data["balance"])})
-                account_data.update({"produced": to_readable_amount(account_data["produced"])})
-                account_data.update({"burned": to_readable_amount(account_data["burned"])})
-                account_data.update({"penalty": to_readable_amount(account_data["penalty"])})
+                if readable == "true":
+                    account_data.update({"balance": to_readable_amount(account_data["balance"])})
+                    account_data.update({"produced": to_readable_amount(account_data["produced"])})
+                    account_data.update({"burned": to_readable_amount(account_data["burned"])})
+                    account_data.update({"penalty": to_readable_amount(account_data["penalty"])})
 
 
-            if not account_data:
+            else:
                 account_data = "Not found"
                 self.set_status(403)
 
