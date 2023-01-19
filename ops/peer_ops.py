@@ -97,7 +97,10 @@ def dump_trust(pool_data, logger, peer_file_lock):
 
 
 def sort_dict_value(values, key):
-    return sorted(values, key=lambda d: d[key], reverse=True)
+    if values:
+        return sorted(values, key=lambda d: d[key], reverse=True)
+    else:
+        return []
 
 
 async def load_ips(logger, port, fail_storage, minimum=3) -> list:
@@ -116,9 +119,6 @@ async def load_ips(logger, port, fail_storage, minimum=3) -> list:
         with open(file, "r") as peer_file:
             peer = json.load(peer_file)
             candidates.append(peer)
-
-    if not candidates:
-        return []
 
     ip_sorted = []
     candidates_sorted = sort_dict_value(candidates, key="peer_trust")
