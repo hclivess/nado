@@ -291,7 +291,9 @@ class CoreClient(threading.Thread):
 
             if suggested_block_producers:
                 if self.memserver.ip not in suggested_block_producers:
-                    change_trust(self.consensus, peer=sync_from, value=-10000)
+                    self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
+                                                             peer=sync_from,
+                                                             value=-10000)
                     self.logger.info(f"Our node not present in suggested block producers from {sync_from}")
                     announce_me(
                         targets=[sync_from],
@@ -324,7 +326,9 @@ class CoreClient(threading.Thread):
         if suggested_pool:
             return suggested_pool
         else:
-            change_trust(self.consensus, peer=peer, value=-10000)
+            self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
+                                                     peer=peer,
+                                                     value=-10000)
             self.logger.info(f"Could not replace {key} from {peer}")
 
     def emergency_mode(self):
@@ -371,7 +375,9 @@ class CoreClient(threading.Thread):
                                     break
 
                             except Exception as e:
-                                change_trust(self.consensus, peer=peer, value=-10000)
+                                self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
+                                                                         peer=peer,
+                                                                         value=-10000)
                                 self.logger.error(f"Failed to get blocks after {block_hash} from {peer}: {e}")
                                 break
 
@@ -380,7 +386,9 @@ class CoreClient(threading.Thread):
                                 self.memserver.latest_block = rollback_one_block(logger=self.logger,
                                                                                  block=self.memserver.latest_block)
                                 self.memserver.rollbacks += 1
-                                change_trust(self.consensus, peer=peer, value=-10000)
+                                self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
+                                                                         peer=peer,
+                                                                         value=-10000)
                             else:
                                 self.logger.error(f"Rollbacks exhausted")
                                 self.memserver.rollbacks = 0
@@ -444,7 +452,9 @@ class CoreClient(threading.Thread):
         except Exception as e:
             self.logger.error(f"Failed to validate spending during block preparation: {e}")
             if remote:
-                change_trust(self.consensus, peer=remote_peer, value=-1000)
+                self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
+                                                         peer=remote_peer,
+                                                         value=-1000)
             raise
 
         else:
@@ -464,7 +474,9 @@ class CoreClient(threading.Thread):
                 except Exception as e:
                     self.logger.error(f"Failed to validate transaction during block preparation: {e}")
                     if remote:
-                        change_trust(self.consensus, peer=remote_peer, value=-1000)
+                        self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
+                                                                 peer=remote_peer,
+                                                                 value=-1000)
                     raise
 
     def verify_block(self, block, remote, remote_peer=None, is_old=False):
@@ -481,14 +493,7 @@ class CoreClient(threading.Thread):
                                                     logger=self.logger,
                                                     remote_peer=remote_peer,
                                                     remote=remote)
-            """
-            if not valid_block_gap(old_block=self.memserver.latest_block,
-                                   new_block=block):
 
-                self.logger.info("Block gap too tight")
-                if remote:
-                    change_trust(self.consensus, peer=remote_peer, value=-1000)
-            """
             sorted_transactions = sort_list_dict(block["block_transactions"])
             return sorted_transactions
 

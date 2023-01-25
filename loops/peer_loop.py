@@ -87,8 +87,9 @@ class PeerClient(threading.Thread):
                 self.memserver.block_producers.remove(entry)
                 # self.logger.warning(f"Removed {entry} from block producers")
 
-            if entry in self.consensus.trust_pool:
-                change_trust(consensus=self.consensus, peer=entry, value=-10000)
+            self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
+                                                     peer=entry,
+                                                     value=-10000)
 
             if entry in self.consensus.status_pool.keys():
                 self.consensus.status_pool.pop(entry)
@@ -181,7 +182,9 @@ class PeerClient(threading.Thread):
 
                         if key not in self.memserver.purge_peers_list:
                             self.memserver.purge_peers_list.append(key)
-                            change_trust(consensus=self, peer=key, value=-10000)
+                            self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
+                                                                     peer=key,
+                                                                     value=-10000)
 
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)
