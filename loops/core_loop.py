@@ -249,6 +249,7 @@ class CoreClient(threading.Thread):
                                 self.logger.info(f"{peer} not qualified for sync: {qualifies['flag']}")
                 else:
                     self.logger.info(f"Ran out of options when picking trusted hash")
+                    self.memserver.unreachable.clear()
                     return None
 
         except Exception as e:
