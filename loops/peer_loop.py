@@ -158,6 +158,10 @@ class PeerClient(threading.Thread):
 
                     self.memserver.can_mine = test_self_port(self.memserver.ip, self.memserver.port)
 
+                    self.memserver.peers = asyncio.run(load_ips(fail_storage=self.memserver.purge_peers_list,
+                                                                logger=self.logger,
+                                                                port=self.memserver.port))
+
                 candidates = asyncio.run(
                     compound_get_status_pool(
                         ips=self.memserver.peers,
@@ -177,6 +181,7 @@ class PeerClient(threading.Thread):
 
                         if key not in self.memserver.purge_peers_list:
                             self.memserver.purge_peers_list.append(key)
+                            change_trust(consensus=self, peer=key, value=-10000)
 
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)

@@ -353,24 +353,25 @@ def update_local_ip(ip, logger, peer_file_lock):
 
 
 def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, average_trust, unreachable_list, purge_list,
-                      peer_hash, required_hash, promiscuous) -> bool:
+                      peer_hash, required_hash, promiscuous) -> dict:
     if average_trust > peer_trust and not promiscuous:
         """peer trust worse than average"""
-        return False
+        return {"result": False,
+                "flag": "peer_trust"}
     if peer in unreachable_list:
         """peer assigned to unreachable"""
-        return False
-    if peer in purge_list:
-        """peer about to be assigned to unreachable"""
-        return False
+        return {"result": False,
+                "flag": "unreachable_list"}
     if peer_protocol < memserver_protocol:
         """peer protocol too low"""
-        return False
+        return {"result": False,
+                "flag": "peer_protocol"}
     if not peer_hash == required_hash:
         """hash of the peer not in the currently cascaded one"""
-        return False
+        return {"result": False,
+                "flag": "peer_hash"}
 
-    return True
+    return {"result": True}
 
 
 if __name__ == "__main__":

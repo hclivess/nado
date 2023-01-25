@@ -1,7 +1,7 @@
 from .data_ops import get_byte_size, sort_list_dict
 from .transaction_ops import max_from_transaction_pool, min_from_transaction_pool
 
-def cull_buffer(buffer, limit):
+def cull_buffer(buffer, limit)-> list:
     while get_byte_size(buffer) > limit:
         tx_to_remove = min_from_transaction_pool(buffer, key="fee")
         buffer.remove(tx_to_remove)
