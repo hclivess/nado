@@ -384,8 +384,8 @@ async def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
         return False
 
 
-async def get_from_single_target(key, target_peer, logger):  # todo add msgpack support
-    """obtain from a single target"""
+async def get_from_single_target(key, target_peer, logger) -> list:  # todo add msgpack support
+    """obtain from a single target, returns list"""
 
     try:
         http_client = AsyncHTTPClient()
@@ -397,11 +397,11 @@ async def get_from_single_target(key, target_peer, logger):  # todo add msgpack 
         if code == 200:
             return json.loads(text)[key]
         else:
-            return False
+            return []
 
     except Exception as e:
         logger.error(f"Failed to get {key} from {target_peer}: {e}")
-        return False
+        return []
 
 
 def get_ip_penalty(producer, logger, blocks_backward=50):

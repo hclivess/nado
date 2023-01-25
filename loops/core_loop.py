@@ -275,10 +275,10 @@ class CoreClient(threading.Thread):
         """get peer which is in majority for the given hash_pool"""
 
         if sync_from:
-            new_tx_pool = self.replace_pool(peer=sync_from, key="transaction_pool")
+            suggested_tx_pool = self.replace_pool(peer=sync_from, key="transaction_pool")
 
-            if new_tx_pool:
-                self.memserver.transaction_pool = new_tx_pool
+            if suggested_tx_pool:
+                self.memserver.transaction_pool = suggested_tx_pool
 
     def replace_block_producers(self):
         sync_from = self.get_peer_to_sync_from(source_pool=self.consensus.block_hash_pool)
