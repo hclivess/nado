@@ -284,32 +284,33 @@ class CoreClient(threading.Thread):
         sync_from = self.get_peer_to_sync_from(source_pool=self.consensus.block_hash_pool)
         """get peer which is in majority for the given hash_pool"""
 
-        suggested_block_producers = self.replace_pool(
-            peer=sync_from,
-            key="block_producers")
+        if sync_from:
+            suggested_block_producers = self.replace_pool(
+                peer=sync_from,
+                key="block_producers")
 
-        if suggested_block_producers:
-            if self.memserver.ip not in suggested_block_producers:
-                change_trust(self.consensus, peer=sync_from, value=-10000)
-                self.logger.info(f"Our node not present in suggested block producers from {sync_from}")
-                announce_me(
-                    targets=[sync_from],
-                    port=self.memserver.port,
-                    my_ip=self.memserver.ip,
-                    logger=self.logger,
-                    fail_storage=self.memserver.purge_peers_list
-                )
+            if suggested_block_producers:
+                if self.memserver.ip not in suggested_block_producers:
+                    change_trust(self.consensus, peer=sync_from, value=-10000)
+                    self.logger.info(f"Our node not present in suggested block producers from {sync_from}")
+                    announce_me(
+                        targets=[sync_from],
+                        port=self.memserver.port,
+                        my_ip=self.memserver.ip,
+                        logger=self.logger,
+                        fail_storage=self.memserver.purge_peers_list
+                    )
 
-            replacements = []
-            for block_producer in suggested_block_producers:
-                if ip_stored(block_producer):
-                    replacements.append(block_producer)
-                elif block_producer not in self.memserver.peer_buffer:
-                    self.logger.info(f"{block_producer} not stored locally and will be probed")
-                    self.memserver.peer_buffer.append(block_producer)
+                replacements = []
+                for block_producer in suggested_block_producers:
+                    if ip_stored(block_producer):
+                        replacements.append(block_producer)
+                    elif block_producer not in self.memserver.peer_buffer:
+                        self.logger.info(f"{block_producer} not stored locally and will be probed")
+                        self.memserver.peer_buffer.append(block_producer)
 
-            self.memserver.block_producers = set_and_sort(replacements)
-            save_block_producers(self.memserver.block_producers)
+                self.memserver.block_producers = set_and_sort(replacements)
+                save_block_producers(self.memserver.block_producers)
 
     def replace_pool(self, peer, key):
         """replace pool (block, tx, block producers) when out of sync to prevent forking"""
