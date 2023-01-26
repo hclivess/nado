@@ -99,8 +99,8 @@ To view your file, you can use the following command: `cat ~/nado/private/keys.d
 
 ## Is there anything unique?
 
-Yes. No mining or minting. Block production happens in every node at once, based on the deterministic principles of the
-participant addresses mixed with the blockchain state. This is possible because block production is separated from the consensual layer. This removes all the selfish
+Yes. No mining or minting. All communication happens using a public API. Block production happens in every node at once, based on the deterministic principles of the
+participant addresses mixed with the blockchain state. This is possible because block production is separated from the consensual layer. It removes all the selfish
 miner incentives, which cause issues like transaction exclusion in traditional PoW systems.
 
 ## What is NADO?
