@@ -1,3 +1,4 @@
+import psutil
 import threading
 import time
 import traceback
@@ -69,6 +70,8 @@ class MessageClient(threading.Thread):
                 self.logger.info(f"Loop durations: Core: {self.core.duration}; "
                                  f"Consensus: {self.consensus.duration}; "
                                  f"Peers: {self.peers.duration}")
+
+                self.logger.info(f"Open files: {len(psutil.Process().open_files())}")
 
                 time.sleep(10)
             except Exception as e:
