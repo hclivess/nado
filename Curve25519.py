@@ -20,10 +20,13 @@ def sign(private_key, message):
 
 
 def verify(signed, public_key, message):
-    public_bytes = unhex(public_key)
-    public_key_raw = Ed25519PublicKey.from_public_bytes(public_bytes)
-    public_key_raw.verify(unhex(signed), message)
-    return True
+    try:
+        public_bytes = unhex(public_key)
+        public_key_raw = Ed25519PublicKey.from_public_bytes(public_bytes)
+        public_key_raw.verify(unhex(signed), message)
+        return True
+    except Exception:
+        raise ValueError("Invalid signature") #sadly, the underlying mechanism does not propagate error messages
 
 def from_private_key(private_key):
     private_bytes = unhex(private_key)
