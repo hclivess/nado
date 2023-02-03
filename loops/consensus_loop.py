@@ -168,5 +168,5 @@ def change_trust(trust_pool, peer, value):
     """a queue would be ideal, but operation not critical, skips don't matter"""
     trust_pool_copy = trust_pool.copy()
     if peer in trust_pool_copy.keys():
-        trust_pool[peer] += value
+        trust_pool_copy[peer] += value
     return trust_pool_copy
