@@ -105,7 +105,7 @@ async def send_transaction(peer, port, logger, fail_storage, transaction, semaph
         async with semaphore:
             http_client = AsyncHTTPClient()
             response = await http_client.fetch(url_construct, request_timeout=5)
-            fetched = msgpack.unpackb(response.body)["message"]
+            fetched = json.loads(response.body)["message"]
             return peer, fetched
 
     except Exception as e:

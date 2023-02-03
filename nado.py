@@ -280,7 +280,7 @@ class SubmitTransactionHandler(tornado.web.RequestHandler):
             transaction = json.loads(transaction_raw)
 
             output = memserver.merge_transaction(transaction, user_origin=True)
-            self.write(msgpack.packb(output))
+            self.write(output)
 
             if not output["result"]:
                 self.set_status(403)
