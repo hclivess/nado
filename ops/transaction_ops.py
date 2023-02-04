@@ -216,15 +216,18 @@ def validate_origin(transaction: dict):
     ), "Invalid sender"
 
     return True
-def validate_txid(transaction):
-    txid_to_check = transaction["txid"]
-    transaction.pop(["txid"])
-    txid_genuine = create_txid(transaction)
-    if txid_genuine == txid_to_check:
-        return True
-    else:
+def validate_txid(transaction, logger):
+    try:
+        txid_to_check = transaction["txid"]
+        transaction.pop(["txid"])
+        txid_genuine = create_txid(transaction)
+        if txid_genuine == txid_to_check:
+            return True
+        else:
+            return False
+    except:
+        logger.info("Failed to match transaction to its id")
         return False
-
 def create_transaction(sender, recipient, amount, public_key, private_key, timestamp, data, fee, target_block):
     """construct transaction, then add txid, then add signature as last"""
     transaction_message = {

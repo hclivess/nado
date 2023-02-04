@@ -151,7 +151,7 @@ class MemServer:
                        "message": f"Target block too high"}
                 return msg
 
-            elif not validate_txid(transaction):
+            elif not validate_txid(transaction, logger=self.logger) and self.latest_block["block_number"] > 95000: #compat
                 msg = {"result": False,
                        "message": f"Invalid txid"}
                 return msg
