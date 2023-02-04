@@ -12,6 +12,7 @@ from ops.transaction_ops import (
     validate_single_spending,
     validate_transaction,
     sort_transaction_pool,
+    validate_txid
 
 )
 from versioner import read_version
@@ -148,6 +149,11 @@ class MemServer:
             elif transaction["target_block"] > self.latest_block["block_number"] + 360:
                 msg = {"result": False,
                        "message": f"Target block too high"}
+                return msg
+
+            elif not validate_txid(transaction):
+                msg = {"result": False,
+                       "message": f"Invalid txid"}
                 return msg
 
             elif transaction not in united_pools:
