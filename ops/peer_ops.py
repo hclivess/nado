@@ -1,3 +1,4 @@
+import random
 import asyncio
 import glob
 import ipaddress
@@ -107,7 +108,7 @@ async def load_ips(logger, port, fail_storage, minimum=3) -> list:
     """load peers from drive, sort by trust, test in batches asynchronously,
     return when limit is reached"""
 
-    peer_files = glob.glob(f"{get_home()}/peers/*.dat")
+    peer_files= glob.glob(f"{get_home()}/peers/*.dat")
 
     if len(peer_files) < minimum:
         minimum = len(peer_files)
@@ -121,7 +122,7 @@ async def load_ips(logger, port, fail_storage, minimum=3) -> list:
             candidates.append(peer)
 
     ip_sorted = []
-    candidates_sorted = sort_dict_value(candidates, key="peer_trust")
+    candidates_sorted = sort_dict_value(candidates, key="peer_trust")[:50]
 
     for entry in candidates_sorted:
         ip = entry["peer_ip"]
