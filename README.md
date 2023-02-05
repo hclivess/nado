@@ -10,17 +10,12 @@
 </p>
 
 ## Installation
-### Linux
+### Ubuntu
 #### Before you start
 Please close your node using [/terminate](http://127.0.0.1/terminate) or **CTRL+C** before shutting down your machine.
 You can also use `wget --delete-after localhost:9173/terminate --timeout 1 -t 1` from anywhere in your environment to force shutdown.
 
-#### Direct installation one-liner
-```
-sysctl -w fs.file-max=65535 && ulimit -n 1000000 && sudo apt-get update && sudo add-apt-repository ppa:deadsnakes/ppa -y && sudo apt-get install python3.10 python3.10-distutils git screen curl -y && curl -sS https://bootstrap.pypa.io/get-pip.py | sudo python3.10 && sudo ufw allow 9173 && git clone https://github.com/hclivess/nado && cd nado && python3.10 -m pip install -r requirements.txt && screen -dmS nado python3.10 nado.py
-```
-
-#### Virtual environment installation
+### Virtual environment installation
 
 ```
 sysctl -w fs.file-max=65535
@@ -65,7 +60,7 @@ Run the command line as Administrator and enter the following commands:
 python -m pip install -r requirements.txt
 ```
 
-### To run NADO, execute the following command: `python3.10 nado.py`
+# To run NADO, execute the following command: `python3.10 nado.py`
 
 After installation, go to your browser and announce your peer to one of the nodes like this:
 http://127.0.0.1:9173/announce_peer?ip=207.180.203.132. For this,
