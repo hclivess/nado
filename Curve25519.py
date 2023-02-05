@@ -5,7 +5,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
-from address import make_address
+from ops.address_ops import make_address
 
 
 def unhex(hexed):

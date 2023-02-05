@@ -7,8 +7,8 @@ from tornado.httpclient import AsyncHTTPClient
 
 from Curve25519 import sign, verify
 from ops.account_ops import get_account, reflect_transaction
-from address import proof_sender
-from address import validate_address
+from ops.address_ops import proof_sender
+from ops.address_ops import validate_address
 from ops.block_ops import get_block_number
 from compounder import compound_send_transaction
 from config import get_config
@@ -236,10 +236,12 @@ def get_base_fee(transaction):
 def validate_base_fee(transaction, logger):
     try:
         tx_copy = transaction.copy()
+        fee = tx_copy["fee"]
+        tx_copy.pop("fee")
         tx_copy.pop("signature")
         tx_copy.pop("txid")
 
-        if tx_copy["fee"] >= get_base_fee(tx_copy):
+        if fee >= get_base_fee(tx_copy):
             return True
         else:
             return False
@@ -247,6 +249,7 @@ def validate_base_fee(transaction, logger):
     except Exception as e:
         logger.info(f'Failed to validate base fee: {e}')
         return False
+
 def validate_txid(transaction, logger):
     try:
         tx_copy = transaction.copy()
@@ -269,7 +272,7 @@ def create_transaction(draft, private_key, fee):
     txid = create_txid(transaction_message)
     transaction_message.update(txid=txid)
 
-    signature = sign(private_key=private_key, message=msgpack.packb(transaction_message))
+    signature = sign(private_key=private_key, message=msgpack.packb(txid))
     transaction_message.update(signature=signature)
 
     #from ops.log_ops import get_logger
