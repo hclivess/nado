@@ -24,7 +24,7 @@ class PeerClient(threading.Thread):
         self.memserver = memserver
         self.consensus = consensus
         self.duration = 0
-        self.heavy_refresh = 0
+        self.heavy_refresh_timer = 0
 
     def sniff_buffered_peers(self):
         """gets peers from buffer and adds them to routine"""
@@ -130,13 +130,16 @@ class PeerClient(threading.Thread):
                     self.memserver.merge_remote_transactions(user_origin=False)
 
                 for peer, ban_time in self.memserver.unreachable.copy().items():
-                    timeout = 180 + ban_time - get_timestamp_seconds()
+                    timeout = self.memserver.heavy_refresh_interval/2 + ban_time - get_timestamp_seconds()
                     if timeout < 0:
                         self.memserver.unreachable.pop(peer)
                         self.logger.info(f"Restored {peer} because it has been banned for too long")
 
-                if get_timestamp_seconds() > self.heavy_refresh + 360:
-                    self.heavy_refresh = get_timestamp_seconds()
+                if get_timestamp_seconds() > self.heavy_refresh_timer + self.memserver.heavy_refresh_interval:
+                    """heavy refresh triggered"""
+
+                    self.logger.info("Heavy refresh initiated")
+                    self.heavy_refresh_timer = get_timestamp_seconds()
 
                     announce_me(
                         targets=self.memserver.block_producers,

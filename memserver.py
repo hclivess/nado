@@ -50,7 +50,7 @@ class MemServer:
         self.port = self.config["port"]
         self.terminate = False
         self.producers_refresh_interval = 10
-
+        self.heavy_refresh_interval = 360
 
         self.block_time = 60
         self.period = 0
