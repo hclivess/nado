@@ -23,7 +23,7 @@ from ops.data_ops import get_home, allow_async
 from ops.key_ops import keyfile_found, generate_keys, save_keys, load_keys
 from ops.log_ops import get_logger, logging
 from ops.peer_ops import save_peer, get_remote_status, get_producer_set, check_ip
-from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
+from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount, get_base_fee
 
 
 def is_port_in_use(port: int) -> bool:

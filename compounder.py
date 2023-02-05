@@ -23,14 +23,14 @@ async def get_list_of(key, peer, port, fail_storage, logger, semaphore, compress
 
     try:
         async with semaphore:
-            with AsyncHTTPClient() as http_client:
-                response = await http_client.fetch(url_construct, request_timeout=5)
+            http_client = AsyncHTTPClient()
+            response = await http_client.fetch(url_construct, request_timeout=5)
 
-                if compress == "msgpack":
-                    fetched = msgpack.unpackb(response.body)
-                else:
-                    fetched = json.loads(response.body.decode())[key]
-                return fetched
+            if compress == "msgpack":
+                fetched = msgpack.unpackb(response.body)
+            else:
+                fetched = json.loads(response.body.decode())[key]
+            return fetched
 
     except Exception as e:
         if peer not in fail_storage:
@@ -68,11 +68,11 @@ async def get_url(peer, port, url, logger, fail_storage, semaphore, compress=Non
 
     try:
         async with semaphore:
-            with AsyncHTTPClient() as http_client:
-                response = await http_client.fetch(url_construct, request_timeout=5)
-                fetched = response.body.decode()
+            http_client = AsyncHTTPClient()
+            response = await http_client.fetch(url_construct, request_timeout=5)
+            fetched = response.body.decode()
 
-                return peer, fetched
+            return peer, fetched
 
     except Exception as e:
         if peer not in fail_storage:
@@ -103,10 +103,10 @@ async def send_transaction(peer, port, logger, fail_storage, transaction, semaph
 
     try:
         async with semaphore:
-            with AsyncHTTPClient() as http_client:
-                response = await http_client.fetch(url_construct, request_timeout=5)
-                fetched = json.loads(response.body)["message"]
-                return peer, fetched
+            http_client = AsyncHTTPClient()
+            response = await http_client.fetch(url_construct, request_timeout=5)
+            fetched = json.loads(response.body)["message"]
+            return peer, fetched
 
     except Exception as e:
         if peer not in fail_storage:
@@ -140,15 +140,15 @@ async def get_status(peer, port, logger, fail_storage, semaphore, compress=None)
         url_construct = f"http://{peer}:{port}/status"
     try:
         async with semaphore:
-            with AsyncHTTPClient() as http_client:
-                response = await http_client.fetch(url_construct, request_timeout=5)
+            http_client = AsyncHTTPClient()
+            response = await http_client.fetch(url_construct, request_timeout=5)
 
-                if compress == "msgpack":
-                    fetched = msgpack.unpackb(response.body)
-                else:
-                    fetched = json.loads(response.body.decode())
+            if compress == "msgpack":
+                fetched = msgpack.unpackb(response.body)
+            else:
+                fetched = json.loads(response.body.decode())
 
-                return peer, fetched
+            return peer, fetched
 
     except Exception as e:
         if peer not in fail_storage:
@@ -181,11 +181,11 @@ async def announce_self(peer, port, my_ip, logger, fail_storage, semaphore):
 
     try:
         async with semaphore:
-            with AsyncHTTPClient() as http_client:
-                response = await http_client.fetch(url_construct, request_timeout=5)
+            http_client = AsyncHTTPClient()
+            response = await http_client.fetch(url_construct, request_timeout=5)
 
-                fetched = response.body.decode()
-                return fetched
+            fetched = response.body.decode()
+            return fetched
 
     except Exception:
         if peer not in fail_storage:
