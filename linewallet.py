@@ -104,14 +104,8 @@ if __name__ == "__main__":
     recommended_fee = asyncio.run(get_recommneded_fee(target=target, port=port, base_fee=get_base_fee(transaction=draft)))
     print(f"Recommended fee: {recommended_fee}")
 
-    transaction = create_transaction(sender=address,
-                                     recipient=recipient,
-                                     amount=to_raw_amount(amount),
-                                     data=data,
-                                     public_key=public_key,
+    transaction = create_transaction(draft=draft,
                                      private_key=private_key,
-                                     timestamp=get_timestamp_seconds(),
-                                     target_block=int(target_block),
                                      fee=recommended_fee)
 
     if args.fee:

@@ -257,27 +257,22 @@ def validate_txid(transaction, logger):
     except Exception as e:
         logger.info(f'Failed to match transaction to its id: {e}')
         return False
-def create_transaction(sender, recipient, amount, public_key, private_key, timestamp, data, fee, target_block):
+def create_transaction(draft, private_key, fee):
     """construct transaction, then add txid, then add signature as last"""
-    transaction_message = {
-        "sender": sender,
-        "recipient": recipient,
-        "amount": amount,
-        "timestamp": timestamp,
-        "data": data,
-        "nonce": create_nonce(),
-        "fee": fee,
-        "public_key": public_key,
-        "target_block": target_block
-    }
+    transaction_message = draft.copy()
+    transaction_message.update(fee=fee)
+
     txid = create_txid(transaction_message)
     transaction_message.update(txid=txid)
 
     signature = sign(private_key=private_key, message=msgpack.packb(transaction_message))
     transaction_message.update(signature=signature)
 
-    return transaction_message
+    #from ops.log_ops import get_logger
+    #print(validate_txid(transaction=transaction_message, logger=get_logger()))
+    #time.sleep(10000)
 
+    return transaction_message
 
 def draft_transaction(sender, recipient, amount, public_key, timestamp, data, target_block):
     """construct to be able to calculate base fee, signature and txid are not present here"""
@@ -359,15 +354,15 @@ if __name__ == "__main__":
 
     for x in range(0, 50000):
         try:
-            transaction = create_transaction(sender=address,
+            draft = draft_transaction(sender=address,
                                              recipient=recipient,
                                              amount=to_raw_amount(amount),
                                              data=data,
-                                             fee=0,
                                              public_key=public_key,
-                                             private_key=private_key,
                                              timestamp=get_timestamp_seconds(),
                                              target_block=asyncio.run(get_target_block(target=ips[0], port=port)))
+
+            transaction = create_transaction(draft=draft, private_key=private_key,fee=0)
 
             print(transaction)
             print(validate_transaction(transaction, logger=logger, block_height=0))
