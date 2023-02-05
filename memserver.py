@@ -12,7 +12,8 @@ from ops.transaction_ops import (
     validate_single_spending,
     validate_transaction,
     sort_transaction_pool,
-    validate_txid
+    validate_txid,
+    validate_base_fee
 
 )
 from versioner import read_version
@@ -154,6 +155,11 @@ class MemServer:
             elif not validate_txid(transaction, logger=self.logger) and self.latest_block["block_number"] > 100000: #compat
                 msg = {"result": False,
                        "message": f"Invalid txid"}
+                return msg
+
+            elif not validate_base_fee(transaction, logger=self.logger) and self.latest_block["block_number"] > 102000: #compat
+                msg = {"result": False,
+                       "message": f"Base fee is too low"}
                 return msg
 
             elif transaction not in united_pools:

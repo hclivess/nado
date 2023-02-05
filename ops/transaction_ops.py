@@ -13,7 +13,7 @@ from ops.block_ops import get_block_number
 from compounder import compound_send_transaction
 from config import get_config
 from config import get_timestamp_seconds
-from ops.data_ops import sort_list_dict, get_home
+from ops.data_ops import sort_list_dict, get_home, get_byte_size
 from hashing import create_nonce, blake2b_hash
 from ops.key_ops import load_keys
 from ops.log_ops import get_logger
@@ -21,12 +21,12 @@ from ops.peer_ops import load_ips
 from ops.sqlite_ops import DbHandler
 
 
-async def get_recommneded_fee(target, port):
+async def get_recommneded_fee(target, port, base_fee):
     http_client = AsyncHTTPClient()
     url = f"http://{target}:{port}/get_recommended_fee"
     response = await http_client.fetch(url, request_timeout=5)
     result = json.loads(response.body.decode())
-    return result['fee']
+    return result['fee'] + base_fee
 
 
 async def get_target_block(target, port):
@@ -222,6 +222,27 @@ def validate_origin(transaction: dict, block_height):
     ), "Invalid sender"
 
     return True
+
+def get_base_fee(transaction):
+    try:
+        tx_copy = transaction.copy()
+        base_fee = get_byte_size(transaction)
+        return base_fee
+
+    except Exception as e:
+        logger.info(f'Failed to calculate base fee: {e}')
+        return False
+
+def validate_base_fee(transaction, logger):
+    try:
+        if transaction["fee"] >= get_base_fee(transaction):
+            return True
+        else:
+            return False
+
+    except Exception as e:
+        logger.info(f'Failed to validate base fee: {e}')
+        return False
 def validate_txid(transaction, logger):
     try:
         tx_copy = transaction.copy()
@@ -257,6 +278,21 @@ def create_transaction(sender, recipient, amount, public_key, private_key, times
 
     return transaction_message
 
+
+def draft_transaction(sender, recipient, amount, public_key, timestamp, data, target_block):
+    """construct to be able to calculate base fee, signature and txid are not present here"""
+    transaction_message = {
+        "sender": sender,
+        "recipient": recipient,
+        "amount": amount,
+        "timestamp": timestamp,
+        "data": data,
+        "nonce": create_nonce(),
+        "public_key": public_key,
+        "target_block": target_block
+    }
+
+    return transaction_message
 
 def unindex_transactions(block, logger):
     while True:

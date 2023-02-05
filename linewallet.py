@@ -13,21 +13,11 @@ from ops.key_ops import load_keys, keyfile_found, save_keys, generate_keys
 from ops.log_ops import get_logger
 from ops.peer_ops import get_public_ip
 from ops.peer_ops import load_ips
-from ops.transaction_ops import create_transaction, to_raw_amount, get_recommneded_fee, to_readable_amount, \
-    get_target_block
+from ops.transaction_ops import create_transaction, draft_transaction, to_raw_amount, get_recommneded_fee, to_readable_amount, \
+    get_target_block, get_base_fee
 
 
-def send_transaction(address, recipient, amount, data, public_key, private_key, ips, fee, target_block):
-    transaction = create_transaction(sender=address,
-                                     recipient=recipient,
-                                     amount=to_raw_amount(amount),
-                                     data=data,
-                                     fee=int(fee),
-                                     public_key=public_key,
-                                     private_key=private_key,
-                                     timestamp=get_timestamp_seconds(),
-                                     target_block=int(target_block))
-
+def send_transaction(transaction, ips, logger):
     print(json.dumps(transaction, indent=4))
     input("Press any key to continue")
 
@@ -91,10 +81,8 @@ if __name__ == "__main__":
     else:
         amount = input("Amount: ")
 
-    recommended_fee = asyncio.run(get_recommneded_fee(target=target, port=port))
     recommended_block = asyncio.run(get_target_block(target=target, port=port))
     print(f"Recommended target block: {recommended_block}")
-    print(f"Recommended fee: {recommended_fee}")
 
     if args.target:
         target_block = args.target
@@ -103,6 +91,29 @@ if __name__ == "__main__":
     if not target_block:
         target_block = recommended_block
 
+    data=""
+
+    draft = draft_transaction(sender=address,
+                                     recipient=recipient,
+                                     amount=to_raw_amount(amount),
+                                     data=data,
+                                     public_key=public_key,
+                                     timestamp=get_timestamp_seconds(),
+                                     target_block=int(target_block))
+
+    recommended_fee = asyncio.run(get_recommneded_fee(target=target, port=port, base_fee=get_base_fee(transaction=draft)))
+    print(f"Recommended fee: {recommended_fee}")
+
+    transaction = create_transaction(sender=address,
+                                     recipient=recipient,
+                                     amount=to_raw_amount(amount),
+                                     data=data,
+                                     public_key=public_key,
+                                     private_key=private_key,
+                                     timestamp=get_timestamp_seconds(),
+                                     target_block=int(target_block),
+                                     fee=recommended_fee)
+
     if args.fee:
         fee = args.fee
     else:
@@ -110,12 +121,4 @@ if __name__ == "__main__":
     if not fee:
         fee = 0
 
-    send_transaction(address=address,
-                     amount=amount,
-                     data="",
-                     private_key=private_key,
-                     public_key=public_key,
-                     recipient=recipient,
-                     ips=ips,
-                     fee=fee,
-                     target_block=target_block)
+    send_transaction(transaction, ips=ips, logger=logger)
