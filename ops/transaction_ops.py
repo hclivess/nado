@@ -76,9 +76,9 @@ def validate_uniqueness(transaction, logger):
         return True
 
 
-def validate_transaction(transaction, logger):
+def validate_transaction(transaction, logger, block_height):
     assert isinstance(transaction, dict), "Data structure incomplete"
-    assert validate_origin(transaction), "Invalid origin"
+    assert validate_origin(transaction, block_height=block_height), "Invalid origin"
     assert validate_address(transaction["sender"]), f"Invalid sender {transaction['sender']}"
     assert validate_address(transaction["recipient"]), f"Invalid recipient {transaction['recipient']}"
     assert validate_uniqueness(transaction["txid"], logger=logger), f"Transaction {transaction['txid']} already exists"
@@ -198,7 +198,7 @@ def validate_all_spending(transaction_pool: list):
     return True
 
 
-def validate_origin(transaction: dict):
+def validate_origin(transaction: dict, block_height):
     """save signature and then remove it as it is not a part of the signed message"""
 
     transaction = transaction.copy()
@@ -206,12 +206,18 @@ def validate_origin(transaction: dict):
     del transaction["signature"]
 
     assert proof_sender(
-        sender=transaction["sender"], public_key=transaction["public_key"]
+        sender=transaction["sender"],
+        public_key=transaction["public_key"]
     ), "Invalid sender"
+
+    if block_height < 102000:
+        signed=transaction
+    else:
+        signed=transaction["txid"]
 
     assert verify(
         signed=signature,
-        message=msgpack.packb(transaction),
+        message=msgpack.packb(signed),
         public_key=transaction["public_key"],
     ), "Invalid sender"
 
@@ -328,7 +334,7 @@ if __name__ == "__main__":
                                              target_block=asyncio.run(get_target_block(target=ips[0], port=port)))
 
             print(transaction)
-            print(validate_transaction(transaction, logger=logger))
+            print(validate_transaction(transaction, logger=logger, block_height=0))
 
             fails = []
             results = asyncio.run(compound_send_transaction(ips=ips,

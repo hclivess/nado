@@ -158,7 +158,9 @@ class MemServer:
 
             elif transaction not in united_pools:
                 try:
-                    validate_transaction(transaction, logger=self.logger)
+                    validate_transaction(transaction=transaction,
+                                         logger=self.logger,
+                                         block_height=self.latest_block["block_number"])
                 except Exception as e:
                     msg = {"result": False,
                            "message": f"Could not merge remote transaction: {e}"}

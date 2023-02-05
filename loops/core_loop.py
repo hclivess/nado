@@ -469,7 +469,9 @@ class CoreClient(threading.Thread):
                     self.memserver.tx_buffer.remove(transaction)
 
                 try:
-                    validate_transaction(transaction, logger=logger)
+                    validate_transaction(transaction=transaction,
+                                         logger=logger,
+                                         block_height=self.memserver.latest_block["block_number"])
                 except Exception as e:
                     self.logger.error(f"Failed to validate transaction during block preparation: {e}")
                     if remote:
