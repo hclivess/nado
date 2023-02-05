@@ -226,7 +226,7 @@ def validate_origin(transaction: dict, block_height):
 def get_base_fee(transaction):
     try:
         tx_copy = transaction.copy()
-        base_fee = get_byte_size(transaction)
+        base_fee = get_byte_size(tx_copy)
         return base_fee
 
     except Exception as e:
@@ -235,7 +235,11 @@ def get_base_fee(transaction):
 
 def validate_base_fee(transaction, logger):
     try:
-        if transaction["fee"] >= get_base_fee(transaction):
+        tx_copy = transaction.copy()
+        tx_copy.pop("signature")
+        tx_copy.pop("txid")
+
+        if tx_copy["fee"] >= get_base_fee(tx_copy):
             return True
         else:
             return False
@@ -330,7 +334,7 @@ def index_transactions(block, sorted_transactions, logger):
 if __name__ == "__main__":
     logger = get_logger(file="transactions.log")
     # print(get_account("noob23"))
-    LOCAL = True
+    LOCAL = False
 
     key_dict = load_keys()
     address = key_dict["address"]
