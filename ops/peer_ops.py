@@ -129,7 +129,7 @@ async def load_ips(logger, port, fail_storage, minimum=3) -> list:
         ip_sorted.append(ip)
 
     start = 0
-    end = len(peer_files)
+    end = len(candidates_sorted)
     step = 12
 
     for i in range(start, end, step):
