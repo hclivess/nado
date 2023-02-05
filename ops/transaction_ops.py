@@ -6,19 +6,19 @@ import msgpack
 from tornado.httpclient import AsyncHTTPClient
 
 from Curve25519 import sign, verify
-from .account_ops import get_account, reflect_transaction
+from ops.account_ops import get_account, reflect_transaction
 from address import proof_sender
 from address import validate_address
-from .block_ops import get_block_number
+from ops.block_ops import get_block_number
 from compounder import compound_send_transaction
 from config import get_config
 from config import get_timestamp_seconds
-from .data_ops import sort_list_dict, get_home
+from ops.data_ops import sort_list_dict, get_home
 from hashing import create_nonce, blake2b_hash
-from .key_ops import load_keys
-from .log_ops import get_logger
-from .peer_ops import load_ips
-from .sqlite_ops import DbHandler
+from ops.key_ops import load_keys
+from ops.log_ops import get_logger
+from ops.peer_ops import load_ips
+from ops.sqlite_ops import DbHandler
 
 
 async def get_recommneded_fee(target, port):
@@ -291,7 +291,7 @@ def index_transactions(block, sorted_transactions, logger):
 if __name__ == "__main__":
     logger = get_logger(file="transactions.log")
     # print(get_account("noob23"))
-    LOCAL = False
+    LOCAL = True
 
     key_dict = load_keys()
     address = key_dict["address"]
