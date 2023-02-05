@@ -218,15 +218,17 @@ def validate_origin(transaction: dict):
     return True
 def validate_txid(transaction, logger):
     try:
-        txid_to_check = transaction["txid"]
-        transaction.pop("txid")
-        txid_genuine = create_txid(transaction)
+        tx_copy = transaction.copy()
+        txid_to_check = tx_copy["txid"]
+        tx_copy.pop("txid")
+        tx_copy.pop("signature")
+        txid_genuine = create_txid(tx_copy)
         if txid_genuine == txid_to_check:
             return True
         else:
             return False
     except Exception as e:
-        logger.info(f'Failed to match transaction {transaction} to its id {transaction["txid"]}: {e}')
+        logger.info(f'Failed to match transaction to its id: {e}')
         return False
 def create_transaction(sender, recipient, amount, public_key, private_key, timestamp, data, fee, target_block):
     """construct transaction, then add txid, then add signature as last"""
