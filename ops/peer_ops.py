@@ -130,7 +130,7 @@ async def load_ips(logger, port, fail_storage, minimum=3) -> list:
 
     start = 0
     end = len(candidates_sorted)
-    step = 12
+    step = 10
 
     for i in range(start, end, step):
         x = i
