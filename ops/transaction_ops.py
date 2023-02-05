@@ -211,15 +211,19 @@ def validate_origin(transaction: dict, block_height):
     ), "Invalid sender"
 
     if block_height < 102000:
-        signed=transaction
+        assert verify(
+            signed=signature,
+            message=msgpack.packb(transaction),
+            public_key=transaction["public_key"],
+        ), "Invalid sender"
     else:
-        signed=transaction["txid"]
+        assert verify(
+            signed=signature,
+            message=bytes(transaction["txid"], "utf-8"),
+            public_key=transaction["public_key"],
+        ), "Invalid sender"
 
-    assert verify(
-        signed=signature,
-        message=msgpack.packb(signed),
-        public_key=transaction["public_key"],
-    ), "Invalid sender"
+
 
     return True
 
@@ -272,7 +276,7 @@ def create_transaction(draft, private_key, fee):
     txid = create_txid(transaction_message)
     transaction_message.update(txid=txid)
 
-    signature = sign(private_key=private_key, message=msgpack.packb(txid))
+    signature = sign(private_key=private_key, message=bytes(txid, 'utf-8'))
     transaction_message.update(signature=signature)
 
     #from ops.log_ops import get_logger
