@@ -5,7 +5,8 @@ import time
 import msgpack
 from tornado.httpclient import AsyncHTTPClient
 
-from Curve25519 import sign, verify
+
+from Curve25519 import sign, verify, unhex
 from ops.account_ops import get_account, reflect_transaction
 from ops.address_ops import proof_sender
 from ops.address_ops import validate_address
@@ -219,7 +220,7 @@ def validate_origin(transaction: dict, block_height):
     else:
         assert verify(
             signed=signature,
-            message=bytes(transaction["txid"], "utf-8"),
+            message=unhex(transaction["txid"], "utf-8"),
             public_key=transaction["public_key"],
         ), "Invalid sender"
 
@@ -276,7 +277,7 @@ def create_transaction(draft, private_key, fee):
     txid = create_txid(transaction_message)
     transaction_message.update(txid=txid)
 
-    signature = sign(private_key=private_key, message=bytes(txid, 'utf-8'))
+    signature = sign(private_key=private_key, message=unhex(txid))
     transaction_message.update(signature=signature)
 
     #from ops.log_ops import get_logger

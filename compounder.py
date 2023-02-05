@@ -7,9 +7,9 @@ from tornado.httpclient import AsyncHTTPClient
 
 from ops.data_ops import sort_list_dict
 from ops.log_ops import get_logger
-
 """this module is optimized for low memory and bandwidth usage"""
 
+http_client = AsyncHTTPClient()
 
 async def get_list_of(key, peer, port, fail_storage, logger, semaphore, compress=None):
     """method compounded by compound_get_list_of, fail storage external by reference (obj)"""
@@ -23,7 +23,6 @@ async def get_list_of(key, peer, port, fail_storage, logger, semaphore, compress
 
     try:
         async with semaphore:
-            http_client = AsyncHTTPClient()
             response = await http_client.fetch(url_construct, request_timeout=5)
 
             if compress == "msgpack":
@@ -68,7 +67,6 @@ async def get_url(peer, port, url, logger, fail_storage, semaphore, compress=Non
 
     try:
         async with semaphore:
-            http_client = AsyncHTTPClient()
             response = await http_client.fetch(url_construct, request_timeout=5)
             fetched = response.body.decode()
 
@@ -103,7 +101,6 @@ async def send_transaction(peer, port, logger, fail_storage, transaction, semaph
 
     try:
         async with semaphore:
-            http_client = AsyncHTTPClient()
             response = await http_client.fetch(url_construct, request_timeout=5)
             fetched = json.loads(response.body)["message"]
             return peer, fetched
@@ -140,7 +137,6 @@ async def get_status(peer, port, logger, fail_storage, semaphore, compress=None)
         url_construct = f"http://{peer}:{port}/status"
     try:
         async with semaphore:
-            http_client = AsyncHTTPClient()
             response = await http_client.fetch(url_construct, request_timeout=5)
 
             if compress == "msgpack":
@@ -181,7 +177,6 @@ async def announce_self(peer, port, my_ip, logger, fail_storage, semaphore):
 
     try:
         async with semaphore:
-            http_client = AsyncHTTPClient()
             response = await http_client.fetch(url_construct, request_timeout=5)
 
             fetched = response.body.decode()
