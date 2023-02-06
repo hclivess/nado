@@ -17,6 +17,27 @@ You can also use `wget --delete-after localhost:9173/terminate --timeout 1 -t 1`
 
 ### Virtual environment installation
 
+Be sure to have enough files limits:
+
+```
+nano /etc/security/limits.conf
+root soft nofile 65535
+root hard nofile 65535
+```
+
+Append:
+
+```fs.file-max = 100000```
+
+Then apply the settings and restart the machine.
+
+```
+sysctl -p
+sudo reboot
+```
+
+You may now proceed with installation:
+
 ```
 sysctl -w fs.file-max=65535
 ulimit -n 1000000
