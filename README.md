@@ -17,7 +17,7 @@ You can also use `wget --delete-after localhost:9173/terminate --timeout 1 -t 1`
 
 ### Virtual environment installation
 
-Be sure to have enough files limits:
+Make sure to set your open file limit high enough:
 
 ```
 nano /etc/security/limits.conf
