@@ -71,13 +71,13 @@ def generate_keydict():
 
 if __name__ == "__main__":
     keydict = generate_keydict()
-    test_message = msgpack.packb({"amount": 50})
+    test_message = "5adf8c531d6698a647c54435386618a0bacd8c3f91b3f1ce1d2ac7c1601a829c"
     print(keydict["private_key"])
     print(keydict["public_key"])
     print(keydict["address"])
 
-    signature = sign(private_key=keydict["private_key"], message=test_message)
+    signature = sign(private_key=keydict["private_key"], message=unhex(test_message))
     print(signature)
     print(
-        verify(message=test_message, public_key=keydict["public_key"], signed=signature)
+        verify(message=unhex(test_message), public_key=keydict["public_key"], signed=signature)
     )
