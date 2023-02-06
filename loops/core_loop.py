@@ -333,6 +333,7 @@ class CoreClient(threading.Thread):
     def emergency_mode(self):
         self.logger.warning("Entering emergency mode")
         try:
+            self.logger.warning("Looping emergency mode")
             while self.memserver.emergency_mode and not self.memserver.terminate:
                 peer = self.get_peer_to_sync_from(source_pool=self.consensus.block_hash_pool)
                 if not peer:
