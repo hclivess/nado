@@ -220,7 +220,7 @@ def validate_origin(transaction: dict, block_height):
     else:
         assert verify(
             signed=signature,
-            message=unhex(transaction["txid"], "utf-8"),
+            message=unhex(transaction["txid"]),
             public_key=transaction["public_key"],
         ), "Invalid sender"
 
