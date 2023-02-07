@@ -138,7 +138,6 @@ do they have to own a large portion of tokens in order to be rewarded. It is ins
 attempting to bring the barrier of entry even lower than those two by not requiring solving of puzzles or highly
 efficient machines for users to remain in a reward distribution cycle.
 
-
 ## Emergency measures
 
 When the network consensus drops too low, you can take the following measures to help improve it. This trades
