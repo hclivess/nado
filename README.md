@@ -272,7 +272,7 @@ https://github.com/blocksentinel/nado-dotnet-sdk
 
 ## Where can I learn more?
 
-www.nado.live
+https://nado.live
 
 ## For developers
 ### Design philosophy
