@@ -20,31 +20,29 @@ from ops.key_ops import load_keys
 from ops.log_ops import get_logger
 from ops.peer_ops import load_ips
 from ops.sqlite_ops import DbHandler
+import aiohttp
 
 async def get_recommneded_fee(target, port, base_fee, logger):
     try:
-        http_client = AsyncHTTPClient()
-        url = f"http://{target}:{port}/get_recommended_fee"
-        response = await http_client.fetch(url, request_timeout=5)
-        result = json.loads(response.body.decode())
+        url_construct = f"http://{target}:{port}/get_recommended_fee"
+        
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=10)) as session:
+            async with session.get(url_construct) as response:
+                result = json.loads(await response.text())
         return result['fee'] + base_fee
     except Exception as e:
         logger.warning(f"Failed to get recommended fee: {e}")
-    finally:
-        del http_client
-
 
 async def get_target_block(target, port, logger):
     try:
-        http_client = AsyncHTTPClient()
-        url = f"http://{target}:{port}/get_latest_block"
-        response = await http_client.fetch(url, request_timeout=5)
-        result = json.loads(response.body.decode())
+        url_construct = f"http://{target}:{port}/get_latest_block"
+        
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=10)) as session:
+            async with session.get(url_construct) as response:
+                result = json.loads(await response.text())
         return result['block_number'] + 2
     except Exception as e:
         logger.warning(f"Failed to get target block: {e}")
-    finally:
-        del http_client
 
 def remove_outdated_transactions(transaction_list, block_number):
     cleaned = []

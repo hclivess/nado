@@ -15,3 +15,4 @@ matplotlib~=3.5.2
 psutil~=5.9.2
 Pympler~=1.0.1
 pandas~=1.5.2
+aiohttp

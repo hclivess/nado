@@ -15,7 +15,7 @@ from .data_ops import set_and_sort, get_home
 from hashing import base64encode, blake2b_hash
 from .key_ops import load_keys
 
-
+import aiohttp
 
 def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
     if not all(key in requirements for key in dictionary):
@@ -41,24 +41,24 @@ def update_local_address(logger):
 
 
 async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add msgpack support
-    try:
-        url = f"http://{target_peer}:{get_port()}/status"
-        http_client = AsyncHTTPClient()
-        result = await http_client.fetch(url, request_timeout=5)
-        text = result.body.decode()
-        code = result.code
 
-        if code == 200:
-            return json.loads(text)
-        else:
-            return False
+    try:
+        url_construct = f"http://{target_peer}:{get_port()}/status"
+
+        
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=10)) as session:
+            async with session.get(url_construct) as response:
+                text = response.text()
+                code = response.status
+
+                if code == 200:
+                    return json.loads(await text)
+                else:
+                    return False
 
     except Exception as e:
         logger.error(f"Failed to get status from {target_peer}: {e}")
         return False
-
-    finally:
-        del http_client
 
 
 def delete_peer(ip, logger):
@@ -321,16 +321,16 @@ def check_ip(ip):
 
 async def get_public_ip(logger):
     urls = ["https://api.ipify.org", "https://ipinfo.io/ip"]
-    for url in urls:
-        try:
-            http_client = AsyncHTTPClient()
-            ip = await http_client.fetch(url, request_timeout=5)
-            return ip.body.decode()
-        except Exception as e:
-            logger.error(f"Unable to fetch IP from {url}: {e}")
-        finally:
-            del http_client
 
+    for url_construct in urls:
+        try:
+            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=10)) as session:
+                async with session.get(url_construct) as response:
+                    ip = await response.text()
+                    return ip
+
+        except Exception as e:
+            logger.error(f"Unable to fetch IP from {url_construct}: {e}")
 
 def update_local_ip(ip, logger):
     old_ip = get_config()["ip"]

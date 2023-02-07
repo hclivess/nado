@@ -3,8 +3,7 @@ import json
 from urllib.parse import quote
 
 import msgpack
-from tornado.httpclient import AsyncHTTPClient
-
+import aiohttp
 from ops.data_ops import sort_list_dict
 from ops.log_ops import get_logger
 """this module is optimized for low memory and bandwidth usage"""
@@ -21,24 +20,20 @@ async def get_list_of(key, peer, port, fail_storage, logger, semaphore, compress
         url_construct = f"http://{peer}:{port}/{key}"
 
     try:
-        http_client = AsyncHTTPClient()
         async with semaphore:
-            response = await http_client.fetch(url_construct, request_timeout=5)
-
-            if compress == "msgpack":
-                fetched = msgpack.unpackb(response.body)
-            else:
-                fetched = json.loads(response.body.decode())[key]
-            return fetched
-
+            
+            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=10)) as session:
+                async with session.get(url_construct) as response:
+                    if compress == "msgpack":
+                        fetched = msgpack.unpackb(await (response.read()))
+                    else:
+                        fetched = json.loads(await response.text())[key]
+        return fetched
 
     except Exception as e:
         if peer not in fail_storage:
             logger.info(f"Compounder: Failed to get {key} of {peer} from {url_construct}: {e}")
             fail_storage.append(peer)
-    finally:
-        del http_client
-
 
 async def compound_get_list_of(key, entries, port, logger, fail_storage, semaphore, compress=None):
     """returns a list of lists of raw peers from multiple peers at once"""
@@ -67,24 +62,18 @@ async def get_url(peer, port, url, logger, fail_storage, semaphore, compress=Non
     """method compounded by compound_get_url"""
 
     url_construct = f"http://{peer}:{port}/{url}"
-
     try:
-        http_client = AsyncHTTPClient()
         async with semaphore:
-            response = await http_client.fetch(url_construct, request_timeout=5)
-
-            fetched = response.body.decode()
-
-            return peer, fetched
+            
+            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=10)) as session:
+                async with session.get(url_construct) as response:
+                    fetched = await response.text()
+                    return peer, fetched
 
     except Exception as e:
         if peer not in fail_storage:
             logger.info(f"Compounder: Failed to get URL {url_construct}: {e}")
             fail_storage.append(peer)
-
-    finally:
-        del http_client
-
 
 async def compound_get_url(ips, port, url, logger, fail_storage, semaphore, compress=None):
     """returns result of urls with arbitrary data past slash"""
@@ -108,18 +97,17 @@ async def send_transaction(peer, port, logger, fail_storage, transaction, semaph
     url_construct = f"http://{peer}:{port}/submit_transaction?data={quote(json.dumps(transaction))}"
 
     try:
-        http_client = AsyncHTTPClient()
         async with semaphore:
-            response = await http_client.fetch(url_construct, request_timeout=5)
-            fetched = json.loads(response.body)["message"]
-            return peer, fetched
+            
+            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=10)) as session:
+                async with session.get(url_construct) as response:
+                    fetched = json.loads(await response.text())["message"]
+                    return peer, fetched
 
     except Exception as e:
         if peer not in fail_storage:
             logger.info(f"Compounder: Failed to send transaction to {url_construct}: {e}")
             fail_storage.append(peer)
-    finally:
-        del http_client
 
 async def compound_send_transaction(ips, port, logger, fail_storage, transaction, semaphore, compress=None):
     """returns a list of dicts where ip addresses are keys"""
@@ -145,25 +133,23 @@ async def get_status(peer, port, logger, fail_storage, semaphore, compress=None)
         url_construct = f"http://{peer}:{port}/status?compress={compress}"
     else:
         url_construct = f"http://{peer}:{port}/status"
+
     try:
-        http_client = AsyncHTTPClient()
         async with semaphore:
-            response = await http_client.fetch(url_construct, request_timeout=5)
+            
+            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=10)) as session:
+                async with session.get(url_construct) as response:
+                    if compress == "msgpack":
+                        fetched = msgpack.unpackb(await response.read())
+                    else:
+                        fetched = json.loads(await response.text())
 
-            if compress == "msgpack":
-                fetched = msgpack.unpackb(response.body)
-            else:
-                fetched = json.loads(response.body.decode())
-
-            return peer, fetched
+                    return peer, fetched
 
     except Exception as e:
         if peer not in fail_storage:
             logger.info(f"Compounder: Failed to get status from {url_construct}: {e}")
             fail_storage.append(peer)
-
-    finally:
-        del http_client
 
 async def compound_get_status_pool(ips, port, logger, fail_storage, semaphore, compress=None):
     """returns a list of dicts where ip addresses are keys"""
@@ -189,18 +175,17 @@ async def announce_self(peer, port, my_ip, logger, fail_storage, semaphore):
     )
 
     try:
-        http_client = AsyncHTTPClient()
         async with semaphore:
-            response = await http_client.fetch(url_construct, request_timeout=5)
-            fetched = response.body.decode()
-            return fetched
+            
+            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=10)) as session:
+                async with session.get(url_construct) as response:
+                    fetched = await response.text()
+                    return fetched
 
     except Exception:
         if peer not in fail_storage:
             # logger.info(f"Failed to announce self to {url_construct}: {e}")
             fail_storage.append(peer)
-    finally:
-        del http_client
 
 
 async def compound_announce_self(ips, port, my_ip, logger, fail_storage, semaphore):
