@@ -25,6 +25,7 @@ from ops.key_ops import keyfile_found, generate_keys, save_keys, load_keys
 from ops.log_ops import get_logger, logging
 from ops.peer_ops import save_peer, get_remote_status, get_producer_set, check_ip
 from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount, get_base_fee
+from pympler.tracker import SummaryTracker
 
 
 def is_port_in_use(port: int) -> bool:
@@ -295,22 +296,20 @@ class SubmitTransactionHandler(tornado.web.RequestHandler):
 
 
 class HealthHandler(tornado.web.RequestHandler):
-    def log(self):
+    def health(self):
         compress = LogHandler.get_argument(self, "compress", default="none")
-
-        gc_stats = gc.get_stats()
+        health = tracker.diff()
 
         if compress == "msgpack":
-            output = msgpack.packb(gc_stats)
+            output = msgpack.packb(health)
         else:
-            output = gc_stats
-
-        self.write(serialize(name="health",
-                             output=output,
-                             compress=compress))
+            output = serialize(name="health",
+                                 output=health,
+                                 compress=compress)
+        self.write(output)
 
     async def get(self, parameter):
-        await asyncio.to_thread(self.log)
+        await asyncio.to_thread(self.health)
 
 class LogHandler(tornado.web.RequestHandler):
     def log(self):
@@ -772,6 +771,7 @@ if __name__ == "__main__":
     logging.getLogger('tornado.access').disabled = True
     logger = get_logger()
 
+    tracker = SummaryTracker()
     disable_close()
     allow_async()
 
