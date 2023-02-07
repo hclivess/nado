@@ -15,6 +15,7 @@ from .data_ops import set_and_sort, get_home
 from hashing import base64encode, blake2b_hash
 from .key_ops import load_keys
 
+http_client = AsyncHTTPClient()
 
 def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
     if not all(key in requirements for key in dictionary):
@@ -43,7 +44,6 @@ def update_local_address(logger, peer_file_lock):
 
 async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add msgpack support
     try:
-        http_client = AsyncHTTPClient()
         url = f"http://{target_peer}:{get_port()}/status"
         result = await http_client.fetch(url, request_timeout=5)
         text = result.body.decode()
@@ -322,7 +322,6 @@ def check_ip(ip):
 
 
 async def get_public_ip(logger):
-    http_client = AsyncHTTPClient()
     urls = ["https://api.ipify.org", "https://ipinfo.io/ip"]
     for url in urls:
         try:

@@ -21,9 +21,10 @@ from ops.log_ops import get_logger
 from ops.peer_ops import load_ips
 from ops.sqlite_ops import DbHandler
 
+http_client = AsyncHTTPClient()
 
 async def get_recommneded_fee(target, port, base_fee):
-    http_client = AsyncHTTPClient()
+
     url = f"http://{target}:{port}/get_recommended_fee"
     response = await http_client.fetch(url, request_timeout=5)
     result = json.loads(response.body.decode())
@@ -31,7 +32,7 @@ async def get_recommneded_fee(target, port, base_fee):
 
 
 async def get_target_block(target, port):
-    http_client = AsyncHTTPClient()
+
     url = f"http://{target}:{port}/get_latest_block"
     response = await http_client.fetch(url, request_timeout=5)
     result = json.loads(response.body.decode())
