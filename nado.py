@@ -8,7 +8,6 @@ import sys
 import msgpack
 import tornado.ioloop
 import tornado.web
-import gc
 
 import versioner
 from config import get_config
@@ -25,7 +24,8 @@ from ops.key_ops import keyfile_found, generate_keys, save_keys, load_keys
 from ops.log_ops import get_logger, logging
 from ops.peer_ops import save_peer, get_remote_status, get_producer_set, check_ip
 from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount, get_base_fee
-from pympler.tracker import SummaryTracker
+
+from pympler import summary, muppy
 
 
 def is_port_in_use(port: int) -> bool:
@@ -298,7 +298,7 @@ class SubmitTransactionHandler(tornado.web.RequestHandler):
 class HealthHandler(tornado.web.RequestHandler):
     def health(self):
         compress = LogHandler.get_argument(self, "compress", default="none")
-        health = tracker.diff()
+        health = summary.summarize(muppy.get_objects())
 
         if compress == "msgpack":
             output = msgpack.packb(health)
@@ -771,7 +771,6 @@ if __name__ == "__main__":
     logging.getLogger('tornado.access').disabled = True
     logger = get_logger()
 
-    tracker = SummaryTracker()
     disable_close()
     allow_async()
 

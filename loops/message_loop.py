@@ -5,6 +5,7 @@ import threading
 import time
 import traceback
 from math import floor
+from pympler import muppy
 
 from config import get_timestamp_seconds
 
@@ -74,7 +75,7 @@ class MessageClient(threading.Thread):
                                  f"Peers: {self.peers.duration}")
 
                 self.logger.info(f"Open files: {len(psutil.Process().open_files())}")
-                self.logger.info(f"Open objects: {len(gc.get_objects())}")
+                self.logger.info(f"Open objects: {len(muppy.get_objects())}")
 
                 time.sleep(10)
             except Exception as e:
