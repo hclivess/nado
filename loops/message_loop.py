@@ -1,3 +1,5 @@
+import gc
+
 import psutil
 import threading
 import time
@@ -72,6 +74,7 @@ class MessageClient(threading.Thread):
                                  f"Peers: {self.peers.duration}")
 
                 self.logger.info(f"Open files: {len(psutil.Process().open_files())}")
+                self.logger.info(f"Open objects: {len(gc.get_objects())}")
 
                 time.sleep(10)
             except Exception as e:
