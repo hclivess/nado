@@ -153,12 +153,10 @@ class PeerClient(threading.Thread):
                                      logger=self.logger)
 
                     dump_trust(logger=self.logger,
-                               peer_file_lock=self.memserver.peer_file_lock,
                                pool_data=self.consensus.trust_pool)
 
                     update_local_ip(ip=asyncio.run(get_public_ip(logger=self.logger)),
-                                    logger=self.logger,
-                                    peer_file_lock=self.memserver.peer_file_lock)
+                                    logger=self.logger)
 
                     self.memserver.can_mine = test_self_port(self.memserver.ip, self.memserver.port)
 

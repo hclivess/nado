@@ -85,8 +85,7 @@ class ConsensusClient(threading.Thread):
             if ip_stored(peer):
                 peer_trust = load_peer(ip=peer,
                                        key="peer_trust",
-                                       logger=self.logger,
-                                       peer_file_lock=self.memserver.peer_file_lock)
+                                       logger=self.logger)
                 if peer not in self.trust_pool.keys():
                     self.trust_pool[peer] = peer_trust
 

@@ -156,7 +156,6 @@ class CoreClient(threading.Thread):
                                                           logger=self.logger,
                                                           event_bus=self.event_bus,
                                                           transaction_pool=self.memserver.transaction_pool.copy(),
-                                                          peer_file_lock=self.memserver.peer_file_lock,
                                                           latest_block=self.memserver.latest_block,
                                                           block_time=self.memserver.block_time
                                                           )
@@ -220,8 +219,7 @@ class CoreClient(threading.Thread):
                     for peer, value in shuffled_pool.items():
                         """pick random peer"""
                         peer_trust = load_trust(logger=self.logger,
-                                                peer=peer,
-                                                peer_file_lock=self.memserver.peer_file_lock)
+                                                peer=peer)
                         """load trust score"""
 
                         peer_protocol = self.consensus.status_pool[peer]["protocol"]
@@ -340,62 +338,62 @@ class CoreClient(threading.Thread):
                     self.logger.info("Could not find a suitably trusted peer")
                     time.sleep(1)
                 else:
-                    with self.memserver.buffer_lock:
-                        block_hash = self.memserver.latest_block["block_hash"]
-                        known_block = asyncio.run(knows_block(
-                            target_peer=peer,
-                            port=self.memserver.port,
-                            hash=block_hash,
-                            logger=self.logger))
+                    block_hash = self.memserver.latest_block["block_hash"]
+                    known_block = asyncio.run(knows_block(
+                        target_peer=peer,
+                        port=self.memserver.port,
+                        hash=block_hash,
+                        logger=self.logger))
 
-                        if known_block:
-                            self.logger.info(
-                                f"{peer} knows block {self.memserver.latest_block['block_hash']}"
-                            )
+                    if known_block:
+                        self.logger.info(
+                            f"{peer} knows block {self.memserver.latest_block['block_hash']}"
+                        )
 
-                            try:
-                                new_blocks = asyncio.run(get_blocks_after(
-                                    target_peer=peer,
-                                    from_hash=block_hash,
-                                    count=50,
-                                ))
+                        try:
+                            new_blocks = asyncio.run(get_blocks_after(
+                                target_peer=peer,
+                                from_hash=block_hash,
+                                count=50,
+                                logger=self.logger
+                            ))
 
-                                if new_blocks:
-                                    for block in new_blocks:
-                                        if not self.memserver.terminate:
-                                            uninterrupted = self.produce_block(block=block,
-                                                                               remote=True,
-                                                                               remote_peer=peer)
-                                            if not uninterrupted:
-                                                break
+                            if new_blocks:
+                                for block in new_blocks:
+                                    if not self.memserver.terminate:
+                                        uninterrupted = self.produce_block(block=block,
+                                                                           remote=True,
+                                                                           remote_peer=peer)
+                                        if not uninterrupted:
+                                            break
 
 
-                                else:
-                                    self.logger.info(f"No newer blocks found from {peer}")
-                                    break
-
-                            except Exception as e:
-                                self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
-                                                                         peer=peer,
-                                                                         value=-10000)
-                                self.logger.error(f"Failed to get blocks after {block_hash} from {peer}: {e}")
-                                break
-
-                        elif not known_block:
-                            if self.memserver.rollbacks <= self.memserver.max_rollbacks:
-                                self.memserver.latest_block = rollback_one_block(logger=self.logger,
-                                                                                 block=self.memserver.latest_block)
-                                self.memserver.rollbacks += 1
-                                self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
-                                                                         peer=peer,
-                                                                         value=-10000)
                             else:
-                                self.logger.error(f"Rollbacks exhausted")
-                                self.memserver.rollbacks = 0
-                                # self.memserver.purge_peers_list.append(peer)
+                                self.logger.info(f"No newer blocks found from {peer}")
                                 break
 
-                        self.logger.info(f"Maximum reached cascade depth: {self.memserver.cascade_depth}")
+                        except Exception as e:
+                            self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
+                                                                     peer=peer,
+                                                                     value=-10000)
+                            self.logger.error(f"Failed to get blocks after {block_hash} from {peer}: {e}")
+                            break
+
+                    elif not known_block:
+                        if self.memserver.rollbacks <= self.memserver.max_rollbacks:
+                            self.memserver.latest_block = rollback_one_block(logger=self.logger,
+                                                                             block=self.memserver.latest_block)
+                            self.memserver.rollbacks += 1
+                            self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
+                                                                     peer=peer,
+                                                                     value=-10000)
+                        else:
+                            self.logger.error(f"Rollbacks exhausted")
+                            self.memserver.rollbacks = 0
+                            # self.memserver.purge_peers_list.append(peer)
+                            break
+
+                    self.logger.info(f"Maximum reached cascade depth: {self.memserver.cascade_depth}")
 
         except Exception as e:
             self.logger.info(f"Error: {e}")
@@ -575,8 +573,7 @@ class CoreClient(threading.Thread):
 
     def run(self) -> None:
         self.init_hashes()
-        update_local_address(logger=self.logger,
-                             peer_file_lock=self.memserver.peer_file_lock)
+        update_local_address(logger=self.logger)
         self.event_bus.add_listener('penalty-list-update', self.penalty_list_update_handler)
 
         while not self.memserver.terminate:

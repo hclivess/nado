@@ -15,7 +15,7 @@ from .data_ops import set_and_sort, get_home
 from hashing import base64encode, blake2b_hash
 from .key_ops import load_keys
 
-http_client = AsyncHTTPClient()
+
 
 def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
     if not all(key in requirements for key in dictionary):
@@ -24,11 +24,10 @@ def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
         return True
 
 
-def update_local_address(logger, peer_file_lock):
+def update_local_address(logger):
     my_ip = get_config()["ip"]
     old_address = load_peer(logger=logger,
                             ip=my_ip,
-                            peer_file_lock=peer_file_lock,
                             key="peer_address")
 
     new_address = load_keys()["address"]
@@ -36,7 +35,6 @@ def update_local_address(logger, peer_file_lock):
     if new_address != old_address:
         update_peer(ip=my_ip,
                     logger=logger,
-                    peer_file_lock=peer_file_lock,
                     key="peer_address",
                     value=new_address)
         logger.info(f"Local address updated to {new_address}")
@@ -45,6 +43,7 @@ def update_local_address(logger, peer_file_lock):
 async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add msgpack support
     try:
         url = f"http://{target_peer}:{get_port()}/status"
+        http_client = AsyncHTTPClient()
         result = await http_client.fetch(url, request_timeout=5)
         text = result.body.decode()
         code = result.code
@@ -57,6 +56,9 @@ async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add ms
     except Exception as e:
         logger.error(f"Failed to get status from {target_peer}: {e}")
         return False
+
+    finally:
+        del http_client
 
 
 def delete_peer(ip, logger):
@@ -88,13 +90,12 @@ def ip_stored(ip) -> bool:
         return False
 
 
-def dump_trust(pool_data, logger, peer_file_lock):
+def dump_trust(pool_data, logger):
     for key, value in pool_data.items():
         update_peer(ip=key,
                     key="peer_trust",
                     value=value,
-                    logger=logger,
-                    peer_file_lock=peer_file_lock)
+                    logger=logger)
 
 
 def sort_dict_value(values: list, key: str) -> list:
@@ -156,15 +157,13 @@ async def load_ips(logger, port, fail_storage, minimum=3) -> list:
     return status_pool
 
 
-def load_trust(peer, logger, peer_file_lock):
+def load_trust(peer, logger):
     return load_peer(ip=peer,
                      key="peer_trust",
-                     logger=logger,
-                     peer_file_lock=peer_file_lock)
+                     logger=logger)
 
 
-def load_peer(logger, ip, peer_file_lock, key=None) -> [str, dict]:
-    with peer_file_lock:
+def load_peer(logger, ip, key=None) -> [str, dict]:
         try:
             peer_file = f"{get_home()}/peers/{base64encode(ip)}.dat"
             if not key:
@@ -179,8 +178,7 @@ def load_peer(logger, ip, peer_file_lock, key=None) -> [str, dict]:
             logger.info(f"Failed to load peer {ip} from drive: {e}")
 
 
-def update_peer(ip, value, logger, peer_file_lock, key="peer_trust") -> None:
-    with peer_file_lock:
+def update_peer(ip, value, logger, key="peer_trust") -> None:
         try:
             peer_file = f"{get_home()}/peers/{base64encode(ip)}.dat"
 
@@ -325,20 +323,22 @@ async def get_public_ip(logger):
     urls = ["https://api.ipify.org", "https://ipinfo.io/ip"]
     for url in urls:
         try:
+            http_client = AsyncHTTPClient()
             ip = await http_client.fetch(url, request_timeout=5)
             return ip.body.decode()
         except Exception as e:
             logger.error(f"Unable to fetch IP from {url}: {e}")
+        finally:
+            del http_client
 
 
-def update_local_ip(ip, logger, peer_file_lock):
+def update_local_ip(ip, logger):
     old_ip = get_config()["ip"]
     new_ip = ip
 
     if old_ip != new_ip:
         peer_me = load_peer(ip=old_ip,
-                            logger=logger,
-                            peer_file_lock=peer_file_lock)
+                            logger=logger)
 
         save_peer(ip=new_ip,
                   address=peer_me["peer_address"],

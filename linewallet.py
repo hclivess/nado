@@ -85,7 +85,10 @@ if __name__ == "__main__":
     else:
         amount = input("Amount: ")
 
-    recommended_block = asyncio.run(get_target_block(target=target, port=port))
+    recommended_block = asyncio.run(get_target_block(target=target,
+                                                     port=port,
+                                                     logger=logger))
+
     print(f"Recommended target block: {recommended_block}")
 
     if args.target:
@@ -105,7 +108,10 @@ if __name__ == "__main__":
                                      timestamp=get_timestamp_seconds(),
                                      target_block=int(target_block))
 
-    recommended_fee = asyncio.run(get_recommneded_fee(target=target, port=port, base_fee=get_base_fee(transaction=draft)))
+    recommended_fee = asyncio.run(get_recommneded_fee(target=target,
+                                                      port=port,
+                                                      base_fee=get_base_fee(transaction=draft),
+                                                      logger=logger))
     print(f"Recommended fee: {recommended_fee}")
 
     transaction = create_transaction(draft=draft,

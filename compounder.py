@@ -9,7 +9,6 @@ from ops.data_ops import sort_list_dict
 from ops.log_ops import get_logger
 """this module is optimized for low memory and bandwidth usage"""
 
-http_client = AsyncHTTPClient()
 
 async def get_list_of(key, peer, port, fail_storage, logger, semaphore, compress=None):
     """method compounded by compound_get_list_of, fail storage external by reference (obj)"""
@@ -22,6 +21,7 @@ async def get_list_of(key, peer, port, fail_storage, logger, semaphore, compress
         url_construct = f"http://{peer}:{port}/{key}"
 
     try:
+        http_client = AsyncHTTPClient()
         async with semaphore:
             response = await http_client.fetch(url_construct, request_timeout=5)
 
@@ -31,10 +31,13 @@ async def get_list_of(key, peer, port, fail_storage, logger, semaphore, compress
                 fetched = json.loads(response.body.decode())[key]
             return fetched
 
+
     except Exception as e:
         if peer not in fail_storage:
             logger.info(f"Compounder: Failed to get {key} of {peer} from {url_construct}: {e}")
             fail_storage.append(peer)
+    finally:
+        del http_client
 
 
 async def compound_get_list_of(key, entries, port, logger, fail_storage, semaphore, compress=None):
@@ -66,8 +69,10 @@ async def get_url(peer, port, url, logger, fail_storage, semaphore, compress=Non
     url_construct = f"http://{peer}:{port}/{url}"
 
     try:
+        http_client = AsyncHTTPClient()
         async with semaphore:
             response = await http_client.fetch(url_construct, request_timeout=5)
+
             fetched = response.body.decode()
 
             return peer, fetched
@@ -76,6 +81,9 @@ async def get_url(peer, port, url, logger, fail_storage, semaphore, compress=Non
         if peer not in fail_storage:
             logger.info(f"Compounder: Failed to get URL {url_construct}: {e}")
             fail_storage.append(peer)
+
+    finally:
+        del http_client
 
 
 async def compound_get_url(ips, port, url, logger, fail_storage, semaphore, compress=None):
@@ -100,6 +108,7 @@ async def send_transaction(peer, port, logger, fail_storage, transaction, semaph
     url_construct = f"http://{peer}:{port}/submit_transaction?data={quote(json.dumps(transaction))}"
 
     try:
+        http_client = AsyncHTTPClient()
         async with semaphore:
             response = await http_client.fetch(url_construct, request_timeout=5)
             fetched = json.loads(response.body)["message"]
@@ -109,7 +118,8 @@ async def send_transaction(peer, port, logger, fail_storage, transaction, semaph
         if peer not in fail_storage:
             logger.info(f"Compounder: Failed to send transaction to {url_construct}: {e}")
             fail_storage.append(peer)
-
+    finally:
+        del http_client
 
 async def compound_send_transaction(ips, port, logger, fail_storage, transaction, semaphore, compress=None):
     """returns a list of dicts where ip addresses are keys"""
@@ -136,6 +146,7 @@ async def get_status(peer, port, logger, fail_storage, semaphore, compress=None)
     else:
         url_construct = f"http://{peer}:{port}/status"
     try:
+        http_client = AsyncHTTPClient()
         async with semaphore:
             response = await http_client.fetch(url_construct, request_timeout=5)
 
@@ -151,6 +162,8 @@ async def get_status(peer, port, logger, fail_storage, semaphore, compress=None)
             logger.info(f"Compounder: Failed to get status from {url_construct}: {e}")
             fail_storage.append(peer)
 
+    finally:
+        del http_client
 
 async def compound_get_status_pool(ips, port, logger, fail_storage, semaphore, compress=None):
     """returns a list of dicts where ip addresses are keys"""
@@ -176,9 +189,9 @@ async def announce_self(peer, port, my_ip, logger, fail_storage, semaphore):
     )
 
     try:
+        http_client = AsyncHTTPClient()
         async with semaphore:
             response = await http_client.fetch(url_construct, request_timeout=5)
-
             fetched = response.body.decode()
             return fetched
 
@@ -186,6 +199,8 @@ async def announce_self(peer, port, my_ip, logger, fail_storage, semaphore):
         if peer not in fail_storage:
             # logger.info(f"Failed to announce self to {url_construct}: {e}")
             fail_storage.append(peer)
+    finally:
+        del http_client
 
 
 async def compound_announce_self(ips, port, my_ip, logger, fail_storage, semaphore):

@@ -30,8 +30,6 @@ class MemServer:
         self.purge_peers_list = []
         self.purge_producers_list = []
 
-        self.buffer_lock = Lock()
-        self.peer_file_lock = Lock()
 
         self.start_time = get_timestamp_seconds()
         self.keydict = load_keys()
@@ -136,63 +134,63 @@ class MemServer:
         """warning, can get stuck if not efficient"""
         united_pools = self.transaction_pool.copy() + self.tx_buffer.copy() + self.user_tx_buffer.copy()
 
-        with self.buffer_lock:
-            if not get_account(transaction["sender"], create_on_error=False):
-                msg = {"result": False,
-                       "message": f"Empty account"}
-                return msg
 
-            elif transaction["target_block"] < self.latest_block["block_number"]:
-                msg = {"result": False,
-                       "message": f"Target block too low"}
-                return msg
+        if not get_account(transaction["sender"], create_on_error=False):
+            msg = {"result": False,
+                   "message": f"Empty account"}
+            return msg
 
-            elif transaction["target_block"] > self.latest_block["block_number"] + 360:
-                msg = {"result": False,
-                       "message": f"Target block too high"}
-                return msg
+        elif transaction["target_block"] < self.latest_block["block_number"]:
+            msg = {"result": False,
+                   "message": f"Target block too low"}
+            return msg
 
-            elif not validate_txid(transaction, logger=self.logger) and self.latest_block["block_number"] > 100000: #compat
-                msg = {"result": False,
-                       "message": f"Invalid txid"}
-                return msg
+        elif transaction["target_block"] > self.latest_block["block_number"] + 360:
+            msg = {"result": False,
+                   "message": f"Target block too high"}
+            return msg
 
-            elif not validate_base_fee(transaction, logger=self.logger) and self.latest_block["block_number"] > 102000: #compat
-                msg = {"result": False,
-                       "message": f"Base fee is too low"}
-                return msg
+        elif not validate_txid(transaction, logger=self.logger) and self.latest_block["block_number"] > 100000: #compat
+            msg = {"result": False,
+                   "message": f"Invalid txid"}
+            return msg
 
-            elif transaction not in united_pools:
+        elif not validate_base_fee(transaction, logger=self.logger) and self.latest_block["block_number"] > 102000: #compat
+            msg = {"result": False,
+                   "message": f"Base fee is too low"}
+            return msg
+
+        elif transaction not in united_pools:
+            try:
+                validate_transaction(transaction=transaction,
+                                     logger=self.logger,
+                                     block_height=self.latest_block["block_number"])
+            except Exception as e:
+                msg = {"result": False,
+                       "message": f"Could not merge remote transaction: {e}"}
+                # self.logger.info(msg) spam
+                # raise #test
+                return msg
+            else:
                 try:
-                    validate_transaction(transaction=transaction,
-                                         logger=self.logger,
-                                         block_height=self.latest_block["block_number"])
+                    validate_single_spending(transaction_pool=united_pools, transaction=transaction)
+
+                    if transaction not in self.transaction_pool:
+                        if user_origin and transaction not in self.tx_buffer:
+                            self.user_tx_buffer.append(transaction)
+                            self.user_tx_buffer = sort_list_dict(self.user_tx_buffer)
+                        elif transaction not in self.user_tx_buffer:
+                            self.tx_buffer.append(transaction)
+                            self.tx_buffer = sort_list_dict(self.tx_buffer)
+
                 except Exception as e:
-                    msg = {"result": False,
-                           "message": f"Could not merge remote transaction: {e}"}
-                    # self.logger.info(msg) spam
-                    # raise #test
-                    return msg
-                else:
-                    try:
-                        validate_single_spending(transaction_pool=united_pools, transaction=transaction)
+                    msg = f"Remote transaction failed to validate: {e}"
+                    self.logger.info(msg)
+                    self.purge_txs_of_sender(transaction["sender"])
+                    return {"message": msg,
+                            "result": False}
 
-                        if transaction not in self.transaction_pool:
-                            if user_origin and transaction not in self.tx_buffer:
-                                self.user_tx_buffer.append(transaction)
-                                self.user_tx_buffer = sort_list_dict(self.user_tx_buffer)
-                            elif transaction not in self.user_tx_buffer:
-                                self.tx_buffer.append(transaction)
-                                self.tx_buffer = sort_list_dict(self.tx_buffer)
-
-                    except Exception as e:
-                        msg = f"Remote transaction failed to validate: {e}"
-                        self.logger.info(msg)
-                        self.purge_txs_of_sender(transaction["sender"])
-                        return {"message": msg,
-                                "result": False}
-
-                return {"message": "Success", "result": True}
+            return {"message": "Success", "result": True}
 
     def merge_transactions(self, transactions, user_origin=False) -> None:
         for transaction in transactions:
