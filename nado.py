@@ -8,6 +8,7 @@ import sys
 import msgpack
 import tornado.ioloop
 import tornado.web
+import gc
 
 import versioner
 from config import get_config
@@ -292,6 +293,24 @@ class SubmitTransactionHandler(tornado.web.RequestHandler):
     async def get(self, parameter):
         await asyncio.to_thread(self.submit_transaction)
 
+
+class HealthHandler(tornado.web.RequestHandler):
+    def log(self):
+        compress = LogHandler.get_argument(self, "compress", default="none")
+
+        gc_stats = gc.get_stats()
+
+        if compress == "msgpack":
+            output = msgpack.packb(gc_stats)
+        else:
+            output = gc_stats
+
+        self.write(serialize(name="health",
+                             output=output,
+                             compress=compress))
+
+    async def get(self, parameter):
+        await asyncio.to_thread(self.log)
 
 class LogHandler(tornado.web.RequestHandler):
     def log(self):
@@ -720,6 +739,7 @@ async def make_app(port):
             (r"/block_hash_pool(.*)", BlockHashPoolHandler),
             (r"/get_recommended_fee", FeeHandler),
             (r"/terminate(.*)", TerminateHandler),
+            (r"/health(.*)", HealthHandler),
             (r"/submit_transaction(.*)", SubmitTransactionHandler),
             (r"/log(.*)", LogHandler),
             (r"/whats_my_ip(.*)", IpHandler),
