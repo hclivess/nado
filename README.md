@@ -212,11 +212,16 @@ money into something that did not exist. Why did they do it? Because it was easy
 
 ## Proof of what?
 Every node in the NADO ecosystem keeps track of what opinions other nodes have by sharing state checksums for current
-block producer pools, transaction pools, peer pools and block hash pools. Participants add credibility over time to
+block producer pools, transaction pools, and block hash pools. Participants add credibility over time to
 those who share their opinions on what the state of the network is. The security principle is that any
 attacker needs to be connected to the network for a longer time than the legitimate nodes and postpone the attack until
 their network participation duration is longer than that of other nodes - to perform a 51% attack. If the legitimate nodes
 stay in the network longer than the attackers, it is impossible to attack.
+
+For rewards, NADO uses a variant of PoW with a very limited input set unlike in normal PoW crypto, where it is unlimited.
+When producing blocks, addresses of all block producers are hashed with the block candidate. This results in a new hash,
+which is then compared with the block candidate. The address which has the least matching wins. Penalties from absence
+of burning have to be taken into consideration.
 
 ## Ideal way to receive rewards (optimal mining)
 User chance to be rewarded for a block is random and depends on their address. This is because of how NADO is designed,
