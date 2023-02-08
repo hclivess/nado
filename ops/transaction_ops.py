@@ -29,7 +29,7 @@ async def get_recommneded_fee(target, port, base_fee, logger):
         async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=10)) as session:
             async with session.get(url_construct) as response:
                 result = json.loads(await response.text())
-        return result['fee'] + base_fee
+                return result['fee'] + base_fee
     except Exception as e:
         logger.warning(f"Failed to get recommended fee: {e}")
 
@@ -40,7 +40,7 @@ async def get_target_block(target, port, logger):
         async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=10)) as session:
             async with session.get(url_construct) as response:
                 result = json.loads(await response.text())
-        return result['block_number'] + 2
+                return result['block_number'] + 2
     except Exception as e:
         logger.warning(f"Failed to get target block: {e}")
 
