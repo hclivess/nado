@@ -65,6 +65,7 @@ class MessageClient(threading.Thread):
                 )
 
                 self.logger.warning(f"Unreachable: {len(self.memserver.unreachable)}")
+                self.logger.warning(f"Purge list: {len(self.memserver.purge_peers_list)}")
                 self.logger.warning(f"Forced sync: {self.memserver.force_sync_ip}")
 
                 if self.is_all_fine():
