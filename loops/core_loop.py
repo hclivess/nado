@@ -69,7 +69,7 @@ class CoreClient(threading.Thread):
         Routine should always start from 0 when node is initiated and be at 3 when enough time passed for block
         to be produced"""
 
-        old_period = self.memserver.periods
+        old_periods = self.memserver.periods
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
 
         if self.memserver.reported_uptime < self.memserver.block_time:
@@ -95,7 +95,7 @@ class CoreClient(threading.Thread):
             self.memserver.periods = [3]
             mode = "Quick switch"
 
-        if old_period != self.memserver.periods:
+        if old_periods != self.memserver.periods:
             self.logger.debug(f"Switched to period {self.memserver.periods}; Mode: {mode}")
 
     def normal_mode(self):

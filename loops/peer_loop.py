@@ -160,11 +160,11 @@ class PeerClient(threading.Thread):
 
                     self.memserver.can_mine = test_self_port(self.memserver.ip, self.memserver.port)
 
-                    self.logger.info("Selecting fresh peers")
-                    self.memserver.unreachable.clear()
-                    self.memserver.peers = asyncio.run(load_ips(fail_storage=self.memserver.purge_peers_list,
-                                                                logger=self.logger,
-                                                                port=self.memserver.port))
+                    #self.logger.info("Selecting fresh peers")
+                    #self.memserver.unreachable.clear()
+                    #self.memserver.peers = asyncio.run(load_ips(fail_storage=self.memserver.purge_peers_list,
+                                                                #logger=self.logger,
+                                                                #port=self.memserver.port))
 
                 candidates = asyncio.run(
                     compound_get_status_pool(
