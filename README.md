@@ -271,14 +271,25 @@ users to make block production and rewards as inclusive as possible.
 - Burn-to-Bribe deflationary incentive and governance
 - The logo is a vortexed version of the Impossible Toroidal Polyhedron
 
-## NADO .NET SDK
+# Related Repositories
+
+#### NADO .NET SDK
 https://github.com/blocksentinel/nado-dotnet-sdk
 
-## Where can I learn more?
+#### NADO Media Kit
+https://github.com/hclivess/nado-media-kit
+
+#### NADO Web Repository
+https://github.com/hclivess/nado-web
+
+#### NADO MicroWallet
+https://github.com/hclivess/nado-microwallet
+
+#### Where can I learn more?
 
 https://nado.live
 
-## For developers
+# For developers
 ### Design philosophy
 
 When implementing new functionalities to NADO, existing routines/loops should be used instead of instant invocation of functions.
