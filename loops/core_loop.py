@@ -91,11 +91,11 @@ class CoreClient(threading.Thread):
             mode = "Stable switch"
 
         elif get_timestamp_seconds() - self.memserver.block_generation_age > 5:
-            """generate a block if 5 seconds have passed"""
+            """generate a block if x seconds have passed"""
             self.memserver.periods = [3]
             mode = "Target catch up"
         else:
-            """do not generate block more than once per 5 seconds"""
+            """do not generate block more than once per x seconds"""
             self.memserver.periods = [0,1,2]
             mode = "Quick switch"
 
@@ -589,7 +589,9 @@ class CoreClient(threading.Thread):
 
                 self.consensus.refresh_hashes()
                 self.duration = get_timestamp_seconds() - start
-                time.sleep(self.run_interval)
+
+                if self.memserver.since_last_block > self.memserver.block_time:
+                    time.sleep(self.run_interval)
             except Exception as e:
                 self.logger.error(f"Error in core loop: {e} {traceback.print_exc()}")
                 time.sleep(1)
