@@ -59,7 +59,7 @@ class MemServer:
 
         self.transaction_pool_hash = None
         self.block_producers_hash = None
-
+        self.block_generation_age = 0 # time since last block (real, not target)
         self.reported_uptime = self.get_uptime()
         self.block_producers = load_block_producers()
 

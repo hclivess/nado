@@ -90,9 +90,13 @@ class CoreClient(threading.Thread):
                 self.memserver.periods = [3]
             mode = "Stable switch"
 
-        else:
-            """quick switch mode"""
+        elif get_timestamp_seconds() - self.memserver.block_generation_age > 5:
+            """generate a block if 5 seconds have passed"""
             self.memserver.periods = [3]
+            mode = "Quick switch"
+        else:
+            """do not generate block more than once per 5 seconds"""
+            self.memserver.periods = [0,1,2]
             mode = "Quick switch"
 
         if old_periods != self.memserver.periods:
@@ -158,6 +162,8 @@ class CoreClient(threading.Thread):
                     self.produce_block(block=block_candidate,
                                        remote=False,
                                        remote_peer=None)
+
+                    self.memserver.block_generation_age = get_timestamp_seconds()
 
                     self.memserver.transaction_pool = remove_outdated_transactions(
                         self.memserver.transaction_pool.copy(),
