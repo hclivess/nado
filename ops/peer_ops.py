@@ -149,7 +149,7 @@ async def load_ips(logger, port, fail_storage, minimum=3) -> list:
 
         logger.info(f"Gathered {len(status_pool)}/{minimum} peers in {i + 1} steps, {len(fail_storage)} failed")
 
-        if len(status_pool) > minimum:
+        if len(status_pool) >= minimum:
             break
 
     logger.info(f"Loaded {len(status_pool)} reachable peers from drive, {len(fail_storage)} failed")
