@@ -51,7 +51,7 @@ def get_block_reward(logger, blocks_backward=100, reward_cap=5000000000):
 
 def valid_block_timestamp(new_block):
     new_timestamp = new_block["block_timestamp"]
-    if not get_timestamp_seconds() >= new_timestamp:
+    if new_timestamp > get_timestamp_seconds():
         return False
     else:
         return True
