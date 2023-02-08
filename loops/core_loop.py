@@ -69,39 +69,39 @@ class CoreClient(threading.Thread):
         Routine should always start from 0 when node is initiated and be at 3 when enough time passed for block
         to be produced"""
 
-        old_period = self.memserver.period
+        old_period = self.memserver.periods
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
 
         if self.memserver.reported_uptime < self.memserver.block_time:
             """init mode"""
-            self.memserver.period = [0,1,2]
+            self.memserver.periods = [0, 1, 2]
             mode = "Initialization period..."
 
         elif self.memserver.since_last_block < self.memserver.block_time:
             """stable mode"""
             if 20 > self.memserver.since_last_block > 0 or self.consecutive > 0 or self.memserver.force_sync_ip:
                 self.consecutive = 0
-                self.memserver.period = [0]
+                self.memserver.periods = [0]
             elif 40 > self.memserver.since_last_block > 20:
-                self.memserver.period = [1]
+                self.memserver.periods = [1]
             elif self.memserver.block_time > self.memserver.since_last_block > 40:
-                self.memserver.period = [2]
+                self.memserver.periods = [2]
             elif self.memserver.since_last_block > self.memserver.block_time:
-                self.memserver.period = [3]
+                self.memserver.periods = [3]
             mode = "Stable switch"
 
         else:
             """quick switch mode"""
-            self.memserver.period = [3]
+            self.memserver.periods = [3]
             mode = "Quick switch"
 
-        if old_period != self.memserver.period:
-            self.logger.debug(f"Switched to period {self.memserver.period}; Mode: {mode}")
+        if old_period != self.memserver.periods:
+            self.logger.debug(f"Switched to period {self.memserver.periods}; Mode: {mode}")
 
     def normal_mode(self):
         try:
             self.get_period()
-            if 0 in self.memserver.period and self.memserver.user_tx_buffer:
+            if 0 in self.memserver.periods and self.memserver.user_tx_buffer:
                 """merge user buffer to tx buffer inside 0 period"""
                 buffered = merge_buffer(from_buffer=self.memserver.user_tx_buffer,
                                         to_buffer=self.memserver.tx_buffer,
@@ -111,7 +111,7 @@ class CoreClient(threading.Thread):
                 self.memserver.user_tx_buffer = buffered["from_buffer"]
                 self.memserver.tx_buffer = buffered["to_buffer"]
 
-            if 1 in self.memserver.period and self.memserver.tx_buffer:
+            if 1 in self.memserver.periods and self.memserver.tx_buffer:
                 """merge tx buffer to transaction pool inside 1 period"""
                 buffered = merge_buffer(from_buffer=self.memserver.tx_buffer,
                                         to_buffer=self.memserver.transaction_pool,
@@ -124,7 +124,7 @@ class CoreClient(threading.Thread):
                 self.memserver.transaction_pool = cull_buffer(buffer=buffered["to_buffer"],
                                                               limit=self.memserver.transaction_pool_limit)
 
-            if 2 in self.memserver.period:
+            if 2 in self.memserver.periods:
 
                 if minority_consensus(
                         majority_hash=self.consensus.majority_transaction_pool_hash,
@@ -140,7 +140,7 @@ class CoreClient(threading.Thread):
 
             self.memserver.reported_uptime = self.memserver.get_uptime()
 
-            if 3 in self.memserver.period:
+            if 3 in self.memserver.periods:
                 block_producers = self.memserver.block_producers.copy()
                 peers = self.memserver.peers.copy()
                 """make copies to avoid errors in case content changes"""

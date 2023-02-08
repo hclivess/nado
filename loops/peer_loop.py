@@ -125,7 +125,7 @@ class PeerClient(threading.Thread):
                                                                 logger=self.logger,
                                                                 port=self.memserver.port))
 
-                if self.memserver.period in [0, 1]:
+                if self.memserver.periods in [0, 1]:
                     self.purge_peers()
                     self.memserver.merge_remote_transactions(user_origin=False)
 

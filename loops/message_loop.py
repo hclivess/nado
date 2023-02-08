@@ -40,7 +40,7 @@ class MessageClient(threading.Thread):
     def run(self) -> None:
         while not self.memserver.terminate:
             try:
-                self.logger.info(f"Period: {self.memserver.period}")
+                self.logger.info(f"Periods: {self.memserver.periods}")
 
                 self.logger.info(
                     f"Block Hash Agreement: {int(self.consensus.block_hash_pool_percentage)}% ({len(self.consensus.block_hash_pool)} members)"

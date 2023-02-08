@@ -51,7 +51,7 @@ class MemServer:
         self.heavy_refresh_interval = 360
 
         self.block_time = 60
-        self.period = 0
+        self.periods = [0]
 
         self.unreachable = {}
         self.peers = []
