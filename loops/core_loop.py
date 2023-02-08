@@ -93,7 +93,7 @@ class CoreClient(threading.Thread):
         elif get_timestamp_seconds() - self.memserver.block_generation_age > 5:
             """generate a block if 5 seconds have passed"""
             self.memserver.periods = [3]
-            mode = "Target Catch Up"
+            mode = "Target catch up"
         else:
             """do not generate block more than once per 5 seconds"""
             self.memserver.periods = [0,1,2]
