@@ -7,7 +7,7 @@ def make_archive(output_filename, source_dirs):
     with py7zr.SevenZipFile(output_filename, 'w') as z:
         for dir in source_dirs:
             print(f"processing {dir}")
-            z.writeall(dir)
+            z.writeall(dir, arcname="nado")
 
 
 if __name__ == "__main__":
