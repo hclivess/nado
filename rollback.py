@@ -28,7 +28,10 @@ def rollback_one_block(logger, block) -> dict:
                                     logger=logger
                                     )
 
-            unindex_transactions(block, logger=logger)
+            unindex_transactions(block=block,
+                                 logger=logger,
+                                 block_height=block['block_number'])
+
             unindex_block(block, logger=logger)
 
             logger.info(f"Rolled back {block['block_hash']} successfully")

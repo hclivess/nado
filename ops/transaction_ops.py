@@ -308,13 +308,16 @@ def draft_transaction(sender, recipient, amount, public_key, timestamp, data, ta
 
     return transaction_message
 
-def unindex_transactions(block, logger):
+def unindex_transactions(block, logger, block_height):
     while True:
         try:
             txs_to_unindex = []
             for transaction in block["block_transactions"]:
                 txs_to_unindex.append(transaction["txid"])
-                reflect_transaction(transaction, revert=True, logger=logger)
+                reflect_transaction(transaction=transaction,
+                                    revert=True,
+                                    logger=logger,
+                                    block_height=block_height)
 
             tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
             tx_handler.db_executemany("DELETE FROM tx_index WHERE txid = ?", (txs_to_unindex,))
@@ -325,12 +328,15 @@ def unindex_transactions(block, logger):
             logger.error(f"Failed to unindex transactions: {e}")
 
 
-def index_transactions(block, sorted_transactions, logger):
+def index_transactions(block, sorted_transactions, logger, block_height):
     while True:
         try:
             txs_to_index = []
             for transaction in sorted_transactions:
-                reflect_transaction(transaction, logger=logger)
+                reflect_transaction(transaction=transaction,
+                                    logger=logger,
+                                    block_height=block_height)
+
                 txs_to_index.append((transaction['txid'],
                                      block['block_number'],
                                      transaction['sender'],

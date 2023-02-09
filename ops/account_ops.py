@@ -22,7 +22,7 @@ def get_account(address, create_on_error=True):
         return None
 
 
-def reflect_transaction(transaction, logger, block_height,revert=False):
+def reflect_transaction(transaction, logger, block_height, revert=False):
     sender = transaction["sender"]
     recipient = transaction["recipient"]
 
