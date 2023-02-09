@@ -16,7 +16,7 @@ from ops.peer_ops import load_ips
 from ops.transaction_ops import create_transaction, draft_transaction, to_raw_amount, get_recommneded_fee, to_readable_amount, \
     get_target_block, get_base_fee
 
-LOCAL = True
+LOCAL = False
 
 def send_transaction(transaction, ips, logger):
     print(json.dumps(transaction, indent=4))

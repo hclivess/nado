@@ -64,7 +64,7 @@ class MessageClient(threading.Thread):
                     f"Seconds since last target: {self.memserver.since_last_block} / {self.memserver.block_time}"
                 )
 
-                self.logger.warning(f"Unreachable: {len(self.memserver.purge_peers_list)} / {len(self.memserver.unreachable)}")
+                self.logger.warning(f"Unreachable: {len(self.memserver.purge_peers_list)} >>> {len(self.memserver.unreachable)}")
                 self.logger.warning(f"Forced sync: {self.memserver.force_sync_ip}")
 
                 if self.is_all_fine():
