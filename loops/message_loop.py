@@ -30,7 +30,7 @@ class MessageClient(threading.Thread):
         if len(self.memserver.peers) < 10:
             return {"result":False, "flag": "Not enough peers"}
         if self.memserver.latest_block["block_hash"] != self.consensus.majority_block_hash:
-            return {"result":False, "flag": "Node not in hash majority"}
+            return {"result":False, "flag": "Outside block hash majority"}
         if self.memserver.since_last_block > self.memserver.block_time:
             return {"result": False, "flag": "Block target too far"}
         if not self.memserver.can_mine:
