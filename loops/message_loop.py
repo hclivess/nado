@@ -28,14 +28,14 @@ class MessageClient(threading.Thread):
     def is_all_fine(self):
 
         if len(self.memserver.peers) < 10:
-            return False
+            return {"result":False, "flag": "Not enough peers"}
         if self.memserver.latest_block["block_hash"] != self.consensus.majority_block_hash:
-            return False
+            return {"result":False, "flag": "Node not in hash majority"}
         if self.memserver.since_last_block > self.memserver.block_time:
-            return False
+            return {"result": False, "flag": "Block target too far"}
         if not self.memserver.can_mine:
-            return False
-        return True
+            return {"result": False, "flag": "Ports closed"}
+        return {"result": True}
 
     def run(self) -> None:
         while not self.memserver.terminate:
@@ -67,8 +67,11 @@ class MessageClient(threading.Thread):
                 self.logger.warning(f"Unreachable: {len(self.memserver.purge_peers_list)} >>> {len(self.memserver.unreachable)}")
                 self.logger.warning(f"Forced sync: {self.memserver.force_sync_ip}")
 
-                if self.is_all_fine():
-                    self.logger.info(f"=== NODE IS OK! ===")
+                fine = self.is_all_fine()
+                if fine["result"]:
+                    self.logger.debug(f"=== NODE IS OK! ===")
+                else:
+                    self.logger.error(f"!!! NODE IS NOT OK: {fine['flag']} !!!")
 
                 self.logger.info(f"Loop durations: Core: {self.core.duration}; "
                                  f"Consensus: {self.consensus.duration}; "
