@@ -590,7 +590,7 @@ class CoreClient(threading.Thread):
                 self.consensus.refresh_hashes()
                 self.duration = get_timestamp_seconds() - start
 
-                if self.memserver.since_last_block > self.memserver.block_time:
+                if self.memserver.since_last_block > self.memserver.block_time or self.memserver.force_sync_ip:
                     time.sleep(self.run_interval)
             except Exception as e:
                 self.logger.error(f"Error in core loop: {e} {traceback.print_exc()}")
