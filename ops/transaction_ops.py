@@ -91,6 +91,7 @@ def validate_transaction(transaction, logger, block_height):
     assert validate_uniqueness(transaction["txid"], logger=logger), f"Transaction {transaction['txid']} already exists"
     assert isinstance(transaction["fee"], int), "Transaction fee is not an integer"
     assert transaction["fee"] >= 0, "Transaction fee lower than zero"
+    #assert validate_base_fee(transaction=transaction, logger=logger), "Base fee too low" #not really needed
     return True
 
 def min_from_transaction_pool(transactions: list, key="fee") -> dict:
