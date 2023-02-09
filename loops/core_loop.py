@@ -246,7 +246,7 @@ class CoreClient(threading.Thread):
                             else:
                                 self.logger.info(f"{peer} not qualified for sync: {qualifies['flag']}")
 
-                                if peer not in self.memserver.purge_peers_list:
+                                if peer not in self.memserver.purge_peers_list and peer not in self.memserver.unreachable:
                                     self.memserver.purge_peers_list.append(peer)
                 else:
                     self.logger.info(f"Ran out of options when picking trusted hash")
