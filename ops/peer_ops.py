@@ -357,19 +357,19 @@ def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, avera
     if average_trust > peer_trust and not promiscuous:
         """peer trust worse than average"""
         return {"result": False,
-                "flag": "peer_trust"}
+                "flag": "Peer trust below average"}
     if peer in unreachable_list:
         """peer assigned to unreachable"""
         return {"result": False,
-                "flag": "unreachable_list"}
+                "flag": "Peer unreachable"}
     if peer_protocol < memserver_protocol:
         """peer protocol too low"""
         return {"result": False,
-                "flag": "peer_protocol"}
+                "flag": "Peer protocol too low"}
     if not peer_hash == required_hash:
         """hash of the peer not in the currently cascaded one"""
         return {"result": False,
-                "flag": "peer_hash"}
+                "flag": "Peer hash not in majority"}
 
     return {"result": True}
 
