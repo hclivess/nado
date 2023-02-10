@@ -16,8 +16,6 @@ from ops.peer_ops import load_ips
 from ops.transaction_ops import create_transaction, draft_transaction, to_raw_amount, get_recommneded_fee, to_readable_amount, \
     get_target_block, get_base_fee
 
-LOCAL = False
-
 def send_transaction(transaction, ips, logger):
     print(json.dumps(transaction, indent=4))
     if not args.auto:
@@ -44,8 +42,10 @@ if __name__ == "__main__":
     parser.add_argument("--recipient", help="[NADO address] Recipient address", default=False)
     parser.add_argument("--fee", help="[number] Fee to spend", default=False)
     parser.add_argument("--target", help="[number] Target block number", default=False)
-    parser.add_argument("--auto", help="Uses suggested fee and target block instead of asking", default=False)
+    parser.add_argument("--auto", help="[any] Uses suggested fee and target block instead of asking, use any value (1)", default=False)
+    parser.add_argument("--local", help="[any] Broadcasts transaction only to 127.0.0.1, use any value (1)", default=False)
     args = parser.parse_args()
+
     if args.sk:
         key_dictionary = from_private_key(args.sk)
 
@@ -64,10 +64,12 @@ if __name__ == "__main__":
     private_key = key_dictionary["private_key"]
     public_key = key_dictionary["public_key"]
     address = key_dictionary["address"]
-    if LOCAL:
+
+    if args.local:
         ips = ["127.0.0.1"]
     else:
         ips = asyncio.run(load_ips(fail_storage=[], logger=logger, port=9173))
+
     target = random.choice(ips)
     port = get_port()
     balance = get_account_value(address, key="balance")
