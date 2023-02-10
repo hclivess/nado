@@ -37,13 +37,13 @@ if __name__ == "__main__":
     logger = get_logger(file=f"linewallet.log")
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--sk", help="[private key] Use private key, ignore default key location", default=False)
-    parser.add_argument("--amount", help="[number] Amount to send", default=False)
-    parser.add_argument("--recipient", help="[NADO address] Recipient address", default=False)
-    parser.add_argument("--fee", help="[number] Fee to spend", default=False)
-    parser.add_argument("--target", help="[number] Target block number", default=False)
-    parser.add_argument("--auto", help="[any] Uses suggested fee and target block instead of asking, use any value (1)", default=False)
-    parser.add_argument("--local", help="[any] Broadcasts transaction only to 127.0.0.1, use any value (1)", default=False)
+    parser.add_argument("--sk", help="<private key> Use private key, ignore default key location", default=False)
+    parser.add_argument("--amount", help="<number> Amount to send", default=False)
+    parser.add_argument("--recipient", help="<NADO address> Recipient address", default=False)
+    parser.add_argument("--fee", help="<number> Fee to spend", default=False)
+    parser.add_argument("--target", help="<number> Target block number", default=False)
+    parser.add_argument("--auto", help="<any> Uses suggested fee and target block instead of asking, use any value (1)", default=False)
+    parser.add_argument("--peers", help="<['127.0.0.1']> Broadcasts transaction only list of peers", default=False)
     args = parser.parse_args()
 
     if args.sk:
@@ -65,7 +65,7 @@ if __name__ == "__main__":
     public_key = key_dictionary["public_key"]
     address = key_dictionary["address"]
 
-    if args.local:
+    if args.peers:
         ips = ["127.0.0.1"]
     else:
         ips = asyncio.run(load_ips(fail_storage=[], logger=logger, port=9173))
