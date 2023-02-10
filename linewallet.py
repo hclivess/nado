@@ -20,7 +20,8 @@ LOCAL = False
 
 def send_transaction(transaction, ips, logger):
     print(json.dumps(transaction, indent=4))
-    input("Press any key to continue")
+    if not args.auto:
+        input("Press any key to continue")
 
     fails = []
     results = asyncio.run(compound_send_transaction(ips=ips,
@@ -43,6 +44,7 @@ if __name__ == "__main__":
     parser.add_argument("--recipient", help="[NADO address] Recipient address", default=False)
     parser.add_argument("--fee", help="[number] Fee to spend", default=False)
     parser.add_argument("--target", help="[number] Target block number", default=False)
+    parser.add_argument("--auto", help="Uses suggested fee and target block instead of asking", default=False)
     args = parser.parse_args()
     if args.sk:
         key_dictionary = from_private_key(args.sk)
@@ -93,6 +95,8 @@ if __name__ == "__main__":
 
     if args.target:
         target_block = args.target
+    elif args.auto:
+        target_block = recommended_block
     else:
         target_block = input(f"Target block: ")
     if not target_block:
@@ -120,6 +124,8 @@ if __name__ == "__main__":
 
     if args.fee:
         fee = args.fee
+    elif args.auto:
+        fee = recommended_block
     else:
         fee = input(f"Fee: ")
     if not fee:
