@@ -95,10 +95,13 @@ You can use the CLI wallet by running `python3.10 linewallet.py`
 This wallet takes arguments, which enable you to access more wallets from one place and also automate your routines.
 All arguments can be displayed with `python3.10 linewallet.py --help`, here are some examples:
 
-- `--sk [private key]` Use private key, ignore default key location
-- `--amount [number]` Amount to send
-- `--recipient [NADO address]` Recipient address
-- `--fee [number]` Fee to spend
+* --sk, <private key> Use private key, ignore default key location
+* --amount, <number> Amount to send
+* --recipient, <NADO address> Recipient address
+* --fee, <number> Fee to spend
+* --target, <number> Target block number
+* --auto, <any> Uses suggested fee and target block instead of asking, use any value (1)
+* --peers, <['127.0.0.1']> Broadcasts transaction only list of peers
 
 ## Remote access
 
