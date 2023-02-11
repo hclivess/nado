@@ -46,7 +46,7 @@ async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add ms
         url_construct = f"http://{target_peer}:{get_port()}/status"
 
         
-        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=10)) as session:
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
             async with session.get(url_construct) as response:
                 text = response.text()
                 code = response.status
@@ -324,7 +324,7 @@ async def get_public_ip(logger):
 
     for url_construct in urls:
         try:
-            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=10)) as session:
+            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
                 async with session.get(url_construct) as response:
                     ip = await response.text()
                     return ip

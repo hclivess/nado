@@ -320,7 +320,7 @@ async def knows_block(target_peer, port, hash, logger):
         url_construct = f"http://{target_peer}:{port}/get_block?hash={hash}"
 
         
-        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=10)) as session:
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
             async with session.get(url_construct) as response:
                 if response.status == 200:
                     return True
@@ -348,7 +348,7 @@ async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="m
     try:
         url_construct = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
         
-        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=10)) as session:
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
             async with session.get(url_construct) as response:
                 code = response.status
 
@@ -370,7 +370,7 @@ async def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
         url_construct = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
 
         
-        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=10)) as session:
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
             async with session.get(url_construct) as response:
                 code = response.status
 
@@ -395,7 +395,7 @@ async def get_from_single_target(key, target_peer, logger) -> list:  # todo add 
         url_construct = f"http://{target_peer}:{get_config()['port']}/{key}"
 
         
-        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=10)) as session:
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
             async with session.get(url_construct) as response:
                 text = response.text()
                 code = response.status
