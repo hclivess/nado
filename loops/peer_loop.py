@@ -24,7 +24,7 @@ class PeerClient(threading.Thread):
         self.memserver = memserver
         self.consensus = consensus
         self.duration = 0
-        self.heavy_refresh = 0
+        self.heavy_refresh_timer = 0
 
     def sniff_buffered_peers(self):
         """gets peers from buffer and adds them to routine"""
@@ -87,8 +87,9 @@ class PeerClient(threading.Thread):
                 self.memserver.block_producers.remove(entry)
                 # self.logger.warning(f"Removed {entry} from block producers")
 
-            if entry in self.consensus.trust_pool:
-                change_trust(consensus=self.consensus, peer=entry, value=-10000)
+            self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
+                                                     peer=entry,
+                                                     value=-10000)
 
             if entry in self.consensus.status_pool.keys():
                 self.consensus.status_pool.pop(entry)
@@ -124,18 +125,21 @@ class PeerClient(threading.Thread):
                                                                 logger=self.logger,
                                                                 port=self.memserver.port))
 
-                if self.memserver.period in [0, 1]:
+                if 0 or 1 in self.memserver.periods:
                     self.purge_peers()
                     self.memserver.merge_remote_transactions(user_origin=False)
 
                 for peer, ban_time in self.memserver.unreachable.copy().items():
-                    timeout = 3600 + ban_time - get_timestamp_seconds()
+                    timeout = self.memserver.heavy_refresh_interval/2 + ban_time - get_timestamp_seconds()
                     if timeout < 0:
                         self.memserver.unreachable.pop(peer)
                         self.logger.info(f"Restored {peer} because it has been banned for too long")
 
-                if get_timestamp_seconds() > self.heavy_refresh + 360:
-                    self.heavy_refresh = get_timestamp_seconds()
+                if get_timestamp_seconds() > self.heavy_refresh_timer + self.memserver.heavy_refresh_interval:
+                    """heavy refresh triggered"""
+
+                    self.logger.info("Heavy refresh initiated")
+                    self.heavy_refresh_timer = get_timestamp_seconds()
 
                     announce_me(
                         targets=self.memserver.block_producers,
@@ -149,12 +153,10 @@ class PeerClient(threading.Thread):
                                      logger=self.logger)
 
                     dump_trust(logger=self.logger,
-                               peer_file_lock=self.memserver.peer_file_lock,
                                pool_data=self.consensus.trust_pool)
 
                     update_local_ip(ip=asyncio.run(get_public_ip(logger=self.logger)),
-                                    logger=self.logger,
-                                    peer_file_lock=self.memserver.peer_file_lock)
+                                    logger=self.logger)
 
                     self.memserver.can_mine = test_self_port(self.memserver.ip, self.memserver.port)
 
@@ -177,6 +179,9 @@ class PeerClient(threading.Thread):
 
                         if key not in self.memserver.purge_peers_list:
                             self.memserver.purge_peers_list.append(key)
+                            self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
+                                                                     peer=key,
+                                                                     value=-10000)
 
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)

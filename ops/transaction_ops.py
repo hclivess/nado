@@ -5,37 +5,44 @@ import time
 import msgpack
 from tornado.httpclient import AsyncHTTPClient
 
-from Curve25519 import sign, verify
-from .account_ops import get_account, reflect_transaction
-from address import proof_sender
-from address import validate_address
-from .block_ops import get_block_number
+
+from Curve25519 import sign, verify, unhex
+from ops.account_ops import get_account, reflect_transaction
+from ops.address_ops import proof_sender
+from ops.address_ops import validate_address
+from ops.block_ops import get_block_number
 from compounder import compound_send_transaction
 from config import get_config
 from config import get_timestamp_seconds
-from .data_ops import sort_list_dict, get_home
+from ops.data_ops import sort_list_dict, get_home, get_byte_size
 from hashing import create_nonce, blake2b_hash
-from .key_ops import load_keys
-from .log_ops import get_logger
-from .peer_ops import load_ips
-from .sqlite_ops import DbHandler
+from ops.key_ops import load_keys
+from ops.log_ops import get_logger
+from ops.peer_ops import load_ips
+from ops.sqlite_ops import DbHandler
+import aiohttp
 
+async def get_recommneded_fee(target, port, base_fee, logger):
+    try:
+        url_construct = f"http://{target}:{port}/get_recommended_fee"
+        
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
+            async with session.get(url_construct) as response:
+                result = json.loads(await response.text())
+                return result['fee'] + base_fee
+    except Exception as e:
+        logger.warning(f"Failed to get recommended fee: {e}")
 
-async def get_recommneded_fee(target, port):
-    http_client = AsyncHTTPClient()
-    url = f"http://{target}:{port}/get_recommended_fee"
-    response = await http_client.fetch(url, request_timeout=5)
-    result = json.loads(response.body.decode())
-    return result['fee']
-
-
-async def get_target_block(target, port):
-    http_client = AsyncHTTPClient()
-    url = f"http://{target}:{port}/get_latest_block"
-    response = await http_client.fetch(url, request_timeout=5)
-    result = json.loads(response.body.decode())
-    return result['block_number'] + 2
-
+async def get_target_block(target, port, logger):
+    try:
+        url_construct = f"http://{target}:{port}/get_latest_block"
+        
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
+            async with session.get(url_construct) as response:
+                result = json.loads(await response.text())
+                return result['block_number'] + 2
+    except Exception as e:
+        logger.warning(f"Failed to get target block: {e}")
 
 def remove_outdated_transactions(transaction_list, block_number):
     cleaned = []
@@ -76,14 +83,15 @@ def validate_uniqueness(transaction, logger):
         return True
 
 
-def validate_transaction(transaction, logger):
+def validate_transaction(transaction, logger, block_height):
     assert isinstance(transaction, dict), "Data structure incomplete"
-    assert validate_origin(transaction), "Invalid origin"
+    assert validate_origin(transaction, block_height=block_height), "Invalid origin"
     assert validate_address(transaction["sender"]), f"Invalid sender {transaction['sender']}"
     assert validate_address(transaction["recipient"]), f"Invalid recipient {transaction['recipient']}"
     assert validate_uniqueness(transaction["txid"], logger=logger), f"Transaction {transaction['txid']} already exists"
     assert isinstance(transaction["fee"], int), "Transaction fee is not an integer"
     assert transaction["fee"] >= 0, "Transaction fee lower than zero"
+    #assert validate_base_fee(transaction=transaction, logger=logger), "Base fee too low" #not really needed
     return True
 
 def min_from_transaction_pool(transactions: list, key="fee") -> dict:
@@ -198,7 +206,7 @@ def validate_all_spending(transaction_pool: list):
     return True
 
 
-def validate_origin(transaction: dict):
+def validate_origin(transaction: dict, block_height):
     """save signature and then remove it as it is not a part of the signed message"""
 
     transaction = transaction.copy()
@@ -206,20 +214,87 @@ def validate_origin(transaction: dict):
     del transaction["signature"]
 
     assert proof_sender(
-        sender=transaction["sender"], public_key=transaction["public_key"]
+        sender=transaction["sender"],
+        public_key=transaction["public_key"]
     ), "Invalid sender"
 
-    assert verify(
-        signed=signature,
-        message=msgpack.packb(transaction),
-        public_key=transaction["public_key"],
-    ), "Invalid sender"
+    if block_height < 102000:
+        assert verify(
+            signed=signature,
+            message=msgpack.packb(transaction),
+            public_key=transaction["public_key"],
+        ), "Invalid sender"
+    else:
+        assert verify(
+            signed=signature,
+            message=unhex(transaction["txid"]),
+            public_key=transaction["public_key"],
+        ), "Invalid sender"
+
+
 
     return True
 
+def get_base_fee(transaction):
+    try:
+        tx_copy = transaction.copy()
+        base_fee = get_byte_size(tx_copy)
+        return base_fee
 
-def create_transaction(sender, recipient, amount, public_key, private_key, timestamp, data, fee, target_block):
+    except Exception as e:
+        logger.info(f'Failed to calculate base fee: {e}')
+        return False
+
+def validate_base_fee(transaction, logger):
+    try:
+        tx_copy = transaction.copy()
+        fee = tx_copy["fee"]
+        tx_copy.pop("fee")
+        tx_copy.pop("signature")
+        tx_copy.pop("txid")
+
+        if fee >= get_base_fee(tx_copy):
+            return True
+        else:
+            return False
+
+    except Exception as e:
+        logger.info(f'Failed to validate base fee: {e}')
+        return False
+
+def validate_txid(transaction, logger):
+    try:
+        tx_copy = transaction.copy()
+        txid_to_check = tx_copy["txid"]
+        tx_copy.pop("txid")
+        tx_copy.pop("signature")
+        txid_genuine = create_txid(tx_copy)
+        if txid_genuine == txid_to_check:
+            return True
+        else:
+            return False
+    except Exception as e:
+        logger.info(f'Failed to match transaction to its id: {e}')
+        return False
+def create_transaction(draft, private_key, fee):
     """construct transaction, then add txid, then add signature as last"""
+    transaction_message = draft.copy()
+    transaction_message.update(fee=fee)
+
+    txid = create_txid(transaction_message)
+    transaction_message.update(txid=txid)
+
+    signature = sign(private_key=private_key, message=unhex(txid))
+    transaction_message.update(signature=signature)
+
+    #from ops.log_ops import get_logger
+    #print(validate_txid(transaction=transaction_message, logger=get_logger()))
+    #time.sleep(10000)
+
+    return transaction_message
+
+def draft_transaction(sender, recipient, amount, public_key, timestamp, data, target_block):
+    """construct to be able to calculate base fee, signature and txid are not present here"""
     transaction_message = {
         "sender": sender,
         "recipient": recipient,
@@ -227,26 +302,22 @@ def create_transaction(sender, recipient, amount, public_key, private_key, times
         "timestamp": timestamp,
         "data": data,
         "nonce": create_nonce(),
-        "fee": fee,
         "public_key": public_key,
         "target_block": target_block
     }
-    txid = create_txid(transaction_message)
-    transaction_message.update(txid=txid)
-
-    signature = sign(private_key=private_key, message=msgpack.packb(transaction_message))
-    transaction_message.update(signature=signature)
 
     return transaction_message
 
-
-def unindex_transactions(block, logger):
+def unindex_transactions(block, logger, block_height):
     while True:
         try:
             txs_to_unindex = []
             for transaction in block["block_transactions"]:
                 txs_to_unindex.append(transaction["txid"])
-                reflect_transaction(transaction, revert=True, logger=logger)
+                reflect_transaction(transaction=transaction,
+                                    revert=True,
+                                    logger=logger,
+                                    block_height=block_height)
 
             tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
             tx_handler.db_executemany("DELETE FROM tx_index WHERE txid = ?", (txs_to_unindex,))
@@ -257,12 +328,15 @@ def unindex_transactions(block, logger):
             logger.error(f"Failed to unindex transactions: {e}")
 
 
-def index_transactions(block, sorted_transactions, logger):
+def index_transactions(block, sorted_transactions, logger, block_height):
     while True:
         try:
             txs_to_index = []
             for transaction in sorted_transactions:
-                reflect_transaction(transaction, logger=logger)
+                reflect_transaction(transaction=transaction,
+                                    logger=logger,
+                                    block_height=block_height)
+
                 txs_to_index.append((transaction['txid'],
                                      block['block_number'],
                                      transaction['sender'],
@@ -305,18 +379,20 @@ if __name__ == "__main__":
 
     for x in range(0, 50000):
         try:
-            transaction = create_transaction(sender=address,
+            draft = draft_transaction(sender=address,
                                              recipient=recipient,
                                              amount=to_raw_amount(amount),
                                              data=data,
-                                             fee=0,
                                              public_key=public_key,
-                                             private_key=private_key,
                                              timestamp=get_timestamp_seconds(),
-                                             target_block=asyncio.run(get_target_block(target=ips[0], port=port)))
+                                             target_block=asyncio.run(get_target_block(target=ips[0],
+                                                                                       port=port,
+                                                                                       logger=logger)))
+
+            transaction = create_transaction(draft=draft, private_key=private_key,fee=0)
 
             print(transaction)
-            print(validate_transaction(transaction, logger=logger))
+            print(validate_transaction(transaction, logger=logger, block_height=0))
 
             fails = []
             results = asyncio.run(compound_send_transaction(ips=ips,

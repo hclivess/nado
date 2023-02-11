@@ -23,7 +23,9 @@ from ops.data_ops import get_home, allow_async
 from ops.key_ops import keyfile_found, generate_keys, save_keys, load_keys
 from ops.log_ops import get_logger, logging
 from ops.peer_ops import save_peer, get_remote_status, get_producer_set, check_ip
-from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
+from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount, get_base_fee
+
+from pympler import summary, muppy
 
 
 def is_port_in_use(port: int) -> bool:
@@ -173,25 +175,6 @@ class PenaltiesHandler(tornado.web.RequestHandler):
         await asyncio.to_thread(self.penalties)
 
 
-class PenaltyHandler(tornado.web.RequestHandler):
-    def penalty(self):
-        compress = PenaltyHandler.get_argument(self, "compress", default="none")
-        address = PenaltyHandler.get_argument(self, "address", default=memserver.address)
-        output = {
-            "address": address,
-            "penalty": get_penalty(producer_address=address,
-                                   block_hash=memserver.latest_block["block_hash"],
-                                   block_number=memserver.latest_block["block_number"])
-        }
-
-        self.write(serialize(name="penalty",
-                             output=output,
-                             compress=compress
-                             ))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.penalty)
-
 
 class UnreachableHandler(tornado.web.RequestHandler):
     def unreachable(self):
@@ -299,7 +282,7 @@ class SubmitTransactionHandler(tornado.web.RequestHandler):
             transaction = json.loads(transaction_raw)
 
             output = memserver.merge_transaction(transaction, user_origin=True)
-            self.write(msgpack.packb(output))
+            self.write(output)
 
             if not output["result"]:
                 self.set_status(403)
@@ -311,6 +294,22 @@ class SubmitTransactionHandler(tornado.web.RequestHandler):
     async def get(self, parameter):
         await asyncio.to_thread(self.submit_transaction)
 
+
+class HealthHandler(tornado.web.RequestHandler):
+    def health(self):
+        compress = LogHandler.get_argument(self, "compress", default="none")
+        health = summary.summarize(muppy.get_objects())
+
+        if compress == "msgpack":
+            output = msgpack.packb(health)
+        else:
+            output = serialize(name="health",
+                                 output=health,
+                                 compress=compress)
+        self.write(output)
+
+    async def get(self, parameter):
+        await asyncio.to_thread(self.health)
 
 class LogHandler(tornado.web.RequestHandler):
     def log(self):
@@ -610,12 +609,19 @@ class AccountHandler(tornado.web.RequestHandler):
             readable = AccountHandler.get_argument(self, "readable", default="none")
             account_data = get_account(account, create_on_error=False)
 
-            if readable == "true":
-                account_data.update({"balance": to_readable_amount(account_data["balance"])})
-                account_data.update({"produced": to_readable_amount(account_data["produced"])})
-                account_data.update({"burned": to_readable_amount(account_data["burned"])})
+            if account_data:
+                account_data.update({"penalty": get_penalty(producer_address=account,
+                                       block_hash=memserver.latest_block["block_hash"],
+                                       block_number=memserver.latest_block["block_number"])})
 
-            if not account_data:
+                if readable == "true":
+                    account_data.update({"balance": to_readable_amount(account_data["balance"])})
+                    account_data.update({"produced": to_readable_amount(account_data["produced"])})
+                    account_data.update({"burned": to_readable_amount(account_data["burned"])})
+                    account_data.update({"penalty": to_readable_amount(account_data["penalty"])})
+
+
+            else:
                 account_data = "Not found"
                 self.set_status(403)
 
@@ -726,13 +732,13 @@ async def make_app(port):
             (r"/peers(.*)", PeerPoolHandler),
             (r"/peer_buffer(.*)", PeerBufferHandler),
             (r"/penalties(.*)", PenaltiesHandler),
-            (r"/penalty(.*)", PenaltyHandler),
             (r"/unreachable(.*)", UnreachableHandler),
             (r"/block_producers_hash_pool(.*)", BlockProducersHashPoolHandler),
             (r"/block_producers(.*)", BlockProducerPoolHandler),
             (r"/block_hash_pool(.*)", BlockHashPoolHandler),
             (r"/get_recommended_fee", FeeHandler),
             (r"/terminate(.*)", TerminateHandler),
+            (r"/health(.*)", HealthHandler),
             (r"/submit_transaction(.*)", SubmitTransactionHandler),
             (r"/log(.*)", LogHandler),
             (r"/whats_my_ip(.*)", IpHandler),
@@ -760,63 +766,62 @@ def disable_close():
     """
 
 
-if __name__ == "__main__":
-    """warning, no intensive operations or locks should be invoked from API interface"""
-    logging.getLogger('tornado.access').disabled = True
-    logger = get_logger()
+"""warning, no intensive operations or locks should be invoked from API interface"""
+logging.getLogger('tornado.access').disabled = True
+logger = get_logger()
 
-    disable_close()
-    allow_async()
+disable_close()
+allow_async()
 
-    updated_version = versioner.update_version()
-    if updated_version:
-        versioner.set_version(updated_version)
+updated_version = versioner.update_version()
+if updated_version:
+    versioner.set_version(updated_version)
 
-    if not os.path.exists(f"{get_home()}/blocks"):
-        make_folders()
-        make_genesis(
-            address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b",
-            balance=1000000000000000000,
-            ip="78.102.98.72",
-            port=9173,
-            timestamp=1669852800,
-            logger=logger,
-        )
+if not os.path.exists(f"{get_home()}/blocks"):
+    make_folders()
+    make_genesis(
+        address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b",
+        balance=1000000000000000000,
+        ip="78.102.98.72",
+        port=9173,
+        timestamp=1669852800,
+        logger=logger,
+    )
 
-    if not keyfile_found():
-        save_keys(generate_keys())
-        save_peer(ip=get_config()["ip"],
-                  address=load_keys()["address"],
-                  port=get_config()["port"],
-                  peer_trust=10000)
+if not keyfile_found():
+    save_keys(generate_keys())
+    save_peer(ip=get_config()["ip"],
+              address=load_keys()["address"],
+              port=get_config()["port"],
+              peer_trust=10000)
 
-    info_path = os.path.normpath(f'{get_home()}/private/keys.dat')
-    logger.info(f"Key location: {info_path}")
+info_path = os.path.normpath(f'{get_home()}/private/keys.dat')
+logger.info(f"Key location: {info_path}")
 
-    assert not is_port_in_use(get_config()["port"]), "Port already in use, exiting"
-    signal.signal(signal.SIGINT, handler)
-    signal.signal(signal.SIGTERM, handler)
+assert not is_port_in_use(get_config()["port"]), "Port already in use, exiting"
+signal.signal(signal.SIGINT, handler)
+signal.signal(signal.SIGTERM, handler)
 
-    memserver = MemServer(logger=logger)
+memserver = MemServer(logger=logger)
 
-    logger.info(f"NADO version {memserver.version} started")
-    logger.info(f"Your address: {memserver.address}")
-    logger.info(f"Your IP: {memserver.ip}")
-    logger.info(f"Promiscuity mode: {memserver.promiscuous}")
-    logger.info(f"Cascade depth limit: {memserver.cascade_limit}")
+logger.info(f"NADO version {memserver.version} started")
+logger.info(f"Your address: {memserver.address}")
+logger.info(f"Your IP: {memserver.ip}")
+logger.info(f"Promiscuity mode: {memserver.promiscuous}")
+logger.info(f"Cascade depth limit: {memserver.cascade_limit}")
 
-    consensus = ConsensusClient(memserver=memserver, logger=logger)
-    consensus.start()
+consensus = ConsensusClient(memserver=memserver, logger=logger)
+consensus.start()
 
-    core = CoreClient(memserver=memserver, consensus=consensus, logger=logger)
-    core.start()
+core = CoreClient(memserver=memserver, consensus=consensus, logger=logger)
+core.start()
 
-    peers = PeerClient(memserver=memserver, consensus=consensus, logger=logger)
-    peers.start()
+peers = PeerClient(memserver=memserver, consensus=consensus, logger=logger)
+peers.start()
 
-    messages = MessageClient(memserver=memserver, consensus=consensus, core=core, peers=peers, logger=logger)
-    messages.start()
+messages = MessageClient(memserver=memserver, consensus=consensus, core=core, peers=peers, logger=logger)
+messages.start()
 
-    logger.info("Starting Request Handler")
+logger.info("Starting Request Handler")
 
-    asyncio.run(make_app(get_config()["port"]))
+asyncio.run(make_app(get_config()["port"]))

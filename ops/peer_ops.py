@@ -1,3 +1,4 @@
+import random
 import asyncio
 import glob
 import ipaddress
@@ -14,6 +15,7 @@ from .data_ops import set_and_sort, get_home
 from hashing import base64encode, blake2b_hash
 from .key_ops import load_keys
 
+import aiohttp
 
 def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
     if not all(key in requirements for key in dictionary):
@@ -22,11 +24,10 @@ def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
         return True
 
 
-def update_local_address(logger, peer_file_lock):
+def update_local_address(logger):
     my_ip = get_config()["ip"]
     old_address = load_peer(logger=logger,
                             ip=my_ip,
-                            peer_file_lock=peer_file_lock,
                             key="peer_address")
 
     new_address = load_keys()["address"]
@@ -34,24 +35,26 @@ def update_local_address(logger, peer_file_lock):
     if new_address != old_address:
         update_peer(ip=my_ip,
                     logger=logger,
-                    peer_file_lock=peer_file_lock,
                     key="peer_address",
                     value=new_address)
         logger.info(f"Local address updated to {new_address}")
 
 
 async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add msgpack support
-    try:
-        http_client = AsyncHTTPClient()
-        url = f"http://{target_peer}:{get_port()}/status"
-        result = await http_client.fetch(url, request_timeout=5)
-        text = result.body.decode()
-        code = result.code
 
-        if code == 200:
-            return json.loads(text)
-        else:
-            return False
+    try:
+        url_construct = f"http://{target_peer}:{get_port()}/status"
+
+        
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
+            async with session.get(url_construct) as response:
+                text = response.text()
+                code = response.status
+
+                if code == 200:
+                    return json.loads(await text)
+                else:
+                    return False
 
     except Exception as e:
         logger.error(f"Failed to get status from {target_peer}: {e}")
@@ -87,24 +90,26 @@ def ip_stored(ip) -> bool:
         return False
 
 
-def dump_trust(pool_data, logger, peer_file_lock):
+def dump_trust(pool_data, logger):
     for key, value in pool_data.items():
         update_peer(ip=key,
                     key="peer_trust",
                     value=value,
-                    logger=logger,
-                    peer_file_lock=peer_file_lock)
+                    logger=logger)
 
 
-def sort_dict_value(values, key):
-    return sorted(values, key=lambda d: d[key], reverse=True)
+def sort_dict_value(values: list, key: str) -> list:
+    if values:
+        return sorted(values, key=lambda d: d[key], reverse=True)
+    else:
+        return []
 
 
 async def load_ips(logger, port, fail_storage, minimum=3) -> list:
     """load peers from drive, sort by trust, test in batches asynchronously,
     return when limit is reached"""
 
-    peer_files = glob.glob(f"{get_home()}/peers/*.dat")
+    peer_files= glob.glob(f"{get_home()}/peers/*.dat")
 
     if len(peer_files) < minimum:
         minimum = len(peer_files)
@@ -118,15 +123,15 @@ async def load_ips(logger, port, fail_storage, minimum=3) -> list:
             candidates.append(peer)
 
     ip_sorted = []
-    candidates_sorted = sort_dict_value(candidates, key="peer_trust")
+    candidates_sorted = sort_dict_value(candidates, key="peer_trust")[:50]
 
     for entry in candidates_sorted:
         ip = entry["peer_ip"]
         ip_sorted.append(ip)
 
     start = 0
-    end = len(peer_files)
-    step = 12
+    end = len(candidates_sorted)
+    step = 10
 
     for i in range(start, end, step):
         x = i
@@ -144,7 +149,7 @@ async def load_ips(logger, port, fail_storage, minimum=3) -> list:
 
         logger.info(f"Gathered {len(status_pool)}/{minimum} peers in {i + 1} steps, {len(fail_storage)} failed")
 
-        if len(status_pool) > minimum:
+        if len(status_pool) >= minimum:
             break
 
     logger.info(f"Loaded {len(status_pool)} reachable peers from drive, {len(fail_storage)} failed")
@@ -152,15 +157,13 @@ async def load_ips(logger, port, fail_storage, minimum=3) -> list:
     return status_pool
 
 
-def load_trust(peer, logger, peer_file_lock):
+def load_trust(peer, logger):
     return load_peer(ip=peer,
                      key="peer_trust",
-                     logger=logger,
-                     peer_file_lock=peer_file_lock)
+                     logger=logger)
 
 
-def load_peer(logger, ip, peer_file_lock, key=None) -> [str, dict]:
-    with peer_file_lock:
+def load_peer(logger, ip, key=None) -> [str, dict]:
         try:
             peer_file = f"{get_home()}/peers/{base64encode(ip)}.dat"
             if not key:
@@ -175,8 +178,7 @@ def load_peer(logger, ip, peer_file_lock, key=None) -> [str, dict]:
             logger.info(f"Failed to load peer {ip} from drive: {e}")
 
 
-def update_peer(ip, value, logger, peer_file_lock, key="peer_trust") -> None:
-    with peer_file_lock:
+def update_peer(ip, value, logger, key="peer_trust") -> None:
         try:
             peer_file = f"{get_home()}/peers/{base64encode(ip)}.dat"
 
@@ -318,24 +320,25 @@ def check_ip(ip):
 
 
 async def get_public_ip(logger):
-    http_client = AsyncHTTPClient()
     urls = ["https://api.ipify.org", "https://ipinfo.io/ip"]
-    for url in urls:
+
+    for url_construct in urls:
         try:
-            ip = await http_client.fetch(url, request_timeout=5)
-            return ip.body.decode()
+            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
+                async with session.get(url_construct) as response:
+                    ip = await response.text()
+                    return ip
+
         except Exception as e:
-            logger.error(f"Unable to fetch IP from {url}: {e}")
+            logger.error(f"Unable to fetch IP from {url_construct}: {e}")
 
-
-def update_local_ip(ip, logger, peer_file_lock):
+def update_local_ip(ip, logger):
     old_ip = get_config()["ip"]
     new_ip = ip
 
     if old_ip != new_ip:
         peer_me = load_peer(ip=old_ip,
-                            logger=logger,
-                            peer_file_lock=peer_file_lock)
+                            logger=logger)
 
         save_peer(ip=new_ip,
                   address=peer_me["peer_address"],
@@ -350,24 +353,25 @@ def update_local_ip(ip, logger, peer_file_lock):
 
 
 def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, average_trust, unreachable_list, purge_list,
-                      peer_hash, required_hash, promiscuous) -> bool:
+                      peer_hash, required_hash, promiscuous) -> dict:
     if average_trust > peer_trust and not promiscuous:
         """peer trust worse than average"""
-        return False
+        return {"result": False,
+                "flag": "Peer trust below average"}
     if peer in unreachable_list:
         """peer assigned to unreachable"""
-        return False
-    if peer in purge_list:
-        """peer about to be assigned to unreachable"""
-        return False
+        return {"result": False,
+                "flag": "Peer unreachable"}
     if peer_protocol < memserver_protocol:
         """peer protocol too low"""
-        return False
+        return {"result": False,
+                "flag": "Peer protocol too low"}
     if not peer_hash == required_hash:
         """hash of the peer not in the currently cascaded one"""
-        return False
+        return {"result": False,
+                "flag": "Peer hash not in majority"}
 
-    return True
+    return {"result": True}
 
 
 if __name__ == "__main__":

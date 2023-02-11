@@ -13,23 +13,13 @@ from ops.key_ops import load_keys, keyfile_found, save_keys, generate_keys
 from ops.log_ops import get_logger
 from ops.peer_ops import get_public_ip
 from ops.peer_ops import load_ips
-from ops.transaction_ops import create_transaction, to_raw_amount, get_recommneded_fee, to_readable_amount, \
-    get_target_block
+from ops.transaction_ops import create_transaction, draft_transaction, to_raw_amount, get_recommneded_fee, to_readable_amount, \
+    get_target_block, get_base_fee
 
-
-def send_transaction(address, recipient, amount, data, public_key, private_key, ips, fee, target_block):
-    transaction = create_transaction(sender=address,
-                                     recipient=recipient,
-                                     amount=to_raw_amount(amount),
-                                     data=data,
-                                     fee=int(fee),
-                                     public_key=public_key,
-                                     private_key=private_key,
-                                     timestamp=get_timestamp_seconds(),
-                                     target_block=int(target_block))
-
+def send_transaction(transaction, ips, logger):
     print(json.dumps(transaction, indent=4))
-    input("Press any key to continue")
+    if not args.auto:
+        input("Press any key to continue")
 
     fails = []
     results = asyncio.run(compound_send_transaction(ips=ips,
@@ -47,12 +37,15 @@ if __name__ == "__main__":
     logger = get_logger(file=f"linewallet.log")
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--sk", help="[private key] Use private key, ignore default key location", default=False)
-    parser.add_argument("--amount", help="[number] Amount to send", default=False)
-    parser.add_argument("--recipient", help="[NADO address] Recipient address", default=False)
-    parser.add_argument("--fee", help="[number] Fee to spend", default=False)
-    parser.add_argument("--target", help="[number] Target block number", default=False)
+    parser.add_argument("--sk", help="<private key> Use private key, ignore default key location", default=False)
+    parser.add_argument("--amount", help="<number> Amount to send", default=False)
+    parser.add_argument("--recipient", help="<NADO address> Recipient address", default=False)
+    parser.add_argument("--fee", help="<number> Fee to spend", default=False)
+    parser.add_argument("--target", help="<number> Target block number", default=False)
+    parser.add_argument("--auto", help="<any> Uses suggested fee and target block instead of asking, use any value (1)", default=False)
+    parser.add_argument("--peers", help="<['127.0.0.1']> Broadcasts transaction only list of peers", default=False)
     args = parser.parse_args()
+
     if args.sk:
         key_dictionary = from_private_key(args.sk)
 
@@ -71,7 +64,12 @@ if __name__ == "__main__":
     private_key = key_dictionary["private_key"]
     public_key = key_dictionary["public_key"]
     address = key_dictionary["address"]
-    ips = asyncio.run(load_ips(fail_storage=[], logger=logger, port=9173))
+
+    if args.peers:
+        ips = ["127.0.0.1"]
+    else:
+        ips = asyncio.run(load_ips(fail_storage=[], logger=logger, port=9173))
+
     target = random.choice(ips)
     port = get_port()
     balance = get_account_value(address, key="balance")
@@ -91,31 +89,48 @@ if __name__ == "__main__":
     else:
         amount = input("Amount: ")
 
-    recommended_fee = asyncio.run(get_recommneded_fee(target=target, port=port))
-    recommended_block = asyncio.run(get_target_block(target=target, port=port))
+    recommended_block = asyncio.run(get_target_block(target=target,
+                                                     port=port,
+                                                     logger=logger))
+
     print(f"Recommended target block: {recommended_block}")
-    print(f"Recommended fee: {recommended_fee}")
 
     if args.target:
         target_block = args.target
+    elif args.auto:
+        target_block = recommended_block
     else:
         target_block = input(f"Target block: ")
     if not target_block:
         target_block = recommended_block
 
+    data=""
+
+    draft = draft_transaction(sender=address,
+                                     recipient=recipient,
+                                     amount=to_raw_amount(amount),
+                                     data=data,
+                                     public_key=public_key,
+                                     timestamp=get_timestamp_seconds(),
+                                     target_block=int(target_block))
+
+    recommended_fee = asyncio.run(get_recommneded_fee(target=target,
+                                                      port=port,
+                                                      base_fee=get_base_fee(transaction=draft),
+                                                      logger=logger))
+    print(f"Recommended fee: {recommended_fee}")
+
+    transaction = create_transaction(draft=draft,
+                                     private_key=private_key,
+                                     fee=recommended_fee)
+
     if args.fee:
         fee = args.fee
+    elif args.auto:
+        fee = recommended_block
     else:
         fee = input(f"Fee: ")
     if not fee:
         fee = 0
 
-    send_transaction(address=address,
-                     amount=amount,
-                     data="",
-                     private_key=private_key,
-                     public_key=public_key,
-                     recipient=recipient,
-                     ips=ips,
-                     fee=fee,
-                     target_block=target_block)
+    send_transaction(transaction, ips=ips, logger=logger)

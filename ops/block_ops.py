@@ -6,7 +6,7 @@ import time
 import msgpack
 import requests
 from tornado.httpclient import AsyncHTTPClient
-
+import aiohttp
 from .account_ops import get_account_value
 from config import get_timestamp_seconds, get_config
 from .data_ops import set_and_sort, average, get_home
@@ -15,7 +15,6 @@ from .key_ops import load_keys
 from .log_ops import get_logger
 from .peer_ops import load_peer
 from .sqlite_ops import DbHandler
-
 
 def float_to_int(x):
     return math.floor(x * (2 ** 31))
@@ -52,7 +51,7 @@ def get_block_reward(logger, blocks_backward=100, reward_cap=5000000000):
 
 def valid_block_timestamp(new_block):
     new_timestamp = new_block["block_timestamp"]
-    if not get_timestamp_seconds() >= new_timestamp:
+    if new_timestamp > get_timestamp_seconds():
         return False
     else:
         return True
@@ -84,12 +83,11 @@ def match_transactions_target(transaction_list, block_number, logger):
 
 
 def get_block_candidate(
-        block_producers, block_producers_hash, transaction_pool, logger, event_bus, peer_file_lock, latest_block, block_time
+        block_producers, block_producers_hash, transaction_pool, logger, event_bus, latest_block, block_time
 ):
     best_producer = pick_best_producer(block_producers,
                                        logger=logger,
                                        event_bus=event_bus,
-                                       peer_file_lock=peer_file_lock,
                                        latest_block=latest_block)
 
     logger.info(
@@ -104,8 +102,7 @@ def get_block_candidate(
 
     creator = load_peer(logger=logger,
                         ip=best_producer,
-                        key="peer_address",
-                        peer_file_lock=peer_file_lock)
+                        key="peer_address")
 
     block = construct_block(
         block_timestamp=latest_block["block_timestamp"]+block_time,
@@ -320,14 +317,15 @@ def construct_block(
 
 async def knows_block(target_peer, port, hash, logger):
     try:
-        http_client = AsyncHTTPClient()
-        url = f"http://{target_peer}:{port}/get_block?hash={hash}"
-        result = await http_client.fetch(url, request_timeout=5)
+        url_construct = f"http://{target_peer}:{port}/get_block?hash={hash}"
 
-        if result.code == 200:
-            return True
-        else:
-            return False
+        
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
+            async with session.get(url_construct) as response:
+                if response.status == 200:
+                    return True
+                else:
+                    return False
 
     except Exception as e:
         logger.error(f"Failed to check block {hash} from {target_peer}: {e}")
@@ -345,63 +343,71 @@ def update_child_in_latest_block(child_hash, logger, parent):
             logger.error(f"Failed to update child hash in {parent}: {e}")
 
 
-async def get_blocks_after(target_peer, from_hash, count=50, compress="msgpack"):
-    http_client = AsyncHTTPClient()
+async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="msgpack"):
 
-    url = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
-    result = await http_client.fetch(url, request_timeout=5)
-    code = result.code
+    try:
+        url_construct = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
+        
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
+            async with session.get(url_construct) as response:
+                code = response.status
 
-    if code == 200 and compress == "msgpack":
-        read = result.body
-        return msgpack.unpackb(read)
-    elif code == 200:
-        text = result.body.decode()
-        return json.loads(text)["blocks_after"]
-    else:
-        return False
+                if code == 200 and compress == "msgpack":
+                    read = response.read()
+                    return msgpack.unpackb(await read)
+                elif code == 200:
+                    text = response.text()
+                    return json.loads(await text)["blocks_after"]
+                else:
+                    return False
+
+    except Exception as e:
+        logger.error(f"Failed to get blocks after {from_hash} from {target_peer}: {e}")
 
 
 async def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
     try:
-        http_client = AsyncHTTPClient()
+        url_construct = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
 
-        url = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
-        result = await http_client.fetch(url, request_timeout=5)
-        code = result.code
+        
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
+            async with session.get(url_construct) as response:
+                code = response.status
 
-        if code == 200 and compress == "msgpack":
-            read = result.body
-            return msgpack.unpackb(read)
-        elif code == 200:
-            text = result.body.decode()
-            return json.loads(text)["blocks_before"]
-        else:
-            return False
+                if code == 200 and compress == "msgpack":
+                    read = response.read()
+                    return msgpack.unpackb(await read)
+                elif code == 200:
+                    text = response.text()
+                    return json.loads(await text)["blocks_before"]
+                else:
+                    return False
 
     except Exception as e:
         logger.error(f"Failed to get blocks before {from_hash} from {target_peer}: {e}")
         return False
 
 
-async def get_from_single_target(key, target_peer, logger):  # todo add msgpack support
-    """obtain from a single target"""
+async def get_from_single_target(key, target_peer, logger) -> list:  # todo add msgpack support
+    """obtain from a single target, returns list"""
 
     try:
-        http_client = AsyncHTTPClient()
-        url = f"http://{target_peer}:{get_config()['port']}/{key}"
-        result = await http_client.fetch(url, request_timeout=5)
-        text = result.body.decode()
-        code = result.code
+        url_construct = f"http://{target_peer}:{get_config()['port']}/{key}"
 
-        if code == 200:
-            return json.loads(text)[key]
-        else:
-            return False
+        
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
+            async with session.get(url_construct) as response:
+                text = response.text()
+                code = response.status
+
+                if code == 200:
+                    return json.loads(await text)[key]
+                else:
+                    return []
 
     except Exception as e:
         logger.error(f"Failed to get {key} from {target_peer}: {e}")
-        return False
+        return []
 
 
 def get_ip_penalty(producer, logger, blocks_backward=50):
@@ -437,7 +443,7 @@ def get_penalty(producer_address, block_hash, block_number):
     return block_penalty
 
 
-def pick_best_producer(block_producers, logger, event_bus, peer_file_lock, latest_block):
+def pick_best_producer(block_producers, logger, event_bus, latest_block):
     block_hash = latest_block["block_hash"]
 
     previous_block_penalty = None
@@ -447,8 +453,7 @@ def pick_best_producer(block_producers, logger, event_bus, peer_file_lock, lates
     for producer_ip in block_producers:
         producer_address = load_peer(logger=logger,
                                      ip=producer_ip,
-                                     key="peer_address",
-                                     peer_file_lock=peer_file_lock)
+                                     key="peer_address")
         if producer_address:
             block_penalty = get_penalty(producer_address=producer_address,
                                         block_hash=block_hash,

@@ -69,9 +69,13 @@ class ConsensusClient(threading.Thread):
             for peer in self.trust_pool.copy().keys():
                 if peer in pool.keys():
                     if pool[peer] == majority_pool:
-                        change_trust(consensus=self, peer=peer, value=3000)
+                        self.trust_pool = change_trust(trust_pool=self.trust_pool,
+                                                       peer=peer,
+                                                       value=3000)
                     else:
-                        change_trust(consensus=self, peer=peer, value=-100)
+                        self.trust_pool = change_trust(trust_pool=self.trust_pool,
+                                                       peer=peer,
+                                                       value=3000)
 
         except Exception as e:
             self.logger.info(f"Failed to update trust: {e}")
@@ -81,8 +85,7 @@ class ConsensusClient(threading.Thread):
             if ip_stored(peer):
                 peer_trust = load_peer(ip=peer,
                                        key="peer_trust",
-                                       logger=self.logger,
-                                       peer_file_lock=self.memserver.peer_file_lock)
+                                       logger=self.logger)
                 if peer not in self.trust_pool.keys():
                     self.trust_pool[peer] = peer_trust
 
@@ -160,6 +163,9 @@ class ConsensusClient(threading.Thread):
                 # raise  # test
 
 
-def change_trust(consensus, peer, value):
-    if peer in consensus.trust_pool.keys():
-        consensus.trust_pool[peer] += value
+def change_trust(trust_pool, peer, value):
+    """a queue would be ideal, but operation not critical, skips don't matter"""
+    trust_pool_copy = trust_pool.copy()
+    if peer in trust_pool_copy.keys():
+        trust_pool_copy[peer] += value
+    return trust_pool_copy

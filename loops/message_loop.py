@@ -1,7 +1,11 @@
+import gc
+
+import psutil
 import threading
 import time
 import traceback
 from math import floor
+from pympler import muppy
 
 from config import get_timestamp_seconds
 
@@ -24,22 +28,22 @@ class MessageClient(threading.Thread):
     def is_all_fine(self):
 
         if len(self.memserver.peers) < 10:
-            return False
+            return {"result":False, "flag": "Not enough peers"}
         if self.memserver.latest_block["block_hash"] != self.consensus.majority_block_hash:
-            return False
+            return {"result":False, "flag": "Outside block hash majority"}
         if self.memserver.since_last_block > self.memserver.block_time:
-            return False
+            return {"result": False, "flag": "Block target too far"}
         if not self.memserver.can_mine:
-            return False
-        return True
+            return {"result": False, "flag": "Ports closed"}
+        return {"result": True}
 
     def run(self) -> None:
         while not self.memserver.terminate:
             try:
-                self.logger.info(f"Period: {self.memserver.period}")
+                self.logger.info(f"Periods: {self.memserver.periods}")
 
                 self.logger.info(
-                    f"Block Hash Agreement: {int(self.consensus.block_hash_pool_percentage)}%"
+                    f"Block Hash Agreement: {int(self.consensus.block_hash_pool_percentage)}% ({len(self.consensus.block_hash_pool)} members)"
                 )
                 self.logger.info(
                     f"Transaction Hash Agreement: {int(self.consensus.transaction_hash_pool_percentage)}%"
@@ -60,15 +64,21 @@ class MessageClient(threading.Thread):
                     f"Seconds since last target: {self.memserver.since_last_block} / {self.memserver.block_time}"
                 )
 
-                self.logger.warning(f"Unreachable: {len(self.memserver.unreachable)}")
+                self.logger.warning(f"Unreachable: {len(self.memserver.purge_peers_list)} >>> {len(self.memserver.unreachable)}")
                 self.logger.warning(f"Forced sync: {self.memserver.force_sync_ip}")
 
-                if self.is_all_fine():
-                    self.logger.info(f"=== NODE IS OK! ===")
+                fine = self.is_all_fine()
+                if fine["result"]:
+                    self.logger.debug(f"=== NODE IS OK! ===")
+                else:
+                    self.logger.error(f"!!! NODE IS NOT OK: {fine['flag']} !!!")
 
                 self.logger.info(f"Loop durations: Core: {self.core.duration}; "
                                  f"Consensus: {self.consensus.duration}; "
                                  f"Peers: {self.peers.duration}")
+
+                self.logger.info(f"Open files: {len(psutil.Process().open_files())}")
+                self.logger.info(f"Open objects: {len(muppy.get_objects())}")
 
                 time.sleep(10)
             except Exception as e:

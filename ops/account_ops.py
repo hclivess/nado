@@ -22,17 +22,24 @@ def get_account(address, create_on_error=True):
         return None
 
 
-def reflect_transaction(transaction, logger, revert=False):
+def reflect_transaction(transaction, logger, block_height, revert=False):
     sender = transaction["sender"]
     recipient = transaction["recipient"]
-    amount = transaction["amount"]
+
+    if block_height > 111111:
+        amount_sender = transaction["amount"]+transaction["fee"]
+        amount_recipient = transaction["amount"]
+    else:
+        amount_sender = transaction["amount"]
+        amount_recipient = transaction["amount"]
+
 
     is_burn = False
     if recipient == "burn":
         is_burn = True
 
-    change_balance(address=sender, amount=-amount, is_burn=is_burn, logger=logger, revert=revert)
-    change_balance(address=recipient, amount=amount, is_burn=False, logger=logger, revert=revert)
+    change_balance(address=sender, amount=-amount_sender, is_burn=is_burn, logger=logger, revert=revert)
+    change_balance(address=recipient, amount=amount_recipient, is_burn=False, logger=logger, revert=revert)
 
 
 def change_balance(address: str, amount: int, logger, is_burn=False, revert=False):

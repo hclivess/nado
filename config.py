@@ -32,7 +32,7 @@ def get_port():
 
 def test_self_port(ip, port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(0.3)
+        sock.settimeout(3)
         result = sock.connect_ex((ip, port))
         if not result:
             return True

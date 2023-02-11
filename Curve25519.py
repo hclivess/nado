@@ -5,7 +5,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
-from address import make_address
+from ops.address_ops import make_address
 
 
 def unhex(hexed):
@@ -20,10 +20,13 @@ def sign(private_key, message):
 
 
 def verify(signed, public_key, message):
-    public_bytes = unhex(public_key)
-    public_key_raw = Ed25519PublicKey.from_public_bytes(public_bytes)
-    public_key_raw.verify(unhex(signed), message)
-    return True
+    try:
+        public_bytes = unhex(public_key)
+        public_key_raw = Ed25519PublicKey.from_public_bytes(public_bytes)
+        public_key_raw.verify(unhex(signed), message)
+        return True
+    except Exception:
+        raise ValueError("Invalid signature") #sadly, the underlying mechanism does not propagate error messages
 
 def from_private_key(private_key):
     private_bytes = unhex(private_key)
@@ -68,13 +71,13 @@ def generate_keydict():
 
 if __name__ == "__main__":
     keydict = generate_keydict()
-    test_message = msgpack.packb({"amount": 50})
+    test_message = "5adf8c531d6698a647c54435386618a0bacd8c3f91b3f1ce1d2ac7c1601a829c"
     print(keydict["private_key"])
     print(keydict["public_key"])
     print(keydict["address"])
 
-    signature = sign(private_key=keydict["private_key"], message=test_message)
+    signature = sign(private_key=keydict["private_key"], message=unhex(test_message))
     print(signature)
     print(
-        verify(message=test_message, public_key=keydict["public_key"], signed=signature)
+        verify(message=unhex(test_message), public_key=keydict["public_key"], signed=signature)
     )

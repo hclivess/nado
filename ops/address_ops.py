@@ -4,6 +4,8 @@ from hashing import blake2b_hash
 def proof_sender(public_key, sender):
     if make_address(public_key) == sender:
         return True
+    else:
+        return False
 
 
 def validate_address(address: str, checksum_size: str = 2):

@@ -1,26 +1,42 @@
 <p align="center">
-  <a href="https://nado.live"><img src="graphics/bauhaus.png" /></a>
+  <a href="https://nado.live"><img src="https://nado.live/media/bauhaus.png" /></a>
 </p>
 
 <p align="center">
-    <a href="https://discord.gg/6aEBWTvcTV"><img src="graphics/discord.png" /></a>
+    <a href="https://discord.gg/6aEBWTvcTV"><img src="https://nado.live/media/discord.png" /></a>
     &emsp;
-    <a href="https://twitter.com/nadodigital"><img src="graphics/twitter.png" /></a>
+    <a href="https://twitter.com/nadodigital"><img src="https://nado.live/media/twitter.png" /></a>
 
 </p>
 
 ## Installation
-### Linux
+### Ubuntu
 #### Before you start
 Please close your node using [/terminate](http://127.0.0.1/terminate) or **CTRL+C** before shutting down your machine.
 You can also use `wget --delete-after localhost:9173/terminate --timeout 1 -t 1` from anywhere in your environment to force shutdown.
 
-#### Direct installation one-liner
+### Virtual environment installation
+
+Make sure to set your open file limit high enough:
+
 ```
-sysctl -w fs.file-max=65535 && ulimit -n 1000000 && sudo apt-get update && sudo add-apt-repository ppa:deadsnakes/ppa -y && sudo apt-get install python3.10 python3.10-distutils git screen curl -y && curl -sS https://bootstrap.pypa.io/get-pip.py | sudo python3.10 && sudo ufw allow 9173 && git clone https://github.com/hclivess/nado && cd nado && python3.10 -m pip install -r requirements.txt && screen -dmS nado python3.10 nado.py
+nano /etc/security/limits.conf
+root soft nofile 65535
+root hard nofile 65535
 ```
 
-#### Virtual environment installation
+Append:
+
+```fs.file-max = 100000```
+
+Then apply the settings and restart the machine.
+
+```
+sysctl -p
+sudo reboot
+```
+
+You may now proceed with installation:
 
 ```
 sysctl -w fs.file-max=65535
@@ -65,7 +81,7 @@ Run the command line as Administrator and enter the following commands:
 python -m pip install -r requirements.txt
 ```
 
-### To run NADO, execute the following command: `python3.10 nado.py`
+# To run NADO, execute the following command: `python3.10 nado.py`
 
 After installation, go to your browser and announce your peer to one of the nodes like this:
 http://127.0.0.1:9173/announce_peer?ip=207.180.203.132. For this,
@@ -79,10 +95,13 @@ You can use the CLI wallet by running `python3.10 linewallet.py`
 This wallet takes arguments, which enable you to access more wallets from one place and also automate your routines.
 All arguments can be displayed with `python3.10 linewallet.py --help`, here are some examples:
 
-- `--sk [private key]` Use private key, ignore default key location
-- `--amount [number]` Amount to send
-- `--recipient [NADO address]` Recipient address
-- `--fee [number]` Fee to spend
+* --sk, <private key> Use private key, ignore default key location
+* --amount, <number> Amount to send
+* --recipient, <NADO address> Recipient address
+* --fee, <number> Fee to spend
+* --target, <number> Target block number
+* --auto, <any> Uses suggested fee and target block instead of asking, use any value (1)
+* --peers, <['127.0.0.1']> Broadcasts transaction only list of peers
 
 ## Remote access
 
@@ -99,14 +118,14 @@ To view your file, you can use the following command: `cat ~/nado/private/keys.d
 
 ## Is there anything unique?
 
-Yes. No mining or minting. Block production happens in every node at once, based on the deterministic principles of the
-participant addresses mixed with the blockchain state. This is possible because block production is separated from the consensual layer. This removes all the selfish
+Yes. No mining or minting. All communication happens using a public API. Block production happens in every node at once, based on the deterministic principles of the
+participant addresses mixed with the blockchain state. This is possible because block production is separated from the consensual layer. It removes all the selfish
 miner incentives, which cause issues like transaction exclusion in traditional PoW systems.
 
 ## What is NADO?
 
 <p align="center">
-  <img src="graphics/overview.png" />
+  <img src="https://nado.live/media/overview.png" />
 </p>
 
 NADO is short for Tornado. It is just another blockchain written from scratch with a highly experimental consensus algorithm, 
@@ -121,7 +140,6 @@ NADO is a take on one of the newer trends, where users do not use graphics cards
 do they have to own a large portion of tokens in order to be rewarded. It is inspired by IDENA and NYZO, while
 attempting to bring the barrier of entry even lower than those two by not requiring solving of puzzles or highly
 efficient machines for users to remain in a reward distribution cycle.
-
 
 ## Emergency measures
 
@@ -196,11 +214,16 @@ money into something that did not exist. Why did they do it? Because it was easy
 
 ## Proof of what?
 Every node in the NADO ecosystem keeps track of what opinions other nodes have by sharing state checksums for current
-block producer pools, transaction pools, peer pools and block hash pools. Participants add credibility over time to
+block producer pools, transaction pools, and block hash pools. Participants add credibility over time to
 those who share their opinions on what the state of the network is. The security principle is that any
 attacker needs to be connected to the network for a longer time than the legitimate nodes and postpone the attack until
 their network participation duration is longer than that of other nodes - to perform a 51% attack. If the legitimate nodes
 stay in the network longer than the attackers, it is impossible to attack.
+
+For rewards, NADO uses a variant of PoW with a very limited input set unlike in normal PoW crypto, where it is unlimited.
+When producing blocks, addresses of all block producers are hashed with the block candidate. This results in a new hash,
+which is then compared with the block candidate. The address which has the least matching wins. Penalties from absence
+of burning have to be taken into consideration.
 
 ## Ideal way to receive rewards (optimal mining)
 User chance to be rewarded for a block is random and depends on their address. This is because of how NADO is designed,
@@ -251,14 +274,25 @@ users to make block production and rewards as inclusive as possible.
 - Burn-to-Bribe deflationary incentive and governance
 - The logo is a vortexed version of the Impossible Toroidal Polyhedron
 
-## NADO .NET SDK
+# Related Repositories
+
+#### NADO .NET SDK
 https://github.com/blocksentinel/nado-dotnet-sdk
 
-## Where can I learn more?
+#### NADO Media Kit
+https://github.com/hclivess/nado-media-kit
 
-www.nado.live
+#### NADO Web Repository
+https://github.com/hclivess/nado-web
 
-## For developers
+#### NADO MicroWallet
+https://github.com/hclivess/nado-microwallet
+
+#### Where can I learn more?
+
+https://nado.live
+
+# For developers
 ### Design philosophy
 
 When implementing new functionalities to NADO, existing routines/loops should be used instead of instant invocation of functions.
