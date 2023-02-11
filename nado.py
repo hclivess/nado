@@ -766,63 +766,62 @@ def disable_close():
     """
 
 
-if __name__ == "__main__":
-    """warning, no intensive operations or locks should be invoked from API interface"""
-    logging.getLogger('tornado.access').disabled = True
-    logger = get_logger()
+"""warning, no intensive operations or locks should be invoked from API interface"""
+logging.getLogger('tornado.access').disabled = True
+logger = get_logger()
 
-    disable_close()
-    allow_async()
+disable_close()
+allow_async()
 
-    updated_version = versioner.update_version()
-    if updated_version:
-        versioner.set_version(updated_version)
+updated_version = versioner.update_version()
+if updated_version:
+    versioner.set_version(updated_version)
 
-    if not os.path.exists(f"{get_home()}/blocks"):
-        make_folders()
-        make_genesis(
-            address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b",
-            balance=1000000000000000000,
-            ip="78.102.98.72",
-            port=9173,
-            timestamp=1669852800,
-            logger=logger,
-        )
+if not os.path.exists(f"{get_home()}/blocks"):
+    make_folders()
+    make_genesis(
+        address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b",
+        balance=1000000000000000000,
+        ip="78.102.98.72",
+        port=9173,
+        timestamp=1669852800,
+        logger=logger,
+    )
 
-    if not keyfile_found():
-        save_keys(generate_keys())
-        save_peer(ip=get_config()["ip"],
-                  address=load_keys()["address"],
-                  port=get_config()["port"],
-                  peer_trust=10000)
+if not keyfile_found():
+    save_keys(generate_keys())
+    save_peer(ip=get_config()["ip"],
+              address=load_keys()["address"],
+              port=get_config()["port"],
+              peer_trust=10000)
 
-    info_path = os.path.normpath(f'{get_home()}/private/keys.dat')
-    logger.info(f"Key location: {info_path}")
+info_path = os.path.normpath(f'{get_home()}/private/keys.dat')
+logger.info(f"Key location: {info_path}")
 
-    assert not is_port_in_use(get_config()["port"]), "Port already in use, exiting"
-    signal.signal(signal.SIGINT, handler)
-    signal.signal(signal.SIGTERM, handler)
+assert not is_port_in_use(get_config()["port"]), "Port already in use, exiting"
+signal.signal(signal.SIGINT, handler)
+signal.signal(signal.SIGTERM, handler)
 
-    memserver = MemServer(logger=logger)
+memserver = MemServer(logger=logger)
 
-    logger.info(f"NADO version {memserver.version} started")
-    logger.info(f"Your address: {memserver.address}")
-    logger.info(f"Your IP: {memserver.ip}")
-    logger.info(f"Promiscuity mode: {memserver.promiscuous}")
-    logger.info(f"Cascade depth limit: {memserver.cascade_limit}")
+logger.info(f"NADO version {memserver.version} started")
+logger.info(f"Your address: {memserver.address}")
+logger.info(f"Your IP: {memserver.ip}")
+logger.info(f"Promiscuity mode: {memserver.promiscuous}")
+logger.info(f"Cascade depth limit: {memserver.cascade_limit}")
 
-    consensus = ConsensusClient(memserver=memserver, logger=logger)
-    consensus.start()
+consensus = ConsensusClient(memserver=memserver, logger=logger)
+consensus.start()
 
-    core = CoreClient(memserver=memserver, consensus=consensus, logger=logger)
-    core.start()
+core = CoreClient(memserver=memserver, consensus=consensus, logger=logger)
+core.start()
 
-    peers = PeerClient(memserver=memserver, consensus=consensus, logger=logger)
-    peers.start()
+peers = PeerClient(memserver=memserver, consensus=consensus, logger=logger)
+peers.start()
 
-    messages = MessageClient(memserver=memserver, consensus=consensus, core=core, peers=peers, logger=logger)
-    messages.start()
+messages = MessageClient(memserver=memserver, consensus=consensus, core=core, peers=peers, logger=logger)
+messages.start()
 
-    logger.info("Starting Request Handler")
+logger.info("Starting Request Handler")
 
-    asyncio.run(make_app(get_config()["port"]))
+asyncio.run(make_app(get_config()["port"]))
