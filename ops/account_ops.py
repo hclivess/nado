@@ -106,6 +106,19 @@ def index_totals(produced, fees, burned, block_height):
         acc_handler.db_execute("UPDATE totals_index SET burned = burned + ?", (burned,))
     acc_handler.close()
 
+def fetch_totals():
+
+    acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
+    totals = acc_handler.db_fetch("SELECT * FROM totals_index")
+    result = {
+        "produced": totals[0][0],
+         "fees": totals[0][1],
+         "burned": totals[0][2],
+        "supply": totals[0][0] - totals[0][1] - totals[0][2]
+            }
+
+    return result
+
 def increase_produced_count(address, amount, logger, revert=False):
     while True:
         try:

@@ -17,13 +17,13 @@ from loops.core_loop import CoreClient
 from loops.message_loop import MessageClient
 from loops.peer_loop import PeerClient
 from memserver import MemServer
-from ops.account_ops import get_account
+from ops.account_ops import get_account, fetch_totals
 from ops.block_ops import get_block, fee_over_blocks, get_block_number, get_penalty
 from ops.data_ops import get_home, allow_async
 from ops.key_ops import keyfile_found, generate_keys, save_keys, load_keys
 from ops.log_ops import get_logger, logging
 from ops.peer_ops import save_peer, get_remote_status, get_producer_set, check_ip
-from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount, get_base_fee
+from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
 
 from pympler import summary, muppy
 
@@ -587,6 +587,22 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
     async def get(self, parameter):
         await asyncio.to_thread(self.blocks_after)
 
+class GetSupplyHandler(tornado.web.RequestHandler):
+    def get_supply(self):
+        readable = GetSupplyHandler.get_argument(self, "readable", default="none")
+
+        data = fetch_totals()
+
+        if readable == "true":
+            data.update({"produced": to_readable_amount(data["produced"])})
+            data.update({"fees": to_readable_amount(data["fees"])})
+            data.update({"burned": to_readable_amount(data["burned"])})
+            data.update({"supply": to_readable_amount(data["supply"])})
+
+        self.write(data)
+    async def get(self, parameter):
+        await asyncio.to_thread(self.get_supply)
+
 
 class GetLatestBlockHandler(tornado.web.RequestHandler):
     def latest_block(self):
@@ -726,6 +742,7 @@ async def make_app(port):
             (r"/user_transaction_buffer(.*)", UserTxBufferHandler),
             (r"/trust_pool(.*)", TrustPoolHandler),
             (r"/get_latest_block(.*)", GetLatestBlockHandler),
+            (r"/get_supply(.*)", GetSupplyHandler),
             (r"/announce_peer(.*)", AnnouncePeerHandler),
             (r"/status_pool(.*)", StatusPoolHandler),
             (r"/status(.*)", StatusHandler),

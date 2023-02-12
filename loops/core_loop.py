@@ -444,7 +444,8 @@ class CoreClient(threading.Thread):
         totals = get_totals(block=block)
         index_totals(produced = totals["produced"],
                      fees = totals["fees"],
-                     burned = totals["burned"])
+                     burned = totals["burned"],
+                     block_height=block["block_number"])
 
 
         save_block(block, self.logger)

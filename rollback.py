@@ -29,7 +29,11 @@ def rollback_one_block(logger, block) -> dict:
                                     )
 
             totals = get_totals(block=block, revert=True)
-            index_totals(totals["produced"], totals["fees"], totals["burned"])
+
+            index_totals(produced=totals["produced"],
+                         fees=totals["fees"],
+                         burned=totals["burned"],
+                         block_height=block["block_number"])
 
             unindex_transactions(block=block,
                                  logger=logger,
