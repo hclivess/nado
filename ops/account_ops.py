@@ -23,11 +23,20 @@ def get_account(address, create_on_error=True):
 
 
 def reflect_transaction(transaction, logger, block_height, revert=False):
-    sender = transaction["sender"]
-    recipient = transaction["recipient"]
 
-    amount_sender = transaction["amount"]+transaction["fee"]
-    amount_recipient = transaction["amount"]
+    if block_height > 111111:
+        sender = transaction["sender"]
+        recipient = transaction["recipient"]
+
+        amount_sender = transaction["amount"]+transaction["fee"]
+        amount_recipient = transaction["amount"]
+
+    else:
+        sender = transaction["sender"]
+        recipient = transaction["recipient"]
+
+        amount_sender = transaction["amount"]
+        amount_recipient = transaction["amount"]
 
     is_burn = False
     if recipient == "burn":
@@ -86,12 +95,12 @@ def get_totals(block, revert=False):
                 "burned": -burned
                 }
     return result
-def index_totals(produced, fees, burned):
+def index_totals(produced, fees, burned, block_height):
     acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
 
     if produced > 0:
         acc_handler.db_execute("UPDATE totals_index SET produced = produced + ?", (produced,))
-    if fees > 0:
+    if fees > 0 and block_height > 111111:
         acc_handler.db_execute("UPDATE totals_index SET fees = fees + ?", (fees,))
     if burned > 0:
         acc_handler.db_execute("UPDATE totals_index SET burned = burned + ?", (burned,))
