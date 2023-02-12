@@ -1,6 +1,6 @@
 import time
 
-from ops.account_ops import change_balance, increase_produced_count
+from ops.account_ops import change_balance, increase_produced_count, index_totals, get_totals
 from ops.block_ops import load_block_from_hash, set_latest_block_info, unindex_block
 from ops.transaction_ops import unindex_transactions
 
@@ -27,6 +27,13 @@ def rollback_one_block(logger, block) -> dict:
                                     revert=True,
                                     logger=logger
                                     )
+
+            totals = get_totals(block=block, revert=True)
+
+            index_totals(produced=totals["produced"],
+                         fees=totals["fees"],
+                         burned=totals["burned"],
+                         block_height=block["block_number"])
 
             unindex_transactions(block=block,
                                  logger=logger,

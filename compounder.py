@@ -22,7 +22,7 @@ async def get_list_of(key, peer, port, fail_storage, logger, semaphore, compress
     try:
         async with semaphore:
             
-            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
+            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(url_construct) as response:
                     if compress == "msgpack":
                         fetched = msgpack.unpackb(await (response.read()))
@@ -65,7 +65,7 @@ async def get_url(peer, port, url, logger, fail_storage, semaphore, compress=Non
     try:
         async with semaphore:
             
-            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
+            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(url_construct) as response:
                     fetched = await response.text()
                     return peer, fetched
@@ -99,7 +99,7 @@ async def send_transaction(peer, port, logger, fail_storage, transaction, semaph
     try:
         async with semaphore:
             
-            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
+            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(url_construct) as response:
                     fetched = json.loads(await response.text())["message"]
                     return peer, fetched
@@ -137,7 +137,7 @@ async def get_status(peer, port, logger, fail_storage, semaphore, compress=None)
     try:
         async with semaphore:
             
-            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
+            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(url_construct) as response:
                     if compress == "msgpack":
                         fetched = msgpack.unpackb(await response.read())
@@ -177,7 +177,7 @@ async def announce_self(peer, port, my_ip, logger, fail_storage, semaphore):
     try:
         async with semaphore:
             
-            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
+            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(url_construct) as response:
                     fetched = await response.text()
                     return fetched

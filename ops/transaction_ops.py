@@ -26,7 +26,7 @@ async def get_recommneded_fee(target, port, base_fee, logger):
     try:
         url_construct = f"http://{target}:{port}/get_recommended_fee"
         
-        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:
                 result = json.loads(await response.text())
                 return result['fee'] + base_fee
@@ -37,7 +37,7 @@ async def get_target_block(target, port, logger):
     try:
         url_construct = f"http://{target}:{port}/get_latest_block"
         
-        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:
                 result = json.loads(await response.text())
                 return result['block_number'] + 2

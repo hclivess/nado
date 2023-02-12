@@ -5,7 +5,7 @@ import ipaddress
 import json
 import os
 import os.path
-
+import statistics
 from tornado.httpclient import AsyncHTTPClient
 
 from compounder import compound_get_list_of, compound_announce_self
@@ -46,7 +46,7 @@ async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add ms
         url_construct = f"http://{target_peer}:{get_port()}/status"
 
         
-        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
+        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:
                 text = response.text()
                 code = response.status
@@ -288,6 +288,11 @@ def get_average_int(list_of_values):
     else:
         return None
 
+def get_median_int(list_of_values):
+    if list_of_values:
+        return int(statistics.median(list_of_values))
+    else:
+        return None
 
 def me_to(target) -> list:
     """useful in 1 peer network where self can't be reached after kicked from peer list"""
@@ -324,7 +329,7 @@ async def get_public_ip(logger):
 
     for url_construct in urls:
         try:
-            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=1)) as session:
+            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(url_construct) as response:
                     ip = await response.text()
                     return ip
@@ -352,12 +357,12 @@ def update_local_ip(ip, logger):
         logger.info(f"Local IP updated to {new_ip}")
 
 
-def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, average_trust, unreachable_list, purge_list,
+def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, median_trust, unreachable_list, purge_list,
                       peer_hash, required_hash, promiscuous) -> dict:
-    if average_trust > peer_trust and not promiscuous:
-        """peer trust worse than average"""
+    if median_trust > peer_trust and not promiscuous:
+        """peer trust worse than median"""
         return {"result": False,
-                "flag": "Peer trust below average"}
+                "flag": f"Peer trust {peer_trust} below median {median_trust}"}
     if peer in unreachable_list:
         """peer assigned to unreachable"""
         return {"result": False,

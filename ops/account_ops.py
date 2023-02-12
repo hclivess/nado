@@ -23,16 +23,20 @@ def get_account(address, create_on_error=True):
 
 
 def reflect_transaction(transaction, logger, block_height, revert=False):
-    sender = transaction["sender"]
-    recipient = transaction["recipient"]
 
     if block_height > 111111:
+        sender = transaction["sender"]
+        recipient = transaction["recipient"]
+
         amount_sender = transaction["amount"]+transaction["fee"]
         amount_recipient = transaction["amount"]
+
     else:
+        sender = transaction["sender"]
+        recipient = transaction["recipient"]
+
         amount_sender = transaction["amount"]
         amount_recipient = transaction["amount"]
-
 
     is_burn = False
     if recipient == "burn":
@@ -70,6 +74,51 @@ def change_balance(address: str, amount: int, logger, is_burn=False, revert=Fals
             time.sleep(1)
 
 
+def get_totals(block, revert=False):
+    fees = 0
+    burned = 0
+    produced = block["block_reward"]
+
+    for transaction in block["block_transactions"]:
+        if transaction["recipient"] == "burn":
+            burned += transaction["amount"]
+        fees += transaction["fee"]
+
+    if not revert:
+        result =  {"produced": produced,
+                "fees": fees,
+                "burned": burned
+                }
+    else:
+        result = {"produced": -produced,
+                "fees": -fees,
+                "burned": -burned
+                }
+    return result
+def index_totals(produced, fees, burned, block_height):
+    acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
+
+    if produced > 0:
+        acc_handler.db_execute("UPDATE totals_index SET produced = produced + ?", (produced,))
+    if fees > 0 and block_height > 111111:
+        acc_handler.db_execute("UPDATE totals_index SET fees = fees + ?", (fees,))
+    if burned > 0:
+        acc_handler.db_execute("UPDATE totals_index SET burned = burned + ?", (burned,))
+    acc_handler.close()
+
+def fetch_totals():
+
+    acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
+    totals = acc_handler.db_fetch("SELECT * FROM totals_index")
+    result = {
+        "produced": totals[0][0],
+         "fees": totals[0][1],
+         "burned": totals[0][2],
+        "supply": totals[0][0] - totals[0][1] - totals[0][2]
+            }
+
+    return result
+
 def increase_produced_count(address, amount, logger, revert=False):
     while True:
         try:
@@ -84,6 +133,7 @@ def increase_produced_count(address, amount, logger, revert=False):
 
             acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
             acc_handler.db_execute("UPDATE acc_index SET produced = ? WHERE address = ?", (produced_updated, address,))
+            acc_handler.close()
 
             return produced_updated
 

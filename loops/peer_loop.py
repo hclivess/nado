@@ -89,7 +89,7 @@ class PeerClient(threading.Thread):
 
             self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
                                                      peer=entry,
-                                                     value=-10000)
+                                                     value=-1)
 
             if entry in self.consensus.status_pool.keys():
                 self.consensus.status_pool.pop(entry)
@@ -174,6 +174,10 @@ class PeerClient(threading.Thread):
                 for key, value in candidates.items():
                     if value['protocol'] >= self.memserver.protocol:
                         self.consensus.status_pool[key]=value
+
+                        self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
+                                                                 peer=key,
+                                                                 value=1)
                     else:
                         self.logger.error(f"Protocol of {key} too low: {value['protocol']}")
 
@@ -181,7 +185,7 @@ class PeerClient(threading.Thread):
                             self.memserver.purge_peers_list.append(key)
                             self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
                                                                      peer=key,
-                                                                     value=-10000)
+                                                                     value=-1)
 
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)

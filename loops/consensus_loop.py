@@ -10,7 +10,8 @@ from ops.peer_ops import (
     get_majority,
     percentage,
     get_average_int,
-    ip_stored
+    ip_stored,
+    get_median_int
 )
 from ops.pool_ops import get_from_pool
 
@@ -53,7 +54,8 @@ class ConsensusClient(threading.Thread):
         self.majority_transaction_pool_hash = None
         self.majority_block_producers_hash = None
 
-        self.average_trust = None
+        self.trust_average = None
+        self.trust_median = None
 
         self.transaction_hash_pool_percentage = 0
         self.block_producers_hash_pool_percentage = 0
@@ -71,18 +73,18 @@ class ConsensusClient(threading.Thread):
                     if pool[peer] == majority_pool:
                         self.trust_pool = change_trust(trust_pool=self.trust_pool,
                                                        peer=peer,
-                                                       value=3000)
+                                                       value=1)
                     else:
                         self.trust_pool = change_trust(trust_pool=self.trust_pool,
                                                        peer=peer,
-                                                       value=3000)
+                                                       value=1)
 
         except Exception as e:
             self.logger.info(f"Failed to update trust: {e}")
 
     def add_peers_to_trust_pool(self) -> None:
         for peer in self.memserver.peers.copy():
-            if ip_stored(peer):
+            if ip_stored(peer) and self.memserver.ip != peer:
                 peer_trust = load_peer(ip=peer,
                                        key="peer_trust",
                                        logger=self.logger)
@@ -138,7 +140,11 @@ class ConsensusClient(threading.Thread):
                 self.add_peers_to_trust_pool()
 
                 if None not in self.trust_pool.values():
-                    self.average_trust = get_average_int(
+                    self.trust_average = get_average_int(
+                        list_of_values=self.trust_pool.values()
+                    )
+                if None not in self.trust_pool.values():
+                    self.trust_median = get_median_int(
                         list_of_values=self.trust_pool.values()
                     )
 
