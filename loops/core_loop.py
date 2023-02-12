@@ -7,7 +7,7 @@ import traceback
 from config import get_timestamp_seconds
 from event_bus import EventBus
 from loops.consensus_loop import change_trust
-from ops.account_ops import increase_produced_count, change_balance
+from ops.account_ops import increase_produced_count, change_balance, get_totals, index_totals
 from ops.block_ops import (
     knows_block,
     get_blocks_after,
@@ -219,8 +219,7 @@ class CoreClient(threading.Thread):
 
                     for peer, value in shuffled_pool.items():
                         """pick random peer"""
-                        peer_trust = load_trust(logger=self.logger,
-                                                peer=peer)
+                        peer_trust = self.consensus.trust_pool[peer]
                         """load trust score"""
 
                         peer_protocol = self.consensus.status_pool[peer]["protocol"]
@@ -236,12 +235,13 @@ class CoreClient(threading.Thread):
                                                           peer_trust=peer_trust,
                                                           memserver_protocol=self.memserver.protocol,
                                                           unreachable_list=self.memserver.unreachable.keys(),
-                                                          average_trust=self.consensus.average_trust,
+                                                          median_trust=self.consensus.trust_median,
                                                           purge_list=self.memserver.purge_peers_list,
                                                           peer_hash=value,
                                                           required_hash=hash_candidate,
                                                           promiscuous=self.memserver.promiscuous)
                             if qualifies["result"]:
+                                self.logger.debug(f"{peer} qualified for sync")
                                 return peer
                             else:
                                 self.logger.debug(f"{peer} not qualified for sync: {qualifies['flag']}")
@@ -294,7 +294,7 @@ class CoreClient(threading.Thread):
                 if self.memserver.ip not in suggested_block_producers:
                     self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
                                                              peer=sync_from,
-                                                             value=-10000)
+                                                             value=-1)
                     self.logger.info(f"Our node not present in suggested block producers from {sync_from}")
                     announce_me(
                         targets=[sync_from],
@@ -329,7 +329,7 @@ class CoreClient(threading.Thread):
         else:
             self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
                                                      peer=peer,
-                                                     value=-10000)
+                                                     value=-1)
             self.logger.info(f"Could not replace {key} from {peer}")
 
     def emergency_mode(self):
@@ -372,6 +372,9 @@ class CoreClient(threading.Thread):
                                             break
 
 
+                                    self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
+                                                                             peer=peer,
+                                                                             value=1)
                             else:
                                 self.logger.info(f"No newer blocks found from {peer}")
                                 break
@@ -379,7 +382,7 @@ class CoreClient(threading.Thread):
                         except Exception as e:
                             self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
                                                                      peer=peer,
-                                                                     value=-10000)
+                                                                     value=-1)
                             self.logger.error(f"Failed to get blocks after {block_hash} from {peer}: {e}")
                             break
 
@@ -390,7 +393,7 @@ class CoreClient(threading.Thread):
                             self.memserver.rollbacks += 1
                             self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
                                                                      peer=peer,
-                                                                     value=-10000)
+                                                                     value=-1)
                         else:
                             self.logger.error(f"Rollbacks exhausted")
                             self.memserver.rollbacks = 0
@@ -438,6 +441,12 @@ class CoreClient(threading.Thread):
                                 logger=self.logger
                                 )
 
+        totals = get_totals(block=block)
+        index_totals(produced = totals["produced"],
+                     fees = totals["fees"],
+                     burned = totals["burned"])
+
+
         save_block(block, self.logger)
         set_latest_block_info(block=block,
                               logger=self.logger)
@@ -457,7 +466,7 @@ class CoreClient(threading.Thread):
             if remote:
                 self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
                                                          peer=remote_peer,
-                                                         value=-1000)
+                                                         value=-1)
             raise
 
         else:
@@ -481,7 +490,7 @@ class CoreClient(threading.Thread):
                     if remote:
                         self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
                                                                  peer=remote_peer,
-                                                                 value=-1000)
+                                                                 value=-1)
                     raise
 
     def verify_block(self, block, remote, remote_peer=None, is_old=False):

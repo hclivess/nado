@@ -13,6 +13,7 @@ class DbHandler:
                 self.con.commit()
             return True
         except Exception as e:
+            print(e)
             return False
 
     def db_executemany(self, query, *args):
@@ -22,6 +23,7 @@ class DbHandler:
                 self.con.commit()
             return True
         except Exception as e:
+            print(e)
             return False
 
     def db_fetch(self, query, *args):
@@ -31,6 +33,7 @@ class DbHandler:
                 result = self.cur.fetchall()
             return result
         except Exception as e:
+            print(e)
             return False
 
     def close(self):
