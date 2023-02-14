@@ -30,7 +30,8 @@ class PeerClient(threading.Thread):
         """gets peers from buffer and adds them to routine"""
         result = check_save_peers(peers=self.memserver.peer_buffer,
                                   logger=self.logger,
-                                  fails=self.memserver.purge_peers_list)
+                                  fails=self.memserver.purge_peers_list,
+                                  unreachable=self.memserver.unreachable)
 
         for entry in result["success"]:
             if entry not in self.memserver.block_producers and ip_stored(entry):
@@ -55,7 +56,8 @@ class PeerClient(threading.Thread):
 
         check_save_peers(peers=candidates,
                          logger=self.logger,
-                         fails=self.memserver.purge_peers_list)
+                         fails=self.memserver.purge_peers_list,
+                         unreachable=self.memserver.unreachable)
 
         for peer in candidates:
             if check_ip(peer):
@@ -153,7 +155,8 @@ class PeerClient(threading.Thread):
 
                     check_save_peers(peers=self.memserver.peers,
                                      logger=self.logger,
-                                     fails=self.memserver.purge_peers_list)
+                                     fails=self.memserver.purge_peers_list,
+                                     unreachable=self.memserver.unreachable)
 
                     dump_trust(logger=self.logger,
                                pool_data=self.consensus.trust_pool)

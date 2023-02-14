@@ -216,9 +216,9 @@ def get_producer_set(producer_set_hash):
         return None
 
 
-def check_save_peers(peers, logger, fails):
+def check_save_peers(peers, logger, fails, unreachable):
     """save all peers to drive if new to drive"""
-    good_peers = set(peers) - set(fails)
+    good_peers = set(peers) - set(fails) - set(unreachable)
 
     local_fails = []
     candidates = asyncio.run(compound_get_status_pool(
