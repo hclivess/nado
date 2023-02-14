@@ -319,9 +319,10 @@ def unindex_transactions(block, logger, block_height):
                                     logger=logger,
                                     block_height=block_height)
 
-            tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
-            tx_handler.db_executemany("DELETE FROM tx_index WHERE txid = ?", (txs_to_unindex,))
-            tx_handler.close()
+            if txs_to_unindex:
+                tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+                tx_handler.db_executemany("DELETE FROM tx_index WHERE txid = ?", (txs_to_unindex,))
+                tx_handler.close()
             break
 
         except Exception as e:
