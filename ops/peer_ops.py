@@ -120,7 +120,8 @@ async def load_ips(logger, port, fail_storage, minimum=3) -> list:
     for file in peer_files:
         with open(file, "r") as peer_file:
             peer = json.load(peer_file)
-            candidates.append(peer)
+            if peer["ip"] not in fail_storage:
+                candidates.append(peer)
 
     ip_sorted = []
     candidates_sorted = sort_dict_value(candidates, key="peer_trust")[:50]
