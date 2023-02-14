@@ -218,10 +218,13 @@ def get_producer_set(producer_set_hash):
 
 def check_save_peers(peers, logger, fails):
     """save all peers to drive if new to drive"""
+    good_peers = set(peers) - set(fails)
+
+    local_fails = []
     candidates = asyncio.run(compound_get_status_pool(
-        ips=peers,
+        ips=good_peers,
         port=get_port(),
-        fail_storage=fails,
+        fail_storage=local_fails,
         logger=logger,
         semaphore=asyncio.Semaphore(50)))
 
@@ -233,8 +236,13 @@ def check_save_peers(peers, logger, fails):
                 address=value["address"],
             )
 
-    if fails:
-        logger.error(f"Unable to reach peers to get their addresses: {fails}")
+    if local_fails:
+        logger.error(f"Unable to reach peers to get their addresses: {local_fails}")
+
+        for entry in local_fails:
+            if entry not in fails:
+                fails.append(entry)
+
 
     return {"success": candidates.keys(),
             "fails": fails}
