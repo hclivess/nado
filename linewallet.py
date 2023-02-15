@@ -66,7 +66,7 @@ if __name__ == "__main__":
     address = key_dictionary["address"]
 
     if args.peers:
-        ips = args.peers
+        ips = list(args.peers)
     else:
         ips = asyncio.run(load_ips(fail_storage=[],
                                    unreachable=[],
