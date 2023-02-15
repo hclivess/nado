@@ -135,12 +135,14 @@ class CoreClient(threading.Thread):
                         sample_hash=self.memserver.transaction_pool_hash):
                     """replace mempool in 2 period in case it is different from majority as last effort"""
                     self.replace_transaction_pool()
+                    self.memserver.transaction_pool_hash = self.memserver.get_transaction_pool_hash()
 
                 if minority_consensus(
                         majority_hash=self.consensus.majority_block_producers_hash,
                         sample_hash=self.memserver.block_producers_hash):
                     """replace block producers in peace period in case it is different from majority as last effort"""
                     self.replace_block_producers()
+                    self.memserver.block_producers_hash = self.memserver.get_block_producers_hash()
 
             self.memserver.reported_uptime = self.memserver.get_uptime()
 

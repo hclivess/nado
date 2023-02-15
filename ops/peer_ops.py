@@ -108,7 +108,7 @@ def sort_dict_value(values: list, key: str) -> list:
 async def load_ips(logger, port, fail_storage, unreachable, minimum=3) -> list:
     """load peers from drive, sort by trust, test in batches asynchronously,
     return when limit is reached"""
-    bad_peers = set(fail_storage + unreachable)
+    bad_peers = set(fail_storage + list(unreachable.keys()))
 
     peer_files= glob.glob(f"{get_home()}/peers/*.dat")
 
