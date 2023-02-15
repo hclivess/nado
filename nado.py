@@ -592,9 +592,11 @@ class GetSupplyHandler(tornado.web.RequestHandler):
         readable = GetSupplyHandler.get_argument(self, "readable", default="none")
         data = fetch_totals()
         genesis_acc = get_account(address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b")
+        data.update({"block_number": memserver.latest_block["block_number"]})
         data.update({"reserve": genesis_acc["balance"]})
         data.update({"reserve_spent": 1000000000000000000 - genesis_acc["balance"]})
         data.update({"circulating": data["reserve_spent"] + data["produced"] - data["burned"] - data["fees"]})
+        data.update({"total_supply": 1000000000000000000 + data["produced"] - data["burned"] - data["fees"]})
 
         if readable == "true":
             data.update({"produced": to_readable_amount(data["produced"])})
@@ -603,6 +605,7 @@ class GetSupplyHandler(tornado.web.RequestHandler):
             data.update({"reserve": to_readable_amount(data["reserve"])})
             data.update({"reserve_spent": to_readable_amount(data["reserve_spent"])})
             data.update({"circulating": to_readable_amount(data["circulating"])})
+            data.update({"total_supply": to_readable_amount(data["total_supply"])})
 
         self.write(data)
     async def get(self, parameter):
