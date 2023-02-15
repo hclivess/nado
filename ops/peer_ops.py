@@ -105,9 +105,10 @@ def sort_dict_value(values: list, key: str) -> list:
         return []
 
 
-async def load_ips(logger, port, fail_storage, minimum=3) -> list:
+async def load_ips(logger, port, fail_storage, unreachable, minimum=3) -> list:
     """load peers from drive, sort by trust, test in batches asynchronously,
     return when limit is reached"""
+    bad_peers = set(fail_storage + unreachable)
 
     peer_files= glob.glob(f"{get_home()}/peers/*.dat")
 
@@ -120,7 +121,7 @@ async def load_ips(logger, port, fail_storage, minimum=3) -> list:
     for file in peer_files:
         with open(file, "r") as peer_file:
             peer = json.load(peer_file)
-            if peer["ip"] not in fail_storage: #todo unreachable not included
+            if peer["ip"] not in bad_peers:
                 candidates.append(peer)
 
     ip_sorted = []

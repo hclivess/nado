@@ -68,7 +68,10 @@ if __name__ == "__main__":
     if args.peers:
         ips = ["127.0.0.1"]
     else:
-        ips = asyncio.run(load_ips(fail_storage=[], logger=logger, port=9173))
+        ips = asyncio.run(load_ips(fail_storage=[],
+                                   unreachable=[],
+                                   logger=logger,
+                                   port=9173))
 
     target = random.choice(ips)
     port = get_port()
