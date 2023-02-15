@@ -43,7 +43,7 @@ if __name__ == "__main__":
     parser.add_argument("--fee", help="<number> Fee to spend", default=False)
     parser.add_argument("--target", help="<number> Target block number", default=False)
     parser.add_argument("--auto", help="<any> Uses suggested fee and target block instead of asking, use any value (1)", default=False)
-    parser.add_argument("--peers", help="<['127.0.0.1']> Broadcasts transaction only list of peers", default=False)
+    parser.add_argument("--peers", help="<'130.61.131.16','207.180.203.132'> Broadcasts transaction only list of peers", default=False)
     args = parser.parse_args()
 
     if args.sk:
@@ -66,7 +66,8 @@ if __name__ == "__main__":
     address = key_dictionary["address"]
 
     if args.peers:
-        ips = list(args.peers)
+        ips = list(args.peers.split(","))
+        print(ips)
     else:
         ips = asyncio.run(load_ips(fail_storage=[],
                                    unreachable=[],
