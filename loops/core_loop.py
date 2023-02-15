@@ -313,6 +313,9 @@ class CoreClient(threading.Thread):
                     elif block_producer not in self.memserver.peer_buffer:
                         self.logger.info(f"{block_producer} not stored locally and will be probed")
                         self.memserver.peer_buffer.append(block_producer)
+                    else:
+                        self.logger.info(f"{block_producer} currently in buffer, aborting")
+                        return
 
                 self.memserver.block_producers = set_and_sort(replacements)
                 save_block_producers(self.memserver.block_producers)
