@@ -114,7 +114,6 @@ def fetch_totals():
         "produced": totals[0][0],
          "fees": totals[0][1],
          "burned": totals[0][2],
-        "supply": totals[0][0] - totals[0][1] - totals[0][2]
             }
 
     return result
