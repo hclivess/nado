@@ -70,7 +70,7 @@ if __name__ == "__main__":
         print(ips)
     else:
         ips = asyncio.run(load_ips(fail_storage=[],
-                                   unreachable=[],
+                                   unreachable={},
                                    logger=logger,
                                    port=9173))
 
