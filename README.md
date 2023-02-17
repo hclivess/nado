@@ -263,7 +263,7 @@ users to make block production and rewards as inclusive as possible.
 ## Got some sci-fi tech mumbo jumbo?
 - Cryptography: Edwards-curve Digital Signature Algorithm (Ed25519)
 - Link hashing: BLAKE2b
-- Block capacity: Capped at 250KB per minute
+- Block capacity: Capped at 150KB per minute
 - Block reward: Between 0 and 5 depending on network usage
 - Transaction throughput: 7 raw transactions per second
 - Proof of Fidelity with aspects of majority and diversity
