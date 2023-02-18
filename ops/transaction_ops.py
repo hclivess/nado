@@ -391,10 +391,16 @@ if __name__ == "__main__":
                                                                                        port=port,
                                                                                        logger=logger)))
 
-            transaction = create_transaction(draft=draft, private_key=private_key,fee=0)
+            transaction = create_transaction(draft=draft,
+                                             private_key=private_key,
+                                             fee=asyncio.run(get_recommneded_fee(
+                                                 target=ips[0],
+                                                 port=port,
+                                                 base_fee=get_base_fee(transaction=draft),
+                                                 logger=logger)))
 
             print(transaction)
-            print(validate_transaction(transaction, logger=logger, block_height=0))
+            print(validate_transaction(transaction, logger=logger, block_height=111112))
 
             fails = []
             results = asyncio.run(compound_send_transaction(ips=ips,
