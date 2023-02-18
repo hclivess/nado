@@ -73,6 +73,9 @@ class MemServer:
         self.force_sync_ip = None
         self.rollbacks = 0
         self.can_mine = False
+        self.replaced_this_round = False
+        self.switch_mode = {"name":"Initialization",
+                            "mode": -1}
 
         self.min_peers = self.config.get("min_peers") or 5
         self.peer_limit = self.config.get("peer_limit") or 24

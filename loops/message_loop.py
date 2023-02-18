@@ -53,7 +53,7 @@ class MessageClient(threading.Thread):
                 )
 
                 self.logger.debug(
-                    f"Transactions: {len(self.memserver.transaction_pool)}tp/{len(self.memserver.tx_buffer)}tb/{len(self.memserver.user_tx_buffer)}ub")
+                    f"Transactions: {len(self.memserver.transaction_pool)}tp < {len(self.memserver.tx_buffer)}tb < {len(self.memserver.user_tx_buffer)}ub")
                 self.logger.debug(f"Linked Peers: {len(self.memserver.peers)}")
                 self.logger.debug(f"Block Producers: {len(self.memserver.block_producers)}")
                 self.logger.warning(f"Emergency Mode: {self.memserver.emergency_mode}")

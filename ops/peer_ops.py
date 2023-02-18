@@ -105,9 +105,10 @@ def sort_dict_value(values: list, key: str) -> list:
         return []
 
 
-async def load_ips(logger, port, fail_storage, minimum=3) -> list:
+async def load_ips(logger, port, fail_storage, unreachable, minimum=3) -> list:
     """load peers from drive, sort by trust, test in batches asynchronously,
     return when limit is reached"""
+    bad_peers = set(fail_storage + list(unreachable.keys()))
 
     peer_files= glob.glob(f"{get_home()}/peers/*.dat")
 
@@ -118,9 +119,13 @@ async def load_ips(logger, port, fail_storage, minimum=3) -> list:
     status_pool = []
 
     for file in peer_files:
-        with open(file, "r") as peer_file:
-            peer = json.load(peer_file)
-            candidates.append(peer)
+        try:
+            with open(file, "r") as peer_file:
+                    peer = json.load(peer_file)
+                    if peer["peer_ip"] not in bad_peers:
+                        candidates.append(peer)
+        except Exception as e:
+            logger.info(f"Failed to load {peer}: {e}")
 
     ip_sorted = []
     candidates_sorted = sort_dict_value(candidates, key="peer_trust")[:50]
@@ -216,13 +221,15 @@ def get_producer_set(producer_set_hash):
         return None
 
 
-def check_save_peers(peers, logger):
+def check_save_peers(peers, logger, fails, unreachable):
     """save all peers to drive if new to drive"""
-    fails = []
+    good_peers = set(peers) - set(fails) - set(unreachable)
+
+    local_fails = []
     candidates = asyncio.run(compound_get_status_pool(
-        ips=peers,
+        ips=good_peers,
         port=get_port(),
-        fail_storage=fails,
+        fail_storage=local_fails,
         logger=logger,
         semaphore=asyncio.Semaphore(50)))
 
@@ -234,8 +241,13 @@ def check_save_peers(peers, logger):
                 address=value["address"],
             )
 
-    if fails:
-        logger.error(f"Unable to reach peers to get their addresses: {fails}")
+    if local_fails:
+        logger.error(f"Unable to reach peers to get their addresses: {local_fails}")
+
+        for entry in local_fails:
+            if entry not in fails:
+                fails.append(entry)
+
 
     return {"success": candidates.keys(),
             "fails": fails}

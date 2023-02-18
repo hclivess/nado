@@ -319,9 +319,10 @@ def unindex_transactions(block, logger, block_height):
                                     logger=logger,
                                     block_height=block_height)
 
-            tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
-            tx_handler.db_executemany("DELETE FROM tx_index WHERE txid = ?", (txs_to_unindex,))
-            tx_handler.close()
+            if txs_to_unindex:
+                tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+                tx_handler.db_executemany("DELETE FROM tx_index WHERE txid = ?", (txs_to_unindex,))
+                tx_handler.close()
             break
 
         except Exception as e:
@@ -375,6 +376,7 @@ if __name__ == "__main__":
     else:
         ips = asyncio.run(load_ips(logger=logger,
                                    fail_storage=[],
+                                   unreachable={},
                                    port=port))
 
     for x in range(0, 50000):
@@ -389,10 +391,16 @@ if __name__ == "__main__":
                                                                                        port=port,
                                                                                        logger=logger)))
 
-            transaction = create_transaction(draft=draft, private_key=private_key,fee=0)
+            transaction = create_transaction(draft=draft,
+                                             private_key=private_key,
+                                             fee=asyncio.run(get_recommneded_fee(
+                                                 target=ips[0],
+                                                 port=port,
+                                                 base_fee=get_base_fee(transaction=draft),
+                                                 logger=logger)))
 
             print(transaction)
-            print(validate_transaction(transaction, logger=logger, block_height=0))
+            print(validate_transaction(transaction, logger=logger, block_height=111112))
 
             fails = []
             results = asyncio.run(compound_send_transaction(ips=ips,

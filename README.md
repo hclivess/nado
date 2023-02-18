@@ -101,7 +101,7 @@ All arguments can be displayed with `python3.10 linewallet.py --help`, here are 
 --fee, <number> Fee to spend
 --target, <number> Target block number
 --auto, <any> Uses suggested fee and target block instead of asking, use any value (1)
---peers, <['127.0.0.1']> Broadcasts transaction only list of peers
+--peers <'130.61.131.16','207.180.203.132'> Broadcasts transaction only to the supplied list of peers
 ```
 ## Remote access
 
@@ -263,7 +263,7 @@ users to make block production and rewards as inclusive as possible.
 ## Got some sci-fi tech mumbo jumbo?
 - Cryptography: Edwards-curve Digital Signature Algorithm (Ed25519)
 - Link hashing: BLAKE2b
-- Block capacity: Capped at 250KB per minute
+- Block capacity: Capped at 150KB per minute
 - Block reward: Between 0 and 5 depending on network usage
 - Transaction throughput: 7 raw transactions per second
 - Proof of Fidelity with aspects of majority and diversity

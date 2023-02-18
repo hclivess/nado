@@ -88,23 +88,29 @@ class CoreClient(threading.Thread):
                 self.memserver.periods = [2]
             elif self.memserver.since_last_block > self.memserver.block_time:
                 self.memserver.periods = [3]
-            mode = "Stable switch"
+            self.memserver.switch_mode = {"mode": 2,
+                                          "name": "Stable switch"}
 
         elif get_timestamp_seconds() - self.memserver.block_generation_age > 5:
             """generate a block if x seconds have passed"""
             self.memserver.periods = [3]
-            mode = "Target catch up"
+            self.memserver.switch_mode = {"mode": 1,
+                                          "name": "Target catch up"}
         else:
             """do not generate block more than once per x seconds"""
             self.memserver.periods = [0,1,2]
-            mode = "Quick switch"
+            self.memserver.switch_mode = {"mode": 0,
+                                          "name": "Quick switch"}
 
         if old_periods != self.memserver.periods:
-            self.logger.debug(f"Switched to period {self.memserver.periods}; Mode: {mode}")
+            self.logger.debug(f"Switched to period {self.memserver.periods}; Mode: {self.memserver.switch_mode['name']}")
 
     def normal_mode(self):
         try:
             self.get_period()
+            if 0 in self.memserver.periods and self.memserver.switch_mode["mode"] == 2:
+                self.memserver.replaced_this_round = False
+
             if 0 in self.memserver.periods and self.memserver.user_tx_buffer:
                 """merge user buffer to tx buffer inside 0 period"""
                 buffered = merge_buffer(from_buffer=self.memserver.user_tx_buffer,
@@ -128,19 +134,23 @@ class CoreClient(threading.Thread):
                 self.memserver.transaction_pool = cull_buffer(buffer=buffered["to_buffer"],
                                                               limit=self.memserver.transaction_pool_limit)
 
-            if 2 in self.memserver.periods:
+            if 2 in self.memserver.periods and not self.memserver.replaced_this_round:
+                self.memserver.replaced_this_round = True
 
                 if minority_consensus(
                         majority_hash=self.consensus.majority_transaction_pool_hash,
                         sample_hash=self.memserver.transaction_pool_hash):
                     """replace mempool in 2 period in case it is different from majority as last effort"""
                     self.replace_transaction_pool()
+                    self.memserver.transaction_pool_hash = self.memserver.get_transaction_pool_hash()
 
                 if minority_consensus(
                         majority_hash=self.consensus.majority_block_producers_hash,
                         sample_hash=self.memserver.block_producers_hash):
                     """replace block producers in peace period in case it is different from majority as last effort"""
                     self.replace_block_producers()
+                    self.memserver.block_producers_hash = self.memserver.get_block_producers_hash()
+
 
             self.memserver.reported_uptime = self.memserver.get_uptime()
 
@@ -311,6 +321,9 @@ class CoreClient(threading.Thread):
                     elif block_producer not in self.memserver.peer_buffer:
                         self.logger.info(f"{block_producer} not stored locally and will be probed")
                         self.memserver.peer_buffer.append(block_producer)
+                    else:
+                        self.logger.info(f"{block_producer} currently in buffer, aborting")
+                        return
 
                 self.memserver.block_producers = set_and_sort(replacements)
                 save_block_producers(self.memserver.block_producers)
