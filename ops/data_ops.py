@@ -64,7 +64,7 @@ def shuffle_dict(dictionary) -> dict:
 
 
 def allow_async():
-    if sys.platform == "win32" and sys.version_info >= (3, 8, 0):
+    if sys.platform == "win32" and (3, 11, 0) >= sys.version_info >= (3, 8, 0):
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
