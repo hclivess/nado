@@ -9,6 +9,7 @@ logs/
 index/
 *.build/
 .idea/
+/nado_archive.tar.gz
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
