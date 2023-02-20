@@ -390,14 +390,19 @@ if __name__ == "__main__":
                                              target_block=asyncio.run(get_target_block(target=ips[0],
                                                                                        port=port,
                                                                                        logger=logger)))
-
-            transaction = create_transaction(draft=draft,
-                                             private_key=private_key,
-                                             fee=asyncio.run(get_recommneded_fee(
+            fee = fee=asyncio.run(get_recommneded_fee(
                                                  target=ips[0],
                                                  port=port,
                                                  base_fee=get_base_fee(transaction=draft),
-                                                 logger=logger)))
+                                                 logger=logger))
+
+            if fee > 500:
+                fee = 500
+
+            transaction = create_transaction(draft=draft,
+                                             private_key=private_key,
+                                             fee=fee
+                                             )
 
             print(transaction)
             print(validate_transaction(transaction, logger=logger, block_height=111112))
