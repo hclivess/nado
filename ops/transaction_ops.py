@@ -110,14 +110,11 @@ def sort_transaction_pool(transactions: list, key="txid") -> list:
 
 
 def get_transactions_of_account(account, min_block: int, logger):
-    """rework"""
-
-    max_block = min_block + 100
     acc_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
 
     fetched = acc_handler.db_fetch(
-        "SELECT txid FROM tx_index WHERE (sender = ? OR recipient = ?) AND (block_number >= ? AND block_number <= ?) ORDER BY block_number",
-        (account, account, min_block, max_block,))
+        "SELECT txid FROM tx_index WHERE (sender = ? OR recipient = ?) AND block_number >= ? ORDER BY block_number LIMIT 100",
+        (account, account, min_block))
 
     acc_handler.close()
 
@@ -126,7 +123,7 @@ def get_transactions_of_account(account, min_block: int, logger):
         tx_list.append(get_transaction(logger=logger,
                                        txid=txid[0]))
 
-    return {f"{min_block}-{max_block}": tx_list}
+    return {f"{min_block}-{min_block+100}": tx_list}
     # return {batch: tx_list}
 
 
