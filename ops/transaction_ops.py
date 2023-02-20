@@ -128,11 +128,11 @@ def get_transactions_of_account(account, min_block: int, logger):
 
 
 def to_readable_amount(raw_amount: int) -> str:
-    return f"{(raw_amount / 1000000000):.10f}"
+    return f"{(raw_amount / 10000000000):.10f}"
 
 
 def to_raw_amount(amount: [int, float]) -> int:
-    return int(float(amount) * 1000000000)
+    return int(float(amount) * 10000000000)
 
 
 def check_balance(account, amount, fee):
