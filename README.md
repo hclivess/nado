@@ -258,7 +258,7 @@ users to make block production and rewards as inclusive as possible.
 
 ## How many decimals are there and what are the units called?
 
-1 NADO can be split into 1,000,000,000 units.
+1 NADO can be split into 1,000,000,000 units (0.0000000001).
 
 ## Got some sci-fi tech mumbo jumbo?
 - Cryptography: Edwards-curve Digital Signature Algorithm (Ed25519)
