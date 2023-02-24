@@ -642,8 +642,6 @@ class AccountHandler(tornado.web.RequestHandler):
                     account_data.update({"balance": to_readable_amount(account_data["balance"])})
                     account_data.update({"produced": to_readable_amount(account_data["produced"])})
                     account_data.update({"burned": to_readable_amount(account_data["burned"])})
-                    account_data.update({"penalty": to_readable_amount(account_data["penalty"])})
-
 
             else:
                 account_data = "Not found"
