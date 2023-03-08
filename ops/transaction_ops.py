@@ -310,7 +310,7 @@ def unindex_transactions(block, logger, block_height):
         try:
             txids_to_unindex = []
             for transaction in block["block_transactions"]:
-                txids_to_unindex.append(transaction["txid"])
+                txids_to_unindex.append([transaction["txid"]])
                 reflect_transaction(transaction=transaction,
                                     revert=True,
                                     logger=logger,
@@ -318,7 +318,7 @@ def unindex_transactions(block, logger, block_height):
 
             if txids_to_unindex:
                 tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
-                tx_handler.db_executemany("DELETE FROM tx_index WHERE txid = ?", txids_to_unindex)
+                tx_handler.db_executemany("DELETE FROM tx_index WHERE txid = ?", (txids_to_unindex,))
                 tx_handler.close()
             break
 
