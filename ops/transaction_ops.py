@@ -75,23 +75,13 @@ def create_txid(transaction):
     return blake2b_hash(json.dumps(transaction))
 
 
-def validate_uniqueness(transaction, logger):
-    """no longer needed, better safe than sorry"""
-    if get_transaction(transaction, logger=logger):
-        return False
-    else:
-        return True
-
-
 def validate_transaction(transaction, logger, block_height):
     assert isinstance(transaction, dict), "Data structure incomplete"
     assert validate_origin(transaction, block_height=block_height), "Invalid origin"
     assert validate_address(transaction["sender"]), f"Invalid sender {transaction['sender']}"
     assert validate_address(transaction["recipient"]), f"Invalid recipient {transaction['recipient']}"
-    assert validate_uniqueness(transaction["txid"], logger=logger), f"Transaction {transaction['txid']} already exists"
     assert isinstance(transaction["fee"], int), "Transaction fee is not an integer"
     assert transaction["fee"] >= 0, "Transaction fee lower than zero"
-    #assert validate_base_fee(transaction=transaction, logger=logger), "Base fee too low" #not really needed
     return True
 
 def min_from_transaction_pool(transactions: list, key="fee") -> dict:
