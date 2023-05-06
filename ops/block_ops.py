@@ -16,8 +16,10 @@ from .log_ops import get_logger
 from .peer_ops import load_peer
 from .sqlite_ops import DbHandler
 
+
 def float_to_int(x):
     return math.floor(x * (2 ** 31))
+
 
 def get_hash_penalty(address: str, block_hash: str, block_number: int):
     address_mingled = blake2b_hash_link(address, block_hash)
@@ -27,9 +29,10 @@ def get_hash_penalty(address: str, block_hash: str, block_number: int):
 
     return score
 
+
 def get_block_reward(logger, blocks_backward=100, reward_cap=5000000000):
     """based on number of transactions"""
-    latest_block_info = get_latest_block_info(logger=logger)
+    latest_block_info = get_block_ends_info(logger=logger)["latest_block"]
     parent = latest_block_info["block_hash"]
     latest_block_number = latest_block_info["block_number"]
     block_number = latest_block_number
@@ -48,6 +51,7 @@ def get_block_reward(logger, blocks_backward=100, reward_cap=5000000000):
         reward = reward_cap
 
     return reward
+
 
 def valid_block_timestamp(new_block):
     new_timestamp = new_block["block_timestamp"]
@@ -105,7 +109,7 @@ def get_block_candidate(
                         key="peer_address")
 
     block = construct_block(
-        block_timestamp=latest_block["block_timestamp"]+block_time,
+        block_timestamp=latest_block["block_timestamp"] + block_time,
         block_number=block_number,
         parent_hash=latest_block["block_hash"],
         block_ip=best_producer,
@@ -119,7 +123,7 @@ def get_block_candidate(
 
 def fee_over_blocks(logger, number_of_blocks=250):
     """returns average fee over last x blocks"""
-    last_block = get_latest_block_info(logger=logger)
+    last_block = get_block_ends_info(logger=logger)["latest_block"]
 
     if last_block["block_number"] < number_of_blocks:
         number_of_blocks = last_block["block_number"]
@@ -222,14 +226,23 @@ def save_block(block: dict, logger):
             time.sleep(1)
 
 
-def get_latest_block_info(logger):
+def get_block_ends_info(logger):
     try:
-        with open(f"{get_home()}/index/latest_block.dat", "r") as infile:
-            info = load_block_from_hash(block_hash=json.load(infile),
-                                        logger=logger)
-            return info
+        with open(f"{get_home()}/index/block_ends.dat", "r") as ends_file:
+            block_ends = json.load(ends_file)
+
+            latest_block = load_block_from_hash(block_hash=block_ends["latest_block"],
+                                                logger=logger)
+            earliest_block = load_block_from_hash(block_hash=block_ends["earliest_block"],
+                                                  logger=logger)
+
+            block_ends = {"earliest_block": earliest_block,
+                          "latest_block": latest_block}
+
+            return block_ends
+
     except Exception as e:
-        logger.info(f"Failed to get latest block info: {e}")
+        logger.info(f"Failed to get block ends info: {e}")
 
 
 def unindex_block(block, logger):
@@ -251,30 +264,57 @@ def unindex_block(block, logger):
             logger.error(f"Failed to unindex block: {e}")
 
 
-def set_latest_block_info(block: dict, logger):
+def set_earliest_block_info(earliest_block: dict, logger):
     while True:
         try:
-            new_hash = block["block_hash"]
+            new_hash = earliest_block["block_hash"]
             old_hash = None
 
             while not old_hash == new_hash:
-                with open(f"{get_home()}/index/latest_block.dat", "w") as outfile:
-                    json.dump(new_hash, outfile)
+                with open(f"{get_home()}/index/block_ends.dat", "r") as ends_file:
+                    ends_file_dict = json.load(ends_file)
+                    ends_file_dict["latest_block"] = new_hash
+                with open(f"{get_home()}/index/block_ends.dat", "w") as ends_file:
+                    json.dump(ends_file_dict, ends_file)
 
-                with open(f"{get_home()}/index/latest_block.dat", "r") as infile:
+                with open(f"{get_home()}/index/block_ends.dat", "r") as infile:
                     """read data to verify they have been saved properly"""
-                    old_hash = json.load(infile)
+                    old_hash = json.load(infile)["earliest_block"]
+
+            return earliest_block
+
+        except Exception as e:
+            logger.info(f"Failed to set earliest block info to {earliest_block['block_hash']}: {e}")
+            time.sleep(1)
+
+
+def set_latest_block_info(latest_block: dict, logger):
+    while True:
+        try:
+            new_hash = latest_block["block_hash"]
+            old_hash = None
+
+            while not old_hash == new_hash:
+                with open(f"{get_home()}/index/block_ends.dat", "r") as ends_file:
+                    ends_file_dict = json.load(ends_file)
+                    ends_file_dict["latest_block"] = new_hash
+                with open(f"{get_home()}/index/block_ends.dat", "w") as ends_file:
+                    json.dump(ends_file_dict, ends_file)
+
+                with open(f"{get_home()}/index/block_ends.dat", "r") as infile:
+                    """read data to verify they have been saved properly"""
+                    old_hash = json.load(infile)["latest_block"]
 
             blocks_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
             blocks_handler.db_execute("INSERT OR IGNORE INTO block_index VALUES (?, ?)",
-                                      (block['block_hash'], block['block_number']))
+                                      (latest_block['block_hash'], latest_block['block_number']))
 
             blocks_handler.close()
 
-            return block
+            return latest_block
 
         except Exception as e:
-            logger.info(f"Failed to set latest block info to {block['block_hash']}: {e}")
+            logger.info(f"Failed to set latest block info to {latest_block['block_hash']}: {e}")
             time.sleep(1)
 
 
@@ -319,8 +359,7 @@ async def knows_block(target_peer, port, hash, logger):
     try:
         url_construct = f"http://{target_peer}:{port}/get_block?hash={hash}"
 
-        
-        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:
                 if response.status == 200:
                     return True
@@ -344,11 +383,10 @@ def update_child_in_latest_block(child_hash, logger, parent):
 
 
 async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="msgpack"):
-
     try:
         url_construct = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
-        
-        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
+
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:
                 code = response.status
 
@@ -369,8 +407,7 @@ async def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
     try:
         url_construct = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
 
-        
-        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:
                 code = response.status
 
@@ -394,8 +431,7 @@ async def get_from_single_target(key, target_peer, logger) -> list:  # todo add 
     try:
         url_construct = f"http://{target_peer}:{get_config()['port']}/{key}"
 
-        
-        async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:
                 text = response.text()
                 code = response.status
@@ -412,7 +448,7 @@ async def get_from_single_target(key, target_peer, logger) -> list:  # todo add 
 
 def get_ip_penalty(producer, logger, blocks_backward=50):
     """calculates how many blocks an ip received over a given period"""
-    latest_block_info = get_latest_block_info(logger=logger)
+    latest_block_info = get_block_ends_info(logger=logger)["latest_block"]
 
     parent = latest_block_info["block_hash"]
     latest_block_number = latest_block_info["block_number"]
@@ -479,7 +515,7 @@ if __name__ == "__main__":
     # rollback_one_block()
     no_of_blocks = 1
     for _ in range(0, no_of_blocks):
-        latest_block_info = get_latest_block_info(logger=logger)
+        latest_block_info = get_block_ends_info(logger=logger)["latest_block"]
 
         block_message = construct_block(
             block_timestamp=get_timestamp_seconds(),

@@ -12,7 +12,7 @@ def rollback_one_block(logger, block) -> dict:
             previous_block = load_block_from_hash(
                 block_hash=block["parent_hash"], logger=logger)
 
-            set_latest_block_info(block=previous_block,
+            set_latest_block_info(latest_block=previous_block,
                                   logger=logger)
 
             change_balance(

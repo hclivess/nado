@@ -5,7 +5,7 @@ from compounder import compound_get_list_of
 from config import get_timestamp_seconds, get_config
 from hashing import blake2b_hash
 from ops.account_ops import get_account
-from ops.block_ops import load_block_producers, get_latest_block_info
+from ops.block_ops import load_block_producers, get_block_ends_info
 from ops.data_ops import set_and_sort, sort_list_dict
 from ops.key_ops import load_keys
 from ops.transaction_ops import (
@@ -66,7 +66,9 @@ class MemServer:
         self.emergency_mode = False
 
         self.version = read_version()
-        self.latest_block = get_latest_block_info(logger=logger)
+        block_ends_info = get_block_ends_info(logger=logger)
+        self.latest_block = block_ends_info["latest_block"]
+        self.earliest_block = block_ends_info["earliest_block"]
         self.transaction_pool_limit = 150000
         self.transaction_buffer_limit = 1500000
         self.cascade_depth = 0

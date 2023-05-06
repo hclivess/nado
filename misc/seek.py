@@ -1,5 +1,5 @@
 from config import get_timestamp_seconds
-from ops.block_ops import get_latest_block_info, load_block_from_hash
+from ops.block_ops import get_block_ends_info, load_block_from_hash
 from ops.log_ops import get_logger
 
 
@@ -7,7 +7,7 @@ from ops.log_ops import get_logger
 
 
 def find_block(parameter, value, logger):
-    latest_block_info = get_latest_block_info(logger=logger)
+    latest_block_info = get_block_ends_info(logger=logger)["latest_block"]
 
     current_block_message = load_block_from_hash(
         block_hash=latest_block_info["latest_block_hash"], logger=logger

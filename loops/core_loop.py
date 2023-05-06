@@ -462,7 +462,7 @@ class CoreClient(threading.Thread):
 
 
         save_block(block, self.logger)
-        set_latest_block_info(block=block,
+        set_latest_block_info(latest_block=block,
                               logger=self.logger)
 
     def validate_transactions_in_block(self, block, logger, remote_peer, remote):
