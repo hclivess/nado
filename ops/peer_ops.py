@@ -373,8 +373,13 @@ def update_local_ip(ip, logger):
         logger.info(f"Local IP updated to {new_ip}")
 
 
-def qualifies_to_sync(peer, peer_trust, peer_protocol, memserver_protocol, median_trust, unreachable_list, purge_list,
-                      peer_hash, required_hash, promiscuous) -> dict:
+def qualifies_to_sync(peer, peer_trust, peer_protocol, known_tree, memserver_protocol, median_trust,
+                      unreachable_list, peer_hash, required_hash, promiscuous) -> dict:
+    if not known_tree:
+        """we don't know peer's root hash"""
+        return {"result": False,
+                "flag": f"Peer root hash is unknown"}
+
     if median_trust > peer_trust and not promiscuous:
         """peer trust worse than median"""
         return {"result": False,

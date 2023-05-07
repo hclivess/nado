@@ -98,12 +98,13 @@ class CoreClient(threading.Thread):
                                           "name": "Target catch up"}
         else:
             """do not generate block more than once per x seconds"""
-            self.memserver.periods = [0,1,2]
+            self.memserver.periods = [0, 1, 2]
             self.memserver.switch_mode = {"mode": 0,
                                           "name": "Quick switch"}
 
         if old_periods != self.memserver.periods:
-            self.logger.debug(f"Switched to period {self.memserver.periods}; Mode: {self.memserver.switch_mode['name']}")
+            self.logger.debug(
+                f"Switched to period {self.memserver.periods}; Mode: {self.memserver.switch_mode['name']}")
 
     def normal_mode(self):
         try:
@@ -150,7 +151,6 @@ class CoreClient(threading.Thread):
                     """replace block producers in peace period in case it is different from majority as last effort"""
                     self.replace_block_producers()
                     self.memserver.block_producers_hash = self.memserver.get_block_producers_hash()
-
 
             self.memserver.reported_uptime = self.memserver.get_uptime()
 
@@ -235,6 +235,22 @@ class CoreClient(threading.Thread):
                         peer_protocol = self.consensus.status_pool[peer]["protocol"]
                         """get protocol version"""
 
+                        try:
+                            peer_earliest_hash = self.consensus.status_pool[peer]["earliest_block_hash"]
+                            """get earliest block"""
+                            print("yay got it")
+
+                        ######## todo remove after people update
+                        except:
+                            print("couldn't get peers earliest block")
+                            peer_earliest_hash = self.memserver.earliest_block["block_hash"]
+                        ######## todo remove after people update
+
+                        if get_block(peer_earliest_hash):
+                            known_tree = True
+                        else:
+                            known_tree = False
+
                         if not first_peer:
                             if value == hash_candidate:
                                 first_peer = peer
@@ -244,9 +260,9 @@ class CoreClient(threading.Thread):
                                                           peer_protocol=peer_protocol,
                                                           peer_trust=peer_trust,
                                                           memserver_protocol=self.memserver.protocol,
+                                                          known_tree=known_tree,
                                                           unreachable_list=self.memserver.unreachable.keys(),
                                                           median_trust=self.consensus.trust_median,
-                                                          purge_list=self.memserver.purge_peers_list,
                                                           peer_hash=value,
                                                           required_hash=hash_candidate,
                                                           promiscuous=self.memserver.promiscuous)
@@ -384,7 +400,6 @@ class CoreClient(threading.Thread):
                                         if not uninterrupted:
                                             break
 
-
                                     self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
                                                                              peer=peer,
                                                                              value=1)
@@ -455,11 +470,10 @@ class CoreClient(threading.Thread):
                                 )
 
         totals = get_totals(block=block)
-        index_totals(produced = totals["produced"],
-                     fees = totals["fees"],
-                     burned = totals["burned"],
+        index_totals(produced=totals["produced"],
+                     fees=totals["fees"],
+                     burned=totals["burned"],
                      block_height=block["block_number"])
-
 
         save_block(block, self.logger)
         set_latest_block_info(latest_block=block,
@@ -617,7 +631,7 @@ class CoreClient(threading.Thread):
                 self.consensus.refresh_hashes()
                 self.duration = get_timestamp_seconds() - start
 
-                #if self.memserver.since_last_block < self.memserver.block_time or self.memserver.force_sync_ip:
+                # if self.memserver.since_last_block < self.memserver.block_time or self.memserver.force_sync_ip:
                 time.sleep(self.run_interval)
 
             except Exception as e:
