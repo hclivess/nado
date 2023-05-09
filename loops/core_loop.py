@@ -242,7 +242,7 @@ class CoreClient(threading.Thread):
 
                         ######## todo remove after people update
                         except:
-                            print("couldn't get peers earliest block")
+                            print("couldn't get peer's earliest block")
                             peer_earliest_hash = self.memserver.earliest_block["block_hash"]
                         ######## todo remove after people update
 
