@@ -1,6 +1,6 @@
 import tarfile
+
 from ops.data_ops import get_home
-from pathlib import Path
 
 
 def make_archive(output_filename, source_dirs):

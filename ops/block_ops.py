@@ -271,9 +271,6 @@ def set_earliest_block_info(earliest_block: dict, logger):
             old_hash = None
 
             while not old_hash == new_hash:
-                print(new_hash)
-                print(old_hash)
-
                 with open(f"{get_home()}/index/block_ends.dat", "r") as ends_file:
                     ends_file_dict = json.load(ends_file)
                     ends_file_dict["earliest_block"] = new_hash
