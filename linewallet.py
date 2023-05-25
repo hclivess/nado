@@ -15,6 +15,7 @@ from ops.peer_ops import get_public_ip
 from ops.peer_ops import load_ips
 from ops.transaction_ops import create_transaction, draft_transaction, to_raw_amount, get_recommneded_fee, to_readable_amount, \
     get_target_block, get_base_fee
+import requests
 
 def send_transaction(transaction, ips, logger):
     print(json.dumps(transaction, indent=4))
@@ -76,7 +77,11 @@ if __name__ == "__main__":
 
     target = random.choice(ips)
     port = get_port()
-    balance = get_account_value(address, key="balance")
+
+    account_stats = requests.get(f"http://{target}:{port}/get_account?address={address}").text
+    balance = json.loads(account_stats)["balance"]
+
+    #balance = get_account_value(address, key="balance")
     balance_readable = to_readable_amount(balance)
 
     print(f"Sending from {address}")
