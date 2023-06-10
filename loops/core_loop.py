@@ -235,16 +235,8 @@ class CoreClient(threading.Thread):
                         peer_protocol = self.consensus.status_pool[peer]["protocol"]
                         """get protocol version"""
 
-                        try:
-                            peer_earliest_hash = self.consensus.status_pool[peer]["earliest_block_hash"]
-                            """get earliest block"""
-                            print("yay got it")
-
-                        ######## todo remove after people update
-                        except:
-                            print("couldn't get peer's earliest block")
-                            peer_earliest_hash = self.memserver.earliest_block["block_hash"]
-                        ######## todo remove after people update
+                        peer_earliest_hash = self.consensus.status_pool[peer]["earliest_block_hash"]
+                        """get earliest block"""
 
                         if get_block(peer_earliest_hash):
                             known_tree = True
