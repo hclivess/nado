@@ -269,7 +269,7 @@ class CoreClient(threading.Thread):
                                         self.memserver.purge_peers_list.append(peer)
 
                         except Exception as e:
-                            self.logger.info(f"Peer error: {e}")
+                            self.logger.info(f"Peer {peer} error: {e}")
 
                 else:
                     self.logger.info(f"Ran out of options when picking trusted hash")
