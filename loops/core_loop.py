@@ -417,7 +417,7 @@ class CoreClient(threading.Thread):
                             self.memserver.latest_block = rollback_one_block(logger=self.logger,
                                                                              block=self.memserver.latest_block)
 
-                            if self.memserver.force_sync_ip:
+                            if not self.memserver.force_sync_ip:
                                 self.memserver.rollbacks += 1
                             self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
                                                                      peer=peer,
