@@ -274,7 +274,7 @@ class CoreClient(threading.Thread):
 
                 else:
                     self.logger.info(f"Ran out of options when picking trusted hash")
-                    self.memserver.unreachable.clear()
+                    #self.memserver.unreachable.clear()
                     return None
 
         except Exception as e:
