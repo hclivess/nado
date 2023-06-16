@@ -423,9 +423,8 @@ class CoreClient(threading.Thread):
                                                                      peer=peer,
                                                                      value=-1)
                         else:
-                            self.logger.error(f"Rollbacks exhausted")
+                            self.logger.error(f"Rollbacks exhausted ({self.memserver.rollbacks}/{self.memserver.max_rollbacks})")
                             self.memserver.rollbacks = 0
-                            # self.memserver.purge_peers_list.append(peer)
                             break
 
                     self.logger.info(f"Maximum reached cascade depth: {self.memserver.cascade_depth}")
