@@ -271,9 +271,10 @@ def set_earliest_block_info(earliest_block: dict, logger):
             old_hash = None
 
             while not old_hash == new_hash:
-                with open(f"{get_home()}/index/block_ends.dat", "r") as ends_file:
-                    ends_file_dict = json.load(ends_file)
-                    ends_file_dict["earliest_block"] = new_hash
+                if os.path.exists(f"{get_home()}/index/block_ends.dat"):
+                    with open(f"{get_home()}/index/block_ends.dat", "r") as ends_file:
+                        ends_file_dict = json.load(ends_file)
+                        ends_file_dict["earliest_block"] = new_hash
                 with open(f"{get_home()}/index/block_ends.dat", "w") as ends_file:
                     json.dump(ends_file_dict, ends_file)
 
@@ -286,8 +287,6 @@ def set_earliest_block_info(earliest_block: dict, logger):
         except Exception as e:
             logger.info(f"Failed to set earliest block info to {earliest_block['block_hash']}: {e}")
             time.sleep(1)
-
-
 def set_latest_block_info(latest_block: dict, logger):
     while True:
         try:
@@ -295,9 +294,10 @@ def set_latest_block_info(latest_block: dict, logger):
             old_hash = None
 
             while not old_hash == new_hash:
-                with open(f"{get_home()}/index/block_ends.dat", "r") as ends_file:
-                    ends_file_dict = json.load(ends_file)
-                    ends_file_dict["latest_block"] = new_hash
+                if os.path.exists(f"{get_home()}/index/block_ends.dat"):
+                    with open(f"{get_home()}/index/block_ends.dat", "r") as ends_file:
+                        ends_file_dict = json.load(ends_file)
+                        ends_file_dict["latest_block"] = new_hash
                 with open(f"{get_home()}/index/block_ends.dat", "w") as ends_file:
                     json.dump(ends_file_dict, ends_file)
 
