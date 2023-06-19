@@ -269,12 +269,14 @@ def set_earliest_block_info(earliest_block: dict, logger):
         try:
             new_hash = earliest_block["block_hash"]
             old_hash = None
+            ends_file_dict = {"earliest_block": new_hash}
 
             while not old_hash == new_hash:
                 if os.path.exists(f"{get_home()}/index/block_ends.dat"):
                     with open(f"{get_home()}/index/block_ends.dat", "r") as ends_file:
                         ends_file_dict = json.load(ends_file)
                         ends_file_dict["earliest_block"] = new_hash
+
                 with open(f"{get_home()}/index/block_ends.dat", "w") as ends_file:
                     json.dump(ends_file_dict, ends_file)
 
@@ -292,6 +294,7 @@ def set_latest_block_info(latest_block: dict, logger):
         try:
             new_hash = latest_block["block_hash"]
             old_hash = None
+            ends_file_dict = {"latest_block": new_hash}
 
             while not old_hash == new_hash:
                 if os.path.exists(f"{get_home()}/index/block_ends.dat"):
