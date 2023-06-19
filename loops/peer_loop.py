@@ -135,7 +135,7 @@ class PeerClient(threading.Thread):
                     self.memserver.merge_remote_transactions(user_origin=False)
 
                 for peer, ban_time in self.memserver.unreachable.copy().items():
-                    timeout = self.memserver.heavy_refresh_interval/2 + ban_time - get_timestamp_seconds()
+                    timeout = 3600 + ban_time - get_timestamp_seconds()
                     if timeout < 0:
                         self.memserver.unreachable.pop(peer)
                         self.logger.info(f"Restored {peer} because it has been banned for too long")
