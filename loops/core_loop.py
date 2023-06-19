@@ -229,7 +229,6 @@ class CoreClient(threading.Thread):
 
                     for peer, value in shuffled_pool.items():
                         try:
-                            """pick random peer"""
                             peer_trust = self.consensus.trust_pool[peer]
                             """load trust score"""
 
@@ -255,6 +254,7 @@ class CoreClient(threading.Thread):
                                                               memserver_protocol=self.memserver.protocol,
                                                               known_tree=known_tree,
                                                               unreachable_list=self.memserver.unreachable.keys(),
+                                                              purge_list=self.memserver.purge_peers_list.keys(),
                                                               median_trust=self.consensus.trust_median,
                                                               peer_hash=value,
                                                               required_hash=hash_candidate,
