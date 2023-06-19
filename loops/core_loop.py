@@ -228,52 +228,50 @@ class CoreClient(threading.Thread):
                     self.memserver.cascade_depth = sorted_hashes.index(hash_candidate) + 1
 
                     for peer, value in shuffled_pool.items():
-                        try:
-                            peer_trust = self.consensus.trust_pool[peer]
-                            """load trust score"""
+                        if peer not in self.memserver.purge_peers_list:
+                            try:
+                                peer_trust = self.consensus.trust_pool[peer]
+                                """load trust score"""
 
-                            peer_protocol = self.consensus.status_pool[peer]["protocol"]
-                            """get protocol version"""
+                                peer_protocol = self.consensus.status_pool[peer]["protocol"]
+                                """get protocol version"""
 
-                            peer_earliest_hash = self.consensus.status_pool[peer]["earliest_block_hash"]
-                            """get earliest block"""
+                                peer_earliest_hash = self.consensus.status_pool[peer]["earliest_block_hash"]
+                                """get earliest block"""
 
-                            if get_block(peer_earliest_hash):
-                                known_tree = True
-                            else:
-                                known_tree = False
-
-                            if not first_peer:
-                                if value == hash_candidate:
-                                    first_peer = peer
-
-                            if check_ip(peer):
-                                qualifies = qualifies_to_sync(peer=peer,
-                                                              peer_protocol=peer_protocol,
-                                                              peer_trust=peer_trust,
-                                                              memserver_protocol=self.memserver.protocol,
-                                                              known_tree=known_tree,
-                                                              unreachable_list=self.memserver.unreachable.keys(),
-                                                              purge_list=self.memserver.purge_peers_list,
-                                                              median_trust=self.consensus.trust_median,
-                                                              peer_hash=value,
-                                                              required_hash=hash_candidate,
-                                                              promiscuous=self.memserver.promiscuous)
-                                if qualifies["result"]:
-                                    self.logger.debug(f"{peer} qualified for sync")
-                                    return peer
+                                if get_block(peer_earliest_hash):
+                                    known_tree = True
                                 else:
-                                    self.logger.debug(f"{peer} not qualified for sync: {qualifies['flag']}")
+                                    known_tree = False
 
-                                    self.memserver.ban_peer(peer)
+                                if not first_peer:
+                                    if value == hash_candidate:
+                                        first_peer = peer
 
-                        except Exception as e:
-                            self.logger.info(f"Peer {peer} error: {e}")
-                            self.memserver.ban_peer(peer)
+                                if check_ip(peer):
+                                    qualifies = qualifies_to_sync(peer=peer,
+                                                                  peer_protocol=peer_protocol,
+                                                                  peer_trust=peer_trust,
+                                                                  memserver_protocol=self.memserver.protocol,
+                                                                  known_tree=known_tree,
+                                                                  unreachable_list=self.memserver.unreachable.keys(),
+                                                                  median_trust=self.consensus.trust_median,
+                                                                  peer_hash=value,
+                                                                  required_hash=hash_candidate,
+                                                                  promiscuous=self.memserver.promiscuous)
+                                    if qualifies["result"]:
+                                        self.logger.debug(f"{peer} qualified for sync")
+                                        return peer
+                                    else:
+                                        self.logger.debug(f"{peer} not qualified for sync: {qualifies['flag']}")
+                                        self.memserver.ban_peer(peer)
+
+                            except Exception as e:
+                                self.logger.info(f"Peer {peer} error: {e}")
+                                self.memserver.ban_peer(peer)
 
                 else:
                     self.logger.info(f"Ran out of options when picking trusted hash")
-                    #self.memserver.unreachable.clear()
                     return None
 
         except Exception as e:

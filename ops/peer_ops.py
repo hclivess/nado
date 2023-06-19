@@ -374,7 +374,7 @@ def update_local_ip(ip, logger):
 
 
 def qualifies_to_sync(peer, peer_trust, peer_protocol, known_tree, memserver_protocol, median_trust,
-                      unreachable_list, purge_list, peer_hash, required_hash, promiscuous) -> dict:
+                      unreachable_list, peer_hash, required_hash, promiscuous) -> dict:
     if not known_tree:
         """we don't know peer's root hash"""
         return {"result": False,
@@ -384,7 +384,7 @@ def qualifies_to_sync(peer, peer_trust, peer_protocol, known_tree, memserver_pro
         """peer trust worse than median"""
         return {"result": False,
                 "flag": f"Peer trust {peer_trust} below median {median_trust}"}
-    if peer in unreachable_list or peer in purge_list:
+    if peer in unreachable_list:
         """peer assigned to unreachable"""
         return {"result": False,
                 "flag": "Peer unreachable"}
