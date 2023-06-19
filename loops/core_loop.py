@@ -264,7 +264,7 @@ class CoreClient(threading.Thread):
                                         return peer
                                     else:
                                         self.logger.debug(f"{peer} not qualified for sync: {qualifies['flag']}")
-                                        self.memserver.ban_peer(peer)
+                                        #self.memserver.ban_peer(peer)
 
                             except Exception as e:
                                 self.logger.info(f"Peer {peer} error: {e}")
