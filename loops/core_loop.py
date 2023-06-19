@@ -264,8 +264,10 @@ class CoreClient(threading.Thread):
                                         return peer
                                     else:
                                         self.logger.debug(f"{peer} not qualified for sync: {qualifies['flag']}")
-                                        #self.memserver.ban_peer(peer)
 
+                                        self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
+                                                                                 peer=peer,
+                                                                                 value=-1)
                             except Exception as e:
                                 self.logger.info(f"Peer {peer} error: {e}")
                                 self.memserver.ban_peer(peer)
