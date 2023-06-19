@@ -228,7 +228,7 @@ class CoreClient(threading.Thread):
                     self.memserver.cascade_depth = sorted_hashes.index(hash_candidate) + 1
 
                     for peer, value in shuffled_pool.items():
-                        if peer not in self.memserver.purge_peers_list:
+                        if peer not in self.memserver.purge_peers_list: #sadly, the whole purge_peers() takes a prohibitively long time for some reason
                             try:
                                 peer_trust = self.consensus.trust_pool[peer]
                                 """load trust score"""
