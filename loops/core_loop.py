@@ -254,7 +254,7 @@ class CoreClient(threading.Thread):
                                                               memserver_protocol=self.memserver.protocol,
                                                               known_tree=known_tree,
                                                               unreachable_list=self.memserver.unreachable.keys(),
-                                                              purge_list=self.memserver.purge_peers_list.keys(),
+                                                              purge_list=self.memserver.purge_peers_list,
                                                               median_trust=self.consensus.trust_median,
                                                               peer_hash=value,
                                                               required_hash=hash_candidate,
