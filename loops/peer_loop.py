@@ -131,7 +131,6 @@ class PeerClient(threading.Thread):
                                                                 port=self.memserver.port))
 
                 if 0 or 1 in self.memserver.periods:
-                    self.purge_peers()
                     self.memserver.merge_remote_transactions(user_origin=False)
 
                 for peer, ban_time in self.memserver.unreachable.copy().items():
@@ -193,8 +192,10 @@ class PeerClient(threading.Thread):
                                                                  peer=key,
                                                                  value=-1)
 
+                self.purge_peers()
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)
+
             except Exception as e:
                 self.logger.error(f"Error in peer loop: {e} {traceback.print_exc()}")
                 time.sleep(1)
