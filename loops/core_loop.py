@@ -91,7 +91,7 @@ class CoreClient(threading.Thread):
             self.memserver.switch_mode = {"mode": 2,
                                           "name": "Stable switch"}
 
-        elif get_timestamp_seconds() - self.memserver.block_generation_age > 3:
+        elif get_timestamp_seconds() - self.memserver.block_generation_age > 10:
             """generate a block if x seconds have passed"""
             self.memserver.periods = [3]
             self.memserver.switch_mode = {"mode": 1,
