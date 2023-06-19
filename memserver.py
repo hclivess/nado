@@ -86,6 +86,10 @@ class MemServer:
         self.promiscuous = True if self.config.get("promiscuous") is True else False
         self.quick_sync = True if self.config.get("quick_sync") is True else False
 
+    def ban_peer(self, peer):
+        if peer not in self.purge_peers_list and peer not in self.unreachable:
+            self.purge_peers_list.append(peer)
+
     def get_transaction_pool_hash(self) -> [str, None]:
         if self.transaction_pool:
             sorted_transaction_pool = sort_transaction_pool(self.transaction_pool.copy())

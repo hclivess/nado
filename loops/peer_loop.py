@@ -188,11 +188,10 @@ class PeerClient(threading.Thread):
                     else:
                         self.logger.error(f"Protocol of {key} too low: {value['protocol']}")
 
-                        if key not in self.memserver.purge_peers_list and key not in self.memserver.unreachable:
-                            self.memserver.purge_peers_list.append(key)
-                            self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
-                                                                     peer=key,
-                                                                     value=-1)
+                        self.memserver.ban_peer(key)
+                        self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
+                                                                 peer=key,
+                                                                 value=-1)
 
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)
