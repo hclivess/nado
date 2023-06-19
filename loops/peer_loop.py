@@ -124,7 +124,6 @@ class PeerClient(threading.Thread):
 
                 if len(self.memserver.peers) < self.memserver.min_peers:
                     self.logger.info("No peers, reloading from drive")
-                    self.memserver.unreachable.clear()
                     self.memserver.peers = asyncio.run(load_ips(fail_storage=self.memserver.purge_peers_list,
                                                                 unreachable=self.memserver.unreachable,
                                                                 logger=self.logger,
