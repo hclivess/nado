@@ -1,0 +1,52 @@
+<!doctype html>
+<html xmlns="http://www.w3.org/1999/html" xmlns="http://www.w3.org/1999/html">
+<head>
+    <link crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/bootstrap@3.3.7/dist/css/bootstrap.min.css"
+          integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" rel="stylesheet">
+    <title>NADO Explorer</title>
+</head>
+<body>
+
+<div class="container">
+    <h2>NADO Explorer</h2>
+</div>
+
+<div class="container">
+
+    {{data["block_number"]}}
+    {{data["block_hash"]}}
+    {{data["parent_hash"]}}
+    {{data["block_ip"]}}
+    {{data["block_creator"]}}
+    {{data["block_timestamp"]}}
+
+    {% for transaction in data["block_transactions"]%}
+        {{transaction}}
+    {% end %}
+
+</div>
+
+<div class="container">
+
+<form>
+    <div class="form-group">
+    <label for="entry">Entry</label>
+    <input type="text" class="form-control" id="entry" aria-describedby="entryHelp" placeholder="Your text">
+    <small id="entryHelp" class="form-text text-muted">Enter whatever you are looking for and press one of the buttons</small>
+    </div>
+
+
+    <div aria-label="Controls" class="btn-group" role="group">
+        <button aria-pressed="true" class="btn btn-primary btn-lg active" formaction="/get_transaction" role="button">
+            Find transaction
+        </button>
+        <button aria-pressed="true" class="btn btn-danger btn-lg active" formaction="/get_address" role="button">
+            Find account
+        </button>
+    </div>
+
+</form>
+</div>
+
+</body>
+</html>
