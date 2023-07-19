@@ -118,7 +118,6 @@ class TransactionHandler(BaseHandler):
         readable_reward = {"fee": to_readable_amount(data["fee"])}
         data.update(readable_ts)
         data.update(readable_reward)
-
         return data
 
     def get(self, parameters):
