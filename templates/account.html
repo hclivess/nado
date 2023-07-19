@@ -1,0 +1,73 @@
+<!doctype html>
+<html xmlns="http://www.w3.org/1999/html" xmlns="http://www.w3.org/1999/html">
+<head>
+    <link crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/bootstrap@3.3.7/dist/css/bootstrap.min.css"
+          integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" rel="stylesheet">
+    <title>NADO Explorer</title>
+</head>
+<body>
+
+<div>
+    <h2>NADO Account</h2>
+</div>
+
+<div>
+
+<div>
+<form method="get" action="#">
+    <div class="form-group">
+    <label for="entry">Entry</label>
+    <input type="text" class="form-control" id="entry" name="entry" aria-describedby="entryHelp" placeholder="Your text" formaction=#>
+    <small id="entryHelp" class="form-text text-muted">Enter whatever you are looking for and press one of the buttons</small>
+    </div>
+
+
+    <div aria-label="Controls" class="btn-group" role="group">
+        <button class="btn btn-primary" formaction="/get_transaction" role="button">
+            Show transaction
+        </button>
+        <button class="btn btn-primary" formaction="/get_account" role="button">
+            Show account
+        </button>
+        <button class="btn btn-primary" formaction="/get_supply" role="button">
+            Show supply
+        </button>
+    </div>
+</form>
+</div>
+
+
+<table class="table">
+  <thead>
+    <tr>
+      <th scope="col">Address</th>
+      <th scope="col">Balance</th>
+      <th scope="col">Produced</th>
+      <th scope="col">Burned</th>
+      <th scope="col">Penalty</th>
+
+    </tr>
+  </thead>
+
+    <tbody>
+
+        <tr>
+          <td>{{data["address"]}}</td>
+          <td>{{data["balance"]}}</td>
+          <td>{{data["produced"]}}</td>
+          <td>{{data["burned"]}}</td>
+          <td>{{data["penalty"]}}</td>
+        </tr>
+
+
+    </tbody>
+</table>
+
+
+
+</div>
+
+
+
+</body>
+</html>

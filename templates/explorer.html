@@ -14,20 +14,23 @@
 <div>
 
 <div>
-<form>
+<form method="get" action="#">
     <div class="form-group">
     <label for="entry">Entry</label>
-    <input type="text" class="form-control" id="entry" aria-describedby="entryHelp" placeholder="Your text">
+    <input type="text" class="form-control" id="entry" name="entry" aria-describedby="entryHelp" placeholder="Your text" formaction=#>
     <small id="entryHelp" class="form-text text-muted">Enter whatever you are looking for and press one of the buttons</small>
     </div>
 
 
     <div aria-label="Controls" class="btn-group" role="group">
-        <button aria-pressed="true" class="btn btn-primary btn-lg active" formaction="/get_transaction" role="button">
-            Find transaction
+        <button class="btn btn-primary" formaction="/get_transaction" role="button">
+            Show transaction
         </button>
-        <button aria-pressed="true" class="btn btn-danger btn-lg active" formaction="/get_address" role="button">
-            Find account
+        <button class="btn btn-primary" formaction="/get_account" role="button">
+            Show account
+        </button>
+        <button class="btn btn-primary" formaction="/get_supply" role="button">
+            Show supply
         </button>
     </div>
 </form>
@@ -65,6 +68,10 @@
       <tr>
           <th scope="col">Block timestamp</th>
           <td>{{data["block_timestamp"]}}</td>
+      </tr>
+      <tr>
+          <th scope="col">Block reward</th>
+          <td>{{data["block_reward"]}}</td>
       </tr>
     </tbody>
 </table>
