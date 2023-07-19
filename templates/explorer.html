@@ -59,19 +59,19 @@
       </tr>
       <tr>
           <th scope="col">Parent hash</th>
-          <td>{{data["parent_hash"]}}</td>
+          <td><a href="/get_block?entry={{data['parent_hash']}}">{{data["parent_hash"]}}</a></td>
       </tr>
       <tr>
           <th scope="col">Child hash</th>
-          <td>{{data["child_hash"]}}</td>
+          <td><a href="/get_block?entry={{data['child_hash']}}">{{data["child_hash"]}}</a></td>
       </tr>
       <tr>
           <th scope="col">Block IP</th>
-          <td>{{data["block_ip"]}}</td>
+          <td><a href="http://{{data['block_ip']}}:9173">{{data["block_ip"]}}</a></td>
       </tr>
       <tr>
           <th scope="col">Block creator</th>
-          <td>{{data["block_creator"]}}</td>
+          <td><a href="/get_account?entry={{data['block_creator']}}">{{data["block_creator"]}}</a></td>
       </tr>
       <tr>
           <th scope="col">Block timestamp</th>
@@ -87,7 +87,6 @@
 <table class="table">
   <thead>
     <tr>
-      <th scope="col">Sender</th>
       <th scope="col">Recipient</th>
       <th scope="col">Amount</th>
       <th scope="col">Fee</th>
@@ -100,11 +99,11 @@
 
     {% for transaction in data["block_transactions"]%}
         <tr>
-          <td>{{transaction["sender"]}}</td>
-          <td>{{transaction["recipient"]}}</td>
+          <td><a href="/get_account?entry={{transaction['sender']}}">{{transaction["sender"]}}</a></td>
+          <td><a href="/get_account?entry={{transaction['recipient']}}">{{transaction["recipient"]}}</a></td>
           <td>{{transaction["amount"]}}</td>
           <td>{{transaction["fee"]}}</td>
-          <td>{{transaction["txid"]}}</td>
+          <td><a href="/get_transaction?entry={{transaction['txid']}}">{{transaction["txid"]}}</a></td>
         </tr>
     {% end %}
 

@@ -3,12 +3,17 @@ import tornado.ioloop
 import tornado.web
 import asyncio
 import json
+from datetime import datetime
 
 nado_node = "http://127.0.0.1:9173"
+
+def to_readable_amount(raw_amount: int) -> str:
+    return f"{(raw_amount / 10000000000):.10f}"
 
 class BaseHandler(tornado.web.RequestHandler):
     def write_error(self, status_code, **kwargs):
         self.render("templates/error.html")
+
 
 class HomeHandler(BaseHandler):
     def home(self):
@@ -17,11 +22,17 @@ class HomeHandler(BaseHandler):
                     data=data)
 
     def get_data(self):
-        data = requests.get(f"{nado_node}/get_latest_block").text
-        return json.loads(data)
+        data_raw = requests.get(f"{nado_node}/get_latest_block").text
+        data = json.loads(data_raw)
+        readable_ts = {"block_timestamp": datetime.fromtimestamp(data["block_timestamp"])}
+        readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
+        data.update(readable_ts)
+        data.update(readable_reward)
+        return data
 
     def get(self):
         self.home()
+
 
 class BlockNumberHandler(BaseHandler):
     def block(self, block):
@@ -30,12 +41,18 @@ class BlockNumberHandler(BaseHandler):
                     data=data)
 
     def get_data(self, block):
-        data = requests.get(f"{nado_node}/get_block_number?number={block}").text
-        return json.loads(data)
+        data_raw = requests.get(f"{nado_node}/get_block_number?number={block}").text
+        data = json.loads(data_raw)
+        readable_ts = {"block_timestamp": datetime.fromtimestamp(data["block_timestamp"])}
+        readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
+        data.update(readable_ts)
+        data.update(readable_reward)
+        return data
 
     def get(self, parameters):
         entry = BlockNumberHandler.get_argument(self, "entry")
         self.block(block=entry)
+
 
 class BlockHashHandler(BaseHandler):
     def block(self, hash):
@@ -44,12 +61,18 @@ class BlockHashHandler(BaseHandler):
                     data=data)
 
     def get_data(self, hash):
-        data = requests.get(f"{nado_node}/get_block?hash={hash}").text
-        return json.loads(data)
+        data_raw = requests.get(f"{nado_node}/get_block?hash={hash}").text
+        data = json.loads(data_raw)
+        readable_ts = {"block_timestamp": datetime.fromtimestamp(data["block_timestamp"])}
+        readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
+        data.update(readable_ts)
+        data.update(readable_reward)
+        return data
 
     def get(self, parameters):
         entry = BlockHashHandler.get_argument(self, "entry")
         self.block(hash=entry)
+
 
 class AccountHandler(BaseHandler):
     def account(self, account):
@@ -93,7 +116,6 @@ class SupplyHandler(BaseHandler):
 
     def get(self):
         self.supply()
-
 
 
 async def make_app(port):
