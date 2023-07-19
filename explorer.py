@@ -88,6 +88,20 @@ class AccountHandler(BaseHandler):
         entry = AccountHandler.get_argument(self, "entry")
         self.account(account=entry)
 
+class TxsOfAccountHandler(BaseHandler):
+    def accounttxs(self, accounttxs):
+        data = self.get_data(accounttxs)
+        self.render("templates/txsofaccount.html",
+                    data=data)
+
+    def get_data(self, account):
+        data = requests.get(f"{nado_node}/get_transactions_of_account?address={account}").text
+        return json.loads(data)
+
+    def get(self, parameters):
+        entry = TxsOfAccountHandler.get_argument(self, "entry")
+        self.accounttxs(accounttxs=entry)
+
 
 class TransactionHandler(BaseHandler):
     def transaction(self, txid):
@@ -122,6 +136,7 @@ async def make_app(port):
     application = tornado.web.Application(
         [
             (r"/", HomeHandler),
+            (r"/get_account_txs(.*)", TxsOfAccountHandler),
             (r"/get_account(.*)", AccountHandler),
             (r"/get_transaction(.*)", TransactionHandler),
             (r"/get_block_number(.*)", BlockNumberHandler),

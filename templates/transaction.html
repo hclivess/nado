@@ -31,6 +31,7 @@
 
 <button class="btn btn-primary" formaction="/get_transaction" role="button">Transaction</button>
 <button class="btn btn-primary" formaction="/get_account" role="button">Account</button>
+<button class="btn btn-primary" formaction="/get_account_txs" role="button">Account transactions</button>
 <button class="btn btn-primary" formaction="/get_block_number" role="button">Block number</button>
         </div>
 </form>
@@ -45,6 +46,7 @@
       <th scope="col">Recipient</th>
       <th scope="col">Amount</th>
       <th scope="col">Timestamp</th>
+      <th scope="col">Fee</th>
       <th scope="col">Target Block</th>
 
     </tr>
@@ -53,11 +55,16 @@
     <tbody>
 
         <tr>
-          <td>{{data["sender"]}}</td>
-          <td>{{data["recipient"]}}</td>
+
+          <td><a href="/get_account?entry={{data['sender']}}">{{data["sender"]}}</a></td>
+          <td><a href="/get_account?entry={{data['recipient']}}">{{data["recipient"]}}</a></td>
           <td>{{data["amount"]}}</td>
           <td>{{data["timestamp"]}}</td>
-          <td>{{data["target_block"]}}</td>
+          <td>{{data["fee"]}}</td>
+          <td><a href="/get_block_number?entry={{data['target_block']}}">{{data["target_block"]}}</a></td>
+
+
+
         </tr>
 
 
