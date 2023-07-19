@@ -6,8 +6,11 @@ import json
 
 nado_node = "http://127.0.0.1:9173"
 
+class BaseHandler(tornado.web.RequestHandler):
+    def write_error(self, status_code, **kwargs):
+        self.render("templates/error.html")
 
-class HomeHandler(tornado.web.RequestHandler):
+class HomeHandler(BaseHandler):
     def home(self):
         data = self.get_data()
         self.render("templates/explorer.html",
@@ -20,7 +23,7 @@ class HomeHandler(tornado.web.RequestHandler):
     def get(self):
         self.home()
 
-class BlockNumberHandler(tornado.web.RequestHandler):
+class BlockNumberHandler(BaseHandler):
     def block(self, block):
         data = self.get_data(block)
         self.render("templates/explorer.html",
@@ -31,10 +34,24 @@ class BlockNumberHandler(tornado.web.RequestHandler):
         return json.loads(data)
 
     def get(self, parameters):
-        entry = AccountHandler.get_argument(self, "entry")
+        entry = BlockNumberHandler.get_argument(self, "entry")
         self.block(block=entry)
 
-class AccountHandler(tornado.web.RequestHandler):
+class BlockHashHandler(BaseHandler):
+    def block(self, hash):
+        data = self.get_data(hash)
+        self.render("templates/explorer.html",
+                    data=data)
+
+    def get_data(self, hash):
+        data = requests.get(f"{nado_node}/get_block?hash={hash}").text
+        return json.loads(data)
+
+    def get(self, parameters):
+        entry = BlockHashHandler.get_argument(self, "entry")
+        self.block(hash=entry)
+
+class AccountHandler(BaseHandler):
     def account(self, account):
         data = self.get_data(account)
         self.render("templates/account.html",
@@ -49,7 +66,7 @@ class AccountHandler(tornado.web.RequestHandler):
         self.account(account=entry)
 
 
-class TransactionHandler(tornado.web.RequestHandler):
+class TransactionHandler(BaseHandler):
     def transaction(self, txid):
         data = self.get_data(txid)
         self.render("templates/transaction.html",
@@ -64,7 +81,7 @@ class TransactionHandler(tornado.web.RequestHandler):
         self.transaction(txid=entry)
 
 
-class SupplyHandler(tornado.web.RequestHandler):
+class SupplyHandler(BaseHandler):
     def supply(self):
         data = self.get_data()
         self.render("templates/supply.html",
@@ -78,6 +95,7 @@ class SupplyHandler(tornado.web.RequestHandler):
         self.supply()
 
 
+
 async def make_app(port):
     application = tornado.web.Application(
         [
@@ -85,6 +103,7 @@ async def make_app(port):
             (r"/get_account(.*)", AccountHandler),
             (r"/get_transaction(.*)", TransactionHandler),
             (r"/get_block_number(.*)", BlockNumberHandler),
+            (r"/get_block(.*)", BlockHashHandler),
             (r"/get_supply", SupplyHandler),
             (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": "static"}),
             (r'/(favicon.ico)', tornado.web.StaticFileHandler, {"path": "graphics"}),

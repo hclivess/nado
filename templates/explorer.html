@@ -4,7 +4,11 @@
     <link crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/bootstrap@3.3.7/dist/css/bootstrap.min.css"
           integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" rel="stylesheet">
     <title>NADO Explorer</title>
+
+
 </head>
+
+
 <body>
 
 <div>
@@ -13,24 +17,28 @@
 
 <div>
 
+<form>
+<button class="btn btn-primary" formaction="/" role="button">Home</button>
+<button class="btn btn-primary" formaction="/get_supply" role="button">Supply</button>
+</form>
+
 <div>
 <form method="get" action="#">
-    <div class="form-group">
-    <label for="entry">Entry</label>
-    <input type="text" class="form-control" id="entry" name="entry" aria-describedby="entryHelp" placeholder="Your text" formaction=#>
-    <small id="entryHelp" class="form-text text-muted">Enter whatever you are looking for and press one of the buttons</small>
-    </div>
 
 
+<label for="entry">Entry</label>
+<input type="text" required class="form-control" id="entry" name="entry" aria-describedby="entryHelp" placeholder="Your text" formaction=#>
+<small id="entryHelp" class="form-text text-muted">Enter whatever you are looking for and press one of the buttons</small>
 
-        <button class="btn btn-primary" formaction="/" role="button">Home</button>
-        <button class="btn btn-primary" formaction="/get_transaction" role="button">Transaction</button>
-        <button class="btn btn-primary" formaction="/get_account" role="button">Account</button>
-        <button class="btn btn-primary" formaction="/get_block_number" role="button">Block number</button>
-        <button class="btn btn-primary" formaction="/get_supply" role="button">Supply</button>
+    <div>
 
-
+<button class="btn btn-primary" formaction="/get_transaction" role="button">Transaction</button>
+<button class="btn btn-primary" formaction="/get_account" role="button">Account</button>
+<button class="btn btn-primary" formaction="/get_block_number" role="button">Block number</button>
+<button class="btn btn-primary" formaction="/get_block" role="button">Block hash</button>
+        </div>
 </form>
+
 
 
 
