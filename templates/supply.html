@@ -29,18 +29,20 @@
         <button class="btn btn-primary" formaction="/get_supply" role="button">Supply</button>
 
 </form>
-
 </div>
 
 
 <table class="table">
   <thead>
     <tr>
-      <th scope="col">Sender</th>
-      <th scope="col">Recipient</th>
-      <th scope="col">Amount</th>
-      <th scope="col">Timestamp</th>
-      <th scope="col">Target Block</th>
+      <th scope="col">Produced</th>
+      <th scope="col">Fees</th>
+      <th scope="col">Burned</th>
+      <th scope="col">Block</th>
+      <th scope="col">Reserve</th>
+      <th scope="col">Reserve spent</th>
+      <th scope="col">Circulating</th>
+      <th scope="col">Total Supply</th>
 
     </tr>
   </thead>
@@ -48,11 +50,14 @@
     <tbody>
 
         <tr>
-          <td>{{data["sender"]}}</td>
-          <td>{{data["recipient"]}}</td>
-          <td>{{data["amount"]}}</td>
-          <td>{{data["timestamp"]}}</td>
-          <td>{{data["target_block"]}}</td>
+          <td>{{data["produced"]}}</td>
+          <td>{{data["fees"]}}</td>
+          <td>{{data["burned"]}}</td>
+          <td>{{data["block_number"]}}</td>
+          <td>{{data["reserve"]}}</td>
+          <td>{{data["reserve_spent"]}}</td>
+          <td>{{data["circulating"]}}</td>
+          <td>{{data["total_supply"]}}</td>
         </tr>
 
 
