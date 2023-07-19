@@ -73,12 +73,18 @@
             </tr>
         {% end %}
     {% end %}
-              <td><a href="/get_account_txs?entry={{transaction['sender']}}&min_block=50000">Next</a></td>
+
+
+
     </tbody>
 </table>
 
 
+<a href="/get_account_txs?entry={{transaction['sender']}}&min_block={{transaction['target_block']}}">
+<button class="btn btn-primary" role="button">Next</button></a>
 
+<a href="/get_account_txs?entry={{transaction['sender']}}&min_block={{transaction['target_block']+1}}">
+<button class="btn btn-primary" role="button">Skip block</button></a>
 </div>
 
 
