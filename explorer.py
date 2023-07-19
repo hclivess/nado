@@ -112,8 +112,14 @@ class TransactionHandler(BaseHandler):
                     data=data)
 
     def get_data(self, txid):
-        data = requests.get(f"{nado_node}/get_transaction?txid={txid}&readable=true").text
-        return json.loads(data)
+        data_raw = requests.get(f"{nado_node}/get_transaction?txid={txid}&readable=true").text
+        data = json.loads(data_raw)
+        readable_ts = {"timestamp": datetime.fromtimestamp(data["timestamp"])}
+        readable_reward = {"fee": to_readable_amount(data["fee"])}
+        data.update(readable_ts)
+        data.update(readable_reward)
+
+        return data
 
     def get(self, parameters):
         entry = TransactionHandler.get_argument(self, "entry")
