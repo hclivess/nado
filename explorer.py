@@ -89,18 +89,20 @@ class AccountHandler(BaseHandler):
         self.account(account=entry)
 
 class TxsOfAccountHandler(BaseHandler):
-    def accounttxs(self, accounttxs):
-        data = self.get_data(accounttxs)
+    def accounttxs(self, accounttxs, min_block):
+        data = self.get_data(accounttxs, min_block)
         self.render("templates/txsofaccount.html",
                     data=data)
 
-    def get_data(self, account):
-        data = requests.get(f"{nado_node}/get_transactions_of_account?address={account}").text
+    def get_data(self, account, min_block):
+        data = requests.get(f"{nado_node}/get_transactions_of_account?address={account}&min_block={min_block}").text
         return json.loads(data)
 
     def get(self, parameters):
         entry = TxsOfAccountHandler.get_argument(self, "entry")
-        self.accounttxs(accounttxs=entry)
+        min_block = TxsOfAccountHandler.get_argument(self, "min_block", default="0")
+        self.accounttxs(accounttxs=entry,
+                        min_block=min_block)
 
 
 class TransactionHandler(BaseHandler):
