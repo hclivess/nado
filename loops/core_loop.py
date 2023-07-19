@@ -228,7 +228,7 @@ class CoreClient(threading.Thread):
                     self.memserver.cascade_depth = sorted_hashes.index(hash_candidate) + 1
 
                     for peer, value in shuffled_pool.items():
-                        if peer not in self.memserver.purge_peers_list: #sadly, the whole purge_peers() takes a prohibitively long time for some reason
+                        if peer not in self.memserver.purge_peers_list:  # sadly, the whole purge_peers() takes a prohibitively long time for some reason
                             try:
                                 peer_trust = self.consensus.trust_pool[peer]
                                 """load trust score"""
@@ -236,10 +236,13 @@ class CoreClient(threading.Thread):
                                 peer_protocol = self.consensus.status_pool[peer]["protocol"]
                                 """get protocol version"""
 
-                                peer_earliest_hash = self.consensus.status_pool[peer]["earliest_block_hash"]
-                                """get earliest block"""
+                                known_block = asyncio.run(knows_block(
+                                    target_peer=peer,
+                                    port=self.memserver.port,
+                                    hash=self.memserver.earliest_block["block_hash"],
+                                    logger=self.logger))
 
-                                if get_block(peer_earliest_hash):
+                                if known_block:
                                     known_tree = True
                                 else:
                                     known_tree = False
@@ -422,7 +425,8 @@ class CoreClient(threading.Thread):
                                                                      peer=peer,
                                                                      value=-1)
                         else:
-                            self.logger.error(f"Rollbacks exhausted ({self.memserver.rollbacks}/{self.memserver.max_rollbacks})")
+                            self.logger.error(
+                                f"Rollbacks exhausted ({self.memserver.rollbacks}/{self.memserver.max_rollbacks})")
                             self.memserver.rollbacks = 0
                             break
 
