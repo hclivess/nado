@@ -415,7 +415,6 @@ class TransactionHandler(tornado.web.RequestHandler):
 
 class AccountTransactionsHandler(tornado.web.RequestHandler):
     """get transactions from a transaction index batch"""
-    """batch takes number or max"""
 
     def account_transactions(self):
         try:
