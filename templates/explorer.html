@@ -1,8 +1,8 @@
 <!doctype html>
 <html xmlns="http://www.w3.org/1999/html" xmlns="http://www.w3.org/1999/html">
 <head>
-    <link crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/bootstrap@3.3.7/dist/css/bootstrap.min.css"
-          integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" crossorigin="anonymous">
+
     <title>NADO Explorer</title>
 
 
@@ -88,6 +88,7 @@
 <table class="table">
   <thead>
     <tr>
+      <th scope="col">Sender</th>
       <th scope="col">Recipient</th>
       <th scope="col">Amount</th>
       <th scope="col">Fee</th>
@@ -100,11 +101,15 @@
 
     {% for transaction in data["block_transactions"]%}
         <tr>
-          <td><a href="/get_account?entry={{transaction['sender']}}">{{transaction["sender"]}}</a></td>
-          <td><a href="/get_account?entry={{transaction['recipient']}}">{{transaction["recipient"]}}</a></td>
+          <td><span class="d-inline-block text-truncate" style="max-width: 150px;">
+              <a href="/get_account?entry={{transaction['sender']}}">{{transaction["sender"]}}</a></span>
+          </td>
+          <td><span class="d-inline-block text-truncate" style="max-width: 150px;">
+              <a href="/get_account?entry={{transaction['recipient']}}">{{transaction["recipient"]}}</a></span></td>
           <td>{{transaction["amount"]}}</td>
           <td>{{transaction["fee"]}}</td>
-          <td><a href="/get_transaction?entry={{transaction['txid']}}">{{transaction["txid"]}}</a></td>
+          <td><span class="d-inline-block text-truncate" style="max-width: 150px;">
+              <a href="/get_transaction?entry={{transaction['txid']}}">{{transaction["txid"]}}</a></span></td>
         </tr>
     {% end %}
 
