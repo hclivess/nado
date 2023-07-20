@@ -38,19 +38,19 @@
             <table class="table table-bordered table-dark">
                <tbody>
                   <tr>
-                     <th scope="col">Block number</th>
+                     <th scope="col">🔢 Block number</th>
                      <td>{{data["block_number"]}}</td>
                   </tr>
                   <tr>
-                     <th scope="col">Block hash</th>
+                     <th scope="col">#️⃣ Block hash</th>
                      <td><a href="/get_block?entry={{data['block_hash']}}">{{data["block_hash"]}}</a></td>
                   </tr>
                   <tr>
-                     <th scope="col">Parent hash</th>
+                     <th scope="col">⬅️ Parent hash</th>
                      <td><a href="/get_block?entry={{data['parent_hash']}}">{{data["parent_hash"]}}</a></td>
                   </tr>
                   <tr>
-                     <th scope="col">Child hash</th>
+                     <th scope="col">➡️ Child hash</th>
                      {% if data["child_hash"] == None %}
                      <td>N/A</td>
                      {% else %}
@@ -58,19 +58,19 @@
                      {% end %}
                   </tr>
                   <tr>
-                     <th scope="col">Block IP</th>
+                     <th scope="col">📡 Block IP</th>
                      <td><a href="http://{{data['block_ip']}}:9173">{{data["block_ip"]}}</a></td>
                   </tr>
                   <tr>
-                     <th scope="col">Block creator</th>
+                     <th scope="col">💻 Block creator</th>
                      <td><a href="/get_account?entry={{data['block_creator']}}">{{data["block_creator"]}}</a></td>
                   </tr>
                   <tr>
-                     <th scope="col">Block timestamp</th>
+                     <th scope="col">🕐 Block timestamp</th>
                      <td>{{data["block_timestamp"]}}</td>
                   </tr>
                   <tr>
-                     <th scope="col">Block reward</th>
+                     <th scope="col">💰 Block reward</th>
                      <td>{{data["block_reward"]}}</td>
                   </tr>
                </tbody>
