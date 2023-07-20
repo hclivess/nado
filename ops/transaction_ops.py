@@ -113,7 +113,7 @@ def get_transactions_of_account(account, min_block: int, logger):
         tx_list.append(get_transaction(logger=logger,
                                        txid=txid[0]))
 
-    return {f"{min_block}-{min_block+100}": tx_list}
+    return {"transactions": tx_list}
     # return {batch: tx_list}
 
 

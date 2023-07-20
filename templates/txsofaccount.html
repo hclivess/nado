@@ -44,8 +44,7 @@
                </tr>
             </thead>
             <tbody>
-               {% for range, transactions in data.items() %}
-               {% for transaction in transactions %}
+               {% for transaction in data["transactions"] %}
                <tr>
                   <td><span class="d-inline-block text-truncate" style="max-width: 150px;">
                      <a href="/get_block_number?entry={{transaction['target_block']}}">{{transaction["target_block"]}}</a></span>
@@ -63,8 +62,11 @@
                   </td>
                </tr>
                {% end %}
+
+
             </tbody>
          </table>
+         {% if data["transactions"] %}
          <div class="mb-3">
             <a href="/get_account_txs?entry={{transaction['sender']}}&min_block={{transaction['target_block']}}">
             <button class="btn btn-primary" role="button">Next</button></a>
@@ -72,6 +74,7 @@
             <button class="btn btn-primary" role="button">Skip block</button></a>
          </div>
          {% end %}
+
       </div>
    </body>
 </html>
