@@ -157,6 +157,7 @@ async def make_app(port):
             (r"/get_block(.*)", BlockHashHandler),
             (r"/get_supply", SupplyHandler),
             (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": "static"}),
+            (r"/graphics/(.*)", tornado.web.StaticFileHandler, {"path": "graphics"}),
             (r'/(favicon.ico)', tornado.web.StaticFileHandler, {"path": "graphics"}),
 
         ]
