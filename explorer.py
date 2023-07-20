@@ -19,7 +19,8 @@ class HomeHandler(BaseHandler):
     def home(self):
         data = self.get_data()
         self.render("templates/explorer.html",
-                    data=data)
+                    data=data,
+                    node=nado_node)
 
     def get_data(self):
         data_raw = requests.get(f"{nado_node}/get_latest_block").text
@@ -78,7 +79,8 @@ class AccountHandler(BaseHandler):
     def account(self, account):
         data = self.get_data(account)
         self.render("templates/account.html",
-                    data=data)
+                    data=data,
+                    node=nado_node)
 
     def get_data(self, account):
         data = requests.get(f"{nado_node}/get_account?address={account}&readable=true").text
@@ -92,7 +94,8 @@ class TxsOfAccountHandler(BaseHandler):
     def accounttxs(self, accounttxs, min_block):
         data = self.get_data(accounttxs, min_block)
         self.render("templates/txsofaccount.html",
-                    data=data)
+                    data=data,
+                    node=nado_node)
 
     def get_data(self, account, min_block):
         data = requests.get(f"{nado_node}/get_transactions_of_account?address={account}&min_block={min_block}").text
@@ -109,7 +112,8 @@ class TransactionHandler(BaseHandler):
     def transaction(self, txid):
         data = self.get_data(txid)
         self.render("templates/transaction.html",
-                    data=data)
+                    data=data,
+                    node=nado_node)
 
     def get_data(self, txid):
         data_raw = requests.get(f"{nado_node}/get_transaction?txid={txid}&readable=true").text
@@ -129,7 +133,8 @@ class SupplyHandler(BaseHandler):
     def supply(self):
         data = self.get_data()
         self.render("templates/supply.html",
-                    data=data)
+                    data=data,
+                    node=nado_node)
 
     def get_data(self):
         data = requests.get(f"{nado_node}/get_supply?&readable=true").text
