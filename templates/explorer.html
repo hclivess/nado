@@ -50,7 +50,11 @@
                   </tr>
                   <tr>
                      <th scope="col">Child hash</th>
+                     {% if data["child_hash"] == None %}
+                     <td>N/A</td>
+                     {% else %}
                      <td><a href="/get_block?entry={{data['child_hash']}}">{{data["child_hash"]}}</a></td>
+                     {% end %}
                   </tr>
                   <tr>
                      <th scope="col">Block IP</th>
