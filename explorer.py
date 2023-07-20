@@ -39,7 +39,8 @@ class BlockNumberHandler(BaseHandler):
     def block(self, block):
         data = self.get_data(block)
         self.render("templates/explorer.html",
-                    data=data)
+                    data=data,
+                    node=nado_node)
 
     def get_data(self, block):
         data_raw = requests.get(f"{nado_node}/get_block_number?number={block}").text
@@ -59,7 +60,8 @@ class BlockHashHandler(BaseHandler):
     def block(self, hash):
         data = self.get_data(hash)
         self.render("templates/explorer.html",
-                    data=data)
+                    data=data,
+                    node=nado_node)
 
     def get_data(self, hash):
         data_raw = requests.get(f"{nado_node}/get_block?hash={hash}").text
