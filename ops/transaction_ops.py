@@ -103,7 +103,7 @@ def get_transactions_of_account(account, min_block: int, logger):
     acc_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
 
     fetched = acc_handler.db_fetch(
-        "SELECT txid FROM tx_index WHERE (sender = ? OR recipient = ?) AND block_number >= ? ORDER BY block_number LIMIT 100",
+        "SELECT txid FROM tx_index WHERE (sender = ? OR recipient = ?) AND block_number >= ? ORDER BY block_number LIMIT 1000",
         (account, account, min_block))
 
     acc_handler.close()
