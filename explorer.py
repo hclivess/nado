@@ -170,8 +170,8 @@ class SupplyHandler(BaseHandler):
 
 async def make_app(port):
     ssl_options = {
-        "certfile": "/var/pyTest/keys/ca.csr",
-        "keyfile": "/var/pyTest/keys/ca.key",
+        "certfile": "/etc/letsencrypt/live/explorer.nodeisok.com/fullchain.pem",
+        "keyfile": "/etc/letsencrypt/live/explorer.nodeisok.com/privkey.pem",
     }
 
     application = tornado.web.Application(
