@@ -5,7 +5,7 @@ import asyncio
 import json
 from datetime import datetime
 
-nado_node = "http://127.0.0.1:9173"
+nado_node = "http://167.86.120.22:9173"
 
 
 def to_readable_amount(raw_amount: int) -> str:
