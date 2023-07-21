@@ -57,6 +57,12 @@ class BlockNumberHandler(BaseHandler):
         readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
         data.update(readable_ts)
         data.update(readable_reward)
+
+        for transaction in data["block_transactions"]:
+            readable_amount = {"amount": to_readable_amount(transaction["amount"])}
+            readable_fee = {"fee": to_readable_amount(transaction["fee"])}
+            transaction.update(readable_amount)
+            transaction.update(readable_fee)
         return data
 
     def get(self, parameters):
