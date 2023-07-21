@@ -7,8 +7,10 @@ from datetime import datetime
 
 nado_node = "http://127.0.0.1:9173"
 
+
 def to_readable_amount(raw_amount: int) -> str:
     return f"{(raw_amount / 10000000000):.10f}"
+
 
 class BaseHandler(tornado.web.RequestHandler):
     def write_error(self, status_code, **kwargs):
@@ -29,6 +31,12 @@ class HomeHandler(BaseHandler):
         readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
         data.update(readable_ts)
         data.update(readable_reward)
+
+        for transaction in data["block_transactions"]:
+            readable_amount = {"amount": to_readable_amount(transaction["amount"])}
+            readable_fee = {"fee": to_readable_amount(transaction["fee"])}
+            transaction.update(readable_amount)
+            transaction.update(readable_fee)
         return data
 
     def get(self):
@@ -91,6 +99,7 @@ class AccountHandler(BaseHandler):
     def get(self, parameters):
         entry = AccountHandler.get_argument(self, "entry")
         self.account(account=entry)
+
 
 class TxsOfAccountHandler(BaseHandler):
     def accounttxs(self, accounttxs, min_block):
