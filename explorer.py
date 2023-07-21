@@ -169,10 +169,10 @@ class SupplyHandler(BaseHandler):
 
 
 async def make_app(port):
-    ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-    ssl_ctx.load_cert_chain("/etc/letsencrypt/live/explorer.nodeisok.com/fullchain.pem", "/etc/letsencrypt/live/explorer.nodeisok.com/privkey.pem")
-    #ssl_ctx.load_verify_locations("../ca.crt")
-    ssl_ctx.verify_mode = ssl.CERT_REQUIRED
+    ssl_options = {
+        "certfile": "/var/pyTest/keys/ca.csr",
+        "keyfile": "/var/pyTest/keys/ca.key",
+    }
 
     application = tornado.web.Application(
         [
@@ -189,7 +189,7 @@ async def make_app(port):
 
         ]
     )
-    application.listen(port, ssl_options=ssl_ctx)
+    application.listen(port, ssl_options=ssl_options)
     await asyncio.Event().wait()
 
 
