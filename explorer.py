@@ -4,6 +4,7 @@ import tornado.web
 import asyncio
 import json
 from datetime import datetime
+import ssl
 
 nado_node = "http://167.86.120.22:9173"
 
@@ -168,6 +169,11 @@ class SupplyHandler(BaseHandler):
 
 
 async def make_app(port):
+    ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    ssl_ctx.load_cert_chain("/etc/letsencrypt/live/explorer.nodeisok.com/fullchain.pem", "/etc/letsencrypt/live/explorer.nodeisok.com/privkey.pem")
+    #ssl_ctx.load_verify_locations("../ca.crt")
+    ssl_ctx.verify_mode = ssl.CERT_REQUIRED
+
     application = tornado.web.Application(
         [
             (r"/", HomeHandler),
@@ -183,7 +189,7 @@ async def make_app(port):
 
         ]
     )
-    application.listen(port)
+    application.listen(port, ssl_options=ssl_ctx)
     await asyncio.Event().wait()
 
 
