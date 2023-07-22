@@ -21,7 +21,7 @@ class BaseHandler(tornado.web.RequestHandler):
 
 class HomeHandler(BaseHandler):
     def home(self):
-        self.redirect(self.request.full_url().replace('http://', 'https://'), permanent=True)
+        #self.redirect(self.request.full_url().replace('http://', 'https://'), permanent=True)
         data = self.get_data()
         self.render("templates/explorer.html",
                     data=data,
