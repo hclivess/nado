@@ -138,6 +138,7 @@ class TransactionHandler(BaseHandler):
         data = self.get_data(txid)
         self.render("templates/transaction.html",
                     data=data,
+                    raw=json.dumps(data, indent=4, sort_keys=True, default=str),
                     node=nado_node)
 
     def get_data(self, txid):
@@ -170,10 +171,15 @@ class SupplyHandler(BaseHandler):
 
 
 async def make_app(port):
-    ssl_options = {
-        "certfile": "/etc/letsencrypt/live/explorer.nodeisok.com/fullchain.pem",
-        "keyfile": "/etc/letsencrypt/live/explorer.nodeisok.com/privkey.pem",
-    }
+    SSL = False
+
+    if SSL:
+        ssl_options = {
+            "certfile": "/etc/letsencrypt/live/explorer.nodeisok.com/fullchain.pem",
+            "keyfile": "/etc/letsencrypt/live/explorer.nodeisok.com/privkey.pem",
+        }
+    else:
+        ssl_options = None
 
     application = tornado.web.Application(
         [
