@@ -15,7 +15,8 @@ def to_readable_amount(raw_amount: int) -> str:
 
 class BaseHandler(tornado.web.RequestHandler):
     def write_error(self, status_code, **kwargs):
-        self.render("templates/error.html")
+        self.render("templates/error.html",
+                    node=nado_node)
 
 
 class HomeHandler(BaseHandler):
