@@ -179,10 +179,15 @@ class RedirectToHTTPSHandler(tornado.web.RequestHandler):
 
 
 async def make_app(port):
-    if os.path.exists("/etc/letsencrypt/live/explorer.nodeisok.com/"):
+    with open("certloc.json") as certlocfile:
+        contents = json.load(certlocfile)
+        certfile = contents["certfile"]
+        keyfile = contents["keyfile"]
+
+    if os.path.exists(certfile):
         ssl_options = {
-            "certfile": "/etc/letsencrypt/live/explorer.nodeisok.com/fullchain.pem",
-            "keyfile": "/etc/letsencrypt/live/explorer.nodeisok.com/privkey.pem",
+            "certfile": certfile,
+            "keyfile": keyfile,
         }
     else:
         ssl_options = None
