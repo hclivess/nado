@@ -171,7 +171,7 @@ class SupplyHandler(BaseHandler):
 
 
 async def make_app(port):
-    SSL = False
+    SSL = True
 
     if SSL:
         ssl_options = {
