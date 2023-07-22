@@ -1,0 +1,1 @@
+{"certfile": "/etc/letsencrypt/live/explorer.nodeisok.com/fullchain.pem", "keyfile": "/etc/letsencrypt/live/explorer.nodeisok.com/privkey.pem", "nado_node": "http://167.86.120.22:9173"}
