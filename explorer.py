@@ -136,7 +136,7 @@ class TransactionHandler(BaseHandler):
     def transaction(self, txid):
         data = self.get_data(txid)
         self.render("templates/transaction.html",
-                    data=json.dumps(data),
+                    data=data,
                     node=nado_node)
 
     def get_data(self, txid):
