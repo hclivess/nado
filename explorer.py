@@ -8,7 +8,11 @@ import json
 from datetime import datetime
 import ssl
 
-nado_node = "http://167.86.120.22:9173"
+with open("config_explorer.json") as certlocfile:
+    contents = json.load(certlocfile)
+    certfile = contents["certfile"]
+    keyfile = contents["keyfile"]
+    nado_node = contents["nado_node"]
 
 
 def to_readable_amount(raw_amount: int) -> str:
@@ -179,11 +183,6 @@ class RedirectToHTTPSHandler(tornado.web.RequestHandler):
 
 
 async def make_app(port):
-    with open("certloc.json") as certlocfile:
-        contents = json.load(certlocfile)
-        certfile = contents["certfile"]
-        keyfile = contents["keyfile"]
-
     if os.path.exists(certfile):
         ssl_options = {
             "certfile": certfile,
