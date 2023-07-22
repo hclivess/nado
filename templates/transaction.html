@@ -45,6 +45,7 @@
                   <th scope="col">Timestamp</th>
                   <th scope="col">Fee</th>
                   <th scope="col">Target Block</th>
+                  <th scope="col">Raw</th>
                </tr>
             </thead>
             <tbody>
@@ -55,6 +56,9 @@
                   <td>{{data["timestamp"]}}</td>
                   <td>{{data["fee"]}}</td>
                   <td><a href="/get_block_number?entry={{data['target_block']}}">{{data["target_block"]}}</a></td>
+               <tr>
+                  <td>{{data}}</td>
+               </tr>
                </tr>
             </tbody>
          </table>
