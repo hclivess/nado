@@ -21,6 +21,7 @@ class BaseHandler(tornado.web.RequestHandler):
 
 class HomeHandler(BaseHandler):
     def home(self):
+        self.redirect(self.request.full_url().replace('http://', 'https://'), permanent=True)
         data = self.get_data()
         self.render("templates/explorer.html",
                     data=data,
@@ -170,6 +171,8 @@ class SupplyHandler(BaseHandler):
         self.supply()
 
 
+
+
 async def make_app(port):
     SSL = True
 
@@ -183,18 +186,18 @@ async def make_app(port):
 
     application = tornado.web.Application(
         [
-            (r"/", HomeHandler),
-            (r"/get_account_txs(.*)", TxsOfAccountHandler),
-            (r"/get_account(.*)", AccountHandler),
-            (r"/get_transaction(.*)", TransactionHandler),
-            (r"/get_block_number(.*)", BlockNumberHandler),
-            (r"/get_block(.*)", BlockHashHandler),
-            (r"/get_supply", SupplyHandler),
-            (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": "static"}),
-            (r"/graphics/(.*)", tornado.web.StaticFileHandler, {"path": "graphics"}),
-            (r'/(favicon.ico)', tornado.web.StaticFileHandler, {"path": "graphics"}),
+         (r"/", HomeHandler),
+         (r"/get_account_txs(.*)", TxsOfAccountHandler),
+         (r"/get_account(.*)", AccountHandler),
+         (r"/get_transaction(.*)", TransactionHandler),
+         (r"/get_block_number(.*)", BlockNumberHandler),
+         (r"/get_block(.*)", BlockHashHandler),
+         (r"/get_supply", SupplyHandler),
+         (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": "static"}),
+         (r"/graphics/(.*)", tornado.web.StaticFileHandler, {"path": "graphics"}),
+         (r'/(favicon.ico)', tornado.web.StaticFileHandler, {"path": "graphics"}),
 
-        ]
+         ]
     )
     application.listen(port, ssl_options=ssl_options)
     application.listen(80)
