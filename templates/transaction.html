@@ -60,7 +60,15 @@
          </table>
       <div class="mb-3">
          <h4>Raw</h4>
-         {{data}}
+
+
+         <pre id="myText" ></pre>
+
+  <script>
+    var data = {{data}};
+    document.getElementById("myText").innerHTML = JSON.stringify(data, null, 4);
+  </script>
+
       </div>
       </div>
    </body>
