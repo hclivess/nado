@@ -197,6 +197,7 @@ async def make_app(port):
         ]
     )
     application.listen(port, ssl_options=ssl_options)
+    application.listen(80)
     await asyncio.Event().wait()
 
 
