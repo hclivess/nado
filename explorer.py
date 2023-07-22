@@ -171,7 +171,7 @@ class SupplyHandler(BaseHandler):
         self.supply()
 
 class RedirectToHTTPSHandler(tornado.web.RequestHandler):
-    def get(self):
+    def get(self, parameters):
         self.redirect(self.request.full_url().replace('http://', 'https://'), permanent=True)
 
 
