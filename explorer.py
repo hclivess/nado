@@ -170,7 +170,9 @@ class SupplyHandler(BaseHandler):
     def get(self):
         self.supply()
 
-
+class RedirectToHTTPSHandler(tornado.web.RequestHandler):
+    def get(self):
+        self.redirect(self.request.full_url().replace('http://', 'https://'), permanent=True)
 
 
 async def make_app(port):
@@ -199,8 +201,15 @@ async def make_app(port):
 
          ]
     )
+
+    application_redirect = tornado.web.Application(
+        [
+         (r"/", RedirectToHTTPSHandler),
+         ]
+    )
+
     application.listen(port, ssl_options=ssl_options)
-    application.listen(80)
+    application_redirect.listen(80)
     await asyncio.Event().wait()
 
 
