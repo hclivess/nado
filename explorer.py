@@ -204,7 +204,7 @@ async def make_app(port):
 
     application_redirect = tornado.web.Application(
         [
-         (r"/", RedirectToHTTPSHandler),
+         (r"/(.*)", RedirectToHTTPSHandler),
          ]
     )
 
