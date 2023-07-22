@@ -1,22 +1,26 @@
 <!doctype html>
 <html data-bs-theme="dark" lang="en">
    <head>
-            <link rel="stylesheet" href="graphics/style.css">
+
       <link crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
          integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" rel="stylesheet">
       <title>NADO Explorer</title>
    </head>
    <body>
       <div class="container">
-  <div class="padded-div"><img src="/graphics/180_logo.png" style="width:80px;height:80px;" alt="Node is OK"><h2>NADO transactions of account</h2></div>
-         <div class="mb-3">
-            <form>
+      <header class="d-flex flex-wrap justify-content-center py-3 mb-4 border-bottom">
+      <a href="/" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto link-body-emphasis text-decoration-none">
+        <img class="bi me-2" src="/graphics/180_logo.png" style="width:50px;height:50px;" alt="Node is OK">
+        <span class="fs-4">NADO explorer</span>
+      </a>
+
+      <div class="mb-3">
                <a class="btn btn-lightbtn-lg active" href="https://nodeisok.com" role="button">Website</a>
                <a class="btn btn-lightbtn-lg active" href="/" role="button">Home</a>
                <a class="btn btn-lightbtn-lg active" href="/get_supply" role="button">Supply</a>
                <a class="btn btn-lightbtn-lg active" href="{{node}}" role="button">API</a>
-            </form>
-         </div>
+      </div>
+    </header>
          <form action="#" method="get">
             <div class="mb-3">
                <h4>Search</h4>
