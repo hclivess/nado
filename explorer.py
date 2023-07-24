@@ -56,7 +56,7 @@ class BlockNumberHandler(BaseHandler):
     def block(self, block):
         data = self.get_data(block)
 
-        if data["block"] == "Not found":
+        if data["block_number"] == "Not found":
             self.render("templates/error.html",
                         node=nado_node)
 
@@ -92,7 +92,7 @@ class BlockHashHandler(BaseHandler):
     def block(self, hash):
         data = self.get_data(hash)
 
-        if data["block"] == "Not found":
+        if data["block_hash"] == "Not found":
             self.render("templates/error.html",
                         node=nado_node)
 
