@@ -31,7 +31,8 @@ class HomeHandler(BaseHandler):
         data = self.get_data()
         self.render("templates/explorer.html",
                     data=data,
-                    node=nado_node)
+                    node=nado_node,
+                    tx_no=len(data["block_transactions"]))
 
     def get_data(self):
         data_raw = requests.get(f"{nado_node}/get_latest_block").text
@@ -57,7 +58,8 @@ class BlockNumberHandler(BaseHandler):
         data = self.get_data(block)
         self.render("templates/explorer.html",
                     data=data,
-                    node=nado_node)
+                    node=nado_node,
+                    tx_no=len(data["block_transactions"]))
 
     def get_data(self, block):
         data_raw = requests.get(f"{nado_node}/get_block_number?number={block}").text
@@ -84,7 +86,8 @@ class BlockHashHandler(BaseHandler):
         data = self.get_data(hash)
         self.render("templates/explorer.html",
                     data=data,
-                    node=nado_node)
+                    node=nado_node,
+                    tx_no=len(data["block_transactions"]))
 
     def get_data(self, hash):
         data_raw = requests.get(f"{nado_node}/get_block?hash={hash}").text
