@@ -7,11 +7,12 @@
       <title>NADO Explorer</title>
    </head>
    <body>
+
    <div class="container">
       <header class="d-flex flex-wrap justify-content-center py-3 mb-4 border-bottom">
       <a href="/" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto link-body-emphasis text-decoration-none">
         <img class="bi me-2" src="/graphics/180_logo.png" style="width:50px;height:50px;" alt="Node is OK">
-        <span class="fs-4">NADO explorer</span>
+        <span class="fs-4">NADO Explorer</span>
       </a>
 
       <div class="mb-3">
@@ -21,20 +22,23 @@
                <a class="btn btn-lightbtn-lg active" href="{{node}}" role="button">API</a>
       </div>
     </header>
-      <div class="mb-3">
-         <h4>Search</h4>
-         <input aria-describedby="entryHelp" class="form-control" formaction=# id="entry" name="entry" placeholder="Your query"
-            required type="text">
-         <small class="form-text text-muted" id="entryHelp">Enter whatever you are looking for and press one of the
-         buttons</small>
-      </div>
-      <div class="mb-3">
-         <button class="btn btn-lightbtn-lg active" formaction="/get_transaction" role="button">Transaction</button>
-         <button class="btn btn-lightbtn-lg active" formaction="/get_account" role="button">Account</button>
-         <button class="btn btn-lightbtn-lg active" formaction="/get_account_txs" role="button">Account transactions</button>
-         <button class="btn btn-lightbtn-lg active" formaction="/get_block_number" role="button">Block number</button>
-         <button class="btn btn-lightbtn-lg active" formaction="/get_block" role="button">Block hash</button>
-      </div>
-      </div>
+             <form action="#" method="get">
+            <div class="mb-3">
+               <h4>An error occurred. Please try again:</h4>
+               <input aria-describedby="entryHelp" class="form-control" formaction=# id="entry" name="entry" placeholder="Your query"
+                  required type="text">
+               <small class="form-text text-muted" id="entryHelp">Enter whatever you are looking for and press one of the
+               buttons</small>
+            </div>
+            <div class="mb-3">
+               <button class="btn btn-lightbtn-lg active" formaction="/get_transaction" role="button">Transaction</button>
+               <button class="btn btn-lightbtn-lg active" formaction="/get_account" role="button">Account</button>
+               <button class="btn btn-lightbtn-lg active" formaction="/get_account_txs" role="button">Account transactions</button>
+               <button class="btn btn-lightbtn-lg active" formaction="/get_block_number" role="button">Block number</button>
+               <button class="btn btn-lightbtn-lg active" formaction="/get_block" role="button">Block hash</button>
+            </div>
+         </form>
+
+       </div>
    </body>
 </html>

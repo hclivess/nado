@@ -27,7 +27,6 @@ class BaseHandler(tornado.web.RequestHandler):
 
 class HomeHandler(BaseHandler):
     def home(self):
-        # self.redirect(self.request.full_url().replace('http://', 'https://'), permanent=True)
         data = self.get_data()
         self.render("templates/explorer.html",
                     data=data,
@@ -56,24 +55,33 @@ class HomeHandler(BaseHandler):
 class BlockNumberHandler(BaseHandler):
     def block(self, block):
         data = self.get_data(block)
-        self.render("templates/explorer.html",
-                    data=data,
-                    node=nado_node,
-                    tx_no=len(data["block_transactions"]))
+
+        if data["block"] == "Not found":
+            self.render("templates/error.html",
+                        node=nado_node)
+
+        else:
+
+            readable_ts = {"block_timestamp": datetime.fromtimestamp(data["block_timestamp"])}
+            readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
+            data.update(readable_ts)
+            data.update(readable_reward)
+
+            for transaction in data["block_transactions"]:
+                readable_amount = {"amount": to_readable_amount(transaction["amount"])}
+                readable_fee = {"fee": to_readable_amount(transaction["fee"])}
+                transaction.update(readable_amount)
+                transaction.update(readable_fee)
+
+            self.render("templates/explorer.html",
+                        data=data,
+                        node=nado_node,
+                        tx_no=len(data["block_transactions"]))
 
     def get_data(self, block):
         data_raw = requests.get(f"{nado_node}/get_block_number?number={block}").text
         data = json.loads(data_raw)
-        readable_ts = {"block_timestamp": datetime.fromtimestamp(data["block_timestamp"])}
-        readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
-        data.update(readable_ts)
-        data.update(readable_reward)
 
-        for transaction in data["block_transactions"]:
-            readable_amount = {"amount": to_readable_amount(transaction["amount"])}
-            readable_fee = {"fee": to_readable_amount(transaction["fee"])}
-            transaction.update(readable_amount)
-            transaction.update(readable_fee)
         return data
 
     def get(self, parameters):
@@ -84,24 +92,33 @@ class BlockNumberHandler(BaseHandler):
 class BlockHashHandler(BaseHandler):
     def block(self, hash):
         data = self.get_data(hash)
-        self.render("templates/explorer.html",
-                    data=data,
-                    node=nado_node,
-                    tx_no=len(data["block_transactions"]))
+
+        if data["block"] == "Not found":
+            self.render("templates/error.html",
+                        node=nado_node)
+
+        else:
+
+            readable_ts = {"block_timestamp": datetime.fromtimestamp(data["block_timestamp"])}
+            readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
+            data.update(readable_ts)
+            data.update(readable_reward)
+
+            for transaction in data["block_transactions"]:
+                readable_amount = {"amount": to_readable_amount(transaction["amount"])}
+                readable_fee = {"fee": to_readable_amount(transaction["fee"])}
+                transaction.update(readable_amount)
+                transaction.update(readable_fee)
+
+            self.render("templates/explorer.html",
+                        data=data,
+                        node=nado_node,
+                        tx_no=len(data["block_transactions"]))
 
     def get_data(self, hash):
         data_raw = requests.get(f"{nado_node}/get_block?hash={hash}").text
         data = json.loads(data_raw)
-        readable_ts = {"block_timestamp": datetime.fromtimestamp(data["block_timestamp"])}
-        readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
-        data.update(readable_ts)
-        data.update(readable_reward)
 
-        for transaction in data["block_transactions"]:
-            readable_amount = {"amount": to_readable_amount(transaction["amount"])}
-            readable_fee = {"fee": to_readable_amount(transaction["fee"])}
-            transaction.update(readable_amount)
-            transaction.update(readable_fee)
         return data
 
     def get(self, parameters):
