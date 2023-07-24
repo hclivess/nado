@@ -1,11 +1,11 @@
 <p align="center">
-  <a href="https://nado.live"><img src="https://nado.live/media/bauhaus.png" /></a>
+  <a href="https://nodeisok.com"><img src="https://nodeisok.com/media/bauhaus.png" /></a>
 </p>
 
 <p align="center">
-    <a href="https://discord.gg/6aEBWTvcTV"><img src="https://nado.live/media/discord.png" /></a>
+    <a href="https://discord.gg/6aEBWTvcTV"><img src="https://nodeisok.com/media/discord.png" /></a>
     &emsp;
-    <a href="https://twitter.com/nadodigital"><img src="https://nado.live/media/twitter.png" /></a>
+    <a href="https://twitter.com/nadodigital"><img src="https://nodeisok.com/media/twitter.png" /></a>
 
 </p>
 
@@ -125,7 +125,7 @@ miner incentives, which cause issues like transaction exclusion in traditional P
 ## What is NADO?
 
 <p align="center">
-  <img src="https://nado.live/media/overview.png" />
+  <img src="https://nodeisok.com/media/overview.png" />
 </p>
 
 NADO is short for Tornado. It is just another blockchain written from scratch with a highly experimental consensus algorithm, 
@@ -290,7 +290,7 @@ https://github.com/hclivess/nado-microwallet
 
 #### Where can I learn more?
 
-https://nado.live
+https://nodeisok.com
 
 # For developers
 ### Design philosophy
