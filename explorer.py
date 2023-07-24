@@ -61,7 +61,6 @@ class BlockNumberHandler(BaseHandler):
                         node=nado_node)
 
         else:
-
             readable_ts = {"block_timestamp": datetime.fromtimestamp(data["block_timestamp"])}
             readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
             data.update(readable_ts)

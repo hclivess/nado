@@ -401,7 +401,7 @@ class TransactionHandler(tornado.web.RequestHandler):
                 transaction_data = "Not found"
                 self.set_status(403)
 
-            self.write(serialize(name="transaction",
+            self.write(serialize(name="txid",
                                  output=transaction_data,
                                  compress=compress))
 
@@ -454,7 +454,7 @@ class GetBlockHandler(tornado.web.RequestHandler):
                 self.set_status(404)
                 block_data = "Not found"
 
-            output = serialize(name="block",
+            output = serialize(name="block_hash",
                                output=block_data,
                                compress=compress)
 
@@ -482,7 +482,7 @@ class GetBlockNumberHandler(tornado.web.RequestHandler):
                 self.set_status(403)
                 block_data = "Not found"
 
-            output = serialize(name="block",
+            output = serialize(name="block_number",
                                output=block_data,
                                compress=compress)
 
@@ -647,7 +647,7 @@ class AccountHandler(tornado.web.RequestHandler):
                 account_data = "Not found"
                 self.set_status(403)
 
-            self.write(serialize(name="account",
+            self.write(serialize(name="address",
                                  output=account_data,
                                  compress=compress))
 
