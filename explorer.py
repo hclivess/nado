@@ -128,9 +128,15 @@ class BlockHashHandler(BaseHandler):
 class AccountHandler(BaseHandler):
     def account(self, account):
         data = self.get_data(account)
-        self.render("templates/account.html",
-                    data=data,
-                    node=nado_node)
+
+        if data["address"] == "Not found":
+            self.render("templates/error.html",
+                        node=nado_node)
+
+        else:
+            self.render("templates/account.html",
+                        data=data,
+                        node=nado_node)
 
     def get_data(self, account):
         data = requests.get(f"{nado_node}/get_account?address={account}&readable=true").text
@@ -162,18 +168,26 @@ class TxsOfAccountHandler(BaseHandler):
 class TransactionHandler(BaseHandler):
     def transaction(self, txid):
         data = self.get_data(txid)
-        self.render("templates/transaction.html",
-                    data=data,
-                    raw=json.dumps(data, indent=4, sort_keys=True, default=str),
-                    node=nado_node)
+
+        if data["txid"] == "Not found":
+            self.render("templates/error.html",
+                        node=nado_node)
+
+        else:
+            readable_ts = {"timestamp": datetime.fromtimestamp(data["timestamp"])}
+            readable_reward = {"fee": to_readable_amount(data["fee"])}
+            data.update(readable_ts)
+            data.update(readable_reward)
+
+            self.render("templates/transaction.html",
+                        data=data,
+                        raw=json.dumps(data, indent=4, sort_keys=True, default=str),
+                        node=nado_node)
 
     def get_data(self, txid):
         data_raw = requests.get(f"{nado_node}/get_transaction?txid={txid}&readable=true").text
         data = json.loads(data_raw)
-        readable_ts = {"timestamp": datetime.fromtimestamp(data["timestamp"])}
-        readable_reward = {"fee": to_readable_amount(data["fee"])}
-        data.update(readable_ts)
-        data.update(readable_reward)
+
         return data
 
     def get(self, parameters):
