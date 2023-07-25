@@ -146,6 +146,50 @@ class AccountHandler(BaseHandler):
         entry = AccountHandler.get_argument(self, "entry")
         self.account(account=entry)
 
+class StatsHandler(BaseHandler):
+    def stats(self):
+        data = self.get_data()
+
+        self.render("templates/stats.html",
+                    data=json.dumps(data, indent=4, sort_keys=True, default=str),
+                    node=nado_node)
+
+    def get_data(self):
+        status = json.loads(requests.get(f"{nado_node}/status").text)
+        status_pool = json.loads(requests.get(f"{nado_node}/status_pool").text)
+        transaction_pool = json.loads(requests.get(f"{nado_node}/transaction_pool").text)
+        transaction_buffer = json.loads(requests.get(f"{nado_node}/transaction_buffer").text)
+        user_transaction_buffer = json.loads(requests.get(f"{nado_node}/user_transaction_buffer").text)
+        peers = json.loads(requests.get(f"{nado_node}/peers").text)
+        peers_buffer = json.loads(requests.get(f"{nado_node}/peers_buffer").text)
+        unreachable = json.loads(requests.get(f"{nado_node}/unreachable").text)
+        block_producers = json.loads(requests.get(f"{nado_node}/block_producers").text)
+        penalties = json.loads(requests.get(f"{nado_node}/penalties").text)
+        transaction_hash_pool = json.loads(requests.get(f"{nado_node}/transaction_hash_pool").text)
+        block_hash_pool = json.loads(requests.get(f"{nado_node}/block_hash_pool").text)
+        block_producers_hash_pool = json.loads(requests.get(f"{nado_node}/block_producers_hash_pool").text)
+        trust_pool = json.loads(requests.get(f"{nado_node}/trust_pool").text)
+
+        data = {"status": status,
+                "status_pool": status_pool,
+                "transaction_pool": transaction_pool,
+                "transaction_buffer": transaction_buffer,
+                "user_transaction_buffer": user_transaction_buffer,
+                "peers": peers,
+                "peers_buffer": peers_buffer,
+                "unreachable": unreachable,
+                "block_producers": block_producers,
+                "penalties": penalties,
+                "transaction_hash_pool": transaction_hash_pool,
+                "block_hash_pool": block_hash_pool,
+                "block_producers_hash_pool": block_producers_hash_pool,
+                "trust_pool": trust_pool,
+                }
+
+        return data
+
+    def get(self):
+        self.stats()
 
 class TxsOfAccountHandler(BaseHandler):
     def accounttxs(self, accounttxs, min_block):
@@ -232,6 +276,7 @@ async def make_app(port):
             (r"/get_transaction(.*)", TransactionHandler),
             (r"/get_block_number(.*)", BlockNumberHandler),
             (r"/get_block(.*)", BlockHashHandler),
+            (r"/stats", StatsHandler),
             (r"/get_supply", SupplyHandler),
             (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": "static"}),
             (r"/graphics/(.*)", tornado.web.StaticFileHandler, {"path": "graphics"}),
