@@ -208,6 +208,14 @@ class TxsOfAccountHandler(BaseHandler):
         self.accounttxs(accounttxs=entry,
                         min_block=min_block)
 
+class AutomaticHandler(BaseHandler):
+    def get(self, parameters):
+        entry = TransactionHandler.get_argument(self, "entry")
+
+        if len(entry) == 49:
+            self.redirect(f"/get_account?entry={entry}")
+        elif len(entry) == 49:
+            self.redirect(f"/get_account?entry={entry}")
 
 class TransactionHandler(BaseHandler):
     def transaction(self, txid):
@@ -277,6 +285,7 @@ async def make_app(port):
             (r"/get_block_number(.*)", BlockNumberHandler),
             (r"/get_block(.*)", BlockHashHandler),
             (r"/stats", StatsHandler),
+            (r"/automatic(.*)", AutomaticHandler),
             (r"/get_supply", SupplyHandler),
             (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": "static"}),
             (r"/graphics/(.*)", tornado.web.StaticFileHandler, {"path": "graphics"}),
