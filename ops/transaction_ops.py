@@ -82,7 +82,7 @@ def validate_transaction(transaction, logger, block_height):
     assert validate_address(transaction["recipient"]), f"Invalid recipient {transaction['recipient']}"
     assert isinstance(transaction["fee"], int), "Transaction fee is not an integer"
     assert transaction["fee"] >= 0, "Transaction fee lower than zero"
-    assert transaction["txid"] >= 64
+    assert len(transaction["txid"]) >= 64
     return True
 
 def min_from_transaction_pool(transactions: list, key="fee") -> dict:
