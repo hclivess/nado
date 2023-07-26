@@ -378,7 +378,7 @@ def qualifies_to_sync(peer, peer_trust, peer_protocol, known_tree, memserver_pro
     if not known_tree:
         """we don't know peer's root hash"""
         return {"result": False,
-                "flag": f"Peer root hash is unknown"}
+                "flag": f"Our root hash is unknown to them"}
 
     if median_trust > peer_trust and not promiscuous:
         """peer trust worse than median"""
