@@ -210,18 +210,20 @@ class TxsOfAccountHandler(BaseHandler):
 
 class AutomaticHandler(BaseHandler):
     def get(self, parameters):
-        entry = TransactionHandler.get_argument(self, "entry")
-
+        entry = AutomaticHandler.get_argument(self, "entry")
         if len(entry) == 49:
             self.redirect(f"/get_account?entry={entry}")
-        elif len(entry) == 49:
-            self.redirect(f"/get_account?entry={entry}")
+        elif entry.isnumeric():
+            self.redirect(f"/get_block_number?entry={entry}")
+        else:
+            self.redirect(f"/get_transaction?entry={entry}")
 
 class TransactionHandler(BaseHandler):
     def transaction(self, txid):
         data = self.get_data(txid)
 
         if data["txid"] == "Not found":
+            self.set_status(404)
             self.render("templates/error.html",
                         node=nado_node)
 

@@ -23,7 +23,7 @@
           <a class="btn btn-lightbtn-lg active" href="{{node}}" role="button">API</a>
       </div>
     </header>
-             <form action="#" method="get">
+             <form method="get">
             <div class="mb-3">
                <h4>An error occurred. Please try again:</h4>
                <input aria-describedby="entryHelp" class="form-control" formaction=# id="entry" name="entry" placeholder="Your query"
@@ -32,6 +32,7 @@
                buttons</small>
             </div>
             <div class="mb-3">
+               <input type="submit" hidden formaction="/automatic" />
                <button class="btn btn-lightbtn-lg active" formaction="/get_transaction" role="button">Transaction</button>
                <button class="btn btn-lightbtn-lg active" formaction="/get_account" role="button">Account</button>
                <button class="btn btn-lightbtn-lg active" formaction="/get_account_txs" role="button">Account transactions</button>
