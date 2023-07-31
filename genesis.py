@@ -19,10 +19,7 @@ def create_indexers():
     acc_handler.db_execute("INSERT INTO totals_index VALUES (?,?,?)", (0,0,0,))
     acc_handler.close()
 
-    tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
-    tx_handler.db_execute(query="CREATE TABLE IF NOT EXISTS tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
-    tx_handler.db_execute(query="CREATE INDEX seek_index ON tx_index(txid, sender, recipient)")
-    tx_handler.close()
+    #tx indexer moved
 
     block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
     block_handler.db_execute(query="CREATE TABLE IF NOT EXISTS block_index(block_hash TEXT, block_number INTEGER UNIQUE)")
