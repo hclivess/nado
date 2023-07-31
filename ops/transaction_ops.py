@@ -412,7 +412,7 @@ if __name__ == "__main__":
                                       target_block=asyncio.run(get_target_block(target=ips[0],
                                                                                 port=port,
                                                                                 logger=logger)))
-            fee = fee = asyncio.run(get_recommneded_fee(
+            fee = asyncio.run(get_recommneded_fee(
                 target=ips[0],
                 port=port,
                 base_fee=get_base_fee(transaction=draft),
