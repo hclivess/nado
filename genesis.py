@@ -33,6 +33,7 @@ def make_folders():
     make_folder(f"{get_home()}/private", strict=False)
     make_folder(f"{get_home()}/index")
     make_folder(f"{get_home()}/index/producer_sets")
+    make_folder(f"{get_home()}/index/transactions")
 
     create_indexers()
 
