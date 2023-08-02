@@ -24,8 +24,8 @@ import aiohttp
 import glob
 
 
-def round_to_fifty_thousand(number):
-    return round(number / 50000) * 50000
+def round_to(from_number, to_number):
+    return round(from_number / to_number) * to_number
 
 
 async def get_recommneded_fee(target, port, base_fee, logger):
@@ -331,7 +331,7 @@ def unindex_transactions(block, logger, block_height):
                                     block_height=block_height)
 
             if txids_to_unindex:
-                height_db = round_to_fifty_thousand(block_height)
+                height_db = round_to(block_height, 10000)
                 tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions/block_range_{height_db}.db")
                 tx_handler.db_executemany("DELETE FROM tx_index WHERE txid = ?", txids_to_unindex)
                 tx_handler.close()
@@ -342,7 +342,7 @@ def unindex_transactions(block, logger, block_height):
 
 
 def index_transactions(block, sorted_transactions, logger, block_height):
-    height_db = round_to_fifty_thousand(block_height)
+    height_db = round_to(block_height, 10000)
     db_path = f"{get_home()}/index/transactions/block_range_{height_db}.db"
 
     if not os.path.exists(db_path):
