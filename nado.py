@@ -769,26 +769,10 @@ async def make_app(port):
     application.listen(port)
     await asyncio.Event().wait()
 
-
-def disable_close():
-    """
-    import win32console, win32gui, win32con
-
-    if sys.platform == "win32":
-        #logger.error("Windows detected, always use CTRL+C for shutdown")
-        hwnd = win32console.GetConsoleWindow()
-        if hwnd:
-            hMenu = win32gui.GetSystemMenu(hwnd, 0)
-            if hMenu:
-                win32gui.DeleteMenu(hMenu, win32con.SC_CLOSE, win32con.MF_BYCOMMAND)
-    """
-
-
 """warning, no intensive operations or locks should be invoked from API interface"""
 logging.getLogger('tornado.access').disabled = True
 logger = get_logger()
 
-disable_close()
 allow_async()
 
 updated_version = versioner.update_version()
