@@ -23,12 +23,11 @@ def get_account(address, create_on_error=True):
 
 
 def reflect_transaction(transaction, logger, block_height, revert=False):
-
     if block_height > 111111:
         sender = transaction["sender"]
         recipient = transaction["recipient"]
 
-        amount_sender = transaction["amount"]+transaction["fee"]
+        amount_sender = transaction["amount"] + transaction["fee"]
         amount_recipient = transaction["amount"]
 
     else:
@@ -85,16 +84,18 @@ def get_totals(block, revert=False):
         fees += transaction["fee"]
 
     if not revert:
-        result =  {"produced": produced,
-                "fees": fees,
-                "burned": burned
-                }
+        result = {"produced": produced,
+                  "fees": fees,
+                  "burned": burned
+                  }
     else:
         result = {"produced": -produced,
-                "fees": -fees,
-                "burned": -burned
-                }
+                  "fees": -fees,
+                  "burned": -burned
+                  }
     return result
+
+
 def index_totals(produced, fees, burned, block_height):
     acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
 
@@ -106,17 +107,18 @@ def index_totals(produced, fees, burned, block_height):
         acc_handler.db_execute("UPDATE totals_index SET burned = burned + ?", (burned,))
     acc_handler.close()
 
-def fetch_totals():
 
+def fetch_totals():
     acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
     totals = acc_handler.db_fetch("SELECT * FROM totals_index")
     result = {
         "produced": totals[0][0],
-         "fees": totals[0][1],
-         "burned": totals[0][2],
-            }
+        "fees": totals[0][1],
+        "burned": totals[0][2],
+    }
 
     return result
+
 
 def increase_produced_count(address, amount, logger, revert=False):
     while True:
