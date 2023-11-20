@@ -3,12 +3,30 @@
 from ops.data_ops import sort_list_dict
 from ops.transaction_ops import index_transactions
 from ops.account_ops import change_balance, increase_produced_count, get_totals, index_totals
+from ops.block_ops import get_block_ends_info
+from genesis import make_genesis
+from ops.log_ops import get_logger, logging
 
+logger = get_logger(file="reindex.log", logger_name="reindex_logger")
+
+genesis_block_hash = ""
 blocks = []
 logger = None
 block_height = None
 
-for block in blocks:
+make_genesis(
+    address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b",
+    balance=1000000000000000000,
+    ip="78.102.98.72",
+    port=9173,
+    timestamp=1669852800,
+    logger=logger,
+)
+
+while True:
+    block_ends = get_block_ends_info(logger=logger)
+    block = block_ends["latest_block"]
+
     sorted_transactions = sort_list_dict(block["block_transactions"])
 
     index_transactions(block=block,
