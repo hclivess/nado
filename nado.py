@@ -771,7 +771,7 @@ async def make_app(port):
 
 """warning, no intensive operations or locks should be invoked from API interface"""
 logging.getLogger('tornado.access').disabled = True
-logger = get_logger()
+logger = get_logger(logger_name="main_logger")
 
 allow_async()
 
