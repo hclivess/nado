@@ -397,7 +397,7 @@ class CoreClient(threading.Thread):
                                         uninterrupted = self.produce_block(block=block,
                                                                            remote=True,
                                                                            remote_peer=peer)
-                                        if not uninterrupted:
+                                        if not uninterrupted and not self.memserver.terminate:
                                             break
 
                                     self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
@@ -547,6 +547,7 @@ class CoreClient(threading.Thread):
 
     def produce_block(self, block, remote, remote_peer) -> bool:
         """This function returns boolean so node can decide whether to continue with sync"""
+
         try:
             gen_start = get_timestamp_seconds()
             is_old = old_block(block=block)
