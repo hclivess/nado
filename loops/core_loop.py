@@ -397,7 +397,7 @@ class CoreClient(threading.Thread):
                                         uninterrupted = self.produce_block(block=block,
                                                                            remote=True,
                                                                            remote_peer=peer)
-                                        if not uninterrupted and not self.memserver.terminate:
+                                        if not uninterrupted:
                                             break
 
                                     self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
