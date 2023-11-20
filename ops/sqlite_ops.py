@@ -1,11 +1,13 @@
 import sqlite3
 import time
+from ops.log_ops import get_logger, logging
 
 class DbHandler:
     def __init__(self, db_file, retry_delay=1):
         self.con = sqlite3.connect(db_file)
         self.cur = self.con.cursor()
         self.retry_delay = retry_delay
+        self.logger = get_logger(file="sqlite.log")
 
     def db_execute(self, query, *args):
         while True:
@@ -15,7 +17,7 @@ class DbHandler:
                     self.con.commit()
                 return True
             except Exception as e:
-                print(e, query, *args)
+                self.logger.info(e, query, *args)
                 time.sleep(self.retry_delay)
 
     def db_executemany(self, query, *args):
@@ -26,7 +28,7 @@ class DbHandler:
                     self.con.commit()
                 return True
             except Exception as e:
-                print(e, query, *args)
+                self.logger.info(e, query, *args)
                 time.sleep(self.retry_delay)
 
     def db_fetch(self, query, *args):
@@ -37,7 +39,7 @@ class DbHandler:
                     result = self.cur.fetchall()
                 return result
             except Exception as e:
-                print(e, query, *args)
+                self.logger.info(e, query, *args)
                 time.sleep(self.retry_delay)
 
     def close(self):
