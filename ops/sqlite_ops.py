@@ -2,12 +2,13 @@ import sqlite3
 import time
 from ops.log_ops import get_logger, logging
 
+logger = get_logger(file="sqlite.log")
 class DbHandler:
     def __init__(self, db_file, retry_delay=1):
         self.con = sqlite3.connect(db_file)
         self.cur = self.con.cursor()
         self.retry_delay = retry_delay
-        self.logger = get_logger(file="sqlite.log")
+        self.logger = logger
 
     def db_execute(self, query, *args):
         while True:
