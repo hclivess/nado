@@ -3,7 +3,7 @@
 from ops.data_ops import sort_list_dict
 from ops.transaction_ops import index_transactions
 from ops.account_ops import change_balance, increase_produced_count, get_totals, index_totals
-from ops.block_ops import get_block_ends_info
+from ops.block_ops import get_block_ends_info, get_block
 from genesis import make_genesis
 from ops.log_ops import get_logger, logging
 
@@ -23,9 +23,12 @@ make_genesis(
     logger=logger,
 )
 
-while True:
+block = True
+while block:
     block_ends = get_block_ends_info(logger=logger)
-    block = block_ends["latest_block"]
+    block_current = block_ends["latest_block"]
+    block = get_block(block=block_current)["child_hash"]
+    blocks.append(block)
 
     sorted_transactions = sort_list_dict(block["block_transactions"])
 
@@ -50,3 +53,5 @@ while True:
                  fees=totals["fees"],
                  burned=totals["burned"],
                  block_height=block["block_number"])
+
+print(blocks)
