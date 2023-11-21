@@ -3,7 +3,7 @@
 from ops.data_ops import sort_list_dict
 from ops.transaction_ops import index_transactions
 from ops.account_ops import change_balance, increase_produced_count, get_totals, index_totals
-from ops.block_ops import get_block_ends_info, get_block, set_latest_block_info
+from ops.block_ops import get_block_ends_info, get_block, set_latest_block_info, update_child_in_latest_block
 from genesis import make_genesis, create_indexers
 from ops.log_ops import get_logger, logging
 import os
@@ -43,12 +43,14 @@ make_genesis(
     timestamp=1669852800,
     logger=logger,
 )
+block_ends = get_block_ends_info(logger=logger)
+print(block_ends["latest_block"])
 
-first_block = {'block_number': 0, 'parent_hash': None, 'block_ip': '78.102.98.72',
-               'block_creator': 'ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b',
-               'block_hash': '6514c2b2fac0d1e820c1d24dbcf36dd34532b59ed4c268b15c341663ce505b9f',
-               'block_timestamp': 1669852800, 'block_transactions': [],
-               'child_hash': '3abbfe409d446d997fbf65767c97e3f59ecb943d61a000240432e1627187966b'}
+update_child_in_latest_block(child_hash="3abbfe409d446d997fbf65767c97e3f59ecb943d61a000240432e1627187966b",
+                             logger=logger,
+                             parent=block_ends["latest_block"])
+
+first_block = block_ends["latest_block"]
 block = first_block
 
 while block:
