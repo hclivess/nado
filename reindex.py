@@ -56,16 +56,14 @@ while block:
     print(block)
 
     block_ends = get_block_ends_info(logger=logger)
-
     block = get_block(block=block["child_hash"])
 
-    if block["block_transactions"]:
-        sorted_transactions = sort_list_dict(block["block_transactions"])
+    sorted_transactions = sort_list_dict(block["block_transactions"])
 
-        index_transactions(block=block,
-                           sorted_transactions=sorted_transactions,
-                           logger=logger,
-                           block_height=block["block_number"])
+    index_transactions(block=block,
+                       sorted_transactions=sorted_transactions,
+                       logger=logger,
+                       block_height=block["block_number"])
 
     if block["block_number"] > 0:
         change_balance(address=block["block_creator"],
