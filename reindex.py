@@ -58,14 +58,14 @@ while block:
     block_ends = get_block_ends_info(logger=logger)
     block = get_block(block=block["child_hash"])
 
-    sorted_transactions = sort_list_dict(block["block_transactions"])
-
-    index_transactions(block=block,
-                       sorted_transactions=sorted_transactions,
-                       logger=logger,
-                       block_height=block["block_number"])
-
     if block["block_number"] > 0:
+        sorted_transactions = sort_list_dict(block["block_transactions"])
+
+        index_transactions(block=block,
+                           sorted_transactions=sorted_transactions,
+                           logger=logger,
+                           block_height=block["block_number"])
+
         change_balance(address=block["block_creator"],
                        amount=block["block_reward"],
                        logger=logger
@@ -83,5 +83,4 @@ while block:
                      burned=totals["burned"],
                      block_height=block["block_number"])
 
-    block = get_block(block=block["child_hash"])
     set_latest_block_info(latest_block=block, logger=logger)
