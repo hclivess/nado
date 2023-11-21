@@ -33,7 +33,6 @@ logger = get_logger(file="reindex.log", logger_name="reindex_logger")
 
 genesis_block_hash = ""
 blocks = []
-logger = None
 
 make_genesis(
     address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b",
@@ -58,17 +57,7 @@ while block:
 
     block_ends = get_block_ends_info(logger=logger)
 
-    if block["block_hash"] != first_block["block_hash"]:
-        block = block_ends["latest_block"]
-    else:
-        block = first_block
-
-    if block["block_number"] > 0:
-        block = get_block(block=block["child_hash"])
-    else:
-        block = first_block
-
-    blocks.append(block)
+    block = get_block(block=block["child_hash"])
 
     if block["block_transactions"]:
         sorted_transactions = sort_list_dict(block["block_transactions"])
@@ -96,12 +85,5 @@ while block:
                      burned=totals["burned"],
                      block_height=block["block_number"])
 
-        block = get_block(block=block["child_hash"])
-
-    else:
-        block = get_block(block=first_block["child_hash"])
-        print("what")
-
+    block = get_block(block=block["child_hash"])
     set_latest_block_info(latest_block=block, logger=logger)
-
-print(blocks)
