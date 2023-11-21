@@ -11,22 +11,19 @@ from ops.sqlite_ops import DbHandler
 
 
 def create_indexers():
-    acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-    acc_handler.db_execute(query="CREATE TABLE IF NOT EXISTS acc_index(address TEXT, balance INTEGER, produced INTEGER, burned INTEGER)")
-    acc_handler.db_execute(query="CREATE INDEX seek_index ON acc_index(address)")
+    with DbHandler(db_file=f"{get_home()}/index/accounts.db") as acc_handler:
+        acc_handler.db_execute(query="CREATE TABLE IF NOT EXISTS acc_index(address TEXT, balance INTEGER, produced INTEGER, burned INTEGER)")
+        acc_handler.db_execute(query="CREATE INDEX seek_index ON acc_index(address)")
+        acc_handler.db_execute(query="CREATE TABLE IF NOT EXISTS totals_index(produced INTEGER, fees INTEGER, burned INTEGER)")
+        acc_handler.db_execute("INSERT INTO totals_index VALUES (?,?,?)", (0,0,0,))
 
-    acc_handler.db_execute(query="CREATE TABLE IF NOT EXISTS totals_index(produced INTEGER, fees INTEGER, burned INTEGER)")
-    acc_handler.db_execute("INSERT INTO totals_index VALUES (?,?,?)", (0,0,0,))
-    acc_handler.close()
+    # tx indexer moved
 
-    #tx indexer moved
-
-    block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
-    block_handler.db_execute(
-        query="CREATE TABLE IF NOT EXISTS block_index(block_hash TEXT, block_number INTEGER UNIQUE)")
-    block_handler.db_execute(query="CREATE INDEX IF NOT EXISTS idx_block_hash ON block_index(block_hash)")
-    block_handler.db_execute(query="CREATE INDEX IF NOT EXISTS idx_block_number ON block_index(block_number)")
-    block_handler.close()
+    with DbHandler(db_file=f"{get_home()}/index/blocks.db") as block_handler:
+        block_handler.db_execute(
+            query="CREATE TABLE IF NOT EXISTS block_index(block_hash TEXT, block_number INTEGER UNIQUE)")
+        block_handler.db_execute(query="CREATE INDEX IF NOT EXISTS idx_block_hash ON block_index(block_hash)")
+        block_handler.db_execute(query="CREATE INDEX IF NOT EXISTS idx_block_number ON block_index(block_number)")
 
 
 def make_folders():

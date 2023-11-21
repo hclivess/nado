@@ -346,11 +346,10 @@ def index_transactions(block, sorted_transactions, logger, block_height):
     db_path = f"{get_home()}/index/transactions/block_range_{height_db}.db"
 
     if not os.path.exists(db_path):
-        tx_handler = DbHandler(db_file=db_path)
-        tx_handler.db_execute(
-            query="CREATE TABLE tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
-        tx_handler.db_execute(query="CREATE INDEX seek_index ON tx_index(txid, sender, recipient)")
-        tx_handler.close()
+        with DbHandler(db_file=db_path) as tx_handler:
+            tx_handler.db_execute(
+                query="CREATE TABLE tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
+            tx_handler.db_execute(query="CREATE INDEX seek_index ON tx_index(txid, sender, recipient)")
 
     while True:
         try:
@@ -365,14 +364,14 @@ def index_transactions(block, sorted_transactions, logger, block_height):
                                      transaction['sender'],
                                      transaction['recipient']))
 
-            tx_handler = DbHandler(db_file=db_path)
-            tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
-            tx_handler.close()
+            with DbHandler(db_file=db_path) as tx_handler:
+                tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
             break
 
         except Exception as e:
             logger.error(f"Failed to index transactions of {block['block_hash']}: {e}")
             time.sleep(1)
+
 
 
 if __name__ == "__main__":

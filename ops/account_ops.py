@@ -6,9 +6,8 @@ from .sqlite_ops import DbHandler
 
 def get_account(address, create_on_error=True):
     """return all account information if account exists else create it"""
-    acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-    fetched = acc_handler.db_fetch("SELECT * FROM acc_index WHERE address = ?", (address,))
-    acc_handler.close()
+    with DbHandler(db_file=f"{get_home()}/index/accounts.db") as acc_handler:
+        fetched = acc_handler.db_fetch("SELECT * FROM acc_index WHERE address = ?", (address,))
 
     if fetched:
         account = {"address": fetched[0][0],
@@ -61,16 +60,17 @@ def change_balance(address: str, amount: int, logger, is_burn=False, revert=Fals
             else:
                 new_burned = acc["burned"]
 
-            acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-            acc_handler.db_execute("UPDATE acc_index SET balance = ?, burned = ? WHERE address = ?", (new_balance,
-                                                                                                      new_burned,
-                                                                                                      address,))
-            acc_handler.close()
+            with DbHandler(db_file=f"{get_home()}/index/accounts.db") as acc_handler:
+                acc_handler.db_execute("UPDATE acc_index SET balance = ?, burned = ? WHERE address = ?", (new_balance,
+                                                                                                          new_burned,
+                                                                                                          address,))
+
             return True
 
         except Exception as e:
             logger.error(f"Failed setting balance for {address}: {e}, is_burn: {is_burn}, revert: {revert}")
             time.sleep(1)
+
 
 
 def get_totals(block, revert=False):
@@ -97,20 +97,19 @@ def get_totals(block, revert=False):
 
 
 def index_totals(produced, fees, burned, block_height):
-    acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-
-    if produced > 0:
-        acc_handler.db_execute("UPDATE totals_index SET produced = produced + ?", (produced,))
-    if fees > 0 and block_height > 111111:
-        acc_handler.db_execute("UPDATE totals_index SET fees = fees + ?", (fees,))
-    if burned > 0:
-        acc_handler.db_execute("UPDATE totals_index SET burned = burned + ?", (burned,))
-    acc_handler.close()
+    with DbHandler(db_file=f"{get_home()}/index/accounts.db") as acc_handler:
+        if produced > 0:
+            acc_handler.db_execute("UPDATE totals_index SET produced = produced + ?", (produced,))
+        if fees > 0 and block_height > 111111:
+            acc_handler.db_execute("UPDATE totals_index SET fees = fees + ?", (fees,))
+        if burned > 0:
+            acc_handler.db_execute("UPDATE totals_index SET burned = burned + ?", (burned,))
 
 
 def fetch_totals():
-    acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-    totals = acc_handler.db_fetch("SELECT * FROM totals_index")
+    with DbHandler(db_file=f"{get_home()}/index/accounts.db") as acc_handler:
+        totals = acc_handler.db_fetch("SELECT * FROM totals_index")
+
     result = {
         "produced": totals[0][0],
         "fees": totals[0][1],
@@ -132,9 +131,9 @@ def increase_produced_count(address, amount, logger, revert=False):
                 produced_updated = produced + amount
                 account.update(produced=produced_updated)
 
-            acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-            acc_handler.db_execute("UPDATE acc_index SET produced = ? WHERE address = ?", (produced_updated, address,))
-            acc_handler.close()
+            with DbHandler(db_file=f"{get_home()}/index/accounts.db") as acc_handler:
+                acc_handler.db_execute("UPDATE acc_index SET produced = ? WHERE address = ?",
+                                       (produced_updated, address,))
 
             return produced_updated
 
@@ -143,9 +142,8 @@ def increase_produced_count(address, amount, logger, revert=False):
 
 
 def create_account(address, balance=0, burned=0, produced=0):
-    acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-    acc_handler.db_execute("INSERT INTO acc_index VALUES (?,?,?,?)", (address, balance, burned, produced,))
-    acc_handler.close()
+    with DbHandler(db_file=f"{get_home()}/index/accounts.db") as acc_handler:
+        acc_handler.db_execute("INSERT INTO acc_index VALUES (?,?,?,?)", (address, balance, burned, produced,))
 
     account = {"address": address,
                "balance": balance,

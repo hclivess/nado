@@ -308,17 +308,16 @@ def set_latest_block_info(latest_block: dict, logger):
                     """read data to verify they have been saved properly"""
                     old_hash = json.load(infile)["latest_block"]
 
-            blocks_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
-            blocks_handler.db_execute("INSERT OR IGNORE INTO block_index VALUES (?, ?)",
-                                      (latest_block['block_hash'], latest_block['block_number']))
-
-            blocks_handler.close()
+            with DbHandler(db_file=f"{get_home()}/index/blocks.db") as blocks_handler:
+                blocks_handler.db_execute("INSERT OR IGNORE INTO block_index VALUES (?, ?)",
+                                          (latest_block['block_hash'], latest_block['block_number']))
 
             return latest_block
 
         except Exception as e:
             logger.info(f"Failed to set latest block info to {latest_block['block_hash']}: {e}")
             time.sleep(1)
+
 
 
 def construct_block(
