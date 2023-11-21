@@ -81,8 +81,7 @@ while block:
 
             index_transactions(block=block,
                                sorted_transactions=sorted_transactions,
-                               logger=logger,
-                               block_height=block["block_number"])
+                               logger=logger)
 
             change_balance(address=block["block_creator"],
                            amount=block["block_reward"],
