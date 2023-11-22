@@ -84,12 +84,15 @@ def batch_process_transactions(transaction_data):
     height_db = 666  # Adjust this value as needed
     db_path = f"{get_home()}/index/transactions/block_range_{height_db}.db"
     if not os.path.exists(db_path):
-        with DbHandler(db_file=db_path) as tx_handler:
-            tx_handler.db_execute(
-                query="CREATE TABLE tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
-            tx_handler.db_execute(query="CREATE INDEX seek_index ON tx_index(txid, sender, recipient)")
-    with DbHandler(db_file=db_path) as tx_handler:
-        tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
+
+        tx_handler = DbHandler(db_file=db_path)
+        tx_handler.db_execute(
+            query="CREATE TABLE tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
+        tx_handler.db_execute(query="CREATE INDEX seek_index ON tx_index(txid, sender, recipient)")
+
+    tx_handler = DbHandler(db_file=db_path)
+    tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
+    tx_handler.close()
 
 def insert_aggregated_totals(account_balances):
     total_produced = sum(details['produced'] for details in account_balances.values())
