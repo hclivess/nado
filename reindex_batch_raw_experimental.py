@@ -1,4 +1,4 @@
-# Existing imports and initial setup code
+# Import necessary modules here
 import time
 import os
 import os.path
@@ -13,7 +13,6 @@ from ops.sqlite_ops import DbHandler
 
 to_wipeout = ["index"]
 
-
 def delete(to_wipeout):
     for folder in to_wipeout:
         print(f"Removing {folder}")
@@ -21,7 +20,6 @@ def delete(to_wipeout):
         if os.path.exists(path):
             shutil.rmtree(path)
             print(f"Removed {path}")
-
 
 delete(to_wipeout)
 make_folder(f"{get_home()}/index")
@@ -56,18 +54,21 @@ block = first_block
 blocks_data = []
 transaction_data = []
 totals_data = []
-account_balances = {}  # Dictionary to track account balances
+account_balances = {}  # Dictionary to track account details
+
+def update_account_details(account, amount, is_produced=False, is_burned=False):
+    """Update the details of an account including balance, produced, and burned amounts."""
+    if account not in account_balances:
+        account_balances[account] = {'balance': 0, 'produced': 0, 'burned': 0}
+
+    if is_produced:
+        account_balances[account]['produced'] += amount
+    elif is_burned:
+        account_balances[account]['burned'] += amount
+    else:
+        account_balances[account]['balance'] += amount
 
 block_count = 0  # Initialize a counter to keep track of the number of processed blocks
-
-
-def update_balance(account, amount):
-    """Update the balance of an account."""
-    if account in account_balances:
-        account_balances[account] += amount
-    else:
-        account_balances[account] = amount
-
 
 while block:
     block_ends = get_block_ends_info(logger=logger)
@@ -81,12 +82,17 @@ while block:
         blocks_data.extend(block)
         if sorted_transactions:
             for transaction in sorted_transactions:
-                # Update balances for each transaction
                 sender = transaction['sender']
                 recipient = transaction['recipient']
                 amount = transaction['amount']
-                update_balance(sender, -amount)
-                update_balance(recipient, amount)
+
+                # Update balances for each transaction
+                if recipient == "burn":
+                    # If recipient is "burn", the transaction is considered burned
+                    update_account_details(sender, -amount, is_burned=True)
+                else:
+                    update_account_details(sender, -amount)
+                    update_account_details(recipient, amount)
 
             transaction_data.append({"data": sorted_transactions[0],
                                      "block_number": block["block_number"]})
@@ -94,8 +100,8 @@ while block:
         totals = get_totals(block=block)
         totals_data.extend(totals)
 
-        # Credit block reward to block creator
-        update_balance(block["block_creator"], block["block_reward"])
+        # Credit block reward to block creator and update produced amount
+        update_account_details(block["block_creator"], block["block_reward"], is_produced=True)
 
         block_count += 1
 
@@ -110,7 +116,7 @@ while block:
 
         print(f"Batch processing after {block_count} loops")
 
-# Print final balances
-print("Final Account Balances:")
-for account, balance in account_balances.items():
-    print(f"Account {account}: Balance {balance}")
+# Print final account details
+print("Final Account Details:")
+for account, details in account_balances.items():
+    print(f"Account {account}: Balance {details['balance']}, Produced {details['produced']}, Burned {details['burned']}")
