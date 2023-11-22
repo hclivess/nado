@@ -61,12 +61,17 @@ account_balances = {}
 def update_account_details(account, amount, is_produced=False, is_burned=False):
     if account not in account_balances:
         account_balances[account] = {'balance': 0, 'produced': 0, 'burned': 0}
+
+    # Update balance for all accounts
+    account_balances[account]['balance'] += amount
+
     if is_produced:
         account_balances[account]['produced'] += amount
-    elif is_burned:
+    if is_burned:
+        # Mark the amount as burned for the "burn" account
         account_balances[account]['burned'] += amount
-    else:
-        account_balances[account]['balance'] += amount
+
+
 
 
 block_count = 0
@@ -86,7 +91,7 @@ while block:
                 sender = transaction['sender']
                 recipient = transaction['recipient']
                 amount = transaction['amount']
-                fee = transaction['fee'] if block["block_number"] > 111111 else 0  # Apply fee only for blocks above 111111
+                fee = transaction['fee'] if block["block_number"] > 111111 else 0
 
                 # Deduct fee from sender's account and amount
                 update_account_details(sender, -amount - fee)
@@ -94,9 +99,9 @@ while block:
                 # Credit amount to recipient's account
                 update_account_details(recipient, amount)
 
-                # If recipient is "burn", the transaction is considered burned
+                # If recipient is "burn", also mark the amount as burned
                 if recipient == "burn":
-                    update_account_details(sender, amount, is_burned=True)
+                    update_account_details(recipient, 0, is_burned=True)
 
                 transaction_data.append({"data": sorted_transactions[0],
                                          "block_number": block["block_number"]})
