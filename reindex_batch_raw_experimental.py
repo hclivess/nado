@@ -65,6 +65,9 @@ block_count = 0  # Initialize a counter to keep track of the number of processed
 while block:
 
     block_ends = get_block_ends_info(logger=logger)
+
+    if not block["child_hash"]:  # Check if there's no child hash
+        break  # Exit the loop if there are no more blocks to process
     block = get_block(block=block["child_hash"])
 
     if block["block_number"] > 0:
