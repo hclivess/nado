@@ -547,6 +547,7 @@ class CoreClient(threading.Thread):
 
     def produce_block(self, block, remote, remote_peer) -> bool:
         """This function returns boolean so node can decide whether to continue with sync"""
+
         try:
             gen_start = get_timestamp_seconds()
             is_old = old_block(block=block)
