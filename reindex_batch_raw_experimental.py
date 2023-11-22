@@ -13,41 +13,7 @@ from ops.sqlite_ops import DbHandler
 import sqlite3
 
 to_wipeout = ["index"]
-LIMIT = 10000
 
-def save_account_details(account_balances):
-    """Save or update account details in the database."""
-    db_path = f"{get_home()}/index/accounts.db"
-    try:
-        conn = sqlite3.connect(db_path)
-        # Create table if it doesn't exist
-        conn.execute('''CREATE TABLE IF NOT EXISTS acc_index
-                        (account TEXT PRIMARY KEY, balance INT, produced INT, burned INT)''')
-
-        for account, details in account_balances.items():
-            # Check if the account already exists
-            cur = conn.cursor()
-            cur.execute('SELECT balance, produced, burned FROM acc_index WHERE address =  ?', (account,))
-            row = cur.fetchone()
-
-            if row:
-                # Update the record if the account exists
-                new_balance = row[0] + details['balance']
-                new_produced = row[1] + details['produced']
-                new_burned = row[2] + details['burned']
-                cur.execute('UPDATE acc_index SET balance = ?, produced = ?, burned = ? WHERE address =  ?',
-                            (new_balance, new_produced, new_burned, account))
-            else:
-                # Insert a new record if the account does not exist
-                cur.execute('INSERT INTO acc_index (address, balance, produced, burned) VALUES (?, ?, ?, ?)',
-                            (account, details['balance'], details['produced'], details['burned']))
-            conn.commit()
-    except sqlite3.Error as e:
-        print(e)
-        raise
-    finally:
-        if conn:
-            conn.close()
 
 def delete(to_wipeout):
     for folder in to_wipeout:
@@ -57,15 +23,13 @@ def delete(to_wipeout):
             shutil.rmtree(path)
             print(f"Removed {path}")
 
+
 delete(to_wipeout)
 make_folder(f"{get_home()}/index")
 make_folder(f"{get_home()}/index/transactions")
 create_indexers()
 
 logger = get_logger(file="reindex.log", logger_name="reindex_logger")
-
-genesis_block_hash = ""
-blocks = []
 
 make_genesis(
     address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b",
@@ -79,24 +43,24 @@ make_genesis(
 block_ends = get_block_ends_info(logger=logger)
 print(block_ends["latest_block"])
 
-update_child_in_latest_block(child_hash="3abbfe409d446d997fbf65767c97e3f59ecb943d61a000240432e1627187966b",
-                             logger=logger,
-                             parent=block_ends["latest_block"])
+update_child_in_latest_block(
+    child_hash="3abbfe409d446d997fbf65767c97e3f59ecb943d61a000240432e1627187966b",
+    logger=logger,
+    parent=block_ends["latest_block"]
+)
 
 first_block = block_ends["latest_block"]
 block = first_block
 
-# Initialize data storage variables
 blocks_data = []
 transaction_data = []
 totals_data = []
-account_balances = {}  # Dictionary to track account details
+account_balances = {}
+
 
 def update_account_details(account, amount, is_produced=False, is_burned=False):
-    """Update the details of an account including balance, produced, and burned amounts."""
     if account not in account_balances:
         account_balances[account] = {'balance': 0, 'produced': 0, 'burned': 0}
-
     if is_produced:
         account_balances[account]['produced'] += amount
     elif is_burned:
@@ -104,7 +68,8 @@ def update_account_details(account, amount, is_produced=False, is_burned=False):
     else:
         account_balances[account]['balance'] += amount
 
-block_count = 0  # Initialize a counter to keep track of the number of processed blocks
+
+block_count = 0
 
 while block:
     block_ends = get_block_ends_info(logger=logger)
@@ -121,14 +86,16 @@ while block:
                 sender = transaction['sender']
                 recipient = transaction['recipient']
                 amount = transaction['amount']
+                fee = transaction['fee'] if block["block_number"] > 111111 else 0  # Apply fee only for blocks above 111111
 
-                # Update balances for each transaction
-                if recipient == "burn":
-                    # If recipient is "burn", the transaction is considered burned
-                    update_account_details(sender, -amount, is_burned=True)
-                else:
-                    update_account_details(sender, -amount)
+                # Deduct fee from sender's account and amount
+                update_account_details(sender, -amount - fee)
+                # Credit amount to recipient's account
+                if recipient != "burn":
                     update_account_details(recipient, amount)
+                # If recipient is "burn", the transaction is considered burned
+                if recipient == "burn":
+                    update_account_details(sender, amount, is_burned=True)
 
             transaction_data.append({"data": sorted_transactions[0],
                                      "block_number": block["block_number"]})
@@ -136,7 +103,7 @@ while block:
         totals = get_totals(block=block)
         totals_data.extend(totals)
 
-        # Credit block reward to block creator and update produced amount
+        # Credit block reward to block creator
         update_account_details(block["block_creator"], block["block_reward"], is_produced=True)
 
         block_count += 1
@@ -177,9 +144,33 @@ while block:
             print(f"Batch processing after {block_count} loops")
 
 
-# Print final account details
-print("Final Account Details:")
-for account, details in account_balances.items():
-    print(f"Account {account}: Balance {details['balance']}, Produced {details['produced']}, Burned {details['burned']}")
+# Function to save account details to the database
+def save_account_details(account_balances):
+    db_path = f"{get_home()}/index/accounts.db"
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.execute('''CREATE TABLE IF NOT EXISTS acc_index
+                        (account TEXT PRIMARY KEY, balance INT, produced INT, burned INT)''')
+        for account, details in account_balances.items():
+            cur = conn.cursor()
+            cur.execute('SELECT balance, produced, burned FROM acc_index WHERE account = ?', (account,))
+            row = cur.fetchone()
+            if row:
+                new_balance = row[0] + details['balance']
+                new_produced = row[1] + details['produced']
+                new_burned = row[2] + details['burned']
+                cur.execute('UPDATE acc_index SET balance = ?, produced = ?, burned = ? WHERE account = ?',
+                            (new_balance, new_produced, new_burned, account))
+            else:
+                cur.execute('INSERT INTO acc_index (account, balance, produced, burned) VALUES (?, ?, ?, ?)',
+                            (account, details['balance'], details['produced'], details['burned']))
+            conn.commit()
+    except sqlite3.Error as e:
+        print(e)
+        raise
+    finally:
+        if conn:
+            conn.close()
+
 
 save_account_details(account_balances)
