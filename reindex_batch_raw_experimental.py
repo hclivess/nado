@@ -107,14 +107,46 @@ while block:
 
     if block_count % 5000 == 0:
         # Perform batch operations here after every 5000 loops
-        # (Your existing batch operation logic)
+        if block_count % 5000 == 0:
+            # Perform batch operations here after every 500 loops
 
-        # Clear the data storage variables after batch processing
-        blocks_data.clear()
-        transaction_data.clear()
-        totals_data.clear()
+            print(len(blocks_data))
+            print(len(transaction_data))
+            print(len(totals_data))
 
-        print(f"Batch processing after {block_count} loops")
+            # index txs
+
+            txs_to_index = []
+            print(transaction_data)
+            for transaction in transaction_data:
+                print("transaction", transaction)
+                print(transaction["data"])
+                print(transaction["block_number"])
+                txs_to_index.append((transaction["data"]['txid'],
+                                     transaction["block_number"],
+                                     transaction["data"]['sender'],
+                                     transaction["data"]['recipient']))
+
+            # ADD REFLECTION
+
+            height_db = 666
+            db_path = f"{get_home()}/index/transactions/block_range_{height_db}.db"
+            if not os.path.exists(db_path):
+                with DbHandler(db_file=db_path) as tx_handler:
+                    tx_handler.db_execute(
+                        query="CREATE TABLE tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
+                    tx_handler.db_execute(query="CREATE INDEX seek_index ON tx_index(txid, sender, recipient)")
+            with DbHandler(db_file=db_path) as tx_handler:
+                tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
+
+            # index txs
+
+            # Clear the data storage variables after batch processing
+            blocks_data.clear()
+            transaction_data.clear()
+            totals_data.clear()
+
+            print(f"Batch processing after {block_count} loops")
 
 # Print final account details
 print("Final Account Details:")
