@@ -341,8 +341,8 @@ def unindex_transactions(block, logger, block_height):
             logger.error(f"Failed to unindex transactions: {e}")
 
 
-def index_transactions(block, sorted_transactions, logger, block_height):
-    height_db = round_to(block_height, 10000)
+def index_transactions(block, sorted_transactions, logger):
+    height_db = round_to(block["block_number"], 10000)
     db_path = f"{get_home()}/index/transactions/block_range_{height_db}.db"
 
     if not os.path.exists(db_path):

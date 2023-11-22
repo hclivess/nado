@@ -34,6 +34,7 @@ from ops.transaction_ops import (
 from rollback import rollback_one_block
 
 
+
 def minority_consensus(majority_hash, sample_hash):
     if not majority_hash:
         return False
@@ -454,8 +455,7 @@ class CoreClient(threading.Thread):
 
         index_transactions(block=block,
                            sorted_transactions=sorted_transactions,
-                           logger=self.logger,
-                           block_height=self.memserver.latest_block["block_number"])
+                           logger=self.logger,)
 
         update_child_in_latest_block(child_hash=block["block_hash"],
                                      logger=self.logger,
