@@ -113,7 +113,6 @@ while block:
             # index txs
 
             txs_to_index = []
-            print(transaction_data)
             for transaction in transaction_data:
                 txs_to_index.append((transaction["data"]['txid'],
                                      transaction["block_number"],
