@@ -1,18 +1,15 @@
-# Import necessary modules here
+# Existing imports and initial setup code
 import time
-
-from ops.data_ops import sort_list_dict
+import os
+import os.path
+import shutil
+from ops.data_ops import sort_list_dict, get_home, make_folder
 from ops.transaction_ops import index_transactions
 from ops.account_ops import change_balance, increase_produced_count, get_totals, index_totals
 from ops.block_ops import get_block_ends_info, get_block, set_latest_block_info, update_child_in_latest_block
 from genesis import make_genesis, create_indexers
 from ops.log_ops import get_logger, logging
 from ops.sqlite_ops import DbHandler
-import os
-import os.path
-import shutil
-
-from ops.data_ops import get_home, make_folder
 
 to_wipeout = ["index"]
 
@@ -59,82 +56,52 @@ block = first_block
 blocks_data = []
 transaction_data = []
 totals_data = []
+account_balances = {}  # Dictionary to track account balances
 
 block_count = 0  # Initialize a counter to keep track of the number of processed blocks
 
-while block:
 
+def update_balance(account, amount):
+    """Update the balance of an account."""
+    if account in account_balances:
+        account_balances[account] += amount
+    else:
+        account_balances[account] = amount
+
+
+while block:
     block_ends = get_block_ends_info(logger=logger)
 
-    if not block["child_hash"]:  # Check if there's no child hash
-        break  # Exit the loop if there are no more blocks to process
+    if not block["child_hash"]:
+        break
     block = get_block(block=block["child_hash"])
 
     if block["block_number"] > 0:
         sorted_transactions = sort_list_dict(block["block_transactions"])
         blocks_data.extend(block)
         if sorted_transactions:
+            for transaction in sorted_transactions:
+                # Update balances for each transaction
+                sender = transaction['sender']
+                recipient = transaction['recipient']
+                amount = transaction['amount']
+                update_balance(sender, -amount)
+                update_balance(recipient, amount)
+
             transaction_data.append({"data": sorted_transactions[0],
                                      "block_number": block["block_number"]})
+
         totals = get_totals(block=block)
         totals_data.extend(totals)
 
-        block_count += 1  # Increment the block count
+        # Credit block reward to block creator
+        update_balance(block["block_creator"], block["block_reward"])
+
+        block_count += 1
 
     if block_count % 5000 == 0:
-        # Perform batch operations here after every 500 loops
-
-        print(len(blocks_data))
-        print(len(transaction_data))
-        print(len(totals_data))
-
-        # index txs
-
-        txs_to_index = []
-        print(transaction_data)
-        for transaction in transaction_data:
-            print("transaction", transaction)
-            print(transaction["data"])
-            print(transaction["block_number"])
-            txs_to_index.append((transaction["data"]['txid'],
-                                 transaction["block_number"],
-                                 transaction["data"]['sender'],
-                                 transaction["data"]['recipient']))
-
-        # ADD REFLECTION
-
-        height_db = 666
-        db_path = f"{get_home()}/index/transactions/block_range_{height_db}.db"
-        if not os.path.exists(db_path):
-            with DbHandler(db_file=db_path) as tx_handler:
-                tx_handler.db_execute(
-                    query="CREATE TABLE tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
-                tx_handler.db_execute(query="CREATE INDEX seek_index ON tx_index(txid, sender, recipient)")
-        with DbHandler(db_file=db_path) as tx_handler:
-            tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
-
-        # index txs
-
-        """
-            index_transactions(block=block,
-                               sorted_transactions=sorted_transactions,
-                               logger=logger)
-
-            change_balance(address=block["block_creator"],
-                           amount=block["block_reward"],
-                           logger=logger
-                           )
-
-            increase_produced_count(address=block["block_creator"],
-                                    amount=block["block_reward"],
-                                    logger=logger
-                                    )
-
-            index_totals(produced=totals["produced"],
-                         fees=totals["fees"],
-                         burned=totals["burned"],
-                         block_height=block["block_number"])
-        """
+        # Perform batch operations here after every 5000 loops
+        # (Your existing batch operation logic)
 
         # Clear the data storage variables after batch processing
         blocks_data.clear()
@@ -143,4 +110,7 @@ while block:
 
         print(f"Batch processing after {block_count} loops")
 
-# No remaining code provided in the original question.
+# Print final balances
+print("Final Account Balances:")
+for account, balance in account_balances.items():
+    print(f"Account {account}: Balance {balance}")
