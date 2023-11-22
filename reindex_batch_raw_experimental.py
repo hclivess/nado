@@ -90,15 +90,16 @@ while block:
 
                 # Deduct fee from sender's account and amount
                 update_account_details(sender, -amount - fee)
+
                 # Credit amount to recipient's account
-                if recipient != "burn":
-                    update_account_details(recipient, amount)
+                update_account_details(recipient, amount)
+
                 # If recipient is "burn", the transaction is considered burned
                 if recipient == "burn":
                     update_account_details(sender, amount, is_burned=True)
 
-            transaction_data.append({"data": sorted_transactions[0],
-                                     "block_number": block["block_number"]})
+                transaction_data.append({"data": sorted_transactions[0],
+                                         "block_number": block["block_number"]})
 
         totals = get_totals(block=block)
         totals_data.extend(totals)
@@ -110,38 +111,36 @@ while block:
 
     if block_count % 5000 == 0:
         # Perform batch operations here after every 5000 loops
-        if block_count % 5000 == 0:
-            # Perform batch operations here after every 500 loops
 
-            # index txs
+        # index txs
 
-            txs_to_index = []
-            for transaction in transaction_data:
-                txs_to_index.append((transaction["data"]['txid'],
-                                     transaction["block_number"],
-                                     transaction["data"]['sender'],
-                                     transaction["data"]['recipient']))
+        txs_to_index = []
+        for transaction in transaction_data:
+            txs_to_index.append((transaction["data"]['txid'],
+                                 transaction["block_number"],
+                                 transaction["data"]['sender'],
+                                 transaction["data"]['recipient']))
 
-            # ADD REFLECTION
+        # ADD REFLECTION
 
-            height_db = 666
-            db_path = f"{get_home()}/index/transactions/block_range_{height_db}.db"
-            if not os.path.exists(db_path):
-                with DbHandler(db_file=db_path) as tx_handler:
-                    tx_handler.db_execute(
-                        query="CREATE TABLE tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
-                    tx_handler.db_execute(query="CREATE INDEX seek_index ON tx_index(txid, sender, recipient)")
+        height_db = 666
+        db_path = f"{get_home()}/index/transactions/block_range_{height_db}.db"
+        if not os.path.exists(db_path):
             with DbHandler(db_file=db_path) as tx_handler:
-                tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
+                tx_handler.db_execute(
+                    query="CREATE TABLE tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
+                tx_handler.db_execute(query="CREATE INDEX seek_index ON tx_index(txid, sender, recipient)")
+        with DbHandler(db_file=db_path) as tx_handler:
+            tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
 
-            # index txs
+        # index txs
 
-            # Clear the data storage variables after batch processing
-            blocks_data.clear()
-            transaction_data.clear()
-            totals_data.clear()
+        # Clear the data storage variables after batch processing
+        blocks_data.clear()
+        transaction_data.clear()
+        totals_data.clear()
 
-            print(f"Batch processing after {block_count} loops")
+        print(f"Batch processing after {block_count} loops")
 
 
 # Function to save account details to the database
@@ -153,16 +152,16 @@ def save_account_details(account_balances):
                         (account TEXT PRIMARY KEY, balance INT, produced INT, burned INT)''')
         for account, details in account_balances.items():
             cur = conn.cursor()
-            cur.execute('SELECT balance, produced, burned FROM acc_index WHERE account = ?', (account,))
+            cur.execute('SELECT balance, produced, burned FROM acc_index WHERE address = ?', (account,))
             row = cur.fetchone()
             if row:
                 new_balance = row[0] + details['balance']
                 new_produced = row[1] + details['produced']
                 new_burned = row[2] + details['burned']
-                cur.execute('UPDATE acc_index SET balance = ?, produced = ?, burned = ? WHERE account = ?',
+                cur.execute('UPDATE acc_index SET balance = ?, produced = ?, burned = ? WHERE address = ?',
                             (new_balance, new_produced, new_burned, account))
             else:
-                cur.execute('INSERT INTO acc_index (account, balance, produced, burned) VALUES (?, ?, ?, ?)',
+                cur.execute('INSERT INTO acc_index (address, balance, produced, burned) VALUES (?, ?, ?, ?)',
                             (account, details['balance'], details['produced'], details['burned']))
             conn.commit()
     except sqlite3.Error as e:
