@@ -34,6 +34,7 @@ from ops.transaction_ops import (
 from rollback import rollback_one_block
 
 
+
 def minority_consensus(majority_hash, sample_hash):
     if not majority_hash:
         return False
