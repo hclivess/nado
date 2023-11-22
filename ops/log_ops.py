@@ -7,14 +7,14 @@ import coloredlogs
 from .data_ops import get_home, make_folder
 
 
-def get_logger(logger_name, max_detail=False, file="log.log"):
+def get_logger(max_detail=False, file="log.log"):
     if not os.path.exists(f"{get_home()}/logs"):
         make_folder(f"{get_home()}/logs", strict=False)
 
-    # Create a logger object with the specified name.
+    # Create a logger object.
     format = "%(asctime)s %(levelname)s %(message)s"
 
-    logger = logging.getLogger(logger_name)
+    logger = logging.getLogger(__name__)
     logger.propagate = False
     file_handler = RotatingFileHandler(
         f"{get_home()}/logs/{file}", maxBytes=3000000, backupCount=10, mode="a"
@@ -25,17 +25,18 @@ def get_logger(logger_name, max_detail=False, file="log.log"):
     if max_detail:
         coloredlogs.install(level="DEBUG")
 
+
     coloredlogs.DEFAULT_LEVEL_STYLES = dict(
-        spam=dict(color='green', faint=True),
-        debug=dict(color='green', bright=True),
-        verbose=dict(color='blue'),
-        info=dict(color='white', bright=True),
-        notice=dict(color='magenta'),
-        warning=dict(color='yellow', bright=True),
-        success=dict(color='green', bold=True),
-        error=dict(color='red'),
-        critical=dict(color='red', bold=True),
-    )
+    spam=dict(color='green', faint=True),
+    debug=dict(color='green', bright=True),
+    verbose=dict(color='blue'),
+    info=dict(color='white', bright=True),
+    notice=dict(color='magenta'),
+    warning=dict(color='yellow', bright=True),
+    success=dict(color='green', bold=True),
+    error=dict(color='red'),
+    critical=dict(color='red', bold=True),
+)
 
     coloredlogs.install(level="DEBUG", logger=logger, fmt=format)
     return logger
@@ -43,7 +44,7 @@ def get_logger(logger_name, max_detail=False, file="log.log"):
 
 if __name__ == "__main__":
     # Some examples.
-    logger = get_logger(logger_name="demo_logger", file=f"demo.log")
+    logger = get_logger(file=f"demo.log")
 
     logger.debug("this is a debugging message")
     logger.info("this is an informational message")

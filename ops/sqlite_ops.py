@@ -1,49 +1,40 @@
 import sqlite3
-import time
-from ops.log_ops import get_logger, logging
-
-sqlite_logger = get_logger(file="sqlite.log", logger_name="sqlite_logger")
 
 
 class DbHandler:
-    def __init__(self, db_file, retry_delay=1):
+    def __init__(self, db_file):
         self.con = sqlite3.connect(db_file)
         self.cur = self.con.cursor()
-        self.retry_delay = retry_delay
-        self.logger = sqlite_logger
 
     def db_execute(self, query, *args):
-        while True:
-            try:
-                with self.con:
-                    self.cur.execute(query, *args)
-                    self.con.commit()
-                return True
-            except Exception as e:
-                self.logger.info(e, query, *args)
-                time.sleep(self.retry_delay)
+        try:
+            with self.con:
+                self.cur.execute(query, *args)
+                self.con.commit()
+            return True
+        except Exception as e:
+            print(e, query, *args)
+            return False
 
     def db_executemany(self, query, *args):
-        while True:
-            try:
-                with self.con:
-                    self.cur.executemany(query, *args)
-                    self.con.commit()
-                return True
-            except Exception as e:
-                self.logger.info(e, query, *args)
-                time.sleep(self.retry_delay)
+        try:
+            with self.con:
+                self.cur.executemany(query, *args)
+                self.con.commit()
+            return True
+        except Exception as e:
+            print(e, query, *args)
+            return False
 
     def db_fetch(self, query, *args):
-        while True:
-            try:
-                with self.con:
-                    self.cur.execute(query, *args)
-                    result = self.cur.fetchall()
-                return result
-            except Exception as e:
-                self.logger.info(e, query, *args)
-                time.sleep(self.retry_delay)
+        try:
+            with self.con:
+                self.cur.execute(query, *args)
+                result = self.cur.fetchall()
+            return result
+        except Exception as e:
+            print(e, query, *args)
+            return False
 
     def close(self):
         self.con.close()

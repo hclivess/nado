@@ -5,7 +5,7 @@
 <p align="center">
     <a href="https://discord.gg/6aEBWTvcTV"><img src="https://nodeisok.com/media/discord.png" /></a>
     &emsp;
-    <a href="https://twitter.com/nodeisok"><img src="https://nodeisok.com/media/twitter.png" /></a>
+    <a href="https://twitter.com/nadodigital"><img src="https://nodeisok.com/media/twitter.png" /></a>
 
 </p>
 
