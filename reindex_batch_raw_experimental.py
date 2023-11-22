@@ -10,8 +10,44 @@ from ops.block_ops import get_block_ends_info, get_block, set_latest_block_info,
 from genesis import make_genesis, create_indexers
 from ops.log_ops import get_logger, logging
 from ops.sqlite_ops import DbHandler
+import sqlite3
 
 to_wipeout = ["index"]
+LIMIT = 10000
+
+def save_account_details(account_balances):
+    """Save or update account details in the database."""
+    db_path = f"{get_home()}/index/accounts.db"
+    try:
+        conn = sqlite3.connect(db_path)
+        # Create table if it doesn't exist
+        conn.execute('''CREATE TABLE IF NOT EXISTS acc_index
+                        (account TEXT PRIMARY KEY, balance INT, produced INT, burned INT)''')
+
+        for account, details in account_balances.items():
+            # Check if the account already exists
+            cur = conn.cursor()
+            cur.execute('SELECT balance, produced, burned FROM acc_index WHERE address =  ?', (account,))
+            row = cur.fetchone()
+
+            if row:
+                # Update the record if the account exists
+                new_balance = row[0] + details['balance']
+                new_produced = row[1] + details['produced']
+                new_burned = row[2] + details['burned']
+                cur.execute('UPDATE acc_index SET balance = ?, produced = ?, burned = ? WHERE address =  ?',
+                            (new_balance, new_produced, new_burned, account))
+            else:
+                # Insert a new record if the account does not exist
+                cur.execute('INSERT INTO acc_index (address, balance, produced, burned) VALUES (?, ?, ?, ?)',
+                            (account, details['balance'], details['produced'], details['burned']))
+            conn.commit()
+    except sqlite3.Error as e:
+        print(e)
+        raise
+    finally:
+        if conn:
+            conn.close()
 
 def delete(to_wipeout):
     for folder in to_wipeout:
@@ -140,7 +176,10 @@ while block:
 
             print(f"Batch processing after {block_count} loops")
 
+
 # Print final account details
 print("Final Account Details:")
 for account, details in account_balances.items():
     print(f"Account {account}: Balance {details['balance']}, Produced {details['produced']}, Burned {details['burned']}")
+
+save_account_details(account_balances)
