@@ -14,6 +14,23 @@ import sqlite3
 
 to_wipeout = ["index"]
 
+def batch_insert_blocks(blocks_data):
+    print("batching blocks")
+    db_path = f"{get_home()}/index/blocks.db"
+
+    # Prepare data for insertion
+    insert_data = [(block["block_hash"], block["block_number"]) for block in blocks_data]
+    print(insert_data)
+
+    with sqlite3.connect(db_path) as conn:
+        try:
+            cursor = conn.cursor()
+            cursor.executemany("INSERT INTO block_index (block_hash, block_number) VALUES (?, ?)", insert_data)
+            conn.commit()
+        except sqlite3.Error as e:
+            print(f"An error occurred during batch insert: {e}")
+
+
 
 def delete(to_wipeout):
     for folder in to_wipeout:
@@ -58,12 +75,33 @@ totals_data = []
 account_balances = {}
 
 
+def batch_process_transactions(transaction_data):
+    txs_to_index = []
+    for transaction in transaction_data:
+        txs_to_index.append((transaction["data"]['txid'],
+                             transaction["block_number"],
+                             transaction["data"]['sender'],
+                             transaction["data"]['recipient']))
+
+    # Database handling logic
+    height_db = 666  # Adjust this value as needed
+    db_path = f"{get_home()}/index/transactions/block_range_{height_db}.db"
+    if not os.path.exists(db_path):
+        with DbHandler(db_file=db_path) as tx_handler:
+            tx_handler.db_execute(
+                query="CREATE TABLE tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
+            tx_handler.db_execute(query="CREATE INDEX seek_index ON tx_index(txid, sender, recipient)")
+    with DbHandler(db_file=db_path) as tx_handler:
+        tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
+
+
 def update_account_details(account, amount, is_produced=False, is_burned=False):
     if account not in account_balances:
         account_balances[account] = {'balance': 0, 'produced': 0, 'burned': 0}
 
     # Update balance for all accounts
-    account_balances[account]['balance'] += amount
+    if not is_burned:  # prevent doubling
+        account_balances[account]['balance'] += amount
 
     if is_produced:
         account_balances[account]['produced'] += amount
@@ -72,11 +110,9 @@ def update_account_details(account, amount, is_produced=False, is_burned=False):
         account_balances[account]['burned'] += amount
 
 
-
-
 block_count = 0
 
-while block:
+while block["block_number"] < 4000:
     block_ends = get_block_ends_info(logger=logger)
 
     if not block["child_hash"]:
@@ -85,7 +121,7 @@ while block:
 
     if block["block_number"] > 0:
         sorted_transactions = sort_list_dict(block["block_transactions"])
-        blocks_data.extend(block)
+        blocks_data.append(block)
         if sorted_transactions:
             for transaction in sorted_transactions:
                 sender = transaction['sender']
@@ -99,9 +135,9 @@ while block:
                 # Credit amount to recipient's account
                 update_account_details(recipient, amount)
 
-                # If recipient is "burn", also mark the amount as burned
+                # If recipient is "burn", mark the amount as burned for the sender
                 if recipient == "burn":
-                    update_account_details(recipient, 0, is_burned=True)
+                    update_account_details(sender, amount, is_burned=True)
 
                 transaction_data.append({"data": sorted_transactions[0],
                                          "block_number": block["block_number"]})
@@ -116,36 +152,20 @@ while block:
 
     if block_count % 5000 == 0:
         # Perform batch operations here after every 5000 loops
-
-        # index txs
-
-        txs_to_index = []
-        for transaction in transaction_data:
-            txs_to_index.append((transaction["data"]['txid'],
-                                 transaction["block_number"],
-                                 transaction["data"]['sender'],
-                                 transaction["data"]['recipient']))
-
-        # ADD REFLECTION
-
-        height_db = 666
-        db_path = f"{get_home()}/index/transactions/block_range_{height_db}.db"
-        if not os.path.exists(db_path):
-            with DbHandler(db_file=db_path) as tx_handler:
-                tx_handler.db_execute(
-                    query="CREATE TABLE tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
-                tx_handler.db_execute(query="CREATE INDEX seek_index ON tx_index(txid, sender, recipient)")
-        with DbHandler(db_file=db_path) as tx_handler:
-            tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
-
-        # index txs
-
-        # Clear the data storage variables after batch processing
+        batch_process_transactions(transaction_data)
+        batch_insert_blocks(blocks_data)
         blocks_data.clear()
         transaction_data.clear()
         totals_data.clear()
-
         print(f"Batch processing after {block_count} loops")
+
+# Perform batch operations at the end
+batch_process_transactions(transaction_data)
+batch_insert_blocks(blocks_data)
+blocks_data.clear()
+transaction_data.clear()
+totals_data.clear()
+print(f"Batch processing until {block_count} loops")
 
 
 # Function to save account details to the database
