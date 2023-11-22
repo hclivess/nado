@@ -3,8 +3,6 @@ import time
 from ops.log_ops import get_logger, logging
 
 sqlite_logger = get_logger(file="sqlite.log", logger_name="sqlite_logger")
-
-
 class DbHandler:
     def __init__(self, db_file, retry_delay=1):
         self.con = sqlite3.connect(db_file)
@@ -47,7 +45,6 @@ class DbHandler:
 
     def close(self):
         self.con.close()
-
 
 if __name__ == "__main__":
     dbhandler = DbHandler(db_file="../test.db")
