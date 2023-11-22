@@ -15,12 +15,10 @@ import sqlite3
 to_wipeout = ["index"]
 
 def batch_insert_blocks(blocks_data):
-    print("batching blocks")
     db_path = f"{get_home()}/index/blocks.db"
 
     # Prepare data for insertion
     insert_data = [(block["block_hash"], block["block_number"]) for block in blocks_data]
-    print(insert_data)
 
     with sqlite3.connect(db_path) as conn:
         try:
@@ -94,19 +92,36 @@ def batch_process_transactions(transaction_data):
     with DbHandler(db_file=db_path) as tx_handler:
         tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
 
+def insert_aggregated_totals(account_balances):
+    total_produced = sum(details['produced'] for details in account_balances.values())
+    total_fees = sum(details['fees'] for details in account_balances.values())
+    total_burned = sum(details['burned'] for details in account_balances.values())
 
-def update_account_details(account, amount, is_produced=False, is_burned=False):
+    db_path = f"{get_home()}/index/accounts.db"
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.execute('INSERT INTO totals_index (produced, fees, burned) VALUES (?, ?, ?)',
+                     (total_produced, total_fees, total_burned))
+        conn.commit()
+    except sqlite3.Error as e:
+        print(f"Database error: {e}")
+        raise
+    finally:
+        if conn:
+            conn.close()
+
+def update_account_details(account, amount, is_produced=False, is_burned=False, fee=0):
     if account not in account_balances:
-        account_balances[account] = {'balance': 0, 'produced': 0, 'burned': 0}
+        account_balances[account] = {'balance': 0, 'produced': 0, 'burned': 0, 'fees': 0}
 
     # Update balance for all accounts
-    if not is_burned:  # prevent doubling
+    if not is_burned:  # prevent doubling (stupid logic here, burns are called twice)
         account_balances[account]['balance'] += amount
+        account_balances[account]['fees'] += fee
 
     if is_produced:
         account_balances[account]['produced'] += amount
     if is_burned:
-        # Mark the amount as burned for the "burn" account
         account_balances[account]['burned'] += amount
 
 
@@ -198,3 +213,4 @@ def save_account_details(account_balances):
 
 
 save_account_details(account_balances)
+insert_aggregated_totals(account_balances)
