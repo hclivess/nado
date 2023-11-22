@@ -4,7 +4,6 @@ import os
 import os.path
 import shutil
 from ops.data_ops import sort_list_dict, get_home, make_folder
-from ops.transaction_ops import index_transactions
 from ops.account_ops import change_balance, increase_produced_count, get_totals, index_totals
 from ops.block_ops import get_block_ends_info, get_block, set_latest_block_info, update_child_in_latest_block
 from genesis import make_genesis, create_indexers
@@ -127,7 +126,7 @@ def update_account_details(account, amount, is_produced=False, is_burned=False, 
 
 block_count = 0
 
-while block["block_number"] < 4000:
+while block: #["block_number"] < 4000:
     block_ends = get_block_ends_info(logger=logger)
 
     if not block["child_hash"]:
@@ -145,7 +144,7 @@ while block["block_number"] < 4000:
                 fee = transaction['fee'] if block["block_number"] > 111111 else 0
 
                 # Deduct fee from sender's account and amount
-                update_account_details(sender, -amount - fee)
+                update_account_details(sender, -amount - fee, fee=fee)
 
                 # Credit amount to recipient's account
                 update_account_details(recipient, amount)
