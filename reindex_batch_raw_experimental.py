@@ -110,18 +110,11 @@ while block:
         if block_count % 5000 == 0:
             # Perform batch operations here after every 500 loops
 
-            print(len(blocks_data))
-            print(len(transaction_data))
-            print(len(totals_data))
-
             # index txs
 
             txs_to_index = []
             print(transaction_data)
             for transaction in transaction_data:
-                print("transaction", transaction)
-                print(transaction["data"])
-                print(transaction["block_number"])
                 txs_to_index.append((transaction["data"]['txid'],
                                      transaction["block_number"],
                                      transaction["data"]['sender'],
