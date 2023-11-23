@@ -40,6 +40,7 @@ def delete(to_wipeout):
 
 delete(to_wipeout)
 make_folder(f"{get_home()}/index")
+make_folder(f"{get_home()}/index/producer_sets")
 make_folder(f"{get_home()}/index/transactions")
 create_indexers()
 
@@ -129,10 +130,12 @@ def update_account_details(account, amount, is_produced=False, is_burned=False, 
 
 block_count = 0
 
-while block: #["block_number"] < 4000:
+while True: #["block_number"] < 4000:
     block_ends = get_block_ends_info(logger=logger)
 
     if not block["child_hash"]:
+        set_latest_block_info(latest_block=block,
+                              logger=logger)
         break
     block = get_block(block=block["child_hash"])
 
