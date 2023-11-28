@@ -66,6 +66,8 @@ while block:
     block_ends = get_block_ends_info(logger=logger)
 
     if not block["child_hash"]:
+        set_latest_block_info(latest_block=block,
+                              logger=logger)
         break
     block = get_block(block=block["child_hash"])
 
