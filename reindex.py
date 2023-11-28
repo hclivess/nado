@@ -13,6 +13,7 @@ from ops.data_ops import get_home, make_folder
 
 to_wipeout = ["index"]
 
+
 def delete(to_wipeout):
     for folder in to_wipeout:
         print(f"Removing {folder}")
@@ -20,6 +21,7 @@ def delete(to_wipeout):
         if os.path.exists(path):
             shutil.rmtree(path)
             print(f"Removed {path}")
+
 
 delete(to_wipeout)
 make_folder(f"{get_home()}/index")
@@ -62,6 +64,9 @@ while block:
     print(block)
 
     block_ends = get_block_ends_info(logger=logger)
+
+    if not block["child_hash"]:
+        break
     block = get_block(block=block["child_hash"])
 
     if block["block_number"] > 0:
