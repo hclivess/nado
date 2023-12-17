@@ -202,7 +202,7 @@ async def compound_announce_self(ips, port, my_ip, logger, fail_storage, semapho
 
 if __name__ == "__main__":
     peers = ["127.0.0.1", "5.189.152.114"]
-    logger = get_logger(file="compounder.log")
+    logger = get_logger(file="compounder.log", logger_name="compounder_logger")
     fail_storage = []  # needs to be object because it is changed on the go
 
     logger.info(

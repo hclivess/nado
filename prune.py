@@ -6,7 +6,7 @@ from ops.block_ops import get_block_ends_info, set_latest_block_info, set_earlie
 from ops.data_ops import get_home
 from ops.log_ops import get_logger
 
-logger = get_logger()
+logger = get_logger(file="prune.log", logger_name="prune_logger")
 input("Please make sure node is not running before continuing... Press any key when ready.\n")
 
 block_ends = get_block_ends_info(logger=logger)

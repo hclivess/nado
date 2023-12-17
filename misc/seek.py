@@ -25,7 +25,7 @@ def find_block(parameter, value, logger):
 
 
 if __name__ == "__main__":
-    logger = get_logger(file="seek.log")
+    logger = get_logger(file="seek.log", logger_name="seek_logger")
     start = get_timestamp_seconds()
     print(find_block(parameter="block_timestamp", value=1655912367, logger=logger))
     passed = get_timestamp_seconds() - start

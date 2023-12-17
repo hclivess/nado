@@ -35,7 +35,7 @@ def send_transaction(transaction, ips, logger):
 
 if __name__ == "__main__":
     allow_async()
-    logger = get_logger(file=f"linewallet.log")
+    logger = get_logger(file=f"linewallet.log", logger_name="linewallet_logger")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--sk", help="<private key> Use private key, ignore default key location", default=False)
