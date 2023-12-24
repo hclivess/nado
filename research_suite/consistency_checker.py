@@ -7,7 +7,7 @@ from ops.transaction_ops import to_readable_amount
 
 MIN_BLOCK = 1
 
-logger = get_logger()
+logger = get_logger(file="consistency_checker.log", logger_name="consistency_checker_logger")
 block_hash = "6514c2b2fac0d1e820c1d24dbcf36dd34532b59ed4c268b15c341663ce505b9f"
 miners = []
 tx_count = []

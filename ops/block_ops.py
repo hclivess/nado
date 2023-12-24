@@ -511,7 +511,7 @@ def pick_best_producer(block_producers, logger, event_bus, latest_block):
 
 
 if __name__ == "__main__":
-    logger = get_logger(file="block_ops.log")
+    logger = get_logger(file="block_ops.log", logger_name="block_ops_logger")
     load_block_producers()
     block_ip = get_config()["ip"]
     address = load_keys()["address"]

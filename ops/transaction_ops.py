@@ -377,7 +377,7 @@ def index_transactions(block, sorted_transactions, logger):
 
 
 if __name__ == "__main__":
-    logger = get_logger(file="transactions.log")
+    logger = get_logger(file="transactions.log", logger_name="transactions_logger")
     # print(get_account("noob23"))
     LOCAL = False
 
