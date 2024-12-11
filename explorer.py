@@ -1,13 +1,14 @@
 import os.path
-
-import requests
-import tornado.ioloop
-import tornado.web
 import asyncio
-import json
 from datetime import datetime
+import json
 import ssl
 
+import tornado.ioloop
+import tornado.web
+from tornado.httpclient import AsyncHTTPClient
+
+# Load config
 with open("config_explorer.json") as certlocfile:
     contents = json.load(certlocfile)
     certfile = contents["certfile"]
@@ -21,196 +22,169 @@ def to_readable_amount(raw_amount: int) -> str:
 
 class BaseHandler(tornado.web.RequestHandler):
     def write_error(self, status_code, **kwargs):
-        self.render("templates/error.html",
-                    node=nado_node)
+        self.render("templates/error.html", node=nado_node)
+
+    async def fetch_json(self, url):
+        client = AsyncHTTPClient()
+        response = await client.fetch(url)
+        return json.loads(response.body)
 
 
 class HomeHandler(BaseHandler):
-    def home(self):
-        data = self.get_data()
+    async def get(self):
+        await self.home()
+
+    async def home(self):
+        data = await self.get_data()
         self.render("templates/explorer.html",
                     data=data,
                     node=nado_node,
                     tx_no=len(data["block_transactions"]))
 
-    def get_data(self):
-        data_raw = requests.get(f"{nado_node}/get_latest_block").text
-        data = json.loads(data_raw)
+    async def get_data(self):
+        data = await self.fetch_json(f"{nado_node}/get_latest_block")
         readable_ts = {"block_timestamp": datetime.fromtimestamp(data["block_timestamp"])}
         readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
         data.update(readable_ts)
         data.update(readable_reward)
 
         for transaction in data["block_transactions"]:
-            readable_amount = {"amount": to_readable_amount(transaction["amount"])}
-            readable_fee = {"fee": to_readable_amount(transaction["fee"])}
-            transaction.update(readable_amount)
-            transaction.update(readable_fee)
+            transaction.update({
+                "amount": to_readable_amount(transaction["amount"]),
+                "fee": to_readable_amount(transaction["fee"])
+            })
         return data
-
-    def get(self):
-        self.home()
 
 
 class BlockNumberHandler(BaseHandler):
-    def block(self, block):
-        data = self.get_data(block)
+    async def get(self, parameters):
+        entry = self.get_argument("entry")
+        await self.block(block=entry)
+
+    async def block(self, block):
+        data = await self.get_data(block)
 
         if data["block_number"] == "Not found":
-            self.render("templates/error.html",
-                        node=nado_node)
+            self.render("templates/error.html", node=nado_node)
+            return
 
-        else:
-            readable_ts = {"block_timestamp": datetime.fromtimestamp(data["block_timestamp"])}
-            readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
-            data.update(readable_ts)
-            data.update(readable_reward)
+        readable_ts = {"block_timestamp": datetime.fromtimestamp(data["block_timestamp"])}
+        readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
+        data.update(readable_ts)
+        data.update(readable_reward)
 
-            for transaction in data["block_transactions"]:
-                readable_amount = {"amount": to_readable_amount(transaction["amount"])}
-                readable_fee = {"fee": to_readable_amount(transaction["fee"])}
-                transaction.update(readable_amount)
-                transaction.update(readable_fee)
+        for transaction in data["block_transactions"]:
+            transaction.update({
+                "amount": to_readable_amount(transaction["amount"]),
+                "fee": to_readable_amount(transaction["fee"])
+            })
 
-            self.render("templates/explorer.html",
-                        data=data,
-                        node=nado_node,
-                        tx_no=len(data["block_transactions"]))
+        self.render("templates/explorer.html",
+                    data=data,
+                    node=nado_node,
+                    tx_no=len(data["block_transactions"]))
 
-    def get_data(self, block):
-        data_raw = requests.get(f"{nado_node}/get_block_number?number={block}").text
-        data = json.loads(data_raw)
-
-        return data
-
-    def get(self, parameters):
-        entry = BlockNumberHandler.get_argument(self, "entry")
-        self.block(block=entry)
+    async def get_data(self, block):
+        return await self.fetch_json(f"{nado_node}/get_block_number?number={block}")
 
 
 class BlockHashHandler(BaseHandler):
-    def block(self, hash):
-        data = self.get_data(hash)
+    async def get(self, parameters):
+        entry = self.get_argument("entry")
+        await self.block(hash=entry)
+
+    async def block(self, hash):
+        data = await self.get_data(hash)
 
         if data["block_hash"] == "Not found":
-            self.render("templates/error.html",
-                        node=nado_node)
+            self.render("templates/error.html", node=nado_node)
+            return
 
-        else:
+        readable_ts = {"block_timestamp": datetime.fromtimestamp(data["block_timestamp"])}
+        readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
+        data.update(readable_ts)
+        data.update(readable_reward)
 
-            readable_ts = {"block_timestamp": datetime.fromtimestamp(data["block_timestamp"])}
-            readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
-            data.update(readable_ts)
-            data.update(readable_reward)
+        for transaction in data["block_transactions"]:
+            transaction.update({
+                "amount": to_readable_amount(transaction["amount"]),
+                "fee": to_readable_amount(transaction["fee"])
+            })
 
-            for transaction in data["block_transactions"]:
-                readable_amount = {"amount": to_readable_amount(transaction["amount"])}
-                readable_fee = {"fee": to_readable_amount(transaction["fee"])}
-                transaction.update(readable_amount)
-                transaction.update(readable_fee)
+        self.render("templates/explorer.html",
+                    data=data,
+                    node=nado_node,
+                    tx_no=len(data["block_transactions"]))
 
-            self.render("templates/explorer.html",
-                        data=data,
-                        node=nado_node,
-                        tx_no=len(data["block_transactions"]))
-
-    def get_data(self, hash):
-        data_raw = requests.get(f"{nado_node}/get_block?hash={hash}").text
-        data = json.loads(data_raw)
-
-        return data
-
-    def get(self, parameters):
-        entry = BlockHashHandler.get_argument(self, "entry")
-        self.block(hash=entry)
+    async def get_data(self, hash):
+        return await self.fetch_json(f"{nado_node}/get_block?hash={hash}")
 
 
 class AccountHandler(BaseHandler):
-    def account(self, account):
-        data = self.get_data(account)
+    async def get(self, parameters):
+        entry = self.get_argument("entry")
+        await self.account(account=entry)
+
+    async def account(self, account):
+        data = await self.get_data(account)
 
         if data["address"] == "Not found":
-            self.render("templates/error.html",
-                        node=nado_node)
+            self.render("templates/error.html", node=nado_node)
+            return
 
-        else:
-            self.render("templates/account.html",
-                        data=data,
-                        node=nado_node)
+        self.render("templates/account.html",
+                    data=data,
+                    node=nado_node)
 
-    def get_data(self, account):
-        data = requests.get(f"{nado_node}/get_account?address={account}&readable=true").text
-        return json.loads(data)
+    async def get_data(self, account):
+        return await self.fetch_json(f"{nado_node}/get_account?address={account}&readable=true")
 
-    def get(self, parameters):
-        entry = AccountHandler.get_argument(self, "entry")
-        self.account(account=entry)
 
 class StatsHandler(BaseHandler):
-    def stats(self):
-        data = self.get_data()
+    async def get(self):
+        await self.stats()
 
+    async def stats(self):
+        data = await self.get_data()
         self.render("templates/stats.html",
                     data=json.dumps(data, indent=4, sort_keys=True, default=str),
                     node=nado_node)
 
-    def get_data(self):
-        status = json.loads(requests.get(f"{nado_node}/status").text)
-        status_pool = json.loads(requests.get(f"{nado_node}/status_pool").text)
-        transaction_pool = json.loads(requests.get(f"{nado_node}/transaction_pool").text)
-        transaction_buffer = json.loads(requests.get(f"{nado_node}/transaction_buffer").text)
-        user_transaction_buffer = json.loads(requests.get(f"{nado_node}/user_transaction_buffer").text)
-        peers = json.loads(requests.get(f"{nado_node}/peers").text)
-        peers_buffer = json.loads(requests.get(f"{nado_node}/peers_buffer").text)
-        unreachable = json.loads(requests.get(f"{nado_node}/unreachable").text)
-        block_producers = json.loads(requests.get(f"{nado_node}/block_producers").text)
-        penalties = json.loads(requests.get(f"{nado_node}/penalties").text)
-        transaction_hash_pool = json.loads(requests.get(f"{nado_node}/transaction_hash_pool").text)
-        block_hash_pool = json.loads(requests.get(f"{nado_node}/block_hash_pool").text)
-        block_producers_hash_pool = json.loads(requests.get(f"{nado_node}/block_producers_hash_pool").text)
-        trust_pool = json.loads(requests.get(f"{nado_node}/trust_pool").text)
+    async def get_data(self):
+        endpoints = [
+            "status", "status_pool", "transaction_pool", "transaction_buffer",
+            "user_transaction_buffer", "peers", "peers_buffer", "unreachable",
+            "block_producers", "penalties", "transaction_hash_pool",
+            "block_hash_pool", "block_producers_hash_pool", "trust_pool"
+        ]
 
-        data = {"status": status,
-                "status_pool": status_pool,
-                "transaction_pool": transaction_pool,
-                "transaction_buffer": transaction_buffer,
-                "user_transaction_buffer": user_transaction_buffer,
-                "peers": peers,
-                "peers_buffer": peers_buffer,
-                "unreachable": unreachable,
-                "block_producers": block_producers,
-                "penalties": penalties,
-                "transaction_hash_pool": transaction_hash_pool,
-                "block_hash_pool": block_hash_pool,
-                "block_producers_hash_pool": block_producers_hash_pool,
-                "trust_pool": trust_pool,
-                }
+        tasks = [self.fetch_json(f"{nado_node}/{endpoint}") for endpoint in endpoints]
+        results = await asyncio.gather(*tasks)
 
-        return data
+        return dict(zip(endpoints, results))
 
-    def get(self):
-        self.stats()
 
 class TxsOfAccountHandler(BaseHandler):
-    def accounttxs(self, accounttxs, min_block):
-        data = self.get_data(accounttxs, min_block)
+    async def get(self, parameters):
+        entry = self.get_argument("entry")
+        min_block = self.get_argument("min_block", default="0")
+        await self.accounttxs(accounttxs=entry, min_block=min_block)
+
+    async def accounttxs(self, accounttxs, min_block):
+        data = await self.get_data(accounttxs, min_block)
         self.render("templates/txsofaccount.html",
                     data=data,
                     node=nado_node)
 
-    def get_data(self, account, min_block):
-        data = requests.get(f"{nado_node}/get_transactions_of_account?address={account}&min_block={min_block}").text
-        return json.loads(data)
+    async def get_data(self, account, min_block):
+        return await self.fetch_json(
+            f"{nado_node}/get_transactions_of_account?address={account}&min_block={min_block}"
+        )
 
-    def get(self, parameters):
-        entry = TxsOfAccountHandler.get_argument(self, "entry")
-        min_block = TxsOfAccountHandler.get_argument(self, "min_block", default="0")
-        self.accounttxs(accounttxs=entry,
-                        min_block=min_block)
 
 class AutomaticHandler(BaseHandler):
     def get(self, parameters):
-        entry = AutomaticHandler.get_argument(self, "entry")
+        entry = self.get_argument("entry")
         if len(entry) == 49:
             self.redirect(f"/get_account?entry={entry}")
         elif entry.isnumeric():
@@ -218,93 +192,72 @@ class AutomaticHandler(BaseHandler):
         else:
             self.redirect(f"/get_transaction?entry={entry}")
 
+
 class TransactionHandler(BaseHandler):
-    def transaction(self, txid):
-        data = self.get_data(txid)
+    async def get(self, parameters):
+        entry = self.get_argument("entry")
+        await self.transaction(txid=entry)
+
+    async def transaction(self, txid):
+        data = await self.get_data(txid)
 
         if data["txid"] == "Not found":
             self.set_status(404)
-            self.render("templates/error.html",
-                        node=nado_node)
+            self.render("templates/error.html", node=nado_node)
+            return
 
-        else:
-            readable_ts = {"timestamp": datetime.fromtimestamp(data["timestamp"])}
-            readable_reward = {"fee": to_readable_amount(data["fee"])}
-            data.update(readable_ts)
-            data.update(readable_reward)
+        readable_ts = {"timestamp": datetime.fromtimestamp(data["timestamp"])}
+        readable_reward = {"fee": to_readable_amount(data["fee"])}
+        data.update(readable_ts)
+        data.update(readable_reward)
 
-            self.render("templates/transaction.html",
-                        data=data,
-                        raw=json.dumps(data, indent=4, sort_keys=True, default=str),
-                        node=nado_node)
+        self.render("templates/transaction.html",
+                    data=data,
+                    raw=json.dumps(data, indent=4, sort_keys=True, default=str),
+                    node=nado_node)
 
-    def get_data(self, txid):
-        data_raw = requests.get(f"{nado_node}/get_transaction?txid={txid}&readable=true").text
-        data = json.loads(data_raw)
-
-        return data
-
-    def get(self, parameters):
-        entry = TransactionHandler.get_argument(self, "entry")
-        self.transaction(txid=entry)
+    async def get_data(self, txid):
+        return await self.fetch_json(f"{nado_node}/get_transaction?txid={txid}&readable=true")
 
 
 class SupplyHandler(BaseHandler):
-    def supply(self):
-        data = self.get_data()
+    async def get(self):
+        await self.supply()
+
+    async def supply(self):
+        data = await self.get_data()
         self.render("templates/supply.html",
                     data=data,
                     node=nado_node)
 
-    def get_data(self):
-        data = requests.get(f"{nado_node}/get_supply?&readable=true").text
-        return json.loads(data)
-
-    def get(self):
-        self.supply()
-
-
-class RedirectToHTTPSHandler(tornado.web.RequestHandler):
-    def get(self, parameters):
-        self.redirect(self.request.full_url().replace('http://', 'https://'), permanent=True)
+    async def get_data(self):
+        return await self.fetch_json(f"{nado_node}/get_supply?&readable=true")
 
 
 async def make_app(port):
-    if os.path.exists(certfile):
-        ssl_options = {
-            "certfile": certfile,
-            "keyfile": keyfile,
-        }
-    else:
-        ssl_options = None
+    ssl_options = {
+        "certfile": certfile,
+        "keyfile": keyfile,
+    } if os.path.exists(certfile) else None
 
-    application = tornado.web.Application(
-        [
-            (r"/", HomeHandler),
-            (r"/get_account_txs(.*)", TxsOfAccountHandler),
-            (r"/get_account(.*)", AccountHandler),
-            (r"/get_transaction(.*)", TransactionHandler),
-            (r"/get_block_number(.*)", BlockNumberHandler),
-            (r"/get_block(.*)", BlockHashHandler),
-            (r"/stats", StatsHandler),
-            (r"/automatic(.*)", AutomaticHandler),
-            (r"/get_supply", SupplyHandler),
-            (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": "static"}),
-            (r"/graphics/(.*)", tornado.web.StaticFileHandler, {"path": "graphics"}),
-            (r'/(favicon.ico)', tornado.web.StaticFileHandler, {"path": "graphics"}),
-
-        ]
-    )
-
-    application_redirect = tornado.web.Application(
-        [
-            (r"/(.*)", RedirectToHTTPSHandler),
-        ]
-    )
+    application = tornado.web.Application([
+        (r"/", HomeHandler),
+        (r"/get_account_txs(.*)", TxsOfAccountHandler),
+        (r"/get_account(.*)", AccountHandler),
+        (r"/get_transaction(.*)", TransactionHandler),
+        (r"/get_block_number(.*)", BlockNumberHandler),
+        (r"/get_block(.*)", BlockHashHandler),
+        (r"/stats", StatsHandler),
+        (r"/automatic(.*)", AutomaticHandler),
+        (r"/get_supply", SupplyHandler),
+        (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": "static"}),
+        (r"/graphics/(.*)", tornado.web.StaticFileHandler, {"path": "graphics"}),
+        (r'/(favicon.ico)', tornado.web.StaticFileHandler, {"path": "graphics"}),
+    ])
 
     application.listen(port, ssl_options=ssl_options)
-    application_redirect.listen(80)
     await asyncio.Event().wait()
 
 
-asyncio.run(make_app(443))
+if __name__ == "__main__":
+    asyncio.run(make_app(443))
