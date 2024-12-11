@@ -28,9 +28,14 @@ from ops.transaction_ops import get_transaction, get_transactions_of_account, to
 from pympler import summary, muppy
 
 
-def is_port_in_use(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(("localhost", port)) == 0
+async def is_port_in_use(port: int) -> bool:
+    try:
+        async with await asyncio.open_connection("localhost", port) as (reader, writer):
+            writer.close()
+            await writer.wait_closed()
+            return True
+    except:
+        return False
 
 
 def handler(signum, frame):
@@ -47,17 +52,24 @@ def serialize(output, name=None, compress=None):
     return output
 
 
-class HomeHandler(tornado.web.RequestHandler):
-    def home(self):
+class BaseHandler(tornado.web.RequestHandler):
+    async def handle_request(self, func, *args, **kwargs):
+        try:
+            result = await func(*args, **kwargs)
+            return result
+        except Exception as e:
+            self.set_status(403)
+            return f"Error: {e}"
+
+
+class HomeHandler(BaseHandler):
+    async def get(self):
         self.render("templates/homepage.html", ip=get_config()["ip"])
 
-    def get(self):
-        self.home()
 
-
-class StatusHandler(tornado.web.RequestHandler):
-    def status(self):
-        compress = StatusHandler.get_argument(self, "compress", default="none")
+class StatusHandler(BaseHandler):
+    async def get(self, parameter):
+        compress = self.get_argument("compress", default="none")
 
         try:
             status_dict = {
@@ -71,311 +83,190 @@ class StatusHandler(tornado.web.RequestHandler):
                 "version": memserver.version,
             }
 
-            self.write(serialize(name="status",
-                                 output=status_dict,
-                                 compress=compress))
-
+            self.write(serialize(name="status", output=status_dict, compress=compress))
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
+            await self.handle_request(lambda: f"Error: {e}")
 
+
+class TransactionPoolHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.status)
-
-
-class TransactionPoolHandler(tornado.web.RequestHandler):
-    def transaction_pool(self):
-        compress = TransactionPoolHandler.get_argument(self, "compress", default="none")
+        compress = self.get_argument("compress", default="none")
         transaction_pool_data = memserver.transaction_pool
-        self.write(serialize(name="transaction_pool",
-                             output=transaction_pool_data,
-                             compress=compress))
+        self.write(serialize(name="transaction_pool", output=transaction_pool_data, compress=compress))
 
+
+class TransactionBufferHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.transaction_pool)
-
-
-class TransactionBufferHandler(tornado.web.RequestHandler):
-    def transaction_buffer(self):
-        compress = TransactionBufferHandler.get_argument(self, "compress", default="none")
+        compress = self.get_argument("compress", default="none")
         buffer_data = memserver.tx_buffer
+        self.write(serialize(name="transaction_buffer", output=buffer_data, compress=compress))
 
-        self.write(serialize(name="transaction_buffer",
-                             output=buffer_data,
-                             compress=compress))
 
+class UserTxBufferHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.transaction_buffer)
-
-
-class UserTxBufferHandler(tornado.web.RequestHandler):
-    def transaction_buffer(self):
-        compress = UserTxBufferHandler.get_argument(self, "compress", default="none")
+        compress = self.get_argument("compress", default="none")
         buffer_data = memserver.user_tx_buffer
+        self.write(serialize(name="user_transaction_buffer", output=buffer_data, compress=compress))
 
-        self.write(serialize(name="user_transaction_buffer",
-                             output=buffer_data,
-                             compress=compress))
 
+class TrustPoolHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.transaction_buffer)
-
-
-class TrustPoolHandler(tornado.web.RequestHandler):
-    def trust_pool(self):
-        compress = TrustPoolHandler.get_argument(self, "compress", default="none")
+        compress = self.get_argument("compress", default="none")
         trust_pool_data = consensus.trust_pool
+        self.write(serialize(name="trust_pool_data", output=trust_pool_data, compress=compress))
 
-        self.write(serialize(name="trust_pool_data",
-                             output=trust_pool_data,
-                             compress=compress,
-                             ))
 
+class PeerPoolHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.trust_pool)
-
-
-class PeerPoolHandler(tornado.web.RequestHandler):
-    def peer_pool(self):
-        compress = PeerPoolHandler.get_argument(self, "compress", default="none")
+        compress = self.get_argument("compress", default="none")
         peers_data = list(memserver.peers)
+        self.write(serialize(name="peers", output=peers_data, compress=compress))
 
-        self.write(serialize(name="peers",
-                             output=peers_data,
-                             compress=compress
-                             ))
 
+class PeerBufferHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.peer_pool)
-
-class PeerBufferHandler(tornado.web.RequestHandler):
-    def peer_buffer(self):
-        compress = PeerBufferHandler.get_argument(self, "compress", default="none")
+        compress = self.get_argument("compress", default="none")
         peers_data = list(memserver.peer_buffer)
+        self.write(serialize(name="peer_buffer", output=peers_data, compress=compress))
 
-        self.write(serialize(name="peer_buffer",
-                             output=peers_data,
-                             compress=compress
-                             ))
 
+class PenaltiesHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.peer_buffer)
-class PenaltiesHandler(tornado.web.RequestHandler):
-    def penalties(self):
-        compress = PenaltiesHandler.get_argument(self, "compress", default="none")
-        output = {
-            "penalties": memserver.penalties
-        }
+        compress = self.get_argument("compress", default="none")
+        output = {"penalties": memserver.penalties}
+        self.write(serialize(name="penalties", output=output, compress=compress))
 
-        self.write(serialize(name="penalties",
-                             output=output,
-                             compress=compress
-                             ))
 
+class UnreachableHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.penalties)
-
-
-
-class UnreachableHandler(tornado.web.RequestHandler):
-    def unreachable(self):
-        compress = PeerPoolHandler.get_argument(self, "compress", default="none")
+        compress = self.get_argument("compress", default="none")
         unreachable_data = memserver.unreachable
+        self.write(serialize(name="unreachable", output=unreachable_data, compress=compress))
 
-        self.write(serialize(name="unreachable",
-                             output=unreachable_data,
-                             compress=compress
-                             ))
 
+class BlockProducerPoolHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.unreachable)
-
-
-class BlockProducerPoolHandler(tornado.web.RequestHandler):
-    def block_producers(self):
-        compress = BlockProducerPoolHandler.get_argument(self, "compress", default="none")
+        compress = self.get_argument("compress", default="none")
         producer_data = list(memserver.block_producers)
+        self.write(serialize(name="block_producers", output=producer_data, compress=compress))
 
-        self.write(serialize(name="block_producers",
-                             output=producer_data,
-                             compress=compress))
 
+class BlockProducersHashPoolHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.block_producers)
-
-
-class BlockProducersHashPoolHandler(tornado.web.RequestHandler):
-    def block_producers_hash_pool(self):
-        compress = BlockProducersHashPoolHandler.get_argument(self, "compress", default="none")
-
+        compress = self.get_argument("compress", default="none")
         output = {
             "block_producers_hash_pool": consensus.block_producers_hash_pool,
             "majority_block_producers_hash_pool": consensus.majority_block_producers_hash,
         }
+        self.write(serialize(name="block_producers_hash_pool", output=output, compress=compress))
 
-        self.write(serialize(name="block_producers_hash_pool",
-                             output=output,
-                             compress=compress))
 
+class TransactionHashPoolHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.block_producers_hash_pool)
-
-
-class TransactionHashPoolHandler(tornado.web.RequestHandler):
-    def transaction_hash_pool(self):
-        compress = TransactionHashPoolHandler.get_argument(self, "compress", default="none")
-
+        compress = self.get_argument("compress", default="none")
         output = {
             "transactions_hash_pool": consensus.transaction_hash_pool,
             "majority_transactions_hash_pool": consensus.majority_transaction_pool_hash,
         }
+        self.write(serialize(name="transactions_hash_pool", output=output, compress=compress))
 
-        self.write(serialize(name="transactions_hash_pool",
-                             output=output,
-                             compress=compress))
 
+class BlockHashPoolHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.transaction_hash_pool)
-
-
-class BlockHashPoolHandler(tornado.web.RequestHandler):
-    def block_hash_pool(self):
-        compress = BlockHashPoolHandler.get_argument(self, "compress", default="none")
-
+        compress = self.get_argument("compress", default="none")
         output = {
             "block_opinions": consensus.block_hash_pool,
             "majority_block_opinion": consensus.majority_block_hash,
         }
-
-        self.write(serialize(name="block_hash_pool",
-                             output=output,
-                             compress=compress))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.block_hash_pool)
+        self.write(serialize(name="block_hash_pool", output=output, compress=compress))
 
 
-class FeeHandler(tornado.web.RequestHandler):
-    def fee(self):
-        self.write({"fee": fee_over_blocks(logger=logger) + 1})
-
+class FeeHandler(BaseHandler):
     async def get(self):
-        await asyncio.to_thread(self.fee)
+        fee = await asyncio.to_thread(fee_over_blocks, logger=logger)
+        self.write({"fee": fee + 1})
 
 
-class StatusPoolHandler(tornado.web.RequestHandler):
-    def status_pool(self):
-        compress = StatusPoolHandler.get_argument(self, "compress", default="none")
-        status_pool_data = consensus.status_pool
-
-        self.write(serialize(name="status_pool",
-                             output=status_pool_data,
-                             compress=compress))
-
+class StatusPoolHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.status_pool)
+        compress = self.get_argument("compress", default="none")
+        status_pool_data = consensus.status_pool
+        self.write(serialize(name="status_pool", output=status_pool_data, compress=compress))
 
 
-class SubmitTransactionHandler(tornado.web.RequestHandler):
-    def submit_transaction(self):
+class SubmitTransactionHandler(BaseHandler):
+    async def get(self, parameter):
         try:
-            transaction_raw = SubmitTransactionHandler.get_argument(self, "data")
+            transaction_raw = self.get_argument("data")
             transaction = json.loads(transaction_raw)
-
-            output = memserver.merge_transaction(transaction, user_origin=True)
-            self.write(output)
+            output = await asyncio.to_thread(memserver.merge_transaction, transaction, user_origin=True)
 
             if not output["result"]:
                 self.set_status(403)
 
+            self.write(output)
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
+            await self.handle_request(lambda: f"Error: {e}")
 
+
+class HealthHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.submit_transaction)
+        compress = self.get_argument("compress", default="none")
+        health = await asyncio.to_thread(summary.summarize, muppy.get_objects())
+        self.write(serialize(name="health", output=health, compress=compress))
 
 
-class HealthHandler(tornado.web.RequestHandler):
-    def health(self):
-        compress = LogHandler.get_argument(self, "compress", default="none")
-        health = summary.summarize(muppy.get_objects())
-
-        if compress == "msgpack":
-            output = msgpack.packb(health)
-        else:
-            output = serialize(name="health",
-                                 output=health,
-                                 compress=compress)
-        self.write(output)
-
+class LogHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.health)
-
-class LogHandler(tornado.web.RequestHandler):
-    def log(self):
-        compress = LogHandler.get_argument(self, "compress", default="none")
-
-        with open(f"{get_home()}/logs/log.log") as logfile:
-            lines = logfile.readlines()
-            for line in lines:
-                if compress == "msgpack":
-                    output = msgpack.packb(line)
-                else:
-                    output = line
-                self.write(output)
-                self.write("<br>")
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.log)
-
-
-class ForceSyncHandler(tornado.web.RequestHandler):
-    def force_sync(self):
+        compress = self.get_argument("compress", default="none")
         try:
-            forced_ip = ForceSyncHandler.get_argument(self, "ip")
-            server_key = ForceSyncHandler.get_argument(self, "key", default="none")
+            async with await asyncio.to_thread(open, f"{get_home()}/logs/log.log") as logfile:
+                lines = await asyncio.to_thread(logfile.readlines)
+                for line in lines:
+                    if compress == "msgpack":
+                        output = msgpack.packb(line)
+                    else:
+                        output = line
+                    self.write(output)
+                    self.write("<br>")
+        except Exception as e:
+            await self.handle_request(lambda: f"Error: {e}")
 
+
+class ForceSyncHandler(BaseHandler):
+    async def get(self, parameter):
+        try:
+            forced_ip = self.get_argument("ip")
+            server_key = self.get_argument("key", default="none")
             client_ip = self.request.remote_ip
+
             if server_key == memserver.server_key or client_ip == "127.0.0.1":
-                if client_ip == "127.0.0.1" or check_ip(client_ip):
+                if client_ip == "127.0.0.1" or await asyncio.to_thread(check_ip, client_ip):
                     memserver.force_sync_ip = forced_ip
                     memserver.peers = [forced_ip]
-                    self.write(f"Synchronization is now forced only from {forced_ip} until majority consensus is reached")
+                    self.write(
+                        f"Synchronization is now forced only from {forced_ip} until majority consensus is reached")
                 else:
                     self.write(f"Failed to force to sync from {forced_ip}")
             else:
                 self.write(f"Wrong server key {server_key}")
-
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
+            await self.handle_request(lambda: f"Error: {e}")
 
+
+class IpHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.force_sync)
-
-
-class IpHandler(tornado.web.RequestHandler):
-    def log(self):
-        compress = IpHandler.get_argument(self, "compress", default="none")
+        compress = self.get_argument("compress", default="none")
         client_ip = self.request.remote_ip
+        self.write(serialize(name="ip", output=client_ip, compress=compress))
 
-        if compress == "msgpack":
-            output = msgpack.packb(client_ip)
-        else:
-            output = client_ip
-        self.write(output)
 
+class TerminateHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.log)
-
-
-class TerminateHandler(tornado.web.RequestHandler):
-    def terminate(self):
         try:
-            server_key = TerminateHandler.get_argument(self, "key", default="none")
-
+            server_key = self.get_argument("key", default="none")
             client_ip = self.request.remote_ip
+
             if client_ip == "127.0.0.1" or server_key == memserver.server_key:
                 self.write("Termination signal sent, node is shutting down...")
                 memserver.terminate = True
@@ -383,351 +274,290 @@ class TerminateHandler(tornado.web.RequestHandler):
             elif server_key != memserver.server_key:
                 self.write("Wrong or missing key for a remote node")
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
+            await self.handle_request(lambda: f"Error: {e}")
 
+
+class TransactionHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.terminate)
-
-
-class TransactionHandler(tornado.web.RequestHandler):
-    def transaction(self):
         try:
-            transaction = TransactionHandler.get_argument(self, "txid")
-            transaction_data = get_transaction(transaction, logger=logger)
-            compress = TransactionHandler.get_argument(self, "compress", default="none")
+            transaction = self.get_argument("txid")
+            compress = self.get_argument("compress", default="none")
+
+            transaction_data = await asyncio.to_thread(get_transaction, transaction, logger=logger)
 
             if not transaction_data:
-                transaction_data = "Not found"
                 self.set_status(403)
+                transaction_data = "Not found"
 
-            self.write(serialize(name="txid",
-                                 output=transaction_data,
-                                 compress=compress))
-
+            self.write(serialize(name="txid", output=transaction_data, compress=compress))
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
+            await self.handle_request(lambda: f"Error: {e}")
 
+
+class AccountTransactionsHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.transaction)
-
-
-class AccountTransactionsHandler(tornado.web.RequestHandler):
-    """get transactions from a transaction index batch"""
-
-    def account_transactions(self):
         try:
-            address = AccountTransactionsHandler.get_argument(self, "address", default=memserver.address)
-            min_block = AccountTransactionsHandler.get_argument(self, "min_block", default="0")
-            compress = AccountTransactionsHandler.get_argument(self, "compress", default="none")
+            address = self.get_argument("address", default=memserver.address)
+            min_block = self.get_argument("min_block", default="0")
+            compress = self.get_argument("compress", default="none")
 
-            transaction_data = get_transactions_of_account(account=address,
-                                                           min_block=int(min_block),
-                                                           logger=logger)
+            transaction_data = await asyncio.to_thread(
+                get_transactions_of_account,
+                account=address,
+                min_block=int(min_block),
+                logger=logger
+            )
 
             if not transaction_data:
-                transaction_data = "Not found"
                 self.set_status(403)
+                transaction_data = "Not found"
 
-            self.write(serialize(name="account_transactions",
-                                 output=transaction_data,
-                                 compress=compress))
+            self.write(serialize(name="account_transactions", output=transaction_data, compress=compress))
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
+            await self.handle_request(lambda: f"Error: {e}")
 
+
+class GetBlockHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.account_transactions)
-
-
-class GetBlockHandler(tornado.web.RequestHandler):
-    def block(self):
-        output = ""
-
         try:
-            block = GetBlockHandler.get_argument(self, "hash")
-            compress = GetBlockHandler.get_argument(self, "compress", default="none")
-            block_data = get_block(block)
+            block = self.get_argument("hash")
+            compress = self.get_argument("compress", default="none")
+
+            block_data = await asyncio.to_thread(get_block, block)
 
             if not block_data:
                 self.set_status(404)
                 block_data = "Not found"
 
-            output = serialize(name="block_hash",
-                               output=block_data,
-                               compress=compress)
-
+            self.write(serialize(name="block_hash", output=block_data, compress=compress))
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
+            await self.handle_request(lambda: f"Error: {e}")
 
-        finally:
-            self.write(output)
 
+class GetBlockNumberHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.block)
-
-
-class GetBlockNumberHandler(tornado.web.RequestHandler):
-    def block(self):
-        output = ""
-
         try:
-            number = GetBlockHandler.get_argument(self, "number")
-            compress = GetBlockHandler.get_argument(self, "compress", default="none")
-            block_data = get_block_number(number)
+            number = self.get_argument("number")
+            compress = self.get_argument("compress", default="none")
+
+            block_data = await asyncio.to_thread(get_block_number, number)
 
             if not block_data:
                 self.set_status(403)
                 block_data = "Not found"
 
-            output = serialize(name="block_number",
-                               output=block_data,
-                               compress=compress)
-
+            self.write(serialize(name="block_number", output=block_data, compress=compress))
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
+            await self.handle_request(lambda: f"Error: {e}")
 
-        finally:
-            self.write(output)
 
+class GetBlocksBeforeHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.block)
-
-
-class GetBlocksBeforeHandler(tornado.web.RequestHandler):
-
-    def blocks_before(self):
-        block_hash = GetBlocksBeforeHandler.get_argument(self, "hash")
-        count = int(GetBlocksBeforeHandler.get_argument(self, "count", default="1"))
-        compress = GetBlocksBeforeHandler.get_argument(self, "compress", default="none")
+        block_hash = self.get_argument("hash")
+        count = int(self.get_argument("count", default="1"))
+        compress = self.get_argument("compress", default="none")
         collected_blocks = []
 
         if count > 100:
             count = 100
 
         try:
-            parent = get_block(block_hash)
+            parent = await asyncio.to_thread(get_block, block_hash)
             if parent:
-                parent_hash=["parent_hash"]
+                parent_hash = parent["parent_hash"]
 
-                for blocks in range(0, count):
-                    block = get_block(parent_hash)
+                for _ in range(count):
+                    block = await asyncio.to_thread(get_block, parent_hash)
                     if not block:
                         break
 
-                    elif block:
-                        collected_blocks.append(block)
-                        parent_hash = block["parent_hash"]
+                    collected_blocks.append(block)
+                    parent_hash = block["parent_hash"]
 
                 collected_blocks.reverse()
             else:
                 logger.debug(f"Parent hash of {block_hash} not found")
                 self.set_status(404)
-
         except Exception as e:
-            self.set_status(403)
             logger.debug(f"Block collection hit a roadblock: {e}")
-
             if not collected_blocks:
                 self.set_status(403)
-
         finally:
-            self.write(serialize(name="blocks_before",
-                                 output=collected_blocks,
-                                 compress=compress
-                                 ))
+            self.write(serialize(name="blocks_before", output=collected_blocks, compress=compress))
 
+
+class GetBlocksAfterHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.blocks_before)
-
-
-class GetBlocksAfterHandler(tornado.web.RequestHandler):
-    def blocks_after(self):
-
-        block_hash = GetBlocksAfterHandler.get_argument(self, "hash")
-        count = int(GetBlocksAfterHandler.get_argument(self, "count", default="1"))
-        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
+        block_hash = self.get_argument("hash")
+        count = int(self.get_argument("count", default="1"))
+        compress = self.get_argument("compress", default="none")
         collected_blocks = []
 
         if count > 100:
             count = 100
 
         try:
-            child = get_block(block_hash)
+            child = await asyncio.to_thread(get_block, block_hash)
             if child:
                 child_hash = child["child_hash"]
 
-                for blocks in range(0, count):
-                    block = get_block(child_hash)
+                for _ in range(count):
+                    block = await asyncio.to_thread(get_block, child_hash)
                     if not block:
                         break
 
-                    elif block:
-                        collected_blocks.append(block)
-                        child_hash = block["child_hash"]
+                    collected_blocks.append(block)
+                    child_hash = block["child_hash"]
             else:
                 logger.debug(f"Child hash of {block_hash} not found")
                 self.set_status(404)
 
         except Exception as e:
             logger.debug(f"Block collection hit a roadblock: {e}")
-
             if not collected_blocks:
                 self.set_status(403)
 
         finally:
-            self.write(serialize(name="blocks_after",
-                                 output=collected_blocks,
-                                 compress=compress,
-                                 ))
+            self.write(serialize(name="blocks_after", output=collected_blocks, compress=compress))
 
+
+class GetSupplyHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.blocks_after)
-
-class GetSupplyHandler(tornado.web.RequestHandler):
-    def get_supply(self):
-        readable = GetSupplyHandler.get_argument(self, "readable", default="none")
-        data = fetch_totals()
-        genesis_acc = get_account(address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b")
-        data.update({"block_number": memserver.latest_block["block_number"]})
-        data.update({"reserve": genesis_acc["balance"]})
-        data.update({"reserve_spent": 1000000000000000000 - genesis_acc["balance"]})
-        data.update({"circulating": data["reserve_spent"] + data["produced"] - data["burned"] - data["fees"]})
-        data.update({"total_supply": 1000000000000000000 + data["produced"] - data["burned"] - data["fees"]})
-
-        if readable == "true":
-            data.update({"produced": to_readable_amount(data["produced"])})
-            data.update({"fees": to_readable_amount(data["fees"])})
-            data.update({"burned": to_readable_amount(data["burned"])})
-            data.update({"reserve": to_readable_amount(data["reserve"])})
-            data.update({"reserve_spent": to_readable_amount(data["reserve_spent"])})
-            data.update({"circulating": to_readable_amount(data["circulating"])})
-            data.update({"total_supply": to_readable_amount(data["total_supply"])})
-
-        self.write(data)
-    async def get(self, parameter):
-        await asyncio.to_thread(self.get_supply)
-
-
-class GetLatestBlockHandler(tornado.web.RequestHandler):
-    def latest_block(self):
-        latest_block_data = memserver.latest_block
-        compress = GetLatestBlockHandler.get_argument(self, "compress", default="none")
-
-        self.write(serialize(name="latest_block",
-                             output=latest_block_data,
-                             compress=compress))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.latest_block)
-
-
-class AccountHandler(tornado.web.RequestHandler):
-    def account(self):
         try:
-            account = AccountHandler.get_argument(self, "address", default=memserver.address)
-            compress = AccountHandler.get_argument(self, "compress", default="none")
-            readable = AccountHandler.get_argument(self, "readable", default="none")
-            account_data = get_account(account, create_on_error=False)
+            readable = self.get_argument("readable", default="none")
+            data = await asyncio.to_thread(fetch_totals)
+            genesis_acc = await asyncio.to_thread(get_account,
+                                                  address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b")
+
+            data.update({
+                "block_number": memserver.latest_block["block_number"],
+                "reserve": genesis_acc["balance"],
+                "reserve_spent": 1000000000000000000 - genesis_acc["balance"]
+            })
+            data.update({
+                "circulating": data["reserve_spent"] + data["produced"] - data["burned"] - data["fees"],
+                "total_supply": 1000000000000000000 + data["produced"] - data["burned"] - data["fees"]
+            })
+
+            if readable == "true":
+                data.update({
+                    "produced": to_readable_amount(data["produced"]),
+                    "fees": to_readable_amount(data["fees"]),
+                    "burned": to_readable_amount(data["burned"]),
+                    "reserve": to_readable_amount(data["reserve"]),
+                    "reserve_spent": to_readable_amount(data["reserve_spent"]),
+                    "circulating": to_readable_amount(data["circulating"]),
+                    "total_supply": to_readable_amount(data["total_supply"])
+                })
+
+            self.write(data)
+        except Exception as e:
+            await self.handle_request(lambda: f"Error: {e}")
+
+
+class GetLatestBlockHandler(BaseHandler):
+    async def get(self, parameter):
+        compress = self.get_argument("compress", default="none")
+        latest_block_data = memserver.latest_block
+        self.write(serialize(name="latest_block", output=latest_block_data, compress=compress))
+
+
+class AccountHandler(BaseHandler):
+    async def get(self, parameter):
+        try:
+            account = self.get_argument("address", default=memserver.address)
+            compress = self.get_argument("compress", default="none")
+            readable = self.get_argument("readable", default="none")
+
+            account_data = await asyncio.to_thread(get_account, account, create_on_error=False)
 
             if account_data:
-                account_data.update({"penalty": get_penalty(producer_address=account,
-                                       block_hash=memserver.latest_block["block_hash"],
-                                       block_number=memserver.latest_block["block_number"])})
+                penalty = await asyncio.to_thread(
+                    get_penalty,
+                    producer_address=account,
+                    block_hash=memserver.latest_block["block_hash"],
+                    block_number=memserver.latest_block["block_number"]
+                )
+                account_data.update({"penalty": penalty})
 
                 if readable == "true":
-                    account_data.update({"balance": to_readable_amount(account_data["balance"])})
-                    account_data.update({"produced": to_readable_amount(account_data["produced"])})
-                    account_data.update({"burned": to_readable_amount(account_data["burned"])})
-
+                    account_data.update({
+                        "balance": to_readable_amount(account_data["balance"]),
+                        "produced": to_readable_amount(account_data["produced"]),
+                        "burned": to_readable_amount(account_data["burned"])
+                    })
             else:
-                account_data = "Not found"
                 self.set_status(403)
+                account_data = "Not found"
 
-            self.write(serialize(name="address",
-                                 output=account_data,
-                                 compress=compress))
-
+            self.write(serialize(name="address", output=account_data, compress=compress))
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
+            await self.handle_request(lambda: f"Error: {e}")
 
+
+class ProducerSetHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.account)
-
-
-class ProducerSetHandler(tornado.web.RequestHandler):
-    def producer_set(self):
         try:
-            producer_set_hash = ProducerSetHandler.get_argument(self, "hash")
-            compress = ProducerSetHandler.get_argument(self, "compress", default="none")
+            producer_set_hash = self.get_argument("hash")
+            compress = self.get_argument("compress", default="none")
 
-            producer_data = get_producer_set(producer_set_hash)
+            producer_data = await asyncio.to_thread(get_producer_set, producer_set_hash)
 
             if not producer_data:
-                producer_data = "Not found"
                 self.set_status(403)
+                producer_data = "Not found"
 
-            self.write(serialize(name="producer_set",
-                                 output=producer_data,
-                                 compress=compress))
+            self.write(serialize(name="producer_set", output=producer_data, compress=compress))
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
+            await self.handle_request(lambda: f"Error: {e}")
 
+
+class AnnouncePeerHandler(BaseHandler):
     async def get(self, parameter):
-        await asyncio.to_thread(self.producer_set)
-
-
-class AnnouncePeerHandler(tornado.web.RequestHandler):
-    def announce(self):
         try:
-            peer_ip = AnnouncePeerHandler.get_argument(self, "ip")
-            if not check_ip(peer_ip):
+            peer_ip = self.get_argument("ip")
+            if not await asyncio.to_thread(check_ip, peer_ip):
                 self.write("Invalid IP address")
+                return
 
-            else:
-                if peer_ip not in memserver.peers and peer_ip not in memserver.unreachable.keys():
-                    status = asyncio.run(get_remote_status(peer_ip, logger=logger))
+            if peer_ip not in memserver.peers and peer_ip not in memserver.unreachable.keys():
+                status = await get_remote_status(peer_ip, logger=logger)
 
-                    assert status, f"{peer_ip} unreachable"
+                if not status:
+                    raise Exception(f"{peer_ip} unreachable")
 
-                    address = status["address"]
-                    protocol = status["protocol"]
+                address = status["address"]
+                protocol = status["protocol"]
 
-                    assert address, "No address detected"
-                    assert protocol >= get_config()["protocol"], f"Protocol of {peer_ip} is too low"
+                if not address:
+                    raise Exception("No address detected")
+                if protocol < get_config()["protocol"]:
+                    raise Exception(f"Protocol of {peer_ip} is too low")
 
-                    save_peer(ip=peer_ip,
-                              address=address,
-                              port=get_config()["port"],
-                              overwrite=True
-                              )
+                await asyncio.to_thread(
+                    save_peer,
+                    ip=peer_ip,
+                    address=address,
+                    port=get_config()["port"],
+                    overwrite=True
+                )
 
-                    if peer_ip not in memserver.peer_buffer:
-                        memserver.peer_buffer.append(peer_ip)
-                        message = f"Peer {peer_ip} added to peer buffer"
-                    else:
-                        message = f"{peer_ip} already waiting in peer buffer"
-
+                if peer_ip not in memserver.peer_buffer:
+                    memserver.peer_buffer.append(peer_ip)
+                    message = f"Peer {peer_ip} added to peer buffer"
                 else:
-                    message = f"Peer {peer_ip} is known or invalid"
-                self.write(message)
+                    message = f"{peer_ip} already waiting in peer buffer"
+            else:
+                message = f"Peer {peer_ip} is known or invalid"
 
+            self.write(message)
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.announce)
+            await self.handle_request(lambda: f"Error: {e}")
 
 
-async def make_app(port):
-    application = tornado.web.Application(
-        [
+class Application(tornado.web.Application):
+    def __init__(self):
+        handlers = [
             (r"/", HomeHandler),
             (r"/get_transactions_of_account(.*)", AccountTransactionsHandler),
             (r"/get_transaction(.*)", TransactionHandler),
@@ -763,67 +593,86 @@ async def make_app(port):
             (r"/force_sync(.*)", ForceSyncHandler),
             (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": "static"}),
             (r'/(favicon.ico)', tornado.web.StaticFileHandler, {"path": "graphics"}),
-
         ]
-    )
-    application.listen(port)
+        super().__init__(handlers)
+
+
+async def main():
+    # Initialize logging
+    logging.getLogger('tornado.access').disabled = True
+    logger = get_logger(logger_name="main_logger")
+    allow_async()
+
+    # Version check
+    updated_version = versioner.update_version()
+    if updated_version:
+        versioner.set_version(updated_version)
+
+    # Initialize folders and genesis if needed
+    if not os.path.exists(f"{get_home()}/blocks"):
+        make_folders()
+        make_genesis(
+            address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b",
+            balance=1000000000000000000,
+            ip="78.102.98.72",
+            port=9173,
+            timestamp=1669852800,
+            logger=logger,
+        )
+
+    # Initialize keys
+    if not keyfile_found():
+        save_keys(generate_keys())
+        save_peer(
+            ip=get_config()["ip"],
+            address=load_keys()["address"],
+            port=get_config()["port"],
+            peer_trust=10000
+        )
+
+    info_path = os.path.normpath(f'{get_home()}/private/keys.dat')
+    logger.info(f"Key location: {info_path}")
+
+    # Check port availability
+    port = get_config()["port"]
+    assert not await is_port_in_use(port), "Port already in use, exiting"
+
+    # Set up signal handlers
+    signal.signal(signal.SIGINT, handler)
+    signal.signal(signal.SIGTERM, handler)
+
+    # Initialize server and clients
+    global memserver, consensus
+    memserver = MemServer(logger=logger)
+
+    logger.info(f"NADO version {memserver.version} started")
+    logger.info(f"Your address: {memserver.address}")
+    logger.info(f"Your IP: {memserver.ip}")
+    logger.info(f"Promiscuity mode: {memserver.promiscuous}")
+    logger.info(f"Cascade depth limit: {memserver.cascade_limit}")
+
+    # Initialize clients without awaiting since they're not async yet
+    consensus = ConsensusClient(memserver=memserver, logger=logger)
+    consensus.start()  # Regular non-async start
+
+    core = CoreClient(memserver=memserver, consensus=consensus, logger=logger)
+    core.start()  # Regular non-async start
+
+    peers = PeerClient(memserver=memserver, consensus=consensus, logger=logger)
+    peers.start()  # Regular non-async start
+
+    messages = MessageClient(memserver=memserver, consensus=consensus, core=core, peers=peers, logger=logger)
+    messages.start()  # Regular non-async start
+
+    logger.info("Starting Request Handler")
+
+    # Start Tornado application
+    app = Application()
+    app.listen(port)
+
+    # Keep the server running
     await asyncio.Event().wait()
 
-"""warning, no intensive operations or locks should be invoked from API interface"""
-logging.getLogger('tornado.access').disabled = True
-logger = get_logger(logger_name="main_logger")
 
-allow_async()
-
-updated_version = versioner.update_version()
-if updated_version:
-    versioner.set_version(updated_version)
-
-if not os.path.exists(f"{get_home()}/blocks"):
-    make_folders()
-    make_genesis(
-        address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b",
-        balance=1000000000000000000,
-        ip="78.102.98.72",
-        port=9173,
-        timestamp=1669852800,
-        logger=logger,
-    )
-
-if not keyfile_found():
-    save_keys(generate_keys())
-    save_peer(ip=get_config()["ip"],
-              address=load_keys()["address"],
-              port=get_config()["port"],
-              peer_trust=10000)
-
-info_path = os.path.normpath(f'{get_home()}/private/keys.dat')
-logger.info(f"Key location: {info_path}")
-
-assert not is_port_in_use(get_config()["port"]), "Port already in use, exiting"
-signal.signal(signal.SIGINT, handler)
-signal.signal(signal.SIGTERM, handler)
-
-memserver = MemServer(logger=logger)
-
-logger.info(f"NADO version {memserver.version} started")
-logger.info(f"Your address: {memserver.address}")
-logger.info(f"Your IP: {memserver.ip}")
-logger.info(f"Promiscuity mode: {memserver.promiscuous}")
-logger.info(f"Cascade depth limit: {memserver.cascade_limit}")
-
-consensus = ConsensusClient(memserver=memserver, logger=logger)
-consensus.start()
-
-core = CoreClient(memserver=memserver, consensus=consensus, logger=logger)
-core.start()
-
-peers = PeerClient(memserver=memserver, consensus=consensus, logger=logger)
-peers.start()
-
-messages = MessageClient(memserver=memserver, consensus=consensus, core=core, peers=peers, logger=logger)
-messages.start()
-
-logger.info("Starting Request Handler")
-
-asyncio.run(make_app(get_config()["port"]))
+if __name__ == "__main__":
+    asyncio.run(main())
