@@ -57,4 +57,3 @@ Beyond the legacy fields, every block now carries:
 
 `(address TEXT, balance INTEGER, produced INTEGER, bonded INTEGER)`, UNIQUE on `address`.
 `totals_index` = `(produced INTEGER, fees INTEGER)`. (No `burned` — removed.)
-</content>

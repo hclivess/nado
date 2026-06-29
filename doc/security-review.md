@@ -65,4 +65,3 @@ stuck-node issues, and provides the *primitives* that close grindable selection.
 open items (fail-closed authorship, canonical tx order, consensus-pool reweight, snapshot
 quorum, SSRF/flood hardening) are concentrated in the **S4.3** integration and a small tail of
 P2P hygiene — to be done and validated on a multi-node testnet before any value launch.
-</content>

@@ -61,4 +61,3 @@ a block accepted by a full node is also accepted by a freshly snapshot-bootstrap
 reward recompute-enforcement, and producer authorship is fail-closed. Golden cross-node
 determinism vectors (beacon, registry root, winner, block hash) should be checked in CI before
 any value launch.
-</content>

@@ -70,4 +70,3 @@ therefore let two honest nodes compute different block hashes for the same set. 
 (recommended, **not yet implemented**) is to canonicalize the order — sort `block_transactions`
 by `txid` in `construct_block` and validate that ordering in `verify_block`. Track this for the
 S4.3 work.
-</content>
