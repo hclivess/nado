@@ -21,10 +21,12 @@ from ops.block_ops import (
     get_block,
     construct_block,
     check_target_match,
-    valid_block_timestamp
+    valid_block_timestamp,
+    block_already_indexed,
+    pick_best_producer,
 )
 from ops.data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
-from ops.peer_ops import load_trust, update_local_address, ip_stored, check_ip, qualifies_to_sync, announce_me, get_remote_status
+from ops.peer_ops import load_trust, update_local_address, ip_stored, check_ip, qualifies_to_sync, announce_me, get_remote_status, get_producer_set
 from ops import snapshot_ops
 from ops.pool_ops import merge_buffer, cull_buffer
 from ops.transaction_ops import remove_outdated_transactions
@@ -526,6 +528,14 @@ class CoreClient(threading.Thread):
 
     def incorporate_block(self, block: dict, sorted_transactions: list):
         """successful execution mandatory, must not raise a failure"""
+        # M4 idempotency: if this exact block was already incorporated (its hash is in
+        # block_index), don't re-apply its balances/reward. Protects against the same
+        # block being re-fetched during sync or replayed after a restart that had
+        # already advanced the tip (which would otherwise double-credit the reward).
+        if block_already_indexed(block["block_hash"]):
+            self.logger.warning(f"Block {block['block_hash']} already incorporated; skipping (idempotent)")
+            return
+
         self.logger.warning(f"Producing block")
 
         index_transactions(block=block,
@@ -598,6 +608,33 @@ class CoreClient(threading.Thread):
                                                                  value=-1)
                     raise
 
+    def validate_block_producer(self, block):
+        """H2: bind a block to its rightful producer. When we hold the producer set for
+        the block's block_producers_hash, recompute the deterministic pick_best_producer
+        winner for this height and reject the block if its block_ip is not that winner --
+        this stops a sync peer from attributing blocks (and their rewards) to an
+        attacker address. If the producer set is unknown locally we cannot verify it, so
+        we log and allow rather than risk halting sync on a set we simply haven't learned
+        yet; full fail-closed enforcement + per-block producer signatures is the complete
+        fix and needs multi-node validation."""
+        producers_hash = block.get("block_producers_hash")
+        if not producers_hash:
+            return
+        try:
+            producer_set = get_producer_set(producers_hash)
+        except Exception:
+            producer_set = None
+        if not producer_set:
+            self.logger.info("Producer set for block unknown locally; skipping authorship check")
+            return
+        expected_ip = pick_best_producer(producer_set,
+                                         logger=self.logger,
+                                         event_bus=self.event_bus,
+                                         latest_block=self.memserver.latest_block)
+        if expected_ip and block.get("block_ip") != expected_ip:
+            raise ValueError(
+                f"Block producer {block.get('block_ip')} is not the expected winner {expected_ip}")
+
     def verify_block(self, block, remote, remote_peer=None, is_old=False):
         """this function has critical checks and must raise a failure/halt if there is one"""
         # todo move exceptions lower (as in rollback) and avoid rising here directly
@@ -614,6 +651,8 @@ class CoreClient(threading.Thread):
             reward = block.get("block_reward")
             if not isinstance(reward, int) or isinstance(reward, bool) or reward < 0 or reward > MAX_BLOCK_REWARD:
                 raise ValueError(f"Invalid block reward {reward!r}")
+
+            self.validate_block_producer(block)
 
             if not is_old or not self.memserver.quick_sync:
                 self.validate_transactions_in_block(block=block,

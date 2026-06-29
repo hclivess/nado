@@ -176,6 +176,18 @@ def get_block_number(number):
         return False
 
 
+def block_already_indexed(block_hash):
+    """True if this exact block was already incorporated (its hash is in block_index).
+    Used to make incorporate_block idempotent against a re-fetched / replayed block."""
+    try:
+        handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
+        found = handler.db_fetch("SELECT 1 FROM block_index WHERE block_hash = ? LIMIT 1", (block_hash,))
+        handler.close()
+        return bool(found)
+    except Exception:
+        return False
+
+
 def get_block_producers_hash_demo():
     """use for demo only"""
     config = get_config()
