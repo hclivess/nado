@@ -20,11 +20,13 @@ from ops.block_ops import (
     set_earliest_block_info,
     get_block,
     construct_block,
+    get_block_reward,
     check_target_match,
     valid_block_timestamp,
     block_already_indexed,
     pick_best_producer,
 )
+from protocol import split_block_reward, TREASURY_ADDRESS, CHAIN_ID, REWARD_CAP
 from ops.data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
 from ops.peer_ops import load_trust, update_local_address, ip_stored, check_ip, qualifies_to_sync, announce_me, get_remote_status, get_producer_set
 from ops import snapshot_ops
@@ -35,7 +37,7 @@ from ops.transaction_ops import (
     validate_transaction,
     validate_all_spending, index_transactions
 )
-from rollback import rollback_one_block
+from rollback import rollback_one_block, MissingParentError
 
 # protocol cap on a block reward (mirrors get_block_reward's reward_cap)
 MAX_BLOCK_REWARD = 5000000000
@@ -494,8 +496,16 @@ class CoreClient(threading.Thread):
 
                     elif not known_block:
                         if self.memserver.rollbacks <= self.memserver.max_rollbacks:
-                            self.memserver.latest_block = rollback_one_block(logger=self.logger,
-                                                                             block=self.memserver.latest_block)
+                            try:
+                                self.memserver.latest_block = rollback_one_block(logger=self.logger,
+                                                                                 block=self.memserver.latest_block)
+                            except MissingParentError as e:
+                                # we have run out of local history to roll back through (e.g.
+                                # a snapshot-bootstrapped node). Abort the cascade and let the
+                                # next emergency cycle resync (snapshot/full) instead of spinning.
+                                self.logger.error(f"Rollback aborted, resync required: {e}")
+                                self.memserver.rollbacks = 0
+                                break
 
                             if not self.memserver.force_sync_ip:
                                 self.memserver.rollbacks += 1
@@ -516,15 +526,21 @@ class CoreClient(threading.Thread):
 
     def rebuild_block(self, block):
         # todo add block size check?
+        # Reconstruct the block deterministically from the LOCAL tip + the block's tx set.
+        # reward and cumulative_fees are RECOMPUTED here (not copied from the peer), so a peer
+        # cannot inject an inflated reward: the reconstructed hash only matches the network if
+        # the canonical reward/cumfee were used.
+        parent = self.memserver.latest_block
         return construct_block(
-            block_timestamp=self.memserver.latest_block["block_timestamp"] + self.memserver.block_time,
-            block_number=self.memserver.latest_block["block_number"] + 1,
-            parent_hash=self.memserver.latest_block["block_hash"],
+            block_timestamp=parent["block_timestamp"] + self.memserver.block_time,
+            block_number=parent["block_number"] + 1,
+            parent_hash=parent["block_hash"],
             block_ip=block["block_ip"],
             creator=block["block_creator"],
             transaction_pool=block["block_transactions"],
             block_producers_hash=block["block_producers_hash"],
-            block_reward=block["block_reward"])
+            block_reward=get_block_reward(parent_block=parent, logger=self.logger),
+            parent_cumulative_fees=parent.get("cumulative_fees", 0))
 
     def incorporate_block(self, block: dict, sorted_transactions: list):
         """successful execution mandatory, must not raise a failure"""
@@ -546,17 +562,27 @@ class CoreClient(threading.Thread):
                                      logger=self.logger,
                                      parent=self.memserver.latest_block)
 
+        # canonical 90/10 split: producer gets the floor, treasury the exact remainder, so the
+        # two credits sum to block_reward (single source of truth: protocol.split_block_reward).
+        # rollback_one_block reverses with the identical split, so the two paths can never drift.
+        producer_cut, treasury_cut = split_block_reward(block["block_reward"])
         change_balance(address=block["block_creator"],
-                       amount=block["block_reward"],
+                       amount=producer_cut,
                        logger=self.logger
                        )
+        if treasury_cut:
+            change_balance(address=TREASURY_ADDRESS,
+                           amount=treasury_cut,
+                           logger=self.logger
+                           )
 
+        # the producer's penalty metric tracks what it actually earned (its 90% cut)
         increase_produced_count(address=block["block_creator"],
-                                amount=block["block_reward"],
+                                amount=producer_cut,
                                 logger=self.logger
                                 )
 
-        totals = get_totals(block=block)
+        totals = get_totals(block=block)  # produced = full reward = total emission
         index_totals(produced=totals["produced"],
                      fees=totals["fees"],
                      burned=totals["burned"],
@@ -569,10 +595,10 @@ class CoreClient(threading.Thread):
     def validate_transactions_in_block(self, block, logger, remote_peer, remote):
         transactions = sort_list_dict(block["block_transactions"])
 
-        if block["block_number"] > 20000:  # compat
-            if not check_target_match(transactions, block["block_number"], logger=logger):
-                self.logger.error(f"Transactions mismatch target block")
-                raise
+        # target-block matching enforced from block 1 (the >20000 compat gate is gone)
+        if not check_target_match(transactions, block["block_number"], logger=logger):
+            self.logger.error("Transactions mismatch target block")
+            raise ValueError("Transactions mismatch target block")
 
         try:
             validate_all_spending(transaction_pool=transactions)
@@ -644,13 +670,20 @@ class CoreClient(threading.Thread):
             if not valid_block_timestamp(new_block=block):
                 raise ValueError(f"Invalid block timestamp {block['block_timestamp']}")
 
-            # A synced block's reward is attacker-chosen; the only protocol bound is the
-            # get_block_reward cap (5e9). Enforce it here so a peer can't mint coins by
-            # advertising an inflated reward, and so a negative reward can't wedge the
-            # core thread forever in change_balance.
+            # chain-id binds the block to this chain (anti cross-chain / pre-relaunch replay)
+            if block.get("chain_id") != CHAIN_ID:
+                raise ValueError(f"Wrong or missing chain id {block.get('chain_id')!r}")
+
+            # The reward is RECOMPUTED from the block's parent ancestry and enforced for
+            # equality (not merely range-checked): a synced block whose reward != the
+            # deterministic value is rejected, closing the old "claim any reward <= cap" mint.
+            # Cheap range pre-check first (also stops a negative reward wedging change_balance).
             reward = block.get("block_reward")
-            if not isinstance(reward, int) or isinstance(reward, bool) or reward < 0 or reward > MAX_BLOCK_REWARD:
+            if not isinstance(reward, int) or isinstance(reward, bool) or reward < 0 or reward > REWARD_CAP:
                 raise ValueError(f"Invalid block reward {reward!r}")
+            expected_reward = get_block_reward(parent_block=self.memserver.latest_block, logger=self.logger)
+            if reward != expected_reward:
+                raise ValueError(f"Block reward {reward} != deterministic {expected_reward}")
 
             self.validate_block_producer(block)
 

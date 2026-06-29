@@ -15,6 +15,7 @@ from .key_ops import load_keys
 from .log_ops import get_logger
 from .peer_ops import load_peer
 from .sqlite_ops import DbHandler
+from protocol import CHAIN_ID, REWARD_WINDOW, REWARD_CAP
 
 
 def float_to_int(x):
@@ -30,28 +31,31 @@ def get_hash_penalty(address: str, block_hash: str, block_number: int):
     return score
 
 
-def get_block_reward(logger, blocks_backward=100, reward_cap=5000000000):
-    """based on number of transactions"""
-    latest_block_info = get_block_ends_info(logger=logger)["latest_block"]
-    parent = latest_block_info["block_hash"]
-    latest_block_number = latest_block_info["block_number"]
-    block_number = latest_block_number
-    tx_count = 0
-    reward = 0
+def get_block_reward(parent_block, logger):
+    """Fee-weighted elastic block reward, computed as a PURE function of the block's own
+    ancestry (NOT the verifier's tip), so a full node and a snapshot/pruned node agree on it
+    and neither rejects the other's blocks. Every block header carries `cumulative_fees`, the
+    running total of fees burned up to and including that block; the reward for the child of
+    `parent_block` is the average fee per block over the last REWARD_WINDOW blocks:
 
-    while 0 < block_number > (latest_block_number - blocks_backward):
-        block = load_block_from_hash(parent, logger=logger)
-        if not block:
-            break  # ran out of local history (e.g. a snapshot-synced node) -> stop here
-        parent = block["parent_hash"]
-        block_number = block["block_number"]
+        reward = (cumFee[parent] - cumFee[parent_height - REWARD_WINDOW]) // REWARD_WINDOW
 
-        tx_count += len(block["block_transactions"])
+    capped at REWARD_CAP. This is one indexed lookback (get_block_number) instead of the old
+    REWARD_WINDOW-deep block-file walk on every call (audit: tip-anchored walk would fork
+    snapshot nodes and was a hot-path perf regression; the old fee_over_blocks was also buggy)."""
+    end_cumfee = parent_block.get("cumulative_fees", 0)
+    lookback_height = parent_block["block_number"] - REWARD_WINDOW
+    if lookback_height < 0:
+        start_cumfee = 0
+    else:
+        start_block = get_block_number(lookback_height)
+        start_cumfee = start_block.get("cumulative_fees", 0) if start_block else 0
 
-    reward = tx_count * 1000000
-    if reward > reward_cap:
-        reward = reward_cap
-
+    reward = (end_cumfee - start_cumfee) // REWARD_WINDOW
+    if reward < 0:
+        reward = 0
+    if reward > REWARD_CAP:
+        reward = REWARD_CAP
     return reward
 
 
@@ -118,7 +122,8 @@ def get_block_candidate(
         creator=creator,
         transaction_pool=targeted_transactions,
         block_producers_hash=block_producers_hash,
-        block_reward=get_block_reward(logger=logger),
+        block_reward=get_block_reward(parent_block=latest_block, logger=logger),
+        parent_cumulative_fees=latest_block.get("cumulative_fees", 0),
     )
     return block
 
@@ -235,12 +240,13 @@ def save_block(block: dict, logger):
     path = f"{get_home()}/blocks/{block['block_hash']}.block"
     tmp_path = f"{path}.tmp"
 
-    while True:
+    # pack once, write to a temp file, fsync, then atomically rename into place. os.replace
+    # is atomic so a reader never sees a half-written block. Bounded retries: the old
+    # `while True` spun forever on a persistent error (full disk / permissions), silently
+    # wedging the caller; after the cap we raise so the node fails loudly and can restart.
+    last_error = None
+    for _ in range(60):
         try:
-            # pack once, write to a temp file, fsync, then atomically rename into place.
-            # os.replace is atomic, so a reader never sees a half-written block -- this
-            # gives the same crash-safety the old read-back-and-compare aimed for, at
-            # half the serialization + IO (the old path re-read and re-decoded every write).
             packed = msgpack.packb(block)
             with open(tmp_path, "wb") as outfile:
                 outfile.write(packed)
@@ -248,10 +254,11 @@ def save_block(block: dict, logger):
                 os.fsync(outfile.fileno())
             os.replace(tmp_path, path)
             return True
-
         except Exception as e:
+            last_error = e
             logger.warning(f"Failed to save block {block['block_hash']} due to {e}")
-            time.sleep(1)
+            time.sleep(0.5)
+    raise RuntimeError(f"Could not save block {block['block_hash']} after retries: {last_error}")
 
 
 def get_block_ends_info(logger):
@@ -306,61 +313,51 @@ def unindex_block(block, logger):
             time.sleep(1)
 
 
+def _update_block_ends(updates: dict, logger):
+    """Atomically merge `updates` into index/block_ends.dat (temp file + fsync + os.replace).
+
+    Replaces the old write-then-read-back-and-compare `while not old_hash == new_hash` spin:
+    that inner loop never exited if the read-back didn't match (concurrent writer, fs cache,
+    full disk), wedging the single block-processing thread forever. block_ends is written only
+    by the core thread (genesis/snapshot/incorporate/rollback), so an atomic replace is safe
+    and needs no readback. Bounded retries, then raise rather than hang."""
+    path = f"{get_home()}/index/block_ends.dat"
+    tmp = f"{path}.tmp"
+    last_error = None
+    for _ in range(30):
+        try:
+            current = {}
+            if os.path.exists(path):
+                with open(path, "r") as infile:
+                    current = json.load(infile)
+            current.update(updates)
+            with open(tmp, "w") as outfile:
+                json.dump(current, outfile)
+                outfile.flush()
+                os.fsync(outfile.fileno())
+            os.replace(tmp, path)
+            return current
+        except Exception as e:
+            last_error = e
+            logger.info(f"Failed to update block_ends {updates}: {e}")
+            time.sleep(0.5)
+    raise RuntimeError(f"Could not persist block_ends {updates} after retries: {last_error}")
+
+
 def set_earliest_block_info(earliest_block: dict, logger):
-    while True:
-        try:
-            new_hash = earliest_block["block_hash"]
-            old_hash = None
-            ends_file_dict = {"earliest_block": new_hash}
+    _update_block_ends({"earliest_block": earliest_block["block_hash"]}, logger=logger)
+    return earliest_block
 
-            while not old_hash == new_hash:
-                if os.path.exists(f"{get_home()}/index/block_ends.dat"):
-                    with open(f"{get_home()}/index/block_ends.dat", "r") as ends_file:
-                        ends_file_dict = json.load(ends_file)
-                        ends_file_dict["earliest_block"] = new_hash
 
-                with open(f"{get_home()}/index/block_ends.dat", "w") as ends_file:
-                    json.dump(ends_file_dict, ends_file)
-
-                with open(f"{get_home()}/index/block_ends.dat", "r") as infile:
-                    """read data to verify they have been saved properly"""
-                    old_hash = json.load(infile)["earliest_block"]
-
-            return earliest_block
-
-        except Exception as e:
-            logger.info(f"Failed to set earliest block info to {earliest_block['block_hash']}: {e}")
-            time.sleep(1)
 def set_latest_block_info(latest_block: dict, logger):
-    while True:
-        try:
-            new_hash = latest_block["block_hash"]
-            old_hash = None
-            ends_file_dict = {"latest_block": new_hash}
+    _update_block_ends({"latest_block": latest_block["block_hash"]}, logger=logger)
 
-            while not old_hash == new_hash:
-                if os.path.exists(f"{get_home()}/index/block_ends.dat"):
-                    with open(f"{get_home()}/index/block_ends.dat", "r") as ends_file:
-                        ends_file_dict = json.load(ends_file)
-                        ends_file_dict["latest_block"] = new_hash
-                with open(f"{get_home()}/index/block_ends.dat", "w") as ends_file:
-                    json.dump(ends_file_dict, ends_file)
+    blocks_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
+    blocks_handler.db_execute("INSERT OR IGNORE INTO block_index VALUES (?, ?)",
+                              (latest_block['block_hash'], latest_block['block_number']))
+    blocks_handler.close()
 
-                with open(f"{get_home()}/index/block_ends.dat", "r") as infile:
-                    """read data to verify they have been saved properly"""
-                    old_hash = json.load(infile)["latest_block"]
-
-            blocks_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
-            blocks_handler.db_execute("INSERT OR IGNORE INTO block_index VALUES (?, ?)",
-                                      (latest_block['block_hash'], latest_block['block_number']))
-
-            blocks_handler.close()
-
-            return latest_block
-
-        except Exception as e:
-            logger.info(f"Failed to set latest block info to {latest_block['block_hash']}: {e}")
-            time.sleep(1)
+    return latest_block
 
 
 def construct_block(
@@ -372,8 +369,11 @@ def construct_block(
         block_producers_hash: str,
         transaction_pool: list,
         block_reward: int,
+        parent_cumulative_fees: int = 0,
 ):
     """timestamp is approximate so hash matches across the network"""
+
+    block_fees = sum(transaction["fee"] for transaction in transaction_pool)
 
     block_message = {
         "block_number": block_number,
@@ -387,6 +387,10 @@ def construct_block(
         "block_producers_hash": block_producers_hash,
         "child_hash": None,
         "block_reward": block_reward,
+        # running fee total committed in the header so the elastic reward is verifiable from
+        # headers alone (see get_block_reward); chain_id binds the block to this chain.
+        "cumulative_fees": parent_cumulative_fees + block_fees,
+        "chain_id": CHAIN_ID,
     }
     block_hash = blake2b_hash_link(link_from=parent_hash, link_to=block_message)
     block_message.update(block_hash=block_hash)
@@ -418,13 +422,10 @@ async def knows_block(target_peer, port, hash, logger):
 
 def update_child_in_latest_block(child_hash, logger, parent):
     """the only method to save block except for creation to avoid read/write collision"""
-    while True:
-        try:
-            parent["child_hash"] = child_hash
-            save_block(parent, logger=logger)
-            return True
-        except Exception as e:
-            logger.error(f"Failed to update child hash in {parent}: {e}")
+    # save_block is now bounded + atomic and raises on persistent failure; the old
+    # `while True` here had NO sleep, so any persistent error pinned a CPU at 100% forever.
+    parent["child_hash"] = child_hash
+    return save_block(parent, logger=logger)
 
 
 async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="msgpack"):

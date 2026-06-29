@@ -25,13 +25,15 @@ from ops.block_ops import (get_block, get_block_ends_info,
 from ops.sqlite_ops import DbHandler
 from genesis import make_genesis, create_indexers
 from ops.log_ops import get_logger
+from protocol import split_block_reward, TREASURY_ADDRESS
 
 GENESIS_ADDRESS = "ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b"
+# TODO(relaunch): GENESIS_CHILD_HASH is the hash of block 1 under the NEW canonical hashing;
+# regenerate it once the relaunched genesis + block 1 exist (the old value is stale).
 GENESIS_CHILD_HASH = "3abbfe409d446d997fbf65767c97e3f59ecb943d61a000240432e1627187966b"
-GENESIS_BALANCE = 1000000000000000000
+GENESIS_BALANCE = 0           # no personal premine (treasury is seeded inside make_genesis)
 GENESIS_TIMESTAMP = 1669852800
 GENESIS_IP = "78.102.98.72"
-FEE_HEIGHT = 111111  # at/above this height the fee is debited from the sender
 
 
 def accumulate_chain(logger, log_every=50000):
@@ -74,20 +76,24 @@ def accumulate_chain(logger, log_every=50000):
         for tx in sort_list_dict(block["block_transactions"]):
             amount = tx["amount"]
             fee = tx["fee"]
-            amount_sender = amount + fee if height > FEE_HEIGHT else amount
+            amount_sender = amount + fee  # fee always debited (compat gate gone)
             is_burn = tx["recipient"] == "burn"
             adj(tx["sender"], balance=-amount_sender, burned=amount_sender if is_burn else 0)
             adj(tx["recipient"], balance=amount)
             tx_rows.append((tx["txid"], height, tx["sender"], tx["recipient"]))
 
+        # 90/10 split mirrors incorporate_block: producer gets the floor + produced credit,
+        # treasury the exact remainder; totals.produced tracks the FULL emission.
         reward = block["block_reward"]
-        adj(block["block_creator"], balance=reward, produced=reward)
+        producer_cut, treasury_cut = split_block_reward(reward)
+        adj(block["block_creator"], balance=producer_cut, produced=producer_cut)
+        if treasury_cut:
+            adj(TREASURY_ADDRESS, balance=treasury_cut)
         block_rows.append((block["block_hash"], height))
 
-        if reward > 0:
+        if reward:
             totals[0] += reward
-        if height > FEE_HEIGHT:
-            totals[1] += sum(tx["fee"] for tx in block["block_transactions"])
+        totals[1] += sum(tx["fee"] for tx in block["block_transactions"])  # fees counted always
         totals[2] += sum(tx["amount"] for tx in block["block_transactions"] if tx["recipient"] == "burn")
 
         count += 1

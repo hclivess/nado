@@ -20,6 +20,7 @@ from ops.key_ops import load_keys
 from ops.log_ops import get_logger
 from ops.peer_ops import load_ips
 from ops.sqlite_ops import DbHandler
+from protocol import CHAIN_ID, MIN_TX_FEE
 import aiohttp
 
 
@@ -110,16 +111,20 @@ def get_transaction(txid, logger):
 
 
 def create_txid(transaction):
-    return blake2b_hash(json.dumps(transaction))
+    # canonical encoding (sorted keys) commits the whole body — incl. chain_id — so the
+    # signature (over the txid) binds every field and cannot be replayed cross-chain.
+    return blake2b_hash(transaction)
 
 
 def validate_transaction(transaction, logger, block_height):
     assert isinstance(transaction, dict), "Data structure incomplete"
-    assert validate_origin(transaction, block_height=block_height), "Invalid origin"
+    assert transaction.get("chain_id") == CHAIN_ID, "Wrong or missing chain id"
+    assert validate_origin(transaction), "Invalid origin"
     assert validate_address(transaction["sender"]), f"Invalid sender {transaction['sender']}"
     assert validate_address(transaction["recipient"]), f"Invalid recipient {transaction['recipient']}"
     assert isinstance(transaction["fee"], int) and not isinstance(transaction["fee"], bool), "Transaction fee is not an integer"
-    assert transaction["fee"] >= 0, "Transaction fee lower than zero"
+    # deterministic minimum-fee floor (anti-spam), enforced in consensus from block 1
+    assert transaction["fee"] >= MIN_TX_FEE, f"Transaction fee below minimum {MIN_TX_FEE}"
     # amount must be a non-negative integer (not a bool, not a float): a float would
     # satisfy the old check_balance comparison and corrupt the integer-satoshi ledger
     assert isinstance(transaction["amount"], int) and not isinstance(transaction["amount"], bool), "Transaction amount is not an integer"
@@ -211,59 +216,56 @@ def get_senders(transaction_pool: list) -> list:
     return sender_pool
 
 
+def _spend_costs(tx):
+    """(spendable-balance cost, bonded-stake cost) of a tx for overspend checks.
+    An `unbond` draws its `amount` from bonded stake (only the fee leaves balance); every
+    other tx — including `bond` and `burn` — consumes amount+fee from spendable balance."""
+    if tx["recipient"] == "unbond":
+        return tx["fee"], tx["amount"]
+    return tx["amount"] + tx["fee"], 0
+
+
 def validate_single_spending(transaction_pool: list, transaction):
     """validate spending of a single spender against his transactions in a transaction pool"""
-    transaction_pool.append(transaction)  # future state
-
+    pool = transaction_pool + [transaction]  # future state (no mutation of the caller's list)
     sender = transaction["sender"]
+    acc = get_account(sender)
+    balance, bonded = acc["balance"], acc["bonded"]
 
-    standing_balance = get_account(sender)["balance"]
-    amount_sum = 0
-    fee_sum = 0
-
-    for pool_tx in transaction_pool:
+    balance_spent = 0
+    bonded_spent = 0
+    for pool_tx in pool:
         if pool_tx["sender"] == sender:
-            check_balance(
-                account=sender,
-                amount=pool_tx["amount"],
-                fee=pool_tx["fee"],
-            )
-
-            amount_sum += pool_tx["amount"]
-            fee_sum += pool_tx["fee"]
-
-            spending = amount_sum + fee_sum
-            assert spending <= standing_balance, "Overspending attempt"
+            b_cost, bond_cost = _spend_costs(pool_tx)
+            balance_spent += b_cost
+            bonded_spent += bond_cost
+            assert balance_spent <= balance, "Overspending balance"
+            assert bonded_spent <= bonded, "Overspending bonded stake"
     return True
 
 
 def validate_all_spending(transaction_pool: list):
-    """validate spending of all spenders in a transaction pool against their transactions"""
-    sender_pool = get_senders(transaction_pool)
+    """validate spending of all spenders in a transaction pool against their balance AND
+    their bonded stake (unbond draws from bonded, not from spendable balance)."""
+    for sender in get_senders(transaction_pool):
+        acc = get_account(sender)
+        balance, bonded = acc["balance"], acc["bonded"]
 
-    for sender in sender_pool:
-        standing_balance = get_account(sender)["balance"]
-        amount_sum = 0
-        fee_sum = 0
-
+        balance_spent = 0
+        bonded_spent = 0
         for pool_tx in transaction_pool:
             if pool_tx["sender"] == sender:
-                check_balance(
-                    account=sender,
-                    amount=pool_tx["amount"],
-                    fee=pool_tx["fee"],
-                )
-
-                amount_sum += pool_tx["amount"]
-                fee_sum += pool_tx["fee"]
-
-                spending = amount_sum + fee_sum
-                assert spending <= standing_balance, "Overspending attempt"
+                b_cost, bond_cost = _spend_costs(pool_tx)
+                balance_spent += b_cost
+                bonded_spent += bond_cost
+                assert balance_spent <= balance, "Overspending balance"
+                assert bonded_spent <= bonded, "Overspending bonded stake"
     return True
 
 
-def validate_origin(transaction: dict, block_height):
-    """save signature and then remove it as it is not a part of the signed message"""
+def validate_origin(transaction: dict):
+    """signature is verified over the txid (which canonically commits the whole body,
+    including chain_id); it is not itself part of the signed message."""
 
     transaction = transaction.copy()
     signature = transaction["signature"]
@@ -274,18 +276,11 @@ def validate_origin(transaction: dict, block_height):
         public_key=transaction["public_key"]
     ), "Invalid sender"
 
-    if block_height < 102000:
-        assert verify(
-            signed=signature,
-            message=msgpack.packb(transaction),
-            public_key=transaction["public_key"],
-        ), "Invalid sender"
-    else:
-        assert verify(
-            signed=signature,
-            message=unhex(transaction["txid"]),
-            public_key=transaction["public_key"],
-        ), "Invalid sender"
+    assert verify(
+        signed=signature,
+        message=unhex(transaction["txid"]),
+        public_key=transaction["public_key"],
+    ), "Invalid signature"
 
     return True
 
@@ -363,7 +358,8 @@ def draft_transaction(sender, recipient, amount, public_key, timestamp, data, ta
         "data": data,
         "nonce": create_nonce(),
         "public_key": public_key,
-        "target_block": target_block
+        "target_block": target_block,
+        "chain_id": CHAIN_ID,
     }
 
     return transaction_message

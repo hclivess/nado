@@ -8,11 +8,14 @@ from ops.data_ops import get_home, make_folder
 from ops.log_ops import get_logger
 from ops.peer_ops import save_peer, get_public_ip
 from ops.sqlite_ops import DbHandler
+from protocol import CHAIN_ID, TREASURY_ADDRESS, TREASURY_GENESIS
 
 
 def create_indexers():
     acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-    acc_handler.db_execute(query="CREATE TABLE IF NOT EXISTS acc_index(address TEXT, balance INTEGER, produced INTEGER, burned INTEGER)")
+    # `bonded` = refundable stake locked for mining eligibility (S4); it is NOT spendable
+    # balance and is tracked separately so split-neutral selection can weight by it.
+    acc_handler.db_execute(query="CREATE TABLE IF NOT EXISTS acc_index(address TEXT, balance INTEGER, produced INTEGER, burned INTEGER, bonded INTEGER DEFAULT 0)")
     # UNIQUE so a concurrent get_account(create_on_error=True) race can't insert two rows
     acc_handler.db_execute(query="CREATE UNIQUE INDEX IF NOT EXISTS seek_index ON acc_index(address)")
 
@@ -62,8 +65,17 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
         "block_hash": block_hash,
         "block_timestamp": timestamp,
         "block_transactions": block_transactions,
+        "block_reward": 0,
+        "cumulative_fees": 0,        # running total of fees burned up to and incl. this block
+        "chain_id": CHAIN_ID,
     }
 
+    # No personal premine: the founder address gets `balance` (0 at relaunch). The genesis
+    # allocation is minted to the keyless protocol "treasury" address, which seeds the
+    # onboarding faucet and accrues 10% of every block reward ("replace the premine WITH the
+    # treasury"). Treasury is created first; if the founder address IS the treasury label it
+    # would just be overwritten by INSERT OR IGNORE, but they are distinct by design.
+    create_account(address=TREASURY_ADDRESS, balance=TREASURY_GENESIS)
     create_account(address=address, balance=balance)
 
     save_peer(ip=ip,
@@ -89,7 +101,7 @@ if __name__ == "__main__":
     make_folders()
     make_genesis(
         address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b",
-        balance=1000000000000000000,
+        balance=0,  # no personal premine; the genesis allocation goes to the treasury
         ip="78.102.98.72",
         port=9173,
         timestamp=1669852800,

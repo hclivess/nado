@@ -1,4 +1,5 @@
 from hashing import blake2b_hash
+from protocol import RESERVED_RECIPIENTS
 
 
 def proof_sender(public_key, sender):
@@ -8,13 +9,15 @@ def proof_sender(public_key, sender):
         return False
 
 
-def validate_address(address: str, checksum_size: str = 2):
-    if address[-4:] == make_checksum(address[: -checksum_size * 2]):
+def validate_address(address: str, checksum_size: int = 2):
+    # keyless protocol addresses ("burn"/"treasury"/"bond"/"unbond") are always valid
+    if address in RESERVED_RECIPIENTS:
         return True
-    elif address == "burn":
+    if (isinstance(address, str)
+            and len(address) > checksum_size * 2
+            and address[-4:] == make_checksum(address[: -checksum_size * 2])):
         return True
-    else:
-        return False
+    return False
 
 
 def make_checksum(public_key: str, checksum_size: int = 2) -> str:

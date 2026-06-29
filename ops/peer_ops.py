@@ -17,6 +17,17 @@ from .key_ops import load_keys
 
 import aiohttp
 
+def _atomic_write_json(path, obj):
+    """write JSON via temp file + fsync + os.replace so a crash mid-write can never leave a
+    half-written (corrupt) peer file that load_peer would then silently fail to parse."""
+    tmp = f"{path}.tmp"
+    with open(tmp, "w") as outfile:
+        json.dump(obj, outfile)
+        outfile.flush()
+        os.fsync(outfile.fileno())
+    os.replace(tmp, path)
+
+
 def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
     if not all(key in requirements for key in dictionary):
         return False
@@ -78,8 +89,7 @@ def save_peer(ip, port, address, peer_trust=50, overwrite=False):
             "peer_trust": peer_trust,
         }
 
-        with open(peer_path, "w") as outfile:
-            json.dump(peers_message, outfile)
+        _atomic_write_json(peer_path, peers_message)
 
 
 def ip_stored(ip) -> bool:
@@ -197,8 +207,7 @@ def update_peer(ip, value, logger, key="peer_trust") -> None:
                 peer.update(addition)
                 peer["last_seen"] = get_timestamp_seconds()
 
-            with open(peer_file, "w") as outfile:
-                json.dump(peer, outfile)
+            _atomic_write_json(peer_file, peer)
         except Exception as e:
             logger.info(f"Failed to update peer file of {ip}: {e}")
 

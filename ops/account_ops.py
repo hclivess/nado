@@ -14,7 +14,9 @@ def get_account(address, create_on_error=True):
         account = {"address": fetched[0][0],
                    "balance": fetched[0][1],
                    "produced": fetched[0][2],
-                   "burned": fetched[0][3]}
+                   "burned": fetched[0][3],
+                   # bonded column may be absent on a legacy row read mid-migration; default 0
+                   "bonded": fetched[0][4] if len(fetched[0]) > 4 else 0}
         return account
     elif create_on_error:
         return create_account(address)
@@ -22,64 +24,57 @@ def get_account(address, create_on_error=True):
         return None
 
 
-def reflect_transaction(transaction, logger, block_height, revert=False):
+def reflect_transaction(transaction, logger, block_height=None, revert=False):
+    # Fee is ALWAYS debited from the sender (the >111111 compat gate is gone — fresh chain).
+    # The fee is destroyed (credited to no one); it is counted into totals.fees and subtracted
+    # from supply, and it drives the elastic block reward via the header cumulative_fees counter.
+    sender = transaction["sender"]
+    recipient = transaction["recipient"]
+    amount = transaction["amount"]
+    fee = transaction["fee"]
 
-    if block_height > 111111:
-        sender = transaction["sender"]
-        recipient = transaction["recipient"]
+    # --- mining stake transactions (S4): move coins between spendable balance and `bonded` ---
+    if recipient == "bond":
+        # lock `amount` of spendable balance into bonded stake; fee is burned (destroyed)
+        change_balance(address=sender, amount=-(amount + fee), logger=logger, revert=revert)
+        change_bonded(address=sender, amount=amount, logger=logger, revert=revert)
+        return
+    if recipient == "unbond":
+        # release `amount` of stake back to spendable balance; fee is burned
+        change_bonded(address=sender, amount=-amount, logger=logger, revert=revert)
+        change_balance(address=sender, amount=amount - fee, logger=logger, revert=revert)
+        return
 
-        amount_sender = transaction["amount"]+transaction["fee"]
-        amount_recipient = transaction["amount"]
-
-    else:
-        sender = transaction["sender"]
-        recipient = transaction["recipient"]
-
-        amount_sender = transaction["amount"]
-        amount_recipient = transaction["amount"]
-
-    is_burn = False
-    if recipient == "burn":
-        is_burn = True
-
+    # --- ordinary transfer / burn ---
+    amount_sender = amount + fee
+    is_burn = recipient == "burn"
     change_balance(address=sender, amount=-amount_sender, is_burn=is_burn, logger=logger, revert=revert)
-    change_balance(address=recipient, amount=amount_recipient, is_burn=False, logger=logger, revert=revert)
+    change_balance(address=recipient, amount=amount, is_burn=False, logger=logger, revert=revert)
 
 
 def change_balance(address: str, amount: int, logger, is_burn=False, revert=False):
-    # Compute the signed delta ONCE. The old code did `if revert: amount = -amount`
-    # inside the retry loop, so every retry flipped the sign again -- a revert that
-    # should fail (insufficient balance) would, on its second iteration, ADD the
-    # amount and silently create funds. Keep it outside the loop.
+    # Compute the signed deltas ONCE (the old code re-flipped the sign inside a retry loop,
+    # which could silently mint on a retried revert). Apply as a SINGLE guarded in-place
+    # UPDATE instead of SELECT-then-UPDATE across two connections: this removes the read leg
+    # (the ~296x balance-write amplification), removes the read-modify-write race, and the
+    # WHERE-clause floors enforce the non-negative invariant atomically. rowcount != 1 means
+    # the floor blocked the write -> fail closed (raise), exactly as before, but without a
+    # loop that could wedge the single block-processing thread.
     delta = -amount if revert else amount
-    while True:
-        try:
-            acc = get_account(address)
-            new_balance = acc["balance"] + delta
-            assert (new_balance >= 0), f"Cannot change balance into negative: {new_balance}"
-
-            if is_burn:
-                new_burned = acc["burned"] - delta
-                assert (new_burned >= 0), f"Cannot change burn into negative: {new_burned}"
-            else:
-                new_burned = acc["burned"]
-
-            acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-            acc_handler.db_execute("UPDATE acc_index SET balance = ?, burned = ? WHERE address = ?", (new_balance,
-                                                                                                      new_burned,
-                                                                                                      address,))
-            acc_handler.close()
-            return True
-
-        except AssertionError:
-            # A negative result is a real ledger inconsistency, not a transient fault:
-            # fail closed (raise) instead of spinning forever on a computation that can
-            # never succeed (which would otherwise hang the single block-processing thread).
-            logger.error(f"Refusing to drive {address} balance negative (is_burn={is_burn}, revert={revert})")
-            raise
-        except Exception as e:
-            logger.error(f"Failed setting balance for {address}: {e}, is_burn: {is_burn}, revert: {revert}")
-            time.sleep(1)
+    burn_delta = -delta if is_burn else 0
+    acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
+    acc_handler.db_execute(
+        "INSERT OR IGNORE INTO acc_index (address, balance, produced, burned) VALUES (?,0,0,0)", (address,))
+    rows = acc_handler.db_change(
+        "UPDATE acc_index SET balance = balance + ?, burned = burned + ? "
+        "WHERE address = ? AND balance + ? >= 0 AND burned + ? >= 0",
+        (delta, burn_delta, address, delta, burn_delta))
+    acc_handler.close()
+    if rows != 1:
+        logger.error(f"Refusing to drive {address} balance/burn negative "
+                     f"(amount={amount}, is_burn={is_burn}, revert={revert})")
+        raise AssertionError(f"Balance/burn underflow for {address}")
+    return True
 
 
 def get_totals(block, revert=False):
@@ -111,7 +106,7 @@ def index_totals(produced, fees, burned, block_height):
     # (every reorg permanently inflated the reported supply).
     if produced:
         acc_handler.db_execute("UPDATE totals_index SET produced = produced + ?", (produced,))
-    if fees and block_height > 111111:
+    if fees:  # fees counted from block 1 (the >111111 compat gate is gone — fresh chain)
         acc_handler.db_execute("UPDATE totals_index SET fees = fees + ?", (fees,))
     if burned:
         acc_handler.db_execute("UPDATE totals_index SET burned = burned + ?", (burned,))
@@ -130,43 +125,59 @@ def fetch_totals():
     return result
 
 def increase_produced_count(address, amount, logger, revert=False):
-    while True:
-        try:
-            account = get_account(address)
-            produced = account["produced"]
-            if revert:
-                produced_updated = produced - amount
-                account.update(produced=produced_updated)
-            else:
-                produced_updated = produced + amount
-                account.update(produced=produced_updated)
-
-            acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-            acc_handler.db_execute("UPDATE acc_index SET produced = ? WHERE address = ?", (produced_updated, address,))
-            acc_handler.close()
-
-            return produced_updated
-
-        except Exception as e:
-            logger.error(f"Failed to update produced count for {address}: {e}")
-            time.sleep(1)  # was missing -> this loop spun a CPU at 100% on any error
-
-
-def create_account(address, balance=0, burned=0, produced=0):
+    # single guarded in-place UPDATE (no SELECT-then-UPDATE, no retry spin). The floor keeps
+    # the produced counter non-negative so a mismatched rollback fails closed rather than
+    # silently going negative and skewing the penalty metric.
+    delta = -amount if revert else amount
     acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-    # name columns explicitly: the schema is (address, balance, produced, burned);
+    acc_handler.db_execute(
+        "INSERT OR IGNORE INTO acc_index (address, balance, produced, burned) VALUES (?,0,0,0)", (address,))
+    rows = acc_handler.db_change(
+        "UPDATE acc_index SET produced = produced + ? WHERE address = ? AND produced + ? >= 0",
+        (delta, address, delta))
+    acc_handler.close()
+    if rows != 1:
+        logger.error(f"Refusing to drive produced count negative for {address} "
+                     f"(amount={amount}, revert={revert})")
+        raise AssertionError(f"Produced-count underflow for {address}")
+    return True
+
+
+def create_account(address, balance=0, burned=0, produced=0, bonded=0):
+    acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
+    # name columns explicitly: the schema is (address, balance, produced, burned, bonded);
     # the positional insert previously swapped burned/produced
-    acc_handler.db_execute("INSERT OR IGNORE INTO acc_index (address, balance, produced, burned) VALUES (?,?,?,?)",
-                           (address, balance, produced, burned,))
+    acc_handler.db_execute(
+        "INSERT OR IGNORE INTO acc_index (address, balance, produced, burned, bonded) VALUES (?,?,?,?,?)",
+        (address, balance, produced, burned, bonded,))
     acc_handler.close()
 
     account = {"address": address,
                "balance": balance,
                "produced": produced,
                "burned": burned,
+               "bonded": bonded,
                }
 
     return account
+
+
+def change_bonded(address: str, amount: int, logger, revert=False):
+    """Move stake into (amount>0) or out of (amount<0) the `bonded` column via a single
+    guarded UPDATE, mirroring change_balance. The WHERE floor keeps bonded non-negative so a
+    bad unbond fails closed instead of going negative. Bonded is NOT spendable balance."""
+    delta = -amount if revert else amount
+    acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
+    acc_handler.db_execute(
+        "INSERT OR IGNORE INTO acc_index (address, balance, produced, burned, bonded) VALUES (?,0,0,0,0)", (address,))
+    rows = acc_handler.db_change(
+        "UPDATE acc_index SET bonded = bonded + ? WHERE address = ? AND bonded + ? >= 0",
+        (delta, address, delta))
+    acc_handler.close()
+    if rows != 1:
+        logger.error(f"Refusing to drive bonded negative for {address} (amount={amount}, revert={revert})")
+        raise AssertionError(f"Bonded underflow for {address}")
+    return True
 
 
 def get_account_value(address, key):

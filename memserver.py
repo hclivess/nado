@@ -159,15 +159,13 @@ class MemServer:
                    "message": f"Target block too high"}
             return msg
 
-        elif not validate_txid(transaction, logger=self.logger) and self.latest_block["block_number"] > 100000: #compat
+        elif not validate_txid(transaction, logger=self.logger):  # always enforced (compat gate gone)
             msg = {"result": False,
                    "message": f"Invalid txid"}
             return msg
-
-        elif not validate_base_fee(transaction, logger=self.logger) and self.latest_block["block_number"] > 102000: #compat
-            msg = {"result": False,
-                   "message": f"Base fee is too low"}
-            return msg
+        # NOTE: the old byte-size validate_base_fee gate is removed: get_byte_size is
+        # sys.getsizeof(repr(...)) and is non-deterministic, so it is unsafe as a fee rule.
+        # The deterministic MIN_TX_FEE floor is enforced in validate_transaction below.
 
         elif transaction not in united_pools:
             try:

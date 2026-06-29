@@ -25,6 +25,7 @@ from ops.log_ops import get_logger, logging
 from ops.peer_ops import save_peer, get_remote_status, get_producer_set, check_ip
 from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
 from ops import snapshot_ops
+from protocol import TREASURY_ADDRESS, TREASURY_GENESIS
 
 from pympler import summary, muppy
 
@@ -642,22 +643,19 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
 class GetSupplyHandler(tornado.web.RequestHandler):
     def get_supply(self):
         readable = GetSupplyHandler.get_argument(self, "readable", default="none")
-        data = fetch_totals()
-        genesis_acc = get_account(address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b")
+        data = fetch_totals()  # produced (block rewards minted), fees + burned (destroyed)
+        treasury_acc = get_account(address=TREASURY_ADDRESS)
         data.update({"block_number": memserver.latest_block["block_number"]})
-        data.update({"reserve": genesis_acc["balance"]})
-        data.update({"reserve_spent": 1000000000000000000 - genesis_acc["balance"]})
-        data.update({"circulating": data["reserve_spent"] + data["produced"] - data["burned"] - data["fees"]})
-        data.update({"total_supply": 1000000000000000000 + data["produced"] - data["burned"] - data["fees"]})
+        # No premine: the only genesis mint is the protocol treasury seed (TREASURY_GENESIS).
+        # total = genesis seed + all block rewards minted - everything destroyed (burns + fees).
+        data.update({"treasury": treasury_acc["balance"]})
+        data.update({"total_supply": TREASURY_GENESIS + data["produced"] - data["burned"] - data["fees"]})
+        # treasury holdings are protocol-controlled (faucet), counted as non-circulating until spent
+        data.update({"circulating": data["total_supply"] - data["treasury"]})
 
         if readable == "true":
-            data.update({"produced": to_readable_amount(data["produced"])})
-            data.update({"fees": to_readable_amount(data["fees"])})
-            data.update({"burned": to_readable_amount(data["burned"])})
-            data.update({"reserve": to_readable_amount(data["reserve"])})
-            data.update({"reserve_spent": to_readable_amount(data["reserve_spent"])})
-            data.update({"circulating": to_readable_amount(data["circulating"])})
-            data.update({"total_supply": to_readable_amount(data["total_supply"])})
+            for key in ("produced", "fees", "burned", "treasury", "circulating", "total_supply"):
+                data[key] = to_readable_amount(data[key])
 
         self.write(data)
     async def get(self, parameter):
