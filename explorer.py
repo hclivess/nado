@@ -26,7 +26,8 @@ class BaseHandler(tornado.web.RequestHandler):
 
     async def fetch_json(self, url):
         client = AsyncHTTPClient()
-        response = await client.fetch(url)
+        # fail fast instead of hanging the page when the node is slow/down
+        response = await client.fetch(url, connect_timeout=5, request_timeout=15)
         return json.loads(response.body)
 
 
@@ -44,7 +45,7 @@ class HomeHandler(BaseHandler):
     async def get_data(self):
         data = await self.fetch_json(f"{nado_node}/get_latest_block")
         readable_ts = {"block_timestamp": datetime.fromtimestamp(data["block_timestamp"])}
-        readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
+        readable_reward = {"block_reward": to_readable_amount(data["block_reward"])}
         data.update(readable_ts)
         data.update(readable_reward)
 
@@ -69,7 +70,7 @@ class BlockNumberHandler(BaseHandler):
             return
 
         readable_ts = {"block_timestamp": datetime.fromtimestamp(data["block_timestamp"])}
-        readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
+        readable_reward = {"block_reward": to_readable_amount(data["block_reward"])}
         data.update(readable_ts)
         data.update(readable_reward)
 
@@ -101,7 +102,7 @@ class BlockHashHandler(BaseHandler):
             return
 
         readable_ts = {"block_timestamp": datetime.fromtimestamp(data["block_timestamp"])}
-        readable_reward = {"block_reward": to_readable_amount(data["block_timestamp"])}
+        readable_reward = {"block_reward": to_readable_amount(data["block_reward"])}
         data.update(readable_ts)
         data.update(readable_reward)
 
@@ -184,8 +185,8 @@ class TxsOfAccountHandler(BaseHandler):
 
 class AutomaticHandler(BaseHandler):
     def get(self, parameters):
-        entry = self.get_argument("entry")
-        if len(entry) == 49:
+        entry = self.get_argument("entry").strip()
+        if entry.startswith("ndo") or len(entry) == 49:
             self.redirect(f"/get_account?entry={entry}")
         elif entry.isnumeric():
             self.redirect(f"/get_block_number?entry={entry}")
@@ -231,7 +232,7 @@ class SupplyHandler(BaseHandler):
                     node=nado_node)
 
     async def get_data(self):
-        return await self.fetch_json(f"{nado_node}/get_supply?&readable=true")
+        return await self.fetch_json(f"{nado_node}/get_supply?readable=true")
 
 
 async def make_app(port):

@@ -9,7 +9,7 @@ from tornado.httpclient import AsyncHTTPClient
 import aiohttp
 from .account_ops import get_account_value
 from config import get_timestamp_seconds, get_config
-from .data_ops import set_and_sort, average, get_home
+from .data_ops import set_and_sort, average, get_home, is_hex_hash
 from hashing import blake2b_hash_link
 from .key_ops import load_keys
 from .log_ops import get_logger
@@ -149,7 +149,12 @@ def get_transaction_pool_demo():
 
 
 def get_block(block):
-    """return transaction based on txid"""
+    """return a block by its hash"""
+    # SECURITY: `block` reaches here from the unauthenticated /get_block?hash= arg;
+    # validate it is a real block hash so it can't traverse to arbitrary *.block paths
+    # (also collapses the missing-vs-malformed responses into one 'not found').
+    if not is_hex_hash(block):
+        return False
     block_path = f"{get_home()}/blocks/{block}.block"
     if os.path.exists(block_path):
         with open(block_path, "rb") as file:
@@ -180,6 +185,10 @@ def get_block_producers_hash_demo():
 
 
 def load_block_from_hash(block_hash: str, logger):
+    # SECURITY: reachable from the unauthenticated /get_blocks_after / /get_blocks_before
+    # hash arg; validate so it can't read arbitrary *.block paths off disk.
+    if not is_hex_hash(block_hash):
+        return False
     try:
         with open(f"{get_home()}/blocks/{block_hash}.block", "rb") as infile:
             return msgpack.unpack(infile)
@@ -205,21 +214,26 @@ def save_block_producers(block_producers: list):
 
 
 def save_block(block: dict, logger):
+    # SECURITY: a synced block's hash is peer-supplied; refuse to write outside blocks/
+    if not is_hex_hash(block.get("block_hash")):
+        logger.warning(f"Refusing to save block with invalid hash {block.get('block_hash')!r}")
+        return False
     path = f"{get_home()}/blocks/{block['block_hash']}.block"
+    tmp_path = f"{path}.tmp"
 
     while True:
         try:
-            with open(path, "wb") as outfile:
-                msgpack.pack(block, outfile)
-
-            with open(path, "rb") as infile:
-                """validate"""
-                read_block = msgpack.load(infile)
-
-            if read_block == block:
-                return True
-            else:
-                logger.warning("Block incoherence encountered")
+            # pack once, write to a temp file, fsync, then atomically rename into place.
+            # os.replace is atomic, so a reader never sees a half-written block -- this
+            # gives the same crash-safety the old read-back-and-compare aimed for, at
+            # half the serialization + IO (the old path re-read and re-decoded every write).
+            packed = msgpack.packb(block)
+            with open(tmp_path, "wb") as outfile:
+                outfile.write(packed)
+                outfile.flush()
+                os.fsync(outfile.fileno())
+            os.replace(tmp_path, path)
+            return True
 
         except Exception as e:
             logger.warning(f"Failed to save block {block['block_hash']} due to {e}")

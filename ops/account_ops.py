@@ -47,17 +47,19 @@ def reflect_transaction(transaction, logger, block_height, revert=False):
 
 
 def change_balance(address: str, amount: int, logger, is_burn=False, revert=False):
+    # Compute the signed delta ONCE. The old code did `if revert: amount = -amount`
+    # inside the retry loop, so every retry flipped the sign again -- a revert that
+    # should fail (insufficient balance) would, on its second iteration, ADD the
+    # amount and silently create funds. Keep it outside the loop.
+    delta = -amount if revert else amount
     while True:
         try:
-            if revert:
-                amount = -amount
-
             acc = get_account(address)
-            new_balance = acc["balance"] + amount
+            new_balance = acc["balance"] + delta
             assert (new_balance >= 0), f"Cannot change balance into negative: {new_balance}"
 
             if is_burn:
-                new_burned = acc["burned"] - amount
+                new_burned = acc["burned"] - delta
                 assert (new_burned >= 0), f"Cannot change burn into negative: {new_burned}"
             else:
                 new_burned = acc["burned"]
@@ -69,6 +71,12 @@ def change_balance(address: str, amount: int, logger, is_burn=False, revert=Fals
             acc_handler.close()
             return True
 
+        except AssertionError:
+            # A negative result is a real ledger inconsistency, not a transient fault:
+            # fail closed (raise) instead of spinning forever on a computation that can
+            # never succeed (which would otherwise hang the single block-processing thread).
+            logger.error(f"Refusing to drive {address} balance negative (is_burn={is_burn}, revert={revert})")
+            raise
         except Exception as e:
             logger.error(f"Failed setting balance for {address}: {e}, is_burn: {is_burn}, revert: {revert}")
             time.sleep(1)
@@ -142,7 +150,10 @@ def increase_produced_count(address, amount, logger, revert=False):
 
 def create_account(address, balance=0, burned=0, produced=0):
     acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-    acc_handler.db_execute("INSERT INTO acc_index VALUES (?,?,?,?)", (address, balance, burned, produced,))
+    # name columns explicitly: the schema is (address, balance, produced, burned);
+    # the positional insert previously swapped burned/produced
+    acc_handler.db_execute("INSERT INTO acc_index (address, balance, produced, burned) VALUES (?,?,?,?)",
+                           (address, balance, produced, burned,))
     acc_handler.close()
 
     account = {"address": address,

@@ -24,6 +24,7 @@ from ops.key_ops import keyfile_found, generate_keys, save_keys, load_keys
 from ops.log_ops import get_logger, logging
 from ops.peer_ops import save_peer, get_remote_status, get_producer_set, check_ip
 from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
+from ops import snapshot_ops
 
 from pympler import summary, muppy
 
@@ -45,6 +46,38 @@ def serialize(output, name=None, compress=None):
     elif not isinstance(output, dict) and name:
         output = {name: output}
     return output
+
+
+# --- bulk snapshot sync: lazily build + cache the current checkpoint snapshot ---
+_snapshot_cache = {}  # {height: (manifest, [chunk_bytes, ...])}
+
+
+def get_current_snapshot(build=True):
+    """(manifest, chunks) for the node's current checkpoint, built+cached at most once
+    per checkpoint height. Returns (None, None) when the chain is too short to snapshot.
+    /status passes build=False so advertising never triggers a heavy build."""
+    try:
+        tip = memserver.latest_block["block_number"]
+    except Exception:
+        return None, None
+    height = snapshot_ops.choose_checkpoint_height(tip)
+    if height is None:
+        return None, None
+    if height in _snapshot_cache:
+        return _snapshot_cache[height]
+    if not build:
+        return None, None
+    block_hash = snapshot_ops.block_hash_at_height(height)
+    if not block_hash:
+        return None, None
+    manifest, chunks = snapshot_ops.build_snapshot(
+        snapshot_height=height,
+        block_hash=block_hash,
+        protocol=memserver.protocol,
+        version=memserver.version)
+    _snapshot_cache.clear()  # keep only the newest checkpoint
+    _snapshot_cache[height] = (manifest, chunks)
+    return manifest, chunks
 
 
 class HomeHandler(tornado.web.RequestHandler):
@@ -70,6 +103,11 @@ class StatusHandler(tornado.web.RequestHandler):
                 "protocol": memserver.protocol,
                 "version": memserver.version,
             }
+
+            # advertise the snapshot a joining/behind peer could bulk-download from us
+            snap_manifest, _ = get_current_snapshot(build=False)
+            status_dict["snapshot_height"] = snap_manifest["snapshot_height"] if snap_manifest else None
+            status_dict["snapshot_hash"] = snap_manifest["snapshot_hash"] if snap_manifest else None
 
             self.write(serialize(name="status",
                                  output=status_dict,
@@ -725,10 +763,52 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
         await asyncio.to_thread(self.announce)
 
 
+class SnapshotManifestHandler(tornado.web.RequestHandler):
+    """serve the manifest (state_root, totals, chunk list) for our current checkpoint"""
+    def manifest(self):
+        compress = SnapshotManifestHandler.get_argument(self, "compress", default="msgpack")
+        snap_manifest, _ = get_current_snapshot(build=True)
+        if not snap_manifest:
+            self.set_status(404)
+            self.write("No snapshot available (chain too short)")
+            return
+        if compress == "msgpack":
+            self.set_header("Content-Type", "application/msgpack")
+            self.write(msgpack.packb(snap_manifest))
+        else:
+            self.write(snap_manifest)
+
+    async def get(self, parameter):
+        await asyncio.to_thread(self.manifest)
+
+
+class SnapshotChunkHandler(tornado.web.RequestHandler):
+    """serve one deterministic account-state chunk by id; chunks are parallel-fetchable"""
+    def chunk(self):
+        try:
+            cid = int(SnapshotChunkHandler.get_argument(self, "id"))
+        except Exception:
+            self.set_status(400)
+            self.write("Invalid chunk id")
+            return
+        _, chunks = get_current_snapshot(build=True)
+        if not chunks or cid < 0 or cid >= len(chunks):
+            self.set_status(404)
+            self.write("No such snapshot chunk")
+            return
+        self.set_header("Content-Type", "application/msgpack")
+        self.write(chunks[cid])
+
+    async def get(self, parameter):
+        await asyncio.to_thread(self.chunk)
+
+
 async def make_app(port):
     application = tornado.web.Application(
         [
             (r"/", HomeHandler),
+            (r"/get_snapshot_manifest(.*)", SnapshotManifestHandler),
+            (r"/get_snapshot_chunk(.*)", SnapshotChunkHandler),
             (r"/get_transactions_of_account(.*)", AccountTransactionsHandler),
             (r"/get_transaction(.*)", TransactionHandler),
             (r"/get_blocks_after(.*)", GetBlocksAfterHandler),

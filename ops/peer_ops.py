@@ -11,7 +11,7 @@ from tornado.httpclient import AsyncHTTPClient
 from compounder import compound_get_list_of, compound_announce_self
 from compounder import compound_get_status_pool
 from config import get_port, get_config, get_timestamp_seconds, update_config
-from .data_ops import set_and_sort, get_home
+from .data_ops import set_and_sort, get_home, is_hex_hash
 from hashing import base64encode, blake2b_hash
 from .key_ops import load_keys
 
@@ -216,6 +216,10 @@ def store_producer_set(producer_set):
 
 
 def get_producer_set(producer_set_hash):
+    # SECURITY: this value comes straight from an unauthenticated query arg; without
+    # this guard `?hash=../../private/keys` would read and return the node private key.
+    if not is_hex_hash(producer_set_hash):
+        return None
     path = f"{get_home()}/index/producer_sets/{producer_set_hash}.dat"
     if os.path.exists(path):
         with open(path) as infile:

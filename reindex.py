@@ -26,7 +26,6 @@ def delete(to_wipeout):
 delete(to_wipeout)
 make_folder(f"{get_home()}/index")
 make_folder(f"{get_home()}/index/producer_sets")
-make_folder(f"{get_home()}/index/transactions")
 create_indexers()
 
 logger = get_logger(file="reindex.log", logger_name="reindex_logger")

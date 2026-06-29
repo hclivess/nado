@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from glob import glob
 from os import remove
@@ -14,14 +15,16 @@ block_ends = get_block_ends_info(logger=logger)
 block_number_to_keep = block_ends["latest_block"]["block_number"]
 block_hash_to_keep = block_ends["latest_block"]["block_hash"]
 
-for range_file in glob(f"{get_home()}/index/transactions/*db"):
-    transactions_db = sqlite3.connect(range_file)
+tx_db = f"{get_home()}/index/transactions.db"
+if os.path.exists(tx_db):
+    transactions_db = sqlite3.connect(tx_db)
     transactions_c = transactions_db.cursor()
-    logger.info(f"Pruning transaction index of {range_file}")
+    logger.info(f"Pruning transaction index {tx_db}")
     transactions_c.execute("DELETE FROM tx_index WHERE block_number != ?", (block_number_to_keep,))
     transactions_db.commit()
     transactions_c.execute("VACUUM")
     transactions_db.commit()
+    transactions_db.close()
 
 logger.info("Pruning block index")
 blocks_db = sqlite3.connect(f"{get_home()}/index/blocks.db")

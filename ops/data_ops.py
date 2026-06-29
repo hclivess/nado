@@ -11,9 +11,16 @@ def get_home():
 
 
 def check_traversal(to_check):
-    allowed = "^\w+$"
+    allowed = r"^\w+$"
     if not re.search(allowed, to_check):
         raise ValueError(f"Traversal attack attempt with [{to_check}]")
+
+
+def is_hex_hash(value, length=64):
+    """True only for a lowercase hex string of exactly `length` chars (a block or
+    producer-set hash). Rejects path-traversal payloads such as '../../private/keys'
+    that would otherwise resolve through f-string path construction."""
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{%d}" % length, value) is not None
 
 
 def dict_to_val_list(some_dict) -> list:

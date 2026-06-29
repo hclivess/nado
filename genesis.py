@@ -19,7 +19,14 @@ def create_indexers():
     acc_handler.db_execute("INSERT INTO totals_index VALUES (?,?,?)", (0,0,0,))
     acc_handler.close()
 
-    #tx indexer moved
+    # single consolidated transaction index (replaces the per-10k-block split dbs)
+    tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
+    tx_handler.db_execute(
+        query="CREATE TABLE IF NOT EXISTS tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
+    tx_handler.db_execute(query="CREATE UNIQUE INDEX IF NOT EXISTS idx_txid ON tx_index(txid)")
+    tx_handler.db_execute(query="CREATE INDEX IF NOT EXISTS idx_sender ON tx_index(sender, block_number)")
+    tx_handler.db_execute(query="CREATE INDEX IF NOT EXISTS idx_recipient ON tx_index(recipient, block_number)")
+    tx_handler.close()
 
     block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
     block_handler.db_execute(
@@ -35,7 +42,6 @@ def make_folders():
     make_folder(f"{get_home()}/private", strict=False)
     make_folder(f"{get_home()}/index")
     make_folder(f"{get_home()}/index/producer_sets")
-    make_folder(f"{get_home()}/index/transactions")
 
     create_indexers()
 

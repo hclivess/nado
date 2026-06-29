@@ -21,11 +21,34 @@ from ops.log_ops import get_logger
 from ops.peer_ops import load_ips
 from ops.sqlite_ops import DbHandler
 import aiohttp
-import glob
 
 
-def round_to(from_number, to_number):
-    return round(from_number / to_number) * to_number
+def tx_index_path():
+    """single, consolidated transaction index (replaces the per-10k-block split files)"""
+    return f"{get_home()}/index/transactions.db"
+
+
+_tx_index_ready = False
+
+
+def ensure_tx_index(handler=None):
+    """create the consolidated tx index + the indexes that actually serve our queries.
+    Idempotent. Returns an OPEN handler; the caller is responsible for closing it
+    (whether it passed one in or not). The DDL only runs once per process — on the
+    hot read/write paths this skips four redundant CREATE ... IF NOT EXISTS calls."""
+    global _tx_index_ready
+    if handler is None:
+        handler = DbHandler(db_file=tx_index_path())
+    if not _tx_index_ready:
+        handler.db_execute(
+            "CREATE TABLE IF NOT EXISTS tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
+        # lookups by txid (get_transaction); UNIQUE makes (re)indexing idempotent
+        handler.db_execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_txid ON tx_index(txid)")
+        # account history: filter by sender/recipient, range + order by block_number
+        handler.db_execute("CREATE INDEX IF NOT EXISTS idx_sender ON tx_index(sender, block_number)")
+        handler.db_execute("CREATE INDEX IF NOT EXISTS idx_recipient ON tx_index(recipient, block_number)")
+        _tx_index_ready = True
+    return handler
 
 
 async def get_recommneded_fee(target, port, base_fee, logger):
@@ -62,23 +85,27 @@ def remove_outdated_transactions(transaction_list, block_number):
 
 
 def get_transaction(txid, logger):
-    """return transaction based on txid"""
-
+    """return transaction based on txid via a single indexed lookup"""
     try:
-        tx_dir = f"{get_home()}/index/transactions/*db"
-        for br_file in glob.glob(tx_dir):
+        tx_handler = ensure_tx_index()
+        fetched = tx_handler.db_fetch("SELECT block_number FROM tx_index WHERE txid = ?", (txid,))
+        tx_handler.close()
 
-            tx_handler = DbHandler(db_file=br_file)
-            block_number = tx_handler.db_fetch("SELECT block_number FROM tx_index WHERE txid = ?", (txid,))[0][0]
-            tx_handler.close()
+        if not fetched:
+            return None
 
-            block = get_block_number(number=block_number)
+        block = get_block_number(number=fetched[0][0])
+        if not block:
+            return None
 
-            for transaction in block["block_transactions"]:
-                if transaction["txid"] == txid:
-                    return transaction
+        for transaction in block["block_transactions"]:
+            if transaction["txid"] == txid:
+                return transaction
+
+        return None
 
     except Exception as e:
+        logger.error(f"Failed to get transaction {txid}: {e}")
         return None
 
 
@@ -114,24 +141,38 @@ def sort_transaction_pool(transactions: list, key="txid") -> list:
     )
 
 
-def get_transactions_of_account(account, min_block: int, logger):
+def get_transactions_of_account(account, min_block: int, logger, limit: int = 1000):
+    """history for an account, from the single consolidated index.
+
+    A UNION of two index-served lookups (sender, recipient) replaces the old
+    OR-over-an-unusable-index full scan, and txids are grouped by block so each
+    block file is read at most once instead of once per transaction."""
+    acc_handler = ensure_tx_index()
+    fetched = acc_handler.db_fetch(
+        """SELECT txid, block_number FROM tx_index WHERE sender = ? AND block_number >= ?
+           UNION
+           SELECT txid, block_number FROM tx_index WHERE recipient = ? AND block_number >= ?
+           ORDER BY block_number LIMIT ?""",
+        (account, min_block, account, min_block, limit))
+    acc_handler.close()
+
+    txids_by_block = {}
+    block_order = []
+    for txid, block_number in fetched:
+        if block_number not in txids_by_block:
+            txids_by_block[block_number] = set()
+            block_order.append(block_number)
+        txids_by_block[block_number].add(txid)
+
     all_txs = []
-    tx_dir = f"{get_home()}/index/transactions/*db"
-    for br_file in glob.glob(tx_dir):
-
-        acc_handler = DbHandler(db_file=br_file)
-
-        fetched = acc_handler.db_fetch(
-            "SELECT txid FROM tx_index WHERE (sender = ? OR recipient = ?) AND block_number >= ? ORDER BY block_number LIMIT 1000",
-            (account, account, min_block))
-
-        acc_handler.close()
-
-        tx_list = []
-        for txid in fetched:
-            tx_list.append(get_transaction(logger=logger,
-                                           txid=txid[0]))
-        all_txs.extend(tx_list)
+    for block_number in block_order:
+        block = get_block_number(number=block_number)
+        if not block:
+            continue
+        wanted = txids_by_block[block_number]
+        for transaction in block["block_transactions"]:
+            if transaction["txid"] in wanted:
+                all_txs.append(transaction)
 
     return {"transactions": all_txs}
 
@@ -320,57 +361,50 @@ def draft_transaction(sender, recipient, amount, public_key, timestamp, data, ta
 
 
 def unindex_transactions(block, logger, block_height):
+    # revert balance changes exactly once (each call retries internally); only the
+    # idempotent index delete below is retried on transient db locks
+    txids_to_unindex = [[transaction["txid"]] for transaction in block["block_transactions"]]
+    for transaction in block["block_transactions"]:
+        reflect_transaction(transaction=transaction,
+                            revert=True,
+                            logger=logger,
+                            block_height=block_height)
+
     while True:
         try:
-            txids_to_unindex = []
-            for transaction in block["block_transactions"]:
-                txids_to_unindex.append([transaction["txid"]])
-                reflect_transaction(transaction=transaction,
-                                    revert=True,
-                                    logger=logger,
-                                    block_height=block_height)
-
+            tx_handler = ensure_tx_index()
             if txids_to_unindex:
-                height_db = round_to(block_height, 10000)
-                tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions/block_range_{height_db}.db")
                 tx_handler.db_executemany("DELETE FROM tx_index WHERE txid = ?", txids_to_unindex)
-                tx_handler.close()
+            tx_handler.close()
             break
-
         except Exception as e:
             logger.error(f"Failed to unindex transactions: {e}")
+            time.sleep(1)
 
 
 def index_transactions(block, sorted_transactions, logger):
     block_height = block["block_number"]
-    height_db = round_to(block_height, 10000)
-    db_path = f"{get_home()}/index/transactions/block_range_{height_db}.db"
 
-    if not os.path.exists(db_path):
-        tx_handler = DbHandler(db_file=db_path)
-        tx_handler.db_execute(
-            query="CREATE TABLE tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
-        tx_handler.db_execute(query="CREATE INDEX seek_index ON tx_index(txid, sender, recipient)")
-        tx_handler.close()
+    # apply balance changes exactly once (reflect_transaction retries internally);
+    # only the idempotent index write below is retried on transient db locks
+    for transaction in sorted_transactions:
+        reflect_transaction(transaction=transaction,
+                            logger=logger,
+                            block_height=block_height)
+
+    txs_to_index = [(transaction['txid'],
+                     block_height,
+                     transaction['sender'],
+                     transaction['recipient'])
+                    for transaction in sorted_transactions]
 
     while True:
         try:
-            txs_to_index = []
-            for transaction in sorted_transactions:
-                reflect_transaction(transaction=transaction,
-                                    logger=logger,
-                                    block_height=block_height)
-
-                txs_to_index.append((transaction['txid'],
-                                     block['block_number'],
-                                     transaction['sender'],
-                                     transaction['recipient']))
-
-            tx_handler = DbHandler(db_file=db_path)
-            tx_handler.db_executemany("INSERT INTO tx_index VALUES (?,?,?,?)", txs_to_index)
+            tx_handler = ensure_tx_index()
+            if txs_to_index:
+                tx_handler.db_executemany("INSERT OR IGNORE INTO tx_index VALUES (?,?,?,?)", txs_to_index)
             tx_handler.close()
             break
-
         except Exception as e:
             logger.error(f"Failed to index transactions of {block['block_hash']}: {e}")
             time.sleep(1)
