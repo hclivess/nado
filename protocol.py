@@ -7,6 +7,7 @@ identical on every node (and reproducible by a browser light-miner), so keep it 
 ints/strings and pure functions with no imports from `ops` (this module must stay a leaf
 so anything can import it without a cycle).
 """
+from hashing import blake2b_hash  # leaf module (stdlib only) -> no import cycle
 
 # Bound into every signed transaction and block body so a transaction/block from another
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
@@ -17,13 +18,20 @@ DENOMINATION = 10_000_000_000  # 1e10
 
 GENESIS_TIMESTAMP = 1669852800
 
-# --- Reserved, keyless protocol addresses (no private key; disbursed/burned by rules) ---
-# "burn"     : destroys coins (burn-to-bribe / deflation), as today.
-# "treasury" : accrues the per-block treasury cut; spent only by protocol rules (faucet).
+# --- Reserved, keyless protocol pseudo-addresses (no private key) ---
+# "burn"        : destroys coins (burn-to-bribe / deflation), as today.
 # "bond"/"unbond": pseudo-recipients used by the bonding transactions (see S4).
 BURN_ADDRESS = "burn"
-TREASURY_ADDRESS = "treasury"
-RESERVED_RECIPIENTS = frozenset({"burn", "treasury", "bond", "unbond"})
+RESERVED_RECIPIENTS = frozenset({"burn", "bond", "unbond"})
+
+# The TREASURY is the GENESIS address (project owner's decision): the 10% per-block cut accrues
+# here and the genesis bootstrap allocation is minted here. It is a normal KEY-CONTROLLED address
+# (the founder holds its key), derived here under the canonical (new) checksum from the genesis
+# public-key body so it validates. NOTE: because it is key-controlled, the TREASURY_GENESIS seed
+# below is effectively a founder allocation; set TREASURY_GENESIS = 0 for a pure no-coins start.
+_GENESIS_BODY = "ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80"  # "ndo" + genesis public_key[:42]
+GENESIS_ADDRESS = _GENESIS_BODY + blake2b_hash(_GENESIS_BODY, size=2)
+TREASURY_ADDRESS = GENESIS_ADDRESS
 
 # --- Block reward: fee-weighted elastic, split producer/treasury (no premine) ---
 TREASURY_BPS = 1000          # treasury share of each block reward, in basis points (10.00%)

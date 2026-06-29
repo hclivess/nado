@@ -43,7 +43,11 @@ kd = generate_keydict()
 def t4():
     assert validate_address(kd["address"]), "fresh address fails checksum under canonical hashing"
     assert not validate_address("ndo"+"f"*42+"0000"), "bad checksum accepted"
-    assert validate_address("treasury") and validate_address("burn"), "reserved address rejected"
+    assert validate_address("burn"), "reserved 'burn' rejected"
+    # treasury is now the (key-controlled) genesis address, NOT a keyless label
+    from protocol import TREASURY_ADDRESS
+    assert validate_address(TREASURY_ADDRESS), "genesis/treasury address fails checksum"
+    assert not validate_address("treasury"), "'treasury' must not be a keyless reserved label"
 check("address checksum round-trips + reserved accepted", t4)
 
 def build_tx(chain=None, fee=MIN_TX_FEE):

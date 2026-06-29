@@ -25,13 +25,13 @@ from ops.block_ops import (get_block, get_block_ends_info,
 from ops.sqlite_ops import DbHandler
 from genesis import make_genesis, create_indexers
 from ops.log_ops import get_logger
-from protocol import split_block_reward, TREASURY_ADDRESS
+from protocol import split_block_reward, TREASURY_ADDRESS, TREASURY_GENESIS
 
-GENESIS_ADDRESS = "ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b"
+GENESIS_ADDRESS = TREASURY_ADDRESS   # genesis address == treasury (canonical checksum)
 # TODO(relaunch): GENESIS_CHILD_HASH is the hash of block 1 under the NEW canonical hashing;
 # regenerate it once the relaunched genesis + block 1 exist (the old value is stale).
 GENESIS_CHILD_HASH = "3abbfe409d446d997fbf65767c97e3f59ecb943d61a000240432e1627187966b"
-GENESIS_BALANCE = 0           # no personal premine (treasury is seeded inside make_genesis)
+GENESIS_BALANCE = TREASURY_GENESIS   # bootstrap allocation minted to the genesis/treasury
 GENESIS_TIMESTAMP = 1669852800
 GENESIS_IP = "78.102.98.72"
 

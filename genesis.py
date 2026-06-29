@@ -70,12 +70,9 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
         "chain_id": CHAIN_ID,
     }
 
-    # No personal premine: the founder address gets `balance` (0 at relaunch). The genesis
-    # allocation is minted to the keyless protocol "treasury" address, which seeds the
-    # onboarding faucet and accrues 10% of every block reward ("replace the premine WITH the
-    # treasury"). Treasury is created first; if the founder address IS the treasury label it
-    # would just be overwritten by INSERT OR IGNORE, but they are distinct by design.
-    create_account(address=TREASURY_ADDRESS, balance=TREASURY_GENESIS)
+    # The genesis address IS the treasury (owner's decision): it holds the bootstrap allocation
+    # and accrues the 10% per-block cut. Because this address is key-controlled, the seed balance
+    # is effectively a founder allocation; pass balance=0 (TREASURY_GENESIS=0) for a no-coins start.
     create_account(address=address, balance=balance)
 
     save_peer(ip=ip,
@@ -100,8 +97,8 @@ if __name__ == "__main__":
     input("Not supposed to be run directly, continue?\n")
     make_folders()
     make_genesis(
-        address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b",
-        balance=0,  # no personal premine; the genesis allocation goes to the treasury
+        address=TREASURY_ADDRESS,          # genesis address == treasury (canonical checksum)
+        balance=TREASURY_GENESIS,          # bootstrap allocation minted to the genesis/treasury
         ip="78.102.98.72",
         port=9173,
         timestamp=1669852800,
