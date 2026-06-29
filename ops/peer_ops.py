@@ -352,6 +352,10 @@ def check_ip(ip):
     # peer seed us with internal targets (eclipse groundwork / limited SSRF probing).
     if ip == get_config()["ip"]:
         return False
+    # NADO_TESTNET: allow loopback/private peers so a local multi-node testnet can mesh over
+    # 127.0.0.x. NEVER set this on mainnet — it disables the SSRF/eclipse IP guard below.
+    if os.environ.get("NADO_TESTNET"):
+        return True
     if (addr.is_loopback or addr.is_private or addr.is_link_local
             or addr.is_reserved or addr.is_multicast or addr.is_unspecified):
         return False
@@ -359,6 +363,12 @@ def check_ip(ip):
 
 
 async def get_public_ip(logger):
+    # testnet/offline: use the configured IP instead of phoning home to ipify/ipinfo
+    if os.environ.get("NADO_TESTNET"):
+        try:
+            return get_config()["ip"]
+        except Exception:
+            return "127.0.0.1"
     urls = ["https://api.ipify.org", "https://ipinfo.io/ip"]
 
     for url_construct in urls:

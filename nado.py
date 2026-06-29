@@ -25,14 +25,14 @@ from ops.log_ops import get_logger, logging
 from ops.peer_ops import save_peer, get_remote_status, get_producer_set, check_ip
 from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
 from ops import snapshot_ops
-from protocol import TREASURY_ADDRESS, TREASURY_GENESIS
+from protocol import TREASURY_ADDRESS, TREASURY_GENESIS, GENESIS_TIMESTAMP
 
-from pympler import summary, muppy
+import gc  # replaces pympler/muppy — the full-heap walk fatally trips CPython GC under asyncio load
 
 
-def is_port_in_use(port: int) -> bool:
+def is_port_in_use(port: int, host: str = "localhost") -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(("localhost", port)) == 0
+        return s.connect_ex((host, port)) == 0
 
 
 def handler(signum, frame):
@@ -337,15 +337,18 @@ class SubmitTransactionHandler(tornado.web.RequestHandler):
 
 class HealthHandler(tornado.web.RequestHandler):
     def health(self):
-        # muppy.get_objects() is a stop-the-world GIL-bound full-heap walk; leaving it
-        # unauthenticated is a cheap liveness DoS, so gate it like the other admin ops.
+        # gated like the other admin ops. Uses cheap gc stats instead of the old
+        # muppy.get_objects() full-heap walk, which both starved this server and fatally
+        # tripped CPython's GC ("PyObject_GC_Track ... _asyncio.FutureIter") under load.
         server_key = HealthHandler.get_argument(self, "key", default="none")
         if server_key != memserver.server_key and self.request.remote_ip != "127.0.0.1":
             self.set_status(403)
             self.write("Unauthorized")
             return
         compress = HealthHandler.get_argument(self, "compress", default="none")
-        health = summary.summarize(muppy.get_objects())
+        health = {"gc_counts": list(gc.get_count()),
+                  "gc_objects_tracked": len(gc.get_objects()),
+                  "gc_stats": gc.get_stats()}
 
         if compress == "msgpack":
             output = msgpack.packb(health)
@@ -858,7 +861,10 @@ async def make_app(port):
 
         ]
     )
-    application.listen(port)
+    # In NADO_TESTNET mode bind to the node's own (loopback) IP so several nodes can share the
+    # port on distinct 127.0.0.x addresses; on mainnet bind all interfaces (reachable).
+    listen_address = get_config()["ip"] if os.environ.get("NADO_TESTNET") else None
+    application.listen(port, address=listen_address)
     await asyncio.Event().wait()
 
 """warning, no intensive operations or locks should be invoked from API interface"""
@@ -874,11 +880,11 @@ if updated_version:
 if not os.path.exists(f"{get_home()}/blocks"):
     make_folders()
     make_genesis(
-        address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b",
-        balance=1000000000000000000,
+        address=TREASURY_ADDRESS,        # genesis address == treasury (no personal premine)
+        balance=TREASURY_GENESIS,        # bootstrap allocation minted to the treasury
         ip="78.102.98.72",
         port=9173,
-        timestamp=1669852800,
+        timestamp=GENESIS_TIMESTAMP,
         logger=logger,
     )
 
@@ -892,7 +898,10 @@ if not keyfile_found():
 info_path = os.path.normpath(f'{get_home()}/private/keys.dat')
 logger.info(f"Key location: {info_path}")
 
-assert not is_port_in_use(get_config()["port"]), "Port already in use, exiting"
+# in testnet mode several nodes share the port on distinct 127.0.0.x IPs, so check THIS node's
+# own ip:port, not localhost (which a sibling node would falsely occupy)
+_port_check_host = get_config()["ip"] if os.environ.get("NADO_TESTNET") else "localhost"
+assert not is_port_in_use(get_config()["port"], _port_check_host), "Port already in use, exiting"
 signal.signal(signal.SIGINT, handler)
 signal.signal(signal.SIGTERM, handler)
 

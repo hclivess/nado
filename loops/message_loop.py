@@ -5,7 +5,7 @@ import threading
 import time
 import traceback
 from math import floor
-from pympler import muppy
+import gc
 
 from config import get_timestamp_seconds
 
@@ -78,7 +78,13 @@ class MessageClient(threading.Thread):
                                  f"Peers: {self.peers.duration}")
 
                 self.logger.info(f"Open files: {len(psutil.Process().open_files())}")
-                self.logger.info(f"Open objects: {len(muppy.get_objects())}")
+                # NOTE: removed the periodic `muppy.get_objects()` heap walk — it is a
+                # stop-the-world GIL-bound full-heap traversal that (a) starves the Tornado
+                # /status handler and (b) fatally trips CPython's GC ("PyObject_GC_Track:
+                # object already tracked", _asyncio.FutureIter) under live asyncio load,
+                # crashing the node. gc counts below are cheap and safe.
+                gc_counts = gc.get_count()
+                self.logger.info(f"GC counts: {gc_counts}")
 
                 time.sleep(10)
             except Exception as e:
