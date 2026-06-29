@@ -17,13 +17,15 @@ from ops.block_ops import (
     update_child_in_latest_block,
     save_block,
     set_latest_block_info,
+    set_earliest_block_info,
     get_block,
     construct_block,
     check_target_match,
     valid_block_timestamp
 )
 from ops.data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
-from ops.peer_ops import load_trust, update_local_address, ip_stored, check_ip, qualifies_to_sync, announce_me
+from ops.peer_ops import load_trust, update_local_address, ip_stored, check_ip, qualifies_to_sync, announce_me, get_remote_status
+from ops import snapshot_ops
 from ops.pool_ops import merge_buffer, cull_buffer
 from ops.transaction_ops import remove_outdated_transactions
 from ops.transaction_ops import (
@@ -66,6 +68,7 @@ class CoreClient(threading.Thread):
         self.run_interval = 1
         self.event_bus = EventBus()
         self.consecutive = 0
+        self.snapshot_attempted = False
 
     def get_period(self):
         """Enter every period at least period_counter times. Iterator is present in case node is stuck in phase 3.
@@ -364,8 +367,78 @@ class CoreClient(threading.Thread):
                                                      value=-1)
             self.logger.info(f"Could not replace {key} from {peer}")
 
+    def snapshot_bootstrap(self) -> bool:
+        """For a fresh node (still at genesis), bulk-download verified account state
+        from peers instead of replaying the entire chain. Strictly additive and fully
+        guarded: it runs at most once, only while latest_block is genesis, and ANY
+        failure returns False so the normal block-by-block replay below proceeds. It
+        therefore can never disrupt an established node or a re-org.
+
+        NOTE: the multi-peer path needs validation on a live network with real peers;
+        the deterministic build/verify/import and the quorum decision are unit-tested,
+        but end-to-end bootstrap from live peers has not been exercised here."""
+        if self.snapshot_attempted or self.memserver.latest_block["block_number"] != 0:
+            return False
+        self.snapshot_attempted = True
+        try:
+            peers = list(self.memserver.peers)
+            if len(peers) < self.memserver.min_peers:
+                return False
+
+            # 1) collect peers' advertised snapshots; require a super-majority (Sybil gate)
+            async def _statuses(ips):
+                return await asyncio.gather(*[get_remote_status(ip, logger=self.logger) for ip in ips],
+                                            return_exceptions=True)
+            raw = asyncio.run(_statuses(peers))
+            statuses = [s if isinstance(s, dict) else None for s in raw]
+            agreed = snapshot_ops.agree_snapshot(statuses, min_peers=self.memserver.min_peers, threshold=0.8)
+            if not agreed:
+                self.logger.info("No snapshot quorum among peers; using full sync")
+                return False
+
+            target_hash = agreed["snapshot_hash"]
+            target_height = agreed["snapshot_height"]
+            self.logger.warning(
+                f"Snapshot quorum at height {target_height} ({agreed['votes']}/{agreed['responders']} peers)")
+
+            source = next((ip for ip, st in zip(peers, statuses)
+                           if st and st.get("snapshot_hash") == target_hash), None)
+            if not source:
+                return False
+
+            # 2) fetch, then verify against the quorum hash and re-derive the state root locally
+            manifest, chunks = asyncio.run(
+                snapshot_ops.fetch_snapshot(source, self.memserver.port, logger=self.logger))
+            if not manifest or manifest.get("snapshot_hash") != target_hash:
+                self.logger.warning("Fetched snapshot does not match the agreed hash")
+                return False
+            if not snapshot_ops.import_snapshot(manifest, chunks, logger=self.logger):
+                return False
+
+            # 3) anchor to block C so normal sync replays only the C..tip tail
+            anchor = asyncio.run(
+                snapshot_ops.fetch_block(source, self.memserver.port, manifest["block_hash"]))
+            if (not anchor or anchor.get("block_hash") != manifest["block_hash"]
+                    or anchor.get("block_number") != target_height):
+                self.logger.warning("Could not anchor snapshot to its checkpoint block; using full sync")
+                return False
+
+            save_block(anchor, logger=self.logger)
+            set_earliest_block_info(earliest_block=anchor, logger=self.logger)
+            set_latest_block_info(latest_block=anchor, logger=self.logger)
+            self.memserver.earliest_block = anchor
+            self.memserver.latest_block = anchor
+            self.logger.warning(f"Snapshot bootstrap complete at height {target_height}; replaying tail")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Snapshot bootstrap failed, falling back to full sync: {e}")
+            return False
+
     def emergency_mode(self):
         self.logger.warning("Entering emergency mode")
+        if self.snapshot_bootstrap():
+            self.logger.warning("State bootstrapped from snapshot; continuing with tail sync")
         try:
             self.logger.warning("Looping emergency mode")
             while self.memserver.emergency_mode and not self.memserver.terminate:

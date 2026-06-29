@@ -214,6 +214,48 @@ def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
     return True
 
 
+def agree_snapshot(statuses, min_peers=2, threshold=0.8):
+    """Decide whether a super-majority of peers agree on one snapshot.
+
+    statuses: list of peer /status dicts (None for unreachable peers).
+    Returns {snapshot_height, snapshot_hash, votes, responders} for the agreed
+    snapshot, or None. This is the Sybil-resistance gate: a joining node only
+    accepts a (height, hash) that >= `threshold` of responding peers advertise,
+    so a single malicious peer can't feed it a forged state. Pure function."""
+    votes = {}
+    responders = 0
+    for s in statuses:
+        if not s:
+            continue
+        responders += 1
+        h = s.get("snapshot_hash")
+        height = s.get("snapshot_height")
+        if h and height is not None:
+            votes[(height, h)] = votes.get((height, h), 0) + 1
+    if responders < min_peers or not votes:
+        return None
+    (best_height, best_hash), count = max(votes.items(), key=lambda kv: kv[1])
+    if count / responders >= threshold:
+        return {"snapshot_height": best_height, "snapshot_hash": best_hash,
+                "votes": count, "responders": responders}
+    return None
+
+
+async def fetch_block(target, port, block_hash, timeout=15):
+    """fetch a single block dict from a peer by hash, or None"""
+    import aiohttp
+    url = f"http://{target}:{port}/get_block?hash={block_hash}&compress=msgpack"
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
+            async with session.get(url) as r:
+                if r.status != 200:
+                    return None
+                block = msgpack.unpackb(await r.read())
+                return block if isinstance(block, dict) else None
+    except Exception:
+        return None
+
+
 async def fetch_snapshot(target, port, logger=None, concurrency=8, timeout=120):
     """download a peer's snapshot manifest then all chunks in parallel.
     Returns (manifest, chunk_bytes_list) or (None, None) on failure."""

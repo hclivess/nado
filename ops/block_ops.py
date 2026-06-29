@@ -41,6 +41,8 @@ def get_block_reward(logger, blocks_backward=100, reward_cap=5000000000):
 
     while 0 < block_number > (latest_block_number - blocks_backward):
         block = load_block_from_hash(parent, logger=logger)
+        if not block:
+            break  # ran out of local history (e.g. a snapshot-synced node) -> stop here
         parent = block["parent_hash"]
         block_number = block["block_number"]
 
@@ -488,6 +490,8 @@ def get_ip_penalty(producer, logger, blocks_backward=50):
 
     while 0 < block_number > (latest_block_number - blocks_backward):
         block = load_block_from_hash(parent, logger=logger)
+        if not block:
+            break  # ran out of local history -> stop here
         parent = block["parent_hash"]
         block_number = block["block_number"]
 
