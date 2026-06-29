@@ -118,9 +118,18 @@ def validate_transaction(transaction, logger, block_height):
     assert validate_origin(transaction, block_height=block_height), "Invalid origin"
     assert validate_address(transaction["sender"]), f"Invalid sender {transaction['sender']}"
     assert validate_address(transaction["recipient"]), f"Invalid recipient {transaction['recipient']}"
-    assert isinstance(transaction["fee"], int), "Transaction fee is not an integer"
+    assert isinstance(transaction["fee"], int) and not isinstance(transaction["fee"], bool), "Transaction fee is not an integer"
     assert transaction["fee"] >= 0, "Transaction fee lower than zero"
+    # amount must be a non-negative integer (not a bool, not a float): a float would
+    # satisfy the old check_balance comparison and corrupt the integer-satoshi ledger
+    assert isinstance(transaction["amount"], int) and not isinstance(transaction["amount"], bool), "Transaction amount is not an integer"
+    assert transaction["amount"] >= 0, "Transaction amount lower than zero"
     assert len(transaction["txid"]) >= 64
+    # bind the signature to the FULL body: the signature only covers the txid, so
+    # without recomputing the txid from the body an attacker could keep a valid
+    # (sender, public_key, txid, signature) and swap recipient/amount. The block
+    # path previously skipped this (only the mempool checked it).
+    assert validate_txid(transaction, logger=logger), "Transaction id does not match its contents"
     return True
 
 

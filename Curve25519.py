@@ -14,19 +14,25 @@ def unhex(hexed):
 
 def sign(private_key, message):
     private_bytes = unhex(private_key)
-    private_key_raw = Ed25519PrivateKey.generate().from_private_bytes(private_bytes)
+    # from_private_bytes is a classmethod: the old `Ed25519PrivateKey.generate().from_private_bytes`
+    # wasted an ephemeral keypair and breaks on modern cryptography (instances no longer
+    # expose the classmethod). Same key bytes -> identical signatures.
+    private_key_raw = Ed25519PrivateKey.from_private_bytes(private_bytes)
     signed = private_key_raw.sign(message).hex()
     return signed
 
 
 def verify(signed, public_key, message):
+    # return False on any failure instead of raising: callers use `assert verify(...)`
+    # / `if verify(...)`, and a raising verify could turn a rejection into an unhandled
+    # error or be mis-refactored into a silent accept.
     try:
         public_bytes = unhex(public_key)
         public_key_raw = Ed25519PublicKey.from_public_bytes(public_bytes)
         public_key_raw.verify(unhex(signed), message)
         return True
     except Exception:
-        raise ValueError("Invalid signature") #sadly, the underlying mechanism does not propagate error messages
+        return False
 
 def from_private_key(private_key):
     private_bytes = unhex(private_key)

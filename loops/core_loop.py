@@ -33,6 +33,9 @@ from ops.transaction_ops import (
 )
 from rollback import rollback_one_block
 
+# protocol cap on a block reward (mirrors get_block_reward's reward_cap)
+MAX_BLOCK_REWARD = 5000000000
+
 
 def minority_consensus(majority_hash, sample_hash):
     if not majority_hash:
@@ -530,6 +533,14 @@ class CoreClient(threading.Thread):
 
             if not valid_block_timestamp(new_block=block):
                 raise ValueError(f"Invalid block timestamp {block['block_timestamp']}")
+
+            # A synced block's reward is attacker-chosen; the only protocol bound is the
+            # get_block_reward cap (5e9). Enforce it here so a peer can't mint coins by
+            # advertising an inflated reward, and so a negative reward can't wedge the
+            # core thread forever in change_balance.
+            reward = block.get("block_reward")
+            if not isinstance(reward, int) or isinstance(reward, bool) or reward < 0 or reward > MAX_BLOCK_REWARD:
+                raise ValueError(f"Invalid block reward {reward!r}")
 
             if not is_old or not self.memserver.quick_sync:
                 self.validate_transactions_in_block(block=block,

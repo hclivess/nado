@@ -106,11 +106,14 @@ def get_totals(block, revert=False):
 def index_totals(produced, fees, burned, block_height):
     acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
 
-    if produced > 0:
+    # use truthiness, not `> 0`: on a rollback get_totals(revert=True) returns NEGATIVE
+    # deltas, and the old `> 0` guards skipped them entirely, so totals only ever grew
+    # (every reorg permanently inflated the reported supply).
+    if produced:
         acc_handler.db_execute("UPDATE totals_index SET produced = produced + ?", (produced,))
-    if fees > 0 and block_height > 111111:
+    if fees and block_height > 111111:
         acc_handler.db_execute("UPDATE totals_index SET fees = fees + ?", (fees,))
-    if burned > 0:
+    if burned:
         acc_handler.db_execute("UPDATE totals_index SET burned = burned + ?", (burned,))
     acc_handler.close()
 
