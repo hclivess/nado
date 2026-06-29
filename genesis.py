@@ -13,7 +13,8 @@ from ops.sqlite_ops import DbHandler
 def create_indexers():
     acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
     acc_handler.db_execute(query="CREATE TABLE IF NOT EXISTS acc_index(address TEXT, balance INTEGER, produced INTEGER, burned INTEGER)")
-    acc_handler.db_execute(query="CREATE INDEX seek_index ON acc_index(address)")
+    # UNIQUE so a concurrent get_account(create_on_error=True) race can't insert two rows
+    acc_handler.db_execute(query="CREATE UNIQUE INDEX IF NOT EXISTS seek_index ON acc_index(address)")
 
     acc_handler.db_execute(query="CREATE TABLE IF NOT EXISTS totals_index(produced INTEGER, fees INTEGER, burned INTEGER)")
     acc_handler.db_execute("INSERT INTO totals_index VALUES (?,?,?)", (0,0,0,))

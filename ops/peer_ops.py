@@ -335,13 +335,18 @@ def announce_me(targets, port, my_ip, logger, fail_storage) -> None:
 
 def check_ip(ip):
     try:
-        ipaddress.IPv4Address(ip)
+        addr = ipaddress.IPv4Address(ip)
     except:
         return False
-    if ip == get_config()["ip"] or ipaddress.ip_address(ip).is_loopback or ip == "0.0.0.0":
+    # reject our own IP and any non-globally-routable address (loopback, RFC1918
+    # private, link-local, reserved, multicast, unspecified): accepting these lets a
+    # peer seed us with internal targets (eclipse groundwork / limited SSRF probing).
+    if ip == get_config()["ip"]:
         return False
-    else:
-        return True
+    if (addr.is_loopback or addr.is_private or addr.is_link_local
+            or addr.is_reserved or addr.is_multicast or addr.is_unspecified):
+        return False
+    return True
 
 
 async def get_public_ip(logger):

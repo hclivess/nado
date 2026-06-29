@@ -199,7 +199,7 @@ def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
         con.execute("PRAGMA journal_mode=OFF")
         con.execute("PRAGMA synchronous=OFF")
         con.execute("CREATE TABLE acc_index(address TEXT, balance INTEGER, produced INTEGER, burned INTEGER)")
-        con.execute("CREATE INDEX seek_index ON acc_index(address)")
+        con.execute("CREATE UNIQUE INDEX seek_index ON acc_index(address)")
         con.execute("CREATE TABLE totals_index(produced INTEGER, fees INTEGER, burned INTEGER)")
         con.executemany("INSERT INTO acc_index VALUES (?,?,?,?)", rows)
         t = manifest["totals"]

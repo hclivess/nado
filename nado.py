@@ -336,7 +336,14 @@ class SubmitTransactionHandler(tornado.web.RequestHandler):
 
 class HealthHandler(tornado.web.RequestHandler):
     def health(self):
-        compress = LogHandler.get_argument(self, "compress", default="none")
+        # muppy.get_objects() is a stop-the-world GIL-bound full-heap walk; leaving it
+        # unauthenticated is a cheap liveness DoS, so gate it like the other admin ops.
+        server_key = HealthHandler.get_argument(self, "key", default="none")
+        if server_key != memserver.server_key and self.request.remote_ip != "127.0.0.1":
+            self.set_status(403)
+            self.write("Unauthorized")
+            return
+        compress = HealthHandler.get_argument(self, "compress", default="none")
         health = summary.summarize(muppy.get_objects())
 
         if compress == "msgpack":
@@ -352,10 +359,17 @@ class HealthHandler(tornado.web.RequestHandler):
 
 class LogHandler(tornado.web.RequestHandler):
     def log(self):
+        # the log exposes peer topology, the node address, key-file paths and
+        # tracebacks -- require the admin key and bound how much is returned.
+        server_key = LogHandler.get_argument(self, "key", default="none")
+        if server_key != memserver.server_key and self.request.remote_ip != "127.0.0.1":
+            self.set_status(403)
+            self.write("Unauthorized")
+            return
         compress = LogHandler.get_argument(self, "compress", default="none")
 
         with open(f"{get_home()}/logs/log.log") as logfile:
-            lines = logfile.readlines()
+            lines = logfile.readlines()[-500:]
             for line in lines:
                 if compress == "msgpack":
                     output = msgpack.packb(line)

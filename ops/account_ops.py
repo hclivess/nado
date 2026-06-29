@@ -148,14 +148,15 @@ def increase_produced_count(address, amount, logger, revert=False):
             return produced_updated
 
         except Exception as e:
-            logger.error(f"Failed to validate spending during block production: {e}")
+            logger.error(f"Failed to update produced count for {address}: {e}")
+            time.sleep(1)  # was missing -> this loop spun a CPU at 100% on any error
 
 
 def create_account(address, balance=0, burned=0, produced=0):
     acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
     # name columns explicitly: the schema is (address, balance, produced, burned);
     # the positional insert previously swapped burned/produced
-    acc_handler.db_execute("INSERT INTO acc_index (address, balance, produced, burned) VALUES (?,?,?,?)",
+    acc_handler.db_execute("INSERT OR IGNORE INTO acc_index (address, balance, produced, burned) VALUES (?,?,?,?)",
                            (address, balance, produced, burned,))
     acc_handler.close()
 

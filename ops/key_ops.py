@@ -6,8 +6,14 @@ from .data_ops import get_home
 
 
 def save_keys(keydict, file=f"{get_home()}/private/keys.dat"):
-    with open(file, "w") as keyfile:
+    # 0600: the file holds the plaintext private key; don't inherit a broad umask
+    fd = os.open(file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as keyfile:
         json.dump(keydict, keyfile)
+    try:
+        os.chmod(file, 0o600)  # tighten even if the file pre-existed with looser perms
+    except OSError:
+        pass
 
 
 def load_keys(file=f"{get_home()}/private/keys.dat"):

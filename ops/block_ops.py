@@ -260,6 +260,7 @@ def get_block_ends_info(logger):
 
 
 def unindex_block(block, logger):
+    attempts = 0
     while True:
         try:
             block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
@@ -268,14 +269,27 @@ def unindex_block(block, logger):
             block_handler.close()
 
             block_data = f"{get_home()}/blocks/{block['block_hash']}.block"
-            while os.path.exists(block_data):
+            # bounded + backed off: the old inner loop had no sleep and never gave up,
+            # so a permission error / open handle spun a CPU at 100% forever.
+            for _ in range(10):
+                if not os.path.exists(block_data):
+                    break
                 try:
                     os.remove(block_data)
+                    break
+                except FileNotFoundError:
+                    break
                 except Exception as e:
-                    logger.error(f"Failed to remove {block_data}: {e}, retrying")
+                    logger.error(f"Failed to remove {block_data}: {e}")
+                    time.sleep(1)
             break
         except Exception as e:
+            attempts += 1
             logger.error(f"Failed to unindex block: {e}")
+            if attempts >= 30:
+                logger.error("Giving up on unindex_block after repeated failures")
+                break
+            time.sleep(1)
 
 
 def set_earliest_block_info(earliest_block: dict, logger):
