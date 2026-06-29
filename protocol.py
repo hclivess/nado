@@ -19,10 +19,10 @@ DENOMINATION = 10_000_000_000  # 1e10
 GENESIS_TIMESTAMP = 1669852800
 
 # --- Reserved, keyless protocol pseudo-addresses (no private key) ---
-# "burn"        : destroys coins (burn-to-bribe / deflation), as today.
 # "bond"/"unbond": pseudo-recipients used by the bonding transactions (see S4).
-BURN_ADDRESS = "burn"
-RESERVED_RECIPIENTS = frozenset({"burn", "bond", "unbond"})
+# (The "burn" mechanic was removed entirely: no burn address, no burned counter, no
+#  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
+RESERVED_RECIPIENTS = frozenset({"bond", "unbond"})
 
 # The TREASURY is the GENESIS address (project owner's decision): the 10% per-block cut accrues
 # here and the genesis bootstrap allocation is minted here. It is a normal KEY-CONTROLLED address

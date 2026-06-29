@@ -643,18 +643,18 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
 class GetSupplyHandler(tornado.web.RequestHandler):
     def get_supply(self):
         readable = GetSupplyHandler.get_argument(self, "readable", default="none")
-        data = fetch_totals()  # produced (block rewards minted), fees + burned (destroyed)
+        data = fetch_totals()  # produced (block rewards minted), fees (destroyed)
         treasury_acc = get_account(address=TREASURY_ADDRESS)
         data.update({"block_number": memserver.latest_block["block_number"]})
-        # No premine: the only genesis mint is the protocol treasury seed (TREASURY_GENESIS).
-        # total = genesis seed + all block rewards minted - everything destroyed (burns + fees).
+        # No premine: the only genesis mint is the treasury seed (TREASURY_GENESIS).
+        # total = genesis seed + all block rewards minted - fees destroyed. (Burn removed.)
         data.update({"treasury": treasury_acc["balance"]})
-        data.update({"total_supply": TREASURY_GENESIS + data["produced"] - data["burned"] - data["fees"]})
-        # treasury holdings are protocol-controlled (faucet), counted as non-circulating until spent
+        data.update({"total_supply": TREASURY_GENESIS + data["produced"] - data["fees"]})
+        # treasury holdings are the genesis-address treasury, counted as non-circulating
         data.update({"circulating": data["total_supply"] - data["treasury"]})
 
         if readable == "true":
-            for key in ("produced", "fees", "burned", "treasury", "circulating", "total_supply"):
+            for key in ("produced", "fees", "treasury", "circulating", "total_supply"):
                 data[key] = to_readable_amount(data[key])
 
         self.write(data)
@@ -691,7 +691,7 @@ class AccountHandler(tornado.web.RequestHandler):
                 if readable == "true":
                     account_data.update({"balance": to_readable_amount(account_data["balance"])})
                     account_data.update({"produced": to_readable_amount(account_data["produced"])})
-                    account_data.update({"burned": to_readable_amount(account_data["burned"])})
+                    account_data.update({"bonded": to_readable_amount(account_data["bonded"])})
 
             else:
                 account_data = "Not found"

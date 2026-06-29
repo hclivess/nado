@@ -79,14 +79,14 @@ def apply_block(block, txs):
     if t: change_balance(TREASURY_ADDRESS, t, logger=logger)
     increase_produced_count(block["block_creator"], p, logger=logger)
     tt = get_totals(block=block)
-    index_totals(produced=tt["produced"], fees=tt["fees"], burned=tt["burned"], block_height=block["block_number"])
+    index_totals(produced=tt["produced"], fees=tt["fees"], block_height=block["block_number"])
 def rollback_block(block, txs):
     p, t = split_block_reward(block["block_reward"])
     change_balance(block["block_creator"], p, revert=True, logger=logger)
     if t: change_balance(TREASURY_ADDRESS, t, revert=True, logger=logger)
     increase_produced_count(block["block_creator"], p, revert=True, logger=logger)
     tt = get_totals(block=block, revert=True)
-    index_totals(produced=tt["produced"], fees=tt["fees"], burned=tt["burned"], block_height=block["block_number"])
+    index_totals(produced=tt["produced"], fees=tt["fees"], block_height=block["block_number"])
     for tx in txs:
         reflect_transaction(tx, logger=logger, block_height=block["block_number"], revert=True)
 
@@ -114,13 +114,13 @@ check("incorporate<->rollback round-trip is exact identity", t5)
 # 6. supply formula: no premine, treasury non-circulating
 def t6():
     tot = fetch_totals()
-    total_supply = TREASURY_GENESIS + tot["produced"] - tot["burned"] - tot["fees"]
+    total_supply = TREASURY_GENESIS + tot["produced"] - tot["fees"]
     treasury = get_account(TREASURY_ADDRESS)["balance"]
     circulating = total_supply - treasury
     assert total_supply >= 0 and circulating >= 0
     # after the round-trip, produced/fees are back to 0 and treasury==seed -> circulating 0
     assert total_supply == TREASURY_GENESIS and circulating == 0, (total_supply, treasury, circulating)
-check("supply: total = seed + produced - burned - fees; circulating excludes treasury", t6)
+check("supply: total = seed + produced - fees; circulating excludes treasury", t6)
 
 print(f"\n{'ALL S3 CHECKS PASSED' if fails==0 else str(fails)+' S3 CHECK(S) FAILED'}")
 sys.exit(1 if fails else 0)

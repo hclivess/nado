@@ -38,11 +38,11 @@ check("overdraw fails closed with NO mutation", t2)
 
 def t3():
     change_balance("carol", 5000, logger=logger)
-    change_balance("carol", -2000, is_burn=True, logger=logger)
-    acc = get_account("carol"); assert acc["balance"] == 3000 and acc["burned"] == 2000, acc
-    change_balance("carol", -2000, is_burn=True, revert=True, logger=logger)
-    acc = get_account("carol"); assert acc["balance"] == 5000 and acc["burned"] == 0, acc
-check("burn accounting + symmetric revert", t3)
+    change_balance("carol", -2000, logger=logger)
+    acc = get_account("carol"); assert acc["balance"] == 3000, acc
+    change_balance("carol", -2000, revert=True, logger=logger)   # revert a debit -> credit back
+    acc = get_account("carol"); assert acc["balance"] == 5000, acc
+check("change_balance revert is symmetric", t3)
 
 def t4():
     increase_produced_count("dave", 700, logger=logger)

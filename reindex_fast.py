@@ -46,15 +46,15 @@ def accumulate_chain(logger, log_every=50000):
     accounts = {}
     tx_rows = []
     block_rows = []
-    totals = [0, 0, 0]  # produced, fees, burned
+    totals = [0, 0]  # produced, fees
 
-    def adj(addr, balance=0, produced=0, burned=0):
+    def adj(addr, balance=0, produced=0, bonded=0):
         a = accounts.get(addr)
         if a is None:
             a = accounts[addr] = [0, 0, 0]
         a[0] += balance
         a[1] += produced
-        a[2] += burned
+        a[2] += bonded
 
     block = get_block_ends_info(logger=logger)["latest_block"]  # genesis
     tip = block
@@ -76,11 +76,17 @@ def accumulate_chain(logger, log_every=50000):
         for tx in sort_list_dict(block["block_transactions"]):
             amount = tx["amount"]
             fee = tx["fee"]
-            amount_sender = amount + fee  # fee always debited (compat gate gone)
-            is_burn = tx["recipient"] == "burn"
-            adj(tx["sender"], balance=-amount_sender, burned=amount_sender if is_burn else 0)
-            adj(tx["recipient"], balance=amount)
-            tx_rows.append((tx["txid"], height, tx["sender"], tx["recipient"]))
+            recipient = tx["recipient"]
+            # mirror reflect_transaction: bond/unbond move coins between balance and bonded;
+            # everything else is an ordinary transfer (fee always debited). No burn.
+            if recipient == "bond":
+                adj(tx["sender"], balance=-(amount + fee), bonded=amount)
+            elif recipient == "unbond":
+                adj(tx["sender"], balance=amount - fee, bonded=-amount)
+            else:
+                adj(tx["sender"], balance=-(amount + fee))
+                adj(recipient, balance=amount)
+            tx_rows.append((tx["txid"], height, tx["sender"], recipient))
 
         # 90/10 split mirrors incorporate_block: producer gets the floor + produced credit,
         # treasury the exact remainder; totals.produced tracks the FULL emission.
@@ -94,7 +100,6 @@ def accumulate_chain(logger, log_every=50000):
         if reward:
             totals[0] += reward
         totals[1] += sum(tx["fee"] for tx in block["block_transactions"])  # fees counted always
-        totals[2] += sum(tx["amount"] for tx in block["block_transactions"] if tx["recipient"] == "burn")
 
         count += 1
         if count % log_every == 0:
@@ -110,27 +115,27 @@ def write_state(accounts, tx_rows, block_rows, totals, logger):
     home = get_home()
 
     # --- accounts + totals: one transaction ---
-    acc = DbHandler(db_file=f"{home}/index/accounts.db")
+    acc = DbHandler(db_file=f"{home}/index/index.db")
     try:
-        existing = acc.db_fetch("SELECT address, balance, produced, burned FROM acc_index")
+        existing = acc.db_fetch("SELECT address, balance, produced, bonded FROM acc_index")
         merged = {row[0]: [row[1], row[2], row[3]] for row in existing}
-        for addr, (db, dp, dbn) in accounts.items():
+        for addr, (d_balance, d_produced, d_bonded) in accounts.items():
             m = merged.get(addr)
             if m is None:
                 m = merged[addr] = [0, 0, 0]
-            m[0] += db
-            m[1] += dp
-            m[2] += dbn
+            m[0] += d_balance
+            m[1] += d_produced
+            m[2] += d_bonded
         acc.db_execute("DELETE FROM acc_index")
         acc.db_executemany(
-            "INSERT INTO acc_index (address, balance, produced, burned) VALUES (?,?,?,?)",
+            "INSERT INTO acc_index (address, balance, produced, bonded) VALUES (?,?,?,?)",
             [(a, v[0], v[1], v[2]) for a, v in merged.items()])
-        acc.db_execute("UPDATE totals_index SET produced=?, fees=?, burned=?", (totals[0], totals[1], totals[2]))
+        acc.db_execute("UPDATE totals_index SET produced=?, fees=?", (totals[0], totals[1]))
     finally:
         acc.close()
 
     # --- blocks ---
-    blk = DbHandler(db_file=f"{home}/index/blocks.db")
+    blk = DbHandler(db_file=f"{home}/index/index.db")
     try:
         blk.db_executemany("INSERT OR IGNORE INTO block_index (block_hash, block_number) VALUES (?,?)", block_rows)
     finally:
@@ -144,7 +149,7 @@ def write_state(accounts, tx_rows, block_rows, totals, logger):
             seen.add(row[0])
             deduped.append(row)
 
-    tx = DbHandler(db_file=f"{home}/index/transactions.db")
+    tx = DbHandler(db_file=f"{home}/index/index.db")
     try:
         tx.db_execute("CREATE TABLE IF NOT EXISTS tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
         for idx in ("idx_txid", "idx_sender", "idx_recipient"):

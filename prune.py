@@ -15,7 +15,7 @@ block_ends = get_block_ends_info(logger=logger)
 block_number_to_keep = block_ends["latest_block"]["block_number"]
 block_hash_to_keep = block_ends["latest_block"]["block_hash"]
 
-tx_db = f"{get_home()}/index/transactions.db"
+tx_db = f"{get_home()}/index/index.db"
 if os.path.exists(tx_db):
     transactions_db = sqlite3.connect(tx_db)
     transactions_c = transactions_db.cursor()
@@ -27,7 +27,7 @@ if os.path.exists(tx_db):
     transactions_db.close()
 
 logger.info("Pruning block index")
-blocks_db = sqlite3.connect(f"{get_home()}/index/blocks.db")
+blocks_db = sqlite3.connect(f"{get_home()}/index/index.db")
 blocks_db_c = blocks_db.cursor()
 blocks_db_c.execute("DELETE FROM block_index WHERE block_number != ?", (block_number_to_keep,))
 blocks_db.commit()

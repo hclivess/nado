@@ -173,7 +173,7 @@ def get_block(block):
 
 def get_block_number(number):
     try:
-        block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
+        block_handler = DbHandler(db_file=f"{get_home()}/index/index.db")
         fetched = block_handler.db_fetch("SELECT block_hash FROM block_index WHERE block_number = ?", (number,))[0][0]
         block_handler.close()
         return get_block(fetched)
@@ -185,7 +185,7 @@ def block_already_indexed(block_hash):
     """True if this exact block was already incorporated (its hash is in block_index).
     Used to make incorporate_block idempotent against a re-fetched / replayed block."""
     try:
-        handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
+        handler = DbHandler(db_file=f"{get_home()}/index/index.db")
         found = handler.db_fetch("SELECT 1 FROM block_index WHERE block_hash = ? LIMIT 1", (block_hash,))
         handler.close()
         return bool(found)
@@ -284,7 +284,7 @@ def unindex_block(block, logger):
     attempts = 0
     while True:
         try:
-            block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
+            block_handler = DbHandler(db_file=f"{get_home()}/index/index.db")
             block_handler.db_execute(
                 "DELETE FROM block_index WHERE block_number = ?", (block['block_number'],))
             block_handler.close()
@@ -352,12 +352,23 @@ def set_earliest_block_info(earliest_block: dict, logger):
 def set_latest_block_info(latest_block: dict, logger):
     _update_block_ends({"latest_block": latest_block["block_hash"]}, logger=logger)
 
-    blocks_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
+    blocks_handler = DbHandler(db_file=f"{get_home()}/index/index.db")
     blocks_handler.db_execute("INSERT OR IGNORE INTO block_index VALUES (?, ?)",
                               (latest_block['block_hash'], latest_block['block_number']))
     blocks_handler.close()
 
     return latest_block
+
+
+def index_block_number(block):
+    """Insert the block's number<->hash row — the 'applied' marker that block_already_indexed
+    checks. Called INSIDE the incorporate transaction so the marker commits ATOMICALLY with the
+    balance/totals mutations: a crash either applies the whole block or none of it, so a replay
+    on restart can never double-credit (audit LO-1/CO-4)."""
+    handler = DbHandler(db_file=f"{get_home()}/index/index.db")
+    handler.db_execute("INSERT OR IGNORE INTO block_index VALUES (?, ?)",
+                       (block["block_hash"], block["block_number"]))
+    handler.close()
 
 
 def construct_block(
@@ -515,16 +526,12 @@ def get_ip_penalty(producer, logger, blocks_backward=50):
 
 
 def get_penalty(producer_address, block_hash, block_number):
+    # Burn-to-bribe removed: penalty = deterministic hash score + the producer's cumulative
+    # 'produced' (recent winners back off). NOTE: this legacy IP-based penalty is superseded by
+    # the bonded split-neutral select_producer in mining_ops; it remains until the S4.3 wiring.
     hash_penalty = get_hash_penalty(address=producer_address, block_hash=block_hash, block_number=block_number)
     miner_penalty = get_account_value(address=producer_address, key="produced")
-    combined_penalty = hash_penalty + miner_penalty
-    burn_bonus = get_account_value(producer_address, key="burned")
-    block_penalty = combined_penalty - burn_bonus * 100
-
-    if block_penalty < hash_penalty:
-        block_penalty = hash_penalty
-
-    return block_penalty
+    return hash_penalty + miner_penalty
 
 
 def pick_best_producer(block_producers, logger, event_bus, latest_block):

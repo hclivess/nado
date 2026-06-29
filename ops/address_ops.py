@@ -10,7 +10,7 @@ def proof_sender(public_key, sender):
 
 
 def validate_address(address: str, checksum_size: int = 2):
-    # keyless protocol addresses ("burn"/"treasury"/"bond"/"unbond") are always valid
+    # keyless protocol addresses ("bond"/"unbond") are always valid
     if address in RESERVED_RECIPIENTS:
         return True
     if (isinstance(address, str)

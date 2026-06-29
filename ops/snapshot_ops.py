@@ -37,14 +37,15 @@ def _blake2b(data: bytes) -> str:
     return hashlib.blake2b(data, digest_size=32).hexdigest()
 
 
-def _leaf(address, balance, produced, burned) -> bytes:
-    """canonical, fixed encoding of one account row (addresses/ints contain no ':')"""
-    return f"{address}:{balance}:{produced}:{burned}".encode()
+def _leaf(address, balance, produced, bonded) -> bytes:
+    """canonical, fixed encoding of one account row (addresses/ints contain no ':').
+    `bonded` is part of the verified state-root so a snapshot commits mining stake too."""
+    return f"{address}:{balance}:{produced}:{bonded}".encode()
 
 
 def merkle_root(rows) -> str:
     """deterministic blake2b Merkle root over account rows sorted by address.
-    rows: iterable of (address, balance, produced, burned)."""
+    rows: iterable of (address, balance, produced, bonded)."""
     leaves = [hashlib.blake2b(_leaf(*r), digest_size=32).digest()
               for r in sorted(rows, key=lambda r: r[0])]
     if not leaves:
@@ -58,24 +59,24 @@ def merkle_root(rows) -> str:
 
 
 def read_accounts(home=None):
-    """all account rows (sorted by address) and the totals row from accounts.db"""
+    """all account rows (sorted by address) and the totals row from index.db"""
     home = home or get_home()
-    con = sqlite3.connect(f"{home}/index/accounts.db")
+    con = sqlite3.connect(f"{home}/index/index.db")
     try:
         rows = con.execute(
-            "SELECT address, balance, produced, burned FROM acc_index ORDER BY address").fetchall()
-        totals_row = con.execute("SELECT produced, fees, burned FROM totals_index").fetchone()
+            "SELECT address, balance, produced, bonded FROM acc_index ORDER BY address").fetchall()
+        totals_row = con.execute("SELECT produced, fees FROM totals_index").fetchone()
     finally:
         con.close()
-    totals = {"produced": totals_row[0], "fees": totals_row[1], "burned": totals_row[2]} if totals_row \
-        else {"produced": 0, "fees": 0, "burned": 0}
+    totals = {"produced": totals_row[0], "fees": totals_row[1]} if totals_row \
+        else {"produced": 0, "fees": 0}
     return rows, totals
 
 
 def block_hash_at_height(height, home=None):
     """block hash for a given block number from blocks.db, or None"""
     home = home or get_home()
-    con = sqlite3.connect(f"{home}/index/blocks.db")
+    con = sqlite3.connect(f"{home}/index/index.db")
     try:
         row = con.execute(
             "SELECT block_hash FROM block_index WHERE block_number = ?", (height,)).fetchone()
@@ -189,25 +190,27 @@ def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
         _log(logger, "error", "snapshot account_count mismatch")
         return False
 
-    # 4) atomically build a fresh accounts.db and swap it in
-    tmp_path = f"{home}/index/accounts.snapshot.tmp"
-    final_path = f"{home}/index/accounts.db"
-    if os.path.exists(tmp_path):
-        os.remove(tmp_path)
-    con = sqlite3.connect(tmp_path)
+    # 4) atomically replace acc_index + totals inside the consolidated index.db, in ONE
+    #    transaction (the old code swapped a standalone accounts.db file, which no longer
+    #    exists). tx_index / block_index share the same db and are rebuilt separately
+    #    (reindex); they are intentionally untouched here.
+    from ops.sqlite_ops import DbHandler, transaction
+    db = f"{home}/index/index.db"
+    handler = DbHandler(db_file=db)
     try:
-        con.execute("PRAGMA journal_mode=OFF")
-        con.execute("PRAGMA synchronous=OFF")
-        con.execute("CREATE TABLE acc_index(address TEXT, balance INTEGER, produced INTEGER, burned INTEGER)")
-        con.execute("CREATE UNIQUE INDEX seek_index ON acc_index(address)")
-        con.execute("CREATE TABLE totals_index(produced INTEGER, fees INTEGER, burned INTEGER)")
-        con.executemany("INSERT INTO acc_index VALUES (?,?,?,?)", rows)
-        t = manifest["totals"]
-        con.execute("INSERT INTO totals_index VALUES (?,?,?)", (t["produced"], t["fees"], t["burned"]))
-        con.commit()
+        with transaction(db):
+            handler.db_execute("CREATE TABLE IF NOT EXISTS acc_index(address TEXT, balance INTEGER, produced INTEGER, bonded INTEGER DEFAULT 0)")
+            handler.db_execute("CREATE UNIQUE INDEX IF NOT EXISTS seek_index ON acc_index(address)")
+            handler.db_execute("CREATE TABLE IF NOT EXISTS totals_index(produced INTEGER, fees INTEGER)")
+            handler.db_execute("DELETE FROM acc_index")
+            handler.db_executemany(
+                "INSERT INTO acc_index (address, balance, produced, bonded) VALUES (?,?,?,?)",
+                [tuple(r) for r in rows])
+            handler.db_execute("DELETE FROM totals_index")
+            t = manifest["totals"]
+            handler.db_execute("INSERT INTO totals_index VALUES (?,?)", (t["produced"], t["fees"]))
     finally:
-        con.close()
-    os.replace(tmp_path, final_path)
+        handler.close()
     _log(logger, "info",
          f"Imported snapshot height {manifest['snapshot_height']} "
          f"({manifest['account_count']} accounts, state_root {manifest['state_root'][:16]}...)")

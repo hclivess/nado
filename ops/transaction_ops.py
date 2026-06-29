@@ -26,7 +26,7 @@ import aiohttp
 
 def tx_index_path():
     """single, consolidated transaction index (replaces the per-10k-block split files)"""
-    return f"{get_home()}/index/transactions.db"
+    return f"{get_home()}/index/index.db"
 
 
 _tx_index_ready = False
@@ -219,7 +219,7 @@ def get_senders(transaction_pool: list) -> list:
 def _spend_costs(tx):
     """(spendable-balance cost, bonded-stake cost) of a tx for overspend checks.
     An `unbond` draws its `amount` from bonded stake (only the fee leaves balance); every
-    other tx — including `bond` and `burn` — consumes amount+fee from spendable balance."""
+    other tx — including `bond` — consumes amount+fee from spendable balance."""
     if tx["recipient"] == "unbond":
         return tx["fee"], tx["amount"]
     return tx["amount"] + tx["fee"], 0

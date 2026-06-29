@@ -51,6 +51,49 @@ def close_thread_connections():
     cache.clear()
 
 
+def _in_txn(db_file) -> bool:
+    depth = getattr(_local, "txn_depth", None)
+    return bool(depth and depth.get(db_file, 0) > 0)
+
+
+class _Transaction:
+    """Group many writes on one db_file into a SINGLE atomic commit. While the (re-entrant)
+    context is open, DbHandler._run does NOT commit per statement; the outermost context commits
+    once on success or rolls the whole thing back on any exception. This is what makes the full
+    incorporate_block mutation all-or-nothing (closes the crash-double-credit, audit LO-1/CO-4)."""
+
+    def __init__(self, db_file, timeout):
+        self.db_file = db_file
+        self.timeout = timeout
+
+    def __enter__(self):
+        self.con = _get_connection(self.db_file, self.timeout)
+        depth = getattr(_local, "txn_depth", None)
+        if depth is None:
+            depth = _local.txn_depth = {}
+        if depth.get(self.db_file, 0) == 0:
+            try:  # start from a clean slate (no leftover implicit transaction)
+                self.con.commit()
+            except Exception:
+                pass
+        depth[self.db_file] = depth.get(self.db_file, 0) + 1
+        return self.con
+
+    def __exit__(self, exc_type, exc, tb):
+        depth = _local.txn_depth
+        depth[self.db_file] -= 1
+        if depth[self.db_file] == 0:
+            try:
+                self.con.commit() if exc_type is None else self.con.rollback()
+            except Exception:
+                pass
+        return False  # never suppress the exception
+
+
+def transaction(db_file, timeout=30.0):
+    return _Transaction(db_file, timeout)
+
+
 class DbHandler:
     def __init__(self, db_file, retry_delay=0.05, max_retries=200, timeout=30.0):
         self.db_file = db_file
@@ -60,22 +103,36 @@ class DbHandler:
         self.con = _get_connection(db_file, timeout)
         self.cur = self.con.cursor()
 
+    def _safe_rollback(self):
+        try:
+            self.con.rollback()
+        except Exception:
+            pass
+
     def _run(self, runner, query, args):
-        """run a cursor operation, retrying only on transient lock contention.
-        Permanent errors (bad schema/query) are raised instead of looping forever."""
+        """Run a cursor operation. Commits per statement UNLESS inside a transaction() context
+        (then the context commits once). Retries only transient lock contention, and only when
+        not in an explicit transaction; permanent errors (or any error inside a transaction) are
+        surfaced so the transaction rolls back rather than looping forever."""
         attempt = 0
         while True:
             try:
-                with self.con:
-                    return runner(query, *args)
+                result = runner(query, *args)
+                if not _in_txn(self.db_file):
+                    self.con.commit()
+                return result
             except Exception as e:
-                if _is_locked(e):
+                in_txn = _in_txn(self.db_file)
+                if _is_locked(e) and not in_txn:
                     attempt += 1
                     if attempt >= self.max_retries:
                         self.logger.error(f"{e} | {query} | giving up after {attempt} locked attempts")
+                        self._safe_rollback()
                         raise
                     time.sleep(self.retry_delay)
                     continue
+                if not in_txn:
+                    self._safe_rollback()
                 self.logger.error(f"{e} | {query}")
                 raise
 

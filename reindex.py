@@ -10,6 +10,7 @@ import os.path
 import shutil
 
 from ops.data_ops import get_home, make_folder
+from protocol import split_block_reward, TREASURY_ADDRESS, TREASURY_GENESIS
 
 to_wipeout = ["index"]
 
@@ -34,8 +35,8 @@ genesis_block_hash = ""
 blocks = []
 
 make_genesis(
-    address="ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80137b",
-    balance=1000000000000000000,
+    address=TREASURY_ADDRESS,        # genesis address == treasury (canonical checksum)
+    balance=TREASURY_GENESIS,        # bootstrap allocation
     ip="78.102.98.72",
     port=9173,
     timestamp=1669852800,
@@ -90,19 +91,14 @@ while block:
                                sorted_transactions=sorted_transactions,
                                logger=logger)
 
-            change_balance(address=block["block_creator"],
-                           amount=block["block_reward"],
-                           logger=logger
-                           )
-
-            increase_produced_count(address=block["block_creator"],
-                                    amount=block["block_reward"],
-                                    logger=logger
-                                    )
+            producer_cut, treasury_cut = split_block_reward(block["block_reward"])
+            change_balance(address=block["block_creator"], amount=producer_cut, logger=logger)
+            if treasury_cut:
+                change_balance(address=TREASURY_ADDRESS, amount=treasury_cut, logger=logger)
+            increase_produced_count(address=block["block_creator"], amount=producer_cut, logger=logger)
 
             index_totals(produced=totals["produced"],
                          fees=totals["fees"],
-                         burned=totals["burned"],
                          block_height=block["block_number"])
 
         # Clear the data storage variables after batch processing

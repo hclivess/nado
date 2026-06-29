@@ -24,8 +24,11 @@ from ops.block_ops import (
     check_target_match,
     valid_block_timestamp,
     block_already_indexed,
+    index_block_number,
     pick_best_producer,
 )
+from ops.data_ops import get_home
+from ops.sqlite_ops import transaction
 from protocol import split_block_reward, TREASURY_ADDRESS, CHAIN_ID, REWARD_CAP
 from ops.data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
 from ops.peer_ops import load_trust, update_local_address, ip_stored, check_ip, qualifies_to_sync, announce_me, get_remote_status, get_producer_set
@@ -554,43 +557,44 @@ class CoreClient(threading.Thread):
 
         self.logger.warning(f"Producing block")
 
-        index_transactions(block=block,
-                           sorted_transactions=sorted_transactions,
-                           logger=self.logger)
-
+        # File writes FIRST (idempotent, safe to redo on replay): the block body must exist
+        # before block_index references it, and the parent's child pointer is idempotent.
+        save_block(block, self.logger)
         update_child_in_latest_block(child_hash=block["block_hash"],
                                      logger=self.logger,
                                      parent=self.memserver.latest_block)
 
-        # canonical 90/10 split: producer gets the floor, treasury the exact remainder, so the
-        # two credits sum to block_reward (single source of truth: protocol.split_block_reward).
-        # rollback_one_block reverses with the identical split, so the two paths can never drift.
-        producer_cut, treasury_cut = split_block_reward(block["block_reward"])
-        change_balance(address=block["block_creator"],
-                       amount=producer_cut,
-                       logger=self.logger
-                       )
-        if treasury_cut:
-            change_balance(address=TREASURY_ADDRESS,
-                           amount=treasury_cut,
-                           logger=self.logger
-                           )
+        # ATOMIC state mutation: tx index + balances + treasury + produced + totals + the
+        # block_index 'applied' marker all commit together or not at all, so a crash mid-apply
+        # leaves the block UNapplied (and block_already_indexed lets the replay re-apply it
+        # cleanly) instead of double-crediting the reward (audit LO-1/CO-4).
+        index_db = f"{get_home()}/index/index.db"
+        with transaction(index_db):
+            index_transactions(block=block,
+                               sorted_transactions=sorted_transactions,
+                               logger=self.logger)
 
-        # the producer's penalty metric tracks what it actually earned (its 90% cut)
-        increase_produced_count(address=block["block_creator"],
-                                amount=producer_cut,
-                                logger=self.logger
-                                )
+            # canonical 90/10 split: producer gets the floor, treasury the exact remainder, so
+            # the two credits sum to block_reward (single source: protocol.split_block_reward).
+            # rollback_one_block reverses with the identical split, so they can never drift.
+            producer_cut, treasury_cut = split_block_reward(block["block_reward"])
+            change_balance(address=block["block_creator"], amount=producer_cut, logger=self.logger)
+            if treasury_cut:
+                change_balance(address=TREASURY_ADDRESS, amount=treasury_cut, logger=self.logger)
 
-        totals = get_totals(block=block)  # produced = full reward = total emission
-        index_totals(produced=totals["produced"],
-                     fees=totals["fees"],
-                     burned=totals["burned"],
-                     block_height=block["block_number"])
+            # the producer's penalty metric tracks what it actually earned (its 90% cut)
+            increase_produced_count(address=block["block_creator"], amount=producer_cut, logger=self.logger)
 
-        save_block(block, self.logger)
-        set_latest_block_info(latest_block=block,
-                              logger=self.logger)
+            totals = get_totals(block=block)  # produced = full reward = total emission
+            index_totals(produced=totals["produced"],
+                         fees=totals["fees"],
+                         block_height=block["block_number"])
+
+            index_block_number(block)  # the applied marker, atomic with the state above
+
+        # Advance the tip pointer file only AFTER the atomic state commit. A crash before this
+        # just leaves a stale tip that re-syncs forward; block_already_indexed prevents re-apply.
+        set_latest_block_info(latest_block=block, logger=self.logger)
 
     def validate_transactions_in_block(self, block, logger, remote_peer, remote):
         transactions = sort_list_dict(block["block_transactions"])

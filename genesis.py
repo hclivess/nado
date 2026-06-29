@@ -12,32 +12,30 @@ from protocol import CHAIN_ID, TREASURY_ADDRESS, TREASURY_GENESIS
 
 
 def create_indexers():
-    acc_handler = DbHandler(db_file=f"{get_home()}/index/accounts.db")
-    # `bonded` = refundable stake locked for mining eligibility (S4); it is NOT spendable
-    # balance and is tracked separately so split-neutral selection can weight by it.
-    acc_handler.db_execute(query="CREATE TABLE IF NOT EXISTS acc_index(address TEXT, balance INTEGER, produced INTEGER, burned INTEGER, bonded INTEGER DEFAULT 0)")
-    # UNIQUE so a concurrent get_account(create_on_error=True) race can't insert two rows
-    acc_handler.db_execute(query="CREATE UNIQUE INDEX IF NOT EXISTS seek_index ON acc_index(address)")
+    # ONE consolidated index database so the whole incorporate_block mutation (balances, tx
+    # index, block index, tip) commits in a SINGLE transaction -> crash-atomic (audit LO-1/CO-4).
+    handler = DbHandler(db_file=f"{get_home()}/index/index.db")
 
-    acc_handler.db_execute(query="CREATE TABLE IF NOT EXISTS totals_index(produced INTEGER, fees INTEGER, burned INTEGER)")
-    acc_handler.db_execute("INSERT INTO totals_index VALUES (?,?,?)", (0,0,0,))
-    acc_handler.close()
+    # accounts + totals. `bonded` = refundable stake locked for mining eligibility (S4); it is
+    # NOT spendable balance and is tracked separately so split-neutral selection can weight by it.
+    handler.db_execute("CREATE TABLE IF NOT EXISTS acc_index(address TEXT, balance INTEGER, produced INTEGER, bonded INTEGER DEFAULT 0)")
+    # UNIQUE so a concurrent get_account(create_on_error=True) race can't insert two rows
+    handler.db_execute("CREATE UNIQUE INDEX IF NOT EXISTS seek_index ON acc_index(address)")
+    handler.db_execute("CREATE TABLE IF NOT EXISTS totals_index(produced INTEGER, fees INTEGER)")
+    if not handler.db_fetch("SELECT 1 FROM totals_index LIMIT 1"):  # seed once (idempotent re-run)
+        handler.db_execute("INSERT INTO totals_index VALUES (?,?)", (0, 0,))
 
     # single consolidated transaction index (replaces the per-10k-block split dbs)
-    tx_handler = DbHandler(db_file=f"{get_home()}/index/transactions.db")
-    tx_handler.db_execute(
-        query="CREATE TABLE IF NOT EXISTS tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
-    tx_handler.db_execute(query="CREATE UNIQUE INDEX IF NOT EXISTS idx_txid ON tx_index(txid)")
-    tx_handler.db_execute(query="CREATE INDEX IF NOT EXISTS idx_sender ON tx_index(sender, block_number)")
-    tx_handler.db_execute(query="CREATE INDEX IF NOT EXISTS idx_recipient ON tx_index(recipient, block_number)")
-    tx_handler.close()
+    handler.db_execute("CREATE TABLE IF NOT EXISTS tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
+    handler.db_execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_txid ON tx_index(txid)")
+    handler.db_execute("CREATE INDEX IF NOT EXISTS idx_sender ON tx_index(sender, block_number)")
+    handler.db_execute("CREATE INDEX IF NOT EXISTS idx_recipient ON tx_index(recipient, block_number)")
 
-    block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
-    block_handler.db_execute(
-        query="CREATE TABLE IF NOT EXISTS block_index(block_hash TEXT, block_number INTEGER UNIQUE)")
-    block_handler.db_execute(query="CREATE INDEX IF NOT EXISTS idx_block_hash ON block_index(block_hash)")
-    block_handler.db_execute(query="CREATE INDEX IF NOT EXISTS idx_block_number ON block_index(block_number)")
-    block_handler.close()
+    # block number <-> hash index
+    handler.db_execute("CREATE TABLE IF NOT EXISTS block_index(block_hash TEXT, block_number INTEGER UNIQUE)")
+    handler.db_execute("CREATE INDEX IF NOT EXISTS idx_block_hash ON block_index(block_hash)")
+    handler.db_execute("CREATE INDEX IF NOT EXISTS idx_block_number ON block_index(block_number)")
+    handler.close()
 
 
 def make_folders():
