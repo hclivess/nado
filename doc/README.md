@@ -32,7 +32,8 @@ It also records the multi-agent **security review** that motivated much of this 
 | **(burn)** | Remove burn mechanics entirely | ✅ implemented & unit-tested |
 | **S4.1** | Bond/unbond transactions + `bonded` stake state | ✅ implemented & unit-tested |
 | **S4.2** | Split-neutral selection math + commit-reveal RANDAO beacon (`ops/mining_ops.py`) | ✅ implemented & unit-tested |
-| **S4.3** | Wire bonded selection + beacon into live block production/verification; fail-closed authorship; heartbeats/fidelity; consensus-pool reweight; faucet | ⏳ **not yet implemented** — needs a multi-node testnet |
+| **S4.3 v1** | Bonded `select_producer` + epoch beacon wired into live production/verification; fail-closed authorship; testnet bonding | ✅ **implemented & testnet-validated** (3 nodes produce + converge via bonded mining) |
+| **S4.3 hardening** | Full on-chain RANDAO commit-reveal; heartbeats/fidelity; consensus-pool reweight; faucet; canonical tx order (CO-8); rollback re-verify guard | ⏳ deferred (see [mining.md](mining.md)) |
 | **S4b** | Browser light-miner reference client | ⏳ **not yet implemented** |
 
 "Unit-tested" = verified by `tests/test_s*.py` under a venv + temporary `$HOME` (no live

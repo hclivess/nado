@@ -1,4 +1,6 @@
 import asyncio
+import json
+import os
 
 from config import create_config
 from hashing import blake2b_hash_link
@@ -72,6 +74,19 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
     # and accrues the 10% per-block cut. Because this address is key-controlled, the seed balance
     # is effectively a founder allocation; pass balance=0 (TREASURY_GENESIS=0) for a no-coins start.
     create_account(address=address, balance=balance)
+
+    # TESTNET ONLY: seed bonded stake for the node addresses listed in private/genesis_bonds.dat
+    # (byte-identical on every node) so there is an eligible bonded producer set from block 1 and
+    # the fail-closed S4.3 selector can mint. Off-chain account seeding only — it does NOT change
+    # the genesis block hash (block 0 hash = blake2b_hash_link(timestamp, []) ignores account state).
+    if os.environ.get("NADO_TESTNET"):
+        bonds_path = f"{get_home()}/private/genesis_bonds.dat"
+        if os.path.exists(bonds_path):
+            with open(bonds_path) as bf:
+                bonds = json.load(bf)
+            for entry in bonds:
+                create_account(address=entry["address"], balance=0, bonded=entry["bonded"])
+            logger.warning(f"TESTNET: seeded {len(bonds)} bonded genesis accounts")
 
     save_peer(ip=ip,
               address=address,

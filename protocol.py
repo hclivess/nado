@@ -64,6 +64,12 @@ FIDELITY_CAP = 1000
 FIDELITY_GAIN = 1                  # per epoch present
 FIDELITY_DECAY = 2                 # per epoch absent (continuity costs more to fake than to keep)
 
+# Seed for the per-epoch selection beacon (S4.3). Epochs 0-1 use this fixed constant directly
+# (no finalized prior epoch exists yet); epoch>=2 chains it with the hash of the first block of
+# the previous epoch (see block_ops.epoch_beacon). Replacing this with the full on-chain
+# commit-reveal RANDAO is the hardening step (mining_ops.compute_beacon already implements it).
+GENESIS_BEACON = blake2b_hash(["nado-genesis-beacon", CHAIN_ID])
+
 
 def split_block_reward(reward: int):
     """Canonical 90/10 producer/treasury split. Returns (producer_cut, treasury_cut) that

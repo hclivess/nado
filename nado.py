@@ -17,7 +17,8 @@ from loops.core_loop import CoreClient
 from loops.message_loop import MessageClient
 from loops.peer_loop import PeerClient
 from memserver import MemServer
-from ops.account_ops import get_account, fetch_totals
+from ops.account_ops import get_account, fetch_totals, get_bonded_registry
+from ops.mining_ops import total_shares
 from ops.block_ops import get_block, fee_over_blocks, get_block_number, get_penalty
 from ops.data_ops import get_home, allow_async
 from ops.key_ops import keyfile_found, generate_keys, save_keys, load_keys
@@ -910,6 +911,12 @@ memserver = MemServer(logger=logger)
 logger.info(f"NADO version {memserver.version} started")
 logger.info(f"Your address: {memserver.address}")
 logger.info(f"Your IP: {memserver.ip}")
+
+# S4.3: surface the bonded producer registry loudly at startup. total_shares == 0 means NO
+# eligible producer (every bond < B_MIN, or none seeded) -> fail-closed selection silently
+# produces no blocks, so this must be obvious rather than a quiet stall at genesis.
+_registry = get_bonded_registry()
+logger.warning(f"Bonded producer registry: {len(_registry)} eligible, total_shares={total_shares(_registry)}")
 logger.info(f"Promiscuity mode: {memserver.promiscuous}")
 logger.info(f"Cascade depth limit: {memserver.cascade_limit}")
 

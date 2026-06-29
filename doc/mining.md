@@ -68,17 +68,43 @@ spendable separation + revert symmetry; **split-neutrality** (an entity wins wit
 probability whether it holds one bond or shards it); proportional-to-bond win rate; cap;
 commit/reveal correctness; chained/withholding-sensitive beacon.
 
-## Not yet implemented (S4.3, S4b) — needs a multi-node testnet
+## S4.3 v1 — live integration (IMPLEMENTED & testnet-validated)
 
-- **S4.3 — live integration:** build the on-chain bonded registry from account state; record
-  commits/reveals in blocks and penalise withholders; replace
-  `pick_best_producer`/`get_penalty` with `select_producer` over the beacon; make authorship
-  **fail-closed** in `verify_block` (`block_creator` == the selected winner); relay-batched
-  `/submit_heartbeat` + offline-at-win payout; automated fidelity from heartbeats; reweight the
-  consensus pool by trust/stake (today it is one vote per peer, `consensus_loop.py`); a
-  treasury-funded, rate-limited onboarding **faucet** (no manual step, anti-IDENA).
-- **S4b — browser light-miner:** Web-Crypto Ed25519, key in browser storage, `fetch()` to
-  relays, reproducing the canonical encoding + address derivation in JS (BigInt-safe).
+Bonded selection is now wired into the live production/verification path and validated on a
+3-node local testnet (nodes produce block 1 via bonded selection and converge on the identical
+tip):
+- **Registry from chain state** — `account_ops.get_bonded_registry()` enumerates accounts with
+  `bonded >= B_MIN` from the committed `acc_index` (parent state); it is the sole input (with the
+  beacon) to `select_producer`. Agreed implicitly via block sync — no new gossip field.
+- **Selection swap** — `block_ops.get_block_candidate` now calls
+  `select_producer(get_bonded_registry(), epoch_beacon(epoch_of(n)), slot=n)` instead of the
+  grindable `pick_best_producer`; `block_ip` is repurposed to the winner address so the hashed
+  body is identical on every node. Returns `None` (skip) if no eligible bond.
+- **Beacon (v1)** — `block_ops.epoch_beacon`: epochs 0-1 use the fixed `GENESIS_BEACON`; epoch≥2
+  chains it with the hash of the first block of the previous epoch (a finalized, non-parent
+  anchor — materially stronger than the M6 parent-hash seed, with bounded residual bias).
+- **Fail-closed authorship** — `core_loop.validate_block_producer` recomputes the winner and
+  rejects unless `block_creator == winner` (the old fail-open "unknown set → allow" path is
+  gone); `rebuild_block` recomputes the winner from local parent state so a lying relay can't
+  misattribute the reward.
+- **Bootstrap** — in `NADO_TESTNET` mode, `genesis.make_genesis` seeds bonded accounts from a
+  byte-identical `genesis_bonds.dat` manifest so there is an eligible producer set from block 1;
+  startup logs the registry size + `total_shares` loudly.
+
+### Deferred hardening (not in v1)
+- Full **on-chain commit-reveal RANDAO** beacon (replace the epoch-boundary anchor with revealed
+  secrets + a withholding penalty — the M6-grade fix; pure fns already in `mining_ops`).
+- **Heartbeats + on-chain fidelity** column and enabling the `selection_shares` fidelity ramp.
+- **Consensus-pool reweight** (today one vote per peer, `consensus_loop.py`) by trust/stake.
+- Treasury-funded **faucet** + a real post-launch bond-from-balance path (so a non-testnet chain
+  isn't deadlocked by fail-closed selection with an empty registry).
+- **Canonical in-block tx order** (CO-8) and the as-of-parent re-verify guard for the
+  rollback/snapshot paths (dormant in v1: empty mempool, no in-block bond txs, reward 0).
+- Enforce/document the **`max_rollbacks < EPOCH_LENGTH`** invariant for the epoch≥2 beacon anchor.
+
+### S4b — browser light-miner (pending)
+Web-Crypto Ed25519, key in browser storage, `fetch()` to relays, reproducing the canonical
+encoding + address derivation in JS (BigInt-safe), offline-at-win.
 
 ## Provisional parameters (simulate before locking)
 

@@ -27,6 +27,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, REPO)
 from hashing import base64encode          # noqa: E402
 from Curve25519 import generate_keydict   # noqa: E402
+from protocol import B_MIN                 # noqa: E402  (bond amount; NOT a literal — must be >= B_MIN)
 
 PORT = 9173
 
@@ -35,9 +36,9 @@ def node_ip(i):
     return f"127.0.0.{i + 2}"             # node 0 -> 127.0.0.2, etc. (avoid 127.0.0.1)
 
 
-def seed_node(home, i, all_keys):
-    """write config + keys + peer files for node i under <home>/nado/ (NOT blocks/ or index/,
-    which the node creates itself at genesis)."""
+def seed_node(home, i, all_keys, bond_manifest):
+    """write config + keys + peer files + the shared bond manifest for node i under <home>/nado/
+    (NOT blocks/ or index/, which the node creates itself at genesis)."""
     base = os.path.join(home, "nado")
     os.makedirs(os.path.join(base, "private"), exist_ok=True)
     os.makedirs(os.path.join(base, "peers"), exist_ok=True)
@@ -49,6 +50,11 @@ def seed_node(home, i, all_keys):
 
     # pre-generate the key so we know every node's address up front and can fully mesh them
     json.dump(all_keys[i], open(os.path.join(base, "private", "keys.dat"), "w"))
+
+    # BYTE-IDENTICAL bond manifest on every node: genesis seeds these bonded accounts (S4.3) so
+    # there is an eligible producer set from block 1. Any per-node difference -> different
+    # registry -> different winner -> permanent fork, so it must be the same bytes everywhere.
+    json.dump(bond_manifest, open(os.path.join(base, "private", "genesis_bonds.dat"), "w"))
 
     # seed peer files for ALL nodes (incl. self) so the producer set is known from boot
     for j, kd in enumerate(all_keys):
@@ -72,10 +78,15 @@ def main():
     workdir = tempfile.mkdtemp(prefix="nado_testnet_")
     print(f"[testnet] {n} nodes, up to {run_seconds}s, workdir {workdir}", flush=True)
     keys = [generate_keydict() for _ in range(n)]
+    # shared, sorted, BYTE-IDENTICAL bond manifest: each node bonds exactly B_MIN -> 1 share each,
+    # so total_shares == n > 0 and the fail-closed selector always has a winner from block 1.
+    bond_manifest = sorted(({"address": kd["address"], "bonded": B_MIN} for kd in keys),
+                           key=lambda e: e["address"])
     homes = [os.path.join(workdir, f"node{i}") for i in range(n)]
     for i in range(n):
-        seed_node(homes[i], i, keys)
+        seed_node(homes[i], i, keys, bond_manifest)
         print(f"[testnet] node{i} {node_ip(i)}:{PORT} address={keys[i]['address']}", flush=True)
+    print(f"[testnet] genesis bonds: {n} accounts x {B_MIN} (1 share each)", flush=True)
 
     procs = []
     try:
@@ -118,6 +129,9 @@ def main():
         print(f"\n[testnet] RESULT: {'PASS — converged + produced a block' if converged else 'INCOMPLETE — see logs'}",
               flush=True)
         if not converged:
+            print("[testnet] HINT: if nodes are up + meshed but stuck at genesis, check that each "
+                  "seeded bond >= B_MIN (else total_shares==0 and the fail-closed selector mints "
+                  "nothing), and that genesis_bonds.dat is byte-identical across nodes.", flush=True)
             for i in range(n):
                 print(f"\n----- node{i} log tail -----", flush=True)
                 try:

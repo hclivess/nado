@@ -2,6 +2,7 @@ import time
 
 from .data_ops import get_home
 from .sqlite_ops import DbHandler
+from protocol import B_MIN
 
 
 def get_account(address, create_on_error=True):
@@ -166,3 +167,18 @@ def get_account_value(address, key):
     account = get_account(address)
     value = account[key]
     return value
+
+
+def get_bonded_registry():
+    """Producer registry from committed account state (S4.3):
+    {address: {"bonded": int, "fidelity": None}} for every account with bonded >= B_MIN.
+
+    Together with the epoch beacon this is the SOLE input to mining_ops.select_producer, so it
+    must be read against PARENT state (it is, on both the production and verification paths,
+    which run before incorporate_block). Deterministic: the same committed acc_index yields the
+    same dict on every node. fidelity is None in v1 (no on-chain fidelity column yet), which
+    disables the selection_shares ramp so each identity gets full split-neutral capped weight."""
+    acc_handler = DbHandler(db_file=f"{get_home()}/index/index.db")
+    rows = acc_handler.db_fetch("SELECT address, bonded FROM acc_index WHERE bonded >= ?", (B_MIN,))
+    acc_handler.close()
+    return {row[0]: {"bonded": row[1], "fidelity": None} for row in rows}

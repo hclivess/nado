@@ -7,7 +7,7 @@ import traceback
 from config import get_timestamp_seconds
 from event_bus import EventBus
 from loops.consensus_loop import change_trust
-from ops.account_ops import increase_produced_count, change_balance, get_totals, index_totals
+from ops.account_ops import increase_produced_count, change_balance, get_totals, index_totals, get_bonded_registry
 from ops.block_ops import (
     knows_block,
     get_blocks_after,
@@ -21,6 +21,7 @@ from ops.block_ops import (
     get_block,
     construct_block,
     get_block_reward,
+    epoch_beacon,
     check_target_match,
     valid_block_timestamp,
     block_already_indexed,
@@ -28,6 +29,7 @@ from ops.block_ops import (
     pick_best_producer,
 )
 from ops.data_ops import get_home
+from ops.mining_ops import select_producer, epoch_of
 from ops.sqlite_ops import transaction
 from protocol import split_block_reward, TREASURY_ADDRESS, CHAIN_ID, REWARD_CAP
 from ops.data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
@@ -182,23 +184,28 @@ class CoreClient(threading.Thread):
                                                           block_time=self.memserver.block_time
                                                           )
 
-                    self.produce_block(block=block_candidate,
-                                       remote=False,
-                                       remote_peer=None)
+                    # S4.3: get_block_candidate returns None when no bonded identity is eligible
+                    # (empty registry / total_shares == 0). Skip this round rather than crash.
+                    if block_candidate is not None:
+                        self.produce_block(block=block_candidate,
+                                           remote=False,
+                                           remote_peer=None)
 
-                    self.memserver.block_generation_age = get_timestamp_seconds()
+                        self.memserver.block_generation_age = get_timestamp_seconds()
 
-                    self.memserver.transaction_pool = remove_outdated_transactions(
-                        self.memserver.transaction_pool.copy(),
-                        self.memserver.latest_block["block_number"])
+                        self.memserver.transaction_pool = remove_outdated_transactions(
+                            self.memserver.transaction_pool.copy(),
+                            self.memserver.latest_block["block_number"])
 
-                    self.memserver.tx_buffer = remove_outdated_transactions(
-                        self.memserver.tx_buffer.copy(),
-                        self.memserver.latest_block["block_number"])
+                        self.memserver.tx_buffer = remove_outdated_transactions(
+                            self.memserver.tx_buffer.copy(),
+                            self.memserver.latest_block["block_number"])
 
-                    self.memserver.user_tx_buffer = remove_outdated_transactions(
-                        self.memserver.user_tx_buffer.copy(),
-                        self.memserver.latest_block["block_number"])
+                        self.memserver.user_tx_buffer = remove_outdated_transactions(
+                            self.memserver.user_tx_buffer.copy(),
+                            self.memserver.latest_block["block_number"])
+                    else:
+                        self.logger.warning("No eligible bonded producer this round; skipping production")
 
                 else:
                     self.logger.warning("Criteria for block production not met")
@@ -534,12 +541,17 @@ class CoreClient(threading.Thread):
         # cannot inject an inflated reward: the reconstructed hash only matches the network if
         # the canonical reward/cumfee were used.
         parent = self.memserver.latest_block
+        block_number = parent["block_number"] + 1
+        # S4.3: RECOMPUTE the winner (creator/block_ip) from the local parent state + beacon
+        # rather than copying block_ip/block_creator from the peer, so a lying relay cannot
+        # misattribute the reward or fork an honest node — the reconstructed block is canonical.
+        winner = select_producer(get_bonded_registry(), epoch_beacon(epoch_of(block_number)), slot=block_number)
         return construct_block(
             block_timestamp=parent["block_timestamp"] + self.memserver.block_time,
-            block_number=parent["block_number"] + 1,
+            block_number=block_number,
             parent_hash=parent["block_hash"],
-            block_ip=block["block_ip"],
-            creator=block["block_creator"],
+            block_ip=winner,
+            creator=winner,
             transaction_pool=block["block_transactions"],
             block_producers_hash=block["block_producers_hash"],
             block_reward=get_block_reward(parent_block=parent, logger=self.logger),
@@ -639,31 +651,25 @@ class CoreClient(threading.Thread):
                     raise
 
     def validate_block_producer(self, block):
-        """H2: bind a block to its rightful producer. When we hold the producer set for
-        the block's block_producers_hash, recompute the deterministic pick_best_producer
-        winner for this height and reject the block if its block_ip is not that winner --
-        this stops a sync peer from attributing blocks (and their rewards) to an
-        attacker address. If the producer set is unknown locally we cannot verify it, so
-        we log and allow rather than risk halting sync on a set we simply haven't learned
-        yet; full fail-closed enforcement + per-block producer signatures is the complete
-        fix and needs multi-node validation."""
-        producers_hash = block.get("block_producers_hash")
-        if not producers_hash:
-            return
-        try:
-            producer_set = get_producer_set(producers_hash)
-        except Exception:
-            producer_set = None
-        if not producer_set:
-            self.logger.info("Producer set for block unknown locally; skipping authorship check")
-            return
-        expected_ip = pick_best_producer(producer_set,
-                                         logger=self.logger,
-                                         event_bus=self.event_bus,
-                                         latest_block=self.memserver.latest_block)
-        if expected_ip and block.get("block_ip") != expected_ip:
+        """S4.3 FAIL-CLOSED authorship: recompute the deterministic BONDED winner for this height
+        (from parent account state + the epoch beacon) and reject the block unless its
+        block_creator equals that winner. block_creator is the address that actually receives the
+        90/10 reward in incorporate_block, so binding it closes both the old fail-OPEN gap
+        (unknown producer set -> allow) and the attacker-misattribution vector.
+
+        This runs inside verify_block, strictly BEFORE incorporate_block, so get_bonded_registry()
+        reflects PARENT state. v1 has no in-block bond txs, so the registry is constant across the
+        chain; once bond txs land, the rollback/snapshot re-verify path must reset the tip to the
+        block's parent before calling this (else it would read post-apply state)."""
+        block_number = block["block_number"]
+        winner = select_producer(get_bonded_registry(),
+                                 epoch_beacon(epoch_of(block_number)),
+                                 slot=block_number)
+        if winner is None:
+            raise ValueError("No eligible bonded producer for this block (fail-closed)")
+        if block.get("block_creator") != winner:
             raise ValueError(
-                f"Block producer {block.get('block_ip')} is not the expected winner {expected_ip}")
+                f"Block creator {block.get('block_creator')} is not the selected winner {winner}")
 
     def verify_block(self, block, remote, remote_peer=None, is_old=False):
         """this function has critical checks and must raise a failure/halt if there is one"""
@@ -728,8 +734,8 @@ class CoreClient(threading.Thread):
 
             gen_elapsed = get_timestamp_seconds() - gen_start
 
-            if self.memserver.ip == block['block_ip'] and self.memserver.address == block['block_creator'] and \
-                    block['block_reward'] > 0:
+            # block_ip is now the winner ADDRESS (S4.3), so identity is the address match alone
+            if self.memserver.address == block['block_creator'] and block['block_reward'] > 0:
                 self.logger.warning(f"$$$ Congratulations! You won! $$$")
 
             self.logger.warning(f"Block hash: {block['block_hash']}")

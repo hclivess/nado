@@ -7,7 +7,7 @@ import msgpack
 import requests
 from tornado.httpclient import AsyncHTTPClient
 import aiohttp
-from .account_ops import get_account_value
+from .account_ops import get_account_value, get_bonded_registry
 from config import get_timestamp_seconds, get_config
 from .data_ops import set_and_sort, average, get_home, is_hex_hash
 from hashing import blake2b_hash_link
@@ -15,7 +15,8 @@ from .key_ops import load_keys
 from .log_ops import get_logger
 from .peer_ops import load_peer
 from .sqlite_ops import DbHandler
-from protocol import CHAIN_ID, REWARD_WINDOW, REWARD_CAP
+from .mining_ops import select_producer, epoch_of, compute_beacon
+from protocol import CHAIN_ID, REWARD_WINDOW, REWARD_CAP, GENESIS_BEACON, EPOCH_LENGTH
 
 
 def float_to_int(x):
@@ -95,31 +96,31 @@ def match_transactions_target(transaction_list, block_number, logger):
 def get_block_candidate(
         block_producers, block_producers_hash, transaction_pool, logger, event_bus, latest_block, block_time
 ):
-    best_producer = pick_best_producer(block_producers,
-                                       logger=logger,
-                                       event_bus=event_bus,
-                                       latest_block=latest_block)
-
-    logger.info(
-        f"Producing block candidate for: {len(block_producers)} block producers won by {best_producer}"
-    )
-
     block_number = latest_block["block_number"] + 1
+
+    # S4.3: select the producer from the BONDED registry + the per-epoch beacon (split-neutral,
+    # grind-resistant) instead of the grindable per-IP pick_best_producer. Every node computes the
+    # SAME winner deterministically from committed parent state and builds the identical block
+    # crediting the winner ADDRESS — the winner need not be online (liveness does not depend on it
+    # broadcasting). block_ip is set to the winner address so the hashed body is identical per node.
+    registry = get_bonded_registry()
+    beacon = epoch_beacon(epoch_of(block_number))
+    winner = select_producer(registry, beacon, slot=block_number)
+    if winner is None:
+        logger.error("No eligible bonded producer (empty registry / total_shares=0); skipping block")
+        return None
+    logger.info(f"Block {block_number} producer (bonded): {winner} | {len(registry)} eligible")
 
     targeted_transactions = match_transactions_target(transaction_list=transaction_pool.copy(),
                                                       block_number=block_number,
                                                       logger=logger)
 
-    creator = load_peer(logger=logger,
-                        ip=best_producer,
-                        key="peer_address")
-
     block = construct_block(
         block_timestamp=latest_block["block_timestamp"] + block_time,
         block_number=block_number,
         parent_hash=latest_block["block_hash"],
-        block_ip=best_producer,
-        creator=creator,
+        block_ip=winner,
+        creator=winner,
         transaction_pool=targeted_transactions,
         block_producers_hash=block_producers_hash,
         block_reward=get_block_reward(parent_block=latest_block, logger=logger),
@@ -179,6 +180,37 @@ def get_block_number(number):
         return get_block(fetched)
     except Exception as e:
         return False
+
+
+def get_block_hash_by_number(number):
+    """block hash for a block number from the block_index, or None (no block-file read)."""
+    try:
+        h = DbHandler(db_file=f"{get_home()}/index/index.db")
+        fetched = h.db_fetch("SELECT block_hash FROM block_index WHERE block_number = ?", (number,))
+        h.close()
+        return fetched[0][0] if fetched else None
+    except Exception:
+        return None
+
+
+def epoch_beacon(epoch):
+    """Per-epoch, grind-resistant selection beacon (S4.3).
+
+    Epochs 0-1 use the fixed GENESIS_BEACON (no finalized prior epoch exists yet). For epoch>=2
+    the beacon chains GENESIS_BEACON with the hash of the FIRST block of the immediately-preceding
+    epoch ((epoch-1)*EPOCH_LENGTH) -- a block that is >= EPOCH_LENGTH blocks behind the first slot
+    this beacon governs, so it is deeply finalized and is NOT the grindable parent hash (audit M6).
+    The per-slot rotation comes from select_producer hashing [beacon, slot].
+
+    INVARIANT: max_rollbacks < EPOCH_LENGTH, so the anchor block can never be reorged out from
+    under a live epoch (otherwise the whole epoch's winners would flip). The full on-chain
+    commit-reveal RANDAO (mining_ops.compute_beacon over revealed secrets) is the hardening step."""
+    if epoch < 2:
+        return GENESIS_BEACON
+    anchor = get_block_hash_by_number((epoch - 1) * EPOCH_LENGTH)
+    if not anchor:
+        return GENESIS_BEACON  # anchor not available locally -> deterministic fallback
+    return compute_beacon(GENESIS_BEACON, [anchor])
 
 
 def block_already_indexed(block_hash):
@@ -407,11 +439,10 @@ def construct_block(
     block_message.update(block_hash=block_hash)
     block_message.update(block_timestamp=block_timestamp)
 
-    block_penalty = get_penalty(producer_address=creator,
-                                block_hash=block_hash,
-                                block_number=block_number)
-
-    block_message.update(block_penalty=block_penalty)
+    # block_penalty is legacy (the burn-to-bribe / produced penalty that drove the old per-IP
+    # selection); selection is now bonded, so it is no longer consensus-relevant. Stamp 0. This
+    # runs AFTER block_hash is computed, so it does not affect the hash.
+    block_message.update(block_penalty=0)
     return block_message
 
 
