@@ -182,12 +182,15 @@ class MemServer:
                 or isinstance(transaction.get("target_block"), bool)):
             return {"result": False, "message": "Malformed transaction"}
 
-        united_pools = self.transaction_pool.copy() + self.tx_buffer.copy() + self.user_tx_buffer.copy()
-
         # Anti-DoS: hard-cap the mempool so a flood (incl. fee-exempt register/heartbeat spam) cannot
         # grow it unbounded and OOM the node. Pairs with the per-IP HTTP rate limiter. The lane cap
         # already stops spam from buying extra block share; this stops it taking the node down.
-        if len(united_pools) >= self.transaction_pool_limit:
+        # PERF: O(1) length check on the three pools — do NOT materialise the combined list here, so a
+        # flood that is already at the cap is rejected in O(1) instead of O(N) per tx (was O(N^2) under
+        # load: three .copy()s + a concat on EVERY merge attempt). The union is built lazily below,
+        # only once a tx has cleared the cheap rejects and actually needs membership / single-spend.
+        if (len(self.transaction_pool) + len(self.tx_buffer)
+                + len(self.user_tx_buffer)) >= self.transaction_pool_limit:
             return {"result": False, "message": "Mempool full"}
 
         # OPEN-lane onboarding: register/heartbeat are fee-exempt ENTRY txs — a brand-new zero-coin
@@ -218,7 +221,16 @@ class MemServer:
         # sys.getsizeof(repr(...)) and is non-deterministic, so it is unsafe as a fee rule.
         # The deterministic MIN_TX_FEE floor is enforced in validate_transaction below.
 
-        elif transaction not in united_pools:
+        else:
+            # Build the combined view lazily and WITHOUT per-pool .copy() (the `+` already yields a
+            # fresh list; the old triple .copy() was pure waste). Only txs that clear the cheap rejects
+            # above reach here, so this O(N) build no longer runs on the hot flood/reject paths.
+            united_pools = self.transaction_pool + self.tx_buffer + self.user_tx_buffer
+            if transaction in united_pools:
+                # Idempotent: already pooled (e.g. a re-gossiped heartbeat) — a benign success, not an
+                # error (matches the "already present" handling clients now expect). Previously this
+                # fell through and returned None.
+                return {"message": "Already present", "result": True}
             try:
                 validate_transaction(transaction=transaction,
                                      logger=self.logger,

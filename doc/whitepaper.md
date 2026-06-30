@@ -777,7 +777,17 @@ Additional hardening and feature items, all currently **planned/partial**:
   contracts are explicitly kept *off* L1; the planned shape is a sovereign DA+ordering
   layer that touches consensus, at most, through one bounded proof verifier, so
   phone-mining/finality/simplicity are preserved. See
-  [execution-layer.md](execution-layer.md).
+  [execution-layer.md](execution-layer.md), and the cited VM/proving-frontier survey in
+  [execution-layer-vm-research.md](execution-layer-vm-research.md) (the PQ-soundness ↔
+  cheap-verifier tension; Circle-STARK/Stwo + lookup VM as the forward bet).
+- **Scaling** ([scaling-analysis.md](scaling-analysis.md)) — pluggable native-ML-DSA backend
+  (shipped) + mempool O(N²) fix (shipped); the real structural fix is **aggregating the O(N)
+  per-epoch consensus messages** (presence-root → PQ proof-of-threshold), since
+  non-aggregatable PQ signatures × O(N) messages × pure-Python verify is the binding wall.
+- **Rolling mode & data availability** ([rolling-mode-and-da.md](rolling-mode-and-da.md),
+  design) — keep state + a window of epochs, prune older history (phone-mineable under
+  adoption), with finality-anchored pruning, consensus-critical idle-account GC, and
+  **hash-based (post-quantum, not KZG)** erasure-coded DA sampling for execution-layer blobs.
 
 ---
 
