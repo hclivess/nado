@@ -146,7 +146,22 @@
   <!-- LANE SPLIT -->
   <div id="lanesCard" class="card hidden" data-tab="wallet">
     <h2>Selection lanes</h2>
-    <div class="lanes">
+    <!-- Who's in each lane right now (from /mining_status: open/bonded registry sizes + lane weights) -->
+    <div class="stat-grid">
+      <div class="stat" title="Registered, present miners competing for the ~20% free lane">
+        <div class="label">Open lane <span class="hint">ⓘ</span></div>
+        <div class="value sm"><span id="laneOpenCount">—</span> miners</div></div>
+      <div class="stat" title="Bonded-stake validators competing for the ~80% stake lane">
+        <div class="label">Bonded lane <span class="hint">ⓘ</span></div>
+        <div class="value sm"><span id="laneBondedCount">—</span> validators</div></div>
+      <div class="stat" title="Total open-lane selection weight across all present miners. Your weight is a share of this — the bigger your slice, the more often you win the free lane.">
+        <div class="label">Open weight <span class="hint">ⓘ</span></div>
+        <div class="value sm" id="laneOpenWeight">—</div></div>
+      <div class="stat" title="Total bonded selection shares across all validators. Your bonded shares are a portion of this (100 NADO / B_MIN per share).">
+        <div class="label">Bonded shares <span class="hint">ⓘ</span></div>
+        <div class="value sm" id="laneBondedShares">—</div></div>
+    </div>
+    <div class="lanes mt">
       <div class="lanebar">
         <div class="open" id="laneOpen" style="flex:0 0 20%">OPEN 20%</div>
         <div class="bonded" id="laneBonded" style="flex:0 0 80%">BONDED 80%</div>

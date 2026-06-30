@@ -1,6 +1,6 @@
 from ops import kv_ops
 from ops.address_ops import make_address
-from protocol import B_MIN, EPOCH_LENGTH, PRESENCE_WINDOW, FIDELITY_GAIN, SLASH_BOND_PENALTY
+from protocol import B_MIN, EPOCH_LENGTH, PRESENCE_WINDOW, FIDELITY_GAIN, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY
 
 # Account state lives in the schemaless `accounts` sub-DB as a msgpack document keyed by address
 # (see ops/kv_ops.py). Missing fields default to 0 on read, so adding a field (as we did with
@@ -41,9 +41,27 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         change_bonded(address=sender, amount=amount, logger=logger, revert=revert)
         return
     if recipient == "unbond":
-        # release `amount` of stake back to spendable balance; fee is burned
-        change_bonded(address=sender, amount=-amount, logger=logger, revert=revert)
-        change_balance(address=sender, amount=amount - fee, logger=logger, revert=revert)
+        # UNBOND DELAY: unbond is now a REQUEST, not an instant release. The `amount` STAYS in `bonded`
+        # (still slashable AND still selection-weighted) and a release_block = block_height +
+        # BOND_UNLOCK_DELAY is recorded; only a matured `withdraw` moves it to spendable balance. This
+        # stops a caught equivocator from yanking stake out in the same block to dodge the slash.
+        # Fee-exempt (validation enforces fee==0); one pending unbond per address.
+        if revert:
+            kv_ops.unbond_del(sender)
+        else:
+            kv_ops.unbond_put(sender, amount, block_height + BOND_UNLOCK_DELAY)
+        return
+    if recipient == "withdraw":
+        # claim a MATURED unbond: move `amount` from bonded -> spendable balance. The tx data carries
+        # {amount, release_block} (self-describing), so revert exactly restores the pending entry.
+        data = transaction.get("data") or {}
+        amt = int(data["amount"])
+        change_bonded(address=sender, amount=-amt, logger=logger, revert=revert)
+        change_balance(address=sender, amount=amt, logger=logger, revert=revert)
+        if revert:
+            kv_ops.unbond_put(sender, amt, int(data["release_block"]))
+        else:
+            kv_ops.unbond_del(sender)
         return
 
     # --- OPEN-lane mining transactions (S4 two-lane): fee-EXEMPT, no coin movement ---

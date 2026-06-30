@@ -146,7 +146,11 @@ async def load_ips(logger, port, fail_storage, unreachable, minimum=3, top_50=Tr
 
     for entry in candidates_sorted:
         ip = entry["peer_ip"]
-        ip_sorted.append(ip)
+        # AUDIT FIX: apply the per-/16 eclipse cap on the disk-reload path too (not just the live-sniff
+        # paths), so an attacker who seeds many same-subnet peer files can't dominate a node's peer set
+        # when it dips below min_peers and reloads from disk.
+        if subnet_diversity_ok(ip, ip_sorted):
+            ip_sorted.append(ip)
 
     start = 0
     end = len(candidates_sorted)

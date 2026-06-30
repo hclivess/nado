@@ -12,7 +12,7 @@ from genesis import create_indexers
 create_indexers()
 
 from protocol import (split_block_reward, TREASURY_ADDRESS, TREASURY_GENESIS, REWARD_WINDOW,
-                      REWARD_CAP, BPS_DENOM, TREASURY_BPS)
+                      REWARD_CAP, BPS_DENOM, TREASURY_BPS, BASE_SUBSIDY)
 from ops.account_ops import (create_account, get_account, change_balance, increase_produced_count,
                              reflect_transaction, get_totals, index_totals, fetch_totals)
 from ops.block_ops import get_block_reward, save_block, set_latest_block_info, construct_block
@@ -51,10 +51,12 @@ def t3():
     mk(50, "5"*64, 10_000_000)                                   # lookback block at height 50
     parent = {"block_number": 150, "cumulative_fees": 50_000_000}  # parent at height 150
     r = get_block_reward(parent_block=parent, logger=logger)
-    assert r == (50_000_000 - 10_000_000) // REWARD_WINDOW == 400000, r
-    # early chain (lookback < 0): start cumfee treated as 0
+    # elastic term = (50_000_000 - 10_000_000)//REWARD_WINDOW = 400000, but it's BELOW the flat
+    # BASE_SUBSIDY emission floor, so the reward is floored to BASE_SUBSIDY (fair-launch emission).
+    assert r == BASE_SUBSIDY, r
+    # early chain (lookback < 0): elastic term 70000, also below the floor
     r2 = get_block_reward(parent_block={"block_number": 10, "cumulative_fees": 7_000_000}, logger=logger)
-    assert r2 == 7_000_000 // REWARD_WINDOW == 70000, r2
+    assert r2 == BASE_SUBSIDY, r2
     # cap bites
     r3 = get_block_reward(parent_block={"block_number": 10, "cumulative_fees": 10**18}, logger=logger)
     assert r3 == REWARD_CAP, r3

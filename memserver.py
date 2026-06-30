@@ -160,6 +160,14 @@ class MemServer:
 
     def merge_transaction(self, transaction, user_origin=False) -> dict:
         """warning, can get stuck if not efficient"""
+        # AUDIT FIX: a malicious peer can serve a /transaction_pool list with a malformed entry; the
+        # pre-validation field accesses below (sender, target_block) would KeyError/TypeError and abort
+        # the whole merge batch. Reject malformed txs up front so the rest of the batch still merges.
+        if (not isinstance(transaction, dict) or "sender" not in transaction
+                or not isinstance(transaction.get("target_block"), int)
+                or isinstance(transaction.get("target_block"), bool)):
+            return {"result": False, "message": "Malformed transaction"}
+
         united_pools = self.transaction_pool.copy() + self.tx_buffer.copy() + self.user_tx_buffer.copy()
 
         # Anti-DoS: hard-cap the mempool so a flood (incl. fee-exempt register/heartbeat spam) cannot

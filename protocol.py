@@ -24,7 +24,7 @@ GENESIS_TIMESTAMP = 1669852800
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
 # "bond"/"unbond": bonded-lane stake txs. "register"/"heartbeat": OPEN-lane (no-coin) mining txs
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "register", "heartbeat", "slash", "attest", "commit", "reveal"})
+RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "heartbeat", "slash", "attest", "commit", "reveal"})
 
 # The TREASURY is the GENESIS address (project owner's decision): the 10% per-block cut accrues
 # here. It is a normal KEY-CONTROLLED address (the founder holds its key), derived here under the

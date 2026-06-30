@@ -24,6 +24,12 @@ premine)**, **post-quantum security**, and **stay light enough to run on almost 
   amount of stake can take newcomers' guaranteed 20%.
 - Producer selection is a deterministic hash draw over the epoch beacon (no Proof-of-Work, no
   mining rigs).
+- **Unbond is now timelocked (enforced).** `unbond` is a **release request** — the stake **stays
+  bonded and slashable** and a maturity block `release_block = current + BOND_UNLOCK_DELAY (1440)` is
+  recorded; a new fee-exempt **`withdraw`** tx moves the matured amount to spendable balance only
+  **at/after** maturity. Keeping the stake bonded through the delay is what keeps a *caught
+  equivocator's* stake slashable while an unbond is in flight. (`unbond`/`withdraw` are now fee-exempt;
+  `MIN_TX_FEE` applies to ordinary transfers and `bond`.)
 
 ### Post-quantum signatures (ML-DSA-44, FIPS 204)
 - Ed25519 is replaced by **ML-DSA-44** (NIST FIPS 204) via pure-Python `dilithium-py` — no native
@@ -36,7 +42,9 @@ premine)**, **post-quantum security**, and **stay light enough to run on almost 
   expected-time-to-mine, and a live selection-lane visualization.
 - **Browser/mobile light-miner** (`static/miner.html`): phones mine through a web page — generate a
   key, register, heartbeat each epoch, and **win offline** (a relay builds the block for you). No
-  full node, no heavy crypto on the device.
+  full node, no heavy crypto on the device. It now also shows **live OPEN/BONDED lane participant
+  counts** (from `/mining_status` `open_registry_size` / `bonded_registry_size`) so you can see how
+  contested each lane is.
 
 ### Schemaless key-value storage (LMDB)
 - The chain index moved from SQLite to a **schemaless key-value store (LMDB, the MDBX data model)** —
@@ -82,14 +90,44 @@ The fork-choice was rebuilt to be **objective and Sybil-resistant**, and the acc
 - **Anti-DoS / eclipse throttles:** per-IP rate limiting on transaction submission *and* peer
   announcements; a per-/16 subnet-diversity cap; mempool cap; heartbeat GC.
 
+### Security audit — every exploitable finding fixed
+A deep **adversarial security audit** (full writeup: `doc/security-audit.md`) was run across **six
+surfaces** (fork-choice/51%/rollback/finality; Sybil/two-lane/selection; slashing/equivocation/unbond;
+RANDAO/FFG/beacon; tx-validation/pubkey-once; KV atomicity/eclipse/DoS) against a chain that was
+testnet-stage alpha with **no value at stake**. Every exploitable finding is now **fixed and
+unit-tested**:
+- **In-block duplicate reserved-tx bugs (CRITICAL/HIGH).** Uniqueness was checked only vs *parent*
+  state with no block-assembly dedup, so duplicate reserved txs in **one** block could drain an unbond
+  via repeated `withdraw`s (slash-escape/chain-halt), over-burn on a duplicate `slash` (two honest
+  reporters trigger it organically), or collapse duplicate `heartbeat`/`reveal` rows so a reorg
+  over-deletes the shared row → **registry/beacon desync fork**. Fixed by **per-reserved-tx in-block
+  uniqueness** (`reserved_uniqueness_key` + `dedupe_reserved` + `assert_unique_reserved`) plus
+  cross-block `heartbeat`/`reveal`-secret guards.
+- **Same-length fork-choice wedge (CRITICAL, liveness).** Equal-weight honest tips could wedge forever;
+  fixed by a deterministic **lowest-hash tie-break** (`weight DESC, hash ASC`) so nodes converge.
+- **`quick_sync` validation bypass (HIGH).** `verify_block` now **always** validates signatures +
+  spending; the old-block bypass is removed.
+- **Unauthenticated advertised-weight DoS (HIGH).** A bogus huge `latest_block_weight` forced emergency
+  rollbacks; fixed by a bounded, auto-clearing **`rejected_tips`** exclusion.
+- Plus per-IP **rate limits** on the heavy read endpoints (`/mining_status`,
+  `/get_transactions_of_account`, `/get_blocks_after`/`before`), an **honest re-signer guard** (only
+  ever signs a strictly higher height), the **per-/16 subnet cap on the disk-reload path**, and a dead
+  `/get_blocks_before` fix.
+
+The audit **confirmed the safety core sound** (atomic incorporate/rollback, the monotonic finality
+floor, equivocation-proof unforgeability, the detached-signature-outside-the-hash property, and
+pubkey-once key→sender binding). Remaining items are documented residuals (see Known limitations) — none
+a theft or fork vector.
+
 ## Validated
 - 3-node testnet **converges and produces** with the full stack live (two-lane mining, ML-DSA keys,
   LMDB storage, zstd block bodies, POST wire, enforced finality, heaviest-weight fork-choice).
 - Unit-tested: atomic incorporate→rollback byte-identical; finality floor refuses sub-floor rollback;
   cumulative_weight committed + verified; beacon fail-loud; equivocation proof verify + bond slash
-  (apply/revert); FFG justify/finalize thresholds; RANDAO commit/reveal validation + beacon mix. Zero-coin
-  miner wins ~20% (open lane) and earns; a Sybil swarm stays bounded to 20%; a zero-premine / zero-bond
-  chain still produces.
+  (apply/revert); FFG justify/finalize thresholds; RANDAO commit/reveal validation + beacon mix;
+  **in-block reserved-tx uniqueness** (`tests/test_inblock_uniqueness_audit.py`) and the **unbond-request
+  + matured `withdraw` timelock**. Zero-coin miner wins ~20% (open lane) and earns; a Sybil swarm stays
+  bounded to 20%; a zero-premine / zero-bond chain still produces.
 
 ## Known limitations (read before running anything of value)
 This is a **testnet-stage alpha / not yet mainnet-launched** build. The full consensus-hardening plan
@@ -104,7 +142,14 @@ is now **wired and unit-tested**, with two honest caveats and one outstanding ha
   There is also **no explicit RANDAO withholder penalty** yet.
 - **Broader eclipse hardening is still planned/post-launch** (see `doc/consensus-hardening-plan.md`):
   **ASN-level** (vs the live per-/16) peer-diversity caps, **pinned multi-seed bootstrap**, and
-  **snapshot-bootstrap binding to a finalized signed checkpoint**.
+  **snapshot-bootstrap binding to a finalized signed checkpoint** (no hardcoded checkpoint cross-check
+  today — weak-subjectivity).
+- **Documented audit residuals (none a theft/fork vector — see `doc/security-audit.md`):** FFG's
+  "slashable-stake backing" is **aspirational** — no **attestation-equivocation slashing** yet (only
+  block-authorship equivocation), so cross-fork double-voting beyond the per-epoch `UNIQUE(validator,
+  epoch)` marker is unpunished; the bonded `MAX_SHARES` cap is **per-identity, not aggregate** (the
+  bonded lane is capital-proportional by design); `register`/fee-exempt **state growth** is bounded but
+  `GC_IDLE_EPOCHS` idle-account GC is unwired; and `FIDELITY_DECAY` is defined but unwired.
 
 Run it on a **testnet / at your own risk** only. Do not treat coins as having value yet. (No hardfork
 concern — mainnet is not live.)

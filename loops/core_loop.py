@@ -42,7 +42,7 @@ from ops.transaction_ops import remove_outdated_transactions
 from ops.transaction_ops import (
     to_readable_amount,
     validate_transaction,
-    validate_all_spending, index_transactions
+    validate_all_spending, index_transactions, assert_unique_reserved
 )
 import secrets as _secrets
 from rollback import rollback_one_block, MissingParentError, FinalityViolation
@@ -85,6 +85,11 @@ class CoreClient(threading.Thread):
         self.event_bus = EventBus()
         self.consecutive = 0
         self.snapshot_attempted = False
+        # AUDIT FIX (honest-signer guard): the highest block height we've attached our detached winner
+        # signature to. We only ever sign a STRICTLY-higher height, so after a reorg + re-produce we
+        # never sign a second, different block at a height we already signed (which a connected
+        # adversary could otherwise harvest into a self-equivocation slashing proof against us).
+        self.last_signed_height = -1
 
     def get_period(self):
         """Enter every period at least period_counter times. Iterator is present in case node is stuck in phase 3.
@@ -207,8 +212,10 @@ class CoreClient(threading.Thread):
                         # #15 step 5: if WE are the selected winner (we hold block_creator's key),
                         # attach the detached authorship signature. A relay building this block for an
                         # OFFLINE winner cannot (no key) and leaves it unsigned — still valid (win-offline).
-                        if self.memserver.address == block_candidate["block_creator"]:
+                        if (self.memserver.address == block_candidate["block_creator"]
+                                and block_candidate["block_number"] > self.last_signed_height):
                             sign_block(block_candidate, self.memserver.private_key, self.memserver.public_key)
+                            self.last_signed_height = block_candidate["block_number"]
                         self.produce_block(block=block_candidate,
                                            remote=False,
                                            remote_peer=None)
@@ -339,18 +346,23 @@ class CoreClient(threading.Thread):
         a Sybil peer-set cannot trigger a reorg; and even a heavier advertisement is only acted on by
         fetching the blocks, which verify_block re-derives + enforces (a lie is rejected) and the
         finality floor refuses to reorg below. Replaces the Sybil-swingable plurality majority_block_hash."""
-        hw = self.consensus.heaviest_block_weight
-        if hw is None:
-            """not ready (no peer tip weights collected yet)"""
+        hh = self.consensus.heaviest_block_hash
+        if hh is None:
+            """not ready (no tip weights collected yet)"""
             return False
-        our_weight = self.memserver.latest_block.get("cumulative_weight", 0)
-        if hw <= our_weight:
-            """we are the heaviest (or tied) -> canonical, do not switch"""
+        # AUDIT FIX (same-length fork wedge): heaviest_block_hash is the GLOBAL best tip by
+        # (cumulative_weight DESC, block_hash ASC) over all advertised tips INCLUDING our own. The old
+        # code switched only on strictly-GREATER weight, so two honest tips at the same height (equal
+        # content-independent weight, different hash) wedged forever. Switch whenever the canonical tip
+        # is not ours — i.e. it is heavier, OR equal-weight with a lower hash (the deterministic
+        # tie-break every node computes identically, so they all converge on the lowest-hash tip).
+        if hh == self.memserver.latest_block["block_hash"]:
+            """our tip IS the canonical (heaviest weight, lowest-hash tie-break) -> do not switch"""
             return False
-        if get_block(self.consensus.heaviest_block_hash):
-            """we already hold the heavier block locally; normal incorporation adopts it"""
+        if get_block(hh):
+            """we already hold the canonical tip locally; normal incorporation adopts it"""
             return False
-        """a strictly-heavier tip exists that we don't have -> sync toward it"""
+        """a strictly-better tip (heavier, or equal-weight + lower hash) exists -> sync toward it"""
         return True
 
     def replace_transaction_pool(self):
@@ -551,6 +563,7 @@ class CoreClient(threading.Thread):
                                 # next emergency cycle resync (snapshot/full) instead of spinning.
                                 self.logger.error(f"Rollback aborted, resync required: {e}")
                                 self.memserver.rollbacks = 0
+                                self._reject_heaviest_tip()
                                 break
                             except FinalityViolation as e:
                                 # the reorg would cross the finalized-height floor (a deep / long-range
@@ -558,6 +571,7 @@ class CoreClient(threading.Thread):
                                 # forward only. This is the hard 51%/rollback cap (#17).
                                 self.logger.error(f"Rollback refused (finality): {e}")
                                 self.memserver.rollbacks = 0
+                                self._reject_heaviest_tip()
                                 break
 
                             # ALWAYS count the rollback (even under force_sync_ip): the finalized floor
@@ -571,6 +585,7 @@ class CoreClient(threading.Thread):
                             self.logger.error(
                                 f"Rollbacks exhausted ({self.memserver.rollbacks}/{self.memserver.max_rollbacks})")
                             self.memserver.rollbacks = 0
+                            self._reject_heaviest_tip()
                             break
 
                     self.logger.info(f"Maximum reached cascade depth: {self.memserver.cascade_depth}")
@@ -578,6 +593,16 @@ class CoreClient(threading.Thread):
         except Exception as e:
             self.logger.info(f"Error: {e}")
             raise
+
+    def _reject_heaviest_tip(self):
+        """AUDIT FIX (weight-DoS): exclude the advertised-heaviest tip we just FAILED to obtain a valid
+        heavier chain for, so a peer advertising a bogus huge cumulative_weight cannot keep looping us
+        into emergency-mode/rollback. The exclusion is bounded + auto-cleared (consensus_loop), so a
+        transiently-unreachable REAL heavier tip is retried later."""
+        hh = self.consensus.heaviest_block_hash
+        if hh and hh != self.memserver.latest_block["block_hash"]:
+            self.consensus.rejected_tips.add(hh)
+            self.logger.warning(f"Excluding unreachable heavier-advertised tip {hh[:12]} (weight-DoS guard)")
 
     def rebuild_block(self, block):
         # Reconstruct the block deterministically from the LOCAL tip + the block's tx set: the winner
@@ -841,11 +866,18 @@ class CoreClient(threading.Thread):
                     f"Block cumulative_weight {block.get('cumulative_weight')} != deterministic "
                     f"{expected_weight} (parent {parent_weight} + as-of-parent bonded shares)")
 
-            if not is_old or not self.memserver.quick_sync:
-                self.validate_transactions_in_block(block=block,
-                                                    logger=self.logger,
-                                                    remote_peer=remote_peer,
-                                                    remote=remote)
+            # AUDIT FIX: reject a block containing duplicate reserved txs (in-block uniqueness) —
+            # closes the K-withdraw bond drain / slash-escape / chain-halt, duplicate-slash over-burn,
+            # and heartbeat/reveal DUPSORT desync forks.
+            assert_unique_reserved(block["block_transactions"])
+
+            # AUDIT FIX: ALWAYS validate signatures + spending. The old `quick_sync` bypass skipped
+            # validate_transactions_in_block for old blocks, letting a malicious sync peer feed forged,
+            # unsigned transfers that reflect would still apply. Safety over the sync-speed optimization.
+            self.validate_transactions_in_block(block=block,
+                                                logger=self.logger,
+                                                remote_peer=remote_peer,
+                                                remote=remote)
 
             sorted_transactions = sort_list_dict(block["block_transactions"])
             return sorted_transactions

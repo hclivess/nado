@@ -47,8 +47,10 @@ def seed_node(home, i, all_keys, bond_manifest):
                "server_key": secrets.token_hex(32), "min_peers": 1, "max_rollbacks": 10,
                "cascade_limit": 1, "promiscuous": True, "quick_sync": False,
                # fast local blocks so a short run produces many blocks (LOCAL timing knob only —
-               # block_time is non-consensus; every node uses the same value so tips still agree)
-               "block_time": 2},
+               # block_time is non-consensus; every node uses the same value so tips still agree).
+               # Override with NADO_TESTNET_BLOCKTIME to model realistic blocks where the mempool
+               # gossip-converges between blocks (so per-node FFG/RANDAO txs don't fork same-height blocks).
+               "block_time": int(os.environ.get("NADO_TESTNET_BLOCKTIME", "2"))},
               open(os.path.join(base, "private", "config.dat"), "w"))
 
     # pre-generate the key so we know every node's address up front and can fully mesh them

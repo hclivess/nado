@@ -48,7 +48,8 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   attestations      target_epoch(8B BE)      -> "validator|target_hash"            [DUPSORT]  (FFG #6)
 #   commits           "sender|target_epoch"    -> commitment                                   (RANDAO #7)
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
-_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits")
+#   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
+_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds")
 _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "heartbeats", "attestations", "reveals")
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
@@ -496,6 +497,30 @@ def reveals_for_epoch(target_epoch: int):
     return _read(_do)
 
 
+# --- unbond delay (#unbond): one pending withdrawal per address {amount, release_block} ------------
+
+def unbond_get(address: str):
+    """The pending unbond {amount, release_block} for address, or None. The coins remain in `bonded`
+    (slashable + weighted) until a matured `withdraw` moves them to spendable balance."""
+    def _do(txn):
+        raw = txn.get(address.encode(), db=_dbs()["unbonds"])
+        return _unpack(raw) if raw is not None else None
+    return _read(_do)
+
+
+def unbond_put(address: str, amount: int, release_block: int):
+    def _do(txn):
+        txn.put(address.encode(), _pack({"amount": int(amount), "release_block": int(release_block)}),
+                db=_dbs()["unbonds"])
+    _write(_do)
+
+
+def unbond_del(address: str):
+    def _do(txn):
+        txn.delete(address.encode(), db=_dbs()["unbonds"])
+    _write(_do)
+
+
 # --- block number <-> hash index ------------------------------------------------------------------
 
 def block_index_put(block_number: int, block_hash: str):
@@ -621,6 +646,16 @@ def heartbeat_del(epoch: int, address: str):
     def _do(txn):
         txn.delete(be8(epoch), address.encode(), db=_dbs()["heartbeats"])
     _write(_do)
+
+
+def heartbeat_present(epoch: int, address: str) -> bool:
+    """True if `address` already has a presence heartbeat recorded for `epoch`. AUDIT FIX: the DUPSORT
+    store dedups the row but does NOT reject a second heartbeat tx, so validation must check this to
+    enforce one-per-(address,epoch) (else fidelity is farmed + a reorg can over-delete the shared dup)."""
+    def _do(txn):
+        with txn.cursor(db=_dbs()["heartbeats"]) as cur:
+            return cur.set_key_dup(be8(epoch), address.encode())
+    return _read(_do)
 
 
 def heartbeat_gc(max_epoch_inclusive: int):

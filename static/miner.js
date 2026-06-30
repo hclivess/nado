@@ -766,6 +766,13 @@ function renderLanes(ms) {
   const myOpen = ms.my_open_weight ?? 0, totOpen = ms.total_open_weight ?? 0;
   const myBond = ms.my_bonded_shares ?? 0, totBond = ms.total_bonded_shares ?? 0;
   const sharePct = totOpen ? ((myOpen / totOpen) * 100).toFixed(1) : "0.0";
+
+  // "Who's in each lane" participant counts + lane totals (same /mining_status fields).
+  $("laneOpenCount").textContent = ms.open_registry_size ?? 0;
+  $("laneBondedCount").textContent = ms.bonded_registry_size ?? 0;
+  $("laneOpenWeight").textContent = totOpen;
+  $("laneBondedShares").textContent = totBond;
+
   $("myShare").innerHTML =
     `Your OPEN-lane weight: <b>${myOpen}</b> / ${totOpen} (${sharePct}% of the free lane). ` +
     `Open registry: ${ms.open_registry_size ?? 0} miners · Bonded shares: ${myBond}/${totBond} · ` +

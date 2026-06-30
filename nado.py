@@ -156,6 +156,9 @@ class MiningStatusHandler(tornado.web.RequestHandler):
             self.write(f"Error: {e}")
 
     async def get(self, parameter):
+        from ops.ratelimit import allow  # AUDIT FIX: /mining_status full-scans the account set; throttle it
+        if not allow(self.request.remote_ip, limit=120, window=60):
+            self.set_status(429); self.write({"result": False, "message": "Rate limited — slow down"}); return
         await asyncio.to_thread(self.mining_status)
 
 
@@ -547,6 +550,9 @@ class AccountTransactionsHandler(tornado.web.RequestHandler):
             self.write(f"Error: {e}")
 
     async def get(self, parameter):
+        from ops.ratelimit import allow  # AUDIT FIX: DUPSORT scan + up to ~1000 block reads; throttle
+        if not allow(self.request.remote_ip, limit=60, window=60):
+            self.set_status(429); self.write({"result": False, "message": "Rate limited — slow down"}); return
         await asyncio.to_thread(self.account_transactions)
 
 
@@ -620,7 +626,7 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
         try:
             parent = get_block(block_hash)
             if parent:
-                parent_hash=["parent_hash"]
+                parent_hash = parent["parent_hash"]  # AUDIT FIX: was the literal ["parent_hash"] -> dead path
 
                 for blocks in range(0, count):
                     block = get_block(parent_hash)
@@ -650,6 +656,9 @@ class GetBlocksBeforeHandler(tornado.web.RequestHandler):
                                  ))
 
     async def get(self, parameter):
+        from ops.ratelimit import allow  # AUDIT FIX: throttle this heavy (up to 100 block-file reads) endpoint
+        if not allow(self.request.remote_ip, limit=60, window=60):
+            self.set_status(429); self.write({"result": False, "message": "Rate limited — slow down"}); return
         await asyncio.to_thread(self.blocks_before)
 
 
@@ -694,6 +703,9 @@ class GetBlocksAfterHandler(tornado.web.RequestHandler):
                                  ))
 
     async def get(self, parameter):
+        from ops.ratelimit import allow  # AUDIT FIX: up to 100 block-file reads per call; throttle
+        if not allow(self.request.remote_ip, limit=60, window=60):
+            self.set_status(429); self.write({"result": False, "message": "Rate limited — slow down"}); return
         await asyncio.to_thread(self.blocks_after)
 
 class GetSupplyHandler(tornado.web.RequestHandler):

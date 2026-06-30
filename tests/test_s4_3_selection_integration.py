@@ -34,8 +34,13 @@ check("get_bonded_registry filters by B_MIN; shares correct", t1)
 def t2():
     # epochs 0-1 use the fixed GENESIS_BEACON (no finalized prior epoch yet)
     assert epoch_beacon(0) == GENESIS_BEACON and epoch_beacon(1) == GENESIS_BEACON
-    # epoch 2 with no anchor block present -> deterministic fallback to GENESIS_BEACON
-    assert epoch_beacon(2) == GENESIS_BEACON
+    # epoch 2 with no anchor block present -> FAIL-LOUD: raises rather than silently substituting
+    # GENESIS_BEACON (a silent fallback would fork the producer set on an under-synced node).
+    try:
+        epoch_beacon(2)
+        assert False, "epoch_beacon(2) must raise when the finalized anchor is missing"
+    except ValueError:
+        pass
     # index the anchor block at height (2-1)*EPOCH_LENGTH and the chained beacon kicks in
     anchor_h = (2 - 1) * EPOCH_LENGTH
     blk = {"block_number": anchor_h, "parent_hash": "0"*64, "block_hash": "6"*64, "block_timestamp": 1,

@@ -8,7 +8,7 @@ from tornado.httpclient import AsyncHTTPClient
 
 from Curve25519 import sign, verify, unhex
 from ops.account_ops import get_account, reflect_transaction
-from ops.address_ops import proof_sender
+from ops.address_ops import proof_sender, make_address
 from ops.address_ops import validate_address
 from ops.mining_ops import verify_registration_pow
 from ops.block_ops import get_block_number
@@ -120,6 +120,56 @@ def construct_reveal_tx(keydict, target_epoch, secret, target_block):
     return tx
 
 
+def reserved_uniqueness_key(tx):
+    """AUDIT FIX (in-block uniqueness): the key under which a reserved-recipient tx may appear AT MOST
+    ONCE in a block — None for ordinary transfers (deduped by spending/txid). Used by BOTH block
+    assembly (drop duplicates) and verify_block (reject duplicates), keeping them consistent. Without
+    it, duplicate reserved txs in one block all validate against parent state and all apply, enabling:
+    K `withdraw`s draining one unbond (slash-escape / chain-halt), duplicate `slash` over-burn/halt,
+    and heartbeat/reveal DUPSORT desync forks. Returns a hashable tuple."""
+    r = tx.get("recipient")
+    try:
+        if r in ("withdraw", "unbond", "register"):
+            return (r, tx["sender"])                                  # one per sender per block
+        if r == "heartbeat":
+            return ("heartbeat", tx["sender"], tx["target_block"] // EPOCH_LENGTH)
+        if r in ("attest", "commit"):
+            return (r, tx["sender"], (tx.get("data") or {}).get("target_epoch"))
+        if r == "reveal":
+            return ("reveal", (tx.get("data") or {}).get("secret"))   # dedup by secret (cross-validator too)
+        if r == "slash":
+            d = tx.get("data") or {}
+            return ("slash", make_address(d["public_key"]), d["block_number"])
+    except Exception:
+        return ("malformed", tx.get("txid"))   # unique-ish; the tx is rejected by validate_transaction
+    return None
+
+
+def dedupe_reserved(transactions):
+    """Drop duplicate reserved txs (same reserved_uniqueness_key), keeping the first. Used by block
+    assembly so an honest producer never builds a block verify_block would reject for duplicates."""
+    seen, out = set(), []
+    for t in transactions:
+        k = reserved_uniqueness_key(t)
+        if k is not None:
+            if k in seen:
+                continue
+            seen.add(k)
+        out.append(t)
+    return out
+
+
+def assert_unique_reserved(transactions):
+    """Raise if a block contains two reserved txs with the same reserved_uniqueness_key (verify side)."""
+    seen = set()
+    for t in transactions:
+        k = reserved_uniqueness_key(t)
+        if k is not None:
+            if k in seen:
+                raise ValueError(f"Duplicate reserved transaction in block: {k}")
+            seen.add(k)
+
+
 def create_txid(transaction):
     # canonical encoding (sorted keys) commits the whole body — incl. chain_id — so the signature
     # (over the txid) binds every field and cannot be replayed cross-chain. PUBKEY-ONCE (#19): the
@@ -154,7 +204,6 @@ def validate_transaction(transaction, logger, block_height):
         # the anti-spam: it can't be forged, and one-per-(offender,height) blocks replay). The
         # offender must currently hold >= SLASH_BOND_PENALTY so apply_slash never floors (revert-safe).
         from ops.block_ops import verify_equivocation_proof
-        from ops import kv_ops
         assert transaction["amount"] == 0, "Slash tx must have zero amount"
         assert transaction["fee"] == 0, "Slash tx is fee-exempt (fee must be 0)"
         result = verify_equivocation_proof(transaction.get("data"))
@@ -171,7 +220,6 @@ def validate_transaction(transaction, logger, block_height):
         # {target_epoch, target_hash}; target_hash must equal the real checkpoint block hash.
         from ops.block_ops import get_block_hash_by_number
         from ops.mining_ops import epoch_of
-        from ops import kv_ops
         assert transaction["amount"] == 0, "Attest tx must have zero amount"
         assert transaction["fee"] == 0, "Attest tx is fee-exempt (fee must be 0)"
         data = transaction.get("data") or {}
@@ -189,7 +237,6 @@ def validate_transaction(transaction, logger, block_height):
         # the secret in epoch E-1's FINALIZED window; the secrets seed epoch E's beacon. Fee-exempt
         # bonded duty. Committing BEFORE the seeded beacon is revealed kills just-in-time grinding.
         from ops.mining_ops import epoch_of, beacon_commitment
-        from ops import kv_ops
         assert transaction["amount"] == 0, "Commit/reveal tx must have zero amount"
         assert transaction["fee"] == 0, "Commit/reveal tx is fee-exempt (fee must be 0)"
         data = transaction.get("data") or {}
@@ -213,6 +260,31 @@ def validate_transaction(transaction, logger, block_height):
             commitment = kv_ops.commit_get(transaction["sender"], E)
             assert commitment, "No matching commit for this reveal"
             assert secret and beacon_commitment(secret) == commitment, "Reveal does not open the commitment"
+            # AUDIT FIX: each secret may seed the beacon at most once — the DUPSORT row dedups identical
+            # secrets but does not reject the second tx, so a reorg can over-delete the shared row and
+            # desync epoch_beacon (whole-epoch producer fork). Rejecting an already-present secret also
+            # blocks cross-validator commitment-copying.
+            assert secret not in kv_ops.reveals_for_epoch(E), "This secret is already revealed for the epoch"
+    elif recipient in ("unbond", "withdraw"):
+        # UNBOND DELAY: fee-exempt actions on the sender's OWN stake. `unbond` requests a release (coins
+        # stay bonded + slashable); `withdraw` claims it only at/after the matured release_block. Bound
+        # to target_block (the deterministic landing block) so the mempool gate and block validation agree.
+        assert transaction["fee"] == 0, "unbond/withdraw is fee-exempt (fee must be 0)"
+        acc = get_account(transaction["sender"], create_on_error=False)
+        assert acc, "unbond/withdraw from an account with no stake"
+        pending = kv_ops.unbond_get(transaction["sender"])
+        if recipient == "unbond":
+            assert transaction["amount"] > 0, "unbond amount must be positive"
+            assert acc.get("bonded", 0) >= transaction["amount"], "unbond amount exceeds bonded stake"
+            assert pending is None, "an unbond is already pending (one withdrawal at a time)"
+        else:  # withdraw
+            assert pending, "no pending unbond to withdraw"
+            assert transaction["target_block"] >= pending["release_block"], \
+                "unbond has not matured yet (BOND_UNLOCK_DELAY)"
+            data = transaction.get("data") or {}
+            assert data.get("amount") == pending["amount"] and data.get("release_block") == pending["release_block"], \
+                "withdraw data does not match the pending unbond"
+            assert acc.get("bonded", 0) >= pending["amount"], "bonded stake is below the pending unbond"
     elif recipient in ("register", "heartbeat"):
         # OPEN-lane mining txs: FEE-EXEMPT (a zero-balance newcomer can't pay) and move no coins.
         assert transaction["amount"] == 0, "Open-lane (register/heartbeat) tx must have zero amount"
@@ -233,6 +305,12 @@ def validate_transaction(transaction, logger, block_height):
             # and one-per-(address,epoch) is enforced by the DUPSORT heartbeats sub-DB on apply.
             assert transaction.get("epoch") == transaction["target_block"] // EPOCH_LENGTH, "Heartbeat epoch mismatch"
             assert get_account(transaction["sender"])["registered"] == 1, "Heartbeat from an unregistered address"
+            # AUDIT FIX: one heartbeat per (address, epoch) — the DUPSORT row dedups but does not reject
+            # a second tx, so without this the fidelity counter is farmed and a reorg can over-delete the
+            # shared presence row (open-registry desync fork). Cross-block guard; same-block dups are
+            # dropped by block assembly + rejected by assert_unique_reserved.
+            assert not kv_ops.heartbeat_present(transaction["target_block"] // EPOCH_LENGTH, transaction["sender"]), \
+                "Already heartbeated this epoch"
     else:
         # ordinary transfer / bond / unbond: deterministic minimum-fee floor (anti-spam), from block 1
         assert transaction["fee"] >= MIN_TX_FEE, f"Transaction fee below minimum {MIN_TX_FEE}"

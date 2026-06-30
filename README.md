@@ -111,16 +111,21 @@ present**. Mine to **one address** — splitting across addresses gains nothing.
 
 ### The BONDED lane (optional stake)
 
-`bond`/`unbond` transactions move spendable balance into and out of a non-spendable `bonded` column.
-Bonded selection weight is `min(bonded, BOND_CAP) // B_MIN`, capped at `MAX_SHARES = 100`:
+A `bond` transaction moves spendable balance into a non-spendable `bonded` column; an `unbond`/`withdraw`
+pair moves it back out after a timelock (see below). Bonded selection weight is
+`min(bonded, BOND_CAP) // B_MIN`, capped at `MAX_SHARES = 100`:
 
 - **Split-neutral** — weight depends only on total bonded capital, so sharding across many addresses
   gains nothing.
 - **Whale-capped** — a single identity tops out at `BOND_CAP = 10,000 NADO` (`B_MIN = 100 NADO` per
   share), so no whale can monopolise the lane. The bond is **refundable** — you keep your coins.
 
-> Note: `BOND_UNLOCK_DELAY = 1440` blocks is defined but **not yet enforced** — `unbond` currently
-> releases stake immediately.
+> **Unbond is now timelocked (enforced).** `unbond` is a **release request**, not an instant refund:
+> the stake **stays in the `bonded` column — still slashable** — and a maturity block
+> `release_block = current + BOND_UNLOCK_DELAY (1440)` is recorded. A separate fee-exempt **`withdraw`**
+> transaction moves the matured amount to spendable balance only **at/after** `release_block`. Keeping
+> the stake bonded through the delay is what keeps a *caught equivocator's* stake slashable while the
+> unbond is in flight. One unbond may be pending at a time.
 
 ---
 
@@ -139,8 +144,9 @@ Bonded selection weight is `min(bonded, BOND_CAP) // B_MIN`, capped at `MAX_SHAR
   empty and fills only from this per-block cut.
 - **Fees are destroyed**, not paid to producers — that is what drives the elastic reward (it is a fee
   mechanic, not a "burn"; the old burn-to-bribe mechanic was removed entirely). A deterministic floor
-  `MIN_TX_FEE = 1000` raw applies to ordinary/bond/unbond transactions; register and heartbeat are
-  fee-exempt.
+  `MIN_TX_FEE = 1000` raw applies to ordinary transfers and `bond`; `register`, `heartbeat`, `unbond`,
+  and `withdraw` are fee-exempt (they move no coins out — `unbond`/`withdraw` only retime the sender's
+  own stake).
 - **No free→capital faucet.** Open-lane presence can never mint bonded stake; the only path from free
   to capital is the block subsidy an open miner actually earns — itself capped at `OPEN_BPS` (20 %).
 
@@ -209,9 +215,12 @@ http://<node-ip>:9173/static/miner.html
 The light-miner (`static/miner.html` + `static/miner.js`) is also a **full wallet**: it generates or
 imports a key, solves the registration PoW in pure JS, registers and heartbeats against the node, and
 **wins blocks even while offline** (a relay assembles the crediting block). It can send/receive with QR
-payment links and `#pay` deep links, bond/unbond, and show history — all from a phone. Crypto is
-**vendored** (`static/vendor/nado-crypto.js`: blake2b + ML-DSA-44) so it works offline, and an in-page
-self-test asserts byte-equality of its canonical encoding against the live repo on boot.
+payment links and `#pay` deep links, bond/unbond, and show history — all from a phone. It also shows
+**how busy each lane is right now** — live **OPEN** and **BONDED** participant counts (from
+`/mining_status` `open_registry_size` / `bonded_registry_size`) alongside your own bonded shares — so a
+miner can see the field it is competing against. Crypto is **vendored** (`static/vendor/nado-crypto.js`:
+blake2b + ML-DSA-44) so it works offline, and an in-page self-test asserts byte-equality of its canonical
+encoding against the live repo on boot.
 
 > The light-miner keeps its private key in browser `localStorage` in **plaintext** (disclosed in the
 > UI). Treat it like a hot wallet.
@@ -233,6 +242,43 @@ self-test asserts byte-equality of its canonical encoding against the live repo 
 NADO's security rests on the two-lane selection design plus anti-DoS/anti-Sybil hygiene. The split
 between **implemented** and **planned** below is the difference between testnet-safe and mainnet-safe —
 read it before running anything of value.
+
+### Security audit (all exploitable findings fixed)
+
+A deep adversarial audit was run across **six surfaces** (fork-choice/51%/rollback/finality;
+Sybil/two-lane/selection; slashing/equivocation/unbond; RANDAO/FFG/beacon; tx-validation/pubkey-once;
+KV atomicity/eclipse/DoS), against a chain that was **testnet-stage alpha with no value at stake**.
+Every **exploitable** finding it surfaced is now **fixed and unit-tested** — full writeup in
+[`doc/security-audit.md`](doc/security-audit.md). In brief:
+
+- **In-block duplicate reserved-tx bugs (CRITICAL/HIGH).** Uniqueness was checked only against
+  *parent* state and block assembly did no dedup, so duplicates of a reserved tx in **one** block could
+  drain a single unbond via repeated `withdraw`s (slash-escape / chain-halt), over-burn on a duplicate
+  `slash` (which two honest reporters trigger organically), or collapse duplicate `heartbeat`/`reveal`
+  rows so a reorg over-deletes the shared row → **registry/beacon desync fork**. Fixed by **per-reserved-tx
+  in-block uniqueness** (`reserved_uniqueness_key` + `dedupe_reserved` in assembly + `assert_unique_reserved`
+  in `verify_block`), plus cross-block `heartbeat`/`reveal`-secret guards.
+- **Same-length fork-choice wedge (CRITICAL, liveness).** Two equal-weight honest tips at one height
+  could wedge forever because the switch was strictly-greater-weight only. Fixed by the deterministic
+  **lowest-hash tie-break**: every node now switches to the global-best tip by `(weight DESC, hash ASC)`,
+  so they converge.
+- **`quick_sync` validation bypass (HIGH).** Old-block sync skipped signature + spending checks. `verify_block`
+  now **always** runs `validate_transactions_in_block` — the bypass is gone.
+- **Unauthenticated advertised-weight DoS (HIGH).** A single Sybil peer advertising a huge
+  `latest_block_weight` forced honest nodes into emergency rollbacks. Fixed by a bounded, auto-clearing
+  **`rejected_tips`** exclusion so a bogus weight can't loop a node.
+- Plus: **per-IP rate limits** on the heavy unauthenticated read endpoints (`/mining_status`,
+  `/get_transactions_of_account`, `/get_blocks_after`/`/get_blocks_before`); an **honest-signer guard**
+  (a node only ever signs a *strictly higher* height, so an honest re-signer can't be slashed for its own
+  reorg); the **per-/16 subnet cap now also gates the disk-reload path**; and a dead `/get_blocks_before`
+  was fixed.
+
+The audit also **confirmed the safety core sound** with no change needed: the atomic
+incorporate/rollback window, the monotonic finality floor, equivocation-proof unforgeability (and the
+no-innocent-victim address binding), the detached-signature-outside-the-hash property, and pubkey-once
+key→sender binding. The remaining items are documented **residuals / future hardening** (below and in
+[`doc/security-audit.md`](doc/security-audit.md)), none of which is a theft or fork vector in the current
+code.
 
 ### Implemented (live in production and verification paths)
 
@@ -289,10 +335,12 @@ read it before running anything of value.
   ordering** (txid-sorted before hashing, so honest nodes selecting the same tx set produce an
   identical block hash).
 - **Anti-DoS / eclipse throttles** — per-IP sliding-window rate limits on `/submit_transaction`
-  (30 req/60 s) **and** `/announce_peer` (10 req/60 s), a **per-/16 peer-diversity cap** (at most
-  `MAX_PEERS_PER_SUBNET = 4` peers per /16 in the live slots, so one network can't fill a victim's
-  peer view), a hard mempool cap (150,000), heartbeat-index GC, and an SSRF guard (`check_ip` rejects
-  own-IP and all non-globally-routable addresses).
+  (30 req/60 s) **and** `/announce_peer` (10 req/60 s), **plus the heavy unauthenticated read endpoints**
+  (`/mining_status`, `/get_transactions_of_account`, `/get_blocks_after`/`/get_blocks_before`, added in
+  the audit), a **per-/16 peer-diversity cap** (at most `MAX_PEERS_PER_SUBNET = 4` peers per /16 — now
+  enforced on the disk-reload path too, so one network can't fill a victim's peer view), a hard mempool
+  cap (150,000), heartbeat-index GC, and an SSRF guard (`check_ip` rejects own-IP and all
+  non-globally-routable addresses).
 
 ### Lightly exercised (implemented + unit-tested, but not yet hardened on a live multi-node net)
 
@@ -314,10 +362,31 @@ chain crosses epochs; treat their cross-epoch dynamics as not-yet-battle-tested.
 Objective fork-choice, enforced finality, equivocation slashing, FFG-lite stake-attested finality, and
 the commit-reveal RANDAO make a zero-bond Sybil/IP reorg ineffective, bound the disagreement window
 below one epoch, and layer accountable finality and a non-grindable beacon on top — a substantial
-hardening over the previous peer-count fork-choice. But the cross-epoch behaviour of FFG/RANDAO is only
-lightly exercised, the listed eclipse hardening is still outstanding, and all mining/economic
-parameters are **provisional** and flagged *simulate-before-lock-in* in code. NADO remains a
-**testnet-stage alpha, not open-value-mainnet-safe**. (No hardfork concern: mainnet is not live.)
+hardening over the previous peer-count fork-choice. Beyond the lightly-exercised cross-epoch behaviour
+of FFG/RANDAO and the outstanding eclipse hardening above, the **documented residuals** from the audit
+(see [`doc/security-audit.md`](doc/security-audit.md)) — none a theft or fork vector — are:
+
+- **No RANDAO withholder penalty.** A producer suppressing its own reveals has up to `2^m` grinding
+  combinations; defeated whenever ≥1 honest secret is revealed after the anchor. A withholder fidelity
+  dock + minimum-reveal rule is future work.
+- **FFG "slashable-stake backing" is aspirational** — there is **no attestation-equivocation slashing**
+  yet (only block-authorship equivocation is slashable). On-chain double-voting is blocked by the
+  per-epoch `UNIQUE(validator, epoch)` marker, but cross-fork attestation equivocation is unpunished;
+  FFG remains an observational signal.
+- **The bonded `MAX_SHARES` cap is per-identity, not aggregate** — sharding capital above `BOND_CAP`
+  across addresses recovers full proportional weight. The bonded lane is **capital-proportional by
+  design**; the cap only limits single-address variance, not aggregate stake.
+- **Registration / fee-exempt state growth** — `register` writes a permanent account doc; `GC_IDLE_EPOCHS`
+  is defined but **not yet wired**. Bounded today by the lane cap, per-IP rate limit, mempool cap, and the
+  in-block one-register-per-sender dedup; idle-account GC is future work.
+- **`FIDELITY_DECAY` is unwired** (absent identities keep accumulated fidelity), bounded by the open-lane
+  ceiling.
+- **Snapshot bootstrap** trusts an 80%-of-peers quorum with **no hardcoded finalized checkpoint**
+  cross-check (weak-subjectivity); a pinned checkpoint is future eclipse hardening.
+
+All mining/economic parameters are **provisional** and flagged *simulate-before-lock-in* in code. NADO
+remains a **testnet-stage alpha, not open-value-mainnet-safe**. (No hardfork concern: mainnet is not
+live.)
 
 ---
 
@@ -329,8 +398,8 @@ parameters are **provisional** and flagged *simulate-before-lock-in* in code. NA
   signatures interoperate across implementations. Signatures authenticate transactions/heartbeats and
   are **deliberately never** the randomness source (a malleable signature would be grindable).
 - **Addresses** — `"ndo"` + 42-hex public-key prefix + a 4-hex `blake2b` checksum (49 chars). The
-  keyless reserved recipients `{bond, unbond, register, heartbeat, slash, attest, commit, reveal}` are
-  valid as a recipient/target only, never as a sender.
+  keyless reserved recipients `{bond, unbond, withdraw, register, heartbeat, slash, attest, commit,
+  reveal}` are valid as a recipient/target only, never as a sender.
 - **Hashing & serialization** — BLAKE2b over `canonical_bytes()` (compact, sorted-key, ASCII JSON,
   float-free). Every consensus integer is a raw integer, so a browser reproduces identical bytes with
   BigInt-aware serialization. Transaction ids and blocks bind `CHAIN_ID = "nado-relaunch-1"`, blocking

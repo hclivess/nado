@@ -14,7 +14,10 @@
 > a grind-proof `cumulative_weight` header, a fail-loud epoch beacon, a detached
 > optional winner block signature, and pubkey-once) **plus** the second wave —
 > **equivocation slashing**, **FFG-lite stake-attested finality**, and a
-> **commit-reveal RANDAO** mixed into the live beacon. Two honest caveats remain:
+> **commit-reveal RANDAO** mixed into the live beacon. A subsequent **adversarial
+> security audit** (Section 7.4, `doc/security-audit.md`) found and **fixed every
+> exploitable issue** it surfaced and confirmed the safety core sound, and the
+> **unbond timelock is now enforced** (Section 4.4). Two honest caveats remain:
 > (1) the **multi-node, epoch-crossing** behaviour of FFG and RANDAO is only
 > *lightly exercised* empirically (unit-tested for correctness; the ~10 s/block
 > cadence makes crossing 120+ blocks slow), and (2) a subset of **eclipse hardening**
@@ -314,24 +317,34 @@ the 10% is effectively founder revenue. *(implemented)*
 ### 4.4 Bonding, whale dampening, and fees
 
 - **Bonding** is refundable locked stake: `bond` debits `amount + fee` from
-  spendable balance and adds `amount` to the non-spendable `bonded` column;
-  `unbond` reverses it (fee destroyed). A guarded UPDATE keeps `bonded`
-  non-negative (fails closed). *(implemented)*
+  spendable balance and adds `amount` to the non-spendable `bonded` column.
+  Releasing it is a **two-step, timelocked** flow (see "Unbond timelock"
+  below), not an instant reversal. A guarded UPDATE keeps `bonded` non-negative
+  (fails closed). *(implemented)*
 - **Whale dampening (capital).** Selection weight is split-neutral and
   per-identity capped (Section 2.5): `min(bonded, BOND_CAP) // B_MIN`, capped at
   `MAX_SHARES = 100`. *(implemented)*
 - **Whale dampening (time).** A fidelity ramp to scale a newcomer's bonded weight
   to full over `FIDELITY_CAP` epochs is designed but **dormant** on the bonded
   lane in v1 (live only on the open lane). *(partial)*
-- **Unbond timelock.** `BOND_UNLOCK_DELAY = 1440` blocks is **defined but not
-  enforced** — `unbond` currently releases stake to spendable balance
-  *immediately*. Do not assume withdrawals are time-locked. *(planned)*
+- **Unbond timelock (now enforced).** `BOND_UNLOCK_DELAY = 1440` blocks is now
+  **enforced** via a two-step flow. `unbond` is a **release request**, not an
+  instant refund: it records a maturity `release_block = current +
+  BOND_UNLOCK_DELAY` and the requested amount, but the coins **stay in the
+  `bonded` column and remain slashable**. A separate fee-exempt **`withdraw`**
+  transaction then moves the matured amount to spendable balance, and is only
+  valid once `target_block >= release_block` and its `data` (`amount`,
+  `release_block`) matches the pending request. Keeping the stake bonded through
+  the delay is precisely what keeps a **caught equivocator's stake slashable**
+  while an unbond is in flight; at most one unbond may be pending per account.
+  *(implemented — `unbond`/`withdraw` in `validate_transaction` / `reflect_transaction`)*
 - **Fees** are **destroyed**, not paid to producers: they accumulate into each
   block's `cumulative_fees` header (which drives the elastic reward) rather than
   crediting any address. A deterministic integer floor `MIN_TX_FEE = 1000` raw
-  applies to ordinary/bond/unbond transactions. (Register/heartbeat are
-  fee-exempt and zero-amount.) The legacy `burn` mechanic is entirely removed.
-  *(implemented)*
+  applies to ordinary transfers and `bond`. (`register`, `heartbeat`, `unbond`,
+  and `withdraw` are **fee-exempt** — they move no coins out; `unbond`/`withdraw`
+  only retime the sender's own stake.) The legacy `burn` mechanic is entirely
+  removed. *(implemented)*
 - **No auto-bond faucet.** Free open-lane presence can never mint bonded stake.
   The only free→capital path is the block subsidy an open miner actually earns —
   itself capped at `OPEN_BPS` (20%). Genesis enforces this with an explicit
@@ -379,9 +392,9 @@ recursively sorted keys (BigInt is required because raw amounts exceed JS's
 
 - **Address** = `"ndo"` + `public_key[:42]` (hex) + a 4-hex `blake2b` checksum;
   total 49 chars. `validate_address` recomputes the checksum. The keyless
-  reserved recipients `{bond, unbond, register, heartbeat, slash, attest, commit,
-  reveal}` bypass the checksum rule and are valid only as a recipient/target, never
-  as a sender. *(implemented)*
+  reserved recipients `{bond, unbond, withdraw, register, heartbeat, slash, attest,
+  commit, reveal}` bypass the checksum rule and are valid only as a recipient/target,
+  never as a sender. *(implemented)*
 - **Transaction binding.** `txid = blake2b_hash(canonical body)`, including
   `CHAIN_ID = "nado-relaunch-1"`; the signature is taken over `unhex(txid)`.
   `validate_txid` independently recomputes the txid so any field tamper is
@@ -455,7 +468,10 @@ blake2b + ML-DSA-44) so it works offline, with a CDN fallback only if the local
 bundle is absent. An in-page self-test asserts byte-equality of canonical
 encoding against vectors generated from the live repo, on boot. It is a full
 wallet: generate/import keys, transfer, bond/unbond, QR + `#pay` deep links,
-history, key-file download, and `localStorage` persistence. *(implemented)*
+history, key-file download, and `localStorage` persistence. It also surfaces the
+**live OPEN and BONDED lane participant counts** (`/mining_status`
+`open_registry_size` / `bonded_registry_size`) alongside the miner's own bonded
+shares, so a phone can see how contested each lane is. *(implemented)*
 
 > **Client caveats.** The private key is stored in browser `localStorage` in
 > **plaintext** (explicitly disclosed in the UI). Permissive CORS
@@ -482,7 +498,10 @@ unchanged. *(implemented)*
 NADO's security rests on the two-lane selection design plus anti-DoS/anti-Sybil
 hygiene. This section is explicit about what is **implemented** versus
 **planned**, because the distinction is the difference between testnet-safe and
-mainnet-safe.
+mainnet-safe. A deep **adversarial security audit** (Section 7.4,
+[`doc/security-audit.md`](security-audit.md)) was run across six surfaces; **every
+exploitable finding it surfaced is fixed and unit-tested**, and it confirmed the
+safety core sound. The fixes are reflected throughout this section.
 
 ### 7.1 Threats and current posture
 
@@ -640,6 +659,76 @@ outbound `/status` probe (P2-1 open). NADO today is therefore a **testnet-stage
 alpha, not open-value-mainnet-safe** (with no hardfork concern — mainnet is not live).
 The threat model assumes `NADO_TESTNET` is unset.
 
+### 7.4 Adversarial security audit (all exploitable findings fixed)
+
+A deep adversarial audit was run across **six attack surfaces** —
+fork-choice/51%/rollback/finality; Sybil/two-lane/selection;
+slashing/equivocation/unbond; RANDAO/FFG/beacon; tx-validation/pubkey-once; and
+KV atomicity/eclipse/DoS — against a chain that was **testnet-stage alpha with no
+value at stake**. Each finding was verified against the code; **every exploitable
+finding is now fixed and unit-tested** (`tests/test_inblock_uniqueness_audit.py`
+plus the existing consensus suite). The full writeup, including severities and the
+residuals, is [`doc/security-audit.md`](security-audit.md).
+
+**Fixed (exploitable):**
+
+- **In-block duplicate reserved transactions (CRITICAL/HIGH).** Uniqueness was
+  validated only against **parent** state, and block assembly did **no dedup**, so
+  duplicates of one reserved tx inside a **single** block could: drain `K×B_MIN`
+  from one unbond via repeated `withdraw`s (**slash-escape + chain-halt**);
+  over-burn / halt on a duplicate `slash` (which two honest reporters trigger
+  organically); or collapse duplicate `heartbeat`/`reveal` rows in `DUPSORT` so a
+  later reorg over-deletes the shared row → **registry/beacon desync fork** (and
+  fidelity farming). One root fix closes all of them: a `reserved_uniqueness_key`
+  with `dedupe_reserved` (block assembly drops in-block dups) and
+  `assert_unique_reserved` (`verify_block` rejects them), plus cross-block
+  `heartbeat_present` and reveal-secret uniqueness guards in validation.
+- **Same-length fork-choice wedge (CRITICAL, liveness).** Because
+  `cumulative_weight` is content-independent, two honest tips at one height tie,
+  and the old switch fired only on strictly-**greater** weight — so equal-weight
+  forks wedged forever (the empirical testnet churn). Fixed: a node now switches
+  whenever the global-best tip by `(cumulative_weight DESC, block_hash ASC)` isn't
+  its own — the deterministic **lowest-hash tie-break** every node computes
+  identically, so they converge.
+- **`quick_sync` skipped signature + spending validation (HIGH, opt-in).** A
+  malicious sync peer could inject forged unsigned transfers in old blocks.
+  `verify_block` now **always** runs `validate_transactions_in_block`; the bypass
+  is removed.
+- **Unauthenticated advertised `latest_block_weight` DoS (HIGH).** A single Sybil
+  peer advertising a huge weight forced honest nodes into emergency-mode +
+  wasteful rollbacks. Fixed by a bounded, auto-clearing **`rejected_tips`**
+  exclusion: a tip we tried-and-failed to obtain a valid heavier chain for is
+  excluded from the heaviest computation for a window, so a bogus weight can't
+  loop a node.
+- **Lower-severity fixes:** per-IP **rate limits** added to the heavy
+  unauthenticated read endpoints (`/mining_status`,
+  `/get_transactions_of_account`, `/get_blocks_after`/`/get_blocks_before`); an
+  **honest re-signer guard** (a node only ever signs a *strictly higher* height
+  via `last_signed_height`, so it cannot self-equivocate after a reorg and be
+  slashed); the **per-/16 subnet cap now also gates the disk-reload path**
+  (`subnet_diversity_ok` in `load_ips`); a malformed-tx guard in
+  `merge_transaction`; and a dead `/get_blocks_before` (a literal
+  `parent_hash=["parent_hash"]`) was fixed.
+
+**Confirmed sound (audited, no change needed):** the **atomic incorporate/rollback**
+window; the **monotonic finalized-height floor** (and the enforced
+`max_rollbacks(10) < FINALITY_DEPTH(30) < EPOCH_LENGTH(60)` ordering); the tight
+RANDAO reveal-immutability bound; **equivocation-proof unforgeability** with the
+no-innocent-victim address binding; the **detached-signature-outside-the-hash**
+property; and **pubkey-once** key→sender binding with full-body/replay binding.
+
+**Documented residuals (NOT theft or fork vectors), scheduled before mainnet:** no
+RANDAO withholder/reveal-censorship penalty (Section 3.3); FFG's "slashable-stake
+backing" is **aspirational** — there is no **attestation-equivocation slashing**
+yet (only block-authorship equivocation), so cross-fork double-voting beyond the
+per-epoch `UNIQUE(validator, epoch)` marker is unpunished and FFG stays an
+observational signal; the bonded `MAX_SHARES` cap is **per-identity, not aggregate**
+(the bonded lane is capital-proportional by design, the cap only bounds
+single-address variance); `register`/fee-exempt **state growth** (`GC_IDLE_EPOCHS`
+defined but unwired — idle-account GC is future work); `FIDELITY_DECAY` unwired; and
+snapshot bootstrap trusts an 80%-of-peers quorum with **no hardcoded finalized
+checkpoint** (weak-subjectivity).
+
 ---
 
 ## 8. Roadmap
@@ -651,7 +740,12 @@ optional winner signature **plus equivocation slashing**, **#6** additive FFG-li
 stake-attested finality (`/status.ffg_finalized`), **#7** the commit-reveal RANDAO,
 **#19** pubkey-once, the `/announce_peer` rate-limit + per-/16 subnet cap, and the
 **schemaless LMDB storage migration** (Section 6). The `max_rollbacks < FINALITY_DEPTH
-< EPOCH_LENGTH` anchor invariant is enforced. What gates an open-value mainnet now:
+< EPOCH_LENGTH` anchor invariant is enforced. Since then, an **adversarial security
+audit** (Section 7.4) landed fixes for every exploitable finding (in-block reserved-tx
+uniqueness, the lowest-hash fork-choice tie-break, always-validate sync, and the
+bounded `rejected_tips` DoS guard), and the **unbond timelock** is now enforced via the
+two-step `unbond`-request + fee-exempt `withdraw` flow (Section 4.4). What gates an
+open-value mainnet now:
 
 1. **Harden FFG/RANDAO across epochs** — the slashing/FFG/RANDAO mechanisms are wired
    and unit-tested, but their multi-node, epoch-crossing behaviour needs sustained
@@ -667,7 +761,12 @@ Additional hardening and feature items, all currently **planned/partial**:
 
 - **Bonded-lane fidelity ramp** (time-dimension anti-instant-whale) activated
   (an on-chain bonded fidelity column).
-- **Unbond timelock** `BOND_UNLOCK_DELAY = 1440` actually enforced (task #11).
+- **Attestation-equivocation slashing** for FFG (today only block-authorship
+  equivocation is slashable; FFG cross-fork double-voting beyond the per-epoch
+  `UNIQUE(validator, epoch)` marker is unpunished, so FFG remains an observational
+  signal — Section 7.4).
+- **Idle-account GC** wiring `GC_IDLE_EPOCHS` to bound `register`/fee-exempt state
+  growth (defined but unwired today — Section 7.4).
 - **Absence-decay** for fidelity (currently `FIDELITY_DECAY` is defined but
   unwired).
 - **Halving / issuance schedule** (none exists; emission is a perpetual floor +
@@ -695,8 +794,12 @@ Additional hardening and feature items, all currently **planned/partial**:
   the silent fallback is removed and reveals are mixed in, but there is **no explicit
   withholder fidelity dock**, and the cross-epoch commit→reveal→beacon cycle is only
   lightly exercised.
-- **Bonded fidelity ramp dormant; unbond timelock unenforced; no absence decay;
-  no halving schedule.** Treat these as not-present today.
+- **Unbond is now timelocked.** `unbond` is a release *request* that keeps the
+  stake bonded and slashable for `BOND_UNLOCK_DELAY = 1440` blocks; a fee-exempt
+  `withdraw` claims it only at/after maturity (Section 4.4).
+- **Bonded fidelity ramp dormant; no FFG attestation slashing; no absence decay;
+  no idle-account GC; no halving schedule.** Treat these as not-present today
+  (Section 7.4).
 - **All mining/economic parameters are PROVISIONAL** and flagged
   *simulate-before-lock-in* in code; exact ratios (e.g. `K_OPEN = 12`) hold only
   at default `EPOCH_LENGTH` / `OPEN_BPS`, several of which are config-overridable.
@@ -729,12 +832,12 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | `B_MIN` | `1e12` (100 NADO) | Capital per bonded selection share; 0 shares below this. |
 | `BOND_CAP` | `1e14` (10,000 NADO) | Max effective bond per identity (anti-whale). |
 | `MAX_SHARES` | `100` (= `BOND_CAP//B_MIN`) | Variance cap; max bonded shares one identity wields. |
-| `BOND_UNLOCK_DELAY` | `1440` blocks | Intended unbond lock — **defined, NOT enforced** (planned). |
+| `BOND_UNLOCK_DELAY` | `1440` blocks | Unbond timelock — **enforced**: `unbond` is a release request (stake stays bonded + slashable); fee-exempt `withdraw` claims it at/after `release_block = current + 1440`. |
 | `REGISTER_POW_BITS` | `16` | One-time open-lane registration PoW (~1s in-browser); fee substitute, not the Sybil bound. |
 | `OPEN_BASE_FLOOR` | `1` | Min open-lane weight for any present identity (never 0). |
 | `OPEN_FID_BONUS` | `9` | Max open diligence bonus; open weight ranges 1..10. |
 | `PRESENCE_WINDOW` | `3` epochs | Heartbeat recency to stay in the open registry; heartbeat-index GC window. |
-| `GC_IDLE_EPOCHS` | `1000` | Prune registry rows idle this long (state-bloat bound). |
+| `GC_IDLE_EPOCHS` | `1000` | Intended idle-registry prune window (state-bloat bound) — **defined, not yet wired** (Section 7.4). |
 | `FIDELITY_CAP` | `1000` epochs | Continuous presence to fully ramp the open bonus. |
 | `FIDELITY_GAIN` | `1` | Fidelity increment per epoch present. |
 | `FIDELITY_DECAY` | `1` | Intended absence decay — **defined, unwired** (planned). |
@@ -743,12 +846,12 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | `BASE_SUBSIDY` | `1e9` (0.1 NADO) | Flat per-block emission floor (~144 NADO/day at 60s blocks). |
 | `REWARD_WINDOW` | `100` | Trailing blocks averaged for the elastic fee reward. |
 | `REWARD_CAP` | `5e9` (0.5 NADO) | Max reward per block. |
-| `MIN_TX_FEE` | `1000` raw | Deterministic minimum fee floor (ordinary/bond/unbond txs). |
+| `MIN_TX_FEE` | `1000` raw | Deterministic minimum fee floor (ordinary transfers and `bond`; `register`/`heartbeat`/`unbond`/`withdraw` are fee-exempt). |
 | `TREASURY_ADDRESS` / `GENESIS_ADDRESS` | `_GENESIS_BODY + blake2b_hash(body, 2)` | Founder key-controlled treasury == genesis address. |
 | ML-DSA-44 pubkey | `1312` bytes (from 32-byte seed) | Post-quantum public key (FIPS 204). |
 | ML-DSA-44 signature | `~2420` bytes | Post-quantum signature length. |
 | Address format | `"ndo"` + 42-hex pubkey prefix + 4-hex checksum (49 chars) | Checksum = `blake2b_hash(body, size=2)`. |
-| `RESERVED_RECIPIENTS` | `{bond, unbond, register, heartbeat, slash, attest, commit, reveal}` | Keyless pseudo-recipients; valid as recipient/target only. |
+| `RESERVED_RECIPIENTS` | `{bond, unbond, withdraw, register, heartbeat, slash, attest, commit, reveal}` | Keyless pseudo-recipients; valid as recipient/target only. |
 | `SLASH_BOND_PENALTY` | `B_MIN` (one share, 100 NADO) | Bonded stake burned per proven equivocation (#15 step 5C); revert-symmetric, one-per-(offender, height). |
 | `FFG_NUM` / `FFG_DEN` | `2` / `3` | FFG-lite justify threshold: a checkpoint justifies at *strictly* >2/3 of total bonded shares (#6). Additive signal, exposed at `/status.ffg_finalized`. |
 | Rate limit | `30 req / 60s` per IP | On `/submit_transaction` (GET+POST); HTTP 429 over the limit. |

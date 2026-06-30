@@ -43,14 +43,19 @@ def t2():
 check("bond revert is exact identity", t2)
 
 def t3():
+    from ops import kv_ops as _kv
+    from protocol import BOND_UNLOCK_DELAY as _DELAY
     reflect_transaction(BOND, logger=logger, block_height=1)              # balance 4000 bonded 5000
-    reflect_transaction(UNBOND, logger=logger, block_height=2)           # release 2000, fee 100
+    reflect_transaction(UNBOND, logger=logger, block_height=2)           # unbond is now a REQUEST (delayed)
     a = get_account("alice")
-    assert a["bonded"] == 3000 and a["balance"] == 5900, a               # 4000 + 2000 - 100
+    # coins STAY bonded (still slashable) until a matured `withdraw`; only a pending unbond is recorded
+    assert a["bonded"] == 5000 and a["balance"] == 4000, a
+    assert _kv.unbond_get("alice") == {"amount": 2000, "release_block": 2 + _DELAY}, _kv.unbond_get("alice")
     reflect_transaction(UNBOND, logger=logger, block_height=2, revert=True)
     a = get_account("alice")
     assert a["bonded"] == 5000 and a["balance"] == 4000, a
-check("unbond releases stake; revert exact", t3)
+    assert _kv.unbond_get("alice") is None
+check("unbond is a delayed request (coins stay bonded/slashable); revert clears pending", t3)
 
 # alice now: balance 4000, bonded 5000
 def t4():

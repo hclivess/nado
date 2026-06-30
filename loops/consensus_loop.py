@@ -62,6 +62,13 @@ class ConsensusClient(threading.Thread):
         self.tip_weights = {}            # {tip_hash: best advertised weight for that hash (incl. ours)}
         self.heaviest_block_hash = None  # canonical tip = argmax weight (ties: lowest hash)
         self.heaviest_block_weight = None
+        # AUDIT FIX (weight-DoS): tips we tried to sync to (because their ADVERTISED cumulative_weight
+        # looked heaviest) but could NOT actually obtain a valid heavier chain for. Excluded from the
+        # heaviest computation for a bounded window, so a peer advertising a bogus huge weight cannot
+        # loop us into emergency-mode/rollback. Auto-cleared periodically so a transiently-unreachable
+        # REAL heavier tip is retried.
+        self.rejected_tips = set()
+        self._reject_clear_counter = 0
 
         self.trust_average = None
         self.trust_median = None
@@ -152,6 +159,13 @@ class ConsensusClient(threading.Thread):
         field). The advertised weight is only a HINT for which peer to sync from — verify_block
         re-derives and ENFORCES the weight on the real blocks, so a peer cannot lie its way to a
         heavier chain; and the finality floor stops it reorging our finalized prefix."""
+        # AUDIT FIX (weight-DoS): clear the transient rejection window periodically so a real heavier
+        # tip we briefly couldn't fetch is retried (and a bogus one is only excluded for a bounded time).
+        self._reject_clear_counter += 1
+        if self._reject_clear_counter >= 30:
+            self.rejected_tips = set()
+            self._reject_clear_counter = 0
+
         weight_pool = {}
         for peer, status in self.status_pool.copy().items():
             if isinstance(status, dict) and status.get("latest_block_weight") is not None:
@@ -159,11 +173,11 @@ class ConsensusClient(threading.Thread):
         self.weight_pool = weight_pool
 
         # tip_weights: best advertised weight per distinct tip hash, INCLUDING our own tip so we never
-        # switch away from an equal-or-heavier local chain (first-seen on ties).
+        # switch away from an equal-or-heavier local chain (first-seen on ties). Excludes rejected tips.
         tip_weights = {}
         for peer, tip_hash in self.block_hash_pool.copy().items():
             w = weight_pool.get(peer)
-            if tip_hash is None or w is None:
+            if tip_hash is None or w is None or tip_hash in self.rejected_tips:
                 continue
             if tip_hash not in tip_weights or w > tip_weights[tip_hash]:
                 tip_weights[tip_hash] = w

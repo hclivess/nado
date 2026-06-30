@@ -102,7 +102,10 @@ def match_transactions_target(transaction_list, block_number, logger):
             if transaction["target_block"] == block_number:
                 matched_txs.append(transaction)
 
-        return matched_txs
+        # AUDIT FIX: drop duplicate reserved txs (e.g. two withdraws of one unbond, two heartbeats of
+        # one epoch) so an honest producer never assembles a block verify_block would reject.
+        from ops.transaction_ops import dedupe_reserved
+        return dedupe_reserved(matched_txs)
     except Exception as e:
         logger.error(f"Error when matching transactions to target block: {e}")
         return False
