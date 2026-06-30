@@ -281,6 +281,7 @@ const state = {
   registering: false,  // a PoW+submit is currently in flight (re-entrancy guard)
   regSubmitted: null,  // { targetBlock, txid } of the registration we last broadcast, or null
   lastHeartbeatEpoch: null,
+  heartbeating: false,   // a heartbeat submit is in flight (re-entrancy guard for overlapping polls)
   latest: null,        // latest block number
   blockTime: 60,
   pollTimer: null,
@@ -614,21 +615,33 @@ async function submitRegistration() {
 function nowSeconds() { return Math.floor(Date.now() / 1000); }
 
 async function sendHeartbeat() {
+  if (state.heartbeating) return;                 // re-entrancy guard: overlapping poll ticks won't double-send
   const latest = await getLatestBlock();
   if (!latest || typeof latest.block_number !== "number") { log("err", "Heartbeat: relay unavailable."); return; }
   state.latest = latest.block_number;
   const targetBlock = latest.block_number + 8;  // headroom so the tx lands before its target block
   const epoch = Math.floor(targetBlock / EPOCH_LENGTH); // matches the block it lands in (target_block)
-  if (epoch === state.lastHeartbeatEpoch) return; // already beat this epoch
+  if (epoch === state.lastHeartbeatEpoch) return; // already beat this epoch (tracked locally)
 
-  const tx = buildHeartbeatTx(state.wallet, targetBlock, epoch, nowSeconds());
-  const res = await submitTransaction(tx);
-  const m = res.data && (res.data.message || JSON.stringify(res.data));
-  if (res.data && res.data.result) {
-    state.lastHeartbeatEpoch = epoch;
-    log("ok", `Heartbeat sent for epoch ${epoch} (target_block ${targetBlock}).`);
-  } else {
-    log("err", `Heartbeat epoch ${epoch} rejected: ${m}`);
+  state.heartbeating = true;
+  try {
+    const tx = buildHeartbeatTx(state.wallet, targetBlock, epoch, nowSeconds());
+    const res = await submitTransaction(tx);
+    const m = (res.data && (res.data.message || JSON.stringify(res.data))) || "";
+    if (res.data && res.data.result) {
+      state.lastHeartbeatEpoch = epoch;
+      log("ok", `Heartbeat sent for epoch ${epoch} (target_block ${targetBlock}).`);
+    } else if (/already heartbeated|already present/i.test(m)) {
+      // BENIGN — not an error: the node already has our heartbeat for this epoch, so we ARE present.
+      // (Happens after a page reload, or when a prior heartbeat already landed.) Record the epoch so we
+      // stop re-sending it every poll, and surface it calmly instead of as a scary "rejected" line.
+      state.lastHeartbeatEpoch = epoch;
+      log("info", `Already present for epoch ${epoch} ✓ (heartbeat not needed again).`);
+    } else {
+      log("err", `Heartbeat epoch ${epoch} rejected: ${m}`);
+    }
+  } finally {
+    state.heartbeating = false;
   }
 }
 
@@ -992,7 +1005,9 @@ function downloadKeyFile() {
   log("info", "Downloaded key file for " + w.address.slice(0, 12) + "…");
 }
 
-/* Fees are integer RAW units. Default = relay recommendation, floored at the protocol MIN_TX_FEE. */
+/* The network fee is a tiny fixed protocol minimum (destroyed, not paid out). We hide the raw-unit
+ * complexity entirely: the user never types a fee — we apply the relay's recommended fee (floored at
+ * MIN_TX_FEE) automatically and just DISPLAY it in NADO. Returns the fee in RAW units. */
 async function getRecommendedFee() {
   try {
     const r = await rpcJSON("/get_recommended_fee");
@@ -1000,16 +1015,15 @@ async function getRecommendedFee() {
     return Math.max(Number.isFinite(f) ? Math.floor(f) : 0, MIN_TX_FEE);
   } catch (e) { return MIN_TX_FEE; }
 }
-async function prefillFee(id) {
-  const el = $(id);
-  if (!el || el.value.trim()) return;     // never clobber a value the user is editing
+async function currentFeeRaw() {
   if (state.recommendedFee == null) state.recommendedFee = await getRecommendedFee();
-  el.value = String(state.recommendedFee);
+  return state.recommendedFee;
 }
-function parseFee(v) {
-  let f = Math.floor(Number(String(v).trim()));
-  if (!Number.isFinite(f) || f < MIN_TX_FEE) f = MIN_TX_FEE;
-  return f;
+// Fill the read-only "Network fee: X NADO" labels on the Send + Stake tabs (no raw units shown).
+async function updateFeeInfo() {
+  const fee = await currentFeeRaw();
+  const txt = rawToNado(fee) + " NADO (automatic)";
+  for (const id of ["sendFeeInfo", "bondFeeInfo"]) { const el = $(id); if (el) el.textContent = txt; }
 }
 
 function setMsg(id, text, cls) {
@@ -1048,7 +1062,7 @@ async function doSend() {
   let rawAmount;
   try { rawAmount = nadoToRaw($("sendAmount").value); } catch (e) { setMsg("sendMsg", "Invalid amount.", "err"); return; }
   if (rawAmount <= 0n) { setMsg("sendMsg", "Amount must be greater than zero.", "err"); return; }
-  const fee = parseFee($("sendFee").value);
+  const fee = await currentFeeRaw();              // automatic network fee (no raw-units input)
 
   setMsg("sendMsg", "Checking balance…", null);
   const acc = await getAccount(state.wallet.address);
@@ -1058,7 +1072,7 @@ async function doSend() {
     return;
   }
   const selfWarn = recipient === state.wallet.address ? "\n\nWARNING: this is your OWN address." : "";
-  if (!confirm(`Send ${rawToNado(rawAmount)} NADO\nto ${recipient}\nfee ${fee} raw (${rawToNado(fee)} NADO)${selfWarn}\n\nProceed?`)) {
+  if (!confirm(`Send ${rawToNado(rawAmount)} NADO\nto ${recipient}\nnetwork fee ${rawToNado(fee)} NADO${selfWarn}\n\nProceed?`)) {
     setMsg("sendMsg", "Cancelled.", null); return;
   }
   const btn = $("btnSend"); btn.disabled = true;
@@ -1077,12 +1091,13 @@ async function doSend() {
 async function doBond(kind) {
   const isBond = kind === "bond";
   const amtId = isBond ? "bondAmount" : "unbondAmount";
-  const feeId = isBond ? "bondFee" : "unbondFee";
   const btn = $(isBond ? "btnBond" : "btnUnbond");
   let rawAmount;
   try { rawAmount = nadoToRaw($(amtId).value); } catch (e) { setMsg("stakeMsg", "Invalid amount.", "err"); return; }
   if (rawAmount <= 0n) { setMsg("stakeMsg", "Amount must be greater than zero.", "err"); return; }
-  const fee = parseFee($(feeId).value);
+  // bond pays the automatic network fee; unbond is FEE-EXEMPT on-chain (fee MUST be 0, else the node
+  // rejects it) — so never attach a fee to an unbond.
+  const fee = isBond ? await currentFeeRaw() : 0;
 
   const acc = await getAccount(state.wallet.address);
   const balance = BigInt((acc && acc.balance) || 0);
@@ -1093,12 +1108,12 @@ async function doBond(kind) {
     }
   } else {
     if (rawAmount > bonded) { setMsg("stakeMsg", `Cannot unbond more than bonded (${rawToNado(bonded)} NADO).`, "err"); return; }
-    if (BigInt(fee) > balance) { setMsg("stakeMsg", `Need ${rawToNado(fee)} NADO spendable for the fee, have ${rawToNado(balance)}.`, "err"); return; }
   }
   const verb = isBond ? "Bond" : "Unbond";
   const dir = isBond ? "spendable → bonded" : "bonded → spendable";
+  const feeLine = isBond ? `\nnetwork fee ${rawToNado(fee)} NADO` : "\nno fee (unbonding is free)";
   const tail = isBond ? "" : `\n\nNote: bonded stake stays locked ${BOND_UNLOCK_DELAY} blocks after unbonding.`;
-  if (!confirm(`${verb} ${rawToNado(rawAmount)} NADO (${dir})\nfee ${fee} raw${tail}\n\nProceed?`)) {
+  if (!confirm(`${verb} ${rawToNado(rawAmount)} NADO (${dir})${feeLine}${tail}\n\nProceed?`)) {
     setMsg("stakeMsg", "Cancelled.", null); return;
   }
   btn.disabled = true;
@@ -1378,8 +1393,8 @@ function showTab(name) {
   if (name !== "send") show("payBanner", false); // the pay-request banner belongs to the Send tab only
   if (name === "receive") renderReceiveQR();
   else if (name === "history") loadHistory().catch(() => {});
-  else if (name === "send") prefillFee("sendFee");
-  else if (name === "stake") { prefillFee("bondFee"); prefillFee("unbondFee"); refreshDashboard().catch(() => {}); }
+  else if (name === "send") updateFeeInfo().catch(() => {});
+  else if (name === "stake") { updateFeeInfo().catch(() => {}); refreshDashboard().catch(() => {}); }
 }
 
 /* Pre-wallet view: no tabs; show onboarding + the Settings card (so the relay can be configured). */

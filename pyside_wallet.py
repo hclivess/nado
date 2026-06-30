@@ -774,14 +774,13 @@ class SendTab(QWidget):
         self.recipient.setPlaceholderText("ndo… recipient address")
         self.amount = QLineEdit()
         self.amount.setPlaceholderText("0.0")
-        self.fee = QLineEdit(str(MIN_TX_FEE))
         form.addRow("Recipient", self.recipient)
         form.addRow("Amount (NADO)", self.amount)
-        form.addRow("Fee (raw units)", self.fee)
+        form.addRow("Network fee", QLabel(f"{fmt_nado(MIN_TX_FEE)} (automatic)"))
         root.addWidget(card)
         root.addWidget(hint(
-            f"Amounts are entered in NADO (1 NADO = {DENOMINATION:,} raw units) and converted on "
-            f"submit. The fee is in raw units; the protocol minimum is {MIN_TX_FEE:,}."
+            "Amounts are in NADO. The tiny network fee is set automatically to the protocol "
+            "minimum and destroyed (not paid to anyone) — you don't need to think about it."
         ))
 
         btn_row = QHBoxLayout()
@@ -808,17 +807,10 @@ class SendTab(QWidget):
         if amount_raw <= 0:
             self.app.error("Invalid amount", "Amount must be greater than zero.")
             return
-        try:
-            fee = int(self.fee.text().strip())
-        except ValueError:
-            self.app.error("Invalid fee", "Fee must be an integer number of raw units.")
-            return
-        if fee < MIN_TX_FEE:
-            self.app.error("Fee too low", f"Fee must be at least {MIN_TX_FEE:,} raw units.")
-            return
+        fee = MIN_TX_FEE                          # automatic network fee (no raw-units entry)
         summary = (f"Send  {fmt_nado(amount_raw)}\n"
                    f"To    {recipient}\n"
-                   f"Fee   {fee:,} raw")
+                   f"Fee   {fmt_nado(fee)} (network fee)")
         if not self.app.confirm("Confirm transfer", summary):
             return
         self.send_btn.setEnabled(False)
@@ -839,7 +831,8 @@ class BondTab(QWidget):
         root.addWidget(hint(
             f"Bonding locks spendable balance into refundable stake that earns weight in the "
             f"BONDED mining lane. Selection weight is capped & split-neutral: one share per "
-            f"{fmt_nado(B_MIN)} bonded, up to {fmt_nado(BOND_CAP)} effective per identity. "
+            f"{fmt_nado(B_MIN)} bonded, up to {fmt_nado(BOND_CAP)} effective per identity. Bonding "
+            f"pays the tiny automatic network fee ({fmt_nado(MIN_TX_FEE)}); unbonding is free. "
             f"Unbonding moves stake back toward spendable balance (subject to the node's unlock delay)."
         ))
 
@@ -852,10 +845,9 @@ class BondTab(QWidget):
         self.direction.addItems(["Bond  (balance → stake)", "Unbond  (stake → balance)"])
         self.amount = QLineEdit()
         self.amount.setPlaceholderText("0.0")
-        self.fee = QLineEdit(str(MIN_TX_FEE))
         form.addRow("Action", self.direction)
         form.addRow("Amount (NADO)", self.amount)
-        form.addRow("Fee (raw units)", self.fee)
+        form.addRow("Network fee", QLabel(f"bond: {fmt_nado(MIN_TX_FEE)} · unbond: free"))
         root.addWidget(card)
 
         btn_row = QHBoxLayout()
@@ -880,16 +872,12 @@ class BondTab(QWidget):
         if amount_raw <= 0:
             self.app.error("Invalid amount", "Amount must be greater than zero.")
             return
-        try:
-            fee = int(self.fee.text().strip())
-        except ValueError:
-            self.app.error("Invalid fee", "Fee must be an integer number of raw units.")
-            return
-        if fee < MIN_TX_FEE:
-            self.app.error("Fee too low", f"Fee must be at least {MIN_TX_FEE:,} raw units.")
-            return
+        # bond pays the automatic network fee; unbond is FEE-EXEMPT on-chain (fee MUST be 0 or the node
+        # rejects it) — never attach a fee to an unbond.
+        fee = MIN_TX_FEE if is_bond else 0
         verb = "Bond" if is_bond else "Unbond"
-        summary = f"{verb}  {fmt_nado(amount_raw)}\nFee   {fee:,} raw"
+        fee_line = f"Fee   {fmt_nado(fee)} (network fee)" if is_bond else "Fee   none (unbonding is free)"
+        summary = f"{verb}  {fmt_nado(amount_raw)}\n{fee_line}"
         if not self.app.confirm(f"Confirm {verb.lower()}", summary):
             return
         self.btn.setEnabled(False)

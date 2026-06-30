@@ -186,14 +186,13 @@
     <input id="sendTo" placeholder="ndo…" autocomplete="off" spellcheck="false" />
     <div id="sendToMsg" class="small mt faint"></div>
     <label class="mt">Amount (NADO)
-      <span class="hint" title="1 NADO = 10,000,000,000 raw units. Up to 10 decimal places.">ⓘ</span>
+      <span class="hint" title="Amount in NADO — up to 10 decimal places (the smallest unit is 0.0000000001 NADO).">ⓘ</span>
     </label>
     <input id="sendAmount" placeholder="0.0" inputmode="decimal" autocomplete="off" />
-    <label class="mt">Fee (raw units)
-      <span class="hint" title="Network fee in RAW units (1 NADO = 1e10 raw). Pre-filled from the relay's recommended fee; the protocol minimum is 1000 raw. The fee is destroyed, not paid to a recipient.">ⓘ</span>
-    </label>
-    <input id="sendFee" inputmode="numeric" autocomplete="off" />
-    <div class="small faint mt">Spendable balance: <span id="sendAvail" class="mono">—</span></div>
+    <div class="small faint mt">Network fee: <span id="sendFeeInfo" class="mono">—</span>
+      <span class="hint" title="A tiny network fee set automatically to the protocol minimum. It is destroyed, not paid to anyone. Shown in NADO.">ⓘ</span>
+    </div>
+    <div class="small faint">Spendable balance: <span id="sendAvail" class="mono">—</span></div>
     <button id="btnSend" class="primary mt" style="width:100%">Review &amp; send</button>
     <div id="sendMsg" class="small mt faint"></div>
   </div>
@@ -236,8 +235,9 @@
       <span class="hint" title="Locks spendable balance as bonded stake to mine the bonded lane. 100 NADO buys one bonded selection share.">ⓘ</span>
     </label>
     <input id="bondAmount" placeholder="0.0" inputmode="decimal" autocomplete="off" />
-    <label class="mt">Fee (raw units)</label>
-    <input id="bondFee" inputmode="numeric" autocomplete="off" />
+    <div class="small faint mt">Network fee: <span id="bondFeeInfo" class="mono">—</span>
+      <span class="hint" title="A tiny network fee set automatically to the protocol minimum, destroyed (not paid to anyone). Shown in NADO.">ⓘ</span>
+    </div>
     <button id="btnBond" class="accent mt" style="width:100%">Bond stake</button>
 
     <!-- AUTO-BOND: compound a % of mining rewards straight into bonded stake, hands-free. Mirrors the
@@ -258,8 +258,7 @@
       <span class="hint" title="Releases bonded stake back toward spendable balance. The fee is paid from your spendable balance.">ⓘ</span>
     </label>
     <input id="unbondAmount" placeholder="0.0" inputmode="decimal" autocomplete="off" />
-    <label class="mt">Fee (raw units)</label>
-    <input id="unbondFee" inputmode="numeric" autocomplete="off" />
+    <div class="small faint mt">No network fee — unbonding is free.</div>
     <button id="btnUnbond" class="ghost mt" style="width:100%">Unbond stake</button>
     <div id="stakeMsg" class="small mt faint"></div>
   </div>
