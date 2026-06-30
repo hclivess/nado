@@ -7,7 +7,7 @@ import traceback
 from config import get_timestamp_seconds
 from event_bus import EventBus
 from loops.consensus_loop import change_trust
-from ops.account_ops import increase_produced_count, change_balance, get_totals, index_totals, get_bonded_registry, get_open_registry, set_finalized_height
+from ops.account_ops import increase_produced_count, change_balance, get_totals, index_totals, get_bonded_registry, get_open_registry, set_finalized_height, get_account
 from ops.block_ops import (
     knows_block,
     get_blocks_after,
@@ -33,7 +33,7 @@ from ops.block_ops import (
 from ops.data_ops import get_home
 from ops.mining_ops import select_producer, select_producer_two_lane, epoch_of, total_bonded_shares
 from ops import kv_ops
-from protocol import split_block_reward, TREASURY_ADDRESS, CHAIN_ID, REWARD_CAP
+from protocol import split_block_reward, TREASURY_ADDRESS, CHAIN_ID, REWARD_CAP, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW
 from ops.data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
 from ops.peer_ops import load_trust, update_local_address, ip_stored, check_ip, qualifies_to_sync, announce_me, get_remote_status
 from ops import snapshot_ops
@@ -46,7 +46,7 @@ from ops.transaction_ops import (
 )
 import secrets as _secrets
 from rollback import rollback_one_block, MissingParentError, FinalityViolation
-from ops.transaction_ops import construct_attestation_tx, construct_commit_tx, construct_reveal_tx
+from ops.transaction_ops import construct_attestation_tx, construct_commit_tx, construct_reveal_tx, construct_bond_tx
 from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
 from protocol import EPOCH_LENGTH, FINALITY_DEPTH
@@ -90,6 +90,11 @@ class CoreClient(threading.Thread):
         # never sign a second, different block at a height we already signed (which a connected
         # adversary could otherwise harvest into a self-equivocation slashing proof against us).
         self.last_signed_height = -1
+        # AUTO-BOND (non-consensus, opt-in via memserver.auto_bond_percent): bond a % of newly-mined
+        # spendable earnings each epoch. baseline = last balance we've accounted for; throttled to one
+        # auto-bond per epoch (bond isn't per-block unique-keyed, so we self-limit).
+        self.last_auto_bond_epoch = -1
+        self.auto_bond_baseline = None
 
     def get_period(self):
         """Enter every period at least period_counter times. Iterator is present in case node is stuck in phase 3.
@@ -185,6 +190,8 @@ class CoreClient(threading.Thread):
             self.update_ffg_and_attest()
             # RANDAO (#7): (if bonded) commit a secret for epoch+2 and reveal epoch+1's in its window.
             self.maybe_randao()
+            # AUTO-BOND (opt-in): unattended-compound a % of newly-mined earnings into bonded stake.
+            self.maybe_auto_bond()
 
             if 3 in self.memserver.periods:
                 block_producers = self.memserver.block_producers.copy()
@@ -757,6 +764,54 @@ class CoreClient(threading.Thread):
         except Exception as e:
             self.logger.error(f"RANDAO commit/reveal failed: {e}")
 
+    def maybe_auto_bond(self):
+        """AUTO-BOND (non-consensus, opt-in): if the operator set memserver.auto_bond_percent > 0, route
+        that percentage of this node's NEWLY-MINED spendable earnings straight into bonded stake — fully
+        unattended auto-compounding of the bonded lane. Best-effort; never raises into the core loop.
+
+        Earnings = the increase in our own spendable balance since the last accounted-for baseline. We
+        throttle to at most one auto-bond per epoch (a bond isn't per-block unique-keyed, so we self-
+        limit to avoid spamming the mempool), accumulate below the AUTO_BOND_MIN_RAW dust floor instead
+        of emitting fee-dominated dust txs, and STOP once bonded >= BOND_CAP (extra bond buys no weight,
+        so locking more would just freeze coins for nothing)."""
+        pct = getattr(self.memserver, "auto_bond_percent", 0)
+        if not pct or pct <= 0:
+            return
+        try:
+            epoch = epoch_of(self.memserver.latest_block["block_number"])
+            if self.last_auto_bond_epoch == epoch:
+                return                                  # already auto-bonded this epoch
+            acc = get_account(self.memserver.address)
+            balance = int(acc.get("balance", 0)) if acc else 0
+            bonded = int(acc.get("bonded", 0)) if acc else 0
+            if self.auto_bond_baseline is None:
+                self.auto_bond_baseline = balance       # first observation: only FUTURE earnings bond
+                return
+            if bonded >= BOND_CAP:
+                self.auto_bond_baseline = balance       # already at the weight cap — nothing to gain
+                return
+            gain = balance - self.auto_bond_baseline
+            if gain <= 0:
+                self.auto_bond_baseline = balance       # balance fell (a prior bond/send landed) — rebaseline
+                return
+            to_bond = (gain * int(pct)) // 100
+            # never bond past the cap (no extra weight), and never bond what we can't pay the fee for
+            to_bond = min(to_bond, BOND_CAP - bonded)
+            if to_bond < AUTO_BOND_MIN_RAW or balance < to_bond + MIN_TX_FEE:
+                return                                  # accrue (don't rebaseline) until it's worth a tx
+            target_block = self.memserver.latest_block["block_number"] + 2
+            tx = construct_bond_tx(self.memserver.keydict, to_bond, MIN_TX_FEE, target_block)
+            self.memserver.merge_transaction(tx, user_origin=True)
+            self.last_auto_bond_epoch = epoch
+            # account for the gain now; the bond+fee will reduce balance in a later block (negative
+            # delta, harmlessly rebaselined). Optimistic baseline = expected post-bond spendable.
+            self.auto_bond_baseline = balance - to_bond - MIN_TX_FEE
+            self.logger.info(
+                f"Auto-bond: bonding {to_bond} raw ({pct}% of {gain} new earnings) into the bonded lane "
+                f"(target_block {target_block})")
+        except Exception as e:
+            self.logger.warning(f"Auto-bond skipped: {e}")
+
     def validate_transactions_in_block(self, block, logger, remote_peer, remote):
         transactions = sort_list_dict(block["block_transactions"])
 
@@ -871,9 +926,10 @@ class CoreClient(threading.Thread):
             # and heartbeat/reveal DUPSORT desync forks.
             assert_unique_reserved(block["block_transactions"])
 
-            # AUDIT FIX: ALWAYS validate signatures + spending. The old `quick_sync` bypass skipped
+            # AUDIT FIX: ALWAYS validate signatures + spending. The old `quick_sync` flag used to skip
             # validate_transactions_in_block for old blocks, letting a malicious sync peer feed forged,
-            # unsigned transfers that reflect would still apply. Safety over the sync-speed optimization.
+            # unsigned transfers that reflect would still apply. That bypass (and the now-dead flag) were
+            # removed — safety over the sync-speed optimization. Fast bootstrap = snapshot sync instead.
             self.validate_transactions_in_block(block=block,
                                                 logger=self.logger,
                                                 remote_peer=remote_peer,

@@ -103,7 +103,21 @@ class MemServer:
         self.randao_secrets = {}
         self.cascade_limit = self.config.get("cascade_limit") or 1
         self.promiscuous = True if self.config.get("promiscuous") is True else False
-        self.quick_sync = True if self.config.get("quick_sync") is True else False
+        # NOTE: the old `quick_sync` flag is GONE. It only ever gated the verify_block validation bypass
+        # that the 2026-06-30 audit removed (forged-tx injection, HIGH) — so the flag became a silent
+        # no-op. For a genuine fast bootstrap use the snapshot sync (ops/snapshot_ops.py), which is
+        # quorum/checkpoint-gated rather than validation-skipping. Do NOT re-add a validation bypass.
+        # AUTO-BOND (non-consensus, opt-in): route this % of newly-mined spendable earnings straight
+        # into bonded stake, unattended (core_loop.maybe_auto_bond). 0 = off (default). Source order:
+        # NADO_AUTO_BOND_PERCENT env (handy for headless/systemd) overrides config["auto_bond_percent"].
+        import os as _os
+        _ab = _os.environ.get("NADO_AUTO_BOND_PERCENT")
+        if _ab is None:
+            _ab = self.config.get("auto_bond_percent", 0)
+        try:
+            self.auto_bond_percent = max(0, min(100, int(_ab)))
+        except (TypeError, ValueError):
+            self.auto_bond_percent = 0
 
     def ban_peer(self, peer):
         if peer not in self.purge_peers_list and peer not in self.unreachable:

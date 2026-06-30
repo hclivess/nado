@@ -240,6 +240,20 @@
     <input id="bondFee" inputmode="numeric" autocomplete="off" />
     <button id="btnBond" class="accent mt" style="width:100%">Bond stake</button>
 
+    <!-- AUTO-BOND: compound a % of mining rewards straight into bonded stake, hands-free. Mirrors the
+         node's unattended auto-bond (core_loop.maybe_auto_bond): once per epoch, dust-floored, stops at
+         BOND_CAP. Applies in THIS browser while the tab is mining. -->
+    <div class="hint-banner mt" style="display:block">
+      <label style="margin:0">Auto-bond mining rewards
+        <span class="hint" title="While this tab is mining, automatically bond this percentage of the block rewards you earn — compounding your bonded-lane weight hands-free. Capped at BOND_CAP; 0 = off. The node itself has the same option for headless mining (auto_bond_percent / NADO_AUTO_BOND_PERCENT).">ⓘ</span>
+      </label>
+      <div class="mt" style="display:flex;align-items:center;gap:10px">
+        <input id="autoBondPct" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="0" autocomplete="off" style="max-width:96px" />
+        <span class="faint">% of new rewards → bonded</span>
+      </div>
+      <div id="autoBondNote" class="small faint mt">Off — mining rewards stay in your spendable balance.</div>
+    </div>
+
     <label class="mt">Unbond amount (NADO) — move bonded → spendable
       <span class="hint" title="Releases bonded stake back toward spendable balance. The fee is paid from your spendable balance.">ⓘ</span>
     </label>

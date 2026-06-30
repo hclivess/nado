@@ -15,8 +15,8 @@ This document is the plan and the harness contract.
 `nado.py` starts a Tornado HTTP server plus four daemon threads (core/consensus/peer/message).
 To bring one up programmatically a node needs, under its own `$HOME/nado`:
 - `private/config.dat` (created by `config.create_config`) — `port`, `ip`, `server_key`,
-  `min_peers`, `promiscuous`, `quick_sync`, …
-- `private/keys.dat` (an Ed25519 keypair → `ndo…` address).
+  `min_peers`, `promiscuous`, `auto_bond_percent`, …
+- `private/keys.dat` (an ML-DSA-44 / FIPS 204 keypair → `ndo…` address).
 - genesis (`genesis.make_genesis`) + the LMDB key-value index env (`create_indexers` → `ops/kv_ops`).
 - at least one seed peer to discover the mesh.
 

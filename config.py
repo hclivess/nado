@@ -65,7 +65,9 @@ def create_config(ip: str, config_path: str = f"{get_home()}/private/config.dat"
         "finality_depth": 30,
         "cascade_limit": 1,
         "promiscuous": False,
-        "quick_sync": False
+        # AUTO-BOND (opt-in, non-consensus): % of newly-mined earnings to auto-compound into bonded
+        # stake, unattended. 0 = off. Overridable at runtime via the NADO_AUTO_BOND_PERCENT env var.
+        "auto_bond_percent": 0
     }
 
     if not os.path.exists(config_path):

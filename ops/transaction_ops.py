@@ -120,6 +120,20 @@ def construct_reveal_tx(keydict, target_epoch, secret, target_block):
     return tx
 
 
+def construct_bond_tx(keydict, amount, fee, target_block):
+    """Build a SIGNED bond tx (used by the node's unattended AUTO-BOND loop): moves `amount` raw from
+    the sender's spendable balance into bonded stake. A bond is an ordinary transfer whose recipient is
+    the reserved name "bond" (account_ops.reflect_transaction handles the balance->bonded move), so the
+    normal fee applies. Pubkey-once carries public_key (always safe; the node's pubkey is established)."""
+    tx = {"sender": keydict["address"], "recipient": "bond", "amount": int(amount),
+          "timestamp": get_timestamp_seconds(), "data": "",
+          "nonce": create_nonce(), "public_key": keydict["public_key"],
+          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": int(fee)}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
 def reserved_uniqueness_key(tx):
     """AUDIT FIX (in-block uniqueness): the key under which a reserved-recipient tx may appear AT MOST
     ONCE in a block — None for ordinary transfers (deduped by spending/txid). Used by BOTH block

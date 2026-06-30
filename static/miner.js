@@ -18,6 +18,8 @@ const REGISTER_POW_BITS = 16;  // must match protocol.py; ~1s in-browser (22 too
 const DENOMINATION = 10_000_000_000n; // 1 NADO in raw units (1e10)
 const MIN_TX_FEE = 1000;
 const BOND_UNLOCK_DELAY = 1440; // protocol.py: blocks a bond stays locked after an unbond request
+const BOND_CAP = 100_000_000_000_000n;  // protocol.py: 10,000 NADO — bonding past this buys no weight
+const AUTO_BOND_MIN_RAW = 10_000_000n;  // protocol.py: dust floor for an auto-bond (0.001 NADO)
 
 /* ----------------------------------------------------------------------------------------------
  * Dependency loading: @noble/hashes (blake2b) + @noble/post-quantum (ML-DSA-44) as ESM from a CDN.
@@ -285,6 +287,11 @@ const state = {
   nextHbAt: null,
   activeTab: "wallet",
   recommendedFee: null,
+  // AUTO-BOND (client-side, opt-in): compound a % of newly-mined earnings straight into bonded stake
+  // while mining, at most once per epoch. baseline = last balance we've accounted for.
+  autoBondPct: 0,
+  autoBondBaseline: null,
+  lastAutoBondEpoch: null,
 };
 
 function relayBase() { return (state.relay || location.origin).replace(/\/+$/, ""); }
@@ -390,6 +397,7 @@ function nadoToRaw(amountStr) {
  * -------------------------------------------------------------------------------------------- */
 const LS_WALLET = "nado_miner_wallet";
 const LS_RELAY = "nado_miner_relay";
+const LS_AUTOBOND = "nado_autobond_pct";   // persisted auto-bond percentage (0..100)
 const LS_PENDING_PAY = "nado_pending_pay"; // sessionStorage: a pay-request awaiting wallet setup
 
 function persistWallet(w) { localStorage.setItem(LS_WALLET, JSON.stringify(w)); }
@@ -656,6 +664,8 @@ async function pollOnce() {
       hideRegBannerSoon();
     }
     try { await sendHeartbeat(); } catch (e) { log("err", "Heartbeat error: " + e.message); }
+    // AUTO-BOND: compound a % of new mining rewards into bonded stake (once/epoch). `acc` is fresh here.
+    try { await maybeAutoBond(acc, null); } catch (e) { /* best-effort; never break the loop */ }
   }
 }
 
@@ -676,6 +686,8 @@ async function startMining() {
   state.mining = true;
   state.starting = true;                          // button stays DISABLED until mining is live or fails
   state.lastHeartbeatEpoch = null;
+  state.autoBondBaseline = null;                  // only earnings AFTER this start auto-bond
+  state.lastAutoBondEpoch = null;
   setStartBtnBusy("Starting…");                   // disabled spinner button — can't be re-clicked
   setRegBanner("Starting up — checking your registration with the relay…" + REASSURE);
   $("mineState").textContent = "Starting…";
@@ -690,6 +702,7 @@ function stopMining() {
   state.starting = false;
   if (state.powJob) state.powJob.cancelled = true;   // abort an in-progress registration PoW
   state.registering = false;
+  state.autoBondBaseline = null;                       // re-arm auto-bond baseline for the next start
   stopPollLoop();
   show("powWrap", false);
   show("regBanner", false);
@@ -1098,6 +1111,59 @@ async function doBond(kind) {
   finally { btn.disabled = false; }
 }
 
+/* AUTO-BOND: compound a configured % of newly-mined spendable earnings straight into bonded stake.
+ * Mirrors the node's core_loop.maybe_auto_bond EXACTLY: throttled to one bond per epoch, accrues
+ * below the AUTO_BOND_MIN_RAW dust floor instead of emitting fee-dominated dust txs, and STOPS once
+ * bonded >= BOND_CAP (extra bond buys no selection weight). `acc` is the just-fetched /get_account.
+ * Called from the mining poll loop while mining + registered. Best-effort; never throws to the loop. */
+function setAutoBondPct(pct) {
+  pct = Math.max(0, Math.min(100, Math.floor(Number(pct) || 0)));
+  state.autoBondPct = pct;
+  try { if (pct) localStorage.setItem(LS_AUTOBOND, String(pct)); else localStorage.removeItem(LS_AUTOBOND); } catch (e) {}
+  const note = $("autoBondNote");
+  if (note) note.textContent = pct
+    ? `On — bonding ${pct}% of new mining rewards each epoch (auto-compounding the bonded lane).`
+    : "Off — mining rewards stay in your spendable balance.";
+  return pct;
+}
+
+async function maybeAutoBond(acc, ms) {
+  const pct = state.autoBondPct;
+  if (!pct || pct <= 0 || !state.mining || !state.wallet) return;
+  if (!acc || acc.registered !== 1) return;               // only once we're actually mining on-chain
+  const epoch = (ms && typeof ms.epoch === "number") ? ms.epoch
+    : (state.latest != null ? Math.floor((state.latest + 8) / EPOCH_LENGTH) : null);
+  if (epoch == null || epoch === state.lastAutoBondEpoch) return;  // one auto-bond per epoch
+
+  const balance = BigInt(acc.balance ?? 0);
+  const bonded = BigInt(acc.bonded ?? 0);
+  if (state.autoBondBaseline == null) { state.autoBondBaseline = balance; return; }  // only future earnings
+  if (bonded >= BOND_CAP) { state.autoBondBaseline = balance; return; }              // already at the cap
+  const gain = balance - state.autoBondBaseline;
+  if (gain <= 0n) { state.autoBondBaseline = balance; return; }                      // balance fell — rebaseline
+
+  let toBond = (gain * BigInt(pct)) / 100n;
+  const headroom = BOND_CAP - bonded;
+  if (toBond > headroom) toBond = headroom;
+  const fee = MIN_TX_FEE;
+  if (toBond < AUTO_BOND_MIN_RAW || balance < toBond + BigInt(fee)) return;          // accrue (no rebaseline)
+
+  try {
+    const targetBlock = await nextTargetBlock();
+    const tx = buildTransferTx(state.wallet, "bond", toBond, fee, targetBlock, "", nowSeconds(), !pubkeyEstablished(acc));
+    const res = await submitTransaction(tx);
+    if (res.data && res.data.result) {
+      state.lastAutoBondEpoch = epoch;
+      state.autoBondBaseline = balance - toBond - BigInt(fee);   // optimistic post-bond baseline
+      log("ok", `Auto-bonded ${rawToNado(toBond)} NADO (${pct}% of ${rawToNado(gain)} new rewards) → bonded lane.`);
+      refreshDashboard().catch(() => {});
+    } else {
+      const m = res.data && (res.data.message || JSON.stringify(res.data));
+      log("err", "Auto-bond rejected: " + m);
+    }
+  } catch (e) { log("err", "Auto-bond error: " + e.message); }
+}
+
 /* ---- Payment-request deep links: QR / shareable URL that prefills a Send on scan ---- */
 
 let pendingPay = null; // a pay-request parsed from the URL hash before a wallet exists
@@ -1370,6 +1436,11 @@ function wireEvents() {
   };
   $("btnBond").onclick = () => doBond("bond");
   $("btnUnbond").onclick = () => doBond("unbond");
+  if ($("autoBondPct")) {
+    const apply = () => { const p = setAutoBondPct($("autoBondPct").value); $("autoBondPct").value = p ? String(p) : ""; };
+    $("autoBondPct").onchange = apply;
+    $("autoBondPct").oninput = () => setAutoBondPct($("autoBondPct").value); // live note, no reformat mid-type
+  }
   $("btnRefreshHist").onclick = () => loadHistory().catch(() => {});
 
   $("recvAmount").oninput = () => renderReceiveQR();   // live-update the QR + payment link
@@ -1413,6 +1484,13 @@ async function boot() {
   state.relay = localStorage.getItem(LS_RELAY) || null;
   $("relayUrl").value = state.relay || "";
   $("relayUrl").placeholder = location.origin;
+
+  // auto-bond preference (persisted %); reflect it into the Stake-tab control + the status note
+  try {
+    const saved = parseInt(localStorage.getItem(LS_AUTOBOND) || "0", 10);
+    const p = setAutoBondPct(Number.isFinite(saved) ? saved : 0);
+    if ($("autoBondPct")) $("autoBondPct").value = p ? String(p) : "";
+  } catch (e) {}
 
   try {
     await loadDeps();

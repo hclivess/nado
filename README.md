@@ -157,13 +157,31 @@ pair moves it back out after a timelock (see below). Bonded selection weight is
 NADO runs on Python 3.10+. The entrypoint is `nado.py`; the node serves its API and web UI on port
 **9173**.
 
+### One-command install (recommended)
+
+`scripts/install.sh` creates a venv, installs the node dependencies (skipping the desktop-wallet-only
+`PySide6` so a server install stays lean), and prints how to run. Re-running is safe (idempotent).
+
+```bash
+git clone https://github.com/hclivess/nado
+cd nado
+scripts/install.sh                 # venv + node deps
+nado_venv/bin/python nado.py       # run it
+```
+
+Flags: `--wallet` also installs the desktop-wallet deps; `--service` (as root) installs a systemd
+service for **unattended** running; `--auto-bond <pct>` auto-compounds mined rewards (see below).
+Run `scripts/install.sh --help` for all options.
+
+### Manual setup
+
 ```bash
 git clone https://github.com/hclivess/nado
 cd nado
 python3.10 -m venv nado_venv
 source nado_venv/bin/activate
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r requirements.txt   # PySide6 (last line) is wallet-only; the node doesn't need it
 python nado.py
 ```
 
@@ -177,6 +195,48 @@ http://127.0.0.1:9173/announce_peer?ip=<peer-ip>
 For public reachability and rewards, forward **port 9173**. Close the node cleanly with **CTRL+C** or
 `http://127.0.0.1:9173/terminate` (never the window's **X**, to avoid database corruption). To wipe
 local data and resync from scratch, run `python3.10 purge.py`.
+
+### Run unattended (mine 24/7, no terminal)
+
+For a node that **mines on its own** — starts on boot, restarts on crash, needs no open terminal —
+install the systemd service (Linux):
+
+```bash
+sudo scripts/install.sh --service                 # boots on start, restarts on failure
+sudo scripts/install.sh --service --auto-bond 25  # ...and auto-bonds 25% of mined rewards
+```
+
+```bash
+systemctl status nado        # health
+journalctl -u nado -f        # live logs
+systemctl stop nado          # clean shutdown (never kill -9 — it can corrupt the DB)
+```
+
+Without systemd, run it detached with `nohup`:
+
+```bash
+cd nado && nohup nado_venv/bin/python nado.py > nado.out 2>&1 &
+```
+
+### Auto-bond — compound mined rewards into stake, hands-free
+
+A miner can route a **percentage of newly-mined rewards straight into bonded stake**, auto-compounding
+their weight in the bonded lane without any manual `bond` transactions. It is **opt-in** (`0` = off),
+throttled to **at most one bond per epoch**, only fires once the accrued amount clears a small dust
+floor (so each bond dwarfs its tiny fee), and **stops automatically at `BOND_CAP`** (10,000 NADO —
+bonding past it buys no extra selection weight, so it never needlessly freezes coins). It is available
+in **all three clients**:
+
+- **Node (unattended):** set `auto_bond_percent` in `private/config.dat`, or the
+  `NADO_AUTO_BOND_PERCENT` environment variable (which the `--service` installer wires into the unit).
+  The node bonds the configured share of its own block rewards each epoch — ideal for a headless miner.
+- **Browser light-miner:** the **Stake** tab has an "Auto-bond mining rewards" field; while the tab is
+  mining it compounds that share of your rewards (persisted in the browser).
+- **Desktop wallet:** the **Mining** tab has an "Auto-bond mining rewards" control (persisted in
+  `~/.nado_wallet/wallet.json`).
+
+It is a **client/operator convenience and is never validated on-chain** — every auto-bond is just an
+ordinary signed `bond` transaction.
 
 ### Local multi-node testnet
 
@@ -229,8 +289,8 @@ encoding against the live repo on boot.
 
 - **Browser / mobile light-miner & wallet** — `static/miner.html` (see above).
 - **Desktop wallet** — `python3.10 pyside_wallet.py` (PySide6): overview, send, bond/unbond, register
-  & mine, expected-time-to-mine, and a live selection-lane visualization. PySide6 is wallet-only; the
-  node itself does not need it.
+  & mine, expected-time-to-mine, an **auto-bond** control (compound a % of mined rewards into stake),
+  and a live selection-lane visualization. PySide6 is wallet-only; the node itself does not need it.
 - **Block explorer** — every node exposes browsable JSON endpoints (`/get_account`, `/get_block`,
   `/get_transaction`, `/get_transactions_of_account`, `/get_supply`, `/status`, …), with a
   `readable=true` argument for human-friendly formatting, indexed from the homepage at `/`.

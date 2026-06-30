@@ -58,6 +58,14 @@ TREASURY_GENESIS = 0  # no premine — fair launch via the open lane + base subs
 # would be a consensus hazard. Tunable; provisional pending economic simulation.
 MIN_TX_FEE = 1000
 
+# --- Auto-bond (NON-CONSENSUS client/operator convenience; never validated on-chain) ---
+# A miner can opt to route a percentage of newly-mined spendable earnings straight into bonded stake
+# (auto-compounding the bonded lane). It is implemented identically in the node loop (unattended),
+# the desktop wallet, and the browser light-miner. AUTO_BOND_MIN_RAW is a dust floor: an auto-bond
+# only fires once the accrued amount-to-bond reaches it, so each bond tx dwarfs its own fee instead of
+# spamming tiny bonds. Purely a client default — nodes/clients may mirror or override it freely.
+AUTO_BOND_MIN_RAW = 10_000_000     # 0.001 NADO: smallest worthwhile auto-bond (10,000x MIN_TX_FEE)
+
 # --- Mining: TWO-LANE diligence selection (PROVISIONAL — simulate before lock-in) ---
 # Each epoch's slots split into an OPEN lane (anyone, zero coins) and a BONDED lane (locked stake).
 # The split is a beacon-keyed permutation over slot indices, so the open lane is EXACTLY OPEN_BPS

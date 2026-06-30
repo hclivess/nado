@@ -112,7 +112,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QTabWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QPushButton, QFormLayout, QFrame, QToolBar, QStatusBar, QMessageBox,
     QPlainTextEdit, QTableWidget, QTableWidgetItem, QHeaderView, QSizePolicy, QCheckBox,
-    QFileDialog, QInputDialog, QComboBox,
+    QFileDialog, QInputDialog, QComboBox, QSpinBox,
 )
 
 
@@ -126,6 +126,7 @@ OPEN_BPS = protocol.OPEN_BPS                    # open lane share in basis point
 B_MIN = protocol.B_MIN                          # raw per bonded selection share (100 NADO)
 BOND_CAP = protocol.BOND_CAP                    # max effective bond per identity (10k NADO)
 MIN_TX_FEE = protocol.MIN_TX_FEE                # deterministic min fee (raw)
+AUTO_BOND_MIN_RAW = protocol.AUTO_BOND_MIN_RAW  # dust floor for an auto-bond (0.001 NADO)
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9173
@@ -955,6 +956,28 @@ class MiningTab(QWidget):
         grid.addWidget(self.c_epoch, 0, 3)
         root.addLayout(grid)
 
+        # AUTO-BOND: compound a % of mining rewards straight into bonded stake while mining (mirrors the
+        # node's headless auto_bond_percent and the browser miner's setting). Once per epoch, dust-floored,
+        # stops at BOND_CAP.
+        ab_row = QHBoxLayout()
+        ab_row.addWidget(QLabel("Auto-bond mining rewards"))
+        self.auto_bond_spin = QSpinBox()
+        self.auto_bond_spin.setRange(0, 100)
+        self.auto_bond_spin.setSuffix(" %")
+        self.auto_bond_spin.setValue(int(self.app.auto_bond_pct))
+        self.auto_bond_spin.setToolTip(
+            "While mining, automatically bond this percentage of each block reward you earn — "
+            "compounding your bonded-lane weight hands-free. Capped at BOND_CAP; 0 = off.")
+        self.auto_bond_spin.valueChanged.connect(self.app.set_auto_bond_pct)
+        ab_row.addWidget(self.auto_bond_spin)
+        ab_row.addStretch(1)
+        root.addLayout(ab_row)
+        self.auto_bond_note = QLabel()
+        self.auto_bond_note.setObjectName("CardSub")
+        root.addWidget(self.auto_bond_note)
+        self.update_auto_bond_note(int(self.app.auto_bond_pct))
+        app.autoBondChanged.connect(self.update_auto_bond_note)
+
         root.addWidget(QLabel("Activity"))
         self.log = QPlainTextEdit()
         self.log.setObjectName("Log")
@@ -974,6 +997,11 @@ class MiningTab(QWidget):
         self.stop_btn.setEnabled(active)
         self.register_btn.setText("Mining active — heartbeats running" if active
                                   else "Register & start mining")
+
+    def update_auto_bond_note(self, pct):
+        self.auto_bond_note.setText(
+            f"On — bonding {pct}% of new mining rewards each epoch (auto-compounding the bonded lane)."
+            if pct else "Off — mining rewards stay in your spendable balance.")
 
     def on_mining(self, status):
         present = status.get("registered_present")
@@ -1111,6 +1139,7 @@ class WalletWindow(QMainWindow):
     connectionChanged = Signal(bool, str)
     miningActiveChanged = Signal(bool)
     miningLog = Signal(str)
+    autoBondChanged = Signal(int)
 
     def __init__(self, store, host, port):
         super().__init__()
@@ -1122,6 +1151,10 @@ class WalletWindow(QMainWindow):
         self.block_time = 60.0
         self.mining_active = False
         self._last_hb_epoch = None
+        # AUTO-BOND (opt-in): compound a % of newly-mined earnings into bonded stake while mining.
+        self.auto_bond_pct = int(store.get("auto_bond_pct", 0) or 0)
+        self.auto_bond_baseline = None
+        self._last_auto_bond_epoch = None
 
         self.setWindowTitle("NADO Wallet")
         self.resize(1080, 760)
@@ -1500,9 +1533,19 @@ class WalletWindow(QMainWindow):
 
         self.run_async(self.build_register, on_result, on_error)
 
+    def set_auto_bond_pct(self, pct):
+        """Set + persist the auto-bond percentage (0..100). Re-arms the baseline so only earnings from
+        now on are compounded."""
+        self.auto_bond_pct = max(0, min(100, int(pct or 0)))
+        self.auto_bond_baseline = None
+        self.store.set("auto_bond_pct", self.auto_bond_pct)
+        self.autoBondChanged.emit(self.auto_bond_pct)
+
     def _start_mining_loop(self):
         self.mining_active = True
         self._last_hb_epoch = None
+        self.auto_bond_baseline = None            # only earnings AFTER mining starts auto-bond
+        self._last_auto_bond_epoch = None
         self.miningActiveChanged.emit(True)
         interval = max(int(self.block_time), 15) * 1000
         self.heartbeat_timer.start(interval)
@@ -1515,6 +1558,7 @@ class WalletWindow(QMainWindow):
         if self.mining_active:
             self.miningLog.emit("Heartbeat loop stopped.")
         self.mining_active = False
+        self.auto_bond_baseline = None
         self.miningActiveChanged.emit(False)
 
     def _heartbeat_tick(self):
@@ -1543,6 +1587,58 @@ class WalletWindow(QMainWindow):
             return self.build_heartbeat()
 
         self.run_async(build, on_result, on_error)
+        self._maybe_auto_bond()   # compound a % of new mining rewards into bonded stake (once/epoch)
+
+    def _maybe_auto_bond(self):
+        """AUTO-BOND: route a configured % of newly-mined spendable earnings straight into bonded stake.
+        Mirrors core_loop.maybe_auto_bond and the browser miner: one bond per epoch, accrues below the
+        AUTO_BOND_MIN_RAW dust floor, stops at BOND_CAP. Runs the decision + build+submit in a worker."""
+        if not self.auto_bond_pct or self.auto_bond_pct <= 0 or not self.mining_active or not self.keys:
+            return
+        pct = int(self.auto_bond_pct)
+
+        def work():
+            acc = self.client.get_account(self.keys["address"]) or {}
+            if acc.get("registered") != 1:
+                return None
+            num = self.client.get_latest_block_number()
+            epoch = num // EPOCH_LENGTH
+            if epoch == self._last_auto_bond_epoch:
+                return None
+            balance = int(acc.get("balance", 0))
+            bonded = int(acc.get("bonded", 0))
+            if self.auto_bond_baseline is None:
+                self.auto_bond_baseline = balance         # only future earnings
+                return None
+            if bonded >= BOND_CAP:
+                self.auto_bond_baseline = balance         # already at the weight cap
+                return None
+            gain = balance - self.auto_bond_baseline
+            if gain <= 0:
+                self.auto_bond_baseline = balance         # balance fell — rebaseline
+                return None
+            to_bond = min((gain * pct) // 100, BOND_CAP - bonded)
+            if to_bond < AUTO_BOND_MIN_RAW or balance < to_bond + MIN_TX_FEE:
+                return None                               # accrue (no rebaseline)
+            resp = self.build_transfer("bond", to_bond, MIN_TX_FEE)
+            if resp.get("result"):
+                self._last_auto_bond_epoch = epoch
+                self.auto_bond_baseline = balance - to_bond - MIN_TX_FEE
+                return {"amount": to_bond, "pct": pct, "gain": gain}
+            return {"error": resp.get("message")}
+
+        def done(out):
+            if not out:
+                return
+            if out.get("error"):
+                self.miningLog.emit(f"Auto-bond rejected: {out['error']}")
+            else:
+                self.miningLog.emit(
+                    f"Auto-bonded {out['amount'] / DENOMINATION:.4f} NADO "
+                    f"({out['pct']}% of {out['gain'] / DENOMINATION:.4f} new rewards) → bonded lane.")
+                self.refresh_all()
+
+        self.run_async(work, done, lambda e: self.miningLog.emit(f"Auto-bond error: {e}"))
 
     # ---- helpers ------------------------------------------------------------------------
     def require_wallet(self):
