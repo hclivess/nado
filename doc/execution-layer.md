@@ -223,6 +223,12 @@ proof system should be chosen PQ-soundly (a hash-based / lattice-friendly provin
 so "PQ-secure base layer + PQ-sound RISC-V execution layer" is one coherent story rather
 than a quantum-soft L2 bolted onto a quantum-hard L1.
 
+> **The VM is irrelevant to quantum resistance — the *proof system* decides it.** RISC-V
+> (any ISA) is quantum-*neutral*; a "RISC-V zkVM" is PQ only if its final verifier is
+> hash-based (STARK/FRI) and **not** a pairing-SNARK wrapper (Groth16/PLONK-KZG). This
+> disqualifies the common Groth16-wrapped RISC Zero / SP1 configurations for NADO. Full
+> reasoning in [quantum-resistance-and-vms.md](quantum-resistance-and-vms.md).
+
 ---
 
 ## 6. What touches L1 vs. what never does
