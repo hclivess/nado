@@ -773,6 +773,11 @@ Additional hardening and feature items, all currently **planned/partial**:
   capped elastic term).
 - **Snapshot-bootstrap hardening** items (allocation bound, quorum floor /
   state-root binding).
+- **Programmability via a separate execution layer** (design only) — RISC-V smart
+  contracts are explicitly kept *off* L1; the planned shape is a sovereign DA+ordering
+  layer that touches consensus, at most, through one bounded proof verifier, so
+  phone-mining/finality/simplicity are preserved. See
+  [execution-layer.md](execution-layer.md).
 
 ---
 
