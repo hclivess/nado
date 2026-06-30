@@ -116,7 +116,8 @@ class StatusHandler(tornado.web.RequestHandler):
                 # — the weight is re-derived and enforced by verify_block on the actual blocks).
                 "latest_block_weight": memserver.latest_block.get("cumulative_weight", 0),
                 "earliest_block_hash": memserver.earliest_block["block_hash"],
-                "finalized_height": memserver.finalized_height,  # #17: enforced-finality floor
+                "finalized_height": memserver.finalized_height,  # #17: enforced-finality floor (time-based)
+                "ffg_finalized": memserver.ffg_finalized,        # #6: stake-attested finalized checkpoint
                 "protocol": memserver.protocol,
                 "version": memserver.version,
             }

@@ -12,7 +12,7 @@ from config import get_timestamp_seconds, get_config
 from .data_ops import set_and_sort, average, get_home, is_hex_hash
 from hashing import blake2b_hash_link, blake2b_hash
 from Curve25519 import sign as _sign_message, verify as _verify_message, unhex as _unhex
-from .address_ops import proof_sender
+from .address_ops import proof_sender, make_address
 from .key_ops import load_keys
 from .log_ops import get_logger
 from . import kv_ops
@@ -239,7 +239,14 @@ def epoch_beacon(epoch):
             f"epoch_beacon: finalized anchor block #{(epoch - 1) * EPOCH_LENGTH} for epoch {epoch} is "
             f"missing locally — refusing to substitute GENESIS_BEACON (would fork the producer set); "
             f"this node must resync")
-    return compute_beacon(GENESIS_BEACON, [anchor])
+    # COMMIT-REVEAL RANDAO (#7 step 7): mix the finalized anchor with the bonded validators' REVEALED
+    # secrets for this epoch, so no single anchor-producer controls the beacon. Secrets are committed
+    # in epoch E-2 and revealed in E-1's FINALIZED window (validation bounds the reveal's target_block
+    # to <= E*EPOCH_LENGTH - FINALITY_DEPTH - 1), so they are immutable when this beacon is first needed
+    # (block E*EPOCH_LENGTH) -> deterministic + grind-resistant. With zero reveals the beacon falls back
+    # to the anchor-only value (liveness); compute_beacon re-sorts, so input order is irrelevant.
+    secrets = kv_ops.reveals_for_epoch(epoch)
+    return compute_beacon(GENESIS_BEACON, [anchor] + secrets)
 
 
 def mining_status(address, latest_block_number, block_time):
@@ -515,11 +522,44 @@ def construct_block(
 # Only the winner, holding its own key, can produce a valid one. Two valid signatures by the same
 # winner over two different blocks at the same height+parent are a portable EQUIVOCATION proof (slash).
 
+def _block_sig_message_fields(block_number, parent_hash, block_hash) -> bytes:
+    """The exact bytes a winner signs to authenticate a block: blake2b(chain_id, height, parent_hash,
+    block_hash). Field-based so an equivocation proof can reconstruct it without a full block dict."""
+    return _unhex(blake2b_hash([CHAIN_ID, block_number, parent_hash, block_hash]))
+
+
 def block_signature_message(block) -> bytes:
-    """Bytes the winner signs: blake2b(chain_id, height, parent_hash, block_hash). Binds the block's
-    identity so a signature cannot be replayed onto another block or chain. Hex/int only."""
-    digest = blake2b_hash([CHAIN_ID, block["block_number"], block["parent_hash"], block["block_hash"]])
-    return _unhex(digest)
+    """Bytes the winner signs over its block; binds the block's identity so a signature cannot be
+    replayed onto another block or chain. Hex/int only."""
+    return _block_sig_message_fields(block["block_number"], block["parent_hash"], block["block_hash"])
+
+
+def verify_equivocation_proof(proof) -> tuple:
+    """Verify a block-authorship EQUIVOCATION proof: the SAME identity validly signed TWO DIFFERENT
+    blocks at the SAME height+parent (#15 step 5C). proof = {block_number, parent_hash, public_key,
+    block_hash_a, signature_a, block_hash_b, signature_b}. Returns (offender_address, block_number)
+    when valid, else None. Pure verification (no state); integer/hex only.
+
+    Why this is unforgeable: only the identity holding the key can produce EITHER valid signature, so
+    a valid proof is irrefutable evidence that identity double-authored a slot — there is no honest
+    reason to sign two conflicting blocks for one slot."""
+    try:
+        if not isinstance(proof, dict):
+            return None
+        ha, hb = proof.get("block_hash_a"), proof.get("block_hash_b")
+        pk = proof.get("public_key")
+        bn, parent = proof.get("block_number"), proof.get("parent_hash")
+        if not (ha and hb and pk and parent) or not isinstance(bn, int) or isinstance(bn, bool):
+            return None
+        if ha == hb:
+            return None  # not conflicting — same block
+        for bh, sig in ((ha, proof.get("signature_a")), (hb, proof.get("signature_b"))):
+            if not sig or not _verify_message(signed=sig, public_key=pk,
+                                              message=_block_sig_message_fields(bn, parent, bh)):
+                return None
+        return make_address(pk), bn
+    except Exception:
+        return None
 
 
 def sign_block(block, private_key, public_key):

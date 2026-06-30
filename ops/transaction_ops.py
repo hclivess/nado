@@ -21,7 +21,7 @@ from ops.key_ops import load_keys
 from ops.log_ops import get_logger
 from ops.peer_ops import load_ips
 from ops import kv_ops
-from protocol import CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH
+from protocol import CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH
 import aiohttp
 
 
@@ -80,6 +80,46 @@ def get_transaction(txid, logger):
         return None
 
 
+def construct_attestation_tx(keydict, target_epoch, target_hash, target_block):
+    """Build a SIGNED FFG attestation tx (#6) from a bonded validator's keydict: attests checkpoint
+    (target_epoch, target_hash). Fee-exempt, zero-amount; pubkey-once carries public_key (the node
+    relays its own attestations so its pubkey is established). target_block must be inside target_epoch."""
+    tx = {"sender": keydict["address"], "recipient": "attest", "amount": 0,
+          "timestamp": get_timestamp_seconds(),
+          "data": {"target_epoch": int(target_epoch), "target_hash": target_hash},
+          "nonce": create_nonce(), "public_key": keydict["public_key"],
+          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
+def construct_commit_tx(keydict, target_epoch, commitment, target_block):
+    """Build a SIGNED RANDAO commit tx (#7): a bonded validator publishes a secret's commitment for
+    target_epoch's beacon (submitted in epoch E-2). Fee-exempt, zero-amount."""
+    tx = {"sender": keydict["address"], "recipient": "commit", "amount": 0,
+          "timestamp": get_timestamp_seconds(),
+          "data": {"target_epoch": int(target_epoch), "commitment": commitment},
+          "nonce": create_nonce(), "public_key": keydict["public_key"],
+          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
+def construct_reveal_tx(keydict, target_epoch, secret, target_block):
+    """Build a SIGNED RANDAO reveal tx (#7): opens the validator's prior commitment, contributing the
+    secret to target_epoch's beacon (submitted in epoch E-1's finalized window). Fee-exempt."""
+    tx = {"sender": keydict["address"], "recipient": "reveal", "amount": 0,
+          "timestamp": get_timestamp_seconds(),
+          "data": {"target_epoch": int(target_epoch), "secret": secret},
+          "nonce": create_nonce(), "public_key": keydict["public_key"],
+          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
 def create_txid(transaction):
     # canonical encoding (sorted keys) commits the whole body — incl. chain_id — so the signature
     # (over the txid) binds every field and cannot be replayed cross-chain. PUBKEY-ONCE (#19): the
@@ -108,7 +148,72 @@ def validate_transaction(transaction, logger, block_height):
     assert len(transaction["txid"]) >= 64
 
     recipient = transaction["recipient"]
-    if recipient in ("register", "heartbeat"):
+    if recipient == "slash":
+        # SLASHING (#15 step 5C): a FEE-EXEMPT tx whose `data` carries an equivocation proof — the
+        # same identity validly signed two blocks at one slot. Anyone may report it (the proof is
+        # the anti-spam: it can't be forged, and one-per-(offender,height) blocks replay). The
+        # offender must currently hold >= SLASH_BOND_PENALTY so apply_slash never floors (revert-safe).
+        from ops.block_ops import verify_equivocation_proof
+        from ops import kv_ops
+        assert transaction["amount"] == 0, "Slash tx must have zero amount"
+        assert transaction["fee"] == 0, "Slash tx is fee-exempt (fee must be 0)"
+        result = verify_equivocation_proof(transaction.get("data"))
+        assert result, "Invalid or missing equivocation proof"
+        offender, height = result
+        assert not kv_ops.slash_exists(offender, height), "This offence is already slashed (replay)"
+        offender_acc = get_account(offender, create_on_error=False)
+        assert offender_acc and offender_acc.get("bonded", 0) >= SLASH_BOND_PENALTY, \
+            "Offender holds insufficient bonded stake to slash"
+    elif recipient == "attest":
+        # FFG attestation (#6): a BONDED validator attests the CURRENT epoch's checkpoint (the first
+        # block of the epoch its target_block falls in). Fee-exempt validator duty; one per validator
+        # per epoch (the attestation index rejects a second -> no on-chain double-vote). data carries
+        # {target_epoch, target_hash}; target_hash must equal the real checkpoint block hash.
+        from ops.block_ops import get_block_hash_by_number
+        from ops.mining_ops import epoch_of
+        from ops import kv_ops
+        assert transaction["amount"] == 0, "Attest tx must have zero amount"
+        assert transaction["fee"] == 0, "Attest tx is fee-exempt (fee must be 0)"
+        data = transaction.get("data") or {}
+        epoch = data.get("target_epoch")
+        target_hash = data.get("target_hash")
+        assert isinstance(epoch, int) and not isinstance(epoch, bool), "Attest target_epoch must be an int"
+        assert epoch == transaction["target_block"] // EPOCH_LENGTH, "Attest target_epoch != target_block's epoch"
+        acc = get_account(transaction["sender"], create_on_error=False)
+        assert acc and acc.get("bonded", 0) >= B_MIN, "Attester is not a bonded validator"
+        assert not kv_ops.attestation_exists(epoch, transaction["sender"]), "Validator already attested this epoch"
+        assert target_hash and get_block_hash_by_number(epoch * EPOCH_LENGTH) == target_hash, \
+            "Attest target_hash is not the epoch checkpoint"
+    elif recipient in ("commit", "reveal"):
+        # COMMIT-REVEAL RANDAO (#7): bonded validators COMMIT a secret's hash in epoch E-2 and REVEAL
+        # the secret in epoch E-1's FINALIZED window; the secrets seed epoch E's beacon. Fee-exempt
+        # bonded duty. Committing BEFORE the seeded beacon is revealed kills just-in-time grinding.
+        from ops.mining_ops import epoch_of, beacon_commitment
+        from ops import kv_ops
+        assert transaction["amount"] == 0, "Commit/reveal tx must have zero amount"
+        assert transaction["fee"] == 0, "Commit/reveal tx is fee-exempt (fee must be 0)"
+        data = transaction.get("data") or {}
+        E = data.get("target_epoch")
+        assert isinstance(E, int) and not isinstance(E, bool) and E >= 2, "target_epoch must be an int >= 2"
+        acc = get_account(transaction["sender"], create_on_error=False)
+        assert acc and acc.get("bonded", 0) >= B_MIN, "Commit/reveal sender is not a bonded validator"
+        tb = transaction["target_block"]
+        if recipient == "commit":
+            # commit must land in epoch E-2 (before E-1's reveal window), one per (sender, E)
+            assert epoch_of(tb) == E - 2, "Commit must target a block in epoch E-2"
+            assert data.get("commitment"), "Commit missing commitment"
+            assert kv_ops.commit_get(transaction["sender"], E) is None, "Already committed for this epoch"
+        else:  # reveal
+            # reveal must land in epoch E-1's FINALIZED window (so the seed is immutable when E begins),
+            # and must open the sender's own prior commitment.
+            lo = (E - 1) * EPOCH_LENGTH
+            hi = E * EPOCH_LENGTH - FINALITY_DEPTH - 1
+            assert lo <= tb <= hi, "Reveal must land in epoch E-1's finalized window"
+            secret = data.get("secret")
+            commitment = kv_ops.commit_get(transaction["sender"], E)
+            assert commitment, "No matching commit for this reveal"
+            assert secret and beacon_commitment(secret) == commitment, "Reveal does not open the commitment"
+    elif recipient in ("register", "heartbeat"):
         # OPEN-lane mining txs: FEE-EXEMPT (a zero-balance newcomer can't pay) and move no coins.
         assert transaction["amount"] == 0, "Open-lane (register/heartbeat) tx must have zero amount"
         assert transaction["fee"] == 0, "Open-lane (register/heartbeat) tx is fee-exempt (fee must be 0)"

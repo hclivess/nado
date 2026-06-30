@@ -100,29 +100,35 @@ def main():
                                           stdout=logf, stderr=subprocess.STDOUT))
         print("[testnet] launched; polling /status ...", flush=True)
 
+        # NADO_TESTNET_FULL: don't stop at first convergence — run the full duration and keep checking,
+        # so the net can cross epoch boundaries (FFG attestations + RANDAO beacon engage at epoch >= 2).
+        full_mode = bool(os.environ.get("NADO_TESTNET_FULL"))
         deadline = time.time() + run_seconds
         converged = False
         while time.time() < deadline:
             time.sleep(10)
             sts = [status(i) for i in range(n)]
             up = sum(1 for s in sts if "error" not in s)
-            heights = [s.get("latest_block_hash", s.get("error", "?"))[:10] for s in sts]
             blocks = []
             for i, s in enumerate(sts):
                 # /status exposes the tip hash; height is logged, so infer progress via hash != genesis
                 blocks.append(s.get("latest_block_hash", "err")[:10] if "error" not in s else "DOWN")
             tips = {s.get("latest_block_hash") for s in sts if "error" not in s}
-            peers = [s.get("block_producers_hash") for s in sts if "error" not in s]
+            finals = [s.get("finalized_height") for s in sts if "error" not in s]
+            ffgs = [s.get("ffg_finalized") for s in sts if "error" not in s]
             print(f"[testnet] t={int(time.time()-(deadline-run_seconds))}s up={up}/{n} "
-                  f"tips={blocks} distinct_tips={len(tips)}", flush=True)
+                  f"tips={blocks} distinct_tips={len(tips)} finalized={finals} ffg={ffgs}", flush=True)
             # progress check: any node advanced past genesis AND all agree on one tip
             genesis_hash = "21872f6c3dd92a402fc939587ae7a1580ba448ff75c5ccbe3091f0da248d6e46"
             advanced = any(s.get("latest_block_hash") not in (None, genesis_hash)
                            for s in sts if "error" not in s)
             if up == n and len(tips) == 1 and advanced:
                 converged = True
-                print("[testnet] CONVERGED: all nodes agree on a non-genesis tip", flush=True)
-                break
+                if not full_mode:
+                    print("[testnet] CONVERGED: all nodes agree on a non-genesis tip", flush=True)
+                    break
+            elif full_mode:
+                converged = False  # reflect current (transient) divergence in full-duration mode
 
         # final report
         print("\n[testnet] final /status:", flush=True)

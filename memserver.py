@@ -94,6 +94,13 @@ class MemServer:
             f"< EPOCH_LENGTH ({EPOCH_LENGTH}) for enforced-finality safety")
         # in-memory mirror of the persisted floor (advanced by core_loop.incorporate_block)
         self.finalized_height = get_finalized_height()
+        # FFG (#6): the stake-attested finalized checkpoint height (observability; <= finalized_height,
+        # which is the deeper time-based floor that bounds rollback). Updated by core_loop.maybe_attest.
+        self.ffg_finalized = 0
+        # RANDAO (#7): this validator's locally-held secrets {target_epoch: secret}, committed in E-2
+        # and revealed in E-1. In-memory only (a secret never revealed after a restart is simply a
+        # wasted commit — harmless; the beacon falls back to the anchor + other validators' reveals).
+        self.randao_secrets = {}
         self.cascade_limit = self.config.get("cascade_limit") or 1
         self.promiscuous = True if self.config.get("promiscuous") is True else False
         self.quick_sync = True if self.config.get("quick_sync") is True else False

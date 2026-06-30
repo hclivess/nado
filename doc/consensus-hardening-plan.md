@@ -1,7 +1,7 @@
 # Consensus hardening plan (#15–#18) — locked design + ordered implementation
 
 **Status:** design locked 2026-06-30 (vetted by a 3-architect + synthesis design pass).
-**Implementation progress (first wave landed, testnet-validated):**
+**Implementation progress (steps 1–8 now all landed except the post-launch eclipse ops; testnet-stage alpha):**
 - The **SQLite → LMDB migration (#21)** is **DONE** (`ops/kv_ops.py`); the `get_finalized_height` /
   meta accessors are KV calls.
 - **Step 1 — finality floor (#17): DONE.** `FINALITY_DEPTH=30`, persisted monotonic
@@ -10,13 +10,43 @@
 - **Step 3 — objective heaviest-`cumulative_weight` fork-choice: DONE** (peer-IP plurality removed
   from the security path; trust demoted to advisory).
 - **Step 4 — beacon fail-loud: DONE** (silent `GENESIS_BEACON` fallback removed).
-- **Step 5 — pubkey-once (#19) + detached OPTIONAL winner signature (#15): DONE**, EXCEPT the
-  **equivocation-slashing action**, which is still **PENDING**.
-- **Steps 6–8 — FFG-lite finality, full commit-reveal RANDAO, eclipse hardening: PLANNED** (the
-  `/announce_peer` rate-limit subset of Step 8 has shipped).
+- **Step 5 — pubkey-once (#19) + detached OPTIONAL winner signature (#15): DONE**, now **INCLUDING the
+  equivocation-slashing action (step 5C):** a fee-exempt `slash` tx carrying the two-conflicting-
+  signatures proof (from the detached winner signature) burns `SLASH_BOND_PENALTY` (= `B_MIN`, one
+  share) of the offender's **bonded** stake. Replay-guarded one-per-(offender, height) via a `meta`
+  slash marker; revert-symmetric; burned, not paid to the reporter (anyone may report; the proof is
+  the anti-spam). `verify_equivocation_proof` (`block_ops.py`), `apply_slash` (`account_ops.py`),
+  validation + `reflect_transaction` slash branch.
+- **Step 6 — FFG-lite objective finality (#6): DONE — but ADDITIVE, with an honest scope deviation
+  from the design body below.** Bonded validators emit one `attest` tx per epoch for the epoch
+  checkpoint; a checkpoint JUSTIFIES at strictly **>2/3** of total bonded shares
+  (`attesting*FFG_DEN > total*FFG_NUM`, `FFG_NUM=2`/`FFG_DEN=3`) and FINALIZES on two-consecutive-
+  justified (`ffg_finalized_checkpoint`). On-chain `UNIQUE(validator, epoch)` (attestation index +
+  meta marker) prevents on-chain double-voting. Exposed as **`/status.ffg_finalized`**. **NOTE the
+  shipped shape differs from Step 6's design body:** FFG is wired as an **additive, observable, stake-
+  attested finality SIGNAL layered on top of the time-based floor — it does NOT replace or advance the
+  #17 `finalized_height` rollback bound.** The rollback floor stays purely time-based (`max(prev,
+  tip − FINALITY_DEPTH)`, the liveness guarantee), so FFG **can never stall the chain**; it only
+  records the stronger, accountable finality point alongside it.
+- **Step 7 — commit-reveal RANDAO (#7): DONE.** Bonded validators `commit` a secret's hash in epoch
+  E-2 and `reveal` it in E-1's FINALIZED window; `epoch_beacon` now mixes the finalized anchor with
+  the revealed secrets (`compute_beacon(GENESIS_BEACON, [anchor] + secrets)`) so no single anchor-
+  producer controls the beacon, falling back to the anchor-only value with zero reveals (liveness).
+  **Differs from Step 7's design body:** it KEEPS the anchor and is non-recursive (not
+  `compute_beacon(epoch_beacon(E-1), …)`), which keeps it snapshot-safe and the reveals immutable when
+  the beacon is first needed.
+- **Step 8 — eclipse hardening: PARTIAL (the rest is post-launch).** Live: the `/announce_peer` rate-
+  limit **and** the per-/16 subnet-diversity cap. **Still genuinely planned/post-launch:** ASN-level
+  (vs /16) peer diversity, pinned anchor outbound slots + a multi-seed bootstrap list, and snapshot-
+  bootstrap binding to a finalized signed checkpoint.
 
-Remaining steps are implemented in order, each gated on a CONVERGING multi-node testnet. The detail
-below is the **locked design**; the per-step gates record the validation each requires.
+**Honest caveats.** FFG (#6) and RANDAO (#7) are unit-tested for correctness, but their multi-node
+EPOCH-CROSSING behaviour is only LIGHTLY exercised empirically — the core loop's ~10 s/block cadence
+makes crossing the 120+ blocks needed to observe a full justify→finalize and a commit→reveal cycle
+slow. They engage as the chain crosses epochs. NADO remains a **testnet-stage alpha, not mainnet-
+launched** (so there is no hardfork concern — mainnet isn't live). The detail below is the **locked
+design**; where a per-step body still reads as "planned" or sketches a different shape than what
+shipped (Steps 6 and 7 above), the status block here and the code are authoritative.
 
 **Sequencing constraint (historical):** steps 1–3 read/write committed state via the index layer
 that the SQLite→LMDB migration (#21) replaced. The KV migration landed FIRST, so these steps run on

@@ -1,5 +1,6 @@
 from ops import kv_ops
-from protocol import B_MIN, EPOCH_LENGTH, PRESENCE_WINDOW, FIDELITY_GAIN
+from ops.address_ops import make_address
+from protocol import B_MIN, EPOCH_LENGTH, PRESENCE_WINDOW, FIDELITY_GAIN, SLASH_BOND_PENALTY
 
 # Account state lives in the schemaless `accounts` sub-DB as a msgpack document keyed by address
 # (see ops/kv_ops.py). Missing fields default to 0 on read, so adding a field (as we did with
@@ -54,6 +55,43 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         return
     if recipient == "heartbeat":
         apply_heartbeat(address=sender, epoch=block_height // EPOCH_LENGTH, logger=logger, revert=revert)
+        return
+
+    # --- SLASHING (#15 step 5C): a fee-exempt tx carrying a proven equivocation proof in `data`.
+    # validate_transaction already verified the proof + that the offender holds enough bond + is not
+    # already slashed at this height, so reflect just extracts (offender, height) and burns the bond.
+    if recipient == "slash":
+        proof = transaction.get("data") or {}
+        offender = make_address(proof["public_key"])
+        apply_slash(address=offender, height=proof["block_number"], logger=logger, revert=revert)
+        return
+
+    # --- FFG attestation (#6): record/revert a bonded validator's checkpoint attestation. Validation
+    # already enforced bonded + one-per-(validator,epoch) + correct checkpoint hash. Revert-symmetric.
+    if recipient == "attest":
+        data = transaction.get("data") or {}
+        epoch, target_hash = data["target_epoch"], data["target_hash"]
+        if revert:
+            kv_ops.attestation_del(epoch, sender, target_hash)
+        else:
+            kv_ops.attestation_put(epoch, sender, target_hash)
+        return
+
+    # --- COMMIT-REVEAL RANDAO (#7): record/revert a bonded validator's commit or reveal. Validation
+    # enforced bonded + windows + commitment-opening + one-per-(sender,epoch). Revert-symmetric.
+    if recipient == "commit":
+        data = transaction.get("data") or {}
+        if revert:
+            kv_ops.commit_del(sender, data["target_epoch"])
+        else:
+            kv_ops.commit_put(sender, data["target_epoch"], data["commitment"])
+        return
+    if recipient == "reveal":
+        data = transaction.get("data") or {}
+        if revert:
+            kv_ops.reveal_del(data["target_epoch"], data["secret"])
+        else:
+            kv_ops.reveal_put(data["target_epoch"], data["secret"])
         return
 
     # --- ordinary transfer ---
@@ -203,6 +241,19 @@ def change_fidelity(address: str, amount: int, logger, revert=False):
         logger.error(f"Refusing to drive fidelity negative for {address} (amount={amount}, revert={revert})")
         raise AssertionError(f"Fidelity underflow for {address}")
     return True
+
+
+def apply_slash(address, height, logger, revert=False):
+    """SLASHING core (#15 step 5C / #6): burn SLASH_BOND_PENALTY of `address`'s bonded stake for a
+    proven offence at `height`, and record (address, height) so the same offence can't be slashed
+    twice. Revert-symmetric: validate_transaction guarantees the offender held >= SLASH_BOND_PENALTY
+    bonded BEFORE applying, so the dock never floors; rollback restores the bond (change_bonded with
+    revert) and clears the slash record. The bonded coins are DESTROYED (the deterrent is the loss)."""
+    change_bonded(address=address, amount=-SLASH_BOND_PENALTY, logger=logger, revert=revert)
+    if revert:
+        kv_ops.slash_clear(address, height)
+    else:
+        kv_ops.slash_record(address, height)
 
 
 def apply_heartbeat(address: str, epoch: int, logger, revert=False):

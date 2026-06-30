@@ -45,8 +45,11 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   tx_by_recipient   recipient(utf8)          -> block_number(8B BE)||txid(utf8)   [DUPSORT]
 #   heartbeats        epoch(8B BE)             -> address(utf8)                     [DUPSORT]
 #   meta              key(utf8)                -> msgpack(int)   (e.g. finalized_height)
-_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta")
-_DUP_DBS = ("tx_by_sender", "tx_by_recipient", "heartbeats")
+#   attestations      target_epoch(8B BE)      -> "validator|target_hash"            [DUPSORT]  (FFG #6)
+#   commits           "sender|target_epoch"    -> commitment                                   (RANDAO #7)
+#   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
+_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits")
+_DUP_DBS = ("tx_by_sender", "tx_by_recipient", "heartbeats", "attestations", "reveals")
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
 ACCOUNT_FIELDS = ("balance", "produced", "bonded", "registered", "fidelity")
@@ -372,6 +375,125 @@ def meta_set_int(key: str, value: int):
     def _do(txn):
         txn.put(key.encode(), _pack(int(value)), db=_dbs()["meta"])
     _write(_do)
+
+
+def meta_del(key: str):
+    """Delete a meta scalar if present (revert-symmetric clears)."""
+    def _do(txn):
+        txn.delete(key.encode(), db=_dbs()["meta"])
+    _write(_do)
+
+
+# --- slashing replay guard (#15/#16 step 5C/6): one slash per (offender, height) ------------------
+
+def _slash_key(address: str, height: int) -> str:
+    return f"slash:{address}:{int(height)}"
+
+
+def slash_exists(address: str, height: int) -> bool:
+    return meta_get_int(_slash_key(address, height), 0) == 1
+
+
+def slash_record(address: str, height: int):
+    meta_set_int(_slash_key(address, height), 1)
+
+
+def slash_clear(address: str, height: int):
+    meta_del(_slash_key(address, height))
+
+
+# --- FFG attestations (#6): tally per (epoch, checkpoint) + one-per-(validator, epoch) uniqueness ---
+
+def _attest_unique_key(validator: str, epoch: int) -> str:
+    return f"att:{validator}:{int(epoch)}"
+
+
+def attestation_exists(epoch: int, validator: str) -> bool:
+    """True if `validator` already has an attestation recorded for `epoch` (on-chain double-vote guard)."""
+    return meta_get_int(_attest_unique_key(validator, epoch), 0) == 1
+
+
+def attestation_put(epoch: int, validator: str, target_hash: str):
+    """Record a bonded validator's attestation of checkpoint (epoch, target_hash). The DUPSORT row
+    feeds the per-(epoch,checkpoint) tally; the meta marker enforces ONE attestation per validator per
+    epoch (so a validator can never on-chain double-vote). Revert via attestation_del."""
+    def _do(txn):
+        txn.put(be8(epoch), f"{validator}|{target_hash}".encode(), db=_dbs()["attestations"], dupdata=True)
+    _write(_do)
+    meta_set_int(_attest_unique_key(validator, epoch), 1)
+
+
+def attestation_del(epoch: int, validator: str, target_hash: str):
+    """Revert attestation_put exactly (rollback): delete the precise DUPSORT row + the uniqueness marker."""
+    def _do(txn):
+        txn.delete(be8(epoch), f"{validator}|{target_hash}".encode(), db=_dbs()["attestations"])
+    _write(_do)
+    meta_del(_attest_unique_key(validator, epoch))
+
+
+def attestations_for_epoch(epoch: int):
+    """List (validator, target_hash) attestations recorded for `epoch`, in deterministic DUPSORT order."""
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["attestations"]) as cur:
+            if cur.set_key(be8(epoch)):
+                for v in cur.iternext_dup(keys=False, values=True):
+                    s = v.decode()
+                    validator, target_hash = s.split("|", 1)
+                    out.append((validator, target_hash))
+        return out
+    return _read(_do)
+
+
+# --- RANDAO commit-reveal (#7): one commit per (sender, target_epoch) + revealed secrets per epoch ---
+
+def _commit_key(sender: str, target_epoch: int) -> bytes:
+    return f"{sender}|{int(target_epoch)}".encode()
+
+
+def commit_get(sender: str, target_epoch: int):
+    """The commitment a bonded sender published for target_epoch (None if none)."""
+    def _do(txn):
+        v = txn.get(_commit_key(sender, target_epoch), db=_dbs()["commits"])
+        return v.decode() if v is not None else None
+    return _read(_do)
+
+
+def commit_put(sender: str, target_epoch: int, commitment: str):
+    def _do(txn):
+        txn.put(_commit_key(sender, target_epoch), commitment.encode(), db=_dbs()["commits"])
+    _write(_do)
+
+
+def commit_del(sender: str, target_epoch: int):
+    def _do(txn):
+        txn.delete(_commit_key(sender, target_epoch), db=_dbs()["commits"])
+    _write(_do)
+
+
+def reveal_put(target_epoch: int, secret: str):
+    """Record a revealed secret seeding target_epoch's beacon (DUPSORT auto-dedups identical secrets)."""
+    def _do(txn):
+        txn.put(be8(target_epoch), secret.encode(), db=_dbs()["reveals"], dupdata=True)
+    _write(_do)
+
+
+def reveal_del(target_epoch: int, secret: str):
+    def _do(txn):
+        txn.delete(be8(target_epoch), secret.encode(), db=_dbs()["reveals"])
+    _write(_do)
+
+
+def reveals_for_epoch(target_epoch: int):
+    """Sorted list of revealed secrets seeding target_epoch's beacon (deterministic DUPSORT order)."""
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["reveals"]) as cur:
+            if cur.set_key(be8(target_epoch)):
+                for v in cur.iternext_dup(keys=False, values=True):
+                    out.append(v.decode())
+        return out
+    return _read(_do)
 
 
 # --- block number <-> hash index ------------------------------------------------------------------

@@ -18,12 +18,14 @@ It replaces the Proof-of-Work hash race with a **deterministic, beacon-keyed wei
 hash decides each block's producer, so faster hardware (ASICs, GPUs) confers no advantage and there
 is nothing to grind. Coins enter circulation only as block rewards.
 
-> **Status: testnet-validated, NOT yet mainnet-launched.** The fair-mining economics and the first
-> wave of consensus-security hardening (objective fork-choice, enforced finality, grind-proof chain
-> weight) are implemented and validated on a local multi-node testnet. The remaining hardening
-> (producer block signatures + slashing, FFG-lite finality, full commit-reveal RANDAO, broad eclipse
-> defenses) is **not done yet** — see [Security](#security). Run it on testnet / at your own risk.
-> Do not secure value of consequence with it yet. Chain id: `nado-relaunch-1`.
+> **Status: testnet-stage alpha, NOT yet mainnet-launched.** The fair-mining economics and the full
+> consensus-security hardening plan (objective fork-choice, enforced finality, grind-proof chain
+> weight, detached winner signatures + **equivocation slashing**, **FFG-lite stake-attested finality**,
+> **commit-reveal RANDAO**) are now implemented; the multi-node, epoch-crossing behaviour of the last
+> three is still only lightly exercised empirically (see [Security](#security)). What genuinely remains
+> is a subset of **eclipse hardening** (ASN-level peer diversity, pinned multi-seed bootstrap, snapshot-
+> bootstrap binding to a finalized signed checkpoint). Run it on testnet / at your own risk; do not
+> secure value of consequence with it yet. Chain id: `nado-relaunch-1`.
 
 ---
 
@@ -260,8 +262,26 @@ read it before running anything of value.
 - **Detached winner block signature** — when the selected winner is online it attaches an *optional*
   ML-DSA signature **outside** the hash preimage (so it never affects the hash, weight, validity, or
   reward); verifiers reject a present-but-forged or wrong-signer signature. An offline winner's
-  relay-built block is simply unsigned and still valid — **"win-while-offline" is preserved**. (The
-  *slashing action* on a double-signer's bond is still planned.)
+  relay-built block is simply unsigned and still valid — **"win-while-offline" is preserved**.
+- **Equivocation slashing** — two valid winner signatures over *different* blocks at the *same*
+  height+parent form a portable proof that an identity double-authored a slot. A fee-exempt `slash`
+  transaction carrying that proof burns `SLASH_BOND_PENALTY` (= `B_MIN`, one bonded share) of the
+  offender's **bonded** stake. Anyone may report it (the unforgeable proof is the anti-spam); it is
+  replay-guarded to **one slash per (offender, height)**, revert-symmetric on rollback, and the coins
+  are **destroyed** (the deterrent is the loss, not a bounty). Validation requires the offender still
+  hold the penalty so the dock never floors.
+- **FFG-lite stake-attested finality** — bonded validators emit one `attest` transaction per epoch for
+  that epoch's checkpoint (its first block). A checkpoint **justifies** at *strictly* >2/3 of total
+  bonded shares (`FFG_NUM/FFG_DEN = 2/3`) and **finalizes** on two-consecutive-justified; on-chain
+  `UNIQUE(validator, epoch)` prevents double-voting. This is exposed as **`/status.ffg_finalized`**.
+  It is an **additive, observable, accountable** finality signal layered *on top of* the depth-based
+  floor — it does **not** replace the time-based `finalized_height` (which stays the deeper rollback
+  bound and guarantees liveness), so FFG can never stall the chain.
+- **Commit-reveal RANDAO** — bonded validators `commit` a secret's hash in epoch E−2 and `reveal` it
+  in E−1's finalized window; `epoch_beacon` now mixes the finalized prior-epoch anchor with the
+  revealed secrets, so **no single anchor-producer controls the beacon**. With zero reveals it falls
+  back to the anchor-only value (liveness). It keeps the anchor (non-recursive), so the beacon stays
+  snapshot-safe and the reveals are immutable by the time the beacon is needed.
 - **Pubkey-once** — the 1312-byte ML-DSA `public_key` is **excluded from the txid** and stored once in
   account state on an address's first tx, so later txs (notably every-epoch heartbeats) omit it;
   validators recover it from committed state. Store/clear is byte-identically revert-symmetric.
@@ -274,26 +294,30 @@ read it before running anything of value.
   peer view), a hard mempool cap (150,000), heartbeat-index GC, and an SSRF guard (`check_ip` rejects
   own-IP and all non-globally-routable addresses).
 
+### Lightly exercised (implemented + unit-tested, but not yet hardened on a live multi-node net)
+
+The equivocation slashing, FFG-lite finality, and commit-reveal RANDAO above are **wired and
+unit-tested for correctness**, but their **multi-node, epoch-crossing** behaviour has only been
+**lightly exercised empirically**: the core loop's ~10 s/block cadence makes crossing the 120+ blocks
+needed to observe a full justify→finalize and a complete commit→reveal cycle slow. They engage as the
+chain crosses epochs; treat their cross-epoch dynamics as not-yet-battle-tested.
+
 ### Planned (designed, NOT yet implemented — do not rely on these)
 
-- **Equivocation slashing action** — the detached winner signature (now live) already yields a portable
-  proof when a winner double-signs two blocks at the same height; the on-chain action that *docks the
-  double-signer's bond/fidelity* is not yet implemented.
-- **FFG-lite objective finality** — bonded checkpoint attestations advancing the finalized height at
-  >2/3 bonded shares, beyond today's depth-based floor.
-- **Full commit-reveal RANDAO** — on-chain commit/reveal with a withholder penalty (the primitives are
-  written and unit-tested but **not** wired into the live beacon, which is the single chained anchor).
-- **Broader eclipse hardening** — ASN-level peer-diversity caps (the per-/16 cap is already live),
-  pinned anchor outbound slots, a multi-seed bootstrap list, and snapshot-bootstrap binding to a
-  finalized signed checkpoint.
+- **Broader eclipse hardening** — beyond the per-/16 subnet cap and the `/announce_peer` rate-limit
+  (both already live): **ASN-level** (vs /16) peer-diversity caps, pinned anchor outbound slots, a
+  **multi-seed** bootstrap list (replacing the single genesis seed), and **snapshot-bootstrap binding
+  to a finalized signed checkpoint**. These are post-launch items.
 
 ### Honest statement of current limits
 
-Objective fork-choice and enforced finality make a zero-bond Sybil/IP reorg ineffective and bound the
-disagreement window below one epoch — a substantial improvement over the previous peer-count
-fork-choice. But without producer signatures, FFG finality, a full RANDAO, and eclipse hardening, NADO
-remains **testnet-safe, not open-value-mainnet-safe**. All mining/economic parameters are
-**provisional** and flagged *simulate-before-lock-in* in code.
+Objective fork-choice, enforced finality, equivocation slashing, FFG-lite stake-attested finality, and
+the commit-reveal RANDAO make a zero-bond Sybil/IP reorg ineffective, bound the disagreement window
+below one epoch, and layer accountable finality and a non-grindable beacon on top — a substantial
+hardening over the previous peer-count fork-choice. But the cross-epoch behaviour of FFG/RANDAO is only
+lightly exercised, the listed eclipse hardening is still outstanding, and all mining/economic
+parameters are **provisional** and flagged *simulate-before-lock-in* in code. NADO remains a
+**testnet-stage alpha, not open-value-mainnet-safe**. (No hardfork concern: mainnet is not live.)
 
 ---
 
@@ -305,8 +329,8 @@ remains **testnet-safe, not open-value-mainnet-safe**. All mining/economic param
   signatures interoperate across implementations. Signatures authenticate transactions/heartbeats and
   are **deliberately never** the randomness source (a malleable signature would be grindable).
 - **Addresses** — `"ndo"` + 42-hex public-key prefix + a 4-hex `blake2b` checksum (49 chars). The
-  keyless reserved recipients `{bond, unbond, register, heartbeat}` are valid as a recipient/target
-  only, never as a sender.
+  keyless reserved recipients `{bond, unbond, register, heartbeat, slash, attest, commit, reveal}` are
+  valid as a recipient/target only, never as a sender.
 - **Hashing & serialization** — BLAKE2b over `canonical_bytes()` (compact, sorted-key, ASCII JSON,
   float-free). Every consensus integer is a raw integer, so a browser reproduces identical bytes with
   BigInt-aware serialization. Transaction ids and blocks bind `CHAIN_ID = "nado-relaunch-1"`, blocking

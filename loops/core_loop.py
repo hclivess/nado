@@ -28,6 +28,7 @@ from ops.block_ops import (
     index_block_number,
     sign_block,
     verify_block_signature,
+    get_block_hash_by_number,
 )
 from ops.data_ops import get_home
 from ops.mining_ops import select_producer, select_producer_two_lane, epoch_of, total_bonded_shares
@@ -43,7 +44,12 @@ from ops.transaction_ops import (
     validate_transaction,
     validate_all_spending, index_transactions
 )
+import secrets as _secrets
 from rollback import rollback_one_block, MissingParentError, FinalityViolation
+from ops.transaction_ops import construct_attestation_tx, construct_commit_tx, construct_reveal_tx
+from ops.attestation_ops import ffg_finalized_checkpoint
+from ops.mining_ops import beacon_commitment
+from protocol import EPOCH_LENGTH, FINALITY_DEPTH
 
 # protocol cap on a block reward (mirrors get_block_reward's reward_cap)
 MAX_BLOCK_REWARD = 5000000000
@@ -169,6 +175,11 @@ class CoreClient(threading.Thread):
                     self.memserver.block_producers_hash = self.memserver.get_block_producers_hash()
 
             self.memserver.reported_uptime = self.memserver.get_uptime()
+
+            # FFG (#6): refresh the stake-attested finalized checkpoint + (if bonded) attest this epoch.
+            self.update_ffg_and_attest()
+            # RANDAO (#7): (if bonded) commit a secret for epoch+2 and reveal epoch+1's in its window.
+            self.maybe_randao()
 
             if 3 in self.memserver.periods:
                 block_producers = self.memserver.block_producers.copy()
@@ -655,6 +666,71 @@ class CoreClient(threading.Thread):
         if new_final > self.memserver.finalized_height:
             set_finalized_height(new_final)
             self.memserver.finalized_height = new_final
+
+    def update_ffg_and_attest(self):
+        """FFG (#6): refresh the stake-attested finalized checkpoint (observability) and, if we are a
+        bonded validator who hasn't attested the current epoch, broadcast our attestation. Best-effort:
+        it NEVER raises into the core loop and never blocks production; FFG is an additive accountability
+        signal, not the liveness-critical finality (that stays the time-based floor)."""
+        try:
+            latest = self.memserver.latest_block
+            epoch = epoch_of(latest["block_number"])
+            self.memserver.ffg_finalized = ffg_finalized_checkpoint(epoch)
+            if epoch < 1:
+                return  # epoch 0's checkpoint is genesis; nothing to attest yet
+            if self.memserver.address not in get_bonded_registry():
+                return  # only bonded validators attest
+            if kv_ops.attestation_exists(epoch, self.memserver.address):
+                return  # already attested this epoch (one per validator per epoch)
+            checkpoint_hash = get_block_hash_by_number(epoch * EPOCH_LENGTH)
+            if not checkpoint_hash:
+                return
+            target_block = min(latest["block_number"] + 5, (epoch + 1) * EPOCH_LENGTH - 1)
+            if target_block <= latest["block_number"]:
+                return  # at the epoch's final block -> attest next epoch instead
+            tx = construct_attestation_tx(self.memserver.keydict, epoch, checkpoint_hash, target_block)
+            result = self.memserver.merge_transaction(tx, user_origin=True)
+            if result and result.get("result"):
+                self.logger.info(f"FFG: attested epoch {epoch} ckpt {checkpoint_hash[:12]} "
+                                 f"(ffg_finalized={self.memserver.ffg_finalized})")
+        except Exception as e:
+            self.logger.error(f"FFG update/attest failed: {e}")
+
+    def maybe_randao(self):
+        """RANDAO (#7): a bonded validator COMMITS a fresh secret for epoch current+2 (we are in its
+        E-2) and REVEALS the secret it committed for epoch current+1 (we are in its E-1 finalized
+        window). Best-effort; never raises into the core loop. Secrets live in memserver.randao_secrets
+        (in-memory: an unrevealed secret after a restart is just a wasted commit, harmless)."""
+        try:
+            if self.memserver.address not in get_bonded_registry():
+                return  # only bonded validators participate in the beacon
+            latest = self.memserver.latest_block
+            current_epoch = epoch_of(latest["block_number"])
+            kd = self.memserver.keydict
+
+            # COMMIT for epoch current+2 (we are in its E-2), once
+            e_commit = current_epoch + 2
+            if (e_commit not in self.memserver.randao_secrets
+                    and kv_ops.commit_get(self.memserver.address, e_commit) is None):
+                target_block = min(latest["block_number"] + 5, (current_epoch + 1) * EPOCH_LENGTH - 1)
+                if target_block > latest["block_number"]:
+                    secret = _secrets.token_hex(32)
+                    self.memserver.randao_secrets[e_commit] = secret
+                    tx = construct_commit_tx(kd, e_commit, beacon_commitment(secret), target_block)
+                    self.memserver.merge_transaction(tx, user_origin=True)
+
+            # REVEAL for epoch current+1 (we are in its E-1 finalized window), if we hold its secret
+            e_reveal = current_epoch + 1
+            secret = self.memserver.randao_secrets.get(e_reveal)
+            if secret and kv_ops.commit_get(self.memserver.address, e_reveal) is not None:
+                lo = current_epoch * EPOCH_LENGTH
+                hi = e_reveal * EPOCH_LENGTH - FINALITY_DEPTH - 1
+                target_block = latest["block_number"] + 5
+                if lo <= target_block <= hi and secret not in kv_ops.reveals_for_epoch(e_reveal):
+                    tx = construct_reveal_tx(kd, e_reveal, secret, target_block)
+                    self.memserver.merge_transaction(tx, user_origin=True)
+        except Exception as e:
+            self.logger.error(f"RANDAO commit/reveal failed: {e}")
 
     def validate_transactions_in_block(self, block, logger, remote_peer, remote):
         transactions = sort_list_dict(block["block_transactions"])

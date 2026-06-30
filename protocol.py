@@ -24,7 +24,7 @@ GENESIS_TIMESTAMP = 1669852800
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
 # "bond"/"unbond": bonded-lane stake txs. "register"/"heartbeat": OPEN-lane (no-coin) mining txs
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "register", "heartbeat"})
+RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "register", "heartbeat", "slash", "attest", "commit", "reveal"})
 
 # The TREASURY is the GENESIS address (project owner's decision): the 10% per-block cut accrues
 # here. It is a normal KEY-CONTROLLED address (the founder holds its key), derived here under the
@@ -80,6 +80,24 @@ B_MIN = 1_000_000_000_000          # 100 NADO: capital per bonded selection shar
 BOND_CAP = 100_000_000_000_000     # 10,000 NADO: max effective bond per identity
 MAX_SHARES = BOND_CAP // B_MIN     # 100: variance cap so a whale can't monopolise the bonded lane
 BOND_UNLOCK_DELAY = 1440           # blocks a bond stays locked after an unbond request
+# SLASHING (#15/#16 step 5C/6): bonded stake burned from an identity proven to have EQUIVOCATED — two
+# validly-signed blocks at the same height+parent (block authorship #15), or a double/surround vote
+# in the FFG attestation set (#6). One share (B_MIN) per proven offence; validation requires the
+# offender hold >= SLASH_BOND_PENALTY bonded so apply never floors (revert-symmetric). Burned, not
+# paid to the reporter (the deterrent is the loss). One slash per (offender, height) — replay-guarded.
+SLASH_BOND_PENALTY = B_MIN
+
+# FFG-LITE OBJECTIVE FINALITY (#6): bonded validators ATTEST the first block of each epoch (the
+# "checkpoint"). A checkpoint JUSTIFIES when the attesting bonded shares exceed FFG_NUM/FFG_DEN of the
+# total bonded shares; it FINALIZES (with slashable stake backing) once it AND its child checkpoint are
+# both justified (two-consecutive). This is ADDITIVE + OBSERVABLE: it records the stake-attested
+# finalized checkpoint as /status.ffg_finalized but does NOT move the rollback-bounding finalized_height
+# (that stays the deeper time-based floor, #17, which guarantees liveness) — so FFG can never stall the
+# chain. On-chain UNIQUE(validator, target_epoch) — enforced by the attestation index — prevents on-chain
+# double-voting, so only one attestation per validator per epoch ever counts. finalized_height stays
+# monotonic (max of the time-based floor and the FFG height), so the advance needs no rollback logic.
+FFG_NUM = 2
+FFG_DEN = 3
 
 # Open lane: free entry via a one-time light registration PoW; weight = floor + diligence ramp.
 # NO auto-bond faucet: free presence must NEVER mint bonded stake (that pipe lets a Sybil swarm

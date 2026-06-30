@@ -8,16 +8,21 @@
 > **designed but not yet wired**. All numeric parameters are taken from
 > `protocol.py`, the consensus source of truth, but are themselves marked
 > *PROVISIONAL — simulate before lock-in* in code and may change before mainnet.
-> NADO in its current form is **testnet-safe, not open-value-mainnet-safe**. The
-> first wave of consensus hardening **is now implemented and testnet-validated**:
-> objective stake-weighted heaviest-chain fork-choice, an enforced finality floor,
+> NADO in its current form is a **testnet-stage alpha, not open-value-mainnet-safe**.
+> Both waves of the consensus hardening plan **are now implemented**: the first wave
+> (objective stake-weighted heaviest-chain fork-choice, an enforced finality floor,
 > a grind-proof `cumulative_weight` header, a fail-loud epoch beacon, a detached
-> optional winner block signature, and pubkey-once. The remaining hardening —
-> equivocation/attestation slashing actions, FFG-lite objective finality, a full
-> commit-reveal RANDAO, and broader eclipse defenses — is **not yet implemented**.
-> Do not deploy this software to secure value of consequence until that remaining
-> milestone lands. Where the older
-> design docs (`doc/economics.md`, `doc/security-review.md`, `doc/mining.md`,
+> optional winner block signature, and pubkey-once) **plus** the second wave —
+> **equivocation slashing**, **FFG-lite stake-attested finality**, and a
+> **commit-reveal RANDAO** mixed into the live beacon. Two honest caveats remain:
+> (1) the **multi-node, epoch-crossing** behaviour of FFG and RANDAO is only
+> *lightly exercised* empirically (unit-tested for correctness; the ~10 s/block
+> cadence makes crossing 120+ blocks slow), and (2) a subset of **eclipse hardening**
+> (ASN-level peer diversity, pinned multi-seed bootstrap, snapshot-bootstrap binding
+> to a finalized signed checkpoint) is **still genuinely planned/post-launch**.
+> Do not deploy this software to secure value of consequence yet. There is **no
+> hardfork concern** — mainnet is not live. Where the older design docs
+> (`doc/economics.md`, `doc/security-review.md`, `doc/mining.md`,
 > `doc/determinism-and-chain-id.md`) disagree with this paper, the **code** is
 > authoritative and those docs are known to be stale.
 
@@ -42,11 +47,14 @@ term), split 90/10 between producer and a founder-held treasury that starts
 empty. Consensus hashing is over canonical JSON so a vendored-crypto browser
 client reproduces addresses, transaction IDs, and verification byte-for-byte.
 Derived state lives in a single schemaless, memory-mapped, ACID **LMDB** key-value
-store. The first wave of consensus hardening — objective stake-weighted fork-choice,
-an enforced finality floor, a grind-proof chain-weight header, a fail-loud beacon, a
-detached optional winner signature, and pubkey-once — is **live in code today**; this
-paper documents the live mechanism and is explicit about the consensus hardening that
-remains to be built.
+store. Both waves of consensus hardening are now **live in code**: objective
+stake-weighted fork-choice, an enforced finality floor, a grind-proof chain-weight
+header, a fail-loud beacon, a detached optional winner signature, and pubkey-once,
+**plus** equivocation slashing, an additive FFG-lite stake-attested finality signal,
+and a commit-reveal RANDAO mixed into the beacon. This paper documents the live
+mechanism and is explicit about the two honest caveats that remain — the lightly-
+exercised cross-epoch behaviour of FFG/RANDAO, and the post-launch eclipse-hardening
+subset that is still unbuilt.
 
 ---
 
@@ -199,19 +207,27 @@ optional** ML-DSA signature (Section 7.2, #15), but that signature lives **outsi
 the hashed block body and the validity/weight/reward path — it is never required, so
 "win while offline" is preserved and block integrity never depends on it.
 
-### 3.2 The live epoch beacon (v1: chained anchor)
+### 3.2 The live epoch beacon (finalized anchor + commit-reveal RANDAO)
 
-The live beacon is **grind-resistant but not yet a full RANDAO**:
+The live beacon is **grind-resistant**, and now mixes a commit-reveal RANDAO into
+the finalized anchor:
 
 - Epochs 0–1 use a fixed `GENESIS_BEACON = blake2b_hash(["nado-genesis-beacon",
   CHAIN_ID])`.
-- Epoch ≥ 2 chains `GENESIS_BEACON` with the hash of the **first block of the
-  previous epoch** — a deeply finalized, non-parent anchor at least one epoch
-  back. Per-slot rotation comes from hashing `[beacon, slot]`.
+- Epoch ≥ 2 mixes `GENESIS_BEACON` with the hash of the **first block of the
+  previous epoch** (a deeply finalized, non-parent anchor at least one epoch back)
+  **and the bonded validators' revealed RANDAO secrets for this epoch**:
+  `epoch_beacon(E) = compute_beacon(GENESIS_BEACON, [anchor] + reveals)`. With **zero
+  reveals** it falls back to the anchor-only value (liveness). Per-slot rotation comes
+  from hashing `[beacon, slot]`.
 
 Anchoring to a finalized prior-epoch block (rather than the parent block hash)
 closes the grindable-seed weakness (audit item M6): a producer cannot grind the
-parent hash to bias its own selection. *(implemented — `epoch_beacon`)*
+parent hash to bias its own selection. Mixing in the reveals means **no single
+anchor-producer controls the beacon** either (Section 3.3). The mix keeps the anchor
+and is **non-recursive** (it does not chain `epoch_beacon(E−1)`), which keeps the
+beacon snapshot-safe and the reveals immutable by the time block `E*EPOCH_LENGTH`
+first needs it. *(implemented — `epoch_beacon`, `compute_beacon`)*
 
 > **Now fail-loud.** `epoch_beacon` previously *silently* fell back to
 > `GENESIS_BEACON` when the anchor block was missing locally — a consensus-split /
@@ -222,15 +238,31 @@ parent hash to bias its own selection. *(implemented — `epoch_beacon`)*
 > < EPOCH_LENGTH (60)` (Section 7), so it is finalized before any epoch it governs
 > goes live. *(implemented)*
 
-### 3.3 Planned: full commit-reveal RANDAO
+### 3.3 Commit-reveal RANDAO (now wired into the live beacon)
 
-A full on-chain **commit-reveal RANDAO** — chained, reveal-order-independent, and
-withholding-sensitive (a single withholder can bias at most one bit) — is
-**designed**, and its pure functions (`beacon_commitment`, `verify_reveal`,
-`compute_beacon`) are written and unit-tested. It is **NOT wired into the live
-beacon**: there are no on-chain commit/reveal transactions and no withholder
-penalty today. The live `epoch_beacon` uses only the single chained anchor. This
-paper does **not** present the full RANDAO as live. *(planned)*
+The on-chain **commit-reveal RANDAO** is now wired (`#7`). Bonded validators publish
+a `commit` (a secret's hash) in epoch **E−2** and a `reveal` (the secret) inside
+epoch **E−1's finalized window** (the reveal's `target_block` is bounded to
+`≤ E*EPOCH_LENGTH − FINALITY_DEPTH − 1`, so the seed is immutable before epoch E
+begins). Both are fee-exempt, zero-amount transactions from bonded senders only;
+`reveal` must open the sender's own prior `commit` (`beacon_commitment(secret) ==
+commitment`), and `commit`/`reveal` are `UNIQUE(sender, target_epoch)`. The recorded
+reveals are mixed into `epoch_beacon(E)` (Section 3.2), reveal-order-independent
+because `compute_beacon` sorts its inputs. With zero reveals the beacon still advances
+on the anchor alone (**liveness preserved**). Committing *before* the seeded beacon is
+revealed kills just-in-time grinding, and because the fork-choice weight is already
+**beacon-independent** (Section 7.2), a withholder cannot gain fork leverage by
+declining to reveal. *(implemented — `commit`/`reveal` txns, `reflect_transaction`,
+`compute_beacon`)*
+
+> **Honest caveat.** The RANDAO primitives and the commit/reveal validation, recording,
+> and revert paths are unit-tested for correctness, but the **multi-node, epoch-crossing**
+> dynamics (a commit in E−2, a reveal in E−1, the secret influencing E's draw) are only
+> **lightly exercised** empirically: the core loop's ~10 s/block cadence makes driving a
+> full cross-epoch commit→reveal→beacon cycle slow. It engages as the chain crosses
+> epochs. There is **no explicit withholder fidelity penalty** today (the design's
+> deterministic withhold-dock is not wired); the deterrent is simply that a withholder
+> forfeits influence over a beacon it can no longer grind. *(partial)*
 
 ---
 
@@ -347,8 +379,9 @@ recursively sorted keys (BigInt is required because raw amounts exceed JS's
 
 - **Address** = `"ndo"` + `public_key[:42]` (hex) + a 4-hex `blake2b` checksum;
   total 49 chars. `validate_address` recomputes the checksum. The keyless
-  reserved recipients `{bond, unbond, register, heartbeat}` bypass the checksum
-  rule and are valid only as a recipient/target, never as a sender. *(implemented)*
+  reserved recipients `{bond, unbond, register, heartbeat, slash, attest, commit,
+  reveal}` bypass the checksum rule and are valid only as a recipient/target, never
+  as a sender. *(implemented)*
 - **Transaction binding.** `txid = blake2b_hash(canonical body)`, including
   `CHAIN_ID = "nado-relaunch-1"`; the signature is taken over `unhex(txid)`.
   `validate_txid` independently recomputes the txid so any field tamper is
@@ -458,11 +491,12 @@ mainnet-safe.
   so a free botnet can never exceed `OPEN_BPS` (20%) of blocks. **Strong, live.**
 - **Grinding (biasing one's own selection).** Removed at the mining layer: one
   hash per slot, no nonce race; selection is seeded by a finalized prior-epoch
-  anchor, not the grindable parent hash (audit M6). Signatures are never the
-  randomness source, and the fork-choice weight is the *total* bonded registry
-  weight (not the winner's share), so it is beacon-independent and cannot be ground.
-  The beacon is now **fail-loud** (no silent fallback). **Live**, pending the full
-  commit-reveal RANDAO (Section 7.2).
+  anchor, not the grindable parent hash (audit M6), now **mixed with a commit-reveal
+  RANDAO** so no single anchor-producer controls the beacon (Section 3.3). Signatures
+  are never the randomness source, and the fork-choice weight is the *total* bonded
+  registry weight (not the winner's share), so it is beacon-independent and cannot be
+  ground. The beacon is also **fail-loud** (no silent fallback). **Live** (RANDAO
+  cross-epoch dynamics only lightly exercised — Section 3.3).
 - **Wash-to-mint / reward inflation.** The block reward is **recomputed and
   enforced for equality** in `verify_block` (not merely range-checked), so a
   producer cannot claim an arbitrary reward ≤ cap. **Live.**
@@ -479,12 +513,15 @@ mainnet-safe.
   public-IP lookup and **must never be set on mainnet**. **Live but not uniformly
   applied** before all outbound probes (see 7.3). *(partial)*
 - **51% / rollback / long-range / eclipse.** **Substantially hardened, not fully
-  solved.** The fork-choice is now the **objective stake-weighted heaviest chain**
-  (peer IPs/trust carry zero weight), and an **enforced finality floor** refuses to
-  reorg below `tip − FINALITY_DEPTH`, so a zero-bond Sybil/IP fleet cannot reorg
-  honest nodes and a long-range reorg is capped below one epoch. Full objective
-  finality (FFG-lite attestations) and broad eclipse hardening are **still pending**
-  (7.2–7.3), so this paper does not yet claim complete 51%/eclipse resistance.
+  solved.** The fork-choice is the **objective stake-weighted heaviest chain** (peer
+  IPs/trust carry zero weight), an **enforced finality floor** refuses to reorg below
+  `tip − FINALITY_DEPTH`, and an **additive FFG-lite** stake-attested finality signal
+  now records the stronger >2/3-bonded finality point on top (Section 7.2). So a
+  zero-bond Sybil/IP fleet cannot reorg honest nodes and a long-range reorg is capped
+  below one epoch. What remains is a **subset of eclipse hardening** (ASN-level
+  diversity, pinned multi-seed bootstrap, snapshot-bootstrap binding — 7.2–7.3), and
+  the cross-epoch behaviour of FFG is only lightly exercised, so this paper does not
+  yet claim complete 51%/eclipse resistance.
 
 ### 7.2 Implemented vs. Planned (consensus integrity)
 
@@ -520,18 +557,44 @@ mainnet-safe.
   `FinalityViolation`** rather than revert below it. The enforced ordering
   `max_rollbacks (10) < FINALITY_DEPTH (30) < EPOCH_LENGTH (60)` keeps honest reorgs
   clear of the floor while capping a long-range reorg below one epoch.
-- **#18 (partial) — Fail-loud epoch beacon.** `epoch_beacon` chains from the hash of
-  the first block of the previous epoch (a finalized, non-parent anchor) and now
-  **raises instead of silently substituting** `GENESIS_BEACON` when the anchor is
-  missing (Section 3.2).
-- **#15 (partial) — Detached optional winner block signature.** A winner *may* attach
-  an ML-DSA signature over `blake2b([chain_id, height, parent_hash, block_hash])`,
-  stored **outside** the hash preimage (`sign_block` / `verify_block_signature`). It
-  never enters the block hash, `cumulative_weight`, validity, or reward, so a
-  relay-built block for an **offline** winner (no signature) is fully accepted and
-  credited — "win while offline" is preserved. A present signature must verify and
-  the signer's pubkey must hash to `block_creator`; a present-but-invalid signature
-  is rejected.
+- **#18 — Fail-loud epoch beacon + commit-reveal RANDAO.** `epoch_beacon` mixes the
+  hash of the first block of the previous epoch (a finalized, non-parent anchor) with
+  the bonded validators' **revealed RANDAO secrets** for the epoch, and **raises
+  instead of silently substituting** `GENESIS_BEACON` when the anchor is missing
+  (Sections 3.2–3.3). Zero reveals → anchor-only fallback (liveness).
+- **#7 — Commit-reveal RANDAO.** Fee-exempt bonded-only `commit` (epoch E−2) and
+  `reveal` (E−1's finalized window) transactions, `UNIQUE(sender, target_epoch)`,
+  routed through `reflect_transaction` to revert-symmetric `commits`/`reveals`
+  sub-DBs; `reveal` must open the sender's prior `commit`. The recorded reveals seed
+  `epoch_beacon(E)` (order-independent — `compute_beacon` sorts), so **no single
+  anchor-producer controls the beacon**. *(Cross-epoch dynamics lightly exercised; no
+  explicit withholder fidelity dock — Section 3.3.)*
+- **#15 — Detached optional winner block signature + equivocation slashing.** A winner
+  *may* attach an ML-DSA signature over `blake2b([chain_id, height, parent_hash,
+  block_hash])`, stored **outside** the hash preimage (`sign_block` /
+  `verify_block_signature`). It never enters the block hash, `cumulative_weight`,
+  validity, or reward, so a relay-built block for an **offline** winner (no signature)
+  is fully accepted and credited — "win while offline" is preserved. A present
+  signature must verify and the signer's pubkey must hash to `block_creator`; a
+  present-but-invalid signature is rejected. **Two valid signatures over conflicting
+  blocks at the same height+parent are a portable equivocation proof**: a fee-exempt
+  `slash` transaction carrying it burns `SLASH_BOND_PENALTY` (= `B_MIN`, one bonded
+  share) of the offender's **bonded** stake. Anyone may report (the unforgeable proof
+  is the anti-spam); replay-guarded to **one slash per (offender, height)**, revert-
+  symmetric, and the coins are **destroyed** (deterrent is the loss, not a bounty).
+  `verify_equivocation_proof` / `apply_slash`.
+- **#6 — FFG-lite stake-attested finality (additive).** Bonded validators emit one
+  `attest` transaction per epoch for that epoch's checkpoint (its first block). A
+  checkpoint **justifies** at *strictly* >2/3 of total bonded shares
+  (`attesting*FFG_DEN > total*FFG_NUM`, integer, no floats) and **finalizes** on
+  two-consecutive-justified; on-chain `UNIQUE(validator, epoch)` (attestation index +
+  meta marker) prevents on-chain double-voting. It is exposed at **`/status.ffg_finalized`**.
+  **Honest framing:** this is an **additive, observable, accountable** finality SIGNAL
+  layered *on top of* the depth-based floor — it does **not** replace or advance the
+  #17 `finalized_height` (which stays the time-based rollback bound and the liveness
+  guarantee, `max(prev, tip − FINALITY_DEPTH)`). FFG can therefore **never stall the
+  chain**; it only records the stronger, stake-attested finality point alongside the
+  always-advancing floor. *(Cross-epoch justify→finalize lightly exercised — 7.3.)*
 - **#19 — Pubkey-once.** `create_txid` **excludes** `public_key` from the txid
   preimage; the sender's ML-DSA pubkey is stored once in its account doc on first use
   and recovered thereafter, so later transactions may omit the ~1.3 KB key and still
@@ -545,57 +608,60 @@ mainnet-safe.
   (super)majority now *loses* trust (previously both branches gained it),
   removing a free-to-accrue uptime counter for an eclipse/Sybil attacker.
 
+**Lightly exercised (implemented + unit-tested, cross-epoch dynamics not yet hardened):**
+
+- **FFG-lite finality (#6)** and the **commit-reveal RANDAO (#7)** above are wired and
+  unit-tested for correctness, but their **multi-node, epoch-crossing** behaviour is
+  only **lightly exercised** empirically — the core loop's ~10 s/block cadence makes
+  crossing the 120+ blocks needed for a full justify→finalize and a complete
+  commit→reveal cycle slow. They engage as the chain crosses epochs; treat their
+  cross-epoch dynamics as not-yet-battle-tested. There is also **no explicit RANDAO
+  withholder fidelity dock** (Section 3.3).
+
 **Planned (designed, NOT yet implemented — do not rely on these):**
 
-- **Equivocation / attestation slashing actions.** The detached winner signature
-  gives a *portable* equivocation proof (two valid signatures over conflicting
-  blocks at the same height+parent), but the **slashing action** that docks a
-  double-signer's bond/fidelity is **not yet wired**.
-- **FFG-lite objective finality.** Bonded checkpoint attestations advancing the
-  finalized height once attesting bonded shares exceed **>2/3** of total bonded
-  shares — beyond today's depth-based floor — is designed, not built.
-- **Full commit-reveal RANDAO.** On-chain `commit`/`reveal` transactions with a
-  withholder penalty. The RANDAO primitives (`beacon_commitment`, `verify_reveal`,
-  `compute_beacon`) are written and unit-tested but **not** wired into the live
-  beacon, which is still the single chained anchor (Section 3.3).
-- **Broader eclipse hardening.** IP/subnet/**ASN** peer-diversity caps, pinned
-  anchor outbound slots, a **multi-seed** bootstrap list, and snapshot-bootstrap
-  binding to a finalized signed checkpoint. (The `/announce_peer` rate-limit is the
-  one piece already shipped.)
+- **Broader eclipse hardening.** Beyond the per-/16 subnet cap and the `/announce_peer`
+  rate-limit (both already live): **ASN-level** (vs /16) peer-diversity caps, pinned
+  anchor outbound slots, a **multi-seed** bootstrap list (replacing the single genesis
+  seed), and **snapshot-bootstrap binding to a finalized signed checkpoint**. These are
+  post-launch items.
 
 ### 7.3 Honest statement of current limits
 
 Objective stake-weighted fork-choice and the enforced finality floor make a
 zero-bond Sybil/IP reorg ineffective and bound the disagreement window below one
-epoch — a substantial improvement over the previous peer-count fork-choice — and the
-beacon is now fail-loud. But without **equivocation slashing actions**, **FFG-lite
-objective finality**, a **full commit-reveal RANDAO**, and **broad eclipse hardening**
-(and with `check_ip` still not applied before every outbound `/status` probe, P2-1
-open), NADO today is **testnet-safe, not open-value-mainnet-safe**. The threat model
-assumes `NADO_TESTNET` is unset.
+epoch; **equivocation slashing**, an **additive FFG-lite** stake-attested finality
+signal, and a **commit-reveal RANDAO** now layer accountable finality and a non-
+grindable beacon on top, and the beacon is fail-loud. But the **cross-epoch behaviour
+of FFG/RANDAO is only lightly exercised** (Sections 3.3, 7.2), a subset of **eclipse
+hardening** (ASN-level diversity, pinned multi-seed bootstrap, snapshot-bootstrap
+binding) is still outstanding, and `check_ip` is still not applied before every
+outbound `/status` probe (P2-1 open). NADO today is therefore a **testnet-stage
+alpha, not open-value-mainnet-safe** (with no hardfork concern — mainnet is not live).
+The threat model assumes `NADO_TESTNET` is unset.
 
 ---
 
 ## 8. Roadmap
 
-The first wave of consensus hardening has landed: **#16** objective stake-weighted
+Both waves of consensus hardening have landed: **#16** objective stake-weighted
 fork-choice + grind-proof `cumulative_weight`, **#17** the enforced finality floor,
-the **#18** fail-loud beacon, the **#15** detached optional winner signature, **#19**
-pubkey-once, the `/announce_peer` rate-limit, and the **schemaless LMDB storage
-migration** (Section 6). The `max_rollbacks < FINALITY_DEPTH < EPOCH_LENGTH` anchor
-invariant is now enforced. The remaining milestone that gates an open-value mainnet:
+the **#18** fail-loud beacon **now mixing a commit-reveal RANDAO**, the **#15** detached
+optional winner signature **plus equivocation slashing**, **#6** additive FFG-lite
+stake-attested finality (`/status.ffg_finalized`), **#7** the commit-reveal RANDAO,
+**#19** pubkey-once, the `/announce_peer` rate-limit + per-/16 subnet cap, and the
+**schemaless LMDB storage migration** (Section 6). The `max_rollbacks < FINALITY_DEPTH
+< EPOCH_LENGTH` anchor invariant is enforced. What gates an open-value mainnet now:
 
-1. **Equivocation / attestation slashing actions** — turn the portable
-   equivocation proof (already available from the #15 detached signature) into a
-   bond/fidelity slash.
-2. **#18 cont. — Full commit-reveal RANDAO wiring**: on-chain commit/reveal
-   transactions with a withholder penalty, over the already-written RANDAO
-   primitives, replacing the single chained anchor.
-3. **FFG-lite objective finality** — bonded checkpoint attestations advancing the
-   finalized height at **>2/3** bonded shares, beyond today's depth-based floor.
-4. **Broad eclipse hardening** — IP/subnet/ASN peer-diversity caps, pinned anchor
-   outbound slots, a multi-seed bootstrap list, snapshot-bootstrap binding to a
-   finalized signed checkpoint; apply `check_ip` to all outbound probes.
+1. **Harden FFG/RANDAO across epochs** — the slashing/FFG/RANDAO mechanisms are wired
+   and unit-tested, but their multi-node, epoch-crossing behaviour needs sustained
+   live exercise (the ~10 s/block cadence makes crossing 120+ blocks slow).
+2. **Broad eclipse hardening** — ASN-level peer-diversity caps (the per-/16 cap is
+   live), pinned anchor outbound slots, a multi-seed bootstrap list, snapshot-bootstrap
+   binding to a finalized signed checkpoint; apply `check_ip` to all outbound probes.
+3. **RANDAO withholder penalty** — an explicit deterministic dock for a bonded
+   validator that commits but withholds its reveal (today the only deterrent is the
+   forfeited, un-grindable influence).
 
 Additional hardening and feature items, all currently **planned/partial**:
 
@@ -613,15 +679,22 @@ Additional hardening and feature items, all currently **planned/partial**:
 
 ## 9. Open Problems and Disclaimer
 
-- **Fork-choice is objective, but objective *finality* is not complete.** The
-  heaviest-chain rule + the depth-based finality floor stop a zero-bond Sybil reorg,
-  but FFG-lite >2/3-bonded-attestation finality and equivocation *slashing actions*
-  are not yet wired, so full 51%/eclipse resistance is not yet claimed.
-- **Winner signature is detached and optional.** Authorship integrity is by
-  deterministic recomputation; the #15 winner signature exists but lives off the
-  hash/validity/reward path and its equivocation-slashing action is not yet wired.
-- **Beacon is a fail-loud chained anchor, not yet a full RANDAO** (#18): the
-  silent fallback is removed, but the on-chain commit-reveal is not wired.
+- **Fork-choice is objective and FFG-lite finality is additive — but its cross-epoch
+  behaviour is lightly exercised.** The heaviest-chain rule + the depth-based finality
+  floor stop a zero-bond Sybil reorg, and FFG-lite >2/3-bonded-attestation finality now
+  records a stronger, accountable finality point **on top of** (never replacing) the
+  time-based floor. But its multi-node, epoch-crossing dynamics are not yet hardened on
+  a live net, and broad eclipse hardening is incomplete, so full 51%/eclipse resistance
+  is not yet claimed.
+- **Winner signature is detached and optional; equivocation slashing is wired.**
+  Authorship integrity is by deterministic recomputation; the #15 winner signature
+  lives off the hash/validity/reward path, and two conflicting valid signatures now
+  feed a `slash` transaction that burns one bonded share — revert-symmetric, replay-
+  guarded, burned (no bounty).
+- **Beacon is a fail-loud finalized anchor mixed with a commit-reveal RANDAO** (#7/#18):
+  the silent fallback is removed and reveals are mixed in, but there is **no explicit
+  withholder fidelity dock**, and the cross-epoch commit→reveal→beacon cycle is only
+  lightly exercised.
 - **Bonded fidelity ramp dormant; unbond timelock unenforced; no absence decay;
   no halving schedule.** Treat these as not-present today.
 - **All mining/economic parameters are PROVISIONAL** and flagged
@@ -675,7 +748,9 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | ML-DSA-44 pubkey | `1312` bytes (from 32-byte seed) | Post-quantum public key (FIPS 204). |
 | ML-DSA-44 signature | `~2420` bytes | Post-quantum signature length. |
 | Address format | `"ndo"` + 42-hex pubkey prefix + 4-hex checksum (49 chars) | Checksum = `blake2b_hash(body, size=2)`. |
-| `RESERVED_RECIPIENTS` | `{bond, unbond, register, heartbeat}` | Keyless pseudo-recipients; valid as recipient/target only. |
+| `RESERVED_RECIPIENTS` | `{bond, unbond, register, heartbeat, slash, attest, commit, reveal}` | Keyless pseudo-recipients; valid as recipient/target only. |
+| `SLASH_BOND_PENALTY` | `B_MIN` (one share, 100 NADO) | Bonded stake burned per proven equivocation (#15 step 5C); revert-symmetric, one-per-(offender, height). |
+| `FFG_NUM` / `FFG_DEN` | `2` / `3` | FFG-lite justify threshold: a checkpoint justifies at *strictly* >2/3 of total bonded shares (#6). Additive signal, exposed at `/status.ffg_finalized`. |
 | Rate limit | `30 req / 60s` per IP | On `/submit_transaction` (GET+POST); HTTP 429 over the limit. |
 | `transaction_pool_limit` | `150000` | Hard mempool cap (anti-OOM). |
 | `FINALITY_DEPTH` | `30` | Enforced finality floor: rollback refuses to revert below `tip − 30` (`FinalityViolation`). |
