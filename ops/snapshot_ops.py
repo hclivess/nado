@@ -19,11 +19,11 @@ and replaying the tail through the normal validation path.
 """
 import hashlib
 import os
-import sqlite3
 
 import msgpack
 
 from ops.data_ops import get_home
+from ops import kv_ops
 
 # how many account rows go into one transferable chunk
 CHUNK_ROWS = int(os.environ.get("NADO_SNAPSHOT_CHUNK_ROWS", "25000"))
@@ -59,30 +59,21 @@ def merkle_root(rows) -> str:
 
 
 def read_accounts(home=None):
-    """all account rows (sorted by address) and the totals row from index.db"""
-    home = home or get_home()
-    con = sqlite3.connect(f"{home}/index/index.db")
-    try:
-        rows = con.execute(
-            "SELECT address, balance, produced, bonded FROM acc_index ORDER BY address").fetchall()
-        totals_row = con.execute("SELECT produced, fees FROM totals_index").fetchone()
-    finally:
-        con.close()
-    totals = {"produced": totals_row[0], "fees": totals_row[1]} if totals_row \
-        else {"produced": 0, "fees": 0}
+    """all account rows (sorted by address) and the totals row from the KV index.
+    Each row is (address, balance, produced, bonded) — the consensus-state subset the snapshot
+    Merkle leaf commits (registered/fidelity are open-lane membership state, not part of the
+    snapshot wire format / state_root, matching the prior SQLite snapshot)."""
+    kv_ops.init_env(home)
+    rows = [(addr, doc.get("balance", 0), doc.get("produced", 0), doc.get("bonded", 0))
+            for addr, doc in kv_ops.iter_accounts()]  # iter_accounts is already address-sorted
+    totals = kv_ops.totals_get()
     return rows, totals
 
 
 def block_hash_at_height(height, home=None):
-    """block hash for a given block number from blocks.db, or None"""
-    home = home or get_home()
-    con = sqlite3.connect(f"{home}/index/index.db")
-    try:
-        row = con.execute(
-            "SELECT block_hash FROM block_index WHERE block_number = ?", (height,)).fetchone()
-    finally:
-        con.close()
-    return row[0] if row else None
+    """block hash for a given block number from the KV block index, or None"""
+    kv_ops.init_env(home)
+    return kv_ops.hash_by_number(height)
 
 
 def choose_checkpoint_height(tip_height):
@@ -190,27 +181,17 @@ def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
         _log(logger, "error", "snapshot account_count mismatch")
         return False
 
-    # 4) atomically replace acc_index + totals inside the consolidated index.db, in ONE
-    #    transaction (the old code swapped a standalone accounts.db file, which no longer
-    #    exists). tx_index / block_index share the same db and are rebuilt separately
-    #    (reindex); they are intentionally untouched here.
-    from ops.sqlite_ops import DbHandler, transaction
-    db = f"{home}/index/index.db"
-    handler = DbHandler(db_file=db)
-    try:
-        with transaction(db):
-            handler.db_execute("CREATE TABLE IF NOT EXISTS acc_index(address TEXT, balance INTEGER, produced INTEGER, bonded INTEGER DEFAULT 0)")
-            handler.db_execute("CREATE UNIQUE INDEX IF NOT EXISTS seek_index ON acc_index(address)")
-            handler.db_execute("CREATE TABLE IF NOT EXISTS totals_index(produced INTEGER, fees INTEGER)")
-            handler.db_execute("DELETE FROM acc_index")
-            handler.db_executemany(
-                "INSERT INTO acc_index (address, balance, produced, bonded) VALUES (?,?,?,?)",
-                [tuple(r) for r in rows])
-            handler.db_execute("DELETE FROM totals_index")
-            t = manifest["totals"]
-            handler.db_execute("INSERT INTO totals_index VALUES (?,?)", (t["produced"], t["fees"]))
-    finally:
-        handler.close()
+    # 4) atomically replace the account docs + totals in ONE write txn (accounts + totals sub-DBs).
+    #    The tx / block index sub-DBs are rebuilt separately (reindex) and intentionally untouched
+    #    here. registered/fidelity are reset to 0 (not part of the snapshot wire format) — matching
+    #    the prior SQLite import, which only set balance/produced/bonded.
+    kv_ops.init_env(home)
+    with kv_ops.write_txn() as txn:
+        kv_ops.clear_accounts_and_totals(txn)   # empty accounts + reset totals to {0,0}
+        for address, balance, produced, bonded in rows:
+            kv_ops.put_account(address, {"balance": balance, "produced": produced, "bonded": bonded})
+        t = manifest["totals"]
+        kv_ops.totals_set(t["produced"], t["fees"])
     _log(logger, "info",
          f"Imported snapshot height {manifest['snapshot_height']} "
          f"({manifest['account_count']} accounts, state_root {manifest['state_root'][:16]}...)")

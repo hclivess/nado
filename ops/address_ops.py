@@ -9,10 +9,12 @@ def proof_sender(public_key, sender):
         return False
 
 
-def validate_address(address: str, checksum_size: int = 2):
-    # keyless protocol addresses ("bond"/"unbond") are always valid
+def validate_address(address: str, checksum_size: int = 2, allow_reserved: bool = True):
+    # keyless protocol pseudo-recipients (bond/unbond/register/heartbeat) are valid ONLY as a
+    # recipient/target — NEVER as a sender (no one holds their key). Pass allow_reserved=False for
+    # the sender slot so a tx can't claim to originate FROM a reserved name.
     if address in RESERVED_RECIPIENTS:
-        return True
+        return allow_reserved
     if (isinstance(address, str)
             and len(address) > checksum_size * 2
             and address[-4:] == make_checksum(address[: -checksum_size * 2])):

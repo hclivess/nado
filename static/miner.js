@@ -1,0 +1,1445 @@
+/* NADO browser light-miner.
+ *
+ * Reproduces the node's Python consensus encoding EXACTLY so a phone can compute identical
+ * addresses, txids and ML-DSA-44 (post-quantum) signatures without holding the chain or heavy crypto:
+ *   - canonical_bytes  == json.dumps(data, sort_keys=True, separators=(",",":"), ensure_ascii=True)
+ *   - blake2b_hash(d,n) == blake2b(canonical_bytes(d), digest_size=n).hexdigest()
+ *   - make_address / registration PoW / tx bodies match ops/*.py
+ * The canonical/crypto functions below are byte-verified against vectors generated from the live
+ * repo (see the in-page Self-test). Do NOT change them without re-running the vectors.
+ */
+
+/* ----------------------------------------------------------------------------------------------
+ * Protocol constants (mirror protocol.py — consensus-critical)
+ * -------------------------------------------------------------------------------------------- */
+const CHAIN_ID = "nado-relaunch-1";
+const EPOCH_LENGTH = 60;
+const REGISTER_POW_BITS = 16;  // must match protocol.py; ~1s in-browser (22 took tens of seconds)
+const DENOMINATION = 10_000_000_000n; // 1 NADO in raw units (1e10)
+const MIN_TX_FEE = 1000;
+const BOND_UNLOCK_DELAY = 1440; // protocol.py: blocks a bond stays locked after an unbond request
+
+/* ----------------------------------------------------------------------------------------------
+ * Dependency loading: @noble/hashes (blake2b) + @noble/post-quantum (ML-DSA-44) as ESM from a CDN.
+ * -------------------------------------------------------------------------------------------- */
+let blake2b, bytesToHex, hexToBytes, ml_dsa44;
+
+// Optional, locally-vendored QR generator (static/vendor/qrcode.js). Loaded best-effort: if it is
+// missing the Receive tab degrades to showing the address text instead of failing (NO runtime CDN).
+let qrEncode = null;
+async function loadQR() {
+  try { const m = await import('./vendor/qrcode.js'); qrEncode = m.qrMatrix || null; }
+  catch (e) { qrEncode = null; }
+}
+
+async function loadDeps() {
+  // 1) LOCAL self-contained bundle (no internet needed) — all symbols from one vendored module.
+  //    This is what makes the wallet WORK on a phone / restricted network where the CDN is blocked.
+  try {
+    const m = await import('./vendor/nado-crypto.js');
+    blake2b = m.blake2b; bytesToHex = m.bytesToHex; hexToBytes = m.hexToBytes; ml_dsa44 = m.ml_dsa44;
+    if (blake2b && ml_dsa44) return;
+  } catch (e) { /* fall through to CDN */ }
+  // 2) CDN fallback (esm.sh, then jsdelivr) only if the local bundle isn't served.
+  const cdns = [
+    (pkg) => `https://esm.sh/${pkg}`,
+    (pkg) => `https://cdn.jsdelivr.net/npm/${pkg}/+esm`,
+  ];
+  let lastErr;
+  for (const build of cdns) {
+    try {
+      const [hb, hu, pq] = await Promise.all([
+        import(build("@noble/hashes@1.4.0/blake2b")),
+        import(build("@noble/hashes@1.4.0/utils")),
+        import(build("@noble/post-quantum@0.2.0/ml-dsa")),
+      ]);
+      blake2b = hb.blake2b;
+      bytesToHex = hu.bytesToHex;
+      hexToBytes = hu.hexToBytes;
+      // ML-DSA-44 (FIPS 204). @noble's DEFAULT sign/verify interoperate both ways with the node's
+      // dilithium-py ML-DSA-44 *internal* mode (same 32-byte seed -> identical 1312-byte pubkey).
+      ml_dsa44 = pq.ml_dsa44;
+      return;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr;
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * Canonical encoding  (== Python json.dumps sort_keys, compact, ensure_ascii) — BigInt-safe.
+ * -------------------------------------------------------------------------------------------- */
+function jsonEscapeAscii(s) {
+  let out = '"';
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    switch (c) {
+      case 0x22: out += '\\"'; continue;
+      case 0x5c: out += "\\\\"; continue;
+      case 0x08: out += "\\b"; continue;
+      case 0x09: out += "\\t"; continue;
+      case 0x0a: out += "\\n"; continue;
+      case 0x0c: out += "\\f"; continue;
+      case 0x0d: out += "\\r"; continue;
+    }
+    if (c < 0x20 || c > 0x7e) {
+      out += "\\u" + c.toString(16).padStart(4, "0");
+    } else {
+      out += s[i];
+    }
+  }
+  return out + '"';
+}
+
+function canonicalize(data) {
+  if (data === null || data === undefined) return "null";
+  const t = typeof data;
+  if (t === "boolean") return data ? "true" : "false";
+  if (t === "bigint") return data.toString();
+  if (t === "number") {
+    if (!Number.isFinite(data) || !Number.isInteger(data))
+      throw new Error("canonical encoding forbids floats / non-finite numbers: " + data);
+    if (!Number.isSafeInteger(data))
+      throw new Error("integer exceeds 2^53; pass it as a BigInt for an exact match");
+    return String(data);
+  }
+  if (t === "string") return jsonEscapeAscii(data);
+  if (Array.isArray(data)) {
+    let out = "[";
+    for (let i = 0; i < data.length; i++) {
+      if (i) out += ",";
+      out += canonicalize(data[i]);
+    }
+    return out + "]";
+  }
+  if (t === "object") {
+    const keys = Object.keys(data).sort();
+    let out = "{";
+    for (let i = 0; i < keys.length; i++) {
+      if (i) out += ",";
+      out += jsonEscapeAscii(keys[i]) + ":" + canonicalize(data[keys[i]]);
+    }
+    return out + "}";
+  }
+  throw new Error("unsupported type in canonical encoding: " + t);
+}
+
+const _enc = new TextEncoder();
+function canonicalBytes(data) { return _enc.encode(canonicalize(data)); }
+
+function blake2bHash(data, size = 32) {
+  return bytesToHex(blake2b(canonicalBytes(data), { dkLen: size }));
+}
+function blake2bHashLink(a, b, size = 32) { return blake2bHash([a, b], size); }
+
+/* ----------------------------------------------------------------------------------------------
+ * Addresses, keys, registration PoW
+ * -------------------------------------------------------------------------------------------- */
+function makeAddress(pubHex) {
+  const body = "ndo" + pubHex.slice(0, 42);
+  return body + blake2bHash(body, 2);
+}
+
+function newKeypair() {
+  // The private key is a 32-byte ML-DSA-44 SEED; the 1312-byte public key derives from it.
+  const seed = crypto.getRandomValues(new Uint8Array(32));
+  const { publicKey } = ml_dsa44.keygen(seed);
+  const seedHex = bytesToHex(seed);
+  const pubHex = bytesToHex(publicKey);
+  return { privateKey: seedHex, publicKey: pubHex, address: makeAddress(pubHex) };
+}
+
+function keypairFromPriv(privHex) {
+  privHex = (privHex || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(privHex)) throw new Error("private key (seed) must be 64 hex chars (32 bytes)");
+  const { publicKey } = ml_dsa44.keygen(hexToBytes(privHex));
+  const pubHex = bytesToHex(publicKey);
+  return { privateKey: privHex, publicKey: pubHex, address: makeAddress(pubHex) };
+}
+
+// Validate a recipient address byte-identically to ops/address_ops.validate_address: a canonical
+// NADO address is "ndo" + 42-hex pubkey body + a 4-hex blake2b checksum over everything-but-the-last-4
+// (== 49 chars). A mistyped address fails the checksum and is rejected before any tx is built.
+function validateAddress(addr) {
+  addr = (addr || "").trim();
+  if (!/^ndo[0-9a-f]{46}$/.test(addr)) return false; // ndo + 46 hex = 49 chars
+  return blake2bHash(addr.slice(0, -4), 2) === addr.slice(-4);
+}
+
+function powTarget() { return 1n << BigInt(256 - REGISTER_POW_BITS); }
+function powHashInt(address, nonce) {
+  return BigInt("0x" + blake2bHash(["nado-register", address, nonce]));
+}
+function powValid(address, nonce) { return powHashInt(address, nonce) < powTarget(); }
+
+/* ----------------------------------------------------------------------------------------------
+ * Transactions: build body, add txid (over the body incl. fee), then ML-DSA-44 sign(unhex(txid)).
+ * -------------------------------------------------------------------------------------------- */
+function randNonce(len = 8) {
+  const a = "abcdefghijklmnopqrstuvwxyz";
+  let s = "";
+  const r = crypto.getRandomValues(new Uint8Array(len));
+  for (let i = 0; i < len; i++) s += a[r[i] % 26];
+  return s;
+}
+
+// PUBKEY-ONCE (#19): mirror the node's ops/transaction_ops.create_txid EXACTLY — the `public_key`
+// is EXCLUDED from the txid preimage (it is a recoverable authentication witness bound to the
+// sender address, not part of the tx identity). So the txid is identical whether or not the body
+// carries the 1312-byte ML-DSA key, letting a later tx (heartbeat / established-sender send) omit it.
+function createTxid(body) {
+  const preimage = {};
+  for (const k of Object.keys(body)) if (k !== "public_key") preimage[k] = body[k];
+  return blake2bHash(preimage);
+}
+
+function finalizeTransaction(draft, privHex, fee) {
+  const body = { ...draft, fee }; // fee is part of the signed body (matches create_transaction)
+  const txid = createTxid(body);  // public_key (if present in body) is excluded from this hash
+  // Derive the ML-DSA-44 secret key from the 32-byte seed, then sign the message bytes M = unhex(txid).
+  const { secretKey } = ml_dsa44.keygen(hexToBytes(privHex));
+  const signature = bytesToHex(ml_dsa44.sign(secretKey, hexToBytes(txid)));
+  return { ...body, txid, signature };
+}
+
+// REGISTER is by definition an address's FIRST on-chain tx, so it MUST carry public_key — this is
+// what establishes the sender's pubkey on-chain (the node stores it on first use) and lets every
+// later tx omit it. Always include it here.
+function buildRegisterTx(wallet, targetBlock, powNonce, timestamp) {
+  const draft = {
+    sender: wallet.address,
+    recipient: "register",
+    amount: 0,
+    timestamp,
+    data: "",
+    nonce: randNonce(),
+    public_key: wallet.publicKey,
+    target_block: targetBlock,
+    chain_id: CHAIN_ID,
+    pow_nonce: powNonce,
+  };
+  return finalizeTransaction(draft, wallet.privateKey, 0);
+}
+
+// HEARTBEAT only ever fires AFTER registration is confirmed on-chain (the poll loop gates it on
+// registered===1), so the sender's pubkey is already established — OMIT the 1312-byte public_key.
+// This is the main PUBKEY-ONCE leanness payoff: heartbeats repeat every epoch, so dropping the key
+// saves ~2.6 KB of hex on every single one. The node recovers the pubkey from chain to verify.
+function buildHeartbeatTx(wallet, targetBlock, epoch, timestamp) {
+  const draft = {
+    sender: wallet.address,
+    recipient: "heartbeat",
+    amount: 0,
+    timestamp,
+    data: "",
+    nonce: randNonce(),
+    target_block: targetBlock,
+    chain_id: CHAIN_ID,
+    epoch,
+  };
+  return finalizeTransaction(draft, wallet.privateKey, 0);
+}
+
+// TRANSFER / bond / unbond. include public_key ONLY when the sender's pubkey isn't yet established
+// on-chain (i.e. this could be the address's first tx). Callers pass includePubkey=false once
+// /get_account shows the pubkey is established (registered, or a stored public_key) — omitting the
+// key then. Including it is always safe (the node accepts a redundant key), so default to true.
+function buildTransferTx(wallet, recipient, rawAmount, fee, targetBlock, data, timestamp, includePubkey = true) {
+  const draft = {
+    sender: wallet.address,
+    recipient,
+    amount: rawAmount, // BigInt-safe
+    timestamp,
+    data: data || "",
+    nonce: randNonce(),
+    target_block: targetBlock,
+    chain_id: CHAIN_ID,
+  };
+  if (includePubkey) draft.public_key = wallet.publicKey;
+  return finalizeTransaction(draft, wallet.privateKey, fee);
+}
+
+// PUBKEY-ONCE (#19): is the sender's pubkey already recorded on-chain? The node stores it on an
+// address's FIRST on-chain tx (register OR any transfer), after which later txs may omit it. If we
+// can't tell (no account doc / relay hiccup) return false so we include the key — always safe.
+function pubkeyEstablished(acc) {
+  return !!(acc && (acc.public_key || acc.registered === 1));
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * Relay RPC client
+ * -------------------------------------------------------------------------------------------- */
+const state = {
+  wallet: null,
+  relay: null,
+  mining: false,
+  starting: false,     // a start/auto-registration is in flight; button is disabled (idempotency guard)
+  powJob: null,
+  registering: false,  // a PoW+submit is currently in flight (re-entrancy guard)
+  regSubmitted: null,  // { targetBlock, txid } of the registration we last broadcast, or null
+  lastHeartbeatEpoch: null,
+  latest: null,        // latest block number
+  blockTime: 60,
+  pollTimer: null,
+  nextHbAt: null,
+  activeTab: "wallet",
+  recommendedFee: null,
+};
+
+function relayBase() { return (state.relay || location.origin).replace(/\/+$/, ""); }
+
+async function rpcJSON(path) {
+  const url = relayBase() + path;
+  const res = await fetch(url, { method: "GET", cache: "no-store" });
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = text; }
+  return { ok: res.ok, status: res.status, data };
+}
+
+async function getLatestBlock() { return (await rpcJSON("/get_latest_block")).data; }
+async function getAccount(address) {
+  const r = await rpcJSON("/get_account?address=" + encodeURIComponent(address));
+  return r.ok ? r.data : null;
+}
+async function getMiningStatus(address) {
+  const r = await rpcJSON("/mining_status?address=" + encodeURIComponent(address));
+  return r.ok ? r.data : null;
+}
+
+/* Submit a transaction. A post-quantum (ML-DSA-44) tx is ~7.8 KB — far past a URL's safe length —
+ * so we POST the canonical JSON body (BigInt-safe; the node json.loads() it back to the identical
+ * dict). We fall back to the legacy GET ?data= path only if the POST endpoint is unavailable. */
+async function submitTransaction(tx) {
+  const payload = canonicalize(tx);
+  const base = relayBase();
+
+  // Preferred: POST the canonical JSON body (handles large PQ transactions).
+  try {
+    const res = await fetch(base + "/submit_transaction", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: payload,
+    });
+    if (res.status !== 404 && res.status !== 405) {
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); } catch { data = { result: false, message: text }; }
+      return { ok: res.ok, status: res.status, data };
+    }
+  } catch (e) { /* network/endpoint issue — fall through to the GET path */ }
+
+  // Fallback: legacy urlencoded GET (may exceed URL limits for large PQ txs).
+  const url = base + "/submit_transaction?data=" + encodeURIComponent(payload);
+  const res = await fetch(url, { method: "GET", cache: "no-store" });
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = { result: false, message: text }; }
+  return { ok: res.ok, status: res.status, data };
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * UI helpers
+ * -------------------------------------------------------------------------------------------- */
+const $ = (id) => document.getElementById(id);
+const show = (id, on = true) => $(id).classList.toggle("hidden", !on);
+
+function log(kind, msg) {
+  const el = $("log");
+  const line = document.createElement("div");
+  line.className = "line";
+  const t = new Date().toLocaleTimeString();
+  line.innerHTML = `<span class="t">${t}</span> <span class="${kind}">${escapeHtml(msg)}</span>`;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+  show("logCard", true);
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function humanizeSeconds(s) {
+  if (s == null) return "—";
+  s = Math.round(s);
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m " + (s % 60) + "s";
+  if (s < 86400) return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m";
+  return Math.floor(s / 86400) + "d " + Math.floor((s % 86400) / 3600) + "h";
+}
+
+function rawToNado(raw) {
+  raw = BigInt(raw);
+  const neg = raw < 0n;
+  if (neg) raw = -raw;
+  const whole = raw / DENOMINATION;
+  const frac = (raw % DENOMINATION).toString().padStart(10, "0").replace(/0+$/, "");
+  return (neg ? "-" : "") + whole.toString() + (frac ? "." + frac : "");
+}
+function nadoToRaw(amountStr) {
+  const m = String(amountStr).trim().match(/^(\d+)(?:\.(\d{1,10}))?$/);
+  if (!m) throw new Error("invalid amount");
+  const whole = BigInt(m[1]);
+  const frac = BigInt((m[2] || "").padEnd(10, "0"));
+  return whole * DENOMINATION + frac;
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * Wallet persistence
+ * -------------------------------------------------------------------------------------------- */
+const LS_WALLET = "nado_miner_wallet";
+const LS_RELAY = "nado_miner_relay";
+const LS_PENDING_PAY = "nado_pending_pay"; // sessionStorage: a pay-request awaiting wallet setup
+
+function persistWallet(w) { localStorage.setItem(LS_WALLET, JSON.stringify(w)); }
+function loadWallet() {
+  try { return JSON.parse(localStorage.getItem(LS_WALLET)); } catch { return null; }
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * Registration PoW — chunked async so the UI stays responsive (and is cancellable).
+ * -------------------------------------------------------------------------------------------- */
+function solveRegistrationPow(address, { onProgress, signal } = {}) {
+  const target = powTarget();
+  const start = performance.now();
+  let nonce = 0;
+  const CHUNK = 1500;
+  return new Promise((resolve, reject) => {
+    function step() {
+      if (signal && signal.cancelled) return reject(new Error("cancelled"));
+      const end = nonce + CHUNK;
+      for (; nonce < end; nonce++) {
+        if (powHashInt(address, nonce) < target) {
+          return resolve({ nonce, hashes: nonce + 1, seconds: (performance.now() - start) / 1000 });
+        }
+      }
+      if (onProgress) {
+        const secs = (performance.now() - start) / 1000;
+        onProgress({ hashes: nonce, seconds: secs, rate: nonce / Math.max(secs, 0.001) });
+      }
+      setTimeout(step, 0); // yield to the event loop / repaint
+    }
+    step();
+  });
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * Mining engine
+ * -------------------------------------------------------------------------------------------- */
+
+/* ---- Start/Mine button + staged status banner -------------------------------------------------
+ * The Start/Mine button has three visual states so a first-time user gets clear feedback that the
+ * multi-second one-time auto-registration is underway (and can't be re-clicked into duplicate work):
+ *   busy    — DISABLED, spinner + a progress label ("Starting…", "Registering…"). Used the whole time
+ *             between the click and mining actually becoming active (PoW → submit → on-chain wait).
+ *   mining  — ENABLED red "Stop mining" toggle (clicking stops; it never re-triggers registration).
+ *   idle    — ENABLED green "Start mining" (also the post-failure "tap to retry" resting state).
+ * The #regBanner reuses the .hint-banner ⓘ styling and narrates the real registration stages. */
+function setStartBtnBusy(label) {
+  const b = $("btnMine");
+  b.disabled = true;
+  b.classList.remove("danger"); b.classList.add("primary");
+  b.innerHTML = '<span class="spin"></span>' + escapeHtml(label || "Working…");
+}
+function setStartBtnMining() {
+  const b = $("btnMine");
+  b.disabled = false;
+  b.classList.remove("primary"); b.classList.add("danger");
+  b.textContent = "Stop mining";
+}
+function setStartBtnIdle(label) {
+  const b = $("btnMine");
+  b.disabled = false;
+  b.classList.remove("danger"); b.classList.add("primary");
+  b.textContent = label || "Start mining";
+}
+// Update the staged status banner. `html` is built only from our own constant strings plus
+// escapeHtml()'d dynamic values, so innerHTML is safe here. kind: "ok" | "warn" | undefined (info).
+function setRegBanner(html, kind) {
+  const el = $("regBanner");
+  if (!el) return;
+  el.className = "hint-banner mt" + (kind ? " " + kind : "");
+  $("regBannerMsg").innerHTML = html;
+  show("regBanner", true);
+}
+function hideRegBannerSoon(ms = 6000) {
+  setTimeout(() => { if (state.mining && !state.starting) show("regBanner", false); }, ms);
+}
+const REASSURE = ' <b>One-time setup — no need to click again.</b>';
+
+// Mining is confirmed live (registered on chain + heartbeating): flip the button to the Stop toggle.
+function markMiningActive() {
+  state.starting = false;
+  setStartBtnMining();
+  if ($("mineState").textContent !== "Mining") $("mineState").textContent = "Mining";
+}
+
+// Registration could not be confirmed (relay rejected it, or the relay was unreachable). Stop the
+// background loop so it can't spam re-registration, and leave the button ENABLED so the user can
+// simply tap Start to retry — never stuck disabled.
+function failStart(reason) {
+  state.mining = false;
+  state.starting = false;
+  state.registering = false;
+  if (state.powJob) state.powJob.cancelled = true;
+  stopPollLoop();
+  show("powWrap", false);
+  setStartBtnIdle("Start mining");
+  $("mineState").textContent = "Idle";
+  setRegBanner("Registration didn't confirm — tap Start to retry." +
+    (reason ? ' <span class="faint">(' + escapeHtml(reason) + ')</span>' : ""), "warn");
+}
+
+// Decide whether to (re)broadcast a registration, and do it if needed. Called from the poll loop while
+// mining and not yet registered. It NEVER blocks waiting for confirmation — the poll loop keeps ticking
+// and notices `registered === 1` on its own, at which point heartbeating begins automatically. This is
+// what makes mining a SINGLE click: registration, on-chain confirmation and heartbeats are all handled
+// in the background without the user ever clicking "Start mining" a second time.
+async function maybeRegister() {
+  if (state.registering) return;                 // a PoW/submit is already in flight
+  // If we already broadcast a registration that can still land, just keep waiting for it.
+  if (state.regSubmitted) {
+    if (state.latest != null && state.latest > state.regSubmitted.targetBlock) {
+      log("err", "Registration tx expired before inclusion — re-registering automatically.");
+      state.regSubmitted = null;                 // fall through and broadcast a fresh one
+    } else {
+      const away = state.latest != null ? Math.max(0, state.regSubmitted.targetBlock - state.latest) : null;
+      showRegProgress("Registration in progress — waiting for it to be included in a block…",
+        away != null ? `~${away} block(s) until target ${state.regSubmitted.targetBlock}`
+                     : `target block ${state.regSubmitted.targetBlock}`);
+      setRegBanner("Waiting for on-chain confirmation — this can take a few blocks" +
+        (away != null ? " (~" + escapeHtml(String(away)) + " to go, target block " + escapeHtml(String(state.regSubmitted.targetBlock)) + ")" : "") +
+        "…" + REASSURE);
+      return;                                     // still pending; let the poll loop keep checking
+    }
+  }
+  state.registering = true;
+  let accepted = false, failed = null;
+  try {
+    accepted = await submitRegistration();
+  } catch (e) {
+    if (e.message !== "cancelled") { log("err", "Auto-register error: " + e.message); failed = e.message; }
+  } finally {
+    state.registering = false;
+  }
+  if (!state.mining) return;                      // user stopped/cancelled while we were working
+  if (failed) { failStart(failed); return; }      // relay unreachable / error → re-enable for retry
+  if (!accepted) failStart("the relay rejected the registration"); // hard rejection → retry, no spam
+}
+
+// Keep a prominent "registration in progress" indicator on screen (the powWrap widget with its
+// indeterminate bar) for the WHOLE pending period — PoW, submit, and the wait for on-chain inclusion —
+// so the user always sees that something is happening, not just a tiny "Registering…" stat. The Cancel
+// button only aborts the PoW, so hide it once PoW is done (the user stops the wait via "Stop mining").
+function showRegProgress(label, stats) {
+  show("powWrap", true);
+  $("powLabel").textContent = label;
+  if (stats != null) $("powStats").textContent = stats;
+  // The main Start/Mine button stays DISABLED during registration, so keep this Cancel button visible
+  // the whole time as the escape hatch (it calls stopMining — aborting PoW and the on-chain wait).
+  if ($("btnCancelPow")) show("btnCancelPow", true);
+  if (state.mining) $("mineState").textContent = "Registering…";
+}
+
+// Solve the one-time registration PoW and broadcast the register tx. Records state.regSubmitted on
+// acceptance. Does NOT wait for on-chain confirmation (the poll loop owns that). Returns true if the
+// tx was accepted into the mempool, false if the relay rejected it.
+async function submitRegistration() {
+  // need latest block for target_block
+  const latest = await getLatestBlock();
+  if (!latest || typeof latest.block_number !== "number") throw new Error("relay /get_latest_block unavailable");
+  state.latest = latest.block_number;
+  const targetBlock = latest.block_number + 8;  // headroom so the tx lands before its target block
+
+  // solve the one-time PoW
+  setStartBtnBusy("Registering…");
+  setRegBanner("Solving one-time registration puzzle…" + REASSURE);
+  showRegProgress("Registering — solving one-time proof-of-work…", "starting…");
+  const job = { cancelled: false };
+  state.powJob = job;
+  log("info", `Solving registration PoW (${REGISTER_POW_BITS}-bit, target < 2^${256 - REGISTER_POW_BITS})…`);
+
+  let solved;
+  try {
+    solved = await solveRegistrationPow(state.wallet.address, {
+      signal: job,
+      onProgress: ({ hashes, seconds, rate }) => {
+        $("powStats").textContent =
+          `${hashes.toLocaleString()} hashes · ${seconds.toFixed(1)}s · ${Math.round(rate).toLocaleString()} H/s`;
+      },
+    });
+  } finally {
+    show("powWrap", false);
+    state.powJob = null;
+  }
+
+  log("ok", `PoW solved: nonce=${solved.nonce} in ${solved.seconds.toFixed(1)}s (${solved.hashes.toLocaleString()} hashes).`);
+
+  const tx = buildRegisterTx(state.wallet, targetBlock, solved.nonce, nowSeconds());
+  setRegBanner("Submitting registration to the network…" + REASSURE);
+  log("info", `Submitting register tx ${tx.txid.slice(0, 16)}… (target_block ${targetBlock}).`);
+  const res = await submitTransaction(tx);
+  const m = res.data && (res.data.message || JSON.stringify(res.data));
+  if (!(res.data && res.data.result)) {
+    // surface the relay's exact reason (e.g. "Empty account") so the user isn't blind.
+    log("err", "Register rejected by relay: " + m);
+    if (/empty account/i.test(m || "")) {
+      log("err", "This relay only accepts transactions from accounts that already exist on chain. " +
+        "A brand-new address may need the relay operator to seed/allow it (node-side behavior).");
+    }
+    return false;
+  }
+  state.regSubmitted = { targetBlock, txid: tx.txid };
+  log("ok", "Register tx accepted into mempool: " + m);
+  // Registration only takes effect once the tx is INCORPORATED into a block. We DON'T block here —
+  // the poll loop watches for it and starts heartbeating automatically. No second click needed. Keep
+  // the in-progress widget visible (the poll loop refreshes its "blocks remaining" each tick).
+  log("info", "Waiting for the registration to be included in a block — mining will start automatically then.");
+  showRegProgress("Registration submitted — waiting for it to be included in a block…",
+    `target block ${targetBlock}`);
+  setRegBanner("Waiting for on-chain confirmation — this can take a few blocks (target block " +
+    escapeHtml(String(targetBlock)) + ")…" + REASSURE);
+  return true;
+}
+
+function nowSeconds() { return Math.floor(Date.now() / 1000); }
+
+async function sendHeartbeat() {
+  const latest = await getLatestBlock();
+  if (!latest || typeof latest.block_number !== "number") { log("err", "Heartbeat: relay unavailable."); return; }
+  state.latest = latest.block_number;
+  const targetBlock = latest.block_number + 8;  // headroom so the tx lands before its target block
+  const epoch = Math.floor(targetBlock / EPOCH_LENGTH); // matches the block it lands in (target_block)
+  if (epoch === state.lastHeartbeatEpoch) return; // already beat this epoch
+
+  const tx = buildHeartbeatTx(state.wallet, targetBlock, epoch, nowSeconds());
+  const res = await submitTransaction(tx);
+  const m = res.data && (res.data.message || JSON.stringify(res.data));
+  if (res.data && res.data.result) {
+    state.lastHeartbeatEpoch = epoch;
+    log("ok", `Heartbeat sent for epoch ${epoch} (target_block ${targetBlock}).`);
+  } else {
+    log("err", `Heartbeat epoch ${epoch} rejected: ${m}`);
+  }
+}
+
+async function pollOnce() {
+  try {
+    const latest = await getLatestBlock();
+    if (latest && typeof latest.block_number === "number") {
+      state.latest = latest.block_number;
+      setConn(true, latest.block_number);
+    }
+  } catch (e) { setConn(false); }
+
+  // refresh dashboard
+  try { await refreshDashboard(); } catch (e) { /* non-fatal */ }
+
+  if (state.mining) {
+    // Registration is a prerequisite for heartbeats and is fully AUTOMATIC + self-healing: if we are
+    // not registered on the CURRENT chain (relay/chain changed, or registration not yet incorporated),
+    // (re)register in the background and wait — never spam rejected heartbeats, never re-broadcast a
+    // registration that's still pending. The user only ever clicks "Start mining" once.
+    let acc = null;
+    try { acc = await getAccount(state.wallet.address); } catch (e) { /* relay hiccup */ }
+    if (!acc || acc.registered !== 1) {
+      await maybeRegister();
+      return; // skip the heartbeat until registration is confirmed on chain
+    }
+    // registered on chain → clear any pending registration record and heartbeat each epoch
+    const wasStarting = state.starting || $("btnMine").disabled; // were we still in the setup phase?
+    if (state.regSubmitted) { state.regSubmitted = null; show("powWrap", false); log("ok", "Registration confirmed on chain ✓"); }
+    markMiningActive();                       // flip the button to the working Stop/Mining toggle
+    if (wasStarting) {
+      setRegBanner("Registered ✓ — mining now. Heartbeating automatically each epoch.", "ok");
+      hideRegBannerSoon();
+    }
+    try { await sendHeartbeat(); } catch (e) { log("err", "Heartbeat error: " + e.message); }
+  }
+}
+
+function startPollLoop() {
+  stopPollLoop();
+  const periodMs = Math.max(8000, Math.min(state.blockTime, 60) * 1000);
+  state.pollTimer = setInterval(pollOnce, periodMs);
+  // schedule a rough "next heartbeat" hint
+}
+function stopPollLoop() { if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; } }
+
+// Single click does EVERYTHING: enter the active mining state immediately, then let the background poll
+// loop register (if needed), wait for on-chain confirmation, and heartbeat each epoch — automatically.
+// The user never has to click again after the registration tx lands.
+async function startMining() {
+  if (!state.wallet) return;
+  if (state.starting || state.mining) return;   // idempotency guard: a start is already in flight
+  state.mining = true;
+  state.starting = true;                          // button stays DISABLED until mining is live or fails
+  state.lastHeartbeatEpoch = null;
+  setStartBtnBusy("Starting…");                   // disabled spinner button — can't be re-clicked
+  setRegBanner("Starting up — checking your registration with the relay…" + REASSURE);
+  $("mineState").textContent = "Starting…";
+  log("ok", "Mining started — registering (if needed) and heartbeating automatically.");
+  startPollLoop();
+  // kick off the first cycle immediately (registration / heartbeat / refresh) without blocking the UI
+  pollOnce().catch((e) => log("err", "Mining loop error: " + e.message));
+}
+
+function stopMining() {
+  state.mining = false;
+  state.starting = false;
+  if (state.powJob) state.powJob.cancelled = true;   // abort an in-progress registration PoW
+  state.registering = false;
+  stopPollLoop();
+  show("powWrap", false);
+  show("regBanner", false);
+  setStartBtnIdle("Start mining");
+  $("mineState").textContent = "Idle";
+  $("mineNextHb").textContent = "—";
+  log("info", "Mining stopped.");
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * Dashboard rendering
+ * -------------------------------------------------------------------------------------------- */
+async function refreshDashboard() {
+  if (!state.wallet) return;
+  const addr = state.wallet.address;
+  const [acc, ms] = await Promise.all([getAccount(addr), getMiningStatus(addr)]);
+
+  // wallet card + send/stake panels (balances are shared across tabs)
+  if (acc) {
+    const freeRaw = BigInt(acc.balance ?? 0);          // /get_account: balance == free/spendable
+    const bondedRaw = BigInt(acc.bonded ?? 0);         //              bonded  == locked stake
+    const bal = rawToNado(freeRaw), bonded = rawToNado(bondedRaw);
+    $("walBalance").textContent = bal + " NADO";
+    $("walBonded").textContent = bonded + " NADO";
+    $("walTotal").textContent = rawToNado(freeRaw + bondedRaw) + " NADO";
+    $("walReg").innerHTML = acc.registered === 1 ? '<span class="badge ok">yes</span>' : '<span class="badge no">no</span>';
+    $("walFidelity").textContent = acc.fidelity ?? 0;
+    $("sendAvail").textContent = bal + " NADO";
+    $("stkAvail").textContent = bal + " NADO";
+    $("stkBonded").textContent = bonded + " NADO";
+  } else {
+    $("walBalance").textContent = "0 NADO";
+    $("walBonded").textContent = "0 NADO";
+    $("walTotal").textContent = "0 NADO";
+    $("walReg").innerHTML = '<span class="badge idle">new</span>';
+    $("walFidelity").textContent = "—";
+    $("sendAvail").textContent = "0 NADO";
+    $("stkAvail").textContent = "0 NADO";
+    $("stkBonded").textContent = "0 NADO";
+  }
+
+  if (ms) {
+    state.blockTime = ms.block_time || state.blockTime;
+    $("walPresent").innerHTML = ms.registered_present ? '<span class="badge ok">present</span>' : '<span class="badge no">absent</span>';
+    $("walBadge").className = "badge " + (ms.registered_present ? "ok" : (acc && acc.registered === 1 ? "no" : "idle"));
+    $("walBadge").textContent = ms.registered_present ? "present" : (acc && acc.registered === 1 ? "absent" : "unregistered");
+
+    $("mineEpoch").textContent = ms.epoch;
+    $("mineEta").textContent = humanizeSeconds(ms.expected_seconds_between_wins);
+
+    renderLanes(ms);
+    // visibility of the lanes card is owned by the tab system (it lives on the Wallet tab)
+  } else {
+    $("walPresent").textContent = "—";
+  }
+
+  // next heartbeat hint
+  if (state.mining && state.latest != null) {
+    const nextEpochStart = (Math.floor((state.latest + 2) / EPOCH_LENGTH) + 1) * EPOCH_LENGTH;
+    const blocksAway = Math.max(0, nextEpochStart - (state.latest + 2));
+    $("mineNextHb").textContent = state.lastHeartbeatEpoch == null ? "soon" : `~${blocksAway} blk`;
+  }
+}
+
+function renderLanes(ms) {
+  const k = ms.k_open ?? 12, el = ms.epoch_length ?? EPOCH_LENGTH;
+  const openPct = Math.round((k / el) * 100);
+  const bondedPct = 100 - openPct;
+  $("laneOpen").style.flex = `0 0 ${openPct}%`;
+  $("laneBonded").style.flex = `0 0 ${bondedPct}%`;
+  $("laneOpen").textContent = `OPEN ${openPct}%`;
+  $("laneBonded").textContent = `BONDED ${bondedPct}%`;
+
+  const myOpen = ms.my_open_weight ?? 0, totOpen = ms.total_open_weight ?? 0;
+  const myBond = ms.my_bonded_shares ?? 0, totBond = ms.total_bonded_shares ?? 0;
+  const sharePct = totOpen ? ((myOpen / totOpen) * 100).toFixed(1) : "0.0";
+  $("myShare").innerHTML =
+    `Your OPEN-lane weight: <b>${myOpen}</b> / ${totOpen} (${sharePct}% of the free lane). ` +
+    `Open registry: ${ms.open_registry_size ?? 0} miners · Bonded shares: ${myBond}/${totBond} · ` +
+    `Bonded registry: ${ms.bonded_registry_size ?? 0}.`;
+}
+
+function setConn(ok, tip) {
+  const dot = $("connDot"), txt = $("connText");
+  if (ok) { dot.className = "dot ok"; txt.textContent = "relay online"; if (tip != null) $("tipText").textContent = "tip: " + tip; }
+  else { dot.className = "dot bad"; txt.textContent = "relay offline"; }
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * Onboarding / wallet UI
+ * -------------------------------------------------------------------------------------------- */
+let pendingWallet = null;
+
+function showWalletUI() {
+  show("onboard", false);
+  show("savePrompt", false);
+  show("tabbar", true);
+  $("walAddr").textContent = state.wallet.address;
+  $("walPriv").textContent = state.wallet.privateKey;
+  $("recvAddr").textContent = state.wallet.address;
+  showTab(state.activeTab || "wallet");
+  resumePendingPay(); // if a #pay link was opened before this wallet existed, prefill the Send now
+}
+
+function adoptWallet(w, { needsSavePrompt }) {
+  if (needsSavePrompt) {
+    pendingWallet = w;
+    $("newPriv").textContent = w.privateKey;
+    $("newAddr").textContent = w.address;
+    $("ackSave").checked = false;
+    $("btnConfirmSave").disabled = true;
+    show("onboard", false);
+    show("savePrompt", true);
+  } else {
+    state.wallet = w;
+    persistWallet(w);
+    showWalletUI();
+    log("info", "Wallet loaded: " + w.address);
+    refreshDashboard().catch(() => {});
+  }
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * In-page self-test — proves byte-for-byte compatibility with the node's Python.
+ * Vectors generated from the live repo (hashing.py / ops/*.py / Curve25519.py).
+ * -------------------------------------------------------------------------------------------- */
+const VEC = {
+  hash_register_list: "8e90f8e4078206d119476611e907e6a829585d2f8393856ca461a26959067a65",
+  checksum_string_size2: "3280",
+  make_address_pub: "96381e3725f85cfe0ab8de17623957b4565ca9b04d37b903075f2723600c21e3",
+  make_address_out: "ndo96381e3725f85cfe0ab8de17623957b4565ca9b04d75f7",
+  hash_link_a_b: "d803f13f94cb4546f8f9d50368dfbb44ea46aa3db56fecfa2570a3ebf90f3a13",
+  torture_canonical: "{\"a\":\"h\\u00e9llo \\\"x\\\"\\n\\t/end\",\"m\":[3,2,{\"big\":12345678901234567890,\"k\":true}],\"n\":null,\"unicode_key_\\u00fc\":\"\\u2603 snowman\",\"z\":1}",
+  torture_hash: "69029840259d7c85d5c3e61f09abc352d0554c9b4320ef7d59bb6942647b840c",
+  bigobj_canonical: "{\"amount\":99999999999999999999,\"x\":9007199254740993}",
+  bigobj_hash: "8a09e2d0782c39dd1522f8a83c5338d2960d1b9710ec5c18e66d6cc20354de20",
+  pow_address: "ndo96381e3725f85cfe0ab8de17623957b4565ca9b04d75f7",
+  pow_nonce: 3324492,
+  pow_target_str: "1766847064778384329583297500742918515827483896875618958121606201292619776",
+  pow_hash_int_str: "17809026246977670515167752421706303018992963831983493225416033548923031",
+  fixed_priv: "4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a", // 32-byte ML-DSA-44 seed
+  register_tx: { sender: "ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84", recipient: "register", amount: 0, timestamp: 1700000000, data: "", nonce: "fixednonc", public_key: "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", target_block: 12345, chain_id: "nado-relaunch-1", pow_nonce: 2108331, fee: 0, txid: "71ba7ea5dff6b128de55651c24dda450ffaef5dfa853b8b75f710eeb28faef3e", signature: "42944e232fdc8c31c7e06bbfd08842e83c0ff738d64c48299b6b94e89cc2da644c1b741bbd39780affc8564473424e30be7ded23be2c4400991e23a9ee5e810e" },
+  register_canonical: "{\"amount\":0,\"chain_id\":\"nado-relaunch-1\",\"data\":\"\",\"fee\":0,\"nonce\":\"fixednonc\",\"pow_nonce\":2108331,\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"register\",\"sender\":\"ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84\",\"target_block\":12345,\"timestamp\":1700000000}",
+  heartbeat_tx: { sender: "ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84", recipient: "heartbeat", amount: 0, timestamp: 1700000000, data: "", nonce: "fixednonc", public_key: "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", target_block: 12345, chain_id: "nado-relaunch-1", epoch: 205, fee: 0, txid: "fef23a0cb2a032386271e84b585e786d1a9d6c182687fc8c3a8936a18454222a", signature: "1f525959cad52328829902cb5d703593b4c6df3fb948fecb4b1e0e3ad7276ee89e7e6c7b099ca04eb82f301de97e42c287879887f689528b6bfab2fbf9f1880b" },
+  heartbeat_canonical: "{\"amount\":0,\"chain_id\":\"nado-relaunch-1\",\"data\":\"\",\"epoch\":205,\"fee\":0,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"heartbeat\",\"sender\":\"ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84\",\"target_block\":12345,\"timestamp\":1700000000}",
+  transfer_tx: { sender: "ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84", recipient: "ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29", amount: 123456, timestamp: 1700000000, data: "hello world", nonce: "fixednonc", public_key: "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", target_block: 12345, chain_id: "nado-relaunch-1", fee: 1000, txid: "857c54c68ccb67f5cba24c6503593a262ea22583d99553ab8143e94058b7a366", signature: "3fdd647501c3727378a01cd7ec1d0a09c318b8fe95ac3084e6f6848a49252263161e852c5e821869a78dec9ee5e4e03016e22eecf2bdc3b9654a201a723f450c" },
+  transfer_canonical: "{\"amount\":123456,\"chain_id\":\"nado-relaunch-1\",\"data\":\"hello world\",\"fee\":1000,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29\",\"sender\":\"ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84\",\"target_block\":12345,\"timestamp\":1700000000}",
+};
+
+function bodyOf(tx) {
+  const b = {};
+  for (const k of Object.keys(tx)) if (k !== "txid" && k !== "signature") b[k] = tx[k];
+  return b;
+}
+
+function runSelfTest() {
+  const cases = [];
+  const add = (name, got, want) => cases.push({ name, pass: got === want, got, want });
+
+  add("blake2b_hash(['nado-register','ndoTEST',5])", blake2bHash(["nado-register", "ndoTEST", 5]), VEC.hash_register_list);
+  add("blake2b_hash(addr_body, size=2)", blake2bHash("ndo18c3afa286439e7ebcb284710dbd4ae42bdaf21b80", 2), VEC.checksum_string_size2);
+  add("make_address(pubkey)", makeAddress(VEC.make_address_pub), VEC.make_address_out);
+  add("blake2b_hash_link('a','b')", blake2bHashLink("a", "b"), VEC.hash_link_a_b);
+
+  // canonical encoding torture (ensure_ascii + sorting + bool + BigInt > 2^53)
+  const torture = { z: 1, a: 'héllo "x"\n\t/end', m: [3, 2, { k: true, big: 12345678901234567890n }], n: null, "unicode_key_ü": "☃ snowman" };
+  add("canonical(torture obj)", canonicalize(torture), VEC.torture_canonical);
+  add("blake2b_hash(torture obj)", blake2bHash(torture), VEC.torture_hash);
+  const bigobj = { amount: 99999999999999999999n, x: 9007199254740993n };
+  add("canonical(BigInt > 2^53)", canonicalize(bigobj), VEC.bigobj_canonical);
+  add("blake2b_hash(BigInt obj)", blake2bHash(bigobj), VEC.bigobj_hash);
+
+  // registration PoW
+  add("registration PoW target", powTarget().toString(), VEC.pow_target_str);
+  add("registration PoW hash(int)", powHashInt(VEC.pow_address, VEC.pow_nonce).toString(), VEC.pow_hash_int_str);
+  add("registration PoW valid", String(powValid(VEC.pow_address, VEC.pow_nonce)), "true");
+
+  // key derivation — ML-DSA-44 keygen is deterministic from the 32-byte seed.
+  const kpA = keypairFromPriv(VEC.fixed_priv);
+  const kpB = keypairFromPriv(VEC.fixed_priv);
+  add("ML-DSA-44 keygen deterministic (same seed → same pubkey)", kpA.publicKey, kpB.publicKey);
+  add("ML-DSA-44 public key is 1312 bytes", String(kpA.publicKey.length / 2), "1312");
+  add("address derives from ML-DSA-44 pubkey", makeAddress(kpA.publicKey), kpA.address);
+
+  // canonical bodies (full body incl. public_key) — exercises the canonicalize() primitive byte-for-byte
+  add("register canonical body", canonicalize(bodyOf(VEC.register_tx)), VEC.register_canonical);
+  add("heartbeat canonical body", canonicalize(bodyOf(VEC.heartbeat_tx)), VEC.heartbeat_canonical);
+  add("transfer canonical body", canonicalize(bodyOf(VEC.transfer_tx)), VEC.transfer_canonical);
+
+  // txids — PUBKEY-ONCE (#19): createTxid EXCLUDES public_key, so these must equal the node's
+  // create_txid over the public_key-stripped body (vectors generated from ops/transaction_ops.py).
+  add("register txid (public_key-excluded)", createTxid(bodyOf(VEC.register_tx)), VEC.register_tx.txid);
+  add("heartbeat txid (public_key-excluded)", createTxid(bodyOf(VEC.heartbeat_tx)), VEC.heartbeat_tx.txid);
+  add("transfer txid (public_key-excluded)", createTxid(bodyOf(VEC.transfer_tx)), VEC.transfer_tx.txid);
+
+  // PUBKEY-ONCE invariant: the txid is IDENTICAL whether or not the body carries public_key (the node
+  // recovers an omitted pubkey from chain, so a lean tx and a key-bearing tx share one identity).
+  for (const [label, tx] of [["register", VEC.register_tx], ["heartbeat", VEC.heartbeat_tx], ["transfer", VEC.transfer_tx]]) {
+    const noPub = bodyOf(tx); delete noPub.public_key;
+    add(`${label} txid unchanged when public_key omitted`, createTxid(noPub), tx.txid);
+  }
+
+  // ML-DSA-44 signatures are RANDOMIZED — assert a sign→verify round-trip, not byte-equality.
+  // Each tx is built from scratch (embedding the real 1312-byte pubkey) and self-verified.
+  const w = keypairFromPriv(VEC.fixed_priv);
+  const roundTrip = (label, tx) =>
+    add(label, String(ml_dsa44.verify(hexToBytes(w.publicKey), hexToBytes(tx.txid), hexToBytes(tx.signature))), "true");
+  roundTrip("register sign→verify round-trip", buildRegisterTx(w, 12345, 2108331, 1700000000));
+  roundTrip("heartbeat sign→verify round-trip", buildHeartbeatTx(w, 12345, 205, 1700000000));
+  roundTrip("transfer sign→verify round-trip", buildTransferTx(w, VEC.transfer_tx.recipient, 123456n, 1000, 12345, "hello world", 1700000000));
+
+  // PUBKEY-ONCE leanness: register (first tx) carries public_key; heartbeat omits it; transfer
+  // carries it only when the sender's pubkey isn't established yet (includePubkey flag).
+  const hasPub = (tx) => "public_key" in tx;
+  add("register tx carries public_key (establishes it on-chain)", String(hasPub(buildRegisterTx(w, 12345, 2108331, 1700000000))), "true");
+  add("heartbeat tx OMITS public_key (lean, every epoch)", String(hasPub(buildHeartbeatTx(w, 12345, 205, 1700000000))), "false");
+  add("transfer OMITS public_key when sender established", String(hasPub(buildTransferTx(w, VEC.transfer_tx.recipient, 123456n, 1000, 12345, "", 1700000000, false))), "false");
+  add("transfer CARRIES public_key when not established", String(hasPub(buildTransferTx(w, VEC.transfer_tx.recipient, 123456n, 1000, 12345, "", 1700000000, true))), "true");
+  add("pubkeyEstablished(registered acc)", String(pubkeyEstablished({ registered: 1 })), "true");
+  add("pubkeyEstablished(acc with stored pubkey)", String(pubkeyEstablished({ public_key: "ab" })), "true");
+  add("pubkeyEstablished(fresh/absent acc)", String(pubkeyEstablished(null) || pubkeyEstablished({ registered: 0 })), "false");
+
+  return renderSelfTest(cases);
+}
+
+function renderSelfTest(cases) {
+  const box = $("selftest");
+  box.innerHTML = "";
+  let pass = 0;
+  for (const c of cases) {
+    if (c.pass) pass++;
+    const row = document.createElement("div");
+    row.className = "case";
+    row.innerHTML = `<span class="name">${escapeHtml(c.name)}</span>` +
+      `<span class="res ${c.pass ? "pass" : "fail"}">${c.pass ? "PASS" : "FAIL"}</span>`;
+    box.appendChild(row);
+    if (!c.pass) {
+      console.error("SELFTEST FAIL:", c.name, "\n got:", c.got, "\nwant:", c.want);
+      const d = document.createElement("div");
+      d.className = "small break faint";
+      d.textContent = `got ${c.got} · want ${c.want}`;
+      box.appendChild(d);
+    }
+  }
+  const ok = pass === cases.length;
+  const s = $("stSummary");
+  s.className = "badge " + (ok ? "ok" : "no");
+  s.textContent = `${pass}/${cases.length} ${ok ? "PASS" : "FAIL"}`;
+  // Only surface the detailed (debug) self-test card when something FAILED; a clean pass stays
+  // hidden so the wallet looks like a wallet, not a test harness. The "Run self-test" button
+  // reveals it on demand.
+  show("selftestCard", !ok);
+  console.log(`[NADO self-test] ${pass}/${cases.length} ${ok ? "PASS" : "FAIL"}`);
+  return ok;
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * Full wallet: download key, send, bond/unbond, receive QR, transaction history
+ * -------------------------------------------------------------------------------------------- */
+
+/* Download the key as a JSON file via a Blob + a temporary <a download> (explicit user request). */
+function downloadKeyFile() {
+  const w = state.wallet;
+  if (!w) { alert("No wallet loaded."); return; }
+  const keyfile = {
+    private_key: w.privateKey,            // the 32-byte ML-DSA-44 SEED (hex) — this IS the secret
+    public_key: w.publicKey,
+    address: w.address,
+    note: "NADO ML-DSA-44 key — keep secret, no recovery",
+  };
+  const blob = new Blob([JSON.stringify(keyfile, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `nado-key-${w.address.slice(0, 8)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  log("info", "Downloaded key file for " + w.address.slice(0, 12) + "…");
+}
+
+/* Fees are integer RAW units. Default = relay recommendation, floored at the protocol MIN_TX_FEE. */
+async function getRecommendedFee() {
+  try {
+    const r = await rpcJSON("/get_recommended_fee");
+    const f = r.ok && r.data ? Number(r.data.fee) : NaN;
+    return Math.max(Number.isFinite(f) ? Math.floor(f) : 0, MIN_TX_FEE);
+  } catch (e) { return MIN_TX_FEE; }
+}
+async function prefillFee(id) {
+  const el = $(id);
+  if (!el || el.value.trim()) return;     // never clobber a value the user is editing
+  if (state.recommendedFee == null) state.recommendedFee = await getRecommendedFee();
+  el.value = String(state.recommendedFee);
+}
+function parseFee(v) {
+  let f = Math.floor(Number(String(v).trim()));
+  if (!Number.isFinite(f) || f < MIN_TX_FEE) f = MIN_TX_FEE;
+  return f;
+}
+
+function setMsg(id, text, cls) {
+  const el = $(id);
+  if (!el) return;
+  el.textContent = text || "";
+  el.className = "small mt " + (cls ? "msg-" + cls : "faint");
+}
+
+async function nextTargetBlock() {
+  const latest = await getLatestBlock();
+  if (!latest || typeof latest.block_number !== "number") throw new Error("relay /get_latest_block unavailable");
+  state.latest = latest.block_number;
+  return latest.block_number + 8; // headroom so the tx lands before its target block
+}
+
+async function submitAndReport(tx, label, msgId) {
+  const res = await submitTransaction(tx);
+  const m = res.data && (res.data.message || JSON.stringify(res.data));
+  if (res.data && res.data.result) {
+    setMsg(msgId, `${label} accepted into mempool — txid ${tx.txid.slice(0, 16)}…`, "ok");
+    log("ok", `${label} submitted ${tx.txid.slice(0, 16)}… (${m})`);
+    refreshDashboard().catch(() => {});
+    return true;
+  }
+  setMsg(msgId, `${label} rejected: ${m}`, "err");
+  log("err", `${label} rejected: ${m}`);
+  return false;
+}
+
+async function doSend() {
+  const recipient = $("sendTo").value.trim();
+  if (!validateAddress(recipient)) {
+    setMsg("sendMsg", "Invalid recipient — must be a 49-char ndo… address with a valid checksum.", "err"); return;
+  }
+  let rawAmount;
+  try { rawAmount = nadoToRaw($("sendAmount").value); } catch (e) { setMsg("sendMsg", "Invalid amount.", "err"); return; }
+  if (rawAmount <= 0n) { setMsg("sendMsg", "Amount must be greater than zero.", "err"); return; }
+  const fee = parseFee($("sendFee").value);
+
+  setMsg("sendMsg", "Checking balance…", null);
+  const acc = await getAccount(state.wallet.address);
+  const balance = BigInt((acc && acc.balance) || 0);
+  if (rawAmount + BigInt(fee) > balance) {
+    setMsg("sendMsg", `Insufficient balance: need ${rawToNado(rawAmount + BigInt(fee))} NADO (amount + fee), have ${rawToNado(balance)}.`, "err");
+    return;
+  }
+  const selfWarn = recipient === state.wallet.address ? "\n\nWARNING: this is your OWN address." : "";
+  if (!confirm(`Send ${rawToNado(rawAmount)} NADO\nto ${recipient}\nfee ${fee} raw (${rawToNado(fee)} NADO)${selfWarn}\n\nProceed?`)) {
+    setMsg("sendMsg", "Cancelled.", null); return;
+  }
+  const btn = $("btnSend"); btn.disabled = true;
+  try {
+    const targetBlock = await nextTargetBlock();
+    // PUBKEY-ONCE: omit the 1312-byte public_key once the sender's pubkey is established on-chain.
+    const tx = buildTransferTx(state.wallet, recipient, rawAmount, fee, targetBlock, "", nowSeconds(), !pubkeyEstablished(acc));
+    if (await submitAndReport(tx, "Transfer", "sendMsg")) { $("sendAmount").value = ""; show("payBanner", false); }
+  } catch (e) { setMsg("sendMsg", "Send failed: " + e.message, "err"); }
+  finally { btn.disabled = false; }
+}
+
+/* bond/unbond move coins between spendable balance and bonded stake. They are ordinary signed txs
+ * whose recipient is the reserved protocol name "bond" / "unbond" (see protocol.RESERVED_RECIPIENTS
+ * and account_ops.reflect_transaction) — so we reuse buildTransferTx unchanged. */
+async function doBond(kind) {
+  const isBond = kind === "bond";
+  const amtId = isBond ? "bondAmount" : "unbondAmount";
+  const feeId = isBond ? "bondFee" : "unbondFee";
+  const btn = $(isBond ? "btnBond" : "btnUnbond");
+  let rawAmount;
+  try { rawAmount = nadoToRaw($(amtId).value); } catch (e) { setMsg("stakeMsg", "Invalid amount.", "err"); return; }
+  if (rawAmount <= 0n) { setMsg("stakeMsg", "Amount must be greater than zero.", "err"); return; }
+  const fee = parseFee($(feeId).value);
+
+  const acc = await getAccount(state.wallet.address);
+  const balance = BigInt((acc && acc.balance) || 0);
+  const bonded = BigInt((acc && acc.bonded) || 0);
+  if (isBond) {
+    if (rawAmount + BigInt(fee) > balance) {
+      setMsg("stakeMsg", `Insufficient spendable balance: need ${rawToNado(rawAmount + BigInt(fee))} NADO, have ${rawToNado(balance)}.`, "err"); return;
+    }
+  } else {
+    if (rawAmount > bonded) { setMsg("stakeMsg", `Cannot unbond more than bonded (${rawToNado(bonded)} NADO).`, "err"); return; }
+    if (BigInt(fee) > balance) { setMsg("stakeMsg", `Need ${rawToNado(fee)} NADO spendable for the fee, have ${rawToNado(balance)}.`, "err"); return; }
+  }
+  const verb = isBond ? "Bond" : "Unbond";
+  const dir = isBond ? "spendable → bonded" : "bonded → spendable";
+  const tail = isBond ? "" : `\n\nNote: bonded stake stays locked ${BOND_UNLOCK_DELAY} blocks after unbonding.`;
+  if (!confirm(`${verb} ${rawToNado(rawAmount)} NADO (${dir})\nfee ${fee} raw${tail}\n\nProceed?`)) {
+    setMsg("stakeMsg", "Cancelled.", null); return;
+  }
+  btn.disabled = true;
+  try {
+    const targetBlock = await nextTargetBlock();
+    // PUBKEY-ONCE: omit the 1312-byte public_key once the sender's pubkey is established on-chain.
+    const tx = buildTransferTx(state.wallet, kind, rawAmount, fee, targetBlock, "", nowSeconds(), !pubkeyEstablished(acc));
+    if (await submitAndReport(tx, verb, "stakeMsg")) $(amtId).value = "";
+  } catch (e) { setMsg("stakeMsg", verb + " failed: " + e.message, "err"); }
+  finally { btn.disabled = false; }
+}
+
+/* ---- Payment-request deep links: QR / shareable URL that prefills a Send on scan ---- */
+
+let pendingPay = null; // a pay-request parsed from the URL hash before a wallet exists
+
+// Deep link back to THIS hosted wallet: ${origin}${pathname}#pay?to=<addr>&amount=<NADO>.
+// AMOUNT IS IN NADO (human-friendly), not raw units, and is OPTIONAL (omitted entirely for a bare
+// receive code). Using origin+pathname makes the QR resolve wherever the node serves miner.html.
+function payLink(addr, amountNado) {
+  const params = new URLSearchParams({ to: addr });
+  const a = (amountNado == null ? "" : String(amountNado)).trim();
+  if (a) params.set("amount", a);
+  return `${location.origin}${location.pathname}#pay?${params.toString()}`;
+}
+
+// Clipboard helper (secure-context navigator.clipboard, with an execCommand fallback for plain http).
+async function copyToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* fall through */ }
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed"; ta.style.top = "0"; ta.style.left = "0"; ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus(); ta.select(); ta.setSelectionRange(0, text.length);
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch (e) { return false; }
+}
+
+let _toastTimer = null;
+function toast(msg, kind = "info", ms = 5000) {
+  const el = $("toast");
+  if (!el) return;
+  el.textContent = msg;
+  el.className = "toast " + kind;
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.add("hidden"), ms);
+}
+
+// The amount (NADO) currently requested on the Receive tab, or "" if blank/malformed/non-positive.
+function currentRecvAmount() {
+  const raw = (($("recvAmount") && $("recvAmount").value) || "").trim();
+  if (!raw) return "";
+  try { return nadoToRaw(raw) > 0n ? raw : ""; } catch (e) { return ""; }
+}
+
+// Share the payment link via the native share sheet (mobile); else copy it to the clipboard.
+async function sharePayLink() {
+  if (!state.wallet) return;
+  const link = payLink(state.wallet.address, currentRecvAmount());
+  if (navigator.share) {
+    try { await navigator.share({ title: "NADO payment request", text: "Pay me on NADO", url: link }); return; }
+    catch (e) { if (e && e.name === "AbortError") return; /* dismissed sheet isn't an error; else fall through */ }
+  }
+  const btn = $("btnSharePay");
+  const ok = await copyToClipboard(link);
+  if (btn) { btn.textContent = ok ? "Copied ✓" : "select & copy"; setTimeout(() => (btn.textContent = "Share"), ok ? 1200 : 1600); }
+}
+
+/* Receive: amount-aware QR + shareable payment link (degrades to the link text if QR is unavailable). */
+function renderReceiveQR() {
+  if (!state.wallet) return;
+  const addr = state.wallet.address;
+  $("recvAddr").textContent = addr;
+  const link = payLink(addr, currentRecvAmount());
+  $("recvPayLink").textContent = link;
+  const canvas = $("recvQR"), note = $("recvQRNote");
+  if (!qrEncode || !canvas) {
+    if (canvas) canvas.classList.add("hidden");
+    if (note) note.classList.remove("hidden");
+    return;
+  }
+  try {
+    // encode the PAYMENT LINK (longer than a bare address); retry at lower ECC if it won't fit at M.
+    let m;
+    try { m = qrEncode(link, "M"); } catch (_) { m = qrEncode(link, "L"); }
+    const n = m.length;
+    const quiet = 4;                              // mandatory QR quiet zone (modules) for scannability
+    const dim = n + quiet * 2;
+    const px = Math.max(2, Math.floor(260 / dim));
+    const size = dim * px;
+    canvas.width = size; canvas.height = size;
+    canvas.style.width = size + "px"; canvas.style.height = size + "px";
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = "#000000";
+    for (let r = 0; r < n; r++)
+      for (let c = 0; c < n; c++)
+        if (m[r][c]) ctx.fillRect((c + quiet) * px, (r + quiet) * px, px, px);
+    canvas.classList.remove("hidden");
+    note.classList.add("hidden");
+  } catch (e) {
+    canvas.classList.add("hidden");
+    note.classList.remove("hidden");
+  }
+}
+
+/* Parse + consume a #pay?to=...&amount=... deep link. SECURITY: never auto-submits — only prefills. */
+function parsePayHash() {
+  const h = location.hash || "";
+  if (!h.startsWith("#pay?")) return null;
+  const params = new URLSearchParams(h.slice(5)); // robustly parse the query part after "#pay?"
+  return { to: (params.get("to") || "").trim(), amount: (params.get("amount") || "").trim() };
+}
+
+function applyPayRequest(req) {
+  if (!state.wallet) return;
+  showTab("send");
+  const toEl = $("sendTo");
+  toEl.value = req.to;
+  toEl.dispatchEvent(new Event("input"));   // refresh the live valid/invalid hint
+  let amtOk = false;
+  if (req.amount) {
+    try { if (nadoToRaw(req.amount) > 0n) { $("sendAmount").value = req.amount; amtOk = true; } }
+    catch (e) { /* malformed/negative amount -> prefill recipient only */ }
+  }
+  show("payBanner", true);
+  $("payBannerMsg").textContent = amtOk
+    ? `Payment request loaded — review the ${req.amount} NADO send and confirm.`
+    : "Payment request loaded — enter an amount, then review and confirm.";
+  try { $("sendCard").scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {}
+  setTimeout(() => { const f = amtOk ? $("btnSend") : $("sendAmount"); if (f) f.focus(); }, 350);
+  toast("Payment request loaded — review and confirm.", "info");
+  log("info", `Payment request loaded: pay ${req.to.slice(0, 12)}…${amtOk ? " " + req.amount + " NADO" : ""}`);
+}
+
+function consumePayRequest() {
+  const req = parsePayHash();
+  if (!req) return;
+  // clear the hash so a refresh won't re-trigger the prefill (and the URL bar isn't left dirty)
+  try { history.replaceState(null, "", location.pathname); } catch (e) {}
+  if (!validateAddress(req.to)) {
+    log("err", "Payment link ignored — invalid recipient address.");
+    toast("Payment link ignored — the recipient address is invalid.", "err");
+    return;
+  }
+  if (state.wallet) {
+    applyPayRequest(req);
+  } else {
+    pendingPay = req;                       // stash; resume after the wallet is created/imported
+    try { sessionStorage.setItem(LS_PENDING_PAY, JSON.stringify(req)); } catch (e) {}
+    toast("Payment request pending — set up a wallet, then it will prefill a Send.", "info", 7000);
+    log("info", "Payment request detected — create or import a wallet to continue.");
+  }
+}
+
+// After a wallet becomes active (created / imported / loaded), resume any stashed pay-request.
+function resumePendingPay() {
+  if (!state.wallet) return;
+  let req = pendingPay;
+  if (!req) { try { const s = sessionStorage.getItem(LS_PENDING_PAY); if (s) req = JSON.parse(s); } catch (e) {} }
+  if (!req) return;
+  pendingPay = null;
+  try { sessionStorage.removeItem(LS_PENDING_PAY); } catch (e) {}
+  if (validateAddress(req.to)) applyPayRequest(req);
+}
+
+/* Transaction history: classify each tx relative to the wallet and show a signed amount. */
+const HIST_ICON = { send: "↑", receive: "↓", bond: "🔒", unbond: "🔓", register: "✦", heartbeat: "♥" };
+function histClassify(tx, addr) {
+  const r = tx.recipient;
+  if (r === "register") return { type: "register", sign: 0, cp: "open-lane registration" };
+  if (r === "heartbeat") return { type: "heartbeat", sign: 0, cp: "open-lane heartbeat" };
+  if (r === "bond") return { type: "bond", sign: -1, cp: "→ bonded stake" };
+  if (r === "unbond") return { type: "unbond", sign: 1, cp: "← bonded stake" };
+  if (tx.sender === addr) return { type: "send", sign: -1, cp: "to " + r };
+  return { type: "receive", sign: 1, cp: "from " + tx.sender };
+}
+async function loadHistory() {
+  if (!state.wallet) return;
+  const box = $("history");
+  box.innerHTML = '<div class="empty">Loading…</div>';
+  const addr = state.wallet.address;
+  let txs = [];
+  try {
+    const r = await rpcJSON("/get_transactions_of_account?address=" + encodeURIComponent(addr) + "&min_block=0");
+    if (r.ok && r.data && Array.isArray(r.data.transactions)) txs = r.data.transactions;
+  } catch (e) { box.innerHTML = '<div class="empty">Could not load history: ' + escapeHtml(e.message) + '</div>'; return; }
+
+  if (!txs.length) { box.innerHTML = '<div class="empty">No transactions yet.</div>'; return; }
+  txs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)); // newest first
+
+  box.innerHTML = "";
+  for (const tx of txs) {
+    const info = histClassify(tx, addr);
+    const signed = info.sign === 0 ? "—"
+      : (info.sign < 0 ? "-" : "+") + rawToNado(BigInt(tx.amount || 0)) + " NADO";
+    const amtCls = info.sign === 0 ? "zero" : (info.sign < 0 ? "neg" : "pos");
+    const when = tx.timestamp ? new Date(tx.timestamp * 1000).toLocaleString() : "—";
+    const feeStr = (tx.fee != null) ? ` · fee ${tx.fee}` : "";
+    const row = document.createElement("div");
+    row.className = "htx";
+    row.title = "txid " + (tx.txid || "");
+    row.innerHTML =
+      `<div class="ic">${HIST_ICON[info.type] || "•"}</div>` +
+      `<div class="mid"><div class="tp">${info.type}</div>` +
+      `<div class="cp">${escapeHtml(info.cp)}</div>` +
+      `<div class="meta">${escapeHtml(when)}${escapeHtml(feeStr)}</div></div>` +
+      `<div class="amt ${amtCls}">${escapeHtml(signed)}</div>`;
+    box.appendChild(row);
+  }
+}
+
+/* Tabbed navigation: the tab bar owns top-level card visibility once a wallet exists. */
+function showTab(name) {
+  if (!state.wallet) return;
+  state.activeTab = name;
+  document.querySelectorAll("#tabbar .tab").forEach((b) => b.classList.toggle("active", b.dataset.tabbtn === name));
+  document.querySelectorAll("[data-tab]").forEach((el) => el.classList.toggle("hidden", el.dataset.tab !== name));
+  if (name !== "send") show("payBanner", false); // the pay-request banner belongs to the Send tab only
+  if (name === "receive") renderReceiveQR();
+  else if (name === "history") loadHistory().catch(() => {});
+  else if (name === "send") prefillFee("sendFee");
+  else if (name === "stake") { prefillFee("bondFee"); prefillFee("unbondFee"); refreshDashboard().catch(() => {}); }
+}
+
+/* Pre-wallet view: no tabs; show onboarding + the Settings card (so the relay can be configured). */
+function enterOnboarding() {
+  show("tabbar", false);
+  document.querySelectorAll("[data-tab]").forEach((el) => show(el.id, false));
+  show("settingsCard", true);
+  show("savePrompt", false);
+  show("onboard", true);
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * Wire up the UI
+ * -------------------------------------------------------------------------------------------- */
+function wireEvents() {
+  $("btnGenerate").onclick = () => {
+    try { adoptWallet(newKeypair(), { needsSavePrompt: true }); }
+    catch (e) { log("err", "Key generation failed: " + e.message); }
+  };
+  $("btnShowImport").onclick = () => show("importBox", !$("importBox").classList.contains("hidden") ? false : true);
+  $("btnImport").onclick = () => {
+    try { adoptWallet(keypairFromPriv($("importKey").value), { needsSavePrompt: false }); }
+    catch (e) { alert("Import failed: " + e.message); }
+  };
+  $("ackSave").onchange = (e) => { $("btnConfirmSave").disabled = !e.target.checked; };
+  $("btnConfirmSave").onclick = () => {
+    state.wallet = pendingWallet; pendingWallet = null;
+    persistWallet(state.wallet);
+    showWalletUI();
+    log("info", "New wallet created & stored: " + state.wallet.address);
+    refreshDashboard().catch(() => {});
+  };
+
+  $("btnMine").onclick = () => {
+    if (state.starting) return;            // a start/registration is in flight → ignore extra clicks
+    if (state.mining) { stopMining(); return; }  // active mining → Stop (never re-triggers registration)
+    startMining();
+  };
+  $("btnCancelPow").onclick = () => { stopMining(); };  // escape hatch while the main button is disabled
+
+  // --- full-wallet wiring ---
+  $("btnDlKey").onclick = downloadKeyFile;
+  $("btnDlKeySave").onclick = downloadKeyFile;
+  $("btnDlKeySettings").onclick = downloadKeyFile;
+
+  document.querySelectorAll("#tabbar .tab").forEach((b) => { b.onclick = () => showTab(b.dataset.tabbtn); });
+
+  $("btnSend").onclick = () => doSend();
+  $("sendTo").oninput = () => {
+    const v = $("sendTo").value.trim();
+    if (!v) { setMsg("sendToMsg", "", null); return; }
+    const ok = validateAddress(v);
+    setMsg("sendToMsg", ok ? "✓ valid address" : "✗ invalid address / checksum", ok ? "ok" : "err");
+  };
+  $("btnBond").onclick = () => doBond("bond");
+  $("btnUnbond").onclick = () => doBond("unbond");
+  $("btnRefreshHist").onclick = () => loadHistory().catch(() => {});
+
+  $("recvAmount").oninput = () => renderReceiveQR();   // live-update the QR + payment link
+  $("btnSharePay").onclick = () => sharePayLink();
+
+  $("btnSaveRelay").onclick = () => {
+    const v = $("relayUrl").value.trim();
+    state.relay = v || null;
+    if (v) localStorage.setItem(LS_RELAY, v); else localStorage.removeItem(LS_RELAY);
+    log("info", "Relay set to " + relayBase());
+    pollOnce().catch(() => {});
+  };
+
+  $("btnSelfTest").onclick = () => { try { runSelfTest(); show("selftestCard", true); } catch (e) { log("err", "Self-test error: " + e.message); } };
+  $("btnClearLog").onclick = () => { $("log").innerHTML = ""; };
+  $("btnForget").onclick = () => {
+    if (!confirm("Forget the wallet stored in this browser? Make sure you saved the private key — this cannot be undone.")) return;
+    stopMining();
+    localStorage.removeItem(LS_WALLET);
+    state.wallet = null;
+    state.activeTab = "wallet";
+    enterOnboarding();
+    log("info", "Wallet forgotten.");
+  };
+
+  document.querySelectorAll("[data-copy]").forEach((btn) => {
+    btn.onclick = async () => {
+      const txt = $(btn.getAttribute("data-copy")).textContent;
+      const ok = await copyToClipboard(txt);   // secure-context clipboard, execCommand fallback over http
+      if (ok) { btn.textContent = "Copied ✓"; setTimeout(() => (btn.textContent = "Copy"), 1200); }
+      else { btn.textContent = "select & copy"; setTimeout(() => (btn.textContent = "Copy"), 1600); }
+    };
+  });
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * Boot
+ * -------------------------------------------------------------------------------------------- */
+async function boot() {
+  // relay
+  state.relay = localStorage.getItem(LS_RELAY) || null;
+  $("relayUrl").value = state.relay || "";
+  $("relayUrl").placeholder = location.origin;
+
+  try {
+    await loadDeps();
+  } catch (e) {
+    show("bootError", true);
+    $("bootErrorMsg").textContent = "Could not load crypto (local vendor bundle + CDN both failed): " + (e && e.message || e);
+    return;
+  }
+
+  await loadQR(); // optional, vendored QR generator (Receive tab degrades gracefully if absent)
+
+  wireEvents();
+
+  // run the self-test automatically on boot (also logs to console)
+  let ok = false;
+  try { ok = runSelfTest(); } catch (e) { log("err", "Self-test crashed: " + e.message); }
+  log(ok ? "ok" : "err", `Self-test: ${ok ? "all vectors match Python ✓" : "MISMATCH — see Self-test card"}`);
+
+  // load existing wallet or onboard
+  const w = loadWallet();
+  if (w && w.address) {
+    state.wallet = w;
+    showWalletUI();
+    log("info", "Loaded wallet from this device: " + w.address);
+  } else {
+    enterOnboarding();
+  }
+
+  // payment-request deep link (#pay?to=…&amount=…): prefill a Send if a wallet exists, else stash it
+  // and resume after onboarding. Never auto-submits — the user still reviews + confirms.
+  try { consumePayRequest(); } catch (e) { log("err", "Pay-link error: " + e.message); }
+
+  // initial connectivity + dashboard
+  pollOnce().catch(() => setConn(false));
+}
+
+boot();

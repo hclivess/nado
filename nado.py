@@ -19,11 +19,11 @@ from loops.peer_loop import PeerClient
 from memserver import MemServer
 from ops.account_ops import get_account, fetch_totals, get_bonded_registry
 from ops.mining_ops import total_shares
-from ops.block_ops import get_block, fee_over_blocks, get_block_number, get_penalty
+from ops.block_ops import get_block, fee_over_blocks, get_block_number
 from ops.data_ops import get_home, allow_async
 from ops.key_ops import keyfile_found, generate_keys, save_keys, load_keys
 from ops.log_ops import get_logger, logging
-from ops.peer_ops import save_peer, get_remote_status, get_producer_set, check_ip
+from ops.peer_ops import save_peer, get_remote_status, check_ip
 from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
 from ops import snapshot_ops
 from protocol import TREASURY_ADDRESS, TREASURY_GENESIS, GENESIS_TIMESTAMP
@@ -82,6 +82,16 @@ def get_current_snapshot(build=True):
     return manifest, chunks
 
 
+class NoCacheStaticFileHandler(tornado.web.StaticFileHandler):
+    """Serve the browser wallet (static/) with NO-CACHE + permissive CORS, so wallet edits are picked
+    up immediately (no stale cached miner.js — a recurring confusion) and a cross-origin page can load
+    the assets."""
+    def set_extra_headers(self, path):
+        self.set_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.set_header("Pragma", "no-cache")
+        self.set_header("Access-Control-Allow-Origin", "*")
+
+
 class HomeHandler(tornado.web.RequestHandler):
     def home(self):
         self.render("templates/homepage.html", ip=get_config()["ip"])
@@ -101,7 +111,12 @@ class StatusHandler(tornado.web.RequestHandler):
                 "transaction_pool_hash": memserver.transaction_pool_hash,
                 "block_producers_hash": memserver.block_producers_hash,
                 "latest_block_hash": memserver.latest_block["block_hash"],
+                # #16 step 3: advertise the tip's grind-proof cumulative_weight so peers run the
+                # objective heaviest-weight fork-choice (it is only a HINT for which peer to sync from
+                # — the weight is re-derived and enforced by verify_block on the actual blocks).
+                "latest_block_weight": memserver.latest_block.get("cumulative_weight", 0),
                 "earliest_block_hash": memserver.earliest_block["block_hash"],
+                "finalized_height": memserver.finalized_height,  # #17: enforced-finality floor
                 "protocol": memserver.protocol,
                 "version": memserver.version,
             }
@@ -121,6 +136,26 @@ class StatusHandler(tornado.web.RequestHandler):
 
     async def get(self, parameter):
         await asyncio.to_thread(self.status)
+
+
+class MiningStatusHandler(tornado.web.RequestHandler):
+    def mining_status(self):
+        # two-lane mining snapshot for wallets/light-miners: lane split, each lane's total weight,
+        # this address's open/bonded weight, and the derived expected time-to-mine. Read-only.
+        from ops.block_ops import mining_status as compute_mining_status
+        compress = MiningStatusHandler.get_argument(self, "compress", default="none")
+        address = MiningStatusHandler.get_argument(self, "address", default=memserver.address)
+        try:
+            data = compute_mining_status(address=address,
+                                         latest_block_number=memserver.latest_block["block_number"],
+                                         block_time=memserver.block_time)
+            self.write(serialize(name="mining_status", output=data, compress=compress))
+        except Exception as e:
+            self.set_status(403)
+            self.write(f"Error: {e}")
+
+    async def get(self, parameter):
+        await asyncio.to_thread(self.mining_status)
 
 
 class TransactionPoolHandler(tornado.web.RequestHandler):
@@ -200,20 +235,6 @@ class PeerBufferHandler(tornado.web.RequestHandler):
 
     async def get(self, parameter):
         await asyncio.to_thread(self.peer_buffer)
-class PenaltiesHandler(tornado.web.RequestHandler):
-    def penalties(self):
-        compress = PenaltiesHandler.get_argument(self, "compress", default="none")
-        output = {
-            "penalties": memserver.penalties
-        }
-
-        self.write(serialize(name="penalties",
-                             output=output,
-                             compress=compress
-                             ))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.penalties)
 
 
 
@@ -333,7 +354,37 @@ class SubmitTransactionHandler(tornado.web.RequestHandler):
             self.write(f"Error: {e}")
 
     async def get(self, parameter):
+        from ops.ratelimit import allow
+        if not allow(self.request.remote_ip, limit=30, window=60):
+            self.set_status(429); self.write({"result": False, "message": "Rate limited — slow down"}); return
         await asyncio.to_thread(self.submit_transaction)
+
+    def submit_transaction_post(self):
+        # POST path (#14): the transaction is the request BODY (msgpack, or JSON fallback), not a
+        # GET query string. A GET URL caps at a few KB and logs the payload — fine for a 0.5 KB
+        # Ed25519 tx, but a post-quantum (ML-DSA) tx is ~7.8 KB and will NOT fit. POST removes that
+        # cliff and is the prerequisite for PQ-sized txs. Backward-compatible: GET still works.
+        import msgpack
+        try:
+            body = self.request.body
+            ctype = self.request.headers.get("Content-Type", "")
+            if "msgpack" in ctype:
+                transaction = msgpack.unpackb(body, raw=False)
+            else:
+                transaction = json.loads(body.decode() if isinstance(body, (bytes, bytearray)) else body)
+            output = memserver.merge_transaction(transaction, user_origin=True)
+            self.write(output)
+            if not output["result"]:
+                self.set_status(403)
+        except Exception as e:
+            self.set_status(403)
+            self.write(f"Error: {e}")
+
+    async def post(self, parameter):
+        from ops.ratelimit import allow
+        if not allow(self.request.remote_ip, limit=30, window=60):
+            self.set_status(429); self.write({"result": False, "message": "Rate limited — slow down"}); return
+        await asyncio.to_thread(self.submit_transaction_post)
 
 
 class HealthHandler(tornado.web.RequestHandler):
@@ -688,10 +739,6 @@ class AccountHandler(tornado.web.RequestHandler):
             account_data = get_account(account, create_on_error=False)
 
             if account_data:
-                account_data.update({"penalty": get_penalty(producer_address=account,
-                                       block_hash=memserver.latest_block["block_hash"],
-                                       block_number=memserver.latest_block["block_number"])})
-
                 if readable == "true":
                     account_data.update({"balance": to_readable_amount(account_data["balance"])})
                     account_data.update({"produced": to_readable_amount(account_data["produced"])})
@@ -711,29 +758,6 @@ class AccountHandler(tornado.web.RequestHandler):
 
     async def get(self, parameter):
         await asyncio.to_thread(self.account)
-
-
-class ProducerSetHandler(tornado.web.RequestHandler):
-    def producer_set(self):
-        try:
-            producer_set_hash = ProducerSetHandler.get_argument(self, "hash")
-            compress = ProducerSetHandler.get_argument(self, "compress", default="none")
-
-            producer_data = get_producer_set(producer_set_hash)
-
-            if not producer_data:
-                producer_data = "Not found"
-                self.set_status(403)
-
-            self.write(serialize(name="producer_set",
-                                 output=producer_data,
-                                 compress=compress))
-        except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.producer_set)
 
 
 class AnnouncePeerHandler(tornado.web.RequestHandler):
@@ -776,6 +800,15 @@ class AnnouncePeerHandler(tornado.web.RequestHandler):
             self.write(f"Error: {e}")
 
     async def get(self, parameter):
+        # ECLIPSE HARDENING (#18 step 8): rate-limit peer announcements per source IP. A single origin
+        # flooding /announce_peer to stuff a victim's peer view (eclipse groundwork) is throttled here,
+        # complementing the per-IP submit_transaction limiter. The fork-choice already ignores peer
+        # IPs for weight, but bounding announce volume protects the peer-discovery surface.
+        from ops.ratelimit import allow
+        if not allow(self.request.remote_ip, limit=10, window=60):
+            self.set_status(429)
+            self.write("Rate limited — slow down")
+            return
         await asyncio.to_thread(self.announce)
 
 
@@ -832,7 +865,6 @@ async def make_app(port):
             (r"/get_block_number(.*)", GetBlockNumberHandler),
             (r"/get_block(.*)", GetBlockHandler),
             (r"/get_account(.*)", AccountHandler),
-            (r"/get_producer_set_from_hash(.*)", ProducerSetHandler),
             (r"/transaction_pool(.*)", TransactionPoolHandler),
             (r"/transaction_hash_pool(.*)", TransactionHashPoolHandler),
             (r"/transaction_buffer(.*)", TransactionBufferHandler),
@@ -842,10 +874,10 @@ async def make_app(port):
             (r"/get_supply(.*)", GetSupplyHandler),
             (r"/announce_peer(.*)", AnnouncePeerHandler),
             (r"/status_pool(.*)", StatusPoolHandler),
+            (r"/mining_status(.*)", MiningStatusHandler),
             (r"/status(.*)", StatusHandler),
             (r"/peers(.*)", PeerPoolHandler),
             (r"/peer_buffer(.*)", PeerBufferHandler),
-            (r"/penalties(.*)", PenaltiesHandler),
             (r"/unreachable(.*)", UnreachableHandler),
             (r"/block_producers_hash_pool(.*)", BlockProducersHashPoolHandler),
             (r"/block_producers(.*)", BlockProducerPoolHandler),
@@ -857,7 +889,7 @@ async def make_app(port):
             (r"/log(.*)", LogHandler),
             (r"/whats_my_ip(.*)", IpHandler),
             (r"/force_sync(.*)", ForceSyncHandler),
-            (r"/static/(.*)", tornado.web.StaticFileHandler, {"path": "static"}),
+            (r"/static/(.*)", NoCacheStaticFileHandler, {"path": "static"}),
             (r'/(favicon.ico)', tornado.web.StaticFileHandler, {"path": "graphics"}),
 
         ]

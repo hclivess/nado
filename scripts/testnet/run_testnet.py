@@ -45,7 +45,10 @@ def seed_node(home, i, all_keys, bond_manifest):
 
     json.dump({"port": PORT, "ip": node_ip(i), "protocol": 2,
                "server_key": secrets.token_hex(32), "min_peers": 1, "max_rollbacks": 10,
-               "cascade_limit": 1, "promiscuous": True, "quick_sync": False},
+               "cascade_limit": 1, "promiscuous": True, "quick_sync": False,
+               # fast local blocks so a short run produces many blocks (LOCAL timing knob only —
+               # block_time is non-consensus; every node uses the same value so tips still agree)
+               "block_time": 2},
               open(os.path.join(base, "private", "config.dat"), "w"))
 
     # pre-generate the key so we know every node's address up front and can fully mesh them

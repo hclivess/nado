@@ -9,9 +9,9 @@ from config import test_self_port
 from loops.consensus_loop import change_trust
 from ops.block_ops import save_block_producers
 from ops.data_ops import set_and_sort
-from ops.peer_ops import announce_me, get_list_of_peers, store_producer_set, load_ips, check_save_peers, \
+from ops.peer_ops import announce_me, get_list_of_peers, load_ips, check_save_peers, \
     dump_trust
-from ops.peer_ops import get_public_ip, update_local_ip, ip_stored, check_ip
+from ops.peer_ops import get_public_ip, update_local_ip, ip_stored, check_ip, subnet_diversity_ok
 
 
 class PeerClient(threading.Thread):
@@ -39,11 +39,12 @@ class PeerClient(threading.Thread):
                 self.memserver.block_producers.append(entry)
             if entry in self.memserver.peer_buffer:
                 self.memserver.peer_buffer.remove(entry)
-            if entry not in self.memserver.peers and len(self.memserver.peers) < self.memserver.peer_limit:
+            if (entry not in self.memserver.peers
+                    and len(self.memserver.peers) < self.memserver.peer_limit
+                    and subnet_diversity_ok(entry, self.memserver.peers)):  # eclipse cap (#18 step 8)
                 self.memserver.peers.append(entry)
 
         self.memserver.block_producers = set_and_sort(self.memserver.block_producers)
-        store_producer_set(self.memserver.block_producers)
         save_block_producers(self.memserver.block_producers)
 
     def sniff_peers_and_producers(self):
@@ -62,7 +63,9 @@ class PeerClient(threading.Thread):
         for peer in candidates:
             if check_ip(peer):
                 if peer not in self.memserver.unreachable:
-                    if peer not in self.memserver.peers and len(self.memserver.peers) < self.memserver.peer_limit:
+                    if (peer not in self.memserver.peers
+                            and len(self.memserver.peers) < self.memserver.peer_limit
+                            and subnet_diversity_ok(peer, self.memserver.peers)):  # eclipse cap (#18 step 8)
                         self.memserver.peers.append(peer)
 
                     if peer not in self.memserver.block_producers and ip_stored(peer):
@@ -71,7 +74,6 @@ class PeerClient(threading.Thread):
                         """address is sniffed before block is produced"""
 
         self.memserver.block_producers = set_and_sort(self.memserver.block_producers)
-        store_producer_set(self.memserver.block_producers)
         save_block_producers(self.memserver.block_producers)
 
     def disconnect_peer(self, entry):

@@ -17,7 +17,7 @@ To bring one up programmatically a node needs, under its own `$HOME/nado`:
 - `private/config.dat` (created by `config.create_config`) — `port`, `ip`, `server_key`,
   `min_peers`, `promiscuous`, `quick_sync`, …
 - `private/keys.dat` (an Ed25519 keypair → `ndo…` address).
-- genesis (`genesis.make_genesis`) + the consolidated `index.db` (`create_indexers`).
+- genesis (`genesis.make_genesis`) + the LMDB key-value index env (`create_indexers` → `ops/kv_ops`).
 - at least one seed peer to discover the mesh.
 
 ## Blockers to running a LOCAL testnet (must be addressed)

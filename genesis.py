@@ -9,35 +9,23 @@ from ops.block_ops import save_block, set_latest_block_info, set_earliest_block_
 from ops.data_ops import get_home, make_folder
 from ops.log_ops import get_logger
 from ops.peer_ops import save_peer, get_public_ip
-from ops.sqlite_ops import DbHandler
+from ops import kv_ops
 from protocol import CHAIN_ID, TREASURY_ADDRESS, TREASURY_GENESIS
 
 
 def create_indexers():
-    # ONE consolidated index database so the whole incorporate_block mutation (balances, tx
-    # index, block index, tip) commits in a SINGLE transaction -> crash-atomic (audit LO-1/CO-4).
-    handler = DbHandler(db_file=f"{get_home()}/index/index.db")
-
-    # accounts + totals. `bonded` = refundable stake locked for mining eligibility (S4); it is
-    # NOT spendable balance and is tracked separately so split-neutral selection can weight by it.
-    handler.db_execute("CREATE TABLE IF NOT EXISTS acc_index(address TEXT, balance INTEGER, produced INTEGER, bonded INTEGER DEFAULT 0)")
-    # UNIQUE so a concurrent get_account(create_on_error=True) race can't insert two rows
-    handler.db_execute("CREATE UNIQUE INDEX IF NOT EXISTS seek_index ON acc_index(address)")
-    handler.db_execute("CREATE TABLE IF NOT EXISTS totals_index(produced INTEGER, fees INTEGER)")
-    if not handler.db_fetch("SELECT 1 FROM totals_index LIMIT 1"):  # seed once (idempotent re-run)
-        handler.db_execute("INSERT INTO totals_index VALUES (?,?)", (0, 0,))
-
-    # single consolidated transaction index (replaces the per-10k-block split dbs)
-    handler.db_execute("CREATE TABLE IF NOT EXISTS tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
-    handler.db_execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_txid ON tx_index(txid)")
-    handler.db_execute("CREATE INDEX IF NOT EXISTS idx_sender ON tx_index(sender, block_number)")
-    handler.db_execute("CREATE INDEX IF NOT EXISTS idx_recipient ON tx_index(recipient, block_number)")
-
-    # block number <-> hash index
-    handler.db_execute("CREATE TABLE IF NOT EXISTS block_index(block_hash TEXT, block_number INTEGER UNIQUE)")
-    handler.db_execute("CREATE INDEX IF NOT EXISTS idx_block_hash ON block_index(block_hash)")
-    handler.db_execute("CREATE INDEX IF NOT EXISTS idx_block_number ON block_index(block_number)")
-    handler.close()
+    # ONE LMDB env with named sub-DBs so the whole incorporate_block mutation (account docs, tx
+    # index, block index, totals, heartbeats) commits in a SINGLE write transaction -> crash-atomic
+    # (audit LO-1/CO-4). The schema is schemaless msgpack documents (no DDL): see ops/kv_ops.py for
+    # the sub-DB table —
+    #   accounts (address -> {balance,produced,bonded,registered,fidelity,...}), totals,
+    #   block_by_num / block_by_hash, tx + tx_by_sender / tx_by_recipient (DUPSORT),
+    #   heartbeats (DUPSORT epoch -> address).
+    # `bonded` = refundable stake locked for mining eligibility (S4), NOT spendable balance.
+    # `registered`/`fidelity` = OPEN-lane mining state (registered=1 after the one-time registration
+    # PoW; fidelity = raw additive presence counter, clamped to FIDELITY_CAP on read by open_shares).
+    kv_ops.init_env()      # opens the env + creates every sub-DB (replaces CREATE TABLE DDL)
+    kv_ops.totals_seed()   # seed totals to {0,0} once (idempotent re-run)
 
 
 def make_folders():
@@ -45,7 +33,6 @@ def make_folders():
     make_folder(f"{get_home()}/peers", strict=False)
     make_folder(f"{get_home()}/private", strict=False)
     make_folder(f"{get_home()}/index")
-    make_folder(f"{get_home()}/index/producer_sets")
 
     create_indexers()
 
@@ -67,6 +54,7 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
         "block_transactions": block_transactions,
         "block_reward": 0,
         "cumulative_fees": 0,        # running total of fees burned up to and incl. this block
+        "cumulative_weight": 0,      # #17 step 2: fork-choice chain-weight base (genesis = 0)
         "chain_id": CHAIN_ID,
     }
 
@@ -87,6 +75,27 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
             for entry in bonds:
                 create_account(address=entry["address"], balance=0, bonded=entry["bonded"])
             logger.warning(f"TESTNET: seeded {len(bonds)} bonded genesis accounts")
+
+    # MAINNET-capable OPEN-lane bootstrap (no premine, no bonded seed required): seed registered +
+    # present relay identities from a byte-identical genesis_open.dat so a fresh chain can PRODUCE
+    # from height 1 through the OPEN lane. With TREASURY_GENESIS=0 nobody holds coins to bond, so the
+    # bonded lane is empty at genesis; the founder's relay nodes mine the open lane like everyone else
+    # (fair launch), and the bonded lane fills organically as miners earn the base subsidy and bond.
+    # The epoch-0 heartbeat makes them present in get_open_registry for the first PRESENCE_WINDOW
+    # epochs — ample time for the relays to start posting on-chain heartbeats and stay present.
+    open_path = f"{get_home()}/private/genesis_open.dat"
+    if os.path.exists(open_path):
+        with open(open_path) as of:
+            open_ids = json.load(of)
+        for addr in sorted(open_ids):
+            create_account(address=addr, registered=1)
+            kv_ops.heartbeat_put(epoch=0, address=addr)  # DUPSORT dedups (one heartbeat per addr@0)
+        logger.warning(f"Seeded {len(open_ids)} registered open-lane genesis identities (epoch 0)")
+
+    # FAUCET GUARD: there is intentionally NO auto-bond faucet anywhere. Granting a fresh address a
+    # bonded share would pipe the CAPPED free lane into the UNCAPPED capital lane (a Sybil ->
+    # stake-majority path that broke the rejected fronted/faucet designs). Onboarding is strictly:
+    # register (free) -> mine the open lane -> optionally bond EARNED coins. Do not add one.
 
     save_peer(ip=ip,
               address=address,

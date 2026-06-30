@@ -140,3 +140,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Claude Code session/worktree dir (never commit)
+.claude/

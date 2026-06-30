@@ -62,6 +62,7 @@ def create_config(ip: str, config_path: str = f"{get_home()}/private/config.dat"
         "server_key": create_nonce(length=64),
         "min_peers": 2,
         "max_rollbacks": 10,
+        "finality_depth": 30,
         "cascade_limit": 1,
         "promiscuous": False,
         "quick_sync": False

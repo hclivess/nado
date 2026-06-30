@@ -7,29 +7,41 @@ import msgpack
 import requests
 from tornado.httpclient import AsyncHTTPClient
 import aiohttp
-from .account_ops import get_account_value, get_bonded_registry
+from .account_ops import get_account_value, get_bonded_registry, get_open_registry
 from config import get_timestamp_seconds, get_config
 from .data_ops import set_and_sort, average, get_home, is_hex_hash
-from hashing import blake2b_hash_link
+from hashing import blake2b_hash_link, blake2b_hash
+from Curve25519 import sign as _sign_message, verify as _verify_message, unhex as _unhex
+from .address_ops import proof_sender
 from .key_ops import load_keys
 from .log_ops import get_logger
-from .peer_ops import load_peer
-from .sqlite_ops import DbHandler
-from .mining_ops import select_producer, epoch_of, compute_beacon
-from protocol import CHAIN_ID, REWARD_WINDOW, REWARD_CAP, GENESIS_BEACON, EPOCH_LENGTH
+from . import kv_ops
+from .mining_ops import select_producer, select_producer_two_lane, lane_of, epoch_of, compute_beacon, total_bonded_shares
+from protocol import CHAIN_ID, REWARD_WINDOW, REWARD_CAP, BASE_SUBSIDY, GENESIS_BEACON, EPOCH_LENGTH
+import zstandard as zstd
+
+# Block bodies are stored as zstd(msgpack(block)) (#14): msgpack is a compact portable container,
+# and zstd recovers the ~2x redundancy of hex signature/pubkey strings — important once post-quantum
+# (ML-DSA) sigs bloat blocks. This is purely LOCAL/non-consensus (the block HASH is over
+# canonical_bytes, never the stored file), so it can change with no fork. Genesis is also stored
+# this way (genesis.make_genesis calls save_block).
+_ZSTD_C = zstd.ZstdCompressor(level=3)
+_ZSTD_D = zstd.ZstdDecompressor()
+_ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"  # zstd frame magic; lets us read legacy raw-msgpack too
+
+
+def _pack_block(block) -> bytes:
+    return _ZSTD_C.compress(msgpack.packb(block))
+
+
+def _unpack_block(raw: bytes):
+    if raw[:4] == _ZSTD_MAGIC:
+        raw = _ZSTD_D.decompress(raw)
+    return msgpack.unpackb(raw, raw=False)
 
 
 def float_to_int(x):
     return math.floor(x * (2 ** 31))
-
-
-def get_hash_penalty(address: str, block_hash: str, block_number: int):
-    address_mingled = blake2b_hash_link(address, block_hash)
-    score = 0
-    for letters in enumerate(address_mingled):
-        score = score + block_hash.count(letters[1])
-
-    return score
 
 
 def get_block_reward(parent_block, logger):
@@ -53,8 +65,11 @@ def get_block_reward(parent_block, logger):
         start_cumfee = start_block.get("cumulative_fees", 0) if start_block else 0
 
     reward = (end_cumfee - start_cumfee) // REWARD_WINDOW
-    if reward < 0:
-        reward = 0
+    # Floor at BASE_SUBSIDY (flat fair-launch emission): with no premine a brand-new chain has no
+    # fees, so the elastic term is 0 — the subsidy lets a zero-coin OPEN-lane miner earn REAL coins
+    # from block 1, which then circulate and pay fees. The fee-weighted term rises ON TOP up to cap.
+    if reward < BASE_SUBSIDY:
+        reward = BASE_SUBSIDY
     if reward > REWARD_CAP:
         reward = REWARD_CAP
     return reward
@@ -98,18 +113,22 @@ def get_block_candidate(
 ):
     block_number = latest_block["block_number"] + 1
 
-    # S4.3: select the producer from the BONDED registry + the per-epoch beacon (split-neutral,
-    # grind-resistant) instead of the grindable per-IP pick_best_producer. Every node computes the
-    # SAME winner deterministically from committed parent state and builds the identical block
-    # crediting the winner ADDRESS — the winner need not be online (liveness does not depend on it
-    # broadcasting). block_ip is set to the winner address so the hashed body is identical per node.
-    registry = get_bonded_registry()
-    beacon = epoch_beacon(epoch_of(block_number))
-    winner = select_producer(registry, beacon, slot=block_number)
+    # S4.4 TWO-LANE: select the producer from the OPEN registry (registered+present, zero-coin) and
+    # the BONDED registry (locked stake) per the lane this slot falls in (lane_of). The split is a
+    # beacon permutation of slot indices, so the open lane is exactly OPEN_BPS of blocks regardless
+    # of identity count (Sybil bound). Every node computes the SAME winner deterministically from
+    # committed parent state and builds the identical block crediting the winner ADDRESS. block_ip
+    # is set to the winner address so the hashed body is identical per node.
+    epoch = epoch_of(block_number)
+    beacon = epoch_beacon(epoch)
+    open_registry = get_open_registry(epoch)
+    bonded_registry = get_bonded_registry()
+    winner = select_producer_two_lane(open_registry, bonded_registry, beacon, slot=block_number)
     if winner is None:
-        logger.error("No eligible bonded producer (empty registry / total_shares=0); skipping block")
+        logger.error("No eligible producer (open+bonded empty / bonded slot skipped); skipping block")
         return None
-    logger.info(f"Block {block_number} producer (bonded): {winner} | {len(registry)} eligible")
+    logger.info(f"Block {block_number} producer [{lane_of(block_number, beacon)} lane]: {winner} "
+                f"(open:{len(open_registry)} bonded:{len(bonded_registry)})")
 
     targeted_transactions = match_transactions_target(transaction_list=transaction_pool.copy(),
                                                       block_number=block_number,
@@ -125,6 +144,8 @@ def get_block_candidate(
         block_producers_hash=block_producers_hash,
         block_reward=get_block_reward(parent_block=latest_block, logger=logger),
         parent_cumulative_fees=latest_block.get("cumulative_fees", 0),
+        parent_cumulative_weight=latest_block.get("cumulative_weight", 0),
+        block_weight=total_bonded_shares(bonded_registry),  # as-of-parent (registry read above)
     )
     return block
 
@@ -166,7 +187,7 @@ def get_block(block):
     block_path = f"{get_home()}/blocks/{block}.block"
     if os.path.exists(block_path):
         with open(block_path, "rb") as file:
-            block = msgpack.load(file)
+            block = _unpack_block(file.read())
         return block
     else:
         return False
@@ -174,21 +195,18 @@ def get_block(block):
 
 def get_block_number(number):
     try:
-        block_handler = DbHandler(db_file=f"{get_home()}/index/index.db")
-        fetched = block_handler.db_fetch("SELECT block_hash FROM block_index WHERE block_number = ?", (number,))[0][0]
-        block_handler.close()
-        return get_block(fetched)
+        block_hash = kv_ops.hash_by_number(number)
+        if not block_hash:
+            return False
+        return get_block(block_hash)
     except Exception as e:
         return False
 
 
 def get_block_hash_by_number(number):
-    """block hash for a block number from the block_index, or None (no block-file read)."""
+    """block hash for a block number from the block index, or None (no block-file read)."""
     try:
-        h = DbHandler(db_file=f"{get_home()}/index/index.db")
-        fetched = h.db_fetch("SELECT block_hash FROM block_index WHERE block_number = ?", (number,))
-        h.close()
-        return fetched[0][0] if fetched else None
+        return kv_ops.hash_by_number(number)
     except Exception:
         return None
 
@@ -202,25 +220,71 @@ def epoch_beacon(epoch):
     this beacon governs, so it is deeply finalized and is NOT the grindable parent hash (audit M6).
     The per-slot rotation comes from select_producer hashing [beacon, slot].
 
-    INVARIANT: max_rollbacks < EPOCH_LENGTH, so the anchor block can never be reorged out from
-    under a live epoch (otherwise the whole epoch's winners would flip). The full on-chain
-    commit-reveal RANDAO (mining_ops.compute_beacon over revealed secrets) is the hardening step."""
+    INVARIANT: max_rollbacks < FINALITY_DEPTH < EPOCH_LENGTH (enforced in memserver, #17 step 1), so
+    the anchor block is FINALIZED before any epoch it governs goes live and can never be reorged out
+    from under that epoch (otherwise the whole epoch's winners would flip). The full on-chain
+    commit-reveal RANDAO (mining_ops.compute_beacon over revealed secrets) is the hardening step.
+
+    FAIL-LOUD (#18 step 4): the old code SILENTLY substituted GENESIS_BEACON when the anchor was
+    missing locally. That is a consensus split — a node lacking the (finalized) anchor would draw a
+    DIFFERENT producer set for the whole epoch than synced nodes. Since finality guarantees the anchor
+    exists for any node properly synced past it, a missing anchor means THIS node is not adequately
+    synced; we now RAISE instead of substituting, so the block is skipped (the caller resyncs) rather
+    than the node forking onto a divergent beacon."""
     if epoch < 2:
-        return GENESIS_BEACON
+        return GENESIS_BEACON  # genuinely no finalized prior epoch yet (not a fallback)
     anchor = get_block_hash_by_number((epoch - 1) * EPOCH_LENGTH)
     if not anchor:
-        return GENESIS_BEACON  # anchor not available locally -> deterministic fallback
+        raise ValueError(
+            f"epoch_beacon: finalized anchor block #{(epoch - 1) * EPOCH_LENGTH} for epoch {epoch} is "
+            f"missing locally — refusing to substitute GENESIS_BEACON (would fork the producer set); "
+            f"this node must resync")
     return compute_beacon(GENESIS_BEACON, [anchor])
 
 
+def mining_status(address, latest_block_number, block_time):
+    """Two-lane mining snapshot for the wallet's 'expected time to mine' + selection visualization.
+    Pure read of committed state. Weights are integer/deterministic; the time ESTIMATE uses floats
+    (display only, never consensus). For the slot after the tip: reports the lane split, each lane's
+    total weight + size, and `address`'s open/bonded weight, then derives expected blocks/seconds
+    between wins from this identity's share of each lane."""
+    from .mining_ops import open_shares, selection_shares
+    from protocol import K_OPEN
+    next_block = latest_block_number + 1
+    epoch = epoch_of(next_block)
+    beacon = epoch_beacon(epoch)
+    open_reg = get_open_registry(epoch)
+    bonded_reg = get_bonded_registry()
+    total_open = sum(open_shares(i.get("fidelity")) for i in open_reg.values())
+    total_bonded = sum(selection_shares(i["bonded"], i.get("fidelity")) for i in bonded_reg.values())
+    my_open = open_shares(open_reg[address]["fidelity"]) if address in open_reg else 0
+    my_bonded = (selection_shares(bonded_reg[address]["bonded"], bonded_reg[address].get("fidelity"))
+                 if address in bonded_reg else 0)
+    open_frac = K_OPEN / EPOCH_LENGTH
+    bonded_frac = (EPOCH_LENGTH - K_OPEN) / EPOCH_LENGTH
+    expected_wins_per_block = 0.0
+    if total_open:
+        expected_wins_per_block += open_frac * (my_open / total_open)
+    if total_bonded:
+        expected_wins_per_block += bonded_frac * (my_bonded / total_bonded)
+    expected_blocks = (1.0 / expected_wins_per_block) if expected_wins_per_block > 0 else None
+    return {
+        "epoch": epoch, "beacon": beacon, "next_block": next_block,
+        "epoch_length": EPOCH_LENGTH, "k_open": K_OPEN, "block_time": block_time,
+        "open_registry_size": len(open_reg), "total_open_weight": total_open,
+        "bonded_registry_size": len(bonded_reg), "total_bonded_shares": total_bonded,
+        "address": address, "registered_present": address in open_reg,
+        "my_open_weight": my_open, "my_bonded_shares": my_bonded,
+        "expected_blocks_between_wins": expected_blocks,
+        "expected_seconds_between_wins": (expected_blocks * block_time) if expected_blocks else None,
+    }
+
+
 def block_already_indexed(block_hash):
-    """True if this exact block was already incorporated (its hash is in block_index).
+    """True if this exact block was already incorporated (its hash is in the block index).
     Used to make incorporate_block idempotent against a re-fetched / replayed block."""
     try:
-        handler = DbHandler(db_file=f"{get_home()}/index/index.db")
-        found = handler.db_fetch("SELECT 1 FROM block_index WHERE block_hash = ? LIMIT 1", (block_hash,))
-        handler.close()
-        return bool(found)
+        return kv_ops.block_hash_indexed(block_hash)
     except Exception:
         return False
 
@@ -242,7 +306,7 @@ def load_block_from_hash(block_hash: str, logger):
         return False
     try:
         with open(f"{get_home()}/blocks/{block_hash}.block", "rb") as infile:
-            return msgpack.unpack(infile)
+            return _unpack_block(infile.read())
     except Exception as e:
         logger.info(f"Failed to load block {block_hash}: {e}")
         return False
@@ -279,7 +343,7 @@ def save_block(block: dict, logger):
     last_error = None
     for _ in range(60):
         try:
-            packed = msgpack.packb(block)
+            packed = _pack_block(block)
             with open(tmp_path, "wb") as outfile:
                 outfile.write(packed)
                 outfile.flush()
@@ -313,35 +377,24 @@ def get_block_ends_info(logger):
 
 
 def unindex_block(block, logger):
-    attempts = 0
-    while True:
-        try:
-            block_handler = DbHandler(db_file=f"{get_home()}/index/index.db")
-            block_handler.db_execute(
-                "DELETE FROM block_index WHERE block_number = ?", (block['block_number'],))
-            block_handler.close()
+    # Delete both directions of the number<->hash mapping. Called inside the rollback write txn
+    # (kv_ops uses the active txn), so an error propagates and aborts the WHOLE rollback rather than
+    # leaving it half-reverted — no infinite retry loop is needed or correct under LMDB.
+    kv_ops.block_index_del(block_number=block['block_number'], block_hash=block['block_hash'])
 
-            block_data = f"{get_home()}/blocks/{block['block_hash']}.block"
-            # bounded + backed off: the old inner loop had no sleep and never gave up,
-            # so a permission error / open handle spun a CPU at 100% forever.
-            for _ in range(10):
-                if not os.path.exists(block_data):
-                    break
-                try:
-                    os.remove(block_data)
-                    break
-                except FileNotFoundError:
-                    break
-                except Exception as e:
-                    logger.error(f"Failed to remove {block_data}: {e}")
-                    time.sleep(1)
+    block_data = f"{get_home()}/blocks/{block['block_hash']}.block"
+    # bounded + backed off: the old inner loop had no sleep and never gave up,
+    # so a permission error / open handle spun a CPU at 100% forever.
+    for _ in range(10):
+        if not os.path.exists(block_data):
+            break
+        try:
+            os.remove(block_data)
+            break
+        except FileNotFoundError:
             break
         except Exception as e:
-            attempts += 1
-            logger.error(f"Failed to unindex block: {e}")
-            if attempts >= 30:
-                logger.error("Giving up on unindex_block after repeated failures")
-                break
+            logger.error(f"Failed to remove {block_data}: {e}")
             time.sleep(1)
 
 
@@ -384,23 +437,20 @@ def set_earliest_block_info(earliest_block: dict, logger):
 def set_latest_block_info(latest_block: dict, logger):
     _update_block_ends({"latest_block": latest_block["block_hash"]}, logger=logger)
 
-    blocks_handler = DbHandler(db_file=f"{get_home()}/index/index.db")
-    blocks_handler.db_execute("INSERT OR IGNORE INTO block_index VALUES (?, ?)",
-                              (latest_block['block_hash'], latest_block['block_number']))
-    blocks_handler.close()
+    # idempotent number<->hash mapping (already written inside the incorporate txn by
+    # index_block_number; re-putting the same pair here is a no-op).
+    kv_ops.block_index_put(block_number=latest_block['block_number'],
+                           block_hash=latest_block['block_hash'])
 
     return latest_block
 
 
 def index_block_number(block):
-    """Insert the block's number<->hash row — the 'applied' marker that block_already_indexed
-    checks. Called INSIDE the incorporate transaction so the marker commits ATOMICALLY with the
+    """Insert the block's number<->hash mapping — the 'applied' marker that block_already_indexed
+    checks. Called INSIDE the incorporate write txn so the marker commits ATOMICALLY with the
     balance/totals mutations: a crash either applies the whole block or none of it, so a replay
     on restart can never double-credit (audit LO-1/CO-4)."""
-    handler = DbHandler(db_file=f"{get_home()}/index/index.db")
-    handler.db_execute("INSERT OR IGNORE INTO block_index VALUES (?, ?)",
-                       (block["block_hash"], block["block_number"]))
-    handler.close()
+    kv_ops.block_index_put(block_number=block["block_number"], block_hash=block["block_hash"])
 
 
 def construct_block(
@@ -413,8 +463,15 @@ def construct_block(
         transaction_pool: list,
         block_reward: int,
         parent_cumulative_fees: int = 0,
+        parent_cumulative_weight: int = 0,
+        block_weight: int = 0,
 ):
     """timestamp is approximate so hash matches across the network"""
+
+    # CO-8: canonical in-block transaction order. Sort by txid so any two honest nodes that select
+    # the SAME tx set produce the IDENTICAL block hash — they can no longer fork on ordering alone
+    # (audit CO-8). Deterministic and integer/string-only (browser-reproducible).
+    transaction_pool = sorted(transaction_pool, key=lambda t: t["txid"])
 
     block_fees = sum(transaction["fee"] for transaction in transaction_pool)
 
@@ -433,6 +490,11 @@ def construct_block(
         # running fee total committed in the header so the elastic reward is verifiable from
         # headers alone (see get_block_reward); chain_id binds the block to this chain.
         "cumulative_fees": parent_cumulative_fees + block_fees,
+        # FORK-CHOICE WEIGHT (#16/#17 step 2): running sum of each block's total_bonded_shares
+        # (as-of-its-parent). Committed INSIDE the hash preimage like cumulative_fees, recomputed in
+        # rebuild_block and verified as-of-parent in verify_block, so a relay cannot forge it. Carried
+        # + verified here; the fork-choice switch to argmax(cumulative_weight) lands in step 3.
+        "cumulative_weight": parent_cumulative_weight + block_weight,
         "chain_id": CHAIN_ID,
     }
     block_hash = blake2b_hash_link(link_from=parent_hash, link_to=block_message)
@@ -444,6 +506,47 @@ def construct_block(
     # runs AFTER block_hash is computed, so it does not affect the hash.
     block_message.update(block_penalty=0)
     return block_message
+
+
+# --- detached winner authorship signature (#15 step 5) -------------------------------------------
+# The signature authenticates that the SELECTED winner endorsed this specific block. It is DETACHED
+# and OPTIONAL: stored OUTSIDE the hash preimage (so it never enters block_hash / cumulative_weight /
+# validity / reward), and absent on a relay-built block for an OFFLINE winner (win-offline preserved).
+# Only the winner, holding its own key, can produce a valid one. Two valid signatures by the same
+# winner over two different blocks at the same height+parent are a portable EQUIVOCATION proof (slash).
+
+def block_signature_message(block) -> bytes:
+    """Bytes the winner signs: blake2b(chain_id, height, parent_hash, block_hash). Binds the block's
+    identity so a signature cannot be replayed onto another block or chain. Hex/int only."""
+    digest = blake2b_hash([CHAIN_ID, block["block_number"], block["parent_hash"], block["block_hash"]])
+    return _unhex(digest)
+
+
+def sign_block(block, private_key, public_key):
+    """Attach the detached winner signature. Added AFTER block_hash (like block_penalty), so it does
+    NOT change the hash. Caller must only call this when it IS the winner (holds block_creator's key)."""
+    block["block_signature"] = {
+        "public_key": public_key,
+        "signature": _sign_message(private_key, block_signature_message(block)),
+    }
+    return block
+
+
+def verify_block_signature(block) -> bool:
+    """Verify the detached winner signature IF present. Absent -> True (optional; offline winner or a
+    deterministically-rebuilt block). Present -> the signer's pubkey MUST hash to block_creator (only
+    the selected winner could sign) AND the ML-DSA signature must verify (Curve25519.verify()==True,
+    never equality). A present-but-invalid signature is a forgery/tamper signal and is REJECTED."""
+    sig = block.get("block_signature")
+    if not sig:
+        return True
+    pubkey = sig.get("public_key")
+    signature = sig.get("signature")
+    if not pubkey or not signature:
+        return False
+    if not proof_sender(public_key=pubkey, sender=block["block_creator"]):
+        return False  # signer is not the selected winner for this slot
+    return _verify_message(signed=signature, public_key=pubkey, message=block_signature_message(block))
 
 
 async def knows_block(target_peer, port, hash, logger):
@@ -554,43 +657,6 @@ def get_ip_penalty(producer, logger, blocks_backward=50):
             produced_count += 1
 
     return produced_count
-
-
-def get_penalty(producer_address, block_hash, block_number):
-    # Burn-to-bribe removed: penalty = deterministic hash score + the producer's cumulative
-    # 'produced' (recent winners back off). NOTE: this legacy IP-based penalty is superseded by
-    # the bonded split-neutral select_producer in mining_ops; it remains until the S4.3 wiring.
-    hash_penalty = get_hash_penalty(address=producer_address, block_hash=block_hash, block_number=block_number)
-    miner_penalty = get_account_value(address=producer_address, key="produced")
-    return hash_penalty + miner_penalty
-
-
-def pick_best_producer(block_producers, logger, event_bus, latest_block):
-    block_hash = latest_block["block_hash"]
-
-    previous_block_penalty = None
-    best_producer = None
-
-    penalty_list = {}
-    for producer_ip in block_producers:
-        producer_address = load_peer(logger=logger,
-                                     ip=producer_ip,
-                                     key="peer_address")
-        if producer_address:
-            block_penalty = get_penalty(producer_address=producer_address,
-                                        block_hash=block_hash,
-                                        block_number=latest_block["block_number"])
-
-            penalty_list.update({producer_address: block_penalty})
-
-            if block_penalty:
-                if not previous_block_penalty or block_penalty <= previous_block_penalty:
-                    previous_block_penalty = block_penalty
-                    best_producer = producer_ip
-
-    event_bus.emit('penalty-list-update', penalty_list)
-
-    return best_producer
 
 
 if __name__ == "__main__":

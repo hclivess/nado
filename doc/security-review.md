@@ -1,5 +1,14 @@
 # Security review — findings & status
 
+> **Update (post-review).** This is a *historical audit snapshot*; the findings below stand as
+> recorded. Several have since been addressed: the index store was migrated from SQLite to a
+> schemaless **LMDB** key-value store (so the "Keep SQLite" recommendation is superseded — see
+> [storage.md](storage.md) / [storage-kv-migration.md](storage-kv-migration.md)), and the first
+> wave of consensus items **#15–#18** is now partially implemented (objective stake-weighted
+> fork-choice, enforced finality floor, grind-proof chain weight, fail-loud beacon, a detached
+> optional winner signature). See [consensus-hardening-plan.md](consensus-hardening-plan.md) for
+> what is implemented vs. still planned.
+
 A multi-agent review audited consensus/mining, P2P/sync, control-flow, ledger integrity, the
 RPC/web surface, and storage; high/medium findings were adversarially verified (default-to-
 refute). This summarises the verified findings and **what this relaunch fixes vs. what remains

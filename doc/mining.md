@@ -47,7 +47,7 @@ staker" — strictly less profitable than buying coins on the market.
 ## Implemented (S4.1, S4.2)
 
 **S4.1 — bond state + transactions** (`ops/account_ops.py`):
-- `acc_index` has a `bonded` column (separate from spendable `balance`).
+- the `accounts` KV doc carries a `bonded` field (separate from spendable `balance`).
 - `bond` / `unbond` reserved-recipient transactions move coins between `balance` and `bonded`
   (`reflect_transaction`), revert-symmetric; the fee is destroyed.
 - Spending checks track balance vs bonded separately (`transaction_ops._spend_costs`,
@@ -74,7 +74,7 @@ Bonded selection is now wired into the live production/verification path and val
 3-node local testnet (nodes produce block 1 via bonded selection and converge on the identical
 tip):
 - **Registry from chain state** — `account_ops.get_bonded_registry()` enumerates accounts with
-  `bonded >= B_MIN` from the committed `acc_index` (parent state); it is the sole input (with the
+  `bonded >= B_MIN` from the committed `accounts` KV store (parent state); it is the sole input (with the
   beacon) to `select_producer`. Agreed implicitly via block sync — no new gossip field.
 - **Selection swap** — `block_ops.get_block_candidate` now calls
   `select_producer(get_bonded_registry(), epoch_beacon(epoch_of(n)), slot=n)` instead of the

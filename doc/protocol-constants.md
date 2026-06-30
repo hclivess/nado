@@ -53,7 +53,10 @@ Beyond the legacy fields, every block now carries:
   reward; lets full **and** pruned/snapshot nodes recompute it from headers).
 - `chain_id` — the chain identifier (M3).
 
-## Account schema (`acc_index`)
+## Account state (the `accounts` KV doc)
 
-`(address TEXT, balance INTEGER, produced INTEGER, bonded INTEGER)`, UNIQUE on `address`.
-`totals_index` = `(produced INTEGER, fees INTEGER)`. (No `burned` — removed.)
+State is a schemaless **LMDB** key-value store (`ops/kv_ops.py`), not SQLite. The `accounts`
+sub-DB maps `address` → a **schemaless msgpack document** `{balance, produced, bonded, registered,
+fidelity, …}` (no columns / no DDL — adding a field needs no migration). Totals live in the
+`totals` sub-DB as `{produced, fees}`. (No `burned` — removed.) See
+[storage-kv-migration.md](storage-kv-migration.md) for the full sub-DB schema.

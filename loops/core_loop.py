@@ -7,7 +7,7 @@ import traceback
 from config import get_timestamp_seconds
 from event_bus import EventBus
 from loops.consensus_loop import change_trust
-from ops.account_ops import increase_produced_count, change_balance, get_totals, index_totals, get_bonded_registry
+from ops.account_ops import increase_produced_count, change_balance, get_totals, index_totals, get_bonded_registry, get_open_registry, set_finalized_height
 from ops.block_ops import (
     knows_block,
     get_blocks_after,
@@ -26,14 +26,15 @@ from ops.block_ops import (
     valid_block_timestamp,
     block_already_indexed,
     index_block_number,
-    pick_best_producer,
+    sign_block,
+    verify_block_signature,
 )
 from ops.data_ops import get_home
-from ops.mining_ops import select_producer, epoch_of
-from ops.sqlite_ops import transaction
+from ops.mining_ops import select_producer, select_producer_two_lane, epoch_of, total_bonded_shares
+from ops import kv_ops
 from protocol import split_block_reward, TREASURY_ADDRESS, CHAIN_ID, REWARD_CAP
 from ops.data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
-from ops.peer_ops import load_trust, update_local_address, ip_stored, check_ip, qualifies_to_sync, announce_me, get_remote_status, get_producer_set
+from ops.peer_ops import load_trust, update_local_address, ip_stored, check_ip, qualifies_to_sync, announce_me, get_remote_status
 from ops import snapshot_ops
 from ops.pool_ops import merge_buffer, cull_buffer
 from ops.transaction_ops import remove_outdated_transactions
@@ -42,7 +43,7 @@ from ops.transaction_ops import (
     validate_transaction,
     validate_all_spending, index_transactions
 )
-from rollback import rollback_one_block, MissingParentError
+from rollback import rollback_one_block, MissingParentError, FinalityViolation
 
 # protocol cap on a block reward (mirrors get_block_reward's reward_cap)
 MAX_BLOCK_REWARD = 5000000000
@@ -174,7 +175,12 @@ class CoreClient(threading.Thread):
                 peers = self.memserver.peers.copy()
                 """make copies to avoid errors in case content changes"""
 
-                if len(peers) >= self.memserver.min_peers and block_producers and not self.memserver.force_sync_ip:
+                # min_peers == 0 enables SOLO production (a single node mints without a peer mesh) —
+                # used for a stable single-node relay/demo where multi-node fork-choice churn is
+                # undesirable. With min_peers >= 1 the normal peer+producer-set gate applies.
+                if (len(peers) >= self.memserver.min_peers
+                        and (block_producers or self.memserver.min_peers == 0)
+                        and not self.memserver.force_sync_ip):
                     block_candidate = get_block_candidate(block_producers=block_producers,
                                                           block_producers_hash=self.memserver.block_producers_hash,
                                                           logger=self.logger,
@@ -187,6 +193,11 @@ class CoreClient(threading.Thread):
                     # S4.3: get_block_candidate returns None when no bonded identity is eligible
                     # (empty registry / total_shares == 0). Skip this round rather than crash.
                     if block_candidate is not None:
+                        # #15 step 5: if WE are the selected winner (we hold block_creator's key),
+                        # attach the detached authorship signature. A relay building this block for an
+                        # OFFLINE winner cannot (no key) and leaves it unsigned — still valid (win-offline).
+                        if self.memserver.address == block_candidate["block_creator"]:
+                            sign_block(block_candidate, self.memserver.private_key, self.memserver.public_key)
                         self.produce_block(block=block_candidate,
                                            remote=False,
                                            remote_peer=None)
@@ -229,7 +240,14 @@ class CoreClient(threading.Thread):
         source_pool_copy = source_pool.copy()
 
         try:
-            sorted_hashes = sort_occurrence(dict_to_val_list(source_pool_copy))[:self.memserver.cascade_limit]
+            # #16 step 3: order candidate tips by OBJECTIVE cumulative_weight (heaviest first), NOT by
+            # peer-count occurrence — so we sync toward the heaviest valid chain, not the most-advertised
+            # one (which a Sybil peer-set could dominate). tip_weights includes our own tip.
+            distinct_hashes = [h for h in set(source_pool_copy.values()) if h is not None]
+            sorted_hashes = sorted(
+                distinct_hashes,
+                key=lambda h: (-self.consensus.tip_weights.get(h, -1), h)
+            )[:self.memserver.cascade_limit]
             shuffled_pool = shuffle_dict(source_pool_copy)
             # participants = len(shuffled_pool.items())
 
@@ -304,18 +322,25 @@ class CoreClient(threading.Thread):
             return None
 
     def minority_block_consensus(self):
-        """loads from drive to get latest info"""
-        if not self.consensus.majority_block_hash:
-            """if not ready"""
+        """OBJECTIVE fork-choice (#16/#17 step 3): we are out of sync ONLY when some peer advertises a
+        tip whose cumulative_weight is STRICTLY GREATER than ours and we don't already hold that block.
+        Equal or lower weight -> keep our tip (first-seen on ties). Peer IPs / trust carry NO weight, so
+        a Sybil peer-set cannot trigger a reorg; and even a heavier advertisement is only acted on by
+        fetching the blocks, which verify_block re-derives + enforces (a lie is rejected) and the
+        finality floor refuses to reorg below. Replaces the Sybil-swingable plurality majority_block_hash."""
+        hw = self.consensus.heaviest_block_weight
+        if hw is None:
+            """not ready (no peer tip weights collected yet)"""
             return False
-        elif get_block(self.consensus.majority_block_hash) and self.memserver.peers:
-            """we are not out of sync when we know the majority block"""
+        our_weight = self.memserver.latest_block.get("cumulative_weight", 0)
+        if hw <= our_weight:
+            """we are the heaviest (or tied) -> canonical, do not switch"""
             return False
-        elif self.memserver.latest_block["block_hash"] != self.consensus.majority_block_hash:
-            """we are out of consensus and need to sync"""
-            return True
-        else:
+        if get_block(self.consensus.heaviest_block_hash):
+            """we already hold the heavier block locally; normal incorporation adopts it"""
             return False
+        """a strictly-heavier tip exists that we don't have -> sync toward it"""
+        return True
 
     def replace_transaction_pool(self):
         sync_from = self.get_peer_to_sync_from(source_pool=self.consensus.block_hash_pool)
@@ -505,7 +530,7 @@ class CoreClient(threading.Thread):
                             break
 
                     elif not known_block:
-                        if self.memserver.rollbacks <= self.memserver.max_rollbacks:
+                        if self.memserver.rollbacks < self.memserver.max_rollbacks:
                             try:
                                 self.memserver.latest_block = rollback_one_block(logger=self.logger,
                                                                                  block=self.memserver.latest_block)
@@ -516,9 +541,18 @@ class CoreClient(threading.Thread):
                                 self.logger.error(f"Rollback aborted, resync required: {e}")
                                 self.memserver.rollbacks = 0
                                 break
+                            except FinalityViolation as e:
+                                # the reorg would cross the finalized-height floor (a deep / long-range
+                                # rollback). REFUSE it — the finalized prefix is immutable — and resync
+                                # forward only. This is the hard 51%/rollback cap (#17).
+                                self.logger.error(f"Rollback refused (finality): {e}")
+                                self.memserver.rollbacks = 0
+                                break
 
-                            if not self.memserver.force_sync_ip:
-                                self.memserver.rollbacks += 1
+                            # ALWAYS count the rollback (even under force_sync_ip): the finalized floor
+                            # is the hard safety cap; this counter only rate-limits a single burst, so a
+                            # forced sync can no longer roll back unboundedly (closes the force_sync leak).
+                            self.memserver.rollbacks += 1
                             self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
                                                                      peer=peer,
                                                                      value=-1)
@@ -535,17 +569,19 @@ class CoreClient(threading.Thread):
             raise
 
     def rebuild_block(self, block):
-        # todo add block size check?
-        # Reconstruct the block deterministically from the LOCAL tip + the block's tx set.
-        # reward and cumulative_fees are RECOMPUTED here (not copied from the peer), so a peer
-        # cannot inject an inflated reward: the reconstructed hash only matches the network if
-        # the canonical reward/cumfee were used.
+        # Reconstruct the block deterministically from the LOCAL tip + the block's tx set: the winner
+        # (creator/block_ip) and reward/cumulative_fees are RECOMPUTED from local parent state, so a
+        # peer cannot misattribute the producer or inject an inflated reward — only a block matching
+        # the canonical reconstruction is incorporated. (Producer-signature AUTHENTICATION is
+        # deferred to the coordinated security milestone: winner-only signing both fights the
+        # peer-majority fork-choice AND would break 'win while asleep', so it needs stake-weighted
+        # fork-choice + finality + an offline-win/relay-delegation decision. See #15/#16/#17.)
         parent = self.memserver.latest_block
         block_number = parent["block_number"] + 1
-        # S4.3: RECOMPUTE the winner (creator/block_ip) from the local parent state + beacon
-        # rather than copying block_ip/block_creator from the peer, so a lying relay cannot
-        # misattribute the reward or fork an honest node — the reconstructed block is canonical.
-        winner = select_producer(get_bonded_registry(), epoch_beacon(epoch_of(block_number)), slot=block_number)
+        _epoch = epoch_of(block_number)
+        bonded_registry = get_bonded_registry()  # as-of-parent (tip == parent here)
+        winner = select_producer_two_lane(get_open_registry(_epoch), bonded_registry,
+                                          epoch_beacon(_epoch), slot=block_number)
         return construct_block(
             block_timestamp=parent["block_timestamp"] + self.memserver.block_time,
             block_number=block_number,
@@ -555,7 +591,9 @@ class CoreClient(threading.Thread):
             transaction_pool=block["block_transactions"],
             block_producers_hash=block["block_producers_hash"],
             block_reward=get_block_reward(parent_block=parent, logger=self.logger),
-            parent_cumulative_fees=parent.get("cumulative_fees", 0))
+            parent_cumulative_fees=parent.get("cumulative_fees", 0),
+            parent_cumulative_weight=parent.get("cumulative_weight", 0),
+            block_weight=total_bonded_shares(bonded_registry))
 
     def incorporate_block(self, block: dict, sorted_transactions: list):
         """successful execution mandatory, must not raise a failure"""
@@ -580,8 +618,7 @@ class CoreClient(threading.Thread):
         # block_index 'applied' marker all commit together or not at all, so a crash mid-apply
         # leaves the block UNapplied (and block_already_indexed lets the replay re-apply it
         # cleanly) instead of double-crediting the reward (audit LO-1/CO-4).
-        index_db = f"{get_home()}/index/index.db"
-        with transaction(index_db):
+        with kv_ops.write_txn():
             index_transactions(block=block,
                                sorted_transactions=sorted_transactions,
                                logger=self.logger)
@@ -607,6 +644,17 @@ class CoreClient(threading.Thread):
         # Advance the tip pointer file only AFTER the atomic state commit. A crash before this
         # just leaves a stale tip that re-syncs forward; block_already_indexed prevents re-apply.
         set_latest_block_info(latest_block=block, logger=self.logger)
+
+        # ENFORCED FINALITY (#17 step 1): advance the persisted monotonic finalized-height floor. A
+        # block at height H finalizes everything at/below H - finality_depth; rollback_one_block then
+        # REFUSES to cross it. Monotonic (max), recomputable, and crash-conservative: a crash between
+        # the block commit above and this write leaves the floor one behind (never ahead) and it
+        # re-advances on the next block — it can never finalize something that wasn't committed.
+        new_final = max(self.memserver.finalized_height,
+                        block["block_number"] - self.memserver.finality_depth)
+        if new_final > self.memserver.finalized_height:
+            set_finalized_height(new_final)
+            self.memserver.finalized_height = new_final
 
     def validate_transactions_in_block(self, block, logger, remote_peer, remote):
         transactions = sort_list_dict(block["block_transactions"])
@@ -639,9 +687,13 @@ class CoreClient(threading.Thread):
                     self.memserver.tx_buffer.remove(transaction)
 
                 try:
+                    # block_height = the block being validated (N) so a heartbeat tx's epoch check
+                    # epoch_of(N) matches how apply_heartbeat records it (index_transactions applies
+                    # with block["block_number"]); account STATE for spending/producer checks is
+                    # still parent state (this block is not yet incorporated).
                     validate_transaction(transaction=transaction,
                                          logger=logger,
-                                         block_height=self.memserver.latest_block["block_number"])
+                                         block_height=block["block_number"])
                 except Exception as e:
                     self.logger.error(f"Failed to validate transaction during block preparation: {e}")
                     if remote:
@@ -662,11 +714,13 @@ class CoreClient(threading.Thread):
         chain; once bond txs land, the rollback/snapshot re-verify path must reset the tip to the
         block's parent before calling this (else it would read post-apply state)."""
         block_number = block["block_number"]
-        winner = select_producer(get_bonded_registry(),
-                                 epoch_beacon(epoch_of(block_number)),
-                                 slot=block_number)
+        epoch = epoch_of(block_number)
+        winner = select_producer_two_lane(get_open_registry(epoch),
+                                          get_bonded_registry(),
+                                          epoch_beacon(epoch),
+                                          slot=block_number)
         if winner is None:
-            raise ValueError("No eligible bonded producer for this block (fail-closed)")
+            raise ValueError("No eligible producer for this block (fail-closed)")
         if block.get("block_creator") != winner:
             raise ValueError(
                 f"Block creator {block.get('block_creator')} is not the selected winner {winner}")
@@ -697,6 +751,20 @@ class CoreClient(threading.Thread):
 
             self.validate_block_producer(block)
 
+            # FORK-CHOICE WEIGHT (#16/#17 step 2): recompute cumulative_weight from the LOCAL parent +
+            # the as-of-parent bonded registry and enforce equality (like block_reward). A relay cannot
+            # forge a heavier chain: a block whose committed cumulative_weight != the deterministic
+            # value is rejected. (get_bonded_registry() here is parent state — the block is not yet
+            # incorporated — the same as-of-parent assumption validate_block_producer documents; once
+            # in-block bond txs land, the rollback/snapshot re-verify path must reset the tip to the
+            # block's parent before this runs.)
+            parent_weight = self.memserver.latest_block.get("cumulative_weight", 0)
+            expected_weight = parent_weight + total_bonded_shares(get_bonded_registry())
+            if block.get("cumulative_weight") != expected_weight:
+                raise ValueError(
+                    f"Block cumulative_weight {block.get('cumulative_weight')} != deterministic "
+                    f"{expected_weight} (parent {parent_weight} + as-of-parent bonded shares)")
+
             if not is_old or not self.memserver.quick_sync:
                 self.validate_transactions_in_block(block=block,
                                                     logger=self.logger,
@@ -715,6 +783,14 @@ class CoreClient(threading.Thread):
         try:
             gen_start = get_timestamp_seconds()
             is_old = old_block(block=block)
+
+            # #15 step 5: verify a present detached winner signature on the ORIGINAL block BEFORE the
+            # deterministic rebuild drops it. Absent -> accepted (win-offline). Present-but-invalid
+            # (wrong signer or bad sig) -> rejected as a forgery. The sig is off the consensus path
+            # (not in the hash/weight), so this never affects which block is canonical — it only
+            # refuses a tampered authorship claim and underpins equivocation slashing.
+            if not verify_block_signature(block):
+                raise ValueError("Invalid detached winner block signature")
 
             if remote:
                 try:
@@ -777,13 +853,9 @@ class CoreClient(threading.Thread):
         if self.consensus.block_hash_pool_percentage > 80 and self.memserver.since_last_block < self.memserver.block_time:
             self.memserver.force_sync_ip = None
 
-    async def penalty_list_update_handler(self, event):
-        self.memserver.penalties = event
-
     def run(self) -> None:
         self.init_hashes()
         update_local_address(logger=self.logger)
-        self.event_bus.add_listener('penalty-list-update', self.penalty_list_update_handler)
 
         while not self.memserver.terminate:
             try:
@@ -805,8 +877,6 @@ class CoreClient(threading.Thread):
                 self.logger.error(f"Error in core loop: {e} {traceback.print_exc()}")
                 time.sleep(1)
                 # raise #test
-
-        self.event_bus.remove_listener('penalty-list-update', self.penalty_list_update_handler)
 
         self.logger.info("Termination code reached, bye")
         sys.exit(0)

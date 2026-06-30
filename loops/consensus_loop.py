@@ -54,6 +54,15 @@ class ConsensusClient(threading.Thread):
         self.majority_transaction_pool_hash = None
         self.majority_block_producers_hash = None
 
+        # #16/#17 step 3: OBJECTIVE heaviest-cumulative_weight fork-choice (replaces the Sybil-swingable
+        # plurality majority_block_hash for the BLOCK chain). Peer IPs contribute ZERO weight; only the
+        # grind-proof, on-chain-verified cumulative_weight decides the canonical tip. (Plurality is kept
+        # for the tx-pool / block-producer pools, which are not the chain fork-choice.)
+        self.weight_pool = {}            # {peer: advertised tip cumulative_weight}
+        self.tip_weights = {}            # {tip_hash: best advertised weight for that hash (incl. ours)}
+        self.heaviest_block_hash = None  # canonical tip = argmax weight (ties: lowest hash)
+        self.heaviest_block_weight = None
+
         self.trust_average = None
         self.trust_median = None
 
@@ -71,13 +80,18 @@ class ConsensusClient(threading.Thread):
             for peer in self.trust_pool.copy().keys():
                 if peer in pool.keys():
                     if pool[peer] == majority_pool:
+                        # agreeing with the (super)majority earns trust
                         self.trust_pool = change_trust(trust_pool=self.trust_pool,
                                                        peer=peer,
                                                        value=1)
                     else:
+                        # P2-5/LO-3 FIX: a peer that DISAGREES with the majority must LOSE trust,
+                        # not gain it. The old code rewarded both branches identically, so trust
+                        # was a meaningless uptime counter that an eclipse/Sybil attacker accrued
+                        # for free. (Full fix = objective stake-weighted fork-choice, #16.)
                         self.trust_pool = change_trust(trust_pool=self.trust_pool,
                                                        peer=peer,
-                                                       value=1)
+                                                       value=-1)
 
         except Exception as e:
             self.logger.info(f"Failed to update trust: {e}")
@@ -129,6 +143,41 @@ class ConsensusClient(threading.Thread):
         self.majority_block_producers_hash = get_pool_majority(
             self.block_producers_hash_pool
         )
+
+        self.refresh_heaviest_tip()
+
+    def refresh_heaviest_tip(self):
+        """OBJECTIVE fork-choice (#16/#17 step 3): compute the heaviest-cumulative_weight tip across
+        all advertised peer tips PLUS our own. Defensive .get() (a peer mid-restart may omit the
+        field). The advertised weight is only a HINT for which peer to sync from — verify_block
+        re-derives and ENFORCES the weight on the real blocks, so a peer cannot lie its way to a
+        heavier chain; and the finality floor stops it reorging our finalized prefix."""
+        weight_pool = {}
+        for peer, status in self.status_pool.copy().items():
+            if isinstance(status, dict) and status.get("latest_block_weight") is not None:
+                weight_pool[peer] = status["latest_block_weight"]
+        self.weight_pool = weight_pool
+
+        # tip_weights: best advertised weight per distinct tip hash, INCLUDING our own tip so we never
+        # switch away from an equal-or-heavier local chain (first-seen on ties).
+        tip_weights = {}
+        for peer, tip_hash in self.block_hash_pool.copy().items():
+            w = weight_pool.get(peer)
+            if tip_hash is None or w is None:
+                continue
+            if tip_hash not in tip_weights or w > tip_weights[tip_hash]:
+                tip_weights[tip_hash] = w
+        our_hash = self.memserver.latest_block["block_hash"]
+        our_weight = self.memserver.latest_block.get("cumulative_weight", 0)
+        if our_hash not in tip_weights or our_weight > tip_weights[our_hash]:
+            tip_weights[our_hash] = our_weight
+        self.tip_weights = tip_weights
+
+        if tip_weights:
+            # heaviest weight wins; deterministic lowest-hash tie-break (matters only for a fresh node
+            # with no incumbent — an equal-weight peer never displaces our tip, see minority_block_consensus).
+            self.heaviest_block_hash = sorted(tip_weights, key=lambda h: (-tip_weights[h], h))[0]
+            self.heaviest_block_weight = tip_weights[self.heaviest_block_hash]
 
     def run(self) -> None:
         while not self.memserver.terminate:

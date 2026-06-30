@@ -4,7 +4,7 @@ from threading import Lock
 from compounder import compound_get_list_of
 from config import get_timestamp_seconds, get_config
 from hashing import blake2b_hash
-from ops.account_ops import get_account
+from ops.account_ops import get_account, get_finalized_height
 from ops.block_ops import load_block_producers, get_block_ends_info
 from ops.data_ops import set_and_sort, sort_list_dict
 from ops.key_ops import load_keys
@@ -50,12 +50,11 @@ class MemServer:
         self.producers_refresh_interval = 10
         self.heavy_refresh_interval = 360
 
-        self.block_time = 60
+        self.block_time = self.config.get("block_time") or 60  # configurable (e.g. fast demo networks)
         self.periods = [0]
 
         self.unreachable = {}
         self.peers = []
-        self.penalties = {}
 
         self.transaction_pool_hash = None
         self.block_producers_hash = None
@@ -79,9 +78,22 @@ class MemServer:
         self.switch_mode = {"name":"Initialization",
                             "mode": -1}
 
-        self.min_peers = self.config.get("min_peers") or 5
+        _mp = self.config.get("min_peers")  # respect an explicit 0 (solo mode); `or 5` would force 5
+        self.min_peers = 5 if _mp is None else _mp
         self.peer_limit = self.config.get("peer_limit") or 24
         self.max_rollbacks = self.config.get("max_rollbacks") or 10
+        # ENFORCED FINALITY (#17, security step 1): a persisted monotonic finalized_height floor that
+        # rollback_one_block REFUSES to cross (FinalityViolation). The ordering invariant below makes
+        # the epoch-beacon anchor un-reorgable (a live epoch's anchor can never be reorged out) and
+        # bounds 51%/long-range rollback. It fails loudly at startup so a mis-set config can't silently
+        # disable the protection. (Stake-weighted fork-choice that bounds reorg COST is steps 2-3.)
+        from protocol import EPOCH_LENGTH, FINALITY_DEPTH
+        self.finality_depth = self.config.get("finality_depth") or FINALITY_DEPTH
+        assert self.max_rollbacks < self.finality_depth < EPOCH_LENGTH, (
+            f"need max_rollbacks ({self.max_rollbacks}) < finality_depth ({self.finality_depth}) "
+            f"< EPOCH_LENGTH ({EPOCH_LENGTH}) for enforced-finality safety")
+        # in-memory mirror of the persisted floor (advanced by core_loop.incorporate_block)
+        self.finalized_height = get_finalized_height()
         self.cascade_limit = self.config.get("cascade_limit") or 1
         self.promiscuous = True if self.config.get("promiscuous") is True else False
         self.quick_sync = True if self.config.get("quick_sync") is True else False
@@ -143,8 +155,18 @@ class MemServer:
         """warning, can get stuck if not efficient"""
         united_pools = self.transaction_pool.copy() + self.tx_buffer.copy() + self.user_tx_buffer.copy()
 
+        # Anti-DoS: hard-cap the mempool so a flood (incl. fee-exempt register/heartbeat spam) cannot
+        # grow it unbounded and OOM the node. Pairs with the per-IP HTTP rate limiter. The lane cap
+        # already stops spam from buying extra block share; this stops it taking the node down.
+        if len(united_pools) >= self.transaction_pool_limit:
+            return {"result": False, "message": "Mempool full"}
 
-        if not get_account(transaction["sender"], create_on_error=False):
+        # OPEN-lane onboarding: register/heartbeat are fee-exempt ENTRY txs — a brand-new zero-coin
+        # address has no on-chain account YET (registration is what creates it), so they must bypass
+        # the empty-account anti-spam gate. (register is PoW-gated and heartbeat requires registered=1
+        # in validate_transaction, so this opens no spam hole.) Spending txs still need a funded account.
+        if transaction.get("recipient") not in ("register", "heartbeat") \
+                and not get_account(transaction["sender"], create_on_error=False):
             msg = {"result": False,
                    "message": f"Empty account"}
             return msg

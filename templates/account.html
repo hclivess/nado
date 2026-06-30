@@ -2,64 +2,77 @@
 <html data-bs-theme="dark" lang="en">
    <head>
       <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-
-      <link crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
-         integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" rel="stylesheet">
-      <title>NADO Explorer</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+      <meta name="theme-color" content="#0b0f14">
+      <meta name="color-scheme" content="dark">
+      <title>NADO Explorer · Account</title>
+      <link rel="stylesheet" href="/static/explorer.css">
    </head>
    <body>
-         <div class="container">
-     <header class="d-flex flex-wrap justify-content-center py-3 mb-4 border-bottom">
-      <a href="/" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto link-body-emphasis text-decoration-none">
-        <img class="bi me-2" src="/graphics/180_logo.png" style="width:50px;height:50px;" alt="Node is OK">
-        <span class="fs-4">NADO explorer</span>
-      </a>
-
-      <div class="mb-3">
-               <a class="btn btn-light btn-lg active" href="https://nodeisok.com" role="button">Website</a>
-               <a class="btn btn-light btn-lg active" href="/" role="button">Home</a>
-               <a class="btn btn-light btn-lg active" href="/get_supply" role="button">Supply</a>
-               <a class="btn btn-light btn-lg active" href="/stats" role="button">Stats</a><a class="btn btn-light btn-lg active" href="{{node}}" role="button">API</a>
-      </div>
-    </header>
-         <form method="get">
-            <div class="mb-3">
-               <h4>Search</h4>
-               <input aria-describedby="entryHelp" class="form-control" formaction=# id="entry" name="entry" placeholder="Your query"
-                  required type="text">
-               <small class="form-text text-muted" id="entryHelp">Enter whatever you are looking for and press one of the
-               buttons</small>
+      <header class="app">
+         <a class="brand" href="/">
+            <div class="logo">N</div>
+            <div>
+               <h1>NADO Explorer</h1>
+               <div class="sub">account</div>
             </div>
-            <div class="mb-3">
+         </a>
+         <nav class="nav">
+            <a class="btn" href="https://nodeisok.com" role="button">Website</a>
+            <a class="btn" href="/" role="button">Home</a>
+            <a class="btn" href="/get_supply" role="button">Supply</a>
+            <a class="btn" href="/stats" role="button">Stats</a>
+            <a class="btn" href="{{node}}" role="button">API</a>
+         </nav>
+      </header>
+
+      <div class="wrap">
+         <form method="get" class="card">
+            <h2>Search</h2>
+            <label for="entry">Look up a transaction, account, block number or hash</label>
+            <input aria-describedby="entryHelp" class="field" formaction="#" id="entry" name="entry"
+               placeholder="Your query" required type="text">
+            <small class="help" id="entryHelp">Enter whatever you are looking for and press one of the buttons.</small>
+            <div class="btn-row">
                <input type="submit" hidden formaction="/automatic" />
-               <button class="btn btn-light btn-lg active" formaction="/get_transaction" role="button">Transaction</button>
-               <button class="btn btn-light btn-lg active" formaction="/get_account" role="button">Account</button>
-               <button class="btn btn-light btn-lg active" formaction="/get_account_txs" role="button">Account transactions</button>
-               <button class="btn btn-light btn-lg active" formaction="/get_block_number" role="button">Block number</button>
-               <button class="btn btn-light btn-lg active" formaction="/get_block" role="button">Block hash</button>
+               <button class="btn" formaction="/get_transaction" role="button">Transaction</button>
+               <button class="btn" formaction="/get_account" role="button">Account</button>
+               <button class="btn" formaction="/get_account_txs" role="button">Account transactions</button>
+               <button class="btn" formaction="/get_block_number" role="button">Block number</button>
+               <button class="btn" formaction="/get_block" role="button">Block hash</button>
             </div>
          </form>
-         <table class="table">
-            <thead>
-               <tr>
-                  <th scope="col">Address</th>
-                  <th scope="col">Balance</th>
-                  <th scope="col">Produced</th>
-                  <th scope="col">Bonded</th>
-                  <th scope="col">Penalty</th>
-               </tr>
-            </thead>
-            <tbody>
-               <tr>
-                  <td><a href="/get_account_txs?entry={{data['address']}}">{{data["address"]}}</a></td>
-                  <td>{{data["balance"]}}</td>
-                  <td>{{data["produced"]}}</td>
-                  <td>{{data["bonded"]}}</td>
-                  <td>{{data["penalty"]}}</td>
-               </tr>
-            </tbody>
-         </table>
+
+         <div class="card">
+            <h2>Account</h2>
+            <div class="table-wrap">
+               <table class="expl">
+                  <thead>
+                     <tr>
+                        <th scope="col">Address</th>
+                        <th scope="col">Balance</th>
+                        <th scope="col">Produced</th>
+                        <th scope="col">Bonded</th>
+                        <th scope="col">Penalty</th>
+                     </tr>
+                  </thead>
+                  <tbody>
+                     <tr>
+                        <td><a class="mono" href="/get_account_txs?entry={{data['address']}}">{{data["address"]}}</a></td>
+                        <td class="amt">{{data["balance"]}}</td>
+                        <td class="num">{{data["produced"]}}</td>
+                        <td class="num">{{data["bonded"]}}</td>
+                        <td class="num">{{data["penalty"]}}</td>
+                     </tr>
+                  </tbody>
+               </table>
+            </div>
+            <div class="btn-row">
+               <a class="btn accent" href="/get_account_txs?entry={{data['address']}}" role="button">View transactions</a>
+            </div>
+         </div>
+
+         <footer>NADO Explorer · data served live from the node API</footer>
       </div>
    </body>
 </html>

@@ -1,91 +1,85 @@
 # Storage, crash-safety, and the "stuck node" fixes
 
-## Decision: keep SQLite, fix how it is used
+## Current design: a schemaless LMDB key-value index
 
-The multi-agent review's verdict was decisive: the engine is not the bottleneck. At one block
-per `block_time` with point-lookup reads and a single writer thread + many readers, WAL-mode
-SQLite is exactly the right fit — and it is stdlib (zero-dependency), inspectable with the
-`sqlite3` CLI, and runs on a hobbyist box, which matches NADO's ethos. LMDB/RocksDB/DuckDB
-would inherit the same architecture work while forfeiting SQL and pure-Python deployability.
-So we kept SQLite and fixed the **usage**.
+Derived state lives in a **single schemaless, memory-mapped, ACID key-value store (LMDB)** —
+`ops/kv_ops.py` — which **replaced** the prior SQLite index (`index.db` / the old
+`ops/sqlite_ops.py` connection pool, both removed). Account/state records are **schemaless
+msgpack documents with no columns**, so adding a field — as the relaunch did with
+`registered` / `fidelity` / `public_key` — needs **no DDL and no migration**. The engine choice,
+the full sub-DB schema, and the migration rationale live in
+**[storage-kv-migration.md](storage-kv-migration.md)**; this document is the short current-state
+summary plus the crash-safety properties that carried over.
 
-## One consolidated `index.db`
+One LMDB environment (`index/state/`) holds these named sub-DBs:
 
-All index tables now live in a single database, `index/index.db`:
+| sub-DB | key | value | flags | replaces (old SQLite) |
+|--------|-----|-------|-------|------------------------|
+| `accounts` | `address` (utf8) | `msgpack({balance, produced, bonded, registered, fidelity, …})` | — | `acc_index` |
+| `totals` | `b"totals"` | `msgpack({produced, fees})` | — | `totals_index` |
+| `block_by_num` | `block_number` (8B BE) | `block_hash` | — | `block_index` (n→h) |
+| `block_by_hash` | `block_hash` | `block_number` (8B BE) | — | `block_index` (h→n) |
+| `tx` | `txid` | `msgpack({block_number, sender, recipient})` | — | `tx_index` |
+| `tx_by_sender` | `sender` | `block_number(8B BE)‖txid` | `DUPSORT` | sender history |
+| `tx_by_recipient` | `recipient` | `block_number(8B BE)‖txid` | `DUPSORT` | recipient history |
+| `heartbeats` | `epoch` (8B BE) | `address` | `DUPSORT` | `heartbeat_index` |
+| `meta` | `key` (utf8) | `msgpack(int)` (e.g. `finalized_height`) | — | (new) |
 
-| table | columns |
-|-------|---------|
-| `acc_index` | `address, balance, produced, bonded` (UNIQUE on address) |
-| `totals_index` | `produced, fees` (single row) |
-| `tx_index` | `txid, block_number, sender, recipient` |
-| `block_index` | `block_hash, block_number` |
+8-byte big-endian integer keys preserve numeric order under LMDB's bytewise key sort, so range
+scans (`block_by_num` iteration, the `heartbeats` presence window, `tx_by_*` ordered-by-block
+history) are deterministic and identical across nodes — required because `get_open_registry` and
+tx history feed consensus selection. `DUPSORT` gives auto-deduped multi-value keys, so one
+heartbeat per `(address, epoch)` is enforced for free.
 
-(Block **bodies** remain one msgpack file per hash under `blocks/`.) Consolidation is what
-lets the entire `incorporate_block` mutation commit in **one transaction**.
-
-## Per-thread connections + a transaction context manager
-
-`ops/sqlite_ops.py`:
-- `DbHandler` reuses **one connection per (thread, db_file)** via `threading.local`, applying
-  the PRAGMAs (`WAL`, `synchronous=NORMAL`, `busy_timeout`, `temp_store=MEMORY`) **once** at
-  creation. The old handler opened a new connection and re-ran 4 PRAGMAs on **every** query,
-  then closed it — the connect/teardown dominated each tiny lookup and piled onto the write
-  lock under load (a real "node gets stuck" contributor). `close()` is now a no-op on the
-  shared connection (use `close_thread_connections()` on thread teardown).
-- `transaction(db_file)` is a **re-entrant** context manager. Inside it, `_run` defers the
-  per-statement commit; the outermost context commits once on success or rolls back on any
-  exception. `db_change()` returns `rowcount` for guarded UPDATEs.
+(Block **bodies** remain one `zstd(msgpack)` file per hash under `blocks/` — they were always
+documents, and consensus hashing is over canonical JSON, never the stored file, so neither is
+touched by the index.)
 
 ## Crash-atomic block application (audit LO-1 / CO-4)
 
-`incorporate_block` (`loops/core_loop.py`):
+`incorporate_block` (`loops/core_loop.py`) wraps **all** of a block's mutations — the tx index,
+balance / treasury / produced / totals mutations, the heartbeat record, and the `block_by_*`
+"applied" marker — in **one** `env.begin(write=True)` transaction (`kv_ops.write_txn()`,
+re-entrant). LMDB is single-writer + copy-on-write, so a crash mid-apply leaves the block
+**fully un-applied**, and `block_already_indexed` (the `block_by_hash` marker) lets the replay
+re-apply it cleanly — instead of the old behaviour where a crash between balance writes and the
+tip update **double-credited** the reward on restart. `rollback_one_block` runs in the same kind
+of single write transaction (all reversals atomic), with the tip pointer (`block_ends.dat`)
+advanced **after** the commit.
 
-1. **Files first** (idempotent, safe to redo): `save_block`, then `update_child_in_latest_block`.
-2. **One transaction** over *all* state: `index_transactions` (tx index + balances), the 90/10
-   reward split, `increase_produced_count`, `index_totals`, and the `block_index` "applied"
-   marker (`block_ops.index_block_number`).
-3. **Tip pointer last**, *after* the commit: `set_latest_block_info` writes `block_ends.dat`.
-
-So a crash mid-apply leaves the block **un**applied (the `block_index` marker only exists if
-the whole transaction committed), and `block_already_indexed` lets the replay re-apply it
-cleanly — instead of the old behaviour where a crash between balance writes and the tip update
-**double-credited** the reward on restart. `rollback_one_block` is wrapped in the same
-transaction (all reversals atomic), with the tip advanced after the commit.
-
-Balance writes are a **single guarded UPDATE** (`change_balance`/`increase_produced_count`/
-`change_bonded`): `UPDATE ... SET col = col + ? WHERE address = ? AND col + ? >= 0`, checking
-`rowcount == 1`. This removes the old SELECT-then-UPDATE read-modify-write (the ~296× write
-amplification + a race) and enforces the non-negative invariant atomically — fail-closed, with
-no retry loop that could wedge the single block-processing thread.
+Account field writes go through `account_adjust` — a guarded read-modify-write that refuses to
+drive a field below zero (returns `False`, leaves the doc unchanged) — so a bad/mismatched revert
+fails **closed** instead of going negative. Because doc encoding is canonicalized (deterministic
+field order), every revert returns a document **byte-identical** to its pre-apply state.
 
 ## "Stuck node" fixes (S2a)
 
-Every unbounded/blocking disk operation that could wedge the core thread was fixed:
+Every unbounded/blocking disk operation that could wedge the core thread was fixed (these are
+independent of the index engine and still apply):
 
 - `set_latest_block_info` / `set_earliest_block_info` → atomic `_update_block_ends`
   (temp file + fsync + `os.replace`). The old write-then-**read-back-and-compare**
   `while not old_hash == new_hash` loop could spin forever; it is gone.
 - `save_block` → bounded retries + atomic rename, then **raise** (the old `while True` spun
-  forever on a full disk). `update_child_in_latest_block` no longer a no-sleep spinner.
+  forever on a full disk). `update_child_in_latest_block` is no longer a no-sleep spinner.
 - `rollback_one_block` → raises `MissingParentError` when the parent block is missing (e.g. a
-  snapshot-bootstrapped node rolling back past its checkpoint), instead of crashing on
-  `False['block_hash']` and then spinning; `core_loop` catches it and triggers a resync.
+  snapshot-bootstrapped node rolling back past its checkpoint), and `FinalityViolation` when the
+  reorg would cross the enforced finality floor; `core_loop` catches both and resyncs forward.
 - Peer files written atomically (`peer_ops._atomic_write_json`) so a crash mid-write can't
   leave a corrupt peer file.
 
 ## Snapshot sync
 
 `ops/snapshot_ops.py` lets a joining node download verified account state at a checkpoint and
-replay only the short tail. After consolidation, **import is a transactional row-replace** on
-`index.db` (`DELETE FROM acc_index; INSERT …; replace totals`) instead of swapping a standalone
-`accounts.db` file. The verified `state_root` (a blake2b Merkle root over the rows) now
-includes the `bonded` column, so a snapshot commits mining stake too. `reindex_fast.py` rebuilds
-the consolidated index byte-identically from the block files and is the migration path.
+replay only the short tail. Import is an atomic wholesale replace inside one LMDB write
+transaction (`kv_ops.clear_accounts_and_totals` + `put_account` per row + totals), replacing the
+old SQLite row-replace. The verified `state_root` (a blake2b Merkle root over the rows) includes
+the `bonded` column, so a snapshot commits mining stake too. `reindex_fast.py` rebuilds the KV
+index byte-identically from the block files and is the migration / repair path.
 
 ## Migration
 
-There is no live network; `reindex_fast.rebuild_from_blocks` wipes `index/` and rebuilds the
-consolidated `index.db` from the block files (it mirrors `incorporate_block`: fees-always, the
-90/10 split, treasury, bond/unbond, no burn). `reindex.py` is the older, slower reference path
-(also updated). `GENESIS_CHILD_HASH` in `reindex_fast.py` must be regenerated once the
-relaunched genesis + block 1 exist (the old value predates canonical hashing).
+There is no live network; `reindex_fast.rebuild_from_blocks` wipes the index and rebuilds the KV
+store from the block files (mirroring `incorporate_block`: fees-always, the 90/10 split, treasury,
+bond/unbond, no burn). The SQLite→LMDB cut-over itself is documented in
+[storage-kv-migration.md](storage-kv-migration.md).

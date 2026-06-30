@@ -11,8 +11,8 @@ from tornado.httpclient import AsyncHTTPClient
 from compounder import compound_get_list_of, compound_announce_self
 from compounder import compound_get_status_pool
 from config import get_port, get_config, get_timestamp_seconds, update_config
-from .data_ops import set_and_sort, get_home, is_hex_hash
-from hashing import base64encode, blake2b_hash
+from .data_ops import set_and_sort, get_home
+from hashing import base64encode
 from .key_ops import load_keys
 
 import aiohttp
@@ -212,32 +212,6 @@ def update_peer(ip, value, logger, key="peer_trust") -> None:
             logger.info(f"Failed to update peer file of {ip}: {e}")
 
 
-def store_producer_set(producer_set):
-    producer_set_hash = blake2b_hash(producer_set)
-    path = f"{get_home()}/index/producer_sets/{producer_set_hash}.dat"
-    producer_set_dict = {
-        "producer_set_hash": producer_set_hash,
-        "producer_set": producer_set,
-    }
-    if not os.path.exists(path):
-        with open(path, "w") as outfile:
-            json.dump(producer_set_dict, outfile)
-
-
-def get_producer_set(producer_set_hash):
-    # SECURITY: this value comes straight from an unauthenticated query arg; without
-    # this guard `?hash=../../private/keys` would read and return the node private key.
-    if not is_hex_hash(producer_set_hash):
-        return None
-    path = f"{get_home()}/index/producer_sets/{producer_set_hash}.dat"
-    if os.path.exists(path):
-        with open(path) as infile:
-            fetched = json.load(infile)
-        return fetched
-    else:
-        return None
-
-
 def check_save_peers(peers, logger, fails, unreachable):
     """save all peers to drive if new to drive"""
     good_peers = set(peers) - set(fails) - set(unreachable)
@@ -362,6 +336,36 @@ def check_ip(ip):
     return True
 
 
+# ECLIPSE HARDENING (#18 step 8): cap how many peers from the SAME /16 may occupy the live peer
+# slots, so a single network/operator can't fill a victim's peer view (eclipse). With peer_limit=24
+# and a cap of 4, an attacker needs >= 6 distinct /16s to monopolize the slots — far costlier than
+# spinning up many IPs inside one subnet. Pairs with the /announce_peer rate-limit. Testnet
+# (127.0.0.x) is exempt so a local multi-node mesh can still form.
+MAX_PEERS_PER_SUBNET = 4
+
+
+def subnet16(ip: str):
+    """The /16 network prefix 'a.b' of an IPv4 dotted string (None if malformed)."""
+    try:
+        a, b = ip.split(".")[:2]
+        int(a); int(b)
+        return f"{a}.{b}"
+    except Exception:
+        return None
+
+
+def subnet_diversity_ok(new_ip: str, current_peers) -> bool:
+    """True if admitting new_ip keeps the per-/16 peer count within MAX_PEERS_PER_SUBNET. Always True
+    under NADO_TESTNET (the local mesh runs on a single 127.0.0.x /16)."""
+    if os.environ.get("NADO_TESTNET"):
+        return True
+    sub = subnet16(new_ip)
+    if sub is None:
+        return False
+    same = sum(1 for p in current_peers if subnet16(p) == sub)
+    return same < MAX_PEERS_PER_SUBNET
+
+
 async def get_public_ip(logger):
     # testnet/offline: use the configured IP instead of phoning home to ipify/ipinfo
     if os.environ.get("NADO_TESTNET"):
@@ -408,10 +412,11 @@ def qualifies_to_sync(peer, peer_trust, peer_protocol, known_tree, memserver_pro
         return {"result": False,
                 "flag": f"Our root hash is unknown to them"}
 
-    if median_trust > peer_trust and not promiscuous:
-        """peer trust worse than median"""
-        return {"result": False,
-                "flag": f"Peer trust {peer_trust} below median {median_trust}"}
+    # #16 step 3: TRUST DEMOTED to an advisory transport hint — it no longer GATES sync. The objective
+    # heaviest-cumulative_weight fork-choice already chose required_hash (the heaviest tip), and
+    # verify_block + the finality floor enforce that chain on the real blocks, so a low-trust / Sybil
+    # peer cannot feed us a chain we wouldn't independently accept. (Was: reject if
+    # median_trust > peer_trust and not promiscuous — which a Sybil could pass by farming free trust.)
     if peer in unreachable_list:
         """peer assigned to unreachable"""
         return {"result": False,

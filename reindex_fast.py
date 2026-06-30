@@ -22,7 +22,7 @@ import shutil
 from ops.data_ops import sort_list_dict, get_home, make_folder
 from ops.block_ops import (get_block, get_block_ends_info,
                            set_latest_block_info, update_child_in_latest_block)
-from ops.sqlite_ops import DbHandler
+from ops import kv_ops
 from genesis import make_genesis, create_indexers
 from ops.log_ops import get_logger
 from protocol import split_block_reward, TREASURY_ADDRESS, TREASURY_GENESIS
@@ -110,38 +110,32 @@ def accumulate_chain(logger, log_every=50000):
 
 
 def write_state(accounts, tx_rows, block_rows, totals, logger):
-    """Bulk-write the accumulated state. accounts deltas are merged onto whatever
-    rows already exist (the genesis account)."""
-    home = get_home()
+    """Bulk-write the accumulated state into the KV index. accounts deltas are merged onto whatever
+    docs already exist (the genesis accounts); registered/fidelity and the heartbeats sub-DB are
+    left intact (this fast path mirrors reflect_transaction for transfers/bond/unbond, which is what
+    accumulate_chain replays — it does not replay register/heartbeat)."""
+    kv_ops.init_env(get_home())
 
-    # --- accounts + totals: one transaction ---
-    acc = DbHandler(db_file=f"{home}/index/index.db")
-    try:
-        existing = acc.db_fetch("SELECT address, balance, produced, bonded FROM acc_index")
-        merged = {row[0]: [row[1], row[2], row[3]] for row in existing}
+    # --- accounts + totals: one write txn (merge balance/produced/bonded deltas onto existing) ---
+    with kv_ops.write_txn():
+        merged = {addr: dict(doc) for addr, doc in kv_ops.iter_accounts()}
         for addr, (d_balance, d_produced, d_bonded) in accounts.items():
             m = merged.get(addr)
             if m is None:
-                m = merged[addr] = [0, 0, 0]
-            m[0] += d_balance
-            m[1] += d_produced
-            m[2] += d_bonded
-        acc.db_execute("DELETE FROM acc_index")
-        acc.db_executemany(
-            "INSERT INTO acc_index (address, balance, produced, bonded) VALUES (?,?,?,?)",
-            [(a, v[0], v[1], v[2]) for a, v in merged.items()])
-        acc.db_execute("UPDATE totals_index SET produced=?, fees=?", (totals[0], totals[1]))
-    finally:
-        acc.close()
+                m = merged[addr] = {"balance": 0, "produced": 0, "bonded": 0}
+            m["balance"] = m.get("balance", 0) + d_balance
+            m["produced"] = m.get("produced", 0) + d_produced
+            m["bonded"] = m.get("bonded", 0) + d_bonded
+        for addr, doc in merged.items():
+            kv_ops.put_account(addr, doc)
+        kv_ops.totals_set(totals[0], totals[1])
 
     # --- blocks ---
-    blk = DbHandler(db_file=f"{home}/index/index.db")
-    try:
-        blk.db_executemany("INSERT OR IGNORE INTO block_index (block_hash, block_number) VALUES (?,?)", block_rows)
-    finally:
-        blk.close()
+    with kv_ops.write_txn():
+        for block_hash, height in block_rows:
+            kv_ops.block_index_put(block_number=height, block_hash=block_hash)
 
-    # --- tx index: drop indexes, bulk insert (deduped by txid), rebuild indexes ---
+    # --- tx index: rebuild from scratch (deduped by txid) ---
     seen = set()
     deduped = []
     for row in tx_rows:
@@ -149,17 +143,10 @@ def write_state(accounts, tx_rows, block_rows, totals, logger):
             seen.add(row[0])
             deduped.append(row)
 
-    tx = DbHandler(db_file=f"{home}/index/index.db")
-    try:
-        tx.db_execute("CREATE TABLE IF NOT EXISTS tx_index(txid TEXT, block_number INTEGER, sender TEXT, recipient TEXT)")
-        for idx in ("idx_txid", "idx_sender", "idx_recipient"):
-            tx.db_execute(f"DROP INDEX IF EXISTS {idx}")
-        tx.db_executemany("INSERT OR IGNORE INTO tx_index VALUES (?,?,?,?)", deduped)
-        tx.db_execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_txid ON tx_index(txid)")
-        tx.db_execute("CREATE INDEX IF NOT EXISTS idx_sender ON tx_index(sender, block_number)")
-        tx.db_execute("CREATE INDEX IF NOT EXISTS idx_recipient ON tx_index(recipient, block_number)")
-    finally:
-        tx.close()
+    with kv_ops.write_txn():
+        kv_ops.drop_tx_index()
+        for txid, height, sender, recipient in deduped:
+            kv_ops.tx_index_put(txid=txid, block_number=height, sender=sender, recipient=recipient)
 
     logger.info(f"Reindex wrote {len(accounts)} account deltas, {len(deduped)} tx rows, {len(block_rows)} blocks")
 
