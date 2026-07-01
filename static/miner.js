@@ -370,6 +370,7 @@ const state = {
   autoBondPct: 80,     // AUTO_BOND_DEFAULT_PCT (const declared below); boot overwrites w/ saved pref
   autoBondBaseline: null,
   autoBondPending: null,   // {target, epoch} while an auto-bond is in flight — prevents stacking bonds
+  presignedThroughEpoch: 0, // last epoch we've handed the relay a pre-signed heartbeat for (locked-phone mining)
   lastAutoBondEpoch: null,
 };
 
@@ -589,6 +590,40 @@ async function maybeRenewLease(acc) {
   finally { _renewingLease = false; }
 }
 
+// LOCKED-PHONE MINING: hand the relay a batch of future-dated, pre-signed heartbeats so it can post your
+// presence proofs on schedule while your phone is asleep. Keeps ~PRESIGN_AHEAD epochs covered (never past
+// the current lease — a recert needs a fresh on-device PoSW, so a fully-offline phone stays present until
+// the lease lapses, ~1 day). Signing is chunked so it never blocks the UI; best-effort, re-tops each poll.
+const PRESIGN_AHEAD = 120;           // keep ~120 epochs (~16 h) of heartbeats pre-signed with the relay
+let _presigning = false;
+async function maybePresign(acc, epochNow) {
+  if (_presigning || !state.mining || !acc || acc.registered !== 1 || epochNow == null) return;
+  const regEpoch = (typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
+  if (regEpoch < 0) return;
+  const leaseExpiry = regEpoch + POSW_LEASE_EPOCHS;                 // presence covered only through here
+  const want = Math.min(leaseExpiry, epochNow + PRESIGN_AHEAD);
+  const have = state.presignedThroughEpoch || 0;
+  if (have >= want) return;                                         // already covered
+  _presigning = true;
+  try {
+    const from = Math.max(epochNow + 1, have + 1);
+    const txs = [];
+    for (let epoch = from; epoch <= want && txs.length < 90; epoch++) {   // cap the batch; top up over polls
+      txs.push(buildHeartbeatTx(state.wallet, epoch * EPOCH_LENGTH + 8, epoch, nowSeconds()));
+      if (txs.length % 8 === 0) await new Promise((r) => setTimeout(r, 0));   // yield: keep UI responsive
+    }
+    if (!txs.length) return;
+    const r = await fetch(relayBase() + "/presign_heartbeats", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ txs }) });
+    const d = await r.json().catch(() => null);
+    if (d && typeof d.accepted === "number") {
+      state.presignedThroughEpoch = from + txs.length - 1;
+      log("ok", `Pre-signed ${d.accepted} heartbeats (through epoch ${state.presignedThroughEpoch}) — the relay keeps you mining while your phone is locked.`);
+    }
+  } catch (e) { /* best-effort relay service */ }
+  finally { _presigning = false; }
+}
+
 async function maybeRegister() {
   if (state.registering) return;                 // a PoW/submit is already in flight
   // If we already broadcast a registration that can still land, just keep waiting for it.
@@ -762,6 +797,8 @@ async function pollOnce() {
     // eligible: quietly renew (fresh sequential proof) once ~80% of the lease is spent, so the identity
     // never lapses out of the open registry. Runs in the background; heartbeats continue.
     maybeRenewLease(acc).catch(() => {});
+    // and keep a buffer of pre-signed heartbeats with the relay so a locked/asleep phone keeps mining.
+    maybePresign(acc, epochNow).catch(() => {});
     // registered on chain → clear any pending registration record and heartbeat each epoch
     const wasStarting = state.starting || $("btnMine").disabled; // were we still in the setup phase?
     if (state.regSubmitted) { state.regSubmitted = null; show("powWrap", false); log("ok", "Registration confirmed on chain ✓"); }
@@ -828,6 +865,7 @@ async function startMining() {
   state.lastHeartbeatEpoch = null;
   state.autoBondBaseline = null; state.autoBondPending = null;   // only earnings AFTER this start auto-bond
   state.lastAutoBondEpoch = null;
+  state.presignedThroughEpoch = 0;   // re-establish the pre-signed heartbeat buffer on a fresh start
   setStartBtnBusy("Starting…");                   // disabled spinner button — can't be re-clicked
   setRegBanner(i18("reg.startup", "Starting up — checking your registration with the relay…") + REASSURE);
   $("mineState").textContent = i18("mine.starting", "Starting…");

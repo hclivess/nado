@@ -143,6 +143,10 @@ class CoreClient(threading.Thread):
             if 0 in self.memserver.periods and self.memserver.switch_mode["mode"] == 2:
                 self.memserver.replaced_this_round = False
 
+            # LOCKED-PHONE MINING: inject any pre-signed heartbeats now due into the mempool, so a sleeping
+            # phone's presence proofs land in their target block. Runs every tick; drops expired ones.
+            self.memserver.inject_due_presigned()
+
             if 0 in self.memserver.periods and self.memserver.user_tx_buffer:
                 """merge user buffer to tx buffer inside 0 period"""
                 buffered = merge_buffer(from_buffer=self.memserver.user_tx_buffer,

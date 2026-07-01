@@ -201,6 +201,21 @@ async def submit_transaction(request):
     return _resp(out, status=code)
 
 
+async def presign_heartbeats(request):
+    # LOCKED-PHONE MINING: accept a batch of future-dated pre-signed heartbeats the relay submits on
+    # schedule while the miner's phone is asleep. Best-effort relay service (not consensus).
+    if _rate_limited(request, 10):
+        return _RL
+    def _work(body):
+        try:
+            txs = json.loads(body.decode() if isinstance(body, (bytes, bytearray)) else body).get("txs", [])
+            return memserver.add_presigned(txs)
+        except Exception as e:
+            return {"result": False, "message": f"Error: {e}"}
+    body = await request.read()
+    return _resp(await asyncio.to_thread(_work, body))
+
+
 def _ip_registration_rejection(ip, transaction):
     """IP-DIVERSITY cap (non-consensus relay admission control): for a `register` tx, enforce the
     per-source-IP progressive registration budget so one device/range can't script thousands of
@@ -609,6 +624,7 @@ async def make_app(port):
         web.get("/terminate", terminate),
         web.get("/health", health),
         web.post("/submit_transaction", submit_transaction),
+        web.post("/presign_heartbeats", presign_heartbeats),
         web.get("/log", log),
         web.get("/whats_my_ip", whats_my_ip),
         web.get("/force_sync", force_sync),
