@@ -178,7 +178,7 @@ function validateAddress(addr) {
 // ops/alias_ops.valid_alias_name (3..32 chars, lowercase [a-z0-9_-], starts with a letter, not "ndo…").
 function looksLikeAlias(s) { return /^[a-z][a-z0-9_-]{2,31}$/.test(s || "") && !s.startsWith("ndo"); }
 // i18n helper for dynamic (JS-set) strings — translates via i18n.js's window.t, English fallback.
-function i18(k, fb) { return (typeof window !== "undefined" && window.t) ? window.t(k, fb) : fb; }
+function i18(k, fb, vars) { return (typeof window !== "undefined" && window.t) ? window.t(k, fb, vars) : (fb != null ? fb : k); }
 async function resolveAlias(name) {
   try {
     const r = await fetch(relayBase() + "/resolve_alias?name=" + encodeURIComponent(name), { cache: "no-store" });
@@ -424,7 +424,7 @@ async function claimPendingDividends(pending) {
       if (!pr || pr.state_root !== settledRoot) continue;   // proof must be against the SETTLED root; else wait
       const tx = buildDividendWithdrawTx(state.wallet, state.wallet.address, p.amount, p.nonce, pr.proof, latest.block_number + 8, nowSeconds());
       const res = await submitTransaction(tx);
-      if (res.data && res.data.result) log("ok", `Dividend collected: +${rawToNado(BigInt(p.amount))} NADO to your balance.`);
+      if (res.data && res.data.result) log("ok", i18("log.divCollected", "Dividend collected: +{a} NADO to your balance.", {a: rawToNado(BigInt(p.amount))}));
     } catch (e) { /* not claimable yet (unsettled) — retry next refresh */ }
   }
 }
@@ -440,8 +440,8 @@ async function collectDividend() {
     const res = await submitTransaction(tx);
     if (res.data && res.data.result)
       log("ok", i18("div.collecting", "Dividend collection submitted — it lands in your balance automatically once the exec root is settled (a few minutes)."));
-    else log("err", "Collect rejected: " + (res.data && (res.data.message || "")));
-  } catch (e) { log("err", "Collect failed: " + e.message); }
+    else log("err", i18("log.collectRejected", "Collect rejected: {m}", {m: (res.data && (res.data.message || ""))}));
+  } catch (e) { log("err", i18("log.collectFailed", "Collect failed: {m}", {m: e.message})); }
   finally { state._collecting = false; }
 }
 
@@ -651,12 +651,12 @@ async function maybeRenewLease(acc) {
   try {
     const latest = await getLatestBlock();
     if (!latest || typeof latest.block_number !== "number") return;
-    log("info", "Presence lease expiring — renewing (fresh sequential proof)…");
+    log("info", i18("log.leaseRenewing", "Presence lease expiring — renewing (fresh sequential proof)…"));
     const tx = await computeRegisterTx(latest.block_number + 8, null);       // quiet: no UI takeover
     const res = await submitTransaction(tx);
-    if (res.data && res.data.result) log("ok", "Presence lease renewed ✓");
-    else log("err", "Lease renewal rejected: " + (res.data && (res.data.message || "")));
-  } catch (e) { log("err", "Lease renewal error: " + e.message); }
+    if (res.data && res.data.result) log("ok", i18("log.leaseRenewed", "Presence lease renewed ✓"));
+    else log("err", i18("log.leaseRejected", "Lease renewal rejected: {m}", {m: (res.data && (res.data.message || ""))}));
+  } catch (e) { log("err", i18("log.leaseError", "Lease renewal error: {m}", {m: e.message})); }
   finally { _renewingLease = false; }
 }
 
@@ -687,7 +687,7 @@ async function maybePresign(acc, epochNow) {
     const d = await r.json().catch(() => null);
     if (d && typeof d.accepted === "number") {
       state.presignedThroughEpoch = from + txs.length - 1;
-      log("ok", `Pre-signed ${d.accepted} heartbeats (through epoch ${state.presignedThroughEpoch}) — the relay keeps you mining while your phone is locked.`);
+      log("ok", i18("log.presigned", "Pre-signed {n} heartbeats (through epoch {e}) — the relay keeps you mining while your phone is locked.", {n: d.accepted, e: state.presignedThroughEpoch}));
     }
   } catch (e) { /* best-effort relay service */ }
   finally { _presigning = false; }
@@ -698,7 +698,7 @@ async function maybeRegister() {
   // If we already broadcast a registration that can still land, just keep waiting for it.
   if (state.regSubmitted) {
     if (state.latest != null && state.latest > state.regSubmitted.targetBlock) {
-      log("err", "Registration tx expired before inclusion — re-registering automatically.");
+      log("err", i18("log.regExpired", "Registration tx expired before inclusion — re-registering automatically."));
       state.regSubmitted = null;                 // fall through and broadcast a fresh one
     } else {
       const away = state.latest != null ? Math.max(0, state.regSubmitted.targetBlock - state.latest) : null;
@@ -770,7 +770,7 @@ async function submitRegistration() {
   const m = res.data && (res.data.message || JSON.stringify(res.data));
   if (!(res.data && res.data.result)) {
     // surface the relay's exact reason (e.g. "Empty account") so the user isn't blind.
-    log("err", "Register rejected by relay: " + m);
+    log("err", i18("log.regRejected", "Register rejected by relay: {m}", {m}));
     if (/empty account/i.test(m || "")) {
       log("err", "This relay only accepts transactions from accounts that already exist on chain. " +
         "A brand-new address may need the relay operator to seed/allow it (node-side behavior).");
@@ -778,11 +778,11 @@ async function submitRegistration() {
     return false;
   }
   state.regSubmitted = { targetBlock, txid: tx.txid };
-  log("ok", "Register tx accepted into mempool: " + m);
+  log("ok", i18("log.regAccepted", "Register tx accepted into mempool: {m}", {m}));
   // Registration only takes effect once the tx is INCORPORATED into a block. We DON'T block here —
   // the poll loop watches for it and starts heartbeating automatically. No second click needed. Keep
   // the in-progress widget visible (the poll loop refreshes its "blocks remaining" each tick).
-  log("info", "Waiting for the registration to be included in a block — mining will start automatically then.");
+  log("info", i18("log.regWaiting", "Waiting for the registration to be included in a block — mining will start automatically then."));
   showRegProgress(i18("reg.submitted", "Registration submitted — waiting for it to be included in a block…"),
     `target block ${targetBlock}`);
   setRegBanner(i18("reg.waiting", "Waiting for on-chain confirmation — this can take a few blocks") + " (" +
@@ -795,7 +795,7 @@ function nowSeconds() { return Math.floor(Date.now() / 1000); }
 async function sendHeartbeat() {
   if (state.heartbeating) return;                 // re-entrancy guard: overlapping poll ticks won't double-send
   const latest = await getLatestBlock();
-  if (!latest || typeof latest.block_number !== "number") { log("err", "Heartbeat: relay unavailable."); return; }
+  if (!latest || typeof latest.block_number !== "number") { log("err", i18("log.hbRelayUnavail", "Heartbeat: relay unavailable.")); return; }
   state.latest = latest.block_number;
   const targetBlock = latest.block_number + 8;  // headroom so the tx lands before its target block
   const epoch = Math.floor(targetBlock / EPOCH_LENGTH); // matches the block it lands in (target_block)
@@ -820,15 +820,15 @@ async function sendHeartbeat() {
     }
     if (res.data && res.data.result) {
       state.lastHeartbeatEpoch = epoch;
-      log("ok", `Heartbeat sent for epoch ${epoch} (target_block ${targetBlock}).`);
+      log("ok", i18("log.hbSent", "Heartbeat sent for epoch {e} (target_block {b}).", {e: epoch, b: targetBlock}));
     } else if (/already heartbeated|already present/i.test(m)) {
       // BENIGN — not an error: the node already has our heartbeat for this epoch, so we ARE present.
       // (Happens after a page reload, or when a prior heartbeat already landed.) Record the epoch so we
       // stop re-sending it every poll, and surface it calmly instead of as a scary "rejected" line.
       state.lastHeartbeatEpoch = epoch;
-      log("info", `Already present for epoch ${epoch} ✓ (heartbeat not needed again).`);
+      log("info", i18("log.hbAlready", "Already present for epoch {e} ✓ (heartbeat not needed again).", {e: epoch}));
     } else {
-      log("err", `Heartbeat epoch ${epoch} rejected: ${m}`);
+      log("err", i18("log.hbRejected", "Heartbeat epoch {e} rejected: {m}", {e: epoch, m}));
     }
   } finally {
     state.heartbeating = false;
@@ -870,13 +870,13 @@ async function pollOnce() {
     maybePresign(acc, epochNow).catch(() => {});
     // registered on chain → clear any pending registration record and heartbeat each epoch
     const wasStarting = state.starting || $("btnMine").disabled; // were we still in the setup phase?
-    if (state.regSubmitted) { state.regSubmitted = null; show("powWrap", false); log("ok", "Registration confirmed on chain ✓"); }
+    if (state.regSubmitted) { state.regSubmitted = null; show("powWrap", false); log("ok", i18("log.regConfirmed", "Registration confirmed on chain ✓")); }
     markMiningActive();                       // flip the button to the working Stop/Mining toggle
     if (wasStarting) {
       setRegBanner(i18("reg.confirmed", "Registered ✓ — mining now. Heartbeating automatically each epoch."), "ok");
       hideRegBannerSoon();
     }
-    try { await sendHeartbeat(); } catch (e) { log("err", "Heartbeat error: " + e.message); }
+    try { await sendHeartbeat(); } catch (e) { log("err", i18("log.hbError", "Heartbeat error: {m}", {m: e.message})); }
     // AUTO-BOND: compound a % of new mining rewards into bonded stake (once/epoch). `acc` is fresh here.
     try { await maybeAutoBond(acc, null); } catch (e) { /* best-effort; never break the loop */ }
   }
@@ -903,7 +903,7 @@ async function acquireWakeLock() {
     state.wakeLock = await navigator.wakeLock.request("screen");
     // the browser auto-releases the lock whenever the page is hidden; drop our handle so we re-request
     state.wakeLock.addEventListener("release", () => { state.wakeLock = null; });
-    log("info", "Screen kept awake so mining continues while the phone is idle.");
+    log("info", i18("log.wakeLock", "Screen kept awake so mining continues while the phone is idle."));
   } catch (e) { /* unsupported / denied — mining still runs while the tab is foregrounded */ }
 }
 async function releaseWakeLock() {
@@ -939,11 +939,11 @@ async function startMining() {
   setStartBtnBusy(i18("mine.starting", "Starting…"));                   // disabled spinner button — can't be re-clicked
   setRegBanner(i18("reg.startup", "Starting up — checking your registration with the relay…") + REASSURE);
   $("mineState").textContent = i18("mine.starting", "Starting…");
-  log("ok", "Mining started — registering (if needed) and heartbeating automatically.");
+  log("ok", i18("log.miningStarted", "Mining started — registering (if needed) and heartbeating automatically."));
   startPollLoop();
   acquireWakeLock();   // keep the screen awake so mining doesn't stall when the phone would auto-lock
   // kick off the first cycle immediately (registration / heartbeat / refresh) without blocking the UI
-  pollOnce().catch((e) => log("err", "Mining loop error: " + e.message));
+  pollOnce().catch((e) => log("err", i18("log.miningLoopError", "Mining loop error: {m}", {m: e.message})));
 }
 
 function stopMining() {
@@ -960,7 +960,7 @@ function stopMining() {
   setStartBtnIdle();
   $("mineState").textContent = i18("mine.idle", "Idle");
   $("mineNextHb").textContent = "—";
-  log("info", "Mining stopped.");
+  log("info", i18("log.miningStopped", "Mining stopped."));
 }
 
 /* ----------------------------------------------------------------------------------------------
@@ -1160,7 +1160,7 @@ function adoptWallet(w, { needsSavePrompt }) {
     state.wallet = w;
     persistWallet(w);
     showWalletUI();
-    log("info", "Wallet loaded: " + w.address);
+    log("info", i18("log.walletLoaded", "Wallet loaded: {a}", {a: w.address}));
     refreshDashboard().catch(() => {});
   }
 }
@@ -1325,7 +1325,7 @@ function downloadKeyFile() {
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1500);
-  log("info", "Downloaded key file for " + w.address.slice(0, 12) + "…");
+  log("info", i18("log.keyDownloaded", "Downloaded key file for {a}…", {a: w.address.slice(0, 12)}));
 }
 
 /* Import a wallet from a key FILE (the mirror of downloadKeyFile): reads the JSON produced by
@@ -1345,7 +1345,7 @@ function importKeyFile(file) {
       }
       if (!priv) throw new Error(i18("import.noKey", "no private key found in the file"));
       adoptWallet(keypairFromPriv(String(priv).trim()), { needsSavePrompt: false });
-      log("info", "Imported key from file.");
+      log("info", i18("log.keyImported", "Imported key from file."));
     } catch (e) {
       alert(i18("import.fileFailed", "Import from file failed:") + " " + e.message);
     }
@@ -1586,13 +1586,13 @@ async function maybeAutoBond(acc, ms) {
       state.lastAutoBondEpoch = epoch;
       state.autoBondPending = { target: bonded + toBond, epoch };  // wait for THIS to land before the next
       state.autoBondBaseline = balance - toBond - BigInt(fee);   // optimistic; reconciled once it confirms
-      log("ok", `Auto-bonded ${rawToNado(toBond)} NADO (${pct}% of ${rawToNado(gain)} new rewards) → bonded lane.`);
+      log("ok", i18("log.autoBonded", "Auto-bonded {a} NADO ({p}% of {g} new rewards) → bonded lane.", {a: rawToNado(toBond), p: pct, g: rawToNado(gain)}));
       refreshDashboard().catch(() => {});
     } else {
       const m = res.data && (res.data.message || JSON.stringify(res.data));
-      log("err", "Auto-bond rejected: " + m);
+      log("err", i18("log.autoBondRejected", "Auto-bond rejected: {m}", {m}));
     }
-  } catch (e) { log("err", "Auto-bond error: " + e.message); }
+  } catch (e) { log("err", i18("log.autoBondError", "Auto-bond error: {m}", {m: e.message})); }
 }
 
 /* ---- Payment-request deep links: QR / shareable URL that prefills a Send on scan ---- */
@@ -1739,7 +1739,7 @@ function consumePayRequest() {
     pendingPay = req;                       // stash; resume after the wallet is created/imported
     try { sessionStorage.setItem(LS_PENDING_PAY, JSON.stringify(req)); } catch (e) {}
     toast("Payment request pending — set up a wallet, then it will prefill a Send.", "info", 7000);
-    log("info", "Payment request detected — create or import a wallet to continue.");
+    log("info", i18("log.payDetected", "Payment request detected — create or import a wallet to continue."));
   }
 }
 
@@ -2034,7 +2034,7 @@ function wireEvents() {
     state.wallet = pendingWallet; pendingWallet = null;
     persistWallet(state.wallet);
     showWalletUI();
-    log("info", "New wallet created & stored: " + state.wallet.address);
+    log("info", i18("log.walletCreated", "New wallet created & stored: {a}", {a: state.wallet.address}));
     refreshDashboard().catch(() => {});
   };
 
@@ -2100,7 +2100,7 @@ function wireEvents() {
     const v = $("relayUrl").value.trim();
     state.relay = v || null;
     if (v) localStorage.setItem(LS_RELAY, v); else localStorage.removeItem(LS_RELAY);
-    log("info", "Relay set to " + relayBase());
+    log("info", i18("log.relaySet", "Relay set to {u}", {u: relayBase()}));
     pollOnce().catch(() => {});
   };
 
@@ -2113,7 +2113,7 @@ function wireEvents() {
     state.wallet = null;
     state.activeTab = "wallet";
     enterOnboarding();
-    log("info", "Wallet forgotten.");
+    log("info", i18("log.walletForgotten", "Wallet forgotten."));
   };
 
   document.querySelectorAll("[data-copy]").forEach((btn) => {
@@ -2168,12 +2168,12 @@ async function boot() {
   if (w && w.address) {
     state.wallet = w;
     showWalletUI();
-    log("info", "Loaded wallet from this device: " + w.address);
+    log("info", i18("log.walletLoadedDevice", "Loaded wallet from this device: {a}", {a: w.address}));
     // AUTO-RESUME across a browser refresh: the in-memory mining flag is lost on reload, but the intent is
     // persisted, so we resume without a re-click. This won't double anything — the node dedups heartbeats
     // one-per-(address,epoch) and won't re-register an already-registered (lease-valid) identity.
     if (localStorage.getItem(LS_MINING) === "1") {
-      log("info", "Resuming mining after refresh (no re-click needed)…");
+      log("info", i18("log.resuming", "Resuming mining after refresh (no re-click needed)…"));
       startMining();
       resumedMining = true;
     }
