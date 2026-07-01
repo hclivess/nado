@@ -750,12 +750,17 @@ async function pollOnce() {
     // registration that's still pending. The user only ever clicks "Start mining" once.
     let acc = null;
     try { acc = await getAccount(state.wallet.address); } catch (e) { /* relay hiccup */ }
-    if (!acc || acc.registered !== 1) {
-      await maybeRegister();
-      return; // skip the heartbeat until registration is confirmed on chain
+    const epochNow = state.latest != null ? Math.floor((state.latest + 8) / EPOCH_LENGTH) : null;
+    const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
+    // OPEN-lane eligibility = registered AND a PoSW recert within POSW_LEASE_EPOCHS. (A legacy account
+    // registered under the old hashcash has no recert -> reg_epoch < 0 -> must (re)register with a PoSW.)
+    const leaseValid = epochNow != null && regEpoch >= 0 && (epochNow - regEpoch) < POSW_LEASE_EPOCHS;
+    if (!acc || acc.registered !== 1 || !leaseValid) {
+      await maybeRegister();          // first registration OR re-establish an absent/expired lease
+      return;                         // skip heartbeat until the (re)registration lands
     }
-    // PRESENCE LEASE: quietly renew (fresh sequential proof) once ~80% of the lease is spent, so the
-    // identity never lapses out of the open registry. Runs in the background; heartbeats continue.
+    // eligible: quietly renew (fresh sequential proof) once ~80% of the lease is spent, so the identity
+    // never lapses out of the open registry. Runs in the background; heartbeats continue.
     maybeRenewLease(acc).catch(() => {});
     // registered on chain → clear any pending registration record and heartbeat each epoch
     const wasStarting = state.starting || $("btnMine").disabled; // were we still in the setup phase?
