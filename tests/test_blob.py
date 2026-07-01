@@ -71,6 +71,27 @@ def t6_below_min_fee_rejected():
     tx = construct_blob_tx(A, "x", target_block=1, fee=0)
     assert raises(lambda: validate_transaction(tx, logger, 1)), "blob below min DA fee must reject"
 
+def t7_per_block_blob_cap():
+    from protocol import MAX_BLOB_BYTES_PER_BLOCK
+    from ops.transaction_ops import assert_block_blob_cap, cap_block_blobs, block_blob_bytes
+    # one ~10KB blob per tx; enough of them to exceed the per-block cap
+    per = 10 * 1024
+    n = MAX_BLOB_BYTES_PER_BLOCK // per + 2
+    blobs = [construct_blob_tx(A, "x" * per, target_block=1, fee=MIN_TX_FEE) for _ in range(n)]
+    assert raises(lambda: assert_block_blob_cap(blobs)), "over-cap block must be rejected"
+    kept = cap_block_blobs(blobs)
+    assert block_blob_bytes(kept) <= MAX_BLOB_BYTES_PER_BLOCK, "assembly must trim blobs under the cap"
+    assert_block_blob_cap(kept)                                   # trimmed set now passes
+    assert len(kept) < n, "some blobs were dropped"
+
+def t8_non_blob_txs_never_dropped_by_cap():
+    from ops.transaction_ops import cap_block_blobs
+    # a normal (non-blob) tx is always kept regardless of blob pressure
+    normal = {"recipient": "ndoxxxx", "txid": "aa", "data": ""}
+    big = construct_blob_tx(A, "x" * (BLOB_MAX_BYTES), target_block=1, fee=MIN_TX_FEE)
+    kept = cap_block_blobs([normal, big] + [construct_blob_tx(A, "y" * (BLOB_MAX_BYTES), 1, MIN_TX_FEE) for _ in range(20)])
+    assert normal in kept, "non-blob tx must never be dropped by the blob cap"
+
 for name, fn in list(globals().items()):
     if name.startswith("t") and callable(fn) and name[1].isdigit():
         check(name, fn)

@@ -33,8 +33,10 @@ RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "hear
 # a fee-metered, size-capped, opaque byte channel. Contracts, the VM, and their state never touch
 # consensus, so phone-mining and the base ledger are unaffected.
 BLOB_MAX_BYTES = 16 * 1024        # per-tx opaque payload cap (canonical bytes) — bounds block growth
-# TODO(Phase 1 hardening): also enforce a per-BLOCK total-blob-bytes cap in verify_block so a single
-# block cannot bloat DA beyond what phones relay (doc/execution-layer.md §3.3). Per-tx cap ships first.
+# Per-BLOCK total-blob-bytes cap (doc/execution-layer.md §3.3): the sum of all blob payloads in one block
+# is bounded so a single block cannot bloat data-availability beyond what phones download/relay. This is
+# a CONSENSUS check (verify_block rejects an over-cap block; block assembly drops the excess).
+MAX_BLOB_BYTES_PER_BLOCK = 256 * 1024
 
 # --- Aliases (human-readable names -> address; register / transfer / unregister on-chain) ---
 # An alias lets a user send to a short name instead of the 49-char ndo address. Names are a scarce

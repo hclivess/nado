@@ -100,8 +100,10 @@ def match_transactions_target(transaction_list, block_number, logger):
 
         # AUDIT FIX: drop duplicate reserved txs (e.g. two withdraws of one unbond, two heartbeats of
         # one epoch) so an honest producer never assembles a block verify_block would reject.
-        from ops.transaction_ops import dedupe_reserved
-        return dedupe_reserved(matched_txs)
+        from ops.transaction_ops import dedupe_reserved, cap_block_blobs
+        # DA cap: keep blob txs only up to the per-block byte budget so the assembled block passes
+        # assert_block_blob_cap (excess blobs wait for a later block).
+        return cap_block_blobs(dedupe_reserved(matched_txs), logger)
     except Exception as e:
         logger.error(f"Error when matching transactions to target block: {e}")
         return False

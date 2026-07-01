@@ -20,7 +20,8 @@ from ops.key_ops import load_keys
 from ops.log_ops import get_logger
 from ops.peer_ops import load_ips
 from ops import kv_ops
-from protocol import CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH, BLOB_MAX_BYTES
+from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH,
+                      BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK)
 import aiohttp
 
 
@@ -136,6 +137,38 @@ def construct_bond_tx(keydict, amount, fee, target_block):
 def blob_payload_size(payload) -> int:
     """True canonical byte length of a blob payload (for the DA size cap) — deterministic across nodes."""
     return len(canonical_bytes(payload))
+
+
+def block_blob_bytes(transactions) -> int:
+    """Total opaque blob bytes carried by a block's transactions (data-availability weight)."""
+    return sum(blob_payload_size(t.get("data")) for t in transactions if t.get("recipient") == "blob")
+
+
+def assert_block_blob_cap(transactions):
+    """CONSENSUS check (doc/execution-layer.md §3.3): a single block may not carry more than
+    MAX_BLOB_BYTES_PER_BLOCK of blob data, so DA growth stays within what phones download/relay."""
+    total = block_blob_bytes(transactions)
+    assert total <= MAX_BLOB_BYTES_PER_BLOCK, \
+        f"Block blob bytes {total} exceed per-block cap {MAX_BLOB_BYTES_PER_BLOCK}"
+    return True
+
+
+def cap_block_blobs(transactions, logger=None):
+    """Assembly helper: keep every non-blob tx, but admit blob txs (deterministically, in txid order)
+    only while their cumulative payload stays within MAX_BLOB_BYTES_PER_BLOCK — so an assembled block
+    always passes assert_block_blob_cap. Every honest producer drops the SAME excess blobs (txid order),
+    so the built block is identical across nodes. A dropped blob must be resubmitted at a later target."""
+    out, used = [], 0
+    for t in sorted(transactions, key=lambda x: x.get("txid", "")):
+        if t.get("recipient") == "blob":
+            sz = blob_payload_size(t.get("data"))
+            if used + sz > MAX_BLOB_BYTES_PER_BLOCK:
+                if logger:
+                    logger.warning(f"DA cap: dropping blob {t.get('txid', '')[:12]}… ({sz}B) from block")
+                continue
+            used += sz
+        out.append(t)
+    return out
 
 
 def construct_blob_tx(keydict, payload, target_block, fee):

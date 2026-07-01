@@ -42,7 +42,7 @@ from ops.transaction_ops import remove_outdated_transactions
 from ops.transaction_ops import (
     to_readable_amount,
     validate_transaction,
-    validate_all_spending, index_transactions, assert_unique_reserved
+    validate_all_spending, index_transactions, assert_unique_reserved, assert_block_blob_cap
 )
 import secrets as _secrets
 from rollback import rollback_one_block, MissingParentError, FinalityViolation
@@ -834,6 +834,17 @@ class CoreClient(threading.Thread):
         if not check_target_match(transactions, block["block_number"], logger=logger):
             self.logger.error("Transactions mismatch target block")
             raise ValueError("Transactions mismatch target block")
+
+        # DATA-AVAILABILITY cap (doc/execution-layer.md §3.3): reject a block carrying more blob bytes
+        # than phones can be expected to download/relay. Fail-closed like the other block-set checks.
+        try:
+            assert_block_blob_cap(transactions)
+        except Exception as e:
+            self.logger.error(f"Block exceeds per-block blob cap: {e}")
+            if remote:
+                self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
+                                                         peer=remote_peer, value=-1)
+            raise
 
         try:
             validate_all_spending(transaction_pool=transactions)
