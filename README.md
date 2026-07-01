@@ -12,11 +12,14 @@
 
 **A phone-mineable, fair-launch, post-quantum, lightweight blockchain.**
 
-NADO lets an ordinary phone — running nothing but a browser tab — take part in block production
-for **zero capital**, on a **fair launch with no premine**, secured by **post-quantum signatures**.
-It replaces the Proof-of-Work hash race with a **deterministic, beacon-keyed weighted draw**: one
-hash decides each block's producer, so faster hardware (ASICs, GPUs) confers no advantage and there
-is nothing to grind. Coins enter circulation only as block rewards.
+NADO is built around a **seamless, one-click experience**: every node serves a single **zero-install
+browser page** — **wallet, block explorer, miner, and alias manager in one** — at its root URL, so
+full interaction with the chain is one tap away from *any* device, with no app, no sync, and no
+account. Under that surface, NADO lets an ordinary phone — running nothing but that browser tab — take
+part in block production for **zero capital**, on a **fair launch with no premine**, secured by
+**post-quantum signatures**. It replaces the Proof-of-Work hash race with a **deterministic,
+beacon-keyed weighted draw**: one hash decides each block's producer, so faster hardware (ASICs, GPUs)
+confers no advantage and there is nothing to grind. Coins enter circulation only as block rewards.
 
 > **Status: testnet-stage alpha, NOT yet mainnet-launched.** The fair-mining economics and the full
 > consensus-security hardening plan (objective fork-choice, enforced finality, grind-proof chain
@@ -41,6 +44,10 @@ them: no puzzles to keep solving, no efficient rig to keep running, and no requi
 
 ## Key features
 
+- **Seamless — one client, any device, one tap.** Every node serves a single browser page (`/`) that
+  is at once the **wallet, block explorer, miner, and alias manager** — no install, no extension, no
+  full node, no signup. Generate a post-quantum wallet, mine, send/receive, register a human-readable
+  **alias**, and browse the chain, all from one link on a phone or a laptop.
 - **Phone-mineable.** Block production is one hash per slot over a public beacon, not a race — a
   phone competes on equal terms with a datacenter. Winners are credited **by address**, so a phone
   can win a block while its tab is closed and a relay assembles the block on its behalf.

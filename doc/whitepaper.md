@@ -33,10 +33,14 @@
 
 ## Abstract
 
-NADO is a lightweight blockchain designed so that an ordinary phone, running a
-pure-browser client with no full node, can participate in block production for
-zero capital, on a fair launch with no premine, secured by post-quantum
-signatures. It replaces grindable, hash-race mining with a **deterministic,
+NADO is a lightweight blockchain built around a **seamless, one-click experience**:
+every node serves a single **zero-install browser client** — **wallet, block
+explorer, miner, and alias manager in one** — at its root URL, so full interaction
+with the chain is one tap away from *any* device (a phone, a laptop, a kiosk), with
+no app, no sync, and no seed ceremony. Under that surface, NADO is designed so that
+an ordinary phone, running that pure-browser client with no full node, can
+participate in block production for zero capital, on a fair launch with no premine,
+secured by post-quantum signatures. It replaces grindable, hash-race mining with a **deterministic,
 beacon-keyed weighted draw**: for each slot exactly one hash decides the
 producer, so there is no nonce grinding and faster hardware confers no advantage
 (ASIC/GPU-irrelevant). Production is split into two lanes per epoch — an **OPEN**
@@ -66,8 +70,19 @@ subset that is still unbuilt.
 Most "anyone-can-mine" claims fail in one of four ways: mining is captured by
 specialized hardware; launches are not fair (premines, insider allocations);
 the cryptography is not quantum-resistant; or a "light" client still depends on
-trusted infrastructure. NADO targets all four simultaneously.
+trusted infrastructure. NADO targets all four simultaneously — and adds a fifth,
+first-class goal: **the whole experience must be seamless.**
 
+- **Seamless — one client, any device, one tap.** The chain should not feel like
+  infrastructure. Every node serves, at its root URL, a **single browser page that
+  is at once the wallet, the block explorer, the miner, and the alias manager** —
+  no install, no extension, no full node, no account signup. Open the link on a
+  phone and you can generate a post-quantum wallet, mine, send/receive, register a
+  human-readable **alias** to receive to a name instead of a 49-char address,
+  browse blocks and accounts, and see the live network — all in one place, all
+  reproduced byte-for-byte in the browser. **Full interaction with the chain, one
+  click away, from anything with a browser.** This is the organizing principle the
+  rest of the design serves.
 - **Phone-mineable.** Block production is decided by a single hash per slot over
   a public beacon, not by a hash race. There is nothing to grind, so a phone
   competes on equal terms with a datacenter. A winner is credited *by address*,
@@ -411,8 +426,10 @@ recursively sorted keys (BigInt is required because raw amounts exceed JS's
 - **Address** = `"ndo"` + `public_key[:42]` (hex) + a 4-hex `blake2b` checksum;
   total 49 chars. `validate_address` recomputes the checksum. The keyless
   reserved recipients `{bond, unbond, withdraw, register, heartbeat, slash, attest,
-  commit, reveal}` bypass the checksum rule and are valid only as a recipient/target,
-  never as a sender. *(implemented)*
+  commit, reveal, alias}` bypass the checksum rule and are valid only as a
+  recipient/target, never as a sender. A transfer's recipient may also be a
+  **registered alias** (a human-readable name), resolved to its owner's address at
+  apply time (§Aliases / `doc/aliases.md`). *(implemented)*
 - **Transaction binding.** `txid = blake2b_hash(canonical body)`, including
   `CHAIN_ID = "nado-relaunch-1"`; the signature is taken over `unhex(txid)`.
   `validate_txid` independently recomputes the txid so any field tamper is
@@ -488,21 +505,34 @@ JSON. A `POST /submit_transaction` endpoint was added because an ML-DSA-44
 transaction (~7.8 KB) does not fit a GET URL; both GET and POST paths are
 rate-limited (Section 7). *(implemented)*
 
-### 6.4 Browser light-miner and full wallet
+### 6.4 The unified browser client — wallet + explorer + miner + aliases, one page
 
-`static/miner.js` + `static/miner.html` let a phone mine and transact with **no
-full node**. It reproduces the node's canonical encoding and crypto exactly
-(addresses, txids, ML-DSA-44 signatures), solves the registration PoW in pure JS
-(16-bit, chunked/cancellable), then registers and heartbeats against a relay that
-assembles the crediting block. Crypto is **vendored** (`./vendor/nado-crypto.js`,
-blake2b + ML-DSA-44) so it works offline, with a CDN fallback only if the local
-bundle is absent. An in-page self-test asserts byte-equality of canonical
-encoding against vectors generated from the live repo, on boot. It is a full
-wallet: generate/import keys, transfer, bond/unbond, QR + `#pay` deep links,
-history, key-file download, and `localStorage` persistence. It also surfaces the
-**live OPEN and BONDED lane participant counts** (`/mining_status`
-`open_registry_size` / `bonded_registry_size`) alongside the miner's own bonded
-shares, so a phone can see how contested each lane is. *(implemented)*
+The seamless-experience principle (§1) is realized in **one** page:
+`static/miner.html` + `static/miner.js`, which **every node serves at its root URL
+`/`** (a redirect to the client) with no install, no full node, and no account. It
+is simultaneously:
+
+- a **wallet** — generate/import a post-quantum key, transfer, bond/unbond, QR +
+  `#pay` deep links, history, key-file download, `localStorage` persistence;
+- a **miner** — it reproduces the node's canonical encoding and crypto exactly
+  (addresses, txids, ML-DSA-44 signatures), solves the 16-bit registration PoW in
+  pure JS (chunked/cancellable), then registers and heartbeats against a relay that
+  assembles the crediting block, and keeps mining across a phone lock (screen wake
+  lock + resume-on-foreground);
+- a **block explorer** (the *Explore* tab) — search by address / **alias** / block
+  number / block hash / txid, browse recent blocks, and read live network + lane
+  stats, all from the node's public JSON API;
+- an **alias manager** (the *Aliases* tab) — register a human-readable name that
+  resolves to your own address (so others send to `alice` instead of a 49-char
+  `ndo…`), transfer it, or free it; and the Send field accepts an alias directly.
+
+Crypto is **vendored** (`./vendor/nado-crypto.js`, blake2b + ML-DSA-44) so it works
+offline, with a CDN fallback only if the local bundle is absent; an in-page
+self-test asserts byte-equality of the canonical encoding against live-repo vectors
+on boot. It also surfaces the **live OPEN and BONDED lane participant counts**
+(`/mining_status`) alongside the miner's own bonded shares. There is no separate
+explorer deployment and no server-side templating — the single static client, read
+byte-for-byte in the browser, *is* the full interface to the chain. *(implemented)*
 
 > **Client caveats.** The private key is stored in browser `localStorage` in
 > **plaintext** (explicitly disclosed in the UI). Permissive CORS
@@ -904,7 +934,8 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | ML-DSA-44 pubkey | `1312` bytes (from 32-byte seed) | Post-quantum public key (FIPS 204). |
 | ML-DSA-44 signature | `~2420` bytes | Post-quantum signature length. |
 | Address format | `"ndo"` + 42-hex pubkey prefix + 4-hex checksum (49 chars) | Checksum = `blake2b_hash(body, size=2)`. |
-| `RESERVED_RECIPIENTS` | `{bond, unbond, withdraw, register, heartbeat, slash, attest, commit, reveal}` | Keyless pseudo-recipients; valid as recipient/target only. |
+| `RESERVED_RECIPIENTS` | `{bond, unbond, withdraw, register, heartbeat, slash, attest, commit, reveal, alias}` | Keyless pseudo-recipients; valid as recipient/target only. |
+| `ALIAS_REGISTRATION_FEE` | `10_000_000` (0.001 NADO) | Anti-squat fee to register an alias (name → owner address). |
 | `SLASH_BOND_PENALTY` | `B_MIN` (one share, 100 NADO) | Bonded stake burned per proven equivocation (#15 step 5C); revert-symmetric, one-per-(offender, height). |
 | `FFG_NUM` / `FFG_DEN` | `2` / `3` | FFG-lite justify threshold: a checkpoint justifies at *strictly* >2/3 of total bonded shares (#6). Additive signal, exposed at `/status.ffg_finalized`. |
 | Rate limit | `30 req / 60s` per IP | On `/submit_transaction` (GET+POST); HTTP 429 over the limit. |
