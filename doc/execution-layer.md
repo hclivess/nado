@@ -81,13 +81,20 @@ programmability immediately with zero L1 risk, and the one later concession (a v
 
 ## 3. Phase 1 — the sovereign execution layer
 
-> **Implementation status (built).** The Phase-1 skeleton now lives in `execnode/` + a one-tx L1 surface:
-> the `blob` reserved recipient (`protocol.py`, validated/burned in `transaction_ops`/`account_ops`,
-> `tests/test_blob.py`), a minimal deterministic stack VM (`execnode/vm.py`), a contract state store with
-> a canonical `state_root` (`execnode/state.py`), a tailing execution node + read-only query API
-> (`execnode/execnode.py`), and a submit CLI + example token (`execnode/submit_blob.py`,
-> `execnode/examples/token.json`); determinism is tested in `tests/test_execnode_vm.py`. Still to do:
-> the per-block blob-bytes cap (§3.3), the DA availability/pruning window, and Phase 2 (§4).
+> **Implementation status (Phase 1 AND Phase 2 built).**
+> - **Phase 1 (sovereign):** the `blob` reserved recipient (`protocol.py`, validated/burned in
+>   `transaction_ops`/`account_ops`, `tests/test_blob.py` incl. the **per-block blob-bytes cap** §3.3), a
+>   deterministic stack VM (`execnode/vm.py`), a contract state store (`execnode/state.py`), a tailing
+>   execution node + query API (`execnode/execnode.py`), submit CLI + example token; determinism tested in
+>   `tests/test_execnode_vm.py`. Proven live end-to-end (token deploy + transfer via blobs).
+> - **Phase 2 (settled + bridge):** `settle` records a bonded validator's `(exec_cursor, state_root)`;
+>   `ops/settlement_ops.settlement_justified()` (the pluggable verifier seam) settles a root once bonded
+>   shares exceed 2/3, exposed at `/get_settled` (`tests/test_settlement.py`). The exec `state_root` is a
+>   **Merkle** root, so a `bridge` deposit → exec credit → `bridge_withdraw` burn → **Merkle proof against
+>   the settled root** → L1 escrow release round-trips trust-minimized (`tests/test_bridge.py`).
+> - **Still to do:** the DA availability/pruning window, and **Phase-2b** — replacing the bonded-quorum
+>   settlement verifier with a single succinct STARK validity proof (the seam is in place). Trust today is
+>   the bonded stake (a validator committee), not yet a validity proof.
 
 
 ### 3.1 What L1 does: carry opaque blobs
