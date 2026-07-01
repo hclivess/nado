@@ -16,6 +16,7 @@
   .ex-row { display:flex; justify-content:space-between; gap:12px; padding:12px 14px;
             border:1px solid var(--line,#1c2530); border-radius:12px; align-items:center; }
   .ex-row:hover { border-color:var(--accent,#3aa0ff); }
+  .ex-row.mine { border-color:var(--accent,#3aa0ff); background:rgba(58,160,255,0.08); }
   a.ex-link { color:var(--accent,#3aa0ff); cursor:pointer; text-decoration:none; word-break:break-all; }
   a.ex-link:hover { text-decoration:underline; }
   .ex-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
@@ -107,6 +108,7 @@
     <button class="tab" data-tabbtn="aliases" data-i18n="tab.aliases">Aliases</button>
     <button class="tab" data-tabbtn="stake" data-i18n="tab.stake">Stake</button>
     <button class="tab" data-tabbtn="history" data-i18n="tab.history">History</button>
+    <button class="tab" data-tabbtn="rich" data-i18n="tab.rich">Rich list</button>
     <button class="tab" data-tabbtn="explore" data-i18n="tab.explore">Explore</button>
     <button class="tab" data-tabbtn="settings" data-i18n="tab.settings">Settings</button>
   </nav>
@@ -335,6 +337,12 @@
 
   <!-- SETTINGS -->
   <!-- EXPLORE (block explorer, folded into the wallet) -->
+  <div id="richCard" class="card hidden" data-tab="rich">
+    <h2 data-i18n="rich.title">🏆 Rich list</h2>
+    <div class="faint small" data-i18n="rich.sub">The largest wallets on the network, by total holdings (spendable + savings).</div>
+    <div id="richList" class="ex-rows mt"><div class="faint small">loading…</div></div>
+  </div>
+
   <div id="exploreSearchCard" class="card hidden" data-tab="explore">
     <h2 data-i18n="explore.title">Explore</h2>
     <div id="exSearch">

@@ -538,6 +538,37 @@ async def get_richest(request):
     return _resp(await asyncio.to_thread(_work))
 
 
+_rich_list_cache = {"height": -1, "list": None}
+
+
+async def get_rich_list(request):
+    # Top-N accounts by total holdings (balance + bonded) — powers the wallet's rich list / leaderboard.
+    # O(accounts) scan, cached per block height (top 100 kept, sliced to n) so it runs at most once/block.
+    def _work():
+        from ops import kv_ops
+        try:
+            h = memserver.latest_block["block_number"]
+        except Exception:
+            h = 0
+        try:
+            n = max(1, min(100, int(_q(request, "n", "25"))))
+        except Exception:
+            n = 25
+        if _rich_list_cache["height"] == h and _rich_list_cache["list"] is not None:
+            return {"block_number": h, "rich_list": _rich_list_cache["list"][:n]}
+        top = []
+        for addr, acc in kv_ops.iter_accounts():
+            bal, bond = int(acc.get("balance", 0)), int(acc.get("bonded", 0))
+            tot = bal + bond
+            if tot > 0:
+                top.append((tot, addr, bal, bond))
+        top.sort(key=lambda t: t[0], reverse=True)
+        rich = [{"address": a, "total": tot, "balance": bal, "bonded": bond} for (tot, a, bal, bond) in top[:100]]
+        _rich_list_cache.update(height=h, list=rich)
+        return {"block_number": h, "rich_list": rich[:n]}
+    return _resp(await asyncio.to_thread(_work))
+
+
 async def get_settled(request):
     # The canonical SETTLED execution-layer checkpoint (Phase 2): the (exec_cursor, state_root) the bonded
     # quorum has attested. Execution nodes / bridges read this as the L1-enforced exec-layer state.
@@ -618,6 +649,7 @@ async def make_app(port):
             "majority_block_opinion": consensus.majority_block_hash})),
         web.get("/get_recommended_fee", get_recommended_fee),
         web.get("/get_richest", get_richest),
+        web.get("/get_rich_list", get_rich_list),
         web.get("/get_settled", get_settled),
         web.get("/resolve_alias", resolve_alias),
         web.get("/get_aliases_of", aliases_of),

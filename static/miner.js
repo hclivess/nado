@@ -1851,6 +1851,33 @@ async function exSearch() {
   $("exSearchErr").classList.remove("hidden");
 }
 
+/* Rich list (leaderboard): the top wallets by total holdings, from /get_rich_list. Each row links into
+ * the Explore tab; the caller's own wallet is highlighted if it's on the list. */
+function richRow(e, rank, isMine) {
+  const total = rawToNado(BigInt(e.total || 0));
+  const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : "#" + rank;
+  const you = isMine ? ` <span class="pill">${i18("rich.you", "you")}</span>` : "";
+  return `<div class="ex-row${isMine ? " mine" : ""}">
+    <div><span class="mono">${medal}</span> ${exLink("a", e.address, exShort(e.address, 12))}${you}</div>
+    <div style="text-align:right"><b>${total}</b> NADO</div></div>`;
+}
+
+async function loadRichList() {
+  const box = $("richList");
+  if (!box) return;
+  box.innerHTML = `<div class="faint small">${i18("rich.loading", "loading…")}</div>`;
+  try {
+    const r = await fetch(relayBase() + "/get_rich_list?n=25", { cache: "no-store" });
+    const d = await r.json();
+    const list = (d && d.rich_list) || [];
+    if (!list.length) { box.innerHTML = `<div class="faint small">${i18("rich.empty", "no accounts yet")}</div>`; return; }
+    const mine = state.wallet && state.wallet.address;
+    box.innerHTML = list.map((e, i) => richRow(e, i + 1, e.address === mine)).join("");
+  } catch (e) {
+    box.innerHTML = `<div class="faint small">${i18("rich.err", "unavailable")}</div>`;
+  }
+}
+
 function showTab(name) {
   if (!state.wallet) return;
   state.activeTab = name;
@@ -1861,6 +1888,7 @@ function showTab(name) {
   else if (name === "aliases") loadMyAliases();
   else if (name === "explore") { exLoadOverview(); exLoadRecent(); }
   else if (name === "history") loadHistory().catch(() => {});
+  else if (name === "rich") loadRichList().catch(() => {});
   else if (name === "send") { updateFeeInfo().catch(() => {}); validateSendTo().catch(() => {}); addrBookRender(); }
   else if (name === "stake") { updateFeeInfo().catch(() => {}); refreshDashboard().catch(() => {}); }
 }

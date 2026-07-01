@@ -549,6 +549,27 @@
   };
   for (const l in T11) Object.assign(T[l], T11[l]);
 
+  // Rich list (leaderboard) tab.
+  const T12 = {
+    en: { "tab.rich":"Rich list","rich.title":"🏆 Rich list","rich.sub":"The largest wallets on the network, by total holdings (spendable + savings).","rich.loading":"loading…","rich.empty":"no accounts yet","rich.err":"unavailable","rich.you":"you" },
+    cs: { "tab.rich":"Žebříček","rich.title":"🏆 Žebříček nejbohatších","rich.sub":"Největší peněženky v síti podle celkových zůstatků (utratitelné + spoření).","rich.loading":"načítání…","rich.empty":"zatím žádné účty","rich.err":"nedostupné","rich.you":"vy" },
+    es: { "tab.rich":"Ranking","rich.title":"🏆 Ranking de riqueza","rich.sub":"Las carteras más grandes de la red, por tenencias totales (disponible + ahorros).","rich.loading":"cargando…","rich.empty":"aún no hay cuentas","rich.err":"no disponible","rich.you":"tú" },
+    pt: { "tab.rich":"Ranking","rich.title":"🏆 Ranking de riqueza","rich.sub":"As maiores carteiras da rede, por saldos totais (disponível + poupança).","rich.loading":"a carregar…","rich.empty":"ainda sem contas","rich.err":"indisponível","rich.you":"você" },
+    fr: { "tab.rich":"Classement","rich.title":"🏆 Classement des fortunes","rich.sub":"Les plus gros portefeuilles du réseau, par avoirs totaux (disponible + épargne).","rich.loading":"chargement…","rich.empty":"aucun compte pour l'instant","rich.err":"indisponible","rich.you":"vous" },
+    de: { "tab.rich":"Rangliste","rich.title":"🏆 Reichsten-Rangliste","rich.sub":"Die größten Wallets im Netzwerk nach Gesamtbestand (verfügbar + Ersparnisse).","rich.loading":"lädt…","rich.empty":"noch keine Konten","rich.err":"nicht verfügbar","rich.you":"du" },
+    it: { "tab.rich":"Classifica","rich.title":"🏆 Classifica dei più ricchi","rich.sub":"I portafogli più grandi della rete, per disponibilità totali (spendibile + risparmi).","rich.loading":"caricamento…","rich.empty":"ancora nessun conto","rich.err":"non disponibile","rich.you":"tu" },
+    ru: { "tab.rich":"Рейтинг","rich.title":"🏆 Рейтинг богатейших","rich.sub":"Крупнейшие кошельки в сети по общим средствам (доступные + сбережения).","rich.loading":"загрузка…","rich.empty":"пока нет счетов","rich.err":"недоступно","rich.you":"вы" },
+    zh: { "tab.rich":"财富榜","rich.title":"🏆 财富榜","rich.sub":"网络中持仓最多的钱包，按总持有量（可用 + 储蓄）排序。","rich.loading":"加载中…","rich.empty":"暂无账户","rich.err":"不可用","rich.you":"你" },
+    ja: { "tab.rich":"ランキング","rich.title":"🏆 富豪ランキング","rich.sub":"総保有量（利用可能＋貯蓄）で見たネットワーク最大のウォレット。","rich.loading":"読み込み中…","rich.empty":"アカウントはまだありません","rich.err":"利用できません","rich.you":"あなた" },
+    ko: { "tab.rich":"부자 순위","rich.title":"🏆 부자 순위","rich.sub":"총 보유량(사용 가능 + 저축) 기준 네트워크에서 가장 큰 지갑들.","rich.loading":"불러오는 중…","rich.empty":"아직 계정이 없습니다","rich.err":"사용할 수 없음","rich.you":"나" },
+    ar: { "tab.rich":"قائمة الأثرياء","rich.title":"🏆 قائمة الأثرياء","rich.sub":"أكبر المحافظ في الشبكة حسب إجمالي الأرصدة (المتاح + المدخرات).","rich.loading":"جارٍ التحميل…","rich.empty":"لا توجد حسابات بعد","rich.err":"غير متاح","rich.you":"أنت" },
+    hi: { "tab.rich":"रिच लिस्ट","rich.title":"🏆 रिच लिस्ट","rich.sub":"कुल होल्डिंग्स (खर्च योग्य + बचत) के अनुसार नेटवर्क की सबसे बड़ी वॉलेट।","rich.loading":"लोड हो रहा…","rich.empty":"अभी कोई खाता नहीं","rich.err":"अनुपलब्ध","rich.you":"आप" },
+    tr: { "tab.rich":"Zenginler","rich.title":"🏆 Zenginler listesi","rich.sub":"Toplam varlığa göre (harcanabilir + tasarruf) ağdaki en büyük cüzdanlar.","rich.loading":"yükleniyor…","rich.empty":"henüz hesap yok","rich.err":"kullanılamıyor","rich.you":"sen" },
+    id: { "tab.rich":"Peringkat","rich.title":"🏆 Daftar terkaya","rich.sub":"Dompet terbesar di jaringan, menurut total kepemilikan (bisa dibelanjakan + tabungan).","rich.loading":"memuat…","rich.empty":"belum ada akun","rich.err":"tidak tersedia","rich.you":"kamu" },
+    vi: { "tab.rich":"Bảng giàu","rich.title":"🏆 Bảng xếp hạng giàu","rich.sub":"Các ví lớn nhất mạng lưới, theo tổng nắm giữ (khả dụng + tiết kiệm).","rich.loading":"đang tải…","rich.empty":"chưa có tài khoản","rich.err":"không khả dụng","rich.you":"bạn" }
+  };
+  for (const l in T12) Object.assign(T[l], T12[l]);
+
   const NAMES = { en:"English", cs:"Čeština", es:"Español", pt:"Português", fr:"Français", de:"Deutsch", it:"Italiano",
     ru:"Русский", zh:"中文", ja:"日本語", ko:"한국어", ar:"العربية", hi:"हिन्दी", tr:"Türkçe",
     id:"Bahasa Indonesia", vi:"Tiếng Việt" };
