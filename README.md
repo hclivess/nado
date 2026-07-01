@@ -53,6 +53,21 @@ them: no puzzles to keep solving, no efficient rig to keep running, and no requi
   wallet, mine, send/receive, register a human-readable **alias**, and browse the chain, all from one
   link on any phone or laptop.
 
+- **Everyone mining earns — a presence dividend, not a lottery.** Winner-take-all blocks mean most miners
+  see *nothing* for long stretches. NADO redistributes most of the open lane's block reward to **everyone
+  present**, weighted by how steadily they show up — a steady stream instead of a rare jackpot. It accrues
+  **off-chain** while you mine (so a million miners cost the chain nothing and there's no dust bloat), and
+  you sweep it into your spendable balance with one **Collect** tap — claimed trust-minimised against a
+  bonded-quorum-settled state root. Many people getting a little, continuously: what an open, populace-scale
+  chain should actually feel like. (Design + mechanism: [doc/presence-dividend.md](doc/presence-dividend.md).)
+
+- **Mine from your pocket — and *forever* if you keep it open.** Your per-epoch presence proofs are
+  **pre-signed** and submitted for you, so a **locked, asleep phone keeps mining** on its own for up to a
+  day per setup — the wallet even shows you the exact "mining while locked" countdown. And if you simply
+  leave the page **open, mining never stops**: it auto-renews its post-quantum proof, auto-bonds your
+  rewards if you want, and auto-resumes across a browser refresh — so direct mining runs **indefinitely with
+  zero babysitting**. Open the link once and walk away.
+
 > **Share the link, and the barrier to entry collapses.** Because the whole experience is one page with
 > no install step, onboarding *is* sending a link. Drop it in a school group chat and whoever opens it is
 > instantly mining — and each of them shares it again. No app store, no wallet setup, no gas to buy

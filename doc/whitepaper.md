@@ -50,8 +50,11 @@ rather than per-identity weight, the zero-capital lane is a fixed fraction of
 blocks (currently 20%) regardless of how many identities register, giving a
 *population-independent* structural Sybil ceiling. Coins enter circulation only
 through block rewards (a flat base subsidy plus a capped, fee-weighted elastic
-term), split 90/10 between producer and a founder-held treasury that starts
-empty. Consensus hashing is over canonical JSON so a vendored-crypto browser
+term). A bonded block is winner-take-all (90/10 producer/treasury); an open block
+pays a small producer tip and redistributes most of its reward as a **presence
+dividend** — a steady, fidelity-weighted stream to *everyone mining the open lane*,
+accrued off-L1 and collected on demand — so participation, not a rare jackpot, is
+what an open miner feels. Consensus hashing is over canonical JSON so a vendored-crypto browser
 client reproduces addresses, transaction IDs, and verification byte-for-byte.
 Derived state lives in a single schemaless, memory-mapped, ACID **LMDB** key-value
 store. Both waves of consensus hardening are now **live in code**: objective
@@ -184,7 +187,10 @@ Open-lane participation costs no coins. An identity:
    lease) that have a heartbeat within the last `PRESENCE_WINDOW = 3` epochs. Because a locked
    phone's browser tab is suspended, the client can **pre-sign** a rolling buffer of future-dated
    heartbeats and hand them to a relay, which injects each into the mempool on schedule — so a
-   **locked/asleep phone keeps mining** until its lease lapses. *(implemented)*
+   **locked/asleep phone keeps mining** for up to a lease (~1 day) per setup. And **kept open, the
+   client mines *forever***: it auto-renews the PoSW lease (~1 s), auto-bonds rewards if enabled, and
+   auto-resumes across a browser refresh — direct mining runs **indefinitely with no intervention**.
+   A phone in your pocket mines for ~a day; a page left open mines perpetually. *(implemented)*
 
 An open identity's selection weight is **capital-free**: a flat floor
 `OPEN_BASE_FLOOR = 1` that every present identity always receives (never scaled
@@ -365,17 +371,48 @@ clamped to `REWARD_CAP = 0.5 NADO` per block. *(implemented)*
 > exists yet** — emission today is a perpetual flat floor plus a capped elastic
 > term. A halving schedule is noted as future work. *(planned)*
 
-### 4.3 Treasury tax (90/10 split)
+### 4.3 Treasury tax + the lane-aware split
 
-Each reward is split **90% producer / 10% treasury** (`TREASURY_BPS = 1000`).
-`split_block_reward` floors the producer cut and gives the treasury the exact
-remainder, so incorporate and rollback subtract identical integers and never
-desync. The **treasury *is* the genesis address**: a normal, founder
-key-controlled ML-DSA address (not a keyless protocol label), re-checksummed
-under the canonical hash. It starts empty and fills only from the per-block cut;
-the 10% is effectively founder revenue. *(implemented)*
+A **BONDED**-lane block is split **90% producer / 10% treasury** (`TREASURY_BPS =
+1000`), winner-take-all. An **OPEN**-lane block is split **three ways**: a small
+producer **tip** (`OPEN_TIP_BPS = 2000`, 20%), the treasury's 10%, and the rest
+(~70%) into the **presence-dividend pool** (§4.4). `split_block_reward` /
+`split_open_block_reward` floor the fixed cuts and give the remainder to the last
+recipient, so incorporate and rollback subtract identical integers and never
+desync (single source: `ops.reward_ops.credit_block_reward`, lane =
+`lane_of(n, epoch_beacon(…))`). The **treasury *is* the genesis address**: a
+normal, founder key-controlled ML-DSA address (not a keyless protocol label). It
+starts empty and fills only from the per-block cut. *(implemented)*
 
-### 4.4 Bonding, whale dampening, and fees
+### 4.4 Presence dividend — open-lane redistribution *(implemented; doc/presence-dividend.md)*
+
+Winner-take-all is a lottery: at populace scale any one open miner wins ~once every
+`P` slots, so the lane *feels* empty even while it works. NADO instead pays the open
+lane's ~70% pool as a **presence dividend** — a steady stream to **everyone present**,
+weighted by fidelity, rather than a rare jackpot. Two hard constraints shape it, and
+both are respected:
+
+- **No `O(P)` L1 writes.** The dividend accrues to **one** reserved L1 account
+  (`DIVIDEND_POOL`), so L1 stays `O(1)` per block no matter the population. All
+  per-miner accounting happens **off-L1** on the execution node, which distributes
+  each epoch's pool growth **only among the miners present that epoch** (stop mining
+  and you stop accruing), pro-rata by fidelity, remainder carried so no unit is lost.
+- **Not a Sybil faucet.** A flat per-identity payout would reward headcount — exactly
+  what the 20% cap, the PoSW lease and fidelity neutralize. Weighting by **fidelity**
+  ties the dividend to the *same* continuous-presence signal a Sybil already has to pay
+  for (PoSW recerts + heartbeats per mask), so it inherits the reward-capture bound —
+  redistribution changes *who inside the capped 20% gets paid and how smoothly*, never
+  its size.
+
+Miners **collect on demand**: a `collect_dividend` blob burns the accrued balance into a
+Merkle leaf; once the execution root carrying it is **settled by the bonded quorum**, a
+fee-exempt `dividend_withdraw` releases the coins from the pool to the claimant, proven
+against the settled root (a dividend nullifier prevents double-claims). Dust never bloats
+L1 — it accumulates off-chain and materializes only when swept. The decimal floor is a
+non-issue: with 10-decimal `NADO`, the per-miner share stays ≥ 1 raw up to ~1.5 **trillion**
+miners, so the real bound is off-L1 bookkeeping, not precision.
+
+### 4.5 Bonding, whale dampening, and fees
 
 - **Bonding** is refundable locked stake: `bond` debits `amount + fee` from
   spendable balance and adds `amount` to the non-spendable `bonded` column.
