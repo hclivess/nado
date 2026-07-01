@@ -46,9 +46,9 @@
 
   <!-- boot / dependency error -->
   <div id="bootError" class="card hidden">
-    <h2>Startup error</h2>
+    <h2 data-i18n="boot.title">Startup error</h2>
     <div class="warnbox danger" id="bootErrorMsg"></div>
-    <p class="small dim">This page loads its crypto (blake2b + ML-DSA-44 post-quantum signatures) from a public CDN over the
+    <p class="small dim" data-i18n-html="boot.msg">This page loads its crypto (blake2b + ML-DSA-44 post-quantum signatures) from a public CDN over the
       network. If you are offline or the CDN is blocked, mining cannot run.</p>
   </div>
 
@@ -63,35 +63,35 @@
       <button id="btnShowImport" class="ghost" data-i18n="btn.importKey">Import key</button>
     </div>
     <div id="importBox" class="mt hidden">
-      <label>Private key (64-hex ML-DSA-44 seed)</label>
+      <label data-i18n="import.label">Private key (64-hex ML-DSA-44 seed)</label>
       <input id="importKey" placeholder="e.g. 4d3c2b1a…" autocomplete="off" spellcheck="false" />
-      <button id="btnImport" class="accent mt" style="width:100%">Import</button>
+      <button id="btnImport" class="accent mt" style="width:100%" data-i18n="btn.import">Import</button>
     </div>
   </div>
 
   <!-- NEW KEY SAVE PROMPT -->
   <div id="savePrompt" class="card hidden">
-    <h2>⚠ Save your private key</h2>
-    <div class="warnbox danger">This key controls your mining rewards. There is no recovery. If you
+    <h2 data-i18n="save.title">⚠ Save your private key</h2>
+    <div class="warnbox danger" data-i18n-html="save.warn">This key controls your mining rewards. There is no recovery. If you
       lose it, you lose access — and anyone who has it controls your coins. Write it down / save it
       somewhere safe before continuing.</div>
-    <label class="mt">Private key</label>
+    <label class="mt" data-i18n="save.priv">Private key</label>
     <div class="addr-box"><span class="a mono" id="newPriv"></span>
-      <button class="copy" data-copy="newPriv">Copy</button></div>
-    <label class="mt">Address</label>
+      <button class="copy" data-copy="newPriv" data-i18n="btn.copy">Copy</button></div>
+    <label class="mt" data-i18n="save.addr">Address</label>
     <div class="addr-box"><span class="a mono" id="newAddr"></span></div>
     <div class="row mt">
-      <button id="btnDlKeySave" class="accent">⤓ Download key file (JSON)</button>
+      <button id="btnDlKeySave" class="accent" data-i18n="btn.dlKey">⤓ Download key file (JSON)</button>
     </div>
     <div class="row mt">
       <label class="small" style="display:flex;align-items:center;gap:8px;margin:0">
-        <input type="checkbox" id="ackSave" style="width:auto" /> I have saved my private key
+        <input type="checkbox" id="ackSave" style="width:auto" /> <span data-i18n="save.ack">I have saved my private key</span>
       </label>
     </div>
     <div class="row mt">
-      <button id="btnConfirmSave" class="primary" disabled>Continue → store on this device</button>
+      <button id="btnConfirmSave" class="primary" disabled data-i18n="save.continue">Continue → store on this device</button>
     </div>
-    <p class="small faint mt">“Continue” keeps an encrypted-at-rest? <b>No</b> — it is stored in this
+    <p class="small faint mt" data-i18n-html="save.note">“Continue” keeps an encrypted-at-rest? <b>No</b> — it is stored in this
       browser's <span class="mono">localStorage</span> in plain text so mining can auto-resume.
       Only do this on a device you trust.</p>
   </div>
@@ -110,8 +110,8 @@
 
   <!-- WALLET -->
   <div id="wallet" class="card hidden" data-tab="wallet">
-    <h2>Wallet <span class="pill"><span id="walBadge" class="badge idle">—</span></span></h2>
-    <label>Address</label>
+    <h2 data-i18n="wallet.title">Wallet <span class="pill"><span id="walBadge" class="badge idle">—</span></span></h2>
+    <label data-i18n="lbl.address">Address</label>
     <div class="addr-box"><span class="a" id="walAddr"></span>
       <button class="copy" data-copy="walAddr">Copy</button></div>
     <div class="stat-grid mt">
@@ -136,12 +136,12 @@
     </div>
 
     <details class="mt">
-      <summary class="small dim" style="cursor:pointer">Reveal / export private key</summary>
-      <div class="warnbox danger mt">Never share this. Anyone with it owns your rewards.</div>
+      <summary class="small dim" style="cursor:pointer" data-i18n="wallet.reveal">Reveal / export private key</summary>
+      <div class="warnbox danger mt" data-i18n="wallet.neverShare">Never share this. Anyone with it owns your rewards.</div>
       <div class="addr-box mt"><span class="a mono" id="walPriv"></span>
         <button class="copy" data-copy="walPriv">Copy</button></div>
       <div class="row mt">
-        <button id="btnDlKey" class="accent">⤓ Download key file (JSON)</button>
+        <button id="btnDlKey" class="accent" data-i18n="btn.dlKey">⤓ Download key file (JSON)</button>
       </div>
     </details>
   </div>
@@ -158,10 +158,10 @@
     </div>
 
     <div id="powWrap" class="mt hidden">
-      <label id="powLabel">Solving one-time registration proof-of-work…</label>
+      <label id="powLabel" data-i18n="pow.label">Solving one-time registration proof-of-work…</label>
       <div class="progress indet"><span id="powBar"></span></div>
       <div class="small faint mt" id="powStats">—</div>
-      <button id="btnCancelPow" class="ghost mt small" style="width:100%">Cancel registration</button>
+      <button id="btnCancelPow" class="ghost mt small" style="width:100%" data-i18n="btn.cancelReg">Cancel registration</button>
     </div>
 
     <div class="stat-grid mt">
@@ -208,7 +208,7 @@
   <div id="sendCard" class="card hidden" data-tab="send">
     <h2 data-i18n="send.title">Send</h2>
     <div id="payBanner" class="hint-banner hidden">
-      <span class="hint">ⓘ</span><span id="payBannerMsg">Payment request loaded — review and confirm.</span>
+      <span class="hint">ⓘ</span><span id="payBannerMsg" data-i18n="payBanner.msg">Payment request loaded — review and confirm.</span>
     </div>
     <label data-i18n="send.recipient">Recipient address
       <span class="hint" title="A 49-character NADO address starting with 'ndo'. The final 4 characters are a checksum — a mistyped address fails validation and is never broadcast.">ⓘ</span>
@@ -240,7 +240,7 @@
     <input id="recvAmount" placeholder="(any amount)" inputmode="decimal" autocomplete="off" />
     <div class="qr-wrap">
       <canvas id="recvQR" class="qr hidden" width="260" height="260"></canvas>
-      <div id="recvQRNote" class="small faint hidden">QR generator unavailable — copy the payment link below.</div>
+      <div id="recvQRNote" class="small faint hidden" data-i18n="receive.qrNote">QR generator unavailable — copy the payment link below.</div>
     </div>
     <label class="mt" data-i18n="receive.payLink">Payment link
       <span class="hint" title="A deep link back to this hosted wallet. Opening it prefills a Send (the sender always confirms). Copy and share it where a camera can't scan the QR.">ⓘ</span>
@@ -284,13 +284,13 @@
       <div class="stat" title="BONDED — coins locked as bonded stake. Bonded stake earns you slots in the BONDED mining lane (~80% of blocks). 100 NADO (B_MIN) per selection share.">
         <div class="label" data-i18n="lbl.bonded">Bonded <span class="hint">ⓘ</span></div><div class="value sm" id="stkBonded">—</div></div>
     </div>
-    <div class="warnbox mt">Unbonded stake stays locked for <b id="stkDelay">1440</b> blocks (BOND_UNLOCK_DELAY) after an unbond request before it is spendable again.</div>
+    <div class="warnbox mt" data-i18n-html="stake.warn">Unbonded stake stays locked for <b id="stkDelay">1440</b> blocks (BOND_UNLOCK_DELAY) after an unbond request before it is spendable again.</div>
 
     <label class="mt" data-i18n="stake.bondAmount">Bond amount (NADO) — move spendable → bonded
       <span class="hint" title="Locks spendable balance as bonded stake to mine the bonded lane. 100 NADO buys one bonded selection share.">ⓘ</span>
     </label>
     <input id="bondAmount" placeholder="0.0" inputmode="decimal" autocomplete="off" />
-    <div class="small faint mt">Network fee: <span id="bondFeeInfo" class="mono">—</span>
+    <div class="small faint mt" data-i18n="send.fee">Network fee: <span id="bondFeeInfo" class="mono">—</span>
       <span class="hint" title="A tiny network fee set automatically to the protocol minimum, destroyed (not paid to anyone). Shown in NADO.">ⓘ</span>
     </div>
     <button id="btnBond" class="accent mt" style="width:100%" data-i18n="btn.bond">Bond stake</button>
@@ -313,7 +313,7 @@
       <span class="hint" title="Releases bonded stake back toward spendable balance. The fee is paid from your spendable balance.">ⓘ</span>
     </label>
     <input id="unbondAmount" placeholder="0.0" inputmode="decimal" autocomplete="off" />
-    <div class="small faint mt">No network fee — unbonding is free.</div>
+    <div class="small faint mt" data-i18n="stake.noFee">No network fee — unbonding is free.</div>
     <button id="btnUnbond" class="ghost mt" style="width:100%" data-i18n="btn.unbond">Unbond stake</button>
     <div id="stakeMsg" class="small mt faint"></div>
   </div>
@@ -372,8 +372,8 @@
 
   <!-- SELF TEST -->
   <div id="selftestCard" class="card hidden" data-tab="settings">
-    <h2>Self-test <span class="pill"><span id="stSummary" class="badge idle">—</span></span></h2>
-    <p class="small dim">Proves this browser's canonical encoding, blake2b hashing, address
+    <h2 data-i18n="selftest.title">Self-test <span class="pill"><span id="stSummary" class="badge idle">—</span></span></h2>
+    <p class="small dim" data-i18n-html="selftest.intro">Proves this browser's canonical encoding, blake2b hashing, address
       derivation, registration PoW, ML-DSA-44 key derivation, txids and signatures are byte-identical
       to the node's Python (vectors generated from the live repo).</p>
     <div id="selftest"></div>

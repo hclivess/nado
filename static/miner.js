@@ -852,9 +852,9 @@ function renderCoinPile(totalRaw, richestRaw) {
       `<circle cx="-14" cy="-6" r="2.4" fill="#ffe066"/><circle cx="0" cy="-11" r="2.6" fill="#ffe066"/><circle cx="14" cy="-6" r="2.4" fill="#ffe066"/></g>`;
   }
   svg.innerHTML = defs + body + crown;
-  if (totalRaw <= 0n) cap.textContent = "No coins yet — start mining to grow your pile.";
-  else if (isTop) cap.textContent = "👑 Richest wallet on the network!";
-  else { const pct = ratio * 100; cap.textContent = `${pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)}% of the richest wallet on the network`; }
+  if (totalRaw <= 0n) cap.textContent = i18("pile.none", "No coins yet — start mining to grow your pile.");
+  else if (isTop) cap.textContent = i18("pile.richest", "👑 Richest wallet on the network!");
+  else { const pct = ratio * 100; cap.textContent = `${pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)}% ${i18("pile.ofRichest", "of the richest wallet on the network")}`; }
 }
 async function updateCoinPile(totalRaw) {
   try { renderCoinPile(totalRaw, await getRichest()); } catch (e) { /* non-fatal cosmetic */ }
@@ -920,8 +920,8 @@ function renderLanes(ms) {
   const bondedPct = 100 - openPct;
   $("laneOpen").style.flex = `0 0 ${openPct}%`;
   $("laneBonded").style.flex = `0 0 ${bondedPct}%`;
-  $("laneOpen").textContent = `OPEN ${openPct}%`;
-  $("laneBonded").textContent = `BONDED ${bondedPct}%`;
+  $("laneOpen").textContent = `${i18("lane.openBar", "OPEN")} ${openPct}%`;
+  $("laneBonded").textContent = `${i18("lane.savingsBar", "SAVINGS")} ${bondedPct}%`;
 
   const myOpen = ms.my_open_weight ?? 0, totOpen = ms.total_open_weight ?? 0;
   const myBond = ms.my_bonded_shares ?? 0, totBond = ms.total_bonded_shares ?? 0;
@@ -1323,8 +1323,8 @@ function setAutoBondPct(pct) {
   try { localStorage.setItem(LS_AUTOBOND, String(pct)); } catch (e) {}
   const note = $("autoBondNote");
   if (note) note.textContent = pct
-    ? `On — bonding ${pct}% of new mining rewards each epoch (auto-compounding the bonded lane).`
-    : "Off — mining rewards stay in your spendable balance.";
+    ? `${i18("autobond.onA", "On — saving")} ${pct}% ${i18("autobond.onB", "of new mining rewards each epoch.")}`
+    : i18("autobond.off", "Off — mining rewards stay in your spendable balance.");
   return pct;
 }
 
@@ -1498,8 +1498,8 @@ function applyPayRequest(req) {
   }
   show("payBanner", true);
   $("payBannerMsg").textContent = amtOk
-    ? `Payment request loaded — review the ${req.amount} NADO send and confirm.`
-    : "Payment request loaded — enter an amount, then review and confirm.";
+    ? i18("payBanner.msg", "Payment request loaded — review and confirm.")
+    : i18("payBanner.enterAmt", "Payment request loaded — enter an amount, then review and confirm.");
   try { $("sendCard").scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {}
   setTimeout(() => { const f = amtOk ? $("btnSend") : $("sendAmount"); if (f) f.focus(); }, 350);
   toast("Payment request loaded — review and confirm.", "info");

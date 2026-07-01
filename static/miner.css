@@ -36,12 +36,13 @@ body {
 
 header.app {
   position: sticky; top: 0; z-index: 20;
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   padding: 12px 16px;
   background: rgba(11,15,20,.82);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
 }
+#langSelect { max-width: 130px; margin-top: 4px; }
 header.app .logo {
   width: 34px; height: 34px; border-radius: 9px;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
