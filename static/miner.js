@@ -463,6 +463,7 @@ function nadoToRaw(amountStr) {
 const LS_WALLET = "nado_miner_wallet";
 const LS_RELAY = "nado_miner_relay";
 const LS_AUTOBOND = "nado_autobond_pct";   // persisted auto-bond percentage (0..100)
+const LS_MINING = "nado_mining";           // "1" while mining, so a browser refresh auto-resumes (no re-click)
 const AUTO_BOND_DEFAULT_PCT = 80;          // default when the user has never set one (matches protocol.AUTO_BOND_DEFAULT_PERCENT)
 const LS_PENDING_PAY = "nado_pending_pay"; // sessionStorage: a pay-request awaiting wallet setup
 
@@ -860,6 +861,7 @@ async function startMining() {
   if (!state.wallet) return;
   if (state.starting || state.mining) return;   // idempotency guard: a start is already in flight
   state.mining = true;
+  try { localStorage.setItem(LS_MINING, "1"); } catch (e) {}   // remember intent so a refresh auto-resumes
   state.starting = true;                          // button stays DISABLED until mining is live or fails
   state.lastHeartbeatEpoch = null;
   state.autoBondBaseline = null; state.autoBondPending = null;   // only earnings AFTER this start auto-bond
@@ -877,6 +879,7 @@ async function startMining() {
 
 function stopMining() {
   state.mining = false;
+  try { localStorage.removeItem(LS_MINING); } catch (e) {}   // explicit stop -> don't auto-resume on refresh
   state.starting = false;
   if (state.powJob) state.powJob.cancelled = true;   // abort an in-progress registration PoW
   state.registering = false;
@@ -2081,10 +2084,19 @@ async function boot() {
 
   // load existing wallet or onboard
   const w = loadWallet();
+  let resumedMining = false;
   if (w && w.address) {
     state.wallet = w;
     showWalletUI();
     log("info", "Loaded wallet from this device: " + w.address);
+    // AUTO-RESUME across a browser refresh: the in-memory mining flag is lost on reload, but the intent is
+    // persisted, so we resume without a re-click. This won't double anything — the node dedups heartbeats
+    // one-per-(address,epoch) and won't re-register an already-registered (lease-valid) identity.
+    if (localStorage.getItem(LS_MINING) === "1") {
+      log("info", "Resuming mining after refresh (no re-click needed)…");
+      startMining();
+      resumedMining = true;
+    }
   } else {
     enterOnboarding();
   }
@@ -2093,8 +2105,8 @@ async function boot() {
   // and resume after onboarding. Never auto-submits — the user still reviews + confirms.
   try { consumePayRequest(); } catch (e) { log("err", "Pay-link error: " + e.message); }
 
-  // initial connectivity + dashboard
-  pollOnce().catch(() => setConn(false));
+  // initial connectivity + dashboard (startMining already kicks a poll when we auto-resumed)
+  if (!resumedMining) pollOnce().catch(() => setConn(false));
 }
 
 boot();
