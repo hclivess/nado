@@ -128,6 +128,13 @@
       <div class="stat" title="FIDELITY — a continuity score that rises each epoch you stay present (up to a cap) and increases your weight in the open lane, so steady miners win a bit more often. Going absent reduces its effect.">
         <div class="label">Fidelity <span class="hint">ⓘ</span></div><div class="value sm" id="walFidelity">—</div></div>
     </div>
+
+    <!-- a little touch: your pile of coins, scaled to the richest wallet on the network -->
+    <div id="coinPileWrap" class="mt hidden" style="text-align:center">
+      <svg id="coinPile" viewBox="0 0 240 150" width="100%" style="max-width:280px;height:auto" aria-hidden="true"></svg>
+      <div id="coinPileCap" class="small faint" style="margin-top:2px">—</div>
+    </div>
+
     <details class="mt">
       <summary class="small dim" style="cursor:pointer">Reveal / export private key</summary>
       <div class="warnbox danger mt">Never share this. Anyone with it owns your rewards.</div>

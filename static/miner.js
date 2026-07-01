@@ -777,6 +777,58 @@ function stopMining() {
 /* ----------------------------------------------------------------------------------------------
  * Dashboard rendering
  * -------------------------------------------------------------------------------------------- */
+/* ------------------------------------------------------------------------------------------------
+ * A LITTLE TOUCH — a pile of coins that grows with your wallet, scaled to the richest wallet on the
+ * network (from /get_richest). Pure SVG, no assets. Richest → full heap + crown; empty → no coins.
+ * ---------------------------------------------------------------------------------------------- */
+let _richestCache = { at: 0, value: 0n };
+async function getRichest() {
+  const now = Date.now();
+  if (now - _richestCache.at < 15000 && _richestCache.value > 0n) return _richestCache.value;
+  try {
+    const r = await fetch(relayBase() + "/get_richest", { cache: "no-store" });
+    const d = await r.json();
+    _richestCache = { at: now, value: BigInt(d.richest || 0) };
+  } catch (e) { /* keep last */ }
+  return _richestCache.value;
+}
+const PILE_MAX_LEVELS = 7;
+function _coin(cx, cy) {
+  const rx = 18, ry = 7.5;
+  return `<g><ellipse cx="${cx}" cy="${cy + 4}" rx="${rx}" ry="${ry}" fill="#8a6a12"/>` +
+    `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#coinGold)" stroke="#a9781a" stroke-width="1"/>` +
+    `<ellipse cx="${cx - rx * 0.28}" cy="${cy - ry * 0.35}" rx="${rx * 0.42}" ry="${ry * 0.4}" fill="#fff3c4" opacity="0.75"/></g>`;
+}
+function renderCoinPile(totalRaw, richestRaw) {
+  const svg = $("coinPile"), cap = $("coinPileCap"), wrap = $("coinPileWrap");
+  if (!svg || !wrap) return;
+  wrap.classList.remove("hidden");
+  const rich = richestRaw > 0n ? richestRaw : 0n;
+  const ratio = (totalRaw > 0n && rich > 0n) ? Math.min(1, Number((totalRaw * 1000000n) / rich) / 1000000) : (totalRaw > 0n ? 1 : 0);
+  const isTop = totalRaw > 0n && totalRaw >= rich;                 // you're the richest (or tied / network unknown)
+  const L = totalRaw <= 0n ? 0 : Math.max(1, Math.ceil(Math.sqrt(ratio) * PILE_MAX_LEVELS));
+  const defs = `<defs><linearGradient id="coinGold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe066"/><stop offset="0.5" stop-color="#f5c542"/><stop offset="1" stop-color="#d69a1e"/></linearGradient></defs>`;
+  const baseY = 132, dy = 11, sx = 21, cx0 = 120;
+  let body = "";
+  for (let row = 0; row < L; row++) {                              // row 0 = bottom (widest)
+    const n = L - row, y = baseY - row * dy, startX = cx0 - (n - 1) * sx / 2;
+    for (let i = 0; i < n; i++) body += _coin(startX + i * sx, y);
+  }
+  let crown = "";
+  if (isTop) {
+    const topY = baseY - (L - 1) * dy - 15;
+    crown = `<g transform="translate(120 ${topY})"><path d="M-14 6 L-14 -6 L-7 2 L0 -11 L7 2 L14 -6 L14 6 Z" fill="#ffd24d" stroke="#c99a17" stroke-width="1"/>` +
+      `<circle cx="-14" cy="-6" r="2.4" fill="#ffe066"/><circle cx="0" cy="-11" r="2.6" fill="#ffe066"/><circle cx="14" cy="-6" r="2.4" fill="#ffe066"/></g>`;
+  }
+  svg.innerHTML = defs + body + crown;
+  if (totalRaw <= 0n) cap.textContent = "No coins yet — start mining to grow your pile.";
+  else if (isTop) cap.textContent = "👑 Richest wallet on the network!";
+  else { const pct = ratio * 100; cap.textContent = `${pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)}% of the richest wallet on the network`; }
+}
+async function updateCoinPile(totalRaw) {
+  try { renderCoinPile(totalRaw, await getRichest()); } catch (e) { /* non-fatal cosmetic */ }
+}
+
 async function refreshDashboard() {
   if (!state.wallet) return;
   const addr = state.wallet.address;
@@ -790,6 +842,7 @@ async function refreshDashboard() {
     $("walBalance").textContent = bal + " NADO";
     $("walBonded").textContent = bonded + " NADO";
     $("walTotal").textContent = rawToNado(freeRaw + bondedRaw) + " NADO";
+    updateCoinPile(freeRaw + bondedRaw);               // a little touch: pile sized vs the richest wallet
     $("walReg").innerHTML = acc.registered === 1 ? '<span class="badge ok">yes</span>' : '<span class="badge no">no</span>';
     $("walFidelity").textContent = acc.fidelity ?? 0;
     $("sendAvail").textContent = bal + " NADO";
@@ -799,6 +852,7 @@ async function refreshDashboard() {
     $("walBalance").textContent = "0 NADO";
     $("walBonded").textContent = "0 NADO";
     $("walTotal").textContent = "0 NADO";
+    updateCoinPile(0n);
     $("walReg").innerHTML = '<span class="badge idle">new</span>';
     $("walFidelity").textContent = "—";
     $("sendAvail").textContent = "0 NADO";

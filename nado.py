@@ -497,6 +497,30 @@ async def snapshot_chunk(request):
                         headers={"Access-Control-Allow-Origin": "*"})
 
 
+_richest_cache = {"height": -1, "value": 0, "address": None}
+
+
+async def get_richest(request):
+    # The largest account by total holdings (balance + bonded) — powers the wallet's relative "coin
+    # pile" visual. O(accounts) scan, cached per block height so it runs at most once per block.
+    def _work():
+        from ops import kv_ops
+        try:
+            h = memserver.latest_block["block_number"]
+        except Exception:
+            h = 0
+        if _richest_cache["height"] == h and _richest_cache["address"] is not None:
+            return {"richest": _richest_cache["value"], "address": _richest_cache["address"], "block_number": h}
+        best_v, best_a = 0, None
+        for addr, acc in kv_ops.iter_accounts():
+            tot = int(acc.get("balance", 0)) + int(acc.get("bonded", 0))
+            if tot > best_v:
+                best_v, best_a = tot, addr
+        _richest_cache.update(height=h, value=best_v, address=best_a)
+        return {"richest": best_v, "address": best_a, "block_number": h}
+    return _resp(await asyncio.to_thread(_work))
+
+
 async def resolve_alias(request):
     from ops import alias_ops
     name = _q(request, "name", "")
@@ -566,6 +590,7 @@ async def make_app(port):
             "block_opinions": consensus.block_hash_pool,
             "majority_block_opinion": consensus.majority_block_hash})),
         web.get("/get_recommended_fee", get_recommended_fee),
+        web.get("/get_richest", get_richest),
         web.get("/resolve_alias", resolve_alias),
         web.get("/get_aliases_of", aliases_of),
         web.get("/terminate", terminate),
