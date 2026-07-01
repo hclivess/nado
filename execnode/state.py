@@ -13,7 +13,7 @@ State never affects L1 consensus. A malformed blob is skipped, never fatal.
 import json
 import os
 
-from hashing import blake2b_hash, merkle_root, merkle_proof, withdrawal_leaf, canonical_bytes
+from hashing import blake2b_hash, merkle_root, merkle_proof, withdrawal_leaf, dividend_leaf, canonical_bytes
 from execnode.vm import validate_code, run, VMError
 
 
@@ -25,6 +25,14 @@ class ExecState:
         self.bridge = {}           # addr -> exec-side bridged balance (credited by L1 `bridge` deposits)
         self.withdrawals = {}      # nonce(str) -> {"addr":.., "amount":..} : provable exit records
         self.wd_nonce = 0          # monotonic withdrawal-nonce counter (deterministic)
+        # PRESENCE DIVIDEND (doc/presence-dividend.md): off-L1 accrual of the OPEN-lane DIVIDEND_POOL to the
+        # currently-present miners, fidelity-weighted. `collect_dividend` burns a balance into a provable
+        # withdrawal (same machinery as the bridge), claimed on L1 against the settled root.
+        self.dividend = {}         # addr -> accrued (uncollected) dividend, raw
+        self.dividend_pool_seen = 0  # last L1 DIVIDEND_POOL balance already distributed (delta = new dividend)
+        self.div_carry = 0         # undistributed remainder carried to the next accrual (no dust lost)
+        self.dividend_withdrawals = {}  # nonce(str) -> {"addr":.., "amount":..} : provable dividend claims
+        self.dw_nonce = 0          # monotonic dividend-withdrawal nonce counter (deterministic)
         self.load()
 
     # --- persistence -----------------------------------------------------------------------------
@@ -37,12 +45,20 @@ class ExecState:
             self.bridge = d.get("bridge", {})
             self.withdrawals = d.get("withdrawals", {})
             self.wd_nonce = d.get("wd_nonce", 0)
+            self.dividend = d.get("dividend", {})
+            self.dividend_pool_seen = d.get("dividend_pool_seen", 0)
+            self.div_carry = d.get("div_carry", 0)
+            self.dividend_withdrawals = d.get("dividend_withdrawals", {})
+            self.dw_nonce = d.get("dw_nonce", 0)
 
     def save(self):
         tmp = self.path + ".tmp"
         with open(tmp, "w") as f:
             json.dump({"contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
-                       "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce}, f, sort_keys=True)
+                       "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce,
+                       "dividend": self.dividend, "dividend_pool_seen": self.dividend_pool_seen,
+                       "div_carry": self.div_carry, "dividend_withdrawals": self.dividend_withdrawals,
+                       "dw_nonce": self.dw_nonce}, f, sort_keys=True)
         os.replace(tmp, self.path)
 
     def _leaves(self):
@@ -55,9 +71,45 @@ class ExecState:
                     out.append(canonical_bytes(["kv", cid, m, k, v]))
         for addr, amt in self.bridge.items():
             out.append(canonical_bytes(["bridge_bal", addr, amt]))
+        for addr, amt in self.dividend.items():
+            out.append(canonical_bytes(["div_bal", addr, amt]))   # commit dividend balances so nodes must agree
         for nonce, w in self.withdrawals.items():
             out.append(withdrawal_leaf(w["addr"], w["amount"], nonce))
+        for nonce, w in self.dividend_withdrawals.items():
+            out.append(dividend_leaf(w["addr"], w["amount"], nonce))
         return out
+
+    def dividend_withdrawal_proof(self, nonce):
+        """(addr, amount, nonce, proof) for a recorded dividend collection, provable against state_root."""
+        w = self.dividend_withdrawals.get(str(nonce))
+        if not w:
+            return None
+        proof = merkle_proof(self._leaves(), dividend_leaf(w["addr"], w["amount"], str(nonce)))
+        return {"addr": w["addr"], "amount": w["amount"], "nonce": str(nonce), "proof": proof}
+
+    def accrue_dividend(self, pool_balance, weights):
+        """Distribute the DIVIDEND_POOL growth since the last call among the CURRENTLY-PRESENT open miners,
+        pro-rata by their open-lane WEIGHT (fidelity 1..10). `weights` = {addr: weight} for THIS epoch's
+        present set; absent miners aren't in it and accrue nothing. The remainder carries so no raw is lost.
+        Returns the amount distributed. (Off-L1; the resulting balances are committed in state_root.)"""
+        pool_balance = int(pool_balance)
+        delta = pool_balance - self.dividend_pool_seen
+        if delta <= 0 or not weights:
+            self.dividend_pool_seen = max(self.dividend_pool_seen, pool_balance)
+            return 0
+        pot = delta + self.div_carry
+        total_w = sum(max(1, int(w)) for w in weights.values())
+        if total_w <= 0:
+            return 0
+        distributed = 0
+        for addr, w in sorted(weights.items()):                  # sorted -> deterministic across nodes
+            share = pot * max(1, int(w)) // total_w
+            if share:
+                self.dividend[addr] = self.dividend.get(addr, 0) + share
+                distributed += share
+        self.div_carry = pot - distributed                       # keep the sub-unit remainder for next time
+        self.dividend_pool_seen = pool_balance
+        return distributed
 
     def state_root(self):
         """MERKLE root over all execution-layer state — identical on every honest node at the same cursor.
@@ -132,6 +184,19 @@ class ExecState:
                 nonce = str(self.wd_nonce)
                 self.withdrawals[nonce] = {"addr": sender, "amount": amt}
                 return f"bridge_withdraw {amt} by {sender[:12]}… -> nonce {nonce}"
+
+            if op == "collect_dividend":
+                # COLLECT (doc/presence-dividend.md): burn the sender's whole accrued dividend into a provable
+                # withdrawal leaf; once the carrying state_root is SETTLED on L1, the sender claims the L1
+                # coins from the DIVIDEND_POOL with its proof (fee-exempt dividend_withdraw tx).
+                amt = int(self.dividend.get(sender, 0))
+                if amt <= 0:
+                    return f"skip: no accrued dividend for {sender[:12]}…"
+                del self.dividend[sender]
+                self.dw_nonce += 1
+                nonce = str(self.dw_nonce)
+                self.dividend_withdrawals[nonce] = {"addr": sender, "amount": amt}
+                return f"collect_dividend {amt} by {sender[:12]}… -> nonce {nonce}"
 
             return f"skip: unknown op {op!r}"
         except VMError as e:

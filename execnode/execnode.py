@@ -95,6 +95,19 @@ async def tail_loop():
                     state.cursor = h
                     applied += 1
                 if applied:
+                    # PRESENCE DIVIDEND (doc/presence-dividend.md): distribute the DIVIDEND_POOL growth among
+                    # the CURRENTLY-PRESENT open miners, fidelity-weighted. Read the pool balance + present
+                    # weights from L1; accrue_dividend only credits miners in this epoch's present set.
+                    try:
+                        pool = await _get_json(session, "/get_account?address=dividend")
+                        pool_bal = int(pool.get("balance", 0)) if isinstance(pool, dict) and "balance" in pool else 0
+                        ow = await _get_json(session, "/get_open_weights")
+                        weights = (ow or {}).get("weights", {}) if isinstance(ow, dict) else {}
+                        dist = state.accrue_dividend(pool_bal, weights)
+                        if dist:
+                            print(f"[execnode] dividend +{dist} raw to {len(weights)} present miner(s)", flush=True)
+                    except Exception as e:
+                        print(f"[execnode] dividend accrue error: {e}", flush=True)
                     state.save()
                     print(f"[execnode] +{applied} block(s) → cursor {state.cursor} · "
                           f"root {state.state_root()[:16]}… · {len(state.contracts)} contract(s)", flush=True)
@@ -150,6 +163,23 @@ async def h_withdrawal_proof(request):
     return web.json_response(p)
 
 
+async def h_dividend(request):
+    # a miner's accrued (uncollected) presence dividend, off-L1 (doc/presence-dividend.md). No address -> all.
+    addr = request.query.get("address")
+    if addr:
+        return web.json_response({"address": addr, "accrued": int(state.dividend.get(addr, 0)), "cursor": state.cursor})
+    return web.json_response({"dividend": state.dividend, "cursor": state.cursor})
+
+
+async def h_dividend_proof(request):
+    # the Merkle proof a miner submits to L1's dividend_withdraw to claim a collection against the settled root
+    p = state.dividend_withdrawal_proof(request.query.get("nonce", ""))
+    if not p:
+        return web.json_response({"error": "not found"}, status=404)
+    p["state_root"] = state.state_root()
+    return web.json_response(p)
+
+
 async def main():
     app = web.Application()
     app.add_routes([web.get("/exec/root", h_root),
@@ -157,7 +187,9 @@ async def main():
                     web.get("/exec/contract", h_contract),
                     web.get("/exec/view", h_view),
                     web.get("/exec/bridge", h_bridge),
-                    web.get("/exec/withdrawal_proof", h_withdrawal_proof)])
+                    web.get("/exec/withdrawal_proof", h_withdrawal_proof),
+                    web.get("/exec/dividend", h_dividend),
+                    web.get("/exec/dividend_proof", h_dividend_proof)])
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", PORT).start()

@@ -20,7 +20,7 @@ from ops.log_ops import get_logger
 from ops.peer_ops import load_ips
 from ops import kv_ops
 from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH,
-                      BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK, BRIDGE_ESCROW,
+                      BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK, BRIDGE_ESCROW, DIVIDEND_POOL,
                       POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET)
 import aiohttp
 
@@ -220,6 +220,19 @@ def construct_bridge_withdraw_tx(keydict, addr, amount, nonce, proof, target_blo
     return tx
 
 
+def construct_dividend_withdraw_tx(keydict, addr, amount, nonce, proof, target_block):
+    """Build a SIGNED presence-dividend COLLECTION claim: recipient 'dividend_withdraw', fee-exempt, data
+    carries the Merkle proof that {addr, amount, nonce} is in the settled execution-layer root."""
+    tx = {"sender": keydict["address"], "recipient": "dividend_withdraw", "amount": 0,
+          "timestamp": get_timestamp_seconds(),
+          "data": {"addr": addr, "amount": int(amount), "nonce": nonce, "proof": proof},
+          "nonce": create_nonce(), "public_key": keydict["public_key"],
+          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
 def construct_alias_tx(keydict, op, name, target_block, fee, to=None):
     """Build a SIGNED alias op tx (op in {"register","transfer","unregister"}); recipient is the reserved
     name "alias" and the operation rides in `data`. `to` is the new owner for a transfer. amount is 0."""
@@ -262,6 +275,9 @@ def reserved_uniqueness_key(tx):
         if r == "bridge_withdraw":
             d = tx.get("data") or {}
             return ("bridge_withdraw", d.get("addr"), d.get("nonce"))                    # one claim per (addr, nonce)
+        if r == "dividend_withdraw":
+            d = tx.get("data") or {}
+            return ("dividend_withdraw", d.get("addr"), d.get("nonce"))                  # one dividend claim per (addr, nonce)
     except Exception:
         return ("malformed", tx.get("txid"))   # unique-ish; the tx is rejected by validate_transaction
     return None
@@ -495,6 +511,26 @@ def validate_transaction(transaction, logger, block_height):
         assert not kv_ops.bridge_nullifier_exists(addr, nonce), "this withdrawal was already claimed"
         escrow = get_account(BRIDGE_ESCROW, create_on_error=False)
         assert escrow and escrow.get("balance", 0) >= amount, "bridge escrow underfunded"
+    elif recipient == "dividend_withdraw":
+        # DIVIDEND COLLECTION (doc/presence-dividend.md): prove {addr, amount, nonce} is in the bonded-quorum
+        # SETTLED execution-layer root; L1 verifies that ONE Merkle proof, checks the nullifier + pool funding,
+        # then releases `amount` from the DIVIDEND_POOL to the claimant. Fee-exempt, self-claimed.
+        from ops.settlement_ops import latest_settled
+        from hashing import verify_merkle_proof, dividend_leaf
+        assert transaction["amount"] == 0, "dividend_withdraw carries no L1 amount (amount is in data)"
+        assert transaction["fee"] == 0, "dividend_withdraw is fee-exempt"
+        data = transaction.get("data") or {}
+        addr, amount, nonce, proof = data.get("addr"), data.get("amount"), data.get("nonce"), data.get("proof")
+        assert addr == transaction["sender"], "dividend_withdraw must be self-claimed (sender == addr)"
+        assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad dividend amount"
+        assert isinstance(nonce, str) and isinstance(proof, list), "bad dividend nonce/proof"
+        _cur, settled_root = latest_settled()
+        assert settled_root, "no settled execution-layer root yet"
+        assert verify_merkle_proof(dividend_leaf(addr, amount, nonce), proof, settled_root), \
+            "dividend collection is not proven against the settled execution-layer root"
+        assert not kv_ops.dividend_nullifier_exists(addr, nonce), "this dividend was already collected"
+        pool = get_account(DIVIDEND_POOL, create_on_error=False)
+        assert pool and pool.get("balance", 0) >= amount, "dividend pool underfunded"
     else:
         # ordinary transfer / bond / send-to-alias: deterministic minimum-fee floor (anti-spam), block 1
         assert transaction["fee"] >= MIN_TX_FEE, f"Transaction fee below minimum {MIN_TX_FEE}"

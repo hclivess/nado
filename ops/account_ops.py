@@ -1,6 +1,6 @@
 from ops import kv_ops
 from ops.address_ops import make_address
-from protocol import B_MIN, EPOCH_LENGTH, PRESENCE_WINDOW, FIDELITY_GAIN, FIDELITY_DECAY, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, POSW_LEASE_EPOCHS
+from protocol import B_MIN, EPOCH_LENGTH, PRESENCE_WINDOW, FIDELITY_GAIN, FIDELITY_DECAY, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS
 
 # Account state lives in the schemaless `accounts` sub-DB as a msgpack document keyed by address
 # (see ops/kv_ops.py). Missing fields default to 0 on read, so adding a field (as we did with
@@ -155,6 +155,20 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             kv_ops.bridge_nullifier_del(addr, nonce)
         else:
             kv_ops.bridge_nullifier_put(addr, nonce)
+        return
+
+    # --- DIVIDEND COLLECTION (doc/presence-dividend.md): release `amount` from the DIVIDEND_POOL to the proven
+    # claimant and burn the nullifier. Validation already verified the Merkle proof against the settled root
+    # + pool funding. Fee-exempt. ---
+    if recipient == "dividend_withdraw":
+        data = transaction.get("data") or {}
+        addr, amt, nonce = data["addr"], int(data["amount"]), data["nonce"]
+        change_balance(address=DIVIDEND_POOL, amount=-amt, logger=logger, revert=revert)
+        change_balance(address=addr, amount=amt, logger=logger, revert=revert)
+        if revert:
+            kv_ops.dividend_nullifier_del(addr, nonce)
+        else:
+            kv_ops.dividend_nullifier_put(addr, nonce)
         return
 
     # --- ordinary transfer (recipient may be a registered ALIAS -> credit its CURRENT owner) ---

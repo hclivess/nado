@@ -101,6 +101,12 @@ def withdrawal_leaf(addr, amount, nonce) -> bytes:
     return canonical_bytes(["bridge_withdrawal", addr, int(amount), nonce])
 
 
+def dividend_leaf(addr, amount, nonce) -> bytes:
+    """Canonical leaf bytes for a presence-dividend collection (distinct domain tag from bridge withdrawals
+    so the two can never collide). Proven on L1 against the settled root to release DIVIDEND_POOL coins."""
+    return canonical_bytes(["dividend_withdrawal", addr, int(amount), nonce])
+
+
 if __name__ == "__main__":
     blake2b_hash_link("test_old", "test_new")
     print(base64encode("b64test"))

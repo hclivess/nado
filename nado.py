@@ -569,6 +569,21 @@ async def get_rich_list(request):
     return _resp(await asyncio.to_thread(_work))
 
 
+async def get_open_weights(request):
+    # Present open registry + open-lane weights for the CURRENT epoch — the execution node reads this to
+    # accrue the presence dividend to currently-present miners, fidelity-weighted (doc/presence-dividend.md).
+    if _rate_limited(request, 60):
+        return _RL
+    def _work():
+        from ops.account_ops import get_open_registry
+        from ops.mining_ops import open_shares, epoch_of
+        epoch = epoch_of(memserver.latest_block["block_number"])
+        reg = get_open_registry(epoch)
+        weights = {addr: open_shares(info.get("fidelity", 0)) for addr, info in reg.items()}
+        return {"epoch": epoch, "weights": weights}
+    return _resp(await asyncio.to_thread(_work))
+
+
 async def get_settled(request):
     # The canonical SETTLED execution-layer checkpoint (Phase 2): the (exec_cursor, state_root) the bonded
     # quorum has attested. Execution nodes / bridges read this as the L1-enforced exec-layer state.
@@ -650,6 +665,7 @@ async def make_app(port):
         web.get("/get_recommended_fee", get_recommended_fee),
         web.get("/get_richest", get_richest),
         web.get("/get_rich_list", get_rich_list),
+        web.get("/get_open_weights", get_open_weights),
         web.get("/get_settled", get_settled),
         web.get("/resolve_alias", resolve_alias),
         web.get("/get_aliases_of", aliases_of),
