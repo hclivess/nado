@@ -180,6 +180,21 @@ async function resolveAlias(name) {
     return d && d.owner ? d.owner : null;
   } catch { return null; }
 }
+// Live validation of the Send "to" field: a valid ndo… address, OR a registered alias (resolved
+// against the node, so the ✗ clears once the alias exists). Guards against stale async results.
+async function validateSendTo() {
+  const v = ($("sendTo").value || "").trim();
+  if (!v) { setMsg("sendToMsg", "", null); return; }
+  if (validateAddress(v)) { setMsg("sendToMsg", "✓ valid address", "ok"); return; }
+  if (looksLikeAlias(v)) {
+    setMsg("sendToMsg", "resolving alias…", null);
+    const owner = await resolveAlias(v);
+    if (($("sendTo").value || "").trim() !== v) return;   // input changed while resolving — ignore stale
+    setMsg("sendToMsg", owner ? `✓ alias → ${owner.slice(0, 14)}…` : `✗ alias “${v}” is not registered`, owner ? "ok" : "err");
+    return;
+  }
+  setMsg("sendToMsg", "✗ invalid — a 49-char ndo… address or a registered alias name", "err");
+}
 
 function powTarget() { return 1n << BigInt(256 - REGISTER_POW_BITS); }
 function powHashInt(address, nonce) {
@@ -1622,7 +1637,7 @@ function showTab(name) {
   else if (name === "aliases") loadMyAliases();
   else if (name === "explore") { exLoadOverview(); exLoadRecent(); }
   else if (name === "history") loadHistory().catch(() => {});
-  else if (name === "send") updateFeeInfo().catch(() => {});
+  else if (name === "send") { updateFeeInfo().catch(() => {}); validateSendTo().catch(() => {}); }
   else if (name === "stake") { updateFeeInfo().catch(() => {}); refreshDashboard().catch(() => {}); }
 }
 
@@ -1677,12 +1692,7 @@ function wireEvents() {
   document.querySelectorAll("#tabbar .tab").forEach((b) => { b.onclick = () => showTab(b.dataset.tabbtn); });
 
   $("btnSend").onclick = () => doSend();
-  $("sendTo").oninput = () => {
-    const v = $("sendTo").value.trim();
-    if (!v) { setMsg("sendToMsg", "", null); return; }
-    const ok = validateAddress(v);
-    setMsg("sendToMsg", ok ? "✓ valid address" : "✗ invalid address / checksum", ok ? "ok" : "err");
-  };
+  $("sendTo").oninput = validateSendTo;
   $("btnBond").onclick = () => doBond("bond");
   $("btnUnbond").onclick = () => doBond("unbond");
   if ($("autoBondPct")) {
