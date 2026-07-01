@@ -68,7 +68,13 @@ def create_config(ip: str, config_path: str = f"{get_home()}/private/config.dat"
         # AUTO-BOND (non-consensus): % of newly-mined earnings to auto-compound into bonded stake,
         # unattended. Defaults to protocol.AUTO_BOND_DEFAULT_PERCENT (80) so a fresh node joins the
         # bonded lane hands-free; set 0 to disable. Overridable via the NADO_AUTO_BOND_PERCENT env var.
-        "auto_bond_percent": 80
+        "auto_bond_percent": 80,
+        # ROLLING MODE (non-consensus, doc/rolling-mode-and-da.md): archive=True keeps ALL block bodies
+        # forever (default — no data loss, current behaviour). Set False for a "rolling"/pruned node that
+        # drops block BODIES older than history_retention_blocks (state + number<->hash indexes are always
+        # kept, so it still validates + serves the beacon/FFG). Overridable via NADO_ARCHIVE / env.
+        "archive": True,
+        "history_retention_blocks": 0   # 0 = use protocol.HISTORY_RETENTION_BLOCKS default
     }
 
     if not os.path.exists(config_path):

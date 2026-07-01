@@ -214,6 +214,52 @@ def get_block_hash_by_number(number):
         return None
 
 
+def prune_block_bodies(finalized_height: int, retention: int, logger) -> int:
+    """ROLLING MODE (doc/rolling-mode-and-da.md): delete block BODY files (blocks/<hash>.block) for
+    FINALIZED heights older than the retention window, while KEEPING the number<->hash index (so the
+    beacon/FFG hash lookbacks via get_block_hash_by_number still resolve) and STATE (never touched).
+
+    Correctness floor (from the audit): the deepest consensus read of a historical BODY is
+    get_block_reward, which loads the block at tip-REWARD_WINDOW for its cumulative_fees; rollback
+    re-reads bodies within FINALITY_DEPTH of the tip. So we NEVER prune within
+    max(retention, REWARD_WINDOW+FINALITY_DEPTH+1) of the finalized height — even a misconfigured tiny
+    `retention` cannot corrupt the reward calc or a legal rollback. Returns the number of files pruned.
+
+    Idempotent + incremental: a `pruned_below` watermark (meta) records the height under which bodies
+    are already gone, so each call scans only the new delta; per-call work is capped so enabling this on
+    a long chain never stalls the loop (the rest prunes on later ticks). Monotonic — finalized_height
+    only rises and pruned heights are far below any rollback window, so bodies are never wrongly removed."""
+    from protocol import FINALITY_DEPTH, HISTORY_RETENTION_BLOCKS
+    retention = int(retention) if retention and int(retention) > 0 else HISTORY_RETENTION_BLOCKS
+    floor = REWARD_WINDOW + FINALITY_DEPTH + 1                 # hard safety floor, independent of config
+    eff_retention = max(retention, floor)
+    prune_below = int(finalized_height) - eff_retention
+    if prune_below <= 0:
+        return 0
+    start = kv_ops.meta_get_int("pruned_below", 0)
+    if start >= prune_below:
+        return 0
+    end = min(prune_below, start + 4000)                      # bound per-call work (first enable on a long chain)
+    home = get_home()
+    pruned = 0
+    for h in range(start, end):
+        bh = kv_ops.hash_by_number(h)                         # index is kept -> still resolvable after prune
+        if not bh:
+            continue
+        path = f"{home}/blocks/{bh}.block"
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+                pruned += 1
+            except OSError as e:
+                logger.warning(f"prune: could not remove {path}: {e}")
+    kv_ops.meta_set_int("pruned_below", end)                  # advance past gap heights too (idempotent, monotonic)
+    if pruned:
+        logger.info(f"Rolling mode: pruned {pruned} block bodies below height {end} "
+                    f"(retention {eff_retention}, finalized {finalized_height}); indexes + state kept.")
+    return pruned
+
+
 def epoch_beacon(epoch):
     """Per-epoch, grind-resistant selection beacon (S4.3).
 

@@ -42,27 +42,38 @@ keep the last K epochs of bodies, drop the rest, and define who still has the ol
 
 ## 2. Rolling mode (L1 history pruning)
 
-### 2.1 The retention window
-A new constant — `HISTORY_RETENTION_EPOCHS` (config-overridable) — sets how many recent
-epochs of **full block bodies** a rolling node keeps. Below that, bodies are dropped; the
-**state** (and the finalized headers) stay.
+### 2.1 The retention window — IMPLEMENTED (Phase 1)
+`protocol.HISTORY_RETENTION_BLOCKS` (default **10 000** ≈ 1 week at 60 s blocks; config /
+`NADO_HISTORY_RETENTION_BLOCKS` overridable) sets how many recent block **bodies** a rolling
+node keeps. Below that, finalized **body files** (`blocks/<hash>.block`) are dropped; the
+**state**, and the tiny **number↔hash indexes**, always stay.
 
-**Retention-floor invariant (correctness-critical):** the window must exceed the **deepest
-historical-*block-body* lookback** any validation rule performs. Two facts make this floor
-small:
-- Most "lookbacks" read **state**, not old bodies. A `withdraw` checks the pending-unbond
-  record in the **KV state** (`kv_ops.unbond_*`), not the 1440-blocks-old bond *body*; the
-  RANDAO beacon and FFG checkpoints are **applied into state**, not re-read from bodies.
-  `BOND_UNLOCK_DELAY = 1440` therefore does **not** force 1440 blocks of body retention.
-- What *does* re-read bodies/headers is fork-choice / rollback (≤ `max_rollbacks`,
-  `FINALITY_DEPTH = 30`) and a few epoch-anchor hash lookups (`get_block_hash_by_number` at
-  epoch boundaries).
+**Retention-floor invariant (correctness-critical) — the audit refined this.** The design
+first guessed the floor was ≈ `FINALITY_DEPTH`; the actual audit of every historical
+`get_block*` call (done before implementing) found it is **`REWARD_WINDOW` (100)**, deeper
+than finality:
+- `get_block_reward` reads `cumulative_fees` from the block at **`tip − REWARD_WINDOW`** — and
+  today reads it by loading that whole **body**. So bodies must be retained past
+  `REWARD_WINDOW`, or the reward calc forks.
+- Rollback re-reads bodies within `FINALITY_DEPTH (30)` of the tip.
+- The beacon (~2 epochs) and FFG (`_FFG_LOOKBACK_EPOCHS = 8` → 480 blocks) read only **hashes**
+  via `get_block_hash_by_number`, which hits the **`block_by_num` index, not bodies** — so
+  keeping the index (always) satisfies them regardless of body pruning.
+- Most other "lookbacks" read **state**, not bodies (a `withdraw` checks the KV pending-unbond
+  record, not the 1440-block-old bond body — `BOND_UNLOCK_DELAY = 1440` does **not** force body
+  retention).
 
-So the floor is ≈ `FINALITY_DEPTH` plus a safety margin — small. The retention window is
-driven more by the **social/DA** need (giving syncing peers and auditors something to fetch)
-than by consensus. Set it comfortably above the floor (e.g. tens of epochs) and make it a
-dial. **An exact audit of every rule that calls `get_block*` on historical heights is a
-prerequisite before enabling pruning** — flagged, not assumed.
+So the **body** floor = `max(retention, REWARD_WINDOW + FINALITY_DEPTH + 1)`.
+`block_ops.prune_block_bodies` enforces that floor internally, so even a misconfigured tiny
+`retention` can never corrupt the reward calc or a legal rollback. Pruning **keeps the index**
+(beacon/FFG still resolve) and is incremental via a `pruned_below` meta watermark. A future
+optimization — index `cumulative_fees` by height to decouple `get_block_reward` from the body —
+would let the floor drop to `FINALITY_DEPTH`; not needed at a 10 000-block window.
+
+**Status:** implemented + unit-tested (`tests/test_rolling_prune.py`): prunes below the window,
+keeps indexes, respects the safety floor, idempotent/incremental. Gated by the `archive` node
+role (§2.2) which **defaults to keep-everything**, so this is opt-in with zero behaviour change
+until a node sets `archive=false` / `NADO_ARCHIVE=0`.
 
 ### 2.2 Node tiers
 - **Rolling (pruned) node — the default at scale.** State + last K epochs + finalized

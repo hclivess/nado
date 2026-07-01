@@ -71,6 +71,19 @@ AUTO_BOND_MIN_RAW = 10_000_000     # 0.001 NADO: smallest worthwhile auto-bond (
 # without ever touching a setting. Still fully overridable (config / env / UI), and 0 explicitly = off.
 AUTO_BOND_DEFAULT_PERCENT = 80
 
+# --- Rolling mode / history retention (NON-CONSENSUS node-local policy; see doc/rolling-mode-and-da.md) ---
+# A "rolling" (pruned) node keeps STATE + a window of recent block BODIES and drops older bodies, so the
+# ledger stops growing unbounded (keeps phones viable under adoption). Pruning body files is safe ONLY
+# above the deepest lookback that re-reads a historical BODY on the consensus path — the audit found that
+# is get_block_reward, which reads cumulative_fees from the block at tip-REWARD_WINDOW (100). Hashes for
+# the beacon/FFG come from the tiny number<->hash INDEX (always retained), NOT bodies. So the retention
+# window MUST exceed REWARD_WINDOW (+ FINALITY_DEPTH for the rollback window). Default 300 gives margin;
+# prune_block_bodies additionally floors it at REWARD_WINDOW+FINALITY_DEPTH so a misconfig can't corrupt
+# the reward calc. This is a per-node choice (archive nodes keep everything); it changes NO block/hash.
+# 10_000 blocks ~= 1 week of history at 60s blocks — generous recent-body window while still bounding
+# a rolling node's disk (the unbounded->bounded win); archive nodes keep everything.
+HISTORY_RETENTION_BLOCKS = 10_000
+
 # --- Mining: TWO-LANE diligence selection (PROVISIONAL — simulate before lock-in) ---
 # Each epoch's slots split into an OPEN lane (anyone, zero coins) and a BONDED lane (locked stake).
 # The split is a beacon-keyed permutation over slot indices, so the open lane is EXACTLY OPEN_BPS

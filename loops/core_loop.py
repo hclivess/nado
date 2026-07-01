@@ -7,7 +7,7 @@ import traceback
 from config import get_timestamp_seconds
 from event_bus import EventBus
 from loops.consensus_loop import change_trust
-from ops.account_ops import increase_produced_count, change_balance, get_totals, index_totals, get_bonded_registry, get_open_registry, set_finalized_height, get_account
+from ops.account_ops import increase_produced_count, change_balance, get_totals, index_totals, get_bonded_registry, get_open_registry, set_finalized_height, get_finalized_height, get_account
 from ops.block_ops import (
     knows_block,
     get_blocks_after,
@@ -29,6 +29,7 @@ from ops.block_ops import (
     sign_block,
     verify_block_signature,
     get_block_hash_by_number,
+    prune_block_bodies,
 )
 from ops.data_ops import get_home
 from ops.mining_ops import select_producer, select_producer_two_lane, epoch_of, total_bonded_shares
@@ -192,6 +193,8 @@ class CoreClient(threading.Thread):
             self.maybe_randao()
             # AUTO-BOND (opt-in): unattended-compound a % of newly-mined earnings into bonded stake.
             self.maybe_auto_bond()
+            # ROLLING MODE (opt-in): on a pruned node, drop block bodies older than the retention window.
+            self.maybe_prune_history()
 
             if 3 in self.memserver.periods:
                 block_producers = self.memserver.block_producers.copy()
@@ -763,6 +766,21 @@ class CoreClient(threading.Thread):
                     self.memserver.merge_transaction(tx, user_origin=True)
         except Exception as e:
             self.logger.error(f"RANDAO commit/reveal failed: {e}")
+
+    def maybe_prune_history(self):
+        """ROLLING MODE (non-consensus, opt-in): on a pruned node (memserver.archive == False), delete
+        block BODIES finalized below the retention window. STATE + the number<->hash indexes are kept,
+        so the node keeps validating and serving the beacon/FFG lookbacks. Archive nodes (default) skip
+        this entirely. Best-effort + incremental (a meta watermark bounds per-call work); never raises
+        into the core loop. See doc/rolling-mode-and-da.md and block_ops.prune_block_bodies."""
+        if getattr(self.memserver, "archive", True):
+            return
+        try:
+            finalized = get_finalized_height()
+            retention = getattr(self.memserver, "history_retention_blocks", 0)
+            prune_block_bodies(finalized, retention, self.logger)
+        except Exception as e:
+            self.logger.error(f"Rolling-mode prune failed: {e}")
 
     def maybe_auto_bond(self):
         """AUTO-BOND (non-consensus, opt-in): if the operator set memserver.auto_bond_percent > 0, route

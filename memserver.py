@@ -121,6 +121,22 @@ class MemServer:
         except (TypeError, ValueError):
             self.auto_bond_percent = _AB_DEFAULT
 
+        # ROLLING MODE (non-consensus): archive=True (default) keeps ALL block bodies; False runs a
+        # pruned/rolling node that drops bodies older than history_retention_blocks (state + indexes
+        # kept). NADO_ARCHIVE=0/false selects rolling mode headless. See doc/rolling-mode-and-da.md.
+        from protocol import HISTORY_RETENTION_BLOCKS as _HRB
+        _arch = _os.environ.get("NADO_ARCHIVE")
+        if _arch is not None:
+            self.archive = _arch.strip().lower() not in ("0", "false", "no", "off")
+        else:
+            self.archive = bool(self.config.get("archive", True))
+        try:
+            _hrb = int(_os.environ.get("NADO_HISTORY_RETENTION_BLOCKS")
+                       or self.config.get("history_retention_blocks", 0) or 0)
+        except (TypeError, ValueError):
+            _hrb = 0
+        self.history_retention_blocks = _hrb if _hrb > 0 else _HRB
+
     def ban_peer(self, peer):
         if peer not in self.purge_peers_list and peer not in self.unreachable:
             self.purge_peers_list.append(peer)
