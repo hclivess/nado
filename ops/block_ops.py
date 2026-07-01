@@ -136,7 +136,11 @@ def get_block_candidate(
                                                       logger=logger)
 
     block = construct_block(
-        block_timestamp=latest_block["block_timestamp"] + block_time,
+        # Wall-clock, kept monotonic (>= parent). The old `parent + block_time` was anchored to the
+        # genesis epoch, so block times drifted from real time (froze near genesis) — breaking the
+        # explorer's dates + the since_last_block timing heuristic. valid_block_timestamp only requires
+        # <= now, so this is safe.
+        block_timestamp=max(get_timestamp_seconds(), latest_block["block_timestamp"]),
         block_number=block_number,
         parent_hash=latest_block["block_hash"],
         block_ip=winner,

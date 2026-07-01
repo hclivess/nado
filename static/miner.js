@@ -1788,7 +1788,8 @@ function exBlockRow(b) {
 }
 function exTxRow(t) {
   return `<div class="ex-row"><div>${t.txid ? exLink("tx", t.txid, exShort(t.txid, 10)) : `<span class="mono">${exEsc(t.recipient)}</span>`}
-    <div class="small">${exLink("a", t.sender, exShort(t.sender, 8))} → ${exReservedOrAddr(t.recipient)}</div></div>
+    <div class="small">${exLink("a", t.sender, exShort(t.sender, 8))} → ${exReservedOrAddr(t.recipient)}</div>
+    <div class="faint small">${exTime(t.timestamp)}</div></div>
     <div style="text-align:right" class="mono">${exNado(t.amount)}<div class="faint small">fee ${exNado(t.fee || 0)}</div></div></div>`;
 }
 function exRenderBlock(b) {

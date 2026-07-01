@@ -630,7 +630,8 @@ class CoreClient(threading.Thread):
         winner = select_producer_two_lane(get_open_registry(_epoch), bonded_registry,
                                           epoch_beacon(_epoch), slot=block_number)
         return construct_block(
-            block_timestamp=parent["block_timestamp"] + self.memserver.block_time,
+            # Wall-clock, monotonic (>= parent) — see ops/block_ops.py; fixes frozen genesis-anchored times.
+            block_timestamp=max(get_timestamp_seconds(), parent["block_timestamp"]),
             block_number=block_number,
             parent_hash=parent["block_hash"],
             block_ip=winner,
