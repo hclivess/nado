@@ -46,6 +46,25 @@ BRIDGE_ESCROW = "bridge"          # the escrow pseudo-account holding all bridge
 SETTLE_NUM = 2
 SETTLE_DEN = 3
 
+# --- Registration Proof of Sequential Work (doc/ip-spoofing-and-sybil.md, Appendix A) ---
+# The one-time cost to register an OPEN-lane identity is a hash-based PoSW (ops/posw.py): a length-POSW_T
+# sequential blake2b chain (NON-parallelizable, so a GPU can't mint identities in bulk the way it can with
+# the old hashcash), verified cheaply via POSW_K Fiat-Shamir spot-checks over POSW_S-step segments. Post-
+# quantum (only assumes blake2b). The challenge binds address‖anchor where anchor = hash of block
+# (target_block − POSW_ANCHOR_OFFSET) — a FINALIZED, stable block, so the proof is un-precomputable far in
+# advance and non-reusable across identities. Tuned so an honest phone spends ~1 s once.
+POSW_T = 1_000_000           # total sequential hash steps (~1 s on a phone; single-core spam < ~1M/day)
+POSW_S = 2_000               # steps per checkpoint segment -> C = T // S = 500 segments
+POSW_K = 20                  # Fiat-Shamir spot-checks (soundness); verify ~ (K+1)·S hashes
+POSW_ANCHOR_OFFSET = 30      # anchor block = target_block − this (>= FINALITY_DEPTH: finalized & stable)
+
+# PERIODIC PRESENCE: registration is a renewable LEASE. A `register` (with a fresh PoSW) grants OPEN-lane
+# eligibility for POSW_LEASE_EPOCHS; to stay present you renew (another PoSW) each period, else you lapse
+# out of the open registry. This turns "pay once, farm forever" into "pay continuously to keep each
+# identity alive" — a Sybil farm's cost scales with size × time. At ~8 min/epoch, ~180 epochs ≈ 1 day, so
+# an honest phone spends ~1 s of PoSW per day; a renewal is due once the lease is RENEW_FRACTION spent.
+POSW_LEASE_EPOCHS = 180      # a registration/recert keeps you eligible this many epochs (~1 day)
+
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
 # STORES it (and burns a DA fee) but NEVER decodes it — programmability lives one layer up, in separate

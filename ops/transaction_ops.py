@@ -21,7 +21,8 @@ from ops.log_ops import get_logger
 from ops.peer_ops import load_ips
 from ops import kv_ops
 from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH,
-                      BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK, BRIDGE_ESCROW)
+                      BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK, BRIDGE_ESCROW,
+                      POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET)
 import aiohttp
 
 
@@ -416,10 +417,19 @@ def validate_transaction(transaction, logger, block_height):
         assert transaction["amount"] == 0, "Open-lane (register/heartbeat) tx must have zero amount"
         assert transaction["fee"] == 0, "Open-lane (register/heartbeat) tx is fee-exempt (fee must be 0)"
         if recipient == "register":
-            # the one-time light registration PoW substitutes for the unaffordable fee; it binds
-            # the nonce to the sender's address so it can't be reused for a different identity.
-            assert verify_registration_pow(transaction["sender"], transaction.get("pow_nonce")), "Invalid or missing registration PoW"
-            assert get_account(transaction["sender"])["registered"] == 0, "Address already registered"
+            # SEQUENTIAL Proof-of-Work (doc/ip-spoofing-and-sybil.md, Appendix A): a non-parallelizable
+            # hash-chain PoSW replaces the old parallelizable hashcash, so a GPU can't mint identities in
+            # bulk. The challenge binds sender ‖ hash of block (target_block − POSW_ANCHOR_OFFSET) — a
+            # finalized, stable block — so the proof is un-precomputable far ahead and non-reusable across
+            # identities. `register` is a RENEWABLE presence lease (no "already registered" check).
+            from ops import posw
+            from ops.block_ops import get_block_hash_by_number
+            anchor = get_block_hash_by_number(max(0, transaction["target_block"] - POSW_ANCHOR_OFFSET))
+            assert anchor, "PoSW anchor block not found"
+            proof = transaction.get("posw")
+            assert proof, "Missing registration PoSW"
+            assert posw.verify(posw.challenge_bytes(transaction["sender"], anchor), proof,
+                               POSW_T, POSW_S, POSW_K), "Invalid registration PoSW"
         else:  # heartbeat
             # Bound to the epoch of the block it DETERMINISTICALLY lands in — its target_block (the
             # block builder matches a tx into exactly target_block == block_number). Validating against

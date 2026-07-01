@@ -1,6 +1,6 @@
 from ops import kv_ops
 from ops.address_ops import make_address
-from protocol import B_MIN, EPOCH_LENGTH, PRESENCE_WINDOW, FIDELITY_GAIN, FIDELITY_DECAY, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW
+from protocol import B_MIN, EPOCH_LENGTH, PRESENCE_WINDOW, FIDELITY_GAIN, FIDELITY_DECAY, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, POSW_LEASE_EPOCHS
 
 # Account state lives in the schemaless `accounts` sub-DB as a msgpack document keyed by address
 # (see ops/kv_ops.py). Missing fields default to 0 on read, so adding a field (as we did with
@@ -69,7 +69,7 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     # registered flag; `heartbeat` (one per epoch) records presence + bumps fidelity. Neither moves
     # balance or charges a fee (a 0-balance address could not pay one) — validation enforces fee==0.
     if recipient == "register":
-        apply_register(address=sender, logger=logger, revert=revert)
+        apply_register(address=sender, epoch=(block_height // EPOCH_LENGTH), logger=logger, revert=revert)
         return
     if recipient == "heartbeat":
         apply_heartbeat(address=sender, epoch=block_height // EPOCH_LENGTH, logger=logger, revert=revert)
@@ -284,15 +284,25 @@ def get_open_registry(current_epoch: int):
     for address in present:
         account = kv_ops.get_account(address)
         if account and account.get("registered", 0) == 1:
-            registry[address] = {"fidelity": account.get("fidelity", 0)}
+            # PRESENCE LEASE: eligible only if a PoSW recert landed within the last POSW_LEASE_EPOCHS.
+            if kv_ops.recert_latest(address) >= current_epoch - POSW_LEASE_EPOCHS:
+                registry[address] = {"fidelity": account.get("fidelity", 0)}
     return registry
 
 
-def apply_register(address: str, logger, revert=False):
-    """Set (apply) / clear (revert) an address's OPEN-lane registered flag. The one-time light
-    registration PoW is enforced in transaction validation; here we only flip the flag. Revert-
-    symmetric (register -> 1, revert -> 0)."""
-    kv_ops.account_set(address, "registered", 0 if revert else 1)
+def apply_register(address: str, epoch: int, logger, revert=False):
+    """Renewable presence LEASE (doc/ip-spoofing-and-sybil.md): a valid register/recert (its PoSW is
+    checked in transaction validation) records a recert at `epoch` and marks the address registered;
+    OPEN-lane eligibility then requires a recert within POSW_LEASE_EPOCHS (get_open_registry). Revert-
+    symmetric: rollback deletes the recert row and, only if the address has NO recert left, clears the
+    registered flag (mirrors the pubkey-once revert)."""
+    if revert:
+        kv_ops.recert_del(address, epoch)
+        if kv_ops.recert_latest(address) < 0:
+            kv_ops.account_set(address, "registered", 0)
+    else:
+        kv_ops.recert_put(address, epoch)
+        kv_ops.account_set(address, "registered", 1)
     return True
 
 

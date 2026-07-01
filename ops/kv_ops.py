@@ -50,7 +50,7 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
 _PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases")
-_DUP_DBS = ("tx_by_sender", "tx_by_recipient", "heartbeats", "attestations", "reveals", "settlements")
+_DUP_DBS = ("tx_by_sender", "tx_by_recipient", "heartbeats", "attestations", "reveals", "settlements", "recerts")
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
 ACCOUNT_FIELDS = ("balance", "produced", "bonded", "registered", "fidelity", "last_hb_epoch")
@@ -91,7 +91,7 @@ def get_env(home=None):
         env = lmdb.open(
             path,
             map_size=MAP_SIZE,
-            max_dbs=16,          # headroom over the 8 named sub-DBs
+            max_dbs=32,          # headroom over the named sub-DBs (_PLAIN_DBS + _DUP_DBS, now 17)
             subdir=True,
             readahead=False,     # random point lookups dominate
             writemap=False,      # safe: a full map raises MapFullError (no corruption), per spec
@@ -495,6 +495,34 @@ def settlement_cursors():
                 for k in cur.iternext_nodup(keys=True, values=False):
                     out.append(int.from_bytes(k, "big"))
         return out
+    return _read(_do)
+
+
+# --- Registration PoSW recerts (renewable presence lease): DUPSORT address -> epoch, revert-safe like
+# heartbeats (insert on apply, delete on rollback). Eligibility = a recert within POSW_LEASE_EPOCHS. ---
+
+def recert_put(address: str, epoch: int):
+    def _do(txn):
+        txn.put(address.encode(), be8(int(epoch)), db=_dbs()["recerts"], dupdata=True)
+    _write(_do)
+
+
+def recert_del(address: str, epoch: int):
+    def _do(txn):
+        txn.delete(address.encode(), be8(int(epoch)), db=_dbs()["recerts"])
+    _write(_do)
+
+
+def recert_latest(address: str) -> int:
+    """The most recent recert epoch for `address` (DUPSORT values sort ascending, so the last dup is the
+    max), or -1 if none. Used for the presence-lease eligibility check + revert (clear `registered` if
+    no recert remains)."""
+    def _do(txn):
+        with txn.cursor(db=_dbs()["recerts"]) as cur:
+            if cur.set_key(address.encode()):
+                cur.last_dup()
+                return un_be8(cur.value())
+        return -1
     return _read(_do)
 
 

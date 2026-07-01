@@ -12,9 +12,13 @@
 /* ----------------------------------------------------------------------------------------------
  * Protocol constants (mirror protocol.py — consensus-critical)
  * -------------------------------------------------------------------------------------------- */
+import { poswProveAsync, challengeBytes } from "./posw.js";
 const CHAIN_ID = "nado-relaunch-1";
 const EPOCH_LENGTH = 60;
-const REGISTER_POW_BITS = 16;  // must match protocol.py; ~1s in-browser (22 took tens of seconds)
+const REGISTER_POW_BITS = 16;  // legacy hashcash (retired) — kept only for the self-test vector
+// Registration Proof of Sequential Work (must match protocol.py). Non-parallelizable ~1 s chain; the
+// registration is a renewable presence LEASE renewed once ~POSW_LEASE_EPOCHS (≈1 day at ~8 min/epoch).
+const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 30, POSW_LEASE_EPOCHS = 180;
 const DENOMINATION = 10_000_000_000n; // 1 NADO in raw units (1e10)
 const MIN_TX_FEE = 1000;
 const BOND_UNLOCK_DELAY = 1440; // protocol.py: blocks a bond stays locked after an unbond request
@@ -265,7 +269,7 @@ function finalizeTransaction(draft, privHex, fee) {
 // REGISTER is by definition an address's FIRST on-chain tx, so it MUST carry public_key — this is
 // what establishes the sender's pubkey on-chain (the node stores it on first use) and lets every
 // later tx omit it. Always include it here.
-function buildRegisterTx(wallet, targetBlock, powNonce, timestamp) {
+function buildRegisterTx(wallet, targetBlock, posw, timestamp) {
   const draft = {
     sender: wallet.address,
     recipient: "register",
@@ -276,9 +280,22 @@ function buildRegisterTx(wallet, targetBlock, powNonce, timestamp) {
     public_key: wallet.publicKey,
     target_block: targetBlock,
     chain_id: CHAIN_ID,
-    pow_nonce: powNonce,
+    posw,                        // sequential Proof of Work (renewable presence lease); replaces pow_nonce
   };
   return finalizeTransaction(draft, wallet.privateKey, 0);
+}
+
+// Fetch the PoSW anchor (hash of block target_block − POSW_ANCHOR_OFFSET — a finalized, stable block that
+// the node derives identically), compute the non-parallelizable sequential proof, and build the register tx.
+async function computeRegisterTx(targetBlock, onProgress) {
+  const anchorNum = Math.max(0, targetBlock - POSW_ANCHOR_OFFSET);
+  const r = await fetch(relayBase() + "/get_block_number?number=" + anchorNum, { cache: "no-store" });
+  const b = await r.json().catch(() => null);
+  const anchorHash = b && b.block_hash;
+  if (!anchorHash) throw new Error("registration anchor block unavailable");
+  const proof = await poswProveAsync(challengeBytes(state.wallet.address, anchorHash),
+    POSW_T, POSW_S, POSW_K, { blake2b, bytesToHex, hexToBytes }, onProgress);
+  return buildRegisterTx(state.wallet, targetBlock, proof, nowSeconds());
 }
 
 // HEARTBEAT only ever fires AFTER registration is confirmed on-chain (the poll loop gates it on
@@ -552,6 +569,26 @@ function failStart(reason) {
 // and notices `registered === 1` on its own, at which point heartbeating begins automatically. This is
 // what makes mining a SINGLE click: registration, on-chain confirmation and heartbeats are all handled
 // in the background without the user ever clicking "Start mining" a second time.
+let _renewingLease = false;
+async function maybeRenewLease(acc) {
+  if (_renewingLease || state.registering || state.regSubmitted || !state.mining) return;
+  const epochNow = state.latest != null ? Math.floor((state.latest + 8) / EPOCH_LENGTH) : null;
+  const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
+  if (epochNow == null || regEpoch < 0) return;
+  if ((epochNow - regEpoch) < Math.floor(POSW_LEASE_EPOCHS * 0.8)) return;   // lease still healthy
+  _renewingLease = true;
+  try {
+    const latest = await getLatestBlock();
+    if (!latest || typeof latest.block_number !== "number") return;
+    log("info", "Presence lease expiring — renewing (fresh sequential proof)…");
+    const tx = await computeRegisterTx(latest.block_number + 8, null);       // quiet: no UI takeover
+    const res = await submitTransaction(tx);
+    if (res.data && res.data.result) log("ok", "Presence lease renewed ✓");
+    else log("err", "Lease renewal rejected: " + (res.data && (res.data.message || "")));
+  } catch (e) { log("err", "Lease renewal error: " + e.message); }
+  finally { _renewingLease = false; }
+}
+
 async function maybeRegister() {
   if (state.registering) return;                 // a PoW/submit is already in flight
   // If we already broadcast a registration that can still land, just keep waiting for it.
@@ -608,31 +645,21 @@ async function submitRegistration() {
   state.latest = latest.block_number;
   const targetBlock = latest.block_number + 8;  // headroom so the tx lands before its target block
 
-  // solve the one-time PoW
+  // compute the registration Proof of SEQUENTIAL Work (non-parallelizable ~1 s chain, replaces hashcash)
   setStartBtnBusy("Registering…");
-  setRegBanner("Solving one-time registration puzzle…" + REASSURE);
-  showRegProgress("Registering — solving one-time proof-of-work…", "starting…");
-  const job = { cancelled: false };
-  state.powJob = job;
-  log("info", `Solving registration PoW (${REGISTER_POW_BITS}-bit, target < 2^${256 - REGISTER_POW_BITS})…`);
-
-  let solved;
+  setRegBanner("Computing the one-time registration proof (a few seconds)…" + REASSURE);
+  showRegProgress("Registering — computing sequential proof-of-work…", "starting…");
+  let tx;
+  const t0 = Date.now();
   try {
-    solved = await solveRegistrationPow(state.wallet.address, {
-      signal: job,
-      onProgress: ({ hashes, seconds, rate }) => {
-        $("powStats").textContent =
-          `${hashes.toLocaleString()} hashes · ${seconds.toFixed(1)}s · ${Math.round(rate).toLocaleString()} H/s`;
-      },
+    tx = await computeRegisterTx(targetBlock, (done, total) => {
+      $("powStats").textContent =
+        `${done.toLocaleString()} / ${total.toLocaleString()} sequential hashes · ${((Date.now() - t0) / 1000).toFixed(1)}s`;
     });
   } finally {
     show("powWrap", false);
-    state.powJob = null;
   }
-
-  log("ok", `PoW solved: nonce=${solved.nonce} in ${solved.seconds.toFixed(1)}s (${solved.hashes.toLocaleString()} hashes).`);
-
-  const tx = buildRegisterTx(state.wallet, targetBlock, solved.nonce, nowSeconds());
+  log("ok", `Sequential PoW computed in ${((Date.now() - t0) / 1000).toFixed(1)}s (${POSW_T.toLocaleString()} hashes).`);
   setRegBanner("Submitting registration to the network…" + REASSURE);
   log("info", `Submitting register tx ${tx.txid.slice(0, 16)}… (target_block ${targetBlock}).`);
   const res = await submitTransaction(tx);
@@ -727,6 +754,9 @@ async function pollOnce() {
       await maybeRegister();
       return; // skip the heartbeat until registration is confirmed on chain
     }
+    // PRESENCE LEASE: quietly renew (fresh sequential proof) once ~80% of the lease is spent, so the
+    // identity never lapses out of the open registry. Runs in the background; heartbeats continue.
+    maybeRenewLease(acc).catch(() => {});
     // registered on chain → clear any pending registration record and heartbeat each epoch
     const wasStarting = state.starting || $("btnMine").disabled; // were we still in the setup phase?
     if (state.regSubmitted) { state.regSubmitted = null; show("powWrap", false); log("ok", "Registration confirmed on chain ✓"); }

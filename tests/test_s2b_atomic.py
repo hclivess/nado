@@ -123,7 +123,7 @@ def t6():
         increase_produced_count("dave", 5, logger=logger)
         change_bonded("dave", 1000, logger=logger)
         change_fidelity("dave", 3, logger=logger)
-        apply_register("dave", logger=logger)            # registered -> 1
+        apply_register("dave", epoch=0, logger=logger)   # registered -> 1 (+ recert at epoch 0)
         apply_heartbeat("dave", epoch=0, logger=logger)  # +heartbeat, fidelity +FIDELITY_GAIN
     after = get_account("dave")
     assert after["balance"] == base["balance"] - 1234
@@ -135,7 +135,7 @@ def t6():
     # revert in the exact mirror order -> doc returns byte-identical
     with kv_ops.write_txn():
         apply_heartbeat("dave", epoch=0, logger=logger, revert=True)
-        apply_register("dave", logger=logger, revert=True)
+        apply_register("dave", epoch=0, logger=logger, revert=True)
         change_fidelity("dave", 3, logger=logger, revert=True)
         change_bonded("dave", 1000, logger=logger, revert=True)
         increase_produced_count("dave", 5, logger=logger, revert=True)

@@ -425,6 +425,8 @@ async def account(request):
             data = get_account(addr, create_on_error=False)
             code = 200
             if data:
+                from ops import kv_ops
+                data["reg_epoch"] = kv_ops.recert_latest(addr)   # latest PoSW recert epoch (presence lease)
                 if readable == "true":
                     data.update({"balance": to_readable_amount(data["balance"])})
                     data.update({"produced": to_readable_amount(data["produced"])})

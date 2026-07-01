@@ -20,10 +20,7 @@ prover ships in the browser client.
 """
 import hashlib
 
-# provisional parameters (move to protocol.py on consensus adoption). T sets the honest one-time cost.
-POSW_T = 1_000_000     # total sequential hash steps (~1-2 s on a phone in pure-JS blake2b)
-POSW_S = 1_000         # steps per checkpoint segment  -> C = T // S = 1000 segments
-POSW_K = 32            # Fiat-Shamir spot-checks (soundness); verify cost ~ (k+1)·S hashes
+from protocol import POSW_T, POSW_S, POSW_K   # authoritative consensus parameters
 
 
 def _h(b: bytes) -> bytes:
