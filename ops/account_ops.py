@@ -119,6 +119,12 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         change_balance(address=sender, amount=-fee, logger=logger, revert=revert)
         return
 
+    # --- DATA-AVAILABILITY blob (execution-layer Phase 1): L1 orders + stores the opaque payload and
+    # BURNS the DA fee; it never decodes the payload and changes no other state. Revert just un-burns. ---
+    if recipient == "blob":
+        change_balance(address=sender, amount=-fee, logger=logger, revert=revert)
+        return
+
     # --- ordinary transfer (recipient may be a registered ALIAS -> credit its CURRENT owner) ---
     from ops import alias_ops
     resolved = alias_ops.resolve_alias(recipient) or recipient

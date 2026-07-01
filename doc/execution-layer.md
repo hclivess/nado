@@ -81,6 +81,15 @@ programmability immediately with zero L1 risk, and the one later concession (a v
 
 ## 3. Phase 1 — the sovereign execution layer
 
+> **Implementation status (built).** The Phase-1 skeleton now lives in `execnode/` + a one-tx L1 surface:
+> the `blob` reserved recipient (`protocol.py`, validated/burned in `transaction_ops`/`account_ops`,
+> `tests/test_blob.py`), a minimal deterministic stack VM (`execnode/vm.py`), a contract state store with
+> a canonical `state_root` (`execnode/state.py`), a tailing execution node + read-only query API
+> (`execnode/execnode.py`), and a submit CLI + example token (`execnode/submit_blob.py`,
+> `execnode/examples/token.json`); determinism is tested in `tests/test_execnode_vm.py`. Still to do:
+> the per-block blob-bytes cap (§3.3), the DA availability/pruning window, and Phase 2 (§4).
+
+
 ### 3.1 What L1 does: carry opaque blobs
 
 The execution layer is its **own binary, its own state, its own (optional) node set.**

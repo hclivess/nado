@@ -15,12 +15,12 @@ from compounder import compound_send_transaction
 from config import get_config
 from config import get_timestamp_seconds
 from ops.data_ops import sort_list_dict, get_home, get_byte_size
-from hashing import create_nonce, blake2b_hash
+from hashing import create_nonce, blake2b_hash, canonical_bytes
 from ops.key_ops import load_keys
 from ops.log_ops import get_logger
 from ops.peer_ops import load_ips
 from ops import kv_ops
-from protocol import CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH
+from protocol import CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH, BLOB_MAX_BYTES
 import aiohttp
 
 
@@ -126,6 +126,23 @@ def construct_bond_tx(keydict, amount, fee, target_block):
     normal fee applies. Pubkey-once carries public_key (always safe; the node's pubkey is established)."""
     tx = {"sender": keydict["address"], "recipient": "bond", "amount": int(amount),
           "timestamp": get_timestamp_seconds(), "data": "",
+          "nonce": create_nonce(), "public_key": keydict["public_key"],
+          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": int(fee)}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
+def blob_payload_size(payload) -> int:
+    """True canonical byte length of a blob payload (for the DA size cap) — deterministic across nodes."""
+    return len(canonical_bytes(payload))
+
+
+def construct_blob_tx(keydict, payload, target_block, fee):
+    """Build a SIGNED data-availability blob tx: recipient is the reserved name "blob"; the OPAQUE
+    execution-layer payload rides in `data`. L1 orders + stores it and burns the fee, never decoding it."""
+    tx = {"sender": keydict["address"], "recipient": "blob", "amount": 0,
+          "timestamp": get_timestamp_seconds(), "data": payload,
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": int(fee)}
     tx["txid"] = create_txid(tx)
@@ -349,6 +366,15 @@ def validate_transaction(transaction, logger, block_height):
         # ALIAS op (register / transfer / unregister): validate the op, name, ownership + fee floor.
         from ops import alias_ops
         alias_ops.validate_alias_op(transaction)
+    elif recipient == "blob":
+        # DATA-AVAILABILITY blob (execution-layer Phase 1): envelope-only checks. L1 orders + stores the
+        # opaque payload and never decodes it. Zero amount, a non-empty payload within the size cap, and
+        # a paid DA fee (>= MIN_TX_FEE, burned). The sender must afford the fee (enforced at reflect).
+        assert transaction["amount"] == 0, "Blob tx must have zero amount"
+        assert transaction["fee"] >= MIN_TX_FEE, f"Blob DA fee below minimum {MIN_TX_FEE}"
+        payload = transaction.get("data")
+        assert payload not in (None, "", {}, []), "Blob tx must carry a data payload"
+        assert blob_payload_size(payload) <= BLOB_MAX_BYTES, f"Blob payload exceeds {BLOB_MAX_BYTES} bytes"
     else:
         # ordinary transfer / bond / send-to-alias: deterministic minimum-fee floor (anti-spam), block 1
         assert transaction["fee"] >= MIN_TX_FEE, f"Transaction fee below minimum {MIN_TX_FEE}"

@@ -24,7 +24,17 @@ GENESIS_TIMESTAMP = 1669852800
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
 # "bond"/"unbond": bonded-lane stake txs. "register"/"heartbeat": OPEN-lane (no-coin) mining txs
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "heartbeat", "slash", "attest", "commit", "reveal", "alias"})
+RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "heartbeat", "slash", "attest", "commit", "reveal", "alias", "blob"})
+
+# --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
+# "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
+# STORES it (and burns a DA fee) but NEVER decodes it — programmability lives one layer up, in separate
+# execution nodes that replay these blobs in block order. This is the entire L1 surface for Phase 1:
+# a fee-metered, size-capped, opaque byte channel. Contracts, the VM, and their state never touch
+# consensus, so phone-mining and the base ledger are unaffected.
+BLOB_MAX_BYTES = 16 * 1024        # per-tx opaque payload cap (canonical bytes) — bounds block growth
+# TODO(Phase 1 hardening): also enforce a per-BLOCK total-blob-bytes cap in verify_block so a single
+# block cannot bloat DA beyond what phones relay (doc/execution-layer.md §3.3). Per-tx cap ships first.
 
 # --- Aliases (human-readable names -> address; register / transfer / unregister on-chain) ---
 # An alias lets a user send to a short name instead of the 49-char ndo address. Names are a scarce
