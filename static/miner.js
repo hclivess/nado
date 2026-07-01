@@ -1603,8 +1603,20 @@ function exShort(h, n = 12) { return h && h.length > n * 2 ? h.slice(0, n) + "â€
 // data attrs + event delegation (miner.js is an ES module, so inline onclick can't see exOpen)
 function exLink(kind, val, label) { return `<a class="ex-link" data-exk="${kind}" data-exv="${exEsc(val)}">${exEsc(label ?? val)}</a>`; }
 function exReservedOrAddr(r) { return EX_RESERVED.has(r) ? `<span class="badge">${exEsc(r)}</span>` : exLink("a", r, exShort(r, 8)); }
-function exKV(pairs) { return `<div class="ex-kv">${pairs.filter(Boolean).map(([k, v]) => `<div class="k">${exEsc(k)}</div><div class="v">${v}</div>`).join("")}</div>`; }
-function exStat(rows) { return rows.map(([k, v]) => `<div class="ex-stat"><span class="k">${k}</span><span class="n">${v}</span></div>`).join(""); }
+// map each explore label to an i18n key (reusing existing keys where they fit), so exStat/exKV localize
+const EX_LABELS = {
+  "Address":"lbl.address","Amount":"ex.amount","Balance":"ex.balance","Block time":"ex.blockTime","Bonded":"lbl.bonded",
+  "Circulating":"ex.circulating","Cumulative fees":"ex.cumFees","Cumulative weight":"ex.cumWeight","Data":"ex.data",
+  "Epoch":"ex.epoch","Fee":"ex.fee","Fees burned":"ex.feesBurned","Fidelity":"lbl.fidelity","Finalized":"ex.finalized",
+  "From":"ex.from","Hash":"ex.hash","Latest hash":"ex.latestHash","Next block":"ex.nextBlock","OPEN lane":"lanes.open",
+  "BONDED lane":"lanes.bonded","Parent":"ex.parent","Produced":"ex.produced","Producer":"ex.producer",
+  "Registered":"lbl.registered","Reward":"ex.reward","Target block":"ex.targetBlock","Time":"ex.time",
+  "Timestamp":"ex.timestamp","Tip height":"ex.tipHeight","To":"ex.to","Total supply":"ex.totalSupply",
+  "Transactions":"ex.transactions","Treasury":"ex.treasury","Txid":"ex.txid",
+};
+function exT(s) { const k = EX_LABELS[s]; return k ? i18(k, s) : s; }
+function exKV(pairs) { return `<div class="ex-kv">${pairs.filter(Boolean).map(([k, v]) => `<div class="k">${exEsc(exT(k))}</div><div class="v">${v}</div>`).join("")}</div>`; }
+function exStat(rows) { return rows.map(([k, v]) => `<div class="ex-stat"><span class="k">${exT(k)}</span><span class="n">${v}</span></div>`).join(""); }
 
 async function exLoadOverview() {
   try {
@@ -1652,7 +1664,7 @@ function exTxRow(t) {
 }
 function exRenderBlock(b) {
   const txs = b.block_transactions || [];
-  return `<h2>Block #${b.block_number}</h2>${exKV([
+  return `<h2>${i18("ex.block","Block")} #${b.block_number}</h2>${exKV([
     ["Hash", `<span class="mono">${exEsc(b.block_hash)}</span>`],
     ["Parent", exLink("b", b.parent_hash, exShort(b.parent_hash))],
     ["Producer", exLink("a", b.block_creator)],
@@ -1664,7 +1676,7 @@ function exRenderBlock(b) {
   ])}${txs.length ? `<div class="ex-rows mt">${txs.map(exTxRow).join("")}</div>` : `<div class="faint small mt">no transactions</div>`}`;
 }
 function exRenderAccount(a) {
-  return `<h2>Account</h2>${exKV([
+  return `<h2>${i18("ex.account","Account")}</h2>${exKV([
     ["Address", `<span class="mono">${exEsc(a.address)}</span>`],
     ["Balance", exNado(a.balance)],
     ["Bonded", exNado(a.bonded)],
