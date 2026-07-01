@@ -173,6 +173,8 @@ function validateAddress(addr) {
 // ALIAS: a short human-readable name that resolves to an owner address on-chain. Client mirror of
 // ops/alias_ops.valid_alias_name (3..32 chars, lowercase [a-z0-9_-], starts with a letter, not "ndo…").
 function looksLikeAlias(s) { return /^[a-z][a-z0-9_-]{2,31}$/.test(s || "") && !s.startsWith("ndo"); }
+// i18n helper for dynamic (JS-set) strings — translates via i18n.js's window.t, English fallback.
+function i18(k, fb) { return (typeof window !== "undefined" && window.t) ? window.t(k, fb) : fb; }
 async function resolveAlias(name) {
   try {
     const r = await fetch(relayBase() + "/resolve_alias?name=" + encodeURIComponent(name), { cache: "no-store" });
@@ -523,7 +525,7 @@ const REASSURE = ' <b>One-time setup — no need to click again.</b>';
 function markMiningActive() {
   state.starting = false;
   setStartBtnMining();
-  if ($("mineState").textContent !== "Mining") $("mineState").textContent = "Mining";
+  $("mineState").textContent = i18("mine.mining", "Mining");
 }
 
 // Registration could not be confirmed (relay rejected it, or the relay was unreachable). Stop the
@@ -537,7 +539,7 @@ function failStart(reason) {
   stopPollLoop();
   show("powWrap", false);
   setStartBtnIdle("Start mining");
-  $("mineState").textContent = "Idle";
+  $("mineState").textContent = i18("mine.idle", "Idle");
   setRegBanner("Registration didn't confirm — tap Start to retry." +
     (reason ? ' <span class="faint">(' + escapeHtml(reason) + ')</span>' : ""), "warn");
 }
@@ -590,7 +592,7 @@ function showRegProgress(label, stats) {
   // The main Start/Mine button stays DISABLED during registration, so keep this Cancel button visible
   // the whole time as the escape hatch (it calls stopMining — aborting PoW and the on-chain wait).
   if ($("btnCancelPow")) show("btnCancelPow", true);
-  if (state.mining) $("mineState").textContent = "Registering…";
+  if (state.mining) $("mineState").textContent = i18("mine.registering", "Registering…");
 }
 
 // Solve the one-time registration PoW and broadcast the register tx. Records state.regSubmitted on
@@ -778,7 +780,7 @@ async function startMining() {
   state.lastAutoBondEpoch = null;
   setStartBtnBusy("Starting…");                   // disabled spinner button — can't be re-clicked
   setRegBanner("Starting up — checking your registration with the relay…" + REASSURE);
-  $("mineState").textContent = "Starting…";
+  $("mineState").textContent = i18("mine.starting", "Starting…");
   log("ok", "Mining started — registering (if needed) and heartbeating automatically.");
   startPollLoop();
   acquireWakeLock();   // keep the screen awake so mining doesn't stall when the phone would auto-lock
@@ -797,7 +799,7 @@ function stopMining() {
   show("powWrap", false);
   show("regBanner", false);
   setStartBtnIdle("Start mining");
-  $("mineState").textContent = "Idle";
+  $("mineState").textContent = i18("mine.idle", "Idle");
   $("mineNextHb").textContent = "—";
   log("info", "Mining stopped.");
 }
@@ -871,7 +873,7 @@ async function refreshDashboard() {
     $("walBonded").textContent = bonded + " NADO";
     $("walTotal").textContent = rawToNado(freeRaw + bondedRaw) + " NADO";
     updateCoinPile(freeRaw + bondedRaw);               // a little touch: pile sized vs the richest wallet
-    $("walReg").innerHTML = acc.registered === 1 ? '<span class="badge ok">yes</span>' : '<span class="badge no">no</span>';
+    $("walReg").innerHTML = acc.registered === 1 ? `<span class="badge ok">${i18("badge.yes","yes")}</span>` : `<span class="badge no">${i18("badge.no","no")}</span>`;
     $("walFidelity").textContent = acc.fidelity ?? 0;
     $("sendAvail").textContent = bal + " NADO";
     $("stkAvail").textContent = bal + " NADO";
@@ -881,7 +883,7 @@ async function refreshDashboard() {
     $("walBonded").textContent = "0 NADO";
     $("walTotal").textContent = "0 NADO";
     updateCoinPile(0n);
-    $("walReg").innerHTML = '<span class="badge idle">new</span>';
+    $("walReg").innerHTML = `<span class="badge idle">${i18("badge.new","new")}</span>`;
     $("walFidelity").textContent = "—";
     $("sendAvail").textContent = "0 NADO";
     $("stkAvail").textContent = "0 NADO";
@@ -890,7 +892,7 @@ async function refreshDashboard() {
 
   if (ms) {
     state.blockTime = ms.block_time || state.blockTime;
-    $("walPresent").innerHTML = ms.registered_present ? '<span class="badge ok">present</span>' : '<span class="badge no">absent</span>';
+    $("walPresent").innerHTML = ms.registered_present ? `<span class="badge ok">${i18("badge.present","present")}</span>` : `<span class="badge no">${i18("badge.absent","absent")}</span>`;
     $("walBadge").className = "badge " + (ms.registered_present ? "ok" : (acc && acc.registered === 1 ? "no" : "idle"));
     $("walBadge").textContent = ms.registered_present ? "present" : (acc && acc.registered === 1 ? "absent" : "unregistered");
 
@@ -1772,6 +1774,8 @@ function wireEvents() {
     const p = e.target.closest && e.target.closest("a.addrpick[data-to]");
     if (p) { e.preventDefault(); $("sendTo").value = p.dataset.to; validateSendTo(); }
   });
+  // re-render dynamic (JS-set) strings — badges, mining status — when the language changes
+  window.addEventListener("nado-lang", () => { if (state.wallet) refreshDashboard().catch(() => {}); });
 
   // --- full-wallet wiring ---
   $("btnDlKey").onclick = downloadKeyFile;

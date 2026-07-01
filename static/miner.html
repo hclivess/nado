@@ -55,7 +55,7 @@
   <!-- ONBOARDING -->
   <div id="onboard" class="card hidden">
     <h2 data-i18n="onboard.title">Get started</h2>
-    <p class="small dim">Generate a brand-new mining identity (an ML-DSA-44 post-quantum keypair) or import an
+    <p class="small dim" data-i18n-html="onboard.intro">Generate a brand-new mining identity (an ML-DSA-44 post-quantum keypair) or import an
       existing private key. Everything happens locally in your browser — your private key never
       leaves this device.</p>
     <div class="row mt">
@@ -116,17 +116,17 @@
       <button class="copy" data-copy="walAddr">Copy</button></div>
     <div class="stat-grid mt">
       <div class="stat" title="FREE — your spendable balance: coins you can send or bond right now.">
-        <div class="label">Free <span class="hint">ⓘ</span></div><div class="value sm" id="walBalance">—</div></div>
+        <div class="label" data-i18n="lbl.free">Free <span class="hint">ⓘ</span></div><div class="value sm" id="walBalance">—</div></div>
       <div class="stat" title="BONDED — coins locked as bonded stake. Bonded stake increases your odds in the bonded mining lane; it unlocks BOND_UNLOCK_DELAY (1440) blocks after you request an unbond.">
-        <div class="label">Bonded <span class="hint">ⓘ</span></div><div class="value sm" id="walBonded">—</div></div>
+        <div class="label" data-i18n="lbl.bonded">Bonded <span class="hint">ⓘ</span></div><div class="value sm" id="walBonded">—</div></div>
       <div class="stat" title="TOTAL — free (spendable) + bonded (staked).">
-        <div class="label">Total <span class="hint">ⓘ</span></div><div class="value sm" id="walTotal">—</div></div>
+        <div class="label" data-i18n="lbl.total">Total <span class="hint">ⓘ</span></div><div class="value sm" id="walTotal">—</div></div>
       <div class="stat" title="REGISTERED — you've done the one-time on-chain registration (a quick proof-of-work). It's required once before you can mine the OPEN lane. Done automatically when you start mining.">
-        <div class="label">Registered <span class="hint">ⓘ</span></div><div class="value sm" id="walReg">—</div></div>
+        <div class="label" data-i18n="lbl.registered">Registered <span class="hint">ⓘ</span></div><div class="value sm" id="walReg">—</div></div>
       <div class="stat" title="PRESENT — you've posted a heartbeat within the last 3 epochs, so you're currently ELIGIBLE to win open-lane blocks. The wallet heartbeats automatically each epoch; if it stops, presence lapses and you stop earning until it resumes.">
-        <div class="label">Present <span class="hint">ⓘ</span></div><div class="value sm" id="walPresent">—</div></div>
+        <div class="label" data-i18n="lbl.present">Present <span class="hint">ⓘ</span></div><div class="value sm" id="walPresent">—</div></div>
       <div class="stat" title="FIDELITY — a continuity score that rises each epoch you stay present (up to a cap) and increases your weight in the open lane, so steady miners win a bit more often. Going absent reduces its effect.">
-        <div class="label">Fidelity <span class="hint">ⓘ</span></div><div class="value sm" id="walFidelity">—</div></div>
+        <div class="label" data-i18n="lbl.fidelity">Fidelity <span class="hint">ⓘ</span></div><div class="value sm" id="walFidelity">—</div></div>
     </div>
 
     <!-- a little touch: your pile of coins, scaled to the richest wallet on the network -->
@@ -165,11 +165,11 @@
     </div>
 
     <div class="stat-grid mt">
-      <div class="stat"><div class="label">Status</div><div class="value sm" id="mineState">Idle</div></div>
-      <div class="stat"><div class="label">Current epoch</div><div class="value sm" id="mineEpoch">—</div></div>
+      <div class="stat"><div class="label" data-i18n="mine.status">Status</div><div class="value sm" id="mineState" data-i18n="mine.idle">Idle</div></div>
+      <div class="stat"><div class="label" data-i18n="mine.epoch">Current epoch</div><div class="value sm" id="mineEpoch">—</div></div>
       <div class="stat" title="EXPECTED TIME TO MINE — a rough average wait until you win a block, based on your share of the open lane vs everyone else mining it. It's a statistical average, not a countdown.">
-        <div class="label">Expected time to mine <span class="hint">ⓘ</span></div><div class="value sm" id="mineEta">—</div></div>
-      <div class="stat"><div class="label">Next heartbeat</div><div class="value sm" id="mineNextHb">—</div></div>
+        <div class="label" data-i18n="mine.eta">Expected time to mine <span class="hint">ⓘ</span></div><div class="value sm" id="mineEta">—</div></div>
+      <div class="stat"><div class="label" data-i18n="mine.nextHb">Next heartbeat</div><div class="value sm" id="mineNextHb">—</div></div>
     </div>
   </div>
 
@@ -179,16 +179,16 @@
     <!-- Who's in each lane right now (from /mining_status: open/bonded registry sizes + lane weights) -->
     <div class="stat-grid">
       <div class="stat" title="Registered, present miners competing for the ~20% free lane">
-        <div class="label">Open lane <span class="hint">ⓘ</span></div>
-        <div class="value sm"><span id="laneOpenCount">—</span> miners</div></div>
+        <div class="label" data-i18n="lanes.open">Open lane <span class="hint">ⓘ</span></div>
+        <div class="value sm"><span id="laneOpenCount">—</span> <span data-i18n="lane.miners">miners</span></div></div>
       <div class="stat" title="Bonded-stake validators competing for the ~80% stake lane">
-        <div class="label">Bonded lane <span class="hint">ⓘ</span></div>
-        <div class="value sm"><span id="laneBondedCount">—</span> validators</div></div>
+        <div class="label" data-i18n="lanes.bonded">Bonded lane <span class="hint">ⓘ</span></div>
+        <div class="value sm"><span id="laneBondedCount">—</span> <span data-i18n="lane.validators">validators</span></div></div>
       <div class="stat" title="Total open-lane selection weight across all present miners. Your weight is a share of this — the bigger your slice, the more often you win the free lane.">
-        <div class="label">Open weight <span class="hint">ⓘ</span></div>
+        <div class="label" data-i18n="lanes.openWeight">Open weight <span class="hint">ⓘ</span></div>
         <div class="value sm" id="laneOpenWeight">—</div></div>
       <div class="stat" title="Total bonded selection shares across all validators. Your bonded shares are a portion of this (100 NADO / B_MIN per share).">
-        <div class="label">Bonded shares <span class="hint">ⓘ</span></div>
+        <div class="label" data-i18n="lanes.bondedShares">Bonded shares <span class="hint">ⓘ</span></div>
         <div class="value sm" id="laneBondedShares">—</div></div>
     </div>
     <div class="lanes mt">
@@ -197,8 +197,8 @@
         <div class="bonded" id="laneBonded" style="flex:0 0 80%">BONDED 80%</div>
       </div>
       <div class="lane-legend">
-        <span><i class="open"></i>Open lane — free, capital-less (you)</span>
-        <span><i class="bonded"></i>Bonded lane — locked stake</span>
+        <span><i class="open"></i><span data-i18n="lane.legendOpen">Open lane — free, capital-less (you)</span></span>
+        <span><i class="bonded"></i><span data-i18n="lane.legendBonded">Bonded lane — locked stake</span></span>
       </div>
       <div class="myshare" id="myShare">—</div>
     </div>
@@ -210,21 +210,21 @@
     <div id="payBanner" class="hint-banner hidden">
       <span class="hint">ⓘ</span><span id="payBannerMsg">Payment request loaded — review and confirm.</span>
     </div>
-    <label>Recipient address
+    <label data-i18n="send.recipient">Recipient address
       <span class="hint" title="A 49-character NADO address starting with 'ndo'. The final 4 characters are a checksum — a mistyped address fails validation and is never broadcast.">ⓘ</span>
     </label>
     <input id="sendTo" placeholder="ndo… address or an alias name" autocomplete="off" spellcheck="false" list="sendToBook" />
     <datalist id="sendToBook"></datalist>
     <div id="sendToMsg" class="small mt faint"></div>
     <div id="addrBook" class="small mt faint"></div>
-    <label class="mt">Amount (NADO)
+    <label class="mt" data-i18n="send.amount">Amount (NADO)
       <span class="hint" title="Amount in NADO — up to 10 decimal places (the smallest unit is 0.0000000001 NADO).">ⓘ</span>
     </label>
     <input id="sendAmount" placeholder="0.0" inputmode="decimal" autocomplete="off" />
-    <div class="small faint mt">Network fee: <span id="sendFeeInfo" class="mono">—</span>
+    <div class="small faint mt" data-i18n="send.fee">Network fee: <span id="sendFeeInfo" class="mono">—</span>
       <span class="hint" title="A tiny network fee set automatically to the protocol minimum. It is destroyed, not paid to anyone. Shown in NADO.">ⓘ</span>
     </div>
-    <div class="small faint">Spendable balance: <span id="sendAvail" class="mono">—</span></div>
+    <div class="small faint" data-i18n="send.spendable">Spendable balance: <span id="sendAvail" class="mono">—</span></div>
     <button id="btnSend" class="primary mt" style="width:100%" data-i18n="btn.reviewSend">Review &amp; send</button>
     <div id="sendMsg" class="small mt faint"></div>
   </div>
@@ -232,9 +232,9 @@
   <!-- RECEIVE -->
   <div id="receiveCard" class="card hidden" data-tab="receive">
     <h2 data-i18n="receive.title">Receive</h2>
-    <p class="small dim">Share this QR or payment link to request NADO. Scanning it with a phone opens this
+    <p class="small dim" data-i18n-html="receive.intro">Share this QR or payment link to request NADO. Scanning it with a phone opens this
       wallet with a Send pre-filled — the sender always reviews and confirms before anything is sent.</p>
-    <label>Request amount (NADO) — optional
+    <label data-i18n="receive.reqAmount">Request amount (NADO) — optional
       <span class="hint" title="If set, the QR / payment link asks the sender for this exact amount (they still confirm). Leave blank for a plain receive code.">ⓘ</span>
     </label>
     <input id="recvAmount" placeholder="(any amount)" inputmode="decimal" autocomplete="off" />
@@ -242,21 +242,21 @@
       <canvas id="recvQR" class="qr hidden" width="260" height="260"></canvas>
       <div id="recvQRNote" class="small faint hidden">QR generator unavailable — copy the payment link below.</div>
     </div>
-    <label class="mt">Payment link
+    <label class="mt" data-i18n="receive.payLink">Payment link
       <span class="hint" title="A deep link back to this hosted wallet. Opening it prefills a Send (the sender always confirms). Copy and share it where a camera can't scan the QR.">ⓘ</span>
     </label>
     <div class="addr-box"><span class="a mono break" id="recvPayLink"></span>
       <button class="copy" data-copy="recvPayLink">Copy</button>
       <button class="copy" id="btnSharePay">Share</button></div>
-    <label class="mt">Your address</label>
+    <label class="mt" data-i18n="receive.your">Your address</label>
     <div class="addr-box"><span class="a mono" id="recvAddr"></span>
       <button class="copy" data-copy="recvAddr">Copy</button></div>
   </div>
 
   <!-- ALIASES -->
   <div id="aliasCard" class="card hidden" data-tab="aliases">
-    <h2>Aliases <span class="pill">a name instead of a hash</span></h2>
-    <p class="small dim">Register a short name that resolves to <b>your own address</b> (self) — others
+    <h2 data-i18n="alias.title">Aliases <span class="pill" data-i18n="alias.pill">a name instead of a hash</span></h2>
+    <p class="small dim" data-i18n-html="alias.intro">Register a short name that resolves to <b>your own address</b> (self) — others
       can then send to the name instead of your 49-char ndo… address. Names are global and first-come:
       3–32 chars, lowercase letters/digits/<code>_</code>/<code>-</code>, starting with a letter.
       Registering costs a small anti-squat fee; use <b>Transfer</b> to point it at a different address,
@@ -273,20 +273,20 @@
       <button id="btnAliasXfer" data-i18n="btn.transfer">Transfer</button>
     </div>
     <div id="aliasMsg" class="small mt"></div>
-    <div class="small faint mt">Your aliases: <span id="myAliases" class="mono">—</span></div>
+    <div class="small faint mt" data-i18n="alias.your">Your aliases: <span id="myAliases" class="mono">—</span></div>
   </div>
 
   <!-- BOND / UNBOND -->
   <div id="stakeCard" class="card hidden" data-tab="stake">
     <h2 data-i18n="stake.title">Stake — bond / unbond</h2>
     <div class="stat-grid">
-      <div class="stat"><div class="label">Spendable</div><div class="value sm" id="stkAvail">—</div></div>
+      <div class="stat"><div class="label" data-i18n="stake.spendable">Spendable</div><div class="value sm" id="stkAvail">—</div></div>
       <div class="stat" title="BONDED — coins locked as bonded stake. Bonded stake earns you slots in the BONDED mining lane (~80% of blocks). 100 NADO (B_MIN) per selection share.">
-        <div class="label">Bonded <span class="hint">ⓘ</span></div><div class="value sm" id="stkBonded">—</div></div>
+        <div class="label" data-i18n="lbl.bonded">Bonded <span class="hint">ⓘ</span></div><div class="value sm" id="stkBonded">—</div></div>
     </div>
     <div class="warnbox mt">Unbonded stake stays locked for <b id="stkDelay">1440</b> blocks (BOND_UNLOCK_DELAY) after an unbond request before it is spendable again.</div>
 
-    <label class="mt">Bond amount (NADO) — move spendable → bonded
+    <label class="mt" data-i18n="stake.bondAmount">Bond amount (NADO) — move spendable → bonded
       <span class="hint" title="Locks spendable balance as bonded stake to mine the bonded lane. 100 NADO buys one bonded selection share.">ⓘ</span>
     </label>
     <input id="bondAmount" placeholder="0.0" inputmode="decimal" autocomplete="off" />
@@ -299,7 +299,7 @@
          node's unattended auto-bond (core_loop.maybe_auto_bond): once per epoch, dust-floored, stops at
          BOND_CAP. Applies in THIS browser while the tab is mining. -->
     <div class="hint-banner mt" style="display:block">
-      <label style="margin:0">Auto-bond mining rewards
+      <label style="margin:0" data-i18n="stake.autobond">Auto-bond mining rewards
         <span class="hint" title="While this tab is mining, automatically bond this percentage of the block rewards you earn — compounding your bonded-lane weight hands-free. Capped at BOND_CAP; 0 = off. The node itself has the same option for headless mining (auto_bond_percent / NADO_AUTO_BOND_PERCENT).">ⓘ</span>
       </label>
       <div class="mt" style="display:flex;align-items:center;gap:10px">
@@ -309,7 +309,7 @@
       <div id="autoBondNote" class="small faint mt">On — bonding 80% of new mining rewards each epoch (auto-compounding the bonded lane). Set 0 to keep rewards spendable.</div>
     </div>
 
-    <label class="mt">Unbond amount (NADO) — move bonded → spendable
+    <label class="mt" data-i18n="stake.unbondAmount">Unbond amount (NADO) — move bonded → spendable
       <span class="hint" title="Releases bonded stake back toward spendable balance. The fee is paid from your spendable balance.">ⓘ</span>
     </label>
     <input id="unbondAmount" placeholder="0.0" inputmode="decimal" autocomplete="off" />
@@ -320,13 +320,13 @@
 
   <!-- HISTORY -->
   <div id="historyCard" class="card hidden" data-tab="history">
-    <h2>History <span class="pill"><button id="btnRefreshHist" class="ghost small" style="padding:4px 10px">Refresh</button></span></h2>
+    <h2 data-i18n="history.title">History <span class="pill"><button id="btnRefreshHist" class="ghost small" style="padding:4px 10px" data-i18n="btn.refresh">Refresh</button></span></h2>
     <div id="history" class="hist"></div>
   </div>
 
   <!-- LOG -->
   <div id="logCard" class="card hidden">
-    <h2>Activity <span class="pill"><button id="btnClearLog" class="ghost small" style="padding:4px 10px">Clear</button></span></h2>
+    <h2 data-i18n="log.title">Activity <span class="pill"><button id="btnClearLog" class="ghost small" style="padding:4px 10px" data-i18n="btn.clear">Clear</button></span></h2>
     <div id="log"></div>
   </div>
 
@@ -359,7 +359,7 @@
       <input id="relayUrl" class="grow" placeholder="https://node.example:9173" />
       <button id="btnSaveRelay" class="accent" style="flex:0 0 auto" data-i18n="btn.save">Save</button>
     </div>
-    <p class="small faint mt">Defaults to this page's origin. A custom relay must be same-origin or
+    <p class="small faint mt" data-i18n-html="settings.relayNote">Defaults to this page's origin. A custom relay must be same-origin or
       send CORS headers, or your browser will block reads.</p>
     <div class="row mt">
       <button id="btnDlKeySettings" class="accent">⤓ Download private key file</button>
@@ -379,7 +379,7 @@
     <div id="selftest"></div>
   </div>
 
-  <footer>
+  <footer data-i18n-html="footer">
     NADO light-miner · the chain stays on full nodes; this page only generates keys, registers, and
     heartbeats. Your reward lands on your address because a relay builds the block crediting it.
   </footer>
