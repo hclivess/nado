@@ -341,11 +341,33 @@ class StatusPoolHandler(tornado.web.RequestHandler):
         await asyncio.to_thread(self.status_pool)
 
 
+def _ip_registration_rejection(ip, transaction):
+    """IP-DIVERSITY cap (non-consensus relay admission control): for a `register` tx, enforce the
+    per-source-IP distinct-address limit so one device/IP can't script thousands of mining identities.
+    Returns a rejection dict if over the cap, else None. Never raises into tx submission."""
+    try:
+        if not isinstance(transaction, dict) or transaction.get("recipient") != "register":
+            return None
+        from ops.ratelimit import allow_registration
+        cap = getattr(memserver, "max_registrations_per_ip", 64)
+        if not allow_registration(ip, str(transaction.get("sender", "")), cap):
+            return {"result": False,
+                    "message": "Too many registrations from this IP — one device/IP can onboard only a "
+                               "limited number of mining addresses (anti-Sybil). Use fewer addresses."}
+    except Exception:
+        return None
+    return None
+
+
 class SubmitTransactionHandler(tornado.web.RequestHandler):
     def submit_transaction(self):
         try:
             transaction_raw = SubmitTransactionHandler.get_argument(self, "data")
             transaction = json.loads(transaction_raw)
+
+            _rej = _ip_registration_rejection(self.request.remote_ip, transaction)
+            if _rej:
+                self.set_status(429); self.write(_rej); return
 
             output = memserver.merge_transaction(transaction, user_origin=True)
             self.write(output)
@@ -376,6 +398,9 @@ class SubmitTransactionHandler(tornado.web.RequestHandler):
                 transaction = msgpack.unpackb(body, raw=False)
             else:
                 transaction = json.loads(body.decode() if isinstance(body, (bytes, bytearray)) else body)
+            _rej = _ip_registration_rejection(self.request.remote_ip, transaction)
+            if _rej:
+                self.set_status(429); self.write(_rej); return
             output = memserver.merge_transaction(transaction, user_origin=True)
             self.write(output)
             if not output["result"]:

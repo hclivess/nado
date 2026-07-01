@@ -137,6 +137,14 @@ class MemServer:
             _hrb = 0
         self.history_retention_blocks = _hrb if _hrb > 0 else _HRB
 
+        # IP-DIVERSITY registration cap (non-consensus): max distinct OPEN-lane addresses one source IP
+        # may register through this node per hour (0 = off). See ops/ratelimit.allow_registration.
+        try:
+            self.max_registrations_per_ip = int(_os.environ.get("NADO_MAX_REG_PER_IP")
+                                                 or self.config.get("max_registrations_per_ip", 64))
+        except (TypeError, ValueError):
+            self.max_registrations_per_ip = 64
+
     def ban_peer(self, peer):
         if peer not in self.purge_peers_list and peer not in self.unreachable:
             self.purge_peers_list.append(peer)
