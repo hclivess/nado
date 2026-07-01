@@ -1148,7 +1148,9 @@ async function doAliasOp(op) {
   const balance = BigInt((acc && acc.balance) || 0);
   if (BigInt(fee) > balance) { setMsg("aliasMsg", `Insufficient balance for the ${rawToNado(fee)} NADO fee.`, "err"); return; }
   const data = op === "transfer" ? { op, name, to } : { op, name };
-  if (!confirm(`${op[0].toUpperCase() + op.slice(1)} alias "${name}"${op === "transfer" ? "\n→ " + to : ""}\nnetwork fee ${rawToNado(fee)} NADO\n\nProceed?`)) {
+  // register defaults to SELF (the alias resolves to your own address); transfer points it elsewhere.
+  const target = op === "transfer" ? "\n→ " + to : (op === "register" ? "\n→ your address (self)" : "");
+  if (!confirm(`${op[0].toUpperCase() + op.slice(1)} alias "${name}"${target}\nnetwork fee ${rawToNado(fee)} NADO\n\nProceed?`)) {
     setMsg("aliasMsg", "Cancelled.", null); return;
   }
   try {
