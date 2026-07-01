@@ -135,6 +135,15 @@
         <div class="label" data-i18n="lbl.fidelity">Fidelity <span class="hint">ⓘ</span></div><div class="value sm" id="walFidelity">—</div></div>
     </div>
 
+    <!-- PRESENCE DIVIDEND (doc/presence-dividend.md): your share of the open lane's redistributed pool, accrued
+         off-L1 while you mine; collect it to your balance on demand. -->
+    <div class="row mt" style="align-items:center;justify-content:space-between" data-i18n-title="tip.dividend"
+         title="PRESENCE DIVIDEND — the open lane redistributes most of its block reward to everyone mining it, weighted by fidelity. Your share accrues off-chain while you're present (stop mining and it stops growing). 'Collect' sweeps it into your spendable balance — it lands automatically a few minutes later, once the execution layer's state is settled on-chain.">
+      <div><span class="label" data-i18n="div.label">Dividend accrued <span class="hint">ⓘ</span></span>
+        <div class="value sm" id="divAccrued">—</div></div>
+      <button class="accent" id="btnCollectDiv" data-i18n="div.collect" disabled>Collect dividend</button>
+    </div>
+
     <!-- a little touch: your pile of coins, scaled to the richest wallet on the network -->
     <div id="coinPileWrap" class="mt hidden" style="text-align:center">
       <svg id="coinPile" viewBox="0 0 240 150" width="100%" style="max-width:280px;height:auto" aria-hidden="true"></svg>

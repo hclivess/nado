@@ -164,10 +164,14 @@ async def h_withdrawal_proof(request):
 
 
 async def h_dividend(request):
-    # a miner's accrued (uncollected) presence dividend, off-L1 (doc/presence-dividend.md). No address -> all.
+    # a miner's accrued (uncollected) presence dividend + any COLLECTED-but-not-yet-claimed withdrawals (each
+    # provable against the settled root via /exec/dividend_proof). Off-L1 (doc/presence-dividend.md). No addr -> all.
     addr = request.query.get("address")
     if addr:
-        return web.json_response({"address": addr, "accrued": int(state.dividend.get(addr, 0)), "cursor": state.cursor})
+        pending = [{"nonce": n, "amount": w["amount"]} for n, w in sorted(state.dividend_withdrawals.items())
+                   if w["addr"] == addr]
+        return web.json_response({"address": addr, "accrued": int(state.dividend.get(addr, 0)),
+                                  "pending": pending, "cursor": state.cursor})
     return web.json_response({"dividend": state.dividend, "cursor": state.cursor})
 
 

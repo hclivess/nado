@@ -375,6 +375,75 @@ const state = {
 };
 
 function relayBase() { return (state.relay || location.origin).replace(/\/+$/, ""); }
+// Execution node (presence dividend + contracts) — same host as the relay, exec port 9273 (overridable).
+function execBase() {
+  if (state.execUrl) return state.execUrl.replace(/\/+$/, "");
+  const b = relayBase();
+  return /:\d+$/.test(b) ? b.replace(/:\d+$/, ":9273") : b + ":9273";
+}
+
+/* PRESENCE DIVIDEND (doc/presence-dividend.md). accrued lives off-L1 on the execution node; "Collect" submits
+ * a fee-cheap collect blob, then the accrued amount is claimed to L1 automatically once the exec root that
+ * carries it is settled by the bonded quorum. */
+function buildBlobTx(wallet, payload, targetBlock, fee, timestamp) {
+  const draft = { sender: wallet.address, recipient: "blob", amount: 0, timestamp, data: payload,
+    nonce: randNonce(), public_key: wallet.publicKey, target_block: targetBlock, chain_id: CHAIN_ID };
+  return finalizeTransaction(draft, wallet.privateKey, fee);
+}
+function buildDividendWithdrawTx(wallet, addr, amount, nonce, proof, targetBlock, timestamp) {
+  const draft = { sender: wallet.address, recipient: "dividend_withdraw", amount: 0, timestamp,
+    data: { addr, amount, nonce, proof }, nonce: randNonce(), public_key: wallet.publicKey,
+    target_block: targetBlock, chain_id: CHAIN_ID };
+  return finalizeTransaction(draft, wallet.privateKey, 0);   // fee-exempt
+}
+
+async function refreshDividend() {
+  if (!state.wallet) return;
+  let d = null;
+  try {
+    const r = await fetch(execBase() + "/exec/dividend?address=" + encodeURIComponent(state.wallet.address), { cache: "no-store" });
+    d = await r.json();
+  } catch (e) { if ($("divAccrued")) $("divAccrued").textContent = i18("div.unavail", "exec node unreachable"); return; }
+  const accrued = BigInt((d && d.accrued) || 0);
+  const pending = (d && d.pending) || [];
+  if ($("divAccrued")) $("divAccrued").textContent = rawToNado(accrued) + " NADO";
+  if ($("btnCollectDiv")) $("btnCollectDiv").disabled = !(accrued > 0n) || state._collecting;
+  // AUTO-CLAIM any collected-but-unclaimed dividend whose proof matches the settled root.
+  if (pending.length && !state._claiming) { state._claiming = true; try { await claimPendingDividends(pending); } finally { state._claiming = false; } }
+}
+
+async function claimPendingDividends(pending) {
+  let settled;
+  try { settled = await (await fetch(relayBase() + "/get_settled", { cache: "no-store" })).json(); } catch { return; }
+  const settledRoot = settled && settled.state_root;
+  if (!settledRoot) return;
+  const latest = await getLatestBlock(); if (!latest) return;
+  for (const p of pending) {
+    try {
+      const pr = await (await fetch(execBase() + "/exec/dividend_proof?nonce=" + encodeURIComponent(p.nonce), { cache: "no-store" })).json();
+      if (!pr || pr.state_root !== settledRoot) continue;   // proof must be against the SETTLED root; else wait
+      const tx = buildDividendWithdrawTx(state.wallet, state.wallet.address, p.amount, p.nonce, pr.proof, latest.block_number + 8, nowSeconds());
+      const res = await submitTransaction(tx);
+      if (res.data && res.data.result) log("ok", `Dividend collected: +${rawToNado(BigInt(p.amount))} NADO to your balance.`);
+    } catch (e) { /* not claimable yet (unsettled) — retry next refresh */ }
+  }
+}
+
+async function collectDividend() {
+  if (!state.wallet || state._collecting) return;
+  state._collecting = true;
+  if ($("btnCollectDiv")) $("btnCollectDiv").disabled = true;
+  try {
+    const latest = await getLatestBlock();
+    if (!latest) throw new Error("relay unavailable");
+    const tx = buildBlobTx(state.wallet, { op: "collect_dividend" }, latest.block_number + 8, MIN_TX_FEE, nowSeconds());
+    const res = await submitTransaction(tx);
+    if (res.data && res.data.result)
+      log("ok", i18("div.collecting", "Dividend collection submitted — it lands in your balance automatically once the exec root is settled (a few minutes)."));
+    else log("err", "Collect rejected: " + (res.data && (res.data.message || "")));
+  } catch (e) { log("err", "Collect failed: " + e.message); }
+  finally { state._collecting = false; }
+}
 
 async function rpcJSON(path) {
   const url = relayBase() + path;
@@ -970,6 +1039,7 @@ async function refreshDashboard() {
     $("walBonded").textContent = bonded + " NADO";
     $("walTotal").textContent = rawToNado(freeRaw + bondedRaw) + " NADO";
     updateCoinPile(freeRaw + bondedRaw);               // a little touch: pile sized vs the richest wallet
+    refreshDividend().catch(() => {});                 // presence dividend accrued off-L1 + auto-claim settled
     $("walReg").innerHTML = acc.registered === 1 ? `<span class="badge ok">${i18("badge.yes","yes")}</span>` : `<span class="badge no">${i18("badge.no","no")}</span>`;
     $("walFidelity").textContent = acc.fidelity ?? 0;
     $("sendAvail").textContent = bal + " NADO";
@@ -1994,6 +2064,7 @@ function wireEvents() {
   $("btnDlKey").onclick = downloadKeyFile;
   $("btnDlKeySave").onclick = downloadKeyFile;
   $("btnDlKeySettings").onclick = downloadKeyFile;
+  if ($("btnCollectDiv")) $("btnCollectDiv").onclick = () => collectDividend();
   if ($("btnImportFile")) $("btnImportFile").onclick = () => $("importFile").click();
   if ($("importFile")) $("importFile").onchange = (e) => {
     importKeyFile(e.target.files && e.target.files[0]);
