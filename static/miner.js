@@ -921,6 +921,14 @@ function renderCoinPile(totalRaw, richestRaw) {
   const svg = $("coinPile"), cap = $("coinPileCap"), wrap = $("coinPileWrap");
   if (!svg || !wrap) return;
   wrap.classList.remove("hidden");
+  if (totalRaw <= 0n) {
+    // nothing to draw yet — collapse the SVG so an empty/new wallet doesn't reserve the pile's height,
+    // leaving just the one-line hint.
+    svg.style.display = "none";
+    cap.textContent = i18("pile.none", "No coins yet — start mining to grow your pile.");
+    return;
+  }
+  svg.style.display = "";
   const rich = richestRaw > 0n ? richestRaw : 0n;
   const ratio = (totalRaw > 0n && rich > 0n) ? Math.min(1, Number((totalRaw * 1000000n) / rich) / 1000000) : (totalRaw > 0n ? 1 : 0);
   const isTop = totalRaw > 0n && totalRaw >= rich;                 // you're the richest (or tied / network unknown)
@@ -939,8 +947,7 @@ function renderCoinPile(totalRaw, richestRaw) {
       `<circle cx="-14" cy="-6" r="2.4" fill="#ffe066"/><circle cx="0" cy="-11" r="2.6" fill="#ffe066"/><circle cx="14" cy="-6" r="2.4" fill="#ffe066"/></g>`;
   }
   svg.innerHTML = defs + body + crown;
-  if (totalRaw <= 0n) cap.textContent = i18("pile.none", "No coins yet — start mining to grow your pile.");
-  else if (isTop) cap.textContent = i18("pile.richest", "👑 Richest wallet on the network!");
+  if (isTop) cap.textContent = i18("pile.richest", "👑 Richest wallet on the network!");
   else { const pct = ratio * 100; cap.textContent = `${pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)}% ${i18("pile.ofRichest", "of the richest wallet on the network")}`; }
 }
 async function updateCoinPile(totalRaw) {
