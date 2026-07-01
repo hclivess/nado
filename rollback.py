@@ -6,6 +6,7 @@ from ops.block_ops import load_block_from_hash, set_latest_block_info, unindex_b
 from ops.data_ops import get_home
 from ops import kv_ops
 from ops.transaction_ops import unindex_transactions
+from ops.reward_ops import credit_block_reward
 from protocol import split_block_reward, TREASURY_ADDRESS
 
 
@@ -45,15 +46,11 @@ def rollback_one_block(logger, block) -> dict:
             f"Refusing to roll back block {block.get('block_number')} below finalized height "
             f"{finalized_height} (new tip would be {previous_block['block_number']})")
 
-    # Reverse the SAME canonical 90/10 split incorporate_block applied (so producer + treasury
-    # balances and the produced metric return exactly to prior), the totals, and the indexes —
-    # atomically. The tip pointer file is advanced LAST, only after the reversal commits.
+    # Reverse the SAME lane-aware split incorporate_block applied (so producer + treasury + DIVIDEND_POOL
+    # balances and the produced metric return exactly to prior), the totals, and the indexes — atomically.
+    # Single source (ops.reward_ops.credit_block_reward) shared with apply, so the two can never drift.
     with kv_ops.write_txn():
-        producer_cut, treasury_cut = split_block_reward(block["block_reward"])
-        change_balance(address=block["block_creator"], amount=producer_cut, revert=True, logger=logger)
-        if treasury_cut:
-            change_balance(address=TREASURY_ADDRESS, amount=treasury_cut, revert=True, logger=logger)
-        increase_produced_count(address=block["block_creator"], amount=producer_cut, revert=True, logger=logger)
+        credit_block_reward(block, logger=logger, revert=True)
 
         totals = get_totals(block=block, revert=True)
         index_totals(produced=totals["produced"], fees=totals["fees"],

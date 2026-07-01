@@ -24,7 +24,7 @@ GENESIS_TIMESTAMP = 1669852800
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
 # "bond"/"unbond": bonded-lane stake txs. "register"/"heartbeat": OPEN-lane (no-coin) mining txs
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "heartbeat", "slash", "attest", "commit", "reveal", "alias", "blob", "settle", "bridge", "bridge_withdraw"})
+RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "heartbeat", "slash", "attest", "commit", "reveal", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw"})
 
 # --- Execution-layer BRIDGE (doc/execution-layer.md, Phase 2) ---
 # "bridge": DEPOSIT — locks L1 coins in the keyless escrow account BRIDGE_ESCROW; an execution node reads
@@ -97,6 +97,14 @@ TREASURY_ADDRESS = GENESIS_ADDRESS
 # --- Block reward: base subsidy + fee-weighted elastic, split producer/treasury (NO premine) ---
 TREASURY_BPS = 1000          # treasury share of each block reward, in basis points (10.00%)
 BPS_DENOM = 10000
+# PRESENCE DIVIDEND (doc/presence-dividend.md): an OPEN-lane block's reward is split three ways instead of
+# 90/10 — the producer keeps a small tip (it still did the work of building the block), the treasury keeps
+# its 10%, and the REST accrues to the DIVIDEND_POOL for fidelity-weighted redistribution to every present
+# open miner (accounted off-L1 by the execution node, collected on demand). BONDED-lane blocks are unchanged
+# (winner-take-all, Sybil-priced by stake). This only changes how the already-20%-capped open lane is PAID
+# OUT — a jackpot becomes a stream — it does not enlarge the open lane's share.
+OPEN_TIP_BPS = 2000          # open producer's cut of an open-lane block (20%); treasury 10%; dividend = rest (70%)
+DIVIDEND_POOL = "dividend"   # reserved L1 account the open-lane dividend accrues to (O(1) on L1)
 REWARD_WINDOW = 100          # trailing blocks averaged for the elastic reward
 REWARD_CAP = 5_000_000_000   # max reward per block (0.5 NADO), raw
 # Flat per-block emission FLOOR, independent of fees. Without it a no-premine chain deadlocks:
@@ -222,3 +230,13 @@ def split_block_reward(reward: int):
     producer_cut = reward * (BPS_DENOM - TREASURY_BPS) // BPS_DENOM
     treasury_cut = reward - producer_cut
     return producer_cut, treasury_cut
+
+
+def split_open_block_reward(reward: int):
+    """Three-way split for an OPEN-lane block (doc/presence-dividend.md): (tip, dividend, treasury) summing
+    to EXACTLY `reward`. treasury + tip are floors (same rounding as the bonded split), dividend is the exact
+    remainder — so the apply and rollback paths subtract identical integers and can never desync a unit."""
+    treasury_cut = reward * TREASURY_BPS // BPS_DENOM
+    tip_cut = reward * OPEN_TIP_BPS // BPS_DENOM
+    dividend_cut = reward - treasury_cut - tip_cut
+    return tip_cut, dividend_cut, treasury_cut

@@ -88,8 +88,10 @@ def accumulate_chain(logger, log_every=50000):
                 adj(recipient, balance=amount)
             tx_rows.append((tx["txid"], height, tx["sender"], recipient))
 
-        # 90/10 split mirrors incorporate_block: producer gets the floor + produced credit,
-        # treasury the exact remainder; totals.produced tracks the FULL emission.
+        # STALE — DO NOT USE for a live chain: this fast in-memory rebuilder still applies the flat 90/10
+        # split and is NOT lane-aware, so it does NOT credit the OPEN-lane DIVIDEND_POOL (doc/presence-dividend.md)
+        # and (per an earlier note) is not alias-aware either. Use reindex.py, which goes through the shared
+        # ops.reward_ops.credit_block_reward, for a correct rebuild.
         reward = block["block_reward"]
         producer_cut, treasury_cut = split_block_reward(reward)
         adj(block["block_creator"], balance=producer_cut, produced=producer_cut)

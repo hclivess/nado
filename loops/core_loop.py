@@ -46,6 +46,7 @@ from ops.transaction_ops import (
 )
 import secrets as _secrets
 from rollback import rollback_one_block, MissingParentError, FinalityViolation
+from ops.reward_ops import credit_block_reward
 from ops.transaction_ops import construct_attestation_tx, construct_commit_tx, construct_reveal_tx, construct_bond_tx
 from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
@@ -671,16 +672,10 @@ class CoreClient(threading.Thread):
                                sorted_transactions=sorted_transactions,
                                logger=self.logger)
 
-            # canonical 90/10 split: producer gets the floor, treasury the exact remainder, so
-            # the two credits sum to block_reward (single source: protocol.split_block_reward).
-            # rollback_one_block reverses with the identical split, so they can never drift.
-            producer_cut, treasury_cut = split_block_reward(block["block_reward"])
-            change_balance(address=block["block_creator"], amount=producer_cut, logger=self.logger)
-            if treasury_cut:
-                change_balance(address=TREASURY_ADDRESS, amount=treasury_cut, logger=self.logger)
-
-            # the producer's penalty metric tracks what it actually earned (its 90% cut)
-            increase_produced_count(address=block["block_creator"], amount=producer_cut, logger=self.logger)
+            # LANE-AWARE reward (doc/presence-dividend.md): bonded block = 90/10 winner-take-all; open block =
+            # producer tip + DIVIDEND_POOL (redistributed off-L1) + treasury. Single source (ops.reward_ops)
+            # shared with rollback_one_block + reindex, so the three paths subtract identical integers.
+            credit_block_reward(block, logger=self.logger)
 
             totals = get_totals(block=block)  # produced = full reward = total emission
             index_totals(produced=totals["produced"],

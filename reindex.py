@@ -91,11 +91,8 @@ while block:
                                sorted_transactions=sorted_transactions,
                                logger=logger)
 
-            producer_cut, treasury_cut = split_block_reward(block["block_reward"])
-            change_balance(address=block["block_creator"], amount=producer_cut, logger=logger)
-            if treasury_cut:
-                change_balance(address=TREASURY_ADDRESS, amount=treasury_cut, logger=logger)
-            increase_produced_count(address=block["block_creator"], amount=producer_cut, logger=logger)
+            from ops.reward_ops import credit_block_reward   # lane-aware split (bonded 90/10; open tip+dividend)
+            credit_block_reward(block, logger=logger)
 
             index_totals(produced=totals["produced"],
                          fees=totals["fees"],
