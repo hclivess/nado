@@ -611,6 +611,27 @@
   };
   for (const l in T14) Object.assign(T[l], T14[l]);
 
+  // Explorer account/tx/block view values + empty-states that were hardcoded in JS.
+  const T15 = {
+    en: { "ex.regYes":"yes (OPEN-lane miner)","ex.showTxs":"Show transactions","ex.transaction":"Transaction","ex.noTxs":"no transactions","ex.unavail":"unavailable","ex.noBlocks":"no blocks","ex.loading":"loading…","ex.miningUnavail":"mining status unavailable","ex.nodeUnreachable":"Node unreachable:" },
+    cs: { "ex.regYes":"ano (těžař volné dráhy)","ex.showTxs":"Zobrazit transakce","ex.transaction":"Transakce","ex.noTxs":"žádné transakce","ex.unavail":"nedostupné","ex.noBlocks":"žádné bloky","ex.loading":"načítání…","ex.miningUnavail":"stav těžby nedostupný","ex.nodeUnreachable":"Uzel nedostupný:" },
+    es: { "ex.regYes":"sí (minero de carril abierto)","ex.showTxs":"Mostrar transacciones","ex.transaction":"Transacción","ex.noTxs":"sin transacciones","ex.unavail":"no disponible","ex.noBlocks":"sin bloques","ex.loading":"cargando…","ex.miningUnavail":"estado de minería no disponible","ex.nodeUnreachable":"Nodo inaccesible:" },
+    pt: { "ex.regYes":"sim (minerador da faixa aberta)","ex.showTxs":"Mostrar transações","ex.transaction":"Transação","ex.noTxs":"sem transações","ex.unavail":"indisponível","ex.noBlocks":"sem blocos","ex.loading":"a carregar…","ex.miningUnavail":"estado de mineração indisponível","ex.nodeUnreachable":"Nó inacessível:" },
+    fr: { "ex.regYes":"oui (mineur de la voie ouverte)","ex.showTxs":"Afficher les transactions","ex.transaction":"Transaction","ex.noTxs":"aucune transaction","ex.unavail":"indisponible","ex.noBlocks":"aucun bloc","ex.loading":"chargement…","ex.miningUnavail":"statut de minage indisponible","ex.nodeUnreachable":"Nœud injoignable :" },
+    de: { "ex.regYes":"ja (Open-Lane-Miner)","ex.showTxs":"Transaktionen anzeigen","ex.transaction":"Transaktion","ex.noTxs":"keine Transaktionen","ex.unavail":"nicht verfügbar","ex.noBlocks":"keine Blöcke","ex.loading":"lädt…","ex.miningUnavail":"Mining-Status nicht verfügbar","ex.nodeUnreachable":"Node nicht erreichbar:" },
+    it: { "ex.regYes":"sì (minatore corsia aperta)","ex.showTxs":"Mostra transazioni","ex.transaction":"Transazione","ex.noTxs":"nessuna transazione","ex.unavail":"non disponibile","ex.noBlocks":"nessun blocco","ex.loading":"caricamento…","ex.miningUnavail":"stato mining non disponibile","ex.nodeUnreachable":"Nodo irraggiungibile:" },
+    ru: { "ex.regYes":"да (майнер открытой полосы)","ex.showTxs":"Показать транзакции","ex.transaction":"Транзакция","ex.noTxs":"нет транзакций","ex.unavail":"недоступно","ex.noBlocks":"нет блоков","ex.loading":"загрузка…","ex.miningUnavail":"статус майнинга недоступен","ex.nodeUnreachable":"Узел недоступен:" },
+    zh: { "ex.regYes":"是（开放通道矿工）","ex.showTxs":"显示交易","ex.transaction":"交易","ex.noTxs":"无交易","ex.unavail":"不可用","ex.noBlocks":"无区块","ex.loading":"加载中…","ex.miningUnavail":"挖矿状态不可用","ex.nodeUnreachable":"节点无法访问：" },
+    ja: { "ex.regYes":"はい（オープンレーン採掘者）","ex.showTxs":"取引を表示","ex.transaction":"取引","ex.noTxs":"取引なし","ex.unavail":"利用不可","ex.noBlocks":"ブロックなし","ex.loading":"読み込み中…","ex.miningUnavail":"マイニング状態を取得できません","ex.nodeUnreachable":"ノードに到達できません:" },
+    ko: { "ex.regYes":"예 (공개 레인 채굴자)","ex.showTxs":"거래 표시","ex.transaction":"거래","ex.noTxs":"거래 없음","ex.unavail":"사용할 수 없음","ex.noBlocks":"블록 없음","ex.loading":"불러오는 중…","ex.miningUnavail":"채굴 상태를 가져올 수 없음","ex.nodeUnreachable":"노드에 연결할 수 없음:" },
+    ar: { "ex.regYes":"نعم (مُعدّن المسار المفتوح)","ex.showTxs":"عرض المعاملات","ex.transaction":"معاملة","ex.noTxs":"لا معاملات","ex.unavail":"غير متاح","ex.noBlocks":"لا كتل","ex.loading":"جارٍ التحميل…","ex.miningUnavail":"حالة التعدين غير متاحة","ex.nodeUnreachable":"العقدة غير قابلة للوصول:" },
+    hi: { "ex.regYes":"हाँ (ओपन-लेन माइनर)","ex.showTxs":"लेनदेन दिखाएं","ex.transaction":"लेनदेन","ex.noTxs":"कोई लेनदेन नहीं","ex.unavail":"अनुपलब्ध","ex.noBlocks":"कोई ब्लॉक नहीं","ex.loading":"लोड हो रहा…","ex.miningUnavail":"माइनिंग स्थिति अनुपलब्ध","ex.nodeUnreachable":"नोड अगम्य:" },
+    tr: { "ex.regYes":"evet (açık şerit madencisi)","ex.showTxs":"İşlemleri göster","ex.transaction":"İşlem","ex.noTxs":"işlem yok","ex.unavail":"kullanılamıyor","ex.noBlocks":"blok yok","ex.loading":"yükleniyor…","ex.miningUnavail":"madencilik durumu yok","ex.nodeUnreachable":"Düğüme ulaşılamıyor:" },
+    id: { "ex.regYes":"ya (penambang jalur terbuka)","ex.showTxs":"Tampilkan transaksi","ex.transaction":"Transaksi","ex.noTxs":"tidak ada transaksi","ex.unavail":"tidak tersedia","ex.noBlocks":"tidak ada blok","ex.loading":"memuat…","ex.miningUnavail":"status penambangan tidak tersedia","ex.nodeUnreachable":"Node tidak terjangkau:" },
+    vi: { "ex.regYes":"có (thợ đào làn mở)","ex.showTxs":"Hiện giao dịch","ex.transaction":"Giao dịch","ex.noTxs":"không có giao dịch","ex.unavail":"không khả dụng","ex.noBlocks":"không có khối","ex.loading":"đang tải…","ex.miningUnavail":"trạng thái đào không khả dụng","ex.nodeUnreachable":"Không thể kết nối nút:" }
+  };
+  for (const l in T15) Object.assign(T[l], T15[l]);
+
   const NAMES = { en:"English", cs:"Čeština", es:"Español", pt:"Português", fr:"Français", de:"Deutsch", it:"Italiano",
     ru:"Русский", zh:"中文", ja:"日本語", ko:"한국어", ar:"العربية", hi:"हिन्दी", tr:"Türkçe",
     id:"Bahasa Indonesia", vi:"Tiếng Việt" };

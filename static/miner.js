@@ -1759,7 +1759,7 @@ async function exLoadOverview() {
       ["Treasury", exNado(sup.treasury)],
       ["Fees burned", exNado(sup.fees)],
     ]);
-  } catch (e) { $("exNetwork").innerHTML = `<div class="warnbox danger">Node unreachable: ${exEsc(e.message)}</div>`; }
+  } catch (e) { $("exNetwork").innerHTML = `<div class="warnbox danger">${i18("ex.nodeUnreachable", "Node unreachable:")} ${exEsc(e.message)}</div>`; }
   try {
     const ms = await exGetJSON("/mining_status");
     $("exMining").innerHTML = exStat([
@@ -1769,15 +1769,15 @@ async function exLoadOverview() {
       ["OPEN lane", `${ms.open_registry_size} miners · ${ms.k_open}/${ms.epoch_length} slots`],
       ["BONDED lane", `${ms.bonded_registry_size} miners · ${ms.total_bonded_shares} shares`],
     ]);
-  } catch { $("exMining").innerHTML = `<div class="faint small">mining status unavailable</div>`; }
+  } catch { $("exMining").innerHTML = `<div class="faint small">${i18("ex.miningUnavail", "mining status unavailable")}</div>`; }
 }
 async function exLoadRecent() {
   try {
     const tip = await exGetJSON("/get_latest_block");
     const nums = []; for (let n = tip.block_number, lo = Math.max(0, n - 11); n >= lo; n--) nums.push(n);
     const blocks = await Promise.all(nums.map((n) => exGetJSON("/get_block_number?number=" + n).catch(() => null)));
-    $("exRecent").innerHTML = blocks.filter(Boolean).map(exBlockRow).join("") || `<div class="faint small">no blocks</div>`;
-  } catch { $("exRecent").innerHTML = `<div class="faint small">unavailable</div>`; }
+    $("exRecent").innerHTML = blocks.filter(Boolean).map(exBlockRow).join("") || `<div class="faint small">${i18("ex.noBlocks", "no blocks")}</div>`;
+  } catch { $("exRecent").innerHTML = `<div class="faint small">${i18("ex.unavail", "unavailable")}</div>`; }
 }
 function exBlockRow(b) {
   const txs = (b.block_transactions || []).length;
@@ -1803,7 +1803,7 @@ function exRenderBlock(b) {
     ["Cumulative fees", exNado(b.cumulative_fees)],
     ["Cumulative weight", String(b.cumulative_weight)],
     ["Transactions", String(txs.length)],
-  ])}${txs.length ? `<div class="ex-rows mt">${txs.map(exTxRow).join("")}</div>` : `<div class="faint small mt">no transactions</div>`}`;
+  ])}${txs.length ? `<div class="ex-rows mt">${txs.map(exTxRow).join("")}</div>` : `<div class="faint small mt">${i18("ex.noTxs", "no transactions")}</div>`}`;
 }
 function exRenderAccount(a) {
   return `<h2>${i18("ex.account","Account")}</h2>${exKV([
@@ -1811,12 +1811,12 @@ function exRenderAccount(a) {
     ["Balance", exNado(a.balance)],
     ["Bonded", exNado(a.bonded)],
     ["Produced", exNado(a.produced)],
-    ["Registered", a.registered ? "yes (OPEN-lane miner)" : "no"],
+    ["Registered", a.registered ? i18("ex.regYes", "yes (OPEN-lane miner)") : i18("badge.no", "no")],
     ["Fidelity", String(a.fidelity ?? 0) + " / 1000"],
-  ])}<div class="row mt"><button class="accent" id="exLoadTxs">Show transactions</button></div><div id="exAcctTxs" class="ex-rows mt"></div>`;
+  ])}<div class="row mt"><button class="accent" id="exLoadTxs">${i18("ex.showTxs", "Show transactions")}</button></div><div id="exAcctTxs" class="ex-rows mt"></div>`;
 }
 function exRenderTx(t) {
-  return `<h2>Transaction</h2>${exKV([
+  return `<h2>${i18("ex.transaction", "Transaction")}</h2>${exKV([
     ["Txid", `<span class="mono">${exEsc(t.txid || "—")}</span>`],
     ["From", exLink("a", t.sender)],
     ["To", exReservedOrAddr(t.recipient)],
@@ -1833,9 +1833,9 @@ async function exOpen(kind, val) {
     if (kind === "a") {
       exShowResult(exRenderAccount(await exGetJSON("/get_account?address=" + encodeURIComponent(val))));
       const btn = $("exLoadTxs"); if (btn) btn.onclick = async () => {
-        const box = $("exAcctTxs"); box.innerHTML = `<div class="faint small">loading…</div>`;
+        const box = $("exAcctTxs"); box.innerHTML = `<div class="faint small">${i18("ex.loading", "loading…")}</div>`;
         try { const d = await exGetJSON("/get_transactions_of_account?address=" + encodeURIComponent(val) + "&min_block=0");
-          const txs = d.transactions || []; box.innerHTML = txs.length ? txs.map(exTxRow).join("") : `<div class="faint small">no transactions</div>`;
+          const txs = d.transactions || []; box.innerHTML = txs.length ? txs.map(exTxRow).join("") : `<div class="faint small">${i18("ex.noTxs", "no transactions")}</div>`;
         } catch (e) { box.innerHTML = `<div class="warnbox danger">${exEsc(e.message)}</div>`; }
       };
     } else if (kind === "b") {
