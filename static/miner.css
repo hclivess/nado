@@ -173,7 +173,7 @@ a { color: var(--accent-2); }
 
 /* tab bar */
 .tabbar {
-  display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  display: flex; gap: 6px; flex-wrap: wrap;   /* wrap so every tab is reachable without horizontal scroll (touchless) */
   padding: 8px; margin: 14px 0;
   background: var(--bg-elev); border: 1px solid var(--border);
   border-radius: var(--radius); box-shadow: var(--shadow);

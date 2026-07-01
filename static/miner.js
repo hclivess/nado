@@ -934,15 +934,15 @@ function renderLanes(ms) {
   $("laneBondedShares").textContent = totBond;
 
   $("myShare").innerHTML =
-    `Your OPEN-lane weight: <b>${myOpen}</b> / ${totOpen} (${sharePct}% of the free lane). ` +
-    `Open registry: ${ms.open_registry_size ?? 0} miners · Bonded shares: ${myBond}/${totBond} · ` +
-    `Bonded registry: ${ms.bonded_registry_size ?? 0}.`;
+    `${i18("myshare.weight", "Your open-lane weight:")} <b>${myOpen}</b> / ${totOpen} (${sharePct}% ${i18("myshare.ofFree", "of the free lane")}). ` +
+    `${i18("myshare.openReg", "Open registry:")} ${ms.open_registry_size ?? 0} ${i18("lane.miners", "miners")} · ${i18("myshare.bondShares", "Savings shares:")} ${myBond}/${totBond} · ` +
+    `${i18("myshare.bondReg", "Savings registry:")} ${ms.bonded_registry_size ?? 0}.`;
 }
 
 function setConn(ok, tip) {
   const dot = $("connDot"), txt = $("connText");
-  if (ok) { dot.className = "dot ok"; txt.textContent = "relay online"; if (tip != null) $("tipText").textContent = "tip: " + tip; }
-  else { dot.className = "dot bad"; txt.textContent = "relay offline"; }
+  if (ok) { dot.className = "dot ok"; txt.textContent = i18("conn.online", "relay online"); if (tip != null) $("tipText").textContent = i18("conn.tip", "tip:") + " " + tip; }
+  else { dot.className = "dot bad"; txt.textContent = i18("conn.offline", "relay offline"); }
 }
 
 /* ----------------------------------------------------------------------------------------------
@@ -1541,25 +1541,25 @@ function resumePendingPay() {
 const HIST_ICON = { send: "↑", receive: "↓", bond: "🔒", unbond: "🔓", register: "✦", heartbeat: "♥" };
 function histClassify(tx, addr) {
   const r = tx.recipient;
-  if (r === "register") return { type: "register", sign: 0, cp: "open-lane registration" };
-  if (r === "heartbeat") return { type: "heartbeat", sign: 0, cp: "open-lane heartbeat" };
-  if (r === "bond") return { type: "bond", sign: -1, cp: "→ bonded stake" };
-  if (r === "unbond") return { type: "unbond", sign: 1, cp: "← bonded stake" };
-  if (tx.sender === addr) return { type: "send", sign: -1, cp: "to " + r };
-  return { type: "receive", sign: 1, cp: "from " + tx.sender };
+  if (r === "register") return { type: "register", sign: 0, cp: i18("hist.cpReg", "open-lane registration") };
+  if (r === "heartbeat") return { type: "heartbeat", sign: 0, cp: i18("hist.cpHb", "open-lane heartbeat") };
+  if (r === "bond") return { type: "bond", sign: -1, cp: i18("hist.cpBond", "→ savings") };
+  if (r === "unbond") return { type: "unbond", sign: 1, cp: i18("hist.cpUnbond", "← savings") };
+  if (tx.sender === addr) return { type: "send", sign: -1, cp: i18("hist.to", "to") + " " + r };
+  return { type: "receive", sign: 1, cp: i18("hist.from", "from") + " " + tx.sender };
 }
 async function loadHistory() {
   if (!state.wallet) return;
   const box = $("history");
-  box.innerHTML = '<div class="empty">Loading…</div>';
+  box.innerHTML = `<div class="empty">${i18("hist.loading", "Loading…")}</div>`;
   const addr = state.wallet.address;
   let txs = [];
   try {
     const r = await rpcJSON("/get_transactions_of_account?address=" + encodeURIComponent(addr) + "&min_block=0");
     if (r.ok && r.data && Array.isArray(r.data.transactions)) txs = r.data.transactions;
-  } catch (e) { box.innerHTML = '<div class="empty">Could not load history: ' + escapeHtml(e.message) + '</div>'; return; }
+  } catch (e) { box.innerHTML = `<div class="empty">${i18("hist.loadErr", "Could not load history:")} ` + escapeHtml(e.message) + '</div>'; return; }
 
-  if (!txs.length) { box.innerHTML = '<div class="empty">No transactions yet.</div>'; return; }
+  if (!txs.length) { box.innerHTML = `<div class="empty">${i18("hist.empty", "No transactions yet.")}</div>`; return; }
   txs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)); // newest first
 
   box.innerHTML = "";
@@ -1569,13 +1569,13 @@ async function loadHistory() {
       : (info.sign < 0 ? "-" : "+") + rawToNado(BigInt(tx.amount || 0)) + " NADO";
     const amtCls = info.sign === 0 ? "zero" : (info.sign < 0 ? "neg" : "pos");
     const when = tx.timestamp ? new Date(tx.timestamp * 1000).toLocaleString() : "—";
-    const feeStr = (tx.fee != null) ? ` · fee ${tx.fee}` : "";
+    const feeStr = (tx.fee != null) ? ` · ${i18("hist.fee", "fee")} ${tx.fee}` : "";
     const row = document.createElement("div");
     row.className = "htx";
     row.title = "txid " + (tx.txid || "");
     row.innerHTML =
       `<div class="ic">${HIST_ICON[info.type] || "•"}</div>` +
-      `<div class="mid"><div class="tp">${info.type}</div>` +
+      `<div class="mid"><div class="tp">${i18("hist." + info.type, info.type)}</div>` +
       `<div class="cp">${escapeHtml(info.cp)}</div>` +
       `<div class="meta">${escapeHtml(when)}${escapeHtml(feeStr)}</div></div>` +
       `<div class="amt ${amtCls}">${escapeHtml(signed)}</div>`;
