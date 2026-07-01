@@ -84,9 +84,14 @@ async def tail_loop():
                     if not isinstance(block, dict) or "block_transactions" not in block:
                         break                                  # not available yet; retry next poll
                     for tx in block.get("block_transactions", []):
-                        if tx.get("recipient") == "blob":
+                        r = tx.get("recipient")
+                        if r == "blob":
                             res = state.apply_blob(tx.get("data"), tx.get("sender"), tx.get("txid"))
                             print(f"[execnode] block {h}: {res}", flush=True)
+                        elif r == "bridge":                          # L1 deposit -> credit exec-side balance
+                            state.credit_deposit(tx.get("sender"), tx.get("amount", 0))
+                            print(f"[execnode] block {h}: bridge deposit {tx.get('amount')} by "
+                                  f"{(tx.get('sender') or '')[:12]}…", flush=True)
                     state.cursor = h
                     applied += 1
                 if applied:
@@ -132,12 +137,27 @@ async def h_view(request):
     return web.json_response({"cid": cid, "method": method, "result": state.view(cid, method, args)})
 
 
+async def h_bridge(request):
+    return web.json_response({"balances": state.bridge, "withdrawals": state.withdrawals})
+
+
+async def h_withdrawal_proof(request):
+    # the Merkle proof a user submits to L1's bridge_withdraw to claim their exit against the settled root
+    p = state.withdrawal_proof(request.query.get("nonce", ""))
+    if not p:
+        return web.json_response({"error": "not found"}, status=404)
+    p["state_root"] = state.state_root()
+    return web.json_response(p)
+
+
 async def main():
     app = web.Application()
     app.add_routes([web.get("/exec/root", h_root),
                     web.get("/exec/contracts", h_contracts),
                     web.get("/exec/contract", h_contract),
-                    web.get("/exec/view", h_view)])
+                    web.get("/exec/view", h_view),
+                    web.get("/exec/bridge", h_bridge),
+                    web.get("/exec/withdrawal_proof", h_withdrawal_proof)])
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, "0.0.0.0", PORT).start()

@@ -24,7 +24,16 @@ GENESIS_TIMESTAMP = 1669852800
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
 # "bond"/"unbond": bonded-lane stake txs. "register"/"heartbeat": OPEN-lane (no-coin) mining txs
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "heartbeat", "slash", "attest", "commit", "reveal", "alias", "blob", "settle"})
+RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "heartbeat", "slash", "attest", "commit", "reveal", "alias", "blob", "settle", "bridge", "bridge_withdraw"})
+
+# --- Execution-layer BRIDGE (doc/execution-layer.md, Phase 2) ---
+# "bridge": DEPOSIT — locks L1 coins in the keyless escrow account BRIDGE_ESCROW; an execution node reads
+#   the deposit from the ordered block stream and credits the depositor's exec-side balance.
+# "bridge_withdraw": EXIT — the user proves (Merkle inclusion) that a withdrawal of {addr, amount, nonce}
+#   is in the bonded-quorum-SETTLED execution-layer state root; L1 verifies that ONE proof, checks the
+#   nullifier, and releases the escrowed coins. This is the trust-minimized link: L1 never runs the VM,
+#   it only verifies a Merkle proof against a root the bonded stake has settled (settlement_ops).
+BRIDGE_ESCROW = "bridge"          # the escrow pseudo-account holding all bridged (locked) L1 coins
 
 # --- Execution-layer SETTLEMENT (doc/execution-layer.md, Phase 2) ---
 # "settle": a keyless reserved recipient. A BONDED validator that also runs an execution node attests an

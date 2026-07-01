@@ -53,10 +53,27 @@ curl 'localhost:9273/exec/view?cid=<cid>&method=balanceOf&args=["ndo…"]'
 curl 'localhost:9273/exec/contract?cid=<cid>'
 ```
 
+## Phase 2 — settlement + bridge (built)
+
+The execution layer is no longer only sovereign: L1 now **settles** its state root and a **bridge** moves
+coins across, trust-minimized by the bonded stake.
+
+- **Settlement.** A bonded validator running an exec node posts a `settle` attestation of its
+  `(cursor, state_root)` (enable with `NADO_EXEC_SETTLE=1`; needs its `keys.dat` via `HOME`). When bonded
+  shares attesting the same root exceed 2/3, L1 records it as the **canonical settled root** (`/get_settled`).
+  `settlement_ops.settlement_justified()` is the pluggable verifier seam — swap the quorum for a single
+  STARK validity-proof check later, nothing else changes.
+- **Bridge.** `bridge` (deposit) locks L1 coins in escrow; this node credits the depositor exec-side
+  (`/exec/bridge`). A `bridge_withdraw` blob op burns the exec-side balance and records a withdrawal;
+  `/exec/withdrawal_proof?nonce=N` returns its **Merkle proof against the settled root**, which the user
+  submits to L1's `bridge_withdraw` — L1 verifies that ONE proof, checks the nullifier, and releases escrow.
+
+The exec `state_root` is now a **Merkle root** over all state, so any leaf (a withdrawal) is provable to L1.
+
 ## Status
 
-Phase 1 (sovereign) skeleton: L1 `blob` DA channel + deterministic VM + tailing execution node + query
-API + CLI, all with tests (`tests/test_blob.py`, `tests/test_execnode_vm.py`). **Not yet built:** the
-per-block blob-bytes cap on L1 (`doc/execution-layer.md §3.3`), the DA availability/pruning window, and
-Phase 2 (a single settlement proof verified on L1 for a trust-minimized bridge). This is a sovereign
-layer: its canonical state is defined by this software replaying L1's ordering, not yet enforced by L1.
+Built + tested: `tests/test_blob.py` (DA channel + per-block cap), `tests/test_execnode_vm.py` (VM +
+determinism), `tests/test_settlement.py` (bonded-quorum settlement), `tests/test_bridge.py` (Merkle +
+full deposit→withdraw→settle→release round-trip). **Not yet built:** the DA availability/pruning window,
+and Phase-2b (replacing the bonded-quorum settlement verifier with a succinct STARK validity proof —
+the seam is in place). Trust today is the bonded stake (a validator committee), not yet a validity proof.

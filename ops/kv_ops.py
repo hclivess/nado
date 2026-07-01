@@ -498,6 +498,20 @@ def settlement_cursors():
     return _read(_do)
 
 
+# --- Bridge withdrawal nullifiers (Phase 2): each (addr, nonce) exit may be claimed on L1 at most once ---
+
+def bridge_nullifier_exists(addr: str, nonce: str) -> bool:
+    return meta_get_int(f"bridgenull:{addr}:{nonce}", 0) == 1
+
+
+def bridge_nullifier_put(addr: str, nonce: str):
+    meta_set_int(f"bridgenull:{addr}:{nonce}", 1)
+
+
+def bridge_nullifier_del(addr: str, nonce: str):
+    meta_del(f"bridgenull:{addr}:{nonce}")
+
+
 # --- RANDAO commit-reveal (#7): one commit per (sender, target_epoch) + revealed secrets per epoch ---
 
 def _commit_key(sender: str, target_epoch: int) -> bytes:

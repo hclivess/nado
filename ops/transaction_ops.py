@@ -21,7 +21,7 @@ from ops.log_ops import get_logger
 from ops.peer_ops import load_ips
 from ops import kv_ops
 from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH,
-                      BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK)
+                      BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK, BRIDGE_ESCROW)
 import aiohttp
 
 
@@ -196,6 +196,30 @@ def construct_settle_tx(keydict, exec_cursor, state_root, target_block):
     return tx
 
 
+def construct_bridge_deposit_tx(keydict, amount, target_block, fee):
+    """Build a SIGNED bridge DEPOSIT: recipient 'bridge', amount locked into escrow; exec node credits it."""
+    tx = {"sender": keydict["address"], "recipient": "bridge", "amount": int(amount),
+          "timestamp": get_timestamp_seconds(), "data": "", "nonce": create_nonce(),
+          "public_key": keydict["public_key"], "target_block": int(target_block),
+          "chain_id": CHAIN_ID, "fee": int(fee)}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
+def construct_bridge_withdraw_tx(keydict, addr, amount, nonce, proof, target_block):
+    """Build a SIGNED bridge EXIT: recipient 'bridge_withdraw', fee-exempt, data carries the Merkle proof
+    that {addr, amount, nonce} is in the settled execution-layer root."""
+    tx = {"sender": keydict["address"], "recipient": "bridge_withdraw", "amount": 0,
+          "timestamp": get_timestamp_seconds(),
+          "data": {"addr": addr, "amount": int(amount), "nonce": nonce, "proof": proof},
+          "nonce": create_nonce(), "public_key": keydict["public_key"],
+          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
 def construct_alias_tx(keydict, op, name, target_block, fee, to=None):
     """Build a SIGNED alias op tx (op in {"register","transfer","unregister"}); recipient is the reserved
     name "alias" and the operation rides in `data`. `to` is the new owner for a transfer. amount is 0."""
@@ -235,6 +259,9 @@ def reserved_uniqueness_key(tx):
             return ("alias", (tx.get("data") or {}).get("name"))     # one op per name per block
         if r == "settle":
             return ("settle", tx["sender"], (tx.get("data") or {}).get("exec_cursor"))  # one per (validator, cursor)
+        if r == "bridge_withdraw":
+            d = tx.get("data") or {}
+            return ("bridge_withdraw", d.get("addr"), d.get("nonce"))                    # one claim per (addr, nonce)
     except Exception:
         return ("malformed", tx.get("txid"))   # unique-ish; the tx is rejected by validate_transaction
     return None
@@ -436,6 +463,29 @@ def validate_transaction(transaction, logger, block_height):
         acc = get_account(transaction["sender"], create_on_error=False)
         assert acc and acc.get("bonded", 0) >= B_MIN, "Settle sender is not a bonded validator"
         assert not kv_ops.settlement_exists(cursor, transaction["sender"]), "Validator already settled this exec_cursor"
+    elif recipient == "bridge":
+        # BRIDGE DEPOSIT (Phase 2): lock L1 coins into escrow; an exec node credits the sender exec-side.
+        assert transaction["amount"] > 0, "Bridge deposit amount must be positive"
+        assert transaction["fee"] >= MIN_TX_FEE, f"Bridge deposit fee below minimum {MIN_TX_FEE}"
+    elif recipient == "bridge_withdraw":
+        # BRIDGE EXIT (Phase 2): prove the withdrawal {addr, amount, nonce} is in the bonded-quorum SETTLED
+        # execution-layer root; L1 verifies that ONE Merkle proof, checks the nullifier + escrow, releases.
+        from ops.settlement_ops import latest_settled
+        from hashing import verify_merkle_proof, withdrawal_leaf
+        assert transaction["amount"] == 0, "bridge_withdraw carries no L1 amount (amount is in data)"
+        assert transaction["fee"] == 0, "bridge_withdraw is fee-exempt"
+        data = transaction.get("data") or {}
+        addr, amount, nonce, proof = data.get("addr"), data.get("amount"), data.get("nonce"), data.get("proof")
+        assert addr == transaction["sender"], "bridge_withdraw must be self-claimed (sender == addr)"
+        assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad withdraw amount"
+        assert isinstance(nonce, str) and isinstance(proof, list), "bad withdraw nonce/proof"
+        _cur, settled_root = latest_settled()
+        assert settled_root, "no settled execution-layer root yet"
+        assert verify_merkle_proof(withdrawal_leaf(addr, amount, nonce), proof, settled_root), \
+            "withdrawal is not proven against the settled execution-layer root"
+        assert not kv_ops.bridge_nullifier_exists(addr, nonce), "this withdrawal was already claimed"
+        escrow = get_account(BRIDGE_ESCROW, create_on_error=False)
+        assert escrow and escrow.get("balance", 0) >= amount, "bridge escrow underfunded"
     else:
         # ordinary transfer / bond / send-to-alias: deterministic minimum-fee floor (anti-spam), block 1
         assert transaction["fee"] >= MIN_TX_FEE, f"Transaction fee below minimum {MIN_TX_FEE}"

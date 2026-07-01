@@ -1,6 +1,6 @@
 from ops import kv_ops
 from ops.address_ops import make_address
-from protocol import B_MIN, EPOCH_LENGTH, PRESENCE_WINDOW, FIDELITY_GAIN, FIDELITY_DECAY, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY
+from protocol import B_MIN, EPOCH_LENGTH, PRESENCE_WINDOW, FIDELITY_GAIN, FIDELITY_DECAY, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW
 
 # Account state lives in the schemaless `accounts` sub-DB as a msgpack document keyed by address
 # (see ops/kv_ops.py). Missing fields default to 0 on read, so adding a field (as we did with
@@ -135,6 +135,26 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             kv_ops.settlement_del(cursor, sender, root)
         else:
             kv_ops.settlement_put(cursor, sender, root)
+        return
+
+    # --- BRIDGE DEPOSIT (Phase 2): move amount+fee from sender, LOCK `amount` in the escrow, burn the fee.
+    # The execution node reads this deposit from the ordered stream and credits the sender exec-side. ---
+    if recipient == "bridge":
+        change_balance(address=sender, amount=-(amount + fee), logger=logger, revert=revert)
+        change_balance(address=BRIDGE_ESCROW, amount=amount, logger=logger, revert=revert)
+        return
+
+    # --- BRIDGE EXIT (Phase 2): release `amount` from escrow to the proven addr and burn the nullifier.
+    # Validation already verified the Merkle proof against the settled root + escrow funding. Fee-exempt. ---
+    if recipient == "bridge_withdraw":
+        data = transaction.get("data") or {}
+        addr, amt, nonce = data["addr"], int(data["amount"]), data["nonce"]
+        change_balance(address=BRIDGE_ESCROW, amount=-amt, logger=logger, revert=revert)
+        change_balance(address=addr, amount=amt, logger=logger, revert=revert)
+        if revert:
+            kv_ops.bridge_nullifier_del(addr, nonce)
+        else:
+            kv_ops.bridge_nullifier_put(addr, nonce)
         return
 
     # --- ordinary transfer (recipient may be a registered ALIAS -> credit its CURRENT owner) ---
