@@ -25,6 +25,22 @@
       "explore.title":"Explore","btn.search":"Search","explore.network":"Network","explore.mining":"Mining","explore.recent":"Recent blocks",
       "settings.title":"Settings","settings.relay":"Relay node URL","btn.save":"Save","btn.selftest":"Run self-test","btn.forget":"Forget wallet"
     },
+    cs: {
+      "tab.wallet":"Peněženka","tab.send":"Odeslat","tab.receive":"Přijmout","tab.aliases":"Aliasy","tab.stake":"Staking","tab.history":"Historie","tab.explore":"Průzkumník","tab.settings":"Nastavení",
+      "app.sub":"jen prohlížeč · bez plného uzlu","conn.connecting":"připojování…",
+      "onboard.title":"Začít","btn.genKey":"Vytvořit nový klíč","btn.importKey":"Importovat klíč","btn.import":"Importovat",
+      "save.title":"⚠ Uložte si soukromý klíč","save.ack":"Uložil/a jsem si soukromý klíč","save.continue":"Pokračovat → uložit do tohoto zařízení",
+      "wallet.title":"Peněženka","lbl.address":"Adresa","lbl.free":"K dispozici","lbl.bonded":"Ve stakingu","lbl.total":"Celkem","lbl.registered":"Registrováno","lbl.present":"Přítomen","lbl.fidelity":"Věrnost","wallet.reveal":"Zobrazit / exportovat soukromý klíč","btn.dlKey":"⤓ Stáhnout soubor klíče (JSON)",
+      "mining.title":"Těžba","btn.startMining":"Spustit těžbu","btn.stopMining":"Zastavit těžbu","mine.status":"Stav","mine.epoch":"Aktuální epocha","mine.eta":"Odhadovaný čas do vytěžení","mine.nextHb":"Další tep","mine.idle":"Nečinné",
+      "lanes.title":"Výběrové dráhy","lanes.open":"Otevřená dráha","lanes.bonded":"Staking dráha","lanes.openWeight":"Otevřená váha","lanes.bondedShares":"Staking podíly",
+      "send.title":"Odeslat","send.recipient":"Adresa příjemce","send.amount":"Částka (NADO)","send.fee":"Síťový poplatek:","send.spendable":"Dostupný zůstatek:","btn.reviewSend":"Zkontrolovat a odeslat",
+      "receive.title":"Přijmout","receive.reqAmount":"Požadovaná částka (NADO) — volitelné","receive.payLink":"Platební odkaz","receive.your":"Vaše adresa","btn.copy":"Kopírovat","btn.share":"Sdílet",
+      "alias.title":"Aliasy","alias.name":"Název aliasu","btn.register":"Registrovat","btn.unregister":"Zrušit","btn.transfer":"Převést","alias.transferTo":"Převést vlastnictví na (adresa ndo…)","alias.your":"Vaše aliasy:",
+      "stake.title":"Staking — vložit / vybrat","stake.spendable":"K dispozici","stake.bondAmount":"Částka k vložení (NADO)","stake.unbondAmount":"Částka k výběru (NADO)","btn.bond":"Vložit do stakingu","btn.unbond":"Vybrat ze stakingu","stake.autobond":"Automaticky stakovat odměny z těžby","stake.noFee":"Bez poplatku — výběr je zdarma.",
+      "history.title":"Historie","btn.refresh":"Obnovit",
+      "explore.title":"Průzkumník","btn.search":"Hledat","explore.network":"Síť","explore.mining":"Těžba","explore.recent":"Nedávné bloky",
+      "settings.title":"Nastavení","settings.relay":"URL relay uzlu","btn.save":"Uložit","btn.selftest":"Spustit autotest","btn.forget":"Zapomenout peněženku"
+    },
     es: {
       "tab.wallet":"Cartera","tab.send":"Enviar","tab.receive":"Recibir","tab.aliases":"Alias","tab.stake":"Staking","tab.history":"Historial","tab.explore":"Explorar","tab.settings":"Ajustes",
       "app.sub":"solo navegador · sin nodo completo","conn.connecting":"conectando…",

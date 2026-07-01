@@ -196,6 +196,34 @@ async function validateSendTo() {
   setMsg("sendToMsg", "✗ invalid — a 49-char ndo… address or a registered alias name", "err");
 }
 
+// ADDRESS BOOK: every recipient you send to (alias or address) is remembered in localStorage, offered
+// as native autocomplete on the Send field (datalist) + clickable recent chips to reselect.
+const LS_ADDRBOOK = "nado_addrbook";
+function addrBookLoad() { try { return JSON.parse(localStorage.getItem(LS_ADDRBOOK) || "[]"); } catch { return []; } }
+function addrBookAdd(to) {
+  to = (to || "").trim();
+  if (!to) return;
+  let book = addrBookLoad().filter((x) => x !== to);
+  book.unshift(to);
+  book = book.slice(0, 40);
+  try { localStorage.setItem(LS_ADDRBOOK, JSON.stringify(book)); } catch (e) {}
+  addrBookRender();
+}
+function addrBookRender() {
+  const book = addrBookLoad();
+  const dl = $("sendToBook");
+  if (dl) dl.innerHTML = book.map((x) => `<option value="${x.replace(/"/g, "&quot;")}"></option>`).join("");
+  const chips = $("addrBook");
+  if (chips) {
+    chips.innerHTML = book.length
+      ? "Recent: " + book.slice(0, 8).map((x) => {
+          const label = /^ndo[0-9a-f]{46}$/.test(x) ? x.slice(0, 10) + "…" : x;   // aliases whole, addresses shortened
+          return `<a class="ex-link addrpick" data-to="${x.replace(/"/g, "&quot;")}" style="margin-right:8px">${label}</a>`;
+        }).join("")
+      : "";
+  }
+}
+
 function powTarget() { return 1n << BigInt(256 - REGISTER_POW_BITS); }
 function powHashInt(address, nonce) {
   return BigInt("0x" + blake2bHash(["nado-register", address, nonce]));
@@ -1194,7 +1222,7 @@ async function doSend() {
     const targetBlock = await nextTargetBlock();
     // PUBKEY-ONCE: omit the 1312-byte public_key once the sender's pubkey is established on-chain.
     const tx = buildTransferTx(state.wallet, recipient, rawAmount, fee, targetBlock, "", nowSeconds(), !pubkeyEstablished(acc));
-    if (await submitAndReport(tx, "Transfer", "sendMsg")) { $("sendAmount").value = ""; show("payBanner", false); }
+    if (await submitAndReport(tx, "Transfer", "sendMsg")) { addrBookAdd(recipient); $("sendAmount").value = ""; show("payBanner", false); }
   } catch (e) { setMsg("sendMsg", "Send failed: " + e.message, "err"); }
   finally { btn.disabled = false; }
 }
@@ -1692,7 +1720,7 @@ function showTab(name) {
   else if (name === "aliases") loadMyAliases();
   else if (name === "explore") { exLoadOverview(); exLoadRecent(); }
   else if (name === "history") loadHistory().catch(() => {});
-  else if (name === "send") { updateFeeInfo().catch(() => {}); validateSendTo().catch(() => {}); }
+  else if (name === "send") { updateFeeInfo().catch(() => {}); validateSendTo().catch(() => {}); addrBookRender(); }
   else if (name === "stake") { updateFeeInfo().catch(() => {}); refreshDashboard().catch(() => {}); }
 }
 
@@ -1741,6 +1769,8 @@ function wireEvents() {
   document.addEventListener("click", (e) => {           // delegated explorer links (module-safe)
     const a = e.target.closest && e.target.closest("a.ex-link[data-exk]");
     if (a) { e.preventDefault(); exOpen(a.dataset.exk, a.dataset.exv); }
+    const p = e.target.closest && e.target.closest("a.addrpick[data-to]");
+    if (p) { e.preventDefault(); $("sendTo").value = p.dataset.to; validateSendTo(); }
   });
 
   // --- full-wallet wiring ---
