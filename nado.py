@@ -93,11 +93,10 @@ class NoCacheStaticFileHandler(tornado.web.StaticFileHandler):
 
 
 class HomeHandler(tornado.web.RequestHandler):
-    def home(self):
-        self.render("templates/homepage.html", ip=get_config()["ip"])
-
     def get(self):
-        self.home()
+        # The node's landing page is the static, client-side explorer (styled like the light miner);
+        # it reads this node's public JSON API in the browser. No server-side templating.
+        self.redirect("/static/explorer.html")
 
 
 class StatusHandler(tornado.web.RequestHandler):
