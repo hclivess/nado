@@ -129,6 +129,20 @@ def t9_revert_transfer_and_unregister():
     reflect_transaction(tu, logger, 1, revert=True)
     assert kv_ops.alias_get("movable") == A["address"], "unregister revert restores owner"
 
+def t10_send_to_alias_indexed_under_owner():
+    # a send-to-alias must be filed in the OWNER's tx index (where the coins landed), not under the
+    # alias string — otherwise it never shows in the recipient's history.
+    from ops.transaction_ops import index_transactions
+    reflect_transaction(construct_alias_tx(A, "register", "histname", 1, ALIAS_REGISTRATION_FEE), logger, 6)
+    tx = _transfer_tx(C, "histname", amount=12345, fee=MIN_TX_FEE, target_block=7)
+    a_before = _bal(A["address"])
+    index_transactions({"block_number": 7}, [tx], logger)
+    assert _bal(A["address"]) == a_before + 12345, "owner credited"
+    under_owner = [t for (_b, t) in kv_ops.tx_of_account(A["address"], 0, 100)]
+    under_alias = [t for (_b, t) in kv_ops.tx_of_account("histname", 0, 100)]
+    assert tx["txid"] in under_owner, "send-to-alias must be indexed under the owner's address"
+    assert tx["txid"] not in under_alias, "must NOT be indexed under the alias string"
+
 for name, fn in list(globals().items()):
     if name.startswith("t") and callable(fn) and name[1].isdigit():
         check(name, fn)

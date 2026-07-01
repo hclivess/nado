@@ -623,10 +623,12 @@ def unindex_transactions(block, logger, block_height):
                             revert=True,
                             logger=logger,
                             block_height=block_height)
+        from ops import alias_ops
+        _recip = alias_ops.resolve_alias(transaction["recipient"]) or transaction["recipient"]
         kv_ops.tx_index_del(txid=transaction["txid"],
                             block_number=block_height,
                             sender=transaction["sender"],
-                            recipient=transaction["recipient"])
+                            recipient=_recip)
         # PUBKEY-ONCE revert: after this tx's index entry is removed, if the sender has NO remaining
         # indexed tx, this block held its first-ever tx -> clear the established pubkey so the account
         # doc returns byte-identical to before (revert-symmetric). A sender with earlier-block txs
@@ -645,10 +647,15 @@ def index_transactions(block, sorted_transactions, logger):
         reflect_transaction(transaction=transaction,
                             logger=logger,
                             block_height=block_height)
+        # Index under the RESOLVED recipient (an alias -> its owner address), matching where
+        # reflect_transaction actually credited the coins — otherwise a send-to-alias is filed under the
+        # alias STRING and never appears in the recipient's own transaction history.
+        from ops import alias_ops
+        _recip = alias_ops.resolve_alias(transaction["recipient"]) or transaction["recipient"]
         kv_ops.tx_index_put(txid=transaction["txid"],
                             block_number=block_height,
                             sender=transaction["sender"],
-                            recipient=transaction["recipient"])
+                            recipient=_recip)
         # PUBKEY-ONCE (#19): record the sender's pubkey on its FIRST indexed tx (the one carrying it),
         # so later txs from this sender (e.g. every-epoch heartbeats) may omit the 1312-byte key.
         # Idempotent (skip if already stored); revert is handled symmetrically in unindex_transactions.
