@@ -17,6 +17,7 @@ It also records the multi-agent **security review** that motivated much of this 
 | [whitepaper.md](whitepaper.md) | **Authoritative overview** — two-lane mining, economics, PQ crypto, LMDB storage, the security model with an explicit implemented-vs-planned split, and the full constants table |
 | [economics.md](economics.md) | No premine, the treasury (= genesis address), fee-weighted elastic reward, the 90/10 split, fees, supply accounting |
 | [mining.md](mining.md) | Bonded-registry mining (the open/mobile/botnet-safe redesign): bond/unbond, split-neutral selection, RANDAO beacon, fidelity, the browser miner — and exactly what is implemented vs. pending |
+| [ip-spoofing-and-sybil.md](ip-spoofing-and-sybil.md) | **Fair distribution** of the open lane: why IP is out of consensus and spoofable, how Sybil skews (but can't enlarge) the free lane, and ranked ideas to tie one share to one real participant — incl. bonded-node sponsorship |
 | [storage.md](storage.md) | The current schemaless **LMDB** key-value index (`ops/kv_ops.py`), atomic `incorporate_block`/rollback, snapshot sync, and the "stuck node" fixes |
 | [storage-kv-migration.md](storage-kv-migration.md) | The SQLite → LMDB migration: engine decision (`py-lmdb`), the full sub-DB schema, atomicity, and the cut-over steps |
 | [consensus-hardening-plan.md](consensus-hardening-plan.md) | The locked, ordered design for the consensus-security milestones (#15–#18); the first wave is implemented, the rest is planned |
