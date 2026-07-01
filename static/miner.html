@@ -17,6 +17,7 @@
             border:1px solid var(--line,#1c2530); border-radius:12px; align-items:center; }
   .ex-row:hover { border-color:var(--accent,#3aa0ff); }
   .ex-row.mine { border-color:var(--accent,#3aa0ff); background:rgba(58,160,255,0.08); }
+  .youmark { color:var(--accent,#3aa0ff); font-weight:600; }
   a.ex-link { color:var(--accent,#3aa0ff); cursor:pointer; text-decoration:none; word-break:break-all; }
   a.ex-link:hover { text-decoration:underline; }
   .ex-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
@@ -202,8 +203,8 @@
         <div class="bonded" id="laneBonded" style="flex:0 0 80%">BONDED 80%</div>
       </div>
       <div class="lane-legend">
-        <span><i class="open"></i><span data-i18n="lane.legendOpen">Open lane — free, capital-less (you)</span></span>
-        <span><i class="bonded"></i><span data-i18n="lane.legendBonded">Bonded lane — locked stake</span></span>
+        <span><i class="open"></i><span data-i18n="lane.legendOpen">Open lane — free, capital-less</span><span id="laneOpenYou" class="youmark"></span></span>
+        <span><i class="bonded"></i><span data-i18n="lane.legendBonded">Bonded lane — locked stake</span><span id="laneBondedYou" class="youmark"></span></span>
       </div>
       <div class="myshare" id="myShare">—</div>
     </div>
@@ -252,7 +253,7 @@
     </label>
     <div class="addr-box"><span class="a mono break" id="recvPayLink"></span>
       <button class="copy" data-copy="recvPayLink">Copy</button>
-      <button class="copy" id="btnSharePay">Share</button></div>
+      <button class="copy" id="btnSharePay" data-i18n="btn.share">Share</button></div>
     <label class="mt" data-i18n="receive.your">Your address</label>
     <div class="addr-box"><span class="a mono" id="recvAddr"></span>
       <button class="copy" data-copy="recvAddr">Copy</button></div>

@@ -514,19 +514,19 @@ function setStartBtnBusy(label) {
   const b = $("btnMine");
   b.disabled = true;
   b.classList.remove("danger"); b.classList.add("primary");
-  b.innerHTML = '<span class="spin"></span>' + escapeHtml(label || "Working…");
+  b.innerHTML = '<span class="spin"></span>' + escapeHtml(label || i18("mine.starting", "Starting…"));
 }
 function setStartBtnMining() {
   const b = $("btnMine");
   b.disabled = false;
   b.classList.remove("primary"); b.classList.add("danger");
-  b.textContent = "Stop mining";
+  b.textContent = i18("btn.stopMine", "Stop mining");
 }
 function setStartBtnIdle(label) {
   const b = $("btnMine");
   b.disabled = false;
   b.classList.remove("danger"); b.classList.add("primary");
-  b.textContent = label || "Start mining";
+  b.textContent = label || i18("btn.startMining", "Start mining");
 }
 // Update the staged status banner. `html` is built only from our own constant strings plus
 // escapeHtml()'d dynamic values, so innerHTML is safe here. kind: "ok" | "warn" | undefined (info).
@@ -559,7 +559,7 @@ function failStart(reason) {
   if (state.powJob) state.powJob.cancelled = true;
   stopPollLoop();
   show("powWrap", false);
-  setStartBtnIdle("Start mining");
+  setStartBtnIdle();
   $("mineState").textContent = i18("mine.idle", "Idle");
   setRegBanner(i18("reg.retry", "Registration didn't confirm — tap Start to retry.") +
     (reason ? ' <span class="faint">(' + escapeHtml(reason) + ')</span>' : ""), "warn");
@@ -681,7 +681,7 @@ async function submitRegistration() {
   const targetBlock = latest.block_number + 8;  // headroom so the tx lands before its target block
 
   // compute the registration Proof of SEQUENTIAL Work (non-parallelizable ~1 s chain, replaces hashcash)
-  setStartBtnBusy("Registering…");
+  setStartBtnBusy(i18("mine.registering", "Registering…"));
   setRegBanner(i18("reg.computing", "Computing the one-time registration proof (a few seconds)…") + REASSURE);
   showRegProgress(i18("reg.computingLabel", "Registering — computing sequential proof-of-work…"), i18("reg.starting", "starting…"));
   let tx;
@@ -866,7 +866,7 @@ async function startMining() {
   state.autoBondBaseline = null; state.autoBondPending = null;   // only earnings AFTER this start auto-bond
   state.lastAutoBondEpoch = null;
   state.presignedThroughEpoch = 0;   // re-establish the pre-signed heartbeat buffer on a fresh start
-  setStartBtnBusy("Starting…");                   // disabled spinner button — can't be re-clicked
+  setStartBtnBusy(i18("mine.starting", "Starting…"));                   // disabled spinner button — can't be re-clicked
   setRegBanner(i18("reg.startup", "Starting up — checking your registration with the relay…") + REASSURE);
   $("mineState").textContent = i18("mine.starting", "Starting…");
   log("ok", "Mining started — registering (if needed) and heartbeating automatically.");
@@ -886,7 +886,7 @@ function stopMining() {
   releaseWakeLock();                                   // let the screen sleep again once mining stops
   show("powWrap", false);
   show("regBanner", false);
-  setStartBtnIdle("Start mining");
+  setStartBtnIdle();
   $("mineState").textContent = i18("mine.idle", "Idle");
   $("mineNextHb").textContent = "—";
   log("info", "Mining stopped.");
@@ -1024,6 +1024,13 @@ function renderLanes(ms) {
     `${i18("myshare.weight", "Your open-lane weight:")} <b>${myOpen}</b> / ${totOpen} (${sharePct}% ${i18("myshare.ofFree", "of the free lane")}). ` +
     `${i18("myshare.openReg", "Open registry:")} ${ms.open_registry_size ?? 0} ${i18("lane.miners", "miners")} · ${i18("myshare.bondShares", "Savings shares:")} ${myBond}/${totBond} · ` +
     `${i18("myshare.bondReg", "Savings registry:")} ${ms.bonded_registry_size ?? 0}.`;
+
+  // Dynamic "(you)" marker: you're in the FREE lane iff you have open-lane weight (registered + present),
+  // and in the SAVINGS lane iff you hold savings shares. Both can be true at once — a stake ADDS the
+  // savings lane, it does NOT remove you from the free lane. (Fixes the old static "(you)" on the legend.)
+  const _youMark = " " + i18("lane.youMark", "(you)");
+  $("laneOpenYou").textContent = myOpen > 0 ? _youMark : "";
+  $("laneBondedYou").textContent = myBond > 0 ? _youMark : "";
 }
 
 function setConn(ok, tip) {
@@ -1210,7 +1217,7 @@ function downloadKeyFile() {
   // held in pendingWallet and is NOT yet state.wallet (that happens only on "Continue → store"). Without
   // this, a brand-new user who clicks Download on that very screen got a confusing "No wallet loaded."
   const w = state.wallet || pendingWallet;
-  if (!w) { alert("Create or import a wallet first — then you can download its key file."); return; }
+  if (!w) { alert(i18("wallet.needFirst", "Create or import a wallet first — then you can download its key file.")); return; }
   const keyfile = {
     private_key: w.privateKey,            // the 32-byte ML-DSA-44 SEED (hex) — this IS the secret
     public_key: w.publicKey,
@@ -1549,7 +1556,7 @@ async function sharePayLink() {
   }
   const btn = $("btnSharePay");
   const ok = await copyToClipboard(link);
-  if (btn) { btn.textContent = ok ? i18("copy.copied", "Copied ✓") : i18("copy.select", "select & copy"); setTimeout(() => (btn.textContent = "Share"), ok ? 1200 : 1600); }
+  if (btn) { btn.textContent = ok ? i18("copy.copied", "Copied ✓") : i18("copy.select", "select & copy"); setTimeout(() => (btn.textContent = i18("btn.share", "Share")), ok ? 1200 : 1600); }
 }
 
 /* Receive: amount-aware QR + shareable payment link (degrades to the link text if QR is unavailable). */
@@ -1658,8 +1665,17 @@ function histClassify(tx, addr) {
   if (r === "heartbeat") return { type: "heartbeat", sign: 0, cp: i18("hist.cpHb", "open-lane heartbeat") };
   if (r === "bond") return { type: "bond", sign: -1, cp: i18("hist.cpBond", "→ savings") };
   if (r === "unbond") return { type: "unbond", sign: 1, cp: i18("hist.cpUnbond", "← savings") };
-  if (tx.sender === addr) return { type: "send", sign: -1, cp: i18("hist.to", "to") + " " + r };
-  return { type: "receive", sign: 1, cp: i18("hist.from", "from") + " " + tx.sender };
+  if (tx.sender === addr) return { type: "send", sign: -1, cp: i18("hist.to", "to"), cpAddr: r };
+  return { type: "receive", sign: 1, cp: i18("hist.from", "from"), cpAddr: tx.sender };
+}
+
+/* Counterparty cell for a history row: link the address into the Explore tab (clickable → account view);
+ * plain text for aliases/non-addresses or self-txs (register/heartbeat/bond/unbond). */
+function histCp(info) {
+  if (info.cpAddr && validateAddress(info.cpAddr))
+    return escapeHtml(info.cp) + " " + exLink("a", info.cpAddr, exShort(info.cpAddr, 14));
+  if (info.cpAddr) return escapeHtml(info.cp + " " + info.cpAddr);
+  return escapeHtml(info.cp);
 }
 async function loadHistory() {
   if (!state.wallet) return;
@@ -1689,7 +1705,7 @@ async function loadHistory() {
     row.innerHTML =
       `<div class="ic">${HIST_ICON[info.type] || "•"}</div>` +
       `<div class="mid"><div class="tp">${i18("hist." + info.type, info.type)}</div>` +
-      `<div class="cp">${escapeHtml(info.cp)}</div>` +
+      `<div class="cp">${histCp(info)}</div>` +
       `<div class="meta">${escapeHtml(when)}${escapeHtml(feeStr)}</div></div>` +
       `<div class="amt ${amtCls}">${escapeHtml(signed)}</div>`;
     box.appendChild(row);
@@ -1847,7 +1863,7 @@ async function exSearch() {
     if (owner) return exOpen("a", owner);
     $("exSearchErr").textContent = `Alias "${q}" is not registered.`; $("exSearchErr").classList.remove("hidden"); return;
   }
-  $("exSearchErr").textContent = "Unrecognized — an ndo… address, an alias, a block number, or a 64-hex hash/txid.";
+  $("exSearchErr").textContent = i18("ex.searchErr", "Unrecognized — an ndo… address, an alias, a block number, or a 64-hex hash/txid.");
   $("exSearchErr").classList.remove("hidden");
 }
 
@@ -1913,7 +1929,7 @@ function wireEvents() {
   $("btnShowImport").onclick = () => show("importBox", !$("importBox").classList.contains("hidden") ? false : true);
   $("btnImport").onclick = () => {
     try { adoptWallet(keypairFromPriv($("importKey").value), { needsSavePrompt: false }); }
-    catch (e) { alert("Import failed: " + e.message); }
+    catch (e) { alert(i18("import.pasteFailed", "Import failed:") + " " + e.message); }
   };
   $("ackSave").onchange = (e) => { $("btnConfirmSave").disabled = !e.target.checked; };
   $("btnConfirmSave").onclick = () => {
@@ -1937,12 +1953,19 @@ function wireEvents() {
   if ($("exQ")) $("exQ").addEventListener("keydown", (e) => { if (e.key === "Enter") exSearch(); });
   document.addEventListener("click", (e) => {           // delegated explorer links (module-safe)
     const a = e.target.closest && e.target.closest("a.ex-link[data-exk]");
-    if (a) { e.preventDefault(); exOpen(a.dataset.exk, a.dataset.exv); }
+    if (a) {
+      e.preventDefault();
+      if (state.activeTab !== "explore") showTab("explore");   // navigate to the Explore tab so the result is visible
+      exOpen(a.dataset.exk, a.dataset.exv);
+    }
     const p = e.target.closest && e.target.closest("a.addrpick[data-to]");
-    if (p) { e.preventDefault(); $("sendTo").value = p.dataset.to; validateSendTo(); }
+    if (p) { e.preventDefault(); showTab("send"); $("sendTo").value = p.dataset.to; validateSendTo(); }
   });
   // re-render dynamic (JS-set) strings — badges, mining status — when the language changes
-  window.addEventListener("nado-lang", () => { if (state.wallet) refreshDashboard().catch(() => {}); });
+  window.addEventListener("nado-lang", () => {
+    if (state.wallet) refreshDashboard().catch(() => {});
+    if (state.mining) setStartBtnMining();                     // re-apply the translated "Stop mining" label
+  });
 
   // --- full-wallet wiring ---
   $("btnDlKey").onclick = downloadKeyFile;
@@ -1994,8 +2017,8 @@ function wireEvents() {
     btn.onclick = async () => {
       const txt = $(btn.getAttribute("data-copy")).textContent;
       const ok = await copyToClipboard(txt);   // secure-context clipboard, execCommand fallback over http
-      if (ok) { btn.textContent = "Copied ✓"; setTimeout(() => (btn.textContent = "Copy"), 1200); }
-      else { btn.textContent = "select & copy"; setTimeout(() => (btn.textContent = "Copy"), 1600); }
+      if (ok) { btn.textContent = i18("copy.copied", "Copied ✓"); setTimeout(() => (btn.textContent = i18("btn.copy", "Copy")), 1200); }
+      else { btn.textContent = i18("copy.select", "select & copy"); setTimeout(() => (btn.textContent = i18("btn.copy", "Copy")), 1600); }
     };
   });
 }
