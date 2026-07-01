@@ -994,6 +994,19 @@ async function refreshDashboard() {
     $("mineEpoch").textContent = ms.epoch;
     $("mineEta").textContent = humanizeSeconds(ms.expected_seconds_between_wins);
 
+    // How long the phone can stay LOCKED and keep mining: bounded by the pre-signed heartbeat buffer AND
+    // the PoSW presence lease (the recert needs the device active). Reopen before this to auto-renew.
+    const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
+    if (regEpoch >= 0) {
+      const epochSecs = EPOCH_LENGTH * (ms.block_time || state.blockTime || 8);
+      const leaseEnd = regEpoch + POSW_LEASE_EPOCHS;
+      const bufEnd = state.presignedThroughEpoch || 0;
+      const coverEnd = bufEnd > ms.epoch ? Math.min(bufEnd, leaseEnd) : leaseEnd;   // buffer or lease, whichever is sooner
+      $("mineLocked").textContent = humanizeSeconds(Math.max(0, (coverEnd - ms.epoch) * epochSecs));
+    } else {
+      $("mineLocked").textContent = "—";
+    }
+
     renderLanes(ms);
     // visibility of the lanes card is owned by the tab system (it lives on the Wallet tab)
   } else {
