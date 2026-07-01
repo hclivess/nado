@@ -133,6 +133,21 @@ def construct_bond_tx(keydict, amount, fee, target_block):
     return tx
 
 
+def construct_alias_tx(keydict, op, name, target_block, fee, to=None):
+    """Build a SIGNED alias op tx (op in {"register","transfer","unregister"}); recipient is the reserved
+    name "alias" and the operation rides in `data`. `to` is the new owner for a transfer. amount is 0."""
+    data = {"op": op, "name": name}
+    if op == "transfer":
+        data["to"] = to
+    tx = {"sender": keydict["address"], "recipient": "alias", "amount": 0,
+          "timestamp": get_timestamp_seconds(), "data": data,
+          "nonce": create_nonce(), "public_key": keydict["public_key"],
+          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": int(fee)}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
 def reserved_uniqueness_key(tx):
     """AUDIT FIX (in-block uniqueness): the key under which a reserved-recipient tx may appear AT MOST
     ONCE in a block — None for ordinary transfers (deduped by spending/txid). Used by BOTH block
@@ -153,6 +168,8 @@ def reserved_uniqueness_key(tx):
         if r == "slash":
             d = tx.get("data") or {}
             return ("slash", make_address(d["public_key"]), d["block_number"])
+        if r == "alias":
+            return ("alias", (tx.get("data") or {}).get("name"))     # one op per name per block
     except Exception:
         return ("malformed", tx.get("txid"))   # unique-ish; the tx is rejected by validate_transaction
     return None
@@ -201,8 +218,12 @@ def validate_transaction(transaction, logger, block_height):
     # SENDER must be a real keyed address — never a reserved protocol pseudo-recipient.
     assert validate_address(transaction["sender"], allow_reserved=False), f"Invalid sender {transaction['sender']}"
     # RECIPIENT (the target) must be a checksum-valid address OR a reserved protocol recipient
-    # (bond/unbond/register/heartbeat). A malformed/typo target with a bad checksum is rejected.
-    assert validate_address(transaction["recipient"]), f"Invalid recipient {transaction['recipient']}"
+    # (bond/unbond/register/heartbeat/alias/…) OR a REGISTERED ALIAS name (send-to-alias). A malformed/
+    # typo target with a bad checksum, or an unregistered alias, is rejected.
+    _recip = transaction["recipient"]
+    if not validate_address(_recip):
+        from ops import alias_ops
+        assert alias_ops.resolve_alias(_recip) is not None, f"Invalid recipient {_recip}"
     assert isinstance(transaction["fee"], int) and not isinstance(transaction["fee"], bool), "Transaction fee is not an integer"
     # amount must be a non-negative integer (not a bool, not a float): a float would
     # satisfy the old check_balance comparison and corrupt the integer-satoshi ledger
@@ -324,8 +345,12 @@ def validate_transaction(transaction, logger, block_height):
             # dropped by block assembly + rejected by assert_unique_reserved.
             assert not kv_ops.heartbeat_present(transaction["target_block"] // EPOCH_LENGTH, transaction["sender"]), \
                 "Already heartbeated this epoch"
+    elif recipient == "alias":
+        # ALIAS op (register / transfer / unregister): validate the op, name, ownership + fee floor.
+        from ops import alias_ops
+        alias_ops.validate_alias_op(transaction)
     else:
-        # ordinary transfer / bond / unbond: deterministic minimum-fee floor (anti-spam), from block 1
+        # ordinary transfer / bond / send-to-alias: deterministic minimum-fee floor (anti-spam), block 1
         assert transaction["fee"] >= MIN_TX_FEE, f"Transaction fee below minimum {MIN_TX_FEE}"
 
     # bind the signature to the FULL body: the signature only covers the txid, so without

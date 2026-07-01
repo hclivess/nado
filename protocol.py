@@ -24,7 +24,16 @@ GENESIS_TIMESTAMP = 1669852800
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
 # "bond"/"unbond": bonded-lane stake txs. "register"/"heartbeat": OPEN-lane (no-coin) mining txs
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "heartbeat", "slash", "attest", "commit", "reveal"})
+RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "heartbeat", "slash", "attest", "commit", "reveal", "alias"})
+
+# --- Aliases (human-readable names -> address; register / transfer / unregister on-chain) ---
+# An alias lets a user send to a short name instead of the 49-char ndo address. Names are a scarce
+# global namespace: 3..32 chars, lowercase [a-z0-9_-], must start with a letter, and must NOT be a
+# reserved word or look like an address ("ndo…"). Registration pays a higher fee (anti-squat); the
+# owner can transfer or unregister it. See ops/alias_ops.py.
+ALIAS_MIN_LEN = 3
+ALIAS_MAX_LEN = 32
+ALIAS_REGISTRATION_FEE = 10_000_000     # 0.001 NADO (10,000x MIN_TX_FEE): deters mass name-squatting
 
 # The TREASURY is the GENESIS address (project owner's decision): the 10% per-block cut accrues
 # here. It is a normal KEY-CONTROLLED address (the founder holds its key), derived here under the

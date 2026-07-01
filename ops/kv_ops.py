@@ -49,7 +49,7 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   commits           "sender|target_epoch"    -> commitment                                   (RANDAO #7)
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
-_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert")
+_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases")
 _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "heartbeats", "attestations", "reveals")
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
@@ -519,6 +519,40 @@ def unbond_del(address: str):
     def _do(txn):
         txn.delete(address.encode(), db=_dbs()["unbonds"])
     _write(_do)
+
+
+# --- alias registry (human-readable name -> owner address) ----------------------------------------
+
+def alias_get(name: str):
+    """Owner address for alias `name`, or None if unregistered. Deterministic KV read."""
+    def _do(txn):
+        raw = txn.get(name.encode(), db=_dbs()["aliases"])
+        return raw.decode() if raw is not None else None
+    return _read(_do)
+
+
+def alias_put(name: str, owner: str):
+    def _do(txn):
+        txn.put(name.encode(), owner.encode(), db=_dbs()["aliases"])
+    _write(_do)
+
+
+def alias_del(name: str):
+    def _do(txn):
+        txn.delete(name.encode(), db=_dbs()["aliases"])
+    _write(_do)
+
+
+def aliases_of(owner: str):
+    """All alias names currently owned by `owner` (explorer/wallet convenience; O(registry) scan)."""
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["aliases"]) as cur:
+            for k, v in cur:
+                if v.decode() == owner:
+                    out.append(k.decode())
+        return out
+    return _read(_do)
 
 
 # --- block number <-> hash index ------------------------------------------------------------------

@@ -497,6 +497,20 @@ async def snapshot_chunk(request):
                         headers={"Access-Control-Allow-Origin": "*"})
 
 
+async def resolve_alias(request):
+    from ops import alias_ops
+    name = _q(request, "name", "")
+    owner = await asyncio.to_thread(alias_ops.resolve_alias, name)
+    return _resp({"name": name, "owner": owner})   # owner is None when the alias is unregistered
+
+
+async def aliases_of(request):
+    from ops import kv_ops
+    addr = _q(request, "address", memserver.address)
+    names = await asyncio.to_thread(kv_ops.aliases_of, addr)
+    return _resp({"address": addr, "aliases": names})
+
+
 async def static_handler(request):
     rel = request.match_info.get("path", "")
     full = os.path.normpath(os.path.join(_STATIC_DIR, rel))
@@ -552,6 +566,8 @@ async def make_app(port):
             "block_opinions": consensus.block_hash_pool,
             "majority_block_opinion": consensus.majority_block_hash})),
         web.get("/get_recommended_fee", get_recommended_fee),
+        web.get("/resolve_alias", resolve_alias),
+        web.get("/get_aliases_of", aliases_of),
         web.get("/terminate", terminate),
         web.get("/health", health),
         web.post("/submit_transaction", submit_transaction),

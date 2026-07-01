@@ -112,10 +112,19 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             kv_ops.reveal_put(data["target_epoch"], data["secret"])
         return
 
-    # --- ordinary transfer ---
+    # --- ALIAS op (register / transfer / unregister): change the registry, destroy the fee, no transfer ---
+    if recipient == "alias":
+        from ops import alias_ops
+        alias_ops.apply_alias(transaction, sender=sender, logger=logger, revert=revert)
+        change_balance(address=sender, amount=-fee, logger=logger, revert=revert)
+        return
+
+    # --- ordinary transfer (recipient may be a registered ALIAS -> credit its CURRENT owner) ---
+    from ops import alias_ops
+    resolved = alias_ops.resolve_alias(recipient) or recipient
     amount_sender = amount + fee
     change_balance(address=sender, amount=-amount_sender, logger=logger, revert=revert)
-    change_balance(address=recipient, amount=amount, logger=logger, revert=revert)
+    change_balance(address=resolved, amount=amount, logger=logger, revert=revert)
 
 
 def change_balance(address: str, amount: int, logger, revert=False):
