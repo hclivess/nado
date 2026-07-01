@@ -75,10 +75,11 @@ def create_config(ip: str, config_path: str = f"{get_home()}/private/config.dat"
         # kept, so it still validates + serves the beacon/FFG). Overridable via NADO_ARCHIVE / env.
         "archive": True,
         "history_retention_blocks": 0,  # 0 = use protocol.HISTORY_RETENTION_BLOCKS default
-        # IP-DIVERSITY registration cap (non-consensus relay admission control): the max DISTINCT
-        # OPEN-lane addresses one source IP may register through THIS node per hour. Stops the naive
-        # "bot onboards 10k addresses from one device" Sybil at the entry point. Generous by default so
-        # legit CGNAT/NAT sharing isn't bricked; 0 disables. Overridable via NADO_MAX_REG_PER_IP.
+        # PROGRESSIVE IP-DIVERSITY registration budget (non-consensus relay admission control). Expressed
+        # as "equivalent same-EXACT-IP addresses" per hour: a same-/32 peer costs 1.0 of it, same-/24 0.5,
+        # /16 0.25, /8 0.125, unrelated 0 — so the effective limit scales ~64/exact IP, ~128 per /24, ~256
+        # per /16, ~512 per /8. Bounds a datacenter's whole range, not just one IP, while leaving distinct
+        # networks unpenalised. Generous so legit CGNAT/NAT isn't bricked; 0 disables. NADO_MAX_REG_PER_IP.
         "max_registrations_per_ip": 64
     }
 
