@@ -26,7 +26,7 @@ def get_account(address, create_on_error=True):
 
 
 def reflect_transaction(transaction, logger, block_height=None, revert=False):
-    # Fee is ALWAYS debited from the sender (the >111111 compat gate is gone — fresh chain).
+    # Fee is ALWAYS debited from the sender.
     # The fee is destroyed (credited to no one); it is counted into totals.fees and subtracted
     # from supply, and it drives the elastic block reward via the header cumulative_fees counter.
     sender = transaction["sender"]
@@ -305,13 +305,10 @@ def apply_heartbeat(address: str, epoch: int, logger, revert=False):
     else:
         kv_ops.heartbeat_del(epoch, address)
         rec = kv_ops.hb_revert_pop(epoch, address)
-        if rec is not None:
-            prev, net = rec
-            if not kv_ops.account_adjust(address, "fidelity", -net, floor_zero=True):
-                logger.error(f"Fidelity revert underflow for {address} (net={net})")
-                raise AssertionError(f"Fidelity revert underflow for {address}")
-            kv_ops.account_set(address, "last_hb_epoch", prev)   # restore exactly (byte-identical)
-        else:
-            # No revert record (a pre-decay heartbeat) -> legacy exact -GAIN inverse.
-            change_fidelity(address=address, amount=FIDELITY_GAIN, logger=logger, revert=True)
+        assert rec is not None, f"missing heartbeat revert record for ({epoch}, {address})"
+        prev, net = rec
+        if not kv_ops.account_adjust(address, "fidelity", -net, floor_zero=True):
+            logger.error(f"Fidelity revert underflow for {address} (net={net})")
+            raise AssertionError(f"Fidelity underflow for {address}")
+        kv_ops.account_set(address, "last_hb_epoch", prev)       # restore exactly (byte-identical)
     return True

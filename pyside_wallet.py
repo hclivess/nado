@@ -306,7 +306,6 @@ class WalletStore:
             "host": DEFAULT_HOST,
             "port": DEFAULT_PORT,
             "keyfile": self.default_keyfile,
-            "use_post": False,
             "auto_refresh": True,
         }
         self._load()
@@ -334,17 +333,16 @@ class WalletStore:
 
 
 # =========================================================================================
-# Node HTTP client (structured so a POST+msgpack submit is a one-flag swap)
+# Node HTTP client
 # =========================================================================================
 class NodeError(Exception):
     pass
 
 
 class NodeClient:
-    def __init__(self, host=DEFAULT_HOST, port=DEFAULT_PORT, use_post=False, timeout=6.0):
+    def __init__(self, host=DEFAULT_HOST, port=DEFAULT_PORT, timeout=6.0):
         self.host = host
         self.port = int(port)
-        self.use_post = use_post
         self.timeout = timeout
         self.session = requests.Session()
 
@@ -403,23 +401,15 @@ class NodeClient:
 
     # ---- write endpoint -----------------------------------------------------------------
     def submit_transaction(self, tx):
-        """Submit a signed transaction. Default path is the GET form the node serves today.
-        Flip `use_post` to send the POST+msgpack variant once the node exposes it — the only
-        thing that changes is this method, nothing in the call sites."""
+        """Submit a signed transaction via POST+msgpack (the only submit path — a PQ tx is far too
+        large for a GET URL)."""
         try:
-            if self.use_post:
-                r = self.session.post(
-                    self.base() + "/submit_transaction",
-                    data=msgpack.packb(tx),
-                    headers={"Content-Type": "application/msgpack"},
-                    timeout=self.timeout,
-                )
-            else:
-                r = self.session.get(
-                    self.base() + "/submit_transaction",
-                    params={"data": json.dumps(tx)},
-                    timeout=self.timeout,
-                )
+            r = self.session.post(
+                self.base() + "/submit_transaction",
+                data=msgpack.packb(tx),
+                headers={"Content-Type": "application/msgpack"},
+                timeout=self.timeout,
+            )
         except requests.RequestException as exc:
             raise NodeError(str(exc))
         try:
@@ -1135,7 +1125,7 @@ class WalletWindow(QMainWindow):
         self.store = store
         self.keys = None
         self.pool = QThreadPool.globalInstance()
-        self.client = NodeClient(host, port, use_post=store.get("use_post", False))
+        self.client = NodeClient(host, port)
         self.connected = False
         self.block_time = 60.0
         self.mining_active = False
@@ -1190,12 +1180,6 @@ class WalletWindow(QMainWindow):
         connect = QPushButton("Connect")
         connect.clicked.connect(self.apply_node_settings)
         tb.addWidget(connect)
-
-        self.post_check = QCheckBox("POST+msgpack")
-        self.post_check.setChecked(self.client.use_post)
-        self.post_check.setToolTip("Use the POST+msgpack submit variant (when the node exposes it).")
-        self.post_check.toggled.connect(self.toggle_post)
-        tb.addWidget(self.post_check)
 
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -1401,10 +1385,6 @@ class WalletWindow(QMainWindow):
         self.store.set("port", port)
         self.flash(f"Connecting to {host}:{port}…")
         self.refresh_all()
-
-    def toggle_post(self, checked):
-        self.client.use_post = checked
-        self.store.set("use_post", checked)
 
     # ---- refresh orchestration ----------------------------------------------------------
     def run_async(self, fn, on_result=None, on_error=None):

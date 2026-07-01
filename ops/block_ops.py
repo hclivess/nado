@@ -27,7 +27,6 @@ import zstandard as zstd
 # this way (genesis.make_genesis calls save_block).
 _ZSTD_C = zstd.ZstdCompressor(level=3)
 _ZSTD_D = zstd.ZstdDecompressor()
-_ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"  # zstd frame magic; lets us read legacy raw-msgpack too
 
 
 def _pack_block(block) -> bytes:
@@ -35,9 +34,7 @@ def _pack_block(block) -> bytes:
 
 
 def _unpack_block(raw: bytes):
-    if raw[:4] == _ZSTD_MAGIC:
-        raw = _ZSTD_D.decompress(raw)
-    return msgpack.unpackb(raw, raw=False)
+    return msgpack.unpackb(_ZSTD_D.decompress(raw), raw=False)
 
 
 def float_to_int(x):
@@ -539,7 +536,6 @@ def construct_block(
         "block_creator": creator,
         "block_timestamp": None,
         "block_transactions": transaction_pool,
-        "block_penalty": None,
         "block_producers_hash": block_producers_hash,
         "child_hash": None,
         "block_reward": block_reward,
@@ -556,11 +552,6 @@ def construct_block(
     block_hash = blake2b_hash_link(link_from=parent_hash, link_to=block_message)
     block_message.update(block_hash=block_hash)
     block_message.update(block_timestamp=block_timestamp)
-
-    # block_penalty is legacy (the burn-to-bribe / produced penalty that drove the old per-IP
-    # selection); selection is now bonded, so it is no longer consensus-relevant. Stamp 0. This
-    # runs AFTER block_hash is computed, so it does not affect the hash.
-    block_message.update(block_penalty=0)
     return block_message
 
 
@@ -612,7 +603,7 @@ def verify_equivocation_proof(proof) -> tuple:
 
 
 def sign_block(block, private_key, public_key):
-    """Attach the detached winner signature. Added AFTER block_hash (like block_penalty), so it does
+    """Attach the detached winner signature. Added AFTER block_hash (outside the preimage), so it does
     NOT change the hash. Caller must only call this when it IS the winner (holds block_creator's key)."""
     block["block_signature"] = {
         "public_key": public_key,

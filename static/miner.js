@@ -318,31 +318,16 @@ async function getMiningStatus(address) {
 }
 
 /* Submit a transaction. A post-quantum (ML-DSA-44) tx is ~7.8 KB — far past a URL's safe length —
- * so we POST the canonical JSON body (BigInt-safe; the node json.loads() it back to the identical
- * dict). We fall back to the legacy GET ?data= path only if the POST endpoint is unavailable. */
+ * so we POST the canonical JSON body (BigInt-safe; the node json.loads() it back to the identical dict). */
 async function submitTransaction(tx) {
   const payload = canonicalize(tx);
-  const base = relayBase();
-
-  // Preferred: POST the canonical JSON body (handles large PQ transactions).
-  try {
-    const res = await fetch(base + "/submit_transaction", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: payload,
-    });
-    if (res.status !== 404 && res.status !== 405) {
-      const text = await res.text();
-      let data;
-      try { data = JSON.parse(text); } catch { data = { result: false, message: text }; }
-      return { ok: res.ok, status: res.status, data };
-    }
-  } catch (e) { /* network/endpoint issue — fall through to the GET path */ }
-
-  // Fallback: legacy urlencoded GET (may exceed URL limits for large PQ txs).
-  const url = base + "/submit_transaction?data=" + encodeURIComponent(payload);
-  const res = await fetch(url, { method: "GET", cache: "no-store" });
+  // POST the canonical JSON body — the only submit path (a PQ tx is far too large for a GET URL).
+  const res = await fetch(relayBase() + "/submit_transaction", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: payload,
+  });
   const text = await res.text();
   let data;
   try { data = JSON.parse(text); } catch { data = { result: false, message: text }; }

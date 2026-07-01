@@ -833,7 +833,7 @@ class CoreClient(threading.Thread):
     def validate_transactions_in_block(self, block, logger, remote_peer, remote):
         transactions = sort_list_dict(block["block_transactions"])
 
-        # target-block matching enforced from block 1 (the >20000 compat gate is gone)
+        # target-block matching enforced from block 1
         if not check_target_match(transactions, block["block_number"], logger=logger):
             self.logger.error("Transactions mismatch target block")
             raise ValueError("Transactions mismatch target block")
@@ -944,10 +944,9 @@ class CoreClient(threading.Thread):
             # and heartbeat/reveal DUPSORT desync forks.
             assert_unique_reserved(block["block_transactions"])
 
-            # AUDIT FIX: ALWAYS validate signatures + spending. The old `quick_sync` flag used to skip
-            # validate_transactions_in_block for old blocks, letting a malicious sync peer feed forged,
-            # unsigned transfers that reflect would still apply. That bypass (and the now-dead flag) were
-            # removed — safety over the sync-speed optimization. Fast bootstrap = snapshot sync instead.
+            # ALWAYS validate signatures + spending (never skipped for synced/old blocks) — else a
+            # malicious sync peer could feed forged, unsigned transfers that reflect would still apply.
+            # Fast bootstrap = snapshot sync instead.
             self.validate_transactions_in_block(block=block,
                                                 logger=self.logger,
                                                 remote_peer=remote_peer,

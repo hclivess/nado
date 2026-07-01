@@ -360,36 +360,9 @@ def _ip_registration_rejection(ip, transaction):
 
 
 class SubmitTransactionHandler(tornado.web.RequestHandler):
-    def submit_transaction(self):
-        try:
-            transaction_raw = SubmitTransactionHandler.get_argument(self, "data")
-            transaction = json.loads(transaction_raw)
-
-            _rej = _ip_registration_rejection(self.request.remote_ip, transaction)
-            if _rej:
-                self.set_status(429); self.write(_rej); return
-
-            output = memserver.merge_transaction(transaction, user_origin=True)
-            self.write(output)
-
-            if not output["result"]:
-                self.set_status(403)
-
-        except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
-
-    async def get(self, parameter):
-        from ops.ratelimit import allow
-        if not allow(self.request.remote_ip, limit=30, window=60):
-            self.set_status(429); self.write({"result": False, "message": "Rate limited — slow down"}); return
-        await asyncio.to_thread(self.submit_transaction)
-
     def submit_transaction_post(self):
-        # POST path (#14): the transaction is the request BODY (msgpack, or JSON fallback), not a
-        # GET query string. A GET URL caps at a few KB and logs the payload — fine for a 0.5 KB
-        # Ed25519 tx, but a post-quantum (ML-DSA) tx is ~7.8 KB and will NOT fit. POST removes that
-        # cliff and is the prerequisite for PQ-sized txs. Backward-compatible: GET still works.
+        # The transaction is the request BODY (msgpack, or JSON). A post-quantum (ML-DSA) tx is
+        # ~7.8 KB, far past what a GET URL can carry, so submission is POST-only.
         import msgpack
         try:
             body = self.request.body

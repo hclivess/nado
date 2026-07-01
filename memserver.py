@@ -103,10 +103,8 @@ class MemServer:
         self.randao_secrets = {}
         self.cascade_limit = self.config.get("cascade_limit") or 1
         self.promiscuous = True if self.config.get("promiscuous") is True else False
-        # NOTE: the old `quick_sync` flag is GONE. It only ever gated the verify_block validation bypass
-        # that the 2026-06-30 audit removed (forged-tx injection, HIGH) — so the flag became a silent
-        # no-op. For a genuine fast bootstrap use the snapshot sync (ops/snapshot_ops.py), which is
-        # quorum/checkpoint-gated rather than validation-skipping. Do NOT re-add a validation bypass.
+        # Fast bootstrap is snapshot sync (ops/snapshot_ops.py) — quorum/checkpoint-gated, never a
+        # validation-skipping bypass. Do NOT add one (it enables forged-tx injection).
         # AUTO-BOND (non-consensus): route this % of newly-mined spendable earnings straight into
         # bonded stake, unattended (core_loop.maybe_auto_bond). Defaults to AUTO_BOND_DEFAULT_PERCENT
         # (80) when unset — a fresh node joins the bonded lane hands-free; 0 = off. Source order:
