@@ -146,6 +146,15 @@ bonded slot is skipped, never the reverse, so the free lane can never absorb bon
    hand them to the relay, which submits them on schedule — so a **locked/asleep phone keeps mining**
    until its lease lapses (a fresh on-device PoSW recert is only needed ~once a day).
 
+> **Why keep heartbeats when PoSW is required and heartbeats are pre-signable?** They price different
+> things. The **PoSW lease** is the *anti-Sybil identity cost* — expensive, ~daily — so each identity costs
+> real sequential time to create and keep. The **heartbeat** is the *fine-grained presence signal* — cheap,
+> per-epoch — so eligibility, fidelity, and the **presence dividend** track who's actually here *this epoch*.
+> Pre-signing just makes presence low-bother; it adds no Sybil cost (that's the lease's job). Dropping
+> heartbeats would coarsen presence to ~1-day lease granularity — a miner who did one PoSW and left would
+> keep **collecting the dividend** for a day, and fidelity would lose its per-epoch input. So both stay:
+> **PoSW prices the identity, the heartbeat marks presence** — complementary, both low-bother.
+
 Open-lane selection weight is **capital-free**: a flat floor (`OPEN_BASE_FLOOR = 1`) every present
 identity always gets, plus a diligence ramp to `OPEN_FID_BONUS = 9` over `FIDELITY_CAP = 1000` epochs
 of continuous presence (overall range 1..10). Fidelity now **decays for absence** (`FIDELITY_DECAY`,
