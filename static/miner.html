@@ -135,19 +135,19 @@
         <div class="label" data-i18n="lbl.fidelity">Fidelity <span class="hint">ⓘ</span></div><div class="value sm" id="walFidelity">—</div></div>
     </div>
 
-    <!-- PRESENCE DIVIDEND (doc/presence-dividend.md): your share of the open lane's redistributed pool, accrued
-         off-L1 while you mine; collect it to your balance on demand. -->
-    <div class="row mt" style="align-items:center;justify-content:space-between" data-i18n-title="tip.dividend"
-         title="PRESENCE DIVIDEND — the open lane redistributes most of its block reward to everyone mining it, weighted by fidelity. Your share accrues off-chain while you're present (stop mining and it stops growing). 'Collect' sweeps it into your spendable balance — it lands automatically a few minutes later, once the execution layer's state is settled on-chain.">
-      <div><span class="label" data-i18n="div.label">Dividend accrued <span class="hint">ⓘ</span></span>
-        <div class="value sm" id="divAccrued">—</div></div>
-      <button class="accent" id="btnCollectDiv" data-i18n="div.collect" disabled>Collect dividend</button>
-    </div>
-
     <!-- a little touch: your pile of coins, scaled to the richest wallet on the network -->
     <div id="coinPileWrap" class="mt hidden" style="text-align:center">
       <svg id="coinPile" viewBox="0 0 240 150" width="100%" style="max-width:280px;height:auto" aria-hidden="true"></svg>
       <div id="coinPileCap" class="small faint" style="margin-top:2px">—</div>
+    </div>
+
+    <!-- PRESENCE DIVIDEND (doc/presence-dividend.md): your share of the open lane's redistributed pool, accrued
+         off-L1 while you mine; collect it to your balance on demand. Hidden until there's something to collect. -->
+    <div id="divWrap" class="mt hidden" style="text-align:center" data-i18n-title="tip.dividend"
+         title="PRESENCE DIVIDEND — the open lane redistributes most of its block reward to everyone mining it, weighted by fidelity. Your share accrues off-chain while you're present (stop mining and it stops growing). 'Collect' sweeps it into your spendable balance — it lands automatically a few minutes later, once the execution layer's state is settled on-chain.">
+      <span class="label" data-i18n="div.label">Dividend accrued <span class="hint">ⓘ</span></span>
+      <span class="value sm" id="divAccrued">—</span>
+      <button class="accent" id="btnCollectDiv" data-i18n="div.collect" style="display:block;margin:6px auto 0" disabled>Collect dividend</button>
     </div>
 
     <details class="mt">
@@ -184,7 +184,6 @@
       <div class="stat"><div class="label" data-i18n="mine.epoch">Current epoch</div><div class="value sm" id="mineEpoch">—</div></div>
       <div class="stat" data-i18n-title="tip.eta" title="EXPECTED TIME TO MINE — a rough average wait until you win a block, based on your share of the open lane vs everyone else mining it. It's a statistical average, not a countdown.">
         <div class="label" data-i18n="mine.eta">Expected time to mine <span class="hint">ⓘ</span></div><div class="value sm" id="mineEta">—</div></div>
-      <div class="stat"><div class="label" data-i18n="mine.nextHb">Next heartbeat</div><div class="value sm" id="mineNextHb">—</div></div>
       <div class="stat" data-i18n-title="tip.locked" title="MINING WHILE LOCKED — your heartbeats are pre-signed and submitted for you, so a locked/asleep phone keeps mining this long. Renewing your post-quantum presence proof (PoSW) needs your phone active, so reopen the app before this runs out — it renews in about a second, automatically. (Sending a transaction always needs your phone unlocked at that moment.)">
         <div class="label" data-i18n="mine.locked">Mining while locked <span class="hint">ⓘ</span></div><div class="value sm" id="mineLocked">—</div></div>
     </div>
@@ -392,7 +391,7 @@
     <p class="small faint mt" data-i18n-html="settings.relayNote">Defaults to this page's origin. A custom relay must be same-origin or
       send CORS headers, or your browser will block reads.</p>
     <div class="row mt">
-      <button id="btnDlKeySettings" class="accent">⤓ Download private key file</button>
+      <button id="btnDlKeySettings" class="accent" data-i18n="btn.dlKey">⤓ Download key file (JSON)</button>
     </div>
     <div class="row mt">
       <button id="btnSelfTest" class="ghost" data-i18n="btn.selftest">Run self-test</button>

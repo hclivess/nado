@@ -298,26 +298,6 @@ async function computeRegisterTx(targetBlock, onProgress) {
   return buildRegisterTx(state.wallet, targetBlock, proof, nowSeconds());
 }
 
-// HEARTBEAT only ever fires AFTER registration is confirmed on-chain (the poll loop gates it on
-// registered===1), so the sender's pubkey is already established — OMIT the 1312-byte public_key.
-// This is the main PUBKEY-ONCE leanness payoff: heartbeats repeat every epoch, so dropping the key
-// saves ~2.6 KB of hex on every single one. The node recovers the pubkey from chain to verify.
-function buildHeartbeatTx(wallet, targetBlock, epoch, timestamp, includePubkey = false) {
-  const draft = {
-    sender: wallet.address,
-    recipient: "heartbeat",
-    amount: 0,
-    timestamp,
-    data: "",
-    nonce: randNonce(),
-    target_block: targetBlock,
-    chain_id: CHAIN_ID,
-    epoch,
-  };
-  // pubkey-once normally omits the key; carry it on a self-heal retry so pubkey recovery can't be at fault
-  if (includePubkey) draft.public_key = wallet.publicKey;
-  return finalizeTransaction(draft, wallet.privateKey, 0);
-}
 
 // TRANSFER / bond / unbond. include public_key ONLY when the sender's pubkey isn't yet established
 // on-chain (i.e. this could be the address's first tx). Callers pass includePubkey=false once
@@ -356,7 +336,6 @@ const state = {
   powJob: null,
   registering: false,  // a PoW+submit is currently in flight (re-entrancy guard)
   regSubmitted: null,  // { targetBlock, txid } of the registration we last broadcast, or null
-  lastHeartbeatEpoch: null,
   heartbeating: false,   // a heartbeat submit is in flight (re-entrancy guard for overlapping polls)
   latest: null,        // latest block number
   blockTime: 60,
@@ -370,7 +349,6 @@ const state = {
   autoBondPct: 80,     // AUTO_BOND_DEFAULT_PCT (const declared below); boot overwrites w/ saved pref
   autoBondBaseline: null,
   autoBondPending: null,   // {target, epoch} while an auto-bond is in flight — prevents stacking bonds
-  presignedThroughEpoch: 0, // last epoch we've handed the relay a pre-signed heartbeat for (locked-phone mining)
   lastAutoBondEpoch: null,
 };
 
@@ -406,6 +384,9 @@ async function refreshDividend() {
   } catch (e) { if ($("divAccrued")) $("divAccrued").textContent = i18("div.unavail", "exec node unreachable"); return; }
   const accrued = BigInt((d && d.accrued) || 0);
   const pending = (d && d.pending) || [];
+  // Only surface the dividend section once there's something to show (accrued or a pending claim) — an
+  // empty "Dividend accrued: —" row is just clutter on a fresh wallet.
+  show("divWrap", accrued > 0n || pending.length > 0);
   if ($("divAccrued")) $("divAccrued").textContent = rawToNado(accrued) + " NADO";
   if ($("btnCollectDiv")) $("btnCollectDiv").disabled = !(accrued > 0n) || state._collecting;
   // AUTO-CLAIM any collected-but-unclaimed dividend whose proof matches the settled root.
@@ -666,32 +647,7 @@ async function maybeRenewLease(acc) {
 // only real "reopen by" bound, not the heartbeat buffer. Signing is chunked (never blocks the UI) and the
 // batch is capped per poll, so it tops up to the full lease over a couple of ticks.
 let _presigning = false;
-async function maybePresign(acc, epochNow) {
-  if (_presigning || !state.mining || !acc || acc.registered !== 1 || epochNow == null) return;
-  const regEpoch = (typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
-  if (regEpoch < 0) return;
-  const want = regEpoch + POSW_LEASE_EPOCHS;                       // cover heartbeats through the lease expiry
-  const have = state.presignedThroughEpoch || 0;
-  if (have >= want) return;                                         // already covered
-  _presigning = true;
-  try {
-    const from = Math.max(epochNow + 1, have + 1);
-    const txs = [];
-    for (let epoch = from; epoch <= want && txs.length < 90; epoch++) {   // cap the batch; top up over polls
-      txs.push(buildHeartbeatTx(state.wallet, epoch * EPOCH_LENGTH + 8, epoch, nowSeconds()));
-      if (txs.length % 8 === 0) await new Promise((r) => setTimeout(r, 0));   // yield: keep UI responsive
-    }
-    if (!txs.length) return;
-    const r = await fetch(relayBase() + "/presign_heartbeats", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ txs }) });
-    const d = await r.json().catch(() => null);
-    if (d && typeof d.accepted === "number") {
-      state.presignedThroughEpoch = from + txs.length - 1;
-      log("ok", i18("log.presigned", "Pre-signed {n} heartbeats (through epoch {e}) — the relay keeps you mining while your phone is locked.", {n: d.accepted, e: state.presignedThroughEpoch}));
-    }
-  } catch (e) { /* best-effort relay service */ }
-  finally { _presigning = false; }
-}
+
 
 async function maybeRegister() {
   if (state.registering) return;                 // a PoW/submit is already in flight
@@ -792,48 +748,6 @@ async function submitRegistration() {
 
 function nowSeconds() { return Math.floor(Date.now() / 1000); }
 
-async function sendHeartbeat() {
-  if (state.heartbeating) return;                 // re-entrancy guard: overlapping poll ticks won't double-send
-  const latest = await getLatestBlock();
-  if (!latest || typeof latest.block_number !== "number") { log("err", i18("log.hbRelayUnavail", "Heartbeat: relay unavailable.")); return; }
-  state.latest = latest.block_number;
-  const targetBlock = latest.block_number + 8;  // headroom so the tx lands before its target block
-  const epoch = Math.floor(targetBlock / EPOCH_LENGTH); // matches the block it lands in (target_block)
-  if (epoch === state.lastHeartbeatEpoch) return; // already beat this epoch (tracked locally)
-
-  state.heartbeating = true;
-  try {
-    let tx = buildHeartbeatTx(state.wallet, targetBlock, epoch, nowSeconds());
-    let res = await submitTransaction(tx);
-    let m = (res.data && (res.data.message || JSON.stringify(res.data))) || "";
-    // SELF-HEAL: a phone throttled while locked can produce a rejected signature. Rebuild + re-sign once
-    // against a fresh tip, carrying the pubkey, before surfacing an error — so mining doesn't stall.
-    if (!(res.data && res.data.result) && /invalid signature|invalid sender/i.test(m)) {
-      const fresh = await getLatestBlock();
-      const tb = (fresh && typeof fresh.block_number === "number") ? fresh.block_number + 8 : targetBlock;
-      const ep = Math.floor(tb / EPOCH_LENGTH);
-      if (ep === epoch) {                            // only retry if still the same epoch
-        tx = buildHeartbeatTx(state.wallet, tb, ep, nowSeconds(), true);
-        res = await submitTransaction(tx);
-        m = (res.data && (res.data.message || JSON.stringify(res.data))) || "";
-      }
-    }
-    if (res.data && res.data.result) {
-      state.lastHeartbeatEpoch = epoch;
-      log("ok", i18("log.hbSent", "Heartbeat sent for epoch {e} (target_block {b}).", {e: epoch, b: targetBlock}));
-    } else if (/already heartbeated|already present/i.test(m)) {
-      // BENIGN — not an error: the node already has our heartbeat for this epoch, so we ARE present.
-      // (Happens after a page reload, or when a prior heartbeat already landed.) Record the epoch so we
-      // stop re-sending it every poll, and surface it calmly instead of as a scary "rejected" line.
-      state.lastHeartbeatEpoch = epoch;
-      log("info", i18("log.hbAlready", "Already present for epoch {e} ✓ (heartbeat not needed again).", {e: epoch}));
-    } else {
-      log("err", i18("log.hbRejected", "Heartbeat epoch {e} rejected: {m}", {e: epoch, m}));
-    }
-  } finally {
-    state.heartbeating = false;
-  }
-}
 
 async function pollOnce() {
   try {
@@ -848,35 +762,28 @@ async function pollOnce() {
   try { await refreshDashboard(); } catch (e) { /* non-fatal */ }
 
   if (state.mining) {
-    // Registration is a prerequisite for heartbeats and is fully AUTOMATIC + self-healing: if we are
-    // not registered on the CURRENT chain (relay/chain changed, or registration not yet incorporated),
-    // (re)register in the background and wait — never spam rejected heartbeats, never re-broadcast a
-    // registration that's still pending. The user only ever clicks "Start mining" once.
+    // Presence IS the PoSW lease — there is no separate heartbeat. Registration/renewal is fully AUTOMATIC
+    // + self-healing: if we're not eligible (no recert, or the lease has lapsed), (re)register in the
+    // background and wait. One ~1 s PoSW = a full lease of eligibility, locked phone or not. One click.
     let acc = null;
     try { acc = await getAccount(state.wallet.address); } catch (e) { /* relay hiccup */ }
     const epochNow = state.latest != null ? Math.floor((state.latest + 8) / EPOCH_LENGTH) : null;
     const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
-    // OPEN-lane eligibility = registered AND a PoSW recert within POSW_LEASE_EPOCHS. (A legacy account
-    // registered under the old hashcash has no recert -> reg_epoch < 0 -> must (re)register with a PoSW.)
+    // OPEN-lane eligibility = a PoSW recert within POSW_LEASE_EPOCHS (the recert is the single presence signal).
     const leaseValid = epochNow != null && regEpoch >= 0 && (epochNow - regEpoch) < POSW_LEASE_EPOCHS;
     if (!acc || acc.registered !== 1 || !leaseValid) {
       await maybeRegister();          // first registration OR re-establish an absent/expired lease
-      return;                         // skip heartbeat until the (re)registration lands
+      return;                         // wait for the recert to land
     }
-    // eligible: quietly renew (fresh sequential proof) once ~80% of the lease is spent, so the identity
-    // never lapses out of the open registry. Runs in the background; heartbeats continue.
+    // eligible: quietly renew the lease (a fresh ~1 s PoSW) once ~80% spent, so the identity never lapses.
     maybeRenewLease(acc).catch(() => {});
-    // and keep a buffer of pre-signed heartbeats with the relay so a locked/asleep phone keeps mining.
-    maybePresign(acc, epochNow).catch(() => {});
-    // registered on chain → clear any pending registration record and heartbeat each epoch
     const wasStarting = state.starting || $("btnMine").disabled; // were we still in the setup phase?
     if (state.regSubmitted) { state.regSubmitted = null; show("powWrap", false); log("ok", i18("log.regConfirmed", "Registration confirmed on chain ✓")); }
     markMiningActive();                       // flip the button to the working Stop/Mining toggle
     if (wasStarting) {
-      setRegBanner(i18("reg.confirmed", "Registered ✓ — mining now. Heartbeating automatically each epoch."), "ok");
+      setRegBanner(i18("reg.confirmed", "Registered ✓ — mining now."), "ok");
       hideRegBannerSoon();
     }
-    try { await sendHeartbeat(); } catch (e) { log("err", i18("log.hbError", "Heartbeat error: {m}", {m: e.message})); }
     // AUTO-BOND: compound a % of new mining rewards into bonded stake (once/epoch). `acc` is fresh here.
     try { await maybeAutoBond(acc, null); } catch (e) { /* best-effort; never break the loop */ }
   }
@@ -932,10 +839,8 @@ async function startMining() {
   state.mining = true;
   try { localStorage.setItem(LS_MINING, "1"); } catch (e) {}   // remember intent so a refresh auto-resumes
   state.starting = true;                          // button stays DISABLED until mining is live or fails
-  state.lastHeartbeatEpoch = null;
   state.autoBondBaseline = null; state.autoBondPending = null;   // only earnings AFTER this start auto-bond
   state.lastAutoBondEpoch = null;
-  state.presignedThroughEpoch = 0;   // re-establish the pre-signed heartbeat buffer on a fresh start
   setStartBtnBusy(i18("mine.starting", "Starting…"));                   // disabled spinner button — can't be re-clicked
   setRegBanner(i18("reg.startup", "Starting up — checking your registration with the relay…") + REASSURE);
   $("mineState").textContent = i18("mine.starting", "Starting…");
@@ -959,7 +864,6 @@ function stopMining() {
   show("regBanner", false);
   setStartBtnIdle();
   $("mineState").textContent = i18("mine.idle", "Idle");
-  $("mineNextHb").textContent = "—";
   log("info", i18("log.miningStopped", "Mining stopped."));
 }
 
@@ -1066,15 +970,13 @@ async function refreshDashboard() {
     $("mineEpoch").textContent = ms.epoch;
     $("mineEta").textContent = humanizeSeconds(ms.expected_seconds_between_wins);
 
-    // How long the phone can stay LOCKED and keep mining: bounded by the pre-signed heartbeat buffer AND
-    // the PoSW presence lease (the recert needs the device active). Reopen before this to auto-renew.
+    // How long a LOCKED phone keeps mining before you must reopen the app: the PoSW lease itself (one
+    // recert = a full lease of eligibility, no relay/heartbeats). Reopen before this and it auto-renews.
     const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
     if (regEpoch >= 0) {
       const epochSecs = EPOCH_LENGTH * (ms.block_time || state.blockTime || 8);
       const leaseEnd = regEpoch + POSW_LEASE_EPOCHS;
-      const bufEnd = state.presignedThroughEpoch || 0;
-      const coverEnd = bufEnd > ms.epoch ? Math.min(bufEnd, leaseEnd) : leaseEnd;   // buffer or lease, whichever is sooner
-      $("mineLocked").textContent = humanizeSeconds(Math.max(0, (coverEnd - ms.epoch) * epochSecs));
+      $("mineLocked").textContent = humanizeSeconds(Math.max(0, (leaseEnd - ms.epoch) * epochSecs));
     } else {
       $("mineLocked").textContent = "—";
     }
@@ -1083,13 +985,6 @@ async function refreshDashboard() {
     // visibility of the lanes card is owned by the tab system (it lives on the Wallet tab)
   } else {
     $("walPresent").textContent = "—";
-  }
-
-  // next heartbeat hint
-  if (state.mining && state.latest != null) {
-    const nextEpochStart = (Math.floor((state.latest + 2) / EPOCH_LENGTH) + 1) * EPOCH_LENGTH;
-    const blocksAway = Math.max(0, nextEpochStart - (state.latest + 2));
-    $("mineNextHb").textContent = state.lastHeartbeatEpoch == null ? "soon" : `~${blocksAway} blk`;
   }
 }
 
@@ -1251,14 +1146,12 @@ function runSelfTest() {
   const roundTrip = (label, tx) =>
     add(label, String(ml_dsa44.verify(hexToBytes(w.publicKey), hexToBytes(tx.txid), hexToBytes(tx.signature))), "true");
   roundTrip("register sign→verify round-trip", buildRegisterTx(w, 12345, 2108331, 1700000000));
-  roundTrip("heartbeat sign→verify round-trip", buildHeartbeatTx(w, 12345, 205, 1700000000));
   roundTrip("transfer sign→verify round-trip", buildTransferTx(w, VEC.transfer_tx.recipient, 123456n, 1000, 12345, "hello world", 1700000000));
 
   // PUBKEY-ONCE leanness: register (first tx) carries public_key; heartbeat omits it; transfer
   // carries it only when the sender's pubkey isn't established yet (includePubkey flag).
   const hasPub = (tx) => "public_key" in tx;
   add("register tx carries public_key (establishes it on-chain)", String(hasPub(buildRegisterTx(w, 12345, 2108331, 1700000000))), "true");
-  add("heartbeat tx OMITS public_key (lean, every epoch)", String(hasPub(buildHeartbeatTx(w, 12345, 205, 1700000000))), "false");
   add("transfer OMITS public_key when sender established", String(hasPub(buildTransferTx(w, VEC.transfer_tx.recipient, 123456n, 1000, 12345, "", 1700000000, false))), "false");
   add("transfer CARRIES public_key when not established", String(hasPub(buildTransferTx(w, VEC.transfer_tx.recipient, 123456n, 1000, 12345, "", 1700000000, true))), "true");
   add("pubkeyEstablished(registered acc)", String(pubkeyEstablished({ registered: 1 })), "true");
