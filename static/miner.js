@@ -1502,7 +1502,8 @@ function exNado(raw) { try { return rawToNado(BigInt(raw)) + " NADO"; } catch { 
 function exTime(ts) { if (ts == null) return "—"; return new Date(ts * 1000).toISOString().replace("T", " ").replace(".000Z", " UTC"); }
 function exEsc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function exShort(h, n = 12) { return h && h.length > n * 2 ? h.slice(0, n) + "…" + h.slice(-6) : (h ?? "—"); }
-function exLink(kind, val, label) { return `<a class="ex-link" onclick="exOpen('${kind}','${exEsc(val)}')">${exEsc(label ?? val)}</a>`; }
+// data attrs + event delegation (miner.js is an ES module, so inline onclick can't see exOpen)
+function exLink(kind, val, label) { return `<a class="ex-link" data-exk="${kind}" data-exv="${exEsc(val)}">${exEsc(label ?? val)}</a>`; }
 function exReservedOrAddr(r) { return EX_RESERVED.has(r) ? `<span class="badge">${exEsc(r)}</span>` : exLink("a", r, exShort(r, 8)); }
 function exKV(pairs) { return `<div class="ex-kv">${pairs.filter(Boolean).map(([k, v]) => `<div class="k">${exEsc(k)}</div><div class="v">${v}</div>`).join("")}</div>`; }
 function exStat(rows) { return rows.map(([k, v]) => `<div class="ex-stat"><span class="k">${k}</span><span class="n">${v}</span></div>`).join(""); }
@@ -1683,6 +1684,10 @@ function wireEvents() {
   if ($("btnAliasXfer")) $("btnAliasXfer").onclick = () => doAliasOp("transfer");
   if ($("exGo")) $("exGo").onclick = () => exSearch();
   if ($("exQ")) $("exQ").addEventListener("keydown", (e) => { if (e.key === "Enter") exSearch(); });
+  document.addEventListener("click", (e) => {           // delegated explorer links (module-safe)
+    const a = e.target.closest && e.target.closest("a.ex-link[data-exk]");
+    if (a) { e.preventDefault(); exOpen(a.dataset.exk, a.dataset.exv); }
+  });
 
   // --- full-wallet wiring ---
   $("btnDlKey").onclick = downloadKeyFile;

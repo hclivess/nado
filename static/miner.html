@@ -54,13 +54,13 @@
 
   <!-- ONBOARDING -->
   <div id="onboard" class="card hidden">
-    <h2>Get started</h2>
+    <h2 data-i18n="onboard.title">Get started</h2>
     <p class="small dim">Generate a brand-new mining identity (an ML-DSA-44 post-quantum keypair) or import an
       existing private key. Everything happens locally in your browser — your private key never
       leaves this device.</p>
     <div class="row mt">
-      <button id="btnGenerate" class="primary">Generate new key</button>
-      <button id="btnShowImport" class="ghost">Import key</button>
+      <button id="btnGenerate" class="primary" data-i18n="btn.genKey">Generate new key</button>
+      <button id="btnShowImport" class="ghost" data-i18n="btn.importKey">Import key</button>
     </div>
     <div id="importBox" class="mt hidden">
       <label>Private key (64-hex ML-DSA-44 seed)</label>
@@ -98,14 +98,14 @@
 
   <!-- TAB BAR (shown once a wallet exists) -->
   <nav id="tabbar" class="tabbar hidden">
-    <button class="tab active" data-tabbtn="wallet">Wallet</button>
-    <button class="tab" data-tabbtn="send">Send</button>
-    <button class="tab" data-tabbtn="receive">Receive</button>
-    <button class="tab" data-tabbtn="aliases">Aliases</button>
-    <button class="tab" data-tabbtn="stake">Stake</button>
-    <button class="tab" data-tabbtn="history">History</button>
-    <button class="tab" data-tabbtn="explore">Explore</button>
-    <button class="tab" data-tabbtn="settings">Settings</button>
+    <button class="tab active" data-tabbtn="wallet" data-i18n="tab.wallet">Wallet</button>
+    <button class="tab" data-tabbtn="send" data-i18n="tab.send">Send</button>
+    <button class="tab" data-tabbtn="receive" data-i18n="tab.receive">Receive</button>
+    <button class="tab" data-tabbtn="aliases" data-i18n="tab.aliases">Aliases</button>
+    <button class="tab" data-tabbtn="stake" data-i18n="tab.stake">Stake</button>
+    <button class="tab" data-tabbtn="history" data-i18n="tab.history">History</button>
+    <button class="tab" data-tabbtn="explore" data-i18n="tab.explore">Explore</button>
+    <button class="tab" data-tabbtn="settings" data-i18n="tab.settings">Settings</button>
   </nav>
 
   <!-- WALLET -->
@@ -141,8 +141,8 @@
 
   <!-- MINING -->
   <div id="mining" class="card hidden" data-tab="wallet">
-    <h2>Mining</h2>
-    <button id="btnMine" class="big primary">Start mining</button>
+    <h2 data-i18n="mining.title">Mining</h2>
+    <button id="btnMine" class="big primary" data-i18n="btn.startMining">Start mining</button>
 
     <!-- Staged setup/registration status. Reuses the .hint-banner ⓘ convention; updated live through
          the one-time auto-registration (solve PoW → submit → wait for confirmation → mining). -->
@@ -168,7 +168,7 @@
 
   <!-- LANE SPLIT -->
   <div id="lanesCard" class="card hidden" data-tab="wallet">
-    <h2>Selection lanes</h2>
+    <h2 data-i18n="lanes.title">Selection lanes</h2>
     <!-- Who's in each lane right now (from /mining_status: open/bonded registry sizes + lane weights) -->
     <div class="stat-grid">
       <div class="stat" title="Registered, present miners competing for the ~20% free lane">
@@ -199,7 +199,7 @@
 
   <!-- SEND -->
   <div id="sendCard" class="card hidden" data-tab="send">
-    <h2>Send</h2>
+    <h2 data-i18n="send.title">Send</h2>
     <div id="payBanner" class="hint-banner hidden">
       <span class="hint">ⓘ</span><span id="payBannerMsg">Payment request loaded — review and confirm.</span>
     </div>
@@ -216,13 +216,13 @@
       <span class="hint" title="A tiny network fee set automatically to the protocol minimum. It is destroyed, not paid to anyone. Shown in NADO.">ⓘ</span>
     </div>
     <div class="small faint">Spendable balance: <span id="sendAvail" class="mono">—</span></div>
-    <button id="btnSend" class="primary mt" style="width:100%">Review &amp; send</button>
+    <button id="btnSend" class="primary mt" style="width:100%" data-i18n="btn.reviewSend">Review &amp; send</button>
     <div id="sendMsg" class="small mt faint"></div>
   </div>
 
   <!-- RECEIVE -->
   <div id="receiveCard" class="card hidden" data-tab="receive">
-    <h2>Receive</h2>
+    <h2 data-i18n="receive.title">Receive</h2>
     <p class="small dim">Share this QR or payment link to request NADO. Scanning it with a phone opens this
       wallet with a Send pre-filled — the sender always reviews and confirms before anything is sent.</p>
     <label>Request amount (NADO) — optional
@@ -252,16 +252,16 @@
       3–32 chars, lowercase letters/digits/<code>_</code>/<code>-</code>, starting with a letter.
       Registering costs a small anti-squat fee; use <b>Transfer</b> to point it at a different address,
       or <b>Unregister</b> to free it.</p>
-    <label>Alias name</label>
+    <label data-i18n="alias.name">Alias name</label>
     <input id="aliasName" placeholder="e.g. alice" autocomplete="off" spellcheck="false" />
     <div class="row mt">
-      <button id="btnAliasReg" class="accent">Register</button>
-      <button id="btnAliasUnreg">Unregister</button>
+      <button id="btnAliasReg" class="accent" data-i18n="btn.register">Register</button>
+      <button id="btnAliasUnreg" data-i18n="btn.unregister">Unregister</button>
     </div>
-    <label class="mt">Transfer ownership to (ndo… address)</label>
+    <label class="mt" data-i18n="alias.transferTo">Transfer ownership to (ndo… address)</label>
     <div class="row">
       <input id="aliasTo" placeholder="ndo…" autocomplete="off" spellcheck="false" style="flex:1" />
-      <button id="btnAliasXfer">Transfer</button>
+      <button id="btnAliasXfer" data-i18n="btn.transfer">Transfer</button>
     </div>
     <div id="aliasMsg" class="small mt"></div>
     <div class="small faint mt">Your aliases: <span id="myAliases" class="mono">—</span></div>
@@ -269,7 +269,7 @@
 
   <!-- BOND / UNBOND -->
   <div id="stakeCard" class="card hidden" data-tab="stake">
-    <h2>Stake — bond / unbond</h2>
+    <h2 data-i18n="stake.title">Stake — bond / unbond</h2>
     <div class="stat-grid">
       <div class="stat"><div class="label">Spendable</div><div class="value sm" id="stkAvail">—</div></div>
       <div class="stat" title="BONDED — coins locked as bonded stake. Bonded stake earns you slots in the BONDED mining lane (~80% of blocks). 100 NADO (B_MIN) per selection share.">
@@ -284,7 +284,7 @@
     <div class="small faint mt">Network fee: <span id="bondFeeInfo" class="mono">—</span>
       <span class="hint" title="A tiny network fee set automatically to the protocol minimum, destroyed (not paid to anyone). Shown in NADO.">ⓘ</span>
     </div>
-    <button id="btnBond" class="accent mt" style="width:100%">Bond stake</button>
+    <button id="btnBond" class="accent mt" style="width:100%" data-i18n="btn.bond">Bond stake</button>
 
     <!-- AUTO-BOND: compound a % of mining rewards straight into bonded stake, hands-free. Mirrors the
          node's unattended auto-bond (core_loop.maybe_auto_bond): once per epoch, dust-floored, stops at
@@ -378,6 +378,7 @@
 
 <div id="toast" class="toast hidden"></div>
 
+<script src="/static/i18n.js"></script>
 <script type="module" src="/static/miner.js"></script>
 </body>
 </html>
