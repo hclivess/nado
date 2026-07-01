@@ -191,15 +191,15 @@ async function resolveAlias(name) {
 async function validateSendTo() {
   const v = ($("sendTo").value || "").trim();
   if (!v) { setMsg("sendToMsg", "", null); return; }
-  if (validateAddress(v)) { setMsg("sendToMsg", "✓ valid address", "ok"); return; }
+  if (validateAddress(v)) { setMsg("sendToMsg", i18("sto.valid", "✓ valid address"), "ok"); return; }
   if (looksLikeAlias(v)) {
-    setMsg("sendToMsg", "resolving alias…", null);
+    setMsg("sendToMsg", i18("sto.resolving", "resolving alias…"), null);
     const owner = await resolveAlias(v);
     if (($("sendTo").value || "").trim() !== v) return;   // input changed while resolving — ignore stale
-    setMsg("sendToMsg", owner ? `✓ alias → ${owner.slice(0, 14)}…` : `✗ alias “${v}” is not registered`, owner ? "ok" : "err");
+    setMsg("sendToMsg", owner ? `${i18("sto.aliasPre","✓ alias →")} ${owner.slice(0, 14)}…` : `${i18("sto.aliasNoPre","✗ alias")} “${v}” ${i18("sto.aliasNoSuf","is not registered")}`, owner ? "ok" : "err");
     return;
   }
-  setMsg("sendToMsg", "✗ invalid — a 49-char ndo… address or a registered alias name", "err");
+  setMsg("sendToMsg", i18("sto.invalid", "✗ invalid — a 49-char ndo… address or a registered alias name"), "err");
 }
 
 // ADDRESS BOOK: every recipient you send to (alias or address) is remembered in localStorage, offered
@@ -539,7 +539,7 @@ function setRegBanner(html, kind) {
 function hideRegBannerSoon(ms = 6000) {
   setTimeout(() => { if (state.mining && !state.starting) show("regBanner", false); }, ms);
 }
-const REASSURE = ' <b>One-time setup — no need to click again.</b>';
+const REASSURE = ' <b>' + i18("reassure", "One-time setup — no need to click again.") + '</b>';
 
 // Mining is confirmed live (registered on chain + heartbeating): flip the button to the Stop toggle.
 function markMiningActive() {
@@ -560,7 +560,7 @@ function failStart(reason) {
   show("powWrap", false);
   setStartBtnIdle("Start mining");
   $("mineState").textContent = i18("mine.idle", "Idle");
-  setRegBanner("Registration didn't confirm — tap Start to retry." +
+  setRegBanner(i18("reg.retry", "Registration didn't confirm — tap Start to retry.") +
     (reason ? ' <span class="faint">(' + escapeHtml(reason) + ')</span>' : ""), "warn");
 }
 
@@ -598,10 +598,10 @@ async function maybeRegister() {
       state.regSubmitted = null;                 // fall through and broadcast a fresh one
     } else {
       const away = state.latest != null ? Math.max(0, state.regSubmitted.targetBlock - state.latest) : null;
-      showRegProgress("Registration in progress — waiting for it to be included in a block…",
+      showRegProgress(i18("reg.pending", "Registration in progress — waiting for it to be included in a block…"),
         away != null ? `~${away} block(s) until target ${state.regSubmitted.targetBlock}`
                      : `target block ${state.regSubmitted.targetBlock}`);
-      setRegBanner("Waiting for on-chain confirmation — this can take a few blocks" +
+      setRegBanner(i18("reg.waiting", "Waiting for on-chain confirmation — this can take a few blocks") +
         (away != null ? " (~" + escapeHtml(String(away)) + " to go, target block " + escapeHtml(String(state.regSubmitted.targetBlock)) + ")" : "") +
         "…" + REASSURE);
       return;                                     // still pending; let the poll loop keep checking
@@ -647,8 +647,8 @@ async function submitRegistration() {
 
   // compute the registration Proof of SEQUENTIAL Work (non-parallelizable ~1 s chain, replaces hashcash)
   setStartBtnBusy("Registering…");
-  setRegBanner("Computing the one-time registration proof (a few seconds)…" + REASSURE);
-  showRegProgress("Registering — computing sequential proof-of-work…", "starting…");
+  setRegBanner(i18("reg.computing", "Computing the one-time registration proof (a few seconds)…") + REASSURE);
+  showRegProgress(i18("reg.computingLabel", "Registering — computing sequential proof-of-work…"), i18("reg.starting", "starting…"));
   let tx;
   const t0 = Date.now();
   try {
@@ -660,7 +660,7 @@ async function submitRegistration() {
     show("powWrap", false);
   }
   log("ok", `Sequential PoW computed in ${((Date.now() - t0) / 1000).toFixed(1)}s (${POSW_T.toLocaleString()} hashes).`);
-  setRegBanner("Submitting registration to the network…" + REASSURE);
+  setRegBanner(i18("reg.submitting", "Submitting registration to the network…") + REASSURE);
   log("info", `Submitting register tx ${tx.txid.slice(0, 16)}… (target_block ${targetBlock}).`);
   const res = await submitTransaction(tx);
   const m = res.data && (res.data.message || JSON.stringify(res.data));
@@ -679,9 +679,9 @@ async function submitRegistration() {
   // the poll loop watches for it and starts heartbeating automatically. No second click needed. Keep
   // the in-progress widget visible (the poll loop refreshes its "blocks remaining" each tick).
   log("info", "Waiting for the registration to be included in a block — mining will start automatically then.");
-  showRegProgress("Registration submitted — waiting for it to be included in a block…",
+  showRegProgress(i18("reg.submitted", "Registration submitted — waiting for it to be included in a block…"),
     `target block ${targetBlock}`);
-  setRegBanner("Waiting for on-chain confirmation — this can take a few blocks (target block " +
+  setRegBanner(i18("reg.waiting", "Waiting for on-chain confirmation — this can take a few blocks") + " (" +
     escapeHtml(String(targetBlock)) + ")…" + REASSURE);
   return true;
 }
@@ -767,7 +767,7 @@ async function pollOnce() {
     if (state.regSubmitted) { state.regSubmitted = null; show("powWrap", false); log("ok", "Registration confirmed on chain ✓"); }
     markMiningActive();                       // flip the button to the working Stop/Mining toggle
     if (wasStarting) {
-      setRegBanner("Registered ✓ — mining now. Heartbeating automatically each epoch.", "ok");
+      setRegBanner(i18("reg.confirmed", "Registered ✓ — mining now. Heartbeating automatically each epoch."), "ok");
       hideRegBannerSoon();
     }
     try { await sendHeartbeat(); } catch (e) { log("err", "Heartbeat error: " + e.message); }
@@ -829,7 +829,7 @@ async function startMining() {
   state.autoBondBaseline = null; state.autoBondPending = null;   // only earnings AFTER this start auto-bond
   state.lastAutoBondEpoch = null;
   setStartBtnBusy("Starting…");                   // disabled spinner button — can't be re-clicked
-  setRegBanner("Starting up — checking your registration with the relay…" + REASSURE);
+  setRegBanner(i18("reg.startup", "Starting up — checking your registration with the relay…") + REASSURE);
   $("mineState").textContent = i18("mine.starting", "Starting…");
   log("ok", "Mining started — registering (if needed) and heartbeating automatically.");
   startPollLoop();
@@ -1249,15 +1249,15 @@ async function doSend() {
       resolvedOwner = await resolveAlias(recipient);
       if (!resolvedOwner) { setMsg("sendMsg", `Alias "${recipient}" is not registered.`, "err"); return; }
     } else {
-      setMsg("sendMsg", "Invalid recipient — a 49-char ndo… address or a registered alias name.", "err"); return;
+      setMsg("sendMsg", i18("msg.badRecipient", "Invalid recipient — a 49-char ndo… address or a registered alias name."), "err"); return;
     }
   }
   let rawAmount;
-  try { rawAmount = nadoToRaw($("sendAmount").value); } catch (e) { setMsg("sendMsg", "Invalid amount.", "err"); return; }
-  if (rawAmount <= 0n) { setMsg("sendMsg", "Amount must be greater than zero.", "err"); return; }
+  try { rawAmount = nadoToRaw($("sendAmount").value); } catch (e) { setMsg("sendMsg", i18("msg.badAmount", "Invalid amount."), "err"); return; }
+  if (rawAmount <= 0n) { setMsg("sendMsg", i18("msg.amountPos", "Amount must be greater than zero."), "err"); return; }
   const fee = await currentFeeRaw();              // automatic network fee (no raw-units input)
 
-  setMsg("sendMsg", "Checking balance…", null);
+  setMsg("sendMsg", i18("msg.checking", "Checking balance…"), null);
   const acc = await getAccount(state.wallet.address);
   const balance = BigInt((acc && acc.balance) || 0);
   if (rawAmount + BigInt(fee) > balance) {
@@ -1267,7 +1267,7 @@ async function doSend() {
   const toLine = resolvedOwner ? `${recipient}  (→ ${resolvedOwner})` : recipient;
   const selfWarn = (recipient === state.wallet.address || resolvedOwner === state.wallet.address) ? "\n\nWARNING: this is your OWN address." : "";
   if (!confirm(`Send ${rawToNado(rawAmount)} NADO\nto ${toLine}\nnetwork fee ${rawToNado(fee)} NADO${selfWarn}\n\nProceed?`)) {
-    setMsg("sendMsg", "Cancelled.", null); return;
+    setMsg("sendMsg", i18("msg.cancelled", "Cancelled."), null); return;
   }
   const btn = $("btnSend"); btn.disabled = true;
   try {
@@ -1275,7 +1275,7 @@ async function doSend() {
     // PUBKEY-ONCE: omit the 1312-byte public_key once the sender's pubkey is established on-chain.
     const tx = buildTransferTx(state.wallet, recipient, rawAmount, fee, targetBlock, "", nowSeconds(), !pubkeyEstablished(acc));
     if (await submitAndReport(tx, "Transfer", "sendMsg")) { addrBookAdd(recipient); $("sendAmount").value = ""; show("payBanner", false); }
-  } catch (e) { setMsg("sendMsg", "Send failed: " + e.message, "err"); }
+  } catch (e) { setMsg("sendMsg", i18("msg.sendFailed", "Send failed:") + " " + e.message, "err"); }
   finally { btn.disabled = false; }
 }
 
@@ -1285,12 +1285,12 @@ async function doSend() {
 async function doAliasOp(op) {
   const name = ($("aliasName").value || "").trim().toLowerCase();
   if (!looksLikeAlias(name)) {
-    setMsg("aliasMsg", "Name must be 3–32 chars, lowercase letters/digits/_/-, starting with a letter.", "err"); return;
+    setMsg("aliasMsg", i18("alias.nameRule", "Name must be 3–32 chars, lowercase letters/digits/_/-, starting with a letter."), "err"); return;
   }
   let to = null;
   if (op === "transfer") {
     to = ($("aliasTo").value || "").trim();
-    if (!validateAddress(to)) { setMsg("aliasMsg", "Transfer target must be a valid ndo… address.", "err"); return; }
+    if (!validateAddress(to)) { setMsg("aliasMsg", i18("alias.xferTarget", "Transfer target must be a valid ndo… address."), "err"); return; }
   }
   const fee = op === "register" ? ALIAS_REGISTRATION_FEE : await currentFeeRaw();
   const acc = await getAccount(state.wallet.address);
@@ -1300,13 +1300,13 @@ async function doAliasOp(op) {
   // register defaults to SELF (the alias resolves to your own address); transfer points it elsewhere.
   const target = op === "transfer" ? "\n→ " + to : (op === "register" ? "\n→ your address (self)" : "");
   if (!confirm(`${op[0].toUpperCase() + op.slice(1)} alias "${name}"${target}\nnetwork fee ${rawToNado(fee)} NADO\n\nProceed?`)) {
-    setMsg("aliasMsg", "Cancelled.", null); return;
+    setMsg("aliasMsg", i18("msg.cancelled", "Cancelled."), null); return;
   }
   try {
     const targetBlock = await nextTargetBlock();
     const tx = buildTransferTx(state.wallet, "alias", 0n, fee, targetBlock, data, nowSeconds(), !pubkeyEstablished(acc));
     if (await submitAndReport(tx, "Alias " + op, "aliasMsg")) { $("aliasName").value = ""; $("aliasTo").value = ""; loadMyAliases(); }
-  } catch (e) { setMsg("aliasMsg", "Alias op failed: " + e.message, "err"); }
+  } catch (e) { setMsg("aliasMsg", i18("msg.aliasFailed", "Alias op failed:") + " " + e.message, "err"); }
 }
 async function loadMyAliases() {
   if (!state.wallet) return;
@@ -1326,8 +1326,8 @@ async function doBond(kind) {
   const amtId = isBond ? "bondAmount" : "unbondAmount";
   const btn = $(isBond ? "btnBond" : "btnUnbond");
   let rawAmount;
-  try { rawAmount = nadoToRaw($(amtId).value); } catch (e) { setMsg("stakeMsg", "Invalid amount.", "err"); return; }
-  if (rawAmount <= 0n) { setMsg("stakeMsg", "Amount must be greater than zero.", "err"); return; }
+  try { rawAmount = nadoToRaw($(amtId).value); } catch (e) { setMsg("stakeMsg", i18("msg.badAmount", "Invalid amount."), "err"); return; }
+  if (rawAmount <= 0n) { setMsg("stakeMsg", i18("msg.amountPos", "Amount must be greater than zero."), "err"); return; }
   // bond pays the automatic network fee; unbond is FEE-EXEMPT on-chain (fee MUST be 0, else the node
   // rejects it) — so never attach a fee to an unbond.
   const fee = isBond ? await currentFeeRaw() : 0;
@@ -1347,7 +1347,7 @@ async function doBond(kind) {
   const feeLine = isBond ? `\nnetwork fee ${rawToNado(fee)} NADO` : "\nno fee (unbonding is free)";
   const tail = isBond ? "" : `\n\nNote: bonded stake stays locked ${BOND_UNLOCK_DELAY} blocks after unbonding.`;
   if (!confirm(`${verb} ${rawToNado(rawAmount)} NADO (${dir})${feeLine}${tail}\n\nProceed?`)) {
-    setMsg("stakeMsg", "Cancelled.", null); return;
+    setMsg("stakeMsg", i18("msg.cancelled", "Cancelled."), null); return;
   }
   btn.disabled = true;
   try {
@@ -1355,7 +1355,7 @@ async function doBond(kind) {
     // PUBKEY-ONCE: omit the 1312-byte public_key once the sender's pubkey is established on-chain.
     const tx = buildTransferTx(state.wallet, kind, rawAmount, fee, targetBlock, "", nowSeconds(), !pubkeyEstablished(acc));
     if (await submitAndReport(tx, verb, "stakeMsg")) $(amtId).value = "";
-  } catch (e) { setMsg("stakeMsg", verb + " failed: " + e.message, "err"); }
+  } catch (e) { setMsg("stakeMsg", verb + " " + i18("msg.failed", "failed:") + " " + e.message, "err"); }
   finally { btn.disabled = false; }
 }
 
@@ -1485,7 +1485,7 @@ async function sharePayLink() {
   }
   const btn = $("btnSharePay");
   const ok = await copyToClipboard(link);
-  if (btn) { btn.textContent = ok ? "Copied ✓" : "select & copy"; setTimeout(() => (btn.textContent = "Share"), ok ? 1200 : 1600); }
+  if (btn) { btn.textContent = ok ? i18("copy.copied", "Copied ✓") : i18("copy.select", "select & copy"); setTimeout(() => (btn.textContent = "Share"), ok ? 1200 : 1600); }
 }
 
 /* Receive: amount-aware QR + shareable payment link (degrades to the link text if QR is unavailable). */
