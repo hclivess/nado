@@ -591,17 +591,16 @@ async function maybeRenewLease(acc) {
 }
 
 // LOCKED-PHONE MINING: hand the relay a batch of future-dated, pre-signed heartbeats so it can post your
-// presence proofs on schedule while your phone is asleep. Keeps ~PRESIGN_AHEAD epochs covered (never past
-// the current lease — a recert needs a fresh on-device PoSW, so a fully-offline phone stays present until
-// the lease lapses, ~1 day). Signing is chunked so it never blocks the UI; best-effort, re-tops each poll.
-const PRESIGN_AHEAD = 120;           // keep ~120 epochs (~16 h) of heartbeats pre-signed with the relay
+// presence proofs on schedule while your phone is asleep. We cover the ENTIRE remaining PoSW lease — past
+// the lease the identity is ineligible anyway (a recert needs a fresh on-device PoSW), so the lease is the
+// only real "reopen by" bound, not the heartbeat buffer. Signing is chunked (never blocks the UI) and the
+// batch is capped per poll, so it tops up to the full lease over a couple of ticks.
 let _presigning = false;
 async function maybePresign(acc, epochNow) {
   if (_presigning || !state.mining || !acc || acc.registered !== 1 || epochNow == null) return;
   const regEpoch = (typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
   if (regEpoch < 0) return;
-  const leaseExpiry = regEpoch + POSW_LEASE_EPOCHS;                 // presence covered only through here
-  const want = Math.min(leaseExpiry, epochNow + PRESIGN_AHEAD);
+  const want = regEpoch + POSW_LEASE_EPOCHS;                       // cover heartbeats through the lease expiry
   const have = state.presignedThroughEpoch || 0;
   if (have >= want) return;                                         // already covered
   _presigning = true;
