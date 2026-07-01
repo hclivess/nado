@@ -285,6 +285,7 @@ const state = {
   latest: null,        // latest block number
   blockTime: 60,
   pollTimer: null,
+  wakeLock: null,      // screen WakeLockSentinel held while mining so the phone won't auto-lock/suspend
   nextHbAt: null,
   activeTab: "wallet",
   recommendedFee: null,
@@ -690,6 +691,39 @@ function startPollLoop() {
 }
 function stopPollLoop() { if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; } }
 
+// --- keep mining alive when the phone screen would otherwise lock ---------------------------------
+// A backgrounded / locked mobile tab has its timers throttled or fully suspended, which silently
+// stalls mining. The Screen Wake Lock keeps the screen ON while mining, so the phone does not
+// auto-dim/auto-lock and the loop keeps running. (Honest limit: a hardware power-button lock still
+// suspends any web page — no web page can mine with the screen fully off; this covers the common
+// case of setting the phone down, and the visibilitychange handler makes mining resume INSTANTLY the
+// moment the tab is foregrounded again, even if it was suspended.)
+async function acquireWakeLock() {
+  try {
+    if (!("wakeLock" in navigator) || !state.mining || state.wakeLock) return;
+    state.wakeLock = await navigator.wakeLock.request("screen");
+    // the browser auto-releases the lock whenever the page is hidden; drop our handle so we re-request
+    state.wakeLock.addEventListener("release", () => { state.wakeLock = null; });
+    log("info", "Screen kept awake so mining continues while the phone is idle.");
+  } catch (e) { /* unsupported / denied — mining still runs while the tab is foregrounded */ }
+}
+async function releaseWakeLock() {
+  const wl = state.wakeLock; state.wakeLock = null;
+  try { if (wl) await wl.release(); } catch { /* already released */ }
+}
+
+// When the tab returns to the foreground (phone unlocked, app switched back), timers may have been
+// throttled/suspended while hidden. Re-acquire the wake lock, restart the (possibly stalled) poll
+// interval, and poll immediately so mining resumes at once instead of waiting out a dead interval.
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !state.mining) return;
+    acquireWakeLock();
+    startPollLoop();
+    pollOnce().catch(() => {});
+  });
+}
+
 // Single click does EVERYTHING: enter the active mining state immediately, then let the background poll
 // loop register (if needed), wait for on-chain confirmation, and heartbeat each epoch — automatically.
 // The user never has to click again after the registration tx lands.
@@ -706,6 +740,7 @@ async function startMining() {
   $("mineState").textContent = "Starting…";
   log("ok", "Mining started — registering (if needed) and heartbeating automatically.");
   startPollLoop();
+  acquireWakeLock();   // keep the screen awake so mining doesn't stall when the phone would auto-lock
   // kick off the first cycle immediately (registration / heartbeat / refresh) without blocking the UI
   pollOnce().catch((e) => log("err", "Mining loop error: " + e.message));
 }
@@ -717,6 +752,7 @@ function stopMining() {
   state.registering = false;
   state.autoBondBaseline = null;                       // re-arm auto-bond baseline for the next start
   stopPollLoop();
+  releaseWakeLock();                                   // let the screen sleep again once mining stops
   show("powWrap", false);
   show("regBanner", false);
   setStartBtnIdle("Start mining");
@@ -985,8 +1021,11 @@ function renderSelfTest(cases) {
 
 /* Download the key as a JSON file via a Blob + a temporary <a download> (explicit user request). */
 function downloadKeyFile() {
-  const w = state.wallet;
-  if (!w) { alert("No wallet loaded."); return; }
+  // Fall back to pendingWallet: on the "⚠ Save your private key" screen the freshly-generated key is
+  // held in pendingWallet and is NOT yet state.wallet (that happens only on "Continue → store"). Without
+  // this, a brand-new user who clicks Download on that very screen got a confusing "No wallet loaded."
+  const w = state.wallet || pendingWallet;
+  if (!w) { alert("Create or import a wallet first — then you can download its key file."); return; }
   const keyfile = {
     private_key: w.privateKey,            // the 32-byte ML-DSA-44 SEED (hex) — this IS the secret
     public_key: w.publicKey,
