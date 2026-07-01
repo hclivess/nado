@@ -521,6 +521,16 @@ async def get_richest(request):
     return _resp(await asyncio.to_thread(_work))
 
 
+async def get_settled(request):
+    # The canonical SETTLED execution-layer checkpoint (Phase 2): the (exec_cursor, state_root) the bonded
+    # quorum has attested. Execution nodes / bridges read this as the L1-enforced exec-layer state.
+    def _work():
+        from ops.settlement_ops import latest_settled
+        cursor, root = latest_settled()
+        return {"exec_cursor": cursor, "state_root": root}
+    return _resp(await asyncio.to_thread(_work))
+
+
 async def resolve_alias(request):
     from ops import alias_ops
     name = _q(request, "name", "")
@@ -591,6 +601,7 @@ async def make_app(port):
             "majority_block_opinion": consensus.majority_block_hash})),
         web.get("/get_recommended_fee", get_recommended_fee),
         web.get("/get_richest", get_richest),
+        web.get("/get_settled", get_settled),
         web.get("/resolve_alias", resolve_alias),
         web.get("/get_aliases_of", aliases_of),
         web.get("/terminate", terminate),

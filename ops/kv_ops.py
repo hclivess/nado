@@ -50,7 +50,7 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
 _PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases")
-_DUP_DBS = ("tx_by_sender", "tx_by_recipient", "heartbeats", "attestations", "reveals")
+_DUP_DBS = ("tx_by_sender", "tx_by_recipient", "heartbeats", "attestations", "reveals", "settlements")
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
 ACCOUNT_FIELDS = ("balance", "produced", "bonded", "registered", "fidelity", "last_hb_epoch")
@@ -442,6 +442,58 @@ def attestations_for_epoch(epoch: int):
                     s = v.decode()
                     validator, target_hash = s.split("|", 1)
                     out.append((validator, target_hash))
+        return out
+    return _read(_do)
+
+
+# --- Execution-layer settlement (Phase 2): tally per (exec_cursor, state_root) + one-per-(validator,cursor) ---
+
+def _settle_unique_key(validator: str, cursor: int) -> str:
+    return f"settle:{validator}:{int(cursor)}"
+
+
+def settlement_exists(cursor: int, validator: str) -> bool:
+    """True if `validator` already attested a settlement for this exec_cursor (one-per-validator guard)."""
+    return meta_get_int(_settle_unique_key(validator, cursor), 0) == 1
+
+
+def settlement_put(cursor: int, validator: str, state_root: str):
+    """Record a bonded validator's settlement attestation of (exec_cursor, state_root)."""
+    def _do(txn):
+        txn.put(be8(cursor), f"{validator}|{state_root}".encode(), db=_dbs()["settlements"], dupdata=True)
+    _write(_do)
+    meta_set_int(_settle_unique_key(validator, cursor), 1)
+
+
+def settlement_del(cursor: int, validator: str, state_root: str):
+    """Revert settlement_put exactly (rollback): delete the DUPSORT row + the uniqueness marker."""
+    def _do(txn):
+        txn.delete(be8(cursor), f"{validator}|{state_root}".encode(), db=_dbs()["settlements"])
+    _write(_do)
+    meta_del(_settle_unique_key(validator, cursor))
+
+
+def settlements_for_cursor(cursor: int):
+    """List (validator, state_root) settlement attestations recorded for `cursor`, DUPSORT order."""
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["settlements"]) as cur:
+            if cur.set_key(be8(cursor)):
+                for v in cur.iternext_dup(keys=False, values=True):
+                    validator, state_root = v.decode().split("|", 1)
+                    out.append((validator, state_root))
+        return out
+    return _read(_do)
+
+
+def settlement_cursors():
+    """All exec_cursors that have at least one settlement attestation, ascending."""
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["settlements"]) as cur:
+            if cur.first():
+                for k in cur.iternext_nodup(keys=True, values=False):
+                    out.append(int.from_bytes(k, "big"))
         return out
     return _read(_do)
 

@@ -125,6 +125,18 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         change_balance(address=sender, amount=-fee, logger=logger, revert=revert)
         return
 
+    # --- EXECUTION-LAYER SETTLEMENT (Phase 2): record/revert a bonded validator's settlement attestation
+    # of (exec_cursor, state_root). Fee-exempt; the SETTLED root is a derived quorum read, so nothing else
+    # to persist here. Revert-symmetric via settlement_del. ---
+    if recipient == "settle":
+        data = transaction.get("data") or {}
+        cursor, root = data["exec_cursor"], data["state_root"]
+        if revert:
+            kv_ops.settlement_del(cursor, sender, root)
+        else:
+            kv_ops.settlement_put(cursor, sender, root)
+        return
+
     # --- ordinary transfer (recipient may be a registered ALIAS -> credit its CURRENT owner) ---
     from ops import alias_ops
     resolved = alias_ops.resolve_alias(recipient) or recipient

@@ -24,7 +24,18 @@ GENESIS_TIMESTAMP = 1669852800
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
 # "bond"/"unbond": bonded-lane stake txs. "register"/"heartbeat": OPEN-lane (no-coin) mining txs
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "heartbeat", "slash", "attest", "commit", "reveal", "alias", "blob"})
+RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "heartbeat", "slash", "attest", "commit", "reveal", "alias", "blob", "settle"})
+
+# --- Execution-layer SETTLEMENT (doc/execution-layer.md, Phase 2) ---
+# "settle": a keyless reserved recipient. A BONDED validator that also runs an execution node attests an
+# execution-layer checkpoint {exec_cursor, state_root} (fee-exempt duty, like `attest`). When the bonded
+# shares attesting the SAME (exec_cursor, state_root) exceed SETTLE_NUM/SETTLE_DEN of total bonded shares,
+# L1 treats that root as the CANONICAL SETTLED execution-layer state (objective, stake-backed) — upgrading
+# the execution layer from sovereign (Phase 1) to SETTLED. This is the pluggable verifier seam: the
+# bonded-quorum check here is Phase-2a; a single succinct VALIDITY PROOF (STARK) can replace the quorum in
+# Phase-2b behind the same interface (settlement_ops.settlement_justified). 2/3 stake quorum, like FFG.
+SETTLE_NUM = 2
+SETTLE_DEN = 3
 
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and

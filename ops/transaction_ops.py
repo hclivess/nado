@@ -183,6 +183,19 @@ def construct_blob_tx(keydict, payload, target_block, fee):
     return tx
 
 
+def construct_settle_tx(keydict, exec_cursor, state_root, target_block):
+    """Build a SIGNED execution-layer settlement attestation: recipient 'settle', data
+    {exec_cursor, state_root}, fee-exempt (fee 0). Posted by a bonded validator running an exec node."""
+    tx = {"sender": keydict["address"], "recipient": "settle", "amount": 0,
+          "timestamp": get_timestamp_seconds(),
+          "data": {"exec_cursor": int(exec_cursor), "state_root": state_root},
+          "nonce": create_nonce(), "public_key": keydict["public_key"],
+          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
 def construct_alias_tx(keydict, op, name, target_block, fee, to=None):
     """Build a SIGNED alias op tx (op in {"register","transfer","unregister"}); recipient is the reserved
     name "alias" and the operation rides in `data`. `to` is the new owner for a transfer. amount is 0."""
@@ -220,6 +233,8 @@ def reserved_uniqueness_key(tx):
             return ("slash", make_address(d["public_key"]), d["block_number"])
         if r == "alias":
             return ("alias", (tx.get("data") or {}).get("name"))     # one op per name per block
+        if r == "settle":
+            return ("settle", tx["sender"], (tx.get("data") or {}).get("exec_cursor"))  # one per (validator, cursor)
     except Exception:
         return ("malformed", tx.get("txid"))   # unique-ish; the tx is rejected by validate_transaction
     return None
@@ -408,6 +423,19 @@ def validate_transaction(transaction, logger, block_height):
         payload = transaction.get("data")
         assert payload not in (None, "", {}, []), "Blob tx must carry a data payload"
         assert blob_payload_size(payload) <= BLOB_MAX_BYTES, f"Blob payload exceeds {BLOB_MAX_BYTES} bytes"
+    elif recipient == "settle":
+        # EXECUTION-LAYER SETTLEMENT (Phase 2): a BONDED validator attests an exec-layer checkpoint
+        # {exec_cursor, state_root}. Fee-exempt validator duty; one attestation per (validator, cursor).
+        assert transaction["amount"] == 0, "Settle tx must have zero amount"
+        assert transaction["fee"] == 0, "Settle tx is fee-exempt (fee must be 0)"
+        data = transaction.get("data") or {}
+        cursor = data.get("exec_cursor")
+        root = data.get("state_root")
+        assert isinstance(cursor, int) and not isinstance(cursor, bool) and cursor >= 0, "Settle exec_cursor must be a non-negative int"
+        assert isinstance(root, str) and len(root) == 64 and all(c in "0123456789abcdef" for c in root), "Settle state_root must be 64-hex"
+        acc = get_account(transaction["sender"], create_on_error=False)
+        assert acc and acc.get("bonded", 0) >= B_MIN, "Settle sender is not a bonded validator"
+        assert not kv_ops.settlement_exists(cursor, transaction["sender"]), "Validator already settled this exec_cursor"
     else:
         # ordinary transfer / bond / send-to-alias: deterministic minimum-fee floor (anti-spam), block 1
         assert transaction["fee"] >= MIN_TX_FEE, f"Transaction fee below minimum {MIN_TX_FEE}"

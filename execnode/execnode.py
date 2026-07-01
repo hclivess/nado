@@ -32,8 +32,37 @@ L1 = os.environ.get("NADO_L1_URL", "http://127.0.0.1:9173").rstrip("/")
 STATE_PATH = os.environ.get("NADO_EXEC_STATE", "exec_state.json")
 PORT = int(os.environ.get("NADO_EXEC_PORT", "9273"))
 POLL = float(os.environ.get("NADO_EXEC_POLL", "5"))
+# Phase 2: if this node is a BONDED validator, post settlement attestations of its computed state root
+# (needs its keys.dat via HOME). NADO_EXEC_SETTLE=1 to enable; settles at most every SETTLE_EVERY blocks.
+SETTLE = os.environ.get("NADO_EXEC_SETTLE", "").strip().lower() in ("1", "true", "yes", "on")
+SETTLE_EVERY = int(os.environ.get("NADO_EXEC_SETTLE_EVERY", "5"))
 
 state = ExecState(STATE_PATH)
+_last_settled_cursor = -1
+
+
+async def maybe_settle(session):
+    """If enabled, post a `settle` attestation of the current (cursor, state_root) to L1 — but only once
+    the cursor has advanced SETTLE_EVERY blocks since the last one. Best-effort; never fatal."""
+    global _last_settled_cursor
+    if _last_settled_cursor >= 0 and state.cursor - _last_settled_cursor < SETTLE_EVERY:
+        return
+    try:
+        from ops.transaction_ops import construct_settle_tx
+        from ops.key_ops import load_keys
+        keys = load_keys()
+        latest = await _get_json(session, "/get_latest_block")
+        tx = construct_settle_tx(keys, state.cursor, state.state_root(), int(latest["block_number"]) + 2)
+        async with session.post(L1 + "/submit_transaction", json=tx,
+                                timeout=aiohttp.ClientTimeout(total=15)) as r:
+            out = await r.json(content_type=None)
+        if isinstance(out, dict) and out.get("result"):
+            _last_settled_cursor = state.cursor
+            print(f"[execnode] SETTLE cursor {state.cursor} root {state.state_root()[:16]}… → L1", flush=True)
+        else:
+            print(f"[execnode] settle not accepted: {out}", flush=True)
+    except Exception as e:
+        print(f"[execnode] settle error: {e}", flush=True)
 
 
 async def _get_json(session, path):
@@ -64,6 +93,8 @@ async def tail_loop():
                     state.save()
                     print(f"[execnode] +{applied} block(s) → cursor {state.cursor} · "
                           f"root {state.state_root()[:16]}… · {len(state.contracts)} contract(s)", flush=True)
+                    if SETTLE:
+                        await maybe_settle(session)
             except Exception as e:
                 print(f"[execnode] tail error: {e}", flush=True)
             await asyncio.sleep(POLL)
