@@ -183,7 +183,7 @@
     <label>Recipient address
       <span class="hint" title="A 49-character NADO address starting with 'ndo'. The final 4 characters are a checksum — a mistyped address fails validation and is never broadcast.">ⓘ</span>
     </label>
-    <input id="sendTo" placeholder="ndo…" autocomplete="off" spellcheck="false" />
+    <input id="sendTo" placeholder="ndo… address or an alias name" autocomplete="off" spellcheck="false" />
     <div id="sendToMsg" class="small mt faint"></div>
     <label class="mt">Amount (NADO)
       <span class="hint" title="Amount in NADO — up to 10 decimal places (the smallest unit is 0.0000000001 NADO).">ⓘ</span>
@@ -219,6 +219,27 @@
     <label class="mt">Your address</label>
     <div class="addr-box"><span class="a mono" id="recvAddr"></span>
       <button class="copy" data-copy="recvAddr">Copy</button></div>
+  </div>
+
+  <!-- ALIASES -->
+  <div id="aliasCard" class="card hidden" data-tab="receive">
+    <h2>Aliases <span class="pill">a name instead of a hash</span></h2>
+    <p class="small dim">Register a short name others can send to instead of your 49-char ndo… address.
+      Names are global and first-come: 3–32 chars, lowercase letters/digits/<code>_</code>/<code>-</code>,
+      starting with a letter. Registering costs a small anti-squat fee; you can transfer or free it later.</p>
+    <label>Alias name</label>
+    <input id="aliasName" placeholder="e.g. alice" autocomplete="off" spellcheck="false" />
+    <div class="row mt">
+      <button id="btnAliasReg" class="accent">Register</button>
+      <button id="btnAliasUnreg">Unregister</button>
+    </div>
+    <label class="mt">Transfer ownership to (ndo… address)</label>
+    <div class="row">
+      <input id="aliasTo" placeholder="ndo…" autocomplete="off" spellcheck="false" style="flex:1" />
+      <button id="btnAliasXfer">Transfer</button>
+    </div>
+    <div id="aliasMsg" class="small mt"></div>
+    <div class="small faint mt">Your aliases: <span id="myAliases" class="mono">—</span></div>
   </div>
 
   <!-- BOND / UNBOND -->

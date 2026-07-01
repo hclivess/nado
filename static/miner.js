@@ -19,6 +19,7 @@ const DENOMINATION = 10_000_000_000n; // 1 NADO in raw units (1e10)
 const MIN_TX_FEE = 1000;
 const BOND_UNLOCK_DELAY = 1440; // protocol.py: blocks a bond stays locked after an unbond request
 const BOND_CAP = 100_000_000_000_000n;  // protocol.py: 10,000 NADO — bonding past this buys no weight
+const ALIAS_REGISTRATION_FEE = 10_000_000; // protocol.py: 0.001 NADO anti-squat fee for `alias` register
 const AUTO_BOND_MIN_RAW = 10_000_000n;  // protocol.py: dust floor for an auto-bond (0.001 NADO)
 
 /* ----------------------------------------------------------------------------------------------
@@ -167,6 +168,17 @@ function validateAddress(addr) {
   addr = (addr || "").trim();
   if (!/^ndo[0-9a-f]{46}$/.test(addr)) return false; // ndo + 46 hex = 49 chars
   return blake2bHash(addr.slice(0, -4), 2) === addr.slice(-4);
+}
+
+// ALIAS: a short human-readable name that resolves to an owner address on-chain. Client mirror of
+// ops/alias_ops.valid_alias_name (3..32 chars, lowercase [a-z0-9_-], starts with a letter, not "ndo…").
+function looksLikeAlias(s) { return /^[a-z][a-z0-9_-]{2,31}$/.test(s || "") && !s.startsWith("ndo"); }
+async function resolveAlias(name) {
+  try {
+    const r = await fetch(relayBase() + "/resolve_alias?name=" + encodeURIComponent(name), { cache: "no-store" });
+    const d = await r.json();
+    return d && d.owner ? d.owner : null;
+  } catch { return null; }
 }
 
 function powTarget() { return 1n << BigInt(256 - REGISTER_POW_BITS); }
@@ -1081,8 +1093,15 @@ async function submitAndReport(tx, label, msgId) {
 
 async function doSend() {
   const recipient = $("sendTo").value.trim();
+  let resolvedOwner = null;
   if (!validateAddress(recipient)) {
-    setMsg("sendMsg", "Invalid recipient — must be a 49-char ndo… address with a valid checksum.", "err"); return;
+    if (looksLikeAlias(recipient)) {
+      setMsg("sendMsg", `Resolving alias "${recipient}"…`, null);
+      resolvedOwner = await resolveAlias(recipient);
+      if (!resolvedOwner) { setMsg("sendMsg", `Alias "${recipient}" is not registered.`, "err"); return; }
+    } else {
+      setMsg("sendMsg", "Invalid recipient — a 49-char ndo… address or a registered alias name.", "err"); return;
+    }
   }
   let rawAmount;
   try { rawAmount = nadoToRaw($("sendAmount").value); } catch (e) { setMsg("sendMsg", "Invalid amount.", "err"); return; }
@@ -1096,8 +1115,9 @@ async function doSend() {
     setMsg("sendMsg", `Insufficient balance: need ${rawToNado(rawAmount + BigInt(fee))} NADO (amount + fee), have ${rawToNado(balance)}.`, "err");
     return;
   }
-  const selfWarn = recipient === state.wallet.address ? "\n\nWARNING: this is your OWN address." : "";
-  if (!confirm(`Send ${rawToNado(rawAmount)} NADO\nto ${recipient}\nnetwork fee ${rawToNado(fee)} NADO${selfWarn}\n\nProceed?`)) {
+  const toLine = resolvedOwner ? `${recipient}  (→ ${resolvedOwner})` : recipient;
+  const selfWarn = (recipient === state.wallet.address || resolvedOwner === state.wallet.address) ? "\n\nWARNING: this is your OWN address." : "";
+  if (!confirm(`Send ${rawToNado(rawAmount)} NADO\nto ${toLine}\nnetwork fee ${rawToNado(fee)} NADO${selfWarn}\n\nProceed?`)) {
     setMsg("sendMsg", "Cancelled.", null); return;
   }
   const btn = $("btnSend"); btn.disabled = true;
@@ -1108,6 +1128,43 @@ async function doSend() {
     if (await submitAndReport(tx, "Transfer", "sendMsg")) { $("sendAmount").value = ""; show("payBanner", false); }
   } catch (e) { setMsg("sendMsg", "Send failed: " + e.message, "err"); }
   finally { btn.disabled = false; }
+}
+
+/* ALIAS management: register / transfer / unregister. An alias op is an ordinary signed tx whose
+ * recipient is the reserved name "alias" and whose `data` carries {op, name, to?} (amount 0). The node
+ * validates ownership + fee and updates the on-chain registry (see ops/alias_ops.py). */
+async function doAliasOp(op) {
+  const name = ($("aliasName").value || "").trim().toLowerCase();
+  if (!looksLikeAlias(name)) {
+    setMsg("aliasMsg", "Name must be 3–32 chars, lowercase letters/digits/_/-, starting with a letter.", "err"); return;
+  }
+  let to = null;
+  if (op === "transfer") {
+    to = ($("aliasTo").value || "").trim();
+    if (!validateAddress(to)) { setMsg("aliasMsg", "Transfer target must be a valid ndo… address.", "err"); return; }
+  }
+  const fee = op === "register" ? ALIAS_REGISTRATION_FEE : await currentFeeRaw();
+  const acc = await getAccount(state.wallet.address);
+  const balance = BigInt((acc && acc.balance) || 0);
+  if (BigInt(fee) > balance) { setMsg("aliasMsg", `Insufficient balance for the ${rawToNado(fee)} NADO fee.`, "err"); return; }
+  const data = op === "transfer" ? { op, name, to } : { op, name };
+  if (!confirm(`${op[0].toUpperCase() + op.slice(1)} alias "${name}"${op === "transfer" ? "\n→ " + to : ""}\nnetwork fee ${rawToNado(fee)} NADO\n\nProceed?`)) {
+    setMsg("aliasMsg", "Cancelled.", null); return;
+  }
+  try {
+    const targetBlock = await nextTargetBlock();
+    const tx = buildTransferTx(state.wallet, "alias", 0n, fee, targetBlock, data, nowSeconds(), !pubkeyEstablished(acc));
+    if (await submitAndReport(tx, "Alias " + op, "aliasMsg")) { $("aliasName").value = ""; $("aliasTo").value = ""; loadMyAliases(); }
+  } catch (e) { setMsg("aliasMsg", "Alias op failed: " + e.message, "err"); }
+}
+async function loadMyAliases() {
+  if (!state.wallet) return;
+  try {
+    const r = await fetch(relayBase() + "/get_aliases_of?address=" + encodeURIComponent(state.wallet.address), { cache: "no-store" });
+    const d = await r.json();
+    const names = (d && d.aliases) || [];
+    $("myAliases").textContent = names.length ? names.join(", ") : "none yet";
+  } catch { $("myAliases").textContent = "—"; }
 }
 
 /* bond/unbond move coins between spendable balance and bonded stake. They are ordinary signed txs
@@ -1418,7 +1475,7 @@ function showTab(name) {
   document.querySelectorAll("#tabbar .tab").forEach((b) => b.classList.toggle("active", b.dataset.tabbtn === name));
   document.querySelectorAll("[data-tab]").forEach((el) => el.classList.toggle("hidden", el.dataset.tab !== name));
   if (name !== "send") show("payBanner", false); // the pay-request banner belongs to the Send tab only
-  if (name === "receive") renderReceiveQR();
+  if (name === "receive") { renderReceiveQR(); loadMyAliases(); }
   else if (name === "history") loadHistory().catch(() => {});
   else if (name === "send") updateFeeInfo().catch(() => {});
   else if (name === "stake") { updateFeeInfo().catch(() => {}); refreshDashboard().catch(() => {}); }
@@ -1461,6 +1518,9 @@ function wireEvents() {
     startMining();
   };
   $("btnCancelPow").onclick = () => { stopMining(); };  // escape hatch while the main button is disabled
+  if ($("btnAliasReg")) $("btnAliasReg").onclick = () => doAliasOp("register");
+  if ($("btnAliasUnreg")) $("btnAliasUnreg").onclick = () => doAliasOp("unregister");
+  if ($("btnAliasXfer")) $("btnAliasXfer").onclick = () => doAliasOp("transfer");
 
   // --- full-wallet wiring ---
   $("btnDlKey").onclick = downloadKeyFile;
