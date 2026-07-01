@@ -6,7 +6,6 @@ import json
 import os
 import os.path
 import statistics
-from tornado.httpclient import AsyncHTTPClient
 
 from compounder import compound_get_list_of, compound_announce_self
 from compounder import compound_get_status_pool

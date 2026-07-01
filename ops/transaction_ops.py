@@ -4,7 +4,6 @@ import os.path
 import time
 
 import msgpack
-from tornado.httpclient import AsyncHTTPClient
 
 from Curve25519 import sign, verify, unhex
 from ops.account_ops import get_account, reflect_transaction

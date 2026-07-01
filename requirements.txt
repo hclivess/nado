@@ -1,8 +1,6 @@
-tornado~=6.1
 # Post-quantum signatures (ML-DSA-44 / FIPS 204). Pure-Python, no native build (lean / portable).
 dilithium-py
 cryptography~=37.0.2   # legacy; no longer used for NADO signing (kept for any transitive deps)
-asyncio~=3.4.3
 requests~=2.28.0
 nuitka
 coloredlogs~=15.0.1

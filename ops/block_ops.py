@@ -5,7 +5,6 @@ import time
 
 import msgpack
 import requests
-from tornado.httpclient import AsyncHTTPClient
 import aiohttp
 from .account_ops import get_account_value, get_bonded_registry, get_open_registry
 from config import get_timestamp_seconds, get_config

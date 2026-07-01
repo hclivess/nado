@@ -1,13 +1,14 @@
 import asyncio
+import functools
 import json
+import mimetypes
 import os
 import signal
 import socket
 import sys
 
 import msgpack
-import tornado.ioloop
-import tornado.web
+from aiohttp import web
 
 import versioner
 from config import get_config
@@ -29,6 +30,9 @@ from ops import snapshot_ops
 from protocol import TREASURY_ADDRESS, TREASURY_GENESIS, GENESIS_TIMESTAMP
 
 import gc  # replaces pympler/muppy — the full-heap walk fatally trips CPython GC under asyncio load
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_STATIC_DIR = os.path.join(_HERE, "static")
 
 
 def is_port_in_use(port: int, host: str = "localhost") -> bool:
@@ -82,268 +86,125 @@ def get_current_snapshot(build=True):
     return manifest, chunks
 
 
-class NoCacheStaticFileHandler(tornado.web.StaticFileHandler):
-    """Serve the browser wallet (static/) with NO-CACHE + permissive CORS, so wallet edits are picked
-    up immediately (no stale cached miner.js — a recurring confusion) and a cross-origin page can load
-    the assets."""
-    def set_extra_headers(self, path):
-        self.set_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
-        self.set_header("Pragma", "no-cache")
-        self.set_header("Access-Control-Allow-Origin", "*")
+# --------------------------------------------------------------------------------------------------
+# aiohttp helpers — the node's HTTP API is served by aiohttp (Tornado retired). The inter-node HTTP
+# CLIENT already used aiohttp (ops/peer_ops, ops/block_ops, ops/snapshot_ops), so this removes the
+# last Tornado dependency. "No intensive operations or locks from the API"; blocking DB/file work is
+# pushed to a worker thread via asyncio.to_thread so the event loop stays responsive.
+# --------------------------------------------------------------------------------------------------
+def _ip(request):
+    """The client's source IP (Tornado's request.remote_ip equivalent)."""
+    return request.remote or "unknown"
 
 
-class HomeHandler(tornado.web.RequestHandler):
-    def get(self):
-        # The node's landing page is the static, client-side explorer (styled like the light miner);
-        # it reads this node's public JSON API in the browser. No server-side templating.
-        self.redirect("/static/explorer.html")
+def _resp(output, status=200, headers=None):
+    """Mirror Tornado's self.write() typing for our outputs: bytes -> msgpack/octet body; dict/list ->
+    JSON; anything else -> text. CORS-open like the old handlers so a cross-origin page can read it."""
+    h = {"Access-Control-Allow-Origin": "*"}
+    if headers:
+        h.update(headers)
+    if isinstance(output, (bytes, bytearray)):
+        return web.Response(body=bytes(output), status=status, content_type="application/msgpack", headers=h)
+    if isinstance(output, (dict, list)):
+        return web.json_response(output, status=status, headers=h)
+    return web.Response(text=str(output), status=status, headers=h)
 
 
-class StatusHandler(tornado.web.RequestHandler):
-    def status(self):
-        compress = StatusHandler.get_argument(self, "compress", default="none")
+def _rate_limited(request, limit, window=60):
+    from ops.ratelimit import allow
+    return not allow(_ip(request), limit, window)
 
+
+_RL = web.json_response({"result": False, "message": "Rate limited — slow down"}, status=429,
+                        headers={"Access-Control-Allow-Origin": "*"})
+
+
+def _q(request, key, default=None):
+    return request.query.get(key, default)
+
+
+# --- pool / field dump handlers (the repetitive read-only ones) ----------------------------------
+def _dump_handler(name, getter):
+    async def _h(request):
+        return _resp(serialize(name=name, output=getter(), compress=_q(request, "compress", "none")))
+    return _h
+
+
+async def home(request):
+    # The node's landing page is the static, client-side explorer (styled like the light miner).
+    raise web.HTTPFound("/static/explorer.html")
+
+
+async def status(request):
+    def _build():
+        status_dict = {
+            "reported_uptime": memserver.reported_uptime,
+            "address": memserver.address,
+            "transaction_pool_hash": memserver.transaction_pool_hash,
+            "block_producers_hash": memserver.block_producers_hash,
+            "latest_block_hash": memserver.latest_block["block_hash"],
+            "latest_block_weight": memserver.latest_block.get("cumulative_weight", 0),
+            "earliest_block_hash": memserver.earliest_block["block_hash"],
+            "finalized_height": memserver.finalized_height,
+            "ffg_finalized": memserver.ffg_finalized,
+            "protocol": memserver.protocol,
+            "version": memserver.version,
+        }
+        snap_manifest, _ = get_current_snapshot(build=False)
+        status_dict["snapshot_height"] = snap_manifest["snapshot_height"] if snap_manifest else None
+        status_dict["snapshot_hash"] = snap_manifest["snapshot_hash"] if snap_manifest else None
+        return serialize(name="status", output=status_dict, compress=_q(request, "compress", "none"))
+    try:
+        return _resp(await asyncio.to_thread(_build))
+    except Exception as e:
+        return _resp(f"Error: {e}", status=403)
+
+
+async def mining_status(request):
+    if _rate_limited(request, 120):  # /mining_status full-scans the account set; throttle it
+        return _RL
+    from ops.block_ops import mining_status as compute_mining_status
+    address = _q(request, "address", memserver.address)
+    compress = _q(request, "compress", "none")
+    try:
+        data = await asyncio.to_thread(compute_mining_status, address,
+                                       memserver.latest_block["block_number"], memserver.block_time)
+        return _resp(serialize(name="mining_status", output=data, compress=compress))
+    except Exception as e:
+        return _resp(f"Error: {e}", status=403)
+
+
+async def get_recommended_fee(request):
+    fee = await asyncio.to_thread(lambda: fee_over_blocks(logger=logger) + 1)
+    return _resp({"fee": fee})
+
+
+async def submit_transaction(request):
+    if _rate_limited(request, 30):
+        return _RL
+
+    def _work(body, ctype, ip):
         try:
-            status_dict = {
-                "reported_uptime": memserver.reported_uptime,
-                "address": memserver.address,
-                "transaction_pool_hash": memserver.transaction_pool_hash,
-                "block_producers_hash": memserver.block_producers_hash,
-                "latest_block_hash": memserver.latest_block["block_hash"],
-                # #16 step 3: advertise the tip's grind-proof cumulative_weight so peers run the
-                # objective heaviest-weight fork-choice (it is only a HINT for which peer to sync from
-                # — the weight is re-derived and enforced by verify_block on the actual blocks).
-                "latest_block_weight": memserver.latest_block.get("cumulative_weight", 0),
-                "earliest_block_hash": memserver.earliest_block["block_hash"],
-                "finalized_height": memserver.finalized_height,  # #17: enforced-finality floor (time-based)
-                "ffg_finalized": memserver.ffg_finalized,        # #6: stake-attested finalized checkpoint
-                "protocol": memserver.protocol,
-                "version": memserver.version,
-            }
-
-            # advertise the snapshot a joining/behind peer could bulk-download from us
-            snap_manifest, _ = get_current_snapshot(build=False)
-            status_dict["snapshot_height"] = snap_manifest["snapshot_height"] if snap_manifest else None
-            status_dict["snapshot_hash"] = snap_manifest["snapshot_hash"] if snap_manifest else None
-
-            self.write(serialize(name="status",
-                                 output=status_dict,
-                                 compress=compress))
-
+            if "msgpack" in ctype:
+                transaction = msgpack.unpackb(body, raw=False)
+            else:
+                transaction = json.loads(body.decode() if isinstance(body, (bytes, bytearray)) else body)
+            rej = _ip_registration_rejection(ip, transaction)
+            if rej:
+                return rej, 429
+            output = memserver.merge_transaction(transaction, user_origin=True)
+            return output, (200 if output.get("result") else 403)
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.status)
-
-
-class MiningStatusHandler(tornado.web.RequestHandler):
-    def mining_status(self):
-        # two-lane mining snapshot for wallets/light-miners: lane split, each lane's total weight,
-        # this address's open/bonded weight, and the derived expected time-to-mine. Read-only.
-        from ops.block_ops import mining_status as compute_mining_status
-        compress = MiningStatusHandler.get_argument(self, "compress", default="none")
-        address = MiningStatusHandler.get_argument(self, "address", default=memserver.address)
-        try:
-            data = compute_mining_status(address=address,
-                                         latest_block_number=memserver.latest_block["block_number"],
-                                         block_time=memserver.block_time)
-            self.write(serialize(name="mining_status", output=data, compress=compress))
-        except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
-
-    async def get(self, parameter):
-        from ops.ratelimit import allow  # AUDIT FIX: /mining_status full-scans the account set; throttle it
-        if not allow(self.request.remote_ip, limit=120, window=60):
-            self.set_status(429); self.write({"result": False, "message": "Rate limited — slow down"}); return
-        await asyncio.to_thread(self.mining_status)
-
-
-class TransactionPoolHandler(tornado.web.RequestHandler):
-    def transaction_pool(self):
-        compress = TransactionPoolHandler.get_argument(self, "compress", default="none")
-        transaction_pool_data = memserver.transaction_pool
-        self.write(serialize(name="transaction_pool",
-                             output=transaction_pool_data,
-                             compress=compress))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.transaction_pool)
-
-
-class TransactionBufferHandler(tornado.web.RequestHandler):
-    def transaction_buffer(self):
-        compress = TransactionBufferHandler.get_argument(self, "compress", default="none")
-        buffer_data = memserver.tx_buffer
-
-        self.write(serialize(name="transaction_buffer",
-                             output=buffer_data,
-                             compress=compress))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.transaction_buffer)
-
-
-class UserTxBufferHandler(tornado.web.RequestHandler):
-    def transaction_buffer(self):
-        compress = UserTxBufferHandler.get_argument(self, "compress", default="none")
-        buffer_data = memserver.user_tx_buffer
-
-        self.write(serialize(name="user_transaction_buffer",
-                             output=buffer_data,
-                             compress=compress))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.transaction_buffer)
-
-
-class TrustPoolHandler(tornado.web.RequestHandler):
-    def trust_pool(self):
-        compress = TrustPoolHandler.get_argument(self, "compress", default="none")
-        trust_pool_data = consensus.trust_pool
-
-        self.write(serialize(name="trust_pool_data",
-                             output=trust_pool_data,
-                             compress=compress,
-                             ))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.trust_pool)
-
-
-class PeerPoolHandler(tornado.web.RequestHandler):
-    def peer_pool(self):
-        compress = PeerPoolHandler.get_argument(self, "compress", default="none")
-        peers_data = list(memserver.peers)
-
-        self.write(serialize(name="peers",
-                             output=peers_data,
-                             compress=compress
-                             ))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.peer_pool)
-
-class PeerBufferHandler(tornado.web.RequestHandler):
-    def peer_buffer(self):
-        compress = PeerBufferHandler.get_argument(self, "compress", default="none")
-        peers_data = list(memserver.peer_buffer)
-
-        self.write(serialize(name="peer_buffer",
-                             output=peers_data,
-                             compress=compress
-                             ))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.peer_buffer)
-
-
-
-class UnreachableHandler(tornado.web.RequestHandler):
-    def unreachable(self):
-        compress = PeerPoolHandler.get_argument(self, "compress", default="none")
-        unreachable_data = memserver.unreachable
-
-        self.write(serialize(name="unreachable",
-                             output=unreachable_data,
-                             compress=compress
-                             ))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.unreachable)
-
-
-class BlockProducerPoolHandler(tornado.web.RequestHandler):
-    def block_producers(self):
-        compress = BlockProducerPoolHandler.get_argument(self, "compress", default="none")
-        producer_data = list(memserver.block_producers)
-
-        self.write(serialize(name="block_producers",
-                             output=producer_data,
-                             compress=compress))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.block_producers)
-
-
-class BlockProducersHashPoolHandler(tornado.web.RequestHandler):
-    def block_producers_hash_pool(self):
-        compress = BlockProducersHashPoolHandler.get_argument(self, "compress", default="none")
-
-        output = {
-            "block_producers_hash_pool": consensus.block_producers_hash_pool,
-            "majority_block_producers_hash_pool": consensus.majority_block_producers_hash,
-        }
-
-        self.write(serialize(name="block_producers_hash_pool",
-                             output=output,
-                             compress=compress))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.block_producers_hash_pool)
-
-
-class TransactionHashPoolHandler(tornado.web.RequestHandler):
-    def transaction_hash_pool(self):
-        compress = TransactionHashPoolHandler.get_argument(self, "compress", default="none")
-
-        output = {
-            "transactions_hash_pool": consensus.transaction_hash_pool,
-            "majority_transactions_hash_pool": consensus.majority_transaction_pool_hash,
-        }
-
-        self.write(serialize(name="transactions_hash_pool",
-                             output=output,
-                             compress=compress))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.transaction_hash_pool)
-
-
-class BlockHashPoolHandler(tornado.web.RequestHandler):
-    def block_hash_pool(self):
-        compress = BlockHashPoolHandler.get_argument(self, "compress", default="none")
-
-        output = {
-            "block_opinions": consensus.block_hash_pool,
-            "majority_block_opinion": consensus.majority_block_hash,
-        }
-
-        self.write(serialize(name="block_hash_pool",
-                             output=output,
-                             compress=compress))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.block_hash_pool)
-
-
-class FeeHandler(tornado.web.RequestHandler):
-    def fee(self):
-        self.write({"fee": fee_over_blocks(logger=logger) + 1})
-
-    async def get(self):
-        await asyncio.to_thread(self.fee)
-
-
-class StatusPoolHandler(tornado.web.RequestHandler):
-    def status_pool(self):
-        compress = StatusPoolHandler.get_argument(self, "compress", default="none")
-        status_pool_data = consensus.status_pool
-
-        self.write(serialize(name="status_pool",
-                             output=status_pool_data,
-                             compress=compress))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.status_pool)
+            return f"Error: {e}", 403
+    body = await request.read()
+    out, code = await asyncio.to_thread(_work, body, request.headers.get("Content-Type", ""), _ip(request))
+    return _resp(out, status=code)
 
 
 def _ip_registration_rejection(ip, transaction):
     """IP-DIVERSITY cap (non-consensus relay admission control): for a `register` tx, enforce the
-    per-source-IP distinct-address limit so one device/IP can't script thousands of mining identities.
-    Returns a rejection dict if over the cap, else None. Never raises into tx submission."""
+    per-source-IP progressive registration budget so one device/range can't script thousands of
+    identities. Returns a rejection dict if over budget, else None. Never raises into tx submission."""
     try:
         if not isinstance(transaction, dict) or transaction.get("recipient") != "register":
             return None
@@ -351,567 +212,366 @@ def _ip_registration_rejection(ip, transaction):
         cap = getattr(memserver, "max_registrations_per_ip", 64)
         if not allow_registration(ip, str(transaction.get("sender", "")), cap):
             return {"result": False,
-                    "message": "Too many registrations from this IP — one device/IP can onboard only a "
+                    "message": "Too many registrations from this IP/range — one device can onboard only a "
                                "limited number of mining addresses (anti-Sybil). Use fewer addresses."}
     except Exception:
         return None
     return None
 
 
-class SubmitTransactionHandler(tornado.web.RequestHandler):
-    def submit_transaction_post(self):
-        # The transaction is the request BODY (msgpack, or JSON). A post-quantum (ML-DSA) tx is
-        # ~7.8 KB, far past what a GET URL can carry, so submission is POST-only.
-        import msgpack
-        try:
-            body = self.request.body
-            ctype = self.request.headers.get("Content-Type", "")
-            if "msgpack" in ctype:
-                transaction = msgpack.unpackb(body, raw=False)
-            else:
-                transaction = json.loads(body.decode() if isinstance(body, (bytes, bytearray)) else body)
-            _rej = _ip_registration_rejection(self.request.remote_ip, transaction)
-            if _rej:
-                self.set_status(429); self.write(_rej); return
-            output = memserver.merge_transaction(transaction, user_origin=True)
-            self.write(output)
-            if not output["result"]:
-                self.set_status(403)
-        except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
-
-    async def post(self, parameter):
-        from ops.ratelimit import allow
-        if not allow(self.request.remote_ip, limit=30, window=60):
-            self.set_status(429); self.write({"result": False, "message": "Rate limited — slow down"}); return
-        await asyncio.to_thread(self.submit_transaction_post)
+async def health(request):
+    server_key = _q(request, "key", "none")
+    if server_key != memserver.server_key and _ip(request) != "127.0.0.1":
+        return _resp("Unauthorized", status=403)
+    compress = _q(request, "compress", "none")
+    data = {"gc_counts": list(gc.get_count()),
+            "gc_objects_tracked": len(gc.get_objects()),
+            "gc_stats": gc.get_stats()}
+    return _resp(msgpack.packb(data) if compress == "msgpack" else serialize(name="health", output=data, compress=compress))
 
 
-class HealthHandler(tornado.web.RequestHandler):
-    def health(self):
-        # gated like the other admin ops. Uses cheap gc stats instead of the old
-        # muppy.get_objects() full-heap walk, which both starved this server and fatally
-        # tripped CPython's GC ("PyObject_GC_Track ... _asyncio.FutureIter") under load.
-        server_key = HealthHandler.get_argument(self, "key", default="none")
-        if server_key != memserver.server_key and self.request.remote_ip != "127.0.0.1":
-            self.set_status(403)
-            self.write("Unauthorized")
-            return
-        compress = HealthHandler.get_argument(self, "compress", default="none")
-        health = {"gc_counts": list(gc.get_count()),
-                  "gc_objects_tracked": len(gc.get_objects()),
-                  "gc_stats": gc.get_stats()}
+async def log(request):
+    server_key = _q(request, "key", "none")
+    if server_key != memserver.server_key and _ip(request) != "127.0.0.1":
+        return _resp("Unauthorized", status=403)
 
-        if compress == "msgpack":
-            output = msgpack.packb(health)
-        else:
-            output = serialize(name="health",
-                                 output=health,
-                                 compress=compress)
-        self.write(output)
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.health)
-
-class LogHandler(tornado.web.RequestHandler):
-    def log(self):
-        # the log exposes peer topology, the node address, key-file paths and
-        # tracebacks -- require the admin key and bound how much is returned.
-        server_key = LogHandler.get_argument(self, "key", default="none")
-        if server_key != memserver.server_key and self.request.remote_ip != "127.0.0.1":
-            self.set_status(403)
-            self.write("Unauthorized")
-            return
-        compress = LogHandler.get_argument(self, "compress", default="none")
-
+    def _read():
         with open(f"{get_home()}/logs/log.log") as logfile:
-            lines = logfile.readlines()[-500:]
-            for line in lines:
-                if compress == "msgpack":
-                    output = msgpack.packb(line)
-                else:
-                    output = line
-                self.write(output)
-                self.write("<br>")
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.log)
+            return "<br>".join(line for line in logfile.readlines()[-500:]) + "<br>"
+    return web.Response(text=await asyncio.to_thread(_read), content_type="text/html",
+                        headers={"Access-Control-Allow-Origin": "*"})
 
 
-class ForceSyncHandler(tornado.web.RequestHandler):
-    def force_sync(self):
+async def force_sync(request):
+    def _work():
         try:
-            forced_ip = ForceSyncHandler.get_argument(self, "ip")
-            server_key = ForceSyncHandler.get_argument(self, "key", default="none")
-
-            client_ip = self.request.remote_ip
+            forced_ip = _q(request, "ip")
+            server_key = _q(request, "key", "none")
+            client_ip = _ip(request)
             if server_key == memserver.server_key or client_ip == "127.0.0.1":
                 if client_ip == "127.0.0.1" or check_ip(client_ip):
                     memserver.force_sync_ip = forced_ip
                     memserver.peers = [forced_ip]
-                    self.write(f"Synchronization is now forced only from {forced_ip} until majority consensus is reached")
-                else:
-                    self.write(f"Failed to force to sync from {forced_ip}")
-            else:
-                self.write(f"Wrong server key {server_key}")
-
+                    return f"Synchronization is now forced only from {forced_ip} until majority consensus is reached", 200
+                return f"Failed to force to sync from {forced_ip}", 200
+            return f"Wrong server key {server_key}", 200
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.force_sync)
+            return f"Error: {e}", 403
+    out, code = await asyncio.to_thread(_work)
+    return _resp(out, status=code)
 
 
-class IpHandler(tornado.web.RequestHandler):
-    def log(self):
-        compress = IpHandler.get_argument(self, "compress", default="none")
-        client_ip = self.request.remote_ip
-
-        if compress == "msgpack":
-            output = msgpack.packb(client_ip)
-        else:
-            output = client_ip
-        self.write(output)
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.log)
+async def whats_my_ip(request):
+    client_ip = _ip(request)
+    return _resp(msgpack.packb(client_ip) if _q(request, "compress", "none") == "msgpack" else client_ip)
 
 
-class TerminateHandler(tornado.web.RequestHandler):
-    def terminate(self):
+async def terminate(request):
+    server_key = _q(request, "key", "none")
+    client_ip = _ip(request)
+    if client_ip == "127.0.0.1" or server_key == memserver.server_key:
+        memserver.terminate = True
+        asyncio.get_event_loop().call_later(0.2, functools.partial(os._exit, 0))
+        return _resp("Termination signal sent, node is shutting down...")
+    return _resp("Wrong or missing key for a remote node")
+
+
+async def transaction(request):
+    def _work():
         try:
-            server_key = TerminateHandler.get_argument(self, "key", default="none")
-
-            client_ip = self.request.remote_ip
-            if client_ip == "127.0.0.1" or server_key == memserver.server_key:
-                self.write("Termination signal sent, node is shutting down...")
-                memserver.terminate = True
-                sys.exit(0)
-            elif server_key != memserver.server_key:
-                self.write("Wrong or missing key for a remote node")
+            txid = _q(request, "txid")
+            data = get_transaction(txid, logger=logger)
+            code = 200
+            if not data:
+                data, code = "Not found", 403
+            return serialize(name="txid", output=data, compress=_q(request, "compress", "none")), code
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.terminate)
+            return f"Error: {e}", 403
+    out, code = await asyncio.to_thread(_work)
+    return _resp(out, status=code)
 
 
-class TransactionHandler(tornado.web.RequestHandler):
-    def transaction(self):
+async def account_transactions(request):
+    if _rate_limited(request, 60):  # DUPSORT scan + up to ~1000 block reads; throttle
+        return _RL
+
+    def _work():
         try:
-            transaction = TransactionHandler.get_argument(self, "txid")
-            transaction_data = get_transaction(transaction, logger=logger)
-            compress = TransactionHandler.get_argument(self, "compress", default="none")
-
-            if not transaction_data:
-                transaction_data = "Not found"
-                self.set_status(403)
-
-            self.write(serialize(name="txid",
-                                 output=transaction_data,
-                                 compress=compress))
-
+            address = _q(request, "address", memserver.address)
+            min_block = int(_q(request, "min_block", "0"))
+            data = get_transactions_of_account(account=address, min_block=min_block, logger=logger)
+            code = 200
+            if not data:
+                data, code = "Not found", 403
+            return serialize(name="account_transactions", output=data, compress=_q(request, "compress", "none")), code
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.transaction)
+            return f"Error: {e}", 403
+    out, code = await asyncio.to_thread(_work)
+    return _resp(out, status=code)
 
 
-class AccountTransactionsHandler(tornado.web.RequestHandler):
-    """get transactions from a transaction index batch"""
-
-    def account_transactions(self):
+async def block_by_hash(request):
+    def _work():
         try:
-            address = AccountTransactionsHandler.get_argument(self, "address", default=memserver.address)
-            min_block = AccountTransactionsHandler.get_argument(self, "min_block", default="0")
-            compress = AccountTransactionsHandler.get_argument(self, "compress", default="none")
-
-            transaction_data = get_transactions_of_account(account=address,
-                                                           min_block=int(min_block),
-                                                           logger=logger)
-
-            if not transaction_data:
-                transaction_data = "Not found"
-                self.set_status(403)
-
-            self.write(serialize(name="account_transactions",
-                                 output=transaction_data,
-                                 compress=compress))
+            data = get_block(_q(request, "hash"))
+            code = 200
+            if not data:
+                data, code = "Not found", 404
+            return serialize(name="block_hash", output=data, compress=_q(request, "compress", "none")), code
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
-
-    async def get(self, parameter):
-        from ops.ratelimit import allow  # AUDIT FIX: DUPSORT scan + up to ~1000 block reads; throttle
-        if not allow(self.request.remote_ip, limit=60, window=60):
-            self.set_status(429); self.write({"result": False, "message": "Rate limited — slow down"}); return
-        await asyncio.to_thread(self.account_transactions)
+            return f"Error: {e}", 403
+    out, code = await asyncio.to_thread(_work)
+    return _resp(out, status=code)
 
 
-class GetBlockHandler(tornado.web.RequestHandler):
-    def block(self):
-        output = ""
-
+async def block_by_number(request):
+    def _work():
         try:
-            block = GetBlockHandler.get_argument(self, "hash")
-            compress = GetBlockHandler.get_argument(self, "compress", default="none")
-            block_data = get_block(block)
-
-            if not block_data:
-                self.set_status(404)
-                block_data = "Not found"
-
-            output = serialize(name="block_hash",
-                               output=block_data,
-                               compress=compress)
-
+            data = get_block_number(_q(request, "number"))
+            code = 200
+            if not data:
+                data, code = "Not found", 403
+            return serialize(name="block_number", output=data, compress=_q(request, "compress", "none")), code
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
-
-        finally:
-            self.write(output)
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.block)
+            return f"Error: {e}", 403
+    out, code = await asyncio.to_thread(_work)
+    return _resp(out, status=code)
 
 
-class GetBlockNumberHandler(tornado.web.RequestHandler):
-    def block(self):
-        output = ""
+async def blocks_before(request):
+    if _rate_limited(request, 60):  # up to 100 block-file reads per call; throttle
+        return _RL
 
-        try:
-            number = GetBlockHandler.get_argument(self, "number")
-            compress = GetBlockHandler.get_argument(self, "compress", default="none")
-            block_data = get_block_number(number)
-
-            if not block_data:
-                self.set_status(403)
-                block_data = "Not found"
-
-            output = serialize(name="block_number",
-                               output=block_data,
-                               compress=compress)
-
-        except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
-
-        finally:
-            self.write(output)
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.block)
-
-
-class GetBlocksBeforeHandler(tornado.web.RequestHandler):
-
-    def blocks_before(self):
-        block_hash = GetBlocksBeforeHandler.get_argument(self, "hash")
-        count = int(GetBlocksBeforeHandler.get_argument(self, "count", default="1"))
-        compress = GetBlocksBeforeHandler.get_argument(self, "compress", default="none")
-        collected_blocks = []
-
-        if count > 100:
-            count = 100
-
+    def _work():
+        block_hash = _q(request, "hash")
+        count = min(int(_q(request, "count", "1")), 100)
+        collected, code = [], 200
         try:
             parent = get_block(block_hash)
             if parent:
-                parent_hash = parent["parent_hash"]  # AUDIT FIX: was the literal ["parent_hash"] -> dead path
-
-                for blocks in range(0, count):
+                parent_hash = parent["parent_hash"]
+                for _ in range(count):
                     block = get_block(parent_hash)
                     if not block:
                         break
-
-                    elif block:
-                        collected_blocks.append(block)
-                        parent_hash = block["parent_hash"]
-
-                collected_blocks.reverse()
+                    collected.append(block)
+                    parent_hash = block["parent_hash"]
+                collected.reverse()
             else:
-                logger.debug(f"Parent hash of {block_hash} not found")
-                self.set_status(404)
-
+                code = 404
         except Exception as e:
-            self.set_status(403)
             logger.debug(f"Block collection hit a roadblock: {e}")
-
-            if not collected_blocks:
-                self.set_status(403)
-
-        finally:
-            self.write(serialize(name="blocks_before",
-                                 output=collected_blocks,
-                                 compress=compress
-                                 ))
-
-    async def get(self, parameter):
-        from ops.ratelimit import allow  # AUDIT FIX: throttle this heavy (up to 100 block-file reads) endpoint
-        if not allow(self.request.remote_ip, limit=60, window=60):
-            self.set_status(429); self.write({"result": False, "message": "Rate limited — slow down"}); return
-        await asyncio.to_thread(self.blocks_before)
+            if not collected:
+                code = 403
+        return serialize(name="blocks_before", output=collected, compress=_q(request, "compress", "none")), code
+    out, code = await asyncio.to_thread(_work)
+    return _resp(out, status=code)
 
 
-class GetBlocksAfterHandler(tornado.web.RequestHandler):
-    def blocks_after(self):
+async def blocks_after(request):
+    if _rate_limited(request, 60):  # up to 100 block-file reads per call; throttle
+        return _RL
 
-        block_hash = GetBlocksAfterHandler.get_argument(self, "hash")
-        count = int(GetBlocksAfterHandler.get_argument(self, "count", default="1"))
-        compress = GetBlocksAfterHandler.get_argument(self, "compress", default="none")
-        collected_blocks = []
-
-        if count > 100:
-            count = 100
-
+    def _work():
+        block_hash = _q(request, "hash")
+        count = min(int(_q(request, "count", "1")), 100)
+        collected, code = [], 200
         try:
             child = get_block(block_hash)
             if child:
                 child_hash = child["child_hash"]
-
-                for blocks in range(0, count):
+                for _ in range(count):
                     block = get_block(child_hash)
                     if not block:
                         break
-
-                    elif block:
-                        collected_blocks.append(block)
-                        child_hash = block["child_hash"]
+                    collected.append(block)
+                    child_hash = block["child_hash"]
             else:
-                logger.debug(f"Child hash of {block_hash} not found")
-                self.set_status(404)
-
+                code = 404
         except Exception as e:
             logger.debug(f"Block collection hit a roadblock: {e}")
+            if not collected:
+                code = 403
+        return serialize(name="blocks_after", output=collected, compress=_q(request, "compress", "none")), code
+    out, code = await asyncio.to_thread(_work)
+    return _resp(out, status=code)
 
-            if not collected_blocks:
-                self.set_status(403)
 
-        finally:
-            self.write(serialize(name="blocks_after",
-                                 output=collected_blocks,
-                                 compress=compress,
-                                 ))
-
-    async def get(self, parameter):
-        from ops.ratelimit import allow  # AUDIT FIX: up to 100 block-file reads per call; throttle
-        if not allow(self.request.remote_ip, limit=60, window=60):
-            self.set_status(429); self.write({"result": False, "message": "Rate limited — slow down"}); return
-        await asyncio.to_thread(self.blocks_after)
-
-class GetSupplyHandler(tornado.web.RequestHandler):
-    def get_supply(self):
-        readable = GetSupplyHandler.get_argument(self, "readable", default="none")
-        data = fetch_totals()  # produced (block rewards minted), fees (destroyed)
+async def get_supply(request):
+    def _work():
+        readable = _q(request, "readable", "none")
+        data = fetch_totals()
         treasury_acc = get_account(address=TREASURY_ADDRESS)
         data.update({"block_number": memserver.latest_block["block_number"]})
-        # No premine: the only genesis mint is the treasury seed (TREASURY_GENESIS).
-        # total = genesis seed + all block rewards minted - fees destroyed. (Burn removed.)
         data.update({"treasury": treasury_acc["balance"]})
         data.update({"total_supply": TREASURY_GENESIS + data["produced"] - data["fees"]})
-        # treasury holdings are the genesis-address treasury, counted as non-circulating
         data.update({"circulating": data["total_supply"] - data["treasury"]})
-
         if readable == "true":
             for key in ("produced", "fees", "treasury", "circulating", "total_supply"):
                 data[key] = to_readable_amount(data[key])
-
-        self.write(data)
-    async def get(self, parameter):
-        await asyncio.to_thread(self.get_supply)
+        return data
+    return _resp(await asyncio.to_thread(_work))
 
 
-class GetLatestBlockHandler(tornado.web.RequestHandler):
-    def latest_block(self):
-        latest_block_data = memserver.latest_block
-        compress = GetLatestBlockHandler.get_argument(self, "compress", default="none")
-
-        self.write(serialize(name="latest_block",
-                             output=latest_block_data,
-                             compress=compress))
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.latest_block)
+async def latest_block(request):
+    return _resp(serialize(name="latest_block", output=memserver.latest_block, compress=_q(request, "compress", "none")))
 
 
-class AccountHandler(tornado.web.RequestHandler):
-    def account(self):
+async def account(request):
+    def _work():
         try:
-            account = AccountHandler.get_argument(self, "address", default=memserver.address)
-            compress = AccountHandler.get_argument(self, "compress", default="none")
-            readable = AccountHandler.get_argument(self, "readable", default="none")
-            account_data = get_account(account, create_on_error=False)
-
-            if account_data:
+            addr = _q(request, "address", memserver.address)
+            readable = _q(request, "readable", "none")
+            data = get_account(addr, create_on_error=False)
+            code = 200
+            if data:
                 if readable == "true":
-                    account_data.update({"balance": to_readable_amount(account_data["balance"])})
-                    account_data.update({"produced": to_readable_amount(account_data["produced"])})
-                    account_data.update({"bonded": to_readable_amount(account_data["bonded"])})
-
+                    data.update({"balance": to_readable_amount(data["balance"])})
+                    data.update({"produced": to_readable_amount(data["produced"])})
+                    data.update({"bonded": to_readable_amount(data["bonded"])})
             else:
-                account_data = "Not found"
-                self.set_status(403)
-
-            self.write(serialize(name="address",
-                                 output=account_data,
-                                 compress=compress))
-
+                data, code = "Not found", 403
+            return serialize(name="address", output=data, compress=_q(request, "compress", "none")), code
         except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.account)
+            return f"Error: {e}", 403
+    out, code = await asyncio.to_thread(_work)
+    return _resp(out, status=code)
 
 
-class AnnouncePeerHandler(tornado.web.RequestHandler):
-    def announce(self):
-        try:
-            peer_ip = AnnouncePeerHandler.get_argument(self, "ip")
-            if not check_ip(peer_ip):
-                self.write("Invalid IP address")
-
+async def announce_peer(request):
+    # ECLIPSE HARDENING: rate-limit peer announcements per source IP (eclipse-groundwork throttle).
+    if _rate_limited(request, 10):
+        return _resp("Rate limited — slow down", status=429)
+    try:
+        peer_ip = _q(request, "ip")
+        if not check_ip(peer_ip):
+            return _resp("Invalid IP address")
+        if peer_ip not in memserver.peers and peer_ip not in memserver.unreachable.keys():
+            status_data = await get_remote_status(peer_ip, logger=logger)
+            assert status_data, f"{peer_ip} unreachable"
+            address = status_data["address"]
+            protocol = status_data["protocol"]
+            assert address, "No address detected"
+            assert protocol >= get_config()["protocol"], f"Protocol of {peer_ip} is too low"
+            await asyncio.to_thread(functools.partial(
+                save_peer, ip=peer_ip, address=address, port=get_config()["port"], overwrite=True))
+            if peer_ip not in memserver.peer_buffer:
+                memserver.peer_buffer.append(peer_ip)
+                message = f"Peer {peer_ip} added to peer buffer"
             else:
-                if peer_ip not in memserver.peers and peer_ip not in memserver.unreachable.keys():
-                    status = asyncio.run(get_remote_status(peer_ip, logger=logger))
-
-                    assert status, f"{peer_ip} unreachable"
-
-                    address = status["address"]
-                    protocol = status["protocol"]
-
-                    assert address, "No address detected"
-                    assert protocol >= get_config()["protocol"], f"Protocol of {peer_ip} is too low"
-
-                    save_peer(ip=peer_ip,
-                              address=address,
-                              port=get_config()["port"],
-                              overwrite=True
-                              )
-
-                    if peer_ip not in memserver.peer_buffer:
-                        memserver.peer_buffer.append(peer_ip)
-                        message = f"Peer {peer_ip} added to peer buffer"
-                    else:
-                        message = f"{peer_ip} already waiting in peer buffer"
-
-                else:
-                    message = f"Peer {peer_ip} is known or invalid"
-                self.write(message)
-
-        except Exception as e:
-            self.set_status(403)
-            self.write(f"Error: {e}")
-
-    async def get(self, parameter):
-        # ECLIPSE HARDENING (#18 step 8): rate-limit peer announcements per source IP. A single origin
-        # flooding /announce_peer to stuff a victim's peer view (eclipse groundwork) is throttled here,
-        # complementing the per-IP submit_transaction limiter. The fork-choice already ignores peer
-        # IPs for weight, but bounding announce volume protects the peer-discovery surface.
-        from ops.ratelimit import allow
-        if not allow(self.request.remote_ip, limit=10, window=60):
-            self.set_status(429)
-            self.write("Rate limited — slow down")
-            return
-        await asyncio.to_thread(self.announce)
+                message = f"{peer_ip} already waiting in peer buffer"
+        else:
+            message = f"Peer {peer_ip} is known or invalid"
+        return _resp(message)
+    except Exception as e:
+        return _resp(f"Error: {e}", status=403)
 
 
-class SnapshotManifestHandler(tornado.web.RequestHandler):
-    """serve the manifest (state_root, totals, chunk list) for our current checkpoint"""
-    def manifest(self):
-        compress = SnapshotManifestHandler.get_argument(self, "compress", default="msgpack")
+async def snapshot_manifest(request):
+    def _work():
+        compress = _q(request, "compress", "msgpack")
         snap_manifest, _ = get_current_snapshot(build=True)
         if not snap_manifest:
-            self.set_status(404)
-            self.write("No snapshot available (chain too short)")
-            return
-        if compress == "msgpack":
-            self.set_header("Content-Type", "application/msgpack")
-            self.write(msgpack.packb(snap_manifest))
-        else:
-            self.write(snap_manifest)
-
-    async def get(self, parameter):
-        await asyncio.to_thread(self.manifest)
+            return None, 404
+        return (msgpack.packb(snap_manifest) if compress == "msgpack" else snap_manifest), 200
+    out, code = await asyncio.to_thread(_work)
+    if out is None:
+        return _resp("No snapshot available (chain too short)", status=404)
+    return _resp(out, status=code)
 
 
-class SnapshotChunkHandler(tornado.web.RequestHandler):
-    """serve one deterministic account-state chunk by id; chunks are parallel-fetchable"""
-    def chunk(self):
+async def snapshot_chunk(request):
+    def _work():
         try:
-            cid = int(SnapshotChunkHandler.get_argument(self, "id"))
+            cid = int(_q(request, "id"))
         except Exception:
-            self.set_status(400)
-            self.write("Invalid chunk id")
-            return
+            return None, 400
         _, chunks = get_current_snapshot(build=True)
         if not chunks or cid < 0 or cid >= len(chunks):
-            self.set_status(404)
-            self.write("No such snapshot chunk")
-            return
-        self.set_header("Content-Type", "application/msgpack")
-        self.write(chunks[cid])
+            return None, 404
+        return chunks[cid], 200
+    out, code = await asyncio.to_thread(_work)
+    if out is None:
+        return _resp("No such snapshot chunk", status=code)
+    return web.Response(body=out, content_type="application/msgpack",
+                        headers={"Access-Control-Allow-Origin": "*"})
 
-    async def get(self, parameter):
-        await asyncio.to_thread(self.chunk)
+
+async def static_handler(request):
+    rel = request.match_info.get("path", "")
+    full = os.path.normpath(os.path.join(_STATIC_DIR, rel))
+    if not (full == _STATIC_DIR or full.startswith(_STATIC_DIR + os.sep)) or not os.path.isfile(full):
+        return web.Response(status=404, text="Not found")
+    ctype, _ = mimetypes.guess_type(full)
+    # NO-CACHE + permissive CORS so wallet/explorer edits are picked up immediately and a cross-origin
+    # page can load the assets (the old NoCacheStaticFileHandler behaviour).
+    headers = {"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+               "Pragma": "no-cache", "Access-Control-Allow-Origin": "*"}
+    return web.FileResponse(full, headers=headers)
+
+
+async def favicon(request):
+    p = os.path.join(_HERE, "graphics", "favicon.ico")
+    return web.FileResponse(p) if os.path.isfile(p) else web.Response(status=404)
 
 
 async def make_app(port):
-    application = tornado.web.Application(
-        [
-            (r"/", HomeHandler),
-            (r"/get_snapshot_manifest(.*)", SnapshotManifestHandler),
-            (r"/get_snapshot_chunk(.*)", SnapshotChunkHandler),
-            (r"/get_transactions_of_account(.*)", AccountTransactionsHandler),
-            (r"/get_transaction(.*)", TransactionHandler),
-            (r"/get_blocks_after(.*)", GetBlocksAfterHandler),
-            (r"/get_blocks_before(.*)", GetBlocksBeforeHandler),
-            (r"/get_block_number(.*)", GetBlockNumberHandler),
-            (r"/get_block(.*)", GetBlockHandler),
-            (r"/get_account(.*)", AccountHandler),
-            (r"/transaction_pool(.*)", TransactionPoolHandler),
-            (r"/transaction_hash_pool(.*)", TransactionHashPoolHandler),
-            (r"/transaction_buffer(.*)", TransactionBufferHandler),
-            (r"/user_transaction_buffer(.*)", UserTxBufferHandler),
-            (r"/trust_pool(.*)", TrustPoolHandler),
-            (r"/get_latest_block(.*)", GetLatestBlockHandler),
-            (r"/get_supply(.*)", GetSupplyHandler),
-            (r"/announce_peer(.*)", AnnouncePeerHandler),
-            (r"/status_pool(.*)", StatusPoolHandler),
-            (r"/mining_status(.*)", MiningStatusHandler),
-            (r"/status(.*)", StatusHandler),
-            (r"/peers(.*)", PeerPoolHandler),
-            (r"/peer_buffer(.*)", PeerBufferHandler),
-            (r"/unreachable(.*)", UnreachableHandler),
-            (r"/block_producers_hash_pool(.*)", BlockProducersHashPoolHandler),
-            (r"/block_producers(.*)", BlockProducerPoolHandler),
-            (r"/block_hash_pool(.*)", BlockHashPoolHandler),
-            (r"/get_recommended_fee", FeeHandler),
-            (r"/terminate(.*)", TerminateHandler),
-            (r"/health(.*)", HealthHandler),
-            (r"/submit_transaction(.*)", SubmitTransactionHandler),
-            (r"/log(.*)", LogHandler),
-            (r"/whats_my_ip(.*)", IpHandler),
-            (r"/force_sync(.*)", ForceSyncHandler),
-            (r"/static/(.*)", NoCacheStaticFileHandler, {"path": "static"}),
-            (r'/(favicon.ico)', tornado.web.StaticFileHandler, {"path": "graphics"}),
-
-        ]
-    )
-    # In NADO_TESTNET mode bind to the node's own (loopback) IP so several nodes can share the
-    # port on distinct 127.0.0.x addresses; on mainnet bind all interfaces (reachable).
-    listen_address = get_config()["ip"] if os.environ.get("NADO_TESTNET") else None
-    application.listen(port, address=listen_address)
+    app = web.Application()
+    app.add_routes([
+        web.get("/", home),
+        web.get("/get_snapshot_manifest", snapshot_manifest),
+        web.get("/get_snapshot_chunk", snapshot_chunk),
+        web.get("/get_transactions_of_account", account_transactions),
+        web.get("/get_transaction", transaction),
+        web.get("/get_blocks_after", blocks_after),
+        web.get("/get_blocks_before", blocks_before),
+        web.get("/get_block_number", block_by_number),
+        web.get("/get_block", block_by_hash),
+        web.get("/get_account", account),
+        web.get("/transaction_pool", _dump_handler("transaction_pool", lambda: memserver.transaction_pool)),
+        web.get("/transaction_hash_pool", _dump_handler("transactions_hash_pool", lambda: {
+            "transactions_hash_pool": consensus.transaction_hash_pool,
+            "majority_transactions_hash_pool": consensus.majority_transaction_pool_hash})),
+        web.get("/transaction_buffer", _dump_handler("transaction_buffer", lambda: memserver.tx_buffer)),
+        web.get("/user_transaction_buffer", _dump_handler("user_transaction_buffer", lambda: memserver.user_tx_buffer)),
+        web.get("/trust_pool", _dump_handler("trust_pool_data", lambda: consensus.trust_pool)),
+        web.get("/get_latest_block", latest_block),
+        web.get("/get_supply", get_supply),
+        web.get("/announce_peer", announce_peer),
+        web.get("/status_pool", _dump_handler("status_pool", lambda: consensus.status_pool)),
+        web.get("/mining_status", mining_status),
+        web.get("/status", status),
+        web.get("/peers", _dump_handler("peers", lambda: list(memserver.peers))),
+        web.get("/peer_buffer", _dump_handler("peer_buffer", lambda: list(memserver.peer_buffer))),
+        web.get("/unreachable", _dump_handler("unreachable", lambda: memserver.unreachable)),
+        web.get("/block_producers_hash_pool", _dump_handler("block_producers_hash_pool", lambda: {
+            "block_producers_hash_pool": consensus.block_producers_hash_pool,
+            "majority_block_producers_hash_pool": consensus.majority_block_producers_hash})),
+        web.get("/block_producers", _dump_handler("block_producers", lambda: list(memserver.block_producers))),
+        web.get("/block_hash_pool", _dump_handler("block_hash_pool", lambda: {
+            "block_opinions": consensus.block_hash_pool,
+            "majority_block_opinion": consensus.majority_block_hash})),
+        web.get("/get_recommended_fee", get_recommended_fee),
+        web.get("/terminate", terminate),
+        web.get("/health", health),
+        web.post("/submit_transaction", submit_transaction),
+        web.get("/log", log),
+        web.get("/whats_my_ip", whats_my_ip),
+        web.get("/force_sync", force_sync),
+        web.get("/favicon.ico", favicon),
+        web.get("/static/{path:.*}", static_handler),
+    ])
+    runner = web.AppRunner(app, access_log=None)
+    await runner.setup()
+    # In NADO_TESTNET mode bind to the node's own (loopback) IP so several nodes can share the port on
+    # distinct 127.0.0.x addresses; on mainnet bind all interfaces (reachable).
+    listen_address = get_config()["ip"] if os.environ.get("NADO_TESTNET") else "0.0.0.0"
+    site = web.TCPSite(runner, host=listen_address, port=port)
+    await site.start()
     await asyncio.Event().wait()
 
+
 """warning, no intensive operations or locks should be invoked from API interface"""
-logging.getLogger('tornado.access').disabled = True
 logger = get_logger(logger_name="main_logger")
 
 allow_async()
@@ -954,9 +614,8 @@ logger.info(f"NADO version {memserver.version} started")
 logger.info(f"Your address: {memserver.address}")
 logger.info(f"Your IP: {memserver.ip}")
 
-# S4.3: surface the bonded producer registry loudly at startup. total_shares == 0 means NO
-# eligible producer (every bond < B_MIN, or none seeded) -> fail-closed selection silently
-# produces no blocks, so this must be obvious rather than a quiet stall at genesis.
+# S4.3: surface the bonded producer registry loudly at startup. total_shares == 0 means NO eligible
+# producer (every bond < B_MIN, or none seeded) -> fail-closed selection silently produces no blocks.
 _registry = get_bonded_registry()
 logger.warning(f"Bonded producer registry: {len(_registry)} eligible, total_shares={total_shares(_registry)}")
 logger.info(f"Promiscuity mode: {memserver.promiscuous}")
