@@ -150,10 +150,28 @@ over `FIDELITY_CAP = 1000` epochs of continuous presence — an overall range of
 **1..10**. The open registry reads a real on-chain `fidelity` column, so this
 ramp is live. *(implemented)*
 
-> Note: `FIDELITY_DECAY = 1` is defined in `protocol.py` as an intended
-> per-epoch absence decay, but no decay path is wired in code today. Fidelity
-> grows via heartbeats and reverses only on rollback; there is currently no
-> active absence-decay mechanism. *(planned)*
+> **Absence decay is now wired** *(implemented)*. `FIDELITY_DECAY = 1` is applied in
+> `account_ops.apply_heartbeat`: each heartbeat decays fidelity for the gap since the
+> account's last heartbeat (`last_hb_epoch`, an on-chain account field), **capped at the
+> current value** so the net change never floors and is exactly invertible, then `+GAIN`
+> for the epoch. So fidelity measures **continuous** presence, not merely cumulative
+> attendance — a churned or rotated identity cannot keep a ramp it stopped earning.
+> Revert-symmetry (byte-identical rollback) is preserved via an `hb_revert` record storing
+> the exact inverse `(prev_last_epoch, net_delta)`. It stays deliberately gentle
+> (`DECAY == GAIN`, mobile-friendly: a phone missing a few epochs is not wiped) — a ~10×
+> booster, not the Sybil bound.
+
+> **Progressive IP-diversity onboarding cap** *(implemented, non-consensus)*. Because an IP
+> cannot be a consensus input (nodes see different IPs; it is spoofable and NAT/CGNAT-
+> ambiguous — weighting *selection* by IP would fork the chain), the intuition "one machine
+> should not spawn thousands of identities" is applied at the **relay admission** layer
+> instead. A new `register` submission's "crowding cost" scales with how close its source IP
+> is, in the address space, to other recently-registered IPs: a same-exact-IP peer costs the
+> full unit, each broader shared prefix half as much (same /24 = ½, /16 = ¼, /8 = ⅛),
+> unrelated networks nothing (IPv4 /32·/24·/16·/8; IPv6 /128·/64·/48·/32). This bounds a
+> whole datacenter /24 range, not just one IP, while leaving genuinely distinct networks
+> unpenalised. It is best-effort (an attacker can rent scattered IPs across relays); the
+> **hard** Sybil bound remains the structural `OPEN_BPS` lane cap.
 
 ### 2.5 BONDED lane: split-neutral, whale-capped stake
 
@@ -424,6 +442,19 @@ crash-safe: write to `<hash>.block.tmp`, flush+fsync, then atomic
 `os.replace` (bounded to 60 retries, then raise). This on-disk format is **purely
 local**: the block hash is computed over **canonical JSON**, never over the stored
 file, so the storage encoding can change with no fork. *(implemented)*
+
+**Rolling mode (opt-in history pruning)** *(implemented, Phase 1)*. A node runs as an
+**archive** node by default (`config.archive = true`, keeps every body forever — no
+behaviour change) or as a **rolling/pruned** node (`archive = false` / `NADO_ARCHIVE=0`),
+which deletes finalized body *files* older than `HISTORY_RETENTION_BLOCKS` (default 10 000
+≈ 1 week) while **always keeping** state and the tiny number↔hash indexes. An audit of every
+historical block read fixed the safe floor: only `get_block_reward` re-reads a historical
+*body* (the block at `tip − REWARD_WINDOW`); the beacon/FFG read *hashes* from the index, not
+bodies. `block_ops.prune_block_bodies` therefore floors retention at
+`REWARD_WINDOW + FINALITY_DEPTH + 1` internally, so a misconfig can never corrupt the reward
+calc or a legal rollback, and prunes incrementally via a `pruned_below` watermark. Since the
+index is kept, a pruned node still validates and serves the beacon/FFG lookbacks. This is the
+first phase of the rolling-mode + data-availability design ([rolling-mode-and-da.md](rolling-mode-and-da.md)).
 
 ### 6.2 State index (one schemaless LMDB key-value store)
 
@@ -725,9 +756,11 @@ per-epoch `UNIQUE(validator, epoch)` marker is unpunished and FFG stays an
 observational signal; the bonded `MAX_SHARES` cap is **per-identity, not aggregate**
 (the bonded lane is capital-proportional by design, the cap only bounds
 single-address variance); `register`/fee-exempt **state growth** (`GC_IDLE_EPOCHS`
-defined but unwired — idle-account GC is future work); `FIDELITY_DECAY` unwired; and
-snapshot bootstrap trusts an 80%-of-peers quorum with **no hardcoded finalized
-checkpoint** (weak-subjectivity).
+defined but unwired — idle-account GC is future work); and snapshot bootstrap trusts an
+80%-of-peers quorum with **no hardcoded finalized checkpoint** (weak-subjectivity).
+(`FIDELITY_DECAY` is now **wired** — continuous-presence decay, Section 2.4 — and a
+**progressive per-range IP registration cap** now throttles OPEN-lane onboarding at the
+relay.)
 
 ---
 
@@ -767,8 +800,9 @@ Additional hardening and feature items, all currently **planned/partial**:
   signal — Section 7.4).
 - **Idle-account GC** wiring `GC_IDLE_EPOCHS` to bound `register`/fee-exempt state
   growth (defined but unwired today — Section 7.4).
-- **Absence-decay** for fidelity (currently `FIDELITY_DECAY` is defined but
-  unwired).
+- ~~**Absence-decay** for fidelity~~ **— DONE**: `FIDELITY_DECAY` is now wired
+  (continuous-presence, revert-symmetric — Section 2.4), and a **progressive per-range
+  IP registration cap** now throttles OPEN-lane onboarding at the relay layer.
 - **Halving / issuance schedule** (none exists; emission is a perpetual floor +
   capped elastic term).
 - **Snapshot-bootstrap hardening** items (allocation bound, quorum floor /
@@ -784,10 +818,11 @@ Additional hardening and feature items, all currently **planned/partial**:
   (shipped) + mempool O(N²) fix (shipped); the real structural fix is **aggregating the O(N)
   per-epoch consensus messages** (presence-root → PQ proof-of-threshold), since
   non-aggregatable PQ signatures × O(N) messages × pure-Python verify is the binding wall.
-- **Rolling mode & data availability** ([rolling-mode-and-da.md](rolling-mode-and-da.md),
-  design) — keep state + a window of epochs, prune older history (phone-mineable under
-  adoption), with finality-anchored pruning, consensus-critical idle-account GC, and
-  **hash-based (post-quantum, not KZG)** erasure-coded DA sampling for execution-layer blobs.
+- **Rolling mode & data availability** ([rolling-mode-and-da.md](rolling-mode-and-da.md)) —
+  keep state + a window of epochs, prune older history (phone-mineable under adoption).
+  **Phase 1 (opt-in body pruning, archive default) is implemented** (Section 6.1);
+  consensus-critical idle-account GC (Phase 2) and **hash-based (post-quantum, not KZG)**
+  erasure-coded DA sampling for execution-layer blobs (Phase 3) remain designed.
 
 ---
 
@@ -855,7 +890,10 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | `GC_IDLE_EPOCHS` | `1000` | Intended idle-registry prune window (state-bloat bound) — **defined, not yet wired** (Section 7.4). |
 | `FIDELITY_CAP` | `1000` epochs | Continuous presence to fully ramp the open bonus. |
 | `FIDELITY_GAIN` | `1` | Fidelity increment per epoch present. |
-| `FIDELITY_DECAY` | `1` | Intended absence decay — **defined, unwired** (planned). |
+| `FIDELITY_DECAY` | `1` | Per-epoch absence decay — **now wired** (continuous presence, Section 2.4). |
+| `HISTORY_RETENTION_BLOCKS` | `10_000` | Rolling-node body-retention window (~1 wk); archive nodes keep all (Section 6.1). |
+| `max_registrations_per_ip` | `64`/hr | Progressive per-range OPEN-lane onboarding cap (relay admission, Section 2.4). |
+| `AUTO_BOND_DEFAULT_PERCENT` | `80` | Default share of new rewards auto-bonded when unset (client/operator; overridable). |
 | `TREASURY_GENESIS` | `0` | **No premine** — treasury starts empty. |
 | `TREASURY_BPS` | `1000` (10.00%) | Treasury share of each reward; producer gets 90%. |
 | `BASE_SUBSIDY` | `1e9` (0.1 NADO) | Flat per-block emission floor (~144 NADO/day at 60s blocks). |

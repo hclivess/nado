@@ -106,8 +106,20 @@ bonded slot is skipped, never the reverse, so the free lane can never absorb bon
 
 Open-lane selection weight is **capital-free**: a flat floor (`OPEN_BASE_FLOOR = 1`) every present
 identity always gets, plus a diligence ramp to `OPEN_FID_BONUS = 9` over `FIDELITY_CAP = 1000` epochs
-of continuous presence (overall range 1..10). The single most effective thing you can do is **stay
-present**. Mine to **one address** — splitting across addresses gains nothing.
+of continuous presence (overall range 1..10). Fidelity now **decays for absence** (`FIDELITY_DECAY`,
+wired in `apply_heartbeat`, revert-symmetric), so it rewards *continuous* presence — a rotated/churned
+identity can't keep a ramp it stopped earning. The single most effective thing you can do is **stay
+present**. Mine to **one address** — splitting across addresses gains nothing, and onboarding many
+addresses from one machine is throttled (below).
+
+> **Progressive IP-diversity onboarding cap.** Registering (onboarding) new OPEN-lane addresses is
+> rate-limited per source IP *by subnet proximity*: a new address's "crowding cost" is full for a
+> same-exact-IP peer and halves for each broader shared prefix (same /24 = ½, /16 = ¼, /8 = ⅛),
+> unrelated networks cost nothing (IPv4 /32·/24·/16·/8; IPv6 /128·/64·/48·/32). So a datacenter /24
+> gets one bounded shared budget while distinct networks aren't penalised — stopping "one box scripts
+> 10 000 miners" at the entry point. This is **relay admission control, not consensus** (an IP can't be
+> a consensus input without forking); the *hard* Sybil bound is still the structural ~20 % lane cap.
+> Budget is `max_registrations_per_ip` (default 64/hr, `NADO_MAX_REG_PER_IP`, `0` = off).
 
 ### The BONDED lane (optional stake)
 
@@ -220,12 +232,14 @@ cd nado && nohup nado_venv/bin/python nado.py > nado.out 2>&1 &
 
 ### Auto-bond — compound mined rewards into stake, hands-free
 
-A miner can route a **percentage of newly-mined rewards straight into bonded stake**, auto-compounding
-their weight in the bonded lane without any manual `bond` transactions. It is **opt-in** (`0` = off),
-throttled to **at most one bond per epoch**, only fires once the accrued amount clears a small dust
-floor (so each bond dwarfs its tiny fee), and **stops automatically at `BOND_CAP`** (10,000 NADO —
-bonding past it buys no extra selection weight, so it never needlessly freezes coins). It is available
-in **all three clients**:
+A miner routes a **percentage of newly-mined rewards straight into bonded stake**, auto-compounding
+their weight in the bonded lane without any manual `bond` transactions. It is **on by default at
+`AUTO_BOND_DEFAULT_PERCENT = 80%`** (a fresh node / browser / wallet with no saved preference joins the
+bonded lane hands-free) and fully **overridable** — set `0` to keep all rewards spendable; an explicit
+`0` is remembered and never reverts to the default. It is throttled to **at most one bond per epoch**,
+only fires once the accrued amount clears a small dust floor (so each bond dwarfs its tiny fee), and
+**stops automatically at `BOND_CAP`** (10,000 NADO — bonding past it buys no extra selection weight, so
+it never needlessly freezes coins). It is available in **all three clients**:
 
 - **Node (unattended):** set `auto_bond_percent` in `private/config.dat`, or the
   `NADO_AUTO_BOND_PERCENT` environment variable (which the `--service` installer wires into the unit).
@@ -398,9 +412,11 @@ code.
   (30 req/60 s) **and** `/announce_peer` (10 req/60 s), **plus the heavy unauthenticated read endpoints**
   (`/mining_status`, `/get_transactions_of_account`, `/get_blocks_after`/`/get_blocks_before`, added in
   the audit), a **per-/16 peer-diversity cap** (at most `MAX_PEERS_PER_SUBNET = 4` peers per /16 — now
-  enforced on the disk-reload path too, so one network can't fill a victim's peer view), a hard mempool
-  cap (150,000), heartbeat-index GC, and an SSRF guard (`check_ip` rejects own-IP and all
-  non-globally-routable addresses).
+  enforced on the disk-reload path too, so one network can't fill a victim's peer view), a **progressive
+  per-range IP registration cap** on OPEN-lane onboarding (crowding cost scales with subnet proximity, so
+  a datacenter /24 gets one bounded budget — `max_registrations_per_ip`), a hard mempool cap (150,000),
+  heartbeat-index GC, and an SSRF guard (`check_ip` rejects own-IP and all non-globally-routable
+  addresses).
 
 ### Lightly exercised (implemented + unit-tested, but not yet hardened on a live multi-node net)
 
@@ -439,8 +455,11 @@ of FFG/RANDAO and the outstanding eclipse hardening above, the **documented resi
 - **Registration / fee-exempt state growth** — `register` writes a permanent account doc; `GC_IDLE_EPOCHS`
   is defined but **not yet wired**. Bounded today by the lane cap, per-IP rate limit, mempool cap, and the
   in-block one-register-per-sender dedup; idle-account GC is future work.
-- **`FIDELITY_DECAY` is unwired** (absent identities keep accumulated fidelity), bounded by the open-lane
-  ceiling.
+- **`FIDELITY_DECAY` is now wired** — fidelity decays for the gap since an identity's last heartbeat
+  (revert-symmetric), so it measures *continuous* presence rather than cumulative attendance; a
+  **progressive per-range IP registration cap** additionally throttles OPEN-lane onboarding at the relay
+  (a datacenter /24 gets one bounded budget). Both are dampeners, not the Sybil bound — the open-lane
+  ceiling remains the hard bound.
 - **Snapshot bootstrap** trusts an 80%-of-peers quorum with **no hardcoded finalized checkpoint**
   cross-check (weak-subjectivity); a pinned checkpoint is future eclipse hardening.
 
@@ -475,6 +494,14 @@ which **replaced the prior SQLite index**. Account/state records are schemaless 
 tx index, block index, totals, heartbeats) commit in **one** write transaction, so a crash leaves a
 block either fully applied or not at all, and replay is idempotent. Block bodies stay as `zstd(msgpack)`
 files under `blocks/`, and consensus hashing stays canonical JSON — neither is touched by the index.
+
+**Archive vs rolling nodes (opt-in history pruning).** By default a node is an **archive** node
+(`config.archive = true`) that keeps every block body forever. Set `archive = false` (or `NADO_ARCHIVE=0`)
+to run a **rolling/pruned** node that drops finalized block *bodies* older than `HISTORY_RETENTION_BLOCKS`
+(default 10 000 ≈ 1 week) while **always** keeping state and the number↔hash indexes — so it stays a full
+validator and still serves the beacon/FFG lookbacks, with bounded disk. Retention is floored internally at
+`REWARD_WINDOW + FINALITY_DEPTH` so pruning can never corrupt the reward calc or a legal rollback. This
+keeps phones viable under adoption; see [`doc/rolling-mode-and-da.md`](doc/rolling-mode-and-da.md).
 
 ## Private key storage
 
