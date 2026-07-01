@@ -9,7 +9,6 @@ from Curve25519 import sign, verify, unhex
 from ops.account_ops import get_account, reflect_transaction
 from ops.address_ops import proof_sender, make_address
 from ops.address_ops import validate_address
-from ops.mining_ops import verify_registration_pow
 from ops.block_ops import get_block_number
 from compounder import compound_send_transaction
 from config import get_config
