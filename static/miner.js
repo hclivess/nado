@@ -350,6 +350,7 @@ const state = {
   // while mining, at most once per epoch. baseline = last balance we've accounted for.
   autoBondPct: 80,     // AUTO_BOND_DEFAULT_PCT (const declared below); boot overwrites w/ saved pref
   autoBondBaseline: null,
+  autoBondPending: null,   // {target, epoch} while an auto-bond is in flight — prevents stacking bonds
   lastAutoBondEpoch: null,
 };
 
@@ -776,7 +777,7 @@ async function startMining() {
   state.mining = true;
   state.starting = true;                          // button stays DISABLED until mining is live or fails
   state.lastHeartbeatEpoch = null;
-  state.autoBondBaseline = null;                  // only earnings AFTER this start auto-bond
+  state.autoBondBaseline = null; state.autoBondPending = null;   // only earnings AFTER this start auto-bond
   state.lastAutoBondEpoch = null;
   setStartBtnBusy("Starting…");                   // disabled spinner button — can't be re-clicked
   setRegBanner("Starting up — checking your registration with the relay…" + REASSURE);
@@ -793,7 +794,7 @@ function stopMining() {
   state.starting = false;
   if (state.powJob) state.powJob.cancelled = true;   // abort an in-progress registration PoW
   state.registering = false;
-  state.autoBondBaseline = null;                       // re-arm auto-bond baseline for the next start
+  state.autoBondBaseline = null; state.autoBondPending = null;   // re-arm auto-bond baseline for the next start
   stopPollLoop();
   releaseWakeLock();                                   // let the screen sleep again once mining stops
   show("powWrap", false);
@@ -1337,6 +1338,18 @@ async function maybeAutoBond(acc, ms) {
 
   const balance = BigInt(acc.balance ?? 0);
   const bonded = BigInt(acc.bonded ?? 0);
+  // NEVER STACK auto-bonds: if the previous one hasn't landed yet (bonded not risen to its target), skip
+  // this epoch. Otherwise the same rewards get bonded again while the first bond still sits in the mempool,
+  // and the node rejects the overlap as "overspending balance" — exactly what happens when a phone locks
+  // and then resumes several epochs later. Times out after 3 epochs so a dropped bond never wedges it.
+  if (state.autoBondPending) {
+    if (bonded >= state.autoBondPending.target || (epoch - state.autoBondPending.epoch) > 3) {
+      state.autoBondPending = null;
+      state.autoBondBaseline = balance;                 // reconcile to on-chain reality after it lands
+    } else {
+      return;
+    }
+  }
   if (state.autoBondBaseline == null) { state.autoBondBaseline = balance; return; }  // only future earnings
   if (bonded >= BOND_CAP) { state.autoBondBaseline = balance; return; }              // already at the cap
   const gain = balance - state.autoBondBaseline;
@@ -1354,7 +1367,8 @@ async function maybeAutoBond(acc, ms) {
     const res = await submitTransaction(tx);
     if (res.data && res.data.result) {
       state.lastAutoBondEpoch = epoch;
-      state.autoBondBaseline = balance - toBond - BigInt(fee);   // optimistic post-bond baseline
+      state.autoBondPending = { target: bonded + toBond, epoch };  // wait for THIS to land before the next
+      state.autoBondBaseline = balance - toBond - BigInt(fee);   // optimistic; reconciled once it confirms
       log("ok", `Auto-bonded ${rawToNado(toBond)} NADO (${pct}% of ${rawToNado(gain)} new rewards) → bonded lane.`);
       refreshDashboard().catch(() => {});
     } else {
