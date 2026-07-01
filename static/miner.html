@@ -7,6 +7,27 @@
 <meta name="color-scheme" content="dark" />
 <title>NADO Light Miner</title>
 <link rel="stylesheet" href="/static/miner.css" />
+<style>
+  /* Explore tab (folded-in block explorer) */
+  .ex-kv { display:grid; grid-template-columns:max-content 1fr; gap:10px 16px; align-items:baseline; }
+  .ex-kv .k { color:var(--muted,#7c8b9a); font-size:13px; white-space:nowrap; }
+  .ex-kv .v { font-family:ui-monospace,Menlo,Consolas,monospace; word-break:break-all; }
+  .ex-rows { display:flex; flex-direction:column; gap:10px; }
+  .ex-row { display:flex; justify-content:space-between; gap:12px; padding:12px 14px;
+            border:1px solid var(--line,#1c2530); border-radius:12px; align-items:center; }
+  .ex-row:hover { border-color:var(--accent,#3aa0ff); }
+  a.ex-link { color:var(--accent,#3aa0ff); cursor:pointer; text-decoration:none; word-break:break-all; }
+  a.ex-link:hover { text-decoration:underline; }
+  .ex-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  @media (max-width:640px){ .ex-grid2 { grid-template-columns:1fr; } }
+  /* the stat "bubbles" (Treasury, Supply, …): a padded, rounded row with breathing room */
+  .ex-stat { display:flex; justify-content:space-between; gap:14px; align-items:center;
+             padding:12px 16px; margin:8px 0; border:1px solid var(--line,#1c2530); border-radius:12px;
+             background:rgba(255,255,255,0.02); }
+  .ex-stat .k { color:var(--muted,#7c8b9a); }
+  .ex-stat .n { font-family:ui-monospace,Menlo,Consolas,monospace; text-align:right; }
+  #exSearch { display:flex; gap:8px; } #exSearch input { flex:1; }
+</style>
 </head>
 <body>
 <header class="app">
@@ -83,6 +104,7 @@
     <button class="tab" data-tabbtn="aliases">Aliases</button>
     <button class="tab" data-tabbtn="stake">Stake</button>
     <button class="tab" data-tabbtn="history">History</button>
+    <button class="tab" data-tabbtn="explore">Explore</button>
     <button class="tab" data-tabbtn="settings">Settings</button>
   </nav>
 
@@ -298,6 +320,27 @@
   </div>
 
   <!-- SETTINGS -->
+  <!-- EXPLORE (block explorer, folded into the wallet) -->
+  <div id="exploreSearchCard" class="card hidden" data-tab="explore">
+    <h2>Explore</h2>
+    <div id="exSearch">
+      <input id="exQ" placeholder="address (ndo… or alias) · block number · block hash · txid" autocomplete="off" spellcheck="false" />
+      <button id="exGo" class="accent">Search</button>
+    </div>
+    <div id="exSearchErr" class="warnbox danger mt hidden"></div>
+    <div id="exResult" class="mt hidden"></div>
+  </div>
+  <div id="exOverviewCard" class="card hidden" data-tab="explore">
+    <div class="ex-grid2">
+      <div><h2>Network</h2><div id="exNetwork"><div class="faint small">loading…</div></div></div>
+      <div><h2>Mining</h2><div id="exMining"><div class="faint small">loading…</div></div></div>
+    </div>
+  </div>
+  <div id="exRecentCard" class="card hidden" data-tab="explore">
+    <h2>Recent blocks</h2>
+    <div id="exRecent" class="ex-rows"><div class="faint small">loading…</div></div>
+  </div>
+
   <div id="settingsCard" class="card" data-tab="settings">
     <h2>Settings</h2>
     <label>Relay node URL (a full node that accepts your transactions)</label>

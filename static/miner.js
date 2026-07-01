@@ -1469,6 +1469,147 @@ async function loadHistory() {
 }
 
 /* Tabbed navigation: the tab bar owns top-level card visibility once a wallet exists. */
+/* ------------------------------------------------------------------------------------------------
+ * EXPLORE tab — the block explorer, folded into the wallet. Reads this node's public JSON API and
+ * renders blocks / accounts / transactions. Reuses relayBase(), $, resolveAlias, rawToNado.
+ * ---------------------------------------------------------------------------------------------- */
+const EX_RESERVED = new Set(["bond", "unbond", "withdraw", "register", "heartbeat", "slash", "attest", "commit", "reveal", "alias"]);
+async function exGetJSON(path) {
+  const r = await fetch(relayBase() + path, { cache: "no-store" });
+  const t = await r.text();
+  let d; try { d = JSON.parse(t); } catch { d = null; }
+  if (!r.ok || d == null) throw new Error((d && d.message) || ("HTTP " + r.status));
+  return d;
+}
+function exNado(raw) { try { return rawToNado(BigInt(raw)) + " NADO"; } catch { return String(raw); } }
+function exTime(ts) { if (ts == null) return "—"; return new Date(ts * 1000).toISOString().replace("T", " ").replace(".000Z", " UTC"); }
+function exEsc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function exShort(h, n = 12) { return h && h.length > n * 2 ? h.slice(0, n) + "…" + h.slice(-6) : (h ?? "—"); }
+function exLink(kind, val, label) { return `<a class="ex-link" onclick="exOpen('${kind}','${exEsc(val)}')">${exEsc(label ?? val)}</a>`; }
+function exReservedOrAddr(r) { return EX_RESERVED.has(r) ? `<span class="badge">${exEsc(r)}</span>` : exLink("a", r, exShort(r, 8)); }
+function exKV(pairs) { return `<div class="ex-kv">${pairs.filter(Boolean).map(([k, v]) => `<div class="k">${exEsc(k)}</div><div class="v">${v}</div>`).join("")}</div>`; }
+function exStat(rows) { return rows.map(([k, v]) => `<div class="ex-stat"><span class="k">${k}</span><span class="n">${v}</span></div>`).join(""); }
+
+async function exLoadOverview() {
+  try {
+    const [st, sup] = await Promise.all([exGetJSON("/status"), exGetJSON("/get_supply")]);
+    $("exNetwork").innerHTML = exStat([
+      ["Tip height", exLink("b", st.latest_block_hash, "#" + (sup.block_number ?? "?"))],
+      ["Latest hash", `<span class="mono">${exShort(st.latest_block_hash)}</span>`],
+      ["Finalized", "#" + st.finalized_height + (st.ffg_finalized != null ? `  ·  FFG #${st.ffg_finalized}` : "")],
+      ["Total supply", exNado(sup.total_supply)],
+      ["Circulating", exNado(sup.circulating)],
+      ["Treasury", exNado(sup.treasury)],
+      ["Fees burned", exNado(sup.fees)],
+    ]);
+  } catch (e) { $("exNetwork").innerHTML = `<div class="warnbox danger">Node unreachable: ${exEsc(e.message)}</div>`; }
+  try {
+    const ms = await exGetJSON("/mining_status");
+    $("exMining").innerHTML = exStat([
+      ["Epoch", ms.epoch + `  (len ${ms.epoch_length})`],
+      ["Next block", "#" + ms.next_block],
+      ["Block time", ms.block_time + "s"],
+      ["OPEN lane", `${ms.open_registry_size} miners · ${ms.k_open}/${ms.epoch_length} slots`],
+      ["BONDED lane", `${ms.bonded_registry_size} miners · ${ms.total_bonded_shares} shares`],
+    ]);
+  } catch { $("exMining").innerHTML = `<div class="faint small">mining status unavailable</div>`; }
+}
+async function exLoadRecent() {
+  try {
+    const tip = await exGetJSON("/get_latest_block");
+    const nums = []; for (let n = tip.block_number, lo = Math.max(0, n - 11); n >= lo; n--) nums.push(n);
+    const blocks = await Promise.all(nums.map((n) => exGetJSON("/get_block_number?number=" + n).catch(() => null)));
+    $("exRecent").innerHTML = blocks.filter(Boolean).map(exBlockRow).join("") || `<div class="faint small">no blocks</div>`;
+  } catch { $("exRecent").innerHTML = `<div class="faint small">unavailable</div>`; }
+}
+function exBlockRow(b) {
+  const txs = (b.block_transactions || []).length;
+  return `<div class="ex-row"><div>${exLink("b", b.block_hash, "#" + b.block_number)}
+    <span class="faint small">· ${txs} tx${txs === 1 ? "" : "s"}</span><div class="faint small">${exTime(b.block_timestamp)}</div></div>
+    <div style="text-align:right"><span class="mono faint small">${exShort(b.block_hash, 8)}</span>
+    <div class="small">by ${exLink("a", b.block_creator, exShort(b.block_creator, 8))}</div></div></div>`;
+}
+function exTxRow(t) {
+  return `<div class="ex-row"><div>${t.txid ? exLink("tx", t.txid, exShort(t.txid, 10)) : `<span class="mono">${exEsc(t.recipient)}</span>`}
+    <div class="small">${exLink("a", t.sender, exShort(t.sender, 8))} → ${exReservedOrAddr(t.recipient)}</div></div>
+    <div style="text-align:right" class="mono">${exNado(t.amount)}<div class="faint small">fee ${exNado(t.fee || 0)}</div></div></div>`;
+}
+function exRenderBlock(b) {
+  const txs = b.block_transactions || [];
+  return `<h2>Block #${b.block_number}</h2>${exKV([
+    ["Hash", `<span class="mono">${exEsc(b.block_hash)}</span>`],
+    ["Parent", exLink("b", b.parent_hash, exShort(b.parent_hash))],
+    ["Producer", exLink("a", b.block_creator)],
+    ["Time", exTime(b.block_timestamp)],
+    ["Reward", exNado(b.block_reward)],
+    ["Cumulative fees", exNado(b.cumulative_fees)],
+    ["Cumulative weight", String(b.cumulative_weight)],
+    ["Transactions", String(txs.length)],
+  ])}${txs.length ? `<div class="ex-rows mt">${txs.map(exTxRow).join("")}</div>` : `<div class="faint small mt">no transactions</div>`}`;
+}
+function exRenderAccount(a) {
+  return `<h2>Account</h2>${exKV([
+    ["Address", `<span class="mono">${exEsc(a.address)}</span>`],
+    ["Balance", exNado(a.balance)],
+    ["Bonded", exNado(a.bonded)],
+    ["Produced", exNado(a.produced)],
+    ["Registered", a.registered ? "yes (OPEN-lane miner)" : "no"],
+    ["Fidelity", String(a.fidelity ?? 0) + " / 1000"],
+  ])}<div class="row mt"><button class="accent" id="exLoadTxs">Show transactions</button></div><div id="exAcctTxs" class="ex-rows mt"></div>`;
+}
+function exRenderTx(t) {
+  return `<h2>Transaction</h2>${exKV([
+    ["Txid", `<span class="mono">${exEsc(t.txid || "—")}</span>`],
+    ["From", exLink("a", t.sender)],
+    ["To", exReservedOrAddr(t.recipient)],
+    ["Amount", exNado(t.amount)],
+    ["Fee", exNado(t.fee || 0)],
+    ["Target block", t.target_block != null ? exLink("b", String(t.target_block), "#" + t.target_block) : "—"],
+    ["Timestamp", exTime(t.timestamp)],
+    t.data ? ["Data", `<span class="mono">${exEsc(typeof t.data === "string" ? t.data.slice(0, 200) : JSON.stringify(t.data))}</span>`] : null,
+  ])}`;
+}
+function exShowResult(html) { const r = $("exResult"); r.innerHTML = html; r.classList.remove("hidden"); }
+async function exOpen(kind, val) {
+  try {
+    if (kind === "a") {
+      exShowResult(exRenderAccount(await exGetJSON("/get_account?address=" + encodeURIComponent(val))));
+      const btn = $("exLoadTxs"); if (btn) btn.onclick = async () => {
+        const box = $("exAcctTxs"); box.innerHTML = `<div class="faint small">loading…</div>`;
+        try { const d = await exGetJSON("/get_transactions_of_account?address=" + encodeURIComponent(val) + "&min_block=0");
+          const txs = d.transactions || []; box.innerHTML = txs.length ? txs.map(exTxRow).join("") : `<div class="faint small">no transactions</div>`;
+        } catch (e) { box.innerHTML = `<div class="warnbox danger">${exEsc(e.message)}</div>`; }
+      };
+    } else if (kind === "b") {
+      let b = null;
+      if (/^\d+$/.test(val)) b = await exGetJSON("/get_block_number?number=" + val);
+      else { try { b = await exGetJSON("/get_block?hash=" + encodeURIComponent(val)); } catch { b = null; }
+        if (!b || !b.block_hash) { try { const t = await exGetJSON("/get_transaction?txid=" + encodeURIComponent(val)); if (t) { exShowResult(exRenderTx(t)); return; } } catch {} } }
+      if (!b || b === false || !b.block_hash) throw new Error("not found");
+      exShowResult(exRenderBlock(b));
+    } else if (kind === "tx") {
+      const t = await exGetJSON("/get_transaction?txid=" + encodeURIComponent(val));
+      if (!t || t === false) throw new Error("not found");
+      exShowResult(exRenderTx(t));
+    }
+  } catch (e) { exShowResult(`<div class="warnbox danger">Not found: ${exEsc(e.message)}</div>`); }
+}
+async function exSearch() {
+  const q = $("exQ").value.trim();
+  $("exSearchErr").classList.add("hidden");
+  if (!q) return;
+  if (/^\d+$/.test(q)) return exOpen("b", q);
+  if (/^ndo[0-9a-f]{46}$/i.test(q)) return exOpen("a", q);
+  if (/^[0-9a-f]{64}$/i.test(q)) return exOpen("b", q);       // 64-hex: block, falling back to tx
+  if (looksLikeAlias(q)) {                                    // an alias -> its owner account
+    const owner = await resolveAlias(q);
+    if (owner) return exOpen("a", owner);
+    $("exSearchErr").textContent = `Alias "${q}" is not registered.`; $("exSearchErr").classList.remove("hidden"); return;
+  }
+  $("exSearchErr").textContent = "Unrecognized — an ndo… address, an alias, a block number, or a 64-hex hash/txid.";
+  $("exSearchErr").classList.remove("hidden");
+}
+
 function showTab(name) {
   if (!state.wallet) return;
   state.activeTab = name;
@@ -1477,6 +1618,7 @@ function showTab(name) {
   if (name !== "send") show("payBanner", false); // the pay-request banner belongs to the Send tab only
   if (name === "receive") renderReceiveQR();
   else if (name === "aliases") loadMyAliases();
+  else if (name === "explore") { exLoadOverview(); exLoadRecent(); }
   else if (name === "history") loadHistory().catch(() => {});
   else if (name === "send") updateFeeInfo().catch(() => {});
   else if (name === "stake") { updateFeeInfo().catch(() => {}); refreshDashboard().catch(() => {}); }
@@ -1522,6 +1664,8 @@ function wireEvents() {
   if ($("btnAliasReg")) $("btnAliasReg").onclick = () => doAliasOp("register");
   if ($("btnAliasUnreg")) $("btnAliasUnreg").onclick = () => doAliasOp("unregister");
   if ($("btnAliasXfer")) $("btnAliasXfer").onclick = () => doAliasOp("transfer");
+  if ($("exGo")) $("exGo").onclick = () => exSearch();
+  if ($("exQ")) $("exQ").addEventListener("keydown", (e) => { if (e.key === "Enter") exSearch(); });
 
   // --- full-wallet wiring ---
   $("btnDlKey").onclick = downloadKeyFile;

@@ -305,12 +305,12 @@ encoding against the live repo on boot.
 - **Desktop wallet** — `python3.10 pyside_wallet.py` (PySide6): overview, send, bond/unbond, register
   & mine, expected-time-to-mine, an **auto-bond** control (compound a % of mined rewards into stake),
   and a live selection-lane visualization. PySide6 is wallet-only; the node itself does not need it.
-- **Block explorer** — a **client-side static explorer** (`static/explorer.html` + `static/explorer.js`,
-  styled like the light-miner) served by every node at `/` (and `/static/explorer.html`). It reads the
-  node's own public JSON API in the browser — search by address / block number / block hash / txid,
-  browse recent blocks, and see live network + mining-lane stats. Point it at any node with
-  `?node=host:port`. (The raw JSON endpoints — `/get_account`, `/get_block`, `/get_transaction`,
-  `/get_supply`, `/status`, … with `readable=true` — remain available directly.)
+- **Block explorer** — folded into the light-miner as an **Explore tab** (`static/miner.html` +
+  `static/miner.js`): search by address / **alias** / block number / block hash / txid, browse recent
+  blocks, and see live network + mining-lane stats — all reading the node's own public JSON API in the
+  browser. The node serves the wallet/explorer at `/`. (The raw JSON endpoints — `/get_account`,
+  `/get_block`, `/get_transaction`, `/get_supply`, `/status`, `/resolve_alias`, … with `readable=true` —
+  remain available directly.)
 
 ---
 

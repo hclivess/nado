@@ -132,7 +132,7 @@ def _dump_handler(name, getter):
 
 async def home(request):
     # The node's landing page is the static, client-side explorer (styled like the light miner).
-    raise web.HTTPFound("/static/explorer.html")
+    raise web.HTTPFound("/static/miner.html")
 
 
 async def status(request):
