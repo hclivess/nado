@@ -695,6 +695,16 @@
   };
   for (const l in T18) Object.assign(T[l], T18[l]);
 
+  const T19 = {
+    en:{"app.title":"NADO Light Miner"}, cs:{"app.title":"NADO Lehký těžař"}, es:{"app.title":"NADO Minero ligero"},
+    pt:{"app.title":"NADO Minerador leve"}, fr:{"app.title":"NADO Mineur léger"}, de:{"app.title":"NADO Leicht-Miner"},
+    it:{"app.title":"NADO Miner leggero"}, ru:{"app.title":"NADO Лёгкий майнер"}, zh:{"app.title":"NADO 轻量矿工"},
+    ja:{"app.title":"NADO ライトマイナー"}, ko:{"app.title":"NADO 라이트 마이너"}, ar:{"app.title":"NADO مُعدِّن خفيف"},
+    hi:{"app.title":"NADO लाइट माइनर"}, tr:{"app.title":"NADO Hafif Madenci"}, id:{"app.title":"NADO Penambang Ringan"},
+    vi:{"app.title":"NADO Trình đào nhẹ"}
+  };
+  for (const l in T19) Object.assign(T[l], T19[l]);
+
   const NAMES = { en:"English", cs:"Čeština", es:"Español", pt:"Português", fr:"Français", de:"Deutsch", it:"Italiano",
     ru:"Русский", zh:"中文", ja:"日本語", ko:"한국어", ar:"العربية", hi:"हिन्दी", tr:"Türkçe",
     id:"Bahasa Indonesia", vi:"Tiếng Việt" };

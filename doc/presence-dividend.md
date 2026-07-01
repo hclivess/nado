@@ -1,9 +1,9 @@
 # Presence dividend — smoothing the open lane from a jackpot into a stream
 
-> **Status: design proposal (not implemented).** This describes *variant (b)* from the reward-redistribution
-> discussion: keep open-lane block **production** decentralized, but split the open-lane block **reward** into a
-> small producer tip plus a redistributed **presence dividend**, accrued off-L1 on the execution layer and
-> withdrawn in aggregate. Locks nothing until we agree the parameters.
+> **Status: IMPLEMENTED** (variant (b)). Open-lane block **production** stays decentralized; the open-lane block
+> **reward** is split into a small producer tip plus a redistributed **presence dividend**, accrued off-L1 on the
+> execution node and collected on demand against the settled root. Presence = the PoSW lease (there is no separate
+> heartbeat), so a miner accrues while its lease is valid and stops when it lapses. Live end-to-end.
 
 ## 1. The problem
 
@@ -77,12 +77,11 @@ Each miner carries a checkpoint `(w_i, rewardPerWeight_at_checkpoint)`. Their **
 claimable_i = w_i · (rewardPerWeight − rewardPerWeight_at_checkpoint_i)
 ```
 
-computed lazily. The exec node already processes each miner's heartbeat once per epoch (to update
-presence/fidelity) — **piggyback the checkpoint there**: when `w_i` changes, settle `claimable_i` into their
-stored balance and re-snapshot. So the per-epoch cost is `O(active miners this epoch)` — the inherent cost of
+computed lazily. The exec node walks the present open registry (valid-lease addresses) each epoch — **do the accrual there**:
+for each present miner, credit its fidelity-weighted share of that epoch's pool growth into its off-L1 balance. So the per-epoch cost is `O(active miners this epoch)` — the inherent cost of
 tracking who's present — and it is **off the consensus path**, on a machine that isn't a phone. (Standard
-Synthetix/Curve-style reward accounting; the only NADO-specific wrinkle is that `w_i` changes per epoch, which
-the heartbeat-time re-checkpoint handles.)
+Synthetix/Curve-style reward accounting; the only NADO-specific wrinkle is that `w_i` changes per epoch, which the
+per-epoch pass over the present set handles.)
 
 ### 4.3 Withdraw in aggregate (no dust on L1)
 Dividend balances live **off-L1** and only touch L1 when a miner **withdraws an amount worth the fee** — via the
@@ -149,7 +148,7 @@ Pre-mainnet alpha — a reward-split + reserved-recipient change is a clean cons
 
 1. Add `OPEN_TIP_BPS` + the `"dividend"` reserved recipient; extend `split_block_reward` for the open lane's
    three-way split (bonded unchanged).
-2. Execution node: dividend accumulator index + per-heartbeat checkpoint + off-L1 balance store.
+2. Execution node: per-epoch present-set accrual (fidelity-weighted, remainder carried) + off-L1 balance store.
 3. Withdrawal path: Merkle-proof claim of accrued dividend against the settled exec root (+ nullifier), mirroring
    the bridge.
 4. Client: show accrued vs spendable, and an aggregate "withdraw dividend" action.

@@ -182,28 +182,24 @@ Open-lane participation costs no coins. An identity:
    a Sybil farm must keep spending sequential time on every mask, forever, not just once. The
    structural `OPEN_BPS` lane cap remains the *hard* Sybil bound; the PoSW lease prices identity
    creation **and upkeep** in real, non-parallelizable time on top. *(implemented)*
-2. **Heartbeats** each epoch with a signed, fee-exempt, zero-amount transaction.
-   Presence is required: `get_open_registry` includes only registered addresses (with a valid
-   lease) that have a heartbeat within the last `PRESENCE_WINDOW = 3` epochs. Because a locked
-   phone's browser tab is suspended, the client can **pre-sign** a rolling buffer of future-dated
-   heartbeats and hand them to a relay, which injects each into the mempool on schedule — so a
-   **locked/asleep phone keeps mining** for up to a lease (~1 day) per setup. And **kept open, the
-   client mines *forever***: it auto-renews the PoSW lease (~1 s), auto-bonds rewards if enabled, and
-   auto-resumes across a browser refresh — direct mining runs **indefinitely with no intervention**.
-   A phone in your pocket mines for ~a day; a page left open mines perpetually. *(implemented)*
+The recert is the **single presence signal — there is no separate heartbeat.** `get_open_registry` includes
+an identity iff it has a recert within the last `POSW_LEASE_EPOCHS` (≈ 1 day), derived from a revert-safe
+epoch-keyed index. This makes AFK mining trivial: **one ~1 s PoSW buys a full lease of eligibility, locked
+phone or not** — no relay, no pre-signed heartbeats, no per-epoch traffic. And **kept open, the client mines
+*forever***: it auto-renews the lease (~1 s) just before it lapses, auto-bonds rewards if enabled, and
+auto-resumes across a browser refresh — direct mining runs **indefinitely with no intervention**. A phone in
+your pocket mines for ~a day; a page left open mines perpetually. *(implemented)*
 
-> **Why both a PoSW lease *and* heartbeats — isn't the heartbeat redundant?** They price different things
-> and neither replaces the other. The **PoSW lease** is the *anti-Sybil identity cost*: expensive (~1 s of
-> sequential work), infrequent (~daily), so *creating and maintaining* each identity costs real,
-> non-parallelizable time. The **heartbeat** is the *fine-grained presence signal*: cheap, fee-exempt,
-> per-epoch, so eligibility, **fidelity** (continuous-presence weighting) and the **presence dividend**
-> track who is actually here *this epoch*. Heartbeats can be pre-signed — and that's fine: they were never
-> meant to add Sybil cost (that's the lease's job), pre-signing only makes presence *low-bother*. Dropping
-> them and using the lease as presence would coarsen it to **~1-day granularity**: a miner who did one PoSW
-> and walked away would stay "present" — and keep **collecting the dividend** — for up to a day, and fidelity
-> would lose its per-epoch input. Shortening the lease to compensate would make the PoSW fire every few
-> epochs — battery-hostile, defeating the point. So the split is deliberate: **PoSW prices the identity
-> (~daily, expensive); the heartbeat marks presence (~per-epoch, cheap)** — complementary, both low-bother.
+Continuity **fidelity** is driven by the recert: each *continuous* recert (gap ≤ the lease) adds
+`FIDELITY_GAIN`, a lapse resets the streak, and it ramps the open-lane weight to full over `FIDELITY_CAP`
+consecutive recerts (≈ days) — so a churned/rotated Sybil cannot keep a ramp it stopped paying for.
+*(implemented)*
+
+> **Why no separate per-epoch heartbeat?** An earlier design had one. But once the lease covers the whole
+> ~1-day AFK window (and can be pre-signed), a per-epoch heartbeat is co-terminal with the lease and carries
+> no information the recert doesn't — it's redundant. Collapsing to one signal is strictly simpler: the recert
+> **prices the identity *and* marks presence**, at ~daily granularity. The `OPEN_BPS` lane cap remains the
+> hard Sybil bound regardless.
 
 An open identity's selection weight is **capital-free**: a flat floor
 `OPEN_BASE_FLOOR = 1` that every present identity always receives (never scaled

@@ -61,12 +61,12 @@ them: no puzzles to keep solving, no efficient rig to keep running, and no requi
   bonded-quorum-settled state root. Many people getting a little, continuously: what an open, populace-scale
   chain should actually feel like. (Design + mechanism: [doc/presence-dividend.md](doc/presence-dividend.md).)
 
-- **Mine from your pocket — and *forever* if you keep it open.** Your per-epoch presence proofs are
-  **pre-signed** and submitted for you, so a **locked, asleep phone keeps mining** on its own for up to a
-  day per setup — the wallet even shows you the exact "mining while locked" countdown. And if you simply
-  leave the page **open, mining never stops**: it auto-renews its post-quantum proof, auto-bonds your
-  rewards if you want, and auto-resumes across a browser refresh — so direct mining runs **indefinitely with
-  zero babysitting**. Open the link once and walk away.
+- **Mine from your pocket — and *forever* if you keep it open.** Presence is a **PoSW lease**: one ~1 s
+  proof buys ~a day of eligibility, so a **locked, asleep phone keeps mining** on its own — no relay, no
+  per-epoch traffic — and the wallet shows the exact "mining while locked" countdown. Leave the page
+  **open and mining never stops**: it auto-renews the proof just before it lapses, auto-bonds your rewards
+  if you want, and auto-resumes across a browser refresh — so direct mining runs **indefinitely with zero
+  babysitting**. Open the link once and walk away.
 
 > **Share the link, and the barrier to entry collapses.** Because the whole experience is one page with
 > no install step, onboarding *is* sending a link. Drop it in a school group chat and whoever opens it is
@@ -140,26 +140,21 @@ bonded slot is skipped, never the reverse, so the free lane can never absorb bon
    (`POSW_LEASE_EPOCHS`, ~1 day): to stay in the open lane you renew with a *fresh* PoSW, turning
    "pay once, farm forever" into "pay continuously per identity." The structural ~20 % lane cap is still
    the *hard* Sybil bound; the PoSW lease prices identity creation **and upkeep** in real sequential time
-   on top. The miner auto-renews at ~80 % of the lease.
-2. **Heartbeat** each epoch with a signed, fee-exempt, zero-amount transaction to stay present
-   (`PRESENCE_WINDOW = 3` epochs). The client can **pre-sign** a rolling buffer of future heartbeats and
-   hand them to the relay, which submits them on schedule — so a **locked/asleep phone keeps mining**
-   until its lease lapses (a fresh on-device PoSW recert is only needed ~once a day).
+   on top. The recert is the **single presence signal — there is no separate heartbeat.** You're eligible
+   iff you have a recert within `POSW_LEASE_EPOCHS`, so **AFK mining is trivial: one ~1 s PoSW buys a full
+   lease of eligibility, locked phone or not** — no relay, no pre-signed heartbeats, no per-epoch traffic.
+   The miner auto-renews at ~80 % of the lease; kept open, it mines *forever*.
 
-> **Why keep heartbeats when PoSW is required and heartbeats are pre-signable?** They price different
-> things. The **PoSW lease** is the *anti-Sybil identity cost* — expensive, ~daily — so each identity costs
-> real sequential time to create and keep. The **heartbeat** is the *fine-grained presence signal* — cheap,
-> per-epoch — so eligibility, fidelity, and the **presence dividend** track who's actually here *this epoch*.
-> Pre-signing just makes presence low-bother; it adds no Sybil cost (that's the lease's job). Dropping
-> heartbeats would coarsen presence to ~1-day lease granularity — a miner who did one PoSW and left would
-> keep **collecting the dividend** for a day, and fidelity would lose its per-epoch input. So both stay:
-> **PoSW prices the identity, the heartbeat marks presence** — complementary, both low-bother.
+> **Why no separate per-epoch heartbeat?** An earlier design had one. But once the lease covers the whole
+> ~1-day AFK window (and can be pre-signed), a per-epoch heartbeat is co-terminal with the lease and carries
+> no information the recert doesn't — redundant. Collapsing to one signal is strictly simpler: the recert
+> **prices the identity *and* marks presence**. The ~20 % lane cap stays the hard Sybil bound regardless.
 
 Open-lane selection weight is **capital-free**: a flat floor (`OPEN_BASE_FLOOR = 1`) every present
-identity always gets, plus a diligence ramp to `OPEN_FID_BONUS = 9` over `FIDELITY_CAP = 1000` epochs
-of continuous presence (overall range 1..10). Fidelity now **decays for absence** (`FIDELITY_DECAY`,
-wired in `apply_heartbeat`, revert-symmetric), so it rewards *continuous* presence — a rotated/churned
-identity can't keep a ramp it stopped earning. The single most effective thing you can do is **stay
+identity always gets, plus a diligence ramp to `OPEN_FID_BONUS = 9` over `FIDELITY_CAP = 30` **consecutive
+recerts** (overall range 1..10). Fidelity is **continuity over recerts** (`apply_register`,
+revert-symmetric): a continuous recert adds a step, a lapse resets the streak — so a rotated/churned
+identity can't keep a ramp it stopped paying for. The single most effective thing you can do is **stay
 present**. Mine to **one address** — splitting across addresses gains nothing, and onboarding many
 addresses from one machine is throttled (below).
 
@@ -207,7 +202,7 @@ pair moves it back out after a timelock (see below). Bonded selection weight is
   empty and fills only from this per-block cut.
 - **Fees are destroyed**, not paid to producers — that is what drives the elastic reward (it is a fee
   mechanic, not a "burn"; the old burn-to-bribe mechanic was removed entirely). A deterministic floor
-  `MIN_TX_FEE = 1000` raw applies to ordinary transfers and `bond`; `register`, `heartbeat`, `unbond`,
+  `MIN_TX_FEE = 1000` raw applies to ordinary transfers and `bond`; `register`, `unbond`,
   and `withdraw` are fee-exempt (they move no coins out — `unbond`/`withdraw` only retime the sender's
   own stake).
 - **No free→capital faucet.** Open-lane presence can never mint bonded stake; the only path from free
@@ -339,9 +334,9 @@ http://<node-ip>:9173/static/miner.html
 
 The light-miner (`static/miner.html` + `static/miner.js`) is also a **full wallet**: it generates or
 imports a key, computes the sequential registration **PoSW** in pure JS (byte-identical to the node's
-verifier), registers/renews and heartbeats against the node, and **keeps winning blocks even while the
-phone is locked** — it pre-signs a buffer of heartbeats the relay submits on schedule, and a relay
-assembles the crediting block. It can send/receive with QR payment links and `#pay` deep links,
+verifier), registers/renews its PoSW lease against the node (no heartbeats), and **keeps winning blocks even while the
+phone is locked** — presence is a ~1-day PoSW lease (no per-epoch traffic), and a relay assembles the
+crediting block. It can send/receive with QR payment links and `#pay` deep links,
 bond/unbond, browse the chain, and runs in **16 languages** (browser-locale default) — all from a phone. It also shows
 **how busy each lane is right now** — live **OPEN** and **BONDED** participant counts (from
 `/mining_status` `open_registry_size` / `bonded_registry_size`) alongside your own bonded shares — so a
@@ -511,11 +506,8 @@ of FFG/RANDAO and the outstanding eclipse hardening above, the **documented resi
 - **Registration / fee-exempt state growth** — `register` writes a permanent account doc; `GC_IDLE_EPOCHS`
   is defined but **not yet wired**. Bounded today by the lane cap, per-IP rate limit, mempool cap, and the
   in-block one-register-per-sender dedup; idle-account GC is future work.
-- **`FIDELITY_DECAY` is now wired** — fidelity decays for the gap since an identity's last heartbeat
-  (revert-symmetric), so it measures *continuous* presence rather than cumulative attendance; a
-  **progressive per-range IP registration cap** additionally throttles OPEN-lane onboarding at the relay
-  (a datacenter /24 gets one bounded budget). Both are dampeners, not the Sybil bound — the open-lane
-  ceiling remains the hard bound.
+- **Fidelity is continuity over recerts** — `apply_register` adds a step for each *continuous* recert
+  (gap ≤ the lease) and resets the streak on a lapse; it ramps the open bonus over `FIDELITY_CAP` recerts.
 - **Snapshot bootstrap** trusts an 80%-of-peers quorum with **no hardcoded finalized checkpoint**
   cross-check (weak-subjectivity); a pinned checkpoint is future eclipse hardening.
 
@@ -533,7 +525,7 @@ live.)
   signatures interoperate across implementations. Signatures authenticate transactions/heartbeats and
   are **deliberately never** the randomness source (a malleable signature would be grindable).
 - **Addresses** — `"ndo"` + 42-hex public-key prefix + a 4-hex `blake2b` checksum (49 chars). The
-  keyless reserved recipients `{bond, unbond, withdraw, register, heartbeat, slash, attest, commit,
+  keyless reserved recipients `{bond, unbond, withdraw, register, slash, attest, commit,
   reveal, alias}` are valid as a recipient/target only, never as a sender.
 - **Aliases** — a human-readable name → owner address, so you can **send to a short name instead of the
   49-char `ndo…` address**. Register / transfer / unregister are on-chain ops (reserved recipient
