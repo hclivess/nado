@@ -1537,6 +1537,11 @@ function setAutoBondPct(pct) {
   if (note) note.textContent = pct
     ? `${i18("autobond.onA", "On — saving")} ${pct}% ${i18("autobond.onB", "of new mining rewards each epoch.")}`
     : i18("autobond.off", "Off — mining rewards stay in your spendable balance.");
+  // keep BOTH controls (Stake tab + mining card) in sync, without clobbering the one being typed into
+  for (const id of ["autoBondPct", "autoBondPctMine"]) {
+    const el = $(id);
+    if (el && el !== document.activeElement) el.value = String(pct);
+  }
   return pct;
 }
 
@@ -2081,6 +2086,10 @@ function wireEvents() {
     const apply = () => { const p = setAutoBondPct($("autoBondPct").value); $("autoBondPct").value = String(p); };
     $("autoBondPct").onchange = apply;
     $("autoBondPct").oninput = () => setAutoBondPct($("autoBondPct").value); // live note, no reformat mid-type
+  }
+  if ($("autoBondPctMine")) {   // the same control on the mining card (kept in sync via setAutoBondPct)
+    $("autoBondPctMine").onchange = () => { const p = setAutoBondPct($("autoBondPctMine").value); $("autoBondPctMine").value = String(p); };
+    $("autoBondPctMine").oninput = () => setAutoBondPct($("autoBondPctMine").value);
   }
   $("btnRefreshHist").onclick = () => loadHistory().catch(() => {});
 

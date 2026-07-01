@@ -188,6 +188,13 @@
       <div class="stat" data-i18n-title="tip.locked" title="MINING WHILE LOCKED — your heartbeats are pre-signed and submitted for you, so a locked/asleep phone keeps mining this long. Renewing your post-quantum presence proof (PoSW) needs your phone active, so reopen the app before this runs out — it renews in about a second, automatically. (Sending a transaction always needs your phone unlocked at that moment.)">
         <div class="label" data-i18n="mine.locked">Mining while locked <span class="hint">ⓘ</span></div><div class="value sm" id="mineLocked">—</div></div>
     </div>
+
+    <!-- Auto-bond is also settable right here on the mining interface (kept in sync with the Stake tab). -->
+    <div class="row mt" style="align-items:center;gap:8px" data-i18n-title="tip.autobond" title="While mining, automatically bond this percentage of the block rewards you earn — compounding your bonded-lane weight hands-free. Capped at BOND_CAP; 0 = off. The node has the same option for headless mining (NADO_AUTO_BOND_PERCENT).">
+      <label style="margin:0;flex:1" data-i18n="stake.autobond">Auto-bond mining rewards <span class="hint">ⓘ</span></label>
+      <input id="autoBondPctMine" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="80" autocomplete="off" style="max-width:80px" />
+      <span class="small faint">%</span>
+    </div>
   </div>
 
   <!-- LANE SPLIT -->
