@@ -45,9 +45,20 @@ them: no puzzles to keep solving, no efficient rig to keep running, and no requi
 ## Key features
 
 - **Seamless — one client, any device, one tap.** Every node serves a single browser page (`/`) that
-  is at once the **wallet, block explorer, miner, and alias manager** — no install, no extension, no
-  full node, no signup. Generate a post-quantum wallet, mine, send/receive, register a human-readable
-  **alias**, and browse the chain, all from one link on a phone or a laptop.
+  is at once the **wallet, block explorer, miner, and alias manager** — and, by design, where you'll
+  **interact with contracts** too. No install, no browser extension, no full node, no signup, no
+  seed-phrase ceremony. **Unlike a MetaMask-style extension wallet** — which only *holds keys*, can't
+  mine, and means "install the extension, back up a seed, buy gas, connect to a dApp" before you do
+  anything — NADO is just a URL. Open it and you're already a full participant: generate a post-quantum
+  wallet, mine, send/receive, register a human-readable **alias**, and browse the chain, all from one
+  link on any phone or laptop.
+
+> **Share the link, and the barrier to entry collapses.** Because the whole experience is one page with
+> no install step, onboarding *is* sending a link. Drop it in a school group chat and whoever opens it is
+> instantly mining — and each of them shares it again. No app store, no wallet setup, no gas to buy
+> first: the distance between "hears about NADO" and "is mining and transacting on NADO" is a single tap.
+> Lower the barrier to entry to a shared URL and let it spread — one classroom becomes the whole school.
+> That is the growth thesis.
 - **Phone-mineable.** Block production is one hash per slot over a public beacon, not a race — a
   phone competes on equal terms with a datacenter. Winners are credited **by address**, so a phone
   can win a block while its tab is closed and a relay assembles the block on its behalf.

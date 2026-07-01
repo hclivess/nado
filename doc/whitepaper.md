@@ -79,10 +79,21 @@ first-class goal: **the whole experience must be seamless.**
   no install, no extension, no full node, no account signup. Open the link on a
   phone and you can generate a post-quantum wallet, mine, send/receive, register a
   human-readable **alias** to receive to a name instead of a 49-char address,
-  browse blocks and accounts, and see the live network — all in one place, all
+  browse blocks and accounts, and see the live network — and, by design, **interact
+  with contracts** (the separate execution layer, §Roadmap) — all in one place, all
   reproduced byte-for-byte in the browser. **Full interaction with the chain, one
   click away, from anything with a browser.** This is the organizing principle the
   rest of the design serves.
+
+  Contrast a browser-extension wallet (MetaMask and its kin): it only *holds keys*,
+  cannot mine, and gates every first action behind install-the-extension, back-up-a-
+  seed, buy-gas, connect-to-a-dApp, switch-networks. NADO collapses that funnel to a
+  URL. And because the whole thing is one shareable page with no install step,
+  **onboarding is sending a link**: drop it in a group chat and whoever opens it is
+  immediately a full participant — mining, transacting, resolving aliases — who can
+  share it onward. The distance from "hears about it" to "is mining on it" is one tap;
+  a single classroom becomes a school. Lowering the barrier to entry to a shared URL,
+  and letting the network effect run, is a first-class design goal, not an afterthought.
 - **Phone-mineable.** Block production is decided by a single hash per slot over
   a public beacon, not by a hash race. There is nothing to grind, so a phone
   competes on equal terms with a datacenter. A winner is credited *by address*,
