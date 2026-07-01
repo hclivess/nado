@@ -109,7 +109,7 @@ def match_transactions_target(transaction_list, block_number, logger):
 
 
 def get_block_candidate(
-        block_producers, block_producers_hash, transaction_pool, logger, event_bus, latest_block, block_time
+        block_producers, block_producers_hash, transaction_pool, logger, latest_block, block_time
 ):
     block_number = latest_block["block_number"] + 1
 

@@ -5,7 +5,6 @@ import time
 import traceback
 
 from config import get_timestamp_seconds
-from event_bus import EventBus
 from loops.consensus_loop import change_trust
 from ops.account_ops import increase_produced_count, change_balance, get_totals, index_totals, get_bonded_registry, get_open_registry, set_finalized_height, get_finalized_height, get_account
 from ops.block_ops import (
@@ -83,7 +82,6 @@ class CoreClient(threading.Thread):
         self.memserver = memserver
         self.consensus = consensus
         self.run_interval = 1
-        self.event_bus = EventBus()
         self.consecutive = 0
         self.snapshot_attempted = False
         # AUDIT FIX (honest-signer guard): the highest block height we've attached our detached winner
@@ -210,7 +208,6 @@ class CoreClient(threading.Thread):
                     block_candidate = get_block_candidate(block_producers=block_producers,
                                                           block_producers_hash=self.memserver.block_producers_hash,
                                                           logger=self.logger,
-                                                          event_bus=self.event_bus,
                                                           transaction_pool=self.memserver.transaction_pool.copy(),
                                                           latest_block=self.memserver.latest_block,
                                                           block_time=self.memserver.block_time
