@@ -127,6 +127,7 @@ B_MIN = protocol.B_MIN                          # raw per bonded selection share
 BOND_CAP = protocol.BOND_CAP                    # max effective bond per identity (10k NADO)
 MIN_TX_FEE = protocol.MIN_TX_FEE                # deterministic min fee (raw)
 AUTO_BOND_MIN_RAW = protocol.AUTO_BOND_MIN_RAW  # dust floor for an auto-bond (0.001 NADO)
+AUTO_BOND_DEFAULT_PERCENT = protocol.AUTO_BOND_DEFAULT_PERCENT  # default auto-bond % when unset (80)
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9173
@@ -1139,8 +1140,11 @@ class WalletWindow(QMainWindow):
         self.block_time = 60.0
         self.mining_active = False
         self._last_hb_epoch = None
-        # AUTO-BOND (opt-in): compound a % of newly-mined earnings into bonded stake while mining.
-        self.auto_bond_pct = int(store.get("auto_bond_pct", 0) or 0)
+        # AUTO-BOND: compound a % of newly-mined earnings into bonded stake while mining. Defaults to
+        # AUTO_BOND_DEFAULT_PERCENT (80) when the user has never chosen one; an explicit stored 0 (off)
+        # is honoured (so we distinguish "unset" from "off" rather than using `or`, which would map 0->80).
+        _ab = store.get("auto_bond_pct")
+        self.auto_bond_pct = AUTO_BOND_DEFAULT_PERCENT if _ab is None else max(0, min(100, int(_ab)))
         self.auto_bond_baseline = None
         self._last_auto_bond_epoch = None
 

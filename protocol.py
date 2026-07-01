@@ -65,6 +65,11 @@ MIN_TX_FEE = 1000
 # only fires once the accrued amount-to-bond reaches it, so each bond tx dwarfs its own fee instead of
 # spamming tiny bonds. Purely a client default — nodes/clients may mirror or override it freely.
 AUTO_BOND_MIN_RAW = 10_000_000     # 0.001 NADO: smallest worthwhile auto-bond (10,000x MIN_TX_FEE)
+# Default auto-bond percentage applied when the operator/user has NOT chosen one (fresh node config,
+# a browser with no saved preference, a new desktop wallet). 80 = route 80% of newly-mined spendable
+# earnings into bonded stake out of the box, so miners join the capital-gated bonded lane hands-free
+# without ever touching a setting. Still fully overridable (config / env / UI), and 0 explicitly = off.
+AUTO_BOND_DEFAULT_PERCENT = 80
 
 # --- Mining: TWO-LANE diligence selection (PROVISIONAL — simulate before lock-in) ---
 # Each epoch's slots split into an OPEN lane (anyone, zero coins) and a BONDED lane (locked stake).

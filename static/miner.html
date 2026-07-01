@@ -248,10 +248,10 @@
         <span class="hint" title="While this tab is mining, automatically bond this percentage of the block rewards you earn — compounding your bonded-lane weight hands-free. Capped at BOND_CAP; 0 = off. The node itself has the same option for headless mining (auto_bond_percent / NADO_AUTO_BOND_PERCENT).">ⓘ</span>
       </label>
       <div class="mt" style="display:flex;align-items:center;gap:10px">
-        <input id="autoBondPct" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="0" autocomplete="off" style="max-width:96px" />
+        <input id="autoBondPct" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="80" autocomplete="off" style="max-width:96px" />
         <span class="faint">% of new rewards → bonded</span>
       </div>
-      <div id="autoBondNote" class="small faint mt">Off — mining rewards stay in your spendable balance.</div>
+      <div id="autoBondNote" class="small faint mt">On — bonding 80% of new mining rewards each epoch (auto-compounding the bonded lane). Set 0 to keep rewards spendable.</div>
     </div>
 
     <label class="mt">Unbond amount (NADO) — move bonded → spendable

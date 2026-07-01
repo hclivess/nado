@@ -291,7 +291,7 @@ const state = {
   recommendedFee: null,
   // AUTO-BOND (client-side, opt-in): compound a % of newly-mined earnings straight into bonded stake
   // while mining, at most once per epoch. baseline = last balance we've accounted for.
-  autoBondPct: 0,
+  autoBondPct: 80,     // AUTO_BOND_DEFAULT_PCT (const declared below); boot overwrites w/ saved pref
   autoBondBaseline: null,
   lastAutoBondEpoch: null,
 };
@@ -400,6 +400,7 @@ function nadoToRaw(amountStr) {
 const LS_WALLET = "nado_miner_wallet";
 const LS_RELAY = "nado_miner_relay";
 const LS_AUTOBOND = "nado_autobond_pct";   // persisted auto-bond percentage (0..100)
+const AUTO_BOND_DEFAULT_PCT = 80;          // default when the user has never set one (matches protocol.AUTO_BOND_DEFAULT_PERCENT)
 const LS_PENDING_PAY = "nado_pending_pay"; // sessionStorage: a pay-request awaiting wallet setup
 
 function persistWallet(w) { localStorage.setItem(LS_WALLET, JSON.stringify(w)); }
@@ -1173,7 +1174,9 @@ async function doBond(kind) {
 function setAutoBondPct(pct) {
   pct = Math.max(0, Math.min(100, Math.floor(Number(pct) || 0)));
   state.autoBondPct = pct;
-  try { if (pct) localStorage.setItem(LS_AUTOBOND, String(pct)); else localStorage.removeItem(LS_AUTOBOND); } catch (e) {}
+  // Always persist — INCLUDING 0 — so an explicit "off" is remembered and does NOT fall back to the
+  // AUTO_BOND_DEFAULT_PCT (80%) default on the next load (which only applies when nothing was ever set).
+  try { localStorage.setItem(LS_AUTOBOND, String(pct)); } catch (e) {}
   const note = $("autoBondNote");
   if (note) note.textContent = pct
     ? `On — bonding ${pct}% of new mining rewards each epoch (auto-compounding the bonded lane).`
@@ -1491,7 +1494,7 @@ function wireEvents() {
   $("btnBond").onclick = () => doBond("bond");
   $("btnUnbond").onclick = () => doBond("unbond");
   if ($("autoBondPct")) {
-    const apply = () => { const p = setAutoBondPct($("autoBondPct").value); $("autoBondPct").value = p ? String(p) : ""; };
+    const apply = () => { const p = setAutoBondPct($("autoBondPct").value); $("autoBondPct").value = String(p); };
     $("autoBondPct").onchange = apply;
     $("autoBondPct").oninput = () => setAutoBondPct($("autoBondPct").value); // live note, no reformat mid-type
   }
@@ -1541,9 +1544,12 @@ async function boot() {
 
   // auto-bond preference (persisted %); reflect it into the Stake-tab control + the status note
   try {
-    const saved = parseInt(localStorage.getItem(LS_AUTOBOND) || "0", 10);
-    const p = setAutoBondPct(Number.isFinite(saved) ? saved : 0);
-    if ($("autoBondPct")) $("autoBondPct").value = p ? String(p) : "";
+    // No saved preference at all -> the 80% default (auto-bond on out of the box). A stored value
+    // (including "0" for explicit off) is honoured verbatim.
+    const raw = localStorage.getItem(LS_AUTOBOND);
+    const saved = raw === null ? AUTO_BOND_DEFAULT_PCT : (parseInt(raw, 10) || 0);
+    const p = setAutoBondPct(saved);
+    if ($("autoBondPct")) $("autoBondPct").value = String(p);
   } catch (e) {}
 
   try {
