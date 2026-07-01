@@ -285,7 +285,7 @@ function buildRegisterTx(wallet, targetBlock, powNonce, timestamp) {
 // registered===1), so the sender's pubkey is already established — OMIT the 1312-byte public_key.
 // This is the main PUBKEY-ONCE leanness payoff: heartbeats repeat every epoch, so dropping the key
 // saves ~2.6 KB of hex on every single one. The node recovers the pubkey from chain to verify.
-function buildHeartbeatTx(wallet, targetBlock, epoch, timestamp) {
+function buildHeartbeatTx(wallet, targetBlock, epoch, timestamp, includePubkey = false) {
   const draft = {
     sender: wallet.address,
     recipient: "heartbeat",
@@ -297,6 +297,8 @@ function buildHeartbeatTx(wallet, targetBlock, epoch, timestamp) {
     chain_id: CHAIN_ID,
     epoch,
   };
+  // pubkey-once normally omits the key; carry it on a self-heal retry so pubkey recovery can't be at fault
+  if (includePubkey) draft.public_key = wallet.publicKey;
   return finalizeTransaction(draft, wallet.privateKey, 0);
 }
 
@@ -670,9 +672,21 @@ async function sendHeartbeat() {
 
   state.heartbeating = true;
   try {
-    const tx = buildHeartbeatTx(state.wallet, targetBlock, epoch, nowSeconds());
-    const res = await submitTransaction(tx);
-    const m = (res.data && (res.data.message || JSON.stringify(res.data))) || "";
+    let tx = buildHeartbeatTx(state.wallet, targetBlock, epoch, nowSeconds());
+    let res = await submitTransaction(tx);
+    let m = (res.data && (res.data.message || JSON.stringify(res.data))) || "";
+    // SELF-HEAL: a phone throttled while locked can produce a rejected signature. Rebuild + re-sign once
+    // against a fresh tip, carrying the pubkey, before surfacing an error — so mining doesn't stall.
+    if (!(res.data && res.data.result) && /invalid signature|invalid sender/i.test(m)) {
+      const fresh = await getLatestBlock();
+      const tb = (fresh && typeof fresh.block_number === "number") ? fresh.block_number + 8 : targetBlock;
+      const ep = Math.floor(tb / EPOCH_LENGTH);
+      if (ep === epoch) {                            // only retry if still the same epoch
+        tx = buildHeartbeatTx(state.wallet, tb, ep, nowSeconds(), true);
+        res = await submitTransaction(tx);
+        m = (res.data && (res.data.message || JSON.stringify(res.data))) || "";
+      }
+    }
     if (res.data && res.data.result) {
       state.lastHeartbeatEpoch = epoch;
       log("ok", `Heartbeat sent for epoch ${epoch} (target_block ${targetBlock}).`);
