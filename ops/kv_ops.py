@@ -49,11 +49,11 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   commits           "sender|target_epoch"    -> commitment                                   (RANDAO #7)
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
-_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds")
+_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert")
 _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "heartbeats", "attestations", "reveals")
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
-ACCOUNT_FIELDS = ("balance", "produced", "bonded", "registered", "fidelity")
+ACCOUNT_FIELDS = ("balance", "produced", "bonded", "registered", "fidelity", "last_hb_epoch")
 
 _TOTALS_KEY = b"totals"
 
@@ -677,6 +677,53 @@ def heartbeat_gc(max_epoch_inclusive: int):
                     stale_keys.append(bytes(k))
         for k in stale_keys:
             txn.delete(k, db=hdb)  # deletes ALL dups for the key
+    _write(_do)
+
+
+def hb_revert_put(epoch: int, address: str, prev_epoch: int, net_delta: int):
+    """FIDELITY DECAY (revert record): store the EXACT inverse of a heartbeat's fidelity update — the
+    account's PREVIOUS last-seen epoch and the NET fidelity delta applied — keyed (epoch,address), plain
+    KV. Rollback reads this to restore fidelity + last_hb_epoch byte-identically. Written inside the
+    incorporate write txn (atomic with the heartbeat itself)."""
+    def _do(txn):
+        txn.put(be8(epoch) + address.encode(),
+                _pack([int(prev_epoch), int(net_delta)]), db=_dbs()["hb_revert"])
+    _write(_do)
+
+
+def hb_revert_pop(epoch: int, address: str):
+    """Read + DELETE the revert record for (epoch,address); returns (prev_epoch, net_delta) or None
+    (None => nothing to invert, e.g. a heartbeat from before this feature). Runs in the active txn."""
+    def _do(txn):
+        key = be8(epoch) + address.encode()
+        raw = txn.get(key, db=_dbs()["hb_revert"])
+        if raw is None:
+            return None
+        txn.delete(key, db=_dbs()["hb_revert"])
+        prev, net = _unpack(raw)
+        return int(prev), int(net)
+    return _write(_do)
+
+
+def hb_revert_gc(max_epoch_inclusive: int):
+    """Drop revert records with epoch <= max_epoch_inclusive — older than any rollback window, so never
+    needed again (mirrors heartbeat_gc; NOT reverted). No-op when negative. Keys are be8(epoch)+address,
+    so the 8-byte epoch prefix sorts first and we can stop at the ceiling."""
+    if max_epoch_inclusive < 0:
+        return
+
+    def _do(txn):
+        rdb = _dbs()["hb_revert"]
+        ceiling = be8(max_epoch_inclusive)
+        stale = []
+        with txn.cursor(db=rdb) as cur:
+            if cur.first():
+                for k in cur.iternext(keys=True, values=False):
+                    if bytes(k[:8]) > ceiling:
+                        break
+                    stale.append(bytes(k))
+        for k in stale:
+            txn.delete(k, db=rdb)
     _write(_do)
 
 

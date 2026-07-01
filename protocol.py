@@ -140,8 +140,12 @@ GC_IDLE_EPOCHS = 1000              # prune registry rows idle this long (bounds 
 # automated fidelity / continuity (signed software heartbeats — NO manual ceremony, NOT IDENA-style)
 FIDELITY_CAP = 1000                # epochs of continuous presence to fully ramp the open bonus
 FIDELITY_GAIN = 1                  # per epoch present
-FIDELITY_DECAY = 1                 # per epoch absent (== gain: mobile-friendly; fidelity is only a
-                                   # ~10x booster, NOT the Sybil bound, so harsh anti-churn is harmful)
+FIDELITY_DECAY = 1                 # per epoch absent — NOW WIRED (account_ops.apply_heartbeat): fidelity
+                                   # decays for the gap since the last heartbeat, so it measures CONTINUOUS
+                                   # presence (a churned/rotated Sybil cannot keep a ramp it stopped
+                                   # earning). == gain: mobile-friendly (a phone missing a few epochs is not
+                                   # wiped); it's only a ~10x booster, NOT the Sybil bound, so harsh
+                                   # anti-churn would be counterproductive.
 
 # Seed for the per-epoch selection beacon (S4.3). Epochs 0-1 use this fixed constant directly
 # (no finalized prior epoch exists yet); epoch>=2 chains it with the hash of the first block of

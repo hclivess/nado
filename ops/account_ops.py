@@ -1,6 +1,6 @@
 from ops import kv_ops
 from ops.address_ops import make_address
-from protocol import B_MIN, EPOCH_LENGTH, PRESENCE_WINDOW, FIDELITY_GAIN, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY
+from protocol import B_MIN, EPOCH_LENGTH, PRESENCE_WINDOW, FIDELITY_GAIN, FIDELITY_DECAY, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY
 
 # Account state lives in the schemaless `accounts` sub-DB as a msgpack document keyed by address
 # (see ops/kv_ops.py). Missing fields default to 0 on read, so adding a field (as we did with
@@ -283,12 +283,35 @@ def apply_heartbeat(address: str, epoch: int, logger, revert=False):
     outside any rollback/read window)."""
     if not revert:
         kv_ops.heartbeat_put(epoch, address)
-        # ANTI-BLOAT GC: drop heartbeats older than the presence window. get_open_registry only reads
-        # epoch > current - PRESENCE_WINDOW, and rollbacks are bounded (max_rollbacks < EPOCH_LENGTH
-        # << PRESENCE_WINDOW epochs), so these dups are never read or reverted again — bounds the
-        # sub-DB so a slow distributed spammer cannot grow it without limit.
+        # FIDELITY with ABSENCE DECAY (continuous-presence, anti-Sybil): decay for the gap since the
+        # account's last heartbeat, CAPPED at its current fidelity so the result never floors (=> the
+        # net change is exactly invertible), then +GAIN for this epoch's presence.
+        acc = kv_ops.get_account(address)
+        cur_fid = int(acc.get("fidelity", 0)) if acc else 0
+        prev = int(acc.get("last_hb_epoch", 0)) if acc else 0    # 0 = never / genesis => no gap
+        gap = max(0, epoch - prev - 1) if prev > 0 else 0
+        decay = min(cur_fid, FIDELITY_DECAY * gap)
+        net = FIDELITY_GAIN - decay                              # cur_fid + net >= GAIN >= 0 (never floors)
+        if not kv_ops.account_adjust(address, "fidelity", net, floor_zero=True):
+            logger.error(f"Fidelity adjust underflow for {address} (net={net})")
+            raise AssertionError(f"Fidelity underflow for {address}")
+        kv_ops.account_set(address, "last_hb_epoch", epoch)
+        kv_ops.hb_revert_put(epoch, address, prev, net)          # exact inverse for rollback
+        # ANTI-BLOAT GC: drop presence + revert rows older than the presence window. get_open_registry
+        # only reads epoch > current - PRESENCE_WINDOW and rollbacks are bounded (max_rollbacks <
+        # EPOCH_LENGTH << PRESENCE_WINDOW epochs), so these rows are never read or reverted again.
         kv_ops.heartbeat_gc(epoch - PRESENCE_WINDOW)
+        kv_ops.hb_revert_gc(epoch - PRESENCE_WINDOW)
     else:
         kv_ops.heartbeat_del(epoch, address)
-    change_fidelity(address=address, amount=FIDELITY_GAIN, logger=logger, revert=revert)
+        rec = kv_ops.hb_revert_pop(epoch, address)
+        if rec is not None:
+            prev, net = rec
+            if not kv_ops.account_adjust(address, "fidelity", -net, floor_zero=True):
+                logger.error(f"Fidelity revert underflow for {address} (net={net})")
+                raise AssertionError(f"Fidelity revert underflow for {address}")
+            kv_ops.account_set(address, "last_hb_epoch", prev)   # restore exactly (byte-identical)
+        else:
+            # No revert record (a pre-decay heartbeat) -> legacy exact -GAIN inverse.
+            change_fidelity(address=address, amount=FIDELITY_GAIN, logger=logger, revert=True)
     return True
