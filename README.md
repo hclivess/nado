@@ -481,7 +481,12 @@ live.)
   are **deliberately never** the randomness source (a malleable signature would be grindable).
 - **Addresses** — `"ndo"` + 42-hex public-key prefix + a 4-hex `blake2b` checksum (49 chars). The
   keyless reserved recipients `{bond, unbond, withdraw, register, heartbeat, slash, attest, commit,
-  reveal}` are valid as a recipient/target only, never as a sender.
+  reveal, alias}` are valid as a recipient/target only, never as a sender.
+- **Aliases** — a human-readable name → owner address, so you can **send to a short name instead of the
+  49-char `ndo…` address**. Register / transfer / unregister are on-chain ops (reserved recipient
+  `alias`); an ordinary transfer whose recipient is a registered alias credits the alias's current
+  owner. See [`doc/aliases.md`](doc/aliases.md); the light-miner's Send field accepts an alias and its
+  Receive tab manages them.
 - **Hashing & serialization** — BLAKE2b over `canonical_bytes()` (compact, sorted-key, ASCII JSON,
   float-free). Every consensus integer is a raw integer, so a browser reproduces identical bytes with
   BigInt-aware serialization. Transaction ids and blocks bind `CHAIN_ID = "nado-relaunch-1"`, blocking

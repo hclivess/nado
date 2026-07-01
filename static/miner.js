@@ -1475,7 +1475,8 @@ function showTab(name) {
   document.querySelectorAll("#tabbar .tab").forEach((b) => b.classList.toggle("active", b.dataset.tabbtn === name));
   document.querySelectorAll("[data-tab]").forEach((el) => el.classList.toggle("hidden", el.dataset.tab !== name));
   if (name !== "send") show("payBanner", false); // the pay-request banner belongs to the Send tab only
-  if (name === "receive") { renderReceiveQR(); loadMyAliases(); }
+  if (name === "receive") renderReceiveQR();
+  else if (name === "aliases") loadMyAliases();
   else if (name === "history") loadHistory().catch(() => {});
   else if (name === "send") updateFeeInfo().catch(() => {});
   else if (name === "stake") { updateFeeInfo().catch(() => {}); refreshDashboard().catch(() => {}); }
