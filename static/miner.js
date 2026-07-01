@@ -1229,6 +1229,32 @@ function downloadKeyFile() {
   log("info", "Downloaded key file for " + w.address.slice(0, 12) + "…");
 }
 
+/* Import a wallet from a key FILE (the mirror of downloadKeyFile): reads the JSON produced by
+ * downloadKeyFile and adopts the wallet from its private_key. Also tolerates a plain-hex-only file. */
+function importKeyFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const text = String(reader.result || "").trim();
+      let priv;
+      try {
+        const obj = JSON.parse(text);
+        priv = obj.private_key || obj.privateKey || obj.private || obj.seed;   // our keyfile schema
+      } catch (e) {
+        priv = text;                                   // fall back: a raw 64-hex seed in a bare file
+      }
+      if (!priv) throw new Error(i18("import.noKey", "no private key found in the file"));
+      adoptWallet(keypairFromPriv(String(priv).trim()), { needsSavePrompt: false });
+      log("info", "Imported key from file.");
+    } catch (e) {
+      alert(i18("import.fileFailed", "Import from file failed:") + " " + e.message);
+    }
+  };
+  reader.onerror = () => alert(i18("import.readErr", "Could not read the file."));
+  reader.readAsText(file);
+}
+
 /* The network fee is a tiny fixed protocol minimum (destroyed, not paid out). We hide the raw-unit
  * complexity entirely: the user never types a fee — we apply the relay's recommended fee (floored at
  * MIN_TX_FEE) automatically and just DISPLAY it in NADO. Returns the fee in RAW units. */
@@ -1894,6 +1920,11 @@ function wireEvents() {
   $("btnDlKey").onclick = downloadKeyFile;
   $("btnDlKeySave").onclick = downloadKeyFile;
   $("btnDlKeySettings").onclick = downloadKeyFile;
+  if ($("btnImportFile")) $("btnImportFile").onclick = () => $("importFile").click();
+  if ($("importFile")) $("importFile").onchange = (e) => {
+    importKeyFile(e.target.files && e.target.files[0]);
+    e.target.value = "";                               // allow re-selecting the same file later
+  };
 
   document.querySelectorAll("#tabbar .tab").forEach((b) => { b.onclick = () => showTab(b.dataset.tabbtn); });
 

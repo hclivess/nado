@@ -528,6 +528,27 @@
   };
   for (const l in T10) Object.assign(T[l], T10[l]);
 
+  // Import a key FROM a file (mirror of the download-key-file button).
+  const T11 = {
+    en: { "btn.importFile":"⤒ Import key file (JSON)","import.or":"— or —","import.noKey":"no private key found in the file","import.fileFailed":"Import from file failed:","import.readErr":"Could not read the file." },
+    cs: { "btn.importFile":"⤒ Importovat soubor s klíčem (JSON)","import.or":"— nebo —","import.noKey":"v souboru nebyl nalezen žádný soukromý klíč","import.fileFailed":"Import ze souboru selhal:","import.readErr":"Soubor se nepodařilo přečíst." },
+    es: { "btn.importFile":"⤒ Importar archivo de clave (JSON)","import.or":"— o —","import.noKey":"no se encontró ninguna clave privada en el archivo","import.fileFailed":"Error al importar desde el archivo:","import.readErr":"No se pudo leer el archivo." },
+    pt: { "btn.importFile":"⤒ Importar ficheiro de chave (JSON)","import.or":"— ou —","import.noKey":"nenhuma chave privada encontrada no ficheiro","import.fileFailed":"Falha ao importar do ficheiro:","import.readErr":"Não foi possível ler o ficheiro." },
+    fr: { "btn.importFile":"⤒ Importer un fichier de clé (JSON)","import.or":"— ou —","import.noKey":"aucune clé privée trouvée dans le fichier","import.fileFailed":"Échec de l'import depuis le fichier :","import.readErr":"Impossible de lire le fichier." },
+    de: { "btn.importFile":"⤒ Schlüsseldatei importieren (JSON)","import.or":"— oder —","import.noKey":"keinen privaten Schlüssel in der Datei gefunden","import.fileFailed":"Import aus Datei fehlgeschlagen:","import.readErr":"Die Datei konnte nicht gelesen werden." },
+    it: { "btn.importFile":"⤒ Importa file della chiave (JSON)","import.or":"— oppure —","import.noKey":"nessuna chiave privata trovata nel file","import.fileFailed":"Importazione dal file non riuscita:","import.readErr":"Impossibile leggere il file." },
+    ru: { "btn.importFile":"⤒ Импорт файла ключа (JSON)","import.or":"— или —","import.noKey":"в файле не найден закрытый ключ","import.fileFailed":"Не удалось импортировать из файла:","import.readErr":"Не удалось прочитать файл." },
+    zh: { "btn.importFile":"⤒ 导入密钥文件（JSON）","import.or":"— 或 —","import.noKey":"文件中未找到私钥","import.fileFailed":"从文件导入失败：","import.readErr":"无法读取该文件。" },
+    ja: { "btn.importFile":"⤒ 鍵ファイルを読み込む（JSON）","import.or":"— または —","import.noKey":"ファイルに秘密鍵が見つかりません","import.fileFailed":"ファイルからの読み込みに失敗:","import.readErr":"ファイルを読み込めませんでした。" },
+    ko: { "btn.importFile":"⤒ 키 파일 가져오기 (JSON)","import.or":"— 또는 —","import.noKey":"파일에서 개인 키를 찾을 수 없습니다","import.fileFailed":"파일에서 가져오기 실패:","import.readErr":"파일을 읽을 수 없습니다." },
+    ar: { "btn.importFile":"⤒ استيراد ملف المفتاح (JSON)","import.or":"— أو —","import.noKey":"لم يُعثر على مفتاح خاص في الملف","import.fileFailed":"فشل الاستيراد من الملف:","import.readErr":"تعذّرت قراءة الملف." },
+    hi: { "btn.importFile":"⤒ कुंजी फ़ाइल आयात करें (JSON)","import.or":"— या —","import.noKey":"फ़ाइल में कोई निजी कुंजी नहीं मिली","import.fileFailed":"फ़ाइल से आयात विफल:","import.readErr":"फ़ाइल पढ़ी नहीं जा सकी।" },
+    tr: { "btn.importFile":"⤒ Anahtar dosyasını içe aktar (JSON)","import.or":"— veya —","import.noKey":"dosyada özel anahtar bulunamadı","import.fileFailed":"Dosyadan içe aktarma başarısız:","import.readErr":"Dosya okunamadı." },
+    id: { "btn.importFile":"⤒ Impor berkas kunci (JSON)","import.or":"— atau —","import.noKey":"tidak ada kunci privat ditemukan dalam berkas","import.fileFailed":"Impor dari berkas gagal:","import.readErr":"Tidak dapat membaca berkas." },
+    vi: { "btn.importFile":"⤒ Nhập tệp khóa (JSON)","import.or":"— hoặc —","import.noKey":"không tìm thấy khóa riêng trong tệp","import.fileFailed":"Nhập từ tệp thất bại:","import.readErr":"Không thể đọc tệp." }
+  };
+  for (const l in T11) Object.assign(T[l], T11[l]);
+
   const NAMES = { en:"English", cs:"Čeština", es:"Español", pt:"Português", fr:"Français", de:"Deutsch", it:"Italiano",
     ru:"Русский", zh:"中文", ja:"日本語", ko:"한국어", ar:"العربية", hi:"हिन्दी", tr:"Türkçe",
     id:"Bahasa Indonesia", vi:"Tiếng Việt" };

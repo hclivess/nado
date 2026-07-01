@@ -66,6 +66,9 @@
       <label data-i18n="import.label">Private key (64-hex ML-DSA-44 seed)</label>
       <input id="importKey" placeholder="e.g. 4d3c2b1a…" autocomplete="off" spellcheck="false" />
       <button id="btnImport" class="accent mt" style="width:100%" data-i18n="btn.import">Import</button>
+      <div class="muted mt" style="text-align:center" data-i18n="import.or">— or —</div>
+      <input id="importFile" type="file" accept="application/json,.json" style="display:none" />
+      <button id="btnImportFile" class="ghost mt" style="width:100%" data-i18n="btn.importFile">⤒ Import key file (JSON)</button>
     </div>
   </div>
 
