@@ -158,16 +158,33 @@ reproducible by a browser client. *(implemented)*
 
 Open-lane participation costs no coins. An identity:
 
-1. **Registers** once by solving a light registration proof-of-work
-   (`REGISTER_POW_BITS = 16`; hash must be `< 2**(256-16)`, with the nonce bound
-   to the sender address). This substitutes for the network fee that a
-   zero-balance newcomer cannot pay. It is an **anti-spam throttle, not the Sybil
-   defense** — the lane cap is. *(implemented)*
+1. **Registers** by computing a **sequential Proof-of-Work (PoSW)** — a length-`POSW_T`
+   hash chain whose steps are inherently serial (`h_i = H(h_{i-1})`), so a GPU/ASIC gains
+   only a bounded constant speedup and cannot mint identities in bulk, while the verifier
+   checks only a few Fiat-Shamir-selected segments with Merkle openings (`O(k·S)`, not
+   `O(T)`). It is **post-quantum**: it assumes only that blake2b is a good hash — no trusted
+   setup, no unknown-order group, no elliptic curve; Grover merely halves the hash security
+   and gives *no* speedup on the sequential evaluation (unlike an algebraic VDF, which Shor
+   breaks along with ECC). Unlike the retired hashcash it is **verified in consensus** —
+   `validate_transaction` re-runs `posw.verify` for every `register` in every block on every
+   node, so a malicious relay cannot admit a bogus registration (the block is rejected and the
+   peer down-trusted). The challenge binds `sender ‖ hash(block[target_block − POSW_ANCHOR_OFFSET])`
+   — a *finalized* anchor (offset ≥ finality depth, so all nodes derive it identically) — making
+   the proof un-precomputable and non-reusable across identities. *(implemented)*
+
+   Registration is a **renewable presence lease**: a valid PoSW grants open-lane eligibility for
+   `POSW_LEASE_EPOCHS` (~1 day); to stay eligible an identity renews with a *fresh* PoSW (each
+   recorded in a revert-safe `recerts` store; `get_open_registry` requires a recert within the
+   lease). This converts a one-time entry cost into a **continuous per-identity upkeep cost** —
+   a Sybil farm must keep spending sequential time on every mask, forever, not just once. The
+   structural `OPEN_BPS` lane cap remains the *hard* Sybil bound; the PoSW lease prices identity
+   creation **and upkeep** in real, non-parallelizable time on top. *(implemented)*
 2. **Heartbeats** each epoch with a signed, fee-exempt, zero-amount transaction.
-   Presence is required: `get_open_registry` includes only registered addresses
-   with a heartbeat within the last `PRESENCE_WINDOW = 3` epochs. Membership is
-   derived from the heartbeat index, so an abandoned registration simply drops
-   out with no decay bookkeeping. *(implemented)*
+   Presence is required: `get_open_registry` includes only registered addresses (with a valid
+   lease) that have a heartbeat within the last `PRESENCE_WINDOW = 3` epochs. Because a locked
+   phone's browser tab is suspended, the client can **pre-sign** a rolling buffer of future-dated
+   heartbeats and hand them to a relay, which injects each into the mempool on schedule — so a
+   **locked/asleep phone keeps mining** until its lease lapses. *(implemented)*
 
 An open identity's selection weight is **capital-free**: a flat floor
 `OPEN_BASE_FLOOR = 1` that every present identity always receives (never scaled
@@ -450,7 +467,8 @@ recursively sorted keys (BigInt is required because raw amounts exceed JS's
 - **Validation.** The sender must be a real keyed address (`allow_reserved=False`);
   recipient/target must be checksum-valid *or* reserved; `amount` and `fee` must
   be integers (not bool, not float) with `amount >= 0`. Register requires a valid
-  one-time PoW and not-already-registered; heartbeat requires
+  **sequential PoSW** (`posw.verify` over the sender ‖ finalized-anchor challenge) and is a
+  renewable lease (re-registration is allowed — it renews presence); heartbeat requires
   `epoch == block_height // EPOCH_LENGTH` (anti-replay) from a registered address.
   *(implemented)*
 
@@ -526,10 +544,11 @@ is simultaneously:
 - a **wallet** — generate/import a post-quantum key, transfer, bond/unbond, QR +
   `#pay` deep links, history, key-file download, `localStorage` persistence;
 - a **miner** — it reproduces the node's canonical encoding and crypto exactly
-  (addresses, txids, ML-DSA-44 signatures), solves the 16-bit registration PoW in
-  pure JS (chunked/cancellable), then registers and heartbeats against a relay that
-  assembles the crediting block, and keeps mining across a phone lock (screen wake
-  lock + resume-on-foreground);
+  (addresses, txids, ML-DSA-44 signatures) and computes the **sequential registration
+  PoSW** in pure JS, byte-for-byte identical to the node's verifier (chunked so it never
+  freezes the UI); it registers, auto-renews its presence lease, and heartbeats against a
+  relay that assembles the crediting block, and **keeps mining while the phone is locked**
+  by pre-signing a buffer of future heartbeats the relay submits on schedule;
 - a **block explorer** (the *Explore* tab) — search by address / **alias** / block
   number / block hash / txid, browse recent blocks, and read live network + lane
   stats, all from the node's public JSON API;
@@ -924,7 +943,9 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | `BOND_CAP` | `1e14` (10,000 NADO) | Max effective bond per identity (anti-whale). |
 | `MAX_SHARES` | `100` (= `BOND_CAP//B_MIN`) | Variance cap; max bonded shares one identity wields. |
 | `BOND_UNLOCK_DELAY` | `1440` blocks | Unbond timelock — **enforced**: `unbond` is a release request (stake stays bonded + slashable); fee-exempt `withdraw` claims it at/after `release_block = current + 1440`. |
-| `REGISTER_POW_BITS` | `16` | One-time open-lane registration PoW (~1s in-browser); fee substitute, not the Sybil bound. |
+| `POSW_T` / `POSW_S` / `POSW_K` | `1_000_000` / `2_000` / `20` | Sequential registration Proof-of-Work: chain length / checkpoint segment / Fiat-Shamir spot-checks (~1 s in-browser; verify `O(k·S)`). Post-quantum, consensus-verified; prices identity creation in non-parallelizable time. |
+| `POSW_ANCHOR_OFFSET` | `30` | PoSW challenge anchors to `block[target_block − 30]` (≥ finality depth → stable, node-derived). |
+| `POSW_LEASE_EPOCHS` | `180` (~1 day) | Renewable presence lease: a registration/recert keeps an identity open-lane-eligible this long; renew with a fresh PoSW to persist (continuous per-identity upkeep). |
 | `OPEN_BASE_FLOOR` | `1` | Min open-lane weight for any present identity (never 0). |
 | `OPEN_FID_BONUS` | `9` | Max open diligence bonus; open weight ranges 1..10. |
 | `PRESENCE_WINDOW` | `3` epochs | Heartbeat recency to stay in the open registry; heartbeat-index GC window. |

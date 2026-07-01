@@ -116,11 +116,20 @@ bonded slot is skipped, never the reverse, so the free lane can never absorb bon
 
 ### The OPEN lane (free)
 
-1. **Register once** by solving a light one-time registration PoW (`REGISTER_POW_BITS = 16`, ~1–2 s
-   in-browser, fee-exempt). This is an anti-spam throttle for zero-balance newcomers — **not** the
-   Sybil defense (the lane cap is).
+1. **Register** by computing a **sequential Proof-of-Work (PoSW)** — a *non-parallelizable* hash chain
+   (`POSW_T` steps, ~1 s in-browser, fee-exempt, **post-quantum**: it assumes only blake2b — no trusted
+   setup, no elliptic curve, nothing Shor-breakable). Unlike the old parallelizable hashcash, a GPU/ASIC
+   can't mint identities in bulk, and the proof is **validated by every node in consensus**
+   (`validate_transaction`, the block-validation path) — not just the relay you connect to, so a bogus
+   registration is rejected network-wide. Registration is a **renewable presence lease**
+   (`POSW_LEASE_EPOCHS`, ~1 day): to stay in the open lane you renew with a *fresh* PoSW, turning
+   "pay once, farm forever" into "pay continuously per identity." The structural ~20 % lane cap is still
+   the *hard* Sybil bound; the PoSW lease prices identity creation **and upkeep** in real sequential time
+   on top. The miner auto-renews at ~80 % of the lease.
 2. **Heartbeat** each epoch with a signed, fee-exempt, zero-amount transaction to stay present
-   (`PRESENCE_WINDOW = 3` epochs).
+   (`PRESENCE_WINDOW = 3` epochs). The client can **pre-sign** a rolling buffer of future heartbeats and
+   hand them to the relay, which submits them on schedule — so a **locked/asleep phone keeps mining**
+   until its lease lapses (a fresh on-device PoSW recert is only needed ~once a day).
 
 Open-lane selection weight is **capital-free**: a flat floor (`OPEN_BASE_FLOOR = 1`) every present
 identity always gets, plus a diligence ramp to `OPEN_FID_BONUS = 9` over `FIDELITY_CAP = 1000` epochs
@@ -305,9 +314,11 @@ http://<node-ip>:9173/static/miner.html
 ```
 
 The light-miner (`static/miner.html` + `static/miner.js`) is also a **full wallet**: it generates or
-imports a key, solves the registration PoW in pure JS, registers and heartbeats against the node, and
-**wins blocks even while offline** (a relay assembles the crediting block). It can send/receive with QR
-payment links and `#pay` deep links, bond/unbond, and show history — all from a phone. It also shows
+imports a key, computes the sequential registration **PoSW** in pure JS (byte-identical to the node's
+verifier), registers/renews and heartbeats against the node, and **keeps winning blocks even while the
+phone is locked** — it pre-signs a buffer of heartbeats the relay submits on schedule, and a relay
+assembles the crediting block. It can send/receive with QR payment links and `#pay` deep links,
+bond/unbond, browse the chain, and runs in **16 languages** (browser-locale default) — all from a phone. It also shows
 **how busy each lane is right now** — live **OPEN** and **BONDED** participant counts (from
 `/mining_status` `open_registry_size` / `bonded_registry_size`) alongside your own bonded shares — so a
 miner can see the field it is competing against. Crypto is **vendored** (`static/vendor/nado-crypto.js`:
