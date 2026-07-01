@@ -365,11 +365,14 @@ def load_block_from_hash(block_hash: str, logger):
 
 
 def load_block_producers() -> list:
+    # block_producers.dat is a REBUILDABLE derived index, not chain data. Tolerate a missing, empty, or
+    # corrupt file (e.g. truncated by a `kill -9` mid-write) by returning [] instead of crashing the
+    # whole node on startup — it is repopulated from the chain as blocks are processed.
     block_producers_path = f"{get_home()}/index/block_producers.dat"
-    if os.path.exists(block_producers_path):
+    try:
         with open(block_producers_path, "r") as infile:
-            return json.load(infile)
-    else:
+            return json.load(infile) or []
+    except (FileNotFoundError, ValueError):
         return []
 
 
