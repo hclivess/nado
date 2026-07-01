@@ -255,3 +255,57 @@ control is bypassed.**
 
 See also: whitepaper §2.2 (structural Sybil bound), `doc/mining.md` (two-lane selection),
 `ops/ratelimit.py` (the progressive per-IP cap), `doc/scaling-analysis.md`.
+
+---
+
+## Appendix A — VDFs vs elliptic-curve crypto, and why NADO uses a *hash-based* Proof of Sequential Work
+
+A VDF *looks* like elliptic-curve crypto (both are "hard math in an algebraic group"), but the resemblance
+is superficial and the differences are exactly the ones that decide this design.
+
+| | Elliptic-curve crypto (ECDSA/ECDH) | Algebraic VDF (repeated squaring) |
+|---|---|---|
+| Group | curve points, **known prime order** | integers mod `N` / class group, **unknown order** (the trick) |
+| Hard thing | discrete log — *infeasible, period* | `x^(2^T)` — feasible, but **only slowly, step by step** |
+| Flavor | one-way ("you can't") | a **speed limit** ("you can't rush"); parallelism doesn't help |
+| Secret ingredient | order is public | order must be secret from everyone (else a shortcut exists) |
+
+They are near mirror-images on the property that defines each: ECC needs *known* order + *infeasibility*;
+the VDF needs *unknown* order + *forced slowness*.
+
+**The decision-maker is quantum.** NADO deliberately does not use elliptic curves for signatures — it uses
+**ML-DSA (lattice, post-quantum)** — because **Shor's algorithm breaks ECC**. The catch: the classic
+**algebraic VDF has the *same* quantum weakness** — Shor factors the RSA modulus (or a quantum algorithm
+computes the class-group order), the attacker learns the group order, reduces `2^T mod order`, and the
+"T sequential steps" collapse to instant. So an RSA/class-group VDF is **not post-quantum** and would
+reintroduce exactly the kind of primitive NADO threw out. (It is lower-stakes than a signature — breaking
+it only lets a quantum attacker mint free-lane masks faster, still bounded by the 20% cap — but it is
+avoidable.)
+
+**So NADO should not use an algebraic VDF. It should use a hash-based Proof of Sequential Work (PoSW):**
+
+- **Post-quantum:** assumes only that a hash (blake2b) is decent — the *same* assumption the chain already
+  makes everywhere. No unknown-order group, **no trusted setup**, no curve, no factoring.
+- **Sequential:** a hash chain `h₀ → H(h₀) → H(H(h₀)) → …` is inherently serial — each step needs the
+  previous, so GPUs/ASICs give only a bounded constant speedup, not the exponential edge of hashcash.
+- **Cheap to verify (and to reject garbage):** the prover snapshots the chain at checkpoints
+  `cₘ = h_{m·S}`, Merkle-commits them (root `R`), and opens **only** a few segments chosen by
+  Fiat-Shamir from `H(R)`. The verifier recomputes just those `k·S` steps + Merkle openings — `O(k·S)`,
+  not `O(T)` — and a bogus proof fails on the first opened segment. Skipping work leaves inconsistent
+  segments that the random openings catch with overwhelming probability (with segment 0 always opened to
+  bind `c₀ = H(challenge)`).
+
+Binding the challenge to `H(address ‖ recent_block_hash)` makes proofs **un-precomputable** (you don't
+know the future block hash) and **non-reusable** (a different address ⇒ a different required chain), so
+each mask must pay its own fresh, un-fakeable slice of real sequential time.
+
+**Status / migration plan (replacing the parallelizable registration hashcash):**
+1. **`ops/posw.py`** — reference Python implementation + `tests/test_posw.py` *(done; standalone, not yet
+   in consensus)*.
+2. Fix `POSW_T / POSW_S / POSW_K` as **`protocol.py` consensus constants** (prover and verifier must
+   agree), calibrated so an honest phone spends ~1–2 s once at registration.
+3. Port the identical prover to the browser (`static/`), matching Python byte-for-byte (the client already
+   reproduces canonical encoding + blake2b, so this is in-house).
+4. Swap `verify_registration_pow` → `verify_posw` in `ops/transaction_ops` (the `register` branch), keeping
+   the light one-time cost; add a slow, infrequent presence re-proof later if free-lane crowding appears.
+   Consensus-incompatible, but pre-mainnet that is free.
