@@ -182,19 +182,70 @@ relays more than it costs a self-hosting attacker, and it is still an off-chain 
 *node-level* intuition but move the scarce resource from **IP → bonded stake** (sponsorship) to get a real,
 consensus-enforceable Sybil cost without breaking zero-capital mining.
 
+## 5b. The permissionless, no-bother lever: cost from a real physical limit (sequential time / VDF)
+
+Start from the hard result. **Permissionless Sybil resistance is impossible without *some* cost to
+minting an identity** (Douceur, 2002 — the paper that named the Sybil attack): with no trusted authority,
+an entity with more resources than any honest peer can always mint more identities. So the goal cannot be
+"free *and* permissionless *and* Sybil-proof" — that's a trilemma, pick two. NADO keeps **permissionless**,
+wants **no-bother**, and therefore must accept a *bounded* (not zero) Sybil, sourced from a cost that a
+real single user barely notices but that a farm cannot dodge. The `OPEN_BPS` cap already bounds the
+*damage*; the question here is what cost bounds the *count* without permission or friction.
+
+The only resource that is permissionless, needs no identity/stake/gatekeeper, doesn't reintroduce a
+grindable hash-race, **and** is anchored in a genuine physical limitation is **sequential time**, proven
+with a **VDF (verifiable delay function)**:
+
+- **The real technical limit:** a VDF is *inherently sequential* — by construction it cannot be sped up
+  by adding cores, GPUs, or ASICs beyond a small constant factor (a VDF has a known-fastest algorithm;
+  that is the whole point of the primitive). You **cannot parallelize wall-clock time.** So each identity
+  must burn real, serial elapsed time on a real core; N present identities need N sequential lanes running
+  in real time.
+- **Permissionless + no-bother:** no sponsor, no KYC, no IP, no stake. For the honest user it is a few
+  seconds of background computation to register (and a slow periodic re-proof to stay present) — one lane,
+  effortless. It is *not* a race (fixed delay, no advantage to buying faster hardware), which is exactly
+  why it fits NADO's anti-ASIC, "nothing to grind" ethos where hashcash PoW does not.
+- **Why it's better than the current registration hashcash:** today's 16-bit registration PoW is
+  *parallelizable* — a GPU mints thousands of identities at once. Swapping it for a **sequential VDF**
+  removes that parallel advantage entirely: a GPU gives ~no edge, so registrations are throttled to real
+  serial-time-per-core. Same one-time friction for the honest phone, a much steeper slope for a farm.
+- **How it makes distribution fairer:** it prices each free-lane mask in *real, proportional, ongoing
+  sequential compute* rather than in near-free IPs. A farm that wants K× the shares must run K× the real
+  time-lanes, continuously — so the open-lane distribution tracks real device-time, which is about as close
+  to "one share per real participating device" as a permissionless, frictionless system can get.
+
+**Honest ceiling (the real limitation cuts both ways):** a VDF ties Sybil to *sequential-compute lanes*,
+and a datacenter can still buy cores — so this is a *cost floor that scales linearly*, not a hard cap.
+And "continuous proof" is in tension with "no-bother" (a constant VDF drains a phone battery), so it must
+be tuned to the cheap end: a short one-time VDF at registration plus a **slow, infrequent** re-proof to
+maintain presence — enough to make a large farm pay real, visible, linear time-cost, not so much that a
+phone notices. It does not make Sybil impossible; permissionlessly, *nothing* can. Combined with the 20%
+structural cap and reward dilution, it turns "10 000 free masks" into "10 000 real time-lanes running
+continuously for a slice of a fixed, diluted 20% pie" — rate-limited and unprofitable, with zero
+permission and near-zero honest-user friction. **A memory-hard VDF** raises the floor further by also
+pricing in RAM (a real device limit that is costlier to scale than cores).
+
 ## 6. What NADO actually does, and the recommendation
 
 **Do:** keep IP entirely out of consensus; keep the per-IP cap as opt-in, generous, best-effort relay
 friction (progressive by subnet); rely on the **structural `OPEN_BPS` cap** for the hard bound and on
 **reward dilution** for the economic bound.
 
-**Recommended next step (cheap, invariant-preserving):** add **relay-side behavioural heuristics** (#6)
-as optional `ratelimit` policy — this is the highest-leverage improvement against the realistic
-low-effort attacker without touching consensus or the fair launch. Prototype **population-scaled
-registration PoW** (#2) as a second, self-contained edge cost if free-lane crowding is observed in the
-wild. If a *consensus-enforceable, spoof-proof* Sybil cost is ever needed, the right direction is
-**bonded-node sponsorship** (§5a) — move the scarce resource from IP to on-chain stake while keeping the
-miner zero-capital — **not** any IP-based rule.
+**Recommended direction (permissionless, no-bother, invariant-preserving):** replace the *parallelizable*
+16-bit registration hashcash with a **sequential VDF / proof-of-time** (§5b). It is the only lever that is
+permissionless, needs no stake/identity/IP/sponsor, keeps NADO's "nothing to grind" anti-ASIC ethos (a VDF
+is a fixed delay, not a race), stays near-zero-bother for a real phone, and yet prices each extra free-lane
+mask in a **real physical limit — serial wall-clock time that cannot be parallelized away.** Tune it to the
+cheap end (short one-time reg proof + slow presence re-proof). As a free, immediate add-on, keep the
+opt-in **relay-side behavioural heuristics** (#6) against the lazy botnet — best-effort, off-chain, changes
+no invariant.
+
+**Rejected:** anything that adds *permission or bother* — bonded-node **sponsorship** (§5a, needs a
+sponsor), personhood ceremonies (#1), bonds (#3), or device attestation (#5); and any **IP-, bond-, or
+attestation-based rule inside consensus** (selection weight / validity / block production), which would
+either fork the chain (IP) or destroy the zero-capital, one-tap, permissionless fair launch. The honest
+framing stays: IP is friction, not a defense; the *distribution* is bounded by the 20% lane cap and priced
+— permissionlessly — by real sequential time.
 
 **Do not:** add any IP-, bond-, or attestation-based rule to *block production, selection weight, or
 validity*. Those would either fork the chain (IP) or destroy the zero-capital, one-tap, permissionless
