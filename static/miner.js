@@ -2162,12 +2162,19 @@ function _sharePayload(ctx) {
 function socialShare(platform, ctx) {
   const { url, text, title } = _sharePayload(ctx);
   const u = encodeURIComponent(url), tx = encodeURIComponent(text), ti = encodeURIComponent(title);
+  if (platform === "facebook") {
+    // Facebook's share dialog silently drops any prefilled message and only renders the URL's Open Graph card.
+    // So copy the message for the user to paste, then open the sharer — they get the card AND their words ready.
+    try { copyToClipboard(text + " " + url); } catch (e) {}
+    log("info", i18("share.fbCopied", "Message copied — paste it into your Facebook post."));
+    window.open(`https://www.facebook.com/sharer/sharer.php?u=${u}&quote=${tx}`, "_blank", "noopener,noreferrer");
+    return;
+  }
   const targets = {
     x: `https://twitter.com/intent/tweet?text=${tx}%20${u}`,
     telegram: `https://t.me/share/url?url=${u}&text=${tx}`,
     whatsapp: `https://wa.me/?text=${tx}%20${u}`,
     reddit: `https://www.reddit.com/submit?url=${u}&title=${ti}`,
-    facebook: `https://www.facebook.com/sharer/sharer.php?u=${u}`,
     email: `mailto:?subject=${ti}&body=${tx}%20${u}`,
   };
   if (targets[platform]) window.open(targets[platform], "_blank", "noopener,noreferrer");
