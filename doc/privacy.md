@@ -132,8 +132,13 @@ The Phase-1 machinery is correctness-first; these are the documented upgrades fo
 | pool state machine (shield / transfer / unshield), double-spend + value conservation | ✅ |
 | verifier seam (`verify_transfer`), transparent Phase-1 verifier | ✅ |
 | soundness test suite (10 cases) | ✅ |
-| STARK arithmetization of the statement | ⏳ Phase 2 |
-| FRI/STARK prover + verifier, STARK-friendly hash + field | ⏳ Phase 2 |
+| STARK engine — Goldilocks field + Merkle + FRI + AIR/STARK | ✅ (tests/test_stark_fri.py, test_stark.py) |
+| STARK-friendly hash (Poseidon-lite sponge) | ✅ (execnode/stark/alghash.py) |
+| join-split hash gadget arithmetised + proven in ZK (commitment/nullifier/tree-node) | ✅ (tests/test_stark_joinsplit.py) |
+| Phase-2 seam wired into verify_transfer | ✅ (routes 'stark' bundles) |
+| compose full circuit: membership chain + value conservation + nsk-linked nullifier | ⏳ Phase 2 |
+| migrate pool commitments from BLAKE2b to the field hash | ⏳ Phase 2 |
+
 | client (WASM) / delegated proving | ⏳ Phase 2 |
 | L1 shield-escrow + unshield settled-root exit | ✅ (tests/test_shield_l1.py) |
 | exec-node pool: shield/transfer/unshield + compact state_root + unshield proof | ✅ (tests/test_shielded_exec.py) |

@@ -74,9 +74,11 @@ def note_nullifier(pubkey: str, rho: str) -> str:
 def transfer_sighash(public: dict) -> str:
     """The message an input's owner ML-DSA-signs to authorise the spend: binds ALL public parts of the
     transfer (nullifiers, outputs, public value, fee), so a signature can't be replayed onto a different
-    transfer. Sorted for determinism."""
-    return _h("sighash", sorted(public.get("nullifiers", [])), sorted(public.get("out_commitments", [])),
-              int(public.get("public_value", 0)), int(public.get("fee", 0)))
+    transfer. Lists are sorted + '|'-joined (NOT passed as raw lists) so the hash is byte-identical in the
+    browser port (Python str(list) is a non-reproducible repr) — every scalar is a plain string here."""
+    return _h("sighash", "|".join(sorted(public.get("nullifiers", []))),
+              "|".join(sorted(public.get("out_commitments", []))),
+              str(int(public.get("public_value", 0))), str(int(public.get("fee", 0))))
 
 
 # --- fixed-depth Merkle commitment tree -----------------------------------------------------------
@@ -199,8 +201,16 @@ class ShieldedPool:
 
 def verify_transfer(public: dict, proof: dict, root_is_known) -> tuple:
     """Verify a shielded transfer. `root_is_known(root)` -> bool tells us the `root` is one the pool actually
-    held (anchor freshness). Returns (ok, reason). Phase 2 will replace the transparent re-check below with a
-    single STARK verification against `public` — the signature of THIS function does not change."""
+    held (anchor freshness). Returns (ok, reason).
+
+    PHASE-2 SEAM (doc/privacy.md): if `proof` carries a "stark" bundle it routes to the zk-STARK verifier
+    (execnode/stark/joinsplit_transfer) instead of re-checking the transparent witness in the clear. The
+    join-split hash gadget is arithmetised + proven in ZK today; composing the FULL statement (membership +
+    value conservation + nullifier) into one circuit is the remaining Phase-2 work, so the transparent path
+    below stays authoritative for real spends until then. The signature of THIS function does not change."""
+    if isinstance(proof, dict) and proof.get("stark"):
+        from execnode.stark import joinsplit_transfer
+        return joinsplit_transfer.verify_transfer(public, proof, root_is_known)
     try:
         root = public["root"]
         nfs = public["nullifiers"]

@@ -22,7 +22,7 @@ def _sq_trace(seed, T):
     for _ in range(T - 1):
         tr.append([F.mul(tr[-1][0], tr[-1][0])])
     return tr
-SQ_TRANS = [lambda cur, nxt: F.sub(nxt[0], F.mul(cur[0], cur[0]))]
+SQ_TRANS = [lambda cur, nxt, per: F.sub(nxt[0], F.mul(cur[0], cur[0]))]
 
 def t1_squaring_valid():
     T, seed = 8, 3
@@ -67,8 +67,8 @@ def _fib_trace(T):
     for _ in range(T):
         tr.append([a, b]); a, b = b, F.add(a, b)
     return tr
-FIB_TRANS = [lambda cur, nxt: F.sub(nxt[0], cur[1]),
-             lambda cur, nxt: F.sub(nxt[1], F.add(cur[0], cur[1]))]
+FIB_TRANS = [lambda cur, nxt, per: F.sub(nxt[0], cur[1]),
+             lambda cur, nxt, per: F.sub(nxt[1], F.add(cur[0], cur[1]))]
 
 def t5_fibonacci_valid():
     T = 16
