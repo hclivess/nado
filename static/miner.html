@@ -506,6 +506,7 @@
     <button id="btnZsend" class="primary mt" style="width:100%" data-i18n="shield.zsend">Send shielded</button>
     <div id="zsendCodeBox" class="warnbox mt small hidden">
       <b data-i18n="shield.linkHint">Give this claim link to the recipient over any private channel — opening it receives the banknote automatically:</b>
+      <div class="small mt" style="color:var(--warn,#d29922)" data-i18n="shield.privacyNote">⚠ Don't post this publicly — send it only to the recipient. Anyone who sees it learns the amount (they still can't take the banknote without the recipient's key).</div>
       <div class="qr-wrap"><canvas id="zsendCodeQR" class="qr" width="200" height="200"></canvas></div>
       <div class="addr-box"><span class="mono break" id="zsendLink"></span>
         <button class="copy" data-copy="zsendLink" data-i18n="btn.copy">Copy</button>

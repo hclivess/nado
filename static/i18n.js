@@ -862,6 +862,27 @@
   };
   for (const l in T31) Object.assign(T[l] = T[l] || {}, T31[l]);
 
+  // T32: shielded claim-link privacy note (accurate: sharing leaks the AMOUNT; theft still needs the recipient's key)
+  const T32 = {
+    "en":{"shield.privacyNote":"⚠ Don't post this publicly — send it only to the recipient. Anyone who sees it learns the amount (they still can't take the banknote without the recipient's key)."},
+    "cs":{"shield.privacyNote":"⚠ Nezveřejňujte to veřejně — pošlete to jen příjemci. Kdokoli to uvidí, zjistí částku (bankovku ale bez klíče příjemce nezíská)."},
+    "es":{"shield.privacyNote":"⚠ No lo publiques en público — envíalo solo al destinatario. Cualquiera que lo vea conocerá el importe (aun así no puede quedarse el billete sin la clave del destinatario)."},
+    "pt":{"shield.privacyNote":"⚠ Não publique isto publicamente — envie apenas ao destinatário. Quem o vir fica a saber a quantia (mesmo assim não pode ficar com a cédula sem a chave do destinatário)."},
+    "fr":{"shield.privacyNote":"⚠ Ne le publiez pas publiquement — envoyez-le uniquement au destinataire. Quiconque le voit connaît le montant (il ne peut pas prendre le billet sans la clé du destinataire)."},
+    "de":{"shield.privacyNote":"⚠ Nicht öffentlich posten — sende es nur an den Empfänger. Wer es sieht, erfährt den Betrag (die Banknote lässt sich ohne den Schlüssel des Empfängers trotzdem nicht abheben)."},
+    "it":{"shield.privacyNote":"⚠ Non pubblicarlo pubblicamente — invialo solo al destinatario. Chiunque lo veda conosce l'importo (non può comunque prendere la banconota senza la chiave del destinatario)."},
+    "ru":{"shield.privacyNote":"⚠ Не публикуйте это открыто — отправьте только получателю. Любой, кто увидит, узнает сумму (но без ключа получателя банкноту забрать нельзя)."},
+    "zh":{"shield.privacyNote":"⚠ 请勿公开发布——只发给收款人。任何看到的人都能得知金额（但没有收款人的密钥仍无法取走钞票）。"},
+    "ja":{"shield.privacyNote":"⚠ 公開しないでください — 受取人にのみ送ってください。見た人には金額が分かります（受取人の鍵がなければ紙幣は取れません）。"},
+    "ko":{"shield.privacyNote":"⚠ 공개적으로 게시하지 마세요 — 받는 사람에게만 보내세요. 보는 사람은 금액을 알 수 있습니다 (그래도 받는 사람의 키 없이는 지폐를 가져갈 수 없습니다)."},
+    "ar":{"shield.privacyNote":"⚠ لا تنشره علنًا — أرسله إلى المستلم فقط. أي شخص يراه سيعرف المبلغ (لكنه لا يستطيع أخذ الورقة النقدية دون مفتاح المستلم)."},
+    "hi":{"shield.privacyNote":"⚠ इसे सार्वजनिक रूप से पोस्ट न करें — केवल प्राप्तकर्ता को भेजें। जो कोई इसे देखेगा उसे राशि पता चल जाएगी (फिर भी प्राप्तकर्ता की कुंजी के बिना बैंकनोट नहीं ले सकता)।"},
+    "tr":{"shield.privacyNote":"⚠ Bunu herkese açık paylaşmayın — yalnızca alıcıya gönderin. Gören herkes tutarı öğrenir (yine de alıcının anahtarı olmadan banknotu alamaz)."},
+    "id":{"shield.privacyNote":"⚠ Jangan sebarkan secara publik — kirim hanya ke penerima. Siapa pun yang melihatnya tahu jumlahnya (tetap tidak bisa mengambil uang kertas tanpa kunci penerima)."},
+    "vi":{"shield.privacyNote":"⚠ Đừng đăng công khai — chỉ gửi cho người nhận. Bất kỳ ai thấy đều biết số tiền (nhưng vẫn không thể lấy tờ tiền nếu không có khóa của người nhận)."}
+  };
+  for (const l in T32) Object.assign(T[l] = T[l] || {}, T32[l]);
+
 
 
 
