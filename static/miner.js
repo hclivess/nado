@@ -17,9 +17,10 @@ import * as shielded from "./shielded.js";
 import * as alghash from "./alghash.js";
 import * as sfield from "./stark/field.js";
 import { initHashing as initStarkHashing } from "./stark/hashing.js";
-import { initBlake2bWasm } from "./vendor/blake2b-wasm.js";
+import { initBlake2bWasm, initMerkleWasm } from "./vendor/blake2b-wasm.js";
 import { initGoldilocksWasm } from "./vendor/goldilocks-wasm.js";
 import { setFieldWasm } from "./stark/field.js";
+import { setMerkleWasm } from "./stark/merkle.js";
 import * as sjoinsplit2 from "./stark/joinsplit2.js";
 import * as sstark from "./stark/stark.js";
 import { treePath } from "./stark/tree.js";
@@ -2497,6 +2498,7 @@ async function ensureFastStarkHash() {
   try {
     const h = await initBlake2bWasm();
     initStarkHashing((data, size = 32) => (size === 32 ? bytesToHex(h(canonicalBytes(data))) : blake2bHash(data, size)));
+    setMerkleWasm(await initMerkleWasm());   // whole-tree Merkle in wasm
   } catch (e) {
     initStarkHashing(blake2bHash);   // wasm unavailable -> pure-JS fallback
   }
