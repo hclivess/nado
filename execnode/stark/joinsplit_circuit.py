@@ -205,7 +205,7 @@ def _transitions():
             c_sib, c_dir, c_dirbit, c_cons]
 
 
-def prove_transfer(nsk, v_in, rho_in, siblings, dirs, v_out, owner_out, rho_out, public_value, fee, num_queries=40):
+def prove_transfer(nsk, v_in, rho_in, siblings, dirs, v_out, owner_out, rho_out, public_value, fee, num_queries=stark.NUM_QUERIES, aux=None):
     tr, T, D, root, nf, cm_out = build_trace(nsk, v_in, rho_in, siblings, dirs, v_out, owner_out, rho_out)
     per = _periodic(T, D)
     total = MERK + D * RPL + 4 * R
@@ -213,12 +213,12 @@ def prove_transfer(nsk, v_in, rho_in, siblings, dirs, v_out, owner_out, rho_out,
     bnd = [(0, S0, alghash.DOM_OWNER), (0, S1, alghash.IV), (0, AB, alghash.DOM_OWNER),
            (0, CONS, cons_pub),
            (total, ROOTREG, root), (total, NFREG, nf), (total, S0, cm_out)]
-    proof = stark.prove(tr, _transitions(), bnd, periodic=per, max_degree=MAX_DEGREE, num_queries=num_queries)
+    proof = stark.prove(tr, _transitions(), bnd, periodic=per, max_degree=MAX_DEGREE, num_queries=num_queries, aux=aux)
     proof["D"] = D
     return proof, root, nf, cm_out
 
 
-def verify_transfer(proof, root, nf, cm_out, public_value, fee, root_is_known):
+def verify_transfer(proof, root, nf, cm_out, public_value, fee, root_is_known, aux=None):
     if not root_is_known(root):
         return False, "unknown anchor root"
     D, T = proof["D"], proof["T"]
@@ -228,4 +228,4 @@ def verify_transfer(proof, root, nf, cm_out, public_value, fee, root_is_known):
     bnd = [(0, S0, alghash.DOM_OWNER), (0, S1, alghash.IV), (0, AB, alghash.DOM_OWNER),
            (0, CONS, cons_pub),
            (total, ROOTREG, root % F.P), (total, NFREG, nf % F.P), (total, S0, cm_out % F.P)]
-    return stark.verify(proof, _transitions(), bnd, periodic=per, max_degree=MAX_DEGREE)
+    return stark.verify(proof, _transitions(), bnd, periodic=per, max_degree=MAX_DEGREE, aux=aux)

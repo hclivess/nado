@@ -42,12 +42,16 @@ def prove_output_commitments(outputs):
 def verify_transfer(public, proof, root_is_known):
     """verify_transfer's Phase-2 path (dispatched when the proof carries a 'stark' bundle)."""
     bundle = proof.get("stark") or {}
+    # H-4: an unshield exit's destination (proof["withdraw_addr"]) is bound INTO the proof's transcript, so
+    # a front-runner can't copy the bundle and swap the address — a different address diverges the transcript
+    # and the proof is rejected. None for an in-pool transfer (no exit), keeping those proofs unaffected.
+    aux = proof.get("withdraw_addr")
     # 2-output join-split (send any amount + change).
     if "joinsplit2" in bundle:
         b = bundle["joinsplit2"]
         try:
             return joinsplit2.verify_transfer(b["proof"], b["root"], b["nf"], b["cm_out1"], b["cm_out2"],
-                                              b["public_value"], b["fee"], root_is_known)
+                                              b["public_value"], b["fee"], root_is_known, aux=aux)
         except (KeyError, TypeError) as e:
             return False, f"malformed joinsplit2 bundle: {e}"
     # FULL 1-output join-split proof: the complete transfer statement in one STARK.
@@ -55,7 +59,7 @@ def verify_transfer(public, proof, root_is_known):
         b = bundle["joinsplit"]
         try:
             return joinsplit_circuit.verify_transfer(
-                b["proof"], b["root"], b["nf"], b["cm_out"], b["public_value"], b["fee"], root_is_known)
+                b["proof"], b["root"], b["nf"], b["cm_out"], b["public_value"], b["fee"], root_is_known, aux=aux)
         except (KeyError, TypeError) as e:
             return False, f"malformed join-split bundle: {e}"
     # legacy partial path (output well-formedness only)

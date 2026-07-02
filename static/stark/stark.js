@@ -45,7 +45,7 @@ function composition(T, W, N, blowup, gT, colLde, perLde, xLde, transitions, bou
   return cp;
 }
 
-export function prove(trace, transitions, boundaries, periodic = [], maxDegree = 2, numQueries = 40) {  // 40 = protocol NUM_QUERIES (C-1)
+export function prove(trace, transitions, boundaries, periodic = [], maxDegree = 2, numQueries = 40, aux = null) {  // 40 = protocol NUM_QUERIES (C-1)
   const T = trace.length, W = trace[0].length;
   const blowup = blowupOf(maxDegree), N = blowup * T;
   const gT = F.primitiveRootOfUnity(T);
@@ -70,6 +70,7 @@ export function prove(trace, transitions, boundaries, periodic = [], maxDegree =
   const degBound = nextPow2(maxDegree) * T;
 
   const t = new Transcript("nado-stark");
+  if (aux !== null && aux !== undefined) t.absorb("aux", String(aux));   // H-4: bind the unshield withdraw_addr
   const colRoots = [], colMlayers = [];
   for (let c = 0; c < W; c++) {
     const [root, ml] = merkle.commit(colLde[c]);

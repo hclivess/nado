@@ -74,7 +74,7 @@ def _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boun
     return cp
 
 
-def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES):
+def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None):
     periodic = periodic or []
     T = len(trace); W = len(trace[0])
     blowup = _blowup(max_degree); N = blowup * T
@@ -86,6 +86,8 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     deg_bound = _next_pow2(max_degree) * T
 
     t = Transcript("nado-stark")
+    if aux is not None:                      # H-4: bind an extra public input (e.g. an unshield withdraw_addr)
+        t.absorb("aux", str(aux))            # into the transcript so the proof only verifies for THAT value
     col_roots, col_mlayers = [], []
     for c in range(W):
         root, ml = merkle.commit(col_lde[c])
@@ -110,7 +112,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
             "boundaries": boundaries, "fri": fri_proof, "openings": openings}
 
 
-def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES):
+def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None):
     try:
         periodic = periodic or []
         T, W, N, blowup = proof["T"], proof["W"], proof["N"], proof["blowup"]
@@ -121,6 +123,8 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         per_coeffs = [F.interpolate(list(pc)) for pc in periodic]     # public periodic polynomials
 
         t = Transcript("nado-stark")
+        if aux is not None:                  # H-4: same extra public input the prover bound (unshield addr)
+            t.absorb("aux", str(aux))        # a tampered value here diverges the transcript -> proof rejected
         for r in col_roots:
             t.absorb(r)
         alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
