@@ -103,7 +103,9 @@ async def tail_loop():
                         elif r == "shield":                          # L1 shielded-pool deposit -> add the notes
                             d = tx.get("data") or {}
                             if d.get("field"):                       # Phase-2 field-native note
-                                res = state.apply_field_shield(d.get("cm"))
+                                # C-2: value is bound to the L1 escrow — the exec node recomputes the note
+                                # commitment from tx.amount + the depositor's (owner, rho), never a client cm.
+                                res = state.apply_field_shield(tx.get("amount", 0), d.get("owner"), d.get("rho"))
                             else:
                                 res = state.apply_shield(tx.get("amount", 0), d.get("out_commitments", []),
                                                          d.get("openings", []))

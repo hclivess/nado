@@ -566,7 +566,9 @@ def validate_transaction(transaction, logger, block_height):
         assert transaction["fee"] >= MIN_TX_FEE, f"shield fee below minimum {MIN_TX_FEE}"
         data = transaction.get("data") or {}
         if data.get("field"):                                        # Phase-2 field-native note (single commitment)
-            assert data.get("cm"), "field shield needs a note commitment"
+            # C-2: the exec node BINDS the note value to this escrowed amount by recomputing
+            # commit(amount, owner, rho) itself, so the deposit must carry (owner, rho), not a free-choice cm.
+            assert data.get("owner") is not None and data.get("rho") is not None, "field shield needs owner + rho"
         else:                                                        # transparent-phase note openings
             assert isinstance(data.get("out_commitments"), list) and data.get("out_commitments"), "shield needs output note commitments"
     elif recipient == "unshield":

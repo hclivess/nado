@@ -2665,7 +2665,9 @@ async function doShield() {
   const cm = alghash.commit(rawAmount, owner, BigInt(rho));  // field-native note commitment
   try {
     const latest = await getLatestBlock(); const target = latest.block_number + 8;
-    const data = { field: true, cm: cm.toString() };
+    // C-2: send (owner, rho) so the exec node BINDS the note value to the escrowed amount by recomputing
+    // commit(amount, owner, rho) itself. `cm` is kept for local reference only; the node does not trust it.
+    const data = { field: true, owner: owner.toString(), rho: rho.toString(), cm: cm.toString() };
     const tx = buildTransferTx(state.wallet, "shield", rawAmount, MIN_TX_FEE, target, data, nowSeconds());
     const res = await submitTransaction(tx);
     if (res.data && res.data.result) {

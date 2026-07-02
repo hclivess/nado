@@ -18,6 +18,12 @@ from hashing import (blake2b_hash, merkle_root, merkle_proof, withdrawal_leaf, d
 from execnode.vm import validate_code, run, VMError
 from execnode.shielded import ShieldedPool, apply_transfer
 
+# Coin-amount ceiling for shielded values/exits — far below the Goldilocks field size (P ≈ 2^64). The
+# join-split circuit only constrains public_value/fee MODULO P, so without an absolute bound a wraparound
+# (e.g. public_value = -P) proves as "balanced" yet would record a P-coin exit (C-3). Any real amount is
+# many orders of magnitude below this, so bounding to it blocks every P·k residue while passing legit exits.
+MAX_EXIT_VALUE = 1 << 62
+
 
 class ExecState:
     def __init__(self, path):
@@ -183,11 +189,20 @@ class ExecState:
         """Credit an exec-side bridge balance from an L1 `bridge` deposit (read from the ordered stream)."""
         self.bridge[addr] = self.bridge.get(addr, 0) + int(amount)
 
-    def apply_field_shield(self, cm):
-        """Add a Phase-2 field-native note commitment (from an L1 field-shield deposit) to the field pool."""
+    def apply_field_shield(self, amount, owner, rho):
+        """Add a field-native note for an L1 field-shield deposit. C-2: the note value is BOUND to the L1
+        escrow — the exec node computes the commitment itself as commit(amount, owner, rho) from the
+        authoritative on-chain `amount`, rather than trusting a client-supplied `cm` (which let a 1-coin
+        deposit mint a note "worth" anything). The depositor supplies only (owner, rho); they know `amount`
+        from their own tx, so they can still reconstruct and spend the note."""
+        from execnode.stark import alghash, field as _F
         try:
-            self.field_pool.append(int(cm))
-            return f"field-shield -> field note #{len(self.field_pool.commitments)}"
+            amount = int(amount)
+            if not (0 < amount <= MAX_EXIT_VALUE):
+                return f"skip field-shield: amount out of range ({amount})"
+            cm = alghash.commit(amount, int(owner) % _F.P, int(rho) % _F.P)
+            self.field_pool.append(cm)
+            return f"field-shield {amount} -> field note #{len(self.field_pool.commitments)}"
         except Exception as e:
             return f"skip field-shield: {e}"
 
@@ -208,13 +223,19 @@ class ExecState:
         if not ok:
             return f"skip field-transfer: {reason}"
         from execnode.stark import field as _F
+        # C-3: the circuit constrains only public_value % P and fee % P, but the exit payout below uses the
+        # RAW signed value — so public_value = -P proves as "balanced" yet would record a P-coin exit. Bound
+        # both to a real coin range BEFORE any state mutation, so no field residue can be inflated into a P·k
+        # payout. (Note VALUES are field elements mod P; the only realizable exit is via public_value.)
+        pv, fee = int(js["public_value"]), int(js["fee"])
+        if not (-MAX_EXIT_VALUE <= pv <= MAX_EXIT_VALUE) or not (0 <= fee <= MAX_EXIT_VALUE):
+            return "skip field-transfer: public_value/fee out of range"
         nf = int(js["nf"]) % _F.P
         if self.field_pool.has_nullifier(nf):
             return "skip field-transfer: nullifier already spent (double-spend)"
         self.field_pool.nullifiers.add(nf)
         for c in cm_outs:
             self.field_pool.append(c)
-        pv = int(js["public_value"])
         if pv < 0:
             addr = bundle.get("withdraw_addr")
             if not addr:
