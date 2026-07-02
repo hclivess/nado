@@ -529,6 +529,91 @@ function loadWallet() {
 }
 
 /* ----------------------------------------------------------------------------------------------
+ * Wallet encryption at rest + auto-lock (WebCrypto: AES-256-GCM, key from PBKDF2-SHA256/210k).
+ * The stored seed is either plaintext {privateKey,…} or an encrypted blob {enc:1,salt,iv,ct,address,
+ * publicKey}. The decrypted seed lives ONLY in memory (state.wallet) while unlocked; locking clears it and
+ * requires the password again. GCM authenticates, so a wrong password fails to decrypt (no silent garbage).
+ * -------------------------------------------------------------------------------------------- */
+const LS_AUTOLOCK = "nado_autolock_min";
+let _autolockTimer = null;
+
+async function _deriveAesKey(password, salt) {
+  const km = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: 210000, hash: "SHA-256" },
+    km, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+}
+async function encryptSeed(seedHex, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await _deriveAesKey(password, salt);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, hexToBytes(seedHex)));
+  return { enc: 1, v: 1, salt: _hex(salt), iv: _hex(iv), ct: _hex(ct) };
+}
+async function decryptSeed(blob, password) {
+  const key = await _deriveAesKey(password, hexToBytes(blob.salt));
+  const pt = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: hexToBytes(blob.iv) }, key, hexToBytes(blob.ct)));
+  return _hex(pt);
+}
+function walletIsEncrypted() { const w = loadWallet(); return !!(w && w.enc); }
+
+async function enableEncryption(password) {
+  if (!state.wallet || !password) return;
+  const blob = await encryptSeed(state.wallet.privateKey, password);
+  blob.publicKey = state.wallet.publicKey; blob.address = state.wallet.address;
+  localStorage.setItem(LS_WALLET, JSON.stringify(blob));
+  armAutolock();
+}
+async function disableEncryption(password) {
+  const w = loadWallet();
+  if (!w || !w.enc) return;
+  const seed = await decryptSeed(w, password);          // throws on wrong password
+  persistWallet(keypairFromPriv(seed));
+  clearTimeout(_autolockTimer);
+}
+
+function showUnlock() {
+  show("tabbar", false);
+  document.querySelectorAll("[data-tab]").forEach((el) => show(el.id, false));
+  show("onboard", false); show("savePrompt", false);
+  const w = loadWallet();
+  if ($("unlockAddr")) $("unlockAddr").textContent = (w && w.address) || "";
+  if ($("unlockPass")) $("unlockPass").value = "";
+  if ($("unlockErr")) $("unlockErr").textContent = "";
+  show("unlockCard", true);
+}
+function lockWallet() {
+  if (!walletIsEncrypted() || state.locked) return;     // only an encrypted wallet can lock
+  try { if (state.mining) stopMining(); } catch (e) {}
+  state.wallet = null; state.locked = true;
+  clearTimeout(_autolockTimer);
+  showUnlock();
+}
+async function unlockWallet(password) {
+  const w = loadWallet();
+  if (!w || !w.enc) return;
+  const seed = await decryptSeed(w, password);          // throws on wrong password
+  state.wallet = keypairFromPriv(seed); state.locked = false;
+  show("unlockCard", false);
+  showWalletUI(); armAutolock();
+}
+function autolockMinutes() { return parseInt(localStorage.getItem(LS_AUTOLOCK) || "0", 10) || 0; }
+function armAutolock() {
+  clearTimeout(_autolockTimer);
+  const m = autolockMinutes();
+  if (m > 0 && walletIsEncrypted() && !state.locked) _autolockTimer = setTimeout(lockWallet, m * 60000);
+}
+function bumpAutolock() { if (!state.locked && state.wallet) armAutolock(); }
+function renderSecurity() {
+  const enc = walletIsEncrypted();
+  if ($("secStatus")) $("secStatus").innerHTML = enc
+    ? '<b class="ok">' + i18("sec.on", "Encrypted at rest ✓") + "</b>"
+    : '<span class="faint">' + i18("sec.off", "Not encrypted — stored in plain text on this device.") + "</span>";
+  show("btnEncrypt", !enc);
+  show("btnRemoveEnc", enc);
+  show("btnLockNow", enc);
+  if ($("autolockSel")) $("autolockSel").value = String(autolockMinutes());
+}
+
+/* ----------------------------------------------------------------------------------------------
  * Registration PoW — chunked async so the UI stays responsive (and is cancellable).
  * -------------------------------------------------------------------------------------------- */
 function solveRegistrationPow(address, { onProgress, signal } = {}) {
@@ -1107,6 +1192,7 @@ let pendingWallet = null;
 function showWalletUI() {
   show("onboard", false);
   show("savePrompt", false);
+  show("unlockCard", false);
   show("tabbar", true);
   $("walAddr").textContent = state.wallet.address;
   $("walPriv").textContent = state.wallet.privateKey;
@@ -2252,6 +2338,7 @@ function showTab(name) {
   else if (name === "shield") renderShield().catch(() => {});
   else if (name === "send") { updateFeeInfo().catch(() => {}); validateSendTo().catch(() => {}); addrBookRender(); }
   else if (name === "stake") { updateFeeInfo().catch(() => {}); refreshDashboard().catch(() => {}); }
+  else if (name === "settings") renderSecurity();
 }
 
 /* ----------------------------------------------------------------------------------------------
@@ -2482,6 +2569,38 @@ function wireEvents() {
   };
 
   $("btnSelfTest").onclick = () => { try { runSelfTest(); show("selftestCard", true); } catch (e) { log("err", "Self-test error: " + e.message); } };
+
+  // --- wallet encryption + auto-lock wiring ---
+  const _btn = (id, fn) => { if ($(id)) $(id).onclick = fn; };
+  _btn("btnEncrypt", async () => {
+    if (!state.wallet) return;
+    const pw = prompt(i18("sec.setPass", "Set a wallet password (min 8 characters):"));
+    if (pw == null) return;
+    if (pw.length < 8) { alert(i18("sec.tooShort", "Password must be at least 8 characters.")); return; }
+    if (prompt(i18("sec.confirmPass", "Confirm the password:")) !== pw) { alert(i18("sec.mismatch", "Passwords don't match.")); return; }
+    try { await enableEncryption(pw); log("ok", i18("sec.encrypted", "Wallet encrypted ✓")); renderSecurity(); }
+    catch (e) { log("err", i18("sec.encErr", "Encryption failed: {m}", { m: e.message })); }
+  });
+  _btn("btnRemoveEnc", async () => {
+    const pw = prompt(i18("sec.enterPass", "Enter your wallet password:"));
+    if (pw == null) return;
+    try { await disableEncryption(pw); log("ok", i18("sec.removed", "Password removed — key stored in plain text.")); renderSecurity(); }
+    catch (e) { alert(i18("sec.wrongPass", "Wrong password.")); }
+  });
+  _btn("btnLockNow", () => lockWallet());
+  if ($("autolockSel")) $("autolockSel").onchange = (e) => {
+    try { localStorage.setItem(LS_AUTOLOCK, String(parseInt(e.target.value, 10) || 0)); } catch (x) {}
+    armAutolock();
+  };
+  _btn("btnUnlock", async () => {
+    const pw = $("unlockPass").value;
+    try { await unlockWallet(pw); } catch (e) { $("unlockErr").textContent = i18("unlock.wrong", "Wrong password — try again."); }
+  });
+  if ($("unlockPass")) $("unlockPass").onkeydown = (e) => { if (e.key === "Enter") $("btnUnlock").click(); };
+  _btn("btnUnlockRestore", () => { state.locked = false; show("unlockCard", false); enterOnboarding(); if ($("btnShowImport")) show("importBox", true); });
+
+  // reset the auto-lock countdown on any interaction
+  ["click", "keydown", "touchstart"].forEach((ev) => document.addEventListener(ev, bumpAutolock, { passive: true }));
   $("btnClearLog").onclick = () => { $("log").innerHTML = ""; };
   $("btnForget").onclick = () => {
     if (!confirm("Forget the wallet stored in this browser? Make sure you saved the private key — this cannot be undone.")) return;
@@ -2542,7 +2661,10 @@ async function boot() {
   // load existing wallet or onboard
   const w = loadWallet();
   let resumedMining = false;
-  if (w && w.address) {
+  if (w && w.enc) {
+    state.locked = true;
+    showUnlock();                     // encrypted at rest — require the password before anything
+  } else if (w && w.address) {
     state.wallet = w;
     showWalletUI();
     log("info", i18("log.walletLoadedDevice", "Loaded wallet from this device: {a}", {a: w.address}));

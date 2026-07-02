@@ -99,9 +99,21 @@
     <div class="row mt">
       <button id="btnConfirmSave" class="primary" disabled data-i18n="save.continue">Continue → store on this device</button>
     </div>
-    <p class="small faint mt" data-i18n-html="save.note">“Continue” keeps an encrypted-at-rest? <b>No</b> — it is stored in this
-      browser's <span class="mono">localStorage</span> in plain text so mining can auto-resume.
-      Only do this on a device you trust.</p>
+    <p class="small faint mt" data-i18n-html="save.note">“Continue” stores the key in this browser's <span class="mono">localStorage</span> so mining can auto-resume. By default it is plain text — turn on <b>Settings → Encrypt wallet with a password</b> to encrypt it at rest and enable auto-lock. Only keep a plain-text key on a device you trust.</p>
+  </div>
+
+  <!-- UNLOCK (shown when an encrypted wallet is locked) -->
+  <div id="unlockCard" class="card hidden">
+    <h2 data-i18n="unlock.title">🔒 Wallet locked</h2>
+    <p class="small dim" data-i18n="unlock.intro">Your wallet is encrypted on this device. Enter your password to unlock it.</p>
+    <div class="addr-box"><span class="a mono" id="unlockAddr"></span></div>
+    <label class="mt" data-i18n="unlock.password">Password</label>
+    <input id="unlockPass" type="password" autocomplete="current-password" placeholder="••••••••" />
+    <div id="unlockErr" class="danger small mt"></div>
+    <button id="btnUnlock" class="primary mt" style="width:100%" data-i18n="unlock.unlock">Unlock</button>
+    <details class="mt"><summary class="small dim" style="cursor:pointer" data-i18n="unlock.forgot">Forgot the password?</summary>
+      <p class="small faint mt" data-i18n="unlock.forgotNote">There is no password recovery — the key can't be decrypted without it. Restore your wallet from its 24-word recovery phrase or private-key backup instead (that replaces the locked copy).</p>
+      <button id="btnUnlockRestore" class="ghost mt" style="width:100%" data-i18n="unlock.restore">Restore from recovery phrase / key</button></details>
   </div>
 
   <!-- TAB BAR (shown once a wallet exists) -->
@@ -500,6 +512,24 @@
     <div class="row mt">
       <button id="btnDlKeySettings" class="accent" data-i18n="btn.dlKey">⤓ Download key file (JSON)</button>
     </div>
+
+    <hr style="border:none;border-top:1px solid var(--line,#1c2530);margin:16px 0" />
+    <div class="label" data-i18n="sec.title">🔐 Wallet security</div>
+    <p class="small faint" data-i18n="sec.intro">Encrypt the private key stored in this browser with a password (AES-256-GCM). It's decrypted only in memory while unlocked, and auto-lock re-locks it after a period of inactivity.</p>
+    <div id="secStatus" class="small mt"></div>
+    <button id="btnEncrypt" class="accent mt" style="width:100%" data-i18n="sec.encrypt">Encrypt wallet with a password</button>
+    <button id="btnRemoveEnc" class="ghost mt hidden" style="width:100%" data-i18n="sec.remove">Remove password (store in plain text)</button>
+    <button id="btnLockNow" class="ghost mt hidden" style="width:100%" data-i18n="sec.lockNow">🔒 Lock now</button>
+    <label class="mt" data-i18n="sec.autolock">Auto-lock after inactivity</label>
+    <select id="autolockSel">
+      <option value="0" data-i18n="sec.autolockOff">Off</option>
+      <option value="1">1 min</option>
+      <option value="5">5 min</option>
+      <option value="15">15 min</option>
+      <option value="30">30 min</option>
+      <option value="60">60 min</option>
+    </select>
+
     <div class="row mt">
       <button id="btnSelfTest" class="ghost" data-i18n="btn.selftest">Run self-test</button>
       <button id="btnForget" class="danger" data-i18n="btn.forget">Forget wallet</button>
