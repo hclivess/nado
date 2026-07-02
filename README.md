@@ -178,6 +178,18 @@ pair moves it back out after a timelock (see below). Bonded selection weight is
 - **Whale-capped** — a single identity tops out at `BOND_CAP = 10,000 NADO` (`B_MIN = 100 NADO` per
   share), so no whale can monopolise the lane. The bond is **refundable** — you keep your coins.
 
+> **Bonded mining is passive — no work, no need to be online.** Once you hold enough to bond (`B_MIN =
+> 100 NADO`), you can stop *actively* mining: the bonded lane is **staking**, not proof-of-work. There is
+> **no PoW/PoSW to compute, no periodic recert, and no requirement to keep the app or a node open** — the
+> beacon draws you in proportion to your stake, and because winners are credited **by address**, a relay
+> builds your winning block even while you're offline. With **auto-bond** on, rewards compound straight back
+> into stake, so it grows hands-free. Two honest caveats: (1) a *freshly* bonded stake ramps to full
+> selection weight over `BOND_RAMP_EPOCHS` (~30 epochs) — an automatic anti-sudden-whale delay, no action
+> needed — after which it earns at full rate; (2) your share is **competitive** (proportional to your slice
+> of *total* bonded stake), and this lane is **rich-get-richer by design** (stake = yield, as in any
+> Proof-of-Stake). The capital-*free* path — the OPEN lane + presence dividend — is the counterweight for
+> anyone without coins, and it's the part that actually requires (light, phone-doable) mining.
+
 > **Unbond is now timelocked (enforced).** `unbond` is a **release request**, not an instant refund:
 > the stake **stays in the `bonded` column — still slashable** — and a maturity block
 > `release_block = current + BOND_UNLOCK_DELAY (1440)` is recorded. A separate fee-exempt **`withdraw`**
