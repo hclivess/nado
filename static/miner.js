@@ -377,18 +377,22 @@ function buildDividendWithdrawTx(wallet, addr, amount, nonce, proof, targetBlock
 
 async function refreshDividend() {
   if (!state.wallet) return;
-  let d = null;
+  // Surface the dividend section whenever you're actively MINING (so it's discoverable — you watch it
+  // accrue from 0), or whenever there's an accrued/pending amount even after you stop. Idle non-miners
+  // with nothing accrued don't see it (no clutter). Crucially, show it even if the exec node is briefly
+  // unreachable (with a status), so a miner is never left wondering where the dividend went.
+  const mining = !!state.mining;
+  let d = null, reachable = true;
   try {
     const r = await fetch(execBase() + "/exec/dividend?address=" + encodeURIComponent(state.wallet.address), { cache: "no-store" });
     d = await r.json();
-  } catch (e) { if ($("divAccrued")) $("divAccrued").textContent = i18("div.unavail", "exec node unreachable"); return; }
+  } catch (e) { reachable = false; }
   const accrued = BigInt((d && d.accrued) || 0);
   const pending = (d && d.pending) || [];
-  // Only surface the dividend section once there's something to show (accrued or a pending claim) — an
-  // empty "Dividend accrued: —" row is just clutter on a fresh wallet.
-  show("divWrap", accrued > 0n || pending.length > 0);
-  if ($("divAccrued")) $("divAccrued").textContent = rawToNado(accrued) + " NADO";
+  show("divWrap", mining || accrued > 0n || pending.length > 0);
+  if ($("divAccrued")) $("divAccrued").textContent = reachable ? (rawToNado(accrued) + " NADO") : i18("div.unavail", "exec node unreachable");
   if ($("btnCollectDiv")) $("btnCollectDiv").disabled = !(accrued > 0n) || state._collecting;
+  if (!reachable) return;
   // AUTO-CLAIM any collected-but-unclaimed dividend whose proof matches the settled root.
   if (pending.length && !state._claiming) { state._claiming = true; try { await claimPendingDividends(pending); } finally { state._claiming = false; } }
 }

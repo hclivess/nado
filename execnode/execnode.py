@@ -184,8 +184,27 @@ async def h_dividend_proof(request):
     return web.json_response(p)
 
 
+@web.middleware
+async def _cors(request, handler):
+    # This is a READ-ONLY query API. The light-miner page is served by the L1 node on a DIFFERENT port
+    # (:9173), so every /exec/* fetch from the browser is cross-origin — without these headers the browser
+    # silently blocks the response (curl doesn't, which is why it worked in tests but not in the wallet).
+    # Allow any origin; nothing here is authenticated or mutating. Also answer the CORS preflight.
+    if request.method == "OPTIONS":
+        resp = web.Response(status=204)
+    else:
+        try:
+            resp = await handler(request)
+        except web.HTTPException as exc:
+            resp = exc
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    resp.headers["Access-Control-Allow-Headers"] = "*"
+    return resp
+
+
 async def main():
-    app = web.Application()
+    app = web.Application(middlewares=[_cors])
     app.add_routes([web.get("/exec/root", h_root),
                     web.get("/exec/contracts", h_contracts),
                     web.get("/exec/contract", h_contract),
