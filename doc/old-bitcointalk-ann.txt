@@ -1,0 +1,135 @@
+ORIGINAL NADO BitcoinTalk ANN (pre-reboot) — kept for historical reference / to contrast against the reboot.
+The reboot deliberately CHANGED most of the below (Ed25519 -> ML-DSA-44 post-quantum; IP-based "one node per
+IP" rewards -> farm-neutral two-lane mining; Burn-to-Bribe removed; base-subsidy floor added; objective
+finality + slashing; presence dividend; HTLC swaps; execution layer; zk-STARK privacy roadmap). See
+doc/bitcointalk-ann.txt for the reboot ANN and doc/takeover-resistance.md for why the old IP-reward model was
+dropped.
+
+================================================================================================
+
+[b]Notice[/b]
+
+NADO mainnet is released.
+
+[b]Installation[/b]
+
+[b]Linux[/b]
+
+[b]Direct installation[/b]
+
+[code]screen -S nado
+sudo apt-get update
+sudo apt-get install python3.10
+python3.10 -m pip install pip --upgrade
+git clone https://github.com/hclivess/nado
+cd nado
+python3.10 -m pip install -r requirements.txt
+[/code]
+
+[b]Alternate direct installation one-liner[/b]
+[code]
+sudo apt-get update && sudo add-apt-repository ppa:deadsnakes/ppa -y && sudo apt-get install python3.10 python3.10-distutils git screen curl -y && curl -sS https://bootstrap.pypa.io/get-pip.py | sudo python3.10 && sudo ufw allow 9173 && git clone https://github.com/hclivess/nado && cd nado && python3.10 -m pip install -r requirements.txt && screen -dmS nado python3.10 nado.py
+[/code]
+
+[b]Virtual environment installation[/b]
+[code]screen -S nado
+sudo apt-get update
+sudo apt-get install software-properties-common
+sudo add-apt-repository ppa:deadsnakes/ppa
+apt-get install python3.10-dev python3.10-venv
+python3.10 -m venv nado_venv
+source nado_venv/bin/activate
+pip install --upgrade pip
+git clone https://github.com/hclivess/nado
+cd nado
+pip install -r requirements.txt
+[/code]
+To go back to your screen, use [code]screen -r nado[/code] To update your NADO installation, use [code]git pull origin main[/code] from the directory where you have it installed.
+
+[b]Windows[/b]
+There is a [url=https://github.com/hclivess/nado/releases]release page in GitHub[/url], which is periodically updated when major changes occur. The easiest way to run NADO for Windows users is to use the nado.exe binary from there.
+
+It is also possible to install [url=https://www.python.org/downloads/]Python on Windows[/url] and run NADO directly. Command line instructions:
+[b]Direct installation[/b]
+
+First [url=https://github.com/hclivess/nado/archive/refs/heads/main.zip]download[/url] the master branch from GitHub and extract the archive. Run the command line as Administrator and enter the following commands:
+[code]python -m pip install -r requirements.txt
+
+[/code][b]To run NADO, execute the following command: python3.10 nado.py[/b]
+
+After installation, go to your browser and announce your peer to one of the nodes like this: [url=http://127.0.0.1:9173/announce_peer?ip=144.91.103.83]http://127.0.0.1:9173/announce_peer?ip=144.91.103.83[/url]. For this, you should have [url=https://www.google.com/search?q=port+forwarding+guide]port 9173 open[/url] so the node is accessible from the internet if you want to receive rewards. After this step, synchronization should start shortly.
+
+[b]Wallet[/b]
+You can download the [url=https://github.com/hclivess/nado-microwallet]official NADO wallet here[/url] or on the [url=https://github.com/hclivess/nado/releases]release page of NADO[/url].
+[b]Remote access[/b]
+
+After running the node, you can access it at [url=http://127.0.0.1:9173/]http://127.0.0.1:9173[/url] from where all API calls used by the node itself are accessible. Here are some examples:
+
+● [url=http://127.0.0.1:9173/get_account?address=ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29]http://127.0.0.1:9173/get_account?address=ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29[/url]
+
+[b]Private key storage[/b]
+In previous versions, private key was stored in the folder where NADO is installed, under private directory, specifically in the keys.dat file. With the latest version, this file is stored in user's home directory, [code]/~/nado/private/keys.dat[/code] in Linux and [code]C:\Users\[username]\nado\private[/code] in Windows.
+
+[b]Is there anything unique?[/b]
+Yes. No mining, minting, block production happens in every node at once, based on the deterministic principles of the blockchain. This is possible because block production is separated from the consensual layer. This removes all the selfish miner incentives, which cause issues like transaction exclusion in traditional PoW systems.
+
+[b]What is NADO?[/b]
+NADO is short for Tornado. It is just another blockchain written from scratch with a highly experimental consensus algorithm, which was created to provide effortless mining for all participants with a public IP address. NADO is not a classic proof-of-work blockchain like Bitcoin. Unlike most other crypto, its focus is on accessibility to rewards for everyone. It has a fully elastic reward mechanism, rewarding users only when transactions are happening on the chain. Users can burn their share of tokens in order to increase their chances of winning more rewards in the future.
+
+[b]What's the reason for NADO?[/b]
+NADO is a take on one of the newer trends, where users do not use graphics cards or specialized hardware for mining, nor do they have to own a large portion of tokens in order to be rewarded. It is inspired by IDENA and NYZO, while attempting to bring the barrier of entry even lower than those two by not requiring solving of puzzles or highly efficient machines for users to remain in a reward distribution cycle.
+
+[b]What does NADO do differently?[/b]
+In NADO, every user generates new blocks at the same time. This is possible because users are not rewarded for mining blocks but for keeping the network running. After generating a block and receiving a reward, chances of receiving more block rewards are temporarily lowered based on the public IP address. Every IP address can only have one block generating node. While this excludes users without public addresses, it prevents node spamming to a degree.
+
+[b]Sounds interesting, can you elaborate?[/b]
+There are multiple cycles for every block. It starts with accepting peers and transactions directly. In the second stage, transactions and peers are stored in a buffer for the following block so that transactions can stabilize across the network. NADO prefers decentralization to efficiency, which means it exposes consensus more than the individual node, which makes it more resilient regarding SPOF but less efficient.
+
+[b]But is there a premise?[/b]
+The premise of NADO is that users stop being interested in decentralized value distributing projects because it becomes progressively more difficult for them to join them or remain as time goes on. The main reason for users to leave is not the lack of adoption, but the mismatch between adoption, distribution and inflation. Distribution is the single one most important aspect of a cryptocurrency project as proven in the success of NANO, where no single entity was capable of obtaining a high amount of tokens through monopolizing token distribution.
+
+● Constant rewards are counterproductive: Users will keep running their nodes even though they are not receiving rewards in a particular moment because there is no block reward for a particular block because network activity is low. Fighting inflation is more important than hoping for users to not stop running nodes.
+
+● Elastic distribution was one of the key promises of Vertcoin, one of the most popular cryptocurrencies of 2014. NADO puts these promises into practice.
+● Litecoin was created as a Bitcoin with fair distribution. None of the projects mentioned above put large effort into marketing and were extremely popular nonetheless.
+● Barrier of entry is directly correlated to fairness of distribution. This is an idea on which Steve Jobs built his entire business. Removal of hassles in Apple operating systems and simplicity of their mobile devices led to widespread adoption simply because there were no hurdles to adoption.
+● Interestingly enough, some of the most successful "cryptocurrency projects" where pyramid schemes that had zero technology in them: Bitcoinnect and Onecoin. All users had to do there was to go on a website and click a button to invest money into something that did not exist. Why did they do it? Because it was easy.
+● Combining great and accessible technology with perfect distribution and effective marketing is the key to successful adoption.
+
+
+[b]Why not only use the existing projects?[/b]
+● With PoW, the problem is in the arms race.
+● With PoS, the problem is in the rising price.
+● With PoD, the problem is in the increasing difficulty to re-join mesh with more participants.
+
+[b]Proof of what?[/b]
+Every node in the NADO ecosystem keeps track of what opinions other nodes have by sharing state checksums for current block producer pools, transaction pools, peer pools and block hash pools. Participants add credibility over time to those who share their opinions on what the state of the network is. The security principle is that any attacker needs to be connected to the network for a longer time than the legitimate nodes and postpone the attack until their network participation duration is longer than that of other nodes - to perform a 51% attack. If the legitimate nodes stay in the network longer than the attackers, it is impossible to attack.
+
+[b]Burn-to-Bribe system and governance[/b]
+In the beginning, all users have the same chance at receiving a reward every block. If they succeed, they are issued both tokens and a penalty. This penalty lowers chance of further finding rewards in relation to users who have not been rewarded yet, but it can be negated by burning a portion of the coins they generated or obtained otherwise. Currently, the model is set up in 1:100 ratio, which means that 1 portion of burn negates 100 portions of penalty. Both penalty and burn are counted from the smallest unit of NADO, so the lowest penalty resolution is 0.0000000001 and the lowest burn/bribe resolution is 0.0000000010. This system was created as an additional measure against inflation after implementation of elastic distribution and burned tokens are used for governance purposes.
+
+To burn your NADO, send it to the following address: [code]burn[/code]
+
+[b]What about security?[/b]
+There are no guarantees for security of NADO, mainly because of its highly experimental character. Compared to more excluding networks like Bitcoin, security will always be lower as the main focus is on lowering the entry level for new users to make mining as inclusive as possible.
+[b]How many decimals are there and what are the units called?[/b]
+
+1 NADO can be split into 1,000,000,000 units.
+
+[b]Got some sci-fi tech mumbo jumbo?[/b]
+● Cryptography: Edwards-curve Digital Signature Algorithm (Ed25519)
+● Link hashing: BLAKE2b
+● Block capacity: Capped at 250KB per minute
+● Block reward: Between 0 and 5 depending on network usage
+● Transaction throughput: 7 raw transactions per second
+● Proof of Fidelity with aspects of majority and diversity
+● noSQL MessagePack file-based atomized database system
+● Optional MessagePack formatting in API
+● Shared mining protocol
+● Periodic intervals to enforce consensus stabilization
+● Burn-to-Bribe deflationary incentive and governance
+● The logo is a vortexed version of the Impossible Toroidal Polyhedron
+
+[b]Where can I learn more?[/b]
+
+[url=http://www.nado.live/][size=36pt]www.nodeisok.com[/size][/url]
