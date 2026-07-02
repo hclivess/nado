@@ -435,7 +435,8 @@
 
   <div id="shieldCard" class="card hidden" data-tab="shield">
     <h2 data-i18n="shield.title">🛡️ Shielded pool</h2>
-    <div class="faint small" data-i18n-html="shield.sub">Deposit coins into the post-quantum <b>zk-STARK shielded pool</b> (execution layer). Break the on-chain link between the address that deposits and the one that withdraws. <b>Alpha:</b> currently a transparent-but-sound pool — the zero-knowledge STARK proof drops in underneath later without changing this flow.</div>
+    <div class="faint small" data-i18n-html="shield.sub">A post-quantum <b>zk-STARK shielded pool</b> on the execution layer. The goal: deposit here, withdraw to a different address, and cut the on-chain link — hiding sender, recipient, and amount.</div>
+    <div class="warnbox mt small" data-i18n-html="shield.warn"><b>⚠ Not private yet — testnet preview.</b> Deposits and withdrawals are already fully <b>secure</b>: no one can forge, steal, or double-spend. But right now the amounts and the deposit→withdraw link are <b>still visible on-chain</b> — the zero-knowledge proof that hides them isn't switched on yet, so the pool is <i>verifiable-by-everyone</i>, not private. When the STARK lands, this exact flow becomes fully private with nothing for you to change. <b>Don't rely on it for privacy today.</b></div>
 
     <div class="row mt">
       <div style="flex:1"><div class="label" data-i18n="shield.balance">Shielded balance</div><div id="shieldBal" class="mono">0</div></div>
