@@ -2724,19 +2724,8 @@ async function doUnshield() {
   finally { if (_ub) { _ub.disabled = false; _ub.textContent = i18("shield.unshield", "Unshield"); } }
 }
 
-// Get a full join-split STARK proof — on THIS device (fully private) if the tick is on, else DELEGATED to the
-// connected exec node (which sees the witness). On-device uses a WASM prover; until that ships it falls back.
-async function proveTransfer(wit) {
-  if ($("zOnDevice") && $("zOnDevice").checked) {
-    if (window.nadoProve) {                     // on-device WASM prover, when available
-      try { return await window.nadoProve(wit, execBase()); } catch (e) { /* fall back to the node */ }
-    }
-    log("info", i18("shield.ondeviceSoon", "On-device proving is on its way — for now the connected node makes this proof."));
-  }
-  return await (await fetch(execBase() + "/exec/prove_transfer", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(wit),
-  })).json();
-}
+// (The 1-output on-device path was dead code and had the same silent-fallback key-leak as proveTransfer2 did;
+// removed. All shielded sends/withdrawals go through proveTransfer2, which fails closed when on-device is on.)
 function _b36enc(x) { x = BigInt(x); if (x === 0n) return "0"; const D = "0123456789abcdefghijklmnopqrstuvwxyz"; let s = ""; while (x > 0n) { s = D[Number(x % 36n)] + s; x /= 36n; } return s; }
 
 // ON-DEVICE 2-output prover: build the Merkle path from the pool + prove entirely in the browser, so the node
@@ -2786,9 +2775,14 @@ async function _onDeviceProve2(wit, execBase) {
 if (typeof window !== "undefined") window.nadoProve2 = _onDeviceProve2;
 
 async function proveTransfer2(wit) {   // 2-output proof (send + change), on-device if ticked else delegated
+  // H-6: when "Prove on this device" is TICKED, fail CLOSED. The witness contains the shielded spend key
+  // (nsk); the old code silently fell through to POST it to the node on ANY on-device error (e.g. the note
+  // isn't indexed yet right after a deposit) — handing the node the key despite the "fully private" promise.
+  // Now an on-device error propagates and NOTHING is sent; the node only ever sees the witness if the box is
+  // explicitly UNticked (the user's consent that "the node sees your amounts and keys").
   if ($("zOnDevice") && $("zOnDevice").checked) {
-    if (window.nadoProve2) { try { return await window.nadoProve2(wit, execBase()); } catch (e) { /* fall back */ } }
-    log("info", i18("shield.ondeviceSoon", "On-device proving is on its way — for now the connected node makes this proof."));
+    if (!window.nadoProve2) throw new Error(i18("shield.ondeviceUnavail", "On-device proving isn't available here. Untick 'Prove on this device' to let the node prove it (the node will then see your amounts and keys), or use a browser that supports WebAssembly."));
+    return await window.nadoProve2(wit, execBase());   // no silent node fallback — errors surface to the caller
   }
   return await (await fetch(execBase() + "/exec/prove_transfer2", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(wit),
