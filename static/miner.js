@@ -2427,20 +2427,19 @@ async function doUnshield() {
     const pr = await (await fetch(execBase() + "/exec/prove_transfer", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(wit),
     })).json();
-    if (pr.error) { log("err", i18("shield.proveErr", "Proof failed: {m}", { m: pr.error })); $("shieldStatus").textContent = ""; return; }
-    const blob = { op: "field_transfer", bundle_json: pr.bundle_json };
-    const latest = await getLatestBlock(); const target = latest.block_number + 8;
-    const tx = buildTransferTx(state.wallet, "blob", 0n, MIN_TX_FEE, target, blob, nowSeconds());
-    const res = await submitTransaction(tx);
-    if (res.data && res.data.result) {
-      note.spent = true;
-      if (change > 0n) notes.push({ nsk: outNsk, value: change.toString(), rho: outRho, cm: pr.cm_out, spent: false, ts: Date.now() });
-      saveNotes(notes);
-      log("ok", i18("shield.unshieldSent", "Unshield submitted ✓ — tap Claim once the exec root is settled."));
-      $("shieldStatus").textContent = i18("shield.pending", "Pending: {a} NADO → {t} (waiting for settlement).", { a: rawToNado(rawAmount), t: to.slice(0, 12) + "…" });
-      $("unshieldAmount").value = "";
-      setTimeout(() => renderShield().catch(() => {}), 1500);
-    } else { log("err", i18("shield.unshieldRej", "Unshield rejected: {m}", { m: (res.data && res.data.message) || "" })); $("shieldStatus").textContent = ""; }
+    if (pr.error || !pr.ok) {
+      log("err", i18("shield.proveErr", "Proof failed: {m}", { m: pr.error || pr.applied || "" }));
+      $("shieldStatus").textContent = ""; return;
+    }
+    // The exec node proved + applied the transfer (the 900KB+ proof stays off-chain; the withdrawal settles
+    // on L1 via the bonded-quorum root). Nothing else to submit — just track the change note + auto-claim.
+    note.spent = true;
+    if (change > 0n) notes.push({ nsk: outNsk, value: change.toString(), rho: outRho, cm: pr.cm_out, spent: false, ts: Date.now() });
+    saveNotes(notes);
+    log("ok", i18("shield.unshieldSent", "Unshield proved ✓ — {a} NADO will arrive once the exec root settles.", { a: rawToNado(rawAmount) }));
+    $("shieldStatus").textContent = i18("shield.pending", "Pending: {a} NADO → {t} (settling…).", { a: rawToNado(rawAmount), t: to.slice(0, 12) + "…" });
+    $("unshieldAmount").value = "";
+    setTimeout(() => { renderShield().catch(() => {}); claimUnshields().catch(() => {}); }, 2000);
   } catch (e) { log("err", i18("shield.err", "Shielded-pool error: {m}", { m: e.message })); $("shieldStatus").textContent = ""; }
 }
 

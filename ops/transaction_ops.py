@@ -561,11 +561,14 @@ def validate_transaction(transaction, logger, block_height):
         assert transaction["sender"] == doc["sender"], "only the original sender may refund this HTLC"
         assert h >= int(doc["expiry"]), "HTLC has not expired yet — refund is not available"
     elif recipient == "shield":
-        # SHIELD DEPOSIT into the shielded pool: lock coins in escrow; the exec node adds the note commitments.
+        # SHIELD DEPOSIT into the shielded pool: lock coins in escrow; the exec node adds the note commitment(s).
         assert transaction["amount"] > 0, "shield amount must be positive"
         assert transaction["fee"] >= MIN_TX_FEE, f"shield fee below minimum {MIN_TX_FEE}"
         data = transaction.get("data") or {}
-        assert isinstance(data.get("out_commitments"), list) and data.get("out_commitments"), "shield needs output note commitments"
+        if data.get("field"):                                        # Phase-2 field-native note (single commitment)
+            assert data.get("cm"), "field shield needs a note commitment"
+        else:                                                        # transparent-phase note openings
+            assert isinstance(data.get("out_commitments"), list) and data.get("out_commitments"), "shield needs output note commitments"
     elif recipient == "unshield":
         # UNSHIELD EXIT: prove {addr, amount, nonce} is in the bonded-quorum SETTLED exec root; release escrow.
         from ops.settlement_ops import latest_settled

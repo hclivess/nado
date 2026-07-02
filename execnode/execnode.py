@@ -254,11 +254,18 @@ async def h_prove_transfer(request):
             return SFP.prove_transfer(fp, int(w["nsk"]), int(w["value_in"]), int(w["rho_in"]), pos,
                                       int(w["out_value"]), int(w["out_owner"]), int(w["out_rho"]),
                                       int(w["public_value"]), int(w["fee"]), num_queries=int(w.get("num_queries", 24)))
-        bundle, public = await asyncio.to_thread(_prove)
+        bundle, public = await asyncio.to_thread(_prove)   # heavy STARK proving off the event loop
         if w.get("withdraw_addr"):
             bundle["withdraw_addr"] = w["withdraw_addr"]
+        # The exec node is BOTH the delegated prover and the pool authority: prove -> verify -> APPLY here
+        # (back on the event loop, serialized with the tail loop). The 900KB+ proof never touches L1 — only the
+        # small settled result does (via the bonded-quorum state root, like the bridge). It is verified inside
+        # apply_field_transfer before any state changes.
+        applied = state.apply_field_transfer(bundle)
+        state.save()
+        ok = "skip" not in applied
         return web.json_response({
-            "bundle_json": json.dumps(bundle),
+            "applied": applied, "ok": ok,
             "root": str(public["root"]), "nf": str(public["nullifiers"][0]),
             "cm_out": str(public["out_commitments"][0]),
             "public_value": public["public_value"], "fee": public["fee"],
