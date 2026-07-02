@@ -18,6 +18,7 @@ Query:  curl localhost:9273/exec/root
         curl 'localhost:9273/exec/view?cid=<id>&method=balanceOf&args=["ndo…"]'
 """
 import asyncio
+import json
 import os
 import sys
 
@@ -101,8 +102,11 @@ async def tail_loop():
                                   f"{(tx.get('sender') or '')[:12]}…", flush=True)
                         elif r == "shield":                          # L1 shielded-pool deposit -> add the notes
                             d = tx.get("data") or {}
-                            res = state.apply_shield(tx.get("amount", 0), d.get("out_commitments", []),
-                                                     d.get("openings", []))
+                            if d.get("field"):                       # Phase-2 field-native note
+                                res = state.apply_field_shield(d.get("cm"))
+                            else:
+                                res = state.apply_shield(tx.get("amount", 0), d.get("out_commitments", []),
+                                                         d.get("openings", []))
                             print(f"[execnode] block {h}: {res}", flush=True)
                     state.cursor = h
                     applied += 1
@@ -223,6 +227,48 @@ async def h_shielded(request):
                              "anchors": state.shielded.anchor_list[-8:]})
 
 
+async def h_field_shielded(request):
+    # Phase-2 field-native pool status + (optionally) a commitment's position.
+    fp = state.field_pool
+    cm = request.query.get("cm")
+    pos = fp.position(int(cm)) if (cm and cm.lstrip("-").isdigit()) else None
+    return web.json_response({"root": str(fp.root()), "notes": len(fp.commitments),
+                              "nullifiers": len(fp.nullifiers), "cursor": state.cursor, "pos": pos})
+
+
+async def h_prove_transfer(request):
+    # DELEGATED PROVER: the wallet POSTs its secret witness; we build the Merkle path from the field pool and
+    # produce the full join-split STARK proof. Returns the bundle as an opaque JSON string (big field ints).
+    try:
+        w = await request.json()
+    except Exception:
+        return web.json_response({"error": "bad json"}, status=400)
+    fp = state.field_pool
+    try:
+        pos = fp.position(int(w["cm"]))
+        if pos is None:
+            return web.json_response({"error": "note not in the field pool"}, status=404)
+        from execnode import shielded_field as SFP
+
+        def _prove():
+            return SFP.prove_transfer(fp, int(w["nsk"]), int(w["value_in"]), int(w["rho_in"]), pos,
+                                      int(w["out_value"]), int(w["out_owner"]), int(w["out_rho"]),
+                                      int(w["public_value"]), int(w["fee"]), num_queries=int(w.get("num_queries", 24)))
+        bundle, public = await asyncio.to_thread(_prove)
+        if w.get("withdraw_addr"):
+            bundle["withdraw_addr"] = w["withdraw_addr"]
+        return web.json_response({
+            "bundle_json": json.dumps(bundle),
+            "root": str(public["root"]), "nf": str(public["nullifiers"][0]),
+            "cm_out": str(public["out_commitments"][0]),
+            "public_value": public["public_value"], "fee": public["fee"],
+        })
+    except KeyError as e:
+        return web.json_response({"error": f"missing witness field {e}"}, status=400)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+
 async def h_shielded_note(request):
     # a wallet's spend witness: position + Merkle path for its note commitment (public data, leaks nothing),
     # plus whether the note's nullifier is already spent (the wallet passes its own nf).
@@ -254,6 +300,8 @@ async def main():
     app = web.Application(middlewares=[_cors])
     app.add_routes([web.get("/exec/root", h_root),
                     web.get("/exec/shielded", h_shielded),
+                    web.get("/exec/field_shielded", h_field_shielded),
+                    web.post("/exec/prove_transfer", h_prove_transfer),
                     web.get("/exec/shielded_note", h_shielded_note),
                     web.get("/exec/unshields", h_unshields),
                     web.get("/exec/unshield_proof", h_unshield_proof),

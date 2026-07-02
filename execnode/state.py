@@ -41,6 +41,10 @@ class ExecState:
         self.shielded = ShieldedPool()
         self.unshield_withdrawals = {}  # nonce(str) -> {"addr":.., "amount":..} : provable unshield exits
         self.uw_nonce = 0          # monotonic unshield-withdrawal nonce counter (deterministic)
+        # PHASE-2 FIELD-NATIVE POOL (doc/privacy.md): notes over the STARK-friendly hash; the exec node acts as
+        # a DELEGATED PROVER (client sends the witness -> exec builds the path + proves the full join-split).
+        from execnode.shielded_field import FieldShieldedPool
+        self.field_pool = FieldShieldedPool()
         self.load()
 
     # --- persistence -----------------------------------------------------------------------------
@@ -62,6 +66,9 @@ class ExecState:
                 self.shielded = ShieldedPool.from_dict(d["shielded"])
             self.unshield_withdrawals = d.get("unshield_withdrawals", {})
             self.uw_nonce = d.get("uw_nonce", 0)
+            if "field_pool" in d:
+                from execnode.shielded_field import FieldShieldedPool
+                self.field_pool = FieldShieldedPool.from_dict(d["field_pool"])
 
     def save(self):
         tmp = self.path + ".tmp"
@@ -71,7 +78,8 @@ class ExecState:
                        "dividend": self.dividend, "dividend_pool_seen": self.dividend_pool_seen,
                        "div_carry": self.div_carry, "dividend_withdrawals": self.dividend_withdrawals,
                        "dw_nonce": self.dw_nonce, "shielded": self.shielded.to_dict(),
-                       "unshield_withdrawals": self.unshield_withdrawals, "uw_nonce": self.uw_nonce},
+                       "unshield_withdrawals": self.unshield_withdrawals, "uw_nonce": self.uw_nonce,
+                       "field_pool": self.field_pool.to_dict()},
                       f, sort_keys=True)
         os.replace(tmp, self.path)
 
@@ -95,6 +103,8 @@ class ExecState:
         # state_root stays O(1) in pool size; plus one leaf per pending unshield exit (provable, GC-able).
         out.append(canonical_bytes(["shield_root", self.shielded.root()]))
         out.append(canonical_bytes(["shield_nfset", self.shielded.nullifier_digest()]))
+        out.append(canonical_bytes(["field_root", str(self.field_pool.root())]))
+        out.append(canonical_bytes(["field_nfset", *sorted(str(n) for n in self.field_pool.nullifiers)]))
         for nonce, w in self.unshield_withdrawals.items():
             out.append(unshield_leaf(w["addr"], w["amount"], nonce))
         return out
@@ -172,6 +182,41 @@ class ExecState:
     def credit_deposit(self, addr, amount):
         """Credit an exec-side bridge balance from an L1 `bridge` deposit (read from the ordered stream)."""
         self.bridge[addr] = self.bridge.get(addr, 0) + int(amount)
+
+    def apply_field_shield(self, cm):
+        """Add a Phase-2 field-native note commitment (from an L1 field-shield deposit) to the field pool."""
+        try:
+            self.field_pool.append(int(cm))
+            return f"field-shield -> field note #{len(self.field_pool.commitments)}"
+        except Exception as e:
+            return f"skip field-shield: {e}"
+
+    def apply_field_transfer(self, bundle):
+        """Apply a Phase-2 STARK transfer: verify the join-split proof, reject a double-spend, then record the
+        nullifier + append the output commitment. public_value<0 records a provable unshield exit."""
+        from execnode import shielded
+        js = (bundle.get("stark") or {}).get("joinsplit") or {}
+        public = {"root": js.get("root"), "nullifiers": [js.get("nf")], "out_commitments": [js.get("cm_out")],
+                  "public_value": js.get("public_value"), "fee": js.get("fee")}
+        ok, reason = shielded.verify_transfer(public, bundle, self.field_pool.knows_root)
+        if not ok:
+            return f"skip field-transfer: {reason}"
+        from execnode.stark import field as _F
+        nf = int(js["nf"]) % _F.P
+        if self.field_pool.has_nullifier(nf):
+            return "skip field-transfer: nullifier already spent (double-spend)"
+        self.field_pool.nullifiers.add(nf)
+        self.field_pool.append(int(js["cm_out"]))
+        pv = int(js["public_value"])
+        if pv < 0:
+            addr = bundle.get("withdraw_addr")
+            if not addr:
+                return "skip field-transfer: unshield missing withdraw_addr"
+            self.uw_nonce += 1
+            nonce = str(self.uw_nonce)
+            self.unshield_withdrawals[nonce] = {"addr": addr, "amount": -pv}
+            return f"field-unshield {-pv} -> {addr[:12]}… nonce {nonce}"
+        return "field-transfer ok"
 
     def apply_shield(self, amount, out_commitments, outputs):
         """Add the output notes of an L1 `shield` deposit (read from the ordered stream). A shield is a
@@ -256,6 +301,21 @@ class ExecState:
                 nonce = str(self.dw_nonce)
                 self.dividend_withdrawals[nonce] = {"addr": sender, "amount": amt}
                 return f"collect_dividend {amt} by {sender[:12]}… -> nonce {nonce}"
+
+            if op == "field_transfer":
+                # PHASE-2: a full join-split STARK proof (delegated-prover output). The bundle rides as an
+                # OPAQUE JSON STRING so its big field ints survive JSON (JS would lose >2^53 precision).
+                bj = payload.get("bundle_json")
+                if bj is not None:
+                    try:
+                        bundle = json.loads(bj)
+                    except Exception:
+                        return "skip: bad bundle_json"
+                else:
+                    bundle = payload.get("bundle")
+                if not isinstance(bundle, dict):
+                    return "skip: bad field_transfer"
+                return self.apply_field_transfer(bundle)
 
             if op == "shielded_transfer":
                 # PRIVATE transfer / UNSHIELD (doc/privacy.md): apply a join-split to the pool (double-spend +

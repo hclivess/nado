@@ -92,6 +92,17 @@ class FieldShieldedPool:
     def has_nullifier(self, nf):
         return int(nf) % F.P in self.nullifiers
 
+    def to_dict(self):                                # big field ints -> strings (JSON-safe)
+        return {"commitments": [str(c) for c in self.commitments],
+                "nullifiers": [str(n) for n in sorted(self.nullifiers)],
+                "anchors": [str(a) for a in self.anchors]}
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls([int(c) for c in d.get("commitments", [])],
+                   [int(n) for n in d.get("nullifiers", [])],
+                   [int(a) for a in d.get("anchors", [])])
+
 
 # --- delegated proving: build the witness path from the pool + prove the full join-split ---
 def prove_transfer(pool, nsk, value_in, rho_in, cm_in_pos, out_value, out_owner, out_rho, public_value, fee,
