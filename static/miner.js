@@ -1725,13 +1725,26 @@ function resumePendingPay() {
 }
 
 /* Transaction history: classify each tx relative to the wallet and show a signed amount. */
-const HIST_ICON = { send: "↑", receive: "↓", bond: "🔒", unbond: "🔓", register: "✦", heartbeat: "♥" };
+const HIST_ICON = { send: "↑", receive: "↓", bond: "🔒", unbond: "🔓", register: "✦", heartbeat: "♥",
+  dividend: "💰", bridge: "🌉", swap: "🔀", blob: "▧", protocol: "•" };
 function histClassify(tx, addr) {
+  // `amt` (raw) overrides tx.amount for reserved txs whose value is carried in `data`, not the amount field —
+  // notably the presence DIVIDEND collection (dividend_withdraw), which otherwise shows as "0 NADO".
   const r = tx.recipient;
+  const d = (tx.data && typeof tx.data === "object") ? tx.data : {};
   if (r === "register") return { type: "register", sign: 0, cp: i18("hist.cpReg", "open-lane registration") };
   if (r === "heartbeat") return { type: "heartbeat", sign: 0, cp: i18("hist.cpHb", "open-lane heartbeat") };
   if (r === "bond") return { type: "bond", sign: -1, cp: i18("hist.cpBond", "→ savings") };
-  if (r === "unbond") return { type: "unbond", sign: 1, cp: i18("hist.cpUnbond", "← savings") };
+  if (r === "unbond") return { type: "unbond", sign: 0, cp: i18("hist.cpUnbond", "savings unbond requested") };
+  if (r === "withdraw") return { type: "unbond", sign: 1, cp: i18("hist.cpWithdraw", "← savings (matured)"), amt: BigInt(d.amount || 0) };
+  if (r === "dividend_withdraw") return { type: "dividend", sign: 1, cp: i18("hist.cpDividend", "presence dividend"), amt: BigInt(d.amount || 0) };
+  if (r === "bridge") return { type: "bridge", sign: -1, cp: i18("hist.cpBridge", "→ bridge escrow") };
+  if (r === "bridge_withdraw") return { type: "bridge", sign: 1, cp: i18("hist.cpBridgeExit", "← bridge exit"), amt: BigInt(d.amount || 0) };
+  if (r === "htlc_lock") return { type: "swap", sign: -1, cp: i18("hist.cpSwapLock", "→ atomic-swap lock") };
+  if (r === "htlc_claim") return { type: "swap", sign: 0, cp: i18("hist.cpSwapClaim", "atomic-swap claim") };
+  if (r === "htlc_refund") return { type: "swap", sign: 0, cp: i18("hist.cpSwapRefund", "atomic-swap refund") };
+  if (r === "blob") return { type: "blob", sign: 0, cp: (d.op === "collect_dividend") ? i18("hist.cpDivCollect", "dividend collect (requested)") : i18("hist.cpBlob", "data blob") };
+  if (["attest", "commit", "reveal", "settle", "slash", "alias"].includes(r)) return { type: "protocol", sign: 0, cp: i18("hist.cp." + r, r) };
   if (tx.sender === addr) return { type: "send", sign: -1, cp: i18("hist.to", "to"), cpAddr: r };
   return { type: "receive", sign: 1, cp: i18("hist.from", "from"), cpAddr: tx.sender };
 }
@@ -1761,8 +1774,9 @@ async function loadHistory() {
   box.innerHTML = "";
   for (const tx of txs) {
     const info = histClassify(tx, addr);
+    const rawAmt = (info.amt != null) ? info.amt : BigInt(tx.amount || 0);
     const signed = info.sign === 0 ? "—"
-      : (info.sign < 0 ? "-" : "+") + rawToNado(BigInt(tx.amount || 0)) + " NADO";
+      : (info.sign < 0 ? "-" : "+") + rawToNado(rawAmt) + " NADO";
     const amtCls = info.sign === 0 ? "zero" : (info.sign < 0 ? "neg" : "pos");
     const when = tx.timestamp ? new Date(tx.timestamp * 1000).toLocaleString() : "—";
     const feeStr = (tx.fee != null) ? ` · ${i18("hist.fee", "fee")} ${tx.fee}` : "";
