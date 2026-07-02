@@ -26,6 +26,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from hashing import blake2b_hash
 
 SHIELD_DEPTH = 32                                  # Merkle depth -> up to 2**32 notes in the pool
+ANCHOR_WINDOW = 128                                # recent roots a proof may target (bounded so the anchor set
+                                                   # never grows without limit — clients prove against a fresh root)
 
 
 def _h(*parts):
@@ -116,14 +118,33 @@ class ShieldedPool:
     def __init__(self, commitments=None, nullifiers=None, anchors=None):
         self.commitments = list(commitments or [])     # leaves, in insertion order (pos = index)
         self.nullifiers = set(nullifiers or [])         # spent nullifiers
-        # ANCHOR SET: every root the pool has ever held. A transfer may prove against ANY past root (the tree
-        # keeps growing between building a proof and it landing), so we accept a proof whose `root` is in here.
-        self.anchors = set(anchors or [])
-        self.anchors.add(self.root())
+        # ANCHOR WINDOW (oldest-first, BOUNDED): the recent roots a proof may target. A transfer may prove
+        # against a slightly stale root (the tree grows between proof-build and landing), but we keep only the
+        # last ANCHOR_WINDOW so the set can't grow forever — deterministic across nodes (same append order).
+        self._cached_root = None
+        self.anchor_list = list(anchors or [])
+        self._remember_anchor(self.root())
 
     # -- state ----
     def root(self):
-        return merkle_root(self.commitments)
+        # SCALING: cache the O(n) root; invalidated on append. (An incremental frontier tree makes this
+        # O(depth) per append — the documented next scaling step, doc/privacy.md §scaling.)
+        if self._cached_root is None:
+            self._cached_root = merkle_root(self.commitments)
+        return self._cached_root
+
+    def _append_commitment(self, cm):
+        self.commitments.append(cm)
+        self._cached_root = None
+
+    def _remember_anchor(self, root):
+        if self.anchor_list and self.anchor_list[-1] == root:
+            return
+        if root in self.anchor_list:
+            return
+        self.anchor_list.append(root)
+        if len(self.anchor_list) > ANCHOR_WINDOW:
+            del self.anchor_list[:-ANCHOR_WINDOW]
 
     def size(self):
         return len(self.commitments)
@@ -132,11 +153,16 @@ class ShieldedPool:
         return nf in self.nullifiers
 
     def knows_root(self, root):
-        return root in self.anchors
+        return root in self.anchor_list
+
+    def nullifier_digest(self):
+        """One compact commitment to the WHOLE spent set (so the exec state_root binds it without one leaf per
+        nullifier). SCALING: an incremental accumulator replaces this O(n) digest at large scale."""
+        return _h("nfset", *sorted(self.nullifiers))
 
     def to_dict(self):
         return {"commitments": self.commitments, "nullifiers": sorted(self.nullifiers),
-                "anchors": sorted(self.anchors), "root": self.root()}
+                "anchors": self.anchor_list, "root": self.root()}
 
     @classmethod
     def from_dict(cls, d):
@@ -174,8 +200,8 @@ def verify_transfer(public: dict, proof: dict, root_is_known) -> tuple:
     except (KeyError, TypeError, ValueError):
         return False, "malformed transfer"
 
-    if not root_is_known(root):
-        return False, "unknown anchor root"
+    if ins and not root_is_known(root):
+        return False, "unknown anchor root"                        # only spends need a valid anchor (shields have no inputs)
     if len(nfs) != len(ins) or len(out_cms) != len(outs):
         return False, "public/witness length mismatch"
     if fee < 0:
@@ -226,6 +252,6 @@ def apply_transfer(pool: ShieldedPool, public: dict, proof: dict, root_is_known)
             return False, "nullifier already spent (double-spend)"
     pool.nullifiers.update(public["nullifiers"])
     for cm in public["out_commitments"]:
-        pool.commitments.append(cm)
-    pool.anchors.add(pool.root())                                  # the new state root becomes a valid anchor
+        pool._append_commitment(cm)
+    pool._remember_anchor(pool.root())                             # the new state root becomes a valid anchor
     return True, "ok"

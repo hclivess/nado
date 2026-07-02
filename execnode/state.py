@@ -13,8 +13,10 @@ State never affects L1 consensus. A malformed blob is skipped, never fatal.
 import json
 import os
 
-from hashing import blake2b_hash, merkle_root, merkle_proof, withdrawal_leaf, dividend_leaf, canonical_bytes
+from hashing import (blake2b_hash, merkle_root, merkle_proof, withdrawal_leaf, dividend_leaf,
+                     unshield_leaf, canonical_bytes)
 from execnode.vm import validate_code, run, VMError
+from execnode.shielded import ShieldedPool, apply_transfer
 
 
 class ExecState:
@@ -33,6 +35,12 @@ class ExecState:
         self.div_carry = 0         # undistributed remainder carried to the next accrual (no dust lost)
         self.dividend_withdrawals = {}  # nonce(str) -> {"addr":.., "amount":..} : provable dividend claims
         self.dw_nonce = 0          # monotonic dividend-withdrawal nonce counter (deterministic)
+        # SHIELDED POOL (doc/privacy.md): a Zerocash-style commitment tree + nullifier set built from L1
+        # `shield` deposits + `shielded_transfer` blobs. Only the pool ROOT + a nullifier DIGEST are committed
+        # in state_root (compact — not one leaf per note/nullifier), so this scales independently of pool size.
+        self.shielded = ShieldedPool()
+        self.unshield_withdrawals = {}  # nonce(str) -> {"addr":.., "amount":..} : provable unshield exits
+        self.uw_nonce = 0          # monotonic unshield-withdrawal nonce counter (deterministic)
         self.load()
 
     # --- persistence -----------------------------------------------------------------------------
@@ -50,6 +58,10 @@ class ExecState:
             self.div_carry = d.get("div_carry", 0)
             self.dividend_withdrawals = d.get("dividend_withdrawals", {})
             self.dw_nonce = d.get("dw_nonce", 0)
+            if "shielded" in d:
+                self.shielded = ShieldedPool.from_dict(d["shielded"])
+            self.unshield_withdrawals = d.get("unshield_withdrawals", {})
+            self.uw_nonce = d.get("uw_nonce", 0)
 
     def save(self):
         tmp = self.path + ".tmp"
@@ -58,7 +70,9 @@ class ExecState:
                        "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce,
                        "dividend": self.dividend, "dividend_pool_seen": self.dividend_pool_seen,
                        "div_carry": self.div_carry, "dividend_withdrawals": self.dividend_withdrawals,
-                       "dw_nonce": self.dw_nonce}, f, sort_keys=True)
+                       "dw_nonce": self.dw_nonce, "shielded": self.shielded.to_dict(),
+                       "unshield_withdrawals": self.unshield_withdrawals, "uw_nonce": self.uw_nonce},
+                      f, sort_keys=True)
         os.replace(tmp, self.path)
 
     def _leaves(self):
@@ -77,7 +91,21 @@ class ExecState:
             out.append(withdrawal_leaf(w["addr"], w["amount"], nonce))
         for nonce, w in self.dividend_withdrawals.items():
             out.append(dividend_leaf(w["addr"], w["amount"], nonce))
+        # SHIELDED POOL — bound the whole pool to just TWO leaves (root + nullifier digest), so the exec
+        # state_root stays O(1) in pool size; plus one leaf per pending unshield exit (provable, GC-able).
+        out.append(canonical_bytes(["shield_root", self.shielded.root()]))
+        out.append(canonical_bytes(["shield_nfset", self.shielded.nullifier_digest()]))
+        for nonce, w in self.unshield_withdrawals.items():
+            out.append(unshield_leaf(w["addr"], w["amount"], nonce))
         return out
+
+    def unshield_withdrawal_proof(self, nonce):
+        """(addr, amount, nonce, proof) for a recorded unshield exit, provable against state_root; None if absent."""
+        w = self.unshield_withdrawals.get(str(nonce))
+        if not w:
+            return None
+        proof = merkle_proof(self._leaves(), unshield_leaf(w["addr"], w["amount"], str(nonce)))
+        return {"addr": w["addr"], "amount": w["amount"], "nonce": str(nonce), "proof": proof}
 
     def dividend_withdrawal_proof(self, nonce):
         """(addr, amount, nonce, proof) for a recorded dividend collection, provable against state_root."""
@@ -127,6 +155,20 @@ class ExecState:
     def credit_deposit(self, addr, amount):
         """Credit an exec-side bridge balance from an L1 `bridge` deposit (read from the ordered stream)."""
         self.bridge[addr] = self.bridge.get(addr, 0) + int(amount)
+
+    def apply_shield(self, amount, out_commitments, outputs):
+        """Add the output notes of an L1 `shield` deposit (read from the ordered stream). A shield is a
+        join-split with NO inputs and public_value = the escrowed `amount`, so the verifier enforces
+        sum(output values) == amount (transparent phase). Never raises; a malformed shield is skipped (the
+        depositor's escrowed coins are then simply unspendable — their own risk)."""
+        try:
+            public = {"root": self.shielded.root(), "nullifiers": [], "out_commitments": list(out_commitments),
+                      "public_value": int(amount), "fee": 0}
+            proof = {"inputs": [], "outputs": list(outputs)}
+            ok, reason = apply_transfer(self.shielded, public, proof, self.shielded.knows_root)
+            return f"shield {amount} -> {len(out_commitments)} note(s)" if ok else f"skip shield: {reason}"
+        except Exception as e:
+            return f"skip shield: {e}"
 
     def contract_id(self, deployer, code, nonce):
         return blake2b_hash(["deploy", deployer, code, nonce])[:32]
@@ -197,6 +239,28 @@ class ExecState:
                 nonce = str(self.dw_nonce)
                 self.dividend_withdrawals[nonce] = {"addr": sender, "amount": amt}
                 return f"collect_dividend {amt} by {sender[:12]}… -> nonce {nonce}"
+
+            if op == "shielded_transfer":
+                # PRIVATE transfer / UNSHIELD (doc/privacy.md): apply a join-split to the pool (double-spend +
+                # value-conservation checked by the verifier). If public_value < 0 the coins LEAVE the pool ->
+                # record a provable unshield exit for L1 to release from SHIELD_ESCROW against the settled root.
+                public = payload.get("public")
+                proof = payload.get("proof")
+                if not isinstance(public, dict) or not isinstance(proof, dict):
+                    return "skip: bad shielded_transfer"
+                ok, reason = apply_transfer(self.shielded, public, proof, self.shielded.knows_root)
+                if not ok:
+                    return f"skip shielded_transfer: {reason}"
+                pv = int(public.get("public_value", 0))
+                if pv < 0:
+                    addr = public.get("withdraw_addr")
+                    if not addr:
+                        return "skip: unshield missing withdraw_addr"
+                    self.uw_nonce += 1
+                    nonce = str(self.uw_nonce)
+                    self.unshield_withdrawals[nonce] = {"addr": addr, "amount": -pv}
+                    return f"unshield {-pv} -> {addr[:12]}… nonce {nonce}"
+                return f"shielded_transfer ok ({len(public.get('out_commitments', []))} out)"
 
             return f"skip: unknown op {op!r}"
         except VMError as e:

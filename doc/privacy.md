@@ -106,6 +106,21 @@ The heart of the project. Turning the transparent re-check into a zero-knowledge
 - A `SHIELD_ESCROW` keyless account holds all shielded coins on L1 (supply stays accounted).
 - Unshield settles against the bonded-quorum-settled exec state root, like the bridge and the dividend.
 
+## 7. Scaling (design notes, referenced from the code)
+
+The Phase-1 machinery is correctness-first; these are the documented upgrades for populace scale:
+- **Incremental Merkle tree.** The pool root is cached and recomputed O(n) only on append; replace with a
+  frontier/incremental tree for O(depth)-per-append root + path (the module flags the seam).
+- **Bounded anchors.** The anchor set is capped to `ANCHOR_WINDOW = 128` recent roots (not every historical
+  root), so it never grows without limit — clients prove against a fresh root.
+- **Compact state-root binding.** The exec `state_root` commits the pool with just TWO leaves (root +
+  nullifier digest), so it is O(1) in pool size; only pending *unshield* exits add a leaf each (and are
+  GC-able once claimed + settled).
+- **Nullifier accumulator.** The nullifier digest is an O(n) hash today; swap in an incremental accumulator
+  (or a sparse-Merkle nullifier tree) at large scale.
+- **STARK verification is off the phone** — on the execution node — so proof *verification* cost never
+  touches L1 or a mining phone.
+
 ## 6. What's built vs pending
 
 | piece | status |
@@ -118,7 +133,8 @@ The heart of the project. Turning the transparent re-check into a zero-knowledge
 | STARK arithmetization of the statement | ⏳ Phase 2 |
 | FRI/STARK prover + verifier, STARK-friendly hash + field | ⏳ Phase 2 |
 | client (WASM) / delegated proving | ⏳ Phase 2 |
-| L1 blob tx types + escrow + settled-root unshield | ⏳ integration |
+| L1 shield-escrow + unshield settled-root exit | ✅ (tests/test_shield_l1.py) |
+| exec-node pool: shield/transfer/unshield + compact state_root + unshield proof | ✅ (tests/test_shielded_exec.py) |
 | ML-DSA spend authorization | ⏳ Phase 2 |
 
 The honest summary: the **pool is real, sound, and frozen behind a verifier seam**; the **zero-knowledge**

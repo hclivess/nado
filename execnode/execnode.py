@@ -92,6 +92,11 @@ async def tail_loop():
                             state.credit_deposit(tx.get("sender"), tx.get("amount", 0))
                             print(f"[execnode] block {h}: bridge deposit {tx.get('amount')} by "
                                   f"{(tx.get('sender') or '')[:12]}…", flush=True)
+                        elif r == "shield":                          # L1 shielded-pool deposit -> add the notes
+                            d = tx.get("data") or {}
+                            res = state.apply_shield(tx.get("amount", 0), d.get("out_commitments", []),
+                                                     d.get("openings", []))
+                            print(f"[execnode] block {h}: {res}", flush=True)
                     state.cursor = h
                     applied += 1
                 if applied:
@@ -203,9 +208,28 @@ async def _cors(request, handler):
     return resp
 
 
+async def h_shielded(request):
+    # Public shielded-pool state: the current Merkle root (an anchor), note count, and spent-nullifier count.
+    # Reveals NOTHING about individual notes/owners/values (doc/privacy.md).
+    return web.json_response({"root": state.shielded.root(), "notes": state.shielded.size(),
+                             "nullifiers": len(state.shielded.nullifiers), "cursor": state.cursor,
+                             "anchors": state.shielded.anchor_list[-8:]})
+
+
+async def h_unshield_proof(request):
+    # the Merkle proof a user submits to L1's `unshield` to release SHIELD_ESCROW coins against the settled root
+    p = state.unshield_withdrawal_proof(request.query.get("nonce", ""))
+    if not p:
+        return web.json_response({"error": "not found"}, status=404)
+    p["state_root"] = state.state_root()
+    return web.json_response(p)
+
+
 async def main():
     app = web.Application(middlewares=[_cors])
     app.add_routes([web.get("/exec/root", h_root),
+                    web.get("/exec/shielded", h_shielded),
+                    web.get("/exec/unshield_proof", h_unshield_proof),
                     web.get("/exec/contracts", h_contracts),
                     web.get("/exec/contract", h_contract),
                     web.get("/exec/view", h_view),
