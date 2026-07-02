@@ -2008,15 +2008,19 @@ function barChart(id, values, labels, opts) {
 }
 function hbarChart(id, rows, opts) {
   opts = opts || {}; const svg = _svgClear(id); if (!svg) return;
-  const W = 320, rowH = 18, padT = 4;
-  const n = rows.length; if (!n) { svg.appendChild(_mk("text", { x: W / 2, y: 20, fill: _CMUT, "font-size": 11, "text-anchor": "middle" }, i18("stats.nodata", "no data yet"))); return; }
+  // Three fixed columns so nothing is ragged or overflows: [label] [bar] [value(right-aligned)].
+  const W = 320, rowH = 20, padT = 6, labelW = 72, valueW = 58, barX = labelW + 4;
+  const barMax = W - barX - valueW;              // the bar can never reach into the value column
+  const n = rows.length;
+  if (!n) { svg.appendChild(_mk("text", { x: W / 2, y: 20, fill: _CMUT, "font-size": 11, "text-anchor": "middle" }, i18("stats.nodata", "no data yet"))); return; }
   svg.setAttribute("viewBox", `0 0 ${W} ${padT * 2 + n * rowH}`);
   const max = Math.max(1e-9, ...rows.map((r) => r.value));
   rows.forEach((r, i) => {
-    const y = padT + i * rowH, bw = (r.value / max) * (W - 150);
-    svg.appendChild(_mk("text", { x: 2, y: y + rowH / 2 + 3, fill: _CMUT, "font-size": 9 }, r.label));
-    svg.appendChild(_mk("rect", { x: 78, y: y + 2, width: Math.max(1, bw), height: rowH - 5, fill: opts.color || _CACC, rx: 2 }));
-    svg.appendChild(_mk("text", { x: 82 + Math.max(1, bw), y: y + rowH / 2 + 3, fill: "#cdd7e0", "font-size": 9 }, opts.fmt ? opts.fmt(r.value) : String(r.value)));
+    const cy = padT + i * rowH + rowH / 2;
+    const bw = Math.max(1, (r.value / max) * barMax);
+    svg.appendChild(_mk("text", { x: 2, y: cy + 3.5, fill: _CMUT, "font-size": 10 }, r.label));
+    svg.appendChild(_mk("rect", { x: barX, y: cy - (rowH - 9) / 2, width: bw, height: rowH - 9, fill: opts.color || _CACC, rx: 2 }));
+    svg.appendChild(_mk("text", { x: W - 2, y: cy + 3.5, fill: "#cdd7e0", "font-size": 10, "text-anchor": "end" }, opts.fmt ? opts.fmt(r.value) : String(r.value)));
   });
 }
 function laneBar(id, open, bonded) {
