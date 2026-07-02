@@ -276,6 +276,54 @@ async def h_prove_transfer(request):
         return web.json_response({"error": str(e)}, status=400)
 
 
+async def h_field_leaves(request):
+    # the field pool's commitment list (public) so the browser can build the Merkle path itself and prove
+    # ON-DEVICE (the node never sees the witness). Big ints as strings.
+    return web.json_response({"leaves": [str(c) for c in state.field_pool.commitments]})
+
+
+def _normalize_bundle(bundle):
+    # a browser-generated bundle carries big field ints as STRINGS (JSON can't hold BigInt) -> back to ints
+    js = (bundle.get("stark") or {}).get("joinsplit2")
+    if not js:
+        return
+    for k in ("root", "nf", "cm_out1", "cm_out2", "public_value", "fee"):
+        if k in js and js[k] is not None:
+            js[k] = int(js[k])
+    p = js.get("proof") or {}
+    for f in ("T", "W", "N", "blowup", "deg_bound", "D"):
+        if f in p:
+            p[f] = int(p[f])
+    fr = p.get("fri") or {}
+    if "offset" in fr:
+        fr["offset"] = int(fr["offset"])
+    if "final" in fr:
+        fr["final"] = [int(x) for x in fr["final"]]
+    for q in fr.get("queries", []):
+        for s in q.get("steps", []):
+            s["lo"] = int(s["lo"]); s["hi"] = int(s["hi"])
+    for op in p.get("openings", []):
+        for c in op.get("cols", []):
+            c["cur"] = int(c["cur"]); c["nxt"] = int(c["nxt"])
+
+
+async def h_apply_field_transfer(request):
+    # ON-DEVICE path: the browser already proved; we only VERIFY + APPLY (the witness never reached us).
+    try:
+        bundle = await request.json()
+    except Exception:
+        return web.json_response({"error": "bad json"}, status=400)
+    try:
+        _normalize_bundle(bundle)
+        applied = await asyncio.to_thread(state.apply_field_transfer, bundle)
+        state.save()
+        js = (bundle.get("stark") or {}).get("joinsplit2") or {}
+        return web.json_response({"applied": applied, "ok": "skip" not in applied,
+                                  "cm_out1": str(js.get("cm_out1")), "cm_out2": str(js.get("cm_out2"))})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+
 async def h_prove_transfer2(request):
     # DELEGATED PROVER, 2-output: send v1 to a recipient + keep v2 change. Proves -> verifies -> applies.
     try:
@@ -342,6 +390,8 @@ async def main():
     app.add_routes([web.get("/exec/root", h_root),
                     web.get("/exec/shielded", h_shielded),
                     web.get("/exec/field_shielded", h_field_shielded),
+                    web.get("/exec/field_leaves", h_field_leaves),
+                    web.post("/exec/apply_field_transfer", h_apply_field_transfer),
                     web.post("/exec/prove_transfer", h_prove_transfer),
                     web.post("/exec/prove_transfer2", h_prove_transfer2),
                     web.get("/exec/shielded_note", h_shielded_note),

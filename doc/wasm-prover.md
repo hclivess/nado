@@ -1,4 +1,9 @@
-# On-device (WASM) STARK prover — scope
+# On-device STARK prover — scope + status
+
+> **TIER A (JS/BigInt) is DONE and LIVE.** The full prover is ported to the browser (static/stark/*.js) and
+> byte-matches Python: a transfer proof generated in JS is accepted by the unchanged verifier. The "Prove on
+> this device" tick uses it (window.nadoProve2) — the node never sees the witness. ~13-23s in node/BigInt at
+> depth 12; Tier B (WASM field) is the remaining speed work (~seconds).
 
 > **Goal:** generate the shielded-pool join-split STARK **in the user's browser**, so the exec node never sees
 > the witness. This is the privacy endgame — it closes the one remaining gap ("the prover sees your amounts,

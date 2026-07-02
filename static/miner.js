@@ -15,6 +15,11 @@
 import { poswProveAsync, challengeBytes } from "./posw.js";
 import * as shielded from "./shielded.js";
 import * as alghash from "./alghash.js";
+import * as sfield from "./stark/field.js";
+import { initHashing as initStarkHashing } from "./stark/hashing.js";
+import * as sjoinsplit2 from "./stark/joinsplit2.js";
+import * as sstark from "./stark/stark.js";
+import { treePath } from "./stark/tree.js";
 import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js";
 const CHAIN_ID = "nado-relaunch-1";
 const EPOCH_LENGTH = 60;
@@ -2479,6 +2484,36 @@ async function shareText(text, title) {   // native share sheet (phones) with a 
   const ok = await copyToClipboard(text);
   log(ok ? "ok" : "info", ok ? i18("copy.copied", "Copied ✓") : text);
 }
+
+// ON-DEVICE 2-output prover: build the Merkle path from the pool + prove entirely in the browser, so the node
+// never sees the witness. Returns the same shape as the delegated /exec/prove_transfer2. (~20-30s at depth 12.)
+let _starkInit = false;
+async function _onDeviceProve2(wit, execBase) {
+  if (!_starkInit) { initStarkHashing(blake2bHash); _starkInit = true; }
+  ensureShielded();
+  const leaves = (await (await fetch(execBase + "/exec/field_leaves", { cache: "no-store" })).json()).leaves || [];
+  const cm = BigInt(wit.cm);
+  const idx = leaves.findIndex((l) => BigInt(l) === cm);
+  if (idx < 0) throw new Error("note not in the pool yet");
+  const { sibs, dirs } = treePath(leaves, idx);
+  const J = sjoinsplit2;
+  const bt = J.buildTrace(BigInt(wit.nsk), BigInt(wit.value_in), BigInt(wit.rho_in), sibs, dirs,
+    BigInt(wit.v1), BigInt(wit.o1), BigInt(wit.r1), BigInt(wit.v2), BigInt(wit.o2), BigInt(wit.r2));
+  const total = J.bounds(bt.D)[2];
+  const consPub = sfield.sub(BigInt(wit.fee), BigInt(wit.public_value));
+  const bnd = [[0, J.S0, alghash.DOM_OWNER], [0, J.S1, alghash.ivVal()], [0, J.AB, alghash.DOM_OWNER], [0, J.CONS, consPub],
+    [total, J.ROOTREG, bt.root], [total, J.NFREG, bt.nf], [total, J.CMOUT1, bt.cm1], [total, J.S0, bt.cm2]];
+  const proof = sstark.prove(bt.tr, J.transitions(), bnd, J.periodic(bt.T, bt.D), J.MAX_DEGREE, 24);
+  proof.D = bt.D;
+  const ser = (x) => typeof x === "bigint" ? x.toString() : Array.isArray(x) ? x.map(ser) : (x && typeof x === "object" ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, ser(v)])) : x);
+  const bundle = { stark: { joinsplit2: { proof: ser(proof), root: bt.root.toString(), nf: bt.nf.toString(),
+    cm_out1: bt.cm1.toString(), cm_out2: bt.cm2.toString(), public_value: wit.public_value, fee: wit.fee } } };
+  if (wit.withdraw_addr) bundle.withdraw_addr = wit.withdraw_addr;
+  const res = await (await fetch(execBase + "/exec/apply_field_transfer", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bundle) })).json();
+  return { ok: res.ok, applied: res.applied, cm_out1: bt.cm1.toString(), cm_out2: bt.cm2.toString() };
+}
+if (typeof window !== "undefined") window.nadoProve2 = _onDeviceProve2;
 
 async function proveTransfer2(wit) {   // 2-output proof (send + change), on-device if ticked else delegated
   if ($("zOnDevice") && $("zOnDevice").checked) {
