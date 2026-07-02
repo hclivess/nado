@@ -1620,42 +1620,48 @@ async function sharePayLink() {
   if (btn) { btn.textContent = ok ? i18("copy.copied", "Copied ✓") : i18("copy.select", "select & copy"); setTimeout(() => (btn.textContent = i18("btn.share", "Share")), ok ? 1200 : 1600); }
 }
 
+// Share the MINER itself (the site URL) — the growth loop: whoever opens it can mine + share it again.
+async function shareMiner() {
+  const url = shareUrl();
+  if (navigator.share) {
+    try { await navigator.share({ title: "NADO", text: i18("share.msg", "Mine NADO in your browser — no install, no signup. Open and go:"), url }); return; }
+    catch (e) { if (e && e.name === "AbortError") return; }
+  }
+  const btn = $("btnShareMiner");
+  const ok = await copyToClipboard(url);
+  if (btn) { btn.textContent = ok ? i18("copy.copied", "Copied ✓") : i18("copy.select", "select & copy"); setTimeout(() => (btn.textContent = i18("btn.share", "Share")), ok ? 1200 : 1600); }
+}
+
 /* Receive: amount-aware QR + shareable payment link (degrades to the link text if QR is unavailable). */
+// Generic QR renderer onto a <canvas>, with a graceful "generator unavailable" note fallback.
+function _drawQR(canvas, note, text, targetPx) {
+  if (!qrEncode || !canvas) { if (canvas) canvas.classList.add("hidden"); if (note) note.classList.remove("hidden"); return; }
+  try {
+    let m; try { m = qrEncode(text, "M"); } catch (_) { m = qrEncode(text, "L"); }  // retry at lower ECC if too long
+    const n = m.length, quiet = 4, dim = n + quiet * 2;                              // mandatory quiet zone
+    const px = Math.max(2, Math.floor((targetPx || 260) / dim)), size = dim * px;
+    canvas.width = size; canvas.height = size; canvas.style.width = size + "px"; canvas.style.height = size + "px";
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, size, size); ctx.fillStyle = "#000000";
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (m[r][c]) ctx.fillRect((c + quiet) * px, (r + quiet) * px, px, px);
+    canvas.classList.remove("hidden"); if (note) note.classList.add("hidden");
+  } catch (e) { canvas.classList.add("hidden"); if (note) note.classList.remove("hidden"); }
+}
+
+// The bare miner URL (no query/hash) — scanning it opens the miner so a newcomer can start mining in one tap.
+function shareUrl() { return location.href.split("#")[0].split("?")[0]; }
+
 function renderReceiveQR() {
   if (!state.wallet) return;
   const addr = state.wallet.address;
   $("recvAddr").textContent = addr;
   const link = payLink(addr, currentRecvAmount());
   $("recvPayLink").textContent = link;
-  const canvas = $("recvQR"), note = $("recvQRNote");
-  if (!qrEncode || !canvas) {
-    if (canvas) canvas.classList.add("hidden");
-    if (note) note.classList.remove("hidden");
-    return;
-  }
-  try {
-    // encode the PAYMENT LINK (longer than a bare address); retry at lower ECC if it won't fit at M.
-    let m;
-    try { m = qrEncode(link, "M"); } catch (_) { m = qrEncode(link, "L"); }
-    const n = m.length;
-    const quiet = 4;                              // mandatory QR quiet zone (modules) for scannability
-    const dim = n + quiet * 2;
-    const px = Math.max(2, Math.floor(260 / dim));
-    const size = dim * px;
-    canvas.width = size; canvas.height = size;
-    canvas.style.width = size + "px"; canvas.style.height = size + "px";
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, size, size);
-    ctx.fillStyle = "#000000";
-    for (let r = 0; r < n; r++)
-      for (let c = 0; c < n; c++)
-        if (m[r][c]) ctx.fillRect((c + quiet) * px, (r + quiet) * px, px, px);
-    canvas.classList.remove("hidden");
-    note.classList.add("hidden");
-  } catch (e) {
-    canvas.classList.add("hidden");
-    note.classList.remove("hidden");
-  }
+  _drawQR($("recvQR"), $("recvQRNote"), link, 260);            // payment-request QR
+  // SHARE QR: the miner's own URL, so anyone who scans opens NADO and can start mining. Growth = the link.
+  const su = shareUrl();
+  if ($("shareLink")) $("shareLink").textContent = su;
+  _drawQR($("shareQR"), $("shareQRNote"), su, 220);
 }
 
 /* Parse + consume a #pay?to=...&amount=... deep link. SECURITY: never auto-submits — only prefills. */
@@ -2235,6 +2241,7 @@ function wireEvents() {
 
   $("recvAmount").oninput = () => renderReceiveQR();   // live-update the QR + payment link
   $("btnSharePay").onclick = () => sharePayLink();
+  if ($("btnShareMiner")) $("btnShareMiner").onclick = () => shareMiner();
 
   $("btnSaveRelay").onclick = () => {
     const v = $("relayUrl").value.trim();

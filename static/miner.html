@@ -276,6 +276,18 @@
     <label class="mt" data-i18n="receive.your">Your address</label>
     <div class="addr-box"><span class="a mono" id="recvAddr"></span>
       <button class="copy" data-copy="recvAddr">Copy</button></div>
+
+    <!-- SHARE THE MINER: a QR of the site URL so anyone who scans opens the miner and starts mining. -->
+    <hr style="border:none;border-top:1px solid var(--line,#1c2530);margin:18px 0" />
+    <h2 data-i18n="share.title">📣 Share NADO</h2>
+    <p class="small dim" data-i18n="share.intro">Anyone who scans this opens the miner and can start mining in one tap — no install, no signup. This is how NADO spreads: share the link.</p>
+    <div class="qr-wrap">
+      <canvas id="shareQR" class="qr hidden" width="260" height="260"></canvas>
+      <div id="shareQRNote" class="small faint hidden" data-i18n="share.qrNote">QR generator unavailable — copy the link below.</div>
+    </div>
+    <div class="addr-box"><span class="a mono break" id="shareLink"></span>
+      <button class="copy" data-copy="shareLink">Copy</button>
+      <button class="copy" id="btnShareMiner" data-i18n="btn.share">Share</button></div>
   </div>
 
   <!-- ALIASES -->
