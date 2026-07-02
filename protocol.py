@@ -116,11 +116,14 @@ BPS_DENOM = 10000
 # PRESENCE DIVIDEND (doc/presence-dividend.md): an OPEN-lane block's reward is split three ways instead of
 # 90/10 — the producer keeps a small tip (it still did the work of building the block), the treasury keeps
 # its 10%, and the REST accrues to the DIVIDEND_POOL for fidelity-weighted redistribution to every present
-# open miner (accounted off-L1 by the execution node, collected on demand). BONDED-lane blocks are unchanged
-# (winner-take-all, Sybil-priced by stake). This only changes how the already-20%-capped open lane is PAID
-# OUT — a jackpot becomes a stream — it does not enlarge the open lane's share.
+# open miner (accounted off-L1 by the execution node, collected on demand). BONDED-lane blocks ALSO contribute
+# a modest share (BONDED_DIVIDEND_BPS) so the passive-capital lane shares with the active, capital-free open
+# miners — a fair-launch "everyone earns" tax kept small enough that staking stays clearly the more profitable
+# use of capital (i.e. the security budget is preserved). This only changes how emission is PAID OUT — a
+# jackpot becomes a stream — it does not enlarge any lane's share.
 OPEN_TIP_BPS = 2000          # open producer's cut of an open-lane block (20%); treasury 10%; dividend = rest (70%)
-DIVIDEND_POOL = "dividend"   # reserved L1 account the open-lane dividend accrues to (O(1) on L1)
+BONDED_DIVIDEND_BPS = 2000   # bonded block's contribution to the dividend pool (20%); producer keeps 70%, treasury 10%
+DIVIDEND_POOL = "dividend"   # reserved L1 account the dividend accrues to (O(1) on L1)
 REWARD_WINDOW = 100          # trailing blocks averaged for the elastic reward
 REWARD_CAP = 5_000_000_000   # max reward per block (0.5 NADO), raw
 # Flat per-block emission FLOOR, independent of fees. Without it a no-premine chain deadlocks:
@@ -251,6 +254,18 @@ def split_block_reward(reward: int):
     producer_cut = reward * (BPS_DENOM - TREASURY_BPS) // BPS_DENOM
     treasury_cut = reward - producer_cut
     return producer_cut, treasury_cut
+
+
+def split_bonded_block_reward(reward: int):
+    """Three-way split for a BONDED-lane block: (producer, dividend, treasury) summing to EXACTLY `reward`.
+    treasury + dividend are floors, producer is the exact remainder (same rounding discipline as the open
+    split), so apply and rollback subtract identical integers. The bonded producer keeps the majority
+    (BPS_DENOM - TREASURY_BPS - BONDED_DIVIDEND_BPS, = 70%), a modest slice funds the presence dividend, and
+    the treasury keeps its 10% — the passive lane sharing with the capital-free open miners."""
+    treasury_cut = reward * TREASURY_BPS // BPS_DENOM
+    dividend_cut = reward * BONDED_DIVIDEND_BPS // BPS_DENOM
+    producer_cut = reward - treasury_cut - dividend_cut
+    return producer_cut, dividend_cut, treasury_cut
 
 
 def split_open_block_reward(reward: int):

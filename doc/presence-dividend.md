@@ -53,8 +53,10 @@ dividend  = R − treasury − tip                (the rest — goes to the pres
 - **`dividend`** is credited on L1 to a single reserved recipient — the **dividend pool** (add `"dividend"` to
   `RESERVED_RECIPIENTS`). One account, so still `O(1)` on L1. The pool simply accrues the redistributed emission.
 
-Bonded-lane blocks keep winner-take-all (those are real producers doing real work, `O(1)`, and Sybil-priced by
-stake). Only the **open** lane is redistributed.
+Bonded-lane blocks now ALSO contribute a modest `BONDED_DIVIDEND_BPS` (20%) slice to the same pool — the
+passive-capital lane sharing with the active, capital-free open miners (producer keeps 70%, treasury 10%).
+It is kept small so staking stays clearly the more profitable use of capital (the security budget is
+preserved). So the dividend pool is fed by BOTH lanes; it is still redistributed to the OPEN-lane present set.
 
 ### 4.2 Accrue the dividend off-L1 (execution layer)
 The execution node already tails L1 blocks and keeps cheap KV state off-L1 (Phase 1) and settles a state root to

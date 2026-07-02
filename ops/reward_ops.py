@@ -11,7 +11,8 @@ first block of the PRIOR epoch — deeply finalized and never reorged out from u
 is deterministic and identical at apply, rollback and reindex time. The split functions live in protocol.py
 (pure integer math, treasury+tip floors + exact remainder) so apply and rollback subtract identical integers.
 """
-from protocol import (split_block_reward, split_open_block_reward, TREASURY_ADDRESS, DIVIDEND_POOL)
+from protocol import (split_block_reward, split_open_block_reward, split_bonded_block_reward,
+                      TREASURY_ADDRESS, DIVIDEND_POOL)
 from ops.account_ops import change_balance, increase_produced_count
 from ops.mining_ops import lane_of, epoch_of
 from ops.block_ops import epoch_beacon
@@ -39,8 +40,11 @@ def credit_block_reward(block, logger, revert=False):
             change_balance(address=TREASURY_ADDRESS, amount=treasury, revert=revert, logger=logger)
         increase_produced_count(address=creator, amount=tip, revert=revert, logger=logger)
     else:
-        producer_cut, treasury = split_block_reward(reward)
+        # BONDED lane: producer keeps the majority, a modest slice funds the presence dividend, treasury 10%.
+        producer_cut, dividend, treasury = split_bonded_block_reward(reward)
         change_balance(address=creator, amount=producer_cut, revert=revert, logger=logger)
+        if dividend:
+            change_balance(address=DIVIDEND_POOL, amount=dividend, revert=revert, logger=logger)
         if treasury:
             change_balance(address=TREASURY_ADDRESS, amount=treasury, revert=revert, logger=logger)
         increase_produced_count(address=creator, amount=producer_cut, revert=revert, logger=logger)

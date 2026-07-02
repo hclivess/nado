@@ -1,8 +1,9 @@
 """
-Presence dividend — L1 three-way split for OPEN-lane blocks (doc/presence-dividend.md):
-  open block  -> producer TIP + DIVIDEND_POOL + treasury (sums to the reward)
-  bonded block-> producer 90% + treasury 10% (unchanged)
-Plus revert-symmetry: apply then revert returns every balance to its prior value exactly.
+Presence dividend — L1 reward split (doc/presence-dividend.md):
+  open block  -> producer TIP (20%) + DIVIDEND_POOL (70%) + treasury (10%)
+  bonded block-> producer (70%) + DIVIDEND_POOL (20%) + treasury (10%)   [bonded now shares too]
+Plus revert-symmetry: apply then revert returns every balance to its prior value — verified BYTE-IDENTICALLY
+across the whole KV env (not just the touched balances), so a rollback can never desync a single unit.
 
 Run: python3 tests/test_dividend.py
 """
@@ -66,21 +67,49 @@ def t2_open_block_credits_pool_and_reverts():
     assert bal(a) == 0 and prod(a) == 0, "revert returns producer to prior exactly"
     assert bal(DIVIDEND_POOL) == div0 and bal(TREASURY_ADDRESS) == tre0, "revert returns pool + treasury exactly"
 
-def t3_bonded_block_is_winner_take_all():
+def t3_bonded_block_also_funds_the_dividend():
+    from protocol import split_bonded_block_reward
     a = generate_keys()["address"]; create_account(a, balance=0)
-    div_before = bal(DIVIDEND_POOL)
-    pc, tc = split_block_reward(R)
+    div0, tre0 = bal(DIVIDEND_POOL), bal(TREASURY_ADDRESS)
+    pc, div, tre = split_bonded_block_reward(R)   # (producer 70%, dividend 20%, treasury 10%)
     block = {"block_number": BONDED_SLOT, "block_creator": a, "block_reward": R}
     assert block_lane(block) == "bonded"
     with kv_ops.write_txn(): credit_block_reward(block, logger=logger)
-    assert bal(a) == pc, "bonded producer gets the full 90% cut"
-    assert bal(DIVIDEND_POOL) == div_before, "a bonded block pays NOTHING to the dividend pool"
+    assert bal(a) == pc, "bonded producer keeps the majority (70%)"
+    assert bal(DIVIDEND_POOL) == div0 + div, "a bonded block now contributes its share to the dividend pool"
+    assert bal(TREASURY_ADDRESS) == tre0 + tre, "treasury keeps 10%"
     with kv_ops.write_txn(): credit_block_reward(block, logger=logger, revert=True)
     assert bal(a) == 0, "revert returns the bonded producer to prior"
+    assert bal(DIVIDEND_POOL) == div0 and bal(TREASURY_ADDRESS) == tre0, "revert returns pool + treasury exactly"
 
 def t4_block_lane_is_deterministic():
     b = {"block_number": OPEN_SLOT, "block_creator": "x", "block_reward": R}
     assert block_lane(b) == block_lane(b), "same block -> same lane every call"
+
+def _dump_env():
+    """Snapshot EVERY (key,value) of EVERY sub-DB as raw bytes, in LMDB sorted order — two dumps compare
+    byte-for-byte, so a rollback that leaves ANY unit out of place is caught."""
+    env = kv_ops.get_env(); dbs = kv_ops._dbs(); out = {}
+    with env.begin() as txn:
+        for nm, db in dbs.items():
+            with txn.cursor(db=db) as cur:
+                out[nm] = [(bytes(k), bytes(v)) for k, v in cur]
+    return out
+
+def t5_credit_block_reward_rollback_is_byte_identical():
+    # the strong guarantee: for BOTH lanes, credit_block_reward apply->revert returns the WHOLE env to its
+    # exact prior bytes (accounts + produced + dividend pool + treasury), not just the balances we happened
+    # to assert. Pre-fund every touched account so revert can't leave a fresh zero-row artifact.
+    from ops.account_ops import create_account as _mk
+    for slot in (OPEN_SLOT, BONDED_SLOT):
+        a = generate_keys()["address"]
+        _mk(a, balance=123); _mk(DIVIDEND_POOL, balance=7); _mk(TREASURY_ADDRESS, balance=11)
+        block = {"block_number": slot, "block_creator": a, "block_reward": R}
+        before = _dump_env()
+        with kv_ops.write_txn(): credit_block_reward(block, logger=logger)
+        assert _dump_env() != before, f"credit made no change on the {block_lane(block)} block?!"
+        with kv_ops.write_txn(): credit_block_reward(block, logger=logger, revert=True)
+        assert _dump_env() == before, f"{block_lane(block)} credit rollback is NOT byte-identical"
 
 for name, fn in sorted(globals().items()):
     if name.startswith("t") and callable(fn) and name[1].isdigit():
