@@ -505,12 +505,15 @@
     <label class="mt" style="display:flex;align-items:center;gap:8px;font-weight:normal"><input type="checkbox" id="zOnDevice" style="width:auto" checked /> <span class="small" data-i18n="shield.ondevice">Prove on this device — fully private (the node never sees your amounts or keys)</span></label>
     <button id="btnZsend" class="primary mt" style="width:100%" data-i18n="shield.zsend">Send shielded</button>
     <div id="zsendCodeBox" class="warnbox mt small hidden">
-      <b data-i18n="shield.codeHint">Give this claim code to the recipient over any private channel:</b>
+      <b data-i18n="shield.linkHint">Give this claim link to the recipient over any private channel — opening it receives the banknote automatically:</b>
       <div class="qr-wrap"><canvas id="zsendCodeQR" class="qr" width="200" height="200"></canvas></div>
-      <div class="addr-box"><span class="mono break" id="zsendCode"></span>
-        <button class="copy" data-copy="zsendCode" data-i18n="btn.copy">Copy</button>
+      <div class="addr-box"><span class="mono break" id="zsendLink"></span>
+        <button class="copy" data-copy="zsendLink" data-i18n="btn.copy">Copy</button>
         <button class="copy" id="btnZcodeShare" data-i18n="btn.share">Share</button></div>
       <div class="social-share mt" data-share="zcode" data-private></div>
+      <label class="mt" data-i18n="shield.codeLabel">Claim code (manual)</label>
+      <div class="addr-box"><span class="mono break" id="zsendCode"></span>
+        <button class="copy" data-copy="zsendCode" data-i18n="btn.copy">Copy</button></div>
     </div>
 
     <div class="mt"><div class="label" data-i18n="shield.recvTitle">Receive shielded — paste a claim code someone sent you</div></div>

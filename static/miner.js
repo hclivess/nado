@@ -532,6 +532,7 @@ const LS_AUTOBOND = "nado_autobond_pct";   // persisted auto-bond percentage (0.
 const LS_MINING = "nado_mining";           // "1" while mining, so a browser refresh auto-resumes (no re-click)
 const AUTO_BOND_DEFAULT_PCT = 80;          // default when the user has never set one (matches protocol.AUTO_BOND_DEFAULT_PERCENT)
 const LS_PENDING_PAY = "nado_pending_pay"; // sessionStorage: a pay-request awaiting wallet setup
+const LS_PENDING_CLAIM = "nado_pending_claim"; // sessionStorage: a banknote claim link awaiting wallet setup
 
 function persistWallet(w) { localStorage.setItem(LS_WALLET, JSON.stringify(w)); }
 function loadWallet() {
@@ -1217,7 +1218,8 @@ function showWalletUI() {
   }
   $("recvAddr").textContent = state.wallet.address;
   showTab(state.activeTab || "wallet");
-  resumePendingPay(); // if a #pay link was opened before this wallet existed, prefill the Send now
+  resumePendingPay();   // if a #pay link was opened before this wallet existed, prefill the Send now
+  resumePendingClaim(); // if a #claim link was opened before this wallet existed, receive the banknote now
 }
 
 function adoptWallet(w, { needsSavePrompt }) {
@@ -1672,7 +1674,8 @@ async function maybeAutoBond(acc, ms) {
 
 /* ---- Payment-request deep links: QR / shareable URL that prefills a Send on scan ---- */
 
-let pendingPay = null; // a pay-request parsed from the URL hash before a wallet exists
+let pendingPay = null;   // a pay-request parsed from the URL hash before a wallet exists
+let pendingClaim = null; // a banknote claim-request awaiting wallet setup, same lifecycle
 
 // Deep link back to THIS hosted wallet: ${origin}${pathname}#pay?to=<addr>&amount=<NADO>.
 // AMOUNT IS IN NADO (human-friendly), not raw units, and is OPTIONAL (omitted entirely for a bare
@@ -1683,6 +1686,11 @@ function payLink(addr, amountNado) {
   if (a) params.set("amount", a);
   return `${location.origin}${location.pathname}#pay?${params.toString()}`;
 }
+
+// Claim-link twin for shielded banknotes: opening it receives the note automatically — nothing to paste.
+// The code only reconstructs into a pool note with the intended recipient's key, so a stranger opening the
+// link can't take it; still treat it like cash and deliver it over a private channel.
+function claimLink(code) { return `${location.origin}${location.pathname}#claim?${new URLSearchParams({ code }).toString()}`; }
 
 // Clipboard helper (secure-context navigator.clipboard, with an execCommand fallback for plain http).
 async function copyToClipboard(text) {
@@ -1729,6 +1737,20 @@ async function sharePayLink() {
     catch (e) { if (e && e.name === "AbortError") return; /* dismissed sheet isn't an error; else fall through */ }
   }
   const btn = $("btnSharePay");
+  const ok = await copyToClipboard(link);
+  if (btn) { btn.textContent = ok ? i18("copy.copied", "Copied ✓") : i18("copy.select", "select & copy"); setTimeout(() => (btn.textContent = i18("btn.share", "Share")), ok ? 1200 : 1600); }
+}
+
+// Share the banknote claim LINK (auto-receives on open) — never just the raw code (that needs pasting).
+async function shareZcodeLink() {
+  const code = (($("zsendCode") || {}).textContent) || "";
+  if (!code) return;
+  const link = claimLink(code);
+  if (navigator.share) {
+    try { await navigator.share({ title: "NADO shielded claim link", text: i18("share.zcodeMsg", "A private NADO banknote for you — open to claim:"), url: link }); return; }
+    catch (e) { if (e && e.name === "AbortError") return; }
+  }
+  const btn = $("btnZcodeShare");
   const ok = await copyToClipboard(link);
   if (btn) { btn.textContent = ok ? i18("copy.copied", "Copied ✓") : i18("copy.select", "select & copy"); setTimeout(() => (btn.textContent = i18("btn.share", "Share")), ok ? 1200 : 1600); }
 }
@@ -1870,6 +1892,53 @@ function resumePendingPay() {
   pendingPay = null;
   try { sessionStorage.removeItem(LS_PENDING_PAY); } catch (e) {}
   if (validateAddress(req.to) || _isZAddr(req.to)) applyPayRequest(req);
+}
+
+/* #claim?code=… deep links — the shielded-banknote twin of #pay. Unlike #pay (which only ever PREFILLS a
+ * send), a claim may safely auto-run: receiving is local, moves no funds out, and the code only becomes a
+ * valid pool note under the intended recipient's key. */
+function parseClaimHash() {
+  const h = location.hash || "";
+  if (!h.startsWith("#claim?")) return null;
+  return { code: (new URLSearchParams(h.slice(7)).get("code") || "").trim() };
+}
+
+function applyClaimRequest(req) {
+  if (!state.wallet) return;
+  showTab("shield");
+  $("zrecvCode").value = req.code;    // visible + editable, so a failed claim can simply be retried
+  toast("Claim link opened — receiving the banknote…", "info");
+  try { $("zrecvCode").scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+  doReceiveShielded().catch((e) => log("err", "Claim failed: " + e.message));
+}
+
+function consumeClaimRequest() {
+  const req = parseClaimHash();
+  if (!req) return;
+  try { history.replaceState(null, "", location.pathname); } catch (e) {}
+  if (!req.code.startsWith("znote") || req.code.indexOf(".") < 0) {
+    log("err", "Claim link ignored — malformed claim code.");
+    toast("Claim link ignored — the claim code is malformed.", "err");
+    return;
+  }
+  if (state.wallet) {
+    applyClaimRequest(req);
+  } else {
+    pendingClaim = req;                     // stash; the banknote is received right after wallet setup
+    try { sessionStorage.setItem(LS_PENDING_CLAIM, JSON.stringify(req)); } catch (e) {}
+    toast("Banknote pending — set up a wallet and it will be received automatically.", "info", 7000);
+    log("info", "Claim link detected — create or import a wallet to receive the banknote.");
+  }
+}
+
+function resumePendingClaim() {
+  if (!state.wallet) return;
+  let req = pendingClaim;
+  if (!req) { try { const s = sessionStorage.getItem(LS_PENDING_CLAIM); if (s) req = JSON.parse(s); } catch (e) {} }
+  if (!req) return;
+  pendingClaim = null;
+  try { sessionStorage.removeItem(LS_PENDING_CLAIM); } catch (e) {}
+  if (req.code && req.code.startsWith("znote")) applyClaimRequest(req);
 }
 
 /* Transaction history: classify each tx relative to the wallet and show a signed amount. */
@@ -2194,7 +2263,7 @@ function mountSocial() {
 function _sharePayload(ctx) {
   if (ctx === "pay") return { url: payLink(state.wallet.address, currentRecvAmount()), text: i18("share.payMsg", "Pay me on NADO:"), title: "NADO payment request" };
   if (ctx === "zpay") return { url: payLink(shieldAddr(), currentZrecvAmount()), text: i18("share.zpayMsg", "Pay me privately on NADO — shielded payment link:"), title: "NADO private payment request" };
-  if (ctx === "zcode") return { url: (($("zsendCode") || {}).textContent) || "", text: i18("share.zcodeMsg", "A private NADO banknote for you — claim code:"), title: "NADO shielded claim code" };
+  if (ctx === "zcode") return { url: claimLink((($("zsendCode") || {}).textContent) || ""), text: i18("share.zcodeMsg", "A private NADO banknote for you — open to claim:"), title: "NADO shielded claim link" };
   return { url: shareUrl(), text: i18("share.msg", "Mine NADO in your browser — no install, no signup. Open and go:"), title: "NADO — mine from your phone" };
 }
 function socialShare(platform, ctx) {
@@ -2576,12 +2645,6 @@ async function proveTransfer(wit) {
 }
 function _b36enc(x) { x = BigInt(x); if (x === 0n) return "0"; const D = "0123456789abcdefghijklmnopqrstuvwxyz"; let s = ""; while (x > 0n) { s = D[Number(x % 36n)] + s; x /= 36n; } return s; }
 
-async function shareText(text, title) {   // native share sheet (phones) with a clipboard fallback
-  if (navigator.share) { try { await navigator.share({ title, text }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
-  const ok = await copyToClipboard(text);
-  log(ok ? "ok" : "info", ok ? i18("copy.copied", "Copied ✓") : text);
-}
-
 // ON-DEVICE 2-output prover: build the Merkle path from the pool + prove entirely in the browser, so the node
 // never sees the witness. Returns the same shape as the delegated /exec/prove_transfer2. (~20-30s at depth 12.)
 let _starkInit = false;
@@ -2665,10 +2728,12 @@ async function doSendShielded() {
     saveNotes(notes);
     // the recipient reconstructs their note from (amount, r1) + THEIR key -> a claim code to deliver to them
     const code = "znote" + _b36enc(rawAmount) + "." + _b36enc(r1);
-    $("zsendCode").textContent = code; show("zsendCodeBox", true);
-    _drawQR($("zsendCodeQR"), null, code, 200);           // QR so the recipient can scan the claim code
+    $("zsendCode").textContent = code;
+    if ($("zsendLink")) $("zsendLink").textContent = claimLink(code);
+    show("zsendCodeBox", true);
+    _drawQR($("zsendCodeQR"), null, claimLink(code), 260);  // scanning opens the wallet and banks the banknote
     $("shieldStatus").textContent = "";
-    log("ok", i18("shield.sent", "Sent {a} NADO privately ✓ — give the recipient the claim code below.", { a: rawToNado(rawAmount) }));
+    log("ok", i18("shield.sent", "Sent {a} NADO privately ✓ — give the recipient the claim link below.", { a: rawToNado(rawAmount) }));
     setTimeout(() => renderShield().catch(() => {}), 1500);
   } catch (e) { log("err", i18("shield.err", "Shielded-pool error: {m}", { m: e.message })); $("shieldStatus").textContent = ""; }
   finally { if (_sb) { _sb.disabled = false; _sb.textContent = i18("shield.zsend", "Send shielded"); } }
@@ -2790,7 +2855,7 @@ function wireEvents() {
   if ($("btnZrecv")) $("btnZrecv").onclick = () => doReceiveShielded();
   if ($("btnZaddrShare")) $("btnZaddrShare").onclick = () => shareZpayLink();
   if ($("zrecvAmount")) $("zrecvAmount").oninput = () => renderZaddrQR();   // live-update the shielded QR + payment link
-  if ($("btnZcodeShare")) $("btnZcodeShare").onclick = () => shareText($("zsendCode").textContent, i18("shield.shareCode", "NADO shielded claim code"));
+  if ($("btnZcodeShare")) $("btnZcodeShare").onclick = () => shareZcodeLink();
   $("btnDlKeySettings").onclick = downloadKeyFile;
   if ($("btnCollectDiv")) $("btnCollectDiv").onclick = () => collectDividend();
   if ($("btnImportFile")) $("btnImportFile").onclick = () => $("importFile").click();
@@ -2944,6 +3009,7 @@ async function boot() {
   // payment-request deep link (#pay?to=…&amount=…): prefill a Send if a wallet exists, else stash it
   // and resume after onboarding. Never auto-submits — the user still reviews + confirms.
   try { consumePayRequest(); } catch (e) { log("err", "Pay-link error: " + e.message); }
+  try { consumeClaimRequest(); } catch (e) { log("err", "Claim-link error: " + e.message); }
 
   // initial connectivity + dashboard (startMining already kicks a poll when we auto-resumed)
   if (!resumedMining) pollOnce().catch(() => setConn(false));
