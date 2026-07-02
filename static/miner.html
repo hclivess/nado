@@ -65,8 +65,8 @@
       <button id="btnShowImport" class="ghost" data-i18n="btn.importKey">Import key</button>
     </div>
     <div id="importBox" class="mt hidden">
-      <label data-i18n="import.label">Private key (64-hex ML-DSA-44 seed)</label>
-      <input id="importKey" placeholder="e.g. 4d3c2b1a…" autocomplete="off" spellcheck="false" />
+      <label data-i18n="import.label">Private key (64-hex seed) or 24-word recovery phrase</label>
+      <input id="importKey" placeholder="4d3c2b1a…   or   word1 word2 … word24" autocomplete="off" spellcheck="false" />
       <button id="btnImport" class="accent mt" style="width:100%" data-i18n="btn.import">Import</button>
       <div class="muted mt" style="text-align:center" data-i18n="import.or">— or —</div>
       <input id="importFile" type="file" accept="application/json,.json" style="display:none" />
@@ -77,12 +77,15 @@
   <!-- NEW KEY SAVE PROMPT -->
   <div id="savePrompt" class="card hidden">
     <h2 data-i18n="save.title">⚠ Save your private key</h2>
-    <div class="warnbox danger" data-i18n-html="save.warn">This key controls your mining rewards. There is no recovery. If you
-      lose it, you lose access — and anyone who has it controls your coins. Write it down / save it
-      somewhere safe before continuing.</div>
-    <label class="mt" data-i18n="save.priv">Private key</label>
-    <div class="addr-box"><span class="a mono" id="newPriv"></span>
-      <button class="copy" data-copy="newPriv" data-i18n="btn.copy">Copy</button></div>
+    <div class="warnbox danger" data-i18n-html="save.warn">This key controls your mining rewards. Back up <b>either</b> the 24-word recovery phrase <b>or</b> the raw private key below — save it somewhere safe. Anyone who has it controls your coins, and if you lose both there is no way to recover.</div>
+    <label class="mt" data-i18n="save.mnemonic">🧠 Recovery phrase (24 words) — the easy backup</label>
+    <div class="addr-box"><span class="a mono" id="newMnemonic" style="line-height:1.7"></span>
+      <button class="copy" data-copy="newMnemonic" data-i18n="btn.copy">Copy</button></div>
+    <div class="small dim mt" data-i18n="save.mnemonicHint">Write these 24 words down in order. You can restore this exact wallet on any device from them — and so can anyone else who reads them.</div>
+    <details class="mt"><summary class="small dim" style="cursor:pointer" data-i18n="save.showPriv">Show the raw private key instead</summary>
+      <label class="mt" data-i18n="save.priv">Private key</label>
+      <div class="addr-box"><span class="a mono" id="newPriv"></span>
+        <button class="copy" data-copy="newPriv" data-i18n="btn.copy">Copy</button></div></details>
     <label class="mt" data-i18n="save.addr">Address</label>
     <div class="addr-box"><span class="a mono" id="newAddr"></span></div>
     <div class="row mt">
@@ -156,7 +159,11 @@
     <details class="mt">
       <summary class="small dim" style="cursor:pointer" data-i18n="wallet.reveal">Reveal / export private key</summary>
       <div class="warnbox danger mt" data-i18n="wallet.neverShare">Never share this. Anyone with it owns your rewards.</div>
-      <div class="addr-box mt"><span class="a mono" id="walPriv"></span>
+      <label class="small mt" data-i18n="wallet.mnemonic">Recovery phrase (24 words)</label>
+      <div class="addr-box"><span class="a mono" id="walMnemonic" style="line-height:1.7"></span>
+        <button class="copy" data-copy="walMnemonic" data-i18n="btn.copy">Copy</button></div>
+      <label class="small mt" data-i18n="save.priv">Private key</label>
+      <div class="addr-box"><span class="a mono" id="walPriv"></span>
         <button class="copy" data-copy="walPriv">Copy</button></div>
       <div class="row mt">
         <button id="btnDlKey" class="accent" data-i18n="btn.dlKey">⤓ Download key file (JSON)</button>

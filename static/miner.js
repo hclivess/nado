@@ -14,6 +14,7 @@
  * -------------------------------------------------------------------------------------------- */
 import { poswProveAsync, challengeBytes } from "./posw.js";
 import * as shielded from "./shielded.js";
+import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js";
 const CHAIN_ID = "nado-relaunch-1";
 const EPOCH_LENGTH = 60;
 const REGISTER_POW_BITS = 16;  // legacy hashcash (retired) — kept only for the self-test vector
@@ -1109,6 +1110,12 @@ function showWalletUI() {
   show("tabbar", true);
   $("walAddr").textContent = state.wallet.address;
   $("walPriv").textContent = state.wallet.privateKey;
+  if ($("walMnemonic")) {
+    $("walMnemonic").textContent = "…";
+    seedToMnemonic(hexToBytes(state.wallet.privateKey))
+      .then((m) => { $("walMnemonic").textContent = m; })
+      .catch(() => { $("walMnemonic").textContent = i18("save.mnemonicErr", "(recovery phrase unavailable)"); });
+  }
   $("recvAddr").textContent = state.wallet.address;
   showTab(state.activeTab || "wallet");
   resumePendingPay(); // if a #pay link was opened before this wallet existed, prefill the Send now
@@ -1118,6 +1125,10 @@ function adoptWallet(w, { needsSavePrompt }) {
   if (needsSavePrompt) {
     pendingWallet = w;
     $("newPriv").textContent = w.privateKey;
+    $("newMnemonic").textContent = "…";
+    seedToMnemonic(hexToBytes(w.privateKey))
+      .then((m) => { $("newMnemonic").textContent = m; })
+      .catch(() => { $("newMnemonic").textContent = i18("save.mnemonicErr", "(recovery phrase unavailable)"); });
     $("newAddr").textContent = w.address;
     $("ackSave").checked = false;
     $("btnConfirmSave").disabled = true;
@@ -2380,9 +2391,13 @@ function wireEvents() {
     catch (e) { log("err", "Key generation failed: " + e.message); }
   };
   $("btnShowImport").onclick = () => show("importBox", !$("importBox").classList.contains("hidden") ? false : true);
-  $("btnImport").onclick = () => {
-    try { adoptWallet(keypairFromPriv($("importKey").value), { needsSavePrompt: false }); }
-    catch (e) { alert(i18("import.pasteFailed", "Import failed:") + " " + e.message); }
+  $("btnImport").onclick = async () => {
+    try {
+      const raw = $("importKey").value.trim();
+      // accept EITHER a 64-hex seed OR a 24-word recovery phrase
+      const priv = looksLikeMnemonic(raw) ? _hex(await mnemonicToSeed(raw)) : raw;
+      adoptWallet(keypairFromPriv(priv), { needsSavePrompt: false });
+    } catch (e) { alert(i18("import.pasteFailed", "Import failed:") + " " + e.message); }
   };
   $("ackSave").onchange = (e) => { $("btnConfirmSave").disabled = !e.target.checked; };
   $("btnConfirmSave").onclick = () => {
