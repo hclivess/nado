@@ -14,7 +14,7 @@ NADO started with a stubborn idea: that mining should be for [i]everyone[/i]. No
 Then it died. Not to a hack — to its own design. Look closely at the original and the cracks are obvious:
 
 [list]
-[li]Rewards were handed out [b]by public IP address[/b] — one node per IP. Noble in theory. But an IP is the cheapest thing on the internet to rent: one datacenter account, or a single IPv6 block, is [i]thousands[/i] of "unique" nodes for pocket change — while the real human on a phone behind carrier NAT got nothing. The fairness ran backwards.[/li]
+[li]Rewards were handed out [b]by public IP address[/b] — one node per IP. Noble in theory. But an IP is the cheapest thing on the internet to rent: one cloud/VPS account spins up [i]hundreds[/i] of "unique" nodes across data centers for pocket change — while the real human on a phone behind carrier NAT got nothing (and needed a public IP just to play). The fairness ran backwards.[/li]
 [li]Emission was [b]purely elastic[/b] — zero reward when the chain was quiet. So in the quiet stretches miners simply drifted away, and a network is only as alive as the people running it.[/li]
 [li]A [b]"burn-to-bribe"[/b] knob let you pay to raise your own odds — which, however you frame it, is a lever that favors whoever has the most to spend.[/li]
 [li]And the keys were [b]Ed25519[/b] — classical elliptic-curve crypto, already living on borrowed time against a quantum computer.[/li]
@@ -116,14 +116,31 @@ Block production is [b]not[/b] a hash race. One hash over a public randomness be
 
 [b][size=15pt]How to mine[/size][/b]
 
-[b]Phone / anyone:[/b] open a node's URL in any browser, tap [b]Generate key[/b], save it, tap [b]Start mining[/b]. Done — it registers and mines on its own, even locked.
+[b]The easy way (phone or laptop):[/b] open any node's URL in a browser, tap [b]Generate key[/b], save it, tap [b]Start mining[/b]. Done — it registers and mines on its own, even with the screen locked. Nothing to install.
 
-[b]Full node (Linux):[/b]
-[code]git clone https://github.com/hclivess/nado
+[b]Full node — Linux (direct):[/b]
+[code]screen -S nado
+sudo apt-get update
+sudo apt-get install python3.10
+python3.10 -m pip install --upgrade pip
+git clone https://github.com/hclivess/nado
 cd nado
 python3.10 -m pip install -r requirements.txt
 python3.10 nado.py[/code]
-Then open [tt]http://127.0.0.1:9173/[/tt] and mine from the page. Open port 9173 to serve the network. Windows binaries on the [url=https://github.com/hclivess/nado/releases]releases page[/url].
+
+[b]Linux — one-liner:[/b]
+[code]sudo apt-get update && sudo add-apt-repository ppa:deadsnakes/ppa -y && sudo apt-get install python3.10 python3.10-distutils git screen curl -y && curl -sS https://bootstrap.pypa.io/get-pip.py | sudo python3.10 && sudo ufw allow 9173 && git clone https://github.com/hclivess/nado && cd nado && python3.10 -m pip install -r requirements.txt && screen -dmS nado python3.10 nado.py[/code]
+
+[b]Linux — virtualenv:[/b]
+[code]sudo apt-get install python3.10-venv git -y
+python3.10 -m venv nado_venv && source nado_venv/bin/activate
+git clone https://github.com/hclivess/nado && cd nado
+pip install --upgrade pip && pip install -r requirements.txt
+python3.10 nado.py[/code]
+
+[b]Windows:[/b] grab the [tt]nado.exe[/tt] binary from the [url=https://github.com/hclivess/nado/releases]releases page[/url], or install [url=https://www.python.org/downloads/]Python[/url], then [tt]python -m pip install -r requirements.txt[/tt] and [tt]python nado.py[/tt].
+
+After it's running, open [tt]http://127.0.0.1:9173/[/tt] to mine from the page, and open/forward [b]port 9173[/b] so your node is reachable and earns. Reattach the screen session with [tt]screen -r nado[/tt]; update anytime with [tt]git pull origin main[/tt].
 
 [hr]
 
