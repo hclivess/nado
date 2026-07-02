@@ -63,8 +63,13 @@ Three things make this the opposite of Nyzo:
 1. **Farm-neutral.** A coin costs a coin to bond whether you are a bot or a person. There is no Sybil
    discount — running more nodes does not make stake cheaper. This is the one anchor with no friction
    asymmetry.
-2. **Whale-capped.** A single address's selection weight is capped, so influence can't be concentrated for
-   free; spreading across addresses doesn't help because each address needs *real* bonded coins.
+2. **Per-address cap + ramp, and split-neutral.** A single address's selection weight is capped at
+   `BOND_CAP` (10,000 NADO → 100 shares; `B_MIN` = 100 NADO per share), and a fresh address's weight ramps
+   over ~`FIDELITY_CAP` recerts — so no single identity dominates and an *instant* whale can't buy full
+   weight on day one. A holder with more than the cap can spread real stake across addresses, but that is
+   **split-neutral**: every share costs the same `B_MIN` of real, farm-neutral coins whether concentrated or
+   spread, so splitting yields **no Sybil discount**. Influence in this lane is therefore ∝ real capital by
+   design (stake *is* the security) — not something a bot farms cheaper than a person.
 3. **Bounded even at majority.** Enforced finality (a persisted, un-reorgable finalized floor) plus
    equivocation **slashing** mean that even a stake majority cannot rewrite finalized history without
    **burning** its own bond. A takeover is expensive *and* self-damaging, not free and consequence-free.
