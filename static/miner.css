@@ -44,10 +44,9 @@ header.app {
 }
 #langSelect { max-width: 130px; margin-top: 4px; }
 header.app .logo {
-  width: 34px; height: 34px; border-radius: 9px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  display: grid; place-items: center;
-  font-weight: 800; color: #04110a; font-size: 17px;
+  width: 34px; height: 34px;
+  display: block; flex: none;
+  /* the real NADO torus mark (static/logo.svg) — transparent bg, its own band colors + black stroke */
 }
 header.app h1 { font-size: 16px; margin: 0; font-weight: 700; letter-spacing: .2px; }
 header.app .sub { font-size: 11px; color: var(--txt-dim); margin-top: 1px; }

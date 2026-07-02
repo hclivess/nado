@@ -6,6 +6,11 @@
 <meta name="theme-color" content="#0b0f14" />
 <meta name="color-scheme" content="dark" />
 <title>NADO Light Miner</title>
+<!-- Favicon: the real NADO torus mark as a crisp vector (SVG). The .ico is a raster fallback for
+     browsers that don't render SVG favicons; apple-touch-icon covers iOS "add to home screen". -->
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
+<link rel="icon" sizes="any" href="/favicon.ico" />
+<link rel="apple-touch-icon" href="/static/180_logo.png" />
 <!-- Open Graph / Twitter card: a rich preview when the link is shared (Facebook ignores prefilled text and
      uses these; so do Telegram/X/WhatsApp/Discord). -->
 <meta property="og:type" content="website" />
@@ -45,7 +50,7 @@
 </head>
 <body>
 <header class="app">
-  <div class="logo">N</div>
+  <img class="logo" src="/static/logo.svg" width="34" height="34" alt="NADO" />
   <div>
     <h1 data-i18n="app.title">NADO Light Miner</h1>
     <div class="sub" data-i18n="app.sub">browser-only · no full node</div>
