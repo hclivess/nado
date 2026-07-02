@@ -884,7 +884,10 @@ function startPollLoop() {
   stopPollLoop();
   const periodMs = Math.max(8000, Math.min(state.blockTime, 60) * 1000);
   state.pollTimer = setInterval(pollOnce, periodMs);
-  // schedule a rough "next heartbeat" hint
+  // seamless shielded withdrawals: quietly sweep any settled unshield into the balance in the background
+  if (!state.claimTimer) state.claimTimer = setInterval(() => {
+    if (state.wallet && !state.locked && loadNotes().length) claimUnshields(true).catch(() => {});
+  }, 45000);
 }
 function stopPollLoop() { if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; } }
 
@@ -2368,6 +2371,7 @@ async function renderShield() {
     const p = await (await fetch(execBase() + "/exec/field_shielded", { cache: "no-store" })).json();
     $("shieldPool").textContent = i18("shield.poolInfo", "{n} notes · root {r}", { n: p.notes, r: (p.root || "").slice(0, 10) + "…" });
   } catch (e) { $("shieldPool").textContent = "—"; }
+  claimUnshields(true).catch(() => {});    // seamless: sweep any settled withdrawals into the balance automatically
   const box = $("shieldNotes"); box.innerHTML = "";
   const mine = notes.filter((n) => !n.spent);
   if (!mine.length) { box.innerHTML = '<div class="faint small">' + i18("shield.none", "No shielded notes yet.") + "</div>"; return; }
@@ -2413,12 +2417,14 @@ async function doUnshield() {
   const notes = loadNotes();
   const note = notes.find((n) => !n.spent && BigInt(n.value) >= rawAmount);
   if (!note) { log("err", i18("shield.noNote", "No single note covers that amount yet (splitting across notes isn't supported here).")); return; }
+  const _ub = $("btnUnshield");
+  if (_ub) { _ub.disabled = true; _ub.textContent = i18("shield.provingBtn", "🔐 Proving…"); }
   try {
     const change = BigInt(note.value) - rawAmount;
     const outNsk = _randField(), outRho = _randField();
     const outOwner = alghash.ownerOf(BigInt(outNsk));
     // DELEGATED PROVER: hand the exec node the witness; it builds the path + makes the full join-split STARK.
-    $("shieldStatus").textContent = i18("shield.proving", "Generating the zero-knowledge proof (a few seconds)…");
+    $("shieldStatus").innerHTML = '<span class="spin">◐</span> ' + i18("shield.proving", "Generating your zero-knowledge proof… (~15s, one-time per withdrawal)");
     const wit = {
       cm: note.cm, nsk: note.nsk, value_in: note.value, rho_in: note.rho,
       out_value: change.toString(), out_owner: outOwner.toString(), out_rho: outRho,
@@ -2441,14 +2447,15 @@ async function doUnshield() {
     $("unshieldAmount").value = "";
     setTimeout(() => { renderShield().catch(() => {}); claimUnshields().catch(() => {}); }, 2000);
   } catch (e) { log("err", i18("shield.err", "Shielded-pool error: {m}", { m: e.message })); $("shieldStatus").textContent = ""; }
+  finally { if (_ub) { _ub.disabled = false; _ub.textContent = i18("shield.unshield", "Unshield"); } }
 }
 
-async function claimUnshields() {
+async function claimUnshields(silent) {
   if (!state.wallet) return;
   try {
     const r = await (await fetch(execBase() + "/exec/unshields?addr=" + encodeURIComponent(state.wallet.address), { cache: "no-store" })).json();
     const pending = r.unshields || [];
-    if (!pending.length) { $("shieldStatus").textContent = i18("shield.noClaims", "No pending withdrawals for this address."); return; }
+    if (!pending.length) { if (!silent) $("shieldStatus").textContent = i18("shield.noClaims", "No pending withdrawals for this address."); return; }
     let claimed = 0;
     for (const u of pending) {
       const pr = await (await fetch(execBase() + "/exec/unshield_proof?nonce=" + encodeURIComponent(u.nonce), { cache: "no-store" })).json();
@@ -2459,9 +2466,8 @@ async function claimUnshields() {
       const res = await submitTransaction(tx);
       if (res.data && res.data.result) claimed++;
     }
-    $("shieldStatus").textContent = claimed
-      ? i18("shield.claimed", "Claimed {n} withdrawal(s) ✓ — coins released to your balance.", { n: claimed })
-      : i18("shield.notSettled", "Not settled on L1 yet — try again shortly.");
+    if (claimed) $("shieldStatus").textContent = i18("shield.claimed", "Received {n} withdrawal(s) ✓ — coins are in your balance.", { n: claimed });
+    else if (!silent) $("shieldStatus").textContent = i18("shield.notSettled", "Still settling on L1 — it'll arrive automatically in a few minutes.");
     setTimeout(() => { refreshBalance().catch(() => {}); renderShield().catch(() => {}); }, 1800);
   } catch (e) { log("err", i18("shield.err", "Shielded-pool error: {m}", { m: e.message })); }
 }

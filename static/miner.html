@@ -8,6 +8,8 @@
 <title>NADO Light Miner</title>
 <link rel="stylesheet" href="/static/miner.css" />
 <style>
+.spin{display:inline-block;animation:nadospin 1s linear infinite}
+@keyframes nadospin{to{transform:rotate(360deg)}}
   /* Explore tab (folded-in block explorer) */
   .ex-kv { display:grid; grid-template-columns:max-content 1fr; gap:10px 16px; align-items:baseline; }
   .ex-kv .k { color:var(--muted,#7c8b9a); font-size:13px; white-space:nowrap; }
