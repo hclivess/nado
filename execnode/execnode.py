@@ -81,8 +81,15 @@ async def tail_loop():
                 while state.cursor < finalized:
                     h = state.cursor + 1
                     block = await _get_json(session, f"/get_block_number?number={h}")
-                    if not isinstance(block, dict) or "block_transactions" not in block:
-                        break                                  # not available yet; retry next poll
+                    if not isinstance(block, dict):
+                        break                                  # fetch problem; retry next poll
+                    if "block_transactions" not in block:
+                        # A FINALIZED block (h <= finalized) with no body is PRUNED (rolling mode drops old
+                        # block bodies, leaving only {block_number}). Such blocks predate the exec features and
+                        # carry nothing to replay, so SKIP them — otherwise a fresh exec node can never
+                        # cold-start on a pruned chain. (A body that is merely lagging can't be finalized.)
+                        state.cursor = h
+                        continue
                     for tx in block.get("block_transactions", []):
                         r = tx.get("recipient")
                         if r == "blob":
