@@ -223,7 +223,7 @@ def _transitions():
             c_sib, c_dir, c_dirbit, c_cons]
 
 
-def prove_transfer(nsk, v_in, rho_in, siblings, dirs, v1, o1, r1, v2, o2, r2, public_value, fee, num_queries=32):
+def prove_transfer(nsk, v_in, rho_in, siblings, dirs, v1, o1, r1, v2, o2, r2, public_value, fee, num_queries=stark.NUM_QUERIES):
     tr, T, D, root, nf, cm1, cm2 = build_trace(nsk, v_in, rho_in, siblings, dirs, v1, o1, r1, v2, o2, r2)
     per = _periodic(T, D)
     out1, out2, total = _bounds(D)

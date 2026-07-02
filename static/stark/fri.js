@@ -16,7 +16,7 @@ function fold(evals, dom, alpha) {
   return out;
 }
 
-export function prove(evals, offset, blowup = 4, numQueries = 32, transcript = null) {
+export function prove(evals, offset, blowup = 4, numQueries = 40, transcript = null) {  // 40 = protocol NUM_QUERIES (C-1)
   const t = transcript || new Transcript("fri");
   const N = evals.length;
   const layers = [], roots = [];

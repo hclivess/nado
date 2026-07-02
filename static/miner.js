@@ -2768,7 +2768,9 @@ async function _onDeviceProve2(wit, execBase) {
   const consPub = sfield.sub(BigInt(wit.fee), BigInt(wit.public_value));
   const bnd = [[0, J.S0, alghash.DOM_OWNER], [0, J.S1, alghash.ivVal()], [0, J.AB, alghash.DOM_OWNER], [0, J.CONS, consPub],
     [total, J.ROOTREG, bt.root], [total, J.NFREG, bt.nf], [total, J.CMOUT1, bt.cm1], [total, J.S0, bt.cm2]];
-  const proof = sstark.prove(bt.tr, J.transitions(), bnd, J.periodic(bt.T, bt.D), J.MAX_DEGREE, 24);
+  // 40 = the protocol FRI query count (execnode/stark/fri.py NUM_QUERIES). The node's verifier now REQUIRES
+  // exactly this many (C-1), so an on-device proof must produce them or it is rejected.
+  const proof = sstark.prove(bt.tr, J.transitions(), bnd, J.periodic(bt.T, bt.D), J.MAX_DEGREE, 40);
   proof.D = bt.D;
   const ser = (x) => typeof x === "bigint" ? x.toString() : Array.isArray(x) ? x.map(ser) : (x && typeof x === "object" ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, ser(v)])) : x);
   const bundle = { stark: { joinsplit2: { proof: ser(proof), root: bt.root.toString(), nf: bt.nf.toString(),

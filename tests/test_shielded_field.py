@@ -43,7 +43,7 @@ def t3_delegated_transfer_verifies():
     pool, cm, pos = _pool_with_note(0x1111, 1000, 0x2222)
     out_owner = alghash.owner_of(0x3333)
     bundle, public = SF.prove_transfer(pool, 0x1111, 1000, 0x2222, pos, 950, out_owner, 0x4444,
-                                       public_value=0, fee=50, num_queries=18)
+                                       public_value=0, fee=50)   # protocol NUM_QUERIES (C-1)
     ok, why = shielded.verify_transfer(public, bundle, pool.knows_root)
     assert ok, f"a delegated STARK transfer must verify through verify_transfer: {why}"
 
@@ -51,7 +51,7 @@ def t4_conservation_violation_rejected():
     pool, cm, pos = _pool_with_note(0x1111, 1000, 0x2222)
     out_owner = alghash.owner_of(0x3333)
     bundle, public = SF.prove_transfer(pool, 0x1111, 1000, 0x2222, pos, 950, out_owner, 0x4444,
-                                       public_value=0, fee=50, num_queries=18)
+                                       public_value=0, fee=50)   # protocol NUM_QUERIES (C-1)
     bundle["stark"]["joinsplit"]["fee"] = 40                 # claim a different fee than proven
     ok, _ = shielded.verify_transfer(public, bundle, pool.knows_root)
     assert not ok, "a conservation-violating transfer must be rejected"

@@ -23,17 +23,17 @@ def t1_trace_matches_direct():
     assert root == M.merkle_root_from_path(LEAF, SIBS, DIRS), "AIR trace must reproduce the Merkle root"
 
 def t2_valid_membership_verifies():
-    proof, root = M.prove_membership(LEAF, SIBS, DIRS, num_queries=28)
+    proof, root = M.prove_membership(LEAF, SIBS, DIRS)
     ok, why = M.verify_membership(proof, root, lambda r: True)
     assert ok, f"valid membership must verify: {why}"
 
 def t3_wrong_root_rejected():
-    proof, root = M.prove_membership(LEAF, SIBS, DIRS, num_queries=28)
+    proof, root = M.prove_membership(LEAF, SIBS, DIRS)
     ok, _ = M.verify_membership(proof, F.add(root, 1), lambda r: True)
     assert not ok, "a wrong root must be rejected"
 
 def t4_unknown_anchor_rejected():
-    proof, root = M.prove_membership(LEAF, SIBS, DIRS, num_queries=28)
+    proof, root = M.prove_membership(LEAF, SIBS, DIRS)
     ok, why = M.verify_membership(proof, root, lambda r: False)
     assert not ok and "anchor" in why, f"an unknown anchor must be rejected: {why}"
 

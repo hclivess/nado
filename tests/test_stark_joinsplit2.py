@@ -27,7 +27,7 @@ def _pool():
     sibs, dirs = SF.tree_path(pool.commitments, 0)
     return pool, sibs, dirs
 
-def _prove(pub=0, fee=0, q=18):
+def _prove(pub=0, fee=0, q=40):   # q must match the protocol NUM_QUERIES so verify_transfer accepts it (C-1)
     pool, sibs, dirs = _pool()
     return J2.prove_transfer(NSK, VIN, RHO, sibs, dirs, V1, O1, R1, V2, O2, R2, pub, fee, num_queries=q)
 

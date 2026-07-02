@@ -19,6 +19,7 @@ Soundness assumption: BLAKE2b collision-resistance.
 """
 from execnode.stark import field as F, merkle, fri
 from execnode.stark.transcript import Transcript
+from execnode.stark.fri import NUM_QUERIES
 
 OFF = F.GENERATOR                    # LDE coset shift (disjoint from the trace subgroup)
 
@@ -73,7 +74,7 @@ def _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boun
     return cp
 
 
-def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=32):
+def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES):
     periodic = periodic or []
     T = len(trace); W = len(trace[0])
     blowup = _blowup(max_degree); N = blowup * T
@@ -109,7 +110,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
             "boundaries": boundaries, "fri": fri_proof, "openings": openings}
 
 
-def verify(proof, transitions, boundaries, periodic=None, max_degree=2):
+def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES):
     try:
         periodic = periodic or []
         T, W, N, blowup = proof["T"], proof["W"], proof["N"], proof["blowup"]
@@ -124,9 +125,16 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2):
             t.absorb(r)
         alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
 
-        ok, why = fri.verify(proof["fri"], transcript=t)
+        # fri_blowup is ALWAYS 2 for a STARK proof (N = 2·next_pow2(max_degree)·T, deg_bound = N/2), so pin it —
+        # that forces the full FRI geometry and, with the fixed query count, closes the C-1 empty-proof bypass.
+        ok, why = fri.verify(proof["fri"], transcript=t, num_queries=num_queries, expected_blowup=2)
         if not ok:
             return False, f"composition is not low-degree: {why}"
+
+        # C-1: the trace/composition spot-checks live in the loop below; enforce that there is exactly one
+        # opening per required FRI query, so an empty/short `openings` (or `queries`) can't skip them via zip().
+        if len(proof["openings"]) != num_queries or len(proof["fri"]["queries"]) != num_queries:
+            return False, "wrong opening/query count"
 
         for q, op in zip(proof["fri"]["queries"], proof["openings"]):
             lo = q["idx"] % (N // 2)

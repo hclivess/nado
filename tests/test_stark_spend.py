@@ -26,17 +26,17 @@ def t1_trace_matches_direct():
     assert cm == alghash.commit(V, OWN, RHO) and troot == root, "circuit must reproduce commit()+membership"
 
 def t2_valid_spend_verifies():
-    proof, root = SP.prove_spend(V, OWN, RHO, SIBS, DIRS, num_queries=28)
+    proof, root = SP.prove_spend(V, OWN, RHO, SIBS, DIRS)
     ok, why = SP.verify_spend(proof, root, lambda r: True)
     assert ok, f"a valid spend must verify: {why}"
 
 def t3_wrong_root_rejected():
-    proof, root = SP.prove_spend(V, OWN, RHO, SIBS, DIRS, num_queries=28)
+    proof, root = SP.prove_spend(V, OWN, RHO, SIBS, DIRS)
     ok, _ = SP.verify_spend(proof, F.add(root, 1), lambda r: True)
     assert not ok, "a wrong root must be rejected"
 
 def t4_unknown_anchor_rejected():
-    proof, root = SP.prove_spend(V, OWN, RHO, SIBS, DIRS, num_queries=28)
+    proof, root = SP.prove_spend(V, OWN, RHO, SIBS, DIRS)
     ok, why = SP.verify_spend(proof, root, lambda r: False)
     assert not ok and "anchor" in why, "an unknown anchor must be rejected"
 

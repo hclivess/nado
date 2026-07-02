@@ -25,20 +25,20 @@ def t1_trace_matches_direct():
     assert troot == root and tnf == nf, "circuit must reproduce owner->commit->nullifier->membership"
 
 def t2_valid_spend_verifies():
-    proof, root, nf = SF.prove_spend(NSK, V, RHO, SIBS, DIRS, num_queries=24)
+    proof, root, nf = SF.prove_spend(NSK, V, RHO, SIBS, DIRS)
     ok, why = SF.verify_spend(proof, root, nf, lambda r: True)
     assert ok, f"a valid authorised spend must verify: {why}"
 
 def t3_wrong_root_rejected():
-    proof, root, nf = SF.prove_spend(NSK, V, RHO, SIBS, DIRS, num_queries=24)
+    proof, root, nf = SF.prove_spend(NSK, V, RHO, SIBS, DIRS)
     assert not SF.verify_spend(proof, F.add(root, 1), nf, lambda r: True)[0], "wrong root must be rejected"
 
 def t4_wrong_nullifier_rejected():
-    proof, root, nf = SF.prove_spend(NSK, V, RHO, SIBS, DIRS, num_queries=24)
+    proof, root, nf = SF.prove_spend(NSK, V, RHO, SIBS, DIRS)
     assert not SF.verify_spend(proof, root, F.add(nf, 1), lambda r: True)[0], "wrong nf must be rejected"
 
 def t5_unknown_anchor_rejected():
-    proof, root, nf = SF.prove_spend(NSK, V, RHO, SIBS, DIRS, num_queries=24)
+    proof, root, nf = SF.prove_spend(NSK, V, RHO, SIBS, DIRS)
     ok, why = SF.verify_spend(proof, root, nf, lambda r: False)
     assert not ok and "anchor" in why, "unknown anchor must be rejected"
 

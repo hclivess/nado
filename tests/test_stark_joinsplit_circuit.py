@@ -22,7 +22,7 @@ SIBS, DIRS = [111, 222, 333, 444], [0, 1, 0, 1]
 VOUT, OWN_OUT, RHO_OUT = 850, 0xABC, 0x5555
 PUB, FEE = 0, 50                                     # 900 + 0 == 850 + 50
 
-def _prove(q=22):
+def _prove(q=40):   # q must match the protocol NUM_QUERIES so verify_transfer accepts it (C-1)
     return JC.prove_transfer(NSK, VIN, RHO, SIBS, DIRS, VOUT, OWN_OUT, RHO_OUT, PUB, FEE, num_queries=q)
 
 def t1_trace_matches_direct():

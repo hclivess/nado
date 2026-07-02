@@ -16,6 +16,22 @@ from execnode.stark.transcript import Transcript
 
 INV2 = F.inv(2)
 
+# Protocol-fixed FRI parameters. These are NOT read from the proof — a prover that under-declares the query
+# count or drops folding layers was the C-1 total soundness bypass (an empty `queries`/`roots` list skipped
+# every check). The verifier derives the whole FRI shape from N + FRI_BLOWUP and requires exactly NUM_QUERIES
+# openings. stark.prove always calls fri.prove with fri_blowup == 2, so FRI_BLOWUP is fixed at 2.
+NUM_QUERIES = 40
+FRI_BLOWUP = 2
+
+
+def _expected_layers(N, blowup):
+    """Number of fold layers stark/fri produces for a size-N domain: fold while size > blowup."""
+    layers, n = 0, N
+    while n > blowup:
+        n //= 2
+        layers += 1
+    return layers
+
 
 def _fold(evals, dom, alpha):
     """One FRI fold: evals of f on coset `dom` (size n) -> evals of g on the squared coset (size n/2), where
@@ -43,7 +59,7 @@ def _coset_interpolate(evals, offset):
     return coeffs
 
 
-def prove(evals, offset, blowup=4, num_queries=32, transcript=None):
+def prove(evals, offset, blowup=4, num_queries=NUM_QUERIES, transcript=None):
     """Prove deg(f) < len(evals)/blowup, where `evals` are f on the coset of size N=len(evals) with shift
     `offset`. Returns a proof dict. `blowup` (the Reed–Solomon rate denominator) sets both the claimed degree
     bound and the soundness per query."""
@@ -82,11 +98,34 @@ def prove(evals, offset, blowup=4, num_queries=32, transcript=None):
     return {"N": N, "offset": offset, "blowup": blowup, "roots": roots, "final": final, "queries": queries}
 
 
-def verify(proof, transcript=None):
-    """Verify a FRI proof. Returns (ok, reason)."""
+def verify(proof, transcript=None, num_queries=None, expected_blowup=None):
+    """Verify a FRI proof. Returns (ok, reason).
+
+    C-1: `num_queries` and `expected_blowup`, when given, are the caller's PROTOCOL values — the verifier
+    refuses a proof that declares anything else. stark.verify always passes them (fixed query count +
+    fri_blowup==2), so a prover can't drop folding layers, shrink the query set, or inflate `final` to make
+    the low-degree test vacuous (all of which the old verifier accepted — an empty proof returned True). The
+    FRI geometry (layer count, final-layer size) is always derived from N + blowup and enforced for
+    self-consistency; the standalone primitive tests call this without the protocol values.
+    """
     try:
         N, offset, blowup = proof["N"], proof["offset"], proof["blowup"]
         roots, final, queries = proof["roots"], proof["final"], proof["queries"]
+
+        if not isinstance(N, int) or N < 2 or (N & (N - 1)) != 0:
+            return False, "bad FRI domain size"
+        if not isinstance(blowup, int) or blowup < 2 or (blowup & (blowup - 1)) != 0:
+            return False, "bad FRI blowup"
+        if expected_blowup is not None and blowup != expected_blowup:
+            return False, "unexpected FRI blowup"
+        exp_layers = _expected_layers(N, blowup)
+        if len(roots) != exp_layers:
+            return False, "wrong FRI layer count"
+        if len(final) != (N >> exp_layers):
+            return False, "wrong FRI final-layer size"
+        if num_queries is not None and len(queries) != num_queries:
+            return False, "wrong FRI query count"
+
         t = transcript or Transcript("fri")
 
         # replay the transcript to recover the same folding challenges + query positions

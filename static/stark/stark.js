@@ -45,7 +45,7 @@ function composition(T, W, N, blowup, gT, colLde, perLde, xLde, transitions, bou
   return cp;
 }
 
-export function prove(trace, transitions, boundaries, periodic = [], maxDegree = 2, numQueries = 32) {
+export function prove(trace, transitions, boundaries, periodic = [], maxDegree = 2, numQueries = 40) {  // 40 = protocol NUM_QUERIES (C-1)
   const T = trace.length, W = trace[0].length;
   const blowup = blowupOf(maxDegree), N = blowup * T;
   const gT = F.primitiveRootOfUnity(T);

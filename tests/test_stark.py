@@ -28,7 +28,7 @@ def t1_squaring_valid():
     T, seed = 8, 3
     tr = _sq_trace(seed, T)
     bnd = [(0, 0, seed), (T - 1, 0, tr[-1][0])]
-    proof = stark.prove(tr, SQ_TRANS, bnd, max_degree=2, num_queries=24)
+    proof = stark.prove(tr, SQ_TRANS, bnd, max_degree=2)
     ok, why = stark.verify(proof, SQ_TRANS, bnd, max_degree=2)
     assert ok, f"valid squaring trace must verify: {why}"
 
@@ -36,7 +36,7 @@ def t2_wrong_boundary_rejected():
     T, seed = 8, 3
     tr = _sq_trace(seed, T)
     bnd = [(0, 0, seed), (T - 1, 0, tr[-1][0])]
-    proof = stark.prove(tr, SQ_TRANS, bnd, max_degree=2, num_queries=24)
+    proof = stark.prove(tr, SQ_TRANS, bnd, max_degree=2)
     bad = [(0, 0, seed + 1), (T - 1, 0, tr[-1][0])]          # claim a different input
     ok, _ = stark.verify(proof, SQ_TRANS, bad, max_degree=2)
     assert not ok, "a boundary claim the trace doesn't meet must be rejected"
@@ -46,7 +46,7 @@ def t3_violating_trace_rejected():
     tr = _sq_trace(seed, T)
     tr[5][0] = F.add(tr[5][0], 1)                            # break the chain at row 5
     bnd = [(0, 0, seed), (T - 1, 0, tr[-1][0])]
-    proof = stark.prove(tr, SQ_TRANS, bnd, max_degree=2, num_queries=32)
+    proof = stark.prove(tr, SQ_TRANS, bnd, max_degree=2)
     ok, why = stark.verify(proof, SQ_TRANS, bnd, max_degree=2)
     assert not ok, "a trace violating the transition must be rejected (composition not low-degree)"
 
@@ -54,7 +54,7 @@ def t4_tampered_opening_rejected():
     T, seed = 8, 3
     tr = _sq_trace(seed, T)
     bnd = [(0, 0, seed), (T - 1, 0, tr[-1][0])]
-    proof = stark.prove(tr, SQ_TRANS, bnd, max_degree=2, num_queries=24)
+    proof = stark.prove(tr, SQ_TRANS, bnd, max_degree=2)
     proof["openings"][0]["cols"][0]["cur"] = F.add(proof["openings"][0]["cols"][0]["cur"], 1)
     ok, _ = stark.verify(proof, SQ_TRANS, bnd, max_degree=2)
     assert not ok, "a tampered trace opening must be rejected"
@@ -74,14 +74,14 @@ def t5_fibonacci_valid():
     T = 16
     tr = _fib_trace(T)
     bnd = [(0, 0, 1), (0, 1, 1)]
-    proof = stark.prove(tr, FIB_TRANS, bnd, max_degree=1, num_queries=24)
+    proof = stark.prove(tr, FIB_TRANS, bnd, max_degree=1)
     ok, why = stark.verify(proof, FIB_TRANS, bnd, max_degree=1)
     assert ok, f"valid Fibonacci trace must verify: {why}"
 
 def t6_fibonacci_wrong_seed_rejected():
     T = 16
     tr = _fib_trace(T)
-    proof = stark.prove(tr, FIB_TRANS, [(0, 0, 1), (0, 1, 1)], max_degree=1, num_queries=24)
+    proof = stark.prove(tr, FIB_TRANS, [(0, 0, 1), (0, 1, 1)], max_degree=1)
     ok, _ = stark.verify(proof, FIB_TRANS, [(0, 0, 2), (0, 1, 1)], max_degree=1)
     assert not ok, "a wrong Fibonacci seed must be rejected"
 

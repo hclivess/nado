@@ -253,7 +253,7 @@ async def h_prove_transfer(request):
         def _prove():
             return SFP.prove_transfer(fp, int(w["nsk"]), int(w["value_in"]), int(w["rho_in"]), pos,
                                       int(w["out_value"]), int(w["out_owner"]), int(w["out_rho"]),
-                                      int(w["public_value"]), int(w["fee"]), num_queries=int(w.get("num_queries", 24)))
+                                      int(w["public_value"]), int(w["fee"]))
         bundle, public = await asyncio.to_thread(_prove)   # heavy STARK proving off the event loop
         if w.get("withdraw_addr"):
             bundle["withdraw_addr"] = w["withdraw_addr"]
@@ -341,7 +341,7 @@ async def h_prove_transfer2(request):
             return SFP.prove_transfer2(fp, int(w["nsk"]), int(w["value_in"]), int(w["rho_in"]), pos,
                                        int(w["v1"]), int(w["o1"]), int(w["r1"]),
                                        int(w["v2"]), int(w["o2"]), int(w["r2"]),
-                                       int(w["public_value"]), int(w["fee"]), num_queries=int(w.get("num_queries", 24)))
+                                       int(w["public_value"]), int(w["fee"]))
         bundle, public = await asyncio.to_thread(_prove)
         if w.get("withdraw_addr"):
             bundle["withdraw_addr"] = w["withdraw_addr"]
