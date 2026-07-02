@@ -51,6 +51,21 @@ def t5_membership_and_anchor():
     ok, why = JC.verify_transfer(proof, root, nf, cm_out, PUB, FEE, lambda r: False)
     assert not ok and "anchor" in why, "unknown anchor must be rejected"
 
+def t6_full_proof_through_verify_transfer_seam():
+    # route the FULL join-split proof through the real verify_transfer seam (execnode/shielded.py)
+    from execnode import shielded
+    proof, root, nf, cm_out = _prove()
+    bundle = {"stark": {"joinsplit": {"proof": proof, "root": root, "nf": nf, "cm_out": cm_out,
+                                      "public_value": PUB, "fee": FEE}}}
+    public = {"out_commitments": [cm_out]}
+    ok, why = shielded.verify_transfer(public, bundle, lambda r: True)
+    assert ok, f"a full STARK transfer must verify through verify_transfer: {why}"
+    # tamper the public fee -> conservation fails through the seam
+    bad = {"stark": {"joinsplit": {"proof": proof, "root": root, "nf": nf, "cm_out": cm_out,
+                                   "public_value": PUB, "fee": FEE - 5}}}
+    ok2, _ = shielded.verify_transfer(public, bad, lambda r: True)
+    assert not ok2, "verify_transfer must reject a conservation-violating STARK transfer"
+
 for name, fn in sorted((n, f) for n, f in globals().items() if n.startswith("t") and callable(f) and n[1].isdigit()):
     check(name, fn)
 print(f"\n{'ALL PASSED' if not fails else str(fails)+' FAILED'}")

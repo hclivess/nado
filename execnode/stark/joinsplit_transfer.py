@@ -2,24 +2,24 @@
 Phase-2 STARK verifier seam for the shielded transfer (doc/privacy.md) — the drop-in target of
 verify_transfer's `proof` seam.
 
-WHAT IT PROVES TODAY (in zero-knowledge, revealing no opening): every OUTPUT commitment in the transfer is a
-correctly-formed note commitment, cm = alghash.hashn([DOM_CM, value, owner, rho]) — arithmetised as the
-sponge-hash AIR (execnode/stark/joinsplit.py) and checked with a real STARK. This is the hard, novel piece,
-and it exercises the whole engine (field → FRI → AIR) inside verify_transfer.
+The complete 1-in/1-out join-split is now arithmetised (execnode/stark/joinsplit_circuit): owner binding,
+input commitment, Merkle membership, nullifier, output commitment, AND value conservation, all in ONE
+zero-knowledge STARK over field-hash (alghash) notes. A `stark` bundle carries {proof, root, nf, cm_out,
+public_value, fee}; this verifies it against the public inputs, revealing nothing about the opening or which
+leaf was spent.
 
-WHAT IS STILL TRANSPARENT (the remaining Phase-2 composition, tracked in doc/privacy.md): Merkle MEMBERSHIP of
-the inputs, VALUE CONSERVATION across the private values, and NULLIFIER derivation from the spend key — these
-must be folded into the SAME circuit (sharing the value/nsk witness) to be both sound and private, and they
-use this exact gadget chained/linked. Until then this verifier proves output well-formedness; the caller keeps
-the transparent membership/conservation/nullifier checks. `PHASE2_COMPLETE` flips when the full circuit lands.
+PHASE2_COMPLETE means the circuit covers the full statement. It applies to FIELD-HASH (alghash) notes — the
+representation the STARK proves. Migrating the live BLAKE2b pool + the browser client to the field hash (and
+providing a client/delegated prover) is the remaining rollout; on a field-hash pool this is a complete,
+sound, private verifier.
 """
-from execnode.stark import joinsplit, alghash
+from execnode.stark import joinsplit, alghash, joinsplit_circuit
 
-PHASE2_COMPLETE = False        # True once membership + conservation + nullifier are composed into one circuit
+PHASE2_COMPLETE = True
 
 
 def verify_output_commitments(out_commitments, bundle):
-    """Zero-knowledge check that each output commitment is a well-formed alghash note commitment."""
+    """(Legacy partial path) zero-knowledge check that each output commitment is a well-formed note commitment."""
     proofs = (bundle or {}).get("outputs", [])
     if len(proofs) != len(out_commitments):
         return False, "need one STARK proof per output commitment"
@@ -30,22 +30,19 @@ def verify_output_commitments(out_commitments, bundle):
     return True, "ok"
 
 
-def prove_output_commitments(outputs):
-    """Build the ZK well-formedness proofs for a list of output openings [(value, owner, rho), ...]."""
-    proofs, cms = [], []
-    for (value, owner, rho) in outputs:
-        pr, cm = joinsplit.prove_hash([alghash.DOM_CM, value, owner, rho], public_positions=[0])
-        proofs.append(pr); cms.append(cm)
-    return {"outputs": proofs}, cms
-
-
 def verify_transfer(public, proof, root_is_known):
     """verify_transfer's Phase-2 path (dispatched when the proof carries a 'stark' bundle)."""
-    ok, why = verify_output_commitments(public.get("out_commitments", []), proof.get("stark"))
+    bundle = proof.get("stark") or {}
+    # FULL join-split proof: the complete transfer statement in one STARK.
+    if "joinsplit" in bundle:
+        b = bundle["joinsplit"]
+        try:
+            return joinsplit_circuit.verify_transfer(
+                b["proof"], b["root"], b["nf"], b["cm_out"], b["public_value"], b["fee"], root_is_known)
+        except (KeyError, TypeError) as e:
+            return False, f"malformed join-split bundle: {e}"
+    # legacy partial path (output well-formedness only)
+    ok, why = verify_output_commitments(public.get("out_commitments", []), bundle)
     if not ok:
         return False, why
-    if not PHASE2_COMPLETE:
-        # sound-by-construction: we've proven output well-formedness in ZK, but the full transfer statement
-        # (membership + conservation + nullifier) is not yet in the circuit, so we don't yet certify a spend.
-        return True, "ok (zk output well-formedness verified; membership/conservation still transparent)"
-    return True, "ok"
+    return True, "ok (zk output well-formedness only; use a 'joinsplit' bundle for the full statement)"

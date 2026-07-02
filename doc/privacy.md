@@ -135,9 +135,10 @@ The Phase-1 machinery is correctness-first; these are the documented upgrades fo
 | STARK engine — Goldilocks field + Merkle + FRI + AIR/STARK | ✅ (tests/test_stark_fri.py, test_stark.py) |
 | STARK-friendly hash (Poseidon-lite sponge) | ✅ (execnode/stark/alghash.py) |
 | join-split hash gadget arithmetised + proven in ZK (commitment/nullifier/tree-node) | ✅ (tests/test_stark_joinsplit.py) |
-| Phase-2 seam wired into verify_transfer | ✅ (routes 'stark' bundles) |
-| compose full circuit: membership chain + value conservation + nsk-linked nullifier | ⏳ Phase 2 |
-| migrate pool commitments from BLAKE2b to the field hash | ⏳ Phase 2 |
+| Phase-2 seam wired into verify_transfer | ✅ (verifies the FULL join-split proof) |
+| FULL join-split circuit (owner+commit+membership+nullifier+output+conservation) in one ZK proof | ✅ (tests/test_stark_joinsplit_circuit.py) |
+| migrate the POOL TREE + browser client from BLAKE2b to the field hash (alghash) | ⏳ rollout |
+| client-side / delegated STARK prover (the phone-proving hurdle) | ⏳ rollout |
 
 | client (WASM) / delegated proving | ⏳ Phase 2 |
 | L1 shield-escrow + unshield settled-root exit | ✅ (tests/test_shield_l1.py) |
