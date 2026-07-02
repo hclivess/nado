@@ -28,6 +28,11 @@ export function initAlghash(blake2bHash) {
 }
 
 export const DOM_OWNER = 1n, DOM_CM = 2n, DOM_NF = 3n, DOM_NODE = 4n;
+// exposed for the in-browser circuit (joinsplit2.js) — must match execnode/stark/alghash.py
+export const ALPHA_EXP = ALPHA, R_ROUNDS = ROUNDS;
+export const sboxFn = (x) => sbox(x);
+export const rcAt = (r, j) => RC[r][j];
+export const ivVal = () => IV;
 
 export function permute(state) {
   let [s0, s1] = state;
