@@ -15,17 +15,22 @@ from protocol import CHAIN_ID, TREASURY_ADDRESS, TREASURY_GENESIS
 
 def create_indexers():
     # ONE LMDB env with named sub-DBs so the whole incorporate_block mutation (account docs, tx
-    # index, block index, totals, heartbeats) commits in a SINGLE write transaction -> crash-atomic
+    # index, block index, totals, recerts) commits in a SINGLE write transaction -> crash-atomic
     # (audit LO-1/CO-4). The schema is schemaless msgpack documents (no DDL): see ops/kv_ops.py for
     # the sub-DB table —
     #   accounts (address -> {balance,produced,bonded,registered,fidelity,...}), totals,
     #   block_by_num / block_by_hash, tx + tx_by_sender / tx_by_recipient (DUPSORT),
-    #   heartbeats (DUPSORT epoch -> address).
+    #   recerts (DUPSORT address -> epoch) + recert_by_epoch (DUPSORT epoch -> address).
     # `bonded` = refundable stake locked for mining eligibility (S4), NOT spendable balance.
     # `registered`/`fidelity` = OPEN-lane mining state (registered=1 after the one-time registration
-    # PoW; fidelity = raw additive presence counter, clamped to FIDELITY_CAP on read by open_shares).
+    # PoW; fidelity = continuity over recerts, clamped to FIDELITY_CAP on read by open_shares).
     kv_ops.init_env()      # opens the env + creates every sub-DB (replaces CREATE TABLE DDL)
     kv_ops.totals_seed()   # seed totals to {0,0} once (idempotent re-run)
+    # IDEMPOTENT self-heal: mirror any pre-existing recerts into the (later-added) recert_by_epoch index,
+    # so an upgraded node never reports a validly-leased miner as ABSENT. No-op once the index is populated.
+    n = kv_ops.backfill_recert_by_epoch()
+    if n:
+        print(f"[startup] recert_by_epoch backfill: {n} recert row(s) mirrored", flush=True)
 
 
 def make_folders():
@@ -81,15 +86,15 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
     # from height 1 through the OPEN lane. With TREASURY_GENESIS=0 nobody holds coins to bond, so the
     # bonded lane is empty at genesis; the founder's relay nodes mine the open lane like everyone else
     # (fair launch), and the bonded lane fills organically as miners earn the base subsidy and bond.
-    # The epoch-0 heartbeat makes them present in get_open_registry for the first PRESENCE_WINDOW
-    # epochs — ample time for the relays to start posting on-chain heartbeats and stay present.
+    # The epoch-0 recert makes them present in get_open_registry (the presence LEASE) for the first
+    # POSW_LEASE_EPOCHS — ample time for the relays to start posting on-chain recerts and stay present.
     open_path = f"{get_home()}/private/genesis_open.dat"
     if os.path.exists(open_path):
         with open(open_path) as of:
             open_ids = json.load(of)
         for addr in sorted(open_ids):
             create_account(address=addr, registered=1)
-            kv_ops.heartbeat_put(epoch=0, address=addr)  # DUPSORT dedups (one heartbeat per addr@0)
+            kv_ops.recert_put(address=addr, epoch=0)  # seed a lease at epoch 0 (DUPSORT dedups per addr@0)
         logger.warning(f"Seeded {len(open_ids)} registered open-lane genesis identities (epoch 0)")
 
     # FAUCET GUARD: there is intentionally NO auto-bond faucet anywhere. Granting a fresh address a

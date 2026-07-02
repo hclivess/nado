@@ -50,7 +50,7 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
 _PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases")
-_DUP_DBS = ("tx_by_sender", "tx_by_recipient", "heartbeats", "attestations", "reveals", "settlements", "recerts")
+_DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch")
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
 ACCOUNT_FIELDS = ("balance", "produced", "bonded", "registered", "fidelity", "last_hb_epoch")
@@ -502,15 +502,52 @@ def settlement_cursors():
 # heartbeats (insert on apply, delete on rollback). Eligibility = a recert within POSW_LEASE_EPOCHS. ---
 
 def recert_put(address: str, epoch: int):
+    # Two revert-safe indexes: recerts (address -> epoch) for recert_latest, and recert_by_epoch
+    # (epoch -> address) so get_open_registry can range-scan the currently-leased set (like heartbeats did).
     def _do(txn):
         txn.put(address.encode(), be8(int(epoch)), db=_dbs()["recerts"], dupdata=True)
+        txn.put(be8(int(epoch)), address.encode(), db=_dbs()["recert_by_epoch"], dupdata=True)
     _write(_do)
 
 
 def recert_del(address: str, epoch: int):
     def _do(txn):
         txn.delete(address.encode(), be8(int(epoch)), db=_dbs()["recerts"])
+        txn.delete(be8(int(epoch)), address.encode(), db=_dbs()["recert_by_epoch"])
     _write(_do)
+
+
+def recert_addresses_after(floor_epoch: int):
+    """Set of addresses with a recert in some epoch > floor_epoch — i.e. the OPEN-lane present set (a valid
+    lease). Range-scan the epoch index from floor_epoch+1. This replaces heartbeat_addresses_after: presence
+    IS a fresh PoSW recert, so there's no separate heartbeat mechanism (doc/presence-dividend.md §2.4)."""
+    start = max(0, floor_epoch + 1)
+    def _do(txn):
+        addrs = set()
+        with txn.cursor(db=_dbs()["recert_by_epoch"]) as cur:
+            if cur.set_range(be8(start)):
+                for _, v in cur.iternext(keys=True, values=True):
+                    addrs.add(v.decode())
+        return addrs
+    return _read(_do)
+
+
+def backfill_recert_by_epoch() -> int:
+    """One-time, IDEMPOTENT migration. The recert_by_epoch (epoch->address) index was introduced AFTER the
+    recerts (address->epoch) index already held rows, so on an existing chain it starts EMPTY — and
+    get_open_registry reads recert_by_epoch, so any miner whose recert predates the index shows up as
+    ABSENT even though its lease is valid (a permanent stuck-'absent'). Copy every (address, epoch) from
+    recerts into recert_by_epoch; DUPSORT dedups exact pairs, so re-running is a no-op. Returns rows copied."""
+    def _do(txn):
+        rows = []
+        with txn.cursor(db=_dbs()["recerts"]) as cur:          # key=address, value=be8(epoch)
+            for k, v in cur:
+                rows.append((bytes(v), bytes(k)))              # recert_by_epoch: key=be8(epoch), value=address
+        rbe = _dbs()["recert_by_epoch"]
+        for ekey, addr in rows:
+            txn.put(ekey, addr, db=rbe, dupdata=True)          # exact-dup put is a silent no-op under DUPSORT
+        return len(rows)
+    return _write(_do)
 
 
 def recert_latest(address: str) -> int:
@@ -773,55 +810,6 @@ def tx_of_account(address: str, min_block: int, limit: int):
     return _read(_do)
 
 
-# --- heartbeats (DUPSORT presence index) ----------------------------------------------------------
-
-def heartbeat_put(epoch: int, address: str):
-    """Record a presence heartbeat. DUPSORT auto-dedups identical (epoch,address) -> one-per-
-    (address,epoch) enforced for free (a duplicate is a silent no-op, never a second dup)."""
-    def _do(txn):
-        txn.put(be8(epoch), address.encode(), db=_dbs()["heartbeats"], dupdata=True)
-    _write(_do)
-
-
-def heartbeat_del(epoch: int, address: str):
-    """Delete the exact (epoch,address) dup (rollback revert — unambiguous)."""
-    def _do(txn):
-        txn.delete(be8(epoch), address.encode(), db=_dbs()["heartbeats"])
-    _write(_do)
-
-
-def heartbeat_present(epoch: int, address: str) -> bool:
-    """True if `address` already has a presence heartbeat recorded for `epoch`. AUDIT FIX: the DUPSORT
-    store dedups the row but does NOT reject a second heartbeat tx, so validation must check this to
-    enforce one-per-(address,epoch) (else fidelity is farmed + a reorg can over-delete the shared dup)."""
-    def _do(txn):
-        with txn.cursor(db=_dbs()["heartbeats"]) as cur:
-            return cur.set_key_dup(be8(epoch), address.encode())
-    return _read(_do)
-
-
-def heartbeat_gc(max_epoch_inclusive: int):
-    """Drop every heartbeat with epoch <= max_epoch_inclusive (anti-bloat GC). These rows are older
-    than the presence window and outside any rollback window, so they are never read or reverted
-    again. No-op when max_epoch_inclusive < 0."""
-    if max_epoch_inclusive < 0:
-        return
-
-    def _do(txn):
-        hdb = _dbs()["heartbeats"]
-        ceiling = be8(max_epoch_inclusive)
-        stale_keys = []
-        with txn.cursor(db=hdb) as cur:
-            if cur.first():
-                for k in cur.iternext_nodup(keys=True, values=False):
-                    if k > ceiling:
-                        break
-                    stale_keys.append(bytes(k))
-        for k in stale_keys:
-            txn.delete(k, db=hdb)  # deletes ALL dups for the key
-    _write(_do)
-
-
 def hb_revert_put(epoch: int, address: str, prev_epoch: int, net_delta: int):
     """FIDELITY DECAY (revert record): store the EXACT inverse of a heartbeat's fidelity update — the
     account's PREVIOUS last-seen epoch and the NET fidelity delta applied — keyed (epoch,address), plain
@@ -867,23 +855,6 @@ def hb_revert_gc(max_epoch_inclusive: int):
         for k in stale:
             txn.delete(k, db=rdb)
     _write(_do)
-
-
-def heartbeat_addresses_after(floor_epoch: int):
-    """Set of addresses with a heartbeat in some epoch STRICTLY GREATER than floor_epoch (i.e.
-    epoch > floor_epoch). Range-scan from the first key >= floor_epoch+1 (clamped to 0) to the end.
-    Used by get_open_registry's presence-window filter."""
-    start = max(0, floor_epoch + 1)
-
-    def _do(txn):
-        addrs = set()
-        with txn.cursor(db=_dbs()["heartbeats"]) as cur:
-            if cur.set_range(be8(start)):
-                for _, v in cur.iternext(keys=True, values=True):
-                    addrs.add(v.decode())
-        return addrs
-    return _read(_do)
-
 
 # --- maintenance helpers (prune) ------------------------------------------------------------------
 

@@ -645,14 +645,6 @@ async function maybeRenewLease(acc) {
   finally { _renewingLease = false; }
 }
 
-// LOCKED-PHONE MINING: hand the relay a batch of future-dated, pre-signed heartbeats so it can post your
-// presence proofs on schedule while your phone is asleep. We cover the ENTIRE remaining PoSW lease — past
-// the lease the identity is ineligible anyway (a recert needs a fresh on-device PoSW), so the lease is the
-// only real "reopen by" bound, not the heartbeat buffer. Signing is chunked (never blocks the UI) and the
-// batch is capped per poll, so it tops up to the full lease over a couple of ticks.
-let _presigning = false;
-
-
 async function maybeRegister() {
   if (state.registering) return;                 // a PoW/submit is already in flight
   // If we already broadcast a registration that can still land, just keep waiting for it.
@@ -775,8 +767,15 @@ async function pollOnce() {
     const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
     // OPEN-lane eligibility = a PoSW recert within POSW_LEASE_EPOCHS (the recert is the single presence signal).
     const leaseValid = epochNow != null && regEpoch >= 0 && (epochNow - regEpoch) < POSW_LEASE_EPOCHS;
-    if (!acc || acc.registered !== 1 || !leaseValid) {
-      await maybeRegister();          // first registration OR re-establish an absent/expired lease
+    // AUTHORITATIVE presence: the node's open-registry membership (mining_status.registered_present) is ground
+    // truth. If the node says we're NOT present — even when the local reg_epoch heuristic thinks the lease is
+    // fine — we (re)register. Otherwise a state/index skew or a dropped registration tx leaves us stuck
+    // "absent" forever (the local heuristic never triggers a retry). Fall back to the heuristic only when the
+    // node's status isn't available yet, so a relay hiccup doesn't cause spurious re-registration.
+    const msKnown = state.lastMs && typeof state.lastMs.registered_present === "boolean";
+    const present = msKnown ? state.lastMs.registered_present : leaseValid;
+    if (!acc || acc.registered !== 1 || !leaseValid || !present) {
+      await maybeRegister();          // first registration, an expired lease, OR a node-vs-local presence mismatch
       return;                         // wait for the recert to land
     }
     // eligible: quietly renew the lease (a fresh ~1 s PoSW) once ~80% spent, so the identity never lapses.
@@ -848,7 +847,7 @@ async function startMining() {
   setStartBtnBusy(i18("mine.starting", "Starting…"));                   // disabled spinner button — can't be re-clicked
   setRegBanner(i18("reg.startup", "Starting up — checking your registration with the relay…") + REASSURE);
   $("mineState").textContent = i18("mine.starting", "Starting…");
-  log("ok", i18("log.miningStarted", "Mining started — registering (if needed) and heartbeating automatically."));
+  log("ok", i18("log.miningStarted", "Mining started — auto-registering / renewing your PoSW lease."));
   startPollLoop();
   acquireWakeLock();   // keep the screen awake so mining doesn't stall when the phone would auto-lock
   // kick off the first cycle immediately (registration / heartbeat / refresh) without blocking the UI
@@ -962,6 +961,7 @@ async function refreshDashboard() {
   if (!state.wallet) return;
   const addr = state.wallet.address;
   const [acc, ms] = await Promise.all([getAccount(addr), getMiningStatus(addr)]);
+  state.lastMs = ms;   // cache the authoritative mining status (pollOnce reads registered_present from it)
 
   // wallet card + send/stake panels (balances are shared across tabs)
   if (acc) {
