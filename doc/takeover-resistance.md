@@ -63,13 +63,20 @@ Three things make this the opposite of Nyzo:
 1. **Farm-neutral.** A coin costs a coin to bond whether you are a bot or a person. There is no Sybil
    discount — running more nodes does not make stake cheaper. This is the one anchor with no friction
    asymmetry.
-2. **Per-address cap + ramp, and split-neutral.** A single address's selection weight is capped at
-   `BOND_CAP` (10,000 NADO → 100 shares; `B_MIN` = 100 NADO per share), and a fresh address's weight ramps
-   over ~`FIDELITY_CAP` recerts — so no single identity dominates and an *instant* whale can't buy full
-   weight on day one. A holder with more than the cap can spread real stake across addresses, but that is
-   **split-neutral**: every share costs the same `B_MIN` of real, farm-neutral coins whether concentrated or
-   spread, so splitting yields **no Sybil discount**. Influence in this lane is therefore ∝ real capital by
-   design (stake *is* the security) — not something a bot farms cheaper than a person.
+2. **Per-address cap, split-neutral — capital only, no PoSW.** Bonded eligibility is purely `bonded >=
+   B_MIN` (100 NADO/share); the bonded lane requires **no registration or PoSW** — that is the OPEN lane's
+   cost. A single address's weight is capped at `BOND_CAP` (10,000 NADO → 100 shares), so no single identity
+   dominates, but a holder above the cap **spreads real stake across addresses** to deploy all of it. That
+   is **split-neutral**: every share costs the same `B_MIN` of real, farm-neutral coins whether concentrated
+   or spread, so splitting buys **no Sybil discount** — total influence is ∝ real capital, which is the PoS
+   security model, not an exploit.
+   **Honest caveat (current code):** the `selection_shares` fidelity ramp is **disabled on the bonded lane**
+   (`get_bonded_registry` sets `fidelity=None`, "not yet"). So a wealthy actor gets full capped weight
+   **immediately** on bonding — there is currently *no* time-ramp slowing an instant stake buy-in on the
+   bonded lane (the ramp is active only on the OPEN lane, via `open_shares`). Turning on a bonded ramp is a
+   available hardening (it would force a large new staker to accrue weight over ~`FIDELITY_CAP` epochs,
+   buying the network reaction time) but it does not change the ultimate bound: a patient whale still reaches
+   influence ∝ stake. The real bound stays **cost ∝ network value + whale-cap-per-address + finality/slashing.**
 3. **Bounded even at majority.** Enforced finality (a persisted, un-reorgable finalized floor) plus
    equivocation **slashing** mean that even a stake majority cannot rewrite finalized history without
    **burning** its own bond. A takeover is expensive *and* self-damaging, not free and consequence-free.
