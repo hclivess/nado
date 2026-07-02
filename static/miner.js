@@ -297,6 +297,15 @@ function buildRegisterTx(wallet, targetBlock, posw, timestamp) {
   return finalizeTransaction(draft, wallet.privateKey, 0);
 }
 
+// The sequential proof hashes POSW_T (1,000,000) times in a chain. Route that through the WASM blake2b —
+// byte-identical to the JS/Python blake2b (verified against the node's hash), so the proof still verifies —
+// which is far faster than pure JS. Cached; falls back to the JS blake2b if WASM is unavailable.
+let _wasmB2b;   // undefined = not yet tried; function = ready; null = unavailable
+async function miningHashDeps() {
+  if (_wasmB2b === undefined) { try { _wasmB2b = await initBlake2bWasm(); } catch (e) { _wasmB2b = null; } }
+  return { blake2b: _wasmB2b ? (b) => _wasmB2b(b) : blake2b, bytesToHex, hexToBytes };
+}
+
 // Fetch the PoSW anchor (hash of block target_block − POSW_ANCHOR_OFFSET — a finalized, stable block that
 // the node derives identically), compute the non-parallelizable sequential proof, and build the register tx.
 async function computeRegisterTx(targetBlock, onProgress) {
@@ -306,7 +315,7 @@ async function computeRegisterTx(targetBlock, onProgress) {
   const anchorHash = b && b.block_hash;
   if (!anchorHash) throw new Error("registration anchor block unavailable");
   const proof = await poswProveAsync(challengeBytes(state.wallet.address, anchorHash),
-    POSW_T, POSW_S, POSW_K, { blake2b, bytesToHex, hexToBytes }, onProgress);
+    POSW_T, POSW_S, POSW_K, await miningHashDeps(), onProgress);
   return buildRegisterTx(state.wallet, targetBlock, proof, nowSeconds());
 }
 

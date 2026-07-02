@@ -65,15 +65,26 @@ export function poswProve(challenge, T, S, k, deps) {
   return _buildProof(cps, T, S, k, deps);
 }
 
-// same result, chunked + yielding so the browser UI stays responsive; reports (done, total) progress.
+// same result, yielding so the browser UI stays responsive; reports (done, total) progress.
+// Yields on a TIME budget (~every 12ms of work) rather than a fixed checkpoint count: with a fast (WASM)
+// hash, a fixed count would hand control back far more often than needed and each setTimeout(0) is clamped
+// to ~4ms by the browser, so the miner would sit idle most of the time. Time-budgeting keeps ~60fps
+// responsiveness while spending nearly all wall-clock on hashing.
 export async function poswProveAsync(challenge, T, S, k, deps, onProgress) {
   const H = _mkH(deps), C = Math.floor(T / S);
   const cps = [H(challenge)]; let h = cps[0]; let done = 0;
+  const clock = (typeof performance !== "undefined" && performance.now) ? () => performance.now() : () => Date.now();
+  let last = clock();
   for (let m = 1; m <= C; m++) {
     for (let i = 0; i < S; i++) { h = H(h); done++; }
     cps.push(h);
-    if (onProgress && (m % 8 === 0)) { onProgress(done, T); await new Promise((r) => setTimeout(r, 0)); }
+    if (clock() - last >= 12) {
+      if (onProgress) onProgress(done, T);
+      await new Promise((r) => setTimeout(r, 0));
+      last = clock();
+    }
   }
+  if (onProgress) onProgress(done, T);
   return _buildProof(cps, T, S, k, deps);
 }
 
