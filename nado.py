@@ -137,20 +137,29 @@ async def home(request):
 
 async def status(request):
     def _build():
+        # Defensive: /status is the exec node's lifeline (finalized_height) and the wallet's connection
+        # check, so NO single field may 403 the whole endpoint. Guard the block-ends + snapshot lookups
+        # (in rolling mode a pruned body could make these falsy) — degrade to null, never crash.
+        lb = memserver.latest_block if isinstance(memserver.latest_block, dict) else {}
+        eb = memserver.earliest_block if isinstance(memserver.earliest_block, dict) else {}
         status_dict = {
             "reported_uptime": memserver.reported_uptime,
             "address": memserver.address,
             "transaction_pool_hash": memserver.transaction_pool_hash,
             "block_producers_hash": memserver.block_producers_hash,
-            "latest_block_hash": memserver.latest_block["block_hash"],
-            "latest_block_weight": memserver.latest_block.get("cumulative_weight", 0),
-            "earliest_block_hash": memserver.earliest_block["block_hash"],
+            "latest_block_hash": lb.get("block_hash"),
+            "latest_block_weight": lb.get("cumulative_weight", 0),
+            "earliest_block_hash": eb.get("block_hash"),
             "finalized_height": memserver.finalized_height,
             "ffg_finalized": memserver.ffg_finalized,
             "protocol": memserver.protocol,
             "version": memserver.version,
         }
-        snap_manifest, _ = get_current_snapshot(build=False)
+        try:
+            snap_manifest, _ = get_current_snapshot(build=False)
+            snap_manifest = snap_manifest if isinstance(snap_manifest, dict) else None
+        except Exception:
+            snap_manifest = None
         status_dict["snapshot_height"] = snap_manifest["snapshot_height"] if snap_manifest else None
         status_dict["snapshot_hash"] = snap_manifest["snapshot_hash"] if snap_manifest else None
         return serialize(name="status", output=status_dict, compress=_q(request, "compress", "none"))

@@ -256,6 +256,14 @@ def prune_block_bodies(finalized_height: int, retention: int, logger) -> int:
             except OSError as e:
                 logger.warning(f"prune: could not remove {path}: {e}")
     kv_ops.meta_set_int("pruned_below", end)                  # advance past gap heights too (idempotent, monotonic)
+    # Keep the earliest-block pointer at the earliest RETAINED body (height `end`, which is NOT pruned), so
+    # get_block_ends_info never loads a pruned body (which returns False and 403s /status).
+    neh = kv_ops.hash_by_number(end)
+    if neh:
+        try:
+            _update_block_ends({"earliest_block": neh}, logger=logger)
+        except Exception as e:
+            logger.warning(f"prune: earliest-pointer update failed: {e}")
     if pruned:
         logger.info(f"Rolling mode: pruned {pruned} block bodies below height {end} "
                     f"(retention {eff_retention}, finalized {finalized_height}); indexes + state kept.")
@@ -427,6 +435,26 @@ def get_block_ends_info(logger):
                                                 logger=logger)
             earliest_block = load_block_from_hash(block_hash=block_ends["earliest_block"],
                                                   logger=logger)
+
+            # ROLLING MODE: the recorded earliest BODY may have been pruned, so load_block_from_hash
+            # returns False. Recover to the earliest RETAINED body via the pruned_below watermark (bodies
+            # at/above it are kept) so memserver.earliest_block is ALWAYS a real dict — otherwise every
+            # /status (earliest_block["block_hash"]) 403s, which stalls the exec node + wallet connection.
+            if not earliest_block:
+                floor_h = kv_ops.meta_get_int("pruned_below", 0)
+                for h in (floor_h, floor_h + 1, floor_h + 2):
+                    bh = kv_ops.hash_by_number(h)
+                    cand = load_block_from_hash(block_hash=bh, logger=logger) if bh else None
+                    if cand:
+                        earliest_block = cand
+                        break
+                if not earliest_block:
+                    earliest_block = latest_block          # last resort — the latest body is always kept
+                if earliest_block and earliest_block.get("block_hash"):
+                    try:
+                        _update_block_ends({"earliest_block": earliest_block["block_hash"]}, logger=logger)
+                    except Exception:
+                        pass
 
             block_ends = {"earliest_block": earliest_block,
                           "latest_block": latest_block}
