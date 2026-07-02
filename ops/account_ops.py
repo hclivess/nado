@@ -1,6 +1,6 @@
 from ops import kv_ops
 from ops.address_ops import make_address
-from protocol import B_MIN, EPOCH_LENGTH, FIDELITY_GAIN, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS, HTLC_ESCROW
+from protocol import B_MIN, EPOCH_LENGTH, FIDELITY_GAIN, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS, HTLC_ESCROW, SHIELD_ESCROW
 
 # Account state lives in the schemaless `accounts` sub-DB as a msgpack document keyed by address
 # (see ops/kv_ops.py). Missing fields default to 0 on read, so adding a field (as we did with
@@ -154,6 +154,26 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             kv_ops.bridge_nullifier_del(addr, nonce)
         else:
             kv_ops.bridge_nullifier_put(addr, nonce)
+        return
+
+    # --- SHIELD DEPOSIT (doc/privacy.md): lock `amount` in the shielded-pool escrow, burn the fee. The output
+    # note commitments ride in tx.data (opaque to L1); the exec node reads this deposit and adds them. ---
+    if recipient == "shield":
+        change_balance(address=sender, amount=-(amount + fee), logger=logger, revert=revert)
+        change_balance(address=SHIELD_ESCROW, amount=amount, logger=logger, revert=revert)
+        return
+
+    # --- UNSHIELD EXIT (doc/privacy.md): release `amount` from the shielded escrow to the proven addr and burn
+    # the nullifier. Validation already verified the Merkle proof against the settled exec root + escrow. ---
+    if recipient == "unshield":
+        data = transaction.get("data") or {}
+        addr, amt, nonce = data["addr"], int(data["amount"]), data["nonce"]
+        change_balance(address=SHIELD_ESCROW, amount=-amt, logger=logger, revert=revert)
+        change_balance(address=addr, amount=amt, logger=logger, revert=revert)
+        if revert:
+            kv_ops.shield_nullifier_del(addr, nonce)
+        else:
+            kv_ops.shield_nullifier_put(addr, nonce)
         return
 
     # --- HTLC LOCK (cross-chain atomic swap): move amount+fee from sender, LOCK `amount` in HTLC_ESCROW,

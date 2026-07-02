@@ -24,7 +24,19 @@ GENESIS_TIMESTAMP = 1669852800
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
 # "bond"/"unbond": bonded-lane stake txs. "register": the OPEN-lane (no-coin) mining lease tx
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "slash", "attest", "commit", "reveal", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund"})
+RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "slash", "attest", "commit", "reveal", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield"})
+
+# --- SHIELDED POOL (post-quantum zk-STARK privacy, doc/privacy.md) — L1 side of an EXECUTION-LAYER feature ---
+# L1 never sees a note or verifies a proof; it only escrows the transparent coins that enter/leave the pool
+# and orders the shielded data for the execution node (which maintains the pool + verifies proofs).
+#   "shield":   DEPOSIT — move amount(+fee) from sender, LOCK `amount` in SHIELD_ESCROW, and carry the output
+#               note commitments in tx.data (opaque to L1). The exec node adds them to the pool.
+#   (private transfer): a plain "blob" tx carrying {op:"shielded_transfer", public, proof} — L1 just orders +
+#               burns the DA fee; no L1 balance moves (coins stay in the pool). The exec node applies it.
+#   "unshield": EXIT — prove (Merkle inclusion) a withdrawal {addr, amount, nonce} is in the bonded-quorum
+#               SETTLED exec-state root; L1 verifies that ONE proof, checks the nullifier, and releases the
+#               escrowed coins — identical trust-minimised path as the bridge/dividend exit.
+SHIELD_ESCROW = "shield"          # keyless escrow pseudo-account holding all shielded (pooled) L1 coins
 
 # --- HTLC (Hash Time-Locked Contracts) for trustless CROSS-CHAIN atomic swaps (doc/htlc.md) ---
 # A lock escrows `amount` under a SHA-256 hashlock + an absolute block-height timelock:

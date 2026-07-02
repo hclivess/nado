@@ -22,7 +22,7 @@ from ops import kv_ops
 from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH,
                       BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK, BRIDGE_ESCROW, DIVIDEND_POOL,
                       POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET,
-                      HTLC_ESCROW, HTLC_MIN_TIMELOCK, HTLC_MAX_TIMELOCK)
+                      HTLC_ESCROW, HTLC_MIN_TIMELOCK, HTLC_MAX_TIMELOCK, SHIELD_ESCROW)
 
 
 def _is_hex(s) -> bool:
@@ -283,6 +283,9 @@ def reserved_uniqueness_key(tx):
             return ("dividend_withdraw", d.get("addr"), d.get("nonce"))                  # one dividend claim per (addr, nonce)
         if r in ("htlc_claim", "htlc_refund"):
             return ("htlc_settle", (tx.get("data") or {}).get("htlc_id"))               # one claim OR refund per HTLC per block
+        if r == "unshield":
+            d = tx.get("data") or {}
+            return ("unshield", d.get("addr"), d.get("nonce"))                          # one unshield exit per (addr, nonce)
     except Exception:
         return ("malformed", tx.get("txid"))   # unique-ish; the tx is rejected by validate_transaction
     return None
@@ -557,6 +560,30 @@ def validate_transaction(transaction, logger, block_height):
         assert doc and doc.get("status") == "open", "no OPEN HTLC with that id"
         assert transaction["sender"] == doc["sender"], "only the original sender may refund this HTLC"
         assert h >= int(doc["expiry"]), "HTLC has not expired yet — refund is not available"
+    elif recipient == "shield":
+        # SHIELD DEPOSIT into the shielded pool: lock coins in escrow; the exec node adds the note commitments.
+        assert transaction["amount"] > 0, "shield amount must be positive"
+        assert transaction["fee"] >= MIN_TX_FEE, f"shield fee below minimum {MIN_TX_FEE}"
+        data = transaction.get("data") or {}
+        assert isinstance(data.get("out_commitments"), list) and data.get("out_commitments"), "shield needs output note commitments"
+    elif recipient == "unshield":
+        # UNSHIELD EXIT: prove {addr, amount, nonce} is in the bonded-quorum SETTLED exec root; release escrow.
+        from ops.settlement_ops import latest_settled
+        from hashing import verify_merkle_proof, unshield_leaf
+        assert transaction["amount"] == 0, "unshield carries no L1 amount (amount is in data)"
+        assert transaction["fee"] == 0, "unshield is fee-exempt"
+        data = transaction.get("data") or {}
+        addr, amount, nonce, proof = data.get("addr"), data.get("amount"), data.get("nonce"), data.get("proof")
+        assert addr == transaction["sender"], "unshield must be self-claimed (sender == addr)"
+        assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad unshield amount"
+        assert isinstance(nonce, str) and isinstance(proof, list), "bad unshield nonce/proof"
+        _cur, settled_root = latest_settled()
+        assert settled_root, "no settled execution-layer root yet"
+        assert verify_merkle_proof(unshield_leaf(addr, amount, nonce), proof, settled_root), \
+            "unshield is not proven against the settled execution-layer root"
+        assert not kv_ops.shield_nullifier_exists(addr, nonce), "this unshield was already claimed"
+        escrow = get_account(SHIELD_ESCROW, create_on_error=False)
+        assert escrow and escrow.get("balance", 0) >= amount, "shield escrow underfunded"
     else:
         # ordinary transfer / bond / send-to-alias: deterministic minimum-fee floor (anti-spam), block 1
         assert transaction["fee"] >= MIN_TX_FEE, f"Transaction fee below minimum {MIN_TX_FEE}"

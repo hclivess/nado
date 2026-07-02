@@ -577,6 +577,19 @@ def bridge_nullifier_del(addr: str, nonce: str):
     meta_del(f"bridgenull:{addr}:{nonce}")
 
 
+# --- Shielded-pool UNSHIELD nullifiers: each (addr, nonce) unshield exit is claimable on L1 exactly once ---
+def shield_nullifier_exists(addr: str, nonce: str) -> bool:
+    return meta_get_int(f"shieldnull:{addr}:{nonce}", 0) == 1
+
+
+def shield_nullifier_put(addr: str, nonce: str):
+    meta_set_int(f"shieldnull:{addr}:{nonce}", 1)
+
+
+def shield_nullifier_del(addr: str, nonce: str):
+    meta_del(f"shieldnull:{addr}:{nonce}")
+
+
 # --- Presence-dividend collection nullifiers: each (addr, nonce) dividend claim is spendable on L1 once ---
 
 def dividend_nullifier_exists(addr: str, nonce: str) -> bool:

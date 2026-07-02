@@ -107,6 +107,12 @@ def dividend_leaf(addr, amount, nonce) -> bytes:
     return canonical_bytes(["dividend_withdrawal", addr, int(amount), nonce])
 
 
+def unshield_leaf(addr, amount, nonce) -> bytes:
+    """Canonical leaf bytes for a shielded-pool UNSHIELD exit (distinct domain tag). Proven on L1 against the
+    settled exec root to release SHIELD_ESCROW coins; `nonce` is the spent note's nullifier (one exit each)."""
+    return canonical_bytes(["unshield_withdrawal", addr, int(amount), nonce])
+
+
 if __name__ == "__main__":
     blake2b_hash_link("test_old", "test_new")
     print(base64encode("b64test"))
