@@ -20,7 +20,7 @@ Design (from the red-teamed "Option A" hybrid):
     (R,S) and would be grindable); signing stays only for authenticating heartbeats/reveals.
 """
 from hashing import blake2b_hash
-from protocol import (B_MIN, BOND_CAP, EPOCH_LENGTH, FIDELITY_CAP,
+from protocol import (B_MIN, BOND_CAP, EPOCH_LENGTH, FIDELITY_CAP, BOND_RAMP_EPOCHS,
                       K_OPEN, OPEN_BASE_FLOOR, OPEN_FID_BONUS, REGISTER_POW_BITS)
 
 
@@ -134,6 +134,29 @@ def _bonded_shares(info: dict) -> int:
     return selection_shares(info["bonded"], info.get("fidelity"))
 
 
+def bond_ramp_weight(base_shares: int, bond_since, epoch: int) -> int:
+    """Ramp a bonded identity's PRODUCER-selection weight from 0 -> full `base_shares` over BOND_RAMP_EPOCHS,
+    by stake-weighted bond age: tenure = epoch - bond_since (bond_since 0/None = fully aged). Integer,
+    deterministic, monotonic. This is applied ONLY in the producer draw (select_producer_two_lane) — never in
+    total_bonded_shares — so a sudden whale cannot control the very next epoch, yet fork-choice weight and the
+    FFG/settlement quorum stay ramp-free (finality is never made tenure-dependent). See doc/takeover-resistance.md."""
+    if base_shares <= 0:
+        return 0
+    if bond_since is None:                       # unset => genesis-seeded / pre-existing stake => fully aged
+        return base_shares
+    tenure = epoch - bond_since
+    if tenure >= BOND_RAMP_EPOCHS:
+        return base_shares
+    if tenure <= 0:
+        return 0
+    return base_shares * tenure // BOND_RAMP_EPOCHS
+
+
+def _bonded_ramped_weight(epoch: int):
+    """Weight function (closure over the draw's epoch) for the ramped bonded producer draw."""
+    return lambda info: bond_ramp_weight(_bonded_shares(info), info.get("bond_since"), epoch)
+
+
 def _open_weight(info: dict) -> int:
     return open_shares(info.get("fidelity"))
 
@@ -171,12 +194,13 @@ def select_producer_two_lane(open_registry: dict, bonded_registry: dict, beacon:
       - BONDED slot, bonded lane empty -> SKIP the slot. NEVER fall back to open, because letting
         the free lane absorb bonded slots would break the OPEN_BPS Sybil ceiling.
     The winner is credited by ADDRESS, so it need not be online (a relay builds the block for it)."""
+    bonded_weight = _bonded_ramped_weight(slot // EPOCH_LENGTH)   # tenure ramp for the sudden-whale brake
     if lane_of(slot, beacon) == "open":
         winner = _weighted_draw(open_registry, _open_weight, beacon, slot)
         if winner is not None:
             return winner
-        return _weighted_draw(bonded_registry, _bonded_shares, beacon, slot)  # one-directional fallback
-    return _weighted_draw(bonded_registry, _bonded_shares, beacon, slot)
+        return _weighted_draw(bonded_registry, bonded_weight, beacon, slot)  # one-directional fallback
+    return _weighted_draw(bonded_registry, bonded_weight, beacon, slot)
 
 
 # --- open-lane registration proof-of-work (one-time, fee-substitute, phone-doable) -----------

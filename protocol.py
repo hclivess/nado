@@ -189,6 +189,15 @@ FINALITY_DEPTH = 30
 B_MIN = 1_000_000_000_000          # 100 NADO: capital per bonded selection share
 BOND_CAP = 100_000_000_000_000     # 10,000 NADO: max effective bond per identity
 MAX_SHARES = BOND_CAP // B_MIN     # 100: variance cap so a whale can't monopolise the bonded lane
+# BONDED PRODUCER RAMP (anti-sudden-takeover): a newly-bonded identity's PRODUCER-SELECTION weight ramps
+# linearly from 0 to full over BOND_RAMP_EPOCHS, tracked by a STAKE-WEIGHTED bond age (so a top-up re-ramps
+# the new stake, closing the "age a cheap address then dump" loophole, while auto-bond's small top-ups barely
+# move it). This ONLY affects who is drawn to PRODUCE blocks — it deliberately does NOT touch fork-choice
+# chain weight or the FFG/settlement quorum (those keep the ramp-free total_bonded_shares), so finality is
+# never made tenure-dependent. A sudden whale therefore cannot control the very next epoch; it must accrue
+# weight over ~BOND_RAMP_EPOCHS, buying the network reaction time. It only DELAYS a patient whale — the hard
+# bound stays real capital cost + the per-address cap + slashing/finality (doc/takeover-resistance.md).
+BOND_RAMP_EPOCHS = 30              # epochs for a fresh bond's selection weight to ramp 0 -> full (~= FIDELITY_CAP)
 BOND_UNLOCK_DELAY = 1440           # blocks a bond stays locked after an unbond request
 # SLASHING (#15/#16 step 5C/6): bonded stake burned from an identity proven to have EQUIVOCATED — two
 # validly-signed blocks at the same height+parent (block authorship #15), or a double/surround vote

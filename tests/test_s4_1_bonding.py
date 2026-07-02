@@ -27,7 +27,7 @@ def expect_assert(name, fn):
         fails += 1; print(f"FAIL  {name}: wrong error {e!r}")
 
 create_account("alice", balance=10000)
-BOND = {"sender": "alice", "recipient": "bond", "amount": 5000, "fee": 1000}
+BOND = {"sender": "alice", "recipient": "bond", "amount": 5000, "fee": 1000, "txid": "bond_tx_1"}
 UNBOND = {"sender": "alice", "recipient": "unbond", "amount": 2000, "fee": 100}
 
 def t1():

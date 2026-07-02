@@ -39,6 +39,8 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         # lock `amount` of spendable balance into bonded stake; fee is burned (destroyed)
         change_balance(address=sender, amount=-(amount + fee), logger=logger, revert=revert)
         change_bonded(address=sender, amount=amount, logger=logger, revert=revert)
+        # stake-weighted bond age for the producer-selection ramp (anti-sudden-whale); revert-exact by txid
+        apply_bond_since(sender, amount, block_height, transaction["txid"], revert=revert)
         return
     if recipient == "unbond":
         # UNBOND DELAY: unbond is now a REQUEST, not an instant release. The `amount` STAYS in `bonded`
@@ -311,16 +313,45 @@ def get_account_value(address, key):
 
 def get_bonded_registry():
     """Producer registry from committed account state (S4.3):
-    {address: {"bonded": int, "fidelity": None}} for every account with bonded >= B_MIN.
+    {address: {"bonded": int, "fidelity": None, "bond_since": int}} for every account with bonded >= B_MIN.
 
     Together with the epoch beacon this is the SOLE input to mining_ops.select_producer, so it
     must be read against PARENT state (it is, on both the production and verification paths,
     which run before incorporate_block). Deterministic: the same committed accounts sub-DB yields
-    the same dict on every node (LMDB iterates by sorted address). fidelity is None in v1 (no
-    on-chain fidelity ramp on the bonded lane yet), which disables the selection_shares ramp so each
-    identity gets full split-neutral capped weight."""
-    return {addr: {"bonded": doc["bonded"], "fidelity": None}
-            for addr, doc in kv_ops.iter_accounts() if doc.get("bonded", 0) >= B_MIN}
+    the same dict on every node (LMDB iterates by sorted address). `fidelity` stays None (the
+    selection_shares fidelity ramp is off on the bonded lane). `bond_since` is the stake-weighted bond age
+    epoch (0 = unset = fully aged): it drives the PRODUCER-selection ramp ONLY (mining_ops.bond_ramp_weight),
+    NOT total_bonded_shares — so fork-choice weight + the FFG/settlement quorum stay ramp-free."""
+    accts = [(addr, doc) for addr, doc in kv_ops.iter_accounts() if doc.get("bonded", 0) >= B_MIN]
+    since = kv_ops.bond_since_many([a for a, _ in accts])
+    return {addr: {"bonded": doc["bonded"], "fidelity": None, "bond_since": since.get(addr)}
+            for addr, doc in accts}
+
+
+def apply_bond_since(address, delta, block_height, txid, revert=False):
+    """Maintain the STAKE-WEIGHTED bond age used by the producer-selection ramp. Called from the `bond`
+    reflect AFTER change_bonded has applied `delta` (>0). new_since = weighted average of the existing
+    stake's age and the freshly-added stake's age (this epoch), so a top-up re-ramps the new portion (closes
+    the "age a cheap address then dump" loophole) while auto-bond's tiny top-ups barely move it. A first bond
+    from zero starts the age at this epoch. Revert-exact: the prior value (or 'was unset') is stored by txid
+    and restored on rollback."""
+    epoch = block_height // EPOCH_LENGTH
+    if revert:
+        prev = kv_ops.bond_since_revert_pop(txid)          # None => there was no bond_since before this tx
+        if prev is None:
+            kv_ops.bond_since_del(address)
+        else:
+            kv_ops.bond_since_put(address, prev)
+        return
+    prev_raw = kv_ops.bond_since_get_raw(address)          # None if unset
+    kv_ops.bond_since_revert_put(txid, prev_raw)
+    new_bonded = int(kv_ops.get_account(address).get("bonded", 0))   # AFTER change_bonded
+    old_bonded = new_bonded - int(delta)
+    if old_bonded <= 0 or prev_raw is None:
+        new_since = epoch                                  # first bond from zero -> age starts now
+    else:
+        new_since = (old_bonded * int(prev_raw) + int(delta) * epoch) // new_bonded
+    kv_ops.bond_since_put(address, new_since)
 
 
 def get_open_registry(current_epoch: int):

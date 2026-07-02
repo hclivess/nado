@@ -49,7 +49,7 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   commits           "sender|target_epoch"    -> commitment                                   (RANDAO #7)
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
-_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs")
+_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert")
 _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch")
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
@@ -664,6 +664,68 @@ def unbond_del(address: str):
     def _do(txn):
         txn.delete(address.encode(), db=_dbs()["unbonds"])
     _write(_do)
+
+
+# --- bonded producer RAMP: stake-weighted bond age (epoch) per address. Absent => 0 (fully aged: existing
+# and genesis-seeded stakes are full-weight; only a NEW bond via the bond tx sets a recent epoch and ramps).
+def bond_since_get(address: str) -> int:
+    def _do(txn):
+        raw = txn.get(address.encode(), db=_dbs()["bond_since"])
+        return un_be8(raw) if raw is not None else 0
+    return _read(_do)
+
+
+def bond_since_get_raw(address: str):
+    """The stored bond-age epoch, or None if unset (needed to make revert exact — restore vs delete)."""
+    def _do(txn):
+        raw = txn.get(address.encode(), db=_dbs()["bond_since"])
+        return un_be8(raw) if raw is not None else None
+    return _read(_do)
+
+
+def bond_since_many(addresses):
+    """Batch-read {address: bond_since_epoch or None} in ONE read txn — used by get_bonded_registry so
+    building the producer registry stays a single scan. None (unset) means a GENESIS-seeded or pre-existing
+    stake, which the ramp treats as fully aged (full weight); only a bond TX sets a concrete epoch to ramp."""
+    def _do(txn):
+        db = _dbs()["bond_since"]
+        out = {}
+        for a in addresses:
+            raw = txn.get(a.encode(), db=db)
+            out[a] = un_be8(raw) if raw is not None else None
+        return out
+    return _read(_do)
+
+
+def bond_since_put(address: str, epoch: int):
+    def _do(txn):
+        txn.put(address.encode(), be8(int(epoch)), db=_dbs()["bond_since"])
+    _write(_do)
+
+
+def bond_since_del(address: str):
+    def _do(txn):
+        txn.delete(address.encode(), db=_dbs()["bond_since"])
+    _write(_do)
+
+
+def bond_since_revert_put(txid: str, prev):
+    """Store the bond_since value that existed BEFORE a bond tx (prev=None => was unset), keyed by txid, so a
+    rollback restores it exactly. prev is packed with msgpack so None survives round-trip."""
+    def _do(txn):
+        txn.put(txid.encode(), _pack(prev), db=_dbs()["bond_since_revert"])
+    _write(_do)
+
+
+def bond_since_revert_pop(txid: str):
+    """Return the stored prior bond_since for txid (None if unset/missing) and delete the record."""
+    def _do(txn):
+        raw = txn.get(txid.encode(), db=_dbs()["bond_since_revert"])
+        if raw is None:
+            return None
+        txn.delete(txid.encode(), db=_dbs()["bond_since_revert"])
+        return _unpack(raw)
+    return _write(_do)
 
 
 # --- HTLC store (cross-chain atomic swaps): htlc_id -> {sender,claimant,amount,hashlock,expiry,status,...} ---

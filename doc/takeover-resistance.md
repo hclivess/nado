@@ -70,13 +70,17 @@ Three things make this the opposite of Nyzo:
    is **split-neutral**: every share costs the same `B_MIN` of real, farm-neutral coins whether concentrated
    or spread, so splitting buys **no Sybil discount** — total influence is ∝ real capital, which is the PoS
    security model, not an exploit.
-   **Honest caveat (current code):** the `selection_shares` fidelity ramp is **disabled on the bonded lane**
-   (`get_bonded_registry` sets `fidelity=None`, "not yet"). So a wealthy actor gets full capped weight
-   **immediately** on bonding — there is currently *no* time-ramp slowing an instant stake buy-in on the
-   bonded lane (the ramp is active only on the OPEN lane, via `open_shares`). Turning on a bonded ramp is a
-   available hardening (it would force a large new staker to accrue weight over ~`FIDELITY_CAP` epochs,
-   buying the network reaction time) but it does not change the ultimate bound: a patient whale still reaches
-   influence ∝ stake. The real bound stays **cost ∝ network value + whale-cap-per-address + finality/slashing.**
+   **Sudden-whale ramp (implemented).** A newly-bonded identity's **producer-selection** weight ramps
+   linearly 0 → full over `BOND_RAMP_EPOCHS` (30), by a **stake-weighted bond age** (`mining_ops.bond_ramp_weight`,
+   fed by `bond_since`): a top-up re-ramps the new stake (closing "age a cheap address then dump"), while
+   auto-bond's tiny top-ups barely move it. So a whale who bonds a majority **cannot control the very next
+   epoch** — it must accrue selection weight over ~30 epochs, buying the network reaction time. Crucially the
+   ramp is applied **only to the producer draw**, never to `total_bonded_shares`, so **fork-choice weight and
+   the FFG/settlement quorum stay ramp-free** — finality is never made tenure-dependent, and a fresh whale
+   still counts its full stake toward slashing/finality the instant it bonds. This only *delays* a patient
+   whale; the ultimate bound stays **cost ∝ network value + whale-cap-per-address + finality/slashing.**
+   (Genesis-seeded / pre-existing stakes have an unset age = fully aged, so the bonded lane never stalls at
+   chain start; tests: `tests/test_bond_ramp.py`.)
 3. **Bounded even at majority.** Enforced finality (a persisted, un-reorgable finalized floor) plus
    equivocation **slashing** mean that even a stake majority cannot rewrite finalized history without
    **burning** its own bond. A takeover is expensive *and* self-damaging, not free and consequence-free.

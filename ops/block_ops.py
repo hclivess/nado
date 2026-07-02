@@ -321,11 +321,17 @@ def mining_status(address, latest_block_number, block_time):
     beacon = epoch_beacon(epoch)
     open_reg = get_open_registry(epoch)
     bonded_reg = get_bonded_registry()
+    from .mining_ops import bond_ramp_weight
+    # apply the producer-selection ramp to the DISPLAY weights too, so a freshly-bonded miner's "expected
+    # time to mine" honestly reflects that its bonded weight ramps up over BOND_RAMP_EPOCHS (consensus draw
+    # is the source of truth; this just keeps the estimate consistent with it).
+    def _bwt(info):
+        return bond_ramp_weight(selection_shares(info["bonded"], info.get("fidelity")),
+                                info.get("bond_since"), epoch)
     total_open = sum(open_shares(i.get("fidelity")) for i in open_reg.values())
-    total_bonded = sum(selection_shares(i["bonded"], i.get("fidelity")) for i in bonded_reg.values())
+    total_bonded = sum(_bwt(i) for i in bonded_reg.values())
     my_open = open_shares(open_reg[address]["fidelity"]) if address in open_reg else 0
-    my_bonded = (selection_shares(bonded_reg[address]["bonded"], bonded_reg[address].get("fidelity"))
-                 if address in bonded_reg else 0)
+    my_bonded = _bwt(bonded_reg[address]) if address in bonded_reg else 0
     open_frac = K_OPEN / EPOCH_LENGTH
     bonded_frac = (EPOCH_LENGTH - K_OPEN) / EPOCH_LENGTH
     expected_wins_per_block = 0.0
