@@ -1,24 +1,20 @@
+# NADO node dependencies — only what the code actually imports. (The former GUI/build leftovers —
+# pandas, matplotlib, customtkinter, tk-tools, py7zr, nuitka, ordered-set, cryptography, Pympler,
+# and the py2 ipaddress backport (stdlib since 3.3) — were imported nowhere and broke installs on
+# Python 3.12, so they are gone. misc/performance_monitor.py, a dev-only tool, needs matplotlib —
+# install that manually if you use it.)
+
 # Post-quantum signatures (ML-DSA-44 / FIPS 204). Pure-Python, no native build (lean / portable).
 dilithium-py
-cryptography~=37.0.2   # legacy; no longer used for NADO signing (kept for any transitive deps)
-requests~=2.28.0
-nuitka
 coloredlogs~=15.0.1
-customtkinter~=4.5.5
-tk-tools~=0.16.0
-py7zr~=0.20.2
-ordered-set
+requests~=2.28.0
 msgpack~=1.0.4
 zstandard
 # Schemaless, embedded, memory-mapped ACID key-value store backing the chain index
 # (accounts/totals/blocks/tx/heartbeats sub-DBs). Replaces the SQLite index (ops/kv_ops.py).
 # py-lmdb 2.x packages liblmdb 0.9.x; the API used here (named sub-DBs, DUPSORT, cursors) is stable.
 lmdb>=1.4
-ipaddress~=1.0.23
-matplotlib~=3.5.2
 psutil~=5.9.2
-Pympler~=1.0.1
-pandas~=1.5.2
 aiohttp
 # Optional, wallet-only (pyside_wallet.py desktop GUI). The node itself does NOT need this.
 PySide6~=6.6

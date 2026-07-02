@@ -21,6 +21,12 @@
 #
 #   sudo scripts/install.sh --service --auto-bond 25     # bond 25% of mined rewards, hands-free
 #
+# Data directory: the node keeps its chain under $HOME/nado. Pass --home <dir> to put it elsewhere
+# (the services then run with HOME=<dir>, so chain data lands in <dir>/nado). Recommended whenever the
+# repo checkout itself sits at ~/nado, so chain data does not mix into the working tree:
+#
+#   sudo scripts/install.sh --service --home /srv/nado-data
+#
 # Re-running is safe (idempotent): the venv is reused and deps are upgraded in place. The shielded-pool node
 # needs no extra dependencies (aiohttp is already required) and the WASM prover ships prebuilt — nothing to compile.
 set -euo pipefail
@@ -36,7 +42,11 @@ WITH_WALLET=0
 WITH_SERVICE=0
 WITH_EXEC=0
 EXEC_SETTLE=0
-AUTO_BOND="${NADO_AUTO_BOND_PERCENT:-0}"
+DATA_HOME=""
+# Empty = "not set": the node then uses its own default (config auto_bond_percent, 80). The env var is
+# only baked into the service when explicitly requested, because NADO_AUTO_BOND_PERCENT OVERRIDES config —
+# an unconditional =0 here would silently switch auto-bond off on nodes that rely on the default.
+AUTO_BOND="${NADO_AUTO_BOND_PERCENT:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --wallet)      WITH_WALLET=1 ;;
@@ -45,17 +55,30 @@ while [ $# -gt 0 ]; do
     --exec-settle) WITH_EXEC=1; EXEC_SETTLE=1 ;;  # + settle the exec state-root to L1 (uses this node's keys)
     --auto-bond)   shift; AUTO_BOND="${1:-0}" ;;
     --auto-bond=*) AUTO_BOND="${1#*=}" ;;
+    --home)        shift; DATA_HOME="${1:-}" ;;   # chain data goes under <dir>/nado (services run with HOME=<dir>)
+    --home=*)      DATA_HOME="${1#*=}" ;;
     -h|--help)
-      sed -n '3,26p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '3,33p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *) echo "Unknown option: $1 (try --help)" >&2; exit 2 ;;
   esac
   shift
 done
 
-# validate auto-bond is an int 0..100
-if ! [[ "$AUTO_BOND" =~ ^[0-9]+$ ]] || [ "$AUTO_BOND" -gt 100 ]; then
-  echo "ERROR: --auto-bond must be an integer 0..100 (got '$AUTO_BOND')." >&2; exit 2
+# validate auto-bond is an int 0..100 (only when given; empty = leave the node's default in charge)
+if [ -n "$AUTO_BOND" ]; then
+  if ! [[ "$AUTO_BOND" =~ ^[0-9]+$ ]] || [ "$AUTO_BOND" -gt 100 ]; then
+    echo "ERROR: --auto-bond must be an integer 0..100 (got '$AUTO_BOND')." >&2; exit 2
+  fi
+fi
+
+# validate/prepare the data home (must be absolute — it becomes the services' HOME)
+if [ -n "$DATA_HOME" ]; then
+  case "$DATA_HOME" in
+    /*) ;;
+    *) echo "ERROR: --home must be an absolute path (got '$DATA_HOME')." >&2; exit 2 ;;
+  esac
+  mkdir -p "$DATA_HOME"
 fi
 
 echo "==> NADO install"
@@ -64,7 +87,8 @@ echo "    venv:        $VENV_DIR"
 echo "    wallet deps: $([ $WITH_WALLET -eq 1 ] && echo yes || echo no)"
 echo "    service:     $([ $WITH_SERVICE -eq 1 ] && echo yes || echo no)"
 echo "    exec node:   $([ $WITH_EXEC -eq 1 ] && echo "yes (shielded pool :9273$([ $EXEC_SETTLE -eq 1 ] && echo ", settles to L1"))" || echo no)"
-echo "    auto-bond:   ${AUTO_BOND}%"
+echo "    data home:   $([ -n "$DATA_HOME" ] && echo "$DATA_HOME (chain data in $DATA_HOME/nado)" || echo "(user home — chain data in ~/nado)")"
+echo "    auto-bond:   $([ -n "$AUTO_BOND" ] && echo "${AUTO_BOND}%" || echo "(node default: 80%, see auto_bond_percent in private/config.dat)")"
 
 # ---- pick a Python >= 3.10 -----------------------------------------------------------------------
 pick_python() {
@@ -134,7 +158,7 @@ if [ $WITH_SERVICE -eq 1 ]; then
     exit 1
   fi
   UNIT=/etc/systemd/system/nado.service
-  echo "==> writing $UNIT (user: $SERVICE_USER, auto-bond: ${AUTO_BOND}%)"
+  echo "==> writing $UNIT (user: $SERVICE_USER$([ -n "$DATA_HOME" ] && echo ", data home: $DATA_HOME")$([ -n "$AUTO_BOND" ] && echo ", auto-bond: ${AUTO_BOND}%"))"
   cat > "$UNIT" <<UNITEOF
 [Unit]
 Description=NADO node (unattended fair-launch miner)
@@ -145,11 +169,17 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$REPO_DIR
-# Auto-compound this %% of mined rewards into bonded stake (0 = off). See README "Auto-bond".
-Environment=NADO_AUTO_BOND_PERCENT=$AUTO_BOND
+$([ -n "$DATA_HOME" ] && echo "# chain data lives under \$HOME/nado — pin HOME so it stays out of the repo checkout
+Environment=HOME=$DATA_HOME")
+$([ -n "$AUTO_BOND" ] && echo "# Auto-compound this % of mined rewards into bonded stake (0 = off). See README \"Auto-bond\".
+# Written only because --auto-bond was passed; the env var overrides the node's config default (80).
+Environment=NADO_AUTO_BOND_PERCENT=$AUTO_BOND")
 ExecStart=$VENV_PY $REPO_DIR/nado.py
 Restart=always
 RestartSec=5
+# SIGTERM triggers the node's clean shutdown (it needs a few seconds to close the chain DB);
+# escalate to SIGKILL only if it hangs well past that.
+TimeoutStopSec=60
 # raise the open-file limit (the node keeps many block/peer handles)
 LimitNOFILE=65535
 
@@ -167,7 +197,10 @@ UNITEOF
   # ---- shielded-pool / execution node service (optional) -----------------------------------------
   if [ $WITH_EXEC -eq 1 ]; then
     EUNIT=/etc/systemd/system/nado-exec.service
-    echo "==> writing $EUNIT (shielded pool on :9273$([ $EXEC_SETTLE -eq 1 ] && echo ", settles to L1"))"
+    # exec state (the replayable shielded-pool/contract state snapshot) lives beside the chain data
+    # when --home is given, else in the repo dir (historical default).
+    EXEC_STATE="${DATA_HOME:-$REPO_DIR}/exec_state.json"
+    echo "==> writing $EUNIT (shielded pool on :9273$([ $EXEC_SETTLE -eq 1 ] && echo ", settles to L1"); state: $EXEC_STATE)"
     cat > "$EUNIT" <<EXECEOF
 [Unit]
 Description=NADO execution / shielded-pool node (private deposits, withdrawals, shielded transfers)
@@ -179,13 +212,16 @@ Requires=nado.service
 Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$REPO_DIR
+$([ -n "$DATA_HOME" ] && echo "# settling reads this node's keys from \$HOME/nado/private — keep HOME in step with nado.service
+Environment=HOME=$DATA_HOME")
 Environment=NADO_L1_URL=http://127.0.0.1:9173
-Environment=NADO_EXEC_STATE=$REPO_DIR/exec_state.json
+Environment=NADO_EXEC_STATE=$EXEC_STATE
 Environment=NADO_EXEC_PORT=9273
 $([ $EXEC_SETTLE -eq 1 ] && echo "Environment=NADO_EXEC_SETTLE=1")
 ExecStart=$VENV_PY $REPO_DIR/execnode/execnode.py
 Restart=always
 RestartSec=5
+TimeoutStopSec=60
 LimitNOFILE=65535
 
 [Install]
@@ -199,21 +235,21 @@ EXECEOF
     echo "    logs:    journalctl -u nado-exec -f"
   fi
 else
+  # env prefix for the manual-run hints (mirrors what --service would bake into the units)
+  ENV_PREFIX=""
+  if [ -n "$DATA_HOME" ]; then ENV_PREFIX="HOME=$DATA_HOME "; fi
+  if [ -n "$AUTO_BOND" ]; then ENV_PREFIX="${ENV_PREFIX}NADO_AUTO_BOND_PERCENT=$AUTO_BOND "; fi
   echo
   echo "==> Done. Run the node unattended without systemd via nohup:"
-  if [ "$AUTO_BOND" != "0" ]; then
-    echo "      cd $REPO_DIR && NADO_AUTO_BOND_PERCENT=$AUTO_BOND nohup $VENV_PY nado.py > nado.out 2>&1 &"
-  else
-    echo "      cd $REPO_DIR && nohup $VENV_PY nado.py > nado.out 2>&1 &"
-  fi
-  echo "    or in the foreground:    $VENV_PY $REPO_DIR/nado.py"
+  echo "      cd $REPO_DIR && ${ENV_PREFIX}nohup $VENV_PY nado.py > nado.out 2>&1 &"
+  echo "    or in the foreground:    ${ENV_PREFIX}$VENV_PY $REPO_DIR/nado.py"
   if [ $WITH_EXEC -eq 1 ]; then
     echo
     echo "==> Then start the shielded-pool node (needs the L1 above running):"
-    echo "      cd $REPO_DIR && NADO_L1_URL=http://127.0.0.1:9173 NADO_EXEC_STATE=$REPO_DIR/exec_state.json \\"
+    echo "      cd $REPO_DIR && ${ENV_PREFIX}NADO_L1_URL=http://127.0.0.1:9173 NADO_EXEC_STATE=${DATA_HOME:-$REPO_DIR}/exec_state.json \\"
     echo "        $([ $EXEC_SETTLE -eq 1 ] && echo "NADO_EXEC_SETTLE=1 ")nohup $VENV_PY execnode/execnode.py > exec.out 2>&1 &"
   fi
-  echo "    (re-run with sudo and --service to install boot-on-start systemd services.)"
+  echo "    (re-run with sudo and --service to install boot-on-start, restart-on-crash systemd services.)"
 fi
 
 echo "==> The node serves its API + web miner on http://<this-host>:9173  (forward port 9173 for rewards)."

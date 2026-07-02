@@ -119,9 +119,13 @@ celerybeat.pid
 .venv
 env/
 venv/
+nado_venv/
 ENV/
 env.bak/
 venv.bak/
+
+# execution / shielded-pool node state snapshot (scripts/install.sh default location without --home)
+exec_state.json
 
 # Spyder project settings
 .spyderproject

@@ -240,8 +240,9 @@ nado_venv/bin/python nado.py       # run it
 ```
 
 Flags: `--wallet` also installs the desktop-wallet deps; `--service` (as root) installs a systemd
-service for **unattended** running; `--auto-bond <pct>` auto-compounds mined rewards (see below).
-Run `scripts/install.sh --help` for all options.
+service for **unattended** running; `--auto-bond <pct>` auto-compounds mined rewards (see below);
+`--home <dir>` keeps chain data under `<dir>/nado` instead of `~/nado` (recommended when the repo
+itself is checked out at `~/nado`). Run `scripts/install.sh --help` for all options.
 
 ### Manual setup
 
@@ -274,6 +275,7 @@ install the systemd service (Linux):
 ```bash
 sudo scripts/install.sh --service                 # boots on start, restarts on failure
 sudo scripts/install.sh --service --auto-bond 25  # ...and auto-bonds 25% of mined rewards
+sudo scripts/install.sh --service --home /srv/nado-data   # chain data in /srv/nado-data/nado
 ```
 
 ```bash
