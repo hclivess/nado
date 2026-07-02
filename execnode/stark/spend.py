@@ -129,7 +129,10 @@ def _transitions():
         return F.add(F.add(setDOM, setL), F.add(setR, hold))
     def c_dirbit(cur, nxt, per):
         return F.mul(F.mul(per[INB], cur[DIR]), F.sub(1, cur[DIR]))   # dir is a bit in region B
-    return [c_s1, c_s0, c_carry, c_ab, c_dirbit]
+    # SOUNDNESS: hold sib/dir within a level (load only on the A->B handoff or a level-end reset).
+    def c_sib(cur, nxt, per): return F.mul(F.sub(1, F.add(per[HAND], per[LEND])), F.sub(nxt[SIB], cur[SIB]))
+    def c_dir(cur, nxt, per): return F.mul(F.sub(1, F.add(per[HAND], per[LEND])), F.sub(nxt[DIR], cur[DIR]))
+    return [c_s1, c_s0, c_carry, c_ab, c_dirbit, c_sib, c_dir]
 
 
 def prove_spend(value, owner, rho, siblings, dirs, num_queries=40):

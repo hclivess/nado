@@ -117,7 +117,11 @@ def _transitions():
         return F.add(F.mul(lend, F.sub(nxt[CARRY], r0)), F.mul(F.sub(1, lend), F.sub(nxt[CARRY], cur[CARRY])))
     def c_dirbit(cur, nxt, per):                                      # dir must be a bit: dir*(1-dir)=0
         return F.mul(cur[DIR], F.sub(1, cur[DIR]))
-    return [c_s1, c_s0, c_ab, c_carry, c_dirbit]
+    # SOUNDNESS: sib/dir must be HELD constant within a level (load only at a level-end), else a prover could
+    # feed inconsistent siblings for left vs right and fold a non-member leaf to any root.
+    def c_sib(cur, nxt, per): return F.mul(F.sub(1, per[4]), F.sub(nxt[SIB], cur[SIB]))   # per[4] = lend
+    def c_dir(cur, nxt, per): return F.mul(F.sub(1, per[4]), F.sub(nxt[DIR], cur[DIR]))
+    return [c_s1, c_s0, c_ab, c_carry, c_dirbit, c_sib, c_dir]
 
 
 def prove_membership(leaf, siblings, dirs, num_queries=40):
