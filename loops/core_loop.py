@@ -144,10 +144,6 @@ class CoreClient(threading.Thread):
             if 0 in self.memserver.periods and self.memserver.switch_mode["mode"] == 2:
                 self.memserver.replaced_this_round = False
 
-            # LOCKED-PHONE MINING: inject any pre-signed heartbeats now due into the mempool, so a sleeping
-            # phone's presence proofs land in their target block. Runs every tick; drops expired ones.
-            self.memserver.inject_due_presigned()
-
             if 0 in self.memserver.periods and self.memserver.user_tx_buffer:
                 """merge user buffer to tx buffer inside 0 period"""
                 buffered = merge_buffer(from_buffer=self.memserver.user_tx_buffer,
@@ -869,8 +865,8 @@ class CoreClient(threading.Thread):
                     self.memserver.tx_buffer.remove(transaction)
 
                 try:
-                    # block_height = the block being validated (N) so a heartbeat tx's epoch check
-                    # epoch_of(N) matches how apply_heartbeat records it (index_transactions applies
+                    # block_height = the block being validated (N) so a register tx's epoch check
+                    # epoch_of(N) matches how apply_register records it (index_transactions applies
                     # with block["block_number"]); account STATE for spending/producer checks is
                     # still parent state (this block is not yet incorporated).
                     validate_transaction(transaction=transaction,
@@ -879,10 +875,19 @@ class CoreClient(threading.Thread):
                 except Exception as e:
                     self.logger.error(f"Failed to validate transaction during block preparation: {e}")
                     if remote:
+                        # a peer's block with an invalid tx is rejected wholesale (penalise the peer).
                         self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
                                                                  peer=remote_peer,
                                                                  value=-1)
-                    raise
+                        raise
+                    # OWN block assembly: DROP the invalid tx and keep building. One bad mempool tx (e.g. a
+                    # lingering duplicate `attest`/`reveal`, or a tx that turned invalid since it entered the
+                    # pool) must NEVER abort our whole block — that stalls production until the tx clears
+                    # (observed ~70-135s freezes). Removed from the pools above; drop it from the block set
+                    # too. Safe in the account model: removing a tx only REDUCES spending, never invalidates
+                    # the remaining txs.
+                    if transaction in block["block_transactions"]:
+                        block["block_transactions"].remove(transaction)
 
     def validate_block_producer(self, block):
         """S4.3 FAIL-CLOSED authorship: recompute the deterministic BONDED winner for this height
