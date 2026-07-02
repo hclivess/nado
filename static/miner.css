@@ -257,3 +257,23 @@ a { color: var(--accent-2); }
 .social-btn[data-social="reddit"] { background:#FF4500; }
 .social-btn[data-social="facebook"] { background:#1877F2; }
 .social-btn[data-social="email"] { background:#6b7280; }
+
+/* Custom dialogs (replace native confirm/alert/prompt) — styled + translatable */
+.modal-backdrop { position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center;
+  padding:20px; background:rgba(3,6,10,.66); backdrop-filter:blur(3px); animation:modalFade .14s ease; }
+.modal-backdrop.hidden { display:none; }
+.modal { max-width:400px; width:100%; margin:0; animation:modalPop .16s cubic-bezier(.2,.9,.3,1.15); }
+.modal-title { margin:0 0 12px; font-size:16px; font-weight:700; color:var(--txt); }
+.modal-body { color:var(--txt-dim); font-size:14px; margin-bottom:14px; white-space:pre-line; }
+.modal-rows { display:flex; flex-direction:column; gap:9px; margin-bottom:16px; }
+.modal-rows.hidden, .modal-body.hidden, .modal-warn.hidden, .modal-note.hidden, .modal-input.hidden { display:none; }
+.modal-row { display:flex; justify-content:space-between; gap:14px; font-size:14px; align-items:baseline; }
+.modal-row .k { color:var(--txt-dim); white-space:nowrap; }
+.modal-row .v { font-family:var(--mono); text-align:right; word-break:break-all; }
+.modal-warn { color:var(--warn); font-size:13px; font-weight:600; margin-bottom:14px; }
+.modal-note { color:var(--txt-faint); font-size:12px; margin-bottom:14px; }
+.modal-input { margin-bottom:16px; }
+.modal-actions { display:flex; gap:10px; }
+.modal-actions button { flex:1; }
+@keyframes modalFade { from{opacity:0} to{opacity:1} }
+@keyframes modalPop { from{opacity:0; transform:translateY(10px) scale(.97)} to{opacity:1; transform:none} }

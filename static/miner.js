@@ -1386,7 +1386,7 @@ function downloadKeyFile() {
   // held in pendingWallet and is NOT yet state.wallet (that happens only on "Continue → store"). Without
   // this, a brand-new user who clicks Download on that very screen got a confusing "No wallet loaded."
   const w = state.wallet || pendingWallet;
-  if (!w) { alert(i18("wallet.needFirst", "Create or import a wallet first — then you can download its key file.")); return; }
+  if (!w) { uiAlert(i18("wallet.needFirst", "Create or import a wallet first — then you can download its key file.")); return; }
   const keyfile = {
     private_key: w.privateKey,            // the 32-byte ML-DSA-44 SEED (hex) — this IS the secret
     public_key: w.publicKey,
@@ -1424,10 +1424,10 @@ function importKeyFile(file) {
       adoptWallet(keypairFromPriv(String(priv).trim()), { needsSavePrompt: false });
       log("info", i18("log.keyImported", "Imported key from file."));
     } catch (e) {
-      alert(i18("import.fileFailed", "Import from file failed:") + " " + e.message);
+      uiAlert(i18("import.fileFailed", "Import from file failed:") + " " + e.message);
     }
   };
-  reader.onerror = () => alert(i18("import.readErr", "Could not read the file."));
+  reader.onerror = () => uiAlert(i18("import.readErr", "Could not read the file."));
   reader.readAsText(file);
 }
 
@@ -1504,11 +1504,18 @@ async function doSend() {
     setMsg("sendMsg", `Insufficient balance: need ${rawToNado(rawAmount + BigInt(fee))} NADO (amount + fee), have ${rawToNado(balance)}.`, "err");
     return;
   }
-  const toLine = resolvedOwner ? `${recipient}  (→ ${resolvedOwner})` : recipient;
-  const selfWarn = (recipient === state.wallet.address || resolvedOwner === state.wallet.address) ? "\n\nWARNING: this is your OWN address." : "";
-  if (!confirm(`Send ${rawToNado(rawAmount)} NADO\nto ${toLine}\nnetwork fee ${rawToNado(fee)} NADO${selfWarn}\n\nProceed?`)) {
-    setMsg("sendMsg", i18("msg.cancelled", "Cancelled."), null); return;
-  }
+  const toLine = resolvedOwner ? `${recipient} (→ ${resolvedOwner})` : recipient;
+  const isSelf = (recipient === state.wallet.address || resolvedOwner === state.wallet.address);
+  const okSend = await uiConfirm({
+    title: i18("dlg.sendTitle", "Confirm transfer"),
+    rows: [
+      { k: i18("dlg.amount", "Amount"), v: rawToNado(rawAmount) + " NADO" },
+      { k: i18("dlg.to", "To"), v: toLine },
+      { k: i18("dlg.fee", "Network fee"), v: rawToNado(fee) + " NADO" },
+    ],
+    warn: isSelf ? i18("dlg.selfWarn", "This is your OWN address.") : null,
+  });
+  if (!okSend) { setMsg("sendMsg", i18("msg.cancelled", "Cancelled."), null); return; }
   const btn = $("btnSend"); btn.disabled = true;
   try {
     const targetBlock = await nextTargetBlock();
@@ -1538,8 +1545,12 @@ async function doAliasOp(op) {
   if (BigInt(fee) > balance) { setMsg("aliasMsg", `Insufficient balance for the ${rawToNado(fee)} NADO fee.`, "err"); return; }
   const data = op === "transfer" ? { op, name, to } : { op, name };
   // register defaults to SELF (the alias resolves to your own address); transfer points it elsewhere.
-  const target = op === "transfer" ? "\n→ " + to : (op === "register" ? "\n→ your address (self)" : "");
-  if (!confirm(`${op[0].toUpperCase() + op.slice(1)} alias "${name}"${target}\nnetwork fee ${rawToNado(fee)} NADO\n\nProceed?`)) {
+  const aliasTitle = { register: i18("dlg.aliasReg", "Register alias"), transfer: i18("dlg.aliasXfer", "Transfer alias"), unregister: i18("dlg.aliasUnreg", "Unregister alias") }[op];
+  const aliasRows = [{ k: i18("dlg.aliasName", "Alias"), v: name }];
+  if (op === "transfer") aliasRows.push({ k: i18("dlg.to", "To"), v: to });
+  else if (op === "register") aliasRows.push({ k: i18("dlg.to", "To"), v: i18("dlg.selfAddr", "your address (self)") });
+  aliasRows.push({ k: i18("dlg.fee", "Network fee"), v: rawToNado(fee) + " NADO" });
+  if (!await uiConfirm({ title: aliasTitle, rows: aliasRows })) {
     setMsg("aliasMsg", i18("msg.cancelled", "Cancelled."), null); return;
   }
   try {
@@ -1582,13 +1593,17 @@ async function doBond(kind) {
   } else {
     if (rawAmount > bonded) { setMsg("stakeMsg", `Cannot unbond more than bonded (${rawToNado(bonded)} NADO).`, "err"); return; }
   }
-  const verb = isBond ? "Bond" : "Unbond";
-  const dir = isBond ? "spendable → bonded" : "bonded → spendable";
-  const feeLine = isBond ? `\nnetwork fee ${rawToNado(fee)} NADO` : "\nno fee (unbonding is free)";
-  const tail = isBond ? "" : `\n\nNote: bonded stake stays locked ${BOND_UNLOCK_DELAY} blocks after unbonding.`;
-  if (!confirm(`${verb} ${rawToNado(rawAmount)} NADO (${dir})${feeLine}${tail}\n\nProceed?`)) {
-    setMsg("stakeMsg", i18("msg.cancelled", "Cancelled."), null); return;
-  }
+  const verb = isBond ? "Bond" : "Unbond";   // internal label for submitAndReport / logs (not user-facing)
+  const okBond = await uiConfirm({
+    title: isBond ? i18("btn.bond", "Deposit to savings") : i18("btn.unbond", "Withdraw from savings"),
+    rows: [
+      { k: i18("dlg.amount", "Amount"), v: rawToNado(rawAmount) + " NADO" },
+      { k: i18("dlg.direction", "Direction"), v: isBond ? i18("dlg.dirBond", "spendable → savings") : i18("dlg.dirUnbond", "savings → spendable") },
+      { k: i18("dlg.fee", "Network fee"), v: isBond ? rawToNado(fee) + " NADO" : i18("dlg.free", "Free (no fee)") },
+    ],
+    note: isBond ? null : i18("dlg.lockNote", "Savings stay locked {n} blocks after withdrawing.", { n: BOND_UNLOCK_DELAY }),
+  });
+  if (!okBond) { setMsg("stakeMsg", i18("msg.cancelled", "Cancelled."), null); return; }
   btn.disabled = true;
   try {
     const targetBlock = await nextTargetBlock();
@@ -1718,6 +1733,74 @@ function toast(msg, kind = "info", ms = 5000) {
   if (_toastTimer) clearTimeout(_toastTimer);
   _toastTimer = setTimeout(() => el.classList.add("hidden"), ms);
 }
+
+/* Custom in-app dialogs — replace the browser's native confirm()/alert()/prompt() with a styled,
+ * translatable modal. All three return a Promise (await them). Built once, reused, keyboard-friendly
+ * (Enter = confirm, Esc = cancel, click-outside = cancel). spec: {title, body, rows:[{k,v}], warn, note,
+ * confirmText, cancelText, danger}; uiPrompt adds {password, placeholder}. */
+let _modalEl = null, _modalResolve = null, _modalKind = "confirm";
+function _closeModal(result) {
+  if (!_modalEl || !_modalResolve) return;
+  _modalEl.classList.add("hidden");
+  document.removeEventListener("keydown", _modalKey, true);
+  const r = _modalResolve; _modalResolve = null;
+  r(result);
+}
+function _modalKey(e) {
+  if (e.key === "Escape") { e.preventDefault(); _closeModal(_modalKind === "prompt" ? null : false); }
+  else if (e.key === "Enter" && _modalKind !== "prompt") { e.preventDefault(); _closeModal(true); }
+}
+function _openModal(spec) {
+  if (!_modalEl) {
+    _modalEl = document.createElement("div");
+    _modalEl.className = "modal-backdrop hidden";
+    _modalEl.innerHTML =
+      '<div class="modal card" role="dialog" aria-modal="true">' +
+        '<h3 class="modal-title"></h3><div class="modal-body hidden"></div>' +
+        '<div class="modal-rows hidden"></div><div class="modal-warn hidden"></div>' +
+        '<input class="modal-input hidden" autocomplete="off" /><div class="modal-note hidden"></div>' +
+        '<div class="modal-actions"><button type="button" class="modal-cancel ghost"></button>' +
+        '<button type="button" class="modal-ok primary"></button></div></div>';
+    document.body.appendChild(_modalEl);
+  }
+  const el = _modalEl, q = (s) => el.querySelector(s);
+  _modalKind = spec.kind || "confirm";
+  q(".modal-title").textContent = spec.title || "";
+  const setText = (sel, val) => { const n = q(sel); n.textContent = val || ""; n.classList.toggle("hidden", !val); };
+  setText(".modal-body", spec.body);
+  setText(".modal-warn", spec.warn);
+  setText(".modal-note", spec.note);
+  const rowsEl = q(".modal-rows"); rowsEl.innerHTML = "";
+  (spec.rows || []).forEach((r) => {
+    const row = document.createElement("div"); row.className = "modal-row";
+    const k = document.createElement("span"); k.className = "k"; k.textContent = r.k;
+    const v = document.createElement("span"); v.className = "v"; v.textContent = r.v;
+    row.appendChild(k); row.appendChild(v); rowsEl.appendChild(row);
+  });
+  rowsEl.classList.toggle("hidden", !(spec.rows && spec.rows.length));
+  const inp = q(".modal-input"), isPrompt = _modalKind === "prompt";
+  inp.classList.toggle("hidden", !isPrompt);
+  if (isPrompt) {
+    inp.type = spec.password ? "password" : "text";
+    inp.value = ""; inp.placeholder = spec.placeholder || "";
+    inp.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); _closeModal(inp.value); } };
+  }
+  const okBtn = q(".modal-ok"), cancelBtn = q(".modal-cancel");
+  okBtn.textContent = spec.confirmText || i18("dlg.confirm", "Confirm");
+  okBtn.className = "modal-ok " + (spec.danger ? "danger" : "primary");
+  cancelBtn.textContent = spec.cancelText || i18("dlg.cancel", "Cancel");
+  cancelBtn.classList.toggle("hidden", _modalKind === "alert");
+  okBtn.onclick = () => _closeModal(isPrompt ? inp.value : true);
+  cancelBtn.onclick = () => _closeModal(isPrompt ? null : false);
+  el.onclick = (e) => { if (e.target === el) _closeModal(isPrompt ? null : false); };
+  el.classList.remove("hidden");
+  document.addEventListener("keydown", _modalKey, true);
+  setTimeout(() => { (isPrompt ? inp : okBtn).focus(); }, 30);
+  return new Promise((res) => { _modalResolve = res; });
+}
+function uiConfirm(spec) { return _openModal(Object.assign({}, spec, { kind: "confirm" })); }
+function uiAlert(body, title) { return _openModal({ kind: "alert", title: title || i18("dlg.notice", "Notice"), body: body, confirmText: i18("dlg.ok", "OK") }); }
+function uiPrompt(spec) { return _openModal(Object.assign({}, spec, { kind: "prompt" })); }
 
 // The request-amount (NADO) currently in the given input, or "" if blank/malformed/non-positive.
 function _reqAmount(id) {
@@ -2805,7 +2888,7 @@ function wireEvents() {
       // accept EITHER a 64-hex seed OR a 24-word recovery phrase
       const priv = looksLikeMnemonic(raw) ? _hex(await mnemonicToSeed(raw)) : raw;
       adoptWallet(keypairFromPriv(priv), { needsSavePrompt: false });
-    } catch (e) { alert(i18("import.pasteFailed", "Import failed:") + " " + e.message); }
+    } catch (e) { uiAlert(i18("import.pasteFailed", "Import failed:") + " " + e.message); }
   };
   $("ackSave").onchange = (e) => { $("btnConfirmSave").disabled = !e.target.checked; };
   $("btnConfirmSave").onclick = () => {
@@ -2900,18 +2983,18 @@ function wireEvents() {
   const _btn = (id, fn) => { if ($(id)) $(id).onclick = fn; };
   _btn("btnEncrypt", async () => {
     if (!state.wallet) return;
-    const pw = prompt(i18("sec.setPass", "Set a wallet password (min 8 characters):"));
+    const pw = await uiPrompt({ title: i18("sec.setPass", "Set a wallet password (min 8 characters):"), password: true });
     if (pw == null) return;
-    if (pw.length < 8) { alert(i18("sec.tooShort", "Password must be at least 8 characters.")); return; }
-    if (prompt(i18("sec.confirmPass", "Confirm the password:")) !== pw) { alert(i18("sec.mismatch", "Passwords don't match.")); return; }
+    if (pw.length < 8) { uiAlert(i18("sec.tooShort", "Password must be at least 8 characters.")); return; }
+    if (await uiPrompt({ title: i18("sec.confirmPass", "Confirm the password:"), password: true }) !== pw) { uiAlert(i18("sec.mismatch", "Passwords don't match.")); return; }
     try { await enableEncryption(pw); log("ok", i18("sec.encrypted", "Wallet encrypted ✓")); renderSecurity(); }
     catch (e) { log("err", i18("sec.encErr", "Encryption failed: {m}", { m: e.message })); }
   });
   _btn("btnRemoveEnc", async () => {
-    const pw = prompt(i18("sec.enterPass", "Enter your wallet password:"));
+    const pw = await uiPrompt({ title: i18("sec.enterPass", "Enter your wallet password:"), password: true });
     if (pw == null) return;
     try { await disableEncryption(pw); log("ok", i18("sec.removed", "Password removed — key stored in plain text.")); renderSecurity(); }
-    catch (e) { alert(i18("sec.wrongPass", "Wrong password.")); }
+    catch (e) { uiAlert(i18("sec.wrongPass", "Wrong password.")); }
   });
   _btn("btnLockNow", () => lockWallet());
   if ($("autolockSel")) $("autolockSel").onchange = (e) => {
@@ -2928,8 +3011,13 @@ function wireEvents() {
   // reset the auto-lock countdown on any interaction
   ["click", "keydown", "touchstart"].forEach((ev) => document.addEventListener(ev, bumpAutolock, { passive: true }));
   $("btnClearLog").onclick = () => { $("log").innerHTML = ""; };
-  $("btnForget").onclick = () => {
-    if (!confirm("Forget the wallet stored in this browser? Make sure you saved the private key — this cannot be undone.")) return;
+  $("btnForget").onclick = async () => {
+    const okForget = await uiConfirm({
+      title: i18("dlg.forgetTitle", "Forget this wallet?"),
+      body: i18("dlg.forgetBody", "Make sure you've saved the private key first — this can't be undone."),
+      confirmText: i18("dlg.forget", "Forget wallet"), danger: true,
+    });
+    if (!okForget) return;
     stopMining();
     localStorage.removeItem(LS_WALLET);
     state.wallet = null;
