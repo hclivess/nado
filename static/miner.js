@@ -2355,15 +2355,27 @@ function ensureShielded() { if (!_shInit) { alghash.initAlghash(blake2bHash); _s
 function shieldStoreKey() { return "nado.shieldf." + (state.wallet ? state.wallet.address : "none"); }
 function loadNotes() { try { return JSON.parse(localStorage.getItem(shieldStoreKey()) || "[]"); } catch (e) { return []; } }
 function saveNotes(notes) { try { localStorage.setItem(shieldStoreKey(), JSON.stringify(notes)); } catch (e) {} }
-function _randField() {   // a random Goldilocks field element (note secret: nsk / rho)
+function _randField() {   // a random Goldilocks field element (note randomness rho)
   const b = crypto.getRandomValues(new Uint8Array(8)); let x = 0n;
   for (const by of b) x = (x << 8n) | BigInt(by);
   return (x % alghash.P).toString();
+}
+// STABLE per-wallet shielded spend key, derived from the seed -> recoverable from the recovery phrase, and
+// reusable as a receive address (the on-chain commitments hide it, like a reusable Zcash address).
+function shieldNsk() { ensureShielded(); return BigInt("0x" + blake2bHash(["nado.shield.nsk", state.wallet.privateKey])) % alghash.P; }
+function shieldOwner() { return alghash.ownerOf(shieldNsk()); }
+function shieldAddr() { return "znado" + shieldOwner().toString(36); }
+function _b36(s) { let x = 0n; for (const c of s.toLowerCase()) { const d = "0123456789abcdefghijklmnopqrstuvwxyz".indexOf(c); if (d < 0) throw new Error("bad shielded address"); x = x * 36n + BigInt(d); } return x; }
+function parseShieldAddr(a) {
+  a = String(a || "").trim();
+  if (!a.startsWith("znado")) throw new Error("not a znado… shielded address");
+  return _b36(a.slice(5));   // -> the recipient's owner id (a field element)
 }
 
 async function renderShield() {
   if (!state.wallet) return;
   ensureShielded();
+  if ($("zaddr")) $("zaddr").textContent = shieldAddr();     // your reusable shielded receive address
   const notes = loadNotes();
   const bal = notes.filter((n) => !n.spent).reduce((s, n) => s + BigInt(n.value), 0n);
   $("shieldBal").textContent = rawToNado(bal) + " NADO";
@@ -2388,9 +2400,9 @@ async function doShield() {
   ensureShielded();
   const rawAmount = nadoToRaw($("shieldAmount").value || "0");
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to shield.")); return; }
-  const nsk = _randField(), rho = _randField();
-  const owner = alghash.ownerOf(BigInt(nsk));
-  const cm = alghash.commit(rawAmount, owner, BigInt(rho));   // field-native note commitment
+  const rho = _randField();
+  const owner = shieldOwner();                               // this wallet's stable shielded owner
+  const cm = alghash.commit(rawAmount, owner, BigInt(rho));  // field-native note commitment
   try {
     const latest = await getLatestBlock(); const target = latest.block_number + 8;
     const data = { field: true, cm: cm.toString() };
@@ -2398,7 +2410,7 @@ async function doShield() {
     const res = await submitTransaction(tx);
     if (res.data && res.data.result) {
       const notes = loadNotes();
-      notes.push({ nsk, value: rawAmount.toString(), rho, cm: cm.toString(), spent: false, ts: Date.now() });
+      notes.push({ value: rawAmount.toString(), rho, cm: cm.toString(), spent: false, ts: Date.now() });
       saveNotes(notes);
       log("ok", i18("shield.done", "Shielded {a} NADO ✓ (the note appears once the exec node applies it)", { a: rawToNado(rawAmount) }));
       $("shieldAmount").value = "";
@@ -2421,18 +2433,15 @@ async function doUnshield() {
   if (_ub) { _ub.disabled = true; _ub.textContent = i18("shield.provingBtn", "🔐 Proving…"); }
   try {
     const change = BigInt(note.value) - rawAmount;
-    const outNsk = _randField(), outRho = _randField();
-    const outOwner = alghash.ownerOf(BigInt(outNsk));
-    // DELEGATED PROVER: hand the exec node the witness; it builds the path + makes the full join-split STARK.
+    const outRho = _randField();
+    const outOwner = shieldOwner();                          // change comes back to this wallet
     $("shieldStatus").innerHTML = '<span class="spin">◐</span> ' + i18("shield.proving", "Generating your zero-knowledge proof… (~15s, one-time per withdrawal)");
     const wit = {
-      cm: note.cm, nsk: note.nsk, value_in: note.value, rho_in: note.rho,
+      cm: note.cm, nsk: shieldNsk().toString(), value_in: note.value, rho_in: note.rho,
       out_value: change.toString(), out_owner: outOwner.toString(), out_rho: outRho,
       public_value: (-rawAmount).toString(), fee: "0", withdraw_addr: to,
     };
-    const pr = await (await fetch(execBase() + "/exec/prove_transfer", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(wit),
-    })).json();
+    const pr = await proveTransfer(wit);
     if (pr.error || !pr.ok) {
       log("err", i18("shield.proveErr", "Proof failed: {m}", { m: pr.error || pr.applied || "" }));
       $("shieldStatus").textContent = ""; return;
@@ -2440,7 +2449,7 @@ async function doUnshield() {
     // The exec node proved + applied the transfer (the 900KB+ proof stays off-chain; the withdrawal settles
     // on L1 via the bonded-quorum root). Nothing else to submit — just track the change note + auto-claim.
     note.spent = true;
-    if (change > 0n) notes.push({ nsk: outNsk, value: change.toString(), rho: outRho, cm: pr.cm_out, spent: false, ts: Date.now() });
+    if (change > 0n) notes.push({ value: change.toString(), rho: outRho, cm: pr.cm_out, spent: false, ts: Date.now() });
     saveNotes(notes);
     log("ok", i18("shield.unshieldSent", "Unshield proved ✓ — {a} NADO will arrive once the exec root settles.", { a: rawToNado(rawAmount) }));
     $("shieldStatus").textContent = i18("shield.pending", "Pending: {a} NADO → {t} (settling…).", { a: rawToNado(rawAmount), t: to.slice(0, 12) + "…" });
@@ -2448,6 +2457,72 @@ async function doUnshield() {
     setTimeout(() => { renderShield().catch(() => {}); claimUnshields().catch(() => {}); }, 2000);
   } catch (e) { log("err", i18("shield.err", "Shielded-pool error: {m}", { m: e.message })); $("shieldStatus").textContent = ""; }
   finally { if (_ub) { _ub.disabled = false; _ub.textContent = i18("shield.unshield", "Unshield"); } }
+}
+
+// Get a full join-split STARK proof — on THIS device (fully private) if the tick is on, else DELEGATED to the
+// connected exec node (which sees the witness). On-device uses a WASM prover; until that ships it falls back.
+async function proveTransfer(wit) {
+  if ($("zOnDevice") && $("zOnDevice").checked) {
+    if (window.nadoProve) {                     // on-device WASM prover, when available
+      try { return await window.nadoProve(wit, execBase()); } catch (e) { /* fall back to the node */ }
+    }
+    log("info", i18("shield.ondeviceSoon", "On-device proving is on its way — for now the connected node makes this proof."));
+  }
+  return await (await fetch(execBase() + "/exec/prove_transfer", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(wit),
+  })).json();
+}
+function _b36enc(x) { x = BigInt(x); if (x === 0n) return "0"; const D = "0123456789abcdefghijklmnopqrstuvwxyz"; let s = ""; while (x > 0n) { s = D[Number(x % 36n)] + s; x /= 36n; } return s; }
+
+// SHIELDED TRANSFER — a private note→note payment INSIDE the pool (public_value=0, no on-chain amount). Alpha:
+// 1-in/1-out, so a whole note moves (no change yet); the recipient reconstructs it from a claim code.
+async function doSendShielded() {
+  if (!state.wallet) return; ensureShielded();
+  let recipientOwner;
+  try { recipientOwner = parseShieldAddr($("zsendTo").value); }
+  catch (e) { log("err", i18("shield.badZaddr", "Enter a valid znado… shielded address.")); return; }
+  const rawAmount = nadoToRaw($("zsendAmount").value || "0");
+  if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to send.")); return; }
+  const notes = loadNotes();
+  const note = notes.find((n) => !n.spent && BigInt(n.value) === rawAmount);
+  if (!note) { log("err", i18("shield.needExact", "This alpha sends a whole note — you need a shielded note of exactly {a} NADO. Shield that amount first.", { a: rawToNado(rawAmount) })); return; }
+  const _sb = $("btnZsend"); if (_sb) { _sb.disabled = true; _sb.textContent = i18("shield.provingBtn", "🔐 Proving…"); }
+  try {
+    const outRho = _randField();
+    $("shieldStatus").innerHTML = '<span class="spin">◐</span> ' + i18("shield.proving", "Generating your zero-knowledge proof…");
+    const wit = { cm: note.cm, nsk: shieldNsk().toString(), value_in: note.value, rho_in: note.rho,
+                  out_value: note.value, out_owner: recipientOwner.toString(), out_rho: outRho, public_value: "0", fee: "0" };
+    const pr = await proveTransfer(wit);
+    if (pr.error || !pr.ok) { log("err", i18("shield.proveErr", "Proof failed: {m}", { m: pr.error || pr.applied || "" })); $("shieldStatus").textContent = ""; return; }
+    note.spent = true; saveNotes(notes);
+    // the recipient needs (value, rho) to reconstruct + spend their note -> a claim code to deliver to them
+    const code = "znote" + _b36enc(note.value) + "." + _b36enc(outRho);
+    $("zsendCode").textContent = code; show("zsendCodeBox", true);
+    $("shieldStatus").textContent = "";
+    log("ok", i18("shield.sent", "Sent {a} NADO privately ✓ — give the recipient the claim code below.", { a: rawToNado(rawAmount) }));
+    setTimeout(() => renderShield().catch(() => {}), 1500);
+  } catch (e) { log("err", i18("shield.err", "Shielded-pool error: {m}", { m: e.message })); $("shieldStatus").textContent = ""; }
+  finally { if (_sb) { _sb.disabled = false; _sb.textContent = i18("shield.zsend", "Send shielded"); } }
+}
+
+async function doReceiveShielded() {
+  if (!state.wallet) return; ensureShielded();
+  const code = String($("zrecvCode").value || "").trim();
+  if (!code.startsWith("znote") || code.indexOf(".") < 0) { log("err", i18("shield.badCode", "Paste a znote… claim code.")); return; }
+  try {
+    const [vB, rB] = code.slice(5).split(".");
+    const value = _b36(vB), rho = _b36(rB);
+    const cm = alghash.commit(value, shieldOwner(), rho);      // reconstruct the note with YOUR key
+    const info = await (await fetch(execBase() + "/exec/field_shielded?cm=" + cm.toString(), { cache: "no-store" })).json();
+    if (info.pos === null || info.pos === undefined) { log("err", i18("shield.noteNotFound", "That note isn't in the pool yet — ask the sender to confirm it settled, then retry.")); return; }
+    const notes = loadNotes();
+    if (notes.some((n) => n.cm === cm.toString())) { log("info", i18("shield.already", "You already have that note.")); return; }
+    notes.push({ value: value.toString(), rho: rho.toString(), cm: cm.toString(), spent: false, ts: Date.now() });
+    saveNotes(notes);
+    $("zrecvCode").value = "";
+    log("ok", i18("shield.received", "Received {a} NADO privately ✓", { a: rawToNado(BigInt(value)) }));
+    renderShield().catch(() => {});
+  } catch (e) { log("err", i18("shield.badCode", "Invalid claim code: {m}", { m: e.message })); }
 }
 
 async function claimUnshields(silent) {
@@ -2542,6 +2617,8 @@ function wireEvents() {
   if ($("btnShield")) $("btnShield").onclick = () => doShield();
   if ($("btnUnshield")) $("btnUnshield").onclick = () => doUnshield();
   if ($("btnClaimUnshield")) $("btnClaimUnshield").onclick = () => claimUnshields();
+  if ($("btnZsend")) $("btnZsend").onclick = () => doSendShielded();
+  if ($("btnZrecv")) $("btnZrecv").onclick = () => doReceiveShielded();
   $("btnDlKeySettings").onclick = downloadKeyFile;
   if ($("btnCollectDiv")) $("btnCollectDiv").onclick = () => collectDividend();
   if ($("btnImportFile")) $("btnImportFile").onclick = () => $("importFile").click();
