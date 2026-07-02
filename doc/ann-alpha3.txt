@@ -1,0 +1,48 @@
+[size=18pt][b]Update — v1.0.0-alpha.3: the shielded pool is live, and it proves on your phone[/b][/size]
+
+The flagship item from our roadmap — a [b]post-quantum zk-STARK shielded pool[/b] — is no longer a plan. It's shipped, and the part we're proudest of: the proof is generated [b]on your own device, in a plain browser tab[/b]. The node never sees your amounts.
+
+[url=https://github.com/hclivess/nado/releases/tag/v1.0.0-alpha.3]Release + full notes[/url]  •  [url=https://github.com/hclivess/nado]GitHub[/url]
+
+[hr]
+
+[b][size=15pt]🔒 Private payments, without elliptic curves[/size][/b]
+
+We said from day one that Monero/Zcash-style curve privacy is a non-starter on a chain built to survive quantum — a quantum computer breaks it, and for confidential amounts it could [i]silently inflate the supply[/i]. So the pool is built on [b]hash-based zk-STARKs[/b]: post-quantum sound, [b]no trusted setup[/b], nothing Shor-breakable.
+
+What you can do today, from the Shield tab:
+[list]
+[li][b]Shield / unshield[/b] — deposit into the pool, withdraw to a [i]different[/i] address.[/li]
+[li][b]Shielded transfers[/b] — note→note payments with [b]no on-chain amount[/b]. You get a stable [tt]znado…[/tt] shielded address (with QR + share) and hand the recipient a [tt]znote…[/tt] claim code out-of-band.[/li]
+[li][b]Any amount + change[/b] — one join-split proof binds ownership (ML-DSA-authorised), Merkle membership in the pool, the nullifier (no double-spend), two output commitments (recipient + change), and value conservation.[/li]
+[/list]
+
+The ~1 MB proof stays [b]off L1[/b] — the execution node verifies and applies it, and only the settled pool state-root reaches L1 via the bonded 2/3 quorum.
+
+[hr]
+
+[b][size=15pt]⚡ On-device proving — private [i]and[/i] fast[/size][/b]
+
+Tick [b]"Prove on this device"[/b] and your browser fetches the pool leaves, builds the Merkle path, and generates the entire STARK itself — [b]your keys and amounts never leave the phone[/b]. A browser-made proof is byte-for-byte accepted by the same verifier the node runs.
+
+And it's quick: we took in-browser proving from [b]~22 s down to ~2 s[/b] (a WASM BLAKE2b, a WASM Goldilocks field/NTT, a whole-tree WASM Merkle, batch inversion). The exact same Rust also binds natively into the node's delegated prover for anyone who'd rather not prove locally. Prefer not to trust your node with the witness? Run your own execution node — or just tick the box.
+
+[hr]
+
+[b][size=15pt]Also in alpha.3[/size][/b]
+
+[list]
+[li][b]Presence dividend, live[/b] — most of every open-lane block streams to everyone present, weighted by steady presence; accrues off-chain, one-tap Collect against the settled root.[/li]
+[li][b]Click-through block explorer[/b] + a rich-list leaderboard, right in the light client.[/li]
+[li][b]Wallet hardening[/b] — a BIP39 24-word recovery phrase, optional at-rest encryption (AES-256-GCM) with auto-lock, and key import from file.[/li]
+[li][b]One-command full package[/b] — [tt]scripts/install.sh --exec[/tt] installs L1 + the shielded-pool node together (systemd units), building the native prover when Rust is present.[/li]
+[li]Every new string translated across [b]16 languages[/b]; social share + QR throughout.[/li]
+[/list]
+
+[hr]
+
+[b][size=15pt]Honest status[/size][/b]
+
+Still a [b]pre-mainnet alpha[/b] — no value at stake, the live node is a resettable demo, and consensus/breaking changes are expected between alphas. On the pool specifically: deposit and withdrawal [i]amounts[/i] are public on L1 — real unlinkability comes from shielded transfers [i]inside[/i] the pool plus a busy pool, and the anonymity set grows with use. Deposits and withdrawals are always sound. Run it, move some test NADO privately, [i]try to break it[/i], and tell us.
+
+[center][b]Open the link. Mine from your pocket. Now send privately, too.[/b][/center]
