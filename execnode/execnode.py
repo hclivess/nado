@@ -276,6 +276,40 @@ async def h_prove_transfer(request):
         return web.json_response({"error": str(e)}, status=400)
 
 
+async def h_prove_transfer2(request):
+    # DELEGATED PROVER, 2-output: send v1 to a recipient + keep v2 change. Proves -> verifies -> applies.
+    try:
+        w = await request.json()
+    except Exception:
+        return web.json_response({"error": "bad json"}, status=400)
+    fp = state.field_pool
+    try:
+        pos = fp.position(int(w["cm"]))
+        if pos is None:
+            return web.json_response({"error": "note not in the field pool"}, status=404)
+        from execnode import shielded_field as SFP
+
+        def _prove():
+            return SFP.prove_transfer2(fp, int(w["nsk"]), int(w["value_in"]), int(w["rho_in"]), pos,
+                                       int(w["v1"]), int(w["o1"]), int(w["r1"]),
+                                       int(w["v2"]), int(w["o2"]), int(w["r2"]),
+                                       int(w["public_value"]), int(w["fee"]), num_queries=int(w.get("num_queries", 24)))
+        bundle, public = await asyncio.to_thread(_prove)
+        if w.get("withdraw_addr"):
+            bundle["withdraw_addr"] = w["withdraw_addr"]
+        applied = state.apply_field_transfer(bundle)
+        state.save()
+        return web.json_response({
+            "applied": applied, "ok": "skip" not in applied,
+            "root": str(public["root"]), "nf": str(public["nullifiers"][0]),
+            "cm_out1": str(public["out_commitments"][0]), "cm_out2": str(public["out_commitments"][1]),
+        })
+    except KeyError as e:
+        return web.json_response({"error": f"missing witness field {e}"}, status=400)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+
 async def h_shielded_note(request):
     # a wallet's spend witness: position + Merkle path for its note commitment (public data, leaks nothing),
     # plus whether the note's nullifier is already spent (the wallet passes its own nf).
@@ -309,6 +343,7 @@ async def main():
                     web.get("/exec/shielded", h_shielded),
                     web.get("/exec/field_shielded", h_field_shielded),
                     web.post("/exec/prove_transfer", h_prove_transfer),
+                    web.post("/exec/prove_transfer2", h_prove_transfer2),
                     web.get("/exec/shielded_note", h_shielded_note),
                     web.get("/exec/unshields", h_unshields),
                     web.get("/exec/unshield_proof", h_unshield_proof),

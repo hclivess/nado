@@ -13,7 +13,7 @@ representation the STARK proves. Migrating the live BLAKE2b pool + the browser c
 providing a client/delegated prover) is the remaining rollout; on a field-hash pool this is a complete,
 sound, private verifier.
 """
-from execnode.stark import joinsplit, alghash, joinsplit_circuit
+from execnode.stark import joinsplit, alghash, joinsplit_circuit, joinsplit2
 
 PHASE2_COMPLETE = True
 
@@ -42,7 +42,15 @@ def prove_output_commitments(outputs):
 def verify_transfer(public, proof, root_is_known):
     """verify_transfer's Phase-2 path (dispatched when the proof carries a 'stark' bundle)."""
     bundle = proof.get("stark") or {}
-    # FULL join-split proof: the complete transfer statement in one STARK.
+    # 2-output join-split (send any amount + change).
+    if "joinsplit2" in bundle:
+        b = bundle["joinsplit2"]
+        try:
+            return joinsplit2.verify_transfer(b["proof"], b["root"], b["nf"], b["cm_out1"], b["cm_out2"],
+                                              b["public_value"], b["fee"], root_is_known)
+        except (KeyError, TypeError) as e:
+            return False, f"malformed joinsplit2 bundle: {e}"
+    # FULL 1-output join-split proof: the complete transfer statement in one STARK.
     if "joinsplit" in bundle:
         b = bundle["joinsplit"]
         try:

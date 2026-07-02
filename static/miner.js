@@ -2474,8 +2474,18 @@ async function proveTransfer(wit) {
 }
 function _b36enc(x) { x = BigInt(x); if (x === 0n) return "0"; const D = "0123456789abcdefghijklmnopqrstuvwxyz"; let s = ""; while (x > 0n) { s = D[Number(x % 36n)] + s; x /= 36n; } return s; }
 
-// SHIELDED TRANSFER — a private note→note payment INSIDE the pool (public_value=0, no on-chain amount). Alpha:
-// 1-in/1-out, so a whole note moves (no change yet); the recipient reconstructs it from a claim code.
+async function proveTransfer2(wit) {   // 2-output proof (send + change), on-device if ticked else delegated
+  if ($("zOnDevice") && $("zOnDevice").checked) {
+    if (window.nadoProve2) { try { return await window.nadoProve2(wit, execBase()); } catch (e) { /* fall back */ } }
+    log("info", i18("shield.ondeviceSoon", "On-device proving is on its way — for now the connected node makes this proof."));
+  }
+  return await (await fetch(execBase() + "/exec/prove_transfer2", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(wit),
+  })).json();
+}
+
+// SHIELDED TRANSFER — a private note→note payment INSIDE the pool (public_value=0, no on-chain amount). Sends
+// any amount and keeps the change (1-in/2-out); the recipient reconstructs their note from a claim code.
 async function doSendShielded() {
   if (!state.wallet) return; ensureShielded();
   let recipientOwner;
@@ -2484,19 +2494,26 @@ async function doSendShielded() {
   const rawAmount = nadoToRaw($("zsendAmount").value || "0");
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to send.")); return; }
   const notes = loadNotes();
-  const note = notes.find((n) => !n.spent && BigInt(n.value) === rawAmount);
-  if (!note) { log("err", i18("shield.needExact", "This alpha sends a whole note — you need a shielded note of exactly {a} NADO. Shield that amount first.", { a: rawToNado(rawAmount) })); return; }
+  const note = notes.find((n) => !n.spent && BigInt(n.value) >= rawAmount);
+  if (!note) { log("err", i18("shield.noNote", "No single shielded note covers {a} NADO — shield more first.", { a: rawToNado(rawAmount) })); return; }
   const _sb = $("btnZsend"); if (_sb) { _sb.disabled = true; _sb.textContent = i18("shield.provingBtn", "🔐 Proving…"); }
   try {
-    const outRho = _randField();
+    const change = BigInt(note.value) - rawAmount;
+    const r1 = _randField(), r2 = _randField();          // recipient-note rho, change-note rho
     $("shieldStatus").innerHTML = '<span class="spin">◐</span> ' + i18("shield.proving", "Generating your zero-knowledge proof…");
-    const wit = { cm: note.cm, nsk: shieldNsk().toString(), value_in: note.value, rho_in: note.rho,
-                  out_value: note.value, out_owner: recipientOwner.toString(), out_rho: outRho, public_value: "0", fee: "0" };
-    const pr = await proveTransfer(wit);
+    const wit = {
+      cm: note.cm, nsk: shieldNsk().toString(), value_in: note.value, rho_in: note.rho,
+      v1: rawAmount.toString(), o1: recipientOwner.toString(), r1,
+      v2: change.toString(), o2: shieldOwner().toString(), r2,
+      public_value: "0", fee: "0",
+    };
+    const pr = await proveTransfer2(wit);
     if (pr.error || !pr.ok) { log("err", i18("shield.proveErr", "Proof failed: {m}", { m: pr.error || pr.applied || "" })); $("shieldStatus").textContent = ""; return; }
-    note.spent = true; saveNotes(notes);
-    // the recipient needs (value, rho) to reconstruct + spend their note -> a claim code to deliver to them
-    const code = "znote" + _b36enc(note.value) + "." + _b36enc(outRho);
+    note.spent = true;
+    if (change > 0n) notes.push({ value: change.toString(), rho: r2, cm: pr.cm_out2, spent: false, ts: Date.now() });
+    saveNotes(notes);
+    // the recipient reconstructs their note from (amount, r1) + THEIR key -> a claim code to deliver to them
+    const code = "znote" + _b36enc(rawAmount) + "." + _b36enc(r1);
     $("zsendCode").textContent = code; show("zsendCodeBox", true);
     $("shieldStatus").textContent = "";
     log("ok", i18("shield.sent", "Sent {a} NADO privately ✓ — give the recipient the claim code below.", { a: rawToNado(rawAmount) }));

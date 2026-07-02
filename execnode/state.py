@@ -195,8 +195,14 @@ class ExecState:
         """Apply a Phase-2 STARK transfer: verify the join-split proof, reject a double-spend, then record the
         nullifier + append the output commitment. public_value<0 records a provable unshield exit."""
         from execnode import shielded
-        js = (bundle.get("stark") or {}).get("joinsplit") or {}
-        public = {"root": js.get("root"), "nullifiers": [js.get("nf")], "out_commitments": [js.get("cm_out")],
+        stark_b = bundle.get("stark") or {}
+        if "joinsplit2" in stark_b:                     # 2-output transfer (send + change)
+            js = stark_b["joinsplit2"]
+            cm_outs = [int(js["cm_out1"]), int(js["cm_out2"])]
+        else:                                           # 1-output transfer / unshield
+            js = stark_b.get("joinsplit") or {}
+            cm_outs = [int(js["cm_out"])]
+        public = {"root": js.get("root"), "nullifiers": [js.get("nf")], "out_commitments": [str(c) for c in cm_outs],
                   "public_value": js.get("public_value"), "fee": js.get("fee")}
         ok, reason = shielded.verify_transfer(public, bundle, self.field_pool.knows_root)
         if not ok:
@@ -206,7 +212,8 @@ class ExecState:
         if self.field_pool.has_nullifier(nf):
             return "skip field-transfer: nullifier already spent (double-spend)"
         self.field_pool.nullifiers.add(nf)
-        self.field_pool.append(int(js["cm_out"]))
+        for c in cm_outs:
+            self.field_pool.append(c)
         pv = int(js["public_value"])
         if pv < 0:
             addr = bundle.get("withdraw_addr")
