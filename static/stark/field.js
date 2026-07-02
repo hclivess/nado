@@ -50,22 +50,36 @@ function bitrev(a) {
   }
 }
 
+// Twiddle table w^0..w^(n/2-1) for a given size+direction, computed once and reused across every NTT of that
+// size (all 16 column LDEs + 22 periodic LDEs + FRI layers share it). Removes the per-butterfly twiddle mul.
+const _twCache = new Map();
+function twiddles(n, inverse) {
+  const key = (inverse ? "i" : "f") + n;
+  let tw = _twCache.get(key);
+  if (!tw) {
+    const w = inverse ? inv(primitiveRootOfUnity(n)) : primitiveRootOfUnity(n);
+    const h = n >> 1; tw = new Array(h); tw[0] = 1n;
+    for (let j = 1; j < h; j++) tw[j] = mul(tw[j - 1], w);
+    _twCache.set(key, tw);
+  }
+  return tw;
+}
+
 export function ntt(coeffs, inverse = false) {
   const a = coeffs.map((c) => mod(BigInt(c)));
   const n = a.length;
   if (n & (n - 1)) throw new Error("length must be a power of two");
   bitrev(a);
-  const w = inverse ? inv(primitiveRootOfUnity(n)) : primitiveRootOfUnity(n);
+  const tw = twiddles(n, inverse);
   let length = 2;
   while (length <= n) {
-    const wlen = pw(w, BigInt(n / length));
+    const half = length >> 1, stride = n / length;
     for (let i = 0; i < n; i += length) {
-      let wn = 1n;
-      for (let k = i; k < i + length / 2; k++) {
-        const u = a[k], v = mul(a[k + length / 2], wn);
+      for (let m = 0; m < half; m++) {
+        const t = tw[m * stride], k = i + m;
+        const u = a[k], v = mul(a[k + half], t);
         a[k] = add(u, v);
-        a[k + length / 2] = sub(u, v);
-        wn = mul(wn, wlen);
+        a[k + half] = sub(u, v);
       }
     }
     length <<= 1;

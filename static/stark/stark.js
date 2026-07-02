@@ -7,6 +7,8 @@ import { Transcript } from "./transcript.js";
 
 export const OFF = F.GEN;
 
+const _perLdeCache = new WeakMap();   // periodic array -> {N, lde}; the periodic LDE is witness-independent
+
 function nextPow2(x) { let p = 1; while (p < x) p <<= 1; return p; }
 function blowupOf(maxDegree) { return 2 * nextPow2(maxDegree); }
 
@@ -57,7 +59,12 @@ export function prove(trace, transitions, boundaries, periodic = [], maxDegree =
   let _t = _pf ? Date.now() : 0; const _mk = (n) => { if (_pf) { console.error("  " + n + ": " + (Date.now() - _t) + "ms"); _t = Date.now(); } };
   const colLde = colPolys.map((p) => F.cosetEvaluate(p, N, OFF));
   _mk("colLde (16 coset NTT)");
-  const perLde = periodic.map((pc) => F.cosetEvaluate(F.interpolate(pc.map((x) => BigInt(x))), N, OFF));
+  // The periodic LDE is witness-independent (columns depend only on T,D) — cache it by the periodic array
+  // (joinsplit2.periodic returns the same array per T,D), so it's computed once and reused every proof.
+  const _pc = _perLdeCache.get(periodic);
+  let perLde;
+  if (_pc && _pc.N === N) perLde = _pc.lde;
+  else { perLde = periodic.map((pc) => F.cosetEvaluate(F.interpolate(pc.map((x) => BigInt(x))), N, OFF)); _perLdeCache.set(periodic, { N, lde: perLde }); }
   _mk("perLde (22 coset NTT)");
   const xLde = F.domain(N, OFF);
   const degBound = nextPow2(maxDegree) * T;

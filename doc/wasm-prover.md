@@ -2,10 +2,9 @@
 
 > **TIER A (JS/BigInt) is DONE and LIVE.** The full prover is ported to the browser (static/stark/*.js) and
 > byte-matches Python: a transfer proof generated in JS is accepted by the unchanged verifier. The "Prove on
-> this device" tick uses it (window.nadoProve2) — the node never sees the witness. ~7s in node (down from ~22s)
-> via a **WASM BLAKE2b** (wasm/blake2b/, ~50x faster hashing) + **Montgomery batch inversion** in the
-> composition. Remaining Tier-B push: a WASM Goldilocks field/NTT would cut the last ~3.7s of NTT/FRI to reach
-> ~3s.
+> this device" tick uses it (window.nadoProve2) — the node never sees the witness. ~4.4s in node (down from ~22s, a ~5x speedup)
+> via a **WASM BLAKE2b** (wasm/blake2b/, ~50x faster hashing), **Montgomery batch inversion**, **cached NTT
+> twiddles**, and a **cached periodic LDE**. A WASM Goldilocks field/NTT is the remaining push toward ~2s.
 
 > **Goal:** generate the shielded-pool join-split STARK **in the user's browser**, so the exec node never sees
 > the witness. This is the privacy endgame — it closes the one remaining gap ("the prover sees your amounts,

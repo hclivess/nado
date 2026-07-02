@@ -76,7 +76,11 @@ export function buildTrace(nsk, vIn, rhoIn, sibs, dirs, v1, o1, r1, v2, o2, r2) 
 export const [RC0, RC1, ANSK, ARHO, AOWN, AVIN, AVOUT1, AVOUT2, AFREE, B0, B1, RCM, RNF, RNODE,
   ROUT1, ROUT2, CAPOWN, CAPCARRY, CAPNF, CAPROOT, CAPCM1, INMERK] = Array.from({ length: 22 }, (_, i) => i);
 
+const _perCache = new Map();
 export function periodic(T, D) {
+  const ck = T + "," + D;
+  const hit = _perCache.get(ck);
+  if (hit) return hit;                         // periodic columns depend only on (T, D) — same every proof
   const [out1, out2] = bounds(D);
   const col = (fn) => Array.from({ length: T }, (_, r) => (fn(r) ? 1 : 0));
   const lvlEnd = (r, upto) => MERK <= r && r < out1 && (r - MERK) % RPL === RPL - 1 && Math.floor((r - MERK) / RPL) < upto && Math.floor((r - MERK) / RPL) >= 0;
@@ -103,6 +107,7 @@ export function periodic(T, D) {
   p[CAPROOT] = col((r) => r === out1 - 1);
   p[CAPCM1] = col((r) => r === out2 - 1);
   p[INMERK] = col((r) => MERK <= r && r < out1);
+  _perCache.set(ck, p);
   return p;
 }
 
