@@ -30,6 +30,15 @@ def verify_output_commitments(out_commitments, bundle):
     return True, "ok"
 
 
+def prove_output_commitments(outputs):
+    """(Legacy partial path) build the ZK well-formedness proofs for output openings [(value, owner, rho), ...]."""
+    proofs, cms = [], []
+    for (value, owner, rho) in outputs:
+        pr, cm = joinsplit.prove_hash([alghash.DOM_CM, value, owner, rho], public_positions=[0])
+        proofs.append(pr); cms.append(cm)
+    return {"outputs": proofs}, cms
+
+
 def verify_transfer(public, proof, root_is_known):
     """verify_transfer's Phase-2 path (dispatched when the proof carries a 'stark' bundle)."""
     bundle = proof.get("stark") or {}
