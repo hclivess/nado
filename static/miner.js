@@ -1987,7 +1987,48 @@ function _mk(tag, attrs, text) {
   return el;
 }
 function _nadoNum(raw) { try { return Number(BigInt(raw || 0)) / 1e10; } catch { return 0; } }
-const _CACC = "#3aa0ff", _CGRID = "#1c2530", _CMUT = "#7c8b9a", _CGOLD = "#f5c542", _CGRN = "#5ad19a";
+const _CACC = "#3aa0ff", _CGRID = "#1c2530", _CMUT = "#7c8b9a", _CGOLD = "#f5c542", _CGRN = "#5ad19a", _CPUR = "#c77dff";
+
+// Donut/pie with a legend — for distribution breakdowns (reward pipelines, supply). slices: [{label,value,color}].
+function pieChart(id, slices, opts) {
+  opts = opts || {}; const svg = _svgClear(id); if (!svg) return;
+  svg.setAttribute("viewBox", "0 0 320 132");
+  const total = slices.reduce((s, x) => s + Math.max(0, x.value), 0);
+  const cx = 64, cy = 66, r = 52, ir = 30;
+  if (total <= 0) { svg.appendChild(_mk("text", { x: 160, y: 66, fill: _CMUT, "font-size": 11, "text-anchor": "middle" }, i18("stats.nodata", "no data yet"))); return; }
+  let ang = -Math.PI / 2;
+  slices.forEach((sl) => {
+    const frac = Math.max(0, sl.value) / total;
+    if (frac <= 0) return;
+    const a2 = ang + frac * 2 * Math.PI, large = frac > 0.5 ? 1 : 0;
+    const P = (rad, a) => [cx + rad * Math.cos(a), cy + rad * Math.sin(a)];
+    const [x1, y1] = P(r, ang), [x2, y2] = P(r, a2), [xi2, yi2] = P(ir, a2), [xi1, yi1] = P(ir, ang);
+    svg.appendChild(_mk("path", { d: `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} L ${xi2} ${yi2} A ${ir} ${ir} 0 ${large} 0 ${xi1} ${yi1} Z`, fill: sl.color }));
+    ang = a2;
+  });
+  slices.forEach((sl, i) => {
+    const y = 20 + i * 19, pct = (Math.max(0, sl.value) / total) * 100;
+    svg.appendChild(_mk("rect", { x: 134, y: y - 8, width: 10, height: 10, fill: sl.color, rx: 2 }));
+    svg.appendChild(_mk("text", { x: 150, y: y + 1, fill: "#cdd7e0", "font-size": 9 }, `${sl.label} — ${opts.fmt ? opts.fmt(sl.value) : pct.toFixed(1) + "%"}`));
+  });
+}
+
+// Open a social-network share intent for the miner link (falls back to the native share sheet / copy).
+function socialShare(platform) {
+  const url = shareUrl();
+  const msg = i18("share.msg", "Mine NADO in your browser — no install, no signup. Open and go:");
+  const u = encodeURIComponent(url), tx = encodeURIComponent(msg);
+  const targets = {
+    x: `https://twitter.com/intent/tweet?text=${tx}&url=${u}`,
+    telegram: `https://t.me/share/url?url=${u}&text=${tx}`,
+    whatsapp: `https://wa.me/?text=${tx}%20${u}`,
+    reddit: `https://www.reddit.com/submit?url=${u}&title=${encodeURIComponent("NADO — mine from your phone")}`,
+    facebook: `https://www.facebook.com/sharer/sharer.php?u=${u}`,
+    email: `mailto:?subject=${encodeURIComponent("Mine NADO")}&body=${tx}%20${u}`,
+  };
+  const target = targets[platform];
+  if (target) window.open(target, "_blank", "noopener,noreferrer");
+}
 
 function barChart(id, values, labels, opts) {
   opts = opts || {}; const svg = _svgClear(id); if (!svg) return;
@@ -2062,6 +2103,32 @@ async function renderStats() {
   let ms = state.lastMs;
   try { ms = await getMiningStatus(state.wallet.address); } catch {}
   if (ms) laneBar("chartLanes", ms.open_registry_size || 0, ms.bonded_registry_size || 0);
+
+  // REWARD DISTRIBUTION by pipeline (structural consensus split): open lane is ~20% of blocks (treasury 10 /
+  // tip 20 / dividend 70), bonded ~80% (producer 70 / dividend 20 / treasury 10) -> effective network split.
+  pieChart("chartRewardSplit", [
+    { label: i18("stats.pipeProducer", "Bonded producer"), value: 56, color: _CACC },
+    { label: i18("stats.pipeDividend", "Presence dividend"), value: 30, color: _CGRN },
+    { label: i18("stats.pipeTreasury", "Treasury"), value: 10, color: _CGOLD },
+    { label: i18("stats.pipeTip", "Open-lane tip"), value: 4, color: _CPUR },
+  ], { fmt: (v) => v.toFixed(0) + "%" });
+
+  // SUPPLY DISTRIBUTION (live): where the minted coins currently sit.
+  try {
+    const sup = await (await fetch(relayBase() + "/get_supply", { cache: "no-store" })).json();
+    const total = _nadoNum(sup.total_supply || 0), treasury = _nadoNum(sup.treasury || 0);
+    let div = 0, shd = 0;
+    try { div = _nadoNum((await (await fetch(relayBase() + "/get_account?address=dividend", { cache: "no-store" })).json()).balance || 0); } catch {}
+    try { shd = _nadoNum((await (await fetch(relayBase() + "/get_account?address=shield", { cache: "no-store" })).json()).balance || 0); } catch {}
+    const circ = Math.max(0, total - treasury - div - shd);
+    const fmtN = (v) => (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v.toFixed(0)) + " NADO";
+    pieChart("chartSupply", [
+      { label: i18("stats.supCirc", "Circulating"), value: circ, color: _CACC },
+      { label: i18("stats.supTreasury", "Treasury"), value: treasury, color: _CGOLD },
+      { label: i18("stats.supDividend", "Dividend pool"), value: div, color: _CGRN },
+      { label: i18("stats.supShield", "Shielded"), value: shd, color: _CPUR },
+    ], { fmt: fmtN });
+  } catch {}
   const addStat = (label, val) => { if (!head) return; const d = document.createElement("div"); d.className = "stat"; d.innerHTML = `<div class="label"></div><div class="value sm"></div>`; d.children[0].textContent = label; d.children[1].textContent = val; head.appendChild(d); };
   addStat(i18("stats.tip", "Height"), tip != null ? tip : "—");
   if (ms) { addStat(i18("stats.present", "Present miners"), ms.open_registry_size ?? "—"); addStat(i18("stats.bondedMiners", "Savings miners"), ms.bonded_registry_size ?? "—"); }
@@ -2389,6 +2456,7 @@ function wireEvents() {
   $("recvAmount").oninput = () => renderReceiveQR();   // live-update the QR + payment link
   $("btnSharePay").onclick = () => sharePayLink();
   if ($("btnShareMiner")) $("btnShareMiner").onclick = () => shareMiner();
+  document.querySelectorAll("[data-social]").forEach((btn) => { btn.onclick = () => socialShare(btn.getAttribute("data-social")); });
 
   $("btnSaveRelay").onclick = () => {
     const v = $("relayUrl").value.trim();
