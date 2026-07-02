@@ -2009,19 +2009,24 @@ function barChart(id, values, labels, opts) {
 }
 function hbarChart(id, rows, opts) {
   opts = opts || {}; const svg = _svgClear(id); if (!svg) return;
-  // Three fixed columns so nothing is ragged or overflows: [label] [bar] [value(right-aligned)].
-  const W = 320, rowH = 20, padT = 6, labelW = 72, valueW = 58, barX = labelW + 4;
+  // Three fixed columns so nothing is ragged or overlaps: [label] [bar] [value(right-aligned)]. The label is
+  // hard-clipped to its column so a long address can never paint over the bars.
+  const W = 320, rowH = 18, padT = 5, labelW = 66, gap = 4, valueW = 46, barX = labelW + gap;
   const barMax = W - barX - valueW;              // the bar can never reach into the value column
   const n = rows.length;
   if (!n) { svg.appendChild(_mk("text", { x: W / 2, y: 20, fill: _CMUT, "font-size": 11, "text-anchor": "middle" }, i18("stats.nodata", "no data yet"))); return; }
   svg.setAttribute("viewBox", `0 0 ${W} ${padT * 2 + n * rowH}`);
+  // one clipPath the label text is rendered inside, so overflow is cut at the column edge
+  const cp = _mk("clipPath", { id: id + "_lc" });
+  cp.appendChild(_mk("rect", { x: 0, y: 0, width: labelW, height: padT * 2 + n * rowH }));
+  svg.appendChild(cp);
   const max = Math.max(1e-9, ...rows.map((r) => r.value));
   rows.forEach((r, i) => {
     const cy = padT + i * rowH + rowH / 2;
     const bw = Math.max(1, (r.value / max) * barMax);
-    svg.appendChild(_mk("text", { x: 2, y: cy + 3.5, fill: _CMUT, "font-size": 10 }, r.label));
-    svg.appendChild(_mk("rect", { x: barX, y: cy - (rowH - 9) / 2, width: bw, height: rowH - 9, fill: opts.color || _CACC, rx: 2 }));
-    svg.appendChild(_mk("text", { x: W - 2, y: cy + 3.5, fill: "#cdd7e0", "font-size": 10, "text-anchor": "end" }, opts.fmt ? opts.fmt(r.value) : String(r.value)));
+    svg.appendChild(_mk("text", { x: 2, y: cy + 3, fill: _CMUT, "font-size": 8.5, "clip-path": `url(#${id}_lc)` }, r.label));
+    svg.appendChild(_mk("rect", { x: barX, y: cy - (rowH - 8) / 2, width: bw, height: rowH - 8, fill: opts.color || _CACC, rx: 2 }));
+    svg.appendChild(_mk("text", { x: W - 2, y: cy + 3, fill: "#cdd7e0", "font-size": 8.5, "text-anchor": "end" }, opts.fmt ? opts.fmt(r.value) : String(r.value)));
   });
 }
 function laneBar(id, open, bonded) {
@@ -2051,7 +2056,7 @@ async function renderStats() {
   barChart("chartReward", blocks.map((b) => _nadoNum(b.block_reward)), blocks.map((b) => "#" + b.block_number), { color: _CGOLD, fmt: (v) => v.toFixed(2) });
   try {
     const d = await (await fetch(relayBase() + "/get_rich_list?n=8", { cache: "no-store" })).json();
-    const rows = ((d && d.rich_list) || []).slice(0, 8).map((e) => ({ label: exShort(e.address, 8), value: _nadoNum(e.total) }));
+    const rows = ((d && d.rich_list) || []).slice(0, 8).map((e) => ({ label: /^ndo/.test(e.address) ? e.address.slice(0, 8) + "…" : e.address, value: _nadoNum(e.total) }));
     hbarChart("chartWealth", rows, { color: _CGRN, fmt: (v) => (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v.toFixed(1)) });
   } catch {}
   let ms = state.lastMs;
