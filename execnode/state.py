@@ -99,6 +99,23 @@ class ExecState:
             out.append(unshield_leaf(w["addr"], w["amount"], nonce))
         return out
 
+    def unshields_for(self, addr):
+        """Pending unshield exits recorded for an L1 address — a wallet uses this to find the nonce(s) of its
+        own unshields, then fetches unshield_withdrawal_proof(nonce) to claim once the root is settled."""
+        return [{"nonce": n, "amount": w["amount"]} for n, w in sorted(self.unshield_withdrawals.items())
+                if w["addr"] == addr]
+
+    def shielded_note_proof(self, cm):
+        """Locate a note commitment in the pool and return its position + Merkle authentication path against
+        the current root — what a wallet needs to SPEND the note (build the input witness). Commitments are
+        public, so this leaks nothing about value/owner. None if the commitment isn't in the pool."""
+        try:
+            pos = self.shielded.commitments.index(cm)
+        except ValueError:
+            return None
+        from execnode.shielded import merkle_path
+        return {"pos": pos, "path": merkle_path(self.shielded.commitments, pos), "root": self.shielded.root()}
+
     def unshield_withdrawal_proof(self, nonce):
         """(addr, amount, nonce, proof) for a recorded unshield exit, provable against state_root; None if absent."""
         w = self.unshield_withdrawals.get(str(nonce))

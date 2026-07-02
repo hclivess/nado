@@ -13,6 +13,7 @@
  * Protocol constants (mirror protocol.py — consensus-critical)
  * -------------------------------------------------------------------------------------------- */
 import { poswProveAsync, challengeBytes } from "./posw.js";
+import * as shielded from "./shielded.js";
 const CHAIN_ID = "nado-relaunch-1";
 const EPOCH_LENGTH = 60;
 const REGISTER_POW_BITS = 16;  // legacy hashcash (retired) — kept only for the self-test vector
@@ -2165,8 +2166,128 @@ function showTab(name) {
   else if (name === "rich") loadRichList().catch(() => {});
   else if (name === "stats") renderStats().catch(() => {});
   else if (name === "swap") renderSwaps().catch(() => {});
+  else if (name === "shield") renderShield().catch(() => {});
   else if (name === "send") { updateFeeInfo().catch(() => {}); validateSendTo().catch(() => {}); addrBookRender(); }
   else if (name === "stake") { updateFeeInfo().catch(() => {}); refreshDashboard().catch(() => {}); }
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * Shielded pool (doc/privacy.md) — deposit/withdraw against the exec-layer zk-STARK pool. Notes are
+ * private, so the wallet keeps its OWN notes locally (localStorage per address); the pool never reveals
+ * which note is whose. Transparent phase today: the witness is the proof; the STARK slots in later.
+ * -------------------------------------------------------------------------------------------- */
+let _shInit = false;
+function ensureShielded() { if (!_shInit) { shielded.initShielded(blake2bHash); _shInit = true; } }
+function shieldStoreKey() { return "nado.shield." + (state.wallet ? state.wallet.address : "none"); }
+function loadNotes() { try { return JSON.parse(localStorage.getItem(shieldStoreKey()) || "[]"); } catch (e) { return []; } }
+function saveNotes(notes) { try { localStorage.setItem(shieldStoreKey(), JSON.stringify(notes)); } catch (e) {} }
+function _randRho() { return _hex(crypto.getRandomValues(new Uint8Array(16))); }
+function _shieldSig(sighashHex) { return bytesToHex(ml_dsa44.sign(hexToBytes(state.wallet.privateKey), hexToBytes(sighashHex))); }
+
+async function renderShield() {
+  if (!state.wallet) return;
+  ensureShielded();
+  const notes = loadNotes();
+  const bal = notes.filter((n) => !n.spent).reduce((s, n) => s + BigInt(n.value), 0n);
+  $("shieldBal").textContent = rawToNado(bal) + " NADO";
+  try {
+    const p = await (await fetch(execBase() + "/exec/shielded", { cache: "no-store" })).json();
+    $("shieldPool").textContent = i18("shield.poolInfo", "{n} notes · root {r}", { n: p.notes, r: (p.root || "").slice(0, 10) + "…" });
+  } catch (e) { $("shieldPool").textContent = "—"; }
+  const box = $("shieldNotes"); box.innerHTML = "";
+  const mine = notes.filter((n) => !n.spent);
+  if (!mine.length) { box.innerHTML = '<div class="faint small">' + i18("shield.none", "No shielded notes yet.") + "</div>"; return; }
+  for (const n of mine) {
+    const row = document.createElement("div"); row.className = "ex-row";
+    const l = document.createElement("div"); l.innerHTML = "<b>" + rawToNado(BigInt(n.value)) + " NADO</b>";
+    const r = document.createElement("div"); r.className = "faint small mono"; r.textContent = "cm " + n.cm.slice(0, 12) + "…";
+    row.appendChild(l); row.appendChild(r); box.appendChild(row);
+  }
+}
+
+async function doShield() {
+  if (!state.wallet) return;
+  ensureShielded();
+  const rawAmount = nadoToRaw($("shieldAmount").value || "0");
+  if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to shield.")); return; }
+  const owner = shielded.ownerId(state.wallet.publicKey), rho = _randRho(), valueStr = rawAmount.toString();
+  const cm = shielded.noteCommitment(valueStr, owner, rho);
+  try {
+    const latest = await getLatestBlock(); const target = latest.block_number + 8;
+    const data = { out_commitments: [cm], openings: [{ value: valueStr, owner, rho }] };
+    const tx = buildTransferTx(state.wallet, "shield", rawAmount, MIN_TX_FEE, target, data, nowSeconds());
+    const res = await submitTransaction(tx);
+    if (res.data && res.data.result) {
+      const notes = loadNotes();
+      notes.push({ value: valueStr, rho, owner, cm, pubkey: state.wallet.publicKey, spent: false, ts: Date.now() });
+      saveNotes(notes);
+      log("ok", i18("shield.done", "Shielded {a} NADO ✓ (the note appears once the exec node applies it)", { a: rawToNado(rawAmount) }));
+      $("shieldAmount").value = "";
+      setTimeout(() => renderShield().catch(() => {}), 1500);
+    } else log("err", i18("shield.rej", "Shield rejected: {m}", { m: (res.data && res.data.message) || "" }));
+  } catch (e) { log("err", i18("shield.err", "Shielded-pool error: {m}", { m: e.message })); }
+}
+
+async function doUnshield() {
+  if (!state.wallet) return;
+  ensureShielded();
+  const rawAmount = nadoToRaw($("unshieldAmount").value || "0");
+  const to = $("unshieldTo").value.trim() || state.wallet.address;
+  if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to unshield.")); return; }
+  if (!/^ndo[0-9a-f]{46}$/i.test(to)) { log("err", i18("shield.badAddr", "Enter a valid ndo… address.")); return; }
+  const notes = loadNotes();
+  const note = notes.find((n) => !n.spent && BigInt(n.value) >= rawAmount);
+  if (!note) { log("err", i18("shield.noNote", "No single note covers that amount yet (splitting across notes isn't supported here).")); return; }
+  try {
+    const nf = shielded.noteNullifier(note.pubkey, note.rho);
+    const info = await (await fetch(execBase() + "/exec/shielded_note?cm=" + note.cm + "&nf=" + nf, { cache: "no-store" })).json();
+    if (info.error) { log("err", i18("shield.notInPool", "That note isn't in the pool yet — wait for the exec node to apply the shield.")); return; }
+    if (info.spent) { note.spent = true; saveNotes(notes); renderShield(); log("err", i18("shield.alreadySpent", "That note is already spent.")); return; }
+    const change = BigInt(note.value) - rawAmount;
+    const outputs = [], outCms = []; let changeNote = null;
+    if (change > 0n) {
+      const rho2 = _randRho(), owner2 = shielded.ownerId(state.wallet.publicKey), cm2 = shielded.noteCommitment(change.toString(), owner2, rho2);
+      outCms.push(cm2); outputs.push({ value: change.toString(), owner: owner2, rho: rho2 });
+      changeNote = { value: change.toString(), rho: rho2, owner: owner2, cm: cm2, pubkey: state.wallet.publicKey, spent: false, ts: Date.now() };
+    }
+    const pub = { root: info.root, nullifiers: [nf], out_commitments: outCms, public_value: (-rawAmount).toString(), fee: "0", withdraw_addr: to };
+    const sig = _shieldSig(shielded.transferSighash(pub));
+    const input = { value: note.value, pubkey: note.pubkey, rho: note.rho, pos: info.pos, path: info.path, sig };
+    const blob = { op: "shielded_transfer", public: pub, proof: { inputs: [input], outputs } };
+    const latest = await getLatestBlock(); const target = latest.block_number + 8;
+    const tx = buildTransferTx(state.wallet, "blob", 0n, MIN_TX_FEE, target, blob, nowSeconds());
+    const res = await submitTransaction(tx);
+    if (res.data && res.data.result) {
+      note.spent = true; if (changeNote) notes.push(changeNote); saveNotes(notes);
+      log("ok", i18("shield.unshieldSent", "Unshield submitted ✓ — tap Claim once the exec root is settled."));
+      $("shieldStatus").textContent = i18("shield.pending", "Pending: {a} NADO → {t} (waiting for settlement).", { a: rawToNado(rawAmount), t: to.slice(0, 12) + "…" });
+      $("unshieldAmount").value = "";
+      setTimeout(() => renderShield().catch(() => {}), 1500);
+    } else log("err", i18("shield.unshieldRej", "Unshield rejected: {m}", { m: (res.data && res.data.message) || "" }));
+  } catch (e) { log("err", i18("shield.err", "Shielded-pool error: {m}", { m: e.message })); }
+}
+
+async function claimUnshields() {
+  if (!state.wallet) return;
+  try {
+    const r = await (await fetch(execBase() + "/exec/unshields?addr=" + encodeURIComponent(state.wallet.address), { cache: "no-store" })).json();
+    const pending = r.unshields || [];
+    if (!pending.length) { $("shieldStatus").textContent = i18("shield.noClaims", "No pending withdrawals for this address."); return; }
+    let claimed = 0;
+    for (const u of pending) {
+      const pr = await (await fetch(execBase() + "/exec/unshield_proof?nonce=" + encodeURIComponent(u.nonce), { cache: "no-store" })).json();
+      if (pr.error || !pr.proof) continue;
+      const latest = await getLatestBlock(); const target = latest.block_number + 8;
+      const data = { addr: pr.addr, amount: pr.amount, nonce: pr.nonce, proof: pr.proof };
+      const tx = buildTransferTx(state.wallet, "unshield", 0n, 0n, target, data, nowSeconds());
+      const res = await submitTransaction(tx);
+      if (res.data && res.data.result) claimed++;
+    }
+    $("shieldStatus").textContent = claimed
+      ? i18("shield.claimed", "Claimed {n} withdrawal(s) ✓ — coins released to your balance.", { n: claimed })
+      : i18("shield.notSettled", "Not settled on L1 yet — try again shortly.");
+    setTimeout(() => { refreshBalance().catch(() => {}); renderShield().catch(() => {}); }, 1800);
+  } catch (e) { log("err", i18("shield.err", "Shielded-pool error: {m}", { m: e.message })); }
 }
 
 /* Pre-wallet view: no tabs; show onboarding + the Settings card (so the relay can be configured). */
@@ -2232,6 +2353,9 @@ function wireEvents() {
   $("btnDlKeySave").onclick = downloadKeyFile;
   if ($("btnSwapLock")) $("btnSwapLock").onclick = () => swapLock();
   if ($("btnSwapClaim")) $("btnSwapClaim").onclick = () => swapClaim();
+  if ($("btnShield")) $("btnShield").onclick = () => doShield();
+  if ($("btnUnshield")) $("btnUnshield").onclick = () => doUnshield();
+  if ($("btnClaimUnshield")) $("btnClaimUnshield").onclick = () => claimUnshields();
   $("btnDlKeySettings").onclick = downloadKeyFile;
   if ($("btnCollectDiv")) $("btnCollectDiv").onclick = () => collectDividend();
   if ($("btnImportFile")) $("btnImportFile").onclick = () => $("importFile").click();

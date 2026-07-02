@@ -216,6 +216,24 @@ async def h_shielded(request):
                              "anchors": state.shielded.anchor_list[-8:]})
 
 
+async def h_shielded_note(request):
+    # a wallet's spend witness: position + Merkle path for its note commitment (public data, leaks nothing),
+    # plus whether the note's nullifier is already spent (the wallet passes its own nf).
+    cm = request.query.get("cm", "")
+    p = state.shielded_note_proof(cm)
+    if not p:
+        return web.json_response({"error": "not found"}, status=404)
+    nf = request.query.get("nf")
+    if nf:
+        p["spent"] = state.shielded.has_nullifier(nf)
+    return web.json_response(p)
+
+
+async def h_unshields(request):
+    # a wallet lists its own pending unshield exits (by L1 address) to find the nonce(s) to claim
+    return web.json_response({"unshields": state.unshields_for(request.query.get("addr", ""))})
+
+
 async def h_unshield_proof(request):
     # the Merkle proof a user submits to L1's `unshield` to release SHIELD_ESCROW coins against the settled root
     p = state.unshield_withdrawal_proof(request.query.get("nonce", ""))
@@ -229,6 +247,8 @@ async def main():
     app = web.Application(middlewares=[_cors])
     app.add_routes([web.get("/exec/root", h_root),
                     web.get("/exec/shielded", h_shielded),
+                    web.get("/exec/shielded_note", h_shielded_note),
+                    web.get("/exec/unshields", h_unshields),
                     web.get("/exec/unshield_proof", h_unshield_proof),
                     web.get("/exec/contracts", h_contracts),
                     web.get("/exec/contract", h_contract),
