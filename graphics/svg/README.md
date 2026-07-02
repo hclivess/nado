@@ -1,7 +1,8 @@
 # NADO logo — SVG
 
-Vector rebuild of the NADO mark (the faceted 3D torus / the "O" in the wordmark), generated parametrically so
-it stays crisp at any size and is trivial to recolor.
+Vector rebuild of the NADO mark — the **impossible** faceted torus (a face-on decagonal ring of isometric
+cubes, each rotated to follow the ring, clipped to a clean tube). Generated parametrically so it stays crisp
+at any size and is trivial to recolor.
 
 - `../logo.svg` — canonical brand logo (**teal**).
 - `logo-<scheme>.svg` — color variants: `teal` (brand), `ocean`, `violet`, `magenta`, `crimson`, `amber`,

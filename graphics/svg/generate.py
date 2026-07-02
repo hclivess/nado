@@ -1,71 +1,77 @@
-import math, colorsys
+"""
+NADO logo — the "impossible" faceted torus, generated as SVG.
 
-def norm(v):
-    m = math.sqrt(sum(c*c for c in v)) or 1.0
-    return (v[0]/m, v[1]/m, v[2]/m)
-def sub(a,b): return (a[0]-b[0], a[1]-b[1], a[2]-b[2])
-def cross(a,b): return (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
-def dot(a,b): return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]
-def rotx(p,a):
-    x,y,z=p; c,s=math.cos(a),math.sin(a); return (x, y*c - z*s, y*s + z*c)
-def torus(u,v,R,r):
-    return ((R+r*math.cos(v))*math.cos(u), (R+r*math.cos(v))*math.sin(u), r*math.sin(v))
-def hx(rgb): return "#%02x%02x%02x" % tuple(max(0,min(255,round(c))) for c in rgb)
-def hexrgb(c): return tuple(int(c[i:i+2],16) for i in (1,3,5))
-def lerp(c1,c2,t):
-    a,b=hexrgb(c1),hexrgb(c2); return hx(tuple(a[i]+(b[i]-a[i])*t for i in range(3)))
-def hsl(h,s,l):
-    r,g,b=colorsys.hls_to_rgb(h%1.0, l, s); return hx((r*255,g*255,b*255))
+A face-on decagonal ring whose 10 segments are isometric cubes, each rotated to follow the ring so the shading
+repeats per-segment (an impossible / M.C.-Escher isometric object, not a plausible tilted torus). The cube
+weave is clipped to a clean decagon annulus so the mark reads as a solid tube with crisp inner/outer edges.
 
-# color: fn(segment_i, intensity) -> fill hex
-def solid(dark, light):
-    return lambda i, t: lerp(dark, light, 0.12 + 0.88*t)
-def rainbow(sat=0.62):
-    return lambda i, t: hsl(i/10.0, sat, 0.22 + 0.55*t)
+Regenerate / add schemes:  python3 graphics/svg/generate.py graphics/svg
+"""
+import math, colorsys, sys, os
 
-def build(colorfn, outline, N=10, M=9, R=1.0, r=0.52, tilt=36, size=256, pad=16, sw=1.1):
-    tilt = math.radians(tilt)
-    L = norm((-0.42,-0.78,0.66)); view=(0,0,1)
-    faces=[]
+def _hexrgb(c): return tuple(int(c[i:i + 2], 16) for i in (1, 3, 5))
+def _hx(rgb): return "#%02x%02x%02x" % tuple(max(0, min(255, round(c))) for c in rgb)
+def shade(base, f): r, g, b = _hexrgb(base); return _hx((r * f, g * f, b * f))
+def hsl(h, s, l): r, g, b = colorsys.hls_to_rgb(h % 1.0, l, s); return _hx((r * 255, g * 255, b * 255))
+
+def _rot(p, a, c):
+    x, y = p[0] - c[0], p[1] - c[1]; ca, sa = math.cos(a), math.sin(a)
+    return (c[0] + x * ca - y * sa, c[1] + x * sa + y * ca)
+
+def _decagon(cx, cy, r, N, rot=-math.pi / 2):
+    return [(cx + r * math.cos(i * 2 * math.pi / N + rot), cy + r * math.sin(i * 2 * math.pi / N + rot)) for i in range(N)]
+
+def _isocube(cx, cy, s, ang, top, right, left, outline, sw):
+    k = 0.8660254
+    H = [(0, -s), (k * s, -0.5 * s), (k * s, 0.5 * s), (0, s), (-k * s, 0.5 * s), (-k * s, -0.5 * s)]
+    H = [_rot((cx + x, cy + y), ang, (cx, cy)) for x, y in H]
+    C = (cx, cy)
+    out = []
+    for pts, fill in (([H[0], H[1], C, H[5]], top), ([H[1], H[2], H[3], C], right), ([H[5], C, H[3], H[4]], left)):
+        p = " ".join(f"{x:.2f},{y:.2f}" for x, y in pts)
+        out.append(f'<polygon points="{p}" fill="{fill}" stroke="{outline}" stroke-width="{sw:.2f}" stroke-linejoin="round"/>')
+    return out
+
+def build(base, outline, N=10, Rc=72, s=44, size=256):
+    cx = cy = size / 2
+    Rout, Rin = Rc + s * 0.70, max(6, Rc - s * 0.60)
+    outer, inner = _decagon(cx, cy, Rout, N), _decagon(cx, cy, Rin, N)
+    annulus = ("M" + " L".join(f"{x:.2f},{y:.2f}" for x, y in outer) + "Z "
+               "M" + " L".join(f"{x:.2f},{y:.2f}" for x, y in reversed(inner)) + "Z")
+    sw = s * 0.05
+    rainbow = (base == "rainbow")
+    basecolor = (lambda i: hsl(i / N, 0.62, 0.52)) if rainbow else (lambda i: base)
+    backing = "#181b20" if rainbow else shade(base, 0.95)
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" width="{size}" height="{size}">']
+    out.append(f'<defs><clipPath id="ring"><path d="{annulus}" fill-rule="evenodd"/></clipPath></defs>')
+    out.append(f'<path d="{annulus}" fill-rule="evenodd" fill="{backing}"/>')
+    out.append('<g clip-path="url(#ring)">')
     for i in range(N):
-        for j in range(M):
-            u0,u1=i*2*math.pi/N,(i+1)*2*math.pi/N
-            v0,v1=j*2*math.pi/M,(j+1)*2*math.pi/M
-            P=[rotx(torus(u,v,R,r),tilt) for (u,v) in ((u0,v0),(u1,v0),(u1,v1),(u0,v1))]
-            n=norm(cross(sub(P[1],P[0]),sub(P[3],P[0])))
-            if dot(n,view)<=0.02: continue
-            faces.append((sum(p[2] for p in P)/4.0, P, max(0.0,dot(n,L)), i))
-    faces.sort(key=lambda f:f[0])
-    xs=[p[0] for _,P,_,_ in faces for p in P]; ys=[-p[1] for _,P,_,_ in faces for p in P]
-    minx,maxx,miny,maxy=min(xs),max(xs),min(ys),max(ys)
-    sc=(size-2*pad)/max(maxx-minx,maxy-miny)
-    ox=(size-(maxx-minx)*sc)/2-minx*sc; oy=(size-(maxy-miny)*sc)/2-miny*sc
-    proj=lambda p:(p[0]*sc+ox,(-p[1])*sc+oy)
-    out=[f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}" width="{size}" height="{size}">']
-    for _,P,inten,i in faces:
-        pts=" ".join(f"{x:.2f},{y:.2f}" for x,y in (proj(p) for p in P))
-        out.append(f'<polygon points="{pts}" fill="{colorfn(i,inten)}" stroke="{outline}" stroke-width="{sw}" stroke-linejoin="round"/>')
+        th = i * 2 * math.pi / N - math.pi / 2
+        px, py = cx + Rc * math.cos(th), cy + Rc * math.sin(th)
+        b = basecolor(i)
+        out += _isocube(px, py, s, th + math.pi / 2, shade(b, 1.30), shade(b, 0.95), shade(b, 0.60), outline, sw)
+    out.append('</g>')
+    out.append(f'<path d="{annulus}" fill-rule="evenodd" fill="none" stroke="{outline}" stroke-width="{sw * 1.4:.2f}" stroke-linejoin="round"/>')
     out.append('</svg>')
     return "\n".join(out)
 
 SCHEMES = {
-    "teal":     (solid("#063f38","#37d6ab"), "#052c28"),   # brand
-    "ocean":    (solid("#0a2f57","#45b6ef"), "#061d38"),
-    "violet":   (solid("#33165c","#b884f2"), "#1f0d3a"),
-    "magenta":  (solid("#4e0f39","#ff77c2"), "#2f0722"),
-    "crimson":  (solid("#5a1220","#ff7a6b"), "#350a12"),
-    "amber":    (solid("#6b2f0e","#ffc24a"), "#3c1806"),
-    "lime":     (solid("#173d10","#9fe84a"), "#0d2409"),
-    "graphite": (solid("#23282d","#c4ccd4"), "#12151a"),   # monochrome (light bg)
-    "mono-light": (solid("#5b636b","#ffffff"), "#3a3f45"), # for dark bg
-    "gold":     (solid("#5a3d0a","#ffe08a"), "#33220a"),
-    "rainbow":  (rainbow(), "#111318"),
+    "teal":       ("#12a683", "#06352d"),   # brand
+    "ocean":      ("#1f8fd6", "#0a2c46"),
+    "violet":     ("#8a5cf0", "#251242"),
+    "magenta":    ("#e0559f", "#3f1030"),
+    "crimson":    ("#e2584a", "#3a1210"),
+    "amber":      ("#e8a033", "#3f2607"),
+    "lime":       ("#7dc93a", "#1e3a0d"),
+    "gold":       ("#d9a92e", "#3a2a08"),
+    "graphite":   ("#8a929b", "#1a1e23"),   # monochrome, light bg
+    "mono-light": ("#c2c8cf", "#5b636b"),   # white-ish, for dark bg
+    "rainbow":    ("rainbow", "#0c1013"),
 }
 
 if __name__ == "__main__":
-    import sys, subprocess, os
-    outdir = sys.argv[1] if len(sys.argv)>1 else "."
-    for name,(cf,ol) in SCHEMES.items():
-        svg = build(cf, ol)
-        open(os.path.join(outdir, f"logo-{name}.svg"),"w").write(svg)
-    print("wrote", len(SCHEMES), "schemes")
+    outdir = sys.argv[1] if len(sys.argv) > 1 else "."
+    for name, (base, outline) in SCHEMES.items():
+        open(os.path.join(outdir, f"logo-{name}.svg"), "w").write(build(base, outline))
+    print("wrote", len(SCHEMES), "schemes to", outdir)
