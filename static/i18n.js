@@ -797,6 +797,28 @@
   const T28 = {"en":{"share.fbCopied":"Message copied — paste it into your Facebook post."},"cs":{"share.fbCopied":"Zpráva zkopírována — vložte ji do svého příspěvku na Facebooku."},"es":{"share.fbCopied":"Mensaje copiado — pégalo en tu publicación de Facebook."},"pt":{"share.fbCopied":"Mensagem copiada — cole-a na sua publicação do Facebook."},"fr":{"share.fbCopied":"Message copié — collez-le dans votre publication Facebook."},"de":{"share.fbCopied":"Nachricht kopiert — füge sie in deinen Facebook-Beitrag ein."},"it":{"share.fbCopied":"Messaggio copiato — incollalo nel tuo post di Facebook."},"ru":{"share.fbCopied":"Сообщение скопировано — вставьте его в свой пост в Facebook."},"zh":{"share.fbCopied":"消息已复制 — 粘贴到你的 Facebook 帖子中。"},"ja":{"share.fbCopied":"メッセージをコピーしました — Facebook の投稿に貼り付けてください。"},"ko":{"share.fbCopied":"메시지가 복사되었습니다 — Facebook 게시물에 붙여넣으세요."},"ar":{"share.fbCopied":"تم نسخ الرسالة — الصقها في منشورك على Facebook."},"hi":{"share.fbCopied":"संदेश कॉपी हो गया — इसे अपनी Facebook पोस्ट में पेस्ट करें।"},"tr":{"share.fbCopied":"Mesaj kopyalandı — Facebook gönderinize yapıştırın."},"id":{"share.fbCopied":"Pesan disalin — tempel ke postingan Facebook Anda."},"vi":{"share.fbCopied":"Đã sao chép tin nhắn — dán vào bài đăng Facebook của bạn."}};
   for (const l in T28) Object.assign(T[l] = T[l] || {}, T28[l]);
 
+  // T29: shielded payment links — the zaddr block gets the same payment-link QR/share as normal Receive
+  // (shield.zaddrLabel = the bare-address label under it; share.payMsg/zpayMsg = the social/native share texts)
+  const T29 = {
+    "en":{"shield.zaddrLabel":"Shielded address","share.payMsg":"Pay me on NADO:","share.zpayMsg":"Pay me privately on NADO — shielded payment link:"},
+    "cs":{"shield.zaddrLabel":"Stíněná adresa","share.payMsg":"Zaplaťte mi v NADO:","share.zpayMsg":"Zaplaťte mi soukromě v NADO — stíněný platební odkaz:"},
+    "es":{"shield.zaddrLabel":"Dirección blindada","share.payMsg":"Págame en NADO:","share.zpayMsg":"Págame en privado en NADO — enlace de pago blindado:"},
+    "pt":{"shield.zaddrLabel":"Endereço blindado","share.payMsg":"Pague-me em NADO:","share.zpayMsg":"Pague-me de forma privada em NADO — link de pagamento blindado:"},
+    "fr":{"shield.zaddrLabel":"Adresse blindée","share.payMsg":"Payez-moi sur NADO :","share.zpayMsg":"Payez-moi en privé sur NADO — lien de paiement blindé :"},
+    "de":{"shield.zaddrLabel":"Abgeschirmte Adresse","share.payMsg":"Bezahle mich über NADO:","share.zpayMsg":"Bezahle mich privat über NADO — abgeschirmter Zahlungslink:"},
+    "it":{"shield.zaddrLabel":"Indirizzo blindato","share.payMsg":"Pagami su NADO:","share.zpayMsg":"Pagami in privato su NADO — link di pagamento blindato:"},
+    "ru":{"shield.zaddrLabel":"Экранированный адрес","share.payMsg":"Заплатите мне в NADO:","share.zpayMsg":"Заплатите мне приватно в NADO — экранированная ссылка на оплату:"},
+    "zh":{"shield.zaddrLabel":"屏蔽地址","share.payMsg":"在 NADO 上向我付款：","share.zpayMsg":"在 NADO 上私密向我付款 — 屏蔽付款链接："},
+    "ja":{"shield.zaddrLabel":"シールドアドレス","share.payMsg":"NADO でお支払いください：","share.zpayMsg":"NADO で非公開のお支払いを — シールド支払いリンク："},
+    "ko":{"shield.zaddrLabel":"실드 주소","share.payMsg":"NADO에서 결제해 주세요:","share.zpayMsg":"NADO에서 비공개로 결제해 주세요 — 실드 결제 링크:"},
+    "ar":{"shield.zaddrLabel":"العنوان المحمي","share.payMsg":"ادفع لي عبر NADO:","share.zpayMsg":"ادفع لي بخصوصية عبر NADO — رابط دفع محمي:"},
+    "hi":{"shield.zaddrLabel":"शील्डेड पता","share.payMsg":"NADO पर मुझे भुगतान करें:","share.zpayMsg":"NADO पर निजी रूप से मुझे भुगतान करें — शील्डेड भुगतान लिंक:"},
+    "tr":{"shield.zaddrLabel":"Gizli adres","share.payMsg":"NADO üzerinden bana ödeme yap:","share.zpayMsg":"NADO üzerinden bana gizlice ödeme yap — gizli ödeme bağlantısı:"},
+    "id":{"shield.zaddrLabel":"Alamat terlindungi","share.payMsg":"Bayar saya di NADO:","share.zpayMsg":"Bayar saya secara pribadi di NADO — tautan pembayaran terlindungi:"},
+    "vi":{"shield.zaddrLabel":"Địa chỉ che giấu","share.payMsg":"Thanh toán cho tôi trên NADO:","share.zpayMsg":"Thanh toán riêng tư cho tôi trên NADO — liên kết thanh toán che giấu:"}
+  };
+  for (const l in T29) Object.assign(T[l] = T[l] || {}, T29[l]);
+
 
 
 

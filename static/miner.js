@@ -1711,12 +1711,14 @@ function toast(msg, kind = "info", ms = 5000) {
   _toastTimer = setTimeout(() => el.classList.add("hidden"), ms);
 }
 
-// The amount (NADO) currently requested on the Receive tab, or "" if blank/malformed/non-positive.
-function currentRecvAmount() {
-  const raw = (($("recvAmount") && $("recvAmount").value) || "").trim();
+// The request-amount (NADO) currently in the given input, or "" if blank/malformed/non-positive.
+function _reqAmount(id) {
+  const raw = (($(id) && $(id).value) || "").trim();
   if (!raw) return "";
   try { return nadoToRaw(raw) > 0n ? raw : ""; } catch (e) { return ""; }
 }
+function currentRecvAmount() { return _reqAmount("recvAmount"); }     // Receive tab
+function currentZrecvAmount() { return _reqAmount("zrecvAmount"); }   // Shield tab's receive block
 
 // Share the payment link via the native share sheet (mobile); else copy it to the clipboard.
 async function sharePayLink() {
@@ -1727,6 +1729,19 @@ async function sharePayLink() {
     catch (e) { if (e && e.name === "AbortError") return; /* dismissed sheet isn't an error; else fall through */ }
   }
   const btn = $("btnSharePay");
+  const ok = await copyToClipboard(link);
+  if (btn) { btn.textContent = ok ? i18("copy.copied", "Copied ✓") : i18("copy.select", "select & copy"); setTimeout(() => (btn.textContent = i18("btn.share", "Share")), ok ? 1200 : 1600); }
+}
+
+// The shielded twin of sharePayLink — the same #pay deep link, carrying the znado… address instead.
+async function shareZpayLink() {
+  if (!state.wallet) return;
+  const link = payLink(shieldAddr(), currentZrecvAmount());
+  if (navigator.share) {
+    try { await navigator.share({ title: "NADO private payment request", text: i18("share.zpayMsg", "Pay me privately on NADO — shielded payment link:"), url: link }); return; }
+    catch (e) { if (e && e.name === "AbortError") return; }
+  }
+  const btn = $("btnZaddrShare");
   const ok = await copyToClipboard(link);
   if (btn) { btn.textContent = ok ? i18("copy.copied", "Copied ✓") : i18("copy.select", "select & copy"); setTimeout(() => (btn.textContent = i18("btn.share", "Share")), ok ? 1200 : 1600); }
 }
@@ -1783,8 +1798,30 @@ function parsePayHash() {
   return { to: (params.get("to") || "").trim(), amount: (params.get("amount") || "").trim() };
 }
 
+// A #pay link's recipient can be transparent (ndo…) or shielded (znado…) — same link format, routed by prefix.
+function _isZAddr(a) { try { parseShieldAddr(a); return true; } catch (e) { return false; } }
+
+// A #pay link with a znado… recipient prefills the SHIELDED send (same review-first rule as a normal Send).
+function applyZpayRequest(req) {
+  showTab("shield");
+  $("zsendTo").value = req.to;
+  let amtOk = false;
+  if (req.amount) {
+    try { if (nadoToRaw(req.amount) > 0n) { $("zsendAmount").value = req.amount; amtOk = true; } }
+    catch (e) { /* malformed/negative amount -> prefill recipient only */ }
+  }
+  const msg = amtOk
+    ? i18("payBanner.msg", "Payment request loaded — review and confirm.")
+    : i18("payBanner.enterAmt", "Payment request loaded — enter an amount, then review and confirm.");
+  toast(msg, "info");
+  try { $("zsendTo").scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+  setTimeout(() => { const f = amtOk ? $("btnZsend") : $("zsendAmount"); if (f) f.focus(); }, 350);
+  log("info", `Private payment request loaded: pay ${req.to.slice(0, 12)}…${amtOk ? " " + req.amount + " NADO" : ""}`);
+}
+
 function applyPayRequest(req) {
   if (!state.wallet) return;
+  if (_isZAddr(req.to)) return applyZpayRequest(req);
   showTab("send");
   const toEl = $("sendTo");
   toEl.value = req.to;
@@ -1809,7 +1846,7 @@ function consumePayRequest() {
   if (!req) return;
   // clear the hash so a refresh won't re-trigger the prefill (and the URL bar isn't left dirty)
   try { history.replaceState(null, "", location.pathname); } catch (e) {}
-  if (!validateAddress(req.to)) {
+  if (!validateAddress(req.to) && !_isZAddr(req.to)) {
     log("err", "Payment link ignored — invalid recipient address.");
     toast("Payment link ignored — the recipient address is invalid.", "err");
     return;
@@ -1832,7 +1869,7 @@ function resumePendingPay() {
   if (!req) return;
   pendingPay = null;
   try { sessionStorage.removeItem(LS_PENDING_PAY); } catch (e) {}
-  if (validateAddress(req.to)) applyPayRequest(req);
+  if (validateAddress(req.to) || _isZAddr(req.to)) applyPayRequest(req);
 }
 
 /* Transaction history: classify each tx relative to the wallet and show a signed amount. */
@@ -2125,8 +2162,9 @@ function pieChart(id, slices, opts) {
 
 // Open a social-network share intent for the miner link (falls back to the native share sheet / copy).
 // Brand-icon social buttons, mounted next to every QR. Each block declares its share CONTEXT (site / pay /
-// zaddr / zcode); a [data-private] block only offers the person-to-person channels (bearer secrets must never
-// be broadcast publicly).
+// zpay / zcode); a [data-private] block only offers the person-to-person channels. Only claim codes are
+// bearer secrets — a shielded ADDRESS is just a receive capability (knowing it reveals nothing on-chain),
+// so its payment link gets the full public set like a normal address.
 const SOCIAL_ICONS = {
   x: "M17.53 3H21l-7.19 8.21L22.5 21h-6.75l-5.02-6.56L4.99 21H1.5l7.68-8.78L1 3h6.92l4.54 5.99L17.53 3Zm-1.18 16h1.86L7.02 4.94H5.05L16.35 19Z",
   telegram: "M21.9 4.3 2.6 11.7c-.9.4-.9 1.3.02 1.63l4.9 1.53 1.86 5.9c.24.66.13.92.82.92.53 0 .77-.24 1.06-.53l2.35-2.28 4.9 3.62c.9.5 1.55.24 1.77-.83l3.2-15.06c.32-1.32-.5-1.9-1.36-1.6ZM8.5 13.4l9.9-6.24c.44-.27.85-.12.52.18L10.9 15l-.32 3.4-2.08-5Z",
@@ -2155,7 +2193,7 @@ function mountSocial() {
 
 function _sharePayload(ctx) {
   if (ctx === "pay") return { url: payLink(state.wallet.address, currentRecvAmount()), text: i18("share.payMsg", "Pay me on NADO:"), title: "NADO payment request" };
-  if (ctx === "zaddr") return { url: shieldAddr(), text: i18("share.zaddrMsg", "Send me private NADO — my shielded address:"), title: "My NADO shielded address" };
+  if (ctx === "zpay") return { url: payLink(shieldAddr(), currentZrecvAmount()), text: i18("share.zpayMsg", "Pay me privately on NADO — shielded payment link:"), title: "NADO private payment request" };
   if (ctx === "zcode") return { url: (($("zsendCode") || {}).textContent) || "", text: i18("share.zcodeMsg", "A private NADO banknote for you — claim code:"), title: "NADO shielded claim code" };
   return { url: shareUrl(), text: i18("share.msg", "Mine NADO in your browser — no install, no signup. Open and go:"), title: "NADO — mine from your phone" };
 }
@@ -2421,10 +2459,22 @@ function parseShieldAddr(a) {
   return _b36(a.slice(5));   // -> the recipient's owner id (a field element)
 }
 
+// Shielded receive: amount-aware payment-link QR + link text (mirrors renderReceiveQR; the raw znado…
+// address stays visible below for wallets that want the bare address).
+function renderZaddrQR() {
+  if (!state.wallet) return;
+  ensureShielded();
+  const za = shieldAddr();
+  if ($("zaddr")) $("zaddr").textContent = za;
+  const link = payLink(za, currentZrecvAmount());
+  if ($("zpayLink")) $("zpayLink").textContent = link;
+  _drawQR($("zaddrQR"), $("zaddrQRNote"), link, 260);
+}
+
 async function renderShield() {
   if (!state.wallet) return;
   ensureShielded();
-  if ($("zaddr")) { const za = shieldAddr(); $("zaddr").textContent = za; _drawQR($("zaddrQR"), null, za, 220); }  // your reusable shielded receive address + QR
+  renderZaddrQR();   // your reusable shielded receive address as a payment-link QR
   const notes = loadNotes();
   const bal = notes.filter((n) => !n.spent).reduce((s, n) => s + BigInt(n.value), 0n);
   $("shieldBal").textContent = rawToNado(bal) + " NADO";
@@ -2738,7 +2788,8 @@ function wireEvents() {
   if ($("btnClaimUnshield")) $("btnClaimUnshield").onclick = () => claimUnshields();
   if ($("btnZsend")) $("btnZsend").onclick = () => doSendShielded();
   if ($("btnZrecv")) $("btnZrecv").onclick = () => doReceiveShielded();
-  if ($("btnZaddrShare")) $("btnZaddrShare").onclick = () => shareText(shieldAddr(), i18("shield.shareAddr", "My NADO shielded address"));
+  if ($("btnZaddrShare")) $("btnZaddrShare").onclick = () => shareZpayLink();
+  if ($("zrecvAmount")) $("zrecvAmount").oninput = () => renderZaddrQR();   // live-update the shielded QR + payment link
   if ($("btnZcodeShare")) $("btnZcodeShare").onclick = () => shareText($("zsendCode").textContent, i18("shield.shareCode", "NADO shielded claim code"));
   $("btnDlKeySettings").onclick = downloadKeyFile;
   if ($("btnCollectDiv")) $("btnCollectDiv").onclick = () => collectDividend();

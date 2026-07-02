@@ -478,11 +478,24 @@
 
     <hr style="border:none;border-top:1px solid var(--line,#1c2530);margin:16px 0" />
     <div class="label" data-i18n="shield.zaddrTitle">🔐 Your shielded address — share it to receive privately</div>
-    <div class="qr-wrap"><canvas id="zaddrQR" class="qr hidden" width="220" height="220"></canvas></div>
-    <div class="addr-box"><span class="a mono break" id="zaddr">…</span>
-      <button class="copy" data-copy="zaddr" data-i18n="btn.copy">Copy</button>
+    <label class="mt" data-i18n="receive.reqAmount">Request amount (NADO) — optional
+      <span class="hint" data-i18n-title="tip.reqAmount" title="If set, the QR / payment link asks the sender for this exact amount (they still confirm). Leave blank for a plain receive code.">ⓘ</span>
+    </label>
+    <input id="zrecvAmount" placeholder="(any amount)" inputmode="decimal" autocomplete="off" />
+    <div class="qr-wrap">
+      <canvas id="zaddrQR" class="qr hidden" width="260" height="260"></canvas>
+      <div id="zaddrQRNote" class="small faint hidden" data-i18n="receive.qrNote">QR generator unavailable — copy the payment link below.</div>
+    </div>
+    <label class="mt" data-i18n="receive.payLink">Payment link
+      <span class="hint" data-i18n-title="tip.payLink" title="A deep link back to this hosted wallet. Opening it prefills a Send (the sender always confirms). Copy and share it where a camera can't scan the QR.">ⓘ</span>
+    </label>
+    <div class="addr-box"><span class="a mono break" id="zpayLink"></span>
+      <button class="copy" data-copy="zpayLink" data-i18n="btn.copy">Copy</button>
       <button class="copy" id="btnZaddrShare" data-i18n="btn.share">Share</button></div>
-    <div class="social-share mt" data-share="zaddr" data-private></div>
+    <div class="social-share mt" data-share="zpay"></div>
+    <label class="mt" data-i18n="shield.zaddrLabel">Shielded address</label>
+    <div class="addr-box"><span class="a mono break" id="zaddr">…</span>
+      <button class="copy" data-copy="zaddr" data-i18n="btn.copy">Copy</button></div>
 
     <div class="mt"><div class="label" data-i18n="shield.sendTitle">Send shielded — a private banknote→banknote payment (no on-chain amount to correlate)</div></div>
     <label data-i18n="shield.sendTo">Recipient shielded address</label>
