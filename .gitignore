@@ -143,3 +143,6 @@ dmypy.json
 
 # Claude Code session/worktree dir (never commit)
 .claude/
+
+# Rust build artifacts (the native Goldilocks lib is built by install.sh; wasm is embedded in JS)
+wasm/*/target/

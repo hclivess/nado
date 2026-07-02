@@ -36,30 +36,40 @@ def _blowup(max_degree):
 
 
 def _coset_evaluate(coeffs, N, offset):
+    from execnode.stark import goldilocks_native as _gn
+    if _gn.available() and N <= _gn.NMAX:
+        return _gn.coset_evaluate(coeffs, N, offset)
     c = list(coeffs) + [0] * (N - len(coeffs))
-    g = [F.mul(c[j], F.pw(offset, j)) for j in range(N)]
+    g = [0] * N
+    s = 1                                    # incremental offset^j (not a fresh pw per point)
+    for j in range(N):
+        g[j] = F.mul(c[j], s)
+        s = F.mul(s, offset)
     return F.evaluate(g)
 
 
 def _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boundaries, alphas):
     last = F.pw(gT, T - 1)
-    xT = [F.pw(x_lde[j], T) for j in range(N)]
+    # Transition vanishing is the same for every constraint: invZ[j] = (x-last)/(x^T - 1). One batch inversion
+    # for the whole vector instead of an inv() per (constraint, point).
+    inv_xTm1 = F.batch_inverse([F.sub(F.pw(x_lde[j], T), 1) for j in range(N)])
+    invZ = [F.mul(F.sub(x_lde[j], last), inv_xTm1[j]) for j in range(N)]
+    # per-row column + periodic slices, shared across all transitions (built once)
+    cur_rows = [[col_lde[c][j] for c in range(W)] for j in range(N)]
+    nxt_rows = [[col_lde[c][(j + blowup) % N] for c in range(W)] for j in range(N)]
+    per_rows = [[pc[j] for pc in per_lde] for j in range(N)]
     cp = [0] * N
     ai = 0
     for con in transitions:
         a = alphas[ai]; ai += 1
         for j in range(N):
-            cur = [col_lde[c][j] for c in range(W)]
-            nxt = [col_lde[c][(j + blowup) % N] for c in range(W)]
-            per = [pc[j] for pc in per_lde]
-            z = F.mul(F.sub(xT[j], 1), F.inv(F.sub(x_lde[j], last)))       # Z_trans(x_j)
-            cp[j] = F.add(cp[j], F.mul(a, F.mul(con(cur, nxt, per), F.inv(z))))
+            cp[j] = F.add(cp[j], F.mul(a, F.mul(con(cur_rows[j], nxt_rows[j], per_rows[j]), invZ[j])))
     for (row, col, val) in boundaries:
         a = alphas[ai]; ai += 1
         pt = F.pw(gT, row)
+        inv_den = F.batch_inverse([F.sub(x_lde[j], pt) for j in range(N)])
         for j in range(N):
-            b = F.sub(col_lde[col][j], val)
-            cp[j] = F.add(cp[j], F.mul(a, F.mul(b, F.inv(F.sub(x_lde[j], pt)))))
+            cp[j] = F.add(cp[j], F.mul(a, F.mul(F.sub(col_lde[col][j], val), inv_den[j])))
     return cp
 
 

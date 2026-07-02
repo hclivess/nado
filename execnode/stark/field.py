@@ -38,6 +38,23 @@ def inv(a):
 def div(a, b): return mul(a, inv(b))
 
 
+def batch_inverse(vals):
+    """Montgomery batch inversion: invert a whole list with ONE modular inversion + ~3N muls. Assumes no zeros
+    (true for the STARK's coset-vs-trace-domain denominators). Used by the prover's composition."""
+    n = len(vals)
+    out = [0] * n
+    prefix = [0] * n
+    acc = 1
+    for i in range(n):
+        prefix[i] = acc
+        acc = acc * vals[i] % P
+    inv_acc = inv(acc)
+    for i in range(n - 1, -1, -1):
+        out[i] = prefix[i] * inv_acc % P
+        inv_acc = inv_acc * vals[i] % P
+    return out
+
+
 # --- roots of unity + evaluation domains -----------------------------------------------------------
 def primitive_root_of_unity(n):
     """A primitive n-th root of unity, n a power of two with n ≤ 2^TWO_ADICITY. ω = g^((p-1)/n) has order n."""
@@ -72,11 +89,14 @@ def _bitrev(a):
 
 def ntt(coeffs, inverse=False):
     """In/out size-n (power of two). Forward: coefficients → evaluations on the n-th-root subgroup. Inverse:
-    evaluations → coefficients. Iterative radix-2 Cooley–Tukey."""
-    a = [c % P for c in coeffs]
-    n = len(a)
+    evaluations → coefficients. Iterative radix-2 Cooley–Tukey (native Rust NTT when the lib is built)."""
+    n = len(coeffs)
     if n & (n - 1):
         raise ValueError("length must be a power of two")
+    from execnode.stark import goldilocks_native as _gn
+    if _gn.available() and n <= _gn.NMAX:
+        return _gn.ntt(coeffs, inverse)
+    a = [c % P for c in coeffs]
     _bitrev(a)
     w = inv(primitive_root_of_unity(n)) if inverse else primitive_root_of_unity(n)
     length = 2

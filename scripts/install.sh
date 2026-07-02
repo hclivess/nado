@@ -112,6 +112,21 @@ fi
 
 echo "==> dependencies installed."
 
+# ---- native Goldilocks lib (optional; speeds up shielded proving ~2x on top of the pure-Python batch path) ---
+if [ $WITH_EXEC -eq 1 ]; then
+  if command -v cargo >/dev/null 2>&1; then
+    echo "==> building the native Goldilocks NTT (faster shielded proving)..."
+    if ( cd "$REPO_DIR/wasm/goldilocks" && cargo build --release >/dev/null 2>&1 ); then
+      echo "    built wasm/goldilocks/target/release/libgoldilocks.so"
+    else
+      echo "    (build failed — the shielded-pool node will use the pure-Python prover; still correct, just slower.)"
+    fi
+  else
+    echo "==> cargo/Rust not found — the shielded-pool node will use the pure-Python prover (correct, ~2x slower)."
+    echo "    For faster proving: install Rust (https://rustup.rs), then: (cd wasm/goldilocks && cargo build --release)"
+  fi
+fi
+
 # ---- systemd service (unattended) ----------------------------------------------------------------
 if [ $WITH_SERVICE -eq 1 ]; then
   if [ "$(id -u)" -ne 0 ]; then
