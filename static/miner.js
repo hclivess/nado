@@ -833,6 +833,48 @@ if (typeof document !== "undefined") {
   });
 }
 
+// MOBILE TOOLTIPS: native title="" tooltips only appear on desktop HOVER. Touch devices have no hover, so
+// the ⓘ info buttons did nothing on a phone. This shows the (already-localized) title text in a small
+// popover on TAP, and hides it on the next tap/scroll. Desktop hover still works as before.
+if (typeof document !== "undefined") {
+  let _tipEl = null;
+  const _mkTip = () => {
+    if (_tipEl) return _tipEl;
+    _tipEl = document.createElement("div");
+    _tipEl.className = "taptip";
+    _tipEl.setAttribute("role", "tooltip");
+    _tipEl.style.cssText = "position:fixed;z-index:10000;max-width:min(320px,92vw);padding:10px 12px;" +
+      "background:#0e141b;color:#e6edf3;border:1px solid #2a3746;border-radius:10px;font-size:13px;" +
+      "line-height:1.45;box-shadow:0 8px 28px rgba(0,0,0,.55);display:none;pointer-events:none";
+    document.body.appendChild(_tipEl);
+    return _tipEl;
+  };
+  const _hideTip = () => { if (_tipEl) _tipEl.style.display = "none"; };
+  document.addEventListener("click", (e) => {
+    // Only intercept genuine info affordances (an ⓘ hint, or anything carrying a localized title).
+    const trigger = e.target.closest(".hint, [data-i18n-title], [title]");
+    const host = trigger && (trigger.hasAttribute("title") ? trigger : trigger.closest("[title]"));
+    const text = host && host.getAttribute("title");
+    if (!text) { _hideTip(); return; }
+    // don't hijack real controls (links/buttons/inputs) that merely happen to have a title
+    const tag = (trigger.tagName || "").toLowerCase();
+    if (["a", "button", "input", "select", "textarea", "label"].includes(tag) && !trigger.matches(".hint, [data-i18n-title]")) return;
+    if (_tipEl && _tipEl.style.display === "block" && _tipEl.textContent === text) { _hideTip(); return; } // toggle off
+    const t = _mkTip();
+    t.textContent = text;
+    t.style.display = "block";
+    const r = t.getBoundingClientRect();
+    const rect = trigger.getBoundingClientRect();
+    let left = Math.min(Math.max(8, rect.left + rect.width / 2 - r.width / 2), window.innerWidth - r.width - 8);
+    let top = rect.bottom + 8;
+    if (top + r.height > window.innerHeight - 8) top = Math.max(8, rect.top - r.height - 8);
+    t.style.left = left + "px"; t.style.top = top + "px";
+    e.preventDefault();
+  }, true);
+  window.addEventListener("scroll", _hideTip, true);
+  window.addEventListener("resize", _hideTip);
+}
+
 // Single click does EVERYTHING: enter the active mining state immediately, then let the background poll
 // loop register (if needed), wait for on-chain confirmation, and heartbeat each epoch — automatically.
 // The user never has to click again after the registration tx lands.
