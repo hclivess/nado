@@ -49,7 +49,7 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   commits           "sender|target_epoch"    -> commitment                                   (RANDAO #7)
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
-_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases")
+_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs")
 _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch")
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
@@ -664,6 +664,40 @@ def unbond_del(address: str):
     def _do(txn):
         txn.delete(address.encode(), db=_dbs()["unbonds"])
     _write(_do)
+
+
+# --- HTLC store (cross-chain atomic swaps): htlc_id -> {sender,claimant,amount,hashlock,expiry,status,...} ---
+# One doc per lock, keyed by the lock tx's txid. Mutated in place by claim/refund (status open->claimed/
+# refunded), which is revert-symmetric: the doc is self-describing so rollback restores the prior status.
+def htlc_get(htlc_id: str):
+    def _do(txn):
+        raw = txn.get(htlc_id.encode(), db=_dbs()["htlcs"])
+        return _unpack(raw) if raw is not None else None
+    return _read(_do)
+
+
+def htlc_put(htlc_id: str, doc: dict):
+    def _do(txn):
+        txn.put(htlc_id.encode(), _pack(doc), db=_dbs()["htlcs"])
+    _write(_do)
+
+
+def htlc_del(htlc_id: str):
+    def _do(txn):
+        txn.delete(htlc_id.encode(), db=_dbs()["htlcs"])
+    _write(_do)
+
+
+def htlc_all():
+    """Every HTLC doc {id: doc} (read-only; for the /htlcs explorer + wallet listing). Bounded by the
+    number of open swaps, which is small."""
+    def _do(txn):
+        out = {}
+        with txn.cursor(db=_dbs()["htlcs"]) as cur:
+            for k, v in cur:
+                out[k.decode()] = _unpack(v)
+        return out
+    return _read(_do)
 
 
 # --- alias registry (human-readable name -> owner address) ----------------------------------------

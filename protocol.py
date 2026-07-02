@@ -22,9 +22,25 @@ GENESIS_TIMESTAMP = 1669852800
 # "bond"/"unbond": pseudo-recipients used by the bonding transactions (see S4).
 # (The "burn" mechanic was removed entirely: no burn address, no burned counter, no
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
-# "bond"/"unbond": bonded-lane stake txs. "register"/"heartbeat": OPEN-lane (no-coin) mining txs
+# "bond"/"unbond": bonded-lane stake txs. "register": the OPEN-lane (no-coin) mining lease tx
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "heartbeat", "slash", "attest", "commit", "reveal", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw"})
+RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "slash", "attest", "commit", "reveal", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund"})
+
+# --- HTLC (Hash Time-Locked Contracts) for trustless CROSS-CHAIN atomic swaps (doc/htlc.md) ---
+# A lock escrows `amount` under a SHA-256 hashlock + an absolute block-height timelock:
+#   "htlc_lock"   — move amount(+fee) from sender, lock `amount` in HTLC_ESCROW, record {claimant, hashlock,
+#                   expiry}. The lock's txid is its HTLC id.
+#   "htlc_claim"  — the claimant reveals `preimage`; iff sha256(preimage)==hashlock AND height < expiry, the
+#                   escrow releases to the claimant. Revealing the preimage on-chain is the swap's linchpin.
+#   "htlc_refund" — after `expiry`, the original sender reclaims an unclaimed lock from escrow.
+# SHA-256 is the cross-chain lingua franca (BTC/ETH HTLCs use it), so the SAME hashlock works on both chains:
+# claiming here publishes the preimage, which the counterparty uses to claim the mirrored lock on the other
+# chain — an atomic swap with no bridge, no custodian, no trusted third party. The block-height timelock is
+# deterministic across nodes; pick expiry so YOUR refund is strictly LATER than the counterparty's (so they
+# can't refund-then-still-claim). Keyless escrow account holds every locked coin (supply stays accounted).
+HTLC_ESCROW = "htlc"                  # reserved escrow pseudo-account holding all locked HTLC coins
+HTLC_MIN_TIMELOCK = 10                # expiry must be >= lock height + this (room for the claimant to act)
+HTLC_MAX_TIMELOCK = 1_000_000         # and <= lock height + this (bounds indefinitely-dangling escrow)
 
 # --- Execution-layer BRIDGE (doc/execution-layer.md, Phase 2) ---
 # "bridge": DEPOSIT — locks L1 coins in the keyless escrow account BRIDGE_ESCROW; an execution node reads
@@ -202,18 +218,14 @@ REGISTER_POW_BITS = 16             # one-time light registration puzzle (~1s in 
                                    # the lane cap is — this only throttles trivial mempool spam.
 OPEN_BASE_FLOOR = 1                # every registered+present identity's minimum open weight (never 0)
 OPEN_FID_BONUS = 9                 # max diligence bonus: open weight ranges OPEN_BASE_FLOOR..+9 (1..10)
-PRESENCE_WINDOW = 3                # epochs: an open identity needs a heartbeat within this to stay weighted
 GC_IDLE_EPOCHS = 1000              # prune registry rows idle this long (bounds state bloat)
 
-# automated fidelity / continuity (signed software heartbeats — NO manual ceremony, NOT IDENA-style)
-FIDELITY_CAP = 1000                # epochs of continuous presence to fully ramp the open bonus
-FIDELITY_GAIN = 1                  # per epoch present
-FIDELITY_DECAY = 1                 # per epoch absent — NOW WIRED (account_ops.apply_heartbeat): fidelity
-                                   # decays for the gap since the last heartbeat, so it measures CONTINUOUS
-                                   # presence (a churned/rotated Sybil cannot keep a ramp it stopped
-                                   # earning). == gain: mobile-friendly (a phone missing a few epochs is not
-                                   # wiped); it's only a ~10x booster, NOT the Sybil bound, so harsh
-                                   # anti-churn would be counterproductive.
+# Continuity FIDELITY — now driven by the PoSW RECERT (the single presence signal; there is no separate
+# heartbeat). Each continuous recert (gap <= POSW_LEASE_EPOCHS) adds FIDELITY_GAIN; a lapse RESETS the streak.
+# So fidelity measures CONSECUTIVE recerts (≈ days of continuous presence). A churned/rotated Sybil cannot keep
+# a ramp it stopped paying for. It is only a ~10x open-weight booster, NOT the Sybil bound (the 20% lane cap is).
+FIDELITY_CAP = 30                  # consecutive recerts (~days) to fully ramp the open bonus
+FIDELITY_GAIN = 1                  # per continuous recert
 
 # Seed for the per-epoch selection beacon (S4.3). Epochs 0-1 use this fixed constant directly
 # (no finalized prior epoch exists yet); epoch>=2 chains it with the hash of the first block of

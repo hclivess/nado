@@ -602,6 +602,26 @@ async def aliases_of(request):
     return _resp({"address": addr, "aliases": names})
 
 
+async def get_htlc(request):
+    # A single HTLC (cross-chain atomic swap) by id (== the lock tx's txid), or null if unknown.
+    from ops import kv_ops
+    hid = _q(request, "id", "")
+    doc = await asyncio.to_thread(kv_ops.htlc_get, hid)
+    return _resp({"id": hid, "htlc": doc})
+
+
+async def htlcs(request):
+    # All HTLCs, optionally filtered to those where `address` is the sender OR claimant (the wallet's swaps).
+    if _rate_limited(request, 60):
+        return _RL
+    from ops import kv_ops
+    addr = _q(request, "address")
+    allh = await asyncio.to_thread(kv_ops.htlc_all)
+    if addr:
+        allh = {i: d for i, d in allh.items() if d.get("sender") == addr or d.get("claimant") == addr}
+    return _resp({"htlcs": allh})
+
+
 async def static_handler(request):
     rel = request.match_info.get("path", "")
     full = os.path.normpath(os.path.join(_STATIC_DIR, rel))
@@ -662,6 +682,8 @@ async def make_app(port):
         web.get("/get_open_weights", get_open_weights),
         web.get("/get_settled", get_settled),
         web.get("/resolve_alias", resolve_alias),
+        web.get("/get_htlc", get_htlc),
+        web.get("/htlcs", htlcs),
         web.get("/get_aliases_of", aliases_of),
         web.get("/terminate", terminate),
         web.get("/health", health),

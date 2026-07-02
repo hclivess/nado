@@ -1,6 +1,6 @@
 from ops import kv_ops
 from ops.address_ops import make_address
-from protocol import B_MIN, EPOCH_LENGTH, PRESENCE_WINDOW, FIDELITY_GAIN, FIDELITY_DECAY, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS
+from protocol import B_MIN, EPOCH_LENGTH, FIDELITY_GAIN, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS, HTLC_ESCROW
 
 # Account state lives in the schemaless `accounts` sub-DB as a msgpack document keyed by address
 # (see ops/kv_ops.py). Missing fields default to 0 on read, so adding a field (as we did with
@@ -70,9 +70,6 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     # balance or charges a fee (a 0-balance address could not pay one) — validation enforces fee==0.
     if recipient == "register":
         apply_register(address=sender, epoch=(block_height // EPOCH_LENGTH), logger=logger, revert=revert)
-        return
-    if recipient == "heartbeat":
-        apply_heartbeat(address=sender, epoch=block_height // EPOCH_LENGTH, logger=logger, revert=revert)
         return
 
     # --- SLASHING (#15 step 5C): a fee-exempt tx carrying a proven equivocation proof in `data`.
@@ -155,6 +152,48 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             kv_ops.bridge_nullifier_del(addr, nonce)
         else:
             kv_ops.bridge_nullifier_put(addr, nonce)
+        return
+
+    # --- HTLC LOCK (cross-chain atomic swap): move amount+fee from sender, LOCK `amount` in HTLC_ESCROW,
+    # burn the fee, and record the swap keyed by THIS tx's txid. Validation checked hashlock/expiry/funds. ---
+    if recipient == "htlc_lock":
+        data = transaction.get("data") or {}
+        change_balance(address=sender, amount=-(amount + fee), logger=logger, revert=revert)
+        change_balance(address=HTLC_ESCROW, amount=amount, logger=logger, revert=revert)
+        if revert:
+            kv_ops.htlc_del(transaction["txid"])
+        else:
+            kv_ops.htlc_put(transaction["txid"], {
+                "sender": sender, "claimant": data["claimant"], "amount": int(amount),
+                "hashlock": data["hashlock"], "expiry": int(data["expiry"]), "status": "open"})
+        return
+
+    # --- HTLC CLAIM (fee-exempt): the claimant revealed the preimage (validation verified sha256==hashlock,
+    # status open, not expired, sender==claimant). Release escrow -> claimant and record the preimage
+    # (publishing it is what lets the counterparty claim the mirrored lock on the other chain). ---
+    if recipient == "htlc_claim":
+        data = transaction.get("data") or {}
+        doc = kv_ops.htlc_get(data["htlc_id"])
+        amt = int(doc["amount"])
+        change_balance(address=HTLC_ESCROW, amount=-amt, logger=logger, revert=revert)
+        change_balance(address=doc["claimant"], amount=amt, logger=logger, revert=revert)
+        if revert:
+            doc["status"] = "open"; doc.pop("preimage", None)
+        else:
+            doc["status"] = "claimed"; doc["preimage"] = data["preimage"]
+        kv_ops.htlc_put(data["htlc_id"], doc)
+        return
+
+    # --- HTLC REFUND (fee-exempt): after `expiry`, the original sender reclaims an UNCLAIMED lock.
+    # Validation verified status open, height >= expiry, and sender == the lock's sender. ---
+    if recipient == "htlc_refund":
+        data = transaction.get("data") or {}
+        doc = kv_ops.htlc_get(data["htlc_id"])
+        amt = int(doc["amount"])
+        change_balance(address=HTLC_ESCROW, amount=-amt, logger=logger, revert=revert)
+        change_balance(address=doc["sender"], amount=amt, logger=logger, revert=revert)
+        doc["status"] = "open" if revert else "refunded"
+        kv_ops.htlc_put(data["htlc_id"], doc)
         return
 
     # --- DIVIDEND COLLECTION (doc/presence-dividend.md): release `amount` from the DIVIDEND_POOL to the proven
@@ -285,38 +324,48 @@ def get_bonded_registry():
 
 
 def get_open_registry(current_epoch: int):
-    """OPEN-lane producer registry (S4 two-lane): {address: {"fidelity": int}} for every account
-    that has REGISTERED (one-time PoW) and posted a heartbeat within the last PRESENCE_WINDOW
-    epochs. Together with mining_ops.lane_of + the beacon this is the input to the open-lane draw.
-
-    Membership is DERIVED from the heartbeats sub-DB (revert-safe: incorporate inserts, rollback
-    deletes), so an abandoned registration drops out automatically without any decay bookkeeping.
-    Deterministic — the same committed state yields the same dict on every node — and MUST be read
+    """OPEN-lane producer registry (S4 two-lane): {address: {"fidelity": int}} for every account with a
+    VALID LEASE — a PoSW recert within the last POSW_LEASE_EPOCHS. Presence IS the lease: there is no
+    separate heartbeat mechanism (doc/presence-dividend.md §2.4) — the recert is the single presence +
+    anti-Sybil signal. Membership is DERIVED from the revert-safe recert_by_epoch index (incorporate
+    inserts, rollback deletes), so a lapsed identity drops out automatically. Deterministic, and read
     against PARENT state on the production/verification paths (as-of-parent guard, task #17)."""
-    present = kv_ops.heartbeat_addresses_after(current_epoch - PRESENCE_WINDOW)
     registry = {}
-    for address in present:
+    for address in kv_ops.recert_addresses_after(current_epoch - POSW_LEASE_EPOCHS):
         account = kv_ops.get_account(address)
         if account and account.get("registered", 0) == 1:
-            # PRESENCE LEASE: eligible only if a PoSW recert landed within the last POSW_LEASE_EPOCHS.
-            if kv_ops.recert_latest(address) >= current_epoch - POSW_LEASE_EPOCHS:
-                registry[address] = {"fidelity": account.get("fidelity", 0)}
+            registry[address] = {"fidelity": account.get("fidelity", 0)}
     return registry
 
 
 def apply_register(address: str, epoch: int, logger, revert=False):
-    """Renewable presence LEASE (doc/ip-spoofing-and-sybil.md): a valid register/recert (its PoSW is
-    checked in transaction validation) records a recert at `epoch` and marks the address registered;
-    OPEN-lane eligibility then requires a recert within POSW_LEASE_EPOCHS (get_open_registry). Revert-
-    symmetric: rollback deletes the recert row and, only if the address has NO recert left, clears the
-    registered flag (mirrors the pubkey-once revert)."""
+    """Renewable presence LEASE + continuity FIDELITY. A valid register/recert (its PoSW checked in tx
+    validation) records a recert at `epoch`, marks the address registered, and updates fidelity: +GAIN if
+    this recert is CONTINUOUS with the previous one (gap <= POSW_LEASE_EPOCHS), else it RESETS to GAIN (a
+    lapse loses the streak). fidelity ramps over ~FIDELITY_CAP recerts (≈ days). Revert-symmetric: the
+    exact fidelity net is stored (hb_revert store reused) and restored, the recert rows removed, and
+    `registered` cleared only if no recert remains."""
     if revert:
+        rec = kv_ops.hb_revert_pop(epoch, address)
+        if rec is not None:
+            _prev, net = rec
+            if not kv_ops.account_adjust(address, "fidelity", -net, floor_zero=True):
+                raise AssertionError(f"Fidelity revert underflow for {address}")
         kv_ops.recert_del(address, epoch)
         if kv_ops.recert_latest(address) < 0:
             kv_ops.account_set(address, "registered", 0)
     else:
+        prev = kv_ops.recert_latest(address)                    # previous recert epoch (before this one)
+        acc = kv_ops.get_account(address)
+        cur_fid = int(acc.get("fidelity", 0)) if acc else 0
+        continuous = prev >= 0 and (epoch - prev) <= POSW_LEASE_EPOCHS
+        decay = 0 if continuous else cur_fid                    # a lapse (or first recert) resets to GAIN
+        net = FIDELITY_GAIN - decay                             # cur_fid+net = cur_fid+GAIN (cont) or GAIN
         kv_ops.recert_put(address, epoch)
         kv_ops.account_set(address, "registered", 1)
+        if not kv_ops.account_adjust(address, "fidelity", net, floor_zero=True):
+            raise AssertionError(f"Fidelity underflow for {address}")
+        kv_ops.hb_revert_put(epoch, address, prev, net)         # exact inverse for rollback
     return True
 
 
@@ -343,43 +392,3 @@ def apply_slash(address, height, logger, revert=False):
         kv_ops.slash_clear(address, height)
     else:
         kv_ops.slash_record(address, height)
-
-
-def apply_heartbeat(address: str, epoch: int, logger, revert=False):
-    """Record (apply) / remove (revert) a per-epoch presence heartbeat: write the heartbeats sub-DB
-    and bump the fidelity counter. One heartbeat per (address, epoch) is enforced at tx validation,
-    and the DUPSORT heartbeats sub-DB auto-dedups identical (epoch,address) dups. Fully revert-
-    symmetric: incorporate inserts the exact dup + bumps fidelity, rollback deletes that exact dup +
-    decrements (the GC of pre-presence-window epochs is intentionally NOT reverted — those rows are
-    outside any rollback/read window)."""
-    if not revert:
-        kv_ops.heartbeat_put(epoch, address)
-        # FIDELITY with ABSENCE DECAY (continuous-presence, anti-Sybil): decay for the gap since the
-        # account's last heartbeat, CAPPED at its current fidelity so the result never floors (=> the
-        # net change is exactly invertible), then +GAIN for this epoch's presence.
-        acc = kv_ops.get_account(address)
-        cur_fid = int(acc.get("fidelity", 0)) if acc else 0
-        prev = int(acc.get("last_hb_epoch", 0)) if acc else 0    # 0 = never / genesis => no gap
-        gap = max(0, epoch - prev - 1) if prev > 0 else 0
-        decay = min(cur_fid, FIDELITY_DECAY * gap)
-        net = FIDELITY_GAIN - decay                              # cur_fid + net >= GAIN >= 0 (never floors)
-        if not kv_ops.account_adjust(address, "fidelity", net, floor_zero=True):
-            logger.error(f"Fidelity adjust underflow for {address} (net={net})")
-            raise AssertionError(f"Fidelity underflow for {address}")
-        kv_ops.account_set(address, "last_hb_epoch", epoch)
-        kv_ops.hb_revert_put(epoch, address, prev, net)          # exact inverse for rollback
-        # ANTI-BLOAT GC: drop presence + revert rows older than the presence window. get_open_registry
-        # only reads epoch > current - PRESENCE_WINDOW and rollbacks are bounded (max_rollbacks <
-        # EPOCH_LENGTH << PRESENCE_WINDOW epochs), so these rows are never read or reverted again.
-        kv_ops.heartbeat_gc(epoch - PRESENCE_WINDOW)
-        kv_ops.hb_revert_gc(epoch - PRESENCE_WINDOW)
-    else:
-        kv_ops.heartbeat_del(epoch, address)
-        rec = kv_ops.hb_revert_pop(epoch, address)
-        assert rec is not None, f"missing heartbeat revert record for ({epoch}, {address})"
-        prev, net = rec
-        if not kv_ops.account_adjust(address, "fidelity", -net, floor_zero=True):
-            logger.error(f"Fidelity revert underflow for {address} (net={net})")
-            raise AssertionError(f"Fidelity underflow for {address}")
-        kv_ops.account_set(address, "last_hb_epoch", prev)       # restore exactly (byte-identical)
-    return True

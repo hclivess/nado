@@ -21,7 +21,12 @@ from ops.peer_ops import load_ips
 from ops import kv_ops
 from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH,
                       BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK, BRIDGE_ESCROW, DIVIDEND_POOL,
-                      POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET)
+                      POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET,
+                      HTLC_ESCROW, HTLC_MIN_TIMELOCK, HTLC_MAX_TIMELOCK)
+
+
+def _is_hex(s) -> bool:
+    return isinstance(s, str) and len(s) % 2 == 0 and len(s) > 0 and all(c in "0123456789abcdefABCDEF" for c in s)
 import aiohttp
 
 
@@ -259,8 +264,6 @@ def reserved_uniqueness_key(tx):
     try:
         if r in ("withdraw", "unbond", "register"):
             return (r, tx["sender"])                                  # one per sender per block
-        if r == "heartbeat":
-            return ("heartbeat", tx["sender"], tx["target_block"] // EPOCH_LENGTH)
         if r in ("attest", "commit"):
             return (r, tx["sender"], (tx.get("data") or {}).get("target_epoch"))
         if r == "reveal":
@@ -278,6 +281,8 @@ def reserved_uniqueness_key(tx):
         if r == "dividend_withdraw":
             d = tx.get("data") or {}
             return ("dividend_withdraw", d.get("addr"), d.get("nonce"))                  # one dividend claim per (addr, nonce)
+        if r in ("htlc_claim", "htlc_refund"):
+            return ("htlc_settle", (tx.get("data") or {}).get("htlc_id"))               # one claim OR refund per HTLC per block
     except Exception:
         return ("malformed", tx.get("txid"))   # unique-ish; the tx is rejected by validate_transaction
     return None
@@ -427,41 +432,23 @@ def validate_transaction(transaction, logger, block_height):
             assert data.get("amount") == pending["amount"] and data.get("release_block") == pending["release_block"], \
                 "withdraw data does not match the pending unbond"
             assert acc.get("bonded", 0) >= pending["amount"], "bonded stake is below the pending unbond"
-    elif recipient in ("register", "heartbeat"):
-        # OPEN-lane mining txs: FEE-EXEMPT (a zero-balance newcomer can't pay) and move no coins.
-        assert transaction["amount"] == 0, "Open-lane (register/heartbeat) tx must have zero amount"
-        assert transaction["fee"] == 0, "Open-lane (register/heartbeat) tx is fee-exempt (fee must be 0)"
-        if recipient == "register":
-            # SEQUENTIAL Proof-of-Work (doc/ip-spoofing-and-sybil.md, Appendix A): a non-parallelizable
-            # hash-chain PoSW replaces the old parallelizable hashcash, so a GPU can't mint identities in
-            # bulk. The challenge binds sender ‖ hash of block (target_block − POSW_ANCHOR_OFFSET) — a
-            # finalized, stable block — so the proof is un-precomputable far ahead and non-reusable across
-            # identities. `register` is a RENEWABLE presence lease (no "already registered" check).
-            from ops import posw
-            from ops.block_ops import get_block_hash_by_number
-            anchor = get_block_hash_by_number(max(0, transaction["target_block"] - POSW_ANCHOR_OFFSET))
-            assert anchor, "PoSW anchor block not found"
-            proof = transaction.get("posw")
-            assert proof, "Missing registration PoSW"
-            assert posw.verify(posw.challenge_bytes(transaction["sender"], anchor), proof,
-                               POSW_T, POSW_S, POSW_K), "Invalid registration PoSW"
-        else:  # heartbeat
-            # Bound to the epoch of the block it DETERMINISTICALLY lands in — its target_block (the
-            # block builder matches a tx into exactly target_block == block_number). Validating against
-            # target_block (NOT the passed block_height) makes the mempool gate (block_height = current
-            # tip) AGREE with block-build validation (block_height = block_number == target_block) and
-            # with apply_heartbeat's recorded epoch — so a heartbeat near an epoch boundary is no longer
-            # spuriously rejected just because the tip's epoch differs from its landing block's epoch.
-            # Still unforgeable/non-replayable: epoch + target_block are in the signed body (the txid),
-            # and one-per-(address,epoch) is enforced by the DUPSORT heartbeats sub-DB on apply.
-            assert transaction.get("epoch") == transaction["target_block"] // EPOCH_LENGTH, "Heartbeat epoch mismatch"
-            assert get_account(transaction["sender"])["registered"] == 1, "Heartbeat from an unregistered address"
-            # AUDIT FIX: one heartbeat per (address, epoch) — the DUPSORT row dedups but does not reject
-            # a second tx, so without this the fidelity counter is farmed and a reorg can over-delete the
-            # shared presence row (open-registry desync fork). Cross-block guard; same-block dups are
-            # dropped by block assembly + rejected by assert_unique_reserved.
-            assert not kv_ops.heartbeat_present(transaction["target_block"] // EPOCH_LENGTH, transaction["sender"]), \
-                "Already heartbeated this epoch"
+    elif recipient == "register":
+        # OPEN-lane entry/renewal: FEE-EXEMPT (a zero-balance newcomer can't pay) and moves no coins.
+        assert transaction["amount"] == 0, "register tx must have zero amount"
+        assert transaction["fee"] == 0, "register tx is fee-exempt (fee must be 0)"
+        # SEQUENTIAL Proof-of-Work (doc/ip-spoofing-and-sybil.md, Appendix A): a non-parallelizable hash-chain
+        # PoSW so a GPU can't mint identities in bulk. The challenge binds sender ‖ hash of block
+        # (target_block − POSW_ANCHOR_OFFSET) — a finalized, stable block — so the proof is un-precomputable
+        # far ahead and non-reusable. `register` is a RENEWABLE presence LEASE and the SINGLE presence signal
+        # (no separate heartbeat): a fresh recert keeps you eligible for POSW_LEASE_EPOCHS (doc/presence-dividend.md §2.4).
+        from ops import posw
+        from ops.block_ops import get_block_hash_by_number
+        anchor = get_block_hash_by_number(max(0, transaction["target_block"] - POSW_ANCHOR_OFFSET))
+        assert anchor, "PoSW anchor block not found"
+        proof = transaction.get("posw")
+        assert proof, "Missing registration PoSW"
+        assert posw.verify(posw.challenge_bytes(transaction["sender"], anchor), proof,
+                           POSW_T, POSW_S, POSW_K), "Invalid registration PoSW"
     elif recipient == "alias":
         # ALIAS op (register / transfer / unregister): validate the op, name, ownership + fee floor.
         from ops import alias_ops
@@ -531,6 +518,45 @@ def validate_transaction(transaction, logger, block_height):
         assert not kv_ops.dividend_nullifier_exists(addr, nonce), "this dividend was already collected"
         pool = get_account(DIVIDEND_POOL, create_on_error=False)
         assert pool and pool.get("balance", 0) >= amount, "dividend pool underfunded"
+    elif recipient == "htlc_lock":
+        # HTLC LOCK (cross-chain atomic swap): escrow `amount` under a SHA-256 hashlock + block-height timelock.
+        data = transaction.get("data") or {}
+        h = transaction["target_block"]                          # deterministic landing height (mempool == build)
+        assert transaction["amount"] > 0, "HTLC lock amount must be positive"
+        assert transaction["fee"] >= MIN_TX_FEE, f"HTLC lock fee below minimum {MIN_TX_FEE}"
+        claimant, hashlock, expiry = data.get("claimant"), data.get("hashlock"), data.get("expiry")
+        assert isinstance(claimant, str) and claimant.startswith("ndo") and len(claimant) == 49, "bad HTLC claimant address"
+        assert claimant != transaction["sender"], "HTLC claimant must differ from the sender"
+        assert isinstance(hashlock, str) and len(hashlock) == 64 and _is_hex(hashlock), "HTLC hashlock must be 32-byte SHA-256 hex"
+        assert isinstance(expiry, int) and not isinstance(expiry, bool), "HTLC expiry must be an int block height"
+        assert h + HTLC_MIN_TIMELOCK <= expiry <= h + HTLC_MAX_TIMELOCK, "HTLC expiry outside the allowed timelock window"
+    elif recipient == "htlc_claim":
+        # HTLC CLAIM: reveal the preimage before expiry. Fee-EXEMPT so a zero-balance claimant can still claim.
+        import hashlib
+        data = transaction.get("data") or {}
+        h = transaction["target_block"]
+        assert transaction["amount"] == 0, "htlc_claim carries no amount"
+        assert transaction["fee"] == 0, "htlc_claim is fee-exempt"
+        hid, preimage = data.get("htlc_id"), data.get("preimage")
+        assert isinstance(hid, str) and hid, "bad HTLC id"
+        assert _is_hex(preimage) and len(preimage) <= 128, "HTLC preimage must be hex (<= 64 bytes)"
+        doc = kv_ops.htlc_get(hid)
+        assert doc and doc.get("status") == "open", "no OPEN HTLC with that id"
+        assert transaction["sender"] == doc["claimant"], "only the claimant may claim this HTLC"
+        assert h < int(doc["expiry"]), "HTLC has expired — the claim window is closed"
+        assert hashlib.sha256(bytes.fromhex(preimage)).hexdigest() == doc["hashlock"], "preimage does not match the hashlock"
+    elif recipient == "htlc_refund":
+        # HTLC REFUND: the original sender reclaims an unclaimed lock after expiry. Fee-EXEMPT.
+        data = transaction.get("data") or {}
+        h = transaction["target_block"]
+        assert transaction["amount"] == 0, "htlc_refund carries no amount"
+        assert transaction["fee"] == 0, "htlc_refund is fee-exempt"
+        hid = data.get("htlc_id")
+        assert isinstance(hid, str) and hid, "bad HTLC id"
+        doc = kv_ops.htlc_get(hid)
+        assert doc and doc.get("status") == "open", "no OPEN HTLC with that id"
+        assert transaction["sender"] == doc["sender"], "only the original sender may refund this HTLC"
+        assert h >= int(doc["expiry"]), "HTLC has not expired yet — refund is not available"
     else:
         # ordinary transfer / bond / send-to-alias: deterministic minimum-fee floor (anti-spam), block 1
         assert transaction["fee"] >= MIN_TX_FEE, f"Transaction fee below minimum {MIN_TX_FEE}"
