@@ -886,11 +886,32 @@ async function getRichest() {
   return _richestCache.value;
 }
 const PILE_MAX_LEVELS = 7;
-function _coin(cx, cy) {
+// MATERIAL TIERS: as your share of the richest wallet climbs, the pile ramps in quantity, then advances
+// material — bronze → silver → gold → diamond — resetting to a small pile of the shinier metal each step.
+const PILE_TIERS = [
+  { id: "bronze",  g: ["#e8a866", "#cd7f32", "#8a5a1e"], base: "#5f3d14", hi: "#f6d6a8", stroke: "#7a4e1a", key: "pile.bronze",  en: "bronze" },
+  { id: "silver",  g: ["#f7f9fb", "#cbd3db", "#8a94a0"], base: "#5f6874", hi: "#ffffff", stroke: "#98a2ae", key: "pile.silver",  en: "silver" },
+  { id: "gold",    g: ["#ffe066", "#f5c542", "#d69a1e"], base: "#8a6a12", hi: "#fff3c4", stroke: "#a9781a", key: "pile.gold",    en: "gold" },
+  { id: "diamond", g: ["#eafcff", "#a7e9f7", "#54c6ea"], base: "#2f7fa0", hi: "#ffffff", stroke: "#7fd3ec", key: "pile.diamond", en: "diamond" },
+];
+// map a 0..1 wealth ratio to {t: tier index, fill: 0..1 progress WITHIN that tier}. Bronze is the widest
+// band (most miners); silver/gold/diamond are progressively rarer (only the near-richest reach them).
+function _pileTier(ratio) {
+  const bands = [0, 0.40, 0.65, 0.88, 1.0001];
+  for (let t = 0; t < 4; t++) if (ratio < bands[t + 1]) return { t, fill: Math.max(0, Math.min(1, (ratio - bands[t]) / (bands[t + 1] - bands[t]))) };
+  return { t: 3, fill: 1 };
+}
+function _coin(cx, cy, m) {   // a stacked coin rendered in material m (its gradient id is "pileMat")
   const rx = 18, ry = 7.5;
-  return `<g><ellipse cx="${cx}" cy="${cy + 4}" rx="${rx}" ry="${ry}" fill="#8a6a12"/>` +
-    `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#coinGold)" stroke="#a9781a" stroke-width="1"/>` +
-    `<ellipse cx="${cx - rx * 0.28}" cy="${cy - ry * 0.35}" rx="${rx * 0.42}" ry="${ry * 0.4}" fill="#fff3c4" opacity="0.75"/></g>`;
+  return `<g><ellipse cx="${cx}" cy="${cy + 4}" rx="${rx}" ry="${ry}" fill="${m.base}"/>` +
+    `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#pileMat)" stroke="${m.stroke}" stroke-width="1"/>` +
+    `<ellipse cx="${cx - rx * 0.28}" cy="${cy - ry * 0.35}" rx="${rx * 0.42}" ry="${ry * 0.4}" fill="${m.hi}" opacity="0.7"/></g>`;
+}
+function _gem(cx, cy, m) {    // a faceted diamond for the top tier
+  const w = 14, h = 15;
+  return `<g><path d="M${cx} ${cy + h * 0.62} L${cx - w} ${cy - h * 0.15} L${cx - w * 0.5} ${cy - h * 0.5} L${cx + w * 0.5} ${cy - h * 0.5} L${cx + w} ${cy - h * 0.15} Z" fill="url(#pileMat)" stroke="${m.stroke}" stroke-width="1"/>` +
+    `<path d="M${cx - w} ${cy - h * 0.15} L${cx + w} ${cy - h * 0.15} L${cx} ${cy + h * 0.62} Z" fill="${m.stroke}" opacity="0.22"/>` +
+    `<path d="M${cx - w * 0.5} ${cy - h * 0.5} L${cx} ${cy - h * 0.15} L${cx + w * 0.5} ${cy - h * 0.5} Z" fill="${m.hi}" opacity="0.65"/></g>`;
 }
 function renderCoinPile(totalRaw, richestRaw) {
   const svg = $("coinPile"), cap = $("coinPileCap"), wrap = $("coinPileWrap");
@@ -907,13 +928,16 @@ function renderCoinPile(totalRaw, richestRaw) {
   const rich = richestRaw > 0n ? richestRaw : 0n;
   const ratio = (totalRaw > 0n && rich > 0n) ? Math.min(1, Number((totalRaw * 1000000n) / rich) / 1000000) : (totalRaw > 0n ? 1 : 0);
   const isTop = totalRaw > 0n && totalRaw >= rich;                 // you're the richest (or tied / network unknown)
-  const L = totalRaw <= 0n ? 0 : Math.max(1, Math.ceil(Math.sqrt(ratio) * PILE_MAX_LEVELS));
-  const defs = `<defs><linearGradient id="coinGold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe066"/><stop offset="0.5" stop-color="#f5c542"/><stop offset="1" stop-color="#d69a1e"/></linearGradient></defs>`;
+  const { t: tierIdx, fill } = _pileTier(ratio);
+  const m = PILE_TIERS[tierIdx];
+  const L = Math.max(1, Math.round(1 + fill * (PILE_MAX_LEVELS - 1)));   // 1..MAX rows WITHIN this material tier
+  const defs = `<defs><linearGradient id="pileMat" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${m.g[0]}"/><stop offset="0.5" stop-color="${m.g[1]}"/><stop offset="1" stop-color="${m.g[2]}"/></linearGradient></defs>`;
+  const draw = tierIdx === 3 ? _gem : _coin;                       // diamonds (gems) for the top tier, coins otherwise
   const baseY = 132, dy = 11, sx = 21, cx0 = 120;
   let body = "";
   for (let row = 0; row < L; row++) {                              // row 0 = bottom (widest)
     const n = L - row, y = baseY - row * dy, startX = cx0 - (n - 1) * sx / 2;
-    for (let i = 0; i < n; i++) body += _coin(startX + i * sx, y);
+    for (let i = 0; i < n; i++) body += draw(startX + i * sx, y, m);
   }
   let crown = "";
   if (isTop) {
@@ -922,8 +946,9 @@ function renderCoinPile(totalRaw, richestRaw) {
       `<circle cx="-14" cy="-6" r="2.4" fill="#ffe066"/><circle cx="0" cy="-11" r="2.6" fill="#ffe066"/><circle cx="14" cy="-6" r="2.4" fill="#ffe066"/></g>`;
   }
   svg.innerHTML = defs + body + crown;
-  if (isTop) cap.textContent = i18("pile.richest", "👑 Richest wallet on the network!");
-  else { const pct = ratio * 100; cap.textContent = `${pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)}% ${i18("pile.ofRichest", "of the richest wallet on the network")}`; }
+  const tierName = i18(m.key, m.en);
+  if (isTop) cap.textContent = i18("pile.richest", "👑 Richest wallet on the network!") + " · " + tierName;
+  else { const pct = ratio * 100; cap.textContent = `${pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)}% ${i18("pile.ofRichest", "of the richest wallet on the network")} · ${tierName}`; }
 }
 async function updateCoinPile(totalRaw) {
   try { renderCoinPile(totalRaw, await getRichest()); } catch (e) { /* non-fatal cosmetic */ }
