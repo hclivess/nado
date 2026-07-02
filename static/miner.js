@@ -18,6 +18,8 @@ import * as alghash from "./alghash.js";
 import * as sfield from "./stark/field.js";
 import { initHashing as initStarkHashing } from "./stark/hashing.js";
 import { initBlake2bWasm } from "./vendor/blake2b-wasm.js";
+import { initGoldilocksWasm } from "./vendor/goldilocks-wasm.js";
+import { setFieldWasm } from "./stark/field.js";
 import * as sjoinsplit2 from "./stark/joinsplit2.js";
 import * as sstark from "./stark/stark.js";
 import { treePath } from "./stark/tree.js";
@@ -2498,6 +2500,7 @@ async function ensureFastStarkHash() {
   } catch (e) {
     initStarkHashing(blake2bHash);   // wasm unavailable -> pure-JS fallback
   }
+  try { setFieldWasm(await initGoldilocksWasm()); } catch (e) { /* NTT stays pure-JS BigInt */ }
   _starkInit = true;
 }
 async function _onDeviceProve2(wit, execBase) {

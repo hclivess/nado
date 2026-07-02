@@ -65,10 +65,22 @@ function twiddles(n, inverse) {
   return tw;
 }
 
+let _fw = null;   // optional WASM Goldilocks backend {ntt, scale, view, NMAX}
+export function setFieldWasm(fw) { _fw = fw; }
+
 export function ntt(coeffs, inverse = false) {
-  const a = coeffs.map((c) => mod(BigInt(c)));
-  const n = a.length;
+  const n = coeffs.length;
   if (n & (n - 1)) throw new Error("length must be a power of two");
+  if (_fw && n <= _fw.NMAX) {
+    const v = _fw.view;
+    for (let i = 0; i < n; i++) v[i] = BigInt.asUintN(64, mod(BigInt(coeffs[i])));
+    const root = inverse ? inv(primitiveRootOfUnity(n)) : primitiveRootOfUnity(n);
+    _fw.ntt(n, BigInt.asUintN(64, root), inverse ? 1 : 0, inverse ? BigInt.asUintN(64, inv(BigInt(n))) : 0n);
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) out[i] = v[i];
+    return out;
+  }
+  const a = coeffs.map((c) => mod(BigInt(c)));
   bitrev(a);
   const tw = twiddles(n, inverse);
   let length = 2;
@@ -99,6 +111,15 @@ export function polyEval(coeffs, x) {
 
 // evaluate a coefficient polynomial (len <= N) on the size-N coset {offset·w^i}
 export function cosetEvaluate(coeffs, N, offset) {
+  if (_fw && N <= _fw.NMAX) {
+    const v = _fw.view, c = coeffs;
+    for (let i = 0; i < N; i++) v[i] = i < c.length ? BigInt.asUintN(64, mod(BigInt(c[i]))) : 0n;
+    _fw.scale(N, BigInt.asUintN(64, mod(offset)));
+    _fw.ntt(N, BigInt.asUintN(64, primitiveRootOfUnity(N)), 0, 0n);
+    const out = new Array(N);
+    for (let i = 0; i < N; i++) out[i] = v[i];
+    return out;
+  }
   const c = coeffs.slice(); while (c.length < N) c.push(0n);
   let scale = 1n;
   const g = new Array(N);
