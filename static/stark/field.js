@@ -20,6 +20,17 @@ export function pw(a, e) {
 export const inv = (a) => pw(mod(a), P - 2n);
 export const div = (a, b) => mul(a, inv(b));
 
+// Montgomery batch inversion: invert a whole vector with ONE modular inversion + ~3N muls (instead of N invs).
+// Assumes no zero entries (true for the STARK's coset-vs-trace-domain denominators).
+export function batchInverse(vals) {
+  const n = vals.length, out = new Array(n), prefix = new Array(n);
+  let acc = 1n;
+  for (let i = 0; i < n; i++) { prefix[i] = acc; acc = mul(acc, vals[i]); }
+  let invAcc = inv(acc);
+  for (let i = n - 1; i >= 0; i--) { out[i] = mul(prefix[i], invAcc); invAcc = mul(invAcc, vals[i]); }
+  return out;
+}
+
 export function primitiveRootOfUnity(n) { return pw(GEN, (P - 1n) / BigInt(n)); }
 
 export function domain(n, offset = 1n) {

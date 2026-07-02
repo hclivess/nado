@@ -17,6 +17,7 @@ import * as shielded from "./shielded.js";
 import * as alghash from "./alghash.js";
 import * as sfield from "./stark/field.js";
 import { initHashing as initStarkHashing } from "./stark/hashing.js";
+import { initBlake2bWasm } from "./vendor/blake2b-wasm.js";
 import * as sjoinsplit2 from "./stark/joinsplit2.js";
 import * as sstark from "./stark/stark.js";
 import { treePath } from "./stark/tree.js";
@@ -2488,8 +2489,19 @@ async function shareText(text, title) {   // native share sheet (phones) with a 
 // ON-DEVICE 2-output prover: build the Merkle path from the pool + prove entirely in the browser, so the node
 // never sees the witness. Returns the same shape as the delegated /exec/prove_transfer2. (~20-30s at depth 12.)
 let _starkInit = false;
+async function ensureFastStarkHash() {
+  // route the prover's Merkle/transcript hashing through the WASM BLAKE2b (~50x faster; identical output).
+  if (_starkInit) return;
+  try {
+    const h = await initBlake2bWasm();
+    initStarkHashing((data, size = 32) => (size === 32 ? bytesToHex(h(canonicalBytes(data))) : blake2bHash(data, size)));
+  } catch (e) {
+    initStarkHashing(blake2bHash);   // wasm unavailable -> pure-JS fallback
+  }
+  _starkInit = true;
+}
 async function _onDeviceProve2(wit, execBase) {
-  if (!_starkInit) { initStarkHashing(blake2bHash); _starkInit = true; }
+  await ensureFastStarkHash();
   ensureShielded();
   const leaves = (await (await fetch(execBase + "/exec/field_leaves", { cache: "no-store" })).json()).leaves || [];
   const cm = BigInt(wit.cm);
