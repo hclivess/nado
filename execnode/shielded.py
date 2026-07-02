@@ -24,6 +24,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from hashing import blake2b_hash
+from Curve25519 import verify as mldsa_verify, unhex   # NADO's post-quantum ML-DSA-44 (module name is legacy)
 
 SHIELD_DEPTH = 32                                  # Merkle depth -> up to 2**32 notes in the pool
 ANCHOR_WINDOW = 128                                # recent roots a proof may target (bounded so the anchor set
@@ -54,17 +55,28 @@ def note_commitment(value: int, owner: str, rho: str) -> str:
     return _h("cm", int(value), owner, rho)
 
 
-def owner_id(spend_secret: str) -> str:
-    """Public owner identifier = H(spend_secret). You send a shielded note TO someone by committing to their
-    owner_id; only the holder of spend_secret can produce the note's nullifier and spend it."""
-    return _h("owner", spend_secret)
+def owner_id(pubkey: str) -> str:
+    """Public owner identifier = H(pubkey) of an ML-DSA-44 (post-quantum) SPEND KEY. You send a shielded note
+    TO someone by committing to their owner_id; only the holder of the matching private key can AUTHORISE the
+    spend (ML-DSA signature over the transfer, checked in verify_transfer)."""
+    return _h("owner", pubkey)
 
 
-def note_nullifier(spend_secret: str, rho: str) -> str:
-    """Deterministic, unlinkable spend tag. Binds the note's SECRET spend key + rho in a DIFFERENT domain than
-    the commitment, so a revealed nullifier cannot be linked back to its commitment. Revealed once, on spend,
-    to prevent double-spends."""
-    return _h("nf", spend_secret, rho)
+def note_nullifier(pubkey: str, rho: str) -> str:
+    """Deterministic, unlinkable spend tag = H(pubkey, rho), a DIFFERENT domain than the commitment so a
+    revealed nullifier cannot be linked to its commitment. Revealed once on spend to prevent double-spends.
+    (Note: the SENDER, who chose rho, can also compute this — a minor spend-detection leak that the Phase-2
+    STARK closes with a Zcash-style nullifier-key tree; theft is impossible regardless, since SPENDING needs
+    the ML-DSA private key, not just rho — doc/privacy.md.)"""
+    return _h("nf", pubkey, rho)
+
+
+def transfer_sighash(public: dict) -> str:
+    """The message an input's owner ML-DSA-signs to authorise the spend: binds ALL public parts of the
+    transfer (nullifiers, outputs, public value, fee), so a signature can't be replayed onto a different
+    transfer. Sorted for determinism."""
+    return _h("sighash", sorted(public.get("nullifiers", [])), sorted(public.get("out_commitments", [])),
+              int(public.get("public_value", 0)), int(public.get("fee", 0)))
 
 
 # --- fixed-depth Merkle commitment tree -----------------------------------------------------------
@@ -209,19 +221,28 @@ def verify_transfer(public: dict, proof: dict, root_is_known) -> tuple:
     if len(set(nfs)) != len(nfs):
         return False, "duplicate nullifier within the transfer"
 
+    sighash = transfer_sighash(public)
     in_sum = 0
     for i, w in enumerate(ins):
         try:
-            v = int(w["value"]); ss = w["spend_secret"]; rho = w["rho"]; pos = int(w["pos"]); path = w["path"]
+            v = int(w["value"]); pk = w["pubkey"]; rho = w["rho"]; pos = int(w["pos"]); path = w["path"]; sig = w["sig"]
         except (KeyError, TypeError, ValueError):
             return False, "malformed input witness"
         if v < 0:
             return False, "negative input value"
-        cm = note_commitment(v, owner_id(ss), rho)                 # reconstruct the input commitment
+        cm = note_commitment(v, owner_id(pk), rho)                 # reconstruct the input commitment
         if not verify_path(cm, pos, path, root):
             return False, f"input {i} not in the tree at root"
-        if note_nullifier(ss, rho) != nfs[i]:
+        if note_nullifier(pk, rho) != nfs[i]:
             return False, f"input {i} nullifier does not match the note"
+        # SPEND AUTHORISATION: the input's owner must ML-DSA-sign the transfer. Knowing the note opening
+        # (value, pubkey, rho) is NOT enough to spend — only the private key can produce this signature.
+        try:
+            authorised = mldsa_verify(signed=sig, message=unhex(sighash), public_key=pk)
+        except Exception:
+            authorised = False
+        if not authorised:
+            return False, f"input {i} spend authorisation (ML-DSA signature) invalid"
         in_sum += v
 
     out_sum = 0

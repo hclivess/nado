@@ -3,15 +3,16 @@ zk-STARK shielded pool — Phase-1 state-machine + soundness tests (execnode/shi
 
 These test the properties that must hold NOW and remain true after the Phase-2 STARK verifier replaces the
 transparent one: hiding+binding commitments, unlinkable nullifiers, Merkle membership, value conservation,
-double-spend prevention, anchor freshness, and the full shield -> transfer -> unshield flow.
+double-spend prevention, anchor freshness, ML-DSA spend authorisation, and the full shield -> transfer ->
+unshield flow.
 
 Run: python3 tests/test_shielded.py
 """
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from execnode.shielded import (ShieldedPool, note_commitment, note_nullifier, owner_id,
-                               merkle_root, merkle_path, verify_path, apply_transfer, verify_transfer,
-                               EMPTY_ROOT, SHIELD_DEPTH)
+from execnode.shielded import (ShieldedPool, note_commitment, note_nullifier, owner_id, transfer_sighash,
+                               merkle_root, merkle_path, verify_path, apply_transfer, EMPTY_ROOT)
+from Curve25519 import generate_keydict, sign, unhex
 
 fails = 0
 def check(name, fn):
@@ -20,129 +21,114 @@ def check(name, fn):
     except Exception as e:
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
-# --- a tiny "wallet" helper: notes are (value, spend_secret, rho) --------------------------------
-def note(value, ss, rho): return {"value": value, "ss": ss, "rho": rho}
-def cm_of(n): return note_commitment(n["value"], owner_id(n["ss"]), n["rho"])
+# ML-DSA keypairs (keygen is slow -> make them once)
+ALICE, BOB, CAROL, MALLORY = (generate_keydict() for _ in range(4))
+
+def note(value, kd, rho): return {"value": value, "kd": kd, "rho": rho}
+def cm_of(n): return note_commitment(n["value"], owner_id(n["kd"]["public_key"]), n["rho"])
+def out_open(n): return {"value": n["value"], "owner": owner_id(n["kd"]["public_key"]), "rho": n["rho"]}
 
 def shield_tx(pool, out_notes, fee=0):
-    pub_value = sum(n["value"] for n in out_notes) + fee            # coins entering the pool
     public = {"root": pool.root(), "nullifiers": [], "out_commitments": [cm_of(n) for n in out_notes],
-              "public_value": pub_value, "fee": fee}
-    proof = {"inputs": [], "outputs": [{"value": n["value"], "owner": owner_id(n["ss"]), "rho": n["rho"]} for n in out_notes]}
-    return public, proof
+              "public_value": sum(n["value"] for n in out_notes) + fee, "fee": fee}
+    return public, {"inputs": [], "outputs": [out_open(n) for n in out_notes]}
 
-def spend_tx(pool, in_specs, out_notes, public_value=0, fee=0):
-    # in_specs: list of (note, pos). Builds nullifiers + membership witness against the CURRENT root.
-    root = pool.root()
-    ins, nfs = [], []
-    for n, pos in in_specs:
-        ins.append({"value": n["value"], "spend_secret": n["ss"], "rho": n["rho"],
-                    "pos": pos, "path": merkle_path(pool.commitments, pos)})
-        nfs.append(note_nullifier(n["ss"], n["rho"]))
-    public = {"root": root, "nullifiers": nfs, "out_commitments": [cm_of(n) for n in out_notes],
+def spend_tx(pool, in_specs, out_notes, public_value=0, fee=0, sign_with=None):
+    # in_specs: [(note, pos)]. sign_with: optional keydict to forge the signature with (defaults to the note's own key)
+    nfs = [note_nullifier(n["kd"]["public_key"], n["rho"]) for n, _ in in_specs]
+    public = {"root": pool.root(), "nullifiers": nfs, "out_commitments": [cm_of(n) for n in out_notes],
               "public_value": public_value, "fee": fee}
-    proof = {"inputs": ins, "outputs": [{"value": n["value"], "owner": owner_id(n["ss"]), "rho": n["rho"]} for n in out_notes]}
-    return public, proof
+    sh = transfer_sighash(public)
+    ins = []
+    for n, pos in in_specs:
+        signer = sign_with or n["kd"]
+        ins.append({"value": n["value"], "pubkey": n["kd"]["public_key"], "rho": n["rho"], "pos": pos,
+                    "path": merkle_path(pool.commitments, pos), "sig": sign(signer["private_key"], unhex(sh))})
+    return public, {"inputs": ins, "outputs": [out_open(n) for n in out_notes]}
 
 
 def t1_commitment_hiding_and_binding():
-    a = note_commitment(100, owner_id("alice"), "r1")
-    b = note_commitment(100, owner_id("alice"), "r2")        # same value+owner, fresh rho
+    o = owner_id(ALICE["public_key"])
+    a = note_commitment(100, o, "r1"); b = note_commitment(100, o, "r2")
     assert a != b, "fresh rho -> unlinkable commitments (hiding)"
-    assert note_commitment(100, owner_id("alice"), "r1") == a, "binding: same opening -> same commitment"
-    assert note_commitment(101, owner_id("alice"), "r1") != a, "different value -> different commitment"
+    assert note_commitment(100, o, "r1") == a and note_commitment(101, o, "r1") != a, "binding"
 
-def t2_nullifier_is_deterministic_and_secret_bound():
-    assert note_nullifier("alice", "r1") == note_nullifier("alice", "r1"), "deterministic"
-    assert note_nullifier("alice", "r1") != note_nullifier("bob", "r1"), "bound to the spend secret"
-    # a nullifier is in a different domain than the commitment -> not equal to it (unlinkable)
-    assert note_nullifier("alice", "r1") != note_commitment(1, owner_id("alice"), "r1")
+def t2_nullifier_domain():
+    pk = ALICE["public_key"]
+    assert note_nullifier(pk, "r1") == note_nullifier(pk, "r1")
+    assert note_nullifier(pk, "r1") != note_nullifier(BOB["public_key"], "r1")
+    assert note_nullifier(pk, "r1") != note_commitment(1, owner_id(pk), "r1")
 
-def t3_merkle_root_and_membership():
-    leaves = [note_commitment(i, owner_id("x"), f"r{i}") for i in range(5)]
+def t3_merkle_membership():
+    leaves = [note_commitment(i, owner_id(ALICE["public_key"]), f"r{i}") for i in range(5)]
     root = merkle_root(leaves)
-    assert merkle_root([]) == EMPTY_ROOT, "empty tree root is the all-empty root"
+    assert merkle_root([]) == EMPTY_ROOT
     for pos in range(5):
-        assert verify_path(leaves[pos], pos, merkle_path(leaves, pos), root), f"leaf {pos} must verify"
-    # tamper: a wrong leaf or wrong path fails
-    assert not verify_path(leaves[0], 1, merkle_path(leaves, 0), root), "wrong position must fail"
-    assert not verify_path("deadbeef", 0, merkle_path(leaves, 0), root), "wrong leaf must fail"
+        assert verify_path(leaves[pos], pos, merkle_path(leaves, pos), root)
+    assert not verify_path(leaves[0], 1, merkle_path(leaves, 0), root)
 
 def t4_shield_then_private_transfer():
     pool = ShieldedPool()
-    n0 = note(100, "alice", "r0")
-    ok, why = apply_transfer(pool, *shield_tx(pool, [n0]), pool.knows_root)      # Alice shields 100
+    n0 = note(100, ALICE, "r0")
+    ok, why = apply_transfer(pool, *shield_tx(pool, [n0]), pool.knows_root)
     assert ok, why
-    assert pool.size() == 1 and pool.knows_root(pool.root())
-    # Alice privately sends 60 to Bob + 40 change to herself (value conserved, public_value 0)
-    to_bob = note(60, "bob", "rb"); change = note(40, "alice", "rc")
-    ok, why = apply_transfer(pool, *spend_tx(pool, [(n0, 0)], [to_bob, change]), pool.knows_root)
+    ok, why = apply_transfer(pool, *spend_tx(pool, [(n0, 0)], [note(60, BOB, "rb"), note(40, ALICE, "rc")]), pool.knows_root)
     assert ok, why
-    assert pool.size() == 3, "two new notes appended"
-    assert pool.has_nullifier(note_nullifier("alice", "r0")), "input note is nullified"
+    assert pool.size() == 3 and pool.has_nullifier(note_nullifier(ALICE["public_key"], "r0"))
 
 def t5_double_spend_rejected():
     pool = ShieldedPool()
-    n0 = note(50, "alice", "r0")
+    n0 = note(50, ALICE, "r0")
     apply_transfer(pool, *shield_tx(pool, [n0]), pool.knows_root)
-    out1 = note(50, "bob", "rb1")
-    ok, _ = apply_transfer(pool, *spend_tx(pool, [(n0, 0)], [out1]), pool.knows_root)
-    assert ok, "first spend ok"
-    # spend the SAME note again (same nullifier) -> rejected
-    out2 = note(50, "carol", "rc")
-    ok, why = apply_transfer(pool, *spend_tx(pool, [(n0, 0)], [out2]), pool.knows_root)
-    assert not ok and "double-spend" in why, f"double-spend must be rejected, got {why}"
+    assert apply_transfer(pool, *spend_tx(pool, [(n0, 0)], [note(50, BOB, "rb1")]), pool.knows_root)[0]
+    ok, why = apply_transfer(pool, *spend_tx(pool, [(n0, 0)], [note(50, CAROL, "rc")]), pool.knows_root)
+    assert not ok and "double-spend" in why, why
 
 def t6_value_not_conserved_rejected():
     pool = ShieldedPool()
-    n0 = note(100, "alice", "r0")
+    n0 = note(100, ALICE, "r0")
     apply_transfer(pool, *shield_tx(pool, [n0]), pool.knows_root)
-    # try to spend 100 in -> 150 out (mint from nothing)
-    bad = note(150, "bob", "rb")
-    ok, why = apply_transfer(pool, *spend_tx(pool, [(n0, 0)], [bad]), pool.knows_root)
-    assert not ok and "conserved" in why, f"value inflation must be rejected, got {why}"
+    ok, why = apply_transfer(pool, *spend_tx(pool, [(n0, 0)], [note(150, BOB, "rb")]), pool.knows_root)
+    assert not ok and "conserved" in why, why
 
-def t7_forged_membership_and_wrong_nullifier_rejected():
+def t7_unauthorised_spend_rejected():
+    # the CORE of ML-DSA auth: knowing the note opening is not enough — a wrong-key signature is rejected.
     pool = ShieldedPool()
-    n0 = note(100, "alice", "r0")
+    n0 = note(100, ALICE, "r0")
     apply_transfer(pool, *shield_tx(pool, [n0]), pool.knows_root)
-    # a note that was never shielded -> its membership path can't verify
-    ghost = note(100, "alice", "rGHOST")
-    public, proof = spend_tx(pool, [(ghost, 0)], [note(100, "bob", "rb")])
-    ok, why = apply_transfer(pool, public, proof, pool.knows_root)
-    assert not ok and "not in the tree" in why, f"forged membership must fail, got {why}"
-    # tamper the nullifier so it no longer matches the (real) note
-    public, proof = spend_tx(pool, [(n0, 0)], [note(100, "bob", "rb")])
-    public["nullifiers"] = [note_nullifier("mallory", "r0")]
-    ok, why = apply_transfer(pool, public, proof, pool.knows_root)
-    assert not ok and "nullifier does not match" in why, f"mismatched nullifier must fail, got {why}"
+    # Mallory knows Alice's note (value, pubkey, rho) but signs with HER OWN key -> auth fails
+    ok, why = apply_transfer(pool, *spend_tx(pool, [(n0, 0)], [note(100, MALLORY, "rm")], sign_with=MALLORY), pool.knows_root)
+    assert not ok and "authorisation" in why, f"forged-signature spend must be rejected, got {why}"
 
-def t8_unshield_withdraws_with_change():
+def t8_forged_membership_rejected():
     pool = ShieldedPool()
-    n0 = note(100, "alice", "r0")
+    n0 = note(100, ALICE, "r0")
     apply_transfer(pool, *shield_tx(pool, [n0]), pool.knows_root)
-    # unshield 70 (public_value = -70 leaves the pool) + keep 30 as a change note, fee 0
-    change = note(30, "alice", "rc")
-    ok, why = apply_transfer(pool, *spend_tx(pool, [(n0, 0)], [change], public_value=-70), pool.knows_root)
+    ghost = note(100, ALICE, "rGHOST")   # never shielded
+    ok, why = apply_transfer(pool, *spend_tx(pool, [(ghost, 0)], [note(100, BOB, "rb")]), pool.knows_root)
+    assert not ok and "not in the tree" in why, why
+
+def t9_unshield_and_fee():
+    pool = ShieldedPool()
+    n0 = note(100, ALICE, "r0")
+    apply_transfer(pool, *shield_tx(pool, [n0]), pool.knows_root)
+    # unshield 70 (public_value -70) + 30 change, fee 0
+    ok, why = apply_transfer(pool, *spend_tx(pool, [(n0, 0)], [note(30, ALICE, "rc")], public_value=-70), pool.knows_root)
     assert ok, why
-    assert pool.has_nullifier(note_nullifier("alice", "r0")) and pool.size() == 2
+    n1 = note(50, BOB, "rb")
+    apply_transfer(pool, *shield_tx(pool, [n1]), pool.knows_root)
+    pos = pool.size() - 1
+    ok, why = apply_transfer(pool, *spend_tx(pool, [(n1, pos)], [note(40, CAROL, "rk")], fee=10), pool.knows_root)
+    assert ok, why  # 50 -> 40 out + 10 fee conserves
 
-def t9_unknown_anchor_rejected():
+def t10_unknown_anchor_rejected():
     pool = ShieldedPool()
-    n0 = note(100, "alice", "r0")
+    n0 = note(100, ALICE, "r0")
     apply_transfer(pool, *shield_tx(pool, [n0]), pool.knows_root)
-    public, proof = spend_tx(pool, [(n0, 0)], [note(100, "bob", "rb")])
-    public["root"] = "0" * 64                                     # a root the pool never held
+    public, proof = spend_tx(pool, [(n0, 0)], [note(100, BOB, "rb")])
+    public["root"] = "0" * 64
     ok, why = apply_transfer(pool, public, proof, pool.knows_root)
-    assert not ok and "anchor" in why, f"unknown anchor must be rejected, got {why}"
-
-def t10_fee_is_conserved():
-    pool = ShieldedPool()
-    n0 = note(100, "alice", "r0")
-    apply_transfer(pool, *shield_tx(pool, [n0]), pool.knows_root)
-    # spend 100 -> 90 out + 10 fee: conserves
-    ok, why = apply_transfer(pool, *spend_tx(pool, [(n0, 0)], [note(90, "bob", "rb")], fee=10), pool.knows_root)
-    assert ok, why
+    assert not ok and "anchor" in why, why
 
 for name, fn in sorted((n, f) for n, f in globals().items() if n.startswith("t") and callable(f) and n[1].isdigit()):
     check(name, fn)

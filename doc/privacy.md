@@ -95,8 +95,10 @@ The heart of the project. Turning the transparent re-check into a zero-knowledge
    a phone. Strategy: (a) a WASM prover for occasional shielded sends; (b) a **blind/delegated prover** service
    for weak devices; (c) transparent shield/unshield stays cheap — only fully-private *transfers* need the
    heavy proof. If this stays impractical, fall back to MatRiCT+ (lattice, lighter proving).
-6. **Authorization.** Bind spends to an ML-DSA-44 (PQ) spend-authority signature over the transfer, in
-   addition to the nullifier, so a leaked note opening alone can't move funds.
+6. **Authorisation (DONE).** Each input's owner is an ML-DSA-44 (PQ) key; a spend carries an ML-DSA
+   signature over `transfer_sighash` (binds all public parts of the transfer). Knowing a note's opening
+   (value, pubkey, rho) is NOT enough to spend — only the private key can sign. Verified in verify_transfer,
+   so it holds in the transparent phase AND becomes an in-circuit constraint in the STARK phase.
 
 ## 5. L1 integration (to wire once Phase 1 is frozen)
 
@@ -135,7 +137,7 @@ The Phase-1 machinery is correctness-first; these are the documented upgrades fo
 | client (WASM) / delegated proving | ⏳ Phase 2 |
 | L1 shield-escrow + unshield settled-root exit | ✅ (tests/test_shield_l1.py) |
 | exec-node pool: shield/transfer/unshield + compact state_root + unshield proof | ✅ (tests/test_shielded_exec.py) |
-| ML-DSA spend authorization | ⏳ Phase 2 |
+| ML-DSA spend authorisation (a leaked note opening can't move funds) | ✅ (tests/test_shielded.py t7) |
 
 The honest summary: the **pool is real, sound, and frozen behind a verifier seam**; the **zero-knowledge**
 comes online when the STARK verifier replaces the transparent one — that is the next phase, and it is a large
