@@ -1,0 +1,126 @@
+# Privacy — a post-quantum zk-STARK shielded pool
+
+> **Status: IN PROGRESS.** Phase 1 (the shielded-pool state machine + a pluggable proof-verifier seam) is
+> implemented and tested (`execnode/shielded.py`, `tests/test_shielded.py`, 10 cases). Phase 2 (the FRI/STARK
+> prover + verifier that make it *private*) is the next, larger effort — it drops into the same seam without
+> changing the state machine. Privacy is not live until Phase 2 lands; Phase 1 is a *sound but transparent*
+> pool.
+
+## 1. Why this design (and not Monero/Zcash-as-is)
+
+We want the most complete privacy — hide **sender, recipient, and amount**, with a **pool-wide anonymity
+set** — that is also **post-quantum**. Every elliptic-curve privacy stack fails the PQ bar:
+
+- Monero RingCT (ring sigs + Pedersen commitments + **bulletproofs**) is all EC discrete-log. A quantum
+  computer breaks it, and for confidential amounts it breaks the *binding* of the commitments **and** the
+  *soundness* of bulletproofs at once → **undetectable supply inflation**. (See the ANN/discussion.)
+- Zcash-Sapling's zk-SNARK (Groth16) is pairing-based → also not PQ, and needs a trusted setup.
+
+The post-quantum, trustless answer is a **zk-STARK shielded pool** (a Zerocash-model shielded pool proven
+with **FRI-based STARKs**): hash-based, so the only assumption is a collision-resistant hash — the same trust
+NADO already places in BLAKE2b and its PoSW — with **no trusted setup**. Runner-up considered: MatRiCT+
+(lattice RingCT), lighter to prove but a smaller (ring, not pool-wide) anonymity set; kept as a fallback if
+client-side STARK proving proves too heavy for phones.
+
+## 2. Where it lives — the execution layer, not L1
+
+L1 stays the minimal, transparent ledger. Privacy is an **opt-in execution-layer feature**, exactly like
+contracts and the bridge (doc/execution-layer.md):
+
+- **L1** carries each shielded transaction as an ordered, opaque **`blob`** (data availability + ordering)
+  and escrows/releases the *transparent* coins that enter/leave the pool (`public_value`). It never sees a
+  note.
+- The **execution node** replays shielded blobs from **finalized** blocks in order and maintains the pool
+  (commitment tree + nullifier set). Because it tails *finalized* blocks, there are no reorgs at the exec
+  cursor, so the pool needs no rollback bookkeeping.
+- The **STARK verifier** for the pool is the same class of verifier planned for Phase-2b settlement — one
+  verifier, two uses.
+
+## 3. The scheme (Phase 1 — implemented)
+
+**Notes.** A note is `(value, owner, rho)`. `owner = H(spend_secret)` identifies the recipient; `rho` is
+fresh randomness. You send a shielded note to someone by committing to *their* `owner`.
+
+- **Commitment** `cm = H("cm", value, owner, rho)` — *hiding* (fresh `rho`) and *binding* (collision-resistant
+  hash). Appended to the pool's Merkle set.
+- **Nullifier** `nf = H("nf", spend_secret, rho)` — deterministic, revealed once on spend to prevent
+  double-spends, and in a **different hash domain** than `cm` so a revealed nullifier can't be linked to its
+  commitment. Only the holder of `spend_secret` can compute it.
+
+**Commitment tree.** An append-only fixed-depth (`SHIELD_DEPTH = 32`) Merkle tree of commitments; the root is
+an **anchor**. The pool keeps the **set of all past anchors**, so a proof built against a slightly stale root
+(the tree grows between proof-build and landing) is still accepted — standard Zcash anchor handling.
+
+**Transfer = join-split.** Spend `inputs` notes, create `outputs` notes, with a signed `public_value`
+(`>0` = coins **enter** the pool / shield; `<0` = **leave** / unshield; `0` = fully-private transfer) and a
+`fee`. The statement proven is:
+
+> For each input: its `cm` is in the tree at anchor `root` (Merkle membership) and its `nf` is correctly
+> derived from the note; each output `cm` is correctly derived; and **value is conserved**:
+> `Σ inputs + public_value = Σ outputs + fee`.
+
+**The verifier seam.** `verify_transfer(public, proof, root_is_known)` takes only the **public inputs**
+(`root`, `nullifiers`, `out_commitments`, `public_value`, `fee`) plus a `proof`:
+
+- **Phase 1 (now):** `proof` is the **transparent witness** (note openings + Merkle paths); the verifier
+  re-checks membership + nullifier derivation + value conservation *in the clear*. → **Sound** (no
+  double-spend, no forged value, no forged membership) but **not private** (witness visible).
+- **Phase 2 (next):** `proof` is a **zk-STARK** of the exact same statement; the verifier checks it against
+  `public` alone, hiding the witness. → **Sound and private.** `apply_transfer` and the whole state machine
+  are unchanged.
+
+The Phase-1 tests (`tests/test_shielded.py`) assert the *soundness* properties, which remain the acceptance
+criteria for the Phase-2 STARK: hiding/binding commitments, unlinkable nullifiers, membership, value
+conservation, double-spend rejection, forged-membership/mismatched-nullifier rejection, unshield-with-change,
+unknown-anchor rejection, and fee conservation.
+
+## 4. Phase 2 — the STARK (the remaining work)
+
+The heart of the project. Turning the transparent re-check into a zero-knowledge proof of the same statement:
+
+1. **Arithmetization.** Express the join-split statement as an AIR (algebraic intermediate representation)
+   over a prime field: `SHIELD_DEPTH` hash-compression steps for the Merkle path, the commitment and
+   nullifier hash evaluations, and the value-conservation constraint.
+2. **Hash choice (a real decision).** Phase 1 uses BLAKE2b at the pool level. BLAKE2b is *expensive to
+   arithmetize*, so the Phase-2 **circuit** will use a STARK-friendly hash (Poseidon/Rescue-Prime over the
+   chosen field) for the in-circuit commitment/nullifier/tree. This means the pool's hash is a Phase-2
+   parameter: either (a) switch the pool to the STARK-friendly hash up front, or (b) prove a BLAKE2b circuit
+   (much heavier). Decision pending a proving benchmark — leaning (a).
+3. **Proving system.** A FRI-based STARK (transparent, PQ). Options: port/wrap an audited prover (Winterfell,
+   Plonky3, Stwo) or a minimal in-house FRI. Verifier must be deterministic and cheap enough for a commodity
+   exec node.
+4. **Field.** A STARK-friendly field with good 2-adicity (e.g. Mersenne-31 / BabyBear / Goldilocks), matched
+   to the chosen hash.
+5. **Client proving on phones — the real hurdle.** STARK proof generation is seconds-to-minutes and heavy for
+   a phone. Strategy: (a) a WASM prover for occasional shielded sends; (b) a **blind/delegated prover** service
+   for weak devices; (c) transparent shield/unshield stays cheap — only fully-private *transfers* need the
+   heavy proof. If this stays impractical, fall back to MatRiCT+ (lattice, lighter proving).
+6. **Authorization.** Bind spends to an ML-DSA-44 (PQ) spend-authority signature over the transfer, in
+   addition to the nullifier, so a leaked note opening alone can't move funds.
+
+## 5. L1 integration (to wire once Phase 1 is frozen)
+
+- Reserved tx types (blobs, decoded only by the exec node): `shield` (escrow `public_value` on L1, add the
+  note), `shielded_transfer` (private, `public_value = 0`), `unshield` (release `public_value` from escrow via
+  a proof against the settled pool root — mirrors the bridge/dividend withdrawal path).
+- A `SHIELD_ESCROW` keyless account holds all shielded coins on L1 (supply stays accounted).
+- Unshield settles against the bonded-quorum-settled exec state root, like the bridge and the dividend.
+
+## 6. What's built vs pending
+
+| piece | status |
+|---|---|
+| note commitment / nullifier / owner scheme | ✅ implemented + tested |
+| fixed-depth Merkle commitment tree + anchors | ✅ |
+| pool state machine (shield / transfer / unshield), double-spend + value conservation | ✅ |
+| verifier seam (`verify_transfer`), transparent Phase-1 verifier | ✅ |
+| soundness test suite (10 cases) | ✅ |
+| STARK arithmetization of the statement | ⏳ Phase 2 |
+| FRI/STARK prover + verifier, STARK-friendly hash + field | ⏳ Phase 2 |
+| client (WASM) / delegated proving | ⏳ Phase 2 |
+| L1 blob tx types + escrow + settled-root unshield | ⏳ integration |
+| ML-DSA spend authorization | ⏳ Phase 2 |
+
+The honest summary: the **pool is real, sound, and frozen behind a verifier seam**; the **zero-knowledge**
+comes online when the STARK verifier replaces the transparent one — that is the next phase, and it is a large
+one, but nothing above it has to change when it lands.
