@@ -22,14 +22,31 @@ One LMDB environment (`index/state/`) holds these named sub-DBs:
 | `tx` | `txid` | `msgpack({block_number, sender, recipient})` | — | `tx_index` |
 | `tx_by_sender` | `sender` | `block_number(8B BE)‖txid` | `DUPSORT` | sender history |
 | `tx_by_recipient` | `recipient` | `block_number(8B BE)‖txid` | `DUPSORT` | recipient history |
-| `heartbeats` | `epoch` (8B BE) | `address` | `DUPSORT` | `heartbeat_index` |
+| `recerts` | `address` (utf8) | `epoch` (8B BE) | `DUPSORT` | (new — presence lease) |
+| `recert_by_epoch` | `epoch` (8B BE) | `address` (utf8) | `DUPSORT` | (new — present-set scan) |
 | `meta` | `key` (utf8) | `msgpack(int)` (e.g. `finalized_height`) | — | (new) |
 
+**Presence is a PoSW recert lease, not a heartbeat.** The old `heartbeats` sub-DB
+(`epoch → address`, DUPSORT) and the per-epoch heartbeat tx are **gone** (superseded). Presence is
+now a renewable lease: a `register` tx carrying a fresh sequential PoSW grants OPEN-lane eligibility
+for `POSW_LEASE_EPOCHS` (~1 day), recorded in **two** DUPSORT stores — `recerts` (`address → epoch`,
+for `recert_latest`) and `recert_by_epoch` (`epoch → address`, so `get_open_registry` range-scans the
+currently-leased set). To stay present a node renews (another PoSW recert) each period, else it lapses
+out of the open registry. Continuity fidelity is measured over consecutive recerts (see
+`doc/presence-dividend.md`).
+
+**Other sub-DBs added since the initial cut-over** (same atomicity guarantee — every one is written
+inside the single per-block `write_txn`): `attestations` + `commits` + `reveals` (FFG / RANDAO),
+`settlements` (execution-layer settle), `aliases` (human-readable names), `unbonds` (bond-unlock
+delay), `hb_revert` (fidelity revert records), `htlcs` (cross-chain HTLC swaps —
+`doc/htlc.md`), and `bond_since` + `bond_since_revert` (the bonded-producer ramp —
+`doc/takeover-resistance.md`).
+
 8-byte big-endian integer keys preserve numeric order under LMDB's bytewise key sort, so range
-scans (`block_by_num` iteration, the `heartbeats` presence window, `tx_by_*` ordered-by-block
+scans (`block_by_num` iteration, the `recert_by_epoch` present-set window, `tx_by_*` ordered-by-block
 history) are deterministic and identical across nodes — required because `get_open_registry` and
 tx history feed consensus selection. `DUPSORT` gives auto-deduped multi-value keys, so one
-heartbeat per `(address, epoch)` is enforced for free.
+recert per `(address, epoch)` is enforced for free.
 
 (Block **bodies** remain one `zstd(msgpack)` file per hash under `blocks/` — they were always
 documents, and consensus hashing is over canonical JSON, never the stored file, so neither is
@@ -38,7 +55,8 @@ touched by the index.)
 ## Crash-atomic block application (audit LO-1 / CO-4)
 
 `incorporate_block` (`loops/core_loop.py`) wraps **all** of a block's mutations — the tx index,
-balance / treasury / produced / totals mutations, the heartbeat record, and the `block_by_*`
+balance / treasury / produced / totals mutations, the presence recert record (and any of the other
+sub-DB writes above), and the `block_by_*`
 "applied" marker — in **one** `env.begin(write=True)` transaction (`kv_ops.write_txn()`,
 re-entrant). LMDB is single-writer + copy-on-write, so a crash mid-apply leaves the block
 **fully un-applied**, and `block_already_indexed` (the `block_by_hash` marker) lets the replay

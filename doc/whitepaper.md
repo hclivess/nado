@@ -195,8 +195,8 @@ Continuity **fidelity** is driven by the recert: each *continuous* recert (gap �
 consecutive recerts (≈ days) — so a churned/rotated Sybil cannot keep a ramp it stopped paying for.
 *(implemented)*
 
-> **Why no separate per-epoch heartbeat?** An earlier design had one. But once the lease covers the whole
-> ~1-day AFK window (and can be pre-signed), a per-epoch heartbeat is co-terminal with the lease and carries
+> **Why no separate per-epoch heartbeat? (superseded design.)** An earlier design had one. But once the lease
+> covers the whole ~1-day AFK window, a per-epoch heartbeat is co-terminal with the lease and carries
 > no information the recert doesn't — it's redundant. Collapsing to one signal is strictly simpler: the recert
 > **prices the identity *and* marks presence**, at ~daily granularity. The `OPEN_BPS` lane cap remains the
 > hard Sybil bound regardless.
@@ -204,20 +204,22 @@ consecutive recerts (≈ days) — so a churned/rotated Sybil cannot keep a ramp
 An open identity's selection weight is **capital-free**: a flat floor
 `OPEN_BASE_FLOOR = 1` that every present identity always receives (never scaled
 to zero), plus a **diligence bonus** that ramps linearly to `OPEN_FID_BONUS = 9`
-over `FIDELITY_CAP = 1000` epochs of continuous presence — an overall range of
-**1..10**. The open registry reads a real on-chain `fidelity` column, so this
-ramp is live. *(implemented)*
+over `FIDELITY_CAP = 30` consecutive recerts (≈ days of continuous presence) — an
+overall range of **1..10**. The open registry reads a real on-chain `fidelity` column,
+so this ramp is live. *(implemented)*
 
-> **Absence decay is now wired** *(implemented)*. `FIDELITY_DECAY = 1` is applied in
-> `account_ops.apply_heartbeat`: each heartbeat decays fidelity for the gap since the
-> account's last heartbeat (`last_hb_epoch`, an on-chain account field), **capped at the
-> current value** so the net change never floors and is exactly invertible, then `+GAIN`
-> for the epoch. So fidelity measures **continuous** presence, not merely cumulative
-> attendance — a churned or rotated identity cannot keep a ramp it stopped earning.
-> Revert-symmetry (byte-identical rollback) is preserved via an `hb_revert` record storing
-> the exact inverse `(prev_last_epoch, net_delta)`. It stays deliberately gentle
-> (`DECAY == GAIN`, mobile-friendly: a phone missing a few epochs is not wiped) — a ~10×
-> booster, not the Sybil bound.
+> **Continuity is a recert streak** *(implemented — `account_ops.apply_recert`)*. Fidelity
+> is a **streak of consecutive recerts**: a recert that is *continuous* with the previous
+> one (gap ≤ `POSW_LEASE_EPOCHS`) adds `FIDELITY_GAIN`, while a **lapse resets the streak**
+> to a single gain. So fidelity measures **continuous** presence, not merely cumulative
+> attendance — a churned or rotated identity cannot keep a ramp it stopped paying PoSW for.
+> Revert-symmetry (byte-identical rollback) is preserved via a revert record storing the
+> exact fidelity net, and the recert rows are removed on rollback. It stays a ~10×
+> open-weight booster, not the Sybil bound (the `OPEN_BPS` cap is).
+>
+> *(Superseded: an earlier design decayed fidelity **gradually** per absent epoch via a
+> `FIDELITY_DECAY` constant applied inside a per-epoch `heartbeat`. Heartbeats are gone; the
+> recert streak now **resets outright** on a lapse, so `FIDELITY_DECAY` no longer exists.)*
 
 > **Progressive IP-diversity onboarding cap** *(implemented, non-consensus)*. Because an IP
 > cannot be a consensus input (nodes see different IPs; it is spoofable and NAT/CGNAT-
@@ -247,11 +249,16 @@ with `B_MIN = 100 NADO` per share and `BOND_CAP = 10,000 NADO`. Two consequences
 - **Whale-capped.** A single identity tops out at `MAX_SHARES = BOND_CAP // B_MIN
   = 100` shares, so no whale can monopolize the bonded lane. *(implemented)*
 
-> **v1 limitation.** The bonded lane runs with **no time ramp**:
-> `get_bonded_registry` passes `fidelity = None`, so a bonded identity receives
-> full capped weight immediately. The anti-instant-whale fidelity ramp exists as
-> a pure function but is **dormant** on the bonded lane today; only the OPEN lane
-> uses it. *(partial)*
+> **Bonded time-ramp (sudden-whale defense, implemented).** A freshly-bonded identity
+> does **not** receive full producer weight immediately: its **producer-selection** weight
+> ramps 0 → full over `BOND_RAMP_EPOCHS = 30`, keyed by a stake-weighted bond age
+> (`bond_since`), so a whale that suddenly bonds a majority cannot control the very next
+> epoch (Section 4.5, [`doc/takeover-resistance.md`](takeover-resistance.md)). This ramp is
+> applied **only to the producer draw** — `total_bonded_shares` (fork-choice weight and the
+> FFG/settlement quorum) stays ramp-free, so finality is never tenure-dependent. Separately,
+> `get_bonded_registry` still passes `fidelity = None` to `selection_shares`, so the *older*
+> per-identity **fidelity** ramp remains dormant on the bonded lane — the live time-dimension
+> defense there is the `bond_since` producer ramp above. *(implemented)*
 
 ### 2.6 Empty-lane policy (one-directional, fail-closed)
 
@@ -409,7 +416,7 @@ both are respected:
 - **Not a Sybil faucet.** A flat per-identity payout would reward headcount — exactly
   what the 20% cap, the PoSW lease and fidelity neutralize. Weighting by **fidelity**
   ties the dividend to the *same* continuous-presence signal a Sybil already has to pay
-  for (PoSW recerts + heartbeats per mask), so it inherits the reward-capture bound —
+  for (a PoSW recert per mask, every lease), so it inherits the reward-capture bound —
   redistribution changes *who inside the capped 20% gets paid and how smoothly*, never
   its size.
 
@@ -431,9 +438,18 @@ miners, so the real bound is off-L1 bookkeeping, not precision.
 - **Whale dampening (capital).** Selection weight is split-neutral and
   per-identity capped (Section 2.5): `min(bonded, BOND_CAP) // B_MIN`, capped at
   `MAX_SHARES = 100`. *(implemented)*
-- **Whale dampening (time).** A fidelity ramp to scale a newcomer's bonded weight
-  to full over `FIDELITY_CAP` epochs is designed but **dormant** on the bonded
-  lane in v1 (live only on the open lane). *(partial)*
+- **Whale dampening (time) — bonded producer ramp.** A freshly-bonded identity's
+  **producer-selection** weight ramps linearly 0 → full over `BOND_RAMP_EPOCHS = 30`,
+  keyed by a **stake-weighted bond age** (`bond_since`), so a top-up re-ramps the new
+  stake (closing "age a cheap address, then dump") while auto-bond's tiny top-ups barely
+  move it. A sudden whale therefore **cannot control the very next epoch** — it must
+  accrue selection weight over ~30 epochs. Crucially the ramp is applied **only to the
+  producer draw** (`mining_ops.bond_ramp_weight` in `select_producer_two_lane`), never to
+  `total_bonded_shares`, so **fork-choice weight and the FFG/settlement quorum stay
+  ramp-free — finality is never made tenure-dependent**, and a fresh whale counts its full
+  stake toward slashing/finality the instant it bonds (genesis-seeded stake has an unset
+  age = fully aged, so the lane never stalls at chain start). *(implemented —
+  [`doc/takeover-resistance.md`](takeover-resistance.md), `tests/test_bond_ramp.py`)*
 - **Unbond timelock (now enforced).** `BOND_UNLOCK_DELAY = 1440` blocks is now
   **enforced** via a two-step flow. `unbond` is a **release request**, not an
   instant refund: it records a maturity `release_block = current +
@@ -448,14 +464,40 @@ miners, so the real bound is off-L1 bookkeeping, not precision.
 - **Fees** are **destroyed**, not paid to producers: they accumulate into each
   block's `cumulative_fees` header (which drives the elastic reward) rather than
   crediting any address. A deterministic integer floor `MIN_TX_FEE = 1000` raw
-  applies to ordinary transfers and `bond`. (`register`, `heartbeat`, `unbond`,
-  and `withdraw` are **fee-exempt** — they move no coins out; `unbond`/`withdraw`
-  only retime the sender's own stake.) The legacy `burn` mechanic is entirely
-  removed. *(implemented)*
+  applies to ordinary transfers and `bond`. (`register`/recert, `unbond`, and
+  `withdraw` are **fee-exempt** — they move no coins out; `unbond`/`withdraw` only
+  retime the sender's own stake — as are the reserved consensus/exec txns `slash`,
+  `attest`, `commit`, `reveal`, `settle`, `bridge_withdraw`, and `dividend_withdraw`.)
+  The legacy `burn` mechanic is entirely removed. *(implemented)*
 - **No auto-bond faucet.** Free open-lane presence can never mint bonded stake.
   The only free→capital path is the block subsidy an open miner actually earns —
   itself capped at `OPEN_BPS` (20%). Genesis enforces this with an explicit
   faucet guard. *(implemented)*
+
+### 4.6 Cross-chain atomic swaps (HTLC) *(implemented)*
+
+NADO supports **trustless cross-chain atomic swaps** natively on L1 via
+**hash-time-locked contracts** — no bridge, no custodian, no trusted third party.
+Three reserved transaction types move coins through a keyless escrow account
+(`HTLC_ESCROW = "htlc"`, so locked supply stays fully accounted):
+
+- **`htlc_lock`** debits `amount + fee` from the sender and locks `amount` in escrow
+  under a **SHA-256 hashlock** and an **absolute block-height timelock** (`expiry`,
+  bounded to `[height + HTLC_MIN_TIMELOCK, height + HTLC_MAX_TIMELOCK]`). The lock's
+  txid is its HTLC id.
+- **`htlc_claim`** releases the escrow to the named claimant iff the revealed
+  `preimage` satisfies `sha256(preimage) == hashlock` **and** the current height is
+  still `< expiry`. Revealing the preimage on-chain is the swap's linchpin.
+- **`htlc_refund`** lets the original sender reclaim an unclaimed lock **after `expiry`**.
+
+SHA-256 is the cross-chain lingua franca (BTC/ETH HTLCs use the same primitive), so the
+**same hashlock works on both chains**: claiming on NADO publishes the preimage, which
+the counterparty uses to claim the mirrored lock on the other chain. The block-height
+timelock is deterministic across nodes; parties pick expiries so the refund window on
+each side is safely ordered (yours strictly later than the counterparty's). HTLC state
+lives in a dedicated `htlcs` KV sub-DB and is revert-symmetric like every other
+reserved-tx effect. *(implemented — `protocol.py` HTLC section, `ops/`,
+`tests/test_htlc.py`)*
 
 ---
 
@@ -477,7 +519,7 @@ uses ML-DSA **INTERNAL** mode with a fresh 32-byte hedge, chosen to match
 Crucially, consensus **only ever checks `verify(sig, pk, msg) == True`, never
 signature-byte equality**. Hedged/randomized signatures therefore need not be
 reproducible across implementations — only hashes and transaction IDs are
-reproduced. Signatures authenticate heartbeats/reveals and transactions; they are
+reproduced. Signatures authenticate registrations/reveals and transactions; they are
 **deliberately never used as the randomness source** (a malleable
 `(R,S)`-style signature would be grindable). *(implemented)*
 
@@ -499,8 +541,9 @@ recursively sorted keys (BigInt is required because raw amounts exceed JS's
 
 - **Address** = `"ndo"` + `public_key[:42]` (hex) + a 4-hex `blake2b` checksum;
   total 49 chars. `validate_address` recomputes the checksum. The keyless
-  reserved recipients `{bond, unbond, withdraw, register, heartbeat, slash, attest,
-  commit, reveal, alias}` bypass the checksum rule and are valid only as a
+  reserved recipients `{bond, unbond, withdraw, register, slash, attest, commit,
+  reveal, alias, blob, settle, bridge, bridge_withdraw, dividend, dividend_withdraw,
+  htlc, htlc_lock, htlc_claim, htlc_refund}` bypass the checksum rule and are valid only as a
   recipient/target, never as a sender. A transfer's recipient may also be a
   **registered alias** (a human-readable name), resolved to its owner's address at
   apply time (§Aliases / `doc/aliases.md`). *(implemented)*
@@ -514,9 +557,8 @@ recursively sorted keys (BigInt is required because raw amounts exceed JS's
   recipient/target must be checksum-valid *or* reserved; `amount` and `fee` must
   be integers (not bool, not float) with `amount >= 0`. Register requires a valid
   **sequential PoSW** (`posw.verify` over the sender ‖ finalized-anchor challenge) and is a
-  renewable lease (re-registration is allowed — it renews presence); heartbeat requires
-  `epoch == block_height // EPOCH_LENGTH` (anti-replay) from a registered address.
-  *(implemented)*
+  renewable lease — re-registration (a recert) is allowed and renews presence for another
+  `POSW_LEASE_EPOCHS`; there is **no separate heartbeat transaction**. *(implemented)*
 
 ---
 
@@ -554,15 +596,17 @@ Derived state lives in a single **schemaless, memory-mapped, ACID key-value stor
 (LMDB)** — `ops/kv_ops.py`, which **replaced** the prior SQLite index. There is one
 LMDB environment (`index/state/`) with named sub-DBs: `accounts`, `totals`,
 `block_by_num`, `block_by_hash`, `tx`, `tx_by_sender`, `tx_by_recipient`,
-`heartbeats`, and `meta`. Account/state records are **schemaless msgpack documents
+`recerts`/`recert_by_epoch` (the renewable-presence lease index, which **replaced** the
+old `heartbeats` sub-DB), `htlcs`, `bond_since`, `meta` (plus `commits`, `reveals`,
+`attestations`, `settlements`, `unbonds`, `aliases`). Account/state records are **schemaless msgpack documents
 with no columns** (`{balance, produced, bonded, registered, fidelity, …}`), so adding
 a field — as the relaunch did with `registered`/`fidelity`/`public_key` — needs **no
 DDL and no migration**. Integer keys are 8-byte big-endian so range scans
-(`block_by_num`, `heartbeats` presence window, `tx_by_*` history) preserve numeric
-order; the `heartbeats`, `tx_by_sender`, and `tx_by_recipient` sub-DBs are `DUPSORT`,
-giving auto-deduped multi-value keys (one heartbeat per `(address, epoch)` enforced
-for free). `incorporate_block` and `rollback_one_block` wrap **all** of a block's
-mutations — account docs, tx index, block index, totals, heartbeats — in **one**
+(`block_by_num`, `recert_by_epoch` lease window, `tx_by_*` history) preserve numeric
+order; the `recerts`/`recert_by_epoch`, `tx_by_sender`, and `tx_by_recipient` sub-DBs
+are `DUPSORT`, giving auto-deduped multi-value keys (one recert per `(address, epoch)`
+enforced for free). `incorporate_block` and `rollback_one_block` wrap **all** of a block's
+mutations — account docs, tx index, block index, totals, recerts — in **one**
 `env.begin(write=True)` transaction, so a crash leaves a block either fully applied
 or not at all; replay is idempotent (`block_already_indexed`), preventing
 double-credit. Because LMDB is single-writer + copy-on-write and the document
@@ -592,9 +636,10 @@ is simultaneously:
 - a **miner** — it reproduces the node's canonical encoding and crypto exactly
   (addresses, txids, ML-DSA-44 signatures) and computes the **sequential registration
   PoSW** in pure JS, byte-for-byte identical to the node's verifier (chunked so it never
-  freezes the UI); it registers, auto-renews its presence lease, and heartbeats against a
-  relay that assembles the crediting block, and **keeps mining while the phone is locked**
-  by pre-signing a buffer of future heartbeats the relay submits on schedule;
+  freezes the UI); it registers and **auto-renews its presence lease** (~1 s of PoSW) just
+  before it lapses, and a relay assembles the crediting block. Because **one ~1 s PoSW buys
+  a full ~1-day lease**, the phone keeps earning while locked with **no heartbeats and no
+  pre-signing** — a page left open re-registers itself and mines indefinitely;
 - a **block explorer** (the *Explore* tab) — search by address / **alias** / block
   number / block hash / txid, browse recent blocks, and read live network + lane
   stats, all from the node's public JSON API;
@@ -644,7 +689,13 @@ safety core sound. The fixes are reflected throughout this section.
 
 - **Sybil (zero-capital identity flooding).** Bounded *structurally* by the lane
   cap: the open lane is exactly `K_OPEN` slots/epoch regardless of identity count,
-  so a free botnet can never exceed `OPEN_BPS` (20%) of blocks. **Strong, live.**
+  so a free botnet can never exceed `OPEN_BPS` (20%) of blocks. The reward-capture
+  bound (`≤ ~20%` of emission for any free/Sybil actor) is proven in
+  [`doc/reward-capture-theorem.md`](reward-capture-theorem.md), **machine-checked** by
+  `tests/test_open_cap_adversarial.py`, and the full anti-Nyzo takeover argument (the
+  cheap lane hard-capped at ~20%, the ~80% bonded lane farm-neutral capital — a coin
+  costs a coin to bot or human) is in
+  [`doc/takeover-resistance.md`](takeover-resistance.md). **Strong, live.**
 - **Grinding (biasing one's own selection).** Removed at the mining layer: one
   hash per slot, no nonce race; selection is seeded by a finalized prior-epoch
   anchor, not the grindable parent hash (audit M6), now **mixed with a commit-reveal
@@ -661,8 +712,7 @@ safety core sound. The fixes are reflected throughout this section.
   `/submit_transaction` (**30 requests / 60s**, GET+POST, HTTP 429 over the limit)
   **and** on `/announce_peer` (**10 requests / 60s**, an eclipse-flood throttle); a
   **hard mempool cap** of 150,000 rejects floods (including fee-exempt
-  register/heartbeat spam) before OOM; heartbeat-index GC bounds state growth.
-  **Live.**
+  register/recert spam) before OOM. **Live.**
 - **SSRF / internal-target seeding.** `check_ip` rejects the node's own IP and all
   non-globally-routable addresses (loopback, RFC1918, link-local, reserved,
   multicast, unspecified). The `NADO_TESTNET` env var bypasses this and the
@@ -814,12 +864,12 @@ residuals, is [`doc/security-audit.md`](security-audit.md).
   duplicates of one reserved tx inside a **single** block could: drain `K×B_MIN`
   from one unbond via repeated `withdraw`s (**slash-escape + chain-halt**);
   over-burn / halt on a duplicate `slash` (which two honest reporters trigger
-  organically); or collapse duplicate `heartbeat`/`reveal` rows in `DUPSORT` so a
+  organically); or collapse duplicate `recert`/`reveal` rows in `DUPSORT` so a
   later reorg over-deletes the shared row → **registry/beacon desync fork** (and
   fidelity farming). One root fix closes all of them: a `reserved_uniqueness_key`
   with `dedupe_reserved` (block assembly drops in-block dups) and
   `assert_unique_reserved` (`verify_block` rejects them), plus cross-block
-  `heartbeat_present` and reveal-secret uniqueness guards in validation.
+  recert-presence and reveal-secret uniqueness guards in validation.
 - **Same-length fork-choice wedge (CRITICAL, liveness).** Because
   `cumulative_weight` is content-independent, two honest tips at one height tie,
   and the old switch fired only on strictly-**greater** weight — so equal-weight
@@ -864,9 +914,9 @@ observational signal; the bonded `MAX_SHARES` cap is **per-identity, not aggrega
 single-address variance); `register`/fee-exempt **state growth** (`GC_IDLE_EPOCHS`
 defined but unwired — idle-account GC is future work); and snapshot bootstrap trusts an
 80%-of-peers quorum with **no hardcoded finalized checkpoint** (weak-subjectivity).
-(`FIDELITY_DECAY` is now **wired** — continuous-presence decay, Section 2.4 — and a
-**progressive per-range IP registration cap** now throttles OPEN-lane onboarding at the
-relay.)
+(Continuity fidelity is now a **recert streak** — continuous recerts accumulate and a
+lapse resets it, Section 2.4 — and a **progressive per-range IP registration cap** now
+throttles OPEN-lane onboarding at the relay.)
 
 ---
 
@@ -898,17 +948,22 @@ open-value mainnet now:
 
 Additional hardening and feature items, all currently **planned/partial**:
 
-- **Bonded-lane fidelity ramp** (time-dimension anti-instant-whale) activated
-  (an on-chain bonded fidelity column).
+- ~~**Bonded-lane sudden-whale ramp** (time-dimension anti-instant-whale)~~ **— DONE**:
+  the `BOND_RAMP_EPOCHS` stake-weighted bond-age ramp on **producer selection** is live
+  (Section 4.5, [`doc/takeover-resistance.md`](takeover-resistance.md),
+  `tests/test_bond_ramp.py`); it deliberately leaves fork-choice and FFG/settlement weight
+  ramp-free so finality is never tenure-dependent.
 - **Attestation-equivocation slashing** for FFG (today only block-authorship
   equivocation is slashable; FFG cross-fork double-voting beyond the per-epoch
   `UNIQUE(validator, epoch)` marker is unpunished, so FFG remains an observational
   signal — Section 7.4).
 - **Idle-account GC** wiring `GC_IDLE_EPOCHS` to bound `register`/fee-exempt state
   growth (defined but unwired today — Section 7.4).
-- ~~**Absence-decay** for fidelity~~ **— DONE**: `FIDELITY_DECAY` is now wired
-  (continuous-presence, revert-symmetric — Section 2.4), and a **progressive per-range
-  IP registration cap** now throttles OPEN-lane onboarding at the relay layer.
+- ~~**Absence-decay** for fidelity~~ **— DONE (recert streak)**: continuity fidelity is
+  now a **consecutive-recert streak** that resets on a lapse (revert-symmetric — Section
+  2.4; there is no separate `heartbeat` tx or `FIDELITY_DECAY` constant anymore), and a
+  **progressive per-range IP registration cap** now throttles OPEN-lane onboarding at the
+  relay layer.
 - **Halving / issuance schedule** (none exists; emission is a perpetual floor +
   capped elastic term).
 - **Snapshot-bootstrap hardening** items (allocation bound, quorum floor /
@@ -953,9 +1008,10 @@ Additional hardening and feature items, all currently **planned/partial**:
 - **Unbond is now timelocked.** `unbond` is a release *request* that keeps the
   stake bonded and slashable for `BOND_UNLOCK_DELAY = 1440` blocks; a fee-exempt
   `withdraw` claims it only at/after maturity (Section 4.4).
-- **Bonded fidelity ramp dormant; no FFG attestation slashing; no absence decay;
-  no idle-account GC; no halving schedule.** Treat these as not-present today
-  (Section 7.4).
+- **No FFG attestation slashing; no idle-account GC; no halving schedule.** Treat
+  these as not-present today (Section 7.4). (The **bonded sudden-whale producer ramp**
+  *is* now live — `BOND_RAMP_EPOCHS`, Section 4.5 — and continuity fidelity is a
+  consecutive-recert streak, so there is no gradual absence-decay constant.)
 - **All mining/economic parameters are PROVISIONAL** and flagged
   *simulate-before-lock-in* in code; exact ratios (e.g. `K_OPEN = 12`) hold only
   at default `EPOCH_LENGTH` / `OPEN_BPS`, several of which are config-overridable.
@@ -989,31 +1045,34 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | `BOND_CAP` | `1e14` (10,000 NADO) | Max effective bond per identity (anti-whale). |
 | `MAX_SHARES` | `100` (= `BOND_CAP//B_MIN`) | Variance cap; max bonded shares one identity wields. |
 | `BOND_UNLOCK_DELAY` | `1440` blocks | Unbond timelock — **enforced**: `unbond` is a release request (stake stays bonded + slashable); fee-exempt `withdraw` claims it at/after `release_block = current + 1440`. |
+| `BOND_RAMP_EPOCHS` | `30` | Bonded **producer-selection** weight ramps 0→full over this many epochs by stake-weighted bond age (`bond_since`) — anti-sudden-whale; **producer draw only**, never fork-choice/FFG/settlement weight (Section 4.5, doc/takeover-resistance.md). |
 | `POSW_T` / `POSW_S` / `POSW_K` | `1_000_000` / `2_000` / `20` | Sequential registration Proof-of-Work: chain length / checkpoint segment / Fiat-Shamir spot-checks (~1 s in-browser; verify `O(k·S)`). Post-quantum, consensus-verified; prices identity creation in non-parallelizable time. |
 | `POSW_ANCHOR_OFFSET` | `30` | PoSW challenge anchors to `block[target_block − 30]` (≥ finality depth → stable, node-derived). |
-| `POSW_LEASE_EPOCHS` | `180` (~1 day) | Renewable presence lease: a registration/recert keeps an identity open-lane-eligible this long; renew with a fresh PoSW to persist (continuous per-identity upkeep). |
+| `POSW_LEASE_EPOCHS` | `180` (~1 day) | Renewable presence lease: a registration/recert keeps an identity open-lane-eligible this long; renew with a fresh PoSW to persist (continuous per-identity upkeep). **Presence IS the lease — there is no heartbeat.** |
 | `OPEN_BASE_FLOOR` | `1` | Min open-lane weight for any present identity (never 0). |
 | `OPEN_FID_BONUS` | `9` | Max open diligence bonus; open weight ranges 1..10. |
-| `PRESENCE_WINDOW` | `3` epochs | Heartbeat recency to stay in the open registry; heartbeat-index GC window. |
 | `GC_IDLE_EPOCHS` | `1000` | Intended idle-registry prune window (state-bloat bound) — **defined, not yet wired** (Section 7.4). |
-| `FIDELITY_CAP` | `1000` epochs | Continuous presence to fully ramp the open bonus. |
-| `FIDELITY_GAIN` | `1` | Fidelity increment per epoch present. |
-| `FIDELITY_DECAY` | `1` | Per-epoch absence decay — **now wired** (continuous presence, Section 2.4). |
+| `FIDELITY_CAP` | `30` | Consecutive recerts (~days) to fully ramp the open bonus (was 1000; recert-driven now). |
+| `FIDELITY_GAIN` | `1` | Fidelity increment per continuous recert; a lapse (gap > lease) resets the streak. |
 | `HISTORY_RETENTION_BLOCKS` | `10_000` | Rolling-node body-retention window (~1 wk); archive nodes keep all (Section 6.1). |
 | `max_registrations_per_ip` | `64`/hr | Progressive per-range OPEN-lane onboarding cap (relay admission, Section 2.4). |
 | `AUTO_BOND_DEFAULT_PERCENT` | `80` | Default share of new rewards auto-bonded when unset (client/operator; overridable). |
 | `TREASURY_GENESIS` | `0` | **No premine** — treasury starts empty. |
-| `TREASURY_BPS` | `1000` (10.00%) | Treasury share of each reward; producer gets 90%. |
+| `TREASURY_BPS` | `1000` (10.00%) | Treasury share of each reward; bonded producer gets the other 90%. |
+| `OPEN_TIP_BPS` | `2000` (20.00%) | OPEN-lane producer's tip; treasury keeps 10%; the rest (~70%) accrues to the **presence-dividend pool** (Section 4.4). |
+| `DIVIDEND_POOL` | `"dividend"` | Reserved L1 account the open-lane dividend accrues to (`O(1)` on L1; redistributed off-L1, fidelity-weighted). |
 | `BASE_SUBSIDY` | `1e9` (0.1 NADO) | Flat per-block emission floor (~144 NADO/day at 60s blocks). |
 | `REWARD_WINDOW` | `100` | Trailing blocks averaged for the elastic fee reward. |
 | `REWARD_CAP` | `5e9` (0.5 NADO) | Max reward per block. |
-| `MIN_TX_FEE` | `1000` raw | Deterministic minimum fee floor (ordinary transfers and `bond`; `register`/`heartbeat`/`unbond`/`withdraw` are fee-exempt). |
+| `MIN_TX_FEE` | `1000` raw | Deterministic minimum fee floor (ordinary transfers and `bond`; `register`/recert, `unbond`, `withdraw` and the reserved consensus/exec txns — `slash`/`attest`/`commit`/`reveal`/`settle`/`bridge_withdraw`/`dividend_withdraw` — are fee-exempt). |
 | `TREASURY_ADDRESS` / `GENESIS_ADDRESS` | `_GENESIS_BODY + blake2b_hash(body, 2)` | Founder key-controlled treasury == genesis address. |
 | ML-DSA-44 pubkey | `1312` bytes (from 32-byte seed) | Post-quantum public key (FIPS 204). |
 | ML-DSA-44 signature | `~2420` bytes | Post-quantum signature length. |
 | Address format | `"ndo"` + 42-hex pubkey prefix + 4-hex checksum (49 chars) | Checksum = `blake2b_hash(body, size=2)`. |
-| `RESERVED_RECIPIENTS` | `{bond, unbond, withdraw, register, heartbeat, slash, attest, commit, reveal, alias}` | Keyless pseudo-recipients; valid as recipient/target only. |
+| `RESERVED_RECIPIENTS` | `{bond, unbond, withdraw, register, slash, attest, commit, reveal, alias, blob, settle, bridge, bridge_withdraw, dividend, dividend_withdraw, htlc, htlc_lock, htlc_claim, htlc_refund}` | Keyless pseudo-recipients; valid as recipient/target only. **No `heartbeat`** (removed). |
 | `ALIAS_REGISTRATION_FEE` | `10_000_000` (0.001 NADO) | Anti-squat fee to register an alias (name → owner address). |
+| `HTLC_ESCROW` | `"htlc"` | Keyless escrow account holding all locked HTLC coins — trustless cross-chain atomic swaps (Section 4.6). |
+| `HTLC_MIN_TIMELOCK` / `HTLC_MAX_TIMELOCK` | `10` / `1_000_000` blocks | Bounds on an HTLC lock's absolute block-height expiry (SHA-256 hashlock). |
 | `SLASH_BOND_PENALTY` | `B_MIN` (one share, 100 NADO) | Bonded stake burned per proven equivocation (#15 step 5C); revert-symmetric, one-per-(offender, height). |
 | `FFG_NUM` / `FFG_DEN` | `2` / `3` | FFG-lite justify threshold: a checkpoint justifies at *strictly* >2/3 of total bonded shares (#6). Additive signal, exposed at `/status.ffg_finalized`. |
 | Rate limit | `30 req / 60s` per IP | On `/submit_transaction` (GET+POST); HTTP 429 over the limit. |

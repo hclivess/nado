@@ -178,7 +178,9 @@ Files: `ops/transaction_ops.py`, `ops/account_ops.py`, `ops/block_ops.py`, `ops/
 - Fee-exempt reserved recipients `commit` and `reveal` (bonded senders only), bound to an explicit
   target epoch (commit in E-2 window, reveal in E-1; UNIQUE(address,target_epoch)); reveal must satisfy
   `verify_reveal(recorded_commitment, secret)`. Route via reflect_transaction to revert-symmetric
-  commit_index/reveal_index (modeled on heartbeat_index; GC only above finalized_height).
+  commit_index/reveal_index (modeled on the then-existing heartbeat_index — heartbeats have since been
+  removed and presence is now the PoSW recert lease, but the revert-symmetric DUPSORT index pattern is
+  unchanged; GC only above finalized_height).
 - Rewrite `epoch_beacon` → `compute_beacon(epoch_beacon(E-1), sorted(valid revealed secrets for E))`;
   `compute_beacon([])` still advances (liveness). Withholder → deterministic revert-symmetric fidelity
   dock.
@@ -200,5 +202,6 @@ Files: `nado.py`, `ops/peer_ops.py`, `loops/peer_loop.py`, `ops/snapshot_ops.py`
   Sybil snapshot; removing trust-median gate doesn't harm liveness under partial reachability.
 
 ## Constants introduced
-- `FINALITY_DEPTH = 30` (10 = max_rollbacks < 30 < 60 = EPOCH_LENGTH < 180 = PRESENCE_WINDOW*EPOCH).
+- `FINALITY_DEPTH = 30` (10 = max_rollbacks < 30 < 60 = EPOCH_LENGTH < 180 = `POSW_LEASE_EPOCHS`, the
+  presence-recert lease that superseded the old `PRESENCE_WINDOW*EPOCH` heartbeat window).
 - `MAX_SHARES` per-identity weight cap for total_shares.

@@ -44,7 +44,8 @@ under flood. **Fixed:** the cap check is now an O(1) sum of the three lengths; t
 view is built lazily (and without the redundant per-pool `.copy()`, since `+` already yields
 a fresh list) only once a tx clears the cheap rejects and actually needs membership /
 single-spend. Already-present txs now return a benign `{"result": True, "Already present"}`
-(was an implicit `None`), aligning with the heartbeat "already present = success" handling.
+(was an implicit `None`), aligning with the fee-exempt-`register` (PoSW recert) "already present =
+success" handling.
 
 ### 3. Binary wire/storage encoding for signatures — ASSESSED, mostly already handled
 ML-DSA-44 carries `public_key` (1312 B) + `signature` (2420 B) per tx, stored as **hex** in
@@ -56,9 +57,10 @@ so changing it is a real consensus change for modest marginal benefit. **Recomme
 not change the canonical encoding;** the cheap win is already in place.
 
 ### 4. Idle-account GC — see `doc/rolling-mode-and-da.md` (consensus-critical)
-`GC_IDLE_EPOCHS = 1000` is defined; heartbeat-row GC **is** wired
-(`account_ops` → `kv_ops.heartbeat_gc`), but idle **account-row** GC is not. Pruning an
-account row changes the **state root**, so it must be deterministic and applied identically
+`GC_IDLE_EPOCHS = 1000` is defined; presence itself is now self-bounding — the old per-epoch
+heartbeat rows are gone, replaced by the PoSW **recert lease** (`recerts` / `recert_by_epoch`), which
+a node must renew each `POSW_LEASE_EPOCHS` or lapse — but idle **account-row** GC is still not wired.
+Pruning an account row changes the **state root**, so it must be deterministic and applied identically
 by every node *inside block processing* — not a local maintenance sweep, which would fork
 the chain. It is therefore designed (not blind-wired) as the state-pruning section of
 `doc/rolling-mode-and-da.md`.
@@ -69,21 +71,26 @@ the chain. It is therefore designed (not blind-wired) as the state-pruning secti
 
 ### A. PQ signatures don't aggregate
 Ethereum compresses thousands of attestations into one BLS signature. **ML-DSA has no
-aggregation** — every attestation/heartbeat/vote is a full ~3.7 KB signature, stored and
+aggregation** — every attestation/recert/vote is a full ~3.7 KB signature, stored and
 verified individually. PQ security and BLS-style compression are fundamentally at odds, and
 NADO correctly chose PQ. There is no drop-in fix; the escape is §B.
 
 ### B. Consensus emits O(N) on-chain messages per epoch — the real design fix (#2)
 Confirmed in `loops/core_loop.py`: every bonded validator broadcasts **1 attestation + 1
-commit + 1 reveal per epoch** (`update_ffg_and_attest`, `maybe_randao`), and every OPEN-lane
-participant broadcasts **1 heartbeat per epoch**. So with N participants, **~3N+ full PQ-
-signed transactions of pure consensus overhead per epoch**, each pure-Python-verified, all
-competing for the same block space as user payments. At 10k validators that's 30k+ overhead
-txs/epoch before a single user tx. **O(N) messages × non-aggregatable PQ sig × pure-Python
-verify** is the scaling envelope.
+commit + 1 reveal per epoch** (`update_ffg_and_attest`, `maybe_randao`). So with N bonded
+validators, **~3N full PQ-signed transactions of pure consensus overhead per epoch**, each
+pure-Python-verified, all competing for the same block space as user payments. At 10k bonded
+validators that's 30k+ overhead txs/epoch before a single user tx. **O(N) messages ×
+non-aggregatable PQ sig × pure-Python verify** is the scaling envelope.
+
+(The OPEN lane is **no longer** a per-epoch cost. The old per-epoch heartbeat tx was removed:
+OPEN-lane presence is now a renewable PoSW **recert lease** (`register` tx), renewed only once per
+`POSW_LEASE_EPOCHS` (~1 day), so the open-lane message load amortizes to ≈ N_open / `POSW_LEASE_EPOCHS`
+per epoch — negligible next to the bonded ~3N. The dominant O(N)-per-epoch term is the bonded
+attest/commit/reveal set.)
 
 **The design fix — aggregate the per-epoch consensus load** instead of posting N messages:
-- **Presence/attestation root.** Collect heartbeats/attestations off-chain within an epoch;
+- **Presence/attestation root.** Collect recert/attestation signatures off-chain within an epoch;
   commit a **single root** (Merkle root of present/attesting validators + their stake)
   per epoch on-chain, instead of N individual txs. Validators gossip their signed
   presence to an aggregator role; the block commits the root; the heavy per-sig
@@ -102,8 +109,9 @@ This is the one genuine architecture investment for scale. It is a **consensus c
 warrants its own design doc + tests before shipping — flagged here, not implemented.
 
 ### C. Unbounded free-lane state — see §4 / `doc/rolling-mode-and-da.md`
-OPEN-lane `register`/`heartbeat` are fee-exempt and create permanent account state. Bounding
-it is idle-account GC (consensus-critical) + rolling history pruning.
+OPEN-lane `register` (PoSW recert) txs are fee-exempt and create permanent account state (the recert
+lease itself lapses, but the account row persists). Bounding it is idle-account GC
+(consensus-critical) + rolling history pruning.
 
 ---
 

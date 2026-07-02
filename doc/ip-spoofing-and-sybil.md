@@ -59,10 +59,15 @@ newcomers. Walk that operator's path:
 1. **Bypass the per-IP cap.** Given VPNs / proxies / IPv6 / a botnet, the per-IP crowding cost
    (`ratelimit.allow_registration`, progressive by subnet proximity: ~`max_addrs` per exact IP, ~2× per
    /24, ~4× per /16, ~8× per /8) is *friction, not a wall*. Assume the attacker defeats it.
-2. **Register N identities.** Each `register` costs a small one-time proof-of-work (16-bit) instead of a
-   fee, so N identities cost N small PoWs — cheap at scale on a GPU. Assume the attacker registers as many
-   as they like.
-3. **Heartbeat all N each epoch** to stay present.
+2. **Register N identities.** Each `register` costs a **sequential PoSW** (`ops/posw.py`) instead of a
+   fee — a non-parallelizable hash chain, so a GPU gives ~no edge and N identities cost N *serial
+   time-lanes*, not N cheap parallel PoWs. This is the current, shipped cost (it replaced the old
+   parallelizable 16-bit hashcash). Still, a datacenter with many cores can run many lanes, so assume
+   the attacker registers as many as it is willing to pay serial time for.
+3. **Keep all N present by renewing each recert lease** — one fresh PoSW per identity roughly once per
+   `POSW_LEASE_EPOCHS` (≈ 1 day), **not** a per-epoch heartbeat (the heartbeat tx and `PRESENCE_WINDOW`
+   were removed). So upkeep, not just creation, is priced in sequential time: the farm pays
+   *size × time*, continuously, to keep its masks alive.
 4. **Collect open-lane blocks proportional to their share of the open registry.**
 
 **What this does NOT buy them:** more than `OPEN_BPS = 2000` bps (**20%**) of *all* blocks. The lane split
@@ -87,16 +92,32 @@ is how close to "one share per real person" we can push the open lane, given tha
    registering more identities does not increase the attacker's total take beyond the 20% pie; it only
    splits it more finely. There is no economic incentive to Sybil for profit, only to *deny* honest
    miners — a griefing motive, not a profit one.
-3. **One-time registration PoW — a small per-identity cost.** Each identity pays a 16-bit PoW once. It is
-   deliberately light (phones must afford it), so it is a speed bump, not a Sybil wall.
-4. **Progressive per-IP crowding cap — best-effort friction.** `ratelimit.allow_registration` makes casual
-   single-box scripting expensive and bounds a datacenter's whole subnet, not just one IP. Evadable, but
-   it raises the floor for the low-effort attacker (the common case).
+3. **Renewable PoSW recert lease — a farm-neutral per-identity cost (creation AND upkeep).** Each identity
+   pays a **sequential** proof-of-work (`ops/posw.py`) to register, and pays another to *renew* before its
+   `POSW_LEASE_EPOCHS` (≈ 1 day) lease lapses. Because the PoSW is non-parallelizable, a GPU/ASIC gives ~no
+   edge — the cost is real serial wall-clock time, per identity, per lease. For an honest phone that is ~1 s
+   once a day; for a farm it is *size × time* of continuous serial compute. This is the shipped mechanism
+   (it replaced the old parallelizable 16-bit hashcash and the removed per-epoch heartbeat). It is
+   deliberately light per identity, so it is not a Sybil *wall* — but unlike the old hashcash it prices a
+   fleet in a resource a farm cannot parallelize away.
+4. **Progressive per-IP crowding cap — DEFENSIVE friction only.** `ratelimit.allow_registration`
+   (`max_registrations_per_ip`) makes casual single-box scripting expensive and bounds a datacenter's whole
+   subnet, not just one IP. It is used **purely defensively** at a relay's front door — never in consensus.
+   Evadable (VPNs/proxies/IPv6), but it raises the floor for the low-effort attacker (the common case).
+
+> **The organizing principle: a permissionless Sybil anchor must be FARM-NEUTRAL** — it must cost an
+> automated bot the *same* as a real human, or the farm simply pays less per mask than the humans it
+> displaces and the "fair" distribution collapses. Two costs qualify: **capital** (the bonded lane — a coin
+> costs a bot and a human the same) and **sequential-work-per-lease** (the open lane — a second of serial
+> time is a second for either). **IP uniqueness does NOT qualify**: IPs are far cheaper per-unit for a farm
+> (bulk proxies, a whole IPv6 /64) than for a human, and they punish shared/CGNAT humans — so IP can only
+> ever be defensive friction, never the anchor. See doc/takeover-resistance.md and doc/node-service-reward.md.
 
 The fairness posture is therefore: **do not try to make Sybil impossible; make its payoff bounded (20%
-lane) and unprofitable (reward dilution), and add cheap friction (PoW + IP cap) against the low-effort
-masquerade.** IP is the outermost, weakest, most-evadable layer, and the design is deliberately built so
-that its failure only skews *how the free lane is shared*, never anything about safety.
+lane) and unprofitable (reward dilution), price each mask in a farm-neutral cost (the sequential-PoSW
+recert lease), and add cheap defensive friction (the per-IP cap) against the low-effort masquerade.** IP
+is the outermost, weakest, most-evadable layer, and the design is deliberately built so that its failure
+only skews *how the free lane is shared*, never anything about safety.
 
 ## 5. Ideas to make the open-lane distribution fairer / harder to spoof (ranked)
 
@@ -141,7 +162,7 @@ the cost each imposes.
 ## 5a. The proposed refinement: attribute registrations to the relay *node's* IP
 
 **Idea:** instead of rate-limiting by the *miner's* (spoofable, NAT-ambiguous, client-side) IP, take the
-IP of the **node** a miner registers/heartbeats *through*, and make **every address mining via that node
+IP of the **node** a miner registers/recerts *through*, and make **every address mining via that node
 share that node's IP budget**. A node's IP is more stable and observable than a phone's, and a full node
 is heavier to spin up than a rotating client IP — so the thinking is that this raises the Sybil bar.
 
@@ -184,6 +205,13 @@ consensus-enforceable Sybil cost without breaking zero-capital mining.
 
 ## 5b. The permissionless, no-bother lever: cost from a real physical limit (sequential time / VDF)
 
+> **Status: this is now the shipped mechanism.** The lever proposed in this section was adopted. NADO
+> registration is a hash-based **Proof of Sequential Work** (`ops/posw.py`, verified in consensus in the
+> `register` branch of `ops/transaction_ops.py`), and presence is a **renewable recert lease**
+> (`POSW_LEASE_EPOCHS`, `account_ops.get_open_registry`) rather than a per-epoch heartbeat. The reasoning
+> below is why; **Appendix A** explains why NADO uses a *hash-based PoSW* rather than an algebraic **VDF**
+> (post-quantum). Read "VDF" throughout this section as "the sequential-time primitive", realized as PoSW.
+
 Start from the hard result. **Permissionless Sybil resistance is impossible without *some* cost to
 minting an identity** (Douceur, 2002 — the paper that named the Sybil attack): with no trusted authority,
 an entity with more resources than any honest peer can always mint more identities. So the goal cannot be
@@ -205,10 +233,11 @@ with a **VDF (verifiable delay function)**:
   seconds of background computation to register (and a slow periodic re-proof to stay present) — one lane,
   effortless. It is *not* a race (fixed delay, no advantage to buying faster hardware), which is exactly
   why it fits NADO's anti-ASIC, "nothing to grind" ethos where hashcash PoW does not.
-- **Why it's better than the current registration hashcash:** today's 16-bit registration PoW is
-  *parallelizable* — a GPU mints thousands of identities at once. Swapping it for a **sequential VDF**
-  removes that parallel advantage entirely: a GPU gives ~no edge, so registrations are throttled to real
-  serial-time-per-core. Same one-time friction for the honest phone, a much steeper slope for a farm.
+- **Why it's better than the old registration hashcash:** the previous 16-bit registration PoW was
+  *parallelizable* — a GPU minted thousands of identities at once. Replacing it with the **sequential
+  PoSW** (now shipped) removed that parallel advantage entirely: a GPU gives ~no edge, so registrations are
+  throttled to real serial-time-per-core. Same one-time friction for the honest phone, a much steeper slope
+  for a farm — and the *renewal* re-charges that cost every lease, so upkeep is priced too, not just entry.
 - **How it makes distribution fairer:** it prices each free-lane mask in *real, proportional, ongoing
   sequential compute* rather than in near-free IPs. A farm that wants K× the shares must run K× the real
   time-lanes, continuously — so the open-lane distribution tracks real device-time, which is about as close
@@ -225,20 +254,21 @@ continuously for a slice of a fixed, diluted 20% pie" — rate-limited and unpro
 permission and near-zero honest-user friction. **A memory-hard VDF** raises the floor further by also
 pricing in RAM (a real device limit that is costlier to scale than cores).
 
-## 6. What NADO actually does, and the recommendation
+## 6. What NADO actually does
 
 **Do:** keep IP entirely out of consensus; keep the per-IP cap as opt-in, generous, best-effort relay
 friction (progressive by subnet); rely on the **structural `OPEN_BPS` cap** for the hard bound and on
 **reward dilution** for the economic bound.
 
-**Recommended direction (permissionless, no-bother, invariant-preserving):** replace the *parallelizable*
-16-bit registration hashcash with a **sequential VDF / proof-of-time** (§5b). It is the only lever that is
-permissionless, needs no stake/identity/IP/sponsor, keeps NADO's "nothing to grind" anti-ASIC ethos (a VDF
-is a fixed delay, not a race), stays near-zero-bother for a real phone, and yet prices each extra free-lane
-mask in a **real physical limit — serial wall-clock time that cannot be parallelized away.** Tune it to the
-cheap end (short one-time reg proof + slow presence re-proof). As a free, immediate add-on, keep the
-opt-in **relay-side behavioural heuristics** (#6) against the lazy botnet — best-effort, off-chain, changes
-no invariant.
+**Shipped direction (permissionless, no-bother, invariant-preserving):** the *parallelizable* 16-bit
+registration hashcash was **replaced with a sequential PoSW / proof-of-time** (§5b, Appendix A), and
+presence is a **renewable recert lease** (`POSW_LEASE_EPOCHS`) rather than a heartbeat. It is the only lever
+that is permissionless, needs no stake/identity/IP/sponsor, keeps NADO's "nothing to grind" anti-ASIC ethos
+(a fixed delay, not a race), stays near-zero-bother for a real phone, and yet prices each extra free-lane
+mask in a **real physical limit — serial wall-clock time that cannot be parallelized away.** It is tuned to
+the cheap end (~1 s one-time reg proof + a ~daily presence re-proof). As a free, still-optional add-on, the
+**relay-side behavioural heuristics** (#6) against the lazy botnet remain worthwhile — best-effort,
+off-chain, changes no invariant.
 
 **Rejected:** anything that adds *permission or bother* — bonded-node **sponsorship** (§5a, needs a
 sponsor), personhood ceremonies (#1), bonds (#3), or device attestation (#5); and any **IP-, bond-, or
@@ -253,8 +283,12 @@ fair launch that is the entire point of the project. The honest framing to users
 is friction, not a Sybil defense; the Sybil defense is the 20% lane cap, and it holds even if every IP
 control is bypassed.**
 
-See also: whitepaper §2.2 (structural Sybil bound), `doc/mining.md` (two-lane selection),
-`ops/ratelimit.py` (the progressive per-IP cap), `doc/scaling-analysis.md`.
+See also: whitepaper §2.2 (structural Sybil bound), `doc/reward-capture-theorem.md` (the population-
+independent 20% bound, proved), `doc/takeover-resistance.md` (farm-neutral anchors + the bonded producer
+ramp), `doc/node-service-reward.md` (why the Sybil anchor must be farm-neutral), `doc/mining.md` (two-lane
+selection + the PoSW recert lease), `ops/posw.py` (the sequential-work primitive), `ops/ratelimit.py` (the
+defensive per-IP cap), `tests/test_open_cap_adversarial.py` (the 20% cap, machine-checked),
+`doc/scaling-analysis.md`.
 
 ---
 
@@ -299,13 +333,16 @@ Binding the challenge to `H(address ‖ recent_block_hash)` makes proofs **un-pr
 know the future block hash) and **non-reusable** (a different address ⇒ a different required chain), so
 each mask must pay its own fresh, un-fakeable slice of real sequential time.
 
-**Status / migration plan (replacing the parallelizable registration hashcash):**
-1. **`ops/posw.py`** — reference Python implementation + `tests/test_posw.py` *(done; standalone, not yet
-   in consensus)*.
-2. Fix `POSW_T / POSW_S / POSW_K` as **`protocol.py` consensus constants** (prover and verifier must
-   agree), calibrated so an honest phone spends ~1–2 s once at registration.
-3. Port the identical prover to the browser (`static/`), matching Python byte-for-byte (the client already
-   reproduces canonical encoding + blake2b, so this is in-house).
-4. Swap `verify_registration_pow` → `verify_posw` in `ops/transaction_ops` (the `register` branch), keeping
-   the light one-time cost; add a slow, infrequent presence re-proof later if free-lane crowding appears.
-   Consensus-incompatible, but pre-mainnet that is free.
+**Status — the parallelizable registration hashcash has been replaced (SHIPPED):**
+1. **`ops/posw.py`** — the sequential-work primitive + `tests/test_posw.py` *(done; now wired into
+   consensus)*.
+2. `POSW_T / POSW_S / POSW_K` (+ `POSW_ANCHOR_OFFSET`) are **`protocol.py` consensus constants**,
+   calibrated so an honest phone spends ~1 s once at registration. `POSW_LEASE_EPOCHS` (≈ 1 day) sets the
+   recert-lease length.
+3. Browser prover in `static/` (byte-for-byte with Python; cross-checked by `tests/posw_xlang.mjs`) —
+   *pending* as part of the S4b light-miner.
+4. **Done:** the `register` branch of `ops/transaction_ops.py` verifies the PoSW
+   (`posw.verify(posw.challenge_bytes(sender, anchor), …)`) where `anchor` is the finalized block
+   `target_block − POSW_ANCHOR_OFFSET`. Presence is the **renewable recert lease**: a fresh recert keeps an
+   identity in `account_ops.get_open_registry` for `POSW_LEASE_EPOCHS` — the "slow, infrequent presence
+   re-proof" is live, and there is no separate heartbeat.

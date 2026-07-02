@@ -179,10 +179,10 @@ K_OPEN = EPOCH_LENGTH * OPEN_BPS // BPS_DENOM  # open slots per epoch (rest bond
 
 # ENFORCED FINALITY (#17, security step 1): a block at height H finalizes everything at/below
 # H - FINALITY_DEPTH; rollback_one_block REFUSES to cross the persisted monotonic finalized_height
-# (raises FinalityViolation). The ordering max_rollbacks(10) < FINALITY_DEPTH < EPOCH_LENGTH(60) <
-# PRESENCE_WINDOW*EPOCH_LENGTH(180) guarantees: an honest reorg (<= max_rollbacks deep) never hits
-# the floor; a malicious/long-range reorg is capped below one epoch so the epoch-beacon anchor is
-# un-reorgable; and the heartbeat-GC of pre-presence-window epochs is provably safe.
+# (raises FinalityViolation). The ordering max_rollbacks(10) < FINALITY_DEPTH < EPOCH_LENGTH(60)
+# guarantees: an honest reorg (<= max_rollbacks deep) never hits the floor, and a malicious/long-range
+# reorg is capped below one epoch so the epoch-beacon anchor is un-reorgable. (The presence recert lease
+# spans POSW_LEASE_EPOCHS, far beyond any rollback window, so a reorg can never strand a valid lease.)
 FINALITY_DEPTH = 30
 
 # Bonded lane: locked refundable stake, split-neutral, per-identity capped.

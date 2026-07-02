@@ -25,6 +25,16 @@ pattern below (account docs + dupsort range scans + dedup), zero errors.
 
 ## KV schema (one LMDB env, named sub-DBs)
 
+> **Note (post-migration): this table is the schema at the SQLite→LMDB cut-over.** The engine, the
+> data model, and the atomicity guarantee below are unchanged, but the sub-DB set has grown since.
+> Most importantly, **the `heartbeats` sub-DB and the per-epoch heartbeat tx were removed
+> (superseded): presence is now a renewable PoSW *recert lease*** stored in `recerts`
+> (`address → epoch`, DUPSORT) + `recert_by_epoch` (`epoch → address`, DUPSORT); a `register` tx with
+> a fresh sequential PoSW grants OPEN-lane eligibility for `POSW_LEASE_EPOCHS`. Later additions:
+> `attestations` / `commits` / `reveals` (FFG / RANDAO), `settlements`, `aliases`, `unbonds`,
+> `hb_revert`, `htlcs` (cross-chain swaps), `bond_since` + `bond_since_revert` (bonded-producer ramp).
+> The current, authoritative sub-DB list lives in [storage.md](storage.md).
+
 | sub-DB | key | value | flags | replaces |
 |---|---|---|---|---|
 | `accounts` | `address` (utf8) | `msgpack({balance, produced, bonded, registered, fidelity, …})` — **schemaless doc, no columns** | — | `acc_index` |
@@ -34,19 +44,22 @@ pattern below (account docs + dupsort range scans + dedup), zero errors.
 | `tx` | `txid` | `msgpack({block_number, sender, recipient})` | — | `tx_index` (by txid) |
 | `tx_by_sender` | `sender` | `block_number(8-byte BE)‖txid` | `DUPSORT` | `idx_sender` |
 | `tx_by_recipient` | `recipient` | `block_number(8-byte BE)‖txid` | `DUPSORT` | `idx_recipient` |
-| `heartbeats` | `epoch` (8-byte BE) | `address` | `DUPSORT` | `heartbeat_index` |
+| `heartbeats` *(superseded → `recerts` + `recert_by_epoch`)* | `epoch` (8-byte BE) | `address` | `DUPSORT` | `heartbeat_index` |
 
 - **Big-endian integer keys** preserve numeric order for range scans (`block_by_num` iteration,
-  `heartbeats` "epoch > E−PRESENCE_WINDOW", `tx_by_*` ordered-by-block history).
-- **DUPSORT** gives multi-value keys with sorted, **auto-deduped** dups — so `heartbeats` enforces
-  one-per-(address,epoch) for free, and `tx_by_sender` keeps history ordered by block.
+  the `recert_by_epoch` present-set window "epoch > E−`POSW_LEASE_EPOCHS`", `tx_by_*` ordered-by-block
+  history).
+- **DUPSORT** gives multi-value keys with sorted, **auto-deduped** dups — so `recert_by_epoch` enforces
+  one-recert-per-(address,epoch) for free, and `tx_by_sender` keeps history ordered by block.
 - **Account history UNION** (`sender` OR `recipient`, ordered by block): merge the two dupsort cursors.
-- **`get_open_registry(epoch)`**: range-scan `heartbeats` for keys `> epoch−PRESENCE_WINDOW`, collect
-  addresses, intersect with `accounts` where `registered==1`, attach `fidelity`.
+- **`get_open_registry(epoch)`** *(current)*: range-scan `recert_by_epoch` for keys
+  `> epoch−POSW_LEASE_EPOCHS` (a valid, unexpired recert lease), collect addresses, intersect with
+  `accounts` where `registered==1`, attach `fidelity`. *(Was: range-scan `heartbeats` for keys
+  `> epoch−PRESENCE_WINDOW` — superseded, presence is now the PoSW recert lease.)*
 
 ## Atomicity
 `incorporate_block` / `rollback_one_block` wrap **all** mutations (account docs, tx index, block index,
-totals, heartbeats) in **one** `env.begin(write=True)` transaction → ACID, crash-atomic — directly
+totals, presence recerts, and every other sub-DB) in **one** `env.begin(write=True)` transaction → ACID, crash-atomic — directly
 replaces the SQLite `transaction()` context (closes the same LO-1/CO-4 window, arguably cleaner since
 LMDB is single-writer + copy-on-write).
 

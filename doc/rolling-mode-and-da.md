@@ -33,7 +33,7 @@ Rolling mode prunes **history**, never **state**.
   `transactions.db` is explicitly **not** consensus-critical (explorer/history, rebuildable).
 - **Block bodies are already separable.** Stored as `zstd(msgpack)` files under `blocks/`;
   the LMDB KV is a **derived, rebuildable index**. `kv_ops` already has prune primitives
-  (block-by-num / block-by-hash delete, `heartbeat_gc`, `iter_block_numbers`).
+  (block-by-num / block-by-hash delete, `hb_revert_gc`, `iter_block_numbers`).
 
 **A snapshot is already a pruned state.** Rolling mode is mostly: *keep making snapshots,
 keep the last K epochs of bodies, drop the rest, and define who still has the old data.*
@@ -70,6 +70,17 @@ So the **body** floor = `max(retention, REWARD_WINDOW + FINALITY_DEPTH + 1)`.
 optimization — index `cumulative_fees` by height to decouple `get_block_reward` from the body —
 would let the floor drop to `FINALITY_DEPTH`; not needed at a 10 000-block window.
 
+**Earliest-block-pointer maintenance (part of pruning — a fix).** Dropping the oldest bodies means
+the recorded **earliest block** can point at a body that no longer exists on disk. `prune_block_bodies`
+therefore **advances the earliest-block pointer** (`block_ends` → `set_earliest_block_info`) to the
+earliest *retained* body (height `end`, the first block at/above `pruned_below`, which is never
+pruned) in the same pass. This closes a bug where the pointer was left dangling: `get_block_ends_info`
+would try to load the pruned earliest body, `load_block_from_hash` returned `False`, and every
+`/status` (which reads `earliest_block["block_hash"]`) then **403'd — stalling the execution node and
+wallet connection**. As a defensive backstop, `get_block_ends_info` also recovers a dangling pointer
+by walking up from the `pruned_below` watermark to the first retained body (falling back to the latest
+block, which is always kept), so `memserver.earliest_block` is **always** a real dict.
+
 **Status:** implemented + unit-tested (`tests/test_rolling_prune.py`): prunes below the window,
 keeps indexes, respects the safety floor, idempotent/incremental. Gated by the `archive` node
 role (§2.2) which **defaults to keep-everything**, so this is opt-in with zero behaviour change
@@ -94,9 +105,11 @@ the 80% quorum can't be gamed by a colluding minority.
 
 ## 3. Idle-account GC (scaling item #4) — consensus-critical state pruning
 
-`GC_IDLE_EPOCHS = 1000` is defined; heartbeat-row GC is wired, but idle **account-row** GC
-is not. The free OPEN lane (`register`/`heartbeat` are fee-exempt) creates permanent account
-state — an unbounded growth vector.
+`GC_IDLE_EPOCHS = 1000` is defined, but idle **account-row** GC is not wired. Presence itself is
+now self-bounding — the old per-epoch heartbeat rows are gone, replaced by the PoSW **recert lease**
+(`recerts` / `recert_by_epoch`), which lapses if not renewed each `POSW_LEASE_EPOCHS` — yet the free
+OPEN lane's fee-exempt `register` (recert) txs still create permanent **account** state that never
+expires, an unbounded growth vector.
 
 **Why it cannot be a local sweep:** deleting an account row changes the **state root**. If
 nodes pruned independently, their roots would diverge → chain fork. So idle-account GC must
@@ -190,7 +203,8 @@ must be designed together.
    (PQ) DAS** + challenge window + external-DA fallback (§4.2).
 
 > Cross-references: `ops/snapshot_ops.py` (state snapshot + Merkle root + quorum),
-> `ops/kv_ops.py` (block-body store + prune primitives + `heartbeat_gc`), `protocol.py`
-> (`FINALITY_DEPTH`, `GC_IDLE_EPOCHS`, `BOND_UNLOCK_DELAY`, `PRESENCE_WINDOW`),
+> `ops/kv_ops.py` (block-body store + prune primitives + recert lease stores `recerts` /
+> `recert_by_epoch` + `hb_revert_gc`), `protocol.py`
+> (`FINALITY_DEPTH`, `GC_IDLE_EPOCHS`, `BOND_UNLOCK_DELAY`, `POSW_LEASE_EPOCHS`),
 > `doc/execution-layer.md` (blob DA constraints), `doc/quantum-resistance-and-vms.md` (why DA
 > commitments must be hash-based), `doc/scaling-analysis.md` (item #4 / §C).
