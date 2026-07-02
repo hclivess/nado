@@ -2375,7 +2375,7 @@ function parseShieldAddr(a) {
 async function renderShield() {
   if (!state.wallet) return;
   ensureShielded();
-  if ($("zaddr")) $("zaddr").textContent = shieldAddr();     // your reusable shielded receive address
+  if ($("zaddr")) { const za = shieldAddr(); $("zaddr").textContent = za; _drawQR($("zaddrQR"), null, za, 220); }  // your reusable shielded receive address + QR
   const notes = loadNotes();
   const bal = notes.filter((n) => !n.spent).reduce((s, n) => s + BigInt(n.value), 0n);
   $("shieldBal").textContent = rawToNado(bal) + " NADO";
@@ -2474,6 +2474,12 @@ async function proveTransfer(wit) {
 }
 function _b36enc(x) { x = BigInt(x); if (x === 0n) return "0"; const D = "0123456789abcdefghijklmnopqrstuvwxyz"; let s = ""; while (x > 0n) { s = D[Number(x % 36n)] + s; x /= 36n; } return s; }
 
+async function shareText(text, title) {   // native share sheet (phones) with a clipboard fallback
+  if (navigator.share) { try { await navigator.share({ title, text }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
+  const ok = await copyToClipboard(text);
+  log(ok ? "ok" : "info", ok ? i18("copy.copied", "Copied ✓") : text);
+}
+
 async function proveTransfer2(wit) {   // 2-output proof (send + change), on-device if ticked else delegated
   if ($("zOnDevice") && $("zOnDevice").checked) {
     if (window.nadoProve2) { try { return await window.nadoProve2(wit, execBase()); } catch (e) { /* fall back */ } }
@@ -2515,6 +2521,7 @@ async function doSendShielded() {
     // the recipient reconstructs their note from (amount, r1) + THEIR key -> a claim code to deliver to them
     const code = "znote" + _b36enc(rawAmount) + "." + _b36enc(r1);
     $("zsendCode").textContent = code; show("zsendCodeBox", true);
+    _drawQR($("zsendCodeQR"), null, code, 200);           // QR so the recipient can scan the claim code
     $("shieldStatus").textContent = "";
     log("ok", i18("shield.sent", "Sent {a} NADO privately ✓ — give the recipient the claim code below.", { a: rawToNado(rawAmount) }));
     setTimeout(() => renderShield().catch(() => {}), 1500);
@@ -2636,6 +2643,8 @@ function wireEvents() {
   if ($("btnClaimUnshield")) $("btnClaimUnshield").onclick = () => claimUnshields();
   if ($("btnZsend")) $("btnZsend").onclick = () => doSendShielded();
   if ($("btnZrecv")) $("btnZrecv").onclick = () => doReceiveShielded();
+  if ($("btnZaddrShare")) $("btnZaddrShare").onclick = () => shareText(shieldAddr(), i18("shield.shareAddr", "My NADO shielded address"));
+  if ($("btnZcodeShare")) $("btnZcodeShare").onclick = () => shareText($("zsendCode").textContent, i18("shield.shareCode", "NADO shielded claim code"));
   $("btnDlKeySettings").onclick = downloadKeyFile;
   if ($("btnCollectDiv")) $("btnCollectDiv").onclick = () => collectDividend();
   if ($("btnImportFile")) $("btnImportFile").onclick = () => $("importFile").click();
