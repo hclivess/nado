@@ -107,6 +107,30 @@ def t7_quorum_and_weight_stay_ramp_free():
     raw = selection_shares(BOND_CAP)                            # 100 shares
     assert total_bonded_shares(fresh_whale) == raw, "quorum/weight must use ramp-free shares"
 
+def t8_genesis_topup_keeps_aged_status():
+    # a genesis/pre-existing stake has bonded but NO bond_since (fully aged). Auto-bonding MORE must NOT
+    # reset the whole stake's age to now — that reset zeroed a sole validator's weight and deadlocked the chain.
+    create_account("gen", balance=100 * B_MIN, bonded=100 * B_MIN)   # aged, bond_since unset
+    assert kv_ops.bond_since_get_raw("gen") is None
+    _bond("gen", 1 * B_MIN, height=100 * EPOCH_LENGTH, txid="g1")    # small top-up at epoch 100
+    since = kv_ops.bond_since_get_raw("gen")
+    assert since == 0, f"a small top-up on a large aged stake stays ~fully aged (got {since})"
+    reg = get_bonded_registry()
+    from ops.mining_ops import bond_ramp_weight as brw
+    base = selection_shares(reg["gen"]["bonded"])
+    assert brw(base, since, 100) == base, "aged validator keeps FULL selection weight after auto-bond"
+
+def t9_liveness_fallback_when_all_fresh():
+    # if EVERY bonded identity is still ramping (all tenure 0 -> ramped weight 0), the chain must NOT stall:
+    # the un-ramped fallback still elects a producer. (This is the deadlock guard.)
+    beacon = "beef" * 16
+    epoch = 5
+    reg = {f"ndoF{i:02x}": {"bonded": 5 * B_MIN, "fidelity": None, "bond_since": epoch} for i in range(3)}
+    got = [select_producer_two_lane({}, reg, beacon, s)
+           for s in range(epoch * EPOCH_LENGTH, epoch * EPOCH_LENGTH + EPOCH_LENGTH)]
+    assert all(w is not None for w in got), "all-fresh bonded must never stall — liveness fallback must fire"
+    assert all(w in reg for w in got), "fallback must elect a real bonded producer"
+
 for name, fn in sorted((n, f) for n, f in globals().items() if n.startswith("t") and callable(f) and n[1].isdigit()):
     check(name, fn)
 print(f"\n{'ALL PASSED' if not fails else str(fails)+' FAILED'}")

@@ -347,10 +347,14 @@ def apply_bond_since(address, delta, block_height, txid, revert=False):
     kv_ops.bond_since_revert_put(txid, prev_raw)
     new_bonded = int(kv_ops.get_account(address).get("bonded", 0))   # AFTER change_bonded
     old_bonded = new_bonded - int(delta)
-    if old_bonded <= 0 or prev_raw is None:
-        new_since = epoch                                  # first bond from zero -> age starts now
+    if old_bonded <= 0:
+        new_since = epoch                                  # genuine first bond from zero -> age starts now
     else:
-        new_since = (old_bonded * int(prev_raw) + int(delta) * epoch) // new_bonded
+        # TOP-UP of an existing stake — blend ages, stake-weighted. A genesis/pre-existing stake has an unset
+        # age (None) which means FULLY AGED, so treat its age as epoch 0 here (do NOT mistake it for a first
+        # bond, or an aged validator that auto-bonds would reset its whole stake to now and could stall).
+        prev_age = 0 if prev_raw is None else int(prev_raw)
+        new_since = (old_bonded * prev_age + int(delta) * epoch) // new_bonded
     kv_ops.bond_since_put(address, new_since)
 
 

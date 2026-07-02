@@ -195,12 +195,21 @@ def select_producer_two_lane(open_registry: dict, bonded_registry: dict, beacon:
         the free lane absorb bonded slots would break the OPEN_BPS Sybil ceiling.
     The winner is credited by ADDRESS, so it need not be online (a relay builds the block for it)."""
     bonded_weight = _bonded_ramped_weight(slot // EPOCH_LENGTH)   # tenure ramp for the sudden-whale brake
+    def _bonded_draw():
+        w = _weighted_draw(bonded_registry, bonded_weight, beacon, slot)
+        # LIVENESS: the ramp must never STALL the chain. If every bonded identity is still ramping (total
+        # ramped weight 0) but the registry is NON-empty, fall back to the un-ramped draw so a block is still
+        # produced. Deterministic (same on every node). This only fires when NO aged validator has weight —
+        # i.e. all stake is fresh — where there is no established set for the ramp to protect anyway.
+        if w is None and bonded_registry:
+            w = _weighted_draw(bonded_registry, _bonded_shares, beacon, slot)
+        return w
     if lane_of(slot, beacon) == "open":
         winner = _weighted_draw(open_registry, _open_weight, beacon, slot)
         if winner is not None:
             return winner
-        return _weighted_draw(bonded_registry, bonded_weight, beacon, slot)  # one-directional fallback
-    return _weighted_draw(bonded_registry, bonded_weight, beacon, slot)
+        return _bonded_draw()                                     # one-directional open->bonded fallback
+    return _bonded_draw()
 
 
 # --- open-lane registration proof-of-work (one-time, fee-substitute, phone-doable) -----------
