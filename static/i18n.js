@@ -768,6 +768,19 @@
   };
   for (const l in T22) Object.assign(T[l], T22[l]);
 
+  // Stats + Swap tab labels (the detailed strings inside those tabs fall back to English until translated).
+  const T23 = {
+    en:{"tab.stats":"Stats","tab.swap":"Swap"}, cs:{"tab.stats":"Statistiky","tab.swap":"Swap"},
+    es:{"tab.stats":"Estadísticas","tab.swap":"Swap"}, pt:{"tab.stats":"Estatísticas","tab.swap":"Swap"},
+    fr:{"tab.stats":"Stats","tab.swap":"Échange"}, de:{"tab.stats":"Statistik","tab.swap":"Swap"},
+    it:{"tab.stats":"Statistiche","tab.swap":"Swap"}, ru:{"tab.stats":"Статистика","tab.swap":"Обмен"},
+    zh:{"tab.stats":"统计","tab.swap":"兑换"}, ja:{"tab.stats":"統計","tab.swap":"スワップ"},
+    ko:{"tab.stats":"통계","tab.swap":"스왑"}, ar:{"tab.stats":"إحصاءات","tab.swap":"مبادلة"},
+    hi:{"tab.stats":"आँकड़े","tab.swap":"स्वैप"}, tr:{"tab.stats":"İstatistik","tab.swap":"Takas"},
+    id:{"tab.stats":"Statistik","tab.swap":"Tukar"}, vi:{"tab.stats":"Thống kê","tab.swap":"Hoán đổi"}
+  };
+  for (const l in T23) Object.assign(T[l], T23[l]);
+
   const NAMES = { en:"English", cs:"Čeština", es:"Español", pt:"Português", fr:"Français", de:"Deutsch", it:"Italiano",
     ru:"Русский", zh:"中文", ja:"日本語", ko:"한국어", ar:"العربية", hi:"हिन्दी", tr:"Türkçe",
     id:"Bahasa Indonesia", vi:"Tiếng Việt" };

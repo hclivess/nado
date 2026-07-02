@@ -110,6 +110,8 @@
     <button class="tab" data-tabbtn="stake" data-i18n="tab.stake">Stake</button>
     <button class="tab" data-tabbtn="history" data-i18n="tab.history">History</button>
     <button class="tab" data-tabbtn="rich" data-i18n="tab.rich">Rich list</button>
+    <button class="tab" data-tabbtn="stats" data-i18n="tab.stats">Stats</button>
+    <button class="tab" data-tabbtn="swap" data-i18n="tab.swap">Swap</button>
     <button class="tab" data-tabbtn="explore" data-i18n="tab.explore">Explore</button>
     <button class="tab" data-tabbtn="settings" data-i18n="tab.settings">Settings</button>
   </nav>
@@ -359,6 +361,51 @@
     <h2 data-i18n="rich.title">🏆 Rich list</h2>
     <div class="faint small" data-i18n="rich.sub">The largest wallets on the network, by total holdings (spendable + savings).</div>
     <div id="richList" class="ex-rows mt"><div class="faint small">loading…</div></div>
+  </div>
+
+  <!-- STATS (network charts, drawn as inline SVG — no external chart library) -->
+  <div id="statsCard" class="card hidden" data-tab="stats">
+    <h2 data-i18n="stats.title">📊 Network stats</h2>
+    <div id="statsHeadline" class="stat-grid mt"></div>
+    <div class="mt"><div class="label" data-i18n="stats.blockTimes">Block interval (recent, seconds)</div>
+      <svg id="chartBlockTime" viewBox="0 0 320 120" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg></div>
+    <div class="mt"><div class="label" data-i18n="stats.rewards">Block reward (recent, NADO)</div>
+      <svg id="chartReward" viewBox="0 0 320 120" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg></div>
+    <div class="mt"><div class="label" data-i18n="stats.wealth">Top balances (NADO)</div>
+      <svg id="chartWealth" viewBox="0 0 320 150" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg></div>
+    <div class="mt"><div class="label" data-i18n="stats.lanes">Lane participation</div>
+      <svg id="chartLanes" viewBox="0 0 320 70" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg></div>
+    <div class="faint small mt" data-i18n="stats.note">Live from the relay you're connected to. Time-series cover the most recent blocks.</div>
+  </div>
+
+  <!-- SWAP (HTLC cross-chain atomic swaps) -->
+  <div id="swapCard" class="card hidden" data-tab="swap">
+    <h2 data-i18n="swap.title">🔀 Atomic swap (HTLC)</h2>
+    <div class="faint small" data-i18n-html="swap.sub">Lock coins under a SHA-256 <b>hashlock</b> + a block-height <b>timelock</b>. The claimant reveals the secret to claim before it expires; otherwise you refund. The same hashlock on another chain (BTC/ETH…) makes a trustless cross-chain swap — no bridge, no custodian.</div>
+
+    <div class="mt"><div class="label" data-i18n="swap.newTitle">Create a lock</div></div>
+    <label data-i18n="swap.claimant">Claimant address (who can claim with the secret)</label>
+    <input id="swapClaimant" placeholder="ndo…" autocomplete="off" spellcheck="false" />
+    <div class="row mt">
+      <div style="flex:1"><label data-i18n="swap.amount">Amount (NADO)</label>
+        <input id="swapAmount" type="number" min="0" step="0.0001" placeholder="0.0" /></div>
+      <div style="flex:1"><label data-i18n="swap.timelock">Timelock (blocks until refund)</label>
+        <input id="swapTimelock" type="number" min="10" step="1" value="120" /></div>
+    </div>
+    <label class="mt" data-i18n="swap.hashlock">Hashlock — leave blank to generate a new secret, or paste a counterparty's SHA-256 hash</label>
+    <input id="swapHashlock" placeholder="(blank = generate)" autocomplete="off" spellcheck="false" />
+    <button id="btnSwapLock" class="primary mt" style="width:100%" data-i18n="swap.lock">Lock coins</button>
+    <div id="swapSecretBox" class="warnbox mt hidden"></div>
+
+    <div class="mt"><div class="label" data-i18n="swap.mine">Your swaps</div></div>
+    <div id="swapList" class="ex-rows mt"><div class="faint small" data-i18n="swap.none">No swaps yet.</div></div>
+
+    <div class="mt"><div class="label" data-i18n="swap.claimTitle">Claim with a secret</div></div>
+    <label data-i18n="swap.claimId">HTLC id</label>
+    <input id="swapClaimId" placeholder="lock txid…" autocomplete="off" spellcheck="false" />
+    <label class="mt" data-i18n="swap.preimage">Secret (preimage, hex)</label>
+    <input id="swapPreimage" placeholder="hex secret…" autocomplete="off" spellcheck="false" />
+    <button id="btnSwapClaim" class="accent mt" style="width:100%" data-i18n="swap.claim">Claim</button>
   </div>
 
   <div id="exploreSearchCard" class="card hidden" data-tab="explore">

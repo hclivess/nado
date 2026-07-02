@@ -1956,6 +1956,178 @@ async function loadRichList() {
   }
 }
 
+/* ============================ STATS TAB — inline SVG charts (no external lib) ============================ */
+const _SVGNS = "http://www.w3.org/2000/svg";
+function _svgClear(id) { const s = $(id); if (s) s.innerHTML = ""; return s; }
+function _mk(tag, attrs, text) {
+  const el = document.createElementNS(_SVGNS, tag);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  if (text != null) el.textContent = text;
+  return el;
+}
+function _nadoNum(raw) { try { return Number(BigInt(raw || 0)) / 1e10; } catch { return 0; } }
+const _CACC = "#3aa0ff", _CGRID = "#1c2530", _CMUT = "#7c8b9a", _CGOLD = "#f5c542", _CGRN = "#5ad19a";
+
+function barChart(id, values, labels, opts) {
+  opts = opts || {}; const svg = _svgClear(id); if (!svg) return;
+  const W = 320, H = 120, padL = 32, padB = 16, padT = 8, padR = 6;
+  const n = values.length;
+  if (!n) { svg.appendChild(_mk("text", { x: W / 2, y: H / 2, fill: _CMUT, "font-size": 11, "text-anchor": "middle" }, i18("stats.nodata", "no data yet"))); return; }
+  const max = Math.max(1e-9, ...values), bw = (W - padL - padR) / n;
+  for (const frac of [0, 1]) {
+    const y = H - padB - frac * (H - padB - padT);
+    svg.appendChild(_mk("line", { x1: padL, y1: y, x2: W - padR, y2: y, stroke: _CGRID, "stroke-width": 1 }));
+    svg.appendChild(_mk("text", { x: padL - 3, y: y + 3, fill: _CMUT, "font-size": 8, "text-anchor": "end" }, opts.fmt ? opts.fmt(frac * max) : String(Math.round(frac * max))));
+  }
+  values.forEach((v, i) => {
+    const h = (v / max) * (H - padB - padT), x = padL + i * bw + bw * 0.12, y = H - padB - h;
+    svg.appendChild(_mk("rect", { x, y, width: bw * 0.76, height: Math.max(0, h), fill: opts.color || _CACC, rx: 2 }));
+    if (labels && labels[i] != null && (n <= 10 || i % Math.ceil(n / 10) === 0))
+      svg.appendChild(_mk("text", { x: x + bw * 0.38, y: H - 5, fill: _CMUT, "font-size": 7, "text-anchor": "middle" }, labels[i]));
+  });
+}
+function hbarChart(id, rows, opts) {
+  opts = opts || {}; const svg = _svgClear(id); if (!svg) return;
+  const W = 320, rowH = 18, padT = 4;
+  const n = rows.length; if (!n) { svg.appendChild(_mk("text", { x: W / 2, y: 20, fill: _CMUT, "font-size": 11, "text-anchor": "middle" }, i18("stats.nodata", "no data yet"))); return; }
+  svg.setAttribute("viewBox", `0 0 ${W} ${padT * 2 + n * rowH}`);
+  const max = Math.max(1e-9, ...rows.map((r) => r.value));
+  rows.forEach((r, i) => {
+    const y = padT + i * rowH, bw = (r.value / max) * (W - 150);
+    svg.appendChild(_mk("text", { x: 2, y: y + rowH / 2 + 3, fill: _CMUT, "font-size": 9 }, r.label));
+    svg.appendChild(_mk("rect", { x: 78, y: y + 2, width: Math.max(1, bw), height: rowH - 5, fill: opts.color || _CACC, rx: 2 }));
+    svg.appendChild(_mk("text", { x: 82 + Math.max(1, bw), y: y + rowH / 2 + 3, fill: "#cdd7e0", "font-size": 9 }, opts.fmt ? opts.fmt(r.value) : String(r.value)));
+  });
+}
+function laneBar(id, open, bonded) {
+  const svg = _svgClear(id); if (!svg) return;
+  const W = 320, total = Math.max(1, open + bonded);
+  const ow = (open / total) * (W - 8), bw = (bonded / total) * (W - 8);
+  svg.appendChild(_mk("rect", { x: 4, y: 8, width: Math.max(0, ow), height: 20, fill: _CACC, rx: 3 }));
+  svg.appendChild(_mk("rect", { x: 4 + ow, y: 8, width: Math.max(0, bw), height: 20, fill: _CGOLD, rx: 3 }));
+  svg.appendChild(_mk("text", { x: 4, y: 45, fill: _CACC, "font-size": 10 }, `${i18("lane.open", "Open")}: ${open}`));
+  svg.appendChild(_mk("text", { x: W - 4, y: 45, fill: _CGOLD, "font-size": 10, "text-anchor": "end" }, `${i18("lane.bonded", "Savings")}: ${bonded}`));
+}
+
+async function renderStats() {
+  if (!state.wallet) return;
+  const head = $("statsHeadline"); if (head) head.innerHTML = "";
+  let tip = state.latest;
+  try { const lb = await getLatestBlock(); if (lb && typeof lb.block_number === "number") tip = lb.block_number; } catch {}
+  const N = 16, nums = [];
+  for (let i = Math.max(1, (tip || 0) - N + 1); i <= (tip || 0); i++) nums.push(i);
+  const blocks = (await Promise.all(nums.map((n) =>
+    fetch(relayBase() + "/get_block_number?number=" + n, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+  ))).filter((b) => b && typeof b.block_number === "number");
+  blocks.sort((a, b) => a.block_number - b.block_number);
+  const times = [], tlabels = [];
+  for (let i = 1; i < blocks.length; i++) { times.push(Math.max(0, (blocks[i].block_timestamp || 0) - (blocks[i - 1].block_timestamp || 0))); tlabels.push("#" + blocks[i].block_number); }
+  barChart("chartBlockTime", times, tlabels, { color: _CACC, fmt: (v) => Math.round(v) + "s" });
+  barChart("chartReward", blocks.map((b) => _nadoNum(b.block_reward)), blocks.map((b) => "#" + b.block_number), { color: _CGOLD, fmt: (v) => v.toFixed(2) });
+  try {
+    const d = await (await fetch(relayBase() + "/get_rich_list?n=8", { cache: "no-store" })).json();
+    const rows = ((d && d.rich_list) || []).slice(0, 8).map((e) => ({ label: exShort(e.address, 8), value: _nadoNum(e.total) }));
+    hbarChart("chartWealth", rows, { color: _CGRN, fmt: (v) => (v >= 1000 ? (v / 1000).toFixed(1) + "k" : v.toFixed(1)) });
+  } catch {}
+  let ms = state.lastMs;
+  try { ms = await getMiningStatus(state.wallet.address); } catch {}
+  if (ms) laneBar("chartLanes", ms.open_registry_size || 0, ms.bonded_registry_size || 0);
+  const addStat = (label, val) => { if (!head) return; const d = document.createElement("div"); d.className = "stat"; d.innerHTML = `<div class="label"></div><div class="value sm"></div>`; d.children[0].textContent = label; d.children[1].textContent = val; head.appendChild(d); };
+  addStat(i18("stats.tip", "Height"), tip != null ? tip : "—");
+  if (ms) { addStat(i18("stats.present", "Present miners"), ms.open_registry_size ?? "—"); addStat(i18("stats.bondedMiners", "Savings miners"), ms.bonded_registry_size ?? "—"); }
+  try { const pool = await (await fetch(relayBase() + "/get_account?address=dividend", { cache: "no-store" })).json(); addStat(i18("stats.pool", "Dividend pool"), rawToNado(BigInt(pool.balance || 0)) + " NADO"); } catch {}
+}
+
+/* ============================ SWAP TAB — HTLC cross-chain atomic swaps ============================ */
+function _hex(u8) { return Array.from(u8).map((b) => b.toString(16).padStart(2, "0")).join(""); }
+function _unhex(h) { const a = new Uint8Array(h.length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16); return a; }
+async function _sha256hex(bytes) { return _hex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))); }
+
+async function swapLock() {
+  if (!state.wallet) return;
+  const claimant = $("swapClaimant").value.trim();
+  const amtRaw = nadoToRaw($("swapAmount").value || "0");
+  const blocks = Math.max(10, parseInt($("swapTimelock").value || "120", 10) || 120);
+  let hashlock = $("swapHashlock").value.trim().toLowerCase(), preimageHex = null;
+  if (!/^ndo[0-9a-f]{46}$/i.test(claimant)) { log("err", i18("swap.badClaimant", "Enter a valid ndo… claimant address.")); return; }
+  if (amtRaw <= 0n) { log("err", i18("swap.badAmount", "Enter an amount to lock.")); return; }
+  try {
+    if (!hashlock) { const pre = crypto.getRandomValues(new Uint8Array(32)); preimageHex = _hex(pre); hashlock = await _sha256hex(pre); }
+    else if (!/^[0-9a-f]{64}$/.test(hashlock)) { log("err", i18("swap.badHash", "Hashlock must be 64 hex chars (SHA-256).")); return; }
+    const latest = await getLatestBlock(); const target = latest.block_number + 8; const expiry = target + blocks;
+    const tx = buildTransferTx(state.wallet, "htlc_lock", amtRaw, MIN_TX_FEE, target, { claimant, hashlock, expiry }, nowSeconds());
+    const res = await submitTransaction(tx);
+    if (res.data && res.data.result) {
+      log("ok", i18("swap.locked", "Lock submitted ✓ id {id}", { id: tx.txid.slice(0, 12) + "…" }));
+      const box = $("swapSecretBox"); box.classList.remove("hidden");
+      box.innerHTML = "";
+      const line = (k, v) => { const d = document.createElement("div"); d.style.wordBreak = "break-all"; const b = document.createElement("b"); b.textContent = k; d.appendChild(b); d.appendChild(document.createTextNode(" " + v)); return d; };
+      box.appendChild(line(i18("swap.idLabel", "HTLC id:"), tx.txid));
+      box.appendChild(line(i18("swap.hashLabel", "Hashlock:"), hashlock));
+      if (preimageHex) { const warn = document.createElement("div"); warn.style.marginTop = "6px"; warn.className = "danger"; warn.appendChild(line(i18("swap.secretLabel", "⚠ SECRET (preimage) — save it, it's your only way to claim/prove:"), preimageHex)); box.appendChild(warn); }
+      setTimeout(() => renderSwaps().catch(() => {}), 1500);
+    } else log("err", i18("swap.lockRej", "Lock rejected: {m}", { m: (res.data && res.data.message) || "" }));
+  } catch (e) { log("err", i18("swap.lockErr", "Lock error: {m}", { m: e.message })); }
+}
+
+async function swapClaim(idFromBtn, preFromBtn) {
+  if (!state.wallet) return;
+  const hid = (idFromBtn || $("swapClaimId").value.trim());
+  const preimage = (preFromBtn || $("swapPreimage").value.trim().toLowerCase());
+  if (!hid || !/^[0-9a-f]+$/.test(preimage) || preimage.length % 2) { log("err", i18("swap.badClaim", "Enter the HTLC id and the hex secret.")); return; }
+  try {
+    const latest = await getLatestBlock(); const target = latest.block_number + 8;
+    const tx = buildTransferTx(state.wallet, "htlc_claim", 0n, 0, target, { htlc_id: hid, preimage }, nowSeconds());
+    const res = await submitTransaction(tx);
+    if (res.data && res.data.result) { log("ok", i18("swap.claimed", "Claim submitted ✓")); setTimeout(() => renderSwaps().catch(() => {}), 1500); }
+    else log("err", i18("swap.claimRej", "Claim rejected: {m}", { m: (res.data && res.data.message) || "" }));
+  } catch (e) { log("err", i18("swap.claimErr", "Claim error: {m}", { m: e.message })); }
+}
+
+async function swapRefund(hid) {
+  if (!state.wallet || !hid) return;
+  try {
+    const latest = await getLatestBlock(); const target = latest.block_number + 8;
+    const tx = buildTransferTx(state.wallet, "htlc_refund", 0n, 0, target, { htlc_id: hid }, nowSeconds());
+    const res = await submitTransaction(tx);
+    if (res.data && res.data.result) { log("ok", i18("swap.refunded", "Refund submitted ✓")); setTimeout(() => renderSwaps().catch(() => {}), 1500); }
+    else log("err", i18("swap.refundRej", "Refund rejected: {m}", { m: (res.data && res.data.message) || "" }));
+  } catch (e) { log("err", i18("swap.refundErr", "Refund error: {m}", { m: e.message })); }
+}
+
+async function renderSwaps() {
+  if (!state.wallet) return;
+  const box = $("swapList"); if (!box) return;
+  const me = state.wallet.address;
+  let map = {};
+  try { map = (await (await fetch(relayBase() + "/htlcs?address=" + encodeURIComponent(me), { cache: "no-store" })).json()).htlcs || {}; }
+  catch { box.innerHTML = `<div class="faint small">${i18("swap.err", "unavailable")}</div>`; return; }
+  const ids = Object.keys(map);
+  if (!ids.length) { box.innerHTML = `<div class="faint small">${i18("swap.none", "No swaps yet.")}</div>`; return; }
+  const tip = state.latest || 0;
+  box.innerHTML = "";
+  ids.sort().forEach((id) => {
+    const h = map[id], iAmClaimant = h.claimant === me, iAmSender = h.sender === me;
+    const expired = tip >= (h.expiry || 0);
+    const row = document.createElement("div"); row.className = "ex-row";
+    const left = document.createElement("div");
+    const role = iAmSender ? i18("swap.roleSender", "you → " + exShort(h.claimant, 8)) : i18("swap.roleClaimant", exShort(h.sender, 8) + " → you");
+    left.innerHTML = `<div class="mono small">${exShort(id, 14)}</div><div class="faint small">${rawToNado(BigInt(h.amount || 0))} NADO · ${role} · ${i18("swap.status." + h.status, h.status)} · exp #${h.expiry}</div>`;
+    row.appendChild(left);
+    const right = document.createElement("div");
+    if (h.status === "open" && iAmClaimant && !expired) {
+      const b = document.createElement("button"); b.className = "accent"; b.textContent = i18("swap.claim", "Claim");
+      b.onclick = () => { $("swapClaimId").value = id; $("swapPreimage").focus(); }; right.appendChild(b);
+    } else if (h.status === "open" && iAmSender && expired) {
+      const b = document.createElement("button"); b.className = "ghost"; b.textContent = i18("swap.refund", "Refund");
+      b.onclick = () => swapRefund(id); right.appendChild(b);
+    } else if (h.status === "claimed" && h.preimage) {
+      const s = document.createElement("div"); s.className = "faint small"; s.style.wordBreak = "break-all"; s.textContent = i18("swap.revealed", "secret: ") + h.preimage; right.appendChild(s);
+    }
+    row.appendChild(right); box.appendChild(row);
+  });
+}
+
 function showTab(name) {
   if (!state.wallet) return;
   state.activeTab = name;
@@ -1967,6 +2139,8 @@ function showTab(name) {
   else if (name === "explore") { exLoadOverview(); exLoadRecent(); }
   else if (name === "history") loadHistory().catch(() => {});
   else if (name === "rich") loadRichList().catch(() => {});
+  else if (name === "stats") renderStats().catch(() => {});
+  else if (name === "swap") renderSwaps().catch(() => {});
   else if (name === "send") { updateFeeInfo().catch(() => {}); validateSendTo().catch(() => {}); addrBookRender(); }
   else if (name === "stake") { updateFeeInfo().catch(() => {}); refreshDashboard().catch(() => {}); }
 }
@@ -2032,6 +2206,8 @@ function wireEvents() {
   // --- full-wallet wiring ---
   $("btnDlKey").onclick = downloadKeyFile;
   $("btnDlKeySave").onclick = downloadKeyFile;
+  if ($("btnSwapLock")) $("btnSwapLock").onclick = () => swapLock();
+  if ($("btnSwapClaim")) $("btnSwapClaim").onclick = () => swapClaim();
   $("btnDlKeySettings").onclick = downloadKeyFile;
   if ($("btnCollectDiv")) $("btnCollectDiv").onclick = () => collectDividend();
   if ($("btnImportFile")) $("btnImportFile").onclick = () => $("importFile").click();
