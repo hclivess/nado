@@ -310,13 +310,25 @@
     <div class="addr-box"><span class="a mono break" id="shareLink"></span>
       <button class="copy" data-copy="shareLink">Copy</button>
       <button class="copy" id="btnShareMiner" data-i18n="btn.share">Share</button></div>
-    <div class="social-share mt" style="display:flex;flex-wrap:wrap;gap:8px">
-      <button class="copy social" data-social="x" title="Share on X/Twitter" aria-label="Share on X">𝕏 Twitter</button>
-      <button class="copy social" data-social="telegram" title="Share on Telegram" aria-label="Share on Telegram">✈ Telegram</button>
-      <button class="copy social" data-social="whatsapp" title="Share on WhatsApp" aria-label="Share on WhatsApp">✆ WhatsApp</button>
-      <button class="copy social" data-social="reddit" title="Share on Reddit" aria-label="Share on Reddit">🅡 Reddit</button>
-      <button class="copy social" data-social="facebook" title="Share on Facebook" aria-label="Share on Facebook">f Facebook</button>
-      <button class="copy social" data-social="email" title="Share by email" aria-label="Share by email">✉ Email</button>
+    <div class="social-share mt">
+      <button class="social-btn" data-social="x" title="Share on X" aria-label="Share on X">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.53 3H21l-7.19 8.21L22.5 21h-6.75l-5.02-6.56L4.99 21H1.5l7.68-8.78L1 3h6.92l4.54 5.99L17.53 3Zm-1.18 16h1.86L7.02 4.94H5.05L16.35 19Z"/></svg>
+      </button>
+      <button class="social-btn" data-social="telegram" title="Share on Telegram" aria-label="Share on Telegram">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.9 4.3 2.6 11.7c-.9.4-.9 1.3.02 1.63l4.9 1.53 1.86 5.9c.24.66.13.92.82.92.53 0 .77-.24 1.06-.53l2.35-2.28 4.9 3.62c.9.5 1.55.24 1.77-.83l3.2-15.06c.32-1.32-.5-1.9-1.36-1.6ZM8.5 13.4l9.9-6.24c.44-.27.85-.12.52.18L10.9 15l-.32 3.4-2.08-5Z"/></svg>
+      </button>
+      <button class="social-btn" data-social="whatsapp" title="Share on WhatsApp" aria-label="Share on WhatsApp">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.04 2c-5.5 0-9.95 4.45-9.95 9.94 0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.2 4.79 1.2 5.5 0 9.95-4.45 9.95-9.94S17.54 2 12.04 2Zm5.8 14.05c-.24.68-1.42 1.31-1.96 1.36-.5.05-1.14.07-1.84-.11-.42-.13-.97-.31-1.67-.61-2.94-1.27-4.86-4.23-5.01-4.42-.15-.2-1.2-1.59-1.2-3.03s.76-2.15 1.03-2.45c.27-.3.58-.37.78-.37h.56c.18 0 .42-.07.66.5l.81 1.96c.07.14.11.3.02.48l-.27.45c-.14.16-.29.35-.41.47-.14.14-.28.29-.12.56.16.27.71 1.17 1.53 1.9 1.05.94 1.94 1.23 2.21 1.37.27.14.43.12.59-.07l.86-1.06c.18-.27.36-.23.61-.14l1.71.81c.25.12.42.18.48.28.06.14.06.62-.18 1.3Z"/></svg>
+      </button>
+      <button class="social-btn" data-social="reddit" title="Share on Reddit" aria-label="Share on Reddit">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12c0-1.1-.9-2-2-2-.53 0-1.01.21-1.37.55-1.35-.9-3.2-1.48-5.24-1.55l.89-4.02 2.8.62c0 .69.56 1.25 1.25 1.25s1.25-.56 1.25-1.25-.56-1.25-1.25-1.25c-.49 0-.91.28-1.11.69l-3.13-.7a.3.3 0 0 0-.35.22l-1 4.44c-2.07.06-3.94.63-5.31 1.54C6.51 10.21 6.03 10 5.5 10c-1.1 0-2 .9-2 2 0 .81.48 1.5 1.17 1.81-.03.19-.05.39-.05.59 0 2.98 3.47 5.4 7.75 5.4s7.75-2.42 7.75-5.4c0-.2-.02-.39-.05-.58C21.52 13.5 22 12.81 22 12ZM8 13.5c0-.69.56-1.25 1.25-1.25s1.25.56 1.25 1.25-.56 1.25-1.25 1.25S8 14.19 8 13.5Zm7.36 3.28c-.86.86-2.5.93-2.86.93s-2-.07-2.86-.93a.31.31 0 0 1 .44-.44c.54.54 1.71.74 2.42.74s1.88-.2 2.42-.74a.31.31 0 1 1 .44.44Zm-.11-2.03c-.69 0-1.25-.56-1.25-1.25s.56-1.25 1.25-1.25 1.25.56 1.25 1.25-.56 1.25-1.25 1.25Z"/></svg>
+      </button>
+      <button class="social-btn" data-social="facebook" title="Share on Facebook" aria-label="Share on Facebook">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12.06C22 6.5 17.52 2 12 2S2 6.5 2 12.06c0 5.02 3.66 9.18 8.44 9.94v-7.03H7.9v-2.9h2.54V9.85c0-2.52 1.5-3.91 3.78-3.91 1.09 0 2.24.2 2.24.2v2.47h-1.26c-1.24 0-1.63.78-1.63 1.57v1.88h2.78l-.44 2.9h-2.34V22C18.34 21.24 22 17.08 22 12.06Z"/></svg>
+      </button>
+      <button class="social-btn" data-social="email" title="Share by email" aria-label="Share by email">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2Zm0 4-8 5-8-5V6l8 5 8-5v2Z"/></svg>
+      </button>
     </div>
   </div>
 
@@ -456,8 +468,8 @@
 
   <div id="shieldCard" class="card hidden" data-tab="shield">
     <h2 data-i18n="shield.title">🛡️ Shielded pool</h2>
-    <div class="faint small" data-i18n-html="shield.sub">A post-quantum <b>zk-STARK shielded pool</b> on the execution layer. Deposit here, withdraw to a different address: on-chain, your withdrawal is a <b>zero-knowledge proof</b> that hides the amount and which note you spent.</div>
-    <div class="warnbox mt small" data-i18n-html="shield.warn"><b>⚠ Private on-chain — but the prover sees your amounts, unless you run your own node.</b> On-chain, your transfer is a real post-quantum zk-STARK, so amounts and the deposit→withdraw link are hidden from everyone reading the chain. For now the proof is generated by the <b>exec node you're connected to</b> (delegated proving), which sees your note's secrets while proving — so for full privacy, <b>run your own exec node</b> (or wait for on-device proving). Note: <b>deposit and withdrawal amounts are public on L1</b> — real privacy comes from <b>shielded transfers</b> inside the pool (below) + a busy pool. Deposits/withdrawals are always secure. Alpha — no value at stake.</div>
+    <div class="faint small" data-i18n="shield.sub">Post-quantum zk-STARK privacy. Withdraw to a fresh address; the proof hides the amount and the banknote you spent.</div>
+    <div class="warnbox mt small" data-i18n="shield.warn">⚠ Alpha, no value at stake. Deposit/withdraw amounts are public on L1 — privacy comes from the shielded transfers below. Tick "Prove on this device" (or run your own node) so the prover never sees your amounts.</div>
 
     <div class="row mt">
       <div style="flex:1"><div class="label" data-i18n="shield.balance">Shielded balance</div><div id="shieldBal" class="mono">0</div></div>
@@ -469,8 +481,8 @@
     <input id="shieldAmount" type="number" min="0" step="0.0001" placeholder="0.0" />
     <button id="btnShield" class="primary mt" style="width:100%" data-i18n="shield.deposit">Shield coins</button>
 
-    <div class="mt"><div class="label" data-i18n="shield.notesTitle">Your notes</div></div>
-    <div id="shieldNotes" class="ex-rows mt"><div class="faint small" data-i18n="shield.none">No shielded notes yet.</div></div>
+    <div class="mt"><div class="label" data-i18n="shield.notesTitle">Your banknotes</div></div>
+    <div id="shieldNotes" class="ex-rows mt"><div class="faint small" data-i18n="shield.none">No shielded banknotes yet.</div></div>
 
     <hr style="border:none;border-top:1px solid var(--line,#1c2530);margin:16px 0" />
     <div class="label" data-i18n="shield.zaddrTitle">🔐 Your shielded address — share it to receive privately</div>
@@ -479,12 +491,12 @@
       <button class="copy" data-copy="zaddr" data-i18n="btn.copy">Copy</button>
       <button class="copy" id="btnZaddrShare" data-i18n="btn.share">Share</button></div>
 
-    <div class="mt"><div class="label" data-i18n="shield.sendTitle">Send shielded — a private note→note payment (no on-chain amount to correlate)</div></div>
+    <div class="mt"><div class="label" data-i18n="shield.sendTitle">Send shielded — a private banknote→banknote payment (no on-chain amount to correlate)</div></div>
     <label data-i18n="shield.sendTo">Recipient shielded address</label>
     <input id="zsendTo" placeholder="znado…" autocomplete="off" spellcheck="false" />
     <label class="mt" data-i18n="shield.amount">Amount (NADO)</label>
     <input id="zsendAmount" type="number" min="0" step="0.0001" placeholder="0.0" />
-    <label class="mt" style="display:flex;align-items:center;gap:8px;font-weight:normal"><input type="checkbox" id="zOnDevice" style="width:auto" /> <span class="small" data-i18n="shield.ondevice">Prove on this device — fully private (the node never sees your amounts), just slower</span></label>
+    <label class="mt" style="display:flex;align-items:center;gap:8px;font-weight:normal"><input type="checkbox" id="zOnDevice" style="width:auto" checked /> <span class="small" data-i18n="shield.ondevice">Prove on this device — fully private (the node never sees your amounts), just slower</span></label>
     <button id="btnZsend" class="primary mt" style="width:100%" data-i18n="shield.zsend">Send shielded</button>
     <div id="zsendCodeBox" class="warnbox mt small hidden">
       <b data-i18n="shield.codeHint">Give this claim code to the recipient over any private channel:</b>
@@ -506,7 +518,7 @@
     <input id="unshieldAmount" type="number" min="0" step="0.0001" placeholder="0.0" />
     <button id="btnUnshield" class="accent mt" style="width:100%" data-i18n="shield.unshield">Unshield</button>
     <div id="shieldStatus" class="faint small mt"></div>
-    <div class="faint small mt" data-i18n="shield.autoclaim">Withdrawals arrive on their own once the proof settles — no extra step. <a id="btnClaimUnshield" href="javascript:void(0)">check now</a></div>
+    <div class="faint small mt" data-i18n="shield.autoclaim">Withdrawals arrive on their own once the proof settles — no extra step. <a id="btnClaimUnshield" href="javascript:void(0)" data-i18n="shield.checkNow">check now</a></div>
   </div>
 
   <div id="exploreSearchCard" class="card hidden" data-tab="explore">

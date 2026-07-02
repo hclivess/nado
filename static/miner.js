@@ -2390,12 +2390,12 @@ async function renderShield() {
   $("shieldBal").textContent = rawToNado(bal) + " NADO";
   try {
     const p = await (await fetch(execBase() + "/exec/field_shielded", { cache: "no-store" })).json();
-    $("shieldPool").textContent = i18("shield.poolInfo", "{n} notes · root {r}", { n: p.notes, r: (p.root || "").slice(0, 10) + "…" });
+    $("shieldPool").textContent = i18("shield.poolInfo", "{n} banknotes · root {r}", { n: p.notes, r: (p.root || "").slice(0, 10) + "…" });
   } catch (e) { $("shieldPool").textContent = "—"; }
   claimUnshields(true).catch(() => {});    // seamless: sweep any settled withdrawals into the balance automatically
   const box = $("shieldNotes"); box.innerHTML = "";
   const mine = notes.filter((n) => !n.spent);
-  if (!mine.length) { box.innerHTML = '<div class="faint small">' + i18("shield.none", "No shielded notes yet.") + "</div>"; return; }
+  if (!mine.length) { box.innerHTML = '<div class="faint small">' + i18("shield.none", "No shielded banknotes yet.") + "</div>"; return; }
   for (const n of mine) {
     const row = document.createElement("div"); row.className = "ex-row";
     const l = document.createElement("div"); l.innerHTML = "<b>" + rawToNado(BigInt(n.value)) + " NADO</b>";
@@ -2421,7 +2421,7 @@ async function doShield() {
       const notes = loadNotes();
       notes.push({ value: rawAmount.toString(), rho, cm: cm.toString(), spent: false, ts: Date.now() });
       saveNotes(notes);
-      log("ok", i18("shield.done", "Shielded {a} NADO ✓ (the note appears once the exec node applies it)", { a: rawToNado(rawAmount) }));
+      log("ok", i18("shield.done", "Shielded {a} NADO ✓ (the banknote appears once the exec node applies it)", { a: rawToNado(rawAmount) }));
       $("shieldAmount").value = "";
       setTimeout(() => renderShield().catch(() => {}), 1500);
     } else log("err", i18("shield.rej", "Shield rejected: {m}", { m: (res.data && res.data.message) || "" }));
@@ -2437,28 +2437,31 @@ async function doUnshield() {
   if (!/^ndo[0-9a-f]{46}$/i.test(to)) { log("err", i18("shield.badAddr", "Enter a valid ndo… address.")); return; }
   const notes = loadNotes();
   const note = notes.find((n) => !n.spent && BigInt(n.value) >= rawAmount);
-  if (!note) { log("err", i18("shield.noNote", "No single note covers that amount yet (splitting across notes isn't supported here).")); return; }
+  if (!note) { log("err", i18("shield.noNote", "No single banknote covers that amount yet (splitting across banknotes isn't supported here).")); return; }
   const _ub = $("btnUnshield");
   if (_ub) { _ub.disabled = true; _ub.textContent = i18("shield.provingBtn", "🔐 Proving…"); }
   try {
     const change = BigInt(note.value) - rawAmount;
-    const outRho = _randField();
-    const outOwner = shieldOwner();                          // change comes back to this wallet
+    const r1 = _randField(), r2 = _randField();
+    const owner = shieldOwner();                             // change comes back to this wallet
     $("shieldStatus").innerHTML = '<span class="spin">◐</span> ' + i18("shield.proving", "Generating your zero-knowledge proof… (~15s, one-time per withdrawal)");
+    // withdrawal = a 2-output join-split with a public exit: out1 = change (back to me), out2 = empty note,
+    // public_value = -amount (the coins leaving the pool). Uses the SAME on-device prover as a shielded send.
     const wit = {
       cm: note.cm, nsk: shieldNsk().toString(), value_in: note.value, rho_in: note.rho,
-      out_value: change.toString(), out_owner: outOwner.toString(), out_rho: outRho,
+      v1: change.toString(), o1: owner.toString(), r1,
+      v2: "0", o2: owner.toString(), r2,
       public_value: (-rawAmount).toString(), fee: "0", withdraw_addr: to,
     };
-    const pr = await proveTransfer(wit);
+    const pr = await proveTransfer2(wit);
     if (pr.error || !pr.ok) {
       log("err", i18("shield.proveErr", "Proof failed: {m}", { m: pr.error || pr.applied || "" }));
       $("shieldStatus").textContent = ""; return;
     }
-    // The exec node proved + applied the transfer (the 900KB+ proof stays off-chain; the withdrawal settles
-    // on L1 via the bonded-quorum root). Nothing else to submit — just track the change note + auto-claim.
+    // The proof (on-device or delegated) was applied; the withdrawal settles on L1 via the bonded-quorum root.
+    // Nothing else to submit — just track the change note + auto-claim.
     note.spent = true;
-    if (change > 0n) notes.push({ value: change.toString(), rho: outRho, cm: pr.cm_out, spent: false, ts: Date.now() });
+    if (change > 0n) notes.push({ value: change.toString(), rho: r1, cm: pr.cm_out1, spent: false, ts: Date.now() });
     saveNotes(notes);
     log("ok", i18("shield.unshieldSent", "Unshield proved ✓ — {a} NADO will arrive once the exec root settles.", { a: rawToNado(rawAmount) }));
     $("shieldStatus").textContent = i18("shield.pending", "Pending: {a} NADO → {t} (settling…).", { a: rawToNado(rawAmount), t: to.slice(0, 12) + "…" });
@@ -2553,7 +2556,7 @@ async function doSendShielded() {
   if (rawAmount <= 0n) { log("err", i18("shield.badAmount", "Enter an amount to send.")); return; }
   const notes = loadNotes();
   const note = notes.find((n) => !n.spent && BigInt(n.value) >= rawAmount);
-  if (!note) { log("err", i18("shield.noNote", "No single shielded note covers {a} NADO — shield more first.", { a: rawToNado(rawAmount) })); return; }
+  if (!note) { log("err", i18("shield.noNote", "No single shielded banknote covers {a} NADO — shield more first.", { a: rawToNado(rawAmount) })); return; }
   const _sb = $("btnZsend"); if (_sb) { _sb.disabled = true; _sb.textContent = i18("shield.provingBtn", "🔐 Proving…"); }
   try {
     const change = BigInt(note.value) - rawAmount;
@@ -2590,9 +2593,9 @@ async function doReceiveShielded() {
     const value = _b36(vB), rho = _b36(rB);
     const cm = alghash.commit(value, shieldOwner(), rho);      // reconstruct the note with YOUR key
     const info = await (await fetch(execBase() + "/exec/field_shielded?cm=" + cm.toString(), { cache: "no-store" })).json();
-    if (info.pos === null || info.pos === undefined) { log("err", i18("shield.noteNotFound", "That note isn't in the pool yet — ask the sender to confirm it settled, then retry.")); return; }
+    if (info.pos === null || info.pos === undefined) { log("err", i18("shield.noteNotFound", "That banknote isn't in the pool yet — ask the sender to confirm it settled, then retry.")); return; }
     const notes = loadNotes();
-    if (notes.some((n) => n.cm === cm.toString())) { log("info", i18("shield.already", "You already have that note.")); return; }
+    if (notes.some((n) => n.cm === cm.toString())) { log("info", i18("shield.already", "You already have that banknote.")); return; }
     notes.push({ value: value.toString(), rho: rho.toString(), cm: cm.toString(), spent: false, ts: Date.now() });
     saveNotes(notes);
     $("zrecvCode").value = "";

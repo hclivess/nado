@@ -243,3 +243,17 @@ a { color: var(--accent-2); }
 .toast.err { border-color: rgba(248,81,73,.5); color: #ffb4ae; }
 .toast.ok { border-color: rgba(63,185,80,.4); color: var(--accent); }
 .toast.info { border-color: rgba(47,129,247,.4); color: #9fc6ff; }
+
+/* Social share buttons (Receive tab → Share NADO): circular brand-colored icon buttons */
+.social-share { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+.social-btn { width:40px; height:40px; border-radius:50%; border:none; padding:0; cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center; transition:transform .12s ease, filter .12s ease; }
+.social-btn:hover { transform:translateY(-2px); filter:brightness(1.12); }
+.social-btn:active { transform:translateY(0); }
+.social-btn svg { width:20px; height:20px; fill:#fff; display:block; }
+.social-btn[data-social="x"] { background:#000; }
+.social-btn[data-social="telegram"] { background:#26A5E4; }
+.social-btn[data-social="whatsapp"] { background:#25D366; }
+.social-btn[data-social="reddit"] { background:#FF4500; }
+.social-btn[data-social="facebook"] { background:#1877F2; }
+.social-btn[data-social="email"] { background:#6b7280; }
