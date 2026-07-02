@@ -1,11 +1,11 @@
 <p align="center">
-  <a href="https://nodeisok.com"><img src="https://nodeisok.com/media/bauhaus.png" /></a>
+  <a href="https://nodeisok.com"><img src="graphics/bauhaus.png" alt="NADO" width="520" /></a>
 </p>
 
 <p align="center">
-    <a href="https://discord.gg/6aEBWTvcTV"><img src="https://nodeisok.com/media/discord.png" /></a>
+    <a href="https://discord.gg/6aEBWTvcTV"><img src="graphics/discord.png" alt="Discord" height="40" /></a>
     &emsp;
-    <a href="https://twitter.com/nodeisok"><img src="https://nodeisok.com/media/twitter.png" /></a>
+    <a href="https://twitter.com/nodeisok"><img src="graphics/twitter.png" alt="Twitter/X" height="40" /></a>
 </p>
 
 # NADO
