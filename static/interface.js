@@ -748,6 +748,7 @@ function showUnlock() {
   show("onboard", false); show("savePrompt", false);
   const w = loadWallet();
   if ($("unlockAddr")) $("unlockAddr").textContent = (w && w.address) || "";
+  if ($("unlockRelayUrl")) { $("unlockRelayUrl").value = state.relay || ""; $("unlockRelayUrl").placeholder = location.origin; }
   if ($("unlockPass")) $("unlockPass").value = "";
   if ($("unlockErr")) $("unlockErr").textContent = "";
   show("unlockCard", true);
@@ -3434,6 +3435,14 @@ function wireEvents() {
     try { await unlockWallet(pw); } catch (e) { $("unlockErr").textContent = i18("unlock.wrong", "Wrong password — try again."); }
   });
   if ($("unlockPass")) $("unlockPass").onkeydown = (e) => { if (e.key === "Enter") $("btnUnlock").click(); };
+  _btn("btnUnlockSaveRelay", () => {
+    const v = (($("unlockRelayUrl") || {}).value || "").trim();
+    state.relay = v || null;
+    if (v) localStorage.setItem(LS_RELAY, v); else localStorage.removeItem(LS_RELAY);
+    if ($("relayUrl")) $("relayUrl").value = v;              // keep the Settings-tab field in sync
+    log("info", i18("log.relaySet", "Relay set to {u}", { u: relayBase() }));
+    refreshUnlockLease();                                    // retry the "still mining" banner with the new relay
+  });
   _btn("btnUnlockRemove", async () => {
     const pw = $("unlockPass").value;
     if (!(await uiConfirm(i18("unlock.removeConfirm", "Remove the password and store the key UNENCRYPTED on this device?")))) return;
@@ -3478,6 +3487,10 @@ async function boot() {
   state.relay = localStorage.getItem(LS_RELAY) || null;
   $("relayUrl").value = state.relay || "";
   $("relayUrl").placeholder = location.origin;
+  // EARLY LOCK GATE: if the stored wallet is encrypted, show the unlock screen on the FIRST paint — before the
+  // async dependency load below (~1s). Otherwise the default-visible Settings card + the reward flash for a
+  // second and then get replaced by the unlock prompt. (boot() re-affirms this after deps load; idempotent.)
+  { const w0 = loadWallet(); if (w0 && w0.enc) { state.locked = true; showUnlock(); } }
 
   // auto-bond preference (persisted %); reflect it into the Stake-tab control + the status note
   try {
