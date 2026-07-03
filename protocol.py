@@ -24,7 +24,7 @@ GENESIS_TIMESTAMP = 1669852800
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
 # "bond"/"unbond": bonded-lane stake txs. "register": the OPEN-lane (no-coin) mining lease tx
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "slash", "attest", "commit", "reveal", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield"})
+RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "slash", "attest", "commit", "reveal", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury_vote", "treasury_execute"})
 
 # --- SHIELDED POOL (post-quantum zk-STARK privacy, doc/privacy.md) — L1 side of an EXECUTION-LAYER feature ---
 # L1 never sees a note or verifies a proof; it only escrows the transparent coins that enter/leave the pool
@@ -136,6 +136,14 @@ BPS_DENOM = 10000
 OPEN_TIP_BPS = 2000          # open producer's cut of an open-lane block (20%); treasury 10%; dividend = rest (70%)
 BONDED_DIVIDEND_BPS = 2000   # bonded block's contribution to the dividend pool (20%); producer keeps 70%, treasury 10%
 DIVIDEND_POOL = "dividend"   # reserved L1 account the dividend accrues to (O(1) on L1)
+
+# --- Treasury governance (doc/treasury.md): stake-quorum spending. No multisig — the bonded lane IS the
+# multisig. A `treasury_execute` pays out a proposal only once bonded validators attesting it (via
+# `treasury_vote`) exceed SETTLE_NUM/SETTLE_DEN of total bonded shares — the identical 2/3 stake quorum as
+# settlement/finality. TREASURY_MAX_SPEND_BPS caps any single proposal to a fraction of the CURRENT treasury
+# balance so no one passing vote can drain the vault (drain-resistant; the deliberately simple, bug-resistant
+# alternative to a trailing-average rate limit — see doc/treasury.md §5). Anti-hoard burn lands in a later change.
+TREASURY_MAX_SPEND_BPS = 2500   # a single proposal may spend at most 25.00% of the current treasury balance
 REWARD_WINDOW = 100          # trailing blocks averaged for the elastic reward
 REWARD_CAP = 5_000_000_000   # max reward per block (0.5 NADO), raw
 # Flat per-block emission FLOOR, independent of fees. Without it a no-premine chain deadlocks:

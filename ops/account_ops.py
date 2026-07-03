@@ -232,6 +232,33 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             kv_ops.dividend_nullifier_put(addr, nonce)
         return
 
+    # --- TREASURY GOVERNANCE (doc/treasury.md §3.3): record/revert a bonded validator's APPROVAL vote for a
+    # treasury_spend proposal. The quorum is a derived read (treasury_justified), so nothing else to persist.
+    # Revert-symmetric via treasury_vote_del. ---
+    if recipient == "treasury_vote":
+        data = transaction.get("data") or {}
+        pid = data["pid"]
+        if revert:
+            kv_ops.treasury_vote_del(pid, sender)
+        else:
+            kv_ops.treasury_vote_put(pid, sender)
+        return
+
+    # --- TREASURY PAYOUT: move `amount` from the treasury to the proposal's recipient and burn the one-shot
+    # nullifier. Validation already checked the 2/3 bonded quorum + the per-proposal cap + funding. ---
+    if recipient == "treasury_execute":
+        from protocol import TREASURY_ADDRESS
+        data = transaction.get("data") or {}
+        spend, pid = data["spend"], data["pid"]
+        amt, rcpt = int(spend["amount"]), spend["recipient"]
+        change_balance(address=TREASURY_ADDRESS, amount=-amt, logger=logger, revert=revert)
+        change_balance(address=rcpt, amount=amt, logger=logger, revert=revert)
+        if revert:
+            kv_ops.treasury_executed_del(pid)
+        else:
+            kv_ops.treasury_executed_put(pid)
+        return
+
     # --- ordinary transfer (recipient may be a registered ALIAS -> credit its CURRENT owner) ---
     from ops import alias_ops
     resolved = alias_ops.resolve_alias(recipient) or recipient

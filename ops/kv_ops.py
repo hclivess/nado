@@ -50,7 +50,7 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
 _PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert")
-_DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch")
+_DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch", "treasury_votes")
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
 ACCOUNT_FIELDS = ("balance", "produced", "bonded", "registered", "fidelity", "last_hb_epoch")
@@ -620,6 +620,54 @@ def dividend_nullifier_put(addr: str, nonce: str):
 
 def dividend_nullifier_del(addr: str, nonce: str):
     meta_del(f"divnull:{addr}:{nonce}")
+
+
+# --- Treasury governance (doc/treasury.md): bonded-validator votes on a treasury_spend proposal, keyed by the
+# proposal id `pid`. DUPSORT pid -> validator, one vote per (validator, pid); mirrors the settlement helpers.
+def treasury_vote_exists(pid: str, validator: str) -> bool:
+    """True if `validator` already voted for proposal `pid` (one-vote-per-validator guard)."""
+    return meta_get_int(f"tvote:{pid}:{validator}", 0) == 1
+
+
+def treasury_vote_put(pid: str, validator: str):
+    """Record a bonded validator's approval vote for treasury proposal `pid`."""
+    def _do(txn):
+        txn.put(pid.encode(), validator.encode(), db=_dbs()["treasury_votes"], dupdata=True)
+    _write(_do)
+    meta_set_int(f"tvote:{pid}:{validator}", 1)
+
+
+def treasury_vote_del(pid: str, validator: str):
+    """Revert treasury_vote_put exactly (rollback): delete the DUPSORT row + the uniqueness marker."""
+    def _do(txn):
+        txn.delete(pid.encode(), validator.encode(), db=_dbs()["treasury_votes"])
+    _write(_do)
+    meta_del(f"tvote:{pid}:{validator}")
+
+
+def treasury_voters(pid: str):
+    """List of validator addresses that have voted to approve proposal `pid`, DUPSORT order."""
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["treasury_votes"]) as cur:
+            if cur.set_key(pid.encode()):
+                for v in cur.iternext_dup(keys=False, values=True):
+                    out.append(v.decode())
+        return out
+    return _read(_do)
+
+
+# --- executed-proposal nullifier: a pid pays out AT MOST ONCE (revert-safe, mirror of dividend_nullifier) ---
+def treasury_executed_exists(pid: str) -> bool:
+    return meta_get_int(f"tspend:{pid}", 0) == 1
+
+
+def treasury_executed_put(pid: str):
+    meta_set_int(f"tspend:{pid}", 1)
+
+
+def treasury_executed_del(pid: str):
+    meta_del(f"tspend:{pid}")
 
 
 # --- RANDAO commit-reveal (#7): one commit per (sender, target_epoch) + revealed secrets per epoch ---

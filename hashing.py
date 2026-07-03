@@ -113,6 +113,14 @@ def unshield_leaf(addr, amount, nonce) -> bytes:
     return canonical_bytes(["unshield_withdrawal", addr, int(amount), nonce])
 
 
+def treasury_proposal_id(recipient, amount, memo, nonce) -> str:
+    """Deterministic id of a treasury_spend proposal (doc/treasury.md). Bonded validators vote on this id and a
+    treasury_execute pays it out once justified; binding the id to (recipient, amount, memo, nonce) means a vote
+    approves EXACTLY that payout and cannot be redirected, and `nonce` lets the same spend be re-proposed later.
+    Domain-tagged ('treasury_spend') so it cannot collide with any other id/leaf."""
+    return blake2b_hash(["treasury_spend", recipient, int(amount), memo, nonce])
+
+
 if __name__ == "__main__":
     blake2b_hash_link("test_old", "test_new")
     print(base64encode("b64test"))

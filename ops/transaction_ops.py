@@ -201,6 +201,37 @@ def construct_settle_tx(keydict, exec_cursor, state_root, target_block):
     return tx
 
 
+def _treasury_spend_body(recipient, amount, memo, nonce):
+    from hashing import treasury_proposal_id
+    memo = memo or ""
+    return {"pid": treasury_proposal_id(recipient, amount, memo, nonce),
+            "spend": {"recipient": recipient, "amount": int(amount), "memo": memo, "nonce": nonce}}
+
+
+def construct_treasury_vote_tx(keydict, recipient, amount, memo, nonce, target_block):
+    """Build a SIGNED treasury APPROVAL vote (doc/treasury.md §3.3): recipient 'treasury_vote', fee-exempt,
+    cast by a bonded validator. Carries the full spend + its id so the vote binds to EXACTLY that payout."""
+    tx = {"sender": keydict["address"], "recipient": "treasury_vote", "amount": 0,
+          "timestamp": get_timestamp_seconds(), "data": _treasury_spend_body(recipient, amount, memo, nonce),
+          "nonce": create_nonce(), "public_key": keydict["public_key"],
+          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
+def construct_treasury_execute_tx(keydict, recipient, amount, memo, nonce, target_block):
+    """Build a SIGNED treasury PAYOUT trigger (doc/treasury.md §3.3): recipient 'treasury_execute', fee-exempt.
+    Pays the proposal out once the bonded quorum has approved it; anyone may submit it."""
+    tx = {"sender": keydict["address"], "recipient": "treasury_execute", "amount": 0,
+          "timestamp": get_timestamp_seconds(), "data": _treasury_spend_body(recipient, amount, memo, nonce),
+          "nonce": create_nonce(), "public_key": keydict["public_key"],
+          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
 def construct_bridge_deposit_tx(keydict, amount, target_block, fee):
     """Build a SIGNED bridge DEPOSIT: recipient 'bridge', amount locked into escrow; exec node credits it."""
     tx = {"sender": keydict["address"], "recipient": "bridge", "amount": int(amount),
@@ -286,6 +317,10 @@ def reserved_uniqueness_key(tx):
         if r == "unshield":
             d = tx.get("data") or {}
             return ("unshield", d.get("addr"), d.get("nonce"))                          # one unshield exit per (addr, nonce)
+        if r == "treasury_vote":
+            return ("treasury_vote", tx["sender"], (tx.get("data") or {}).get("pid"))    # one vote per (validator, pid) per block
+        if r == "treasury_execute":
+            return ("treasury_execute", (tx.get("data") or {}).get("pid"))               # one payout per pid per block
     except Exception:
         return ("malformed", tx.get("txid"))   # unique-ish; the tx is rejected by validate_transaction
     return None
@@ -521,6 +556,53 @@ def validate_transaction(transaction, logger, block_height):
         assert not kv_ops.dividend_nullifier_exists(addr, nonce), "this dividend was already collected"
         pool = get_account(DIVIDEND_POOL, create_on_error=False)
         assert pool and pool.get("balance", 0) >= amount, "dividend pool underfunded"
+    elif recipient == "treasury_vote":
+        # TREASURY GOVERNANCE (doc/treasury.md §3.3): a BONDED validator votes to APPROVE a treasury_spend
+        # proposal. Fee-exempt duty (like `settle`); one vote per (validator, pid). ELIGIBILITY = real bonded
+        # stake (bonded >= B_MIN) — the open, capital-free lane never votes on money (that would reopen the
+        # Sybil faucet). The vote carries the full spend so its id is verifiable + displayable; the id binds
+        # the approval to EXACTLY that payout, so a passing vote can never be redirected.
+        from hashing import treasury_proposal_id
+        from protocol import RESERVED_RECIPIENTS
+        assert transaction["amount"] == 0, "treasury_vote must have zero amount"
+        assert transaction["fee"] == 0, "treasury_vote is fee-exempt (fee must be 0)"
+        data = transaction.get("data") or {}
+        spend, pid = data.get("spend") or {}, data.get("pid")
+        sr, sa, memo, snonce = spend.get("recipient"), spend.get("amount"), spend.get("memo", ""), spend.get("nonce")
+        assert isinstance(sr, str) and sr.startswith("ndo") and len(sr) == 49, "treasury spend recipient must be a normal address"
+        assert sr not in RESERVED_RECIPIENTS, "treasury spend recipient cannot be a reserved recipient"
+        assert isinstance(sa, int) and not isinstance(sa, bool) and sa > 0, "treasury spend amount must be a positive int"
+        assert isinstance(snonce, str) and snonce, "treasury spend needs a non-empty string nonce"
+        assert isinstance(memo, str) and len(memo) <= 256, "treasury spend memo must be a string (<= 256 chars)"
+        assert pid == treasury_proposal_id(sr, sa, memo, snonce), "pid does not match the spend content"
+        acc = get_account(transaction["sender"], create_on_error=False)
+        assert acc and acc.get("bonded", 0) >= B_MIN, "treasury_vote sender is not a bonded validator"
+        assert not kv_ops.treasury_vote_exists(pid, transaction["sender"]), "validator already voted on this proposal"
+    elif recipient == "treasury_execute":
+        # TREASURY PAYOUT (doc/treasury.md §3.3): pay out a proposal the bonded quorum APPROVED. Anyone may
+        # trigger it (the payout goes to the proposal's recipient regardless of who submits). Fee-exempt.
+        # Gated on: the 2/3 bonded quorum, a per-proposal cap vs the CURRENT treasury balance (drain-resistant),
+        # treasury funding, and a one-shot nullifier so a pid pays out at most once.
+        from hashing import treasury_proposal_id
+        from ops.settlement_ops import treasury_justified
+        from ops.account_ops import get_bonded_registry
+        from protocol import TREASURY_ADDRESS, TREASURY_MAX_SPEND_BPS, BPS_DENOM, RESERVED_RECIPIENTS
+        assert transaction["amount"] == 0, "treasury_execute carries no L1 amount (amount is in data)"
+        assert transaction["fee"] == 0, "treasury_execute is fee-exempt"
+        data = transaction.get("data") or {}
+        spend, pid = data.get("spend") or {}, data.get("pid")
+        sr, sa, memo, snonce = spend.get("recipient"), spend.get("amount"), spend.get("memo", ""), spend.get("nonce")
+        assert isinstance(sr, str) and sr.startswith("ndo") and len(sr) == 49, "bad treasury spend recipient"
+        assert sr not in RESERVED_RECIPIENTS, "treasury spend recipient cannot be a reserved recipient"
+        assert isinstance(sa, int) and not isinstance(sa, bool) and sa > 0, "bad treasury spend amount"
+        assert isinstance(snonce, str) and snonce and isinstance(memo, str), "bad treasury spend nonce/memo"
+        assert pid == treasury_proposal_id(sr, sa, memo, snonce), "pid does not match the spend content"
+        assert not kv_ops.treasury_executed_exists(pid), "this proposal was already executed"
+        assert treasury_justified(pid, get_bonded_registry()), "treasury proposal has not reached the bonded quorum"
+        treasury = get_account(TREASURY_ADDRESS, create_on_error=False)
+        bal = treasury.get("balance", 0) if treasury else 0
+        assert bal >= sa, "treasury underfunded for this payout"
+        assert sa * BPS_DENOM <= bal * TREASURY_MAX_SPEND_BPS, "treasury spend exceeds the per-proposal cap (% of balance)"
     elif recipient == "htlc_lock":
         # HTLC LOCK (cross-chain atomic swap): escrow `amount` under a SHA-256 hashlock + block-height timelock.
         data = transaction.get("data") or {}

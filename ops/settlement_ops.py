@@ -48,3 +48,18 @@ def latest_settled():
                 best = (cursor, root)
                 break
     return best
+
+
+def treasury_justified(pid: str, bonded_registry: dict) -> bool:
+    """True when the bonded shares that voted to approve treasury proposal `pid` STRICTLY EXCEED
+    SETTLE_NUM/SETTLE_DEN of total bonded shares — the identical 2/3 stake quorum as settlement/finality
+    (attesting*SETTLE_DEN > total*SETTLE_NUM, integer-only). This is the sole authorization for a
+    treasury_execute payout; no multisig, the bonded lane IS the multisig. (doc/treasury.md §3.3)"""
+    total = total_bonded_shares(bonded_registry)
+    if total == 0:
+        return False
+    approving = 0
+    for validator in kv_ops.treasury_voters(pid):
+        if validator in bonded_registry:
+            approving += selection_shares(bonded_registry[validator]["bonded"])
+    return approving * SETTLE_DEN > total * SETTLE_NUM
