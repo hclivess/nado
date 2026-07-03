@@ -210,8 +210,17 @@ pair moves it back out after a timelock (see below). Bonded selection weight is
   average fee), clamped to `REWARD_CAP = 0.5 NADO` per block. Emission tracks real activity instead of
   inflating regardless of demand; the floor keeps a no-premine chain from deadlocking at zero.
 - **90 / 10 split.** The producer keeps 90 %; **10 % accrues to the treasury** (`TREASURY_BPS = 1000`).
-  The treasury *is* the genesis address — a normal founder-key-controlled ML-DSA address that starts
+  The treasury is a **reserved, keyless `treasury` account** (no private key exists for it) that starts
   empty and fills only from this per-block cut.
+- **Quorum-governed, self-burning treasury** (`doc/treasury.md`). The treasury is spent **only** by a
+  **2/3 bonded-stake vote** — no founder key, no multisig; the bonded lane *is* the multisig, reusing the
+  same `settlement_justified` quorum as finality. A `treasury_spend` proposal is voted with fee-bearing
+  `treasury_vote`s (each approval's weight snapshotted at vote time; newly-bonded stake must age before it
+  counts), capped at `TREASURY_MAX_SPEND_BPS` (25 %) of the balance per proposal, and paid by a
+  `treasury_execute` once the quorum is met. Idle treasury above a floor is **burned every
+  `TREASURY_SPEND_PERIOD`** (`TREASURY_BURN_BPS` = 1 %/period), so emission that holders would receive
+  anyway is *forced into the ecosystem by their own vote — or destroyed*, never hoarded. Stakers propose
+  and vote from the wallet's **Quorum tab**.
 - **Fees are destroyed**, not paid to producers — that is what drives the elastic reward (it is a fee
   mechanic, not a "burn"; the old burn-to-bribe mechanic was removed entirely). A deterministic floor
   `MIN_TX_FEE = 1000` raw applies to ordinary transfers and `bond`; `register`, `unbond`,

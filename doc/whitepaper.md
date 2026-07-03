@@ -396,9 +396,32 @@ producer **tip** (`OPEN_TIP_BPS = 2000`, 20%), the treasury's 10%, and the rest
 `split_open_block_reward` floor the fixed cuts and give the remainder to the last
 recipient, so incorporate and rollback subtract identical integers and never
 desync (single source: `ops.reward_ops.credit_block_reward`, lane =
-`lane_of(n, epoch_beacon(…))`). The **treasury *is* the genesis address**: a
-normal, founder key-controlled ML-DSA address (not a keyless protocol label). It
-starts empty and fills only from the per-block cut. *(implemented)*
+`lane_of(n, epoch_beacon(…))`). The treasury is a **reserved, keyless `treasury`
+account** (like `dividend`/`bridge`) — **no private key exists for it** — so the
+*only* way coins leave it is a quorum-approved spend (§4.3a). It starts empty and
+fills only from the per-block cut. *(implemented)*
+
+### 4.3a Treasury governance: stake-quorum spending + anti-hoard burn *(implemented; doc/treasury.md)*
+
+The treasury is spent **only** by a **2/3 bonded-stake vote** — no founder key, no
+multisig; the bonded lane *is* the multisig, reusing the identical
+`settlement_justified` quorum as finality. A `treasury_spend` proposal
+(`pid = H(recipient, amount, memo, nonce)`) is approved by fee-bearing
+`treasury_vote`s from bonded validators and paid out by a `treasury_execute` once
+`treasury_justified` holds. Three properties make it safe: **(1)** each approval's
+weight is *snapshotted at vote time*, and newly-bonded stake must age
+`TREASURY_VOTE_ACTIVATION_EPOCHS` before it counts — so a flash top-up between vote
+and execute cannot inflate an approval; **(2)** a per-proposal cap
+`TREASURY_MAX_SPEND_BPS` (25 %) of the *current* balance makes the vault
+drain-resistant; **(3)** one payout per `pid` (a nullifier), fully revert-symmetric.
+An **anti-hoard self-burn** destroys `TREASURY_BURN_BPS` (1 %) of the idle balance
+above a floor every `TREASURY_SPEND_PERIOD` (booked into the burned-supply counter,
+revert-exact, paused when there is no activated electorate). The economic framing:
+the 10 % is emission holders would receive anyway, but a *fully decentralized*
+quorum + burn **forces it into the ecosystem — or destroys it**, so it can never
+become a hoarded, founder-controlled war chest. Stakers propose and vote from the
+wallet's **Quorum tab**. An adversarial 13-agent review found no way to drain it
+without a genuine 2/3 quorum.
 
 ### 4.4 Presence dividend — open-lane redistribution *(implemented; doc/presence-dividend.md)*
 
