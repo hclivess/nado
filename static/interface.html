@@ -147,6 +147,7 @@
     <button class="tab" data-tabbtn="receive" data-i18n="tab.receive">Receive</button>
     <button class="tab" data-tabbtn="aliases" data-i18n="tab.aliases">Aliases</button>
     <button class="tab" data-tabbtn="stake" data-i18n="tab.stake">Stake</button>
+    <button class="tab" data-tabbtn="quorum" data-i18n="tab.quorum">Quorum</button>
     <button class="tab" data-tabbtn="history" data-i18n="tab.history">History</button>
     <button class="tab" data-tabbtn="rich" data-i18n="tab.rich">Rich list</button>
     <button class="tab" data-tabbtn="stats" data-i18n="tab.stats">Stats</button>
@@ -480,6 +481,28 @@
     <label class="mt" data-i18n="swap.preimage">Secret (preimage, hex)</label>
     <input id="swapPreimage" placeholder="hex secret…" autocomplete="off" spellcheck="false" />
     <button id="btnSwapClaim" class="accent mt" style="width:100%" data-i18n="swap.claim">Claim</button>
+  </div>
+
+  <div id="quorumCard" class="card hidden" data-tab="quorum">
+    <h2 data-i18n="quorum.title">Treasury Quorum</h2>
+    <p class="small dim" data-i18n="quorum.intro">The treasury is spent only when bonded stakers approve. Anyone can
+      see it; bonded stakers can propose a spend and vote — one tap, signed with your wallet.</p>
+    <div class="stat-grid mt">
+      <div class="stat"><div class="label" data-i18n="quorum.balance">Treasury</div><div class="value sm" id="qTreasury">—</div></div>
+      <div class="stat"><div class="label" data-i18n="quorum.maxSpend">Max / proposal</div><div class="value sm" id="qMaxSpend">—</div></div>
+      <div class="stat" data-i18n-title="quorum.burnTip" title="Idle treasury above the runway floor is burned every period, so it can't just be hoarded."><div class="label" data-i18n="quorum.burn">Next burn</div><div class="value sm" id="qBurn">—</div></div>
+    </div>
+    <div class="hint-banner mt" style="display:block">
+      <label data-i18n="quorum.proposeTitle">Propose a spend (bonded stakers)</label>
+      <input id="qPropRecipient" class="grow mt" placeholder="ndo… recipient address" autocomplete="off" />
+      <div class="row mt" style="gap:8px">
+        <input id="qPropAmount" class="grow" type="text" inputmode="decimal" placeholder="amount (NADO)" autocomplete="off" />
+        <input id="qPropMemo" class="grow" placeholder="memo" maxlength="256" autocomplete="off" />
+      </div>
+      <button id="qPropBtn" class="accent mt" style="width:100%" data-i18n="quorum.proposeBtn">Propose + vote yes</button>
+      <div id="qPropMsg" class="small faint mt"></div>
+    </div>
+    <div id="qProposals" class="mt"></div>
   </div>
 
   <div id="shieldCard" class="card hidden" data-tab="shield">

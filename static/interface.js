@@ -2882,7 +2882,82 @@ function showTab(name) {
   else if (name === "shield") renderShield().catch(() => {});
   else if (name === "send") { updateFeeInfo().catch(() => {}); validateSendTo().catch(() => {}); addrBookRender(); }
   else if (name === "stake") { updateFeeInfo().catch(() => {}); refreshDashboard().catch(() => {}); }
+  else if (name === "quorum") renderQuorum().catch(() => {});
   else if (name === "settings") renderSecurity();
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * Treasury Quorum tab (doc/treasury.md §3.3/§3.6): the treasury is spent ONLY when bonded stakers approve.
+ * Propose a spend + vote (a fee-bearing treasury_vote whose approval weight is snapshotted), and execute a
+ * proposal once it passes the 2/3 activated-stake quorum. pid is computed client-side (byte-identical to the
+ * node's hashing.treasury_proposal_id — verified), so a vote binds to EXACTLY the displayed spend.
+ * -------------------------------------------------------------------------------------------- */
+function treasuryProposalId(recipient, amount, memo, nonce) {
+  return blake2bHash(["treasury_spend", recipient, amount, memo || "", nonce]);
+}
+async function submitTreasurySpend(kind, recipient, amountRaw, memo, nonce) {
+  const latest = await getLatestBlock();
+  if (!latest || typeof latest.block_number !== "number") throw new Error("relay unavailable");
+  const spend = { recipient, amount: amountRaw, memo: memo || "", nonce };
+  const draft = { sender: state.wallet.address, recipient: kind, amount: 0, timestamp: nowSeconds(),
+    data: { pid: treasuryProposalId(recipient, amountRaw, memo, nonce), spend },
+    nonce: randNonce(), public_key: state.wallet.publicKey,
+    target_block: latest.block_number + 8, chain_id: CHAIN_ID };
+  return submitTransaction(finalizeTransaction(draft, state.wallet.privateKey, MIN_TX_FEE));
+}
+async function proposeSpend() {
+  const msg = $("qPropMsg");
+  try {
+    const to = ($("qPropRecipient").value || "").trim();
+    if (!(to.startsWith("ndo") && to.length === 49)) throw new Error(i18("quorum.badAddr", "Enter a valid ndo… recipient address."));
+    const amtRaw = nadoToRaw($("qPropAmount").value || "");
+    if (!(amtRaw > 0n)) throw new Error(i18("quorum.badAmount", "Enter a positive amount."));
+    const memo = ($("qPropMemo").value || "").slice(0, 256);
+    msg.textContent = i18("quorum.submitting", "Submitting…");
+    const res = await submitTreasurySpend("treasury_vote", to, Number(amtRaw), memo, randNonce(10));
+    msg.textContent = res.ok ? i18("quorum.proposed", "Proposed + voted yes ✓") : ((res.data && res.data.message) || i18("quorum.rejected", "Rejected"));
+    if (res.ok) { $("qPropRecipient").value = $("qPropAmount").value = $("qPropMemo").value = ""; setTimeout(() => renderQuorum().catch(() => {}), 1500); }
+  } catch (e) { msg.textContent = e.message; }
+}
+async function _qAct(kind, p) {
+  try {
+    const res = await submitTreasurySpend(kind, p.recipient, p.amount, p.memo, p.nonce);
+    if (res.ok) setTimeout(() => renderQuorum().catch(() => {}), 1500);
+    else uiAlert((res.data && res.data.message) || i18("quorum.rejected", "Rejected"));
+  } catch (e) { uiAlert(e.message); }
+}
+async function renderQuorum() {
+  const box = $("qProposals");
+  if (!box) return;
+  if ($("qPropBtn")) $("qPropBtn").onclick = proposeSpend;
+  let d;
+  try { d = await (await fetch(relayBase() + "/treasury_status", { cache: "no-store" })).json(); }
+  catch (e) { box.textContent = i18("quorum.loadErr", "Could not load treasury status."); return; }
+  if ($("qTreasury")) $("qTreasury").textContent = rawToNado(BigInt(d.treasury || 0)) + " NADO";
+  if ($("qMaxSpend")) $("qMaxSpend").textContent = rawToNado(BigInt(d.max_spend || 0)) + " NADO";
+  if ($("qBurn")) $("qBurn").textContent = "#" + (d.next_burn_block || 0);
+  const total = num(d.total_activated_shares) || 0;
+  const props = d.proposals || [];
+  if (!props.length) { box.innerHTML = `<p class="small faint">${i18("quorum.none", "No proposals yet.")}</p>`; return; }
+  box.innerHTML = props.map((p, i) => {
+    const appr = num(p.approving_shares) || 0;
+    const pct = total > 0 ? Math.min(100, Math.round(appr * 100 / total)) : 0;
+    const stKey = p.status === "executed" ? "quorum.executed" : (p.status === "passed" ? "quorum.passed" : "quorum.open");
+    const stEn = p.status === "executed" ? "paid ✓" : (p.status === "passed" ? "passed — ready" : "open");
+    const canVote = state.wallet && p.status === "open";
+    const canExec = state.wallet && p.status === "passed" && p.within_cap;
+    return `<div class="stat mt" style="text-align:left">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+        <b>${rawToNado(BigInt(p.amount || 0))} NADO</b>
+        <span class="badge ${p.status === "open" ? "idle" : "ok"}">${i18(stKey, stEn)}</span></div>
+      <div class="small faint">→ ${escapeHtml((p.recipient || "").slice(0, 18))}…${p.memo ? " · " + escapeHtml(p.memo) : ""}</div>
+      <div class="progress mt"><span style="display:block;height:100%;width:${pct}%;background:var(--accent)"></span></div>
+      <div class="small faint">${i18("quorum.tally", "{pct}% of stake · needs 2/3 · {v} voter(s)", { pct, v: p.voters || 0 })}${p.within_cap ? "" : " · " + i18("quorum.overCap", "over cap")}</div>
+      ${canVote ? `<button class="accent mt small qvote" data-i="${i}" style="width:100%">${i18("quorum.voteYes", "Vote yes")}</button>` : ""}
+      ${canExec ? `<button class="primary mt small qexec" data-i="${i}" style="width:100%">${i18("quorum.execute", "Execute payout")}</button>` : ""}</div>`;
+  }).join("");
+  box.querySelectorAll(".qvote").forEach(b => b.onclick = () => _qAct("treasury_vote", props[+b.dataset.i]));
+  box.querySelectorAll(".qexec").forEach(b => b.onclick = () => _qAct("treasury_execute", props[+b.dataset.i]));
 }
 
 /* ----------------------------------------------------------------------------------------------
