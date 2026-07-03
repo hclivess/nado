@@ -238,9 +238,15 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     if recipient == "treasury_vote":
         change_balance(address=sender, amount=-fee, logger=logger, revert=revert)   # burn the anti-spam vote fee
         data = transaction.get("data") or {}
-        pid = data["pid"]
+        pid = data["pid"]; txid = transaction["txid"]
         if revert:
-            kv_ops.treasury_vote_del(pid, sender)
+            # a vote OVERWRITES any prior vote by the same validator, so restore exactly what was there before
+            existed, prior_w = kv_ops.treasury_vote_prev_get(txid)
+            if existed:
+                kv_ops.treasury_vote_put(pid, sender, prior_w)     # re-vote -> restore the prior weight
+            else:
+                kv_ops.treasury_vote_del(pid, sender)              # first vote -> remove it
+            kv_ops.treasury_vote_prev_del(txid)
         else:
             # SNAPSHOT the voter's activated weight NOW (at vote time) so a later top-up can't inflate this
             # approval. Activated = bond aged past TREASURY_VOTE_ACTIVATION_EPOCHS at this block's epoch.
@@ -250,7 +256,12 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             info = {"bonded": int(acc.get("bonded", 0)) if acc else 0, "bond_since": kv_ops.bond_since_get(sender)}
             vote_epoch = epoch_of(block_height) if block_height is not None else 0
             w = selection_shares(info["bonded"]) if _vote_activated(info, vote_epoch) else 0
-            kv_ops.treasury_vote_put(pid, sender, w)
+            # CHANGE/WITHDRAW: "yes" approves at weight w; "no" (or a withdrawal) stores weight 0. Re-voting
+            # overwrites, so stash the prior (existed?, weight) under this txid to make the overwrite revertible.
+            choice = data.get("choice", "yes")
+            eff = w if choice == "yes" else 0
+            kv_ops.treasury_vote_prev_put(txid, kv_ops.treasury_vote_exists(pid, sender), kv_ops.treasury_vote_weight(pid, sender))
+            kv_ops.treasury_vote_put(pid, sender, eff)
             if data.get("spend"):
                 kv_ops.treasury_proposal_put(pid, data["spend"])   # non-consensus display index (idempotent)
         return

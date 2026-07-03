@@ -1085,6 +1085,40 @@
   };
   for (const l in T42) Object.assign(T[l] = T[l] || {}, T42[l]);
 
+  // T43: Quorum "oppose / withdraw vote" action (re-vote overwrites; "no" withdraws the yes weight).
+  const T43 = {
+    en:{"quorum.oppose":"Oppose / withdraw vote"}, cs:{"quorum.oppose":"Být proti / stáhnout hlas"},
+    es:{"quorum.oppose":"Oponerse / retirar voto"}, pt:{"quorum.oppose":"Opor / retirar voto"},
+    fr:{"quorum.oppose":"S'opposer / retirer le vote"}, de:{"quorum.oppose":"Ablehnen / Stimme zurückziehen"},
+    it:{"quorum.oppose":"Opporsi / ritirare il voto"}, ru:{"quorum.oppose":"Против / отозвать голос"},
+    zh:{"quorum.oppose":"反对 / 撤回投票"}, ja:{"quorum.oppose":"反対 / 投票を取り消す"},
+    ko:{"quorum.oppose":"반대 / 투표 철회"}, ar:{"quorum.oppose":"معارضة / سحب التصويت"},
+    hi:{"quorum.oppose":"विरोध करें / वोट वापस लें"}, tr:{"quorum.oppose":"Karşı çık / oyu geri çek"},
+    id:{"quorum.oppose":"Menentang / tarik suara"}, vi:{"quorum.oppose":"Phản đối / rút phiếu"}
+  };
+  for (const l in T43) Object.assign(T[l] = T[l] || {}, T43[l]);
+
+  // T44: relay-error message + alias-transfer-to-alias strings.
+  const T44 = {
+    en:{"err.relayHttp":"The relay is unreachable right now (HTTP {s}). Please try again in a moment.","alias.xferAliasMissing":"That target alias isn't registered.","alias.xferTarget":"Transfer target must be a valid ndo… address or a registered alias."},
+    cs:{"err.relayHttp":"Relay je momentálně nedostupný (HTTP {s}). Zkuste to prosím za chvíli.","alias.xferAliasMissing":"Cílový alias není zaregistrovaný.","alias.xferTarget":"Cíl převodu musí být platná adresa ndo… nebo registrovaný alias."},
+    es:{"err.relayHttp":"El relay no está disponible ahora (HTTP {s}). Inténtalo de nuevo en un momento.","alias.xferAliasMissing":"Ese alias de destino no está registrado.","alias.xferTarget":"El destino de la transferencia debe ser una dirección ndo… válida o un alias registrado."},
+    pt:{"err.relayHttp":"O relay está inacessível agora (HTTP {s}). Tente novamente em instantes.","alias.xferAliasMissing":"Esse alias de destino não está registrado.","alias.xferTarget":"O destino da transferência deve ser um endereço ndo… válido ou um alias registrado."},
+    fr:{"err.relayHttp":"Le relais est injoignable pour l'instant (HTTP {s}). Réessayez dans un moment.","alias.xferAliasMissing":"Cet alias cible n'est pas enregistré.","alias.xferTarget":"La cible du transfert doit être une adresse ndo… valide ou un alias enregistré."},
+    de:{"err.relayHttp":"Das Relay ist gerade nicht erreichbar (HTTP {s}). Bitte versuche es gleich erneut.","alias.xferAliasMissing":"Dieser Ziel-Alias ist nicht registriert.","alias.xferTarget":"Das Übertragungsziel muss eine gültige ndo…-Adresse oder ein registrierter Alias sein."},
+    it:{"err.relayHttp":"Il relay non è raggiungibile ora (HTTP {s}). Riprova tra un momento.","alias.xferAliasMissing":"Quell'alias di destinazione non è registrato.","alias.xferTarget":"La destinazione del trasferimento deve essere un indirizzo ndo… valido o un alias registrato."},
+    ru:{"err.relayHttp":"Реле сейчас недоступно (HTTP {s}). Повторите попытку через мгновение.","alias.xferAliasMissing":"Целевой псевдоним не зарегистрирован.","alias.xferTarget":"Цель передачи должна быть корректным адресом ndo… или зарегистрированным псевдонимом."},
+    zh:{"err.relayHttp":"中继暂时无法访问（HTTP {s}）。请稍后重试。","alias.xferAliasMissing":"该目标别名尚未注册。","alias.xferTarget":"转移目标必须是有效的 ndo… 地址或已注册的别名。"},
+    ja:{"err.relayHttp":"リレーに現在接続できません（HTTP {s}）。少し待って再試行してください。","alias.xferAliasMissing":"その宛先エイリアスは登録されていません。","alias.xferTarget":"移転先は有効な ndo… アドレスまたは登録済みエイリアスである必要があります。"},
+    ko:{"err.relayHttp":"릴레이에 지금 연결할 수 없습니다(HTTP {s}). 잠시 후 다시 시도하세요.","alias.xferAliasMissing":"해당 대상 별칭이 등록되어 있지 않습니다.","alias.xferTarget":"이전 대상은 유효한 ndo… 주소 또는 등록된 별칭이어야 합니다."},
+    ar:{"err.relayHttp":"المُرحّل غير متاح الآن (HTTP {s}). يُرجى المحاولة مرة أخرى بعد لحظات.","alias.xferAliasMissing":"الاسم المستعار الهدف غير مُسجَّل.","alias.xferTarget":"يجب أن يكون هدف النقل عنوان ndo… صالحًا أو اسمًا مستعارًا مسجلاً."},
+    hi:{"err.relayHttp":"रिले अभी अनुपलब्ध है (HTTP {s})। कृपया थोड़ी देर बाद पुनः प्रयास करें।","alias.xferAliasMissing":"वह लक्ष्य उपनाम पंजीकृत नहीं है।","alias.xferTarget":"स्थानांतरण लक्ष्य एक मान्य ndo… पता या पंजीकृत उपनाम होना चाहिए।"},
+    tr:{"err.relayHttp":"Aktarıcıya şu anda ulaşılamıyor (HTTP {s}). Lütfen birazdan tekrar deneyin.","alias.xferAliasMissing":"Bu hedef takma ad kayıtlı değil.","alias.xferTarget":"Aktarım hedefi geçerli bir ndo… adresi veya kayıtlı bir takma ad olmalıdır."},
+    id:{"err.relayHttp":"Relay tidak dapat dijangkau saat ini (HTTP {s}). Coba lagi sebentar lagi.","alias.xferAliasMissing":"Alias tujuan itu belum terdaftar.","alias.xferTarget":"Target transfer harus berupa alamat ndo… yang valid atau alias terdaftar."},
+    vi:{"err.relayHttp":"Hiện không thể kết nối relay (HTTP {s}). Vui lòng thử lại sau giây lát.","alias.xferAliasMissing":"Bí danh đích đó chưa được đăng ký.","alias.xferTarget":"Đích chuyển phải là địa chỉ ndo… hợp lệ hoặc bí danh đã đăng ký."}
+  };
+  for (const l in T44) Object.assign(T[l] = T[l] || {}, T44[l]);
+
 
 
 

@@ -175,6 +175,25 @@ def t10_vote_after_expiry_rejected():
     except AssertionError as e:
         assert "expiry" in str(e), f"wrong error: {e}"
 
+def t11_vote_change_and_withdraw():
+    # OVERWRITE/WITHDRAW: a validator can re-vote; the latest vote wins, revert-symmetrically. (Runs 3rd in the
+    # alphabetical order, before t7/t8 inflate a validator's stake, so the 4-validator quorum is clean: 3/4 > 2/3.)
+    memo, nonce = "changeable grant", "p10"
+    pid = treasury_proposal_id(GRANTEE, AMOUNT, memo, nonce, EXP)
+    _vote(VS[0], memo=memo, nonce=nonce); _vote(VS[1], memo=memo, nonce=nonce)      # 2/4 -> below 2/3
+    assert not treasury_justified(pid, get_bonded_registry(), CUR), "2/4 is below quorum"
+    _vote(VS[2], memo=memo, nonce=nonce)                                            # 3/4 -> reaches 2/3
+    assert treasury_justified(pid, get_bonded_registry(), CUR), "3/4 reaches quorum"
+    # VS[2] WITHDRAWS by re-voting 'no' -> its snapshot weight goes to 0 -> quorum drops back below 2/3
+    wd = construct_treasury_vote_tx(VS[2], GRANTEE, AMOUNT, memo, nonce, target_block=1, expiry=EXP, choice="no")
+    validate_transaction(wd, logger, 1); reflect_transaction(wd, logger, 1)
+    assert kv_ops.treasury_vote_weight(pid, VS[2]["address"]) == 0, "a withdrawn/'no' vote stores 0 weight"
+    assert not treasury_justified(pid, get_bonded_registry(), CUR), "withdrawing a vote drops the quorum"
+    # revert the withdrawal -> the OVERWRITTEN prior 'yes' weight is restored exactly -> quorum again
+    reflect_transaction(wd, logger, 1, revert=True)
+    assert kv_ops.treasury_vote_weight(pid, VS[2]["address"]) > 0, "revert restores the prior yes weight"
+    assert treasury_justified(pid, get_bonded_registry(), CUR), "reverting the withdrawal restores the yes vote"
+
 for name, fn in sorted(globals().items()):
     if name.startswith("t") and callable(fn) and len(name) > 1 and name[1].isdigit():
         check(name, fn)

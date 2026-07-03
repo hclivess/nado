@@ -208,12 +208,13 @@ def _treasury_spend_body(recipient, amount, memo, nonce, expiry):
             "spend": {"recipient": recipient, "amount": int(amount), "memo": memo, "nonce": nonce, "expiry": int(expiry)}}
 
 
-def construct_treasury_vote_tx(keydict, recipient, amount, memo, nonce, target_block, expiry, fee=None):
-    """Build a SIGNED treasury APPROVAL vote (doc/treasury.md §3.3): recipient 'treasury_vote', cast by a bonded
-    validator. Carries a small anti-spam FEE + the full spend + its id, so the vote binds to EXACTLY that payout
-    (recipient, amount, AND expiry block)."""
+def construct_treasury_vote_tx(keydict, recipient, amount, memo, nonce, target_block, expiry, choice="yes", fee=None):
+    """Build a SIGNED treasury vote (doc/treasury.md §3.3): recipient 'treasury_vote', cast by a bonded validator.
+    Carries a small anti-spam FEE + the full spend + its id, so the vote binds to EXACTLY that payout (recipient,
+    amount, AND expiry block). `choice` is 'yes' (approve) or 'no' (oppose/withdraw); re-voting overwrites."""
+    body = _treasury_spend_body(recipient, amount, memo, nonce, expiry); body["choice"] = choice
     tx = {"sender": keydict["address"], "recipient": "treasury_vote", "amount": 0,
-          "timestamp": get_timestamp_seconds(), "data": _treasury_spend_body(recipient, amount, memo, nonce, expiry),
+          "timestamp": get_timestamp_seconds(), "data": body,
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": int(MIN_TX_FEE if fee is None else fee)}
     tx["txid"] = create_txid(tx)
@@ -590,7 +591,11 @@ def validate_transaction(transaction, logger, block_height):
         # than TREASURY_PROPOSAL_MAX_TTL out — bounds stale execution + the size of the live proposal set.
         assert transaction["target_block"] <= sexpiry <= transaction["target_block"] + TREASURY_PROPOSAL_MAX_TTL, \
             "proposal expiry must be >= this block and <= this block + TREASURY_PROPOSAL_MAX_TTL"
-        assert not kv_ops.treasury_vote_exists(pid, transaction["sender"]), "validator already voted on this proposal"
+        # CHANGE/WITHDRAW: re-voting is allowed and OVERWRITES the prior vote (revert-symmetric in reflect).
+        # "yes" approves at the snapshot weight; "no" withdraws/opposes (counts as 0). Choice is outside the pid
+        # (it's per-vote, not per-proposal), so it never affects which payout the id authorizes.
+        choice = data.get("choice", "yes")
+        assert choice in ("yes", "no"), "treasury_vote choice must be 'yes' or 'no'"
     elif recipient == "treasury_execute":
         # TREASURY PAYOUT (doc/treasury.md §3.3): pay out a proposal the bonded quorum APPROVED. Anyone may
         # trigger it. Carries a FEE (so an execute-flood — each forces an O(accounts) registry scan — isn't free).

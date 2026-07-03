@@ -669,8 +669,24 @@ def treasury_vote_del(pid: str, validator: str):
 
 
 def treasury_vote_weight(pid: str, validator: str) -> int:
-    """The ACTIVATED weight `validator` had when it voted for `pid` (snapshot; 0 if it wasn't activated then)."""
+    """The ACTIVATED weight `validator` had when it voted for `pid` (snapshot; 0 if it wasn't activated then).
+    A withdrawn / 'no' vote stores weight 0, so treasury_justified (which sums these) simply excludes it."""
     return meta_get_int(f"tvw:{pid}:{validator}", 0)
+
+
+# A vote can be CHANGED/WITHDRAWN by re-voting (it overwrites). To revert that overwrite exactly, we stash the
+# PRIOR (existed?, weight) keyed by the overwriting tx's txid, and restore it on rollback.
+def treasury_vote_prev_put(txid: str, existed: bool, weight: int):
+    meta_set_int(f"tvprevE:{txid}", 1 if existed else 0)
+    meta_set_int(f"tvprevW:{txid}", int(weight))
+
+
+def treasury_vote_prev_get(txid: str):
+    return (meta_get_int(f"tvprevE:{txid}", 0) == 1, meta_get_int(f"tvprevW:{txid}", 0))
+
+
+def treasury_vote_prev_del(txid: str):
+    meta_del(f"tvprevE:{txid}"); meta_del(f"tvprevW:{txid}")
 
 
 def treasury_voters(pid: str):

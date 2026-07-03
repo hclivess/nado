@@ -509,7 +509,11 @@ async function submitTransaction(tx) {
   });
   const text = await res.text();
   let data;
-  try { data = JSON.parse(text); } catch { data = { result: false, message: text }; }
+  // A non-JSON body means the relay/proxy returned an HTML error page (e.g. a Cloudflare 502). NEVER surface
+  // that raw HTML — it would render a whole page inside an alert. Show a clean status-coded message instead.
+  try { data = JSON.parse(text); }
+  catch { data = { result: false, message: res.ok ? (text || "").slice(0, 200)
+    : i18("err.relayHttp", "The relay is unreachable right now (HTTP {s}). Please try again in a moment.", { s: res.status || "?" }) }; }
   return { ok: res.ok, status: res.status, data };
 }
 
@@ -1828,7 +1832,13 @@ async function doAliasOp(op) {
   let to = null;
   if (op === "transfer") {
     to = ($("aliasTo").value || "").trim();
-    if (!validateAddress(to)) { setMsg("aliasMsg", i18("alias.xferTarget", "Transfer target must be a valid ndo… address."), "err"); return; }
+    if (looksLikeAlias(to)) {                                    // accept another ALIAS as the target — resolve to its owner
+      setMsg("aliasMsg", i18("quorum.resolving", "Resolving alias…"), null);
+      const owner = await resolveAlias(to);
+      if (!owner) { setMsg("aliasMsg", i18("alias.xferAliasMissing", "That target alias isn't registered."), "err"); return; }
+      to = owner;
+    }
+    if (!validateAddress(to)) { setMsg("aliasMsg", i18("alias.xferTarget", "Transfer target must be a valid ndo… address or a registered alias."), "err"); return; }
   }
   const fee = op === "register" ? ALIAS_REGISTRATION_FEE : await currentFeeRaw();
   const acc = await getAccount(state.wallet.address);
@@ -2913,13 +2923,15 @@ const TREASURY_PROPOSAL_TTL = 43200;   // default proposal lifetime in blocks (m
 function treasuryProposalId(recipient, amount, memo, nonce, expiry) {
   return blake2bHash(["treasury_spend", recipient, amount, memo || "", nonce, expiry]);
 }
-async function submitTreasurySpend(kind, recipient, amountRaw, memo, nonce, expiry) {
+async function submitTreasurySpend(kind, recipient, amountRaw, memo, nonce, expiry, choice) {
   const latest = await getLatestBlock();
   if (!latest || typeof latest.block_number !== "number") throw new Error("relay unavailable");
   const exp = (expiry != null) ? expiry : latest.block_number + TREASURY_PROPOSAL_TTL;   // propose -> fresh window
   const spend = { recipient, amount: amountRaw, memo: memo || "", nonce, expiry: exp };
+  const data = { pid: treasuryProposalId(recipient, amountRaw, memo, nonce, exp), spend };
+  if (kind === "treasury_vote") data.choice = choice || "yes";   // yes=approve, no=oppose/withdraw (re-vote overwrites)
   const draft = { sender: state.wallet.address, recipient: kind, amount: 0, timestamp: nowSeconds(),
-    data: { pid: treasuryProposalId(recipient, amountRaw, memo, nonce, exp), spend },
+    data,
     nonce: randNonce(), public_key: state.wallet.publicKey,
     target_block: latest.block_number + 8, chain_id: CHAIN_ID };
   return submitTransaction(finalizeTransaction(draft, state.wallet.privateKey, MIN_TX_FEE));
@@ -2944,9 +2956,9 @@ async function proposeSpend() {
     if (res.ok) { $("qPropRecipient").value = $("qPropAmount").value = $("qPropMemo").value = ""; setTimeout(() => renderQuorum().catch(() => {}), 1500); }
   } catch (e) { msg.textContent = e.message; }
 }
-async function _qAct(kind, p) {
+async function _qAct(kind, p, choice) {
   try {
-    const res = await submitTreasurySpend(kind, p.recipient, p.amount, p.memo, p.nonce, p.expiry);
+    const res = await submitTreasurySpend(kind, p.recipient, p.amount, p.memo, p.nonce, p.expiry, choice);
     if (res.ok) setTimeout(() => renderQuorum().catch(() => {}), 1500);
     else uiAlert((res.data && res.data.message) || i18("quorum.rejected", "Rejected"));
   } catch (e) { uiAlert(e.message); }
@@ -2990,9 +3002,11 @@ async function renderQuorum() {
       <div class="progress mt"><span style="display:block;height:100%;width:${pct}%;background:var(--accent)"></span></div>
       <div class="small faint">${i18("quorum.tally", "{pct}% of stake · needs 2/3 · {v} voter(s)", { pct, v: p.voters || 0 })}${p.within_cap ? "" : " · " + i18("quorum.overCap", "over cap")}</div>
       ${canVote ? `<button class="accent mt small qvote" data-i="${i}" style="width:100%">${i18("quorum.voteYes", "Vote yes")}</button>` : ""}
+      ${canVote ? `<button class="ghost mt small qoppose" data-i="${i}" style="width:100%">${i18("quorum.oppose", "Oppose / withdraw vote")}</button>` : ""}
       ${canExec ? `<button class="primary mt small qexec" data-i="${i}" style="width:100%">${i18("quorum.execute", "Execute payout")}</button>` : ""}</div>`;
   }).join("");
-  box.querySelectorAll(".qvote").forEach(b => b.onclick = () => _qAct("treasury_vote", props[+b.dataset.i]));
+  box.querySelectorAll(".qvote").forEach(b => b.onclick = () => _qAct("treasury_vote", props[+b.dataset.i], "yes"));
+  box.querySelectorAll(".qoppose").forEach(b => b.onclick = () => _qAct("treasury_vote", props[+b.dataset.i], "no"));
   box.querySelectorAll(".qexec").forEach(b => b.onclick = () => _qAct("treasury_execute", props[+b.dataset.i]));
 }
 
