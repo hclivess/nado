@@ -6,6 +6,7 @@ back to pure Python. Build it with:  cargo build --release  (in wasm/goldilocks/
 """
 import ctypes
 import os
+import threading
 
 _P = 0xFFFFFFFF00000001
 NMAX = 8192
@@ -13,6 +14,12 @@ NMAX = 8192
 _LIB = None
 _BUF = None
 _state = None   # None = not tried, True = loaded, False = unavailable
+# The Rust lib exposes ONE static scratch buffer (buf_ptr()); ntt()/coset_evaluate() write the inputs into it,
+# call the lib (ctypes releases the GIL for the duration), then read the result back. Two threads doing that at
+# once would clobber each other's buffer mid-NTT -> corrupted field values -> spurious "trace/composition
+# mismatch". The exec node proves/verifies in worker threads, so serialize every native call. (The pure-Python
+# fallback in field.py uses only locals and is already thread-safe.)
+_LOCK = threading.Lock()
 
 
 def _rou(n):
@@ -57,14 +64,16 @@ def available():
 
 def ntt(vals, inverse=False):
     n = len(vals)
-    _BUF[:n] = [v % _P for v in vals]
     root = _inv(_rou(n)) if inverse else _rou(n)
-    _LIB.ntt(n, root, 1 if inverse else 0, _inv(n) if inverse else 0)
-    return list(_BUF[:n])
+    with _LOCK:                                     # shared static buffer -> one native call at a time
+        _BUF[:n] = [v % _P for v in vals]
+        _LIB.ntt(n, root, 1 if inverse else 0, _inv(n) if inverse else 0)
+        return list(_BUF[:n])
 
 
 def coset_evaluate(coeffs, N, offset):
-    _BUF[:N] = [(coeffs[i] % _P) if i < len(coeffs) else 0 for i in range(N)]
-    _LIB.scale(N, offset % _P)
-    _LIB.ntt(N, _rou(N), 0, 0)
-    return list(_BUF[:N])
+    with _LOCK:                                     # shared static buffer -> one native call at a time
+        _BUF[:N] = [(coeffs[i] % _P) if i < len(coeffs) else 0 for i in range(N)]
+        _LIB.scale(N, offset % _P)
+        _LIB.ntt(N, _rou(N), 0, 0)
+        return list(_BUF[:N])

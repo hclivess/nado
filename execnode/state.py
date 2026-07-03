@@ -12,6 +12,7 @@ State never affects L1 consensus. A malformed blob is skipped, never fatal.
 """
 import json
 import os
+import threading
 
 from hashing import (blake2b_hash, merkle_root, merkle_proof, withdrawal_leaf, dividend_leaf,
                      unshield_leaf, canonical_bytes)
@@ -51,6 +52,11 @@ class ExecState:
         # a DELEGATED PROVER (client sends the witness -> exec builds the path + proves the full join-split).
         from execnode.shielded_field import FieldShieldedPool
         self.field_pool = FieldShieldedPool()
+        # M-10: the delegated-prover POST handlers apply field transfers in worker threads
+        # (asyncio.to_thread), so the nullifier check->add and the state serialization can run concurrently.
+        # This reentrant lock makes the double-spend check + the mutation atomic, and gives save() a
+        # consistent snapshot, so two racing identical unshields can't both record an exit.
+        self._mutate_lock = threading.RLock()
         self.load()
 
     # --- persistence -----------------------------------------------------------------------------
@@ -77,16 +83,20 @@ class ExecState:
                 self.field_pool = FieldShieldedPool.from_dict(d["field_pool"])
 
     def save(self):
-        tmp = self.path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump({"contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
+        # M-10: hold the mutate lock while snapshotting so a concurrent thread-apply can't mutate the
+        # nullifier set / commitment list mid-serialization (which could produce a torn snapshot or raise
+        # "set changed size during iteration").
+        with self._mutate_lock:
+            payload = {"contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
                        "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce,
                        "dividend": self.dividend, "dividend_pool_seen": self.dividend_pool_seen,
                        "div_carry": self.div_carry, "dividend_withdrawals": self.dividend_withdrawals,
                        "dw_nonce": self.dw_nonce, "shielded": self.shielded.to_dict(),
                        "unshield_withdrawals": self.unshield_withdrawals, "uw_nonce": self.uw_nonce,
-                       "field_pool": self.field_pool.to_dict()},
-                      f, sort_keys=True)
+                       "field_pool": self.field_pool.to_dict()}
+        tmp = self.path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(payload, f, sort_keys=True)
         os.replace(tmp, self.path)
 
     def _leaves(self):
@@ -201,7 +211,8 @@ class ExecState:
             if not (0 < amount <= MAX_EXIT_VALUE):
                 return f"skip field-shield: amount out of range ({amount})"
             cm = alghash.commit(amount, int(owner) % _F.P, int(rho) % _F.P)
-            self.field_pool.append(cm)
+            with self._mutate_lock:                       # M-10: serialize field_pool mutation vs thread-applies
+                self.field_pool.append(cm)
             return f"field-shield {amount} -> field note #{len(self.field_pool.commitments)}"
         except Exception as e:
             return f"skip field-shield: {e}"
@@ -230,19 +241,27 @@ class ExecState:
         pv, fee = int(js["public_value"]), int(js["fee"])
         if not (-MAX_EXIT_VALUE <= pv <= MAX_EXIT_VALUE) or not (0 <= fee <= MAX_EXIT_VALUE):
             return "skip field-transfer: public_value/fee out of range"
-        nf = int(js["nf"]) % _F.P
-        if self.field_pool.has_nullifier(nf):
-            return "skip field-transfer: nullifier already spent (double-spend)"
-        self.field_pool.nullifiers.add(nf)
-        for c in cm_outs:
-            self.field_pool.append(c)
+        # Validate the exit destination BEFORE any mutation: the old order added the nullifier + appended the
+        # outputs and only then rejected a missing withdraw_addr, burning the note for a malformed unshield.
+        addr = None
         if pv < 0:
             addr = bundle.get("withdraw_addr")
             if not addr:
                 return "skip field-transfer: unshield missing withdraw_addr"
-            self.uw_nonce += 1
-            nonce = str(self.uw_nonce)
-            self.unshield_withdrawals[nonce] = {"addr": addr, "amount": -pv}
+        nf = int(js["nf"]) % _F.P
+        # M-10: the check->add->append must be atomic vs concurrent thread-applies (two racing identical
+        # unshields could otherwise both pass has_nullifier and each record an exit for one spent note).
+        with self._mutate_lock:
+            if self.field_pool.has_nullifier(nf):
+                return "skip field-transfer: nullifier already spent (double-spend)"
+            self.field_pool.nullifiers.add(nf)
+            for c in cm_outs:
+                self.field_pool.append(c)
+            if pv < 0:
+                self.uw_nonce += 1
+                nonce = str(self.uw_nonce)
+                self.unshield_withdrawals[nonce] = {"addr": addr, "amount": -pv}
+        if pv < 0:
             return f"field-unshield {-pv} -> {addr[:12]}… nonce {nonce}"
         return "field-transfer ok"
 

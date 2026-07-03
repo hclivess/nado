@@ -23,6 +23,13 @@ from execnode.stark.fri import NUM_QUERIES
 
 OFF = F.GENERATOR                    # LDE coset shift (disjoint from the trace subgroup)
 
+# H-7: a hard ceiling on the trace length a proof may claim. N (= blowup·T) is read from the proof and fed to
+# F.domain(N) BEFORE any FRI/query check, so an unbounded N is an unauthenticated single-request OOM
+# (N = 2^32 builds a ~34 GB list). Real shielded circuits use T ≈ 1024, so 2^17 is ~128× headroom and caps the
+# LDE at ~2^21 elements — generous for legit proofs, fatal to the OOM.
+MAX_TRACE_ROWS = 1 << 17
+MAX_COLUMNS = 256
+
 
 def _next_pow2(x):
     p = 1
@@ -116,6 +123,16 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
     try:
         periodic = periodic or []
         T, W, N, blowup = proof["T"], proof["W"], proof["N"], proof["blowup"]
+        # H-7: validate the LDE geometry — which is fully determined by max_degree and T — BEFORE allocating
+        # F.domain(N). Otherwise an oversized N (verbatim from the proof) OOMs the process ahead of every check.
+        if not all(isinstance(v, int) for v in (T, W, N, blowup)):
+            return False, "bad proof dimensions"
+        if T < 1 or (T & (T - 1)) != 0 or T > MAX_TRACE_ROWS:
+            return False, "bad trace length"
+        if W < 1 or W > MAX_COLUMNS:
+            return False, "bad column count"
+        if blowup != _blowup(max_degree) or N != blowup * T:
+            return False, "bad LDE geometry"
         col_roots = proof["col_roots"]
         gT = F.primitive_root_of_unity(T)
         x_dom = F.domain(N, OFF)

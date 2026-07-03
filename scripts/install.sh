@@ -217,6 +217,9 @@ Environment=HOME=$DATA_HOME")
 Environment=NADO_L1_URL=http://127.0.0.1:9173
 Environment=NADO_EXEC_STATE=$EXEC_STATE
 Environment=NADO_EXEC_PORT=9273
+# --exec means "let browsers reach the shielded pool", so bind publicly. The mutating /exec POSTs are
+# unauthenticated but bounded (STARK size cap + in-flight limit); drop this line to keep it loopback-only.
+Environment=NADO_EXEC_BIND=0.0.0.0
 $([ $EXEC_SETTLE -eq 1 ] && echo "Environment=NADO_EXEC_SETTLE=1")
 ExecStart=$VENV_PY $REPO_DIR/execnode/execnode.py
 Restart=always

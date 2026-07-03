@@ -8,10 +8,14 @@ and run view methods. It never speaks to L1 consensus — a VM bug here can't fo
 (doc/execution-layer.md §3.2). Run one per operator who wants programmability; phones do not.
 
 Env:
-  NADO_L1_URL      L1 node base URL     (default http://127.0.0.1:9173)
-  NADO_EXEC_STATE  state file path      (default ./exec_state.json)
-  NADO_EXEC_PORT   query API port       (default 9273)
-  NADO_EXEC_POLL   poll seconds         (default 5)
+  NADO_L1_URL          L1 node base URL     (default http://127.0.0.1:9173)
+  NADO_EXEC_STATE      state file path      (default ./exec_state.json)
+  NADO_EXEC_PORT       query API port       (default 9273)
+  NADO_EXEC_BIND       bind address         (default 127.0.0.1 — loopback-only; set 0.0.0.0 to let remote
+                                             browsers reach the shielded pool. H-7: the mutating POST endpoints
+                                             are unauthenticated, so exposing them is opt-in.)
+  NADO_EXEC_MAX_INFLIGHT  concurrent prove/apply cap (default 2 — bounds CPU/memory under a POST flood)
+  NADO_EXEC_POLL       poll seconds         (default 5)
 
 Run:  python execnode/execnode.py
 Query:  curl localhost:9273/exec/root
@@ -32,7 +36,21 @@ from execnode.state import ExecState
 L1 = os.environ.get("NADO_L1_URL", "http://127.0.0.1:9173").rstrip("/")
 STATE_PATH = os.environ.get("NADO_EXEC_STATE", "exec_state.json")
 PORT = int(os.environ.get("NADO_EXEC_PORT", "9273"))
+# H-7: loopback by default — the /exec POST endpoints prove/verify/apply and mutate state without auth, so a
+# public bind is opt-in (a browser-reachable shielded pool sets NADO_EXEC_BIND=0.0.0.0). Even when exposed, the
+# STARK size bound (stark.MAX_TRACE_ROWS) and the in-flight cap below bound a single request and a flood.
+BIND = os.environ.get("NADO_EXEC_BIND", "127.0.0.1")
+MAX_INFLIGHT = max(1, int(os.environ.get("NADO_EXEC_MAX_INFLIGHT", "2")))
+MAX_BODY_BYTES = int(os.environ.get("NADO_EXEC_MAX_BODY", str(16 * 1024 * 1024)))   # cap POST size (proofs are ~1-4MB)
 POLL = float(os.environ.get("NADO_EXEC_POLL", "5"))
+# H-7: cap concurrent proving/applying so a flood of POSTs can't exhaust CPU/memory (each prove is a full
+# STARK; each apply verifies a ~1MB proof). Created lazily on the running loop.
+_inflight = None
+def _sem():
+    global _inflight
+    if _inflight is None:
+        _inflight = asyncio.Semaphore(MAX_INFLIGHT)
+    return _inflight
 # Phase 2: if this node is a BONDED validator, post settlement attestations of its computed state root
 # (needs its keys.dat via HOME). NADO_EXEC_SETTLE=1 to enable; settles at most every SETTLE_EVERY blocks.
 SETTLE = os.environ.get("NADO_EXEC_SETTLE", "").strip().lower() in ("1", "true", "yes", "on")
@@ -204,10 +222,13 @@ async def h_dividend_proof(request):
 
 @web.middleware
 async def _cors(request, handler):
-    # This is a READ-ONLY query API. The light-miner page is served by the L1 node on a DIFFERENT port
-    # (:9173), so every /exec/* fetch from the browser is cross-origin — without these headers the browser
-    # silently blocks the response (curl doesn't, which is why it worked in tests but not in the wallet).
-    # Allow any origin; nothing here is authenticated or mutating. Also answer the CORS preflight.
+    # The light-miner page is served by the L1 node on a DIFFERENT port (:9173), so every /exec/* fetch from
+    # the browser is cross-origin — without these headers the browser silently blocks the response (curl
+    # doesn't, which is why it worked in tests but not in the wallet). Allow any origin. NOTE: most /exec/*
+    # routes are read-only, but /exec/apply_field_transfer and /exec/prove_transfer[2] DO mutate the pool and
+    # are UNAUTHENTICATED — they are safe to expose only because (a) the exec node binds loopback unless
+    # NADO_EXEC_BIND is opened, (b) the STARK size bound rejects oversized proofs before allocation, and (c) an
+    # in-flight semaphore caps concurrent proving/applying. Also answer the CORS preflight.
     if request.method == "OPTIONS":
         resp = web.Response(status=204)
     else:
@@ -256,15 +277,16 @@ async def h_prove_transfer(request):
             return SFP.prove_transfer(fp, int(w["nsk"]), int(w["value_in"]), int(w["rho_in"]), pos,
                                       int(w["out_value"]), int(w["out_owner"]), int(w["out_rho"]),
                                       int(w["public_value"]), int(w["fee"]), withdraw_addr=w.get("withdraw_addr"))
-        bundle, public = await asyncio.to_thread(_prove)   # heavy STARK proving off the event loop
-        if w.get("withdraw_addr"):
-            bundle["withdraw_addr"] = w["withdraw_addr"]
-        # The exec node is BOTH the delegated prover and the pool authority: prove -> verify -> APPLY here
-        # (back on the event loop, serialized with the tail loop). The 900KB+ proof never touches L1 — only the
-        # small settled result does (via the bonded-quorum state root, like the bridge). It is verified inside
-        # apply_field_transfer before any state changes.
-        applied = state.apply_field_transfer(bundle)
-        state.save()
+        async with _sem():                                 # H-7: bound concurrent proving/applying
+            bundle, public = await asyncio.to_thread(_prove)   # heavy STARK proving off the event loop
+            if w.get("withdraw_addr"):
+                bundle["withdraw_addr"] = w["withdraw_addr"]
+            # The exec node is BOTH the delegated prover and the pool authority: prove -> verify -> APPLY. The
+            # 900KB+ proof never touches L1 — only the small settled result does (via the bonded-quorum state
+            # root, like the bridge). apply runs off the event loop; its nullifier critical section + save are
+            # serialized by ExecState._mutate_lock (M-10).
+            applied = await asyncio.to_thread(state.apply_field_transfer, bundle)
+            await asyncio.to_thread(state.save)
         ok = "skip" not in applied
         return web.json_response({
             "applied": applied, "ok": ok,
@@ -317,8 +339,9 @@ async def h_apply_field_transfer(request):
         return web.json_response({"error": "bad json"}, status=400)
     try:
         _normalize_bundle(bundle)
-        applied = await asyncio.to_thread(state.apply_field_transfer, bundle)
-        state.save()
+        async with _sem():                                 # H-7: bound concurrent verify+apply
+            applied = await asyncio.to_thread(state.apply_field_transfer, bundle)
+            await asyncio.to_thread(state.save)
         js = (bundle.get("stark") or {}).get("joinsplit2") or {}
         return web.json_response({"applied": applied, "ok": "skip" not in applied,
                                   "cm_out1": str(js.get("cm_out1")), "cm_out2": str(js.get("cm_out2"))})
@@ -344,11 +367,12 @@ async def h_prove_transfer2(request):
                                        int(w["v1"]), int(w["o1"]), int(w["r1"]),
                                        int(w["v2"]), int(w["o2"]), int(w["r2"]),
                                        int(w["public_value"]), int(w["fee"]), withdraw_addr=w.get("withdraw_addr"))
-        bundle, public = await asyncio.to_thread(_prove)
-        if w.get("withdraw_addr"):
-            bundle["withdraw_addr"] = w["withdraw_addr"]
-        applied = state.apply_field_transfer(bundle)
-        state.save()
+        async with _sem():                                 # H-7: bound concurrent proving/applying
+            bundle, public = await asyncio.to_thread(_prove)
+            if w.get("withdraw_addr"):
+                bundle["withdraw_addr"] = w["withdraw_addr"]
+            applied = await asyncio.to_thread(state.apply_field_transfer, bundle)
+            await asyncio.to_thread(state.save)
         return web.json_response({
             "applied": applied, "ok": "skip" not in applied,
             "root": str(public["root"]), "nf": str(public["nullifiers"][0]),
@@ -388,7 +412,7 @@ async def h_unshield_proof(request):
 
 
 async def main():
-    app = web.Application(middlewares=[_cors])
+    app = web.Application(middlewares=[_cors], client_max_size=MAX_BODY_BYTES)   # H-7: cap POST body size
     app.add_routes([web.get("/exec/root", h_root),
                     web.get("/exec/shielded", h_shielded),
                     web.get("/exec/field_shielded", h_field_shielded),
@@ -408,8 +432,10 @@ async def main():
                     web.get("/exec/dividend_proof", h_dividend_proof)])
     runner = web.AppRunner(app)
     await runner.setup()
-    await web.TCPSite(runner, "0.0.0.0", PORT).start()
-    print(f"[execnode] query API on :{PORT}", flush=True)
+    await web.TCPSite(runner, BIND, PORT).start()
+    print(f"[execnode] query API on {BIND}:{PORT}"
+          + ("" if BIND != "0.0.0.0" else "  (PUBLIC — mutating /exec POSTs are unauthenticated; bounded by size cap + in-flight limit)"),
+          flush=True)
     await tail_loop()
 
 
