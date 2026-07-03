@@ -2239,7 +2239,11 @@ async function exOpen(kind, val) {
         const box = $("exAcctTxs"); box.innerHTML = `<div class="faint small">${i18("ex.loading", "loading…")}</div>`;
         try { const d = await exGetJSON("/get_transactions_of_account?address=" + encodeURIComponent(val) + "&min_block=0");
           const txs = d.transactions || []; box.innerHTML = txs.length ? txs.map(exTxRow).join("") : `<div class="faint small">${i18("ex.noTxs", "no transactions")}</div>`;
-        } catch (e) { box.innerHTML = `<div class="warnbox danger">${exEsc(e.message)}</div>`; }
+        } catch (e) {   // an account with no transactions answers 404 — that's "none", not an error
+          box.innerHTML = /HTTP 404/.test(e.message || "")
+            ? `<div class="faint small">${i18("ex.noTxs", "no transactions")}</div>`
+            : `<div class="warnbox danger">${exEsc(e.message)}</div>`;
+        }
       };
     } else if (kind === "b") {
       let b = null;
@@ -2253,7 +2257,13 @@ async function exOpen(kind, val) {
       if (!t || t === false) throw new Error("not found");
       exShowResult(exRenderTx(t));
     }
-  } catch (e) { exShowResult(`<div class="warnbox danger">Not found: ${exEsc(e.message)}</div>`); }
+  } catch (e) {
+    // A pruned/absent record answers 404 (or the legacy 403). Say so plainly instead of "Not found: HTTP 404".
+    const msg = /HTTP 40[34]|not found/i.test(e.message || "")
+      ? i18("ex.notFoundPruned", "Not found on this node. If this is an old block or transaction, the node may have pruned it from its retained history.")
+      : i18("ex.lookupErr", "Lookup failed:") + " " + exEsc(e.message);
+    exShowResult(`<div class="warnbox danger">${msg}</div>`);
+  }
 }
 async function exSearch() {
   const q = $("exQ").value.trim();

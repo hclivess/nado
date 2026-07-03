@@ -292,7 +292,7 @@ async def transaction(request):
             data = get_transaction(txid, logger=logger)
             code = 200
             if not data:
-                data, code = "Not found", 403
+                data, code = "Not found", 404   # 404, not 403: a missing/pruned record isn't "forbidden"
             return serialize(name="txid", output=data, compress=_q(request, "compress", "none")), code
         except Exception as e:
             return f"Error: {e}", 403
@@ -311,7 +311,7 @@ async def account_transactions(request):
             data = get_transactions_of_account(account=address, min_block=min_block, logger=logger)
             code = 200
             if not data:
-                data, code = "Not found", 403
+                data, code = "Not found", 404   # 404, not 403: a missing/pruned record isn't "forbidden"
             return serialize(name="account_transactions", output=data, compress=_q(request, "compress", "none")), code
         except Exception as e:
             return f"Error: {e}", 403
@@ -339,7 +339,7 @@ async def block_by_number(request):
             data = get_block_number(_q(request, "number"))
             code = 200
             if not data:
-                data, code = "Not found", 403
+                data, code = "Not found", 404   # 404, not 403: a missing/pruned record isn't "forbidden"
             return serialize(name="block_number", output=data, compress=_q(request, "compress", "none")), code
         except Exception as e:
             return f"Error: {e}", 403
@@ -441,7 +441,7 @@ async def account(request):
                     data.update({"produced": to_readable_amount(data["produced"])})
                     data.update({"bonded": to_readable_amount(data["bonded"])})
             else:
-                data, code = "Not found", 403
+                data, code = "Not found", 404   # 404, not 403: a missing/pruned record isn't "forbidden"
             return serialize(name="address", output=data, compress=_q(request, "compress", "none")), code
         except Exception as e:
             return f"Error: {e}", 403
