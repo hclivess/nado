@@ -366,6 +366,18 @@
       <div class="stat" data-i18n-title="tip.stakeBonded" title="BONDED — coins locked as bonded stake. Bonded stake earns you slots in the BONDED mining lane (~80% of blocks). 100 NADO (B_MIN) per selection share.">
         <div class="label" data-i18n="lbl.bonded">Bonded <span class="hint">ⓘ</span></div><div class="value sm" id="stkBonded">—</div></div>
     </div>
+
+    <!-- Estimated savings (bonded-lane) APY, computed from recent on-chain performance + the presence dividend. -->
+    <div class="hint-banner mt" style="display:block">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <label style="margin:0" data-i18n="stake.apyLabel">Savings APY
+          <span class="hint" data-i18n-title="tip.apy" title="Estimated from the reward of recent blocks: the bonded lane mints ~80% of blocks and a bonded block pays its producer 70% of the reward, shared across all bonded shares (100 NADO each). The presence dividend — funded by 20% of every bonded block plus 70% of every open block — is an EXTRA, capital-free yield paid to present open-lane miners, shown separately. Estimate only; it falls as more coins bond.">ⓘ</span>
+        </label>
+        <button id="btnApy" class="ghost" style="width:auto;padding:6px 12px" data-i18n="stake.apyBtn">Estimate</button>
+      </div>
+      <div id="apyResult" class="small mt faint" data-i18n="stake.apyHint">Tap Estimate to compute the current bonded-stake APY from recent blocks.</div>
+    </div>
+
     <div class="warnbox mt" data-i18n-html="stake.warn">Unbonded stake stays locked for <b id="stkDelay">1440</b> blocks (BOND_UNLOCK_DELAY) after an unbond request before it is spendable again.</div>
 
     <label class="mt" data-i18n="stake.bondAmount">Bond amount (NADO) — move spendable → bonded

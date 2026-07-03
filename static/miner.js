@@ -542,6 +542,56 @@ function nadoToRaw(amountStr) {
   return whole * DENOMINATION + frac;
 }
 
+// Estimate the bonded ("savings") lane APY from recent on-chain performance, plus the presence dividend.
+// Reward model (protocol.py): a bonded block pays the producer 70% (dividend 20%, treasury 10%); an open block
+// pays the producer 20% (dividend 70%, treasury 10%). The bonded lane mints (epoch_length - k_open)/epoch_length
+// of blocks (~80%). Bonded rewards are shared across all bonded shares (B_MIN = 100 NADO each), so the APY on
+// staked capital ≈ (annual bonded producer reward ÷ total bonded shares) ÷ B_MIN. The dividend is paid to
+// PRESENT open-lane miners (not to stake), so it's shown separately as a capital-free bonus.
+const B_MIN_RAW = 1_000_000_000_000n;      // protocol.py: 100 NADO per bonded selection share
+const BASE_SUBSIDY_RAW = 1_000_000_000n;   // protocol.py: 0.1 NADO/block reward floor
+async function estimateSavingsApy() {
+  const box = $("apyResult");
+  if (!box) return;
+  box.textContent = i18("apy.calc", "estimating from recent blocks…");
+  try {
+    const ms = await rpcJSON("/mining_status");
+    const tip = await rpcJSON("/get_latest_block");
+    const n = num(tip.block_number);
+    const nums = []; for (let i = 0; i < 30 && n - i > 0; i++) nums.push(n - i);
+    const blks = await Promise.all(nums.map((x) => rpcJSON("/get_block_number?number=" + x).catch(() => null)));
+    const rewards = blks.filter(Boolean).map((b) => { try { return BigInt(b.block_reward || 0); } catch { return 0n; } }).filter((r) => r > 0n);
+    const avgReward = rewards.length ? Number(rewards.reduce((a, b) => a + b, 0n) / BigInt(rewards.length)) : Number(BASE_SUBSIDY_RAW);
+    const blockTime = num(ms.block_time) || state.blockTime || 8;
+    const epochLen = num(ms.epoch_length) || EPOCH_LENGTH;
+    const kOpen = num(ms.k_open) || 12;
+    const bondedFrac = (epochLen - kOpen) / epochLen, openFrac = kOpen / epochLen;
+    const totalShares = num(ms.total_bonded_shares);
+    const blocksYear = 31557600 / blockTime;
+    const bondedBlocksYear = blocksYear * bondedFrac, openBlocksYear = blocksYear * openFrac;
+
+    let head;
+    if (totalShares > 0) {
+      const perShareYearRaw = (avgReward * bondedBlocksYear * 0.70) / totalShares;   // raw/yr per bonded share
+      const apy = (perShareYearRaw / Number(B_MIN_RAW)) * 100;
+      const shown = apy >= 1000 ? Math.round(apy).toLocaleString() : apy.toFixed(1);
+      head = `<b class="ok">${shown}% ${i18("apy.savings", "APY on bonded stake")}</b>`
+        + (apy >= 500 ? ` <span class="faint">${i18("apy.earlyNote", "(very high while little is bonded — it falls as more coins stake)")}</span>` : "");
+    } else {
+      head = `<span class="faint">${i18("apy.noBond", "No bonded stake yet — APY is undefined until the savings lane has stake.")}</span>`;
+    }
+    // presence dividend: 20% of every bonded block + 70% of every open block, shared among present open miners
+    const annualDivRaw = avgReward * (bondedBlocksYear * 0.20 + openBlocksYear * 0.70);
+    const openMiners = Math.max(1, num(ms.open_registry_size));
+    const divNado = rawToNado(BigInt(Math.max(0, Math.round(annualDivRaw / openMiners))));
+    box.innerHTML = head
+      + `<span class="faint"> · ${i18("apy.from", "from the last {n} blocks", { n: rewards.length })}</span>`
+      + `<div class="faint mt">${i18("apy.divNote", "+ presence dividend ≈ {a} NADO/yr per present open-lane miner (a capital-free bonus if you also mine the open lane).", { a: divNado })}</div>`;
+  } catch (e) {
+    box.innerHTML = `<span class="warn">${i18("apy.err", "Couldn't estimate APY:")} ${escapeHtml(e.message)}</span>`;
+  }
+}
+
 /* ----------------------------------------------------------------------------------------------
  * Wallet persistence
  * -------------------------------------------------------------------------------------------- */
@@ -3035,6 +3085,7 @@ function wireEvents() {
   $("sendTo").oninput = validateSendTo;
   $("btnBond").onclick = () => doBond("bond");
   $("btnUnbond").onclick = () => doBond("unbond");
+  if ($("btnApy")) $("btnApy").onclick = () => estimateSavingsApy();
   if ($("autoBondPct")) {
     const apply = () => { const p = setAutoBondPct($("autoBondPct").value); $("autoBondPct").value = String(p); };
     $("autoBondPct").onchange = apply;
