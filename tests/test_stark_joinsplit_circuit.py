@@ -66,6 +66,22 @@ def t6_full_proof_through_verify_transfer_seam():
     ok2, _ = shielded.verify_transfer(public, bad, lambda r: True)
     assert not ok2, "verify_transfer must reject a conservation-violating STARK transfer"
 
+def t7_c3_wraparound_exit_rejected():
+    # C-3: spend the real 900-coin note but declare public_value = -10^18. Value conservation forces the
+    # "change" value to wrap mod P into a ~2^64 field element; the in-circuit range proof (< 2^62) must reject.
+    X = 10 ** 18
+    v_out_wrapped = (VIN - X) % F.P                 # ≈ P, far outside [0, 2^62)
+    proof, root, nf, cm_out = JC.prove_transfer(NSK, VIN, RHO, SIBS, DIRS, v_out_wrapped, OWN_OUT, RHO_OUT, -X, 0)
+    ok, why = JC.verify_transfer(proof, root, nf, cm_out, -X, 0, lambda r: True)
+    assert not ok, f"C-3 wraparound exit MUST be rejected by the range proof, got ok={ok} ({why})"
+
+def t8_c3_in_range_value_still_verifies():
+    # a large-but-in-range value (< 2^62) must still verify — the range proof doesn't reject honest txs.
+    big = (1 << 61)
+    proof, root, nf, cm_out = JC.prove_transfer(NSK, big, RHO, SIBS, DIRS, big, OWN_OUT, RHO_OUT, 0, 0)
+    ok, why = JC.verify_transfer(proof, root, nf, cm_out, 0, 0, lambda r: True)
+    assert ok, f"an in-range value must still verify: {why}"
+
 for name, fn in sorted((n, f) for n, f in globals().items() if n.startswith("t") and callable(f) and n[1].isdigit()):
     check(name, fn)
 print(f"\n{'ALL PASSED' if not fails else str(fails)+' FAILED'}")

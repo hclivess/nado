@@ -57,6 +57,27 @@ def t5_membership_and_anchor():
     ok, why = J2.verify_transfer(proof, root, nf, cm1, cm2, 0, 0, lambda r: False)
     assert not ok and "anchor" in why
 
+def t6_c3_wraparound_exit_rejected():
+    # C-3: spend the real 1000-coin note but declare public_value = -10^18. Conservation forces a "change"
+    # value to wrap mod P into a ~2^64 field element; the in-circuit range proof (< 2^62) must reject it.
+    pool, sibs, dirs = _pool()
+    X = 10 ** 18
+    v2_wrapped = (VIN - V1 - (-X)) % F.P            # v_in - v1 - v2 == fee - public_value(=-X) -> v2 wraps
+    proof, root, nf, cm1, cm2 = J2.prove_transfer(NSK, VIN, RHO, sibs, dirs, V1, O1, R1,
+                                                  v2_wrapped, O2, R2, -X, 0)
+    ok, why = J2.verify_transfer(proof, root, nf, cm1, cm2, -X, 0, lambda r: True)
+    assert not ok, f"C-3 wraparound exit MUST be rejected, got ok={ok} ({why})"
+
+def t7_c3_in_range_values_verify():
+    # large-but-in-range values (< 2^62) still verify
+    pool = SF.FieldShieldedPool()
+    big = (1 << 61) - 1
+    pool.append(alghash.commit(big, alghash.owner_of(NSK), RHO))
+    sibs, dirs = SF.tree_path(pool.commitments, 0)
+    proof, root, nf, cm1, cm2 = J2.prove_transfer(NSK, big, RHO, sibs, dirs, big - 1, O1, R1, 1, O2, R2, 0, 0)
+    ok, why = J2.verify_transfer(proof, root, nf, cm1, cm2, 0, 0, lambda r: True)
+    assert ok, f"in-range values must still verify: {why}"
+
 for name, fn in sorted((n, f) for n, f in globals().items() if n.startswith("t") and callable(f) and n[1].isdigit()):
     check(name, fn)
 print(f"\n{'ALL PASSED' if not fails else str(fails)+' FAILED'}")

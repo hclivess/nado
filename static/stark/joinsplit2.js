@@ -4,18 +4,23 @@ import * as F from "./field.js";
 import * as A from "../alghash.js";
 
 const R = 8;                     // A.R_ROUNDS
-export const [S0, S1, AB, CARRY, SIB, DIR, NSK, RHO, OWN, NFREG, VIN, VOUT1, VOUT2, CONS, ROOTREG, CMOUT1] =
-  Array.from({ length: 16 }, (_, i) => i);
+// …, ACC + 4 nibble-bit columns for the C-3 in-circuit range proof (must match execnode/stark/joinsplit2.py)
+export const [S0, S1, AB, CARRY, SIB, DIR, NSK, RHO, OWN, NFREG, VIN, VOUT1, VOUT2, CONS, ROOTREG, CMOUT1,
+  ACC, RB0, RB1, RB2, RB3] = Array.from({ length: 21 }, (_, i) => i);
 const RPL = 3 * R;
 const OWN_END = 2 * R, COM_END = 6 * R, NUL_END = 9 * R, MERK = NUL_END;
 export const MAX_DEGREE = 7n;
+const RNG_NIBBLES = 16, RNG_BLOCK = RNG_NIBBLES + 1, RNG_VALUES = 3;   // C-3 range gadget geometry
 
 const rc = (r, j) => A.rcAt(r % R, j);
 function _round(s0, s1, r) {
   const t0 = A.sboxFn(F.add(s0, rc(r, 0))), t1 = A.sboxFn(F.add(s1, rc(r, 1)));
   return [F.add(F.mul(2n, t0), t1), F.add(t0, F.mul(3n, t1))];
 }
-export function bounds(D) { const out1 = MERK + D * RPL, out2 = out1 + 4 * R, total = out2 + 4 * R; return [out1, out2, total]; }
+// bounds()[2] = spongeEnd, the row where root/nf/cm_out are captured (the boundary row). The range region
+// follows; totalRows adds it for the trace length.
+export function bounds(D) { const out1 = MERK + D * RPL, out2 = out1 + 4 * R, spongeEnd = out2 + 4 * R; return [out1, out2, spongeEnd]; }
+function totalRows(D) { const [, , spongeEnd] = bounds(D); return spongeEnd + RNG_VALUES * RNG_BLOCK; }
 
 export function transfer(nsk, vIn, rhoIn, sibs, dirs, v1, o1, r1, v2, o2, r2) {
   const owner = A.ownerOf(nsk), cmIn = A.commit(vIn, owner, rhoIn), nf = A.nullifier(nsk, rhoIn);
@@ -30,14 +35,28 @@ export function transfer(nsk, vIn, rhoIn, sibs, dirs, v1, o1, r1, v2, o2, r2) {
 export function buildTrace(nsk, vIn, rhoIn, sibs, dirs, v1, o1, r1, v2, o2, r2) {
   const m = (x) => ((BigInt(x) % F.P) + F.P) % F.P;
   nsk = m(nsk); vIn = m(vIn); rhoIn = m(rhoIn); v1 = m(v1); o1 = m(o1); r1 = m(r1); v2 = m(v2); o2 = m(o2); r2 = m(r2);
-  const D = sibs.length, [out1, out2, total] = bounds(D);
+  const D = sibs.length, [out1, out2, spongeEnd] = bounds(D);
+  const total = totalRows(D);
   let T = 1; while (T < total + 1) T <<= 1;
   const cons = F.sub(F.sub(vIn, v1), v2);
+  // C-3 range fill: row -> [acc, b0, b1, b2, b3] for the range region (acc = accumulator before this nibble).
+  const rfill = new Map();
+  [vIn, v1, v2].forEach((val, b) => {
+    let acc = 0n; const base = spongeEnd + b * RNG_BLOCK;
+    for (let i = 0; i < RNG_NIBBLES; i++) {
+      const nib = (val >> BigInt(4 * (15 - i))) & 0xFn;
+      rfill.set(base + i, [acc, (nib >> 3n) & 1n, (nib >> 2n) & 1n, (nib >> 1n) & 1n, nib & 1n]);
+      acc = 16n * acc + nib;
+    }
+    rfill.set(base + RNG_NIBBLES, [acc, 0n, 0n, 0n, 0n]);      // bind row: acc == val
+  });
   const tr = [];
   let s0 = A.DOM_OWNER, s1 = A.ivVal(), ab = A.DOM_OWNER;
   let carry = 0n, sib = 0n, dr = 0n, own = 0n, nfreg = 0n, rootreg = 0n, cmout1 = 0n, lvl = 0;
   for (let r = 0; r < T; r++) {
-    tr.push([s0, s1, ab, carry, sib, dr, nsk, rhoIn, own, nfreg, vIn, v1, v2, cons, rootreg, cmout1]);
+    const [racc, rb0, rb1, rb2, rb3] = rfill.get(r) || [0n, 0n, 0n, 0n, 0n];
+    tr.push([s0, s1, ab, carry, sib, dr, nsk, rhoIn, own, nfreg, vIn, v1, v2, cons, rootreg, cmout1,
+             racc, rb0, rb1, rb2, rb3]);
     const [r0, r1r] = _round(s0, s1, r);
     const last = (r % R === R - 1);
     if (r < OWN_END) {                                     // OWNER [DOM_OWNER, nsk]
@@ -65,26 +84,31 @@ export function buildTrace(nsk, vIn, rhoIn, sibs, dirs, v1, o1, r1, v2, o2, r2) 
       if (r === out2 - 1) { cmout1 = r0; s0 = A.DOM_CM; s1 = A.ivVal(); ab = A.DOM_CM; }
       else if (last) { const oi = Math.floor((r - out1) / R); const msg = oi === 0 ? v1 : (oi === 1 ? o1 : r1); s0 = F.add(r0, msg); s1 = r1r; ab = msg; }
       else { s0 = r0; s1 = r1r; }
-    } else {                                               // OUTPUT2 [DOM_CM, v2, o2, r2]
-      if (last && r < total - 1) { const oi = Math.floor((r - out2) / R); const msg = oi === 0 ? v2 : (oi === 1 ? o2 : r2); s0 = F.add(r0, msg); s1 = r1r; ab = msg; }
+    } else if (r < spongeEnd) {                            // OUTPUT2 [DOM_CM, v2, o2, r2]
+      if (last && r < spongeEnd - 1) { const oi = Math.floor((r - out2) / R); const msg = oi === 0 ? v2 : (oi === 1 ? o2 : r2); s0 = F.add(r0, msg); s1 = r1r; ab = msg; }
       else { s0 = r0; s1 = r1r; }
+    } else {                                               // range region + padding: the sponge idles
+      s0 = r0; s1 = r1r;
     }
   }
-  return { tr, T, D, root: tr[total][ROOTREG], nf: tr[total][NFREG], cm1: tr[out2][CMOUT1], cm2: tr[total][S0] };
+  return { tr, T, D, root: tr[spongeEnd][ROOTREG], nf: tr[spongeEnd][NFREG], cm1: tr[out2][CMOUT1], cm2: tr[spongeEnd][S0] };
 }
 
 export const [RC0, RC1, ANSK, ARHO, AOWN, AVIN, AVOUT1, AVOUT2, AFREE, B0, B1, RCM, RNF, RNODE,
-  ROUT1, ROUT2, CAPOWN, CAPCARRY, CAPNF, CAPROOT, CAPCM1, INMERK] = Array.from({ length: 22 }, (_, i) => i);
+  ROUT1, ROUT2, CAPOWN, CAPCARRY, CAPNF, CAPROOT, CAPCM1, INMERK,
+  RNG_ACC, RNG_START, RBIND_VIN, RBIND_VOUT1, RBIND_VOUT2] = Array.from({ length: 27 }, (_, i) => i);
 
 const _perCache = new Map();
 export function periodic(T, D) {
   const ck = T + "," + D;
   const hit = _perCache.get(ck);
   if (hit) return hit;                         // periodic columns depend only on (T, D) — same every proof
-  const [out1, out2] = bounds(D);
+  const [out1, out2, spongeEnd] = bounds(D);
+  const total = totalRows(D);
   const col = (fn) => Array.from({ length: T }, (_, r) => (fn(r) ? 1 : 0));
   const lvlEnd = (r, upto) => MERK <= r && r < out1 && (r - MERK) % RPL === RPL - 1 && Math.floor((r - MERK) / RPL) < upto && Math.floor((r - MERK) / RPL) >= 0;
-  const p = new Array(22);
+  const rng = (r) => spongeEnd <= r && r < total;
+  const p = new Array(27);
   p[RC0] = Array.from({ length: T }, (_, r) => rc(r, 0));
   p[RC1] = Array.from({ length: T }, (_, r) => rc(r, 1));
   p[ANSK] = col((r) => r === R - 1 || r === 7 * R - 1);
@@ -107,6 +131,12 @@ export function periodic(T, D) {
   p[CAPROOT] = col((r) => r === out1 - 1);
   p[CAPCM1] = col((r) => r === out2 - 1);
   p[INMERK] = col((r) => MERK <= r && r < out1);
+  // C-3 range region selectors
+  p[RNG_ACC] = col((r) => rng(r) && (r - spongeEnd) % RNG_BLOCK < RNG_NIBBLES);
+  p[RNG_START] = col((r) => rng(r) && (r - spongeEnd) % RNG_BLOCK === 0);
+  p[RBIND_VIN] = col((r) => r === spongeEnd + 0 * RNG_BLOCK + RNG_NIBBLES);
+  p[RBIND_VOUT1] = col((r) => r === spongeEnd + 1 * RNG_BLOCK + RNG_NIBBLES);
+  p[RBIND_VOUT2] = col((r) => r === spongeEnd + 2 * RNG_BLOCK + RNG_NIBBLES);
   _perCache.set(ck, p);
   return p;
 }
@@ -152,6 +182,10 @@ export function transitions() {
   };
   const cap = (cur, nxt, per, reg, sel) => { const [r0] = rnd(cur, per); return sub(nxt[reg], add(mul(per[sel], r0), mul(sub(1n, per[sel]), cur[reg]))); };
   const hold = (reg) => (c, n) => sub(n[reg], c[reg]);
+  // C-3 range constraints (mirror execnode/stark/joinsplit2.py)
+  const nib = (c) => add(add(mul(8n, c[RB0]), mul(4n, c[RB1])), add(mul(2n, c[RB2]), c[RB3]));
+  const bit = (reg) => (c, n, p) => mul(p[RNG_ACC], mul(c[reg], sub(1n, c[reg])));
+  const bind = (sel, val) => (c, n, p) => mul(p[sel], sub(c[ACC], c[val]));
   return [
     c_s1, c_s0, c_ab,
     (c, n, p) => cap(c, n, p, CARRY, CAPCARRY), (c, n, p) => cap(c, n, p, OWN, CAPOWN),
@@ -162,5 +196,10 @@ export function transitions() {
     (c, n, p) => mul(sub(1n, p[RNODE]), sub(n[DIR], c[DIR])),
     (c, n, p) => mul(p[INMERK], mul(c[DIR], sub(1n, c[DIR]))),
     (c, n) => sub(c[CONS], sub(sub(c[VIN], c[VOUT1]), c[VOUT2])),
+    (c, n, p) => mul(p[RNG_ACC], sub(n[ACC], add(mul(16n, c[ACC]), nib(c)))),   // acc' = 16·acc + nibble
+    (c, n, p) => mul(p[RNG_START], c[ACC]),                                     // acc resets to 0 at block start
+    (c, n, p) => mul(p[RNG_START], add(c[RB0], c[RB1])),                        // top 2 bits = 0 -> value < 2^62
+    bit(RB0), bit(RB1), bit(RB2), bit(RB3),
+    bind(RBIND_VIN, VIN), bind(RBIND_VOUT1, VOUT1), bind(RBIND_VOUT2, VOUT2),
   ];
 }

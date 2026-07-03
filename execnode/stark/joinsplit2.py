@@ -5,19 +5,31 @@ joinsplit_circuit with a second OUTPUT region and 2-output value conservation:
 
   owner=H(nsk) · cm_in=commit(v_in,owner,rho_in) · membership(cm_in,path)=root · nf=H(nsk,rho_in) ·
   cm_out1=commit(v_out1,owner1,rho1) · cm_out2=commit(v_out2,owner2,rho2) ·
-  v_in + public_value == v_out1 + v_out2 + fee
+  v_in + public_value == v_out1 + v_out2 + fee ·  0 <= v_in, v_out1, v_out2 < 2^62   (C-3 range proof)
 
 Public: root, nf, cm_out1, cm_out2, public_value, fee. Six sponge regions run back-to-back
 (OWNER, COMMIT, NULLIFIER, MEMBERSHIP, OUTPUT1, OUTPUT2); handoffs capture each region's output into a register.
+
+C-3 RANGE PROOF: conservation is only mod P and P ≈ 2^64 barely exceeds the coin range, so without bounding the
+values a crafted change value could wrap past P and record an exit far larger than the input (drain the shared
+escrow). Every note value is bit-decomposed and forced into [0, 2^62) (64 bits, 4 per row, top 2 pinned to 0);
+with the state-side |public_value|,fee ≤ 2^62 bound the mod-P conservation then equals INTEGER conservation, so
+no wraparound assignment exists. One 17-row block per value (16 nibble rows + 1 bind row) follows OUTPUT2.
 """
 from execnode.stark import field as F, alghash, membership as MB, stark
 
 R = alghash.ROUNDS
-(S0, S1, AB, CARRY, SIB, DIR, NSK, RHO, OWN, NFREG, VIN, VOUT1, VOUT2, CONS, ROOTREG, CMOUT1) = range(16)
+(S0, S1, AB, CARRY, SIB, DIR, NSK, RHO, OWN, NFREG, VIN, VOUT1, VOUT2, CONS, ROOTREG, CMOUT1,
+ ACC, RB0, RB1, RB2, RB3) = range(21)
 RPL = 3 * R
 OWN_END, COM_END, NUL_END = 2 * R, 6 * R, 9 * R
 MERK = NUL_END
 MAX_DEGREE = alghash.ALPHA
+
+# C-3 range gadget geometry (see module docstring)
+RNG_NIBBLES = 16
+RNG_BLOCK = RNG_NIBBLES + 1      # 16 accumulation rows + 1 bind row, per value
+RNG_VALUES = 3                   # VIN, VOUT1, VOUT2
 
 
 def _next_pow2(x):
@@ -42,10 +54,34 @@ def transfer(nsk, v_in, rho_in, siblings, dirs, v1, o1, r1, v2, o2, r2):
 
 
 def _bounds(D):
+    """(OUTPUT1 start, OUTPUT2 start, sponge end). The range region follows the sponge end."""
     out1 = MERK + D * RPL
     out2 = out1 + 4 * R
-    total = out2 + 4 * R
-    return out1, out2, total
+    sponge_end = out2 + 4 * R
+    return out1, out2, sponge_end
+
+
+def _total(D):
+    _, _, sponge_end = _bounds(D)
+    return sponge_end + RNG_VALUES * RNG_BLOCK
+
+
+def _nibbles(v):
+    return [(v >> (4 * (15 - k))) & 0xF for k in range(RNG_NIBBLES)]
+
+
+def _range_fill(sponge_end, values):
+    fill = {}
+    for b, val in enumerate(values):
+        nibs = _nibbles(val)
+        acc = 0
+        base = sponge_end + b * RNG_BLOCK
+        for i in range(RNG_NIBBLES):
+            nib = nibs[i]
+            fill[base + i] = (acc, (nib >> 3) & 1, (nib >> 2) & 1, (nib >> 1) & 1, nib & 1)
+            acc = 16 * acc + nib
+        fill[base + RNG_NIBBLES] = (acc, 0, 0, 0, 0)     # bind row: acc == val
+    return fill
 
 
 def build_trace(nsk, v_in, rho_in, siblings, dirs, v1, o1, r1, v2, o2, r2):
@@ -53,15 +89,19 @@ def build_trace(nsk, v_in, rho_in, siblings, dirs, v1, o1, r1, v2, o2, r2):
     nsk, v_in, rho_in = m(nsk), m(v_in), m(rho_in)
     v1, o1, r1, v2, o2, r2 = m(v1), m(o1), m(r1), m(v2), m(o2), m(r2)
     D = len(siblings)
-    out1, out2, total = _bounds(D)
+    out1, out2, sponge_end = _bounds(D)
+    total = _total(D)
     T = _next_pow2(total + 1)
     cons = F.sub(F.sub(v_in, v1), v2)                  # = fee - public_value
+    rfill = _range_fill(sponge_end, (v_in, v1, v2))
     tr = []
     s0, s1, ab = alghash.DOM_OWNER, alghash.IV, alghash.DOM_OWNER
     carry = sib = dr = own = nfreg = rootreg = cmout1 = 0
     lvl = 0
     for r in range(T):
-        tr.append([s0, s1, ab, carry, sib, dr, nsk, rho_in, own, nfreg, v_in, v1, v2, cons, rootreg, cmout1])
+        acc, rb0, rb1, rb2, rb3 = rfill.get(r, (0, 0, 0, 0, 0))
+        tr.append([s0, s1, ab, carry, sib, dr, nsk, rho_in, own, nfreg, v_in, v1, v2, cons, rootreg, cmout1,
+                   acc, rb0, rb1, rb2, rb3])
         r0, r1r = _round(s0, s1, r)
         last = (r % R == R - 1)
         if r < OWN_END:                                 # OWNER [DOM_OWNER, nsk]
@@ -114,25 +154,30 @@ def build_trace(nsk, v_in, rho_in, siblings, dirs, v1, o1, r1, v2, o2, r2):
                 s0, s1, ab = F.add(r0, msg), r1r, msg
             else:
                 s0, s1 = r0, r1r
-        else:                                           # OUTPUT2 [DOM_CM, v2, o2, r2]
-            if last and r < total - 1:
+        elif r < sponge_end:                            # OUTPUT2 [DOM_CM, v2, o2, r2]
+            if last and r < sponge_end - 1:
                 oi = (r - out2) // R
                 msg = v2 if oi == 0 else (o2 if oi == 1 else r2)
                 s0, s1, ab = F.add(r0, msg), r1r, msg
             else:
                 s0, s1 = r0, r1r
-    return tr, T, D, rootreg, nfreg, tr[out2][CMOUT1], tr[total][S0]   # root, nf, cm_out1, cm_out2
+        else:                                           # range region + padding: the sponge idles
+            s0, s1 = r0, r1r
+    return tr, T, D, rootreg, nfreg, tr[out2][CMOUT1], tr[sponge_end][S0]   # root, nf, cm_out1, cm_out2
 
 
 (RC0, RC1, ANSK, ARHO, AOWN, AVIN, AVOUT1, AVOUT2, AFREE, B0, B1, RCM, RNF, RNODE,
- ROUT1, ROUT2, CAPOWN, CAPCARRY, CAPNF, CAPROOT, CAPCM1, INMERK) = range(22)
+ ROUT1, ROUT2, CAPOWN, CAPCARRY, CAPNF, CAPROOT, CAPCM1, INMERK,
+ RNG_ACC, RNG_START, RBIND_VIN, RBIND_VOUT1, RBIND_VOUT2) = range(27)
 
 
 def _periodic(T, D):
-    out1, out2, total = _bounds(D)
+    out1, out2, sponge_end = _bounds(D)
+    total = _total(D)
     def col(fn): return [1 if fn(r) else 0 for r in range(T)]
     lvl_end = lambda r, upto: MERK <= r < out1 and (r - MERK) % RPL == RPL - 1 and 0 <= (r - MERK) // RPL < upto
-    p = [None] * 22
+    rng = lambda r: sponge_end <= r < total
+    p = [None] * 27
     p[RC0] = [alghash.RC[r % R][0] for r in range(T)]
     p[RC1] = [alghash.RC[r % R][1] for r in range(T)]
     p[ANSK] = col(lambda r: r in (R - 1, 7 * R - 1))
@@ -155,6 +200,12 @@ def _periodic(T, D):
     p[CAPROOT] = col(lambda r: r == out1 - 1)
     p[CAPCM1] = col(lambda r: r == out2 - 1)
     p[INMERK] = col(lambda r: MERK <= r < out1)
+    # C-3 range region selectors
+    p[RNG_ACC] = col(lambda r: rng(r) and (r - sponge_end) % RNG_BLOCK < RNG_NIBBLES)
+    p[RNG_START] = col(lambda r: rng(r) and (r - sponge_end) % RNG_BLOCK == 0)
+    p[RBIND_VIN] = col(lambda r: r == sponge_end + 0 * RNG_BLOCK + RNG_NIBBLES)
+    p[RBIND_VOUT1] = col(lambda r: r == sponge_end + 1 * RNG_BLOCK + RNG_NIBBLES)
+    p[RBIND_VOUT2] = col(lambda r: r == sponge_end + 2 * RNG_BLOCK + RNG_NIBBLES)
     return p
 
 
@@ -218,18 +269,33 @@ def _transitions():
     def c_dir(cur, nxt, per): return F.mul(F.sub(1, per[RNODE]), F.sub(nxt[DIR], cur[DIR]))
     def c_dirbit(cur, nxt, per): return F.mul(per[INMERK], F.mul(cur[DIR], F.sub(1, cur[DIR])))
     def c_cons(cur, nxt, per): return F.sub(cur[CONS], F.sub(F.sub(cur[VIN], cur[VOUT1]), cur[VOUT2]))
+    # --- C-3 range constraints ---
+    def _nib(cur): return F.add(F.add(F.mul(8, cur[RB0]), F.mul(4, cur[RB1])), F.add(F.mul(2, cur[RB2]), cur[RB3]))
+    def c_rng_acc(cur, nxt, per):
+        return F.mul(per[RNG_ACC], F.sub(nxt[ACC], F.add(F.mul(16, cur[ACC]), _nib(cur))))
+    def c_rng_reset(cur, nxt, per):
+        return F.mul(per[RNG_START], cur[ACC])
+    def c_rng_top(cur, nxt, per):
+        return F.mul(per[RNG_START], F.add(cur[RB0], cur[RB1]))
+    def c_bit(reg):
+        return lambda cur, nxt, per: F.mul(per[RNG_ACC], F.mul(cur[reg], F.sub(1, cur[reg])))
+    def c_bind(sel, val):
+        return lambda cur, nxt, per: F.mul(per[sel], F.sub(cur[ACC], cur[val]))
     return [c_s1, c_s0, c_ab, c_carry, c_own, c_nf, c_root, c_cm1,
             c_hold(NSK), c_hold(RHO), c_hold(VIN), c_hold(VOUT1), c_hold(VOUT2),
-            c_sib, c_dir, c_dirbit, c_cons]
+            c_sib, c_dir, c_dirbit, c_cons,
+            c_rng_acc, c_rng_reset, c_rng_top,
+            c_bit(RB0), c_bit(RB1), c_bit(RB2), c_bit(RB3),
+            c_bind(RBIND_VIN, VIN), c_bind(RBIND_VOUT1, VOUT1), c_bind(RBIND_VOUT2, VOUT2)]
 
 
 def prove_transfer(nsk, v_in, rho_in, siblings, dirs, v1, o1, r1, v2, o2, r2, public_value, fee, num_queries=stark.NUM_QUERIES, aux=None):
     tr, T, D, root, nf, cm1, cm2 = build_trace(nsk, v_in, rho_in, siblings, dirs, v1, o1, r1, v2, o2, r2)
     per = _periodic(T, D)
-    out1, out2, total = _bounds(D)
+    _, _, sponge_end = _bounds(D)
     cons_pub = F.sub(fee % F.P, public_value % F.P)
     bnd = [(0, S0, alghash.DOM_OWNER), (0, S1, alghash.IV), (0, AB, alghash.DOM_OWNER), (0, CONS, cons_pub),
-           (total, ROOTREG, root), (total, NFREG, nf), (total, CMOUT1, cm1), (total, S0, cm2)]
+           (sponge_end, ROOTREG, root), (sponge_end, NFREG, nf), (sponge_end, CMOUT1, cm1), (sponge_end, S0, cm2)]
     proof = stark.prove(tr, _transitions(), bnd, periodic=per, max_degree=MAX_DEGREE, num_queries=num_queries, aux=aux)
     proof["D"] = D
     return proof, root, nf, cm1, cm2
@@ -240,8 +306,9 @@ def verify_transfer(proof, root, nf, cm1, cm2, public_value, fee, root_is_known,
         return False, "unknown anchor root"
     D, T = proof["D"], proof["T"]
     per = _periodic(T, D)
-    out1, out2, total = _bounds(D)
+    _, _, sponge_end = _bounds(D)
     cons_pub = F.sub(fee % F.P, public_value % F.P)
     bnd = [(0, S0, alghash.DOM_OWNER), (0, S1, alghash.IV), (0, AB, alghash.DOM_OWNER), (0, CONS, cons_pub),
-           (total, ROOTREG, root % F.P), (total, NFREG, nf % F.P), (total, CMOUT1, cm1 % F.P), (total, S0, cm2 % F.P)]
+           (sponge_end, ROOTREG, root % F.P), (sponge_end, NFREG, nf % F.P),
+           (sponge_end, CMOUT1, cm1 % F.P), (sponge_end, S0, cm2 % F.P)]
     return stark.verify(proof, _transitions(), bnd, periodic=per, max_degree=MAX_DEGREE, aux=aux)
