@@ -485,8 +485,14 @@ def validate_transaction(transaction, logger, block_height):
         assert anchor, "PoSW anchor block not found"
         proof = transaction.get("posw")
         assert proof, "Missing registration PoSW"
+        # CONSENSUS registration-rate difficulty: the required sequential-work count scales with recent
+        # registration volume, keyed off the FINALIZED anchor epoch so every node computes the SAME requirement
+        # and rejects an under-worked proof (a modified node can't register cheaply). See ops/reg_difficulty.py.
+        from ops.reg_difficulty import required_posw_t
+        from ops.mining_ops import epoch_of
+        req_t = required_posw_t(epoch_of(max(0, transaction["target_block"] - POSW_ANCHOR_OFFSET)))
         assert posw.verify(posw.challenge_bytes(transaction["sender"], anchor), proof,
-                           POSW_T, POSW_S, POSW_K), "Invalid registration PoSW"
+                           req_t, POSW_S, POSW_K), "Invalid registration PoSW (or below the required difficulty)"
     elif recipient == "alias":
         # ALIAS op (register / transfer / unregister): validate the op, name, ownership + fee floor.
         from ops import alias_ops

@@ -93,6 +93,17 @@ POSW_ANCHOR_OFFSET = 30      # anchor block = target_block − this (>= FINALITY
 # an honest phone spends ~1 s of PoSW per day; a renewal is due once the lease is RENEW_FRACTION spent.
 POSW_LEASE_EPOCHS = 180      # a registration/recert keeps you eligible this many epochs (~1 day)
 
+# --- Registration-rate PoSW difficulty (doc/ip-spoofing-and-sybil.md): the required PoSW work SCALES with
+# recent registration volume, so a sudden identity FLOOD gets progressively more expensive. CONSENSUS-BOUND —
+# validate_transaction recomputes the requirement from the committed recert index (keyed off the FINALIZED PoSW
+# anchor epoch, so every node agrees) and REJECTS an under-worked registration; a modified node that "removes
+# the difficulty code" simply produces proofs that HONEST nodes reject. Self-scaling vs a trailing-average
+# baseline (with a floor), so a normal-sized network is never penalized — only abnormal bursts are. ---
+POSW_DIFF_WINDOW = 20        # recent-registration window (epochs) whose rate sets the difficulty
+POSW_DIFF_TRAIL = 400        # longer trailing window defining the "normal" rate baseline (~2 days)
+POSW_DIFF_FLOOR = 20         # min baseline registrations/window (prevents tiny-network over-sensitivity + div-by-0)
+POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (bounds honest-user cost)
+
 # --- Data-availability blobs for the separate execution layer (doc/execution-layer.md, Phase 1) ---
 # "blob": a keyless reserved recipient whose tx carries an OPAQUE payload in tx["data"]. L1 ORDERS and
 # STORES it (and burns a DA fee) but NEVER decodes it — programmability lives one layer up, in separate

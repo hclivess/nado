@@ -532,6 +532,25 @@ def recert_addresses_after(floor_epoch: int):
     return _read(_do)
 
 
+def recert_count_in_window(lo_epoch: int, hi_epoch: int) -> int:
+    """Number of recerts/registrations recorded in epochs [lo_epoch, hi_epoch] inclusive — the committed
+    registration VOLUME, from the revert-safe recert_by_epoch index. Deterministic on every node; drives the
+    consensus registration-rate PoSW difficulty (ops/reg_difficulty.py)."""
+    if hi_epoch < lo_epoch:
+        return 0
+    lo = max(0, lo_epoch)
+    def _do(txn):
+        n = 0
+        with txn.cursor(db=_dbs()["recert_by_epoch"]) as cur:
+            if cur.set_range(be8(lo)):
+                for k, _v in cur.iternext(keys=True, values=True):
+                    if un_be8(k) > hi_epoch:
+                        break
+                    n += 1
+        return n
+    return _read(_do)
+
+
 def backfill_recert_by_epoch() -> int:
     """One-time, IDEMPOTENT migration. The recert_by_epoch (epoch->address) index was introduced AFTER the
     recerts (address->epoch) index already held rows, so on an existing chain it starts EMPTY — and
