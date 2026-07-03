@@ -506,6 +506,16 @@ function log(kind, msg) {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
+// H-5: coerce a relay-supplied field to a plain number before interpolating it into innerHTML. A hostile (or
+// MITM'd) relay can return ANY JSON for /mining_status, /status, /htlcs, etc.; `x ?? 0` only replaces
+// null/undefined and passes a hostile STRING through unchanged, so an "<img src=x onerror=…>" payload would be
+// parsed into the DOM and could exfiltrate the (default-plaintext) wallet seed. `+x` turns any non-numeric
+// value into NaN → 0, so no markup can ever reach a numeric sink. Non-numeric relay strings that must be shown
+// (hashes, addresses, statuses) go through escapeHtml instead.
+function num(x) { return Number.isFinite(+x) ? +x : 0; }
+// H-5 companion: BigInt() throws on a non-numeric string, which would break a whole relay-driven list render;
+// return 0n instead so one hostile field can't blank the UI (and can't inject — the value is used numerically).
+function bnum(x) { try { return BigInt(x || 0); } catch { return 0n; } }
 
 function humanizeSeconds(s) {
   if (s == null) return "—";
@@ -1178,20 +1188,22 @@ function renderLanes(ms) {
   $("laneOpen").textContent = `${i18("lane.openBar", "OPEN")} ${openPct}%`;
   $("laneBonded").textContent = `${i18("lane.savingsBar", "SAVINGS")} ${bondedPct}%`;
 
-  const myOpen = ms.my_open_weight ?? 0, totOpen = ms.total_open_weight ?? 0;
-  const myBond = ms.my_bonded_shares ?? 0, totBond = ms.total_bonded_shares ?? 0;
+  // H-5: coerce every relay-supplied field to a number before it reaches the innerHTML sink below.
+  const myOpen = num(ms.my_open_weight), totOpen = num(ms.total_open_weight);
+  const myBond = num(ms.my_bonded_shares), totBond = num(ms.total_bonded_shares);
+  const openReg = num(ms.open_registry_size), bondReg = num(ms.bonded_registry_size);
   const sharePct = totOpen ? ((myOpen / totOpen) * 100).toFixed(1) : "0.0";
 
   // "Who's in each lane" participant counts + lane totals (same /mining_status fields).
-  $("laneOpenCount").textContent = ms.open_registry_size ?? 0;
-  $("laneBondedCount").textContent = ms.bonded_registry_size ?? 0;
+  $("laneOpenCount").textContent = openReg;
+  $("laneBondedCount").textContent = bondReg;
   $("laneOpenWeight").textContent = totOpen;
   $("laneBondedShares").textContent = totBond;
 
   $("myShare").innerHTML =
     `${i18("myshare.weight", "Your open-lane weight:")} <b>${myOpen}</b> / ${totOpen} (${sharePct}% ${i18("myshare.ofFree", "of the free lane")}). ` +
-    `${i18("myshare.openReg", "Open registry:")} ${ms.open_registry_size ?? 0} ${i18("lane.miners", "miners")} · ${i18("myshare.bondShares", "Savings shares:")} ${myBond}/${totBond} · ` +
-    `${i18("myshare.bondReg", "Savings registry:")} ${ms.bonded_registry_size ?? 0}.`;
+    `${i18("myshare.openReg", "Open registry:")} ${openReg} ${i18("lane.miners", "miners")} · ${i18("myshare.bondShares", "Savings shares:")} ${myBond}/${totBond} · ` +
+    `${i18("myshare.bondReg", "Savings registry:")} ${bondReg}.`;
 
   // Dynamic "(you)" marker: you're in the FREE lane iff you have open-lane weight (registered + present),
   // and in the SAVINGS lane iff you hold savings shares. Both can be true at once — a stake ADDS the
@@ -2115,10 +2127,10 @@ async function exGetJSON(path) {
   if (!r.ok || d == null) throw new Error((d && d.message) || ("HTTP " + r.status));
   return d;
 }
-function exNado(raw) { try { return rawToNado(BigInt(raw)) + " NADO"; } catch { return String(raw); } }
+function exNado(raw) { try { return rawToNado(BigInt(raw)) + " NADO"; } catch { return exEsc(String(raw)); } }  // H-5: escape on non-numeric
 function exTime(ts) { if (ts == null) return "—"; return new Date(ts * 1000).toISOString().replace("T", " ").replace(".000Z", " UTC"); }
 function exEsc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
-function exShort(h, n = 12) { return h && h.length > n * 2 ? h.slice(0, n) + "…" + h.slice(-6) : (h ?? "—"); }
+function exShort(h, n = 12) { return exEsc(h && h.length > n * 2 ? h.slice(0, n) + "…" + h.slice(-6) : (h ?? "—")); }  // H-5: escape (relay hashes/addrs)
 // data attrs + event delegation (miner.js is an ES module, so inline onclick can't see exOpen)
 function exLink(kind, val, label) { return `<a class="ex-link" data-exk="${kind}" data-exv="${exEsc(val)}">${exEsc(label ?? val)}</a>`; }
 function exReservedOrAddr(r) { return EX_RESERVED.has(r) ? `<span class="badge">${exEsc(r)}</span>` : exLink("a", r, exShort(r, 8)); }
@@ -2140,10 +2152,11 @@ function exStat(rows) { return rows.map(([k, v]) => `<div class="ex-stat"><span 
 async function exLoadOverview() {
   try {
     const [st, sup] = await Promise.all([exGetJSON("/status"), exGetJSON("/get_supply")]);
+    // H-5: exStat inserts each value into innerHTML raw, so every relay-supplied number is coerced with num().
     $("exNetwork").innerHTML = exStat([
-      ["Tip height", exLink("b", st.latest_block_hash, "#" + (sup.block_number ?? "?"))],
+      ["Tip height", exLink("b", st.latest_block_hash, "#" + num(sup.block_number))],
       ["Latest hash", `<span class="mono">${exShort(st.latest_block_hash)}</span>`],
-      ["Finalized", "#" + st.finalized_height + (st.ffg_finalized != null ? `  ·  FFG #${st.ffg_finalized}` : "")],
+      ["Finalized", "#" + num(st.finalized_height) + (st.ffg_finalized != null ? `  ·  FFG #${num(st.ffg_finalized)}` : "")],
       ["Total supply", exNado(sup.total_supply)],
       ["Circulating", exNado(sup.circulating)],
       ["Treasury", exNado(sup.treasury)],
@@ -2153,11 +2166,11 @@ async function exLoadOverview() {
   try {
     const ms = await exGetJSON("/mining_status");
     $("exMining").innerHTML = exStat([
-      ["Epoch", ms.epoch + `  (len ${ms.epoch_length})`],
-      ["Next block", "#" + ms.next_block],
-      ["Block time", ms.block_time + "s"],
-      ["OPEN lane", `${ms.open_registry_size} miners · ${ms.k_open}/${ms.epoch_length} slots`],
-      ["BONDED lane", `${ms.bonded_registry_size} miners · ${ms.total_bonded_shares} shares`],
+      ["Epoch", num(ms.epoch) + `  (len ${num(ms.epoch_length)})`],
+      ["Next block", "#" + num(ms.next_block)],
+      ["Block time", num(ms.block_time) + "s"],
+      ["OPEN lane", `${num(ms.open_registry_size)} miners · ${num(ms.k_open)}/${num(ms.epoch_length)} slots`],
+      ["BONDED lane", `${num(ms.bonded_registry_size)} miners · ${num(ms.total_bonded_shares)} shares`],
     ]);
   } catch { $("exMining").innerHTML = `<div class="faint small">${i18("ex.miningUnavail", "mining status unavailable")}</div>`; }
 }
@@ -2184,14 +2197,14 @@ function exTxRow(t) {
 }
 function exRenderBlock(b) {
   const txs = b.block_transactions || [];
-  return `<h2>${i18("ex.block","Block")} #${b.block_number}</h2>${exKV([
+  return `<h2>${i18("ex.block","Block")} #${num(b.block_number)}</h2>${exKV([
     ["Hash", `<span class="mono">${exEsc(b.block_hash)}</span>`],
     ["Parent", exLink("b", b.parent_hash, exShort(b.parent_hash))],
     ["Producer", exLink("a", b.block_creator)],
     ["Time", exTime(b.block_timestamp)],
     ["Reward", exNado(b.block_reward)],
     ["Cumulative fees", exNado(b.cumulative_fees)],
-    ["Cumulative weight", String(b.cumulative_weight)],
+    ["Cumulative weight", exEsc(String(b.cumulative_weight))],
     ["Transactions", String(txs.length)],
   ])}${txs.length ? `<div class="ex-rows mt">${txs.map(exTxRow).join("")}</div>` : `<div class="faint small mt">${i18("ex.noTxs", "no transactions")}</div>`}`;
 }
@@ -2202,7 +2215,7 @@ function exRenderAccount(a) {
     ["Bonded", exNado(a.bonded)],
     ["Produced", exNado(a.produced)],
     ["Registered", a.registered ? i18("ex.regYes", "yes (OPEN-lane miner)") : i18("badge.no", "no")],
-    ["Fidelity", String(a.fidelity ?? 0) + " / 1000"],
+    ["Fidelity", num(a.fidelity) + " / 1000"],
   ])}<div class="row mt"><button class="accent" id="exLoadTxs">${i18("ex.showTxs", "Show transactions")}</button></div><div id="exAcctTxs" class="ex-rows mt"></div>`;
 }
 function exRenderTx(t) {
@@ -2558,7 +2571,9 @@ async function renderSwaps() {
     const row = document.createElement("div"); row.className = "ex-row";
     const left = document.createElement("div");
     const role = iAmSender ? i18("swap.roleSender", "you → " + exShort(h.claimant, 8)) : i18("swap.roleClaimant", exShort(h.sender, 8) + " → you");
-    left.innerHTML = `<div class="mono small">${exShort(id, 14)}</div><div class="faint small">${rawToNado(BigInt(h.amount || 0))} NADO · ${role} · ${i18("swap.status." + h.status, h.status)} · exp #${h.expiry}</div>`;
+    // H-5: /htlcs is relay JSON — coerce the amount (bnum guards BigInt from throwing on a hostile value),
+    // escape the free-form status fallback, and coerce the expiry before they reach this innerHTML sink.
+    left.innerHTML = `<div class="mono small">${exShort(id, 14)}</div><div class="faint small">${rawToNado(bnum(h.amount))} NADO · ${role} · ${i18("swap.status." + h.status, exEsc(h.status))} · exp #${num(h.expiry)}</div>`;
     row.appendChild(left);
     const right = document.createElement("div");
     if (h.status === "open" && iAmClaimant && !expired) {
