@@ -80,6 +80,14 @@ them: no puzzles to keep solving, no efficient rig to keep running, and no requi
 - **Fair launch, no premine.** Genesis mints **zero** coins (`TREASURY_GENESIS = 0`). Every coin in
   existence was minted as a block reward. A flat base subsidy lets a brand-new, zero-coin miner earn
   spendable coins from block 1.
+- **Governed, self-burning treasury.** The 10% treasury is a **keyless** reserved account — no founder
+  key, no multisig — spent only by a **2/3 bonded-stake vote** in the wallet's Quorum tab, and any idle
+  balance is **burned each period**. Emission holders would get anyway is forced into the ecosystem by
+  their own vote, or destroyed — never hoarded (`doc/treasury.md`).
+- **Consensus anti-Sybil registration.** Registration is a non-parallelizable **sequential PoSW** whose
+  difficulty **scales with recent registration volume** (enforced in validation off the finalized anchor
+  epoch), so an identity flood gets progressively more expensive while a normal network stays at 1×
+  (`doc/registration-difficulty.md`).
 - **Two-lane "diligence" mining.** A free **OPEN lane** anyone can win with no coins (capped at ~20%
   of blocks, a *population-independent* Sybil ceiling) plus a **BONDED lane** won with refundable,
   whale-capped stake. Bonding is **optional** and only boosts the bonded lane — never required.

@@ -175,6 +175,15 @@ Open-lane participation costs no coins. An identity:
    — a *finalized* anchor (offset ≥ finality depth, so all nodes derive it identically) — making
    the proof un-precomputable and non-reusable across identities. *(implemented)*
 
+   Registration difficulty is **rate-adaptive** and consensus-bound: the required PoSW step count
+   `required_posw_t = POSW_T × multiplier` scales with recent registration volume vs a trailing-average
+   baseline (`ops/reg_difficulty.py`), keyed off the *finalized anchor epoch* so every node computes the
+   same requirement and `validate_transaction` **rejects an under-worked registration**. A sudden identity
+   *flood* therefore pays progressively more sequential time — up to `POSW_DIFF_MAX_MULT` (16×) — while a
+   normal-sized network stays at 1× (its own renewals set the baseline). It is spoof-proof because it reads
+   only on-chain counts, never an IP; a node that "removes the difficulty code" just produces proofs honest
+   nodes discard. The wallet shows the resulting wait ETA. *(implemented; doc/registration-difficulty.md)*
+
    Registration is a **renewable presence lease**: a valid PoSW grants open-lane eligibility for
    `POSW_LEASE_EPOCHS` (~1 day); to stay eligible an identity renews with a *fresh* PoSW (each
    recorded in a revert-safe `recerts` store; `get_open_registry` requires a recert within the
