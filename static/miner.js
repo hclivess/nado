@@ -567,18 +567,66 @@ function loadWallet() {
 const LS_AUTOLOCK = "nado_autolock_min";
 let _autolockTimer = null;
 
+// --- portable pure-JS authenticated cipher (blake2b), format v:2 -----------------------------------
+// WebCrypto's crypto.subtle is a SECURE-CONTEXT-ONLY API, so it is undefined over plain http://<ip> (the way
+// the light miner is usually served) — which made "Encrypt this wallet" crash with "…reading 'importKey'".
+// crypto.getRandomValues IS available over http, and the wallet already vendors blake2b, so encryption uses an
+// AES-free construction that works in ANY context: PBKDF2-style stretch with blake2b-keyed as the PRF, a
+// blake2b-CTR keystream, and encrypt-then-MAC with a blake2b MAC (wrong password fails the MAC, like GCM auth).
+// New wallets always use v:2 (portable across http/https/localhost); legacy AES-GCM blobs (v:1) still decrypt
+// wherever crypto.subtle exists.
+const _ENC_ITERS = 150000;
+function _u8cat(...arrs) { let n = 0; for (const a of arrs) n += a.length; const o = new Uint8Array(n); let k = 0; for (const a of arrs) { o.set(a, k); k += a.length; } return o; }
+function _prfKey(passBytes) { return blake2b(passBytes, { dkLen: 32 }); }   // normalise any password length to a 32-byte blake2b key
+function _b2bKey(msg, key, dkLen) { return blake2b(msg, { dkLen, key }); }
+function _deriveKeyJS(passBytes, salt, iters, dkLen) {
+  const pk = _prfKey(passBytes);                          // PRF key (handles >64-byte passwords)
+  let u = _b2bKey(_u8cat(salt, new Uint8Array([0, 0, 0, 1])), pk, 64);   // U1 = PRF(pw, salt||INT32(1))
+  const out = u.slice();
+  for (let i = 1; i < iters; i++) { u = _b2bKey(u, pk, 64); for (let k = 0; k < out.length; k++) out[k] ^= u[k]; }
+  return out.slice(0, dkLen);
+}
+function _ctrXorJS(data, keyEnc, nonce) {
+  const out = new Uint8Array(data.length);
+  for (let off = 0; off < data.length; off += 64) {
+    const blk = off >>> 6, ctr = new Uint8Array([(blk >>> 24) & 255, (blk >>> 16) & 255, (blk >>> 8) & 255, blk & 255]);
+    const ks = _b2bKey(_u8cat(nonce, ctr), keyEnc, 64);   // keystream block = keyed-hash(nonce || counter)
+    for (let i = 0; i < 64 && off + i < data.length; i++) out[off + i] = data[off + i] ^ ks[i];
+  }
+  return out;
+}
+function _ctEqJS(a, b) { if (a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a[i] ^ b[i]; return d === 0; }
+function encryptSeedJS(seedHex, password) {
+  const pw = new TextEncoder().encode(password);
+  const salt = crypto.getRandomValues(new Uint8Array(16)), nonce = crypto.getRandomValues(new Uint8Array(16));
+  const dk = _deriveKeyJS(pw, salt, _ENC_ITERS, 64), keyEnc = dk.slice(0, 32), keyMac = dk.slice(32, 64);
+  const ct = _ctrXorJS(hexToBytes(seedHex), keyEnc, nonce);
+  const tag = _b2bKey(_u8cat(nonce, ct), keyMac, 32);
+  return { enc: 1, v: 2, iters: _ENC_ITERS, salt: _hex(salt), iv: _hex(nonce), ct: _hex(ct), tag: _hex(tag) };
+}
+function decryptSeedJS(blob, password) {
+  const pw = new TextEncoder().encode(password);
+  const dk = _deriveKeyJS(pw, hexToBytes(blob.salt), blob.iters || _ENC_ITERS, 64);
+  const keyEnc = dk.slice(0, 32), keyMac = dk.slice(32, 64);
+  const ct = hexToBytes(blob.ct), nonce = hexToBytes(blob.iv);
+  if (!_ctEqJS(_b2bKey(_u8cat(nonce, ct), keyMac, 32), hexToBytes(blob.tag))) throw new Error("bad password");
+  return _hex(_ctrXorJS(ct, keyEnc, nonce));
+}
+
+// --- legacy AES-GCM (format v:1) — decrypt-only, for wallets encrypted in a secure context ---------
 async function _deriveAesKey(password, salt) {
   const km = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
   return crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: 210000, hash: "SHA-256" },
     km, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
 }
 async function encryptSeed(seedHex, password) {
-  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
-  const key = await _deriveAesKey(password, salt);
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, hexToBytes(seedHex)));
-  return { enc: 1, v: 1, salt: _hex(salt), iv: _hex(iv), ct: _hex(ct) };
+  if (!blake2b) throw new Error(i18("sec.notReady", "Crypto still loading — try again in a moment."));
+  return encryptSeedJS(seedHex, password);                // portable v:2 (works over http)
 }
 async function decryptSeed(blob, password) {
+  if (blob.v === 2 || blob.tag) return decryptSeedJS(blob, password);
+  // legacy v:1 AES-GCM needs WebCrypto (secure context only)
+  if (!(globalThis.crypto && crypto.subtle)) throw new Error(i18("sec.needSecure", "This wallet was encrypted with WebCrypto — open it over HTTPS or on localhost to unlock, then re-encrypt to make it portable."));
   const key = await _deriveAesKey(password, hexToBytes(blob.salt));
   const pt = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: hexToBytes(blob.iv) }, key, hexToBytes(blob.ct)));
   return _hex(pt);
