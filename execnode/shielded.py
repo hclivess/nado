@@ -73,12 +73,20 @@ def note_nullifier(pubkey: str, rho: str) -> str:
 
 def transfer_sighash(public: dict) -> str:
     """The message an input's owner ML-DSA-signs to authorise the spend: binds ALL public parts of the
-    transfer (nullifiers, outputs, public value, fee), so a signature can't be replayed onto a different
-    transfer. Lists are sorted + '|'-joined (NOT passed as raw lists) so the hash is byte-identical in the
-    browser port (Python str(list) is a non-reproducible repr) — every scalar is a plain string here."""
+    transfer (nullifiers, outputs, public value, fee, AND the unshield destination), so a signature can't be
+    replayed onto a different transfer. Lists are sorted + '|'-joined (NOT passed as raw lists) so the hash is
+    byte-identical in the browser port (Python str(list) is a non-reproducible repr) — every scalar is a plain
+    string here.
+
+    H-4: withdraw_addr is bound here too. Without it, an unshield's destination was UNSIGNED, so a front-runner
+    could copy a victim's shielded_transfer blob, swap only withdraw_addr to their own address, and land it
+    first — the signature still verified (the address wasn't in the message) and the exit was redirected. It is
+    included unconditionally (empty string for a pure in-pool transfer that has no destination) so signer and
+    verifier always agree on the bound message."""
     return _h("sighash", "|".join(sorted(public.get("nullifiers", []))),
               "|".join(sorted(public.get("out_commitments", []))),
-              str(int(public.get("public_value", 0))), str(int(public.get("fee", 0))))
+              str(int(public.get("public_value", 0))), str(int(public.get("fee", 0))),
+              str(public.get("withdraw_addr", "") or ""))
 
 
 # --- fixed-depth Merkle commitment tree -----------------------------------------------------------
