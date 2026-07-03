@@ -758,6 +758,7 @@ function renderSecurity() {
   show("btnEncrypt", !enc);
   show("btnRemoveEnc", enc);
   show("btnLockNow", enc);
+  show("btnDlEnc", enc);
   if ($("autolockSel")) $("autolockSel").value = String(autolockMinutes());
 }
 
@@ -1551,21 +1552,52 @@ function downloadKeyFile() {
   log("info", i18("log.keyDownloaded", "Downloaded key file for {a}…", {a: w.address.slice(0, 12)}));
 }
 
+// Restore an encrypted wallet backup: ask for its password, decrypt, and adopt it — keeping it ENCRYPTED at
+// rest on this device (unlike a plaintext key file, which persists the raw seed).
+async function importEncryptedBlob(blob) {
+  const pw = await uiPrompt({ title: i18("import.encPass", "Encrypted wallet backup — enter its password:"), password: true });
+  if (pw == null) return;
+  try {
+    const seed = await decryptSeed(blob, pw);
+    const w = keypairFromPriv(seed);
+    localStorage.setItem(LS_WALLET, JSON.stringify(blob));   // keep it encrypted at rest here too
+    state.wallet = w; state.locked = false;
+    show("importBox", false); show("onboard", false); show("unlockCard", false);
+    showWalletUI(); armAutolock();
+    log("info", i18("log.keyImported", "Imported key from file."));
+    refreshDashboard().catch(() => {});
+  } catch (e) {
+    uiAlert(i18("import.encWrong", "Wrong password for this encrypted backup."));
+  }
+}
+
+// Download the ENCRYPTED wallet blob (a safe backup you can store anywhere — it needs your password to open).
+// Unlike the plaintext key file, this never exposes the seed. Importable via the same "Import key file".
+function downloadEncryptedWallet() {
+  const w = loadWallet();
+  if (!w || !w.enc) { uiAlert(i18("sec.notEnc", "Encrypt the wallet first — then you can download the encrypted backup.")); return; }
+  const blob = new Blob([JSON.stringify(w, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `nado-wallet-encrypted-${(w.address || "").slice(0, 8)}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  log("ok", i18("sec.dlEncOk", "Encrypted backup downloaded — it needs your password to restore."));
+}
+
 /* Import a wallet from a key FILE (the mirror of downloadKeyFile): reads the JSON produced by
  * downloadKeyFile and adopts the wallet from its private_key. Also tolerates a plain-hex-only file. */
 function importKeyFile(file) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = () => {
+    const text = String(reader.result || "").trim();
+    let obj = null;
+    try { obj = JSON.parse(text); } catch (e) { obj = null; }
+    if (obj && obj.enc) { importEncryptedBlob(obj); return; }   // an encrypted backup -> ask for the password
     try {
-      const text = String(reader.result || "").trim();
-      let priv;
-      try {
-        const obj = JSON.parse(text);
-        priv = obj.private_key || obj.privateKey || obj.private || obj.seed;   // our keyfile schema
-      } catch (e) {
-        priv = text;                                   // fall back: a raw 64-hex seed in a bare file
-      }
+      const priv = (obj && (obj.private_key || obj.privateKey || obj.private || obj.seed)) || (obj ? null : text);
       if (!priv) throw new Error(i18("import.noKey", "no private key found in the file"));
       adoptWallet(keypairFromPriv(String(priv).trim()), { needsSavePrompt: false });
       log("info", i18("log.keyImported", "Imported key from file."));
@@ -1904,6 +1936,7 @@ function _openModal(spec) {
       '<div class="modal card" role="dialog" aria-modal="true">' +
         '<h3 class="modal-title"></h3><div class="modal-body hidden"></div>' +
         '<div class="modal-rows hidden"></div><div class="modal-warn hidden"></div>' +
+        '<input class="modal-user" type="text" autocomplete="username" tabindex="-1" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />' +
         '<input class="modal-input hidden" autocomplete="off" /><div class="modal-note hidden"></div>' +
         '<div class="modal-actions"><button type="button" class="modal-cancel ghost"></button>' +
         '<button type="button" class="modal-ok primary"></button></div></div>';
@@ -1926,10 +1959,23 @@ function _openModal(spec) {
   rowsEl.classList.toggle("hidden", !(spec.rows && spec.rows.length));
   const inp = q(".modal-input"), isPrompt = _modalKind === "prompt";
   inp.classList.toggle("hidden", !isPrompt);
+  const userInp = q(".modal-user");
   if (isPrompt) {
     inp.type = spec.password ? "password" : "text";
     inp.value = ""; inp.placeholder = spec.placeholder || "";
+    // Password fields: give the browser a REAL username (the wallet address) + the right autocomplete role,
+    // so if it offers to save the credential it stores address/password — not some stray number from the page
+    // (which is why the save prompt showed "username 120"). newPassword=true when SETTING one (encryption).
+    if (spec.password) {
+      userInp.value = (state.wallet && state.wallet.address) || "NADO wallet";
+      inp.setAttribute("autocomplete", spec.newPassword ? "new-password" : "current-password");
+      inp.setAttribute("name", "nado-wallet-password");
+    } else {
+      userInp.value = ""; inp.setAttribute("autocomplete", "off"); inp.removeAttribute("name");
+    }
     inp.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); _closeModal(inp.value); } };
+  } else {
+    userInp.value = "";
   }
   const okBtn = q(".modal-ok"), cancelBtn = q(".modal-cancel");
   okBtn.textContent = spec.confirmText || i18("dlg.confirm", "Confirm");
@@ -3143,10 +3189,10 @@ function wireEvents() {
   const _btn = (id, fn) => { if ($(id)) $(id).onclick = fn; };
   _btn("btnEncrypt", async () => {
     if (!state.wallet) return;
-    const pw = await uiPrompt({ title: i18("sec.setPass", "Set a wallet password (min 8 characters):"), password: true });
+    const pw = await uiPrompt({ title: i18("sec.setPass", "Set a wallet password (min 8 characters):"), password: true, newPassword: true });
     if (pw == null) return;
     if (pw.length < 8) { uiAlert(i18("sec.tooShort", "Password must be at least 8 characters.")); return; }
-    if (await uiPrompt({ title: i18("sec.confirmPass", "Confirm the password:"), password: true }) !== pw) { uiAlert(i18("sec.mismatch", "Passwords don't match.")); return; }
+    if (await uiPrompt({ title: i18("sec.confirmPass", "Confirm the password:"), password: true, newPassword: true }) !== pw) { uiAlert(i18("sec.mismatch", "Passwords don't match.")); return; }
     try { await enableEncryption(pw); log("ok", i18("sec.encrypted", "Wallet encrypted ✓")); renderSecurity(); }
     catch (e) { log("err", i18("sec.encErr", "Encryption failed: {m}", { m: e.message })); }
   });
@@ -3157,6 +3203,7 @@ function wireEvents() {
     catch (e) { uiAlert(i18("sec.wrongPass", "Wrong password.")); }
   });
   _btn("btnLockNow", () => lockWallet());
+  _btn("btnDlEnc", () => downloadEncryptedWallet());
   if ($("autolockSel")) $("autolockSel").onchange = (e) => {
     try { localStorage.setItem(LS_AUTOLOCK, String(parseInt(e.target.value, 10) || 0)); } catch (x) {}
     armAutolock();
