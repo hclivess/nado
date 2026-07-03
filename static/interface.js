@@ -564,7 +564,8 @@ async function estimateSavingsApy() {
   if (!box) return;
   box.textContent = i18("apy.calc", "estimating from recent blocks…");
   try {
-    const ms = await rpcJSON("/mining_status");
+    const addr = state.wallet && state.wallet.address;
+    const ms = await rpcJSON("/mining_status" + (addr ? "?address=" + encodeURIComponent(addr) : ""));
     const tip = await rpcJSON("/get_latest_block");
     const n = num(tip.block_number);
     const nums = []; for (let i = 0; i < 30 && n - i > 0; i++) nums.push(n - i);
@@ -575,13 +576,23 @@ async function estimateSavingsApy() {
     const epochLen = num(ms.epoch_length) || EPOCH_LENGTH;
     const kOpen = num(ms.k_open) || 12;
     const bondedFrac = (epochLen - kOpen) / epochLen, openFrac = kOpen / epochLen;
-    const totalShares = num(ms.total_bonded_shares);
+    // The relay's savings-lane total can lag a bond you made against a different node, and it counts a
+    // newly-bonded identity's RAMPED weight (which starts small). Fall back to your OWN bonded shares — read
+    // straight from your account balance, so a staker always gets a figure even if the lane total hasn't caught it.
+    let totalShares = num(ms.total_bonded_shares), myShares = num(ms.my_bonded_shares);
+    if (addr) {
+      try {
+        const acc = await rpcJSON("/get_account?address=" + encodeURIComponent(addr));
+        myShares = Math.max(myShares, Number(BigInt(acc.bonded || 0) / B_MIN_RAW));   // shares = bonded // B_MIN
+      } catch (e) { /* keep ms.my_bonded_shares */ }
+    }
+    const effTotal = Math.max(totalShares, myShares);   // never let a stale lane total zero out your APY
     const blocksYear = 31557600 / blockTime;
     const bondedBlocksYear = blocksYear * bondedFrac, openBlocksYear = blocksYear * openFrac;
 
     let head;
-    if (totalShares > 0) {
-      const perShareYearRaw = (avgReward * bondedBlocksYear * 0.70) / totalShares;   // raw/yr per bonded share
+    if (effTotal > 0) {
+      const perShareYearRaw = (avgReward * bondedBlocksYear * 0.70) / effTotal;   // raw/yr per bonded share
       const apy = (perShareYearRaw / Number(B_MIN_RAW)) * 100;
       const shown = apy >= 1000 ? Math.round(apy).toLocaleString() : apy.toFixed(1);
       head = `<b class="ok">${shown}% ${i18("apy.savings", "APY on bonded stake")}</b>`
