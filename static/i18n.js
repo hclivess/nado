@@ -980,6 +980,27 @@
   };
   for (const l in T37) Object.assign(T[l] = T[l] || {}, T37[l]);
 
+  // T38: registration wait-time feedback + the adaptive PoSW difficulty ({s}/{m}/{n}/{done}/{total}/{el}/{remain}).
+  const T38 = {
+    en:{"reg.computingEta":"Computing your one-time registration proof — about {s}s on this device.","reg.difficultyHigh":"Network is busy — ×{m} difficulty from {n} recent registrations.","reg.progress":"{done} / {total} · {el}s · ~{remain}s left"},
+    cs:{"reg.computingEta":"Počítá se jednorázový registrační důkaz — přibližně {s}s na tomto zařízení.","reg.difficultyHigh":"Síť je vytížená — ×{m} obtížnost kvůli {n} nedávným registracím.","reg.progress":"{done} / {total} · {el}s · zbývá ~{remain}s"},
+    es:{"reg.computingEta":"Calculando tu prueba de registro única — unos {s}s en este dispositivo.","reg.difficultyHigh":"La red está ocupada — dificultad ×{m} por {n} registros recientes.","reg.progress":"{done} / {total} · {el}s · ~{remain}s restantes"},
+    pt:{"reg.computingEta":"Calculando sua prova de registro única — cerca de {s}s neste dispositivo.","reg.difficultyHigh":"A rede está ocupada — dificuldade ×{m} de {n} registros recentes.","reg.progress":"{done} / {total} · {el}s · faltam ~{remain}s"},
+    fr:{"reg.computingEta":"Calcul de votre preuve d'inscription unique — environ {s}s sur cet appareil.","reg.difficultyHigh":"Le réseau est chargé — difficulté ×{m} due à {n} inscriptions récentes.","reg.progress":"{done} / {total} · {el}s · ~{remain}s restants"},
+    de:{"reg.computingEta":"Dein einmaliger Registrierungsnachweis wird berechnet — etwa {s}s auf diesem Gerät.","reg.difficultyHigh":"Netzwerk ausgelastet — ×{m} Schwierigkeit durch {n} kürzliche Registrierungen.","reg.progress":"{done} / {total} · {el}s · noch ~{remain}s"},
+    it:{"reg.computingEta":"Calcolo della prova di registrazione una tantum — circa {s}s su questo dispositivo.","reg.difficultyHigh":"La rete è occupata — difficoltà ×{m} per {n} registrazioni recenti.","reg.progress":"{done} / {total} · {el}s · ~{remain}s rimanenti"},
+    ru:{"reg.computingEta":"Вычисление одноразового доказательства регистрации — около {s}с на этом устройстве.","reg.difficultyHigh":"Сеть загружена — сложность ×{m} из-за {n} недавних регистраций.","reg.progress":"{done} / {total} · {el}с · осталось ~{remain}с"},
+    zh:{"reg.computingEta":"正在计算一次性注册证明——本设备约需 {s} 秒。","reg.difficultyHigh":"网络繁忙——因近期 {n} 次注册，难度 ×{m}。","reg.progress":"{done} / {total} · {el}秒 · 剩余约 {remain}秒"},
+    ja:{"reg.computingEta":"一度きりの登録証明を計算中 — このデバイスで約 {s} 秒。","reg.difficultyHigh":"ネットワークが混雑 — 最近の {n} 件の登録により難易度 ×{m}。","reg.progress":"{done} / {total} · {el}秒 · 残り約 {remain}秒"},
+    ko:{"reg.computingEta":"일회성 등록 증명 계산 중 — 이 기기에서 약 {s}초.","reg.difficultyHigh":"네트워크 혼잡 — 최근 등록 {n}건으로 난이도 ×{m}.","reg.progress":"{done} / {total} · {el}초 · 약 {remain}초 남음"},
+    ar:{"reg.computingEta":"جارٍ حساب إثبات التسجيل لمرة واحدة — نحو {s} ثانية على هذا الجهاز.","reg.difficultyHigh":"الشبكة مزدحمة — صعوبة ×{m} بسبب {n} عمليات تسجيل حديثة.","reg.progress":"{done} / {total} · {el}ث · يتبقى ~{remain}ث"},
+    hi:{"reg.computingEta":"आपका एक-बार का पंजीकरण प्रमाण गणना हो रहा है — इस डिवाइस पर लगभग {s}s।","reg.difficultyHigh":"नेटवर्क व्यस्त है — {n} हाल की पंजीकरणों से ×{m} कठिनाई।","reg.progress":"{done} / {total} · {el}s · ~{remain}s शेष"},
+    tr:{"reg.computingEta":"Tek seferlik kayıt kanıtınız hesaplanıyor — bu cihazda yaklaşık {s}s.","reg.difficultyHigh":"Ağ meşgul — son {n} kayıt nedeniyle ×{m} zorluk.","reg.progress":"{done} / {total} · {el}s · ~{remain}s kaldı"},
+    id:{"reg.computingEta":"Menghitung bukti registrasi sekali-pakai — sekitar {s}d di perangkat ini.","reg.difficultyHigh":"Jaringan sibuk — kesulitan ×{m} dari {n} registrasi terbaru.","reg.progress":"{done} / {total} · {el}d · ~{remain}d tersisa"},
+    vi:{"reg.computingEta":"Đang tính bằng chứng đăng ký một lần — khoảng {s}s trên thiết bị này.","reg.difficultyHigh":"Mạng đang bận — độ khó ×{m} do {n} lượt đăng ký gần đây.","reg.progress":"{done} / {total} · {el}s · còn ~{remain}s"}
+  };
+  for (const l in T38) Object.assign(T[l] = T[l] || {}, T38[l]);
+
 
 
 

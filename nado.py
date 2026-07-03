@@ -617,6 +617,28 @@ async def get_treasury_status(request):
     return _resp(await asyncio.to_thread(_work))
 
 
+async def get_posw_difficulty(request):
+    # Current registration PoSW difficulty (doc/ip-spoofing-and-sybil.md): the CONSENSUS multiplier + required
+    # sequential-step count for a registration anchored at the current finalized anchor epoch. The wallet reads
+    # this to (a) prove at the right difficulty and (b) show the user the expected wait ("×N due to a spike").
+    def _work():
+        from ops.reg_difficulty import difficulty_multiplier
+        from ops.mining_ops import epoch_of
+        from ops import kv_ops
+        from protocol import POSW_T, POSW_ANCHOR_OFFSET, POSW_DIFF_WINDOW
+        try:
+            h = memserver.latest_block["block_number"]
+        except Exception:
+            h = 0
+        anchor_epoch = epoch_of(max(0, h - POSW_ANCHOR_OFFSET))
+        mult = difficulty_multiplier(anchor_epoch)
+        recent = kv_ops.recert_count_in_window(anchor_epoch - POSW_DIFF_WINDOW + 1, anchor_epoch)
+        return {"block_number": h, "anchor_epoch": anchor_epoch, "multiplier": mult,
+                "base_t": POSW_T, "required_t": POSW_T * mult,
+                "recent_registrations": recent, "window_epochs": POSW_DIFF_WINDOW}
+    return _resp(await asyncio.to_thread(_work))
+
+
 _rich_list_cache = {"height": -1, "list": None}
 
 
@@ -765,6 +787,7 @@ async def make_app(port):
         web.get("/get_richest", get_richest),
         web.get("/wealth_stats", get_wealth_stats),
         web.get("/treasury_status", get_treasury_status),
+        web.get("/posw_difficulty", get_posw_difficulty),
         web.get("/get_rich_list", get_rich_list),
         web.get("/get_open_weights", get_open_weights),
         web.get("/get_settled", get_settled),

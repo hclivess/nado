@@ -314,16 +314,33 @@ async function miningHashDeps() {
 
 // Fetch the PoSW anchor (hash of block target_block − POSW_ANCHOR_OFFSET — a finalized, stable block that
 // the node derives identically), compute the non-parallelizable sequential proof, and build the register tx.
-async function computeRegisterTx(targetBlock, onProgress) {
+async function computeRegisterTx(targetBlock, onProgress, requiredT) {
   const anchorNum = Math.max(0, targetBlock - POSW_ANCHOR_OFFSET);
   const r = await fetch(relayBase() + "/get_block_number?number=" + anchorNum, { cache: "no-store" });
   const b = await r.json().catch(() => null);
   const anchorHash = b && b.block_hash;
   if (!anchorHash) throw new Error("registration anchor block unavailable");
+  // Prove at the CONSENSUS required step count (base × difficulty). During a registration flood this is higher,
+  // and the node rejects a proof made with fewer steps — so match it or the registration is invalid.
+  const T = (requiredT && requiredT >= POSW_T && requiredT % POSW_S === 0) ? requiredT : POSW_T;
   const proof = await poswProveAsync(challengeBytes(state.wallet.address, anchorHash),
-    POSW_T, POSW_S, POSW_K, await miningHashDeps(), onProgress);
+    T, POSW_S, POSW_K, await miningHashDeps(), onProgress);
   return buildRegisterTx(state.wallet, targetBlock, proof, nowSeconds());
 }
+
+// Current registration difficulty from the relay: {reqT, mult, recent}. Falls back to base (1× normal load).
+async function registrationDifficulty() {
+  try {
+    const r = await fetch(relayBase() + "/posw_difficulty", { cache: "no-store" });
+    const d = await r.json();
+    const t = Number(d.required_t);
+    if (t >= POSW_T && t % POSW_S === 0) return { reqT: t, mult: Number(d.multiplier) || 1, recent: Number(d.recent_registrations) || 0 };
+  } catch (e) { /* older node / offline → base difficulty */ }
+  return { reqT: POSW_T, mult: 1, recent: 0 };
+}
+// Rolling estimate of this device's sequential-hash rate (hashes/sec), so the wait ETA is device-calibrated.
+function poswRate() { const r = parseFloat(localStorage.getItem("nado_posw_rate") || ""); return (r > 0 && isFinite(r)) ? r : 700000; }
+function savePoswRate(hashes, ms) { if (hashes > 0 && ms > 200) { try { localStorage.setItem("nado_posw_rate", String(Math.round(hashes / (ms / 1000)))); } catch (e) {} } }
 
 
 // TRANSFER / bond / unbond. include public_key ONLY when the sender's pubkey isn't yet established
@@ -925,7 +942,8 @@ async function maybeRenewLease(acc) {
     for (let attempt = 0; attempt < 2; attempt++) {
       const latest = await getLatestBlock();
       if (!latest || typeof latest.block_number !== "number") return;
-      const tx = await computeRegisterTx(latest.block_number + POSW_TARGET_MARGIN, null);   // quiet: no UI takeover
+      const tx = await computeRegisterTx(latest.block_number + POSW_TARGET_MARGIN, null,
+        (await registrationDifficulty()).reqT);   // quiet: no UI takeover; still prove at the required difficulty
       const res = await submitTransaction(tx);
       if (res.data && res.data.result) { log("ok", i18("log.leaseRenewed", "Presence lease renewed ✓")); return; }
       lastMsg = (res.data && res.data.message) || "";
@@ -993,20 +1011,30 @@ async function submitRegistration() {
   const targetBlock = latest.block_number + POSW_TARGET_MARGIN;  // headroom so the tx lands before its target block
 
   // compute the registration Proof of SEQUENTIAL Work (non-parallelizable ~1 s chain, replaces hashcash)
+  // Registration difficulty (consensus, scales with load) + a device-calibrated wait estimate, shown up front.
+  const diff = await registrationDifficulty();
+  const etaSec = Math.max(1, Math.ceil(diff.reqT / poswRate()));
   setStartBtnBusy(i18("mine.registering", "Registering…"));
-  setRegBanner(i18("reg.computing", "Computing the one-time registration proof (a few seconds)…") + REASSURE);
+  const busyNote = diff.mult > 1
+    ? " " + i18("reg.difficultyHigh", "Network is busy — ×{m} difficulty from {n} recent registrations.", { m: diff.mult, n: diff.recent })
+    : "";
+  setRegBanner(i18("reg.computingEta", "Computing your one-time registration proof — about {s}s on this device.", { s: etaSec }) + busyNote + REASSURE);
   showRegProgress(i18("reg.computingLabel", "Registering — computing sequential proof-of-work…"), i18("reg.starting", "starting…"));
   let tx;
   const t0 = Date.now();
   try {
     tx = await computeRegisterTx(targetBlock, (done, total) => {
-      $("powStats").textContent =
-        `${done.toLocaleString()} / ${total.toLocaleString()} sequential hashes · ${((Date.now() - t0) / 1000).toFixed(1)}s`;
-    });
+      const el = (Date.now() - t0) / 1000;
+      const rate = (done > 0 && el > 0) ? done / el : poswRate();
+      const remain = Math.max(0, Math.ceil((total - done) / rate));
+      $("powStats").textContent = i18("reg.progress", "{done} / {total} · {el}s · ~{remain}s left",
+        { done: done.toLocaleString(), total: total.toLocaleString(), el: el.toFixed(1), remain });
+    }, diff.reqT);
   } finally {
     show("powWrap", false);
   }
-  log("ok", `Sequential PoW computed in ${((Date.now() - t0) / 1000).toFixed(1)}s (${POSW_T.toLocaleString()} hashes).`);
+  savePoswRate(diff.reqT, Date.now() - t0);
+  log("ok", `Sequential PoW computed in ${((Date.now() - t0) / 1000).toFixed(1)}s (${diff.reqT.toLocaleString()} hashes${diff.mult > 1 ? `, ×${diff.mult} difficulty` : ""}).`);
   setRegBanner(i18("reg.submitting", "Submitting registration to the network…") + REASSURE);
   log("info", `Submitting register tx ${tx.txid.slice(0, 16)}… (target_block ${targetBlock}).`);
   const res = await submitTransaction(tx);
