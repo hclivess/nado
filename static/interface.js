@@ -742,6 +742,10 @@ async function unlockWallet(password) {
   state.wallet = keypairFromPriv(seed); state.locked = false;
   show("unlockCard", false);
   showWalletUI(); armAutolock();
+  // The poll loop skips refreshDashboard() while locked (state.wallet is null), so pull fresh balances /
+  // mining status NOW instead of leaving stale data until the next poll tick (which looks like a freeze).
+  if (!state.pollTimer) startPollLoop();
+  refreshDashboard().catch(() => {});
 }
 function autolockMinutes() { return parseInt(localStorage.getItem(LS_AUTOLOCK) || "0", 10) || 0; }
 function armAutolock() {
