@@ -12,7 +12,7 @@ surface — the node validates a CLI tx exactly like a browser one (signature, P
 
 Commands: info · send · register · bond · unbond · alias · propose · vote · execute · collect · bridge-deposit
 """
-import argparse, json, os, sys, urllib.request
+import argparse, json, os, sys, time, urllib.request
 from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -24,6 +24,8 @@ from hashing import create_nonce
 from protocol import CHAIN_ID, MIN_TX_FEE, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET
 
 DEC = 10 ** 10  # NADO has 10 decimals
+MARGIN = 6      # target_block headroom: small so the tx lands in its exact target block (the node's own txs
+                # use +2..+5); this also keeps the register PoSW anchor (target-30) in a settled epoch.
 
 
 def raw(nado):            # "12.5" NADO -> raw int
@@ -68,30 +70,30 @@ def c_info(kd, node, a):
 
 
 def c_send(kd, node, a):
-    tx = T.create_transaction(_draft(kd, a.to, raw(a.amount), a.memo or "", _tip(node) + 8),
+    tx = T.create_transaction(_draft(kd, a.to, raw(a.amount), a.memo or "", _tip(node) + MARGIN),
                               kd["private_key"], raw(a.fee) if a.fee else MIN_TX_FEE)
     _submit(node, tx)
 
 
 def c_bond(kd, node, a):
-    _submit(node, T.construct_bond_tx(kd, raw(a.amount), MIN_TX_FEE, _tip(node) + 8))
+    _submit(node, T.construct_bond_tx(kd, raw(a.amount), MIN_TX_FEE, _tip(node) + MARGIN))
 
 
 def c_unbond(kd, node, a):
-    _submit(node, T.construct_unbond_tx(kd, raw(a.amount), _tip(node) + 8))
+    _submit(node, T.construct_unbond_tx(kd, raw(a.amount), _tip(node) + MARGIN))
 
 
 def c_alias(kd, node, a):
-    _submit(node, T.construct_alias_tx(kd, a.op, a.name, _tip(node) + 8, MIN_TX_FEE, to=a.to))
+    _submit(node, T.construct_alias_tx(kd, a.op, a.name, _tip(node) + MARGIN, MIN_TX_FEE, to=a.to))
 
 
 def c_collect(kd, node, a):
     # presence-dividend collection: a blob op the exec node accrues + settles (doc/presence-dividend.md)
-    _submit(node, T.construct_blob_tx(kd, {"op": "collect_dividend"}, _tip(node) + 8, MIN_TX_FEE))
+    _submit(node, T.construct_blob_tx(kd, {"op": "collect_dividend"}, _tip(node) + MARGIN, MIN_TX_FEE))
 
 
 def c_register(kd, node, a):
-    tb = _tip(node) + 10
+    tb = _tip(node) + MARGIN
     anchor_num = max(0, tb - POSW_ANCHOR_OFFSET)
     anchor = _get(node, "/get_block_number?number=%d" % anchor_num).get("block_hash")
     if not anchor:
@@ -113,23 +115,23 @@ def _spend(a):   # shared treasury spend fields
 def c_propose(kd, node, a):   # propose == cast a 'yes' vote that also opens the proposal (matches the web UI)
     s = _spend(a)
     _submit(node, T.construct_treasury_vote_tx(kd, s["recipient"], s["amount"], s["memo"], s["nonce"],
-                                               _tip(node) + 8, s["expiry"], choice="yes"))
+                                               _tip(node) + MARGIN, s["expiry"], choice="yes"))
 
 
 def c_vote(kd, node, a):
     s = _spend(a)
     _submit(node, T.construct_treasury_vote_tx(kd, s["recipient"], s["amount"], s["memo"], s["nonce"],
-                                               _tip(node) + 8, s["expiry"], choice=a.choice))
+                                               _tip(node) + MARGIN, s["expiry"], choice=a.choice))
 
 
 def c_execute(kd, node, a):
     s = _spend(a)
     _submit(node, T.construct_treasury_execute_tx(kd, s["recipient"], s["amount"], s["memo"], s["nonce"],
-                                                  _tip(node) + 8, s["expiry"]))
+                                                  _tip(node) + MARGIN, s["expiry"]))
 
 
 def c_bridge_deposit(kd, node, a):
-    _submit(node, T.construct_bridge_deposit_tx(kd, raw(a.amount), _tip(node) + 8, MIN_TX_FEE))
+    _submit(node, T.construct_bridge_deposit_tx(kd, raw(a.amount), _tip(node) + MARGIN, MIN_TX_FEE))
 
 
 def main():
