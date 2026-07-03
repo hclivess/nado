@@ -1,11 +1,11 @@
 <p align="center">
-  <a href="https://nodeisok.com"><img src="graphics/bauhaus.png" alt="NADO" width="520" /></a>
+  <a href="https://nadochain.com"><img src="graphics/bauhaus.png" alt="NADO" width="520" /></a>
 </p>
 
 <p align="center">
     <a href="https://discord.gg/6aEBWTvcTV"><img src="graphics/discord.png" alt="Discord" height="40" /></a>
     &emsp;
-    <a href="https://twitter.com/nodeisok"><img src="graphics/twitter.png" alt="Twitter/X" height="40" /></a>
+    <a href="https://twitter.com/nadochain"><img src="graphics/twitter.png" alt="Twitter/X" height="40" /></a>
 </p>
 
 # NADO
@@ -588,7 +588,7 @@ shape is unchanged (49 chars).
   the locked, ordered design for the remaining security milestones.
 - **Storage design** — [`doc/storage-kv-migration.md`](doc/storage-kv-migration.md).
 - **Release notes** — [`RELEASE_NOTES.md`](RELEASE_NOTES.md).
-- Project site: <https://nodeisok.com>
+- Project site: <https://nadochain.com>
 
 `protocol.py` and the `ops/` modules are the source of truth; where an older companion doc disagrees,
 the code wins.

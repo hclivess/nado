@@ -718,6 +718,7 @@ async function disableEncryption(password) {
   clearTimeout(_autolockTimer);
 }
 
+let _unlockLeaseTimer = null;
 function showUnlock() {
   show("tabbar", false);
   document.querySelectorAll("[data-tab]").forEach((el) => show(el.id, false));
@@ -727,25 +728,68 @@ function showUnlock() {
   if ($("unlockPass")) $("unlockPass").value = "";
   if ($("unlockErr")) $("unlockErr").textContent = "";
   show("unlockCard", true);
+  // A locked wallet is still MINING on-chain until its PoSW lease lapses — show how much presence is left
+  // (we know the address even while locked). Refresh it periodically so the countdown stays live.
+  show("unlockLease", false);
+  refreshUnlockLease();
+  clearInterval(_unlockLeaseTimer);
+  _unlockLeaseTimer = setInterval(refreshUnlockLease, 30000);
+}
+// Populate the locked screen's "still mining, ~X left" banner from the stored address (no key needed).
+async function refreshUnlockLease() {
+  const box = $("unlockLease");
+  const w = loadWallet();
+  const addr = w && w.address;
+  if (!box || !addr || !state.locked) return;
+  try {
+    const [acc, ms] = await Promise.all([getAccount(addr), getMiningStatus(addr)]);
+    const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
+    const present = !!(ms && ms.registered_present);
+    if (present && regEpoch >= 0 && ms && typeof ms.epoch === "number") {
+      const epochSecs = EPOCH_LENGTH * (ms.block_time || state.blockTime || 8);
+      const secsLeft = Math.max(0, (regEpoch + POSW_LEASE_EPOCHS - ms.epoch) * epochSecs);
+      box.innerHTML = "⛏ " + escapeHtml(i18("unlock.mining",
+        "Still mining while locked — about {t} of presence left. Reopen before it runs out to auto-renew.",
+        { t: humanizeSeconds(secsLeft) }));
+      show("unlockLease", true);
+    } else {
+      show("unlockLease", false);
+    }
+  } catch (e) { /* relay hiccup — just leave the banner as-is */ }
 }
 function lockWallet() {
   if (!walletIsEncrypted() || state.locked) return;     // only an encrypted wallet can lock
-  try { if (state.mining) stopMining(); } catch (e) {}
+  // PAUSE the auto-renew loop (we can't sign PoSW recerts while locked) but KEEP the intent flag, so
+  // unlock resumes it. Your PoSW lease stays valid on-chain meanwhile, so you keep earning until it lapses.
+  try { if (state.mining) pauseMining(); } catch (e) {}
   state.wallet = null; state.locked = true;
   clearTimeout(_autolockTimer);
   showUnlock();
+}
+// Stop the local auto-renew loop WITHOUT clearing the persisted intent (unlike stopMining()). The identity
+// stays present on-chain (the PoSW lease), and unlock/refresh auto-resumes renewal from the intent flag.
+function pauseMining() {
+  state.mining = false; state.starting = false;
+  if (state.powJob) state.powJob.cancelled = true;
+  state.registering = false;
+  stopPollLoop();
+  releaseWakeLock();
 }
 async function unlockWallet(password) {
   const w = loadWallet();
   if (!w || !w.enc) return;
   const seed = await decryptSeed(w, password);          // throws on wrong password
   state.wallet = keypairFromPriv(seed); state.locked = false;
+  clearInterval(_unlockLeaseTimer); _unlockLeaseTimer = null;
   show("unlockCard", false);
   showWalletUI(); armAutolock();
   // The poll loop skips refreshDashboard() while locked (state.wallet is null), so pull fresh balances /
   // mining status NOW instead of leaving stale data until the next poll tick (which looks like a freeze).
-  if (!state.pollTimer) startPollLoop();
   refreshDashboard().catch(() => {});
+  // Resume the mining the lock paused (LS_MINING intent survives a lock). startMining() re-runs the loop;
+  // it won't re-register an already-present, lease-valid identity — it just resumes renewal.
+  if (localStorage.getItem(LS_MINING) === "1") startMining();
+  else if (!state.pollTimer) startPollLoop();            // else at least keep the dashboard live
 }
 function autolockMinutes() { return parseInt(localStorage.getItem(LS_AUTOLOCK) || "0", 10) || 0; }
 function armAutolock() {

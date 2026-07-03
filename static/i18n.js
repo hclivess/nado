@@ -938,6 +938,27 @@
   };
   for (const l in T35) Object.assign(T[l] = T[l] || {}, T35[l]);
 
+  // T36: locked-screen presence-lease countdown ({t} = humanized duration; keep the placeholder).
+  const T36 = {
+    en:{"unlock.mining":"Still mining while locked — about {t} of presence left. Reopen before it runs out to auto-renew."},
+    cs:{"unlock.mining":"Stále těžíte i při zámku — zbývá asi {t} přítomnosti. Než vyprší, otevřete aplikaci pro automatické obnovení."},
+    es:{"unlock.mining":"Sigues minando con la pantalla bloqueada — queda cerca de {t} de presencia. Reábrelo antes de que se agote para renovar automáticamente."},
+    pt:{"unlock.mining":"Você continua minerando bloqueado — resta cerca de {t} de presença. Reabra antes que acabe para renovar automaticamente."},
+    fr:{"unlock.mining":"Vous minez toujours, verrouillé — il reste environ {t} de présence. Rouvrez l'appli avant la fin pour un renouvellement automatique."},
+    de:{"unlock.mining":"Du minst auch gesperrt weiter — noch etwa {t} Präsenz übrig. Öffne die App vorher wieder, damit sie automatisch erneuert."},
+    it:{"unlock.mining":"Stai ancora minando da bloccato — resta circa {t} di presenza. Riapri prima che finisca per rinnovare automaticamente."},
+    ru:{"unlock.mining":"Вы продолжаете майнить даже заблокированным — осталось примерно {t} присутствия. Откройте приложение до истечения для автопродления."},
+    zh:{"unlock.mining":"锁定状态下仍在挖矿——还剩约 {t} 的在线时间。用尽前重新打开即可自动续期。"},
+    ja:{"unlock.mining":"ロック中もマイニング継続中 — 在席の残りは約 {t}。切れる前にアプリを再度開くと自動更新されます。"},
+    ko:{"unlock.mining":"잠긴 상태에서도 채굴 중 — 남은 참여 시간 약 {t}. 소진되기 전에 앱을 다시 열면 자동 갱신됩니다."},
+    ar:{"unlock.mining":"لا تزال تُعدّن وأنت مقفل — يتبقى نحو {t} من الحضور. أعد فتح التطبيق قبل نفادها للتجديد التلقائي."},
+    hi:{"unlock.mining":"लॉक होने पर भी माइनिंग जारी — लगभग {t} उपस्थिति शेष। समाप्त होने से पहले ऐप फिर खोलें, स्वतः नवीनीकरण होगा।"},
+    tr:{"unlock.mining":"Kilitliyken de madencilik sürüyor — yaklaşık {t} varlık kaldı. Bitmeden uygulamayı yeniden açarsanız otomatik yenilenir."},
+    id:{"unlock.mining":"Masih menambang saat terkunci — tersisa sekitar {t} kehadiran. Buka kembali sebelum habis untuk perpanjang otomatis."},
+    vi:{"unlock.mining":"Vẫn đang đào khi bị khóa — còn khoảng {t} thời gian hiện diện. Mở lại trước khi hết để tự động gia hạn."}
+  };
+  for (const l in T36) Object.assign(T[l] = T[l] || {}, T36[l]);
+
 
 
 
