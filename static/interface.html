@@ -559,7 +559,7 @@
     <input id="zsendTo" placeholder="znado…" autocomplete="off" spellcheck="false" />
     <label class="mt" data-i18n="shield.amount">Amount (NADO)</label>
     <input id="zsendAmount" type="number" min="0" step="0.0001" placeholder="0.0" />
-    <label class="mt" style="display:flex;align-items:center;gap:8px;font-weight:normal"><input type="checkbox" id="zOnDevice" style="width:auto" checked /> <span class="small" data-i18n="shield.ondevice">Prove on this device — fully private (the node never sees your amounts or keys)</span></label>
+    <div class="small faint mt" style="display:flex;align-items:center;gap:8px">🔒 <span data-i18n="shield.ondevice">Proved on this device — fully private (the node never sees your amounts or keys)</span></div>
     <button id="btnZsend" class="primary mt" style="width:100%" data-i18n="shield.zsend">Send shielded</button>
     <div id="zsendCodeBox" class="warnbox mt small hidden">
       <b data-i18n="shield.linkHint">Give this claim link to the recipient over any private channel — opening it receives the banknote automatically:</b>

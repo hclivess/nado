@@ -3193,19 +3193,13 @@ async function _onDeviceProve2(wit, execBase) {
 }
 if (typeof window !== "undefined") window.nadoProve2 = _onDeviceProve2;
 
-async function proveTransfer2(wit) {   // 2-output proof (send + change), on-device if ticked else delegated
-  // H-6: when "Prove on this device" is TICKED, fail CLOSED. The witness contains the shielded spend key
-  // (nsk); the old code silently fell through to POST it to the node on ANY on-device error (e.g. the note
-  // isn't indexed yet right after a deposit) — handing the node the key despite the "fully private" promise.
-  // Now an on-device error propagates and NOTHING is sent; the node only ever sees the witness if the box is
-  // explicitly UNticked (the user's consent that "the node sees your amounts and keys").
-  if ($("zOnDevice") && $("zOnDevice").checked) {
-    if (!window.nadoProve2) throw new Error(i18("shield.ondeviceUnavail", "On-device proving isn't available here. Untick 'Prove on this device' to let the node prove it (the node will then see your amounts and keys), or use a browser that supports WebAssembly."));
-    return await window.nadoProve2(wit, execBase());   // no silent node fallback — errors surface to the caller
-  }
-  return await (await fetch(execBase() + "/exec/prove_transfer2", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(wit),
-  })).json();
+async function proveTransfer2(wit) {   // 2-output proof (send + change) — ALWAYS generated on THIS device
+  // The shielded spend key (nsk) and the amounts live in `wit`. The delegated "let the node prove it" option
+  // has been removed entirely: it necessarily handed the spend key to the exec node, and even a fail-closed
+  // fallback (H-6) is a footgun. Proving is now on-device only — the node never receives the witness, it only
+  // verifies + applies the finished proof. If WebAssembly is unavailable the proof simply can't be made here.
+  if (!window.nadoProve2) throw new Error(i18("shield.ondeviceUnavail", "Private proving needs WebAssembly — open this in a modern browser to send or withdraw shielded."));
+  return await window.nadoProve2(wit, execBase());
 }
 
 // SHIELDED TRANSFER — a private note→note payment INSIDE the pool (public_value=0, no on-chain amount). Sends
