@@ -80,7 +80,11 @@ def create_config(ip: str, config_path: str = f"{get_home()}/private/config.dat"
         # /16 0.25, /8 0.125, unrelated 0 — so the effective limit scales ~64/exact IP, ~128 per /24, ~256
         # per /16, ~512 per /8. Bounds a datacenter's whole range, not just one IP, while leaving distinct
         # networks unpenalised. Generous so legit CGNAT/NAT isn't bricked; 0 disables. NADO_MAX_REG_PER_IP.
-        "max_registrations_per_ip": 64
+        "max_registrations_per_ip": 64,
+        # The sliding window (seconds) the per-IP budget above is measured over. Longer = tighter (the budget
+        # accumulates across more time), but keep it well under the ~1-day lease so renewals don't fill it.
+        # Node-local admission control only (an IP can't be a consensus input). NADO_MAX_REG_WINDOW.
+        "max_registrations_window": 7200
     }
 
     if not os.path.exists(config_path):

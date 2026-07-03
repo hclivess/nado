@@ -225,7 +225,8 @@ def _ip_registration_rejection(ip, transaction):
             return None
         from ops.ratelimit import allow_registration
         cap = getattr(memserver, "max_registrations_per_ip", 64)
-        if not allow_registration(ip, str(transaction.get("sender", "")), cap):
+        window = getattr(memserver, "max_registrations_window", 7200.0)
+        if not allow_registration(ip, str(transaction.get("sender", "")), cap, window):
             return {"result": False,
                     "message": "Too many registrations from this IP/range — one device can onboard only a "
                                "limited number of mining addresses (anti-Sybil). Use fewer addresses."}

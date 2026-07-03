@@ -146,6 +146,11 @@ class MemServer:
                                                  or self.config.get("max_registrations_per_ip", 64))
         except (TypeError, ValueError):
             self.max_registrations_per_ip = 64
+        try:
+            self.max_registrations_window = float(_os.environ.get("NADO_MAX_REG_WINDOW")
+                                                  or self.config.get("max_registrations_window", 7200))
+        except (TypeError, ValueError):
+            self.max_registrations_window = 7200.0
 
     def ban_peer(self, peer):
         if peer not in self.purge_peers_list and peer not in self.unreachable:
