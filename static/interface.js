@@ -1294,7 +1294,7 @@ function _gem(cx, cy, m) {    // a faceted diamond for the top tier
     `<path d="M${cx - w} ${cy - h * 0.15} L${cx + w} ${cy - h * 0.15} L${cx} ${cy + h * 0.62} Z" fill="${m.stroke}" opacity="0.22"/>` +
     `<path d="M${cx - w * 0.5} ${cy - h * 0.5} L${cx} ${cy - h * 0.15} L${cx + w * 0.5} ${cy - h * 0.5} Z" fill="${m.hi}" opacity="0.65"/></g>`;
 }
-function renderCoinPile(totalRaw, richestRaw) {
+function renderCoinPile(totalRaw, stats) {
   const svg = $("coinPile"), cap = $("coinPileCap"), wrap = $("coinPileWrap");
   if (!svg || !wrap) return;
   wrap.classList.remove("hidden");
