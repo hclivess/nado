@@ -572,6 +572,51 @@ async def get_wealth_stats(request):
     return _resp(await asyncio.to_thread(_work))
 
 
+async def get_treasury_status(request):
+    # Treasury governance snapshot for the Quorum tab (doc/treasury.md §3.3): the treasury balance, the burn
+    # schedule, and every proposal with its LIVE tally (approving activated-stake vs the 2/3 quorum bar) + status.
+    if _rate_limited(request, 60):
+        return _RL
+    def _work():
+        from ops import kv_ops
+        from ops.account_ops import get_account, get_bonded_registry
+        from ops.settlement_ops import treasury_justified, _vote_activated
+        from ops.mining_ops import epoch_of, selection_shares
+        from protocol import (TREASURY_ADDRESS, TREASURY_MAX_SPEND_BPS, BPS_DENOM, TREASURY_SPEND_PERIOD,
+                              TREASURY_BURN_BPS, SETTLE_NUM, SETTLE_DEN)
+        try:
+            h = memserver.latest_block["block_number"]
+        except Exception:
+            h = 0
+        epoch = epoch_of(h + 1)
+        acc = get_account(TREASURY_ADDRESS, create_on_error=False)
+        bal = int(acc.get("balance", 0)) if acc else 0
+        reg = get_bonded_registry()
+        total_activated = sum(selection_shares(i["bonded"]) for i in reg.values() if _vote_activated(i, epoch))
+        max_spend = bal * TREASURY_MAX_SPEND_BPS // BPS_DENOM
+        props = []
+        for pid, spend in kv_ops.treasury_proposals_all():
+            voters = kv_ops.treasury_voters(pid)
+            approving = sum(selection_shares(reg[v]["bonded"]) for v in voters if v in reg and _vote_activated(reg[v], epoch))
+            executed = kv_ops.treasury_executed_exists(pid)
+            status = "executed" if executed else ("passed" if treasury_justified(pid, reg, epoch) else "open")
+            amt = int(spend.get("amount", 0))
+            props.append({"pid": pid, "recipient": spend.get("recipient"), "amount": amt,
+                          "memo": spend.get("memo", ""), "nonce": spend.get("nonce"),
+                          "approving_shares": approving, "voters": len(voters),
+                          "status": status, "within_cap": amt <= max_spend})
+        props.sort(key=lambda p: (p["status"] != "open", -p["approving_shares"]))
+        return {"block_number": h, "epoch": epoch, "treasury": bal,
+                "total_activated_shares": total_activated,
+                "quorum_shares": (total_activated * SETTLE_NUM) // SETTLE_DEN,
+                "settle_num": SETTLE_NUM, "settle_den": SETTLE_DEN,
+                "max_spend": max_spend, "max_spend_bps": TREASURY_MAX_SPEND_BPS,
+                "burn_bps": TREASURY_BURN_BPS, "spend_period": TREASURY_SPEND_PERIOD,
+                "next_burn_block": ((h // TREASURY_SPEND_PERIOD) + 1) * TREASURY_SPEND_PERIOD,
+                "proposals": props}
+    return _resp(await asyncio.to_thread(_work))
+
+
 _rich_list_cache = {"height": -1, "list": None}
 
 
@@ -719,6 +764,7 @@ async def make_app(port):
         web.get("/get_recommended_fee", get_recommended_fee),
         web.get("/get_richest", get_richest),
         web.get("/wealth_stats", get_wealth_stats),
+        web.get("/treasury_status", get_treasury_status),
         web.get("/get_rich_list", get_rich_list),
         web.get("/get_open_weights", get_open_weights),
         web.get("/get_settled", get_settled),

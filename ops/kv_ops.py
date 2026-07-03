@@ -49,7 +49,7 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   commits           "sender|target_epoch"    -> commitment                                   (RANDAO #7)
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
-_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert")
+_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals")
 _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch", "treasury_votes")
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
@@ -681,6 +681,25 @@ def treasury_burn_put(height: int, amount: int):
 
 def treasury_burn_del(height: int):
     meta_del(f"tburn:{height}")
+
+
+# --- proposal metadata index (NON-consensus, NOT in the state root): the spend content per pid, so the Quorum
+# tab can list proposals. Written first-writer-wins on the first vote for a pid; a purely local display aid. ---
+def treasury_proposal_put(pid: str, spend: dict):
+    def _do(txn):
+        if txn.get(pid.encode(), db=_dbs()["treasury_proposals"]) is None:
+            txn.put(pid.encode(), _pack(dict(spend)), db=_dbs()["treasury_proposals"])
+    _write(_do)
+
+
+def treasury_proposals_all():
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["treasury_proposals"]) as cur:
+            for k, v in cur:
+                out.append((k.decode(), _unpack(v)))
+        return out
+    return _read(_do)
 
 
 # --- RANDAO commit-reveal (#7): one commit per (sender, target_epoch) + revealed secrets per epoch ---

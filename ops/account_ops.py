@@ -242,6 +242,8 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             kv_ops.treasury_vote_del(pid, sender)
         else:
             kv_ops.treasury_vote_put(pid, sender)
+            if data.get("spend"):
+                kv_ops.treasury_proposal_put(pid, data["spend"])   # non-consensus display index (idempotent)
         return
 
     # --- TREASURY PAYOUT: move `amount` from the treasury to the proposal's recipient and burn the one-shot
