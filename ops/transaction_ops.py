@@ -139,6 +139,33 @@ def construct_bond_tx(keydict, amount, fee, target_block):
     return tx
 
 
+def construct_unbond_tx(keydict, amount, target_block):
+    """Build a SIGNED unbond tx: moves `amount` raw from bonded stake back to spendable (after the unlock
+    delay). FEE-EXEMPT — the node rejects a non-zero fee on an unbond, so a fully-bonded wallet can always
+    exit. Mirror of construct_bond_tx; shared by the wallet, the CLI, and the headless agent."""
+    tx = {"sender": keydict["address"], "recipient": "unbond", "amount": int(amount),
+          "timestamp": get_timestamp_seconds(), "data": "",
+          "nonce": create_nonce(), "public_key": keydict["public_key"],
+          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
+def construct_register_tx(keydict, target_block, posw_proof):
+    """Build a SIGNED open-lane registration/renewal tx. FEE-EXEMPT + zero-amount; carries the sequential
+    PoSW proof (ops.posw.prove of posw.challenge_bytes(sender, anchor-block-hash)) that gates open-lane entry.
+    posw rides in the signed body (create_txid commits it — only public_key is excluded), exactly like the
+    browser's buildRegisterTx, so the node validates a CLI/agent registration identically to a wallet one."""
+    tx = {"sender": keydict["address"], "recipient": "register", "amount": 0,
+          "timestamp": get_timestamp_seconds(), "data": "",
+          "nonce": create_nonce(), "public_key": keydict["public_key"],
+          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0, "posw": posw_proof}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
 def blob_payload_size(payload) -> int:
     """True canonical byte length of a blob payload (for the DA size cap) — deterministic across nodes."""
     return len(canonical_bytes(payload))
