@@ -100,10 +100,17 @@ is how close to "one share per real person" we can push the open lane, given tha
    (it replaced the old parallelizable 16-bit hashcash and the removed per-epoch heartbeat). It is
    deliberately light per identity, so it is not a Sybil *wall* — but unlike the old hashcash it prices a
    fleet in a resource a farm cannot parallelize away.
-4. **Progressive per-IP crowding cap — DEFENSIVE friction only.** `ratelimit.allow_registration`
-   (`max_registrations_per_ip`) makes casual single-box scripting expensive and bounds a datacenter's whole
-   subnet, not just one IP. It is used **purely defensively** at a relay's front door — never in consensus.
-   Evadable (VPNs/proxies/IPv6), but it raises the floor for the low-effort attacker (the common case).
+4. **Registration-rate difficulty — a CONSENSUS-BOUND anti-flood.** The sequential-PoSW cost per `register`
+   scales with recent registration volume (`ops/reg_difficulty.py`, [registration-difficulty.md](registration-difficulty.md)),
+   enforced in validation off the finalized anchor epoch — so a sudden Sybil burst pays progressively more
+   real serial time (up to `POSW_DIFF_MAX_MULT`) and a modified node cannot register cheaply, while a normal
+   network stays at 1×. Unlike the per-IP cap this is *spoof-proof and in consensus* (it reads only on-chain
+   registration counts, never an IP).
+5. **Progressive per-IP crowding cap — DEFENSIVE friction only.** `ratelimit.allow_registration`
+   (`max_registrations_per_ip` + the now-tunable `max_registrations_window`) makes casual single-box
+   scripting expensive and bounds a datacenter's whole subnet, not just one IP. It is used **purely
+   defensively** at a relay's front door — never in consensus. Evadable (VPNs/proxies/IPv6), but it raises
+   the floor for the low-effort attacker (the common case).
 
 > **The organizing principle: a permissionless Sybil anchor must be FARM-NEUTRAL** — it must cost an
 > automated bot the *same* as a real human, or the farm simply pays less per mask than the humans it
@@ -131,12 +138,17 @@ the cost each imposes.
    link and you're mining." Idena's flip-test is the closest fit to NADO's ethos but requires everyone to
    be online simultaneously for validation. **Verdict:** philosophically opposed to the one-tap fair
    launch; keep as an *optional* per-deployment overlay, not the base layer.
-2. **Scale the registration PoW with open-registry population** (adaptive difficulty: the more identities
-   present, the harder each new registration). Makes a *large* Sybil fleet cost real energy while a normal
-   phone still registers cheaply when the network is small. **Cost:** reintroduces a mild hash-race at the
-   registration edge (against NADO's "nothing to grind" ethos), and a determined attacker with GPUs still
-   wins; hurts honest late-joiners as the network grows. **Verdict:** a plausible, self-contained lever —
-   worth prototyping as an *edge* cost (registration only), never in block production.
+2. **Scale the registration PoSW with the registration RATE — ✅ SHIPPED & CONSENSUS-BOUND**
+   (`ops/reg_difficulty.py`, [registration-difficulty.md](registration-difficulty.md)). The required
+   sequential-work count for a `register` now scales with **recent registration volume vs a trailing-average
+   baseline**, so a sudden identity flood gets progressively more expensive (up to `POSW_DIFF_MAX_MULT`),
+   while a normal-sized network sits at 1×. Crucially it is keyed off the **finalized PoSW anchor epoch** and
+   **enforced in `validate_transaction`** — every node recomputes `required_posw_t()` from the committed
+   recert index and *rejects* an under-worked registration, so a node that "removes the difficulty code" just
+   produces proofs honest nodes throw away. It stays off block production (registration edge only, a fixed
+   delay not a race), and it keys off the *rate* not the raw population so honest late-joiners into a large,
+   healthy network are **not** penalised (the network's own steady renewals become its baseline). This
+   realises the lever below at the cheapest, invariant-preserving end.
 3. **Small refundable bond to enter the OPEN lane** (a tiny stake, returned on exit). Directly prices
    identities. **Cost:** breaks the **zero-capital** promise — the whole point of the OPEN lane is that a
    coinless newcomer can mine. Even a tiny bond needs coins the newcomer doesn't have. **Verdict:**
@@ -257,8 +269,10 @@ pricing in RAM (a real device limit that is costlier to scale than cores).
 ## 6. What NADO actually does
 
 **Do:** keep IP entirely out of consensus; keep the per-IP cap as opt-in, generous, best-effort relay
-friction (progressive by subnet); rely on the **structural `OPEN_BPS` cap** for the hard bound and on
-**reward dilution** for the economic bound.
+friction (progressive by subnet, tunable window); rely on the **structural `OPEN_BPS` cap** for the hard
+bound and on **reward dilution** for the economic bound; and throttle registration BURSTS with the
+**consensus-bound registration-rate PoSW difficulty** (§4.4 / §5.2, `ops/reg_difficulty.py`,
+[registration-difficulty.md](registration-difficulty.md)) — spoof-proof because it reads on-chain counts, not IPs.
 
 **Shipped direction (permissionless, no-bother, invariant-preserving):** the *parallelizable* 16-bit
 registration hashcash was **replaced with a sequential PoSW / proof-of-time** (§5b, Appendix A), and
