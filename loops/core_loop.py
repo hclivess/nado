@@ -47,7 +47,8 @@ from ops.transaction_ops import (
 import secrets as _secrets
 from rollback import rollback_one_block, MissingParentError, FinalityViolation
 from ops.reward_ops import credit_block_reward, apply_treasury_burn
-from ops.transaction_ops import construct_attestation_tx, construct_commit_tx, construct_reveal_tx, construct_bond_tx
+from ops.transaction_ops import (construct_attestation_tx, construct_commit_tx, construct_reveal_tx,
+                                 construct_bond_tx, construct_blob_tx, construct_register_tx)
 from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
 from protocol import EPOCH_LENGTH, FINALITY_DEPTH
@@ -95,6 +96,10 @@ class CoreClient(threading.Thread):
         # auto-bond per epoch (bond isn't per-block unique-keyed, so we self-limit).
         self.last_auto_bond_epoch = -1
         self.auto_bond_baseline = None
+        # AUTO-COLLECT (default on) + AUTO-REGISTER (opt-in): sweep the presence dividend, and keep the open-lane
+        # PoSW lease alive, hands-free. Throttled to one of each per epoch (see maybe_auto_collect/register).
+        self.last_auto_collect_epoch = -1
+        self.last_auto_register_epoch = -1
 
     def get_period(self):
         """Enter every period at least period_counter times. Iterator is present in case node is stuck in phase 3.
@@ -192,6 +197,8 @@ class CoreClient(threading.Thread):
             self.maybe_randao()
             # AUTO-BOND (opt-in): unattended-compound a % of newly-mined earnings into bonded stake.
             self.maybe_auto_bond()
+            self.maybe_auto_collect()
+            self.maybe_auto_register()
             # ROLLING MODE (opt-in): on a pruned node, drop block bodies older than the retention window.
             self.maybe_prune_history()
 
@@ -825,6 +832,62 @@ class CoreClient(threading.Thread):
                 f"(target_block {target_block})")
         except Exception as e:
             self.logger.warning(f"Auto-bond skipped: {e}")
+
+    def maybe_auto_collect(self):
+        """AUTO-COLLECT (default on, memserver.auto_collect_dividend): once per epoch, sweep this node's accrued
+        presence dividend into a provable collection (a `collect_dividend` blob the exec node settles). Only
+        OPEN-lane members accrue a dividend, so we skip unless we're registered — a bonded-only node has nothing
+        to collect and would just burn the dust fee. Best-effort; never raises into the core loop."""
+        if not getattr(self.memserver, "auto_collect_dividend", True):
+            return
+        try:
+            epoch = epoch_of(self.memserver.latest_block["block_number"])
+            if self.last_auto_collect_epoch == epoch:
+                return
+            acc = get_account(self.memserver.address)
+            if not acc or int(acc.get("registered", 0)) != 1:
+                return                                  # not an open-lane member -> nothing accrues
+            target_block = self.memserver.latest_block["block_number"] + 2
+            tx = construct_blob_tx(self.memserver.keydict, {"op": "collect_dividend"}, target_block, MIN_TX_FEE)
+            self.memserver.merge_transaction(tx, user_origin=True)
+            self.last_auto_collect_epoch = epoch
+            self.logger.info(f"Auto-collect: swept presence dividend (target_block {target_block})")
+        except Exception as e:
+            self.logger.info(f"Auto-collect skipped: {e}")
+
+    def maybe_auto_register(self):
+        """AUTO-REGISTER (opt-in, default off, memserver.auto_register): keep this node present in the OPEN lane
+        hands-free — register when absent, and renew the PoSW lease inside its tail. OFF by default so a headless
+        node doesn't silently join (and Sybil-load) the open lane; ON = 'mine the free lane from this box too'.
+        Computes the ~2 s sequential PoSW inline, throttled to at most once per epoch. Best-effort."""
+        if not getattr(self.memserver, "auto_register", False):
+            return
+        try:
+            from protocol import POSW_S, POSW_K, POSW_ANCHOR_OFFSET, POSW_LEASE_EPOCHS
+            epoch = epoch_of(self.memserver.latest_block["block_number"])
+            if self.last_auto_register_epoch == epoch:
+                return
+            acc = get_account(self.memserver.address)
+            if acc and int(acc.get("registered", 0)) == 1:
+                reg_ep = int(acc.get("reg_epoch", -1))
+                if reg_ep >= 0 and epoch < reg_ep + POSW_LEASE_EPOCHS - 10:   # still well inside the lease
+                    self.last_auto_register_epoch = epoch
+                    return
+            from ops import posw
+            from ops.block_ops import get_block_hash_by_number
+            from ops.reg_difficulty import required_posw_t
+            target_block = self.memserver.latest_block["block_number"] + 4
+            anchor = get_block_hash_by_number(max(0, target_block - POSW_ANCHOR_OFFSET))
+            if not anchor:
+                return
+            req_t = required_posw_t(epoch_of(max(0, target_block - POSW_ANCHOR_OFFSET)))
+            proof = posw.prove(posw.challenge_bytes(self.memserver.address, anchor), T=req_t, S=POSW_S, k=POSW_K)
+            tx = construct_register_tx(self.memserver.keydict, target_block, proof)
+            self.memserver.merge_transaction(tx, user_origin=True)
+            self.last_auto_register_epoch = epoch
+            self.logger.info(f"Auto-register: (re)joined the open lane (target_block {target_block}, PoSW T={req_t})")
+        except Exception as e:
+            self.logger.info(f"Auto-register skipped: {e}")
 
     def validate_transactions_in_block(self, block, logger, remote_peer, remote):
         transactions = sort_list_dict(block["block_transactions"])

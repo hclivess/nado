@@ -123,6 +123,17 @@ class MemServer:
         except (TypeError, ValueError):
             self.auto_bond_percent = _AB_DEFAULT
 
+        # AUTO-COLLECT the presence dividend, unattended (core_loop.maybe_auto_collect) — DEFAULT ON. Only an
+        # OPEN-lane member accrues one, so a bonded-only node is a no-op. NADO_AUTO_COLLECT env overrides config.
+        def _flag(env, cfg, default):
+            v = _os.environ.get(env)
+            v = self.config.get(cfg, default) if v is None else v
+            return str(v).strip().lower() not in ("0", "false", "no", "off")
+        self.auto_collect_dividend = _flag("NADO_AUTO_COLLECT", "auto_collect_dividend", True)
+        # AUTO-REGISTER + renew the open-lane PoSW lease, unattended — DEFAULT OFF (opt-in: a headless node does
+        # not silently join the open lane). NADO_AUTO_REGISTER=1 (or config auto_register:true) turns it on.
+        self.auto_register = _flag("NADO_AUTO_REGISTER", "auto_register", False)
+
         # ROLLING MODE (non-consensus): archive=True (default) keeps ALL block bodies; False runs a
         # pruned/rolling node that drops bodies older than history_retention_blocks (state + indexes
         # kept). NADO_ARCHIVE=0/false selects rolling mode headless. See doc/rolling-mode-and-da.md.
