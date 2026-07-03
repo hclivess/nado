@@ -582,11 +582,13 @@ async function estimateSavingsApy() {
   box.textContent = i18("apy.calc", "estimating from recent blocks…");
   try {
     const addr = state.wallet && state.wallet.address;
-    const ms = await rpcJSON("/mining_status" + (addr ? "?address=" + encodeURIComponent(addr) : ""));
-    const tip = await rpcJSON("/get_latest_block");
+    // rpcJSON returns a {ok,status,data} envelope — unwrap .data (reading fields off the envelope zeroed
+    // out total_bonded_shares / block_number / block_reward and produced the "0 blocks / no stake" bug).
+    const ms = (await rpcJSON("/mining_status" + (addr ? "?address=" + encodeURIComponent(addr) : ""))).data || {};
+    const tip = (await rpcJSON("/get_latest_block")).data || {};
     const n = num(tip.block_number);
     const nums = []; for (let i = 0; i < 30 && n - i > 0; i++) nums.push(n - i);
-    const blks = await Promise.all(nums.map((x) => rpcJSON("/get_block_number?number=" + x).catch(() => null)));
+    const blks = await Promise.all(nums.map((x) => rpcJSON("/get_block_number?number=" + x).then((r) => r.data).catch(() => null)));
     const rewards = blks.filter(Boolean).map((b) => { try { return BigInt(b.block_reward || 0); } catch { return 0n; } }).filter((r) => r > 0n);
     const avgReward = rewards.length ? Number(rewards.reduce((a, b) => a + b, 0n) / BigInt(rewards.length)) : Number(BASE_SUBSIDY_RAW);
     const blockTime = num(ms.block_time) || state.blockTime || 8;
@@ -599,7 +601,7 @@ async function estimateSavingsApy() {
     let totalShares = num(ms.total_bonded_shares), myShares = num(ms.my_bonded_shares);
     if (addr) {
       try {
-        const acc = await rpcJSON("/get_account?address=" + encodeURIComponent(addr));
+        const acc = (await rpcJSON("/get_account?address=" + encodeURIComponent(addr))).data || {};
         myShares = Math.max(myShares, Number(BigInt(acc.bonded || 0) / B_MIN_RAW));   // shares = bonded // B_MIN
       } catch (e) { /* keep ms.my_bonded_shares */ }
     }
@@ -807,6 +809,21 @@ async function unlockWallet(password) {
   // it won't re-register an already-present, lease-valid identity — it just resumes renewal.
   if (localStorage.getItem(LS_MINING) === "1") startMining();
   else if (!state.pollTimer) startPollLoop();            // else at least keep the dashboard live
+}
+// Remove the password from a LOCKED wallet in one step (still needs the password — the seed is encrypted).
+// Decrypts, re-persists the key in plain text, and enters the app. For a user who wants to drop the lock
+// without going Unlock -> Security -> Remove.
+async function unlockRemovePassword(password) {
+  const w = loadWallet();
+  if (!w || !w.enc) return;
+  await disableEncryption(password);                    // decrypts (throws on wrong password) + persists PLAINTEXT
+  const plain = loadWallet();
+  state.wallet = keypairFromPriv(plain.privateKey); state.locked = false;
+  clearInterval(_unlockLeaseTimer); _unlockLeaseTimer = null; clearTimeout(_autolockTimer);
+  show("unlockCard", false); showWalletUI();
+  refreshDashboard().catch(() => {});
+  if (localStorage.getItem(LS_MINING) === "1") startMining();
+  else if (!state.pollTimer) startPollLoop();
 }
 function autolockMinutes() { return parseInt(localStorage.getItem(LS_AUTOLOCK) || "0", 10) || 0; }
 function armAutolock() {
@@ -3403,6 +3420,12 @@ function wireEvents() {
     try { await unlockWallet(pw); } catch (e) { $("unlockErr").textContent = i18("unlock.wrong", "Wrong password — try again."); }
   });
   if ($("unlockPass")) $("unlockPass").onkeydown = (e) => { if (e.key === "Enter") $("btnUnlock").click(); };
+  _btn("btnUnlockRemove", async () => {
+    const pw = $("unlockPass").value;
+    if (!(await uiConfirm(i18("unlock.removeConfirm", "Remove the password and store the key UNENCRYPTED on this device?")))) return;
+    try { await unlockRemovePassword(pw); log("ok", i18("sec.removed", "Password removed — key stored in plain text.")); }
+    catch (e) { $("unlockErr").textContent = i18("unlock.wrong", "Wrong password — try again."); }
+  });
   _btn("btnUnlockRestore", () => { state.locked = false; show("unlockCard", false); enterOnboarding(); if ($("btnShowImport")) show("importBox", true); });
 
   // reset the auto-lock countdown on any interaction

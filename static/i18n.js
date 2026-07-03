@@ -1064,6 +1064,27 @@
   };
   for (const l in T41) Object.assign(T[l] = T[l] || {}, T41[l]);
 
+  // T42: lock-screen "remove password" action.
+  const T42 = {
+    en:{"unlock.removeLock":"Unlock & remove password","unlock.removeConfirm":"Remove the password and store the key UNENCRYPTED on this device?"},
+    cs:{"unlock.removeLock":"Odemknout a odstranit heslo","unlock.removeConfirm":"Odstranit heslo a uložit klíč na tomto zařízení NEŠIFROVANĚ?"},
+    es:{"unlock.removeLock":"Desbloquear y quitar contraseña","unlock.removeConfirm":"¿Quitar la contraseña y guardar la clave SIN CIFRAR en este dispositivo?"},
+    pt:{"unlock.removeLock":"Desbloquear e remover senha","unlock.removeConfirm":"Remover a senha e armazenar a chave SEM CRIPTOGRAFIA neste dispositivo?"},
+    fr:{"unlock.removeLock":"Déverrouiller et supprimer le mot de passe","unlock.removeConfirm":"Supprimer le mot de passe et stocker la clé NON CHIFFRÉE sur cet appareil ?"},
+    de:{"unlock.removeLock":"Entsperren & Passwort entfernen","unlock.removeConfirm":"Passwort entfernen und den Schlüssel UNVERSCHLÜSSELT auf diesem Gerät speichern?"},
+    it:{"unlock.removeLock":"Sblocca e rimuovi la password","unlock.removeConfirm":"Rimuovere la password e salvare la chiave NON CIFRATA su questo dispositivo?"},
+    ru:{"unlock.removeLock":"Разблокировать и удалить пароль","unlock.removeConfirm":"Удалить пароль и хранить ключ НА ЭТОМ УСТРОЙСТВЕ БЕЗ ШИФРОВАНИЯ?"},
+    zh:{"unlock.removeLock":"解锁并移除密码","unlock.removeConfirm":"移除密码并在此设备上以未加密方式存储密钥？"},
+    ja:{"unlock.removeLock":"ロック解除してパスワードを削除","unlock.removeConfirm":"パスワードを削除し、この端末に鍵を暗号化せずに保存しますか？"},
+    ko:{"unlock.removeLock":"잠금 해제 후 비밀번호 제거","unlock.removeConfirm":"비밀번호를 제거하고 이 기기에 키를 암호화하지 않은 상태로 저장할까요?"},
+    ar:{"unlock.removeLock":"إلغاء القفل وإزالة كلمة المرور","unlock.removeConfirm":"إزالة كلمة المرور وتخزين المفتاح غير مُشفّر على هذا الجهاز؟"},
+    hi:{"unlock.removeLock":"अनलॉक करें और पासवर्ड हटाएं","unlock.removeConfirm":"पासवर्ड हटाएं और कुंजी को इस डिवाइस पर बिना एन्क्रिप्शन के सहेजें?"},
+    tr:{"unlock.removeLock":"Kilidi aç ve parolayı kaldır","unlock.removeConfirm":"Parolayı kaldırıp anahtarı bu cihazda ŞİFRESİZ saklansın mı?"},
+    id:{"unlock.removeLock":"Buka kunci & hapus kata sandi","unlock.removeConfirm":"Hapus kata sandi dan simpan kunci TANPA ENKRIPSI di perangkat ini?"},
+    vi:{"unlock.removeLock":"Mở khóa & xóa mật khẩu","unlock.removeConfirm":"Xóa mật khẩu và lưu khóa KHÔNG MÃ HÓA trên thiết bị này?"}
+  };
+  for (const l in T42) Object.assign(T[l] = T[l] || {}, T42[l]);
+
 
 
 
