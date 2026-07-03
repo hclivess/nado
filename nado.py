@@ -597,16 +597,20 @@ async def get_treasury_status(request):
         max_spend = bal * TREASURY_MAX_SPEND_BPS // BPS_DENOM
         props = []
         for pid, spend in kv_ops.treasury_proposals_all():
+            expiry = int(spend.get("expiry", 0))
+            executed = kv_ops.treasury_executed_exists(pid)
+            if not executed and h > expiry:
+                continue                                    # expired + never executed -> dead; skip (scales the list)
             voters = kv_ops.treasury_voters(pid)
             approving = sum(selection_shares(reg[v]["bonded"]) for v in voters if v in reg and _vote_activated(reg[v], epoch))
-            executed = kv_ops.treasury_executed_exists(pid)
             status = "executed" if executed else ("passed" if treasury_justified(pid, reg, epoch) else "open")
             amt = int(spend.get("amount", 0))
             props.append({"pid": pid, "recipient": spend.get("recipient"), "amount": amt,
-                          "memo": spend.get("memo", ""), "nonce": spend.get("nonce"),
-                          "approving_shares": approving, "voters": len(voters),
+                          "memo": spend.get("memo", ""), "nonce": spend.get("nonce"), "expiry": expiry,
+                          "expires_in": max(0, expiry - h), "approving_shares": approving, "voters": len(voters),
                           "status": status, "within_cap": amt <= max_spend})
         props.sort(key=lambda p: (p["status"] != "open", -p["approving_shares"]))
+        props = props[:50]                                  # cap the returned list (open/active first)
         return {"block_number": h, "epoch": epoch, "treasury": bal,
                 "total_activated_shares": total_activated,
                 "quorum_shares": (total_activated * SETTLE_NUM) // SETTLE_DEN,

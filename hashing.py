@@ -113,12 +113,13 @@ def unshield_leaf(addr, amount, nonce) -> bytes:
     return canonical_bytes(["unshield_withdrawal", addr, int(amount), nonce])
 
 
-def treasury_proposal_id(recipient, amount, memo, nonce) -> str:
+def treasury_proposal_id(recipient, amount, memo, nonce, expiry) -> str:
     """Deterministic id of a treasury_spend proposal (doc/treasury.md). Bonded validators vote on this id and a
-    treasury_execute pays it out once justified; binding the id to (recipient, amount, memo, nonce) means a vote
-    approves EXACTLY that payout and cannot be redirected, and `nonce` lets the same spend be re-proposed later.
-    Domain-tagged ('treasury_spend') so it cannot collide with any other id/leaf."""
-    return blake2b_hash(["treasury_spend", recipient, int(amount), memo, nonce])
+    treasury_execute pays it out once justified; binding the id to (recipient, amount, memo, nonce, expiry) means
+    a vote approves EXACTLY that payout — the same recipient, amount, AND expiry block — and cannot be redirected
+    or replayed past its deadline. `nonce` lets the same spend be re-proposed later; `expiry` is the last block at
+    which it may execute. Domain-tagged ('treasury_spend') so it cannot collide with any other id/leaf."""
+    return blake2b_hash(["treasury_spend", recipient, int(amount), memo, nonce, int(expiry)])
 
 
 if __name__ == "__main__":

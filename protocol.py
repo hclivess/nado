@@ -158,10 +158,14 @@ DIVIDEND_POOL = "dividend"   # reserved L1 account the dividend accrues to (O(1)
 # balance so no one passing vote can drain the vault (drain-resistant; the deliberately simple, bug-resistant
 # alternative to a trailing-average rate limit — see doc/treasury.md §5). Anti-hoard burn lands in a later change.
 TREASURY_MAX_SPEND_BPS = 2500   # a single proposal may spend at most 25.00% of the current treasury balance
+# A proposal binds an EXPIRY block into its id; votes and the payout must land at/before it, and it may sit at
+# most this many blocks past its target. Bounds stale execution (a long-dormant proposal can't be revived and
+# paid) AND state growth (the Quorum tab skips expired proposals) — keeps the governance queue scalable.
+TREASURY_PROPOSAL_MAX_TTL = 100800   # ~1 week of blocks at ~6 s (tune with block time)
 # Newly-bonded stake must AGE this many epochs before it counts toward a treasury vote — defeats a flash /
 # exchange-custodied bond swung in to capture a spend (Hive's fix). The quorum electorate is ACTIVATED bonded
 # stake only, so fresh stake neither approves nor dilutes; genesis stake (bond_since == 0) is already aged.
-TREASURY_VOTE_ACTIVATION_EPOCHS = 180   # ~1 day at defaults (== POSW_LEASE_EPOCHS)
+TREASURY_VOTE_ACTIVATION_EPOCHS = 3     # ALPHA testing value (was 180 ≈ 1 day) — RAISE to ~180 for mainnet
 # Anti-hoard self-burn (doc/treasury.md §3.2): every TREASURY_SPEND_PERIOD blocks, burn TREASURY_BURN_BPS of
 # the treasury balance ABOVE a floor so an un-deployed treasury actively shrinks (the Bismuth fix). Flat
 # Polkadot-style burn; the floor protects a nascent treasury. Revert-symmetric (the burned amount is stored).

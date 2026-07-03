@@ -2892,15 +2892,17 @@ function showTab(name) {
  * proposal once it passes the 2/3 activated-stake quorum. pid is computed client-side (byte-identical to the
  * node's hashing.treasury_proposal_id — verified), so a vote binds to EXACTLY the displayed spend.
  * -------------------------------------------------------------------------------------------- */
-function treasuryProposalId(recipient, amount, memo, nonce) {
-  return blake2bHash(["treasury_spend", recipient, amount, memo || "", nonce]);
+const TREASURY_PROPOSAL_TTL = 43200;   // default proposal lifetime in blocks (must be <= node TREASURY_PROPOSAL_MAX_TTL)
+function treasuryProposalId(recipient, amount, memo, nonce, expiry) {
+  return blake2bHash(["treasury_spend", recipient, amount, memo || "", nonce, expiry]);
 }
-async function submitTreasurySpend(kind, recipient, amountRaw, memo, nonce) {
+async function submitTreasurySpend(kind, recipient, amountRaw, memo, nonce, expiry) {
   const latest = await getLatestBlock();
   if (!latest || typeof latest.block_number !== "number") throw new Error("relay unavailable");
-  const spend = { recipient, amount: amountRaw, memo: memo || "", nonce };
+  const exp = (expiry != null) ? expiry : latest.block_number + TREASURY_PROPOSAL_TTL;   // propose -> fresh window
+  const spend = { recipient, amount: amountRaw, memo: memo || "", nonce, expiry: exp };
   const draft = { sender: state.wallet.address, recipient: kind, amount: 0, timestamp: nowSeconds(),
-    data: { pid: treasuryProposalId(recipient, amountRaw, memo, nonce), spend },
+    data: { pid: treasuryProposalId(recipient, amountRaw, memo, nonce, exp), spend },
     nonce: randNonce(), public_key: state.wallet.publicKey,
     target_block: latest.block_number + 8, chain_id: CHAIN_ID };
   return submitTransaction(finalizeTransaction(draft, state.wallet.privateKey, MIN_TX_FEE));
@@ -2927,7 +2929,7 @@ async function proposeSpend() {
 }
 async function _qAct(kind, p) {
   try {
-    const res = await submitTreasurySpend(kind, p.recipient, p.amount, p.memo, p.nonce);
+    const res = await submitTreasurySpend(kind, p.recipient, p.amount, p.memo, p.nonce, p.expiry);
     if (res.ok) setTimeout(() => renderQuorum().catch(() => {}), 1500);
     else uiAlert((res.data && res.data.message) || i18("quorum.rejected", "Rejected"));
   } catch (e) { uiAlert(e.message); }
@@ -2943,7 +2945,17 @@ async function renderQuorum() {
   if ($("qTreasury")) $("qTreasury").textContent = rawToNado(BigInt(d.treasury || 0)) + " NADO";
   if ($("qMaxSpend")) $("qMaxSpend").textContent = rawToNado(BigInt(d.max_spend || 0)) + " NADO";
   if ($("qBurn")) $("qBurn").textContent = "#" + (d.next_burn_block || 0);
+  // voter eligibility: only bonded (savings-lane) stake may propose or vote
+  let bonded = 0n;
+  try { const acc = await getAccount(state.wallet.address); bonded = BigInt((acc && acc.bonded) || 0); } catch (e) {}
+  const canPropose = bonded >= B_MIN_RAW;
   const total = num(d.total_activated_shares) || 0;
+  if ($("qPropBtn")) $("qPropBtn").disabled = !canPropose;
+  if ($("qStatus")) {
+    if (!canPropose) $("qStatus").innerHTML = '<span class="warn">' + i18("quorum.needBond", "Bond stake in the Savings tab to propose or vote (100 NADO minimum).") + "</span>";
+    else if (total === 0) $("qStatus").innerHTML = '<span class="faint">' + i18("quorum.aging", "Bonded ✓ — your stake counts toward votes once it passes the activation window.") + "</span>";
+    else $("qStatus").innerHTML = '<span class="ok">' + i18("quorum.canVote", "You can propose and vote (bonded ✓).") + "</span>";
+  }
   const props = d.proposals || [];
   if (!props.length) { box.innerHTML = `<p class="small faint">${i18("quorum.none", "No proposals yet.")}</p>`; return; }
   box.innerHTML = props.map((p, i) => {
@@ -2951,8 +2963,8 @@ async function renderQuorum() {
     const pct = total > 0 ? Math.min(100, Math.round(appr * 100 / total)) : 0;
     const stKey = p.status === "executed" ? "quorum.executed" : (p.status === "passed" ? "quorum.passed" : "quorum.open");
     const stEn = p.status === "executed" ? "paid ✓" : (p.status === "passed" ? "passed — ready" : "open");
-    const canVote = state.wallet && p.status === "open";
-    const canExec = state.wallet && p.status === "passed" && p.within_cap;
+    const canVote = canPropose && p.status === "open";
+    const canExec = canPropose && p.status === "passed" && p.within_cap;
     return `<div class="stat mt" style="text-align:left">
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
         <b>${rawToNado(BigInt(p.amount || 0))} NADO</b>

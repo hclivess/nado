@@ -201,18 +201,19 @@ def construct_settle_tx(keydict, exec_cursor, state_root, target_block):
     return tx
 
 
-def _treasury_spend_body(recipient, amount, memo, nonce):
+def _treasury_spend_body(recipient, amount, memo, nonce, expiry):
     from hashing import treasury_proposal_id
     memo = memo or ""
-    return {"pid": treasury_proposal_id(recipient, amount, memo, nonce),
-            "spend": {"recipient": recipient, "amount": int(amount), "memo": memo, "nonce": nonce}}
+    return {"pid": treasury_proposal_id(recipient, amount, memo, nonce, expiry),
+            "spend": {"recipient": recipient, "amount": int(amount), "memo": memo, "nonce": nonce, "expiry": int(expiry)}}
 
 
-def construct_treasury_vote_tx(keydict, recipient, amount, memo, nonce, target_block, fee=None):
+def construct_treasury_vote_tx(keydict, recipient, amount, memo, nonce, target_block, expiry, fee=None):
     """Build a SIGNED treasury APPROVAL vote (doc/treasury.md §3.3): recipient 'treasury_vote', cast by a bonded
-    validator. Carries a small anti-spam FEE + the full spend + its id, so the vote binds to EXACTLY that payout."""
+    validator. Carries a small anti-spam FEE + the full spend + its id, so the vote binds to EXACTLY that payout
+    (recipient, amount, AND expiry block)."""
     tx = {"sender": keydict["address"], "recipient": "treasury_vote", "amount": 0,
-          "timestamp": get_timestamp_seconds(), "data": _treasury_spend_body(recipient, amount, memo, nonce),
+          "timestamp": get_timestamp_seconds(), "data": _treasury_spend_body(recipient, amount, memo, nonce, expiry),
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": int(MIN_TX_FEE if fee is None else fee)}
     tx["txid"] = create_txid(tx)
@@ -220,11 +221,11 @@ def construct_treasury_vote_tx(keydict, recipient, amount, memo, nonce, target_b
     return tx
 
 
-def construct_treasury_execute_tx(keydict, recipient, amount, memo, nonce, target_block, fee=None):
+def construct_treasury_execute_tx(keydict, recipient, amount, memo, nonce, target_block, expiry, fee=None):
     """Build a SIGNED treasury PAYOUT trigger (doc/treasury.md §3.3): recipient 'treasury_execute'. Carries a small
-    anti-spam FEE. Pays the proposal out once the bonded quorum has approved it; anyone may submit it."""
+    anti-spam FEE. Pays the proposal out once the bonded quorum has approved it (and only at/before its expiry)."""
     tx = {"sender": keydict["address"], "recipient": "treasury_execute", "amount": 0,
-          "timestamp": get_timestamp_seconds(), "data": _treasury_spend_body(recipient, amount, memo, nonce),
+          "timestamp": get_timestamp_seconds(), "data": _treasury_spend_body(recipient, amount, memo, nonce, expiry),
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": int(MIN_TX_FEE if fee is None else fee)}
     tx["txid"] = create_txid(tx)
@@ -569,21 +570,26 @@ def validate_transaction(transaction, logger, block_height):
         # Sybil faucet). The vote carries the full spend so its id is verifiable + displayable; the id binds
         # the approval to EXACTLY that payout, so a passing vote can never be redirected.
         from hashing import treasury_proposal_id
-        from protocol import RESERVED_RECIPIENTS
+        from protocol import RESERVED_RECIPIENTS, TREASURY_PROPOSAL_MAX_TTL
         assert transaction["amount"] == 0, "treasury_vote must have zero amount"
         assert transaction["fee"] >= MIN_TX_FEE, f"treasury_vote fee below minimum {MIN_TX_FEE}"   # not free -> no spam faucet
         data = transaction.get("data") or {}
         spend, pid = data.get("spend") or {}, data.get("pid")
-        sr, sa, memo, snonce = spend.get("recipient"), spend.get("amount"), spend.get("memo", ""), spend.get("nonce")
+        sr, sa, memo, snonce, sexpiry = spend.get("recipient"), spend.get("amount"), spend.get("memo", ""), spend.get("nonce"), spend.get("expiry")
         assert isinstance(sr, str) and sr.startswith("ndo") and len(sr) == 49, "treasury spend recipient must be a normal address"
         assert sr not in RESERVED_RECIPIENTS, "treasury spend recipient cannot be a reserved recipient"
         assert isinstance(sa, int) and not isinstance(sa, bool) and sa > 0, "treasury spend amount must be a positive int"
         assert isinstance(snonce, str) and 0 < len(snonce) <= 64, "treasury spend nonce must be 1..64 chars"
         assert isinstance(memo, str) and len(memo) <= 256, "treasury spend memo must be a string (<= 256 chars)"
-        assert pid == treasury_proposal_id(sr, sa, memo, snonce), "pid does not match the spend content"
+        assert isinstance(sexpiry, int) and not isinstance(sexpiry, bool) and sexpiry > 0, "treasury spend needs a positive int expiry block"
+        assert pid == treasury_proposal_id(sr, sa, memo, snonce, sexpiry), "pid does not match the spend content"
         acc = get_account(transaction["sender"], create_on_error=False)
         assert acc and acc.get("bonded", 0) >= B_MIN, "treasury_vote sender is not a bonded validator"
         assert acc.get("balance", 0) >= transaction["fee"], "treasury_vote sender cannot afford the fee"
+        # the proposal's expiry must be in the future (you can't vote on an already-expired proposal) and no more
+        # than TREASURY_PROPOSAL_MAX_TTL out — bounds stale execution + the size of the live proposal set.
+        assert transaction["target_block"] <= sexpiry <= transaction["target_block"] + TREASURY_PROPOSAL_MAX_TTL, \
+            "proposal expiry must be >= this block and <= this block + TREASURY_PROPOSAL_MAX_TTL"
         assert not kv_ops.treasury_vote_exists(pid, transaction["sender"]), "validator already voted on this proposal"
     elif recipient == "treasury_execute":
         # TREASURY PAYOUT (doc/treasury.md §3.3): pay out a proposal the bonded quorum APPROVED. Anyone may
@@ -599,13 +605,15 @@ def validate_transaction(transaction, logger, block_height):
         assert transaction["fee"] >= MIN_TX_FEE, f"treasury_execute fee below minimum {MIN_TX_FEE}"
         data = transaction.get("data") or {}
         spend, pid = data.get("spend") or {}, data.get("pid")
-        sr, sa, memo, snonce = spend.get("recipient"), spend.get("amount"), spend.get("memo", ""), spend.get("nonce")
+        sr, sa, memo, snonce, sexpiry = spend.get("recipient"), spend.get("amount"), spend.get("memo", ""), spend.get("nonce"), spend.get("expiry")
         assert isinstance(sr, str) and sr.startswith("ndo") and len(sr) == 49, "bad treasury spend recipient"
         assert sr not in RESERVED_RECIPIENTS, "treasury spend recipient cannot be a reserved recipient"
         assert isinstance(sa, int) and not isinstance(sa, bool) and sa > 0, "bad treasury spend amount"
         assert isinstance(snonce, str) and 0 < len(snonce) <= 64 and isinstance(memo, str) and len(memo) <= 256, "bad treasury spend nonce/memo"
-        assert pid == treasury_proposal_id(sr, sa, memo, snonce), "pid does not match the spend content"
+        assert isinstance(sexpiry, int) and not isinstance(sexpiry, bool) and sexpiry > 0, "treasury spend needs a positive int expiry block"
+        assert pid == treasury_proposal_id(sr, sa, memo, snonce, sexpiry), "pid does not match the spend content"
         assert not kv_ops.treasury_executed_exists(pid), "this proposal was already executed"
+        assert transaction["target_block"] <= sexpiry, "this proposal has expired (past its bound expiry block)"
         sender_acc = get_account(transaction["sender"], create_on_error=False)
         assert sender_acc and sender_acc.get("balance", 0) >= transaction["fee"], "treasury_execute sender cannot afford the fee"
         assert kv_ops.treasury_voters(pid), "no votes recorded for this proposal"          # cheap gate BEFORE the O(N) scan

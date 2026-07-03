@@ -96,7 +96,9 @@
   .card .ico{font-size:22px;margin-bottom:10px}
   .warn{background:rgba(0,173,147,.06);border:1px solid rgba(0,173,147,.25);border-radius:14px;padding:16px 18px;color:var(--muted);font-size:14.5px}
   .warn b{color:var(--txt)}
-  .steps{counter-reset:s;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px}
+  .steps{counter-reset:s;display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:14px}
+  /* on wide screens force all 5 steps onto one row (auto-fit alone leaves the 5th to wrap in the 1040px container) */
+  @media(min-width:900px){.steps{grid-template-columns:repeat(5,1fr)}}
   .step{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px 22px 22px 22px}
   .step::before{counter-increment:s;content:counter(s);display:grid;place-items:center;width:30px;height:30px;
     border-radius:9px;background:linear-gradient(135deg,var(--deep),var(--accent));color:#04110a;font-weight:800;margin-bottom:12px}

@@ -1043,6 +1043,27 @@
   };
   for (const l in T40) Object.assign(T[l] = T[l] || {}, T40[l]);
 
+  // T41: Quorum voter-eligibility status line.
+  const T41 = {
+    en:{"quorum.needBond":"Bond stake in the Savings tab to propose or vote (100 NADO minimum).","quorum.aging":"Bonded ✓ — your stake counts toward votes once it passes the activation window.","quorum.canVote":"You can propose and vote (bonded ✓)."},
+    cs:{"quorum.needBond":"Pro návrh nebo hlasování vložte stake v záložce Úspory (min. 100 NADO).","quorum.aging":"Vloženo ✓ — váš stake se do hlasování započítá po uplynutí aktivačního okna.","quorum.canVote":"Můžete navrhovat a hlasovat (vloženo ✓)."},
+    es:{"quorum.needBond":"Bloquea stake en la pestaña Ahorro para proponer o votar (mínimo 100 NADO).","quorum.aging":"Con stake ✓ — cuenta para votar cuando supere la ventana de activación.","quorum.canVote":"Puedes proponer y votar (con stake ✓)."},
+    pt:{"quorum.needBond":"Bloqueie stake na aba Poupança para propor ou votar (mínimo 100 NADO).","quorum.aging":"Com stake ✓ — conta para votos após passar a janela de ativação.","quorum.canVote":"Você pode propor e votar (com stake ✓)."},
+    fr:{"quorum.needBond":"Bloquez une mise dans l'onglet Épargne pour proposer ou voter (100 NADO min).","quorum.aging":"Misé ✓ — votre mise compte pour les votes une fois la fenêtre d'activation passée.","quorum.canVote":"Vous pouvez proposer et voter (misé ✓)."},
+    de:{"quorum.needBond":"Binde Stake im Sparen-Tab, um vorzuschlagen oder abzustimmen (min. 100 NADO).","quorum.aging":"Gebunden ✓ — dein Stake zählt für Stimmen nach Ablauf des Aktivierungsfensters.","quorum.canVote":"Du kannst vorschlagen und abstimmen (gebunden ✓)."},
+    it:{"quorum.needBond":"Vincola stake nella scheda Risparmio per proporre o votare (minimo 100 NADO).","quorum.aging":"Vincolato ✓ — il tuo stake conta per i voti dopo la finestra di attivazione.","quorum.canVote":"Puoi proporre e votare (vincolato ✓)."},
+    ru:{"quorum.needBond":"Заблокируйте стейк во вкладке «Сбережения», чтобы предлагать или голосовать (мин. 100 NADO).","quorum.aging":"Застейкано ✓ — ваш стейк учитывается в голосах после окна активации.","quorum.canVote":"Вы можете предлагать и голосовать (застейкано ✓)."},
+    zh:{"quorum.needBond":"在储蓄标签页质押后才能提案或投票（至少 100 NADO）。","quorum.aging":"已质押 ✓ —— 通过激活窗口后，你的质押即计入投票。","quorum.canVote":"你可以提案和投票（已质押 ✓）。"},
+    ja:{"quorum.needBond":"提案・投票するには貯蓄タブでステークをボンドしてください（最低 100 NADO）。","quorum.aging":"ボンド済み ✓ — アクティベーション期間を過ぎると投票に反映されます。","quorum.canVote":"提案と投票ができます（ボンド済み ✓）。"},
+    ko:{"quorum.needBond":"제안하거나 투표하려면 저축 탭에서 스테이크를 예치하세요(최소 100 NADO).","quorum.aging":"예치됨 ✓ — 활성화 기간이 지나면 투표에 반영됩니다.","quorum.canVote":"제안하고 투표할 수 있습니다(예치됨 ✓)."},
+    ar:{"quorum.needBond":"ارهن حصة في تبويب المدخرات لتقترح أو تصوّت (100 NADO كحد أدنى).","quorum.aging":"مرهون ✓ — تُحتسب حصتك في التصويت بعد انقضاء نافذة التفعيل.","quorum.canVote":"يمكنك الاقتراح والتصويت (مرهون ✓)."},
+    hi:{"quorum.needBond":"प्रस्ताव या वोट के लिए Savings टैब में स्टेक बॉन्ड करें (न्यूनतम 100 NADO)।","quorum.aging":"बॉन्डेड ✓ — सक्रियण अवधि पार करने पर आपका स्टेक वोटों में गिना जाएगा।","quorum.canVote":"आप प्रस्ताव और वोट कर सकते हैं (बॉन्डेड ✓)।"},
+    tr:{"quorum.needBond":"Öneri sunmak veya oy vermek için Tasarruf sekmesinde stake bağlayın (en az 100 NADO).","quorum.aging":"Bağlandı ✓ — etkinleştirme penceresini geçince oylara sayılır.","quorum.canVote":"Öneri sunabilir ve oy verebilirsiniz (bağlandı ✓)."},
+    id:{"quorum.needBond":"Kunci stake di tab Tabungan untuk mengusulkan atau memilih (minimal 100 NADO).","quorum.aging":"Ter-stake ✓ — dihitung untuk suara setelah melewati jendela aktivasi.","quorum.canVote":"Anda dapat mengusulkan dan memilih (ter-stake ✓)."},
+    vi:{"quorum.needBond":"Khóa stake ở tab Tiết kiệm để đề xuất hoặc bỏ phiếu (tối thiểu 100 NADO).","quorum.aging":"Đã khóa ✓ — stake của bạn được tính vào phiếu sau khi qua cửa sổ kích hoạt.","quorum.canVote":"Bạn có thể đề xuất và bỏ phiếu (đã khóa ✓)."}
+  };
+  for (const l in T41) Object.assign(T[l] = T[l] || {}, T41[l]);
+
 
 
 
