@@ -41,7 +41,7 @@ TREASURY_START = 1000 * B_MIN
 create_account(TREASURY_ADDRESS, balance=TREASURY_START)
 VS = [generate_keys() for _ in range(4)]
 for v in VS:
-    create_account(v["address"], bonded=B_MIN)
+    create_account(v["address"], balance=10 * B_MIN, bonded=B_MIN)   # spendable balance for the anti-spam vote/execute fees
 GRANTEE = generate_keys()["address"]
 AMOUNT = TREASURY_START // 10                      # 10% of balance — under the 25% cap
 MEMO, NONCE = "core dev grant Q3", "p1"
@@ -128,7 +128,7 @@ def t7_fresh_stake_is_outside_the_electorate():
     # ANTI-FLASH-CAPTURE: a whale that bonds a huge stake and votes cannot swing a proposal until the stake has
     # aged TREASURY_VOTE_ACTIVATION_EPOCHS — fresh stake is outside the electorate (neither approves nor dilutes).
     whale = generate_keys()
-    create_account(whale["address"], bonded=100 * B_MIN)         # 100x the aged validators' stake...
+    create_account(whale["address"], balance=10 * B_MIN, bonded=100 * B_MIN)   # 100x the aged validators' stake...
     kv_ops.bond_since_put(whale["address"], CUR - 10)            # ...but bonded only 10 epochs ago (< 180 activation)
     memo, nonce = "capture attempt", "p5"
     pid = treasury_proposal_id(GRANTEE, AMOUNT, memo, nonce)
@@ -138,6 +138,18 @@ def t7_fresh_stake_is_outside_the_electorate():
     for v in VS:                                                 # ...but the aged validators decide it
         _vote(v, memo=memo, nonce=nonce)
     assert treasury_justified(pid, get_bonded_registry(), CUR), "aged 2/3 approves; the fresh whale is ignored"
+
+def t8_topup_after_vote_does_not_inflate_weight():
+    # HIGH-fix regression: an approval counts at the weight the voter had WHEN IT VOTED (snapshot), so flashing
+    # up the bond AFTER voting cannot inflate it (the anti-flash-capture guarantee).
+    voter = VS[3]; addr = voter["address"]
+    memo, nonce = "topup attempt", "p6"
+    pid = treasury_proposal_id(GRANTEE, AMOUNT, memo, nonce)
+    _vote(voter, memo=memo, nonce=nonce)
+    w_snap = kv_ops.treasury_vote_weight(pid, addr)
+    assert w_snap > 0, "the voter's activated weight was snapshotted at vote time"
+    kv_ops.account_adjust(addr, "bonded", 99 * B_MIN)            # flash top-up to ~100x AFTER voting
+    assert kv_ops.treasury_vote_weight(pid, addr) == w_snap, "post-vote top-up must NOT inflate the snapshot weight"
 
 for name, fn in sorted(globals().items()):
     if name.startswith("t") and callable(fn) and len(name) > 1 and name[1].isdigit():

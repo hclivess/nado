@@ -65,15 +65,12 @@ def treasury_justified(pid: str, bonded_registry: dict, current_epoch: int) -> b
     stake that has aged past TREASURY_VOTE_ACTIVATION_EPOCHS, so freshly-bonded stake neither approves NOR
     dilutes the vote. Sole authorization for a treasury_execute payout; the bonded lane IS the multisig.
     (doc/treasury.md §3.3)"""
-    voters = set(kv_ops.treasury_voters(pid))
-    total, approving = 0, 0
-    for validator, info in bonded_registry.items():
-        if not _vote_activated(info, current_epoch):
-            continue                                            # fresh stake: outside the electorate entirely
-        w = selection_shares(info["bonded"])
-        total += w
-        if validator in voters:
-            approving += w
+    # DENOMINATOR: the live activated electorate (fresh stake is outside it entirely).
+    total = sum(selection_shares(info["bonded"]) for info in bonded_registry.values() if _vote_activated(info, current_epoch))
     if total == 0:
         return False
+    # NUMERATOR: each approval counted at the weight SNAPSHOTTED when the vote was cast (not the live weight),
+    # so topping up bonded stake AFTER voting cannot inflate an approval, and a voter who has since unbonded
+    # below B_MIN (not in bonded_registry) contributes nothing.
+    approving = sum(kv_ops.treasury_vote_weight(pid, v) for v in kv_ops.treasury_voters(pid) if v in bonded_registry)
     return approving * SETTLE_DEN > total * SETTLE_NUM

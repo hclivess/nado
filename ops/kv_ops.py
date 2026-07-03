@@ -629,20 +629,29 @@ def treasury_vote_exists(pid: str, validator: str) -> bool:
     return meta_get_int(f"tvote:{pid}:{validator}", 0) == 1
 
 
-def treasury_vote_put(pid: str, validator: str):
-    """Record a bonded validator's approval vote for treasury proposal `pid`."""
+def treasury_vote_put(pid: str, validator: str, weight: int):
+    """Record a bonded validator's approval vote for treasury proposal `pid`, with the ACTIVATED vote weight
+    SNAPSHOTTED at vote time. treasury_justified sums these stored weights, so a validator that tops up its
+    bond AFTER voting cannot inflate its approval (the anti-flash-capture guarantee)."""
     def _do(txn):
         txn.put(pid.encode(), validator.encode(), db=_dbs()["treasury_votes"], dupdata=True)
     _write(_do)
     meta_set_int(f"tvote:{pid}:{validator}", 1)
+    meta_set_int(f"tvw:{pid}:{validator}", int(weight))
 
 
 def treasury_vote_del(pid: str, validator: str):
-    """Revert treasury_vote_put exactly (rollback): delete the DUPSORT row + the uniqueness marker."""
+    """Revert treasury_vote_put exactly (rollback): delete the DUPSORT row + the uniqueness + weight markers."""
     def _do(txn):
         txn.delete(pid.encode(), validator.encode(), db=_dbs()["treasury_votes"])
     _write(_do)
     meta_del(f"tvote:{pid}:{validator}")
+    meta_del(f"tvw:{pid}:{validator}")
+
+
+def treasury_vote_weight(pid: str, validator: str) -> int:
+    """The ACTIVATED weight `validator` had when it voted for `pid` (snapshot; 0 if it wasn't activated then)."""
+    return meta_get_int(f"tvw:{pid}:{validator}", 0)
 
 
 def treasury_voters(pid: str):

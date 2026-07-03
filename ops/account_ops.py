@@ -236,12 +236,21 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     # treasury_spend proposal. The quorum is a derived read (treasury_justified), so nothing else to persist.
     # Revert-symmetric via treasury_vote_del. ---
     if recipient == "treasury_vote":
+        change_balance(address=sender, amount=-fee, logger=logger, revert=revert)   # burn the anti-spam vote fee
         data = transaction.get("data") or {}
         pid = data["pid"]
         if revert:
             kv_ops.treasury_vote_del(pid, sender)
         else:
-            kv_ops.treasury_vote_put(pid, sender)
+            # SNAPSHOT the voter's activated weight NOW (at vote time) so a later top-up can't inflate this
+            # approval. Activated = bond aged past TREASURY_VOTE_ACTIVATION_EPOCHS at this block's epoch.
+            from ops.settlement_ops import _vote_activated
+            from ops.mining_ops import selection_shares, epoch_of
+            acc = get_account(sender, create_on_error=False)
+            info = {"bonded": int(acc.get("bonded", 0)) if acc else 0, "bond_since": kv_ops.bond_since_get(sender)}
+            vote_epoch = epoch_of(block_height) if block_height is not None else 0
+            w = selection_shares(info["bonded"]) if _vote_activated(info, vote_epoch) else 0
+            kv_ops.treasury_vote_put(pid, sender, w)
             if data.get("spend"):
                 kv_ops.treasury_proposal_put(pid, data["spend"])   # non-consensus display index (idempotent)
         return
@@ -253,6 +262,7 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         data = transaction.get("data") or {}
         spend, pid = data["spend"], data["pid"]
         amt, rcpt = int(spend["amount"]), spend["recipient"]
+        change_balance(address=sender, amount=-fee, logger=logger, revert=revert)   # burn the executor's fee
         change_balance(address=TREASURY_ADDRESS, amount=-amt, logger=logger, revert=revert)
         change_balance(address=rcpt, amount=amt, logger=logger, revert=revert)
         if revert:
@@ -397,7 +407,9 @@ def apply_bond_since(address, delta, block_height, txid, revert=False):
     new_bonded = int(kv_ops.get_account(address).get("bonded", 0))   # AFTER change_bonded
     old_bonded = new_bonded - int(delta)
     if old_bonded <= 0:
-        new_since = epoch                                  # genuine first bond from zero -> age starts now
+        # A genuine first bond ages from now. Never record exactly 0 (that's the genesis/unset sentinel meaning
+        # "fully aged" for the treasury-vote activation gate) — an epoch-0 bonder must still age normally.
+        new_since = max(1, epoch)
     else:
         # TOP-UP of an existing stake — blend ages, stake-weighted. A genesis/pre-existing stake has an unset
         # age (None) which means FULLY AGED, so treat its age as epoch 0 here (do NOT mistake it for a first

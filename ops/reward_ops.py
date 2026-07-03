@@ -75,6 +75,16 @@ def apply_treasury_burn(block, logger, revert=False):
     bal = int(acc.get("balance", 0)) if acc else 0
     burned = max(0, bal - TREASURY_RUNWAY_FLOOR) * TREASURY_BURN_BPS // BPS_DENOM
     if burned > 0:
+        # Don't burn a treasury that CANNOT be spent: with no ACTIVATED electorate the quorum can't execute any
+        # payout, so burning would just strand + destroy funds (a griefer churning the electorate could bleed it).
+        # Pause the burn until an electorate exists (e.g. at launch, or after a full stake rotation ages back in).
+        from ops.account_ops import get_bonded_registry
+        from ops.settlement_ops import _vote_activated
+        from ops.mining_ops import epoch_of, selection_shares
+        reg = get_bonded_registry()
+        ep = epoch_of(h)
+        if sum(selection_shares(i["bonded"]) for i in reg.values() if _vote_activated(i, ep)) == 0:
+            return
         change_balance(address=TREASURY_ADDRESS, amount=-burned, revert=False, logger=logger)        # destroy
         index_totals(produced=0, fees=burned, block_height=h)                                         # book the burn
         kv_ops.treasury_burn_put(h, burned)

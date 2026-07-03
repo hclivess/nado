@@ -208,25 +208,25 @@ def _treasury_spend_body(recipient, amount, memo, nonce):
             "spend": {"recipient": recipient, "amount": int(amount), "memo": memo, "nonce": nonce}}
 
 
-def construct_treasury_vote_tx(keydict, recipient, amount, memo, nonce, target_block):
-    """Build a SIGNED treasury APPROVAL vote (doc/treasury.md §3.3): recipient 'treasury_vote', fee-exempt,
-    cast by a bonded validator. Carries the full spend + its id so the vote binds to EXACTLY that payout."""
+def construct_treasury_vote_tx(keydict, recipient, amount, memo, nonce, target_block, fee=None):
+    """Build a SIGNED treasury APPROVAL vote (doc/treasury.md §3.3): recipient 'treasury_vote', cast by a bonded
+    validator. Carries a small anti-spam FEE + the full spend + its id, so the vote binds to EXACTLY that payout."""
     tx = {"sender": keydict["address"], "recipient": "treasury_vote", "amount": 0,
           "timestamp": get_timestamp_seconds(), "data": _treasury_spend_body(recipient, amount, memo, nonce),
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
+          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": int(MIN_TX_FEE if fee is None else fee)}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
 
 
-def construct_treasury_execute_tx(keydict, recipient, amount, memo, nonce, target_block):
-    """Build a SIGNED treasury PAYOUT trigger (doc/treasury.md §3.3): recipient 'treasury_execute', fee-exempt.
-    Pays the proposal out once the bonded quorum has approved it; anyone may submit it."""
+def construct_treasury_execute_tx(keydict, recipient, amount, memo, nonce, target_block, fee=None):
+    """Build a SIGNED treasury PAYOUT trigger (doc/treasury.md §3.3): recipient 'treasury_execute'. Carries a small
+    anti-spam FEE. Pays the proposal out once the bonded quorum has approved it; anyone may submit it."""
     tx = {"sender": keydict["address"], "recipient": "treasury_execute", "amount": 0,
           "timestamp": get_timestamp_seconds(), "data": _treasury_spend_body(recipient, amount, memo, nonce),
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
+          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": int(MIN_TX_FEE if fee is None else fee)}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
@@ -565,46 +565,50 @@ def validate_transaction(transaction, logger, block_height):
         from hashing import treasury_proposal_id
         from protocol import RESERVED_RECIPIENTS
         assert transaction["amount"] == 0, "treasury_vote must have zero amount"
-        assert transaction["fee"] == 0, "treasury_vote is fee-exempt (fee must be 0)"
+        assert transaction["fee"] >= MIN_TX_FEE, f"treasury_vote fee below minimum {MIN_TX_FEE}"   # not free -> no spam faucet
         data = transaction.get("data") or {}
         spend, pid = data.get("spend") or {}, data.get("pid")
         sr, sa, memo, snonce = spend.get("recipient"), spend.get("amount"), spend.get("memo", ""), spend.get("nonce")
         assert isinstance(sr, str) and sr.startswith("ndo") and len(sr) == 49, "treasury spend recipient must be a normal address"
         assert sr not in RESERVED_RECIPIENTS, "treasury spend recipient cannot be a reserved recipient"
         assert isinstance(sa, int) and not isinstance(sa, bool) and sa > 0, "treasury spend amount must be a positive int"
-        assert isinstance(snonce, str) and snonce, "treasury spend needs a non-empty string nonce"
+        assert isinstance(snonce, str) and 0 < len(snonce) <= 64, "treasury spend nonce must be 1..64 chars"
         assert isinstance(memo, str) and len(memo) <= 256, "treasury spend memo must be a string (<= 256 chars)"
         assert pid == treasury_proposal_id(sr, sa, memo, snonce), "pid does not match the spend content"
         acc = get_account(transaction["sender"], create_on_error=False)
         assert acc and acc.get("bonded", 0) >= B_MIN, "treasury_vote sender is not a bonded validator"
+        assert acc.get("balance", 0) >= transaction["fee"], "treasury_vote sender cannot afford the fee"
         assert not kv_ops.treasury_vote_exists(pid, transaction["sender"]), "validator already voted on this proposal"
     elif recipient == "treasury_execute":
         # TREASURY PAYOUT (doc/treasury.md §3.3): pay out a proposal the bonded quorum APPROVED. Anyone may
-        # trigger it (the payout goes to the proposal's recipient regardless of who submits). Fee-exempt.
-        # Gated on: the 2/3 bonded quorum, a per-proposal cap vs the CURRENT treasury balance (drain-resistant),
-        # treasury funding, and a one-shot nullifier so a pid pays out at most once.
+        # trigger it. Carries a FEE (so an execute-flood — each forces an O(accounts) registry scan — isn't free).
+        # Gated on: the 2/3 bonded quorum, a per-proposal cap vs the CURRENT treasury balance, funding, and a
+        # one-shot nullifier. CHEAP checks run FIRST; the registry-scanning quorum check runs LAST.
         from hashing import treasury_proposal_id
         from ops.settlement_ops import treasury_justified
         from ops.account_ops import get_bonded_registry
         from ops.mining_ops import epoch_of
         from protocol import TREASURY_ADDRESS, TREASURY_MAX_SPEND_BPS, BPS_DENOM, RESERVED_RECIPIENTS
         assert transaction["amount"] == 0, "treasury_execute carries no L1 amount (amount is in data)"
-        assert transaction["fee"] == 0, "treasury_execute is fee-exempt"
+        assert transaction["fee"] >= MIN_TX_FEE, f"treasury_execute fee below minimum {MIN_TX_FEE}"
         data = transaction.get("data") or {}
         spend, pid = data.get("spend") or {}, data.get("pid")
         sr, sa, memo, snonce = spend.get("recipient"), spend.get("amount"), spend.get("memo", ""), spend.get("nonce")
         assert isinstance(sr, str) and sr.startswith("ndo") and len(sr) == 49, "bad treasury spend recipient"
         assert sr not in RESERVED_RECIPIENTS, "treasury spend recipient cannot be a reserved recipient"
         assert isinstance(sa, int) and not isinstance(sa, bool) and sa > 0, "bad treasury spend amount"
-        assert isinstance(snonce, str) and snonce and isinstance(memo, str), "bad treasury spend nonce/memo"
+        assert isinstance(snonce, str) and 0 < len(snonce) <= 64 and isinstance(memo, str) and len(memo) <= 256, "bad treasury spend nonce/memo"
         assert pid == treasury_proposal_id(sr, sa, memo, snonce), "pid does not match the spend content"
         assert not kv_ops.treasury_executed_exists(pid), "this proposal was already executed"
-        assert treasury_justified(pid, get_bonded_registry(), epoch_of(transaction["target_block"])), \
-            "treasury proposal has not reached the bonded quorum"
+        sender_acc = get_account(transaction["sender"], create_on_error=False)
+        assert sender_acc and sender_acc.get("balance", 0) >= transaction["fee"], "treasury_execute sender cannot afford the fee"
+        assert kv_ops.treasury_voters(pid), "no votes recorded for this proposal"          # cheap gate BEFORE the O(N) scan
         treasury = get_account(TREASURY_ADDRESS, create_on_error=False)
         bal = treasury.get("balance", 0) if treasury else 0
         assert bal >= sa, "treasury underfunded for this payout"
         assert sa * BPS_DENOM <= bal * TREASURY_MAX_SPEND_BPS, "treasury spend exceeds the per-proposal cap (% of balance)"
+        assert treasury_justified(pid, get_bonded_registry(), epoch_of(transaction["target_block"])), \
+            "treasury proposal has not reached the bonded quorum"
     elif recipient == "htlc_lock":
         # HTLC LOCK (cross-chain atomic swap): escrow `amount` under a SHA-256 hashlock + block-height timelock.
         data = transaction.get("data") or {}

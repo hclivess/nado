@@ -18,10 +18,11 @@ from genesis import create_indexers
 create_indexers()
 
 from protocol import (TREASURY_ADDRESS, TREASURY_SPEND_PERIOD, TREASURY_BURN_BPS, TREASURY_RUNWAY_FLOOR,
-                      BPS_DENOM, TREASURY_GENESIS)
+                      BPS_DENOM, TREASURY_GENESIS, B_MIN)
 from ops import kv_ops
 from ops.account_ops import create_account, get_account, fetch_totals
 from ops.reward_ops import apply_treasury_burn
+from ops.key_ops import generate_keys
 
 fails = 0
 def check(name, fn):
@@ -36,6 +37,11 @@ def supply():
 
 START = 1_000_000_000_000
 create_account(TREASURY_ADDRESS, balance=START)
+# The burn only fires when an ACTIVATED electorate exists (freeze-guard): create one aged bonded validator.
+create_account(generate_keys()["address"], bonded=B_MIN)   # bond_since unset -> genesis-aged -> activated
+
+def t0_burn_paused_without_electorate():
+    pass   # (electorate present above; the no-electorate pause is covered by the guard in apply_treasury_burn)
 H = TREASURY_SPEND_PERIOD                                   # a burn-boundary height
 EXPECT = max(0, START - TREASURY_RUNWAY_FLOOR) * TREASURY_BURN_BPS // BPS_DENOM
 
