@@ -904,6 +904,19 @@
   };
   for (const l in T33) Object.assign(T[l] = T[l] || {}, T33[l]);
 
+  // T34: auto-bond input suffix ("% of new rewards -> bonded"), all 16 langs.
+  const T34 = {
+    en:{"stake.autobondSuffix":"% of new rewards → bonded"}, cs:{"stake.autobondSuffix":"% nových odměn → vázáno"},
+    es:{"stake.autobondSuffix":"% de las nuevas recompensas → bloqueado"}, pt:{"stake.autobondSuffix":"% das novas recompensas → vinculado"},
+    fr:{"stake.autobondSuffix":"% des nouvelles récompenses → bloqué"}, de:{"stake.autobondSuffix":"% der neuen Belohnungen → gebunden"},
+    it:{"stake.autobondSuffix":"% delle nuove ricompense → vincolato"}, ru:{"stake.autobondSuffix":"% новых наград → в стейк"},
+    zh:{"stake.autobondSuffix":"新奖励的 % → 质押"}, ja:{"stake.autobondSuffix":"新規報酬の % → ボンド"},
+    ko:{"stake.autobondSuffix":"새 보상의 % → 본드"}, ar:{"stake.autobondSuffix":"% من المكافآت الجديدة → مربوط"},
+    hi:{"stake.autobondSuffix":"नई इनाम का % → बॉन्ड"}, tr:{"stake.autobondSuffix":"yeni ödüllerin %'si → bağlı"},
+    id:{"stake.autobondSuffix":"% dari imbalan baru → terikat"}, vi:{"stake.autobondSuffix":"% phần thưởng mới → ràng buộc"}
+  };
+  for (const l in T34) Object.assign(T[l] = T[l] || {}, T34[l]);
+
 
 
 

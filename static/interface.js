@@ -384,7 +384,10 @@ function relayBase() { return (state.relay || location.origin).replace(/\/+$/, "
 function execBase() {
   if (state.execUrl) return state.execUrl.replace(/\/+$/, "");
   const b = relayBase();
-  return /:\d+$/.test(b) ? b.replace(/:\d+$/, ":9273") : b + ":9273";
+  // Relay reached on an explicit port (a direct node, e.g. http://ip:9173) -> the exec node is on :9273 of the
+  // same host. Relay reached with NO port (served behind a reverse proxy on 80/443, e.g. https://get.nadochain.com)
+  // -> the exec node is proxied at /exec on the SAME origin, so keep the origin as-is.
+  return /:\d+$/.test(b) ? b.replace(/:\d+$/, ":9273") : b;
 }
 
 /* PRESENCE DIVIDEND (doc/presence-dividend.md). accrued lives off-L1 on the execution node; "Collect" submits

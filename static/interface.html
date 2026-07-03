@@ -160,7 +160,7 @@
     <h2 data-i18n="wallet.title">Wallet <span class="pill"><span id="walBadge" class="badge idle">—</span></span></h2>
     <label data-i18n="lbl.address">Address</label>
     <div class="addr-box"><span class="a" id="walAddr"></span>
-      <button class="copy" data-copy="walAddr">Copy</button></div>
+      <button class="copy" data-i18n="btn.copy" data-copy="walAddr">Copy</button></div>
     <div class="stat-grid mt">
       <div class="stat" data-i18n-title="tip.free" title="FREE — your spendable balance: coins you can send or bond right now.">
         <div class="label" data-i18n="lbl.free">Free <span class="hint">ⓘ</span></div><div class="value sm" id="walBalance">—</div></div>
@@ -199,7 +199,7 @@
         <button class="copy" data-copy="walMnemonic" data-i18n="btn.copy">Copy</button></div>
       <label class="small mt" data-i18n="save.priv">Private key</label>
       <div class="addr-box"><span class="a mono" id="walPriv"></span>
-        <button class="copy" data-copy="walPriv">Copy</button></div>
+        <button class="copy" data-i18n="btn.copy" data-copy="walPriv">Copy</button></div>
       <div class="row mt">
         <button id="btnDlKey" class="accent" data-i18n="btn.dlKey">⤓ Download key file (JSON)</button>
       </div>
@@ -314,12 +314,12 @@
       <span class="hint" data-i18n-title="tip.payLink" title="A deep link back to this hosted wallet. Opening it prefills a Send (the sender always confirms). Copy and share it where a camera can't scan the QR.">ⓘ</span>
     </label>
     <div class="addr-box"><span class="a mono break" id="recvPayLink"></span>
-      <button class="copy" data-copy="recvPayLink">Copy</button>
+      <button class="copy" data-i18n="btn.copy" data-copy="recvPayLink">Copy</button>
       <button class="copy" id="btnSharePay" data-i18n="btn.share">Share</button></div>
     <div class="social-share mt" data-share="pay"></div>
     <label class="mt" data-i18n="receive.your">Your address</label>
     <div class="addr-box"><span class="a mono" id="recvAddr"></span>
-      <button class="copy" data-copy="recvAddr">Copy</button></div>
+      <button class="copy" data-i18n="btn.copy" data-copy="recvAddr">Copy</button></div>
 
     <!-- SHARE THE MINER: a QR of the site URL so anyone who scans opens the miner and starts mining. -->
     <hr style="border:none;border-top:1px solid var(--line,#1c2530);margin:18px 0" />
@@ -330,7 +330,7 @@
       <div id="shareQRNote" class="small faint hidden" data-i18n="share.qrNote">QR generator unavailable — copy the link below.</div>
     </div>
     <div class="addr-box"><span class="a mono break" id="shareLink"></span>
-      <button class="copy" data-copy="shareLink">Copy</button>
+      <button class="copy" data-i18n="btn.copy" data-copy="shareLink">Copy</button>
       <button class="copy" id="btnShareMiner" data-i18n="btn.share">Share</button></div>
     <div class="social-share mt" data-share="site"></div>
     </div>
@@ -398,7 +398,7 @@
       </label>
       <div class="mt" style="display:flex;align-items:center;gap:10px">
         <input id="autoBondPct" type="number" min="0" max="100" step="1" inputmode="numeric" placeholder="80" autocomplete="off" style="max-width:96px" />
-        <span class="faint">% of new rewards → bonded</span>
+        <span class="faint" data-i18n="stake.autobondSuffix">% of new rewards → bonded</span>
       </div>
       <div id="autoBondNote" class="small faint mt">On — bonding 80% of new mining rewards each epoch (auto-compounding the bonded lane). Set 0 to keep rewards spendable.</div>
     </div>
