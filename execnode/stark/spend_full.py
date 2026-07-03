@@ -181,7 +181,7 @@ def _transitions():
     return [c_s1, c_s0, c_ab, c_carry, c_own, c_nf, c_nsk, c_rho, c_sib, c_dir, c_dirbit]
 
 
-def prove_spend(nsk, value, rho, siblings, dirs, num_queries=40):
+def prove_spend(nsk, value, rho, siblings, dirs, num_queries=stark.NUM_QUERIES):
     tr, T, D, root, nf = build_trace(nsk, value, rho, siblings, dirs)
     per = _periodic(T, D)
     end = MERK + D * RPL

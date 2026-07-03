@@ -23,3 +23,27 @@ class Transcript:
         """A uniform index in [0, bound)."""
         self.state = blake2b_hash(["index", self.state])
         return int(self.state, 16) % bound
+
+    def _grind_ok(self, nonce, bits):
+        # PoW over the CURRENT transcript state: the hash must have `bits` leading zero bits. Uses the same
+        # blake2b_hash as every other transcript op, so the browser prover (which mirrors it byte-for-byte)
+        # agrees. 64-hex digest -> 256 bits total.
+        h = int(blake2b_hash(["grind", self.state, str(nonce)]), 16)   # str(nonce): JSON string, matches JS String(nonce)
+        return (h >> (256 - bits)) == 0
+
+    def grind(self, bits):
+        """Find a nonce whose PoW hash has `bits` leading zeros, fold it into the transcript, return it. This
+        multiplies a forger's cost by 2^bits UNCONDITIONALLY (independent of the FRI soundness conjecture),
+        the cheap way to raise soundness beyond what the query count alone gives (C-1)."""
+        nonce = 0
+        while not self._grind_ok(nonce, bits):
+            nonce += 1
+        self.absorb("grind", nonce)
+        return nonce
+
+    def check_grind(self, nonce, bits):
+        """Verifier side: the nonce must be a non-negative int meeting the PoW, then fold it in identically."""
+        if not (isinstance(nonce, int) and nonce >= 0 and self._grind_ok(nonce, bits)):
+            return False
+        self.absorb("grind", nonce)
+        return True

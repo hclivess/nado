@@ -68,6 +68,21 @@ def t5_rejects_wrong_transcript_label():
     assert not ok, "a proof must not verify under a different transcript"
     assert fri.verify(proof, transcript=Transcript("A"))[0], "…but verifies under the matching transcript"
 
+def t6_grinding_required():
+    # C-1: the proof-of-work nonce must be present and meet GRIND_BITS, else the proof is rejected.
+    N, blowup = 64, 4
+    coeffs = [random.randrange(F.P) for _ in range(16)]
+    proof = fri.prove(coset_evals(coeffs, N, OFF), OFF, blowup, num_queries=24)
+    assert fri.verify(proof)[0], "sanity: a properly-ground proof verifies"
+    assert proof["pow"] >= 0 and isinstance(proof["pow"], int), "proof carries a PoW nonce"
+    # a missing nonce is rejected
+    no_pow = dict(proof); no_pow["pow"] = None
+    assert not fri.verify(no_pow)[0], "a proof with no PoW nonce must be rejected"
+    # a tampered nonce almost surely fails the PoW threshold (and even if it flukes it, diverges the queries)
+    bad = dict(proof); bad["pow"] = proof["pow"] + 1
+    ok, why = fri.verify(bad)
+    assert not ok, "a proof whose PoW nonce doesn't meet GRIND_BITS must be rejected"
+
 for name, fn in sorted((n, f) for n, f in globals().items() if n.startswith("t") and callable(f) and n[1].isdigit()):
     check(name, fn)
 print(f"\n{'ALL PASSED' if not fails else str(fails)+' FAILED'}")

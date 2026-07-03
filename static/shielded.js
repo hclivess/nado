@@ -44,11 +44,13 @@ function _dec(v) {
   return BigInt(Math.trunc(v)).toString();
 }
 
-// the message an input's owner ML-DSA-signs — lists sorted + '|'-joined (matches transfer_sighash in Python)
+// the message an input's owner ML-DSA-signs — lists sorted + '|'-joined (matches transfer_sighash in Python).
+// H-4: withdraw_addr is bound too (empty string when absent), so an unshield's destination can't be swapped.
 export function transferSighash(pub) {
   const nfs = (pub.nullifiers || []).slice().sort();
   const cms = (pub.out_commitments || []).slice().sort();
-  return _h("sighash", nfs.join("|"), cms.join("|"), _dec(pub.public_value || 0), _dec(pub.fee || 0));
+  return _h("sighash", nfs.join("|"), cms.join("|"), _dec(pub.public_value || 0), _dec(pub.fee || 0),
+            String(pub.withdraw_addr || ""));
 }
 
 // --- fixed-depth Merkle commitment tree ---

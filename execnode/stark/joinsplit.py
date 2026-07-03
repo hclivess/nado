@@ -80,7 +80,7 @@ def _transitions():
     return [c1, c2, c3]
 
 
-def prove_hash(messages, public_positions, num_queries=40):
+def prove_hash(messages, public_positions, num_queries=stark.NUM_QUERIES):
     """Prove hashn(messages) = output, revealing only the messages at `public_positions` (and the output).
     The other messages are secret (zero-knowledge). Returns (proof, output)."""
     trace, T, k, output = build_trace(messages)

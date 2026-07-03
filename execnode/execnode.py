@@ -321,6 +321,8 @@ def _normalize_bundle(bundle):
     fr = p.get("fri") or {}
     if "offset" in fr:
         fr["offset"] = int(fr["offset"])
+    if "pow" in fr and fr["pow"] is not None:
+        fr["pow"] = int(fr["pow"])                 # C-1 grinding nonce (JSON number -> int)
     if "final" in fr:
         fr["final"] = [int(x) for x in fr["final"]]
     for q in fr.get("queries", []):

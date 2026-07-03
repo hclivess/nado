@@ -20,8 +20,16 @@ INV2 = F.inv(2)
 # count or drops folding layers was the C-1 total soundness bypass (an empty `queries`/`roots` list skipped
 # every check). The verifier derives the whole FRI shape from N + FRI_BLOWUP and requires exactly NUM_QUERIES
 # openings. stark.prove always calls fri.prove with fri_blowup == 2, so FRI_BLOWUP is fixed at 2.
-NUM_QUERIES = 40
+#
+# C-1 soundness sizing: at FRI_BLOWUP=2 (rate 1/2) each query contributes ~0.4 bit (provable) / ~1 bit
+# (conjectured) of soundness, so 40 queries alone (~17-40 bits) fell short of the ~100-bit target. We raise the
+# query count AND add GRIND_BITS of proof-of-work on the transcript (transcript.grind), which adds soundness
+# UNCONDITIONALLY (a forger must redo 2^GRIND_BITS work per Fiat-Shamir attempt regardless of any FRI
+# conjecture). 64 queries + 18 grind ≈ 82 bits (conjectured) / ~45 bits (provable) + 18 unconditional — a large
+# lift over the prior config, at ~3s prover overhead (Python) / ~0.03s in the browser's WASM blake2b.
+NUM_QUERIES = 64
 FRI_BLOWUP = 2
+GRIND_BITS = 18
 
 
 def _expected_layers(N, blowup):
@@ -78,6 +86,7 @@ def prove(evals, offset, blowup=4, num_queries=NUM_QUERIES, transcript=None):
         dom = F.domain(len(cur), off)
     final = cur                                  # small -> sent in the clear
     t.absorb("final", *final)
+    pow_nonce = t.grind(GRIND_BITS)              # C-1: proof-of-work before query derivation (unconditional bits)
 
     queries = []
     for _ in range(num_queries):
@@ -95,7 +104,8 @@ def prove(evals, offset, blowup=4, num_queries=NUM_QUERIES, transcript=None):
             a = lo
         queries.append({"idx": idx, "steps": steps})
 
-    return {"N": N, "offset": offset, "blowup": blowup, "roots": roots, "final": final, "queries": queries}
+    return {"N": N, "offset": offset, "blowup": blowup, "roots": roots, "final": final,
+            "pow": pow_nonce, "queries": queries}
 
 
 def verify(proof, transcript=None, num_queries=None, expected_blowup=None):
@@ -138,6 +148,11 @@ def verify(proof, transcript=None, num_queries=None, expected_blowup=None):
             offs.append(off); doms.append(F.domain(n, off))
             off = F.mul(off, off); n //= 2
         t.absorb("final", *final)
+        # C-1: the prover's proof-of-work must meet GRIND_BITS before the (transcript-derived) query positions
+        # are drawn, so grinding the Fiat-Shamir queries costs 2^GRIND_BITS PER attempt. Same absorb order as
+        # prove, so the query indices below match.
+        if not t.check_grind(proof.get("pow"), GRIND_BITS):
+            return False, "insufficient proof-of-work (grinding)"
 
         # the final layer must be genuinely low-degree: interpolate on its coset, high coeffs must vanish
         final_off = off

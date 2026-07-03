@@ -124,7 +124,7 @@ def _transitions():
     return [c_s1, c_s0, c_ab, c_carry, c_dirbit, c_sib, c_dir]
 
 
-def prove_membership(leaf, siblings, dirs, num_queries=40):
+def prove_membership(leaf, siblings, dirs, num_queries=stark.NUM_QUERIES):
     trace, T, D, root = build_trace(leaf, siblings, dirs)
     periodic = _periodic(T, D)
     bnd = [(0, S1, alghash.IV), (0, S0, alghash.DOM_NODE), (0, AB, alghash.DOM_NODE), (D * RPL, S0, root)]

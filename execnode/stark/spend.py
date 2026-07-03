@@ -135,7 +135,7 @@ def _transitions():
     return [c_s1, c_s0, c_carry, c_ab, c_dirbit, c_sib, c_dir]
 
 
-def prove_spend(value, owner, rho, siblings, dirs, num_queries=40):
+def prove_spend(value, owner, rho, siblings, dirs, num_queries=stark.NUM_QUERIES):
     trace, T, D, root = build_trace(value, owner, rho, siblings, dirs)
     periodic = _periodic(T, D)
     bnd = [(0, S1, alghash.IV), (0, S0, alghash.DOM_CM), (0, AB, alghash.DOM_CM),

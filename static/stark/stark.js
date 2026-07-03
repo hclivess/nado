@@ -6,6 +6,7 @@ import * as fri from "./fri.js";
 import { Transcript } from "./transcript.js";
 
 export const OFF = F.GEN;
+export const NUM_QUERIES = fri.NUM_QUERIES;   // protocol query count (C-1), single source of truth = fri.js
 
 const _perLdeCache = new WeakMap();   // periodic array -> {N, lde}; the periodic LDE is witness-independent
 
@@ -45,7 +46,7 @@ function composition(T, W, N, blowup, gT, colLde, perLde, xLde, transitions, bou
   return cp;
 }
 
-export function prove(trace, transitions, boundaries, periodic = [], maxDegree = 2, numQueries = 40, aux = null) {  // 40 = protocol NUM_QUERIES (C-1)
+export function prove(trace, transitions, boundaries, periodic = [], maxDegree = 2, numQueries = NUM_QUERIES, aux = null) {  // NUM_QUERIES from fri.js (C-1)
   const T = trace.length, W = trace[0].length;
   const blowup = blowupOf(maxDegree), N = blowup * T;
   const gT = F.primitiveRootOfUnity(T);

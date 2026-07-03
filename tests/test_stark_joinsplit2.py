@@ -7,7 +7,7 @@ Run: python3 tests/test_stark_joinsplit2.py
 """
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from execnode.stark import field as F, alghash, joinsplit2 as J2
+from execnode.stark import field as F, alghash, joinsplit2 as J2, stark
 from execnode import shielded_field as SF
 
 fails = 0
@@ -27,7 +27,7 @@ def _pool():
     sibs, dirs = SF.tree_path(pool.commitments, 0)
     return pool, sibs, dirs
 
-def _prove(pub=0, fee=0, q=40):   # q must match the protocol NUM_QUERIES so verify_transfer accepts it (C-1)
+def _prove(pub=0, fee=0, q=stark.NUM_QUERIES):   # q must match the protocol NUM_QUERIES so verify_transfer accepts it (C-1)
     pool, sibs, dirs = _pool()
     return J2.prove_transfer(NSK, VIN, RHO, sibs, dirs, V1, O1, R1, V2, O2, R2, pub, fee, num_queries=q)
 

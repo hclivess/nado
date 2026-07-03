@@ -16,7 +16,10 @@ function fold(evals, dom, alpha) {
   return out;
 }
 
-export function prove(evals, offset, blowup = 4, numQueries = 40, transcript = null) {  // 40 = protocol NUM_QUERIES (C-1)
+export const NUM_QUERIES = 64;   // protocol query count (C-1) — must match execnode/stark/fri.py
+export const GRIND_BITS = 18;    // proof-of-work bits (C-1) — must match execnode/stark/fri.py
+
+export function prove(evals, offset, blowup = 4, numQueries = NUM_QUERIES, transcript = null) {
   const t = transcript || new Transcript("fri");
   const N = evals.length;
   const layers = [], roots = [];
@@ -33,6 +36,7 @@ export function prove(evals, offset, blowup = 4, numQueries = 40, transcript = n
   }
   const final = cur;
   t.absorb("final", ...final);
+  const pow = t.grind(GRIND_BITS);              // C-1: proof-of-work before deriving query positions
   const queries = [];
   for (let q = 0; q < numQueries; q++) {
     const idx = t.challengeIndex(N);
@@ -47,5 +51,5 @@ export function prove(evals, offset, blowup = 4, numQueries = 40, transcript = n
     }
     queries.push({ idx, steps });
   }
-  return { N, offset, blowup, roots, final, queries };
+  return { N, offset, blowup, roots, final, pow, queries };
 }
