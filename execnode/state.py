@@ -23,7 +23,13 @@ from execnode.shielded import ShieldedPool, apply_transfer
 # join-split circuit only constrains public_value/fee MODULO P, so without an absolute bound a wraparound
 # (e.g. public_value = -P) proves as "balanced" yet would record a P-coin exit (C-3). Any real amount is
 # many orders of magnitude below this, so bounding to it blocks every P·k residue while passing legit exits.
-MAX_EXIT_VALUE = 1 << 62
+#
+# C-3b: this MUST match the in-circuit range bound (2^61, top-3-bits-zero in c_rng_top). The 2-output
+# join-split conserves v_in + public_value == v_out1 + v_out2 + fee; the worst-case |LHS - RHS| across the
+# range-bounded values is 2*2^61 (two outputs) + 2^61 (fee) + 2^61 (|public_value|) = 2^63 < P, so mod-P
+# conservation equals INTEGER conservation and no -P wraparound assignment exists. At 2^62 it did (a 1-coin
+# input could record a 2^62-coin exit and drain the escrow).
+MAX_EXIT_VALUE = 1 << 61
 
 
 class ExecState:
@@ -215,7 +221,7 @@ class ExecState:
         from execnode.stark import alghash, field as _F
         try:
             amount = int(amount)
-            if not (0 < amount <= MAX_EXIT_VALUE):
+            if not (0 < amount < MAX_EXIT_VALUE):     # note values must be < 2^61 to satisfy the range gadget
                 return f"skip field-shield: amount out of range ({amount})"
             cm = alghash.commit(amount, int(owner) % _F.P, int(rho) % _F.P)
             with self._mutate_lock:                       # M-10: serialize field_pool mutation vs thread-applies

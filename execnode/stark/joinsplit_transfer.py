@@ -46,10 +46,16 @@ def verify_transfer(public, proof, root_is_known):
     # a front-runner can't copy the bundle and swap the address — a different address diverges the transcript
     # and the proof is rejected. None for an in-pool transfer (no exit), keeping those proofs unaffected.
     aux = proof.get("withdraw_addr")
+    # H1: every legitimate spend proves membership against the field pool's fixed-depth tree, so the proof's
+    # Merkle depth MUST equal TREE_DEPTH. Pinning it (on top of the per-circuit T pin) leaves the whole trace
+    # geometry fully determined by the protocol — a crafted depth can't misalign the periodic selectors.
+    from execnode.shielded_field import TREE_DEPTH
     # 2-output join-split (send any amount + change).
     if "joinsplit2" in bundle:
         b = bundle["joinsplit2"]
         try:
+            if b["proof"].get("D") != TREE_DEPTH:
+                return False, "unexpected join-split tree depth"
             return joinsplit2.verify_transfer(b["proof"], b["root"], b["nf"], b["cm_out1"], b["cm_out2"],
                                               b["public_value"], b["fee"], root_is_known, aux=aux)
         except (KeyError, TypeError) as e:
@@ -58,6 +64,8 @@ def verify_transfer(public, proof, root_is_known):
     if "joinsplit" in bundle:
         b = bundle["joinsplit"]
         try:
+            if b["proof"].get("D") != TREE_DEPTH:
+                return False, "unexpected join-split tree depth"
             return joinsplit_circuit.verify_transfer(
                 b["proof"], b["root"], b["nf"], b["cm_out"], b["public_value"], b["fee"], root_is_known, aux=aux)
         except (KeyError, TypeError) as e:

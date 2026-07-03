@@ -137,6 +137,10 @@ def verify_membership(proof, root, root_is_known):
     if not root_is_known(root):
         return False, "unknown anchor root"
     D, T = proof["D"], proof["T"]
+    # H1: pin the trace length to the exact value implied by D so proof geometry can't be manipulated to
+    # skip constraints (mirrors the join-split verifiers).
+    if not isinstance(D, int) or not isinstance(T, int) or D < 1 or T != _next_pow2(D * RPL + 1):
+        return False, "bad trace geometry"
     periodic = _periodic(T, D)
     bnd = [(0, S1, alghash.IV), (0, S0, alghash.DOM_NODE), (0, AB, alghash.DOM_NODE), (D * RPL, S0, root % F.P)]
     return stark.verify(proof, _transitions(), bnd, periodic=periodic, max_degree=MAX_DEGREE)

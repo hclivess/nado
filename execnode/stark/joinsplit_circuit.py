@@ -266,8 +266,8 @@ def _transitions():
         return F.mul(per[RNG_ACC], F.sub(nxt[ACC], F.add(F.mul(16, cur[ACC]), _nib(cur))))
     def c_rng_reset(cur, nxt, per):  # ACC starts at 0 at each block start
         return F.mul(per[RNG_START], cur[ACC])
-    def c_rng_top(cur, nxt, per):    # top 2 bits (of the MSB nibble at block start) = 0  ->  value < 2^62
-        return F.mul(per[RNG_START], F.add(cur[RB0], cur[RB1]))
+    def c_rng_top(cur, nxt, per):    # top 3 bits (of the MSB nibble at block start) = 0  ->  value < 2^61
+        return F.mul(per[RNG_START], F.add(F.add(cur[RB0], cur[RB1]), cur[RB2]))
     def c_bit(reg):                  # each nibble bit is boolean on accumulation rows
         return lambda cur, nxt, per: F.mul(per[RNG_ACC], F.mul(cur[reg], F.sub(1, cur[reg])))
     def c_bind(sel, val):            # at the bind row the accumulator equals the value column
@@ -297,6 +297,10 @@ def verify_transfer(proof, root, nf, cm_out, public_value, fee, root_is_known, a
     if not root_is_known(root):
         return False, "unknown anchor root"
     D, T = proof["D"], proof["T"]
+    # H1: pin T to the exact value the honest prover derives from D, so a truncated T can't push the C-3
+    # range-bind rows past the trace end and make the range proof vacuous (see joinsplit2.verify_transfer).
+    if not isinstance(D, int) or not isinstance(T, int) or D < 1 or T != _next_pow2(_total(D) + 1):
+        return False, "bad trace geometry"
     per = _periodic(T, D)
     out_end = _out_end(D)
     cons_pub = F.sub(fee % F.P, public_value % F.P)

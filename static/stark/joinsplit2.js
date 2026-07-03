@@ -198,7 +198,7 @@ export function transitions() {
     (c, n) => sub(c[CONS], sub(sub(c[VIN], c[VOUT1]), c[VOUT2])),
     (c, n, p) => mul(p[RNG_ACC], sub(n[ACC], add(mul(16n, c[ACC]), nib(c)))),   // acc' = 16·acc + nibble
     (c, n, p) => mul(p[RNG_START], c[ACC]),                                     // acc resets to 0 at block start
-    (c, n, p) => mul(p[RNG_START], add(c[RB0], c[RB1])),                        // top 2 bits = 0 -> value < 2^62
+    (c, n, p) => mul(p[RNG_START], add(add(c[RB0], c[RB1]), c[RB2])),           // top 3 bits = 0 -> value < 2^61 (C-3b)
     bit(RB0), bit(RB1), bit(RB2), bit(RB3),
     bind(RBIND_VIN, VIN), bind(RBIND_VOUT1, VOUT1), bind(RBIND_VOUT2, VOUT2),
   ];

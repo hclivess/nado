@@ -276,7 +276,12 @@ def _transitions():
     def c_rng_reset(cur, nxt, per):
         return F.mul(per[RNG_START], cur[ACC])
     def c_rng_top(cur, nxt, per):
-        return F.mul(per[RNG_START], F.add(cur[RB0], cur[RB1]))
+        # top 3 bits (of the MSB nibble at block start) = 0 -> each value < 2^61. With TWO outputs the
+        # conservation span is v_in + |public_value| vs v_out1 + v_out2 + fee; bounding every note value AND
+        # (state-side) fee/|public_value| to <=2^61 keeps the worst-case |LHS-RHS| = 2*2^61 + 2^61 + 2^61 = 2^63
+        # < P, so mod-P conservation coincides with INTEGER conservation. At 2^62 (top-2-bits) the five ~2^62
+        # terms summed past P and a -P wraparound let a 1-coin input record a 2^62-coin exit (C-3b).
+        return F.mul(per[RNG_START], F.add(F.add(cur[RB0], cur[RB1]), cur[RB2]))
     def c_bit(reg):
         return lambda cur, nxt, per: F.mul(per[RNG_ACC], F.mul(cur[reg], F.sub(1, cur[reg])))
     def c_bind(sel, val):
@@ -305,6 +310,12 @@ def verify_transfer(proof, root, nf, cm1, cm2, public_value, fee, root_is_known,
     if not root_is_known(root):
         return False, "unknown anchor root"
     D, T = proof["D"], proof["T"]
+    # H1: T and D fully determine the trace layout (region boundaries + the C-3 range-block row positions). A
+    # prover that under-declares T can push the RANGE-bind rows past row T so their selectors are all-zero and
+    # the range proof becomes vacuous (out-of-range values then pass -> wraparound exit). Pin T to the exact
+    # value the honest prover computes for this D, so the range block always lands inside the trace.
+    if not isinstance(D, int) or not isinstance(T, int) or D < 1 or T != _next_pow2(_total(D) + 1):
+        return False, "bad trace geometry"
     per = _periodic(T, D)
     _, _, sponge_end = _bounds(D)
     cons_pub = F.sub(fee % F.P, public_value % F.P)

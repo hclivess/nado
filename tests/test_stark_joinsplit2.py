@@ -69,7 +69,7 @@ def t6_c3_wraparound_exit_rejected():
     assert not ok, f"C-3 wraparound exit MUST be rejected, got ok={ok} ({why})"
 
 def t7_c3_in_range_values_verify():
-    # large-but-in-range values (< 2^62) still verify
+    # large-but-in-range values (< 2^61) still verify
     pool = SF.FieldShieldedPool()
     big = (1 << 61) - 1
     pool.append(alghash.commit(big, alghash.owner_of(NSK), RHO))
@@ -77,6 +77,19 @@ def t7_c3_in_range_values_verify():
     proof, root, nf, cm1, cm2 = J2.prove_transfer(NSK, big, RHO, sibs, dirs, big - 1, O1, R1, 1, O2, R2, 0, 0)
     ok, why = J2.verify_transfer(proof, root, nf, cm1, cm2, 0, 0, lambda r: True)
     assert ok, f"in-range values must still verify: {why}"
+
+def t8_c3b_2output_conservation_wraparound_rejected():
+    # C-3b: the 2-output conservation wraparound. Deposit 1000, but with fee=2^62 / public_value=-2^62 and two
+    # ~2^62 change outputs the mod-P equation admits (v_in - v_out1 - v_out2) - (fee - pv) == -P, which under the
+    # OLD 2^62 bound recorded a 2^62-coin unshield from a 1000-coin note. Under the < 2^61 bound the crafted
+    # outputs are out of range -> the range proof rejects. (v_out1 = 2^62-1 exceeds 2^61.)
+    pool, sibs, dirs = _pool()
+    pv, fee = -(1 << 62), (1 << 62)
+    VOUT1, VOUT2 = (1 << 62) - 1, (1 << 62) - (1 << 32) + 1002
+    assert (VIN - VOUT1 - VOUT2) % F.P == (fee - pv) % F.P, "the mod-P equation still balances (the exploit premise)"
+    proof, root, nf, cm1, cm2 = J2.prove_transfer(NSK, VIN, RHO, sibs, dirs, VOUT1, O1, R1, VOUT2, O2, R2, pv, fee)
+    ok, why = J2.verify_transfer(proof, root, nf, cm1, cm2, pv, fee, lambda r: True)
+    assert not ok, f"C-3b 2-output wraparound MUST be rejected, got ok={ok} ({why})"
 
 for name, fn in sorted((n, f) for n, f in globals().items() if n.startswith("t") and callable(f) and n[1].isdigit()):
     check(name, fn)
