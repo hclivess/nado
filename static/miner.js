@@ -31,6 +31,12 @@ const REGISTER_POW_BITS = 16;  // legacy hashcash (retired) — kept only for th
 // Registration Proof of Sequential Work (must match protocol.py). Non-parallelizable ~1 s chain; the
 // registration is a renewable presence LEASE renewed once ~POSW_LEASE_EPOCHS (≈1 day at ~8 min/epoch).
 const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 30, POSW_LEASE_EPOCHS = 180;
+// Headroom (in blocks) between the current tip and the register/recert target_block, so the tx still lands
+// BEFORE its target while the sequential PoW is computing. It is capped by POSW_ANCHOR_OFFSET: the anchor is
+// block (target − POSW_ANCHOR_OFFSET), which the client must be able to FETCH now, so target ≤ tip + offset.
+// The old value (8 blocks ≈ 64 s at 8 s/block) was too tight when the PoW runs in pure JS (WASM unavailable) —
+// the chain passed target during proving and the node rejected it "Target block too low". Use the max (≈240 s).
+const POSW_TARGET_MARGIN = POSW_ANCHOR_OFFSET;
 const DENOMINATION = 10_000_000_000n; // 1 NADO in raw units (1e10)
 const MIN_TX_FEE = 1000;
 const BOND_UNLOCK_DELAY = 1440; // protocol.py: blocks a bond stays locked after an unbond request
@@ -849,14 +855,21 @@ async function maybeRenewLease(acc) {
   if ((epochNow - regEpoch) < Math.floor(POSW_LEASE_EPOCHS * 0.8)) return;   // lease still healthy
   _renewingLease = true;
   try {
-    const latest = await getLatestBlock();
-    if (!latest || typeof latest.block_number !== "number") return;
     log("info", i18("log.leaseRenewing", "Presence lease expiring — renewing (fresh sequential proof)…"));
-    const tx = await computeRegisterTx(latest.block_number + 8, null);       // quiet: no UI takeover
-    const res = await submitTransaction(tx);
-    if (res.data && res.data.result) log("ok", i18("log.leaseRenewed", "Presence lease renewed ✓"));
-    else log("err", i18("log.leaseRejected", "Lease renewal rejected: {m}", {m: (res.data && (res.data.message || ""))}));
-  } catch (e) { log("err", i18("log.leaseError", "Lease renewal error: {m}", {m: e.message})); }
+    // Up to 2 attempts: if the chain outran target_block while the (pure-JS) PoW was computing, recompute
+    // against a fresh tip. Each attempt targets tip + POSW_TARGET_MARGIN (max headroom for the proof).
+    let lastMsg = "";
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const latest = await getLatestBlock();
+      if (!latest || typeof latest.block_number !== "number") return;
+      const tx = await computeRegisterTx(latest.block_number + POSW_TARGET_MARGIN, null);   // quiet: no UI takeover
+      const res = await submitTransaction(tx);
+      if (res.data && res.data.result) { log("ok", i18("log.leaseRenewed", "Presence lease renewed ✓")); return; }
+      lastMsg = (res.data && res.data.message) || "";
+      if (!/too low/i.test(lastMsg)) break;   // a different rejection won't be fixed by retrying
+    }
+    log("err", i18("log.leaseRejected", "Lease renewal rejected: {m}", { m: lastMsg }));
+  } catch (e) { log("err", i18("log.leaseError", "Lease renewal error: {m}", { m: e.message })); }
   finally { _renewingLease = false; }
 }
 
@@ -914,7 +927,7 @@ async function submitRegistration() {
   const latest = await getLatestBlock();
   if (!latest || typeof latest.block_number !== "number") throw new Error("relay /get_latest_block unavailable");
   state.latest = latest.block_number;
-  const targetBlock = latest.block_number + 8;  // headroom so the tx lands before its target block
+  const targetBlock = latest.block_number + POSW_TARGET_MARGIN;  // headroom so the tx lands before its target block
 
   // compute the registration Proof of SEQUENTIAL Work (non-parallelizable ~1 s chain, replaces hashcash)
   setStartBtnBusy(i18("mine.registering", "Registering…"));
