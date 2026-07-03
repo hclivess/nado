@@ -1022,6 +1022,27 @@
   };
   for (const l in T39) Object.assign(T[l] = T[l] || {}, T39[l]);
 
+  // T40: Quorum propose form — alias support + "My address" button (overrides quorum.badAddr from T39).
+  const T40 = {
+    en:{"quorum.myAddr":"My address","quorum.aliasErr":"Alias not found.","quorum.resolving":"Resolving alias…","quorum.badAddr":"Enter a valid ndo… address or a registered alias."},
+    cs:{"quorum.myAddr":"Moje adresa","quorum.aliasErr":"Alias nenalezen.","quorum.resolving":"Překládám alias…","quorum.badAddr":"Zadejte platnou adresu ndo… nebo registrovaný alias."},
+    es:{"quorum.myAddr":"Mi dirección","quorum.aliasErr":"Alias no encontrado.","quorum.resolving":"Resolviendo alias…","quorum.badAddr":"Introduce una dirección ndo… válida o un alias registrado."},
+    pt:{"quorum.myAddr":"Meu endereço","quorum.aliasErr":"Alias não encontrado.","quorum.resolving":"Resolvendo alias…","quorum.badAddr":"Insira um endereço ndo… válido ou um alias registrado."},
+    fr:{"quorum.myAddr":"Mon adresse","quorum.aliasErr":"Alias introuvable.","quorum.resolving":"Résolution de l'alias…","quorum.badAddr":"Saisissez une adresse ndo… valide ou un alias enregistré."},
+    de:{"quorum.myAddr":"Meine Adresse","quorum.aliasErr":"Alias nicht gefunden.","quorum.resolving":"Alias wird aufgelöst…","quorum.badAddr":"Gib eine gültige ndo…-Adresse oder einen registrierten Alias ein."},
+    it:{"quorum.myAddr":"Il mio indirizzo","quorum.aliasErr":"Alias non trovato.","quorum.resolving":"Risoluzione dell'alias…","quorum.badAddr":"Inserisci un indirizzo ndo… valido o un alias registrato."},
+    ru:{"quorum.myAddr":"Мой адрес","quorum.aliasErr":"Псевдоним не найден.","quorum.resolving":"Разрешение псевдонима…","quorum.badAddr":"Введите корректный адрес ndo… или зарегистрированный псевдоним."},
+    zh:{"quorum.myAddr":"我的地址","quorum.aliasErr":"未找到别名。","quorum.resolving":"正在解析别名…","quorum.badAddr":"输入有效的 ndo… 地址或已注册的别名。"},
+    ja:{"quorum.myAddr":"自分のアドレス","quorum.aliasErr":"エイリアスが見つかりません。","quorum.resolving":"エイリアスを解決中…","quorum.badAddr":"有効な ndo… アドレスまたは登録済みエイリアスを入力してください。"},
+    ko:{"quorum.myAddr":"내 주소","quorum.aliasErr":"별칭을 찾을 수 없습니다.","quorum.resolving":"별칭 확인 중…","quorum.badAddr":"유효한 ndo… 주소 또는 등록된 별칭을 입력하세요."},
+    ar:{"quorum.myAddr":"عنواني","quorum.aliasErr":"الاسم المستعار غير موجود.","quorum.resolving":"جارٍ حل الاسم المستعار…","quorum.badAddr":"أدخل عنوان ndo… صالحًا أو اسمًا مستعارًا مسجلاً."},
+    hi:{"quorum.myAddr":"मेरा पता","quorum.aliasErr":"उपनाम नहीं मिला।","quorum.resolving":"उपनाम हल हो रहा है…","quorum.badAddr":"मान्य ndo… पता या पंजीकृत उपनाम दर्ज करें।"},
+    tr:{"quorum.myAddr":"Adresim","quorum.aliasErr":"Takma ad bulunamadı.","quorum.resolving":"Takma ad çözümleniyor…","quorum.badAddr":"Geçerli bir ndo… adresi veya kayıtlı bir takma ad girin."},
+    id:{"quorum.myAddr":"Alamat saya","quorum.aliasErr":"Alias tidak ditemukan.","quorum.resolving":"Menyelesaikan alias…","quorum.badAddr":"Masukkan alamat ndo… yang valid atau alias terdaftar."},
+    vi:{"quorum.myAddr":"Địa chỉ của tôi","quorum.aliasErr":"Không tìm thấy bí danh.","quorum.resolving":"Đang phân giải bí danh…","quorum.badAddr":"Nhập địa chỉ ndo… hợp lệ hoặc bí danh đã đăng ký."}
+  };
+  for (const l in T40) Object.assign(T[l] = T[l] || {}, T40[l]);
+
 
 
 

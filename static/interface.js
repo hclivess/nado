@@ -2908,8 +2908,14 @@ async function submitTreasurySpend(kind, recipient, amountRaw, memo, nonce) {
 async function proposeSpend() {
   const msg = $("qPropMsg");
   try {
-    const to = ($("qPropRecipient").value || "").trim();
-    if (!(to.startsWith("ndo") && to.length === 49)) throw new Error(i18("quorum.badAddr", "Enter a valid ndo… recipient address."));
+    let to = ($("qPropRecipient").value || "").trim();
+    if (looksLikeAlias(to)) {                                     // accept a human-readable alias, resolve to its owner
+      msg.textContent = i18("quorum.resolving", "Resolving alias…");
+      const owner = await resolveAlias(to);
+      if (!owner) throw new Error(i18("quorum.aliasErr", "Alias not found."));
+      to = owner;
+    }
+    if (!(to.startsWith("ndo") && to.length === 49)) throw new Error(i18("quorum.badAddr", "Enter a valid ndo… address or a registered alias."));
     const amtRaw = nadoToRaw($("qPropAmount").value || "");
     if (!(amtRaw > 0n)) throw new Error(i18("quorum.badAmount", "Enter a positive amount."));
     const memo = ($("qPropMemo").value || "").slice(0, 256);
@@ -2930,6 +2936,7 @@ async function renderQuorum() {
   const box = $("qProposals");
   if (!box) return;
   if ($("qPropBtn")) $("qPropBtn").onclick = proposeSpend;
+  if ($("qPropMine")) $("qPropMine").onclick = () => { if (state.wallet) $("qPropRecipient").value = state.wallet.address; };
   let d;
   try { d = await (await fetch(relayBase() + "/treasury_status", { cache: "no-store" })).json(); }
   catch (e) { box.textContent = i18("quorum.loadErr", "Could not load treasury status."); return; }

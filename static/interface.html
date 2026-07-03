@@ -494,7 +494,10 @@
     </div>
     <div class="hint-banner mt" style="display:block">
       <label data-i18n="quorum.proposeTitle">Propose a spend (bonded stakers)</label>
-      <input id="qPropRecipient" class="grow mt" placeholder="ndo… recipient address" autocomplete="off" />
+      <div class="row mt" style="gap:8px">
+        <input id="qPropRecipient" class="grow" placeholder="ndo… address or alias" autocomplete="off" />
+        <button id="qPropMine" class="ghost small" style="flex:0 0 auto" data-i18n="quorum.myAddr">My address</button>
+      </div>
       <div class="row mt" style="gap:8px">
         <input id="qPropAmount" class="grow" type="text" inputmode="decimal" placeholder="amount (NADO)" autocomplete="off" />
         <input id="qPropMemo" class="grow" placeholder="memo" maxlength="256" autocomplete="off" />
