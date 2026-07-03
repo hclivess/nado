@@ -563,6 +563,24 @@ def recert_latest(address: str) -> int:
     return _read(_do)
 
 
+def recert_epochs(address: str, upto_epoch: int = None) -> list:
+    """ALL recert epochs for `address`, ascending (optionally only those <= upto_epoch). The full PoSW-lease
+    history — used to reconstruct fidelity AS OF a past epoch (dividend fraud-proof, doc/dividend-fraud-proof.md):
+    fidelity is a deterministic function of this immutable, revert-safe recert sequence, so any node can replay
+    the exact ramp the live apply_register applied. Values sort ascending under DUPSORT."""
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["recerts"]) as cur:
+            if cur.set_key(address.encode()):
+                for v in cur.iternext_dup(keys=False, values=True):
+                    e = un_be8(v)
+                    if upto_epoch is not None and e > upto_epoch:
+                        break                                   # ascending -> the rest are all > upto_epoch
+                    out.append(e)
+        return out
+    return _read(_do)
+
+
 # --- Bridge withdrawal nullifiers (Phase 2): each (addr, nonce) exit may be claimed on L1 at most once ---
 
 def bridge_nullifier_exists(addr: str, nonce: str) -> bool:
