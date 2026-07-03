@@ -1213,17 +1213,30 @@ function stopMining() {
  * A LITTLE TOUCH — a pile of coins that grows with your wallet, scaled to the richest wallet on the
  * network (from /get_richest). Pure SVG, no assets. Richest → full heap + crown; empty → no coins.
  * ---------------------------------------------------------------------------------------------- */
-let _richestCache = { at: 0, value: 0n };
-async function getRichest() {
+let _wealthCache = { at: 0, stats: null };
+async function getWealthStats() {
   const now = Date.now();
-  if (now - _richestCache.at < 15000 && _richestCache.value > 0n) return _richestCache.value;
+  if (now - _wealthCache.at < 15000 && _wealthCache.stats) return _wealthCache.stats;
   try {
-    const r = await fetch(relayBase() + "/get_richest", { cache: "no-store" });
+    const r = await fetch(relayBase() + "/wealth_stats", { cache: "no-store" });
     const d = await r.json();
-    _richestCache = { at: now, value: BigInt(d.richest || 0) };
+    _wealthCache = { at: now, stats: {
+      count: num(d.count) || 0, richest: BigInt(d.richest || 0),
+      logMean: Number(d.log_mean) || 0, logStd: Number(d.log_std) || 0,
+    } };
   } catch (e) { /* keep last */ }
-  return _richestCache.value;
+  return _wealthCache.stats;
 }
+// Standard-normal CDF (Abramowitz-Stegun erf 7.1.26). Wealth is log-normal, so a wallet's RANK is Φ of its
+// z-score on ln(total) = the fraction of wallets it is richer than — a robust distribution rank, not "% of
+// the single richest wallet" (which one whale dominates).
+function _erf(x) {
+  const s = x < 0 ? -1 : 1; x = Math.abs(x);
+  const t = 1 / (1 + 0.3275911 * x);
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t) * Math.exp(-x * x);
+  return s * y;
+}
+function _normalCdf(z) { return 0.5 * (1 + _erf(z / Math.SQRT2)); }
 const PILE_MAX_LEVELS = 7;
 // MATERIAL TIERS: as your share of the richest wallet climbs, the pile ramps in quantity, then advances
 // material — bronze → silver → gold → diamond — resetting to a small pile of the shinier metal each step.
@@ -1233,11 +1246,12 @@ const PILE_TIERS = [
   { id: "gold",    g: ["#ffe066", "#f5c542", "#d69a1e"], base: "#8a6a12", hi: "#fff3c4", stroke: "#a9781a", key: "pile.gold",    en: "gold" },
   { id: "diamond", g: ["#eafcff", "#a7e9f7", "#54c6ea"], base: "#2f7fa0", hi: "#ffffff", stroke: "#7fd3ec", key: "pile.diamond", en: "diamond" },
 ];
-// map a 0..1 wealth ratio to {t: tier index, fill: 0..1 progress WITHIN that tier}. Bronze is the widest
-// band (most miners); silver/gold/diamond are progressively rarer (only the near-richest reach them).
-function _pileTier(ratio) {
-  const bands = [0, 0.40, 0.65, 0.88, 1.0001];
-  for (let t = 0; t < 4; t++) if (ratio < bands[t + 1]) return { t, fill: Math.max(0, Math.min(1, (ratio - bands[t]) / (bands[t + 1] - bands[t]))) };
+// map a 0..1 PERCENTILE (fraction of wallets you're richer than) to {t: tier index, fill: progress WITHIN
+// the tier}. Bronze = the bottom majority; silver/gold/diamond are the 60th / 90th / 99th-percentile bands —
+// distribution-based, so a single whale no longer makes everyone else "bronze".
+function _pileTier(pctile) {
+  const bands = [0, 0.60, 0.90, 0.99, 1.0001];
+  for (let t = 0; t < 4; t++) if (pctile < bands[t + 1]) return { t, fill: Math.max(0, Math.min(1, (pctile - bands[t]) / (bands[t + 1] - bands[t]))) };
   return { t: 3, fill: 1 };
 }
 function _coin(cx, cy, m) {   // a stacked coin rendered in material m (its gradient id is "pileMat")
@@ -1264,10 +1278,16 @@ function renderCoinPile(totalRaw, richestRaw) {
     return;
   }
   svg.style.display = "";
-  const rich = richestRaw > 0n ? richestRaw : 0n;
-  const ratio = (totalRaw > 0n && rich > 0n) ? Math.min(1, Number((totalRaw * 1000000n) / rich) / 1000000) : (totalRaw > 0n ? 1 : 0);
-  const isTop = totalRaw > 0n && totalRaw >= rich;                 // you're the richest (or tied / network unknown)
-  const { t: tierIdx, fill } = _pileTier(ratio);
+  const rich = (stats && stats.richest > 0n) ? stats.richest : 0n;
+  const isTop = totalRaw > 0n && rich > 0n && totalRaw >= rich;    // you're the richest (or tied / network unknown)
+  // log-normal percentile: the fraction of wallets this total is richer than (Φ of its z-score on ln(total)).
+  let pctile;
+  if (stats && stats.count > 1 && stats.logStd > 1e-9) {
+    pctile = Math.max(0, Math.min(1, _normalCdf((Math.log(Number(totalRaw)) - stats.logMean) / stats.logStd)));
+  } else {
+    pctile = isTop ? 1 : 0.5;                                      // degenerate/unknown population -> neutral
+  }
+  const { t: tierIdx, fill } = _pileTier(pctile);
   const m = PILE_TIERS[tierIdx];
   const L = Math.max(1, Math.round(1 + fill * (PILE_MAX_LEVELS - 1)));   // 1..MAX rows WITHIN this material tier
   const defs = `<defs><linearGradient id="pileMat" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${m.g[0]}"/><stop offset="0.5" stop-color="${m.g[1]}"/><stop offset="1" stop-color="${m.g[2]}"/></linearGradient></defs>`;
@@ -1287,10 +1307,10 @@ function renderCoinPile(totalRaw, richestRaw) {
   svg.innerHTML = defs + body + crown;
   const tierName = i18(m.key, m.en);
   if (isTop) cap.textContent = i18("pile.richest", "👑 Richest wallet on the network!") + " · " + tierName;
-  else { const pct = ratio * 100; cap.textContent = `${pct >= 10 ? pct.toFixed(0) : pct.toFixed(1)}% ${i18("pile.ofRichest", "of the richest wallet on the network")} · ${tierName}`; }
+  else { const p = Math.round(pctile * 100); cap.textContent = i18("pile.richerThan", "richer than {p}% of wallets", { p }) + " · " + tierName; }
 }
 async function updateCoinPile(totalRaw) {
-  try { renderCoinPile(totalRaw, await getRichest()); } catch (e) { /* non-fatal cosmetic */ }
+  try { renderCoinPile(totalRaw, await getWealthStats()); } catch (e) { /* non-fatal cosmetic */ }
 }
 
 async function refreshDashboard() {

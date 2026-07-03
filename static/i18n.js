@@ -959,6 +959,27 @@
   };
   for (const l in T36) Object.assign(T[l] = T[l] || {}, T36[l]);
 
+  // T37: distribution-based wallet rank caption ({p} = percentile; keep the placeholder).
+  const T37 = {
+    en:{"pile.richerThan":"richer than {p}% of wallets"},
+    cs:{"pile.richerThan":"bohatší než {p} % peněženek"},
+    es:{"pile.richerThan":"más rico que el {p}% de las carteras"},
+    pt:{"pile.richerThan":"mais rico que {p}% das carteiras"},
+    fr:{"pile.richerThan":"plus riche que {p} % des portefeuilles"},
+    de:{"pile.richerThan":"reicher als {p} % der Wallets"},
+    it:{"pile.richerThan":"più ricco del {p}% dei portafogli"},
+    ru:{"pile.richerThan":"богаче, чем {p}% кошельков"},
+    zh:{"pile.richerThan":"超过 {p}% 的钱包"},
+    ja:{"pile.richerThan":"{p}% のウォレットより裕福"},
+    ko:{"pile.richerThan":"지갑의 {p}%보다 부유함"},
+    ar:{"pile.richerThan":"أغنى من {p}% من المحافظ"},
+    hi:{"pile.richerThan":"{p}% वॉलेट से अधिक धनी"},
+    tr:{"pile.richerThan":"cüzdanların %{p}'inden daha zengin"},
+    id:{"pile.richerThan":"lebih kaya dari {p}% dompet"},
+    vi:{"pile.richerThan":"giàu hơn {p}% số ví"}
+  };
+  for (const l in T37) Object.assign(T[l] = T[l] || {}, T37[l]);
+
 
 
 

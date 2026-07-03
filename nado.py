@@ -538,6 +538,40 @@ async def get_richest(request):
     return _resp(await asyncio.to_thread(_work))
 
 
+_wealth_cache = {"height": -1, "data": None}
+
+
+async def get_wealth_stats(request):
+    # Distribution of account wealth (balance + bonded) for the wallet's rank / "coin pile". Wealth is
+    # heavily right-skewed, so a single O(accounts) pass fits a LOG-NORMAL: it returns count + the richest
+    # + the mean/std of ln(total) over non-zero accounts. The client turns its own ln(total) into a z-score
+    # -> percentile ("richer than X% of wallets"), a distribution-based rank instead of "% of the single
+    # richest wallet" (which one whale dominates). Cached per block height.
+    def _work():
+        import math
+        from ops import kv_ops
+        try:
+            h = memserver.latest_block["block_number"]
+        except Exception:
+            h = 0
+        if _wealth_cache["height"] == h and _wealth_cache["data"] is not None:
+            return _wealth_cache["data"]
+        n, s, s2, richest = 0, 0.0, 0.0, 0
+        for _addr, acc in kv_ops.iter_accounts():
+            tot = int(acc.get("balance", 0)) + int(acc.get("bonded", 0))
+            if tot > richest:
+                richest = tot
+            if tot > 0:
+                lt = math.log(tot)
+                n += 1; s += lt; s2 += lt * lt
+        mean = (s / n) if n else 0.0
+        std = math.sqrt(max(0.0, s2 / n - mean * mean)) if n else 0.0
+        data = {"count": n, "richest": richest, "log_mean": mean, "log_std": std, "block_number": h}
+        _wealth_cache.update(height=h, data=data)
+        return data
+    return _resp(await asyncio.to_thread(_work))
+
+
 _rich_list_cache = {"height": -1, "list": None}
 
 
@@ -684,6 +718,7 @@ async def make_app(port):
             "majority_block_opinion": consensus.majority_block_hash})),
         web.get("/get_recommended_fee", get_recommended_fee),
         web.get("/get_richest", get_richest),
+        web.get("/wealth_stats", get_wealth_stats),
         web.get("/get_rich_list", get_rich_list),
         web.get("/get_open_weights", get_open_weights),
         web.get("/get_settled", get_settled),
