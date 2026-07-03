@@ -92,9 +92,19 @@ def get_current_snapshot(build=True):
 # last Tornado dependency. "No intensive operations or locks from the API"; blocking DB/file work is
 # pushed to a worker thread via asyncio.to_thread so the event loop stays responsive.
 # --------------------------------------------------------------------------------------------------
+from ops.net_ops import client_ip_from, unpack_tx
+
+try:
+    _TRUSTED_PROXIES = frozenset(get_config().get("trusted_proxies") or [])
+except Exception:
+    _TRUSTED_PROXIES = frozenset()
+
+
 def _ip(request):
-    """The client's source IP (Tornado's request.remote_ip equivalent)."""
-    return request.remote or "unknown"
+    """The client's source IP. Defaults to the raw socket peer; X-Forwarded-For is honored ONLY when the peer
+    is a configured trusted reverse proxy (config 'trusted_proxies'), so the per-IP rate limits + anti-Sybil
+    registration cap cannot be header-spoofed on a directly-exposed node."""
+    return client_ip_from(request.remote or "unknown", request.headers.get("X-Forwarded-For", ""), _TRUSTED_PROXIES)
 
 
 def _resp(output, status=200, headers=None):
@@ -200,10 +210,7 @@ async def submit_transaction(request):
 
     def _work(body, ctype, ip):
         try:
-            if "msgpack" in ctype:
-                transaction = msgpack.unpackb(body, raw=False)
-            else:
-                transaction = json.loads(body.decode() if isinstance(body, (bytes, bytearray)) else body)
+            transaction = unpack_tx(body, ctype)   # size-bounded msgpack/JSON decode (ops/net_ops.py)
             rej = _ip_registration_rejection(ip, transaction)
             if rej:
                 return rej, 429
@@ -265,6 +272,10 @@ async def force_sync(request):
             server_key = _q(request, "key", "none")
             client_ip = _ip(request)
             if server_key == memserver.server_key or client_ip == "127.0.0.1":
+                # validate the TARGET too (not just the caller): reject a non-routable/internal forced_ip so
+                # an authenticated force-sync can't be pointed at loopback/RFC1918/metadata (SSRF hardening).
+                if not (forced_ip and check_ip(forced_ip)):
+                    return f"Invalid or non-routable target IP for force-sync: {forced_ip}", 400
                 if client_ip == "127.0.0.1" or check_ip(client_ip):
                     memserver.force_sync_ip = forced_ip
                     memserver.peers = [forced_ip]
