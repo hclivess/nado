@@ -89,7 +89,7 @@ them: no puzzles to keep solving, no efficient rig to keep running, and no requi
 - **Lightweight & reproducible.** Consensus hashing is over canonical JSON, so a browser client
   reproduces every address, transaction id, and verification byte-for-byte. State is a single
   memory-mapped key-value store; block bodies are compact zstd-compressed blobs.
-- **First-party clients.** A browser/mobile light-miner that is also a full wallet, a PySide6 desktop
+- **First-party clients.** A browser/mobile NADO Interface that is also a full wallet, a PySide6 desktop
   wallet, and browsable explorer endpoints on every node.
 
 ---
@@ -304,7 +304,7 @@ it never needlessly freezes coins). It is available in **all three clients**:
 - **Node (unattended):** set `auto_bond_percent` in `private/config.dat`, or the
   `NADO_AUTO_BOND_PERCENT` environment variable (which the `--service` installer wires into the unit).
   The node bonds the configured share of its own block rewards each epoch — ideal for a headless miner.
-- **Browser light-miner:** the **Stake** tab has an "Auto-bond mining rewards" field; while the tab is
+- **Browser interface:** the **Stake** tab has an "Auto-bond mining rewards" field; while the tab is
   mining it compounds that share of your rewards (persisted in the browser).
 - **Desktop wallet:** the **Mining** tab has an "Auto-bond mining rewards" control (persisted in
   `~/.nado_wallet/wallet.json`).
@@ -343,10 +343,10 @@ Install [Python](https://www.python.org/downloads/), `python -m pip install -r r
 Open the running node's light-miner in any browser:
 
 ```
-http://<node-ip>:9173/static/miner.html
+http://<node-ip>:9173/static/interface.html
 ```
 
-The light-miner (`static/miner.html` + `static/miner.js`) is also a **full wallet**: it generates or
+The NADO Interface (`static/interface.html` + `static/interface.js`) is also a **full wallet**: it generates or
 imports a key, computes the sequential registration **PoSW** in pure JS (byte-identical to the node's
 verifier), registers/renews its PoSW lease against the node (no heartbeats), and **keeps winning blocks even while the
 phone is locked** — presence is a ~1-day PoSW lease (no per-epoch traffic), and a relay assembles the
@@ -358,17 +358,17 @@ miner can see the field it is competing against. Crypto is **vendored** (`static
 blake2b + ML-DSA-44) so it works offline, and an in-page self-test asserts byte-equality of its canonical
 encoding against the live repo on boot.
 
-> The light-miner keeps its private key in browser `localStorage` in **plaintext** (disclosed in the
+> The NADO Interface keeps its private key in browser `localStorage` in **plaintext** (disclosed in the
 > UI). Treat it like a hot wallet.
 
 ## Clients
 
-- **Browser / mobile light-miner & wallet** — `static/miner.html` (see above).
+- **Browser / mobile NADO Interface (wallet)** — `static/interface.html` (see above).
 - **Desktop wallet** — `python3.10 pyside_wallet.py` (PySide6): overview, send, bond/unbond, register
   & mine, expected-time-to-mine, an **auto-bond** control (compound a % of mined rewards into stake),
   and a live selection-lane visualization. PySide6 is wallet-only; the node itself does not need it.
-- **Block explorer** — folded into the light-miner as an **Explore tab** (`static/miner.html` +
-  `static/miner.js`): search by address / **alias** / block number / block hash / txid, browse recent
+- **Block explorer** — folded into the NADO Interface as an **Explore tab** (`static/interface.html` +
+  `static/interface.js`): search by address / **alias** / block number / block hash / txid, browse recent
   blocks, and see live network + mining-lane stats — all reading the node's own public JSON API in the
   browser. The node serves the wallet/explorer at `/`. (The raw JSON endpoints — `/get_account`,
   `/get_block`, `/get_transaction`, `/get_supply`, `/status`, `/resolve_alias`, … with `readable=true` —
@@ -544,7 +544,7 @@ live.)
 - **Aliases** — a human-readable name → owner address, so you can **send to a short name instead of the
   49-char `ndo…` address**. Register / transfer / unregister are on-chain ops (reserved recipient
   `alias`); an ordinary transfer whose recipient is a registered alias credits the alias's current
-  owner. See [`doc/aliases.md`](doc/aliases.md); the light-miner's Send field accepts an alias and its
+  owner. See [`doc/aliases.md`](doc/aliases.md); the NADO Interface's Send field accepts an alias and its
   Receive tab manages them.
 - **Hashing & serialization** — BLAKE2b over `canonical_bytes()` (compact, sorted-key, ASCII JSON,
   float-free). Every consensus integer is a raw integer, so a browser reproduces identical bytes with

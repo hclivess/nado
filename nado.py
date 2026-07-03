@@ -131,8 +131,14 @@ def _dump_handler(name, getter):
 
 
 async def home(request):
-    # The node's landing page is the static, client-side explorer (styled like the light miner).
-    raise web.HTTPFound("/static/miner.html")
+    # The node's landing page is the static, client-side NADO Interface (wallet + miner + explorer + shield).
+    raise web.HTTPFound("/static/interface.html")
+
+
+async def legacy_static_redirect(request):
+    # The page/assets were renamed miner.* -> interface.* (it's a full interface now, not just a miner).
+    # Redirect the old paths so saved links / bookmarks to /static/miner.html keep working.
+    raise web.HTTPFound("/static/interface." + request.match_info["ext"])
 
 
 async def status(request):
@@ -692,6 +698,7 @@ async def make_app(port):
         web.get("/whats_my_ip", whats_my_ip),
         web.get("/force_sync", force_sync),
         web.get("/favicon.ico", favicon),
+        web.get("/static/miner.{ext:html|js|css}", legacy_static_redirect),   # old name -> interface.*
         web.get("/static/{path:.*}", static_handler),
     ])
     runner = web.AppRunner(app, access_log=None)

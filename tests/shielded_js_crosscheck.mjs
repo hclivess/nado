@@ -8,7 +8,7 @@
 import { blake2b, bytesToHex } from "../static/vendor/nado-crypto.js";
 import * as shielded from "../static/shielded.js";
 
-// --- canonicalize + blake2bHash: copied verbatim from miner.js (itself byte-verified against Python) ---
+// --- canonicalize + blake2bHash: copied verbatim from interface.js (itself byte-verified against Python) ---
 function jsonEscapeAscii(s) { return JSON.stringify(s); }        // inputs here are ASCII -> JSON string literal
 function canonicalize(data) {
   if (data === null || data === undefined) return "null";

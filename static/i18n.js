@@ -1,4 +1,4 @@
-/* NADO light-miner i18n. Classic (non-module) script loaded BEFORE miner.js so it can localize the
+/* NADO Interface i18n. Classic (non-module) script loaded BEFORE interface.js so it can localize the
  * static DOM and expose window.t() for the module. Language defaults to the browser locale
  * (navigator.languages), overridable via the header picker (persisted in localStorage). English is the
  * fallback for any missing key, so a partial translation degrades gracefully. RTL langs flip <html dir>.
@@ -275,61 +275,61 @@
       "receive.intro":"Share this QR or payment link to request NADO. Scanning it opens a wallet with a Send pre-filled — the sender always reviews and confirms before anything is sent.",
       "alias.intro":"Register a short name that resolves to your own address — others can then send to the name instead of your long ndo… address. Names are global and first-come; registering costs a small anti-squat fee.",
       "settings.relayNote":"Defaults to this page's origin. A custom relay must be same-origin or send CORS headers, or your browser will block reads.",
-      "footer":"NADO light-miner · the chain stays on full nodes; this page only generates keys, registers, and heartbeats. Your reward lands on your address because a relay builds the block crediting it." },
+      "footer":"NADO Interface · the chain stays on full nodes; this page only generates keys, registers, and heartbeats. Your reward lands on your address because a relay builds the block crediting it." },
     cs: { "lane.miners":"těžařů","lane.validators":"validátorů","lane.legendOpen":"Volná dráha — zdarma, bez kapitálu","lane.youMark":"(vy)","lane.legendBonded":"Staking dráha — uzamčený stake","badge.yes":"ano","badge.no":"ne","badge.new":"nový","badge.present":"přítomen","badge.absent":"nepřítomen","mine.starting":"Spouštění…","mine.mining":"Těžba","mine.registering":"Registrace…","mine.stopped":"Zastaveno","log.title":"Aktivita","btn.clear":"Vymazat","alias.your":"Vaše aliasy:","alias.pill":"jméno místo hashe",
       "onboard.intro":"Vytvořte zcela novou těžební identitu nebo naimportujte existující soukromý klíč. Vše probíhá lokálně ve vašem prohlížeči — váš soukromý klíč nikdy neopustí toto zařízení.",
       "receive.intro":"Sdílejte tento QR kód nebo platební odkaz pro vyžádání NADO. Naskenováním se otevře peněženka s předvyplněným odesláním — odesílatel vždy zkontroluje a potvrdí, než se cokoli odešle.",
       "alias.intro":"Zaregistrujte si krátké jméno, které odkazuje na vaši vlastní adresu — ostatní pak mohou posílat na jméno místo vaší dlouhé ndo… adresy. Jména jsou globální a platí kdo dřív přijde; registrace stojí malý poplatek proti squattingu.",
       "settings.relayNote":"Výchozí je původ této stránky. Vlastní relay musí být ze stejného původu nebo posílat hlavičky CORS, jinak prohlížeč čtení zablokuje.",
-      "footer":"NADO light-miner · řetězec zůstává na plných uzlech; tato stránka jen generuje klíče, registruje a posílá heartbeaty. Vaše odměna přistane na vaší adrese, protože relay sestaví blok, který ji připíše." },
+      "footer":"NADO Interface · řetězec zůstává na plných uzlech; tato stránka jen generuje klíče, registruje a posílá heartbeaty. Vaše odměna přistane na vaší adrese, protože relay sestaví blok, který ji připíše." },
     es: { "lane.miners":"mineros","lane.validators":"validadores","lane.legendOpen":"Carril abierto — gratis, sin capital","lane.youMark":"(tú)","lane.legendBonded":"Carril con stake — bloqueado","badge.yes":"sí","badge.no":"no","badge.new":"nuevo","badge.present":"presente","badge.absent":"ausente","mine.starting":"Iniciando…","mine.mining":"Minando","mine.registering":"Registrando…","mine.stopped":"Detenido","log.title":"Actividad","btn.clear":"Limpiar","alias.your":"Tus alias:","alias.pill":"un nombre en vez de un hash",
       "onboard.intro":"Genera una identidad de minería nueva o importa una clave privada existente. Todo ocurre localmente en tu navegador — tu clave privada nunca sale de este dispositivo.",
       "receive.intro":"Comparte este QR o enlace de pago para solicitar NADO. Al escanearlo se abre una cartera con un envío ya preparado — el remitente siempre revisa y confirma antes de enviar.",
       "alias.intro":"Registra un nombre corto que apunta a tu propia dirección — así otros pueden enviar al nombre en vez de a tu larga dirección ndo…. Los nombres son globales y por orden de llegada; registrar cuesta una pequeña comisión anti-ocupación.",
       "settings.relayNote":"Por defecto usa el origen de esta página. Un relé personalizado debe ser del mismo origen o enviar cabeceras CORS, o el navegador bloqueará las lecturas.",
-      "footer":"NADO light-miner · la cadena vive en los nodos completos; esta página solo genera claves, registra y late. Tu recompensa llega a tu dirección porque un relé construye el bloque que la acredita." },
+      "footer":"NADO Interface · la cadena vive en los nodos completos; esta página solo genera claves, registra y late. Tu recompensa llega a tu dirección porque un relé construye el bloque que la acredita." },
     pt: { "lane.miners":"mineradores","lane.validators":"validadores","lane.legendOpen":"Faixa aberta — grátis, sem capital","lane.youMark":"(você)","lane.legendBonded":"Faixa com stake — bloqueado","badge.yes":"sim","badge.no":"não","badge.new":"novo","badge.present":"presente","badge.absent":"ausente","mine.starting":"Iniciando…","mine.mining":"Minerando","mine.registering":"Registando…","mine.stopped":"Parado","log.title":"Atividade","btn.clear":"Limpar","alias.your":"Os seus apelidos:","alias.pill":"um nome em vez de um hash",
       "onboard.intro":"Gere uma identidade de mineração nova ou importe uma chave privada existente. Tudo acontece localmente no seu navegador — a sua chave privada nunca sai deste dispositivo.",
       "receive.intro":"Partilhe este QR ou link de pagamento para pedir NADO. Ao lê-lo abre-se uma carteira com um envio pré-preenchido — o remetente revê e confirma sempre antes de enviar.",
       "alias.intro":"Registe um nome curto que aponta para o seu próprio endereço — outros podem então enviar para o nome em vez do seu longo endereço ndo…. Os nomes são globais e por ordem de chegada; registar custa uma pequena taxa anti-ocupação.",
       "settings.relayNote":"Por padrão usa a origem desta página. Um relé personalizado tem de ser da mesma origem ou enviar cabeçalhos CORS, senão o navegador bloqueia as leituras.",
-      "footer":"NADO light-miner · a cadeia fica nos nós completos; esta página só gera chaves, regista e envia batimentos. A sua recompensa chega ao seu endereço porque um relé constrói o bloco que a credita." },
+      "footer":"NADO Interface · a cadeia fica nos nós completos; esta página só gera chaves, regista e envia batimentos. A sua recompensa chega ao seu endereço porque um relé constrói o bloco que a credita." },
     fr: { "lane.miners":"mineurs","lane.validators":"validateurs","lane.legendOpen":"Voie ouverte — gratuite, sans capital","lane.youMark":"(vous)","lane.legendBonded":"Voie stakée — verrouillée","badge.yes":"oui","badge.no":"non","badge.new":"nouveau","badge.present":"présent","badge.absent":"absent","mine.starting":"Démarrage…","mine.mining":"Minage","mine.registering":"Enregistrement…","mine.stopped":"Arrêté","log.title":"Activité","btn.clear":"Effacer","alias.your":"Vos alias :","alias.pill":"un nom au lieu d'un hash",
       "onboard.intro":"Générez une toute nouvelle identité de minage ou importez une clé privée existante. Tout se passe localement dans votre navigateur — votre clé privée ne quitte jamais cet appareil.",
       "receive.intro":"Partagez ce QR ou ce lien de paiement pour demander des NADO. Le scanner ouvre un portefeuille avec un envoi pré-rempli — l'expéditeur vérifie et confirme toujours avant tout envoi.",
       "alias.intro":"Enregistrez un nom court qui pointe vers votre propre adresse — les autres peuvent alors envoyer au nom plutôt qu'à votre longue adresse ndo…. Les noms sont globaux et au premier arrivé ; l'enregistrement coûte de petits frais anti-squat.",
       "settings.relayNote":"Par défaut, l'origine de cette page. Un relais personnalisé doit être de même origine ou envoyer des en-têtes CORS, sinon votre navigateur bloquera les lectures.",
-      "footer":"NADO light-miner · la chaîne reste sur les nœuds complets ; cette page ne fait que générer des clés, s'enregistrer et battre. Votre récompense arrive à votre adresse car un relais construit le bloc qui la crédite." },
+      "footer":"NADO Interface · la chaîne reste sur les nœuds complets ; cette page ne fait que générer des clés, s'enregistrer et battre. Votre récompense arrive à votre adresse car un relais construit le bloc qui la crédite." },
     de: { "lane.miners":"Miner","lane.validators":"Validatoren","lane.legendOpen":"Offene Spur — kostenlos, ohne Kapital","lane.youMark":"(du)","lane.legendBonded":"Gebundene Spur — gesperrter Stake","badge.yes":"ja","badge.no":"nein","badge.new":"neu","badge.present":"anwesend","badge.absent":"abwesend","mine.starting":"Starte…","mine.mining":"Mining","mine.registering":"Registriere…","mine.stopped":"Gestoppt","log.title":"Aktivität","btn.clear":"Leeren","alias.your":"Deine Aliase:","alias.pill":"ein Name statt eines Hashes",
       "onboard.intro":"Erzeuge eine brandneue Mining-Identität oder importiere einen vorhandenen privaten Schlüssel. Alles geschieht lokal in deinem Browser — dein privater Schlüssel verlässt dieses Gerät nie.",
       "receive.intro":"Teile diesen QR-Code oder Zahlungslink, um NADO anzufordern. Beim Scannen öffnet sich eine Wallet mit vorausgefülltem Senden — der Absender prüft und bestätigt immer, bevor etwas gesendet wird.",
       "alias.intro":"Registriere einen kurzen Namen, der auf deine eigene Adresse verweist — andere können dann an den Namen statt an deine lange ndo…-Adresse senden. Namen sind global und wer zuerst kommt; die Registrierung kostet eine kleine Anti-Squat-Gebühr.",
       "settings.relayNote":"Standard ist der Ursprung dieser Seite. Ein eigener Relay muss vom selben Ursprung sein oder CORS-Header senden, sonst blockiert der Browser die Lesezugriffe.",
-      "footer":"NADO light-miner · die Kette bleibt auf Full Nodes; diese Seite erzeugt nur Schlüssel, registriert und sendet Heartbeats. Deine Belohnung landet auf deiner Adresse, weil ein Relay den gutschreibenden Block baut." },
+      "footer":"NADO Interface · die Kette bleibt auf Full Nodes; diese Seite erzeugt nur Schlüssel, registriert und sendet Heartbeats. Deine Belohnung landet auf deiner Adresse, weil ein Relay den gutschreibenden Block baut." },
     it: { "lane.miners":"minatori","lane.validators":"validatori","lane.legendOpen":"Corsia aperta — gratis, senza capitale","lane.youMark":"(tu)","lane.legendBonded":"Corsia in stake — bloccata","badge.yes":"sì","badge.no":"no","badge.new":"nuovo","badge.present":"presente","badge.absent":"assente","mine.starting":"Avvio…","mine.mining":"Mining","mine.registering":"Registrazione…","mine.stopped":"Fermato","log.title":"Attività","btn.clear":"Pulisci","alias.your":"I tuoi alias:","alias.pill":"un nome invece di un hash",
       "onboard.intro":"Genera una nuova identità di mining o importa una chiave privata esistente. Tutto avviene localmente nel tuo browser — la tua chiave privata non lascia mai questo dispositivo.",
       "receive.intro":"Condividi questo QR o link di pagamento per richiedere NADO. Scansionandolo si apre un portafoglio con un invio precompilato — il mittente controlla e conferma sempre prima di inviare.",
       "alias.intro":"Registra un nome breve che punta al tuo indirizzo — gli altri possono poi inviare al nome invece del tuo lungo indirizzo ndo…. I nomi sono globali e a chi arriva prima; registrare costa una piccola commissione anti-squat.",
       "settings.relayNote":"Predefinito è l'origine di questa pagina. Un relay personalizzato deve essere della stessa origine o inviare header CORS, altrimenti il browser bloccherà le letture.",
-      "footer":"NADO light-miner · la catena resta sui nodi completi; questa pagina genera solo chiavi, registra e invia battiti. La tua ricompensa arriva al tuo indirizzo perché un relay costruisce il blocco che la accredita." },
+      "footer":"NADO Interface · la catena resta sui nodi completi; questa pagina genera solo chiavi, registra e invia battiti. La tua ricompensa arriva al tuo indirizzo perché un relay costruisce il blocco che la accredita." },
     ru: { "lane.miners":"майнеров","lane.validators":"валидаторов","lane.legendOpen":"Открытая полоса — бесплатно, без капитала","lane.youMark":"(вы)","lane.legendBonded":"Полоса стейка — заблокировано","badge.yes":"да","badge.no":"нет","badge.new":"новый","badge.present":"активен","badge.absent":"отсутствует","mine.starting":"Запуск…","mine.mining":"Майнинг","mine.registering":"Регистрация…","mine.stopped":"Остановлено","log.title":"Активность","btn.clear":"Очистить","alias.your":"Ваши псевдонимы:","alias.pill":"имя вместо хеша",
       "onboard.intro":"Создайте совершенно новую майнинг-личность или импортируйте существующий приватный ключ. Всё происходит локально в вашем браузере — приватный ключ никогда не покидает это устройство.",
       "receive.intro":"Поделитесь этим QR или платёжной ссылкой, чтобы запросить NADO. При сканировании откроется кошелёк с предзаполненной отправкой — отправитель всегда проверяет и подтверждает перед отправкой.",
       "alias.intro":"Зарегистрируйте короткое имя, указывающее на ваш адрес — другие смогут отправлять на имя вместо вашего длинного адреса ndo…. Имена глобальны и по очереди; регистрация стоит небольшую комиссию против сквоттинга.",
       "settings.relayNote":"По умолчанию — источник этой страницы. Свой релей должен быть того же источника или слать заголовки CORS, иначе браузер заблокирует чтение.",
-      "footer":"NADO light-miner · цепь живёт на полных узлах; эта страница только генерирует ключи, регистрирует и шлёт сигналы. Ваша награда попадает на ваш адрес, потому что релей строит блок, зачисляющий её." },
+      "footer":"NADO Interface · цепь живёт на полных узлах; эта страница только генерирует ключи, регистрирует и шлёт сигналы. Ваша награда попадает на ваш адрес, потому что релей строит блок, зачисляющий её." },
     zh: { "lane.miners":"矿工","lane.validators":"验证者","lane.legendOpen":"开放通道 — 免费、无需资本","lane.youMark":"(你)","lane.legendBonded":"质押通道 — 锁定的质押","badge.yes":"是","badge.no":"否","badge.new":"新","badge.present":"在线","badge.absent":"离线","mine.starting":"启动中…","mine.mining":"挖矿中","mine.registering":"注册中…","mine.stopped":"已停止","log.title":"活动","btn.clear":"清除","alias.your":"你的别名：","alias.pill":"用名字代替哈希",
       "onboard.intro":"生成全新的挖矿身份，或导入已有的私钥。一切都在你的浏览器本地进行——你的私钥永远不会离开本设备。",
       "receive.intro":"分享此二维码或付款链接以请求 NADO。扫描后会打开一个预填发送的钱包——发送方在发送前始终会审核并确认。",
       "alias.intro":"注册一个指向你自己地址的短名字——别人就能发送到名字而不是你冗长的 ndo… 地址。名字是全局的、先到先得；注册需付一小笔防抢注费用。",
       "settings.relayNote":"默认使用本页面的来源。自定义中继必须同源或发送 CORS 头，否则浏览器会阻止读取。",
-      "footer":"NADO 轻矿工 · 链保存在全节点上；本页面只生成密钥、注册并发送心跳。你的奖励会到你的地址，因为中继会构建为其记账的区块。" },
+      "footer":"NADO 界面 · 链保存在全节点上；本页面只生成密钥、注册并发送心跳。你的奖励会到你的地址，因为中继会构建为其记账的区块。" },
     ja: { "lane.miners":"マイナー","lane.validators":"バリデータ","lane.legendOpen":"オープンレーン — 無料・資本不要","lane.youMark":"(あなた)","lane.legendBonded":"ステークレーン — ロック済み","badge.yes":"はい","badge.no":"いいえ","badge.new":"新規","badge.present":"参加中","badge.absent":"不在","mine.starting":"開始中…","mine.mining":"マイニング中","mine.registering":"登録中…","mine.stopped":"停止","log.title":"アクティビティ","btn.clear":"クリア","alias.your":"あなたのエイリアス:","alias.pill":"ハッシュの代わりに名前",
       "onboard.intro":"新しいマイニングIDを生成するか、既存の秘密鍵をインポートします。すべてブラウザ内でローカルに行われ、秘密鍵がこの端末から出ることはありません。",
       "receive.intro":"このQRまたは支払いリンクを共有してNADOを請求します。スキャンすると送金が事前入力されたウォレットが開きます — 送信者は送信前に必ず確認します。",
       "alias.intro":"自分のアドレスを指す短い名前を登録します — 他の人は長い ndo… アドレスの代わりに名前へ送れます。名前はグローバルで先着順、登録には少額のスクワット防止手数料がかかります。",
       "settings.relayNote":"既定はこのページのオリジンです。カスタムリレーは同一オリジンか、CORSヘッダーを送る必要があります。さもないとブラウザが読み取りをブロックします。",
-      "footer":"NADO ライトマイナー · チェーンはフルノードに置かれます。このページは鍵の生成・登録・ハートビートのみ行います。リレーが加算ブロックを作るため、報酬はあなたのアドレスに届きます。" },
+      "footer":"NADO インターフェース · チェーンはフルノードに置かれます。このページは鍵の生成・登録・ハートビートのみ行います。リレーが加算ブロックを作るため、報酬はあなたのアドレスに届きます。" },
     ko: { "lane.miners":"채굴자","lane.validators":"검증자","lane.legendOpen":"공개 레인 — 무료, 자본 불필요","lane.youMark":"(당신)","lane.legendBonded":"스테이크 레인 — 잠긴 스테이크","badge.yes":"예","badge.no":"아니오","badge.new":"신규","badge.present":"활동 중","badge.absent":"부재","mine.starting":"시작 중…","mine.mining":"채굴 중","mine.registering":"등록 중…","mine.stopped":"중지됨","log.title":"활동","btn.clear":"지우기","alias.your":"내 별칭:","alias.pill":"해시 대신 이름" },
     ar: { "lane.miners":"المُعدِّنون","lane.validators":"المُصادِقون","lane.legendOpen":"المسار المفتوح — مجاني، دون رأس مال","lane.youMark":"(أنت)","lane.legendBonded":"مسار التخزين — مربوط","badge.yes":"نعم","badge.no":"لا","badge.new":"جديد","badge.present":"حاضر","badge.absent":"غائب","mine.starting":"جارٍ البدء…","mine.mining":"يُعدِّن","mine.registering":"جارٍ التسجيل…","mine.stopped":"متوقف","log.title":"النشاط","btn.clear":"مسح","alias.your":"أسماؤك:","alias.pill":"اسم بدلاً من التجزئة" },
     hi: { "lane.miners":"माइनर","lane.validators":"वैलिडेटर","lane.legendOpen":"ओपन लेन — मुफ़्त, बिना पूंजी","lane.youMark":"(आप)","lane.legendBonded":"बॉन्डेड लेन — लॉक किया स्टेक","badge.yes":"हाँ","badge.no":"नहीं","badge.new":"नया","badge.present":"मौजूद","badge.absent":"अनुपस्थित","mine.starting":"शुरू हो रहा…","mine.mining":"माइनिंग","mine.registering":"पंजीकरण…","mine.stopped":"रुका","log.title":"गतिविधि","btn.clear":"साफ़ करें","alias.your":"आपके उपनाम:","alias.pill":"हैश के बजाय एक नाम" },
@@ -346,37 +346,37 @@
       "receive.intro":"이 QR 또는 결제 링크를 공유하여 NADO를 요청하세요. 스캔하면 보내기가 미리 채워진 지갑이 열립니다 — 보내는 사람은 항상 전송 전에 검토하고 확인합니다.",
       "alias.intro":"자신의 주소를 가리키는 짧은 이름을 등록하세요 — 그러면 다른 사람이 긴 ndo… 주소 대신 이름으로 보낼 수 있습니다. 이름은 전역적이며 선착순이고, 등록에는 소액의 선점 방지 수수료가 듭니다.",
       "settings.relayNote":"기본값은 이 페이지의 출처입니다. 사용자 지정 릴레이는 동일 출처이거나 CORS 헤더를 보내야 하며, 그렇지 않으면 브라우저가 읽기를 차단합니다.",
-      "footer":"NADO 라이트 마이너 · 체인은 풀 노드에 저장됩니다. 이 페이지는 키 생성, 등록, 하트비트만 수행합니다. 릴레이가 적립 블록을 만들기 때문에 보상이 주소로 도착합니다." },
+      "footer":"NADO 인터페이스 · 체인은 풀 노드에 저장됩니다. 이 페이지는 키 생성, 등록, 하트비트만 수행합니다. 릴레이가 적립 블록을 만들기 때문에 보상이 주소로 도착합니다." },
     ar: {
       "onboard.intro":"أنشئ هوية تعدين جديدة تمامًا أو استورد مفتاحًا خاصًا موجودًا. كل شيء يحدث محليًا في متصفحك — مفتاحك الخاص لا يغادر هذا الجهاز أبدًا.",
       "receive.intro":"شارك رمز QR أو رابط الدفع هذا لطلب NADO. مسحه يفتح محفظة بعملية إرسال معبأة مسبقًا — يراجع المرسل ويؤكد دائمًا قبل الإرسال.",
       "alias.intro":"سجّل اسمًا قصيرًا يشير إلى عنوانك — عندها يمكن للآخرين الإرسال إلى الاسم بدلًا من عنوانك الطويل ndo…. الأسماء عالمية ومن يسبق يربح؛ التسجيل يكلف رسمًا صغيرًا لمنع الاستحواذ.",
       "settings.relayNote":"الافتراضي هو أصل هذه الصفحة. يجب أن يكون المُرحّل المخصص من نفس الأصل أو يرسل ترويسات CORS، وإلا سيمنع المتصفح القراءة.",
-      "footer":"NADO لايت ماينر · تبقى السلسلة على العقد الكاملة؛ هذه الصفحة تولّد المفاتيح وتسجّل وترسل النبضات فقط. تصل مكافأتك إلى عنوانك لأن المُرحّل يبني الكتلة التي تقيّدها." },
+      "footer":"NADO واجهة · تبقى السلسلة على العقد الكاملة؛ هذه الصفحة تولّد المفاتيح وتسجّل وترسل النبضات فقط. تصل مكافأتك إلى عنوانك لأن المُرحّل يبني الكتلة التي تقيّدها." },
     hi: {
       "onboard.intro":"बिलकुल नई माइनिंग पहचान बनाएं या मौजूदा निजी कुंजी आयात करें। सब कुछ आपके ब्राउज़र में स्थानीय रूप से होता है — आपकी निजी कुंजी कभी इस डिवाइस से बाहर नहीं जाती।",
       "receive.intro":"NADO माँगने के लिए यह QR या भुगतान लिंक साझा करें। इसे स्कैन करने पर एक वॉलेट खुलता है जिसमें भेजना पहले से भरा होता है — भेजने वाला भेजने से पहले हमेशा जाँचता और पुष्टि करता है।",
       "alias.intro":"एक छोटा नाम पंजीकृत करें जो आपके अपने पते की ओर इशारा करता है — फिर दूसरे आपके लंबे ndo… पते के बजाय नाम पर भेज सकते हैं। नाम वैश्विक और पहले आओ पहले पाओ हैं; पंजीकरण में एक छोटा एंटी-स्क्वाट शुल्क लगता है।",
       "settings.relayNote":"डिफ़ॉल्ट इस पेज का मूल है। कस्टम रिले को समान-मूल होना चाहिए या CORS हेडर भेजने चाहिए, वरना आपका ब्राउज़र पढ़ना रोक देगा।",
-      "footer":"NADO लाइट-माइनर · चेन फुल नोड्स पर रहती है; यह पेज केवल कुंजियाँ बनाता, पंजीकरण और हार्टबीट करता है। आपका इनाम आपके पते पर आता है क्योंकि एक रिले उसे क्रेडिट करने वाला ब्लॉक बनाता है।" },
+      "footer":"NADO इंटरफ़ेस · चेन फुल नोड्स पर रहती है; यह पेज केवल कुंजियाँ बनाता, पंजीकरण और हार्टबीट करता है। आपका इनाम आपके पते पर आता है क्योंकि एक रिले उसे क्रेडिट करने वाला ब्लॉक बनाता है।" },
     tr: {
       "onboard.intro":"Yepyeni bir madencilik kimliği oluşturun veya mevcut bir özel anahtarı içe aktarın. Her şey tarayıcınızda yerel olarak gerçekleşir — özel anahtarınız bu cihazdan asla çıkmaz.",
       "receive.intro":"NADO istemek için bu QR'ı veya ödeme bağlantısını paylaşın. Taranınca gönderimi önceden doldurulmuş bir cüzdan açılır — gönderen her zaman göndermeden önce inceler ve onaylar.",
       "alias.intro":"Kendi adresinize işaret eden kısa bir ad kaydedin — böylece başkaları uzun ndo… adresiniz yerine ada gönderebilir. Adlar geneldir ve ilk gelen alır; kayıt küçük bir işgal önleme ücreti alır.",
       "settings.relayNote":"Varsayılan olarak bu sayfanın kaynağıdır. Özel bir röle aynı kaynaktan olmalı veya CORS başlıkları göndermelidir, aksi halde tarayıcınız okumayı engeller.",
-      "footer":"NADO hafif madenci · zincir tam düğümlerde kalır; bu sayfa yalnızca anahtar üretir, kaydeder ve sinyal gönderir. Bir röle onu kaydeden bloğu oluşturduğu için ödülünüz adresinize ulaşır." },
+      "footer":"NADO Arayüz · zincir tam düğümlerde kalır; bu sayfa yalnızca anahtar üretir, kaydeder ve sinyal gönderir. Bir röle onu kaydeden bloğu oluşturduğu için ödülünüz adresinize ulaşır." },
     id: {
       "onboard.intro":"Hasilkan identitas penambangan yang benar-benar baru atau impor kunci privat yang ada. Semuanya terjadi secara lokal di browser Anda — kunci privat Anda tidak pernah meninggalkan perangkat ini.",
       "receive.intro":"Bagikan QR atau tautan pembayaran ini untuk meminta NADO. Memindainya membuka dompet dengan pengiriman terisi otomatis — pengirim selalu meninjau dan mengonfirmasi sebelum mengirim.",
       "alias.intro":"Daftarkan nama pendek yang menunjuk ke alamat Anda sendiri — orang lain lalu bisa mengirim ke nama alih-alih alamat ndo… Anda yang panjang. Nama bersifat global dan siapa cepat dia dapat; pendaftaran dikenai biaya kecil anti-squat.",
       "settings.relayNote":"Bawaan adalah asal halaman ini. Relai khusus harus sama-asal atau mengirim header CORS, jika tidak browser Anda akan memblokir pembacaan.",
-      "footer":"NADO light-miner · rantai tetap di node penuh; halaman ini hanya membuat kunci, mendaftar, dan mengirim heartbeat. Hadiah Anda sampai ke alamat Anda karena relai membangun blok yang mengkreditkannya." },
+      "footer":"NADO Interface · rantai tetap di node penuh; halaman ini hanya membuat kunci, mendaftar, dan mengirim heartbeat. Hadiah Anda sampai ke alamat Anda karena relai membangun blok yang mengkreditkannya." },
     vi: {
       "onboard.intro":"Tạo một danh tính đào hoàn toàn mới hoặc nhập khóa riêng hiện có. Mọi thứ diễn ra cục bộ trong trình duyệt của bạn — khóa riêng của bạn không bao giờ rời khỏi thiết bị này.",
       "receive.intro":"Chia sẻ mã QR hoặc liên kết thanh toán này để yêu cầu NADO. Quét nó sẽ mở ví với phần Gửi được điền sẵn — người gửi luôn xem lại và xác nhận trước khi gửi.",
       "alias.intro":"Đăng ký một tên ngắn trỏ đến địa chỉ của chính bạn — người khác có thể gửi đến tên thay vì địa chỉ ndo… dài của bạn. Tên có tính toàn cục và ai đến trước được trước; đăng ký tốn một khoản phí nhỏ chống chiếm chỗ.",
       "settings.relayNote":"Mặc định là nguồn gốc của trang này. Relay tùy chỉnh phải cùng nguồn gốc hoặc gửi tiêu đề CORS, nếu không trình duyệt sẽ chặn việc đọc.",
-      "footer":"NADO light-miner · chuỗi nằm trên các node đầy đủ; trang này chỉ tạo khóa, đăng ký và gửi nhịp. Phần thưởng của bạn đến địa chỉ của bạn vì một relay xây dựng khối ghi có cho nó." }
+      "footer":"NADO Interface · chuỗi nằm trên các node đầy đủ; trang này chỉ tạo khóa, đăng ký và gửi nhịp. Phần thưởng của bạn đến địa chỉ của bạn vì một relay xây dựng khối ghi có cho nó." }
   };
   for (const l in T3) Object.assign(T[l], T3[l]);
 
@@ -696,12 +696,12 @@
   for (const l in T18) Object.assign(T[l], T18[l]);
 
   const T19 = {
-    en:{"app.title":"NADO Light Miner"}, cs:{"app.title":"NADO Lehký těžař"}, es:{"app.title":"NADO Minero ligero"},
-    pt:{"app.title":"NADO Minerador leve"}, fr:{"app.title":"NADO Mineur léger"}, de:{"app.title":"NADO Leicht-Miner"},
-    it:{"app.title":"NADO Miner leggero"}, ru:{"app.title":"NADO Лёгкий майнер"}, zh:{"app.title":"NADO 轻量矿工"},
-    ja:{"app.title":"NADO ライトマイナー"}, ko:{"app.title":"NADO 라이트 마이너"}, ar:{"app.title":"NADO مُعدِّن خفيف"},
-    hi:{"app.title":"NADO लाइट माइनर"}, tr:{"app.title":"NADO Hafif Madenci"}, id:{"app.title":"NADO Penambang Ringan"},
-    vi:{"app.title":"NADO Trình đào nhẹ"}
+    en:{"app.title":"NADO Interface"}, cs:{"app.title":"NADO Rozhraní"}, es:{"app.title":"NADO Interfaz"},
+    pt:{"app.title":"NADO Interface"}, fr:{"app.title":"NADO Interface"}, de:{"app.title":"NADO Interface"},
+    it:{"app.title":"NADO Interfaccia"}, ru:{"app.title":"NADO Интерфейс"}, zh:{"app.title":"NADO 界面"},
+    ja:{"app.title":"NADO インターフェース"}, ko:{"app.title":"NADO 인터페이스"}, ar:{"app.title":"NADO واجهة"},
+    hi:{"app.title":"NADO इंटरफ़ेस"}, tr:{"app.title":"NADO Arayüz"}, id:{"app.title":"NADO Antarmuka"},
+    vi:{"app.title":"NADO Giao diện"}
   };
   for (const l in T19) Object.assign(T[l], T19[l]);
 
@@ -749,22 +749,22 @@
 
   // Footer override: de-heartbeat ("registers, and heartbeats" -> "registers, and renews its PoSW lease").
   const T22 = {
-    en:{"footer":"NADO light-miner · the chain stays on full nodes; this page only generates keys, registers, and renews its PoSW lease. Your reward lands on your address because a relay builds the block crediting it."},
-    cs:{"footer":"NADO odlehčený těžař · řetězec běží na plných uzlech; tato stránka jen generuje klíče, registruje a obnovuje PoSW nájem. Odměna přistane na vaší adrese, protože blok, který ji připisuje, sestaví relay."},
-    es:{"footer":"NADO minero ligero · la cadena vive en los nodos completos; esta página solo genera claves, registra y renueva tu lease PoSW. Tu recompensa llega a tu dirección porque un relé construye el bloque que la acredita."},
-    pt:{"footer":"NADO minerador leve · a cadeia vive nos nós completos; esta página só gera chaves, regista e renova a locação PoSW. A recompensa chega ao seu endereço porque um relé constrói o bloco que a credita."},
-    fr:{"footer":"NADO mineur léger · la chaîne reste sur les nœuds complets ; cette page ne fait que générer des clés, s'inscrire et renouveler son bail PoSW. Votre récompense arrive sur votre adresse car un relais construit le bloc qui la crédite."},
-    de:{"footer":"NADO Leicht-Miner · die Kette lebt auf Vollknoten; diese Seite erzeugt nur Schlüssel, registriert und erneuert ihren PoSW-Lease. Deine Belohnung landet auf deiner Adresse, weil ein Relay den gutschreibenden Block baut."},
-    it:{"footer":"NADO miner leggero · la catena vive sui nodi completi; questa pagina si limita a generare chiavi, registrarsi e rinnovare il lease PoSW. La ricompensa arriva al tuo indirizzo perché un relay costruisce il blocco che la accredita."},
-    ru:{"footer":"NADO лёгкий майнер · цепочка живёт на полных узлах; эта страница лишь генерирует ключи, регистрирует и обновляет PoSW-аренду. Награда приходит на ваш адрес, потому что реле собирает блок, зачисляющий её."},
-    zh:{"footer":"NADO 轻量矿工 · 链运行在全节点上；本页仅生成密钥、注册并续期其 PoSW 租约。奖励会到达你的地址，因为由中继构建为其记账的区块。"},
-    ja:{"footer":"NADO ライトマイナー · チェーンはフルノード上にあります。このページは鍵の生成、登録、PoSWリースの更新のみを行います。報酬があなたのアドレスに届くのは、リレーがそれを記帳するブロックを構築するためです。"},
-    ko:{"footer":"NADO 라이트 마이너 · 체인은 풀 노드에서 동작합니다. 이 페이지는 키 생성, 등록, PoSW 리스 갱신만 합니다. 보상이 당신의 주소로 오는 이유는 릴레이가 이를 기록하는 블록을 만들기 때문입니다."},
-    ar:{"footer":"NADO مُعدِّن خفيف · تبقى السلسلة على العُقد الكاملة؛ هذه الصفحة تُنشئ المفاتيح وتُسجِّل وتُجدِّد عقد PoSW فقط. تصل مكافأتك إلى عنوانك لأن مُرحّلًا يبني الكتلة التي تقيّدها."},
-    hi:{"footer":"NADO लाइट माइनर · चेन फुल नोड्स पर रहती है; यह पेज केवल कुंजियाँ बनाता है, पंजीकरण और PoSW लीज़ नवीनीकरण करता है। आपका इनाम आपके पते पर आता है क्योंकि एक रिले उसे क्रेडिट करने वाला ब्लॉक बनाता है।"},
-    tr:{"footer":"NADO hafif madenci · zincir tam düğümlerde yaşar; bu sayfa yalnızca anahtar üretir, kaydolur ve PoSW kirasını yeniler. Ödülünüz adresinize ulaşır çünkü bir röle onu işleyen bloğu oluşturur."},
-    id:{"footer":"NADO penambang ringan · rantai berjalan di node penuh; halaman ini hanya membuat kunci, mendaftar, dan memperbarui lease PoSW. Hadiah sampai ke alamat Anda karena relai membangun blok yang mengkreditkannya."},
-    vi:{"footer":"NADO trình đào nhẹ · chuỗi chạy trên các node đầy đủ; trang này chỉ tạo khóa, đăng ký và gia hạn hợp đồng PoSW. Phần thưởng đến địa chỉ của bạn vì một relay dựng khối ghi có cho nó."}
+    en:{"footer":"NADO Interface · the chain stays on full nodes; this page only generates keys, registers, and renews its PoSW lease. Your reward lands on your address because a relay builds the block crediting it."},
+    cs:{"footer":"NADO Rozhraní · řetězec běží na plných uzlech; tato stránka jen generuje klíče, registruje a obnovuje PoSW nájem. Odměna přistane na vaší adrese, protože blok, který ji připisuje, sestaví relay."},
+    es:{"footer":"NADO Interfaz · la cadena vive en los nodos completos; esta página solo genera claves, registra y renueva tu lease PoSW. Tu recompensa llega a tu dirección porque un relé construye el bloque que la acredita."},
+    pt:{"footer":"NADO Interface · a cadeia vive nos nós completos; esta página só gera chaves, regista e renova a locação PoSW. A recompensa chega ao seu endereço porque um relé constrói o bloco que a credita."},
+    fr:{"footer":"NADO Interface · la chaîne reste sur les nœuds complets ; cette page ne fait que générer des clés, s'inscrire et renouveler son bail PoSW. Votre récompense arrive sur votre adresse car un relais construit le bloc qui la crédite."},
+    de:{"footer":"NADO Interface · die Kette lebt auf Vollknoten; diese Seite erzeugt nur Schlüssel, registriert und erneuert ihren PoSW-Lease. Deine Belohnung landet auf deiner Adresse, weil ein Relay den gutschreibenden Block baut."},
+    it:{"footer":"NADO Interfaccia · la catena vive sui nodi completi; questa pagina si limita a generare chiavi, registrarsi e rinnovare il lease PoSW. La ricompensa arriva al tuo indirizzo perché un relay costruisce il blocco che la accredita."},
+    ru:{"footer":"NADO Интерфейс · цепочка живёт на полных узлах; эта страница лишь генерирует ключи, регистрирует и обновляет PoSW-аренду. Награда приходит на ваш адрес, потому что реле собирает блок, зачисляющий её."},
+    zh:{"footer":"NADO 界面 · 链运行在全节点上；本页仅生成密钥、注册并续期其 PoSW 租约。奖励会到达你的地址，因为由中继构建为其记账的区块。"},
+    ja:{"footer":"NADO インターフェース · チェーンはフルノード上にあります。このページは鍵の生成、登録、PoSWリースの更新のみを行います。報酬があなたのアドレスに届くのは、リレーがそれを記帳するブロックを構築するためです。"},
+    ko:{"footer":"NADO 인터페이스 · 체인은 풀 노드에서 동작합니다. 이 페이지는 키 생성, 등록, PoSW 리스 갱신만 합니다. 보상이 당신의 주소로 오는 이유는 릴레이가 이를 기록하는 블록을 만들기 때문입니다."},
+    ar:{"footer":"NADO واجهة · تبقى السلسلة على العُقد الكاملة؛ هذه الصفحة تُنشئ المفاتيح وتُسجِّل وتُجدِّد عقد PoSW فقط. تصل مكافأتك إلى عنوانك لأن مُرحّلًا يبني الكتلة التي تقيّدها."},
+    hi:{"footer":"NADO इंटरफ़ेस · चेन फुल नोड्स पर रहती है; यह पेज केवल कुंजियाँ बनाता है, पंजीकरण और PoSW लीज़ नवीनीकरण करता है। आपका इनाम आपके पते पर आता है क्योंकि एक रिले उसे क्रेडिट करने वाला ब्लॉक बनाता है।"},
+    tr:{"footer":"NADO Arayüz · zincir tam düğümlerde yaşar; bu sayfa yalnızca anahtar üretir, kaydolur ve PoSW kirasını yeniler. Ödülünüz adresinize ulaşır çünkü bir röle onu işleyen bloğu oluşturur."},
+    id:{"footer":"NADO Antarmuka · rantai berjalan di node penuh; halaman ini hanya membuat kunci, mendaftar, dan memperbarui lease PoSW. Hadiah sampai ke alamat Anda karena relai membangun blok yang mengkreditkannya."},
+    vi:{"footer":"NADO Giao diện · chuỗi chạy trên các node đầy đủ; trang này chỉ tạo khóa, đăng ký và gia hạn hợp đồng PoSW. Phần thưởng đến địa chỉ của bạn vì một relay dựng khối ghi có cho nó."}
   };
   for (const l in T22) Object.assign(T[l], T22[l]);
 

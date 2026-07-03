@@ -3,12 +3,12 @@
  *
  * Every hash here is byte-identical to the Python exec node, so a note committed / nullifier revealed / spend
  * authorised in the browser is accepted by the pool. That identity rests on ONE dependency: `blake2bHash`,
- * which is already byte-verified against Python vectors (see miner.js). We compose it exactly as Python's
+ * which is already byte-verified against Python vectors (see interface.js). We compose it exactly as Python's
  * _h does — blake2b_hash(["nado.shield", *map(str, parts)]) — and keep every scalar a STRING so there is no
  * language-specific number/list formatting to diverge on.
  *
  * The blake2bHash primitive is INJECTED via initShielded(...) so this same module runs unchanged in the
- * browser (miner.js passes its CDN-backed blake2bHash) and under node (the cross-check harness passes one
+ * browser (interface.js passes its CDN-backed blake2bHash) and under node (the cross-check harness passes one
  * built from the vendored @noble blake2b) — proving the two agree.
  */
 export const SHIELD_DEPTH = 32;

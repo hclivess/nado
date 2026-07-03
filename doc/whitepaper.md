@@ -627,7 +627,7 @@ rate-limited (Section 7). *(implemented)*
 ### 6.4 The unified browser client — wallet + explorer + miner + aliases, one page
 
 The seamless-experience principle (§1) is realized in **one** page:
-`static/miner.html` + `static/miner.js`, which **every node serves at its root URL
+`static/interface.html` + `static/interface.js`, which **every node serves at its root URL
 `/`** (a redirect to the client) with no install, no full node, and no account. It
 is simultaneously:
 

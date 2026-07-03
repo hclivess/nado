@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <!-- H-5 defense-in-depth: a Content-Security-Policy so that even if a hostile/MITM'd relay slips markup past the
-     per-field escaping in miner.js, an injected inline <script>/<img onerror=…> CANNOT execute — script-src omits
+     per-field escaping in interface.js, an injected inline <script>/<img onerror=…> CANNOT execute — script-src omits
      'unsafe-inline', and this page has ZERO inline scripts or inline event handlers of its own. 'wasm-unsafe-eval'
      (+'unsafe-eval' for older engines) keeps the in-browser WASM prover/miner working; the two CDN hosts are the
      crypto fallback loadDeps() uses; connect-src * because the relay/exec node is a user-configurable origin. -->
@@ -11,7 +11,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0b0f14" />
 <meta name="color-scheme" content="dark" />
-<title>NADO Light Miner</title>
+<title>NADO Interface</title>
 <!-- Favicon: the real NADO torus mark as a crisp vector (SVG). The .ico is a raster fallback for
      browsers that don't render SVG favicons; apple-touch-icon covers iOS "add to home screen". -->
 <link rel="icon" type="image/svg+xml" href="/static/logo.svg" />
@@ -20,14 +20,14 @@
 <!-- Open Graph / Twitter card: a rich preview when the link is shared (Facebook ignores prefilled text and
      uses these; so do Telegram/X/WhatsApp/Discord). -->
 <meta property="og:type" content="website" />
-<meta property="og:title" content="NADO — mine from your phone" />
-<meta property="og:description" content="A phone-mineable, fair-launch, post-quantum blockchain. Open the link and you're mining — no install, no signup, one page." />
+<meta property="og:title" content="NADO Interface — wallet, miner & explorer" />
+<meta property="og:description" content="Your NADO wallet, miner, block explorer and shielded pool in one page — no install, no signup. Open the link and you're in." />
 <meta property="og:image" content="https://raw.githubusercontent.com/hclivess/nado/main/graphics/bauhaus.png" />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="NADO — mine from your phone" />
-<meta name="twitter:description" content="Phone-mineable, fair-launch, post-quantum. Open the link and you're mining — no install, no signup." />
+<meta name="twitter:title" content="NADO Interface — wallet, miner & explorer" />
+<meta name="twitter:description" content="Your NADO wallet, miner, explorer and shielded pool in one page — no install, no signup." />
 <meta name="twitter:image" content="https://raw.githubusercontent.com/hclivess/nado/main/graphics/bauhaus.png" />
-<link rel="stylesheet" href="/static/miner.css" />
+<link rel="stylesheet" href="/static/interface.css" />
 <style>
 .spin{display:inline-block;animation:nadospin 1s linear infinite}
 @keyframes nadospin{to{transform:rotate(360deg)}}
@@ -58,7 +58,7 @@
 <header class="app">
   <img class="logo" src="/static/logo.svg" width="34" height="34" alt="NADO" />
   <div>
-    <h1 data-i18n="app.title">NADO Light Miner</h1>
+    <h1 data-i18n="app.title">NADO Interface</h1>
     <div class="sub" data-i18n="app.sub">browser-only · no full node</div>
   </div>
   <div class="conn">
@@ -629,6 +629,6 @@
 <div id="toast" class="toast hidden"></div>
 
 <script src="/static/i18n.js"></script>
-<script type="module" src="/static/miner.js"></script>
+<script type="module" src="/static/interface.js"></script>
 </body>
 </html>

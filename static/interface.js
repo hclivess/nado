@@ -1826,7 +1826,7 @@ let pendingClaim = null; // a banknote claim-request awaiting wallet setup, same
 
 // Deep link back to THIS hosted wallet: ${origin}${pathname}#pay?to=<addr>&amount=<NADO>.
 // AMOUNT IS IN NADO (human-friendly), not raw units, and is OPTIONAL (omitted entirely for a bare
-// receive code). Using origin+pathname makes the QR resolve wherever the node serves miner.html.
+// receive code). Using origin+pathname makes the QR resolve wherever the node serves interface.html.
 function payLink(addr, amountNado) {
   const params = new URLSearchParams({ to: addr });
   const a = (amountNado == null ? "" : String(amountNado)).trim();
@@ -2242,7 +2242,7 @@ function exNado(raw) { try { return rawToNado(BigInt(raw)) + " NADO"; } catch { 
 function exTime(ts) { if (ts == null) return "—"; return new Date(ts * 1000).toISOString().replace("T", " ").replace(".000Z", " UTC"); }
 function exEsc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function exShort(h, n = 12) { return exEsc(h && h.length > n * 2 ? h.slice(0, n) + "…" + h.slice(-6) : (h ?? "—")); }  // H-5: escape (relay hashes/addrs)
-// data attrs + event delegation (miner.js is an ES module, so inline onclick can't see exOpen)
+// data attrs + event delegation (interface.js is an ES module, so inline onclick can't see exOpen)
 function exLink(kind, val, label) { return `<a class="ex-link" data-exk="${kind}" data-exv="${exEsc(val)}">${exEsc(label ?? val)}</a>`; }
 function exReservedOrAddr(r) { return EX_RESERVED.has(r) ? `<span class="badge">${exEsc(r)}</span>` : exLink("a", r, exShort(r, 8)); }
 // map each explore label to an i18n key (reusing existing keys where they fit), so exStat/exKV localize

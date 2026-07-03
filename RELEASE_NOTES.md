@@ -40,7 +40,7 @@ premine)**, **post-quantum security**, and **stay light enough to run on almost 
 ### Wallets
 - **Desktop wallet** (`pyside_wallet.py`, PySide6): overview, send, bond/unbond, register & mine,
   expected-time-to-mine, and a live selection-lane visualization.
-- **Browser/mobile light-miner** (`static/miner.html`): phones mine through a web page — generate a
+- **Browser/mobile NADO Interface** (`static/interface.html`): phones mine through a web page — generate a
   key, register, heartbeat each epoch, and **win offline** (a relay builds the block for you). No
   full node, no heavy crypto on the device. It now also shows **live OPEN/BONDED lane participant
   counts** (from `/mining_status` `open_registry_size` / `bonded_registry_size`) so you can see how
