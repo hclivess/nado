@@ -329,6 +329,17 @@ it never needlessly freezes coins). It is available in **all three clients**:
 It is a **client/operator convenience and is never validated on-chain** — every auto-bond is just an
 ordinary signed `bond` transaction.
 
+Two more unattended behaviors round out a hands-free headless node (both best-effort, once per epoch, never
+disrupting consensus):
+
+- **Auto-collect the presence dividend** — **on by default** (`auto_collect_dividend` / `NADO_AUTO_COLLECT`):
+  sweeps your accrued dividend into a provable collection. Skipped unless the node is an open-lane member
+  (a bonded-only node accrues none, so it never burns a wasted fee).
+- **Auto-register the open lane** — **opt-in** (`auto_register` / `NADO_AUTO_REGISTER=1`): keeps the PoSW
+  presence lease alive (registers when absent, renews inside the lease tail), so a server can mine the free
+  lane 24/7 unattended. Off by default so a headless node never silently joins — and Sybil-loads — the open
+  lane. Full reference: **[doc/cli.md](doc/cli.md)**.
+
 ### Local multi-node testnet
 
 A self-contained harness spins up N nodes on `127.0.0.x` loopback IPs, meshes them, and reports
@@ -380,6 +391,11 @@ encoding against the live repo on boot.
 
 ## Clients
 
+- **Command line (`scripts/nado_cli.py`)** — every interface operation from the terminal, signed by your local
+  `keys.dat`: `info`, `send`, `register` (computes the sequential PoSW), `bond`/`unbond`, `alias`,
+  `propose`/`vote`/`execute` (treasury governance), `collect` (presence dividend), `bridge-deposit`. It builds
+  the *same* signed transaction the browser does and POSTs it to the node's existing `/submit_transaction` —
+  no new signing endpoint, no new trust surface. Full reference: **[doc/cli.md](doc/cli.md)**.
 - **Browser / mobile NADO Interface (wallet)** — `static/interface.html` (see above).
 - **Desktop wallet** — `python3.10 pyside_wallet.py` (PySide6): overview, send, bond/unbond, register
   & mine, expected-time-to-mine, an **auto-bond** control (compound a % of mined rewards into stake),

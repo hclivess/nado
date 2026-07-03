@@ -694,6 +694,17 @@ byte-for-byte in the browser, *is* the full interface to the chain. *(implemente
 > relay must be same-origin or add CORS itself (the wallet warns about this).
 > *(partial)*
 
+The browser is **one client among equals, not a privileged surface**. Every operation — transfer, open-lane
+registration (with its sequential PoSW), bond/unbond, alias, treasury propose/vote/execute, presence-dividend
+collection, bridge deposit — is an ordinary **signed transaction** submitted to the single public
+`/submit_transaction` endpoint; the browser merely constructs and signs it locally. So the same operations are
+equally available from a terminal (`scripts/nado_cli.py`, which reuses the identical `construct_*` builders and
+signs with the local key) or any script, with **no GUI dependency and no additional trust surface**: the node
+validates a CLI transaction byte-for-byte as it validates a browser one. The node further runs the fair-launch
+compounding **unattended** — auto-bonding a share of new rewards, auto-collecting its presence dividend, and
+(opt-in) auto-renewing its open-lane PoSW lease — so a headless server participates fully without a wallet
+attached (doc/cli.md). *(implemented)*
+
 ### 6.5 The schemaless KV storage migration (done)
 
 The schemaless **LMDB** replacement for the SQLite index — so adding account fields
