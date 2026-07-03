@@ -267,6 +267,24 @@ governance nobody does.* A **Quorum** tab sits beside Wallet / Mine / Savings / 
 - **Accessibility is the whole edge:** if voting isn't as easy as sending a coin, turnout dies (Decred's
   ~25-31%). Localized in all 16 languages like the rest of the interface.
 
+### 3.7 Maintainer grant — the founder's reward is *governed*, not hard-coded
+
+The maintainer/founder takes **no protocol-level cut** and holds **no key to the treasury**. There is no
+hard-coded founder tax on the block reward; the treasury stays a keyless `treasury` account and `TREASURY_GENESIS`
+stays `0`. Instead, ongoing maintenance is compensated **exactly like any other spend** — a recurring
+`treasury_spend` proposal to a **published maintainer address**, re-approved each period by the same **2/3 bonded
+quorum** (§3.3), and drawn from the *Core protocol & wallet dev* bucket (§3.1).
+
+- **Guideline size:** about **1% of treasury inflow** — roughly one-tenth of the 10% block-reward cut — as a
+  *target*, not a rule. The quorum sets the actual number and can raise, cut, or end it by vote.
+- **Why votable beats hard-coded:** for a chain whose entire pitch is credible fairness, a perpetual un-cancellable
+  founder tax is the most expensive thing you can add (the Zcash founder-reward lesson, §5). Routing the same ~1%
+  through a vote keeps every "no premine / keyless treasury / not a founder" guarantee intact — *even the
+  maintainer's pay is community-approved and can be revoked.*
+- **Mechanically it already works:** the maintainer address (the genesis address) can only receive treasury coins
+  via a passing quorum vote — the founder is a **proposer, never a spender** (§5). A maintainer grant is just that
+  path, on a schedule, disclosed here.
+
 ## 4. Rollout
 
 1. **Now — doc + model (this change).** Lock the **stake-quorum** model (no multisig); publish the policy + a
@@ -288,8 +306,10 @@ governance nobody does.* A **Quorum** tab sits beside Wallet / Mine / Savings / 
 - **Burn vs withhold-don't-mint** for anti-hoard (§3.2) — recommend the burn now, migrate later if weak.
 - **Electorate breadth:** bonded-stake-weighted only (recommended, reuses the plumbing) vs a hybrid giving
   non-bonded holders or open-lane miners a smaller voice, to soften plutocracy.
-- **Founder role:** the founder is a *proposer, never a spender* from day one — publish that the treasury
-  address's coins can move **only** via a passing stake vote. That transparency is what separates a credible
-  fair launch from a "cash grab" (the Zcash founder-reward lesson).
+- **Founder role — DECIDED:** the founder is a *proposer, never a spender*. The maintainer reward is a
+  **recurring, quorum-approved grant** (§3.7), **not** a protocol-level cut — guideline ~1% of treasury inflow,
+  votable and revocable by the bonded quorum. The treasury address's coins move **only** via a passing stake
+  vote. That transparency is what separates a credible fair launch from a "cash grab" (the Zcash founder-reward
+  lesson).
 - **Diversification venue:** NADO has no native stable; decide what "runway in a liquid form" means in practice
   (OTC, a bridged stable, or a disciplined DCA-out policy) before the treasury is large.

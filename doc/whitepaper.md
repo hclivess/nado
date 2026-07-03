@@ -410,6 +410,11 @@ account** (like `dividend`/`bridge`) — **no private key exists for it** — so
 *only* way coins leave it is a quorum-approved spend (§4.3a). It starts empty and
 fills only from the per-block cut. *(implemented)*
 
+There is **no hard-coded founder cut**: the maintainer/founder is compensated only by
+a **recurring, quorum-approved maintainer grant** (guideline ~1% of treasury inflow,
+votable and revocable), so even the maintainer's reward is community-governed rather
+than a protocol-level skim (doc/treasury.md §3.7).
+
 ### 4.3a Treasury governance: stake-quorum spending + anti-hoard burn *(implemented; doc/treasury.md)*
 
 The treasury is spent **only** by a **2/3 bonded-stake vote** — no founder key, no

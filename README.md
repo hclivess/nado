@@ -83,7 +83,8 @@ them: no puzzles to keep solving, no efficient rig to keep running, and no requi
 - **Governed, self-burning treasury.** The 10% treasury is a **keyless** reserved account — no founder
   key, no multisig — spent only by a **2/3 bonded-stake vote** in the wallet's Quorum tab, and any idle
   balance is **burned each period**. Emission holders would get anyway is forced into the ecosystem by
-  their own vote, or destroyed — never hoarded (`doc/treasury.md`).
+  their own vote, or destroyed — never hoarded (`doc/treasury.md`). Even the **maintainer's reward** is a
+  votable, revocable quorum grant (guideline ~1% of treasury inflow) — **not** a hard-coded founder cut.
 - **Consensus anti-Sybil registration.** Registration is a non-parallelizable **sequential PoSW** whose
   difficulty **scales with recent registration volume** (enforced in validation off the finalized anchor
   epoch), so an identity flood gets progressively more expensive while a normal network stays at 1×
