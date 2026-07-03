@@ -166,7 +166,14 @@ class ExecState:
         pool_balance = int(pool_balance)
         delta = pool_balance - self.dividend_pool_seen
         if delta <= 0 or not weights:
-            self.dividend_pool_seen = max(self.dividend_pool_seen, pool_balance)
+            # Track the watermark DOWN as well as up. The DIVIDEND_POOL balance legitimately shrinks when a
+            # dividend_withdraw claim debits it — but those coins were already distributed in an EARLIER accrual
+            # (you can only claim what was accrued -> collected -> settled), so the baseline must follow the pool
+            # down. The old max() pinned it at the high-water mark, so any fresh inflow BELOW that mark (after a
+            # claim, or an L1 reorg reversing a pool credit) yielded delta<=0 and was distributed to NOBODY until
+            # cumulative inflow re-crossed the mark — stranding accrual. This is off-L1 and the L1 pool-floor at
+            # claim (pool.balance >= amount) caps aggregate payout regardless, so tracking down cannot over-pay L1.
+            self.dividend_pool_seen = pool_balance
             return 0
         pot = delta + self.div_carry
         total_w = sum(max(1, int(w)) for w in weights.values())

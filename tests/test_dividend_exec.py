@@ -64,6 +64,20 @@ def t5_persist_roundtrip():
     assert st2.dividend == st.dividend and st2.dividend_pool_seen == 700 and st2.div_carry == st.div_carry, \
         "dividend state survives a save/load"
 
+def t6_drawdown_does_not_strand():
+    # Regression: after the pool is drawn down by a claim, fresh inflow BELOW the old high-water mark must
+    # still be distributed. The old max()-watermark pinned `seen` at the peak, so post-claim inflow yielded
+    # delta<=0 and was distributed to NOBODY until cumulative inflow re-crossed the peak (stranding).
+    st = fresh()
+    st.accrue_dividend(1000, {"A": 1})                       # pool 0->1000: A gets 1000, seen=1000
+    assert st.dividend["A"] == 1000
+    # a claim of 400 debits the L1 DIVIDEND_POOL: balance is now 600, below the old seen=1000.
+    assert st.accrue_dividend(600, {"A": 1}) == 0, "the drawdown itself distributes nothing"
+    assert st.dividend_pool_seen == 600, "watermark follows the pool DOWN (the bug pinned it at 1000)"
+    # fresh inflow of 200 -> balance 800, STILL below the old 1000 mark: the new 200 must be distributed.
+    assert st.accrue_dividend(800, {"B": 1}) == 200, "inflow below the old high-water mark is NOT stranded"
+    assert st.dividend["B"] == 200 and st.dividend_pool_seen == 800
+
 for name, fn in sorted(globals().items()):
     if name.startswith("t") and callable(fn) and name[1].isdigit():
         check(name, fn)
