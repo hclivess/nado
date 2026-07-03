@@ -12,6 +12,7 @@ from ops.data_ops import set_and_sort
 from ops.peer_ops import announce_me, get_list_of_peers, load_ips, check_save_peers, \
     dump_trust
 from ops.peer_ops import get_public_ip, update_local_ip, ip_stored, check_ip, subnet_diversity_ok
+from ops.peer_ops import seed_default_peers
 
 
 class PeerClient(threading.Thread):
@@ -126,6 +127,7 @@ class PeerClient(threading.Thread):
 
                 if len(self.memserver.peers) < self.memserver.min_peers:
                     self.logger.info("No peers, reloading from drive")
+                    seed_default_peers(self.logger, getattr(self.memserver, "ip", None))   # bake-in bootstrap seed if drive is empty
                     self.memserver.peers = asyncio.run(load_ips(fail_storage=self.memserver.purge_peers_list,
                                                                 unreachable=self.memserver.unreachable,
                                                                 logger=self.logger,

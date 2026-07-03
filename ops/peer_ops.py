@@ -91,6 +91,27 @@ def save_peer(ip, port, address, peer_trust=50, overwrite=False):
         _atomic_write_json(peer_path, peers_message)
 
 
+# Baked-in bootstrap seed(s). A freshly-cloned node (`python node.py`) has an EMPTY peers/ dir and no way
+# to discover the network, so it starts from these. Extend/override with NADO_SEED_PEERS (comma-separated).
+DEFAULT_SEED_PEERS = ["38.242.201.206"]   # get.nadochain.com — the public bootstrap node
+
+
+def seed_default_peers(logger, my_ip=None):
+    """Seed the baked-in bootstrap peer(s) — but ONLY when the peers/ dir is empty (a fresh node), so we
+    never fight later trust-purges of a seed that went bad. Skips our own IP. Idempotent."""
+    if glob.glob(f"{get_home()}/peers/*.dat"):
+        return
+    extra = [x.strip() for x in (os.environ.get("NADO_SEED_PEERS") or "").split(",") if x.strip()]
+    for ip in list(dict.fromkeys(DEFAULT_SEED_PEERS + extra)):
+        if not ip or ip == my_ip:
+            continue
+        try:
+            save_peer(ip=ip, port=get_port(), address="", peer_trust=50)
+            logger.info(f"Seeded bootstrap peer {ip}")
+        except Exception as e:
+            logger.info(f"Failed to seed bootstrap peer {ip}: {e}")
+
+
 def ip_stored(ip) -> bool:
     peer_path = f"{get_home()}/peers/{base64encode(ip)}.dat"
     if os.path.exists(peer_path):
