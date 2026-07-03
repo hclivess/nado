@@ -3,34 +3,68 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>NADO — a phone-mineable, fair-launch, post-quantum blockchain</title>
-<meta name="description" content="NADO is a phone-mineable, fair-launch, post-quantum, lightweight blockchain. Open one link and you're a full participant — wallet, miner, explorer and shielded pool in a single page. No install, no signup, no premine." />
+<title>NADO — mine crypto from your phone · post-quantum &amp; private</title>
+<meta name="description" content="NADO is a phone-mineable, fair-launch, post-quantum blockchain. Earn rewards from your phone — no rig, no install — and send fully private transfers with in-browser zk-STARK proofs. Wallet, miner, explorer and shielded pool in one page." />
+<meta name="keywords" content="NADO, nadochain, phone mining, mobile mining, post-quantum blockchain, ML-DSA-44, private transactions, zk-STARK, shielded pool, fair launch, no premine, browser wallet, quantum-safe crypto" />
+<meta name="robots" content="index, follow, max-image-preview:large" />
 <meta name="theme-color" content="#0b0f14" />
+<meta name="color-scheme" content="dark" />
+<link rel="canonical" href="https://nadochain.com/" />
 <link rel="icon" type="image/svg+xml" href="/logo.svg" />
 <link rel="icon" sizes="any" href="/favicon.ico" />
+<link rel="apple-touch-icon" href="/logo.png" />
+<!-- Open Graph -->
 <meta property="og:type" content="website" />
-<meta property="og:title" content="NADO — mine from your phone, for free" />
+<meta property="og:site_name" content="NADO" />
+<meta property="og:url" content="https://nadochain.com/" />
+<meta property="og:title" content="NADO — mine crypto from your phone, quantum-safe &amp; private" />
 <meta property="og:description" content="Phone-mineable, fair-launch, post-quantum. Open the link and you're mining — wallet, miner, explorer and shielded pool in one page. No install, no signup." />
 <meta property="og:image" content="https://nadochain.com/wordmark.png" />
+<meta property="og:image:alt" content="NADO" />
+<meta property="og:locale" content="en_US" />
+<!-- Twitter / X -->
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="NADO — mine from your phone, for free" />
+<meta name="twitter:site" content="@nadochain" />
+<meta name="twitter:title" content="NADO — mine crypto from your phone, quantum-safe &amp; private" />
+<meta name="twitter:description" content="Phone-mineable, fair-launch, post-quantum. Mine, hold, explore and transact privately — one page, no install." />
 <meta name="twitter:image" content="https://nadochain.com/wordmark.png" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@graph":[
+ {"@type":"WebSite","@id":"https://nadochain.com/#website","name":"NADO","url":"https://nadochain.com/","description":"A phone-mineable, fair-launch, post-quantum blockchain with private transfers.","inLanguage":"en"},
+ {"@type":"SoftwareApplication","name":"NADO Interface","operatingSystem":"Any (web browser)","applicationCategory":"FinanceApplication","url":"https://get.nadochain.com/","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Browser wallet, miner, block explorer and post-quantum shielded pool for the NADO blockchain — no install."}
+]}
+</script>
 <style>
   :root{
     --bg:#0b0f14; --panel:#111823; --line:#1c2530; --txt:#e6edf3; --muted:#8b9bab; --faint:#5c6b7a;
     --accent:#00ad93; --accent2:#00c9a7; --deep:#004438;
+    /* one shared type system with the interface (static/interface.css) */
+    --sans:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
   }
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
-  body{margin:0;background:var(--bg);color:var(--txt);
-    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    -webkit-font-smoothing:antialiased}
+  body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.6 var(--sans);-webkit-font-smoothing:antialiased}
+  code{font-family:var(--mono);font-size:.92em}
   a{color:var(--accent2);text-decoration:none}
   a:hover{text-decoration:underline}
   .wrap{max-width:1040px;margin:0 auto;padding:0 20px}
-  .glow{position:fixed;inset:0;z-index:-1;background:
-    radial-gradient(60% 50% at 50% -10%,rgba(0,173,147,.18),transparent 70%),
-    radial-gradient(40% 40% at 90% 10%,rgba(0,201,167,.10),transparent 70%)}
+  .glow{position:fixed;inset:0;z-index:-1;overflow:hidden;background:
+    radial-gradient(60% 50% at 50% -10%,rgba(0,173,147,.12),transparent 70%),
+    radial-gradient(40% 40% at 90% 10%,rgba(0,201,167,.07),transparent 70%)}
+  /* subtle drifting orbs — CSS-only, GPU-friendly (transform/opacity only) */
+  .orb{position:absolute;border-radius:50%;filter:blur(90px);opacity:.5;will-change:transform;
+    mix-blend-mode:screen;pointer-events:none}
+  .orb.a{width:46vw;height:46vw;max-width:620px;max-height:620px;top:-12%;left:-8%;
+    background:radial-gradient(circle,rgba(0,173,147,.55),transparent 68%);animation:drift1 26s ease-in-out infinite}
+  .orb.b{width:40vw;height:40vw;max-width:540px;max-height:540px;top:8%;right:-10%;
+    background:radial-gradient(circle,rgba(0,201,167,.42),transparent 68%);animation:drift2 32s ease-in-out infinite}
+  .orb.c{width:34vw;height:34vw;max-width:460px;max-height:460px;bottom:-14%;left:28%;
+    background:radial-gradient(circle,rgba(0,68,56,.65),transparent 70%);animation:drift3 38s ease-in-out infinite}
+  @keyframes drift1{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(6vw,7vh) scale(1.12)}66%{transform:translate(-4vw,3vh) scale(.94)}}
+  @keyframes drift2{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-7vw,6vh) scale(1.16)}}
+  @keyframes drift3{0%,100%{transform:translate(0,0) scale(1)}40%{transform:translate(5vw,-5vh) scale(1.1)}75%{transform:translate(-3vw,-2vh) scale(.96)}}
+  @media(prefers-reduced-motion:reduce){.orb{animation:none!important}}
   header{display:flex;align-items:center;justify-content:space-between;padding:20px 0;gap:16px;flex-wrap:wrap}
   .brand{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.5px;font-size:20px}
   .brand img{width:34px;height:34px}
@@ -75,7 +109,7 @@
 </style>
 </head>
 <body>
-<div class="glow"></div>
+<div class="glow"><span class="orb a"></span><span class="orb b"></span><span class="orb c"></span></div>
 <div class="wrap">
 
   <header>
@@ -90,20 +124,21 @@
 
   <div class="hero">
     <img class="mark" src="/logo.svg" alt="NADO logo" />
-    <h1>Mine a blockchain <span class="g">from your phone</span>.<br>No rig. No coins. No install.</h1>
-    <p class="lead">NADO is a <b>phone-mineable, fair-launch, post-quantum</b> blockchain. Open one link and
-      you're already a full participant — <b>wallet, miner, block explorer and shielded pool</b> in a single
-      web page.</p>
+    <h1>Mine rewards from your <span class="g">phone</span> —<br>quantum-safe, and private by design.</h1>
+    <p class="lead">NADO is a <b>phone-mineable, fair-launch, post-quantum</b> blockchain. Signatures are
+      quantum-resistant (ML-DSA-44), and transfers can be made <b>fully private</b> with in-browser
+      zero-knowledge STARK proofs — no rig, no install. Open one link and you're a full participant:
+      <b>wallet, miner, explorer and shielded pool</b> in a single web page.</p>
     <div class="cta">
       <a class="btn" href="https://get.nadochain.com">Open the Interface →</a>
       <a class="btn ghost" href="https://github.com/hclivess/nado">View the code</a>
       <small>No app store, no signup, no seed-phrase ceremony — just a URL.</small>
     </div>
     <div class="badges">
-      <span class="badge">⚡ <b>Zero capital</b> to mine</span>
-      <span class="badge">🎯 <b>No premine</b>, fair launch</span>
-      <span class="badge">🔒 <b>Post-quantum</b> (ML-DSA-44)</span>
-      <span class="badge">📱 <b>One page</b>, any device</span>
+      <span class="badge">📱 <b>Phone-mineable</b> — no rig</span>
+      <span class="badge">🔒 <b>Post-quantum</b> signatures</span>
+      <span class="badge">🛡️ <b>Private transfers</b> (zk-STARK)</span>
+      <span class="badge">🎯 <b>Fair launch</b>, no premine</span>
     </div>
   </div>
 
@@ -164,7 +199,7 @@
       <a href="https://github.com/hclivess/nado">GitHub</a> ·
       <a href="https://github.com/hclivess/nado/blob/main/doc/whitepaper.md">Whitepaper</a> ·
       <a href="https://discord.gg/6aEBWTvcTV">Discord</a> ·
-      <a href="https://twitter.com/nodeisok">Twitter/X</a>
+      <a href="https://twitter.com/nadochain">Twitter/X</a>
     </div>
     NADO · a phone-mineable, fair-launch, post-quantum blockchain · testnet-stage alpha
   </div>

@@ -7,22 +7,24 @@
   --txt: #e6edf3;
   --txt-dim: #93a1b0;
   --txt-faint: #5d6b7a;
-  --accent: #3fb950;
-  --accent-2: #2f81f7;
+  --accent: #00ad93;          /* NADO brand teal (matches the logo + nadochain.com) */
+  --accent-2: #00c9a7;        /* lighter teal for gradients/hover */
   --bonded: #d29922;
   --open: #3fb950;
   --danger: #f85149;
   --warn: #d29922;
   --radius: 14px;
   --shadow: 0 6px 24px rgba(0,0,0,.35);
+  /* one shared type system across the interface + the nadochain.com site */
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; padding: 0; }
 body {
-  background: radial-gradient(1200px 600px at 50% -10%, #14202c 0%, var(--bg) 60%);
+  background: radial-gradient(1100px 560px at 50% -12%, rgba(0,173,147,.10), var(--bg) 62%);
+  background-attachment: fixed;
   color: var(--txt);
   font-family: var(--sans);
   font-size: 15px;
@@ -80,9 +82,11 @@ button, .btn {
 }
 button:active { transform: translateY(1px); }
 button:disabled { opacity: .5; cursor: not-allowed; }
-button.primary { background: linear-gradient(135deg, #2ea043, #197a32); border-color: transparent; color: #fff; box-shadow: 0 2px 14px rgba(46,160,67,.22); }
-button.accent { background: linear-gradient(135deg, var(--accent-2), #1f6feb); border-color: transparent; color: #fff; }
+/* brand-teal CTAs (match nadochain.com): dark text on a teal gradient, subtle lift on hover */
+button.primary, button.accent { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; color: #04110a; font-weight: 800; box-shadow: 0 6px 20px rgba(0,173,147,.30); }
+button.primary:hover:not(:disabled), button.accent:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 28px rgba(0,173,147,.42); }
 button.ghost { background: transparent; }
+button.ghost:hover:not(:disabled) { border-color: var(--accent); }
 button.danger { color: var(--danger); border-color: #4a2326; background: #1c1416; }
 button.big { width: 100%; padding: 18px; font-size: 18px; font-weight: 800; border-radius: 14px; letter-spacing: .3px; }
 
@@ -211,12 +215,15 @@ a { color: var(--accent-2); }
 /* payment-request banner (reuses the .hint ⓘ convention) on the Send tab */
 .hint-banner {
   display: flex; align-items: center; gap: 8px;
-  background: rgba(47,129,247,.10); border: 1px solid rgba(47,129,247,.4);
-  color: #9fc6ff; border-radius: 10px; padding: 10px 12px;
-  font-size: 12.5px; margin: 0 0 12px;
+  background: rgba(0,173,147,.08); border: 1px solid rgba(0,173,147,.28);
+  color: var(--txt-dim); border-radius: 12px; padding: 13px 15px;
+  font-size: 12.5px; line-height: 1.5; margin: 14px 0;
 }
-.hint-banner .hint { color: inherit; cursor: default; font-size: 12px; margin: 0; }
-.hint-banner b { color: inherit; }
+/* block-layout banners (the APY estimate + auto-bond controls) space their rows evenly */
+.hint-banner[style*="block"] > * + * { margin-top: 10px; }
+.hint-banner label { font-weight: 600; color: var(--txt); }
+.hint-banner .hint { color: inherit; cursor: default; font-size: 12px; margin: 0; font-weight: 400; }
+.hint-banner b { color: var(--txt); }
 /* staged status banner state variants (registration confirmed / failed) */
 .hint-banner.ok { background: rgba(63,185,80,.10); border-color: rgba(63,185,80,.4); color: #8be39a; }
 .hint-banner.warn { background: rgba(248,81,73,.10); border-color: rgba(248,81,73,.4); color: #ffb4ae; }
