@@ -586,6 +586,7 @@ def validate_transaction(transaction, logger, block_height):
         from hashing import treasury_proposal_id
         from ops.settlement_ops import treasury_justified
         from ops.account_ops import get_bonded_registry
+        from ops.mining_ops import epoch_of
         from protocol import TREASURY_ADDRESS, TREASURY_MAX_SPEND_BPS, BPS_DENOM, RESERVED_RECIPIENTS
         assert transaction["amount"] == 0, "treasury_execute carries no L1 amount (amount is in data)"
         assert transaction["fee"] == 0, "treasury_execute is fee-exempt"
@@ -598,7 +599,8 @@ def validate_transaction(transaction, logger, block_height):
         assert isinstance(snonce, str) and snonce and isinstance(memo, str), "bad treasury spend nonce/memo"
         assert pid == treasury_proposal_id(sr, sa, memo, snonce), "pid does not match the spend content"
         assert not kv_ops.treasury_executed_exists(pid), "this proposal was already executed"
-        assert treasury_justified(pid, get_bonded_registry()), "treasury proposal has not reached the bonded quorum"
+        assert treasury_justified(pid, get_bonded_registry(), epoch_of(transaction["target_block"])), \
+            "treasury proposal has not reached the bonded quorum"
         treasury = get_account(TREASURY_ADDRESS, create_on_error=False)
         bal = treasury.get("balance", 0) if treasury else 0
         assert bal >= sa, "treasury underfunded for this payout"

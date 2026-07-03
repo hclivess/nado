@@ -24,7 +24,7 @@ GENESIS_TIMESTAMP = 1669852800
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
 # "bond"/"unbond": bonded-lane stake txs. "register": the OPEN-lane (no-coin) mining lease tx
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "slash", "attest", "commit", "reveal", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury_vote", "treasury_execute"})
+RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "slash", "attest", "commit", "reveal", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury", "treasury_vote", "treasury_execute"})
 
 # --- SHIELDED POOL (post-quantum zk-STARK privacy, doc/privacy.md) — L1 side of an EXECUTION-LAYER feature ---
 # L1 never sees a note or verifies a proof; it only escrows the transparent coins that enter/leave the pool
@@ -118,9 +118,12 @@ ALIAS_REGISTRATION_FEE = 10_000_000     # 0.001 NADO (10,000x MIN_TX_FEE): deter
 # here. It is a normal KEY-CONTROLLED address (the founder holds its key), derived here under the
 # canonical (new) checksum from the genesis public-key body so it validates. It starts EMPTY —
 # there is NO genesis allocation (TREASURY_GENESIS = 0 below); it only fills from the per-block cut.
-_GENESIS_BODY = "ndo27f2870bb2969a4d2b9d4eea303bedea996b9ccc93"  # founder treasury (ML-DSA addr minus 4-hex checksum); owner-controlled
+_GENESIS_BODY = "ndo27f2870bb2969a4d2b9d4eea303bedea996b9ccc93"  # genesis producer address (ML-DSA addr minus 4-hex checksum)
 GENESIS_ADDRESS = _GENESIS_BODY + blake2b_hash(_GENESIS_BODY, size=2)
-TREASURY_ADDRESS = GENESIS_ADDRESS
+# The TREASURY is a RESERVED, KEYLESS account (like "dividend"/"bridge") — NOT the founder's genesis address.
+# No private key exists for it, so the ONLY way coins leave it is a quorum-approved treasury_execute
+# (doc/treasury.md §3.3). This is what makes "spendable only through the bonded-stake quorum" actually true.
+TREASURY_ADDRESS = "treasury"
 
 # --- Block reward: base subsidy + fee-weighted elastic, split producer/treasury (NO premine) ---
 TREASURY_BPS = 1000          # treasury share of each block reward, in basis points (10.00%)
@@ -144,6 +147,16 @@ DIVIDEND_POOL = "dividend"   # reserved L1 account the dividend accrues to (O(1)
 # balance so no one passing vote can drain the vault (drain-resistant; the deliberately simple, bug-resistant
 # alternative to a trailing-average rate limit — see doc/treasury.md §5). Anti-hoard burn lands in a later change.
 TREASURY_MAX_SPEND_BPS = 2500   # a single proposal may spend at most 25.00% of the current treasury balance
+# Newly-bonded stake must AGE this many epochs before it counts toward a treasury vote — defeats a flash /
+# exchange-custodied bond swung in to capture a spend (Hive's fix). The quorum electorate is ACTIVATED bonded
+# stake only, so fresh stake neither approves nor dilutes; genesis stake (bond_since == 0) is already aged.
+TREASURY_VOTE_ACTIVATION_EPOCHS = 180   # ~1 day at defaults (== POSW_LEASE_EPOCHS)
+# Anti-hoard self-burn (doc/treasury.md §3.2): every TREASURY_SPEND_PERIOD blocks, burn TREASURY_BURN_BPS of
+# the treasury balance ABOVE a floor so an un-deployed treasury actively shrinks (the Bismuth fix). Flat
+# Polkadot-style burn; the floor protects a nascent treasury. Revert-symmetric (the burned amount is stored).
+TREASURY_SPEND_PERIOD = 10800   # burn cadence in blocks (~1 day at ~8s blocks)
+TREASURY_BURN_BPS = 100         # burn 1.00% of the balance above the floor each period
+TREASURY_RUNWAY_FLOOR = 0       # balance at/below this is never burned (0 = burn from the first coin; tune up later)
 REWARD_WINDOW = 100          # trailing blocks averaged for the elastic reward
 REWARD_CAP = 5_000_000_000   # max reward per block (0.5 NADO), raw
 # Flat per-block emission FLOOR, independent of fees. Without it a no-premine chain deadlocks:

@@ -10,7 +10,7 @@ from ops.data_ops import get_home, make_folder
 from ops.log_ops import get_logger
 from ops.peer_ops import save_peer, get_public_ip
 from ops import kv_ops
-from protocol import CHAIN_ID, TREASURY_ADDRESS, TREASURY_GENESIS
+from protocol import GENESIS_ADDRESS, CHAIN_ID, TREASURY_ADDRESS, TREASURY_GENESIS
 
 
 def create_indexers():
@@ -124,7 +124,7 @@ if __name__ == "__main__":
     input("Not supposed to be run directly, continue?\n")
     make_folders()
     make_genesis(
-        address=TREASURY_ADDRESS,          # genesis address == treasury (canonical checksum)
+        address=GENESIS_ADDRESS,          # genesis address == treasury (canonical checksum)
         balance=TREASURY_GENESIS,          # bootstrap allocation minted to the genesis/treasury
         ip="78.102.98.72",
         port=9173,

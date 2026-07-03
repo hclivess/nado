@@ -670,6 +670,19 @@ def treasury_executed_del(pid: str):
     meta_del(f"tspend:{pid}")
 
 
+# --- anti-hoard self-burn: amount burned at a period-boundary block, stored so rollback restores it exactly ---
+def treasury_burn_get(height: int) -> int:
+    return meta_get_int(f"tburn:{height}", 0)
+
+
+def treasury_burn_put(height: int, amount: int):
+    meta_set_int(f"tburn:{height}", int(amount))
+
+
+def treasury_burn_del(height: int):
+    meta_del(f"tburn:{height}")
+
+
 # --- RANDAO commit-reveal (#7): one commit per (sender, target_epoch) + revealed secrets per epoch ---
 
 def _commit_key(sender: str, target_epoch: int) -> bytes:

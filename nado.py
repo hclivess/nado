@@ -27,7 +27,7 @@ from ops.log_ops import get_logger, logging
 from ops.peer_ops import save_peer, get_remote_status, check_ip
 from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
 from ops import snapshot_ops
-from protocol import TREASURY_ADDRESS, TREASURY_GENESIS, GENESIS_TIMESTAMP
+from protocol import GENESIS_ADDRESS, TREASURY_ADDRESS, TREASURY_GENESIS, GENESIS_TIMESTAMP
 
 import gc  # replaces pympler/muppy — the full-heap walk fatally trips CPython GC under asyncio load
 
@@ -758,7 +758,7 @@ if updated_version:
 if not os.path.exists(f"{get_home()}/blocks"):
     make_folders()
     make_genesis(
-        address=TREASURY_ADDRESS,        # genesis address == treasury (no personal premine)
+        address=GENESIS_ADDRESS,        # genesis address == treasury (no personal premine)
         balance=TREASURY_GENESIS,        # bootstrap allocation minted to the treasury
         ip="78.102.98.72",
         port=9173,

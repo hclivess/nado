@@ -6,7 +6,7 @@ from ops.block_ops import load_block_from_hash, set_latest_block_info, unindex_b
 from ops.data_ops import get_home
 from ops import kv_ops
 from ops.transaction_ops import unindex_transactions
-from ops.reward_ops import credit_block_reward
+from ops.reward_ops import credit_block_reward, apply_treasury_burn
 from protocol import split_block_reward, TREASURY_ADDRESS
 
 
@@ -51,6 +51,7 @@ def rollback_one_block(logger, block) -> dict:
     # Single source (ops.reward_ops.credit_block_reward) shared with apply, so the two can never drift.
     with kv_ops.write_txn():
         credit_block_reward(block, logger=logger, revert=True)
+        apply_treasury_burn(block, logger=logger, revert=True)   # restore any anti-hoard burn at this height
 
         totals = get_totals(block=block, revert=True)
         index_totals(produced=totals["produced"], fees=totals["fees"],

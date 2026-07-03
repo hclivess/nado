@@ -25,9 +25,9 @@ from ops.block_ops import (get_block, get_block_ends_info,
 from ops import kv_ops
 from genesis import make_genesis, create_indexers
 from ops.log_ops import get_logger
-from protocol import split_block_reward, TREASURY_ADDRESS, TREASURY_GENESIS
+from protocol import split_block_reward, GENESIS_ADDRESS, TREASURY_ADDRESS, TREASURY_GENESIS
 
-GENESIS_ADDRESS = TREASURY_ADDRESS   # genesis address == treasury (canonical checksum)
+# GENESIS_ADDRESS now imported from protocol (treasury is a separate reserved account)
 # TODO(relaunch): GENESIS_CHILD_HASH is the hash of block 1 under the NEW canonical hashing;
 # regenerate it once the relaunched genesis + block 1 exist (the old value is stale).
 GENESIS_CHILD_HASH = "3abbfe409d446d997fbf65767c97e3f59ecb943d61a000240432e1627187966b"

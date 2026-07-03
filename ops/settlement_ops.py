@@ -50,16 +50,30 @@ def latest_settled():
     return best
 
 
-def treasury_justified(pid: str, bonded_registry: dict) -> bool:
-    """True when the bonded shares that voted to approve treasury proposal `pid` STRICTLY EXCEED
-    SETTLE_NUM/SETTLE_DEN of total bonded shares — the identical 2/3 stake quorum as settlement/finality
-    (attesting*SETTLE_DEN > total*SETTLE_NUM, integer-only). This is the sole authorization for a
-    treasury_execute payout; no multisig, the bonded lane IS the multisig. (doc/treasury.md §3.3)"""
-    total = total_bonded_shares(bonded_registry)
+def _vote_activated(info: dict, current_epoch: int) -> bool:
+    """A validator's bonded stake counts toward a treasury vote only once it has AGED
+    TREASURY_VOTE_ACTIVATION_EPOCHS (anti flash/exchange capture). bond_since == 0 is genesis/fully-aged."""
+    from protocol import TREASURY_VOTE_ACTIVATION_EPOCHS
+    bs = int(info.get("bond_since", 0) or 0)
+    return bs == 0 or (current_epoch - bs) >= TREASURY_VOTE_ACTIVATION_EPOCHS
+
+
+def treasury_justified(pid: str, bonded_registry: dict, current_epoch: int) -> bool:
+    """True when the ACTIVATED bonded shares that voted to approve treasury proposal `pid` STRICTLY EXCEED
+    SETTLE_NUM/SETTLE_DEN of the total ACTIVATED bonded shares — the identical 2/3 stake quorum shape as
+    settlement/finality (approving*SETTLE_DEN > total*SETTLE_NUM, integer-only). The electorate is bonded
+    stake that has aged past TREASURY_VOTE_ACTIVATION_EPOCHS, so freshly-bonded stake neither approves NOR
+    dilutes the vote. Sole authorization for a treasury_execute payout; the bonded lane IS the multisig.
+    (doc/treasury.md §3.3)"""
+    voters = set(kv_ops.treasury_voters(pid))
+    total, approving = 0, 0
+    for validator, info in bonded_registry.items():
+        if not _vote_activated(info, current_epoch):
+            continue                                            # fresh stake: outside the electorate entirely
+        w = selection_shares(info["bonded"])
+        total += w
+        if validator in voters:
+            approving += w
     if total == 0:
         return False
-    approving = 0
-    for validator in kv_ops.treasury_voters(pid):
-        if validator in bonded_registry:
-            approving += selection_shares(bonded_registry[validator]["bonded"])
     return approving * SETTLE_DEN > total * SETTLE_NUM

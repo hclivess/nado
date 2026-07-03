@@ -48,3 +48,33 @@ def credit_block_reward(block, logger, revert=False):
         if treasury:
             change_balance(address=TREASURY_ADDRESS, amount=treasury, revert=revert, logger=logger)
         increase_produced_count(address=creator, amount=producer_cut, revert=revert, logger=logger)
+
+
+def apply_treasury_burn(block, logger, revert=False):
+    """Anti-hoard SELF-BURN (doc/treasury.md §3.2). Every TREASURY_SPEND_PERIOD blocks, DESTROY TREASURY_BURN_BPS
+    of the treasury balance above TREASURY_RUNWAY_FLOOR, so an un-deployed treasury actively shrinks (the Bismuth
+    fix). Burned coins leave existence, so the destruction is booked into the burned-supply counter (totals
+    'fees', which total_supply subtracts) to keep the supply figure exact. The burned amount is STORED per height
+    so rollback restores balance + supply exactly. Single source shared by incorporate_block + rollback_one_block
+    + reindex, like credit_block_reward — so the paths can never drift. Runs INSIDE the block's write txn."""
+    from protocol import (TREASURY_ADDRESS, TREASURY_SPEND_PERIOD, TREASURY_BURN_BPS,
+                          TREASURY_RUNWAY_FLOOR, BPS_DENOM)
+    from ops.account_ops import get_account, index_totals
+    from ops import kv_ops
+    h = int(block["block_number"])
+    if h <= 0 or (h % TREASURY_SPEND_PERIOD) != 0:
+        return
+    if revert:
+        burned = kv_ops.treasury_burn_get(h)
+        if burned:
+            change_balance(address=TREASURY_ADDRESS, amount=burned, revert=False, logger=logger)   # restore balance
+            index_totals(produced=0, fees=-burned, block_height=h)                                   # restore supply
+        kv_ops.treasury_burn_del(h)
+        return
+    acc = get_account(TREASURY_ADDRESS, create_on_error=False)
+    bal = int(acc.get("balance", 0)) if acc else 0
+    burned = max(0, bal - TREASURY_RUNWAY_FLOOR) * TREASURY_BURN_BPS // BPS_DENOM
+    if burned > 0:
+        change_balance(address=TREASURY_ADDRESS, amount=-burned, revert=False, logger=logger)        # destroy
+        index_totals(produced=0, fees=burned, block_height=h)                                         # book the burn
+        kv_ops.treasury_burn_put(h, burned)

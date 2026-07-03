@@ -46,7 +46,7 @@ from ops.transaction_ops import (
 )
 import secrets as _secrets
 from rollback import rollback_one_block, MissingParentError, FinalityViolation
-from ops.reward_ops import credit_block_reward
+from ops.reward_ops import credit_block_reward, apply_treasury_burn
 from ops.transaction_ops import construct_attestation_tx, construct_commit_tx, construct_reveal_tx, construct_bond_tx
 from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
@@ -672,6 +672,9 @@ class CoreClient(threading.Thread):
             # producer tip + DIVIDEND_POOL (redistributed off-L1) + treasury. Single source (ops.reward_ops)
             # shared with rollback_one_block + reindex, so the three paths subtract identical integers.
             credit_block_reward(block, logger=self.logger)
+            # Anti-hoard self-burn (doc/treasury.md §3.2): at period boundaries, destroy a slice of the idle
+            # treasury. Runs in this same write txn, so it's atomic with the reward + reverts with the block.
+            apply_treasury_burn(block, logger=self.logger)
 
             totals = get_totals(block=block)  # produced = full reward = total emission
             index_totals(produced=totals["produced"],

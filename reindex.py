@@ -10,7 +10,7 @@ import os.path
 import shutil
 
 from ops.data_ops import get_home, make_folder
-from protocol import split_block_reward, TREASURY_ADDRESS, TREASURY_GENESIS
+from protocol import GENESIS_ADDRESS, split_block_reward, TREASURY_ADDRESS, TREASURY_GENESIS
 
 to_wipeout = ["index"]
 
@@ -35,7 +35,7 @@ genesis_block_hash = ""
 blocks = []
 
 make_genesis(
-    address=TREASURY_ADDRESS,        # genesis address == treasury (canonical checksum)
+    address=GENESIS_ADDRESS,        # genesis address == treasury (canonical checksum)
     balance=TREASURY_GENESIS,        # bootstrap allocation
     ip="78.102.98.72",
     port=9173,

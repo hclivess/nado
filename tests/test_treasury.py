@@ -46,6 +46,7 @@ GRANTEE = generate_keys()["address"]
 AMOUNT = TREASURY_START // 10                      # 10% of balance — under the 25% cap
 MEMO, NONCE = "core dev grant Q3", "p1"
 PID = treasury_proposal_id(GRANTEE, AMOUNT, MEMO, NONCE)
+CUR = 1000                                         # "current epoch" for justification; base validators are genesis-aged (bond_since 0)
 
 def _vote(v, recipient=GRANTEE, amount=AMOUNT, memo=MEMO, nonce=NONCE):
     tx = construct_treasury_vote_tx(v, recipient, amount, memo, nonce, target_block=1)
@@ -56,7 +57,7 @@ def _exec_tx(recipient=GRANTEE, amount=AMOUNT, memo=MEMO, nonce=NONCE):
 
 def t1_below_quorum_blocks_payout():
     _vote(VS[0]); _vote(VS[1])                      # 2 of 4 = 50%
-    assert not treasury_justified(PID, get_bonded_registry()), "2/4 bonded stake is below 2/3"
+    assert not treasury_justified(PID, get_bonded_registry(), CUR), "2/4 bonded stake is below 2/3"
     try:
         validate_transaction(_exec_tx(), logger, 1); assert False, "execute must fail below quorum"
     except AssertionError as e:
@@ -64,7 +65,7 @@ def t1_below_quorum_blocks_payout():
 
 def t2_reaching_two_thirds_pays_out():
     _vote(VS[2])                                    # 3 of 4 = 75% > 2/3
-    assert treasury_justified(PID, get_bonded_registry()), "3/4 bonded stake exceeds 2/3"
+    assert treasury_justified(PID, get_bonded_registry(), CUR), "3/4 bonded stake exceeds 2/3"
     ex = _exec_tx(); validate_transaction(ex, logger, 1)
     t0, g0 = bal(TREASURY_ADDRESS), bal(GRANTEE)
     reflect_transaction(ex, logger, 1)
@@ -84,7 +85,7 @@ def t4_per_proposal_cap_enforced():
     pid = treasury_proposal_id(GRANTEE, big, memo, nonce)
     for v in VS:                                    # full quorum
         _vote(v, amount=big, memo=memo, nonce=nonce)
-    assert treasury_justified(pid, get_bonded_registry()), "fully voted -> justified"
+    assert treasury_justified(pid, get_bonded_registry(), CUR), "fully voted -> justified"
     try:
         validate_transaction(_exec_tx(amount=big, memo=memo, nonce=nonce), logger, 1)
         assert False, "over-cap payout must fail even with full quorum"
@@ -105,13 +106,13 @@ def t6_revert_symmetry_votes_and_payout():
     pid = treasury_proposal_id(GRANTEE, AMOUNT, memo, nonce)
     for v in VS[:3]:
         _vote(v, memo=memo, nonce=nonce)
-    assert treasury_justified(pid, get_bonded_registry())
+    assert treasury_justified(pid, get_bonded_registry(), CUR)
     # revert one vote -> quorum drops
     rv = construct_treasury_vote_tx(VS[2], GRANTEE, AMOUNT, memo, nonce, target_block=1)
     reflect_transaction(rv, logger, 1, revert=True)
-    assert not treasury_justified(pid, get_bonded_registry()), "reverting a vote drops the quorum"
+    assert not treasury_justified(pid, get_bonded_registry(), CUR), "reverting a vote drops the quorum"
     reflect_transaction(rv, logger, 1)              # re-apply -> justified again
-    assert treasury_justified(pid, get_bonded_registry())
+    assert treasury_justified(pid, get_bonded_registry(), CUR)
     # execute, then revert the payout
     ex = construct_treasury_execute_tx(VS[0], GRANTEE, AMOUNT, memo, nonce, target_block=1)
     validate_transaction(ex, logger, 1)
@@ -122,6 +123,21 @@ def t6_revert_symmetry_votes_and_payout():
     assert bal(TREASURY_ADDRESS) == t0, "revert restores the treasury balance"
     assert bal(GRANTEE) == g0, "revert restores the grantee balance"
     assert not kv_ops.treasury_executed_exists(pid), "revert clears the executed nullifier -> re-executable"
+
+def t7_fresh_stake_is_outside_the_electorate():
+    # ANTI-FLASH-CAPTURE: a whale that bonds a huge stake and votes cannot swing a proposal until the stake has
+    # aged TREASURY_VOTE_ACTIVATION_EPOCHS — fresh stake is outside the electorate (neither approves nor dilutes).
+    whale = generate_keys()
+    create_account(whale["address"], bonded=100 * B_MIN)         # 100x the aged validators' stake...
+    kv_ops.bond_since_put(whale["address"], CUR - 10)            # ...but bonded only 10 epochs ago (< 180 activation)
+    memo, nonce = "capture attempt", "p5"
+    pid = treasury_proposal_id(GRANTEE, AMOUNT, memo, nonce)
+    wv = construct_treasury_vote_tx(whale, GRANTEE, AMOUNT, memo, nonce, target_block=1)
+    validate_transaction(wv, logger, 1); reflect_transaction(wv, logger, 1)   # the whale CAN cast a vote...
+    assert not treasury_justified(pid, get_bonded_registry(), CUR), "fresh whale stake cannot pass a proposal alone"
+    for v in VS:                                                 # ...but the aged validators decide it
+        _vote(v, memo=memo, nonce=nonce)
+    assert treasury_justified(pid, get_bonded_registry(), CUR), "aged 2/3 approves; the fresh whale is ignored"
 
 for name, fn in sorted(globals().items()):
     if name.startswith("t") and callable(fn) and len(name) > 1 and name[1].isdigit():
