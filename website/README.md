@@ -23,20 +23,26 @@ sudo ln -sfn /etc/nginx/sites-available/nadochain.com /etc/nginx/sites-enabled/n
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
-## DNS (do this first — at your registrar)
-Point these records at the server that runs the NADO node + nginx:
+## DNS
+Point these records at the server that runs the NADO node + nginx (`A` = its IPv4, `AAAA` = its IPv6):
+`nadochain.com`, `www.nadochain.com`, `get.nadochain.com`.
 
-| Record | Type | Value |
-|--------|------|-------|
-| `nadochain.com`      | A / AAAA | `<server IPv4>` / `<server IPv6>` |
-| `www.nadochain.com`  | A / AAAA | `<server IPv4>` / `<server IPv6>` |
-| `get.nadochain.com`  | A / AAAA | `<server IPv4>` / `<server IPv6>` |
+### Cloudflare (this deployment is proxied through Cloudflare)
+The records are the orange-cloud (proxied) A/AAAA records to the origin. Cloudflare terminates public HTTPS with
+its own edge cert and connects to the origin on `:443`, so:
+- The origin must serve valid HTTPS for these names (Let's Encrypt cert below) — set the Cloudflare **SSL/TLS
+  mode to "Full (strict)"**.
+- This vhost serves the SAME content on `:80` and `:443` with NO origin-side HTTP→HTTPS redirect, so there is no
+  redirect loop regardless of the Cloudflare SSL mode; Cloudflare's "Always Use HTTPS" handles the public redirect.
 
-## HTTPS (after DNS resolves to this server)
+## HTTPS cert (Let's Encrypt on the origin)
+The ACME HTTP-01 challenge passes through Cloudflare, so certbot works even while proxied:
 ```bash
-sudo certbot --nginx -d nadochain.com -d www.nadochain.com -d get.nadochain.com
+sudo certbot certonly --webroot -w /var/www/html \
+  -d nadochain.com -d www.nadochain.com -d get.nadochain.com
+sudo systemctl reload nginx
 ```
-certbot rewrites the vhost to add the `443` listeners and an HTTP→HTTPS redirect.
+(The vhost already references `/etc/letsencrypt/live/nadochain.com/…`; certbot auto-renews.)
 
 ## How get.nadochain.com works
 `get.` reverse-proxies `/` to the L1 node (`127.0.0.1:9173`) and `/exec/` to the shielded-pool /
