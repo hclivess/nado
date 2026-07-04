@@ -1008,11 +1008,15 @@ def unindex_transactions(block, logger, block_height):
                             block_number=block_height,
                             sender=transaction["sender"],
                             recipient=_recip)
-        # PUBKEY-ONCE revert: after this tx's index entry is removed, if the sender has NO remaining
-        # indexed tx, this block held its first-ever tx -> clear the established pubkey so the account
-        # doc returns byte-identical to before (revert-symmetric). A sender with earlier-block txs
-        # keeps its pubkey (established earlier).
-        if not kv_ops.tx_of_account(transaction["sender"], min_block=0, limit=1):
+        # PUBKEY-ONCE revert: clear the established pubkey ONLY when reverting a tx that actually CARRIED it
+        # (so could have established it) AND the sender has no earlier indexed tx. The `public_key` guard is
+        # REQUIRED and is the fix for a rolling/pruned node: there tx_of_account reads the PRUNED history and
+        # returns empty even for a long-established sender, so a reorg reverting a LATER pubkey-less tx (e.g. a
+        # `bond`) would otherwise WRONGLY cull the sender's pubkey — permanently bricking its validation with
+        # "first tx must carry it". A pubkey-less tx never established the key, so it must never delete it.
+        # (Full/archive nodes are unaffected: there tx_of_account already returned the establishing tx for a
+        # non-carrying revert, so it never deleted — this only stops the false deletion on pruned nodes.)
+        if transaction.get("public_key") and not kv_ops.tx_of_account(transaction["sender"], min_block=0, limit=1):
             kv_ops.account_del_field(transaction["sender"], "public_key")
 
 
