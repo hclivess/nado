@@ -156,7 +156,7 @@ async def compound_get_status_pool(ips, port, logger, fail_storage, semaphore, c
     result = list(
         filter(
             None,
-            await asyncio.gather(*[get_status(ip, port, logger, fail_storage, semaphore) for ip in ips]),
+            await asyncio.gather(*[get_status(ip, port, logger, fail_storage, semaphore, compress) for ip in ips]),
         )
     )
 
