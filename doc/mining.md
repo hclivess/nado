@@ -7,7 +7,7 @@ testnet-validated; the **browser client** (S4b) is still pending.
 
 > **Current model (2026-07 — supersedes the bond-only framing this doc was first written around).**
 > Mining is now **two-lane**: an **OPEN lane** (zero-capital, hard-capped at `K_OPEN/EPOCH_LENGTH`
-> = 12/60 ≈ **20%** of slots) and a **BONDED lane** (locked stake, ≈ 80%). Two things changed since
+> = 18/60 ≈ **30%** of slots) and a **BONDED lane** (locked stake, ≈ 70%). Two things changed since
 > the original "capped bonded chain" write-up below:
 > - **The OPEN lane is genuinely zero-capital.** Its Sybil cost is a renewable **PoSW recert lease**,
 >   not a bond: a `register` transaction carrying a fresh *sequential* proof-of-work
@@ -19,7 +19,7 @@ testnet-validated; the **browser client** (S4b) is still pending.
 >   **bonded producer ramp** (a fresh bond's *producer-selection* weight ramps 0 → full over
 >   `BOND_RAMP_EPOCHS`; see §"Bonded producer ramp" and doc/takeover-resistance.md).
 >
-> The ~20% open cap is population-independent (the reward-capture bound) and is machine-checked by
+> The ~30% open cap is population-independent (the reward-capture bound) and is machine-checked by
 > `tests/test_open_cap_adversarial.py`; the live selector is `mining_ops.select_producer_two_lane`
 > (`lane_of`, `open_shares`, `bond_ramp_weight`). See doc/reward-capture-theorem.md.
 
@@ -44,7 +44,7 @@ the model is a **capped, fair-launch bonded chain**: lock coins (you keep them) 
 > **PoSW recert lease** (Douceur says a permissionless Sybil anchor must have *some* cost; the recert
 > makes that cost *non-parallelizable serial time per identity per lease*, which a bot pays the same
 > as a human). That opens a truly **zero-capital OPEN lane** alongside the bonded lane. The iron
-> triangle still bites — the open lane is *bounded* (20%), not unbounded — but "lock coins to mine at
+> triangle still bites — the open lane is *bounded* (30%), not unbounded — but "lock coins to mine at
 > all" is no longer the whole story. See doc/ip-spoofing-and-sybil.md §5b and doc/node-service-reward.md.
 
 ## The mechanism (Option A hybrid)
@@ -128,7 +128,7 @@ tip):
   **Redesigned & shipped** — heartbeats were removed; presence is now the renewable **PoSW recert
   lease**. The open registry (`account_ops.get_open_registry`) is derived from the revert-safe
   recert index, and the continuity **fidelity** streak is driven by recerts (`apply_register`;
-  continuous gap ≤ lease ⇒ +`FIDELITY_GAIN`, a lapse resets), feeding `open_shares` (range 1..10).
+  continuous gap ≤ lease ⇒ +`FIDELITY_GAIN`, a lapse resets), feeding `open_shares` (range 2..10).
   The bonded lane keeps the `selection_shares` fidelity ramp OFF (`fidelity=None`) and instead uses
   the tenure-based **bonded producer ramp** (`bond_ramp_weight`, below).
 - **Consensus-pool reweight** (today one vote per peer, `consensus_loop.py`) by trust/stake.
@@ -162,8 +162,8 @@ rationale and the takeover math: **doc/takeover-resistance.md**.
 
 Bonded lane: `B_MIN = 1e12` (100 NADO), `BOND_CAP = 1e14` (10k NADO), `MAX_SHARES = 100`,
 `EPOCH_LENGTH = 60`, `BOND_UNLOCK_DELAY = 1440`, `BOND_RAMP_EPOCHS = 30`.
-Open lane: `OPEN_BPS = 2000` (20% ⇒ `K_OPEN = 12` slots/epoch), `OPEN_BASE_FLOOR = 1`,
-`OPEN_FID_BONUS = 9` (open weight ranges 1..10), `POSW_LEASE_EPOCHS = 180` (≈ 1 day recert lease).
+Open lane: `OPEN_BPS = 3000` (30% ⇒ `K_OPEN = 18` slots/epoch), `OPEN_BASE_FLOOR = 2`,
+`OPEN_FID_BONUS = 8` (open weight ranges 2..10), `POSW_LEASE_EPOCHS = 180` (≈ 1 day recert lease).
 Continuity fidelity: `FIDELITY_CAP = 30` consecutive recerts (was 1000 in the heartbeat design),
 `FIDELITY_GAIN = 1` per continuous recert — a lapse **resets** the streak (there is no separate
 `FIDELITY_DECAY` constant any more, and no `FAUCET_STARTER_BOND`: free presence must never mint

@@ -39,24 +39,24 @@ entry costs, and neither can be monopolized:
 Because there is no cycle to vote your way into, the Nyzo "flood the queue" move has no target. What an
 attacker *can* do is (a) flood the open lane, or (b) buy bonded stake. Both are bounded below.
 
-## 3. The cheap path is hard-capped at ~20%
+## 3. The cheap path is hard-capped at ~30%
 
 Anyone can mine the OPEN lane with zero coins. But the open lane is allocated a fixed slice of each epoch's
-slots: `K_OPEN / EPOCH_LENGTH = 12 / 60 = 20%`. **No matter how many identities exist**, the open lane wins
-at most 20% of blocks. The [reward-capture theorem](reward-capture-theorem.md) proves a free / Sybil actor
-cannot exceed ~20% of total emission through it.
+slots: `K_OPEN / EPOCH_LENGTH = 18 / 60 = 30%`. **No matter how many identities exist**, the open lane wins
+at most 30% of blocks. The [reward-capture theorem](reward-capture-theorem.md) proves a free / Sybil actor
+cannot exceed ~30% of total emission through it.
 
-This is the direct Nyzo fix: **flooding the cheap path with cheap nodes buys a bounded 20% slice, not the
-network.** Sybil a *million* identities and you still top out at 20% — and the
-[presence dividend](presence-dividend.md) then spreads that 20% across everyone present (fidelity-weighted, a
-fresh Sybil at floor weight), so a farm doesn't even get all of the 20%. On top of the cap, each open
+This is the direct Nyzo fix: **flooding the cheap path with cheap nodes buys a bounded 30% slice, not the
+network.** Sybil a *million* identities and you still top out at 30% — and the
+[presence dividend](presence-dividend.md) then spreads that 30% across everyone present (fidelity-weighted, a
+fresh Sybil at floor weight), so a farm doesn't even get all of the 30%. On top of the cap, each open
 identity carries a renewable **Proof of Sequential Work** lease ([ip-spoofing-and-sybil.md](ip-spoofing-and-sybil.md)) —
 non-parallelizable time to create *and to keep alive* — which throttles mass identity creation, but the cap
-is the real bound: even free identities cannot cross 20%.
+is the real bound: even free identities cannot cross 30%.
 
 ## 4. The rest costs farm-neutral capital
 
-The other ~80% of emission runs through the BONDED lane, won by **staked coins**. To take it over you must
+The other ~70% of emission runs through the BONDED lane, won by **staked coins**. To take it over you must
 acquire a **majority of the bonded stake** — i.e. buy or earn a large fraction of the actual coin supply.
 Three things make this the opposite of Nyzo:
 
@@ -94,11 +94,11 @@ Put the two together and the Nyzo outcome — "one actor takes the whole reward-
 
 | attacker resource | what it buys | ceiling |
 |---|---|---|
-| unlimited cheap identities / IPs / nodes | open-lane wins | **≤ ~20% of emission (proven), spread by the dividend** |
+| unlimited cheap identities / IPs / nodes | open-lane wins | **≤ ~30% of emission (proven), spread by the dividend** |
 | unlimited cheap identities *without* stake | bonded-lane wins | **0** — bonded weight requires bonded coins |
 | majority of the coin supply, bonded | bonded-lane control | expensive (∝ network value), whale-capped, and finality+slashing-bounded |
 
-The maximum a *cheap* (Sybil/bot) attacker can ever reach is the 20% open cap. To exceed it they must stop
+The maximum a *cheap* (Sybil/bot) attacker can ever reach is the 30% open cap. To exceed it they must stop
 being cheap and start buying majority stake — at which point they are a farm-neutral, bonded, slashable
 majority holder, i.e. the accepted PoS cost-of-attack, not a Nyzo-style free capture.
 
@@ -111,7 +111,7 @@ datacenter. Even the *stake-gated* service reward in [node-service-reward.md](no
 is carefully built to NOT reopen it (the pool is gated by bond and IP-diversity can only *discount*), adds
 **nothing** to takeover resistance — the protection already lives in the lanes. So for the goal of
 preventing a Nyzo-style capture, the correct move is **not to add an IP/service reward at all**, and to keep
-reward anchored on the two farm-safe things: the 20%-capped open lane and farm-neutral bonded stake.
+reward anchored on the two farm-safe things: the 30%-capped open lane and farm-neutral bonded stake.
 
 ## 7. Residual risk + what to keep proving
 
@@ -122,5 +122,5 @@ which NADO refuses (it is not IDENA).
 
 To keep the central guarantee honest rather than merely asserted, the open-lane cap should carry an
 **adversarial regression test**: flood the draw with thousands of Sybil open identities and assert their
-combined win rate never crosses `K_OPEN / EPOCH_LENGTH`. That converts "the theorem says ≤ 20%" into "every
-commit proves ≤ 20% under a Sybil flood" — a standing, machine-checked guard on exactly the Nyzo scenario.
+combined win rate never crosses `K_OPEN / EPOCH_LENGTH`. That converts "the theorem says ≤ 30%" into "every
+commit proves ≤ 30% under a Sybil flood" — a standing, machine-checked guard on exactly the Nyzo scenario.

@@ -63,7 +63,7 @@ The execution node already tails L1 blocks and keeps cheap KV state off-L1 (Phas
 L1 by bonded quorum (Phase 2). It becomes the **dividend accountant**:
 
 - Each epoch it knows the present open registry and every present miner's **fidelity weight** `w_i`
-  (`OPEN_BASE_FLOOR..OPEN_BASE_FLOOR+OPEN_FID_BONUS`, i.e. 1..10) — the same weight the lane draw already uses.
+  (`OPEN_BASE_FLOOR..OPEN_BASE_FLOOR+OPEN_FID_BONUS`, i.e. 2..10) — the same weight the lane draw already uses.
 - It distributes that epoch's pooled `dividend` **pro-rata by `w_i`** into each miner's **off-L1** dividend
   balance.
 
@@ -125,7 +125,7 @@ constant** rather than a fraction, so it's predictable regardless of `R`.
 | `TREASURY_BPS` | `1000` (unchanged) | treasury cut of every block |
 | `OPEN_TIP_BPS` | `2000` | open producer's cut of an open-lane block (the rest, minus treasury, is the dividend) |
 | `DIVIDEND` recipient | `"dividend"` | reserved L1 pool address the dividend accrues to (`O(1)` on L1) |
-| dividend weight | `fidelity` (`w=1..10`) | per-miner pro-rata weight (Sybil-costly); **not** flat-per-identity |
+| dividend weight | `fidelity` (`w=2..10`) | per-miner pro-rata weight (Sybil-costly); **not** flat-per-identity |
 | min withdraw | e.g. `≥ 100× MIN_TX_FEE` | client-side floor so a withdrawal is always worth its fee |
 
 ## 8. Trade-offs & open questions

@@ -22,7 +22,7 @@ Related deep-dives: [economics.md](economics.md) (emission + supply accounting),
 | Per-block reward | **0.1 NADO** (floor) … **0.5 NADO** (cap) |
 | Max supply | **Uncapped** — perpetual tail emission at ≥ the base subsidy |
 | Reward split | **90 %** block producer · **10 %** treasury |
-| Block lanes | **20 %** open (permissionless) · **80 %** bonded (staked) |
+| Block lanes | **30 %** open (permissionless) · **70 %** bonded (staked) |
 | Fees | **Destroyed** (not paid to the producer); drive the elastic reward |
 | Treasury | Keyless account, fills from the 10 % cut, bonded-quorum governed |
 
@@ -99,10 +99,10 @@ treasury_cut = R − producer_cut                              # 10 %
 
 Each epoch's `EPOCH_LENGTH = 60` slots are split by a beacon-keyed permutation into:
 
-- an **OPEN lane** — `OPEN_BPS = 2000` (**20 %**, `K_OPEN = 12` slots/epoch): permissionless,
+- an **OPEN lane** — `OPEN_BPS = 3000` (**30 %**, `K_OPEN = 18` slots/epoch): permissionless,
   zero capital, one renewable registration PoW (a *presence lease*). This is the Sybil-bounded
   fair-mining lane.
-- a **BONDED lane** — the remaining **80 %**: selection weight proportional to locked stake.
+- a **BONDED lane** — the remaining **70 %**: selection weight proportional to locked stake.
 
 The 90/10 producer/treasury split still holds on the **total** reward, but the producer's 90 %
 is redistributed differently per lane to reward *presence* over *capital*:
@@ -207,7 +207,7 @@ part of emission and hold no key:
 | `REWARD_WINDOW` | 100 | Trailing blocks averaged for the elastic reward |
 | `TREASURY_BPS` | 1000 (10 %) | Treasury cut of every block reward |
 | `EPOCH_LENGTH` | 60 | Slots per epoch |
-| `OPEN_BPS` | 2000 (20 %) | Open-lane share of slots (Sybil ceiling) |
+| `OPEN_BPS` | 3000 (30 %) | Open-lane share of slots (Sybil ceiling) |
 | `OPEN_TIP_BPS` | 2000 (20 %) | Open producer's own cut of an open block |
 | `BONDED_DIVIDEND_BPS` | 2000 (20 %) | Bonded block's contribution to the dividend pool |
 | `B_MIN` | 100 NADO | Capital per bonded selection share |

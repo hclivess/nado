@@ -13,7 +13,7 @@ NAT/CGNAT-ambiguous, and different nodes see a different IP for the same peer. T
 cap (`ops/ratelimit.allow_registration`) is therefore only **best-effort relay friction**: it raises the
 cost of casually scripting thousands of identities from one box, but a motivated operator can bypass it
 (VPNs, proxies, a botnet of real residential IPs, IPv6 address space). The one **hard** guarantee is
-distributional and IP-independent: the OPEN lane is a fixed `OPEN_BPS` (20%) of blocks no matter how many
+distributional and IP-independent: the OPEN lane is a fixed `OPEN_BPS` (30%) of blocks no matter how many
 identities register, so Sybil can *redistribute* the free lane unfairly but can never *enlarge* it
 (whitepaper §2.2). Everything else here is about narrowing that unfair-redistribution gap.
 
@@ -70,26 +70,26 @@ newcomers. Walk that operator's path:
    *size × time*, continuously, to keep its masks alive.
 4. **Collect open-lane blocks proportional to their share of the open registry.**
 
-**What this does NOT buy them:** more than `OPEN_BPS = 2000` bps (**20%**) of *all* blocks. The lane split
+**What this does NOT buy them:** more than `OPEN_BPS = 3000` bps (**30%**) of *all* blocks. The lane split
 permutes **slot indices**, not per-identity weight, so the OPEN lane is a fixed fraction of blocks *no
 matter how many identities register*. Flooding the open registry only makes the attacker compete with
-**honest open-lane miners for the same fixed 20%** — it dilutes the honest open-lane miners' share, but it
-**cannot touch the 80% bonded lane** and cannot exceed 20% overall. And the reward per open block is a flat
-base subsidy, so N identities split the same 20% pie — there is no super-linear payoff to registering more.
+**honest open-lane miners for the same fixed 30%** — it dilutes the honest open-lane miners' share, but it
+**cannot touch the 70% bonded lane** and cannot exceed 30% overall. And the reward per open block is a flat
+base subsidy, so N identities split the same 30% pie — there is no super-linear payoff to registering more.
 
 So the worst case of *total* IP-cap bypass is: **an operator can crowd out honest zero-capital miners
-within the 20% free lane** — a *distribution* harm (fewer real newcomers get their share), bounded and
+within the 30% free lane** — a *distribution* harm (fewer real newcomers get their share), bounded and
 never a *safety* harm (no chain halt, no double-spend, no reach into the bonded lane). The whole question
 is how close to "one share per real person" we can push the open lane, given that IP can't get us there.
 
 ## 4. What keeps the distribution fair (defense-in-depth)
 
-1. **Structural lane cap — the hard bound.** `OPEN_BPS` (20%) caps the free lane at the *slot-permutation*
-   level. A free botnet can never exceed 20% of blocks or reach the bonded lane. This is the project's
+1. **Structural lane cap — the hard bound.** `OPEN_BPS` (30%) caps the free lane at the *slot-permutation*
+   level. A free botnet can never exceed 30% of blocks or reach the bonded lane. This is the project's
    central security parameter (whitepaper §2.2) and it is **population-independent** — it holds against an
    attacker with unlimited identities and unlimited IPs.
 2. **Reward dilution — the economic bound.** Open-lane reward is split among *all* present open miners, so
-   registering more identities does not increase the attacker's total take beyond the 20% pie; it only
+   registering more identities does not increase the attacker's total take beyond the 30% pie; it only
    splits it more finely. There is no economic incentive to Sybil for profit, only to *deny* honest
    miners — a griefing motive, not a profit one.
 3. **Renewable PoSW recert lease — a farm-neutral per-identity cost (creation AND upkeep).** Each identity
@@ -120,7 +120,7 @@ is how close to "one share per real person" we can push the open lane, given tha
 > (bulk proxies, a whole IPv6 /64) than for a human, and they punish shared/CGNAT humans — so IP can only
 > ever be defensive friction, never the anchor. See doc/takeover-resistance.md and doc/node-service-reward.md.
 
-The fairness posture is therefore: **do not try to make Sybil impossible; make its payoff bounded (20%
+The fairness posture is therefore: **do not try to make Sybil impossible; make its payoff bounded (30%
 lane) and unprofitable (reward dilution), price each mask in a farm-neutral cost (the sequential-PoSW
 recert lease), and add cheap defensive friction (the per-IP cap) against the low-effort masquerade.** IP
 is the outermost, weakest, most-evadable layer, and the design is deliberately built so that its failure
@@ -260,9 +260,9 @@ and a datacenter can still buy cores — so this is a *cost floor that scales li
 And "continuous proof" is in tension with "no-bother" (a constant VDF drains a phone battery), so it must
 be tuned to the cheap end: a short one-time VDF at registration plus a **slow, infrequent** re-proof to
 maintain presence — enough to make a large farm pay real, visible, linear time-cost, not so much that a
-phone notices. It does not make Sybil impossible; permissionlessly, *nothing* can. Combined with the 20%
+phone notices. It does not make Sybil impossible; permissionlessly, *nothing* can. Combined with the 30%
 structural cap and reward dilution, it turns "10 000 free masks" into "10 000 real time-lanes running
-continuously for a slice of a fixed, diluted 20% pie" — rate-limited and unprofitable, with zero
+continuously for a slice of a fixed, diluted 30% pie" — rate-limited and unprofitable, with zero
 permission and near-zero honest-user friction. **A memory-hard VDF** raises the floor further by also
 pricing in RAM (a real device limit that is costlier to scale than cores).
 
@@ -288,20 +288,20 @@ off-chain, changes no invariant.
 sponsor), personhood ceremonies (#1), bonds (#3), or device attestation (#5); and any **IP-, bond-, or
 attestation-based rule inside consensus** (selection weight / validity / block production), which would
 either fork the chain (IP) or destroy the zero-capital, one-tap, permissionless fair launch. The honest
-framing stays: IP is friction, not a defense; the *distribution* is bounded by the 20% lane cap and priced
+framing stays: IP is friction, not a defense; the *distribution* is bounded by the 30% lane cap and priced
 — permissionlessly — by real sequential time.
 
 **Do not:** add any IP-, bond-, or attestation-based rule to *block production, selection weight, or
 validity*. Those would either fork the chain (IP) or destroy the zero-capital, one-tap, permissionless
 fair launch that is the entire point of the project. The honest framing to users and reviewers is: **IP
-is friction, not a Sybil defense; the Sybil defense is the 20% lane cap, and it holds even if every IP
+is friction, not a Sybil defense; the Sybil defense is the 30% lane cap, and it holds even if every IP
 control is bypassed.**
 
 See also: whitepaper §2.2 (structural Sybil bound), `doc/reward-capture-theorem.md` (the population-
-independent 20% bound, proved), `doc/takeover-resistance.md` (farm-neutral anchors + the bonded producer
+independent 30% bound, proved), `doc/takeover-resistance.md` (farm-neutral anchors + the bonded producer
 ramp), `doc/node-service-reward.md` (why the Sybil anchor must be farm-neutral), `doc/mining.md` (two-lane
 selection + the PoSW recert lease), `ops/posw.py` (the sequential-work primitive), `ops/ratelimit.py` (the
-defensive per-IP cap), `tests/test_open_cap_adversarial.py` (the 20% cap, machine-checked),
+defensive per-IP cap), `tests/test_open_cap_adversarial.py` (the 30% cap, machine-checked),
 `doc/scaling-analysis.md`.
 
 ---
@@ -327,7 +327,7 @@ the VDF needs *unknown* order + *forced slowness*.
 computes the class-group order), the attacker learns the group order, reduces `2^T mod order`, and the
 "T sequential steps" collapse to instant. So an RSA/class-group VDF is **not post-quantum** and would
 reintroduce exactly the kind of primitive NADO threw out. (It is lower-stakes than a signature — breaking
-it only lets a quantum attacker mint free-lane masks faster, still bounded by the 20% cap — but it is
+it only lets a quantum attacker mint free-lane masks faster, still bounded by the 30% cap — but it is
 avoidable.)
 
 **So NADO should not use an algebraic VDF. It should use a hash-based Proof of Sequential Work (PoSW):**

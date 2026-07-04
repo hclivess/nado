@@ -2,12 +2,12 @@
 
 This note states, as a theorem with proof, the maximum share of block rewards a **single adversary** can
 capture in NADO — the "one miner grabs everything" worst case. The short version: **a zero-cost attacker
-is capped at the open lane (20%), and every point above that must be *bought* with a proportional amount of
+is capped at the open lane (30%), and every point above that must be *bought* with a proportional amount of
 locked, at-risk stake — so total capture is possible only by owning essentially all the stake, at which
 point there is no one else left to take from.** Monopoly has no cheap path.
 
-Constants referenced (`protocol.py`): `OPEN_BPS = 2000` bps = **20%** of slots are the OPEN lane
-(`K_OPEN = 12` of `EPOCH_LENGTH = 60`), the rest (**80%**) are the BONDED lane; `TREASURY_BPS = 1000` =
+Constants referenced (`protocol.py`): `OPEN_BPS = 3000` bps = **30%** of slots are the OPEN lane
+(`K_OPEN = 18` of `EPOCH_LENGTH = 60`), the rest (**70%**) are the BONDED lane; `TREASURY_BPS = 1000` =
 **10%** of every block reward goes to the treasury, **90%** to the producer; `B_MIN` = 100 NADO per bonded
 selection share; `MAX_SHARES = 100` (per-identity bonded variance cap); `SLASH_BOND_PENALTY = B_MIN`.
 
@@ -58,7 +58,7 @@ present open registry, weighted by `open_shares ∈ [OPEN_BASE_FLOOR, OPEN_BASE_
 [1,10]`. A's expected wins among open slots is its weight fraction `w`. Hence A takes `w · N·OPEN_BPS`
 open slots. Because honest miners always hold some weight, `w < 1` strictly, but registering more Sybils
 drives `w → 1`; the **supremum** of open-lane capture is therefore `N·OPEN_BPS` — i.e. at most **all of the
-20% lane, and never one slot more**, no matter the identity count. This is the structural, population-
+30% lane, and never one slot more**, no matter the identity count. This is the structural, population-
 independent Sybil ceiling (whitepaper §2.2).
 
 **3. Bonded lane — proportional to stake.** Each bonded slot's producer is a deterministic draw over the
@@ -81,17 +81,17 @@ of any producer's cut. ∎
 
 ## Corollaries
 
-1. **A free botnet can never exceed 20% of blocks (18% of emission).** Set `s = 0`: `ρ_A ≤ OPEN_BPS =
-   20%` for *any* number of Sybil identities and *any* amount of IP spoofing. This is the entire ceiling
+1. **A free botnet can never exceed 30% of blocks (18% of emission).** Set `s = 0`: `ρ_A ≤ OPEN_BPS =
+   30%` for *any* number of Sybil identities and *any* amount of IP spoofing. This is the entire ceiling
    on zero-capital capture — the concern of `doc/ip-spoofing-and-sybil.md` — and it holds even if every IP
    and Sybil-friction control is bypassed.
 
-2. **Every point above 20% costs proportional locked stake.** To reach a block share `ρ`, A must hold
+2. **Every point above 30% costs proportional locked stake.** To reach a block share `ρ`, A must hold
    `s ≥ (ρ − OPEN_BPS)/(1 − OPEN_BPS)` of *all* bonded capital:
 
    | target block share `ρ` | stake `s` A must own |
    |---|---|
-   | 20% | 0% (free lane only) |
+   | 30% | 0% (free lane only) |
    | 50% | 37.5% |
    | 67% (a "majority-ish" grab) | 58.75% |
    | 90% | 87.5% |
@@ -115,7 +115,7 @@ The bound `ρ_A = OPEN_BPS·w + (1−OPEN_BPS)·s` relies on five properties; ea
 theorem fails **only** if one is broken:
 
 - **Structural lane split (`OPEN_BPS` enforced by slot permutation).** If the open lane could absorb bonded
-  slots, step 2's cap would fail and a free botnet could exceed 20%. *(Enforced in genesis + selection.)*
+  slots, step 2's cap would fail and a free botnet could exceed 30%. *(Enforced in genesis + selection.)*
 - **Unbiasable beacon (commit-reveal RANDAO).** The proof credits A only its *weight share* of slots. If A
   could grind the beacon, it could steer *which/how many* slots fall to it and exceed its share. *(Commit
   in epoch E−2, reveal in E−1's finalized window — no just-in-time grinding.)*
@@ -126,15 +126,15 @@ theorem fails **only** if one is broken:
 - **Fixed emission schedule.** Total reward per block is independent of the producer, so capturing blocks
   redistributes emission but never *inflates* it — "taking all rewards" can never mean minting extra.
 
-If all five hold, `20% + 80%·s` is a hard cap; if any is broken, that specific mechanism — not IP, not
+If all five hold, `30% + 70%·s` is a hard cap; if any is broken, that specific mechanism — not IP, not
 identity count — is the thing to fix.
 
 ## Interpretation
 
 "One miner takes all the rewards" is, in NADO, equivalent to "one miner owns all the stake." Short of that,
 the worst a maximally-resourced, fully-Sybil, IP-spoofing, zero-cost attacker can do is **capture up to the
-20% open lane** — a *fair-distribution* degradation (documented, and priced by the sequential-work
-registration proof), never a monopoly and never a safety break. Every reward beyond the free 20% is
+30% open lane** — a *fair-distribution* degradation (documented, and priced by the sequential-work
+registration proof), never a monopoly and never a safety break. Every reward beyond the free 30% is
 gated by real, proportional, slashable capital. There is no cheap path from "one miner" to "all the
 rewards."
 

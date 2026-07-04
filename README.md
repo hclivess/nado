@@ -89,7 +89,7 @@ them: no puzzles to keep solving, no efficient rig to keep running, and no requi
   difficulty **scales with recent registration volume** (enforced in validation off the finalized anchor
   epoch), so an identity flood gets progressively more expensive while a normal network stays at 1×
   (`doc/registration-difficulty.md`).
-- **Two-lane "diligence" mining.** A free **OPEN lane** anyone can win with no coins (capped at ~20%
+- **Two-lane "diligence" mining.** A free **OPEN lane** anyone can win with no coins (capped at ~30%
   of blocks, a *population-independent* Sybil ceiling) plus a **BONDED lane** won with refundable,
   whale-capped stake. Bonding is **optional** and only boosts the bonded lane — never required.
 - **Post-quantum signatures.** ML-DSA-44 (NIST FIPS 204 / Dilithium) via pure-Python `dilithium-py`
@@ -127,13 +127,13 @@ win a slot and a relay can build and broadcast the crediting block for it.
 
 Each epoch's 60 slots are split by a **beacon-keyed permutation of slot indices** into two lanes:
 
-- **OPEN lane** — `K_OPEN = 12` slots (~20%, `OPEN_BPS = 2000`), winnable by any registered, present
+- **OPEN lane** — `K_OPEN = 18` slots (~30%, `OPEN_BPS = 3000`), winnable by any registered, present
   identity for **zero coins**.
 - **BONDED lane** — the remaining 48 slots, won in proportion to locked, refundable stake.
 
 The split is over *slot indices*, not per-identity weight, so there are always exactly `K_OPEN` open
 slots **no matter how many identities register**. A zero-capital botnet of a million identities still
-cannot win more than `OPEN_BPS` (20%) of blocks. This **population-independent structural ceiling** —
+cannot win more than `OPEN_BPS` (30%) of blocks. This **population-independent structural ceiling** —
 not a puzzle difficulty or an economic cost — is NADO's central Sybil defense. (Empty-lane policy is
 one-directional and fail-closed: an empty open slot falls back to the bonded lane, but an empty
 bonded slot is skipped, never the reverse, so the free lane can never absorb bonded slots.)
@@ -147,7 +147,7 @@ bonded slot is skipped, never the reverse, so the free lane can never absorb bon
    (`validate_transaction`, the block-validation path) — not just the relay you connect to, so a bogus
    registration is rejected network-wide. Registration is a **renewable presence lease**
    (`POSW_LEASE_EPOCHS`, ~1 day): to stay in the open lane you renew with a *fresh* PoSW, turning
-   "pay once, farm forever" into "pay continuously per identity." The structural ~20 % lane cap is still
+   "pay once, farm forever" into "pay continuously per identity." The structural ~30 % lane cap is still
    the *hard* Sybil bound; the PoSW lease prices identity creation **and upkeep** in real sequential time
    on top. The recert is the **single presence signal — there is no separate heartbeat.** You're eligible
    iff you have a recert within `POSW_LEASE_EPOCHS`, so **AFK mining is trivial: one ~1 s PoSW buys a full
@@ -157,11 +157,11 @@ bonded slot is skipped, never the reverse, so the free lane can never absorb bon
 > **Why no separate per-epoch heartbeat?** An earlier design had one. But once the lease covers the whole
 > ~1-day AFK window (and can be pre-signed), a per-epoch heartbeat is co-terminal with the lease and carries
 > no information the recert doesn't — redundant. Collapsing to one signal is strictly simpler: the recert
-> **prices the identity *and* marks presence**. The ~20 % lane cap stays the hard Sybil bound regardless.
+> **prices the identity *and* marks presence**. The ~30 % lane cap stays the hard Sybil bound regardless.
 
-Open-lane selection weight is **capital-free**: a flat floor (`OPEN_BASE_FLOOR = 1`) every present
-identity always gets, plus a diligence ramp to `OPEN_FID_BONUS = 9` over `FIDELITY_CAP = 30` **consecutive
-recerts** (overall range 1..10). Fidelity is **continuity over recerts** (`apply_register`,
+Open-lane selection weight is **capital-free**: a flat floor (`OPEN_BASE_FLOOR = 2`) every present
+identity always gets, plus a diligence ramp to `OPEN_FID_BONUS = 8` over `FIDELITY_CAP = 30` **consecutive
+recerts** (overall range 2..10). Fidelity is **continuity over recerts** (`apply_register`,
 revert-symmetric): a continuous recert adds a step, a lapse resets the streak — so a rotated/churned
 identity can't keep a ramp it stopped paying for. The single most effective thing you can do is **stay
 present**. Mine to **one address** — splitting across addresses gains nothing, and onboarding many
@@ -173,7 +173,7 @@ addresses from one machine is throttled (below).
 > unrelated networks cost nothing (IPv4 /32·/24·/16·/8; IPv6 /128·/64·/48·/32). So a datacenter /24
 > gets one bounded shared budget while distinct networks aren't penalised — stopping "one box scripts
 > 10 000 miners" at the entry point. This is **relay admission control, not consensus** (an IP can't be
-> a consensus input without forking); the *hard* Sybil bound is still the structural ~20 % lane cap.
+> a consensus input without forking); the *hard* Sybil bound is still the structural ~30 % lane cap.
 > Budget is `max_registrations_per_ip` (default 64/hr, `NADO_MAX_REG_PER_IP`, `0` = off).
 
 ### The BONDED lane (optional stake)
@@ -236,7 +236,7 @@ pair moves it back out after a timelock (see below). Bonded selection weight is
   and `withdraw` are fee-exempt (they move no coins out — `unbond`/`withdraw` only retime the sender's
   own stake).
 - **No free→capital faucet.** Open-lane presence can never mint bonded stake; the only path from free
-  to capital is the block subsidy an open miner actually earns — itself capped at `OPEN_BPS` (20 %).
+  to capital is the block subsidy an open miner actually earns — itself capped at `OPEN_BPS` (30 %).
 
 ---
 
@@ -456,7 +456,7 @@ code.
 ### Implemented (live in production and verification paths)
 
 - **Structural Sybil bound** — the open lane is exactly `K_OPEN` slots/epoch regardless of identity
-  count, so a free botnet can never exceed 20 % of blocks. One-directional fail-closed empty-lane
+  count, so a free botnet can never exceed 30 % of blocks. One-directional fail-closed empty-lane
   policy preserves the ceiling.
 - **Fail-closed deterministic authorship** — `validate_block_producer`, called inside `verify_block`
   *before* incorporation, recomputes the two-lane winner from parent state + the epoch beacon and

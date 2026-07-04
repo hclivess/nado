@@ -225,8 +225,12 @@ HISTORY_RETENTION_BLOCKS = 10_000
 # of blocks regardless of how many identities exist -> a zero-capital Sybil/botnet is structurally
 # bounded to OPEN_BPS of production. See doc/mining.md and ops/mining_ops.py.
 EPOCH_LENGTH = 60                  # slots per epoch (also the beacon/RANDAO epoch)
-OPEN_BPS = 2000                    # SECURITY DIAL: open-lane share of slots (20.00%); Sybil ceiling
-K_OPEN = EPOCH_LENGTH * OPEN_BPS // BPS_DENOM  # open slots per epoch (rest bonded); =12 at defaults
+OPEN_BPS = 3000                    # SECURITY DIAL: open-lane share of slots (30.00%); Sybil ceiling.
+                                   # Bonded keeps the 70% majority — above the 2/3 settlement/finality quorum,
+                                   # so fork-choice + finality stay stake-controlled. MUST stay <= 3333 (33.3%)
+                                   # or bonded drops below 2/3. Widened 20%->30% to send more emission (and the
+                                   # 70%-of-open presence dividend) to the capital-free lane. See doc/mining.md.
+K_OPEN = EPOCH_LENGTH * OPEN_BPS // BPS_DENOM  # open slots per epoch (rest bonded); =18 at defaults
 
 # ENFORCED FINALITY (#17, security step 1): a block at height H finalizes everything at/below
 # H - FINALITY_DEPTH; rollback_one_block REFUSES to cross the persisted monotonic finalized_height
@@ -276,14 +280,16 @@ FFG_DEN = 3
 REGISTER_POW_BITS = 16             # one-time light registration puzzle (~1s in pure-JS blake2b on a phone;
                                    # 22 bits took tens of seconds in-browser). NOT the Sybil defense —
                                    # the lane cap is — this only throttles trivial mempool spam.
-OPEN_BASE_FLOOR = 1                # every registered+present identity's minimum open weight (never 0)
-OPEN_FID_BONUS = 9                 # max diligence bonus: open weight ranges OPEN_BASE_FLOOR..+9 (1..10)
+OPEN_BASE_FLOOR = 2                # every registered+present identity's minimum open weight (never 0). Raised
+                                   # 1->2 so a genuine newcomer earns 2/10 = 20% of a mature miner's rate on
+                                   # day one (was 10%) — fairer to new phones, while keeping a 5x loyalty premium.
+OPEN_FID_BONUS = 8                 # max diligence bonus: open weight ranges OPEN_BASE_FLOOR..+8 (2..10)
 GC_IDLE_EPOCHS = 1000              # prune registry rows idle this long (bounds state bloat)
 
 # Continuity FIDELITY — now driven by the PoSW RECERT (the single presence signal; there is no separate
 # heartbeat). Each continuous recert (gap <= POSW_LEASE_EPOCHS) adds FIDELITY_GAIN; a lapse RESETS the streak.
 # So fidelity measures CONSECUTIVE recerts (≈ days of continuous presence). A churned/rotated Sybil cannot keep
-# a ramp it stopped paying for. It is only a ~10x open-weight booster, NOT the Sybil bound (the 20% lane cap is).
+# a ramp it stopped paying for. It is only a ~5x open-weight booster, NOT the Sybil bound (the 30% lane cap is).
 FIDELITY_CAP = 30                  # consecutive recerts (~days) to fully ramp the open bonus
 FIDELITY_GAIN = 1                  # per continuous recert
 

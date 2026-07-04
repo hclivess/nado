@@ -47,7 +47,7 @@ producer, so there is no nonce grinding and faster hardware confers no advantage
 lane that anyone can win with zero coins, and a **BONDED** lane won in proportion
 to locked, refundable stake. Because the lane split permutes *slot indices*
 rather than per-identity weight, the zero-capital lane is a fixed fraction of
-blocks (currently 20%) regardless of how many identities register, giving a
+blocks (currently 30%) regardless of how many identities register, giving a
 *population-independent* structural Sybil ceiling. Coins enter circulation only
 through block rewards (a flat base subsidy plus a capped, fee-weighted elastic
 term). A bonded block is winner-take-all (90/10 producer/treasury); an open block
@@ -127,7 +127,7 @@ Time is divided into **epochs** of `EPOCH_LENGTH = 60` slots. Each epoch is
 keyed by a per-epoch **beacon** (Section 3). Within an epoch, the 60 slots are
 partitioned into two lanes:
 
-- the **OPEN lane** — `K_OPEN = 12` slots (~20%), winnable by any registered,
+- the **OPEN lane** — `K_OPEN = 18` slots (~30%), winnable by any registered,
   present identity for **zero capital**; and
 - the **BONDED lane** — the remaining 48 slots, won in proportion to locked,
   refundable stake.
@@ -142,7 +142,7 @@ indices**: it ranks slots by `blake2b([beacon, "lane", j])` and labels the
 The key property is that the split is over **slot indices, not per-identity
 weight**. There are exactly `K_OPEN` open slots per epoch no matter how many
 identities register. A zero-capital botnet of a million identities still cannot
-win more than `OPEN_BPS = 2000` basis points (20%) of blocks. The Sybil defense
+win more than `OPEN_BPS = 3000` basis points (30%) of blocks. The Sybil defense
 is therefore the **lane cap itself**, a fixed structural ceiling, not a puzzle
 difficulty or an economic cost. `OPEN_BPS` is the project's central security
 dial. *(implemented)*
@@ -211,10 +211,10 @@ consecutive recerts (≈ days) — so a churned/rotated Sybil cannot keep a ramp
 > hard Sybil bound regardless.
 
 An open identity's selection weight is **capital-free**: a flat floor
-`OPEN_BASE_FLOOR = 1` that every present identity always receives (never scaled
-to zero), plus a **diligence bonus** that ramps linearly to `OPEN_FID_BONUS = 9`
+`OPEN_BASE_FLOOR = 2` that every present identity always receives (never scaled
+to zero), plus a **diligence bonus** that ramps linearly to `OPEN_FID_BONUS = 8`
 over `FIDELITY_CAP = 30` consecutive recerts (≈ days of continuous presence) — an
-overall range of **1..10**. The open registry reads a real on-chain `fidelity` column,
+overall range of **2..10**. The open registry reads a real on-chain `fidelity` column,
 so this ramp is live. *(implemented)*
 
 > **Continuity is a recert streak** *(implemented — `account_ops.apply_recert`)*. Fidelity
@@ -451,10 +451,10 @@ both are respected:
   each epoch's pool growth **only among the miners present that epoch** (stop mining
   and you stop accruing), pro-rata by fidelity, remainder carried so no unit is lost.
 - **Not a Sybil faucet.** A flat per-identity payout would reward headcount — exactly
-  what the 20% cap, the PoSW lease and fidelity neutralize. Weighting by **fidelity**
+  what the 30% cap, the PoSW lease and fidelity neutralize. Weighting by **fidelity**
   ties the dividend to the *same* continuous-presence signal a Sybil already has to pay
   for (a PoSW recert per mask, every lease), so it inherits the reward-capture bound —
-  redistribution changes *who inside the capped 20% gets paid and how smoothly*, never
+  redistribution changes *who inside the capped 30% gets paid and how smoothly*, never
   its size.
 
 Miners **collect on demand**: a `collect_dividend` blob burns the accrued balance into a
@@ -508,7 +508,7 @@ miners, so the real bound is off-L1 bookkeeping, not precision.
   The legacy `burn` mechanic is entirely removed. *(implemented)*
 - **No auto-bond faucet.** Free open-lane presence can never mint bonded stake.
   The only free→capital path is the block subsidy an open miner actually earns —
-  itself capped at `OPEN_BPS` (20%). Genesis enforces this with an explicit
+  itself capped at `OPEN_BPS` (30%). Genesis enforces this with an explicit
   faucet guard. *(implemented)*
 
 ### 4.6 Cross-chain atomic swaps (HTLC) *(implemented)*
@@ -737,11 +737,11 @@ safety core sound. The fixes are reflected throughout this section.
 
 - **Sybil (zero-capital identity flooding).** Bounded *structurally* by the lane
   cap: the open lane is exactly `K_OPEN` slots/epoch regardless of identity count,
-  so a free botnet can never exceed `OPEN_BPS` (20%) of blocks. The reward-capture
-  bound (`≤ ~20%` of emission for any free/Sybil actor) is proven in
+  so a free botnet can never exceed `OPEN_BPS` (30%) of blocks. The reward-capture
+  bound (`≤ ~30%` of emission for any free/Sybil actor) is proven in
   [`doc/reward-capture-theorem.md`](reward-capture-theorem.md), **machine-checked** by
   `tests/test_open_cap_adversarial.py`, and the full anti-Nyzo takeover argument (the
-  cheap lane hard-capped at ~20%, the ~80% bonded lane farm-neutral capital — a coin
+  cheap lane hard-capped at ~30%, the ~70% bonded lane farm-neutral capital — a coin
   costs a coin to bot or human) is in
   [`doc/takeover-resistance.md`](takeover-resistance.md). **Strong, live.**
 - **Grinding (biasing one's own selection).** Removed at the mining layer: one
@@ -1061,7 +1061,7 @@ Additional hardening and feature items, all currently **planned/partial**:
   *is* now live — `BOND_RAMP_EPOCHS`, Section 4.5 — and continuity fidelity is a
   consecutive-recert streak, so there is no gradual absence-decay constant.)
 - **All mining/economic parameters are PROVISIONAL** and flagged
-  *simulate-before-lock-in* in code; exact ratios (e.g. `K_OPEN = 12`) hold only
+  *simulate-before-lock-in* in code; exact ratios (e.g. `K_OPEN = 18`) hold only
   at default `EPOCH_LENGTH` / `OPEN_BPS`, several of which are config-overridable.
 - **Stale companion docs.** `doc/economics.md`, `doc/security-review.md`,
   `doc/mining.md`, and `doc/determinism-and-chain-id.md` lag the code on headline
@@ -1086,7 +1086,7 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | `DENOMINATION` | `10_000_000_000` (1e10) | Raw units per 1 NADO; all consensus amounts are integers. |
 | `GENESIS_BEACON` | `blake2b_hash(["nado-genesis-beacon", CHAIN_ID])` | Seed for epochs 0–1 and chaining base for epoch ≥ 2. |
 | `EPOCH_LENGTH` | `60` | Slots per epoch; beacon/RANDAO epoch; per-slot rotation period. |
-| `OPEN_BPS` | `2000` (20.00%) | Open-lane share of slots — the structural Sybil ceiling. |
+| `OPEN_BPS` | `3000` (30.00%) | Open-lane share of slots — the structural Sybil ceiling. |
 | `K_OPEN` | `12` (= `EPOCH_LENGTH*OPEN_BPS//BPS_DENOM`) | Open slots/epoch; the other 48 are bonded. |
 | `BPS_DENOM` | `10000` | Basis-point denominator. |
 | `B_MIN` | `1e12` (100 NADO) | Capital per bonded selection share; 0 shares below this. |
@@ -1098,7 +1098,7 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | `POSW_ANCHOR_OFFSET` | `30` | PoSW challenge anchors to `block[target_block − 30]` (≥ finality depth → stable, node-derived). |
 | `POSW_LEASE_EPOCHS` | `180` (~1 day) | Renewable presence lease: a registration/recert keeps an identity open-lane-eligible this long; renew with a fresh PoSW to persist (continuous per-identity upkeep). **Presence IS the lease — there is no heartbeat.** |
 | `OPEN_BASE_FLOOR` | `1` | Min open-lane weight for any present identity (never 0). |
-| `OPEN_FID_BONUS` | `9` | Max open diligence bonus; open weight ranges 1..10. |
+| `OPEN_FID_BONUS` | `9` | Max open diligence bonus; open weight ranges 2..10. |
 | `GC_IDLE_EPOCHS` | `1000` | Intended idle-registry prune window (state-bloat bound) — **defined, not yet wired** (Section 7.4). |
 | `FIDELITY_CAP` | `30` | Consecutive recerts (~days) to fully ramp the open bonus (was 1000; recert-driven now). |
 | `FIDELITY_GAIN` | `1` | Fidelity increment per continuous recert; a lapse (gap > lease) resets the streak. |
@@ -1107,7 +1107,7 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | `AUTO_BOND_DEFAULT_PERCENT` | `80` | Default share of new rewards auto-bonded when unset (client/operator; overridable). |
 | `TREASURY_GENESIS` | `0` | **No premine** — treasury starts empty. |
 | `TREASURY_BPS` | `1000` (10.00%) | Treasury share of each reward; bonded producer gets the other 90%. |
-| `OPEN_TIP_BPS` | `2000` (20.00%) | OPEN-lane producer's tip; treasury keeps 10%; the rest (~70%) accrues to the **presence-dividend pool** (Section 4.4). |
+| `OPEN_TIP_BPS` | `3000` (30.00%) | OPEN-lane producer's tip; treasury keeps 10%; the rest (~70%) accrues to the **presence-dividend pool** (Section 4.4). |
 | `DIVIDEND_POOL` | `"dividend"` | Reserved L1 account the open-lane dividend accrues to (`O(1)` on L1; redistributed off-L1, fidelity-weighted). |
 | `BASE_SUBSIDY` | `1e9` (0.1 NADO) | Flat per-block emission floor (~144 NADO/day at 60s blocks). |
 | `REWARD_WINDOW` | `100` | Trailing blocks averaged for the elastic fee reward. |
@@ -1130,4 +1130,4 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | Announce rate limit | `10 req / 60s` per IP | On `/announce_peer` (eclipse-flood throttle); HTTP 429 over the limit. |
 
 *Config-overridable values (e.g. `EPOCH_LENGTH`, block time, peer/rollback limits)
-mean derived ratios such as `K_OPEN = 12` hold only at the defaults above.*
+mean derived ratios such as `K_OPEN = 18` hold only at the defaults above.*
