@@ -156,3 +156,6 @@ message_pool.dat
 
 # state-snapshot checkpoints (node-local data, like blocks/index)
 snapshots/
+
+# node-local single peer file (runtime data, like blocks/index)
+peers.dat
