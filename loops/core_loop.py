@@ -1079,10 +1079,22 @@ class CoreClient(threading.Thread):
                 raise ValueError("Invalid detached winner block signature")
 
             if remote:
+                claimed_hash = block.get("block_hash")
                 try:
                     block = self.rebuild_block(block)
                 except Exception as e:
                     raise ValueError(f"Failed to reconstruct block {e}")
+                # HASH-CONSISTENCY INVARIANT (anti-fork): the deterministic reconstruction must reproduce the
+                # peer's CLAIMED block_hash exactly. If it doesn't, the block LIES about its hash — either a
+                # forgery or a corrupted/half-reorged block (e.g. a body whose parent_hash was rewritten
+                # without re-hashing). REJECT it loudly instead of silently rebuilding it to a different hash,
+                # which would fork this node onto a private chain and wedge it out of consensus. Every honest
+                # node computes the same hash from the same content, so a legitimate block always passes.
+                if block["block_hash"] != claimed_hash:
+                    raise ValueError(
+                        f"Block {block['block_number']} hash mismatch: content hashes to "
+                        f"{block['block_hash'][:16]} but peer claims {str(claimed_hash)[:16]} — refusing "
+                        f"(forged or corrupt block; would fork us)")
 
             verified_block = self.verify_block(block, remote=remote, remote_peer=remote_peer)
 

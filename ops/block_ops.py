@@ -368,11 +368,41 @@ def load_block_from_hash(block_hash: str, logger):
 
 
 
+def block_content_hash(block: dict) -> str:
+    """Recompute a block's hash from its CONTENT exactly as construct_block does: transactions sorted by
+    txid, and block_hash / child_hash / block_timestamp excluded from the hashed preimage. A block whose
+    stored block_hash != this is hash-INCONSISTENT (a forgery, or a block corrupted by a half-completed
+    reorg that rewrote a hashed field — e.g. parent_hash — without re-hashing)."""
+    txs = sorted(block.get("block_transactions", []), key=lambda t: t["txid"])
+    preimage = {
+        "block_number": block["block_number"], "block_hash": None, "parent_hash": block["parent_hash"],
+        "block_creator": block["block_creator"], "block_timestamp": None, "block_transactions": txs,
+        "child_hash": None, "block_reward": block["block_reward"],
+        "cumulative_fees": block["cumulative_fees"], "cumulative_weight": block["cumulative_weight"],
+        "chain_id": block["chain_id"],
+    }
+    return blake2b_hash_link(link_from=block["parent_hash"], link_to=preimage)
+
+
 def save_block(block: dict, logger):
     # SECURITY: a synced block's hash is peer-supplied; refuse to write outside blocks/
     if not is_hex_hash(block.get("block_hash")):
         logger.warning(f"Refusing to save block with invalid hash {block.get('block_hash')!r}")
         return False
+
+    # HASH-CONSISTENCY INVARIANT (anti-fork, storage choke point): NEVER persist a block whose stored hash
+    # does not match its own content. A half-completed reorg or a forged block could otherwise land on disk
+    # and get chained onto, forking every honest node that later re-derives the true hash (the "stuck /
+    # rolls back and forth" wedge). Genesis (block 0) is hashed differently (over timestamp+[] only), skip it.
+    _hashed = ("block_number", "parent_hash", "block_creator", "block_transactions", "block_reward",
+               "cumulative_fees", "cumulative_weight", "chain_id")
+    if block.get("block_number", 0) != 0 and all(k in block for k in _hashed):
+        expected = block_content_hash(block)
+        if expected != block["block_hash"]:
+            logger.error(f"Refusing to save hash-INCONSISTENT block #{block.get('block_number')}: its content "
+                         f"hashes to {expected[:16]} but block_hash={str(block.get('block_hash'))[:16]} "
+                         f"(forged or corrupt) — this would fork the chain")
+            raise ValueError(f"hash-inconsistent block #{block.get('block_number')} refused")
     path = f"{get_home()}/blocks/{block['block_hash']}.block"
     tmp_path = f"{path}.tmp"
 
