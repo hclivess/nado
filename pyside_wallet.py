@@ -88,8 +88,6 @@ from ops.key_ops import load_keys, generate_keys, save_keys
 from ops.mining_ops import (
     solve_registration_pow,
     verify_registration_pow,
-    open_shares,
-    selection_shares,
     lane_of,
 )
 from ops.transaction_ops import (
@@ -103,16 +101,16 @@ from ops.transaction_ops import (
 import requests
 import msgpack
 
-from PySide6.QtCore import Qt, QTimer, QThreadPool, QRunnable, QObject, Signal, QSize, QRectF
+from PySide6.QtCore import Qt, QTimer, QThreadPool, QRunnable, QObject, Signal, QRectF
 from PySide6.QtGui import (
-    QColor, QPalette, QFont, QPainter, QPainterPath, QLinearGradient,
-    QGuiApplication, QAction, QPen, QBrush, QFontMetrics,
+    QColor, QPalette, QPainter, QPainterPath, QLinearGradient, QGuiApplication,
+    QAction, QPen, QBrush,
 )
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QTabWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QPushButton, QFormLayout, QFrame, QToolBar, QStatusBar, QMessageBox,
-    QPlainTextEdit, QTableWidget, QTableWidgetItem, QHeaderView, QSizePolicy, QCheckBox,
-    QFileDialog, QInputDialog, QComboBox, QSpinBox,
+    QPlainTextEdit, QTableWidget, QTableWidgetItem, QHeaderView, QSizePolicy, QFileDialog,
+    QInputDialog, QComboBox, QSpinBox,
 )
 
 

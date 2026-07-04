@@ -1012,12 +1012,6 @@ def hash_by_number(block_number: int):
     return _read(_do)
 
 
-def number_by_hash(block_hash: str):
-    def _do(txn):
-        v = txn.get(block_hash.encode(), db=_dbs()["block_by_hash"])
-        return un_be8(v) if v is not None else None
-    return _read(_do)
-
 
 def block_hash_indexed(block_hash: str) -> bool:
     """True if this exact block hash is in the index (idempotency guard for incorporate)."""
@@ -1116,49 +1110,8 @@ def hb_revert_pop(epoch: int, address: str):
     return _write(_do)
 
 
-def hb_revert_gc(max_epoch_inclusive: int):
-    """Drop revert records with epoch <= max_epoch_inclusive — older than any rollback window, so never
-    needed again (mirrors heartbeat_gc; NOT reverted). No-op when negative. Keys are be8(epoch)+address,
-    so the 8-byte epoch prefix sorts first and we can stop at the ceiling."""
-    if max_epoch_inclusive < 0:
-        return
-
-    def _do(txn):
-        rdb = _dbs()["hb_revert"]
-        ceiling = be8(max_epoch_inclusive)
-        stale = []
-        with txn.cursor(db=rdb) as cur:
-            if cur.first():
-                for k in cur.iternext(keys=True, values=False):
-                    if bytes(k[:8]) > ceiling:
-                        break
-                    stale.append(bytes(k))
-        for k in stale:
-            txn.delete(k, db=rdb)
-    _write(_do)
-
 # --- maintenance helpers (prune) ------------------------------------------------------------------
 
-def iter_block_numbers():
-    """Yield (block_number:int, block_hash:str) for every indexed block, ascending."""
-    def _do(txn):
-        out = []
-        with txn.cursor(db=_dbs()["block_by_num"]) as cur:
-            for k, v in cur:
-                out.append((un_be8(k), v.decode()))
-        return out
-    return _read(_do)
-
-
-def iter_tx_index():
-    """Yield (txid:str, body:dict) for every indexed tx."""
-    def _do(txn):
-        out = []
-        with txn.cursor(db=_dbs()["tx"]) as cur:
-            for k, v in cur:
-                out.append((k.decode(), _unpack(v)))
-        return out
-    return _read(_do)
 
 
 def clear_accounts_and_totals(txn=None):

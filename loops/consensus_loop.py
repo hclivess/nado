@@ -110,10 +110,6 @@ class ConsensusClient(threading.Thread):
                 if peer not in self.trust_pool.keys():
                     self.trust_pool[peer] = peer_trust
 
-    def purge_block_producers(self) -> None:
-        for entry in self.memserver.purge_producers_list:
-            self.memserver.block_producers.remove(entry)
-
     def refresh_hashes(self):
         """make sure our node knows the current state of affairs quickly"""
 

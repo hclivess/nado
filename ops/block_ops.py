@@ -1,12 +1,11 @@
 import json
-import math
 import os
 import time
 
 import msgpack
 import requests
 import aiohttp
-from .account_ops import get_account_value, get_bonded_registry, get_open_registry
+from .account_ops import get_bonded_registry, get_open_registry
 from config import get_timestamp_seconds, get_config
 from .data_ops import set_and_sort, average, get_home, is_hex_hash
 from hashing import blake2b_hash_link, blake2b_hash
@@ -15,7 +14,7 @@ from .address_ops import proof_sender, make_address
 from .key_ops import load_keys
 from .log_ops import get_logger
 from . import kv_ops
-from .mining_ops import select_producer, select_producer_two_lane, lane_of, epoch_of, compute_beacon, total_bonded_shares
+from .mining_ops import select_producer_two_lane, lane_of, epoch_of, compute_beacon, total_bonded_shares
 from protocol import CHAIN_ID, REWARD_WINDOW, REWARD_CAP, BASE_SUBSIDY, GENESIS_BEACON, EPOCH_LENGTH
 import zstandard as zstd
 
@@ -35,9 +34,6 @@ def _pack_block(block) -> bytes:
 def _unpack_block(raw: bytes):
     return msgpack.unpackb(_ZSTD_D.decompress(raw), raw=False)
 
-
-def float_to_int(x):
-    return math.floor(x * (2 ** 31))
 
 
 def get_block_reward(parent_block):
@@ -204,7 +200,7 @@ def get_block_number(number):
         if not block_hash:
             return False
         return get_block(block_hash)
-    except Exception as e:
+    except Exception:
         return False
 
 
@@ -758,27 +754,6 @@ async def get_from_single_target(key, target_peer, logger) -> list:  # todo add 
         logger.error(f"Failed to get {key} from {target_peer}: {e}")
         return []
 
-
-def get_ip_penalty(producer, logger, blocks_backward=50):
-    """calculates how many blocks an ip received over a given period"""
-    latest_block_info = get_block_ends_info(logger=logger)["latest_block"]
-
-    parent = latest_block_info["block_hash"]
-    latest_block_number = latest_block_info["block_number"]
-    block_number = latest_block_number
-    produced_count = 0
-
-    while 0 < block_number > (latest_block_number - blocks_backward):
-        block = load_block_from_hash(parent, logger=logger)
-        if not block:
-            break  # ran out of local history -> stop here
-        parent = block["parent_hash"]
-        block_number = block["block_number"]
-
-        if block["block_ip"] == producer:
-            produced_count += 1
-
-    return produced_count
 
 
 if __name__ == "__main__":

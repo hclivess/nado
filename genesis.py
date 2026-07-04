@@ -10,7 +10,7 @@ from ops.data_ops import get_home, make_folder
 from ops.log_ops import get_logger
 from ops.peer_ops import save_peer, get_public_ip
 from ops import kv_ops
-from protocol import GENESIS_ADDRESS, CHAIN_ID, TREASURY_ADDRESS, TREASURY_GENESIS
+from protocol import GENESIS_ADDRESS, CHAIN_ID, TREASURY_GENESIS
 
 
 def create_indexers():

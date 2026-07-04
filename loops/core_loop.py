@@ -6,7 +6,7 @@ import traceback
 
 from config import get_timestamp_seconds
 from loops.consensus_loop import change_trust
-from ops.account_ops import increase_produced_count, change_balance, get_totals, index_totals, get_bonded_registry, get_open_registry, set_finalized_height, get_finalized_height, get_account
+from ops.account_ops import get_totals, index_totals, get_bonded_registry, get_open_registry, set_finalized_height, get_finalized_height, get_account
 from ops.block_ops import (
     knows_block,
     get_blocks_after,
@@ -30,11 +30,10 @@ from ops.block_ops import (
     get_block_hash_by_number,
     prune_block_bodies,
 )
-from ops.data_ops import get_home
-from ops.mining_ops import select_producer, select_producer_two_lane, epoch_of, total_bonded_shares
+from ops.mining_ops import select_producer_two_lane, epoch_of, total_bonded_shares
 from ops import kv_ops
-from protocol import split_block_reward, TREASURY_ADDRESS, CHAIN_ID, REWARD_CAP, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW
-from ops.data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
+from protocol import CHAIN_ID, REWARD_CAP, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW
+from ops.data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size
 from ops.peer_ops import update_local_address, ip_stored, check_ip, qualifies_to_sync, announce_me, get_remote_status
 from ops import snapshot_ops
 from ops.pool_ops import merge_buffer, cull_buffer
@@ -85,7 +84,6 @@ class CoreClient(threading.Thread):
         self.consensus = consensus
         self.run_interval = 1
         self.consecutive = 0
-        self.snapshot_attempted = False
         # AUDIT FIX (honest-signer guard): the highest block height we've attached our detached winner
         # signature to. We only ever sign a STRICTLY-higher height, so after a reorg + re-produce we
         # never sign a second, different block at a height we already signed (which a connected
@@ -112,7 +110,6 @@ class CoreClient(threading.Thread):
         if self.memserver.reported_uptime < self.memserver.block_time:
             """init mode"""
             self.memserver.periods = [0, 1, 2]
-            mode = "Initialization period..."
 
         elif self.memserver.since_last_block < self.memserver.block_time:
             """stable mode"""

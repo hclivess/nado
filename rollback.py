@@ -1,13 +1,9 @@
-import time
 
-from ops.account_ops import (change_balance, increase_produced_count, index_totals, get_totals,
-                             get_finalized_height)
+from ops.account_ops import (index_totals, get_totals, get_finalized_height)
 from ops.block_ops import load_block_from_hash, set_latest_block_info, unindex_block
-from ops.data_ops import get_home
 from ops import kv_ops
 from ops.transaction_ops import unindex_transactions
 from ops.reward_ops import credit_block_reward, apply_treasury_burn
-from protocol import split_block_reward, TREASURY_ADDRESS
 
 
 class MissingParentError(Exception):

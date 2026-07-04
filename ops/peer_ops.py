@@ -1,4 +1,3 @@
-import random
 import asyncio
 import glob
 import ipaddress
@@ -25,12 +24,6 @@ def _atomic_write_json(path, obj):
         os.fsync(outfile.fileno())
     os.replace(tmp, path)
 
-
-def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
-    if not all(key in requirements for key in dictionary):
-        return False
-    else:
-        return True
 
 
 def update_local_address(logger):
@@ -280,9 +273,6 @@ def get_list_of_peers(ips, port, fail_storage, logger) -> list:
         pool.append(peer)
     return pool
 
-
-def most_trusted_peer(trust_pool: dict):
-    return max(trust_pool, key=trust_pool.get)
 
 
 def percentage(value, list) -> float:

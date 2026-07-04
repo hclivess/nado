@@ -1,5 +1,4 @@
 import asyncio
-from threading import Lock
 
 from compounder import compound_get_list_of
 from config import get_timestamp_seconds, get_config
@@ -13,8 +12,7 @@ from ops.transaction_ops import (
     validate_single_spending,
     validate_transaction,
     sort_transaction_pool,
-    validate_txid,
-    validate_base_fee
+    validate_txid
 
 )
 from versioner import read_version
@@ -29,8 +27,6 @@ class MemServer:
         self.genesis_timestamp = 1669852800
 
         self.purge_peers_list = []
-        self.purge_producers_list = []
-
 
         self.start_time = get_timestamp_seconds()
         self.keydict = load_keys()
@@ -46,10 +42,6 @@ class MemServer:
         self.user_tx_buffer = []
         self.tx_buffer = []
         self.peer_buffer = []
-        # PRE-SIGNED PRESENCE (locked-phone mining): future-dated heartbeats a miner hands the relay to
-        # submit on schedule while its phone is asleep. Held here (they'd be rejected by merge if injected
-        # now, target_block > tip+360) and injected into the mempool a few blocks before each is due.
-        self.presigned = []
         self.ip = self.config["ip"]
         self.port = self.config["port"]
         self.terminate = False
@@ -306,56 +298,6 @@ class MemServer:
                             "result": False}
 
             return {"message": "Success", "result": True}
-
-    def add_presigned(self, txs):
-        """Store a batch of future-dated pre-signed HEARTBEATS to submit on schedule while the sender's
-        phone is offline. Lightweight admission (heartbeat only, sane future target, valid signature/txid,
-        sender registered, capped) — full validation happens on injection (merge_transaction). Best-effort
-        relay service, NOT consensus."""
-        from ops.transaction_ops import validate_txid
-        from protocol import EPOCH_LENGTH, POSW_LEASE_EPOCHS
-        tip = self.latest_block["block_number"]
-        horizon = tip + POSW_LEASE_EPOCHS * EPOCH_LENGTH          # up to ~a lease (~1 day) ahead
-        PER_SENDER, TOTAL = POSW_LEASE_EPOCHS + 40, 50000
-        accepted = 0
-        for tx in (txs or []):
-            try:
-                if not isinstance(tx, dict) or tx.get("recipient") != "heartbeat":
-                    continue
-                tb = tx.get("target_block")
-                if not isinstance(tb, int) or isinstance(tb, bool) or tb <= tip or tb > horizon:
-                    continue
-                sender = tx.get("sender")
-                if get_account(sender, create_on_error=False) is None:
-                    continue                                     # unknown sender -> skip
-                if sum(1 for h in self.presigned if h.get("sender") == sender) >= PER_SENDER:
-                    continue
-                if len(self.presigned) >= TOTAL:
-                    break
-                if any(h.get("txid") == tx.get("txid") for h in self.presigned):
-                    continue                                     # dedupe
-                if not validate_txid(tx, logger=self.logger):    # signature binds the whole body
-                    continue
-                self.presigned.append(tx)
-                accepted += 1
-            except Exception:
-                continue
-        return {"accepted": accepted, "held_for_sender": sum(1 for h in self.presigned if h.get("sender") == (txs[0].get("sender") if txs else None))}
-
-    def inject_due_presigned(self):
-        """Called once per block by the core loop: drop pre-signed heartbeats whose slot has passed and
-        merge the ones due soon into the mempool so they land in their target block while the phone sleeps.
-        Re-merges each due one every tick (merge dedups / rejects a duplicate benignly) for robustness."""
-        if not self.presigned:
-            return
-        tip = self.latest_block["block_number"]
-        self.presigned = [tx for tx in self.presigned if tx.get("target_block", 0) > tip]   # drop expired
-        for tx in self.presigned:
-            if tx.get("target_block", 0) <= tip + 6:             # due soon -> ensure it's in the mempool
-                try:
-                    self.merge_transaction(tx, user_origin=False)
-                except Exception:
-                    pass
 
     def merge_transactions(self, transactions, user_origin=False) -> None:
         for transaction in transactions:

@@ -1,6 +1,5 @@
 import asyncio
 import functools
-import json
 import mimetypes
 import os
 import signal
@@ -24,8 +23,8 @@ from Curve25519 import verify as _mldsa_verify, unhex as _mldsa_unhex
 from ops.mining_ops import total_shares
 from ops.block_ops import get_block, fee_over_blocks, get_block_number
 from ops.data_ops import get_home, allow_async
-from ops.key_ops import keyfile_found, generate_keys, save_keys, load_keys
-from ops.log_ops import get_logger, logging
+from ops.key_ops import keyfile_found, generate_keys, save_keys
+from ops.log_ops import get_logger
 from ops.peer_ops import save_peer, get_remote_status, check_ip, me_to
 from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
 from ops import snapshot_ops

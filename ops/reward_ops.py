@@ -11,8 +11,8 @@ first block of the PRIOR epoch — deeply finalized and never reorged out from u
 is deterministic and identical at apply, rollback and reindex time. The split functions live in protocol.py
 (pure integer math, treasury+tip floors + exact remainder) so apply and rollback subtract identical integers.
 """
-from protocol import (split_block_reward, split_open_block_reward, split_bonded_block_reward,
-                      TREASURY_ADDRESS, DIVIDEND_POOL)
+from protocol import (split_open_block_reward, split_bonded_block_reward, TREASURY_ADDRESS,
+                      DIVIDEND_POOL)
 from ops.account_ops import change_balance, increase_produced_count
 from ops.mining_ops import lane_of, epoch_of
 from ops.block_ops import epoch_beacon

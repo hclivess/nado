@@ -1,9 +1,6 @@
 import asyncio
 import json
-import os.path
-import time
 
-import msgpack
 
 from Curve25519 import sign, verify, unhex
 from ops.account_ops import get_account, reflect_transaction
@@ -13,7 +10,7 @@ from ops.block_ops import get_block_number
 from compounder import compound_send_transaction
 from config import get_config
 from config import get_timestamp_seconds
-from ops.data_ops import sort_list_dict, get_home, get_byte_size
+from ops.data_ops import sort_list_dict, get_byte_size
 from hashing import create_nonce, blake2b_hash, canonical_bytes
 from ops.key_ops import load_keys
 from ops.log_ops import get_logger
@@ -21,8 +18,8 @@ from ops.peer_ops import load_ips
 from ops import kv_ops
 from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH,
                       BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK, BRIDGE_ESCROW, DIVIDEND_POOL,
-                      POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET,
-                      HTLC_ESCROW, HTLC_MIN_TIMELOCK, HTLC_MAX_TIMELOCK, SHIELD_ESCROW)
+                      POSW_S, POSW_K, POSW_ANCHOR_OFFSET, HTLC_MIN_TIMELOCK,
+                      HTLC_MAX_TIMELOCK, SHIELD_ESCROW)
 
 
 def _is_hex(s) -> bool:
@@ -284,18 +281,6 @@ def construct_bridge_withdraw_tx(keydict, addr, amount, nonce, proof, target_blo
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
 
-
-def construct_dividend_withdraw_tx(keydict, addr, amount, nonce, proof, target_block):
-    """Build a SIGNED presence-dividend COLLECTION claim: recipient 'dividend_withdraw', fee-exempt, data
-    carries the Merkle proof that {addr, amount, nonce} is in the settled execution-layer root."""
-    tx = {"sender": keydict["address"], "recipient": "dividend_withdraw", "amount": 0,
-          "timestamp": get_timestamp_seconds(),
-          "data": {"addr": addr, "amount": int(amount), "nonce": nonce, "proof": proof},
-          "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
-    tx["txid"] = create_txid(tx)
-    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
-    return tx
 
 
 def construct_alias_tx(keydict, op, name, target_block, fee, to=None):
@@ -734,14 +719,6 @@ def validate_transaction(transaction, logger, block_height):
     return True
 
 
-def min_from_transaction_pool(transactions: list, key="fee") -> dict:
-    """returns dictionary from a list of dictionaries with minimum value"""
-    return min(sort_list_dict(transactions), key=lambda transaction: transaction[key])
-
-
-def max_from_transaction_pool(transactions: list, key="fee") -> dict:
-    """returns dictionary from a list of dictionaries with maximum value"""
-    return max(sort_list_dict(transactions), key=lambda transaction: transaction[key])
 
 
 def sort_transaction_pool(transactions: list, key="txid") -> list:

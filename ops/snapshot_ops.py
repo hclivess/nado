@@ -84,11 +84,6 @@ def read_nullifiers(home=None):
     return kv_ops.iter_meta_prefix(NULLIFIER_PREFIXES)
 
 
-def block_hash_at_height(height, home=None):
-    """block hash for a given block number from the KV block index, or None"""
-    kv_ops.init_env(home)
-    return kv_ops.hash_by_number(height)
-
 
 def _pack_chunks(rows):
     """split sorted rows into deterministic msgpack chunks; returns (chunk_bytes_list, chunk_meta_list)"""
