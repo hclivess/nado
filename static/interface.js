@@ -183,6 +183,75 @@ function keypairFromPriv(privHex) {
   return { privateKey: privHex, publicKey: pubHex, address: makeAddress(pubHex) };
 }
 
+// ---- HD ACCOUNTS: multiple addresses from ONE master seed / recovery phrase -----------------------
+// Your master seed (the 32-byte ML-DSA seed behind your recovery phrase) is account "Main". Extra accounts
+// are DERIVED from it deterministically, so the single recovery phrase restores them all. Only the MASTER is
+// ever persisted / encrypted / exported; switching accounts is just an in-memory signing view (switching
+// never writes localStorage, so a derived key can never overwrite the stored master). Derivation is
+// domain-tagged + canonical-JSON, so any wallet — and the node's Python `blake2b_hash` — reproduces the
+// same child addresses for recovery.
+const LS_HD_COUNT = "nado_hd_accounts";     // how many DERIVED accounts (beyond Main) the user has added
+function hdCount() { return Math.max(0, parseInt(localStorage.getItem(LS_HD_COUNT) || "0", 10) || 0); }
+function accountChildSeed(masterHex, index) { return blake2bHash(["nado-hd-account", masterHex, index], 32); }
+function accountKeypair(masterHex, index) {
+  return keypairFromPriv(index === 0 ? masterHex : accountChildSeed(masterHex, index));
+}
+function masterSeedOf() { return state.masterSeed || (state.wallet && state.wallet.privateKey) || null; }
+function accountLabel(i) { return i === 0 ? i18("acct.main", "Main") : i18("acct.n", "Account {n}", { n: i + 1 }); }
+// Keep the HD layer consistent with state.wallet. A wallet (re)loaded by unlock/import/boot is ALWAYS the
+// master on account 0 — its address won't match our expected active-account address — so re-anchor to it.
+function hdSync() {
+  if (!state.wallet) return;
+  if (state.masterSeed == null || state.wallet.address !== state._hdExpectedAddr) {
+    state.masterSeed = state.wallet.privateKey;
+    state.activeIdx = 0;
+    state._hdExpectedAddr = state.wallet.address;
+  }
+}
+function switchAccount(i) {
+  const master = masterSeedOf();
+  if (master == null) return;
+  i = Math.max(0, Math.min(hdCount(), i | 0));
+  const kp = accountKeypair(master, i);
+  state.masterSeed = master;              // preserve the master; state.wallet becomes the derived signer
+  state.wallet = kp;
+  state.activeIdx = i;
+  state._hdExpectedAddr = kp.address;      // so hdSync won't mistake this switch for an external reload
+  // NEVER persistWallet here — LS_WALLET must stay the master seed so one phrase restores every account.
+  showWalletUI();
+  refreshDashboard().catch(() => {});
+}
+function addAccount() {
+  const n = hdCount() + 1;
+  localStorage.setItem(LS_HD_COUNT, String(n));
+  switchAccount(n);
+}
+function renderAccountBar() {
+  const bar = $("accountBar");
+  if (!bar || !state.wallet) return;
+  const count = hdCount(), active = state.activeIdx || 0;
+  bar.textContent = "";
+  bar.style.cssText = "display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap";
+  const lbl = document.createElement("span");
+  lbl.className = "small faint"; lbl.textContent = i18("acct.label", "Account");
+  const sel = document.createElement("select");
+  sel.setAttribute("aria-label", i18("acct.label", "Account"));
+  sel.style.cssText = "width:auto;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:8px;padding:4px 8px;font-size:12px;font-family:var(--sans);color-scheme:dark";
+  for (let i = 0; i <= count; i++) {
+    const o = document.createElement("option");
+    o.value = String(i); o.textContent = accountLabel(i);
+    if (i === active) o.selected = true;
+    sel.appendChild(o);
+  }
+  sel.onchange = () => switchAccount(parseInt(sel.value, 10));
+  const add = document.createElement("button");
+  add.className = "copy"; add.type = "button";
+  add.textContent = i18("acct.add", "+ Add");
+  add.title = i18("acct.addTip", "Derive a new address from your recovery phrase");
+  add.onclick = addAccount;
+  bar.appendChild(lbl); bar.appendChild(sel); bar.appendChild(add);
+}
+
 // Validate a recipient address byte-identically to ops/address_ops.validate_address: a canonical
 // NADO address is "ndo" + 42-hex pubkey body + a 4-hex blake2b checksum over everything-but-the-last-4
 // (== 49 chars). A mistyped address fails the checksum and is rejected before any tx is built.
@@ -279,8 +348,17 @@ function finalizeTransaction(draft, privHex, fee) {
   const body = { ...draft, fee }; // fee is part of the signed body (matches create_transaction)
   const txid = createTxid(body);  // public_key (if present in body) is excluded from this hash
   // Derive the ML-DSA-44 secret key from the 32-byte seed, then sign the message bytes M = unhex(txid).
-  const { secretKey } = ml_dsa44.keygen(hexToBytes(privHex));
-  const signature = bytesToHex(ml_dsa44.sign(secretKey, hexToBytes(txid)));
+  const { publicKey, secretKey } = ml_dsa44.keygen(hexToBytes(privHex));
+  const m = hexToBytes(txid);
+  // ML-DSA-44 signing is HEDGED (randomized). A rare bad hedge yields a signature that does NOT verify —
+  // the node then rejects the tx with "Invalid signature" (seen intermittently on auto-bond). Verify our own
+  // signature locally and re-sign until it checks out, so we never submit a non-verifying signature.
+  let signature = null;
+  for (let i = 0; i < 8; i++) {
+    const sig = ml_dsa44.sign(secretKey, m);
+    if (ml_dsa44.verify(publicKey, m, sig)) { signature = bytesToHex(sig); break; }
+  }
+  if (!signature) throw new Error("could not produce a verifying signature — please retry");
   return { ...body, txid, signature };
 }
 
@@ -463,6 +541,7 @@ async function claimPendingDividends(pending) {
 
 async function collectDividend() {
   if (!state.wallet || state._collecting) return;
+  coinShower($("btnCollectDiv"));           // tiered coin shower on click (cosmetic; button is only enabled when a dividend is due)
   state._collecting = true;
   if ($("btnCollectDiv")) $("btnCollectDiv").disabled = true;
   try {
@@ -728,8 +807,12 @@ function walletIsEncrypted() { const w = loadWallet(); return !!(w && w.enc); }
 
 async function enableEncryption(password) {
   if (!state.wallet || !password) return;
-  const blob = await encryptSeed(state.wallet.privateKey, password);
-  blob.publicKey = state.wallet.publicKey; blob.address = state.wallet.address;
+  // HD SAFETY: always encrypt the MASTER seed (never the active derived child) so the stored/encrypted
+  // wallet remains the one recovery phrase that restores every account.
+  const seed = masterSeedOf() || state.wallet.privateKey;
+  const mk = keypairFromPriv(seed);
+  const blob = await encryptSeed(seed, password);
+  blob.publicKey = mk.publicKey; blob.address = mk.address;
   localStorage.setItem(LS_WALLET, JSON.stringify(blob));
   armAutolock();
 }
@@ -1339,6 +1422,7 @@ function renderCoinPile(totalRaw, stats) {
   }
   const { t: tierIdx, fill } = _pileTier(pctile);
   const m = PILE_TIERS[tierIdx];
+  state.walletTierIdx = tierIdx;                                        // remember tier -> the collect coin-shower matches it
   const L = Math.max(1, Math.round(1 + fill * (PILE_MAX_LEVELS - 1)));   // 1..MAX rows WITHIN this material tier
   const defs = `<defs><linearGradient id="pileMat" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${m.g[0]}"/><stop offset="0.5" stop-color="${m.g[1]}"/><stop offset="1" stop-color="${m.g[2]}"/></linearGradient></defs>`;
   const draw = tierIdx === 3 ? _gem : _coin;                       // diamonds (gems) for the top tier, coins otherwise
@@ -1361,6 +1445,91 @@ function renderCoinPile(totalRaw, stats) {
 }
 async function updateCoinPile(totalRaw) {
   try { renderCoinPile(totalRaw, await getWealthStats()); } catch (e) { /* non-fatal cosmetic */ }
+}
+
+// COIN SHOWER: clicking "Collect dividend" springs a small shower of coins out of the button. The METAL and
+// the COUNT scale with your wallet tier (bronze → silver → gold → diamond — the same tiers as the coin pile),
+// so a richer wallet gets a shinier, denser burst; the top tier rains faceted gems. Pure DOM + one rAF loop,
+// self-cleaning, and it honours prefers-reduced-motion. Cosmetic only — never throws into the collect flow.
+const _SHOWER_TIERS = [
+  { n: 12, sz: [12, 16], burst: [7, 12],  gem: false },   // bronze
+  { n: 16, sz: [13, 18], burst: [8, 13],  gem: false },   // silver
+  { n: 22, sz: [14, 20], burst: [9, 15],  gem: false },   // gold
+  { n: 28, sz: [13, 18], burst: [10, 16], gem: true  },   // diamond → gems
+];
+function coinShower(originEl) {
+  try {
+    if (!originEl) return;
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const tierIdx = Math.max(0, Math.min(3, (state && state.walletTierIdx) || 0));
+    const m = PILE_TIERS[tierIdx], cfg = _SHOWER_TIERS[tierIdx];
+    const rect = originEl.getBoundingClientRect();
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    // Native `title` tooltips are painted by the browser ABOVE all page content — above our z-index — so an
+    // open explanation tooltip (e.g. #divWrap's PRESENCE-DIVIDEND title) would cover the whole shower. Strip
+    // any titled ancestor for the shower's lifetime (this also dismisses an already-visible tooltip), restore after.
+    const titled = [];
+    for (let n = originEl; n && n !== document.body; n = n.parentElement) {
+      if (n.hasAttribute && n.hasAttribute("title")) { titled.push([n, n.getAttribute("title")]); n.removeAttribute("title"); }
+    }
+    const restoreTitles = () => { for (const [n, t] of titled) if (n && !n.hasAttribute("title")) n.setAttribute("title", t); };
+    setTimeout(restoreTitles, 1700);          // safety restore even if the rAF loop is paused (backgrounded tab)
+    let layer = document.getElementById("coinShowerLayer");
+    if (!layer) {
+      layer = document.createElement("div");
+      layer.id = "coinShowerLayer";
+      layer.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:9999;overflow:hidden";
+      document.body.appendChild(layer);
+    }
+    const coins = [];
+    for (let i = 0; i < cfg.n; i++) {
+      const sz = rnd(cfg.sz[0], cfg.sz[1]);
+      const el = document.createElement("div");
+      el.style.position = "absolute";
+      el.style.left = "0"; el.style.top = "0";
+      el.style.width = sz + "px"; el.style.height = sz + "px";
+      el.style.willChange = "transform, opacity";
+      if (cfg.gem) {
+        el.style.clipPath = "polygon(50% 0,100% 34%,82% 100%,18% 100%,0 34%)";
+        el.style.background = "linear-gradient(150deg," + m.hi + "," + m.g[1] + " 55%," + m.g[2] + ")";
+        el.style.boxShadow = "0 0 " + (sz * 0.5) + "px " + m.g[0] + "aa";
+      } else {
+        el.style.borderRadius = "50%";
+        el.style.background = "radial-gradient(circle at 34% 30%," + m.hi + "," + m.g[1] + " 55%," + m.g[2] + ")";
+        el.style.border = "1px solid " + m.stroke;
+        el.style.boxShadow = "0 0 " + (sz * 0.35) + "px " + m.g[0] + "88, inset 0 1px 1px " + m.hi;
+      }
+      layer.appendChild(el);
+      coins.push({
+        el,
+        x: rnd(rect.left + rect.width * 0.2, rect.left + rect.width * 0.8),
+        y: rect.top + rnd(-2, rect.height * 0.5),
+        vx: rnd(-4.5, 4.5), vy: -rnd(cfg.burst[0], cfg.burst[1]),
+        rot: rnd(0, 360), vrot: rnd(-16, 16),
+        life: rnd(950, 1500), born: 0,
+      });
+    }
+    const G = 0.42, DRAG = 0.995;
+    let last = null;
+    function frame(now) {
+      if (last == null) { last = now; for (const c of coins) c.born = now; }
+      const dt = Math.min(2.5, (now - last) / 16.6667); last = now;
+      let alive = 0;
+      for (const c of coins) {
+        if (!c.el) continue;
+        const age = now - c.born;
+        if (age >= c.life) { c.el.remove(); c.el = null; continue; }
+        alive++;
+        c.vy += G * dt; c.vx *= Math.pow(DRAG, dt);
+        c.x += c.vx * dt; c.y += c.vy * dt; c.rot += c.vrot * dt;
+        c.el.style.opacity = age > c.life - 420 ? Math.max(0, (c.life - age) / 420) : 1;
+        c.el.style.transform = "translate(" + c.x + "px," + c.y + "px) rotate(" + c.rot + "deg)";
+      }
+      if (alive) requestAnimationFrame(frame);
+      else { restoreTitles(); if (layer && !layer.children.length) layer.remove(); }
+    }
+    requestAnimationFrame(frame);
+  } catch (e) { /* cosmetic only */ }
 }
 
 async function refreshDashboard() {
@@ -1468,16 +1637,74 @@ function setConn(ok, tip) {
  * -------------------------------------------------------------------------------------------- */
 let pendingWallet = null;
 
+// ---- FORUM SSO: forum.nadochain.com bounces the user here to sign a one-time login challenge with their
+// wallet. We show exactly what they're signing, sign with the ACTIVE account (so HD accounts pick their forum
+// identity), and POST the signature back to the forum as a top-level navigation POST (no CORS). Only a
+// hardcoded-allowlisted forum origin is ever sent a signature — a login sig is domain-tagged ("nado-forum-login")
+// so it can NEVER be replayed as a transaction, but we still refuse unknown targets as defense-in-depth.
+const FORUM_ORIGIN_ALLOW = ["https://forum.nadochain.com"];
+let pendingForumLogin = (() => {
+  try {
+    const p = new URLSearchParams(location.search);
+    const rid = p.get("forum_login");
+    if (!rid) return null;
+    return { rid, nonce: p.get("nonce") || "", forum: p.get("forum") || "", issued: parseInt(p.get("issued") || "0", 10) };
+  } catch (e) { return null; }
+})();
+async function resumePendingForumLogin() {
+  const req = pendingForumLogin;
+  if (!req || !state.wallet) return;
+  pendingForumLogin = null;                        // consume — don't re-prompt on later showWalletUI calls
+  try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {}   // scrub the params
+  if (!FORUM_ORIGIN_ALLOW.includes(req.forum)) {
+    uiAlert(i18("forum.badOrigin", "Ignored a sign-in request for an unrecognised site.") + " (" + req.forum + ")");
+    return;
+  }
+  const okc = await uiConfirm({
+    title: i18("forum.title", "Sign in to NADO Forum"),
+    body: i18("forum.body", "Prove you own this wallet to sign in to {f} as {a}. This cannot move funds.",
+      { f: req.forum.replace(/^https?:\/\//, ""), a: state.wallet.address.slice(0, 14) + "…" }),
+    confirmText: i18("forum.signin", "Sign in"),
+  });
+  if (!okc) return;
+  try {
+    const msg = blake2bHash(["nado-forum-login", req.forum, state.wallet.address, req.nonce, req.issued], 32);
+    const { publicKey, secretKey } = ml_dsa44.keygen(hexToBytes(state.wallet.privateKey));
+    const mb = hexToBytes(msg);
+    let signature = null;
+    for (let i = 0; i < 8; i++) {                    // re-sign on the rare non-verifying hedge (see finalizeTransaction)
+      const sig = ml_dsa44.sign(secretKey, mb);
+      if (ml_dsa44.verify(publicKey, mb, sig)) { signature = bytesToHex(sig); break; }
+    }
+    if (!signature) throw new Error("could not produce a verifying signature");
+    const form = document.createElement("form");
+    form.method = "POST"; form.action = req.forum + "/api/sso_callback";
+    for (const [n, v] of [["request_id", req.rid], ["address", state.wallet.address],
+                          ["public_key", state.wallet.publicKey], ["signature", signature]]) {
+      const i = document.createElement("input"); i.type = "hidden"; i.name = n; i.value = v; form.appendChild(i);
+    }
+    document.body.appendChild(form);
+    form.submit();                                 // navigates to the forum, which verifies + sets the session cookie
+  } catch (e) {
+    uiAlert(i18("forum.failed", "Forum sign-in failed:") + " " + (e && e.message ? e.message : e));
+  }
+}
+
 function showWalletUI() {
   show("onboard", false);
   show("savePrompt", false);
   show("unlockCard", false);
   show("tabbar", true);
-  $("walAddr").textContent = state.wallet.address;
-  $("walPriv").textContent = state.wallet.privateKey;
+  hdSync();                                          // anchor the HD layer to the loaded wallet (Main on a fresh load)
+  renderAccountBar();
+  $("walAddr").textContent = state.wallet.address;   // the ACTIVE account's address (receive/send from here)
+  // The "Reveal / export private key" section is the BACKUP surface — always the MASTER seed + phrase, which
+  // recovers EVERY derived account (a per-account child key would only restore that one address).
+  const masterSeed = masterSeedOf() || state.wallet.privateKey;
+  $("walPriv").textContent = masterSeed;
   if ($("walMnemonic")) {
     $("walMnemonic").textContent = "…";
-    seedToMnemonic(hexToBytes(state.wallet.privateKey))
+    seedToMnemonic(hexToBytes(masterSeed))
       .then((m) => { $("walMnemonic").textContent = m; })
       .catch(() => { $("walMnemonic").textContent = i18("save.mnemonicErr", "(recovery phrase unavailable)"); });
   }
@@ -1485,6 +1712,7 @@ function showWalletUI() {
   showTab(state.activeTab || "wallet");
   resumePendingPay();   // if a #pay link was opened before this wallet existed, prefill the Send now
   resumePendingClaim(); // if a #claim link was opened before this wallet existed, receive the banknote now
+  resumePendingForumLogin(); // if the forum bounced us here to sign a login challenge, prompt + sign now
 }
 
 function adoptWallet(w, { needsSavePrompt }) {
@@ -1650,7 +1878,8 @@ function downloadKeyFile() {
   // Fall back to pendingWallet: on the "⚠ Save your private key" screen the freshly-generated key is
   // held in pendingWallet and is NOT yet state.wallet (that happens only on "Continue → store"). Without
   // this, a brand-new user who clicks Download on that very screen got a confusing "No wallet loaded."
-  const w = state.wallet || pendingWallet;
+  // HD SAFETY: export the MASTER key (recovers every derived account), not the active child.
+  const w = (masterSeedOf() ? keypairFromPriv(masterSeedOf()) : null) || state.wallet || pendingWallet;
   if (!w) { uiAlert(i18("wallet.needFirst", "Create or import a wallet first — then you can download its key file.")); return; }
   const keyfile = {
     private_key: w.privateKey,            // the 32-byte ML-DSA-44 SEED (hex) — this IS the secret

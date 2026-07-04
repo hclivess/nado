@@ -1,0 +1,26 @@
+[Unit]
+Description=NADO forum (wallet-native community + governance forum)
+After=network-online.target nado.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/nado
+Environment=HOME=/root/nado-solo
+Environment=FORUM_PORT=8781
+Environment=FORUM_DB=/root/nado/forum/forum.db
+Environment=FORUM_SECRET_FILE=/root/nado/forum/.secret
+Environment=NADO_NODE=http://127.0.0.1:9173
+Environment=INTERFACE_URL=https://get.nadochain.com
+Environment=FORUM_ORIGIN=https://forum.nadochain.com
+Environment=FORUM_REQUIRE_REGISTERED=1
+# Bootstrap moderator addresses (comma-separated). Set to your own ndo… to seed the first mod:
+Environment=FORUM_MODS=ndoebd27698662f14ee2389e509781d5ff57487f4289a2bf2
+ExecStart=/root/nado/nado_venv/bin/python /root/nado/forum/server.py
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

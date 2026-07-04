@@ -7,7 +7,7 @@
      'unsafe-inline', and this page has ZERO inline scripts or inline event handlers of its own. 'wasm-unsafe-eval'
      (+'unsafe-eval' for older engines) keeps the in-browser WASM prover/miner working; the two CDN hosts are the
      crypto fallback loadDeps() uses; connect-src * because the relay/exec node is a user-configurable origin. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' https://esm.sh https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src *; object-src 'none'; base-uri 'self'; form-action 'self'" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval' https://esm.sh https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src *; object-src 'none'; base-uri 'self'; form-action 'self' https://forum.nadochain.com" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0b0f14" />
 <meta name="color-scheme" content="dark" />
@@ -167,6 +167,7 @@
   <!-- WALLET -->
   <div id="wallet" class="card hidden" data-tab="wallet">
     <h2 data-i18n="wallet.title">Wallet <span class="pill"><span id="walBadge" class="badge idle">—</span></span></h2>
+    <div id="accountBar"></div>
     <label data-i18n="lbl.address">Address</label>
     <div class="addr-box"><span class="a" id="walAddr"></span>
       <button class="copy" data-i18n="btn.copy" data-copy="walAddr">Copy</button></div>
@@ -193,9 +194,9 @@
 
     <!-- PRESENCE DIVIDEND (doc/presence-dividend.md): your share of the open lane's redistributed pool, accrued
          off-L1 while you mine; collect it to your balance on demand. Hidden until there's something to collect. -->
-    <div id="divWrap" class="mt hidden" style="text-align:center" data-i18n-title="tip.dividend"
-         title="PRESENCE DIVIDEND — the open lane redistributes most of its block reward to everyone mining it, weighted by fidelity. Your share accrues off-chain while you're present (stop mining and it stops growing). 'Collect' sweeps it into your spendable balance — it lands automatically a few minutes later, once the execution layer's state is settled on-chain.">
-      <span class="label" data-i18n="div.label">Dividend accrued <span class="hint">ⓘ</span></span>
+    <div id="divWrap" class="mt hidden" style="text-align:center">
+      <span class="label" data-i18n="div.label">Dividend accrued <span class="hint" data-i18n-title="tip.dividend"
+         title="PRESENCE DIVIDEND — the open lane redistributes most of its block reward to everyone mining it, weighted by fidelity. Your share accrues off-chain while you're present (stop mining and it stops growing). 'Collect' sweeps it into your spendable balance — it lands automatically a few minutes later, once the execution layer's state is settled on-chain.">ⓘ</span></span>
       <span class="value sm" id="divAccrued">—</span>
       <button class="accent" id="btnCollectDiv" data-i18n="div.collect" style="display:block;margin:6px auto 0" disabled>Collect dividend</button>
     </div>
