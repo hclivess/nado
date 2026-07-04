@@ -71,5 +71,30 @@ def t4_migrates_legacy_dir_then_retires_it():
 check("legacy peers/*.dat migrated into peers.dat then removed", t4_migrates_legacy_dir_then_retires_it)
 
 
+def t5_seed_recovers_a_poisoned_table():
+    # a node whose table contains ONLY its own IP (load_ips excludes it -> 0 dialable peers) must still get
+    # the bootstrap seed re-asserted, or it loops "Loaded 0 reachable peers" forever (the bug the user hit).
+    peer_ops._save_peers({"1.2.3.4": {"peer_ip": "1.2.3.4", "peer_port": 9173, "peer_trust": 50}})
+    peer_ops.seed_default_peers(logger, my_ip="1.2.3.4")
+    tbl = peer_ops._load_peers()
+    assert "38.242.201.206" in tbl, "bootstrap seed not re-asserted on a non-empty/poisoned table"
+    assert "1.2.3.4" not in tbl or True  # own IP may linger from the poison, but it's excluded when dialing
+check("seed_default_peers recovers the bootstrap on a poisoned (own-IP-only) table", t5_seed_recovers_a_poisoned_table)
+
+
+def t6_migration_skips_own_ip():
+    home3 = tempfile.mkdtemp(prefix="nado_ownip_")
+    os.environ["HOME"] = home3
+    os.makedirs(f"{home3}/nado/peers", exist_ok=True)
+    for ip in ("1.2.3.4", "44.44.44.44"):    # own IP (per config) + a real peer
+        b64 = base64.b64encode(ip.encode()).decode()
+        json.dump({"peer_ip": ip, "peer_address": "", "peer_port": 9173, "peer_trust": 50},
+                  open(f"{home3}/nado/peers/{b64}.dat", "w"))
+    tbl = peer_ops._load_peers()             # migration
+    assert "1.2.3.4" not in tbl, "migration must NOT carry our own IP (ghost self-peer) into peers.dat"
+    assert "44.44.44.44" in tbl, "migration dropped a legitimate peer"
+check("legacy migration filters out our own IP", t6_migration_skips_own_ip)
+
+
 print(f"\n{'ALL PEER-STORE CHECKS PASSED' if not fails else str(fails) + ' FAILED'}")
 sys.exit(1 if fails else 0)

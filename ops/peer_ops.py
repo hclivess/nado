@@ -65,13 +65,16 @@ def _migrate_legacy_peers():
     files = glob.glob(f"{old_dir}/*.dat")
     if not files:
         return None
+    my_ip = get_config().get("ip")
     table = {}
     for fp in files:
         try:
             with open(fp, "r") as f:
                 p = json.load(f)
             ip = p.get("peer_ip")
-            if ip:
+            # skip our OWN ip (the old update_local_ip saved it as a ghost self-peer) and non-routable
+            # junk — carrying them poisons the table and stalls the bootstrap seed on the next boot.
+            if ip and ip != my_ip and check_ip(ip):
                 table[ip] = {"peer_address": p.get("peer_address", ""), "peer_ip": ip,
                              "peer_port": p.get("peer_port"), "peer_trust": p.get("peer_trust", 50),
                              "last_seen": p.get("last_seen", 0)}
@@ -144,16 +147,16 @@ def trusted_seeds():
 
 
 def seed_default_peers(logger, my_ip=None):
-    """Seed the baked-in bootstrap peer(s) — but ONLY when the peer table is empty (a fresh node), so we
-    never fight later trust-purges of a seed that went bad. Skips our own IP. Idempotent."""
-    if _load_peers():
-        return
+    """Ensure the baked-in bootstrap seed(s) are present so a node is NEVER stranded with no one to dial.
+    save_peer is a no-op for a seed that already exists (its trust is preserved) or for our own IP, so this
+    is idempotent — but it re-asserts the seed UNCONDITIONALLY rather than only on an empty table. That is
+    what recovers a node whose table got poisoned (e.g. only our own migrated-in IP, which load_ips then
+    excludes) — the old 'skip if the table is non-empty' left such a node looping 'Loaded 0 reachable peers'."""
     for ip in trusted_seeds():
-        if not ip or ip == my_ip:
+        if not ip or ip == (my_ip or get_config().get("ip")):
             continue
         try:
             save_peer(ip=ip, port=get_port(), address="", peer_trust=50)
-            logger.info(f"Seeded bootstrap peer {ip}")
         except Exception as e:
             logger.info(f"Failed to seed bootstrap peer {ip}: {e}")
 
