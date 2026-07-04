@@ -860,10 +860,21 @@ async def get_msg_key(request):
     return _resp({"bundle": bundle})
 
 
+# Deep-linkable interface URLs — /aliases, /messages, /send, … serve the SAME single-page interface, so a
+# shared link like https://get.nadochain.com/aliases opens straight on that tab (the client reads the path).
+_TAB_PATHS = ("wallet", "send", "receive", "aliases", "stake", "quorum", "messages",
+              "history", "rich", "stats", "swap", "shield", "explore", "settings")
+
+
+async def interface_page(request):
+    return web.FileResponse(os.path.join(_HERE, "static", "interface.html"))
+
+
 async def make_app(port):
     app = web.Application()
     app.add_routes([
         web.get("/", home),
+        *[web.get("/" + _t, interface_page) for _t in _TAB_PATHS],
         web.post("/message", post_message),
         web.get("/tags", get_tags),
         web.get("/message", get_message),

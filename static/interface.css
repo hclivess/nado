@@ -310,3 +310,8 @@ a { color: var(--accent-2); }
   .msgconv-list { max-height: 24vh; }
   .msgthread { height: 46vh; flex: none; }
 }
+
+/* unread badge on the Messages tab button */
+.tabbadge { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px;
+  padding: 0 4px; margin-left: 5px; border-radius: 8px; background: var(--danger); color: #fff;
+  font-size: 10px; font-weight: 800; line-height: 1; vertical-align: middle; }

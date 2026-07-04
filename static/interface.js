@@ -1712,7 +1712,9 @@ function showWalletUI() {
       .catch(() => { $("walMnemonic").textContent = i18("save.mnemonicErr", "(recovery phrase unavailable)"); });
   }
   $("recvAddr").textContent = state.wallet.address;
-  showTab(state.activeTab || "wallet");
+  const _urlTab = location.pathname.replace(/^\/+/, "");   // deep link: /aliases, /messages, …
+  showTab(TAB_NAMES.has(_urlTab) ? _urlTab : (state.activeTab || "wallet"));
+  msgInitBackground().catch(() => {});   // derive identity + poll so the Messages badge works anywhere
   resumePendingPay();   // if a #pay link was opened before this wallet existed, prefill the Send now
   resumePendingClaim(); // if a #claim link was opened before this wallet existed, receive the banknote now
   resumePendingForumLogin(); // if the forum bounced us here to sign a login challenge, prompt + sign now
@@ -3126,9 +3128,14 @@ async function renderSwaps() {
   });
 }
 
+// Deep-linkable tab URLs — /aliases, /messages, /send, … (the node serves the interface at each path).
+const TAB_NAMES = new Set(["wallet", "send", "receive", "aliases", "stake", "quorum", "messages", "history", "rich", "stats", "swap", "shield", "explore", "settings"]);
+window.addEventListener("popstate", () => { const p = location.pathname.replace(/^\/+/, ""); if (state.wallet && TAB_NAMES.has(p)) showTab(p); });
+
 function showTab(name) {
   if (!state.wallet) return;
   state.activeTab = name;
+  if (TAB_NAMES.has(name) && location.pathname !== "/" + name) history.pushState(null, "", "/" + name);
   document.querySelectorAll("#tabbar .tab").forEach((b) => b.classList.toggle("active", b.dataset.tabbtn === name));
   document.querySelectorAll("[data-tab]").forEach((el) => el.classList.toggle("hidden", el.dataset.tab !== name));
   if (name !== "send") show("payBanner", false); // the pay-request banner belongs to the Send tab only
@@ -3203,9 +3210,10 @@ async function msgOpen() {
   $("msgSendBtn").onclick = () => msgSend().catch(() => {});
   $("msgNewBtn").onclick = () => { state.msgActivePeer = null; $("msgTo").value = ""; $("msgBody").value = ""; renderMessages(); $("msgTo").focus(); };
   $("msgBody").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); msgSend().catch(() => {}); } };
+  if (state.msgActivePeer) msgMarkRead(state.msgActivePeer);
   renderMessages();
+  msgInitBackground().catch(() => {});   // starts the shared poll (badge) if not already running
   msgPoll().catch(() => {});
-  if (!state._msgPollTimer) state._msgPollTimer = setInterval(() => { if (state.activeTab === "messages") msgPoll().catch(() => {}); }, 15000);
 }
 
 async function msgSend() {
@@ -3271,7 +3279,8 @@ async function msgPoll() {
       const conv = (hist[from] = hist[from] || { alias: pt.alias || null, messages: [] });
       if (pt.alias && !conv.alias) conv.alias = pt.alias;
       if (!conv.messages.some(x => x.id === t.id)) {
-        conv.messages.push({ id: t.id, dir: "in", body: pt.body, ts: pt.ts || env.ts, status: "received" });
+        const viewing = state.activeTab === "messages" && state.msgActivePeer === from;
+        conv.messages.push({ id: t.id, dir: "in", body: pt.body, ts: pt.ts || env.ts, status: "received", read: viewing });
         changed = true;
         msgSendAck(m, id, from, t.id).catch(() => {});           // confirm delivery to the sender
       }
@@ -3284,6 +3293,37 @@ async function msgPoll() {
     }
   if (maxSeq > msgCursor()) msgSetCursor(maxSeq);
   if (changed) { msgHistSave(hist); if (state.activeTab === "messages") renderMessages(); }
+  updateMsgBadge();
+}
+
+// ---- unread badge on the Messages tab ---------------------------------------------------------
+function msgUnreadCount() {
+  const hist = msgHistLoad(); let n = 0;
+  for (const c of Object.values(hist)) for (const msg of c.messages) if (msg.dir === "in" && !msg.read) n++;
+  return n;
+}
+function updateMsgBadge() {
+  const el = $("msgBadge"); if (!el) return;
+  const n = msgUnreadCount();
+  if (n > 0) { el.textContent = n > 99 ? "99+" : String(n); el.classList.remove("hidden"); }
+  else el.classList.add("hidden");
+}
+function msgMarkRead(peer) {
+  const hist = msgHistLoad(); const c = hist[peer]; if (!c) return;
+  let changed = false;
+  for (const msg of c.messages) if (msg.dir === "in" && !msg.read) { msg.read = true; changed = true; }
+  if (changed) { msgHistSave(hist); updateMsgBadge(); }
+}
+
+// Background messaging: derive identity, publish the prekey, and poll so the unread badge updates even
+// while another tab is open. Starts once per session after the wallet is ready.
+async function msgInitBackground() {
+  if (state._msgBgStarted) return;
+  const m = await loadMessaging(); if (!m || !state.wallet) return;
+  state._msgBgStarted = true;
+  if (state._msgPublished !== state.wallet.address) msgPublishPrekey().catch(() => {});
+  msgPoll().catch(() => {});
+  if (!state._msgPollTimer) state._msgPollTimer = setInterval(() => { msgPoll().catch(() => {}); }, 20000);
 }
 
 function _msgStatusLabel(msg) {
@@ -3314,6 +3354,7 @@ function renderMessages() {
       state.msgActivePeer = b.dataset.peer;
       const c = hist[b.dataset.peer];
       $("msgTo").value = c && c.alias ? c.alias : b.dataset.peer;
+      msgMarkRead(b.dataset.peer);
       renderMessages();
     });
   }

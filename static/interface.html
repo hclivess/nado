@@ -155,7 +155,7 @@
     <button class="tab" data-tabbtn="aliases" data-i18n="tab.aliases">Aliases</button>
     <button class="tab" data-tabbtn="stake" data-i18n="tab.stake">Stake</button>
     <button class="tab" data-tabbtn="quorum" data-i18n="tab.quorum">Quorum</button>
-    <button class="tab" data-tabbtn="messages" data-i18n="tab.messages">Messages</button>
+    <button class="tab" data-tabbtn="messages" data-i18n="tab.messages">Messages<span id="msgBadge" class="tabbadge hidden"></span></button>
     <button class="tab" data-tabbtn="history" data-i18n="tab.history">History</button>
     <button class="tab" data-tabbtn="rich" data-i18n="tab.rich">Rich list</button>
     <button class="tab" data-tabbtn="stats" data-i18n="tab.stats">Stats</button>
@@ -429,12 +429,6 @@
     <div id="history" class="hist"></div>
   </div>
 
-  <!-- LOG -->
-  <div id="logCard" class="card hidden">
-    <h2 data-i18n="log.title">Activity <span class="pill"><button id="btnClearLog" class="ghost small" style="padding:4px 10px" data-i18n="btn.clear">Clear</button></span></h2>
-    <div id="log"></div>
-  </div>
-
   <!-- SETTINGS -->
   <!-- EXPLORE (block explorer, folded into the wallet) -->
   <div id="richCard" class="card hidden" data-tab="rich">
@@ -677,6 +671,12 @@
       derivation, registration PoW, ML-DSA-44 key derivation, txids and signatures are byte-identical
       to the node's Python (vectors generated from the live repo).</p>
     <div id="selftest"></div>
+  </div>
+
+  <!-- LOG (Activity) — always visible, rendered UNDER the active tab's content -->
+  <div id="logCard" class="card hidden">
+    <h2 data-i18n="log.title">Activity <span class="pill"><button id="btnClearLog" class="ghost small" style="padding:4px 10px" data-i18n="btn.clear">Clear</button></span></h2>
+    <div id="log"></div>
   </div>
 
   <footer data-i18n-html="footer">
