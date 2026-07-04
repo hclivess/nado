@@ -1,0 +1,75 @@
+"""
+Single peer file (peers.dat): peers live in ONE atomic file, not one file per peer. Verifies the store
+round-trips, that our OWN ip is never stored/dialed (the ghost self-peer + self-dial bug), that trust
+updates persist, and that the legacy peers/<b64>.dat directory is migrated then retired on first use.
+
+Run: python3 tests/test_peer_store.py
+"""
+import os, sys, json, tempfile, base64, logging, traceback
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_peerstore_")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.makedirs(f"{os.environ['HOME']}/nado/private", exist_ok=True)
+logger = logging.getLogger("peerstore"); logger.addHandler(logging.NullHandler())
+
+# minimal config so get_config()["ip"] / get_port() resolve (peer_ops reads them)
+import config as _cfg
+_cfg.create_config(ip="1.2.3.4")
+
+from ops import peer_ops
+from ops.data_ops import get_home
+
+fails = 0
+def check(name, fn):
+    global fails
+    try: fn(); print(f"PASS  {name}")
+    except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+
+
+def t1_save_load_delete():
+    peer_ops.save_peer(ip="5.6.7.8", port=9173, address="ndoAAA", peer_trust=70)
+    assert peer_ops.ip_stored("5.6.7.8")
+    assert peer_ops.load_peer(logger, "5.6.7.8", "peer_trust") == 70
+    assert peer_ops.load_peer(logger, "5.6.7.8")["peer_address"] == "ndoAAA"
+    # it lives in ONE file
+    assert os.path.isfile(f"{get_home()}/peers.dat")
+    assert set(json.load(open(f"{get_home()}/peers.dat")).keys()) == {"5.6.7.8"}
+    peer_ops.delete_peer("5.6.7.8", logger)
+    assert not peer_ops.ip_stored("5.6.7.8")
+check("save -> load -> delete via the single peers.dat", t1_save_load_delete)
+
+
+def t2_never_stores_own_ip():
+    peer_ops.save_peer(ip="1.2.3.4", port=9173, address="me")          # our own configured IP
+    assert not peer_ops.ip_stored("1.2.3.4"), "own IP must NEVER be stored (ghost self-peer / self-dial)"
+    # and even if it somehow got in, check_save_peers/load_ips exclude it — covered by save_peer's guard here
+check("own IP is never stored as a peer", t2_never_stores_own_ip)
+
+
+def t3_trust_update_persists():
+    peer_ops.save_peer(ip="9.9.9.9", port=9173, address="ndoB", peer_trust=50)
+    peer_ops.update_peer("9.9.9.9", 5, logger, key="peer_trust")
+    assert peer_ops.load_peer(logger, "9.9.9.9", "peer_trust") == 5
+    peer_ops.dump_trust({"9.9.9.9": 123}, logger)
+    assert peer_ops.load_peer(logger, "9.9.9.9", "peer_trust") == 123
+check("update_peer + dump_trust persist to the single file", t3_trust_update_persists)
+
+
+def t4_migrates_legacy_dir_then_retires_it():
+    # fresh home with ONLY a legacy peers/ dir
+    home2 = tempfile.mkdtemp(prefix="nado_legacy_")
+    os.environ["HOME"] = home2
+    os.makedirs(f"{home2}/nado/peers", exist_ok=True)
+    for ip, tr in [("11.11.11.11", 60), ("22.22.22.22", 40)]:
+        b64 = base64.b64encode(ip.encode()).decode()
+        json.dump({"peer_ip": ip, "peer_address": "ndo" + ip, "peer_port": 9173, "peer_trust": tr},
+                  open(f"{home2}/nado/peers/{b64}.dat", "w"))
+    table = peer_ops._load_peers()                       # first access triggers migration
+    assert set(table.keys()) == {"11.11.11.11", "22.22.22.22"}, f"migration lost peers: {table}"
+    assert table["11.11.11.11"]["peer_trust"] == 60
+    assert os.path.isfile(f"{home2}/nado/peers.dat"), "single file not written on migration"
+    assert not any(f.endswith(".dat") for f in os.listdir(f"{home2}/nado/peers")), "ghost .dat files not retired"
+check("legacy peers/*.dat migrated into peers.dat then removed", t4_migrates_legacy_dir_then_retires_it)
+
+
+print(f"\n{'ALL PEER-STORE CHECKS PASSED' if not fails else str(fails) + ' FAILED'}")
+sys.exit(1 if fails else 0)

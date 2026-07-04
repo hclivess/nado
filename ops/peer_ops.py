@@ -4,19 +4,18 @@ import ipaddress
 import json
 import os
 import os.path
+import threading
 
 from compounder import compound_get_list_of, compound_announce_self
 from compounder import compound_get_status_pool
 from config import get_port, get_config, get_timestamp_seconds, update_config
 from .data_ops import set_and_sort, get_home
-from hashing import base64encode
-from .key_ops import load_keys
 
 import aiohttp
 
 def _atomic_write_json(path, obj):
     """write JSON via temp file + fsync + os.replace so a crash mid-write can never leave a
-    half-written (corrupt) peer file that load_peer would then silently fail to parse."""
+    half-written (corrupt) file that a reader would then silently fail to parse."""
     tmp = f"{path}.tmp"
     with open(tmp, "w") as outfile:
         json.dump(obj, outfile)
@@ -25,21 +24,67 @@ def _atomic_write_json(path, obj):
     os.replace(tmp, path)
 
 
+# --------------------------------------------------------------------------------------------------
+# SINGLE peer store. Peers live in ONE file (peers.dat) as {ip: {peer_address, peer_port, peer_trust,
+# last_seen}}, not one file per peer. The old per-file layout accreted "ghost" files — a dead seed, the
+# node's OWN ip (re-saved by update_local_ip on every IP refresh), same-subnet spam — that were awkward to
+# reap and kept getting reloaded/redialed. One file is atomic, reaps cleanly, and lets us enforce ONE
+# invariant in one place: our own IP is NEVER a peer (self is advertised via me_to() in /peers; dialing
+# self just fails). Read-modify-write is serialized by a lock; writes are atomic (tmp+fsync+os.replace).
+# --------------------------------------------------------------------------------------------------
+_PEERS_LOCK = threading.RLock()
 
-def update_local_address(logger):
-    my_ip = get_config()["ip"]
-    old_address = load_peer(logger=logger,
-                            ip=my_ip,
-                            key="peer_address")
 
-    new_address = load_keys()["address"]
+def _peers_path():
+    return f"{get_home()}/peers.dat"
 
-    if new_address != old_address:
-        update_peer(ip=my_ip,
-                    logger=logger,
-                    key="peer_address",
-                    value=new_address)
-        logger.info(f"Local address updated to {new_address}")
+
+def _load_peers() -> dict:
+    """The whole peer table {ip: {...}}. Migrates the legacy peers/*.dat directory on first use (then
+    retires it), and returns {} on a missing/corrupt file (an empty peer table is always valid)."""
+    path = _peers_path()
+    if not os.path.isfile(path):
+        migrated = _migrate_legacy_peers()
+        return migrated if migrated is not None else {}
+    try:
+        with open(path, "r") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_peers(table: dict):
+    _atomic_write_json(_peers_path(), table)
+
+
+def _migrate_legacy_peers():
+    """One-time import of the old peers/<b64(ip)>.dat files into peers.dat, then delete them so the ghost
+    files can never be reloaded again. Returns the migrated table, or None if there was nothing to migrate."""
+    old_dir = f"{get_home()}/peers"
+    files = glob.glob(f"{old_dir}/*.dat")
+    if not files:
+        return None
+    table = {}
+    for fp in files:
+        try:
+            with open(fp, "r") as f:
+                p = json.load(f)
+            ip = p.get("peer_ip")
+            if ip:
+                table[ip] = {"peer_address": p.get("peer_address", ""), "peer_ip": ip,
+                             "peer_port": p.get("peer_port"), "peer_trust": p.get("peer_trust", 50),
+                             "last_seen": p.get("last_seen", 0)}
+        except Exception:
+            pass
+    _save_peers(table)
+    for fp in files:
+        try:
+            os.remove(fp)
+        except Exception:
+            pass
+    return table
+
 
 
 async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add msgpack support
@@ -64,23 +109,25 @@ async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add ms
 
 
 def delete_peer(ip, logger):
-    peer_path = f"{get_home()}/peers/{base64encode(ip)}.dat"
-    if os.path.exists(peer_path):
-        os.remove(peer_path)
-        logger.warning(f"Deleted peer {ip}")
+    with _PEERS_LOCK:
+        table = _load_peers()
+        if table.pop(ip, None) is not None:
+            _save_peers(table)
+            logger.warning(f"Deleted peer {ip}")
 
 
 def save_peer(ip, port, address, peer_trust=50, overwrite=False):
-    peer_path = f"{get_home()}/peers/{base64encode(ip)}.dat"
-    if overwrite or not ip_stored(ip):
-        peers_message = {
-            "peer_address": address,
-            "peer_ip": ip,
-            "peer_port": port,
-            "peer_trust": peer_trust,
-        }
-
-        _atomic_write_json(peer_path, peers_message)
+    # INVARIANT: never store our own IP — self is advertised to peers via me_to() in /peers, and dialing
+    # ourselves just fails (this is what created the old ghost self-peer + the repeated self-dial errors).
+    if not ip or ip == get_config()["ip"]:
+        return
+    with _PEERS_LOCK:
+        table = _load_peers()
+        if ip in table and not overwrite:
+            return
+        table[ip] = {"peer_address": address, "peer_ip": ip, "peer_port": port,
+                     "peer_trust": peer_trust, "last_seen": get_timestamp_seconds()}
+        _save_peers(table)
 
 
 # Baked-in bootstrap seed(s). A freshly-cloned node (`python node.py`) has an EMPTY peers/ dir and no way
@@ -97,9 +144,9 @@ def trusted_seeds():
 
 
 def seed_default_peers(logger, my_ip=None):
-    """Seed the baked-in bootstrap peer(s) — but ONLY when the peers/ dir is empty (a fresh node), so we
+    """Seed the baked-in bootstrap peer(s) — but ONLY when the peer table is empty (a fresh node), so we
     never fight later trust-purges of a seed that went bad. Skips our own IP. Idempotent."""
-    if glob.glob(f"{get_home()}/peers/*.dat"):
+    if _load_peers():
         return
     for ip in trusted_seeds():
         if not ip or ip == my_ip:
@@ -112,24 +159,25 @@ def seed_default_peers(logger, my_ip=None):
 
 
 def ip_stored(ip) -> bool:
-    peer_path = f"{get_home()}/peers/{base64encode(ip)}.dat"
-    if os.path.exists(peer_path):
-        return True
-    else:
-        return False
+    return ip in _load_peers()
 
 
 def dump_trust(pool_data, logger):
-    for key, value in pool_data.items():
-        update_peer(ip=key,
-                    key="peer_trust",
-                    value=value,
-                    logger=logger)
+    with _PEERS_LOCK:
+        table = _load_peers()
+        changed = False
+        for ip, trust in pool_data.items():
+            if ip in table:
+                table[ip]["peer_trust"] = trust
+                table[ip]["last_seen"] = get_timestamp_seconds()
+                changed = True
+        if changed:
+            _save_peers(table)
 
 
 def sort_dict_value(values: list, key: str) -> list:
     if values:
-        return sorted(values, key=lambda d: d[key], reverse=True)
+        return sorted(values, key=lambda d: d.get(key, 0) or 0, reverse=True)
     else:
         return []
 
@@ -141,28 +189,19 @@ async def load_ips(logger, port, fail_storage, unreachable, minimum=3, top_50=Tr
     bad_peers = set(fail_storage + list(unreachable.keys()))
     bad_peers.add(get_config()["ip"])   # never load our OWN ip into the dial set — we don't sync from
                                         # ourselves; self is advertised to others via me_to() in /peers
-    peer_files= glob.glob(f"{get_home()}/peers/*.dat")
+    table = _load_peers()
 
-    if len(peer_files) < minimum:
-        minimum = len(peer_files)
+    if len(table) < minimum:
+        minimum = len(table)
 
-    candidates = []
     status_pool = []
-
-    for file in peer_files:
-        try:
-            with open(file, "r") as peer_file:
-                    peer = json.load(peer_file)
-                    if peer["peer_ip"] not in bad_peers:
-                        candidates.append(peer)
-        except Exception as e:
-            logger.info(f"Failed to load {peer}: {e}")
+    candidates = [entry for ip, entry in table.items() if ip not in bad_peers and entry.get("peer_ip")]
 
     ip_sorted = []
 
     candidates_sorted = sort_dict_value(candidates, key="peer_trust")
     if top_50:
-        candidates_sorted = sort_dict_value(candidates, key="peer_trust")[:50]
+        candidates_sorted = candidates_sorted[:50]
 
 
     for entry in candidates_sorted:
@@ -202,37 +241,24 @@ async def load_ips(logger, port, fail_storage, unreachable, minimum=3, top_50=Tr
 
 
 def load_peer(logger, ip, key=None) -> [str, dict]:
-        try:
-            peer_file = f"{get_home()}/peers/{base64encode(ip)}.dat"
-            if not key:
-                with open(peer_file, "r") as peer_file:
-                    peer_dict = json.load(peer_file)
-                return peer_dict
-            else:
-                with open(peer_file, "r") as peer_file:
-                    peer_key = json.load(peer_file)[key]
-                return peer_key
-        except Exception as e:
-            logger.info(f"Failed to load peer {ip} from drive: {e}")
+    peer = _load_peers().get(ip)
+    if peer is None:
+        return None
+    return peer if key is None else peer.get(key)
 
 
 def update_peer(ip, value, logger, key="peer_trust") -> None:
-        try:
-            peer_file = f"{get_home()}/peers/{base64encode(ip)}.dat"
-
-            with open(peer_file, "r") as infile:
-                peer = json.load(infile)
-                addition = {key: value}
-                peer.update(addition)
-                peer["last_seen"] = get_timestamp_seconds()
-
-            _atomic_write_json(peer_file, peer)
-        except Exception as e:
-            logger.info(f"Failed to update peer file of {ip}: {e}")
+    with _PEERS_LOCK:
+        table = _load_peers()
+        if ip not in table:
+            return
+        table[ip][key] = value
+        table[ip]["last_seen"] = get_timestamp_seconds()
+        _save_peers(table)
 
 
 def check_save_peers(peers, logger, fails, unreachable):
-    """save all peers to drive if new to drive"""
+    """persist newly-reachable peers to the peer table (skipping self, non-routable, and already-known)"""
     good_peers = set(peers) - set(fails) - set(unreachable)
 
     local_fails = []
@@ -243,13 +269,17 @@ def check_save_peers(peers, logger, fails, unreachable):
         logger=logger,
         semaphore=asyncio.Semaphore(50)))
 
-    for key, value in candidates.items():
-        if not ip_stored(key) and check_ip(key):
-            save_peer(
-                ip=key,
-                port=get_port(),
-                address=value["address"],
-            )
+    my_ip = get_config()["ip"]
+    with _PEERS_LOCK:
+        table = _load_peers()
+        changed = False
+        for ip, value in candidates.items():
+            if ip != my_ip and ip not in table and check_ip(ip):
+                table[ip] = {"peer_address": value.get("address", ""), "peer_ip": ip, "peer_port": get_port(),
+                             "peer_trust": 50, "last_seen": get_timestamp_seconds()}
+                changed = True
+        if changed:
+            _save_peers(table)
 
     if local_fails:
         logger.error(f"Unable to reach peers to get their addresses: {local_fails}")
@@ -396,23 +426,13 @@ async def get_public_ip(logger):
             logger.error(f"Unable to fetch IP from {url_construct}: {e}")
 
 def update_local_ip(ip, logger):
-    old_ip = get_config()["ip"]
-    new_ip = ip
-
-    if old_ip != new_ip:
-        peer_me = load_peer(ip=old_ip,
-                            logger=logger)
-
-        save_peer(ip=new_ip,
-                  address=peer_me["peer_address"],
-                  port=peer_me["peer_port"],
-                  overwrite=True
-                  )
-
-        new_config = {"ip": new_ip}
-        update_config(new_config)
-
-        logger.info(f"Local IP updated to {new_ip}")
+    """Keep the node's configured public IP current (detected via get_public_ip). We do NOT store our own
+    IP as a peer anymore — self is advertised to others via me_to() in /peers, and dialing ourselves just
+    fails. (The old code re-saved the new IP as a peer here, which is what created the ghost self-peer and
+    the repeated 'Failed to get peers of <own-ip>' self-dial errors.)"""
+    if ip and ip != get_config()["ip"]:
+        update_config({"ip": ip})
+        logger.info(f"Local IP updated to {ip}")
 
 
 def qualifies_to_sync(peer, peer_protocol, known_tree, memserver_protocol,

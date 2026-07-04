@@ -34,7 +34,7 @@ from ops.mining_ops import select_producer_two_lane, epoch_of, total_bonded_shar
 from ops import kv_ops
 from protocol import CHAIN_ID, REWARD_CAP, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW
 from ops.data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size
-from ops.peer_ops import update_local_address, ip_stored, check_ip, qualifies_to_sync, announce_me, get_remote_status
+from ops.peer_ops import ip_stored, check_ip, qualifies_to_sync, announce_me, get_remote_status
 from ops import snapshot_ops
 from ops.pool_ops import merge_buffer, cull_buffer
 from ops.transaction_ops import remove_outdated_transactions
@@ -1142,7 +1142,6 @@ class CoreClient(threading.Thread):
 
     def run(self) -> None:
         self.init_hashes()
-        update_local_address(logger=self.logger)
 
         while not self.memserver.terminate:
             try:
