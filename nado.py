@@ -11,7 +11,7 @@ import msgpack
 from aiohttp import web
 
 import versioner
-from config import get_config
+from config import get_config, get_timestamp_seconds
 from genesis import make_genesis, make_folders
 from loops.consensus_loop import ConsensusClient
 from loops.core_loop import CoreClient
@@ -19,6 +19,8 @@ from loops.message_loop import MessageClient
 from loops.peer_loop import PeerClient
 from memserver import MemServer
 from ops.account_ops import get_account, fetch_totals, get_bonded_registry
+from ops.address_ops import proof_sender
+from Curve25519 import verify as _mldsa_verify, unhex as _mldsa_unhex
 from ops.mining_ops import total_shares
 from ops.block_ops import get_block, fee_over_blocks, get_block_number
 from ops.data_ops import get_home, allow_async
@@ -763,10 +765,110 @@ async def favicon(request):
     return web.FileResponse(p) if os.path.isfile(p) else web.Response(status=404)
 
 
+# --- off-chain messaging (doc/messaging.md): a gossiped, ephemeral, E2E-encrypted message pool. The node
+#     is a BLIND relay — it stores/serves opaque ciphertext and only gates on shape/size/PoW + a REGISTERED
+#     sender with a valid ML-DSA signature. It never decrypts, and none of this touches consensus. --------
+def _msg_is_registered(address):
+    try:
+        acc = get_account(address, create_on_error=False)
+        return bool(acc) and acc.get("registered", 0) == 1
+    except Exception:
+        return False
+
+
+def _msg_verify_sig(public_key, sender, env):
+    """proof_sender binds the pubkey to the sender address; then the ML-DSA sig must verify over the
+    signing digest (every envelope field except `sig`). Same verify() the tx path uses."""
+    from ops.message_pool import signing_digest
+    try:
+        if not public_key or not proof_sender(sender=sender, public_key=public_key):
+            return False
+        return _mldsa_verify(signed=env.get("sig", ""), public_key=public_key,
+                             message=_mldsa_unhex(signing_digest(env)))
+    except Exception:
+        return False
+
+
+def _prekey_verify_sig(public_key, address, bundle):
+    from ops.message_pool import prekey_signing_digest
+    try:
+        if not public_key or not proof_sender(sender=address, public_key=public_key):
+            return False
+        return _mldsa_verify(signed=bundle.get("sig", ""), public_key=public_key,
+                             message=_mldsa_unhex(prekey_signing_digest(bundle)))
+    except Exception:
+        return False
+
+
+async def post_message(request):
+    if _rate_limited(request, 30):
+        return _RL
+    def _work(body, ctype):
+        try:
+            env = unpack_tx(body, ctype)
+            ok, why, mid = memserver.message_pool.add_message(
+                env, get_timestamp_seconds(), _msg_is_registered, _msg_verify_sig)
+            return {"result": ok, "reason": why, "id": mid}, (200 if ok else 403)
+        except Exception as e:
+            return f"Error: {e}", 403
+    body = await request.read()
+    out, code = await asyncio.to_thread(_work, body, request.headers.get("Content-Type", ""))
+    return _resp(out, status=code)
+
+
+async def get_tags(request):
+    if _rate_limited(request, 120):
+        return _RL
+    try:
+        since = int(_q(request, "since", "0") or 0)
+    except Exception:
+        since = 0
+    def _work():
+        mp = memserver.message_pool
+        return {"tags": mp.list_tags(since_seq=since), "cursor": mp.cursor()}
+    return _resp(await asyncio.to_thread(_work))
+
+
+async def get_message(request):
+    mid = _q(request, "id", "")
+    env = await asyncio.to_thread(memserver.message_pool.get_message, mid)
+    if env is None:
+        return _resp("Not found", status=404)
+    return _resp({"message": env})
+
+
+async def post_msg_key(request):
+    if _rate_limited(request, 20):
+        return _RL
+    def _work(body, ctype):
+        try:
+            bundle = unpack_tx(body, ctype)
+            ok, why = memserver.message_pool.add_prekey(bundle, _msg_is_registered, _prekey_verify_sig)
+            return {"result": ok, "reason": why}, (200 if ok else 403)
+        except Exception as e:
+            return f"Error: {e}", 403
+    body = await request.read()
+    out, code = await asyncio.to_thread(_work, body, request.headers.get("Content-Type", ""))
+    return _resp(out, status=code)
+
+
+async def get_msg_key(request):
+    addr = _q(request, "address", "")
+    bundle = await asyncio.to_thread(memserver.message_pool.get_prekey, addr)
+    if bundle is None:
+        return _resp("Not found", status=404)
+    return _resp({"bundle": bundle})
+
+
 async def make_app(port):
     app = web.Application()
     app.add_routes([
         web.get("/", home),
+        web.post("/message", post_message),
+        web.get("/tags", get_tags),
+        web.get("/message", get_message),
+        web.post("/msg_key", post_msg_key),
+        web.get("/msg_key", get_msg_key),
         web.get("/get_snapshot_manifest", snapshot_manifest),
         web.get("/get_snapshot_chunk", snapshot_chunk),
         web.get("/get_transactions_of_account", account_transactions),

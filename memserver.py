@@ -8,6 +8,7 @@ from ops.account_ops import get_account, get_finalized_height
 from ops.block_ops import load_block_producers, get_block_ends_info
 from ops.data_ops import set_and_sort, sort_list_dict
 from ops.key_ops import load_keys
+from ops.message_pool import MessagePool
 from ops.transaction_ops import (
     validate_single_spending,
     validate_transaction,
@@ -40,6 +41,7 @@ class MemServer:
         self.address = self.keydict["address"]
         self.server_key = self.config["server_key"]
         self.transaction_pool = []
+        self.message_pool = MessagePool()   # off-chain E2E message pool (doc/messaging.md); never block-bound
         self.since_last_block = 0
         self.user_tx_buffer = []
         self.tx_buffer = []
