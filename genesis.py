@@ -107,8 +107,11 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
         with open(alloc_path) as af:
             alloc = json.load(af)
         for e in sorted(alloc, key=lambda x: x["address"]):
-            create_account(address=e["address"], balance=int(e.get("balance", 0)),
-                           bonded=int(e.get("bonded", 0)))
+            # AUTHORITATIVE set (not create_account's insert-or-ignore): a carried balance/stake must apply
+            # even when genesis_open.dat already created this address as a registered relay identity above,
+            # otherwise its coins would be silently dropped. account_set_field preserves other fields.
+            kv_ops.account_set_field(e["address"], "balance", int(e.get("balance", 0)))
+            kv_ops.account_set_field(e["address"], "bonded", int(e.get("bonded", 0)))
         logger.warning(f"RELAUNCH: carried forward {len(alloc)} account balances from the prior chain")
 
     # FAUCET GUARD: there is intentionally NO auto-bond faucet anywhere. Granting a fresh address a
