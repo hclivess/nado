@@ -25,7 +25,7 @@ import * as sjoinsplit2 from "./stark/joinsplit2.js";
 import * as sstark from "./stark/stark.js";
 import { treePath } from "./stark/tree.js";
 import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js";
-const CHAIN_ID = "nado-relaunch-1";
+const CHAIN_ID = "nado-relaunch-2";
 const EPOCH_LENGTH = 60;
 const REGISTER_POW_BITS = 16;  // legacy hashcash (retired) — kept only for the self-test vector
 // Registration Proof of Sequential Work (must match protocol.py). Non-parallelizable ~1 s chain; the

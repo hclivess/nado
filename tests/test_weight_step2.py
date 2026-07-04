@@ -41,7 +41,7 @@ check("empty bonded registry -> weight 0", t2)
 
 def t3():
     common = dict(block_timestamp=10, block_number=5, parent_hash="0" * 64, creator="m",
-                  block_ip="x", block_producers_hash="ph", transaction_pool=[],
+                  transaction_pool=[],
                   block_reward=1_000_000_000, parent_cumulative_fees=0)
     blk = construct_block(parent_cumulative_weight=12, block_weight=3, **common)
     assert blk["cumulative_weight"] == 15, blk["cumulative_weight"]

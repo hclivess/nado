@@ -58,7 +58,7 @@ PARENT_HASH = "a" * 64
 TIP_HASH = "b" * 64
 parent = {"block_number": 4, "block_hash": PARENT_HASH, "parent_hash": "c" * 64,
           "block_creator": "ndo" + "0" * 46, "block_reward": 0, "block_transactions": [],
-          "block_timestamp": 1, "block_ip": "ndo" + "0" * 46, "cumulative_fees": 0}
+          "block_timestamp": 1, "cumulative_fees": 0}
 tip = {"block_number": 5, "block_hash": TIP_HASH, "parent_hash": PARENT_HASH,
        "block_creator": "ndo" + "0" * 46, "block_reward": 1000000000, "block_transactions": [],
        "block_timestamp": 2, "block_ip": "ndo" + "0" * 46, "cumulative_fees": 0}

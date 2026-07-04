@@ -142,7 +142,6 @@ async def status(request):
             "reported_uptime": memserver.reported_uptime,
             "address": memserver.address,
             "transaction_pool_hash": memserver.transaction_pool_hash,
-            "block_producers_hash": memserver.block_producers_hash,
             "latest_block_hash": lb.get("block_hash"),
             "latest_block_weight": lb.get("cumulative_weight", 0),
             "earliest_block_hash": eb.get("block_hash"),
@@ -901,10 +900,6 @@ async def make_app(port):
         web.get("/peers", _dump_handler("peers", lambda: me_to(list(memserver.peers)))),
         web.get("/peer_buffer", _dump_handler("peer_buffer", lambda: list(memserver.peer_buffer))),
         web.get("/unreachable", _dump_handler("unreachable", lambda: memserver.unreachable)),
-        web.get("/block_producers_hash_pool", _dump_handler("block_producers_hash_pool", lambda: {
-            "block_producers_hash_pool": consensus.block_producers_hash_pool,
-            "majority_block_producers_hash_pool": consensus.majority_block_producers_hash})),
-        web.get("/block_producers", _dump_handler("block_producers", lambda: list(memserver.block_producers))),
         web.get("/block_hash_pool", _dump_handler("block_hash_pool", lambda: {
             "block_opinions": consensus.block_hash_pool,
             "majority_block_opinion": consensus.majority_block_hash})),

@@ -4,8 +4,8 @@ from compounder import compound_get_list_of
 from config import get_timestamp_seconds, get_config
 from hashing import blake2b_hash
 from ops.account_ops import get_account, get_finalized_height
-from ops.block_ops import load_block_producers, get_block_ends_info
-from ops.data_ops import set_and_sort, sort_list_dict, get_home
+from ops.block_ops import get_block_ends_info
+from ops.data_ops import sort_list_dict, get_home
 from ops.key_ops import load_keys
 from ops.message_pool import MessagePool
 from ops.transaction_ops import (
@@ -62,10 +62,8 @@ class MemServer:
         self.peers = []
 
         self.transaction_pool_hash = None
-        self.block_producers_hash = None
         self.block_generation_age = 0 # time since last block (real, not target)
         self.reported_uptime = self.get_uptime()
-        self.block_producers = load_block_producers()
 
         self.emergency_mode = False
 
@@ -174,14 +172,6 @@ class MemServer:
         else:
             transaction_pool_hash = None
         return transaction_pool_hash
-
-    def get_block_producers_hash(self) -> [str, None]:
-        if self.block_producers:
-            self.block_producers = set_and_sort(self.block_producers)
-            producers_pool_hash = blake2b_hash(self.block_producers)
-        else:
-            producers_pool_hash = None
-        return producers_pool_hash
 
     def get_uptime(self) -> int:
         return get_timestamp_seconds() - self.start_time

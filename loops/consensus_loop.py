@@ -3,10 +3,8 @@ import time
 import traceback
 
 from config import get_timestamp_seconds
-from ops.block_ops import save_block_producers
 from ops.peer_ops import (
     load_peer,
-    me_to,
     get_majority,
     percentage,
     get_average_int,
@@ -47,11 +45,9 @@ class ConsensusClient(threading.Thread):
         self.status_pool = {}
         self.trust_pool = {}
         self.transaction_hash_pool = {}
-        self.block_producers_hash_pool = {}
 
         self.majority_block_hash = None
         self.majority_transaction_pool_hash = None
-        self.majority_block_producers_hash = None
 
         # #16/#17 step 3: OBJECTIVE heaviest-cumulative_weight fork-choice (replaces the Sybil-swingable
         # plurality majority_block_hash for the BLOCK chain). Peer IPs contribute ZERO weight; only the
@@ -72,13 +68,7 @@ class ConsensusClient(threading.Thread):
         self.trust_average = None
 
         self.transaction_hash_pool_percentage = 0
-        self.block_producers_hash_pool_percentage = 0
         self.block_hash_pool_percentage = 0
-
-        self.memserver.peers = me_to(self.memserver.peers)
-
-        self.memserver.block_producers = me_to(self.memserver.block_producers)
-        save_block_producers(self.memserver.block_producers)
 
     def reward_pool_consensus(self, pool, majority_pool) -> None:
         try:
@@ -121,9 +111,6 @@ class ConsensusClient(threading.Thread):
         get_from_pool(source="latest_block_hash",
                       target=self.block_hash_pool,
                       pool=self.status_pool)
-        get_from_pool(source="block_producers_hash",
-                      target=self.block_producers_hash_pool,
-                      pool=self.status_pool)
 
         self.block_hash_pool_percentage = get_pool_percentage(
             self.block_hash_pool, self.majority_block_hash
@@ -133,16 +120,9 @@ class ConsensusClient(threading.Thread):
             self.transaction_hash_pool, self.majority_transaction_pool_hash
         )
 
-        self.block_producers_hash_pool_percentage = get_pool_percentage(
-            self.block_producers_hash_pool, self.majority_block_producers_hash
-        )
-
         self.majority_block_hash = get_pool_majority(self.block_hash_pool)
         self.majority_transaction_pool_hash = get_pool_majority(
             self.transaction_hash_pool
-        )
-        self.majority_block_producers_hash = get_pool_majority(
-            self.block_producers_hash_pool
         )
 
         self.refresh_heaviest_tip()
@@ -192,8 +172,6 @@ class ConsensusClient(threading.Thread):
             try:
                 start = get_timestamp_seconds()
 
-                # self.add_block_producers()
-
                 self.add_peers_to_trust_pool()
 
                 if None not in self.trust_pool.values():
@@ -210,7 +188,6 @@ class ConsensusClient(threading.Thread):
                 )
 
                 self.memserver.transaction_pool_hash = self.memserver.get_transaction_pool_hash()
-                self.memserver.block_producers_hash = self.memserver.get_block_producers_hash()
 
                 self.refresh_hashes()
 

@@ -66,10 +66,10 @@ check("get_block_reward: parent-anchored cumfee, capped", t3)
 def t4():
     txs = [{"fee": 100, "amount": 1, "txid": "a"}, {"fee": 250, "amount": 1, "txid": "b"}]
     blk = construct_block(block_timestamp=10, block_number=5, parent_hash="0"*64, creator="m",
-                          block_ip="1.2.3.4", block_producers_hash="ph", transaction_pool=txs,
+                          transaction_pool=txs,
                           block_reward=400000, parent_cumulative_fees=1_000_000)
     assert blk["cumulative_fees"] == 1_000_000 + 350, blk["cumulative_fees"]
-    assert blk["chain_id"] == "nado-relaunch-1"
+    assert blk["chain_id"] == "nado-relaunch-2"
 check("construct_block commits cumulative_fees + chain_id", t4)
 
 # 5. incorporate vs rollback ECONOMIC round-trip = exact identity (split + fee-from-block-1)

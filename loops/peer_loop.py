@@ -7,11 +7,9 @@ from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
 from config import test_self_port
 from loops.consensus_loop import change_trust
-from ops.block_ops import save_block_producers
-from ops.data_ops import set_and_sort
 from ops.peer_ops import announce_me, get_list_of_peers, load_ips, check_save_peers, \
     dump_trust
-from ops.peer_ops import get_public_ip, update_local_ip, ip_stored, check_ip, subnet_diversity_ok
+from ops.peer_ops import get_public_ip, update_local_ip, check_ip, subnet_diversity_ok
 from ops.peer_ops import seed_default_peers
 
 
@@ -35,18 +33,12 @@ class PeerClient(threading.Thread):
                                   unreachable=self.memserver.unreachable)
 
         for entry in result["success"]:
-            if entry not in self.memserver.block_producers and ip_stored(entry):
-                self.logger.info(f"{entry} loaded remotely and added to block producers")
-                self.memserver.block_producers.append(entry)
             if entry in self.memserver.peer_buffer:
                 self.memserver.peer_buffer.remove(entry)
             if (entry not in self.memserver.peers
                     and len(self.memserver.peers) < self.memserver.peer_limit
                     and subnet_diversity_ok(entry, self.memserver.peers)):  # eclipse cap (#18 step 8)
                 self.memserver.peers.append(entry)
-
-        self.memserver.block_producers = set_and_sort(self.memserver.block_producers)
-        save_block_producers(self.memserver.block_producers)
 
     def sniff_peers_and_producers(self):
         """gets peers of peers and adds them to routines"""
@@ -69,14 +61,6 @@ class PeerClient(threading.Thread):
                             and subnet_diversity_ok(peer, self.memserver.peers)):  # eclipse cap (#18 step 8)
                         self.memserver.peers.append(peer)
 
-                    if peer not in self.memserver.block_producers and ip_stored(peer):
-                        self.memserver.block_producers.append(peer)
-                        self.logger.warning(f"Added {peer} to block producers")
-                        """address is sniffed before block is produced"""
-
-        self.memserver.block_producers = set_and_sort(self.memserver.block_producers)
-        save_block_producers(self.memserver.block_producers)
-
     def disconnect_peer(self, entry):
         if entry in self.memserver.peers:
             self.memserver.peers.remove(entry)
@@ -90,19 +74,12 @@ class PeerClient(threading.Thread):
         for entry in self.memserver.purge_peers_list:
             self.disconnect_peer(entry)
 
-            if entry in self.memserver.block_producers:
-                self.memserver.block_producers.remove(entry)
-                # self.logger.warning(f"Removed {entry} from block producers")
-
             self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
                                                      peer=entry,
                                                      value=-1)
 
             if entry in self.consensus.status_pool.keys():
                 self.consensus.status_pool.pop(entry)
-
-            if entry in self.consensus.block_producers_hash_pool.keys():
-                self.consensus.block_producers_hash_pool.pop(entry)
 
             if entry in self.consensus.transaction_hash_pool.keys():
                 self.consensus.transaction_hash_pool.pop(entry)
@@ -112,11 +89,6 @@ class PeerClient(threading.Thread):
 
             # self.logger.warning(f"Cannot connect to {entry}")
             self.memserver.purge_peers_list.remove(entry)
-
-            # delete_peer(entry, logger=self.logger)
-
-        # self.memserver.peers = me_to(self.memserver.peers)
-        # self.memserver.block_producers = me_to(self.memserver.block_producers)
 
     def run(self) -> None:
         while not self.memserver.terminate:
@@ -149,7 +121,7 @@ class PeerClient(threading.Thread):
                     self.heavy_refresh_timer = get_timestamp_seconds()
 
                     announce_me(
-                        targets=self.memserver.block_producers,
+                        targets=self.memserver.peers,
                         port=self.memserver.port,
                         my_ip=self.memserver.ip,
                         logger=self.logger,

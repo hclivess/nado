@@ -52,7 +52,6 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
     genesis_block_message = {
         "block_number": 0,
         "parent_hash": None,
-        "block_ip": ip,
         "block_creator": address,
         "block_hash": block_hash,
         "block_timestamp": timestamp,

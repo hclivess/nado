@@ -7,12 +7,10 @@ import requests
 import aiohttp
 from .account_ops import get_bonded_registry, get_open_registry
 from config import get_timestamp_seconds, get_config
-from .data_ops import set_and_sort, average, get_home, is_hex_hash
+from .data_ops import average, get_home, is_hex_hash
 from hashing import blake2b_hash_link, blake2b_hash
 from Curve25519 import sign as _sign_message, verify as _verify_message, unhex as _unhex
 from .address_ops import proof_sender, make_address
-from .key_ops import load_keys
-from .log_ops import get_logger
 from . import kv_ops
 from .mining_ops import select_producer_two_lane, lane_of, epoch_of, compute_beacon, total_bonded_shares
 from protocol import CHAIN_ID, REWARD_WINDOW, REWARD_CAP, BASE_SUBSIDY, GENESIS_BEACON, EPOCH_LENGTH
@@ -106,7 +104,7 @@ def match_transactions_target(transaction_list, block_number, logger):
 
 
 def get_block_candidate(
-        block_producers_hash, transaction_pool, logger, latest_block
+        transaction_pool, logger, latest_block
 ):
     block_number = latest_block["block_number"] + 1
 
@@ -139,10 +137,8 @@ def get_block_candidate(
         block_timestamp=max(get_timestamp_seconds(), latest_block["block_timestamp"]),
         block_number=block_number,
         parent_hash=latest_block["block_hash"],
-        block_ip=winner,
         creator=winner,
         transaction_pool=targeted_transactions,
-        block_producers_hash=block_producers_hash,
         block_reward=get_block_reward(parent_block=latest_block),
         parent_cumulative_fees=latest_block.get("cumulative_fees", 0),
         parent_cumulative_weight=latest_block.get("cumulative_weight", 0),
@@ -357,16 +353,6 @@ def block_already_indexed(block_hash):
         return False
 
 
-def get_block_producers_hash_demo():
-    """use for demo only"""
-    config = get_config()
-    ip = config["ip"]
-    port = config["port"]
-    status_message = requests.get(f"http://{ip}:{port}/status", timeout=5).text
-    block_producers_hash = json.loads(status_message)["block_producers_hash"]
-    return block_producers_hash
-
-
 def load_block_from_hash(block_hash: str, logger):
     # SECURITY: reachable from the unauthenticated /get_blocks_after / /get_blocks_before
     # hash arg; validate so it can't read arbitrary *.block paths off disk.
@@ -380,23 +366,6 @@ def load_block_from_hash(block_hash: str, logger):
         return False
 
 
-def load_block_producers() -> list:
-    # block_producers.dat is a REBUILDABLE derived index, not chain data. Tolerate a missing, empty, or
-    # corrupt file (e.g. truncated by a `kill -9` mid-write) by returning [] instead of crashing the
-    # whole node on startup — it is repopulated from the chain as blocks are processed.
-    block_producers_path = f"{get_home()}/index/block_producers.dat"
-    try:
-        with open(block_producers_path, "r") as infile:
-            return json.load(infile) or []
-    except (FileNotFoundError, ValueError):
-        return []
-
-
-def save_block_producers(block_producers: list):
-    block_producers_path = f"{get_home()}/index/block_producers.dat"
-    with open(block_producers_path, "w") as outfile:
-        json.dump(set_and_sort(block_producers), outfile)
-    return True
 
 
 def save_block(block: dict, logger):
@@ -549,8 +518,6 @@ def construct_block(
         block_number: int,
         parent_hash: str,
         creator: str,
-        block_ip: str,
-        block_producers_hash: str,
         transaction_pool: list,
         block_reward: int,
         parent_cumulative_fees: int = 0,
@@ -570,11 +537,12 @@ def construct_block(
         "block_number": block_number,
         "block_hash": None,
         "parent_hash": parent_hash,
-        "block_ip": block_ip,
+        # block_creator = the winning producer ADDRESS (RELAUNCH-2: the old IP-era `block_ip` duplicate and
+        # the vestigial `block_producers_hash` were removed from the block body — selection is fully
+        # address-based via select_producer_two_lane, so neither field affected consensus).
         "block_creator": creator,
         "block_timestamp": None,
         "block_transactions": transaction_pool,
-        "block_producers_hash": block_producers_hash,
         "child_hash": None,
         "block_reward": block_reward,
         # running fee total committed in the header so the elastic reward is verifiable from
@@ -712,7 +680,7 @@ async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="m
         logger.error(f"Failed to get blocks after {from_hash} from {target_peer}: {e}")
 
 
-async def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
+async def get_blocks_before(target_peer, from_hash, logger, count=50, compress="true"):
     try:
         url_construct = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
 
@@ -756,30 +724,3 @@ async def get_from_single_target(key, target_peer, logger) -> list:  # todo add 
 
 
 
-if __name__ == "__main__":
-    logger = get_logger(file="block_ops.log", logger_name="block_ops_logger")
-    load_block_producers()
-    block_ip = get_config()["ip"]
-    address = load_keys()["address"]
-    # rollback_one_block()
-    no_of_blocks = 1
-    for _ in range(0, no_of_blocks):
-        latest_block_info = get_block_ends_info(logger=logger)["latest_block"]
-
-        block_message = construct_block(
-            block_timestamp=get_timestamp_seconds(),
-            block_number=latest_block_info["block_number"] + 1,
-            parent_hash=latest_block_info["block_hash"],
-            block_ip=block_ip,
-            creator=address,
-            transaction_pool=get_transaction_pool_demo(),
-            block_producers_hash=get_block_producers_hash_demo(),
-            block_reward=get_block_reward(parent_block=latest_block_info),
-        )
-
-        """submit as block candidate"""
-        config = get_config()
-        ip = config["ip"]
-        port = config["port"]
-        server_key = config["server_key"]
-        requests.get(f"http://{ip}:{port}/submit_block?data={json.dumps(block_message)}&key={server_key}", timeout=5)

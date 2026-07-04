@@ -42,14 +42,10 @@ class MessageClient(threading.Thread):
                 self.logger.info(
                     f"Transaction Hash Agreement: {int(self.consensus.transaction_hash_pool_percentage)}%"
                 )
-                self.logger.info(
-                    f"Block Producer Agreement: {int(self.consensus.block_producers_hash_pool_percentage)}%"
-                )
 
                 self.logger.debug(
                     f"Transactions: {len(self.memserver.transaction_pool)}tp < {len(self.memserver.tx_buffer)}tb < {len(self.memserver.user_tx_buffer)}ub")
                 self.logger.debug(f"Linked Peers: {len(self.memserver.peers)}")
-                self.logger.debug(f"Block Producers: {len(self.memserver.block_producers)}")
                 self.logger.warning(f"Emergency Mode: {self.memserver.emergency_mode}")
                 self.logger.warning(f"Current Block: {self.memserver.latest_block['block_number']} - {self.memserver.latest_block['block_hash']}")
 

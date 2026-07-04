@@ -26,7 +26,7 @@ winner = kd["address"]
 
 def mkblock(creator):
     return construct_block(block_timestamp=10, block_number=5, parent_hash="0" * 64, creator=creator,
-                           block_ip="x", block_producers_hash="ph", transaction_pool=[],
+                           transaction_pool=[],
                            block_reward=1_000_000_000, parent_cumulative_weight=4, block_weight=1)
 
 

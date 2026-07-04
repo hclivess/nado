@@ -12,7 +12,6 @@ from ops.block_ops import (
     get_blocks_after,
     get_from_single_target,
     get_block_candidate,
-    save_block_producers,
     update_child_in_latest_block,
     save_block,
     set_latest_block_info,
@@ -33,8 +32,8 @@ from ops.block_ops import (
 from ops.mining_ops import select_producer_two_lane, epoch_of, total_bonded_shares
 from ops import kv_ops
 from protocol import CHAIN_ID, REWARD_CAP, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW
-from ops.data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size
-from ops.peer_ops import ip_stored, check_ip, qualifies_to_sync, announce_me, get_remote_status
+from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size
+from ops.peer_ops import check_ip, qualifies_to_sync, get_remote_status
 from ops import snapshot_ops
 from ops.pool_ops import merge_buffer, cull_buffer
 from ops.transaction_ops import remove_outdated_transactions
@@ -179,13 +178,6 @@ class CoreClient(threading.Thread):
                     self.replace_transaction_pool()
                     self.memserver.transaction_pool_hash = self.memserver.get_transaction_pool_hash()
 
-                if minority_consensus(
-                        majority_hash=self.consensus.majority_block_producers_hash,
-                        sample_hash=self.memserver.block_producers_hash):
-                    """replace block producers in peace period in case it is different from majority as last effort"""
-                    self.replace_block_producers()
-                    self.memserver.block_producers_hash = self.memserver.get_block_producers_hash()
-
             self.memserver.reported_uptime = self.memserver.get_uptime()
 
             # FFG (#6): refresh the stake-attested finalized checkpoint + (if bonded) attest this epoch.
@@ -200,18 +192,15 @@ class CoreClient(threading.Thread):
             self.maybe_prune_history()
 
             if 3 in self.memserver.periods:
-                block_producers = self.memserver.block_producers.copy()
                 peers = self.memserver.peers.copy()
                 """make copies to avoid errors in case content changes"""
 
                 # min_peers == 0 enables SOLO production (a single node mints without a peer mesh) —
                 # used for a stable single-node relay/demo where multi-node fork-choice churn is
-                # undesirable. With min_peers >= 1 the normal peer+producer-set gate applies.
+                # undesirable. With min_peers >= 1 the normal peer gate applies.
                 if (len(peers) >= self.memserver.min_peers
-                        and (block_producers or self.memserver.min_peers == 0)
                         and not self.memserver.force_sync_ip):
-                    block_candidate = get_block_candidate(block_producers_hash=self.memserver.block_producers_hash,
-                                                          logger=self.logger,
+                    block_candidate = get_block_candidate(logger=self.logger,
                                                           transaction_pool=self.memserver.transaction_pool.copy(),
                                                           latest_block=self.memserver.latest_block
                                                           )
@@ -379,45 +368,8 @@ class CoreClient(threading.Thread):
             if suggested_tx_pool:
                 self.memserver.transaction_pool = suggested_tx_pool
 
-    def replace_block_producers(self):
-        sync_from = self.get_peer_to_sync_from(source_pool=self.consensus.block_hash_pool)
-        """get peer which is in majority for the given hash_pool"""
-
-        if sync_from:
-            suggested_block_producers = self.replace_pool(
-                peer=sync_from,
-                key="block_producers")
-
-            if suggested_block_producers:
-                if self.memserver.ip not in suggested_block_producers:
-                    self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
-                                                             peer=sync_from,
-                                                             value=-1)
-                    self.logger.info(f"Our node not present in suggested block producers from {sync_from}")
-                    announce_me(
-                        targets=[sync_from],
-                        port=self.memserver.port,
-                        my_ip=self.memserver.ip,
-                        logger=self.logger,
-                        fail_storage=self.memserver.purge_peers_list
-                    )
-
-                replacements = []
-                for block_producer in suggested_block_producers:
-                    if ip_stored(block_producer):
-                        replacements.append(block_producer)
-                    elif block_producer not in self.memserver.peer_buffer:
-                        self.logger.info(f"{block_producer} not stored locally and will be probed")
-                        self.memserver.peer_buffer.append(block_producer)
-                    else:
-                        self.logger.info(f"{block_producer} currently in buffer, aborting")
-                        return
-
-                self.memserver.block_producers = set_and_sort(replacements)
-                save_block_producers(self.memserver.block_producers)
-
     def replace_pool(self, peer, key):
-        """replace pool (block, tx, block producers) when out of sync to prevent forking"""
+        """replace pool (block, tx) when out of sync to prevent forking"""
         self.logger.info(f"Replacing {key} from {peer}")
 
         suggested_pool = asyncio.run(get_from_single_target(
@@ -631,7 +583,7 @@ class CoreClient(threading.Thread):
 
     def rebuild_block(self, block):
         # Reconstruct the block deterministically from the LOCAL tip + the block's tx set: the winner
-        # (creator/block_ip) and reward/cumulative_fees are RECOMPUTED from local parent state, so a
+        # (block_creator) and reward/cumulative_fees are RECOMPUTED from local parent state, so a
         # peer cannot misattribute the producer or inject an inflated reward — only a block matching
         # the canonical reconstruction is incorporated. (Producer-signature AUTHENTICATION is
         # deferred to the coordinated security milestone: winner-only signing both fights the
@@ -648,10 +600,8 @@ class CoreClient(threading.Thread):
             block_timestamp=max(get_timestamp_seconds(), parent["block_timestamp"]),
             block_number=block_number,
             parent_hash=parent["block_hash"],
-            block_ip=winner,
             creator=winner,
             transaction_pool=block["block_transactions"],
-            block_producers_hash=block["block_producers_hash"],
             block_reward=get_block_reward(parent_block=parent),
             parent_cumulative_fees=parent.get("cumulative_fees", 0),
             parent_cumulative_weight=parent.get("cumulative_weight", 0),
@@ -1097,13 +1047,13 @@ class CoreClient(threading.Thread):
 
             gen_elapsed = get_timestamp_seconds() - gen_start
 
-            # block_ip is now the winner ADDRESS (S4.3), so identity is the address match alone
+            # the producer is identified by the winner ADDRESS (block_creator) alone
             if self.memserver.address == block['block_creator'] and block['block_reward'] > 0:
                 self.logger.warning(f"$$$ Congratulations! You won! $$$")
 
             self.logger.warning(f"Block hash: {block['block_hash']}")
             self.logger.warning(f"Block number: {block['block_number']}")
-            self.logger.warning(f"Winner: {block['block_creator']} of {block['block_ip']}")
+            self.logger.warning(f"Winner: {block['block_creator']}")
             self.logger.warning(
                 f"Block reward: {to_readable_amount(block['block_reward'])}"
             )
@@ -1125,7 +1075,6 @@ class CoreClient(threading.Thread):
         self.memserver.transaction_pool_hash = (
             self.memserver.get_transaction_pool_hash()
         )
-        self.memserver.block_producers_hash = self.memserver.get_block_producers_hash()
 
     def check_mode(self):
         if self.minority_block_consensus():
