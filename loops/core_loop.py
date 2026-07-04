@@ -253,10 +253,9 @@ class CoreClient(threading.Thread):
                     else:
                         self.logger.warning("No eligible bonded producer this round; skipping production")
 
-                else:
-                    # a normal WAITING state (below min_peers, or a forced sync in progress) — DEBUG, not a
-                    # per-second WARNING. The node still syncs; it just isn't its turn/able to mint yet.
-                    self.logger.debug("Criteria for block production not met (below min_peers or syncing)")
+                # (no log for the "below min_peers / forced-sync in progress" case: it's a persistent normal
+                # WAITING state that fires every ~1s loop, and the node's status is already in the periodic
+                # message-loop line — logging it per iteration is pure spam.)
 
         except Exception as e:
             self.logger.info(f"Error: {e}")
