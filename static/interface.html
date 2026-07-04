@@ -614,17 +614,23 @@
   <div id="messages" class="card hidden" data-tab="messages">
     <h2 data-i18n="msg.title">Messages</h2>
     <p class="small faint" data-i18n="msg.sub">Off-chain · end-to-end encrypted · post-quantum · free. History stays on this device.</p>
-    <div class="row" style="gap:6px;margin:8px 0">
-      <input id="msgTo" placeholder="alias or ndo… address" autocomplete="off" spellcheck="false" style="flex:1">
-      <button class="btn ghost sm" id="msgNewBtn" data-i18n="msg.new">New</button>
+    <div class="msg-layout">
+      <div class="msg-side">
+        <div class="row" style="gap:6px">
+          <input id="msgTo" placeholder="alias or ndo… address" autocomplete="off" spellcheck="false" style="flex:1">
+          <button class="btn ghost sm" id="msgNewBtn" data-i18n="msg.new">New</button>
+        </div>
+        <div id="msgConvList" class="msgconv-list"></div>
+      </div>
+      <div class="msg-main">
+        <div id="msgThread" class="msgthread"></div>
+        <div class="row msg-compose" style="gap:6px">
+          <input id="msgBody" placeholder="Write a message…" autocomplete="off" style="flex:1">
+          <button class="accent" id="msgSendBtn" data-i18n="msg.send">Send</button>
+        </div>
+        <div class="small faint" id="msgHint"></div>
+      </div>
     </div>
-    <div id="msgConvList" class="msgconv-list"></div>
-    <div id="msgThread" class="msgthread"></div>
-    <div class="row" style="gap:6px;margin-top:8px">
-      <input id="msgBody" placeholder="Write a message…" autocomplete="off" style="flex:1">
-      <button class="accent" id="msgSendBtn" data-i18n="msg.send">Send</button>
-    </div>
-    <div class="small faint" id="msgHint" style="margin-top:6px"></div>
   </div>
 
   <div id="settingsCard" class="card hidden" data-tab="settings">

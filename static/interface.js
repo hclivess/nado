@@ -3319,7 +3319,11 @@ function renderMessages() {
   }
   // active thread
   const peer = state.msgActivePeer;
-  if (!peer || !hist[peer]) { threadEl.innerHTML = ""; return; }
+  if (!peer || !hist[peer]) {
+    threadEl.innerHTML = '<div class="msgempty">' +
+      escapeHtml(i18("msg.pick", "Select a conversation, or enter an alias/address above and send a message.")) + '</div>';
+    return;
+  }
   threadEl.innerHTML = hist[peer].messages.map((msg) => {
     const cls = msg.dir === "out" ? "msgbubble out" : "msgbubble in";
     const status = _msgStatusLabel(msg);
