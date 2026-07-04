@@ -49,7 +49,7 @@ from ops.transaction_ops import (construct_attestation_tx, construct_commit_tx, 
                                  construct_bond_tx, construct_blob_tx, construct_register_tx)
 from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
-from protocol import EPOCH_LENGTH, FINALITY_DEPTH
+from protocol import EPOCH_LENGTH, FINALITY_DEPTH, REWARD_WINDOW
 
 # protocol cap on a block reward (mirrors get_block_reward's reward_cap)
 MAX_BLOCK_REWARD = 5000000000
@@ -458,11 +458,34 @@ class CoreClient(threading.Thread):
                 return False
 
             save_block(anchor, logger=self.logger)
-            set_earliest_block_info(earliest_block=anchor, logger=self.logger)
             set_latest_block_info(latest_block=anchor, logger=self.logger)
-            self.memserver.earliest_block = anchor
             self.memserver.latest_block = anchor
-            self.logger.warning(f"Snapshot bootstrap complete at height {target_height}; replaying tail")
+
+            # BACKFILL the recent block BODIES the C+1..tip tail replay can NOT rebuild. block_by_num/hash
+            # arrived in the snapshot, so HASH lookbacks (beacon anchor (epoch-1)*EPOCH_LENGTH, FFG/PoSW
+            # epoch boundaries) already resolve — but a few lookbacks read the block BODY just behind C,
+            # notably get_block_reward's cumulative_fees at (C - REWARD_WINDOW). Without those bodies the very
+            # first produced/verified block C+1 crashes ("anchor #N missing" / reward lookback). Walk back by
+            # parent_hash from the anchor, fetching + saving each body. Bounded + best-effort (a pruned donor
+            # may lack the deepest ones; we stop cleanly and set earliest to the oldest we actually got).
+            tail_depth = REWARD_WINDOW + 2 * EPOCH_LENGTH + FINALITY_DEPTH
+            oldest, filled = anchor, 0
+            for _ in range(tail_depth):
+                ph = oldest.get("parent_hash")
+                if not ph or int(oldest.get("block_number", 0)) <= 0:
+                    break
+                body = asyncio.run(snapshot_ops.fetch_block(source, self.memserver.port, ph))
+                if not body or body.get("block_hash") != ph:
+                    self.logger.warning(f"Snapshot body backfill stopped at height "
+                                        f"{int(oldest.get('block_number', 0)) - 1} ({filled}/{tail_depth} "
+                                        f"bodies) — donor lacks it; deeper lookbacks may skip until tail sync")
+                    break
+                save_block(body, logger=self.logger)
+                oldest, filled = body, filled + 1
+            set_earliest_block_info(earliest_block=oldest, logger=self.logger)
+            self.memserver.earliest_block = oldest
+            self.logger.warning(f"Snapshot bootstrap complete at height {target_height}; "
+                                f"backfilled {filled} recent bodies behind C; replaying tail")
             return True
 
         except Exception as e:

@@ -52,13 +52,21 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 _PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert")
 _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch", "treasury_votes")
 
-# CONSENSUS STATE a snapshot carries: every sub-DB EXCEPT the block + tx HISTORY indexes (explorer-only,
+# CONSENSUS STATE a snapshot carries: every sub-DB EXCEPT the block-body + tx HISTORY (explorer-only,
 # rebuilt by replaying the C+1..tip tail). This is the FULL producer-selection + validation state — account
 # docs (balance/produced/bonded/registered/fidelity), totals, the deterministic meta replay-guards +
 # finalized floor, recerts/recert_by_epoch (open-lane lease), bond_since (bonded ramp), commits/reveals
 # (RANDAO beacon), attestations (FFG), unbonds, aliases, htlcs, settlements, treasury — so a snapshot-synced
 # node derives the SAME producer set on tail replay. Sorted for a canonical, cross-node state root.
-_HISTORY_DBS = frozenset(("block_by_num", "block_by_hash", "tx", "tx_by_sender", "tx_by_recipient"))
+#
+# block_by_num / block_by_hash (the number<->hash INDEX, not the block bodies) ARE carried: a snapshot-synced
+# node must resolve get_block_hash_by_number for beacon anchors ((epoch-1)*EPOCH_LENGTH), FFG epoch
+# boundaries and PoSW anchors that sit BEFORE the snapshot height — which the C+1..tip tail replay never
+# rebuilds. Without them epoch_beacon raises "finalized anchor #N missing" and the node can't produce/verify.
+# This mirrors rolling mode (which likewise ALWAYS keeps num<->hash and drops only bodies). The heavy tx
+# history + block BODIES stay out; the recent bodies a node still needs (get_block_reward's REWARD_WINDOW
+# cumulative_fees lookback) are backfilled from the donor in loops/core_loop.snapshot_bootstrap.
+_HISTORY_DBS = frozenset(("tx", "tx_by_sender", "tx_by_recipient"))
 SNAPSHOT_DBS = tuple(sorted(set(_PLAIN_DBS + _DUP_DBS) - _HISTORY_DBS))
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
