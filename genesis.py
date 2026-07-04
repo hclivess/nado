@@ -96,6 +96,21 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
             kv_ops.recert_put(address=addr, epoch=0)  # seed a lease at epoch 0 (DUPSORT dedups per addr@0)
         logger.warning(f"Seeded {len(open_ids)} registered open-lane genesis identities (epoch 0)")
 
+    # RELAUNCH CARRY-FORWARD: seed prior-chain balances + bonded stake from a byte-identical genesis_alloc.dat
+    # so a block-format hardfork (relaunch-2) preserves everyone's coins. Account seeding does NOT change the
+    # genesis block hash (block 0 hash = blake2b_hash_link(timestamp, []) ignores account state), but it MUST
+    # be identical on every node or state forks — the file is generated ONCE from the prior chain's final state
+    # (tools/relaunch_carry_forward.py) and shared verbatim. bond_since is left UNSET (fully aged) so carried
+    # stake keeps full producer weight from genesis (no re-ramp penalty just for relaunching).
+    alloc_path = f"{get_home()}/private/genesis_alloc.dat"
+    if os.path.exists(alloc_path):
+        with open(alloc_path) as af:
+            alloc = json.load(af)
+        for e in sorted(alloc, key=lambda x: x["address"]):
+            create_account(address=e["address"], balance=int(e.get("balance", 0)),
+                           bonded=int(e.get("bonded", 0)))
+        logger.warning(f"RELAUNCH: carried forward {len(alloc)} account balances from the prior chain")
+
     # FAUCET GUARD: there is intentionally NO auto-bond faucet anywhere. Granting a fresh address a
     # bonded share would pipe the CAPPED free lane into the UNCAPPED capital lane (a Sybil ->
     # stake-majority path that broke the rejected fronted/faucet designs). Onboarding is strictly:
