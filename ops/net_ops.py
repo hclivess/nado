@@ -38,13 +38,23 @@ MAX_SNAPSHOT_ACCOUNTS = 50_000_000
 
 
 async def read_capped(response, cap):
-    """Read at most `cap` bytes from an aiohttp response; raise if the peer streams more (anti-OOM).
-    Uses .content.read so we never buffer an unbounded body the way response.read() would."""
+    """Read up to `cap` bytes from an aiohttp response; raise if the peer streams more (anti-OOM).
+    MUST LOOP: aiohttp's StreamReader.read(n) returns AT MOST n bytes and typically FEWER — just the first
+    buffered TCP segment. A single `.read(cap+1)` therefore TRUNCATED any body that spanned more than one
+    segment (an 867 KB snapshot chunk came back as its 32 KB first segment -> sha256 mismatch on import).
+    Accumulate 64 KiB at a time until EOF, bailing the instant the running total exceeds the cap so we never
+    buffer an unbounded body."""
     cap = int(cap)
-    body = await response.content.read(cap + 1)
-    if len(body) > cap:
-        raise IOError(f"peer response exceeds {cap}-byte cap")
-    return body
+    parts, total = [], 0
+    while True:
+        block = await response.content.read(65536)
+        if not block:
+            break
+        total += len(block)
+        if total > cap:
+            raise IOError(f"peer response exceeds {cap}-byte cap")
+        parts.append(block)
+    return b"".join(parts)
 
 
 def unpack_peer(body):
