@@ -163,6 +163,22 @@ def construct_register_tx(keydict, target_block, posw_proof):
     return tx
 
 
+def construct_msgkey_tx(keydict, kem_pub, target_block):
+    """Build a SIGNED on-chain messaging-key tx. FEE-EXEMPT + zero-amount identity tx (recipient 'msgkey')
+    that BINDS the sender's ML-KEM-768 encryption pubkey (`kem_pub`, 2368 hex chars) to their on-chain
+    account, so anyone can DM them by address/alias with no off-chain prekey publish. kem_pub rides top-level
+    in the SIGNED body (create_txid commits it — only public_key is excluded), exactly like register's `posw`,
+    so the browser's buildMsgkeyTx and the node agree byte-for-byte. Key rotation is allowed (a later msgkey
+    overwrites; apply_msgkey is revert-symmetric)."""
+    tx = {"sender": keydict["address"], "recipient": "msgkey", "amount": 0,
+          "timestamp": get_timestamp_seconds(), "data": "",
+          "nonce": create_nonce(), "public_key": keydict["public_key"],
+          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0, "kem_pub": kem_pub}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
 def blob_payload_size(payload) -> int:
     """True canonical byte length of a blob payload (for the DA size cap) — deterministic across nodes."""
     return len(canonical_bytes(payload))
@@ -507,6 +523,18 @@ def validate_transaction(transaction, logger, block_height):
         req_t = required_posw_t(epoch_of(max(0, transaction["target_block"] - POSW_ANCHOR_OFFSET)))
         assert posw.verify(posw.challenge_bytes(transaction["sender"], anchor), proof,
                            req_t, POSW_S, POSW_K), "Invalid registration PoSW (or below the required difficulty)"
+    elif recipient == "msgkey":
+        # ON-CHAIN MESSAGING KEY: FEE-EXEMPT, zero-amount identity tx binding the sender's ML-KEM-768
+        # encryption pubkey to their account so senders can DM by address with no off-chain prekey. It is
+        # sender-scoped (writes only the sender's own kem_pub) and anti-spam-gated by the empty-account rule
+        # (msgkey is NOT in the onboarding bypass, so the sender must already have an on-chain account), so
+        # envelope-shape checks suffice here. Re-publish / key rotation is allowed.
+        assert transaction["amount"] == 0, "msgkey tx must have zero amount"
+        assert transaction["fee"] == 0, "msgkey tx is fee-exempt (fee must be 0)"
+        kp = transaction.get("kem_pub")
+        # ML-KEM-768 public key = 1184 bytes = 2368 lowercase-hex chars (fixed length).
+        assert isinstance(kp, str) and len(kp) == 2368 and all(c in "0123456789abcdef" for c in kp), \
+            "msgkey kem_pub must be a 2368-hex-char ML-KEM-768 public key"
     elif recipient == "alias":
         # ALIAS op (register / transfer / unregister): validate the op, name, ownership + fee floor.
         from ops import alias_ops

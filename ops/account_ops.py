@@ -74,6 +74,15 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         apply_register(address=sender, epoch=(block_height // EPOCH_LENGTH), logger=logger, revert=revert)
         return
 
+    # --- ON-CHAIN MESSAGING KEY (msgkey): bind/rotate the sender's ML-KEM-768 pubkey onto their account so
+    #     anyone can DM them by address/alias with NO off-chain prekey publish (which was ephemeral + wiped on
+    #     restart). Fee-EXEMPT, no coin movement (like register). kem_pub (hex) rides top-level in the SIGNED
+    #     body -> committed by create_txid (only public_key is excluded). Revert-symmetric (see apply_msgkey).
+    if recipient == "msgkey":
+        apply_msgkey(address=sender, kem_pub=transaction["kem_pub"], txid=transaction["txid"],
+                     logger=logger, revert=revert)
+        return
+
     # --- SLASHING (#15 step 5C): a fee-exempt tx carrying a proven equivocation proof in `data`.
     # validate_transaction already verified the proof + that the offender holds enough bond + is not
     # already slashed at this height, so reflect just extracts (offender, height) and burns the bond.
@@ -473,6 +482,26 @@ def apply_register(address: str, epoch: int, logger, revert=False):
         if not kv_ops.account_adjust(address, "fidelity", net, floor_zero=True):
             raise AssertionError(f"Fidelity underflow for {address}")
         kv_ops.hb_revert_put(epoch, address, prev, net)         # exact inverse for rollback
+    return True
+
+
+def apply_msgkey(address, kem_pub, txid, logger, revert=False):
+    """Bind/rotate the sender's ML-KEM-768 messaging pubkey on their account (schemaless `kem_pub` field), so
+    peers can DM them by address/alias with no off-chain prekey publish. Revert-symmetric: apply stashes the
+    PRIOR kem_pub (or None) keyed by txid; revert restores it — or deletes the field if the account had none —
+    so the account doc returns byte-identical. (Overwrites on key rotation, so a naive delete-on-revert would
+    lose the earlier key; the txid-keyed revert record is what makes it exact.)"""
+    if revert:
+        found, prev = kv_ops.msgkey_revert_pop(txid)
+        if (not found) or prev is None:
+            kv_ops.account_del_field(address, "kem_pub")
+        else:
+            kv_ops.account_set_field(address, "kem_pub", prev)
+    else:
+        acc = kv_ops.get_account(address)
+        prev = acc.get("kem_pub") if acc else None
+        kv_ops.msgkey_revert_put(txid, prev)
+        kv_ops.account_set_field(address, "kem_pub", kem_pub)
     return True
 
 

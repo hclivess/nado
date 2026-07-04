@@ -841,10 +841,19 @@ async def post_msg_key(request):
 
 async def get_msg_key(request):
     addr = _q(request, "address", "")
-    bundle = await asyncio.to_thread(memserver.message_pool.get_prekey, addr)
-    if bundle is None:
-        return _resp("Not found", status=404)
-    return _resp({"bundle": bundle})
+    def _work():
+        # ON-CHAIN FIRST: the recipient's ML-KEM-768 messaging pubkey is bound to their identity by the
+        # fee-exempt `msgkey` tx (schemaless account field `kem_pub`) — consensus state, on every node, never
+        # wiped, no pre-publish/wallet-open needed. Fall back to the legacy off-chain prekey pool if absent.
+        acc = get_account(addr, create_on_error=False)
+        if acc and acc.get("kem_pub"):
+            return {"kem_pub": acc["kem_pub"], "address": addr, "source": "chain"}, 200
+        bundle = memserver.message_pool.get_prekey(addr)
+        if bundle is not None:
+            return {"bundle": bundle, "source": "pool"}, 200
+        return "Not found", 404
+    out, code = await asyncio.to_thread(_work)
+    return _resp(out, status=code)
 
 
 # Deep-linkable interface URLs — /aliases, /messages, /send, … serve the SAME single-page interface, so a

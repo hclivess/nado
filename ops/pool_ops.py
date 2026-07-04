@@ -8,6 +8,10 @@ from .data_ops import get_byte_size, sort_list_dict
 FEE_EXEMPT_RECIPIENTS = frozenset({
     "register", "heartbeat", "unbond", "withdraw", "commit", "reveal", "attest",
     "settle", "bridge_withdraw", "dividend_withdraw",
+    # msgkey (bind ML-KEM messaging pubkey to the account) is fee-exempt + zero-value; it is NOT added to the
+    # empty-account onboarding bypass, so the sender must already have an on-chain account (registered / holds
+    # coins) — that gate replaces register's PoSW as the anti-spam bound, so it is safe from the cull too.
+    "msgkey",
 })
 
 

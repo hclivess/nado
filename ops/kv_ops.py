@@ -49,7 +49,7 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   commits           "sender|target_epoch"    -> commitment                                   (RANDAO #7)
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
-_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals")
+_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert")
 _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch", "treasury_votes")
 
 # CONSENSUS STATE a snapshot carries: every sub-DB EXCEPT the block + tx HISTORY indexes (explorer-only,
@@ -1116,6 +1116,30 @@ def hb_revert_pop(epoch: int, address: str):
         txn.delete(key, db=_dbs()["hb_revert"])
         prev, net = _unpack(raw)
         return int(prev), int(net)
+    return _write(_do)
+
+
+def msgkey_revert_put(txid: str, prev_value):
+    """MSGKEY (revert record): store the EXACT inverse of a msgkey update — the sender's PREVIOUS kem_pub
+    (hex str) or None if it had none — keyed by txid, plain KV. Rollback reads this to restore kem_pub
+    byte-identically. A record is ALWAYS written on apply (even when prev is None) so pop can distinguish
+    'no prior key' (delete on revert) from 'no record' (legacy / double-revert guard)."""
+    def _do(txn):
+        txn.put(txid.encode(), _pack([prev_value]), db=_dbs()["msgkey_revert"])
+    _write(_do)
+
+
+def msgkey_revert_pop(txid: str):
+    """Read + DELETE the msgkey revert record for txid. Returns (True, prev_value) where prev_value is the
+    previous kem_pub hex str or None; returns (False, None) if no record exists. Runs in the active txn."""
+    def _do(txn):
+        key = txid.encode()
+        raw = txn.get(key, db=_dbs()["msgkey_revert"])
+        if raw is None:
+            return (False, None)
+        txn.delete(key, db=_dbs()["msgkey_revert"])
+        (prev,) = _unpack(raw)
+        return (True, prev)
     return _write(_do)
 
 
