@@ -64,7 +64,6 @@ def create_config(ip: str, config_path: str = f"{get_home()}/private/config.dat"
         "max_rollbacks": 10,
         "finality_depth": 30,
         "cascade_limit": 1,
-        "promiscuous": False,
         # AUTO-BOND (non-consensus): % of newly-mined earnings to auto-compound into bonded stake,
         # unattended. Defaults to protocol.AUTO_BOND_DEFAULT_PERCENT (80) so a fresh node joins the
         # bonded lane hands-free; set 0 to disable. Overridable via the NADO_AUTO_BOND_PERCENT env var.

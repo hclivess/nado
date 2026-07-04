@@ -958,7 +958,7 @@ if not os.path.exists(f"{get_home()}/blocks"):
     make_genesis(
         address=GENESIS_ADDRESS,        # genesis address == treasury (no personal premine)
         balance=TREASURY_GENESIS,        # bootstrap allocation minted to the treasury
-        ip="78.102.98.72",
+        ip="38.242.201.206",          # get.nadochain.com — the live public bootstrap node
         port=9173,
         timestamp=GENESIS_TIMESTAMP,
         logger=logger,
@@ -1003,7 +1003,6 @@ logger.info(f"Your IP: {memserver.ip}")
 # producer (every bond < B_MIN, or none seeded) -> fail-closed selection silently produces no blocks.
 _registry = get_bonded_registry()
 logger.warning(f"Bonded producer registry: {len(_registry)} eligible, total_shares={total_shares(_registry)}")
-logger.info(f"Promiscuity mode: {memserver.promiscuous}")
 logger.info(f"Cascade depth limit: {memserver.cascade_limit}")
 
 consensus = ConsensusClient(memserver=memserver, logger=logger)

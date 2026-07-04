@@ -4,10 +4,7 @@ import psutil
 import threading
 import time
 import traceback
-from math import floor
 import gc
-
-from config import get_timestamp_seconds
 
 
 class MessageClient(threading.Thread):
@@ -22,9 +19,6 @@ class MessageClient(threading.Thread):
         self.core = core
         self.peers = peers
 
-    def get_target_height(self):
-        since_genesis = get_timestamp_seconds() - self.memserver.genesis_timestamp
-        return floor(since_genesis / self.memserver.block_time)
     def is_all_fine(self):
 
         if len(self.memserver.peers) < 10:
@@ -57,11 +51,11 @@ class MessageClient(threading.Thread):
                 self.logger.debug(f"Linked Peers: {len(self.memserver.peers)}")
                 self.logger.debug(f"Block Producers: {len(self.memserver.block_producers)}")
                 self.logger.warning(f"Emergency Mode: {self.memserver.emergency_mode}")
-                self.logger.warning(f"Current Block: {self.memserver.latest_block['block_number']} / {self.get_target_height()} - {self.memserver.latest_block['block_hash']}")
+                self.logger.warning(f"Current Block: {self.memserver.latest_block['block_number']} - {self.memserver.latest_block['block_hash']}")
 
 
                 self.logger.warning(
-                    f"Seconds since last target: {self.memserver.since_last_block} / {self.memserver.block_time}"
+                    f"Seconds since last block: {self.memserver.since_last_block}"
                 )
 
                 self.logger.warning(f"Unreachable: {len(self.memserver.purge_peers_list)} >>> {len(self.memserver.unreachable)}")

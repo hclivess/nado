@@ -5,7 +5,6 @@ import ipaddress
 import json
 import os
 import os.path
-import statistics
 
 from compounder import compound_get_list_of, compound_announce_self
 from compounder import compound_get_status_pool
@@ -200,12 +199,6 @@ async def load_ips(logger, port, fail_storage, unreachable, minimum=3, top_50=Tr
     return status_pool
 
 
-def load_trust(peer, logger):
-    return load_peer(ip=peer,
-                     key="peer_trust",
-                     logger=logger)
-
-
 def load_peer(logger, ip, key=None) -> [str, dict]:
         try:
             peer_file = f"{get_home()}/peers/{base64encode(ip)}.dat"
@@ -312,12 +305,6 @@ def get_majority(in_what) -> [str, None]:
 def get_average_int(list_of_values):
     if list_of_values:
         return int(sum(list_of_values) / len(list_of_values))
-    else:
-        return None
-
-def get_median_int(list_of_values):
-    if list_of_values:
-        return int(statistics.median(list_of_values))
     else:
         return None
 
@@ -429,8 +416,8 @@ def update_local_ip(ip, logger):
         logger.info(f"Local IP updated to {new_ip}")
 
 
-def qualifies_to_sync(peer, peer_trust, peer_protocol, known_tree, memserver_protocol, median_trust,
-                      unreachable_list, peer_hash, required_hash, promiscuous) -> dict:
+def qualifies_to_sync(peer, peer_protocol, known_tree, memserver_protocol,
+                      unreachable_list, peer_hash, required_hash) -> dict:
     if not known_tree:
         """we don't know peer's root hash"""
         return {"result": False,
@@ -439,8 +426,8 @@ def qualifies_to_sync(peer, peer_trust, peer_protocol, known_tree, memserver_pro
     # #16 step 3: TRUST DEMOTED to an advisory transport hint — it no longer GATES sync. The objective
     # heaviest-cumulative_weight fork-choice already chose required_hash (the heaviest tip), and
     # verify_block + the finality floor enforce that chain on the real blocks, so a low-trust / Sybil
-    # peer cannot feed us a chain we wouldn't independently accept. (Was: reject if
-    # median_trust > peer_trust and not promiscuous — which a Sybil could pass by farming free trust.)
+    # peer cannot feed us a chain we wouldn't independently accept. (Was: reject if a peer's trust
+    # sat below the median — which a Sybil could pass anyway by farming free trust.)
     if peer in unreachable_list:
         """peer assigned to unreachable"""
         return {"result": False,

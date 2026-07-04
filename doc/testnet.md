@@ -15,7 +15,7 @@ This document is the plan and the harness contract.
 `nado.py` starts a Tornado HTTP server plus four daemon threads (core/consensus/peer/message).
 To bring one up programmatically a node needs, under its own `$HOME/nado`:
 - `private/config.dat` (created by `config.create_config`) — `port`, `ip`, `server_key`,
-  `min_peers`, `promiscuous`, `auto_bond_percent`, …
+  `min_peers`, `auto_bond_percent`, …
 - `private/keys.dat` (an ML-DSA-44 / FIPS 204 keypair → `ndo…` address).
 - genesis (`genesis.make_genesis`) + the LMDB key-value index env (`create_indexers` → `ops/kv_ops`).
 - at least one seed peer to discover the mesh.
@@ -27,8 +27,8 @@ To bring one up programmatically a node needs, under its own `$HOME/nado`:
    everywhere (or a `NADO_PORT` env override).
 2. **`check_ip` rejects loopback/private IPs.** `peer_ops.check_ip` (correctly, for mainnet)
    refuses `127.0.0.1`/RFC1918, so localhost nodes can't peer. A testnet needs a **test mode**
-   that allows private IPs (e.g. honour the existing `promiscuous` config flag, or a
-   `NADO_TESTNET=1` env that relaxes `check_ip`). Do **not** relax it on mainnet.
+   that allows private IPs (the `NADO_TESTNET=1` env relaxes `check_ip`). Do **not**
+   relax it on mainnet.
 3. **`get_public_ip` calls out to the internet** (`api.ipify.org`). In an offline/local run the
    node must take its IP from config instead of fetching it.
 4. **Shared genesis.** Every node must start from the *same* genesis block hash; either run

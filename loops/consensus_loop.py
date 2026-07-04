@@ -10,8 +10,7 @@ from ops.peer_ops import (
     get_majority,
     percentage,
     get_average_int,
-    ip_stored,
-    get_median_int
+    ip_stored
 )
 from ops.pool_ops import get_from_pool
 
@@ -71,7 +70,6 @@ class ConsensusClient(threading.Thread):
         self._reject_clear_counter = 0
 
         self.trust_average = None
-        self.trust_median = None
 
         self.transaction_hash_pool_percentage = 0
         self.block_producers_hash_pool_percentage = 0
@@ -204,10 +202,6 @@ class ConsensusClient(threading.Thread):
 
                 if None not in self.trust_pool.values():
                     self.trust_average = get_average_int(
-                        list_of_values=self.trust_pool.values()
-                    )
-                if None not in self.trust_pool.values():
-                    self.trust_median = get_median_int(
                         list_of_values=self.trust_pool.values()
                     )
 

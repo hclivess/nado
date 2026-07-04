@@ -35,7 +35,7 @@ from ops.mining_ops import select_producer, select_producer_two_lane, epoch_of, 
 from ops import kv_ops
 from protocol import split_block_reward, TREASURY_ADDRESS, CHAIN_ID, REWARD_CAP, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW
 from ops.data_ops import set_and_sort, shuffle_dict, sort_list_dict, get_byte_size, sort_occurrence, dict_to_val_list
-from ops.peer_ops import load_trust, update_local_address, ip_stored, check_ip, qualifies_to_sync, announce_me, get_remote_status
+from ops.peer_ops import update_local_address, ip_stored, check_ip, qualifies_to_sync, announce_me, get_remote_status
 from ops import snapshot_ops
 from ops.pool_ops import merge_buffer, cull_buffer
 from ops.transaction_ops import remove_outdated_transactions
@@ -301,9 +301,6 @@ class CoreClient(threading.Thread):
                     for peer, value in shuffled_pool.items():
                         if peer not in self.memserver.purge_peers_list:  # sadly, the whole purge_peers() takes a prohibitively long time for some reason
                             try:
-                                peer_trust = self.consensus.trust_pool[peer]
-                                """load trust score"""
-
                                 peer_protocol = self.consensus.status_pool[peer]["protocol"]
                                 """get protocol version"""
 
@@ -325,14 +322,11 @@ class CoreClient(threading.Thread):
                                 if check_ip(peer):
                                     qualifies = qualifies_to_sync(peer=peer,
                                                                   peer_protocol=peer_protocol,
-                                                                  peer_trust=peer_trust,
                                                                   memserver_protocol=self.memserver.protocol,
                                                                   known_tree=known_tree,
                                                                   unreachable_list=self.memserver.unreachable.keys(),
-                                                                  median_trust=self.consensus.trust_median,
                                                                   peer_hash=value,
-                                                                  required_hash=hash_candidate,
-                                                                  promiscuous=self.memserver.promiscuous)
+                                                                  required_hash=hash_candidate)
                                     if qualifies["result"]:
                                         self.logger.debug(f"{peer} qualified for sync")
                                         return peer

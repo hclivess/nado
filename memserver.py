@@ -108,7 +108,6 @@ class MemServer:
         # wasted commit — harmless; the beacon falls back to the anchor + other validators' reveals).
         self.randao_secrets = {}
         self.cascade_limit = self.config.get("cascade_limit") or 1
-        self.promiscuous = True if self.config.get("promiscuous") is True else False
         # Fast bootstrap is snapshot sync (ops/snapshot_ops.py) — quorum/checkpoint-gated, never a
         # validation-skipping bypass. Do NOT add one (it enables forged-tx injection).
         # AUTO-BOND (non-consensus): route this % of newly-mined spendable earnings straight into

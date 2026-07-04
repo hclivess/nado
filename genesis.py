@@ -126,7 +126,7 @@ if __name__ == "__main__":
     make_genesis(
         address=GENESIS_ADDRESS,          # genesis address == treasury (canonical checksum)
         balance=TREASURY_GENESIS,          # bootstrap allocation minted to the genesis/treasury
-        ip="78.102.98.72",
+        ip="38.242.201.206",          # get.nadochain.com — the live public bootstrap node
         port=9173,
         timestamp=1669852800,
         logger=logger,
