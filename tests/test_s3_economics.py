@@ -50,15 +50,15 @@ def mk(num, h, cumfee):
 def t3():
     mk(50, "5"*64, 10_000_000)                                   # lookback block at height 50
     parent = {"block_number": 150, "cumulative_fees": 50_000_000}  # parent at height 150
-    r = get_block_reward(parent_block=parent, logger=logger)
+    r = get_block_reward(parent_block=parent)
     # elastic term = (50_000_000 - 10_000_000)//REWARD_WINDOW = 400000, but it's BELOW the flat
     # BASE_SUBSIDY emission floor, so the reward is floored to BASE_SUBSIDY (fair-launch emission).
     assert r == BASE_SUBSIDY, r
     # early chain (lookback < 0): elastic term 70000, also below the floor
-    r2 = get_block_reward(parent_block={"block_number": 10, "cumulative_fees": 7_000_000}, logger=logger)
+    r2 = get_block_reward(parent_block={"block_number": 10, "cumulative_fees": 7_000_000})
     assert r2 == BASE_SUBSIDY, r2
     # cap bites
-    r3 = get_block_reward(parent_block={"block_number": 10, "cumulative_fees": 10**18}, logger=logger)
+    r3 = get_block_reward(parent_block={"block_number": 10, "cumulative_fees": 10**18})
     assert r3 == REWARD_CAP, r3
 check("get_block_reward: parent-anchored cumfee, capped", t3)
 
@@ -81,14 +81,14 @@ def apply_block(block, txs):
     if t: change_balance(TREASURY_ADDRESS, t, logger=logger)
     increase_produced_count(block["block_creator"], p, logger=logger)
     tt = get_totals(block=block)
-    index_totals(produced=tt["produced"], fees=tt["fees"], block_height=block["block_number"])
+    index_totals(produced=tt["produced"], fees=tt["fees"])
 def rollback_block(block, txs):
     p, t = split_block_reward(block["block_reward"])
     change_balance(block["block_creator"], p, revert=True, logger=logger)
     if t: change_balance(TREASURY_ADDRESS, t, revert=True, logger=logger)
     increase_produced_count(block["block_creator"], p, revert=True, logger=logger)
     tt = get_totals(block=block, revert=True)
-    index_totals(produced=tt["produced"], fees=tt["fees"], block_height=block["block_number"])
+    index_totals(produced=tt["produced"], fees=tt["fees"])
     for tx in txs:
         reflect_transaction(tx, logger=logger, block_height=block["block_number"], revert=True)
 

@@ -68,7 +68,7 @@ def apply_treasury_burn(block, logger, revert=False):
         burned = kv_ops.treasury_burn_get(h)
         if burned:
             change_balance(address=TREASURY_ADDRESS, amount=burned, revert=False, logger=logger)   # restore balance
-            index_totals(produced=0, fees=-burned, block_height=h)                                   # restore supply
+            index_totals(produced=0, fees=-burned)                                   # restore supply
         kv_ops.treasury_burn_del(h)
         return
     acc = get_account(TREASURY_ADDRESS, create_on_error=False)
@@ -86,5 +86,5 @@ def apply_treasury_burn(block, logger, revert=False):
         if sum(selection_shares(i["bonded"]) for i in reg.values() if _vote_activated(i, ep)) == 0:
             return
         change_balance(address=TREASURY_ADDRESS, amount=-burned, revert=False, logger=logger)        # destroy
-        index_totals(produced=0, fees=burned, block_height=h)                                         # book the burn
+        index_totals(produced=0, fees=burned)                                         # book the burn
         kv_ops.treasury_burn_put(h, burned)

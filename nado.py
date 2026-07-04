@@ -328,7 +328,7 @@ async def account_transactions(request):
         try:
             address = _q(request, "address", memserver.address)
             min_block = int(_q(request, "min_block", "0"))
-            data = get_transactions_of_account(account=address, min_block=min_block, logger=logger)
+            data = get_transactions_of_account(account=address, min_block=min_block)
             code = 200
             if not data:
                 data, code = "Not found", 404   # 404, not 403: a missing/pruned record isn't "forbidden"

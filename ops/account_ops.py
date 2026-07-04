@@ -316,7 +316,7 @@ def get_totals(block, revert=False):
     return result
 
 
-def index_totals(produced, fees, block_height):
+def index_totals(produced, fees):
     # signed add (on rollback get_totals(revert=True) returns NEGATIVE deltas, which must be applied
     # so totals shrink on a reorg — the old `> 0` guard wrongly skipped them and only ever grew).
     kv_ops.totals_add(produced, fees)

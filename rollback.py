@@ -54,8 +54,7 @@ def rollback_one_block(logger, block) -> dict:
         apply_treasury_burn(block, logger=logger, revert=True)   # restore any anti-hoard burn at this height
 
         totals = get_totals(block=block, revert=True)
-        index_totals(produced=totals["produced"], fees=totals["fees"],
-                     block_height=block["block_number"])
+        index_totals(produced=totals["produced"], fees=totals["fees"])
 
         unindex_transactions(block=block, logger=logger, block_height=block['block_number'])
         unindex_block(block, logger=logger)

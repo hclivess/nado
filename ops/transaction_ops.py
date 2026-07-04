@@ -751,7 +751,7 @@ def sort_transaction_pool(transactions: list, key="txid") -> list:
     )
 
 
-def get_transactions_of_account(account, min_block: int, logger, limit: int = 1000):
+def get_transactions_of_account(account, min_block: int, limit: int = 1000):
     """history for an account, from the consolidated KV index.
 
     A UNION of the two DUPSORT secondary indexes (tx_by_sender, tx_by_recipient) — each ordered by

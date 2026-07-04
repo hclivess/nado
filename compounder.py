@@ -58,7 +58,7 @@ async def compound_get_list_of(key, entries, port, logger, fail_storage, semapho
     return success_storage
 
 
-async def get_url(peer, port, url, logger, fail_storage, semaphore, compress=None):
+async def get_url(peer, port, url, logger, fail_storage, semaphore):
     """method compounded by compound_get_url"""
 
     url_construct = f"http://{peer}:{port}/{url}"
@@ -75,7 +75,7 @@ async def get_url(peer, port, url, logger, fail_storage, semaphore, compress=Non
             logger.error(f"Compounder: Failed to get URL {url_construct} {e}")
             fail_storage.append(peer)
 
-async def compound_get_url(ips, port, url, logger, fail_storage, semaphore, compress=None):
+async def compound_get_url(ips, port, url, logger, fail_storage, semaphore):
     """returns result of urls with arbitrary data past slash"""
     result = list(
         filter(
@@ -91,7 +91,7 @@ async def compound_get_url(ips, port, url, logger, fail_storage, semaphore, comp
     return result_dict
 
 
-async def send_transaction(peer, port, logger, fail_storage, transaction, semaphore, compress=None):
+async def send_transaction(peer, port, logger, fail_storage, transaction, semaphore):
     """method compounded by compound_send_transaction"""
 
     url_construct = f"http://{peer}:{port}/submit_transaction?data={quote(json.dumps(transaction))}"
@@ -109,7 +109,7 @@ async def send_transaction(peer, port, logger, fail_storage, transaction, semaph
             logger.error(f"Compounder: Failed to send transaction to {url_construct} {e}")
             fail_storage.append(peer)
 
-async def compound_send_transaction(ips, port, logger, fail_storage, transaction, semaphore, compress=None):
+async def compound_send_transaction(ips, port, logger, fail_storage, transaction, semaphore):
     """returns a list of dicts where ip addresses are keys"""
     result = list(
         filter(
@@ -167,7 +167,7 @@ async def compound_get_status_pool(ips, port, logger, fail_storage, semaphore, c
     return result_dict
 
 
-async def announce_self(peer, port, my_ip, logger, fail_storage, semaphore):
+async def announce_self(peer, port, my_ip, fail_storage, semaphore):
     """method compounded by compound_announce_self"""
 
     url_construct = (
@@ -193,7 +193,7 @@ async def compound_announce_self(ips, port, my_ip, logger, fail_storage, semapho
         filter(
             None,
             await asyncio.gather(
-                *[announce_self(ip, port, my_ip, logger, fail_storage, semaphore) for ip in ips]
+                *[announce_self(ip, port, my_ip, fail_storage, semaphore) for ip in ips]
             ),
         )
     )

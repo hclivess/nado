@@ -40,7 +40,7 @@ def float_to_int(x):
     return math.floor(x * (2 ** 31))
 
 
-def get_block_reward(parent_block, logger):
+def get_block_reward(parent_block):
     """Fee-weighted elastic block reward, computed as a PURE function of the block's own
     ancestry (NOT the verifier's tip), so a full node and a snapshot/pruned node agree on it
     and neither rejects the other's blocks. Every block header carries `cumulative_fees`, the
@@ -110,7 +110,7 @@ def match_transactions_target(transaction_list, block_number, logger):
 
 
 def get_block_candidate(
-        block_producers, block_producers_hash, transaction_pool, logger, latest_block, block_time
+        block_producers_hash, transaction_pool, logger, latest_block
 ):
     block_number = latest_block["block_number"] + 1
 
@@ -147,7 +147,7 @@ def get_block_candidate(
         creator=winner,
         transaction_pool=targeted_transactions,
         block_producers_hash=block_producers_hash,
-        block_reward=get_block_reward(parent_block=latest_block, logger=logger),
+        block_reward=get_block_reward(parent_block=latest_block),
         parent_cumulative_fees=latest_block.get("cumulative_fees", 0),
         parent_cumulative_weight=latest_block.get("cumulative_weight", 0),
         block_weight=total_bonded_shares(bonded_registry),  # as-of-parent (registry read above)
@@ -799,7 +799,7 @@ if __name__ == "__main__":
             creator=address,
             transaction_pool=get_transaction_pool_demo(),
             block_producers_hash=get_block_producers_hash_demo(),
-            block_reward=get_block_reward(logger=logger),
+            block_reward=get_block_reward(parent_block=latest_block_info),
         )
 
         """submit as block candidate"""

@@ -213,12 +213,10 @@ class CoreClient(threading.Thread):
                 if (len(peers) >= self.memserver.min_peers
                         and (block_producers or self.memserver.min_peers == 0)
                         and not self.memserver.force_sync_ip):
-                    block_candidate = get_block_candidate(block_producers=block_producers,
-                                                          block_producers_hash=self.memserver.block_producers_hash,
+                    block_candidate = get_block_candidate(block_producers_hash=self.memserver.block_producers_hash,
                                                           logger=self.logger,
                                                           transaction_pool=self.memserver.transaction_pool.copy(),
-                                                          latest_block=self.memserver.latest_block,
-                                                          block_time=self.memserver.block_time
+                                                          latest_block=self.memserver.latest_block
                                                           )
 
                     # S4.3: get_block_candidate returns None when no bonded identity is eligible
@@ -636,7 +634,7 @@ class CoreClient(threading.Thread):
             creator=winner,
             transaction_pool=block["block_transactions"],
             block_producers_hash=block["block_producers_hash"],
-            block_reward=get_block_reward(parent_block=parent, logger=self.logger),
+            block_reward=get_block_reward(parent_block=parent),
             parent_cumulative_fees=parent.get("cumulative_fees", 0),
             parent_cumulative_weight=parent.get("cumulative_weight", 0),
             block_weight=total_bonded_shares(bonded_registry))
@@ -679,8 +677,7 @@ class CoreClient(threading.Thread):
 
             totals = get_totals(block=block)  # produced = full reward = total emission
             index_totals(produced=totals["produced"],
-                         fees=totals["fees"],
-                         block_height=block["block_number"])
+                         fees=totals["fees"])
 
             index_block_number(block)  # the applied marker, atomic with the state above
 
@@ -972,7 +969,7 @@ class CoreClient(threading.Thread):
             raise ValueError(
                 f"Block creator {block.get('block_creator')} is not the selected winner {winner}")
 
-    def verify_block(self, block, remote, remote_peer=None, is_old=False):
+    def verify_block(self, block, remote, remote_peer=None):
         """this function has critical checks and must raise a failure/halt if there is one"""
         # todo move exceptions lower (as in rollback) and avoid rising here directly
         try:
@@ -992,7 +989,7 @@ class CoreClient(threading.Thread):
             reward = block.get("block_reward")
             if not isinstance(reward, int) or isinstance(reward, bool) or reward < 0 or reward > REWARD_CAP:
                 raise ValueError(f"Invalid block reward {reward!r}")
-            expected_reward = get_block_reward(parent_block=self.memserver.latest_block, logger=self.logger)
+            expected_reward = get_block_reward(parent_block=self.memserver.latest_block)
             if reward != expected_reward:
                 raise ValueError(f"Block reward {reward} != deterministic {expected_reward}")
 
@@ -1052,7 +1049,7 @@ class CoreClient(threading.Thread):
                 except Exception as e:
                     raise ValueError(f"Failed to reconstruct block {e}")
 
-            verified_block = self.verify_block(block, remote=remote, remote_peer=remote_peer, is_old=is_old)
+            verified_block = self.verify_block(block, remote=remote, remote_peer=remote_peer)
 
             if self.memserver.latest_block["block_creator"] == block["block_creator"]:
                 self.consecutive += 1

@@ -209,7 +209,7 @@ def t9():
             change_balance(address=TREASURY_ADDRESS, amount=treasury_cut, logger=logger)
         increase_produced_count(address="prod", amount=producer_cut, logger=logger)
         totals = get_totals(block=block)
-        index_totals(produced=totals["produced"], fees=totals["fees"], block_height=block_number)
+        index_totals(produced=totals["produced"], fees=totals["fees"])
         index_block_number(block)
 
     mid = dump_env()
@@ -228,7 +228,7 @@ def t9():
             change_balance(address=TREASURY_ADDRESS, amount=treasury_cut, revert=True, logger=logger)
         increase_produced_count(address="prod", amount=producer_cut, revert=True, logger=logger)
         totals = get_totals(block=block, revert=True)
-        index_totals(produced=totals["produced"], fees=totals["fees"], block_height=block_number)
+        index_totals(produced=totals["produced"], fees=totals["fees"])
         unindex_transactions(block=block, logger=logger, block_height=block_number)
         unindex_block(block, logger=logger)
 
