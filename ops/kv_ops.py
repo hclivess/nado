@@ -52,6 +52,15 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 _PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals")
 _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch", "treasury_votes")
 
+# CONSENSUS STATE a snapshot carries: every sub-DB EXCEPT the block + tx HISTORY indexes (explorer-only,
+# rebuilt by replaying the C+1..tip tail). This is the FULL producer-selection + validation state — account
+# docs (balance/produced/bonded/registered/fidelity), totals, the deterministic meta replay-guards +
+# finalized floor, recerts/recert_by_epoch (open-lane lease), bond_since (bonded ramp), commits/reveals
+# (RANDAO beacon), attestations (FFG), unbonds, aliases, htlcs, settlements, treasury — so a snapshot-synced
+# node derives the SAME producer set on tail replay. Sorted for a canonical, cross-node state root.
+_HISTORY_DBS = frozenset(("block_by_num", "block_by_hash", "tx", "tx_by_sender", "tx_by_recipient"))
+SNAPSHOT_DBS = tuple(sorted(set(_PLAIN_DBS + _DUP_DBS) - _HISTORY_DBS))
+
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
 ACCOUNT_FIELDS = ("balance", "produced", "bonded", "registered", "fidelity", "last_hb_epoch")
 
@@ -1131,3 +1140,29 @@ def drop_tx_index():
         for name in ("tx", "tx_by_sender", "tx_by_recipient"):
             txn.drop(_dbs()[name], delete=False)
     _write(_do)
+
+
+def iter_db_pairs(name):
+    """Yield every (key_bytes, value_bytes) of sub-DB `name` in LMDB sorted order (DUPSORT yields each dup).
+    Used to build a complete, canonical state snapshot."""
+    env = get_env()
+    db = _dbs()[name]
+    with env.begin() as txn:
+        with txn.cursor(db=db) as cur:
+            for k, v in cur:
+                yield bytes(k), bytes(v)
+
+
+def restore_snapshot_state(triples, txn=None):
+    """Wipe every SNAPSHOT_DBS sub-DB and repopulate from (db_name, key_bytes, value_bytes) triples — the
+    snapshot-import primitive. DUPSORT dbs get dupdata puts. Runs inside the caller's write txn (atomic)."""
+    dup = set(_DUP_DBS)
+    def _do(t):
+        for name in SNAPSHOT_DBS:
+            t.drop(_dbs()[name], delete=False)     # empty, keep the handle
+        for name, key, value in triples:
+            t.put(key, value, db=_dbs()[name], dupdata=(name in dup))
+    if txn is not None:
+        _do(txn)
+    else:
+        _write(_do)

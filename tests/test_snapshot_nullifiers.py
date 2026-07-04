@@ -1,8 +1,9 @@
 """
-Audit M-8: a bulk state snapshot must carry the consensus replay-guard nullifiers (withdrawal/payout/slash),
+Audit M-8: a full-state snapshot must carry the consensus replay-guard nullifiers (withdrawal/payout/slash),
 so a snapshot-synced node cannot re-accept an already-applied unshield/bridge/dividend/treasury payout or slash
-(escrow double-spend / double-slash). Also: the guards are bound into the manifest hash (a donor can't strip
-them), and NON-consensus local meta (e.g. finalized_height) is NOT carried.
+(escrow double-spend / double-slash). Under the complete-state snapshot the guards travel inside the state
+chunks (the whole `meta` sub-DB is carried), so any tamper fails the per-chunk sha256 / recomputed state_root
+gate, and consensus meta (incl. finalized_height) is restored on import.
 
 Run: python3 tests/test_snapshot_nullifiers.py
 """
@@ -38,30 +39,25 @@ def main():
     kv_ops.dividend_nullifier_put("ndocarol", "9")
     kv_ops.treasury_executed_put("pid-abc")
     kv_ops.slash_record("ndodave", 42)
-    kv_ops.meta_set_int("finalized_height", 100)   # NON-consensus local meta — must NOT be carried
+    kv_ops.meta_set_int("finalized_height", 100)   # consensus meta — carried by the full-state snapshot
 
     manifest, chunks = snapshot_ops.build_snapshot(snapshot_height=0, block_hash="anchor", protocol=1, version="t")
 
     check("manifest is self-consistent", manifest["snapshot_hash"] == snapshot_ops.manifest_hash(manifest))
-    guards = manifest.get("nullifiers", [])
-    keys = {k for k, _ in guards}
-    check("all 5 replay guards carried", len(guards) == 5, guards)
-    check("shield guard present", "shieldnull:ndoalice:7" in keys)
-    check("bridge/dividend/tspend/slash present",
-          {"bridgenull:ndobob:3", "divnull:ndocarol:9", "tspend:pid-abc", "slash:ndodave:42"} <= keys, keys)
-    check("local finalized_height NOT carried", "finalized_height" not in keys)
-
-    # a donor cannot strip a guard: dropping one changes the agreed manifest hash
-    tampered = dict(manifest)
-    tampered["nullifiers"] = guards[:-1]
-    check("stripping a guard breaks the manifest hash",
-          snapshot_ops.manifest_hash(tampered) != manifest["snapshot_hash"])
 
     # --- JOINER: fresh empty home, import, and confirm the guards are reinstated ---
     kv_ops.close_all()
     os.environ["HOME"] = joiner
     kv_ops.init_env()
     check("joiner starts WITHOUT the guard", not kv_ops.shield_nullifier_exists("ndoalice", "7"))
+
+    # a donor cannot silently alter/drop a guard: every guard lives inside a state chunk, so any tamper fails
+    # the per-chunk sha256 / recomputed state_root gate and import is rejected with NO mutation.
+    bad = list(chunks)
+    if bad:
+        b = bytearray(bad[0]); b[len(b) // 2] ^= 0xFF; bad[0] = bytes(b)
+    check("tampered chunk rejected on import", not snapshot_ops.import_snapshot(manifest, bad))
+    check("state untouched after a rejected import", not kv_ops.shield_nullifier_exists("ndoalice", "7"))
 
     ok = snapshot_ops.import_snapshot(manifest, chunks)
     check("import_snapshot succeeded", ok)
@@ -70,8 +66,9 @@ def main():
     check("dividend guard restored", kv_ops.dividend_nullifier_exists("ndocarol", "9"))
     check("treasury payout guard restored", kv_ops.treasury_executed_exists("pid-abc"))
     check("slash guard restored", kv_ops.slash_exists("ndodave", 42))
-    check("account state restored", kv_ops.get_account_or_default("shield").get("balance") == 1000
-          if hasattr(kv_ops, "get_account_or_default") else True)
+    check("consensus meta carried + restored (finalized_height)",
+          kv_ops.meta_get_int("finalized_height", 0) == 100)
+    check("account state restored", kv_ops.get_account("shield").get("balance") == 1000)
 
 
 try:

@@ -82,5 +82,29 @@ def t3():
 check("drop_checkpoints_above prunes checkpoints above the new tip", t3)
 
 
+def t4():
+    # CRITICAL fix: the FULL producer-selection state must survive a snapshot, else a snapshot-synced
+    # OPEN-LANE miner derives a different registry and forks on tail replay. Carry registered/fidelity
+    # (open lane) + the recert_by_epoch lease. bonded ramp (bond_since) rides along the same way.
+    create_account("miner", balance=0, registered=1, fidelity=7, bonded=500)
+    with kv_ops.write_txn():
+        kv_ops.recert_put("miner", 3)          # an open-lane presence lease at epoch 3
+    assert kv_ops.recert_addresses_after(-1) == {"miner"}
+    snapshot_ops.persist_checkpoint(height=15, block_hash="c" * 64, protocol=2, version="v")
+    m = snapshot_ops.load_checkpoint_manifest(15)
+    ch = [snapshot_ops.load_checkpoint_chunk(15, i) for i in range(m["chunk_count"])]
+    # wipe the open-lane state, then import and confirm it is fully reconstructed
+    with kv_ops.write_txn():
+        kv_ops.account_set("miner", "registered", 0)
+        kv_ops.account_set("miner", "fidelity", 0)
+        kv_ops.recert_del("miner", 3)
+    assert kv_ops.recert_addresses_after(-1) == set()
+    assert snapshot_ops.import_snapshot(m, ch, logger=logger)
+    acc = get_account("miner")
+    assert acc["registered"] == 1 and acc["fidelity"] == 7 and acc["bonded"] == 500, f"producer state lost: {acc}"
+    assert kv_ops.recert_addresses_after(-1) == {"miner"}, "recert lease not carried -> open-lane fork"
+check("producer-selection state (registered/fidelity + recert lease) survives the snapshot", t4)
+
+
 print(f"\n{'ALL SNAPSHOT-CHECKPOINT CHECKS PASSED' if fails == 0 else str(fails) + ' FAILED'}")
 sys.exit(1 if fails else 0)

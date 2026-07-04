@@ -5,17 +5,19 @@ Instead of replaying every block from genesis (O(chain height), unbounded as the
 network ages), a joining/behind node downloads a verified snapshot of account
 state at a recent checkpoint height C and then replays only the short C..tip tail.
 
-The snapshot is the `accounts.db` state (acc_index + totals_index) at height C.
-It is split into deterministic chunks so it can be fetched in parallel and
-resumed, and it carries a `state_root` (a blake2b Merkle root over the account
-rows) so that *any* peer re-derives the identical root from its own DB — that is
-what lets a joiner accept a snapshot only when a quorum of peers agree on its
-hash, without trusting any single peer.
+The snapshot is the FULL consensus state at height C — every kv_ops.SNAPSHOT_DBS sub-DB
+(account docs incl. registered/fidelity, totals, meta replay-guards + finalized floor,
+recerts/recert_by_epoch, bond_since, commits/reveals, attestations, unbonds, aliases,
+htlcs, settlements, treasury). Carrying the WHOLE state (not just balances) is what lets
+a snapshot-synced node derive the SAME producer set and validate the C+1..tip tail. It is
+split into deterministic chunks so it can be fetched in parallel, and carries a `state_root`
+(a blake2b Merkle root over the (db,key,value) entries) so *any* peer re-derives the
+identical root from its own DB — which is what lets a joiner accept a snapshot only when a
+quorum agrees on its hash (or, for a lone donor, only a trusted operator seed).
 
-`transactions.db` (the consolidated tx index) is intentionally NOT part of the
-consensus-critical snapshot — it is explorer/history only and can be rebuilt
-lazily. Snapshots verify against the chain by anchoring to the block hash at C
-and replaying the tail through the normal validation path.
+The block + tx HISTORY indexes are intentionally NOT part of the snapshot — they are
+explorer/history only and are rebuilt by replaying the tail. Snapshots verify against the
+chain by anchoring to the block hash at C and replaying the tail through normal validation.
 """
 import hashlib
 import os
@@ -26,13 +28,7 @@ import msgpack
 from ops.data_ops import get_home
 from ops import kv_ops
 
-# Deterministic consensus replay-guard nullifier prefixes carried in every snapshot (audit M-8). Losing any
-# of these on a snapshot-synced node re-opens replay of an already-applied payout/slash (shieldnull/bridgenull/
-# divnull = withdrawal exits -> escrow double-spend; tspend = treasury payout; slash = double-slash). They are
-# self-contained, deterministic meta markers, so including them keeps every honest node's snapshot identical.
-NULLIFIER_PREFIXES = ("bridgenull:", "shieldnull:", "divnull:", "tspend:", "slash:")
-
-# how many account rows go into one transferable chunk
+# how many state entries (db, key, value triples) go into one transferable chunk
 CHUNK_ROWS = int(os.environ.get("NADO_SNAPSHOT_CHUNK_ROWS", "25000"))
 # checkpoints are captured at heights that are multiples of this (a checkpoint is only ADVERTISED once
 # finalized, so it is always reorg-safe — no separate finality margin needed). Smaller = joiners see a
@@ -44,17 +40,17 @@ def _blake2b(data: bytes) -> str:
     return hashlib.blake2b(data, digest_size=32).hexdigest()
 
 
-def _leaf(address, balance, produced, bonded) -> bytes:
-    """canonical, fixed encoding of one account row (addresses/ints contain no ':').
-    `bonded` is part of the verified state-root so a snapshot commits mining stake too."""
-    return f"{address}:{balance}:{produced}:{bonded}".encode()
+def _leaf(triple) -> bytes:
+    """canonical, length-framed encoding of one state entry (db_name:str, key:bytes, value:bytes) so no
+    db/key/value byte pattern can collide with another entry's field boundary."""
+    name, key, value = triple
+    return msgpack.packb([name, key, value])
 
 
-def merkle_root(rows) -> str:
-    """deterministic blake2b Merkle root over account rows sorted by address.
-    rows: iterable of (address, balance, produced, bonded)."""
-    leaves = [hashlib.blake2b(_leaf(*r), digest_size=32).digest()
-              for r in sorted(rows, key=lambda r: r[0])]
+def merkle_root(triples) -> str:
+    """deterministic blake2b Merkle root over the FULL consensus state. `triples` MUST already be in
+    canonical sorted order (caller sorts). Every honest node re-derives the identical root from its own DB."""
+    leaves = [hashlib.blake2b(_leaf(t), digest_size=32).digest() for t in triples]
     if not leaves:
         return _blake2b(b"")
     while len(leaves) > 1:
@@ -65,63 +61,53 @@ def merkle_root(rows) -> str:
     return leaves[0].hex()
 
 
-def read_accounts(home=None):
-    """all account rows (sorted by address) and the totals row from the KV index.
-    Each row is (address, balance, produced, bonded) — the consensus-state subset the snapshot
-    Merkle leaf commits (registered/fidelity are open-lane membership state, not part of the
-    snapshot wire format / state_root, matching the prior SQLite snapshot)."""
+def read_state(home=None):
+    """The FULL consensus state as a canonical sorted list of (db_name, key_bytes, value_bytes) triples —
+    every kv_ops.SNAPSHOT_DBS sub-DB: account docs (incl. registered/fidelity), totals, the deterministic
+    meta replay-guards + finalized floor, recerts/recert_by_epoch (open-lane lease), bond_since (bonded
+    ramp), commits/reveals (RANDAO beacon), attestations (FFG), unbonds, aliases, htlcs, settlements,
+    treasury. This is exactly what a snapshot-synced node needs to derive the SAME producer set and validate
+    the C+1..tip tail. Block + tx HISTORY indexes are excluded (the tail replay rebuilds them)."""
     kv_ops.init_env(home)
-    rows = [(addr, doc.get("balance", 0), doc.get("produced", 0), doc.get("bonded", 0))
-            for addr, doc in kv_ops.iter_accounts()]  # iter_accounts is already address-sorted
-    totals = kv_ops.totals_get()
-    return rows, totals
+    triples = []
+    for name in kv_ops.SNAPSHOT_DBS:
+        for k, v in kv_ops.iter_db_pairs(name):
+            triples.append((name, k, v))
+    triples.sort(key=lambda t: (t[0], t[1], t[2]))
+    return triples
 
 
-def read_nullifiers(home=None):
-    """The deterministic consensus replay-guard nullifiers (sorted [key, value] pairs) to carry in the
-    snapshot so a snapshot-synced node keeps them (audit M-8)."""
-    kv_ops.init_env(home)
-    return kv_ops.iter_meta_prefix(NULLIFIER_PREFIXES)
-
-
-
-def _pack_chunks(rows):
-    """split sorted rows into deterministic msgpack chunks; returns (chunk_bytes_list, chunk_meta_list)"""
+def _pack_chunks(triples):
+    """split sorted state triples into deterministic msgpack chunks; returns (chunk_bytes_list, chunk_meta_list)"""
     chunk_bytes, chunk_meta = [], []
-    for cid, start in enumerate(range(0, len(rows), CHUNK_ROWS)):
-        part = rows[start:start + CHUNK_ROWS]
-        packed = msgpack.packb([list(r) for r in part])
+    for cid, start in enumerate(range(0, len(triples), CHUNK_ROWS)):
+        part = triples[start:start + CHUNK_ROWS]
+        packed = msgpack.packb([[n, k, v] for (n, k, v) in part])
         chunk_bytes.append(packed)
         chunk_meta.append({
             "id": cid,
             "sha256": hashlib.sha256(packed).hexdigest(),
             "bytes": len(packed),
             "rows": len(part),
-            "first_address": part[0][0] if part else None,
-            "last_address": part[-1][0] if part else None,
         })
     return chunk_bytes, chunk_meta
 
 
 def build_snapshot(snapshot_height, block_hash, protocol, version, home=None):
-    """build a manifest + chunk payloads for the given checkpoint height.
-    Returns (manifest_dict, list_of_chunk_bytes). Pure function of accounts.db state."""
+    """build a manifest + chunk payloads committing the FULL consensus state at the given checkpoint height.
+    Returns (manifest_dict, list_of_chunk_bytes). Pure function of the state DB."""
     home = home or get_home()
-    rows, totals = read_accounts(home)
-    rows = sorted(rows, key=lambda r: r[0])
-    state_root = merkle_root(rows)
-    chunk_bytes, chunk_meta = _pack_chunks(rows)
-    nullifiers = read_nullifiers(home)          # M-8: carry the consensus replay guards (sorted, deterministic)
+    triples = read_state(home)
+    state_root = merkle_root(triples)
+    chunk_bytes, chunk_meta = _pack_chunks(triples)
 
     manifest = {
         "snapshot_height": snapshot_height,
         "block_hash": block_hash,
         "state_root": state_root,
-        "totals": totals,
-        "account_count": len(rows),
+        "entry_count": len(triples),
         "chunk_count": len(chunk_meta),
         "chunks": chunk_meta,
-        "nullifiers": nullifiers,               # bound into the manifest hash below (donor can't strip them)
         "protocol": protocol,
         "version": version,
     }
@@ -132,8 +118,8 @@ def build_snapshot(snapshot_height, block_hash, protocol, version, home=None):
 def manifest_hash(manifest) -> str:
     """blake2b over the canonical manifest content (excluding the hash field itself)"""
     core = {k: manifest[k] for k in (
-        "snapshot_height", "block_hash", "state_root", "totals",
-        "account_count", "chunk_count", "chunks", "nullifiers", "protocol", "version") if k in manifest}
+        "snapshot_height", "block_hash", "state_root", "entry_count",
+        "chunk_count", "chunks", "protocol", "version") if k in manifest}
     # sort_keys for deterministic serialization across peers/python versions
     packed = msgpack.packb(_canonical(core))
     return _blake2b(packed)
@@ -153,11 +139,12 @@ def verify_chunk(chunk_bytes, meta) -> bool:
 
 
 def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
-    """verify chunks against the manifest, recompute state_root + totals locally,
-    assert they equal the manifest, then atomically replace accounts.db.
+    """Verify the chunks against the manifest, recompute the state_root locally, assert it equals the
+    manifest, then atomically replace the ENTIRE consensus state (kv_ops.SNAPSHOT_DBS). Block + tx history
+    indexes are left untouched — the caller replays the C+1..tip tail, which rebuilds them.
 
-    Returns True on success. A peer cannot feed corrupted balances without failing
-    either the per-chunk sha256 or the recomputed state_root check."""
+    Returns True on success. A donor cannot feed corrupted state without failing either a per-chunk sha256
+    or the recomputed state_root, and it can only write into the allowed SNAPSHOT_DBS sub-DBs."""
     home = home or get_home()
 
     # 1) manifest self-consistency
@@ -168,45 +155,37 @@ def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
         _log(logger, "error", "snapshot chunk count mismatch")
         return False
 
-    # 2) per-chunk integrity + reassembly
-    rows = []
+    # 2) per-chunk integrity + reassembly into (db, key, value) triples, restricted to allowed sub-DBs
+    allowed = set(kv_ops.SNAPSHOT_DBS)
+    triples = []
     for meta, cb in zip(manifest["chunks"], chunk_bytes_list):
         if not verify_chunk(cb, meta):
             _log(logger, "error", f"snapshot chunk {meta['id']} sha256 mismatch")
             return False
-        rows.extend(tuple(r) for r in msgpack.unpackb(cb))
+        for row in msgpack.unpackb(cb, raw=False):
+            if (not isinstance(row, (list, tuple)) or len(row) != 3 or row[0] not in allowed
+                    or not isinstance(row[1], (bytes, bytearray))
+                    or not isinstance(row[2], (bytes, bytearray))):
+                _log(logger, "error", "snapshot chunk holds a malformed / out-of-scope state entry")
+                return False
+            triples.append((row[0], bytes(row[1]), bytes(row[2])))
 
-    # 3) recompute state root + totals and compare to the manifest
-    if merkle_root(rows) != manifest["state_root"]:
+    # 3) recompute the state root over the canonical order and compare
+    triples.sort(key=lambda t: (t[0], t[1], t[2]))
+    if len(triples) != manifest["entry_count"]:
+        _log(logger, "error", "snapshot entry_count mismatch")
+        return False
+    if merkle_root(triples) != manifest["state_root"]:
         _log(logger, "error", "snapshot state_root mismatch after reassembly")
         return False
-    if len(rows) != manifest["account_count"]:
-        _log(logger, "error", "snapshot account_count mismatch")
-        return False
 
-    # 4) atomically replace the account docs + totals in ONE write txn (accounts + totals sub-DBs).
-    #    The tx / block index sub-DBs are rebuilt separately (reindex) and intentionally untouched
-    #    here. registered/fidelity are reset to 0 (not part of the snapshot wire format) — matching
-    #    the prior SQLite import, which only set balance/produced/bonded.
-    nullifiers = manifest.get("nullifiers", [])
-    if "nullifiers" not in manifest:
-        _log(logger, "warning",
-             "snapshot manifest has no replay-guard nullifiers (old format) — withdrawal/slash replay "
-             "guards will NOT be restored; tail replay must re-establish them")
+    # 4) atomically replace the WHOLE consensus state (all SNAPSHOT_DBS) in ONE write txn
     kv_ops.init_env(home)
     with kv_ops.write_txn() as txn:
-        kv_ops.clear_accounts_and_totals(txn)   # empty accounts + reset totals to {0,0}
-        for address, balance, produced, bonded in rows:
-            kv_ops.put_account(address, {"balance": balance, "produced": produced, "bonded": bonded})
-        t = manifest["totals"]
-        kv_ops.totals_set(t["produced"], t["fees"])
-        # M-8: reinstate the consensus replay-guard nullifiers so a snapshot-synced node cannot re-accept an
-        # already-applied withdrawal/payout/slash (escrow double-spend). Bound into the agreed manifest hash.
-        kv_ops.restore_meta_pairs(nullifiers)
+        kv_ops.restore_snapshot_state(triples, txn)
     _log(logger, "info",
          f"Imported snapshot height {manifest['snapshot_height']} "
-         f"({manifest['account_count']} accounts, {len(nullifiers)} replay guards, "
-         f"state_root {manifest['state_root'][:16]}...)")
+         f"({manifest['entry_count']} state entries, state_root {manifest['state_root'][:16]}...)")
     return True
 
 
