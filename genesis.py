@@ -103,6 +103,13 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
     # (tools/relaunch_carry_forward.py) and shared verbatim. bond_since is left UNSET (fully aged) so carried
     # stake keeps full producer weight from genesis (no re-ramp penalty just for relaunching).
     alloc_path = f"{get_home()}/private/genesis_alloc.dat"
+    if not os.path.exists(alloc_path):
+        # GIT-TRACKED FALLBACK: a joining peer's private/ is empty (gitignored), so read the shared
+        # allocation shipped in the repo (genesis_data/genesis_alloc.dat) — byte-identical to the bootstrap's,
+        # so every node builds the SAME genesis state and agrees on the producer set from block 1.
+        repo_alloc = os.path.join(os.path.dirname(os.path.abspath(__file__)), "genesis_data", "genesis_alloc.dat")
+        if os.path.exists(repo_alloc):
+            alloc_path = repo_alloc
     if os.path.exists(alloc_path):
         with open(alloc_path) as af:
             alloc = json.load(af)
