@@ -247,7 +247,7 @@ async def fetch_snapshot(target, port, logger=None, concurrency=8, timeout=120):
                 manifest = unpack_peer(await read_capped(r, MAX_PEER_BODY))
 
             # VALIDATE the manifest BEFORE allocating anything sized by its (untrusted) fields. A lone donor
-            # under weak-subjectivity could otherwise advertise a huge chunk_count/account_count and OOM us
+            # under weak-subjectivity could otherwise advertise a huge chunk_count/entry_count and OOM us
             # before the per-chunk sha256 / state_root checks (which only run later, in import_snapshot) fire.
             # The manifest body is already byte-capped above; verify its self-hash so the chunk meta (bytes,
             # rows) is trustworthy, then bound the totals we are about to allocate/download.
@@ -255,10 +255,12 @@ async def fetch_snapshot(target, port, logger=None, concurrency=8, timeout=120):
                 _log(logger, "warning", f"Snapshot manifest from {target} failed self-hash — rejecting")
                 return None, None
             chunk_meta = manifest.get("chunks")
-            cc, ac = manifest.get("chunk_count"), manifest.get("account_count")
+            # entry_count = number of (db, key, value) state triples; each chunk's "rows" must sum to it.
+            # (The full-consensus-state snapshot supersedes the old accounts-only "account_count" field.)
+            cc, ec = manifest.get("chunk_count"), manifest.get("entry_count")
             if not (isinstance(chunk_meta, list) and isinstance(cc, int) and cc == len(chunk_meta)
-                    and isinstance(ac, int) and 0 <= ac <= MAX_SNAPSHOT_ACCOUNTS
-                    and sum(int(m.get("rows", 0)) for m in chunk_meta) == ac):
+                    and isinstance(ec, int) and 0 <= ec <= MAX_SNAPSHOT_ACCOUNTS
+                    and sum(int(m.get("rows", 0)) for m in chunk_meta) == ec):
                 _log(logger, "warning", f"Snapshot manifest from {target} has inconsistent counts — rejecting")
                 return None, None
             total = sum(int(m.get("bytes", 0)) for m in chunk_meta)

@@ -52,6 +52,14 @@ def t1():
     chunks = [snapshot_ops.load_checkpoint_chunk(5, i) for i in range(manifest["chunk_count"])]
     assert all(c is not None for c in chunks), "missing chunk on disk"
 
+    # REGRESSION: the fetch-side manifest validation (ops.snapshot_ops.fetch_snapshot) must ACCEPT a freshly
+    # built manifest. It once read a stale `account_count` after the full-state rewrite renamed it to
+    # `entry_count`, so it rejected EVERY real manifest with "inconsistent counts" and no node could snapshot.
+    ec = manifest.get("entry_count")
+    assert isinstance(ec, int) and ec == sum(int(c["rows"]) for c in manifest["chunks"]), \
+        "fetch-side count check would REJECT a valid manifest (entry_count vs chunk rows mismatch)"
+    assert manifest["chunk_count"] == len(manifest["chunks"]), "chunk_count vs chunks length mismatch"
+
     # a JOINER whose DB has diverged (mutated) must end up with the EXACT checkpointed state
     with kv_ops.write_txn():
         change_balance("alice", 999_999, logger=logger)
