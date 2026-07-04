@@ -12,6 +12,11 @@ from ops.peer_ops import announce_me, get_list_of_peers, load_ips, check_save_pe
 from ops.peer_ops import get_public_ip, update_local_ip, check_ip, subnet_diversity_ok
 from ops.peer_ops import seed_default_peers
 
+# How often (seconds) a node BELOW min_peers re-seeds + reloads peers from drive. The peer loop still spins
+# ~1/s for status/tx work, but the "No peers, reloading from drive" retry is throttled to this so a peerless
+# node (solo/bootstrap, or one that can't yet reach the network) doesn't flood the log every second.
+PEERLESS_RELOAD_INTERVAL = 15
+
 
 class PeerClient(threading.Thread):
     """thread which handles peers because timeouts take long"""
@@ -24,6 +29,7 @@ class PeerClient(threading.Thread):
         self.consensus = consensus
         self.duration = 0
         self.heavy_refresh_timer = 0
+        self._last_peerless_reload = 0   # backoff timer for the "no peers, reload from drive" retry (anti-spam)
 
     def sniff_buffered_peers(self):
         """gets peers from buffer and adds them to routine"""
@@ -97,13 +103,20 @@ class PeerClient(threading.Thread):
                 self.sniff_peers_and_producers()
                 self.sniff_buffered_peers()
 
+                # BACKOFF (anti-spam): when we're persistently below min_peers, don't re-seed + reload the
+                # drive + log "No peers" every single second — a peerless node (e.g. a solo/bootstrap or one
+                # that can't yet reach the network) would otherwise flood the log ~once/sec. Retry at most
+                # every PEERLESS_RELOAD_INTERVAL seconds; a reload that finds peers ends the loop naturally.
                 if len(self.memserver.peers) < self.memserver.min_peers:
-                    self.logger.info("No peers, reloading from drive")
-                    seed_default_peers(self.logger, getattr(self.memserver, "ip", None))   # bake-in bootstrap seed if drive is empty
-                    self.memserver.peers = asyncio.run(load_ips(fail_storage=self.memserver.purge_peers_list,
-                                                                unreachable=self.memserver.unreachable,
-                                                                logger=self.logger,
-                                                                port=self.memserver.port))
+                    now = get_timestamp_seconds()
+                    if now - self._last_peerless_reload >= PEERLESS_RELOAD_INTERVAL:
+                        self._last_peerless_reload = now
+                        self.logger.info("No peers, reloading from drive")
+                        seed_default_peers(self.logger, getattr(self.memserver, "ip", None))   # bake-in bootstrap seed if drive is empty
+                        self.memserver.peers = asyncio.run(load_ips(fail_storage=self.memserver.purge_peers_list,
+                                                                    unreachable=self.memserver.unreachable,
+                                                                    logger=self.logger,
+                                                                    port=self.memserver.port))
 
                 if 0 or 1 in self.memserver.periods:
                     self.memserver.merge_remote_transactions(user_origin=False)
