@@ -27,6 +27,32 @@ def unpack_tx(body, content_type):
     return json.loads(body.decode() if isinstance(body, (bytes, bytearray)) else body)
 
 
+# --- CLIENT-side download bounds. When WE fetch from an untrusted peer we are the HTTP client, so aiohttp's
+# server-side client_max_size does NOT apply — response.read() would buffer whatever the peer streams. A
+# malicious donor (esp. a lone one under weak-subjectivity) could stream GiB and OOM us, and the sha256 /
+# state_root checks that would reject bad content only run AFTER the whole body is in memory. So cap the read
+# AND the msgpack object-count on every peer download. ---
+MAX_PEER_BODY = 8 << 20            # /status, /peers, snapshot manifest, a single block — small control msgs
+MAX_SNAPSHOT_TOTAL = 2 << 30      # absolute ceiling on a whole snapshot (sum of all chunk bytes)
+MAX_SNAPSHOT_ACCOUNTS = 50_000_000
+
+
+async def read_capped(response, cap):
+    """Read at most `cap` bytes from an aiohttp response; raise if the peer streams more (anti-OOM).
+    Uses .content.read so we never buffer an unbounded body the way response.read() would."""
+    cap = int(cap)
+    body = await response.content.read(cap + 1)
+    if len(body) > cap:
+        raise IOError(f"peer response exceeds {cap}-byte cap")
+    return body
+
+
+def unpack_peer(body):
+    """msgpack-decode a peer control message (status / peers / snapshot manifest / block) with the same
+    object-count bounds used for untrusted tx bodies."""
+    return msgpack.unpackb(body, raw=False, **_MSGPACK_LIMITS)
+
+
 def client_ip_from(peer, xff_header, trusted):
     """Resolve the real client IP. By DEFAULT the raw socket peer — X-Forwarded-For is IGNORED so the per-IP
     rate limits + anti-Sybil registration cap can't be header-spoofed. ONLY when `peer` is itself a configured

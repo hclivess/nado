@@ -434,15 +434,13 @@ class CoreClient(threading.Thread):
             self.logger.info(f"Could not replace {key} from {peer}")
 
     def snapshot_bootstrap(self) -> bool:
-        """For a fresh node (still at genesis), bulk-download verified account state
-        from peers instead of replaying the entire chain. Strictly additive and fully
-        guarded: it runs at most once, only while latest_block is genesis, and ANY
-        failure returns False so the normal block-by-block replay below proceeds. It
-        therefore can never disrupt an established node or a re-org.
-
-        NOTE: the multi-peer path needs validation on a live network with real peers;
-        the deterministic build/verify/import and the quorum decision are unit-tested,
-        but end-to-end bootstrap from live peers has not been exercised here."""
+        """For a fresh node (still at genesis), bulk-download verified account state from peers instead of
+        replaying the entire chain. Strictly additive and fully guarded: it runs ONLY while latest_block is
+        genesis and ANY failure returns False so the normal block-by-block replay proceeds — it can never
+        disrupt an established node or a re-org. It is RETRIED from the emergency loop until a donor advertises
+        a finalized checkpoint. Trust: a >=2-responder super-majority must agree the (height,hash); a LONE
+        donor is accepted only when it is a trusted operator seed (weak subjectivity). Peer downloads are
+        size-capped (ops/net_ops) and the manifest is self-hash-validated before allocation (fetch_snapshot)."""
         if self.memserver.latest_block["block_number"] != 0:
             return False   # only bootstraps a still-at-genesis node; retryable until a donor advertises one
         try:
@@ -456,11 +454,21 @@ class CoreClient(threading.Thread):
                                             return_exceptions=True)
             raw = asyncio.run(_statuses(peers))
             statuses = [s if isinstance(s, dict) else None for s in raw]
-            # WEAK SUBJECTIVITY: a joining node with a single reachable donor must be able to bootstrap
-            # (a nascent/rolling network may have only the seed). min_peers=1 lets one verified donor
-            # suffice; the snapshot is still hash-agreed among ALL responders (threshold) and, critically,
-            # its state_root is re-derived locally in import_snapshot, so a forged state can't slip through.
-            agreed = snapshot_ops.agree_snapshot(statuses, min_peers=1, threshold=0.8)
+            responders = [ip for ip, s in zip(peers, statuses) if s]
+
+            # WEAK SUBJECTIVITY / anti-Sybil. import_snapshot only proves the donor's manifest is INTERNALLY
+            # consistent (per-chunk sha256 + a locally re-derived state_root == manifest) — it does NOT prove
+            # the state matches the real PoW chain. So a single unauthenticated donor must not be able to
+            # dictate a fresh node's initial state. Require a >=2-responder super-majority in general; permit a
+            # LONE donor only when it is a baked-in operator seed (DEFAULT_SEED_PEERS) — the trust anchor a
+            # fresh node already relies on to bootstrap at all (classic weak-subjectivity checkpoint).
+            from ops.peer_ops import trusted_seeds
+            _seeds = set(trusted_seeds())
+            trusted_only = len(responders) < 2
+            if trusted_only and not any(ip in _seeds for ip in responders):
+                self.logger.info("Single snapshot donor is not a trusted seed; using full sync")
+                return False
+            agreed = snapshot_ops.agree_snapshot(statuses, min_peers=(1 if trusted_only else 2), threshold=0.8)
             if not agreed:
                 self.logger.info("No snapshot quorum among peers; using full sync")
                 return False
@@ -473,6 +481,11 @@ class CoreClient(threading.Thread):
             source = next((ip for ip, st in zip(peers, statuses)
                            if st and st.get("snapshot_hash") == target_hash), None)
             if not source:
+                return False
+            # when trusting a lone donor, the fetch source itself MUST be the trusted seed (not just any
+            # responder that happened to echo the hash) — otherwise a non-seed peer could serve the payload.
+            if trusted_only and source not in _seeds:
+                self.logger.info("Single-donor snapshot source is not a trusted seed; using full sync")
                 return False
 
             # 2) fetch, then verify against the quorum hash and re-derive the state root locally

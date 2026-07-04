@@ -88,13 +88,20 @@ def save_peer(ip, port, address, peer_trust=50, overwrite=False):
 DEFAULT_SEED_PEERS = ["38.242.201.206"]   # get.nadochain.com — the public bootstrap node
 
 
+def trusted_seeds():
+    """Operator-trusted bootstrap seed set: baked-in DEFAULT_SEED_PEERS + any NADO_SEED_PEERS the operator
+    configured (comma-separated). Used to seed a fresh node AND as the weak-subjectivity trust anchor for
+    accepting a snapshot from a LONE donor (loops/core_loop.snapshot_bootstrap)."""
+    extra = [x.strip() for x in (os.environ.get("NADO_SEED_PEERS") or "").split(",") if x.strip()]
+    return list(dict.fromkeys(DEFAULT_SEED_PEERS + extra))
+
+
 def seed_default_peers(logger, my_ip=None):
     """Seed the baked-in bootstrap peer(s) — but ONLY when the peers/ dir is empty (a fresh node), so we
     never fight later trust-purges of a seed that went bad. Skips our own IP. Idempotent."""
     if glob.glob(f"{get_home()}/peers/*.dat"):
         return
-    extra = [x.strip() for x in (os.environ.get("NADO_SEED_PEERS") or "").split(",") if x.strip()]
-    for ip in list(dict.fromkeys(DEFAULT_SEED_PEERS + extra)):
+    for ip in trusted_seeds():
         if not ip or ip == my_ip:
             continue
         try:

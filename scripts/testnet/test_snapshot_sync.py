@@ -37,7 +37,8 @@ def main():
 
     base_env = dict(os.environ, NADO_TESTNET="1",
                     NADO_SNAPSHOT_INTERVAL=str(INTERVAL),
-                    NADO_TESTNET_BLOCKTIME="1")
+                    NADO_TESTNET_BLOCKTIME="1",
+                    NADO_SEED_PEERS=node_ip(0))   # donor is the trusted weak-subjectivity seed for the joiner
     procs = {}
 
     def launch(i):

@@ -6,6 +6,7 @@ import msgpack
 import aiohttp
 from ops.data_ops import sort_list_dict
 from ops.log_ops import get_logger
+from ops.net_ops import read_capped, unpack_peer, MAX_PEER_BODY
 """this module is optimized for low memory and bandwidth usage"""
 
 
@@ -24,10 +25,11 @@ async def get_list_of(key, peer, port, fail_storage, logger, semaphore, compress
             
             async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(url_construct) as response:
+                    body = await read_capped(response, MAX_PEER_BODY)   # anti-OOM: cap untrusted peer body
                     if compress == "msgpack":
-                        fetched = msgpack.unpackb(await (response.read()))
+                        fetched = unpack_peer(body)
                     else:
-                        fetched = json.loads(await response.text())[key]
+                        fetched = json.loads(body.decode())[key]
         return fetched
 
     except Exception as e:
@@ -139,10 +141,11 @@ async def get_status(peer, port, logger, fail_storage, semaphore, compress=None)
             
             async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(url_construct) as response:
+                    body = await read_capped(response, MAX_PEER_BODY)   # anti-OOM: cap untrusted peer body
                     if compress == "msgpack":
-                        fetched = msgpack.unpackb(await response.read())
+                        fetched = unpack_peer(body)
                     else:
-                        fetched = json.loads(await response.text())
+                        fetched = json.loads(body.decode())
 
                     return peer, fetched
 

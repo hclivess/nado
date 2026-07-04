@@ -240,13 +240,14 @@ def agree_snapshot(statuses, min_peers=2, threshold=0.8):
 async def fetch_block(target, port, block_hash, timeout=15):
     """fetch a single block dict from a peer by hash, or None"""
     import aiohttp
+    from ops.net_ops import read_capped, unpack_peer, MAX_PEER_BODY
     url = f"http://{target}:{port}/get_block?hash={block_hash}&compress=msgpack"
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
             async with session.get(url) as r:
                 if r.status != 200:
                     return None
-                block = msgpack.unpackb(await r.read())
+                block = unpack_peer(await read_capped(r, MAX_PEER_BODY))   # anti-OOM + object-count bound
                 return block if isinstance(block, dict) else None
     except Exception:
         return None
@@ -256,6 +257,7 @@ async def fetch_snapshot(target, port, logger=None, concurrency=8, timeout=120):
     """download a peer's snapshot manifest then all chunks in parallel.
     Returns (manifest, chunk_bytes_list) or (None, None) on failure."""
     import aiohttp
+    from ops.net_ops import read_capped, unpack_peer, MAX_PEER_BODY, MAX_SNAPSHOT_TOTAL, MAX_SNAPSHOT_ACCOUNTS
     base = f"http://{target}:{port}"
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
@@ -263,9 +265,29 @@ async def fetch_snapshot(target, port, logger=None, concurrency=8, timeout=120):
                 if r.status != 200:
                     _log(logger, "info", f"No snapshot manifest from {target} (HTTP {r.status})")
                     return None, None
-                manifest = msgpack.unpackb(await r.read())
+                manifest = unpack_peer(await read_capped(r, MAX_PEER_BODY))
 
-            chunks = [None] * manifest["chunk_count"]
+            # VALIDATE the manifest BEFORE allocating anything sized by its (untrusted) fields. A lone donor
+            # under weak-subjectivity could otherwise advertise a huge chunk_count/account_count and OOM us
+            # before the per-chunk sha256 / state_root checks (which only run later, in import_snapshot) fire.
+            # The manifest body is already byte-capped above; verify its self-hash so the chunk meta (bytes,
+            # rows) is trustworthy, then bound the totals we are about to allocate/download.
+            if not isinstance(manifest, dict) or manifest.get("snapshot_hash") != manifest_hash(manifest):
+                _log(logger, "warning", f"Snapshot manifest from {target} failed self-hash — rejecting")
+                return None, None
+            chunk_meta = manifest.get("chunks")
+            cc, ac = manifest.get("chunk_count"), manifest.get("account_count")
+            if not (isinstance(chunk_meta, list) and isinstance(cc, int) and cc == len(chunk_meta)
+                    and isinstance(ac, int) and 0 <= ac <= MAX_SNAPSHOT_ACCOUNTS
+                    and sum(int(m.get("rows", 0)) for m in chunk_meta) == ac):
+                _log(logger, "warning", f"Snapshot manifest from {target} has inconsistent counts — rejecting")
+                return None, None
+            total = sum(int(m.get("bytes", 0)) for m in chunk_meta)
+            if not (0 <= total <= MAX_SNAPSHOT_TOTAL):
+                _log(logger, "warning", f"Snapshot from {target} exceeds size ceiling ({total} bytes) — rejecting")
+                return None, None
+
+            chunks = [None] * cc
             height = manifest["snapshot_height"]     # pin chunks to the manifest we just fetched
             sem = __import__("asyncio").Semaphore(concurrency)
 
@@ -274,9 +296,10 @@ async def fetch_snapshot(target, port, logger=None, concurrency=8, timeout=120):
                     async with session.get(f"{base}/get_snapshot_chunk?id={cid}&height={height}") as cr:
                         if cr.status != 200:
                             raise IOError(f"chunk {cid} HTTP {cr.status}")
-                        chunks[cid] = await cr.read()
+                        # manifest is hash-verified, so chunk_meta[cid]['bytes'] is a trusted cap for this read
+                        chunks[cid] = await read_capped(cr, int(chunk_meta[cid].get("bytes", 0)))
 
-            await __import__("asyncio").gather(*(_one(i) for i in range(manifest["chunk_count"])))
+            await __import__("asyncio").gather(*(_one(i) for i in range(cc)))
             return manifest, chunks
     except Exception as e:
         _log(logger, "error", f"Failed to fetch snapshot from {target}: {e}")
