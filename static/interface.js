@@ -3418,12 +3418,26 @@ async function proposeSpend() {
     if (res.ok) { $("qPropRecipient").value = $("qPropAmount").value = $("qPropMemo").value = ""; setTimeout(() => renderQuorum().catch(() => {}), 1500); }
   } catch (e) { msg.textContent = e.message; }
 }
-async function _qAct(kind, p, choice) {
+async function _qAct(kind, p, choice, btn) {
+  const label = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = i18("quorum.sending", "Submitting…"); }
   try {
     const res = await submitTreasurySpend(kind, p.recipient, p.amount, p.memo, p.nonce, p.expiry, choice);
-    if (res.ok) setTimeout(() => renderQuorum().catch(() => {}), 1500);
-    else uiAlert((res.data && res.data.message) || i18("quorum.rejected", "Rejected"));
-  } catch (e) { uiAlert(e.message); }
+    if (res.ok) {
+      toast(kind === "treasury_execute"
+        ? i18("quorum.execOk", "Payout triggered ✓ — it settles on-chain in a few blocks.")
+        : i18("quorum.voteOk", "Vote submitted ✓ — it counts in a few blocks."), "info", 6000);
+      if (btn) btn.textContent = i18("quorum.pending", "Pending…");   // stays disabled until the re-render replaces it
+      // a treasury tx confirms a few blocks later, so refresh several times instead of once
+      [4000, 10000, 20000, 35000].forEach((t) => setTimeout(() => renderQuorum().catch(() => {}), t));
+    } else {
+      if (btn) { btn.disabled = false; btn.textContent = label; }
+      uiAlert((res.data && res.data.message) || i18("quorum.rejected", "Rejected"));
+    }
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+    uiAlert(e.message);
+  }
 }
 async function renderQuorum() {
   const box = $("qProposals");
@@ -3467,9 +3481,9 @@ async function renderQuorum() {
       ${canVote ? `<button class="ghost mt small qoppose" data-i="${i}" style="width:100%">${i18("quorum.oppose", "Oppose / withdraw vote")}</button>` : ""}
       ${canExec ? `<button class="primary mt small qexec" data-i="${i}" style="width:100%">${i18("quorum.execute", "Execute payout")}</button>` : ""}</div>`;
   }).join("");
-  box.querySelectorAll(".qvote").forEach(b => b.onclick = () => _qAct("treasury_vote", props[+b.dataset.i], "yes"));
-  box.querySelectorAll(".qoppose").forEach(b => b.onclick = () => _qAct("treasury_vote", props[+b.dataset.i], "no"));
-  box.querySelectorAll(".qexec").forEach(b => b.onclick = () => _qAct("treasury_execute", props[+b.dataset.i]));
+  box.querySelectorAll(".qvote").forEach(b => b.onclick = () => _qAct("treasury_vote", props[+b.dataset.i], "yes", b));
+  box.querySelectorAll(".qoppose").forEach(b => b.onclick = () => _qAct("treasury_vote", props[+b.dataset.i], "no", b));
+  box.querySelectorAll(".qexec").forEach(b => b.onclick = () => _qAct("treasury_execute", props[+b.dataset.i], undefined, b));
 }
 
 /* ----------------------------------------------------------------------------------------------
