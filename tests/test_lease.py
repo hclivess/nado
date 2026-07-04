@@ -16,7 +16,7 @@ create_indexers()
 
 from protocol import POSW_LEASE_EPOCHS
 from ops import kv_ops
-from ops.account_ops import create_account, get_account, apply_register, apply_heartbeat, get_open_registry
+from ops.account_ops import create_account, get_account, apply_register, get_open_registry
 from ops.key_ops import generate_keys
 
 fails = 0
@@ -32,11 +32,10 @@ E = 10
 E2 = E + POSW_LEASE_EPOCHS + 1     # comfortably past the lease
 
 def t1_lease_grants_then_expires():
-    apply_heartbeat(A, epoch=E, logger=logger)          # present at E
+    # a recert (apply_register) IS the presence lease — there is no separate heartbeat anymore.
     apply_register(A, epoch=E, logger=logger)           # register + recert at E
     assert A in get_open_registry(E), "eligible right after registering"
-    apply_heartbeat(A, epoch=E2, logger=logger)         # still present at E2 (so presence isn't the reason)
-    assert A not in get_open_registry(E2), "lease must expire -> not eligible even though present"
+    assert A not in get_open_registry(E2), "lease must expire -> not eligible past POSW_LEASE_EPOCHS"
 
 def t2_renewal_restores_eligibility():
     apply_register(A, epoch=E2, logger=logger)          # renew (fresh recert at E2)

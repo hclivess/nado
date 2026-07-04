@@ -21,10 +21,10 @@ create_indexers()
 from ops import kv_ops
 from ops.account_ops import (create_account, get_account, change_balance, change_bonded,
                              increase_produced_count, change_fidelity, apply_register,
-                             apply_heartbeat, fetch_totals, index_totals, get_totals)
+                             fetch_totals, index_totals, get_totals)
 from ops.transaction_ops import index_transactions, unindex_transactions
 from ops.block_ops import index_block_number, unindex_block
-from protocol import split_block_reward, EPOCH_LENGTH, PRESENCE_WINDOW, FIDELITY_GAIN, TREASURY_ADDRESS
+from protocol import split_block_reward, EPOCH_LENGTH, FIDELITY_GAIN, TREASURY_ADDRESS
 
 fails = 0
 def check(name, fn):
@@ -55,9 +55,9 @@ def dump_env():
 def t1():
     dbs = set(kv_ops._dbs().keys())
     for sub in ("accounts", "totals", "block_by_num", "block_by_hash",
-                "tx", "tx_by_sender", "tx_by_recipient", "heartbeats"):
+                "tx", "tx_by_sender", "tx_by_recipient", "recerts", "recert_by_epoch"):
         assert sub in dbs, f"{sub} sub-DB missing (have {dbs})"
-check("one LMDB env with accounts/totals/block/tx/heartbeats sub-DBs", t1)
+check("one LMDB env with accounts/totals/block/tx/recert sub-DBs", t1)
 
 
 # --- 2) write_txn commits all mutations together -------------------------------------------------
@@ -123,18 +123,19 @@ def t6():
         increase_produced_count("dave", 5, logger=logger)
         change_bonded("dave", 1000, logger=logger)
         change_fidelity("dave", 3, logger=logger)
-        apply_register("dave", epoch=0, logger=logger)   # registered -> 1 (+ recert at epoch 0)
-        apply_heartbeat("dave", epoch=0, logger=logger)  # +heartbeat, fidelity +FIDELITY_GAIN
+        # a recert (apply_register) IS the presence lease now — registered->1, records the recert, and sets
+        # fidelity. dave's FIRST recert (no prior) RESETS fidelity to GAIN (a lapse/first recert loses streak),
+        # so the change_fidelity(+3) above is wiped forward and exactly restored on revert (the point of the test).
+        apply_register("dave", epoch=0, logger=logger)
     after = get_account("dave")
     assert after["balance"] == base["balance"] - 1234
     assert after["produced"] == base["produced"] + 5
     assert after["bonded"] == base["bonded"] + 1000
     assert after["registered"] == 1
-    assert after["fidelity"] == base["fidelity"] + 3 + FIDELITY_GAIN
-    assert kv_ops.heartbeat_addresses_after(-1) == {"dave"}
+    assert after["fidelity"] == FIDELITY_GAIN     # first recert resets fidelity to GAIN
+    assert kv_ops.recert_addresses_after(-1) == {"dave"}
     # revert in the exact mirror order -> doc returns byte-identical
     with kv_ops.write_txn():
-        apply_heartbeat("dave", epoch=0, logger=logger, revert=True)
         apply_register("dave", epoch=0, logger=logger, revert=True)
         change_fidelity("dave", 3, logger=logger, revert=True)
         change_bonded("dave", 1000, logger=logger, revert=True)
@@ -142,22 +143,21 @@ def t6():
         change_balance("dave", -1234, logger=logger, revert=True)
     assert get_account("dave") == base, "account doc did not revert to baseline values"
     assert dump_env()["accounts"] == base_bytes, "account doc bytes not byte-identical after revert"
-    assert kv_ops.heartbeat_addresses_after(-1) == set(), "heartbeat dup not removed on revert"
+    assert kv_ops.recert_addresses_after(-1) == set(), "recert not removed on revert"
 check("account doc round-trip + EXACT revert symmetry", t6)
 
 
-# --- 7) DUPSORT heartbeat range scan (epoch > floor), dedup, ordering ----------------------------
+# --- 7) DUPSORT recert range scan (epoch > floor), dedup, delete ---------------------------------
 def t7():
+    # recert_put(address, epoch) — note arg order (heartbeat_put(ep,addr) was retired in the lease refactor).
     for ep, addr in [(10, "p"), (11, "p"), (11, "q"), (12, "r"), (11, "p")]:  # (11,p) dup -> deduped
-        kv_ops.heartbeat_put(ep, addr)
-    assert kv_ops.heartbeat_addresses_after(10) == {"p", "q", "r"}   # epoch > 10
-    assert kv_ops.heartbeat_addresses_after(11) == {"r"}             # epoch > 11
+        kv_ops.recert_put(addr, ep)
+    assert kv_ops.recert_addresses_after(10) == {"p", "q", "r"}   # epoch > 10 (p@11, q@11, r@12)
+    assert kv_ops.recert_addresses_after(11) == {"r"}             # epoch > 11 (only r@12)
     # exact dup encoding -> a single delete is unambiguous
-    kv_ops.heartbeat_del(11, "p")
-    assert kv_ops.heartbeat_addresses_after(10) == {"q", "r"}
-    kv_ops.heartbeat_gc(11)  # drop epoch <= 11
-    assert kv_ops.heartbeat_addresses_after(-1) == {"r"}            # only epoch 12 remains
-check("DUPSORT heartbeat range scan + dedup + gc", t7)
+    kv_ops.recert_del("p", 11)
+    assert kv_ops.recert_addresses_after(10) == {"q", "r"}        # p@11 gone; p@10 not > 10
+check("DUPSORT recert range scan + dedup + delete", t7)
 
 
 # --- 8) tx-history UNION ordering (merge sender|recipient dupsort cursors, by block) -------------
@@ -183,17 +183,16 @@ def t9():
     create_account("snd", balance=100000)
     create_account("rcv", balance=500)
     create_account("reg", balance=0, registered=0)
-    create_account("hbt", balance=0, registered=1)   # heartbeat sender must be registered
     create_account("prod", balance=0, produced=0)
     create_account(TREASURY_ADDRESS, balance=0)
 
-    block_number = 1                       # epoch 0 -> heartbeat GC floor = -3 -> no GC -> symmetric
+    block_number = 1                       # epoch 0 (recert lands here; no GC in the rollback window)
     assert block_number // EPOCH_LENGTH == 0
     txs = [
         {"txid": "t_xfer", "sender": "snd", "recipient": "rcv", "amount": 1000, "fee": 7},
+        # `register` is the presence lease/recert; index_transactions reflects it and unindex reverses it,
+        # so the recert + registered flag + fidelity apply and revert byte-identically inside the block.
         {"txid": "t_reg",  "sender": "reg", "recipient": "register", "amount": 0, "fee": 0},
-        {"txid": "t_hbt",  "sender": "hbt", "recipient": "heartbeat", "amount": 0, "fee": 0,
-         "epoch": 0},
     ]
     block = {"block_number": block_number, "block_hash": "a" * 64, "block_creator": "prod",
              "block_reward": 4000, "block_transactions": txs}

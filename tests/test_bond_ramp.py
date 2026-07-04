@@ -68,10 +68,13 @@ def t3_stake_weighted_topup_closes_loophole():
 
 def t4_auto_bond_preserves_age():
     create_account("hodler", balance=200 * B_MIN)
-    _bond("hodler", 100 * B_MIN, height=0, txid="h1")            # large, aged from epoch 0
-    _bond("hodler", 1 * B_MIN, height=100 * EPOCH_LENGTH, txid="h2")  # small auto-bond top-up
+    _bond("hodler", 100 * B_MIN, height=0, txid="h1")            # large stake, aged from epoch 0 — but
+    # apply_bond_since never stores 0 (the "fully aged / genesis" sentinel), so an epoch-0 bonder ages from 1.
+    _bond("hodler", 1 * B_MIN, height=100 * EPOCH_LENGTH, txid="h2")  # small auto-bond top-up at epoch 100
     since = kv_ops.bond_since_get_raw("hodler")
-    assert since == 0, f"a tiny top-up barely moves a large aged stake's age (got {since})"
+    # stake-weighted blend: (100*B_MIN * 1 + 1*B_MIN * 100) // (101*B_MIN) = 200//101 = 1 — the tiny top-up
+    # BARELY moves the large aged stake's age (it does not reset it toward epoch 100).
+    assert since == 1, f"a tiny top-up barely moves a large aged stake's age (got {since})"
 
 def t5_revert_is_exact():
     create_account("r", balance=100 * B_MIN)
