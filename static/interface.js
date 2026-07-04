@@ -47,7 +47,7 @@ const AUTO_BOND_MIN_RAW = 10_000_000n;  // protocol.py: dust floor for an auto-b
 /* ----------------------------------------------------------------------------------------------
  * Dependency loading: @noble/hashes (blake2b) + @noble/post-quantum (ML-DSA-44) as ESM from a CDN.
  * -------------------------------------------------------------------------------------------- */
-let blake2b, bytesToHex, hexToBytes, ml_dsa44;
+let blake2b, bytesToHex, hexToBytes, ml_dsa44, ml_kem768;
 
 // Optional, locally-vendored QR generator (static/vendor/qrcode.js). Loaded best-effort: if it is
 // missing the Receive tab degrades to showing the address text instead of failing (NO runtime CDN).
@@ -61,8 +61,9 @@ async function loadDeps() {
   // 1) LOCAL self-contained bundle (no internet needed) — all symbols from one vendored module.
   //    This is what makes the wallet WORK on a phone / restricted network where the CDN is blocked.
   try {
-    const m = await import('./vendor/nado-crypto.js');
+    const m = await import('./vendor/nado-crypto.js?v=mlkem');
     blake2b = m.blake2b; bytesToHex = m.bytesToHex; hexToBytes = m.hexToBytes; ml_dsa44 = m.ml_dsa44;
+    ml_kem768 = m.ml_kem768;   // ML-KEM-768 for messaging E2E (may be undefined on a stale cached bundle)
     if (blake2b && ml_dsa44) return;
   } catch (e) { /* fall through to CDN */ }
   // 2) CDN fallback (esm.sh, then jsdelivr) only if the local bundle isn't served.
@@ -73,14 +74,16 @@ async function loadDeps() {
   let lastErr;
   for (const build of cdns) {
     try {
-      const [hb, hu, pq] = await Promise.all([
+      const [hb, hu, pq, pk] = await Promise.all([
         import(build("@noble/hashes@1.4.0/blake2b")),
         import(build("@noble/hashes@1.4.0/utils")),
         import(build("@noble/post-quantum@0.2.0/ml-dsa")),
+        import(build("@noble/post-quantum@0.2.0/ml-kem")),
       ]);
       blake2b = hb.blake2b;
       bytesToHex = hu.bytesToHex;
       hexToBytes = hu.hexToBytes;
+      ml_kem768 = pk.ml_kem768;   // ML-KEM-768 (FIPS 203) for messaging E2E encryption
       // ML-DSA-44 (FIPS 204). @noble's DEFAULT sign/verify interoperate both ways with the node's
       // dilithium-py ML-DSA-44 *internal* mode (same 32-byte seed -> identical 1312-byte pubkey).
       ml_dsa44 = pq.ml_dsa44;
@@ -3140,8 +3143,192 @@ function showTab(name) {
   else if (name === "send") { updateFeeInfo().catch(() => {}); validateSendTo().catch(() => {}); addrBookRender(); }
   else if (name === "stake") { updateFeeInfo().catch(() => {}); refreshDashboard().catch(() => {}); }
   else if (name === "quorum") renderQuorum().catch(() => {});
+  else if (name === "messages") msgOpen().catch(() => {});
   else if (name === "settings") renderSecurity();
 }
+
+/* ----------------------------------------------------------------------------------------------
+ * MESSAGES tab (doc/messaging.md): off-chain, end-to-end-encrypted, post-quantum DMs. The crypto +
+ * transport live in ./messaging.js (ML-KEM-768 encrypt + ML-DSA sign, tag-routed through the node's
+ * blind message pool). Here we handle identity/prekey publish, send, an inbox poll (tag-scan ->
+ * trial-decapsulate), local history, delivery acks, and the "not delivered" status.
+ * -------------------------------------------------------------------------------------------- */
+let MSG = null;
+async function loadMessaging() {
+  if (MSG) return MSG;
+  try { MSG = await import('./messaging.js'); }
+  catch (e) { MSG = null; log("err", "Messaging unavailable: " + (e && e.message || e)); }
+  return MSG;
+}
+function _msgKey(suffix) { return "nado_msg_v1_" + (state.wallet ? state.wallet.address : "_") + "_" + suffix; }
+function msgHistLoad() { try { return JSON.parse(localStorage.getItem(_msgKey("hist")) || "{}"); } catch { return {}; } }
+function msgHistSave(h) { try { localStorage.setItem(_msgKey("hist"), JSON.stringify(h)); } catch (e) {} }
+function msgCursor() { return parseInt(localStorage.getItem(_msgKey("cursor")) || "0", 10) || 0; }
+function msgSetCursor(n) { try { localStorage.setItem(_msgKey("cursor"), String(n)); } catch (e) {} }
+function _nowSec() { return Math.floor(Date.now() / 1000); }
+function _lastTs(conv) { return conv.messages.length ? conv.messages[conv.messages.length - 1].ts : 0; }
+
+function msgIdentity() {
+  if (!MSG || !state.wallet || !state.wallet.privateKey) return null;
+  if (!state._msgId || state._msgId.addr !== state.wallet.address) {
+    state._msgId = { addr: state.wallet.address, id: MSG.identity(state.wallet.privateKey) };  // per-account
+  }
+  return state._msgId.id;
+}
+function myPrimaryAlias() { return (state.myAliases && state.myAliases[0]) || null; }
+
+async function msgFetchPrekey(addr) {
+  try {
+    const r = await fetch(relayBase() + "/msg_key?address=" + encodeURIComponent(addr), { cache: "no-store" });
+    if (!r.ok) return null;
+    return (await r.json()).bundle || null;
+  } catch { return null; }
+}
+
+async function msgPublishPrekey() {
+  const m = await loadMessaging(); if (!m) return;
+  const id = msgIdentity(); if (!id) return;
+  try {
+    const bundle = m.makePrekeyBundle(id, state.wallet.address, _nowSec());
+    await fetch(relayBase() + "/msg_key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bundle) });
+    state._msgPublished = state.wallet.address;
+  } catch (e) {}
+}
+
+async function msgOpen() {
+  const m = await loadMessaging();
+  if (!m) { $("msgThread").innerHTML = '<div class="empty">Messaging needs the ML-KEM crypto bundle — reload the page.</div>'; return; }
+  if (!msgIdentity()) return;
+  if (state._msgPublished !== state.wallet.address) msgPublishPrekey().catch(() => {});   // be reachable
+  $("msgSendBtn").onclick = () => msgSend().catch(() => {});
+  $("msgNewBtn").onclick = () => { state.msgActivePeer = null; $("msgTo").value = ""; $("msgBody").value = ""; renderMessages(); $("msgTo").focus(); };
+  $("msgBody").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); msgSend().catch(() => {}); } };
+  renderMessages();
+  msgPoll().catch(() => {});
+  if (!state._msgPollTimer) state._msgPollTimer = setInterval(() => { if (state.activeTab === "messages") msgPoll().catch(() => {}); }, 15000);
+}
+
+async function msgSend() {
+  const m = await loadMessaging(); if (!m) return;
+  const toRaw = ($("msgTo").value || "").trim();
+  const body = ($("msgBody").value || "").trim();
+  if (!toRaw || !body) return;
+  let addr = toRaw;
+  if (!/^ndo[0-9a-f]{40,}$/i.test(toRaw)) {                       // resolve an alias
+    const owner = await resolveAlias(toRaw.replace(/^@/, ""));
+    if (!owner) { $("msgHint").textContent = "No such alias: " + toRaw; return; }
+    addr = owner;
+  }
+  const id = msgIdentity(), ts = _nowSec();
+  const hist = msgHistLoad();
+  const conv = (hist[addr] = hist[addr] || { alias: (addr !== toRaw ? toRaw : null), messages: [] });
+  const bundle = await msgFetchPrekey(addr);
+  if (!bundle || !bundle.ik_pub) {
+    conv.messages.push({ id: "local-" + ts + "-" + Math.floor(Math.random() * 1e6), dir: "out", body, ts,
+      status: "undelivered", reason: "no messaging key yet — they haven't opened Messages" });
+    msgHistSave(hist); $("msgBody").value = ""; renderMessages(); return;
+  }
+  let res, mid;
+  try {
+    const env = m.makeEnvelope(id, state.wallet.address, bundle.ik_pub,
+      { type: "msg", from: state.wallet.address, alias: myPrimaryAlias(), body, ts }, ts);
+    mid = m.messageId(env);
+    res = await (await fetch(relayBase() + "/message", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(env) })).json();
+  } catch (e) { res = { result: false, reason: e && e.message || "send failed" }; }
+  conv.messages.push({ id: mid || ("local-" + ts), dir: "out", body, ts,
+    status: (res && res.result) ? "sent" : "undelivered", reason: (res && res.result) ? null : (res && res.reason || "send failed") });
+  msgHistSave(hist); $("msgBody").value = ""; renderMessages();
+}
+
+async function msgSendAck(m, id, toAddr, ackId) {
+  const bundle = await msgFetchPrekey(toAddr);
+  if (!bundle || !bundle.ik_pub) return;
+  const ts = _nowSec();
+  const env = m.makeEnvelope(id, state.wallet.address, bundle.ik_pub, { type: "ack", from: state.wallet.address, ackId, ts }, ts);
+  try { await fetch(relayBase() + "/message", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(env) }); } catch (e) {}
+}
+
+async function msgPoll() {
+  const m = await loadMessaging(); if (!m || !state.wallet) return;
+  const id = msgIdentity(); if (!id) return;
+  let data;
+  try { data = await (await fetch(relayBase() + "/tags?since=" + msgCursor(), { cache: "no-store" })).json(); }
+  catch { return; }
+  const hist = msgHistLoad();
+  let maxSeq = msgCursor(), changed = false;
+  for (const t of (data.tags || [])) {
+    if (t.seq > maxSeq) maxSeq = t.seq;
+    let env;
+    try { env = (await (await fetch(relayBase() + "/message?id=" + t.id, { cache: "no-store" })).json()).message; } catch { continue; }
+    if (!env) continue;
+    const pt = m.tryOpen(id, env);
+    if (!pt) continue;                                            // not ours (or not decryptable)
+    if (pt.type === "ack") {
+      for (const c of Object.values(hist)) for (const msg of c.messages)
+        if (msg.dir === "out" && msg.id === pt.ackId && msg.status !== "delivered") { msg.status = "delivered"; changed = true; }
+    } else {
+      const from = pt.from || env.sender;
+      const conv = (hist[from] = hist[from] || { alias: pt.alias || null, messages: [] });
+      if (pt.alias && !conv.alias) conv.alias = pt.alias;
+      if (!conv.messages.some(x => x.id === t.id)) {
+        conv.messages.push({ id: t.id, dir: "in", body: pt.body, ts: pt.ts || env.ts, status: "received" });
+        changed = true;
+        msgSendAck(m, id, from, t.id).catch(() => {});           // confirm delivery to the sender
+      }
+    }
+  }
+  const now = _nowSec();
+  for (const c of Object.values(hist)) for (const msg of c.messages)
+    if (msg.dir === "out" && msg.status === "sent" && now - msg.ts > 7 * 86400) {
+      msg.status = "undelivered"; msg.reason = "not delivered — hasn't come online in 7 days"; changed = true;
+    }
+  if (maxSeq > msgCursor()) msgSetCursor(maxSeq);
+  if (changed) { msgHistSave(hist); if (state.activeTab === "messages") renderMessages(); }
+}
+
+function _msgStatusLabel(msg) {
+  if (msg.dir === "in") return "";
+  if (msg.status === "delivered") return "✓ delivered";
+  if (msg.status === "sent") return "· sent";
+  if (msg.status === "undelivered") return "✕ " + (msg.reason || "not delivered");
+  return "";
+}
+
+function renderMessages() {
+  const listEl = $("msgConvList"), threadEl = $("msgThread");
+  if (!listEl || !threadEl) return;
+  const hist = msgHistLoad();
+  const peers = Object.keys(hist).sort((a, b) => _lastTs(hist[b]) - _lastTs(hist[a]));
+  // conversation list
+  if (!peers.length) {
+    listEl.innerHTML = '<div class="small faint" style="padding:4px 0">No conversations yet — enter an alias or address above and say hi.</div>';
+  } else {
+    listEl.innerHTML = peers.map((p) => {
+      const c = hist[p], last = c.messages[c.messages.length - 1];
+      const name = c.alias ? "@" + escapeHtml(c.alias) : escapeHtml(p.slice(0, 18)) + "…";
+      const active = state.msgActivePeer === p ? " msgconv-active" : "";
+      const prev = last ? escapeHtml((last.dir === "out" ? "You: " : "") + last.body).slice(0, 46) : "";
+      return `<button class="msgconv${active}" data-peer="${escapeHtml(p)}"><b>${name}</b><span class="small faint">${prev}</span></button>`;
+    }).join("");
+    listEl.querySelectorAll(".msgconv").forEach((b) => b.onclick = () => {
+      state.msgActivePeer = b.dataset.peer;
+      const c = hist[b.dataset.peer];
+      $("msgTo").value = c && c.alias ? c.alias : b.dataset.peer;
+      renderMessages();
+    });
+  }
+  // active thread
+  const peer = state.msgActivePeer;
+  if (!peer || !hist[peer]) { threadEl.innerHTML = ""; return; }
+  threadEl.innerHTML = hist[peer].messages.map((msg) => {
+    const cls = msg.dir === "out" ? "msgbubble out" : "msgbubble in";
+    const status = _msgStatusLabel(msg);
+    return `<div class="${cls}"><div class="msgtext">${escapeHtml(msg.body)}</div>` +
+      `<div class="msgmeta small faint">${_msgTime(msg.ts)}${status ? " · " + escapeHtml(status) : ""}</div></div>`;
+  }).join("");
+  threadEl.scrollTop = threadEl.scrollHeight;
+}
+function _msgTime(ts) { try { return new Date(ts * 1000).toLocaleString(); } catch { return ""; } }
 
 /* ----------------------------------------------------------------------------------------------
  * Treasury Quorum tab (doc/treasury.md §3.3/§3.6): the treasury is spent ONLY when bonded stakers approve.
