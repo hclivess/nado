@@ -61,5 +61,14 @@ def rollback_one_block(logger, block) -> dict:
 
     set_latest_block_info(latest_block=previous_block, logger=logger)
 
+    # ROLLING-NODE SYNC: discard any persisted state checkpoint above the new tip — it captured a state
+    # that is being reverted. Advertised checkpoints are always finalized (and finality refuses this
+    # rollback above the floor), so in practice this only clears a not-yet-final checkpoint.
+    try:
+        from ops import snapshot_ops
+        snapshot_ops.drop_checkpoints_above(previous_block["block_number"])
+    except Exception as e:
+        logger.error(f"checkpoint cleanup on rollback failed (non-fatal): {e}")
+
     logger.info(f"Rolled back {block['block_hash']} successfully")
     return previous_block

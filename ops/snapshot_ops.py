@@ -19,6 +19,7 @@ and replaying the tail through the normal validation path.
 """
 import hashlib
 import os
+import shutil
 
 import msgpack
 
@@ -33,10 +34,10 @@ NULLIFIER_PREFIXES = ("bridgenull:", "shieldnull:", "divnull:", "tspend:", "slas
 
 # how many account rows go into one transferable chunk
 CHUNK_ROWS = int(os.environ.get("NADO_SNAPSHOT_CHUNK_ROWS", "25000"))
-# finality margin: snapshot a height safely below any plausible re-org depth
-FINALITY_MARGIN = int(os.environ.get("NADO_SNAPSHOT_FINALITY", "200"))
-# checkpoints land on multiples of this
-CHECKPOINT_INTERVAL = int(os.environ.get("NADO_SNAPSHOT_INTERVAL", "10000"))
+# checkpoints are captured at heights that are multiples of this (a checkpoint is only ADVERTISED once
+# finalized, so it is always reorg-safe — no separate finality margin needed). Smaller = joiners see a
+# fresher checkpoint sooner (shorter tail replay) at the cost of more frequent captures.
+CHECKPOINT_INTERVAL = int(os.environ.get("NADO_SNAPSHOT_INTERVAL", "1000"))
 
 
 def _blake2b(data: bytes) -> str:
@@ -87,14 +88,6 @@ def block_hash_at_height(height, home=None):
     """block hash for a given block number from the KV block index, or None"""
     kv_ops.init_env(home)
     return kv_ops.hash_by_number(height)
-
-
-def choose_checkpoint_height(tip_height):
-    """largest multiple of CHECKPOINT_INTERVAL that is <= tip - FINALITY_MARGIN"""
-    safe = tip_height - FINALITY_MARGIN
-    if safe < 0:
-        return None
-    return (safe // CHECKPOINT_INTERVAL) * CHECKPOINT_INTERVAL
 
 
 def _pack_chunks(rows):
@@ -278,11 +271,12 @@ async def fetch_snapshot(target, port, logger=None, concurrency=8, timeout=120):
                 manifest = msgpack.unpackb(await r.read())
 
             chunks = [None] * manifest["chunk_count"]
+            height = manifest["snapshot_height"]     # pin chunks to the manifest we just fetched
             sem = __import__("asyncio").Semaphore(concurrency)
 
             async def _one(cid):
                 async with sem:
-                    async with session.get(f"{base}/get_snapshot_chunk?id={cid}") as cr:
+                    async with session.get(f"{base}/get_snapshot_chunk?id={cid}&height={height}") as cr:
                         if cr.status != 200:
                             raise IOError(f"chunk {cid} HTTP {cr.status}")
                         chunks[cid] = await cr.read()
@@ -297,3 +291,97 @@ async def fetch_snapshot(target, port, logger=None, concurrency=8, timeout=120):
 def _log(logger, level, msg):
     if logger:
         getattr(logger, level, logger.info)(msg)
+
+
+# --------------------------------------------------------------------------------------------------
+# PERSISTENT STATE CHECKPOINTS (rolling-node sync).
+#
+# A node captures a snapshot of its account state at each checkpoint height C at the MOMENT it
+# incorporates block C — so accounts.db == state@C by construction (no historical-state derivation,
+# nothing to get wrong). The snapshot (manifest + chunks) is written under snapshots/<C>/ and is
+# advertised in /status ONLY once C is finalized (reorg-safe), so a joiner can bulk-import verified
+# state@C and then replay only the short C+1..tip tail. Every honest node produces the identical
+# deterministic checkpoint, which is what lets a joiner accept one on a super-majority quorum.
+# --------------------------------------------------------------------------------------------------
+
+def _snap_dir(home=None):
+    return f"{home or get_home()}/snapshots"
+
+
+def _ckpt_path(height, home=None):
+    return f"{_snap_dir(home)}/{int(height)}"
+
+
+def list_checkpoint_heights(home=None):
+    """persisted checkpoint heights on disk, ascending (ignores in-progress .tmp dirs)"""
+    d = _snap_dir(home)
+    if not os.path.isdir(d):
+        return []
+    heights = []
+    for name in os.listdir(d):
+        if name.endswith(".tmp"):
+            continue
+        try:
+            heights.append(int(name))
+        except ValueError:
+            pass
+    return sorted(heights)
+
+
+def _prune_old_checkpoints(keep, home=None):
+    if keep <= 0:
+        return
+    for h in list_checkpoint_heights(home)[:-keep]:
+        shutil.rmtree(_ckpt_path(h, home), ignore_errors=True)
+
+
+def persist_checkpoint(height, block_hash, protocol, version, home=None, keep=2):
+    """Build a snapshot of the CURRENT account state (== state@height when called at the incorporation
+    of block `height`) and atomically persist manifest + chunks under snapshots/<height>/. Keeps the
+    newest `keep` checkpoints. Returns the manifest. Correct by construction — never derives past state."""
+    home = home or get_home()
+    manifest, chunk_bytes = build_snapshot(height, block_hash, protocol, version, home=home)
+    final = _ckpt_path(height, home)
+    tmp = final + ".tmp"
+    shutil.rmtree(tmp, ignore_errors=True)
+    os.makedirs(tmp, exist_ok=True)
+    with open(f"{tmp}/manifest.msgpack", "wb") as f:
+        f.write(msgpack.packb(manifest))
+    for cid, cb in enumerate(chunk_bytes):
+        with open(f"{tmp}/chunk_{cid}.bin", "wb") as f:
+            f.write(cb)
+    shutil.rmtree(final, ignore_errors=True)
+    os.rename(tmp, final)                      # atomic publish (a partial write never becomes visible)
+    _prune_old_checkpoints(keep, home)
+    return manifest
+
+
+def latest_final_checkpoint_height(finalized_height, home=None):
+    """the highest persisted checkpoint at/below finalized_height (safe to advertise/serve), or None"""
+    finals = [h for h in list_checkpoint_heights(home) if h <= int(finalized_height)]
+    return finals[-1] if finals else None
+
+
+def load_checkpoint_manifest(height, home=None):
+    p = f"{_ckpt_path(height, home)}/manifest.msgpack"
+    if not os.path.isfile(p):
+        return None
+    with open(p, "rb") as f:
+        return msgpack.unpackb(f.read())
+
+
+def load_checkpoint_chunk(height, cid, home=None):
+    p = f"{_ckpt_path(height, home)}/chunk_{int(cid)}.bin"
+    if not os.path.isfile(p):
+        return None
+    with open(p, "rb") as f:
+        return f.read()
+
+
+def drop_checkpoints_above(height, home=None):
+    """On rollback: discard checkpoints whose height exceeds the new tip — they may reflect a state
+    that is being reverted. (Advertised checkpoints are always finalized, so this only ever removes
+    not-yet-final ones, keeping the on-disk set consistent with the chain.)"""
+    for h in list_checkpoint_heights(home):
+        if h > int(height):
+            shutil.rmtree(_ckpt_path(h, home), ignore_errors=True)

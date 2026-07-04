@@ -1,0 +1,86 @@
+"""
+Persistent state-checkpoint unit checks (rolling-node sync).
+
+Proves the core correctness the old lazy-build path never exercised:
+- a checkpoint captures the CURRENT account state (state@C by construction),
+- it is advertised only once finalized (advertise-when-final),
+- it round-trips off disk with an intact manifest hash,
+- importing it restores EXACTLY the checkpointed state even over a diverged/corrupt DB,
+- a tampered chunk is rejected (sha256 + re-derived state_root gate),
+- drop_checkpoints_above prunes reverted checkpoints.
+"""
+import os, sys, tempfile, traceback
+os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_snapckpt_")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+for d in ("index", "blocks", "index/producer_sets", "logs", "peers", "snapshots"):
+    os.makedirs(os.path.expanduser(f"~/nado/{d}"), exist_ok=True)
+
+import logging
+logger = logging.getLogger("snap"); logger.addHandler(logging.NullHandler())
+
+from genesis import create_indexers
+create_indexers()
+
+from ops import snapshot_ops, kv_ops
+from ops.account_ops import create_account, get_account, change_balance
+
+fails = 0
+def check(name, fn):
+    global fails
+    try:
+        fn(); print(f"PASS  {name}")
+    except Exception as e:
+        fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
+
+
+def t1():
+    create_account("alice", balance=1000, produced=5, bonded=200)
+    create_account("bob", balance=42, bonded=0)
+
+    # capture checkpoint @5 == current state
+    snapshot_ops.persist_checkpoint(height=5, block_hash="a" * 64, protocol=2, version="v")
+    assert snapshot_ops.list_checkpoint_heights() == [5]
+
+    # advertise-when-final: NOT offered until finalized_height >= 5 (reorg safety)
+    assert snapshot_ops.latest_final_checkpoint_height(4) is None, "checkpoint advertised before final"
+    assert snapshot_ops.latest_final_checkpoint_height(9) == 5
+
+    # manifest round-trips off disk with intact hash (donor->wire->joiner determinism)
+    manifest = snapshot_ops.load_checkpoint_manifest(5)
+    assert manifest["snapshot_height"] == 5
+    assert manifest["snapshot_hash"] == snapshot_ops.manifest_hash(manifest), "manifest hash round-trip"
+    chunks = [snapshot_ops.load_checkpoint_chunk(5, i) for i in range(manifest["chunk_count"])]
+    assert all(c is not None for c in chunks), "missing chunk on disk"
+
+    # a JOINER whose DB has diverged (mutated) must end up with the EXACT checkpointed state
+    with kv_ops.write_txn():
+        change_balance("alice", 999_999, logger=logger)
+    assert get_account("alice")["balance"] == 1_000 + 999_999
+    assert snapshot_ops.import_snapshot(manifest, chunks, logger=logger), "import failed"
+    a, b = get_account("alice"), get_account("bob")
+    assert (a["balance"], a["produced"], a["bonded"]) == (1000, 5, 200), f"alice not restored: {a}"
+    assert (b["balance"], b["produced"], b["bonded"]) == (42, 0, 0), f"bob not restored: {b}"
+check("capture -> advertise-when-final -> import restores EXACT state (over a diverged DB)", t1)
+
+
+def t2():
+    manifest = snapshot_ops.load_checkpoint_manifest(5)
+    chunks = [snapshot_ops.load_checkpoint_chunk(5, i) for i in range(manifest["chunk_count"])]
+    bad = bytearray(chunks[0]); bad[len(bad) // 2] ^= 0xFF
+    assert not snapshot_ops.import_snapshot(manifest, [bytes(bad)] + chunks[1:], logger=logger), \
+        "tampered chunk was NOT rejected"
+    # state must be untouched (rejection happens before the write txn)
+    assert get_account("alice")["balance"] == 1000, "tampered import mutated state"
+check("tampered chunk rejected before any write (sha256 / state_root gate)", t2)
+
+
+def t3():
+    snapshot_ops.persist_checkpoint(height=10, block_hash="b" * 64, protocol=2, version="v")
+    assert snapshot_ops.list_checkpoint_heights() == [5, 10]
+    snapshot_ops.drop_checkpoints_above(7)      # a rollback to tip 7
+    assert snapshot_ops.list_checkpoint_heights() == [5], "reverted checkpoint not dropped"
+check("drop_checkpoints_above prunes checkpoints above the new tip", t3)
+
+
+print(f"\n{'ALL SNAPSHOT-CHECKPOINT CHECKS PASSED' if fails == 0 else str(fails) + ' FAILED'}")
+sys.exit(1 if fails else 0)

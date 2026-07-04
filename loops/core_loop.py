@@ -446,12 +446,11 @@ class CoreClient(threading.Thread):
         NOTE: the multi-peer path needs validation on a live network with real peers;
         the deterministic build/verify/import and the quorum decision are unit-tested,
         but end-to-end bootstrap from live peers has not been exercised here."""
-        if self.snapshot_attempted or self.memserver.latest_block["block_number"] != 0:
-            return False
-        self.snapshot_attempted = True
+        if self.memserver.latest_block["block_number"] != 0:
+            return False   # only bootstraps a still-at-genesis node; retryable until a donor advertises one
         try:
             peers = list(self.memserver.peers)
-            if len(peers) < self.memserver.min_peers:
+            if len(peers) < 1:
                 return False
 
             # 1) collect peers' advertised snapshots; require a super-majority (Sybil gate)
@@ -460,7 +459,11 @@ class CoreClient(threading.Thread):
                                             return_exceptions=True)
             raw = asyncio.run(_statuses(peers))
             statuses = [s if isinstance(s, dict) else None for s in raw]
-            agreed = snapshot_ops.agree_snapshot(statuses, min_peers=self.memserver.min_peers, threshold=0.8)
+            # WEAK SUBJECTIVITY: a joining node with a single reachable donor must be able to bootstrap
+            # (a nascent/rolling network may have only the seed). min_peers=1 lets one verified donor
+            # suffice; the snapshot is still hash-agreed among ALL responders (threshold) and, critically,
+            # its state_root is re-derived locally in import_snapshot, so a forged state can't slip through.
+            agreed = snapshot_ops.agree_snapshot(statuses, min_peers=1, threshold=0.8)
             if not agreed:
                 self.logger.info("No snapshot quorum among peers; using full sync")
                 return False
@@ -513,7 +516,12 @@ class CoreClient(threading.Thread):
             while self.memserver.emergency_mode and not self.memserver.terminate:
                 peer = self.get_peer_to_sync_from(source_pool=self.consensus.block_hash_pool)
                 if not peer:
-                    self.logger.info("Could not find a suitably trusted peer")
+                    self.logger.info("Could not find a syncable peer")
+                    # A fresh node whose root (genesis) no peer can serve — because every donor is a
+                    # rolling/pruned node — can never full-sync forward. Retry snapshot bootstrap until a
+                    # donor advertises a finalized checkpoint, then tail-sync from there.
+                    if self.memserver.latest_block["block_number"] == 0 and self.snapshot_bootstrap():
+                        self.logger.warning("State bootstrapped from snapshot; continuing with tail sync")
                     time.sleep(1)
                 else:
                     block_hash = self.memserver.latest_block["block_hash"]
@@ -695,6 +703,24 @@ class CoreClient(threading.Thread):
         if new_final > self.memserver.finalized_height:
             set_finalized_height(new_final)
             self.memserver.finalized_height = new_final
+
+        # ROLLING-NODE SYNC: at each checkpoint interval, persist a verified snapshot of state@N.
+        # The write txn above has committed and no later block is applied yet, so accounts.db == state@N
+        # here — the checkpoint is correct by construction (no historical-state derivation). /status
+        # advertises it only once finalized (reorg-safe); rollback_one_block drops checkpoints above tip.
+        self.maybe_checkpoint_state(block)
+
+    def maybe_checkpoint_state(self, block):
+        n = block["block_number"]
+        if n <= 0 or n % snapshot_ops.CHECKPOINT_INTERVAL != 0:
+            return
+        try:
+            snapshot_ops.persist_checkpoint(height=n, block_hash=block["block_hash"],
+                                            protocol=self.memserver.protocol,
+                                            version=self.memserver.version)
+            self.logger.warning(f"State checkpoint captured at height {n} (rolling-node sync)")
+        except Exception as e:
+            self.logger.error(f"State checkpoint at height {n} failed (non-fatal): {e}")
 
     def update_ffg_and_attest(self):
         """FFG (#6): refresh the stake-attested finalized checkpoint (observability) and, if we are a

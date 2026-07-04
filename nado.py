@@ -56,36 +56,8 @@ def serialize(output, name=None, compress=None):
     return output
 
 
-# --- bulk snapshot sync: lazily build + cache the current checkpoint snapshot ---
-_snapshot_cache = {}  # {height: (manifest, [chunk_bytes, ...])}
-
-
-def get_current_snapshot(build=True):
-    """(manifest, chunks) for the node's current checkpoint, built+cached at most once
-    per checkpoint height. Returns (None, None) when the chain is too short to snapshot.
-    /status passes build=False so advertising never triggers a heavy build."""
-    try:
-        tip = memserver.latest_block["block_number"]
-    except Exception:
-        return None, None
-    height = snapshot_ops.choose_checkpoint_height(tip)
-    if height is None:
-        return None, None
-    if height in _snapshot_cache:
-        return _snapshot_cache[height]
-    if not build:
-        return None, None
-    block_hash = snapshot_ops.block_hash_at_height(height)
-    if not block_hash:
-        return None, None
-    manifest, chunks = snapshot_ops.build_snapshot(
-        snapshot_height=height,
-        block_hash=block_hash,
-        protocol=memserver.protocol,
-        version=memserver.version)
-    _snapshot_cache.clear()  # keep only the newest checkpoint
-    _snapshot_cache[height] = (manifest, chunks)
-    return manifest, chunks
+# Bulk snapshot sync: checkpoints are captured to disk at incorporation (loops/core_loop.maybe_checkpoint_state)
+# and advertised/served from there (ops/snapshot_ops persist/load helpers) — no lazy on-request build.
 
 
 # --------------------------------------------------------------------------------------------------
@@ -174,12 +146,13 @@ async def status(request):
             "version": memserver.version,
         }
         try:
-            snap_manifest, _ = get_current_snapshot(build=False)
+            _ch = snapshot_ops.latest_final_checkpoint_height(memserver.finalized_height)
+            snap_manifest = snapshot_ops.load_checkpoint_manifest(_ch) if _ch is not None else None
             snap_manifest = snap_manifest if isinstance(snap_manifest, dict) else None
         except Exception:
             snap_manifest = None
-        status_dict["snapshot_height"] = snap_manifest["snapshot_height"] if snap_manifest else None
-        status_dict["snapshot_hash"] = snap_manifest["snapshot_hash"] if snap_manifest else None
+        status_dict["snapshot_height"] = snap_manifest.get("snapshot_height") if snap_manifest else None
+        status_dict["snapshot_hash"] = snap_manifest.get("snapshot_hash") if snap_manifest else None
         return serialize(name="status", output=status_dict, compress=_q(request, "compress", "none"))
     try:
         return _resp(await asyncio.to_thread(_build))
@@ -499,31 +472,39 @@ async def announce_peer(request):
 
 
 async def snapshot_manifest(request):
+    """Serve the highest FINALIZED persisted checkpoint's manifest (reorg-safe). Cheap disk read."""
     def _work():
         compress = _q(request, "compress", "msgpack")
-        snap_manifest, _ = get_current_snapshot(build=True)
-        if not snap_manifest:
+        h = snapshot_ops.latest_final_checkpoint_height(memserver.finalized_height)
+        manifest = snapshot_ops.load_checkpoint_manifest(h) if h is not None else None
+        if not manifest:
             return None, 404
-        return (msgpack.packb(snap_manifest) if compress == "msgpack" else snap_manifest), 200
+        return (msgpack.packb(manifest) if compress == "msgpack" else manifest), 200
     out, code = await asyncio.to_thread(_work)
     if out is None:
-        return _resp("No snapshot available (chain too short)", status=404)
+        return _resp("No snapshot available (chain too short / no finalized checkpoint)", status=404)
     return _resp(out, status=code)
 
 
 async def snapshot_chunk(request):
+    """Serve one chunk of a checkpoint by id. `height` pins the checkpoint the fetcher's manifest came
+    from (defaults to the latest finalized one) so chunks stay consistent with that manifest."""
     def _work():
         try:
             cid = int(_q(request, "id"))
         except Exception:
             return None, 400
-        _, chunks = get_current_snapshot(build=True)
-        if not chunks or cid < 0 or cid >= len(chunks):
+        h = _q(request, "height")
+        height = int(h) if h is not None else snapshot_ops.latest_final_checkpoint_height(memserver.finalized_height)
+        if height is None:
             return None, 404
-        return chunks[cid], 200
+        chunk = snapshot_ops.load_checkpoint_chunk(height, cid)
+        if chunk is None:
+            return None, 404
+        return chunk, 200
     out, code = await asyncio.to_thread(_work)
     if out is None:
-        return _resp("No such snapshot chunk", status=code)
+        return _resp("No such snapshot chunk", status=code or 404)
     return web.Response(body=out, content_type="application/msgpack",
                         headers={"Access-Control-Allow-Origin": "*"})
 
