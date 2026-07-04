@@ -195,11 +195,29 @@ class CoreClient(threading.Thread):
                 peers = self.memserver.peers.copy()
                 """make copies to avoid errors in case content changes"""
 
+                # CAUGHT-UP GATE (fork-while-syncing fix): never MINT while ANY peer advertises a HEAVIER tip
+                # than ours — we are behind and must SYNC (fetch the canonical blocks), not build our own.
+                # Minting here (win-offline relay production for the slot's winner) forks: our locally-built
+                # block takes a wall-clock timestamp that differs from the canonical block's, so its hash
+                # diverges; once our divergent tip finalizes we can no longer roll back to reconcile ("Rollback
+                # refused (finality)"), wedging the node oscillating between two tips. This is checked FRESH
+                # from status_pool (each peer's advertised latest_block_weight) rather than the lagging
+                # emergency_mode/heaviest_block_hash, which are None until the weight pool fills — the window
+                # that let a behind node mint 100+ divergent blocks.
+                _our_w = self.memserver.latest_block.get("cumulative_weight", 0)
+                _statuses = [v for v in self.consensus.status_pool.values() if isinstance(v, dict)]
+                # BEHIND if any peer advertises a heavier tip — OR we have peers but haven't learned their
+                # tips yet (status_pool still empty right after startup/snapshot import). The latter closes
+                # the window that let a just-synced node mint 100+ divergent blocks before it knew it was
+                # behind. A solo node (no peers) has no statuses and mints normally.
+                _peer_ahead = ((len(peers) > 0 and not _statuses)
+                               or any(v.get("latest_block_weight", 0) > _our_w for v in _statuses))
+
                 # min_peers == 0 enables SOLO production (a single node mints without a peer mesh) —
-                # used for a stable single-node relay/demo where multi-node fork-choice churn is
-                # undesirable. With min_peers >= 1 the normal peer gate applies.
+                # used for a stable single-node relay/demo where multi-node fork-choice churn is undesirable.
                 if (len(peers) >= self.memserver.min_peers
-                        and not self.memserver.force_sync_ip):
+                        and not self.memserver.force_sync_ip
+                        and not _peer_ahead):
                     block_candidate = get_block_candidate(logger=self.logger,
                                                           transaction_pool=self.memserver.transaction_pool.copy(),
                                                           latest_block=self.memserver.latest_block
@@ -236,7 +254,9 @@ class CoreClient(threading.Thread):
                         self.logger.warning("No eligible bonded producer this round; skipping production")
 
                 else:
-                    self.logger.warning("Criteria for block production not met")
+                    # a normal WAITING state (below min_peers, or a forced sync in progress) — DEBUG, not a
+                    # per-second WARNING. The node still syncs; it just isn't its turn/able to mint yet.
+                    self.logger.debug("Criteria for block production not met (below min_peers or syncing)")
 
         except Exception as e:
             self.logger.info(f"Error: {e}")
@@ -619,8 +639,14 @@ class CoreClient(threading.Thread):
         winner = select_producer_two_lane(get_open_registry(_epoch), bonded_registry,
                                           epoch_beacon(_epoch), slot=block_number)
         return construct_block(
-            # Wall-clock, monotonic (>= parent) — see ops/block_ops.py; fixes frozen genesis-anchored times.
-            block_timestamp=max(get_timestamp_seconds(), parent["block_timestamp"]),
+            # CRITICAL: use the INCOMING block's OWN timestamp, NOT our wall-clock. rebuild_block
+            # deterministically reconstructs a REMOTE block to re-derive the winner/reward/weight (anti-forgery),
+            # but the timestamp is the producer's committed field and is validated separately
+            # (valid_block_timestamp, must be <= now). Stamping wall-clock here made the rebuilt hash diverge
+            # from the canonical block for any HISTORICAL block (rebuilt long after it was minted), so a
+            # catching-up node forked into a parallel chain and wedged ("out of consensus" / "Rollback refused
+            # (finality)"). Using the block's own timestamp makes the rebuild byte-identical -> hashes agree.
+            block_timestamp=block["block_timestamp"],
             block_number=block_number,
             parent_hash=parent["block_hash"],
             creator=winner,
