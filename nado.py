@@ -44,6 +44,13 @@ def is_port_in_use(port: int, host: str = "localhost") -> bool:
 def handler(signum, frame):
     logger.info(f"Terminating: {signum}: {frame}")
     memserver.terminate = True
+    # Persist the off-chain message pool so a restart/redeploy doesn't drop undelivered DMs + prekeys.
+    try:
+        n = memserver.message_pool.stats().get("messages", 0)
+        memserver.message_pool.save(memserver.message_pool_path)
+        logger.info(f"Message pool persisted ({n} messages)")
+    except Exception as e:
+        logger.error(f"Message pool save on shutdown failed: {e}")
     sys.exit(0)
 
 

@@ -150,3 +150,6 @@ dmypy.json
 
 # Rust build artifacts (the native Goldilocks lib is built by install.sh; wasm is embedded in JS)
 wasm/*/target/
+
+# off-chain message pool persistence (node-local, ephemeral-ish state)
+message_pool.dat

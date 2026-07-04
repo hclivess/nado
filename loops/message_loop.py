@@ -80,6 +80,15 @@ class MessageClient(threading.Thread):
                 gc_counts = gc.get_count()
                 self.logger.info(f"GC counts: {gc_counts}")
 
+                # Backstop-persist the off-chain message pool (~every 10s) so even a hard crash that skips
+                # the SIGTERM save loses at most one interval of undelivered DMs. No-op while the pool is empty.
+                try:
+                    mp = self.memserver.message_pool
+                    if mp.messages or mp.prekeys:
+                        mp.save(self.memserver.message_pool_path)
+                except Exception as e:
+                    self.logger.error(f"Message pool save failed: {e}")
+
                 time.sleep(10)
             except Exception as e:
                 self.logger.error(f"Error in message loop: {e} {traceback.print_exc()}")

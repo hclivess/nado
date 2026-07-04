@@ -15,6 +15,8 @@ Pure and deterministic given (now, injected checks); unit-testable with stubbed 
 caller's concern (the node holds it under the same lock discipline as the tx pool).
 """
 
+import msgpack
+
 from hashing import blake2b_hash
 
 # --- off-chain messaging parameters (NOT consensus — safe to tune per release) -----------------------------
@@ -181,6 +183,35 @@ class MessagePool:
 
     def stats(self) -> dict:
         return {"messages": len(self.messages), "prekeys": len(self.prekeys), "cursor": self._seq}
+
+    # ---- persistence: survive a node RESTART (the pool is otherwise in-memory, so a restart silently
+    #      dropped every undelivered DM + published prekey). Opaque encrypted envelopes, so this is just bytes.
+    def save(self, path) -> bool:
+        """Atomically persist messages + prekeys + cursor to `path` (tmp + fsync + os.replace)."""
+        import os
+        blob = msgpack.packb({"seq": self._seq, "messages": self.messages, "prekeys": self.prekeys})
+        tmp = f"{path}.tmp"
+        with open(tmp, "wb") as f:
+            f.write(blob); f.flush(); os.fsync(f.fileno())
+        os.replace(tmp, path)
+        return True
+
+    def load(self, path, now) -> int:
+        """Load a persisted pool on boot, dropping TTL-expired messages. Returns messages kept. No-op if
+        the file is missing/corrupt (a fresh/empty pool is always valid)."""
+        import os
+        if not os.path.isfile(path):
+            return 0
+        try:
+            with open(path, "rb") as f:
+                data = msgpack.unpackb(f.read(), raw=False)
+        except Exception:
+            return 0
+        self._seq = int(data.get("seq", 0) or 0)
+        self.messages = {k: v for k, v in (data.get("messages") or {}).items()
+                         if isinstance(v, dict) and now - int(v.get("recv", 0)) <= self.ttl}
+        self.prekeys = dict(data.get("prekeys") or {})
+        return len(self.messages)
 
 
 def _rough_size(obj) -> int:

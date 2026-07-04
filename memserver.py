@@ -5,7 +5,7 @@ from config import get_timestamp_seconds, get_config
 from hashing import blake2b_hash
 from ops.account_ops import get_account, get_finalized_height
 from ops.block_ops import load_block_producers, get_block_ends_info
-from ops.data_ops import set_and_sort, sort_list_dict
+from ops.data_ops import set_and_sort, sort_list_dict, get_home
 from ops.key_ops import load_keys
 from ops.message_pool import MessagePool
 from ops.transaction_ops import (
@@ -38,6 +38,13 @@ class MemServer:
         self.server_key = self.config["server_key"]
         self.transaction_pool = []
         self.message_pool = MessagePool()   # off-chain E2E message pool (doc/messaging.md); never block-bound
+        # PERSIST the message pool across restarts — it is off-chain + ephemeral, so a plain node restart
+        # (systemctl restart / redeploy) otherwise silently dropped every undelivered DM + published prekey.
+        self.message_pool_path = f"{get_home()}/message_pool.dat"
+        try:
+            self.message_pool.load(self.message_pool_path, get_timestamp_seconds())
+        except Exception:
+            pass   # a corrupt/absent pool file is fine — a fresh empty pool is always valid
         self.since_last_block = 0
         self.user_tx_buffer = []
         self.tx_buffer = []
