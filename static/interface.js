@@ -384,6 +384,26 @@ function buildRegisterTx(wallet, targetBlock, posw, timestamp) {
   return finalizeTransaction(draft, wallet.privateKey, 0);
 }
 
+// ON-CHAIN messaging key (fee-exempt identity tx): binds the sender's ML-KEM-768 pubkey to their account so
+// peers can DM them by address/alias with NO off-chain prekey. Mirrors buildRegisterTx — the extra committed
+// field is `kem_pub` (register's `posw`). public_key is included (pubkey-once stores it idempotently; it's
+// excluded from the txid so its presence is free and always safe).
+function buildMsgkeyTx(wallet, kemPubHex, targetBlock, timestamp) {
+  const draft = {
+    sender: wallet.address,
+    recipient: "msgkey",
+    amount: 0,
+    timestamp,
+    data: "",
+    nonce: randNonce(),
+    public_key: wallet.publicKey,
+    target_block: targetBlock,
+    chain_id: CHAIN_ID,
+    kem_pub: kemPubHex,
+  };
+  return finalizeTransaction(draft, wallet.privateKey, 0);
+}
+
 // The sequential proof hashes POSW_T (1,000,000) times in a chain. Route that through the WASM blake2b —
 // byte-identical to the JS/Python blake2b (verified against the node's hash), so the proof still verifies —
 // which is far faster than pure JS. Cached; falls back to the JS blake2b if WASM is unavailable.
@@ -3184,21 +3204,29 @@ function msgIdentity() {
 }
 function myPrimaryAlias() { return (state.myAliases && state.myAliases[0]) || null; }
 
-async function msgFetchPrekey(addr) {
+// Resolve a recipient's ML-KEM-768 messaging pubkey (hex). Prefers the ON-CHAIN key (bound to their identity
+// by a `msgkey` tx — consensus state, never wiped, no pre-publish needed); falls back to a legacy off-chain
+// prekey bundle for accounts that only ever published the old way.
+async function msgFetchKemPub(addr) {
   try {
     const r = await fetch(relayBase() + "/msg_key?address=" + encodeURIComponent(addr), { cache: "no-store" });
     if (!r.ok) return null;
-    return (await r.json()).bundle || null;
+    const j = await r.json();
+    return j.kem_pub || (j.bundle && j.bundle.ik_pub) || null;
   } catch { return null; }
 }
 
+// Bind OUR ML-KEM messaging pubkey to our on-chain account (once), so anyone can DM us by address/alias with
+// no setup on their side and it survives node restarts. Idempotent: skips if our key is already on-chain.
 async function msgPublishPrekey() {
-  const m = await loadMessaging(); if (!m) return;
   const id = msgIdentity(); if (!id) return;
+  if (state._msgPublished === state.wallet.address) return;
   try {
-    const bundle = m.makePrekeyBundle(id, state.wallet.address, _nowSec());
-    await fetch(relayBase() + "/msg_key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bundle) });
-    state._msgPublished = state.wallet.address;
+    const acc = await getAccount(state.wallet.address);
+    if (acc && acc.kem_pub === id.kemPub) { state._msgPublished = state.wallet.address; return; }  // already bound
+    const targetBlock = await nextTargetBlock();
+    await submitTransaction(buildMsgkeyTx(state.wallet, id.kemPub, targetBlock, nowSeconds()));
+    state._msgPublished = state.wallet.address;   // one publish per session; confirms on-chain within a block
   } catch (e) {}
 }
 
@@ -3230,15 +3258,15 @@ async function msgSend() {
   const id = msgIdentity(), ts = _nowSec();
   const hist = msgHistLoad();
   const conv = (hist[addr] = hist[addr] || { alias: (addr !== toRaw ? toRaw : null), messages: [] });
-  const bundle = await msgFetchPrekey(addr);
-  if (!bundle || !bundle.ik_pub) {
+  const kemPub = await msgFetchKemPub(addr);
+  if (!kemPub) {
     conv.messages.push({ id: "local-" + ts + "-" + Math.floor(Math.random() * 1e6), dir: "out", body, ts,
-      status: "undelivered", reason: "no messaging key yet — they haven't opened Messages" });
+      status: "undelivered", reason: "no messaging key on-chain yet — they need to open NADO once to publish it" });
     msgHistSave(hist); $("msgBody").value = ""; renderMessages(); return;
   }
   let res, mid;
   try {
-    const env = m.makeEnvelope(id, state.wallet.address, bundle.ik_pub,
+    const env = m.makeEnvelope(id, state.wallet.address, kemPub,
       { type: "msg", from: state.wallet.address, alias: myPrimaryAlias(), body, ts }, ts);
     mid = m.messageId(env);
     res = await (await fetch(relayBase() + "/message", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(env) })).json();
@@ -3249,10 +3277,10 @@ async function msgSend() {
 }
 
 async function msgSendAck(m, id, toAddr, ackId) {
-  const bundle = await msgFetchPrekey(toAddr);
-  if (!bundle || !bundle.ik_pub) return;
+  const kemPub = await msgFetchKemPub(toAddr);
+  if (!kemPub) return;
   const ts = _nowSec();
-  const env = m.makeEnvelope(id, state.wallet.address, bundle.ik_pub, { type: "ack", from: state.wallet.address, ackId, ts }, ts);
+  const env = m.makeEnvelope(id, state.wallet.address, kemPub, { type: "ack", from: state.wallet.address, ackId, ts }, ts);
   try { await fetch(relayBase() + "/message", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(env) }); } catch (e) {}
 }
 

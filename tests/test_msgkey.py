@@ -82,5 +82,19 @@ def t4_rotation_revert_restores_prior_key():
 check("key ROTATION revert restores the prior key byte-identically", t4_rotation_revert_restores_prior_key)
 
 
+def t5_validate_gate():
+    from ops.transaction_ops import validate_transaction
+    kd = generate_keydict()
+    good = construct_msgkey_tx(kd, KEM1, target_block=2)
+    validate_transaction(good, logger=logger, block_height=0)      # well-formed -> must NOT raise
+    bad = construct_msgkey_tx(kd, "aa" * 10, target_block=2)        # kem_pub too short (still validly signed)
+    try:
+        validate_transaction(bad, logger=logger, block_height=0)
+        raise RuntimeError("a malformed kem_pub was accepted")
+    except AssertionError as e:
+        assert "kem_pub" in str(e) or "2368" in str(e), f"rejected for the wrong reason: {e}"
+check("validate_transaction accepts a well-formed msgkey + rejects a malformed kem_pub", t5_validate_gate)
+
+
 print(f"\n{'ALL MSGKEY CHECKS PASSED' if not fails else str(fails) + ' FAILED'}")
 sys.exit(1 if fails else 0)
