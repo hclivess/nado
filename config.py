@@ -27,7 +27,21 @@ def get_protcol():
 
 
 def get_port():
-    return 9173
+    # Port is CONFIGURABLE: NADO_PORT env wins (handy for local multi-node testing), else the "port" field
+    # in config.dat, else the 9173 default. Read the file DIRECTLY (not via get_config) — get_config seeds
+    # "port" from get_port() at create time, so calling it here would recurse. Every node on a network must
+    # still agree on the port (peer dialing uses the local node's port for all peers).
+    env = os.environ.get("NADO_PORT")
+    if env:
+        try:
+            return int(env)
+        except ValueError:
+            pass
+    try:
+        with open(f"{get_home()}/private/config.dat") as infile:
+            return int(json.loads(infile.read()).get("port", 9173))
+    except Exception:
+        return 9173
 
 
 def test_self_port(ip, port):

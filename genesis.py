@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 
-from config import create_config
+from config import create_config, config_found
 from hashing import blake2b_hash_link
 from ops.account_ops import create_account
 from ops.block_ops import save_block, set_latest_block_info, set_earliest_block_info
@@ -34,17 +34,25 @@ def create_indexers():
 
 
 def make_folders():
-    make_folder(f"{get_home()}/blocks")
+    # ALL idempotent (strict=False): genesis must be safe to RE-RUN over a half-initialized data dir. If a
+    # prior genesis died partway (e.g. the network probe below hung after blocks/ was created), the next boot
+    # re-enters here — strict=True would then raise "folder already exists" and brick the node permanently.
+    make_folder(f"{get_home()}/blocks", strict=False)
     make_folder(f"{get_home()}/peers", strict=False)
     make_folder(f"{get_home()}/private", strict=False)
-    make_folder(f"{get_home()}/index")
+    make_folder(f"{get_home()}/index", strict=False)
 
     create_indexers()
 
 
 def make_genesis(address, balance, ip, port, timestamp, logger):
-    config_ip = asyncio.run(get_public_ip(logger=logger))
-    create_config(ip=config_ip)
+    # Only probe the network for our public IP on a genuinely FRESH node (no config yet). Doing it
+    # unconditionally hung genesis whenever the IP service was slow/unreachable — and since make_folders()
+    # has already created blocks/, a hang/failure here left a HALF-GENESIS (blocks/ present but block_ends.dat
+    # never written) that crashed every subsequent boot. The genesis block itself uses the passed `ip`.
+    if not config_found():
+        config_ip = asyncio.run(get_public_ip(logger=logger))
+        create_config(ip=config_ip)
 
     block_transactions = []
     block_hash = blake2b_hash_link(link_from=timestamp, link_to=block_transactions)

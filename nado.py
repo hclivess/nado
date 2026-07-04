@@ -944,7 +944,11 @@ updated_version = versioner.update_version()
 if updated_version:
     versioner.set_version(updated_version)
 
-if not os.path.exists(f"{get_home()}/blocks"):
+# GENESIS SENTINEL: key off block_ends.dat (written LAST by make_genesis), NOT the blocks/ dir (created FIRST
+# by make_folders). Using blocks/ meant a genesis that died after make_folders but before block_ends.dat was
+# written left blocks/ present -> genesis skipped forever -> "block_ends.dat missing" crash on every boot.
+# make_folders + make_genesis are now idempotent, so this simply re-runs genesis until it fully completes.
+if not os.path.exists(f"{get_home()}/index/block_ends.dat"):
     make_folders()
     make_genesis(
         address=GENESIS_ADDRESS,        # genesis address == treasury (no personal premine)
