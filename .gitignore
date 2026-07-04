@@ -153,3 +153,6 @@ wasm/*/target/
 
 # off-chain message pool persistence (node-local, ephemeral-ish state)
 message_pool.dat
+
+# state-snapshot checkpoints (node-local data, like blocks/index)
+snapshots/
