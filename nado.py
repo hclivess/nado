@@ -26,7 +26,7 @@ from ops.block_ops import get_block, fee_over_blocks, get_block_number
 from ops.data_ops import get_home, allow_async
 from ops.key_ops import keyfile_found, generate_keys, save_keys, load_keys
 from ops.log_ops import get_logger, logging
-from ops.peer_ops import save_peer, get_remote_status, check_ip
+from ops.peer_ops import save_peer, get_remote_status, check_ip, me_to
 from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
 from ops import snapshot_ops
 from protocol import GENESIS_ADDRESS, TREASURY_ADDRESS, TREASURY_GENESIS, GENESIS_TIMESTAMP
@@ -902,7 +902,7 @@ async def make_app(port):
         web.get("/status_pool", _dump_handler("status_pool", lambda: consensus.status_pool)),
         web.get("/mining_status", mining_status),
         web.get("/status", status),
-        web.get("/peers", _dump_handler("peers", lambda: list(memserver.peers))),
+        web.get("/peers", _dump_handler("peers", lambda: me_to(list(memserver.peers)))),
         web.get("/peer_buffer", _dump_handler("peer_buffer", lambda: list(memserver.peer_buffer))),
         web.get("/unreachable", _dump_handler("unreachable", lambda: memserver.unreachable)),
         web.get("/block_producers_hash_pool", _dump_handler("block_producers_hash_pool", lambda: {
@@ -978,10 +978,10 @@ except Exception as _e:
 
 if not keyfile_found():
     save_keys(generate_keys())
-    save_peer(ip=get_config()["ip"],
-              address=load_keys()["address"],
-              port=get_config()["port"],
-              peer_trust=10000)
+    # NOTE: we intentionally do NOT save our own IP as a peer here. Doing so put self into the
+    # dial set (load_ips -> memserver.peers), so the node kept trying to fetch /peers and /status
+    # from itself (unreachable over its own public IP behind NAT). Self is advertised to OTHER
+    # nodes via me_to() in the /peers handler instead, and load_ips drops our own IP defensively.
 
 info_path = os.path.normpath(f'{get_home()}/private/keys.dat')
 logger.info(f"Key location: {info_path}")

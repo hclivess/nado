@@ -283,7 +283,9 @@ http://127.0.0.1:9173/announce_peer?ip=<peer-ip>
 
 For public reachability and rewards, forward **port 9173**. Close the node cleanly with **CTRL+C** or
 `http://127.0.0.1:9173/terminate` (never the window's **X**, to avoid database corruption). To wipe
-local data and resync from scratch, run `python3.10 purge.py`.
+local data and resync from scratch, stop the node and delete the chain data dirs under your data home
+(`$HOME/nado` by default, or `<--home>/nado`): `rm -rf ~/nado/blocks ~/nado/index ~/nado/logs`. This
+keeps your keys (`~/nado/private`) and known peers; add `~/nado/peers` to also re-bootstrap peering.
 
 ### Run unattended (mine 24/7, no terminal)
 

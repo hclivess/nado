@@ -139,6 +139,8 @@ async def load_ips(logger, port, fail_storage, unreachable, minimum=3, top_50=Tr
     return when limit is reached"""
 
     bad_peers = set(fail_storage + list(unreachable.keys()))
+    bad_peers.add(get_config()["ip"])   # never load our OWN ip into the dial set — we don't sync from
+                                        # ourselves; self is advertised to others via me_to() in /peers
     peer_files= glob.glob(f"{get_home()}/peers/*.dat")
 
     if len(peer_files) < minimum:
