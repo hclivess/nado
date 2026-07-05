@@ -33,6 +33,16 @@ def _unpack_block(raw: bytes):
     return msgpack.unpackb(_ZSTD_D.decompress(raw), raw=False)
 
 
+# Bounded decompress for the zstd block-sync WIRE payload (get_blocks_after/before). max_output_size caps a
+# decompression bomb from an untrusted peer (a tiny frame that expands to gigabytes); 100 blocks of real
+# data is only a few MB, so 64 MiB is a generous ceiling.
+_ZSTD_WIRE_MAX = 64 << 20
+
+
+def _unpack_wire(body: bytes):
+    return msgpack.unpackb(_ZSTD_D.decompress(body, max_output_size=_ZSTD_WIRE_MAX), raw=False)
+
+
 
 def get_block_reward(parent_block):
     """Fee-weighted elastic block reward, computed as a PURE function of the block's own
@@ -689,7 +699,7 @@ def update_child_in_latest_block(child_hash, logger, parent):
     return save_block(parent, logger=logger)
 
 
-async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="msgpack"):
+async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="zstd"):
     try:
         url_construct = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
 
@@ -697,7 +707,9 @@ async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="m
             async with session.get(url_construct) as response:
                 code = response.status
 
-                if code == 200 and compress == "msgpack":
+                if code == 200 and compress == "zstd":
+                    return _unpack_wire(await response.read())
+                elif code == 200 and compress == "msgpack":
                     read = response.read()
                     return msgpack.unpackb(await read)
                 elif code == 200:
@@ -710,7 +722,7 @@ async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="m
         logger.error(f"Failed to get blocks after {from_hash} from {target_peer}: {e}")
 
 
-async def get_blocks_before(target_peer, from_hash, logger, count=50, compress="true"):
+async def get_blocks_before(target_peer, from_hash, logger, count=50, compress="zstd"):
     try:
         url_construct = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
 
@@ -718,7 +730,9 @@ async def get_blocks_before(target_peer, from_hash, logger, count=50, compress="
             async with session.get(url_construct) as response:
                 code = response.status
 
-                if code == 200 and compress == "msgpack":
+                if code == 200 and compress == "zstd":
+                    return _unpack_wire(await response.read())
+                elif code == 200 and compress == "msgpack":
                     read = response.read()
                     return msgpack.unpackb(await read)
                 elif code == 200:
