@@ -56,6 +56,19 @@ from protocol import EPOCH_LENGTH, FINALITY_DEPTH, REWARD_WINDOW
 NO_SYNCABLE_LOG_INTERVAL = 30
 
 
+def peer_claims_heavier_tip(statuses, our_weight, have_peers, rejected_tips):
+    """The caught-up production gate's predicate, extracted for direct testing (Sybil-stall guard).
+    True (= do NOT mint, we may be behind) when we have peers but no statuses yet, or when any peer
+    advertises a strictly heavier tip that is NOT in rejected_tips. A rejected tip is one we already
+    tried and failed to sync a valid heavier chain for — counting it would let a Sybil's bogus
+    weight advertisement suppress production indefinitely."""
+    if have_peers and not statuses:
+        return True
+    return any(s.get("latest_block_weight", 0) > our_weight
+               and s.get("latest_block_hash") not in rejected_tips
+               for s in statuses)
+
+
 def minority_consensus(majority_hash, sample_hash):
     if not majority_hash:
         return False
@@ -190,8 +203,15 @@ class CoreClient(threading.Thread):
                 # tips yet (status_pool still empty right after startup/snapshot import). The latter closes
                 # the window that let a just-synced node mint 100+ divergent blocks before it knew it was
                 # behind. A solo node (no peers) has no statuses and mints normally.
-                _peer_ahead = ((len(peers) > 0 and not _statuses)
-                               or any(v.get("latest_block_weight", 0) > _our_w for v in _statuses))
+                # SYBIL-STALL GUARD: a tip in rejected_tips (advertised heavier but we FAILED to obtain a
+                # valid heavier chain for it) must not count — otherwise 2 forked-away clients advertising
+                # a bogus weight keep this gate closed FOREVER (emergency sync fails, excludes the tip,
+                # returns here, and the raw status still says "heavier" -> the whole network stops minting).
+                # rejected_tips auto-clears every ~30s (consensus_loop), so a REAL heavier tip that merely
+                # blipped is re-honoured on the next advertisement.
+                _peer_ahead = peer_claims_heavier_tip(
+                    statuses=_statuses, our_weight=_our_w, have_peers=len(peers) > 0,
+                    rejected_tips=self.consensus.rejected_tips)
 
                 # min_peers == 0 enables SOLO production (a single node mints without a peer mesh) —
                 # used for a stable single-node relay/demo where multi-node fork-choice churn is undesirable.
@@ -491,6 +511,15 @@ class CoreClient(threading.Thread):
         try:
             self.logger.warning("Looping emergency mode")
             while self.memserver.emergency_mode and not self.memserver.terminate:
+                # RE-EVALUATE being-behind every pass (the consensus thread refreshes tips concurrently;
+                # check_mode only runs BETWEEN emergency entries). Without this, a heavier-advertised tip
+                # that vanishes or gets rejected mid-loop (Sybil disconnects, tip excluded) left the node
+                # spinning in "Could not find a syncable peer" FOREVER — emergency_mode is only ever
+                # cleared by check_mode, which this loop never reaches. force_sync is operator-driven
+                # and exempt (it syncs regardless of the weight comparison).
+                if not self.minority_block_consensus() and not self.memserver.force_sync_ip:
+                    self.logger.info("No heavier valid tip remains; leaving emergency mode")
+                    break
                 peer = self.get_peer_to_sync_from(source_pool=self.consensus.block_hash_pool)
                 if not peer:
                     now = get_timestamp_seconds()
@@ -531,13 +560,24 @@ class CoreClient(threading.Thread):
                                                                            remote=True,
                                                                            remote_peer=peer)
                                         if not uninterrupted:
+                                            # INVALID/FORGED sync block (verify failed): the advertised
+                                            # heavier tip is not backed by a valid chain — exclude it, or
+                                            # this loop re-enters forever on the same bad advertisement
+                                            # (Sybil-stall). Auto-cleared, so a transient failure on a
+                                            # REAL heavier chain is retried in ~30s.
+                                            if not self.memserver.terminate:
+                                                self._reject_heaviest_tip()
                                             break
                             else:
+                                # peer advertised heavier + claims to know our tip, then serves NOTHING —
+                                # a lying/broken peer. Reject the tip or we loop on it forever.
                                 self.logger.info(f"No newer blocks found from {peer}")
+                                self._reject_heaviest_tip()
                                 break
 
                         except Exception as e:
                             self.logger.error(f"Failed to get blocks after {block_hash} from {peer}: {e}")
+                            self._reject_heaviest_tip()
                             break
 
                     elif not known_block:
