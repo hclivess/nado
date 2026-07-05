@@ -55,6 +55,10 @@ from protocol import EPOCH_LENGTH, FINALITY_DEPTH, REWARD_WINDOW
 # protocol cap on a block reward (mirrors get_block_reward's reward_cap)
 MAX_BLOCK_REWARD = 5000000000
 
+# How often (seconds) emergency mode logs "Could not find a syncable peer". The loop still retries every
+# ~1s, but a lone/bootstrap node with no reachable donor would otherwise flood the log once/sec.
+NO_SYNCABLE_LOG_INTERVAL = 30
+
 
 def minority_consensus(majority_hash, sample_hash):
     if not majority_hash:
@@ -98,6 +102,9 @@ class CoreClient(threading.Thread):
         # PoSW lease alive, hands-free. Throttled to one of each per epoch (see maybe_auto_collect/register).
         self.last_auto_collect_epoch = -1
         self.last_auto_register_epoch = -1
+        # anti-spam backoff for the emergency-mode "Could not find a syncable peer" retry (fires every ~1s
+        # while no donor is reachable — a persistent normal state on a lone/bootstrap node).
+        self._last_no_syncable_log = 0
 
     def get_period(self):
         """Enter every period at least period_counter times. Iterator is present in case node is stuck in phase 3.
@@ -292,10 +299,10 @@ class CoreClient(threading.Thread):
                 shuffled_pool.pop(self.memserver.ip)
                 """do not sync from self"""
 
-            if not sorted_hashes:
-                self.logger.info(f"No hashes to sync from")
-
-            else:
+            # (no "No hashes to sync from" log here: it fires every ~1s core-loop pass whenever no peer has
+            # advertised a tip — a persistent normal WAITING state on a lone/bootstrap node, already visible
+            # in the periodic status line. When empty we just fall through and return None.)
+            if sorted_hashes:
                 for hash_candidate in sorted_hashes:
                     """go from the most common hash to the least common one"""
 
@@ -521,7 +528,10 @@ class CoreClient(threading.Thread):
             while self.memserver.emergency_mode and not self.memserver.terminate:
                 peer = self.get_peer_to_sync_from(source_pool=self.consensus.block_hash_pool)
                 if not peer:
-                    self.logger.info("Could not find a syncable peer")
+                    now = get_timestamp_seconds()
+                    if now - self._last_no_syncable_log >= NO_SYNCABLE_LOG_INTERVAL:
+                        self._last_no_syncable_log = now
+                        self.logger.info("Could not find a syncable peer")
                     # A fresh node whose root (genesis) no peer can serve — because every donor is a
                     # rolling/pruned node — can never full-sync forward. Retry snapshot bootstrap until a
                     # donor advertises a finalized checkpoint, then tail-sync from there.
