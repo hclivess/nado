@@ -25,8 +25,8 @@ def _atomic_write_json(path, obj):
 
 
 # --------------------------------------------------------------------------------------------------
-# SINGLE peer store. Peers live in ONE file (peers.dat) as {ip: {peer_address, peer_port, peer_trust,
-# last_seen}}, not one file per peer. The old per-file layout accreted "ghost" files — a dead seed, the
+# SINGLE peer store. Peers live in ONE file (peers.dat) as {ip: {peer_address, peer_port, last_seen}},
+# not one file per peer. The old per-file layout accreted "ghost" files — a dead seed, the
 # node's OWN ip (re-saved by update_local_ip on every IP refresh), same-subnet spam — that were awkward to
 # reap and kept getting reloaded/redialed. One file is atomic, reaps cleanly, and lets us enforce ONE
 # invariant in one place: our own IP is NEVER a peer (self is advertised via me_to() in /peers; dialing
@@ -76,8 +76,7 @@ def _migrate_legacy_peers():
             # junk — carrying them poisons the table and stalls the bootstrap seed on the next boot.
             if ip and ip != my_ip and check_ip(ip):
                 table[ip] = {"peer_address": p.get("peer_address", ""), "peer_ip": ip,
-                             "peer_port": p.get("peer_port"), "peer_trust": p.get("peer_trust", 50),
-                             "last_seen": p.get("last_seen", 0)}
+                             "peer_port": p.get("peer_port"), "last_seen": p.get("last_seen", 0)}
         except Exception:
             pass
     _save_peers(table)
@@ -119,7 +118,7 @@ def delete_peer(ip, logger):
             logger.warning(f"Deleted peer {ip}")
 
 
-def save_peer(ip, port, address, peer_trust=50, overwrite=False):
+def save_peer(ip, port, address, overwrite=False):
     # INVARIANT: never store our own IP — self is advertised to peers via me_to() in /peers, and dialing
     # ourselves just fails (this is what created the old ghost self-peer + the repeated self-dial errors).
     if not ip or ip == get_config()["ip"]:
@@ -129,7 +128,7 @@ def save_peer(ip, port, address, peer_trust=50, overwrite=False):
         if ip in table and not overwrite:
             return
         table[ip] = {"peer_address": address, "peer_ip": ip, "peer_port": port,
-                     "peer_trust": peer_trust, "last_seen": get_timestamp_seconds()}
+                     "last_seen": get_timestamp_seconds()}
         _save_peers(table)
 
 
@@ -137,43 +136,26 @@ def save_peer(ip, port, address, peer_trust=50, overwrite=False):
 # to discover the network, so it starts from these. Extend/override with NADO_SEED_PEERS (comma-separated).
 DEFAULT_SEED_PEERS = ["38.242.201.206"]   # get.nadochain.com — the public bootstrap node
 
-# Trust floor pinned on every operator seed. load_ips() sorts the dial set by peer_trust (highest first)
-# and keeps only the top 50, and ordinary peers accrete trust indefinitely (+1 per agreement round — the
-# live table already has one peer at 1600+). A seed left at the ordinary default (50) would sink below the
-# aged peers and eventually fall out of the top-50 dial set, stranding a reconnecting node from its
-# weak-subjectivity anchor. Pinning the seed far above any organically reachable value keeps it at the head
-# of the dial order forever. NOTE: trust does NOT gate sync (see qualifies_to_sync / minority_block_consensus
-# — fork choice is objective heaviest-weight, and the lone-donor snapshot anchor is seed-SET membership, not
-# a trust number), so this is purely a reachability/preference lever and carries no Sybil surface: the seed
-# set is operator-defined.
-SEED_TRUST = 1_000_000
-
-
-def trusted_seeds():
-    """Operator-trusted bootstrap seed set: baked-in DEFAULT_SEED_PEERS + any NADO_SEED_PEERS the operator
-    configured (comma-separated). Used to seed a fresh node AND as the weak-subjectivity trust anchor for
-    accepting a snapshot from a LONE donor (loops/core_loop.snapshot_bootstrap)."""
+def seed_peers():
+    """Operator seed set: baked-in DEFAULT_SEED_PEERS + any NADO_SEED_PEERS the operator configured
+    (comma-separated). Used to seed a fresh node AND as the weak-subjectivity anchor for accepting a
+    snapshot from a LONE donor (loops/core_loop.snapshot_bootstrap) — membership in this operator-defined
+    set is the anchor; there is no peer-reputation score."""
     extra = [x.strip() for x in (os.environ.get("NADO_SEED_PEERS") or "").split(",") if x.strip()]
     return list(dict.fromkeys(DEFAULT_SEED_PEERS + extra))
 
 
 def seed_default_peers(logger, my_ip=None):
     """Ensure the baked-in bootstrap seed(s) are present so a node is NEVER stranded with no one to dial.
-    save_peer is a no-op for a seed that already exists (its trust is preserved) or for our own IP, so this
-    is idempotent — but it re-asserts the seed UNCONDITIONALLY rather than only on an empty table. That is
-    what recovers a node whose table got poisoned (e.g. only our own migrated-in IP, which load_ips then
-    excludes) — the old 'skip if the table is non-empty' left such a node looping 'Loaded 0 reachable peers'."""
-    for ip in trusted_seeds():
+    save_peer is a no-op for a seed that already exists or for our own IP, so this is idempotent — but it
+    re-asserts the seed UNCONDITIONALLY rather than only on an empty table. That is what recovers a node
+    whose table got poisoned (e.g. only our own migrated-in IP, which load_ips then excludes) — the old
+    'skip if the table is non-empty' left such a node looping 'Loaded 0 reachable peers'."""
+    for ip in seed_peers():
         if not ip or ip == (my_ip or get_config().get("ip")):
             continue
         try:
-            if ip_stored(ip):
-                # seed already known: raise its trust to the seed floor (idempotent, no-op once pinned)
-                # via update_peer, which touches ONLY peer_trust so the learned peer_address is preserved.
-                if (load_peer(ip=ip, key="peer_trust", logger=logger) or 0) < SEED_TRUST:
-                    update_peer(ip=ip, value=SEED_TRUST, logger=logger)
-            else:
-                save_peer(ip=ip, port=get_port(), address="", peer_trust=SEED_TRUST)
+            save_peer(ip=ip, port=get_port(), address="")
         except Exception as e:
             logger.info(f"Failed to seed bootstrap peer {ip}: {e}")
 
@@ -182,28 +164,8 @@ def ip_stored(ip) -> bool:
     return ip in _load_peers()
 
 
-def dump_trust(pool_data, logger):
-    with _PEERS_LOCK:
-        table = _load_peers()
-        changed = False
-        for ip, trust in pool_data.items():
-            if ip in table:
-                table[ip]["peer_trust"] = trust
-                table[ip]["last_seen"] = get_timestamp_seconds()
-                changed = True
-        if changed:
-            _save_peers(table)
-
-
-def sort_dict_value(values: list, key: str) -> list:
-    if values:
-        return sorted(values, key=lambda d: d.get(key, 0) or 0, reverse=True)
-    else:
-        return []
-
-
 async def load_ips(logger, port, fail_storage, unreachable, minimum=3, top_50=True) -> list:
-    """load peers from drive, sort by trust, test in batches asynchronously,
+    """load peers from drive, most-recently-seen first, test in batches asynchronously,
     return when limit is reached"""
 
     bad_peers = set(fail_storage + list(unreachable.keys()))
@@ -219,7 +181,15 @@ async def load_ips(logger, port, fail_storage, unreachable, minimum=3, top_50=Tr
 
     ip_sorted = []
 
-    candidates_sorted = sort_dict_value(candidates, key="peer_trust")
+    # DIAL ORDER: operator seeds first (the weak-subjectivity anchor — always try a known-good peer
+    # ahead of ordinary ones so a reconnecting node can never be stranded), then ordinary peers
+    # most-recently-seen first. Seed membership is the ONLY preference; there is no peer-reputation score.
+    _seeds = set(seed_peers())
+    candidates_sorted = sorted(
+        candidates,
+        key=lambda d: (d.get("peer_ip") in _seeds, d.get("last_seen", 0) or 0),
+        reverse=True,
+    )
     if top_50:
         candidates_sorted = candidates_sorted[:50]
 
@@ -267,16 +237,6 @@ def load_peer(logger, ip, key=None) -> [str, dict]:
     return peer if key is None else peer.get(key)
 
 
-def update_peer(ip, value, logger, key="peer_trust") -> None:
-    with _PEERS_LOCK:
-        table = _load_peers()
-        if ip not in table:
-            return
-        table[ip][key] = value
-        table[ip]["last_seen"] = get_timestamp_seconds()
-        _save_peers(table)
-
-
 def check_save_peers(peers, logger, fails, unreachable):
     """persist newly-reachable peers to the peer table (skipping self, non-routable, and already-known)"""
     good_peers = set(peers) - set(fails) - set(unreachable)
@@ -296,7 +256,7 @@ def check_save_peers(peers, logger, fails, unreachable):
         for ip, value in candidates.items():
             if ip != my_ip and ip not in table and check_ip(ip):
                 table[ip] = {"peer_address": value.get("address", ""), "peer_ip": ip, "peer_port": get_port(),
-                             "peer_trust": 50, "last_seen": get_timestamp_seconds()}
+                             "last_seen": get_timestamp_seconds()}
                 changed = True
         if changed:
             _save_peers(table)
@@ -350,12 +310,6 @@ def get_majority(in_what) -> [str, None]:
     else:
         return None
 
-
-def get_average_int(list_of_values):
-    if list_of_values:
-        return int(sum(list_of_values) / len(list_of_values))
-    else:
-        return None
 
 def me_to(target) -> list:
     """useful in 1 peer network where self can't be reached after kicked from peer list"""
@@ -462,11 +416,9 @@ def qualifies_to_sync(peer, peer_protocol, known_tree, memserver_protocol,
         return {"result": False,
                 "flag": f"Our root hash is unknown to them"}
 
-    # #16 step 3: TRUST DEMOTED to an advisory transport hint — it no longer GATES sync. The objective
-    # heaviest-cumulative_weight fork-choice already chose required_hash (the heaviest tip), and
-    # verify_block + the finality floor enforce that chain on the real blocks, so a low-trust / Sybil
-    # peer cannot feed us a chain we wouldn't independently accept. (Was: reject if a peer's trust
-    # sat below the median — which a Sybil could pass anyway by farming free trust.)
+    # Fork choice is objective: the heaviest-cumulative_weight tip already chose required_hash, and
+    # verify_block + the finality floor enforce that chain on the real blocks, so a Sybil peer cannot
+    # feed us a chain we wouldn't independently accept. Peer identity carries no weight here.
     if peer in unreachable_list:
         """peer assigned to unreachable"""
         return {"result": False,
@@ -490,4 +442,3 @@ if __name__ == "__main__":
     # save_peer(ip="1.1.2", port=0, address="haha2")
     # save_peer(ip="127.0.0.1", port=9173, address="sop3a7f8a5af60b15460181d9b2ff76ad5f5cfc7c5766ab77")
     # print(asyncio.run(get_remote_peer_address_async('89.176.130.244')))
-    # update_peer("89.176.130.244",value=0,key="greeting")

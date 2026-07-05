@@ -890,7 +890,6 @@ async def make_app(port):
             "majority_transactions_hash_pool": consensus.majority_transaction_pool_hash})),
         web.get("/transaction_buffer", _dump_handler("transaction_buffer", lambda: memserver.tx_buffer)),
         web.get("/user_transaction_buffer", _dump_handler("user_transaction_buffer", lambda: memserver.user_tx_buffer)),
-        web.get("/trust_pool", _dump_handler("trust_pool_data", lambda: consensus.trust_pool)),
         web.get("/get_latest_block", latest_block),
         web.get("/get_supply", get_supply),
         web.get("/announce_peer", announce_peer),

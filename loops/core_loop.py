@@ -5,7 +5,6 @@ import time
 import traceback
 
 from config import get_timestamp_seconds
-from loops.consensus_loop import change_trust
 from ops.account_ops import get_totals, index_totals, get_bonded_registry, get_open_registry, set_finalized_height, get_finalized_height, get_account
 from ops.block_ops import (
     knows_block,
@@ -271,8 +270,8 @@ class CoreClient(threading.Thread):
 
     def get_peer_to_sync_from(self, source_pool):
         """peer to synchronize pool when out of sync, critical part
-        not based on majority, but on trust matching until majority is achieved, hash pool
-        is looped by occurrence until a trusted peer is found with one of the hashes
+        candidate tips are ordered by OBJECTIVE cumulative_weight (heaviest first); we return the first
+        reachable peer advertising the heaviest tip that qualifies_to_sync.
         hash_pool argument is the pool to sort and sync from (block, tx, block producer pools)"""
 
         first_peer = None
@@ -343,16 +342,12 @@ class CoreClient(threading.Thread):
                                         return peer
                                     else:
                                         self.logger.debug(f"{peer} not qualified for sync: {qualifies['flag']}")
-
-                                        self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
-                                                                                 peer=peer,
-                                                                                 value=-1)
                             except Exception as e:
                                 self.logger.info(f"Peer {peer} error: {e}")
                                 self.memserver.ban_peer(peer)
 
                 else:
-                    self.logger.info(f"Ran out of options when picking trusted hash")
+                    self.logger.info(f"Ran out of options when picking a sync hash")
                     return None
 
         except Exception as e:
@@ -362,7 +357,7 @@ class CoreClient(threading.Thread):
     def minority_block_consensus(self):
         """OBJECTIVE fork-choice (#16/#17 step 3): we are out of sync ONLY when some peer advertises a
         tip whose cumulative_weight is STRICTLY GREATER than ours and we don't already hold that block.
-        Equal or lower weight -> keep our tip (first-seen on ties). Peer IPs / trust carry NO weight, so
+        Equal or lower weight -> keep our tip (first-seen on ties). Peer IPs carry NO weight, so
         a Sybil peer-set cannot trigger a reorg; and even a heavier advertisement is only acted on by
         fetching the blocks, which verify_block re-derives + enforces (a lie is rejected) and the
         finality floor refuses to reorg below. Replaces the Sybil-swingable plurality majority_block_hash."""
@@ -407,9 +402,6 @@ class CoreClient(threading.Thread):
         if suggested_pool:
             return suggested_pool
         else:
-            self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
-                                                     peer=peer,
-                                                     value=-1)
             self.logger.info(f"Could not replace {key} from {peer}")
 
     def snapshot_bootstrap(self) -> bool:
@@ -417,8 +409,8 @@ class CoreClient(threading.Thread):
         replaying the entire chain. Strictly additive and fully guarded: it runs ONLY while latest_block is
         genesis and ANY failure returns False so the normal block-by-block replay proceeds — it can never
         disrupt an established node or a re-org. It is RETRIED from the emergency loop until a donor advertises
-        a finalized checkpoint. Trust: a >=2-responder super-majority must agree the (height,hash); a LONE
-        donor is accepted only when it is a trusted operator seed (weak subjectivity). Peer downloads are
+        a finalized checkpoint. Anti-Sybil: a >=2-responder super-majority must agree the (height,hash); a
+        LONE donor is accepted only when it is an operator seed (weak subjectivity). Peer downloads are
         size-capped (ops/net_ops) and the manifest is self-hash-validated before allocation (fetch_snapshot)."""
         if self.memserver.latest_block["block_number"] != 0:
             return False   # only bootstraps a still-at-genesis node; retryable until a donor advertises one
@@ -439,15 +431,15 @@ class CoreClient(threading.Thread):
             # consistent (per-chunk sha256 + a locally re-derived state_root == manifest) — it does NOT prove
             # the state matches the real PoW chain. So a single unauthenticated donor must not be able to
             # dictate a fresh node's initial state. Require a >=2-responder super-majority in general; permit a
-            # LONE donor only when it is a baked-in operator seed (DEFAULT_SEED_PEERS) — the trust anchor a
-            # fresh node already relies on to bootstrap at all (classic weak-subjectivity checkpoint).
-            from ops.peer_ops import trusted_seeds
-            _seeds = set(trusted_seeds())
-            trusted_only = len(responders) < 2
-            if trusted_only and not any(ip in _seeds for ip in responders):
-                self.logger.info("Single snapshot donor is not a trusted seed; using full sync")
+            # LONE donor only when it is a baked-in operator seed (DEFAULT_SEED_PEERS) — the weak-subjectivity
+            # anchor a fresh node already relies on to bootstrap at all (classic weak-subjectivity checkpoint).
+            from ops.peer_ops import seed_peers
+            _seeds = set(seed_peers())
+            lone_donor = len(responders) < 2
+            if lone_donor and not any(ip in _seeds for ip in responders):
+                self.logger.info("Single snapshot donor is not an operator seed; using full sync")
                 return False
-            agreed = snapshot_ops.agree_snapshot(statuses, min_peers=(1 if trusted_only else 2), threshold=0.8)
+            agreed = snapshot_ops.agree_snapshot(statuses, min_peers=(1 if lone_donor else 2), threshold=0.8)
             if not agreed:
                 self.logger.info("No snapshot quorum among peers; using full sync")
                 return False
@@ -461,10 +453,10 @@ class CoreClient(threading.Thread):
                            if st and st.get("snapshot_hash") == target_hash), None)
             if not source:
                 return False
-            # when trusting a lone donor, the fetch source itself MUST be the trusted seed (not just any
-            # responder that happened to echo the hash) — otherwise a non-seed peer could serve the payload.
-            if trusted_only and source not in _seeds:
-                self.logger.info("Single-donor snapshot source is not a trusted seed; using full sync")
+            # for a lone donor, the fetch source itself MUST be an operator seed (not just any responder
+            # that happened to echo the hash) — otherwise a non-seed peer could serve the payload.
+            if lone_donor and source not in _seeds:
+                self.logger.info("Single-donor snapshot source is not an operator seed; using full sync")
                 return False
 
             # 2) fetch, then verify against the quorum hash and re-derive the state root locally
@@ -567,18 +559,11 @@ class CoreClient(threading.Thread):
                                                                            remote_peer=peer)
                                         if not uninterrupted:
                                             break
-
-                                    self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
-                                                                             peer=peer,
-                                                                             value=1)
                             else:
                                 self.logger.info(f"No newer blocks found from {peer}")
                                 break
 
                         except Exception as e:
-                            self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
-                                                                     peer=peer,
-                                                                     value=-1)
                             self.logger.error(f"Failed to get blocks after {block_hash} from {peer}: {e}")
                             break
 
@@ -608,9 +593,6 @@ class CoreClient(threading.Thread):
                             # is the hard safety cap; this counter only rate-limits a single burst, so a
                             # forced sync can no longer roll back unboundedly (closes the force_sync leak).
                             self.memserver.rollbacks += 1
-                            self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
-                                                                     peer=peer,
-                                                                     value=-1)
                         else:
                             self.logger.error(
                                 f"Rollbacks exhausted ({self.memserver.rollbacks}/{self.memserver.max_rollbacks})")
@@ -981,19 +963,12 @@ class CoreClient(threading.Thread):
             assert_block_blob_cap(transactions)
         except Exception as e:
             self.logger.error(f"Block exceeds per-block blob cap: {e}")
-            if remote:
-                self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
-                                                         peer=remote_peer, value=-1)
             raise
 
         try:
             validate_all_spending(transaction_pool=transactions)
         except Exception as e:
             self.logger.error(f"Failed to validate spending during block preparation: {e}")
-            if remote:
-                self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
-                                                         peer=remote_peer,
-                                                         value=-1)
             raise
 
         else:
@@ -1019,10 +994,7 @@ class CoreClient(threading.Thread):
                 except Exception as e:
                     self.logger.error(f"Failed to validate transaction during block preparation: {e}")
                     if remote:
-                        # a peer's block with an invalid tx is rejected wholesale (penalise the peer).
-                        self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
-                                                                 peer=remote_peer,
-                                                                 value=-1)
+                        # a peer's block with an invalid tx is rejected wholesale.
                         raise
                     # OWN block assembly: DROP the invalid tx and keep building. One bad mempool tx (e.g. a
                     # lingering duplicate `attest`/`reveal`, or a tx that turned invalid since it entered the

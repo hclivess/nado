@@ -4,11 +4,8 @@ import traceback
 
 from config import get_timestamp_seconds
 from ops.peer_ops import (
-    load_peer,
     get_majority,
     percentage,
-    get_average_int,
-    ip_stored
 )
 from ops.pool_ops import get_from_pool
 
@@ -30,7 +27,7 @@ def get_pool_percentage(pool, majority_pool_hash):
 
 
 class ConsensusClient(threading.Thread):
-    """thread to control peer pools, consensus and trust, refreshing of values"""
+    """thread to control peer pools, consensus and refreshing of values"""
 
     def __init__(self, memserver, logger):
         threading.Thread.__init__(self)
@@ -43,7 +40,6 @@ class ConsensusClient(threading.Thread):
 
         self.block_hash_pool = {}
         self.status_pool = {}
-        self.trust_pool = {}
         self.transaction_hash_pool = {}
 
         self.majority_block_hash = None
@@ -65,40 +61,8 @@ class ConsensusClient(threading.Thread):
         self.rejected_tips = set()
         self._reject_clear_counter = 0
 
-        self.trust_average = None
-
         self.transaction_hash_pool_percentage = 0
         self.block_hash_pool_percentage = 0
-
-    def reward_pool_consensus(self, pool, majority_pool) -> None:
-        try:
-            for peer in self.trust_pool.copy().keys():
-                if peer in pool.keys():
-                    if pool[peer] == majority_pool:
-                        # agreeing with the (super)majority earns trust
-                        self.trust_pool = change_trust(trust_pool=self.trust_pool,
-                                                       peer=peer,
-                                                       value=1)
-                    else:
-                        # P2-5/LO-3 FIX: a peer that DISAGREES with the majority must LOSE trust,
-                        # not gain it. The old code rewarded both branches identically, so trust
-                        # was a meaningless uptime counter that an eclipse/Sybil attacker accrued
-                        # for free. (Full fix = objective stake-weighted fork-choice, #16.)
-                        self.trust_pool = change_trust(trust_pool=self.trust_pool,
-                                                       peer=peer,
-                                                       value=-1)
-
-        except Exception as e:
-            self.logger.info(f"Failed to update trust: {e}")
-
-    def add_peers_to_trust_pool(self) -> None:
-        for peer in self.memserver.peers.copy():
-            if ip_stored(peer) and self.memserver.ip != peer:
-                peer_trust = load_peer(ip=peer,
-                                       key="peer_trust",
-                                       logger=self.logger)
-                if peer not in self.trust_pool.keys():
-                    self.trust_pool[peer] = peer_trust
 
     def refresh_hashes(self):
         """make sure our node knows the current state of affairs quickly"""
@@ -172,21 +136,6 @@ class ConsensusClient(threading.Thread):
             try:
                 start = get_timestamp_seconds()
 
-                self.add_peers_to_trust_pool()
-
-                if None not in self.trust_pool.values():
-                    self.trust_average = get_average_int(
-                        list_of_values=self.trust_pool.values()
-                    )
-
-                self.reward_pool_consensus(
-                    self.block_hash_pool, self.majority_block_hash
-                )
-
-                self.reward_pool_consensus(
-                    self.transaction_hash_pool, self.majority_transaction_pool_hash
-                )
-
                 self.memserver.transaction_pool_hash = self.memserver.get_transaction_pool_hash()
 
                 self.refresh_hashes()
@@ -197,11 +146,3 @@ class ConsensusClient(threading.Thread):
                 self.logger.error(f"Error in consensus loop: {e} {traceback.print_exc()}")
                 time.sleep(1)
                 # raise  # test
-
-
-def change_trust(trust_pool, peer, value):
-    """a queue would be ideal, but operation not critical, skips don't matter"""
-    trust_pool_copy = trust_pool.copy()
-    if peer in trust_pool_copy.keys():
-        trust_pool_copy[peer] += value
-    return trust_pool_copy

@@ -6,9 +6,7 @@ import traceback
 from compounder import compound_get_status_pool
 from config import get_timestamp_seconds
 from config import test_self_port
-from loops.consensus_loop import change_trust
-from ops.peer_ops import announce_me, get_list_of_peers, load_ips, check_save_peers, \
-    dump_trust
+from ops.peer_ops import announce_me, get_list_of_peers, load_ips, check_save_peers
 from ops.peer_ops import get_public_ip, update_local_ip, check_ip, subnet_diversity_ok
 from ops.peer_ops import seed_default_peers
 
@@ -80,10 +78,6 @@ class PeerClient(threading.Thread):
         for entry in self.memserver.purge_peers_list:
             self.disconnect_peer(entry)
 
-            self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
-                                                     peer=entry,
-                                                     value=-1)
-
             if entry in self.consensus.status_pool.keys():
                 self.consensus.status_pool.pop(entry)
 
@@ -146,9 +140,6 @@ class PeerClient(threading.Thread):
                                      fails=self.memserver.purge_peers_list,
                                      unreachable=self.memserver.unreachable)
 
-                    dump_trust(logger=self.logger,
-                               pool_data=self.consensus.trust_pool)
-
                     update_local_ip(ip=asyncio.run(get_public_ip(logger=self.logger)),
                                     logger=self.logger)
 
@@ -168,17 +159,9 @@ class PeerClient(threading.Thread):
                 for key, value in candidates.items():
                     if value['protocol'] >= self.memserver.protocol:
                         self.consensus.status_pool[key]=value
-
-                        self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
-                                                                 peer=key,
-                                                                 value=1)
                     else:
                         self.logger.error(f"Protocol of {key} too low: {value['protocol']}")
-
                         self.memserver.ban_peer(key)
-                        self.consensus.trust_pool = change_trust(trust_pool=self.consensus.trust_pool,
-                                                                 peer=key,
-                                                                 value=-1)
 
                 self.purge_peers()
                 self.duration = get_timestamp_seconds() - start

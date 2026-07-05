@@ -64,7 +64,7 @@ def seed_node(home, i, all_keys, bond_manifest):
     # seed peer files for ALL nodes (incl. self) so the producer set is known from boot
     for j, kd in enumerate(all_keys):
         peer = {"peer_address": kd["address"], "peer_ip": node_ip(j),
-                "peer_port": PORT, "peer_trust": 10000}
+                "peer_port": PORT}
         json.dump(peer, open(os.path.join(base, "peers", f"{base64encode(node_ip(j))}.dat"), "w"))
 
 
