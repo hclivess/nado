@@ -14,10 +14,6 @@ def config_found(file=f"{get_home()}/private/config.dat"):
         return False
 
 
-def get_timestamp():
-    return float(time.time())
-
-
 def get_timestamp_seconds():
     return int(time.time_ns() / 1000000000)
 

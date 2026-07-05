@@ -644,36 +644,6 @@ def shield_nullifier_del(addr: str, nonce: str):
     meta_del(f"shieldnull:{addr}:{nonce}")
 
 
-# --- snapshot support: carry the deterministic consensus replay-guard nullifiers in a state snapshot -------
-# (audit M-8) A bulk state snapshot restores only accounts + totals, so a snapshot-synced node used to LOSE
-# these guards and could re-accept an already-applied withdrawal/payout/slash -> escrow double-spend. These
-# helpers let ops.snapshot_ops include them in the manifest (bound into the agreed manifest hash) and restore
-# them on import. Only the self-contained, deterministic guard prefixes are carried (NOT local/non-consensus
-# meta), so every honest node computes the identical snapshot.
-def iter_meta_prefix(prefixes):
-    """Sorted [key, int_value] pairs for every meta key starting with one of `prefixes`."""
-    if isinstance(prefixes, str):
-        prefixes = (prefixes,)
-    pres = tuple(p.encode() for p in prefixes)
-    def _do(txn):
-        out = []
-        with txn.cursor(db=_dbs()["meta"]) as cur:
-            for k, v in cur:
-                kb = bytes(k)
-                if kb.startswith(pres):
-                    out.append([kb.decode(), int(_unpack(bytes(v)))])
-        return out
-    return sorted(_read(_do))
-
-
-def restore_meta_pairs(pairs):
-    """Set each [key, int_value] pair in the meta sub-DB (joins the active write txn if one is open)."""
-    def _do(txn):
-        for key, value in pairs:
-            txn.put(str(key).encode(), _pack(int(value)), db=_dbs()["meta"])
-    _write(_do)
-
-
 # --- Presence-dividend collection nullifiers: each (addr, nonce) dividend claim is spendable on L1 once ---
 
 def dividend_nullifier_exists(addr: str, nonce: str) -> bool:

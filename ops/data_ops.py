@@ -18,20 +18,6 @@ def is_hex_hash(value, length=64):
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{%d}" % length, value) is not None
 
 
-def dict_to_val_list(some_dict) -> list:
-    return_list = []
-    for value in some_dict.values():
-        return_list.append(value)
-    return return_list
-
-
-def sort_occurrence(some_list) -> list:
-    """takes list of values, returns list with unique values sorted by occurrence"""
-    total = {value: some_list.count(value) for value in some_list}
-    sorted_total = sorted(total, key=total.get, reverse=True)
-    return sorted_total
-
-
 def set_and_sort(entries: list) -> list:
     sorted_entries = sorted(list(set(entries)))
     return sorted_entries

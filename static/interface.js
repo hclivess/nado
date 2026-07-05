@@ -1040,6 +1040,12 @@ function markMiningActive() {
 // Registration could not be confirmed (relay rejected it, or the relay was unreachable). Stop the
 // background loop so it can't spam re-registration, and leave the button ENABLED so the user can
 // simply tap Start to retry — never stuck disabled.
+// SELF-HEALING: the failure is often STALE — e.g. a re-register is rejected as a duplicate while the
+// original tx lands a block later, or the relay hiccuped after actually accepting it. With the poll
+// loop stopped, that used to leave a false "didn't confirm" banner until a page refresh. So after
+// failing we quietly re-check the chain a few times, and if the registration turns out to have landed
+// (registered + lease valid), we resume mining automatically — same outcome as the refresh, minus the user.
+let _failRecheckTimer = null;
 function failStart(reason) {
   state.mining = false;
   state.starting = false;
@@ -1051,6 +1057,27 @@ function failStart(reason) {
   $("mineState").textContent = i18("mine.idle", "Idle");
   setRegBanner(i18("reg.retry", "Registration didn't confirm — tap Start to retry.") +
     (reason ? ' <span class="faint">(' + escapeHtml(reason) + ')</span>' : ""), "warn");
+  clearTimeout(_failRecheckTimer);
+  let tries = 0;
+  const recheck = async () => {
+    if (state.mining || state.registering || !state.wallet) return;   // user restarted / logged out meanwhile
+    try {
+      const [latest, acc] = await Promise.all([getLatestBlock(), getAccount(state.wallet.address)]);
+      const tip = latest && typeof latest.block_number === "number" ? latest.block_number : null;
+      const epochNow = tip != null ? Math.floor((tip + 8) / EPOCH_LENGTH) : null;
+      const regEpoch = (acc && typeof acc.reg_epoch === "number") ? acc.reg_epoch : -1;
+      if (acc && acc.registered === 1 && epochNow != null && regEpoch >= 0
+          && (epochNow - regEpoch) < POSW_LEASE_EPOCHS) {
+        log("ok", i18("log.regHealed", "Registration confirmed on chain after all ✓ — resuming mining automatically."));
+        state.mining = true;
+        startPollLoop();
+        pollOnce();                                       // confirms, flips the button, starts heartbeats
+        return;
+      }
+    } catch (e) { /* relay still unreachable — keep the retry banner */ }
+    if (++tries < 5) _failRecheckTimer = setTimeout(recheck, 15000);  // ~4 more blocks of patience
+  };
+  _failRecheckTimer = setTimeout(recheck, 12000);
 }
 
 // Decide whether to (re)broadcast a registration, and do it if needed. Called from the poll loop while
@@ -1114,8 +1141,16 @@ async function maybeRegister() {
     state.registering = false;
   }
   if (!state.mining) return;                      // user stopped/cancelled while we were working
-  if (failed) { failStart(failed); return; }      // relay unreachable / error → re-enable for retry
-  if (!accepted) failStart("the relay rejected the registration"); // hard rejection → retry, no spam
+  if (failed || !accepted) {
+    // A rejection/error is often STALE: a re-register gets refused as a duplicate precisely because
+    // the earlier tx just landed (or presence is already established). Ask the chain before scaring
+    // the user — if we're in fact registered, keep the loop alive and let pollOnce confirm quietly.
+    try {
+      const acc2 = await getAccount(state.wallet.address);
+      if (acc2 && acc2.registered === 1) { show("powWrap", false); return; }
+    } catch (e) { /* fall through to the real failure path */ }
+    failStart(failed || "the relay rejected the registration"); // genuine failure → retry, no spam
+  }
 }
 
 // Keep a prominent "registration in progress" indicator on screen (the powWrap widget with its
@@ -1358,6 +1393,7 @@ async function startMining() {
 function stopMining() {
   state.mining = false;
   try { localStorage.removeItem(LS_MINING); } catch (e) {}   // explicit stop -> don't auto-resume on refresh
+  clearTimeout(_failRecheckTimer);                           // an explicit stop must not self-heal back to mining
   state.starting = false;
   if (state.powJob) state.powJob.cancelled = true;   // abort an in-progress registration PoW
   state.registering = false;

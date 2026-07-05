@@ -384,12 +384,6 @@ def change_bonded(address: str, amount: int, logger, revert=False):
     return True
 
 
-def get_account_value(address, key):
-    account = get_account(address)
-    value = account[key]
-    return value
-
-
 def get_bonded_registry():
     """Producer registry from committed account state (S4.3):
     {address: {"bonded": int, "fidelity": None, "bond_since": int}} for every account with bonded >= B_MIN.

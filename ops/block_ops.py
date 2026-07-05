@@ -3,7 +3,6 @@ import os
 import time
 
 import msgpack
-import requests
 import aiohttp
 from .account_ops import get_bonded_registry, get_open_registry, fetch_totals
 from config import get_timestamp_seconds, get_config, hostport
@@ -182,16 +181,6 @@ def fee_over_blocks(logger, number_of_blocks=250):
         return average(fees)
     else:
         return 0
-
-
-def get_transaction_pool_demo():
-    """use for demo only"""
-    config = get_config()
-    ip = config["ip"]
-    port = config["port"]
-    tx_pool_message = requests.get(f"http://{hostport(ip, port)}/transaction_pool?compress=msgpack", timeout=5).text
-    tx_pool_dict = msgpack.unpackb(tx_pool_message)
-    return tx_pool_dict
 
 
 def get_block(block):
