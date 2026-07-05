@@ -23,7 +23,7 @@ from ops.account_ops import create_account, reflect_transaction
 from ops.transaction_ops import (reserved_uniqueness_key, dedupe_reserved, assert_unique_reserved,
                                  create_txid, validate_transaction)
 from Curve25519 import generate_keydict, sign, unhex
-from protocol import CHAIN_ID, EPOCH_LENGTH
+from protocol import CHAIN_ID, EPOCH_LENGTH, B_MIN
 
 fails = 0
 def check(name, fn):
@@ -40,7 +40,10 @@ def tx(r, sender="s", **kw):
 def t1_keys():
     assert reserved_uniqueness_key(tx("withdraw")) == ("withdraw", "s")
     assert reserved_uniqueness_key(tx("unbond")) == ("unbond", "s")
-    assert reserved_uniqueness_key(tx("heartbeat", target_block=125)) == ("heartbeat", "s", 2)
+    # heartbeat is RETIRED (recert-via-register is the presence mechanism, doc/presence-dividend.md
+    # §2.4) — it is no longer a reserved recipient and must not claim a uniqueness slot
+    assert reserved_uniqueness_key(tx("heartbeat", target_block=125)) is None
+    assert reserved_uniqueness_key(tx("register")) == ("register", "s")
     assert reserved_uniqueness_key(tx("reveal", data={"secret": "abc", "target_epoch": 4})) == ("reveal", "abc")
     assert reserved_uniqueness_key(tx("attest", data={"target_epoch": 3, "target_hash": "h"})) == ("attest", "s", 3)
     assert reserved_uniqueness_key(tx("ndo" + "0" * 46)) is None  # ordinary transfer
@@ -73,25 +76,25 @@ def t3_slash_offence_dedup():
 check("duplicate slash of one offence is rejected (even from two reporters)", t3_slash_offence_dedup)
 
 
-def t4_heartbeat_cross_block():
+def t4_attest_cross_block():
+    # heartbeat is RETIRED; the surviving cross-block one-per-epoch guard is the FFG attestation
+    # index — a second attest tx for an already-attested epoch must be rejected at validation.
     kd = generate_keydict(); s = kd["address"]
-    create_account(s); kv_ops.account_set(s, "registered", 1); kv_ops.account_set_field(s, "public_key", kd["public_key"])
+    create_account(s); kv_ops.account_set(s, "bonded", B_MIN); kv_ops.account_set_field(s, "public_key", kd["public_key"])
     epoch = 1
-    # apply a heartbeat for epoch 1
-    from ops.account_ops import apply_heartbeat
     with kv_ops.write_txn():
-        apply_heartbeat(s, epoch, logger=logger)
-    assert kv_ops.heartbeat_present(epoch, s)
-    # a second heartbeat tx for the same epoch is now rejected at validation (cross-block guard)
+        kv_ops.attestation_put(epoch, s, "aa" * 32)
+    assert kv_ops.attestation_exists(epoch, s)
     tb = epoch * EPOCH_LENGTH + 3
-    hb = {"sender": s, "recipient": "heartbeat", "amount": 0, "timestamp": 1, "data": "", "nonce": "h2",
-          "public_key": kd["public_key"], "target_block": tb, "chain_id": CHAIN_ID, "fee": 0, "epoch": epoch}
-    hb["txid"] = create_txid(hb); hb["signature"] = sign(kd["private_key"], unhex(hb["txid"]))
+    at = {"sender": s, "recipient": "attest", "amount": 0, "timestamp": 1,
+          "data": {"target_epoch": epoch, "target_hash": "bb" * 32}, "nonce": "a2",
+          "public_key": kd["public_key"], "target_block": tb, "chain_id": CHAIN_ID, "fee": 0}
+    at["txid"] = create_txid(at); at["signature"] = sign(kd["private_key"], unhex(at["txid"]))
     try:
-        validate_transaction(hb, logger, block_height=tb); raise RuntimeError("2nd heartbeat accepted")
+        validate_transaction(at, logger, block_height=tb); raise RuntimeError("2nd attestation accepted")
     except AssertionError as e:
-        assert "Already heartbeated" in str(e)
-check("cross-block: a 2nd heartbeat for an already-present epoch is rejected", t4_heartbeat_cross_block)
+        assert "already attested" in str(e).lower()
+check("cross-block: a 2nd attestation for an already-attested epoch is rejected", t4_attest_cross_block)
 
 
 print(f"\n{'ALL IN-BLOCK UNIQUENESS CHECKS PASSED' if not fails else str(fails) + ' FAILURE(S)'}")

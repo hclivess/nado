@@ -46,10 +46,12 @@ def t4():
     assert validate_address("bond") and validate_address("unbond"), "reserved bond/unbond rejected"
     # burn mechanic removed: "burn" is no longer a reserved/valid recipient
     assert not validate_address("burn"), "'burn' must no longer be a valid recipient"
-    # treasury is the (key-controlled) genesis address, NOT a keyless label
+    # treasury IS a keyless reserved label now (protocol.TREASURY_ADDRESS = "treasury"): valid as a
+    # recipient/target only — coins leave it solely via quorum treasury_execute — never as a sender.
     from protocol import TREASURY_ADDRESS
-    assert validate_address(TREASURY_ADDRESS), "genesis/treasury address fails checksum"
-    assert not validate_address("treasury"), "'treasury' must not be a keyless reserved label"
+    assert validate_address(TREASURY_ADDRESS), "'treasury' must validate as a recipient"
+    assert not validate_address(TREASURY_ADDRESS, allow_reserved=False), \
+        "'treasury' must never validate as a sender (no key exists)"
 check("address checksum round-trips + reserved accepted", t4)
 
 def build_tx(chain=None, fee=MIN_TX_FEE):
