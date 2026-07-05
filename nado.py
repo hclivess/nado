@@ -993,6 +993,16 @@ logger.info(f"NADO version {memserver.version} started")
 logger.info(f"Your address: {memserver.address}")
 logger.info(f"Your IP: {memserver.ip}")
 
+# SNAPSHOT HYGIENE: discard any on-disk checkpoint ABOVE our current tip. A checkpoint higher than our
+# own height cannot belong to our chain — it is a ghost from a prior chain/relaunch that reused this data
+# dir (or a not-yet-rebuilt post-rollback remnant). Left in place, the keep-highest-N prune in
+# persist_checkpoint would evict our REAL checkpoints, and /status would advertise a snapshot we don't
+# actually hold on this chain — which strands fresh joiners on the snapshot-bootstrap path.
+try:
+    snapshot_ops.drop_checkpoints_above(memserver.latest_block["block_number"])
+except Exception as e:
+    logger.error(f"Snapshot reconciliation at startup failed (non-fatal): {e}")
+
 # S4.3: surface the bonded producer registry loudly at startup. total_shares == 0 means NO eligible
 # producer (every bond < B_MIN, or none seeded) -> fail-closed selection silently produces no blocks.
 _registry = get_bonded_registry()
