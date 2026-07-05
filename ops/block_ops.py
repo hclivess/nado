@@ -6,7 +6,7 @@ import msgpack
 import requests
 import aiohttp
 from .account_ops import get_bonded_registry, get_open_registry
-from config import get_timestamp_seconds, get_config
+from config import get_timestamp_seconds, get_config, hostport
 from .data_ops import average, get_home, is_hex_hash
 from hashing import blake2b_hash_link, blake2b_hash
 from Curve25519 import sign as _sign_message, verify as _verify_message, unhex as _unhex
@@ -179,7 +179,7 @@ def get_transaction_pool_demo():
     config = get_config()
     ip = config["ip"]
     port = config["port"]
-    tx_pool_message = requests.get(f"http://{ip}:{port}/transaction_pool?compress=msgpack", timeout=5).text
+    tx_pool_message = requests.get(f"http://{hostport(ip, port)}/transaction_pool?compress=msgpack", timeout=5).text
     tx_pool_dict = msgpack.unpackb(tx_pool_message)
     return tx_pool_dict
 
@@ -677,7 +677,7 @@ def verify_block_signature(block) -> bool:
 
 async def knows_block(target_peer, port, hash, logger):
     try:
-        url_construct = f"http://{target_peer}:{port}/get_block?hash={hash}"
+        url_construct = f"http://{hostport(target_peer, port)}/get_block?hash={hash}"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:
@@ -701,7 +701,7 @@ def update_child_in_latest_block(child_hash, logger, parent):
 
 async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="zstd"):
     try:
-        url_construct = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
+        url_construct = f"http://{hostport(target_peer, get_config()['port'])}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:
@@ -724,7 +724,7 @@ async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="z
 
 async def get_blocks_before(target_peer, from_hash, logger, count=50, compress="zstd"):
     try:
-        url_construct = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
+        url_construct = f"http://{hostport(target_peer, get_config()['port'])}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:
@@ -750,7 +750,7 @@ async def get_from_single_target(key, target_peer, logger) -> list:  # todo add 
     """obtain from a single target, returns list"""
 
     try:
-        url_construct = f"http://{target_peer}:{get_config()['port']}/{key}"
+        url_construct = f"http://{hostport(target_peer, get_config()['port'])}/{key}"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:

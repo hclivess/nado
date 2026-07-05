@@ -8,7 +8,7 @@ import threading
 
 from compounder import compound_get_list_of, compound_announce_self
 from compounder import compound_get_status_pool
-from config import get_port, get_config, get_timestamp_seconds, update_config
+from config import get_port, get_config, get_timestamp_seconds, update_config, hostport
 from .data_ops import set_and_sort, get_home
 
 import aiohttp
@@ -92,7 +92,7 @@ def _migrate_legacy_peers():
 async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add msgpack support
 
     try:
-        url_construct = f"http://{target_peer}:{get_port()}/status"
+        url_construct = f"http://{hostport(target_peer, get_port())}/status"
 
         
         async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
@@ -333,13 +333,18 @@ def announce_me(targets, port, my_ip, logger, fail_storage) -> None:
 
 
 def check_ip(ip):
+    # accept BOTH IPv4 and IPv6 (ip_address parses either); the routability guard below applies to both
+    # families. Reject IPv4-mapped IPv6 (::ffff:a.b.c.d) outright so a mapped private/own address can't
+    # slip past the v4 checks under a v6 disguise — a real peer should present a plain v4 string instead.
     try:
-        addr = ipaddress.IPv4Address(ip)
-    except:
+        addr = ipaddress.ip_address(ip)
+    except Exception:
         return False
-    # reject our own IP and any non-globally-routable address (loopback, RFC1918
-    # private, link-local, reserved, multicast, unspecified): accepting these lets a
-    # peer seed us with internal targets (eclipse groundwork / limited SSRF probing).
+    if getattr(addr, "ipv4_mapped", None) is not None:
+        return False
+    # reject our own IP and any non-globally-routable address (loopback, RFC1918/ULA private, link-local,
+    # reserved, multicast, unspecified): accepting these lets a peer seed us with internal targets
+    # (eclipse groundwork / limited SSRF probing). is_private covers IPv6 ULA (fc00::/7) too.
     if ip == get_config()["ip"]:
         return False
     # NADO_TESTNET: allow loopback/private peers so a local multi-node testnet can mesh over
@@ -352,33 +357,35 @@ def check_ip(ip):
     return True
 
 
-# ECLIPSE HARDENING (#18 step 8): cap how many peers from the SAME /16 may occupy the live peer
-# slots, so a single network/operator can't fill a victim's peer view (eclipse). With peer_limit=24
-# and a cap of 4, an attacker needs >= 6 distinct /16s to monopolize the slots — far costlier than
-# spinning up many IPs inside one subnet. Pairs with the /announce_peer rate-limit. Testnet
-# (127.0.0.x) is exempt so a local multi-node mesh can still form.
+# ECLIPSE HARDENING (#18 step 8): cap how many peers from the SAME grouping prefix may occupy the live
+# peer slots, so a single network/operator can't fill a victim's peer view (eclipse). Grouping is /16 for
+# IPv4 and /64 for IPv6 (a /64 is the smallest routable IPv6 allocation, so it maps to one "network" the
+# way a /16 roughly does for v4 — and it stops an attacker with a single cheap /64 from spinning 2^64 hosts
+# to monopolize the slots). With a cap of 4 an attacker needs >= 6 distinct prefixes. Pairs with the
+# /announce_peer rate-limit. Testnet (127.0.0.x) is exempt so a local multi-node mesh can still form.
 MAX_PEERS_PER_SUBNET = 4
 
 
-def subnet16(ip: str):
-    """The /16 network prefix 'a.b' of an IPv4 dotted string (None if malformed)."""
+def subnet_of(ip: str):
+    """Eclipse-grouping prefix: IPv4 /16, IPv6 /64 (canonical network string). None if malformed."""
     try:
-        a, b = ip.split(".")[:2]
-        int(a); int(b)
-        return f"{a}.{b}"
+        addr = ipaddress.ip_address(ip)
     except Exception:
         return None
+    prefix = 16 if addr.version == 4 else 64
+    net = ipaddress.ip_network(f"{ip}/{prefix}", strict=False)
+    return f"{net.network_address}/{prefix}"
 
 
 def subnet_diversity_ok(new_ip: str, current_peers) -> bool:
-    """True if admitting new_ip keeps the per-/16 peer count within MAX_PEERS_PER_SUBNET. Always True
-    under NADO_TESTNET (the local mesh runs on a single 127.0.0.x /16)."""
+    """True if admitting new_ip keeps the per-prefix peer count within MAX_PEERS_PER_SUBNET (/16 v4, /64
+    v6). Always True under NADO_TESTNET (the local mesh runs on a single 127.0.0.x /16)."""
     if os.environ.get("NADO_TESTNET"):
         return True
-    sub = subnet16(new_ip)
+    sub = subnet_of(new_ip)
     if sub is None:
         return False
-    same = sum(1 for p in current_peers if subnet16(p) == sub)
+    same = sum(1 for p in current_peers if subnet_of(p) == sub)
     return same < MAX_PEERS_PER_SUBNET
 
 
@@ -389,14 +396,19 @@ async def get_public_ip(logger):
             return get_config()["ip"]
         except Exception:
             return "127.0.0.1"
-    urls = ["https://api.ipify.org", "https://ipinfo.io/ip"]
+    # PREFER IPv4 for self-advertisement: on a dual-stack host, advertising a v6-only self would make us
+    # unreachable to v4-only peers (most of the current mesh) and can partition us. api4/api6 force a family;
+    # try v4 first, fall back to v6 (so a v6-ONLY host still gets a usable address), then the generic probe.
+    urls = ["https://api4.ipify.org", "https://api6.ipify.org",
+            "https://api.ipify.org", "https://ipinfo.io/ip"]
 
     for url_construct in urls:
         try:
             async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(url_construct) as response:
-                    ip = await response.text()
-                    return ip
+                    ip = (await response.text()).strip()
+                    if ip:
+                        return ip
 
         except Exception as e:
             logger.error(f"Unable to fetch IP from {url_construct}: {e}")

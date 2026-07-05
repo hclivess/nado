@@ -220,7 +220,8 @@ async def fetch_block(target, port, block_hash, timeout=15):
     """fetch a single block dict from a peer by hash, or None"""
     import aiohttp
     from ops.net_ops import read_capped, unpack_peer, MAX_PEER_BODY
-    url = f"http://{target}:{port}/get_block?hash={block_hash}&compress=msgpack"
+    from config import hostport
+    url = f"http://{hostport(target, port)}/get_block?hash={block_hash}&compress=msgpack"
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
             async with session.get(url) as r:
@@ -237,7 +238,8 @@ async def fetch_snapshot(target, port, logger=None, concurrency=8, timeout=120):
     Returns (manifest, chunk_bytes_list) or (None, None) on failure."""
     import aiohttp
     from ops.net_ops import read_capped, unpack_peer, MAX_PEER_BODY, MAX_SNAPSHOT_TOTAL, MAX_SNAPSHOT_ACCOUNTS
-    base = f"http://{target}:{port}"
+    from config import hostport
+    base = f"http://{hostport(target, port)}"
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
             async with session.get(f"{base}/get_snapshot_manifest?compress=msgpack") as r:

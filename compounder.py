@@ -7,6 +7,7 @@ import aiohttp
 from ops.data_ops import sort_list_dict
 from ops.log_ops import get_logger
 from ops.net_ops import read_capped, unpack_peer, MAX_PEER_BODY
+from config import hostport
 """this module is optimized for low memory and bandwidth usage"""
 
 
@@ -16,9 +17,9 @@ async def get_list_of(key, peer, port, fail_storage, logger, semaphore, compress
     """peers include themselves in their peer lists"""
 
     if compress:
-        url_construct = f"http://{peer}:{port}/{key}?compress={compress}"
+        url_construct = f"http://{hostport(peer, port)}/{key}?compress={compress}"
     else:
-        url_construct = f"http://{peer}:{port}/{key}"
+        url_construct = f"http://{hostport(peer, port)}/{key}"
 
     try:
         async with semaphore:
@@ -63,7 +64,7 @@ async def compound_get_list_of(key, entries, port, logger, fail_storage, semapho
 async def get_url(peer, port, url, logger, fail_storage, semaphore):
     """method compounded by compound_get_url"""
 
-    url_construct = f"http://{peer}:{port}/{url}"
+    url_construct = f"http://{hostport(peer, port)}/{url}"
     try:
         async with semaphore:
             
@@ -96,7 +97,7 @@ async def compound_get_url(ips, port, url, logger, fail_storage, semaphore):
 async def send_transaction(peer, port, logger, fail_storage, transaction, semaphore):
     """method compounded by compound_send_transaction"""
 
-    url_construct = f"http://{peer}:{port}/submit_transaction?data={quote(json.dumps(transaction))}"
+    url_construct = f"http://{hostport(peer, port)}/submit_transaction?data={quote(json.dumps(transaction))}"
 
     try:
         async with semaphore:
@@ -132,9 +133,9 @@ async def get_status(peer, port, logger, fail_storage, semaphore, compress=None)
     """method compounded by compound_get_status_pool"""
 
     if compress:
-        url_construct = f"http://{peer}:{port}/status?compress={compress}"
+        url_construct = f"http://{hostport(peer, port)}/status?compress={compress}"
     else:
-        url_construct = f"http://{peer}:{port}/status"
+        url_construct = f"http://{hostport(peer, port)}/status"
 
     try:
         async with semaphore:
@@ -174,7 +175,7 @@ async def announce_self(peer, port, my_ip, fail_storage, semaphore):
     """method compounded by compound_announce_self"""
 
     url_construct = (
-        f"http://{peer}:{port}/announce_peer?ip={my_ip}"
+        f"http://{hostport(peer, port)}/announce_peer?ip={my_ip}"
     )
 
     try:

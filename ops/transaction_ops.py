@@ -10,6 +10,7 @@ from ops.block_ops import get_block_number
 from compounder import compound_send_transaction
 from config import get_config
 from config import get_timestamp_seconds
+from config import hostport
 from ops.data_ops import sort_list_dict, get_byte_size
 from hashing import create_nonce, blake2b_hash, canonical_bytes
 from ops.key_ops import load_keys
@@ -29,7 +30,7 @@ import aiohttp
 
 async def get_recommneded_fee(target, port, base_fee, logger):
     try:
-        url_construct = f"http://{target}:{port}/get_recommended_fee"
+        url_construct = f"http://{hostport(target, port)}/get_recommended_fee"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:
@@ -41,7 +42,7 @@ async def get_recommneded_fee(target, port, base_fee, logger):
 
 async def get_target_block(target, port, logger):
     try:
-        url_construct = f"http://{target}:{port}/get_latest_block"
+        url_construct = f"http://{hostport(target, port)}/get_latest_block"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:

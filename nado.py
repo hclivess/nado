@@ -939,10 +939,25 @@ async def make_app(port):
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     # In NADO_TESTNET mode bind to the node's own (loopback) IP so several nodes can share the port on
-    # distinct 127.0.0.x addresses; on mainnet bind all interfaces (reachable).
-    listen_address = get_config()["ip"] if os.environ.get("NADO_TESTNET") else "0.0.0.0"
-    site = web.TCPSite(runner, host=listen_address, port=port)
-    await site.start()
+    # distinct 127.0.0.x addresses.
+    if os.environ.get("NADO_TESTNET"):
+        await web.TCPSite(runner, host=get_config()["ip"], port=port).start()
+    else:
+        # DUAL-STACK: bind IPv4 on all interfaces, AND a SEPARATE IPv6 socket with IPV6_V6ONLY=1. Keeping
+        # them separate (rather than one dual-stack "::" socket) means v4 clients arrive as plain 1.2.3.4
+        # on the v4 socket instead of ::ffff:1.2.3.4 — so client_ip_from / rate-limiting see real v4 keys.
+        # The v6 listener is best-effort: a host with no IPv6 just skips it (v4 keeps working).
+        await web.TCPSite(runner, host="0.0.0.0", port=port).start()
+        try:
+            s6 = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+            s6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+            s6.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s6.bind(("::", port))
+            s6.setblocking(False)
+            await web.SockSite(runner, s6).start()
+            logger.info(f"Also listening on [::]:{port} (IPv6)")
+        except Exception as e:
+            logger.warning(f"IPv6 listener not started (no IPv6 on this host?): {e}")
     await asyncio.Event().wait()
 
 

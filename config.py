@@ -44,14 +44,20 @@ def get_port():
         return 9173
 
 
+def hostport(ip, port):
+    """`host:port` for a URL, bracketing IPv6 literals (which contain ':') so the port still parses.
+    IPv4 addresses and hostnames pass through unchanged. Every peer-dial URL goes through this."""
+    return f"[{ip}]:{port}" if ip and ":" in str(ip) else f"{ip}:{port}"
+
+
 def test_self_port(ip, port):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    # family-aware: an IPv6 literal needs AF_INET6, else connect_ex raises and we'd wrongly report the
+    # port shut. hostnames/edge cases fall back to IPv4.
+    family = socket.AF_INET6 if ip and ":" in str(ip) else socket.AF_INET
+    with socket.socket(family, socket.SOCK_STREAM) as sock:
         sock.settimeout(3)
         result = sock.connect_ex((ip, port))
-        if not result:
-            return True
-        else:
-            return False
+        return not result
 
 
 def get_config(config_path: str = f"{get_home()}/private/config.dat"):
