@@ -54,6 +54,17 @@ Won't shill, but a mention or "interesting design" nod carries weight with the p
 | wassielawyer | [@wassielawyer](https://x.com/wassielawyer) | X | Crypto lawyer; self-custody / anti-CEX / FTX-victim advocacy. Degen-adjacent CT but genuine cypherpunk overlap on the "not your keys" / anti-surveillance angle. | ☐ Not contacted |
 | wasserpest (maru.eth) | [@wasserpest](https://x.com/wasserpest) | X | OG CT anon who originated the Wassie lore (2017). Deep roots in the OG/degen-adjacent crypto-Twitter crowd — same era that knew Bismuth. | ☐ Not contacted |
 
+## Tier 2b — OG Crypto Twitter (mid-size traders/personalities, organic reach)
+
+The OG CT crowd from ~2017 — mid-size (~50–70K), degen/trader-adjacent, reachable **organically** (not pay-to-play mega). Same lineage that covered Bismuth; warm-ish leads for a fair-launch OG-narrative pitch.
+
+| Who | Handle (verify) | Platform | Who they are | Status |
+|---|---|---|---|---|
+| red | [@redxbt](https://x.com/redxbt) | X / Twitch | ~66K; OTC desk trader (Nonco), streamer, in crypto since 2017. OG trader cred. | ☐ Not contacted |
+| Sicarious | [@Sicarious_](https://x.com/Sicarious_) | X | ~58K; trader, posts "what I wish I'd known in 2018" lessons. OG CT. | ☐ Not contacted |
+| barneytheboi | [@barneytheboi](https://x.com/barneytheboi) | X | ~57K; OG CT (joined 2017), trader + Web3 founder, casual/humorous tone. | ☐ Not contacted |
+| Fullbeerbottle | [@Fullbeerbottle](https://x.com/Fullbeerbottle) ⚠ verify | X | Small/anon CT account — no public profile info found; confirm identity before contacting. | ☐ Not contacted |
+
 ## Tier 3 — Technical / builder reach (higher bar, higher payoff)
 
 Respond to substance — aim a technical thread on the post-quantum transparent-STARK design here.
@@ -74,7 +85,7 @@ solely as a paid reach gamble, never organic: their audience wants 100x flips, n
 |---|---|---|---|---|
 | Ansem | [@blknoiz06](https://x.com/blknoiz06) | X | ~750K followers; THE Solana/memecoin voice (520x WIF, 80x BONK). Massive reach, off-narrative, pay-to-play. | ☐ Not contacted |
 | Ash Crypto | [@Ashcryptoreal](https://x.com/Ashcryptoreal) | X | ~1.4–1.7M followers; markets/news + WealthMastery newsletter. Generic-markets reach, off-narrative, pay-to-play. | ☐ Not contacted |
-| Altcoin Gordon | [@AltcoinGordon](https://x.com/AltcoinGordon) ⚠ verify | X | Gordon-Gekko-persona altcoin trader (chart setups, narrative trades). NOTE: the crypto "Gordon Gekko" is @AltcoinGordon, NOT @GordonGekko. Reach yes, off-narrative, pay-to-play. | ☐ Not contacted |
+| Gordon Gekko | [@GordonGekko](https://x.com/GordonGekko) | X | Gekko-persona altcoin trader (chart setups, narrative trades). Reach yes, off-narrative, pay-to-play. | ☐ Not contacted |
 
 ## Avoid / dead
 
