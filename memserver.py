@@ -55,7 +55,10 @@ class MemServer:
         self.producers_refresh_interval = 10
         self.heavy_refresh_interval = 360
 
-        self.block_time = self.config.get("block_time") or 60  # configurable (e.g. fast demo networks)
+        # Target seconds between blocks (local production pacing — NOT consensus; verify only checks
+        # timestamp <= now). Default 10s. All nodes on a network should agree on this so the chain keeps a
+        # steady cadence; keep it identical across the mesh (ideally promote to a protocol constant later).
+        self.block_time = self.config.get("block_time") or 10
         self.periods = [0]
 
         self.unreachable = {}

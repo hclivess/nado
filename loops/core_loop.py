@@ -108,36 +108,28 @@ class CoreClient(threading.Thread):
         to be produced"""
 
         old_periods = self.memserver.periods
+        bt = self.memserver.block_time
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
+        slb = self.memserver.since_last_block
 
-        if self.memserver.reported_uptime < self.memserver.block_time:
-            """init mode"""
+        # Block production is paced by block_time ONLY (local liveness — block_time is NOT consensus;
+        # verify_block just requires timestamp <= now). Rewritten to scale with block_time: the old code
+        # hard-coded 10/20/40-second gates that assumed ~60s blocks, so an 8s block_time actually produced
+        # at ~10s and disabled the intermediate mempool-merge phases. Modes:
+        #   Init      -> just started, wait one block_time before minting
+        #   Slot due  -> block_time elapsed since the last block -> PRODUCE (period 3)
+        #   Building  -> within the interval, progress the mempool-merge phases 0 -> 1 -> 2 as it elapses
+        if self.memserver.reported_uptime < bt:
             self.memserver.periods = [0, 1, 2]
-
-        elif self.memserver.since_last_block < self.memserver.block_time:
-            """stable mode"""
-            if 20 > self.memserver.since_last_block > 0 or self.consecutive > 0 or self.memserver.force_sync_ip:
-                self.consecutive = 0
-                self.memserver.periods = [0]
-            elif 40 > self.memserver.since_last_block > 20:
-                self.memserver.periods = [1]
-            elif self.memserver.block_time > self.memserver.since_last_block > 40:
-                self.memserver.periods = [2]
-            elif self.memserver.since_last_block > self.memserver.block_time:
-                self.memserver.periods = [3]
-            self.memserver.switch_mode = {"mode": 2,
-                                          "name": "Stable switch"}
-
-        elif get_timestamp_seconds() - self.memserver.block_generation_age > 10:
-            """generate a block if x seconds have passed"""
+            self.memserver.switch_mode = {"mode": 3, "name": "Init"}
+        elif slb >= bt:
+            self.consecutive = 0
             self.memserver.periods = [3]
-            self.memserver.switch_mode = {"mode": 1,
-                                          "name": "Target catch up"}
+            self.memserver.switch_mode = {"mode": 1, "name": "Slot due"}
         else:
-            """do not generate block more than once per x seconds"""
-            self.memserver.periods = [0, 1, 2]
-            self.memserver.switch_mode = {"mode": 0,
-                                          "name": "Quick switch"}
+            frac = slb / bt if bt else 1.0
+            self.memserver.periods = [0] if frac < 1 / 3 else ([1] if frac < 2 / 3 else [2])
+            self.memserver.switch_mode = {"mode": 2, "name": "Building"}
 
         if old_periods != self.memserver.periods:
             self.logger.debug(

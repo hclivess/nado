@@ -37,7 +37,7 @@ deflation. Since `m(r) <= 1`, **`BASE_SUBSIDY` is the MAX emission/block** and `
 the min (perpetual tail). Implemented as an integer bps multiply: `reward = BASE_SUBSIDY * m_bps // 10000`.
 
 **TUNED (final): `M_MIN = 0.15`, `k = 4.0`, `BASE_SUBSIDY = 0.1 NADO`.** Chosen against explicit criteria —
-`M_MIN` sets the perpetual security tail (0.15 ⇒ ~0.0166 NADO/block ≈ 8,700 NADO/yr forever, a credible
+`M_MIN` sets the perpetual security tail (0.15 ⇒ ~0.0166 NADO/block ≈ 52,000 NADO/yr forever at 10s, a credible
 floor without being generous), `k=4` makes emission at the ~40% self-limiting equilibrium ~0.033/block
 (hard) with a responsive-but-not-violent early curve (10% bonded ⇒ ~28% emission cut). `BASE_SUBSIDY` is a
 pure scale/units choice (max emission + distribution rate); 0.1 NADO/block = 144/day max is a sound
@@ -96,7 +96,7 @@ The tail is automatic from Layer 1: the reward floor is `m(r) · BASE_SUBSIDY`, 
 
 ```
 perpetual security floor ≈ m_min · BASE_SUBSIDY = 0.166 · 0.1 = 0.0166 NADO/block, FOREVER
-                         = ~8,700 NADO/yr minimum emission (60s blocks) — the chain can never die of zero subsidy
+                         = ~52,000 NADO/yr minimum emission (block_time=10s) — the chain never dies of zero subsidy
                          (M_MIN=0.15 is the r→∞ asymptote; 0.0166 is the reachable min at 100% bonded)
 ```
 
@@ -111,23 +111,24 @@ ideal: no cliff, no cap anxiety, yet net-deflationary.
 |---|---|---|---|
 | premine / insiders | none | none | none |
 | supply cap | 21M hard | none (tail) | **none (tail)** — deliberate, avoids the security cliff |
-| tail emission | → 0 (cliff risk) | flat 0.6/blk | **`m(r)·BASE`, floored ~0.0166/blk (~8,700/yr)** |
+| tail emission | → 0 (cliff risk) | flat 0.6/blk | **`m(r)·BASE`, floored ~0.0166/blk (~52,000/yr @10s)** |
 | fees | paid to miner (recycled) | paid to miner | **destroyed** |
 | net supply at maturity | asymptotes to cap (never falls) | mild perpetual inflation | **falls** (deflationary under usage) |
 | tightening driver | fixed schedule | none | usage (fee burn) **+** conviction (bonding) |
 
 ## Scenarios
 
-Per-block and annualized net issuance (60s blocks ⇒ 525,600/yr). Flat mint: `net = BASE·m(r) − fees`;
-negative = **supply shrinks**. (Treasury self-burn adds *more* destruction on top — not shown.)
+Per-block and annualized net issuance at **block_time = 10s ⇒ 3,153,600 blocks/yr**. Flat mint:
+`net = BASE·m(r) − fees`; negative = **supply shrinks**. (Treasury self-burn adds *more* destruction on top —
+not shown.) Per-block figures are cadence-independent; the `/YEAR` column scales linearly with block_time.
 
-| scenario | fees/blk | bonded r | m(r) | mint/blk | burn/blk | net/blk | **net / YEAR** |
+| scenario | fees/blk | bonded r | m(r) | mint/blk | burn/blk | net/blk | **net / YEAR (10s)** |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| A — Dormant / bootstrap | 0.00 | 5% | 0.85 | 0.0846 | 0.000 | +0.0846 | **+44,462** |
-| B — Early growth | 0.05 | 20% | 0.53 | 0.0532 | 0.050 | +0.0032 | **+1,678** |
-| C — Adopted | 0.20 | 40% | 0.32 | 0.0322 | 0.200 | −0.1678 | **−88,216** |
-| D — Bull / high-usage | 0.50 | 55% | 0.24 | 0.0244 | 0.500 | −0.4756 | **−249,966** |
-| E — Mania | 1.00 | 60% | 0.23 | 0.0227 | 1.000 | −0.9773 | **−513,663** |
+| A — Dormant / bootstrap | 0.00 | 5% | 0.85 | 0.0846 | 0.000 | +0.0846 | **+266,770** |
+| B — Early growth | 0.05 | 20% | 0.53 | 0.0532 | 0.050 | +0.0032 | **+10,069** |
+| C — Adopted | 0.20 | 40% | 0.32 | 0.0322 | 0.200 | −0.1678 | **−529,296** |
+| D — Bull / high-usage | 0.50 | 55% | 0.24 | 0.0244 | 0.500 | −0.4756 | **−1,499,795** |
+| E — Mania | 1.00 | 60% | 0.23 | 0.0227 | 1.000 | −0.9773 | **−3,081,979** |
 
 Reading it: **A/B (bootstrap)** — mild net emission distributes coins and keeps the lights on when there's no
 usage yet (this is *why* the tail exists). **C→E (adoption)** — supply actively shrinks, harder the more NADO
@@ -138,16 +139,18 @@ matters.
 equilibrium emission). Grid of `tail/yr` (min emission, forever) vs `emission@40%/yr` (gross emission at the
 self-limiting equilibrium — lower = harder), `BASE=0.1`:
 
+(NADO/yr at block_time=10s; relative ranking is cadence-independent.)
+
 | M_MIN | k | tail/yr (security) | emit@40%/yr (hardness) | 10%-bond emission cut |
 |---:|---:|---:|---:|---:|
-| 0.10 | 4 | 6,122 | 14,807 | 30% |
-| **0.15** | **4** | **8,702** | **16,904** | **28%** ← chosen |
-| 0.20 | 3 | 12,605 | 23,177 | 21% (original draft) |
-| 0.20 | 4 | 11,282 | 19,001 | 26% |
-| 0.15 | 5 | 8,185 | 13,930 | 33% |
+| 0.10 | 4 | 36,733 | 88,842 | 30% |
+| **0.15** | **4** | **52,214** | **101,424** | **28%** ← chosen |
+| 0.20 | 3 | 75,631 | 139,061 | 21% (original draft) |
+| 0.20 | 4 | 67,690 | 114,005 | 26% |
+| 0.15 | 5 | 49,110 | 83,580 | 33% |
 
-`M_MIN=0.15, k=4` is the knee: ~27% harder than the 0.2/k3 draft, a **credible** ~8,700 NADO/yr forever tail
-(vs a too-thin ~6,100 at 0.10), and a firm-but-not-violent early response (28% cut at 10% bonded, not 33%+).
+`M_MIN=0.15, k=4` is the knee: ~27% harder than the 0.2/k3 draft, a **credible** ~52,000 NADO/yr forever
+tail (vs a too-thin ~37,000 at 0.10), and a firm-but-not-violent early response (28% cut at 10% bonded).
 
 ## Why it self-regulates (equilibrium)
 
@@ -202,6 +205,10 @@ def get_block_reward(parent_block=None):
 
 - **Params are FINAL:** `M_MIN=0.15`, `k=4`, `BASE_SUBSIDY=0.1`. Frozen into mainnet genesis. Betanet only
   validates that the live bonded ratio / net issuance behave as modelled — it is not a tuning round.
+- **Cadence: `block_time = 10s`** (default). Emission is per-*block*, so coins/day = `BASE · 86400/block_time`
+  = **864 NADO/day max** at 10s (315,360/yr), tail ~52,000/yr. block_time is the emission-*rate* lever
+  (jointly with BASE); it is local pacing, not consensus, but all nodes must run the same value. The
+  per-block hardness (curve, deflation crossover) is cadence-independent — only throughput scales.
 - **Denominator:** `total_supply` = `TREASURY_GENESIS + produced − fees` (treasury included; it is a tiny,
   self-burning fraction and excluding it would only make the ratio jitter with treasury flows).
 - **NO hard cap, NO halving-to-zero** — rejected (security cliff). Perpetual tail ~0.0166 NADO/block.

@@ -217,7 +217,8 @@ pair moves it back out after a timelock (see below). Bonded selection weight is
 - **Per-block reward = a FLAT base subsidy scaled by bonding** — `reward = BASE_SUBSIDY (0.1 NADO) · m(r)`.
   No fee-weighted term and **no ceiling** (the old `REWARD_CAP` is removed): fees are destroyed, so minting
   more when fees rise would only soften the deflation. Since `m(r) ≤ 1`, **0.1 NADO is the max emission per
-  block** (~144 NADO/day at 60 s), and `m·BASE ≈ 0.0166` the min (perpetual tail, ~8,700 NADO/yr forever).
+  block** (~864 NADO/day at the 10 s `block_time`), and `m·BASE ≈ 0.0166` the min (perpetual tail,
+  ~52,000 NADO/yr forever). Emission is per-block, so `block_time` (default 10 s) is the emission-*rate* lever.
 - **Bond-elastic emission → super hard money** (`doc/bond-elastic-emission.md`). `m(r) = 0.15 + 0.85·e^(−4r)`
   (tuned), where `r` is the **bonded ratio** (bonded ÷ total supply): the more the network locks up, the less it
   mints. Combined with fee destruction this makes NADO **net-deflationary under real usage**, while the

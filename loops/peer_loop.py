@@ -117,7 +117,10 @@ class PeerClient(threading.Thread):
                                                                     logger=self.logger,
                                                                     port=self.memserver.port))
 
-                if 0 or 1 in self.memserver.periods:
+                # merge peers' txs during the early building phases (period 0 or 1). NOTE: the old
+                # `if 0 or 1 in periods` was a bug — it parses as `if 1 in periods` (the `0 or` is dead),
+                # so period-0 merges were silently skipped.
+                if 0 in self.memserver.periods or 1 in self.memserver.periods:
                     self.memserver.merge_remote_transactions(user_origin=False)
 
                 _seeds = set(seed_peers())
