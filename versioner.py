@@ -22,8 +22,14 @@ def set_version(version):
 
 
 def read_version():
-    with open("version", "r") as version_file:
-        return json.load(version_file)
+    # `version` is a runtime-derived build artifact (git HEAD), NOT tracked in git — see .gitignore. Fall
+    # back to reading HEAD directly (fresh clone before the first boot writes the file), then "na" (a tarball
+    # deploy with neither the file nor a .git dir), so a missing file never crashes startup.
+    try:
+        with open("version", "r") as version_file:
+            return json.load(version_file)
+    except Exception:
+        return update_version() or "na"
 
 
 if __name__ == "__main__":
