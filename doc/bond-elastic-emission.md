@@ -182,7 +182,7 @@ optional finalized-epoch lag on `r` could be added for extra caution; not curren
 ## Implementation (shipped)
 
 ```python
-# protocol.py: BOND_ELASTIC_MULT_BPS = [10000, 9764, ... 2398]   # 101 ints, m(pct) in bps, hardcoded
+# protocol.py: BOND_ELASTIC_MULT_BPS = [10000, 9667, ... 1656]   # 101 ints, m(pct) in bps, hardcoded (M_MIN=0.15,k=4)
 
 # ops/block_ops.py
 def bond_elastic_mult_bps() -> int:
@@ -212,6 +212,11 @@ def get_block_reward(parent_block=None):
 - **Denominator:** `total_supply` = `TREASURY_GENESIS + produced − fees` (treasury included; it is a tiny,
   self-burning fraction and excluding it would only make the ratio jitter with treasury flows).
 - **NO hard cap, NO halving-to-zero** — rejected (security cliff). Perpetual tail ~0.0166 NADO/block.
-- Bonded measure = `total_bonded_shares · B_MIN` (same as `cumulative_weight`); equilibrium self-limits
-  ~40% via the `OPEN_BPS`=30% siphon. Raising the equilibrium (lower `OPEN_BPS`) trades against fair-launch
-  reach and is a *separate* lane decision, out of scope here.
+- Bonded measure = `total_bonded_shares · B_MIN` (`B_MIN = 1,000 NADO`; same measure as `cumulative_weight`);
+  equilibrium self-limits ~40% via the `OPEN_BPS`=30% siphon. Raising the equilibrium (lower `OPEN_BPS`)
+  trades against fair-launch reach and is a *separate* lane decision, out of scope here.
+- **Bootstrap liveness:** when the bonded lane is TOTALLY empty (a fresh no-premine chain has zero bonds at
+  genesis, and `bonded=0 ⇒ m(0)=1 ⇒ full emission`), bonded slots fall back to the OPEN lane so the chain
+  still advances (a height can't be skipped). Sybil-safe — there is no capital lane to protect at zero stake,
+  and the instant any stake bonds, bonded slots snap back to the bonded lane and the `OPEN_BPS` ceiling
+  re-applies (see `ops/mining_ops.select_producer_two_lane`).

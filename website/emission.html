@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NADO — Emission Simulator · bond-elastic super hard money</title>
+<meta name="description" content="Interactive simulation of NADO's bond-elastic, fee-burning emission: flat base subsidy scaled by the bonded ratio, net-deflationary under real usage, with a perpetual security tail.">
+<style>
+  :root{
+    --bg:#0b0f14; --bg2:#04110a; --panel:#111823; --panel2:#0e141d; --line:#1c2530;
+    --fg:#e6edf3; --mut:#8b9bab; --dim:#5c6b7a;
+    --teal:#00c9a7; --teal-l:#7fe9d6; --teal-d:#00ad93;
+    --pos:#3ad29f; --neg:#ff6b6b; --amber:#f5b74e;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 700px at 70% -10%,#0d1a17 0%,var(--bg) 55%) fixed,var(--bg);
+       color:var(--fg);font-family:var(--mono);line-height:1.5;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 18px 64px}
+  a{color:var(--teal-l);text-decoration:none} a:hover{text-decoration:underline}
+  h1{font-size:26px;margin:0 0 4px;letter-spacing:.3px}
+  h1 .g{color:var(--teal)}
+  .sub{color:var(--mut);margin:0 0 24px;font-size:14px}
+  .card{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);
+        border-radius:14px;padding:18px 18px 14px;margin:16px 0}
+  .controls{display:grid;grid-template-columns:1fr;gap:16px}
+  .ctl label{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);margin-bottom:6px}
+  .ctl label b{color:var(--teal-l);font-weight:600}
+  input[type=range]{width:100%;-webkit-appearance:none;height:6px;border-radius:6px;
+    background:linear-gradient(90deg,var(--teal-d),var(--teal-l));outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;
+    background:#eafff9;border:2px solid var(--teal-d);cursor:pointer;box-shadow:0 0 0 4px rgba(0,201,167,.15)}
+  input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#eafff9;
+    border:2px solid var(--teal-d);cursor:pointer}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:4px}
+  .tile{background:#0b121b;border:1px solid var(--line);border-radius:10px;padding:12px 12px}
+  .tile .k{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+  .tile .v{font-size:19px;margin-top:3px;font-variant-numeric:tabular-nums}
+  .verdict{grid-column:1/-1;border-radius:10px;padding:12px 14px;font-size:15px;text-align:center;border:1px solid}
+  .verdict.def{background:rgba(58,210,159,.08);border-color:rgba(58,210,159,.35);color:var(--pos)}
+  .verdict.inf{background:rgba(245,183,78,.08);border-color:rgba(245,183,78,.35);color:var(--amber)}
+  canvas{width:100%;height:340px;display:block}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--mut);margin-top:8px}
+  .legend i{display:inline-block;width:12px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
+  .note{color:var(--mut);font-size:13px}
+  .note code{color:var(--teal-l);background:#0b121b;padding:1px 5px;border-radius:5px}
+  .foot{color:var(--dim);font-size:12px;margin-top:26px;text-align:center}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:640px){.row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span class="g">NADO</span> Emission Simulator</h1>
+  <p class="sub">Bond-elastic, fee-burning emission — flat base subsidy scaled by conviction, net-deflationary under real usage, with a perpetual security tail. Drag the sliders.</p>
+
+  <div class="card">
+    <div class="controls">
+      <div class="ctl">
+        <label>Bonded ratio &nbsp;<span class="dim">(bonded ÷ total supply)</span> <b id="rLbl">40%</b></label>
+        <input id="r" type="range" min="0" max="100" value="40" step="1">
+      </div>
+      <div class="ctl">
+        <label>Fees per block &nbsp;<span class="dim">(destroyed — burned)</span> <b id="fLbl">0.200 NADO</b></label>
+        <input id="f" type="range" min="0" max="1000" value="200" step="5">
+      </div>
+      <div class="ctl">
+        <label>Block time <b id="btLbl">10 s</b></label>
+        <input id="bt" type="range" min="2" max="60" value="10" step="1">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="tiles">
+      <div class="tile"><div class="k">multiplier m(r)</div><div class="v" id="m">—</div></div>
+      <div class="tile"><div class="k">minted / block</div><div class="v" id="mint">—</div></div>
+      <div class="tile"><div class="k">net / block</div><div class="v" id="net">—</div></div>
+      <div class="tile"><div class="k">net / day</div><div class="v" id="day">—</div></div>
+      <div class="tile"><div class="k">net / year</div><div class="v" id="yr">—</div></div>
+      <div class="verdict" id="verdict">—</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <canvas id="chart" width="1200" height="680"></canvas>
+    <div class="legend">
+      <span><i style="background:#7fe9d6"></i>minted / block (BASE·m(r))</span>
+      <span><i style="background:#f5b74e"></i>net / block (minted − fees)</span>
+      <span><i style="background:#ff6b6b"></i>deflation zone (net &lt; 0)</span>
+      <span><i style="background:#5c6b7a"></i>your bonded ratio</span>
+    </div>
+  </div>
+
+  <div class="card note">
+    <b style="color:var(--fg)">The model.</b>
+    Reward per block = <code>BASE_SUBSIDY · m(r)</code>, with <code>BASE=0.1 NADO</code> and
+    <code>m(r)=0.15+0.85·e<sup>−4r</sup></code> — the more the network bonds, the less it mints.
+    There is <b>no fee-weighted term and no ceiling</b>: fees are <b>destroyed</b>, so
+    <code>net = minted − fees</code>. Since <code>m ≤ 1</code>, <b>0.1 NADO is the max emission/block</b> and
+    <code>≈0.0166</code> the <b>perpetual tail</b> (~52,000 NADO/yr at 10s blocks, forever — production never
+    dies, <b>no hard cap, no security cliff</b>). Bonding self-limits near ~40% (the open lane siphons 30%), and
+    every unit of fee above the mint is a net burn — <b>usage shrinks supply</b>.
+    &nbsp;<a href="/">← nadochain.com</a>
+  </div>
+
+  <div class="foot">NADO — fair-launch (no premine), post-quantum, private. Emission params are consensus-frozen for mainnet genesis.</div>
+</div>
+
+<script>
+(function(){
+  var BASE=0.1, M_MIN=0.15, K=4.0;
+  var R=document.getElementById('r'), F=document.getElementById('f'), BT=document.getElementById('bt');
+  var el=function(id){return document.getElementById(id)};
+  function m(r){return M_MIN+(1-M_MIN)*Math.exp(-K*r);}          // r in 0..1
+  function fmt(x,d){d=d==null?4:d; return (x<0?'−':'')+Math.abs(x).toFixed(d);}
+  function fmtBig(x){var s=x<0?'−':'+';x=Math.abs(x);
+    if(x>=1e6)return s+(x/1e6).toFixed(2)+'M'; if(x>=1e3)return s+(x/1e3).toFixed(1)+'k'; return s+x.toFixed(0);}
+
+  var cv=el('chart'), ctx=cv.getContext('2d');
+  function draw(r,fees){
+    var W=cv.width,H=cv.height,dpr=1;
+    ctx.clearRect(0,0,W,H);
+    var padL=86,padR=24,padT=26,padB=52, w=W-padL-padR, h=H-padT-padB;
+    // y-range: from a bit below min net to max minted (BASE)
+    var yMax=BASE*1.02;
+    var minNet=BASE*m(1)-fees;                                   // net at full bonding (lowest minted) - fees
+    var yMin=Math.min(-0.02, minNet*1.15);
+    function X(rr){return padL+rr*w;}
+    function Y(v){return padT+h*(yMax-v)/(yMax-yMin);}
+    // deflation zone (net<0) shading below y=0
+    ctx.fillStyle='rgba(255,107,107,.07)';
+    ctx.fillRect(padL,Y(0),w,padT+h-Y(0));
+    // grid + y labels
+    ctx.strokeStyle='#1c2530';ctx.fillStyle='#5c6b7a';ctx.font='12px ui-monospace,monospace';ctx.lineWidth=1;
+    for(var gi=0;gi<=5;gi++){var v=yMin+(yMax-yMin)*gi/5;var yy=Y(v);
+      ctx.beginPath();ctx.moveTo(padL,yy);ctx.lineTo(padL+w,yy);ctx.globalAlpha=(Math.abs(v)<1e-9)?.6:.25;ctx.stroke();ctx.globalAlpha=1;
+      ctx.textAlign='right';ctx.fillText(v.toFixed(3),padL-10,yy+4);}
+    // x labels
+    ctx.textAlign='center';
+    for(var xi=0;xi<=10;xi++){var rr=xi/10;ctx.fillText((xi*10)+'%',X(rr),padT+h+22);}
+    ctx.fillText('bonded ratio  →',padL+w/2,padT+h+42);
+    // zero line emphasise
+    ctx.strokeStyle='#3a4756';ctx.beginPath();ctx.moveTo(padL,Y(0));ctx.lineTo(padL+w,Y(0));ctx.stroke();
+    // minted curve
+    function curve(fn,color,wd){ctx.strokeStyle=color;ctx.lineWidth=wd;ctx.beginPath();
+      for(var i=0;i<=240;i++){var rr=i/240;var v=fn(rr);(i?ctx.lineTo:ctx.moveTo).call(ctx,X(rr),Y(v));}ctx.stroke();}
+    curve(function(rr){return BASE*m(rr);},'#7fe9d6',2.5);
+    // net curve, split colour above/below zero
+    ctx.lineWidth=2.5;
+    var prevPos=null;
+    for(var i=0;i<=240;i++){var rr=i/240;var v=BASE*m(rr)-fees;var pos=v>=0;
+      if(prevPos===null){ctx.beginPath();ctx.moveTo(X(rr),Y(v));}
+      else{ctx.strokeStyle=pos?'#f5b74e':'#ff6b6b';ctx.beginPath();ctx.moveTo(X((i-1)/240),Y(BASE*m((i-1)/240)-fees));ctx.lineTo(X(rr),Y(v));ctx.stroke();}
+      prevPos=pos;}
+    // current-r marker
+    var cx=X(r);
+    ctx.strokeStyle='#5c6b7a';ctx.setLineDash([4,4]);ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(cx,padT);ctx.lineTo(cx,padT+h);ctx.stroke();ctx.setLineDash([]);
+    var mint=BASE*m(r), net=mint-fees;
+    function dot(v,c){ctx.fillStyle=c;ctx.beginPath();ctx.arc(cx,Y(v),4.5,0,7);ctx.fill();
+      ctx.strokeStyle='#0b0f14';ctx.lineWidth=2;ctx.stroke();}
+    dot(mint,'#7fe9d6'); dot(net, net>=0?'#f5b74e':'#ff6b6b');
+  }
+
+  function update(){
+    var r=(+R.value)/100, fees=(+F.value)/1000, bt=+BT.value;
+    el('rLbl').textContent=(+R.value)+'%';
+    el('fLbl').textContent=fees.toFixed(3)+' NADO';
+    el('btLbl').textContent=bt+' s';
+    var mr=m(r), mint=BASE*mr, net=mint-fees, bpd=86400/bt;
+    el('m').textContent=mr.toFixed(3);
+    el('mint').textContent=fmt(mint)+' ';
+    el('net').innerHTML='<span style="color:'+(net>=0?'#f5b74e':'#ff6b6b')+'">'+fmt(net)+'</span>';
+    el('day').textContent=fmtBig(net*bpd)+' NADO';
+    el('yr').textContent=fmtBig(net*bpd*365)+' NADO';
+    var v=el('verdict');
+    if(net<0){v.className='verdict def';v.innerHTML='▼ DEFLATIONARY — supply shrinks '+fmtBig(-net*bpd*365).replace('+','')+' NADO/yr (usage burns more than it mints)';}
+    else{v.className='verdict inf';v.innerHTML='▲ inflationary — supply grows '+fmtBig(net*bpd*365).replace('+','')+' NADO/yr (bootstrap / low-usage phase)';}
+    draw(r,fees);
+  }
+  [R,F,BT].forEach(function(s){s.addEventListener('input',update);});
+  window.addEventListener('resize',update);
+  update();
+})();
+</script>
+</body>
+</html>
