@@ -23,6 +23,7 @@ from ops.block_ops import (
     check_target_match,
     valid_block_timestamp,
     block_already_indexed,
+    block_content_hash,
     index_block_number,
     sign_block,
     verify_block_signature,
@@ -219,7 +220,7 @@ class CoreClient(threading.Thread):
                         and not self.memserver.force_sync_ip
                         and not _peer_ahead):
                     block_candidate = get_block_candidate(logger=self.logger,
-                                                          transaction_pool=self.memserver.transaction_pool.copy(),
+                                                          transaction_pool=self._candidate_pool(),
                                                           latest_block=self.memserver.latest_block
                                                           )
 
@@ -623,6 +624,43 @@ class CoreClient(threading.Thread):
             self.consensus.rejected_tips.add(hh)
             self.logger.warning(f"Excluding unreachable heavier-advertised tip {hh[:12]} (weight-DoS guard)")
 
+    def _candidate_pool(self):
+        """Pre-validate pool txs against the NEXT height before they enter OUR OWN block candidate.
+        construct_block hashes the tx set immediately, and save_block refuses any block whose content
+        no longer matches its hash (the anti-fork invariant) — so an invalid pool tx (e.g. a stale
+        duplicate attest/reveal) dropped later in verify_block mutates the block AFTER hashing and
+        costs us the whole production slot (observed 120-230s block gaps of consecutive refused
+        candidates). Excluded txs stay in the pool: one that turns valid later still gets its chance,
+        the rest age out via remove_outdated_transactions. The incremental validate_all_spending pass
+        keeps the aggregate per-account spend of the SELECTED set within balance, so verify_block's
+        whole-block spending check cannot abort our own candidate either."""
+        next_height = self.memserver.latest_block["block_number"] + 1
+        selected = []
+        for tx in self.memserver.transaction_pool.copy():
+            try:
+                validate_transaction(transaction=tx, logger=self.logger, block_height=next_height)
+                validate_all_spending(transaction_pool=selected + [tx])
+            except Exception as e:
+                self.logger.info(f"Candidate excludes pool tx {str(tx.get('txid'))[:16]}: {e}")
+                continue
+            selected.append(tx)
+        return selected
+
+    def _reserved_tx_pending(self, recipient, target_epoch):
+        """True if our own reserved tx (attest/commit/reveal) for this epoch is already waiting in a
+        pool/buffer. Without this check the ~1s core loop mints a fresh duplicate (new nonce -> new
+        txid) every iteration until the first copy is mined; the stragglers then fail validation in
+        later candidates ('already attested/revealed this epoch') and poison block production."""
+        for pool in (self.memserver.transaction_pool, self.memserver.tx_buffer,
+                     self.memserver.user_tx_buffer):
+            for tx in pool:
+                if (tx.get("recipient") == recipient
+                        and tx.get("sender") == self.memserver.address
+                        and isinstance(tx.get("data"), dict)
+                        and tx["data"].get("target_epoch") == target_epoch):
+                    return True
+        return False
+
     def rebuild_block(self, block):
         # Reconstruct the block deterministically from the LOCAL tip + the block's tx set: the winner
         # (block_creator) and reward/cumulative_fees are RECOMPUTED from local parent state, so a
@@ -745,6 +783,8 @@ class CoreClient(threading.Thread):
                 return  # only bonded validators attest
             if kv_ops.attestation_exists(epoch, self.memserver.address):
                 return  # already attested this epoch (one per validator per epoch)
+            if self._reserved_tx_pending("attest", epoch):
+                return  # our attestation is already in flight — don't mint a duplicate every loop
             checkpoint_hash = get_block_hash_by_number(epoch * EPOCH_LENGTH)
             if not checkpoint_hash:
                 return
@@ -774,7 +814,8 @@ class CoreClient(threading.Thread):
             # COMMIT for epoch current+2 (we are in its E-2), once
             e_commit = current_epoch + 2
             if (e_commit not in self.memserver.randao_secrets
-                    and kv_ops.commit_get(self.memserver.address, e_commit) is None):
+                    and kv_ops.commit_get(self.memserver.address, e_commit) is None
+                    and not self._reserved_tx_pending("commit", e_commit)):
                 target_block = min(latest["block_number"] + 5, (current_epoch + 1) * EPOCH_LENGTH - 1)
                 if target_block > latest["block_number"]:
                     secret = _secrets.token_hex(32)
@@ -789,7 +830,9 @@ class CoreClient(threading.Thread):
                 lo = current_epoch * EPOCH_LENGTH
                 hi = e_reveal * EPOCH_LENGTH - FINALITY_DEPTH - 1
                 target_block = latest["block_number"] + 5
-                if lo <= target_block <= hi and secret not in kv_ops.reveals_for_epoch(e_reveal):
+                if (lo <= target_block <= hi
+                        and secret not in kv_ops.reveals_for_epoch(e_reveal)
+                        and not self._reserved_tx_pending("reveal", e_reveal)):
                     tx = construct_reveal_tx(kd, e_reveal, secret, target_block)
                     self.memserver.merge_transaction(tx, user_origin=True)
         except Exception as e:
@@ -1096,6 +1139,21 @@ class CoreClient(threading.Thread):
                         f"(forged or corrupt block; would fork us)")
 
             verified_block = self.verify_block(block, remote=remote, remote_peer=remote_peer)
+
+            # BELT (own blocks only): if verify_block still dropped a tx from OUR candidate after
+            # construct_block hashed it, the stored hash no longer matches the content and save_block
+            # would refuse the block (anti-fork invariant), wasting the slot. Rebuild deterministically
+            # from the surviving tx set — same parent + timestamp -> same winner/reward/weight, only
+            # the tx set + cumulative_fees + hash change — and re-sign. Re-signing the same height is
+            # safe: the abandoned candidate never left this process (nothing is broadcast before
+            # incorporation), so no equivocation proof can exist against us.
+            if not remote and block_content_hash(block) != block["block_hash"]:
+                self.logger.warning("Own candidate mutated during verification "
+                                    "(invalid tx dropped); rebuilding + re-hashing")
+                block = self.rebuild_block(block)
+                if self.memserver.address == block["block_creator"]:
+                    sign_block(block, self.memserver.private_key, self.memserver.public_key)
+                verified_block = sort_list_dict(block["block_transactions"])
 
             if self.memserver.latest_block["block_creator"] == block["block_creator"]:
                 self.consecutive += 1
