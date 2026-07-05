@@ -1,186 +1,438 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NADO — Emission Simulator · bond-elastic super hard money</title>
-<meta name="description" content="Interactive simulation of NADO's bond-elastic, fee-burning emission: flat base subsidy scaled by the bonded ratio, net-deflationary under real usage, with a perpetual security tail.">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NADO Emission — watch the supply shrink · bond-elastic super hard money</title>
+<meta name="description" content="Interactive model of NADO's bond-elastic, fee-burning emission: flat base subsidy scaled by the bonded ratio, 100% fee burn, a perpetual security tail — and a supply that peaks and then shrinks forever under real usage." />
+<meta name="robots" content="index, follow" />
+<meta name="theme-color" content="#0b0f14" />
+<meta name="color-scheme" content="dark" />
+<link rel="canonical" href="https://nadochain.com/emission.html" />
+<link rel="icon" type="image/svg+xml" href="/logo.svg" />
+<link rel="icon" sizes="any" href="/favicon.ico" />
+<link rel="apple-touch-icon" href="/logo.png" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="NADO" />
+<meta property="og:url" content="https://nadochain.com/emission.html" />
+<meta property="og:title" content="NADO Emission — watch the supply shrink" />
+<meta property="og:description" content="Flat mint, 100% fee burn, bond-suppressed emission. Drag two sliders and watch the supply peak and then decline forever." />
+<meta property="og:image" content="https://nadochain.com/wordmark.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:site" content="@nadochain" />
 <style>
   :root{
-    --bg:#0b0f14; --bg2:#04110a; --panel:#111823; --panel2:#0e141d; --line:#1c2530;
-    --fg:#e6edf3; --mut:#8b9bab; --dim:#5c6b7a;
-    --teal:#00c9a7; --teal-l:#7fe9d6; --teal-d:#00ad93;
+    --bg:#0b0f14; --panel:#111823; --line:#1c2530; --txt:#e6edf3; --muted:#8b9bab; --faint:#5c6b7a;
+    --accent:#00ad93; --accent2:#00c9a7; --deep:#004438;
     --pos:#3ad29f; --neg:#ff6b6b; --amber:#f5b74e;
-    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:radial-gradient(1200px 700px at 70% -10%,#0d1a17 0%,var(--bg) 55%) fixed,var(--bg);
-       color:var(--fg);font-family:var(--mono);line-height:1.5;-webkit-font-smoothing:antialiased}
-  .wrap{max-width:980px;margin:0 auto;padding:32px 18px 64px}
-  a{color:var(--teal-l);text-decoration:none} a:hover{text-decoration:underline}
-  h1{font-size:26px;margin:0 0 4px;letter-spacing:.3px}
-  h1 .g{color:var(--teal)}
-  .sub{color:var(--mut);margin:0 0 24px;font-size:14px}
-  .card{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);
-        border-radius:14px;padding:18px 18px 14px;margin:16px 0}
-  .controls{display:grid;grid-template-columns:1fr;gap:16px}
-  .ctl label{display:flex;justify-content:space-between;font-size:13px;color:var(--mut);margin-bottom:6px}
-  .ctl label b{color:var(--teal-l);font-weight:600}
-  input[type=range]{width:100%;-webkit-appearance:none;height:6px;border-radius:6px;
-    background:linear-gradient(90deg,var(--teal-d),var(--teal-l));outline:none}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.6 var(--sans);-webkit-font-smoothing:antialiased}
+  code{font-family:var(--mono);font-size:.92em;color:var(--accent2);background:#0b121b;padding:1px 5px;border-radius:5px}
+  a{color:var(--accent2);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1040px;margin:0 auto;padding:0 20px}
+  .glow{position:fixed;inset:0;z-index:-1;overflow:hidden;background:
+    radial-gradient(60% 50% at 50% -10%,rgba(0,173,147,.12),transparent 70%),
+    radial-gradient(40% 40% at 90% 10%,rgba(0,201,167,.07),transparent 70%)}
+  .orb{position:absolute;border-radius:50%;filter:blur(90px);opacity:.5;will-change:transform;
+    mix-blend-mode:screen;pointer-events:none}
+  .orb.a{width:46vw;height:46vw;max-width:620px;max-height:620px;top:-12%;left:-8%;
+    background:radial-gradient(circle,rgba(0,173,147,.55),transparent 68%);animation:drift1 26s ease-in-out infinite}
+  .orb.b{width:40vw;height:40vw;max-width:540px;max-height:540px;top:8%;right:-10%;
+    background:radial-gradient(circle,rgba(0,201,167,.42),transparent 68%);animation:drift2 32s ease-in-out infinite}
+  @keyframes drift1{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(6vw,7vh) scale(1.12)}66%{transform:translate(-4vw,3vh) scale(.94)}}
+  @keyframes drift2{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-7vw,6vh) scale(1.16)}}
+  @media(prefers-reduced-motion:reduce){.orb{animation:none!important}}
+  header{display:flex;align-items:center;justify-content:space-between;padding:20px 0;gap:16px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.5px;font-size:20px;color:var(--txt)}
+  .brand img{width:34px;height:34px}
+  .brand:hover{text-decoration:none}
+  nav a{color:var(--muted);margin-left:22px;font-size:15px;font-weight:600}
+  nav a:hover{color:var(--txt);text-decoration:none}
+  nav a.here{color:var(--accent2)}
+  .hero{text-align:center;padding:38px 0 8px}
+  .hero h1{font-size:clamp(28px,5vw,44px);line-height:1.1;margin:0 0 10px;letter-spacing:-.5px}
+  .hero h1 .g{background:linear-gradient(120deg,var(--accent2),#7fe9d6);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero p.lead{font-size:clamp(16px,2.2vw,19px);color:var(--muted);max-width:720px;margin:0 auto}
+  .badges{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin:22px 0 0}
+  .badge{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:7px 15px;font-size:13.5px;color:var(--muted)}
+  .badge b{color:var(--txt);font-weight:700}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px;margin:18px 0}
+  .card h3{margin:0 0 4px;font-size:18px}
+  .card .sub{color:var(--muted);font-size:14.5px;margin:0 0 16px}
+  /* controls */
+  .controls{display:grid;grid-template-columns:1fr 1fr 1fr;gap:22px}
+  @media(max-width:760px){.controls{grid-template-columns:1fr}}
+  .ctl label{display:flex;justify-content:space-between;align-items:baseline;font-size:13.5px;color:var(--muted);margin-bottom:8px;gap:8px}
+  .ctl label b{color:var(--accent2);font-weight:700;font-family:var(--mono);font-size:14px;white-space:nowrap}
+  input[type=range]{width:100%;-webkit-appearance:none;appearance:none;height:6px;border-radius:6px;
+    background:linear-gradient(90deg,var(--deep),var(--accent2));outline:none}
   input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;
-    background:#eafff9;border:2px solid var(--teal-d);cursor:pointer;box-shadow:0 0 0 4px rgba(0,201,167,.15)}
+    background:#eafff9;border:2px solid var(--accent);cursor:pointer;box-shadow:0 0 0 4px rgba(0,201,167,.15)}
   input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:#eafff9;
-    border:2px solid var(--teal-d);cursor:pointer}
-  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:4px}
-  .tile{background:#0b121b;border:1px solid var(--line);border-radius:10px;padding:12px 12px}
-  .tile .k{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
-  .tile .v{font-size:19px;margin-top:3px;font-variant-numeric:tabular-nums}
-  .verdict{grid-column:1/-1;border-radius:10px;padding:12px 14px;font-size:15px;text-align:center;border:1px solid}
-  .verdict.def{background:rgba(58,210,159,.08);border-color:rgba(58,210,159,.35);color:var(--pos)}
+    border:2px solid var(--accent);cursor:pointer}
+  .presets{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+  .preset{background:#0b121b;border:1px solid var(--line);color:var(--muted);border-radius:999px;
+    padding:6px 14px;font:600 13px var(--sans);cursor:pointer;transition:border-color .12s,color .12s}
+  .preset:hover,.preset.on{border-color:var(--accent);color:var(--txt)}
+  /* verdict + tiles */
+  .verdict{border-radius:12px;padding:14px 18px;font-size:16px;text-align:center;border:1px solid;margin:0 0 14px}
+  .verdict b{font-family:var(--mono)}
+  .verdict.def{background:rgba(58,210,159,.08);border-color:rgba(58,210,159,.4);color:var(--pos)}
+  .verdict.arc{background:rgba(0,201,167,.06);border-color:rgba(0,201,167,.3);color:var(--accent2)}
   .verdict.inf{background:rgba(245,183,78,.08);border-color:rgba(245,183,78,.35);color:var(--amber)}
-  canvas{width:100%;height:340px;display:block}
-  .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--mut);margin-top:8px}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .tile{background:#0b121b;border:1px solid var(--line);border-radius:10px;padding:12px}
+  .tile .k{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.5px}
+  .tile .v{font-size:18px;margin-top:3px;font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .ticker{margin-top:14px;text-align:center;color:var(--faint);font-size:13.5px}
+  .ticker b{font-family:var(--mono);font-size:15px}
+  canvas{width:100%;display:block}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin-top:10px}
   .legend i{display:inline-block;width:12px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
-  .note{color:var(--mut);font-size:13px}
-  .note code{color:var(--teal-l);background:#0b121b;padding:1px 5px;border-radius:5px}
-  .foot{color:var(--dim);font-size:12px;margin-top:26px;text-align:center}
-  .row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-  @media(max-width:640px){.row{grid-template-columns:1fr}}
+  footer{border-top:1px solid var(--line);margin-top:40px;padding:30px 0 50px;color:var(--faint);font-size:14px;text-align:center}
+  footer a{color:var(--muted);margin:0 10px}
 </style>
 </head>
 <body>
+<div class="glow"><span class="orb a"></span><span class="orb b"></span></div>
 <div class="wrap">
-  <h1><span class="g">NADO</span> Emission Simulator</h1>
-  <p class="sub">Bond-elastic, fee-burning emission — flat base subsidy scaled by conviction, net-deflationary under real usage, with a perpetual security tail. Drag the sliders.</p>
+
+  <header>
+    <a class="brand" href="/"><img src="/logo.svg" alt="" /> NADO</a>
+    <nav>
+      <a href="/#what">What</a>
+      <a href="/#features">Features</a>
+      <a href="/#treasury">Treasury</a>
+      <a class="here" href="/emission.html">Emission</a>
+      <a href="/#start">Start</a>
+      <a href="https://github.com/hclivess/nado">GitHub</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <h1>Money that gets <span class="g">scarcer</span> the more it's used.</h1>
+    <p class="lead">NADO mints a tiny flat subsidy, <b>burns 100% of every fee</b>, and mints even less
+      as more coins are bonded. There is no hard cap and no halving cliff — instead, once real usage
+      arrives, <b>the supply peaks and then shrinks forever</b>. Drag the sliders and watch it happen.</p>
+    <div class="badges">
+      <span class="badge">⏱ <b>10 s blocks</b> — consensus-frozen</span>
+      <span class="badge">⬆ max <b>0.1 NADO</b>/block, ever</span>
+      <span class="badge">🔥 <b>100% of fees burned</b></span>
+      <span class="badge">🛡 perpetual tail ≈ <b>52k NADO/yr</b> — no security cliff</span>
+      <span class="badge">🎯 <b>no premine</b> — supply starts at zero</span>
+    </div>
+  </div>
 
   <div class="card">
+    <h3>Set the scenario</h3>
+    <p class="sub">Two things drive the money supply: how much of it is <b>bonded</b> (locked as mining conviction — more bonding → less minting) and how much the chain is <b>used</b> (every fee is destroyed).</p>
     <div class="controls">
       <div class="ctl">
-        <label>Bonded ratio &nbsp;<span class="dim">(bonded ÷ total supply)</span> <b id="rLbl">40%</b></label>
+        <label>Bonded ratio <b id="rLbl">40%</b></label>
         <input id="r" type="range" min="0" max="100" value="40" step="1">
       </div>
       <div class="ctl">
-        <label>Fees per block &nbsp;<span class="dim">(destroyed — burned)</span> <b id="fLbl">0.200 NADO</b></label>
-        <input id="f" type="range" min="0" max="1000" value="200" step="5">
+        <label>Usage today — fees/block <b id="fLbl">0.010 NADO</b></label>
+        <input id="f" type="range" min="0" max="200" value="10" step="1">
       </div>
       <div class="ctl">
-        <label>Block time <b id="btLbl">10 s</b></label>
-        <input id="bt" type="range" min="2" max="60" value="10" step="1">
+        <label>Adoption — fee growth/yr <b id="gLbl">+30%</b></label>
+        <input id="g" type="range" min="0" max="60" value="30" step="1">
       </div>
     </div>
-  </div>
-
-  <div class="card">
-    <div class="tiles">
-      <div class="tile"><div class="k">multiplier m(r)</div><div class="v" id="m">—</div></div>
-      <div class="tile"><div class="k">minted / block</div><div class="v" id="mint">—</div></div>
-      <div class="tile"><div class="k">net / block</div><div class="v" id="net">—</div></div>
-      <div class="tile"><div class="k">net / day</div><div class="v" id="day">—</div></div>
-      <div class="tile"><div class="k">net / year</div><div class="v" id="yr">—</div></div>
-      <div class="verdict" id="verdict">—</div>
+    <div class="presets">
+      <button class="preset" data-p="0,0,40">ghost chain</button>
+      <button class="preset" data-p="2,40,25">bootstrap</button>
+      <button class="preset on" data-p="10,30,40">growing usage</button>
+      <button class="preset" data-p="50,10,45">adopted</button>
+      <button class="preset" data-p="150,5,50">peak fees</button>
     </div>
   </div>
 
   <div class="card">
-    <canvas id="chart" width="1200" height="680"></canvas>
+    <div class="verdict" id="verdict">—</div>
+    <div class="tiles">
+      <div class="tile"><div class="k">minted / block</div><div class="v" id="mint">—</div></div>
+      <div class="tile"><div class="k">burned / block</div><div class="v" id="burn">—</div></div>
+      <div class="tile"><div class="k">net / block today</div><div class="v" id="net">—</div></div>
+      <div class="tile"><div class="k">breakeven fees</div><div class="v" id="brk">—</div></div>
+      <div class="tile"><div class="k">deflation starts</div><div class="v" id="when">—</div></div>
+      <div class="tile"><div class="k">supply in 20 yrs</div><div class="v" id="d20">—</div></div>
+    </div>
+    <div class="ticker">at today's settings the supply has changed by <b id="tick">0.000000</b> NADO since you opened this page</div>
+  </div>
+
+  <div class="card">
+    <h3>The supply, next 20 years</h3>
+    <p class="sub">Coins added or destroyed vs. today, if fees keep growing at your adoption rate. This is the shape hard money is supposed to have — <b>up during bootstrap, then down forever</b>.</p>
+    <canvas id="supply" height="360"></canvas>
     <div class="legend">
-      <span><i style="background:#7fe9d6"></i>minted / block (BASE·m(r))</span>
-      <span><i style="background:#f5b74e"></i>net / block (minted − fees)</span>
-      <span><i style="background:#ff6b6b"></i>deflation zone (net &lt; 0)</span>
+      <span><i style="background:#f5b74e"></i>supply above today (bootstrap inflation)</span>
+      <span><i style="background:#3ad29f"></i>supply below today (net burn — deflation)</span>
+      <span><i style="background:#7fe9d6"></i>peak supply</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Per-block economics vs. bonded ratio</h3>
+    <p class="sub">The mint curve <code>0.1 · m(r)</code> only ever goes down as conviction rises; fees push the net below zero. Everything under the zero line is destroyed supply.</p>
+    <canvas id="curve" height="300"></canvas>
+    <div class="legend">
+      <span><i style="background:#7fe9d6"></i>minted / block</span>
+      <span><i style="background:#f5b74e"></i>net / block (minted − burned)</span>
+      <span><i style="background:#ff6b6b"></i>net &lt; 0 — deflation zone</span>
       <span><i style="background:#5c6b7a"></i>your bonded ratio</span>
     </div>
   </div>
 
-  <div class="card note">
-    <b style="color:var(--fg)">The model.</b>
-    Reward per block = <code>BASE_SUBSIDY · m(r)</code>, with <code>BASE=0.1 NADO</code> and
-    <code>m(r)=0.15+0.85·e<sup>−4r</sup></code> — the more the network bonds, the less it mints.
-    There is <b>no fee-weighted term and no ceiling</b>: fees are <b>destroyed</b>, so
-    <code>net = minted − fees</code>. Since <code>m ≤ 1</code>, <b>0.1 NADO is the max emission/block</b> and
-    <code>≈0.0166</code> the <b>perpetual tail</b> (~52,000 NADO/yr at 10s blocks, forever — production never
-    dies, <b>no hard cap, no security cliff</b>). Bonding self-limits near ~40% (the open lane siphons 30%), and
-    every unit of fee above the mint is a net burn — <b>usage shrinks supply</b>.
-    &nbsp;<a href="/">← nadochain.com</a>
+  <div class="card" style="color:var(--muted);font-size:14.5px">
+    <h3 style="color:var(--txt)">The model (consensus-frozen)</h3>
+    Reward per block = <code>0.1 · m(r)</code> with <code>m(r)=0.15+0.85·e<sup>−4r</sup></code>, where
+    <code>r</code> is the bonded share of supply — the more the network bonds, the less it mints. Blocks come
+    every <b>10 seconds</b> (a consensus constant, not a knob). There is <b>no fee-weighted term and no
+    ceiling</b>: fees are <b>destroyed</b>, so <code>net = minted − fees</code>. Since <code>m ≤ 1</code>,
+    <b>0.1 NADO/block is the maximum emission ever</b>, and <code>m</code> never reaches zero — a perpetual
+    tail of ≈0.0166 NADO/block (~52,000 NADO/yr) keeps block production paid forever: <b>no hard cap, no
+    security cliff</b>. Bonding self-limits near ~40% (the open lane siphons 30% of the draw), and every unit
+    of fee above the mint is a net burn — <b>usage shrinks the supply</b>. In consensus the curve is a
+    hardcoded integer basis-point table (no floats, no forks).
+    See the <a href="https://github.com/hclivess/nado/blob/main/doc/bond-elastic-emission.md">full spec</a>.
   </div>
 
-  <div class="foot">NADO — fair-launch (no premine), post-quantum, private. Emission params are consensus-frozen for mainnet genesis.</div>
 </div>
+
+<footer>
+  <div class="wrap">
+    <div style="margin-bottom:12px">
+      <a href="/">Home</a> ·
+      <a href="https://get.nadochain.com">Interface</a> ·
+      <a href="https://github.com/hclivess/nado">GitHub</a> ·
+      <a href="https://github.com/hclivess/nado/blob/main/doc/whitepaper.md">Whitepaper</a> ·
+      <a href="https://discord.gg/6aEBWTvcTV">Discord</a> ·
+      <a href="https://twitter.com/nadochain">Twitter/X</a>
+    </div>
+    <span>NADO · a phone-mineable, fair-launch, post-quantum blockchain · testnet-stage alpha · emission params are consensus-frozen for mainnet genesis</span>
+  </div>
+</footer>
 
 <script>
 (function(){
-  var BASE=0.1, M_MIN=0.15, K=4.0;
-  var R=document.getElementById('r'), F=document.getElementById('f'), BT=document.getElementById('bt');
-  var el=function(id){return document.getElementById(id)};
-  function m(r){return M_MIN+(1-M_MIN)*Math.exp(-K*r);}          // r in 0..1
-  function fmt(x,d){d=d==null?4:d; return (x<0?'−':'')+Math.abs(x).toFixed(d);}
-  function fmtBig(x){var s=x<0?'−':'+';x=Math.abs(x);
-    if(x>=1e6)return s+(x/1e6).toFixed(2)+'M'; if(x>=1e3)return s+(x/1e3).toFixed(1)+'k'; return s+x.toFixed(0);}
+  "use strict";
+  var BASE=0.1, M_MIN=0.15, K=4.0, BLOCK_TIME=10;
+  var BLOCKS_YR=365*86400/BLOCK_TIME, BLOCKS_DAY=86400/BLOCK_TIME;
+  var YEARS=20;
 
-  var cv=el('chart'), ctx=cv.getContext('2d');
-  function draw(r,fees){
-    var W=cv.width,H=cv.height,dpr=1;
-    ctx.clearRect(0,0,W,H);
-    var padL=86,padR=24,padT=26,padB=52, w=W-padL-padR, h=H-padT-padB;
-    // y-range: from a bit below min net to max minted (BASE)
-    var yMax=BASE*1.02;
-    var minNet=BASE*m(1)-fees;                                   // net at full bonding (lowest minted) - fees
-    var yMin=Math.min(-0.02, minNet*1.15);
-    function X(rr){return padL+rr*w;}
+  var R=el('r'), F=el('f'), G=el('g');
+  function el(id){return document.getElementById(id);}
+  function m(r){return M_MIN+(1-M_MIN)*Math.exp(-K*r);}
+  function fmt(x,d){d=(d==null)?4:d;return (x<0?'−':'')+Math.abs(x).toFixed(d);}
+  function fmtBig(x){var s=x<0?'−':'+';x=Math.abs(x);
+    if(x>=1e9)return s+(x/1e9).toFixed(2)+'B';
+    if(x>=1e6)return s+(x/1e6).toFixed(2)+'M';
+    if(x>=1e3)return s+(x/1e3).toFixed(1)+'k';
+    return s+x.toFixed(x<10?2:0);}
+
+  // ---- state ----
+  function state(){
+    var r=(+R.value)/100, f0=(+F.value)/1000, g=(+G.value)/100;
+    var mint=BASE*m(r);
+    return {r:r, f0:f0, g:g, mint:mint, net0:mint-f0};
+  }
+
+  // supply trajectory: Δsupply(t) vs today, fees(t)=f0·(1+g)^t, monthly steps
+  function trajectory(s){
+    var pts=[], dt=1/12, acc=0, peak={t:0,v:0}, cross=null;
+    pts.push({t:0,v:0});
+    for(var t=dt;t<=YEARS+1e-9;t+=dt){
+      var fees=s.f0*Math.pow(1+s.g,t-dt/2);          // midpoint
+      acc+=(s.mint-fees)*BLOCKS_YR*dt;
+      if(acc>peak.v){peak={t:t,v:acc};}
+      if(cross===null&&acc<0&&pts[pts.length-1].v>=0&&t>dt)cross=t;
+      pts.push({t:t,v:acc});
+    }
+    return {pts:pts, peak:peak, cross:cross, end:acc};
+  }
+
+  // year fees overtake mint (net/block turns negative)
+  function deflationYear(s){
+    if(s.f0<=0||s.mint<=0)return null;
+    if(s.f0>=s.mint)return 0;
+    if(s.g<=0)return null;
+    var t=Math.log(s.mint/s.f0)/Math.log(1+s.g);
+    return t<=YEARS?t:null;
+  }
+
+  // ---- canvas helpers ----
+  function setup(cv,cssH){
+    var dpr=window.devicePixelRatio||1, w=cv.clientWidth||cv.parentNode.clientWidth-44;
+    cv.style.height=cssH+'px';
+    cv.width=Math.max(300,w)*dpr; cv.height=cssH*dpr;
+    var ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
+    return {ctx:ctx,W:Math.max(300,w),H:cssH};
+  }
+  function grid(ctx,padL,padT,w,h,yMin,yMax,fmtY){
+    ctx.strokeStyle='#1c2530';ctx.fillStyle='#5c6b7a';ctx.font='11px ui-monospace,monospace';ctx.lineWidth=1;
+    for(var i=0;i<=5;i++){var v=yMin+(yMax-yMin)*i/5, y=padT+h*(yMax-v)/(yMax-yMin);
+      ctx.globalAlpha=.35;ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(padL+w,y);ctx.stroke();ctx.globalAlpha=1;
+      ctx.textAlign='right';ctx.fillText(fmtY(v),padL-8,y+4);}
+  }
+
+  // ---- supply chart (the hero) ----
+  var supplyCv=el('supply');
+  function drawSupply(s,traj){
+    var c=setup(supplyCv,360), ctx=c.ctx;
+    var padL=74,padR=18,padT=24,padB=44, w=c.W-padL-padR, h=c.H-padT-padB;
+    var vs=traj.pts.map(function(p){return p.v;});
+    var yMax=Math.max.apply(null,vs), yMin=Math.min.apply(null,vs);
+    if(yMax<=0)yMax=Math.abs(yMin)*0.15+1; if(yMin>=0)yMin=-yMax*0.15-1;
+    yMax*=1.12; yMin*=1.12;
+    function X(t){return padL+t/YEARS*w;}
     function Y(v){return padT+h*(yMax-v)/(yMax-yMin);}
-    // deflation zone (net<0) shading below y=0
-    ctx.fillStyle='rgba(255,107,107,.07)';
-    ctx.fillRect(padL,Y(0),w,padT+h-Y(0));
-    // grid + y labels
-    ctx.strokeStyle='#1c2530';ctx.fillStyle='#5c6b7a';ctx.font='12px ui-monospace,monospace';ctx.lineWidth=1;
-    for(var gi=0;gi<=5;gi++){var v=yMin+(yMax-yMin)*gi/5;var yy=Y(v);
-      ctx.beginPath();ctx.moveTo(padL,yy);ctx.lineTo(padL+w,yy);ctx.globalAlpha=(Math.abs(v)<1e-9)?.6:.25;ctx.stroke();ctx.globalAlpha=1;
-      ctx.textAlign='right';ctx.fillText(v.toFixed(3),padL-10,yy+4);}
+    grid(ctx,padL,padT,w,h,yMin,yMax,function(v){return fmtBig(v);});
     // x labels
-    ctx.textAlign='center';
-    for(var xi=0;xi<=10;xi++){var rr=xi/10;ctx.fillText((xi*10)+'%',X(rr),padT+h+22);}
-    ctx.fillText('bonded ratio  →',padL+w/2,padT+h+42);
-    // zero line emphasise
+    ctx.textAlign='center';ctx.fillStyle='#5c6b7a';
+    for(var yr=0;yr<=YEARS;yr+=5){ctx.fillText(yr===0?'now':('+'+yr+'y'),X(yr),padT+h+20);}
+    ctx.fillText('years from now →',padL+w/2,padT+h+38);
+    // today's-supply zero line
+    var y0=Y(0);
+    ctx.strokeStyle='#3a4756';ctx.setLineDash([5,4]);ctx.beginPath();ctx.moveTo(padL,y0);ctx.lineTo(padL+w,y0);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle='#5c6b7a';ctx.textAlign='left';ctx.fillText("today's supply",padL+6,y0-6);
+    // filled areas: amber above zero, teal below
+    function area(clipAbove){
+      ctx.save();ctx.beginPath();
+      if(clipAbove)ctx.rect(padL,padT-2,w,y0-padT+2); else ctx.rect(padL,y0,w,padT+h-y0+2);
+      ctx.clip();
+      ctx.beginPath();ctx.moveTo(X(0),y0);
+      traj.pts.forEach(function(p){ctx.lineTo(X(p.t),Y(p.v));});
+      ctx.lineTo(X(YEARS),y0);ctx.closePath();
+      ctx.fillStyle=clipAbove?'rgba(245,183,78,.13)':'rgba(58,210,159,.16)';ctx.fill();
+      ctx.restore();
+    }
+    area(true);area(false);
+    // the line itself, colour split at zero
+    ctx.lineWidth=2.6;
+    for(var i=1;i<traj.pts.length;i++){
+      var a=traj.pts[i-1],b=traj.pts[i];
+      ctx.strokeStyle=(b.v>=0)?'#f5b74e':'#3ad29f';
+      ctx.beginPath();ctx.moveTo(X(a.t),Y(a.v));ctx.lineTo(X(b.t),Y(b.v));ctx.stroke();
+    }
+    // peak marker (only when there is a real interior peak)
+    if(traj.peak.t>0.2&&traj.peak.v>0&&traj.peak.t<YEARS-0.1&&traj.end<traj.peak.v){
+      var px=X(traj.peak.t),py=Y(traj.peak.v);
+      ctx.fillStyle='#7fe9d6';ctx.beginPath();ctx.arc(px,py,5,0,7);ctx.fill();
+      ctx.strokeStyle='#0b0f14';ctx.lineWidth=2;ctx.stroke();
+      ctx.fillStyle='#7fe9d6';ctx.font='600 12px ui-monospace,monospace';
+      ctx.textAlign=px>padL+w*0.75?'right':'left';
+      ctx.fillText('peak supply · year '+traj.peak.t.toFixed(1),px+(px>padL+w*0.75?-10:10),py-10);
+    }
+    // crossing annotation
+    if(traj.cross!==null){
+      var cx=X(traj.cross);
+      ctx.strokeStyle='rgba(58,210,159,.5)';ctx.setLineDash([3,4]);ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(cx,padT);ctx.lineTo(cx,padT+h);ctx.stroke();ctx.setLineDash([]);
+      ctx.fillStyle='#3ad29f';ctx.font='600 12px ui-monospace,monospace';
+      ctx.textAlign=cx>padL+w*0.7?'right':'left';
+      ctx.fillText('fewer coins than today ↓',cx+(cx>padL+w*0.7?-8:8),padT+h-10);
+    }
+  }
+
+  // ---- per-block curve chart ----
+  var curveCv=el('curve');
+  function drawCurve(s){
+    var c=setup(curveCv,300), ctx=c.ctx;
+    var padL=74,padR=18,padT=18,padB=44, w=c.W-padL-padR, h=c.H-padT-padB;
+    var yMax=BASE*1.04;
+    var yMin=Math.min(-0.012,(BASE*m(1)-s.f0)*1.15);
+    function X(r){return padL+r*w;}
+    function Y(v){return padT+h*(yMax-v)/(yMax-yMin);}
+    // deflation zone
+    ctx.fillStyle='rgba(255,107,107,.06)';
+    ctx.fillRect(padL,Y(0),w,padT+h-Y(0));
+    grid(ctx,padL,padT,w,h,yMin,yMax,function(v){return v.toFixed(3);});
+    ctx.textAlign='center';ctx.fillStyle='#5c6b7a';
+    for(var xi=0;xi<=10;xi+=2){ctx.fillText((xi*10)+'%',X(xi/10),padT+h+20);}
+    ctx.fillText('bonded ratio →',padL+w/2,padT+h+38);
     ctx.strokeStyle='#3a4756';ctx.beginPath();ctx.moveTo(padL,Y(0));ctx.lineTo(padL+w,Y(0));ctx.stroke();
-    // minted curve
-    function curve(fn,color,wd){ctx.strokeStyle=color;ctx.lineWidth=wd;ctx.beginPath();
-      for(var i=0;i<=240;i++){var rr=i/240;var v=fn(rr);(i?ctx.lineTo:ctx.moveTo).call(ctx,X(rr),Y(v));}ctx.stroke();}
-    curve(function(rr){return BASE*m(rr);},'#7fe9d6',2.5);
-    // net curve, split colour above/below zero
-    ctx.lineWidth=2.5;
-    var prevPos=null;
-    for(var i=0;i<=240;i++){var rr=i/240;var v=BASE*m(rr)-fees;var pos=v>=0;
-      if(prevPos===null){ctx.beginPath();ctx.moveTo(X(rr),Y(v));}
-      else{ctx.strokeStyle=pos?'#f5b74e':'#ff6b6b';ctx.beginPath();ctx.moveTo(X((i-1)/240),Y(BASE*m((i-1)/240)-fees));ctx.lineTo(X(rr),Y(v));ctx.stroke();}
-      prevPos=pos;}
-    // current-r marker
-    var cx=X(r);
+    // minted
+    ctx.strokeStyle='#7fe9d6';ctx.lineWidth=2.4;ctx.beginPath();
+    for(var i=0;i<=240;i++){var rr=i/240,v=BASE*m(rr);(i?ctx.lineTo:ctx.moveTo).call(ctx,X(rr),Y(v));}
+    ctx.stroke();
+    // net, split colour
+    ctx.lineWidth=2.4;
+    for(i=1;i<=240;i++){var r0=(i-1)/240,r1=i/240,v1=BASE*m(r1)-s.f0;
+      ctx.strokeStyle=v1>=0?'#f5b74e':'#ff6b6b';
+      ctx.beginPath();ctx.moveTo(X(r0),Y(BASE*m(r0)-s.f0));ctx.lineTo(X(r1),Y(v1));ctx.stroke();}
+    // marker
+    var cx=X(s.r);
     ctx.strokeStyle='#5c6b7a';ctx.setLineDash([4,4]);ctx.lineWidth=1;
     ctx.beginPath();ctx.moveTo(cx,padT);ctx.lineTo(cx,padT+h);ctx.stroke();ctx.setLineDash([]);
-    var mint=BASE*m(r), net=mint-fees;
-    function dot(v,c){ctx.fillStyle=c;ctx.beginPath();ctx.arc(cx,Y(v),4.5,0,7);ctx.fill();
+    function dot(v,col){ctx.fillStyle=col;ctx.beginPath();ctx.arc(cx,Y(v),4.5,0,7);ctx.fill();
       ctx.strokeStyle='#0b0f14';ctx.lineWidth=2;ctx.stroke();}
-    dot(mint,'#7fe9d6'); dot(net, net>=0?'#f5b74e':'#ff6b6b');
+    dot(s.mint,'#7fe9d6');dot(s.net0,s.net0>=0?'#f5b74e':'#ff6b6b');
   }
 
+  // ---- readouts ----
+  var tickStart=performance.now(), curNetPerSec=0;
   function update(){
-    var r=(+R.value)/100, fees=(+F.value)/1000, bt=+BT.value;
+    var s=state();
     el('rLbl').textContent=(+R.value)+'%';
-    el('fLbl').textContent=fees.toFixed(3)+' NADO';
-    el('btLbl').textContent=bt+' s';
-    var mr=m(r), mint=BASE*mr, net=mint-fees, bpd=86400/bt;
-    el('m').textContent=mr.toFixed(3);
-    el('mint').textContent=fmt(mint)+' ';
-    el('net').innerHTML='<span style="color:'+(net>=0?'#f5b74e':'#ff6b6b')+'">'+fmt(net)+'</span>';
-    el('day').textContent=fmtBig(net*bpd)+' NADO';
-    el('yr').textContent=fmtBig(net*bpd*365)+' NADO';
+    el('fLbl').textContent=s.f0.toFixed(3)+' NADO';
+    el('gLbl').textContent='+'+(+G.value)+'%';
+    el('mint').textContent=fmt(s.mint);
+    el('burn').textContent=fmt(s.f0,3);
+    el('net').innerHTML='<span style="color:'+(s.net0>=0?'#f5b74e':'#3ad29f')+'">'+fmt(s.net0)+'</span>';
+    el('brk').textContent=fmt(s.mint,3);
+    var dy=deflationYear(s);
+    el('when').innerHTML=(dy===0)?'<span style="color:#3ad29f">already</span>'
+      :(dy===null)?'<span style="color:#f5b74e">not yet</span>'
+      :'<span style="color:#3ad29f">year '+dy.toFixed(1)+'</span>';
+    var traj=trajectory(s);
+    el('d20').innerHTML='<span style="color:'+(traj.end<0?'#3ad29f':'#f5b74e')+'">'+fmtBig(traj.end)+'</span>';
     var v=el('verdict');
-    if(net<0){v.className='verdict def';v.innerHTML='▼ DEFLATIONARY — supply shrinks '+fmtBig(-net*bpd*365).replace('+','')+' NADO/yr (usage burns more than it mints)';}
-    else{v.className='verdict inf';v.innerHTML='▲ inflationary — supply grows '+fmtBig(net*bpd*365).replace('+','')+' NADO/yr (bootstrap / low-usage phase)';}
-    draw(r,fees);
+    if(dy===0){
+      v.className='verdict def';
+      v.innerHTML='▼ DEFLATIONARY TODAY — usage burns more than the chain mints: <b>'+fmtBig(s.net0*BLOCKS_YR)+' NADO/yr</b>, forever accelerating with adoption';
+    }else if(dy!==null){
+      v.className='verdict arc';
+      v.innerHTML='◆ HARD-MONEY ARC — bootstrap inflation now, then fees overtake the mint in <b>year '+dy.toFixed(1)+'</b>; supply peaks at <b>'+fmtBig(traj.peak.v)+'</b> and shrinks forever after';
+    }else{
+      v.className='verdict inf';
+      v.innerHTML='▲ inflationary at these settings — max <b>'+fmtBig(s.net0*BLOCKS_YR)+' NADO/yr</b> (capped by the 0.1/block ceiling); raise usage or adoption to flip the sign';
+    }
+    curNetPerSec=s.net0/BLOCK_TIME;
+    drawSupply(s,traj);
+    drawCurve(s);
   }
-  [R,F,BT].forEach(function(s){s.addEventListener('input',update);});
-  window.addEventListener('resize',update);
+
+  // live ticker — supply drift since page open at current settings
+  setInterval(function(){
+    var secs=(performance.now()-tickStart)/1000, d=curNetPerSec*secs;
+    var t=el('tick');
+    t.textContent=(d<0?'−':'+')+Math.abs(d).toFixed(6);
+    t.style.color=d<0?'#3ad29f':'#f5b74e';
+  },120);
+
+  // presets
+  var presets=document.querySelectorAll('.preset');
+  presets.forEach(function(b){
+    b.addEventListener('click',function(){
+      var p=b.getAttribute('data-p').split(',');
+      F.value=p[0];G.value=p[1];R.value=p[2];
+      presets.forEach(function(x){x.classList.remove('on');});
+      b.classList.add('on');
+      update();
+    });
+  });
+  [R,F,G].forEach(function(sl){sl.addEventListener('input',function(){
+    presets.forEach(function(x){x.classList.remove('on');});
+    update();
+  });});
+  var rsz;window.addEventListener('resize',function(){clearTimeout(rsz);rsz=setTimeout(update,120);});
   update();
 })();
 </script>
