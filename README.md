@@ -28,7 +28,7 @@ confers no advantage and there is nothing to grind. Coins enter circulation only
 > three is still only lightly exercised empirically (see [Security](#security)). What genuinely remains
 > is a subset of **eclipse hardening** (ASN-level peer diversity, pinned multi-seed bootstrap, snapshot-
 > bootstrap binding to a finalized signed checkpoint). Run it on testnet / at your own risk; do not
-> secure value of consequence with it yet. Chain id: `nado-relaunch-1`.
+> secure value of consequence with it yet. Chain id: `nado-relaunch-3`.
 
 ---
 
@@ -479,9 +479,25 @@ code.
   weight**, so a Sybil fleet of zero-bond IPs cannot reorg honest nodes. Replaces the old peer-IP
   plurality fork-choice.
 - **Grind-proof `cumulative_weight` header** — committed inside the block-hash preimage as
-  `parent.cumulative_weight + total_bonded_shares(as-of-parent)`. It is the *total* bonded registry
+  `parent.cumulative_weight + total_bonded_shares(as-of-parent) + 1`. It is the *total* bonded registry
   weight (not the slot winner's share), so it is **beacon-independent**: a proposer can't grind the
-  beacon to inflate fork weight. Recomputed in `rebuild_block` and verified as-of-parent.
+  beacon to inflate fork weight. Recomputed in `rebuild_block` and verified as-of-parent. The **`+1`
+  height term** guarantees the weight is *strictly increasing* even when the bonded registry is empty:
+  without it, a no-stake network advertises one frozen weight forever, fork-choice degenerates to the
+  lowest-hash tie-break, and a stalled node whose tip hash happens to sort low considers *itself*
+  canonical and never resyncs (observed live 2026-07-05; fixed at the `relaunch-3` genesis). Pure
+  longest-chain while nothing is bonded, stake-dominated the moment anything is (`shares ≫ 1`).
+- **Advertised-tip (weight) DoS hardening** — a peer's advertised `latest_block_weight` is only ever a
+  *hint*: acting on it means fetching the blocks, which `verify_block` re-derives and enforces. A tip
+  that was advertised heavier but could **not** be backed by a valid chain — the peer serves nothing,
+  garbage, or forged blocks — is excluded (`rejected_tips`, bounded + auto-cleared ~30 s so a real tip
+  that merely blipped is retried). The exclusion is honoured **everywhere it matters**: the emergency
+  sync loop rejects the tip on *every* failure path and re-evaluates being-behind each pass, and the
+  caught-up production gate skips rejected advertisements — so two forked-away or lying clients can
+  cost the network ~one failed sync per 30 s, **never a production stall or an emergency-mode wedge**.
+  Peer admission is additionally gated on an exact **`chain_id` match** in `/status` (a missing field
+  counts as a mismatch), so nodes from a different chain/relaunch never enter the consensus pools at
+  all — a foreign chain's frozen weight can't trip the caught-up gate.
 - **Enforced finality floor** — a block at height H finalizes everything at/below `H - FINALITY_DEPTH`
   (`FINALITY_DEPTH = 30`); rollback **refuses** to cross the persisted, monotonic finalized height
   (raises `FinalityViolation`). The ordering `max_rollbacks (10) < FINALITY_DEPTH (30) < EPOCH_LENGTH
@@ -507,11 +523,21 @@ code.
   It is an **additive, observable, accountable** finality signal layered *on top of* the depth-based
   floor — it does **not** replace the time-based `finalized_height` (which stays the deeper rollback
   bound and guarantees liveness), so FFG can never stall the chain.
-- **Commit-reveal RANDAO** — bonded validators `commit` a secret's hash in epoch E−2 and `reveal` it
-  in E−1's finalized window; `epoch_beacon` now mixes the finalized prior-epoch anchor with the
-  revealed secrets, so **no single anchor-producer controls the beacon**. With zero reveals it falls
-  back to the anchor-only value (liveness). It keeps the anchor (non-recursive), so the beacon stays
-  snapshot-safe and the reveals are immutable by the time the beacon is needed.
+- **Commit-reveal RANDAO — now MANDATORY for bonded production** — bonded validators `commit` a
+  secret's hash in epoch E−2 and `reveal` it in E−1's finalized window; `epoch_beacon` mixes the
+  finalized prior-epoch anchor with the revealed secrets, so **no single anchor-producer controls the
+  beacon**. With zero reveals it falls back to the anchor-only value (liveness). It keeps the anchor
+  (non-recursive), so the beacon stays snapshot-safe and the reveals are immutable by the time the
+  beacon is needed. **Participation is enforced by consensus**: the bonded-lane producer draw for
+  epoch E only admits validators that *revealed* for E (`randao_eligible_bonded`, applied identically
+  at production, relay rebuild, and verification — a block minted by a non-revealer is rejected).
+  This is the withholding penalty made concrete: the last revealer keeps the unavoidable 1-bit
+  reveal/withhold choice, but exercising it forfeits an **entire epoch of bonded rewards**, and a
+  validator that never participates never produces. An all-withheld epoch filters to an empty bonded
+  lane and the open-lane fallback keeps the chain alive; fork weight and the FFG/settlement quorums
+  deliberately stay on the *full* registry, so withholding can't move fork-choice or stall finality.
+  Both the node (`maybe_randao`) and the browser interface (for bonded wallets, while the tab is
+  open) run the duty automatically.
 - **Pubkey-once** — the 1312-byte ML-DSA `public_key` is **excluded from the txid** and stored once in
   account state on an address's first tx, so later txs (notably every-epoch heartbeats) omit it;
   validators recover it from committed state. Store/clear is byte-identically revert-symmetric.
@@ -552,9 +578,11 @@ hardening over the previous peer-count fork-choice. Beyond the lightly-exercised
 of FFG/RANDAO and the outstanding eclipse hardening above, the **documented residuals** from the audit
 (see [`doc/security-audit.md`](doc/security-audit.md)) — none a theft or fork vector — are:
 
-- **No RANDAO withholder penalty.** A producer suppressing its own reveals has up to `2^m` grinding
-  combinations; defeated whenever ≥1 honest secret is revealed after the anchor. A withholder fidelity
-  dock + minimum-reveal rule is future work.
+- **RANDAO withholder penalty: CLOSED** (2026-07-05). Reveal-for-the-epoch is now a hard eligibility
+  condition for the bonded-lane draw (see above), so suppression costs the withholder its entire
+  epoch of production. The residual is only the classic last-revealer bit: with `m` colluding
+  withholders, up to `2^m` beacon outcomes — each priced at `m` epochs of forfeited rewards, and
+  defeated whenever ≥1 honest secret is revealed after the anchor.
 - **FFG "slashable-stake backing" is aspirational** — there is **no attestation-equivocation slashing**
   yet (only block-authorship equivocation is slashable). On-chain double-voting is blocked by the
   per-epoch `UNIQUE(validator, epoch)` marker, but cross-fork attestation equivocation is unpunished;
@@ -593,7 +621,7 @@ live.)
   Receive tab manages them.
 - **Hashing & serialization** — BLAKE2b over `canonical_bytes()` (compact, sorted-key, ASCII JSON,
   float-free). Every consensus integer is a raw integer, so a browser reproduces identical bytes with
-  BigInt-aware serialization. Transaction ids and blocks bind `CHAIN_ID = "nado-relaunch-1"`, blocking
+  BigInt-aware serialization. Transaction ids and blocks bind `CHAIN_ID = "nado-relaunch-3"`, blocking
   cross-chain / pre-relaunch replay.
 - **Wire** — transactions submit over **HTTP POST + msgpack** (an ML-DSA-44 tx is too large for a GET
   URL); msgpack is wire/transport only and never the hashed preimage.

@@ -350,14 +350,30 @@ revealed kills just-in-time grinding, and because the fork-choice weight is alre
 declining to reveal. *(implemented — `commit`/`reveal` txns, `reflect_transaction`,
 `compute_beacon`)*
 
-> **Honest caveat.** The RANDAO primitives and the commit/reveal validation, recording,
-> and revert paths are unit-tested for correctness, but the **multi-node, epoch-crossing**
-> dynamics (a commit in E−2, a reveal in E−1, the secret influencing E's draw) are only
-> **lightly exercised** empirically: the core loop's ~10 s/block cadence makes driving a
-> full cross-epoch commit→reveal→beacon cycle slow. It engages as the chain crosses
-> epochs. There is **no explicit withholder fidelity penalty** today (the design's
-> deterministic withhold-dock is not wired); the deterrent is simply that a withholder
-> forfeits influence over a beacon it can no longer grind. *(partial)*
+**RANDAO participation is MANDATORY for bonded production** (2026-07-05,
+`randao_eligible_bonded`): the bonded-lane producer draw for epoch E only admits
+validators that **revealed** their committed secret for E. The filter is consensus —
+applied identically at candidate production, relay rebuild, and
+`validate_block_producer`, so a block minted by a non-revealing validator is rejected
+by every verifier. It is deterministic at any point in time (reveals for E are
+finalized before E's first slot) and replay-safe. The economics: the last revealer
+keeps the unavoidable 1-bit reveal/withhold choice, but exercising it now forfeits an
+**entire epoch of bonded rewards**; a validator that never participates never
+produces. Deliberate scope limits: an all-withheld epoch filters to an empty bonded
+lane and the **open-lane fallback** produces (liveness is never hostage to the
+beacon); fork-choice weight and the FFG/settlement quorums stay on the **full**
+registry, so withholding can neither move fork-choice nor stall finality. Both the
+node (`maybe_randao`, with in-window commit retry) and the browser interface (for a
+bonded wallet, while its tab is open) perform the duty automatically.
+
+> **Honest caveat.** The RANDAO primitives, the commit/reveal validation, recording,
+> revert and snapshot paths, and the mandatory-eligibility filter are unit-tested for
+> correctness (incl. reorg symmetry and the all-withheld → open-fallback path), but the
+> **multi-node, epoch-crossing** dynamics (a commit in E−2, a reveal in E−1, the secret
+> influencing E's draw) are only **lightly exercised** empirically. The remaining
+> residual is the classic last-revealer bit: `m` colluding withholders choose among up
+> to `2^m` beacon outcomes, each priced at `m` epochs of forfeited production and
+> defeated whenever ≥1 honest secret is revealed after the anchor. *(implemented)*
 
 ---
 
@@ -585,7 +601,7 @@ recursively sorted keys (BigInt is required because raw amounts exceed JS's
   **registered alias** (a human-readable name), resolved to its owner's address at
   apply time (§Aliases / `doc/aliases.md`). *(implemented)*
 - **Transaction binding.** `txid = blake2b_hash(canonical body)`, including
-  `CHAIN_ID = "nado-relaunch-1"`; the signature is taken over `unhex(txid)`.
+  `CHAIN_ID = "nado-relaunch-3"`; the signature is taken over `unhex(txid)`.
   `validate_txid` independently recomputes the txid so any field tamper is
   rejected, and `validate_origin` checks both the signature and
   `make_address(public_key) == sender`. `CHAIN_ID` binding prevents
@@ -800,10 +816,28 @@ safety core sound. The fixes are reflected throughout this section.
   `qualifies_to_sync`.
 - **#16/#17 — Grind-proof `cumulative_weight` header.** Committed **inside** the
   block-hash preimage as `parent.cumulative_weight + total_bonded_shares(as-of-
-  parent)` — the *total* bonded registry weight, not the slot winner's share, so it
+  parent) + 1` — the *total* bonded registry weight, not the slot winner's share, so it
   is **beacon-independent** (a proposer can't grind the beacon to inflate fork
   weight). Recomputed in `rebuild_block` and **verified for equality** as-of-parent
-  in `verify_block`, so a relay cannot forge a heavier chain.
+  in `verify_block`, so a relay cannot forge a heavier chain. The **`+1` height term**
+  (`block_fork_weight`, `relaunch-3`) makes the weight **strictly increasing even with an
+  empty bonded registry**: under the earlier shares-only rule a no-stake network froze at
+  one weight, `argmax` degenerated to the lowest-hash tie-break, and a stalled node whose
+  tip hash sorted low considered *itself* canonical and never resynced (observed live
+  2026-07-05). The chain is pure longest-chain while nothing is bonded and
+  stake-dominated once anything is (`shares ≫ 1`).
+- **Advertised-tip DoS / Sybil-stall hardening.** An advertised `latest_block_weight`
+  is a *hint*, never a verdict: acting on it means fetching the blocks, which
+  `verify_block` re-derives and enforces. A heavier-advertised tip the peer cannot back
+  with a valid chain (serves nothing, garbage, or forged blocks) is excluded via
+  `rejected_tips` (bounded, auto-cleared ~30 s so a genuinely heavier tip that blipped is
+  retried), and the exclusion is honoured at **every decision point**: the emergency sync
+  loop rejects the tip on all failure paths and re-evaluates being-behind each pass, and
+  the caught-up production gate (`peer_claims_heavier_tip`) skips rejected
+  advertisements. Net effect: forked-away or lying clients cost ~one failed sync per
+  30 s — never a production stall or an emergency-mode wedge. Peer admission is further
+  gated on an exact `chain_id` match in `/status` (absent field = mismatch), so nodes
+  from a different chain or an earlier relaunch never enter the consensus pools.
 - **#17 — Enforced finality floor.** A block at height H finalizes everything
   at/below `H − FINALITY_DEPTH` (`FINALITY_DEPTH = 30`); the persisted, monotonic
   `finalized_height` (KV `meta`) is advanced by `incorporate_block` as
@@ -1082,7 +1116,7 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 
 | Constant | Value | Meaning |
 |---|---|---|
-| `CHAIN_ID` | `"nado-relaunch-1"` | Bound into every signed tx/block (replay protection, M3). |
+| `CHAIN_ID` | `"nado-relaunch-3"` | Bound into every signed tx/block (replay protection, M3). |
 | `DENOMINATION` | `10_000_000_000` (1e10) | Raw units per 1 NADO; all consensus amounts are integers. |
 | `GENESIS_BEACON` | `blake2b_hash(["nado-genesis-beacon", CHAIN_ID])` | Seed for epochs 0–1 and chaining base for epoch ≥ 2. |
 | `EPOCH_LENGTH` | `60` | Slots per epoch; beacon/RANDAO epoch; per-slot rotation period. |
