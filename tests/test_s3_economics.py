@@ -12,7 +12,7 @@ from genesis import create_indexers
 create_indexers()
 
 from protocol import (split_block_reward, TREASURY_ADDRESS, TREASURY_GENESIS, REWARD_WINDOW,
-                      REWARD_CAP, BPS_DENOM, TREASURY_BPS, BASE_SUBSIDY)
+                      BPS_DENOM, TREASURY_BPS, BASE_SUBSIDY)
 from ops.account_ops import (create_account, get_account, change_balance, increase_produced_count,
                              reflect_transaction, get_totals, index_totals, fetch_totals)
 from ops.block_ops import get_block_reward, save_block, set_latest_block_info, construct_block
@@ -25,7 +25,7 @@ def check(name, fn):
 
 # 1. split is exact + 90/10 for every value (no lost unit, sums to reward)
 def t1():
-    for r in (0, 1, 5, 9, 10, 99, 1000, 4321, REWARD_CAP):
+    for r in (0, 1, 5, 9, 10, 99, 1000, 4321, 5_000_000_000):
         p, t = split_block_reward(r)
         assert p + t == r, f"split({r}) sums to {p+t}"
         assert t == r - (r * (BPS_DENOM - TREASURY_BPS) // BPS_DENOM)
@@ -41,26 +41,15 @@ def t2():
     assert get_account("founder")["balance"] == 0
 check("genesis: treasury seeded, founder empty (no premine)", t2)
 
-# 3. fee-weighted reward from header cumulative_fees (one indexed lookback), capped
-def mk(num, h, cumfee):
-    b = {"block_number": num, "parent_hash": "0"*64, "block_hash": h, "block_timestamp": 1,
-         "block_transactions": [], "block_creator": "m", "block_reward": 0, "child_hash": None,
-         "cumulative_fees": cumfee, "chain_id": "x"}
-    save_block(b, logger=logger); set_latest_block_info(b, logger=logger); return b
+# 3. emission is now FLAT base subsidy scaled by the bond-elastic multiplier: fee-INDEPENDENT and
+#    UNcapped. With no bonded stake the bonded ratio is 0 -> multiplier 1.0 -> exactly BASE_SUBSIDY,
+#    regardless of cumulative_fees. BASE_SUBSIDY is the MAX emission/block (m<=1). See bond-elastic-emission.md
 def t3():
-    mk(50, "5"*64, 10_000_000)                                   # lookback block at height 50
-    parent = {"block_number": 150, "cumulative_fees": 50_000_000}  # parent at height 150
-    r = get_block_reward(parent_block=parent)
-    # elastic term = (50_000_000 - 10_000_000)//REWARD_WINDOW = 400000, but it's BELOW the flat
-    # BASE_SUBSIDY emission floor, so the reward is floored to BASE_SUBSIDY (fair-launch emission).
-    assert r == BASE_SUBSIDY, r
-    # early chain (lookback < 0): elastic term 70000, also below the floor
-    r2 = get_block_reward(parent_block={"block_number": 10, "cumulative_fees": 7_000_000})
-    assert r2 == BASE_SUBSIDY, r2
-    # cap bites
-    r3 = get_block_reward(parent_block={"block_number": 10, "cumulative_fees": 10**18})
-    assert r3 == REWARD_CAP, r3
-check("get_block_reward: parent-anchored cumfee, capped", t3)
+    assert get_block_reward(parent_block={"block_number": 150, "cumulative_fees": 50_000_000}) == BASE_SUBSIDY
+    assert get_block_reward(parent_block={"block_number": 10, "cumulative_fees": 7_000_000}) == BASE_SUBSIDY
+    assert get_block_reward(parent_block={"block_number": 10, "cumulative_fees": 10**18}) == BASE_SUBSIDY  # no cap, fee-independent
+    assert get_block_reward() == BASE_SUBSIDY  # parent_block optional now
+check("get_block_reward: flat base subsidy, fee-independent, no cap", t3)
 
 # 4. construct_block commits cumulative_fees = parent_cumfee + this block's fees, + chain_id
 def t4():

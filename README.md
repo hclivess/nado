@@ -214,19 +214,18 @@ pair moves it back out after a timelock (see below). Bonded selection weight is
 **1 NADO = `DENOMINATION` = 10,000,000,000 raw** (the smallest unit is 0.0000000001 NADO).
 
 - **No premine.** Genesis mints zero coins; the chain bootstraps purely through the open mining lane.
-- **Per-block reward** = a flat **base subsidy** floor (`BASE_SUBSIDY = 0.1 NADO/block`, ~144 NADO/day
-  at 60 s blocks) **plus** an elastic, fee-weighted term (the trailing `REWARD_WINDOW = 100`-block
-  average fee), clamped to `REWARD_CAP = 0.5 NADO` per block. Emission tracks real activity instead of
-  inflating regardless of demand; the floor keeps a no-premine chain from deadlocking at zero.
-- **Bond-elastic emission → super hard money** (`doc/bond-elastic-emission.md`). The reward is then
-  scaled by a multiplier `m(r) = 0.2 + 0.8·e^(−3r)` where `r` is the **bonded ratio** (bonded ÷ total
-  supply): the more the network locks up, the less it mints. Combined with fee destruction this makes
-  NADO **net-deflationary under real usage**, while a **perpetual tail** (`m` never reaches 0, floor
-  ≈ 0.024 NADO/block) means block production is *always* rewarded — **no hard cap, no security cliff**
-  (Monero's reasoning). It self-limits: because the open lane siphons `OPEN_BPS`=30 %, bonding past ~70 %
-  is real-negative, so the ratio settles ~40 %. `m(r)` is a **hardcoded integer table** in `protocol.py`
-  (never a runtime float — a last-ULP difference could fork consensus), read from committed parent state
-  exactly like `cumulative_weight`.
+- **Per-block reward = a FLAT base subsidy scaled by bonding** — `reward = BASE_SUBSIDY (0.1 NADO) · m(r)`.
+  No fee-weighted term and **no ceiling** (the old `REWARD_CAP` is removed): fees are destroyed, so minting
+  more when fees rise would only soften the deflation. Since `m(r) ≤ 1`, **0.1 NADO is the max emission per
+  block** (~144 NADO/day at 60 s), and `m·BASE ≈ 0.0166` the min (perpetual tail, ~8,700 NADO/yr forever).
+- **Bond-elastic emission → super hard money** (`doc/bond-elastic-emission.md`). `m(r) = 0.15 + 0.85·e^(−4r)`
+  (tuned), where `r` is the **bonded ratio** (bonded ÷ total supply): the more the network locks up, the less it
+  mints. Combined with fee destruction this makes NADO **net-deflationary under real usage**, while the
+  **perpetual tail** (`m` never reaches 0) means block production is *always* rewarded — **no hard cap, no
+  security cliff** (Monero's reasoning). It self-limits: the open lane siphons `OPEN_BPS`=30 %, so bonding
+  past ~70 % is real-negative and the ratio settles ~40 %. `m(r)` is a **hardcoded integer table** in
+  `protocol.py` (never a runtime float — a last-ULP difference could fork consensus), read from committed
+  parent state exactly like `cumulative_weight`.
 - **90 / 10 split.** The producer keeps 90 %; **10 % accrues to the treasury** (`TREASURY_BPS = 1000`).
   The treasury is a **reserved, keyless `treasury` account** (no private key exists for it) that starts
   empty and fills only from this per-block cut.

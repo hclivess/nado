@@ -31,7 +31,7 @@ from ops.block_ops import (
 )
 from ops.mining_ops import select_producer_two_lane, epoch_of, total_bonded_shares
 from ops import kv_ops
-from protocol import CHAIN_ID, REWARD_CAP, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW
+from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW
 from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size
 from ops.peer_ops import check_ip, qualifies_to_sync, get_remote_status
 from ops import snapshot_ops
@@ -50,9 +50,6 @@ from ops.transaction_ops import (construct_attestation_tx, construct_commit_tx, 
 from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
 from protocol import EPOCH_LENGTH, FINALITY_DEPTH, REWARD_WINDOW
-
-# protocol cap on a block reward (mirrors get_block_reward's reward_cap)
-MAX_BLOCK_REWARD = 5000000000
 
 # How often (seconds) emergency mode logs "Could not find a syncable peer". The loop still retries every
 # ~1s, but a lone/bootstrap node with no reachable donor would otherwise flood the log once/sec.
@@ -1046,7 +1043,9 @@ class CoreClient(threading.Thread):
             # deterministic value is rejected, closing the old "claim any reward <= cap" mint.
             # Cheap range pre-check first (also stops a negative reward wedging change_balance).
             reward = block.get("block_reward")
-            if not isinstance(reward, int) or isinstance(reward, bool) or reward < 0 or reward > REWARD_CAP:
+            # max legit reward is BASE_SUBSIDY (emission is BASE_SUBSIDY * m(r), m<=1). Cheap range guard
+            # before change_balance; the exact-match check below is the real validation.
+            if not isinstance(reward, int) or isinstance(reward, bool) or reward < 0 or reward > BASE_SUBSIDY:
                 raise ValueError(f"Invalid block reward {reward!r}")
             expected_reward = get_block_reward(parent_block=self.memserver.latest_block)
             if reward != expected_reward:

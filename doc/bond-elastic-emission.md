@@ -1,7 +1,8 @@
-# Bond-elastic emission → super hard money (DRAFT)
+# Bond-elastic emission → super hard money
 
-Status: **draft / prototype on betanet, tune, lock for mainnet genesis.** Consensus-critical monetary
-policy (hardfork-level). Not yet implemented.
+Status: **IMPLEMENTED + TUNED (final).** Consensus-critical monetary policy (hardfork-level); live in
+`ops/block_ops.get_block_reward` with the tuned constants `M_MIN=0.15, k=4, BASE_SUBSIDY=0.1`. Freeze
+these into mainnet genesis; betanet is a live sanity check, not a tuning round.
 
 ## Goal: the hardest money we can coherently build
 
@@ -24,27 +25,35 @@ real fee activity — so NADO deflates under usage while never starving security
 ## Layer 1 — bond-elastic multiplier `m(r)`
 
 ```
-r        = bonded_supply / circulating_supply            # 0..1, committed state, lagged (see Determinism)
+r        = bonded_supply / total_supply                  # 0..1, committed state (see Determinism)
 m(r)     = M_MIN + (1 - M_MIN) * exp(-k * r)             # bounded convex; m(0)=1, m(∞)->M_MIN
-minted   = clamp( m(r) * fee_weighted_subsidy , m(r)*BASE_SUBSIDY , REWARD_CAP )
+minted   = BASE_SUBSIDY * m(r)                            # FLAT base scaled by m; fee-INDEPENDENT, no cap
 ```
 
-`fee_weighted_subsidy` is today's reward (fee-weighted avg over `REWARD_WINDOW`=100 blocks, floor
-`BASE_SUBSIDY`=0.1, cap `REWARD_CAP`=0.5). `m(r)` scales it, **uniformly across both lanes** (open + bonded).
+Emission is a **flat** `BASE_SUBSIDY` (0.1 NADO) scaled by `m(r)`, applied **uniformly to both lanes**
+(open + bonded). There is **no fee-weighted term and no ceiling** — `REWARD_CAP` is removed. Fees are
+destroyed, so raising the mint with fees would print more exactly when more is burned, softening the
+deflation. Since `m(r) <= 1`, **`BASE_SUBSIDY` is the MAX emission/block** and `m_min·BASE_SUBSIDY` (~0.024)
+the min (perpetual tail). Implemented as an integer bps multiply: `reward = BASE_SUBSIDY * m_bps // 10000`.
 
-Parameters (starting point — tune on betanet): `M_MIN = 0.20`, `k = 3.0`, ratio lag = 1 finalized epoch.
+**TUNED (final): `M_MIN = 0.15`, `k = 4.0`, `BASE_SUBSIDY = 0.1 NADO`.** Chosen against explicit criteria —
+`M_MIN` sets the perpetual security tail (0.15 ⇒ ~0.0166 NADO/block ≈ 8,700 NADO/yr forever, a credible
+floor without being generous), `k=4` makes emission at the ~40% self-limiting equilibrium ~0.033/block
+(hard) with a responsive-but-not-violent early curve (10% bonded ⇒ ~28% emission cut). `BASE_SUBSIDY` is a
+pure scale/units choice (max emission + distribution rate); 0.1 NADO/block = 144/day max is a sound
+distribution rate, so the *curve* carries the hardness, not the base.
 
-| bonded r | m(r) | minted floor/block (no fees) |
+| bonded r | m(r) | minted/block (flat, fee-independent) |
 |---:|---:|---:|
-| 0%  | 1.00 | 0.1000 |
-| 10% | 0.79 | 0.0793 |
-| 20% | 0.64 | 0.0639 |
-| 30% | 0.53 | 0.0525 |
-| **~39% (equilibrium)** | **0.45** | **~0.045** |
-| 50% | 0.38 | 0.0379 |
-| 60% | 0.33 | 0.0332 |
-| 70% | 0.30 | 0.0298 |
-| 100% (unreachable) | 0.24 | 0.0240 |
+| 0%  | 1.00 | 0.1000 ← MAX emission/block |
+| 10% | 0.72 | 0.0720 |
+| 20% | 0.53 | 0.0532 |
+| 30% | 0.41 | 0.0406 |
+| **~39% (equilibrium)** | **0.33** | **~0.0329** |
+| 50% | 0.27 | 0.0265 |
+| 60% | 0.23 | 0.0227 |
+| 70% | 0.20 | 0.0202 |
+| 100% (unreachable) | 0.17 | 0.0166 ← perpetual tail |
 
 `m(0)=1`: at genesis nobody can bond (no coins yet — fair launch), so emission starts at full base — max
 distribution to zero-coin open-lane miners exactly when it should. Convex `exp` rewards the first bonders and
@@ -52,26 +61,29 @@ drops into scarcity fast. Bounded `[M_MIN,1]` never boosts above base and never 
 
 ## Layer 2 — the money table: net issuance (deflation)
 
-Fees are destroyed, so per block: `net = m(r)·fee_weighted_subsidy − fees`. **Negative = supply shrinks.**
+Emission is flat (`minted = BASE_SUBSIDY·m(r)`), fees are destroyed, so per block: `net = BASE·m(r) − fees`.
+**Negative = supply shrinks.**
 
-| fees/block → | 0.00 | 0.05 | 0.10 | 0.20 | 0.30 | 0.50 | 1.00 |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| **r=0%**  (m=1.00) | +0.100 | +0.050 | 0.000 | 0.000 | 0.000 | 0.000 | −0.500 |
-| **r=20%** (m=0.64) | +0.064 | +0.014 | −0.036 | −0.072 | −0.108 | −0.180 | −0.680 |
-| **r=39%** (m=0.45) | +0.045 | −0.005 | −0.055 | −0.110 | −0.166 | −0.276 | −0.776 |
-| **r=60%** (m=0.33) | +0.033 | −0.017 | −0.067 | −0.134 | −0.200 | −0.334 | −0.834 |
+| fees/block → | 0.00 | 0.05 | 0.10 | 0.20 | 0.50 | 1.00 |
+|---|---:|---:|---:|---:|---:|---:|
+| **r=0%**  (mint 0.100) | +0.100 | +0.050 | 0.000 | −0.100 | −0.400 | −0.900 |
+| **r=20%** (mint 0.053) | +0.053 | +0.003 | −0.047 | −0.147 | −0.447 | −0.947 |
+| **r=39%** (mint 0.033) | +0.033 | −0.017 | −0.067 | −0.167 | −0.467 | −0.967 |
+| **r=60%** (mint 0.023) | +0.023 | −0.027 | −0.077 | −0.177 | −0.477 | −0.977 |
 
 Read it: NADO is inflationary **only at near-zero usage** (the bootstrap phase). The instant real fees appear
-it turns **deflationary**, and **bonding deepens the burn** (lower `m` → less minted against the same fees).
+it turns **deflationary** — and because the mint is flat (capped at `BASE·m`), every extra unit of fee is a
+net burn. Bonding deepens it further (lower `m` → less minted). Harder than the fee-weighted variant, which
+softened deflation by minting more when fees rose.
 
 **Deflation crossover** — fees/block above which supply shrinks:
 
 | bonded r | m(r) | net turns negative above |
 |---:|---:|---:|
 | 0%  | 1.00 | 0.1000 NADO/block |
-| 20% | 0.64 | 0.0639 |
-| 39% | 0.45 | 0.0448 |
-| 60% | 0.33 | 0.0332 |
+| 20% | 0.53 | 0.0532 |
+| 39% | 0.33 | 0.0329 |
+| 60% | 0.23 | 0.0227 |
 
 ## Layer 3 — perpetual tail, NO hard supply cap
 
@@ -83,14 +95,15 @@ block is *always* worth producing.
 The tail is automatic from Layer 1: the reward floor is `m(r) · BASE_SUBSIDY`, and `m(r) ≥ M_MIN`, so:
 
 ```
-perpetual security floor = M_MIN · BASE_SUBSIDY = 0.20 · 0.1 = 0.02 NADO/block, FOREVER
-                         = ~10,512 NADO/yr minimum emission (60s blocks) — the chain can never die of zero subsidy
+perpetual security floor ≈ m_min · BASE_SUBSIDY = 0.166 · 0.1 = 0.0166 NADO/block, FOREVER
+                         = ~8,700 NADO/yr minimum emission (60s blocks) — the chain can never die of zero subsidy
+                         (M_MIN=0.15 is the r→∞ asymptote; 0.0166 is the reachable min at 100% bonded)
 ```
 
 Hardness does **not** come from ending emission — it comes from **burning more than that tail** once the
-network is used. Fees destroyed + treasury self-burn routinely exceed 0.02/block under any real activity, so
-net supply falls (see Scenarios). Supply is *unbounded in principle* but *shrinking in practice* — the ideal:
-no cliff, no cap anxiety, yet net-deflationary.
+network is used. Fees destroyed + treasury self-burn routinely exceed ~0.017/block under any real activity,
+so net supply falls (see Scenarios). Supply is *unbounded in principle* but *shrinking in practice* — the
+ideal: no cliff, no cap anxiety, yet net-deflationary.
 
 ## Harder than Bitcoin (without the cliff)
 
@@ -98,39 +111,43 @@ no cliff, no cap anxiety, yet net-deflationary.
 |---|---|---|---|
 | premine / insiders | none | none | none |
 | supply cap | 21M hard | none (tail) | **none (tail)** — deliberate, avoids the security cliff |
-| tail emission | → 0 (cliff risk) | flat 0.6/blk | **`m(r)·BASE`, floored 0.02/blk** |
+| tail emission | → 0 (cliff risk) | flat 0.6/blk | **`m(r)·BASE`, floored ~0.0166/blk (~8,700/yr)** |
 | fees | paid to miner (recycled) | paid to miner | **destroyed** |
 | net supply at maturity | asymptotes to cap (never falls) | mild perpetual inflation | **falls** (deflationary under usage) |
 | tightening driver | fixed schedule | none | usage (fee burn) **+** conviction (bonding) |
 
 ## Scenarios
 
-Per-block and annualized net issuance (60s blocks ⇒ 525,600/yr). `net = m(r)·fee_weighted_subsidy − fees`;
+Per-block and annualized net issuance (60s blocks ⇒ 525,600/yr). Flat mint: `net = BASE·m(r) − fees`;
 negative = **supply shrinks**. (Treasury self-burn adds *more* destruction on top — not shown.)
 
 | scenario | fees/blk | bonded r | m(r) | mint/blk | burn/blk | net/blk | **net / YEAR** |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| A — Dormant / bootstrap | 0.00 | 5% | 0.89 | 0.089 | 0.000 | +0.089 | **+46,703** |
-| B — Early growth | 0.05 | 20% | 0.64 | 0.064 | 0.050 | +0.014 | **+7,308** |
-| C — Adopted | 0.20 | 40% | 0.44 | 0.088 | 0.200 | −0.112 | **−58,767** |
-| D — Bull / high-usage | 0.50 | 55% | 0.35 | 0.177 | 0.500 | −0.323 | **−169,863** |
-| E — Mania | 1.00 | 60% | 0.33 | 0.166 | 1.000 | −0.834 | **−438,288** |
+| A — Dormant / bootstrap | 0.00 | 5% | 0.85 | 0.0846 | 0.000 | +0.0846 | **+44,462** |
+| B — Early growth | 0.05 | 20% | 0.53 | 0.0532 | 0.050 | +0.0032 | **+1,678** |
+| C — Adopted | 0.20 | 40% | 0.32 | 0.0322 | 0.200 | −0.1678 | **−88,216** |
+| D — Bull / high-usage | 0.50 | 55% | 0.24 | 0.0244 | 0.500 | −0.4756 | **−249,966** |
+| E — Mania | 1.00 | 60% | 0.23 | 0.0227 | 1.000 | −0.9773 | **−513,663** |
 
 Reading it: **A/B (bootstrap)** — mild net emission distributes coins and keeps the lights on when there's no
 usage yet (this is *why* the tail exists). **C→E (adoption)** — supply actively shrinks, harder the more NADO
 is used and bonded. The system is inflationary only while nobody is using it, and deflationary exactly when it
 matters.
 
-**Parameter sensitivity** — net/yr in the "Adopted" scenario (fees 0.2, r 40%), varying `M_MIN` and `k`:
+**How the tuning was chosen.** Two knobs trade off perpetual security (the tail) against hardness (low
+equilibrium emission). Grid of `tail/yr` (min emission, forever) vs `emission@40%/yr` (gross emission at the
+self-limiting equilibrium — lower = harder), `BASE=0.1`:
 
-| | k=2.0 | k=3.0 | k=4.0 |
-|---|---:|---:|---:|
-| **M_MIN=0.1** | −52,098 | −66,113 | −75,507 |
-| **M_MIN=0.2** | −46,309 | −58,767 | −67,117 |
-| **M_MIN=0.3** | −40,521 | −51,421 | −58,728 |
+| M_MIN | k | tail/yr (security) | emit@40%/yr (hardness) | 10%-bond emission cut |
+|---:|---:|---:|---:|---:|
+| 0.10 | 4 | 6,122 | 14,807 | 30% |
+| **0.15** | **4** | **8,702** | **16,904** | **28%** ← chosen |
+| 0.20 | 3 | 12,605 | 23,177 | 21% (original draft) |
+| 0.20 | 4 | 11,282 | 19,001 | 26% |
+| 0.15 | 5 | 8,185 | 13,930 | 33% |
 
-Lower `M_MIN` and higher `k` = harder money (deeper burn) but a lower perpetual security floor — that's the
-core tradeoff to tune on betanet. `M_MIN=0.2, k=3` is a balanced default.
+`M_MIN=0.15, k=4` is the knee: ~27% harder than the 0.2/k3 draft, a **credible** ~8,700 NADO/yr forever tail
+(vs a too-thin ~6,100 at 0.10), and a firm-but-not-violent early response (28% cut at 10% bonded, not 33%+).
 
 ## Why it self-regulates (equilibrium)
 
@@ -148,35 +165,46 @@ newcomers mine a big pie; late newcomers mine a small pie of an expensive coin. 
 
 ## Determinism & anti-grind
 
-`r` is a pure function of committed state (`total_bonded_shares·B_MIN` / `circulating_supply` from `totals`),
-read **as of the last finalized epoch** — never the tip — mirroring how `get_block_reward` already reads
-ancestry, so full and rolling/snapshot nodes agree. The epoch lag + `BOND_RAMP_EPOCHS`(30) + unbonding
-friction defeat a bond→mine→unbond grind on the curve.
+`r` is a pure function of **committed state**: `total_bonded_shares·B_MIN` (bonded — the same measure as
+`cumulative_weight`) over `total_supply` (`TREASURY_GENESIS + produced − fees` from `totals`). It is read
+from the **committed parent state at incorporation**, which is deterministic for the exact reason
+`verify_block` already recomputes `cumulative_weight` from live `get_bonded_registry()`: during sequential
+incorporation the committed state *is* the block's parent state, and a snapshot node carries full state
+as-of its checkpoint — so every node type computes the identical multiplier. It is quantized to whole-percent
+buckets and looked up in a **hardcoded integer table** (no runtime float — a last-ULP `math.exp` diff could
+fork). Anti-grind: bonding *lowers* the briber's own reward (m shrinks) and a single actor barely moves the
+global ratio, and `BOND_RAMP_EPOCHS`(30) + unbonding friction blunt any bond→mine→unbond attempt. (An
+optional finalized-epoch lag on `r` could be added for extra caution; not currently needed.)
 
-## Implementation sketch
+## Implementation (shipped)
 
 ```python
-def bond_elastic_multiplier(bonded_ratio: float) -> float:
-    m = M_MIN + (1.0 - M_MIN) * math.exp(-K_DECAY * bonded_ratio)
-    return min(1.0, max(M_MIN, m))
+# protocol.py: BOND_ELASTIC_MULT_BPS = [10000, 9764, ... 2398]   # 101 ints, m(pct) in bps, hardcoded
 
-# get_block_reward(parent):
-#   r      = bonded_ratio_at_finalized_epoch()
-#   mult   = bond_elastic_multiplier(r)
-#   reward = int(mult * fee_weighted_subsidy)        # BASE_SUBSIDY stays flat -> perpetual tail (no halving)
-#   return clamp(reward, int(mult * BASE_SUBSIDY), REWARD_CAP)   # floor >= M_MIN*BASE = perpetual security
-# Fee destruction + treasury burn already exist (ops/reward_ops); net issuance = reward − fees_destroyed.
+# ops/block_ops.py
+def bond_elastic_mult_bps() -> int:
+    bonded = total_bonded_shares(get_bonded_registry()) * B_MIN
+    t = fetch_totals() or {}
+    supply = TREASURY_GENESIS + t.get("produced", 0) - t.get("fees", 0)
+    if supply <= 0 or bonded <= 0:
+        return BOND_ELASTIC_MULT_BPS[0]                 # r=0 -> full emission (bootstrap)
+    return BOND_ELASTIC_MULT_BPS[min(100, (bonded * 100) // supply)]
+
+def get_block_reward(parent_block=None):
+    return BASE_SUBSIDY * bond_elastic_mult_bps() // 10000   # flat base, scaled; no fee term, no cap
+
+# verify_block range guard tightened: a block reward > BASE_SUBSIDY is invalid (m<=1).
+# genesis.py: carried-forward balances+bonded are added to totals so total_supply is accurate.
+# Fee destruction + treasury self-burn already exist (ops/reward_ops); net issuance = reward − fees_destroyed.
 ```
 
-## Betanet plan
+## Locked decisions
 
-Ship in betanet genesis params, watch where the bonded ratio, net issuance, and burn actually settle, tune
-`M_MIN` / `k` / halving cadence, then freeze for mainnet genesis.
-
-## Open decisions
-
-- `circulating_supply` denominator: include/exclude treasury + burned counter?
-- `M_MIN` / `k`: set the perpetual security floor **and** the deflation depth (see sensitivity table).
-- Tail floor level: is `0.02 NADO/block` enough perpetual security budget, or set `M_MIN`/`BASE` higher?
-- NO hard cap and NO halving-to-zero (rejected — security cliff). Confirm we hold this line.
-- Equilibrium bonded ratio target — raise it (lower `OPEN_BPS`) for more stake-security vs. fair-launch reach?
+- **Params are FINAL:** `M_MIN=0.15`, `k=4`, `BASE_SUBSIDY=0.1`. Frozen into mainnet genesis. Betanet only
+  validates that the live bonded ratio / net issuance behave as modelled — it is not a tuning round.
+- **Denominator:** `total_supply` = `TREASURY_GENESIS + produced − fees` (treasury included; it is a tiny,
+  self-burning fraction and excluding it would only make the ratio jitter with treasury flows).
+- **NO hard cap, NO halving-to-zero** — rejected (security cliff). Perpetual tail ~0.0166 NADO/block.
+- Bonded measure = `total_bonded_shares · B_MIN` (same as `cumulative_weight`); equilibrium self-limits
+  ~40% via the `OPEN_BPS`=30% siphon. Raising the equilibrium (lower `OPEN_BPS`) trades against fair-launch
+  reach and is a *separate* lane decision, out of scope here.

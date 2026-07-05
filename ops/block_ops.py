@@ -13,7 +13,7 @@ from Curve25519 import sign as _sign_message, verify as _verify_message, unhex a
 from .address_ops import proof_sender, make_address
 from . import kv_ops
 from .mining_ops import select_producer_two_lane, lane_of, epoch_of, compute_beacon, total_bonded_shares
-from protocol import (CHAIN_ID, REWARD_WINDOW, REWARD_CAP, BASE_SUBSIDY, GENESIS_BEACON, EPOCH_LENGTH,
+from protocol import (CHAIN_ID, REWARD_WINDOW, BASE_SUBSIDY, GENESIS_BEACON, EPOCH_LENGTH,
                       B_MIN, TREASURY_GENESIS, BOND_ELASTIC_MULT_BPS)
 import zstandard as zstd
 
@@ -56,7 +56,7 @@ def bond_elastic_mult_bps() -> int:
     as-of its checkpoint — so every node type computes the identical multiplier. Integer-only (a runtime
     float could fork on last-ULP differences); the curve lives in the hardcoded BOND_ELASTIC_MULT_BPS table."""
     bonded = total_bonded_shares(get_bonded_registry()) * B_MIN
-    t = fetch_totals()
+    t = fetch_totals() or {}
     supply = TREASURY_GENESIS + t.get("produced", 0) - t.get("fees", 0)
     if supply <= 0 or bonded <= 0:
         return BOND_ELASTIC_MULT_BPS[0]                 # r=0 -> full emission (bootstrap / genesis)
@@ -64,35 +64,21 @@ def bond_elastic_mult_bps() -> int:
     return BOND_ELASTIC_MULT_BPS[min(100, pct)]
 
 
-def get_block_reward(parent_block):
-    """Fee-weighted elastic block reward, then scaled by the BOND-ELASTIC multiplier (bond_elastic_mult_bps).
+def get_block_reward(parent_block=None):
+    """FLAT base subsidy scaled by the BOND-ELASTIC multiplier — super hard money (doc/bond-elastic-emission.md).
 
-    The fee term is a PURE function of the block's ancestry (header cumulative_fees, not the verifier's tip):
-        fee_weighted = clamp((cumFee[parent] - cumFee[parent-REWARD_WINDOW]) / REWARD_WINDOW, BASE_SUBSIDY, CAP)
-    The bond-elastic multiplier reads committed parent state (see bond_elastic_mult_bps) — deterministic the
-    same way verify_block's cumulative_weight recompute is. Both full and snapshot/pruned nodes agree.
-        reward = fee_weighted * m(bonded_ratio)
-    m <= 1, so reward stays within [m*BASE_SUBSIDY (perpetual tail), REWARD_CAP]."""
-    end_cumfee = parent_block.get("cumulative_fees", 0)
-    lookback_height = parent_block["block_number"] - REWARD_WINDOW
-    if lookback_height < 0:
-        start_cumfee = 0
-    else:
-        start_block = get_block_number(lookback_height)
-        start_cumfee = start_block.get("cumulative_fees", 0) if start_block else 0
+        reward = BASE_SUBSIDY * m(bonded_ratio)          # m in (~0.24, 1], integer bps
 
-    reward = (end_cumfee - start_cumfee) // REWARD_WINDOW
-    # Floor at BASE_SUBSIDY (flat fair-launch emission): with no premine a brand-new chain has no
-    # fees, so the elastic term is 0 — the subsidy lets a zero-coin OPEN-lane miner earn REAL coins
-    # from block 1, which then circulate and pay fees. The fee-weighted term rises ON TOP up to cap.
-    if reward < BASE_SUBSIDY:
-        reward = BASE_SUBSIDY
-    if reward > REWARD_CAP:
-        reward = REWARD_CAP
-    # BOND-ELASTIC scaling: shrink emission as bonded conviction rises (integer bps math). m<=1 keeps the
-    # result within [m*BASE_SUBSIDY, REWARD_CAP], so the cap holds and a perpetual tail remains.
-    reward = reward * bond_elastic_mult_bps() // 10000
-    return reward
+    NO fee-weighted upside and NO ceiling. Fees are DESTROYED, so an emission that rose with fees would mint
+    MORE exactly when more is being burned — softening the deflation. Flat mint + fee burn + bond suppression
+    is strictly harder money. Because m <= 1:
+        MAX emission/block = BASE_SUBSIDY (0.1 NADO, at bonded ratio 0),
+        MIN emission/block = m_min * BASE_SUBSIDY (~0.024 NADO) — the perpetual tail; production never
+        drops to zero, so there is no security cliff (and no hard cap).
+    Deterministic: bond_elastic_mult_bps() reads committed parent state, the same basis verify_block already
+    uses to recompute cumulative_weight, so full and snapshot/pruned nodes agree. `parent_block` is unused
+    (kept for call-site stability)."""
+    return BASE_SUBSIDY * bond_elastic_mult_bps() // 10000
 
 
 def valid_block_timestamp(new_block):

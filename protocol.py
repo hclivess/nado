@@ -174,37 +174,41 @@ TREASURY_VOTE_ACTIVATION_EPOCHS = 3     # ALPHA testing value (was 180 ≈ 1 day
 TREASURY_SPEND_PERIOD = 10800   # burn cadence in blocks (~1 day at ~8s blocks)
 TREASURY_BURN_BPS = 100         # burn 1.00% of the balance above the floor each period
 TREASURY_RUNWAY_FLOOR = 0       # balance at/below this is never burned (0 = burn from the first coin; tune up later)
-REWARD_WINDOW = 100          # trailing blocks averaged for the elastic reward
-REWARD_CAP = 5_000_000_000   # max reward per block (0.5 NADO), raw
-# Flat per-block emission FLOOR, independent of fees. Without it a no-premine chain deadlocks:
-# 0 coins -> 0 fees -> fee-weighted reward 0 forever -> no coins are ever minted. The base subsidy
-# lets a zero-coin OPEN-lane miner earn real spendable coins from block 1; those circulate, pay
-# fees, and the elastic component rises on top up to REWARD_CAP. This is the fair-launch emission
-# (every fair-launch coin has a block subsidy). Tunable; a halving schedule is future work.
-BASE_SUBSIDY = 1_000_000_000  # 0.1 NADO/block raw floor (~144 NADO/day at 60s blocks: 1440 blocks * 0.1)
+REWARD_WINDOW = 100          # retained as the prune/rollback safety window (block_ops.prune_block_bodies);
+                             # no longer a reward average — emission is now FLAT base * bond-elastic multiplier.
+# FLAT per-block emission, scaled only by the bond-elastic multiplier (see BOND_ELASTIC_MULT_BPS below and
+# doc/bond-elastic-emission.md). There is NO fee-weighted upside and NO ceiling: fees are DESTROYED, so
+# raising emission with fees would mint more exactly when more is burned — softening the deflation. Because
+# the multiplier m(r) <= 1, the block reward is BASE_SUBSIDY at most (the MAX emission/block) and
+# m_min*BASE_SUBSIDY (~0.024 NADO) at least — the perpetual tail, so production is never unincentivised (no
+# hard cap, no security cliff). The base also lets a zero-coin OPEN-lane miner earn from block 1 (fair launch).
+BASE_SUBSIDY = 1_000_000_000  # 0.1 NADO/block raw = MAX emission/block (~144 NADO/day at 60s blocks: 1440*0.1)
 
 # --- BOND-ELASTIC EMISSION (super hard money — see doc/bond-elastic-emission.md) ---
 # The block reward is scaled by a multiplier m(r) that shrinks as the bonded ratio r rises: the more the
 # network locks up (conviction), the less it mints. Combined with fee destruction this makes NADO
 # net-deflationary under real usage, while a perpetual tail (m never reaches 0) means block production is
 # ALWAYS incentivised — no hard cap, no security cliff (Monero reasoning).
-#   m(r) = M_MIN + (1-M_MIN)*exp(-k*r),  M_MIN=0.2, k=3,  applied uniformly to BOTH lanes.
-# CONSENSUS-SAFE: the multiplier is a HARDCODED INTEGER table in basis points indexed by the bonded ratio
-# in whole percent (0..100) — never a runtime float, because a last-ULP math.exp difference across
-# platforms could fork the chain. reward = reward * BOND_ELASTIC_MULT_BPS[pct] // 10000.
-# Regenerate on a param change:  [round((0.2+0.8*exp(-3*p/100))*10000) for p in range(101)]
+#   m(r) = M_MIN + (1-M_MIN)*exp(-k*r),  M_MIN=0.15, k=4,  applied uniformly to BOTH lanes.
+# TUNED (final): M_MIN=0.15 gives a credible perpetual security tail (~0.0166 NADO/block ≈ 8,700 NADO/yr
+# forever, never zero) while k=4 makes emission at the ~40% self-limiting equilibrium ~0.033/block (hard),
+# with a responsive-but-not-violent early curve (10% bonded -> ~28% emission cut). MAX emission = BASE (m=1
+# at r=0). CONSENSUS-SAFE: hardcoded INTEGER table in basis points, indexed by the bonded ratio in whole
+# percent (0..100) — never a runtime float (a last-ULP math.exp diff across platforms could fork the chain).
+#   reward = reward * BOND_ELASTIC_MULT_BPS[pct] // 10000.
+# Regenerate on a param change:  [round((0.15+0.85*exp(-4*p/100))*10000) for p in range(101)]
 BOND_ELASTIC_MULT_BPS = [
-    10000, 9764, 9534, 9311, 9095, 8886, 8682, 8485, 8293, 8107,
-    7927, 7751, 7581, 7416, 7256, 7101, 6950, 6804, 6662, 6524,
-    6390, 6261, 6135, 6013, 5894, 5779, 5667, 5559, 5454, 5352,
-    5253, 5156, 5063, 4973, 4885, 4800, 4717, 4636, 4559, 4483,
-    4410, 4338, 4269, 4202, 4137, 4074, 4013, 3953, 3895, 3839,
-    3785, 3732, 3681, 3631, 3583, 3536, 3491, 3447, 3404, 3363,
-    3322, 3283, 3245, 3209, 3173, 3138, 3105, 3072, 3040, 3009,
-    2980, 2951, 2923, 2895, 2869, 2843, 2818, 2794, 2771, 2748,
-    2726, 2704, 2683, 2663, 2644, 2625, 2606, 2588, 2571, 2554,
-    2538, 2522, 2506, 2491, 2477, 2463, 2449, 2436, 2423, 2410,
-    2398,
+    10000, 9667, 9346, 9039, 8743, 8459, 8186, 7924, 7672, 7430,
+    7198, 6974, 6760, 6553, 6355, 6165, 5982, 5806, 5637, 5475,
+    5319, 5170, 5026, 4887, 4755, 4627, 4504, 4387, 4273, 4165,
+    4060, 3960, 3863, 3771, 3682, 3596, 3514, 3435, 3359, 3286,
+    3216, 3149, 3084, 3022, 2962, 2905, 2850, 2797, 2746, 2697,
+    2650, 2605, 2562, 2520, 2480, 2442, 2405, 2369, 2335, 2303,
+    2271, 2241, 2212, 2184, 2157, 2131, 2107, 2083, 2060, 2038,
+    2017, 1997, 1977, 1958, 1940, 1923, 1907, 1891, 1875, 1861,
+    1846, 1833, 1820, 1807, 1795, 1784, 1773, 1762, 1752, 1742,
+    1732, 1723, 1714, 1706, 1698, 1690, 1683, 1676, 1669, 1662,
+    1656,
 ]
 
 # NO PREMINE (owner decision 2026-06-30): genesis mints ZERO coins. No founder allocation, no
