@@ -137,6 +137,17 @@ def save_peer(ip, port, address, peer_trust=50, overwrite=False):
 # to discover the network, so it starts from these. Extend/override with NADO_SEED_PEERS (comma-separated).
 DEFAULT_SEED_PEERS = ["38.242.201.206"]   # get.nadochain.com — the public bootstrap node
 
+# Trust floor pinned on every operator seed. load_ips() sorts the dial set by peer_trust (highest first)
+# and keeps only the top 50, and ordinary peers accrete trust indefinitely (+1 per agreement round — the
+# live table already has one peer at 1600+). A seed left at the ordinary default (50) would sink below the
+# aged peers and eventually fall out of the top-50 dial set, stranding a reconnecting node from its
+# weak-subjectivity anchor. Pinning the seed far above any organically reachable value keeps it at the head
+# of the dial order forever. NOTE: trust does NOT gate sync (see qualifies_to_sync / minority_block_consensus
+# — fork choice is objective heaviest-weight, and the lone-donor snapshot anchor is seed-SET membership, not
+# a trust number), so this is purely a reachability/preference lever and carries no Sybil surface: the seed
+# set is operator-defined.
+SEED_TRUST = 1_000_000
+
 
 def trusted_seeds():
     """Operator-trusted bootstrap seed set: baked-in DEFAULT_SEED_PEERS + any NADO_SEED_PEERS the operator
@@ -156,7 +167,13 @@ def seed_default_peers(logger, my_ip=None):
         if not ip or ip == (my_ip or get_config().get("ip")):
             continue
         try:
-            save_peer(ip=ip, port=get_port(), address="", peer_trust=50)
+            if ip_stored(ip):
+                # seed already known: raise its trust to the seed floor (idempotent, no-op once pinned)
+                # via update_peer, which touches ONLY peer_trust so the learned peer_address is preserved.
+                if (load_peer(ip=ip, key="peer_trust", logger=logger) or 0) < SEED_TRUST:
+                    update_peer(ip=ip, value=SEED_TRUST, logger=logger)
+            else:
+                save_peer(ip=ip, port=get_port(), address="", peer_trust=SEED_TRUST)
         except Exception as e:
             logger.info(f"Failed to seed bootstrap peer {ip}: {e}")
 
