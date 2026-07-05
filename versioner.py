@@ -1,19 +1,31 @@
 import json
 import os
-from os import getcwd
+import subprocess
+
+# repo root (this file lives there) — used instead of getcwd() so the stamp resolves regardless of the
+# process's working directory (systemd may launch us from /).
+_REPO_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def update_version():
+    """Release stamp for /status + logs: the git TAG via `git describe` — e.g. 'v1.0.0-beta.1' on a tagged
+    release commit, 'v1.0.0-beta.1-45-g6f2a758' a few commits past the last tag (with '-dirty' if the tree
+    has uncommitted tracked changes), or the short commit hash when the repo has no tags. Falls back to the
+    raw main ref (a .git dir but no git binary), then False (no git at all — read_version() maps that to 'na')."""
     try:
-        version_path = f"{getcwd()}/.git/refs/heads/main"
-        if os.path.exists(version_path):
-            with open(version_path) as version_file:
-                return version_file.read().strip()
-        else:
-            return False
-    except Exception as e:
-        print(f"Unable to obtain version, switching to N/A: {e}")
-        return "na"
+        out = subprocess.check_output(
+            ["git", "describe", "--tags", "--always", "--dirty"],
+            cwd=_REPO_DIR, stderr=subprocess.DEVNULL, text=True, timeout=5,
+        ).strip()
+        if out:
+            return out
+    except Exception:
+        pass
+    try:
+        with open(f"{_REPO_DIR}/.git/refs/heads/main") as version_file:
+            return version_file.read().strip()
+    except Exception:
+        return False
 
 
 def set_version(version):
