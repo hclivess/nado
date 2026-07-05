@@ -19,50 +19,112 @@ class MessageClient(threading.Thread):
         self.core = core
         self.peers = peers
 
-    def is_all_fine(self):
+    # Per-component health. Each check returns (level, detail):
+    #   "ok"   — healthy
+    #   "warn" — degraded but the node can keep operating
+    #   "down" — this subsystem is not doing its job
+    # The message loop renders one line per component plus a rolled-up verdict,
+    # so a problem points at the actual failing part instead of a single flag.
+    def health_report(self):
+        components = {}
 
-        if len(self.memserver.peers) < 10:
-            return {"result":False, "flag": "Not enough peers"}
-        if self.memserver.latest_block["block_hash"] != self.consensus.majority_block_hash:
-            return {"result":False, "flag": "Outside block hash majority"}
-        if self.memserver.since_last_block > self.memserver.block_time:
-            return {"result": False, "flag": "Block target too far"}
-        if not self.memserver.can_mine:
-            return {"result": False, "flag": "Ports closed"}
-        return {"result": True}
+        # --- Peers ---------------------------------------------------------
+        n_peers = len(self.memserver.peers)
+        n_unreach = len(self.memserver.unreachable)
+        if n_peers == 0:
+            peer_level = "down"
+        elif n_peers < 10:
+            peer_level = "warn"
+        else:
+            peer_level = "ok"
+        components["Peers"] = (
+            peer_level,
+            f"{n_peers} linked, {n_unreach} unreachable"
+            + ("" if n_peers >= 10 else " (target 10)"),
+        )
+
+        # --- Block freshness ----------------------------------------------
+        age = self.memserver.since_last_block
+        bt = self.memserver.block_time
+        if age <= 2 * bt:
+            block_level = "ok"
+        elif age <= 6 * bt:
+            block_level = "warn"
+        else:
+            block_level = "down"
+        components["Blocks"] = (
+            block_level,
+            f"#{self.memserver.latest_block['block_number']} · "
+            f"{age}s old (block_time {bt}s)",
+        )
+
+        # --- Consensus agreement ------------------------------------------
+        majority = self.consensus.majority_block_hash
+        agree_pct = int(self.consensus.block_hash_pool_percentage)
+        members = len(self.consensus.block_hash_pool)
+        if members == 0:
+            # No peers reporting yet (e.g. solo/bootstrap) — nothing to disagree with.
+            cons_level = "warn" if n_peers == 0 else "ok"
+            cons_detail = "no quorum reporting"
+        elif self.memserver.latest_block["block_hash"] == majority:
+            cons_level = "ok"
+            cons_detail = f"in majority ({agree_pct}% / {members} peers)"
+        else:
+            cons_level = "warn"
+            cons_detail = f"OUTSIDE majority ({agree_pct}% / {members} peers)"
+        components["Consensus"] = (cons_level, cons_detail)
+
+        # --- Reachability / mining ports ----------------------------------
+        if self.memserver.can_mine:
+            components["Ports"] = ("ok", "open (mineable)")
+        else:
+            components["Ports"] = ("warn", "closed — not accepting inbound")
+
+        # --- Sync mode -----------------------------------------------------
+        components["Sync"] = (
+            "warn" if self.memserver.emergency_mode else "ok",
+            "EMERGENCY" if self.memserver.emergency_mode
+            else f"{self.memserver.mode}",
+        )
+
+        return components
 
     def run(self) -> None:
         while not self.memserver.terminate:
             try:
-                self.logger.info(f"Mode: {self.memserver.mode} "
-                                 f"({self.memserver.since_last_block}s / {self.memserver.block_time}s block)")
+                # --- Health report: one line per subsystem + rolled-up verdict ---
+                report = self.health_report()
+                worst = "ok"
+                for level, _ in report.values():
+                    if level == "down":
+                        worst = "down"
+                        break
+                    if level == "warn" and worst == "ok":
+                        worst = "warn"
 
-                self.logger.info(
-                    f"Block Hash Agreement: {int(self.consensus.block_hash_pool_percentage)}% ({len(self.consensus.block_hash_pool)} members)"
-                )
-                self.logger.info(
-                    f"Transaction Hash Agreement: {int(self.consensus.transaction_hash_pool_percentage)}%"
-                )
+                glyph = {"ok": "[  OK  ]", "warn": "[ WARN ]", "down": "[ DOWN ]"}
+                header = {"ok": "NODE HEALTHY",
+                          "warn": "NODE DEGRADED",
+                          "down": "NODE UNHEALTHY"}[worst]
+                log_at = {"ok": self.logger.info,
+                          "warn": self.logger.warning,
+                          "down": self.logger.error}[worst]
 
+                log_at(f"===== {header} =====")
+                for name, (level, detail) in report.items():
+                    log_at(f"  {glyph[level]} {name:<10} {detail}")
+
+                # Supporting detail (kept at debug — the report above is the summary)
                 self.logger.debug(
-                    f"Transactions: {len(self.memserver.transaction_pool)}tp < {len(self.memserver.tx_buffer)}tb < {len(self.memserver.user_tx_buffer)}ub")
-                self.logger.debug(f"Linked Peers: {len(self.memserver.peers)}")
-                self.logger.warning(f"Emergency Mode: {self.memserver.emergency_mode}")
-                self.logger.warning(f"Current Block: {self.memserver.latest_block['block_number']} - {self.memserver.latest_block['block_hash']}")
-
-
-                self.logger.warning(
-                    f"Seconds since last block: {self.memserver.since_last_block}"
-                )
-
-                self.logger.warning(f"Unreachable: {len(self.memserver.purge_peers_list)} >>> {len(self.memserver.unreachable)}")
-                self.logger.warning(f"Forced sync: {self.memserver.force_sync_ip}")
-
-                fine = self.is_all_fine()
-                if fine["result"]:
-                    self.logger.debug(f"=== NODE IS OK! ===")
-                else:
-                    self.logger.error(f"!!! NODE IS NOT OK: {fine['flag']} !!!")
+                    f"Transactions: {len(self.memserver.transaction_pool)}tp < "
+                    f"{len(self.memserver.tx_buffer)}tb < {len(self.memserver.user_tx_buffer)}ub")
+                self.logger.debug(
+                    f"Tx hash agreement: {int(self.consensus.transaction_hash_pool_percentage)}%")
+                self.logger.debug(
+                    f"Latest hash: {self.memserver.latest_block['block_hash']}")
+                self.logger.debug(
+                    f"Purge queue: {len(self.memserver.purge_peers_list)} · "
+                    f"Forced sync: {self.memserver.force_sync_ip}")
 
                 self.logger.info(f"Loop durations: Core: {self.core.duration}; "
                                  f"Consensus: {self.consensus.duration}; "
