@@ -27,6 +27,7 @@ import { treePath } from "./stark/tree.js";
 import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js";
 const CHAIN_ID = "nado-relaunch-3";
 const EPOCH_LENGTH = 60;
+const FINALITY_DEPTH = 30;     // protocol.py: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1
 const REGISTER_POW_BITS = 16;  // legacy hashcash (retired) — kept only for the self-test vector
 // Registration Proof of Sequential Work (must match protocol.py). Non-parallelizable ~1 s chain; the
 // registration is a renewable presence LEASE renewed once ~POSW_LEASE_EPOCHS (≈1 day at ~8 min/epoch).
@@ -677,10 +678,10 @@ function nadoToRaw(amountStr) {
 // Estimate the bonded ("savings") lane APY from recent on-chain performance, plus the presence dividend.
 // Reward model (protocol.py): a bonded block pays the producer 70% (dividend 20%, treasury 10%); an open block
 // pays the producer 20% (dividend 70%, treasury 10%). The bonded lane mints (epoch_length - k_open)/epoch_length
-// of blocks (~80%). Bonded rewards are shared across all bonded shares (B_MIN = 100 NADO each), so the APY on
+// of blocks (~80%). Bonded rewards are shared across all bonded shares (B_MIN = 1,000 NADO each), so the APY on
 // staked capital ≈ (annual bonded producer reward ÷ total bonded shares) ÷ B_MIN. The dividend is paid to
 // PRESENT open-lane miners (not to stake), so it's shown separately as a capital-free bonus.
-const B_MIN_RAW = 1_000_000_000_000n;      // protocol.py: 100 NADO per bonded selection share
+const B_MIN_RAW = 10_000_000_000_000n;     // protocol.py: 1,000 NADO per bonded selection share (raised from 100)
 const BASE_SUBSIDY_RAW = 1_000_000_000n;   // protocol.py: 0.1 NADO/block reward floor
 async function estimateSavingsApy() {
   const box = $("apyResult");
@@ -1237,6 +1238,11 @@ async function pollOnce() {
     // AUTO-BOND: compound a % of new mining rewards into bonded stake (once/epoch). `acc` is fresh here.
     try { await maybeAutoBond(acc, null); } catch (e) { /* best-effort; never break the loop */ }
   }
+
+  // RANDAO duty — runs whether or not the open-lane miner is on: bonded stake earns NOTHING in an
+  // epoch it didn't reveal for (mandatory RANDAO), so any unlocked wallet holding >= B_MIN bonded
+  // participates while the tab is open. No-op for everyone else (one cheap /get_account check).
+  try { await maybeRandao(); } catch (e) { /* best-effort */ }
 }
 
 function startPollLoop() {
@@ -2241,6 +2247,88 @@ async function maybeAutoBond(acc, ms) {
       log("err", i18("log.autoBondRejected", "Auto-bond rejected: {m}", {m}));
     }
   } catch (e) { log("err", i18("log.autoBondError", "Auto-bond error: {m}", {m: e.message})); }
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * RANDAO duty (MANDATORY for bonded stake): commit a secret for epoch E in E-2, reveal it in E-1's
+ * finalized window. Consensus filters the bonded-lane producer draw to validators that REVEALED
+ * for the epoch (randao_eligible_bonded) — a bonded identity that skips this earns NOTHING that
+ * epoch. Mirrors the node's maybe_randao: best-effort, retried while each window lasts, secrets in
+ * localStorage so a tab reload between commit (E-2) and reveal (E-1) doesn't forfeit the epoch.
+ * The tab must be open sometime during BOTH windows (each >= ~5 min at 10 s blocks); an always-on
+ * node remains the reliable way to run serious stake.
+ * -------------------------------------------------------------------------------------------- */
+const RANDAO_RETRY_BLOCKS = 12;          // re-submit an unconfirmed commit/reveal every ~2 min
+function randaoKey() { return "nado_randao_" + state.wallet.address; }
+function loadRandao() { try { return JSON.parse(localStorage.getItem(randaoKey()) || "{}"); } catch { return {}; } }
+function saveRandao(m) { try { localStorage.setItem(randaoKey(), JSON.stringify(m)); } catch (e) { /* quota */ } }
+function randaoSecretHex() { const b = new Uint8Array(32); crypto.getRandomValues(b); return bytesToHex(b); }
+
+let _randaoBusy = false;
+async function maybeRandao() {
+  if (_randaoBusy || !state.wallet || state.locked || state.latest == null) return;
+  _randaoBusy = true;
+  try {
+    const acc = await getAccount(state.wallet.address);
+    if (!acc || BigInt(acc.bonded ?? 0) < B_MIN_RAW) return;   // duty applies to bonded validators only
+    const latest = state.latest;
+    const epochNow = Math.floor(latest / EPOCH_LENGTH);
+    const store = loadRandao();
+    let dirty = false;
+    for (const k of Object.keys(store)) {                      // prune epochs whose windows have passed
+      if (Number(k) <= epochNow) { delete store[k]; dirty = true; }
+    }
+
+    // COMMIT for epoch current+2 (we are in its E-2 window). Confirmation is observed as the
+    // node rejecting a re-submit with "Already committed" — until then, retry (throttled).
+    const eCommit = epochNow + 2;
+    let rec = store[eCommit];
+    if (!rec || !rec.committed) {
+      const tb = Math.min(latest + 5, (epochNow + 1) * EPOCH_LENGTH - 1);
+      const due = !rec || rec.lastTry == null || (latest - rec.lastTry) >= RANDAO_RETRY_BLOCKS;
+      if (tb > latest && due) {
+        if (!rec) { rec = store[eCommit] = { secret: randaoSecretHex() }; }
+        rec.lastTry = latest; dirty = true;
+        const commitment = blake2bHash(["nado-randao-commit", rec.secret]);
+        const tx = buildTransferTx(state.wallet, "commit", 0n, 0,
+                                   tb, { target_epoch: eCommit, commitment },
+                                   nowSeconds(), !pubkeyEstablished(acc));
+        const res = await submitTransaction(tx);
+        const msg = String(res.data && (res.data.message || ""));
+        if (/already committed/i.test(msg)) { rec.committed = true; }
+        else if (!(res.data && res.data.result) && msg) { log("err", i18("log.randaoCommitErr", "RANDAO commit rejected: {m}", {m: msg.slice(0, 120)})); }
+      }
+    }
+
+    // REVEAL for epoch current+1 (its E-1 finalized window) — this is what earns the epoch.
+    const eReveal = epochNow + 1;
+    const rrec = store[eReveal];
+    if (rrec && rrec.secret && !rrec.revealed) {
+      const lo = epochNow * EPOCH_LENGTH;
+      const hi = eReveal * EPOCH_LENGTH - FINALITY_DEPTH - 1;
+      const tb = latest + 5;
+      const due = rrec.lastReveal == null || (latest - rrec.lastReveal) >= RANDAO_RETRY_BLOCKS;
+      if (tb >= lo && tb <= hi && due) {
+        rrec.lastReveal = latest; dirty = true;
+        const tx = buildTransferTx(state.wallet, "reveal", 0n, 0,
+                                   tb, { target_epoch: eReveal, secret: rrec.secret },
+                                   nowSeconds(), !pubkeyEstablished(acc));
+        const res = await submitTransaction(tx);
+        const msg = String(res.data && (res.data.message || ""));
+        if (/already revealed/i.test(msg)) {
+          rrec.revealed = true;
+          log("ok", i18("log.randaoRevealed", "RANDAO reveal confirmed for epoch {e} — bonded lane eligible ✓", {e: eReveal}));
+        } else if (/no matching commit/i.test(msg)) {
+          rrec.revealed = true;        // commit never landed; nothing more to do for this epoch
+          log("err", i18("log.randaoNoCommit", "RANDAO: commit for epoch {e} never landed — bonded rewards skip this epoch.", {e: eReveal}));
+        } else if (!(res.data && res.data.result) && msg) {
+          log("err", i18("log.randaoRevealErr", "RANDAO reveal rejected: {m}", {m: msg.slice(0, 120)}));
+        }
+      }
+    }
+    if (dirty) saveRandao(store);
+  } catch (e) { /* best-effort; never break the poll loop */ }
+  finally { _randaoBusy = false; }
 }
 
 /* ---- Payment-request deep links: QR / shareable URL that prefills a Send on scan ---- */
