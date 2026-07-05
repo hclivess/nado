@@ -33,7 +33,7 @@ from ops.log_ops import get_logger
 from ops.peer_ops import save_peer, get_remote_status, check_ip, me_to
 from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
 from ops import snapshot_ops
-from protocol import GENESIS_ADDRESS, TREASURY_ADDRESS, TREASURY_GENESIS, GENESIS_TIMESTAMP
+from protocol import GENESIS_ADDRESS, TREASURY_ADDRESS, TREASURY_GENESIS, GENESIS_TIMESTAMP, CHAIN_ID
 
 import gc  # replaces pympler/muppy — the full-heap walk fatally trips CPython GC under asyncio load
 
@@ -161,6 +161,10 @@ async def status(request):
             "ffg_finalized": memserver.ffg_finalized,
             "protocol": memserver.protocol,
             "version": memserver.version,
+            # NETWORK PARTITION KEY: peers gate admission on this (peer_loop) so nodes on a different
+            # chain (e.g. a pre-relaunch alphanet) never enter the status/consensus pools — a foreign
+            # chain's advertised weight would otherwise stall production via the caught-up gate.
+            "chain_id": CHAIN_ID,
         }
         try:
             _ch = snapshot_ops.latest_final_checkpoint_height(memserver.finalized_height)

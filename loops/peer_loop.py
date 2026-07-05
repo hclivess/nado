@@ -9,6 +9,7 @@ from config import test_self_port
 from ops.peer_ops import announce_me, get_list_of_peers, load_ips, check_save_peers
 from ops.peer_ops import get_public_ip, update_local_ip, check_ip, subnet_diversity_ok
 from ops.peer_ops import seed_default_peers, seed_peers
+from protocol import CHAIN_ID
 
 # How often (seconds) a node BELOW min_peers re-seeds + reloads peers from drive. The peer loop still spins
 # ~1/s for status/tx work, but the "No peers, reloading from drive" retry is throttled to this so a peerless
@@ -167,11 +168,18 @@ class PeerClient(threading.Thread):
                 )
 
                 for key, value in candidates.items():
-                    if value['protocol'] >= self.memserver.protocol:
-                        self.consensus.status_pool[key]=value
-                    else:
+                    if value['protocol'] < self.memserver.protocol:
                         self.logger.error(f"Protocol of {key} too low: {value['protocol']}")
                         self.memserver.ban_peer(key)
+                    elif value.get('chain_id') != CHAIN_ID:
+                        # WRONG CHAIN (or a pre-chain_id node that doesn't advertise one): NEVER admit
+                        # its status — a foreign chain's tip weight in the pools flips the caught-up
+                        # gate (_peer_ahead) and minority_block_consensus, stalling production and
+                        # looping emergency sync against blocks verify_block can only reject.
+                        self.logger.error(f"Chain of {key} is not {CHAIN_ID}: {value.get('chain_id')}")
+                        self.memserver.ban_peer(key)
+                    else:
+                        self.consensus.status_pool[key]=value
 
                 self.purge_peers()
                 self.duration = get_timestamp_seconds() - start
