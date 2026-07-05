@@ -208,6 +208,9 @@ BASE_SUBSIDY = 1_000_000_000  # 0.1 NADO/block raw = MAX emission/block (~144 NA
 # stake-dominated once bonding is live (shares >> 1). Height-gated so already-committed blocks
 # (old formula, weight inside the hash preimage) still verify on replay/sync; every node MUST run
 # this code before the chain reaches the activation height or it will reject new blocks.
+# !!! ON ANY CHAIN RESET (mainnet genesis / alphanet wipe): SET THIS TO 0 — a fresh chain gated at
+# 7000 would mint its first 7000 blocks with ZERO weight again, re-arming this exact wedge during
+# bootstrap. The gate exists ONLY to keep the current alphanet's pre-fix blocks verifiable.
 WEIGHT_HEIGHT_TERM_START = 7000
 
 BOND_ELASTIC_MULT_BPS = [
