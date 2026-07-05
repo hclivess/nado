@@ -52,6 +52,7 @@ Won't shill, but a mention or "interesting design" nod carries weight with the p
 | fluffypony (Riccardo Spagni) | [@fluffypony](https://x.com/fluffypony) | X | Monero founder; technical privacy audience. | ☐ Not contacted |
 | Loomdart | [@loomdart](https://x.com/loomdart) | X | Crypto OG (eGirl Capital angel, created the Wassies), semi-retired derivatives trader, FTX-2.0/self-custody advocate. OG-CT cred, degen-adjacent — the same OG crowd that knew Bismuth. Verify fit. | ☐ Not contacted |
 | wassielawyer | [@wassielawyer](https://x.com/wassielawyer) | X | Crypto lawyer; self-custody / anti-CEX / FTX-victim advocacy. Degen-adjacent CT but genuine cypherpunk overlap on the "not your keys" / anti-surveillance angle. | ☐ Not contacted |
+| wasserpest (maru.eth) | [@wasserpest](https://x.com/wasserpest) | X | OG CT anon who originated the Wassie lore (2017). Deep roots in the OG/degen-adjacent crypto-Twitter crowd — same era that knew Bismuth. | ☐ Not contacted |
 
 ## Tier 3 — Technical / builder reach (higher bar, higher payoff)
 
