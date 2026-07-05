@@ -33,12 +33,12 @@ Cover "what should I mine next" and new PoW launches. Highest conversion for a m
 
 | Who | Handle (verify) | Platform | Why they fit | Status |
 |---|---|---|---|---|
-| notsofast | `@notsofast` | X / YouTube | OG small-cap/fair-launch/mining voice, covered Bismuth, cypherpunk-adjacent. Warmest lead. | ☐ Not contacted |
-| VoskCoin | `@VoskCoin` | YouTube / X | Biggest "new coins to mine / profitability" channel. Exactly the launch audience. | ☐ Not contacted |
-| Red Panda Mining | `@RedPandaMining` | YouTube / X | GPU-mining community, new-coin coverage, day-one miners. | ☐ Not contacted |
-| Sebs FinTech Channel | verify | YouTube | Mid-size mining channel, spotlights fresh PoW launches. | ☐ Not contacted |
-| Son of a Tech | verify | YouTube | Mining hardware + new-coin coverage. | ☐ Not contacted |
-| BitsBeTrippin | verify | YouTube / X | Long-running mining channel, early-coin friendly. | ☐ Not contacted |
+| notsofast | [@notsofast](https://x.com/notsofast) | X / YouTube | OG small-cap/fair-launch/mining voice, covered Bismuth, cypherpunk-adjacent. Warmest lead. | ☐ Not contacted |
+| VoskCoin | [@VoskCoin](https://x.com/VoskCoin) | YouTube / X | Biggest "new coins to mine / profitability" channel. Exactly the launch audience. | ☐ Not contacted |
+| Red Panda Mining | [@RedPandaMining](https://x.com/RedPandaMining) | YouTube / X | GPU-mining community, new-coin coverage, day-one miners. | ☐ Not contacted |
+| Sebs FinTech Channel | [verify ↗](https://www.youtube.com/results?search_query=Sebs+FinTech+Channel) | YouTube | Mid-size mining channel, spotlights fresh PoW launches. | ☐ Not contacted |
+| Son of a Tech | [verify ↗](https://www.youtube.com/results?search_query=Son+of+a+Tech) | YouTube | Mining hardware + new-coin coverage. | ☐ Not contacted |
+| BitsBeTrippin | [verify ↗](https://www.youtube.com/results?search_query=BitsBeTrippin) | YouTube / X | Long-running mining channel, early-coin friendly. | ☐ Not contacted |
 
 ## Tier 2 — Privacy / cypherpunk credibility
 
@@ -46,10 +46,12 @@ Won't shill, but a mention or "interesting design" nod carries weight with the p
 
 | Who | Handle (verify) | Platform | Why they fit | Status |
 |---|---|---|---|---|
-| Seth For Privacy | `@sethforprivacy` | X | Leading privacy/Monero educator. Ideal for the STARK/FRI + PQ story. | ☐ Not contacted |
-| Naomi Brockwell | `@naomibrockwell` | X / YouTube | Privacy-education reach beyond crypto. | ☐ Not contacted |
-| Andreas Antonopoulos | `@aantonop` | X / YouTube | Cypherpunk cred; long-shot but on-narrative. | ☐ Not contacted |
-| fluffypony (Riccardo Spagni) | `@fluffypony` | X | Monero founder; technical privacy audience. | ☐ Not contacted |
+| Seth For Privacy | [@sethforprivacy](https://x.com/sethforprivacy) | X | Leading privacy/Monero educator. Ideal for the STARK/FRI + PQ story. | ☐ Not contacted |
+| Naomi Brockwell | [@naomibrockwell](https://x.com/naomibrockwell) | X / YouTube | Privacy-education reach beyond crypto. | ☐ Not contacted |
+| Andreas Antonopoulos | [@aantonop](https://x.com/aantonop) | X / YouTube | Cypherpunk cred; long-shot but on-narrative. | ☐ Not contacted |
+| fluffypony (Riccardo Spagni) | [@fluffypony](https://x.com/fluffypony) | X | Monero founder; technical privacy audience. | ☐ Not contacted |
+| Loomdart | [@loomdart](https://x.com/loomdart) | X | Crypto OG (eGirl Capital angel, created the Wassies), semi-retired derivatives trader, FTX-2.0/self-custody advocate. OG-CT cred, degen-adjacent — the same OG crowd that knew Bismuth. Verify fit. | ☐ Not contacted |
+| wassielawyer | [@wassielawyer](https://x.com/wassielawyer) | X | Crypto lawyer; self-custody / anti-CEX / FTX-victim advocacy. Degen-adjacent CT but genuine cypherpunk overlap on the "not your keys" / anti-surveillance angle. | ☐ Not contacted |
 
 ## Tier 3 — Technical / builder reach (higher bar, higher payoff)
 
@@ -57,16 +59,27 @@ Respond to substance — aim a technical thread on the post-quantum transparent-
 
 | Who | Handle (verify) | Platform | Why they fit | Status |
 |---|---|---|---|---|
-| Boxmining | `@boxmining` | YouTube / X | Mining + tech, ~547K subs, covers new tech. | ☐ Not contacted |
-| Ivan on Tech | `@IvanOnTech` | YouTube / X | Technical/education audience. | ☐ Not contacted |
-| Coin Bureau (Guy Turner) | `@coinbureau` | YouTube / X | Huge reach, structured education. Pay-to-play, low fit, long shot. | ☐ Not contacted |
-| EllioTrades | `@elliotrades` | YouTube / X | Altcoin-gem reach. Pay-to-play, low fit, long shot. | ☐ Not contacted |
+| Boxmining | [@boxmining](https://x.com/boxmining) | YouTube / X | Mining + tech, ~547K subs, covers new tech. | ☐ Not contacted |
+| Ivan on Tech | [@IvanOnTech](https://x.com/IvanOnTech) | YouTube / X | Technical/education audience. | ☐ Not contacted |
+| Coin Bureau (Guy Turner) | [@coinbureau](https://x.com/coinbureau) | YouTube / X | Huge reach, structured education. Pay-to-play, low fit, long shot. | ☐ Not contacted |
+| EllioTrades | [@elliotrades](https://x.com/elliotrades) | YouTube / X | Altcoin-gem reach. Pay-to-play, low fit, long shot. | ☐ Not contacted |
+
+## Tier 4 — High reach, off-narrative (paid long-shot)
+
+Huge audiences but memecoin/markets-focused, **not** fair-launch/privacy/mining. Pay-to-play only — worth it
+solely as a paid reach gamble, never organic: their audience wants 100x flips, not a minable privacy PoW coin.
+
+| Who | Handle (verify) | Platform | Why (barely) | Status |
+|---|---|---|---|---|
+| Ansem | [@blknoiz06](https://x.com/blknoiz06) | X | ~750K followers; THE Solana/memecoin voice (520x WIF, 80x BONK). Massive reach, off-narrative, pay-to-play. | ☐ Not contacted |
+| Ash Crypto | [@Ashcryptoreal](https://x.com/Ashcryptoreal) | X | ~1.4–1.7M followers; markets/news + WealthMastery newsletter. Generic-markets reach, off-narrative, pay-to-play. | ☐ Not contacted |
+| Altcoin Gordon | [@AltcoinGordon](https://x.com/AltcoinGordon) ⚠ verify | X | Gordon-Gekko-persona altcoin trader (chart setups, narrative trades). NOTE: the crypto "Gordon Gekko" is @AltcoinGordon, NOT @GordonGekko. Reach yes, off-narrative, pay-to-play. | ☐ Not contacted |
 
 ## Avoid / dead
 
 | Who | Handle | Why avoid |
 |---|---|---|
-| BitBoy / Ben Armstrong | `@BitBoy_Crypto` | Net worth ~$100k, no posts in ~5 months, $2.8M O'Leary defamation judgment (Feb 2026). Zero value, reputational risk. |
+| BitBoy / Ben Armstrong | [@BitBoy_Crypto](https://x.com/BitBoy_Crypto) | Net worth ~$100k, no posts in ~5 months, $2.8M O'Leary defamation judgment (Feb 2026). Zero value, reputational risk. |
 | "BitBoy Crypto" channel | — | Rebranded to **Discover Crypto** without Armstrong; generic team content, no fit. |
 
 ---
