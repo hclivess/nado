@@ -13,7 +13,7 @@ from Curve25519 import sign as _sign_message, verify as _verify_message, unhex a
 from .address_ops import proof_sender, make_address
 from . import kv_ops
 from .mining_ops import (select_producer_two_lane, lane_of, epoch_of, compute_beacon,
-                         total_bonded_shares, block_fork_weight)
+                         total_bonded_shares, block_fork_weight, beacon_commitment)
 from protocol import (CHAIN_ID, REWARD_WINDOW, BASE_SUBSIDY, GENESIS_BEACON, EPOCH_LENGTH,
                       B_MIN, TREASURY_GENESIS, BOND_ELASTIC_MULT_BPS)
 import zstandard as zstd
@@ -135,12 +135,15 @@ def get_block_candidate(
     beacon = epoch_beacon(epoch)
     open_registry = get_open_registry(epoch)
     bonded_registry = get_bonded_registry()
-    winner = select_producer_two_lane(open_registry, bonded_registry, beacon, slot=block_number)
+    # MANDATORY RANDAO: only validators that revealed for this epoch enter the DRAW. The full
+    # registry still backs block_fork_weight below (withholding must not move fork-choice).
+    eligible_bonded = randao_eligible_bonded(bonded_registry, epoch)
+    winner = select_producer_two_lane(open_registry, eligible_bonded, beacon, slot=block_number)
     if winner is None:
         logger.error("No eligible producer (open+bonded empty / bonded slot skipped); skipping block")
         return None
     logger.info(f"Block {block_number} producer [{lane_of(block_number, beacon)} lane]: {winner} "
-                f"(open:{len(open_registry)} bonded:{len(bonded_registry)})")
+                f"(open:{len(open_registry)} bonded:{len(eligible_bonded)}/{len(bonded_registry)})")
 
     targeted_transactions = match_transactions_target(transaction_list=transaction_pool.copy(),
                                                       block_number=block_number,
@@ -315,6 +318,41 @@ def epoch_beacon(epoch):
     # to the anchor-only value (liveness); compute_beacon re-sorts, so input order is irrelevant.
     secrets = kv_ops.reveals_for_epoch(epoch)
     return compute_beacon(GENESIS_BEACON, [anchor] + secrets)
+
+
+# memo for randao_eligible_bonded: {(epoch, sorted-secrets-tuple): {opened commitments}} — reveals
+# for an epoch are FINALIZED before its first slot (reveal window ends EPOCH_LENGTH*E - FINALITY_DEPTH - 1),
+# so during epoch E the set is immutable; keying by the secret tuple makes the memo self-correcting
+# anyway (an E-1 reorg that removes a reveal changes the key). Bounded to one entry.
+_randao_elig_memo = {}
+
+
+def randao_eligible_bonded(bonded_registry: dict, epoch: int) -> dict:
+    """MANDATORY RANDAO (consensus): the bonded-lane producer draw for epoch E only admits bonded
+    identities that REVEALED their committed secret for E — no reveal, no production rights that
+    epoch. This is the withholding penalty the RANDAO design deferred ('penalised at the
+    integration layer'): the last revealer still holds the 1-bit reveal/withhold choice, but
+    exercising it now forfeits an entire epoch of bonded rewards instead of being free, and a
+    validator that never participates never produces. Deterministic: reveals/commits are committed
+    parent state, finalized before epoch E begins, so every node filters identically at any time
+    (replay included). Epochs 0-1 are exempt (no commit window exists for them — validation
+    requires target_epoch >= 2). An ALL-withheld epoch filters to {} which
+    select_producer_two_lane treats as an empty bonded lane -> open-lane fallback: liveness is
+    never at stake, and a lazy bond can dilute the OPEN_BPS ceiling only by forfeiting all of its
+    own rewards. FFG/settlement/treasury quorums intentionally stay on the FULL registry —
+    finality must not hinge on beacon participation. Fork weight (block_fork_weight) also stays on
+    the FULL registry, else withholding would manipulate fork-choice."""
+    if epoch < 2 or not bonded_registry:
+        return bonded_registry
+    secrets = tuple(sorted(kv_ops.reveals_for_epoch(epoch)))
+    memo_key = (epoch, secrets)
+    revealed = _randao_elig_memo.get(memo_key)
+    if revealed is None:
+        revealed = {beacon_commitment(s) for s in secrets}
+        _randao_elig_memo.clear()
+        _randao_elig_memo[memo_key] = revealed
+    return {a: info for a, info in bonded_registry.items()
+            if kv_ops.commit_get(a, epoch) in revealed}
 
 
 def mining_status(address, latest_block_number, block_time):

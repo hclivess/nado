@@ -28,6 +28,7 @@ from ops.block_ops import (
     verify_block_signature,
     get_block_hash_by_number,
     prune_block_bodies,
+    randao_eligible_bonded,
 )
 from ops.mining_ops import select_producer_two_lane, epoch_of, total_bonded_shares, block_fork_weight
 from ops import kv_ops
@@ -692,7 +693,10 @@ class CoreClient(threading.Thread):
         block_number = parent["block_number"] + 1
         _epoch = epoch_of(block_number)
         bonded_registry = get_bonded_registry()  # as-of-parent (tip == parent here)
-        winner = select_producer_two_lane(get_open_registry(_epoch), bonded_registry,
+        # MANDATORY RANDAO: draw over the revealed-for-this-epoch subset; the FULL registry still
+        # feeds block_fork_weight below (withholding must not move fork-choice).
+        winner = select_producer_two_lane(get_open_registry(_epoch),
+                                          randao_eligible_bonded(bonded_registry, _epoch),
                                           epoch_beacon(_epoch), slot=block_number)
         return construct_block(
             # CRITICAL: use the INCOMING block's OWN timestamp, NOT our wall-clock. rebuild_block
@@ -830,14 +834,18 @@ class CoreClient(threading.Thread):
             current_epoch = epoch_of(latest["block_number"])
             kd = self.memserver.keydict
 
-            # COMMIT for epoch current+2 (we are in its E-2), once
+            # COMMIT for epoch current+2 (we are in its E-2). RETRIED while the window lasts: the
+            # old single-shot guard (skip once the secret existed in randao_secrets) meant a commit
+            # tx that missed its exact target_block was never re-issued — the validator silently sat
+            # out the whole epoch, which now costs its production rights (mandatory RANDAO). Reusing
+            # the stored secret keeps the commitment identical, so a raced duplicate is simply
+            # rejected by validation ("Already committed for this epoch").
             e_commit = current_epoch + 2
-            if (e_commit not in self.memserver.randao_secrets
-                    and kv_ops.commit_get(self.memserver.address, e_commit) is None
+            if (kv_ops.commit_get(self.memserver.address, e_commit) is None
                     and not self._reserved_tx_pending("commit", e_commit)):
                 target_block = min(latest["block_number"] + 5, (current_epoch + 1) * EPOCH_LENGTH - 1)
                 if target_block > latest["block_number"]:
-                    secret = _secrets.token_hex(32)
+                    secret = self.memserver.randao_secrets.get(e_commit) or _secrets.token_hex(32)
                     self.memserver.randao_secrets[e_commit] = secret
                     tx = construct_commit_tx(kd, e_commit, beacon_commitment(secret), target_block)
                     self.memserver.merge_transaction(tx, user_origin=True)
@@ -1045,8 +1053,10 @@ class CoreClient(threading.Thread):
         block's parent before calling this (else it would read post-apply state)."""
         block_number = block["block_number"]
         epoch = epoch_of(block_number)
+        # MANDATORY RANDAO (consensus): verification draws over the same revealed-for-epoch subset
+        # production uses — a block minted by a non-revealing bonded validator is rejected here.
         winner = select_producer_two_lane(get_open_registry(epoch),
-                                          get_bonded_registry(),
+                                          randao_eligible_bonded(get_bonded_registry(), epoch),
                                           epoch_beacon(epoch),
                                           slot=block_number)
         if winner is None:
