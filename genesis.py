@@ -121,13 +121,21 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
     if os.path.exists(alloc_path):
         with open(alloc_path) as af:
             alloc = json.load(af)
+        carried = 0
         for e in sorted(alloc, key=lambda x: x["address"]):
             # AUTHORITATIVE set (not create_account's insert-or-ignore): a carried balance/stake must apply
             # even when genesis_open.dat already created this address as a registered relay identity above,
             # otherwise its coins would be silently dropped. account_set_field preserves other fields.
             kv_ops.account_set_field(e["address"], "balance", int(e.get("balance", 0)))
             kv_ops.account_set_field(e["address"], "bonded", int(e.get("bonded", 0)))
-        logger.warning(f"RELAUNCH: carried forward {len(alloc)} account balances from the prior chain")
+            carried += int(e.get("balance", 0)) + int(e.get("bonded", 0))
+        # Count carried-forward coins (balances + locked bonded stake — all real, refundable supply) into
+        # totals so total_supply == TREASURY_GENESIS + produced - fees is accurate: get_supply reports the
+        # true supply, and the BOND-ELASTIC emission ratio (bonded/total_supply) has a correct denominator
+        # instead of dividing by block-produced-only supply. No-op on a fresh no-premine chain (alloc empty).
+        if carried:
+            kv_ops.totals_add(carried, 0)
+        logger.warning(f"RELAUNCH: carried forward {len(alloc)} account balances ({carried} raw) from the prior chain")
 
     # FAUCET GUARD: there is intentionally NO auto-bond faucet anywhere. Granting a fresh address a
     # bonded share would pipe the CAPPED free lane into the UNCAPPED capital lane (a Sybil ->

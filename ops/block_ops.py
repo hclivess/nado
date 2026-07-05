@@ -5,7 +5,7 @@ import time
 import msgpack
 import requests
 import aiohttp
-from .account_ops import get_bonded_registry, get_open_registry
+from .account_ops import get_bonded_registry, get_open_registry, fetch_totals
 from config import get_timestamp_seconds, get_config, hostport
 from .data_ops import average, get_home, is_hex_hash
 from hashing import blake2b_hash_link, blake2b_hash
@@ -13,7 +13,8 @@ from Curve25519 import sign as _sign_message, verify as _verify_message, unhex a
 from .address_ops import proof_sender, make_address
 from . import kv_ops
 from .mining_ops import select_producer_two_lane, lane_of, epoch_of, compute_beacon, total_bonded_shares
-from protocol import CHAIN_ID, REWARD_WINDOW, REWARD_CAP, BASE_SUBSIDY, GENESIS_BEACON, EPOCH_LENGTH
+from protocol import (CHAIN_ID, REWARD_WINDOW, REWARD_CAP, BASE_SUBSIDY, GENESIS_BEACON, EPOCH_LENGTH,
+                      B_MIN, TREASURY_GENESIS, BOND_ELASTIC_MULT_BPS)
 import zstandard as zstd
 
 # Block bodies are stored as zstd(msgpack(block)) (#14): msgpack is a compact portable container,
@@ -44,18 +45,34 @@ def _unpack_wire(body: bytes):
 
 
 
+def bond_elastic_mult_bps() -> int:
+    """Bond-elastic emission multiplier in basis points (super hard money — doc/bond-elastic-emission.md).
+    The more the network bonds (ratio r = bonded / total_supply), the less is minted; combined with fee
+    destruction this makes NADO net-deflationary under usage, with a perpetual tail so security never dies.
+
+    Reads COMMITTED state (bonded registry + cumulative totals). This is deterministic for the SAME reason
+    verify_block already recomputes cumulative_weight from live get_bonded_registry(): during sequential
+    incorporation the committed state IS the block's parent state, and a snapshot node carries full state
+    as-of its checkpoint — so every node type computes the identical multiplier. Integer-only (a runtime
+    float could fork on last-ULP differences); the curve lives in the hardcoded BOND_ELASTIC_MULT_BPS table."""
+    bonded = total_bonded_shares(get_bonded_registry()) * B_MIN
+    t = fetch_totals()
+    supply = TREASURY_GENESIS + t.get("produced", 0) - t.get("fees", 0)
+    if supply <= 0 or bonded <= 0:
+        return BOND_ELASTIC_MULT_BPS[0]                 # r=0 -> full emission (bootstrap / genesis)
+    pct = (bonded * 100) // supply
+    return BOND_ELASTIC_MULT_BPS[min(100, pct)]
+
+
 def get_block_reward(parent_block):
-    """Fee-weighted elastic block reward, computed as a PURE function of the block's own
-    ancestry (NOT the verifier's tip), so a full node and a snapshot/pruned node agree on it
-    and neither rejects the other's blocks. Every block header carries `cumulative_fees`, the
-    running total of fees burned up to and including that block; the reward for the child of
-    `parent_block` is the average fee per block over the last REWARD_WINDOW blocks:
+    """Fee-weighted elastic block reward, then scaled by the BOND-ELASTIC multiplier (bond_elastic_mult_bps).
 
-        reward = (cumFee[parent] - cumFee[parent_height - REWARD_WINDOW]) // REWARD_WINDOW
-
-    capped at REWARD_CAP. This is one indexed lookback (get_block_number) instead of the old
-    REWARD_WINDOW-deep block-file walk on every call (audit: tip-anchored walk would fork
-    snapshot nodes and was a hot-path perf regression; the old fee_over_blocks was also buggy)."""
+    The fee term is a PURE function of the block's ancestry (header cumulative_fees, not the verifier's tip):
+        fee_weighted = clamp((cumFee[parent] - cumFee[parent-REWARD_WINDOW]) / REWARD_WINDOW, BASE_SUBSIDY, CAP)
+    The bond-elastic multiplier reads committed parent state (see bond_elastic_mult_bps) — deterministic the
+    same way verify_block's cumulative_weight recompute is. Both full and snapshot/pruned nodes agree.
+        reward = fee_weighted * m(bonded_ratio)
+    m <= 1, so reward stays within [m*BASE_SUBSIDY (perpetual tail), REWARD_CAP]."""
     end_cumfee = parent_block.get("cumulative_fees", 0)
     lookback_height = parent_block["block_number"] - REWARD_WINDOW
     if lookback_height < 0:
@@ -72,6 +89,9 @@ def get_block_reward(parent_block):
         reward = BASE_SUBSIDY
     if reward > REWARD_CAP:
         reward = REWARD_CAP
+    # BOND-ELASTIC scaling: shrink emission as bonded conviction rises (integer bps math). m<=1 keeps the
+    # result within [m*BASE_SUBSIDY, REWARD_CAP], so the cap holds and a perpetual tail remains.
+    reward = reward * bond_elastic_mult_bps() // 10000
     return reward
 
 

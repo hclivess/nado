@@ -183,6 +183,30 @@ REWARD_CAP = 5_000_000_000   # max reward per block (0.5 NADO), raw
 # (every fair-launch coin has a block subsidy). Tunable; a halving schedule is future work.
 BASE_SUBSIDY = 1_000_000_000  # 0.1 NADO/block raw floor (~144 NADO/day at 60s blocks: 1440 blocks * 0.1)
 
+# --- BOND-ELASTIC EMISSION (super hard money — see doc/bond-elastic-emission.md) ---
+# The block reward is scaled by a multiplier m(r) that shrinks as the bonded ratio r rises: the more the
+# network locks up (conviction), the less it mints. Combined with fee destruction this makes NADO
+# net-deflationary under real usage, while a perpetual tail (m never reaches 0) means block production is
+# ALWAYS incentivised — no hard cap, no security cliff (Monero reasoning).
+#   m(r) = M_MIN + (1-M_MIN)*exp(-k*r),  M_MIN=0.2, k=3,  applied uniformly to BOTH lanes.
+# CONSENSUS-SAFE: the multiplier is a HARDCODED INTEGER table in basis points indexed by the bonded ratio
+# in whole percent (0..100) — never a runtime float, because a last-ULP math.exp difference across
+# platforms could fork the chain. reward = reward * BOND_ELASTIC_MULT_BPS[pct] // 10000.
+# Regenerate on a param change:  [round((0.2+0.8*exp(-3*p/100))*10000) for p in range(101)]
+BOND_ELASTIC_MULT_BPS = [
+    10000, 9764, 9534, 9311, 9095, 8886, 8682, 8485, 8293, 8107,
+    7927, 7751, 7581, 7416, 7256, 7101, 6950, 6804, 6662, 6524,
+    6390, 6261, 6135, 6013, 5894, 5779, 5667, 5559, 5454, 5352,
+    5253, 5156, 5063, 4973, 4885, 4800, 4717, 4636, 4559, 4483,
+    4410, 4338, 4269, 4202, 4137, 4074, 4013, 3953, 3895, 3839,
+    3785, 3732, 3681, 3631, 3583, 3536, 3491, 3447, 3404, 3363,
+    3322, 3283, 3245, 3209, 3173, 3138, 3105, 3072, 3040, 3009,
+    2980, 2951, 2923, 2895, 2869, 2843, 2818, 2794, 2771, 2748,
+    2726, 2704, 2683, 2663, 2644, 2625, 2606, 2588, 2571, 2554,
+    2538, 2522, 2506, 2491, 2477, 2463, 2449, 2436, 2423, 2410,
+    2398,
+]
+
 # NO PREMINE (owner decision 2026-06-30): genesis mints ZERO coins. No founder allocation, no
 # treasury seed. A fresh chain bootstraps purely through the OPEN mining lane (register for free,
 # earn the BASE_SUBSIDY) — not a pre-funded balance. The treasury still accrues TREASURY_BPS of
