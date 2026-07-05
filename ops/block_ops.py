@@ -12,7 +12,8 @@ from hashing import blake2b_hash_link, blake2b_hash
 from Curve25519 import sign as _sign_message, verify as _verify_message, unhex as _unhex
 from .address_ops import proof_sender, make_address
 from . import kv_ops
-from .mining_ops import select_producer_two_lane, lane_of, epoch_of, compute_beacon, total_bonded_shares
+from .mining_ops import (select_producer_two_lane, lane_of, epoch_of, compute_beacon,
+                         total_bonded_shares, block_fork_weight)
 from protocol import (CHAIN_ID, REWARD_WINDOW, BASE_SUBSIDY, GENESIS_BEACON, EPOCH_LENGTH,
                       B_MIN, TREASURY_GENESIS, BOND_ELASTIC_MULT_BPS)
 import zstandard as zstd
@@ -158,7 +159,7 @@ def get_block_candidate(
         block_reward=get_block_reward(parent_block=latest_block),
         parent_cumulative_fees=latest_block.get("cumulative_fees", 0),
         parent_cumulative_weight=latest_block.get("cumulative_weight", 0),
-        block_weight=total_bonded_shares(bonded_registry),  # as-of-parent (registry read above)
+        block_weight=block_fork_weight(bonded_registry, block_number),  # as-of-parent (registry read above)
     )
     return block
 

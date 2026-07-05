@@ -21,7 +21,8 @@ Design (from the red-teamed "Option A" hybrid):
 """
 from hashing import blake2b_hash
 from protocol import (B_MIN, BOND_CAP, EPOCH_LENGTH, FIDELITY_CAP, BOND_RAMP_EPOCHS,
-                      K_OPEN, OPEN_BASE_FLOOR, OPEN_FID_BONUS, REGISTER_POW_BITS)
+                      K_OPEN, OPEN_BASE_FLOOR, OPEN_FID_BONUS, REGISTER_POW_BITS,
+                      WEIGHT_HEIGHT_TERM_START)
 
 
 def epoch_of(block_number: int) -> int:
@@ -56,6 +57,18 @@ def total_bonded_shares(bonded_registry: dict) -> int:
     fork weight) and removes any self-bond-on-a-private-fork leverage. Browser-reproducible (integer
     only). fidelity is intentionally excluded so the weight does not drift with presence ramps."""
     return sum(selection_shares(info.get("bonded", 0)) for info in bonded_registry.values())
+
+
+def block_fork_weight(bonded_registry: dict, block_number: int) -> int:
+    """The per-block cumulative_weight increment: total_bonded_shares as-of-parent, PLUS a +1
+    height term from WEIGHT_HEIGHT_TERM_START (see protocol.py for the wedge this fixes: with an
+    empty bonded registry the old shares-only rule froze cumulative_weight network-wide and
+    fork-choice collapsed to the lowest-hash tie-break). Strictly increasing weight = pure
+    longest-chain while nothing is bonded, stake-dominated once bonding is live. CONSENSUS: the
+    result is committed inside the block-hash preimage and re-verified as-of-parent — every
+    construction/rebuild/verify site must use THIS function, never total_bonded_shares directly."""
+    height_term = 1 if block_number >= WEIGHT_HEIGHT_TERM_START else 0
+    return total_bonded_shares(bonded_registry) + height_term
 
 
 def select_producer(registry: dict, beacon: str, slot: int):

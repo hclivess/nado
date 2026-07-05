@@ -29,7 +29,7 @@ from ops.block_ops import (
     get_block_hash_by_number,
     prune_block_bodies,
 )
-from ops.mining_ops import select_producer_two_lane, epoch_of, total_bonded_shares
+from ops.mining_ops import select_producer_two_lane, epoch_of, total_bonded_shares, block_fork_weight
 from ops import kv_ops
 from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW
 from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size
@@ -670,7 +670,7 @@ class CoreClient(threading.Thread):
             block_reward=get_block_reward(parent_block=parent),
             parent_cumulative_fees=parent.get("cumulative_fees", 0),
             parent_cumulative_weight=parent.get("cumulative_weight", 0),
-            block_weight=total_bonded_shares(bonded_registry))
+            block_weight=block_fork_weight(bonded_registry, block_number))
 
     def incorporate_block(self, block: dict, sorted_transactions: list):
         """successful execution mandatory, must not raise a failure"""
@@ -1051,7 +1051,8 @@ class CoreClient(threading.Thread):
             # in-block bond txs land, the rollback/snapshot re-verify path must reset the tip to the
             # block's parent before this runs.)
             parent_weight = self.memserver.latest_block.get("cumulative_weight", 0)
-            expected_weight = parent_weight + total_bonded_shares(get_bonded_registry())
+            expected_weight = parent_weight + block_fork_weight(get_bonded_registry(),
+                                                                block["block_number"])
             if block.get("cumulative_weight") != expected_weight:
                 raise ValueError(
                     f"Block cumulative_weight {block.get('cumulative_weight')} != deterministic "

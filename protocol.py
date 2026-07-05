@@ -197,6 +197,19 @@ BASE_SUBSIDY = 1_000_000_000  # 0.1 NADO/block raw = MAX emission/block (~144 NA
 # percent (0..100) — never a runtime float (a last-ULP math.exp diff across platforms could fork the chain).
 #   reward = reward * BOND_ELASTIC_MULT_BPS[pct] // 10000.
 # Regenerate on a param change:  [round((0.15+0.85*exp(-4*p/100))*10000) for p in range(101)]
+# --- FORK-CHOICE WEIGHT HEIGHT TERM (consensus, height-gated activation) ---
+# From this height every block adds +1 to cumulative_weight ON TOP of total_bonded_shares. With an
+# EMPTY bonded registry (as after the B_MIN 100->1000 raise) the old rule added ZERO per block, so
+# the whole network advertised one frozen cumulative_weight, argmax fork-choice degenerated to the
+# lowest-hash tie-break, and a stalled node whose tip hash happened to sort low considered ITSELF
+# canonical forever — it never entered emergency sync (observed live 2026-07-05: node wedged at
+# #5781 / 06d65d... with weight 23040 while the network advanced, every tip also at 23040). The +1
+# height term makes weight STRICTLY increasing: pure longest-chain when nothing is bonded, still
+# stake-dominated once bonding is live (shares >> 1). Height-gated so already-committed blocks
+# (old formula, weight inside the hash preimage) still verify on replay/sync; every node MUST run
+# this code before the chain reaches the activation height or it will reject new blocks.
+WEIGHT_HEIGHT_TERM_START = 7000
+
 BOND_ELASTIC_MULT_BPS = [
     10000, 9667, 9346, 9039, 8743, 8459, 8186, 7924, 7672, 7430,
     7198, 6974, 6760, 6553, 6355, 6165, 5982, 5806, 5637, 5475,
