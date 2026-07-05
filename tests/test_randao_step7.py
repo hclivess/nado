@@ -123,5 +123,79 @@ def t7_non_bonded_rejected():
 check("commit from a non-bonded sender -> rejected", t7_non_bonded_rejected)
 
 
+def t8_reorg_revert_restores_beacon():
+    """END-TO-END reorg symmetry: reverting the reveal via reflect_transaction (the real rollback
+    path, not raw kv) must restore the anchor-only beacon; reverting the commit must clear it."""
+    anchor_only = None
+    tb = (E - 1) * EPOCH_LENGTH + 5
+    reveal_tx = signed("reveal", {"target_epoch": E, "secret": SECRET}, tb)
+    with_reveal = epoch_beacon(E)
+    with kv_ops.write_txn():
+        reflect_transaction(reveal_tx, logger=logger, block_height=tb, revert=True)
+    anchor_only = epoch_beacon(E)
+    assert anchor_only != with_reveal, "revert of the reveal must change the beacon back"
+    assert SECRET not in kv_ops.reveals_for_epoch(E), "reveal row survived the revert"
+    commit_tx = signed("commit", {"target_epoch": E, "commitment": COMMITMENT},
+                       (E - 2) * EPOCH_LENGTH + 5)
+    with kv_ops.write_txn():
+        reflect_transaction(commit_tx, logger=logger, block_height=(E - 2) * EPOCH_LENGTH + 5,
+                            revert=True)
+    assert kv_ops.commit_get(val["address"], E) is None, "commit row survived the revert"
+    # re-apply both (leave state as the earlier checks expect)
+    with kv_ops.write_txn():
+        reflect_transaction(commit_tx, logger=logger, block_height=(E - 2) * EPOCH_LENGTH + 5)
+        reflect_transaction(reveal_tx, logger=logger, block_height=tb)
+    assert epoch_beacon(E) == with_reveal, "re-apply must reproduce the identical beacon"
+check("reorg revert (reflect) restores the beacon exactly", t8_reorg_revert_restores_beacon)
+
+
+def t9_two_validators_withhold_and_order():
+    """A second validator commits+reveals -> beacon changes again; a withholder (commit, no reveal)
+    contributes nothing; and the beacon is reveal-ORDER independent (compute_beacon sorts)."""
+    from ops.mining_ops import compute_beacon
+    val2 = generate_keydict(); create_account(val2["address"], bonded=B_MIN)
+    s2 = "beef" * 15 + "abcd"
+    with kv_ops.write_txn():
+        reflect_transaction(signed("commit", {"target_epoch": E, "commitment": beacon_commitment(s2)},
+                                   (E - 2) * EPOCH_LENGTH + 9, kd=val2),
+                            logger=logger, block_height=(E - 2) * EPOCH_LENGTH + 9)
+    one_reveal = epoch_beacon(E)
+    tb = (E - 1) * EPOCH_LENGTH + 9
+    tx2 = signed("reveal", {"target_epoch": E, "secret": s2}, tb, kd=val2)
+    assert validate_transaction(tx2, logger, block_height=tb)
+    with kv_ops.write_txn():
+        reflect_transaction(tx2, logger=logger, block_height=tb)
+    two_reveals = epoch_beacon(E)
+    assert two_reveals != one_reveal, "second reveal must change the beacon"
+    # withholder: a 3rd validator commits and never reveals -> beacon unchanged
+    val3 = generate_keydict(); create_account(val3["address"], bonded=B_MIN)
+    with kv_ops.write_txn():
+        reflect_transaction(signed("commit", {"target_epoch": E, "commitment": beacon_commitment("77" * 32)},
+                                   (E - 2) * EPOCH_LENGTH + 11, kd=val3),
+                            logger=logger, block_height=(E - 2) * EPOCH_LENGTH + 11)
+    assert epoch_beacon(E) == two_reveals, "an unrevealed commit must not affect the beacon"
+    # order independence
+    anchor = "c0ffee" * 10 + "abcd"
+    assert compute_beacon("g", [anchor, SECRET, s2]) == compute_beacon("g", [s2, anchor, SECRET])
+check("2nd validator mixes in; withholder contributes nothing; order-independent", t9_two_validators_withhold_and_order)
+
+
+def t10_secret_copy_rejected():
+    """Cross-validator secret copying: a validator who committed H(someone else's public secret)
+    cannot re-reveal that secret into the same epoch (per-epoch secret dedup)."""
+    thief = generate_keydict(); create_account(thief["address"], bonded=B_MIN)
+    with kv_ops.write_txn():
+        reflect_transaction(signed("commit", {"target_epoch": E, "commitment": COMMITMENT},
+                                   (E - 2) * EPOCH_LENGTH + 13, kd=thief),
+                            logger=logger, block_height=(E - 2) * EPOCH_LENGTH + 13)
+    tb = (E - 1) * EPOCH_LENGTH + 13
+    tx = signed("reveal", {"target_epoch": E, "secret": SECRET}, tb, kd=thief)
+    try:
+        validate_transaction(tx, logger, block_height=tb); raise RuntimeError("accepted")
+    except AssertionError as e:
+        assert "already revealed" in str(e)
+check("copied secret re-reveal in the same epoch -> rejected", t10_secret_copy_rejected)
+
+
 print(f"\n{'ALL RANDAO CHECKS PASSED' if not fails else str(fails) + ' FAILURE(S)'}")
 sys.exit(1 if fails else 0)
