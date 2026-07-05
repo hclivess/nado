@@ -1,9 +1,15 @@
 """
-MANDATORY RANDAO checks: the bonded-lane producer draw for epoch E only admits bonded identities
-that revealed their committed secret for E (randao_eligible_bonded). Withholding or skipping the
-duty forfeits the epoch's production rights; an ALL-withheld epoch filters to an empty bonded lane
-and select_producer_two_lane's open fallback keeps the chain alive. Epochs 0-1 exempt. Fork weight
-must keep using the FULL registry (withholding must not move fork-choice).
+RANDAO participation-gate checks (randao_eligible_bonded), both policies:
+
+  * RANDAO_ENFORCED = False (CURRENT, default): revealing is optional — the gate is a pure
+    pass-through and the bonded draw always runs over the FULL registry.
+  * RANDAO_ENFORCED = True: the bonded-lane draw for epoch E only admits identities that revealed
+    their committed secret for E; withholding forfeits the epoch's production rights; an
+    ALL-withheld epoch filters to an empty bonded lane and select_producer_two_lane's open
+    fallback keeps the chain alive. Epochs 0-1 exempt.
+
+Fork weight must keep using the FULL registry in either mode (withholding must not move
+fork-choice).
 """
 import os, sys, tempfile, traceback
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_randman_")
@@ -18,6 +24,7 @@ logger = logging.getLogger("randman"); logger.addHandler(logging.NullHandler())
 from genesis import create_indexers
 create_indexers()
 
+import protocol
 from ops import kv_ops
 from ops.block_ops import randao_eligible_bonded
 from ops.mining_ops import beacon_commitment, select_producer_two_lane, EPOCH_LENGTH
@@ -41,11 +48,21 @@ kv_ops.commit_put(WITHHOLDER, E, beacon_commitment("bb" * 32))
 kv_ops.reveal_put(E, S_GOOD)
 
 
+def t0_default_policy_is_optional():
+    """CURRENT policy: enforcement off by default, and the gate is a pure pass-through even when
+    some validators withheld/skipped — nobody loses production rights over the beacon duty."""
+    assert protocol.RANDAO_ENFORCED is False, "default policy must be optional RANDAO"
+    assert randao_eligible_bonded(REGISTRY, E) == REGISTRY, "optional mode must not filter anyone"
+check("RANDAO_ENFORCED off by default; gate is a pass-through (optional RANDAO)", t0_default_policy_is_optional)
+
+protocol.RANDAO_ENFORCED = True     # the remaining checks exercise the ENFORCED mode
+
+
 def t1_filter():
     elig = randao_eligible_bonded(REGISTRY, E)
     assert set(elig) == {GOOD}, f"only the revealer is eligible, got {set(elig)}"
     assert elig[GOOD] is REGISTRY[GOOD], "registry entries must pass through untouched"
-check("revealed validator eligible; withholder + non-participant filtered out", t1_filter)
+check("enforced: revealed validator eligible; withholder + non-participant filtered out", t1_filter)
 
 
 def t2_early_epochs_exempt():
@@ -101,5 +118,5 @@ def t5_weight_sites_use_full_registry():
 check("fork weight stays on the FULL registry; selection sites keep the filter", t5_weight_sites_use_full_registry)
 
 
-print(f"\n{'ALL MANDATORY-RANDAO CHECKS PASSED' if not fails else str(fails) + ' FAILURE(S)'}")
+print(f"\n{'ALL RANDAO-GATE CHECKS PASSED' if not fails else str(fails) + ' FAILURE(S)'}")
 sys.exit(1 if fails else 0)

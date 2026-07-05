@@ -358,6 +358,12 @@ class NodeClient:
             return r.status_code, r.text
 
     # ---- read endpoints -----------------------------------------------------------------
+    def resolve_alias(self, name):
+        status, data = self._get("/resolve_alias", {"name": name})
+        if status == 200 and isinstance(data, dict):
+            return data.get("owner")   # None when unregistered
+        return None
+
     def get_account(self, address):
         status, data = self._get("/get_account", {"address": address})
         if status == 200 and isinstance(data, dict) and "balance" in data:
@@ -784,10 +790,22 @@ class SendTab(QWidget):
     def do_send(self):
         if not self.app.require_wallet():
             return
-        recipient = self.recipient.text().strip()
+        # lowercase: alias names are all-lowercase on-chain and ndo… addresses are lowercase hex,
+        # so "Alice" is accepted and sends to "alice".
+        recipient = self.recipient.text().strip().lower()
+        resolved = None
         if not validate_address(recipient):
-            self.app.error("Invalid recipient", "The recipient is not a valid NADO address.")
-            return
+            # not an address — accept a registered alias (the chain credits its current owner)
+            if (protocol.ALIAS_MIN_LEN <= len(recipient) <= protocol.ALIAS_MAX_LEN
+                    and not recipient.startswith("ndo")):
+                try:
+                    resolved = self.app.client.resolve_alias(recipient)
+                except NodeError:
+                    resolved = None
+            if not resolved:
+                self.app.error("Invalid recipient",
+                               "The recipient is not a valid NADO address or a registered alias.")
+                return
         try:
             amount_raw = nado_to_raw(self.amount.text())
         except ValueError as exc:
@@ -797,8 +815,9 @@ class SendTab(QWidget):
             self.app.error("Invalid amount", "Amount must be greater than zero.")
             return
         fee = MIN_TX_FEE                          # automatic network fee (no raw-units entry)
+        to_line = f"{recipient}  (alias → {resolved})" if resolved else recipient
         summary = (f"Send  {fmt_nado(amount_raw)}\n"
-                   f"To    {recipient}\n"
+                   f"To    {to_line}\n"
                    f"Fee   {fmt_nado(fee)} (network fee)")
         if not self.app.confirm("Confirm transfer", summary):
             return

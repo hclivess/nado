@@ -70,7 +70,9 @@ def c_info(kd, node, a):
 
 
 def c_send(kd, node, a):
-    tx = T.create_transaction(_draft(kd, a.to, raw(a.amount), a.memo or "", _tip(node) + MARGIN),
+    # lowercase: alias recipients are all-lowercase on-chain, and ndo… addresses are lowercase hex
+    # anyway — so `send Alice 1` behaves exactly like `send alice 1`.
+    tx = T.create_transaction(_draft(kd, a.to.strip().lower(), raw(a.amount), a.memo or "", _tip(node) + MARGIN),
                               kd["private_key"], raw(a.fee) if a.fee else MIN_TX_FEE)
     _submit(node, tx)
 
@@ -84,7 +86,8 @@ def c_unbond(kd, node, a):
 
 
 def c_alias(kd, node, a):
-    _submit(node, T.construct_alias_tx(kd, a.op, a.name, _tip(node) + MARGIN, MIN_TX_FEE, to=a.to))
+    _submit(node, T.construct_alias_tx(kd, a.op, a.name.strip().lower(), _tip(node) + MARGIN,
+                                       MIN_TX_FEE, to=(a.to.strip().lower() if a.to else a.to)))
 
 
 def c_collect(kd, node, a):

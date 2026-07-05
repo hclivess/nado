@@ -717,7 +717,7 @@ async def get_settled(request):
 
 async def resolve_alias(request):
     from ops import alias_ops
-    name = _q(request, "name", "")
+    name = _q(request, "name", "").strip().lower()   # registry names are all-lowercase
     owner = await asyncio.to_thread(alias_ops.resolve_alias, name)
     return _resp({"name": name, "owner": owner})   # owner is None when the alias is unregistered
 

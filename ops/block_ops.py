@@ -135,8 +135,8 @@ def get_block_candidate(
     beacon = epoch_beacon(epoch)
     open_registry = get_open_registry(epoch)
     bonded_registry = get_bonded_registry()
-    # MANDATORY RANDAO: only validators that revealed for this epoch enter the DRAW. The full
-    # registry still backs block_fork_weight below (withholding must not move fork-choice).
+    # RANDAO gate (pass-through while RANDAO_ENFORCED is off — reveals are optional). The full
+    # registry always backs block_fork_weight below (withholding must not move fork-choice).
     eligible_bonded = randao_eligible_bonded(bonded_registry, epoch)
     winner = select_producer_two_lane(open_registry, eligible_bonded, beacon, slot=block_number)
     if winner is None:
@@ -328,21 +328,24 @@ _randao_elig_memo = {}
 
 
 def randao_eligible_bonded(bonded_registry: dict, epoch: int) -> dict:
-    """MANDATORY RANDAO (consensus): the bonded-lane producer draw for epoch E only admits bonded
-    identities that REVEALED their committed secret for E — no reveal, no production rights that
-    epoch. This is the withholding penalty the RANDAO design deferred ('penalised at the
-    integration layer'): the last revealer still holds the 1-bit reveal/withhold choice, but
-    exercising it now forfeits an entire epoch of bonded rewards instead of being free, and a
-    validator that never participates never produces. Deterministic: reveals/commits are committed
+    """RANDAO participation gate for the bonded-lane producer draw (consensus). With
+    RANDAO_ENFORCED off (current policy — see protocol.py), revealing is OPTIONAL and this is a
+    pass-through: the draw runs over the FULL bonded registry, and reveals only strengthen the
+    beacon when someone chooses to contribute.
+
+    When RANDAO_ENFORCED is on, epoch E only admits bonded identities that REVEALED their
+    committed secret for E — no reveal, no production rights that epoch (the withholding penalty
+    the RANDAO design deferred: the last revealer's 1-bit reveal/withhold choice then forfeits an
+    epoch of bonded rewards instead of being free). Deterministic: reveals/commits are committed
     parent state, finalized before epoch E begins, so every node filters identically at any time
     (replay included). Epochs 0-1 are exempt (no commit window exists for them — validation
     requires target_epoch >= 2). An ALL-withheld epoch filters to {} which
     select_producer_two_lane treats as an empty bonded lane -> open-lane fallback: liveness is
-    never at stake, and a lazy bond can dilute the OPEN_BPS ceiling only by forfeiting all of its
-    own rewards. FFG/settlement/treasury quorums intentionally stay on the FULL registry —
+    never at stake. FFG/settlement/treasury quorums intentionally stay on the FULL registry —
     finality must not hinge on beacon participation. Fork weight (block_fork_weight) also stays on
     the FULL registry, else withholding would manipulate fork-choice."""
-    if epoch < 2 or not bonded_registry:
+    from protocol import RANDAO_ENFORCED
+    if not RANDAO_ENFORCED or epoch < 2 or not bonded_registry:
         return bonded_registry
     secrets = tuple(sorted(kv_ops.reveals_for_epoch(epoch)))
     memo_key = (epoch, secrets)

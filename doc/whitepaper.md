@@ -350,24 +350,24 @@ revealed kills just-in-time grinding, and because the fork-choice weight is alre
 declining to reveal. *(implemented — `commit`/`reveal` txns, `reflect_transaction`,
 `compute_beacon`)*
 
-**RANDAO participation is MANDATORY for bonded production** (2026-07-05,
-`randao_eligible_bonded`): the bonded-lane producer draw for epoch E only admits
-validators that **revealed** their committed secret for E. The filter is consensus —
-applied identically at candidate production, relay rebuild, and
-`validate_block_producer`, so a block minted by a non-revealing validator is rejected
-by every verifier. It is deterministic at any point in time (reveals for E are
-finalized before E's first slot) and replay-safe. The economics: the last revealer
-keeps the unavoidable 1-bit reveal/withhold choice, but exercising it now forfeits an
-**entire epoch of bonded rewards**; a validator that never participates never
-produces. Deliberate scope limits: an all-withheld epoch filters to an empty bonded
-lane and the **open-lane fallback** produces (liveness is never hostage to the
-beacon); fork-choice weight and the FFG/settlement quorums stay on the **full**
-registry, so withholding can neither move fork-choice nor stall finality. Both the
-node (`maybe_randao`, with in-window commit retry) and the browser interface (for a
-bonded wallet, while its tab is open) perform the duty automatically.
+**RANDAO participation is VOLUNTARY** (`RANDAO_ENFORCED = False` in `protocol.py`,
+policy set 2026-07-06): every reveal that lands strengthens the beacon, but skipping
+the duty costs nothing and the bonded-lane draw runs over the full registry. The
+enforcement machinery (`randao_eligible_bonded`: the bonded-lane draw for epoch E only
+admits validators that **revealed** their committed secret for E, applied identically
+at candidate production, relay rebuild, and `validate_block_producer`) is implemented,
+deterministic and replay-safe, unit-tested, and kept behind the flag — a mandatory
+policy was briefly adopted (2026-07-05) and reverted for **scalability**: it forces
+O(validators) commit+reveal transactions every epoch and makes bonded rewards hinge on
+tx-inclusion latency, so beacon bookkeeping would crowd out user transactions as the
+validator set grows. Under either policy: an all-withheld epoch still advances the
+beacon on the anchor alone; fork-choice weight and the FFG/settlement quorums stay on
+the **full** registry, so withholding can neither move fork-choice nor stall finality.
+Both the node (`maybe_randao`, with in-window commit retry) and the browser interface
+(for a bonded wallet, while its tab is open) contribute automatically.
 
 > **Honest caveat.** The RANDAO primitives, the commit/reveal validation, recording,
-> revert and snapshot paths, and the mandatory-eligibility filter are unit-tested for
+> revert and snapshot paths, and the (flag-gated) eligibility filter are unit-tested for
 > correctness (incl. reorg symmetry and the all-withheld → open-fallback path), but the
 > **multi-node, epoch-crossing** dynamics (a commit in E−2, a reveal in E−1, the secret
 > influencing E's draw) are only **lightly exercised** empirically. The remaining

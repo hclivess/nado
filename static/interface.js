@@ -267,11 +267,14 @@ function validateAddress(addr) {
 
 // ALIAS: a short human-readable name that resolves to an owner address on-chain. Client mirror of
 // ops/alias_ops.valid_alias_name (3..32 chars, lowercase [a-z0-9_-], starts with a letter, not "ndo…").
-function looksLikeAlias(s) { return /^[a-z][a-z0-9_-]{2,31}$/.test(s || "") && !s.startsWith("ndo"); }
+// case-insensitive on purpose: on-chain alias names are all-lowercase, and callers normalize with
+// .toLowerCase() before resolving/sending — typing "Alice" must behave exactly like "alice".
+function looksLikeAlias(s) { return /^[a-z][a-z0-9_-]{2,31}$/i.test(s || "") && !/^ndo/i.test(s || ""); }
 // i18n helper for dynamic (JS-set) strings — translates via i18n.js's window.t, English fallback.
 function i18(k, fb, vars) { return (typeof window !== "undefined" && window.t) ? window.t(k, fb, vars) : (fb != null ? fb : k); }
 async function resolveAlias(name) {
   try {
+    name = (name || "").trim().toLowerCase();   // registry names are all-lowercase
     const r = await fetch(relayBase() + "/resolve_alias?name=" + encodeURIComponent(name), { cache: "no-store" });
     const d = await r.json();
     return d && d.owner ? d.owner : null;
@@ -280,13 +283,13 @@ async function resolveAlias(name) {
 // Live validation of the Send "to" field: a valid ndo… address, OR a registered alias (resolved
 // against the node, so the ✗ clears once the alias exists). Guards against stale async results.
 async function validateSendTo() {
-  const v = ($("sendTo").value || "").trim();
+  const v = ($("sendTo").value || "").trim().toLowerCase();
   if (!v) { setMsg("sendToMsg", "", null); return; }
   if (validateAddress(v)) { setMsg("sendToMsg", i18("sto.valid", "✓ valid address"), "ok"); return; }
   if (looksLikeAlias(v)) {
     setMsg("sendToMsg", i18("sto.resolving", "resolving alias…"), null);
     const owner = await resolveAlias(v);
-    if (($("sendTo").value || "").trim() !== v) return;   // input changed while resolving — ignore stale
+    if (($("sendTo").value || "").trim().toLowerCase() !== v) return;   // input changed while resolving — ignore stale
     setMsg("sendToMsg", owner ? `${i18("sto.aliasPre","✓ alias →")} ${owner.slice(0, 14)}…` : `${i18("sto.aliasNoPre","✗ alias")} “${v}” ${i18("sto.aliasNoSuf","is not registered")}`, owner ? "ok" : "err");
     return;
   }
@@ -2037,7 +2040,9 @@ async function submitAndReport(tx, label, msgId) {
 }
 
 async function doSend() {
-  const recipient = $("sendTo").value.trim();
+  // lowercase: alias names are all-lowercase on-chain (and THIS string becomes the signed tx
+  // recipient), while a valid ndo… address is lowercase hex anyway — so "Alice" sends to "alice".
+  const recipient = $("sendTo").value.trim().toLowerCase();
   let resolvedOwner = null;
   if (!validateAddress(recipient)) {
     if (looksLikeAlias(recipient)) {
@@ -2092,7 +2097,7 @@ async function doAliasOp(op) {
   }
   let to = null;
   if (op === "transfer") {
-    to = ($("aliasTo").value || "").trim();
+    to = ($("aliasTo").value || "").trim().toLowerCase();
     if (looksLikeAlias(to)) {                                    // accept another ALIAS as the target — resolve to its owner
       setMsg("aliasMsg", i18("quorum.resolving", "Resolving alias…"), null);
       const owner = await resolveAlias(to);
@@ -2903,7 +2908,7 @@ async function exOpen(kind, val) {
   }
 }
 async function exSearch() {
-  const q = $("exQ").value.trim();
+  const q = $("exQ").value.trim().toLowerCase();   // addresses/hashes/aliases are all lowercase
   $("exSearchErr").classList.add("hidden");
   if (!q) return;
   if (/^\d+$/.test(q)) return exOpen("b", q);
@@ -3334,7 +3339,7 @@ async function msgOpen() {
 
 async function msgSend() {
   const m = await loadMessaging(); if (!m) return;
-  const toRaw = ($("msgTo").value || "").trim();
+  const toRaw = ($("msgTo").value || "").trim().toLowerCase();
   const body = ($("msgBody").value || "").trim();
   if (!toRaw || !body) return;
   let addr = toRaw;
@@ -3517,7 +3522,7 @@ async function submitTreasurySpend(kind, recipient, amountRaw, memo, nonce, expi
 async function proposeSpend() {
   const msg = $("qPropMsg");
   try {
-    let to = ($("qPropRecipient").value || "").trim();
+    let to = ($("qPropRecipient").value || "").trim().toLowerCase();
     if (looksLikeAlias(to)) {                                     // accept a human-readable alias, resolve to its owner
       msg.textContent = i18("quorum.resolving", "Resolving alias…");
       const owner = await resolveAlias(to);

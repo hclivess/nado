@@ -262,6 +262,17 @@ OPEN_BPS = 3000                    # SECURITY DIAL: open-lane share of slots (30
                                    # 70%-of-open presence dividend) to the capital-free lane. See doc/mining.md.
 K_OPEN = EPOCH_LENGTH * OPEN_BPS // BPS_DENOM  # open slots per epoch (rest bonded); =18 at defaults
 
+# RANDAO participation policy (consensus): when True, the bonded-lane producer draw for epoch E only
+# admits validators that revealed their committed secret for E (no reveal -> no production rights that
+# epoch). When False (current), revealing is OPTIONAL: reveals still feed the epoch beacon when present
+# (and the beacon advances deterministically off the finalized anchor with zero reveals), but skipping
+# the duty costs nothing and the draw runs over the FULL bonded registry. Chosen for scalability: with
+# many bonded validators, forcing every one of them to land a commit+reveal tx every epoch adds
+# O(validators) mandatory txs per epoch and makes rewards hinge on tx inclusion latency.
+# NOTE: flipping this is a consensus change — only safe on a fresh chain or while the filter has never
+# altered a historical draw (verified empty bonded registry at flip time, 2026-07-06, height 2671).
+RANDAO_ENFORCED = False
+
 # ENFORCED FINALITY (#17, security step 1): a block at height H finalizes everything at/below
 # H - FINALITY_DEPTH; rollback_one_block REFUSES to cross the persisted monotonic finalized_height
 # (raises FinalityViolation). The ordering max_rollbacks(10) < FINALITY_DEPTH < EPOCH_LENGTH(60)

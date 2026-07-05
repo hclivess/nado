@@ -693,8 +693,8 @@ class CoreClient(threading.Thread):
         block_number = parent["block_number"] + 1
         _epoch = epoch_of(block_number)
         bonded_registry = get_bonded_registry()  # as-of-parent (tip == parent here)
-        # MANDATORY RANDAO: draw over the revealed-for-this-epoch subset; the FULL registry still
-        # feeds block_fork_weight below (withholding must not move fork-choice).
+        # RANDAO gate (pass-through while RANDAO_ENFORCED is off — reveals are optional); the FULL
+        # registry always feeds block_fork_weight below (withholding must not move fork-choice).
         winner = select_producer_two_lane(get_open_registry(_epoch),
                                           randao_eligible_bonded(bonded_registry, _epoch),
                                           epoch_beacon(_epoch), slot=block_number)
@@ -837,7 +837,8 @@ class CoreClient(threading.Thread):
             # COMMIT for epoch current+2 (we are in its E-2). RETRIED while the window lasts: the
             # old single-shot guard (skip once the secret existed in randao_secrets) meant a commit
             # tx that missed its exact target_block was never re-issued — the validator silently sat
-            # out the whole epoch, which now costs its production rights (mandatory RANDAO). Reusing
+            # out the whole epoch, weakening the beacon (and forfeiting production rights whenever
+            # RANDAO_ENFORCED is on; participation is voluntary under the current policy). Reusing
             # the stored secret keeps the commitment identical, so a raced duplicate is simply
             # rejected by validation ("Already committed for this epoch").
             e_commit = current_epoch + 2
@@ -1053,8 +1054,8 @@ class CoreClient(threading.Thread):
         block's parent before calling this (else it would read post-apply state)."""
         block_number = block["block_number"]
         epoch = epoch_of(block_number)
-        # MANDATORY RANDAO (consensus): verification draws over the same revealed-for-epoch subset
-        # production uses — a block minted by a non-revealing bonded validator is rejected here.
+        # RANDAO gate (consensus): verification draws over the same eligible set production uses
+        # (the full registry while RANDAO_ENFORCED is off; the revealed-for-epoch subset when on).
         winner = select_producer_two_lane(get_open_registry(epoch),
                                           randao_eligible_bonded(get_bonded_registry(), epoch),
                                           epoch_beacon(epoch),

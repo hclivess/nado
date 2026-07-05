@@ -523,21 +523,21 @@ code.
   It is an **additive, observable, accountable** finality signal layered *on top of* the depth-based
   floor — it does **not** replace the time-based `finalized_height` (which stays the deeper rollback
   bound and guarantees liveness), so FFG can never stall the chain.
-- **Commit-reveal RANDAO — now MANDATORY for bonded production** — bonded validators `commit` a
+- **Commit-reveal RANDAO (voluntary participation)** — bonded validators `commit` a
   secret's hash in epoch E−2 and `reveal` it in E−1's finalized window; `epoch_beacon` mixes the
   finalized prior-epoch anchor with the revealed secrets, so **no single anchor-producer controls the
   beacon**. With zero reveals it falls back to the anchor-only value (liveness). It keeps the anchor
   (non-recursive), so the beacon stays snapshot-safe and the reveals are immutable by the time the
-  beacon is needed. **Participation is enforced by consensus**: the bonded-lane producer draw for
-  epoch E only admits validators that *revealed* for E (`randao_eligible_bonded`, applied identically
-  at production, relay rebuild, and verification — a block minted by a non-revealer is rejected).
-  This is the withholding penalty made concrete: the last revealer keeps the unavoidable 1-bit
-  reveal/withhold choice, but exercising it forfeits an **entire epoch of bonded rewards**, and a
-  validator that never participates never produces. An all-withheld epoch filters to an empty bonded
-  lane and the open-lane fallback keeps the chain alive; fork weight and the FFG/settlement quorums
-  deliberately stay on the *full* registry, so withholding can't move fork-choice or stall finality.
-  Both the node (`maybe_randao`) and the browser interface (for bonded wallets, while the tab is
-  open) run the duty automatically.
+  beacon is needed. **Participation is voluntary** (`RANDAO_ENFORCED = False` in `protocol.py`):
+  every reveal that lands strengthens the beacon, but skipping the duty costs nothing and the
+  bonded-lane draw runs over the full registry. The enforcement machinery
+  (`randao_eligible_bonded` — no reveal for epoch E, no production rights in E — applied identically
+  at production, relay rebuild, and verification) is implemented, unit-tested, and kept behind the
+  flag; it was switched off because mandatory participation forces O(validators) commit+reveal txs
+  every epoch and ties rewards to tx-inclusion latency, which scales poorly. Fork weight and the
+  FFG/settlement quorums stay on the *full* registry in either mode, so withholding can't move
+  fork-choice or stall finality. Both the node (`maybe_randao`) and the browser interface (for
+  bonded wallets, while the tab is open) still contribute automatically.
 - **Pubkey-once** — the 1312-byte ML-DSA `public_key` is **excluded from the txid** and stored once in
   account state on an address's first tx, so later txs (notably every-epoch heartbeats) omit it;
   validators recover it from committed state. Store/clear is byte-identically revert-symmetric.
