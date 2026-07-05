@@ -169,8 +169,10 @@ async def load_ips(logger, port, fail_storage, unreachable, minimum=3, top_50=Tr
     return when limit is reached"""
 
     bad_peers = set(fail_storage + list(unreachable.keys()))
-    bad_peers.add(get_config()["ip"])   # never load our OWN ip into the dial set — we don't sync from
-                                        # ourselves; self is advertised to others via me_to() in /peers
+    bad_peers -= set(seed_peers())      # operator seeds are the anchor: ALWAYS a dial candidate, even if a
+                                        # transient blip landed them in unreachable/fail — never exile the seed
+    bad_peers.add(get_config()["ip"])   # ...but never dial our OWN ip (added AFTER the seed carve-out, so a
+                                        # node that is itself a seed still never dials itself)
     table = _load_peers()
 
     if len(table) < minimum:

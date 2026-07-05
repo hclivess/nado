@@ -162,6 +162,13 @@ class MemServer:
             self.max_registrations_window = 7200.0
 
     def ban_peer(self, peer):
+        # Operator seeds are the weak-subjectivity anchor — NEVER exile them. A transient blip (e.g. the
+        # seed restarting) would otherwise drop it into the 1-hour unreachable ban, its heavy tip vanishes
+        # from the pool, and the node falls back to whatever stalled/forked peer is left. A seed is always
+        # retried instead.
+        from ops.peer_ops import seed_peers
+        if peer in seed_peers():
+            return
         if peer not in self.purge_peers_list and peer not in self.unreachable:
             self.purge_peers_list.append(peer)
 

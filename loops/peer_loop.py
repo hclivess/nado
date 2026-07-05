@@ -8,12 +8,17 @@ from config import get_timestamp_seconds
 from config import test_self_port
 from ops.peer_ops import announce_me, get_list_of_peers, load_ips, check_save_peers
 from ops.peer_ops import get_public_ip, update_local_ip, check_ip, subnet_diversity_ok
-from ops.peer_ops import seed_default_peers
+from ops.peer_ops import seed_default_peers, seed_peers
 
 # How often (seconds) a node BELOW min_peers re-seeds + reloads peers from drive. The peer loop still spins
 # ~1/s for status/tx work, but the "No peers, reloading from drive" retry is throttled to this so a peerless
 # node (solo/bootstrap, or one that can't yet reach the network) doesn't flood the log every second.
 PEERLESS_RELOAD_INTERVAL = 15
+
+# How long (seconds) an ordinary unreachable peer is benched before it is retried. Operator seeds are
+# exempt (retried every cycle). Was 3600 — a single blip exiled a peer for an hour, which on a small mesh
+# could strand a node with no dialable peers; 5 min still throttles a genuinely dead peer cheaply.
+UNREACHABLE_COOLDOWN = 300
 
 
 class PeerClient(threading.Thread):
@@ -115,11 +120,14 @@ class PeerClient(threading.Thread):
                 if 0 or 1 in self.memserver.periods:
                     self.memserver.merge_remote_transactions(user_origin=False)
 
+                _seeds = set(seed_peers())
                 for peer, ban_time in self.memserver.unreachable.copy().items():
-                    timeout = 3600 + ban_time - get_timestamp_seconds()
-                    if timeout < 0:
+                    # operator seeds are the anchor: never keep them benched — retry immediately. Ordinary
+                    # peers cool down for UNREACHABLE_COOLDOWN (was 3600s: a single blip benched a peer for a
+                    # WHOLE HOUR, brutal on a small mesh; 5 min still throttles a truly dead peer cheaply).
+                    if peer in _seeds or (get_timestamp_seconds() - ban_time) > UNREACHABLE_COOLDOWN:
                         self.memserver.unreachable.pop(peer)
-                        self.logger.info(f"Restored {peer} because it has been banned for too long")
+                        self.logger.info(f"Restored {peer} to the dial set")
 
                 if get_timestamp_seconds() > self.heavy_refresh_timer + self.memserver.heavy_refresh_interval:
                     """heavy refresh triggered"""
