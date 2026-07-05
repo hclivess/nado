@@ -187,12 +187,15 @@ def select_producer_two_lane(open_registry: dict, bonded_registry: dict, beacon:
     """The live two-lane producer selector. Returns the winning address, or None if the slot is
     skipped (no eligible producer).
 
-    lane_of(slot) decides which registry is drawn. Empty-lane policy is ONE-DIRECTIONAL and
-    fail-closed for Sybil safety:
-      - OPEN slot, open lane empty   -> fall back to the BONDED lane (only ever lets the safe
+    lane_of(slot) decides which registry is drawn. Empty-lane policy for Sybil safety + bootstrap liveness:
+      - OPEN slot, open lane empty     -> fall back to the BONDED lane (only ever lets the safe
         capital lane over-produce; never a Sybil risk).
-      - BONDED slot, bonded lane empty -> SKIP the slot. NEVER fall back to open, because letting
-        the free lane absorb bonded slots would break the OPEN_BPS Sybil ceiling.
+      - BONDED slot, bonded lane NON-empty but draw fails -> SKIP (never leak a bonded slot to the free
+        lane while stake exists — that would break the OPEN_BPS Sybil ceiling).
+      - BONDED slot, bonded lane TOTALLY EMPTY -> fall back to OPEN. There is no capital lane to protect
+        (zero stake), so the ceiling is moot; without this a no-premine chain (empty bonded at genesis) —
+        or one where every validator unbonded — HALTS at the first bonded slot (a height can't be skipped).
+        The instant ANY stake bonds, bonded slots return to the bonded lane and the ceiling re-applies.
     The winner is credited by ADDRESS, so it need not be online (a relay builds the block for it)."""
     bonded_weight = _bonded_ramped_weight(slot // EPOCH_LENGTH)   # tenure ramp for the sudden-whale brake
     def _bonded_draw():
@@ -209,7 +212,15 @@ def select_producer_two_lane(open_registry: dict, bonded_registry: dict, beacon:
         if winner is not None:
             return winner
         return _bonded_draw()                                     # one-directional open->bonded fallback
-    return _bonded_draw()
+    # BONDED slot:
+    winner = _bonded_draw()
+    if winner is not None:
+        return winner
+    if not bonded_registry:
+        # BOOTSTRAP LIVENESS: zero stake exists -> no capital lane to protect -> let open produce this
+        # bonded slot so the chain still advances (halts otherwise). Reverts the moment any stake bonds.
+        return _weighted_draw(open_registry, _open_weight, beacon, slot)
+    return None                                                  # stake exists but draw failed -> skip (no leak)
 
 
 # --- open-lane registration proof-of-work (one-time, fee-substitute, phone-doable) -----------
