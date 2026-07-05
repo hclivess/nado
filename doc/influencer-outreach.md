@@ -129,7 +129,7 @@ warm-ish. None will "review a coin" — the play is getting them to touch the on
 | barneytheboi | **52** | [@barneytheboi](https://x.com/barneytheboi) | X | ~57K; OG CT (joined 2017), trader + Web3 founder, casual/humorous tone. | ☐ Not contacted |
 | Ping | **30** | [@DegenPing](https://x.com/DegenPing) | X | Degen CT; low effort, low priority. | ☐ Not contacted |
 | Fullbeerbottle | **25** | [@Fullbeerbottle](https://x.com/Fullbeerbottle) ⚠ verify | X | Small/anon CT account — no public profile info found; confirm identity before contacting. | ☐ Not contacted |
-| showerhead | — | ⚠ handle unknown — fill in | X | Added on owner's prompt (2026-07-05); web search found no CT account under "showerhead" to pin the exact @. Confirm handle + who they are, then score. | ☐ Pending handle |
+| showerhead | **45** | [@dapmeupfam](https://x.com/dapmeupfam) | X | CT anon (handle confirmed by owner 2026-07-05). Degen/OG-adjacent; treat like the other anon CT rows — organic engagement first, the one-tap phone-miner demo IS the pitch. | ☐ Not contacted |
 
 ## Tier 3 — Technical / builder reach (higher bar, higher payoff)
 
