@@ -117,11 +117,10 @@ class PeerClient(threading.Thread):
                                                                     logger=self.logger,
                                                                     port=self.memserver.port))
 
-                # merge peers' txs during the early building phases (period 0 or 1). NOTE: the old
-                # `if 0 or 1 in periods` was a bug — it parses as `if 1 in periods` (the `0 or` is dead),
-                # so period-0 merges were silently skipped.
-                if 0 in self.memserver.periods or 1 in self.memserver.periods:
-                    self.memserver.merge_remote_transactions(user_origin=False)
+                # merge peers' gossiped txs into the mempool EVERY pass (continuous, like the local drain in
+                # core_loop.normal_mode) — no phase gating, so remote txs never stall waiting for a slot.
+                # (Was `if 0 or 1 in periods`, itself a bug parsing to `if 1 in periods`.)
+                self.memserver.merge_remote_transactions(user_origin=False)
 
                 _seeds = set(seed_peers())
                 for peer, ban_time in self.memserver.unreachable.copy().items():

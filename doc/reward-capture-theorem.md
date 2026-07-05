@@ -8,7 +8,7 @@ point there is no one else left to take from.** Monopoly has no cheap path.
 
 Constants referenced (`protocol.py`): `OPEN_BPS = 3000` bps = **30%** of slots are the OPEN lane
 (`K_OPEN = 18` of `EPOCH_LENGTH = 60`), the rest (**70%**) are the BONDED lane; `TREASURY_BPS = 1000` =
-**10%** of every block reward goes to the treasury, **90%** to the producer; `B_MIN` = 100 NADO per bonded
+**10%** of every block reward goes to the treasury, **90%** to the producer; `B_MIN` = 1 000 NADO per bonded
 selection share; `MAX_SHARES = 100` (per-identity bonded variance cap); `SLASH_BOND_PENALTY = B_MIN`.
 
 ---

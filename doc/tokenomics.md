@@ -45,8 +45,8 @@ payload (see `hashing.canonical_bytes`). Reference amounts:
 | `BASE_SUBSIDY` | 1 000 000 000 | 0.1 |
 | `REWARD_CAP` | 5 000 000 000 | 0.5 |
 | `ALIAS_REGISTRATION_FEE` | 10 000 000 | 0.001 |
-| `B_MIN` (one bonded share) | 1 000 000 000 000 | 100 |
-| `BOND_CAP` (per identity) | 100 000 000 000 000 | 10 000 |
+| `B_MIN` (one bonded share) | 10 000 000 000 000 | 1 000 |
+| `BOND_CAP` (per identity) | 1 000 000 000 000 000 | 100 000 |
 
 ## 2. Fair launch — no premine
 
@@ -122,9 +122,9 @@ a slice funded by the bonded lane. Full mechanics: [presence-dividend.md](presen
 
 Locking stake buys **producer-selection shares** in the bonded lane:
 
-- `B_MIN = 100 NADO` — capital per selection share. Bonded stake is *refundable locked stake*,
+- `B_MIN = 1 000 NADO` — capital per selection share. Bonded stake is *refundable locked stake*,
   **not** spendable balance.
-- `BOND_CAP = 10 000 NADO` → `MAX_SHARES = 100` — a per-identity variance cap so a whale can't
+- `BOND_CAP = 100 000 NADO` → `MAX_SHARES = 100` — a per-identity variance cap so a whale can't
   monopolise the bonded lane.
 - `BOND_RAMP_EPOCHS = 30` — a fresh bond's selection weight ramps linearly 0 → full over ~30
   epochs (stake-weighted bond age), giving the network reaction time against a sudden takeover.
@@ -210,11 +210,11 @@ part of emission and hold no key:
 | `OPEN_BPS` | 3000 (30 %) | Open-lane share of slots (Sybil ceiling) |
 | `OPEN_TIP_BPS` | 2000 (20 %) | Open producer's own cut of an open block |
 | `BONDED_DIVIDEND_BPS` | 2000 (20 %) | Bonded block's contribution to the dividend pool |
-| `B_MIN` | 100 NADO | Capital per bonded selection share |
-| `BOND_CAP` / `MAX_SHARES` | 10 000 NADO / 100 | Per-identity bond & share cap |
+| `B_MIN` | 1 000 NADO | Capital per bonded selection share |
+| `BOND_CAP` / `MAX_SHARES` | 100 000 NADO / 100 | Per-identity bond & share cap |
 | `BOND_RAMP_EPOCHS` | 30 | Fresh-bond selection-weight ramp |
 | `BOND_UNLOCK_DELAY` | 1440 blocks | Post-unbond lock (slashable) |
-| `SLASH_BOND_PENALTY` | `B_MIN` (100 NADO) | Burned per proven equivocation |
+| `SLASH_BOND_PENALTY` | `B_MIN` (1 000 NADO) | Burned per proven equivocation |
 | `TREASURY_MAX_SPEND_BPS` | 2500 (25 %) | Max single proposal vs current balance |
 | `TREASURY_SPEND_PERIOD` | 10 800 blocks | Self-burn cadence |
 | `TREASURY_BURN_BPS` | 100 (1 %) | Self-burn of balance above the floor |

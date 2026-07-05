@@ -184,11 +184,11 @@ pair moves it back out after a timelock (see below). Bonded selection weight is
 
 - **Split-neutral** — weight depends only on total bonded capital, so sharding across many addresses
   gains nothing.
-- **Whale-capped** — a single identity tops out at `BOND_CAP = 10,000 NADO` (`B_MIN = 100 NADO` per
+- **Whale-capped** — a single identity tops out at `BOND_CAP = 100,000 NADO` (`B_MIN = 1,000 NADO` per
   share), so no whale can monopolise the lane. The bond is **refundable** — you keep your coins.
 
 > **Bonded mining is passive — no work, no need to be online.** Once you hold enough to bond (`B_MIN =
-> 100 NADO`), you can stop *actively* mining: the bonded lane is **staking**, not proof-of-work. There is
+> 1,000 NADO`), you can stop *actively* mining: the bonded lane is **staking**, not proof-of-work. There is
 > **no PoW/PoSW to compute, no periodic recert, and no requirement to keep the app or a node open** — the
 > beacon draws you in proportion to your stake, and because winners are credited **by address**, a relay
 > builds your winning block even while you're offline. With **auto-bond** on, rewards compound straight back
@@ -327,7 +327,7 @@ their weight in the bonded lane without any manual `bond` transactions. It is **
 bonded lane hands-free) and fully **overridable** — set `0` to keep all rewards spendable; an explicit
 `0` is remembered and never reverts to the default. It is throttled to **at most one bond per epoch**,
 only fires once the accrued amount clears a small dust floor (so each bond dwarfs its tiny fee), and
-**stops automatically at `BOND_CAP`** (10,000 NADO — bonding past it buys no extra selection weight, so
+**stops automatically at `BOND_CAP`** (100,000 NADO — bonding past it buys no extra selection weight, so
 it never needlessly freezes coins). It is available in **all three clients**:
 
 - **Node (unattended):** set `auto_bond_percent` in `private/config.dat`, or the

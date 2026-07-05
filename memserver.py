@@ -59,7 +59,8 @@ class MemServer:
         # timestamp <= now). Default 10s. All nodes on a network should agree on this so the chain keeps a
         # steady cadence; keep it identical across the mesh (ideally promote to a protocol constant later).
         self.block_time = self.config.get("block_time") or 10
-        self.periods = [0]
+        self.mode = "init"   # production pacing state (core_loop._mode): init | building | produce
+        self.since_last_block = 0
 
         self.unreachable = {}
         self.peers = []
@@ -80,9 +81,6 @@ class MemServer:
         self.force_sync_ip = None
         self.rollbacks = 0
         self.can_mine = False
-        self.replaced_this_round = False
-        self.switch_mode = {"name":"Initialization",
-                            "mode": -1}
 
         _mp = self.config.get("min_peers")  # respect an explicit 0 (solo mode); `or 5` would force 5
         self.min_peers = 5 if _mp is None else _mp

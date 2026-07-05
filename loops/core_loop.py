@@ -101,48 +101,34 @@ class CoreClient(threading.Thread):
         # anti-spam backoff for the emergency-mode "Could not find a syncable peer" retry (fires every ~1s
         # while no donor is reachable — a persistent normal state on a lone/bootstrap node).
         self._last_no_syncable_log = 0
+        # throttle the once-per-block-interval consensus mempool reconcile (normal_mode).
+        self._last_reconcile = 0
 
-    def get_period(self):
-        """Enter every period at least period_counter times. Iterator is present in case node is stuck in phase 3.
-        Routine should always start from 0 when node is initiated and be at 3 when enough time passed for block
-        to be produced"""
-
-        old_periods = self.memserver.periods
+    def _mode(self):
+        """Local production pacing (block_time is NOT consensus — verify only checks timestamp <= now, and
+        there is no min-inter-block rule). Replaces the old [0,1,2,3] "period" state machine, whose
+        hard-coded 10/20/40s gates assumed ~60s blocks and, at a low block_time, both mispaced production
+        AND time-sliced the mempool merges (a tx arriving late in the interval could age out — tx loss).
+        Now: mempool draining is CONTINUOUS (see normal_mode), and this only decides WHEN to mint:
+            init     -> first block_time of uptime, don't mint yet
+            produce  -> block_time elapsed since the last block -> mint
+            building -> waiting out the current interval"""
         bt = self.memserver.block_time
         self.memserver.since_last_block = get_timestamp_seconds() - self.memserver.latest_block["block_timestamp"]
-        slb = self.memserver.since_last_block
-
-        # Block production is paced by block_time ONLY (local liveness — block_time is NOT consensus;
-        # verify_block just requires timestamp <= now). Rewritten to scale with block_time: the old code
-        # hard-coded 10/20/40-second gates that assumed ~60s blocks, so an 8s block_time actually produced
-        # at ~10s and disabled the intermediate mempool-merge phases. Modes:
-        #   Init      -> just started, wait one block_time before minting
-        #   Slot due  -> block_time elapsed since the last block -> PRODUCE (period 3)
-        #   Building  -> within the interval, progress the mempool-merge phases 0 -> 1 -> 2 as it elapses
         if self.memserver.reported_uptime < bt:
-            self.memserver.periods = [0, 1, 2]
-            self.memserver.switch_mode = {"mode": 3, "name": "Init"}
-        elif slb >= bt:
-            self.consecutive = 0
-            self.memserver.periods = [3]
-            self.memserver.switch_mode = {"mode": 1, "name": "Slot due"}
-        else:
-            frac = slb / bt if bt else 1.0
-            self.memserver.periods = [0] if frac < 1 / 3 else ([1] if frac < 2 / 3 else [2])
-            self.memserver.switch_mode = {"mode": 2, "name": "Building"}
-
-        if old_periods != self.memserver.periods:
-            self.logger.debug(
-                f"Switched to period {self.memserver.periods}; Mode: {self.memserver.switch_mode['name']}")
+            return "init"
+        return "produce" if self.memserver.since_last_block >= bt else "building"
 
     def normal_mode(self):
         try:
-            self.get_period()
-            if 0 in self.memserver.periods and self.memserver.switch_mode["mode"] == 2:
-                self.memserver.replaced_this_round = False
+            self.memserver.reported_uptime = self.memserver.get_uptime()
+            mode = self._mode()
+            self.memserver.mode = mode
 
-            if 0 in self.memserver.periods and self.memserver.user_tx_buffer:
-                """merge user buffer to tx buffer inside 0 period"""
+            # CONTINUOUS MEMPOOL DRAIN (every ~1s pass), fully decoupled from the block-production cadence:
+            # user_tx_buffer -> tx_buffer -> transaction_pool. No phase gating -> any submitted tx is
+            # pool-eligible within a second whatever block_time is (kills the old period-0/1 tx-loss window).
+            if self.memserver.user_tx_buffer:
                 buffered = merge_buffer(from_buffer=self.memserver.user_tx_buffer,
                                         to_buffer=self.memserver.tx_buffer,
                                         block_max=self.memserver.latest_block["block_number"] + 25,
@@ -151,8 +137,7 @@ class CoreClient(threading.Thread):
                 self.memserver.user_tx_buffer = buffered["from_buffer"]
                 self.memserver.tx_buffer = buffered["to_buffer"]
 
-            if 1 in self.memserver.periods and self.memserver.tx_buffer:
-                """merge tx buffer to transaction pool inside 1 period"""
+            if self.memserver.tx_buffer:
                 buffered = merge_buffer(from_buffer=self.memserver.tx_buffer,
                                         to_buffer=self.memserver.transaction_pool,
                                         block_max=self.memserver.latest_block["block_number"] + 1,
@@ -164,17 +149,16 @@ class CoreClient(threading.Thread):
                 self.memserver.transaction_pool = cull_buffer(buffer=buffered["to_buffer"],
                                                               limit=self.memserver.transaction_pool_limit)
 
-            if 2 in self.memserver.periods and not self.memserver.replaced_this_round:
-                self.memserver.replaced_this_round = True
-
-                if minority_consensus(
-                        majority_hash=self.consensus.majority_transaction_pool_hash,
-                        sample_hash=self.memserver.transaction_pool_hash):
-                    """replace mempool in 2 period in case it is different from majority as last effort"""
+            # CONSENSUS MEMPOOL RECONCILE — at most once per block interval: if our pool hash is in the
+            # minority vs peers, replace it (last-effort convergence). Time-gated (replaces the old
+            # period-2 + replaced_this_round flag dance).
+            now = get_timestamp_seconds()
+            if now - self._last_reconcile >= self.memserver.block_time:
+                self._last_reconcile = now
+                if minority_consensus(majority_hash=self.consensus.majority_transaction_pool_hash,
+                                      sample_hash=self.memserver.transaction_pool_hash):
                     self.replace_transaction_pool()
                     self.memserver.transaction_pool_hash = self.memserver.get_transaction_pool_hash()
-
-            self.memserver.reported_uptime = self.memserver.get_uptime()
 
             # FFG (#6): refresh the stake-attested finalized checkpoint + (if bonded) attest this epoch.
             self.update_ffg_and_attest()
@@ -187,7 +171,7 @@ class CoreClient(threading.Thread):
             # ROLLING MODE (opt-in): on a pruned node, drop block bodies older than the retention window.
             self.maybe_prune_history()
 
-            if 3 in self.memserver.periods:
+            if mode == "produce":
                 peers = self.memserver.peers.copy()
                 """make copies to avoid errors in case content changes"""
 
@@ -558,6 +542,9 @@ class CoreClient(threading.Thread):
 
                     elif not known_block:
                         if self.memserver.rollbacks < self.memserver.max_rollbacks:
+                            # capture the tip's txs BEFORE reverting so a reorg re-mines them instead of
+                            # silently dropping them (reinserted below, after a successful rollback).
+                            reverted_txs = self.memserver.latest_block.get("block_transactions", []) or []
                             try:
                                 self.memserver.latest_block = rollback_one_block(logger=self.logger,
                                                                                  block=self.memserver.latest_block)
@@ -577,6 +564,17 @@ class CoreClient(threading.Thread):
                                 self.memserver.rollbacks = 0
                                 self._reject_heaviest_tip()
                                 break
+
+                            # REINSERT the reverted block's txs into the mempool — a reorg must not DROP
+                            # user transactions; they get re-mined onto the new canonical chain. Blind
+                            # reinsertion is safe: remove_outdated_transactions (at production) drops any whose
+                            # target block is now in the past, and validate_transaction (candidate build) drops
+                            # any now-invalid; merge_transaction dedups by txid so live copies aren't doubled.
+                            for _tx in reverted_txs:
+                                try:
+                                    self.memserver.merge_transaction(_tx, user_origin=True)
+                                except Exception:
+                                    pass
 
                             # ALWAYS count the rollback (even under force_sync_ip): the finalized floor
                             # is the hard safety cap; this counter only rate-limits a single burst, so a

@@ -34,7 +34,8 @@ class MessageClient(threading.Thread):
     def run(self) -> None:
         while not self.memserver.terminate:
             try:
-                self.logger.info(f"Periods: {self.memserver.periods}")
+                self.logger.info(f"Mode: {self.memserver.mode} "
+                                 f"({self.memserver.since_last_block}s / {self.memserver.block_time}s block)")
 
                 self.logger.info(
                     f"Block Hash Agreement: {int(self.consensus.block_hash_pool_percentage)}% ({len(self.consensus.block_hash_pool)} members)"

@@ -271,8 +271,11 @@ K_OPEN = EPOCH_LENGTH * OPEN_BPS // BPS_DENOM  # open slots per epoch (rest bond
 FINALITY_DEPTH = 30
 
 # Bonded lane: locked refundable stake, split-neutral, per-identity capped.
-B_MIN = 1_000_000_000_000          # 100 NADO: capital per bonded selection share
-BOND_CAP = 100_000_000_000_000     # 10,000 NADO: max effective bond per identity
+B_MIN = 10_000_000_000_000         # 1,000 NADO: capital per bonded selection share (staking-lane entry).
+                                   # Deliberately NOT tiny: grinding spending money is fast+fair (open lane),
+                                   # but becoming a VALIDATOR is a real commitment — skin in the game, and
+                                   # it stops the bonded lane from being trivially Sybil-able with dust.
+BOND_CAP = 1_000_000_000_000_000   # 100,000 NADO: max effective bond per identity (scaled 10x with B_MIN)
 MAX_SHARES = BOND_CAP // B_MIN     # 100: variance cap so a whale can't monopolise the bonded lane
 # BONDED PRODUCER RAMP (anti-sudden-takeover): a newly-bonded identity's PRODUCER-SELECTION weight ramps
 # linearly from 0 to full over BOND_RAMP_EPOCHS, tracked by a STAKE-WEIGHTED bond age (so a top-up re-ramps
