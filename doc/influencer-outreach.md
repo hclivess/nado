@@ -50,6 +50,7 @@ Won't shill, but a mention or "interesting design" nod carries weight with the p
 | Naomi Brockwell | [@naomibrockwell](https://x.com/naomibrockwell) | X / YouTube | Privacy-education reach beyond crypto. | ☐ Not contacted |
 | Andreas Antonopoulos | [@aantonop](https://x.com/aantonop) | X / YouTube | Cypherpunk cred; long-shot but on-narrative. | ☐ Not contacted |
 | fluffypony (Riccardo Spagni) | [@fluffypony](https://x.com/fluffypony) | X | Monero founder; technical privacy audience. | ☐ Not contacted |
+| Zooko Wilcox | [@zooko](https://x.com/zooko) | X | Zcash founder, cypherpunk OG — privacy + ZK. Natural fit for a privacy + transparent-STARK coin. | ☐ Not contacted |
 | Loomdart | [@loomdart](https://x.com/loomdart) | X | Crypto OG (eGirl Capital angel, created the Wassies), semi-retired derivatives trader, FTX-2.0/self-custody advocate. OG-CT cred, degen-adjacent — the same OG crowd that knew Bismuth. Verify fit. | ☐ Not contacted |
 | wassielawyer | [@wassielawyer](https://x.com/wassielawyer) | X | Crypto lawyer; self-custody / anti-CEX / FTX-victim advocacy. Degen-adjacent CT but genuine cypherpunk overlap on the "not your keys" / anti-surveillance angle. | ☐ Not contacted |
 | wasserpest (maru.eth) | [@wasserpest](https://x.com/wasserpest) | X | OG CT anon who originated the Wassie lore (2017). Deep roots in the OG/degen-adjacent crypto-Twitter crowd — same era that knew Bismuth. | ☐ Not contacted |
@@ -67,10 +68,14 @@ The OG CT crowd from ~2017 — mid-size (~50–70K), degen/trader-adjacent, reac
 
 ## Tier 3 — Technical / builder reach (higher bar, higher payoff)
 
-Respond to substance — aim a technical thread on the post-quantum transparent-STARK design here.
+Respond to substance — aim a technical thread on the post-quantum transparent-STARK design here. The first
+three OWN this exact narrative; a credible design thread is the entire play with them (no ask, just substance).
 
 | Who | Handle (verify) | Platform | Why they fit | Status |
 |---|---|---|---|---|
+| Eli Ben-Sasson | [@EliBenSasson](https://x.com/EliBenSasson) | X | StarkWare CEO; **co-invented ZK-STARK + FRI** (the exact proof system NADO uses) and Zerocash. THE transparent-STARK authority — perfect-fit technical target. | ☐ Not contacted |
+| Daniel J. Bernstein (djb) | [@hashbreaker](https://x.com/hashbreaker) | X | **Coined "post-quantum" (2003)**; designed Ed25519/ChaCha + PQ schemes (Classic McEliece, NTRU Prime). THE PQ-crypto authority — the PQ half of the pitch. | ☐ Not contacted |
+| Matthew Green | [@matthew_d_green](https://x.com/matthew_d_green) | X | Johns Hopkins cryptographer, ~140K, Zcash advisor, top applied-crypto educator. (Now mostly on Bluesky: matthewdgreen.bsky.social.) | ☐ Not contacted |
 | Boxmining | [@boxmining](https://x.com/boxmining) | YouTube / X | Mining + tech, ~547K subs, covers new tech. | ☐ Not contacted |
 | Ivan on Tech | [@IvanOnTech](https://x.com/IvanOnTech) | YouTube / X | Technical/education audience. | ☐ Not contacted |
 | Coin Bureau (Guy Turner) | [@coinbureau](https://x.com/coinbureau) | YouTube / X | Huge reach, structured education. Pay-to-play, low fit, long shot. | ☐ Not contacted |
