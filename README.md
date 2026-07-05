@@ -666,3 +666,14 @@ block production).
 ### Contributing
 
 Fork the repository, make your changes, and open a merge request.
+
+## License
+
+Copyright (C) 2022-2026 Jan Kučera (hclivess).
+
+NADO is free software licensed under the **GNU Affero General Public License v3.0**
+(see [`LICENSE`](LICENSE)). The AGPL's network clause (§13) means that anyone who
+runs a modified version of NADO as a network service must make their modified source
+available to its users — you may fork and build on it, but derivative networks must
+stay open. This replaces the project's earlier MIT license going forward; copies
+already distributed under MIT remain under their MIT grant.
