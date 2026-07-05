@@ -21,8 +21,7 @@ Design (from the red-teamed "Option A" hybrid):
 """
 from hashing import blake2b_hash
 from protocol import (B_MIN, BOND_CAP, EPOCH_LENGTH, FIDELITY_CAP, BOND_RAMP_EPOCHS,
-                      K_OPEN, OPEN_BASE_FLOOR, OPEN_FID_BONUS, REGISTER_POW_BITS,
-                      WEIGHT_HEIGHT_TERM_START)
+                      K_OPEN, OPEN_BASE_FLOOR, OPEN_FID_BONUS, REGISTER_POW_BITS)
 
 
 def epoch_of(block_number: int) -> int:
@@ -60,15 +59,16 @@ def total_bonded_shares(bonded_registry: dict) -> int:
 
 
 def block_fork_weight(bonded_registry: dict, block_number: int) -> int:
-    """The per-block cumulative_weight increment: total_bonded_shares as-of-parent, PLUS a +1
-    height term from WEIGHT_HEIGHT_TERM_START (see protocol.py for the wedge this fixes: with an
-    empty bonded registry the old shares-only rule froze cumulative_weight network-wide and
-    fork-choice collapsed to the lowest-hash tie-break). Strictly increasing weight = pure
-    longest-chain while nothing is bonded, stake-dominated once bonding is live. CONSENSUS: the
-    result is committed inside the block-hash preimage and re-verified as-of-parent — every
-    construction/rebuild/verify site must use THIS function, never total_bonded_shares directly."""
-    height_term = 1 if block_number >= WEIGHT_HEIGHT_TERM_START else 0
-    return total_bonded_shares(bonded_registry) + height_term
+    """The per-block cumulative_weight increment: total_bonded_shares as-of-parent PLUS 1. The +1
+    height term keeps cumulative_weight STRICTLY increasing even with an EMPTY bonded registry —
+    the shares-only rule froze the weight network-wide when the B_MIN raise de-qualified every
+    bond, fork-choice collapsed to the lowest-hash tie-break, and a stalled node whose tip hash
+    sorted low considered ITSELF canonical forever (live wedge, 2026-07-05; fixed by the
+    relaunch-3 reset). Pure longest-chain while nothing is bonded, stake-dominated once bonding
+    is live (shares >> 1). CONSENSUS: the result is committed inside the block-hash preimage and
+    re-verified as-of-parent — every construction/rebuild/verify site must use THIS function,
+    never total_bonded_shares directly. block_number is kept for call-site stability."""
+    return total_bonded_shares(bonded_registry) + 1
 
 
 def select_producer(registry: dict, beacon: str, slot: int):

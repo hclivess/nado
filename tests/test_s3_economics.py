@@ -12,7 +12,7 @@ from genesis import create_indexers
 create_indexers()
 
 from protocol import (split_block_reward, TREASURY_ADDRESS, TREASURY_GENESIS, REWARD_WINDOW,
-                      BPS_DENOM, TREASURY_BPS, BASE_SUBSIDY)
+                      BPS_DENOM, TREASURY_BPS, BASE_SUBSIDY, CHAIN_ID)
 from ops.account_ops import (create_account, get_account, change_balance, increase_produced_count,
                              reflect_transaction, get_totals, index_totals, fetch_totals)
 from ops.block_ops import get_block_reward, save_block, set_latest_block_info, construct_block
@@ -58,7 +58,7 @@ def t4():
                           transaction_pool=txs,
                           block_reward=400000, parent_cumulative_fees=1_000_000)
     assert blk["cumulative_fees"] == 1_000_000 + 350, blk["cumulative_fees"]
-    assert blk["chain_id"] == "nado-relaunch-2"
+    assert blk["chain_id"] == CHAIN_ID
 check("construct_block commits cumulative_fees + chain_id", t4)
 
 # 5. incorporate vs rollback ECONOMIC round-trip = exact identity (split + fee-from-block-1)

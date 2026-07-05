@@ -96,6 +96,13 @@ def make_genesis(address, balance, ip, port, timestamp, logger):
     # The epoch-0 recert makes them present in get_open_registry (the presence LEASE) for the first
     # POSW_LEASE_EPOCHS — ample time for the relays to start posting on-chain recerts and stay present.
     open_path = f"{get_home()}/private/genesis_open.dat"
+    if not os.path.exists(open_path):
+        # GIT-TRACKED FALLBACK (same contract as genesis_alloc.dat below): the open producer set is
+        # genesis STATE — every node must seed the identical set or the winner selection forks at
+        # block 1. A joining peer's private/ is empty (gitignored), so ship the set in the repo.
+        repo_open = os.path.join(os.path.dirname(os.path.abspath(__file__)), "genesis_data", "genesis_open.dat")
+        if os.path.exists(repo_open):
+            open_path = repo_open
     if os.path.exists(open_path):
         with open(open_path) as of:
             open_ids = json.load(of)

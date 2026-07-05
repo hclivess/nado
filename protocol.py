@@ -13,12 +13,12 @@ from hashing import blake2b_hash  # leaf module (stdlib only) -> no import cycle
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "nado-relaunch-2"
+CHAIN_ID = "nado-relaunch-3"
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
 
-GENESIS_TIMESTAMP = 1669852800
+GENESIS_TIMESTAMP = 1783209600  # 2026-07-05 00:00 UTC — relaunch-3 (weight hardfork + carried balances)
 
 # --- Reserved, keyless protocol pseudo-addresses (no private key) ---
 # "bond"/"unbond": pseudo-recipients used by the bonding transactions (see S4).
@@ -197,22 +197,6 @@ BASE_SUBSIDY = 1_000_000_000  # 0.1 NADO/block raw = MAX emission/block (~144 NA
 # percent (0..100) — never a runtime float (a last-ULP math.exp diff across platforms could fork the chain).
 #   reward = reward * BOND_ELASTIC_MULT_BPS[pct] // 10000.
 # Regenerate on a param change:  [round((0.15+0.85*exp(-4*p/100))*10000) for p in range(101)]
-# --- FORK-CHOICE WEIGHT HEIGHT TERM (consensus, height-gated activation) ---
-# From this height every block adds +1 to cumulative_weight ON TOP of total_bonded_shares. With an
-# EMPTY bonded registry (as after the B_MIN 100->1000 raise) the old rule added ZERO per block, so
-# the whole network advertised one frozen cumulative_weight, argmax fork-choice degenerated to the
-# lowest-hash tie-break, and a stalled node whose tip hash happened to sort low considered ITSELF
-# canonical forever — it never entered emergency sync (observed live 2026-07-05: node wedged at
-# #5781 / 06d65d... with weight 23040 while the network advanced, every tip also at 23040). The +1
-# height term makes weight STRICTLY increasing: pure longest-chain when nothing is bonded, still
-# stake-dominated once bonding is live (shares >> 1). Height-gated so already-committed blocks
-# (old formula, weight inside the hash preimage) still verify on replay/sync; every node MUST run
-# this code before the chain reaches the activation height or it will reject new blocks.
-# !!! ON ANY CHAIN RESET (mainnet genesis / alphanet wipe): SET THIS TO 0 — a fresh chain gated at
-# 7000 would mint its first 7000 blocks with ZERO weight again, re-arming this exact wedge during
-# bootstrap. The gate exists ONLY to keep the current alphanet's pre-fix blocks verifiable.
-WEIGHT_HEIGHT_TERM_START = 7000
-
 BOND_ELASTIC_MULT_BPS = [
     10000, 9667, 9346, 9039, 8743, 8459, 8186, 7924, 7672, 7430,
     7198, 6974, 6760, 6553, 6355, 6165, 5982, 5806, 5637, 5475,
