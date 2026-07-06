@@ -11,6 +11,7 @@ from execnode.stark import field as F, alghash, joinsplit
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
@@ -18,6 +19,7 @@ def check(name, fn):
 
 
 def t1_note_commitment_zk():
+    """Prove cm = commit(value, owner, rho) verifies with only the DOM_CM tag and cm public (opening stays secret)."""
     # prove cm = commit(value, owner, rho) WITHOUT revealing value/owner/rho (only the DOM_CM tag + cm public)
     value, owner, rho = 12345, 67890, 11111
     cm = alghash.commit(value, owner, rho)
@@ -28,6 +30,7 @@ def t1_note_commitment_zk():
     assert ok, f"a well-formed commitment must verify: {why}"
 
 def t2_wrong_output_rejected():
+    """Prove verify_hash rejects a claimed commitment the trace doesn't actually produce (cm+1)."""
     value, owner, rho = 12345, 67890, 11111
     cm = alghash.commit(value, owner, rho)
     proof, _ = joinsplit.prove_hash([alghash.DOM_CM, value, owner, rho], public_positions=[0])
@@ -35,6 +38,7 @@ def t2_wrong_output_rejected():
     assert not ok, "a commitment claim the trace doesn't produce must be rejected"
 
 def t3_wrong_domain_tag_rejected():
+    """Prove a commitment-domain proof is rejected when claimed under the nullifier domain tag (DOM_NF)."""
     value, owner, rho = 7, 8, 9
     cm = alghash.commit(value, owner, rho)
     proof, _ = joinsplit.prove_hash([alghash.DOM_CM, value, owner, rho], public_positions=[0])
@@ -42,6 +46,7 @@ def t3_wrong_domain_tag_rejected():
     assert not ok, "a mismatched public domain tag must be rejected"
 
 def t4_nullifier_zk():
+    """Prove nf = nullifier(nsk, rho) verifies in ZK with only the DOM_NF tag and nf public."""
     nsk, rho = 424242, 99
     nf = alghash.nullifier(nsk, rho)
     proof, out = joinsplit.prove_hash([alghash.DOM_NF, nsk, rho], public_positions=[0])
@@ -50,6 +55,7 @@ def t4_nullifier_zk():
     assert ok, f"a well-formed nullifier must verify: {why}"
 
 def t5_merkle_node_zk():
+    """Prove a Merkle tree node hash (DOM_NODE over two children) verifies in ZK — the unit a membership path chains."""
     # a tree node hash (the unit a membership path chains) proven in ZK over its two children
     left, right = 111, 222
     node = alghash.merkle_node(left, right)
@@ -59,6 +65,7 @@ def t5_merkle_node_zk():
     assert ok, why
 
 def t6_verify_transfer_stark_seam():
+    """Prove a valid STARK output-wellformedness bundle passes the real shielded.verify_transfer seam."""
     # route a STARK bundle through the REAL verify_transfer seam (execnode/shielded.py)
     from execnode.stark import joinsplit_transfer
     from execnode import shielded
@@ -69,6 +76,7 @@ def t6_verify_transfer_stark_seam():
     assert ok, f"verify_transfer must accept a valid STARK output-wellformedness bundle: {why}"
 
 def t7_verify_transfer_stark_rejects_bad_commitment():
+    """Prove verify_transfer rejects a STARK bundle whose claimed output commitment is wrong."""
     from execnode.stark import joinsplit_transfer
     from execnode import shielded
     bundle, cms = joinsplit_transfer.prove_output_commitments([(60, 111, 7)])

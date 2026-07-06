@@ -11,15 +11,18 @@ from ops.data_ops import get_byte_size
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print("PASS  " + name)
     except Exception as e:
         fails += 1; print("FAIL  " + name + ": " + str(e)); traceback.print_exc()
 
 def tx(txid, target, fee=0, recipient="ndoRECIPIENT"):
+    """Build a minimal tx dict with the given txid, target_block, fee and recipient."""
     return {"txid": txid, "target_block": target, "fee": fee, "recipient": recipient, "amount": 1}
 
 def t1_due_low_fee_not_starved_by_undue_high_fee():
+    """Prove merge_buffer promotes a due fee-0 tx even when an undue high-fee tx sits ahead of it."""
     # the exact bug: a fee-0 due tx (target==5) behind a high-fee undue tx (target==100). Window (4,5].
     frm = [tx("high", 100, fee=10, recipient="ndoX"), tx("reg", 5, fee=0, recipient="register")]
     out = merge_buffer(list(frm), [], block_max=5, block_min=4)
@@ -29,12 +32,14 @@ def t1_due_low_fee_not_starved_by_undue_high_fee():
     assert {t["txid"] for t in out["from_buffer"]} == {"high"}
 
 def t2_promotes_all_in_window():
+    """Prove merge_buffer promotes exactly the txs whose target_block falls in (block_min, block_max]."""
     frm = [tx("a", 5), tx("b", 5), tx("c", 9), tx("d", 4)]
     out = merge_buffer(frm, [], block_max=5, block_min=4)   # window (4,5] -> a,b only
     assert {t["txid"] for t in out["to_buffer"]} == {"a", "b"}
     assert {t["txid"] for t in out["from_buffer"]} == {"c", "d"}
 
 def t3_dedup_against_to_buffer():
+    """Prove merge_buffer drops a txid already present in to_buffer instead of adding it twice."""
     existing = [tx("a", 5)]
     out = merge_buffer([tx("a", 5), tx("b", 5)], list(existing), block_max=5, block_min=4)
     ids = [t["txid"] for t in out["to_buffer"]]
@@ -42,6 +47,7 @@ def t3_dedup_against_to_buffer():
     assert all(t["txid"] != "a" for t in out["from_buffer"]), "the duplicate is dropped from from_buffer"
 
 def t4_cull_never_drops_fee_exempt():
+    """Prove cull_buffer keeps a fee-exempt register while evicting fee-paying spam to fit the byte limit."""
     # a fat fee-0 register + many tiny fee-1 ordinary txs; cull under a small limit must keep the register.
     reg = tx("reg", 5, fee=0, recipient="register")
     spam = [tx("s%d" % i, 5, fee=1, recipient="ndoSPAM") for i in range(200)]
@@ -52,6 +58,7 @@ def t4_cull_never_drops_fee_exempt():
     assert get_byte_size(kept) <= limit, "cull must bring the buffer under the limit"
 
 def t5_fee_exempt_set_covers_the_gated_txs():
+    """Prove FEE_EXEMPT_RECIPIENTS covers every reserved fee-gated tx type."""
     for r in ("register", "unbond", "withdraw", "attest", "reveal", "commit", "settle", "heartbeat",
               "bridge_withdraw", "dividend_withdraw"):
         assert r in FEE_EXEMPT_RECIPIENTS, r + " should be protected from culling"

@@ -19,12 +19,14 @@ from ops.block_ops import get_block_reward, save_block, set_latest_block_info, c
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 # 1. split is exact + 90/10 for every value (no lost unit, sums to reward)
 def t1():
+    """Prove split_block_reward sums exactly to the reward for every value (no lost unit) at the 90/10 producer/treasury split."""
     for r in (0, 1, 5, 9, 10, 99, 1000, 4321, 5_000_000_000):
         p, t = split_block_reward(r)
         assert p + t == r, f"split({r}) sums to {p+t}"
@@ -35,6 +37,7 @@ check("split_block_reward exact + 90/10", t1)
 
 # 2. genesis economic model: founder 0, treasury seeded, no personal premine
 def t2():
+    """Prove the genesis economic model: treasury seeded with TREASURY_GENESIS, founder holds zero (no personal premine)."""
     create_account(address=TREASURY_ADDRESS, balance=TREASURY_GENESIS)
     create_account(address="founder", balance=0)
     assert get_account(TREASURY_ADDRESS)["balance"] == TREASURY_GENESIS
@@ -45,6 +48,7 @@ check("genesis: treasury seeded, founder empty (no premine)", t2)
 #    UNcapped. With no bonded stake the bonded ratio is 0 -> multiplier 1.0 -> exactly BASE_SUBSIDY,
 #    regardless of cumulative_fees. BASE_SUBSIDY is the MAX emission/block (m<=1). See bond-elastic-emission.md
 def t3():
+    """Prove get_block_reward is exactly BASE_SUBSIDY with no bonded stake — fee-independent, uncapped, parent_block optional."""
     assert get_block_reward(parent_block={"block_number": 150, "cumulative_fees": 50_000_000}) == BASE_SUBSIDY
     assert get_block_reward(parent_block={"block_number": 10, "cumulative_fees": 7_000_000}) == BASE_SUBSIDY
     assert get_block_reward(parent_block={"block_number": 10, "cumulative_fees": 10**18}) == BASE_SUBSIDY  # no cap, fee-independent
@@ -53,6 +57,7 @@ check("get_block_reward: flat base subsidy, fee-independent, no cap", t3)
 
 # 4. construct_block commits cumulative_fees = parent_cumfee + this block's fees, + chain_id
 def t4():
+    """Prove construct_block sets cumulative_fees = parent cumulative + this block's fees, and stamps chain_id."""
     txs = [{"fee": 100, "amount": 1, "txid": "a"}, {"fee": 250, "amount": 1, "txid": "b"}]
     blk = construct_block(block_timestamp=10, block_number=5, parent_hash="0"*64, creator="m",
                           transaction_pool=txs,
@@ -63,6 +68,7 @@ check("construct_block commits cumulative_fees + chain_id", t4)
 
 # 5. incorporate vs rollback ECONOMIC round-trip = exact identity (split + fee-from-block-1)
 def apply_block(block, txs):
+    """Incorporate block economically: reflect txs, credit the split reward to producer/treasury, bump produced count and totals."""
     for tx in txs:
         reflect_transaction(tx, logger=logger, block_height=block["block_number"])
     p, t = split_block_reward(block["block_reward"])
@@ -72,6 +78,7 @@ def apply_block(block, txs):
     tt = get_totals(block=block)
     index_totals(produced=tt["produced"], fees=tt["fees"])
 def rollback_block(block, txs):
+    """Revert apply_block in mirror order: reward split, produced count, totals, then each tx reflection."""
     p, t = split_block_reward(block["block_reward"])
     change_balance(block["block_creator"], p, revert=True, logger=logger)
     if t: change_balance(TREASURY_ADDRESS, t, revert=True, logger=logger)
@@ -82,6 +89,7 @@ def rollback_block(block, txs):
         reflect_transaction(tx, logger=logger, block_height=block["block_number"], revert=True)
 
 def t5():
+    """Prove incorporate then rollback of a fee-paying block is an exact identity on all touched accounts and totals (fee debited from block 1)."""
     create_account("alice", 10_000_000); create_account("bob", 0); create_account("miner", 0)
     txs = [{"sender": "alice", "recipient": "bob", "amount": 500, "fee": 100}]
     block = {"block_number": 1, "block_creator": "miner", "block_reward": 1000, "block_transactions": txs}
@@ -104,6 +112,7 @@ check("incorporate<->rollback round-trip is exact identity", t5)
 
 # 6. supply formula: no premine, treasury non-circulating
 def t6():
+    """Prove the supply formula total = TREASURY_GENESIS + produced - fees, with circulating excluding the treasury (zero after the round-trip)."""
     tot = fetch_totals()
     total_supply = TREASURY_GENESIS + tot["produced"] - tot["fees"]
     treasury = get_account(TREASURY_ADDRESS)["balance"]

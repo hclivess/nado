@@ -23,14 +23,18 @@ from Curve25519 import generate_keydict, sign, unhex
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
-def bal(a): acc = get_account(a); return acc["balance"] if acc else 0
+def bal(a):
+    """Balance of account a, or 0 if the account does not exist."""
+    acc = get_account(a); return acc["balance"] if acc else 0
 
 def _dump():
+    """Snapshot every LMDB sub-database as raw (key, value) byte pairs for byte-identical comparison."""
     env = kv_ops.get_env(); dbs = kv_ops._dbs(); out = {}
     with env.begin() as txn:
         for nm, db in dbs.items():
@@ -39,6 +43,7 @@ def _dump():
     return out
 
 def signed(kd, recipient, amount, fee, data, target=20):
+    """Build a fully signed transaction from key dict kd with a valid txid and signature."""
     tx = {"sender": kd["address"], "recipient": recipient, "amount": amount, "fee": fee, "data": data,
           "timestamp": 1, "nonce": "n" + recipient, "public_key": kd["public_key"], "target_block": target,
           "chain_id": CHAIN_ID}
@@ -47,6 +52,7 @@ def signed(kd, recipient, amount, fee, data, target=20):
 
 
 def t1_shield_escrows_and_reverts_byte_identical():
+    """Prove a shield tx debits amount+fee, locks the amount in SHIELD_ESCROW, and reverts to a byte-identical DB."""
     create_account("alice", balance=1_000_000)
     create_account(SHIELD_ESCROW, balance=3)
     tx = {"sender": "alice", "recipient": "shield", "amount": 100_000, "fee": 7, "txid": "s1",
@@ -61,6 +67,7 @@ def t1_shield_escrows_and_reverts_byte_identical():
     assert _dump() == before, "shield reflect rollback is NOT byte-identical"
 
 def t2_shield_validation():
+    """Prove shield validation accepts a well-formed tx and rejects zero amount, low fee, and empty out_commitments with the right reasons."""
     kd = generate_keydict(); create_account(kd["address"], balance=1_000_000)
     kv_ops.account_set_field(kd["address"], "public_key", kd["public_key"])
     validate_transaction(signed(kd, "shield", 100_000, MIN_TX_FEE, {"out_commitments": ["cm1"]}), logger, block_height=20)
@@ -75,6 +82,7 @@ def t2_shield_validation():
             assert why in str(e), f"wrong reason: {e}"
 
 def t3_unshield_validation_rejects_bad_proof_and_spent_nullifier():
+    """Prove an unshield without a settled root / valid proof is rejected and a spent nullifier is recorded as spent."""
     kd = generate_keydict(); create_account(kd["address"], balance=0)
     kv_ops.account_set_field(kd["address"], "public_key", kd["public_key"])
     create_account(SHIELD_ESCROW, balance=500_000)
@@ -90,6 +98,7 @@ def t3_unshield_validation_rejects_bad_proof_and_spent_nullifier():
     assert kv_ops.shield_nullifier_exists(kd["address"], "nf_xyz")
 
 def t4_unshield_uniqueness_key():
+    """Prove the unshield uniqueness key is (recipient, addr, nonce) so each exit is one-per-(addr, nonce)."""
     tx = {"recipient": "unshield", "data": {"addr": "a", "amount": 1, "nonce": "nf1"}}
     assert reserved_uniqueness_key(tx) == ("unshield", "a", "nf1"), "one unshield exit per (addr, nonce)"
 

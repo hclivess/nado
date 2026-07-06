@@ -30,6 +30,7 @@ from protocol import B_MIN, EPOCH_LENGTH, FINALITY_DEPTH, CHAIN_ID
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try:
         fn(); print(f"PASS  {name}")
@@ -44,6 +45,7 @@ create_account(val["address"], bonded=B_MIN)
 
 
 def signed(recipient, data, target_block, kd=val):
+    """Build and sign a fee-0 reserved tx (commit/reveal) from keydict kd with txid + signature attached."""
     tx = {"sender": kd["address"], "recipient": recipient, "amount": 0, "timestamp": 1, "data": data,
           "nonce": f"{recipient}{target_block}", "public_key": kd["public_key"],
           "target_block": target_block, "chain_id": CHAIN_ID, "fee": 0}
@@ -52,6 +54,7 @@ def signed(recipient, data, target_block, kd=val):
 
 
 def t1_commit():
+    """Prove a bonded validator's commit in epoch E-2 validates and is recorded."""
     tb = (E - 2) * EPOCH_LENGTH + 5   # epoch E-2
     tx = signed("commit", {"target_epoch": E, "commitment": COMMITMENT}, tb)
     assert validate_transaction(tx, logger, block_height=tb), "valid commit must validate"
@@ -62,6 +65,7 @@ check("commit (epoch E-2) validates + records", t1_commit)
 
 
 def t2_commit_wrong_window():
+    """Prove a commit outside epoch E-2 is rejected."""
     tb = (E - 1) * EPOCH_LENGTH + 5   # epoch E-1 (too late for a commit)
     tx = signed("commit", {"target_epoch": E, "commitment": COMMITMENT}, tb)
     try:
@@ -72,6 +76,7 @@ check("commit outside epoch E-2 -> rejected", t2_commit_wrong_window)
 
 
 def t3_reveal():
+    """Prove a reveal in the epoch E-1 finalized window that opens the commitment validates and is recorded."""
     tb = (E - 1) * EPOCH_LENGTH + 5   # epoch E-1, within [..(E*EL - FINALITY_DEPTH - 1)]
     assert tb <= E * EPOCH_LENGTH - FINALITY_DEPTH - 1
     tx = signed("reveal", {"target_epoch": E, "secret": SECRET}, tb)
@@ -83,6 +88,7 @@ check("reveal (epoch E-1 finalized window, opens commit) validates + records", t
 
 
 def t4_reveal_bad_opening():
+    """Prove a reveal whose secret does not open the prior commitment is rejected."""
     tb = (E - 1) * EPOCH_LENGTH + 6
     tx = signed("reveal", {"target_epoch": E, "secret": "not-the-secret"}, tb)
     try:
@@ -93,6 +99,7 @@ check("reveal that doesn't open the commitment -> rejected", t4_reveal_bad_openi
 
 
 def t5_reveal_outside_window():
+    """Prove a reveal past the finalized window (too close to E*EPOCH_LENGTH) is rejected."""
     tb = E * EPOCH_LENGTH - 2         # too late (not finalized by E*EL)
     tx = signed("reveal", {"target_epoch": E, "secret": SECRET}, tb)
     try:
@@ -103,6 +110,7 @@ check("reveal outside the finalized window -> rejected", t5_reveal_outside_windo
 
 
 def t6_beacon_uses_reveals():
+    """Prove epoch_beacon mixes revealed secrets with the finalized anchor and falls back anchor-only without reveals."""
     kv_ops.block_index_put((E - 1) * EPOCH_LENGTH, "c0ffee" * 10 + "abcd")  # the epoch-E anchor (block 180)
     with_reveal = epoch_beacon(E)              # reveal from t3 is recorded
     kv_ops.reveal_del(E, SECRET)               # remove it -> anchor-only fallback
@@ -113,6 +121,7 @@ check("epoch_beacon mixes the finalized anchor with revealed secrets", t6_beacon
 
 
 def t7_non_bonded_rejected():
+    """Prove a commit from a non-bonded sender is rejected."""
     poor = generate_keydict(); create_account(poor["address"], bonded=0)
     tb = (E - 2) * EPOCH_LENGTH + 7
     tx = signed("commit", {"target_epoch": E, "commitment": COMMITMENT}, tb, kd=poor)

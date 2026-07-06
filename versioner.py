@@ -29,11 +29,15 @@ def update_version():
 
 
 def set_version(version):
+    """Persist the derived stamp into the untracked `version` file (JSON), relative to the process
+    CWD — written at node startup so read_version() works even after the .git dir goes away."""
     with open("version", "w") as version_file:
         json.dump(version, version_file)
 
 
 def read_version():
+    """The version string surfaced in /status and logs: the cached `version` file if present, else
+    a live git describe via update_version(), else 'na'. Never raises."""
     # `version` is a runtime-derived build artifact (git HEAD), NOT tracked in git — see .gitignore. Fall
     # back to reading HEAD directly (fresh clone before the first boot writes the file), then "na" (a tarball
     # deploy with neither the file nor a .git dir), so a missing file never crashes startup.

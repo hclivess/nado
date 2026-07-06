@@ -14,6 +14,9 @@ from ops import kv_ops
 from ops.data_ops import get_home
 
 def main():
+    """Walk every account in the live LMDB state, keep those with any balance or bonded stake, and
+    write the sorted allocation list to private/genesis_alloc.dat (printing totals for eyeballing).
+    Read-only against the chain — safe to run on a live node."""
     kv_ops.init_env()
     alloc = []
     total_balance = total_bonded = 0

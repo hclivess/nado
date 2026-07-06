@@ -26,6 +26,7 @@ from ops.account_ops import create_account, get_account, change_balance
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try:
         fn(); print(f"PASS  {name}")
@@ -34,6 +35,7 @@ def check(name, fn):
 
 
 def t1():
+    """Prove a checkpoint captures current state, is advertised only once finalized, round-trips off disk with an intact manifest (incl. the entry_count regression), and its import restores EXACT state over a diverged DB."""
     create_account("alice", balance=1000, produced=5, bonded=200)
     create_account("bob", balance=42, bonded=0)
 
@@ -72,6 +74,7 @@ check("capture -> advertise-when-final -> import restores EXACT state (over a di
 
 
 def t2():
+    """Prove a tampered chunk is rejected by the sha256/state_root gate BEFORE any state is written."""
     manifest = snapshot_ops.load_checkpoint_manifest(5)
     chunks = [snapshot_ops.load_checkpoint_chunk(5, i) for i in range(manifest["chunk_count"])]
     bad = bytearray(chunks[0]); bad[len(bad) // 2] ^= 0xFF
@@ -83,6 +86,7 @@ check("tampered chunk rejected before any write (sha256 / state_root gate)", t2)
 
 
 def t3():
+    """Prove drop_checkpoints_above prunes checkpoints above the new tip after a rollback."""
     snapshot_ops.persist_checkpoint(height=10, block_hash="b" * 64, protocol=2, version="v")
     assert snapshot_ops.list_checkpoint_heights() == [5, 10]
     snapshot_ops.drop_checkpoints_above(7)      # a rollback to tip 7
@@ -91,6 +95,7 @@ check("drop_checkpoints_above prunes checkpoints above the new tip", t3)
 
 
 def t4():
+    """Prove full producer-selection state (registered/fidelity, recert lease, bonded) survives checkpoint export/import, so a snapshot-synced open-lane miner cannot fork."""
     # CRITICAL fix: the FULL producer-selection state must survive a snapshot, else a snapshot-synced
     # OPEN-LANE miner derives a different registry and forks on tail replay. Carry registered/fidelity
     # (open lane) + the recert_by_epoch lease. bonded ramp (bond_since) rides along the same way.

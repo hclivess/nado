@@ -21,12 +21,14 @@ from ops.data_ops import get_home
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 
 def t1_save_load_delete():
+    """Prove a peer round-trips through the single peers.dat (no peer_trust) and deletes cleanly."""
     peer_ops.save_peer(ip="5.6.7.8", port=9173, address="ndoAAA")
     assert peer_ops.ip_stored("5.6.7.8")
     rec = peer_ops.load_peer(logger, "5.6.7.8")
@@ -41,6 +43,7 @@ check("save -> load -> delete via the single peers.dat", t1_save_load_delete)
 
 
 def t2_never_stores_own_ip():
+    """Prove save_peer refuses our own configured IP (the ghost self-peer / self-dial bug)."""
     peer_ops.save_peer(ip="1.2.3.4", port=9173, address="me")          # our own configured IP
     assert not peer_ops.ip_stored("1.2.3.4"), "own IP must NEVER be stored (ghost self-peer / self-dial)"
     # and even if it somehow got in, check_save_peers/load_ips exclude it — covered by save_peer's guard here
@@ -48,6 +51,7 @@ check("own IP is never stored as a peer", t2_never_stores_own_ip)
 
 
 def t4_migrates_legacy_dir_then_retires_it():
+    """Prove legacy peers/<b64>.dat files migrate into peers.dat (dropping peer_trust) and are removed."""
     # fresh home with ONLY a legacy peers/ dir
     home2 = tempfile.mkdtemp(prefix="nado_legacy_")
     os.environ["HOME"] = home2
@@ -65,6 +69,7 @@ check("legacy peers/*.dat migrated into peers.dat then removed", t4_migrates_leg
 
 
 def t5_seed_recovers_a_poisoned_table():
+    """Prove seed_default_peers re-asserts the bootstrap seed on a poisoned own-IP-only table."""
     # a node whose table contains ONLY its own IP (load_ips excludes it -> 0 dialable peers) must still get
     # the bootstrap seed re-asserted, or it loops "Loaded 0 reachable peers" forever (the bug the user hit).
     peer_ops._save_peers({"1.2.3.4": {"peer_ip": "1.2.3.4", "peer_port": 9173}})
@@ -76,6 +81,7 @@ check("seed_default_peers recovers the bootstrap on a poisoned (own-IP-only) tab
 
 
 def t6_migration_skips_own_ip():
+    """Prove the legacy migration filters out our own IP but keeps legitimate peers."""
     home3 = tempfile.mkdtemp(prefix="nado_ownip_")
     os.environ["HOME"] = home3
     os.makedirs(f"{home3}/nado/peers", exist_ok=True)

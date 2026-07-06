@@ -12,6 +12,7 @@ from execnode.stark.transcript import Transcript
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
@@ -28,6 +29,7 @@ def coset_evals(coeffs, N, offset):
 
 
 def t1_accepts_low_degree():
+    """Prove FRI accepts a genuinely low-degree polynomial (degree 15 under a degree < 16 claim)."""
     N, blowup = 64, 4                              # claimed degree < 16
     coeffs = [random.randrange(F.P) for _ in range(16)]
     evals = coset_evals(coeffs, N, OFF)
@@ -36,6 +38,7 @@ def t1_accepts_low_degree():
     assert ok, f"low-degree poly must verify: {why}"
 
 def t2_rejects_high_degree():
+    """Prove FRI rejects a degree ~40 polynomial passed off under a 'degree < 16' claim."""
     N, blowup = 64, 4                              # claim degree < 16, but feed degree ~40
     coeffs = [random.randrange(F.P) for _ in range(40)]
     evals = coset_evals(coeffs, N, OFF)
@@ -44,6 +47,7 @@ def t2_rejects_high_degree():
     assert not ok, "a degree-40 polynomial must NOT pass a 'degree < 16' claim"
 
 def t3_rejects_random_function():
+    """Prove FRI rejects a random function that is not a low-degree polynomial at all."""
     N, blowup = 128, 4
     evals = [random.randrange(F.P) for _ in range(N)]   # not a low-degree polynomial at all
     proof = fri.prove(evals, OFF, blowup, num_queries=30)
@@ -51,6 +55,7 @@ def t3_rejects_random_function():
     assert not ok, "a random function must be rejected"
 
 def t4_rejects_tampering():
+    """Prove flipping one opened query value in a valid proof breaks the Merkle opening (or fold) check."""
     N, blowup = 64, 4
     coeffs = [random.randrange(F.P) for _ in range(16)]
     proof = fri.prove(coset_evals(coeffs, N, OFF), OFF, blowup, num_queries=24)
@@ -61,6 +66,7 @@ def t4_rejects_tampering():
     assert not ok, "tampered query value must be rejected"
 
 def t5_rejects_wrong_transcript_label():
+    """Prove a proof only verifies under its own Fiat-Shamir transcript label, not a different context."""
     N, blowup = 64, 4
     coeffs = [random.randrange(F.P) for _ in range(16)]
     proof = fri.prove(coset_evals(coeffs, N, OFF), OFF, blowup, num_queries=24, transcript=Transcript("A"))
@@ -69,6 +75,7 @@ def t5_rejects_wrong_transcript_label():
     assert fri.verify(proof, transcript=Transcript("A"))[0], "…but verifies under the matching transcript"
 
 def t6_grinding_required():
+    """Prove the grinding PoW nonce is mandatory (C-1): a missing or tampered nonce is rejected."""
     # C-1: the proof-of-work nonce must be present and meet GRIND_BITS, else the proof is rejected.
     N, blowup = 64, 4
     coeffs = [random.randrange(F.P) for _ in range(16)]

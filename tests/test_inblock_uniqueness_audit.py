@@ -27,6 +27,7 @@ from protocol import CHAIN_ID, EPOCH_LENGTH, B_MIN
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try:
         fn(); print(f"PASS  {name}")
@@ -34,10 +35,12 @@ def check(name, fn):
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 def tx(r, sender="s", **kw):
+    """Build a minimal tx dict with recipient r, sender, and extra fields kw."""
     return {"recipient": r, "sender": sender, **kw}
 
 
 def t1_keys():
+    """Prove reserved_uniqueness_key maps each reserved recipient to its one-per-block key (None for retired heartbeat and plain transfers)."""
     assert reserved_uniqueness_key(tx("withdraw")) == ("withdraw", "s")
     assert reserved_uniqueness_key(tx("unbond")) == ("unbond", "s")
     # heartbeat is RETIRED (recert-via-register is the presence mechanism, doc/presence-dividend.md
@@ -51,6 +54,7 @@ check("reserved_uniqueness_key maps each reserved tx to its one-per-block key", 
 
 
 def t2_dedup_and_reject():
+    """Prove two same-sender withdraws are deduped at block assembly and rejected by verify, while distinct senders pass."""
     two = [tx("withdraw"), tx("withdraw", nonce="2")]
     assert len(dedupe_reserved(two)) == 1, "block assembly must drop the 2nd withdraw"
     raised = False
@@ -64,6 +68,7 @@ check("two withdraws/one block: deduped on build, rejected on verify; distinct s
 
 
 def t3_slash_offence_dedup():
+    """Prove two slashes of one (offender, height) offence are rejected even when filed by different reporters."""
     kd = generate_keydict()
     s1 = tx("slash", sender="r1", data={"public_key": kd["public_key"], "block_number": 7})
     s2 = tx("slash", sender="r2", data={"public_key": kd["public_key"], "block_number": 7})
@@ -77,6 +82,7 @@ check("duplicate slash of one offence is rejected (even from two reporters)", t3
 
 
 def t4_attest_cross_block():
+    """Prove a second attest tx for an already-attested epoch is rejected at validation (cross-block guard)."""
     # heartbeat is RETIRED; the surviving cross-block one-per-epoch guard is the FFG attestation
     # index — a second attest tx for an already-attested epoch must be rejected at validation.
     kd = generate_keydict(); s = kd["address"]

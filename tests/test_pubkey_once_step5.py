@@ -26,6 +26,7 @@ from protocol import CHAIN_ID
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try:
         fn(); print(f"PASS  {name}")
@@ -34,6 +35,7 @@ def check(name, fn):
 
 
 def dump_env():
+    """Dump every LMDB sub-database as {name: [(key, value), ...]} for byte-identical comparison."""
     env = kv_ops.get_env(); dbs = kv_ops._dbs(); out = {}
     with env.begin() as txn:
         for name, db in dbs.items():
@@ -50,12 +52,14 @@ body = {"sender": sender, "recipient": "register", "amount": 0, "timestamp": 1, 
 
 
 def t1():
+    """Prove create_txid excludes public_key: a lean tx keeps the same txid."""
     body_no_pk = {k: v for k, v in body.items() if k != "public_key"}
     assert create_txid(body) == create_txid(body_no_pk), "public_key must be excluded from the txid"
 check("create_txid excludes public_key (lean tx keeps the same txid)", t1)
 
 
 def t2_and_t3():
+    """Prove the pubkey is stored on first indexed use and incorporate->rollback leaves the KV env byte-identical."""
     create_account(sender)                 # pre-state: account exists, NO pubkey
     before = dump_env()
 

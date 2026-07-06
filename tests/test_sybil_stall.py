@@ -18,6 +18,7 @@ from loops.core_loop import peer_claims_heavier_tip
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try:
         fn()
@@ -29,6 +30,7 @@ def check(name, fn):
 W = 1000  # our tip weight
 
 def status(weight, tip):
+    """Build a minimal peer status dict advertising the given tip weight and hash."""
     return {"latest_block_weight": weight, "latest_block_hash": tip}
 
 def t_solo():

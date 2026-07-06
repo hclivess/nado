@@ -10,6 +10,7 @@ import os, sys, tempfile, logging, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def _fresh_home(p):
+    """Point HOME at a fresh temp dir with the nado data subdirs created; return its path."""
     h = tempfile.mkdtemp(prefix=p)
     os.environ["HOME"] = h
     for d in ("index", "blocks", "index/producer_sets", "logs", "peers"):
@@ -19,6 +20,7 @@ def _fresh_home(p):
 logger = logging.getLogger("snapbeacon"); logger.addHandler(logging.NullHandler())
 fails = 0
 def check(name, ok):
+    """Print PASS/FAIL for boolean ok and count failures."""
     global fails
     print(("PASS  " if ok else "FAIL  ") + name)
     if not ok: fails += 1

@@ -18,6 +18,7 @@ from execnode import shielded_field as SF, shielded
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
@@ -38,12 +39,14 @@ def _unshield_bundle(st):
 
 
 def t_m10_concurrent_double_unshield_records_one():
+    """Prove 8 racing identical unshields yield exactly one exit record; the rest are double-spend rejects (M-10)."""
     st = ExecState(path=os.path.join(os.environ["HOME"], "m10.json"))
     bundle, _ = _unshield_bundle(st)
     K = 8
     results, barrier = [], threading.Barrier(K)
     lock = threading.Lock()
     def worker():
+        """Apply the shared unshield bundle after the barrier releases all threads at once."""
         barrier.wait()                                   # release all threads at once to maximise contention
         r = st.apply_field_transfer(copy.deepcopy(bundle))
         with lock: results.append(r)
@@ -59,6 +62,7 @@ def t_m10_concurrent_double_unshield_records_one():
 
 
 def t_h7_oversized_N_rejected_no_alloc():
+    """Prove stark.verify rejects an oversized declared LDE size (N=2^32, or T beyond MAX_TRACE_ROWS) before allocating the domain (H-7)."""
     st = ExecState(path=os.path.join(os.environ["HOME"], "h7.json"))
     bundle, public = _unshield_bundle(st)
     ok, _ = shielded.verify_transfer(public, bundle, st.field_pool.knows_root)

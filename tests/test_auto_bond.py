@@ -15,6 +15,7 @@ from loops.core_loop import CoreClient as Core
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
@@ -23,16 +24,19 @@ def check(name, fn):
 # ---- a minimal fake memserver + Core self, so we can drive Core.maybe_auto_bond directly -----------
 class FakeMem:
     def __init__(self, kd, pct):
+        """Fake memserver holding keydict kd, auto_bond_percent pct, epoch-1 tip, and a submitted-tx log."""
         self.keydict = kd
         self.address = kd["address"]
         self.auto_bond_percent = pct
         self.latest_block = {"block_number": EPOCH_LENGTH}     # epoch 1
         self.submitted = []
     def merge_transaction(self, tx, user_origin=False):
+        """Record the submitted tx instead of mempooling it; always report success."""
         self.submitted.append(tx)
         return {"result": True}
 
 def make_core(pct):
+    """Build a fake Core (registered funded miner + FakeMem at pct) whose maybe_auto_bond drives the real logic; returns (core, mem, keydict)."""
     kd = generate_keys()
     # a registered, funded miner account
     create_account(kd["address"], balance=0)
@@ -46,18 +50,22 @@ def make_core(pct):
     return core, mem, kd
 
 def set_epoch(mem, epoch):
+    """Advance the fake tip to the first block of the given epoch."""
     mem.latest_block = {"block_number": epoch * EPOCH_LENGTH}
 
 def add_reward(addr, nado):
+    """Credit addr with a mining reward of `nado` whole NADO."""
     change_balance(addr, int(nado * DENOMINATION), logger=logger)
 
 def apply_bond(addr, raw, fee):
+    """Simulate a bond tx landing: move raw from spendable to bonded and destroy the fee."""
     # simulate the bond tx landing: spendable -> bonded, fee destroyed
     change_balance(addr, -(raw + fee), logger=logger)
     change_bonded(addr, raw, logger=logger)
 
 # ---- 1. baseline-then-compound: first call only sets baseline; a later epoch bonds pct of the gain --
 def t1():
+    """Prove the first call only sets a baseline, then a later epoch bonds pct of the new gain."""
     core, mem, kd = make_core(pct=50)
     add_reward(kd["address"], 5)                 # 5 NADO already present before auto-bond is observed
     core.maybe_auto_bond()
@@ -76,6 +84,7 @@ check("baseline first, then bonds 50% of new earnings", t1)
 
 # ---- 2. throttle: at most one auto-bond per epoch ------------------------------------------------
 def t2():
+    """Prove auto-bond is throttled to at most one bond tx per epoch."""
     core, mem, kd = make_core(pct=50)             # <100% so the gain also covers the tx fee
     core.maybe_auto_bond()                        # baseline
     add_reward(kd["address"], 4); set_epoch(mem, 2)
@@ -87,6 +96,7 @@ check("throttled to one auto-bond per epoch", t2)
 
 # ---- 3. dust floor: a gain whose pct is below AUTO_BOND_MIN_RAW accrues (no tx, no rebaseline) ----
 def t3():
+    """Prove a gain whose pct share is below AUTO_BOND_MIN_RAW emits no tx and keeps the baseline (accrues)."""
     core, mem, kd = make_core(pct=1)
     core.maybe_auto_bond()                        # baseline = 0
     # 1% of this gain must be < AUTO_BOND_MIN_RAW (0.001 NADO). gain = 0.05 NADO -> 1% = 0.0005 NADO.
@@ -101,6 +111,7 @@ check("below dust floor accrues without a tx or rebaseline", t3)
 
 # ---- 4. stops at BOND_CAP (extra bond buys no weight) --------------------------------------------
 def t4():
+    """Prove no auto-bond is emitted once bonded is already at BOND_CAP."""
     core, mem, kd = make_core(pct=100)
     change_bonded(kd["address"], BOND_CAP, logger=logger)   # already at cap
     core.maybe_auto_bond()                        # baseline
@@ -111,6 +122,7 @@ check("stops auto-bonding at BOND_CAP", t4)
 
 # ---- 5. pct=0 is fully off --------------------------------------------------------------------
 def t5():
+    """Prove auto_bond_percent=0 is a complete no-op (no tx, no baseline)."""
     core, mem, kd = make_core(pct=0)
     add_reward(kd["address"], 100); set_epoch(mem, 2)
     core.maybe_auto_bond(); core.maybe_auto_bond()
@@ -119,6 +131,7 @@ check("auto_bond_percent=0 is a no-op", t5)
 
 # ---- 6. realistic round: bond lands (reduces balance); a no-reward epoch then bonds nothing -------
 def t6():
+    """Prove that after a bond lands (balance drops), a no-reward epoch bonds nothing and bonded stays correct."""
     core, mem, kd = make_core(pct=50)
     core.maybe_auto_bond()                        # baseline 0
     add_reward(kd["address"], 10); set_epoch(mem, 2)

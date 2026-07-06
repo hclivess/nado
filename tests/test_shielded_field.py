@@ -12,6 +12,7 @@ from execnode import shielded_field as SF, shielded
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
@@ -19,6 +20,7 @@ def check(name, fn):
 
 
 def _pool_with_note(nsk, value, rho):
+    """Build a 3-commitment pool whose middle note is commit(value, owner_of(nsk), rho); return (pool, cm, position)."""
     pool = SF.FieldShieldedPool()
     pool.append(alghash.commit(1, 2, 3))
     cm = alghash.commit(value, alghash.owner_of(nsk), rho)
@@ -28,18 +30,21 @@ def _pool_with_note(nsk, value, rho):
 
 
 def t1_tree_path_folds_to_root():
+    """Prove tree_path yields TREE_DEPTH siblings that fold to the pool root, matching the circuit's membership."""
     pool, cm, pos = _pool_with_note(0x1111, 1000, 0x2222)
     sibs, dirs = SF.tree_path(pool.commitments, pos)
     assert len(sibs) == SF.TREE_DEPTH
     assert MB.merkle_root_from_path(cm, sibs, dirs) == pool.root(), "path must fold to the pool root (== circuit membership)"
 
 def t2_empty_root_and_anchors():
+    """Prove a fresh pool has EMPTY_ROOT and the anchor window keeps both past and current roots."""
     pool = SF.FieldShieldedPool()
     assert pool.root() == SF.EMPTY_ROOT and pool.knows_root(SF.EMPTY_ROOT)
     r0 = pool.root(); pool.append(alghash.commit(5, 6, 7))
     assert pool.knows_root(r0) and pool.knows_root(pool.root()), "anchor window keeps past + current roots"
 
 def t3_delegated_transfer_verifies():
+    """Prove a delegated STARK transfer built by SF.prove_transfer passes the real shielded.verify_transfer seam."""
     pool, cm, pos = _pool_with_note(0x1111, 1000, 0x2222)
     out_owner = alghash.owner_of(0x3333)
     bundle, public = SF.prove_transfer(pool, 0x1111, 1000, 0x2222, pos, 950, out_owner, 0x4444,
@@ -48,6 +53,7 @@ def t3_delegated_transfer_verifies():
     assert ok, f"a delegated STARK transfer must verify through verify_transfer: {why}"
 
 def t4_conservation_violation_rejected():
+    """Prove verify_transfer rejects a bundle whose claimed fee differs from the proven one (conservation)."""
     pool, cm, pos = _pool_with_note(0x1111, 1000, 0x2222)
     out_owner = alghash.owner_of(0x3333)
     bundle, public = SF.prove_transfer(pool, 0x1111, 1000, 0x2222, pos, 950, out_owner, 0x4444,

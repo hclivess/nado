@@ -17,11 +17,13 @@ from rollback import rollback_one_block, MissingParentError
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 def t1():
+    """Prove change_balance credits and debits correctly in single statements."""
     change_balance("alice", 1000, logger=logger)
     assert get_account("alice")["balance"] == 1000
     change_balance("alice", -400, logger=logger)
@@ -29,6 +31,7 @@ def t1():
 check("change_balance credit/debit (single-statement)", t1)
 
 def t2():
+    """Prove an overdraw raises AssertionError and leaves the balance untouched (fails closed)."""
     try:
         change_balance("alice", -10_000, logger=logger); raise RuntimeError("overdraw accepted")
     except AssertionError:
@@ -37,6 +40,7 @@ def t2():
 check("overdraw fails closed with NO mutation", t2)
 
 def t3():
+    """Prove change_balance revert=True exactly undoes a debit (symmetric revert)."""
     change_balance("carol", 5000, logger=logger)
     change_balance("carol", -2000, logger=logger)
     acc = get_account("carol"); assert acc["balance"] == 3000, acc
@@ -45,6 +49,7 @@ def t3():
 check("change_balance revert is symmetric", t3)
 
 def t4():
+    """Prove produced count increments, reverts to zero, and a revert below zero is rejected (underflow guard)."""
     increase_produced_count("dave", 700, logger=logger)
     assert get_account("dave")["produced"] == 700
     increase_produced_count("dave", 700, revert=True, logger=logger)
@@ -56,11 +61,13 @@ def t4():
 check("produced count + underflow guard", t4)
 
 def make_block(num, parent, h):
+    """Build a minimal block dict (creator alice, no txs), save it via save_block, and return it."""
     b = {"block_number": num, "parent_hash": parent, "block_hash": h, "block_timestamp": 1,
          "block_transactions": [], "block_creator": "alice", "block_reward": 0, "child_hash": None}
     save_block(b, logger=logger); return b
 
 def t5():
+    """Prove block-ends (earliest/latest) set atomically and read back immediately without a readback spin."""
     g = make_block(0, None, "a"*64)
     set_earliest_block_info(g, logger=logger); set_latest_block_info(g, logger=logger)
     ends = get_block_ends_info(logger=logger)
@@ -70,6 +77,7 @@ def t5():
 check("block_ends atomic set/get (no readback spin)", t5)
 
 def t6():
+    """Prove rolling back a block whose parent is missing raises MissingParentError instead of spinning or crashing."""
     orphan = {"block_number": 5, "parent_hash": "c"*64, "block_hash": "d"*64,
               "block_creator": "alice", "block_reward": 0, "block_transactions": []}
     try:

@@ -13,15 +13,18 @@ from hashing import dividend_leaf, verify_merkle_proof
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 def fresh():
+    """Return a blank ExecState backed by a throwaway temp file."""
     return ExecState(tempfile.mktemp(prefix="nado_divexec_", suffix=".json"))
 
 def t1_weighted_present_only_with_carry():
+    """Prove accrue_dividend splits pool growth fidelity-weighted among ONLY the present miners, carrying the sub-unit remainder."""
     st = fresh()
     # pool 0 -> 1000, present {A:10, B:5} -> A 666, B 333, carry 1 (1000 - 999)
     st.accrue_dividend(1000, {"A": 10, "B": 5})
@@ -34,6 +37,7 @@ def t1_weighted_present_only_with_carry():
     assert st.dividend["B"] == 333, "B, absent this round, is unchanged"
 
 def t2_no_growth_no_accrual():
+    """Prove an unchanged pool balance distributes nothing and leaves accrued dividends untouched."""
     st = fresh()
     st.accrue_dividend(500, {"A": 1})
     before = dict(st.dividend)
@@ -41,6 +45,7 @@ def t2_no_growth_no_accrual():
     assert st.dividend == before
 
 def t3_collect_burns_and_proves():
+    """Prove collect_dividend burns the accrued balance into a withdrawal leaf that Merkle-proves against the state_root."""
     st = fresh()
     st.accrue_dividend(1000, {"A": 10})            # A gets all 1000
     assert st.dividend["A"] == 1000
@@ -53,11 +58,13 @@ def t3_collect_burns_and_proves():
         "the collection proves against the state_root (== what L1 checks vs the settled root)"
 
 def t4_collect_nothing_is_noop():
+    """Prove collecting with zero accrued is a no-op that records no withdrawal."""
     st = fresh()
     res = st.apply_blob({"op": "collect_dividend"}, "Z", "txid2")
     assert "no accrued" in res and not st.dividend_withdrawals, "collecting with 0 accrued is a no-op"
 
 def t5_persist_roundtrip():
+    """Prove dividend balances, pool watermark, and carry survive an ExecState save/load."""
     path = tempfile.mktemp(prefix="nado_divexec_", suffix=".json")
     st = ExecState(path); st.accrue_dividend(700, {"A": 3, "B": 4}); st.save()
     st2 = ExecState(path)                          # reload
@@ -65,6 +72,7 @@ def t5_persist_roundtrip():
         "dividend state survives a save/load"
 
 def t6_drawdown_does_not_strand():
+    """Prove the watermark follows the pool DOWN after a claim, so fresh inflow below the old peak is still distributed."""
     # Regression: after the pool is drawn down by a claim, fresh inflow BELOW the old high-water mark must
     # still be distributed. The old max()-watermark pinned `seen` at the peak, so post-claim inflow yielded
     # delta<=0 and was distributed to NOBODY until cumulative inflow re-crossed the peak (stranding).

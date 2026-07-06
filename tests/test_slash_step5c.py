@@ -28,6 +28,7 @@ from protocol import B_MIN, SLASH_BOND_PENALTY, CHAIN_ID
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try:
         fn(); print(f"PASS  {name}")
@@ -38,26 +39,31 @@ offender = generate_keydict()
 NUM, PARENT, HA, HB = 100, "p" * 64, "a" * 64, "b" * 64
 
 def mkproof(ha=HA, hb=HB, num=NUM, parent=PARENT, kd=offender):
+    """Build an equivocation proof: kd signs two block hashes (ha, hb) at the same height+parent."""
     return {"block_number": num, "parent_hash": parent, "public_key": kd["public_key"],
             "block_hash_a": ha, "signature_a": sign(kd["private_key"], _block_sig_message_fields(num, parent, ha)),
             "block_hash_b": hb, "signature_b": sign(kd["private_key"], _block_sig_message_fields(num, parent, hb))}
 
 
 def t1():
+    """Prove a valid equivocation proof resolves to the (offender address, height) pair."""
     assert verify_equivocation_proof(mkproof()) == (offender["address"], NUM), "valid proof must resolve offender+height"
 check("valid equivocation proof -> (offender, height)", t1)
 
 def t2():
+    """Prove two signatures over the SAME block hash are not equivocation (proof rejected)."""
     assert verify_equivocation_proof(mkproof(hb=HA)) is None, "same block hash is not equivocation"
 check("non-conflicting (same block hash) -> rejected", t2)
 
 def t3():
+    """Prove a proof with a tampered/forged signature is rejected."""
     p = mkproof(); p["signature_b"] = p["signature_b"][:-4] + ("1111" if p["signature_b"][-4:] != "1111" else "2222")
     assert verify_equivocation_proof(p) is None, "a forged/tampered signature must be rejected"
 check("tampered signature -> rejected", t3)
 
 
 def t4_end_to_end():
+    """Prove a slash tx burns SLASH_BOND_PENALTY from the offender's bond, blocks replay per (offender, height), and revert restores bond + clears the guard."""
     create_account(offender["address"], bonded=5 * B_MIN)        # offender holds stake
     reporter = generate_keydict()
     proof = mkproof()
@@ -88,6 +94,7 @@ check("slash tx burns bond, replay-guarded, revert-symmetric", t4_end_to_end)
 
 
 def t5_insufficient_bond():
+    """Prove a slash tx against an offender with no bonded stake fails validation with 'insufficient bonded'."""
     poor = generate_keydict(); create_account(poor["address"], bonded=0)
     proof = mkproof(kd=poor)
     reporter = generate_keydict()

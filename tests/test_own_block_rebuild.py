@@ -20,19 +20,28 @@ from loops.core_loop import CoreClient
 
 fails = 0
 def check(name, cond):
+    """Print PASS/FAIL for boolean cond and count failures."""
     global fails
     print(("PASS  " if cond else "FAIL  ") + name)
     if not cond: fails += 1
 
 class _Logger:
-    def error(self, *a, **k): pass
-    def warning(self, *a, **k): pass
-    def info(self, *a, **k): pass
+    def error(self, *a, **k):
+        """Swallow error logs (no-op stub for save_block)."""
+        pass
+    def warning(self, *a, **k):
+        """Swallow warning logs (no-op stub for save_block)."""
+        pass
+    def info(self, *a, **k):
+        """Swallow info logs (no-op stub for save_block)."""
+        pass
 
 def _tx(txid, fee=1):
+    """Build a minimal transaction dict with the given txid and fee."""
     return {"txid": txid, "fee": fee, "sender": "ndoAA", "recipient": "ndoBB", "amount": 0}
 
 def _mk_block(txs):
+    """Construct block 42 with fixed parent/timestamp/fees and the given tx set."""
     return construct_block(block_timestamp=1783190000, block_number=42,
                            parent_hash="ab" * 32, creator="ndoAA",
                            transaction_pool=list(txs), block_reward=100,

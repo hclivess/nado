@@ -16,19 +16,25 @@ from Curve25519 import generate_keydict, sign, unhex
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 ALICE, BOB = generate_keydict(), generate_keydict()
-def out_open(v, kd, rho): return {"value": v, "owner": owner_id(kd["public_key"]), "rho": rho}
-def cm(v, kd, rho): return note_commitment(v, owner_id(kd["public_key"]), rho)
+def out_open(v, kd, rho):
+    """Output-note opening {value, owner, rho} for value v owned by keydict kd."""
+    return {"value": v, "owner": owner_id(kd["public_key"]), "rho": rho}
+def cm(v, kd, rho):
+    """Note commitment for value v owned by keydict kd with randomness rho."""
+    return note_commitment(v, owner_id(kd["public_key"]), rho)
 
 PATH = os.path.join(os.environ["HOME"], "exec_shield.json")
 st = ExecState(path=PATH)
 
 def transfer_blob(in_specs, out_notes, public_value=0, fee=0, withdraw_addr=None):
+    """Build a signed shielded_transfer blob spending in_specs [(value, kd, rho, pos)] into out_notes [(value, kd, rho)] against the live pool root."""
     # in_specs: [(value, kd, rho, pos)]; out_notes: [(value, kd, rho)]
     nfs = [note_nullifier(kd["public_key"], rho) for (_, kd, rho, _) in in_specs]
     public = {"root": st.shielded.root(), "nullifiers": nfs,
@@ -43,23 +49,27 @@ def transfer_blob(in_specs, out_notes, public_value=0, fee=0, withdraw_addr=None
 
 
 def t1_shield_adds_a_note():
+    """Prove apply_shield accepts a funded deposit and adds its note commitment to the pool."""
     res = st.apply_shield(100, [cm(100, ALICE, "r0")], [out_open(100, ALICE, "r0")])
     assert "shield 100" in res, res
     assert st.shielded.size() == 1
 
 def t2_shield_underfunded_rejected():
+    """Prove a shield whose note value does not match the deposited amount is skipped (value conservation) and adds nothing."""
     n = st.shielded.size()
     res = st.apply_shield(100, [cm(50, ALICE, "re")], [out_open(50, ALICE, "re")])
     assert "skip" in res and "conserved" in res, res
     assert st.shielded.size() == n
 
 def t3_private_transfer():
+    """Prove a private 2-output transfer applies through ExecState, growing the tree and spending the input nullifier."""
     res = st.apply_blob(transfer_blob([(100, ALICE, "r0", 0)], [(60, BOB, "rb"), (40, ALICE, "rc")]),
                         sender="relay", txid="t3")
     assert "shielded_transfer ok" in res, res
     assert st.shielded.size() == 3 and st.shielded.has_nullifier(note_nullifier(ALICE["public_key"], "r0"))
 
 def t4_unshield_provable_exit():
+    """Prove an unshield records a withdrawal whose Merkle proof verifies against state_root."""
     res = st.apply_blob(transfer_blob([(40, ALICE, "rc", 2)], [], public_value=-40, withdraw_addr="ndoAlice"),
                         sender="relay", txid="t4")
     assert "unshield 40" in res, res
@@ -69,11 +79,13 @@ def t4_unshield_provable_exit():
         "unshield exit must be provable against state_root"
 
 def t5_double_spend_rejected():
+    """Prove replaying the same unshield (same note/nullifier) is rejected as a double-spend."""
     res = st.apply_blob(transfer_blob([(40, ALICE, "rc", 2)], [], public_value=-40, withdraw_addr="ndoAlice"),
                         sender="relay", txid="t5")
     assert "double-spend" in res, res
 
 def t6_persistence_round_trip():
+    """Prove save/load round-trips the pool, withdrawals, nonce, and a byte-identical state_root."""
     st.save()
     st2 = ExecState(path=PATH)
     assert st2.shielded.root() == st.shielded.root() and st2.shielded.size() == st.shielded.size()

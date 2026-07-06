@@ -27,6 +27,7 @@ from protocol import CHAIN_ID
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
@@ -43,21 +44,27 @@ PRE = "aa" * 32                                     # 32-byte preimage (hex)
 HASH = hashlib.sha256(bytes.fromhex(PRE)).hexdigest()
 AMT = 100_000
 
-def bal(a): return get_account(a).get("balance", 0)
+def bal(a):
+    """Return the current balance of address a (0 if unset)."""
+    return get_account(a).get("balance", 0)
 
 # --- bare tx dicts for REFLECT (state) tests (reflect does not verify signatures) ---
 def lock(txid, amount=AMT, fee=MIN_TX_FEE):
+    """Build a bare htlc_lock tx dict (Alice locks amount for Bob under HASH, expiry 100)."""
     return {"sender": ALICE, "recipient": "htlc_lock", "amount": amount, "fee": fee, "txid": txid,
             "target_block": 10, "data": {"claimant": BOB, "hashlock": HASH, "expiry": 100}}
 def claim(hid, preimage=PRE):
+    """Build a bare htlc_claim tx dict (Bob claims HTLC hid with preimage)."""
     return {"sender": BOB, "recipient": "htlc_claim", "amount": 0, "fee": 0, "txid": "c_" + hid,
             "target_block": 20, "data": {"htlc_id": hid, "preimage": preimage}}
 def refund(hid):
+    """Build a bare htlc_refund tx dict (Alice reclaims HTLC hid after expiry)."""
     return {"sender": ALICE, "recipient": "htlc_refund", "amount": 0, "fee": 0, "txid": "r_" + hid,
             "target_block": 200, "data": {"htlc_id": hid}}
 
 # --- signed envelopes for VALIDATION tests ---
 def signed(kd, recipient, data, amount=0, fee=0, target=20):
+    """Build a fully signed tx envelope (txid + signature) from keydict kd for validation tests."""
     tx = {"sender": kd["address"], "recipient": recipient, "amount": amount, "fee": fee, "data": data,
           "timestamp": 1, "nonce": "n" + recipient + str(target), "public_key": kd["public_key"],
           "target_block": target, "chain_id": CHAIN_ID}
@@ -66,6 +73,7 @@ def signed(kd, recipient, data, amount=0, fee=0, target=20):
 
 
 def t1_lock_escrows():
+    """Prove lock debits amount+fee from the sender, escrows the amount, and records an open HTLC."""
     a0, e0 = bal(ALICE), bal(HTLC_ESCROW)
     reflect_transaction(lock("H1"), logger, block_height=10)
     assert bal(ALICE) == a0 - (AMT + MIN_TX_FEE), "lock debits amount+fee from sender"
@@ -74,6 +82,7 @@ def t1_lock_escrows():
     assert doc and doc["status"] == "open" and doc["claimant"] == BOB and doc["amount"] == AMT, "HTLC recorded"
 
 def t2_claim_pays_claimant_and_reveals():
+    """Prove claim releases the escrow to the claimant and records status=claimed plus the published preimage."""
     b0, e0 = bal(BOB), bal(HTLC_ESCROW)
     reflect_transaction(claim("H1"), logger, block_height=20)
     assert bal(BOB) == b0 + AMT, "claim releases escrow to the claimant"
@@ -82,6 +91,7 @@ def t2_claim_pays_claimant_and_reveals():
     assert doc["status"] == "claimed" and doc["preimage"] == PRE, "claim records status + published preimage"
 
 def t3_refund_after_expiry_returns_to_sender():
+    """Prove refund after expiry returns the escrowed amount to the sender and marks the HTLC refunded."""
     reflect_transaction(lock("H2"), logger, block_height=10)
     a0, e0 = bal(ALICE), bal(HTLC_ESCROW)
     reflect_transaction(refund("H2"), logger, block_height=200)
@@ -90,6 +100,7 @@ def t3_refund_after_expiry_returns_to_sender():
     assert kv_ops.htlc_get("H2")["status"] == "refunded"
 
 def t4_revert_symmetry_lock_and_claim():
+    """Prove reverting claim then lock (mirror order) restores accounts byte-identical and removes the HTLC row."""
     before = dict(get_account(ALICE)); e_before = bal(HTLC_ESCROW)
     reflect_transaction(lock("H3"), logger, block_height=10)
     reflect_transaction(claim("H3"), logger, block_height=20)
@@ -101,6 +112,7 @@ def t4_revert_symmetry_lock_and_claim():
     assert kv_ops.htlc_get("H3") is None, "HTLC row removed on lock revert"
 
 def t5_revert_symmetry_refund():
+    """Prove reverting a refund restores balances byte-identical and sets the HTLC back to open."""
     reflect_transaction(lock("H4"), logger, block_height=10)
     snap = dict(get_account(ALICE)); e_snap = bal(HTLC_ESCROW)
     reflect_transaction(refund("H4"), logger, block_height=200)
@@ -109,12 +121,14 @@ def t5_revert_symmetry_refund():
     assert kv_ops.htlc_get("H4")["status"] == "open", "status back to open after refund revert"
 
 def _expect_reject(tx, substr):
+    """Assert validate_transaction rejects tx with an AssertionError containing substr."""
     try:
         validate_transaction(tx, logger, block_height=tx["target_block"]); raise RuntimeError("accepted!")
     except AssertionError as e:
         assert substr in str(e), f"wrong reason: {e}"
 
 def t6_guards():
+    """Prove every validation guard rejects: wrong preimage, expired claim, non-claimant, early refund, non-sender, missing HTLC."""
     # seed an OPEN htlc "G" (expiry 100) directly for validation checks
     kv_ops.htlc_put("G", {"sender": ALICE, "claimant": BOB, "amount": AMT, "hashlock": HASH,
                           "expiry": 100, "status": "open"})
@@ -132,12 +146,14 @@ def t6_guards():
     _expect_reject(signed(BK, "htlc_claim", {"htlc_id": "NOPE", "preimage": PRE}, target=20), "no OPEN HTLC")
 
 def t7_valid_claim_and_refund_pass_validation():
+    """Prove a correct claim (pre-expiry) and a correct refund (post-expiry) both pass validation."""
     kv_ops.htlc_put("OK", {"sender": ALICE, "claimant": BOB, "amount": AMT, "hashlock": HASH,
                            "expiry": 100, "status": "open"})
     validate_transaction(signed(BK, "htlc_claim", {"htlc_id": "OK", "preimage": PRE}, target=20), logger, block_height=20)
     validate_transaction(signed(AK, "htlc_refund", {"htlc_id": "OK"}, target=150), logger, block_height=150)
 
 def t8_lock_validation_window():
+    """Prove lock validation enforces the HTLC_MIN_TIMELOCK window and rejects self-claim (claimant == sender)."""
     # a valid lock passes; an out-of-window expiry is rejected
     good = signed(AK, "htlc_lock", {"claimant": BOB, "hashlock": HASH, "expiry": 10 + HTLC_MIN_TIMELOCK + 5},
                   amount=AMT, fee=MIN_TX_FEE, target=10)
@@ -149,6 +165,7 @@ def t8_lock_validation_window():
                           amount=AMT, fee=MIN_TX_FEE, target=10), "must differ")
 
 def t9_inblock_double_settle_key():
+    """Prove claim and refund of one HTLC share the ("htlc_settle", id) uniqueness key (one settle per block)."""
     assert reserved_uniqueness_key(claim("G")) == ("htlc_settle", "G"), "claim uniqueness by htlc_id"
     assert reserved_uniqueness_key(refund("G")) == ("htlc_settle", "G"), "refund shares the key (one settle/block)"
 

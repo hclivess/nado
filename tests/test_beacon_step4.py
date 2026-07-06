@@ -22,6 +22,7 @@ from protocol import GENESIS_BEACON, EPOCH_LENGTH
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try:
         fn(); print(f"PASS  {name}")
@@ -30,12 +31,14 @@ def check(name, fn):
 
 
 def t1():
+    """Prove epochs 0 and 1 return GENESIS_BEACON (no finalized prior epoch exists yet)."""
     assert epoch_beacon(0) == GENESIS_BEACON
     assert epoch_beacon(1) == GENESIS_BEACON
 check("epochs 0-1 use GENESIS_BEACON (no finalized prior epoch yet)", t1)
 
 
 def t2():
+    """Prove epoch>=2 chains GENESIS_BEACON with the finalized anchor hash via compute_beacon."""
     anchor_height = (2 - 1) * EPOCH_LENGTH  # 60
     anchor_hash = "a" * 64
     kv_ops.block_index_put(anchor_height, anchor_hash)
@@ -44,6 +47,7 @@ check("epoch>=2 chains GENESIS_BEACON with the finalized anchor hash", t2)
 
 
 def t3():
+    """Prove a missing finalized anchor raises ValueError instead of silently returning GENESIS_BEACON."""
     # epoch 3's anchor is block (3-1)*60 = 120, which we never indexed -> must RAISE, not substitute
     raised = False
     try:

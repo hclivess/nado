@@ -10,6 +10,7 @@ from execnode.stark import field as F, stark
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
@@ -18,6 +19,7 @@ def check(name, fn):
 
 # --- AIR 1: squaring chain  a_{i+1} = a_i^2  (degree-2 transition) ---
 def _sq_trace(seed, T):
+    """Build a T-row single-column trace of the squaring chain a_{i+1} = a_i^2 starting at seed."""
     tr = [[seed]]
     for _ in range(T - 1):
         tr.append([F.mul(tr[-1][0], tr[-1][0])])
@@ -25,6 +27,7 @@ def _sq_trace(seed, T):
 SQ_TRANS = [lambda cur, nxt, per: F.sub(nxt[0], F.mul(cur[0], cur[0]))]
 
 def t1_squaring_valid():
+    """Prove a valid squaring-chain trace with correct boundary claims verifies."""
     T, seed = 8, 3
     tr = _sq_trace(seed, T)
     bnd = [(0, 0, seed), (T - 1, 0, tr[-1][0])]
@@ -33,6 +36,7 @@ def t1_squaring_valid():
     assert ok, f"valid squaring trace must verify: {why}"
 
 def t2_wrong_boundary_rejected():
+    """Prove verification fails against a boundary claim (different input) the trace doesn't meet."""
     T, seed = 8, 3
     tr = _sq_trace(seed, T)
     bnd = [(0, 0, seed), (T - 1, 0, tr[-1][0])]
@@ -42,6 +46,7 @@ def t2_wrong_boundary_rejected():
     assert not ok, "a boundary claim the trace doesn't meet must be rejected"
 
 def t3_violating_trace_rejected():
+    """Prove a trace broken mid-chain (transition constraint violated) is rejected: the composition is not low-degree."""
     T, seed = 8, 3
     tr = _sq_trace(seed, T)
     tr[5][0] = F.add(tr[5][0], 1)                            # break the chain at row 5
@@ -51,6 +56,7 @@ def t3_violating_trace_rejected():
     assert not ok, "a trace violating the transition must be rejected (composition not low-degree)"
 
 def t4_tampered_opening_rejected():
+    """Prove flipping one opened trace value in the proof is caught (Merkle opening check fails)."""
     T, seed = 8, 3
     tr = _sq_trace(seed, T)
     bnd = [(0, 0, seed), (T - 1, 0, tr[-1][0])]
@@ -62,6 +68,7 @@ def t4_tampered_opening_rejected():
 
 # --- AIR 2: Fibonacci  (col0=a_i, col1=a_{i+1}), two linear transition constraints ---
 def _fib_trace(T):
+    """Build a T-row two-column Fibonacci trace: row i = [a_i, a_{i+1}] starting from 1, 1."""
     a, b = 1, 1
     tr = []
     for _ in range(T):
@@ -71,6 +78,7 @@ FIB_TRANS = [lambda cur, nxt, per: F.sub(nxt[0], cur[1]),
              lambda cur, nxt, per: F.sub(nxt[1], F.add(cur[0], cur[1]))]
 
 def t5_fibonacci_valid():
+    """Prove a valid Fibonacci trace (two linear transition constraints) verifies."""
     T = 16
     tr = _fib_trace(T)
     bnd = [(0, 0, 1), (0, 1, 1)]
@@ -79,6 +87,7 @@ def t5_fibonacci_valid():
     assert ok, f"valid Fibonacci trace must verify: {why}"
 
 def t6_fibonacci_wrong_seed_rejected():
+    """Prove a Fibonacci proof does not verify against a different claimed seed."""
     T = 16
     tr = _fib_trace(T)
     proof = stark.prove(tr, FIB_TRANS, [(0, 0, 1), (0, 1, 1)], max_degree=1)

@@ -24,14 +24,18 @@ KEM2 = "bb" * 1184
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
-def _acc(a): return dict(get_account(a) or {})
+def _acc(a):
+    """Snapshot address a's account doc as a plain dict (empty dict if absent)."""
+    return dict(get_account(a) or {})
 
 
 def t1_builder_shape_and_signed_kempub():
+    """Prove construct_msgkey_tx builds a fee-exempt tx whose txid commits to kem_pub but excludes public_key."""
     kd = generate_keydict()
     tx = construct_msgkey_tx(kd, KEM1, target_block=100)
     assert tx["recipient"] == "msgkey" and tx["amount"] == 0 and tx["fee"] == 0
@@ -48,6 +52,7 @@ check("construct_msgkey_tx: fee-exempt shape + kem_pub signed, public_key exclud
 
 
 def t2_apply_sets_kem_pub():
+    """Prove applying a msgkey tx binds kem_pub onto the sender's account."""
     kd = generate_keydict(); A = kd["address"]
     create_account(A)
     reflect_transaction(construct_msgkey_tx(kd, KEM1, 100), logger=logger, block_height=100)
@@ -56,6 +61,7 @@ check("apply binds kem_pub onto the account", t2_apply_sets_kem_pub)
 
 
 def t3_revert_byte_identical_first_publish():
+    """Prove apply->revert of a FIRST kem_pub publish deletes the field and leaves the account byte-identical."""
     kd = generate_keydict(); A = kd["address"]
     create_account(A)
     before = _acc(A)
@@ -69,6 +75,7 @@ check("apply -> revert of a FIRST publish is byte-identical (field deleted)", t3
 
 
 def t4_rotation_revert_restores_prior_key():
+    """Prove reverting a key ROTATION restores the prior kem_pub byte-identically instead of deleting it."""
     kd = generate_keydict(); A = kd["address"]
     create_account(A)
     reflect_transaction(construct_msgkey_tx(kd, KEM1, 100), logger=logger, block_height=100)
@@ -83,6 +90,7 @@ check("key ROTATION revert restores the prior key byte-identically", t4_rotation
 
 
 def t5_validate_gate():
+    """Prove validate_transaction accepts a well-formed msgkey tx and rejects a wrong-length kem_pub."""
     from ops.transaction_ops import validate_transaction
     kd = generate_keydict()
     good = construct_msgkey_tx(kd, KEM1, target_block=2)

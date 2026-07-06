@@ -15,6 +15,7 @@ from ops.block_ops import construct_block, sign_block, verify_block_signature
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try:
         fn(); print(f"PASS  {name}")
@@ -25,12 +26,14 @@ kd = generate_keydict()
 winner = kd["address"]
 
 def mkblock(creator):
+    """Construct a minimal block (number 5, empty tx pool) with the given creator."""
     return construct_block(block_timestamp=10, block_number=5, parent_hash="0" * 64, creator=creator,
                            transaction_pool=[],
                            block_reward=1_000_000_000, parent_cumulative_weight=4, block_weight=1)
 
 
 def t1():
+    """Prove a block with no block_signature is valid (the signature is optional: win-offline)."""
     b = mkblock(winner)
     assert "block_signature" not in b
     assert verify_block_signature(b) is True, "an unsigned block must be valid (win-offline)"
@@ -38,6 +41,7 @@ check("absent signature -> valid (optional, win-offline)", t1)
 
 
 def t2():
+    """Prove the winner's own signature verifies and, being detached/off-preimage, leaves the block hash unchanged."""
     b = mkblock(winner)
     h_before = b["block_hash"]
     sign_block(b, kd["private_key"], kd["public_key"])
@@ -48,6 +52,7 @@ check("winner signs -> verifies, and block hash is unchanged", t2)
 
 
 def t3():
+    """Prove a tampered (bit-flipped) signature is rejected."""
     b = mkblock(winner)
     sign_block(b, kd["private_key"], kd["public_key"])
     sig = b["block_signature"]["signature"]
@@ -57,6 +62,7 @@ check("tampered signature -> rejected", t3)
 
 
 def t4():
+    """Prove a valid signature from a non-winner identity is rejected (signer must BE block_creator)."""
     other = generate_keydict()  # a different identity (address != winner)
     b = mkblock(winner)         # block_creator stays the winner, but `other` signs it
     sign_block(b, other["private_key"], other["public_key"])

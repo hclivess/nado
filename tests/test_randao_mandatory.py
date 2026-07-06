@@ -31,6 +31,7 @@ from ops.mining_ops import beacon_commitment, select_producer_two_lane, EPOCH_LE
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try:
         fn(); print(f"PASS  {name}")
@@ -59,6 +60,7 @@ protocol.RANDAO_ENFORCED = True     # the remaining checks exercise the ENFORCED
 
 
 def t1_filter():
+    """Prove enforced mode admits only the revealer, passing registry entries through untouched."""
     elig = randao_eligible_bonded(REGISTRY, E)
     assert set(elig) == {GOOD}, f"only the revealer is eligible, got {set(elig)}"
     assert elig[GOOD] is REGISTRY[GOOD], "registry entries must pass through untouched"
@@ -66,6 +68,7 @@ check("enforced: revealed validator eligible; withholder + non-participant filte
 
 
 def t2_early_epochs_exempt():
+    """Prove epochs 0-1 are exempt from the gate and an empty registry passes through."""
     assert randao_eligible_bonded(REGISTRY, 0) == REGISTRY
     assert randao_eligible_bonded(REGISTRY, 1) == REGISTRY
     assert randao_eligible_bonded({}, E) == {}

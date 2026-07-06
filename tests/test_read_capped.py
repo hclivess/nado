@@ -13,22 +13,28 @@ from ops.net_ops import read_capped
 class _Segmented:
     """Mimics aiohttp StreamReader: read(n) yields at most `seg` bytes at a time (one 'TCP segment')."""
     def __init__(self, data, seg):
+        """Hold `data` to be served in segments of at most `seg` bytes."""
         self._d = data; self._p = 0; self._seg = seg
     async def read(self, n):
+        """Return the next chunk: at most min(n, seg) bytes, like one TCP segment; b'' at EOF."""
         take = min(n, self._seg, len(self._d) - self._p)
         out = self._d[self._p:self._p + take]; self._p += take
         return out
 
 class _Resp:
-    def __init__(self, data, seg): self.content = _Segmented(data, seg)
+    def __init__(self, data, seg):
+        """Fake aiohttp response whose .content is a _Segmented reader over `data`."""
+        self.content = _Segmented(data, seg)
 
 fails = 0
 def check(name, cond):
+    """Print PASS/FAIL for cond and count failures."""
     global fails
     print(("PASS  " if cond else "FAIL  ") + name)
     if not cond: fails += 1
 
 async def main():
+    """Prove read_capped reassembles multi-segment bodies, accepts exactly-at-cap, raises IOError over cap, and handles empty."""
     # the real failure: 867411-byte body delivered in 32585-byte segments must NOT truncate
     big = os.urandom(867411)
     got = await read_capped(_Resp(big, seg=32585), len(big))

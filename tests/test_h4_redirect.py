@@ -14,14 +14,19 @@ from Curve25519 import generate_keydict, sign, unhex
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 ALICE = generate_keydict()
-def out_open(v, kd, rho): return {"value": v, "owner": owner_id(kd["public_key"]), "rho": rho}
-def cm(v, kd, rho): return note_commitment(v, owner_id(kd["public_key"]), rho)
+def out_open(v, kd, rho):
+    """Build the output-note opening dict (value, owner, rho) for keydict kd."""
+    return {"value": v, "owner": owner_id(kd["public_key"]), "rho": rho}
+def cm(v, kd, rho):
+    """Compute the note commitment for value v owned by keydict kd with randomness rho."""
+    return note_commitment(v, owner_id(kd["public_key"]), rho)
 
 st = ExecState(path=os.path.join(os.environ["HOME"], "exec_shield.json"))
 
@@ -38,11 +43,13 @@ def _victim_unshield_blob(withdraw_addr):
     return {"op": "shielded_transfer", "public": public, "proof": {"inputs": ins, "outputs": []}}
 
 def setup():
+    """Shield 100 coins to Alice, then split them so pos 2 holds her 40-coin change note."""
     # a note Alice can later unshield (pos 0), plus a private transfer so pos 1 = Alice's 40-coin change
     st.apply_shield(100, [cm(100, ALICE, "r0")], [out_open(100, ALICE, "r0")])
     st.apply_blob({"op": "shielded_transfer", **_split_100()}, sender="relay", txid="setup")
 
 def _split_100():
+    """Build a signed private transfer splitting Alice's 100-coin note into 60 + 40 change notes."""
     nf = note_nullifier(ALICE["public_key"], "r0")
     public = {"root": st.shielded.root(), "nullifiers": [nf],
               "out_commitments": [cm(60, ALICE, "rb"), cm(40, ALICE, "rc")], "public_value": 0, "fee": 0}
@@ -52,6 +59,7 @@ def _split_100():
     return {"public": public, "proof": {"inputs": ins, "outputs": [out_open(60, ALICE, "rb"), out_open(40, ALICE, "rc")]}}
 
 def t_redirect_rejected():
+    """Prove a copied unshield blob with only withdraw_addr swapped fails the signature and spends nothing (H-4)."""
     victim = _victim_unshield_blob("ndoVictimAddress")
     # Attacker copies the victim's blob verbatim and swaps ONLY the destination address.
     attack = copy.deepcopy(victim)
@@ -63,6 +71,7 @@ def t_redirect_rejected():
     assert not st.shielded.has_nullifier(note_nullifier(ALICE["public_key"], "rc")), "rejected tx must not spend the note"
 
 def t_legit_unshield_still_ok():
+    """Prove the correctly-signed unshield is still accepted and records the victim's withdrawal proof."""
     victim = _victim_unshield_blob("ndoVictimAddress")
     res = st.apply_blob(victim, sender="relay", txid="legit")
     assert "unshield 40" in res, f"the correctly-signed unshield must be accepted, got: {res!r}"

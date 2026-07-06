@@ -17,6 +17,7 @@ from protocol import B_MIN, BOND_CAP, MAX_SHARES
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try:
         fn(); print(f"PASS  {name}")
@@ -25,6 +26,7 @@ def check(name, fn):
 
 
 def t1():
+    """Prove total_bonded_shares is pure capped stake: 1 + 5 + MAX_SHARES + 0, ignoring fidelity and sub-B_MIN bonds."""
     reg = {
         "a": {"bonded": B_MIN, "fidelity": 0},          # exactly 1 share
         "b": {"bonded": 5 * B_MIN, "fidelity": 0},      # 5 shares
@@ -36,10 +38,12 @@ def t1():
 check("total_bonded_shares = pure capped stake, NO fidelity ramp", t1)
 
 def t2():
+    """Prove an empty bonded registry yields weight 0."""
     assert total_bonded_shares({}) == 0
 check("empty bonded registry -> weight 0", t2)
 
 def t3():
+    """Prove construct_block sets cumulative_weight = parent + block_weight and commits it inside the hash preimage (grind-proof)."""
     common = dict(block_timestamp=10, block_number=5, parent_hash="0" * 64, creator="m",
                   transaction_pool=[],
                   block_reward=1_000_000_000, parent_cumulative_fees=0)

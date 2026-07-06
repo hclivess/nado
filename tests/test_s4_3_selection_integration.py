@@ -15,11 +15,13 @@ from ops.block_ops import epoch_beacon, get_block_hash_by_number, index_block_nu
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 def t1():
+    """Prove get_bonded_registry includes only accounts bonded >= B_MIN and total_shares sums their shares."""
     create_account("a", bonded=B_MIN)
     create_account("b", bonded=B_MIN * 5)
     create_account("c", bonded=B_MIN - 1)   # below the minimum bond -> ineligible
@@ -32,6 +34,7 @@ def t1():
 check("get_bonded_registry filters by B_MIN; shares correct", t1)
 
 def t2():
+    """Prove epoch_beacon is GENESIS_BEACON for epochs 0-1, raises when the anchor block is missing, and chains from the indexed anchor for epoch >= 2."""
     # epochs 0-1 use the fixed GENESIS_BEACON (no finalized prior epoch yet)
     assert epoch_beacon(0) == GENESIS_BEACON and epoch_beacon(1) == GENESIS_BEACON
     # epoch 2 with no anchor block present -> FAIL-LOUD: raises rather than silently substituting
@@ -53,6 +56,7 @@ def t2():
 check("epoch_beacon: constant for epochs 0-1, chained anchor for epoch>=2", t2)
 
 def t3():
+    """Prove select_producer over the live registry+beacon is deterministic and only picks eligible bonded addresses."""
     reg = get_bonded_registry()
     w = select_producer(reg, GENESIS_BEACON, slot=1)
     assert w in reg, w                                      # winner is an eligible bonded address

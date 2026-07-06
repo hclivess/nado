@@ -12,6 +12,7 @@ from execnode.stark import field as F, alghash, spend as SP
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
@@ -21,26 +22,31 @@ V, OWN, RHO = 500, 0xBEEF, 0x1234
 SIBS, DIRS = [111, 222, 333, 444], [0, 1, 0, 1]
 
 def t1_trace_matches_direct():
+    """Prove the AIR trace reproduces commit(V, OWN, RHO) and the direct spend_root result."""
     cm, root = SP.spend_root(V, OWN, RHO, SIBS, DIRS)
     _, _, _, troot = SP.build_trace(V, OWN, RHO, SIBS, DIRS)
     assert cm == alghash.commit(V, OWN, RHO) and troot == root, "circuit must reproduce commit()+membership"
 
 def t2_valid_spend_verifies():
+    """Prove an honest spend proof passes verify_spend."""
     proof, root = SP.prove_spend(V, OWN, RHO, SIBS, DIRS)
     ok, why = SP.verify_spend(proof, root, lambda r: True)
     assert ok, f"a valid spend must verify: {why}"
 
 def t3_wrong_root_rejected():
+    """Prove verification against a wrong public root is rejected."""
     proof, root = SP.prove_spend(V, OWN, RHO, SIBS, DIRS)
     ok, _ = SP.verify_spend(proof, F.add(root, 1), lambda r: True)
     assert not ok, "a wrong root must be rejected"
 
 def t4_unknown_anchor_rejected():
+    """Prove a root the anchor callback doesn't recognize is rejected."""
     proof, root = SP.prove_spend(V, OWN, RHO, SIBS, DIRS)
     ok, why = SP.verify_spend(proof, root, lambda r: False)
     assert not ok and "anchor" in why, "an unknown anchor must be rejected"
 
 def t5_different_opening_different_root():
+    """Prove changing the opening's value changes the proven root — the opening is bound in."""
     _, r1 = SP.spend_root(V, OWN, RHO, SIBS, DIRS)
     _, r2 = SP.spend_root(V + 1, OWN, RHO, SIBS, DIRS)    # a different value -> different commitment -> different tree fit
     assert r1 != r2, "the opening is bound into the proven root"

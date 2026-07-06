@@ -11,6 +11,7 @@ from ops import posw
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
@@ -21,23 +22,28 @@ CH = posw.challenge_bytes("ndoalice", "0" * 64)
 
 
 def t1_valid_proof_verifies():
+    """Prove an honestly computed PoSW proof verifies."""
     p = posw.prove(CH, T, S, K)
     assert posw.verify(CH, p, T, S, K), "honest proof must verify"
 
 def t2_deterministic():
+    """Prove proving is deterministic: the same challenge yields the same Merkle root."""
     assert posw.prove(CH, T, S, K)["root"] == posw.prove(CH, T, S, K)["root"], "chain is deterministic"
 
 def t3_verify_is_cheap():
+    """Prove the proof opens at most K+1 segments, so verification never replays the full T chain."""
     # verification must touch only ~(k+1) segments, never the full T chain (soundness of the cost claim)
     p = posw.prove(CH, T, S, K)
     assert len(p["openings"]) <= K + 1, "verifier only checks the opened segments"
 
 def t4_wrong_challenge_rejected():
+    """Prove a proof computed for one challenge is rejected under a different challenge."""
     p = posw.prove(CH, T, S, K)
     other = posw.challenge_bytes("ndobob", "0" * 64)
     assert not posw.verify(other, p, T, S, K), "a proof for a different challenge must be rejected"
 
 def t5_tampered_opening_rejected():
+    """Prove flipping a single opening endpoint (cj1) makes verification fail."""
     p = posw.prove(CH, T, S, K)
     bad = copy.deepcopy(p)
     # flip the endpoint of the first opening — its segment recompute now mismatches
@@ -46,6 +52,7 @@ def t5_tampered_opening_rejected():
     assert not posw.verify(CH, bad, T, S, K), "a tampered opening must be rejected"
 
 def t6_no_work_rejected():
+    """Prove a zero-work forgery (garbage checkpoints after c_0) is caught via the always-opened segment 0."""
     # a prover that does NO sequential work (all checkpoints after c_0 are garbage) is caught deterministically
     # because segment 0 is ALWAYS opened and binds c_1 = H^S(c_0).
     C = T // S
@@ -61,6 +68,7 @@ def t6_no_work_rejected():
     assert not posw.verify(CH, forged, T, S, K), "a no-work proof must be rejected"
 
 def t7_partial_work_rejected():
+    """Prove a 20%-work/80%-garbage proof is rejected because some opened segment lands in the garbage."""
     # 20% real work, 80% garbage: some opened segment lands in the garbage region -> rejected
     C = T // S
     cps = [posw._h(CH)]

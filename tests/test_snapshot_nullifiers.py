@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 fails = 0
 def check(name, cond, detail=""):
+    """Print PASS/FAIL for boolean cond (with detail on failure) and count failures."""
     global fails
     if cond:
         print(f"PASS  {name}")
@@ -22,6 +23,7 @@ def check(name, cond, detail=""):
 
 
 def main():
+    """Prove a full-state snapshot carries every replay-guard nullifier (shield/bridge/dividend/treasury/slash) plus consensus meta to a fresh joiner, and that a tampered chunk is rejected without mutation."""
     donor = tempfile.mkdtemp()
     joiner = tempfile.mkdtemp()
 

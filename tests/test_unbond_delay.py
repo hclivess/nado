@@ -27,6 +27,7 @@ from protocol import B_MIN, BOND_UNLOCK_DELAY, CHAIN_ID
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try:
         fn(); print(f"PASS  {name}")
@@ -39,6 +40,7 @@ H = 100  # the block the unbond lands in
 
 
 def signed(recipient, amount, data, target_block):
+    """Build a signed transaction from val to recipient (txid computed, signature attached)."""
     tx = {"sender": val["address"], "recipient": recipient, "amount": amount, "timestamp": 1, "data": data,
           "nonce": f"{recipient}{target_block}", "public_key": val["public_key"],
           "target_block": target_block, "chain_id": CHAIN_ID, "fee": 0}
@@ -47,6 +49,7 @@ def signed(recipient, amount, data, target_block):
 
 
 def t1_unbond_is_a_request():
+    """Prove unbond only records a pending release (release_block = h + BOND_UNLOCK_DELAY): coins stay bonded, balance untouched."""
     tx = signed("unbond", 2 * B_MIN, "", H)
     assert validate_transaction(tx, logger, block_height=H), "valid unbond must validate"
     with kv_ops.write_txn():
@@ -61,6 +64,7 @@ check("unbond records a pending release; coins stay bonded (slashable)", t1_unbo
 
 
 def t2_one_pending_only():
+    """Prove a second unbond while one is pending is rejected ('already pending')."""
     tx = signed("unbond", B_MIN, "", H + 1)
     try:
         validate_transaction(tx, logger, block_height=H + 1); raise RuntimeError("second unbond accepted")
@@ -70,6 +74,7 @@ check("a second unbond while one is pending -> rejected", t2_one_pending_only)
 
 
 def t3_withdraw_before_maturity():
+    """Prove a withdraw before the release_block matures is rejected ('not matured')."""
     pending = kv_ops.unbond_get(val["address"])
     tx = signed("withdraw", 0, {"amount": pending["amount"], "release_block": pending["release_block"]},
                 pending["release_block"] - 1)  # target_block BEFORE maturity
@@ -81,6 +86,7 @@ check("withdraw before BOND_UNLOCK_DELAY matures -> rejected", t3_withdraw_befor
 
 
 def t4_withdraw_at_maturity():
+    """Prove a matured withdraw moves the amount bonded -> spendable balance and clears the pending unbond."""
     pending = kv_ops.unbond_get(val["address"])
     rel = pending["release_block"]
     tx = signed("withdraw", 0, {"amount": pending["amount"], "release_block": rel}, rel)  # matured
@@ -95,6 +101,7 @@ check("withdraw at maturity releases bonded -> balance", t4_withdraw_at_maturity
 
 
 def t5_revert_symmetric():
+    """Prove reverting an unbond clears the pending record and leaves bonded unchanged (revert symmetry)."""
     create_account("rev" + val["address"][3:], bonded=4 * B_MIN)  # fresh-ish sender via reuse not needed
     v2 = generate_keydict(); create_account(v2["address"], bonded=4 * B_MIN)
     before = get_account(v2["address"])["bonded"]

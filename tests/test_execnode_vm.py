@@ -13,6 +13,7 @@ from execnode.vm import run, validate_code
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
@@ -33,14 +34,17 @@ A, B = "ndoalice", "ndobob"
 
 
 def _state():
+    """Return a blank ExecState backed by a throwaway temp file."""
     return ExecState(tempfile.mktemp(prefix="nado_exec_", suffix=".json"))
 
 
 def t1_validate_token_code():
+    """Prove the sample token bytecode passes validate_code."""
     assert validate_code(TOKEN)
 
 
 def t2_deploy_mints_to_deployer():
+    """Prove a deploy blob stores the contract and its constructor mints 1e6 to the deployer only."""
     st = _state()
     cid = st.contract_id(A, TOKEN, "n1")
     st.apply_blob({"op": "deploy", "code": TOKEN, "nonce": "n1"}, sender=A, txid="tx1")
@@ -50,6 +54,7 @@ def t2_deploy_mints_to_deployer():
 
 
 def t3_transfer_moves_balance():
+    """Prove a transfer call debits the sender and credits the recipient by the exact amount."""
     st = _state()
     cid = st.contract_id(A, TOKEN, "n1")
     st.apply_blob({"op": "deploy", "code": TOKEN, "nonce": "n1"}, sender=A, txid="tx1")
@@ -59,6 +64,7 @@ def t3_transfer_moves_balance():
 
 
 def t4_insufficient_balance_reverts():
+    """Prove a transfer exceeding the sender's balance REQUIRE-reverts and leaves state untouched."""
     st = _state()
     cid = st.contract_id(A, TOKEN, "n1")
     st.apply_blob({"op": "deploy", "code": TOKEN, "nonce": "n1"}, sender=A, txid="tx1")
@@ -70,6 +76,7 @@ def t4_insufficient_balance_reverts():
 
 
 def t5_determinism_same_root():
+    """Prove two nodes replaying identical blobs reach the same state_root (and the expected final balances)."""
     seq = [
         ({"op": "deploy", "code": TOKEN, "nonce": "n1"}, A, "tx1"),
         ({"op": "call", "contract": None, "method": "transfer", "args": [B, 100]}, A, "tx2"),
@@ -95,6 +102,7 @@ def t5_determinism_same_root():
 
 
 def t6_bad_bytecode_skipped_not_fatal():
+    """Prove deploying invalid bytecode is skipped (not stored) rather than crashing the node."""
     st = _state()
     r = st.apply_blob({"op": "deploy", "code": {"m": [["NOPE"]]}, "nonce": "x"}, sender=A, txid="tx1")
     assert "skip" in r, r

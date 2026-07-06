@@ -23,6 +23,7 @@ from protocol import B_MIN, CHAIN_ID, GENESIS_TIMESTAMP
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
@@ -32,6 +33,7 @@ BAL = 5_251_313_073_896
 BONDED = 8_252_986_467_104
 
 def _seed_genesis_like():
+    """Replay genesis order for WHALE: create it as a registered relay first, then carry balance/bonded via account_set_field."""
     # mimic genesis order: genesis_open creates the relay as a REGISTERED identity FIRST (balance 0)...
     create_account(address=WHALE, registered=1)
     kv_ops.recert_put(address=WHALE, epoch=0)
@@ -42,6 +44,7 @@ def _seed_genesis_like():
 
 
 def t1_carry_forward_survives_registered_relay():
+    """Prove carried balance/bonded survive an already-registered relay identity (no insert-or-ignore drop) and registration is kept."""
     _seed_genesis_like()
     acc = get_account(WHALE)
     assert acc["balance"] == BAL, f"carried balance dropped: {acc['balance']}"
@@ -52,6 +55,7 @@ check("carried balance/stake survives an already-registered relay identity (no i
 
 
 def t2_carried_stake_is_an_eligible_producer():
+    """Prove the carried bonded stake appears in the producer registry and is fully aged (bond_since unset) at genesis."""
     reg = get_bonded_registry()
     assert WHALE in reg and reg[WHALE]["bonded"] >= B_MIN, "carried bonded stake not in the producer registry"
     # bond_since UNSET -> fully aged -> full producer weight from genesis (no relaunch re-ramp)
@@ -60,6 +64,7 @@ check("carried bonded stake is an eligible, fully-aged producer at genesis", t2_
 
 
 def t3_fresh_chain_produces_a_valid_block_1():
+    """Prove the fresh relaunch chain produces a valid block 1 whose body omits block_ip and block_producers_hash."""
     genesis = {"block_number": 0, "block_hash": "0" * 64, "block_timestamp": GENESIS_TIMESTAMP,
                "cumulative_fees": 0, "cumulative_weight": 0}
     cand = get_block_candidate(transaction_pool=[], logger=logger, latest_block=genesis)

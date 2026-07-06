@@ -21,6 +21,7 @@ from ops.key_ops import generate_keys
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
@@ -32,21 +33,25 @@ E = 10
 E2 = E + POSW_LEASE_EPOCHS + 1     # comfortably past the lease
 
 def t1_lease_grants_then_expires():
+    """Prove a register/recert grants OPEN-lane eligibility that expires after POSW_LEASE_EPOCHS."""
     # a recert (apply_register) IS the presence lease — there is no separate heartbeat anymore.
     apply_register(A, epoch=E, logger=logger)           # register + recert at E
     assert A in get_open_registry(E), "eligible right after registering"
     assert A not in get_open_registry(E2), "lease must expire -> not eligible past POSW_LEASE_EPOCHS"
 
 def t2_renewal_restores_eligibility():
+    """Prove a fresh recert after expiry renews the lease and restores eligibility."""
     apply_register(A, epoch=E2, logger=logger)          # renew (fresh recert at E2)
     assert A in get_open_registry(E2), "renewed lease -> eligible again"
 
 def t3_revert_renewal_keeps_registered():
+    """Prove reverting the renewal keeps `registered` set (first recert remains) but re-expires the lease."""
     apply_register(A, epoch=E2, logger=logger, revert=True)   # undo the renewal (LIFO)
     assert get_account(A)["registered"] == 1, "still registered: the first recert remains"
     assert A not in get_open_registry(E2), "lease expired again after undoing the renewal"
 
 def t4_revert_last_recert_clears_registered():
+    """Prove reverting the last remaining recert clears `registered` (revert symmetry)."""
     apply_register(A, epoch=E, logger=logger, revert=True)    # undo the only remaining recert
     assert kv_ops.recert_latest(A) < 0, "no recert left"
     assert get_account(A)["registered"] == 0, "registered cleared when no recert remains"

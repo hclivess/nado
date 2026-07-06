@@ -26,6 +26,7 @@ from protocol import FINALITY_DEPTH
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try:
         fn(); print(f"PASS  {name}")
@@ -35,6 +36,7 @@ def check(name, fn):
 
 # --- 1) accessor defaults to 0 and round-trips ---------------------------------------------------
 def t1():
+    """Prove get/set_finalized_height defaults to 0 and round-trips a stored value."""
     assert get_finalized_height() == 0, "default finalized_height must be 0 (genesis)"
     set_finalized_height(50)
     assert get_finalized_height() == 50, "round-trip failed"
@@ -44,7 +46,9 @@ check("finalized_height defaults to 0 and round-trips", t1)
 
 # --- 2) the incorporate advance formula is monotonic and depth-lagged ----------------------------
 def t2():
+    """Prove the incorporate-time advance formula max(prev, H - FINALITY_DEPTH) is monotonic and depth-lagged."""
     def advance(prev, height):
+        """Compute the new finalized floor from the previous floor and the current height."""
         return max(prev, height - FINALITY_DEPTH)
     assert advance(0, 10) == 0, "below depth must not finalize anything (max with 0)"
     assert advance(0, FINALITY_DEPTH + 5) == 5, "H-depth once past the depth"
@@ -65,6 +69,7 @@ tip = {"block_number": 5, "block_hash": TIP_HASH, "parent_hash": PARENT_HASH,
 save_block(parent, logger)  # so rollback can load the would-be new tip
 
 def t3_refuse():
+    """Prove rollback_one_block raises FinalityViolation when the tip's parent is below the finalized floor."""
     set_finalized_height(100)  # tip(5)'s parent is 4 < 100 -> finalized -> must refuse
     raised = False
     try:
@@ -75,6 +80,7 @@ def t3_refuse():
 check("rollback below finalized floor raises FinalityViolation", t3_refuse)
 
 def t3_boundary():
+    """Prove finality does NOT refuse rollback at the boundary (parent == finalized floor)."""
     # parent.number == 4; with floor == 4, parent is NOT < 4, so finality must NOT refuse (it may
     # raise some OTHER error from the state revert of an un-incorporated block — that's fine here).
     set_finalized_height(4)

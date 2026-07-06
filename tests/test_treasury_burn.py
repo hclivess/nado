@@ -26,13 +26,17 @@ from ops.key_ops import generate_keys
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
-def bal(): return get_account(TREASURY_ADDRESS)["balance"]
+def bal():
+    """Return the current treasury balance."""
+    return get_account(TREASURY_ADDRESS)["balance"]
 def supply():
+    """Return the circulating supply: genesis treasury + produced - burned ('fees')."""
     t = fetch_totals(); return TREASURY_GENESIS + t["produced"] - t["fees"]
 
 START = 1_000_000_000_000
@@ -41,17 +45,20 @@ create_account(TREASURY_ADDRESS, balance=START)
 create_account(generate_keys()["address"], bonded=B_MIN)   # bond_since unset -> genesis-aged -> activated
 
 def t0_burn_paused_without_electorate():
+    """Placeholder: the no-activated-electorate pause is covered by the freeze-guard inside apply_treasury_burn."""
     pass   # (electorate present above; the no-electorate pause is covered by the guard in apply_treasury_burn)
 H = TREASURY_SPEND_PERIOD                                   # a burn-boundary height
 EXPECT = max(0, START - TREASURY_RUNWAY_FLOOR) * TREASURY_BURN_BPS // BPS_DENOM
 
 def t1_no_burn_off_boundary():
+    """Prove no burn fires off the TREASURY_SPEND_PERIOD boundary (and never at genesis)."""
     b, s = bal(), supply()
     apply_treasury_burn({"block_number": H + 1}, logger)   # not a multiple of the period
     apply_treasury_burn({"block_number": 0}, logger)       # genesis never burns
     assert bal() == b and supply() == s, "no burn off the period boundary"
 
 def t2_burn_on_boundary_reduces_balance_and_supply():
+    """Prove the boundary burn removes exactly EXPECT from balance AND supply, storing the amount per height for revert."""
     assert EXPECT > 0, "the test amount must actually burn something"
     b0, s0 = bal(), supply()
     apply_treasury_burn({"block_number": H}, logger)
@@ -60,6 +67,7 @@ def t2_burn_on_boundary_reduces_balance_and_supply():
     assert kv_ops.treasury_burn_get(H) == EXPECT, "burned amount stored for revert"
 
 def t3_revert_restores_balance_and_supply():
+    """Prove reverting the burn restores balance and supply exactly and clears the stored per-height burn."""
     b1, s1 = bal(), supply()
     apply_treasury_burn({"block_number": H}, logger, revert=True)
     assert bal() == b1 + EXPECT, "revert restores the treasury balance"

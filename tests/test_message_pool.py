@@ -25,6 +25,7 @@ def mine(env, bits=MSG_POW_BITS):
 
 
 def make_env(sender="ndoAAAA", tag="deadbeef", ct="ciphertext", ts=1000, **over):
+    """Build a message envelope with the given overrides and mine its PoW nonce."""
     env = {"v": 1, "sender": sender, "public_key": "PK", "tag": tag, "hdr": "H",
            "nonce": "N", "ct": ct, "ts": ts, "pow": "0", "sig": "SIG"}
     env.update(over)
@@ -32,10 +33,12 @@ def make_env(sender="ndoAAAA", tag="deadbeef", ct="ciphertext", ts=1000, **over)
 
 
 def check(cond, msg):
+    """Assert cond, prefixing msg with FAIL for readable output."""
     assert cond, "FAIL: " + msg
 
 
 def main():
+    """Exercise MessagePool end to end: add/dedup/tags, every gate rejection, TTL gc, cap eviction, prekey bundles, PoW."""
     now = 1000
 
     # --- happy path: valid, registered, signed ---

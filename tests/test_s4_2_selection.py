@@ -14,11 +14,13 @@ def blake2b_seed(i):
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 def t1():
+    """Prove selection_shares gates below B_MIN, scales linearly, and caps at MAX_SHARES (anti-whale)."""
     assert selection_shares(0) == 0 and selection_shares(B_MIN - 1) == 0          # below min => ineligible
     assert selection_shares(B_MIN) == 1
     assert selection_shares(4 * B_MIN) == 4
@@ -27,6 +29,7 @@ def t1():
 check("selection_shares: min gate, linear, capped at MAX_SHARES", t1)
 
 def t2():
+    """Prove the fidelity ramp scales share weight linearly from 0 to full at FIDELITY_CAP."""
     # fidelity ramp: newcomer at half the cap gets half weight; at/above cap gets full
     assert selection_shares(10 * B_MIN, fidelity=FIDELITY_CAP) == 10
     assert selection_shares(10 * B_MIN, fidelity=FIDELITY_CAP // 2) == 5
@@ -34,6 +37,7 @@ def t2():
 check("fidelity ramps weight linearly to full", t2)
 
 def t3():
+    """Prove select_producer is deterministic for equal inputs and returns None when nobody is eligible."""
     # determinism: same inputs => same winner
     reg = {"a": {"bonded": 3 * B_MIN}, "b": {"bonded": B_MIN}}
     assert select_producer(reg, "deadbeef", 7) == select_producer(reg, "deadbeef", 7)
@@ -42,6 +46,7 @@ def t3():
 check("select_producer deterministic; empty/ineligible -> None", t3)
 
 def t4():
+    """Prove selection is split-neutral: one 4*B_MIN address and four B_MIN addresses win identically often."""
     # SPLIT-NEUTRALITY: an entity controlling 4*B_MIN wins with identical probability whether it
     # holds one address (4 shares) or four addresses (1 share each), against the same rivals.
     rivals = {"r1": {"bonded": 3 * B_MIN}, "r2": {"bonded": 2 * B_MIN}}
@@ -63,6 +68,7 @@ def t4():
 check("selection is split-neutral (sharding gives zero edge)", t4)
 
 def t5():
+    """Prove win frequency over many beacons is proportional to bonded shares (9:1 bond -> ~90% wins)."""
     # higher bond wins proportionally more
     reg = {"big": {"bonded": 9 * B_MIN}, "small": {"bonded": B_MIN}}
     big = sum(select_producer(reg, blake2b_seed(i), 0) == "big" for i in range(5000))
@@ -70,6 +76,7 @@ def t5():
 check("win probability proportional to bonded shares", t5)
 
 def t6():
+    """Prove RANDAO commit/reveal verifies and the beacon is order-independent, withholding-sensitive, and chained."""
     secret = "s3cr3t-reveal-value"
     c = beacon_commitment(secret)
     assert verify_reveal(c, secret) and not verify_reveal(c, "wrong")
@@ -84,6 +91,7 @@ def t6():
 check("RANDAO commit/reveal + chained, order-independent, withholding-sensitive beacon", t6)
 
 def t7():
+    """Prove epoch_of partitions block heights into epochs of EPOCH_LENGTH."""
     assert epoch_of(0) == 0 and epoch_of(59) == 0 and epoch_of(60) == 1
 check("epoch_of partitions by EPOCH_LENGTH", t7)
 

@@ -27,6 +27,7 @@ from ops.key_ops import generate_keys
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
@@ -45,13 +46,16 @@ for e in SEQ:
     LIVE[e] = get_account(A)["fidelity"]
 
 def t1_live_ramp_is_as_expected():
+    """Prove the live apply_register sequence (3 continuous recerts, a lapse, 1 more) yields fidelity 1,2,3,1,2."""
     assert [LIVE[e] for e in SEQ] == [1, 2, 3, 1, 2], f"live apply_register ramp {[LIVE[e] for e in SEQ]}"
 
 def t2_reconstruction_matches_live_at_each_recert():
+    """Prove fidelity_at_epoch reconstructs the live apply_register fidelity exactly at every recert epoch."""
     for e in SEQ:
         assert fidelity_at_epoch(A, e) == LIVE[e], f"reconstruct fidelity@{e}: {fidelity_at_epoch(A,e)} != {LIVE[e]}"
 
 def t3_between_and_before_recerts():
+    """Prove reconstruction is 0 before the first recert, holds between recerts, and applies the lapse reset on time."""
     assert fidelity_at_epoch(A, SEQ[0] - 1) == 0, "no recert yet -> 0"
     assert fidelity_at_epoch(A, SEQ[0] + 1) == 1, "holds the last recert's fidelity between recerts"
     assert fidelity_at_epoch(A, SEQ[2] + 1) == 3, "still 3 just after the third continuous recert"
@@ -59,6 +63,7 @@ def t3_between_and_before_recerts():
     assert fidelity_at_epoch(A, lapse) == 1, "the lapse recert resets to 1"
 
 def t4_present_set_tracks_the_lease_window():
+    """Prove present_at_epoch honors the lease window: present through recert+LEASE-1, absent at recert+LEASE and pre-recert."""
     # Lease valid when (epoch - recert) < LEASE, identical to get_open_registry -> last valid epoch = recert+LEASE-1.
     assert A in present_at_epoch(SEQ[-1]), "present at its latest recert"
     assert A in present_at_epoch(SEQ[-1] + LEASE - 1), "still present on the last valid lease epoch"
@@ -66,6 +71,7 @@ def t4_present_set_tracks_the_lease_window():
     assert A not in present_at_epoch(SEQ[0] - 1), "absent before the first recert"
 
 def t4b_reconstruction_agrees_with_live_get_open_registry():
+    """Prove the reconstructed present set equals live get_open_registry membership for the current epoch."""
     # The reconstructed present set must match the live get_open_registry membership (which reads the current
     # recert index) for the CURRENT epoch — same source of truth, so they cannot disagree on membership.
     from ops.account_ops import get_open_registry
@@ -73,6 +79,7 @@ def t4b_reconstruction_agrees_with_live_get_open_registry():
     assert present_at_epoch(e) == set(get_open_registry(e).keys()), "present_at_epoch == get_open_registry membership"
 
 def t5_weights_are_open_shares_of_reconstructed_fidelity():
+    """Prove weights_at_epoch equals open_shares of the fidelity AS OF that epoch (historical, not current)."""
     e = SEQ[-1]
     assert weights_at_epoch(e).get(A) == open_shares(fidelity_at_epoch(A, e)), "weight == open_shares(fidelity@e)"
     # a mid-history epoch weighs by THAT epoch's fidelity (3), not the current one (2)

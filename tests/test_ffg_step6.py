@@ -29,6 +29,7 @@ from protocol import B_MIN, EPOCH_LENGTH, CHAIN_ID
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try:
         fn(); print(f"PASS  {name}")
@@ -46,6 +47,7 @@ kv_ops.block_index_put(2 * EPOCH_LENGTH, H_CHILD)
 
 
 def t1_threshold():
+    """Prove checkpoint_justified needs STRICTLY >2/3 of bonded shares: 2/4 attesters fail, 3/4 justify."""
     reg = get_bonded_registry()
     # 2 of 4 attest epoch 1 -> NOT justified (2*3=6 !> 4*2=8)
     for v in VALS[:2]:
@@ -58,6 +60,7 @@ check("checkpoint_justified: strict >2/3 bonded shares", t1_threshold)
 
 
 def t2_finalize():
+    """Prove two consecutive justified epochs finalize the earlier epoch's checkpoint."""
     reg = get_bonded_registry()
     # epoch 1 already justified (3 attesters from t1). Justify epoch 2 too -> finalize epoch 1.
     for v in VALS[:3]:
@@ -68,6 +71,7 @@ check("ffg_finalized_checkpoint: two-consecutive-justified finalizes the earlier
 
 
 def t3_attest_tx():
+    """Prove an attest tx validates for a bonded validator, rejects a same-epoch double-vote, and reverts cleanly."""
     # a clean env-ish: use a fresh validator + epoch 3 checkpoint
     val = VALS[0]
     H3 = "3" * 64

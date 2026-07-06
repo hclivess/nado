@@ -23,6 +23,7 @@ from protocol import CHAIN_ID
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
@@ -30,6 +31,7 @@ def check(name, fn):
 PK = "ab" * 656   # a plausible ML-DSA-44 pubkey hex (length irrelevant here)
 
 def _tx(txid, amount, public_key=None):
+    """Build a minimal s->r transfer tx, optionally carrying a public_key."""
     t = {"sender": "s", "recipient": "r", "amount": amount, "fee": 0, "txid": txid,
          "nonce": txid, "timestamp": 1, "target_block": 500, "chain_id": CHAIN_ID}
     if public_key:
@@ -38,6 +40,7 @@ def _tx(txid, amount, public_key=None):
 
 
 def t1_rolling_revert_of_pubkeyless_tx_keeps_pubkey():
+    """Prove reverting a later pubkey-LESS tx on a pruned node keeps the sender's established pubkey (the 1041 bug)."""
     create_account("s", balance=10_000)
     create_account("r", balance=0)
     kv_ops.account_set_field("s", "public_key", PK)          # s established its pubkey long ago
@@ -60,6 +63,7 @@ check("rolling-node revert of a pubkey-LESS tx keeps the sender's established pu
 
 
 def t2_revert_of_the_establishing_tx_still_clears_pubkey():
+    """Prove reverting the establishing (pubkey-CARRYING) tx still clears the pubkey, preserving symmetry."""
     create_account("s2", balance=10_000)
     create_account("r2", balance=0)
     tx = {"sender": "s2", "recipient": "r2", "amount": 50, "fee": 0, "txid": "t_first",

@@ -28,19 +28,24 @@ from execnode.state import ExecState
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 def raises(fn):
+    """True if fn raises."""
     try: fn(); return False
     except Exception: return True
-def _bal(a): return get_account(a)["balance"]
+def _bal(a):
+    """L1 balance of address a."""
+    return get_account(a)["balance"]
 
 V = generate_keys(); create_account(V["address"], balance=B_MIN, bonded=4 * B_MIN)   # bonded validator
 U = generate_keys(); create_account(U["address"], balance=2_000_000)                 # bridge user
 
 def t1_merkle_primitives():
+    """Prove merkle_root/merkle_proof/verify_merkle_proof accept a real leaf and reject an absent one."""
     leaves = [canonical_bytes(["kv", "c1", "m", "k", i]) for i in range(7)]
     target = leaves[3]
     root = merkle_root(leaves)
@@ -49,6 +54,7 @@ def t1_merkle_primitives():
     assert not verify_merkle_proof(canonical_bytes(["kv", "c1", "m", "k", 999]), proof, root), "absent leaf must fail"
 
 def t2_full_bridge_roundtrip():
+    """Prove the full bridge flow: L1 deposit escrows, exec credits+withdraws, root settles, proven exit releases escrow, nullifier blocks a double-claim."""
     D, W = 500_000, 300_000
     # 1) L1 DEPOSIT -> escrow locks D
     dep = construct_bridge_deposit_tx(U, D, target_block=1, fee=MIN_TX_FEE)
@@ -84,6 +90,7 @@ def t2_full_bridge_roundtrip():
     assert raises(lambda: validate_transaction(wtx, logger, 1)), "same withdrawal cannot be claimed twice"
 
 def t3_withdraw_without_settlement_rejected():
+    """Prove an L1 exit whose exec root was never settled is rejected (proof fails against the settled root)."""
     # a withdrawal whose root is NOT settled must be rejected
     st = ExecState(tempfile.mktemp(prefix="nado_exec_", suffix=".json"))
     st.credit_deposit(U["address"], 100_000)
@@ -94,6 +101,7 @@ def t3_withdraw_without_settlement_rejected():
     assert raises(lambda: validate_transaction(wtx, logger, 1)), "unsettled withdrawal must reject"
 
 def t4_forged_amount_rejected():
+    """Prove claiming a different amount than the proven withdrawal fails the Merkle check."""
     # claiming a different amount than what was proven must fail the Merkle check
     st = ExecState(tempfile.mktemp(prefix="nado_exec_", suffix=".json"))
     st.credit_deposit(U["address"], 100_000)

@@ -28,6 +28,7 @@ from protocol import split_block_reward, EPOCH_LENGTH, FIDELITY_GAIN, TREASURY_A
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try:
         fn(); print(f"PASS  {name}")
@@ -53,6 +54,7 @@ def dump_env():
 
 # --- 1) consolidation: ONE env with all eight named sub-DBs --------------------------------------
 def t1():
+    """Prove the single LMDB env exposes every expected named sub-DB (accounts/totals/block/tx/recert)."""
     dbs = set(kv_ops._dbs().keys())
     for sub in ("accounts", "totals", "block_by_num", "block_by_hash",
                 "tx", "tx_by_sender", "tx_by_recipient", "recerts", "recert_by_epoch"):
@@ -62,6 +64,7 @@ check("one LMDB env with accounts/totals/block/tx/recert sub-DBs", t1)
 
 # --- 2) write_txn commits all mutations together -------------------------------------------------
 def t2():
+    """Prove multiple mutations inside one write_txn commit together and persist."""
     create_account("alice", balance=1000)
     with kv_ops.write_txn():
         change_balance("alice", -500, logger=logger)
@@ -72,6 +75,7 @@ check("write_txn commits all mutations together", t2)
 
 # --- 3) write_txn rolls back ALL on a mid-failure (atomic) ---------------------------------------
 def t3():
+    """Prove an exception mid-write_txn rolls back every mutation (nothing persists)."""
     create_account("bob", balance=1000)
     try:
         with kv_ops.write_txn():
@@ -85,6 +89,7 @@ check("write_txn rolls back ALL on mid-failure (atomic)", t3)
 
 # --- 4) atomic across ALL sub-DBs: an incorporate-style crash leaves no partial state ------------
 def t4():
+    """Prove an incorporate-style crash rolls back accounts, block index, tx index, and totals together — no partial state across sub-DBs."""
     create_account("carol", balance=2000)
     before_tot = fetch_totals()["produced"]
     try:
@@ -105,6 +110,7 @@ check("atomic across ALL sub-DBs: incorporate-style crash leaves no partial stat
 
 # --- 5) success path commits across sub-DBs together ---------------------------------------------
 def t5():
+    """Prove the success path commits writes to multiple sub-DBs (block + tx index) together."""
     with kv_ops.write_txn():
         kv_ops.block_index_put(8, "e" * 64)
         kv_ops.tx_index_put("txY", 8, "carol", "x")
@@ -115,6 +121,7 @@ check("write_txn commits across sub-DBs together", t5)
 
 # --- 6) account doc round-trip + EXACT revert symmetry of every mutator --------------------------
 def t6():
+    """Prove every account mutator (balance/produced/bonded/fidelity/apply_register) applies and, reverted in mirror order, restores the doc byte-identically."""
     create_account("dave", balance=5000, produced=10, bonded=3000, registered=0, fidelity=7)
     base = dict(get_account("dave"))
     base_bytes = dump_env()["accounts"]
@@ -149,6 +156,7 @@ check("account doc round-trip + EXACT revert symmetry", t6)
 
 # --- 7) DUPSORT recert range scan (epoch > floor), dedup, delete ---------------------------------
 def t7():
+    """Prove the DUPSORT recert index range-scans by epoch floor, dedups exact duplicates, and deletes one (addr, epoch) pair unambiguously."""
     # recert_put(address, epoch) — note arg order (heartbeat_put(ep,addr) was retired in the lease refactor).
     for ep, addr in [(10, "p"), (11, "p"), (11, "q"), (12, "r"), (11, "p")]:  # (11,p) dup -> deduped
         kv_ops.recert_put(addr, ep)
@@ -162,6 +170,7 @@ check("DUPSORT recert range scan + dedup + delete", t7)
 
 # --- 8) tx-history UNION ordering (merge sender|recipient dupsort cursors, by block) -------------
 def t8():
+    """Prove tx_of_account merges the sender and recipient indexes ordered by block, dedups self-sends, and honors min_block and limit."""
     kv_ops.drop_tx_index()
     # block-order deliberately scrambled relative to insert order
     kv_ops.tx_index_put("txB", 5, "u", "v")
@@ -176,6 +185,7 @@ check("tx-history UNION ordered by block + deduped + limited", t8)
 
 # --- 9) full incorporate -> rollback returns the WHOLE env byte-identical ------------------------
 def t9():
+    """Prove a full incorporate (core_loop sequence) followed by rollback (rollback_one_block sequence) leaves the WHOLE env byte-identical."""
     # Pre-create every account a block touches with a nonzero baseline so the revert returns each
     # doc to its exact prior bytes (no fresh zero-row artifacts). Then run the SAME sequence
     # core_loop.incorporate_block runs, inside one write_txn, and the SAME sequence

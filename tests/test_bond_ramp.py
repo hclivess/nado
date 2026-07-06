@@ -26,6 +26,7 @@ from ops.mining_ops import (bond_ramp_weight, selection_shares, total_bonded_sha
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
@@ -33,6 +34,7 @@ def check(name, fn):
 
 
 def t1_ramp_curve():
+    """Prove bond_ramp_weight ramps 0 -> full over BOND_RAMP_EPOCHS, monotonically, with unset age = fully aged."""
     # base 100 shares, bonded at epoch 10
     assert bond_ramp_weight(100, 10, 10) == 0, "tenure 0 -> no weight"
     assert bond_ramp_weight(100, 10, 25) == 50, "half-ramped at tenure 15/30"
@@ -46,15 +48,18 @@ def t1_ramp_curve():
         w = bond_ramp_weight(100, 10, e); assert w >= prev, "ramp must be monotonic"; prev = w
 
 def _bond(sender, raw_amount, height, txid, revert=False):
+    """Reflect (or revert) a bond transaction of raw_amount from sender at the given block height."""
     tx = {"sender": sender, "recipient": "bond", "amount": raw_amount, "fee": 0, "txid": txid}
     reflect_transaction(tx, logger=logger, block_height=height, revert=revert)
 
 def t2_first_bond_sets_age_to_epoch():
+    """Prove a first bond records bond_since as the epoch of the bonding block."""
     create_account("a", balance=100 * B_MIN)
     _bond("a", 1 * B_MIN, height=5 * EPOCH_LENGTH, txid="a1")     # epoch 5
     assert kv_ops.bond_since_get_raw("a") == 5, "first bond starts the age at its epoch"
 
 def t3_stake_weighted_topup_closes_loophole():
+    """Prove a big top-up onto a tiny aged bond re-ramps stake-weighted, closing the age-cheap-then-dump loophole."""
     create_account("whale", balance=100 * B_MIN)
     _bond("whale", 1 * B_MIN, height=0, txid="w1")               # tiny stake aged from epoch 0
     _bond("whale", 9 * B_MIN, height=100 * EPOCH_LENGTH, txid="w2")  # then DUMP 9x at epoch 100
@@ -67,6 +72,7 @@ def t3_stake_weighted_topup_closes_loophole():
     assert brw(base, since, 100) < base, "dumped whale must NOT have full selection weight at the dump epoch"
 
 def t4_auto_bond_preserves_age():
+    """Prove a tiny auto-bond top-up barely moves a large aged stake's stake-weighted age (no reset to now)."""
     create_account("hodler", balance=200 * B_MIN)
     _bond("hodler", 100 * B_MIN, height=0, txid="h1")            # large stake, aged from epoch 0 — but
     # apply_bond_since never stores 0 (the "fully aged / genesis" sentinel), so an epoch-0 bonder ages from 1.
@@ -77,6 +83,7 @@ def t4_auto_bond_preserves_age():
     assert since == 1, f"a tiny top-up barely moves a large aged stake's age (got {since})"
 
 def t5_revert_is_exact():
+    """Prove reverting bonds restores bond_since exactly, back to UNSET after the first bond's revert."""
     create_account("r", balance=100 * B_MIN)
     assert kv_ops.bond_since_get_raw("r") is None
     _bond("r", 2 * B_MIN, height=7 * EPOCH_LENGTH, txid="r1")    # first bond
@@ -89,6 +96,7 @@ def t5_revert_is_exact():
     assert kv_ops.bond_since_get_raw("r") is None, "reverting the first bond leaves the age UNSET again"
 
 def t6_selector_withholds_slots_from_a_sudden_whale():
+    """Prove the live selector gives a whale bonded THIS epoch zero bonded slots while an aged validator wins them."""
     beacon = "c0ffee" * 8
     # aged small validator (unset age => full weight) vs a sudden whale with 100x stake, bonded THIS epoch
     aged = {"ndoAGED": {"bonded": 1 * B_MIN, "fidelity": None, "bond_since": None}}
@@ -104,6 +112,7 @@ def t6_selector_withholds_slots_from_a_sudden_whale():
     assert aged_wins > 0, "the aged validator should take the bonded slots"
 
 def t7_quorum_and_weight_stay_ramp_free():
+    """Prove total_bonded_shares (fork-choice weight + FFG/settlement quorum) ignores the ramp entirely."""
     # total_bonded_shares (fork-choice weight + FFG/settlement quorum) must IGNORE the ramp: a whale bonded
     # this instant still counts its FULL shares for finality — only PRODUCER selection is throttled.
     fresh_whale = {"ndoWHALE": {"bonded": BOND_CAP, "fidelity": None, "bond_since": 200}}
@@ -111,6 +120,7 @@ def t7_quorum_and_weight_stay_ramp_free():
     assert total_bonded_shares(fresh_whale) == raw, "quorum/weight must use ramp-free shares"
 
 def t8_genesis_topup_keeps_aged_status():
+    """Prove a small top-up on a genesis/pre-existing (unset-age) stake keeps it fully aged with full weight."""
     # a genesis/pre-existing stake has bonded but NO bond_since (fully aged). Auto-bonding MORE must NOT
     # reset the whole stake's age to now — that reset zeroed a sole validator's weight and deadlocked the chain.
     create_account("gen", balance=100 * B_MIN, bonded=100 * B_MIN)   # aged, bond_since unset
@@ -124,6 +134,7 @@ def t8_genesis_topup_keeps_aged_status():
     assert brw(base, since, 100) == base, "aged validator keeps FULL selection weight after auto-bond"
 
 def t9_liveness_fallback_when_all_fresh():
+    """Prove that when EVERY bonded identity is still ramping (weight 0) the fallback still elects a producer."""
     # if EVERY bonded identity is still ramping (all tenure 0 -> ramped weight 0), the chain must NOT stall:
     # the un-ramped fallback still elects a producer. (This is the deadlock guard.)
     beacon = "beef" * 16

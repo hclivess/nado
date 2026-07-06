@@ -27,14 +27,19 @@ from ops.key_ops import generate_keys
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 R = 1_000_000_000        # 0.1 NADO block reward
-def bal(a): acc = get_account(a); return acc["balance"] if acc else 0
-def prod(a): acc = get_account(a); return acc["produced"] if acc else 0
+def bal(a):
+    """Balance of address a, 0 if the account doesn't exist."""
+    acc = get_account(a); return acc["balance"] if acc else 0
+def prod(a):
+    """'produced' metric of address a, 0 if the account doesn't exist."""
+    acc = get_account(a); return acc["produced"] if acc else 0
 
 # find an open slot and a bonded slot in epoch 0/1 (both use GENESIS_BEACON — no anchor needed)
 OPEN_SLOT = BONDED_SLOT = None
@@ -44,6 +49,7 @@ for n in range(EPOCH_LENGTH):
     if ln == "bonded" and BONDED_SLOT is None: BONDED_SLOT = n
 
 def t1_split_math():
+    """Prove the open split is exactly tip 20% + dividend ~70% + treasury 10% summing to R, and the bonded split sums too."""
     tip, div, tre = split_open_block_reward(R)
     assert tip + div + tre == R, "open split must sum to reward exactly"
     assert tre == R * TREASURY_BPS // BPS_DENOM, "treasury 10%"
@@ -53,6 +59,7 @@ def t1_split_math():
     assert OPEN_SLOT is not None and BONDED_SLOT is not None, "found both an open and a bonded slot"
 
 def t2_open_block_credits_pool_and_reverts():
+    """Prove an open block pays the producer only the tip, funds pool+treasury, and revert restores all three exactly."""
     a = generate_keys()["address"]; create_account(a, balance=0)
     tre0, div0 = bal(TREASURY_ADDRESS), bal(DIVIDEND_POOL)
     tip, div, tre = split_open_block_reward(R)
@@ -68,6 +75,7 @@ def t2_open_block_credits_pool_and_reverts():
     assert bal(DIVIDEND_POOL) == div0 and bal(TREASURY_ADDRESS) == tre0, "revert returns pool + treasury exactly"
 
 def t3_bonded_block_also_funds_the_dividend():
+    """Prove a bonded block pays the producer 70% yet still contributes its dividend + treasury shares, revert-exact."""
     from protocol import split_bonded_block_reward
     a = generate_keys()["address"]; create_account(a, balance=0)
     div0, tre0 = bal(DIVIDEND_POOL), bal(TREASURY_ADDRESS)
@@ -83,6 +91,7 @@ def t3_bonded_block_also_funds_the_dividend():
     assert bal(DIVIDEND_POOL) == div0 and bal(TREASURY_ADDRESS) == tre0, "revert returns pool + treasury exactly"
 
 def t4_block_lane_is_deterministic():
+    """Prove block_lane returns the same lane for the same block on every call."""
     b = {"block_number": OPEN_SLOT, "block_creator": "x", "block_reward": R}
     assert block_lane(b) == block_lane(b), "same block -> same lane every call"
 
@@ -97,6 +106,7 @@ def _dump_env():
     return out
 
 def t5_credit_block_reward_rollback_is_byte_identical():
+    """Prove credit_block_reward apply->revert returns the ENTIRE KV env to byte-identical state for both lanes."""
     # the strong guarantee: for BOTH lanes, credit_block_reward apply->revert returns the WHOLE env to its
     # exact prior bytes (accounts + produced + dividend pool + treasury), not just the balances we happened
     # to assert. Pre-fund every touched account so revert can't leave a fresh zero-row artifact.

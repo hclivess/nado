@@ -12,6 +12,7 @@ from execnode import shielded_field as SF
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
@@ -22,42 +23,50 @@ V1, O1, R1 = 700, alghash.owner_of(0xB0B), 0x2222        # to recipient
 V2, O2, R2 = 300, alghash.owner_of(0xCAFE), 0x3333       # change back to self
 
 def _pool():
+    """Build a one-note pool holding the VIN input note; return (pool, siblings, directions) for position 0."""
     pool = SF.FieldShieldedPool()
     pool.append(alghash.commit(VIN, alghash.owner_of(NSK), RHO))
     sibs, dirs = SF.tree_path(pool.commitments, 0)
     return pool, sibs, dirs
 
 def _prove(pub=0, fee=0, q=stark.NUM_QUERIES):   # q must match the protocol NUM_QUERIES so verify_transfer accepts it (C-1)
+    """Prove the standard 1000 -> 700 + 300 join-split over a fresh pool; return (proof, root, nf, cm1, cm2)."""
     pool, sibs, dirs = _pool()
     return J2.prove_transfer(NSK, VIN, RHO, sibs, dirs, V1, O1, R1, V2, O2, R2, pub, fee, num_queries=q)
 
 def t1_trace_matches():
+    """Prove build_trace reproduces exactly the root/nf/cm1/cm2 that J2.transfer computes (circuit == spec)."""
     pool, sibs, dirs = _pool()
     owner, cmi, nf, root, cm1, cm2 = J2.transfer(NSK, VIN, RHO, sibs, dirs, V1, O1, R1, V2, O2, R2)
     _, _, _, tr, tn, tc1, tc2 = J2.build_trace(NSK, VIN, RHO, sibs, dirs, V1, O1, R1, V2, O2, R2)
     assert tr == root and tn == nf and tc1 == cm1 and tc2 == cm2, "circuit must reproduce the 2-output transfer"
 
 def t2_valid_transfer_verifies():
+    """Prove a valid 2-output transfer proof verifies against its public inputs."""
     proof, root, nf, cm1, cm2 = _prove()
     ok, why = J2.verify_transfer(proof, root, nf, cm1, cm2, 0, 0, lambda r: True)
     assert ok, f"a valid 2-output transfer must verify: {why}"
 
 def t3_conservation_enforced():
+    """Prove conservation is enforced: claiming a fee other than the proven one is rejected."""
     proof, root, nf, cm1, cm2 = _prove()
     assert not J2.verify_transfer(proof, root, nf, cm1, cm2, 0, 10, lambda r: True)[0], "wrong fee must be rejected"
 
 def t4_wrong_outputs_rejected():
+    """Prove tampering with either claimed output commitment (cm1 or cm2) is rejected."""
     proof, root, nf, cm1, cm2 = _prove()
     assert not J2.verify_transfer(proof, root, nf, F.add(cm1, 1), cm2, 0, 0, lambda r: True)[0]
     assert not J2.verify_transfer(proof, root, nf, cm1, F.add(cm2, 1), 0, 0, lambda r: True)[0]
 
 def t5_membership_and_anchor():
+    """Prove a wrong root fails membership and an unknown anchor fails the known-root callback with 'anchor' in the reason."""
     proof, root, nf, cm1, cm2 = _prove()
     assert not J2.verify_transfer(proof, F.add(root, 1), nf, cm1, cm2, 0, 0, lambda r: True)[0]
     ok, why = J2.verify_transfer(proof, root, nf, cm1, cm2, 0, 0, lambda r: False)
     assert not ok and "anchor" in why
 
 def t6_c3_wraparound_exit_rejected():
+    """Prove the C-3 exploit is dead: a negative public_value that wraps the change value mod P is rejected by the in-circuit range proof."""
     # C-3: spend the real 1000-coin note but declare public_value = -10^18. Conservation forces a "change"
     # value to wrap mod P into a ~2^64 field element; the in-circuit range proof (< 2^62) must reject it.
     pool, sibs, dirs = _pool()
@@ -69,6 +78,7 @@ def t6_c3_wraparound_exit_rejected():
     assert not ok, f"C-3 wraparound exit MUST be rejected, got ok={ok} ({why})"
 
 def t7_c3_in_range_values_verify():
+    """Prove the range bound is not over-tight: large-but-in-range values (< 2^61) still verify."""
     # large-but-in-range values (< 2^61) still verify
     pool = SF.FieldShieldedPool()
     big = (1 << 61) - 1
@@ -79,6 +89,7 @@ def t7_c3_in_range_values_verify():
     assert ok, f"in-range values must still verify: {why}"
 
 def t8_c3b_2output_conservation_wraparound_rejected():
+    """Prove the C-3b 2-output mod-P conservation wraparound (fake 2^62-coin unshield from a 1000-coin note) is rejected under the < 2^61 range bound."""
     # C-3b: the 2-output conservation wraparound. Deposit 1000, but with fee=2^62 / public_value=-2^62 and two
     # ~2^62 change outputs the mod-P equation admits (v_in - v_out1 - v_out2) - (fee - pv) == -P, which under the
     # OLD 2^62 bound recorded a 2^62-coin unshield from a 1000-coin note. Under the < 2^61 bound the crafted

@@ -12,6 +12,7 @@ from execnode.stark import field as F, alghash, joinsplit_circuit as JC, stark
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
@@ -23,35 +24,42 @@ VOUT, OWN_OUT, RHO_OUT = 850, 0xABC, 0x5555
 PUB, FEE = 0, 50                                     # 900 + 0 == 850 + 50
 
 def _prove(q=stark.NUM_QUERIES):   # q must match the protocol NUM_QUERIES so verify_transfer accepts it (C-1)
+    """Prove the module's canonical 900-in/850+50-fee transfer and return (proof, root, nf, cm_out)."""
     return JC.prove_transfer(NSK, VIN, RHO, SIBS, DIRS, VOUT, OWN_OUT, RHO_OUT, PUB, FEE, num_queries=q)
 
 def t1_trace_matches_direct():
+    """Prove the AIR trace reproduces the direct transfer() outputs (root, nf, cm_out)."""
     owner, cm_in, nf, root, cm_out = JC.transfer(NSK, VIN, RHO, SIBS, DIRS, VOUT, OWN_OUT, RHO_OUT)
     _, _, _, troot, tnf, tcm = JC.build_trace(NSK, VIN, RHO, SIBS, DIRS, VOUT, OWN_OUT, RHO_OUT)
     assert troot == root and tnf == nf and tcm == cm_out, "circuit must reproduce the whole transfer"
 
 def t2_valid_transfer_verifies():
+    """Prove an honest join-split transfer proof passes verify_transfer."""
     proof, root, nf, cm_out = _prove()
     ok, why = JC.verify_transfer(proof, root, nf, cm_out, PUB, FEE, lambda r: True)
     assert ok, f"a valid transfer must verify: {why}"
 
 def t3_conservation_enforced():
+    """Prove value conservation is enforced: claiming a different public fee is rejected."""
     proof, root, nf, cm_out = _prove()
     ok, _ = JC.verify_transfer(proof, root, nf, cm_out, PUB, FEE - 10, lambda r: True)   # claim a different fee
     assert not ok, "value conservation must be enforced (a wrong fee is rejected)"
 
 def t4_wrong_outputs_or_nullifier_rejected():
+    """Prove a tampered output commitment or nullifier is rejected."""
     proof, root, nf, cm_out = _prove()
     assert not JC.verify_transfer(proof, root, nf, F.add(cm_out, 1), PUB, FEE, lambda r: True)[0]
     assert not JC.verify_transfer(proof, root, F.add(nf, 1), cm_out, PUB, FEE, lambda r: True)[0]
 
 def t5_membership_and_anchor():
+    """Prove a wrong Merkle root and an unknown anchor are both rejected."""
     proof, root, nf, cm_out = _prove()
     assert not JC.verify_transfer(proof, F.add(root, 1), nf, cm_out, PUB, FEE, lambda r: True)[0], "wrong root"
     ok, why = JC.verify_transfer(proof, root, nf, cm_out, PUB, FEE, lambda r: False)
     assert not ok and "anchor" in why, "unknown anchor must be rejected"
 
 def t6_full_proof_through_verify_transfer_seam():
+    """Prove a full depth-TREE_DEPTH proof passes shielded.verify_transfer, while a wrong fee or wrong-depth proof (H1) is rejected by the seam."""
     # route the FULL join-split proof through the real verify_transfer seam (execnode/shielded.py). The seam
     # pins the proof's Merkle depth to the field pool's TREE_DEPTH (H1), so build a real depth-TREE_DEPTH path.
     from execnode import shielded
@@ -77,6 +85,7 @@ def t6_full_proof_through_verify_transfer_seam():
     assert not ok3 and "depth" in why3, f"wrong-depth proof must be rejected by the seam, got {ok3} ({why3})"
 
 def t7_c3_wraparound_exit_rejected():
+    """Prove the C-3 mod-P wraparound exit (negative public_value forcing change ~ 2^64) is rejected by the in-circuit range proof."""
     # C-3: spend the real 900-coin note but declare public_value = -10^18. Value conservation forces the
     # "change" value to wrap mod P into a ~2^64 field element; the in-circuit range proof (< 2^61) must reject.
     X = 10 ** 18
@@ -86,6 +95,7 @@ def t7_c3_wraparound_exit_rejected():
     assert not ok, f"C-3 wraparound exit MUST be rejected by the range proof, got ok={ok} ({why})"
 
 def t8_c3_in_range_value_still_verifies():
+    """Prove the largest in-range value (2^61 - 1) still verifies — the range proof accepts honest txs."""
     # the largest in-range value (< 2^61) must still verify — the range proof doesn't reject honest txs.
     big = (1 << 61) - 1
     proof, root, nf, cm_out = JC.prove_transfer(NSK, big, RHO, SIBS, DIRS, big, OWN_OUT, RHO_OUT, 0, 0)
@@ -93,6 +103,7 @@ def t8_c3_in_range_value_still_verifies():
     assert ok, f"an in-range value must still verify: {why}"
 
 def t9_c3b_2output_wraparound_rejected():
+    """Prove a value of exactly 2^61 is rejected (C-3b two-output wraparound; the bound is strict < 2^61)."""
     # C-3b: the 2-output conservation wraparound (1-coin input -> 2^62 exit) must be rejected now that every
     # value is bounded to < 2^61. (Full end-to-end PoC is in tests/test_stark_joinsplit2.py.)
     big_oob = (1 << 61)                              # exactly 2^61 -> out of range under the 3-top-bit rule

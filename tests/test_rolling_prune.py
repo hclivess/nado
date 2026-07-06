@@ -26,20 +26,24 @@ FLOOR = REWARD_WINDOW + FINALITY_DEPTH + 1   # hard safety floor inside prune_bl
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e:
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
 def _body_path(h):
+    """Resolve height h to its body file path via the number->hash index, or None if unindexed."""
     bh = kv_ops.hash_by_number(h)
     return f"{HOME}/blocks/{bh}.block" if bh else None
 
 def body_exists(h):
+    """True if the block BODY file for height h still exists on disk."""
     p = _body_path(h)
     return bool(p) and os.path.exists(p)
 
 def indexed(h):
+    """True if height h still has a number->hash index entry."""
     return kv_ops.hash_by_number(h) is not None
 
 # Build fake blocks 1..600: an index entry (number<->hash) + a tiny body file each.
@@ -51,6 +55,7 @@ for h in range(1, N + 1):
         f.write(b"body")
 
 def t1_prunes_below_window_keeps_index():
+    """Prove pruning deletes bodies below finalized-retention, keeps the number<->hash index and reward-window body, and advances the watermark."""
     # finalized=400, retention=150 (>= FLOOR) -> prune_below = 400 - 150 = 250
     n = prune_block_bodies(400, 150, logger)
     assert n == 249, f"expected 249 pruned (heights 1..249), got {n}"
@@ -63,11 +68,13 @@ def t1_prunes_below_window_keeps_index():
     assert kv_ops.meta_get_int("pruned_below", -1) == 250, "watermark advances to prune_below"
 
 def t2_idempotent_noop():
+    """Prove a second identical prune call is a no-op (watermark makes it idempotent)."""
     n = prune_block_bodies(400, 150, logger)  # same inputs -> nothing new
     assert n == 0, f"second identical call must be a no-op, pruned {n}"
     assert kv_ops.meta_get_int("pruned_below", -1) == 250
 
 def t3_incremental_on_new_finality():
+    """Prove advancing finality prunes only the delta between the old and new watermark."""
     # finalized advances to 600 -> prune_below = 600 - 150 = 450; prunes only the delta 250..449
     n = prune_block_bodies(600, 150, logger)
     assert n == 200, f"expected 200 pruned (heights 250..449), got {n}"
@@ -76,6 +83,7 @@ def t3_incremental_on_new_finality():
     assert kv_ops.meta_get_int("pruned_below", -1) == 450
 
 def t4_safety_floor_protects_reward_and_rollback_window():
+    """Prove a tiny misconfigured retention is floored at REWARD_WINDOW+FINALITY_DEPTH+1 so reward and rollback bodies survive."""
     # A misconfigured tiny retention MUST still be floored at REWARD_WINDOW+FINALITY_DEPTH+1, so the
     # reward lookback (tip-REWARD_WINDOW) and rollback window (FINALITY_DEPTH) are never pruned.
     n = prune_block_bodies(600, 1, logger)          # retention=1 -> effective floor FLOOR
@@ -86,6 +94,7 @@ def t4_safety_floor_protects_reward_and_rollback_window():
         f"floor must cap prune_below at {expected_prune_below}"
 
 def t5_nothing_to_prune_on_short_chain():
+    """Prove a chain no taller than the safety floor prunes nothing."""
     kv_ops.meta_set_int("pruned_below", 0)          # reset watermark
     assert prune_block_bodies(FLOOR, 150, logger) == 0, "finalized <= floor -> nothing prunable"
 

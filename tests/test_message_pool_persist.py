@@ -11,6 +11,7 @@ from ops.message_pool import MessagePool
 
 fails = 0
 def check(name, fn):
+    """Run fn; print PASS/FAIL and count failures."""
     global fails
     try: fn(); print(f"PASS  {name}")
     except Exception as e: fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
@@ -19,6 +20,7 @@ path = os.path.join(tempfile.mkdtemp(), "message_pool.dat")
 
 
 def _seed():
+    """Build a MessagePool holding one message (seq 5) and one prekey bundle for ndoY."""
     p = MessagePool()
     p._seq = 5
     p.messages = {"mid1": {"env": {"v": 1, "sender": "ndoX", "tag": "aa", "ct": "ff", "ts": 123}, "recv": 123, "seq": 5}}
@@ -27,6 +29,7 @@ def _seed():
 
 
 def t1_round_trip():
+    """Prove save/load round-trips messages, prekeys, and the seq cursor across a restart."""
     _seed().save(path)
     q = MessagePool()
     kept = q.load(path, now=200)                 # within TTL
@@ -38,6 +41,7 @@ check("save -> load restores messages + prekeys + cursor", t1_round_trip)
 
 
 def t2_ttl_reaped_on_load():
+    """Prove load reaps TTL-expired messages while keeping prekeys (directory state, not TTL'd)."""
     _seed().save(path)
     q = MessagePool()
     kept = q.load(path, now=123 + q.ttl + 1000)  # well past the 7-day TTL
@@ -47,6 +51,7 @@ check("load reaps TTL-expired messages (prekeys kept)", t2_ttl_reaped_on_load)
 
 
 def t3_missing_and_corrupt_are_safe():
+    """Prove loading a missing or corrupt pool file is a safe no-op leaving an empty pool."""
     q = MessagePool()
     assert q.load(os.path.join(tempfile.mkdtemp(), "nope.dat"), now=1) == 0, "missing file must be a no-op"
     bad = os.path.join(tempfile.mkdtemp(), "bad.dat")
