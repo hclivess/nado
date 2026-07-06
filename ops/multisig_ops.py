@@ -1,4 +1,4 @@
-"""OPT-IN M-of-N MULTISIG accounts (consensus, active from protocol.MULTISIG_START_BLOCK).
+"""OPT-IN M-of-N MULTISIG accounts (consensus).
 
 A multisig account is an ordinary "ndo…" address derived from a DESCRIPTOR instead of a keypair:
 

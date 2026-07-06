@@ -575,10 +575,8 @@ onto a different spend.
 Multisig accounts are **payment accounts only**: reserved recipients (bond, register,
 votes, HTLC duties, …) are rejected, so every one-key-one-identity assumption in the
 validator set is untouched. Fees pay a per-signature floor (each ~2.4 KB ML-DSA entry
-prices the bytes + verification it adds). Activation is height-gated
-(`MULTISIG_START_BLOCK`) so the network upgrades before the first multisig spend can
-enter a block. *(implemented — `ops/multisig_ops.py`, `tests/test_multisig.py`; clients:
-Interface Multisig tab, CLI `msig-*`, `/msig_address`)*
+prices the bytes + verification it adds). *(implemented — `ops/multisig_ops.py`,
+`tests/test_multisig.py`; clients: Interface Multisig tab, CLI `msig-*`, `/msig_address`)*
 
 ---
 

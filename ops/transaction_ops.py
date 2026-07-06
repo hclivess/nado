@@ -20,7 +20,7 @@ from ops import kv_ops
 from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH,
                       BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK, BRIDGE_ESCROW, DIVIDEND_POOL,
                       POSW_S, POSW_K, POSW_ANCHOR_OFFSET, HTLC_MIN_TIMELOCK,
-                      HTLC_MAX_TIMELOCK, SHIELD_ESCROW, MULTISIG_START_BLOCK, RESERVED_RECIPIENTS)
+                      HTLC_MAX_TIMELOCK, SHIELD_ESCROW, RESERVED_RECIPIENTS)
 
 
 def _is_hex(s) -> bool:
@@ -425,14 +425,11 @@ def validate_transaction(transaction, logger, block_height):
     if transaction.get("multisig") is not None:
         # OPT-IN MULTISIG (ops/multisig_ops.py). Cheap consensus gates BEFORE the M signature
         # verifications in validate_origin:
-        #  * activation height — every node must reject multisig until MULTISIG_START_BLOCK, or an
-        #    unupgraded node forks off the block containing the first one;
         #  * PAYMENT accounts only — a multisig sender can never bond/register/vote/lock (reserved
         #    recipients all assume one-key-one-identity validator semantics);
         #  * per-signature fee floor — each ~2.4KB ML-DSA entry is stripped from the byte-size base
         #    fee (like the single signature), so charge MIN_TX_FEE per entry to price the block bytes
         #    + verification work an entry adds.
-        assert transaction["target_block"] >= MULTISIG_START_BLOCK, "multisig is not active yet"
         assert transaction["recipient"] not in RESERVED_RECIPIENTS, \
             "a multisig account can only make plain transfers"
         assert isinstance(transaction.get("signature"), list), "multisig tx needs a signature list"

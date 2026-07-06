@@ -626,7 +626,7 @@ live.)
   any order and exchange the proposal by any channel (the Interface's Multisig tab and the CLI's
   `msig-propose` / `msig-sign` / `msig-submit` implement the relay). Multisig accounts are **payment
   accounts only** — they can't bond, mine or vote, so every one-key-one-identity validator assumption
-  stays intact. `ops/multisig_ops.py`, active from `MULTISIG_START_BLOCK`.
+  stays intact. `ops/multisig_ops.py`.
 - **Hashing & serialization** — BLAKE2b over `canonical_bytes()` (compact, sorted-key, ASCII JSON,
   float-free). Every consensus integer is a raw integer, so a browser reproduces identical bytes with
   BigInt-aware serialization. Transaction ids and blocks bind `CHAIN_ID = "nado-relaunch-3"`, blocking

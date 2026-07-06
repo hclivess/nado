@@ -3310,7 +3310,7 @@ function showTab(name) {
  * A spend proposal is an ordinary tx whose SIGNED body carries the descriptor and whose `signature`
  * is a LIST of {public_key, signature} member entries over the txid. Because each entry signs the
  * txid (which commits everything), co-signers can sign independently in any order and exchange the
- * proposal JSON over any channel. Active from block MULTISIG_START_BLOCK (consensus).
+ * proposal JSON over any channel.
  * -------------------------------------------------------------------------------------------- */
 const MSIG_MAX_MEMBERS = 16;
 const MSIG_TARGET_HEADROOM = 300;   // blocks of co-signing time (mempool accepts < tip+360)

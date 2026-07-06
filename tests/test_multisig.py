@@ -16,7 +16,7 @@ logger = logging.getLogger("msig"); logger.addHandler(logging.NullHandler())
 from genesis import create_indexers
 create_indexers()
 
-from protocol import MIN_TX_FEE, MULTISIG_START_BLOCK, CHAIN_ID
+from protocol import MIN_TX_FEE, CHAIN_ID
 from ops.multisig_ops import (multisig_address, validate_descriptor, verify_multisig_origin,
                               draft_multisig_spend, add_member_signature)
 from ops.account_ops import create_account, get_account, reflect_transaction
@@ -42,7 +42,7 @@ K1, K2, K3, OUTSIDER = generate_keys(), generate_keys(), generate_keys(), genera
 MEMBERS = sorted([K1["address"], K2["address"], K3["address"]])
 MSIG = multisig_address(2, MEMBERS)
 PAYEE = generate_keys()["address"]
-H = MULTISIG_START_BLOCK + 1                      # a post-activation landing block
+H = 100                                           # any landing block (multisig has no activation gate)
 create_account(MSIG, balance=10_000_000_000)
 
 def _draft(amount=1_000_000, fee=MIN_TX_FEE * 3, recipient=PAYEE, target_block=H, threshold=2):
@@ -128,11 +128,6 @@ def t10_per_signature_fee_floor():
     assert raises(lambda: validate_transaction(
         _signed([K1, K2, K3], fee=MIN_TX_FEE * 2), logger, H))          # 3 sigs, fee for 2
     assert validate_transaction(_signed([K1, K2, K3], fee=MIN_TX_FEE * 3), logger, H)
-
-def t11_inactive_before_start_block():
-    """Prove multisig spends are invalid below MULTISIG_START_BLOCK (upgrade-window activation)."""
-    tx = _signed([K1, K2], target_block=MULTISIG_START_BLOCK - 1)
-    assert raises(lambda: validate_transaction(tx, logger, MULTISIG_START_BLOCK - 1))
 
 def t12_tampered_body_rejected():
     """Prove signatures bind the FULL body: bumping the amount after signing fails validate_txid."""
