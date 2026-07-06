@@ -13,7 +13,7 @@ def _fresh_home(p):
     """Point HOME at a fresh temp dir with the nado data subdirs created; return its path."""
     h = tempfile.mkdtemp(prefix=p)
     os.environ["HOME"] = h
-    for d in ("index", "blocks", "index/producer_sets", "logs", "peers"):
+    for d in ("index", "blocks", "logs", "peers"):
         os.makedirs(f"{h}/nado/{d}", exist_ok=True)
     return h
 

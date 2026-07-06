@@ -8,7 +8,7 @@ Run: python3 tests/test_settlement.py
 import os, sys, tempfile, traceback, logging
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_settle_")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-for d in ("index", "blocks", "index/producer_sets", "logs", "peers"):
+for d in ("index", "blocks", "logs", "peers"):
     os.makedirs(f"{os.environ['HOME']}/nado/{d}", exist_ok=True)
 
 logger = logging.getLogger("settle"); logger.addHandler(logging.NullHandler())

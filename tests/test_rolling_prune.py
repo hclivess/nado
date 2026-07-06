@@ -9,7 +9,7 @@ Run: python3 tests/test_rolling_prune.py
 import os, sys, tempfile, traceback, logging
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_prune_")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-for d in ("index", "blocks", "index/producer_sets", "logs", "peers"):
+for d in ("index", "blocks", "logs", "peers"):
     os.makedirs(f"{os.environ['HOME']}/nado/{d}", exist_ok=True)
 
 logger = logging.getLogger("prune"); logger.addHandler(logging.NullHandler())

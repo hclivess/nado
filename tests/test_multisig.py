@@ -1,7 +1,7 @@
 """
 Opt-in M-of-N multisig (ops/multisig_ops + transaction_ops): descriptor-derived addresses,
-threshold signature verification in validate_origin, the payment-only / activation-height /
-per-signature-fee consensus gates in validate_transaction, the client draft + co-sign helpers,
+threshold signature verification in validate_origin, the payment-only / per-signature-fee
+consensus gates in validate_transaction, the client draft + co-sign helpers,
 and reflect/revert symmetry of a multisig spend.
 
 Run: python3 tests/test_multisig.py
@@ -9,7 +9,7 @@ Run: python3 tests/test_multisig.py
 import os, sys, tempfile, traceback, logging
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_msig_")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-for d in ("index", "blocks", "index/producer_sets", "logs", "peers"):
+for d in ("index", "blocks", "logs", "peers"):
     os.makedirs(f"{os.environ['HOME']}/nado/{d}", exist_ok=True)
 
 logger = logging.getLogger("msig"); logger.addHandler(logging.NullHandler())

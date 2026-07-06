@@ -10,7 +10,7 @@ Run: python3 tests/test_dividend.py
 import os, sys, tempfile, logging, traceback
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_div_")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-for d in ("index", "blocks", "index/producer_sets", "logs", "peers"):
+for d in ("index", "blocks", "logs", "peers"):
     os.makedirs(f"{os.environ['HOME']}/nado/{d}", exist_ok=True)
 logger = logging.getLogger("div"); logger.addHandler(logging.NullHandler())
 from genesis import create_indexers

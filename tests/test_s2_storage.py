@@ -2,7 +2,7 @@ import os, sys, tempfile, traceback
 home = tempfile.mkdtemp(prefix="nado_s2_")
 os.environ["HOME"] = home
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-for d in ("index", "blocks", "index/producer_sets", "logs", "peers"):
+for d in ("index", "blocks", "logs", "peers"):
     os.makedirs(f"{home}/nado/{d}", exist_ok=True)
 
 import logging
