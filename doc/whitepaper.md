@@ -552,6 +552,34 @@ lives in a dedicated `htlcs` KV sub-DB and is revert-symmetric like every other
 reserved-tx effect. *(implemented — `protocol.py` HTLC section, `ops/`,
 `tests/test_htlc.py`)*
 
+### 4.7 Multisig accounts (opt-in M-of-N) *(implemented)*
+
+NADO supports **native M-of-N multisig** with no script language and no on-chain
+registration — the address **is** the policy, the way a P2SH hash commits a script:
+
+```
+descriptor = {"threshold": M, "members": [sorted member addresses]}
+address    = make_address(blake2b(["nado-msig-v1", M, members]))
+```
+
+Receiving needs nothing special (fund it like any address). A **spend** carries the
+descriptor inside the signed body (committed by the txid) and a **list of member
+signatures over the txid** in place of the single signature. Validation re-derives the
+sender address from the descriptor (a wrong descriptor derives a different sender, so
+the policy is unforgeable), then requires ≥ M valid signatures by **distinct** members,
+each bound to its member address exactly like `proof_sender`. Because every entry signs
+the txid — which commits recipient, amount, nonce and the descriptor itself — co-signers
+sign **independently, in any order, over any channel**, and no signature can be replayed
+onto a different spend.
+
+Multisig accounts are **payment accounts only**: reserved recipients (bond, register,
+votes, HTLC duties, …) are rejected, so every one-key-one-identity assumption in the
+validator set is untouched. Fees pay a per-signature floor (each ~2.4 KB ML-DSA entry
+prices the bytes + verification it adds). Activation is height-gated
+(`MULTISIG_START_BLOCK`) so the network upgrades before the first multisig spend can
+enter a block. *(implemented — `ops/multisig_ops.py`, `tests/test_multisig.py`; clients:
+Interface Multisig tab, CLI `msig-*`, `/msig_address`)*
+
 ---
 
 ## 5. Post-Quantum Cryptography and Determinism

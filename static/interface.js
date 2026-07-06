@@ -3278,7 +3278,7 @@ async function renderSwaps() {
 }
 
 // Deep-linkable tab URLs — /aliases, /messages, /send, … (the node serves the interface at each path).
-const TAB_NAMES = new Set(["wallet", "send", "receive", "aliases", "stake", "quorum", "messages", "history", "rich", "stats", "swap", "shield", "explore", "settings"]);
+const TAB_NAMES = new Set(["wallet", "send", "receive", "aliases", "stake", "quorum", "multisig", "messages", "history", "rich", "stats", "swap", "shield", "explore", "settings"]);
 window.addEventListener("popstate", () => { const p = location.pathname.replace(/^\/+/, ""); if (state.wallet && TAB_NAMES.has(p)) showTab(p); });
 
 function showTab(name) {
@@ -3299,8 +3299,267 @@ function showTab(name) {
   else if (name === "send") { updateFeeInfo().catch(() => {}); validateSendTo().catch(() => {}); addrBookRender(); }
   else if (name === "stake") { updateFeeInfo().catch(() => {}); refreshDashboard().catch(() => {}); }
   else if (name === "quorum") renderQuorum().catch(() => {});
+  else if (name === "multisig") renderMsig().catch(() => {});
   else if (name === "messages") msgOpen().catch(() => {});
   else if (name === "settings") renderSecurity();
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * MULTISIG tab — opt-in M-of-N shared accounts, mirroring ops/multisig_ops.py byte-for-byte:
+ *   address = make_address(blake2b(["nado-msig-v1", threshold, sortedMembers]))   (the address IS the policy)
+ * A spend proposal is an ordinary tx whose SIGNED body carries the descriptor and whose `signature`
+ * is a LIST of {public_key, signature} member entries over the txid. Because each entry signs the
+ * txid (which commits everything), co-signers can sign independently in any order and exchange the
+ * proposal JSON over any channel. Active from block MULTISIG_START_BLOCK (consensus).
+ * -------------------------------------------------------------------------------------------- */
+const MSIG_MAX_MEMBERS = 16;
+const MSIG_TARGET_HEADROOM = 300;   // blocks of co-signing time (mempool accepts < tip+360)
+
+function msigAddress(threshold, members) {
+  return makeAddress(blake2bHash(["nado-msig-v1", threshold, members]));
+}
+
+/* BigInt-safe JSON parse for PASTED proposals: raw amounts can exceed 2^53 and JSON.parse would
+ * silently round them — the co-signer would then re-hash a DIFFERENT body and (correctly) refuse to
+ * sign, with a baffling error. Integers parse to Number when safe, BigInt when not; floats reject
+ * (a tx body never contains one). */
+function jsonParseBig(text) {
+  let i = 0;
+  const err = (m) => { throw new Error(i18("msig.badJson", "This is not a valid proposal ({m}).", { m })); };
+  const ws = () => { while (i < text.length && " \t\n\r".includes(text[i])) i++; };
+  function str() {
+    const re = /"(?:[^"\\]|\\.)*"/y; re.lastIndex = i;
+    const m = re.exec(text); if (!m) err("bad string");
+    i = re.lastIndex; return JSON.parse(m[0]);
+  }
+  function num() {
+    const re = /-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y; re.lastIndex = i;
+    const m = re.exec(text); if (!m) err("unexpected token");
+    if (/[.eE]/.test(m[0])) err("float in tx body");
+    i = re.lastIndex;
+    const n = Number(m[0]);
+    return Number.isSafeInteger(n) ? n : BigInt(m[0]);
+  }
+  function value() {
+    ws();
+    const c = text[i];
+    if (c === "{") {
+      i++; const o = {}; ws();
+      if (text[i] === "}") { i++; return o; }
+      for (;;) {
+        ws(); if (text[i] !== '"') err("expected key");
+        const k = str(); ws();
+        if (text[i++] !== ":") err("expected :");
+        o[k] = value(); ws();
+        const d = text[i++];
+        if (d === "}") return o;
+        if (d !== ",") err("expected , or }");
+      }
+    }
+    if (c === "[") {
+      i++; const a = []; ws();
+      if (text[i] === "]") { i++; return a; }
+      for (;;) {
+        a.push(value()); ws();
+        const d = text[i++];
+        if (d === "]") return a;
+        if (d !== ",") err("expected , or ]");
+      }
+    }
+    if (c === '"') return str();
+    if (text.startsWith("true", i)) { i += 4; return true; }
+    if (text.startsWith("false", i)) { i += 5; return false; }
+    if (text.startsWith("null", i)) { i += 4; return null; }
+    return num();
+  }
+  const v = value(); ws();
+  if (i !== text.length) err("trailing data");
+  return v;
+}
+
+function msigReadDescriptor() {
+  const members = [...new Set(($("msigMembers").value || "").split(/[\s,;]+/)
+    .map((s) => s.trim().toLowerCase()).filter(Boolean))].sort();
+  if (members.length < 2 || members.length > MSIG_MAX_MEMBERS)
+    throw new Error(i18("msig.badCount", "Enter 2–16 distinct member addresses."));
+  for (const m of members)
+    if (!validateAddress(m)) throw new Error(i18("msig.badMember", "Not a valid ndo… address: {a}", { a: m }));
+  const threshold = parseInt(($("msigThreshold").value || "").trim(), 10);
+  if (!(threshold >= 1 && threshold <= members.length))
+    throw new Error(i18("msig.badThreshold", "Signatures required must be between 1 and the number of members."));
+  return { threshold, members };
+}
+
+/* Verify a pasted proposal's SHAPE + txid before doing anything with it — a member must never sign
+ * (or display as trustworthy) a body that doesn't hash to the txid it claims. Returns the tx. */
+function msigCheckProposal(tx) {
+  if (!tx || typeof tx !== "object" || !tx.multisig || !Array.isArray(tx.signature) || !tx.txid)
+    throw new Error(i18("msig.notProposal", "This is not a multisig proposal."));
+  const d = tx.multisig;
+  if (!(Array.isArray(d.members) && d.members.length >= 2 && d.threshold >= 1))
+    throw new Error(i18("msig.notProposal", "This is not a multisig proposal."));
+  const body = {};
+  for (const k of Object.keys(tx)) if (k !== "signature" && k !== "txid") body[k] = tx[k];
+  if (createTxid(body) !== tx.txid)
+    throw new Error(i18("msig.txidMismatch", "Proposal id does not match its contents — do not sign it."));
+  if (tx.sender !== msigAddress(d.threshold, d.members))
+    throw new Error(i18("msig.senderMismatch", "Proposal sender does not match its member list — do not sign it."));
+  return tx;
+}
+
+/* Add THIS wallet's signature entry (if it is a member and hasn't signed). Returns true if added. */
+function msigTrySignLocal(tx) {
+  const w = state.wallet;
+  if (!w || !tx.multisig.members.includes(w.address)) return false;
+  if (tx.signature.some((e) => e && makeAddress(String(e.public_key || "")) === w.address)) return false;
+  const { publicKey, secretKey } = ml_dsa44.keygen(hexToBytes(w.privateKey));
+  const m = hexToBytes(tx.txid);
+  let sig = null;   // hedged signing can rarely produce a non-verifying sig — verify + retry (see finalizeTransaction)
+  for (let k = 0; k < 8; k++) {
+    const s = ml_dsa44.sign(secretKey, m);
+    if (ml_dsa44.verify(publicKey, m, s)) { sig = bytesToHex(s); break; }
+  }
+  if (!sig) throw new Error("could not produce a verifying signature — please retry");
+  tx.signature.push({ public_key: bytesToHex(publicKey), signature: sig });
+  return true;
+}
+
+function msigBlobTx() {
+  const raw = ($("msigBlob").value || "").trim();
+  if (!raw) return null;
+  return msigCheckProposal(jsonParseBig(raw));
+}
+
+const LS_MSIG = () => "nado_msig_" + (state.wallet ? state.wallet.address : "_");
+
+async function msigDerive() {
+  try {
+    const d = msigReadDescriptor();
+    const addr = msigAddress(d.threshold, d.members);
+    $("msigAddr").textContent = addr;
+    show("msigDerived", true);
+    setMsg("msigDeriveMsg", i18("msig.derived", "{m}-of-{n} account ready — fund it like any address.", { m: d.threshold, n: d.members.length }), "ok");
+    try { localStorage.setItem(LS_MSIG(), JSON.stringify(d)); } catch (e) {}
+    const acc = await getAccount(addr);
+    $("msigBal").textContent = rawToNado(BigInt((acc && acc.balance) || 0)) + " NADO";
+  } catch (e) { show("msigDerived", false); setMsg("msigDeriveMsg", e.message, "err"); }
+}
+
+async function msigPropose() {
+  const btn = $("btnMsigPropose"); btn.disabled = true;
+  try {
+    const d = msigReadDescriptor();
+    const sender = msigAddress(d.threshold, d.members);
+    // lowercase like doSend: this string becomes the signed recipient (aliases are lowercase on-chain)
+    const recipient = $("msigTo").value.trim().toLowerCase();
+    if (!validateAddress(recipient)) {
+      if (looksLikeAlias(recipient)) {
+        setMsg("msigProposeMsg", i18("quorum.resolving", "Resolving alias…"), null);
+        const owner = await resolveAlias(recipient);
+        if (!owner) { setMsg("msigProposeMsg", i18("msig.aliasMissing", "That alias isn't registered."), "err"); return; }
+      } else {
+        setMsg("msigProposeMsg", i18("msg.badRecipient", "Invalid recipient — a 49-char ndo… address or a registered alias name."), "err"); return;
+      }
+    }
+    let rawAmount;
+    try { rawAmount = nadoToRaw($("msigAmount").value); } catch (e) { setMsg("msigProposeMsg", i18("msg.badAmount", "Invalid amount."), "err"); return; }
+    if (rawAmount <= 0n) { setMsg("msigProposeMsg", i18("msg.amountPos", "Amount must be greater than zero."), "err"); return; }
+    const fee = MIN_TX_FEE * d.members.length;   // consensus floor is MIN_TX_FEE per signature ENTRY — cover all members signing
+    const acc = await getAccount(sender);
+    const balance = BigInt((acc && acc.balance) || 0);
+    if (rawAmount + BigInt(fee) > balance) {
+      setMsg("msigProposeMsg", i18("msig.insufficient", "The shared account holds {b} NADO — not enough for this amount + fee.", { b: rawToNado(balance) }), "err"); return;
+    }
+    const latest = await getLatestBlock();
+    const body = {
+      sender, recipient, amount: rawAmount, timestamp: nowSeconds(), data: "",
+      nonce: randNonce(), target_block: latest.block_number + MSIG_TARGET_HEADROOM,
+      chain_id: CHAIN_ID, multisig: { threshold: d.threshold, members: d.members }, fee,
+    };
+    const tx = { ...body, txid: createTxid(body), signature: [] };
+    try { msigTrySignLocal(tx); } catch (e) { setMsg("msigProposeMsg", e.message, "err"); return; }
+    $("msigBlob").value = canonicalize(tx);
+    msigRefreshStatus();
+    setMsg("msigProposeMsg", i18("msig.proposed", "Proposal created below — copy it and pass it to your co-signers."), "ok");
+  } catch (e) { setMsg("msigProposeMsg", e.message, "err"); }
+  finally { btn.disabled = false; }
+}
+
+function msigRefreshStatus() {
+  const box = $("msigStatus");
+  let tx = null;
+  try { tx = msigBlobTx(); }
+  catch (e) { box.innerHTML = '<span class="warn">' + e.message + "</span>"; return; }
+  if (!tx) { box.textContent = ""; return; }
+  const d = tx.multisig;
+  const mine = state.wallet && d.members.includes(state.wallet.address);
+  const signed = tx.signature.map((e) => makeAddress(String(e.public_key || "")));
+  const iSigned = state.wallet && signed.includes(state.wallet.address);
+  const ready = signed.length >= d.threshold;
+  const rows = [
+    i18("msig.stFrom", "From {a}", { a: tx.sender.slice(0, 12) + "…" }),
+    i18("msig.stTo", "to {a}", { a: tx.recipient }),
+    rawToNado(BigInt(tx.amount)) + " NADO",
+    i18("msig.stSigs", "signatures {have}/{need}", { have: signed.length, need: d.threshold }),
+    i18("msig.stExpiry", "valid until block {b}", { b: tx.target_block }),
+  ];
+  let verdict;
+  if (ready) verdict = '<span class="ok">' + i18("msig.stReady", "Ready to submit ✓") + "</span>";
+  else if (iSigned) verdict = '<span class="faint">' + i18("msig.stWaiting", "You signed — pass it to the next co-signer.") + "</span>";
+  else if (mine) verdict = '<span class="warn">' + i18("msig.stYourTurn", "Your signature is needed.") + "</span>";
+  else verdict = '<span class="faint">' + i18("msig.stNotMember", "This wallet is not a member of the account.") + "</span>";
+  box.innerHTML = rows.join(" · ") + "<br>" + verdict;
+}
+
+async function msigSign() {
+  try {
+    const tx = msigBlobTx();
+    if (!tx) { setMsg("msigMsg", i18("msig.pasteFirst", "Paste a proposal first."), "err"); return; }
+    const added = msigTrySignLocal(tx);
+    $("msigBlob").value = canonicalize(tx);
+    msigRefreshStatus();
+    if (added) setMsg("msigMsg", i18("msig.signedOk", "Signature added ✓ — copy the proposal and pass it on (or submit if it's ready)."), "ok");
+    else setMsg("msigMsg", i18("msig.alreadySigned", "Nothing to add — you already signed, or this wallet is not a member."), null);
+  } catch (e) { setMsg("msigMsg", e.message, "err"); }
+}
+
+async function msigSubmit() {
+  const btn = $("btnMsigSubmit"); btn.disabled = true;
+  try {
+    const tx = msigBlobTx();
+    if (!tx) { setMsg("msigMsg", i18("msig.pasteFirst", "Paste a proposal first."), "err"); return; }
+    const d = tx.multisig;
+    const ok = await uiConfirm({
+      title: i18("msig.dlgTitle", "Submit multisig transfer"),
+      rows: [
+        { k: i18("dlg.amount", "Amount"), v: rawToNado(BigInt(tx.amount)) + " NADO" },
+        { k: i18("dlg.to", "To"), v: tx.recipient },
+        { k: i18("dlg.fee", "Network fee"), v: rawToNado(BigInt(tx.fee)) + " NADO" },
+        { k: i18("msig.dlgSigs", "Signatures"), v: tx.signature.length + " / " + d.threshold },
+      ],
+    });
+    if (!ok) { setMsg("msigMsg", i18("msg.cancelled", "Cancelled."), null); return; }
+    const res = await submitTransaction(tx);
+    if (res.ok && res.data && res.data.result) {
+      setMsg("msigMsg", i18("msig.submitted", "Submitted ✓ — the transfer settles on-chain in a few blocks."), "ok");
+    } else {
+      setMsg("msigMsg", (res.data && res.data.message) || i18("quorum.rejected", "Rejected"), "err");
+    }
+  } catch (e) { setMsg("msigMsg", e.message, "err"); }
+  finally { btn.disabled = false; }
+}
+
+async function renderMsig() {
+  // restore this wallet's last descriptor so the shared account is one tap away
+  try {
+    const saved = JSON.parse(localStorage.getItem(LS_MSIG()) || "null");
+    if (saved && saved.members && !$("msigMembers").value.trim()) {
+      $("msigMembers").value = saved.members.join("\n");
+      $("msigThreshold").value = String(saved.threshold);
+      await msigDerive();
+    }
+  } catch (e) {}
+  msigRefreshStatus();
 }
 
 /* ----------------------------------------------------------------------------------------------
@@ -3994,6 +4253,15 @@ function wireEvents() {
   if ($("btnZcodeShare")) $("btnZcodeShare").onclick = () => shareZcodeLink();
   $("btnDlKeySettings").onclick = downloadKeyFile;
   if ($("btnCollectDiv")) $("btnCollectDiv").onclick = () => collectDividend();
+  if ($("btnMsigDerive")) $("btnMsigDerive").onclick = () => msigDerive();
+  if ($("btnMsigPropose")) $("btnMsigPropose").onclick = () => msigPropose();
+  if ($("btnMsigSign")) $("btnMsigSign").onclick = () => msigSign();
+  if ($("btnMsigSubmit")) $("btnMsigSubmit").onclick = () => msigSubmit();
+  if ($("btnMsigCopyBlob")) $("btnMsigCopyBlob").onclick = async () => {
+    try { await navigator.clipboard.writeText($("msigBlob").value); setMsg("msigMsg", i18("msig.copied", "Proposal copied — send it to a co-signer."), "ok"); }
+    catch (e) { $("msigBlob").select(); document.execCommand && document.execCommand("copy"); }
+  };
+  if ($("msigBlob")) $("msigBlob").addEventListener("input", () => msigRefreshStatus());
   if ($("btnImportFile")) $("btnImportFile").onclick = () => $("importFile").click();
   if ($("importFile")) $("importFile").onchange = (e) => {
     importKeyFile(e.target.files && e.target.files[0]);

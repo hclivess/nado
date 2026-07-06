@@ -155,6 +155,7 @@
     <button class="tab" data-tabbtn="aliases" data-i18n="tab.aliases">Aliases</button>
     <button class="tab" data-tabbtn="stake" data-i18n="tab.stake">Stake</button>
     <button class="tab" data-tabbtn="quorum" data-i18n="tab.quorum">Quorum</button>
+    <button class="tab" data-tabbtn="multisig" data-i18n="tab.multisig">Multisig</button>
     <button class="tab" data-tabbtn="messages" data-i18n="tab.messages">Messages<span id="msgBadge" class="tabbadge hidden"></span></button>
     <button class="tab" data-tabbtn="history" data-i18n="tab.history">History</button>
     <button class="tab" data-tabbtn="rich" data-i18n="tab.rich">Rich list</button>
@@ -510,6 +511,52 @@
     </div>
     <div id="qStatus" class="small mt"></div>
     <div id="qProposals" class="mt"></div>
+  </div>
+
+  <!-- MULTISIG (opt-in M-of-N shared accounts) -->
+  <div id="msigCard" class="card hidden" data-tab="multisig">
+    <h2 data-i18n="msig.title">Multisig <span class="pill" data-i18n="msig.pill">shared M-of-N accounts</span></h2>
+    <p class="small dim" data-i18n-html="msig.intro">A <b>shared account</b> that needs <b>M of N</b> member signatures to spend —
+      for couples, teams, escrow or just two-device security. The address is derived from the member
+      list + threshold; fund it like any address. Spending is a three-step relay: one member creates a
+      proposal, co-signers each add a signature (pass the proposal text by any channel — chat, email, QR),
+      and anyone submits it once enough have signed.</p>
+
+    <label data-i18n="msig.members">Member addresses (one per line)</label>
+    <textarea id="msigMembers" rows="4" class="mono" placeholder="ndo…&#10;ndo…" autocomplete="off" spellcheck="false" style="width:100%"></textarea>
+    <label class="mt" data-i18n="msig.threshold">Signatures required to spend (M)</label>
+    <input id="msigThreshold" inputmode="numeric" placeholder="2" autocomplete="off" style="max-width:120px" />
+    <button id="btnMsigDerive" class="accent mt" data-i18n="btn.msigDerive">Derive shared address</button>
+    <div id="msigDerived" class="hidden">
+      <label class="mt" data-i18n="msig.address">Shared address</label>
+      <div class="addr-box"><span class="a mono break" id="msigAddr"></span>
+        <button class="copy" data-i18n="btn.copy" data-copy="msigAddr">Copy</button></div>
+      <div class="small faint mt"><span data-i18n="msig.balance">Balance:</span> <span id="msigBal" class="mono">—</span></div>
+    </div>
+    <div id="msigDeriveMsg" class="small mt"></div>
+
+    <hr style="border:none;border-top:1px solid var(--line,#1c2530);margin:18px 0" />
+    <label data-i18n="msig.proposeTitle">Propose a spend from the shared account</label>
+    <div class="row mt" style="gap:8px">
+      <input id="msigTo" class="grow" placeholder="ndo… address or alias" autocomplete="off" spellcheck="false" />
+      <input id="msigAmount" style="flex:0 0 130px" inputmode="decimal" placeholder="NADO" autocomplete="off" />
+    </div>
+    <button id="btnMsigPropose" class="primary mt" style="width:100%" data-i18n="btn.msigPropose">Create proposal + sign</button>
+    <div id="msigProposeMsg" class="small mt"></div>
+
+    <hr style="border:none;border-top:1px solid var(--line,#1c2530);margin:18px 0" />
+    <label data-i18n="msig.cosignTitle">Proposal — co-sign &amp; submit</label>
+    <p class="small dim" data-i18n="msig.cosignIntro">Paste a proposal you received here (or create one above). Add your
+      signature and pass it on — or submit it once it has enough signatures. Proposals expire if not
+      submitted within ~50 minutes of creation.</p>
+    <textarea id="msigBlob" rows="5" class="mono" autocomplete="off" spellcheck="false" style="width:100%" placeholder="{…}"></textarea>
+    <div id="msigStatus" class="small mt"></div>
+    <div class="row mt" style="gap:8px">
+      <button id="btnMsigSign" class="accent" data-i18n="btn.msigSign">Add my signature</button>
+      <button id="btnMsigCopyBlob" class="ghost" data-i18n="btn.copy">Copy</button>
+      <button id="btnMsigSubmit" class="primary" data-i18n="btn.msigSubmit">Submit</button>
+    </div>
+    <div id="msigMsg" class="small mt"></div>
   </div>
 
   <div id="shieldCard" class="card hidden" data-tab="shield">

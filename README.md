@@ -619,6 +619,14 @@ live.)
   `alias`); an ordinary transfer whose recipient is a registered alias credits the alias's current
   owner. See [`doc/aliases.md`](doc/aliases.md); the NADO Interface's Send field accepts an alias and its
   Receive tab manages them.
+- **Multisig (opt-in)** — native **M-of-N shared accounts** with no script language and no on-chain
+  setup: the address **is** the policy — `make_address(blake2b(["nado-msig-v1", M, members]))`, the
+  way a P2SH hash commits a script. Fund it like any address; a spend carries the descriptor in the
+  signed body plus a **list of member signatures over the txid**, so co-signers sign independently in
+  any order and exchange the proposal by any channel (the Interface's Multisig tab and the CLI's
+  `msig-propose` / `msig-sign` / `msig-submit` implement the relay). Multisig accounts are **payment
+  accounts only** — they can't bond, mine or vote, so every one-key-one-identity validator assumption
+  stays intact. `ops/multisig_ops.py`, active from `MULTISIG_START_BLOCK`.
 - **Hashing & serialization** — BLAKE2b over `canonical_bytes()` (compact, sorted-key, ASCII JSON,
   float-free). Every consensus integer is a raw integer, so a browser reproduces identical bytes with
   BigInt-aware serialization. Transaction ids and blocks bind `CHAIN_ID = "nado-relaunch-3"`, blocking

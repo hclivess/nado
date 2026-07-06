@@ -824,6 +824,22 @@ async def resolve_alias(request):
     return _resp({"name": name, "owner": owner})   # owner is None when the alias is unregistered
 
 
+async def msig_address(request):
+    """GET /msig_address?threshold=&members=: derive the M-of-N multisig address for a descriptor
+    (members comma-separated, any order — canonicalized by sorting). Pure function over the inputs
+    (nothing is registered on-chain); clients can compute the same locally, this is a convenience/
+    cross-check endpoint. Returns the canonical descriptor + address, 400 on a bad descriptor."""
+    from ops import multisig_ops
+    try:
+        threshold = int(_q(request, "threshold", "0"))
+        members = sorted(m.strip().lower() for m in _q(request, "members", "").split(",") if m.strip())
+        multisig_ops.validate_descriptor({"threshold": threshold, "members": members})
+        return _resp({"threshold": threshold, "members": members,
+                      "address": multisig_ops.multisig_address(threshold, members)})
+    except Exception as e:
+        return _resp({"error": str(e)}, status=400)
+
+
 async def aliases_of(request):
     """GET /get_aliases_of?address=: every alias name owned by the address (defaults to this node's own)."""
     from ops import kv_ops
@@ -1062,6 +1078,7 @@ async def make_app(port):
         web.get("/get_open_weights", get_open_weights),
         web.get("/get_settled", get_settled),
         web.get("/resolve_alias", resolve_alias),
+        web.get("/msig_address", msig_address),
         web.get("/get_htlc", get_htlc),
         web.get("/htlcs", htlcs),
         web.get("/get_aliases_of", aliases_of),

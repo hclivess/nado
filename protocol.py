@@ -217,6 +217,18 @@ BOND_ELASTIC_MULT_BPS = [
 # every block reward going forward; it just starts empty. (Set >0 only to reintroduce a premine.)
 TREASURY_GENESIS = 0  # no premine — fair launch via the open lane + base subsidy
 
+# --- Multisig (opt-in M-of-N accounts; see ops/multisig_ops.py) ---
+# A multisig address = make_address(blake2b(["nado-msig-v1", threshold, members])) — the address IS
+# the policy, nothing is registered in advance. Spends carry the descriptor in the signed body and a
+# LIST of member signatures over the txid. Payment accounts only (reserved recipients are rejected),
+# so validator-identity assumptions stay one-key-one-identity.
+MULTISIG_MAX_MEMBERS = 16          # bounds descriptor size + per-tx signature verification work
+# CONSENSUS ACTIVATION height: multisig spends are invalid below this. Gated on a FUTURE height (not
+# flag-day-now) so every node upgrades before the first multisig tx can enter a block — an unupgraded
+# node would reject the block that includes one, forking itself off. (~10s blocks: set at introduction
+# time roughly half a day past the then-current height.)
+MULTISIG_START_BLOCK = 6000
+
 # --- Fees ---
 # Deterministic integer floor (anti-spam). Intentionally NOT the byte-size "base fee":
 # get_byte_size() == sys.getsizeof(repr(x)) is non-deterministic across Python builds and

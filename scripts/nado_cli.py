@@ -11,6 +11,7 @@ surface — the node validates a CLI tx exactly like a browser one (signature, P
     python3 scripts/nado_cli.py --node http://127.0.0.1:9173 send ndo… 12.5
 
 Commands: info · send · register · bond · unbond · alias · propose · vote · execute · collect · bridge-deposit
+          msig-address · msig-propose · msig-sign · msig-submit   (M-of-N multisig co-signing)
 """
 import argparse, json, os, sys, time, urllib.request
 from decimal import Decimal
@@ -158,6 +159,62 @@ def c_bridge_deposit(kd, node, a):
     _submit(node, T.construct_bridge_deposit_tx(kd, raw(a.amount), _tip(node) + MARGIN, MIN_TX_FEE))
 
 
+# ---- multisig (opt-in M-of-N accounts, ops/multisig_ops.py) ---------------------------------------
+# Flow: `msig-address` derives the shared account (fund it like any address); `msig-propose` drafts a
+# spend + adds YOUR signature and writes a proposal JSON file; pass that file to each co-signer for
+# `msig-sign`; whoever holds the threshold-th signature runs `msig-submit`. The proposal expires when
+# the chain passes its target_block (~50 min of co-signing headroom) — re-propose if it goes stale.
+
+def _msig_members(a):
+    """Parse + canonicalize the --members list (comma-separated, any order -> sorted lowercase)."""
+    return sorted(m.strip().lower() for m in a.members.split(",") if m.strip())
+
+
+def c_msig_address(kd, node, a):
+    """Derive the multisig address for --threshold/--members, locally (no node round-trip needed)."""
+    from ops import multisig_ops as M
+    members = _msig_members(a)
+    M.validate_descriptor({"threshold": int(a.threshold), "members": members})
+    print("address ", M.multisig_address(int(a.threshold), members))
+    print("members ", "\n         ".join(members))
+    print("threshold", a.threshold, "of", len(members))
+
+
+def c_msig_propose(kd, node, a):
+    """Draft a multisig spend, sign it with the local key (must be a member), and write the proposal
+    JSON to --out for the co-signers. Fee defaults to the per-signature floor for the full member set."""
+    from ops import multisig_ops as M
+    members = _msig_members(a)
+    fee = raw(a.fee) if a.fee else MIN_TX_FEE * len(members)
+    # generous target: co-signing takes real time; the mempool accepts up to tip+360
+    tx = M.draft_multisig_spend(int(a.threshold), members, a.to.strip().lower(), raw(a.amount),
+                                fee, _tip(node) + 300, a.memo or "")
+    _, n = M.add_member_signature(tx, kd["private_key"])
+    with open(a.out, "w") as f:
+        json.dump(tx, f)
+    print("proposal written:", a.out)
+    print("txid:", tx["txid"], " signatures:", n, "/", a.threshold, " expires at block", tx["target_block"])
+
+
+def c_msig_sign(kd, node, a):
+    """Add the local key's signature to a proposal file (verifies the txid matches the body first)."""
+    from ops import multisig_ops as M
+    with open(a.file) as f:
+        tx = json.load(f)
+    _, n = M.add_member_signature(tx, kd["private_key"])
+    with open(a.file, "w") as f:
+        json.dump(tx, f)
+    need = tx["multisig"]["threshold"]
+    print("signed. signatures:", n, "/", need, ("— ready to msig-submit" if n >= need else "— pass the file on"))
+
+
+def c_msig_submit(kd, node, a):
+    """Submit a fully co-signed proposal file to the node."""
+    with open(a.file) as f:
+        tx = json.load(f)
+    _submit(node, tx)
+
+
 def main():
     """Parse args, load the local keys.dat (never sent anywhere), and dispatch to the command handler."""
     p = argparse.ArgumentParser(prog="nado_cli", description="NADO wallet ops from the terminal (signs with keys.dat).")
@@ -177,6 +234,12 @@ def main():
         s.add_argument("--memo", default=""); s.add_argument("--nonce", required=True); s.add_argument("--expiry", required=True)
         if name == "vote": s.add_argument("--choice", choices=["yes", "no"], default="yes")
     s = sub.add_parser("bridge-deposit"); s.add_argument("amount")
+    s = sub.add_parser("msig-address"); s.add_argument("--threshold", required=True); s.add_argument("--members", required=True)
+    s = sub.add_parser("msig-propose"); s.add_argument("to"); s.add_argument("amount")
+    s.add_argument("--threshold", required=True); s.add_argument("--members", required=True)
+    s.add_argument("--memo", default=""); s.add_argument("--fee"); s.add_argument("--out", default="msig_proposal.json")
+    s = sub.add_parser("msig-sign"); s.add_argument("file")
+    s = sub.add_parser("msig-submit"); s.add_argument("file")
 
     a = p.parse_args()
     kf = a.keys or None
@@ -188,7 +251,9 @@ def main():
 
     cmds = {"info": c_info, "send": c_send, "bond": c_bond, "unbond": c_unbond, "alias": c_alias,
             "register": c_register, "collect": c_collect, "propose": c_propose, "vote": c_vote,
-            "execute": c_execute, "bridge-deposit": c_bridge_deposit}
+            "execute": c_execute, "bridge-deposit": c_bridge_deposit,
+            "msig-address": c_msig_address, "msig-propose": c_msig_propose,
+            "msig-sign": c_msig_sign, "msig-submit": c_msig_submit}
     cmds[a.cmd](kd, a.node.rstrip("/"), a)
 
 

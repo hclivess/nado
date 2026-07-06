@@ -20,7 +20,7 @@ from ops import kv_ops
 from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH,
                       BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK, BRIDGE_ESCROW, DIVIDEND_POOL,
                       POSW_S, POSW_K, POSW_ANCHOR_OFFSET, HTLC_MIN_TIMELOCK,
-                      HTLC_MAX_TIMELOCK, SHIELD_ESCROW)
+                      HTLC_MAX_TIMELOCK, SHIELD_ESCROW, MULTISIG_START_BLOCK, RESERVED_RECIPIENTS)
 
 
 def _is_hex(s) -> bool:
@@ -422,6 +422,22 @@ def validate_transaction(transaction, logger, block_height):
     Rejection is what stands between the ledger and forged, replayed, underpaid or double-claimed txs."""
     assert isinstance(transaction, dict), "Data structure incomplete"
     assert transaction.get("chain_id") == CHAIN_ID, "Wrong or missing chain id"
+    if transaction.get("multisig") is not None:
+        # OPT-IN MULTISIG (ops/multisig_ops.py). Cheap consensus gates BEFORE the M signature
+        # verifications in validate_origin:
+        #  * activation height — every node must reject multisig until MULTISIG_START_BLOCK, or an
+        #    unupgraded node forks off the block containing the first one;
+        #  * PAYMENT accounts only — a multisig sender can never bond/register/vote/lock (reserved
+        #    recipients all assume one-key-one-identity validator semantics);
+        #  * per-signature fee floor — each ~2.4KB ML-DSA entry is stripped from the byte-size base
+        #    fee (like the single signature), so charge MIN_TX_FEE per entry to price the block bytes
+        #    + verification work an entry adds.
+        assert transaction["target_block"] >= MULTISIG_START_BLOCK, "multisig is not active yet"
+        assert transaction["recipient"] not in RESERVED_RECIPIENTS, \
+            "a multisig account can only make plain transfers"
+        assert isinstance(transaction.get("signature"), list), "multisig tx needs a signature list"
+        assert transaction.get("fee", 0) >= MIN_TX_FEE * len(transaction["signature"]), \
+            "multisig fee below the per-signature floor"
     assert validate_origin(transaction), "Invalid origin"
     # SENDER must be a real keyed address — never a reserved protocol pseudo-recipient.
     assert validate_address(transaction["sender"], allow_reserved=False), f"Invalid sender {transaction['sender']}"
@@ -638,7 +654,7 @@ def validate_transaction(transaction, logger, block_height):
         # Sybil faucet). The vote carries the full spend so its id is verifiable + displayable; the id binds
         # the approval to EXACTLY that payout, so a passing vote can never be redirected.
         from hashing import treasury_proposal_id
-        from protocol import RESERVED_RECIPIENTS, TREASURY_PROPOSAL_MAX_TTL
+        from protocol import TREASURY_PROPOSAL_MAX_TTL
         assert transaction["amount"] == 0, "treasury_vote must have zero amount"
         assert transaction["fee"] >= MIN_TX_FEE, f"treasury_vote fee below minimum {MIN_TX_FEE}"   # not free -> no spam faucet
         data = transaction.get("data") or {}
@@ -672,7 +688,7 @@ def validate_transaction(transaction, logger, block_height):
         from ops.settlement_ops import treasury_justified
         from ops.account_ops import get_bonded_registry
         from ops.mining_ops import epoch_of
-        from protocol import TREASURY_ADDRESS, TREASURY_MAX_SPEND_BPS, BPS_DENOM, RESERVED_RECIPIENTS
+        from protocol import TREASURY_ADDRESS, TREASURY_MAX_SPEND_BPS, BPS_DENOM
         assert transaction["amount"] == 0, "treasury_execute carries no L1 amount (amount is in data)"
         assert transaction["fee"] >= MIN_TX_FEE, f"treasury_execute fee below minimum {MIN_TX_FEE}"
         data = transaction.get("data") or {}
@@ -892,6 +908,13 @@ def validate_all_spending(transaction_pool: list):
 def validate_origin(transaction: dict):
     """signature is verified over the txid (which canonically commits the whole body,
     including chain_id); it is not itself part of the signed message."""
+
+    # MULTISIG spend (ops/multisig_ops.py): the sender is a descriptor-derived account, "signature"
+    # is a LIST of member signatures over the txid, and there is no top-level public_key. The whole
+    # origin question (descriptor -> sender binding, M distinct valid member sigs) lives there.
+    if transaction.get("multisig") is not None:
+        from ops.multisig_ops import verify_multisig_origin
+        return verify_multisig_origin(transaction)
 
     transaction = transaction.copy()
     signature = transaction["signature"]
