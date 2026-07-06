@@ -627,7 +627,7 @@ recursively sorted keys (BigInt is required because raw amounts exceed JS's
   **registered alias** (a human-readable name), resolved to its owner's address at
   apply time (§Aliases / `doc/aliases.md`). *(implemented)*
 - **Transaction binding.** `txid = blake2b_hash(canonical body)`, including
-  `CHAIN_ID = "nado-relaunch-3"`; the signature is taken over `unhex(txid)`.
+  `CHAIN_ID = "alphanet-1"`; the signature is taken over `unhex(txid)`.
   `validate_txid` independently recomputes the txid so any field tamper is
   rejected, and `validate_origin` checks both the signature and
   `make_address(public_key) == sender`. `CHAIN_ID` binding prevents
@@ -1142,7 +1142,7 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 
 | Constant | Value | Meaning |
 |---|---|---|
-| `CHAIN_ID` | `"nado-relaunch-3"` | Bound into every signed tx/block (replay protection, M3). |
+| `CHAIN_ID` | `"alphanet-1"` | Bound into every signed tx/block (replay protection, M3). |
 | `DENOMINATION` | `10_000_000_000` (1e10) | Raw units per 1 NADO; all consensus amounts are integers. |
 | `GENESIS_BEACON` | `blake2b_hash(["nado-genesis-beacon", CHAIN_ID])` | Seed for epochs 0–1 and chaining base for epoch ≥ 2. |
 | `EPOCH_LENGTH` | `60` | Slots per epoch; beacon/RANDAO epoch; per-slot rotation period. |

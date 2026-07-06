@@ -28,7 +28,7 @@ confers no advantage and there is nothing to grind. Coins enter circulation only
 > three is still only lightly exercised empirically (see [Security](#security)). What genuinely remains
 > is a subset of **eclipse hardening** (ASN-level peer diversity, pinned multi-seed bootstrap, snapshot-
 > bootstrap binding to a finalized signed checkpoint). Run it on testnet / at your own risk; do not
-> secure value of consequence with it yet. Chain id: `nado-relaunch-3`.
+> secure value of consequence with it yet. Chain id: `alphanet-1`.
 
 ---
 
@@ -629,7 +629,7 @@ live.)
   stays intact. `ops/multisig_ops.py`.
 - **Hashing & serialization** — BLAKE2b over `canonical_bytes()` (compact, sorted-key, ASCII JSON,
   float-free). Every consensus integer is a raw integer, so a browser reproduces identical bytes with
-  BigInt-aware serialization. Transaction ids and blocks bind `CHAIN_ID = "nado-relaunch-3"`, blocking
+  BigInt-aware serialization. Transaction ids and blocks bind `CHAIN_ID = "alphanet-1"`, blocking
   cross-chain / pre-relaunch replay.
 - **Wire** — transactions submit over **HTTP POST + msgpack** (an ML-DSA-44 tx is too large for a GET
   URL); msgpack is wire/transport only and never the hashed preimage.
