@@ -54,7 +54,7 @@ header.app h1 { font-size: 14px; margin: 0; font-weight: 700; letter-spacing: .2
 header.app .sub { font-size: 11px; color: var(--txt-dim); margin-top: 1px; }
 header.app .conn { margin-left: auto; text-align: right; font-size: 11px; color: var(--txt-dim); }
 /* network tag: which chain this wallet build talks to (client CHAIN_ID, red on relay mismatch) */
-.net-tag { display: inline-block; padding: 1px 8px; margin-bottom: 3px; border: 1px solid var(--border); border-radius: 999px; font-size: 10px; letter-spacing: .3px; color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.net-tag { display: inline-block; padding: 0 7px; margin-right: 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 10px; line-height: 15px; letter-spacing: .3px; vertical-align: middle; color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .net-tag.mismatch { color: var(--danger); border-color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--txt-faint); margin-right: 5px; vertical-align: middle; }
 .dot.ok { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
