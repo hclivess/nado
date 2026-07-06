@@ -9,9 +9,11 @@ from execnode.stark.field import P
 
 class Transcript:
     def __init__(self, label="nado-stark"):
+        """Fresh transcript, domain-separated by `label`."""
         self.state = blake2b_hash(["transcript", label])
 
     def absorb(self, *items):
+        """Fold items into the transcript state — every later challenge depends on them."""
         self.state = blake2b_hash(["absorb", self.state, *[str(x) for x in items]])
 
     def challenge(self):
@@ -25,6 +27,7 @@ class Transcript:
         return int(self.state, 16) % bound
 
     def _grind_ok(self, nonce, bits):
+        """True iff the PoW hash of (current state, nonce) has `bits` leading zero bits."""
         # PoW over the CURRENT transcript state: the hash must have `bits` leading zero bits. Uses the same
         # blake2b_hash as every other transcript op, so the browser prover (which mirrors it byte-for-byte)
         # agrees. 64-hex digest -> 256 bits total.

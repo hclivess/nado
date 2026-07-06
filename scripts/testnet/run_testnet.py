@@ -33,6 +33,7 @@ PORT = 9173
 
 
 def node_ip(i):
+    """Loopback IP assigned to node i (127.0.0.1 is deliberately skipped)."""
     return f"127.0.0.{i + 2}"             # node 0 -> 127.0.0.2, etc. (avoid 127.0.0.1)
 
 
@@ -69,6 +70,7 @@ def seed_node(home, i, all_keys, bond_manifest):
 
 
 def status(i, timeout=4):
+    """GET node i's /status; returns {"error": ...} instead of raising so poll loops tolerate down nodes."""
     try:
         with urllib.request.urlopen(f"http://{node_ip(i)}:{PORT}/status", timeout=timeout) as r:
             return json.loads(r.read().decode())
@@ -77,6 +79,9 @@ def status(i, timeout=4):
 
 
 def main():
+    """Seed, launch, and poll an n-node loopback testnet under a throwaway temp dir; exit 0 once all
+    nodes agree on one non-genesis tip (immediately, or after the full run in NADO_TESTNET_FULL mode
+    to cross epoch boundaries), else 2 with log tails. Always tears the child nodes down."""
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 3
     run_seconds = int(sys.argv[2]) if len(sys.argv) > 2 else 240
 

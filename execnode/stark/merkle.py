@@ -7,8 +7,14 @@ so no odd-node padding is ever needed.
 from hashing import blake2b_hash
 
 
-def _leaf(x): return blake2b_hash(["stark-leaf", str(int(x))])
-def _node(a, b): return blake2b_hash(["stark-node", a, b])
+def _leaf(x):
+    """Domain-separated leaf hash of one field element."""
+    return blake2b_hash(["stark-leaf", str(int(x))])
+
+
+def _node(a, b):
+    """Domain-separated inner-node hash of two child digests."""
+    return blake2b_hash(["stark-node", a, b])
 
 
 def commit(values):
@@ -34,6 +40,7 @@ def open_at(layers, index):
 
 
 def verify(root, index, value, path):
+    """Recompute the root from (index, value, path) bottom-up; True iff it equals `root`."""
     h, idx = _leaf(value), index
     for sib in path:
         h = _node(h, sib) if idx % 2 == 0 else _node(sib, h)

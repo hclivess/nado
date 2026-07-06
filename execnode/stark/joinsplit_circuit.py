@@ -41,6 +41,7 @@ RNG_VALUES = 2                   # VIN, VOUT
 
 
 def _next_pow2(x):
+    """Smallest power of two >= x (trace/FRI evaluation domains are power-of-two sized)."""
     p = 1
     while p < x:
         p <<= 1
@@ -53,16 +54,22 @@ def _out_end(D):
 
 
 def _total(D):
+    """Last meaningful trace row for depth D: sponge end + the two 17-row C-3 range blocks (VIN, VOUT)."""
     return _out_end(D) + RNG_VALUES * RNG_BLOCK
 
 
 def _round(s0, s1, r):
+    """One prover-side sponge round (round constants → x^ALPHA S-box → MDS) — the same map the transition
+    constraints recompute in-circuit, so the honest trace satisfies them by construction."""
     t0 = alghash.sbox(F.add(s0, alghash.RC[r % R][0]))
     t1 = alghash.sbox(F.add(s1, alghash.RC[r % R][1]))
     return F.add(F.mul(2, t0), t1), F.add(t0, F.mul(3, t1))
 
 
 def transfer(nsk, v_in, rho_in, siblings, dirs, v_out, owner_out, rho_out):
+    """Reference (non-ZK) evaluation of the join-split statement: (owner, cm_in, nf, root, cm_out) from the
+    full witness. This is the ground truth the trace + boundary constraints must reproduce; callers/tests use
+    it to derive the public values a proof will be checked against."""
     owner = alghash.owner_of(nsk)
     cm_in = alghash.commit(v_in, owner, rho_in)
     nf = alghash.nullifier(nsk, rho_in)
@@ -93,6 +100,11 @@ def _range_fill(out_end, values):
 
 
 def build_trace(nsk, v_in, rho_in, siblings, dirs, v_out, owner_out, rho_out):
+    """Build the honest witness trace: the five sponge regions back-to-back (OWNER, COMMIT, NULLIFIER,
+    MEMBERSHIP, OUTPUT) with the register columns held/captured per the handoff schedule, then the C-3 range
+    blocks, padded to a power of two (the sponge idles through padding). Returns (trace, T, D, root, nf,
+    cm_out); the captured registers at out_end (and the final sponge s0 = cm_out) are exactly what the
+    boundary constraints pin to the public values."""
     nsk, v_in, rho_in = nsk % F.P, v_in % F.P, rho_in % F.P
     v_out, owner_out, rho_out = v_out % F.P, owner_out % F.P, rho_out % F.P
     D = len(siblings)
@@ -170,10 +182,16 @@ def build_trace(nsk, v_in, rho_in, siblings, dirs, v_out, owner_out, rho_out):
 
 
 def _periodic(T, D):
+    """Public periodic selector columns, fully determined by (T, D): round constants, the absorb schedule for
+    each witness register, region reset/capture rows, Merkle block markers, and the C-3 range-region selectors.
+    Because both prover and verifier derive these from the protocol geometry alone, a prover cannot relocate a
+    region, an absorb slot, or a range-bind row."""
     out_start = MERK + D * RPL
     out_end = _out_end(D)
     total = _total(D)
-    def col(fn): return [1 if fn(r) else 0 for r in range(T)]
+    def col(fn):
+        """0/1 selector column: fn(row) over all T rows."""
+        return [1 if fn(r) else 0 for r in range(T)]
     lvl_end = lambda r, upto: r >= MERK and r < out_start and (r - MERK) % RPL == RPL - 1 and 0 <= (r - MERK) // RPL < upto
     rng = lambda r: out_end <= r < total
     p = [None] * 23
@@ -205,12 +223,21 @@ def _periodic(T, D):
 
 
 def _transitions():
+    """The join-split AIR: one list of transition polynomials, each gated to its region by the periodic
+    selectors so a single constraint set covers the whole heterogeneous trace. Groups: sponge lanes + absorb
+    (c_s1/c_s0/c_ab), region-output capture registers, constant witness registers, Merkle path handling, value
+    conservation, and the C-3 range gadget. Max constraint degree = ALPHA (the S-box)."""
     A = alghash
     def rnd(cur, per):
+        """The sponge round recomputed in-constraint (degree-ALPHA S-box + MDS) — every state transition and
+        every capture must equal this evaluation of the current row."""
         t0 = F.pw(F.add(cur[S0], per[RC0]), A.ALPHA)
         t1 = F.pw(F.add(cur[S1], per[RC1]), A.ALPHA)
         return F.add(F.mul(2, t0), t1), F.add(t0, F.mul(3, t1))
     def parts(cur, per):
+        """Shared subterms: the Merkle (left, right) child pair selected by DIR (linear interpolation, sound
+        because c_dirbit forces DIR boolean), the combined region-reset selector, and reset_dom — the domain
+        tag injected at the reset row (at most one reset selector is 1, so this is that region's separator)."""
         left = F.add(cur[CARRY], F.mul(cur[DIR], F.sub(cur[SIB], cur[CARRY])))
         right = F.add(cur[SIB], F.mul(cur[DIR], F.sub(cur[CARRY], cur[SIB])))
         reset = F.add(F.add(per[RCM], per[RNF]), F.add(per[RNODE], per[ROUT]))
@@ -218,9 +245,14 @@ def _transitions():
                           F.add(F.mul(per[RNODE], A.DOM_NODE), F.mul(per[ROUT], A.DOM_CM)))
         return left, right, reset, reset_dom
     def c_s1(cur, nxt, per):
+        """Capacity lane: s1 follows the permutation, except at a region reset where it restarts from IV."""
         _, r1 = rnd(cur, per); _, _, reset, _ = parts(cur, per)
         return F.sub(nxt[S1], F.add(F.mul(reset, A.IV), F.mul(F.sub(1, reset), r1)))
     def c_s0(cur, nxt, per):
+        """Rate lane: s0 follows the permutation plus whichever message the absorb schedule injects this row
+        (a register value, free witness via nxt[AB], or the selected Merkle child); at a region reset it
+        restarts from that region's domain tag. This single constraint binds every absorbed message — the
+        whole hash-chain structure of the statement — to the intended source column."""
         r0, _ = rnd(cur, per); left, right, reset, reset_dom = parts(cur, per)
         absorbed = F.add(
             F.add(F.add(F.mul(per[ANSK], cur[NSK]), F.mul(per[ARHO], cur[RHO])),
@@ -229,6 +261,9 @@ def _transitions():
                   F.add(F.mul(per[B0], left), F.mul(per[B1], right))))
         return F.sub(nxt[S0], F.add(reset_dom, F.mul(F.sub(1, reset), F.add(r0, absorbed))))
     def c_ab(cur, nxt, per):
+        """AB register discipline: at each scheduled set-row AB' must equal the scheduled message (domain tag,
+        register value, or Merkle child); on AFREE rows it is free witness (the secret output opening — the
+        zero-knowledge part); everywhere else it holds. Keeps c_s0's absorbed values well-defined per block."""
         left, right, _, _ = parts(cur, per)
         setm = F.add(F.add(F.add(per[RCM], per[RNF]), F.add(per[RNODE], per[ROUT])),
                      F.add(F.add(per[ANSK], per[ARHO]), F.add(F.add(per[AOWN], per[AVIN]),
@@ -248,29 +283,63 @@ def _transitions():
             acc = F.add(acc, t)
         return acc
     def _cap(cur, nxt, per, reg, sel):
+        """Generic capture register: latch the round output r0 where sel=1 (a region's final permutation),
+        hold everywhere else — how a region's hash output becomes a boundary-checkable register."""
         r0, _ = rnd(cur, per)
         return F.sub(nxt[reg], F.add(F.mul(per[sel], r0), F.mul(F.sub(1, per[sel]), cur[reg])))
-    def c_carry(cur, nxt, per): return _cap(cur, nxt, per, CARRY, CAPCARRY)
-    def c_own(cur, nxt, per): return _cap(cur, nxt, per, OWN, CAPOWN)
-    def c_nf(cur, nxt, per): return _cap(cur, nxt, per, NFREG, CAPNF)
-    def c_root(cur, nxt, per): return _cap(cur, nxt, per, ROOTREG, CAPROOT)
+    def c_carry(cur, nxt, per):
+        """CARRY capture: cm_in at COMMIT's end, then each intermediate Merkle node — the running child hash
+        fed into the next tree level."""
+        return _cap(cur, nxt, per, CARRY, CAPCARRY)
+    def c_own(cur, nxt, per):
+        """OWN capture: owner at OWNER's end; its later absorption into COMMIT ties cm_in to the same nsk."""
+        return _cap(cur, nxt, per, OWN, CAPOWN)
+    def c_nf(cur, nxt, per):
+        """NFREG capture: the nullifier, pinned to the public nf by the out_end boundary."""
+        return _cap(cur, nxt, per, NFREG, CAPNF)
+    def c_root(cur, nxt, per):
+        """ROOTREG capture: the Merkle root, pinned to the public anchor root by the out_end boundary."""
+        return _cap(cur, nxt, per, ROOTREG, CAPROOT)
     def c_hold(reg):
+        """Constraint factory: reg is constant over the whole trace (the witness registers nsk/rho/v_in/v_out),
+        so every region reads the SAME secret value."""
         return lambda cur, nxt, per: F.sub(nxt[reg], cur[reg])
-    def c_sib(cur, nxt, per): return F.mul(F.sub(1, per[RNODE]), F.sub(nxt[SIB], cur[SIB]))
-    def c_dir(cur, nxt, per): return F.mul(F.sub(1, per[RNODE]), F.sub(nxt[DIR], cur[DIR]))
-    def c_dirbit(cur, nxt, per): return F.mul(per[INMERK], F.mul(cur[DIR], F.sub(1, cur[DIR])))
-    def c_cons(cur, nxt, per): return F.sub(cur[CONS], F.sub(cur[VIN], cur[VOUT]))
+    def c_sib(cur, nxt, per):
+        """SIB may change only at a Merkle level reset (RNODE row), fixing one sibling per level."""
+        return F.mul(F.sub(1, per[RNODE]), F.sub(nxt[SIB], cur[SIB]))
+    def c_dir(cur, nxt, per):
+        """DIR may change only at a Merkle level reset, fixing one direction per level."""
+        return F.mul(F.sub(1, per[RNODE]), F.sub(nxt[DIR], cur[DIR]))
+    def c_dirbit(cur, nxt, per):
+        """DIR is boolean inside the membership region — parts()'s child-selection interpolation is only a
+        left/right swap for DIR ∈ {0,1}."""
+        return F.mul(per[INMERK], F.mul(cur[DIR], F.sub(1, cur[DIR])))
+    def c_cons(cur, nxt, per):
+        """Value conservation: CONS = v_in - v_out on every row; the boundary pins CONS to fee - public_value
+        (mod P — integer-exact only together with the C-3 range proof)."""
+        return F.sub(cur[CONS], F.sub(cur[VIN], cur[VOUT]))
     # --- C-3 range constraints ---
-    def _nib(cur): return F.add(F.add(F.mul(8, cur[RB0]), F.mul(4, cur[RB1])), F.add(F.mul(2, cur[RB2]), cur[RB3]))
+    def _nib(cur):
+        """The row's 4-bit nibble recomposed from its bit columns (degree 1; sound given c_bit)."""
+        return F.add(F.add(F.mul(8, cur[RB0]), F.mul(4, cur[RB1])), F.add(F.mul(2, cur[RB2]), cur[RB3]))
     def c_rng_acc(cur, nxt, per):    # ACC recurrence on accumulation rows: acc' = 16·acc + nibble
+        """Range accumulator recurrence: with boolean bits and a zeroed start, 16 steps make ACC at the bind
+        row EXACTLY the 64-bit integer the bit columns spell — no mod-P alias fits."""
         return F.mul(per[RNG_ACC], F.sub(nxt[ACC], F.add(F.mul(16, cur[ACC]), _nib(cur))))
     def c_rng_reset(cur, nxt, per):  # ACC starts at 0 at each block start
+        """ACC = 0 at each block start, so no value leaks between the per-value range blocks."""
         return F.mul(per[RNG_START], cur[ACC])
     def c_rng_top(cur, nxt, per):    # top 3 bits (of the MSB nibble at block start) = 0  ->  value < 2^61
+        """Pins the MSB nibble's top 3 bits to 0 — each bound value < 2^61, the margin that makes the mod-P
+        conservation equation coincide with integer conservation (module docstring, C-3)."""
         return F.mul(per[RNG_START], F.add(F.add(cur[RB0], cur[RB1]), cur[RB2]))
     def c_bit(reg):                  # each nibble bit is boolean on accumulation rows
+        """Constraint factory: bit column is boolean on accumulation rows — the soundness hinge of the whole
+        decomposition (non-bit values would let ACC reach any field element)."""
         return lambda cur, nxt, per: F.mul(per[RNG_ACC], F.mul(cur[reg], F.sub(1, cur[reg])))
     def c_bind(sel, val):            # at the bind row the accumulator equals the value column
+        """Constraint factory: at the block's bind row ACC equals the value register — connecting the range
+        decomposition to the very value conservation is computed over."""
         return lambda cur, nxt, per: F.mul(per[sel], F.sub(cur[ACC], cur[val]))
     return [c_s1, c_s0, c_ab, c_carry, c_own, c_nf, c_root,
             c_hold(NSK), c_hold(RHO), c_hold(VIN), c_hold(VOUT),
@@ -281,6 +350,10 @@ def _transitions():
 
 
 def prove_transfer(nsk, v_in, rho_in, siblings, dirs, v_out, owner_out, rho_out, public_value, fee, num_queries=stark.NUM_QUERIES, aux=None):
+    """Prove the full join-split for the given witness; returns (proof, root, nf, cm_out). Boundaries pin the
+    initial sponge state (domain tag + IV), CONS = fee - public_value, and the captured root/nf/cm_out at
+    out_end. proof["D"] carries the tree depth from which the verifier rebuilds the whole geometry; `aux` binds
+    extra public data (e.g. a withdraw address) into the Fiat–Shamir transcript."""
     tr, T, D, root, nf, cm_out = build_trace(nsk, v_in, rho_in, siblings, dirs, v_out, owner_out, rho_out)
     per = _periodic(T, D)
     out_end = _out_end(D)
@@ -294,6 +367,9 @@ def prove_transfer(nsk, v_in, rho_in, siblings, dirs, v_out, owner_out, rho_out,
 
 
 def verify_transfer(proof, root, nf, cm_out, public_value, fee, root_is_known, aux=None):
+    """Verify a join-split proof against the public (root, nf, cm_out, public_value, fee). Checks the anchor
+    root is known, pins the trace geometry (H1: T must be exactly the honest value for D), rebuilds the same
+    periodic columns and boundary set as the prover, and runs the STARK verifier. Returns (ok, reason)."""
     if not root_is_known(root):
         return False, "unknown anchor root"
     D, T = proof["D"], proof["T"]

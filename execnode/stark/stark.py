@@ -32,6 +32,7 @@ MAX_COLUMNS = 256
 
 
 def _next_pow2(x):
+    """Smallest power of two ≥ x."""
     p = 1
     while p < x:
         p <<= 1
@@ -39,11 +40,15 @@ def _next_pow2(x):
 
 
 def _blowup(max_degree):
+    """LDE blowup for constraints of degree ≤ max_degree: 2·next_pow2(max_degree), so the composition
+    (degree ≤ max_degree·T) still sits at Reed–Solomon rate 1/2 for FRI."""
     # LDE must leave FRI room: composition degree ≤ max_degree·T, and FRI needs blowup ≥ 2 over that bound.
     return 2 * _next_pow2(max_degree)
 
 
 def _coset_evaluate(coeffs, N, offset):
+    """Evaluate a coefficient polynomial on the size-N coset {offset·ω^i}: substitute x → offset·y (scale
+    coeff j by offset^j), then NTT on the subgroup. Uses the native Rust path when built."""
     from execnode.stark import goldilocks_native as _gn
     if _gn.available() and N <= _gn.NMAX:
         return _gn.coset_evaluate(coeffs, N, offset)
@@ -57,6 +62,12 @@ def _coset_evaluate(coeffs, N, offset):
 
 
 def _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boundaries, alphas):
+    """Evaluate the composition polynomial on the LDE coset: the α-random linear combination of every
+    transition constraint divided by its vanishing polynomial (x^T - 1)/(x - last) — zero on every step but
+    the wrap-around — plus every boundary column minus its pinned value divided by (x - point). Each quotient
+    is a polynomial (hence the sum low-degree) IFF the corresponding constraint actually holds; any violation
+    leaves a non-polynomial term that FRI's low-degree test rejects. `next row` on the LDE is index j+blowup
+    (one trace step = blowup coset steps)."""
     last = F.pw(gT, T - 1)
     # Transition vanishing is the same for every constraint: invZ[j] = (x-last)/(x^T - 1). One batch inversion
     # for the whole vector instead of an inv() per (constraint, point).
@@ -82,6 +93,11 @@ def _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boun
 
 
 def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None):
+    """Prove `trace` satisfies the AIR (transitions + boundaries [+ public periodic columns]). Interpolates
+    and Merkle-commits each column's LDE, draws the constraint-combination challenges α from the committed
+    roots (Fiat–Shamir), FRI-proves the composition is low-degree, and opens the cur/next trace rows at every
+    FRI query point so the verifier can recompute the composition there. `aux` binds an extra public input
+    (e.g. an unshield withdraw address, H-4) into the transcript. Returns the proof dict."""
     periodic = periodic or []
     T = len(trace); W = len(trace[0])
     blowup = _blowup(max_degree); N = blowup * T
@@ -120,6 +136,13 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
 
 
 def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None):
+    """Verify a STARK proof. Returns (ok, reason). The AIR itself (transitions, boundaries, periodic,
+    max_degree) comes from the CALLER, never from the proof; the proof only supplies commitments and openings.
+    Order of checks: LDE geometry pinned to max_degree·T before any allocation (H-7); transcript replayed to
+    re-derive the same α challenges; FRI verified with the protocol-fixed blowup=2 and query count (C-1); then
+    at every query point the composition is recomputed from the Merkle-opened trace rows + the verifier's own
+    periodic values and must equal the committed FRI layer-0 value — this spot-check is what binds the
+    low-degree polynomial FRI accepted to the committed trace actually satisfying the constraints."""
     try:
         periodic = periodic or []
         T, W, N, blowup = proof["T"], proof["W"], proof["N"], proof["blowup"]

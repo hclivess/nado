@@ -28,6 +28,7 @@ MAX_DEGREE = alghash.ALPHA
 
 
 def _next_pow2(x):
+    """Smallest power of two ≥ x."""
     p = 1
     while p < x:
         p <<= 1
@@ -35,12 +36,15 @@ def _next_pow2(x):
 
 
 def _round(s0, s1, r):
+    """One in-clear sponge round (add RC[r] → x^7 S-box → 2×2 MDS mix), used only to build the trace; the
+    transition constraints re-express the same step algebraically."""
     t0 = alghash.sbox(F.add(s0, alghash.RC[r % R][0]))
     t1 = alghash.sbox(F.add(s1, alghash.RC[r % R][1]))
     return F.add(F.mul(2, t0), t1), F.add(t0, F.mul(3, t1))
 
 
 def full_spend(nsk, value, rho, siblings, dirs):
+    """In-clear reference: the (owner, cm, nf, root) the circuit must reproduce from the same witness."""
     owner = alghash.owner_of(nsk)
     cm = alghash.commit(value, owner, rho)
     nf = alghash.nullifier(nsk, rho)
@@ -49,6 +53,12 @@ def full_spend(nsk, value, rho, siblings, dirs):
 
 
 def build_trace(nsk, value, rho, siblings, dirs):
+    """Run the four sponge regions (OWNER → COMMIT → NULLIFIER → MEMBERSHIP) back-to-back in the clear and
+    lay them out as a T×10 trace, T = next power of two above MERK + D·RPL used rows. nsk/rho ride in
+    constant register columns the whole way (the shared-witness binding); each region-end handoff row
+    captures the region output into its register (own / carry / nfreg) and reseeds the sponge with the next
+    domain tag, and the NULLIFIER→MEMBERSHIP handoff also seeds sib/dir for level 0. Returns
+    (trace, T, D, root, nf) with root/nf read from the final used row — the cells the boundary pins bind."""
     nsk, value, rho = nsk % F.P, value % F.P, rho % F.P
     D = len(siblings)
     total = MERK + D * RPL
@@ -112,7 +122,13 @@ RC0, RC1, ANSK, ARHO, AOWN, AFREE, B0, B1, RCM, RNF, RNODE, CAPOWN, CAPCARRY, CA
 
 
 def _periodic(T, D):
-    def col(fn): return [1 if fn(r) else 0 for r in range(T)]
+    """The 15 public periodic columns: round constants rc0/rc1 plus 0/1 selectors scheduling, per row, which
+    value is absorbed (ANSK/ARHO/AOWN/AFREE/B0/B1), which sponge reset fires (RCM/RNF/RNODE) and which
+    register captures r0 (CAPOWN/CAPCARRY/CAPNF), plus the membership-region gate INMERK. Recomputed by the
+    verifier from (T, D), so the schedule itself cannot be forged."""
+    def col(fn):
+        """0/1 column: 1 exactly on the rows where fn holds."""
+        return [1 if fn(r) else 0 for r in range(T)]
     lvl_end = lambda r, upto: r >= MERK and (r - MERK) % RPL == RPL - 1 and 0 <= (r - MERK) // RPL < upto
     p = [None] * 15
     p[RC0] = [alghash.RC[r % R][0] for r in range(T)]
@@ -134,11 +150,18 @@ def _periodic(T, D):
 
 
 def _transitions():
+    """The 11 transition constraints c(cur, nxt, per) = 0, degree ≤ ALPHA, uniform across all four regions
+    (the periodic selectors switch behaviour per row). With the boundary pins they admit exactly the traces
+    of build_trace for SOME (nsk, value, rho, path): the constant nsk/rho columns are what bind owner,
+    commitment and nullifier to the SAME secret witness — the authorised-spend property."""
     def rnd(cur, per):
+        """The algebraic sponge round: the (r0, r1) the next row must continue from."""
         t0 = F.pw(F.add(cur[S0], per[RC0]), alghash.ALPHA)
         t1 = F.pw(F.add(cur[S1], per[RC1]), alghash.ALPHA)
         return F.add(F.mul(2, t0), t1), F.add(t0, F.mul(3, t1))
     def parts(cur, per):
+        """Shared subexpressions: the dir-muxed Merkle (left, right), the combined reset selector, and the
+        reset's target domain tag (the reset selectors are disjoint one-hots, so the sums act as a mux)."""
         left = F.add(cur[CARRY], F.mul(cur[DIR], F.sub(cur[SIB], cur[CARRY])))
         right = F.add(cur[SIB], F.mul(cur[DIR], F.sub(cur[CARRY], cur[SIB])))
         reset = F.add(F.add(per[RCM], per[RNF]), per[RNODE])
@@ -146,15 +169,23 @@ def _transitions():
                           F.mul(per[RNODE], alghash.DOM_NODE))
         return left, right, reset, reset_dom
     def c_s1(cur, nxt, per):
+        """Capacity lane: nxt s1 = r1, or IV on any region/level reset. Never absorbed into — that keeps the
+        sponge binding."""
         _, r1 = rnd(cur, per); _, _, reset, _ = parts(cur, per)
         return F.sub(nxt[S1], F.add(F.mul(reset, alghash.IV), F.mul(F.sub(1, reset), r1)))
     def c_s0(cur, nxt, per):
+        """Rate lane: nxt s0 = r0 plus the scheduled absorb — the nsk/rho/own registers, the free `value`
+        block (nxt[AB]), or a dir-muxed Merkle child — or the reset's domain tag on a handoff. Absorbing the
+        REGISTER columns (not free values) is what forces every region to consume the same witness."""
         r0, _ = rnd(cur, per); left, right, reset, reset_dom = parts(cur, per)
         absorbed = F.add(F.add(F.add(F.mul(per[ANSK], cur[NSK]), F.mul(per[ARHO], cur[RHO])),
                                F.add(F.mul(per[AOWN], cur[OWN]), F.mul(per[AFREE], nxt[AB]))),
                          F.add(F.mul(per[B0], left), F.mul(per[B1], right)))
         return F.sub(nxt[S0], F.add(reset_dom, F.mul(F.sub(1, reset), F.add(r0, absorbed))))
     def c_ab(cur, nxt, per):
+        """Absorbed-message register: forced to the reset tag / register value / Merkle child exactly when
+        that selector fires, held when nothing fires; only AFREE (the `value` block) leaves it free — value
+        is the one witness element with no register of its own, bound instead via the cm boundary chain."""
         left, right, _, _ = parts(cur, per)
         setm = F.add(F.add(F.add(per[RCM], per[RNF]), F.add(per[RNODE], per[ANSK])),
                      F.add(F.add(per[ARHO], per[AOWN]), F.add(per[B0], per[B1])))
@@ -168,20 +199,40 @@ def _transitions():
                            F.add(F.add(F.mul(per[B0], F.sub(nxt[AB], left)), F.mul(per[B1], F.sub(nxt[AB], right))),
                                  F.mul(hold, F.sub(nxt[AB], cur[AB])))))
     def _cap(cur, nxt, per, reg, sel):
+        """Register-capture rule: reg ← r0 on the rows where `sel` fires, held constant everywhere else."""
         r0, _ = rnd(cur, per)
         return F.sub(nxt[reg], F.add(F.mul(per[sel], r0), F.mul(F.sub(1, per[sel]), cur[reg])))
-    def c_carry(cur, nxt, per): return _cap(cur, nxt, per, CARRY, CAPCARRY)
-    def c_own(cur, nxt, per): return _cap(cur, nxt, per, OWN, CAPOWN)
-    def c_nf(cur, nxt, per): return _cap(cur, nxt, per, NFREG, CAPNF)
-    def c_nsk(cur, nxt, per): return F.sub(nxt[NSK], cur[NSK])
-    def c_rho(cur, nxt, per): return F.sub(nxt[RHO], cur[RHO])
-    def c_sib(cur, nxt, per): return F.mul(F.sub(1, per[RNODE]), F.sub(nxt[SIB], cur[SIB]))   # held except on load
-    def c_dir(cur, nxt, per): return F.mul(F.sub(1, per[RNODE]), F.sub(nxt[DIR], cur[DIR]))
-    def c_dirbit(cur, nxt, per): return F.mul(per[INMERK], F.mul(cur[DIR], F.sub(1, cur[DIR])))
+    def c_carry(cur, nxt, per):
+        """carry captures r0 (cm at the COMMIT end, node hashes at membership level ends), else held."""
+        return _cap(cur, nxt, per, CARRY, CAPCARRY)
+    def c_own(cur, nxt, per):
+        """own captures the OWNER-region output (later re-absorbed by COMMIT), else held."""
+        return _cap(cur, nxt, per, OWN, CAPOWN)
+    def c_nf(cur, nxt, per):
+        """nfreg captures the nullifier (pinned to the public nf by a boundary), else held."""
+        return _cap(cur, nxt, per, NFREG, CAPNF)
+    def c_nsk(cur, nxt, per):
+        """nsk constant across the whole trace: the SAME key feeds owner and nullifier."""
+        return F.sub(nxt[NSK], cur[NSK])
+    def c_rho(cur, nxt, per):
+        """rho constant across the whole trace: the SAME randomness feeds commitment and nullifier."""
+        return F.sub(nxt[RHO], cur[RHO])
+    def c_sib(cur, nxt, per):
+        """sib held within a level; loadable only on an RNODE reset row."""
+        return F.mul(F.sub(1, per[RNODE]), F.sub(nxt[SIB], cur[SIB]))   # held except on load
+    def c_dir(cur, nxt, per):
+        """dir held within a level; loadable only on an RNODE reset row."""
+        return F.mul(F.sub(1, per[RNODE]), F.sub(nxt[DIR], cur[DIR]))
+    def c_dirbit(cur, nxt, per):
+        """dir ∈ {0,1} inside the membership region — else the left/right mux could emit non-children."""
+        return F.mul(per[INMERK], F.mul(cur[DIR], F.sub(1, cur[DIR])))
     return [c_s1, c_s0, c_ab, c_carry, c_own, c_nf, c_nsk, c_rho, c_sib, c_dir, c_dirbit]
 
 
 def prove_spend(nsk, value, rho, siblings, dirs, num_queries=stark.NUM_QUERIES):
+    """Prove the full authorised spend for the PRIVATE (nsk, value, rho, path), revealing only the PUBLIC
+    (root, nf). Boundary pins: OWNER-region sponge start at row 0, root + nullifier cells at the final used
+    row. Returns (proof, root, nf); proof["D"] is public."""
     tr, T, D, root, nf = build_trace(nsk, value, rho, siblings, dirs)
     per = _periodic(T, D)
     end = MERK + D * RPL
@@ -193,6 +244,9 @@ def prove_spend(nsk, value, rho, siblings, dirs, num_queries=stark.NUM_QUERIES):
 
 
 def verify_spend(proof, root, nf, root_is_known):
+    """Verify a full-spend proof against the PUBLIC (root, nf): the root must be a known anchor, and the
+    periodic schedule + boundary pins are rebuilt locally from the proof's public (D, T) — nothing
+    constraint-shaped is taken from the proof. Returns (ok, reason)."""
     if not root_is_known(root):
         return False, "unknown anchor root"
     D, T = proof["D"], proof["T"]

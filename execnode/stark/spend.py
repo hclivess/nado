@@ -19,6 +19,7 @@ MAX_DEGREE = alghash.ALPHA                         # 7
 
 
 def _next_pow2(x):
+    """Smallest power of two ≥ x."""
     p = 1
     while p < x:
         p <<= 1
@@ -26,12 +27,19 @@ def _next_pow2(x):
 
 
 def _round(s0, s1, r):
+    """One in-clear sponge round (add RC[r] → x^7 S-box → 2×2 MDS mix), used only to build the trace; the
+    transition constraints re-express the same step algebraically."""
     t0 = alghash.sbox(F.add(s0, alghash.RC[r % R][0]))
     t1 = alghash.sbox(F.add(s1, alghash.RC[r % R][1]))
     return F.add(F.mul(2, t0), t1), F.add(t0, F.mul(3, t1))
 
 
 def build_trace(value, owner, rho, siblings, dirs):
+    """Run region A (commit: absorb DOM_CM, value, owner, rho) then region B (membership: D levels of
+    3-block node hashing) in the clear and lay them out as a T×6 trace, T = next power of two above the
+    ACOLS + D·RPL used rows. The A→B handoff row captures cm into `carry` and reseeds the sponge with
+    DOM_NODE, so the leaf region B folds up IS region A's output. Returns (trace, T, D, root) with the root
+    read from row ACOLS + D·RPL col S0 — the cell the boundary constraint pins."""
     D = len(siblings)
     total = ACOLS + D * RPL
     T = _next_pow2(total + 1)
@@ -76,11 +84,15 @@ def build_trace(value, owner, rho, siblings, dirs):
 
 
 def spend_root(value, owner, rho, siblings, dirs):
+    """In-clear reference: the (cm, root) pair the circuit must reproduce."""
     cm = alghash.commit(value, owner, rho)
     return cm, MB.merkle_root_from_path(cm, siblings, dirs)
 
 
 def _periodic(T, D):
+    """The 8 public periodic columns: round constants rc0/rc1 plus the 0/1 selectors — inB (region B), aB
+    (region-A absorb boundaries), hand (the single A→B handoff row), b0/b1 (membership left/right absorbs)
+    and lend (level-end resets). Recomputed by the verifier from (T, D), so the schedule can't be forged."""
     rc0 = [alghash.RC[r % R][0] for r in range(T)]
     rc1 = [alghash.RC[r % R][1] for r in range(T)]
     inB = [1 if r >= ACOLS else 0 for r in range(T)]
@@ -94,16 +106,25 @@ def _periodic(T, D):
 
 
 def _transitions():
+    """The 7 transition constraints c(cur, nxt, per) = 0, degree ≤ ALPHA, uniform across both regions (the
+    periodic selectors switch behaviour per row). With the boundary pins they admit exactly the traces of
+    build_trace for SOME witness — cm is never revealed, only bound: it exists solely as the carry handed
+    from region A into region B."""
     RC0, RC1, INB, AB_, HAND, B0, B1, LEND = range(8)
     def rnd(cur, per):
+        """The algebraic sponge round: the (r0, r1) the next row must continue from."""
         t0 = F.pw(F.add(cur[S0], per[RC0]), alghash.ALPHA)
         t1 = F.pw(F.add(cur[S1], per[RC1]), alghash.ALPHA)
         return F.add(F.mul(2, t0), t1), F.add(t0, F.mul(3, t1))
     def c_s1(cur, nxt, per):
+        """Capacity lane: nxt s1 = r1, or IV on a handoff/level-end reset. Never absorbed into — that keeps
+        the sponge binding."""
         _, r1 = rnd(cur, per)
         reset = F.add(per[HAND], per[LEND])                     # s1 -> IV on handoff or level-end reset
         return F.sub(nxt[S1], F.add(F.mul(reset, alghash.IV), F.mul(F.sub(1, reset), r1)))
     def c_s0(cur, nxt, per):
+        """Rate lane: nxt s0 = r0 plus the scheduled absorb (region A's free next message on aB rows, the
+        dir-muxed Merkle child on b0/b1 rows), or DOM_NODE on a handoff/level-end reset."""
         r0, _ = rnd(cur, per)
         left = F.add(cur[CARRY], F.mul(cur[DIR], F.sub(cur[SIB], cur[CARRY])))
         right = F.add(cur[SIB], F.mul(cur[DIR], F.sub(cur[CARRY], cur[SIB])))
@@ -113,10 +134,15 @@ def _transitions():
         normal = F.add(r0, F.add(absorbA, absorbB))
         return F.sub(nxt[S0], F.add(F.mul(reset, alghash.DOM_NODE), F.mul(F.sub(1, reset), normal)))
     def c_carry(cur, nxt, per):                                # carry <- r0 (cm or node hash) on handoff/level-end
+        """carry captures r0 (cm at the handoff, the node hash at each level end), held otherwise — the
+        binding that makes region B's leaf equal region A's commitment output."""
         r0, _ = rnd(cur, per)
         setc = F.add(per[HAND], per[LEND])
         return F.add(F.mul(setc, F.sub(nxt[CARRY], r0)), F.mul(F.sub(1, setc), F.sub(nxt[CARRY], cur[CARRY])))
     def c_ab(cur, nxt, per):
+        """Absorbed-message register: forced to DOM_NODE / left / right when a reset/b0/b1 fires, held when
+        nothing fires; only region A's aB rows leave it FREE (the private value/owner/rho witness enters
+        there, and c_s0 absorbs exactly nxt[AB])."""
         left = F.add(cur[CARRY], F.mul(cur[DIR], F.sub(cur[SIB], cur[CARRY])))
         right = F.add(cur[SIB], F.mul(cur[DIR], F.sub(cur[CARRY], cur[SIB])))
         reset = F.add(per[HAND], per[LEND])
@@ -128,14 +154,22 @@ def _transitions():
         hold = F.mul(other, F.sub(nxt[AB], cur[AB]))
         return F.add(F.add(setDOM, setL), F.add(setR, hold))
     def c_dirbit(cur, nxt, per):
+        """dir ∈ {0,1} inside region B — a non-bit dir would let the left/right mux emit non-children."""
         return F.mul(F.mul(per[INB], cur[DIR]), F.sub(1, cur[DIR]))   # dir is a bit in region B
     # SOUNDNESS: hold sib/dir within a level (load only on the A->B handoff or a level-end reset).
-    def c_sib(cur, nxt, per): return F.mul(F.sub(1, F.add(per[HAND], per[LEND])), F.sub(nxt[SIB], cur[SIB]))
-    def c_dir(cur, nxt, per): return F.mul(F.sub(1, F.add(per[HAND], per[LEND])), F.sub(nxt[DIR], cur[DIR]))
+    def c_sib(cur, nxt, per):
+        """sib held within a level; loadable only on the handoff or a level-end reset."""
+        return F.mul(F.sub(1, F.add(per[HAND], per[LEND])), F.sub(nxt[SIB], cur[SIB]))
+    def c_dir(cur, nxt, per):
+        """dir held within a level; loadable only on the handoff or a level-end reset."""
+        return F.mul(F.sub(1, F.add(per[HAND], per[LEND])), F.sub(nxt[DIR], cur[DIR]))
     return [c_s1, c_s0, c_carry, c_ab, c_dirbit, c_sib, c_dir]
 
 
 def prove_spend(value, owner, rho, siblings, dirs, num_queries=stark.NUM_QUERIES):
+    """Prove knowledge of an opening (value, owner, rho) whose commitment is in the tree at the returned
+    PUBLIC root, revealing neither the opening nor the leaf position. Boundary pins: region-A sponge start at
+    row 0, root cell at row ACOLS + D·RPL. Returns (proof, root); proof["D"] is public."""
     trace, T, D, root = build_trace(value, owner, rho, siblings, dirs)
     periodic = _periodic(T, D)
     bnd = [(0, S1, alghash.IV), (0, S0, alghash.DOM_CM), (0, AB, alghash.DOM_CM),
@@ -146,6 +180,9 @@ def prove_spend(value, owner, rho, siblings, dirs, num_queries=stark.NUM_QUERIES
 
 
 def verify_spend(proof, root, root_is_known):
+    """Verify a composed-spend proof against the PUBLIC root: the root must be a known anchor, and the
+    periodic schedule + boundary pins are rebuilt locally from the proof's public (D, T) — the AIR itself is
+    never taken from the proof. Returns (ok, reason)."""
     if not root_is_known(root):
         return False, "unknown anchor root"
     D, T = proof["D"], proof["T"]

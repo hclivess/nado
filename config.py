@@ -8,6 +8,8 @@ from ops.data_ops import get_home
 
 
 def config_found(file=f"{get_home()}/private/config.dat"):
+    """Does config.dat exist? The 'is this a fresh node?' probe — genesis only network-probes for a
+    public IP (and writes defaults) when this is False, so re-runs never clobber an existing config."""
     if os.path.isfile(file):
         return True
     else:
@@ -15,10 +17,15 @@ def config_found(file=f"{get_home()}/private/config.dat"):
 
 
 def get_timestamp_seconds():
+    """Current UNIX time as a whole INT of seconds — the one timestamp granularity used everywhere
+    (block timestamps, uptime, pools), so nothing consensus-adjacent ever touches a float."""
     return int(time.time_ns() / 1000000000)
 
 
 def get_protcol():
+    """The node's protocol number — peers whose /status reports a LOWER protocol than ours are
+    rejected at handshake, so bump this on breaking wire/consensus changes to shed old nodes.
+    (Yes, the name is misspelled; it is referenced as-is elsewhere — do not rename.)"""
     return 2
 
 
@@ -47,6 +54,9 @@ def hostport(ip, port):
 
 
 def test_self_port(ip, port):
+    """True if a TCP connect to ip:port succeeds within 3s — the self-reachability probe that gates
+    can_mine: a node whose own port isn't reachable from its public IP shouldn't produce blocks
+    nobody can fetch. Family-aware (see below) so IPv6 nodes aren't wrongly reported shut."""
     # family-aware: an IPv6 literal needs AF_INET6, else connect_ex raises and we'd wrongly report the
     # port shut. hostnames/edge cases fall back to IPv4.
     family = socket.AF_INET6 if ip and ":" in str(ip) else socket.AF_INET
@@ -57,11 +67,17 @@ def test_self_port(ip, port):
 
 
 def get_config(config_path: str = f"{get_home()}/private/config.dat"):
+    """Load the node config dict from private/config.dat. Deliberately uncached and raising on a
+    missing file — callers either checked config_found() first or WANT the loud failure (a node
+    without a config must not limp along on invented defaults)."""
     with open(config_path) as infile:
         return json.loads(infile.read())
 
 
 def update_config(new_config: dict, config_path: str = f"{get_home()}/private/config.dat"):
+    """Read-merge-write: overlay `new_config` keys onto the existing config and persist. Keys not
+    mentioned pass through untouched, so a caller can flip one knob without knowing (or wiping)
+    the full schema. NOT crash-atomic — a plain truncate-and-rewrite of a non-consensus file."""
     config = get_config()
     for key, value in new_config.items():
         config[key] = value
@@ -71,6 +87,10 @@ def update_config(new_config: dict, config_path: str = f"{get_home()}/private/co
 
 
 def create_config(ip: str, config_path: str = f"{get_home()}/private/config.dat"):
+    """Write the initial config.dat with every default knob (all NON-consensus, operator-tunable).
+    Strictly create-only: an existing file is NEVER overwritten, so re-running genesis/bootstrap
+    over an initialized node cannot clobber operator edits. The freshly generated server_key is
+    this node's local auth secret — the file lives in private/ (gitignored) for a reason."""
     config_contents = {
         "port": get_port(),
         "ip": ip,

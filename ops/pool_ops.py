@@ -57,5 +57,8 @@ def merge_buffer(from_buffer, to_buffer, block_max, block_min) -> dict:
 
 
 def get_from_pool(pool, source, target):
+    """project one field of the peer status pool into `target` IN PLACE: target[peer] =
+    status[source] for every peer. Iterates a shallow copy so a concurrent status refresh from
+    another loop cannot resize the dict mid-iteration."""
     for item in pool.copy().items():
         target[item[0]] = item[1][source]

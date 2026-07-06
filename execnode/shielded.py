@@ -38,6 +38,7 @@ def _h(*parts):
 
 # --- empty-subtree roots (e[i] = root of an all-empty subtree of height i) -------------------------
 def _empty_roots(depth):
+    """Precompute e[i] = root of an all-empty subtree of height i (so e[depth] is the empty-tree root)."""
     e = [_h("empty-leaf")]
     for _ in range(depth):
         e.append(_h("node", e[-1], e[-1]))
@@ -91,6 +92,8 @@ def transfer_sighash(public: dict) -> str:
 
 # --- fixed-depth Merkle commitment tree -----------------------------------------------------------
 def merkle_root(leaves) -> str:
+    """Root of the fixed-depth (SHIELD_DEPTH) tree over `leaves`, padding odd/short levels with the
+    empty-subtree root of that height — so the root is stable as the pool grows leaf by leaf."""
     if not leaves:
         return EMPTY_ROOT
     level = list(leaves)
@@ -123,6 +126,8 @@ def merkle_path(leaves, pos):
 
 
 def verify_path(leaf, pos, path, root) -> bool:
+    """Fold `leaf` up the tree with the sibling `path` (bottom-up; pos bits pick left/right) and check the
+    result equals `root`."""
     h = leaf
     idx = pos
     for d in range(SHIELD_DEPTH):
@@ -138,6 +143,8 @@ class ShieldedPool:
     from FINALIZED L1 blobs in order (no reorgs at the exec cursor), so no rollback bookkeeping is needed."""
 
     def __init__(self, commitments=None, nullifiers=None, anchors=None):
+        """Rebuild the pool from persisted lists (all optional -> empty pool) and re-register the current
+        root as an anchor so a freshly-loaded pool immediately accepts proofs against its own root."""
         self.commitments = list(commitments or [])     # leaves, in insertion order (pos = index)
         self.nullifiers = set(nullifiers or [])         # spent nullifiers
         # ANCHOR WINDOW (oldest-first, BOUNDED): the recent roots a proof may target. A transfer may prove
@@ -149,6 +156,7 @@ class ShieldedPool:
 
     # -- state ----
     def root(self):
+        """Current commitment-tree root (cached; recomputed only after an append)."""
         # SCALING: cache the O(n) root; invalidated on append. (An incremental frontier tree makes this
         # O(depth) per append — the documented next scaling step, doc/privacy.md §scaling.)
         if self._cached_root is None:
@@ -156,10 +164,12 @@ class ShieldedPool:
         return self._cached_root
 
     def _append_commitment(self, cm):
+        """Append a note leaf and invalidate the cached root."""
         self.commitments.append(cm)
         self._cached_root = None
 
     def _remember_anchor(self, root):
+        """Record `root` in the anchor window (deduped; trimmed to the newest ANCHOR_WINDOW entries)."""
         if self.anchor_list and self.anchor_list[-1] == root:
             return
         if root in self.anchor_list:
@@ -169,12 +179,15 @@ class ShieldedPool:
             del self.anchor_list[:-ANCHOR_WINDOW]
 
     def size(self):
+        """Number of notes (commitments) ever added to the pool."""
         return len(self.commitments)
 
     def has_nullifier(self, nf):
+        """True if `nf` was already revealed by a spend (double-spend check)."""
         return nf in self.nullifiers
 
     def knows_root(self, root):
+        """Anchor freshness: is `root` one this pool actually held recently (within ANCHOR_WINDOW)?"""
         return root in self.anchor_list
 
     def nullifier_digest(self):
@@ -183,11 +196,14 @@ class ShieldedPool:
         return _h("nfset", *sorted(self.nullifiers))
 
     def to_dict(self):
+        """JSON-safe snapshot (nullifiers sorted for determinism); root included for inspection only —
+        from_dict recomputes it."""
         return {"commitments": self.commitments, "nullifiers": sorted(self.nullifiers),
                 "anchors": self.anchor_list, "root": self.root()}
 
     @classmethod
     def from_dict(cls, d):
+        """Rebuild a pool from a to_dict snapshot."""
         return cls(d.get("commitments"), d.get("nullifiers"), d.get("anchors"))
 
 

@@ -90,6 +90,7 @@ _local = threading.local()
 
 
 def env_path(home=None):
+    """Filesystem dir of the LMDB env for `home` (index/state under the node home) — the _envs cache key."""
     return os.path.join(home or get_home(), "index", "state")
 
 
@@ -158,6 +159,7 @@ def be8(n: int) -> bytes:
 
 
 def un_be8(b: bytes) -> int:
+    """Inverse of be8: decode an 8-byte big-endian unsigned int."""
     return struct.unpack(">Q", b)[0]
 
 
@@ -168,14 +170,18 @@ def _dup_tx_value(block_number: int, txid: str) -> bytes:
 
 
 def _split_dup_tx_value(v: bytes):
+    """Inverse of _dup_tx_value: (block_number, txid)."""
     return un_be8(v[:8]), v[8:].decode()
 
 
 def _pack(doc) -> bytes:
+    """msgpack-encode a stored value (use_bin_type so str/bytes round-trip unambiguously — same content
+    always yields the same bytes, which revert-symmetry and the state root depend on)."""
     return msgpack.packb(doc, use_bin_type=True)
 
 
 def _unpack(raw: bytes):
+    """Decode msgpack bytes written by _pack (raw=False -> text comes back as str, not bytes)."""
     return msgpack.unpackb(raw, raw=False)
 
 
@@ -188,6 +194,7 @@ class _WriteTxn:
     incorporate_block / rollback_one_block all-or-nothing."""
 
     def __enter__(self):
+        """Open the env write txn only at depth 0; nested entries just bump the depth and reuse it."""
         depth = getattr(_local, "wdepth", 0)
         if depth == 0:
             _local.wtxn = get_env().begin(write=True)
@@ -195,6 +202,8 @@ class _WriteTxn:
         return _local.wtxn
 
     def __exit__(self, exc_type, exc, tb):
+        """Outermost exit commits on success / aborts on any exception; inner exits only decrement.
+        Never suppresses the exception — the caller must see the failure that voided the block."""
         _local.wdepth -= 1
         if _local.wdepth == 0:
             txn = _local.wtxn
@@ -207,6 +216,8 @@ class _WriteTxn:
 
 
 def write_txn():
+    """The atomic-block context manager: `with write_txn():` makes every kv helper inside it read and
+    write through ONE LMDB write txn (crash-atomic, re-entrant — see _WriteTxn)."""
     return _WriteTxn()
 
 
@@ -244,6 +255,8 @@ def _normalize(body: dict) -> dict:
 
 
 def _get_body(txn, address: str):
+    """Raw account doc via the CALLER's txn (so read-modify-writes see the block's own uncommitted
+    state), or None if the address has no row. No field defaulting — that's get_account's job."""
     raw = txn.get(address.encode(), db=_dbs()["accounts"])
     return _unpack(raw) if raw is not None else None
 
@@ -347,6 +360,7 @@ def iter_accounts():
 # --- totals ---------------------------------------------------------------------------------------
 
 def totals_get() -> dict:
+    """Global running totals {produced, fees} (zeros before totals_seed) — feeds emission/reward math."""
     def _do(txn):
         raw = txn.get(_TOTALS_KEY, db=_dbs()["totals"])
         return _unpack(raw) if raw is not None else {"produced": 0, "fees": 0}
@@ -373,6 +387,8 @@ def totals_add(produced: int, fees: int):
 
 
 def totals_set(produced: int, fees: int):
+    """Overwrite totals with absolute values (snapshot import / reindex). Block apply/rollback must use
+    the delta form totals_add to stay revert-symmetric."""
     def _do(txn):
         txn.put(_TOTALS_KEY, _pack({"produced": int(produced), "fees": int(fees)}), db=_dbs()["totals"])
     _write(_do)
@@ -405,24 +421,30 @@ def meta_del(key: str):
 # --- slashing replay guard (#15/#16 step 5C/6): one slash per (offender, height) ------------------
 
 def _slash_key(address: str, height: int) -> str:
+    """meta key of the one-slash-per-(offender, height) marker."""
     return f"slash:{address}:{int(height)}"
 
 
 def slash_exists(address: str, height: int) -> bool:
+    """True if (offender, height) was already slashed — the replay guard that stops a re-broadcast
+    slashing proof from punishing the same offense twice."""
     return meta_get_int(_slash_key(address, height), 0) == 1
 
 
 def slash_record(address: str, height: int):
+    """Mark (offender, height) slashed (apply-side; atomic with the penalty inside the block txn)."""
     meta_set_int(_slash_key(address, height), 1)
 
 
 def slash_clear(address: str, height: int):
+    """Revert slash_record exactly (rollback deletes the marker so a re-applied block can re-slash)."""
     meta_del(_slash_key(address, height))
 
 
 # --- FFG attestations (#6): tally per (epoch, checkpoint) + one-per-(validator, epoch) uniqueness ---
 
 def _attest_unique_key(validator: str, epoch: int) -> str:
+    """meta key of the one-attestation-per-(validator, epoch) uniqueness marker."""
     return f"att:{validator}:{int(epoch)}"
 
 
@@ -466,6 +488,7 @@ def attestations_for_epoch(epoch: int):
 # --- Execution-layer settlement (Phase 2): tally per (exec_cursor, state_root) + one-per-(validator,cursor) ---
 
 def _settle_unique_key(validator: str, cursor: int) -> str:
+    """meta key of the one-settlement-per-(validator, exec_cursor) uniqueness marker."""
     return f"settle:{validator}:{int(cursor)}"
 
 
@@ -519,6 +542,8 @@ def settlement_cursors():
 # heartbeats (insert on apply, delete on rollback). Eligibility = a recert within POSW_LEASE_EPOCHS. ---
 
 def recert_put(address: str, epoch: int):
+    """Record a PoSW recert of `address` at `epoch` in BOTH indexes (apply-side, inside the block txn).
+    DUPSORT treats an exact-dup put as a no-op, so replaying the same block is idempotent."""
     # Two revert-safe indexes: recerts (address -> epoch) for recert_latest, and recert_by_epoch
     # (epoch -> address) so get_open_registry can range-scan the currently-leased set (like heartbeats did).
     def _do(txn):
@@ -528,6 +553,7 @@ def recert_put(address: str, epoch: int):
 
 
 def recert_del(address: str, epoch: int):
+    """Revert recert_put exactly (rollback): delete the precise (address, epoch) dup from both indexes."""
     def _do(txn):
         txn.delete(address.encode(), be8(int(epoch)), db=_dbs()["recerts"])
         txn.delete(be8(int(epoch)), address.encode(), db=_dbs()["recert_by_epoch"])
@@ -620,41 +646,50 @@ def recert_epochs(address: str, upto_epoch: int = None) -> list:
 # --- Bridge withdrawal nullifiers (Phase 2): each (addr, nonce) exit may be claimed on L1 at most once ---
 
 def bridge_nullifier_exists(addr: str, nonce: str) -> bool:
+    """True if the (addr, nonce) bridge exit was already claimed (double-claim replay guard)."""
     return meta_get_int(f"bridgenull:{addr}:{nonce}", 0) == 1
 
 
 def bridge_nullifier_put(addr: str, nonce: str):
+    """Burn the (addr, nonce) bridge-exit nullifier (apply-side, atomic with the exit)."""
     meta_set_int(f"bridgenull:{addr}:{nonce}", 1)
 
 
 def bridge_nullifier_del(addr: str, nonce: str):
+    """Revert bridge_nullifier_put exactly (rollback un-burns the nullifier)."""
     meta_del(f"bridgenull:{addr}:{nonce}")
 
 
 # --- Shielded-pool UNSHIELD nullifiers: each (addr, nonce) unshield exit is claimable on L1 exactly once ---
 def shield_nullifier_exists(addr: str, nonce: str) -> bool:
+    """True if the (addr, nonce) unshield exit was already claimed (double-claim replay guard)."""
     return meta_get_int(f"shieldnull:{addr}:{nonce}", 0) == 1
 
 
 def shield_nullifier_put(addr: str, nonce: str):
+    """Burn the (addr, nonce) unshield nullifier (apply-side, atomic with the exit)."""
     meta_set_int(f"shieldnull:{addr}:{nonce}", 1)
 
 
 def shield_nullifier_del(addr: str, nonce: str):
+    """Revert shield_nullifier_put exactly (rollback un-burns the nullifier)."""
     meta_del(f"shieldnull:{addr}:{nonce}")
 
 
 # --- Presence-dividend collection nullifiers: each (addr, nonce) dividend claim is spendable on L1 once ---
 
 def dividend_nullifier_exists(addr: str, nonce: str) -> bool:
+    """True if the (addr, nonce) dividend claim was already spent (double-claim replay guard)."""
     return meta_get_int(f"divnull:{addr}:{nonce}", 0) == 1
 
 
 def dividend_nullifier_put(addr: str, nonce: str):
+    """Burn the (addr, nonce) dividend-claim nullifier (apply-side, atomic with the payout)."""
     meta_set_int(f"divnull:{addr}:{nonce}", 1)
 
 
 def dividend_nullifier_del(addr: str, nonce: str):
+    """Revert dividend_nullifier_put exactly (rollback un-burns the nullifier)."""
     meta_del(f"divnull:{addr}:{nonce}")
 
 
@@ -694,15 +729,19 @@ def treasury_vote_weight(pid: str, validator: str) -> int:
 # A vote can be CHANGED/WITHDRAWN by re-voting (it overwrites). To revert that overwrite exactly, we stash the
 # PRIOR (existed?, weight) keyed by the overwriting tx's txid, and restore it on rollback.
 def treasury_vote_prev_put(txid: str, existed: bool, weight: int):
+    """Stash the PRIOR vote state (existed?, snapshotted weight) under the overwriting vote-tx's txid,
+    so rolling back a re-vote restores exactly what it replaced."""
     meta_set_int(f"tvprevE:{txid}", 1 if existed else 0)
     meta_set_int(f"tvprevW:{txid}", int(weight))
 
 
 def treasury_vote_prev_get(txid: str):
+    """The stashed prior vote state for txid as (existed: bool, weight: int); (False, 0) if no record."""
     return (meta_get_int(f"tvprevE:{txid}", 0) == 1, meta_get_int(f"tvprevW:{txid}", 0))
 
 
 def treasury_vote_prev_del(txid: str):
+    """Drop the stashed prior-vote record for txid (consumed on rollback)."""
     meta_del(f"tvprevE:{txid}"); meta_del(f"tvprevW:{txid}")
 
 
@@ -720,33 +759,41 @@ def treasury_voters(pid: str):
 
 # --- executed-proposal nullifier: a pid pays out AT MOST ONCE (revert-safe, mirror of dividend_nullifier) ---
 def treasury_executed_exists(pid: str) -> bool:
+    """True if proposal `pid` already paid out (the at-most-once execution guard)."""
     return meta_get_int(f"tspend:{pid}", 0) == 1
 
 
 def treasury_executed_put(pid: str):
+    """Burn the executed-proposal nullifier for `pid` (apply-side, atomic with the payout)."""
     meta_set_int(f"tspend:{pid}", 1)
 
 
 def treasury_executed_del(pid: str):
+    """Revert treasury_executed_put exactly (rollback re-arms the proposal)."""
     meta_del(f"tspend:{pid}")
 
 
 # --- anti-hoard self-burn: amount burned at a period-boundary block, stored so rollback restores it exactly ---
 def treasury_burn_get(height: int) -> int:
+    """Amount self-burned at boundary block `height` (0 if none) — read by rollback to re-credit exactly."""
     return meta_get_int(f"tburn:{height}", 0)
 
 
 def treasury_burn_put(height: int, amount: int):
+    """Record the anti-hoard amount burned at `height` (apply-side revert record)."""
     meta_set_int(f"tburn:{height}", int(amount))
 
 
 def treasury_burn_del(height: int):
+    """Drop the burn record for `height` (rollback, after the amount is restored)."""
     meta_del(f"tburn:{height}")
 
 
 # --- proposal metadata index (NON-consensus, NOT in the state root): the spend content per pid, so the Quorum
 # tab can list proposals. Written first-writer-wins on the first vote for a pid; a purely local display aid. ---
 def treasury_proposal_put(pid: str, spend: dict):
+    """INSERT-OR-IGNORE the spend content for `pid` (first vote wins) — display metadata for the
+    Quorum tab; votes/weights/execution stay in the consensus helpers above."""
     def _do(txn):
         if txn.get(pid.encode(), db=_dbs()["treasury_proposals"]) is None:
             txn.put(pid.encode(), _pack(dict(spend)), db=_dbs()["treasury_proposals"])
@@ -754,6 +801,7 @@ def treasury_proposal_put(pid: str, spend: dict):
 
 
 def treasury_proposals_all():
+    """All (pid, spend_doc) proposal-metadata rows in key order (Quorum tab listing)."""
     def _do(txn):
         out = []
         with txn.cursor(db=_dbs()["treasury_proposals"]) as cur:
@@ -766,6 +814,7 @@ def treasury_proposals_all():
 # --- RANDAO commit-reveal (#7): one commit per (sender, target_epoch) + revealed secrets per epoch ---
 
 def _commit_key(sender: str, target_epoch: int) -> bytes:
+    """commits key "sender|target_epoch" — exactly one commitment slot per (sender, epoch)."""
     return f"{sender}|{int(target_epoch)}".encode()
 
 
@@ -778,12 +827,14 @@ def commit_get(sender: str, target_epoch: int):
 
 
 def commit_put(sender: str, target_epoch: int, commitment: str):
+    """Store sender's RANDAO commitment for target_epoch (apply-side; revert via commit_del)."""
     def _do(txn):
         txn.put(_commit_key(sender, target_epoch), commitment.encode(), db=_dbs()["commits"])
     _write(_do)
 
 
 def commit_del(sender: str, target_epoch: int):
+    """Revert commit_put exactly (rollback deletes the commitment slot)."""
     def _do(txn):
         txn.delete(_commit_key(sender, target_epoch), db=_dbs()["commits"])
     _write(_do)
@@ -797,6 +848,7 @@ def reveal_put(target_epoch: int, secret: str):
 
 
 def reveal_del(target_epoch: int, secret: str):
+    """Revert reveal_put exactly (rollback deletes the precise secret dup)."""
     def _do(txn):
         txn.delete(be8(target_epoch), secret.encode(), db=_dbs()["reveals"])
     _write(_do)
@@ -826,6 +878,8 @@ def unbond_get(address: str):
 
 
 def unbond_put(address: str, amount: int, release_block: int):
+    """Create-or-replace the single pending unbond for `address` (unbond apply; rollback of a
+    withdraw re-puts the doc it consumed)."""
     def _do(txn):
         txn.put(address.encode(), _pack({"amount": int(amount), "release_block": int(release_block)}),
                 db=_dbs()["unbonds"])
@@ -833,6 +887,7 @@ def unbond_put(address: str, amount: int, release_block: int):
 
 
 def unbond_del(address: str):
+    """Delete the pending unbond (matured withdraw apply, or rollback of the unbond tx)."""
     def _do(txn):
         txn.delete(address.encode(), db=_dbs()["unbonds"])
     _write(_do)
@@ -841,6 +896,8 @@ def unbond_del(address: str):
 # --- bonded producer RAMP: stake-weighted bond age (epoch) per address. Absent => 0 (fully aged: existing
 # and genesis-seeded stakes are full-weight; only a NEW bond via the bond tx sets a recent epoch and ramps).
 def bond_since_get(address: str) -> int:
+    """Bond-age epoch for `address`, defaulting the unset case to 0 (== fully aged, full weight).
+    Use bond_since_get_raw when 'unset' must stay distinguishable (exact revert)."""
     def _do(txn):
         raw = txn.get(address.encode(), db=_dbs()["bond_since"])
         return un_be8(raw) if raw is not None else 0
@@ -870,12 +927,15 @@ def bond_since_many(addresses):
 
 
 def bond_since_put(address: str, epoch: int):
+    """Set the bond-age epoch (a bond tx starts/refreshes the stake-weight ramp at its epoch)."""
     def _do(txn):
         txn.put(address.encode(), be8(int(epoch)), db=_dbs()["bond_since"])
     _write(_do)
 
 
 def bond_since_del(address: str):
+    """Delete the bond-age record, returning the address to the unset (fully aged) default —
+    the exact revert when bond_since_revert_pop says there was no prior value."""
     def _do(txn):
         txn.delete(address.encode(), db=_dbs()["bond_since"])
     _write(_do)
@@ -904,6 +964,7 @@ def bond_since_revert_pop(txid: str):
 # One doc per lock, keyed by the lock tx's txid. Mutated in place by claim/refund (status open->claimed/
 # refunded), which is revert-symmetric: the doc is self-describing so rollback restores the prior status.
 def htlc_get(htlc_id: str):
+    """The HTLC doc for `htlc_id` (the lock tx's txid), or None if no such lock."""
     def _do(txn):
         raw = txn.get(htlc_id.encode(), db=_dbs()["htlcs"])
         return _unpack(raw) if raw is not None else None
@@ -911,12 +972,15 @@ def htlc_get(htlc_id: str):
 
 
 def htlc_put(htlc_id: str, doc: dict):
+    """Create-or-replace the HTLC doc (lock apply, claim/refund status flips, and their exact reverts —
+    the self-describing doc carries the prior status)."""
     def _do(txn):
         txn.put(htlc_id.encode(), _pack(doc), db=_dbs()["htlcs"])
     _write(_do)
 
 
 def htlc_del(htlc_id: str):
+    """Delete the HTLC doc (rollback of the lock tx removes the lock it created)."""
     def _do(txn):
         txn.delete(htlc_id.encode(), db=_dbs()["htlcs"])
     _write(_do)
@@ -945,12 +1009,15 @@ def alias_get(name: str):
 
 
 def alias_put(name: str, owner: str):
+    """Map alias `name` -> `owner` (register/transfer apply; rollback re-puts the prior owner —
+    alias_ops needs no side record because the tx itself names it)."""
     def _do(txn):
         txn.put(name.encode(), owner.encode(), db=_dbs()["aliases"])
     _write(_do)
 
 
 def alias_del(name: str):
+    """Free alias `name` (unregister apply, or rollback of a register)."""
     def _do(txn):
         txn.delete(name.encode(), db=_dbs()["aliases"])
     _write(_do)
@@ -993,6 +1060,7 @@ def block_index_del(block_number: int, block_hash: str):
 
 
 def hash_by_number(block_number: int):
+    """Block hash at height `block_number`, or None if unindexed (beacon/FFG anchors resolve through this)."""
     def _do(txn):
         v = txn.get(be8(block_number), db=_dbs()["block_by_num"])
         return v.decode() if v is not None else None
@@ -1035,6 +1103,8 @@ def tx_index_del(txid: str, block_number: int, sender: str, recipient: str):
 
 
 def tx_get(txid: str):
+    """Primary tx-index doc {block_number, sender, recipient} for txid, or None — locates the block
+    that carries the tx (get_transaction then reads the full tx from the block body)."""
     def _do(txn):
         raw = txn.get(txid.encode(), db=_dbs()["tx"])
         return _unpack(raw) if raw is not None else None

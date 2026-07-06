@@ -47,6 +47,8 @@ def resolve_alias(name):
 
 
 def _op_fields(transaction):
+    """(op, name, to) from an alias tx's `data`; raises AssertionError (rejecting the tx) when data
+    isn't an object, so validate/apply never touch a malformed payload."""
     data = transaction.get("data")
     if not isinstance(data, dict):
         raise AssertionError("alias tx data must be an object")

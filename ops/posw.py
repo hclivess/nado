@@ -24,11 +24,15 @@ from protocol import POSW_T, POSW_S, POSW_K   # authoritative consensus paramete
 
 
 def _h(b: bytes) -> bytes:
+    """the single hash of the whole scheme: 32-byte blake2b (the chain's existing assumption)"""
     return hashlib.blake2b(b, digest_size=32).digest()
 
 
 # --- indexed binary Merkle over the ordered checkpoints (position matters; duplicate last if odd) ---
 def _merkle_layers(leaves):
+    """All layers of the indexed binary Merkle tree, leaves first, root last. An odd node is
+    paired with ITSELF (duplicate-last) — _merkle_proof and _merkle_verify assume exactly this
+    shape, so the three functions must evolve together or openings stop verifying."""
     layers = [list(leaves)]
     cur = layers[0]
     while len(cur) > 1:
@@ -38,6 +42,8 @@ def _merkle_layers(leaves):
 
 
 def _merkle_proof(layers, idx):
+    """Authentication path for leaf `idx`: one sibling per layer; where a layer's last node was
+    duplicated the node stands in as its own sibling (mirrors _merkle_layers)."""
     proof = []
     for layer in layers[:-1]:
         sib = idx ^ 1
@@ -47,6 +53,9 @@ def _merkle_proof(layers, idx):
 
 
 def _merkle_verify(leaf, idx, proof, root):
+    """Fold the authentication path back up to the root; each level's left/right order comes from
+    the index bit, so the proof is POSITION-binding — a prover cannot open the right checkpoint
+    value at the wrong segment index."""
     h = leaf
     for sib in proof:
         h = _h(sib + h) if (idx & 1) else _h(h + sib)
@@ -55,6 +64,11 @@ def _merkle_verify(leaf, idx, proof, root):
 
 
 def _fiat_shamir(root: bytes, C: int, k: int):
+    """The k challenge segment indices, derived from the Merkle ROOT alone (H(root || i) mod C) —
+    the prover has to commit to every checkpoint before learning which segments are spot-checked,
+    so cheating on even a few segments is caught with probability ~1-((C-cheated)/C)^k. The
+    transcript is byte-exact by construction (32-byte root + 4-byte big-endian counter); any
+    encoding drift makes prover and verifier open DIFFERENT segments and every honest proof fails."""
     return [int.from_bytes(_h(root + i.to_bytes(4, "big")), "big") % C for i in range(k)]
 
 

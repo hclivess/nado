@@ -27,6 +27,9 @@ TO_WIPEOUT = ["blocks", "index", "logs"]
 
 
 def purge(assume_yes=False):
+    """Delete the chain-state dirs (blocks/, index/, logs/) under the data home after confirmation
+    (skipped with assume_yes), keeping private/ and peers/ so the node resyncs from the network
+    under the same identity. No-op if the state is already clean. Node must be stopped first."""
     home = get_home()
     present = [d for d in TO_WIPEOUT if os.path.exists(f"{home}/{d}")]
 

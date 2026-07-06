@@ -44,6 +44,7 @@ def pow_ok(env: dict, bits: int = MSG_POW_BITS) -> bool:
 
 
 def _leading_zero_bits(hexdigest: str) -> int:
+    """leading zero BITS of a hex digest (nibble-walk, integer-only) — the hashcash difficulty measure"""
     n = 0
     for ch in hexdigest:
         v = int(ch, 16)
@@ -82,6 +83,9 @@ def prekey_signing_digest(bundle: dict) -> str:
 class MessagePool:
     def __init__(self, ttl_seconds=MSG_TTL_SECONDS, max_count=MSG_MAX_COUNT,
                  max_bytes=MSG_MAX_BYTES, pow_bits=MSG_POW_BITS):
+        """Every cap/difficulty is injectable so tests run with tiny limits and cheap PoW; production
+        uses the module defaults. Nothing here is consensus — two nodes with different knobs still agree
+        on the chain."""
         self.ttl = ttl_seconds
         self.max_count = max_count
         self.max_bytes = max_bytes
@@ -124,6 +128,9 @@ class MessagePool:
         return True, "ok", mid
 
     def get_message(self, msg_id):
+        """Fetch one envelope by content id, or None if unknown/expired/evicted. Recipients call this
+        only for the tags they matched in list_tags, so the node never learns which tags are theirs
+        beyond the fetch pattern itself."""
         row = self.messages.get(msg_id)
         return row["env"] if row else None
 
@@ -135,6 +142,7 @@ class MessagePool:
         return [{"seq": r["seq"], "tag": r["env"]["tag"], "id": message_id(r["env"])} for r in rows[:limit]]
 
     def cursor(self) -> int:
+        """current max seq — the since_seq a client resumes list_tags from to see only new arrivals"""
         return self._seq
 
     def drop(self, msg_id) -> bool:
@@ -161,6 +169,8 @@ class MessagePool:
         return True, "ok"
 
     def get_prekey(self, address):
+        """newest published prekey bundle for an address, or None — verified at add_prekey time,
+        returned as-is"""
         row = self.prekeys.get(address)
         return row["bundle"] if row else None
 
@@ -173,6 +183,9 @@ class MessagePool:
         return len(dead)
 
     def _evict_over_cap(self):
+        """Enforce max_count by evicting the LOWEST-seq (oldest-accepted) messages first — the pool's
+        hard memory bound. A flood can therefore only displace old traffic, never grow the pool, and
+        each displacing message still costs its own PoW (DoS floor)."""
         if len(self.messages) <= self.max_count:
             return
         # evict the oldest by seq until back under the cap
@@ -182,6 +195,7 @@ class MessagePool:
             del self.messages[mid]
 
     def stats(self) -> dict:
+        """pool counters for the node's status/monitoring surface"""
         return {"messages": len(self.messages), "prekeys": len(self.prekeys), "cursor": self._seq}
 
     # ---- persistence: survive a node RESTART (the pool is otherwise in-memory, so a restart silently

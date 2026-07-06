@@ -20,6 +20,10 @@ for _stream in (sys.stdout, sys.stderr):
 
 
 def get_logger(logger_name, max_detail=False, file="log.log"):
+    """Build a named logger writing to a rotating file under ~/logs (3 MB x 10 backups) plus a
+    coloredlogs console. Both sinks use UTF-8 with errors='replace' so a localized OS error string
+    can never crash logging (see the Windows fix above); propagate=False keeps root handlers from
+    double-printing. max_detail additionally installs DEBUG-level console logging globally."""
     if not os.path.exists(f"{get_home()}/logs"):
         make_folder(f"{get_home()}/logs", strict=False)
 

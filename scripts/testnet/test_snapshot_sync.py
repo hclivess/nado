@@ -26,6 +26,10 @@ JOIN_WAIT = 180        # seconds to wait for the joiner to catch up
 
 
 def main():
+    """Run the donor→joiner snapshot-sync E2E: wait for the donor to advertise a finalized checkpoint,
+    then start the joiner (donor as its only peer + weak-subjectivity seed) and require BOTH that it
+    reaches the donor's tip and that its log proves it took the snapshot path, not full replay.
+    Exit 0 on pass, 2 on fail; child nodes are always torn down."""
     work = tempfile.mkdtemp(prefix="nado_snapsync_")
     print(f"[snapsync] workdir {work}", flush=True)
     keys = [generate_keydict() for _ in range(2)]                # node0 donor, node1 joiner
@@ -42,12 +46,14 @@ def main():
     procs = {}
 
     def launch(i):
+        """Start node i as a child nado.py with its own HOME, log to <home>/node.log, track in procs."""
         env = dict(base_env, HOME=homes[i])
         lf = open(os.path.join(homes[i], "node.log"), "w")
         procs[i] = subprocess.Popen([sys.executable, "nado.py"], cwd=REPO, env=env,
                                     stdout=lf, stderr=subprocess.STDOUT)
 
     def logtail(i, n=45):
+        """Last n lines of node i's log (or a placeholder string if unreadable)."""
         try:
             return "".join(open(os.path.join(homes[i], "node.log")).readlines()[-n:])
         except Exception as e:

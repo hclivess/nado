@@ -22,6 +22,12 @@ class MemServer:
     """storage thread for core.py, also accessed by most other threads, serves mostly as data storage"""
 
     def __init__(self, logger):
+        """Assemble the node's ENTIRE shared runtime state in one place: keys, config (env vars
+        override config.dat for every headless knob), tx/message pools, pacing state, and the
+        persisted safety floors (finalized_height). Constructed ONCE at startup and then shared by
+        every loop thread. Cross-config invariants — notably max_rollbacks < finality_depth <
+        EPOCH_LENGTH, which makes the epoch-beacon anchor un-reorgable — are asserted HERE so a
+        mis-set config fails loudly at boot instead of silently disabling a protection later."""
         self.logger = logger
         self.logger.info("Starting MemServer")
         self.genesis_timestamp = 1669852800
@@ -125,6 +131,9 @@ class MemServer:
         # AUTO-COLLECT the presence dividend, unattended (core_loop.maybe_auto_collect) — DEFAULT ON. Only an
         # OPEN-lane member accrues one, so a bonded-only node is a no-op. NADO_AUTO_COLLECT env overrides config.
         def _flag(env, cfg, default):
+            """Boolean knob resolved env var > config[cfg] > default; '0'/'false'/'no'/'off'
+            (any case) mean False, anything else True — so systemd Environment= lines and
+            hand-edited config values both behave predictably."""
             v = _os.environ.get(env)
             v = self.config.get(cfg, default) if v is None else v
             return str(v).strip().lower() not in ("0", "false", "no", "off")
@@ -163,6 +172,9 @@ class MemServer:
             self.max_registrations_window = 7200.0
 
     def ban_peer(self, peer):
+        """Queue a misbehaving/unreachable peer for purge (deduplicated against both the purge list
+        and the already-unreachable set). Seed peers are EXEMPT — never exiled, always retried —
+        because they are the weak-subjectivity anchor (see below)."""
         # Operator seeds are the weak-subjectivity anchor — NEVER exile them. A transient blip (e.g. the
         # seed restarting) would otherwise drop it into the 1-hour unreachable ban, its heavy tip vanishes
         # from the pool, and the node falls back to whatever stalled/forked peer is left. A seed is always
@@ -174,6 +186,10 @@ class MemServer:
             self.purge_peers_list.append(peer)
 
     def get_transaction_pool_hash(self) -> [str, None]:
+        """blake2b of the SORTED transaction pool (None when empty). Sorting first makes the hash
+        canonical — two nodes holding the same tx set report the same hash regardless of arrival
+        order — which is what lets the consensus loop majority-vote on pool hashes instead of
+        shipping full pools around. Hashes a copy so a concurrent merge can't mutate mid-sort."""
         if self.transaction_pool:
             sorted_transaction_pool = sort_transaction_pool(self.transaction_pool.copy())
             transaction_pool_hash = blake2b_hash(sorted_transaction_pool)
@@ -182,6 +198,8 @@ class MemServer:
         return transaction_pool_hash
 
     def get_uptime(self) -> int:
+        """Whole seconds this node process has been up (NOT system uptime) — refreshed into
+        reported_uptime by the core loop and shared with peers via /status."""
         return get_timestamp_seconds() - self.start_time
 
     def merge_remote_transactions(self, user_origin=False) -> None:
@@ -305,6 +323,9 @@ class MemServer:
             return {"message": "Success", "result": True}
 
     def merge_transactions(self, transactions, user_origin=False) -> None:
+        """Merge a whole remote batch one tx at a time through merge_transaction, which contains its
+        own failures — so a single malformed/invalid entry from a malicious peer can never abort the
+        rest of the batch. Per-tx results are deliberately discarded (gossip is best-effort)."""
         for transaction in transactions:
             self.merge_transaction(transaction, user_origin)
 

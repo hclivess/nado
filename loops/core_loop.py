@@ -71,6 +71,10 @@ def peer_claims_heavier_tip(statuses, our_weight, have_peers, rejected_tips):
 
 
 def minority_consensus(majority_hash, sample_hash):
+    """True when a pool majority exists and OUR sample hash differs from it — i.e. we are in the
+    minority for that pool and should converge toward the majority. No majority yet (quorum not
+    formed, e.g. a lone/bootstrap node) counts as NOT minority, so a solo node never replaces its
+    own pool. Used for the tx-pool reconcile only — chain fork-choice is weight-based, not this."""
     if not majority_hash:
         return False
     elif sample_hash != majority_hash:
@@ -80,6 +84,9 @@ def minority_consensus(majority_hash, sample_hash):
 
 
 def old_block(block):
+    """True when the block's committed timestamp is more than a day in the past. Reporting only
+    (flags a sync-replayed historical block in produce_block's log) — NOT a validity rule; the
+    consensus timestamp check is valid_block_timestamp."""
     if block["block_timestamp"] < get_timestamp_seconds() - 86400:
         return True
     else:
@@ -90,6 +97,9 @@ class CoreClient(threading.Thread):
     """thread which takes control of basic mode switching, block creation and transaction pools operations"""
 
     def __init__(self, memserver, consensus, logger):
+        """Wire the loop to the shared memserver/consensus state and zero the per-node guards and
+        throttles the inline comments document (last-signed height, auto-* per-epoch baselines,
+        log backoffs, reconcile timer)."""
         threading.Thread.__init__(self)
         self.duration = 0
         self.logger = logger
@@ -134,6 +144,15 @@ class CoreClient(threading.Thread):
         return "produce" if self.memserver.since_last_block >= bt else "building"
 
     def normal_mode(self):
+        """The caught-up per-second pass. Drains the mempool CONTINUOUSLY (user_tx_buffer ->
+        tx_buffer -> transaction_pool, no phase gating — see _mode for why the old period machine
+        lost txs), reconciles the pool with the peer majority at most once per block interval, and
+        runs the best-effort periodic duties (FFG attest, RANDAO, auto-bond/collect/register,
+        rolling-mode prune). Minting happens ONLY in the 'produce' pacing slot (block_time pacing
+        is NOT consensus) and only past three gates: enough peers (min_peers == 0 permits solo
+        production), no operator-forced sync, and the CAUGHT-UP gate (peer_claims_heavier_tip) —
+        never mint while any peer advertises an unrejected heavier tip, or we build a divergent
+        chain whose finalized tip can no longer be rolled back to reconcile."""
         try:
             self.memserver.reported_uptime = self.memserver.get_uptime()
             mode = self._mode()
@@ -375,6 +394,10 @@ class CoreClient(threading.Thread):
         return True
 
     def replace_transaction_pool(self):
+        """Adopt a sync-qualified peer's transaction pool wholesale when ours hashed into the pool
+        MINORITY (normal_mode's once-per-interval reconcile). Mempool convergence only — NOT chain
+        fork-choice (tx-pool agreement stays plurality-based; the chain uses objective weight).
+        Best-effort: no qualifying peer or a failed fetch simply keeps our current pool."""
         sync_from = self.get_peer_to_sync_from(source_pool=self.consensus.block_hash_pool)
         """get peer which is in majority for the given hash_pool"""
 
@@ -415,6 +438,8 @@ class CoreClient(threading.Thread):
 
             # 1) collect peers' advertised snapshots; require a super-majority (Sybil gate)
             async def _statuses(ips):
+                """Poll every candidate donor's status concurrently; exceptions are returned in-line
+                (return_exceptions) so one dead peer can't sink the whole quorum sample."""
                 return await asyncio.gather(*[get_remote_status(ip, logger=self.logger) for ip in ips],
                                             return_exceptions=True)
             raw = asyncio.run(_statuses(peers))
@@ -506,6 +531,17 @@ class CoreClient(threading.Thread):
             return False
 
     def emergency_mode(self):
+        """BEHIND-mode loop (entered when fork-choice says a strictly-better tip exists, or under
+        operator force_sync_ip): pick a donor advertising the heaviest tip, then either FAST-FORWARD
+        (donor knows our tip -> fetch the gap and produce_block each block) or REORG (donor doesn't
+        -> roll back one block and retry, REINSERTING the reverted txs into the mempool — revert
+        symmetry: a reorg must re-mine user transactions, never drop them). Being-behind is
+        RE-EVALUATED every pass, because check_mode only runs BETWEEN emergency entries — a heavier
+        tip that vanishes or gets rejected mid-loop must exit here, not spin forever. Every failure
+        path calls _reject_heaviest_tip() (Sybil-stall/weight-DoS guard: a bogus advertised weight
+        must not re-enter us indefinitely). Rollback depth is rate-limited per burst (max_rollbacks)
+        and hard-capped by the finality floor (FinalityViolation -> refuse, resync forward only).
+        A still-at-genesis node that no donor can full-serve retries snapshot bootstrap from here."""
         self.logger.warning("Entering emergency mode")
         if self.snapshot_bootstrap():
             self.logger.warning("State bootstrapped from snapshot; continuing with tail sync")
@@ -682,6 +718,13 @@ class CoreClient(threading.Thread):
         return False
 
     def rebuild_block(self, block):
+        """Deterministically reconstruct a block from OUR local tip + the incoming block's tx set and
+        its OWN committed timestamp: winner, reward, cumulative fees and fork weight are all
+        RE-DERIVED from parent state, so only a block matching the canonical reconstruction can be
+        incorporated — a peer cannot misattribute the producer, inflate the reward, or forge weight
+        (produce_block then enforces rebuilt hash == claimed hash). Also reused for our OWN candidate
+        after verification drops an invalid tx. NEVER stamp wall-clock time here — see the inline
+        timestamp note: doing so forked every catching-up node onto a private chain."""
         # Reconstruct the block deterministically from the LOCAL tip + the block's tx set: the winner
         # (block_creator) and reward/cumulative_fees are RECOMPUTED from local parent state, so a
         # peer cannot misattribute the producer or inject an inflated reward — only a block matching
@@ -780,6 +823,11 @@ class CoreClient(threading.Thread):
         self.maybe_checkpoint_state(block)
 
     def maybe_checkpoint_state(self, block):
+        """At each CHECKPOINT_INTERVAL boundary, persist a verified snapshot of state@N for
+        rolling-node sync. Correct by construction ONLY at its call site (end of incorporate_block:
+        the write txn for block N has committed and no later block is applied, so accounts.db IS
+        state@N). Best-effort and non-fatal — a failed checkpoint costs future donors a snapshot,
+        never the block."""
         n = block["block_number"]
         if n <= 0 or n % snapshot_ops.CHECKPOINT_INTERVAL != 0:
             return
@@ -986,6 +1034,15 @@ class CoreClient(threading.Thread):
             self.logger.info(f"Auto-register skipped: {e}")
 
     def validate_transactions_in_block(self, block, logger, remote_peer, remote):
+        """CONSENSUS validation of the block's tx set against PARENT state at the block's own height:
+        target-block match, per-block blob DA cap, whole-block aggregate spending, reserved-tx rules,
+        then per-tx validity — all fail-closed for a peer's block. The critical remote/own asymmetry
+        on a bad tx: a REMOTE block containing ANY invalid tx is rejected WHOLESALE (a peer never gets
+        partial acceptance of a forged set), while OUR OWN candidate silently DROPS the offender and
+        keeps building — one stale mempool tx must never cost the whole production slot, and removal
+        only REDUCES spending so the survivors stay valid (produce_block then rebuilds + re-hashes).
+        Side effect: the block's txs are evicted from the local pools/buffers so they aren't re-mined.
+        Runs inside verify_block, strictly BEFORE incorporation, so all account reads are as-of-parent."""
         transactions = sort_list_dict(block["block_transactions"])
 
         # target-block matching enforced from block 1
@@ -1213,11 +1270,17 @@ class CoreClient(threading.Thread):
             return False
 
     def init_hashes(self):
+        """Seed the shared transaction-pool hash before the first pass so the pool-minority reconcile
+        (and peers polling our status) compare against a real value, never a stale/unset one."""
         self.memserver.transaction_pool_hash = (
             self.memserver.get_transaction_pool_hash()
         )
 
     def check_mode(self):
+        """Decide the next pass's mode: emergency (sync/reorg) when the objective fork-choice says a
+        strictly-better tip exists (minority_block_consensus) OR an operator forced a sync; normal
+        otherwise. Also releases force_sync_ip once we agree with >80% of peers on a fresh tip —
+        the forced donor has served its purpose and normal fork-choice takes back over."""
         if self.minority_block_consensus():
             self.memserver.emergency_mode = True
             self.logger.warning("We are out of consensus")
@@ -1231,6 +1294,10 @@ class CoreClient(threading.Thread):
             self.memserver.force_sync_ip = None
 
     def run(self) -> None:
+        """Thread entry: once per run_interval, re-evaluate our consensus position (check_mode) and
+        dispatch to normal_mode (caught up: drain mempool + maybe mint) or emergency_mode (behind:
+        sync/reorg). Exceptions are contained per pass — the core loop must outlive any single
+        failure until terminate is set."""
         self.init_hashes()
 
         while not self.memserver.terminate:

@@ -11,6 +11,10 @@ from ops.pool_ops import get_from_pool
 
 
 def get_pool_majority(pool):
+    """Plurality hash of a fully-populated peer pool, or None while the pool is empty or ANY entry
+    is still None — a half-formed quorum must not elect a premature majority that would trigger a
+    pool replacement. Plurality is peer-count-based, so it is kept for the tx/producer pools ONLY;
+    chain fork-choice uses the Sybil-resistant cumulative-weight path instead."""
     if pool and None not in pool.values():
         majority_hash = get_majority(pool)
         return majority_hash
@@ -19,6 +23,9 @@ def get_pool_majority(pool):
 
 
 def get_pool_percentage(pool, majority_pool_hash):
+    """Share (%) of pool entries agreeing with the given majority hash. Returns 100 while the pool
+    is empty or still partially populated — an unformed quorum reads as full agreement, never as
+    dissent (the percentage gates force_sync release and health reporting, not fork-choice)."""
     if pool and None not in pool.values():
         pool_percentage = percentage(majority_pool_hash, sorted(pool.values()))
         return pool_percentage
@@ -30,6 +37,10 @@ class ConsensusClient(threading.Thread):
     """thread to control peer pools, consensus and refreshing of values"""
 
     def __init__(self, memserver, logger):
+        """Set up the peer-keyed pools (status / block-hash / tx-hash), the plurality outputs, and
+        the objective weight-based fork-choice state (tip_weights, heaviest_block_hash, and the
+        bounded rejected_tips exclusion) documented inline. Other threads read these fields
+        directly, so everything observable is initialized before the thread starts."""
         threading.Thread.__init__(self)
         self.duration = 0
         self.logger = logger
@@ -132,6 +143,10 @@ class ConsensusClient(threading.Thread):
             self.heaviest_block_weight = tip_weights[self.heaviest_block_hash]
 
     def run(self) -> None:
+        """Thread entry: once per second, re-hash our own tx pool and re-derive the whole consensus
+        view (pool majorities + heaviest tip) via refresh_hashes. Exceptions are contained per pass
+        — the fork-choice inputs must keep refreshing for the life of the process, since the core
+        loop's caught-up gate and emergency exit both read them concurrently."""
         while not self.memserver.terminate:
             try:
                 start = get_timestamp_seconds()

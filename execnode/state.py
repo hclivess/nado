@@ -34,6 +34,8 @@ MAX_EXIT_VALUE = 1 << 61
 
 class ExecState:
     def __init__(self, path):
+        """Initialise every state component empty, then load() the last snapshot from `path` if one
+        exists — so a restarted exec node resumes from its persisted cursor instead of re-replaying L1."""
         self.path = path
         self.contracts = {}        # cid -> {"code": {...}, "storage": {mapname: {key: int}}, "deployer": addr}
         self.cursor = -1           # highest L1 block height fully applied
@@ -67,6 +69,8 @@ class ExecState:
 
     # --- persistence -----------------------------------------------------------------------------
     def load(self):
+        """Restore the last save()d snapshot from self.path, if any. Every key is optional with an empty
+        default, so snapshots written by older versions (pre-dividend, pre-shielded, …) still load."""
         if os.path.exists(self.path):
             with open(self.path) as f:
                 d = json.load(f)
@@ -89,6 +93,9 @@ class ExecState:
                 self.field_pool = FieldShieldedPool.from_dict(d["field_pool"])
 
     def save(self):
+        """Atomically persist the whole state: snapshot under the mutate lock (consistent vs concurrent
+        thread-applies), then write sorted-key JSON to a tmp file and os.replace it — a crash mid-write
+        can never leave a torn state file."""
         # M-10: hold the mutate lock while snapshotting so a concurrent thread-apply can't mutate the
         # nullifier set / commitment list mid-serialization (which could produce a torn snapshot or raise
         # "set changed size during iteration").
@@ -293,6 +300,8 @@ class ExecState:
             return f"skip shield: {e}"
 
     def contract_id(self, deployer, code, nonce):
+        """Deterministic contract id H(deployer, code, nonce) (truncated) — identical on every exec node,
+        so a deployer can know its cid before the blob even lands (submit_blob echoes it)."""
         return blake2b_hash(["deploy", deployer, code, nonce])[:32]
 
     # --- applying blobs --------------------------------------------------------------------------

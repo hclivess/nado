@@ -18,6 +18,7 @@ MDS = [[2, 1], [1, 3]]                            # 2×2 MDS (all entries + dete
 
 
 def _c(*parts):
+    """Nothing-up-my-sleeve constant: BLAKE2b of the labels, reduced into the field."""
     return int(blake2b_hash(["poseidon", *[str(p) for p in parts]]), 16) % F.P
 
 RC = [[_c("rc", r, 0), _c("rc", r, 1)] for r in range(ROUNDS)]     # round constants
@@ -28,6 +29,7 @@ DOM_OWNER, DOM_CM, DOM_NF, DOM_NODE = 1, 2, 3, 4
 
 
 def sbox(x):
+    """x^ALPHA — a permutation of F_p since gcd(ALPHA, p-1) = 1."""
     return F.pw(x, ALPHA)
 
 
@@ -51,11 +53,26 @@ def hashn(elements):
 
 
 def compress(a, b):
+    """2-to-1 Merkle-node compression, domain-separated with DOM_NODE."""
     return hashn([DOM_NODE, a, b])
 
 
 # --- field-native note algebra (the STARK counterpart of execnode/shielded.py's BLAKE2b version) ---
-def owner_of(nsk):                 return hashn([DOM_OWNER, nsk % F.P])
-def commit(value, owner, rho):     return hashn([DOM_CM, value % F.P, owner % F.P, rho % F.P])
-def nullifier(nsk, rho):           return hashn([DOM_NF, nsk % F.P, rho % F.P])
-def merkle_node(left, right):      return compress(left, right)
+def owner_of(nsk):
+    """Spend-key binding: owner = hashn([DOM_OWNER, nsk])."""
+    return hashn([DOM_OWNER, nsk % F.P])
+
+
+def commit(value, owner, rho):
+    """Note commitment cm = hashn([DOM_CM, value, owner, rho])."""
+    return hashn([DOM_CM, value % F.P, owner % F.P, rho % F.P])
+
+
+def nullifier(nsk, rho):
+    """Nullifier nf = hashn([DOM_NF, nsk, rho]) — deterministic per note, unlinkable to cm without nsk."""
+    return hashn([DOM_NF, nsk % F.P, rho % F.P])
+
+
+def merkle_node(left, right):
+    """Tree-node hash (alias of compress)."""
+    return compress(left, right)

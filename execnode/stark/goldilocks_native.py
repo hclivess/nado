@@ -23,14 +23,17 @@ _LOCK = threading.Lock()
 
 
 def _rou(n):
+    """Primitive n-th root of unity (mirrors field.primitive_root_of_unity, n a power of two)."""
     return pow(7, (_P - 1) // n, _P)
 
 
 def _inv(x):
+    """x^-1 mod p (Fermat)."""
     return pow(x % _P, _P - 2, _P)
 
 
 def _candidates():
+    """Yield candidate shared-library paths: $NADO_GOLDILOCKS_LIB first, then the cargo release dir."""
     env = os.environ.get("NADO_GOLDILOCKS_LIB")
     if env:
         yield env
@@ -63,6 +66,8 @@ def available():
 
 
 def ntt(vals, inverse=False):
+    """Native NTT with the same contract (and bit-identical output) as field.ntt. Serialized on _LOCK — the
+    Rust lib exposes a single static scratch buffer."""
     n = len(vals)
     root = _inv(_rou(n)) if inverse else _rou(n)
     with _LOCK:                                     # shared static buffer -> one native call at a time
@@ -72,6 +77,8 @@ def ntt(vals, inverse=False):
 
 
 def coset_evaluate(coeffs, N, offset):
+    """Native coset evaluation (zero-pad to N, scale coeff j by offset^j, forward NTT) — same contract as the
+    pure-Python path in stark._coset_evaluate."""
     with _LOCK:                                     # shared static buffer -> one native call at a time
         _BUF[:N] = [(coeffs[i] % _P) if i < len(coeffs) else 0 for i in range(N)]
         _LIB.scale(N, offset % _P)

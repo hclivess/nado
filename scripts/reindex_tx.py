@@ -18,6 +18,9 @@ from ops.log_ops import get_logger
 
 
 def main():
+    """Drop the tx index and rebuild it by walking every block 0..tip, filing each tx under its
+    alias-resolved recipient (the owner address, not the alias string). Derived data only —
+    accounts/balances are never written, so an interrupted run just needs a re-run."""
     logger = get_logger(logger_name="reindex_tx")
     create_indexers()
     tip = get_block_ends_info(logger=logger)["latest_block"]["block_number"]

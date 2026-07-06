@@ -22,11 +22,13 @@ from protocol import MIN_TX_FEE
 
 
 def _get(l1, path):
+    """GET l1+path and decode the JSON body (15s timeout)."""
     with urllib.request.urlopen(l1 + path, timeout=15) as r:
         return json.loads(r.read().decode())
 
 
 def _post(l1, path, body):
+    """POST `body` as JSON to l1+path and decode the JSON reply (15s timeout)."""
     req = urllib.request.Request(l1 + path, data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"}, method="POST")
     with urllib.request.urlopen(req, timeout=15) as r:
@@ -34,6 +36,9 @@ def _post(l1, path, body):
 
 
 def main():
+    """Parse the CLI, build a signed blob tx (deploy: fresh random nonce; call: cid/method/args) targeted
+    2 blocks ahead of the L1 tip, submit it, and for a deploy echo the deterministic contract id the
+    execution node will assign once the blob is mined."""
     ap = argparse.ArgumentParser()
     ap.add_argument("action", choices=["deploy", "call"])
     ap.add_argument("rest", nargs="+")

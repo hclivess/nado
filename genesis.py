@@ -14,6 +14,8 @@ from protocol import GENESIS_ADDRESS, CHAIN_ID, TREASURY_GENESIS
 
 
 def create_indexers():
+    """Open the single LMDB env with all named sub-DBs and seed/heal derived state (totals seed,
+    recert_by_epoch backfill). Idempotent — runs on every boot, fresh or existing data dir."""
     # ONE LMDB env with named sub-DBs so the whole incorporate_block mutation (account docs, tx
     # index, block index, totals, recerts) commits in a SINGLE write transaction -> crash-atomic
     # (audit LO-1/CO-4). The schema is schemaless msgpack documents (no DDL): see ops/kv_ops.py for
@@ -34,6 +36,8 @@ def create_indexers():
 
 
 def make_folders():
+    """Idempotently create the node's data directories under get_home() and open the LMDB indexers.
+    Must be safe to re-run over a half-initialized data dir (a prior genesis may have died partway)."""
     # ALL idempotent (strict=False): genesis must be safe to RE-RUN over a half-initialized data dir. If a
     # prior genesis died partway (e.g. the network probe below hung after blocks/ was created), the next boot
     # re-enters here — strict=True would then raise "folder already exists" and brick the node permanently.
@@ -46,6 +50,13 @@ def make_folders():
 
 
 def make_genesis(address, balance, ip, port, timestamp, logger):
+    """Build block 0 and seed the initial chain state: the treasury/genesis account, testnet bond
+    manifest (NADO_TESTNET only), open-lane relay identities (genesis_open.dat), and carried-forward
+    relaunch allocations (genesis_alloc.dat), then persist the block + block-ends pointers.
+
+    Invariant: the block-0 hash covers only (timestamp, []) — account seeding never changes it — but
+    every seeded set MUST be byte-identical across nodes or state (and winner selection) forks at
+    block 1. Deliberately contains NO auto-bond faucet (open lane must never feed the bonded lane)."""
     # Only probe the network for our public IP on a genuinely FRESH node (no config yet). Doing it
     # unconditionally hung genesis whenever the IP service was slow/unreachable — and since make_folders()
     # has already created blocks/, a hang/failure here left a HALF-GENESIS (blocks/ present but block_ends.dat

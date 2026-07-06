@@ -6,15 +6,19 @@ from hashlib import blake2b
 
 
 def create_nonce(length: int = 8):
+    """Random lowercase-ASCII string for node-local identifiers (and the config server_key at
+    length 64). Uses `random`, NOT a CSPRNG — fine for nonces/ids, not for key material."""
     letters = string.ascii_lowercase
     return "".join(random.choice(letters) for i in range(length))
 
 
 def base64encode(data: str) -> str:
+    """str -> base64 str (utf-8); trivial transport-encoding helper, no consensus role."""
     return b64encode(data.encode()).decode()
 
 
 def base64decode(data: str) -> str:
+    """base64 str -> original str (inverse of base64encode)."""
     return b64decode(data).decode()
 
 
@@ -34,10 +38,17 @@ def canonical_bytes(data) -> bytes:
 
 
 def blake2b_hash(data, size: int = 32) -> str:
+    """The chain's general-purpose hash: blake2b (32 B default) over canonical_bytes(data), hex.
+    CONSENSUS-CRITICAL — txids, pool hashes and ids all derive from it, and it is byte-exact across
+    Python versions AND the browser light-miner precisely because canonical_bytes (not repr) feeds it."""
     return blake2b(canonical_bytes(data), digest_size=size).hexdigest()
 
 
 def blake2b_hash_link(link_from, link_to, size: int = 32) -> str:
+    """Hash of an ORDERED (from, to) pair — the chain-link primitive (e.g. block hash =
+    link(timestamp, transactions)). ORDER MATTERS: the pair is encoded as a 2-element JSON list,
+    so link(a, b) != link(b, a); swapping arguments forks the chain. Consensus-critical like
+    blake2b_hash, and equally browser-reproducible via canonical_bytes."""
     # a 2-element list (not a tuple) so the encoding is JSON/browser-reproducible
     return blake2b(canonical_bytes([link_from, link_to]), digest_size=size).hexdigest()
 
@@ -48,22 +59,37 @@ def blake2b_hash_link(link_from, link_to, size: int = 32) -> str:
 # `bridge_withdraw` to verify a withdrawal is in the bonded-quorum-settled root (the one bounded verifier).
 
 def _mh(b: bytes) -> bytes:
+    """Merkle-internal blake2b-256 over RAW bytes — no canonical_bytes wrapping, because leaves are
+    already canonical (the *_leaf builders below emit canonical_bytes) and tree nodes are digests."""
     return blake2b(b, digest_size=32).digest()
 
 
 def _mpair(a: bytes, b: bytes) -> bytes:
+    """Parent = hash of the two children concatenated in SORTED byte order. This one rule is what
+    makes proofs direction-free (no left/right bits to carry or get wrong on either side of the
+    bridge) — both the exec-layer prover and L1's verifier depend on it byte-for-byte."""
     return _mh(a + b) if a <= b else _mh(b + a)
 
 
 def _leaf_hashes(leaves) -> list:
+    """Hash every raw leaf, then SORT (byte order) — the canonical bottom level. Sorting here, with
+    _mpair's sorted parents, is what makes the whole tree independent of caller leaf order."""
     return sorted(_mh(l) for l in leaves)          # leaves: list of raw leaf bytes
 
 
 def _fold(level):
+    """One level up the tree: pair adjacent nodes, DUPLICATING the last node when the level is odd
+    (duplicate-last-leaf rule). merkle_proof mirrors the same rule when emitting siblings — prover
+    and verifier folding must match exactly or every odd-width tree's root diverges."""
     return [_mpair(level[i], level[i + 1] if i + 1 < len(level) else level[i]) for i in range(0, len(level), 2)]
 
 
 def merkle_root(leaves) -> str:
+    """Merkle root (hex) over raw leaf bytes — order-INDEPENDENT thanks to the sorted leaf level +
+    sorted-pair parents, so prover and verifier need not agree on leaf ordering, only on leaf
+    CONTENT (the canonical_bytes leaf encoders below). The empty set hashes a fixed domain tag so
+    'no leaves' has a distinct, unforgeable root instead of an error/sentinel. CONSENSUS-CRITICAL:
+    this is the settled exec-layer state_root that L1 withdrawal verification anchors to."""
     cur = _leaf_hashes(leaves)
     if not cur:
         return _mh(b"nado-empty-merkle").hex()
@@ -89,6 +115,11 @@ def merkle_proof(leaves, leaf):
 
 
 def verify_merkle_proof(leaf, proof, root_hex: str) -> bool:
+    """Recompute the root from `leaf` (raw bytes) and its sibling list (hex, bottom-up) and compare
+    to `root_hex`. No left/right direction bits are needed — _mpair sorts each pair, so the fold is
+    position-free. An empty/None proof asserts the single-leaf tree (root == _mh(leaf)). This is
+    L1's ONE bounded verifier: bridge/dividend/unshield exits all release coins through it, so its
+    hashing rules must stay byte-identical to the prover's (merkle_proof above)."""
     h = _mh(leaf)
     for sib in (proof or []):
         h = _mpair(h, bytes.fromhex(sib))

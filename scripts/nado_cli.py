@@ -29,15 +29,19 @@ MARGIN = 6      # target_block headroom: small so the tx lands in its exact targ
 
 
 def raw(nado):            # "12.5" NADO -> raw int
+    """Convert a human NADO amount (str/float, e.g. "12.5") to raw integer units (10^10 per NADO)."""
     return int((Decimal(str(nado)) * DEC).to_integral_value())
 
 
 def _get(node, path):
+    """GET `path` from the node and return the parsed JSON body."""
     with urllib.request.urlopen(node + path, timeout=20) as r:
         return json.load(r)
 
 
 def _submit(node, tx):
+    """POST a fully signed tx to the node's public /submit_transaction, print the node's verdict
+    (validated exactly like a browser tx) plus the txid, and return acceptance as bool."""
     data = json.dumps(tx).encode()
     req = urllib.request.Request(node + "/submit_transaction", data=data,
                                  headers={"Content-Type": "application/json"})
@@ -50,10 +54,12 @@ def _submit(node, tx):
 
 
 def _tip(node):
+    """Current chain-tip block number, used to aim target_block = tip + MARGIN."""
     return int(_get(node, "/get_latest_block")["block_number"])
 
 
 def _draft(kd, recipient, amount, data, target_block):
+    """Assemble the unsigned tx dict (same field set the web interface builds) for T.create_transaction."""
     return {"sender": kd["address"], "recipient": recipient, "amount": int(amount),
             "timestamp": get_timestamp_seconds(), "data": data, "nonce": create_nonce(),
             "public_key": kd["public_key"], "target_block": int(target_block), "chain_id": CHAIN_ID}
@@ -61,6 +67,7 @@ def _draft(kd, recipient, amount, data, target_block):
 
 # ---- commands ------------------------------------------------------------------------------------
 def c_info(kd, node, a):
+    """Print address, balance/bonded, and mining status (registration, presence, lane weights). Read-only — no tx."""
     acc = _get(node, "/get_account?address=" + kd["address"])
     ms = _get(node, "/mining_status")
     print("address  ", kd["address"])
@@ -70,6 +77,7 @@ def c_info(kd, node, a):
 
 
 def c_send(kd, node, a):
+    """Sign and submit a plain transfer to an ndo… address or an alias, with optional memo and fee override."""
     # lowercase: alias recipients are all-lowercase on-chain, and ndo… addresses are lowercase hex
     # anyway — so `send Alice 1` behaves exactly like `send alice 1`.
     tx = T.create_transaction(_draft(kd, a.to.strip().lower(), raw(a.amount), a.memo or "", _tip(node) + MARGIN),
@@ -78,24 +86,31 @@ def c_send(kd, node, a):
 
 
 def c_bond(kd, node, a):
+    """Lock `amount` NADO as bonded producer stake (bonded-lane mining weight)."""
     _submit(node, T.construct_bond_tx(kd, raw(a.amount), MIN_TX_FEE, _tip(node) + MARGIN))
 
 
 def c_unbond(kd, node, a):
+    """Release `amount` NADO of bonded stake back to spendable balance."""
     _submit(node, T.construct_unbond_tx(kd, raw(a.amount), _tip(node) + MARGIN))
 
 
 def c_alias(kd, node, a):
+    """Register/transfer/unregister an alias; name and --to target are lowercased to the on-chain form."""
     _submit(node, T.construct_alias_tx(kd, a.op, a.name.strip().lower(), _tip(node) + MARGIN,
                                        MIN_TX_FEE, to=(a.to.strip().lower() if a.to else a.to)))
 
 
 def c_collect(kd, node, a):
+    """Submit the collect_dividend blob op to settle the sender's accrued presence dividend."""
     # presence-dividend collection: a blob op the exec node accrues + settles (doc/presence-dividend.md)
     _submit(node, T.construct_blob_tx(kd, {"op": "collect_dividend"}, _tip(node) + MARGIN, MIN_TX_FEE))
 
 
 def c_register(kd, node, a):
+    """One-time open-lane mining registration: fetch the PoSW anchor block (target_block - 30) and the
+    node's current required T, compute the sequential proof locally (can take a while), then submit.
+    The anchor must be settled by submission time — MARGIN keeps it inside an already-final range."""
     tb = _tip(node) + MARGIN
     anchor_num = max(0, tb - POSW_ANCHOR_OFFSET)
     anchor = _get(node, "/get_block_number?number=%d" % anchor_num).get("block_hash")
@@ -112,32 +127,39 @@ def c_register(kd, node, a):
 
 
 def _spend(a):   # shared treasury spend fields
+    """Extract the treasury-spend identity tuple (recipient/amount/memo/nonce/expiry) shared by
+    propose/vote/execute — votes only aggregate when every voter signs the exact same tuple."""
     return dict(recipient=a.to, amount=raw(a.amount), memo=a.memo or "", nonce=a.nonce, expiry=int(a.expiry))
 
 
 def c_propose(kd, node, a):   # propose == cast a 'yes' vote that also opens the proposal (matches the web UI)
+    """Open a treasury spend proposal by casting the first 'yes' vote on its spend tuple."""
     s = _spend(a)
     _submit(node, T.construct_treasury_vote_tx(kd, s["recipient"], s["amount"], s["memo"], s["nonce"],
                                                _tip(node) + MARGIN, s["expiry"], choice="yes"))
 
 
 def c_vote(kd, node, a):
+    """Cast a yes/no vote on an open treasury spend proposal (identified by its exact spend tuple)."""
     s = _spend(a)
     _submit(node, T.construct_treasury_vote_tx(kd, s["recipient"], s["amount"], s["memo"], s["nonce"],
                                                _tip(node) + MARGIN, s["expiry"], choice=a.choice))
 
 
 def c_execute(kd, node, a):
+    """Execute a treasury spend whose proposal reached quorum, paying the recipient from the treasury."""
     s = _spend(a)
     _submit(node, T.construct_treasury_execute_tx(kd, s["recipient"], s["amount"], s["memo"], s["nonce"],
                                                   _tip(node) + MARGIN, s["expiry"]))
 
 
 def c_bridge_deposit(kd, node, a):
+    """Deposit `amount` NADO into the bridge escrow."""
     _submit(node, T.construct_bridge_deposit_tx(kd, raw(a.amount), _tip(node) + MARGIN, MIN_TX_FEE))
 
 
 def main():
+    """Parse args, load the local keys.dat (never sent anywhere), and dispatch to the command handler."""
     p = argparse.ArgumentParser(prog="nado_cli", description="NADO wallet ops from the terminal (signs with keys.dat).")
     p.add_argument("--node", default=os.environ.get("NADO_NODE", "http://127.0.0.1:9173"), help="node base URL")
     p.add_argument("--keys", default=None, help="path to keys.dat (default: $HOME/nado/private/keys.dat)")

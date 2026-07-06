@@ -57,6 +57,7 @@ SESS_COOKIE   = "__Host-nadoforum" if COOKIE_SECURE else "nadoforum"
 LOGIN_COOKIE  = "__Host-nadologin" if COOKIE_SECURE else "nadologin"
 
 def _load_secret():
+    """Load the HMAC session-signing secret from SECRET_FILE, generating a 0o600 32-byte one on first run."""
     if os.path.exists(SECRET_FILE):
         return open(SECRET_FILE, "rb").read()
     s = secrets.token_bytes(32)
@@ -84,6 +85,7 @@ CREATE INDEX IF NOT EXISTS idx_posts_thread ON posts(thread_id, created_at);
 """
 
 def db():
+    """Open a new SQLite connection to DB_PATH (Row factory, WAL, 4s busy timeout). Caller closes."""
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA journal_mode=WAL")
@@ -91,6 +93,7 @@ def db():
     return con
 
 def init_db():
+    """Create the schema (idempotent), migrate older DBs (users.sver), and seed the default boards once."""
     con = db()
     con.executescript(SCHEMA)
     try: con.execute("ALTER TABLE users ADD COLUMN sver INTEGER DEFAULT 0")   # migrate older DBs
@@ -108,6 +111,7 @@ def init_db():
 
 # ---- request helpers -----------------------------------------------------------------------------
 def client_ip(request):
+    """Best-effort real client IP: CF-Connecting-IP, then first XFF hop, then the socket peer."""
     # behind Cloudflare -> nginx. CF sets the real client in CF-Connecting-IP; fall back to XFF's first hop.
     cf = request.headers.get("CF-Connecting-IP")
     if cf: return cf.strip()
@@ -128,6 +132,8 @@ def origin_ok(request):
 # generic fixed-window rate limiter: {bucket_key: (window_start, count)}
 _rate = {}
 def rate_ok(key, limit, window):
+    """Fixed-window rate limiter: True while `key` has seen <= `limit` hits in the current `window` seconds.
+    Counts the current hit before deciding; the shared store is opportunistically pruned past 100k entries."""
     now = time.time()
     ws, n = _rate.get(key, (now, 0))
     if now - ws >= window:
@@ -140,15 +146,23 @@ def rate_ok(key, limit, window):
     return n <= limit
 
 # ---- session cookie (HMAC-signed + per-user revocation version) -----------------------------------
-def _b64(b): return base64.urlsafe_b64encode(b).decode().rstrip("=")
-def _unb64(s): return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+def _b64(b):
+    """URL-safe base64 without padding."""
+    return base64.urlsafe_b64encode(b).decode().rstrip("=")
+def _unb64(s):
+    """Inverse of _b64: re-pad and decode URL-safe base64."""
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 def make_session(address, sver):
+    """Mint an HMAC-SHA256-signed session token `b64(payload).b64(sig)` carrying address, the user's
+    current session version (revocation), and an expiry SESSION_TTL from now."""
     payload = json.dumps({"a": address, "v": int(sver), "e": int(time.time()) + SESSION_TTL}, separators=(",", ":")).encode()
     sig = hmac.new(SECRET, payload, hashlib.sha256).digest()
     return _b64(payload) + "." + _b64(sig)
 
 def _read_token(token):
+    """Verify a session token (constant-time HMAC check + expiry); return the payload dict or None.
+    Any malformed input returns None — never raises."""
     try:
         p, s = token.split(".")
         payload = _unb64(p)
@@ -162,6 +176,8 @@ def _read_token(token):
         return None
 
 def current_user(request):
+    """Resolve the session cookie to a logged-in address, or None. Cross-checks the token's version
+    against users.sver in the DB so logout/ban (which bump sver) revokes every outstanding token."""
     tok = request.cookies.get(SESS_COOKIE)
     d = _read_token(tok) if tok else None
     if not d:
@@ -174,26 +190,33 @@ def current_user(request):
     return d["a"]
 
 def _cookie_kw():
+    """Standard attributes for the session cookie: HttpOnly, SameSite=Lax, SESSION_TTL, secure per config."""
     return dict(max_age=SESSION_TTL, httponly=True, secure=COOKIE_SECURE, samesite="Lax", path="/")
 
 # ---- login challenges (in-memory, short-lived, hard-capped) ---------------------------------------
 _challenges = {}     # request_id -> {nonce, issued}
 
 def _reap_challenges():
+    """Drop login challenges older than CHALLENGE_TTL from the in-memory store."""
     now = time.time()
     for rid in [k for k, v in _challenges.items() if now - v["issued"] > CHALLENGE_TTL]:
         _challenges.pop(rid, None)
 
 def challenge_message(address, nonce, issued):
+    """Deterministic blake2b login-challenge digest the wallet must sign; domain-separated by the literal
+    'nado-forum-login' tag and bound to FORUM_ORIGIN, address, nonce and issue time."""
     return blake2b_hash(["nado-forum-login", FORUM_ORIGIN, address, nonce, int(issued)])
 
 # ---- on-chain "registered" gate (shared session + short cache) ------------------------------------
 _reg_cache = {}      # address -> (ts, bool)
 def _http():
+    """Return the shared aiohttp ClientSession created at app startup (_on_start)."""
     global _HTTP
     return _HTTP
 
 async def is_registered(address):
+    """Async check that `address` is REGISTERED on-chain via the node's /get_account, cached REG_CACHE_TTL
+    seconds per address. Node errors fail closed (False, cached). Always True when REQUIRE_REG is off."""
     if not REQUIRE_REG:
         return True
     hit = _reg_cache.get(address)
@@ -212,9 +235,13 @@ async def is_registered(address):
     return ok
 
 # ---- helpers -------------------------------------------------------------------------------------
-def role_of(address): return "mod" if address in MODS else "user"
+def role_of(address):
+    """'mod' if the address is in the FORUM_MODS env set, else 'user'."""
+    return "mod" if address in MODS else "user"
 
 def touch_user(con, address, public_key=None):
+    """Upsert the user row: refresh last_seen and role (and public_key if given), or insert a new user
+    (handle defaults to the address prefix, sver=0). Uses the caller's connection; does not commit."""
     now = int(time.time())
     if con.execute("SELECT address FROM users WHERE address=?", (address,)).fetchone():
         con.execute("UPDATE users SET last_seen=?, public_key=COALESCE(?,public_key), role=? WHERE address=?",
@@ -223,7 +250,9 @@ def touch_user(con, address, public_key=None):
         con.execute("INSERT INTO users(address,public_key,handle,created_at,last_seen,role,sver) VALUES(?,?,?,?,?,?,0)",
                     (address, public_key, address[:10], now, now, role_of(address)))
 
-def jerr(msg, status=400): return web.json_response({"ok": False, "error": msg}, status=status)
+def jerr(msg, status=400):
+    """JSON error response: {"ok": false, "error": msg} with the given HTTP status."""
+    return web.json_response({"ok": False, "error": msg}, status=status)
 
 async def _gate_post(request):
     """auth + Origin + rate-limit (cheap) + registered (cached). Returns (address, None) or (None, errresp)."""
@@ -243,6 +272,7 @@ async def _gate_post(request):
 
 _last_post = {}
 def _reap_last_post():
+    """Bound the per-author last-post map: past 50k entries, drop authors idle over an hour."""
     if len(_last_post) > 50000:
         now = time.time()
         for k in [k for k, t in _last_post.items() if now - t > 3600]:
@@ -250,6 +280,10 @@ def _reap_last_post():
 
 # ---- SSO auth routes -----------------------------------------------------------------------------
 async def sso_start(request):
+    """GET /api/sso_start — begin wallet SSO. Mints a one-time challenge (rid+nonce, CHALLENGE_TTL) and
+    302-redirects to the interface with ?forum_login=rid&nonce&forum&issued. The rid is ALSO set as the
+    LOGIN_COOKIE so only the initiating browser can complete the login (login-CSRF bind). Anti-abuse:
+    30/min per IP, and the challenge store is reaped + hard-capped at MAX_CHALLENGES (503 when full)."""
     if not rate_ok("sso:" + client_ip(request), 30, 60):
         return web.Response(text="rate limited — try again shortly", status=429)
     _reap_challenges()
@@ -266,6 +300,11 @@ async def sso_start(request):
     return resp
 
 async def sso_callback(request):
+    """POST /api/sso_callback — complete wallet SSO. Form fields: request_id, address, public_key,
+    signature. Requires the LOGIN_COOKIE to equal request_id (same-browser bind), a live challenge,
+    a valid `ndo…` address whose key hashes to it (proof_sender), and an ML-DSA signature over
+    challenge_message(). On success: consume the challenge (single-use), upsert the user, set the
+    signed session cookie, drop the login cookie, 302 to /. Failures are plain-text 4xx."""
     _reap_challenges()
     data = await request.post()
     rid = data.get("request_id", ""); address = data.get("address", "")
@@ -297,6 +336,8 @@ async def sso_callback(request):
     return resp
 
 async def api_me(request):
+    """GET /api/me — whoami for the UI. Anonymous: {"ok":true,"user":null}. Logged in: address, role,
+    and registered/can_post from the cached on-chain check. No auth required; read-only."""
     a = current_user(request)
     if not a:
         return web.json_response({"ok": True, "user": None})
@@ -304,6 +345,9 @@ async def api_me(request):
     return web.json_response({"ok": True, "user": {"address": a, "role": role_of(a), "registered": reg, "can_post": reg}})
 
 async def api_logout(request):
+    """POST /api/logout — bump users.sver (voiding EVERY outstanding session token for the user, not just
+    this one) and clear the session cookie. The sver bump needs a valid session + Origin check; the
+    cookie is deleted and {"ok":true} returned unconditionally."""
     a = current_user(request)
     if a and origin_ok(request):        # bump the session version -> every outstanding token for this user is void
         con = db(); con.execute("UPDATE users SET sver=sver+1 WHERE address=?", (a,)); con.commit(); con.close()
@@ -313,12 +357,15 @@ async def api_logout(request):
 
 # ---- content routes ------------------------------------------------------------------------------
 async def api_boards(request):
+    """GET /api/boards — all boards ordered by position, each with its thread count. Public, no auth."""
     con = db()
     rows = con.execute("SELECT b.*, (SELECT COUNT(*) FROM threads t WHERE t.board_id=b.id) AS threads FROM boards b ORDER BY position").fetchall()
     con.close()
     return web.json_response({"ok": True, "boards": [dict(r) for r in rows]})
 
 async def api_threads(request):
+    """GET /api/threads?board=<slug> — the board plus its newest 100 threads (pinned first, then by
+    bumped_at desc), each with a non-deleted reply count. Public; 404 on unknown slug."""
     slug = request.query.get("board", "")
     con = db()
     b = con.execute("SELECT * FROM boards WHERE slug=?", (slug,)).fetchone()
@@ -331,6 +378,8 @@ async def api_threads(request):
     return web.json_response({"ok": True, "board": dict(b), "threads": [dict(r) for r in rows]})
 
 async def api_thread(request):
+    """GET /api/thread?id=<int> — one thread with its board and all non-deleted posts in created order.
+    Public; 400 on a non-integer id, 404 on unknown thread."""
     try:
         tid = int(request.query.get("id", "0"))
     except ValueError:
@@ -345,9 +394,15 @@ async def api_thread(request):
     return web.json_response({"ok": True, "board": dict(b), "thread": dict(t), "posts": [dict(p) for p in posts]})
 
 def _board_allows(board_row, address):
+    """True unless the board is mod-only (post_min_role='mod') and the address isn't a mod."""
     return board_row["post_min_role"] != "mod" or role_of(address) == "mod"
 
 async def api_new_thread(request):
+    """POST /api/thread — create a thread + its opening post. JSON body: board (slug), title, body,
+    optional pid (governance proposal link). Gated by _gate_post (session + Origin + POST_MIN_GAP per
+    author + 20/min per IP + on-chain REGISTERED); mod-only boards reject non-mods. Inputs are trimmed
+    and truncated to TITLE_MAX/BODY_MAX/PID_MAX. Returns {"ok":true,"thread_id":id} and records the
+    author's post time for the min-gap limiter."""
     a, err = await _gate_post(request)
     if err: return err
     data = await request.json()
@@ -373,6 +428,9 @@ async def api_new_thread(request):
     return web.json_response({"ok": True, "thread_id": tid})
 
 async def api_reply(request):
+    """POST /api/reply — append a post to a thread and bump it. JSON body: thread_id (int), body
+    (trimmed, BODY_MAX cap). Same _gate_post anti-spam gate as api_new_thread; additionally enforces
+    the mod-only-board rule on replies and rejects locked threads for non-mods. Returns {"ok":true}."""
     a, err = await _gate_post(request)
     if err: return err
     data = await request.json()
@@ -400,6 +458,9 @@ async def api_reply(request):
     return web.json_response({"ok": True})
 
 async def api_mod(request):
+    """POST /api/mod — moderator actions. JSON body: action in {lock,unlock,pin,unpin} with thread_id,
+    or delete_post (soft delete) with post_id. Requires a valid session with role 'mod' AND a passing
+    Origin check; anyone else gets 403. Returns {"ok":true} or 400 on an unknown action."""
     if not origin_ok(request):
         return jerr("bad origin", 403)
     a = current_user(request)
@@ -419,6 +480,9 @@ async def api_mod(request):
     return web.json_response({"ok": True})
 
 async def api_treasury(request):
+    """GET /api/treasury — proxy the node's /treasury_status for the governance board. Public;
+    30s process-wide cache, 20/min per IP (over-limit callers get the empty shape rather than an
+    error), and node failures serve the last cached value or {"proposals":[]}."""
     if not rate_ok("treas:" + client_ip(request), 20, 60):
         return web.json_response({"proposals": []})
     now = time.time()
@@ -439,6 +503,8 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' 
 
 @web.middleware
 async def sec_headers(request, handler):
+    """aiohttp middleware: stamp CSP, X-Frame-Options DENY, nosniff and no-referrer on every response
+    (setdefault, so a handler can override)."""
     resp = await handler(request)
     resp.headers.setdefault("Content-Security-Policy", CSP)
     resp.headers.setdefault("X-Frame-Options", "DENY")
@@ -447,16 +513,21 @@ async def sec_headers(request, handler):
     return resp
 
 async def index(request):
+    """GET / — serve the single-page UI (static/index.html)."""
     return web.FileResponse(os.path.join(HERE, "static", "index.html"))
 
 _HTTP = None
 async def _on_start(app):
+    """Startup hook: create the shared aiohttp ClientSession used for node calls."""
     global _HTTP
     _HTTP = aiohttp.ClientSession()
 async def _on_stop(app):
+    """Cleanup hook: close the shared client session."""
     if _HTTP: await _HTTP.close()
 
 def build_app():
+    """Initialize the DB and assemble the aiohttp Application: sec_headers middleware, HTTP-session
+    lifecycle hooks, all API routes, / and /static."""
     init_db()
     app = web.Application(middlewares=[sec_headers])
     app.on_startup.append(_on_start)

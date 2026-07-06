@@ -36,6 +36,7 @@ _PEERS_LOCK = threading.RLock()
 
 
 def _peers_path():
+    """the single-file peer store (peers.dat) under the node home"""
     return f"{get_home()}/peers.dat"
 
 
@@ -55,6 +56,8 @@ def _load_peers() -> dict:
 
 
 def _save_peers(table: dict):
+    """persist the whole peer table in one atomic write (tmp+fsync+os.replace) — a crash mid-save can
+    never leave a torn peers.dat that _load_peers would then silently read as empty"""
     _atomic_write_json(_peers_path(), table)
 
 
@@ -90,6 +93,8 @@ def _migrate_legacy_peers():
 
 
 async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add msgpack support
+    """fetch a peer's /status dict (5s total timeout); False on any failure. The answer is UNTRUSTED peer
+    input — callers pool it and act on the get_majority vote, never on a single peer's word."""
 
     try:
         url_construct = f"http://{hostport(target_peer, get_port())}/status"
@@ -111,6 +116,8 @@ async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add ms
 
 
 def delete_peer(ip, logger):
+    """drop one peer from the table (lock-serialized; persisted atomically). No-op if absent, so callers
+    can evict unconditionally."""
     with _PEERS_LOCK:
         table = _load_peers()
         if table.pop(ip, None) is not None:
@@ -119,6 +126,9 @@ def delete_peer(ip, logger):
 
 
 def save_peer(ip, port, address, overwrite=False):
+    """add one peer to the table (lock-serialized read-modify-write, atomic persist). Silently refuses our
+    OWN ip — self is NEVER a peer (self is advertised via me_to() in /peers; storing it created the old
+    ghost self-peer + self-dial errors) — and leaves an existing entry alone unless overwrite=True."""
     # INVARIANT: never store our own IP — self is advertised to peers via me_to() in /peers, and dialing
     # ourselves just fails (this is what created the old ghost self-peer + the repeated self-dial errors).
     if not ip or ip == get_config()["ip"]:
@@ -161,6 +171,7 @@ def seed_default_peers(logger, my_ip=None):
 
 
 def ip_stored(ip) -> bool:
+    """whether ip is already present in the peer table"""
     return ip in _load_peers()
 
 
@@ -233,6 +244,7 @@ async def load_ips(logger, port, fail_storage, unreachable, minimum=3, top_50=Tr
 
 
 def load_peer(logger, ip, key=None) -> [str, dict]:
+    """one peer's record from the table (or a single field of it via `key`); None if unknown"""
     peer = _load_peers().get(ip)
     if peer is None:
         return None
@@ -295,6 +307,8 @@ def get_list_of_peers(ips, port, fail_storage, logger) -> list:
 
 
 def percentage(value, list) -> float:
+    """what percent of `list` equals `value` — grades how strong a majority is behind a consensus value
+    (0 on empty/falsy input)"""
     if value and list:
         part = list.count(value)
         whole = len(list)
@@ -304,6 +318,11 @@ def percentage(value, list) -> float:
 
 
 def get_majority(in_what) -> [str, None]:
+    """the most frequent value in a {peer: value} answer pool — the status-consensus vote (e.g. which
+    block/tx-pool hash the network majority advertises). Returns None while ANY peer is still unanswered
+    (None), so a majority is never declared on partial data. The pre-sort makes tie-breaking deterministic:
+    every honest node picks the SAME winner from the same pool. Sybil resistance does NOT live here — the
+    vote only steers who we sync from; the objective heaviest-weight fork choice decides what we accept."""
     if None not in in_what.values():
         return max(
             list(sorted(in_what.values())),
@@ -333,6 +352,11 @@ def announce_me(targets, port, my_ip, logger, fail_storage) -> None:
 
 
 def check_ip(ip):
+    """routability guard for a peer-supplied (UNTRUSTED) address before it may enter the peer table:
+    rejects malformed strings, IPv4-mapped IPv6 disguises, our OWN ip, and anything not globally routable
+    (loopback, private/ULA, link-local, reserved, multicast, unspecified). Accepting those would let a
+    peer seed us with internal targets — eclipse groundwork / limited SSRF probing. NADO_TESTNET waives
+    the routability checks so a local 127.0.0.x multi-node mesh can form; NEVER set it on mainnet."""
     # accept BOTH IPv4 and IPv6 (ip_address parses either); the routability guard below applies to both
     # families. Reject IPv4-mapped IPv6 (::ffff:a.b.c.d) outright so a mapped private/own address can't
     # slip past the v4 checks under a v6 disguise — a real peer should present a plain v4 string instead.
@@ -390,6 +414,10 @@ def subnet_diversity_ok(new_ip: str, current_peers) -> bool:
 
 
 async def get_public_ip(logger):
+    """detect our own public IP for self-advertisement, PREFERRING IPv4: on a dual-stack host a v6-only
+    self would be unreachable to v4-only peers (most of the current mesh) and could partition us. Tries
+    the family-forced probes first (v4, then v6 for v6-ONLY hosts), then generic fallbacks; None if every
+    probe fails. Under NADO_TESTNET returns the configured IP so an offline mesh never phones home."""
     # testnet/offline: use the configured IP instead of phoning home to ipify/ipinfo
     if os.environ.get("NADO_TESTNET"):
         try:
@@ -425,6 +453,11 @@ def update_local_ip(ip, logger):
 
 def qualifies_to_sync(peer, peer_protocol, known_tree, memserver_protocol,
                       unreachable_list, peer_hash, required_hash) -> dict:
+    """gate for picking a sync donor: the peer must know our root hash, be reachable, speak at least our
+    protocol, and advertise EXACTLY the majority-cascaded required_hash. Peer identity carries no weight —
+    fork choice is objective (heaviest cumulative_weight already chose required_hash, and verify_block +
+    the finality floor re-check every block of the tail), so a Sybil donor can at worst waste our time,
+    never feed us a chain we wouldn't independently accept. Returns {"result": bool, "flag": reason}."""
     if not known_tree:
         """we don't know peer's root hash"""
         return {"result": False,

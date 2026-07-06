@@ -15,10 +15,24 @@ GENERATOR = 7                          # a generator of the full multiplicative 
 TWO_ADICITY = 32                       # 2^32 | (p - 1)
 
 
-def add(a, b): return (a + b) % P
-def sub(a, b): return (a - b) % P
-def neg(a): return (-a) % P
-def mul(a, b): return (a * b) % P
+def add(a, b):
+    """a + b mod p."""
+    return (a + b) % P
+
+
+def sub(a, b):
+    """a - b mod p."""
+    return (a - b) % P
+
+
+def neg(a):
+    """-a mod p."""
+    return (-a) % P
+
+
+def mul(a, b):
+    """a · b mod p."""
+    return (a * b) % P
 
 
 def pw(a, e):
@@ -29,13 +43,16 @@ def pw(a, e):
 
 
 def inv(a):
+    """Multiplicative inverse a^-1 mod p; raises ZeroDivisionError on 0."""
     a %= P
     if a == 0:
         raise ZeroDivisionError("no inverse of 0 in F_p")
     return pow(a, P - 2, P)            # Fermat: a^(p-2) = a^-1
 
 
-def div(a, b): return mul(a, inv(b))
+def div(a, b):
+    """a · b^-1 mod p."""
+    return mul(a, inv(b))
 
 
 def batch_inverse(vals):
@@ -77,6 +94,7 @@ def domain(n, offset=1):
 
 # --- number-theoretic transform (evaluate/interpolate on the size-n subgroup) ----------------------
 def _bitrev(a):
+    """In-place bit-reversal permutation of a power-of-two list (Cooley–Tukey input ordering)."""
     n = len(a); j = 0
     for i in range(1, n):
         bit = n >> 1

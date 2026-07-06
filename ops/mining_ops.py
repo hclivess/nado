@@ -25,6 +25,7 @@ from protocol import (B_MIN, BOND_CAP, EPOCH_LENGTH, FIDELITY_CAP, BOND_RAMP_EPO
 
 
 def epoch_of(block_number: int) -> int:
+    """epoch index of a block height (heights are grouped into EPOCH_LENGTH-slot epochs)"""
     return block_number // EPOCH_LENGTH
 
 
@@ -44,6 +45,9 @@ def selection_shares(bonded: int, fidelity=None) -> int:
 
 
 def total_shares(registry: dict) -> int:
+    """Total selection weight of a registry WITH the fidelity ramp applied — the size of the
+    draw space select_producer partitions. Contrast total_bonded_shares, which deliberately
+    EXCLUDES the ramp because fork weight must not drift with presence."""
     return sum(selection_shares(info["bonded"], info.get("fidelity")) for info in registry.values())
 
 
@@ -106,6 +110,9 @@ def beacon_commitment(reveal_secret: str) -> str:
 
 
 def verify_reveal(commitment: str, reveal_secret: str) -> bool:
+    """Reveal-phase check: the secret hashes back to the commitment published in the commit
+    phase. Because the commitment was fixed BEFORE the epoch beacon existed, a revealer's only
+    remaining freedom is to withhold (one bit, penalised) — it cannot substitute a new secret."""
     return beacon_commitment(reveal_secret) == commitment
 
 
@@ -144,6 +151,7 @@ def open_shares(fidelity) -> int:
 
 
 def _bonded_shares(info: dict) -> int:
+    """bonded-lane weight of one registry entry: split-neutral capped shares incl. fidelity ramp"""
     return selection_shares(info["bonded"], info.get("fidelity"))
 
 
@@ -171,6 +179,7 @@ def _bonded_ramped_weight(epoch: int):
 
 
 def _open_weight(info: dict) -> int:
+    """open-lane weight of one registry entry: capital-free open_shares of its fidelity"""
     return open_shares(info.get("fidelity"))
 
 
@@ -212,6 +221,10 @@ def select_producer_two_lane(open_registry: dict, bonded_registry: dict, beacon:
     The winner is credited by ADDRESS, so it need not be online (a relay builds the block for it)."""
     bonded_weight = _bonded_ramped_weight(slot // EPOCH_LENGTH)   # tenure ramp for the sudden-whale brake
     def _bonded_draw():
+        """Bonded-lane draw with the tenure ramp applied, plus a deterministic un-ramped
+        fallback: if EVERY bonded identity is still ramping (total ramped weight 0) the
+        ramp has no established set to protect, so redraw un-ramped rather than stall —
+        the whale brake must never cost liveness. Same result on every node."""
         w = _weighted_draw(bonded_registry, bonded_weight, beacon, slot)
         # LIVENESS: the ramp must never STALL the chain. If every bonded identity is still ramping (total
         # ramped weight 0) but the registry is NON-empty, fall back to the un-ramped draw so a block is still
@@ -244,6 +257,9 @@ def registration_pow_target() -> int:
 
 
 def registration_pow_hash(address: str, nonce) -> int:
+    """Domain-separated ("nado-register") blake2b of (address, nonce) as an integer, compared
+    against registration_pow_target(). Binding the ADDRESS into the pre-image makes solutions
+    non-transferable — a solved nonce registers exactly one identity."""
     return int(blake2b_hash(["nado-register", address, nonce]), 16)
 
 

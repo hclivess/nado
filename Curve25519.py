@@ -47,6 +47,7 @@ from ops.address_ops import make_address
 
 
 def unhex(hexed):
+    """hex str -> bytes; every key/seed/signature crosses the API as hex, this is the one decoder."""
     return b"".fromhex(hexed)
 
 
@@ -63,14 +64,20 @@ class _PurePyBackend:
 
     @staticmethod
     def keygen_internal(seed):
+        """FIPS 204 KeyGen_internal: deterministic (public, secret) from a 32-byte seed — the
+        reference behaviour any native backend must reproduce byte-for-byte."""
         return ML_DSA_44._keygen_internal(seed)
 
     @staticmethod
     def sign_internal(secret, message, rnd):
+        """FIPS 204 Sign_internal — NO ctx/domain wrapping (the whole interop trap), hedged with
+        the caller-supplied 32-byte `rnd`. Matches the browser light-miner's signing convention."""
         return ML_DSA_44._sign_internal(secret, message, rnd)
 
     @staticmethod
     def verify_internal(public, message, signature):
+        """FIPS 204 Verify_internal — the reference verifier every backend (and the browser's
+        signatures) must satisfy; True iff `signature` is valid for (public, message)."""
         return ML_DSA_44._verify_internal(public, message, signature)
 
 
@@ -81,16 +88,24 @@ class _NativeBackend:
     exposes the internal functions is a few lines."""
 
     def __init__(self, module):
+        """Bind the already-imported operator module; `name` is surfaced in the startup log so the
+        active backend is always visible. No validation here — adoption is gated by _interop_ok."""
         self.name = f"native:{module.__name__}"
         self._m = module
 
     def keygen_internal(self, seed):
+        """Delegate to the native lib; its (public, secret) MUST be byte-identical to pure-Python
+        for the same seed — addresses derive from the public key, so any drift forks identities."""
         return self._m.keygen_internal(seed)
 
     def sign_internal(self, secret, message, rnd):
+        """Delegate to the native lib; MUST be internal-mode (no ctx wrapping) so its signatures
+        verify under the pure-Python backend and the browser — the interop self-test enforces this."""
         return self._m.sign_internal(secret, message, rnd)
 
     def verify_internal(self, public, message, signature):
+        """Delegate to the native lib; MUST accept pure-Python/browser internal-mode signatures
+        (cross-checked by the interop self-test before this backend is ever adopted)."""
         return self._m.verify_internal(public, message, signature)
 
 
@@ -148,6 +163,10 @@ def _keypair_from_seed(seed: bytes):
 
 
 def sign(private_key, message):
+    """Sign `message` with the 32-byte seed hex `private_key`; returns the ~2420-byte signature as
+    hex. The keypair is re-derived from the seed on every call (only the seed is ever stored), then
+    signed INTERNAL-mode with a fresh random hedge — so signatures are randomized and deliberately
+    NOT byte-reproducible across calls or implementations (consensus only checks verify()==True)."""
     seed = unhex(private_key)
     _public, secret = _keypair_from_seed(seed)
     # INTERNAL ML-DSA sign (FIPS 204 Sign_internal — NO ctx/domain wrapping) with a fresh 32-byte
@@ -159,6 +178,11 @@ def sign(private_key, message):
 
 
 def verify(signed, public_key, message):
+    """True iff `signed` (hex) is a valid ML-DSA-44 *internal*-mode signature by `public_key` (hex)
+    over `message`. NEVER raises (see below) — malformed input is a False, so a rejection can't
+    escalate into an unhandled error or get mis-refactored into an accept. This is THE consensus
+    signature check: it verifies, never recomputes, so differing signature bytes across backends/
+    browser are fine."""
     # return False on ANY failure instead of raising: callers use `assert verify(...)` /
     # `if verify(...)`, and a raising verify could turn a rejection into an unhandled error or be
     # mis-refactored into a silent accept. INTERNAL verify to match the signer above + the browser.
@@ -169,6 +193,9 @@ def verify(signed, public_key, message):
 
 
 def _keydict_from_seed(seed: bytes):
+    """seed -> the canonical keydict shape the rest of the node stores/passes around. The 32-byte
+    seed alone IS the identity: the ML-DSA secret key is never persisted, only re-derived, which
+    keeps key files tiny and makes import-by-seed (from_private_key) possible."""
     public, _secret = _keypair_from_seed(seed)
     return {
         "private_key": seed.hex(),          # 32-byte seed (regenerates the keypair)
@@ -183,6 +210,8 @@ def from_private_key(private_key):
 
 
 def generate_keydict():
+    """Fresh identity from a CSPRNG (secrets) 32-byte seed — the ONLY entropy the whole key model
+    ever needs; everything else (secret key, public key, address) derives deterministically."""
     return _keydict_from_seed(secrets.token_bytes(32))
 
 

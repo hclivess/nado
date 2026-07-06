@@ -193,6 +193,7 @@ async def announce_self(peer, port, my_ip, fail_storage, semaphore):
 
 
 async def compound_announce_self(ips, port, my_ip, logger, fail_storage, semaphore):
+    """announces own ip to multiple peers at once, returns raw responses of peers that answered"""
     result = list(
         filter(
             None,

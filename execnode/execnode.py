@@ -47,6 +47,7 @@ POLL = float(os.environ.get("NADO_EXEC_POLL", "5"))
 # STARK; each apply verifies a ~1MB proof). Created lazily on the running loop.
 _inflight = None
 def _sem():
+    """Lazily create the in-flight semaphore on the RUNNING event loop (import time has no loop)."""
     global _inflight
     if _inflight is None:
         _inflight = asyncio.Semaphore(MAX_INFLIGHT)
@@ -85,11 +86,16 @@ async def maybe_settle(session):
 
 
 async def _get_json(session, path):
+    """GET an L1 endpoint and decode the JSON body regardless of content-type, with a 15s timeout."""
     async with session.get(L1 + path, timeout=aiohttp.ClientTimeout(total=15)) as r:
         return await r.json(content_type=None)
 
 
 async def tail_loop():
+    """Follow L1 forever: each poll, replay every newly FINALIZED block's exec-relevant txs (blob /
+    bridge / shield) into `state` in block order — skipping pruned (body-less) finalized blocks — then
+    accrue the presence dividend, persist, and settle if enabled. Only FINALIZED blocks are consumed, so
+    the cursor never has to handle a reorg. Any error just waits out the poll interval; the loop never dies."""
     print(f"[execnode] tailing {L1} · state={STATE_PATH} · cursor={state.cursor}", flush=True)
     async with aiohttp.ClientSession() as session:
         while True:
@@ -156,17 +162,20 @@ async def tail_loop():
 
 # --- read-only query API ---------------------------------------------------------------------------
 async def h_root(request):
+    """Node summary: exec state_root, applied cursor, contract count, and the L1 being tailed."""
     return web.json_response({"state_root": state.state_root(), "cursor": state.cursor,
                               "contracts": len(state.contracts), "l1": L1})
 
 
 async def h_contracts(request):
+    """List every deployed contract (cid, deployer, method names) — storage omitted, use /exec/contract."""
     return web.json_response({"contracts": [
         {"cid": cid, "deployer": c["deployer"], "methods": list(c["code"].keys())}
         for cid, c in state.contracts.items()]})
 
 
 async def h_contract(request):
+    """One contract in full (?cid=): deployer, method names, and its ENTIRE storage. 404 if unknown."""
     cid = request.query.get("cid", "")
     c = state.contracts.get(cid)
     if not c:
@@ -176,6 +185,8 @@ async def h_contract(request):
 
 
 async def h_view(request):
+    """Read-only contract call (?cid&method&args=<JSON list>) via ExecState.view — storage is never
+    persisted; unparsable args degrade to []. Result is None for a missing contract/method or a revert."""
     import json
     cid = request.query.get("cid", "")
     method = request.query.get("method", "")
@@ -187,10 +198,13 @@ async def h_view(request):
 
 
 async def h_bridge(request):
+    """All exec-side bridge balances plus every recorded (still-claimable) withdrawal record."""
     return web.json_response({"balances": state.bridge, "withdrawals": state.withdrawals})
 
 
 async def h_withdrawal_proof(request):
+    """Merkle proof for a bridge-withdrawal record (?nonce=) against the CURRENT state_root (also
+    returned); the claim only succeeds on L1 once a settled root covers it. 404 if the nonce is unknown."""
     # the Merkle proof a user submits to L1's bridge_withdraw to claim their exit against the settled root
     p = state.withdrawal_proof(request.query.get("nonce", ""))
     if not p:
@@ -200,6 +214,8 @@ async def h_withdrawal_proof(request):
 
 
 async def h_dividend(request):
+    """Presence-dividend view: with ?address= one miner's accrued balance + pending (collected,
+    unclaimed) withdrawals; without it, the whole accrual map."""
     # a miner's accrued (uncollected) presence dividend + any COLLECTED-but-not-yet-claimed withdrawals (each
     # provable against the settled root via /exec/dividend_proof). Off-L1 (doc/presence-dividend.md). No addr -> all.
     addr = request.query.get("address")
@@ -212,6 +228,8 @@ async def h_dividend(request):
 
 
 async def h_dividend_proof(request):
+    """Merkle proof for a collected dividend withdrawal (?nonce=) against the CURRENT state_root,
+    submitted to L1's dividend_withdraw once settled. 404 if the nonce is unknown."""
     # the Merkle proof a miner submits to L1's dividend_withdraw to claim a collection against the settled root
     p = state.dividend_withdrawal_proof(request.query.get("nonce", ""))
     if not p:
@@ -222,6 +240,9 @@ async def h_dividend_proof(request):
 
 @web.middleware
 async def _cors(request, handler):
+    """Middleware: stamp allow-any-origin CORS headers on every response (HTTP-exception responses
+    included) and short-circuit OPTIONS preflights with 204 — required because the wallet page is served
+    from the L1 port, making every /exec/* browser fetch cross-origin."""
     # The light-miner page is served by the L1 node on a DIFFERENT port (:9173), so every /exec/* fetch from
     # the browser is cross-origin — without these headers the browser silently blocks the response (curl
     # doesn't, which is why it worked in tests but not in the wallet). Allow any origin. NOTE: most /exec/*
@@ -243,6 +264,8 @@ async def _cors(request, handler):
 
 
 async def h_shielded(request):
+    """Phase-1 pool status: root, note/nullifier counts, recent anchors — aggregate data only, nothing
+    per-note."""
     # Public shielded-pool state: the current Merkle root (an anchor), note count, and spent-nullifier count.
     # Reveals NOTHING about individual notes/owners/values (doc/privacy.md).
     return web.json_response({"root": state.shielded.root(), "notes": state.shielded.size(),
@@ -251,6 +274,8 @@ async def h_shielded(request):
 
 
 async def h_field_shielded(request):
+    """Field-native pool status; with ?cm=<int> also that commitment's leaf position (None if absent).
+    Big field ints are returned as strings."""
     # Phase-2 field-native pool status + (optionally) a commitment's position.
     fp = state.field_pool
     cm = request.query.get("cm")
@@ -260,6 +285,10 @@ async def h_field_shielded(request):
 
 
 async def h_prove_transfer(request):
+    """Delegated prover, 1-output: the wallet POSTs its SECRET witness (nsk, note opening, output, amounts);
+    we build the Merkle path, prove the join-split STARK off the event loop, then verify+APPLY it locally —
+    the ~1MB proof never leaves this node, only the settled root does. Semaphore-bounded (H-7); mutating and
+    UNAUTHENTICATED, hence the loopback-by-default bind."""
     # DELEGATED PROVER: the wallet POSTs its secret witness; we build the Merkle path from the field pool and
     # produce the full join-split STARK proof. Returns the bundle as an opaque JSON string (big field ints).
     try:
@@ -274,6 +303,7 @@ async def h_prove_transfer(request):
         from execnode import shielded_field as SFP
 
         def _prove():
+            """Blocking STARK prove, run in a worker thread via asyncio.to_thread."""
             return SFP.prove_transfer(fp, int(w["nsk"]), int(w["value_in"]), int(w["rho_in"]), pos,
                                       int(w["out_value"]), int(w["out_owner"]), int(w["out_rho"]),
                                       int(w["public_value"]), int(w["fee"]), withdraw_addr=w.get("withdraw_addr"))
@@ -301,12 +331,17 @@ async def h_prove_transfer(request):
 
 
 async def h_field_leaves(request):
+    """The field pool's full commitment list (public; big ints as strings) so a browser can build its own
+    Merkle path and prove ON-DEVICE — the witness never reaches this node."""
     # the field pool's commitment list (public) so the browser can build the Merkle path itself and prove
     # ON-DEVICE (the node never sees the witness). Big ints as strings.
     return web.json_response({"leaves": [str(c) for c in state.field_pool.commitments]})
 
 
 def _normalize_bundle(bundle):
+    """Coerce a browser-generated joinsplit2 bundle's stringified big field ints back to Python ints,
+    IN PLACE, everywhere the verifier expects numbers (statement, proof params, FRI, openings). JSON can't
+    carry BigInt, so JS serializes them as strings. No-op for non-joinsplit2 bundles."""
     # a browser-generated bundle carries big field ints as STRINGS (JSON can't hold BigInt) -> back to ints
     js = (bundle.get("stark") or {}).get("joinsplit2")
     if not js:
@@ -334,6 +369,9 @@ def _normalize_bundle(bundle):
 
 
 async def h_apply_field_transfer(request):
+    """ON-DEVICE path: the browser POSTs a finished proof bundle; we normalize its string ints, then only
+    VERIFY + APPLY (semaphore-bounded) — no witness ever reaches this node. Mutating and unauthenticated,
+    same exposure caveats as the prover endpoints."""
     # ON-DEVICE path: the browser already proved; we only VERIFY + APPLY (the witness never reached us).
     try:
         bundle = await request.json()
@@ -352,6 +390,8 @@ async def h_apply_field_transfer(request):
 
 
 async def h_prove_transfer2(request):
+    """Delegated prover, 2-output (send v1 to recipient + keep v2 change) — otherwise identical to
+    h_prove_transfer: prove off-loop, verify, apply, save, all semaphore-bounded."""
     # DELEGATED PROVER, 2-output: send v1 to a recipient + keep v2 change. Proves -> verifies -> applies.
     try:
         w = await request.json()
@@ -365,6 +405,7 @@ async def h_prove_transfer2(request):
         from execnode import shielded_field as SFP
 
         def _prove():
+            """Blocking 2-output STARK prove, run in a worker thread via asyncio.to_thread."""
             return SFP.prove_transfer2(fp, int(w["nsk"]), int(w["value_in"]), int(w["rho_in"]), pos,
                                        int(w["v1"]), int(w["o1"]), int(w["r1"]),
                                        int(w["v2"]), int(w["o2"]), int(w["r2"]),
@@ -387,6 +428,8 @@ async def h_prove_transfer2(request):
 
 
 async def h_shielded_note(request):
+    """Spend witness for a Phase-1 note (?cm=): position + Merkle path (public data, leaks nothing);
+    with ?nf= also whether that nullifier is already spent. 404 if the commitment isn't in the pool."""
     # a wallet's spend witness: position + Merkle path for its note commitment (public data, leaks nothing),
     # plus whether the note's nullifier is already spent (the wallet passes its own nf).
     cm = request.query.get("cm", "")
@@ -400,11 +443,14 @@ async def h_shielded_note(request):
 
 
 async def h_unshields(request):
+    """Pending unshield exits for an L1 address (?addr=) — how a wallet finds the nonce(s) to claim."""
     # a wallet lists its own pending unshield exits (by L1 address) to find the nonce(s) to claim
     return web.json_response({"unshields": state.unshields_for(request.query.get("addr", ""))})
 
 
 async def h_unshield_proof(request):
+    """Merkle proof for a recorded unshield exit (?nonce=) against the CURRENT state_root, submitted to
+    L1's `unshield` to release SHIELD_ESCROW coins once settled. 404 if the nonce is unknown."""
     # the Merkle proof a user submits to L1's `unshield` to release SHIELD_ESCROW coins against the settled root
     p = state.unshield_withdrawal_proof(request.query.get("nonce", ""))
     if not p:
@@ -414,6 +460,8 @@ async def h_unshield_proof(request):
 
 
 async def main():
+    """Wire up the query API (CORS middleware, body-size cap), start it on BIND:PORT, then run the tail
+    loop forever — the HTTP server and the L1 tail share one event loop."""
     app = web.Application(middlewares=[_cors], client_max_size=MAX_BODY_BYTES)   # H-7: cap POST body size
     app.add_routes([web.get("/exec/root", h_root),
                     web.get("/exec/shielded", h_shielded),

@@ -24,11 +24,14 @@ from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_
 
 
 def _is_hex(s) -> bool:
+    """non-empty, even-length (byte-aligned) hex string check"""
     return isinstance(s, str) and len(s) % 2 == 0 and len(s) > 0 and all(c in "0123456789abcdefABCDEF" for c in s)
 import aiohttp
 
 
 async def get_recommneded_fee(target, port, base_fee, logger):
+    """Client-side helper: fetch a peer's congestion fee component and add the local size-based
+    base_fee to get a fee that should clear the pool. None (logged warning) on failure."""
     try:
         url_construct = f"http://{hostport(target, port)}/get_recommended_fee"
 
@@ -41,6 +44,8 @@ async def get_recommneded_fee(target, port, base_fee, logger):
 
 
 async def get_target_block(target, port, logger):
+    """Client-side helper: ask a peer for its latest block and aim the new tx two blocks ahead, so it
+    lands inside the acceptance window despite propagation lag. None (logged warning) on failure."""
     try:
         url_construct = f"http://{hostport(target, port)}/get_latest_block"
 
@@ -53,6 +58,9 @@ async def get_target_block(target, port, logger):
 
 
 def remove_outdated_transactions(transaction_list, block_number):
+    """Mempool hygiene: keep only txs whose target_block is still ahead of the chain tip and within
+    the 360-block landing window — anything outside can never be included, so holding it only bloats
+    the pool."""
     cleaned = []
     for transaction in transaction_list:
         if block_number < transaction["target_block"] < block_number + 360:
@@ -243,6 +251,9 @@ def construct_settle_tx(keydict, exec_cursor, state_root, target_block):
 
 
 def _treasury_spend_body(recipient, amount, memo, nonce, expiry):
+    """Canonical {pid, spend} payload shared by treasury vote AND execute txs, so both derive the
+    proposal id from the SAME normalized fields (memo None -> "") and a vote can only ever authorize
+    exactly the payout that gets executed."""
     from hashing import treasury_proposal_id
     memo = memo or ""
     return {"pid": treasury_proposal_id(recipient, amount, memo, nonce, expiry),
@@ -383,6 +394,11 @@ def assert_unique_reserved(transactions):
 
 
 def create_txid(transaction):
+    """The tx identity: blake2b over the CANONICAL (sorted-keys) encoding of the whole body, with
+    `public_key` EXCLUDED (PUBKEY-ONCE #19 — the key is a recoverable authentication witness, not
+    identity, so a later tx may omit it and hash the same). MUST be byte-exact and deterministic:
+    the signature covers this hash, and every implementation (incl. the browser light-miner)
+    recomputes it — any encoding divergence forks txids across nodes."""
     # canonical encoding (sorted keys) commits the whole body — incl. chain_id — so the signature
     # (over the txid) binds every field and cannot be replayed cross-chain. PUBKEY-ONCE (#19): the
     # `public_key` is EXCLUDED from the preimage — it is a recoverable authentication witness (bound
@@ -394,6 +410,16 @@ def create_txid(transaction):
 
 
 def validate_transaction(transaction, logger, block_height):
+    """CONSENSUS admission gate for one tx — raises AssertionError on the first violation. Checks:
+    chain_id (no cross-chain replay), signature over the txid (validate_origin, PUBKEY-ONCE aware),
+    sender is a real KEYED address (a keyless reserved name can never originate a tx), recipient is a
+    checksum-valid address / reserved protocol recipient / registered alias, amount+fee are real
+    non-negative ints (a float or bool would corrupt the integer ledger), then the per-reserved-
+    recipient rules (slash proof, attest/commit/reveal duties, unbond maturity, PoSW register, Merkle
+    +nullifier exits, treasury quorum, HTLC windows, fee floors, ...), and finally validate_txid so
+    the signature binds the FULL body. Runs in both the mempool and block verification and reads only
+    committed state, so it MUST be deterministic — nodes that disagree here fork on block validity.
+    Rejection is what stands between the ledger and forged, replayed, underpaid or double-claimed txs."""
     assert isinstance(transaction, dict), "Data structure incomplete"
     assert transaction.get("chain_id") == CHAIN_ID, "Wrong or missing chain id"
     assert validate_origin(transaction), "Invalid origin"
@@ -787,10 +813,14 @@ def get_transactions_of_account(account, min_block: int, limit: int = 1000):
 
 
 def to_readable_amount(raw_amount: int) -> str:
+    """integer raw units -> fixed 10-decimal display string (1 coin = 10^10 raw); display only,
+    the ledger itself never leaves integers"""
     return f"{(raw_amount / 10000000000):.10f}"
 
 
 def to_raw_amount(amount: [int, float]) -> int:
+    """readable coin amount -> INTEGER raw units (1 coin = 10^10 raw); the float only exists at this
+    UI/tooling boundary — everything on-chain stays integer"""
     return int(float(amount) * 10000000000)
 
 
@@ -804,6 +834,7 @@ def check_balance(account, amount, fee):
 
 
 def get_senders(transaction_pool: list) -> list:
+    """unique senders in a transaction pool, first-seen order preserved (deterministic iteration)"""
     sender_pool = []
     for transaction in transaction_pool:
         if transaction["sender"] not in sender_pool:
@@ -890,6 +921,8 @@ def validate_origin(transaction: dict):
 
 
 def get_base_fee(transaction):
+    """Minimum fee for a tx = its serialized byte size, so a tx pays for the block/storage space it
+    consumes. False (not raise) on failure so callers treat an unmeasurable tx as unpayable."""
     try:
         tx_copy = transaction.copy()
         base_fee = get_byte_size(tx_copy)
@@ -901,6 +934,9 @@ def get_base_fee(transaction):
 
 
 def validate_base_fee(transaction, logger):
+    """Size-proportional anti-spam floor: the declared fee must cover get_base_fee of the tx WITHOUT
+    its fee/signature/txid fields (those aren't part of what the sender drafted against, and the fee
+    must not price its own bytes). Returns False (never raises) on shortfall or malformed input."""
     try:
         tx_copy = transaction.copy()
         fee = tx_copy["fee"]
@@ -919,6 +955,10 @@ def validate_base_fee(transaction, logger):
 
 
 def validate_txid(transaction, logger):
+    """CONSENSUS: recompute the canonical txid from the body (txid + signature stripped) and require
+    an EXACT match. The signature covers only the txid, so this is what binds it to the full body —
+    without it an attacker could keep a valid (txid, signature) pair and swap recipient/amount.
+    Returns False (never raises) on mismatch or malformed input."""
     try:
         tx_copy = transaction.copy()
         txid_to_check = tx_copy["txid"]
@@ -1022,6 +1062,11 @@ def unindex_transactions(block, logger, block_height):
 
 
 def index_transactions(block, sorted_transactions, logger):
+    """Apply every tx's balance/state effect AND write its index rows (primary + DUPSORT
+    sender/recipient secondaries) inside the incorporate write txn, so ledger state and index commit
+    ATOMICALLY with the block. Files each tx under the RESOLVED recipient (alias -> owner) and
+    establishes the sender's pubkey on its first carrying tx (PUBKEY-ONCE #19). MUST stay exactly
+    symmetric with unindex_transactions or a reorg leaves state and index diverged."""
     block_height = block["block_number"]
 
     # Apply balance/state changes AND write the tx index (primary + DUPSORT secondaries) for every

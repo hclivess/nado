@@ -11,6 +11,8 @@ class MessageClient(threading.Thread):
     """thread which displays output messages and logs them"""
 
     def __init__(self, memserver, consensus, core, peers, logger):
+        """Hold read-only references to the other loop threads purely for reporting — their
+        .duration fields and pools feed the periodic health/status lines; nothing is mutated."""
         threading.Thread.__init__(self)
         self.logger = logger
         self.logger.info(f"Starting Message Client")
@@ -26,6 +28,10 @@ class MessageClient(threading.Thread):
     # The message loop renders one line per component plus a rolled-up verdict,
     # so a problem points at the actual failing part instead of a single flag.
     def health_report(self):
+        """Per-component health snapshot {name: (level, detail)}, level in ok/warn/down (see the key
+        above): peers, block freshness (thresholds scale with block_time), majority agreement,
+        inbound reachability (can_mine), and sync mode. Pure read of shared state — no side effects,
+        callable from tests; run() does the roll-up to a single worst-of verdict."""
         components = {}
 
         # --- Peers ---------------------------------------------------------
@@ -90,6 +96,11 @@ class MessageClient(threading.Thread):
         return components
 
     def run(self) -> None:
+        """Every 10s: emit the per-component health report, logging the WHOLE block at the severity
+        of the worst component (so one degraded subsystem escalates the summary to warning/error),
+        plus debug-level supporting detail and loop-duration/resource stats. Also backstop-persists
+        the off-chain message pool each pass, so a hard crash that skips the SIGTERM save loses at
+        most one interval of undelivered DMs. Observability only — never touches consensus state."""
         while not self.memserver.terminate:
             try:
                 # --- Health report: one line per subsystem + rolled-up verdict ---

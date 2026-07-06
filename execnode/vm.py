@@ -57,6 +57,7 @@ def validate_code(code):
 
 
 def _int(x):
+    """Type-gate a stack value as an int (bools excluded); a mismatch raises VMRevert -> call is a no-op."""
     if not isinstance(x, int) or isinstance(x, bool):
         raise VMRevert(f"expected int, got {x!r}")
     return x

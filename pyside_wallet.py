@@ -45,12 +45,15 @@ def _install_repo_import_shim():
 
     class _Dummy:
         def __init__(self, *a, **k):
+            """Accept any constructor signature so one stub class can stand in for anything."""
             pass
 
         def __getattr__(self, _name):
+            """Every attribute resolves to a no-op callable — absorbs arbitrary stub API usage."""
             return lambda *a, **k: None
 
     def _stub(name, attrs=None):
+        """Register a fake module under `name` in sys.modules (idempotent — never shadows a real install)."""
         if name in sys.modules:
             return sys.modules[name]
         mod = types.ModuleType(name)
@@ -269,6 +272,7 @@ def nado_to_raw(text):
 
 
 def humanize_seconds(seconds):
+    """Seconds -> compact human duration using the two largest units ("3d 4h"); "—" for unknown/nonpositive."""
     if seconds is None:
         return "—"
     try:
@@ -296,6 +300,8 @@ def humanize_seconds(seconds):
 # =========================================================================================
 class WalletStore:
     def __init__(self):
+        """Create ~/.nado_wallet, seed defaults (node endpoint, key file path, auto-refresh), then
+        overlay whatever wallet.json already holds."""
         self.dir = os.path.join(os.path.expanduser("~"), ".nado_wallet")
         os.makedirs(self.dir, exist_ok=True)
         self.settings_path = os.path.join(self.dir, "wallet.json")
@@ -309,6 +315,7 @@ class WalletStore:
         self._load()
 
     def _load(self):
+        """Overlay wallet.json onto the defaults; a missing or corrupt file silently keeps defaults."""
         try:
             with open(self.settings_path) as fh:
                 self.settings.update(json.load(fh))
@@ -316,6 +323,8 @@ class WalletStore:
             pass
 
     def save(self):
+        """Persist settings to wallet.json; write errors are swallowed — settings are a convenience,
+        never worth crashing the wallet over."""
         try:
             with open(self.settings_path, "w") as fh:
                 json.dump(self.settings, fh, indent=2)
@@ -323,9 +332,11 @@ class WalletStore:
             pass
 
     def get(self, key, default=None):
+        """Read a setting with a fallback."""
         return self.settings.get(key, default)
 
     def set(self, key, value):
+        """Set a setting and persist immediately, so every change survives a crash."""
         self.settings[key] = value
         self.save()
 
@@ -339,15 +350,20 @@ class NodeError(Exception):
 
 class NodeClient:
     def __init__(self, host=DEFAULT_HOST, port=DEFAULT_PORT, timeout=6.0):
+        """Bind to one node endpoint; a shared requests.Session keeps HTTP connections alive
+        across the wallet's frequent polling."""
         self.host = host
         self.port = int(port)
         self.timeout = timeout
         self.session = requests.Session()
 
     def base(self):
+        """Root URL of the node's HTTP API."""
         return f"http://{self.host}:{self.port}"
 
     def _get(self, path, params=None):
+        """GET an endpoint -> (status_code, parsed JSON or raw text). Transport failures raise
+        NodeError; HTTP error statuses are handed back for the caller to interpret per endpoint."""
         try:
             r = self.session.get(self.base() + path, params=params or {}, timeout=self.timeout)
         except requests.RequestException as exc:
@@ -359,43 +375,55 @@ class NodeClient:
 
     # ---- read endpoints -----------------------------------------------------------------
     def resolve_alias(self, name):
+        """Resolve an alias to its current owner address; None when unregistered or unreachable."""
         status, data = self._get("/resolve_alias", {"name": name})
         if status == 200 and isinstance(data, dict):
             return data.get("owner")   # None when unregistered
         return None
 
     def get_account(self, address):
+        """Fetch account state (balance/bonded/registered/fidelity); None for an address the chain
+        has never seen — callers treat that as a distinct 'not yet on chain' UI state."""
         status, data = self._get("/get_account", {"address": address})
         if status == 200 and isinstance(data, dict) and "balance" in data:
             return data
         return None  # unknown / never-funded address
 
     def mining_status(self, address):
+        """Fetch the node's per-address selection snapshot (lane weights, epoch, beacon, win ETA).
+        Raises NodeError on failure."""
         status, data = self._get("/mining_status", {"address": address})
         if status == 200 and isinstance(data, dict):
             return data
         raise NodeError(f"mining_status: {data}")
 
     def get_latest_block(self):
+        """Fetch the chain-tip block dict. Raises NodeError — doubles as the connectivity probe."""
         status, data = self._get("/get_latest_block")
         if status == 200 and isinstance(data, dict):
             return data
         raise NodeError(f"get_latest_block: {data}")
 
     def get_latest_block_number(self):
+        """Height of the chain tip."""
         return int(self.get_latest_block()["block_number"])
 
     def get_target_block(self):
+        """Target block for a fresh tx: tip + 2, mirroring transaction_ops.get_target_block so
+        wallet-built txs land in exactly the validity window the node expects."""
         # node convention (transaction_ops.get_target_block): latest + 2
         return self.get_latest_block_number() + 2
 
     def get_supply(self):
+        """Fetch network supply totals (total / circulating / treasury). Raises NodeError."""
         status, data = self._get("/get_supply")
         if status == 200 and isinstance(data, dict):
             return data
         raise NodeError(f"get_supply: {data}")
 
     def get_transactions(self, address, min_block=0):
+        """List an address's transactions from min_block on; returns [] on any failure — history
+        is best-effort display data, never worth an error dialog."""
         status, data = self._get(
             "/get_transactions_of_account", {"address": address, "min_block": min_block}
         )
@@ -437,11 +465,15 @@ class WorkerSignals(QObject):
 
 class Worker(QRunnable):
     def __init__(self, fn):
+        """Wrap a zero-arg callable for QThreadPool; signals live on a separate QObject because
+        QRunnable itself cannot emit."""
         super().__init__()
         self.fn = fn
         self.signals = WorkerSignals()
 
     def run(self):
+        """Execute on a pool thread: emit `result` on success or the stringified exception on
+        `error` — exactly one of the two, and never an exception escaping into Qt."""
         try:
             res = self.fn()
         except Exception as exc:  # noqa: BLE001 - surfaced to the UI as an error string
@@ -457,6 +489,7 @@ class StatCard(QFrame):
     """A titled value card used across the overview."""
 
     def __init__(self, title, value="—", sub="", parent=None):
+        """Stack title/value/sub labels; the value is mouse-selectable so amounts can be copied."""
         super().__init__(parent)
         self.setObjectName("Card")
         lay = QVBoxLayout(self)
@@ -474,6 +507,7 @@ class StatCard(QFrame):
         lay.addWidget(self.sub)
 
     def set(self, value, sub=None, color=None):
+        """Update the value in place, optionally recoloring it and replacing the sub line."""
         self.value.setText(str(value))
         if color:
             self.value.setStyleSheet(f"color: {color};")
@@ -482,12 +516,14 @@ class StatCard(QFrame):
 
 
 def section_title(text):
+    """QLabel styled as a section heading (SectionTitle in the stylesheet)."""
     lbl = QLabel(text)
     lbl.setObjectName("SectionTitle")
     return lbl
 
 
 def hint(text):
+    """Muted, word-wrapped explainer QLabel (Hint style) for inline help under a heading."""
     lbl = QLabel(text)
     lbl.setObjectName("Hint")
     lbl.setWordWrap(True)
@@ -503,6 +539,8 @@ class SelectionWidget(QWidget):
     lane and the derived per-block win probability."""
 
     def __init__(self, parent=None):
+        """Start as an empty expanding canvas; the slot layout is computed lazily in set_data,
+        once per beacon."""
         super().__init__(parent)
         self.setMinimumHeight(360)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -511,6 +549,9 @@ class SelectionWidget(QWidget):
         self._beacon = None
 
     def set_data(self, status):
+        """Ingest a mining_status payload and schedule a repaint. The open-slot set is recomputed
+        only when the beacon changes — lane_of is deterministic per beacon, so caching avoids
+        EPOCH_LENGTH hash calls on every refresh tick."""
         self._data = status or None
         beacon = (status or {}).get("beacon")
         if beacon and beacon != self._beacon:
@@ -528,11 +569,14 @@ class SelectionWidget(QWidget):
     # -- drawing helpers ------------------------------------------------------------------
     @staticmethod
     def _rounded(painter, rect, radius, color):
+        """Fill a rounded-corner rectangle with a solid color (path fill, so it antialiases)."""
         path = QPainterPath()
         path.addRoundedRect(rect, radius, radius)
         painter.fillPath(path, QColor(color))
 
     def _draw_gauge(self, painter, rect, frac, color, label, value_text):
+        """Draw one labeled gauge: caption left, value right, gradient bar below. frac is clamped
+        to [0,1] and any nonzero fill keeps a minimum width so tiny shares stay visible."""
         frac = max(0.0, min(1.0, frac or 0.0))
         painter.setPen(QColor(C_MUTED))
         f = painter.font()
@@ -556,6 +600,10 @@ class SelectionWidget(QWidget):
             painter.fillPath(path, QBrush(grad))
 
     def paintEvent(self, _event):
+        """Qt paint override — renders the full visualization each frame: lane legend, the epoch
+        slot grid (lanes this wallet cannot win are dimmed, winnable ones outlined), and the two
+        lane-share gauges plus the win-probability gauge. Degrades to neutral placeholders while
+        no mining_status has arrived yet."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         W = self.width()
@@ -665,6 +713,8 @@ class SelectionWidget(QWidget):
 # =========================================================================================
 class OverviewTab(QWidget):
     def __init__(self, app):
+        """Assemble the account + network-supply stat-card grid and subscribe to the main
+        window's refresh signals (all updates arrive via signals, never direct calls)."""
         super().__init__()
         self.app = app
         root = QVBoxLayout(self)
@@ -719,9 +769,12 @@ class OverviewTab(QWidget):
         app.walletChanged.connect(self.on_wallet)
 
     def on_wallet(self, keys):
+        """Show the active wallet's address (slot for walletChanged)."""
         self.addr.setText(keys["address"] if keys else "No wallet loaded")
 
     def on_account(self, acc):
+        """Repaint balance/bond/registration/fidelity cards from an account payload; None means
+        the address has never been on chain, shown as a distinct 'Unknown' state, not an error."""
         if not acc:
             for c in (self.c_balance, self.c_bonded, self.c_total):
                 c.set("—")
@@ -743,16 +796,20 @@ class OverviewTab(QWidget):
         self.c_fidelity.set(str(fidelity), f"of {protocol.FIDELITY_CAP} epochs")
 
     def on_supply(self, sup):
+        """Update the network supply cards (slot for supplyUpdated)."""
         self.c_total_supply.set(fmt_nado(sup.get("total_supply", 0)))
         self.c_circulating.set(fmt_nado(sup.get("circulating", 0)))
         self.c_treasury.set(fmt_nado(sup.get("treasury", 0)))
 
     def on_block(self, block):
+        """Update the chain-height card (slot for latestBlockUpdated)."""
         self.c_height.set(f"#{block.get('block_number', 0):,}", "latest block")
 
 
 class SendTab(QWidget):
     def __init__(self, app):
+        """Build the recipient/amount form. The fee row is informational only — the fee is always
+        the protocol minimum, chosen automatically, so there is deliberately no fee input."""
         super().__init__()
         self.app = app
         root = QVBoxLayout(self)
@@ -788,6 +845,9 @@ class SendTab(QWidget):
         root.addStretch(1)
 
     def do_send(self):
+        """Validate the recipient (ndo… address, or a registered alias resolved via the node) and
+        amount, show an explicit confirmation summary, then build+submit off-thread. The send
+        button stays disabled until the worker reports back so a double-click can't double-send."""
         if not self.app.require_wallet():
             return
         # lowercase: alias names are all-lowercase on-chain and ndo… addresses are lowercase hex,
@@ -830,6 +890,8 @@ class SendTab(QWidget):
 
 class BondTab(QWidget):
     def __init__(self, app):
+        """Build the bond/unbond form: one amount field plus a direction combo (both directions
+        are the same transfer tx with a magic recipient, so one form serves both)."""
         super().__init__()
         self.app = app
         root = QVBoxLayout(self)
@@ -868,6 +930,9 @@ class BondTab(QWidget):
         root.addStretch(1)
 
     def do_submit(self):
+        """Validate + confirm, then submit a bond or unbond transfer off-thread. Bond pays the
+        automatic MIN_TX_FEE; unbond MUST carry fee=0 (fee-exempt on-chain — the node rejects a
+        fee-bearing unbond), which is why the fee is derived from the direction, never entered."""
         if not self.app.require_wallet():
             return
         is_bond = self.direction.currentIndex() == 0
@@ -897,6 +962,9 @@ class BondTab(QWidget):
 
 class MiningTab(QWidget):
     def __init__(self, app):
+        """Build the mining dashboard: ETA hero card, presence/weight/epoch stat cards, the
+        auto-bond percentage control and the activity log, all driven by the main window's
+        mining signals (the tab holds no mining state of its own)."""
         super().__init__()
         self.app = app
         root = QVBoxLayout(self)
@@ -987,19 +1055,25 @@ class MiningTab(QWidget):
         app.miningLog.connect(self.append_log)
 
     def append_log(self, text):
+        """Append a line to the activity log (slot for miningLog)."""
         self.log.appendPlainText(text)
 
     def on_active(self, active):
+        """Sync button states/labels with the heartbeat loop (slot for miningActiveChanged)."""
         self.stop_btn.setEnabled(active)
         self.register_btn.setText("Mining active — heartbeats running" if active
                                   else "Register & start mining")
 
     def update_auto_bond_note(self, pct):
+        """Refresh the one-line auto-bond explainer for the current percentage (0 = off)."""
         self.auto_bond_note.setText(
             f"On — bonding {pct}% of new mining rewards each epoch (auto-compounding the bonded lane)."
             if pct else "Off — mining rewards stay in your spendable balance.")
 
     def on_mining(self, status):
+        """Repaint presence, lane weights, epoch and win ETA from a mining_status payload; the
+        ETA sub-line distinguishes 'present but no selection weight yet' (fidelity still ramping)
+        from 'not registered at all'."""
         present = status.get("registered_present")
         self.c_present.set(
             "Present" if present else "Absent",
@@ -1028,6 +1102,7 @@ class MiningTab(QWidget):
 
 class SelectionTab(QWidget):
     def __init__(self, app):
+        """Host the SelectionWidget and pipe every miningUpdated payload straight into it."""
         super().__init__()
         self.app = app
         root = QVBoxLayout(self)
@@ -1049,6 +1124,8 @@ class HistoryTab(QWidget):
     COLS = ["Time", "Type", "Counterparty", "Amount", "Fee", "Tx"]
 
     def __init__(self, app):
+        """Build the transactions table. History is fetched on demand (Refresh button) rather
+        than on the auto-refresh timer to keep the polling loop cheap."""
         super().__init__()
         self.app = app
         root = QVBoxLayout(self)
@@ -1075,6 +1152,9 @@ class HistoryTab(QWidget):
         app.historyUpdated.connect(self.on_history)
 
     def on_history(self, txs):
+        """Rebuild the table from a raw tx list: newest first, each row classified as Send /
+        Receive / protocol op (bond, unbond, register, heartbeat), direction-colored, with
+        addresses and txids ellipsized (full txid available via tooltip)."""
         import datetime
         me = self.app.keys["address"] if self.app.keys else None
         rows = sorted(txs, key=lambda t: t.get("timestamp", 0), reverse=True)
@@ -1138,6 +1218,10 @@ class WalletWindow(QMainWindow):
     autoBondChanged = Signal(int)
 
     def __init__(self, store, host, port):
+        """Wire the whole app: node client, persisted settings, tabs, and the two timers
+        (8 s auto-refresh polling; per-epoch mining heartbeats). Threading contract: every
+        blocking node call runs in a QThreadPool Worker, and results come back to widgets
+        exclusively through the class signals above — nothing off the GUI thread touches Qt."""
         super().__init__()
         self.store = store
         self.keys = None
@@ -1176,6 +1260,7 @@ class WalletWindow(QMainWindow):
 
     # ---- UI construction ----------------------------------------------------------------
     def _build_toolbar(self):
+        """Toolbar: Wallet menu, editable node host:port with a Connect button, manual Refresh."""
         tb = QToolBar()
         tb.setMovable(False)
         self.addToolBar(tb)
@@ -1207,6 +1292,7 @@ class WalletWindow(QMainWindow):
         tb.addWidget(refresh)
 
     def _wallet_menu(self):
+        """Build the Wallet dropdown (new / import / open key file / copy address / reveal key)."""
         from PySide6.QtWidgets import QMenu
         menu = QMenu(self)
         act_new = QAction("New wallet…", self)
@@ -1228,6 +1314,8 @@ class WalletWindow(QMainWindow):
         return menu
 
     def _build_header(self):
+        """Brand header with the always-visible address + balance, kept live via signal lambdas.
+        Also creates the central widget's outer layout that _build_tabs later extends."""
         header = QFrame()
         header.setObjectName("Header")
         lay = QHBoxLayout(header)
@@ -1269,6 +1357,8 @@ class WalletWindow(QMainWindow):
         )
 
     def _build_tabs(self):
+        """Instantiate the six tabs (each subscribes to signals in its own constructor) and
+        mount them under the header."""
         self.tabs = QTabWidget()
         self.overview = OverviewTab(self)
         self.send = SendTab(self)
@@ -1285,6 +1375,8 @@ class WalletWindow(QMainWindow):
         self._central_outer.addWidget(self.tabs, 1)
 
     def _build_statusbar(self):
+        """Status bar: connection dot + text (driven by connectionChanged) and a right-aligned
+        slot for transient flash() messages."""
         sb = QStatusBar()
         self.setStatusBar(sb)
         self.conn_dot = QLabel("●")
@@ -1297,12 +1389,15 @@ class WalletWindow(QMainWindow):
         self.connectionChanged.connect(self._on_connection)
 
     def _on_connection(self, ok, text):
+        """Update the connection indicator (slot for connectionChanged)."""
         self.connected = ok
         self.conn_dot.setStyleSheet(f"color:{C_GOOD if ok else C_BAD};")
         self.conn_text.setText(text)
 
     # ---- key management -----------------------------------------------------------------
     def _load_initial_keys(self):
+        """Load the key file remembered in settings at startup; always emits walletChanged (with
+        None when absent/unreadable) so every tab renders a consistent no-wallet state."""
         keyfile = self.store.get("keyfile")
         if keyfile and os.path.isfile(keyfile):
             try:
@@ -1314,6 +1409,8 @@ class WalletWindow(QMainWindow):
         self.walletChanged.emit(None)
 
     def _set_keys(self, keydict, save_to=None):
+        """Adopt a new keydict: persist it, remember the path, stop any heartbeat loop still keyed
+        to the old identity, then broadcast walletChanged and refresh everything."""
         self.keys = keydict
         path = save_to or self.store.get("keyfile")
         try:
@@ -1326,6 +1423,8 @@ class WalletWindow(QMainWindow):
         self.refresh_all()
 
     def new_wallet(self):
+        """Generate a fresh key pair (after confirming replacement of a loaded wallet — the old
+        key file gets overwritten) and prompt the user to back up the new private key."""
         if self.keys and not self.confirm(
             "Replace current wallet?",
             "A new key pair will be generated and saved as the active wallet.\n"
@@ -1339,6 +1438,8 @@ class WalletWindow(QMainWindow):
                   f"Wallet → Reveal private key.")
 
     def import_private_key(self):
+        """Import a 64-hex private key; the derived address is cross-checked against make_address
+        so a corrupted paste can never silently install a wallet whose funds we can't spend."""
         sk, ok = QInputDialog.getText(self, "Import private key",
                                       "Enter the 64-character hex private key:")
         if not ok or not sk.strip():
@@ -1353,6 +1454,8 @@ class WalletWindow(QMainWindow):
         self.info("Wallet imported", f"Address:\n{keydict['address']}")
 
     def open_keyfile(self):
+        """Switch to an existing key file picked via dialog — validated (address + private key
+        present) before it replaces the active wallet, and never re-saved (unlike _set_keys)."""
         path, _ = QFileDialog.getOpenFileName(self, "Open key file", self.store.dir,
                                               "Key files (*.dat *.json);;All files (*)")
         if not path:
@@ -1370,6 +1473,8 @@ class WalletWindow(QMainWindow):
         self.refresh_all()
 
     def reveal_private_key(self):
+        """Show the private key behind an explicit warning; it sits in the collapsed 'details'
+        pane so it is never on screen without a further deliberate click."""
         if not self.require_wallet():
             return
         if not self.confirm("Reveal private key",
@@ -1383,6 +1488,7 @@ class WalletWindow(QMainWindow):
         box.exec()
 
     def copy_address(self):
+        """Copy the wallet address to the clipboard (silent no-op without a wallet)."""
         if not self.keys:
             return
         QGuiApplication.clipboard().setText(self.keys["address"])
@@ -1390,6 +1496,7 @@ class WalletWindow(QMainWindow):
 
     # ---- settings -----------------------------------------------------------------------
     def apply_node_settings(self):
+        """Point the client at the toolbar's host:port, persist it, and probe with a refresh."""
         host = self.host_edit.text().strip() or DEFAULT_HOST
         try:
             port = int(self.port_edit.text().strip())
@@ -1405,6 +1512,8 @@ class WalletWindow(QMainWindow):
 
     # ---- refresh orchestration ----------------------------------------------------------
     def run_async(self, fn, on_result=None, on_error=None):
+        """Run fn() on the shared QThreadPool; on_result/on_error fire back on the GUI thread via
+        queued signal delivery — the only path by which worker results may touch widgets."""
         worker = Worker(fn)
         if on_result:
             worker.signals.result.connect(on_result)
@@ -1413,6 +1522,8 @@ class WalletWindow(QMainWindow):
         self.pool.start(worker)
 
     def refresh_all(self):
+        """Kick off all polls concurrently as fire-and-forget workers: chain tip (which doubles as
+        the connectivity check), supply, and — when a wallet is loaded — account + mining status."""
         self.run_async(self.client.get_latest_block, self._on_latest, self._on_net_error)
         self.run_async(self.client.get_supply, lambda s: self.supplyUpdated.emit(s), None)
         if self.keys:
@@ -1422,6 +1533,8 @@ class WalletWindow(QMainWindow):
             self.run_async(lambda: self.client.mining_status(addr), self._on_mining, None)
 
     def refresh_history(self):
+        """Fetch the wallet's full transaction history off-thread (manual — deliberately not part
+        of the 8 s poll cycle, since it can be a heavy query)."""
         if not self.require_wallet():
             return
         addr = self.keys["address"]
@@ -1430,11 +1543,13 @@ class WalletWindow(QMainWindow):
                        lambda e: self.flash(f"History error: {e}"))
 
     def _on_latest(self, block):
+        """Tip fetch succeeded: mark the node connected and fan out latestBlockUpdated."""
         num = block.get("block_number", 0)
         self.connectionChanged.emit(True, f"Connected · {self.client.host}:{self.client.port} · block #{num:,}")
         self.latestBlockUpdated.emit(block)
 
     def _on_mining(self, status):
+        """Cache the node's block_time (it paces the heartbeat timer) and fan out miningUpdated."""
         try:
             self.block_time = float(status.get("block_time") or self.block_time)
         except (TypeError, ValueError):
@@ -1442,10 +1557,14 @@ class WalletWindow(QMainWindow):
         self.miningUpdated.emit(status)
 
     def _on_net_error(self, msg):
+        """Tip fetch failed: flip the status bar to Disconnected (other polls fail silently)."""
         self.connectionChanged.emit(False, f"Disconnected · {self.client.host}:{self.client.port}")
 
     # ---- transaction building (reuses repo tx ops; runs inside workers) -----------------
     def build_transfer(self, recipient, amount_raw, fee):
+        """Build, sign and submit a value transfer (bond/unbond ride the same path via their magic
+        recipients) using the repo's own draft/create functions — the wallet never reimplements tx
+        hashing or signing, so its txids can't diverge from consensus. Blocking; worker-only."""
         keys = self.keys
         target = self.client.get_target_block()
         draft = draft_transaction(
@@ -1457,6 +1576,9 @@ class WalletWindow(QMainWindow):
         return self.client.submit_transaction(tx)
 
     def build_register(self):
+        """Solve the one-time open-lane registration PoW (seconds of CPU — self-verified before
+        submitting) and post the signed, fee-free register tx. Blocking; the PoW alone makes this
+        worker-only."""
         keys = self.keys
         nonce = solve_registration_pow(keys["address"])
         if nonce is None or not verify_registration_pow(keys["address"], nonce):
@@ -1470,6 +1592,9 @@ class WalletWindow(QMainWindow):
         return self.client.submit_transaction(tx)
 
     def build_heartbeat(self):
+        """Build and submit the per-epoch presence heartbeat (fee-free). The epoch is derived from
+        the live tip exactly as the node derives it, so the heartbeat lands in the epoch it claims;
+        returns {'epoch', 'response'} so the caller can dedupe per epoch. Blocking; worker-only."""
         keys = self.keys
         num = self.client.get_latest_block_number()
         target = num + 2
@@ -1485,6 +1610,7 @@ class WalletWindow(QMainWindow):
     def submit_async(self, build_fn, done=None):
         """Run a build+submit closure in a worker, then report and refresh."""
         def on_result(resp):
+            """GUI-thread: surface the node's verdict, release the caller's button, refresh."""
             ok = bool(resp.get("result"))
             if ok:
                 self.info("Submitted", resp.get("message") or "Transaction accepted by the node.")
@@ -1495,6 +1621,7 @@ class WalletWindow(QMainWindow):
             self.refresh_all()
 
         def on_error(msg):
+            """GUI-thread: the tx never reached the node — report and release, no refresh."""
             self.error("Network error", msg)
             if done:
                 done(False)
@@ -1503,12 +1630,16 @@ class WalletWindow(QMainWindow):
 
     # ---- mining control -----------------------------------------------------------------
     def register_and_mine(self):
+        """One-click miner start: solve + submit the registration in a worker, then start the
+        heartbeat loop regardless of the node's verdict — a rejection usually just means the
+        identity is already registered, in which case heartbeats are exactly what's needed."""
         if not self.require_wallet():
             return
         self.mining.register_btn.setEnabled(False)
         self.miningLog.emit("Solving one-time registration proof-of-work…")
 
         def on_result(resp):
+            """GUI-thread: log the verdict and start heartbeats either way (see docstring above)."""
             ok = bool(resp.get("result"))
             self.miningLog.emit(("Registration submitted: " if ok else "Registration rejected: ")
                                 + str(resp.get("message")))
@@ -1517,6 +1648,7 @@ class WalletWindow(QMainWindow):
             self.refresh_all()
 
         def on_error(msg):
+            """GUI-thread: registration never reached the node — log and re-arm the button."""
             self.miningLog.emit(f"Registration failed: {msg}")
             self.mining.register_btn.setEnabled(True)
 
@@ -1531,6 +1663,9 @@ class WalletWindow(QMainWindow):
         self.autoBondChanged.emit(self.auto_bond_pct)
 
     def _start_mining_loop(self):
+        """Arm the heartbeat timer at roughly one block interval (min 15 s — the tick itself skips
+        epochs already covered, so over-ticking is cheap) and reset the auto-bond baseline so only
+        earnings from this point on compound."""
         self.mining_active = True
         self._last_hb_epoch = None
         self.auto_bond_baseline = None            # only earnings AFTER mining starts auto-bond
@@ -1542,6 +1677,8 @@ class WalletWindow(QMainWindow):
         QTimer.singleShot(500, self._heartbeat_tick)
 
     def stop_mining(self):
+        """Stop the heartbeat loop and drop the auto-bond baseline; idempotent, so it is safely
+        called on every wallet switch."""
         if self.heartbeat_timer.isActive():
             self.heartbeat_timer.stop()
         if self.mining_active:
@@ -1551,10 +1688,15 @@ class WalletWindow(QMainWindow):
         self.miningActiveChanged.emit(False)
 
     def _heartbeat_tick(self):
+        """Timer slot: post a presence heartbeat in a worker when the epoch has advanced past the
+        last accepted one (the node dedupes per (address, epoch) anyway — the local check just
+        avoids pointless txs), then give auto-bond its once-per-epoch chance."""
         if not self.mining_active or not self.keys:
             return
 
         def on_result(out):
+            """GUI-thread: record the accepted epoch; a rejection is logged but benign (register
+            still unconfirmed, or already present this epoch)."""
             epoch = out["epoch"]
             resp = out["response"]
             if resp.get("result"):
@@ -1565,10 +1707,13 @@ class WalletWindow(QMainWindow):
                 self.miningLog.emit(f"Heartbeat (epoch #{epoch}) not accepted: {resp.get('message')}")
 
         def on_error(msg):
+            """GUI-thread: transport failure — log it; the next timer tick retries naturally."""
             self.miningLog.emit(f"Heartbeat error: {msg}")
 
         # Only post when the epoch advanced (the node dedupes per (address, epoch) anyway).
         def build():
+            """Worker-thread: short-circuit with a synthetic success when this epoch's heartbeat
+            was already accepted; otherwise build + submit a fresh one."""
             num = self.client.get_latest_block_number()
             epoch = num // EPOCH_LENGTH
             if epoch == self._last_hb_epoch:
@@ -1587,6 +1732,9 @@ class WalletWindow(QMainWindow):
         pct = int(self.auto_bond_pct)
 
         def work():
+            """Worker-thread: measure the balance gain over the baseline and submit at most one
+            bond when it clears the dust floor + fee (otherwise keep accruing under the same
+            baseline). Returns None (nothing to do), a summary dict, or {'error': message}."""
             acc = self.client.get_account(self.keys["address"]) or {}
             if acc.get("registered") != 1:
                 return None
@@ -1617,6 +1765,7 @@ class WalletWindow(QMainWindow):
             return {"error": resp.get("message")}
 
         def done(out):
+            """GUI-thread: log the outcome; only a successful bond warrants a refresh."""
             if not out:
                 return
             if out.get("error"):
@@ -1631,12 +1780,15 @@ class WalletWindow(QMainWindow):
 
     # ---- helpers ------------------------------------------------------------------------
     def require_wallet(self):
+        """Gate for wallet-requiring actions: True when keys are loaded, else shows an error
+        dialog and returns False so callers can simply early-return."""
         if not self.keys:
             self.error("No wallet", "Create or import a wallet first (Wallet menu).")
             return False
         return True
 
     def confirm(self, title, text):
+        """Modal Ok/Cancel question -> True on Ok."""
         box = QMessageBox(self)
         box.setWindowTitle(title)
         box.setIcon(QMessageBox.Icon.Question)
@@ -1645,12 +1797,15 @@ class WalletWindow(QMainWindow):
         return box.exec() == QMessageBox.StandardButton.Ok
 
     def error(self, title, text):
+        """Modal error dialog."""
         QMessageBox.critical(self, title, text)
 
     def info(self, title, text):
+        """Modal information dialog."""
         QMessageBox.information(self, title, text)
 
     def flash(self, text):
+        """Show a transient status-bar message that auto-clears after 4 s."""
         self.status_msg.setText(text)
         QTimer.singleShot(4000, lambda: self.status_msg.setText(""))
 
@@ -1659,6 +1814,9 @@ class WalletWindow(QMainWindow):
 # Entry point
 # =========================================================================================
 def main():
+    """Entry point: CLI args override stored settings for the node endpoint; a dark Fusion
+    palette is applied alongside the stylesheet so native chrome (menus, tooltips) matches the
+    themed widgets, then the Qt event loop runs until the window closes."""
     parser = argparse.ArgumentParser(description="NADO desktop wallet (PySide6)")
     parser.add_argument("--host", default=None, help="node host (default from settings / 127.0.0.1)")
     parser.add_argument("--port", default=None, type=int, help="node port (default from settings / 9173)")

@@ -26,6 +26,18 @@ def get_account(address, create_on_error=True):
 
 
 def reflect_transaction(transaction, logger, block_height=None, revert=False):
+    """Apply — or with revert=True EXACTLY undo — one transaction's state effects. This is the
+    single state-transition dispatcher, keyed on the reserved recipient name (bond/unbond/withdraw,
+    register, msgkey, slash, attest, commit/reveal, alias, blob, settle, bridge*, shield/unshield,
+    htlc_*, dividend_withdraw, treasury_*), defaulting to an ordinary alias-resolved transfer.
+
+    Runs INSIDE the incorporate/rollback write txn with all semantic checks already done by
+    validate_transaction — reflect only mutates. Every branch must hold two invariants:
+    DETERMINISM (same committed parent state -> same mutations on every node) and REVERT SYMMETRY
+    (rollback must restore byte-identical state — which is why overwriting ops like msgkey,
+    bond_since and treasury_vote stash the PRIOR value keyed by txid instead of naively deleting).
+    Fees are ALWAYS debited from the sender and DESTROYED — credited to no one, counted into
+    totals.fees (shrinking supply) and into the header cumulative_fees counter."""
     # Fee is ALWAYS debited from the sender.
     # The fee is destroyed (credited to no one); it is counted into totals.fees and subtracted
     # from supply, and it drives the elastic block reward via the header cumulative_fees counter.
@@ -300,6 +312,10 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
 
 
 def change_balance(address: str, amount: int, logger, revert=False):
+    """Signed spendable-balance mutation; revert flips the sign, so apply/rollback are EXACT
+    mirrors. One read-modify-write inside the active write txn (two debits in one block compose).
+    Floors at zero and fails CLOSED (raise) — an underflow must abort the whole block, never
+    silently mint or truncate."""
     # Compute the signed delta ONCE (revert flips the sign), then a single read-modify-write of the
     # account doc inside the active write txn (so two debits in one block compose correctly). The
     # floor_zero guard enforces the non-negative invariant: if it would go negative the write is
@@ -312,6 +328,9 @@ def change_balance(address: str, amount: int, logger, revert=False):
 
 
 def get_totals(block, revert=False):
+    """One block's supply deltas {produced: reward, fees: burned}; revert=True returns them NEGATED
+    so index_totals applies an exact mirror on rollback (supply = TREASURY_GENESIS + produced -
+    fees feeds the bond-elastic emission, so these must track reorgs precisely)."""
     fees = 0
     produced = block["block_reward"]
 
@@ -326,12 +345,16 @@ def get_totals(block, revert=False):
 
 
 def index_totals(produced, fees):
+    """signed add of a block's (produced, fees) deltas into the cumulative totals — the NEGATIVE
+    deltas from get_totals(revert=True) MUST apply on rollback, or supply-derived consensus reads
+    (the elastic emission multiplier) drift after a reorg."""
     # signed add (on rollback get_totals(revert=True) returns NEGATIVE deltas, which must be applied
     # so totals shrink on a reorg — the old `> 0` guard wrongly skipped them and only ever grew).
     kv_ops.totals_add(produced, fees)
 
 
 def fetch_totals():
+    """cumulative {produced, fees} totals from the KV store (falsy before anything is indexed)."""
     return kv_ops.totals_get()
 
 
@@ -349,6 +372,9 @@ def set_finalized_height(height: int):
 
 
 def increase_produced_count(address, amount, logger, revert=False):
+    """signed mutation of a producer's `produced` counter, mirroring change_balance: revert flips
+    the sign (exact rollback mirror), floors at zero and fails CLOSED so a mismatched rollback
+    cannot skew the penalty metric negative."""
     # single read-modify-write of the produced counter; floor keeps it non-negative so a mismatched
     # rollback fails closed instead of going negative and skewing the penalty metric.
     delta = -amount if revert else amount
@@ -360,6 +386,8 @@ def increase_produced_count(address, amount, logger, revert=False):
 
 
 def create_account(address, balance=0, produced=0, bonded=0, registered=0, fidelity=0):
+    """insert-or-ignore seed of an account doc (idempotent — an existing row is left untouched);
+    always returns the REQUESTED values, matching the old SQLite behavior callers expect."""
     # INSERT-OR-IGNORE: seed the doc only if the address has no row yet (idempotent), but always
     # return the requested values (matches the old behavior).
     kv_ops.create_account_if_absent(address, balance=balance, produced=produced, bonded=bonded,

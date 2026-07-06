@@ -26,6 +26,8 @@ class PeerClient(threading.Thread):
     """thread which handles peers because timeouts take long"""
 
     def __init__(self, memserver, consensus, logger):
+        """Wire to the shared memserver/consensus state and zero the pacing timers, so the first
+        pass immediately runs a heavy refresh and (if peerless) a seed/drive reload."""
         threading.Thread.__init__(self)
         self.logger = logger
         self.logger.info(f"Starting Peer Client")
@@ -72,6 +74,9 @@ class PeerClient(threading.Thread):
                         self.memserver.peers.append(peer)
 
     def disconnect_peer(self, entry):
+        """Drop a peer from the active dial set and bench it in unreachable, timestamped for the
+        UNREACHABLE_COOLDOWN retry. Idempotent: an already-benched peer keeps its ORIGINAL bench
+        time, so repeated purge passes cannot extend the cooldown indefinitely."""
         if entry in self.memserver.peers:
             self.memserver.peers.remove(entry)
 
@@ -97,6 +102,15 @@ class PeerClient(threading.Thread):
             self.memserver.purge_peers_list.remove(entry)
 
     def run(self) -> None:
+        """Thread entry, ~1/s: grow the dial set from gossip (subnet-diversity capped against
+        eclipse), merge peers' gossiped txs into the mempool EVERY pass (continuous, mirroring the
+        local drain in core_loop.normal_mode), un-bench cooled-down unreachable peers (operator
+        seeds immediately — they are the anchor), run the periodic heavy refresh (announce, peer
+        health, public-IP + self-port probe -> can_mine), and pull every peer's status into
+        consensus.status_pool. Status admission is fail-closed on protocol AND chain_id: a foreign
+        chain's tip weight in the pools would flip the caught-up gate and minority_block_consensus,
+        stalling production against blocks verify_block can only reject. Failures accumulate in
+        purge_peers_list and are flushed at the end of each pass."""
         while not self.memserver.terminate:
             try:
                 start = get_timestamp_seconds()

@@ -27,10 +27,12 @@ _ZSTD_D = zstd.ZstdDecompressor()
 
 
 def _pack_block(block) -> bytes:
+    """local zstd(msgpack) block-body encoding — non-consensus, see module note (#14)."""
     return _ZSTD_C.compress(msgpack.packb(block))
 
 
 def _unpack_block(raw: bytes):
+    """inverse of _pack_block for locally-stored (trusted) block files."""
     return msgpack.unpackb(_ZSTD_D.decompress(raw), raw=False)
 
 
@@ -41,6 +43,7 @@ _ZSTD_WIRE_MAX = 64 << 20
 
 
 def _unpack_wire(body: bytes):
+    """decode a peer's zstd block-sync wire payload under the decompression-bomb cap (_ZSTD_WIRE_MAX above)."""
     return msgpack.unpackb(_ZSTD_D.decompress(body, max_output_size=_ZSTD_WIRE_MAX), raw=False)
 
 
@@ -82,6 +85,10 @@ def get_block_reward(parent_block=None):
 
 
 def valid_block_timestamp(new_block):
+    """Consensus gate: a block's timestamp may never lie in the FUTURE of the local clock. That is
+    the ONLY timestamp rule — block_timestamp sits OUTSIDE the hash preimage (construct_block hashes
+    it as None), so a producer can stamp wall-clock without changing the block hash, and nodes with
+    slightly-skewed clocks still agree on validity of anything already in the past."""
     new_timestamp = new_block["block_timestamp"]
     if new_timestamp > get_timestamp_seconds():
         return False
@@ -90,6 +97,9 @@ def valid_block_timestamp(new_block):
 
 
 def check_target_match(transaction_list, block_number, logger):
+    """Verification-side gate: EVERY transaction in the block must target exactly this block number
+    (target_block binds a tx to one height, so it cannot be replayed into a different block).
+    Fails CLOSED — a malformed transaction returns False, never a pass."""
     try:
         for transaction in transaction_list:
             if transaction["target_block"] != block_number:
@@ -101,6 +111,10 @@ def check_target_match(transaction_list, block_number, logger):
 
 
 def match_transactions_target(transaction_list, block_number, logger):
+    """Producer-side pool filter — the assembly mirror of check_target_match: keep only txs targeting
+    this block number, drop duplicate reserved txs and cap blobs to the per-block byte budget, i.e.
+    pre-apply everything verify_block will enforce so an honest producer never assembles a block its
+    peers must reject. False on error."""
     try:
         matched_txs = []
 
@@ -122,6 +136,13 @@ def match_transactions_target(transaction_list, block_number, logger):
 def get_block_candidate(
         transaction_pool, logger, latest_block
 ):
+    """Deterministically assemble the NEXT block on top of latest_block. Every honest node must
+    build the IDENTICAL candidate from committed parent state: the two-lane draw (open registry +
+    RANDAO-gated bonded registry under the epoch beacon) picks the SAME winner everywhere, the tx
+    set is the pool subset targeting this height (deduped, blob-capped), and construct_block sorts
+    by txid — so the network converges on one hash even when the winner is offline (win-offline).
+    Only the timestamp is local (outside the hash preimage). Returns None when no lane has an
+    eligible producer; the caller skips the slot."""
     block_number = latest_block["block_number"] + 1
 
     # S4.4 TWO-LANE: select the producer from the OPEN registry (registered+present, zero-coin) and
@@ -200,6 +221,7 @@ def get_block(block):
 
 
 def get_block_number(number):
+    """block dict by HEIGHT via the number->hash index; False if unindexed, pruned, or unreadable."""
     try:
         block_hash = kv_ops.hash_by_number(number)
         if not block_hash:
@@ -365,6 +387,7 @@ def mining_status(address, latest_block_number, block_time):
     # time to mine" honestly reflects that its bonded weight ramps up over BOND_RAMP_EPOCHS (consensus draw
     # is the source of truth; this just keeps the estimate consistent with it).
     def _bwt(info):
+        """display-side bonded weight: selection shares with the bond-age ramp applied (mirrors the consensus draw)"""
         return bond_ramp_weight(selection_shares(info["bonded"], info.get("fidelity")),
                                 info.get("bond_since"), epoch)
     total_open = sum(open_shares(i.get("fidelity")) for i in open_reg.values())
@@ -401,6 +424,9 @@ def block_already_indexed(block_hash):
 
 
 def load_block_from_hash(block_hash: str, logger):
+    """load a block body by hash, returning False (logged at info) instead of raising — sync and
+    block-ends paths probe for bodies that may legitimately be absent (rolling-mode pruned). The
+    hash is validated so a peer-supplied value cannot traverse to arbitrary *.block paths."""
     # SECURITY: reachable from the unauthenticated /get_blocks_after / /get_blocks_before
     # hash arg; validate so it can't read arbitrary *.block paths off disk.
     if not is_hex_hash(block_hash):
@@ -432,6 +458,14 @@ def block_content_hash(block: dict) -> str:
 
 
 def save_block(block: dict, logger):
+    """Persist a block body to blocks/<hash>.block — the single storage choke point, where the
+    HASH-CONSISTENCY invariant is enforced: the (peer-supplied) hash must be a real hex hash (no
+    path traversal outside blocks/), and a non-genesis block whose content does not hash to its own
+    block_hash is REFUSED with a raise — persisting a forged or reorg-corrupted body and chaining
+    onto it would fork every honest node that later re-derives the true hash. Crash-safe: pack
+    once, temp file + fsync + atomic os.replace so a reader never sees a half-written body; bounded
+    retries then raise, so a persistent error (full disk, permissions) fails LOUDLY instead of
+    silently wedging the caller."""
     # SECURITY: a synced block's hash is peer-supplied; refuse to write outside blocks/
     if not is_hex_hash(block.get("block_hash")):
         logger.warning(f"Refusing to save block with invalid hash {block.get('block_hash')!r}")
@@ -475,6 +509,12 @@ def save_block(block: dict, logger):
 
 
 def get_block_ends_info(logger):
+    """Load the chain ends as FULL block dicts: {"earliest_block", "latest_block"} resolved from the
+    hash pointers in index/block_ends.dat. ROLLING-MODE recovery: the recorded earliest BODY may
+    have been pruned, so on a failed load walk up from the pruned_below watermark to the earliest
+    RETAINED body (last resort: the latest block) and repair the pointer — earliest_block must
+    ALWAYS come back as a real dict, or every /status call 403s and stalls the exec node + wallet
+    connection. Returns None on failure (logged)."""
     try:
         with open(f"{get_home()}/index/block_ends.dat", "r") as ends_file:
             block_ends = json.load(ends_file)
@@ -514,6 +554,12 @@ def get_block_ends_info(logger):
 
 
 def unindex_block(block, logger):
+    """Rollback mirror of index_block_number + save_block: remove both directions of the
+    number<->hash mapping INSIDE the active rollback write txn (so a failure aborts the WHOLE
+    rollback atomically — index/unindex must be exact inverses or a replayed block double-applies),
+    then best-effort delete the body file. The file removal is bounded and non-fatal by design: a
+    leftover *.block body is inert once unindexed (consensus lookups resolve via the index), whereas
+    spinning on it would stall the single block-processing thread."""
     # Delete both directions of the number<->hash mapping. Called inside the rollback write txn
     # (kv_ops uses the active txn), so an error propagates and aborts the WHOLE rollback rather than
     # leaving it half-reverted — no infinite retry loop is needed or correct under LMDB.
@@ -567,11 +613,16 @@ def _update_block_ends(updates: dict, logger):
 
 
 def set_earliest_block_info(earliest_block: dict, logger):
+    """persist the earliest-block pointer (rolling-mode retention floor) into block_ends.dat; returns the block."""
     _update_block_ends({"earliest_block": earliest_block["block_hash"]}, logger=logger)
     return earliest_block
 
 
 def set_latest_block_info(latest_block: dict, logger):
+    """Advance the latest-block pointer in block_ends.dat (atomic replace via _update_block_ends)
+    and re-put the number<->hash mapping. Shared by incorporate, rollback and genesis/snapshot; the
+    'applied' source of truth stays the IN-TXN index_block_number marker, this pointer is just the
+    fast path to the tip."""
     _update_block_ends({"latest_block": latest_block["block_hash"]}, logger=logger)
 
     # idempotent number<->hash mapping (already written inside the incorporate txn by
@@ -713,6 +764,9 @@ def verify_block_signature(block) -> bool:
 
 
 async def knows_block(target_peer, port, hash, logger):
+    """ask a peer whether it can serve a block (GET /get_block?hash=). False on non-200 AND on any
+    network error — an unreachable peer just counts as not knowing, never as an error the caller
+    must handle."""
     try:
         url_construct = f"http://{hostport(target_peer, port)}/get_block?hash={hash}"
 
@@ -737,6 +791,10 @@ def update_child_in_latest_block(child_hash, logger, parent):
 
 
 async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="zstd"):
+    """Fetch up to `count` blocks AFTER from_hash from a peer (forward sync). The default zstd wire
+    is decoded through the bomb-capped _unpack_wire, so an untrusted peer cannot balloon a tiny
+    frame into gigabytes. Falsy on any failure (non-200, timeout, bad payload) — the caller moves
+    on to another peer."""
     try:
         url_construct = f"http://{hostport(target_peer, get_config()['port'])}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
 
@@ -760,6 +818,8 @@ async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="z
 
 
 async def get_blocks_before(target_peer, from_hash, logger, count=50, compress="zstd"):
+    """mirror of get_blocks_after for backward sync: up to `count` blocks BEFORE from_hash (walking
+    toward genesis), same bomb-capped zstd wire decode, falsy on any failure."""
     try:
         url_construct = f"http://{hostport(target_peer, get_config()['port'])}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
 

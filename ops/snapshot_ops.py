@@ -37,6 +37,8 @@ CHECKPOINT_INTERVAL = int(os.environ.get("NADO_SNAPSHOT_INTERVAL", "1000"))
 
 
 def _blake2b(data: bytes) -> str:
+    """32-byte blake2b hex digest — the ONE hash used for state roots and manifest hashes, so every node
+    derives identical commitments"""
     return hashlib.blake2b(data, digest_size=32).hexdigest()
 
 
@@ -135,6 +137,8 @@ def _canonical(obj):
 
 
 def verify_chunk(chunk_bytes, meta) -> bool:
+    """per-chunk integrity gate: downloaded bytes are UNTRUSTED until they match the sha256 pinned in the
+    (hash-verified) manifest — a donor can't substitute chunk content without failing here"""
     return hashlib.sha256(chunk_bytes).hexdigest() == meta["sha256"]
 
 
@@ -275,6 +279,8 @@ async def fetch_snapshot(target, port, logger=None, concurrency=8, timeout=120):
             sem = __import__("asyncio").Semaphore(concurrency)
 
             async def _one(cid):
+                """fetch chunk `cid` under the concurrency semaphore, read-capped to chunk_meta[cid]['bytes']
+                (trusted because the manifest passed its self-hash) — the donor can't over-feed us"""
                 async with sem:
                     async with session.get(f"{base}/get_snapshot_chunk?id={cid}&height={height}") as cr:
                         if cr.status != 200:
@@ -290,6 +296,8 @@ async def fetch_snapshot(target, port, logger=None, concurrency=8, timeout=120):
 
 
 def _log(logger, level, msg):
+    """log at `level` if a logger was passed (falling back to .info for unknown levels); silent no-op
+    without one, so library callers and tests need not wire up logging"""
     if logger:
         getattr(logger, level, logger.info)(msg)
 
@@ -306,10 +314,12 @@ def _log(logger, level, msg):
 # --------------------------------------------------------------------------------------------------
 
 def _snap_dir(home=None):
+    """root of the persisted checkpoints (snapshots/<height>/ per checkpoint)"""
     return f"{home or get_home()}/snapshots"
 
 
 def _ckpt_path(height, home=None):
+    """directory of the checkpoint at `height`; int() sanitizes a peer-supplied height (no path traversal)"""
     return f"{_snap_dir(home)}/{int(height)}"
 
 
@@ -330,6 +340,8 @@ def list_checkpoint_heights(home=None):
 
 
 def _prune_old_checkpoints(keep, home=None):
+    """drop all but the newest `keep` checkpoints — every node deterministically re-captures the same
+    ones, so old checkpoints are pure disk weight, not history worth keeping. keep<=0 disables pruning."""
     if keep <= 0:
         return
     for h in list_checkpoint_heights(home)[:-keep]:
@@ -364,6 +376,8 @@ def latest_final_checkpoint_height(finalized_height, home=None):
 
 
 def load_checkpoint_manifest(height, home=None):
+    """the persisted manifest of checkpoint `height` (served over /get_snapshot_manifest and advertised in
+    /status), or None if absent. Fetchers re-verify its self-hash, so no trust rides on this read."""
     p = f"{_ckpt_path(height, home)}/manifest.msgpack"
     if not os.path.isfile(p):
         return None
@@ -372,6 +386,8 @@ def load_checkpoint_manifest(height, home=None):
 
 
 def load_checkpoint_chunk(height, cid, home=None):
+    """raw bytes of one persisted chunk (served verbatim to joiners over /get_snapshot_chunk), or None if
+    missing. int() on the peer-supplied cid (like height in _ckpt_path) forecloses path traversal."""
     p = f"{_ckpt_path(height, home)}/chunk_{int(cid)}.bin"
     if not os.path.isfile(p):
         return None

@@ -16,6 +16,7 @@ EMPTY_LEAF = 0                                     # field element for an empty 
 
 
 def _empty_roots(depth):
+    """Precompute e[i] = alghash root of an all-empty subtree of height i (e[depth] = empty-tree root)."""
     e = [EMPTY_LEAF]
     for _ in range(depth):
         e.append(alghash.merkle_node(e[-1], e[-1]))
@@ -27,6 +28,8 @@ EMPTY_ROOT = _EMPTY[TREE_DEPTH]
 
 
 def tree_root(leaves):
+    """Root of the fixed-depth (TREE_DEPTH) alghash tree over `leaves` (field elements), padding short
+    levels with the empty-subtree root — the exact tree the STARK membership region folds."""
     if not leaves:
         return EMPTY_ROOT
     level = list(leaves)
@@ -62,43 +65,53 @@ class FieldShieldedPool:
     """Append-only field-hash commitment tree + spent-nullifier set + bounded anchor window."""
 
     def __init__(self, commitments=None, nullifiers=None, anchors=None):
+        """Rebuild the pool from persisted values, reducing everything into the Goldilocks field, and
+        register the current root as an anchor so a fresh/loaded pool accepts proofs against itself."""
         self.commitments = [int(c) % F.P for c in (commitments or [])]
         self.nullifiers = set(int(n) % F.P for n in (nullifiers or []))
         self.anchors = list(anchors or [])
         self._remember(self.root())
 
     def root(self):
+        """Current commitment-tree root (recomputed O(n) per call — fine at alpha pool sizes)."""
         return tree_root(self.commitments)
 
     def _remember(self, root):
+        """Record `root` in the bounded (128-deep) anchor window, deduped."""
         if root not in self.anchors:
             self.anchors.append(root)
             if len(self.anchors) > 128:
                 del self.anchors[:-128]
 
     def knows_root(self, root):
+        """Anchor freshness (root reduced into the field first): did this pool recently hold `root`?"""
         return int(root) % F.P in self.anchors
 
     def append(self, cm):
+        """Append a commitment (reduced mod P) and register the new root as a valid anchor."""
         self.commitments.append(int(cm) % F.P)
         self._remember(self.root())
 
     def position(self, cm):
+        """Leaf index of commitment `cm` in the tree (the STARK path witness needs it), or None if absent."""
         try:
             return self.commitments.index(int(cm) % F.P)
         except ValueError:
             return None
 
     def has_nullifier(self, nf):
+        """True if `nf` (reduced mod P) was already revealed by a spend (double-spend check)."""
         return int(nf) % F.P in self.nullifiers
 
     def to_dict(self):                                # big field ints -> strings (JSON-safe)
+        """JSON-safe snapshot: every field int as a string (JS numbers lose precision above 2^53)."""
         return {"commitments": [str(c) for c in self.commitments],
                 "nullifiers": [str(n) for n in sorted(self.nullifiers)],
                 "anchors": [str(a) for a in self.anchors]}
 
     @classmethod
     def from_dict(cls, d):
+        """Rebuild a pool from a to_dict snapshot (string ints back to field elements)."""
         return cls([int(c) for c in d.get("commitments", [])],
                    [int(n) for n in d.get("nullifiers", [])],
                    [int(a) for a in d.get("anchors", [])])
