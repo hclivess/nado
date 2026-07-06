@@ -2532,6 +2532,27 @@
   };
   for (const l in T46) Object.assign(T[l] = T[l] || {}, T46[l]);
 
+  // T47: header network tag (client CHAIN_ID + relay mismatch warning).
+  const T47 = {
+    en:{"net.tagTip":"The network this wallet signs for.","net.mismatch":"The relay node runs a different chain — transactions will be rejected. Change the relay in Settings."},
+    cs:{"net.tagTip":"Síť, pro kterou tato peněženka podepisuje.","net.mismatch":"Relay uzel běží na jiném řetězci — transakce budou zamítnuty. Změňte relay v Nastavení."},
+    es:{"net.tagTip":"La red para la que firma esta wallet.","net.mismatch":"El nodo relay usa otra cadena — las transacciones serán rechazadas. Cambia el relay en Ajustes."},
+    pt:{"net.tagTip":"A rede para a qual esta carteira assina.","net.mismatch":"O nó relay roda outra cadeia — as transações serão rejeitadas. Troque o relay em Configurações."},
+    fr:{"net.tagTip":"Le réseau pour lequel ce portefeuille signe.","net.mismatch":"Le nœud relais utilise une autre chaîne — les transactions seront rejetées. Changez le relais dans Réglages."},
+    de:{"net.tagTip":"Das Netzwerk, für das diese Wallet signiert.","net.mismatch":"Der Relay-Node läuft auf einer anderen Chain — Transaktionen werden abgelehnt. Ändere den Relay in den Einstellungen."},
+    it:{"net.tagTip":"La rete per cui firma questo wallet.","net.mismatch":"Il nodo relay usa un'altra catena — le transazioni saranno rifiutate. Cambia il relay nelle Impostazioni."},
+    ru:{"net.tagTip":"Сеть, для которой подписывает этот кошелёк.","net.mismatch":"Релейный узел работает в другой сети — транзакции будут отклонены. Смените релей в Настройках."},
+    zh:{"net.tagTip":"此钱包签名所针对的网络。","net.mismatch":"中继节点运行的是另一条链——交易将被拒绝。请在设置中更换中继。"},
+    ja:{"net.tagTip":"このウォレットが署名するネットワーク。","net.mismatch":"リレーノードは別のチェーンを実行中 — トランザクションは拒否されます。設定でリレーを変更してください。"},
+    ko:{"net.tagTip":"이 지갑이 서명하는 네트워크입니다.","net.mismatch":"릴레이 노드가 다른 체인을 실행 중 — 트랜잭션이 거부됩니다. 설정에서 릴레이를 변경하세요."},
+    ar:{"net.tagTip":"الشبكة التي توقّع لها هذه المحفظة.","net.mismatch":"عقدة الترحيل تعمل على سلسلة مختلفة — سيتم رفض المعاملات. غيّر عقدة الترحيل في الإعدادات."},
+    hi:{"net.tagTip":"वह नेटवर्क जिसके लिए यह वॉलेट हस्ताक्षर करता है।","net.mismatch":"रिले नोड दूसरी चेन चला रहा है — लेनदेन अस्वीकार होंगे। सेटिंग्स में रिले बदलें।"},
+    tr:{"net.tagTip":"Bu cüzdanın imzaladığı ağ.","net.mismatch":"Relay düğümü farklı bir zincir çalıştırıyor — işlemler reddedilecek. Ayarlar'dan relay'i değiştirin."},
+    id:{"net.tagTip":"Jaringan tempat dompet ini menandatangani.","net.mismatch":"Node relay menjalankan chain lain — transaksi akan ditolak. Ganti relay di Pengaturan."},
+    vi:{"net.tagTip":"Mạng mà ví này ký giao dịch.","net.mismatch":"Nút relay chạy chuỗi khác — giao dịch sẽ bị từ chối. Đổi relay trong Cài đặt."},
+  };
+  for (const l in T47) Object.assign(T[l] = T[l] || {}, T47[l]);
+
 
 
 

@@ -4442,6 +4442,25 @@ async function boot() {
 
   // initial connectivity + dashboard (startMining already kicks a poll when we auto-resumed)
   if (!resumedMining) pollOnce().catch(() => setConn(false));
+  initNetTag().catch(() => {});
+}
+
+/* Network tag (header, upper right): which chain THIS wallet build signs for (CHAIN_ID). One
+ * startup /status fetch cross-checks the relay's chain_id — a mismatched relay would reject every
+ * tx with "Wrong or missing chain id", so surface the mismatch loudly instead of failing quietly. */
+async function initNetTag() {
+  const el = $("netTag");
+  if (!el) return;
+  el.textContent = CHAIN_ID;
+  el.title = i18("net.tagTip", "The network this wallet signs for.");
+  try {
+    const st = (await rpcJSON("/status")).data;
+    if (st && st.chain_id && st.chain_id !== CHAIN_ID) {
+      el.textContent = CHAIN_ID + " ≠ " + st.chain_id;
+      el.classList.add("mismatch");
+      el.title = i18("net.mismatch", "The relay node runs a different chain — transactions will be rejected. Change the relay in Settings.");
+    }
+  } catch (e) {}
 }
 
 boot();
