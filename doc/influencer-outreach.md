@@ -5,7 +5,11 @@ Outreach targets for the NADO relaunch. Built around what NADO actually is: a **
 drives targeting — the audience that matters is the fair-launch / mining / privacy / cypherpunk
 crowd, not mainstream pump influencers.
 
-_Last updated: 2026-07-05. Handles marked "verify" should be confirmed before sending._
+_Last updated: 2026-07-06. Handles marked "verify" should be confirmed before sending._
+_2026-07-06: merged a fresh follower/audit sweep — privacy infra into Tier 2, OG/degen CT into
+Tier 2b (notable rows + a compact batch block at the end of that tier), a builder into Tier 3, and
+one off-narrative desk into Tier 4. @Sicarious_ from that sweep was already listed (Tier 2b) — not
+duplicated._
 
 **Score (0–100)** = one admittedly arbitrary gut number per target: ~50% audience fit
 (mining/fair-launch/privacy/PQ), ~30% warmth (follows you / knew Bismuth / organic reachability),
@@ -101,13 +105,19 @@ Won't shill, but a mention or "interesting design" nod carries weight with the p
 |---|---|---|---|---|---|
 | Seth For Privacy | **82** | [@sethforprivacy](https://x.com/sethforprivacy) | X | Leading privacy/Monero educator. Ideal for the STARK/FRI + PQ story. | ☐ Not contacted |
 | Randy | **76** | [@MoneroKaiser](https://x.com/MoneroKaiser) | X | Bio: "monero first." Exactly the audience the shielded-pool + PQ story is for — privacy maxis evaluating what comes after ECDSA. | ☐ Not contacted |
+| Privacy Guides | **70** | [@privacy_guides](https://x.com/privacy_guides) | X | Non-profit privacy media/education; won't shill a coin but curates genuinely novel privacy tooling. Play: submit the transparent-STARK shielded pool + post-ECDSA (PQ) design as a privacy-tech writeup — earn a listing/mention, never a coin promo. | ☐ Not contacted |
 | Naomi Brockwell | **68** | [@naomibrockwell](https://x.com/naomibrockwell) | X / YouTube | Privacy-education reach beyond crypto. | ☐ Not contacted |
-| Andreas Antonopoulos | **55** | [@aantonop](https://x.com/aantonop) | X / YouTube | Cypherpunk cred; long-shot but on-narrative. | ☐ Not contacted |
-| fluffypony (Riccardo Spagni) | **60** | [@fluffypony](https://x.com/fluffypony) | X | Monero founder; technical privacy audience. | ☐ Not contacted |
+| silent.link | **63** | [@silentlink1](https://x.com/silentlink1) | X / nostr | NoKYC eSIM, nostr-native — serves the exact anti-surveillance / no-KYC crowd NADO is for. Play: privacy-tooling kinship (no premine, no KYC, phone-native private coin); organic cross-audience, not a paid slot. | ☐ Not contacted |
 | Zooko Wilcox | **62** | [@zooko](https://x.com/zooko) | X | Zcash founder, cypherpunk OG — privacy + ZK. Natural fit for a privacy + transparent-STARK coin. | ☐ Not contacted |
+| Bisq | **62** | [@bisq_network](https://x.com/bisq_network) | X | Decentralized, non-KYC exchange; values-aligned (self-custody, no gatekeepers). Play: ethos/builder alignment — a fair-launch privacy coin is on-mission; engage as peers, long-shot mention/listing. | ☐ Not contacted |
+| fluffypony (Riccardo Spagni) | **60** | [@fluffypony](https://x.com/fluffypony) | X | Monero founder; technical privacy audience. | ☐ Not contacted |
+| zcashjesus | **58** | [@zcashjesus](https://x.com/zcashjesus) | X | Zcash privacy-maxi meme account ("zcash vs a gallon of gas"); privacy-native, meme-native audience. Play: make the one-tap phone miner screenshot-worthy — organic only, no pitch. | ☐ Not contacted |
+| Umbrel | **55** | [@umbrel](https://x.com/umbrel) | X | Self-hosted home-cloud / node OS; self-sovereignty audience. Play: values fit now, "run a NADO node as an Umbrel app" later — builder-to-builder, not a shill. | ☐ Not contacted |
+| Andreas Antonopoulos | **55** | [@aantonop](https://x.com/aantonop) | X / YouTube | Cypherpunk cred; long-shot but on-narrative. | ☐ Not contacted |
 | Loomdart | **58** | [@loomdart](https://x.com/loomdart) | X | Crypto OG (eGirl Capital angel, created the Wassies), semi-retired derivatives trader, FTX-2.0/self-custody advocate. OG-CT cred, degen-adjacent — the same OG crowd that knew Bismuth. Verify fit. | ☐ Not contacted |
 | wassielawyer | **54** | [@wassielawyer](https://x.com/wassielawyer) | X | Crypto lawyer; self-custody / anti-CEX / FTX-victim advocacy. Degen-adjacent CT but genuine cypherpunk overlap on the "not your keys" / anti-surveillance angle. | ☐ Not contacted |
 | wasserpest (maru.eth) | **52** | [@wasserpest](https://x.com/wasserpest) | X | OG CT anon who originated the Wassie lore (2017). Deep roots in the OG/degen-adjacent crypto-Twitter crowd — same era that knew Bismuth. | ☐ Not contacted |
+| Specter (SpecterDIY) | **50** | [@SpecterDIY](https://x.com/SpecterDIY) | X | Bitcoin DIY hardware-wallet / self-custody project; BTC-leaning so lower cross-coin fit, but real cypherpunk cred. Play: post-ECDSA (PQ signatures) is a hardware-wallet-relevant story — light technical touch only. | ☐ Not contacted |
 
 ## Tier 2b — OG Crypto Twitter (traders/personalities, organic reach)
 
@@ -117,19 +127,68 @@ warm-ish. None will "review a coin" — the play is getting them to touch the on
 
 | Who | Score | Handle (verify) | Platform | Who they are | Status |
 |---|---|---|---|---|---|
-| smolting | **70** | [@inversebrah](https://x.com/inversebrah) | X | The OG-CT screenshot/shitpost hub — an organic appearance here IS distribution to all of old CT. No pitch possible; make something screenshot-worthy. | ☐ Not contacted |
-| path.eth | **64** | [@Cryptopathic](https://x.com/Cryptopathic) | X | Trading since 2013, OG cred, technical-adjacent. | ☐ Not contacted |
-| Flood | **62** | [@ThinkingUSD](https://x.com/ThinkingUSD) | X | Bitcoin class of 2014, fullstack.trade CEO — OG + builder overlap. | ☐ Not contacted |
 | Romano | **72** | [@RNR_0](https://x.com/RNR_0) | X | OG trader **and former coin dev** (Viacoin) — one of few trader accounts that reads code. Good target for the technical thread. | ☐ Not contacted |
+| smolting | **70** | [@inversebrah](https://x.com/inversebrah) | X | The OG-CT screenshot/shitpost hub — an organic appearance here IS distribution to all of old CT. No pitch possible; make something screenshot-worthy. | ☐ Not contacted |
+| CL | **66** | [@CL207](https://x.com/CL207) | X | Big OG-CT anon, ex trading-desk; influential, reads markets. Note: replying with mid/small-cap mentions = instant block, so **never reply-shill** — the only play is an organic post worth his screenshot. | ☐ Not contacted |
+| path.eth | **64** | [@Cryptopathic](https://x.com/Cryptopathic) | X | Trading since 2013, OG cred, technical-adjacent. | ☐ Not contacted |
+| Monkey Rothschild | **64** | [@MonkeyCharts](https://x.com/MonkeyCharts) | X | "President of @wassie" — deep Wassie lore, same OG/degen crowd as loomdart/wasserpest (Tier 2). Wassie-native angle; organic only. | ☐ Not contacted |
+| Flood | **62** | [@ThinkingUSD](https://x.com/ThinkingUSD) | X | Bitcoin class of 2014, fullstack.trade CEO — OG + builder overlap. | ☐ Not contacted |
+| DCF GOD | **62** | [@dcfgod](https://x.com/dcfgod) | X | OG-CT anon, large following, "care less" ethos. Pure organic; make something worth his attention — no pitch. | ☐ Not contacted |
 | red | **60** | [@redxbt](https://x.com/redxbt) | X / Twitch | ~66K; OTC desk trader (Nonco), streamer, in crypto since 2017. OG trader cred. | ☐ Not contacted |
-| Tyler | **45** | [@TylerDurden](https://x.com/TylerDurden) ⚠ verify | X | Bitcoin trader (Soap Capital). Verify the handle — it's a heavily-squatted name. | ☐ Not contacted |
-| A | **44** | [@missoralways](https://x.com/missoralways) | X | Narrative trader — and NADO is a narrative-dense asset (privacy+PQ+phone). | ☐ Not contacted |
-| RunnerXBT | **40** | [@RunnerXBT](https://x.com/RunnerXBT) | X | CT trader; reach-only, light touch. | ☐ Not contacted |
 | Sicarious | **55** | [@Sicarious_](https://x.com/Sicarious_) | X | ~58K; trader, posts "what I wish I'd known in 2018" lessons. OG CT. | ☐ Not contacted |
 | barneytheboi | **52** | [@barneytheboi](https://x.com/barneytheboi) | X | ~57K; OG CT (joined 2017), trader + Web3 founder, casual/humorous tone. | ☐ Not contacted |
+| miyu | **52** | [@miyuki__eto](https://x.com/miyuki__eto) | X | Comf-maxi; @ambient_finance, @egirl_capital intern — egirl/Wassie-sphere connective tissue. Soft organic engagement. | ☐ Not contacted |
+| VKTR | **46** | [@0xVKTR](https://x.com/0xVKTR) | X | Trading-tools sphere (@insilicotrading, @orionterminal). Light touch; reach-only. | ☐ Not contacted |
+| MagUra | **46** | [@MagUraCrypto](https://x.com/MagUraCrypto) | X | #bitcoin/#crypto since 2013 (OG-ish), TAO/ETH/BTC, self-described sarcastic. Meme-tolerant; light. | ☐ Not contacted |
+| stockmart | **46** | [@stockmart_](https://x.com/stockmart_) | X | Ex-CFO "Down Bad Global," @Blockworks podcast orbit → possible pod mention. Angle: the narrative (Bismuth founder returns, phone-mineable PQ), not a chart. | ☐ Not contacted |
+| King | **46** | [@0xgodking](https://x.com/0xgodking) | X | @ritserlabs / @uwaterloo / @yamafinance — builder + DeFi-adjacent, technical (Waterloo). Can engage on design substance. | ☐ Not contacted |
+| CRONK | **46** | [@CryptoCronkite](https://x.com/CryptoCronkite) | X | "Crypto Reporter" — a story channel, not a shill. Angle: pitch the fair-launch story (no premine, phone-mineable, PQ) as news. | ☐ Not contacted |
+| showerhead | **45** | [@dapmeupfam](https://x.com/dapmeupfam) | X | CT anon (handle confirmed by owner 2026-07-05). Degen/OG-adjacent; treat like the other anon CT rows — organic engagement first, the one-tap phone-miner demo IS the pitch. | ☐ Not contacted |
+| Tyler | **45** | [@TylerDurden](https://x.com/TylerDurden) ⚠ verify | X | Bitcoin trader (Soap Capital). Verify the handle — it's a heavily-squatted name. | ☐ Not contacted |
+| A | **44** | [@missoralways](https://x.com/missoralways) | X | Narrative trader — and NADO is a narrative-dense asset (privacy+PQ+phone). | ☐ Not contacted |
+| Nik | **44** | [@cointradernik](https://x.com/cointradernik) | X | Macro / "regime rotation" newsletter (substack + macromarketmodel). The privacy+PQ macro thesis could land as a regime note. | ☐ Not contacted |
+| ToreroRomero | **44** | [@ToreroRomero](https://x.com/ToreroRomero) | X | Onchain trader/analyst, "let the data speak." Angle: point at the emission-model page (data-driven), not a pitch. | ☐ Not contacted |
+| Brent | **44** | [@Brentsketit](https://x.com/Brentsketit) | X | Partner @ manoman; art/culture-crypto crossover. Organic. | ☐ Not contacted |
+| vers la Lune | **42** | [@vers_laLune](https://x.com/vers_laLune) | X | Charts account (David Holt / @IDrawCharts orbit). Chart-native — the emission chart is the shareable. | ☐ Not contacted |
+| Adam | **42** | [@abetrade](https://x.com/abetrade) | X | Derivatives (@tradingriot; Breakout Prop, acq. by Kraken). Trader; light touch. | ☐ Not contacted |
+| Pas | **40** | [@passytee](https://x.com/passytee) | X | Game designer, ex-surgeon (@ohbabygames) — builder/games crossover. Builder-to-builder / gamified-mining angle. | ☐ Not contacted |
+| RunnerXBT | **40** | [@RunnerXBT](https://x.com/RunnerXBT) | X | CT trader; reach-only, light touch. | ☐ Not contacted |
 | Ping | **30** | [@DegenPing](https://x.com/DegenPing) | X | Degen CT; low effort, low priority. | ☐ Not contacted |
 | Fullbeerbottle | **25** | [@Fullbeerbottle](https://x.com/Fullbeerbottle) ⚠ verify | X | Small/anon CT account — no public profile info found; confirm identity before contacting. | ☐ Not contacted |
-| showerhead | **45** | [@dapmeupfam](https://x.com/dapmeupfam) | X | CT anon (handle confirmed by owner 2026-07-05). Degen/OG-adjacent; treat like the other anon CT rows — organic engagement first, the one-tap phone-miner demo IS the pitch. | ☐ Not contacted |
+
+### Batch — 2026-07-06 follower/audit additions (organic-only; verify each before contacting)
+
+A fresh follower/audit sweep surfaced these smaller / anon / thin-bio OG-degen CT accounts. **No
+pitch is possible or wanted** — the play is identical for every row: organic engagement first, the
+one-tap phone-miner demo IS the message. Verify identity and real reach before spending effort;
+scores are gut-only and capped low until confirmed. Promote a row up into the table above once it
+proves out.
+
+| Who | Score | Handle | Bio / note |
+|---|---|---|---|
+| IamNomad | 44 | [@IamNomad](https://x.com/IamNomad) | Macro/markets CT. |
+| cozy | 42 | [@vec0zy](https://x.com/vec0zy) | "One must imagine oneself cozy" — comfy-degen. |
+| TraderSZ | 40 | [@trader1sz](https://x.com/trader1sz) | Trader. |
+| mocho17 | 40 | [@cryptomocho](https://x.com/cryptomocho) | BTC/stocks/Dubai; Hyperliquid ref. |
+| karbon | 40 | [@karbonbased](https://x.com/karbonbased) | "karbonpilled." |
+| jerry | 40 | [@ThinkingLSD](https://x.com/ThinkingLSD) | "shitcoins." |
+| alex | 40 | [@kirbxbt](https://x.com/kirbxbt) | Anon CT. |
+| zore | 40 | [@itszore](https://x.com/itszore) | Anon CT. |
+| Pollo2x | 40 | [@Pollo2x](https://x.com/Pollo2x) | "demo-mode / chibben / #bitcoin." |
+| Sardonic Zephyr | 38 | [@sardoniczephyr](https://x.com/sardoniczephyr) | Long-form-link poster; more substance than most. |
+| samson | 38 | [@fuckyourputs](https://x.com/fuckyourputs) | Degen trader. |
+| Mart | 38 | [@Martposting](https://x.com/Martposting) | Verse-posting degen. |
+| fooo | 38 | [@bitcoinpanda69](https://x.com/bitcoinpanda69) | #bitcoin degen. |
+| bulma | 38 | [@bulmaxox](https://x.com/bulmaxox) | Anon CT. |
+| Munch | 36 | [@Muncheds2](https://x.com/Muncheds2) | "solanum tuberosum" — potato-degen. |
+| twicrates | 36 | [@twicrates](https://x.com/twicrates) | Anon CT. |
+| hersch | 36 | [@tittyrespecter](https://x.com/tittyrespecter) | "Similar to zore." |
+| smilinglllama | 36 | [@smilinglllama](https://x.com/smilinglllama) | Anon CT. |
+| state | 36 | [@statelayer](https://x.com/statelayer) | Anon CT. |
+| Cameron | 36 | [@Cameron_____69](https://x.com/Cameron_____69) | "#bitcoin Nice." |
+| DaGoatedCeO | 34 | [@DaGoatedCEO](https://x.com/DaGoatedCEO) | Degen anon. |
+| blobbert | 34 | [@dumbgayretard](https://x.com/dumbgayretard) | Anon CT. |
+| hentai avenger | 34 | [@hentaiavenger66](https://x.com/hentaiavenger66) | Degen anon. |
 
 ## Tier 3 — Technical / builder reach (higher bar, higher payoff)
 
@@ -144,6 +203,7 @@ three OWN this exact narrative; a credible design thread is the entire play with
 | 飯塚 友裕 (Tomohiro Iizuka) | **66** | [@iizuka](https://x.com/iizuka) / [@TomohiroIizuka](https://x.com/TomohiroIizuka) | X | Codablecash founder — building a scalable L1 with distributed smart contracts + RDBMS. Builder-to-builder peer conversation (JP + EN accounts); genuine design-notes exchange, zero shill. | ☐ Not contacted |
 | Boxmining | **58** | [@boxmining](https://x.com/boxmining) | YouTube / X | Mining + tech, ~547K subs, covers new tech. | ☐ Not contacted |
 | Ivan on Tech | **50** | [@IvanOnTech](https://x.com/IvanOnTech) | YouTube / X | Technical/education audience. | ☐ Not contacted |
+| Seranged | **48** | [@Seranged](https://x.com/Seranged) | X | "Rick Rubin'ing the IDE" — AI-assisted-coding / builder voice. Builder-to-builder: the in-browser STARK prover + phone miner is a build-in-public story, not a coin pitch. | ☐ Not contacted |
 | Coin Bureau (Guy Turner) | **35** | [@coinbureau](https://x.com/coinbureau) | YouTube / X | Huge reach, structured education. Pay-to-play, low fit, long shot. | ☐ Not contacted |
 | EllioTrades | **30** | [@elliotrades](https://x.com/elliotrades) | YouTube / X | Altcoin-gem reach. Pay-to-play, low fit, long shot. | ☐ Not contacted |
 
@@ -175,6 +235,7 @@ solely as a paid reach gamble, never organic: their audience wants 100x flips, n
 | JR5 | **20** | [@JR5_Crypto](https://x.com/JR5_Crypto) | X | Ex-Rollbit support, memecoin degen with TG group. Marginal. | ☐ Not contacted |
 | Eddy | **20** | [@EddyXBT](https://x.com/EddyXBT) | X | Memecoin trader / market research. Marginal. | ☐ Not contacted |
 | フォリス (follis) | **30** | [@follis_](https://x.com/follis_) | X | Chroma Trading founder, Kraken Pro head of voice, Tealstreet co-owner. Exchange/trading-tools sphere — reach into pro traders, zero mining fit. | ☐ Not contacted |
+| Operation Epic / CMS | **28** | [@cmsholdings](https://x.com/cmsholdings) | X | CMS Holdings — institutional crypto trading/investment firm ("make money or be right"). Not an influencer and structurally misaligned (no premine to allocate to a fund); listed for completeness only. Off-narrative, do-not-prioritize. | ☐ Not contacted |
 
 ## Avoid / dead / not worth the risk
 
@@ -209,3 +270,4 @@ solely as a paid reach gamble, never organic: their audience wants 100x flips, n
 - Post-quantum threat 2026 — https://www.webopedia.com/crypto/learn/post-quantum-crypto-projects/
 - Mining YouTubers 2026 — https://videos.feedspot.com/crypto_mining_youtube_channels/
 - Tier 0 / dump additions — owner's follower audit, 2026-07-05 (bios as pasted; re-verify before DM)
+- Batch 2 additions — owner's follower/audit sweep, 2026-07-06 (bios as pasted; re-verify handles + real reach before DM). Sorted by fit: privacy infra → Tier 2, OG/degen CT → Tier 2b (+ batch block), builder → Tier 3, institutional desk → Tier 4. @Sicarious_ from this sweep was already listed (Tier 2b) — not duplicated.
