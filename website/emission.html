@@ -94,6 +94,26 @@
   canvas{width:100%;display:block}
   .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin-top:10px}
   .legend i{display:inline-block;width:12px;height:3px;border-radius:2px;vertical-align:middle;margin-right:6px}
+  /* comparison vs majors */
+  .cmp{overflow-x:auto;margin-top:4px;-webkit-overflow-scrolling:touch}
+  .cmp table{width:100%;border-collapse:collapse;font-size:13.5px;min-width:780px}
+  .cmp th{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.5px;text-align:left;
+    padding:8px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .cmp td{padding:10px 12px;border-bottom:1px solid var(--line);color:var(--muted);vertical-align:top;line-height:1.45}
+  .cmp tr:last-child td{border-bottom:none}
+  .cmp td:first-child{color:var(--txt);font-weight:700;white-space:nowrap}
+  .cmp tr.us{background:rgba(0,201,167,.06)}
+  .cmp tr.us td:first-child{color:var(--accent2)}
+  .cmp .y{color:var(--pos)} .cmp .n{color:var(--neg)} .cmp .h{color:var(--amber)}
+  .bars{margin-top:18px}
+  .bar-row{display:grid;grid-template-columns:minmax(72px,96px) 1fr minmax(88px,auto);gap:12px;align-items:center;
+    margin:8px 0;font:600 13px var(--sans);color:var(--muted)}
+  .bar-row b{color:var(--txt);font-weight:700}
+  .bar-row.us b{color:var(--accent2)}
+  .bar-track{height:10px;background:#0b121b;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .bar-fill{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--amber),var(--neg))}
+  .bar-val{font-family:var(--mono);font-size:12.5px;white-space:nowrap;text-align:right}
+  .bar-val.zero{color:var(--pos)} .bar-val.full{color:var(--neg)}
   footer{border-top:1px solid var(--line);margin-top:40px;padding:30px 0 50px;color:var(--faint);font-size:14px;text-align:center}
   footer a{color:var(--muted);margin:0 10px}
 </style>
@@ -202,6 +222,98 @@
     of fee above the mint is a net burn — <b>usage shrinks the supply</b>. In consensus the curve is a
     hardcoded integer basis-point table (no floats, no forks).
     See the <a href="https://github.com/hclivess/nado/blob/main/doc/bond-elastic-emission.md">full spec</a>.
+  </div>
+
+  <div class="card" id="compare">
+    <h3>How the majors were born</h3>
+    <p class="sub">Every chain answers the same three questions exactly once, at launch: <b>who got the first
+      coins, who was allowed to earn the next ones, and what happens to fees.</b> Those answers can never be
+      re-run. Here's how the big ones answered — structural facts only, no market data.</p>
+    <div class="cmp">
+      <table>
+        <tr>
+          <th>Chain</th><th>Launch</th><th>Premine / insider allocation</th><th>Supply schedule</th>
+          <th>Who could realistically mine at launch</th><th>Fee burn</th>
+        </tr>
+        <tr class="us">
+          <td>NADO</td><td>2026</td>
+          <td class="y">None — genesis mints zero coins</td>
+          <td>No cap, no cliff: max 0.1/block, shrinks as bonding rises, perpetual ~52k/yr tail; net supply falls under real usage</td>
+          <td class="y">Anyone with a phone browser (open lane, no capital)</td>
+          <td class="y">100% of every fee</td>
+        </tr>
+        <tr>
+          <td>Bitcoin</td><td>2009</td>
+          <td class="y">None (fair launch; earliest CPU miners were simply first)</td>
+          <td>21M hard cap; halving cliff every ~4 yrs — 3.125 BTC/block since Apr 2024, ~95% of all coins already mined</td>
+          <td class="h">Any CPU in 2009 — ASIC datacenters today</td>
+          <td class="n">None — fees go to miners</td>
+        </tr>
+        <tr>
+          <td>Ethereum</td><td>2015</td>
+          <td class="n">72M ETH pre-created at genesis: 2014 ICO plus ~12M to the foundation &amp; early contributors</td>
+          <td>No cap; post-Merge PoS issuance with EIP-1559 base-fee burn — sometimes net-deflationary</td>
+          <td class="h">GPU rigs at launch; today a 32 ETH stake</td>
+          <td class="h">Partial — base fee only, tips to validators</td>
+        </tr>
+        <tr>
+          <td>Monero</td><td>2014</td>
+          <td class="y">None</td>
+          <td>No cap; smooth decay into a fixed 0.6 XMR/block tail (since 2022) — no security cliff</td>
+          <td class="y">Any CPU — and still CPU today (RandomX)</td>
+          <td class="n">None</td>
+        </tr>
+        <tr>
+          <td>Litecoin</td><td>2011</td>
+          <td class="y">None (announced in advance, mined from block 1)</td>
+          <td>84M hard cap; halving cliffs — 6.25 LTC/block since Aug 2023</td>
+          <td class="h">CPU/GPU then; scrypt ASICs now</td>
+          <td class="n">None</td>
+        </tr>
+        <tr>
+          <td>Dogecoin</td><td>2013</td>
+          <td class="y">None</td>
+          <td>No cap; fixed 10,000 DOGE/block forever (~5.2B/yr, a slowly falling inflation rate)</td>
+          <td class="h">CPU/GPU then; merge-mined by Litecoin ASIC farms now</td>
+          <td class="n">None</td>
+        </tr>
+        <tr>
+          <td>XRP</td><td>2012</td>
+          <td class="n">All 100B XRP created at launch; ~80B handed to the company (Ripple)</td>
+          <td>Nothing left to issue — company escrow drips supply into the market</td>
+          <td class="n">Nobody — there is no mining and never was</td>
+          <td class="h">Tiny — the per-tx drop fee is destroyed</td>
+        </tr>
+        <tr>
+          <td>Solana</td><td>2020</td>
+          <td class="n">500M SOL at genesis; roughly 60% to private sales, team &amp; foundation</td>
+          <td>No cap; inflation schedule decaying toward 1.5%/yr</td>
+          <td class="n">Stake capital plus datacenter-grade hardware</td>
+          <td class="h">Partial — 50% of base fees</td>
+        </tr>
+      </table>
+    </div>
+    <div class="bars">
+      <p class="sub" style="margin:18px 0 10px">Coins that existed <b>before the public could earn its first one</b> — share of launch supply. There are only two kinds of launches:</p>
+      <div class="bar-row us"><b>NADO</b><div class="bar-track"><div class="bar-fill" style="width:0"></div></div><span class="bar-val zero">0 — starts at zero</span></div>
+      <div class="bar-row"><b>Bitcoin</b><div class="bar-track"><div class="bar-fill" style="width:0"></div></div><span class="bar-val zero">0</span></div>
+      <div class="bar-row"><b>Litecoin</b><div class="bar-track"><div class="bar-fill" style="width:0"></div></div><span class="bar-val zero">0</span></div>
+      <div class="bar-row"><b>Dogecoin</b><div class="bar-track"><div class="bar-fill" style="width:0"></div></div><span class="bar-val zero">0</span></div>
+      <div class="bar-row"><b>Monero</b><div class="bar-track"><div class="bar-fill" style="width:0"></div></div><span class="bar-val zero">0</span></div>
+      <div class="bar-row"><b>Ethereum</b><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><span class="bar-val full">72M ETH</span></div>
+      <div class="bar-row"><b>Solana</b><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><span class="bar-val full">500M SOL</span></div>
+      <div class="bar-row"><b>XRP</b><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><span class="bar-val full">100B XRP</span></div>
+    </div>
+    <p style="color:var(--muted);font-size:14.5px;margin:18px 0 0">
+      Bitcoin got the launch right and the ending wrong: zero premine, but a hard cap that walks its security
+      budget off a cliff, and a mining floor that moved from "any laptop" to "own a power substation". Ethereum
+      and Solana got the machinery right later — burns, smooth issuance — but only after selling most of the
+      launch supply to insiders first, and XRP never pretended otherwise. Monero is the closest relative:
+      fair launch, CPU mining, perpetual tail — it just never burns a fee. <b>NADO takes the union:</b> a
+      supply that starts at zero like Bitcoin's, a tail that never cliffs like Monero's, a burn stronger than
+      Ethereum's (100% of every fee, not just the base), and a launch floor lower than all of them — a phone
+      browser. The first question can only be answered once. We answered it <b>zero</b>.
+    </p>
   </div>
 
 </div>
