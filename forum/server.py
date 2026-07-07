@@ -101,6 +101,8 @@ def init_db():
     except sqlite3.OperationalError: pass
     try: con.execute("ALTER TABLE threads ADD COLUMN deleted INTEGER DEFAULT 0")   # migrate: soft-delete threads
     except sqlite3.OperationalError: pass
+    try: con.execute("ALTER TABLE users ADD COLUMN alias TEXT")   # migrate: preferred display alias ('-' = show address)
+    except sqlite3.OperationalError: pass
     if not con.execute("SELECT 1 FROM boards LIMIT 1").fetchone():
         seed = [
             ("announcements", "Announcements", "Official news from the maintainers.", 0, "mod"),
@@ -300,13 +302,33 @@ def touch_user(con, address, public_key=None):
         con.execute("INSERT INTO users(address,public_key,handle,created_at,last_seen,role,sver) VALUES(?,?,?,?,?,?,0)",
                     (address, public_key, address[:10], now, now, "mod" if address in MODS else "user"))
 
+def pick_alias(names, preferred):
+    """Effective display alias: the user's stored preference when they still own it on-chain
+    (aliases are transferable — a stale pick falls back), '-' meaning 'show my address' (None),
+    else the first owned alias, else None."""
+    if preferred == "-":
+        return None
+    if preferred and preferred in names:
+        return preferred
+    return names[0] if names else None
+
+def _pref_aliases(con, addrs):
+    """The stored users.alias preference for each address in `addrs` (missing rows -> absent)."""
+    if not addrs:
+        return {}
+    q = ",".join("?" * len(addrs))
+    return {r["address"]: r["alias"] for r in
+            con.execute(f"SELECT address, alias FROM users WHERE address IN ({q})", list(addrs))}
+
 async def authors_meta(con, addresses):
-    """Display metadata for a set of author addresses: {addr: {"alias": first-on-chain-alias-or-None,
-    "role": effective role}}. Alias lookups are cache-backed (ALIAS_TTL) and node misses are fetched
-    concurrently, so enriching a thread page costs at most one round of parallel node calls."""
+    """Display metadata for a set of author addresses: {addr: {"alias": effective display alias
+    (pick_alias) or None, "role": effective role}}. Alias lookups are cache-backed (ALIAS_TTL) and
+    node misses are fetched concurrently, so enriching a thread page costs at most one round of
+    parallel node calls."""
     addrs = sorted(set(a for a in addresses if a))
     names = await asyncio.gather(*(aliases_of(a) for a in addrs)) if addrs else []
-    return {a: {"alias": (n[0] if n else None), "role": user_role(con, a)} for a, n in zip(addrs, names)}
+    prefs = _pref_aliases(con, addrs)
+    return {a: {"alias": pick_alias(n, prefs.get(a)), "role": user_role(con, a)} for a, n in zip(addrs, names)}
 
 def jerr(msg, status=400):
     """JSON error response: {"ok": false, "error": msg} with the given HTTP status."""
@@ -403,13 +425,13 @@ async def api_me(request):
     a = current_user(request)
     if not a:
         return web.json_response({"ok": True, "user": None, "interface": INTERFACE_URL})
-    con = db(); role = user_role(con, a); con.close()
+    con = db(); role = user_role(con, a); pref = _pref_aliases(con, [a]).get(a); con.close()
     reg = await is_registered(a)
     acc = await get_account(a) or {}
     names = await aliases_of(a)
     return web.json_response({"ok": True, "interface": INTERFACE_URL,
                               "user": {"address": a, "role": role, "admin": is_admin(a),
-                                       "alias": names[0] if names else None,
+                                       "alias": pick_alias(names, pref),
                                        "balance": str(acc.get("balance", 0)),   # string: raw units can exceed JS floats
                                        "registered": reg, "can_post": reg and role != "banned"}})
 
@@ -638,6 +660,35 @@ async def api_treasury(request):
         return web.json_response(_treasury_cache["v"] or {"proposals": []})
 _treasury_cache = {"t": 0, "v": None}
 
+async def api_set_alias(request):
+    """POST /api/set_alias — pick your display name. JSON body: {"alias": name | "-" | ""}.
+    "" (or null) clears the preference (auto: first owned alias), "-" forces the plain address,
+    a name must be an alias the session address currently owns on-chain (checked fresh — the
+    per-address cache is busted first so an alias registered a minute ago works immediately).
+    Session + Origin gated, 10/min per IP."""
+    if not origin_ok(request):
+        return jerr("bad origin", 403)
+    a = current_user(request)
+    if not a:
+        return jerr("sign in first", 401)
+    if not rate_ok("setalias:" + client_ip(request), 10, 60):
+        return jerr("too many changes — slow down", 429)
+    try:
+        data = await request.json()
+    except Exception:
+        return jerr("bad json")
+    pref = (data.get("alias") or "").strip().lower()[:64]
+    if pref and pref != "-":
+        _alias_cache.pop(a, None)               # fresh ownership check, not a 5-min-old snapshot
+        names = await aliases_of(a)
+        if pref not in names:
+            return jerr("that alias is not owned by your address (register it in the wallet's Aliases tab first)")
+    con = db()
+    touch_user(con, a)                          # ensure the row exists before storing the preference
+    con.execute("UPDATE users SET alias=? WHERE address=?", (pref or None, a))
+    con.commit(); con.close()
+    return web.json_response({"ok": True, "alias": pref or None})
+
 async def api_profile(request):
     """GET /api/profile?address=ndo… — public profile card for any address: on-chain aliases, forum
     role/admin, REGISTERED flag, spendable + bonded balance (raw units, as strings), first/last seen
@@ -649,7 +700,7 @@ async def api_profile(request):
     if not validate_address(addr):
         return jerr("bad address")
     con = db()
-    u = con.execute("SELECT created_at,last_seen FROM users WHERE address=?", (addr,)).fetchone()
+    u = con.execute("SELECT created_at,last_seen,alias FROM users WHERE address=?", (addr,)).fetchone()
     role = user_role(con, addr)
     threads = con.execute("SELECT COUNT(*) AS c FROM threads WHERE author=? AND deleted=0", (addr,)).fetchone()["c"]
     posts = con.execute("SELECT COUNT(*) AS c FROM posts WHERE author=? AND deleted=0", (addr,)).fetchone()["c"]
@@ -657,7 +708,8 @@ async def api_profile(request):
     acc = await get_account(addr) or {}
     names = await aliases_of(addr)
     return web.json_response({"ok": True, "interface": INTERFACE_URL, "profile": {
-        "address": addr, "alias": names[0] if names else None, "aliases": names,
+        "address": addr, "alias": pick_alias(names, u["alias"] if u else None), "aliases": names,
+        "alias_pref": u["alias"] if u else None,
         "role": role, "admin": is_admin(addr),
         "registered": int(acc.get("registered", 0)) == 1,
         "balance": str(acc.get("balance", 0)), "bonded": str(acc.get("bonded", 0)),
@@ -712,6 +764,7 @@ def build_app():
         web.post("/api/mod", api_mod),
         web.get("/api/treasury", api_treasury),
         web.get("/api/profile", api_profile),
+        web.post("/api/set_alias", api_set_alias),
         web.get("/", index),
         web.static("/static", os.path.join(HERE, "static")),
     ])

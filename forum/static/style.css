@@ -80,6 +80,7 @@ a.ulink:hover{text-decoration:underline}
 .balnum{font-family:var(--mono);color:var(--accent-2);font-weight:700}
 .faint{color:var(--txt-faint)}
 .mt{margin-top:10px}
+.row select{width:auto;flex:1}
 a.btn{display:inline-block;text-decoration:none}
 a.btn:hover{text-decoration:none}
 

@@ -239,6 +239,22 @@ async function viewProfile(addr) {
       : '<div class="prow"><span class="plabel">Joined</span><span class="faint">never signed in to the forum</span></div>') +
     '<div class="row mt"><a class="btn sm" href="' + esc(exUrl) + '" target="_blank" rel="noopener">Open in explorer ↗</a></div>' +
     "</div>";
+  // own profile: pick which owned on-chain alias the forum displays (or force the plain address)
+  if (ME && ME.address === p.address) {
+    if (p.aliases && p.aliases.length) {
+      const opts = ['<option value=""' + (!p.alias_pref ? " selected" : "") + ">auto — first alias</option>"]
+        .concat(p.aliases.map((n) =>
+          '<option value="' + esc(n) + '"' + (p.alias_pref === n ? " selected" : "") + ">@" + esc(n) + "</option>"))
+        .concat(['<option value="-"' + (p.alias_pref === "-" ? " selected" : "") + ">show my address</option>"]);
+      html += '<div class="card"><h2>Display name</h2>' +
+        '<div class="row"><select id="aliasPick">' + opts.join("") + "</select>" +
+        '<button class="btn sm" id="aliasSave">Save</button></div><div class="err" id="aliasErr"></div></div>';
+    } else {
+      html += '<div class="card"><h2>Display name</h2><div class="note">You own no on-chain aliases yet — ' +
+        'register one in the wallet’s <a href="' + esc(INTERFACE + "/aliases") + '" target="_blank" rel="noopener">Aliases tab</a> ' +
+        "(an ordinary signed tx), then come back and pick it here.</div></div>";
+    }
+  }
   // mod tools live here too — profile is the natural place to manage a user
   if (ME && ME.role === "mod" && ME.address !== p.address && !p.admin) {
     html += '<div class="modbar">' +
@@ -255,6 +271,18 @@ async function viewProfile(addr) {
   }
   app.innerHTML = html;
   bindModButtons();
+  const asv = document.getElementById("aliasSave");
+  if (asv) asv.onclick = async () => {
+    asv.disabled = true;
+    const res = await postJSON("/api/set_alias", { alias: document.getElementById("aliasPick").value });
+    if (res.ok) {
+      try { const m = await getJSON("/api/me"); ME = m.user; } catch (e) {}   // header shows the new name
+      renderWho(); route();
+    } else {
+      document.getElementById("aliasErr").textContent = res.error || "failed";
+      asv.disabled = false;
+    }
+  };
 }
 
 // ---- router --------------------------------------------------------------------------------------
