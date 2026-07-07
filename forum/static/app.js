@@ -4,13 +4,34 @@
 
 const app = document.getElementById("app");
 const who = document.getElementById("who");
-let ME = null;                     // {address, role, can_post} or null
+let ME = null;                     // {address, alias, balance, role, can_post} or null
+let INTERFACE = "https://get.nadochain.com";   // wallet/explorer origin (server-provided via /api/me)
 let TREASURY = null;               // cached /treasury_status
 
 // ---- helpers -------------------------------------------------------------------------------------
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const short = (a) => (a && a.length > 16) ? a.slice(0, 10) + "…" + a.slice(-4) : (a || "");
+// raw units -> "NADO" string (DENOM 1e10). BigInt end-to-end — balances arrive as strings. `dp` caps decimals.
+const DENOM = 10n ** 10n;
+function fmtNado(raw, dp) {
+  let v; try { v = BigInt(raw || 0); } catch (e) { return "?"; }
+  let frac = (v % DENOM).toString().padStart(10, "0");
+  if (dp != null) frac = frac.slice(0, dp);
+  frac = frac.replace(/0+$/, "");
+  return (v / DENOM).toString() + (frac ? "." + frac : "");
+}
+// display name for an author: on-chain alias when the view's authors map has one, else the short address
+const uname = (a, authors) => {
+  const m = authors && authors[a];
+  return m && m.alias ? "@" + m.alias : short(a);
+};
+// clickable author -> in-forum profile (#/u/<addr>), which links onward to the explorer
+const userLink = (a, authors) => {
+  const m = authors && authors[a];
+  return '<a class="addr ulink" href="#/u/' + esc(a) + '">' + esc(uname(a, authors)) + "</a>" +
+    (m && m.role === "mod" ? ' <span class="pill mod">mod</span>' : "");
+};
 const ago = (ts) => {
   const s = Math.max(0, Math.floor(Date.now() / 1000) - (ts || 0));
   if (s < 60) return s + "s ago";
@@ -56,7 +77,9 @@ function renderWho() {
   if (ME) {
     const badge = ME.role === "mod" ? ' <span class="pill mod">mod</span>' : "";
     const gate = ME.can_post ? "" : ' <span class="pill">read-only — register to post</span>';
-    who.innerHTML = 'signed in as <span class="addr">' + esc(short(ME.address)) + "</span>" + badge + gate +
+    const bal = ME.balance != null ? ' <span class="pill bal">' + esc(fmtNado(ME.balance, 2)) + " NADO</span>" : "";
+    const name = ME.alias ? "@" + ME.alias : short(ME.address);
+    who.innerHTML = '<a class="addr ulink" href="#/u/' + esc(ME.address) + '">' + esc(name) + "</a>" + badge + bal + gate +
       ' <button class="btn ghost sm" id="logout">Sign out</button>';
     document.getElementById("logout").onclick = async () => { await postJSON("/api/logout", {}); ME = null; renderWho(); route(); };
   } else {
@@ -84,7 +107,7 @@ async function viewBoard(slug) {
     (t.deleted ? ' <span class="pill del">deleted</span>' : "") +
     (t.pinned ? ' <span class="pill">pinned</span>' : "") + (t.locked ? ' <span class="pill">locked</span>' : "") +
     (t.pid ? ' <span class="pill pid">proposal</span>' : "") +
-    '<div class="meta">by <span class="addr">' + esc(short(t.author)) + "</span> · " + ago(t.bumped_at) + "</div></div>" +
+    '<div class="meta">by ' + userLink(t.author, d.authors) + " · " + ago(t.bumped_at) + "</div></div>" +
     '<div class="count">' + t.replies + " replies</div></div>").join("") : '<div class="empty">No threads yet.</div>') + "</div>";
   // compose
   if (ME && ME.can_post && (d.board.post_min_role !== "mod" || ME.role === "mod")) {
@@ -145,8 +168,8 @@ async function viewThread(id) {
           : "") +
         "</span>";
     }
-    return '<div class="post' + (p.deleted ? " deleted" : "") + '"><div class="phead"><span class="addr">' +
-      esc(short(p.author)) + "</span>" + (p.deleted ? '<span class="pill del">deleted</span>' : "") +
+    return '<div class="post' + (p.deleted ? " deleted" : "") + '"><div class="phead"><span>' +
+      userLink(p.author, d.authors) + "</span>" + (p.deleted ? '<span class="pill del">deleted</span>' : "") +
       "<span>" + ago(p.created_at) + "</span>" + mod +
       "</div><div class=\"body\">" + fmt(p.body_md) + "</div></div>";
   }).join("");
@@ -189,17 +212,63 @@ async function renderTally(pid) {
   } catch (e) { /* non-fatal */ }
 }
 
+// ---- profile -------------------------------------------------------------------------------------
+async function viewProfile(addr) {
+  const d = await getJSON("/api/profile?address=" + encodeURIComponent(addr));
+  if (!d.ok) return app.innerHTML = '<div class="err">' + esc(d.error || "profile not found") + "</div>";
+  const p = d.profile;
+  if (d.interface) INTERFACE = d.interface;
+  const name = p.alias ? "@" + p.alias : short(p.address);
+  const exUrl = INTERFACE + "/explore?q=" + encodeURIComponent(p.address);
+  let html = '<div class="crumb"><a href="#/">Boards</a> › profile</div>' +
+    "<h1>" + esc(name) +
+    (p.role === "mod" ? ' <span class="pill mod">mod</span>' : "") +
+    (p.role === "banned" ? ' <span class="pill del">banned</span>' : "") +
+    (p.registered ? ' <span class="pill">registered</span>' : ' <span class="pill del">unregistered</span>') + "</h1>";
+  html += '<div class="card profile">' +
+    '<div class="prow"><span class="plabel">Address</span><span class="addr full">' + esc(p.address) + "</span></div>" +
+    (p.aliases && p.aliases.length
+      ? '<div class="prow"><span class="plabel">On-chain alias' + (p.aliases.length > 1 ? "es" : "") + "</span><span>" +
+        p.aliases.map((n) => "@" + esc(n)).join(", ") + "</span></div>"
+      : '<div class="prow"><span class="plabel">On-chain alias</span><span class="faint">none — register one in the wallet’s Aliases tab</span></div>') +
+    '<div class="prow"><span class="plabel">Balance</span><span class="balnum">' + esc(fmtNado(p.balance)) + " NADO</span></div>" +
+    '<div class="prow"><span class="plabel">Bonded</span><span class="balnum">' + esc(fmtNado(p.bonded)) + " NADO</span></div>" +
+    '<div class="prow"><span class="plabel">Forum activity</span><span>' + p.threads + " thread(s) · " + p.posts + " post(s)</span></div>" +
+    (p.first_seen
+      ? '<div class="prow"><span class="plabel">Joined</span><span>' + ago(p.first_seen) + " · last seen " + ago(p.last_seen) + "</span></div>"
+      : '<div class="prow"><span class="plabel">Joined</span><span class="faint">never signed in to the forum</span></div>') +
+    '<div class="row mt"><a class="btn sm" href="' + esc(exUrl) + '" target="_blank" rel="noopener">Open in explorer ↗</a></div>' +
+    "</div>";
+  // mod tools live here too — profile is the natural place to manage a user
+  if (ME && ME.role === "mod" && ME.address !== p.address && !p.admin) {
+    html += '<div class="modbar">' +
+      (p.role === "banned"
+        ? modBtn({ action: "unban_user", address: p.address }, "Unban")
+        : modBtn({ action: "ban_user", address: p.address }, "Ban user",
+                 "Ban " + name + " from posting and kill their sessions?")) +
+      (ME.admin
+        ? (p.role === "mod"
+            ? modBtn({ action: "remove_mod", address: p.address }, "Remove mod")
+            : modBtn({ action: "add_mod", address: p.address }, "Make mod", "Grant " + name + " the moderator role?"))
+        : "") +
+      "</div>";
+  }
+  app.innerHTML = html;
+  bindModButtons();
+}
+
 // ---- router --------------------------------------------------------------------------------------
 function route() {
   const h = location.hash || "#/";
   app.innerHTML = '<div class="loading">Loading…</div>';
   if (h.startsWith("#/b/")) return viewBoard(decodeURIComponent(h.slice(4)));
   if (h.startsWith("#/t/")) return viewThread(decodeURIComponent(h.slice(4)));
+  if (h.startsWith("#/u/")) return viewProfile(decodeURIComponent(h.slice(4)));
   return viewBoards();
 }
 
 async function init() {
-  try { const m = await getJSON("/api/me"); ME = m.user; } catch (e) { ME = null; }
+  try { const m = await getJSON("/api/me"); ME = m.user; if (m.interface) INTERFACE = m.interface; } catch (e) { ME = null; }
   renderWho();
   window.addEventListener("hashchange", route);
   route();

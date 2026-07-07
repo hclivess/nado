@@ -1838,6 +1838,14 @@ function showWalletUI() {
   $("recvAddr").textContent = state.wallet.address;
   const _urlTab = location.pathname.replace(/^\/+/, "");   // deep link: /aliases, /messages, …
   showTab(TAB_NAMES.has(_urlTab) ? _urlTab : (state.activeTab || "wallet"));
+  if (_urlTab === "explore") {   // /explore?q=<address|alias|block|txid> (forum profiles link here) pre-runs a search
+    const _q = (new URLSearchParams(location.search).get("q") || "").trim();
+    if (_q && $("exQ")) {
+      $("exQ").value = _q;
+      exSearch().catch(() => {});
+      try { history.replaceState(null, "", "/explore"); } catch (e) {}   // scrub the param once consumed
+    }
+  }
   msgInitBackground().catch(() => {});   // derive identity + poll so the Messages badge works anywhere
   resumePendingPay();   // if a #pay link was opened before this wallet existed, prefill the Send now
   resumePendingClaim(); // if a #claim link was opened before this wallet existed, receive the banknote now

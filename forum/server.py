@@ -18,6 +18,7 @@ import time
 import json
 import hmac
 import base64
+import asyncio
 import hashlib
 import secrets
 import sqlite3
@@ -209,32 +210,65 @@ def challenge_message(address, nonce, issued):
     'nado-forum-login' tag and bound to FORUM_ORIGIN, address, nonce and issue time."""
     return blake2b_hash(["nado-forum-login", FORUM_ORIGIN, address, nonce, int(issued)])
 
-# ---- on-chain "registered" gate (shared session + short cache) ------------------------------------
-_reg_cache = {}      # address -> (ts, bool)
+# ---- on-chain lookups (shared session + short caches) ---------------------------------------------
+_acct_cache = {}     # address -> (ts, account dict | None)
+_alias_cache = {}    # address -> (ts, [alias names])
+ALIAS_TTL = 300
+
 def _http():
     """Return the shared aiohttp ClientSession created at app startup (_on_start)."""
     global _HTTP
     return _HTTP
 
-async def is_registered(address):
-    """Async check that `address` is REGISTERED on-chain via the node's /get_account, cached REG_CACHE_TTL
-    seconds per address. Node errors fail closed (False, cached). Always True when REQUIRE_REG is off."""
-    if not REQUIRE_REG:
-        return True
-    hit = _reg_cache.get(address)
+def _bound(cache, cap=50000):
+    """Hard-bound an in-memory cache: wipe it entirely past `cap` entries (all entries are re-fetchable)."""
+    if len(cache) > cap:
+        cache.clear()
+
+async def get_account(address):
+    """Cached (REG_CACHE_TTL) fetch of the node's /get_account for `address`. Returns the account
+    dict, or None on node error / non-200 — errors are cached too, so a down node can't be hammered."""
+    hit = _acct_cache.get(address)
     if hit and time.time() - hit[0] < REG_CACHE_TTL:
         return hit[1]
-    ok = False
+    acc = None
     try:
         async with _http().get(f"{NADO_NODE}/get_account?address={address}",
                                timeout=aiohttp.ClientTimeout(total=6)) as r:
             if r.status == 200:
                 acc = await r.json()
-                ok = int(acc.get("registered", 0)) == 1
     except Exception:
-        ok = False       # fail closed
-    _reg_cache[address] = (time.time(), ok)
-    return ok
+        acc = None
+    _bound(_acct_cache)
+    _acct_cache[address] = (time.time(), acc)
+    return acc
+
+async def is_registered(address):
+    """Async check that `address` is REGISTERED on-chain (cached via get_account). Node errors fail
+    closed (False). Always True when REQUIRE_REG is off."""
+    if not REQUIRE_REG:
+        return True
+    acc = await get_account(address)
+    return bool(acc) and int(acc.get("registered", 0)) == 1
+
+async def aliases_of(address):
+    """All on-chain alias names owned by `address` (node /get_aliases_of), cached ALIAS_TTL seconds.
+    Errors return [] (cached) — the UI just falls back to the short address."""
+    hit = _alias_cache.get(address)
+    if hit and time.time() - hit[0] < ALIAS_TTL:
+        return hit[1]
+    names = []
+    try:
+        async with _http().get(f"{NADO_NODE}/get_aliases_of?address={address}",
+                               timeout=aiohttp.ClientTimeout(total=6)) as r:
+            if r.status == 200:
+                d = await r.json()
+                names = [str(n) for n in (d.get("aliases") or [])][:20]
+    except Exception:
+        names = []
+    _bound(_alias_cache)
+    _alias_cache[address] = (time.time(), names)
+    return names
 
 # ---- helpers -------------------------------------------------------------------------------------
 def is_admin(address):
@@ -265,6 +299,14 @@ def touch_user(con, address, public_key=None):
     else:
         con.execute("INSERT INTO users(address,public_key,handle,created_at,last_seen,role,sver) VALUES(?,?,?,?,?,?,0)",
                     (address, public_key, address[:10], now, now, "mod" if address in MODS else "user"))
+
+async def authors_meta(con, addresses):
+    """Display metadata for a set of author addresses: {addr: {"alias": first-on-chain-alias-or-None,
+    "role": effective role}}. Alias lookups are cache-backed (ALIAS_TTL) and node misses are fetched
+    concurrently, so enriching a thread page costs at most one round of parallel node calls."""
+    addrs = sorted(set(a for a in addresses if a))
+    names = await asyncio.gather(*(aliases_of(a) for a in addrs)) if addrs else []
+    return {a: {"alias": (n[0] if n else None), "role": user_role(con, a)} for a, n in zip(addrs, names)}
 
 def jerr(msg, status=400):
     """JSON error response: {"ok": false, "error": msg} with the given HTTP status."""
@@ -360,11 +402,16 @@ async def api_me(request):
     registered/can_post from the cached on-chain check. No auth required; read-only."""
     a = current_user(request)
     if not a:
-        return web.json_response({"ok": True, "user": None})
+        return web.json_response({"ok": True, "user": None, "interface": INTERFACE_URL})
     con = db(); role = user_role(con, a); con.close()
     reg = await is_registered(a)
-    return web.json_response({"ok": True, "user": {"address": a, "role": role, "admin": is_admin(a),
-                                                   "registered": reg, "can_post": reg and role != "banned"}})
+    acc = await get_account(a) or {}
+    names = await aliases_of(a)
+    return web.json_response({"ok": True, "interface": INTERFACE_URL,
+                              "user": {"address": a, "role": role, "admin": is_admin(a),
+                                       "alias": names[0] if names else None,
+                                       "balance": str(acc.get("balance", 0)),   # string: raw units can exceed JS floats
+                                       "registered": reg, "can_post": reg and role != "banned"}})
 
 async def api_logout(request):
     """POST /api/logout — bump users.sver (voiding EVERY outstanding session token for the user, not just
@@ -406,8 +453,9 @@ async def api_threads(request):
         "SELECT t.*, (SELECT COUNT(*) FROM posts p WHERE p.thread_id=t.id AND p.deleted=0) AS replies "
         "FROM threads t WHERE t.board_id=?" + ("" if mod else " AND t.deleted=0") +
         " ORDER BY t.pinned DESC, t.bumped_at DESC LIMIT 100", (b["id"],)).fetchall()
+    authors = await authors_meta(con, (r["author"] for r in rows))
     con.close()
-    return web.json_response({"ok": True, "board": dict(b), "threads": [dict(r) for r in rows]})
+    return web.json_response({"ok": True, "board": dict(b), "threads": [dict(r) for r in rows], "authors": authors})
 
 async def api_thread(request):
     """GET /api/thread?id=<int> — one thread with its board and its posts in created order. Deleted
@@ -425,8 +473,10 @@ async def api_thread(request):
     posts = con.execute("SELECT * FROM posts WHERE thread_id=?" + ("" if mod else " AND deleted=0") +
                         " ORDER BY created_at", (tid,)).fetchall()
     b = con.execute("SELECT * FROM boards WHERE id=?", (t["board_id"],)).fetchone()
+    authors = await authors_meta(con, [t["author"]] + [p["author"] for p in posts])
     con.close()
-    return web.json_response({"ok": True, "board": dict(b), "thread": dict(t), "posts": [dict(p) for p in posts]})
+    return web.json_response({"ok": True, "board": dict(b), "thread": dict(t),
+                              "posts": [dict(p) for p in posts], "authors": authors})
 
 def _board_allows(board_row, role):
     """True unless the board is mod-only (post_min_role='mod') and the caller's role isn't 'mod'."""
@@ -588,6 +638,32 @@ async def api_treasury(request):
         return web.json_response(_treasury_cache["v"] or {"proposals": []})
 _treasury_cache = {"t": 0, "v": None}
 
+async def api_profile(request):
+    """GET /api/profile?address=ndo… — public profile card for any address: on-chain aliases, forum
+    role/admin, REGISTERED flag, spendable + bonded balance (raw units, as strings), first/last seen
+    (None if the address never signed in) and non-deleted thread/post counts. All chain data comes
+    through the same short caches as the rest of the app; 60/min per IP."""
+    if not rate_ok("prof:" + client_ip(request), 60, 60):
+        return jerr("rate limited — try again shortly", 429)
+    addr = (request.query.get("address") or "").strip()
+    if not validate_address(addr):
+        return jerr("bad address")
+    con = db()
+    u = con.execute("SELECT created_at,last_seen FROM users WHERE address=?", (addr,)).fetchone()
+    role = user_role(con, addr)
+    threads = con.execute("SELECT COUNT(*) AS c FROM threads WHERE author=? AND deleted=0", (addr,)).fetchone()["c"]
+    posts = con.execute("SELECT COUNT(*) AS c FROM posts WHERE author=? AND deleted=0", (addr,)).fetchone()["c"]
+    con.close()
+    acc = await get_account(addr) or {}
+    names = await aliases_of(addr)
+    return web.json_response({"ok": True, "interface": INTERFACE_URL, "profile": {
+        "address": addr, "alias": names[0] if names else None, "aliases": names,
+        "role": role, "admin": is_admin(addr),
+        "registered": int(acc.get("registered", 0)) == 1,
+        "balance": str(acc.get("balance", 0)), "bonded": str(acc.get("bonded", 0)),
+        "first_seen": u["created_at"] if u else None, "last_seen": u["last_seen"] if u else None,
+        "threads": threads, "posts": posts}})
+
 # ---- static + security headers -------------------------------------------------------------------
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'")
@@ -635,6 +711,7 @@ def build_app():
         web.post("/api/reply", api_reply),
         web.post("/api/mod", api_mod),
         web.get("/api/treasury", api_treasury),
+        web.get("/api/profile", api_profile),
         web.get("/", index),
         web.static("/static", os.path.join(HERE, "static")),
     ])

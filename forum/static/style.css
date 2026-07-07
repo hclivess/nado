@@ -69,6 +69,20 @@ h2{font-size:18px;margin:14px 0 6px}
 .locked{color:var(--txt-faint);font-style:italic}
 .tally{margin-top:8px;color:var(--accent-2);font-size:13px}
 
+/* profiles & aliases */
+a.ulink{color:var(--accent-2);font-weight:600}
+a.ulink:hover{text-decoration:underline}
+.pill.bal{background:rgba(0,201,167,.10);color:var(--accent-2);border-color:rgba(0,201,167,.4);font-family:var(--mono)}
+.profile .prow{display:flex;gap:12px;padding:7px 0;border-bottom:1px solid var(--border);align-items:baseline}
+.profile .prow:last-of-type{border-bottom:0}
+.plabel{flex:0 0 130px;color:var(--txt-dim);font-size:13px}
+.addr.full{word-break:break-all;font-size:13px}
+.balnum{font-family:var(--mono);color:var(--accent-2);font-weight:700}
+.faint{color:var(--txt-faint)}
+.mt{margin-top:10px}
+a.btn{display:inline-block;text-decoration:none}
+a.btn:hover{text-decoration:none}
+
 /* moderation UI */
 .pill.del{background:rgba(248,81,73,.10);color:var(--danger);border-color:rgba(248,81,73,.4)}
 .modbar{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
