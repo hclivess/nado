@@ -48,6 +48,12 @@ _ZSTD_WIRE_MAX = 64 << 20
 SYNC_BATCH_MAX = 500
 SYNC_BATCH_BYTES = 8 << 20
 
+# Hard cap on the RAW (still-compressed) bytes we will buffer from a peer's block-sync response before
+# decoding. The serve side bounds a batch to SYNC_BATCH_BYTES compressed; 2x that is generous headroom for
+# framing while still stopping a hostile donor from streaming multi-GB into response.read() (pre-decode OOM,
+# which _ZSTD_WIRE_MAX does NOT prevent — it only bounds the DECOMPRESSED side of an already-buffered body).
+_SYNC_WIRE_CAP = 2 * SYNC_BATCH_BYTES
+
 
 def _unpack_wire(body: bytes):
     """decode a peer's zstd block-sync wire payload under the decompression-bomb cap (_ZSTD_WIRE_MAX above).
@@ -807,6 +813,7 @@ async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="z
     frame into gigabytes. Falsy on any failure (non-200, timeout, bad payload) — the caller moves
     on to another peer. connect stays tight (a dead peer fails in 5s) while total allows a full
     SYNC_BATCH_MAX batch to transfer on a slow link."""
+    from ops.net_ops import read_capped   # local import: keep net_ops off block_ops' import-time graph
     try:
         url_construct = f"http://{hostport(target_peer, get_config()['port'])}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
 
@@ -815,13 +822,11 @@ async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="z
                 code = response.status
 
                 if code == 200 and compress == "zstd":
-                    return _unpack_wire(await response.read())
+                    return _unpack_wire(await read_capped(response, _SYNC_WIRE_CAP))
                 elif code == 200 and compress == "msgpack":
-                    read = response.read()
-                    return msgpack.unpackb(await read)
+                    return msgpack.unpackb(await read_capped(response, _SYNC_WIRE_CAP), raw=False)
                 elif code == 200:
-                    text = response.text()
-                    return json.loads(await text)["blocks_after"]
+                    return json.loads((await read_capped(response, _SYNC_WIRE_CAP)).decode())["blocks_after"]
                 else:
                     return False
 
@@ -833,6 +838,7 @@ async def get_blocks_before(target_peer, from_hash, logger, count=50, compress="
     """mirror of get_blocks_after for backward sync: up to `count` blocks BEFORE from_hash (walking
     toward genesis), same bomb-capped zstd wire decode, same tight-connect/long-total timeout split,
     falsy on any failure."""
+    from ops.net_ops import read_capped   # local import: keep net_ops off block_ops' import-time graph
     try:
         url_construct = f"http://{hostport(target_peer, get_config()['port'])}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
 
@@ -841,13 +847,11 @@ async def get_blocks_before(target_peer, from_hash, logger, count=50, compress="
                 code = response.status
 
                 if code == 200 and compress == "zstd":
-                    return _unpack_wire(await response.read())
+                    return _unpack_wire(await read_capped(response, _SYNC_WIRE_CAP))
                 elif code == 200 and compress == "msgpack":
-                    read = response.read()
-                    return msgpack.unpackb(await read)
+                    return msgpack.unpackb(await read_capped(response, _SYNC_WIRE_CAP), raw=False)
                 elif code == 200:
-                    text = response.text()
-                    return json.loads(await text)["blocks_before"]
+                    return json.loads((await read_capped(response, _SYNC_WIRE_CAP)).decode())["blocks_before"]
                 else:
                     return False
 

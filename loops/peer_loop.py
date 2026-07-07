@@ -186,8 +186,12 @@ class PeerClient(threading.Thread):
                 )
 
                 for key, value in candidates.items():
-                    if value['protocol'] < self.memserver.protocol:
-                        self.logger.error(f"Protocol of {key} too low: {value['protocol']}")
+                    # Fail-closed on a malformed status: a peer that omits `protocol` (old/broken/hostile
+                    # node) must be treated as protocol -1 and banned, NOT crash the whole pass. The old
+                    # hard `value['protocol']` raised KeyError, which propagated to the outer handler and
+                    # skipped status admission AND purge_peers() for every remaining peer that pass.
+                    if not isinstance(value, dict) or value.get('protocol', -1) < self.memserver.protocol:
+                        self.logger.error(f"Protocol of {key} too low: {value.get('protocol') if isinstance(value, dict) else value}")
                         self.memserver.ban_peer(key)
                     elif value.get('chain_id') != CHAIN_ID:
                         # WRONG CHAIN (or a pre-chain_id node that doesn't advertise one): NEVER admit

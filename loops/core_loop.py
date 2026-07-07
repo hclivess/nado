@@ -57,6 +57,11 @@ from protocol import EPOCH_LENGTH, FINALITY_DEPTH, REWARD_WINDOW
 # ~1s, but a lone/bootstrap node with no reachable donor would otherwise flood the log once/sec.
 NO_SYNCABLE_LOG_INTERVAL = 30
 
+# Minimum seconds between seed-anchored RE-ANCHOR attempts. A wedged node (stuck on a minority fork below
+# its snapshot/finality floor) re-imports a seed's snapshot to recover; bound the retry so a persistently
+# failing import can't hammer the seed every pass.
+REANCHOR_COOLDOWN = 30
+
 
 def peer_claims_heavier_tip(statuses, our_weight, have_peers, rejected_tips):
     """The caught-up production gate's predicate, extracted for direct testing (Sybil-stall guard).
@@ -126,6 +131,9 @@ class CoreClient(threading.Thread):
         # anti-spam backoff for the emergency-mode "Could not find a syncable peer" retry (fires every ~1s
         # while no donor is reachable — a persistent normal state on a lone/bootstrap node).
         self._last_no_syncable_log = 0
+        # cooldown for the seed-anchored RE-ANCHOR (wedge recovery): re-importing a seed's snapshot is
+        # expensive, so a wedged node attempts it at most once per this interval rather than every ~1s pass.
+        self._last_reanchor_ts = 0
         # throttle the once-per-block-interval consensus mempool reconcile (normal_mode).
         self._last_reconcile = 0
         # once-per-new-block throttle for the periodic duties in normal_mode (FFG/RANDAO/auto-*).
@@ -480,16 +488,25 @@ class CoreClient(threading.Thread):
         else:
             self.logger.info(f"Could not replace {key} from {peer}")
 
-    def snapshot_bootstrap(self) -> bool:
+    def snapshot_bootstrap(self, force_reanchor: bool = False) -> bool:
         """For a fresh node (still at genesis), bulk-download verified account state from peers instead of
         replaying the entire chain. Strictly additive and fully guarded: it runs ONLY while latest_block is
         genesis and ANY failure returns False so the normal block-by-block replay proceeds — it can never
         disrupt an established node or a re-org. It is RETRIED from the emergency loop until a donor advertises
         a finalized checkpoint. Anti-Sybil: a >=2-responder super-majority must agree the (height,hash); a
         LONE donor is accepted only when it is an operator seed (weak subjectivity). Peer downloads are
-        size-capped (ops/net_ops) and the manifest is self-hash-validated before allocation (fetch_snapshot)."""
-        if self.memserver.latest_block["block_number"] != 0:
-            return False   # only bootstraps a still-at-genesis node; retryable until a donor advertises one
+        size-capped (ops/net_ops) and the manifest is self-hash-validated before allocation (fetch_snapshot).
+
+        force_reanchor=True — WEDGE RECOVERY for an ESTABLISHED node. A node whose snapshot/finality floor
+        sits on a minority fork can NEVER reach the divergence point by rollback (it is below the floor), and
+        no honest canonical donor can serve its forked root — so normal fast-forward AND reorg are both dead
+        ends. In that state we re-import a SEED's snapshot over our forked state and tail-sync onto canonical.
+        This is a deliberate state overwrite, so it is gated harder than the genesis path: the checkpoint is
+        taken from an operator SEED directly (a fork majority CANNOT out-vote the seed — that is what trapped
+        us), and only when the seed's snapshot is strictly above our finality floor. Everything below the new
+        earliest block (our dead fork's blocks) is simply orphaned in the block store — never referenced."""
+        if self.memserver.latest_block["block_number"] != 0 and not force_reanchor:
+            return False   # genesis-only for normal bootstrap; force_reanchor re-anchors an established node
         try:
             peers = list(self.memserver.peers)
             if len(peers) < 1:
@@ -505,37 +522,56 @@ class CoreClient(threading.Thread):
             statuses = [s if isinstance(s, dict) else None for s in raw]
             responders = [ip for ip, s in zip(peers, statuses) if s]
 
-            # WEAK SUBJECTIVITY / anti-Sybil. import_snapshot only proves the donor's manifest is INTERNALLY
-            # consistent (per-chunk sha256 + a locally re-derived state_root == manifest) — it does NOT prove
-            # the state matches the real PoW chain. So a single unauthenticated donor must not be able to
-            # dictate a fresh node's initial state. Require a >=2-responder super-majority in general; permit a
-            # LONE donor only when it is a baked-in operator seed (DEFAULT_SEED_PEERS) — the weak-subjectivity
-            # anchor a fresh node already relies on to bootstrap at all (classic weak-subjectivity checkpoint).
             from ops.peer_ops import seed_peers
             _seeds = set(seed_peers())
-            lone_donor = len(responders) < 2
-            if lone_donor and not any(ip in _seeds for ip in responders):
-                self.logger.info("Single snapshot donor is not an operator seed; using full sync")
-                return False
-            agreed = snapshot_ops.agree_snapshot(statuses, min_peers=(1 if lone_donor else 2), threshold=0.8)
-            if not agreed:
-                self.logger.info("No snapshot quorum among peers; using full sync")
-                return False
 
-            target_hash = agreed["snapshot_hash"]
-            target_height = agreed["snapshot_height"]
-            self.logger.warning(
-                f"Snapshot quorum at height {target_height} ({agreed['votes']}/{agreed['responders']} peers)")
+            if force_reanchor:
+                # RE-ANCHOR: the operator SEED is the weak-subjectivity anchor and dictates the checkpoint
+                # ALONE — a fork majority must not be able to out-vote it (agree_snapshot's plurality is
+                # exactly what let the minority island pin us). Take the highest snapshot advertised by any
+                # responding seed that is strictly above our finality floor (so we always move forward and
+                # never re-anchor to a height we already hold).
+                seed_snaps = [(st["snapshot_height"], st["snapshot_hash"], ip)
+                              for ip, st in zip(peers, statuses)
+                              if st and ip in _seeds
+                              and st.get("snapshot_hash") and st.get("snapshot_height") is not None
+                              and st["snapshot_height"] > self.memserver.finalized_height]
+                if not seed_snaps:
+                    self.logger.info("Re-anchor: no operator seed advertises a snapshot above our finality "
+                                     "floor; staying put")
+                    return False
+                target_height, target_hash, source = max(seed_snaps)
+                self.logger.warning(f"Re-anchoring to operator seed {source} snapshot at height {target_height}")
+            else:
+                # WEAK SUBJECTIVITY / anti-Sybil. import_snapshot only proves the donor's manifest is INTERNALLY
+                # consistent (per-chunk sha256 + a locally re-derived state_root == manifest) — it does NOT prove
+                # the state matches the real PoW chain. So a single unauthenticated donor must not be able to
+                # dictate a fresh node's initial state. Require a >=2-responder super-majority in general; permit a
+                # LONE donor only when it is a baked-in operator seed (DEFAULT_SEED_PEERS) — the weak-subjectivity
+                # anchor a fresh node already relies on to bootstrap at all (classic weak-subjectivity checkpoint).
+                lone_donor = len(responders) < 2
+                if lone_donor and not any(ip in _seeds for ip in responders):
+                    self.logger.info("Single snapshot donor is not an operator seed; using full sync")
+                    return False
+                agreed = snapshot_ops.agree_snapshot(statuses, min_peers=(1 if lone_donor else 2), threshold=0.8)
+                if not agreed:
+                    self.logger.info("No snapshot quorum among peers; using full sync")
+                    return False
 
-            source = next((ip for ip, st in zip(peers, statuses)
-                           if st and st.get("snapshot_hash") == target_hash), None)
-            if not source:
-                return False
-            # for a lone donor, the fetch source itself MUST be an operator seed (not just any responder
-            # that happened to echo the hash) — otherwise a non-seed peer could serve the payload.
-            if lone_donor and source not in _seeds:
-                self.logger.info("Single-donor snapshot source is not an operator seed; using full sync")
-                return False
+                target_hash = agreed["snapshot_hash"]
+                target_height = agreed["snapshot_height"]
+                self.logger.warning(
+                    f"Snapshot quorum at height {target_height} ({agreed['votes']}/{agreed['responders']} peers)")
+
+                source = next((ip for ip, st in zip(peers, statuses)
+                               if st and st.get("snapshot_hash") == target_hash), None)
+                if not source:
+                    return False
+                # for a lone donor, the fetch source itself MUST be an operator seed (not just any responder
+                # that happened to echo the hash) — otherwise a non-seed peer could serve the payload.
+                if lone_donor and source not in _seeds:
+                    self.logger.info("Single-donor snapshot source is not an operator seed; using full sync")
+                    return False
 
             # 2) fetch, then verify against the quorum hash and re-derive the state root locally
             manifest, chunks = asyncio.run(
@@ -557,6 +593,11 @@ class CoreClient(threading.Thread):
             save_block(anchor, logger=self.logger)
             set_latest_block_info(latest_block=anchor, logger=self.logger)
             self.memserver.latest_block = anchor
+
+            # import_snapshot overwrote the persisted finality floor with the donor's, but the in-memory copy
+            # was left at its genesis-time value (0). Refresh it so incorporate_block computes the next floor
+            # from the real base and /status stops advertising finalized_height=0 until the first tail block.
+            self.memserver.finalized_height = get_finalized_height()
 
             # BACKFILL the recent block BODIES the C+1..tip tail replay can NOT rebuild. block_by_num/hash
             # arrived in the snapshot, so HASH lookbacks (beacon anchor (epoch-1)*EPOCH_LENGTH, FFG/PoSW
@@ -588,6 +629,46 @@ class CoreClient(threading.Thread):
         except Exception as e:
             self.logger.error(f"Snapshot bootstrap failed, falling back to full sync: {e}")
             return False
+
+    def _seed_heavier_source(self):
+        """Return an operator-seed IP that advertises a chain STRICTLY heavier than our tip, else None.
+        This is the trigger authority for a re-anchor: only a seed (the weak-subjectivity anchor) may pull a
+        wedged node onto a different history, so a Sybil peer-set advertising a fake heavy tip can never
+        provoke a state wipe. Weight units match refresh_heaviest_tip (advertised latest_block_weight vs our
+        cumulative_weight)."""
+        from ops.peer_ops import seed_peers
+        seeds = set(seed_peers())
+        our_weight = self.memserver.latest_block.get("cumulative_weight", 0)
+        best_ip, best_w = None, our_weight
+        for ip, st in self.consensus.status_pool.copy().items():
+            if ip not in seeds or not isinstance(st, dict):
+                continue
+            w = st.get("latest_block_weight")
+            if w is not None and w > best_w:
+                best_ip, best_w = ip, w
+        return best_ip
+
+    def _maybe_reanchor(self) -> bool:
+        """WEDGE RECOVERY. Called from the emergency loop when normal sync cannot make progress — the donor
+        can't serve our (forked) root, or the reorg leg hit a floor it can't cross. If a SEED advertises a
+        strictly-heavier chain, our snapshot/finality floor is on a minority fork: re-import the seed's
+        snapshot and tail-sync onto canonical. Rate-limited (REANCHOR_COOLDOWN) so a failing import can't
+        hammer the seed. Returns True iff we re-anchored (caller then resumes the loop on the new chain)."""
+        if not self._seed_heavier_source():
+            return False
+        now = get_timestamp_seconds()
+        if now - self._last_reanchor_ts < REANCHOR_COOLDOWN:
+            return False
+        self._last_reanchor_ts = now
+        self.logger.warning("Wedged behind a seed's heavier chain and normal sync cannot reconcile "
+                            "(our snapshot/finality floor is on a minority fork) — re-anchoring from seed")
+        if self.snapshot_bootstrap(force_reanchor=True):
+            # our chain identity changed under us: drop stale fork-choice exclusions and the rollback burst
+            # counter so the fresh tail sync starts clean.
+            self.consensus.rejected_tips = set()
+            self.memserver.rollbacks = 0
+            return True
+        return False
 
     def emergency_mode(self):
         """BEHIND-mode loop (entered when fork-choice says a strictly-better tip exists, or under
@@ -631,6 +712,11 @@ class CoreClient(threading.Thread):
                     # donor advertises a finalized checkpoint, then tail-sync from there.
                     if self.memserver.latest_block["block_number"] == 0 and self.snapshot_bootstrap():
                         self.logger.warning("State bootstrapped from snapshot; continuing with tail sync")
+                    # ESTABLISHED node, no donor can serve our root: we are on a minority fork whose root no
+                    # honest canonical peer holds. If a seed advertises a heavier chain, re-anchor onto it
+                    # (the only exit — normal fast-forward/reorg both require a donor that knows our root).
+                    elif self._maybe_reanchor():
+                        self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
                     time.sleep(1)
                 else:
                     block_hash = self.memserver.latest_block["block_hash"]
@@ -645,6 +731,13 @@ class CoreClient(threading.Thread):
                         if self._fast_forward_from(peer=peer, from_hash=block_hash):
                             break
                     elif self._rollback_one_for_reorg():
+                        # the reorg leg gave up: rollback budget spent, no local parent left (snapshot floor),
+                        # or the finality floor refused it. If a seed advertises a strictly-heavier chain this
+                        # is a deep/minority fork we must re-anchor out of, rather than exit and re-mine our
+                        # losing fork (which would only advance our floor and cement the wedge).
+                        if self._maybe_reanchor():
+                            self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
+                            continue
                         break
 
                     self.logger.info(f"Maximum reached cascade depth: {self.memserver.cascade_depth}")
