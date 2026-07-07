@@ -5,11 +5,16 @@ Outreach targets for the NADO relaunch. Built around what NADO actually is: a **
 drives targeting — the audience that matters is the fair-launch / mining / privacy / cypherpunk
 crowd, not mainstream pump influencers.
 
-_Last updated: 2026-07-06. Handles marked "verify" should be confirmed before sending._
+_Last updated: 2026-07-07. Handles marked "verify" should be confirmed before sending._
 _2026-07-06: merged a fresh follower/audit sweep — privacy infra into Tier 2, OG/degen CT into
 Tier 2b (notable rows + a compact batch block at the end of that tier), a builder into Tier 3, and
 one off-narrative desk into Tier 4. @Sicarious_ from that sweep was already listed (Tier 2b) — not
 duplicated._
+_2026-07-07: merged a pasted batch of ~24 handles — notable OG-trader/Wassie/builder rows into the
+Tier 2b table, thin/anon/parody/affiliate rows into a new dated batch block, two toxic-branding
+accounts into Avoid. @zcashjesus (Tier 2) and @cointradernik (Tier 2b) were already listed — not
+duplicated. **Flag:** @buyerofponzi lists **@nadohq as a "partner" in bio** — verify whether that's
+a real existing relationship (it would be the warmest lead in the batch)._
 
 **Score (0–100)** = one admittedly arbitrary gut number per target: ~50% audience fit
 (mining/fair-launch/privacy/PQ), ~30% warmth (follows you / knew Bismuth / organic reachability),
@@ -138,6 +143,13 @@ warm-ish. None will "review a coin" — the play is getting them to touch the on
 | Sicarious | **55** | [@Sicarious_](https://x.com/Sicarious_) | X | ~58K; trader, posts "what I wish I'd known in 2018" lessons. OG CT. | ☐ Not contacted |
 | barneytheboi | **52** | [@barneytheboi](https://x.com/barneytheboi) | X | ~57K; OG CT (joined 2017), trader + Web3 founder, casual/humorous tone. | ☐ Not contacted |
 | miyu | **52** | [@miyuki__eto](https://x.com/miyuki__eto) | X | Comf-maxi; @ambient_finance, @egirl_capital intern — egirl/Wassie-sphere connective tissue. Soft organic engagement. | ☐ Not contacted |
+| Angelo฿TC | **55** | [@AngeloBTC](https://x.com/AngeloBTC) | X | "Whale whisperer," semi-retired derivatives trader — **former Bitmex & FTX leaderboard**. OG derivatives crowd (same lineage as red/loomdart); reads markets, won't shill — organic only. | ☐ Not contacted |
+| Ponzi Trader | **50** | [@buyerofponzi](https://x.com/buyerofponzi) | X | ⚠ **Lists @nadohq as a "partner" in bio** — verify whether that's a real existing tie (warmest signal in the batch if so). Self-aware degen (investing/advising; @inkonchain, @rainbetcom partner — gambling affiliate). | ☐ Verify @nadohq tie |
+| Dr. Joey, PhDeez | **48** | [@joeydiblasi](https://x.com/joeydiblasi) | X | Crypto **class of '13** (OG), computer engineer / CEO, "Fella." OG + technical-adjacent — can engage on design substance, not just charts. | ☐ Not contacted |
+| Karnickleon | **46** | [@Karnickleon](https://x.com/Karnickleon) | X | Hare/**Wassie**-hybrid anon ("Hare Brain Capital"); slots into the existing Wassie cluster (loomdart/MonkeyCharts/wasserpest). Wassie-native, organic only. | ☐ Not contacted |
+| chimp | **44** | [@chimpp](https://x.com/chimpp) | X | Head of memes @ **bonkfun** (Solana launchpad), ex-@bybit; chimp.eth. Off-narrative (memecoins) but real **meme-distribution** reach — organic meme angle only. | ☐ Not contacted |
+| Sarah (Odyssey) | **44** | [@0xsatoshisarah](https://x.com/0xsatoshisarah) | X | Cofounder @OdysseyAILabs — AI-builder crossover. Builder-to-builder touch (in-browser STARK prover as a build-in-public story), not a coin pitch. | ☐ Not contacted |
+| Smokey | **42** | [@SmokeyHosoda](https://x.com/SmokeyHosoda) | X | Ichimoku TA trader; **@WOO_X partner** (affiliate economics — light P2P flag). Chart-native — the emission chart is the shareable. | ☐ Not contacted |
 | VKTR | **46** | [@0xVKTR](https://x.com/0xVKTR) | X | Trading-tools sphere (@insilicotrading, @orionterminal). Light touch; reach-only. | ☐ Not contacted |
 | MagUra | **46** | [@MagUraCrypto](https://x.com/MagUraCrypto) | X | #bitcoin/#crypto since 2013 (OG-ish), TAO/ETH/BTC, self-described sarcastic. Meme-tolerant; light. | ☐ Not contacted |
 | stockmart | **46** | [@stockmart_](https://x.com/stockmart_) | X | Ex-CFO "Down Bad Global," @Blockworks podcast orbit → possible pod mention. Angle: the narrative (Bismuth founder returns, phone-mineable PQ), not a chart. | ☐ Not contacted |
@@ -189,6 +201,31 @@ proves out.
 | DaGoatedCeO | 34 | [@DaGoatedCEO](https://x.com/DaGoatedCEO) | Degen anon. |
 | blobbert | 34 | [@dumbgayretard](https://x.com/dumbgayretard) | Anon CT. |
 | hentai avenger | 34 | [@hentaiavenger66](https://x.com/hentaiavenger66) | Degen anon. |
+
+### Batch — 2026-07-07 paste additions (organic-only; verify each before contacting)
+
+Same rule as the 2026-07-06 batch: thin-bio / anon / parody / affiliate-linked degen-CT rows.
+**No pitch is possible or wanted — organic engagement first, the one-tap phone-miner demo IS the
+message.** Scores gut-only, capped low until confirmed; promote a row up into the table above once
+it proves out.
+
+| Who | Score | Handle | Bio / note |
+|---|---|---|---|
+| HANK | 42 | [@HenryTheETH](https://x.com/HenryTheETH) | OG-CT **parody/humor** ("architect of the Bitmex engine / CEO @coinbase" — joke flexes). Meme-tolerant; light. |
+| stardust | 40 | [@cryptostardust](https://x.com/cryptostardust) | Self-described chartspammer — the emission chart is the shareable. |
+| Washing Machine | 40 | [@Lucas________13](https://x.com/Lucas________13) | "Fella, certified dopamine supplier" — fella/degen crowd. |
+| osaka pond dweller | 38 | [@SPCMNandHOBBES](https://x.com/SPCMNandHOBBES) | JP anon degen ("Japan needs me"); JP-localization angle. |
+| art | 38 | [@art_is_found](https://x.com/art_is_found) | Marketing @SagaAILabs (marketing = light P2P), bodybuilding / Christian. |
+| Emerald Crypto | 36 | [@EmeraldCrypto](https://x.com/EmeraldCrypto) | Generic #crypto #trader; thin bio. |
+| Sonic | 36 | [@sonicthehedgor](https://x.com/sonicthehedgor) | "reply guy to your reply guy" — degen filler. |
+| TT | 36 | [@TTremendous351](https://x.com/TTremendous351) | Parody flex-degen bio ("Rolex / BMW lease / plasma TV"); meme-tolerant only. |
+| CryptOrca | 34 | [@CryptOrca](https://x.com/CryptOrca) | TA/memes **with Binance/Bybit affiliate discount links** (P2P economics). |
+| Serenity | 32 | [@aleabitoreddit](https://x.com/aleabitoreddit) | AI / semiconductor supply-chain research — off-narrative for a mining/privacy coin. |
+| hambone | 30 | [@hambone_x](https://x.com/hambone_x) ⚠ verify | "God & Country" religious bio, **no crypto signal at all** — confirm any fit before spending effort. |
+| Crypto฿ull | 28 | [@CryptoBull](https://x.com/CryptoBull) ⚠ verify | Generic markets handle on a **heavily-squatted name**; verify identity + real reach first. |
+
+> **Already listed (not re-added):** [@zcashjesus](https://x.com/zcashjesus) — Tier 2 (58);
+> [@cointradernik](https://x.com/cointradernik) — Tier 2b (44, "Nik").
 
 ## Tier 3 — Technical / builder reach (higher bar, higher payoff)
 
@@ -245,6 +282,8 @@ solely as a paid reach gamble, never organic: their audience wants 100x flips, n
 | "BitBoy Crypto" channel | — | Rebranded to **Discover Crypto** without Armstrong; generic team content, no fit. |
 | Ginja | [@GinjaReloaded](https://x.com/GinjaReloaded) | Follows you, but self-described "pro violence account" — any association is pure reputational downside for a privacy coin already fighting the "criminal money" smear. Friendly silence. |
 | Dr. Crypto Hunk | [@cryptohunkX](https://x.com/cryptohunkX) | Cronos-bagholder niche, $50-100 buy challenges — wrong audience, engagement-farm format. |
+| TedKStyle…1488 | [@Crypto_F4sc1st](https://x.com/Crypto_F4sc1st) | Handle = "Fascist," **"1488"** (white-supremacist code), "TedK" (Unabomber). Toxic branding — pure reputational poison for a privacy coin already fighting the "criminal money" smear. Hard avoid. |
+| REPTARD | [@bankmansneed](https://x.com/bankmansneed) | **Follows you**, self-labeled parody — but "Clown Prince of Racism" branding is the same reputational-downside trap as Ginja. Warm but not worth it; friendly silence. |
 
 ---
 
