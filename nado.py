@@ -1,7 +1,8 @@
 import asyncio
 import functools
-import mimetypes
+import hashlib
 import os
+import re
 import signal
 import socket
 import sys
@@ -866,18 +867,55 @@ async def htlcs(request):
     return _resp({"htlcs": allh})
 
 
+# HTML pages are served with their /static/<asset> references stamped ?v=<file mtime>. The stamped URL
+# changes whenever the file on disk changes, so the assets themselves can be cached as immutable (by the
+# browser AND the CDN edge) while an edit still propagates on the next page load — the interface pulls
+# ~1.5 MB of JS (i18n.js alone is ~1 MiB), which under the old blanket no-store re-downloaded every visit.
+_STATIC_REF_RE = re.compile(rb'((?:src|href)=")(/static/[A-Za-z0-9_./-]+)(")')
+
+
+def _stamp_static_refs(html):
+    """Rewrite src/href="/static/<asset>" references in `html` (bytes) to .../<asset>?v=<mtime>.
+    References whose file doesn't exist are left untouched."""
+    def sub(m):
+        rel = m.group(2)[len(b"/static/"):].decode()
+        try:
+            v = int(os.stat(os.path.join(_STATIC_DIR, rel)).st_mtime)
+        except (OSError, UnicodeDecodeError):
+            return m.group(0)
+        return m.group(1) + m.group(2) + b"?v=%d" % v + m.group(3)
+    return _STATIC_REF_RE.sub(sub, html)
+
+
+def _html_response(request, full):
+    """Serve an HTML file with stamped asset references, a strong ETag over the stamped body, and
+    revalidation caching (no-cache = store + ask; a 304 answers the ask in one small round trip)."""
+    with open(full, "rb") as f:
+        body = _stamp_static_refs(f.read())
+    etag = '"' + hashlib.blake2b(body, digest_size=16).hexdigest() + '"'
+    headers = {"Cache-Control": "no-cache", "ETag": etag, "Access-Control-Allow-Origin": "*"}
+    inm = request.headers.get("If-None-Match", "")
+    if etag in (t.strip() for t in inm.split(",")):
+        return web.Response(status=304, headers=headers)
+    return web.Response(body=body, content_type="text/html", charset="utf-8", headers=headers)
+
+
 async def static_handler(request):
-    """GET /static/{path}: serve a file from static/ with no-cache headers + open CORS. Path-traversal
-    contained: the normpath'd target must stay under _STATIC_DIR or it 404s."""
+    """GET /static/{path}: serve a file from static/ with open CORS. HTML goes through _html_response
+    (asset-stamped + ETag revalidation). An asset requested with a numeric ?v= is content-addressed by
+    construction (the stamp is its mtime), so it's served immutable for a year — cacheable by browsers
+    and the CDN edge. Everything else is no-cache: stored but revalidated (ETag/Last-Modified -> 304),
+    so wallet/explorer edits are picked up immediately without re-downloading unchanged bytes.
+    Path-traversal contained: the normpath'd target must stay under _STATIC_DIR or it 404s."""
     rel = request.match_info.get("path", "")
     full = os.path.normpath(os.path.join(_STATIC_DIR, rel))
     if not (full == _STATIC_DIR or full.startswith(_STATIC_DIR + os.sep)) or not os.path.isfile(full):
         return web.Response(status=404, text="Not found")
-    ctype, _ = mimetypes.guess_type(full)
-    # NO-CACHE + permissive CORS so wallet/explorer edits are picked up immediately and a cross-origin
-    # page can load the assets (the old NoCacheStaticFileHandler behaviour).
-    headers = {"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-               "Pragma": "no-cache", "Access-Control-Allow-Origin": "*"}
+    if full.endswith(".html"):
+        return _html_response(request, full)
+    immutable = request.query.get("v", "").isdigit()
+    headers = {"Cache-Control": "public, max-age=31536000, immutable" if immutable else "no-cache",
+               "Access-Control-Allow-Origin": "*"}
     return web.FileResponse(full, headers=headers)
 
 
@@ -1020,7 +1058,7 @@ _TAB_PATHS = ("wallet", "send", "receive", "aliases", "stake", "quorum", "multis
 
 async def interface_page(request):
     """Serve the single-page interface for the deep-linkable tab paths (/wallet, /send, /aliases, ...)."""
-    return web.FileResponse(os.path.join(_HERE, "static", "interface.html"))
+    return _html_response(request, os.path.join(_HERE, "static", "interface.html"))
 
 
 async def make_app(port):
