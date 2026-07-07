@@ -127,6 +127,10 @@ class CoreClient(threading.Thread):
         self._last_no_syncable_log = 0
         # throttle the once-per-block-interval consensus mempool reconcile (normal_mode).
         self._last_reconcile = 0
+        # DONOR CACHE for get_peer_to_sync_from: (peer, required_hash) of the last selected sync donor.
+        # While the donor still advertises the current heaviest hash, it is re-verified with one
+        # knows_block dial instead of a full pool re-scan every ~1s emergency pass.
+        self._sync_donor = (None, None)
 
     def _mode(self):
         """Local production pacing (block_time is NOT consensus — verify only checks timestamp <= now, and
@@ -281,19 +285,35 @@ class CoreClient(threading.Thread):
             self.logger.info(f"Error: {e}")
             raise
 
+    def _root_known_to(self, peer) -> bool:
+        """the ONE network check of donor selection: does the peer serve our root (earliest) block?
+        This is what makes a donor able to full-sync us; dialed only for peers that already passed
+        every in-memory check."""
+        return asyncio.run(knows_block(
+            target_peer=peer,
+            port=self.memserver.port,
+            hash=self.memserver.earliest_block["block_hash"],
+            logger=self.logger))
+
     def get_peer_to_sync_from(self, source_pool):
         """peer to synchronize pool when out of sync, critical part
         candidate tips are ordered by OBJECTIVE cumulative_weight (heaviest first); we return the first
         reachable peer advertising the heaviest tip that qualifies_to_sync.
-        hash_pool argument is the pool to sort and sync from (block, tx, block producer pools)"""
+        hash_pool argument is the pool to sort and sync from (block, tx, block producer pools).
 
-        first_peer = None
+        Cost discipline (this runs every ~1s in emergency mode): all in-memory checks run FIRST, and the
+        single network round-trip (knows_block on our root) is dialed only for peers that passed them —
+        the old code dialed EVERY pool peer per candidate hash, 5s timeout each. The last selected donor
+        is cached: while it still advertises the current heaviest hash, we re-verify it with that one
+        dial and return, instead of re-scanning (and re-logging) the whole pool each pass."""
 
         if self.memserver.force_sync_ip:
             """force sync"""
             return self.memserver.force_sync_ip
 
         source_pool_copy = source_pool.copy()
+        source_pool_copy.pop(self.memserver.ip, None)
+        """do not sync from self"""
 
         try:
             # #16 step 3: order candidate tips by OBJECTIVE cumulative_weight (heaviest first), NOT by
@@ -304,64 +324,70 @@ class CoreClient(threading.Thread):
                 distinct_hashes,
                 key=lambda h: (-self.consensus.tip_weights.get(h, -1), h)
             )[:self.memserver.cascade_limit]
-            shuffled_pool = shuffle_dict(source_pool_copy)
-            # participants = len(shuffled_pool.items())
-
-            if self.memserver.ip in shuffled_pool:
-                shuffled_pool.pop(self.memserver.ip)
-                """do not sync from self"""
 
             # (no "No hashes to sync from" log here: it fires every ~1s core-loop pass whenever no peer has
             # advertised a tip — a persistent normal WAITING state on a lone/bootstrap node, already visible
             # in the periodic status line. When empty we just fall through and return None.)
-            if sorted_hashes:
-                for hash_candidate in sorted_hashes:
-                    """go from the most common hash to the least common one"""
+            if not sorted_hashes:
+                return None
 
-                    self.logger.info(f"Working with {hash_candidate} from a pool of {len(sorted_hashes)}")
-                    self.memserver.cascade_depth = sorted_hashes.index(hash_candidate) + 1
+            # DONOR CACHE: reuse the previously selected donor while it still advertises the current
+            # heaviest hash and passes the in-memory gate. Liveness is NOT assumed — the root-knowledge
+            # dial re-runs (one round-trip), so a died-since donor falls through to a fresh scan instead
+            # of being handed to emergency_mode, where a false knows_block(tip) would suggest a reorg.
+            cached_peer, cached_hash = self._sync_donor
+            if cached_peer is not None and cached_hash == sorted_hashes[0]:
+                if (cached_peer not in self.memserver.purge_peers_list
+                        and qualifies_to_sync(peer=cached_peer,
+                                              peer_protocol=self.consensus.status_pool
+                                                  .get(cached_peer, {}).get("protocol", -1),
+                                              memserver_protocol=self.memserver.protocol,
+                                              unreachable_list=self.memserver.unreachable.keys(),
+                                              peer_hash=source_pool_copy.get(cached_peer),
+                                              required_hash=cached_hash)["result"]
+                        and self._root_known_to(cached_peer)):
+                    self.memserver.cascade_depth = 1
+                    return cached_peer
+                self._sync_donor = (None, None)
 
-                    for peer, value in shuffled_pool.items():
-                        if peer not in self.memserver.purge_peers_list:  # sadly, the whole purge_peers() takes a prohibitively long time for some reason
-                            try:
-                                peer_protocol = self.consensus.status_pool[peer]["protocol"]
-                                """get protocol version"""
+            for depth, hash_candidate in enumerate(sorted_hashes, start=1):
+                """go from the heaviest advertised tip to the lightest one"""
+                self.memserver.cascade_depth = depth
 
-                                known_block = asyncio.run(knows_block(
-                                    target_peer=peer,
-                                    port=self.memserver.port,
-                                    hash=self.memserver.earliest_block["block_hash"],
-                                    logger=self.logger))
+                for peer, value in shuffle_dict(source_pool_copy).items():
+                    if peer in self.memserver.purge_peers_list:  # sadly, the whole purge_peers() takes a prohibitively long time for some reason
+                        continue
+                    if not check_ip(peer):
+                        continue
 
-                                if known_block:
-                                    known_tree = True
-                                else:
-                                    known_tree = False
+                    # a peer whose status we simply haven't fetched yet is SKIPPED, not banned
+                    # (the old KeyError path banned it) — protocol -1 fails the gate below.
+                    peer_protocol = self.consensus.status_pool.get(peer, {}).get("protocol", -1)
 
-                                if not first_peer:
-                                    if value == hash_candidate:
-                                        first_peer = peer
+                    qualifies = qualifies_to_sync(peer=peer,
+                                                  peer_protocol=peer_protocol,
+                                                  memserver_protocol=self.memserver.protocol,
+                                                  unreachable_list=self.memserver.unreachable.keys(),
+                                                  peer_hash=value,
+                                                  required_hash=hash_candidate)
+                    if not qualifies["result"]:
+                        continue
 
-                                if check_ip(peer):
-                                    qualifies = qualifies_to_sync(peer=peer,
-                                                                  peer_protocol=peer_protocol,
-                                                                  memserver_protocol=self.memserver.protocol,
-                                                                  known_tree=known_tree,
-                                                                  unreachable_list=self.memserver.unreachable.keys(),
-                                                                  peer_hash=value,
-                                                                  required_hash=hash_candidate)
-                                    if qualifies["result"]:
-                                        self.logger.debug(f"{peer} qualified for sync")
-                                        return peer
-                                    else:
-                                        self.logger.debug(f"{peer} not qualified for sync: {qualifies['flag']}")
-                            except Exception as e:
-                                self.logger.info(f"Peer {peer} error: {e}")
-                                self.memserver.ban_peer(peer)
+                    # in-memory gate passed -> the single network check (can this donor serve our root?)
+                    try:
+                        if self._root_known_to(peer):
+                            if peer != cached_peer:
+                                self.logger.info(f"Selected sync donor {peer} for tip "
+                                                 f"{hash_candidate[:12]} (candidate depth {depth})")
+                            self._sync_donor = (peer, hash_candidate)
+                            return peer
+                        self.logger.debug(f"{peer} not qualified for sync: our root hash is unknown to them")
+                    except Exception as e:
+                        self.logger.info(f"Peer {peer} error: {e}")
+                        self.memserver.ban_peer(peer)
 
-                else:
-                    self.logger.info(f"Ran out of options when picking a sync hash")
-                    return None
+            self.logger.debug("Ran out of options when picking a sync donor")
+            return None
 
         except Exception as e:
             self.logger.info(f"Failed to get a peer to sync from: hash_pool: {source_pool_copy} error: {e}")
@@ -679,6 +705,10 @@ class CoreClient(threading.Thread):
         if hh and hh != self.memserver.latest_block["block_hash"]:
             self.consensus.rejected_tips.add(hh)
             self.logger.warning(f"Excluding unreachable heavier-advertised tip {hh[:12]} (weight-DoS guard)")
+        # the donor that fed us this tip just failed — drop it from the donor cache so the next
+        # get_peer_to_sync_from pass re-scans instead of re-serving it (sorted_hashes does not
+        # consult rejected_tips, so the cache key alone would not miss).
+        self._sync_donor = (None, None)
 
     def _candidate_pool(self):
         """Pre-validate pool txs against the NEXT height before they enter OUR OWN block candidate.

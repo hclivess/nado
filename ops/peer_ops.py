@@ -451,21 +451,19 @@ def update_local_ip(ip, logger):
         logger.info(f"Local IP updated to {ip}")
 
 
-def qualifies_to_sync(peer, peer_protocol, known_tree, memserver_protocol,
+def qualifies_to_sync(peer, peer_protocol, memserver_protocol,
                       unreachable_list, peer_hash, required_hash) -> dict:
-    """gate for picking a sync donor: the peer must know our root hash, be reachable, speak at least our
-    protocol, and advertise EXACTLY the majority-cascaded required_hash. Peer identity carries no weight —
+    """LOCAL-ONLY gate for picking a sync donor: the peer must advertise EXACTLY the objectively-chosen
+    required_hash, be reachable, and speak at least our protocol. All checks are in-memory — the one
+    network check (does the peer know our root block?) is dialed by the caller ONLY for peers that pass
+    this gate, so a pool full of non-candidates costs zero round-trips. Peer identity carries no weight —
     fork choice is objective (heaviest cumulative_weight already chose required_hash, and verify_block +
     the finality floor re-check every block of the tail), so a Sybil donor can at worst waste our time,
     never feed us a chain we wouldn't independently accept. Returns {"result": bool, "flag": reason}."""
-    if not known_tree:
-        """we don't know peer's root hash"""
+    if not peer_hash == required_hash:
+        """hash of the peer not the currently required one"""
         return {"result": False,
-                "flag": f"Our root hash is unknown to them"}
-
-    # Fork choice is objective: the heaviest-cumulative_weight tip already chose required_hash, and
-    # verify_block + the finality floor enforce that chain on the real blocks, so a Sybil peer cannot
-    # feed us a chain we wouldn't independently accept. Peer identity carries no weight here.
+                "flag": "Peer hash not the required one"}
     if peer in unreachable_list:
         """peer assigned to unreachable"""
         return {"result": False,
@@ -474,10 +472,6 @@ def qualifies_to_sync(peer, peer_protocol, known_tree, memserver_protocol,
         """peer protocol too low"""
         return {"result": False,
                 "flag": "Peer protocol too low"}
-    if not peer_hash == required_hash:
-        """hash of the peer not in the currently cascaded one"""
-        return {"result": False,
-                "flag": "Peer hash not in majority"}
 
     return {"result": True}
 
