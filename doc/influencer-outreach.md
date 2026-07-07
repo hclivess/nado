@@ -15,6 +15,9 @@ table, smaller/newer accounts into a new dated batch block, and two flagged into
 reputational-risk grounds. @zcashjesus (Tier 2) and @cointradernik (Tier 2b) were already listed —
 not duplicated. **Flag:** @buyerofponzi lists @nadohq as a partner in bio — verify whether that's a
 real existing relationship (it would be the warmest lead in the batch)._
+_2026-07-07: full tone pass — this list is public and the accounts in it are meant to read it, so
+descriptions are kept plain and factual (who they are + the angle). Scores order the work; they're
+not a judgment of the person._
 
 **Score (0–100)** = one admittedly arbitrary gut number per target: ~50% audience fit
 (mining/fair-launch/privacy/PQ), ~30% warmth (follows you / knew Bismuth / organic reachability),
@@ -60,7 +63,7 @@ interaction here is social proof for the colder tiers. Sorted by fit, not size.
 | 100ⓧ 观察 | **90** | [@100XInsight](https://x.com/100XInsight) | CN mining-KOL: FIL/XCH/ETH era, then KAS 100x / OCTA 500x early-miner calls. His entire brand is "mine the next fair launch early." | Phone-mineable day-one fair launch = his exact content. Gateway into the CN miner sphere (Tier CN). | ☐ Not contacted |
 | Ƀ Chris | **78** | [@CryptoChrisG](https://x.com/CryptoChrisG) | OG; bio literally "#Bitcoin privacy is a human right." | Privacy + PQ narrative; zk-STARK shielded pool in a browser. | ☐ Not contacted |
 | ひろまれ (Decred JP) | **74** | [@mhiro_recruit](https://x.com/mhiro_recruit) | Decred Japan admin — true-decentralization ideology, staking-literate audience. | Fair launch + two-lane decentralization; the interface ships full Japanese localization — offer a JP-first walkthrough. | ☐ Not contacted |
-| gainzy | **72** | [@gainzy222](https://x.com/gainzy222) | Big OG-CT shitposter/trader; one organic post moves the OG crowd. | No pitch deck — just get him to try the one-tap phone miner. | ☐ Not contacted |
+| gainzy | **72** | [@gainzy222](https://x.com/gainzy222) | OG-CT trader with big organic reach; one organic post moves the OG crowd. | No pitch deck — just get him to try the one-tap phone miner. | ☐ Not contacted |
 | Dennahz | **65** | [@Dennahz](https://x.com/Dennahz) | OG 2013 #Bitcoin account. | OG-to-OG: no premine, no VC, founder building since Bismuth's first commit (2014-era lineage). | ☐ Not contacted |
 | Jim | **60** | [@jimtalksdata](https://x.com/jimtalksdata) | Pathology/markets/AI — technical reader. | The design substance: PQ signatures + browser STARK prover; ask for feedback, not promotion. | ☐ Not contacted |
 | Wassie (Lena) | **58** | [@wassiecapital](https://x.com/wassiecapital) | Frontier-tech startup scout (ex Play Ventures), gaming angle. | "Frontier tech you can demo in 10 seconds on a phone" + the wassie-adjacent OG crowd. | ☐ Not contacted |
@@ -68,7 +71,7 @@ interaction here is social proof for the colder tiers. Sorted by fit, not size.
 | allincrypto 熬鹰资本 | **52** | [@thankucrypto_](https://x.com/thankucrypto_) | CN trader, large Binance sub-account following. | Reach within CN CT; secondary to the two above. | ☐ Not contacted |
 | Grinding Poet | **48** | [@GrindingPoet](https://x.com/GrindingPoet) | Indie builder (dexfolio, games). | Builder-to-builder; possible integration/collab energy rather than shill. | ☐ Not contacted |
 | Defi Priest | **45** | [@0xBispo](https://x.com/0xBispo) | KOL-lead account, degen reach. | Light touch; only if a Tier 0 wave is already rolling. | ☐ Not contacted |
-| sleepy | **42** | [@sleepyXBT](https://x.com/sleepyXBT) | CT punter, self-deprecating reach. | Meme angle: "the only coin you can mine while losing money on everything else." | ☐ Not contacted |
+| sleepy | **42** | [@sleepyXBT](https://x.com/sleepyXBT) | CT trader, self-deprecating style, good organic reach. | Meme angle: a coin you can passively mine while you trade. | ☐ Not contacted |
 | bella | **38** | [@bitcoinbella_](https://x.com/bitcoinbella_) | Attorney, bitcoin-adjacent. | Soft touch; regulatory-clean fair launch (no premine, no sale) is the talking point. | ☐ Not contacted |
 | Blockhead | **36** | [@OhYouBlockhead](https://x.com/OhYouBlockhead) | Author/screenwriter — storyteller. | The narrative arc: 2017 Bismuth founder returns with a phone-mineable PQ coin. Story, not chart. | ☐ Not contacted |
 | ™³k | **33** | [@_tm3k](https://x.com/_tm3k) | Markets account, OG-adjacent. | Light engagement; no hard pitch. | ☐ Not contacted |
@@ -133,8 +136,8 @@ warm-ish. None will "review a coin" — the play is getting them to touch the on
 | Who | Score | Handle (verify) | Platform | Who they are | Status |
 |---|---|---|---|---|---|
 | Romano | **72** | [@RNR_0](https://x.com/RNR_0) | X | OG trader **and former coin dev** (Viacoin) — one of few trader accounts that reads code. Good target for the technical thread. | ☐ Not contacted |
-| smolting | **70** | [@inversebrah](https://x.com/inversebrah) | X | The OG-CT screenshot/shitpost hub — an organic appearance here IS distribution to all of old CT. No pitch possible; make something screenshot-worthy. | ☐ Not contacted |
-| CL | **66** | [@CL207](https://x.com/CL207) | X | Big OG-CT anon, ex trading-desk; influential, reads markets. Note: replying with mid/small-cap mentions = instant block, so **never reply-shill** — the only play is an organic post worth his screenshot. | ☐ Not contacted |
+| smolting | **70** | [@inversebrah](https://x.com/inversebrah) | X | The OG-CT screenshot/repost hub — an organic appearance here IS distribution to all of old CT. Not a pitch target; make something worth resharing. | ☐ Not contacted |
+| CL | **66** | [@CL207](https://x.com/CL207) | X | Big OG-CT anon, ex trading-desk; influential, reads markets. Note: reply-shilling small caps gets you blocked — the only play is an organic post worth resharing. | ☐ Not contacted |
 | path.eth | **64** | [@Cryptopathic](https://x.com/Cryptopathic) | X | Trading since 2013, OG cred, technical-adjacent. | ☐ Not contacted |
 | Monkey Rothschild | **64** | [@MonkeyCharts](https://x.com/MonkeyCharts) | X | "President of @wassie" — deep Wassie lore, same OG/degen crowd as loomdart/wasserpest (Tier 2). Wassie-native angle; organic only. | ☐ Not contacted |
 | Flood | **62** | [@ThinkingUSD](https://x.com/ThinkingUSD) | X | Bitcoin class of 2014, fullstack.trade CEO — OG + builder overlap. | ☐ Not contacted |
@@ -165,16 +168,15 @@ warm-ish. None will "review a coin" — the play is getting them to touch the on
 | Adam | **42** | [@abetrade](https://x.com/abetrade) | X | Derivatives (@tradingriot; Breakout Prop, acq. by Kraken). Trader; light touch. | ☐ Not contacted |
 | Pas | **40** | [@passytee](https://x.com/passytee) | X | Game designer, ex-surgeon (@ohbabygames) — builder/games crossover. Builder-to-builder / gamified-mining angle. | ☐ Not contacted |
 | RunnerXBT | **40** | [@RunnerXBT](https://x.com/RunnerXBT) | X | CT trader; reach-only, light touch. | ☐ Not contacted |
-| Ping | **30** | [@DegenPing](https://x.com/DegenPing) | X | Degen CT; low effort, low priority. | ☐ Not contacted |
+| Ping | **30** | [@DegenPing](https://x.com/DegenPing) | X | CT account; lower priority for now. | ☐ Not contacted |
 | Fullbeerbottle | **25** | [@Fullbeerbottle](https://x.com/Fullbeerbottle) ⚠ verify | X | Small/anon CT account — no public profile info found; confirm identity before contacting. | ☐ Not contacted |
 
 ### Batch — 2026-07-06 follower/audit additions (organic-only; verify each before contacting)
 
-A fresh follower/audit sweep surfaced these smaller / anon / thin-bio OG-degen CT accounts. **No
-pitch is possible or wanted** — the play is identical for every row: organic engagement first, the
-one-tap phone-miner demo IS the message. Verify identity and real reach before spending effort;
-scores are gut-only and capped low until confirmed. Promote a row up into the table above once it
-proves out.
+A fresh follower/audit sweep surfaced these smaller / anon OG-CT accounts. The play is the same for
+every row: organic engagement first, the one-tap phone-miner demo is the message. Verify identity
+and real reach before spending effort; scores are gut estimates, capped low until confirmed. Promote
+a row up into the table above once it proves out.
 
 | Who | Score | Handle | Bio / note |
 |---|---|---|---|
@@ -187,12 +189,12 @@ proves out.
 | alex | 40 | [@kirbxbt](https://x.com/kirbxbt) | Anon CT. |
 | zore | 40 | [@itszore](https://x.com/itszore) | Anon CT. |
 | Pollo2x | 40 | [@Pollo2x](https://x.com/Pollo2x) | "demo-mode / chibben / #bitcoin." |
-| Sardonic Zephyr | 38 | [@sardoniczephyr](https://x.com/sardoniczephyr) | Long-form-link poster; more substance than most. |
+| Sardonic Zephyr | 38 | [@sardoniczephyr](https://x.com/sardoniczephyr) | Long-form / link poster; substance-oriented. |
 | samson | 38 | [@fuckyourputs](https://x.com/fuckyourputs) | Degen trader. |
 | Mart | 38 | [@Martposting](https://x.com/Martposting) | Verse-posting degen. |
 | fooo | 38 | [@bitcoinpanda69](https://x.com/bitcoinpanda69) | #bitcoin degen. |
 | bulma | 38 | [@bulmaxox](https://x.com/bulmaxox) | Anon CT. |
-| Munch | 36 | [@Muncheds2](https://x.com/Muncheds2) | "solanum tuberosum" — potato-degen. |
+| Munch | 36 | [@Muncheds2](https://x.com/Muncheds2) | Bio "solanum tuberosum" (potato); CT account. |
 | twicrates | 36 | [@twicrates](https://x.com/twicrates) | Anon CT. |
 | hersch | 36 | [@tittyrespecter](https://x.com/tittyrespecter) | "Similar to zore." |
 | smilinglllama | 36 | [@smilinglllama](https://x.com/smilinglllama) | Anon CT. |
@@ -263,7 +265,7 @@ solely as a paid reach gamble, never organic: their audience wants 100x flips, n
 | Ansem | **40** | [@blknoiz06](https://x.com/blknoiz06) | X | ~750K followers; THE Solana/memecoin voice (520x WIF, 80x BONK). Massive reach, off-narrative, pay-to-play. | ☐ Not contacted |
 | Ash Crypto | **30** | [@Ashcryptoreal](https://x.com/Ashcryptoreal) | X | ~1.4–1.7M followers; markets/news + WealthMastery newsletter. Generic-markets reach, off-narrative, pay-to-play. | ☐ Not contacted |
 | Gordon Gekko | **32** | [@GordonGekko](https://x.com/GordonGekko) | X | Gekko-persona altcoin trader (chart setups, narrative trades; crypto_crib / alphametrics founder). Reach yes, off-narrative, pay-to-play. | ☐ Not contacted |
-| TechDev | **28** | [@TechDev_52](https://x.com/TechDev_52) | X | Big BTC/macro TA account. Reach, zero altcoin/mining fit — only worth a reply-guy presence. | ☐ Not contacted |
+| TechDev | **28** | [@TechDev_52](https://x.com/TechDev_52) | X | Big BTC/macro TA account. Reach, but little altcoin/mining fit — light organic presence only. | ☐ Not contacted |
 | 1000xgirl | **26** | [@1000xgirl](https://x.com/1000xgirl) | X | Gem-hunter/giveaway format, OKX KOL. Pure pay-to-play; her "reply queen" engagement style can amplify a trending moment but won't create one. | ☐ Not contacted |
 | Jacob Crypto Bury | **25** | [@BuryCrypto](https://x.com/BuryCrypto) | X / YouTube | Analyst with paid group (whop). Standard sponsored-slot economics. | ☐ Not contacted |
 | CryptoEmpress | **24** | [@CryptoEmpressX](https://x.com/CryptoEmpressX) | X | Web3 marketing/affiliate stack (Kraken, CMC KOL). This IS the pay-to-play machine — only if a paid push is ever budgeted. | ☐ Not contacted |
