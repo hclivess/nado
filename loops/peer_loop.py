@@ -84,22 +84,21 @@ class PeerClient(threading.Thread):
             self.memserver.unreachable[entry] = get_timestamp_seconds()
 
     def purge_peers(self) -> None:
-        """put purge_peers_list into effect and empty it"""
-
-        for entry in self.memserver.purge_peers_list:
+        """put purge_peers_list into effect and empty it. Iterates a SNAPSHOT and removes processed
+        entries afterwards: the old in-place `for entry in list: list.remove(entry)` shifted the
+        iteration index and SKIPPED every other queued peer per pass — and other threads (core loop
+        ban_peer, network helpers' fail_storage) append to the live list concurrently, so it must
+        never be the iteration target. An entry queued mid-flush simply survives to the next pass."""
+        for entry in set(self.memserver.purge_peers_list):
             self.disconnect_peer(entry)
 
-            if entry in self.consensus.status_pool.keys():
-                self.consensus.status_pool.pop(entry)
+            # pop(x, None) instead of check-then-pop: races with concurrent pool writers otherwise
+            self.consensus.status_pool.pop(entry, None)
+            self.consensus.transaction_hash_pool.pop(entry, None)
+            self.consensus.block_hash_pool.pop(entry, None)
 
-            if entry in self.consensus.transaction_hash_pool.keys():
-                self.consensus.transaction_hash_pool.pop(entry)
-
-            if entry in self.consensus.block_hash_pool.keys():
-                self.consensus.block_hash_pool.pop(entry)
-
-            # self.logger.warning(f"Cannot connect to {entry}")
-            self.memserver.purge_peers_list.remove(entry)
+            while entry in self.memserver.purge_peers_list:
+                self.memserver.purge_peers_list.remove(entry)
 
     def run(self) -> None:
         """Thread entry, ~1/s: grow the dial set from gossip (subnet-diversity capped against

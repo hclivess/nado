@@ -370,7 +370,7 @@ class CoreClient(threading.Thread):
                 self.memserver.cascade_depth = depth
 
                 for peer, value in shuffle_dict(source_pool_copy).items():
-                    if peer in self.memserver.purge_peers_list:  # sadly, the whole purge_peers() takes a prohibitively long time for some reason
+                    if peer in self.memserver.purge_peers_list:  # queued for purge; peer_loop flushes ~1/s
                         continue
                     if not check_ip(peer):
                         continue
