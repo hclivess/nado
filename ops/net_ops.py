@@ -4,6 +4,7 @@ without importing the node (which generates keys / touches the data dir at impor
 import json
 
 import msgpack
+import zstandard
 
 # Belt-and-suspenders bounds for decoding an UNTRUSTED /submit_transaction body. The aiohttp app already caps
 # the raw body (client_max_size, 1 MiB default), so these mainly bound the msgpack object-count blow-up — each
@@ -61,6 +62,38 @@ def unpack_peer(body):
     """msgpack-decode a peer control message (status / peers / snapshot manifest / block) with the same
     object-count bounds used for untrusted tx bodies."""
     return msgpack.unpackb(body, raw=False, **_MSGPACK_LIMITS)
+
+
+def bounded_zstd_decompress(body, cap):
+    """Decompress a zstd frame to AT MOST `cap` bytes, raising if it would exceed it — the anti-bomb
+    primitive for every untrusted zstd download.
+
+    Why not ZstdDecompressor().decompress(body, max_output_size=cap): that arg is IGNORED whenever the
+    frame DECLARES its content size in the header (which nado's one-shot compressor does). zstandard
+    then allocates the DECLARED size up front — a ~16 KB frame declaring 512 MB is decompressed in full,
+    OOMing us before msgpack's element bounds ever run. Streaming avoids that: we pull fixed-size chunks
+    and abort the instant the running total crosses `cap`, so peak allocation is bounded regardless of
+    the header's claim. A fresh decompressor per call (instances aren't safe for concurrent reuse)."""
+    cap = int(cap)
+    dctx = zstandard.ZstdDecompressor()
+    parts, total = [], 0
+    with dctx.stream_reader(body) as reader:
+        while True:
+            chunk = reader.read(65536)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > cap:
+                raise IOError(f"zstd frame expands past {cap}-byte cap")
+            parts.append(chunk)
+    return b"".join(parts)
+
+
+def unpack_zstd_peer(body, cap=MAX_PEER_BODY):
+    """decode a peer's zstd(msgpack) control payload — the ?compress=zstd wire (nado.py serialize()).
+    read_capped already bounds the COMPRESSED body; bounded_zstd_decompress bounds the DECOMPRESSED
+    output against a bomb (parity with the old raw-msgpack wire: same cap either way)."""
+    return msgpack.unpackb(bounded_zstd_decompress(body, cap), raw=False, **_MSGPACK_LIMITS)
 
 
 def client_ip_from(peer, xff_header, trusted):

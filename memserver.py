@@ -226,7 +226,7 @@ class MemServer:
                     port=self.port,
                     logger=self.logger,
                     fail_storage=self.purge_peers_list,
-                    compress="msgpack",
+                    compress="zstd",
                     semaphore=asyncio.Semaphore(50)
                 )
             )
@@ -239,7 +239,7 @@ class MemServer:
                 port=self.port,
                 logger=self.logger,
                 fail_storage=self.purge_peers_list,
-                compress="msgpack",
+                compress="zstd",
                 semaphore=asyncio.Semaphore(50)
             )
         )

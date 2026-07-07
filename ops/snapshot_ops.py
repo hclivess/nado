@@ -223,15 +223,15 @@ def agree_snapshot(statuses, min_peers=2, threshold=0.8):
 async def fetch_block(target, port, block_hash, timeout=15):
     """fetch a single block dict from a peer by hash, or None"""
     import aiohttp
-    from ops.net_ops import read_capped, unpack_peer, MAX_PEER_BODY
+    from ops.net_ops import read_capped, unpack_zstd_peer, MAX_PEER_BODY
     from config import hostport
-    url = f"http://{hostport(target, port)}/get_block?hash={block_hash}&compress=msgpack"
+    url = f"http://{hostport(target, port)}/get_block?hash={block_hash}&compress=zstd"
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
             async with session.get(url) as r:
                 if r.status != 200:
                     return None
-                block = unpack_peer(await read_capped(r, MAX_PEER_BODY))   # anti-OOM + object-count bound
+                block = unpack_zstd_peer(await read_capped(r, MAX_PEER_BODY))   # bomb-capped zstd wire
                 return block if isinstance(block, dict) else None
     except Exception:
         return None
@@ -241,16 +241,16 @@ async def fetch_snapshot(target, port, logger=None, concurrency=8, timeout=120):
     """download a peer's snapshot manifest then all chunks in parallel.
     Returns (manifest, chunk_bytes_list) or (None, None) on failure."""
     import aiohttp
-    from ops.net_ops import read_capped, unpack_peer, MAX_PEER_BODY, MAX_SNAPSHOT_TOTAL, MAX_SNAPSHOT_ACCOUNTS
+    from ops.net_ops import read_capped, unpack_zstd_peer, MAX_PEER_BODY, MAX_SNAPSHOT_TOTAL, MAX_SNAPSHOT_ACCOUNTS
     from config import hostport
     base = f"http://{hostport(target, port)}"
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
-            async with session.get(f"{base}/get_snapshot_manifest?compress=msgpack") as r:
+            async with session.get(f"{base}/get_snapshot_manifest?compress=zstd") as r:
                 if r.status != 200:
                     _log(logger, "info", f"No snapshot manifest from {target} (HTTP {r.status})")
                     return None, None
-                manifest = unpack_peer(await read_capped(r, MAX_PEER_BODY))
+                manifest = unpack_zstd_peer(await read_capped(r, MAX_PEER_BODY))
 
             # VALIDATE the manifest BEFORE allocating anything sized by its (untrusted) fields. A lone donor
             # under weak-subjectivity could otherwise advertise a huge chunk_count/entry_count and OOM us

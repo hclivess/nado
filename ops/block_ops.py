@@ -50,8 +50,12 @@ SYNC_BATCH_BYTES = 8 << 20
 
 
 def _unpack_wire(body: bytes):
-    """decode a peer's zstd block-sync wire payload under the decompression-bomb cap (_ZSTD_WIRE_MAX above)."""
-    return msgpack.unpackb(_ZSTD_D.decompress(body, max_output_size=_ZSTD_WIRE_MAX), raw=False)
+    """decode a peer's zstd block-sync wire payload under the decompression-bomb cap (_ZSTD_WIRE_MAX above).
+    Uses the STREAMING bounded decompress: ZstdDecompressor.decompress(max_output_size=...) ignores that
+    cap whenever the frame declares its content size (nado's compressor does), allocating the declared
+    size up front — so a tiny frame claiming gigabytes would OOM us. Streaming bounds peak allocation."""
+    from ops.net_ops import bounded_zstd_decompress
+    return msgpack.unpackb(bounded_zstd_decompress(body, _ZSTD_WIRE_MAX), raw=False)
 
 
 
@@ -852,19 +856,19 @@ async def get_blocks_before(target_peer, from_hash, logger, count=50, compress="
         return False
 
 
-async def get_from_single_target(key, target_peer, logger) -> list:  # todo add msgpack support
-    """obtain from a single target, returns list"""
+async def get_from_single_target(key, target_peer, logger) -> list:
+    """obtain from a single target over the bomb-capped zstd(msgpack) wire, returns list ([] on failure).
+    The old JSON path also had NO body cap — a malicious peer could stream unbounded bytes."""
+    from ops.net_ops import read_capped, unpack_zstd_peer, MAX_PEER_BODY
 
     try:
-        url_construct = f"http://{hostport(target_peer, get_config()['port'])}/{key}"
+        url_construct = f"http://{hostport(target_peer, get_config()['port'])}/{key}?compress=zstd"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:
-                text = response.text()
-                code = response.status
-
-                if code == 200:
-                    return json.loads(await text)[key]
+                if response.status == 200:
+                    fetched = unpack_zstd_peer(await read_capped(response, MAX_PEER_BODY))
+                    return fetched if isinstance(fetched, list) else []
                 else:
                     return []
 

@@ -4,11 +4,17 @@ and usually FEWER (one TCP segment), so a single .read(cap+1) truncated any mult
 snapshot chunk came back as its 32 KB first segment and failed the import sha256 check. This simulates
 segmentation and proves read_capped now reassembles the full body (and still enforces the cap).
 
+Also covers bounded_zstd_decompress: the ?compress=zstd peer wire's anti-bomb primitive. The one-shot
+ZstdDecompressor(max_output_size=cap) IGNORES the cap when the frame declares its content size (nado's
+compressor does), allocating the declared size up front — a tiny frame declaring gigabytes would OOM the
+node. The streaming decompressor must abort past the cap regardless of the declared size.
+
 Run: python3 tests/test_read_capped.py
 """
 import os, sys, asyncio
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from ops.net_ops import read_capped
+import msgpack, zstandard
+from ops.net_ops import read_capped, bounded_zstd_decompress, unpack_zstd_peer
 
 class _Segmented:
     """Mimics aiohttp StreamReader: read(n) yields at most `seg` bytes at a time (one 'TCP segment')."""
@@ -54,6 +60,28 @@ async def main():
 
     # empty body
     check("empty body returns b''", await read_capped(_Resp(b"", seg=100), 100) == b"")
+
+    # --- bounded_zstd_decompress: anti-bomb for the ?compress=zstd wire ---
+    # a legit small zstd(msgpack) payload round-trips
+    payload = {"a": 1, "b": [1, 2, 3], "s": "x" * 1000}
+    frame = zstandard.ZstdCompressor(level=3).compress(msgpack.packb(payload))
+    check("legit zstd(msgpack) round-trips", unpack_zstd_peer(frame) == payload)
+
+    # THE BOMB: a frame declaring a large content size (here 64 MiB of zeros -> tiny frame) must be
+    # refused by a smaller cap, EVEN THOUGH the one-shot max_output_size arg would honor the declaration.
+    bomb = zstandard.ZstdCompressor(level=3).compress(b"\0" * (64 << 20))
+    check("declared-content-size frame IS declared (else this test is vacuous)",
+          zstandard.get_frame_parameters(bomb).content_size == (64 << 20))
+    raised = False
+    try:
+        bounded_zstd_decompress(bomb, 8 << 20)
+    except IOError:
+        raised = True
+    check("declared-size zstd bomb raises IOError past cap (streaming, not one-shot)", raised)
+
+    # a frame exactly at the cap is accepted
+    exact = zstandard.ZstdCompressor(level=3).compress(b"z" * 4096)
+    check("zstd output exactly at cap accepted", bounded_zstd_decompress(exact, 4096) == b"z" * 4096)
 
 asyncio.run(main())
 print(f"\n{'ALL READ_CAPPED CHECKS PASSED' if not fails else str(fails)+' FAILED'}")

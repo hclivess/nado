@@ -10,7 +10,7 @@ from compounder import compound_get_list_of, compound_announce_self
 from compounder import compound_get_status_pool
 from config import get_port, get_config, get_timestamp_seconds, update_config, hostport
 from .data_ops import set_and_sort, get_home
-from .net_ops import read_capped, MAX_PEER_BODY
+from .net_ops import read_capped, unpack_zstd_peer, MAX_PEER_BODY
 
 import aiohttp
 
@@ -93,20 +93,21 @@ def _migrate_legacy_peers():
 
 
 
-async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add msgpack support
-    """fetch a peer's /status dict (5s total timeout); False on any failure. The answer is UNTRUSTED peer
-    input — callers pool it and act on the get_majority vote, never on a single peer's word."""
+async def get_remote_status(target_peer, logger) -> [dict, bool]:
+    """fetch a peer's /status dict over the bomb-capped zstd(msgpack) wire (5s total timeout); False on
+    any failure. The answer is UNTRUSTED peer input — callers pool it and act on the get_majority vote,
+    never on a single peer's word."""
 
     try:
-        url_construct = f"http://{hostport(target_peer, get_port())}/status"
+        url_construct = f"http://{hostport(target_peer, get_port())}/status?compress=zstd"
 
         async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:
                 if response.status == 200:
-                    # anti-OOM: cap the untrusted body like every other peer fetcher — this was the
-                    # one uncapped read, reachable against an attacker host via /announce_peer.
-                    body = await read_capped(response, MAX_PEER_BODY)
-                    return json.loads(body)
+                    # anti-OOM: cap the untrusted body like every other peer fetcher (compressed side),
+                    # and unpack_zstd_peer caps the decompressed side against a zstd bomb.
+                    status = unpack_zstd_peer(await read_capped(response, MAX_PEER_BODY))
+                    return status if isinstance(status, dict) else False
                 else:
                     return False
 
@@ -228,7 +229,7 @@ async def load_ips(logger, port, fail_storage, unreachable, minimum=3, top_50=Tr
                                                                   port=port,
                                                                   fail_storage=fail_storage,
                                                                   logger=logger,
-                                                                  compress="msgpack",
+                                                                  compress="zstd",
                                                                   semaphore=asyncio.Semaphore(50))))
         for entry in gathered:
             status_pool.extend(list(entry.keys()))
@@ -295,7 +296,7 @@ def get_list_of_peers(ips, port, fail_storage, logger) -> list:
                              port=port,
                              logger=logger,
                              fail_storage=fail_storage,
-                             compress="msgpack",
+                             compress="zstd",
                              semaphore=asyncio.Semaphore(50))
     )
 

@@ -180,7 +180,7 @@ class PeerClient(threading.Thread):
                         port=self.memserver.port,
                         logger=self.logger,
                         fail_storage=self.memserver.purge_peers_list,
-                        compress="msgpack",
+                        compress="zstd",
                         semaphore=asyncio.Semaphore(50)
                     )
                 )
