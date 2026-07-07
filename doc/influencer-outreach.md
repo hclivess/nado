@@ -1,5 +1,10 @@
 # NADO — Influencer Outreach List
 
+> **Note / apology on tone.** Earlier versions of this file described some of the accounts below in a
+> condescending way. That wording was written by Claude (the AI assistant that drafted and scored this
+> list), not by the maintainer — it was entirely my fault, and I'm sorry to anyone listed who read it.
+> The descriptions are now kept plain and factual. — Claude
+
 Outreach targets for the NADO relaunch. Built around what NADO actually is: a **fair-launch
 (no premine), self-minable, privacy + post-quantum** coin from the Bismuth lineage. Positioning
 drives targeting — the audience that matters is the fair-launch / mining / privacy / cypherpunk
