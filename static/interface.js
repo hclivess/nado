@@ -573,7 +573,7 @@ async function collectDividend() {
   if ($("btnCollectDiv")) $("btnCollectDiv").disabled = true;
   try {
     const latest = await getLatestBlock();
-    if (!latest) throw new Error("relay unavailable");
+    if (!latest) throw new RelayUnreachable("relay unavailable");
     const tx = buildBlobTx(state.wallet, { op: "collect_dividend" }, latest.block_number + 8, MIN_TX_FEE, nowSeconds());
     const res = await submitTransaction(tx);
     if (res.data && res.data.result)
@@ -583,23 +583,72 @@ async function collectDividend() {
   finally { state._collecting = false; }
 }
 
-async function rpcJSON(path) {
-  const url = relayBase() + path;
-  const res = await fetch(url, { method: "GET", cache: "no-store" });
-  const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); } catch { data = text; }
-  return { ok: res.ok, status: res.status, data };
+// A relay that is momentarily unreachable — a fetch reject (offline/DNS/TLS), a request timeout, an
+// HTTP 5xx/429, or a non-JSON body (a proxy 502 HTML page). This is EXPECTED and transient: the node
+// bounces for a few seconds on a restart/crash-restart, and Cloudflare/nginx answer with an error page
+// meanwhile. Callers treat it as "retry quietly", NOT as a hard failure to scare the user with.
+class RelayUnreachable extends Error {
+  constructor(msg) { super(msg); this.name = "RelayUnreachable"; this.transient = true; }
+}
+function isTransient(e) { return !!(e && e.transient); }
+
+async function fetchWithTimeout(url, opts, ms) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } catch (e) {
+    // AbortError (timeout) and TypeError ("Failed to fetch") are both transient reachability failures.
+    throw new RelayUnreachable(e && e.name === "AbortError" ? "relay timed out" : "relay unreachable");
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-async function getLatestBlock() { return (await rpcJSON("/get_latest_block")).data; }
+// GET a JSON endpoint with a timeout and ONE silent retry on a transient blip, so a ~5 s node restart
+// is ridden out instead of surfaced. Returns {ok, status, data}. A response that isn't JSON (proxy
+// error page) or a 5xx/429 is treated as unreachable: after the retry it throws RelayUnreachable, so
+// read callers can `return null` and write callers (registration) can retry quietly.
+async function rpcJSON(path, { timeout = 12000, retry = true } = {}) {
+  const url = relayBase() + path;
+  let lastTransient;
+  for (let attempt = 0; attempt <= (retry ? 1 : 0); attempt++) {
+    try {
+      const res = await fetchWithTimeout(url, { method: "GET", cache: "no-store" }, timeout);
+      const text = await res.text();
+      let data, parsed = true;
+      try { data = JSON.parse(text); } catch { parsed = false; data = text; }
+      // A 5xx/429, or a 200 whose body isn't JSON, is a proxy/relay blip — retry rather than trust it.
+      if (res.status >= 500 || res.status === 429 || !parsed) {
+        lastTransient = new RelayUnreachable("relay returned HTTP " + res.status);
+        continue;
+      }
+      return { ok: res.ok, status: res.status, data };
+    } catch (e) {
+      if (!isTransient(e)) throw e;      // a real bug in our code, not a reachability blip
+      lastTransient = e;
+    }
+  }
+  throw lastTransient || new RelayUnreachable("relay unreachable");
+}
+
+// The latest block, or null when the relay is momentarily unreachable (never throws for a blip, so the
+// poll loop just shows "disconnected" and retries next tick instead of logging an error).
+async function getLatestBlock() {
+  try { return (await rpcJSON("/get_latest_block")).data; }
+  catch (e) { if (isTransient(e)) return null; throw e; }
+}
 async function getAccount(address) {
-  const r = await rpcJSON("/get_account?address=" + encodeURIComponent(address));
-  return r.ok ? r.data : null;
+  try {
+    const r = await rpcJSON("/get_account?address=" + encodeURIComponent(address));
+    return r.ok ? r.data : null;
+  } catch (e) { if (isTransient(e)) return null; throw e; }   // relay blip -> unknown, not an error
 }
 async function getMiningStatus(address) {
-  const r = await rpcJSON("/mining_status?address=" + encodeURIComponent(address));
-  return r.ok ? r.data : null;
+  try {
+    const r = await rpcJSON("/mining_status?address=" + encodeURIComponent(address));
+    return r.ok ? r.data : null;
+  } catch (e) { if (isTransient(e)) return null; throw e; }
 }
 
 /* Submit a transaction. A post-quantum (ML-DSA-44) tx is ~7.8 KB — far past a URL's safe length —
@@ -1136,6 +1185,14 @@ async function maybeRegister() {
   try {
     accepted = await submitRegistration();
   } catch (e) {
+    // A momentarily-unreachable relay (node restart/crash-restart, a proxy 502) is NOT a registration
+    // failure — the poll loop retries every ~second. Show a soft "reconnecting" banner and bail WITHOUT
+    // logging an error or tearing down mining, so a 5 s node bounce never scares the user.
+    if (isTransient(e)) {                          // finally{} below clears state.registering
+      setConn(false);
+      setRegBanner(i18("reg.reconnecting", "Relay momentarily unreachable — reconnecting…"), "warn");
+      return;
+    }
     if (e.message !== "cancelled") { log("err", "Auto-register error: " + e.message); failed = e.message; }
   } finally {
     state.registering = false;
@@ -1173,7 +1230,7 @@ function showRegProgress(label, stats) {
 async function submitRegistration() {
   // need latest block for target_block
   const latest = await getLatestBlock();
-  if (!latest || typeof latest.block_number !== "number") throw new Error("relay /get_latest_block unavailable");
+  if (!latest || typeof latest.block_number !== "number") throw new RelayUnreachable("relay /get_latest_block unavailable");
   state.latest = latest.block_number;
   const targetBlock = latest.block_number + POSW_TARGET_MARGIN;  // headroom so the tx lands before its target block
 
@@ -1237,6 +1294,8 @@ async function pollOnce() {
     if (latest && typeof latest.block_number === "number") {
       state.latest = latest.block_number;
       setConn(true, latest.block_number);
+    } else {
+      setConn(false);                 // null = relay momentarily unreachable (getLatestBlock ate the blip)
     }
   } catch (e) { setConn(false); }
 
@@ -2056,7 +2115,7 @@ function setMsg(id, text, cls) {
 
 async function nextTargetBlock() {
   const latest = await getLatestBlock();
-  if (!latest || typeof latest.block_number !== "number") throw new Error("relay /get_latest_block unavailable");
+  if (!latest || typeof latest.block_number !== "number") throw new RelayUnreachable("relay /get_latest_block unavailable");
   state.latest = latest.block_number;
   return latest.block_number + 8; // headroom so the tx lands before its target block
 }
@@ -3803,7 +3862,7 @@ function treasuryProposalId(recipient, amount, memo, nonce, expiry) {
 }
 async function submitTreasurySpend(kind, recipient, amountRaw, memo, nonce, expiry, choice) {
   const latest = await getLatestBlock();
-  if (!latest || typeof latest.block_number !== "number") throw new Error("relay unavailable");
+  if (!latest || typeof latest.block_number !== "number") throw new RelayUnreachable("relay unavailable");
   const exp = (expiry != null) ? expiry : latest.block_number + TREASURY_PROPOSAL_TTL;   // propose -> fresh window
   const spend = { recipient, amount: amountRaw, memo: memo || "", nonce, expiry: exp };
   const data = { pid: treasuryProposalId(recipient, amountRaw, memo, nonce, exp), spend };
