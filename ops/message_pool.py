@@ -11,9 +11,14 @@ The pool does NOT decrypt anything — it stores/forwards ciphertext. It enforce
   - a per-message proof-of-work (cheap for a human, painful for a flood),
   - REGISTERED sender + valid ML-DSA signature — injected by the node (chain + crypto live outside ops).
 
-Pure and deterministic given (now, injected checks); unit-testable with stubbed checks. Thread-safety is the
-caller's concern (the node holds it under the same lock discipline as the tx pool).
+Pure and deterministic given (now, injected checks); unit-testable with stubbed checks. Thread-safe: every
+mutator + save() holds an internal lock — the HTTP handlers run add_message/add_prekey on executor threads
+concurrently while the message loop saves from its own thread (the old "caller's concern" note described a
+lock discipline that never existed: concurrent adds could share a seq, and packb over a mid-insert dict
+raised "dictionary changed size during iteration", failing the save exactly when the pool was busiest).
 """
+
+import threading
 
 import msgpack
 
@@ -93,6 +98,8 @@ class MessagePool:
         self._seq = 0                 # monotonic cursor; every accepted message gets the next seq
         self.messages = {}            # msg_id -> {"env": envelope, "recv": ts, "seq": n}
         self.prekeys = {}             # address -> {"bundle": bundle, "ts": spk_ts-or-ts}
+        self._lock = threading.Lock() # guards every mutation + save snapshot (see module docstring)
+        self._dirty = False           # set on mutation; save() skips (and clears) when nothing changed
 
     # ---- messages -----------------------------------------------------------------------------------------
     def add_message(self, env, now, is_registered, verify_sig) -> tuple:
@@ -122,9 +129,13 @@ class MessagePool:
             return False, "sender not registered", None
         if not verify_sig(env["public_key"], env["sender"], env):
             return False, "bad signature", None
-        self._seq += 1
-        self.messages[mid] = {"env": env, "recv": now, "seq": self._seq}
-        self._evict_over_cap()
+        with self._lock:
+            if mid in self.messages:                 # re-check under the lock (raced duplicate)
+                return True, "duplicate", mid
+            self._seq += 1
+            self.messages[mid] = {"env": env, "recv": now, "seq": self._seq}
+            self._evict_over_cap()
+            self._dirty = True
         return True, "ok", mid
 
     def get_message(self, msg_id):
@@ -147,7 +158,10 @@ class MessagePool:
 
     def drop(self, msg_id) -> bool:
         """Explicit removal (e.g. on a delivery ack). Returns True if it was present."""
-        return self.messages.pop(msg_id, None) is not None
+        with self._lock:
+            hit = self.messages.pop(msg_id, None) is not None
+            self._dirty = self._dirty or hit
+            return hit
 
     # ---- prekey bundles (the off-chain directory) -------------------------------------------------------
     def add_prekey(self, bundle, is_registered, verify_sig) -> tuple:
@@ -162,10 +176,12 @@ class MessagePool:
         if not verify_sig(bundle["public_key"], addr, bundle):
             return False, "bad signature"
         new_ts = bundle.get("spk_ts") or bundle.get("ts") or 0
-        cur = self.prekeys.get(addr)
-        if cur and cur["ts"] >= new_ts:
-            return True, "stale"                     # keep the newer one already held
-        self.prekeys[addr] = {"bundle": bundle, "ts": new_ts}
+        with self._lock:
+            cur = self.prekeys.get(addr)
+            if cur and cur["ts"] >= new_ts:
+                return True, "stale"                 # keep the newer one already held
+            self.prekeys[addr] = {"bundle": bundle, "ts": new_ts}
+            self._dirty = True
         return True, "ok"
 
     def get_prekey(self, address):
@@ -176,11 +192,14 @@ class MessagePool:
 
     # ---- housekeeping -----------------------------------------------------------------------------------
     def gc(self, now) -> int:
-        """Reap TTL-expired messages. Returns how many were removed. Call periodically (per epoch tick)."""
-        dead = [mid for mid, r in self.messages.items() if now - r["recv"] > self.ttl]
-        for mid in dead:
-            del self.messages[mid]
-        return len(dead)
+        """Reap TTL-expired messages. Returns how many were removed. Called from the message loop
+        each save interval (it previously had NO caller, so expired envelopes lived until restart)."""
+        with self._lock:
+            dead = [mid for mid, r in self.messages.items() if now - r["recv"] > self.ttl]
+            for mid in dead:
+                del self.messages[mid]
+            self._dirty = self._dirty or bool(dead)
+            return len(dead)
 
     def _evict_over_cap(self):
         """Enforce max_count by evicting the LOWEST-seq (oldest-accepted) messages first — the pool's
@@ -201,9 +220,17 @@ class MessagePool:
     # ---- persistence: survive a node RESTART (the pool is otherwise in-memory, so a restart silently
     #      dropped every undelivered DM + published prekey). Opaque encrypted envelopes, so this is just bytes.
     def save(self, path) -> bool:
-        """Atomically persist messages + prekeys + cursor to `path` (tmp + fsync + os.replace)."""
+        """Atomically persist messages + prekeys + cursor to `path` (tmp + fsync + os.replace).
+        Skips (returns False) when nothing changed since the last save — the pool was previously
+        re-packed + fsynced every interval even when idle. The pack runs on a snapshot taken under
+        the lock, so a concurrent add can no longer raise mid-pack (see module docstring)."""
         import os
-        blob = msgpack.packb({"seq": self._seq, "messages": self.messages, "prekeys": self.prekeys})
+        with self._lock:
+            if not self._dirty:
+                return False
+            snapshot = {"seq": self._seq, "messages": dict(self.messages), "prekeys": dict(self.prekeys)}
+            self._dirty = False
+        blob = msgpack.packb(snapshot)
         tmp = f"{path}.tmp"
         with open(tmp, "wb") as f:
             f.write(blob); f.flush(); os.fsync(f.fileno())
@@ -225,6 +252,9 @@ class MessagePool:
         self.messages = {k: v for k, v in (data.get("messages") or {}).items()
                          if isinstance(v, dict) and now - int(v.get("recv", 0)) <= self.ttl}
         self.prekeys = dict(data.get("prekeys") or {})
+        # dirty iff the load itself changed state vs the file (TTL reap dropped something):
+        # a reap must be persisted by the next save, an untouched load needs no re-write.
+        self._dirty = len(self.messages) != len(data.get("messages") or {})
         return len(self.messages)
 
 

@@ -56,11 +56,15 @@ def t2_flood_never_exceeds_cap():
             assert ow == prev, "open-lane wins must NOT grow with flood size (structural cap, not weight)"
         prev = ow
 
-def t3_flood_with_no_bonded_still_capped():
-    """Prove an empty bonded lane fails closed: bonded slots skip, so Sybils still win only K_OPEN."""
-    # bonded lane empty: BONDED slots SKIP (fail-closed, never fall to open) -> Sybils still can't cross K_OPEN
+def t3_empty_bonded_lane_fails_open_then_recaps():
+    """A TOTALLY empty bonded lane fails OPEN by design (b9853ef, bootstrap liveness): with zero
+    stake there is no capital lane to protect, and a skipped height would HALT a no-premine chain
+    at its first bonded slot. The Sybil ceiling is moot without stake — flooding the only lane wins
+    nothing extra — and must SNAP BACK to K_OPEN the instant any stake bonds (asserted here)."""
     ow = open_wins_in_epoch(open_reg(50_000), {})
-    assert ow == K_OPEN, f"with no bonded lane, Sybil flood still won {ow}, cap K_OPEN={K_OPEN}"
+    assert ow == EPOCH_LENGTH, f"empty bonded lane must fail open (liveness): open won {ow}/{EPOCH_LENGTH}"
+    ow = open_wins_in_epoch(open_reg(50_000), bonded_reg(1))
+    assert ow == K_OPEN, f"ceiling must re-apply the moment any stake bonds: open won {ow}, cap {K_OPEN}"
 
 def t4_cap_count_invariant_across_beacons():
     """Prove the open-slot COUNT is exactly K_OPEN for every beacon (permutation, not weighting)."""

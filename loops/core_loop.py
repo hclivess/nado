@@ -128,6 +128,8 @@ class CoreClient(threading.Thread):
         self._last_no_syncable_log = 0
         # throttle the once-per-block-interval consensus mempool reconcile (normal_mode).
         self._last_reconcile = 0
+        # once-per-new-block throttle for the periodic duties in normal_mode (FFG/RANDAO/auto-*).
+        self._last_duty_height = -1
         # DONOR CACHE for get_peer_to_sync_from: (peer, required_hash) of the last selected sync donor.
         # While the donor still advertises the current heaviest hash, it is re-verified with one
         # knows_block dial instead of a full pool re-scan every ~1s emergency pass.
@@ -166,26 +168,31 @@ class CoreClient(threading.Thread):
             # CONTINUOUS MEMPOOL DRAIN (every ~1s pass), fully decoupled from the block-production cadence:
             # user_tx_buffer -> tx_buffer -> transaction_pool. No phase gating -> any submitted tx is
             # pool-eligible within a second whatever block_time is (kills the old period-0/1 tx-loss window).
-            if self.memserver.user_tx_buffer:
-                buffered = merge_buffer(from_buffer=self.memserver.user_tx_buffer,
-                                        to_buffer=self.memserver.tx_buffer,
-                                        block_max=self.memserver.latest_block["block_number"] + 25,
-                                        block_min=self.memserver.latest_block["block_number"])
+            # the whole read-filter-writeback drain runs under the MEMPOOL LOCK: merge_transaction
+            # (HTTP executor threads + peer loop) appends to these same lists, and an append landing
+            # between our snapshot read and the list reassignment below was silently LOST — a wallet
+            # got "Success" for a tx that then never existed anywhere (audit finding).
+            with self.memserver.mempool_lock:
+                if self.memserver.user_tx_buffer:
+                    buffered = merge_buffer(from_buffer=self.memserver.user_tx_buffer,
+                                            to_buffer=self.memserver.tx_buffer,
+                                            block_max=self.memserver.latest_block["block_number"] + 25,
+                                            block_min=self.memserver.latest_block["block_number"])
 
-                self.memserver.user_tx_buffer = buffered["from_buffer"]
-                self.memserver.tx_buffer = buffered["to_buffer"]
+                    self.memserver.user_tx_buffer = buffered["from_buffer"]
+                    self.memserver.tx_buffer = buffered["to_buffer"]
 
-            if self.memserver.tx_buffer:
-                buffered = merge_buffer(from_buffer=self.memserver.tx_buffer,
-                                        to_buffer=self.memserver.transaction_pool,
-                                        block_max=self.memserver.latest_block["block_number"] + 1,
-                                        block_min=self.memserver.latest_block["block_number"])
+                if self.memserver.tx_buffer:
+                    buffered = merge_buffer(from_buffer=self.memserver.tx_buffer,
+                                            to_buffer=self.memserver.transaction_pool,
+                                            block_max=self.memserver.latest_block["block_number"] + 1,
+                                            block_min=self.memserver.latest_block["block_number"])
 
-                self.memserver.tx_buffer = cull_buffer(buffer=buffered["from_buffer"],
-                                                       limit=self.memserver.transaction_buffer_limit)
+                    self.memserver.tx_buffer = cull_buffer(buffer=buffered["from_buffer"],
+                                                           limit=self.memserver.transaction_buffer_limit)
 
-                self.memserver.transaction_pool = cull_buffer(buffer=buffered["to_buffer"],
-                                                              limit=self.memserver.transaction_pool_limit)
+                    self.memserver.transaction_pool = cull_buffer(buffer=buffered["to_buffer"],
+                                                                  limit=self.memserver.transaction_pool_limit)
 
             # CONSENSUS MEMPOOL RECONCILE — at most once per block interval: if our pool hash is in the
             # minority vs peers, replace it (last-effort convergence). Time-gated (replaces the old
@@ -198,16 +205,23 @@ class CoreClient(threading.Thread):
                     self.replace_transaction_pool()
                     self.memserver.transaction_pool_hash = self.memserver.get_transaction_pool_hash()
 
-            # FFG (#6): refresh the stake-attested finalized checkpoint + (if bonded) attest this epoch.
-            self.update_ffg_and_attest()
-            # RANDAO (#7): (if bonded) commit a secret for epoch+2 and reveal epoch+1's in its window.
-            self.maybe_randao()
-            # AUTO-BOND (opt-in): unattended-compound a % of newly-mined earnings into bonded stake.
-            self.maybe_auto_bond()
-            self.maybe_auto_collect()
-            self.maybe_auto_register()
-            # ROLLING MODE (opt-in): on a pruned node, drop block bodies older than the retention window.
-            self.maybe_prune_history()
+            # PERIODIC DUTIES, throttled to once per NEW BLOCK (audit): they depend only on chain
+            # state (epoch windows, registries, balances), which changes exactly when the tip
+            # advances — yet they ran every ~1s pass, costing 3+ full account-table scans per second
+            # (ffg_finalized + two bonded-registry membership probes) on every node, forever.
+            _tip_h = self.memserver.latest_block["block_number"]
+            if _tip_h != self._last_duty_height:
+                self._last_duty_height = _tip_h
+                # FFG (#6): refresh the stake-attested finalized checkpoint + (if bonded) attest this epoch.
+                self.update_ffg_and_attest()
+                # RANDAO (#7): (if bonded) commit a secret for epoch+2 and reveal epoch+1's in its window.
+                self.maybe_randao()
+                # AUTO-BOND (opt-in): unattended-compound a % of newly-mined earnings into bonded stake.
+                self.maybe_auto_bond()
+                self.maybe_auto_collect()
+                self.maybe_auto_register()
+                # ROLLING MODE (opt-in): on a pruned node, drop block bodies older than the retention window.
+                self.maybe_prune_history()
 
             if mode == "produce":
                 peers = self.memserver.peers.copy()
@@ -223,7 +237,10 @@ class CoreClient(threading.Thread):
                 # emergency_mode/heaviest_block_hash, which are None until the weight pool fills — the window
                 # that let a behind node mint 100+ divergent blocks.
                 _our_w = self.memserver.latest_block.get("cumulative_weight", 0)
-                _statuses = [v for v in self.consensus.status_pool.values() if isinstance(v, dict)]
+                # .copy(): the peer loop admits/pops status_pool entries concurrently — iterating the
+                # live dict raises "dictionary changed size during iteration" and costs the whole
+                # production pass (every OTHER status_pool iteration in the codebase already copies).
+                _statuses = [v for v in self.consensus.status_pool.copy().values() if isinstance(v, dict)]
                 # BEHIND if any peer advertises a heavier tip — OR we have peers but haven't learned their
                 # tips yet (status_pool still empty right after startup/snapshot import). The latter closes
                 # the window that let a just-synced node mint 100+ divergent blocks before it knew it was
@@ -264,17 +281,20 @@ class CoreClient(threading.Thread):
 
                         self.memserver.block_generation_age = get_timestamp_seconds()
 
-                        self.memserver.transaction_pool = remove_outdated_transactions(
-                            self.memserver.transaction_pool.copy(),
-                            self.memserver.latest_block["block_number"])
+                        # same lost-update race as the drain above: snapshot-filter-reassign must be
+                        # atomic vs concurrent merge_transaction appends (mempool lock).
+                        with self.memserver.mempool_lock:
+                            self.memserver.transaction_pool = remove_outdated_transactions(
+                                self.memserver.transaction_pool.copy(),
+                                self.memserver.latest_block["block_number"])
 
-                        self.memserver.tx_buffer = remove_outdated_transactions(
-                            self.memserver.tx_buffer.copy(),
-                            self.memserver.latest_block["block_number"])
+                            self.memserver.tx_buffer = remove_outdated_transactions(
+                                self.memserver.tx_buffer.copy(),
+                                self.memserver.latest_block["block_number"])
 
-                        self.memserver.user_tx_buffer = remove_outdated_transactions(
-                            self.memserver.user_tx_buffer.copy(),
-                            self.memserver.latest_block["block_number"])
+                            self.memserver.user_tx_buffer = remove_outdated_transactions(
+                                self.memserver.user_tx_buffer.copy(),
+                                self.memserver.latest_block["block_number"])
                     else:
                         self.logger.warning("No eligible bonded producer this round; skipping production")
 
@@ -310,17 +330,36 @@ class CoreClient(threading.Thread):
             self.logger.error(f"Failed to fetch sync batch after {from_hash} from {peer}: {e}")
             return None
 
+    def _donor_gate_passes(self, peer, required_hash, source_pool) -> bool:
+        """The full IN-MEMORY donor gate (no network I/O), shared by the cache-revalidation and
+        full-scan paths of get_peer_to_sync_from: not queued for purge, a routable non-self IP,
+        and qualifies_to_sync (advertises required_hash, reachable, protocol high enough). A peer
+        whose status hasn't been fetched yet is simply not qualified (protocol -1) — the old
+        KeyError path BANNED it."""
+        if peer in self.memserver.purge_peers_list:  # queued for purge; peer_loop flushes ~1/s
+            return False
+        if not check_ip(peer):
+            return False
+        peer_protocol = self.consensus.status_pool.get(peer, {}).get("protocol", -1)
+        return qualifies_to_sync(peer=peer,
+                                 peer_protocol=peer_protocol,
+                                 memserver_protocol=self.memserver.protocol,
+                                 unreachable_list=self.memserver.unreachable.keys(),
+                                 peer_hash=source_pool.get(peer),
+                                 required_hash=required_hash)["result"]
+
     def get_peer_to_sync_from(self, source_pool):
         """peer to synchronize pool when out of sync, critical part
         candidate tips are ordered by OBJECTIVE cumulative_weight (heaviest first); we return the first
         reachable peer advertising the heaviest tip that qualifies_to_sync.
         hash_pool argument is the pool to sort and sync from (block, tx, block producer pools).
 
-        Cost discipline (this runs every ~1s in emergency mode): all in-memory checks run FIRST, and the
-        single network round-trip (knows_block on our root) is dialed only for peers that passed them —
-        the old code dialed EVERY pool peer per candidate hash, 5s timeout each. The last selected donor
-        is cached: while it still advertises the current heaviest hash, we re-verify it with that one
-        dial and return, instead of re-scanning (and re-logging) the whole pool each pass."""
+        Cost discipline (this runs every ~1s in emergency mode): the in-memory gate
+        (_donor_gate_passes) runs FIRST, and the single network round-trip (knows_block on our
+        root) is dialed only for peers that passed it — the old code dialed EVERY pool peer per
+        candidate hash, 5s timeout each. The last selected donor is cached: while it still
+        advertises the current heaviest hash, we re-verify it with that one dial and return,
+        instead of re-scanning (and re-logging) the whole pool each pass."""
 
         if self.memserver.force_sync_ip:
             """force sync"""
@@ -352,14 +391,7 @@ class CoreClient(threading.Thread):
             # of being handed to emergency_mode, where a false knows_block(tip) would suggest a reorg.
             cached_peer, cached_hash = self._sync_donor
             if cached_peer is not None and cached_hash == sorted_hashes[0]:
-                if (cached_peer not in self.memserver.purge_peers_list
-                        and qualifies_to_sync(peer=cached_peer,
-                                              peer_protocol=self.consensus.status_pool
-                                                  .get(cached_peer, {}).get("protocol", -1),
-                                              memserver_protocol=self.memserver.protocol,
-                                              unreachable_list=self.memserver.unreachable.keys(),
-                                              peer_hash=source_pool_copy.get(cached_peer),
-                                              required_hash=cached_hash)["result"]
+                if (self._donor_gate_passes(cached_peer, cached_hash, source_pool_copy)
                         and self._root_known_to(cached_peer)):
                     self.memserver.cascade_depth = 1
                     return cached_peer
@@ -369,23 +401,8 @@ class CoreClient(threading.Thread):
                 """go from the heaviest advertised tip to the lightest one"""
                 self.memserver.cascade_depth = depth
 
-                for peer, value in shuffle_dict(source_pool_copy).items():
-                    if peer in self.memserver.purge_peers_list:  # queued for purge; peer_loop flushes ~1/s
-                        continue
-                    if not check_ip(peer):
-                        continue
-
-                    # a peer whose status we simply haven't fetched yet is SKIPPED, not banned
-                    # (the old KeyError path banned it) — protocol -1 fails the gate below.
-                    peer_protocol = self.consensus.status_pool.get(peer, {}).get("protocol", -1)
-
-                    qualifies = qualifies_to_sync(peer=peer,
-                                                  peer_protocol=peer_protocol,
-                                                  memserver_protocol=self.memserver.protocol,
-                                                  unreachable_list=self.memserver.unreachable.keys(),
-                                                  peer_hash=value,
-                                                  required_hash=hash_candidate)
-                    if not qualifies["result"]:
+                for peer in shuffle_dict(source_pool_copy):
+                    if not self._donor_gate_passes(peer, hash_candidate, source_pool_copy):
                         continue
 
                     # in-memory gate passed -> the single network check (can this donor serve our root?)
@@ -446,7 +463,8 @@ class CoreClient(threading.Thread):
             suggested_tx_pool = self.replace_pool(peer=sync_from, key="transaction_pool")
 
             if suggested_tx_pool:
-                self.memserver.transaction_pool = suggested_tx_pool
+                with self.memserver.mempool_lock:
+                    self.memserver.transaction_pool = suggested_tx_pool
 
     def replace_pool(self, peer, key):
         """replace pool (block, tx) when out of sync to prevent forking"""
@@ -584,6 +602,10 @@ class CoreClient(threading.Thread):
         and hard-capped by the finality floor (FinalityViolation -> refuse, resync forward only).
         A still-at-genesis node that no donor can full-serve retries snapshot bootstrap from here."""
         self.logger.warning("Entering emergency mode")
+        # fresh burst: rollbacks is the PER-BURST rate limit (docstring above), but it was only ever
+        # reset on the abort paths — a successful 4-deep reorg left it at 4 forever, so a later
+        # legitimate deep reorg exhausted the cap early. Each emergency entry starts a new burst.
+        self.memserver.rollbacks = 0
         if self.snapshot_bootstrap():
             self.logger.warning("State bootstrapped from snapshot; continuing with tail sync")
         try:
@@ -619,116 +641,120 @@ class CoreClient(threading.Thread):
                         logger=self.logger))
 
                     if known_block:
-                        self.logger.info(
-                            f"{peer} knows block {self.memserver.latest_block['block_hash']}"
-                        )
-
-                        try:
-                            new_blocks = self._fetch_sync_batch(peer=peer, from_hash=block_hash)
-
-                            if new_blocks:
-                                # BATCH PIPELINE: chain batches from this donor, PREFETCHING the next
-                                # batch (keyed off this batch's tail hash) in a background thread while
-                                # the CPU verifies the current one — sync is verify-bound, so the
-                                # download rides for free. A mid-batch verify failure discards the
-                                # prefetch and rejects the tip exactly like before; a falsy prefetch
-                                # (donor exhausted/died) just ends the chain and the outer loop
-                                # re-evaluates being-behind and re-picks a donor.
-                                rejected = False
-                                while new_blocks and not self.memserver.terminate:
-                                    prefetch = {}
-                                    prefetch_thread = threading.Thread(
-                                        target=lambda tail=new_blocks[-1]["block_hash"]: prefetch.update(
-                                            batch=self._fetch_sync_batch(peer=peer, from_hash=tail)),
-                                        daemon=True)
-                                    prefetch_thread.start()
-
-                                    for block in new_blocks:
-                                        if not self.memserver.terminate:
-                                            uninterrupted = self.produce_block(block=block,
-                                                                               remote=True,
-                                                                               remote_peer=peer)
-                                            if not uninterrupted:
-                                                # INVALID/FORGED sync block (verify failed): the advertised
-                                                # heavier tip is not backed by a valid chain — exclude it, or
-                                                # this loop re-enters forever on the same bad advertisement
-                                                # (Sybil-stall). Auto-cleared, so a transient failure on a
-                                                # REAL heavier chain is retried in ~30s.
-                                                if not self.memserver.terminate:
-                                                    self._reject_heaviest_tip()
-                                                rejected = True
-                                                break
-
-                                    prefetch_thread.join()
-                                    if rejected:
-                                        break
-                                    new_blocks = prefetch.get("batch")
-                                if rejected:
-                                    break
-                            else:
-                                # peer advertised heavier + claims to know our tip, then serves NOTHING —
-                                # a lying/broken peer. Reject the tip or we loop on it forever.
-                                self.logger.info(f"No newer blocks found from {peer}")
-                                self._reject_heaviest_tip()
-                                break
-
-                        except Exception as e:
-                            self.logger.error(f"Failed to get blocks after {block_hash} from {peer}: {e}")
-                            self._reject_heaviest_tip()
+                        self.logger.info(f"{peer} knows block {block_hash}")
+                        if self._fast_forward_from(peer=peer, from_hash=block_hash):
                             break
-
-                    elif not known_block:
-                        if self.memserver.rollbacks < self.memserver.max_rollbacks:
-                            # capture the tip's txs BEFORE reverting so a reorg re-mines them instead of
-                            # silently dropping them (reinserted below, after a successful rollback).
-                            reverted_txs = self.memserver.latest_block.get("block_transactions", []) or []
-                            try:
-                                self.memserver.latest_block = rollback_one_block(logger=self.logger,
-                                                                                 block=self.memserver.latest_block)
-                            except MissingParentError as e:
-                                # we have run out of local history to roll back through (e.g.
-                                # a snapshot-bootstrapped node). Abort the cascade and let the
-                                # next emergency cycle resync (snapshot/full) instead of spinning.
-                                self.logger.error(f"Rollback aborted, resync required: {e}")
-                                self.memserver.rollbacks = 0
-                                self._reject_heaviest_tip()
-                                break
-                            except FinalityViolation as e:
-                                # the reorg would cross the finalized-height floor (a deep / long-range
-                                # rollback). REFUSE it — the finalized prefix is immutable — and resync
-                                # forward only. This is the hard 51%/rollback cap (#17).
-                                self.logger.error(f"Rollback refused (finality): {e}")
-                                self.memserver.rollbacks = 0
-                                self._reject_heaviest_tip()
-                                break
-
-                            # REINSERT the reverted block's txs into the mempool — a reorg must not DROP
-                            # user transactions; they get re-mined onto the new canonical chain. Blind
-                            # reinsertion is safe: remove_outdated_transactions (at production) drops any whose
-                            # target block is now in the past, and validate_transaction (candidate build) drops
-                            # any now-invalid; merge_transaction dedups by txid so live copies aren't doubled.
-                            for _tx in reverted_txs:
-                                try:
-                                    self.memserver.merge_transaction(_tx, user_origin=True)
-                                except Exception:
-                                    pass
-
-                            # ALWAYS count the rollback (even under force_sync_ip): the finalized floor
-                            # is the hard safety cap; this counter only rate-limits a single burst, so a
-                            # forced sync can no longer roll back unboundedly (closes the force_sync leak).
-                            self.memserver.rollbacks += 1
-                        else:
-                            self.logger.error(
-                                f"Rollbacks exhausted ({self.memserver.rollbacks}/{self.memserver.max_rollbacks})")
-                            self.memserver.rollbacks = 0
-                            self._reject_heaviest_tip()
-                            break
+                    elif self._rollback_one_for_reorg():
+                        break
 
                     self.logger.info(f"Maximum reached cascade depth: {self.memserver.cascade_depth}")
 
         except Exception as e:
             self.logger.info(f"Error: {e}")
             raise
+
+    def _fast_forward_from(self, peer, from_hash) -> bool:
+        """FAST-FORWARD leg of emergency sync: the donor knows our tip, so pull the gap from it in
+        pipelined batches — the NEXT batch (keyed off the current batch's tail hash) downloads in a
+        background thread while the CPU verifies the current one. Sync is verify-bound, so the
+        download rides for free. Returns True when the emergency pass should END (the tip was
+        rejected: a block failed verification, the donor served nothing, or the fetch errored) and
+        False when this donor's chain was consumed cleanly — the outer loop then re-evaluates
+        being-behind and re-picks a donor."""
+        try:
+            new_blocks = self._fetch_sync_batch(peer=peer, from_hash=from_hash)
+            if not new_blocks:
+                # peer advertised heavier + claims to know our tip, then serves NOTHING —
+                # a lying/broken peer. Reject the tip or we loop on it forever.
+                self.logger.info(f"No newer blocks found from {peer}")
+                self._reject_heaviest_tip()
+                return True
+
+            while new_blocks and not self.memserver.terminate:
+                prefetch = {}
+                prefetch_thread = threading.Thread(
+                    target=lambda tail=new_blocks[-1]["block_hash"]: prefetch.update(
+                        batch=self._fetch_sync_batch(peer=peer, from_hash=tail)),
+                    daemon=True)
+                prefetch_thread.start()
+
+                rejected = False
+                for block in new_blocks:
+                    if self.memserver.terminate:
+                        break
+                    if not self.produce_block(block=block, remote=True, remote_peer=peer):
+                        # INVALID/FORGED sync block (verify failed): the advertised heavier tip is
+                        # not backed by a valid chain — exclude it, or this loop re-enters forever
+                        # on the same bad advertisement (Sybil-stall). Auto-cleared, so a transient
+                        # failure on a REAL heavier chain is retried in ~30s. (produce_block also
+                        # returns False when interrupted by shutdown — don't reject the tip then.)
+                        if not self.memserver.terminate:
+                            self._reject_heaviest_tip()
+                        rejected = True
+                        break
+
+                prefetch_thread.join()
+                if rejected:
+                    return True
+                new_blocks = prefetch.get("batch")
+            return False
+
+        except Exception as e:
+            self.logger.error(f"Failed to get blocks after {from_hash} from {peer}: {e}")
+            self._reject_heaviest_tip()
+            return True
+
+    def _rollback_one_for_reorg(self) -> bool:
+        """REORG leg of emergency sync: the donor does NOT know our tip, so our chain has diverged —
+        revert ONE block (reinserting its txs into the mempool; revert symmetry: a reorg must
+        re-mine user transactions, never drop them) and let the next pass retry the donor one block
+        deeper. Returns True when the emergency pass should END: the per-burst rollback budget is
+        exhausted, no local parent remains to roll back through (snapshot-bootstrapped node), or
+        the finality floor refused the reorg — each rejects the tip so we don't spin on it."""
+        if self.memserver.rollbacks >= self.memserver.max_rollbacks:
+            self.logger.error(
+                f"Rollbacks exhausted ({self.memserver.rollbacks}/{self.memserver.max_rollbacks})")
+            self.memserver.rollbacks = 0
+            self._reject_heaviest_tip()
+            return True
+
+        # capture the tip's txs BEFORE reverting so a reorg re-mines them instead of dropping them.
+        reverted_txs = self.memserver.latest_block.get("block_transactions", []) or []
+        try:
+            self.memserver.latest_block = rollback_one_block(logger=self.logger,
+                                                             block=self.memserver.latest_block)
+        except MissingParentError as e:
+            # we have run out of local history to roll back through (e.g. a snapshot-bootstrapped
+            # node). Abort the cascade and let the next emergency cycle resync (snapshot/full)
+            # instead of spinning.
+            self.logger.error(f"Rollback aborted, resync required: {e}")
+            self.memserver.rollbacks = 0
+            self._reject_heaviest_tip()
+            return True
+        except FinalityViolation as e:
+            # the reorg would cross the finalized-height floor (a deep / long-range rollback).
+            # REFUSE it — the finalized prefix is immutable — and resync forward only. This is
+            # the hard 51%/rollback cap (#17).
+            self.logger.error(f"Rollback refused (finality): {e}")
+            self.memserver.rollbacks = 0
+            self._reject_heaviest_tip()
+            return True
+
+        # REINSERT the reverted block's txs into the mempool. Blind reinsertion is safe:
+        # remove_outdated_transactions (at production) drops any whose target block is now in the
+        # past, validate_transaction (candidate build) drops any now-invalid, and merge_transaction
+        # dedups so live copies aren't doubled.
+        for _tx in reverted_txs:
+            try:
+                self.memserver.merge_transaction(_tx, user_origin=True)
+            except Exception:
+                pass
+
+        # ALWAYS count the rollback (even under force_sync_ip): the finalized floor is the hard
+        # safety cap; this counter only rate-limits a single burst, so a forced sync can no longer
+        # roll back unboundedly (closes the force_sync leak).
+        self.memserver.rollbacks += 1
+        return False
 
     def _reject_heaviest_tip(self):
         """AUDIT FIX (weight-DoS): exclude the advertised-heaviest tip we just FAILED to obtain a valid
@@ -771,8 +797,10 @@ class CoreClient(threading.Thread):
         pool/buffer. Without this check the ~1s core loop mints a fresh duplicate (new nonce -> new
         txid) every iteration until the first copy is mined; the stragglers then fail validation in
         later candidates ('already attested/revealed this epoch') and poison block production."""
-        for pool in (self.memserver.transaction_pool, self.memserver.tx_buffer,
-                     self.memserver.user_tx_buffer):
+        # .copy(): other threads append to the live lists; iterating a snapshot avoids skipped
+        # elements (a false negative here mints the duplicate this guard exists to prevent).
+        for pool in (self.memserver.transaction_pool.copy(), self.memserver.tx_buffer.copy(),
+                     self.memserver.user_tx_buffer.copy()):
             for tx in pool:
                 if (tx.get("recipient") == recipient
                         and tx.get("sender") == self.memserver.address
@@ -1054,6 +1082,9 @@ class CoreClient(threading.Thread):
                 return
             acc = get_account(self.memserver.address)
             if not acc or int(acc.get("registered", 0)) != 1:
+                # throttle this probe too: without setting the epoch marker, a bonded-only node
+                # re-read its own account from the KV store every ~1s pass forever, for nothing.
+                self.last_auto_collect_epoch = epoch
                 return                                  # not an open-lane member -> nothing accrues
             target_block = self.memserver.latest_block["block_number"] + 2
             tx = construct_blob_tx(self.memserver.keydict, {"op": "collect_dividend"}, target_block, MIN_TX_FEE)
@@ -1381,7 +1412,7 @@ class CoreClient(threading.Thread):
                 time.sleep(self.run_interval)
 
             except Exception as e:
-                self.logger.error(f"Error in core loop: {e} {traceback.print_exc()}")
+                self.logger.error(f"Error in core loop: {e} {traceback.format_exc()}")
                 time.sleep(1)
                 # raise #test
 

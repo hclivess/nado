@@ -30,7 +30,11 @@ def check(name, fn):
 
 WHALE = "ndo" + "e" * 46          # a founder relay: registered (open) AND holds coins + bonded stake
 BAL = 5_251_313_073_896
-BONDED = 8_252_986_467_104
+# ABOVE the producer floor, expressed RELATIVE to B_MIN so a protocol raise can't silently rot this
+# fixture again (the old hardcoded 8_252_986_467_104 fell below B_MIN when it was raised to 10k coins,
+# failing t2 for reasons unrelated to the carry-forward under test). Odd tail keeps the
+# byte-for-byte carry assertion meaningful.
+BONDED = B_MIN * 3 + 467_104
 
 def _seed_genesis_like():
     """Replay genesis order for WHALE: create it as a registered relay first, then carry balance/bonded via account_set_field."""

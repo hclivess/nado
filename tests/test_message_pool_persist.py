@@ -20,11 +20,14 @@ path = os.path.join(tempfile.mkdtemp(), "message_pool.dat")
 
 
 def _seed():
-    """Build a MessagePool holding one message (seq 5) and one prekey bundle for ndoY."""
+    """Build a MessagePool holding one message (seq 5) and one prekey bundle for ndoY.
+    State is injected directly (fixture shorthand, bypassing add_message), so mark the pool dirty —
+    save() skips a pool that reports no changes since its last write."""
     p = MessagePool()
     p._seq = 5
     p.messages = {"mid1": {"env": {"v": 1, "sender": "ndoX", "tag": "aa", "ct": "ff", "ts": 123}, "recv": 123, "seq": 5}}
     p.prekeys = {"ndoY": {"bundle": {"address": "ndoY", "ik_pub": "beef"}, "ts": 100}}
+    p._dirty = True
     return p
 
 

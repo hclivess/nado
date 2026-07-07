@@ -10,6 +10,7 @@ from compounder import compound_get_list_of, compound_announce_self
 from compounder import compound_get_status_pool
 from config import get_port, get_config, get_timestamp_seconds, update_config, hostport
 from .data_ops import set_and_sort, get_home
+from .net_ops import read_capped, MAX_PEER_BODY
 
 import aiohttp
 
@@ -99,14 +100,13 @@ async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add ms
     try:
         url_construct = f"http://{hostport(target_peer, get_port())}/status"
 
-        
         async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
             async with session.get(url_construct) as response:
-                text = response.text()
-                code = response.status
-
-                if code == 200:
-                    return json.loads(await text)
+                if response.status == 200:
+                    # anti-OOM: cap the untrusted body like every other peer fetcher — this was the
+                    # one uncapped read, reachable against an attacker host via /announce_peer.
+                    body = await read_capped(response, MAX_PEER_BODY)
+                    return json.loads(body)
                 else:
                     return False
 
@@ -351,6 +351,19 @@ def announce_me(targets, port, my_ip, logger, fail_storage) -> None:
                                        semaphore=asyncio.Semaphore(50)))
 
 
+# own-IP cache for check_ip (audit): check_ip runs per peer per ~1s pass on two hot loops (donor
+# selection, peer gossip), and get_config() deliberately re-reads config.dat from disk every call —
+# dozens of file reads + JSON parses per second for a value that effectively never changes.
+# update_local_ip() invalidates on the one code path that rewrites the IP.
+_own_ip_cache = {"v": None}
+
+def _own_ip_cached():
+    """the node's configured public IP, read from config.dat once and cached (see above)."""
+    if _own_ip_cache["v"] is None:
+        _own_ip_cache["v"] = get_config()["ip"]
+    return _own_ip_cache["v"]
+
+
 def check_ip(ip):
     """routability guard for a peer-supplied (UNTRUSTED) address before it may enter the peer table:
     rejects malformed strings, IPv4-mapped IPv6 disguises, our OWN ip, and anything not globally routable
@@ -369,7 +382,7 @@ def check_ip(ip):
     # reject our own IP and any non-globally-routable address (loopback, RFC1918/ULA private, link-local,
     # reserved, multicast, unspecified): accepting these lets a peer seed us with internal targets
     # (eclipse groundwork / limited SSRF probing). is_private covers IPv6 ULA (fc00::/7) too.
-    if ip == get_config()["ip"]:
+    if ip == _own_ip_cached():
         return False
     # NADO_TESTNET: allow loopback/private peers so a local multi-node testnet can mesh over
     # 127.0.0.x. NEVER set this on mainnet — it disables the SSRF/eclipse IP guard below.
@@ -448,6 +461,7 @@ def update_local_ip(ip, logger):
     the repeated 'Failed to get peers of <own-ip>' self-dial errors.)"""
     if ip and ip != get_config()["ip"]:
         update_config({"ip": ip})
+        _own_ip_cache["v"] = ip      # keep check_ip's own-IP cache in step
         logger.info(f"Local IP updated to {ip}")
 
 

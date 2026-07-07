@@ -19,19 +19,22 @@ def cull_buffer(buffer, limit) -> list:
     """Keep a buffer under `limit` bytes (LOCAL anti-DoS policy, non-consensus). Evict only ORDINARY,
     fee-bearing txs — lowest fee first — and NEVER a fee-exempt reserved tx (see FEE_EXEMPT_RECIPIENTS): those
     are already un-spammable, so dropping them would let a min-fee flood evict registrations / consensus duties.
-    Previously it removed the global lowest-fee tx, i.e. the fee-0 reserved txs FIRST — a DoS."""
+    (Previously it removed the global lowest-fee tx, i.e. the fee-0 reserved txs FIRST — a DoS.)
+    PERF: per-tx sizes are computed ONCE and a running total decremented per drop — the old loop re-repr'd
+    the ENTIRE remaining buffer once per dropped tx (O(drops × n × bytes)), so the flood that pushes the
+    buffer over the limit was exactly the input that stalled the 1s core pass for minutes."""
     if get_byte_size(buffer) <= limit:
         return buffer
-    candidates = sorted((tx for tx in buffer if tx.get("recipient") not in FEE_EXEMPT_RECIPIENTS),
-                        key=lambda t: t.get("fee", 0))          # cheapest ordinary txs first
+    sizes = {id(tx): get_byte_size(tx) for tx in buffer}
+    total = sum(sizes.values())
     drop = set()
-    kept = buffer
-    for tx in candidates:                                       # drop cheapest ordinary txs until we fit
-        if get_byte_size(kept) <= limit:
+    for tx in sorted((t for t in buffer if t.get("recipient") not in FEE_EXEMPT_RECIPIENTS),
+                     key=lambda t: t.get("fee", 0)):            # cheapest ordinary txs first
+        if total <= limit:
             break
         drop.add(id(tx))
-        kept = [t for t in buffer if id(t) not in drop]
-    return kept
+        total -= sizes[id(tx)]
+    return [t for t in buffer if id(t) not in drop] if drop else buffer
 
 
 def merge_buffer(from_buffer, to_buffer, block_max, block_min) -> dict:
@@ -59,6 +62,9 @@ def merge_buffer(from_buffer, to_buffer, block_max, block_min) -> dict:
 def get_from_pool(pool, source, target):
     """project one field of the peer status pool into `target` IN PLACE: target[peer] =
     status[source] for every peer. Iterates a shallow copy so a concurrent status refresh from
-    another loop cannot resize the dict mid-iteration."""
+    another loop cannot resize the dict mid-iteration. .get(): a peer status admitted WITHOUT the
+    field (version skew, malicious minimal dict) must not KeyError — that aborted EVERY consensus
+    pass forever (the peer answers /status fine, so it was never purged), freezing the majority +
+    heaviest-tip refresh. A None value is already handled by the callers' None guards."""
     for item in pool.copy().items():
-        target[item[0]] = item[1][source]
+        target[item[0]] = item[1].get(source)

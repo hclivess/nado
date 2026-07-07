@@ -87,17 +87,20 @@ class ConsensusClient(threading.Thread):
                       target=self.block_hash_pool,
                       pool=self.status_pool)
 
+        # majorities FIRST, percentages second: computing the percentages against the previous
+        # pass's majority graded the OLD winner for one pass after every majority flip (the
+        # percentage gates force_sync release + health reporting — a one-second-late gate, free fix).
+        self.majority_block_hash = get_pool_majority(self.block_hash_pool)
+        self.majority_transaction_pool_hash = get_pool_majority(
+            self.transaction_hash_pool
+        )
+
         self.block_hash_pool_percentage = get_pool_percentage(
             self.block_hash_pool, self.majority_block_hash
         )
 
         self.transaction_hash_pool_percentage = get_pool_percentage(
             self.transaction_hash_pool, self.majority_transaction_pool_hash
-        )
-
-        self.majority_block_hash = get_pool_majority(self.block_hash_pool)
-        self.majority_transaction_pool_hash = get_pool_majority(
-            self.transaction_hash_pool
         )
 
         self.refresh_heaviest_tip()
@@ -158,6 +161,6 @@ class ConsensusClient(threading.Thread):
                 self.duration = get_timestamp_seconds() - start
                 time.sleep(1)
             except Exception as e:
-                self.logger.error(f"Error in consensus loop: {e} {traceback.print_exc()}")
+                self.logger.error(f"Error in consensus loop: {e} {traceback.format_exc()}")
                 time.sleep(1)
                 # raise  # test

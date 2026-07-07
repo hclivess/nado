@@ -70,15 +70,22 @@ def t_malformed_status():
 
 def t_emergency_paths_reject():
     """source-level: every emergency-loop failure path excludes the tip + the loop re-checks
-    being-behind each pass (a dropped rejection re-arms the infinite emergency wedge)"""
+    being-behind each pass (a dropped rejection re-arms the infinite emergency wedge).
+    The failure paths live in emergency_mode PLUS its extracted legs (_fast_forward_from:
+    served-nothing / invalid-block / fetch-error; _rollback_one_for_reorg: budget-exhausted /
+    missing-parent / finality-refused), so the rejection count is taken across all three."""
     src_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                             "loops", "core_loop.py")
     with open(src_path) as f:
         src = f.read()
-    emergency = src.split("def emergency_mode(", 1)[1].split("\n    def ", 1)[0]
-    assert emergency.count("_reject_heaviest_tip()") >= 6, \
-        f"expected >=6 tip rejections in emergency_mode, found {emergency.count('_reject_heaviest_tip()')}"
-    assert "minority_block_consensus()" in emergency, \
+    def method_body(name):
+        assert f"def {name}(" in src, f"{name} missing from core_loop"
+        return src.split(f"def {name}(", 1)[1].split("\n    def ", 1)[0]
+    emergency_legs = (method_body("emergency_mode") + method_body("_fast_forward_from")
+                      + method_body("_rollback_one_for_reorg"))
+    n_rejects = emergency_legs.count("_reject_heaviest_tip()")
+    assert n_rejects >= 6, f"expected >=6 tip rejections across the emergency legs, found {n_rejects}"
+    assert "minority_block_consensus()" in method_body("emergency_mode"), \
         "emergency loop no longer re-evaluates being-behind each pass"
     # and the production gate must consult rejected_tips
     normal = src.split("def normal_mode(", 1)[1].split("\n    def ", 1)[0]

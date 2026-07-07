@@ -134,7 +134,12 @@ class PeerClient(threading.Thread):
                 # merge peers' gossiped txs into the mempool EVERY pass (continuous, like the local drain in
                 # core_loop.normal_mode) — no phase gating, so remote txs never stall waiting for a slot.
                 # (Was `if 0 or 1 in periods`, itself a bug parsing to `if 1 in periods`.)
-                self.memserver.merge_remote_transactions(user_origin=False)
+                # PREFILTER (audit): a peer advertising the SAME transaction_pool_hash as ours has
+                # nothing new in its pool — skip that full-pool download (buffers still fetched).
+                _our_pool_hash = self.memserver.transaction_pool_hash
+                _same_pool = {p for p, h in self.consensus.transaction_hash_pool.copy().items()
+                              if h == _our_pool_hash}
+                self.memserver.merge_remote_transactions(user_origin=False, skip_pool_peers=_same_pool)
 
                 _seeds = set(seed_peers())
                 for peer, ban_time in self.memserver.unreachable.copy().items():
@@ -199,6 +204,6 @@ class PeerClient(threading.Thread):
                 time.sleep(1)
 
             except Exception as e:
-                self.logger.error(f"Error in peer loop: {e} {traceback.print_exc()}")
+                self.logger.error(f"Error in peer loop: {e} {traceback.format_exc()}")
                 time.sleep(1)
                 # raise #test

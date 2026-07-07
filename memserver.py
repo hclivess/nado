@@ -1,4 +1,5 @@
 import asyncio
+import threading
 
 from compounder import compound_get_list_of
 from config import get_timestamp_seconds, get_config
@@ -42,6 +43,13 @@ class MemServer:
         self.public_key = self.keydict["public_key"]
         self.address = self.keydict["address"]
         self.server_key = self.config["server_key"]
+        # MEMPOOL LOCK (audit): transaction_pool / tx_buffer / user_tx_buffer are read-modify-REPLACED
+        # by the core loop's per-second drain while the HTTP executor threads and the peer loop append
+        # via merge_transaction — an append landing between another thread's snapshot-read and list
+        # reassignment was silently LOST (a wallet got "Success" for a tx that then never existed).
+        # Every mutation of the three pools must hold this lock; reads of a single list reference
+        # (e.g. hashing a .copy()) stay lock-free.
+        self.mempool_lock = threading.RLock()
         self.transaction_pool = []
         self.message_pool = MessagePool()   # off-chain E2E message pool (doc/messaging.md); never block-bound
         # PERSIST the message pool across restarts — it is off-chain + ephemeral, so a plain node restart
@@ -202,20 +210,27 @@ class MemServer:
         reported_uptime by the core loop and shared with peers via /status."""
         return get_timestamp_seconds() - self.start_time
 
-    def merge_remote_transactions(self, user_origin=False) -> None:
-        """reach out to all peers and merge their transactions to our transaction pool"""
-        remote_pool_transactions = asyncio.run(
-            compound_get_list_of(
-                key="transaction_pool",
-                entries=self.peers,
-                port=self.port,
-                logger=self.logger,
-                fail_storage=self.purge_peers_list,
-                compress="msgpack",
-                semaphore=asyncio.Semaphore(50)
+    def merge_remote_transactions(self, user_origin=False, skip_pool_peers=()) -> None:
+        """reach out to all peers and merge their transactions to our transaction pool.
+        skip_pool_peers: peers whose ADVERTISED transaction_pool_hash already equals ours (caller
+        computes it from the consensus status pool) — fetching their full pool every second only
+        re-downloads data we provably hold (audit: this was O(peers × pool) bandwidth per second in
+        steady state, for zero new information). Buffers are still fetched from everyone: no buffer
+        hash is advertised, and buffers are the propagation path for future-target txs."""
+        pool_peers = [p for p in self.peers if p not in skip_pool_peers]
+        if pool_peers:
+            remote_pool_transactions = asyncio.run(
+                compound_get_list_of(
+                    key="transaction_pool",
+                    entries=pool_peers,
+                    port=self.port,
+                    logger=self.logger,
+                    fail_storage=self.purge_peers_list,
+                    compress="msgpack",
+                    semaphore=asyncio.Semaphore(50)
+                )
             )
-        )
-        self.merge_transactions(remote_pool_transactions, user_origin)
+            self.merge_transactions(remote_pool_transactions, user_origin)
 
         remote_buffer_transactions = asyncio.run(
             compound_get_list_of(
@@ -253,17 +268,13 @@ class MemServer:
                 + len(self.user_tx_buffer)) >= self.transaction_pool_limit:
             return {"result": False, "message": "Mempool full"}
 
-        # OPEN-lane onboarding: register/heartbeat are fee-exempt ENTRY txs — a brand-new zero-coin
-        # address has no on-chain account YET (registration is what creates it), so they must bypass
-        # the empty-account anti-spam gate. (register is PoW-gated and heartbeat requires registered=1
-        # in validate_transaction, so this opens no spam hole.) Spending txs still need a funded account.
-        if transaction.get("recipient") not in ("register", "heartbeat") \
-                and not get_account(transaction["sender"], create_on_error=False):
-            msg = {"result": False,
-                   "message": f"Empty account"}
-            return msg
-
-        elif transaction["target_block"] < self.latest_block["block_number"]:
+        # CHEAP BOUNDS FIRST (audit): the two integer target_block compares run before the LMDB
+        # get_account read — a stale re-gossiped tx (the most common reject under load, since peers
+        # re-serve their whole pool every second) must not cost a DB hit to reject.
+        # `<=` (was `<`): the drain promotes only target_block STRICTLY greater than the tip
+        # (merge_buffer block_min < target), so a tx targeting the current tip was acknowledged
+        # "Success", could never be mined, and silently aged out — reject it up front instead.
+        if transaction["target_block"] <= self.latest_block["block_number"]:
             msg = {"result": False,
                    "message": f"Target block too low"}
             return msg
@@ -271,6 +282,16 @@ class MemServer:
         elif transaction["target_block"] > self.latest_block["block_number"] + 360:
             msg = {"result": False,
                    "message": f"Target block too high"}
+            return msg
+
+        # OPEN-lane onboarding: register/heartbeat are fee-exempt ENTRY txs — a brand-new zero-coin
+        # address has no on-chain account YET (registration is what creates it), so they must bypass
+        # the empty-account anti-spam gate. (register is PoW-gated and heartbeat requires registered=1
+        # in validate_transaction, so this opens no spam hole.) Spending txs still need a funded account.
+        elif transaction.get("recipient") not in ("register", "heartbeat") \
+                and not get_account(transaction["sender"], create_on_error=False):
+            msg = {"result": False,
+                   "message": f"Empty account"}
             return msg
 
         elif not validate_txid(transaction, logger=self.logger):  # always enforced (compat gate gone)
@@ -305,13 +326,17 @@ class MemServer:
                 try:
                     validate_single_spending(transaction_pool=united_pools, transaction=transaction)
 
-                    if transaction not in self.transaction_pool:
-                        if user_origin and transaction not in self.tx_buffer:
-                            self.user_tx_buffer.append(transaction)
-                            self.user_tx_buffer = sort_list_dict(self.user_tx_buffer)
-                        elif transaction not in self.user_tx_buffer:
-                            self.tx_buffer.append(transaction)
-                            self.tx_buffer = sort_list_dict(self.tx_buffer)
+                    # mutation tail under the mempool lock: the membership re-checks and the
+                    # append+sort must be atomic vs the core loop's drain swaps and vs sibling
+                    # merge_transaction calls on other threads (double-accept / lost-append races).
+                    with self.mempool_lock:
+                        if transaction not in self.transaction_pool:
+                            if user_origin and transaction not in self.tx_buffer:
+                                self.user_tx_buffer.append(transaction)
+                                self.user_tx_buffer = sort_list_dict(self.user_tx_buffer)
+                            elif transaction not in self.user_tx_buffer:
+                                self.tx_buffer.append(transaction)
+                                self.tx_buffer = sort_list_dict(self.tx_buffer)
 
                 except Exception as e:
                     msg = f"Remote transaction failed to validate: {e}"
@@ -332,10 +357,12 @@ class MemServer:
     def purge_txs_of_sender(self, sender) -> None:
         """remove all transactions of sender to prevent possible double spending attempt"""
         """of sender sending different txs to different nodes both exhausting balance"""
-        for transaction in self.transaction_pool:
-            if transaction["sender"] == sender:
-                self.transaction_pool.remove(transaction)
-
-        for transaction in self.tx_buffer:
-            if transaction["sender"] == sender:
-                self.tx_buffer.remove(transaction)
+        # AUDIT FIX: was `for tx in pool: pool.remove(tx)` — removing while iterating shifts the
+        # index and SKIPS the element after every hit, so adjacent same-sender txs (the exact
+        # double-spend shape this guard exists for) half-survived the purge; it also never touched
+        # user_tx_buffer, and mutated the live lists other threads iterate. Rebuild all three
+        # under the mempool lock instead.
+        with self.mempool_lock:
+            self.transaction_pool = [t for t in self.transaction_pool if t["sender"] != sender]
+            self.tx_buffer = [t for t in self.tx_buffer if t["sender"] != sender]
+            self.user_tx_buffer = [t for t in self.user_tx_buffer if t["sender"] != sender]

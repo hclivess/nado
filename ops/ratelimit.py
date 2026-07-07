@@ -11,6 +11,7 @@ from collections import deque, defaultdict
 
 _buckets = defaultdict(deque)
 _MAX_KEYS = 100_000
+_last_gc = [0.0]      # time-gate for the over-cap sweep (see allow)
 
 # PROGRESSIVE IP-DIVERSITY registration cap. NON-CONSENSUS on purpose: it is THIS relay's admission
 # control at the point of entry, NOT a selection-weight rule — an IP can't be a consensus input (nodes
@@ -97,7 +98,11 @@ def allow(ip: str, limit: int, window: float = 60.0) -> bool:
     if len(dq) >= limit:
         return False
     dq.append(now)
-    if len(_buckets) > _MAX_KEYS:                      # opportunistic GC so the map can't grow unbounded
+    # opportunistic GC so the map can't grow unbounded — TIME-GATED (audit): once over the cap, the
+    # ungated sweep ran the full O(100k) scan on EVERY request until the map shrank, so the exact
+    # condition it defends against (an IP-diverse scan) turned each request into a full-map walk.
+    if len(_buckets) > _MAX_KEYS and now - _last_gc[0] >= 60:
+        _last_gc[0] = now
         for k in list(_buckets.keys()):
             d = _buckets[k]
             while d and d[0] < cutoff:

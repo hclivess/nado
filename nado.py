@@ -120,9 +120,12 @@ def _resp(output, status=200, headers=None):
 
 def _rate_limited(request, limit, window=60):
     """True when the caller's IP (proxy-aware via _ip) has exceeded `limit` requests per `window`
-    seconds — the per-endpoint DoS throttle backing every _RL early return."""
+    seconds — the per-endpoint DoS throttle backing every _RL early return. The bucket is keyed by
+    (ip, path): a single per-IP bucket shared across endpoints let the web wallet's own
+    /mining_status + /tags polling (120/min each) consume the budget and 429 that same user's
+    /submit_transaction (30/min) — read polling starved tx submission."""
     from ops.ratelimit import allow
-    return not allow(_ip(request), limit, window)
+    return not allow(f"{_ip(request)}|{request.path}", limit, window)
 
 
 _RL = web.json_response({"result": False, "message": "Rate limited — slow down"}, status=429,
@@ -413,75 +416,60 @@ async def block_by_number(request):
     return _resp(out, status=code)
 
 
+def _collect_block_chain(start_hash, count, link_field):
+    """Walk `link_field` ("child_hash" forward / "parent_hash" backward) from the block at
+    `start_hash`, collecting up to min(count, SYNC_BATCH_MAX) linked blocks under the
+    SYNC_BATCH_BYTES budget (fat-block batches must stay far under the sync client's 64 MiB wire
+    bomb cap). Standalone + thread-safe (LMDB reads only) — the shared engine of the two block-sync
+    endpoints below. Returns (blocks-in-walk-order, http_code)."""
+    collected, size, code = [], 0, 200
+    try:
+        anchor = get_block(start_hash)
+        if not anchor:
+            return collected, 404
+        link = anchor[link_field]
+        for _ in range(min(count, SYNC_BATCH_MAX)):
+            block = get_block(link)
+            if not block:
+                break
+            collected.append(block)
+            size += get_byte_size(block)
+            if size > SYNC_BATCH_BYTES:
+                break
+            link = block[link_field]
+    except Exception as e:
+        logger.debug(f"Block collection hit a roadblock: {e}")
+        if not collected:
+            code = 403
+    return collected, code
+
+
 async def blocks_before(request):
     """GET /get_blocks_before?hash=&count=&compress=: up to `count` ancestors of `hash` (count capped at
-    SYNC_BATCH_MAX + byte-budgeted like blocks_after), returned oldest-first. Rate-limited 60/min per IP
-    since each block is a disk read. ?compress=zstd is the block-sync wire format peers use."""
+    SYNC_BATCH_MAX + byte-budgeted, see _collect_block_chain), returned oldest-first. Rate-limited
+    60/min per IP since each block is a disk read. ?compress=zstd is the block-sync wire format peers use."""
     if _rate_limited(request, 60):  # up to SYNC_BATCH_MAX block-file reads per call; throttle
         return _RL
 
     def _work():
-        """Walk parent_hash links collecting up to `count` blocks under the byte budget (worker thread)."""
-        block_hash = _q(request, "hash")
-        count = min(int(_q(request, "count", "1")), SYNC_BATCH_MAX)
-        collected, size, code = [], 0, 200
-        try:
-            parent = get_block(block_hash)
-            if parent:
-                parent_hash = parent["parent_hash"]
-                for _ in range(count):
-                    block = get_block(parent_hash)
-                    if not block:
-                        break
-                    collected.append(block)
-                    size += get_byte_size(block)
-                    if size > SYNC_BATCH_BYTES:
-                        break
-                    parent_hash = block["parent_hash"]
-                collected.reverse()
-            else:
-                code = 404
-        except Exception as e:
-            logger.debug(f"Block collection hit a roadblock: {e}")
-            if not collected:
-                code = 403
+        collected, code = _collect_block_chain(_q(request, "hash"), int(_q(request, "count", "1")),
+                                               link_field="parent_hash")
+        collected.reverse()          # walked toward genesis; serve oldest-first
         return serialize(name="blocks_before", output=collected, compress=_q(request, "compress", "none")), code
     out, code = await asyncio.to_thread(_work)
     return _resp(out, status=code)
 
 
 async def blocks_after(request):
-    """GET /get_blocks_after?hash=&count=&compress=: up to `count` descendants of `hash` (count capped at
-    SYNC_BATCH_MAX, response additionally capped by SYNC_BATCH_BYTES so fat-block batches stay well under
-    the client's 64 MiB wire bomb cap), ascending — the primary block-sync pull peers use with
-    ?compress=zstd. Rate-limited 60/min per IP since each block is a disk read."""
+    """GET /get_blocks_after?hash=&count=&compress=: up to `count` descendants of `hash` (count capped
+    at SYNC_BATCH_MAX + byte-budgeted, see _collect_block_chain), ascending — the primary block-sync
+    pull peers use with ?compress=zstd. Rate-limited 60/min per IP since each block is a disk read."""
     if _rate_limited(request, 60):  # up to SYNC_BATCH_MAX block-file reads per call; throttle
         return _RL
 
     def _work():
-        """Walk child_hash links collecting up to `count` blocks under the byte budget (worker thread)."""
-        block_hash = _q(request, "hash")
-        count = min(int(_q(request, "count", "1")), SYNC_BATCH_MAX)
-        collected, size, code = [], 0, 200
-        try:
-            child = get_block(block_hash)
-            if child:
-                child_hash = child["child_hash"]
-                for _ in range(count):
-                    block = get_block(child_hash)
-                    if not block:
-                        break
-                    collected.append(block)
-                    size += get_byte_size(block)
-                    if size > SYNC_BATCH_BYTES:
-                        break
-                    child_hash = block["child_hash"]
-            else:
-                code = 404
-        except Exception as e:
-            logger.debug(f"Block collection hit a roadblock: {e}")
-            if not collected:
-                code = 403
+        collected, code = _collect_block_chain(_q(request, "hash"), int(_q(request, "count", "1")),
+                                               link_field="child_hash")
         return serialize(name="blocks_after", output=collected, compress=_q(request, "compress", "none")), code
     out, code = await asyncio.to_thread(_work)
     return _resp(out, status=code)

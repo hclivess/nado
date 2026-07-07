@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import random
 import re
@@ -35,13 +36,38 @@ def average(list_of_values) -> int:
     return int(total / len(list_of_values))
 
 
+def _freeze(o):
+    """recursively hashable stand-in for a json/msgpack-shaped value, EQUALITY-FAITHFUL to the
+    original (two values freeze equal iff they compare ==, incl. Python's True == 1): dicts become
+    frozensets of (key, frozen value), lists become tuples, hashable leaves pass through."""
+    if isinstance(o, dict):
+        return frozenset((k, _freeze(v)) for k, v in o.items())
+    if isinstance(o, (list, tuple)):
+        return tuple(_freeze(x) for x in o)
+    return o
+
+
 def sort_list_dict(entries) -> list:
     """order-preserving dedup for a list of dicts (transactions/blocks are unhashable, so set() won't do);
-    keeps the FIRST occurrence"""
+    keeps the FIRST occurrence. Dedup via a seen-set of _freeze()d entries — O(n) where the old
+    `entry not in clean_list` membership scan was O(n²) deep-compares (pathological at mempool
+    scale, and this runs on per-second paths). _freeze is equality-faithful, so the output is
+    IDENTICAL to the old implementation (consensus callers — block tx dedup — see no change);
+    an unfreezable (non-json-shaped) entry falls back to the old linear scan rather than raising."""
+    seen = set()
+    fallback = []       # unhashable oddballs (never occurs for real txs/blocks) — old O(n) scan
     clean_list = []
     for entry in entries:
-        if entry not in clean_list:
-            clean_list.append(entry)
+        try:
+            key = _freeze(entry)
+            if key in seen:
+                continue
+            seen.add(key)
+        except TypeError:
+            if entry in fallback:
+                continue
+            fallback.append(entry)
+        clean_list.append(entry)
     return clean_list
 
 

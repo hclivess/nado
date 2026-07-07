@@ -4,7 +4,8 @@ import psutil
 import threading
 import time
 import traceback
-import gc
+
+from config import get_timestamp_seconds
 
 
 class MessageClient(threading.Thread):
@@ -151,9 +152,12 @@ class MessageClient(threading.Thread):
                 self.logger.info(f"GC counts: {gc_counts}")
 
                 # Backstop-persist the off-chain message pool (~every 10s) so even a hard crash that skips
-                # the SIGTERM save loses at most one interval of undelivered DMs. No-op while the pool is empty.
+                # the SIGTERM save loses at most one interval of undelivered DMs. gc() first: TTL reaping
+                # previously had NO caller, so expired envelopes lived (and were re-persisted) until a
+                # restart. save() itself now skips when the pool hasn't changed since the last write.
                 try:
                     mp = self.memserver.message_pool
+                    mp.gc(get_timestamp_seconds())
                     if mp.messages or mp.prekeys:
                         mp.save(self.memserver.message_pool_path)
                 except Exception as e:
@@ -161,5 +165,5 @@ class MessageClient(threading.Thread):
 
                 time.sleep(10)
             except Exception as e:
-                self.logger.error(f"Error in message loop: {e} {traceback.print_exc()}")
+                self.logger.error(f"Error in message loop: {e} {traceback.format_exc()}")
                 time.sleep(1)

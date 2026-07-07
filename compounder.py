@@ -50,15 +50,13 @@ async def compound_get_list_of(key, entries, port, logger, fail_storage, semapho
         )
     )
 
+    # flatten all peers' lists; dedup belongs to sort_list_dict (the old `if entry not in
+    # success_storage` compared a per-peer LIST against a flat list of ITEMS — always true, a no-op).
     success_storage = []
     for entry in result:
-        if entry not in success_storage:
-            success_storage.extend(entry)
+        success_storage.extend(entry)
 
-    if isinstance(success_storage, list):
-        success_storage = sort_list_dict(success_storage)
-
-    return success_storage
+    return sort_list_dict(success_storage)
 
 
 async def get_url(peer, port, url, logger, fail_storage, semaphore):
