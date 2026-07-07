@@ -705,6 +705,8 @@ async def api_profile(request):
     threads = con.execute("SELECT COUNT(*) AS c FROM threads WHERE author=? AND deleted=0", (addr,)).fetchone()["c"]
     posts = con.execute("SELECT COUNT(*) AS c FROM posts WHERE author=? AND deleted=0", (addr,)).fetchone()["c"]
     con.close()
+    if current_user(request) == addr:
+        _alias_cache.pop(addr, None)   # your own profile reflects a just-registered alias instantly
     acc = await get_account(addr) or {}
     names = await aliases_of(addr)
     return web.json_response({"ok": True, "interface": INTERFACE_URL, "profile": {
