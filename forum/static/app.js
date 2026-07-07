@@ -33,6 +33,22 @@ async function postJSON(url, body) {
     headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   return r.json();
 }
+// one mod action -> refresh the current view; failures surface as an alert (mod-only path).
+async function modAction(payload, confirmMsg) {
+  if (confirmMsg && !confirm(confirmMsg)) return;
+  const res = await postJSON("/api/mod", payload);
+  if (!res.ok) alert(res.error || "action failed");
+  route();
+}
+// wire every element carrying data-mod='{"action":...}' (+ optional data-confirm) to modAction.
+function bindModButtons() {
+  app.querySelectorAll("[data-mod]").forEach((el) => {
+    el.onclick = () => modAction(JSON.parse(el.dataset.mod), el.dataset.confirm || null);
+  });
+}
+const modBtn = (payload, label, confirmMsg) =>
+  '<button class="btn ghost sm" data-mod="' + esc(JSON.stringify(payload)) + '"' +
+  (confirmMsg ? ' data-confirm="' + esc(confirmMsg) + '"' : "") + ">" + esc(label) + "</button>";
 
 // ---- header (who am I) ---------------------------------------------------------------------------
 function renderWho() {
@@ -65,6 +81,7 @@ async function viewBoard(slug) {
   let html = '<div class="crumb"><a href="#/">Boards</a> › ' + esc(d.board.title) + "</div><h1>" + esc(d.board.title) + "</h1>";
   html += '<div class="card">' + (d.threads.length ? d.threads.map((t) =>
     '<div class="thread-row"><div><a href="#/t/' + t.id + '">' + esc(t.title) + "</a>" +
+    (t.deleted ? ' <span class="pill del">deleted</span>' : "") +
     (t.pinned ? ' <span class="pill">pinned</span>' : "") + (t.locked ? ' <span class="pill">locked</span>' : "") +
     (t.pid ? ' <span class="pill pid">proposal</span>' : "") +
     '<div class="meta">by <span class="addr">' + esc(short(t.author)) + "</span> · " + ago(t.bumped_at) + "</div></div>" +
@@ -96,13 +113,43 @@ async function viewBoard(slug) {
 async function viewThread(id) {
   const d = await getJSON("/api/thread?id=" + encodeURIComponent(id));
   if (!d.ok) return app.innerHTML = '<div class="err">' + esc(d.error || "thread not found") + "</div>";
+  const isMod = ME && ME.role === "mod";
   let html = '<div class="crumb"><a href="#/">Boards</a> › <a href="#/b/' + esc(d.board.slug) + '">' + esc(d.board.title) +
-    "</a></div><h1>" + esc(d.thread.title) + (d.thread.locked ? ' <span class="pill">locked</span>' : "") + "</h1>";
+    "</a></div><h1>" + esc(d.thread.title) +
+    (d.thread.deleted ? ' <span class="pill del">deleted</span>' : "") +
+    (d.thread.locked ? ' <span class="pill">locked</span>' : "") + "</h1>";
+  if (isMod) {
+    const t = d.thread;
+    html += '<div class="modbar">' +
+      modBtn({ action: t.locked ? "unlock" : "lock", thread_id: t.id }, t.locked ? "Unlock" : "Lock") +
+      modBtn({ action: t.pinned ? "unpin" : "pin", thread_id: t.id }, t.pinned ? "Unpin" : "Pin") +
+      (t.deleted
+        ? modBtn({ action: "restore_thread", thread_id: t.id }, "Restore thread")
+        : modBtn({ action: "delete_thread", thread_id: t.id }, "Delete thread", "Delete this whole thread? (soft — restorable)")) +
+      '<button class="btn ghost sm" id="modMove">Move…</button>' +
+      "</div>";
+  }
   if (d.thread.pid) html += '<div class="card" id="pidBox"><span class="pill pid">treasury proposal</span> ' +
     '<span class="addr">' + esc(d.thread.pid.slice(0, 18)) + '…</span><div class="tally" id="tally">loading tally…</div></div>';
-  html += d.posts.map((p) =>
-    '<div class="post"><div class="phead"><span class="addr">' + esc(short(p.author)) + "</span><span>" + ago(p.created_at) +
-    "</span></div><div class=\"body\">" + fmt(p.body_md) + "</div></div>").join("");
+  html += d.posts.map((p) => {
+    let mod = "";
+    if (isMod) {
+      mod = '<span class="pmod">' +
+        (p.deleted
+          ? modBtn({ action: "restore_post", post_id: p.id }, "Restore")
+          : modBtn({ action: "delete_post", post_id: p.id }, "Delete", "Delete this post? (soft — restorable)")) +
+        (ME.address !== p.author
+          ? modBtn({ action: "ban_user", address: p.author }, "Ban author",
+                   "Ban " + short(p.author) + " from posting and kill their sessions? (unban via any of their posts)") +
+            modBtn({ action: "unban_user", address: p.author }, "Unban")
+          : "") +
+        "</span>";
+    }
+    return '<div class="post' + (p.deleted ? " deleted" : "") + '"><div class="phead"><span class="addr">' +
+      esc(short(p.author)) + "</span>" + (p.deleted ? '<span class="pill del">deleted</span>' : "") +
+      "<span>" + ago(p.created_at) + "</span>" + mod +
+      "</div><div class=\"body\">" + fmt(p.body_md) + "</div></div>";
+  }).join("");
   if (ME && ME.can_post && !d.thread.locked) {
     html += '<div class="card"><h2>Reply</h2><textarea id="rBody" placeholder="Write a reply…"></textarea>' +
       '<div class="row" style="margin-top:8px"><button class="btn" id="rPost">Reply</button></div><div class="err" id="rErr"></div></div>';
@@ -112,6 +159,14 @@ async function viewThread(id) {
     html += '<div class="note">Sign in with your NADO wallet to reply.</div>';
   }
   app.innerHTML = html;
+  bindModButtons();
+  const mv = document.getElementById("modMove");
+  if (mv) mv.onclick = async () => {
+    const bl = await getJSON("/api/boards");
+    const slugs = (bl.boards || []).map((b) => b.slug).join(", ");
+    const slug = prompt("Move thread to board (" + slugs + "):");
+    if (slug) modAction({ action: "move_thread", thread_id: d.thread.id, board: slug.trim() });
+  };
   if (d.thread.pid) renderTally(d.thread.pid);
   const rb = document.getElementById("rPost");
   if (rb) rb.onclick = async () => {

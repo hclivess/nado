@@ -98,6 +98,8 @@ def init_db():
     con.executescript(SCHEMA)
     try: con.execute("ALTER TABLE users ADD COLUMN sver INTEGER DEFAULT 0")   # migrate older DBs
     except sqlite3.OperationalError: pass
+    try: con.execute("ALTER TABLE threads ADD COLUMN deleted INTEGER DEFAULT 0")   # migrate: soft-delete threads
+    except sqlite3.OperationalError: pass
     if not con.execute("SELECT 1 FROM boards LIMIT 1").fetchone():
         seed = [
             ("announcements", "Announcements", "Official news from the maintainers.", 0, "mod"),
@@ -235,20 +237,34 @@ async def is_registered(address):
     return ok
 
 # ---- helpers -------------------------------------------------------------------------------------
-def role_of(address):
-    """'mod' if the address is in the FORUM_MODS env set, else 'user'."""
-    return "mod" if address in MODS else "user"
+def is_admin(address):
+    """Bootstrap admins: the FORUM_MODS env set. Admins are always mods, can never be banned/demoted
+    through the API, and are the only ones who can grant/revoke the mod role."""
+    return address in MODS
+
+def user_role(con, address):
+    """Effective role. Env admins are always 'mod'; everyone else gets users.role from the DB
+    ('user' / 'mod' / 'banned'; unknown address -> 'user'). DB-backed so mods can be added and
+    users banned at runtime, without a service restart."""
+    if address in MODS:
+        return "mod"
+    row = con.execute("SELECT role FROM users WHERE address=?", (address,)).fetchone()
+    return (row["role"] or "user") if row else "user"
 
 def touch_user(con, address, public_key=None):
-    """Upsert the user row: refresh last_seen and role (and public_key if given), or insert a new user
-    (handle defaults to the address prefix, sver=0). Uses the caller's connection; does not commit."""
+    """Upsert the user row: refresh last_seen (and public_key if given), or insert a new user
+    (handle defaults to the address prefix, sver=0). NEVER overwrites an existing row's role —
+    roles are managed by /api/mod (the old role=role_of() rewrite would silently demote a
+    DB-promoted mod on their next post). Env admins self-heal to 'mod'. Does not commit."""
     now = int(time.time())
     if con.execute("SELECT address FROM users WHERE address=?", (address,)).fetchone():
-        con.execute("UPDATE users SET last_seen=?, public_key=COALESCE(?,public_key), role=? WHERE address=?",
-                    (now, public_key, role_of(address), address))
+        con.execute("UPDATE users SET last_seen=?, public_key=COALESCE(?,public_key) WHERE address=?",
+                    (now, public_key, address))
+        if address in MODS:
+            con.execute("UPDATE users SET role='mod' WHERE address=?", (address,))
     else:
         con.execute("INSERT INTO users(address,public_key,handle,created_at,last_seen,role,sver) VALUES(?,?,?,?,?,?,0)",
-                    (address, public_key, address[:10], now, now, role_of(address)))
+                    (address, public_key, address[:10], now, now, "mod" if address in MODS else "user"))
 
 def jerr(msg, status=400):
     """JSON error response: {"ok": false, "error": msg} with the given HTTP status."""
@@ -266,6 +282,9 @@ async def _gate_post(request):
         return None, jerr("slow down — one post every few seconds", 429)
     if not rate_ok("post_ip:" + client_ip(request), 20, 60):  # per-IP cap (bounds HD-account multiplication)
         return None, jerr("too many posts from your network — slow down", 429)
+    con = db(); role = user_role(con, a); con.close()
+    if role == "banned":
+        return None, jerr("this address is banned from posting", 403)
     if not await is_registered(a):
         return None, jerr("posting requires a REGISTERED NADO address (do the one-time registration in the wallet)", 403)
     return a, None
@@ -336,13 +355,16 @@ async def sso_callback(request):
     return resp
 
 async def api_me(request):
-    """GET /api/me — whoami for the UI. Anonymous: {"ok":true,"user":null}. Logged in: address, role,
-    and registered/can_post from the cached on-chain check. No auth required; read-only."""
+    """GET /api/me — whoami for the UI. Anonymous: {"ok":true,"user":null}. Logged in: address, role
+    (DB-backed, so runtime-promoted mods and bans reflect immediately), admin flag, and
+    registered/can_post from the cached on-chain check. No auth required; read-only."""
     a = current_user(request)
     if not a:
         return web.json_response({"ok": True, "user": None})
+    con = db(); role = user_role(con, a); con.close()
     reg = await is_registered(a)
-    return web.json_response({"ok": True, "user": {"address": a, "role": role_of(a), "registered": reg, "can_post": reg}})
+    return web.json_response({"ok": True, "user": {"address": a, "role": role, "admin": is_admin(a),
+                                                   "registered": reg, "can_post": reg and role != "banned"}})
 
 async def api_logout(request):
     """POST /api/logout — bump users.sver (voiding EVERY outstanding session token for the user, not just
@@ -356,29 +378,40 @@ async def api_logout(request):
     return resp
 
 # ---- content routes ------------------------------------------------------------------------------
+def _is_mod(request, con):
+    """True when the request carries a valid session whose effective role is 'mod'."""
+    a = current_user(request)
+    return bool(a) and user_role(con, a) == "mod"
+
 async def api_boards(request):
-    """GET /api/boards — all boards ordered by position, each with its thread count. Public, no auth."""
+    """GET /api/boards — all boards ordered by position, each with its non-deleted thread count.
+    Public, no auth."""
     con = db()
-    rows = con.execute("SELECT b.*, (SELECT COUNT(*) FROM threads t WHERE t.board_id=b.id) AS threads FROM boards b ORDER BY position").fetchall()
+    rows = con.execute("SELECT b.*, (SELECT COUNT(*) FROM threads t WHERE t.board_id=b.id AND t.deleted=0) AS threads "
+                       "FROM boards b ORDER BY position").fetchall()
     con.close()
     return web.json_response({"ok": True, "boards": [dict(r) for r in rows]})
 
 async def api_threads(request):
     """GET /api/threads?board=<slug> — the board plus its newest 100 threads (pinned first, then by
-    bumped_at desc), each with a non-deleted reply count. Public; 404 on unknown slug."""
+    bumped_at desc), each with a non-deleted reply count. Deleted threads are hidden from everyone
+    except mods (who see them flagged, for restore). Public; 404 on unknown slug."""
     slug = request.query.get("board", "")
     con = db()
     b = con.execute("SELECT * FROM boards WHERE slug=?", (slug,)).fetchone()
     if not b:
         con.close(); return jerr("no such board", 404)
+    mod = _is_mod(request, con)
     rows = con.execute(
         "SELECT t.*, (SELECT COUNT(*) FROM posts p WHERE p.thread_id=t.id AND p.deleted=0) AS replies "
-        "FROM threads t WHERE t.board_id=? ORDER BY t.pinned DESC, t.bumped_at DESC LIMIT 100", (b["id"],)).fetchall()
+        "FROM threads t WHERE t.board_id=?" + ("" if mod else " AND t.deleted=0") +
+        " ORDER BY t.pinned DESC, t.bumped_at DESC LIMIT 100", (b["id"],)).fetchall()
     con.close()
     return web.json_response({"ok": True, "board": dict(b), "threads": [dict(r) for r in rows]})
 
 async def api_thread(request):
-    """GET /api/thread?id=<int> — one thread with its board and all non-deleted posts in created order.
+    """GET /api/thread?id=<int> — one thread with its board and its posts in created order. Deleted
+    threads/posts are hidden from everyone except mods (who see them flagged, for restore/review).
     Public; 400 on a non-integer id, 404 on unknown thread."""
     try:
         tid = int(request.query.get("id", "0"))
@@ -386,16 +419,18 @@ async def api_thread(request):
         return jerr("bad id")
     con = db()
     t = con.execute("SELECT * FROM threads WHERE id=?", (tid,)).fetchone()
-    if not t:
+    mod = _is_mod(request, con)
+    if not t or (t["deleted"] and not mod):
         con.close(); return jerr("no such thread", 404)
-    posts = con.execute("SELECT * FROM posts WHERE thread_id=? AND deleted=0 ORDER BY created_at", (tid,)).fetchall()
+    posts = con.execute("SELECT * FROM posts WHERE thread_id=?" + ("" if mod else " AND deleted=0") +
+                        " ORDER BY created_at", (tid,)).fetchall()
     b = con.execute("SELECT * FROM boards WHERE id=?", (t["board_id"],)).fetchone()
     con.close()
     return web.json_response({"ok": True, "board": dict(b), "thread": dict(t), "posts": [dict(p) for p in posts]})
 
-def _board_allows(board_row, address):
-    """True unless the board is mod-only (post_min_role='mod') and the address isn't a mod."""
-    return board_row["post_min_role"] != "mod" or role_of(address) == "mod"
+def _board_allows(board_row, role):
+    """True unless the board is mod-only (post_min_role='mod') and the caller's role isn't 'mod'."""
+    return board_row["post_min_role"] != "mod" or role == "mod"
 
 async def api_new_thread(request):
     """POST /api/thread — create a thread + its opening post. JSON body: board (slug), title, body,
@@ -416,7 +451,7 @@ async def api_new_thread(request):
     b = con.execute("SELECT * FROM boards WHERE slug=?", (slug,)).fetchone()
     if not b:
         con.close(); return jerr("no such board", 404)
-    if not _board_allows(b, a):
+    if not _board_allows(b, user_role(con, a)):
         con.close(); return jerr("only moderators can post in this board", 403)
     now = int(time.time())
     cur = con.execute("INSERT INTO threads(board_id,author,title,created_at,bumped_at,pid) VALUES(?,?,?,?,?,?)",
@@ -443,12 +478,13 @@ async def api_reply(request):
         return jerr("empty reply")
     con = db()
     t = con.execute("SELECT * FROM threads WHERE id=?", (tid,)).fetchone()
-    if not t:
+    role = user_role(con, a)
+    if not t or (t["deleted"] and role != "mod"):
         con.close(); return jerr("no such thread", 404)
     b = con.execute("SELECT * FROM boards WHERE id=?", (t["board_id"],)).fetchone()
-    if b and not _board_allows(b, a):                 # mod-only board gate ALSO applies to replies
+    if b and not _board_allows(b, role):              # mod-only board gate ALSO applies to replies
         con.close(); return jerr("only moderators can post in this board", 403)
-    if t["locked"] and role_of(a) != "mod":
+    if t["locked"] and role != "mod":
         con.close(); return jerr("thread is locked", 403)
     now = int(time.time())
     con.execute("INSERT INTO posts(thread_id,author,body_md,created_at) VALUES(?,?,?,?)", (tid, a, body, now))
@@ -457,27 +493,82 @@ async def api_reply(request):
     _last_post[a] = time.time(); _reap_last_post()
     return web.json_response({"ok": True})
 
+# thread flag toggles: action -> (column, value). Soft delete/restore included (nothing is ever DROPped).
+_THREAD_ACTIONS = {"lock": ("locked", 1), "unlock": ("locked", 0),
+                   "pin": ("pinned", 1), "unpin": ("pinned", 0),
+                   "delete_thread": ("deleted", 1), "restore_thread": ("deleted", 0)}
+
 async def api_mod(request):
-    """POST /api/mod — moderator actions. JSON body: action in {lock,unlock,pin,unpin} with thread_id,
-    or delete_post (soft delete) with post_id. Requires a valid session with role 'mod' AND a passing
-    Origin check; anyone else gets 403. Returns {"ok":true} or 400 on an unknown action."""
+    """POST /api/mod — moderator actions (session role 'mod' + Origin check; 403 otherwise).
+    JSON body: {"action": ..., ...}:
+      lock/unlock/pin/unpin/delete_thread/restore_thread  {thread_id}   — thread flag toggles (soft)
+      move_thread   {thread_id, board}                                  — re-home a thread to a board slug
+      delete_post/restore_post  {post_id}                               — soft delete/restore one post
+      ban_user/unban_user  {address}      — role='banned'/'user' + sver bump (kills live sessions);
+                                            admins can't be banned; banning a fellow MOD needs admin
+      add_mod/remove_mod   {address}      — grant/revoke the mod role; ADMIN (FORUM_MODS env) only,
+                                            env admins can't be demoted
+    Every action targets one row and 404s when the target doesn't exist. Returns {"ok":true}."""
     if not origin_ok(request):
         return jerr("bad origin", 403)
     a = current_user(request)
-    if not a or role_of(a) != "mod":
-        return jerr("mods only", 403)
-    data = await request.json()
-    action = data.get("action"); tid = data.get("thread_id"); pid = data.get("post_id")
     con = db()
-    if action == "lock":   con.execute("UPDATE threads SET locked=1 WHERE id=?", (tid,))
-    elif action == "unlock": con.execute("UPDATE threads SET locked=0 WHERE id=?", (tid,))
-    elif action == "pin":  con.execute("UPDATE threads SET pinned=1 WHERE id=?", (tid,))
-    elif action == "unpin": con.execute("UPDATE threads SET pinned=0 WHERE id=?", (tid,))
-    elif action == "delete_post": con.execute("UPDATE posts SET deleted=1 WHERE id=?", (pid,))
-    else:
-        con.close(); return jerr("unknown action")
-    con.commit(); con.close()
-    return web.json_response({"ok": True})
+    if not a or user_role(con, a) != "mod":
+        con.close(); return jerr("mods only", 403)
+    try:
+        data = await request.json()
+    except Exception:
+        con.close(); return jerr("bad json")
+    action = data.get("action")
+
+    try:
+        if action in _THREAD_ACTIONS:
+            col, val = _THREAD_ACTIONS[action]
+            cur = con.execute(f"UPDATE threads SET {col}=? WHERE id=?", (val, int(data.get("thread_id", 0))))
+            if cur.rowcount == 0:
+                return jerr("no such thread", 404)
+
+        elif action == "move_thread":
+            b = con.execute("SELECT id FROM boards WHERE slug=?", ((data.get("board") or "").strip(),)).fetchone()
+            if not b:
+                return jerr("no such board", 404)
+            cur = con.execute("UPDATE threads SET board_id=? WHERE id=?", (b["id"], int(data.get("thread_id", 0))))
+            if cur.rowcount == 0:
+                return jerr("no such thread", 404)
+
+        elif action in ("delete_post", "restore_post"):
+            cur = con.execute("UPDATE posts SET deleted=? WHERE id=?",
+                              (1 if action == "delete_post" else 0, int(data.get("post_id", 0))))
+            if cur.rowcount == 0:
+                return jerr("no such post", 404)
+
+        elif action in ("ban_user", "unban_user", "add_mod", "remove_mod"):
+            target = (data.get("address") or "").strip()
+            if not validate_address(target):
+                return jerr("bad address")
+            if is_admin(target):
+                return jerr("that address is a bootstrap admin — manage it via FORUM_MODS", 403)
+            if action in ("add_mod", "remove_mod") and not is_admin(a):
+                return jerr("only bootstrap admins (FORUM_MODS) can grant or revoke the mod role", 403)
+            if action == "ban_user" and user_role(con, target) == "mod" and not is_admin(a):
+                return jerr("only bootstrap admins can ban a moderator", 403)
+            role = {"ban_user": "banned", "unban_user": "user", "add_mod": "mod", "remove_mod": "user"}[action]
+            # the target may never have signed in — create the row so the role sticks on first login.
+            now = int(time.time())
+            con.execute("INSERT OR IGNORE INTO users(address,handle,created_at,last_seen,role,sver) "
+                        "VALUES(?,?,?,?, 'user', 0)", (target, target[:10], now, now))
+            # sver bump revokes every outstanding session (a ban logs the user out everywhere).
+            con.execute("UPDATE users SET role=?, sver=sver+1 WHERE address=?", (role, target))
+
+        else:
+            return jerr("unknown action")
+
+        con.commit()
+        return web.json_response({"ok": True})
+    except (TypeError, ValueError):
+        return jerr("bad id")
+    finally:
+        con.close()
 
 async def api_treasury(request):
     """GET /api/treasury — proxy the node's /treasury_status for the governance board. Public;
