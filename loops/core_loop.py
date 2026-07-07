@@ -500,11 +500,12 @@ class CoreClient(threading.Thread):
         force_reanchor=True — WEDGE RECOVERY for an ESTABLISHED node. A node whose snapshot/finality floor
         sits on a minority fork can NEVER reach the divergence point by rollback (it is below the floor), and
         no honest canonical donor can serve its forked root — so normal fast-forward AND reorg are both dead
-        ends. In that state we re-import a SEED's snapshot over our forked state and tail-sync onto canonical.
-        This is a deliberate state overwrite, so it is gated harder than the genesis path: the checkpoint is
-        taken from an operator SEED directly (a fork majority CANNOT out-vote the seed — that is what trapped
-        us), and only when the seed's snapshot is strictly above our finality floor. Everything below the new
-        earliest block (our dead fork's blocks) is simply orphaned in the block store — never referenced."""
+        ends. In that state we re-import the heaviest chain's snapshot over our forked state and tail-sync.
+        The checkpoint is chosen by OBJECTIVE cumulative WEIGHT (not by identity/plurality): the snapshot of
+        the peer on the strictly-heaviest chain, above our finality floor. A lighter fork majority can never
+        win a weight comparison regardless of headcount, so it can no longer pin us — which is what the old
+        count-based agree_snapshot allowed. Everything below the new earliest block (our dead fork's blocks)
+        is simply orphaned in the block store — never referenced."""
         if self.memserver.latest_block["block_number"] != 0 and not force_reanchor:
             return False   # genesis-only for normal bootstrap; force_reanchor re-anchors an established node
         try:
@@ -526,22 +527,29 @@ class CoreClient(threading.Thread):
             _seeds = set(seed_peers())
 
             if force_reanchor:
-                # RE-ANCHOR: the operator SEED is the weak-subjectivity anchor and dictates the checkpoint
-                # ALONE — a fork majority must not be able to out-vote it (agree_snapshot's plurality is
-                # exactly what let the minority island pin us). Take the highest snapshot advertised by any
-                # responding seed that is strictly above our finality floor (so we always move forward and
-                # never re-anchor to a height we already hold).
-                seed_snaps = [(st["snapshot_height"], st["snapshot_hash"], ip)
-                              for ip, st in zip(peers, statuses)
-                              if st and ip in _seeds
-                              and st.get("snapshot_hash") and st.get("snapshot_height") is not None
-                              and st["snapshot_height"] > self.memserver.finalized_height]
-                if not seed_snaps:
-                    self.logger.info("Re-anchor: no operator seed advertises a snapshot above our finality "
-                                     "floor; staying put")
+                # RE-ANCHOR: pick the checkpoint by OBJECTIVE cumulative WEIGHT, not by identity. Re-anchor
+                # onto the snapshot advertised by the peer on the heaviest chain that is strictly heavier than
+                # ours AND above our finality floor. This is what fixes the minority-fork wedge WITHOUT giving
+                # any peer a privileged vote: a lighter fork majority can never win a weight comparison no
+                # matter how many nodes it has, so plurality (the old agree_snapshot count) can no longer pin
+                # us — while a genuinely heavier honest chain always does. Advertised weight is a HINT (a
+                # Sybil can inflate it); the wipe is bounded by the wedged-precondition + REANCHOR_COOLDOWN,
+                # and every tail block after the import is re-verified by verify_block, so a bogus checkpoint
+                # cannot be extended and the real heaviest chain re-triggers.
+                our_weight = self.memserver.latest_block.get("cumulative_weight", 0)
+                cand = [(st["latest_block_weight"], st["snapshot_height"], st["snapshot_hash"], ip)
+                        for ip, st in zip(peers, statuses)
+                        if st and st.get("latest_block_weight") is not None
+                        and st.get("snapshot_hash") and st.get("snapshot_height") is not None
+                        and st["latest_block_weight"] > our_weight
+                        and st["snapshot_height"] > self.memserver.finalized_height]
+                if not cand:
+                    self.logger.info("Re-anchor: no peer advertises a strictly-heavier chain with a snapshot "
+                                     "above our finality floor; staying put")
                     return False
-                target_height, target_hash, source = max(seed_snaps)
-                self.logger.warning(f"Re-anchoring to operator seed {source} snapshot at height {target_height}")
+                _, target_height, target_hash, source = max(cand)
+                self.logger.warning(f"Re-anchoring to heaviest-chain peer {source} snapshot at height "
+                                    f"{target_height} (weight-selected)")
             else:
                 # WEAK SUBJECTIVITY / anti-Sybil. import_snapshot only proves the donor's manifest is INTERNALLY
                 # consistent (per-chunk sha256 + a locally re-derived state_root == manifest) — it does NOT prove
@@ -630,38 +638,31 @@ class CoreClient(threading.Thread):
             self.logger.error(f"Snapshot bootstrap failed, falling back to full sync: {e}")
             return False
 
-    def _seed_heavier_source(self):
-        """Return an operator-seed IP that advertises a chain STRICTLY heavier than our tip, else None.
-        This is the trigger authority for a re-anchor: only a seed (the weak-subjectivity anchor) may pull a
-        wedged node onto a different history, so a Sybil peer-set advertising a fake heavy tip can never
-        provoke a state wipe. Weight units match refresh_heaviest_tip (advertised latest_block_weight vs our
-        cumulative_weight)."""
-        from ops.peer_ops import seed_peers
-        seeds = set(seed_peers())
+    def _heavier_chain_exists(self) -> bool:
+        """True if ANY peer advertises a chain STRICTLY heavier than our tip. This is the objective trigger
+        for a re-anchor — the heaviest valid chain wins, with no privileged voter. Weight units match
+        refresh_heaviest_tip (advertised latest_block_weight vs our cumulative_weight)."""
         our_weight = self.memserver.latest_block.get("cumulative_weight", 0)
-        best_ip, best_w = None, our_weight
-        for ip, st in self.consensus.status_pool.copy().items():
-            if ip not in seeds or not isinstance(st, dict):
-                continue
-            w = st.get("latest_block_weight")
-            if w is not None and w > best_w:
-                best_ip, best_w = ip, w
-        return best_ip
+        for st in self.consensus.status_pool.copy().values():
+            if isinstance(st, dict) and (st.get("latest_block_weight") or 0) > our_weight:
+                return True
+        return False
 
     def _maybe_reanchor(self) -> bool:
         """WEDGE RECOVERY. Called from the emergency loop when normal sync cannot make progress — the donor
-        can't serve our (forked) root, or the reorg leg hit a floor it can't cross. If a SEED advertises a
-        strictly-heavier chain, our snapshot/finality floor is on a minority fork: re-import the seed's
-        snapshot and tail-sync onto canonical. Rate-limited (REANCHOR_COOLDOWN) so a failing import can't
-        hammer the seed. Returns True iff we re-anchored (caller then resumes the loop on the new chain)."""
-        if not self._seed_heavier_source():
+        can't serve our (forked) root, or the reorg leg hit a floor it can't cross. If a strictly-heavier
+        chain exists, our snapshot/finality floor is on a minority fork: re-import that heavier chain's
+        snapshot (weight-selected, see snapshot_bootstrap) and tail-sync onto it. Rate-limited
+        (REANCHOR_COOLDOWN) so a failing import can't hammer peers. Returns True iff we re-anchored (caller
+        then resumes the loop on the new chain)."""
+        if not self._heavier_chain_exists():
             return False
         now = get_timestamp_seconds()
         if now - self._last_reanchor_ts < REANCHOR_COOLDOWN:
             return False
         self._last_reanchor_ts = now
-        self.logger.warning("Wedged behind a seed's heavier chain and normal sync cannot reconcile "
-                            "(our snapshot/finality floor is on a minority fork) — re-anchoring from seed")
+        self.logger.warning("Wedged behind a strictly-heavier chain and normal sync cannot reconcile "
+                            "(our snapshot/finality floor is on a minority fork) — re-anchoring by weight")
         if self.snapshot_bootstrap(force_reanchor=True):
             # our chain identity changed under us: drop stale fork-choice exclusions and the rollback burst
             # counter so the fresh tail sync starts clean.
@@ -713,8 +714,8 @@ class CoreClient(threading.Thread):
                     if self.memserver.latest_block["block_number"] == 0 and self.snapshot_bootstrap():
                         self.logger.warning("State bootstrapped from snapshot; continuing with tail sync")
                     # ESTABLISHED node, no donor can serve our root: we are on a minority fork whose root no
-                    # honest canonical peer holds. If a seed advertises a heavier chain, re-anchor onto it
-                    # (the only exit — normal fast-forward/reorg both require a donor that knows our root).
+                    # honest canonical peer holds. If a strictly-heavier chain exists, re-anchor onto it (the
+                    # only exit — normal fast-forward/reorg both require a donor that knows our root).
                     elif self._maybe_reanchor():
                         self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
                     time.sleep(1)
@@ -732,9 +733,9 @@ class CoreClient(threading.Thread):
                             break
                     elif self._rollback_one_for_reorg():
                         # the reorg leg gave up: rollback budget spent, no local parent left (snapshot floor),
-                        # or the finality floor refused it. If a seed advertises a strictly-heavier chain this
-                        # is a deep/minority fork we must re-anchor out of, rather than exit and re-mine our
-                        # losing fork (which would only advance our floor and cement the wedge).
+                        # or the finality floor refused it. If a strictly-heavier chain exists this is a
+                        # deep/minority fork we must re-anchor out of, rather than exit and re-mine our losing
+                        # fork (which would only advance our floor and cement the wedge).
                         if self._maybe_reanchor():
                             self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
                             continue
