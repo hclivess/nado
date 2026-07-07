@@ -9,6 +9,7 @@ from ops.account_ops import get_totals, index_totals, get_bonded_registry, get_o
 from ops.block_ops import (
     knows_block,
     get_blocks_after,
+    SYNC_BATCH_MAX,
     get_from_single_target,
     get_block_candidate,
     update_child_in_latest_block,
@@ -294,6 +295,20 @@ class CoreClient(threading.Thread):
             port=self.memserver.port,
             hash=self.memserver.earliest_block["block_hash"],
             logger=self.logger))
+
+    def _fetch_sync_batch(self, peer, from_hash):
+        """pull one forward-sync batch (up to SYNC_BATCH_MAX blocks after from_hash) from the donor.
+        Falsy on ANY failure — never raises, so it is safe to run in the emergency loop's prefetch
+        thread (asyncio.run spins a private event loop per call, thread-safe)."""
+        try:
+            return asyncio.run(get_blocks_after(
+                target_peer=peer,
+                from_hash=from_hash,
+                count=SYNC_BATCH_MAX,
+                logger=self.logger))
+        except Exception as e:
+            self.logger.error(f"Failed to fetch sync batch after {from_hash} from {peer}: {e}")
+            return None
 
     def get_peer_to_sync_from(self, source_pool):
         """peer to synchronize pool when out of sync, critical part
@@ -609,28 +624,47 @@ class CoreClient(threading.Thread):
                         )
 
                         try:
-                            new_blocks = asyncio.run(get_blocks_after(
-                                target_peer=peer,
-                                from_hash=block_hash,
-                                count=50,
-                                logger=self.logger
-                            ))
+                            new_blocks = self._fetch_sync_batch(peer=peer, from_hash=block_hash)
 
                             if new_blocks:
-                                for block in new_blocks:
-                                    if not self.memserver.terminate:
-                                        uninterrupted = self.produce_block(block=block,
-                                                                           remote=True,
-                                                                           remote_peer=peer)
-                                        if not uninterrupted:
-                                            # INVALID/FORGED sync block (verify failed): the advertised
-                                            # heavier tip is not backed by a valid chain — exclude it, or
-                                            # this loop re-enters forever on the same bad advertisement
-                                            # (Sybil-stall). Auto-cleared, so a transient failure on a
-                                            # REAL heavier chain is retried in ~30s.
-                                            if not self.memserver.terminate:
-                                                self._reject_heaviest_tip()
-                                            break
+                                # BATCH PIPELINE: chain batches from this donor, PREFETCHING the next
+                                # batch (keyed off this batch's tail hash) in a background thread while
+                                # the CPU verifies the current one — sync is verify-bound, so the
+                                # download rides for free. A mid-batch verify failure discards the
+                                # prefetch and rejects the tip exactly like before; a falsy prefetch
+                                # (donor exhausted/died) just ends the chain and the outer loop
+                                # re-evaluates being-behind and re-picks a donor.
+                                rejected = False
+                                while new_blocks and not self.memserver.terminate:
+                                    prefetch = {}
+                                    prefetch_thread = threading.Thread(
+                                        target=lambda tail=new_blocks[-1]["block_hash"]: prefetch.update(
+                                            batch=self._fetch_sync_batch(peer=peer, from_hash=tail)),
+                                        daemon=True)
+                                    prefetch_thread.start()
+
+                                    for block in new_blocks:
+                                        if not self.memserver.terminate:
+                                            uninterrupted = self.produce_block(block=block,
+                                                                               remote=True,
+                                                                               remote_peer=peer)
+                                            if not uninterrupted:
+                                                # INVALID/FORGED sync block (verify failed): the advertised
+                                                # heavier tip is not backed by a valid chain — exclude it, or
+                                                # this loop re-enters forever on the same bad advertisement
+                                                # (Sybil-stall). Auto-cleared, so a transient failure on a
+                                                # REAL heavier chain is retried in ~30s.
+                                                if not self.memserver.terminate:
+                                                    self._reject_heaviest_tip()
+                                                rejected = True
+                                                break
+
+                                    prefetch_thread.join()
+                                    if rejected:
+                                        break
+                                    new_blocks = prefetch.get("batch")
+                                if rejected:
+                                    break
                             else:
                                 # peer advertised heavier + claims to know our tip, then serves NOTHING —
                                 # a lying/broken peer. Reject the tip or we loop on it forever.

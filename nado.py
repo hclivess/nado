@@ -26,8 +26,8 @@ from ops.account_ops import get_account, fetch_totals, get_bonded_registry
 from ops.address_ops import proof_sender
 from Curve25519 import verify as _mldsa_verify, unhex as _mldsa_unhex
 from ops.mining_ops import total_shares
-from ops.block_ops import get_block, fee_over_blocks, get_block_number
-from ops.data_ops import get_home, allow_async
+from ops.block_ops import get_block, fee_over_blocks, get_block_number, SYNC_BATCH_MAX, SYNC_BATCH_BYTES
+from ops.data_ops import get_home, allow_async, get_byte_size
 from ops.key_ops import keyfile_found, generate_keys, save_keys
 from ops.log_ops import get_logger
 from ops.peer_ops import save_peer, get_remote_status, check_ip, me_to
@@ -415,16 +415,16 @@ async def block_by_number(request):
 
 async def blocks_before(request):
     """GET /get_blocks_before?hash=&count=&compress=: up to `count` ancestors of `hash` (count capped at
-    100 — the read-amplification bound), returned oldest-first. Rate-limited 60/min per IP since each
-    block is a disk read. ?compress=zstd is the block-sync wire format peers use."""
-    if _rate_limited(request, 60):  # up to 100 block-file reads per call; throttle
+    SYNC_BATCH_MAX + byte-budgeted like blocks_after), returned oldest-first. Rate-limited 60/min per IP
+    since each block is a disk read. ?compress=zstd is the block-sync wire format peers use."""
+    if _rate_limited(request, 60):  # up to SYNC_BATCH_MAX block-file reads per call; throttle
         return _RL
 
     def _work():
-        """Walk parent_hash links collecting up to `count` blocks (worker thread)."""
+        """Walk parent_hash links collecting up to `count` blocks under the byte budget (worker thread)."""
         block_hash = _q(request, "hash")
-        count = min(int(_q(request, "count", "1")), 100)
-        collected, code = [], 200
+        count = min(int(_q(request, "count", "1")), SYNC_BATCH_MAX)
+        collected, size, code = [], 0, 200
         try:
             parent = get_block(block_hash)
             if parent:
@@ -434,6 +434,9 @@ async def blocks_before(request):
                     if not block:
                         break
                     collected.append(block)
+                    size += get_byte_size(block)
+                    if size > SYNC_BATCH_BYTES:
+                        break
                     parent_hash = block["parent_hash"]
                 collected.reverse()
             else:
@@ -449,16 +452,17 @@ async def blocks_before(request):
 
 async def blocks_after(request):
     """GET /get_blocks_after?hash=&count=&compress=: up to `count` descendants of `hash` (count capped at
-    100), ascending — the primary block-sync pull peers use with ?compress=zstd. Rate-limited 60/min per
-    IP since each block is a disk read."""
-    if _rate_limited(request, 60):  # up to 100 block-file reads per call; throttle
+    SYNC_BATCH_MAX, response additionally capped by SYNC_BATCH_BYTES so fat-block batches stay well under
+    the client's 64 MiB wire bomb cap), ascending — the primary block-sync pull peers use with
+    ?compress=zstd. Rate-limited 60/min per IP since each block is a disk read."""
+    if _rate_limited(request, 60):  # up to SYNC_BATCH_MAX block-file reads per call; throttle
         return _RL
 
     def _work():
-        """Walk child_hash links collecting up to `count` blocks (worker thread)."""
+        """Walk child_hash links collecting up to `count` blocks under the byte budget (worker thread)."""
         block_hash = _q(request, "hash")
-        count = min(int(_q(request, "count", "1")), 100)
-        collected, code = [], 200
+        count = min(int(_q(request, "count", "1")), SYNC_BATCH_MAX)
+        collected, size, code = [], 0, 200
         try:
             child = get_block(block_hash)
             if child:
@@ -468,6 +472,9 @@ async def blocks_after(request):
                     if not block:
                         break
                     collected.append(block)
+                    size += get_byte_size(block)
+                    if size > SYNC_BATCH_BYTES:
+                        break
                     child_hash = block["child_hash"]
             else:
                 code = 404

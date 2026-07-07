@@ -37,9 +37,16 @@ def _unpack_block(raw: bytes):
 
 
 # Bounded decompress for the zstd block-sync WIRE payload (get_blocks_after/before). max_output_size caps a
-# decompression bomb from an untrusted peer (a tiny frame that expands to gigabytes); 100 blocks of real
-# data is only a few MB, so 64 MiB is a generous ceiling.
+# decompression bomb from an untrusted peer (a tiny frame that expands to gigabytes); a full sync batch of
+# real data is a few MB (SYNC_BATCH_BYTES bounds the serve side), so 64 MiB is a generous ceiling.
 _ZSTD_WIRE_MAX = 64 << 20
+
+# Block-sync batch bounds, shared by the serve side (nado.py blocks_after/before: hard count cap + byte
+# budget so a fat-block batch stays far under the client's _ZSTD_WIRE_MAX bomb cap) and the pull side
+# (core_loop emergency sync asks for SYNC_BATCH_MAX; an old peer capped at 100 simply returns fewer —
+# the puller never assumes a full batch). Mostly-empty ML-DSA blocks are ~7 KB, so 500 is ~3.5 MB typical.
+SYNC_BATCH_MAX = 500
+SYNC_BATCH_BYTES = 8 << 20
 
 
 def _unpack_wire(body: bytes):
@@ -794,11 +801,12 @@ async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="z
     """Fetch up to `count` blocks AFTER from_hash from a peer (forward sync). The default zstd wire
     is decoded through the bomb-capped _unpack_wire, so an untrusted peer cannot balloon a tiny
     frame into gigabytes. Falsy on any failure (non-200, timeout, bad payload) — the caller moves
-    on to another peer."""
+    on to another peer. connect stays tight (a dead peer fails in 5s) while total allows a full
+    SYNC_BATCH_MAX batch to transfer on a slow link."""
     try:
         url_construct = f"http://{hostport(target_peer, get_config()['port'])}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
 
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60, connect=5)) as session:
             async with session.get(url_construct) as response:
                 code = response.status
 
@@ -819,11 +827,12 @@ async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="z
 
 async def get_blocks_before(target_peer, from_hash, logger, count=50, compress="zstd"):
     """mirror of get_blocks_after for backward sync: up to `count` blocks BEFORE from_hash (walking
-    toward genesis), same bomb-capped zstd wire decode, falsy on any failure."""
+    toward genesis), same bomb-capped zstd wire decode, same tight-connect/long-total timeout split,
+    falsy on any failure."""
     try:
         url_construct = f"http://{hostport(target_peer, get_config()['port'])}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
 
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60, connect=5)) as session:
             async with session.get(url_construct) as response:
                 code = response.status
 
