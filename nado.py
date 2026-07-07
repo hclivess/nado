@@ -1053,7 +1053,7 @@ async def get_msg_key(request):
 # Deep-linkable interface URLs — /aliases, /messages, /send, … serve the SAME single-page interface, so a
 # shared link like https://get.nadochain.com/aliases opens straight on that tab (the client reads the path).
 _TAB_PATHS = ("wallet", "send", "receive", "aliases", "stake", "quorum", "multisig", "messages",
-              "history", "rich", "stats", "swap", "shield", "explore", "settings")
+              "history", "rich", "stats", "swap", "shield", "settlement", "explore", "settings")
 
 
 async def interface_page(request):

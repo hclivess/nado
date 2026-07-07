@@ -167,6 +167,22 @@ async def h_root(request):
                               "contracts": len(state.contracts), "l1": L1})
 
 
+async def h_settlement(request):
+    """Settlement status for THIS exec node: its current (cursor, state_root), whether it posts `settle`
+    attestations to L1 (the bonded-validator duty, NADO_EXEC_SETTLE), the cadence, and the last cursor it
+    settled. The interface combines this with L1's /get_settled (the ecosystem-wide justified root) to show
+    'this node's tip' vs 'the settled root' and how far behind settlement is."""
+    return web.json_response({
+        "cursor": state.cursor,
+        "state_root": state.state_root(),
+        "contracts": len(state.contracts),
+        "settle_enabled": SETTLE,
+        "settle_every": SETTLE_EVERY,
+        "last_settled_cursor": _last_settled_cursor,
+        "l1": L1,
+    })
+
+
 async def h_contracts(request):
     """List every deployed contract (cid, deployer, method names) — storage omitted, use /exec/contract."""
     return web.json_response({"contracts": [
@@ -464,6 +480,7 @@ async def main():
     loop forever — the HTTP server and the L1 tail share one event loop."""
     app = web.Application(middlewares=[_cors], client_max_size=MAX_BODY_BYTES)   # H-7: cap POST body size
     app.add_routes([web.get("/exec/root", h_root),
+                    web.get("/exec/settlement", h_settlement),
                     web.get("/exec/shielded", h_shielded),
                     web.get("/exec/field_shielded", h_field_shielded),
                     web.get("/exec/field_leaves", h_field_leaves),

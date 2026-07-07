@@ -3345,7 +3345,50 @@ async function renderSwaps() {
 }
 
 // Deep-linkable tab URLs — /aliases, /messages, /send, … (the node serves the interface at each path).
-const TAB_NAMES = new Set(["wallet", "send", "receive", "aliases", "stake", "quorum", "multisig", "messages", "history", "rich", "stats", "swap", "shield", "explore", "settings"]);
+const TAB_NAMES = new Set(["wallet", "send", "receive", "aliases", "stake", "quorum", "multisig", "messages", "history", "rich", "stats", "swap", "shield", "settlement", "explore", "settings"]);
+
+// Read-only Settlement (L2) view: L1's justified settled root (/get_settled) vs this exec node's tip
+// (/exec/settlement) vs the mining wallet's bonded role. Fail-soft: any source may be down (exec node not
+// running, no settlement yet) and the panel still renders what it can, never throwing.
+async function renderSettlement() {
+  const setT = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+  let settled = null, execn = null, acct = null;
+  try { settled = await (await fetch(relayBase() + "/get_settled", { cache: "no-store" })).json(); } catch (e) {}
+  try { execn = await (await fetch(execBase() + "/exec/settlement", { cache: "no-store" })).json(); } catch (e) {}
+  try { acct = await (await fetch(relayBase() + "/get_account?address=" + encodeURIComponent(state.wallet.address), { cache: "no-store" })).json(); } catch (e) {}
+
+  const sRoot = settled && settled.state_root;
+  const sCursor = settled ? settled.exec_cursor : null;
+  setT("settleL1Root", sRoot ? (sRoot.slice(0, 20) + "…") : "none settled yet");
+  setT("settleL1Cursor", (sCursor != null && sCursor >= 0) ? String(sCursor) : "—");
+
+  const eCursor = execn ? execn.cursor : null;
+  setT("settleExecCursor", (eCursor != null && eCursor >= 0) ? String(eCursor)
+                                                             : (execn ? "syncing…" : "exec node unreachable"));
+
+  let gap = "—";
+  if (execn && eCursor != null && sCursor != null && sCursor >= 0) gap = String(Math.max(0, eCursor - sCursor)) + " block(s)";
+  setT("settleGap", gap);
+
+  let match = "—";
+  if (execn && execn.state_root && sRoot) match = (execn.state_root === sRoot) ? "✅ yes" : "⚠️ divergent — investigate";
+  setT("settleMatch", match);
+
+  let bonded = 0n;
+  try { bonded = acct && acct.bonded ? BigInt(acct.bonded) : 0n; } catch (e) { bonded = 0n; }
+  let role, note = "";
+  if (bonded > 0n && execn && execn.settle_enabled) {
+    role = "Settling — attesting every " + (execn.settle_every || "?") + " blocks";
+  } else if (bonded > 0n) {
+    role = "Bonded, not settling";
+    note = "Your stake is bonded, but this node isn't posting settlement attestations. Set NADO_EXEC_SETTLE=1 on your exec node to help settle the L2.";
+  } else {
+    role = "Observer";
+    note = "Bond stake (Stake tab) to become a validator that attests the L2 state root to L1.";
+  }
+  setT("settleRole", role);
+  setT("settleNote", note);
+}
 window.addEventListener("popstate", () => { const p = location.pathname.replace(/^\/+/, ""); if (state.wallet && TAB_NAMES.has(p)) showTab(p); });
 
 function showTab(name) {
@@ -3363,6 +3406,7 @@ function showTab(name) {
   else if (name === "stats") renderStats().catch(() => {});
   else if (name === "swap") renderSwaps().catch(() => {});
   else if (name === "shield") renderShield().catch(() => {});
+  else if (name === "settlement") renderSettlement().catch(() => {});
   else if (name === "send") { updateFeeInfo().catch(() => {}); validateSendTo().catch(() => {}); addrBookRender(); }
   else if (name === "stake") { updateFeeInfo().catch(() => {}); refreshDashboard().catch(() => {}); }
   else if (name === "quorum") renderQuorum().catch(() => {});

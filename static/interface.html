@@ -162,6 +162,7 @@
     <button class="tab" data-tabbtn="stats" data-i18n="tab.stats">Stats</button>
     <button class="tab" data-tabbtn="swap" data-i18n="tab.swap">Swap</button>
     <button class="tab" data-tabbtn="shield" data-i18n="tab.shield">Shield</button>
+    <button class="tab" data-tabbtn="settlement">Settlement</button>
     <button class="tab" data-tabbtn="explore" data-i18n="tab.explore">Explore</button>
     <button class="tab" data-tabbtn="settings" data-i18n="tab.settings">Settings</button>
   </nav>
@@ -455,6 +456,19 @@
     <div class="mt"><div class="label" data-i18n="stats.supplySplit">Supply distribution</div>
       <svg id="chartSupply" viewBox="0 0 320 132" width="100%" style="height:auto;max-width:520px" aria-hidden="true"></svg></div>
     <div class="faint small mt" data-i18n="stats.note">Live from the relay you're connected to. Time-series cover the most recent blocks.</div>
+  </div>
+
+  <!-- SETTLEMENT (L2 settlement-layer status, read-only) -->
+  <div id="settlementCard" class="card hidden" data-tab="settlement">
+    <h2>⚖️ Settlement (L2)</h2>
+    <div class="faint small">NADO settles a separate execution layer: bonded miners attest the L2 state root to L1, and it becomes canonical once 2/3 of bonded stake agrees. This shows the settled root, this node's execution tip, and your role as a miner.</div>
+    <div class="mt"><div class="label">L1 settled root</div><div id="settleL1Root" class="mono">—</div></div>
+    <div class="mt"><div class="label">Settled at block</div><div id="settleL1Cursor">—</div></div>
+    <div class="mt"><div class="label">Execution tip (this node)</div><div id="settleExecCursor">—</div></div>
+    <div class="mt"><div class="label">Blocks awaiting settlement</div><div id="settleGap">—</div></div>
+    <div class="mt"><div class="label">Your root agrees with the quorum</div><div id="settleMatch">—</div></div>
+    <div class="mt"><div class="label">Your role</div><div id="settleRole" class="mono">—</div></div>
+    <div id="settleNote" class="faint small mt"></div>
   </div>
 
   <!-- SWAP (HTLC cross-chain atomic swaps) -->

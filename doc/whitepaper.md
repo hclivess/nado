@@ -1076,13 +1076,28 @@ Additional hardening and feature items, all currently **planned/partial**:
   capped elastic term).
 - **Snapshot-bootstrap hardening** items (allocation bound, quorum floor /
   state-root binding).
-- **Programmability via a separate execution layer** (design only) — RISC-V smart
-  contracts are explicitly kept *off* L1; the planned shape is a sovereign DA+ordering
-  layer that touches consensus, at most, through one bounded proof verifier, so
+- **Programmability via a separate execution layer** (Phase 1 sovereign + Phase 2a
+  settlement **built**; validity-proof Phase 2b designed) — RISC-V smart contracts are
+  explicitly kept *off* L1; the shape is a sovereign DA+ordering layer that touches
+  consensus, at most, through one bounded proof verifier, so
   phone-mining/finality/simplicity are preserved. See
   [execution-layer.md](execution-layer.md), and the cited VM/proving-frontier survey in
   [execution-layer-vm-research.md](execution-layer-vm-research.md) (the PQ-soundness ↔
   cheap-verifier tension; Circle-STARK/Stwo + lookup VM as the forward bet).
+- **Settlement layer & throughput** ([l2-settlement.md](l2-settlement.md),
+  [settlement-layer.md](settlement-layer.md)) — L1 orders opaque `blob`s, guarantees
+  availability, and advances a settled state-root pointer when a settlement is *justified*:
+  today a 2/3 **bonded-stake quorum** (`ops/settlement_ops.settlement_justified`, built,
+  exposed at `/get_settled`); next a single **STARK validity proof**, reusing the shielded
+  pool's FRI prover behind the *same* predicate. Because L1 **verifies one proof per batch
+  and never re-executes an L2 transaction**, its settlement cost is **O(1) in L2 transaction
+  count** — a 10-tx rollup and a 10 000-tx rollup impose identical L1 load. Base-layer
+  payment throughput stays deliberately modest (large PQ signatures, phone-validatable);
+  **aggregate L2 throughput is bounded by data-availability bandwidth, not L1 execution** —
+  on the order of hundreds–thousands of L2 tx/s at the current `MAX_BLOB_BYTES_PER_BLOCK`
+  (256 KiB) and 10 s blocks, and rising **independently** as erasure-coded DA sampling
+  raises the blob budget without making phones store more. The live mining wallet surfaces
+  this at the **Settlement** tab (`/exec/settlement` + `/get_settled`).
 - **Scaling** ([scaling-analysis.md](scaling-analysis.md)) — pluggable native-ML-DSA backend
   (shipped) + mempool O(N²) fix (shipped); the real structural fix is **aggregating the O(N)
   per-epoch consensus messages** (presence-root → PQ proof-of-threshold), since
