@@ -3564,7 +3564,7 @@ function rollupRenderArgs(cid, method) {
       const inp = document.createElement("input"); inp.className = "rollup-arg"; inp.dataset.i = i; inp.placeholder = name;
       wrap.appendChild(inp); box.appendChild(wrap);
     });
-    if (!(abi.args || []).length) box.innerHTML = '<span class="faint small">' + esc(i18("rollup.noArgs", "no arguments")) + '</span>';
+    if (!(abi.args || []).length) box.innerHTML = '<span class="faint small">' + escapeHtml(i18("rollup.noArgs", "no arguments")) + '</span>';
   } else if (method) {
     jsonf.classList.remove("hidden");   // unknown ABI -> raw JSON args
   } else {
@@ -3574,14 +3574,14 @@ function rollupRenderArgs(cid, method) {
 
 async function rollupShowDetail(cid) {
   const d = $("rollupDetail"), info = _rollupContracts[cid] || { methods: [], pending: false };
-  const head = '<div class="label">' + i18("rollup.contractId", "Contract") + '</div><div class="addr small break">' + esc(cid) + '</div>'
-    + '<div class="label mt">' + i18("rollup.methods", "Methods") + '</div><div class="mono small">' + esc(info.methods.join(", ") || "—") + '</div>';
-  if (info.pending) { d.innerHTML = head + '<div class="faint small mt">' + esc(i18("rollup.pendingDetail", "Pending — appears once applied at finality (a few minutes).")) + '</div>'; return; }
-  d.innerHTML = head + '<div class="faint small mt">' + esc(i18("rollup.loading", "Loading…")) + '</div>';
+  const head = '<div class="label">' + i18("rollup.contractId", "Contract") + '</div><div class="addr small break">' + escapeHtml(cid) + '</div>'
+    + '<div class="label mt">' + i18("rollup.methods", "Methods") + '</div><div class="mono small">' + escapeHtml(info.methods.join(", ") || "—") + '</div>';
+  if (info.pending) { d.innerHTML = head + '<div class="faint small mt">' + escapeHtml(i18("rollup.pendingDetail", "Pending — appears once applied at finality (a few minutes).")) + '</div>'; return; }
+  d.innerHTML = head + '<div class="faint small mt">' + escapeHtml(i18("rollup.loading", "Loading…")) + '</div>';
   try {
     const r = await fetch(execBase() + "/exec/contract?ns=" + encodeURIComponent(rollupNs()) + "&cid=" + encodeURIComponent(cid), { cache: "no-store" });
     const c = r.ok ? await r.json() : {};
-    d.innerHTML = head + '<div class="label mt">' + i18("rollup.storage", "Storage") + '</div><pre class="mono small">' + esc(JSON.stringify(c.storage || {}, null, 1)) + '</pre>';
+    d.innerHTML = head + '<div class="label mt">' + i18("rollup.storage", "Storage") + '</div><pre class="mono small">' + escapeHtml(JSON.stringify(c.storage || {}, null, 1)) + '</pre>';
   } catch (e) { d.innerHTML = head; }
 }
 
@@ -3620,8 +3620,8 @@ async function rollupDeploy() {
   const res = await submitTransaction(tx);
   if (res.data && res.data.result) {
     rollupAddPending(ns, cid, Object.keys(code), payload.abi);
-    msg.innerHTML = i18("rollup.deployedAs", "Deployed as") + ' <span class="addr">' + esc(cid)
-      + '</span> — ' + esc(i18("rollup.afterFinality", "live after finality (a few minutes)."));
+    msg.innerHTML = i18("rollup.deployedAs", "Deployed as") + ' <span class="addr">' + escapeHtml(cid)
+      + '</span> — ' + escapeHtml(i18("rollup.afterFinality", "live after finality (a few minutes)."));
     await rollupRefresh();
     rollupSelectContract(cid, "mine");                                    // auto-select it, ready to call
   } else {
@@ -3666,10 +3666,10 @@ function rollupHistLog(ns, entry) {
 function rollupRenderHistory() {
   const el = $("rollupHistory"); if (!el) return;
   let arr = []; try { arr = (JSON.parse(localStorage.getItem("nado_rollup_hist") || "{}"))[rollupNs()] || []; } catch (e) {}
-  if (!arr.length) { el.innerHTML = '<span class="faint">' + esc(i18("rollup.noHistory", "No calls yet.")) + '</span>'; return; }
-  el.innerHTML = arr.map((e) => '<div class="rollup-hist"><span class="mono">' + esc((e.cid || "").slice(0, 10)) + '….' + esc(e.method)
-    + '(' + esc(JSON.stringify(e.args)) + ')</span> <span class="' + (e.ok ? "faint" : "err") + '">' + esc(e.status) + '</span> '
-    + '<span class="faint">' + esc(new Date(e.ts).toLocaleTimeString()) + '</span></div>').join("");
+  if (!arr.length) { el.innerHTML = '<span class="faint">' + escapeHtml(i18("rollup.noHistory", "No calls yet.")) + '</span>'; return; }
+  el.innerHTML = arr.map((e) => '<div class="rollup-hist"><span class="mono">' + escapeHtml((e.cid || "").slice(0, 10)) + '….' + escapeHtml(e.method)
+    + '(' + escapeHtml(JSON.stringify(e.args)) + ')</span> <span class="' + (e.ok ? "faint" : "err") + '">' + escapeHtml(e.status) + '</span> '
+    + '<span class="faint">' + escapeHtml(new Date(e.ts).toLocaleTimeString()) + '</span></div>').join("");
 }
 
 /* ----------------------------------------------------------------------------------------------
