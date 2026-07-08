@@ -143,6 +143,27 @@ The Phase-1 machinery is correctness-first; these are the documented upgrades fo
 | client (WASM) / delegated proving | ⏳ Phase 2 |
 | L1 shield-escrow + unshield settled-root exit | ✅ (tests/test_shield_l1.py) |
 | exec-node pool: shield/transfer/unshield + compact state_root + unshield proof | ✅ (tests/test_shielded_exec.py) |
+| **DA-backed transfers — proof rides the DA layer, the L1 blob carries only its commitment** | ✅ (tests/test_da_shielded_transfer.py) |
+
+### Multi-validator settlement of the pool (the DA-backed transfer path)
+
+A shielded-transfer STARK proof is ~1-4 MB — far past the 16 KiB per-tx blob cap — so it can't ride L1
+directly. Previously a field transfer reached the exec node only via `POST /exec/apply_field_transfer`, so
+different exec nodes held divergent pool state and the bonded quorum could never settle a root covering the
+pool (a **single-operator** shielded pool: a *provable* operator that can't steal/forge but can censor/stall).
+
+It's now **L1-ordered + DA-available**, so the whole quorum can reconstruct + settle the pool:
+
+- The prover publishes the proof to the **DA layer** (`ops/da_store.py`: Reed-Solomon k-of-n + an index-bound
+  PQ Merkle commitment; every `(shard, proof)` self-verifies, so shards spread across DA nodes and any k
+  reconstruct trustlessly). Served over `/da/publish · /da/meta · /da/shard · /da/get · /da/accept`.
+- The wallet submits an L1 **`blob`** carrying only `{op: field_transfer, proof_da: <commitment>}` (a few
+  hundred bytes). This fixes the transfer's **ORDER** and (via the commitment) its exact content.
+- Each exec node **pre-resolves** every field-transfer proof from DA *before* mutating state
+  (`da_fetch`), all-or-nothing per block: an unavailable proof **stalls the block in L1 order** rather than
+  half-applying it. Every honest node fetches the identical bundle by commitment → applies the identical
+  transfer → identical committed root. Phones never touch any of this — it is a full/exec/DA-node concern.
+- DA is a **rolling window**: once a transfer is settled + snapshotted, its proof is `prune()`-able.
 | ML-DSA spend authorisation (a leaked note opening can't move funds) | ✅ (tests/test_shielded.py t7) |
 
 The honest summary: the **pool is real, sound, and frozen behind a verifier seam**; the **zero-knowledge**
