@@ -304,11 +304,13 @@ RANDAO_ENFORCED = False
 FINALITY_DEPTH = 12
 
 # Bonded lane: locked refundable stake, split-neutral, per-identity capped.
-B_MIN = 10_000_000_000_000         # 1,000 NADO: capital per bonded selection share (staking-lane entry).
-                                   # Deliberately NOT tiny: grinding spending money is fast+fair (open lane),
-                                   # but becoming a VALIDATOR is a real commitment — skin in the game, and
-                                   # it stops the bonded lane from being trivially Sybil-able with dust.
-BOND_CAP = 1_000_000_000_000_000   # 100,000 NADO: max effective bond per identity (scaled 10x with B_MIN)
+B_MIN = 100_000_000_000            # 10 NADO: capital per bonded selection share (staking-lane entry).
+                                   # LOWERED 100x from 1,000 NADO: on a fair launch nobody can grind 1,000
+                                   # NADO to become a validator, which left the bonded lane empty and the
+                                   # chain running on the zero-stake open-lane fallback. 10 NADO is reachable
+                                   # by an ordinary miner yet still real skin-in-the-game (Sybil in the bonded
+                                   # lane costs 10 NADO × shares, locked + slashable — unlike the free open lane).
+BOND_CAP = 10_000_000_000_000      # 1,000 NADO: max effective bond per identity (100x B_MIN)
 MAX_SHARES = BOND_CAP // B_MIN     # 100: variance cap so a whale can't monopolise the bonded lane
 # BONDED PRODUCER RAMP (anti-sudden-takeover): a newly-bonded identity's PRODUCER-SELECTION weight ramps
 # linearly from 0 to full over BOND_RAMP_EPOCHS, tracked by a STAKE-WEIGHTED bond age (so a top-up re-ramps

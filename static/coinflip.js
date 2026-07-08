@@ -192,7 +192,7 @@ async function boot() {
   wireUI();
   handleReturn();
   const q = new URLSearchParams(location.search).get("game");
-  if (q) $("joinId").value = q;
+  if (q) { $("joinId").value = q; if (active == null) active = parseInt(q, 10); }   // deep link -> show + auto-poll the game
   if (me) await fetchBalance();
   render();
   if (active != null) refreshActive();
