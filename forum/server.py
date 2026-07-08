@@ -568,11 +568,16 @@ async def api_reply(request):
 
 async def api_edit_post(request):
     """POST /api/edit_post — edit the body of YOUR OWN post (a mod may edit any). JSON body:
-    {post_id (int), body}. Sets body_md + edited_at; a deleted post can't be edited. No anti-spam gate
-    (editing isn't a new post), but a banned user has no valid session. Returns {ok, edited_at, body_md}."""
+    {post_id (int), body}. Sets body_md + edited_at. Mirrors api_reply's gates: Origin-checked (CSRF),
+    per-IP rate-limited, and refuses a deleted post, a LOCKED or deleted thread (for non-mods), a banned
+    user, and a cross-author edit. Returns {ok, edited_at, body_md}."""
+    if not origin_ok(request):
+        return jerr("bad origin", 403)
     a = current_user(request)
     if not a:
         return jerr("not logged in", 401)
+    if not rate_ok("editpost:" + client_ip(request), 20, 60):
+        return jerr("too many edits — slow down", 429)
     try:
         data = await request.json()
         pid = int(data.get("post_id", 0))
@@ -590,6 +595,13 @@ async def api_edit_post(request):
         con.close(); return jerr("this address is banned", 403)
     if p["author"] != a and role != "mod":
         con.close(); return jerr("you can only edit your own posts", 403)
+    # mirror api_reply: a non-mod cannot edit inside a LOCKED or soft-deleted thread (so locking a thread —
+    # e.g. a decided proposal — actually freezes its post contents, not just new replies).
+    t = con.execute("SELECT * FROM threads WHERE id=?", (p["thread_id"],)).fetchone()
+    if not t or (t["deleted"] and role != "mod"):
+        con.close(); return jerr("no such thread", 404)
+    if t["locked"] and role != "mod":
+        con.close(); return jerr("thread is locked", 403)
     now = int(time.time())
     con.execute("UPDATE posts SET body_md=?, edited_at=? WHERE id=?", (body, now, pid))
     touch_user(con, a); con.commit(); con.close()
