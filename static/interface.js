@@ -3554,19 +3554,28 @@ function rollupLoadMethods(cid) {
 function rollupRenderArgs(cid, method) {
   const doc = $("rollupMethodDoc"), box = $("rollupArgs"), jsonf = $("rollupCallArgs");
   doc.textContent = ""; box.innerHTML = "";
-  const abi = ((_rollupContracts[cid] || {}).abi || {})[method];
-  if (method && abi) {
+  const info = _rollupContracts[cid] || {};
+  const abi = (info.abi || {})[method];
+  let argNames = null;
+  if (method && abi) {                                  // ABI -> named, documented arg fields
     if (abi.doc) doc.textContent = abi.doc;
+    argNames = abi.args || [];
+  } else if (method && info.code && info.code[method]) { // no ABI -> infer arg COUNT from the bytecode's ARG(i)
+    let maxi = -1;
+    for (const ins of info.code[method]) if (ins[0] === "ARG" && typeof ins[1] === "number") maxi = Math.max(maxi, ins[1]);
+    argNames = Array.from({ length: maxi + 1 }, (_, i) => "arg" + i);
+  }
+  if (argNames) {
     jsonf.classList.add("hidden");
-    (abi.args || []).forEach((name, i) => {
+    argNames.forEach((name, i) => {
       const wrap = document.createElement("div"); wrap.className = "mt";
       const lab = document.createElement("label"); lab.textContent = name; wrap.appendChild(lab);
       const inp = document.createElement("input"); inp.className = "rollup-arg"; inp.dataset.i = i; inp.placeholder = name;
       wrap.appendChild(inp); box.appendChild(wrap);
     });
-    if (!(abi.args || []).length) box.innerHTML = '<span class="faint small">' + escapeHtml(i18("rollup.noArgs", "no arguments")) + '</span>';
+    if (!argNames.length) box.innerHTML = '<span class="faint small">' + escapeHtml(i18("rollup.noArgs", "no arguments")) + '</span>';
   } else if (method) {
-    jsonf.classList.remove("hidden");   // unknown ABI -> raw JSON args
+    jsonf.classList.remove("hidden");   // code not loaded yet -> raw JSON fallback (re-renders once detail arrives)
   } else {
     jsonf.classList.add("hidden");
   }
@@ -3581,6 +3590,7 @@ async function rollupShowDetail(cid) {
   try {
     const r = await fetch(execBase() + "/exec/contract?ns=" + encodeURIComponent(rollupNs()) + "&cid=" + encodeURIComponent(cid), { cache: "no-store" });
     const c = r.ok ? await r.json() : {};
+    if (c.code) { info.code = c.code; if ($("rollupCallMethodSel").value) rollupRenderArgs(cid, $("rollupCallMethodSel").value); }  // now that we have the bytecode, infer arg fields
     d.innerHTML = head + '<div class="label mt">' + i18("rollup.storage", "Storage") + '</div><pre class="mono small">' + escapeHtml(JSON.stringify(c.storage || {}, null, 1)) + '</pre>';
   } catch (e) { d.innerHTML = head; }
 }

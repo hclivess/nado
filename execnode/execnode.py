@@ -463,7 +463,8 @@ async def h_contract(request):
     if not c:
         return web.json_response({"error": "not found"}, status=404)
     return web.json_response({"cid": cid, "deployer": c["deployer"], "methods": list(c["code"].keys()),
-                              "storage": c["storage"], "runtime": c.get("runtime", "stackvm"), "abi": c.get("abi") or {}})
+                              "code": c["code"], "storage": c["storage"], "runtime": c.get("runtime", "stackvm"),
+                              "abi": c.get("abi") or {}})
 
 
 async def h_view(request):
