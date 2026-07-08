@@ -337,3 +337,7 @@ a { color: var(--accent-2); }
 .tabbadge { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px;
   padding: 0 4px; margin-left: 5px; border-radius: 8px; background: var(--danger); color: #fff;
   font-size: 10px; font-weight: 800; line-height: 1; vertical-align: middle; }
+
+/* rollup / contracts tab */
+.rollup-item { padding: 6px 9px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 4px; cursor: pointer; }
+.rollup-item:hover { border-color: var(--accent); }

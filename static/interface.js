@@ -3407,12 +3407,127 @@ function showTab(name) {
   else if (name === "swap") renderSwaps().catch(() => {});
   else if (name === "shield") renderShield().catch(() => {});
   else if (name === "settlement") renderSettlement().catch(() => {});
+  else if (name === "rollup") renderRollup().catch(() => {});
   else if (name === "send") { updateFeeInfo().catch(() => {}); validateSendTo().catch(() => {}); addrBookRender(); }
   else if (name === "stake") { updateFeeInfo().catch(() => {}); refreshDashboard().catch(() => {}); }
   else if (name === "quorum") renderQuorum().catch(() => {});
   else if (name === "multisig") renderMsig().catch(() => {});
   else if (name === "messages") msgOpen().catch(() => {});
   else if (name === "settings") renderSecurity();
+}
+
+/* ----------------------------------------------------------------------------------------------
+ * ROLLUP tab — browse / deploy / call execution-layer contracts. Deploys & calls ride L1 as ordered
+ * `blob` txs (apply at finality); reads are live from the exec node. Contract runtimes are pluggable.
+ * -------------------------------------------------------------------------------------------- */
+let _rollupExamples = null, _rollupWired = false;
+function rollupNs() { const v = ($("rollupNs").value || "").trim(); return v || "default"; }
+
+async function renderRollup() {
+  rollupWire();
+  await rollupLoadExamples();
+  await rollupRefreshList();
+}
+
+function rollupWire() {
+  if (_rollupWired) return;
+  _rollupWired = true;
+  $("rollupRefresh").onclick = () => rollupRefreshList();
+  $("rollupLoadExample").onclick = () => {
+    const k = $("rollupExample").value;
+    if (k && _rollupExamples && _rollupExamples[k]) $("rollupCode").value = JSON.stringify(_rollupExamples[k], null, 1);
+  };
+  $("rollupDeploy").onclick = () => rollupDeploy();
+  $("rollupCall").onclick = () => rollupCall();
+  $("rollupView").onclick = () => rollupView();
+}
+
+async function rollupLoadExamples() {
+  if (_rollupExamples) return;
+  try {
+    const j = await (await fetch(execBase() + "/exec/examples", { cache: "no-store" })).json();
+    _rollupExamples = j.examples || {};
+    const sel = $("rollupExample");
+    for (const name of Object.keys(_rollupExamples)) {
+      const o = document.createElement("option"); o.value = name; o.textContent = name; sel.appendChild(o);
+    }
+  } catch (e) { _rollupExamples = {}; }
+}
+
+async function rollupRefreshList() {
+  const el = $("rollupList");
+  el.textContent = i18("rollup.loading", "Loading…");
+  try {
+    const j = await (await fetch(execBase() + "/exec/contracts?ns=" + encodeURIComponent(rollupNs()), { cache: "no-store" })).json();
+    const cs = j.contracts || [];
+    if (!cs.length) { el.textContent = i18("rollup.none", "No contracts in this namespace yet."); $("rollupDetail").innerHTML = ""; return; }
+    el.innerHTML = cs.map((c) =>
+      '<div class="rollup-item" data-cid="' + esc(c.cid) + '"><span class="addr">' + esc(c.cid.slice(0, 16)) + '…</span> '
+      + '<span class="faint small">' + esc((c.methods || []).join(", ")) + '</span> '
+      + '<span class="pill">' + esc(c.runtime || "stackvm") + '</span></div>').join("");
+    el.querySelectorAll(".rollup-item").forEach((it) => { it.onclick = () => rollupShowContract(it.dataset.cid); });
+  } catch (e) { el.textContent = i18("rollup.execDown", "Execution node unreachable."); }
+}
+
+async function rollupShowContract(cid) {
+  $("rollupCallCid").value = cid;
+  const d = $("rollupDetail");
+  d.textContent = i18("rollup.loading", "Loading…");
+  try {
+    const c = await (await fetch(execBase() + "/exec/contract?ns=" + encodeURIComponent(rollupNs()) + "&cid=" + encodeURIComponent(cid), { cache: "no-store" })).json();
+    d.innerHTML = '<div class="label">' + i18("rollup.methods", "Methods") + '</div><div class="mono small">' + esc((c.methods || []).join(", "))
+      + '</div><div class="label mt">' + i18("rollup.storage", "Storage") + '</div><pre class="mono small">' + esc(JSON.stringify(c.storage || {}, null, 1)) + '</pre>';
+  } catch (e) { d.textContent = i18("rollup.notFound", "Not found."); }
+}
+
+function _rollupParams() {
+  const msg = $("rollupCallMsg"); msg.textContent = "";
+  const cid = ($("rollupCallCid").value || "").trim();
+  const method = ($("rollupCallMethod").value || "").trim();
+  if (!cid || !method) { msg.textContent = i18("rollup.needCidMethod", "Enter a contract id and method."); return null; }
+  let args = [];
+  const raw = ($("rollupCallArgs").value || "").trim();
+  if (raw) { try { args = JSON.parse(raw); if (!Array.isArray(args)) throw 0; } catch (e) { msg.textContent = i18("rollup.badArgs", "Args must be a JSON array."); return null; } }
+  return { cid, method, args };
+}
+
+async function rollupDeploy() {
+  const msg = $("rollupDeployMsg"); msg.textContent = "";
+  let code;
+  try { code = JSON.parse($("rollupCode").value); } catch (e) { msg.textContent = i18("rollup.badJson", "Code must be valid JSON."); return; }
+  const latest = await getLatestBlock();
+  if (!latest) { msg.textContent = i18("rollup.relayDown", "Relay unavailable."); return; }
+  const payload = { op: "deploy", code, nonce: randNonce() };
+  const ns = rollupNs(); if (ns !== "default") payload.ns = ns;
+  const tx = buildBlobTx(state.wallet, payload, latest.block_number + 8, MIN_TX_FEE, nowSeconds());
+  const res = await submitTransaction(tx);
+  msg.textContent = (res.data && res.data.result)
+    ? i18("rollup.deploySent", "Deploy submitted — appears after finality (a few minutes).")
+    : i18("rollup.rejected", "Rejected: ") + ((res.data && res.data.message) || "");
+}
+
+async function rollupCall() {
+  const p = _rollupParams(); if (!p) return;
+  const latest = await getLatestBlock();
+  if (!latest) { $("rollupCallMsg").textContent = i18("rollup.relayDown", "Relay unavailable."); return; }
+  const payload = { op: "call", contract: p.cid, method: p.method, args: p.args };
+  const ns = rollupNs(); if (ns !== "default") payload.ns = ns;
+  const tx = buildBlobTx(state.wallet, payload, latest.block_number + 8, MIN_TX_FEE, nowSeconds());
+  const res = await submitTransaction(tx);
+  $("rollupCallMsg").textContent = (res.data && res.data.result)
+    ? i18("rollup.callSent", "Call submitted — state updates after finality.")
+    : i18("rollup.rejected", "Rejected: ") + ((res.data && res.data.message) || "");
+}
+
+async function rollupView() {
+  const p = _rollupParams(); if (!p) return;
+  const out = $("rollupViewResult"); out.textContent = i18("rollup.loading", "Loading…");
+  try {
+    const u = execBase() + "/exec/view?ns=" + encodeURIComponent(rollupNs()) + "&cid=" + encodeURIComponent(p.cid)
+      + "&method=" + encodeURIComponent(p.method) + "&args=" + encodeURIComponent(JSON.stringify(p.args));
+    const j = await (await fetch(u, { cache: "no-store" })).json();
+    out.textContent = i18("rollup.result", "Result: ") + JSON.stringify(j.result);
+  } catch (e) { out.textContent = i18("rollup.execDown", "Execution node unreachable."); }
 }
 
 /* ----------------------------------------------------------------------------------------------
