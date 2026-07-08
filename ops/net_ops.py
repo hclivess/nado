@@ -3,7 +3,7 @@ size-bounded transaction deserializer. Kept SIDE-EFFECT-FREE and dependency-ligh
 without importing the node (which generates keys / touches the data dir at import time)."""
 import json
 
-import msgpack
+from ops import codec
 import zstandard
 
 # Belt-and-suspenders bounds for decoding an UNTRUSTED /submit_transaction body. The aiohttp app already caps
@@ -11,10 +11,6 @@ import zstandard
 # tiny element becomes a ~50-byte Python object — and can't be hit by any legit tx: a blob payload is
 # <= BLOB_MAX_BYTES (16 KiB) and the largest single field (ML-DSA pubkey/sig hex, PoSW proof) is a few KB.
 MAX_TX_BODY = 1 << 20            # 1 MiB, matches aiohttp's default client_max_size
-_MSGPACK_LIMITS = dict(max_str_len=MAX_TX_BODY, max_bin_len=MAX_TX_BODY, max_ext_len=MAX_TX_BODY,
-                       max_array_len=131072, max_map_len=131072)
-
-
 def unpack_tx(body, content_type):
     """Decode a submitted transaction body (msgpack or JSON) with explicit size bounds. Raises (rejected as a
     400/403 by the caller) on an oversized body or an over-large msgpack collection, instead of letting
@@ -23,9 +19,7 @@ def unpack_tx(body, content_type):
         raise ValueError("empty transaction body")
     if len(body) > MAX_TX_BODY:
         raise ValueError("transaction body too large")
-    if "msgpack" in (content_type or ""):
-        return msgpack.unpackb(body, raw=False, **_MSGPACK_LIMITS)
-    return json.loads(body.decode() if isinstance(body, (bytes, bytearray)) else body)
+    return codec.unpack(body)
 
 
 # --- CLIENT-side download bounds. When WE fetch from an untrusted peer we are the HTTP client, so aiohttp's
@@ -61,7 +55,7 @@ async def read_capped(response, cap):
 def unpack_peer(body):
     """msgpack-decode a peer control message (status / peers / snapshot manifest / block) with the same
     object-count bounds used for untrusted tx bodies."""
-    return msgpack.unpackb(body, raw=False, **_MSGPACK_LIMITS)
+    return codec.unpack(body)
 
 
 def bounded_zstd_decompress(body, cap):
@@ -93,7 +87,7 @@ def unpack_zstd_peer(body, cap=MAX_PEER_BODY):
     """decode a peer's zstd(msgpack) control payload — the ?compress=zstd wire (nado.py serialize()).
     read_capped already bounds the COMPRESSED body; bounded_zstd_decompress bounds the DECOMPRESSED
     output against a bomb (parity with the old raw-msgpack wire: same cap either way)."""
-    return msgpack.unpackb(bounded_zstd_decompress(body, cap), raw=False, **_MSGPACK_LIMITS)
+    return codec.unpack(bounded_zstd_decompress(body, cap))
 
 
 def client_ip_from(peer, xff_header, trusted):

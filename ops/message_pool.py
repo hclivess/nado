@@ -20,7 +20,7 @@ raised "dictionary changed size during iteration", failing the save exactly when
 
 import threading
 
-import msgpack
+from ops import codec
 
 from hashing import blake2b_hash
 
@@ -230,7 +230,7 @@ class MessagePool:
                 return False
             snapshot = {"seq": self._seq, "messages": dict(self.messages), "prekeys": dict(self.prekeys)}
             self._dirty = False
-        blob = msgpack.packb(snapshot)
+        blob = codec.pack(snapshot)
         tmp = f"{path}.tmp"
         with open(tmp, "wb") as f:
             f.write(blob); f.flush(); os.fsync(f.fileno())
@@ -245,7 +245,7 @@ class MessagePool:
             return 0
         try:
             with open(path, "rb") as f:
-                data = msgpack.unpackb(f.read(), raw=False)
+                data = codec.unpack(f.read())
         except Exception:
             return 0
         self._seq = int(data.get("seq", 0) or 0)

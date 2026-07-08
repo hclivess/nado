@@ -102,7 +102,7 @@ from ops.transaction_ops import (
 )
 
 import requests
-import msgpack
+from ops import codec
 
 from PySide6.QtCore import Qt, QTimer, QThreadPool, QRunnable, QObject, Signal, QRectF
 from PySide6.QtGui import (
@@ -433,13 +433,12 @@ class NodeClient:
 
     # ---- write endpoint -----------------------------------------------------------------
     def submit_transaction(self, tx):
-        """Submit a signed transaction via POST+msgpack (the only submit path — a PQ tx is far too
-        large for a GET URL)."""
+        """Submit a signed transaction via POST+JSON (a PQ tx is far too large for a GET URL)."""
         try:
             r = self.session.post(
                 self.base() + "/submit_transaction",
-                data=msgpack.packb(tx),
-                headers={"Content-Type": "application/msgpack"},
+                data=codec.pack(tx),
+                headers={"Content-Type": "application/json"},
                 timeout=self.timeout,
             )
         except requests.RequestException as exc:

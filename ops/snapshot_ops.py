@@ -23,7 +23,7 @@ import hashlib
 import os
 import shutil
 
-import msgpack
+from ops import codec
 
 from ops.data_ops import get_home
 from ops import kv_ops
@@ -46,7 +46,7 @@ def _leaf(triple) -> bytes:
     """canonical, length-framed encoding of one state entry (db_name:str, key:bytes, value:bytes) so no
     db/key/value byte pattern can collide with another entry's field boundary."""
     name, key, value = triple
-    return msgpack.packb([name, key, value])
+    return codec.pack([name, key, value])
 
 
 def merkle_root(triples) -> str:
@@ -84,7 +84,7 @@ def _pack_chunks(triples):
     chunk_bytes, chunk_meta = [], []
     for cid, start in enumerate(range(0, len(triples), CHUNK_ROWS)):
         part = triples[start:start + CHUNK_ROWS]
-        packed = msgpack.packb([[n, k, v] for (n, k, v) in part])
+        packed = codec.pack([[n, k, v] for (n, k, v) in part])
         chunk_bytes.append(packed)
         chunk_meta.append({
             "id": cid,
@@ -123,7 +123,7 @@ def manifest_hash(manifest) -> str:
         "snapshot_height", "block_hash", "state_root", "entry_count",
         "chunk_count", "chunks", "protocol", "version") if k in manifest}
     # sort_keys for deterministic serialization across peers/python versions
-    packed = msgpack.packb(_canonical(core))
+    packed = codec.pack(_canonical(core))
     return _blake2b(packed)
 
 
@@ -166,7 +166,7 @@ def import_snapshot(manifest, chunk_bytes_list, home=None, logger=None):
         if not verify_chunk(cb, meta):
             _log(logger, "error", f"snapshot chunk {meta['id']} sha256 mismatch")
             return False
-        for row in msgpack.unpackb(cb, raw=False):
+        for row in codec.unpack(cb):
             if (not isinstance(row, (list, tuple)) or len(row) != 3 or row[0] not in allowed
                     or not isinstance(row[1], (bytes, bytearray))
                     or not isinstance(row[2], (bytes, bytearray))):
@@ -358,8 +358,8 @@ def persist_checkpoint(height, block_hash, protocol, version, home=None, keep=2)
     tmp = final + ".tmp"
     shutil.rmtree(tmp, ignore_errors=True)
     os.makedirs(tmp, exist_ok=True)
-    with open(f"{tmp}/manifest.msgpack", "wb") as f:
-        f.write(msgpack.packb(manifest))
+    with open(f"{tmp}/manifest.json", "wb") as f:
+        f.write(codec.pack(manifest))
     for cid, cb in enumerate(chunk_bytes):
         with open(f"{tmp}/chunk_{cid}.bin", "wb") as f:
             f.write(cb)
@@ -378,11 +378,11 @@ def latest_final_checkpoint_height(finalized_height, home=None):
 def load_checkpoint_manifest(height, home=None):
     """the persisted manifest of checkpoint `height` (served over /get_snapshot_manifest and advertised in
     /status), or None if absent. Fetchers re-verify its self-hash, so no trust rides on this read."""
-    p = f"{_ckpt_path(height, home)}/manifest.msgpack"
+    p = f"{_ckpt_path(height, home)}/manifest.json"
     if not os.path.isfile(p):
         return None
     with open(p, "rb") as f:
-        return msgpack.unpackb(f.read())
+        return codec.unpack(f.read())
 
 
 def load_checkpoint_chunk(height, cid, home=None):

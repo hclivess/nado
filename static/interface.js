@@ -1868,7 +1868,7 @@ async function resumePendingExecSign() {
       const latest = await getLatestBlock();
       if (!latest) throw new Error("relay unavailable");
       const draft = { sender: state.wallet.address, recipient: "bridge", amount: amt, timestamp: nowSeconds(),
-        data: "", nonce: randNonce(), public_key: state.wallet.publicKey, target_block: latest.block_number + 200, chain_id: CHAIN_ID };
+        data: "", nonce: randNonce(), public_key: state.wallet.publicKey, target_block: latest.block_number + 15, chain_id: CHAIN_ID };
       const tx = finalizeTransaction(draft, state.wallet.privateKey, MIN_TX_FEE);
       const res = await submitTransaction(tx);
       back(res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address
@@ -1901,7 +1901,7 @@ async function resumePendingExecSign() {
   try {
     const latest = await getLatestBlock();
     if (!latest) throw new Error("relay unavailable");
-    const tx = buildBlobTx(state.wallet, blob, latest.block_number + 200, MIN_TX_FEE, nowSeconds());   // flexible landing: wide expiry window
+    const tx = buildBlobTx(state.wallet, blob, latest.block_number + 15, MIN_TX_FEE, nowSeconds());   // short expiry; flexible landing mines it in the next produced block
     const res = await submitTransaction(tx);
     if (res.data && res.data.result) back("ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address);
     else back("ok=0&err=" + encodeURIComponent(((res.data && res.data.message) || "rejected").slice(0, 80)));

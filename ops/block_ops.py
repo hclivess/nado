@@ -2,7 +2,7 @@ import json
 import os
 import time
 
-import msgpack
+from ops import codec
 import aiohttp
 from .account_ops import get_bonded_registry, get_open_registry, fetch_totals
 from config import get_timestamp_seconds, get_config, hostport
@@ -43,12 +43,12 @@ def _zd():
 
 def _pack_block(block) -> bytes:
     """local zstd(msgpack) block-body encoding — non-consensus, see module note (#14)."""
-    return _zc().compress(msgpack.packb(block))
+    return _zc().compress(codec.pack(block))
 
 
 def _unpack_block(raw: bytes):
     """inverse of _pack_block for locally-stored (trusted) block files."""
-    return msgpack.unpackb(_zd().decompress(raw), raw=False)
+    return codec.unpack(_zd().decompress(raw))
 
 
 # Bounded decompress for the zstd block-sync WIRE payload (get_blocks_after/before). max_output_size caps a
@@ -76,7 +76,7 @@ def _unpack_wire(body: bytes):
     cap whenever the frame declares its content size (nado's compressor does), allocating the declared
     size up front — so a tiny frame claiming gigabytes would OOM us. Streaming bounds peak allocation."""
     from ops.net_ops import bounded_zstd_decompress
-    return msgpack.unpackb(bounded_zstd_decompress(body, _ZSTD_WIRE_MAX), raw=False)
+    return codec.unpack(bounded_zstd_decompress(body, _ZSTD_WIRE_MAX))
 
 
 
@@ -857,8 +857,6 @@ async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="z
 
                 if code == 200 and compress == "zstd":
                     return _unpack_wire(await read_capped(response, _SYNC_WIRE_CAP))
-                elif code == 200 and compress == "msgpack":
-                    return msgpack.unpackb(await read_capped(response, _SYNC_WIRE_CAP), raw=False)
                 elif code == 200:
                     return json.loads((await read_capped(response, _SYNC_WIRE_CAP)).decode())["blocks_after"]
                 else:
@@ -882,8 +880,6 @@ async def get_blocks_before(target_peer, from_hash, logger, count=50, compress="
 
                 if code == 200 and compress == "zstd":
                     return _unpack_wire(await read_capped(response, _SYNC_WIRE_CAP))
-                elif code == 200 and compress == "msgpack":
-                    return msgpack.unpackb(await read_capped(response, _SYNC_WIRE_CAP), raw=False)
                 elif code == 200:
                     return json.loads((await read_capped(response, _SYNC_WIRE_CAP)).decode())["blocks_before"]
                 else:

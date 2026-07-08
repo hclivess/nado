@@ -7,7 +7,7 @@ import signal
 import socket
 import sys
 
-import msgpack
+from ops import codec
 import zstandard as _zstd
 from aiohttp import web
 
@@ -71,18 +71,12 @@ def handler(signum, frame):
 
 
 def serialize(output, name=None, compress=None):
-    """Wire-encode an API payload per ?compress: 'zstd' -> zstd(msgpack) (the node<->node block-sync
-    format), 'msgpack' -> raw msgpack, anything else -> left for JSON, with non-dict outputs wrapped
-    under `name` so the JSON shape matches the legacy Tornado handlers."""
+    """Wire-encode an API payload per ?compress: 'zstd' -> zstd(JSON codec) (the node<->node block-sync
+    format), anything else -> left for JSON, with non-dict outputs wrapped under `name`."""
     if compress == "zstd":
-        # zstd(msgpack): the node<->node block-sync wire format (ops/block_ops.get_blocks_after/before).
-        # Block bodies are dominated by hex ML-DSA sigs/pubkeys, so raw msgpack over the wire is ~3x larger
-        # than it needs to be; zstd recovers it (a 50-block batch: ~336KB -> ~115KB). The json/msgpack paths
-        # are left untouched so browser light-miners (which fetch single small objects, not block batches)
-        # keep working with no zstd dependency.
-        output = _zstd_wire().compress(msgpack.packb(output))
-    elif compress == "msgpack":
-        output = msgpack.packb(output)
+        # zstd(codec/JSON): the node<->node block-sync wire format (ops/block_ops.get_blocks_after/before).
+        # Block bodies are dominated by hex ML-DSA sigs/pubkeys; zstd recovers most of it over the wire.
+        output = _zstd_wire().compress(codec.pack(output))
     elif not isinstance(output, dict) and name:
         output = {name: output}
     return output
@@ -289,7 +283,7 @@ async def health(request):
     data = {"gc_counts": list(gc.get_count()),
             "gc_objects_tracked": len(gc.get_objects()),
             "gc_stats": gc.get_stats()}
-    return _resp(msgpack.packb(data) if compress == "msgpack" else serialize(name="health", output=data, compress=compress))
+    return _resp(serialize(name="health", output=data, compress=compress))
 
 
 async def log(request):
@@ -337,7 +331,7 @@ async def force_sync(request):
 async def whats_my_ip(request):
     """GET /whats_my_ip: the caller's IP as this node sees it (trusted-proxy aware). ?compress=msgpack."""
     client_ip = _ip(request)
-    return _resp(msgpack.packb(client_ip) if _q(request, "compress", "none") == "msgpack" else client_ip)
+    return _resp(client_ip)
 
 
 async def terminate(request):
@@ -572,12 +566,12 @@ async def snapshot_manifest(request):
     """Serve the highest FINALIZED persisted checkpoint's manifest (reorg-safe). Cheap disk read."""
     def _work():
         """Load the latest finalized checkpoint manifest (worker thread)."""
-        compress = _q(request, "compress", "msgpack")
+        compress = _q(request, "compress", "none")
         h = snapshot_ops.latest_final_checkpoint_height(memserver.finalized_height)
         manifest = snapshot_ops.load_checkpoint_manifest(h) if h is not None else None
         if not manifest:
             return None, 404
-        return (msgpack.packb(manifest) if compress == "msgpack" else manifest), 200
+        return manifest, 200
     out, code = await asyncio.to_thread(_work)
     if out is None:
         return _resp("No snapshot available (chain too short / no finalized checkpoint)", status=404)

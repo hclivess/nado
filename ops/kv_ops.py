@@ -24,7 +24,7 @@ import struct
 import threading
 
 import lmdb
-import msgpack
+from ops import codec
 
 from .data_ops import get_home
 
@@ -177,12 +177,12 @@ def _split_dup_tx_value(v: bytes):
 def _pack(doc) -> bytes:
     """msgpack-encode a stored value (use_bin_type so str/bytes round-trip unambiguously — same content
     always yields the same bytes, which revert-symmetry and the state root depend on)."""
-    return msgpack.packb(doc, use_bin_type=True)
+    return codec.pack(doc)
 
 
 def _unpack(raw: bytes):
     """Decode msgpack bytes written by _pack (raw=False -> text comes back as str, not bytes)."""
-    return msgpack.unpackb(raw, raw=False)
+    return codec.unpack(raw)
 
 
 # --- transaction plumbing -------------------------------------------------------------------------

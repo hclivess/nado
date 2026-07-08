@@ -2,7 +2,6 @@ import asyncio
 import json
 from urllib.parse import quote
 
-import msgpack
 import aiohttp
 from ops.data_ops import sort_list_dict
 from ops.log_ops import get_logger
@@ -29,8 +28,6 @@ async def get_list_of(key, peer, port, fail_storage, logger, semaphore, compress
                     body = await read_capped(response, MAX_PEER_BODY)   # anti-OOM: cap untrusted peer body
                     if compress == "zstd":
                         fetched = unpack_zstd_peer(body)                # bomb-capped zstd(msgpack) wire
-                    elif compress == "msgpack":
-                        fetched = unpack_peer(body)
                     else:
                         fetched = json.loads(body.decode())[key]
         return fetched
@@ -145,8 +142,6 @@ async def get_status(peer, port, logger, fail_storage, semaphore, compress=None)
                     body = await read_capped(response, MAX_PEER_BODY)   # anti-OOM: cap untrusted peer body
                     if compress == "zstd":
                         fetched = unpack_zstd_peer(body)                # bomb-capped zstd(msgpack) wire
-                    elif compress == "msgpack":
-                        fetched = unpack_peer(body)
                     else:
                         fetched = json.loads(body.decode())
 
