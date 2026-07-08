@@ -209,17 +209,19 @@ settled-root Merkle-proof pattern** as the bridge.
 The open-lane **presence dividend** accrues off-L1 on the exec layer and is withdrawn in aggregate via
 `dividend_withdraw`, proven against the settled root (`presence-dividend.md`). Same exit pattern.
 
-### 7.4 Cross-rollup message tunnel (namespace A → namespace B) — **outbox BUILT, delivery DESIGN**
-The **sender half is built**: the `emit` blob op appends a message to the rollup's **outbox**
-(`ExecState.outbox`), committed in `state_root` and provable via `outbox_proof(seq)` /
-`GET /exec/outbox_proof?ns=&seq=` — the exact `withdrawal_proof` pattern (`tests/test_exec_namespaces.py`
-t5–t7). A consumer verifies that Merkle branch against A's **settled** root (`/get_settled?ns=A`).
-The **delivery half is design**: a receiver consuming a message *deterministically* (a deliver-blob carrying
-the message + proof + a nullifier, verified against A's settled root **inside B's own blob stream** so every
-B-node agrees on B's root), plus atomicity/latency semantics and a forced-inclusion **escape hatch** — open
-items (`l2-settlement.md` §9). Only the trustless proof-carrying path is sound: a receiver must never fold in
-a message that isn't in its own blob stream, or its `state_root` would diverge from B-only nodes and break
-settlement.
+### 7.4 Cross-rollup message tunnel (namespace A → namespace B) — **BUILT**
+Both halves are implemented. **Emit (sender):** the `emit` blob op appends a message to the rollup's
+**outbox** (`ExecState.outbox`), committed in `state_root` and provable via `outbox_proof(seq)` /
+`GET /exec/outbox_proof?ns=&seq=` — the exact `withdrawal_proof` pattern. **Deliver (receiver):** an L1
+`xmsg` tx carries the outbox message + its Merkle proof, and **L1 is the verifier** — it checks the proof
+against `latest_settled(from_ns)` and burns a `(from_ns, seq)` nullifier (exactly the bridge pattern). So
+delivery is trust-minimized *and* **deterministic for every receiver node**: they all read the same
+L1-verified `xmsg` from the finalized stream and fold it into their `inbox`, committed in `state_root`
+(`execnode.state.apply_xmsg`). This **sidesteps the settled-root-oracle problem entirely** — the exec node
+never has to decide what is settled; L1, which holds the settled roots, decides. The leaf L1 verifies is the
+shared `hashing.outbox_leaf`, byte-identical to what the exec node commits. Covered by `tests/test_xmsg.py`
+(valid delivery, replay / forgery / unsettled / to_ns-mismatch rejection, receiver inbox commitment).
+Remaining: multi-message atomicity/latency semantics and a forced-inclusion **escape hatch**.
 
 **Every tunnel shares one invariant:** value/messages only cross on a **proof against a settled root** +
 **nullifier** (no replay). The settled root is the single trust anchor; the tunnels never trust the exec node
@@ -262,10 +264,11 @@ settlement, whether **your** exec root agrees with the quorum, and **your role**
 | **Per-`ns` execution node** (registry of states, blob-routed, settle-per-ns, `/exec/*?ns=`) | **built (this work)** |
 | Phase-2b settlement verifier **seam** (`set_settlement_verifier`) | **built (inert DI)** |
 | Phase-2b **validity proof** (zkVM over arbitrary exec) | **designed — real crypto build, not stubbed** |
-| DA erasure-coding + hash-based sampling; higher blob budget | designed |
-| Recursive proof aggregation (one proof settles many rollups) | designed |
+| **DA erasure-coding + hash-based sampling** (`ops/da.py`: RS k-of-n + Merkle commit + sample verify) | **built (primitive); blob integration designed** |
+| Recursive proof aggregation (one proof settles many rollups) | designed (moot without a zkVM) |
 | **Cross-domain outbox** (`emit` op, committed messages, `outbox_proof`) | **built (this work)** |
-| Cross-rollup message **delivery** (proof-carrying deliver-blob) + forced-exit escape hatch | designed |
+| **Cross-rollup delivery** (`xmsg`: L1 verifies message vs sender's settled root → receiver inbox) | **built (this work)** |
+| Forced-exit escape hatch; multi-message atomicity | designed |
 
 ---
 
@@ -277,7 +280,9 @@ settlement, whether **your** exec root agrees with the quorum, and **your role**
 | Settlement predicate + pointer + 2b seam | `ops/settlement_ops.settlement_justified` / `latest_settled` / `set_settlement_verifier` |
 | Settle tx + validation + reflect | `ops/transaction_ops.construct_settle_tx` + settle validate arm; `ops/account_ops` reflect arm |
 | Bridge tunnel | `construct_bridge_deposit_tx` / `construct_bridge_withdraw_tx`; `bridge`/`bridge_withdraw` arms; `execnode.state.withdrawal_proof` |
-| Cross-domain outbox | `emit` op + `execnode.state.outbox` / `_outbox_leaf` / `outbox_proof`; `/exec/outbox`, `/exec/outbox_proof` |
+| Cross-domain outbox | `emit` op + `execnode.state.outbox` / `outbox_proof`; `/exec/outbox`, `/exec/outbox_proof` |
+| Cross-rollup delivery | `xmsg` arm + `construct_xmsg_tx`; shared `hashing.outbox_leaf`; `kv_ops.xmsg_nullifier_*`; `execnode.state.apply_xmsg` + inbox; `/exec/inbox` |
+| Data availability | `ops/da.py` — `encode` / `reconstruct` / `sample_proof` / `verify_sample` (Reed-Solomon + Merkle) |
 | Exec node | `execnode/execnode.py` (tail, `maybe_settle`, `/exec/*`), `execnode/state.py`, `execnode/vm.py`, `execnode/stark/` |
 | Node API | `nado.py` `/get_settled?ns=`, `/exec/*` proxy |
 | Wallet | `static/interface.html` + `interface.js` Settlement tab; `nado._TAB_PATHS` |

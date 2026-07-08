@@ -15,7 +15,7 @@ import os
 import threading
 
 from hashing import (blake2b_hash, merkle_root, merkle_proof, withdrawal_leaf, dividend_leaf,
-                     unshield_leaf, canonical_bytes)
+                     unshield_leaf, canonical_bytes, outbox_leaf)
 from execnode.vm import validate_code, run, VMError
 from execnode.shielded import ShieldedPool, apply_transfer
 
@@ -33,10 +33,15 @@ MAX_EXIT_VALUE = 1 << 61
 
 
 def _outbox_leaf(msg):
-    """Canonical Merkle leaf for one outbox message. Deterministic (json sort_keys) so every node commits
-    the identical leaf — the message is then provable against state_root via ExecState.outbox_proof, the
-    sound foundation a consumer (another rollup, or L1) verifies once the root is SETTLED."""
-    return canonical_bytes(["outbox", int(msg["seq"]), msg["from"], msg["to_ns"],
+    """Canonical Merkle leaf for one outbox message — the SHARED hashing.outbox_leaf, so the leaf L1 verifies
+    an `xmsg` delivery against is byte-identical to what the exec node commits + proves."""
+    return outbox_leaf(msg["seq"], msg["from"], msg["to_ns"], msg.get("data"))
+
+
+def _inbox_leaf(i, msg):
+    """Canonical Merkle leaf for one DELIVERED (received) cross-domain message. Committed in state_root so
+    every receiver node agrees on B's state after a delivery (they all read the same L1-verified `xmsg`)."""
+    return canonical_bytes(["inbox", int(i), msg.get("from_ns"), int(msg.get("seq", -1)),
                             json.dumps(msg.get("data"), sort_keys=True)])
 
 
@@ -55,6 +60,9 @@ class ExecState:
         # cross-rollup / L1-bound messaging; CONSUMPTION (verifying against the sender's SETTLED root) is a
         # separate step, see doc/rollups-and-settlement.md §7.4. Append-only; seq == index.
         self.outbox = []           # [{"seq":i, "from":addr, "to_ns":ns, "data":<any>}]
+        # CROSS-DOMAIN INBOX: messages DELIVERED to this rollup by an L1-verified `xmsg` (verified against the
+        # sender namespace's SETTLED root on L1). Committed in state_root so every receiver node agrees.
+        self.inbox = []            # [{"from_ns":ns, "seq":i, "data":<any>}]
         # PRESENCE DIVIDEND (doc/presence-dividend.md): off-L1 accrual of the OPEN-lane DIVIDEND_POOL to the
         # currently-present miners, fidelity-weighted. `collect_dividend` burns a balance into a provable
         # withdrawal (same machinery as the bridge), claimed on L1 against the settled root.
@@ -93,6 +101,7 @@ class ExecState:
             self.withdrawals = d.get("withdrawals", {})
             self.wd_nonce = d.get("wd_nonce", 0)
             self.outbox = d.get("outbox", [])
+            self.inbox = d.get("inbox", [])
             self.dividend = d.get("dividend", {})
             self.dividend_pool_seen = d.get("dividend_pool_seen", 0)
             self.div_carry = d.get("div_carry", 0)
@@ -115,7 +124,8 @@ class ExecState:
         # "set changed size during iteration").
         with self._mutate_lock:
             payload = {"contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
-                       "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce, "outbox": self.outbox,
+                       "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce,
+                       "outbox": self.outbox, "inbox": self.inbox,
                        "dividend": self.dividend, "dividend_pool_seen": self.dividend_pool_seen,
                        "div_carry": self.div_carry, "dividend_withdrawals": self.dividend_withdrawals,
                        "dw_nonce": self.dw_nonce, "shielded": self.shielded.to_dict(),
@@ -150,8 +160,10 @@ class ExecState:
         out.append(canonical_bytes(["field_nfset", *sorted(str(n) for n in self.field_pool.nullifiers)]))
         for nonce, w in self.unshield_withdrawals.items():
             out.append(unshield_leaf(w["addr"], w["amount"], nonce))
-        for msg in self.outbox:                                  # cross-domain messages (append-only)
+        for msg in self.outbox:                                  # cross-domain messages emitted (append-only)
             out.append(_outbox_leaf(msg))
+        for i, msg in enumerate(self.inbox):                     # cross-domain messages delivered (append-only)
+            out.append(_inbox_leaf(i, msg))
         return out
 
     def unshields_for(self, addr):
@@ -240,6 +252,14 @@ class ExecState:
         except (IndexError, ValueError, TypeError):
             return None
         return {"message": msg, "proof": merkle_proof(self._leaves(), _outbox_leaf(msg))}
+
+    def apply_xmsg(self, from_ns, message):
+        """Deliver an L1-VERIFIED cross-domain message into this rollup's inbox. L1 already verified the
+        message against `from_ns`'s SETTLED root and burned its (from_ns, seq) nullifier, so the exec node
+        just records it (committed in state_root). Deterministic: every receiver node reads the same `xmsg`
+        from the finalized stream and appends the identical inbox entry."""
+        self.inbox.append({"from_ns": from_ns, "seq": message.get("seq"), "data": message.get("data")})
+        return f"deliver from ns={from_ns} seq={message.get('seq')}"
 
     def credit_deposit(self, addr, amount):
         """Credit an exec-side bridge balance from an L1 `bridge` deposit (read from the ordered stream)."""

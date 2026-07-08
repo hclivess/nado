@@ -179,6 +179,20 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             kv_ops.bridge_nullifier_put(addr, nonce)
         return
 
+    # --- CROSS-ROLLUP MESSAGE DELIVERY (xmsg): validation already verified the message against from_ns's
+    # SETTLED root + that it is not-yet-delivered. L1's only state change is the (from_ns, seq) nullifier;
+    # the delivery is applied off-L1 by the receiver rollup's exec node reading this verified tx. Revert-safe. ---
+    if recipient == "xmsg":
+        from protocol import DEFAULT_NS
+        data = transaction.get("data") or {}
+        from_ns = data.get("from_ns", DEFAULT_NS)
+        seq = (data.get("message") or {}).get("seq")
+        if revert:
+            kv_ops.xmsg_nullifier_del(from_ns, seq)
+        else:
+            kv_ops.xmsg_nullifier_put(from_ns, seq)
+        return
+
     # --- SHIELD DEPOSIT (doc/privacy.md): lock `amount` in the shielded-pool escrow, burn the fee. The output
     # note commitments ride in tx.data (opaque to L1); the exec node reads this deposit and adds them. ---
     if recipient == "shield":

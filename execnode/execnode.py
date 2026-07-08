@@ -149,6 +149,14 @@ async def tail_loop():
                             if tgt is not None:
                                 res = tgt.apply_blob(d, tx.get("sender"), tx.get("txid"))
                                 print(f"[execnode] block {h} ns={bns}: {res}", flush=True)
+                        elif r == "xmsg":                            # L1-verified cross-domain delivery -> receiver inbox
+                            # L1 already verified the message against from_ns's SETTLED root + burned its
+                            # nullifier; the exec node just records it in the receiving namespace's inbox.
+                            d = tx.get("data") or {}
+                            tgt = states.get(d.get("to_ns"))
+                            if tgt is not None:
+                                res = tgt.apply_xmsg(d.get("from_ns", "default"), d.get("message") or {})
+                                print(f"[execnode] block {h} ns={d.get('to_ns')}: {res}", flush=True)
                         elif r == "bridge":                          # L1 deposit -> credit exec-side balance
                             state.credit_deposit(tx.get("sender"), tx.get("amount", 0))
                             print(f"[execnode] block {h}: bridge deposit {tx.get('amount')} by "
@@ -285,6 +293,15 @@ async def h_outbox_proof(request):
     p["ns"] = request.query.get("ns", "default")
     p["state_root"] = st.state_root()
     return web.json_response(p)
+
+
+async def h_inbox(request):
+    """List the cross-domain messages DELIVERED to namespace ?ns= (each {from_ns, seq, data}) — messages an
+    L1-verified `xmsg` folded into this rollup's inbox."""
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
+    return web.json_response({"ns": request.query.get("ns", "default"), "inbox": st.inbox})
 
 
 async def h_bridge(request):
@@ -569,6 +586,7 @@ async def main():
                     web.get("/exec/view", h_view),
                     web.get("/exec/outbox", h_outbox),
                     web.get("/exec/outbox_proof", h_outbox_proof),
+                    web.get("/exec/inbox", h_inbox),
                     web.get("/exec/bridge", h_bridge),
                     web.get("/exec/withdrawal_proof", h_withdrawal_proof),
                     web.get("/exec/dividend", h_dividend),

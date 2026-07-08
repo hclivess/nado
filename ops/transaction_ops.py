@@ -318,6 +318,21 @@ def construct_bridge_withdraw_tx(keydict, addr, amount, nonce, proof, target_blo
     return tx
 
 
+def construct_xmsg_tx(keydict, from_ns, to_ns, message, proof, target_block):
+    """Build a SIGNED cross-rollup message DELIVERY: recipient 'xmsg', fee-exempt, data carries the outbox
+    `message` {seq, from, to_ns, data} + the Merkle `proof` that it is committed in from_ns's SETTLED root.
+    L1 verifies that ONE proof against latest_settled(from_ns) and burns the (from_ns, seq) nullifier; the
+    receiver rollup's exec node then delivers it to its inbox. Relayer-submittable — anyone can carry a
+    genuinely-settled message, and the proof makes forgery impossible."""
+    d = {"from_ns": from_ns, "to_ns": to_ns, "message": message, "proof": proof}
+    tx = {"sender": keydict["address"], "recipient": "xmsg", "amount": 0,
+          "timestamp": get_timestamp_seconds(), "data": d, "nonce": create_nonce(),
+          "public_key": keydict["public_key"], "target_block": int(target_block),
+          "chain_id": CHAIN_ID, "fee": 0}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
 
 def construct_alias_tx(keydict, op, name, target_block, fee, to=None):
     """Build a SIGNED alias op tx (op in {"register","transfer","unregister"}); recipient is the reserved
@@ -360,6 +375,9 @@ def reserved_uniqueness_key(tx):
         if r == "bridge_withdraw":
             d = tx.get("data") or {}
             return ("bridge_withdraw", d.get("addr"), d.get("nonce"))                    # one claim per (addr, nonce)
+        if r == "xmsg":
+            d = tx.get("data") or {}
+            return ("xmsg", d.get("from_ns", DEFAULT_NS), (d.get("message") or {}).get("seq"))  # one delivery per (from_ns, seq)
         if r == "dividend_withdraw":
             d = tx.get("data") or {}
             return ("dividend_withdraw", d.get("addr"), d.get("nonce"))                  # one dividend claim per (addr, nonce)
@@ -638,6 +656,28 @@ def validate_transaction(transaction, logger, block_height):
         assert not kv_ops.bridge_nullifier_exists(addr, nonce), "this withdrawal was already claimed"
         escrow = get_account(BRIDGE_ESCROW, create_on_error=False)
         assert escrow and escrow.get("balance", 0) >= amount, "bridge escrow underfunded"
+    elif recipient == "xmsg":
+        # CROSS-ROLLUP MESSAGE DELIVERY: verify the outbox message is committed in from_ns's SETTLED root,
+        # then let the receiver rollup's exec node deliver it. L1 is the verifier (it holds the settled roots),
+        # exactly like bridge_withdraw — so delivery is deterministic for every receiver node. Fee-exempt; one
+        # delivery per (from_ns, seq) via the nullifier.
+        from ops.settlement_ops import latest_settled
+        from hashing import verify_merkle_proof, outbox_leaf
+        assert transaction["amount"] == 0, "xmsg carries no L1 amount"
+        assert transaction["fee"] == 0, "xmsg is fee-exempt"
+        data = transaction.get("data") or {}
+        from_ns, to_ns = data.get("from_ns", DEFAULT_NS), data.get("to_ns")
+        msg, proof = data.get("message"), data.get("proof")
+        assert valid_namespace(from_ns) and valid_namespace(to_ns), "xmsg from_ns/to_ns must be valid namespaces"
+        assert isinstance(msg, dict) and isinstance(proof, list), "bad xmsg message/proof"
+        seq = msg.get("seq")
+        assert isinstance(seq, int) and not isinstance(seq, bool) and seq >= 0, "xmsg message seq must be a non-negative int"
+        assert msg.get("to_ns") == to_ns, "xmsg message.to_ns must match the delivery to_ns"
+        _cur, settled_root = latest_settled(from_ns)
+        assert settled_root, "sending namespace has no settled root yet"
+        leaf = outbox_leaf(seq, msg.get("from"), msg.get("to_ns"), msg.get("data"))
+        assert verify_merkle_proof(leaf, proof, settled_root), "message is not proven against from_ns's settled root"
+        assert not kv_ops.xmsg_nullifier_exists(from_ns, seq), "this cross-domain message was already delivered"
     elif recipient == "dividend_withdraw":
         # DIVIDEND COLLECTION (doc/presence-dividend.md): prove {addr, amount, nonce} is in the bonded-quorum
         # SETTLED execution-layer root; L1 verifies that ONE Merkle proof, checks the nullifier + pool funding,

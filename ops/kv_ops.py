@@ -669,6 +669,23 @@ def bridge_nullifier_del(addr: str, nonce: str):
     meta_del(f"bridgenull:{addr}:{nonce}")
 
 
+# --- Cross-rollup message (xmsg) nullifiers: each (from_ns, seq) message may be delivered on L1 at most once ---
+
+def xmsg_nullifier_exists(from_ns: str, seq: int) -> bool:
+    """True if the (from_ns, seq) cross-domain message was already delivered (replay guard)."""
+    return meta_get_int(f"xmsgnull:{from_ns}:{int(seq)}", 0) == 1
+
+
+def xmsg_nullifier_put(from_ns: str, seq: int):
+    """Burn the (from_ns, seq) xmsg nullifier (apply-side, atomic with the delivery record)."""
+    meta_set_int(f"xmsgnull:{from_ns}:{int(seq)}", 1)
+
+
+def xmsg_nullifier_del(from_ns: str, seq: int):
+    """Revert xmsg_nullifier_put exactly (rollback un-burns the nullifier)."""
+    meta_del(f"xmsgnull:{from_ns}:{int(seq)}")
+
+
 # --- Shielded-pool UNSHIELD nullifiers: each (addr, nonce) unshield exit is claimable on L1 exactly once ---
 def shield_nullifier_exists(addr: str, nonce: str) -> bool:
     """True if the (addr, nonce) unshield exit was already claimed (double-claim replay guard)."""

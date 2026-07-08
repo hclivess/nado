@@ -138,6 +138,14 @@ def dividend_leaf(addr, amount, nonce) -> bytes:
     return canonical_bytes(["dividend_withdrawal", addr, int(amount), nonce])
 
 
+def outbox_leaf(seq, sender, to_ns, data) -> bytes:
+    """Canonical leaf bytes for a cross-domain OUTBOX message — identical on the execution node (which commits
+    it in state_root and proves it) and on L1 (which verifies an `xmsg` delivery against the SETTLED root of
+    the sending namespace). Distinct domain tag ('outbox') so it can never collide with a bridge/dividend
+    leaf. `data` is committed via canonical json so any structure hashes deterministically."""
+    return canonical_bytes(["outbox", int(seq), sender, to_ns, json.dumps(data, sort_keys=True)])
+
+
 def unshield_leaf(addr, amount, nonce) -> bytes:
     """Canonical leaf bytes for a shielded-pool UNSHIELD exit (distinct domain tag). Proven on L1 against the
     settled exec root to release SHIELD_ESCROW coins; `nonce` is the spent note's nullifier (one exit each)."""
