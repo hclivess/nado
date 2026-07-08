@@ -43,6 +43,16 @@ BIND = os.environ.get("NADO_EXEC_BIND", "127.0.0.1")
 MAX_INFLIGHT = max(1, int(os.environ.get("NADO_EXEC_MAX_INFLIGHT", "2")))
 MAX_BODY_BYTES = int(os.environ.get("NADO_EXEC_MAX_BODY", str(16 * 1024 * 1024)))   # cap POST size (proofs are ~1-4MB)
 POLL = float(os.environ.get("NADO_EXEC_POLL", "5"))
+
+# --- DA layer: erasure-coded availability for the shielded-transfer STARK proofs (too big for an L1 blob,
+# so only the transfer STATEMENT + the proof's `commitment` ride on-chain). This node keeps a local DaStore;
+# NADO_DA_URL is a peer DA node to fetch a proof from by commitment when we don't hold it locally.
+from ops.da_store import DaStore, reconstruct_from
+DA_DIR = os.environ.get("NADO_EXEC_DA", "exec_da")
+DA_URL = os.environ.get("NADO_DA_URL", "").rstrip("/")
+DA_K = int(os.environ.get("NADO_DA_K", "4"))
+DA_N = int(os.environ.get("NADO_DA_N", "8"))
+DA = DaStore(DA_DIR)
 # H-7: cap concurrent proving/applying so a flood of POSTs can't exhaust CPU/memory (each prove is a full
 # STARK; each apply verifies a ~1MB proof). Created lazily on the running loop.
 _inflight = None
@@ -211,6 +221,100 @@ async def tail_loop():
 
 # --- read-only query API ---------------------------------------------------------------------------
 _NS404 = lambda: web.json_response({"error": "namespace not served by this node"}, status=404)
+
+
+# ---- DA serving: publish / fetch erasure-coded objects by commitment -----------------------------
+async def h_da_meta(request):
+    """GET /da/meta?c=<commitment> — the manifest {commitment,k,n,stripes,length}, or 404 if unknown here."""
+    m = DA.meta(request.query.get("c", ""))
+    return web.json_response(m) if m else web.json_response({"error": "unknown commitment"}, status=404)
+
+
+async def h_da_have(request):
+    """GET /da/have?c=<commitment> — which shard indices this node currently holds."""
+    c = request.query.get("c", "")
+    return web.json_response({"commitment": c, "have": DA.have(c)})
+
+
+async def h_da_shard(request):
+    """GET /da/shard?c=<commitment>&i=<index> — one (shard, merkle-proof) the caller can verify against
+    the commitment without trusting this node. 404 if not held."""
+    c = request.query.get("c", "")
+    try:
+        i = int(request.query.get("i", ""))
+    except (TypeError, ValueError):
+        return web.json_response({"error": "bad index"}, status=400)
+    r = DA.shard(c, i)
+    if not r:
+        return web.json_response({"error": "no such shard"}, status=404)
+    return web.json_response({"index": i, "shard": r[0].hex(), "proof": r[1]})
+
+
+async def h_da_publish(request):
+    """POST /da/publish — body is the RAW object bytes; erasure-code + store, return the manifest. A
+    publisher (prover/wallet) calls this so a shielded proof is available to every exec node by commitment.
+    Bounded by MAX_BODY_BYTES and the in-flight semaphore."""
+    async with _sem():
+        data = await request.read()
+        if not data:
+            return web.json_response({"error": "empty body"}, status=400)
+        meta = await asyncio.to_thread(DA.put, data, DA_K, DA_N)
+        return web.json_response(meta)
+
+
+async def h_da_accept(request):
+    """POST /da/accept — {meta, index, shard(hex), proof}: store a single peer-supplied shard IFF it
+    verifies against the commitment (spread k-of-n availability). Returns {ok}."""
+    try:
+        j = await request.json()
+        ok = DA.accept(j["meta"], int(j["index"]), bytes.fromhex(j["shard"]), j["proof"])
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=400)
+    return web.json_response({"ok": bool(ok)})
+
+
+async def h_da_get(request):
+    """GET /da/get?c=<commitment> — reconstruct + return the RAW bytes from locally-held shards (>=k), or
+    404. Convenience for a client that trusts this node; the trustless path is /da/meta + /da/shard."""
+    data = DA.get(request.query.get("c", ""))
+    if data is None:
+        return web.json_response({"error": "not reconstructible here"}, status=404)
+    return web.Response(body=data, content_type="application/octet-stream")
+
+
+async def da_fetch(session, commitment):
+    """Resolve `commitment` to bytes: local store first, else pull k(+1) VERIFIED shards from the configured
+    DA peer (NADO_DA_URL) and reconstruct trustlessly. Caches the result locally so we can re-serve it.
+    Returns bytes or None if unavailable."""
+    local = DA.get(commitment)
+    if local is not None:
+        return local
+    if not DA_URL:
+        return None
+    try:
+        async with session.get(f"{DA_URL}/da/meta?c={commitment}",
+                               timeout=aiohttp.ClientTimeout(total=15)) as r:
+            if r.status != 200:
+                return None
+            meta = await r.json()
+        pairs = []
+        for i in range(int(meta["n"])):
+            async with session.get(f"{DA_URL}/da/shard?c={commitment}&i={i}",
+                                   timeout=aiohttp.ClientTimeout(total=15)) as r:
+                if r.status != 200:
+                    continue
+                jj = await r.json()
+            pairs.append((i, bytes.fromhex(jj["shard"]), jj["proof"]))
+            if len(pairs) >= int(meta["k"]) + 1:            # +1 gives da.reconstruct its consistency check
+                break
+        data = reconstruct_from(meta, pairs)                # verifies every shard vs the commitment
+        try:
+            DA.put(data, int(meta["k"]), int(meta["n"]))    # cache under the same (deterministic) commitment
+        except Exception:
+            pass
+        return data
+    except Exception:
+        return None
 
 
 async def h_root(request):
@@ -599,7 +703,13 @@ async def main():
                     web.get("/exec/bridge", h_bridge),
                     web.get("/exec/withdrawal_proof", h_withdrawal_proof),
                     web.get("/exec/dividend", h_dividend),
-                    web.get("/exec/dividend_proof", h_dividend_proof)])
+                    web.get("/exec/dividend_proof", h_dividend_proof),
+                    web.get("/da/meta", h_da_meta),
+                    web.get("/da/have", h_da_have),
+                    web.get("/da/shard", h_da_shard),
+                    web.get("/da/get", h_da_get),
+                    web.post("/da/publish", h_da_publish),
+                    web.post("/da/accept", h_da_accept)])
     runner = web.AppRunner(app)
     await runner.setup()
     await web.TCPSite(runner, BIND, PORT).start()
