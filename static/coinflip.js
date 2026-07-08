@@ -188,8 +188,24 @@ async function refreshActive() {
   await fetchBalance();
   if (active != null) lastGame = await fetchGame(active);
   await refreshStages();
+  renderLobby(await fetchLobby());
   await resolveAliases([me].concat(lastGame && lastGame.players ? Object.keys(lastGame.players) : []));
   render();
+}
+async function fetchLobby() {
+  try { return (await (await fetch(base() + "/exec/flip_games?provisional=1", { cache: "no-store" })).json()).games || []; }
+  catch { return []; }
+}
+function renderLobby(games) {
+  const el = $("lobbyList"); if (!el) return;
+  const rank = { open: 0, live: 1, done: 2 }, tag = { open: "⏳", live: "▶", done: "✓" }, verb = { open: " · join", live: " · watch", done: "" };
+  const shown = (games || []).slice().sort((a, b) => rank[a.stage] - rank[b.stage]).slice(0, 24);
+  if (!shown.length) { el.innerHTML = '<span class="dim">No games yet — open one above.</span>'; return; }
+  el.innerHTML = shown.map((g) => '<button class="chip ' + g.stage + '" data-lg="' + g.game + '">' + tag[g.stage] + " #" + g.game + " · " + rawToNado(g.stake) + " NADO" + verb[g.stage] + "</button>").join(" ");
+  el.querySelectorAll(".chip").forEach((b) => b.onclick = () => {
+    active = parseInt(b.dataset.lg, 10); $("joinId").value = b.dataset.lg; refreshActive();
+    try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch {}
+  });
 }
 async function refreshStages() {
   const g = gamesLoad();
@@ -213,6 +229,7 @@ function wireUI() {
   $("btnWithdraw").onclick = doWithdraw;
   $("btnShare").onclick = shareGame;
   $("btnRematch").onclick = rematch;
+  $("btnJoinActive").onclick = joinGame;
   $("btnJoinRematch").onclick = joinRematch;
 }
 const badge = (s) => s === "confirmed" ? '<span class="b ok">confirmed ✓</span>' : s === "pending" ? '<span class="b pend">pending…</span>' : '<span class="b dimb">—</span>';
@@ -270,6 +287,7 @@ function renderActive() {
   $("btnReveal").classList.toggle("hidden", !(mine && !mine.revealed && bothIn && !lg.settled));
   $("btnSettle").classList.toggle("hidden", !(bothRev && !lg.settled));
   $("btnClaim").classList.toggle("hidden", !pastDeadline);
+  $("btnJoinActive").classList.toggle("hidden", !(me && lg.exists && !lg.settled && lg.ncom < 2 && !mine));  // browse->join
   const hasRematch = !!lg.rematch;
   $("btnRematch").classList.toggle("hidden", !(lg.settled && !hasRematch));                                  // start a rematch
   $("btnJoinRematch").classList.toggle("hidden", !(lg.settled && hasRematch && String(active) !== String(lg.rematch)));  // opponent invited you
@@ -304,7 +322,7 @@ async function boot() {
   if (q) { $("joinId").value = q; if (active == null) active = parseInt(q, 10); deepLinkGame = q; }   // deep link -> show + auto-poll + pulse Join
   if (me) await fetchBalance();
   render();
-  if (active != null) refreshActive();
+  refreshActive();               // populate the public lobby (+ balances/active game) immediately on load
   setInterval(refreshActive, 3000);
 }
 boot();

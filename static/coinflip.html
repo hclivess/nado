@@ -96,6 +96,13 @@
     <div class="small dim" id="recent"></div>
   </div>
 
+  <!-- PUBLIC LOBBY (games are public — anyone can browse + join) -->
+  <div class="card" id="lobby">
+    <h2>🎲 Public games</h2>
+    <p class="small dim">Every game lives in public state — browse open tables and <b>join anyone</b>, or watch games in progress. <span style="opacity:.7">⏳ open · ▶ playing · ✓ done</span></p>
+    <div class="small mt" id="lobbyList"><span class="dim">Loading…</span></div>
+  </div>
+
   <!-- ACTIVE GAME -->
   <div class="card hidden" id="activeGame">
     <h2>Game <span id="gameId" class="mono"></span></h2>
@@ -110,6 +117,7 @@
     <div class="small mt" id="myBet"></div>
     <div class="small" id="myReveal"></div>
     <div class="row mt">
+      <button class="primary hidden" id="btnJoinActive">Join this game</button>
       <button class="primary hidden" id="btnReveal">🪙 Flip the coin</button>
       <button class="primary hidden" id="btnSettle">💰 Collect the pot</button>
       <button class="ghost hidden" id="btnClaim">Claim (opponent stalled)</button>

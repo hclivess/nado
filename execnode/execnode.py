@@ -561,6 +561,28 @@ async def h_flip_game(request):
     return web.json_response(out)
 
 
+async def h_flip_games(request):
+    """PUBLIC LOBBY: list coin-flip games (public state only — never a secret) so anyone can browse + join.
+    ?stage=open|live|done filters (open = still waiting for a 2nd player). ?provisional=1 for the fast view.
+    Sorted most-recent-first (by deadline, set at open) and capped."""
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
+    stage = request.query.get("stage", "")
+    rows = []
+    for gid, g in st.games.items():
+        ncom = len(g["players"])
+        settled = bool(g["settled"])
+        s = "done" if settled else ("live" if ncom >= 2 else "open")
+        if stage and stage != s:
+            continue
+        rows.append({"game": gid, "stake": g["stake"], "pot": g["pot"], "settled": settled,
+                     "ncom": ncom, "nrev": sum(1 for p in g["players"].values() if p["secret"] is not None),
+                     "deadline": g["deadline"], "stage": s})
+    rows.sort(key=lambda r: -r["deadline"])                     # roughly most-recent first
+    return web.json_response({"games": rows[:200], "cursor": st.cursor})
+
+
 async def h_outbox(request):
     """List the cross-domain outbox messages emitted by namespace ?ns= (each {seq, from, to_ns, data})."""
     st = _state_for(request)
@@ -826,6 +848,7 @@ async def main():
                     web.get("/exec/contract", h_contract),
                     web.get("/exec/view", h_view),
                     web.get("/exec/flip_game", h_flip_game),
+                    web.get("/exec/flip_games", h_flip_games),
                     web.get("/exec/outbox", h_outbox),
                     web.get("/exec/outbox_proof", h_outbox_proof),
                     web.get("/exec/inbox", h_inbox),
