@@ -97,7 +97,7 @@
     <h2>Game <span id="gameId" class="mono"></span></h2>
     <div class="coinwrap">
       <div class="coin spin" id="coin">?</div>
-      <div id="result" class="dim">Waiting for both reveals…</div>
+      <div id="result" class="dim">Waiting for a second player…</div>
     </div>
     <div class="kv"><span class="k">Pot</span><span class="mono" id="pot">—</span></div>
     <div class="kv"><span class="k">Stake each</span><span class="mono" id="stakeShown">—</span></div>
@@ -106,9 +106,10 @@
     <div class="small mt" id="myBet"></div>
     <div class="small" id="myReveal"></div>
     <div class="row mt">
-      <button class="primary hidden" id="btnReveal">Reveal my secret</button>
-      <button class="primary hidden" id="btnSettle">Settle &amp; pay winner</button>
+      <button class="primary hidden" id="btnReveal">🪙 Flip the coin</button>
+      <button class="primary hidden" id="btnSettle">💰 Collect the pot</button>
       <button class="ghost hidden" id="btnClaim">Claim (opponent stalled)</button>
+      <button class="primary hidden" id="btnRematch">🔁 Play again</button>
     </div>
     <label class="mt">Invite an opponent</label>
     <input id="shareLink" class="mono" readonly onclick="this.select()">

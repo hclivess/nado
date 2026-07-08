@@ -81,7 +81,7 @@ function handleReturn() {
   if (ok && addr) { me = addr; localStorage.setItem(LS_ME, addr); }
   if (!pend) return;
   const label = { connect: "Signed in.", deposit: "Deposit submitted — confirming on-chain…", bet: "Bet submitted — confirming…",
-                  reveal: "Reveal submitted — confirming…", settle: "Settling…", claim: "Claiming…", withdraw: "Withdrawal submitted." }[pend.phase] || "Submitted.";
+                  reveal: "Flip submitted — confirming…", settle: "Settling…", claim: "Claiming…", withdraw: "Withdrawal submitted." }[pend.phase] || "Submitted.";
   if (pend.gameId != null) active = pend.gameId;
   if (ok && pend.phase === "bet") { const g = gamesLoad(); if (g[pend.gameId]) { g[pend.gameId].bet = "pending"; gamesSave(g); } }
   if (ok && pend.phase === "reveal") { const g = gamesLoad(); if (g[pend.gameId]) { g[pend.gameId].reveal = "pending"; gamesSave(g); } }
@@ -92,7 +92,7 @@ function handleReturn() {
 async function fetchBalance() {
   if (!me) { myBalance = 0n; myL1Balance = 0n; return; }
   try {
-    const b = await (await fetch(base() + "/exec/bridge?ns=" + NS, { cache: "no-store" })).json();
+    const b = await (await fetch(base() + "/exec/bridge?ns=" + NS + "&provisional=1", { cache: "no-store" })).json();
     myBalance = BigInt((b.balances || {})[me] || 0);
   } catch { myBalance = 0n; }
   try {
@@ -101,7 +101,7 @@ async function fetchBalance() {
   } catch { myL1Balance = 0n; }
 }
 async function fetchGame(gid) {
-  try { return await (await fetch(base() + "/exec/flip_game?ns=" + NS + "&game=" + gid, { cache: "no-store" })).json(); }
+  try { return await (await fetch(base() + "/exec/flip_game?ns=" + NS + "&game=" + gid + "&provisional=1", { cache: "no-store" })).json(); }
   catch { return null; }
 }
 
@@ -158,7 +158,14 @@ function bet(gameId, stakeRaw, role) {
 function reveal() {
   const g = gamesLoad()[active];
   if (!g) { $("status").textContent = "No secret for this game on this device."; return; }
-  signBlob({ op: "flip_reveal", game: active, secret: BigInt(g.secret) }, "reveal game #" + active, { gameId: active, phase: "reveal" });
+  signBlob({ op: "flip_reveal", game: active, secret: BigInt(g.secret) }, "flip the coin · game #" + active, { gameId: active, phase: "reveal" });
+}
+function rematch() {
+  const stake = (lastGame && lastGame.exists) ? BigInt(lastGame.stake)
+    : ((gamesLoad()[active] || {}).stake ? BigInt(gamesLoad()[active].stake) : null);
+  if (!stake) { $("status").textContent = "Open a new game from the panel above."; return; }
+  if (myBalance < stake) { $("status").textContent = "Deposit more to play again — you have " + rawToNado(myBalance) + " NADO, need " + rawToNado(stake) + "."; return; }
+  bet(randId(), stake, "new");   // continue playing: a brand-new game at the same stake
 }
 const settle = () => signBlob({ op: "flip_settle", game: active }, "settle game #" + active, { gameId: active, phase: "settle" });
 const claim = () => signBlob({ op: "flip_claim", game: active }, "claim game #" + active, { gameId: active, phase: "claim" });
@@ -187,6 +194,7 @@ function wireUI() {
   $("btnClaim").onclick = claim;
   $("btnWithdraw").onclick = doWithdraw;
   $("btnShare").onclick = shareGame;
+  $("btnRematch").onclick = rematch;
 }
 const badge = (s) => s === "confirmed" ? '<span class="b ok">confirmed ✓</span>' : s === "pending" ? '<span class="b pend">pending…</span>' : '<span class="b dimb">—</span>';
 function render() {
@@ -217,7 +225,7 @@ function renderActive() {
   drawQR($("shareQR"), $("shareQRNote"), base() + "/?game=" + active, 200);
   $("pot").textContent = lg.exists ? rawToNado(lg.pot) + " NADO" : "—";
   $("stakeShown").textContent = lg.exists ? rawToNado(lg.stake) + " NADO" : (local.stake ? rawToNado(local.stake) + " NADO" : "—");
-  $("gStatus").textContent = lg.exists ? (lg.ncom + "/2 in · " + lg.nrev + "/2 revealed" + (lg.settled ? " · settled" : "")) : "opening…";
+  $("gStatus").textContent = lg.exists ? (lg.ncom + "/2 in · " + lg.nrev + "/2 flipped" + (lg.settled ? " · settled" : " · ⚡ live")) : "opening…";
   const pl = lg.players || {};
   const byslot = Object.keys(pl).sort((a, b) => pl[a].slot - pl[b].slot);
   let playersHtml = byslot.map((a) => '<span class="chip">' + (a === me ? "you " : "") + disp(a) + " · slot " + pl[a].slot + (pl[a].revealed ? " ✓" : "") + "</span>").join(" ");
@@ -233,22 +241,28 @@ function renderActive() {
     $("myBet").innerHTML = 'Your bet: <span class="b" style="background:rgba(248,81,73,.16);color:var(--danger)">didn\'t land — game filled first (your stake is safe)</span>';
   else
     $("myBet").innerHTML = "Your bet: " + badge(betC);
-  $("myReveal").innerHTML = "Your reveal: " + badge(revC);
+  $("myReveal").innerHTML = "Your flip: " + badge(revC);
   const bothIn = lg.ncom === 2, bothRev = lg.nrev === 2;
   const pastDeadline = lg.exists && !lg.settled && typeof lg.cursor === "number" && lg.cursor > lg.deadline;
   $("btnReveal").classList.toggle("hidden", !(mine && !mine.revealed && bothIn && !lg.settled));
   $("btnSettle").classList.toggle("hidden", !(bothRev && !lg.settled));
   $("btnClaim").classList.toggle("hidden", !pastDeadline);
+  $("btnRematch").classList.toggle("hidden", !lg.settled);   // continue playing once this game is done
   // coin / result
   const coin = $("coin");
   if (lg.settled && (lg.result === 0 || lg.result === 1)) {
     coin.className = "coin " + (lg.result === 0 ? "heads" : "tails"); coin.textContent = lg.result === 0 ? "H" : "T";
     const iWon = mine && lg.winner_slot === mine.slot;
     $("result").textContent = (lg.result === 0 ? "HEADS" : "TAILS") + " — " + (mine ? (iWon ? "you WON " + rawToNado(BigInt(lg.stake) * 2n) + " NADO 🎉" : "you lost") : "slot " + lg.winner_slot + " won");
+  } else if (lg.result === 0 || lg.result === 1) {
+    // both have flipped -> the outcome is public + deterministic; show it NOW (don't wait for the settle tx)
+    coin.className = "coin " + (lg.result === 0 ? "heads" : "tails"); coin.textContent = lg.result === 0 ? "H" : "T";
+    const iWon = mine && lg.winner_slot === mine.slot;
+    const outcome = (lg.result === 0 ? "HEADS" : "TAILS") + " — " + (mine ? (iWon ? "you WON " + rawToNado(BigInt(lg.stake) * 2n) + " NADO 🎉" : "you lost") : "slot " + lg.winner_slot + " won");
+    $("result").textContent = outcome + " · paying the winner…";
   } else {
     coin.className = "coin spin"; coin.textContent = "?";
-    $("result").textContent = bothRev ? "Settling…"
-      : bothIn ? "Both in — reveal your secret."
+    $("result").textContent = bothIn ? "Both in — flip the coin!"
       : myJoinPending ? "Your join is confirming on-chain (~1 min)…"
       : "Waiting for a second player…";
   }
@@ -257,6 +271,8 @@ function renderActive() {
 async function boot() {
   try { await loadCrypto(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
   wireUI();
+  // put the ACTIVE GAME above the bankroll/play card so the game is visible without scrolling past deposits
+  if ($("play") && $("activeGame")) $("play").parentNode.insertBefore($("activeGame"), $("play"));
   loadQR();
   handleReturn();
   const q = new URLSearchParams(location.search).get("game");
@@ -264,6 +280,6 @@ async function boot() {
   if (me) await fetchBalance();
   render();
   if (active != null) refreshActive();
-  setInterval(refreshActive, 6000);
+  setInterval(refreshActive, 3000);
 }
 boot();
