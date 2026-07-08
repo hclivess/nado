@@ -193,10 +193,9 @@
 
   <section id="settlement">
     <h2>Settled by stake, not a zkVM</h2>
-    <p class="sub">NADO settles its execution layer with a bonded-stake quorum — and may keep it that way. A rollup ends up <b>as secure as NADO itself</b>, at near-zero cost. Here's the weight difference, with real numbers.</p>
+    <p class="sub">NADO settles its rollups with a bonded-stake quorum — a rollup ends up <b>as secure as NADO itself</b>, at near-zero cost.</p>
     <div class="grid">
-      <div class="card"><div class="ico">⚡</div><h3>The exec-node model (what NADO does)</h3><p>Bonded validators run a <b>142-line</b> interpreter and attest the state root; L1 checks it with an <b>8-line integer compare</b>. Roughly native cost, runs on a phone, and the trust assumption is 2/3 honest bonded stake — <b>identical to NADO's own finality</b>.</p></div>
-      <div class="card"><div class="ico">🏋️</div><h3>A zkVM (the heavy alternative)</h3><p>Proving every executed instruction costs <b>~10³–10⁶× native</b>, needs a GPU/cluster and minutes per batch, and adds a <b>~50,000+ line</b> consensus-critical verifier — all to remove one assumption most chains never remove. NADO keeps it as an option, not a requirement.</p></div>
+      <div class="card"><div class="ico">⚡</div><h3>Up to 1,000,000× lighter than a zkVM</h3><p>NADO settles a rollup by running a <b>142-line</b> interpreter and checking one <b>8-line</b> stake vote — roughly native speed, it runs on a phone. A zkVM proving every executed instruction would burn up to <b>1,000,000×</b> more compute (a GPU cluster, minutes per batch) and add a <b>50,000+ line</b> consensus-critical verifier — all to buy a trust guarantee NADO already has from its staked validators.</p></div>
     </div>
   </section>
 
