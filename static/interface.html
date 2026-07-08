@@ -487,9 +487,28 @@
       <div style="flex:1"><label data-i18n="rollup.namespace">Namespace</label><input id="rollupNs" value="default"></div>
       <button class="ghost" id="rollupRefresh" style="align-self:flex-end" data-i18n="rollup.refresh">Refresh</button>
     </div>
-    <h3 class="mt" data-i18n="rollup.deployed">Deployed contracts</h3>
-    <div id="rollupList" class="faint small">—</div>
+    <h3 class="mt" data-i18n="rollup.contracts">Contracts</h3>
+    <div class="row">
+      <div style="flex:1"><label data-i18n="rollup.myContracts">My contracts</label>
+        <select id="rollupMine"><option value="" data-i18n="rollup.selectContract">— select a contract —</option></select></div>
+      <div style="flex:1"><label data-i18n="rollup.allContracts">All contracts (search)</label>
+        <input id="rollupAllSearch" list="rollupAllList" placeholder="search by contract id…" data-i18n-ph="rollup.searchPh" autocomplete="off" spellcheck="false">
+        <datalist id="rollupAllList"></datalist></div>
+    </div>
     <div id="rollupDetail" class="mt"></div>
+    <h3 class="mt" data-i18n="rollup.callHead">Call a method</h3>
+    <select id="rollupCallMethodSel"><option value="" data-i18n="rollup.selectMethod">— method —</option></select>
+    <div id="rollupMethodDoc" class="faint small mt"></div>
+    <div id="rollupArgs" class="mt"></div>
+    <input id="rollupCallArgs" class="mono mt hidden" placeholder='args as JSON, e.g. ["ndoBob", 250]' data-i18n-ph="rollup.argsPh">
+    <div class="row mt">
+      <button class="primary" id="rollupCall" data-i18n="rollup.callWrite">Call (write)</button>
+      <button class="ghost" id="rollupView" data-i18n="rollup.viewRead">View (read-only)</button>
+      <span id="rollupCallMsg" class="small"></span>
+    </div>
+    <div id="rollupViewResult" class="mono mt"></div>
+    <h3 class="mt" data-i18n="rollup.history">Call history</h3>
+    <div id="rollupHistory" class="small"></div>
     <h3 class="mt" data-i18n="rollup.deployHead">Deploy a contract</h3>
     <div class="row">
       <select id="rollupExample" style="flex:1"><option value="" data-i18n="rollup.pickExample">— pick an example —</option></select>
@@ -497,18 +516,6 @@
     </div>
     <textarea id="rollupCode" class="mono mt" rows="6" placeholder='{"get":[["PUSH","c"],["MLOAD","n"],["RETURN"]]}'></textarea>
     <div class="row mt"><button class="primary" id="rollupDeploy" data-i18n="rollup.deploy">Deploy</button><span id="rollupDeployMsg" class="small"></span></div>
-    <h3 class="mt" data-i18n="rollup.callHead">Call a method</h3>
-    <div class="row">
-      <input id="rollupCallCid" placeholder="contract id" data-i18n-ph="rollup.cidPh" style="flex:1">
-      <input id="rollupCallMethod" placeholder="method" data-i18n-ph="rollup.methodPh" style="flex:0 0 140px">
-    </div>
-    <input id="rollupCallArgs" class="mono mt" placeholder='args as JSON, e.g. ["ndoBob", 250]' data-i18n-ph="rollup.argsPh">
-    <div class="row mt">
-      <button class="primary" id="rollupCall" data-i18n="rollup.callWrite">Call (write)</button>
-      <button class="ghost" id="rollupView" data-i18n="rollup.viewRead">View (read-only)</button>
-      <span id="rollupCallMsg" class="small"></span>
-    </div>
-    <div id="rollupViewResult" class="mono mt"></div>
   </div>
 
   <!-- SETTLEMENT (L2 settlement-layer status, read-only) -->

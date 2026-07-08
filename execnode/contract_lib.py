@@ -116,3 +116,27 @@ TIP_JAR = accumulator_methods("tips")
 COIN_FLIP = commit_reveal_methods()
 
 EXAMPLES = {"counter": COUNTER, "tip_jar": TIP_JAR, "coin_flip": COIN_FLIP}
+
+# ABI = optional, non-consensus metadata: per method, the ARGUMENT NAMES a caller must pass (positionally,
+# ARG(0), ARG(1), …) and a one-line DOC. The wallet renders labelled arg inputs + the doc from this; a
+# deployer may ship an `abi` in the deploy blob so their contract is self-describing. Not committed to
+# state_root (a UX hint), but deterministic (it rides the deploy blob, so every node stores the same one).
+ABIS = {
+    "counter": {
+        "inc": {"args": [], "doc": "Increment the shared counter by 1."},
+        "get": {"args": [], "doc": "Read the current counter value."},
+    },
+    "tip_jar": {
+        "add":  {"args": ["amount"], "doc": "Add `amount` (>0) to YOUR running total."},
+        "of":   {"args": ["address"], "doc": "Read the running total for an address."},
+        "mine": {"args": [], "doc": "Read your own running total."},
+    },
+    "coin_flip": {
+        "commit": {"args": ["gameId", "hash"], "doc": "Commit HASH(secret) for a game (commit phase; first two players)."},
+        "reveal": {"args": ["gameId", "secret"], "doc": "Reveal your secret; it's checked against your commit."},
+        "flip":   {"args": ["gameId"], "doc": "Once both revealed: the fair coin result, 0 or 1."},
+    },
+}
+
+# what /exec/examples serves: name -> {code, abi}
+LIBRARY = {name: {"code": EXAMPLES[name], "abi": ABIS.get(name, {})} for name in EXAMPLES}

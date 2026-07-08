@@ -401,7 +401,9 @@ class ExecState:
                     ok, _ret, storage = rt.run(code, "constructor", sender, [], {})
                     if not ok:
                         storage = {}                      # constructor reverted -> deploy with empty state
-                self.contracts[cid] = {"code": code, "storage": storage, "deployer": sender, "runtime": rt_name}
+                abi = payload.get("abi")   # optional, non-consensus UX metadata {method:{args,doc}}
+                self.contracts[cid] = {"code": code, "storage": storage, "deployer": sender,
+                                       "runtime": rt_name, "abi": abi if isinstance(abi, dict) else {}}
                 return f"deploy {cid} ({rt_name}) by {sender[:12]}…"
 
             if op == "call":

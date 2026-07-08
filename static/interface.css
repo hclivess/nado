@@ -343,3 +343,6 @@ a { color: var(--accent-2); }
 .rollup-item:hover { border-color: var(--accent); }
 .rollup-item.rollup-pending { border-style: dashed; opacity: .72; }
 .rollup-mbtn { padding: 5px 10px; font-size: 13px; }
+.rollup-hist { padding: 5px 0; border-bottom: 1px solid var(--border); word-break: break-word; }
+.rollup-hist:last-child { border-bottom: 0; }
+#rollupArgs .rollup-arg { margin-top: 2px; }

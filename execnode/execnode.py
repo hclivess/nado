@@ -413,7 +413,7 @@ async def h_examples(request):
     """The starter contract library (execnode/contract_lib.py) as {name: {method: bytecode}} — the wallet's
     Rollup tab offers these as one-click deploys."""
     from execnode import contract_lib
-    return web.json_response({"examples": contract_lib.EXAMPLES})
+    return web.json_response({"examples": contract_lib.LIBRARY})   # name -> {code, abi}
 
 
 async def h_runtimes(request):
@@ -424,14 +424,33 @@ async def h_runtimes(request):
 
 
 async def h_contracts(request):
-    """List every deployed contract in ?ns= (cid, deployer, method names) — storage omitted, use /exec/contract."""
+    """Contracts in ?ns= (cid, deployer, method names, runtime) — storage omitted, use /exec/contract.
+    SCALABLE: bounded + filterable so a huge namespace doesn't dump everything. Query params:
+      ?deployer=<addr>  only that deployer's contracts (the wallet's "my contracts")
+      ?prefix=<hex>     only cids starting with <prefix> (search-as-you-type)
+      ?limit=<n>        cap the returned rows (default 100, max 500)
+    Returns {ns, contracts:[…], total, limit} where total is the full match count (may exceed limit)."""
     st = _state_for(request)
     if st is None:
         return _NS404()
-    return web.json_response({"ns": request.query.get("ns", "default"), "contracts": [
-        {"cid": cid, "deployer": c["deployer"], "methods": list(c["code"].keys()),
-         "runtime": c.get("runtime", "stackvm")}
-        for cid, c in st.contracts.items()]})
+    q_deployer = request.query.get("deployer")
+    q_prefix = request.query.get("prefix", "")
+    try:
+        limit = max(1, min(500, int(request.query.get("limit", "100"))))
+    except (TypeError, ValueError):
+        limit = 100
+    items, total = [], 0
+    for cid, c in st.contracts.items():
+        if q_deployer and c["deployer"] != q_deployer:
+            continue
+        if q_prefix and not cid.startswith(q_prefix):
+            continue
+        total += 1
+        if len(items) < limit:
+            items.append({"cid": cid, "deployer": c["deployer"], "methods": list(c["code"].keys()),
+                          "runtime": c.get("runtime", "stackvm"), "abi": c.get("abi") or {}})
+    return web.json_response({"ns": request.query.get("ns", "default"), "contracts": items,
+                              "total": total, "limit": limit})
 
 
 async def h_contract(request):
@@ -443,8 +462,8 @@ async def h_contract(request):
     c = st.contracts.get(cid)
     if not c:
         return web.json_response({"error": "not found"}, status=404)
-    return web.json_response({"cid": cid, "deployer": c["deployer"],
-                              "methods": list(c["code"].keys()), "storage": c["storage"]})
+    return web.json_response({"cid": cid, "deployer": c["deployer"], "methods": list(c["code"].keys()),
+                              "storage": c["storage"], "runtime": c.get("runtime", "stackvm"), "abi": c.get("abi") or {}})
 
 
 async def h_view(request):

@@ -3420,30 +3420,39 @@ function showTab(name) {
  * ROLLUP tab — browse / deploy / call execution-layer contracts. Deploys & calls ride L1 as ordered
  * `blob` txs (apply at finality); reads are live from the exec node. Contract runtimes are pluggable.
  * -------------------------------------------------------------------------------------------- */
-let _rollupExamples = null, _rollupWired = false;
+let _rollupExamples = null, _rollupWired = false, _rollupContracts = {}, _rollupActive = "", _rollupLoadedAbi = {}, _rollupLoadedCode = "";
 function rollupNs() { const v = ($("rollupNs").value || "").trim(); return v || "default"; }
 
 async function renderRollup() {
   rollupWire();
   await rollupLoadExamples();
-  await rollupRefreshList();
+  await rollupRefresh();
+  rollupRenderHistory();
 }
 
 function rollupWire() {
   if (_rollupWired) return;
   _rollupWired = true;
-  $("rollupRefresh").onclick = () => rollupRefreshList();
+  $("rollupRefresh").onclick = () => rollupRefresh();
   $("rollupLoadExample").onclick = () => {
-    const k = $("rollupExample").value;
-    if (k && _rollupExamples && _rollupExamples[k]) $("rollupCode").value = JSON.stringify(_rollupExamples[k], null, 1);
+    const k = $("rollupExample").value, ex = k && _rollupExamples && _rollupExamples[k];
+    if (ex) { $("rollupCode").value = JSON.stringify(ex.code, null, 1); _rollupLoadedAbi = ex.abi || {}; _rollupLoadedCode = $("rollupCode").value; }
   };
   $("rollupDeploy").onclick = () => rollupDeploy();
   $("rollupCall").onclick = () => rollupCall();
   $("rollupView").onclick = () => rollupView();
-  // auto-refresh the browser while you're on the tab, so a deploy/call lands (and its pending badge clears)
-  // without a manual refresh
+  $("rollupCallMethodSel").onchange = () => rollupRenderArgs(_rollupActive, $("rollupCallMethodSel").value);
+  $("rollupMine").onchange = () => { if ($("rollupMine").value) rollupSelectContract($("rollupMine").value, "mine"); };
+  // "All contracts" is a search-as-you-type datalist — SCALES to any number of contracts: each keystroke
+  // queries the node by cid PREFIX (bounded to 50 rows), and picking a full cid selects it.
+  let _rst;
+  $("rollupAllSearch").oninput = () => {
+    const v = $("rollupAllSearch").value.trim();
+    if (_rollupContracts[v]) { rollupSelectContract(v, "all"); return; }   // a full cid chosen from the list
+    clearTimeout(_rst); _rst = setTimeout(() => rollupSearchAll(v), 250);
+  };
   if (!window._rollupTimer) window._rollupTimer = setInterval(() => {
-    if (state.activeTab === "rollup" && state.wallet) rollupRefreshList();
+    if (state.activeTab === "rollup" && state.wallet) rollupRefresh();   // pending deploys land without a manual refresh
   }, 15000);
 }
 
@@ -3459,71 +3468,138 @@ async function rollupLoadExamples() {
   } catch (e) { _rollupExamples = {}; }
 }
 
-function rollupRow(cid, methods, tag, pending) {
-  return '<div class="rollup-item' + (pending ? " rollup-pending" : "") + '" data-cid="' + esc(cid) + '">'
-    + '<span class="addr">' + esc(cid.slice(0, 16)) + '…</span> '
-    + '<span class="faint small">' + esc(methods) + '</span> <span class="pill">' + esc(tag) + '</span></div>';
+// pending deploys tracked locally (per ns) so the pickers show them BEFORE they land at finality
+function rollupPendLoad() { try { return JSON.parse(localStorage.getItem("nado_rollup_pending") || "{}"); } catch { return {}; } }
+function rollupPendSave(p) { try { localStorage.setItem("nado_rollup_pending", JSON.stringify(p)); } catch (e) {} }
+function rollupAddPending(ns, cid, methods, abi) {
+  const p = rollupPendLoad(); (p[ns] = p[ns] || {})[cid] = { methods, abi: abi || {}, ts: Date.now() }; rollupPendSave(p);
 }
 
-async function rollupRefreshList() {
-  const el = $("rollupList"), ns = rollupNs();
+// refresh MY contracts (deployer-filtered + bounded) + local pending; the "all" picker is search-driven so it
+// never bulk-loads. _rollupContracts ACCUMULATES (mine + whatever you've searched/selected) for method lookup.
+async function rollupRefresh() {
+  const ns = rollupNs(), me = state.wallet && state.wallet.address;
+  let cs = [];
+  if (me) {
+    try { cs = ((await (await fetch(execBase() + "/exec/contracts?ns=" + encodeURIComponent(ns)
+      + "&deployer=" + encodeURIComponent(me) + "&limit=200", { cache: "no-store" })).json()).contracts) || []; }
+    catch (e) { /* exec node unreachable -> still show local pending */ }
+  }
+  cs.forEach((c) => { _rollupContracts[c.cid] = { methods: c.methods || [], deployer: c.deployer, pending: false, abi: c.abi || {} }; });
+  const onchain = new Set(cs.map((c) => c.cid));
+  const pend = rollupPendLoad(), pendNs = pend[ns] || {};
+  let changed = false;
+  for (const cid of Object.keys(pendNs)) {
+    if (onchain.has(cid)) { delete pendNs[cid]; changed = true; }         // landed on-chain -> drop the pending copy
+    else _rollupContracts[cid] = { methods: pendNs[cid].methods || [], deployer: me, pending: true, abi: pendNs[cid].abi || {} };
+  }
+  if (changed) { pend[ns] = pendNs; rollupPendSave(pend); }
+  rollupFillMine();
+}
+
+function _rollupOpt(cid, info) {
+  const o = document.createElement("option"); o.value = cid;
+  o.textContent = cid.slice(0, 12) + "… · " + (info.methods.join(", ") || "—") + (info.pending ? "  (" + i18("rollup.pendingTag", "pending") + ")" : "");
+  return o;
+}
+
+function rollupFillMine() {
+  const me = state.wallet && state.wallet.address;
+  const sel = $("rollupMine"), ph = sel.firstElementChild;                // keep the "— select —" placeholder
+  sel.innerHTML = ""; sel.appendChild(ph);
+  for (const cid of Object.keys(_rollupContracts)) {
+    if (_rollupContracts[cid].deployer !== me) continue;
+    sel.appendChild(_rollupOpt(cid, _rollupContracts[cid]));
+  }
+  sel.value = [...sel.options].some((o) => o.value === _rollupActive) ? _rollupActive : "";
+}
+
+// search ALL contracts by cid prefix (bounded to 50) -> the datalist; caches results for method lookup
+async function rollupSearchAll(q) {
+  const dl = $("rollupAllList"); if (!dl) return;
   try {
-    const j = await (await fetch(execBase() + "/exec/contracts?ns=" + encodeURIComponent(ns), { cache: "no-store" })).json();
-    const cs = j.contracts || [];
-    const onchain = new Set(cs.map((c) => c.cid));
-    // drop any locally-pending deploys that have now LANDED on-chain
-    const pend = rollupPendLoad(), pendNs = pend[ns] || {};
-    let changed = false;
-    for (const cid of Object.keys(pendNs)) if (onchain.has(cid)) { delete pendNs[cid]; changed = true; }
-    if (changed) { pend[ns] = pendNs; rollupPendSave(pend); }
-    const rows = cs.map((c) => rollupRow(c.cid, (c.methods || []).join(", "), c.runtime || "stackvm", false))
-      .concat(Object.keys(pendNs).map((cid) => rollupRow(cid, (pendNs[cid].methods || []).join(", "),
-        i18("rollup.pendingTag", "pending"), true)));
-    el.innerHTML = rows.length ? rows.join("")
-      : '<span class="small faint">' + esc(i18("rollup.none", "No contracts in this namespace yet.")) + '</span>';
-    el.querySelectorAll(".rollup-item").forEach((it) => { it.onclick = () => rollupShowContract(it.dataset.cid); });
-  } catch (e) { el.textContent = i18("rollup.execDown", "Execution node unreachable."); }
+    const u = execBase() + "/exec/contracts?ns=" + encodeURIComponent(rollupNs())
+      + (q ? "&prefix=" + encodeURIComponent(q) : "") + "&limit=50";
+    const cs = ((await (await fetch(u, { cache: "no-store" })).json()).contracts) || [];
+    dl.innerHTML = "";
+    for (const c of cs) {
+      _rollupContracts[c.cid] = { methods: c.methods || [], deployer: c.deployer, pending: false, abi: c.abi || {} };
+      const o = document.createElement("option"); o.value = c.cid;
+      o.label = c.cid.slice(0, 12) + "… · " + (c.methods || []).join(", ");
+      dl.appendChild(o);
+    }
+  } catch (e) { /* exec node unreachable */ }
 }
 
-async function rollupShowContract(cid) {
-  $("rollupCallCid").value = cid;                        // clicking a contract prefills the call field
-  const d = $("rollupDetail");
-  d.textContent = i18("rollup.loading", "Loading…");
+function rollupSelectContract(cid, from) {
+  _rollupActive = cid;
+  if (from === "mine") $("rollupAllSearch").value = "";                   // one picker active at a time
+  else { $("rollupMine").value = ""; $("rollupAllSearch").value = cid; }
+  rollupLoadMethods(cid);
+  rollupShowDetail(cid);
+}
+
+function rollupLoadMethods(cid) {
+  const sel = $("rollupCallMethodSel");
+  sel.innerHTML = "";
+  const ph = document.createElement("option"); ph.value = ""; ph.textContent = i18("rollup.selectMethod", "— method —"); sel.appendChild(ph);
+  for (const m of ((_rollupContracts[cid] || {}).methods || [])) {
+    const o = document.createElement("option"); o.value = m; o.textContent = m; sel.appendChild(o);
+  }
+  rollupRenderArgs(cid, "");   // reset arg inputs + doc for the new contract
+}
+
+// render labelled arg inputs + the method's doc from the contract ABI; if the method has no ABI, fall back
+// to a raw JSON args field so any contract is still callable.
+function rollupRenderArgs(cid, method) {
+  const doc = $("rollupMethodDoc"), box = $("rollupArgs"), jsonf = $("rollupCallArgs");
+  doc.textContent = ""; box.innerHTML = "";
+  const abi = ((_rollupContracts[cid] || {}).abi || {})[method];
+  if (method && abi) {
+    if (abi.doc) doc.textContent = abi.doc;
+    jsonf.classList.add("hidden");
+    (abi.args || []).forEach((name, i) => {
+      const wrap = document.createElement("div"); wrap.className = "mt";
+      const lab = document.createElement("label"); lab.textContent = name; wrap.appendChild(lab);
+      const inp = document.createElement("input"); inp.className = "rollup-arg"; inp.dataset.i = i; inp.placeholder = name;
+      wrap.appendChild(inp); box.appendChild(wrap);
+    });
+    if (!(abi.args || []).length) box.innerHTML = '<span class="faint small">' + esc(i18("rollup.noArgs", "no arguments")) + '</span>';
+  } else if (method) {
+    jsonf.classList.remove("hidden");   // unknown ABI -> raw JSON args
+  } else {
+    jsonf.classList.add("hidden");
+  }
+}
+
+async function rollupShowDetail(cid) {
+  const d = $("rollupDetail"), info = _rollupContracts[cid] || { methods: [], pending: false };
+  const head = '<div class="label">' + i18("rollup.contractId", "Contract") + '</div><div class="addr small break">' + esc(cid) + '</div>'
+    + '<div class="label mt">' + i18("rollup.methods", "Methods") + '</div><div class="mono small">' + esc(info.methods.join(", ") || "—") + '</div>';
+  if (info.pending) { d.innerHTML = head + '<div class="faint small mt">' + esc(i18("rollup.pendingDetail", "Pending — appears once applied at finality (a few minutes).")) + '</div>'; return; }
+  d.innerHTML = head + '<div class="faint small mt">' + esc(i18("rollup.loading", "Loading…")) + '</div>';
   try {
     const r = await fetch(execBase() + "/exec/contract?ns=" + encodeURIComponent(rollupNs()) + "&cid=" + encodeURIComponent(cid), { cache: "no-store" });
-    if (!r.ok) {                                         // not on-chain yet — a locally-pending deploy?
-      const pend = (rollupPendLoad()[rollupNs()] || {})[cid];
-      d.textContent = pend ? i18("rollup.pendingDetail", "Pending — appears once applied at finality (a few minutes).")
-                           : i18("rollup.notFound", "Not found.");
-      return;
-    }
-    const c = await r.json();
-    const chips = (c.methods || []).map((m) => '<button class="ghost rollup-mbtn" data-m="' + esc(m) + '">' + esc(m) + '</button>').join(" ");
-    d.innerHTML = '<div class="label">' + i18("rollup.methods", "Methods") + ' <span class="faint small">' + esc(i18("rollup.clickMethod", "(click one to call it)")) + '</span></div>'
-      + '<div class="row" style="gap:6px;margin-top:4px">' + (chips || '<span class="faint small">—</span>') + '</div>'
-      + '<div class="label mt">' + i18("rollup.storage", "Storage") + '</div><pre class="mono small">' + esc(JSON.stringify(c.storage || {}, null, 1)) + '</pre>';
-    d.querySelectorAll(".rollup-mbtn").forEach((b) => b.onclick = () => {   // fill the call form, ready for args
-      $("rollupCallCid").value = cid; $("rollupCallMethod").value = b.dataset.m; $("rollupCallArgs").focus();
-    });
-  } catch (e) { d.textContent = i18("rollup.execDown", "Execution node unreachable."); }
+    const c = r.ok ? await r.json() : {};
+    d.innerHTML = head + '<div class="label mt">' + i18("rollup.storage", "Storage") + '</div><pre class="mono small">' + esc(JSON.stringify(c.storage || {}, null, 1)) + '</pre>';
+  } catch (e) { d.innerHTML = head; }
 }
 
 function _rollupParams() {
   const msg = $("rollupCallMsg"); msg.textContent = "";
-  const cid = ($("rollupCallCid").value || "").trim();
-  const method = ($("rollupCallMethod").value || "").trim();
-  if (!cid || !method) { msg.textContent = i18("rollup.needCidMethod", "Enter a contract id and method."); return null; }
+  if (!_rollupActive) { msg.textContent = i18("rollup.needContract", "Select a contract first."); return null; }
+  const method = ($("rollupCallMethodSel").value || "").trim();
+  if (!method) { msg.textContent = i18("rollup.needMethod", "Select a method."); return null; }
   let args = [];
-  const raw = ($("rollupCallArgs").value || "").trim();
-  if (raw) { try { args = JSON.parse(raw); if (!Array.isArray(args)) throw 0; } catch (e) { msg.textContent = i18("rollup.badArgs", "Args must be a JSON array."); return null; } }
-  return { cid, method, args };
-}
-
-// pending deploys/calls tracked locally (by ns) so the browser shows them BEFORE they land at finality
-function rollupPendLoad() { try { return JSON.parse(localStorage.getItem("nado_rollup_pending") || "{}"); } catch { return {}; } }
-function rollupPendSave(p) { try { localStorage.setItem("nado_rollup_pending", JSON.stringify(p)); } catch (e) {} }
-function rollupAddPending(ns, cid, methods) {
-  const p = rollupPendLoad(); (p[ns] = p[ns] || {})[cid] = { methods, ts: Date.now() }; rollupPendSave(p);
+  const inputs = [...$("rollupArgs").querySelectorAll(".rollup-arg")].sort((a, b) => a.dataset.i - b.dataset.i);
+  if (inputs.length) {
+    // a number typed -> a number; anything else stays a string (matches the VM's int/str values)
+    args = inputs.map((el) => { const raw = el.value.trim(); if (raw === "") return ""; try { const v = JSON.parse(raw); return (typeof v === "number" || typeof v === "string") ? v : raw; } catch { return raw; } });
+  } else {
+    const raw = ($("rollupCallArgs").value || "").trim();
+    if (raw) { try { args = JSON.parse(raw); if (!Array.isArray(args)) throw 0; } catch (e) { msg.textContent = i18("rollup.badArgs", "Args must be a JSON array."); return null; } }
+  }
+  return { cid: _rollupActive, method, args };
 }
 
 async function rollupDeploy() {
@@ -3533,18 +3609,21 @@ async function rollupDeploy() {
   const latest = await getLatestBlock();
   if (!latest) { msg.textContent = i18("rollup.relayDown", "Relay unavailable."); return; }
   const ns = rollupNs(), nonce = randNonce();
-  // the contract id is DETERMINISTIC — computable before the blob even lands (matches state.contract_id)
-  const cid = blake2bHash(["deploy", state.wallet.address, code, nonce]).slice(0, 32);
+  const cid = blake2bHash(["deploy", state.wallet.address, code, nonce]).slice(0, 32);   // deterministic, known now
   const payload = { op: "deploy", code, nonce };
   if (ns !== "default") payload.ns = ns;
+  // attach the loaded example's ABI (arg names + docs) if the code is still the one we loaded, so the
+  // deployed contract is self-describing in the wallet
+  const abi = ($("rollupCode").value === _rollupLoadedCode) ? _rollupLoadedAbi : {};
+  if (abi && Object.keys(abi).length) payload.abi = abi;
   const tx = buildBlobTx(state.wallet, payload, latest.block_number + 8, MIN_TX_FEE, nowSeconds());
   const res = await submitTransaction(tx);
   if (res.data && res.data.result) {
-    rollupAddPending(ns, cid, Object.keys(code));      // show it in the browser immediately (as pending)
-    $("rollupCallCid").value = cid;                    // prefill so you can call it right away
+    rollupAddPending(ns, cid, Object.keys(code), payload.abi);
     msg.innerHTML = i18("rollup.deployedAs", "Deployed as") + ' <span class="addr">' + esc(cid)
       + '</span> — ' + esc(i18("rollup.afterFinality", "live after finality (a few minutes)."));
-    rollupRefreshList();
+    await rollupRefresh();
+    rollupSelectContract(cid, "mine");                                    // auto-select it, ready to call
   } else {
     msg.textContent = i18("rollup.rejected", "Rejected: ") + ((res.data && res.data.message) || "");
   }
@@ -3558,20 +3637,39 @@ async function rollupCall() {
   const ns = rollupNs(); if (ns !== "default") payload.ns = ns;
   const tx = buildBlobTx(state.wallet, payload, latest.block_number + 8, MIN_TX_FEE, nowSeconds());
   const res = await submitTransaction(tx);
-  $("rollupCallMsg").textContent = (res.data && res.data.result)
-    ? i18("rollup.callSent", "Call submitted — state updates after finality.")
-    : i18("rollup.rejected", "Rejected: ") + ((res.data && res.data.message) || "");
+  const ok = !!(res.data && res.data.result);
+  const status = ok ? i18("rollup.histSent", "sent (applies at finality)") : i18("rollup.rejected", "Rejected: ") + ((res.data && res.data.message) || "");
+  $("rollupCallMsg").textContent = ok ? i18("rollup.callSent", "Call submitted — state updates after finality.") : status;
+  rollupHistLog(ns, { cid: p.cid, method: p.method, args: p.args, ok, status, ts: Date.now() });
 }
 
 async function rollupView() {
   const p = _rollupParams(); if (!p) return;
   const out = $("rollupViewResult"); out.textContent = i18("rollup.loading", "Loading…");
+  const ns = rollupNs();
   try {
-    const u = execBase() + "/exec/view?ns=" + encodeURIComponent(rollupNs()) + "&cid=" + encodeURIComponent(p.cid)
+    const u = execBase() + "/exec/view?ns=" + encodeURIComponent(ns) + "&cid=" + encodeURIComponent(p.cid)
       + "&method=" + encodeURIComponent(p.method) + "&args=" + encodeURIComponent(JSON.stringify(p.args));
     const j = await (await fetch(u, { cache: "no-store" })).json();
     out.textContent = i18("rollup.result", "Result: ") + JSON.stringify(j.result);
+    rollupHistLog(ns, { cid: p.cid, method: p.method, args: p.args, ok: true, status: "→ " + JSON.stringify(j.result), ts: Date.now() });
   } catch (e) { out.textContent = i18("rollup.execDown", "Execution node unreachable."); }
+}
+
+// per-namespace local call history (last 30) shown in the tab — immediate feedback for what you called
+function rollupHistLog(ns, entry) {
+  let all = {}; try { all = JSON.parse(localStorage.getItem("nado_rollup_hist") || "{}"); } catch (e) {}
+  const arr = all[ns] || []; arr.unshift(entry); all[ns] = arr.slice(0, 30);
+  try { localStorage.setItem("nado_rollup_hist", JSON.stringify(all)); } catch (e) {}
+  rollupRenderHistory();
+}
+function rollupRenderHistory() {
+  const el = $("rollupHistory"); if (!el) return;
+  let arr = []; try { arr = (JSON.parse(localStorage.getItem("nado_rollup_hist") || "{}"))[rollupNs()] || []; } catch (e) {}
+  if (!arr.length) { el.innerHTML = '<span class="faint">' + esc(i18("rollup.noHistory", "No calls yet.")) + '</span>'; return; }
+  el.innerHTML = arr.map((e) => '<div class="rollup-hist"><span class="mono">' + esc((e.cid || "").slice(0, 10)) + '….' + esc(e.method)
+    + '(' + esc(JSON.stringify(e.args)) + ')</span> <span class="' + (e.ok ? "faint" : "err") + '">' + esc(e.status) + '</span> '
+    + '<span class="faint">' + esc(new Date(e.ts).toLocaleTimeString()) + '</span></div>').join("");
 }
 
 /* ----------------------------------------------------------------------------------------------
