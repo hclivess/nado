@@ -466,6 +466,10 @@ both are respected:
   per-miner accounting happens **off-L1** on the execution node, which distributes
   each epoch's pool growth **only among the miners present that epoch** (stop mining
   and you stop accruing), pro-rata by fidelity, remainder carried so no unit is lost.
+  The accrual is a **deterministic function of the finalized block stream**: L1 tracks
+  the per-epoch pool inflow, and the exec node distributes `inflow(E)` over
+  `weights_at_epoch(E)` once per completed epoch — so every node commits the identical
+  dividend map regardless of how it batches blocks, which is what lets the layer settle.
 - **Not a Sybil faucet.** A flat per-identity payout would reward headcount — exactly
   what the 30% cap, the PoSW lease and fidelity neutralize. Weighting by **fidelity**
   ties the dividend to the *same* continuous-presence signal a Sybil already has to pay
@@ -1080,10 +1084,29 @@ Additional hardening and feature items, all currently **planned/partial**:
   settlement **built**; validity-proof Phase 2b designed) — RISC-V smart contracts are
   explicitly kept *off* L1; the shape is a sovereign DA+ordering layer that touches
   consensus, at most, through one bounded proof verifier, so
-  phone-mining/finality/simplicity are preserved. See
-  [execution-layer.md](execution-layer.md), and the cited VM/proving-frontier survey in
+  phone-mining/finality/simplicity are preserved. The contract engine is **pluggable**
+  (`execnode/runtimes.py`): a contract records the runtime it deployed under and every
+  call/view dispatches back to it, so the VM is swappable without touching consensus. The
+  default runtime is a tiny deterministic stack VM (`execnode/vm.py`, now with a `HASH`
+  primitive for commit-reveal), and a **starter contract library** ships from generalized
+  method patterns — a counter, a per-caller accumulator, and a **fair 2-player coin flip**
+  (commit-reveal: neither party can bias the parity of `HASH(secret₀‖secret₁)`). The live
+  wallet exposes all of it at a **Rollup tab** (browse / deploy / call, per namespace). See
+  [execution-layer.md](execution-layer.md), [rollups-and-settlement.md](rollups-and-settlement.md),
+  and the VM/proving-frontier survey in
   [execution-layer-vm-research.md](execution-layer-vm-research.md) (the PQ-soundness ↔
   cheap-verifier tension; Circle-STARK/Stwo + lookup VM as the forward bet).
+- **Data availability & the DA-backed shielded pool** ([privacy.md](privacy.md),
+  [rollups-and-settlement.md](rollups-and-settlement.md)) — an erasure-coded DA store +
+  serving layer (`ops/da.py` codec + `ops/da_store.py`: Reed-Solomon k-of-n with an
+  index-bound PQ Merkle commitment, self-verifying `(shard, proof)` pairs, k-of-n
+  reconstruction pulled across the **live peer set**) carries both pruned rollup blobs and
+  the shielded pool's multi-megabyte STARK proofs. A shielded transfer is too big for a
+  16 KiB blob, so **only its statement + the proof's commitment ride L1** (fixing order +
+  content) while the proof rides DA; every exec node resolves it by commitment and applies
+  in L1 order — making the **shielded pool multi-validator-settleable**, not
+  single-operator. Phones never touch DA (they read from relays); it is a full/exec-node
+  concern, pruned on a rolling window.
 - **Settlement layer & throughput** ([l2-settlement.md](l2-settlement.md),
   [settlement-layer.md](settlement-layer.md)) — L1 orders opaque `blob`s, guarantees
   availability, and advances a settled state-root pointer when a settlement is *justified*:

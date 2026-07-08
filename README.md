@@ -46,7 +46,9 @@ them: no puzzles to keep solving, no efficient rig to keep running, and no requi
 
 - **Seamless — one client, any device, one tap.** Every node serves a single browser page (`/`) that
   is at once the **wallet, block explorer, miner, and alias manager** — and, by design, where you'll
-  **interact with contracts** too. No install, no browser extension, no full node, no signup, no
+  **interact with contracts** too — a **Rollup tab** now browses, deploys and calls execution-layer
+  contracts (a starter library ships: a counter, a tip jar, and a fair commit-reveal coin flip; the
+  contract runtime is pluggable). No install, no browser extension, no full node, no signup, no
   seed-phrase ceremony. **Unlike a MetaMask-style extension wallet** — which only *holds keys*, can't
   mine, and means "install the extension, back up a seed, buy gas, connect to a dApp" before you do
   anything — NADO is just a URL. Open it and you're already a full participant: generate a post-quantum
