@@ -654,19 +654,21 @@ def recert_epochs(address: str, upto_epoch: int = None) -> list:
 
 # --- Bridge withdrawal nullifiers (Phase 2): each (addr, nonce) exit may be claimed on L1 at most once ---
 
-def bridge_nullifier_exists(addr: str, nonce: str) -> bool:
-    """True if the (addr, nonce) bridge exit was already claimed (double-claim replay guard)."""
-    return meta_get_int(f"bridgenull:{addr}:{nonce}", 0) == 1
+def bridge_nullifier_exists(ns: str, addr: str, nonce: str) -> bool:
+    """True if the (ns, addr, nonce) bridge exit was already claimed (double-claim replay guard). Namespaced
+    so two rollups that reuse the same (addr, nonce) — near-certain with per-rollup sequential nonces — can
+    each claim their own settled exit against the shared escrow without colliding."""
+    return meta_get_int(f"bridgenull:{ns}:{addr}:{nonce}", 0) == 1
 
 
-def bridge_nullifier_put(addr: str, nonce: str):
-    """Burn the (addr, nonce) bridge-exit nullifier (apply-side, atomic with the exit)."""
-    meta_set_int(f"bridgenull:{addr}:{nonce}", 1)
+def bridge_nullifier_put(ns: str, addr: str, nonce: str):
+    """Burn the (ns, addr, nonce) bridge-exit nullifier (apply-side, atomic with the exit)."""
+    meta_set_int(f"bridgenull:{ns}:{addr}:{nonce}", 1)
 
 
-def bridge_nullifier_del(addr: str, nonce: str):
+def bridge_nullifier_del(ns: str, addr: str, nonce: str):
     """Revert bridge_nullifier_put exactly (rollback un-burns the nullifier)."""
-    meta_del(f"bridgenull:{addr}:{nonce}")
+    meta_del(f"bridgenull:{ns}:{addr}:{nonce}")
 
 
 # --- Cross-rollup message (xmsg) nullifiers: each (from_ns, seq) message may be delivered on L1 at most once ---

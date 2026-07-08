@@ -104,17 +104,30 @@ def encode(data: bytes, k: int, n: int):
             "length": length, "shards": shards}
 
 
-def reconstruct(manifest_meta, known_shards: dict):
+def reconstruct(manifest_meta, known_shards: dict, verify: bool = True):
     """Reconstruct the original bytes from ANY k shards. manifest_meta carries {k, stripes, length};
-    known_shards = {index(0-based): shard_bytes}. Raises if fewer than k shards are supplied."""
+    known_shards = {index(0-based): shard_bytes}. Raises if fewer than k shards are supplied.
+
+    When MORE than k shards are supplied and verify=True (default), each extra shard is checked for
+    consistency against the k-shard interpolation — a single corrupt/malicious shard is DETECTED (raises)
+    instead of silently producing wrong bytes. (Callers should still `verify_sample` each shard against the
+    commitment; this is a cheap belt-and-suspenders when redundancy is available.)"""
     k = manifest_meta["k"]; stripes = manifest_meta["stripes"]; length = manifest_meta["length"]
     if len(known_shards) < k:
         raise ValueError(f"need >= {k} shards, have {len(known_shards)}")
     sym_by_idx = {idx: _shard_syms(b) for idx, b in known_shards.items()}
+    idx_list = list(sym_by_idx)
+    use, extra = idx_list[:k], (idx_list[k:] if verify else [])
     out_syms = []
     for s in range(stripes):
-        known = {idx: syms[s] for idx, syms in sym_by_idx.items()}
-        out_syms.extend(_decode_stripe(known, k))
+        pts = [(idx + 1, sym_by_idx[idx][s] % P) for idx in use]
+        data = [_lagrange_eval(pts, x) for x in range(1, k + 1)]
+        if extra:
+            dpts = [(i + 1, data[i]) for i in range(k)]
+            for idx in extra:
+                if _lagrange_eval(dpts, idx + 1) != sym_by_idx[idx][s] % P:
+                    raise ValueError(f"shard {idx} inconsistent with the k-of-n interpolation (corrupt shard)")
+        out_syms.extend(data)
     return _unpack(out_syms, length)
 
 

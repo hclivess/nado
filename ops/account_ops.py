@@ -169,14 +169,16 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     # --- BRIDGE EXIT (Phase 2): release `amount` from escrow to the proven addr and burn the nullifier.
     # Validation already verified the Merkle proof against the settled root + escrow funding. Fee-exempt. ---
     if recipient == "bridge_withdraw":
+        from protocol import DEFAULT_NS
         data = transaction.get("data") or {}
         addr, amt, nonce = data["addr"], int(data["amount"]), data["nonce"]
+        ns = data.get("ns", DEFAULT_NS)
         change_balance(address=BRIDGE_ESCROW, amount=-amt, logger=logger, revert=revert)
         change_balance(address=addr, amount=amt, logger=logger, revert=revert)
         if revert:
-            kv_ops.bridge_nullifier_del(addr, nonce)
+            kv_ops.bridge_nullifier_del(ns, addr, nonce)
         else:
-            kv_ops.bridge_nullifier_put(addr, nonce)
+            kv_ops.bridge_nullifier_put(ns, addr, nonce)
         return
 
     # --- CROSS-ROLLUP MESSAGE DELIVERY (xmsg): validation already verified the message against from_ns's

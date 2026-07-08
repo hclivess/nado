@@ -653,7 +653,7 @@ def validate_transaction(transaction, logger, block_height):
         assert settled_root, "no settled execution-layer root yet for this namespace"
         assert verify_merkle_proof(withdrawal_leaf(addr, amount, nonce), proof, settled_root), \
             "withdrawal is not proven against the settled execution-layer root"
-        assert not kv_ops.bridge_nullifier_exists(addr, nonce), "this withdrawal was already claimed"
+        assert not kv_ops.bridge_nullifier_exists(ns, addr, nonce), "this withdrawal was already claimed"
         escrow = get_account(BRIDGE_ESCROW, create_on_error=False)
         assert escrow and escrow.get("balance", 0) >= amount, "bridge escrow underfunded"
     elif recipient == "xmsg":

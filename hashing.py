@@ -142,8 +142,9 @@ def outbox_leaf(seq, sender, to_ns, data) -> bytes:
     """Canonical leaf bytes for a cross-domain OUTBOX message — identical on the execution node (which commits
     it in state_root and proves it) and on L1 (which verifies an `xmsg` delivery against the SETTLED root of
     the sending namespace). Distinct domain tag ('outbox') so it can never collide with a bridge/dividend
-    leaf. `data` is committed via canonical json so any structure hashes deterministically."""
-    return canonical_bytes(["outbox", int(seq), sender, to_ns, json.dumps(data, sort_keys=True)])
+    leaf. `data` is embedded directly (not pre-json'd) so it goes through the SAME canonical_bytes encoder as
+    every other leaf — one canonical form, no raw-json divergence."""
+    return canonical_bytes(["outbox", int(seq), sender, to_ns, data])
 
 
 def unshield_leaf(addr, amount, nonce) -> bytes:

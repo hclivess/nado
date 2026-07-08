@@ -41,8 +41,7 @@ def _outbox_leaf(msg):
 def _inbox_leaf(i, msg):
     """Canonical Merkle leaf for one DELIVERED (received) cross-domain message. Committed in state_root so
     every receiver node agrees on B's state after a delivery (they all read the same L1-verified `xmsg`)."""
-    return canonical_bytes(["inbox", int(i), msg.get("from_ns"), int(msg.get("seq", -1)),
-                            json.dumps(msg.get("data"), sort_keys=True)])
+    return canonical_bytes(["inbox", int(i), msg.get("from_ns"), int(msg.get("seq", -1)), msg.get("data")])
 
 
 class ExecState:
@@ -131,7 +130,10 @@ class ExecState:
                        "dw_nonce": self.dw_nonce, "shielded": self.shielded.to_dict(),
                        "unshield_withdrawals": self.unshield_withdrawals, "uw_nonce": self.uw_nonce,
                        "field_pool": self.field_pool.to_dict()}
-        tmp = self.path + ".tmp"
+        # '~tmp' (not '.tmp'): a namespace state path is STATE_PATH + '.' + ns and ns excludes '~', so this
+        # temp can never equal another namespace's persistent path (a ns literally named 'tmp' would have
+        # collided a '.tmp' temp and corrupted its state on every default save).
+        tmp = self.path + "~tmp"
         with open(tmp, "w") as f:
             json.dump(payload, f, sort_keys=True)
         os.replace(tmp, self.path)
