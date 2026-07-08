@@ -27,6 +27,9 @@
   button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
   button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
   button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
+  @keyframes cfpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,201,167,.45)}50%{transform:scale(1.05);box-shadow:0 0 0 6px rgba(0,201,167,0)}}
+  button.pulse{animation:cfpulse 1.25s ease-in-out infinite}
+  button.ghost.pulse{border-color:var(--accent2);color:var(--accent2)}
   .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
   .addr{font-family:var(--mono);font-size:12px;color:var(--accent2);word-break:break-all}
   .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2)}

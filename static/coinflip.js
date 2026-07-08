@@ -44,6 +44,7 @@ const gamesSave = (g) => { try { localStorage.setItem(LS_G, JSON.stringify(g)); 
 let me = localStorage.getItem(LS_ME) || null;
 let active = null, lastGame = null, myBalance = 0n, myL1Balance = 0n;
 const FEE = 1000n;   // MIN_TX_FEE (raw) — a deposit spends amount + this from the L1 wallet
+let deepLinkGame = null;   // set when arriving via ?game= — pulses the Join (or Sign-in) button until joined
 
 // ---- amounts / secrets ---------------------------------------------------------------------------
 const randId = () => globalThis.crypto.getRandomValues(new Uint32Array(1))[0] % 1000000000;
@@ -133,6 +134,7 @@ async function newGame() {
 async function joinGame() {
   const gid = parseInt($("joinId").value, 10);
   if (!gid) return;
+  deepLinkGame = null; $("btnJoin").classList.remove("pulse");   // they clicked — stop nudging
   const g = await fetchGame(gid);
   if (!g || !g.exists) { $("status").textContent = "No such game yet — ask your opponent for the ID after they open it."; return; }
   if (g.settled || g.ncom >= 2) { $("status").textContent = "That game is full or already settled."; return; }
@@ -194,6 +196,10 @@ function render() {
   $("bal").textContent = rawToNado(myBalance) + " NADO";
   $("l1bal").textContent = rawToNado(myL1Balance) + " NADO";
   $("play").classList.toggle("hidden", !signedIn);
+  // arrived via a share link + haven't joined yet -> pulse the next action (Sign in first, else Join) so it's obvious
+  const wantsJoin = !!deepLinkGame && !((gamesLoad()[deepLinkGame] || {}).bet);
+  $("btnSignIn").classList.toggle("pulse", wantsJoin && !signedIn);
+  $("btnJoin").classList.toggle("pulse", wantsJoin && signedIn);
   const g = gamesLoad(), ids = Object.keys(g).sort((a, b) => g[b].ts - g[a].ts).slice(0, 8);
   $("recent").innerHTML = ids.length
     ? ids.map((id) => '<button class="chip" data-g="' + id + '">#' + id + " · " + rawToNado(g[id].stake || "0") + "</button>").join(" ")
@@ -254,7 +260,7 @@ async function boot() {
   loadQR();
   handleReturn();
   const q = new URLSearchParams(location.search).get("game");
-  if (q) { $("joinId").value = q; if (active == null) active = parseInt(q, 10); }   // deep link -> show + auto-poll the game
+  if (q) { $("joinId").value = q; if (active == null) active = parseInt(q, 10); deepLinkGame = q; }   // deep link -> show + auto-poll + pulse Join
   if (me) await fetchBalance();
   render();
   if (active != null) refreshActive();
