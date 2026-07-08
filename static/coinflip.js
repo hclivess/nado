@@ -136,7 +136,14 @@ async function joinGame() {
   const g = await fetchGame(gid);
   if (!g || !g.exists) { $("status").textContent = "No such game yet — ask your opponent for the ID after they open it."; return; }
   if (g.settled || g.ncom >= 2) { $("status").textContent = "That game is full or already settled."; return; }
-  bet(gid, BigInt(g.stake), "join");
+  await fetchBalance();                                   // fresh exec balance before committing to a bet
+  const need = BigInt(g.stake);
+  if (myBalance < need) {
+    $("status").textContent = "You need " + rawToNado(need) + " NADO in your exec balance to join (you have "
+      + rawToNado(myBalance) + "). Deposit first — and if your L1 wallet is empty too, mine or receive some NADO.";
+    render(); return;
+  }
+  bet(gid, need, "join");
 }
 function bet(gameId, stakeRaw, role) {
   const g = gamesLoad();
@@ -207,12 +214,19 @@ function renderActive() {
   $("gStatus").textContent = lg.exists ? (lg.ncom + "/2 in · " + lg.nrev + "/2 revealed" + (lg.settled ? " · settled" : "")) : "opening…";
   const pl = lg.players || {};
   const byslot = Object.keys(pl).sort((a, b) => pl[a].slot - pl[b].slot);
-  $("players").innerHTML = byslot.length
-    ? byslot.map((a) => '<span class="chip">' + (a === me ? "you " : "") + disp(a) + " · slot " + pl[a].slot + (pl[a].revealed ? " ✓" : "") + "</span>").join(" ")
-    : '<span class="dim">no players yet</span>';
+  let playersHtml = byslot.map((a) => '<span class="chip">' + (a === me ? "you " : "") + disp(a) + " · slot " + pl[a].slot + (pl[a].revealed ? " ✓" : "") + "</span>").join(" ");
+  // show MY join as a pending player until it lands on-chain (finality lag) — otherwise the joiner looks absent
+  const myJoinPending = !mine && local.bet === "pending" && lg.exists && lg.ncom < 2;
+  if (myJoinPending) playersHtml += ' <span class="chip" style="opacity:.75">you · confirming…</span>';
+  $("players").innerHTML = playersHtml || '<span class="dim">no players yet</span>';
   // my local move status, upgraded to confirmed once the chain reflects it
   const betC = mine ? "confirmed" : local.bet, revC = (mine && mine.revealed) ? "confirmed" : local.reveal;
-  $("myBet").innerHTML = "Your bet: " + badge(betC);
+  // my join was submitted but I'm not on-chain and the game already has 2 players -> it never landed (someone
+  // filled it first, or my bet was rejected). Say so clearly instead of hanging on "pending" forever.
+  if (!mine && local.bet === "pending" && lg.exists && lg.ncom >= 2)
+    $("myBet").innerHTML = 'Your bet: <span class="b" style="background:rgba(248,81,73,.16);color:var(--danger)">didn\'t land — game filled first (your stake is safe)</span>';
+  else
+    $("myBet").innerHTML = "Your bet: " + badge(betC);
   $("myReveal").innerHTML = "Your reveal: " + badge(revC);
   const bothIn = lg.ncom === 2, bothRev = lg.nrev === 2;
   const pastDeadline = lg.exists && !lg.settled && typeof lg.cursor === "number" && lg.cursor > lg.deadline;
@@ -225,7 +239,13 @@ function renderActive() {
     coin.className = "coin " + (lg.result === 0 ? "heads" : "tails"); coin.textContent = lg.result === 0 ? "H" : "T";
     const iWon = mine && lg.winner_slot === mine.slot;
     $("result").textContent = (lg.result === 0 ? "HEADS" : "TAILS") + " — " + (mine ? (iWon ? "you WON " + rawToNado(BigInt(lg.stake) * 2n) + " NADO 🎉" : "you lost") : "slot " + lg.winner_slot + " won");
-  } else { coin.className = "coin spin"; coin.textContent = "?"; $("result").textContent = bothRev ? "Settling…" : bothIn ? "Both in — reveal your secret." : "Waiting for a second player…"; }
+  } else {
+    coin.className = "coin spin"; coin.textContent = "?";
+    $("result").textContent = bothRev ? "Settling…"
+      : bothIn ? "Both in — reveal your secret."
+      : myJoinPending ? "Your join is confirming on-chain (~1 min)…"
+      : "Waiting for a second player…";
+  }
 }
 
 async function boot() {
