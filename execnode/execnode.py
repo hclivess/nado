@@ -48,7 +48,9 @@ POLL = float(os.environ.get("NADO_EXEC_POLL", "5"))
 # so only the transfer STATEMENT + the proof's `commitment` ride on-chain). This node keeps a local DaStore;
 # NADO_DA_URL is a peer DA node to fetch a proof from by commitment when we don't hold it locally.
 from ops.da_store import DaStore, reconstruct_from
+from ops import da as _da
 DA_DIR = os.environ.get("NADO_EXEC_DA", "exec_da")
+DA_N_MAX = 64          # bound attacker-supplied meta.n so a lied manifest can't drive an unbounded fetch loop
 DA_URL = os.environ.get("NADO_DA_URL", "").rstrip("/")
 DA_K = int(os.environ.get("NADO_DA_K", "4"))
 DA_N = int(os.environ.get("NADO_DA_N", "8"))
@@ -339,6 +341,10 @@ async def da_fetch(session, commitment):
                 async with session.get(f"{src}/da/meta?c={commitment}",
                                        timeout=aiohttp.ClientTimeout(total=10)) as r:
                     meta = await r.json() if r.status == 200 else None
+                # meta is UNTRUSTED (from a peer). Bound k/n before iterating so a lied manifest can't drive
+                # an unbounded fetch loop; the definitive check is the commitment round-trip after reconstruct.
+                if isinstance(meta, dict) and not (1 <= int(meta.get("k", 0)) <= int(meta.get("n", 0)) <= DA_N_MAX):
+                    meta = None
             if meta is None:
                 continue
             need = int(meta["k"]) + 1                        # +1 gives da.reconstruct its consistency check
@@ -360,8 +366,15 @@ async def da_fetch(session, commitment):
     if meta is None or len(pairs) < int(meta["k"]):
         return None
     try:
+        k, n = int(meta["k"]), int(meta["n"])
         data = reconstruct_from(meta, list(pairs.values()))  # verifies every shard vs the commitment
-        DA.put(data, int(meta["k"]), int(meta["n"]))         # cache -> we can now serve it too
+        # The shards are bound to the commitment, but k/n/stripes/length came from an UNTRUSTED peer meta and
+        # steer the decode (e.g. a smaller `length` truncates to different bytes that still pass the shard
+        # checks). Round-trip: re-encode the result and require it to reproduce the ON-CHAIN commitment, so a
+        # lied manifest is rejected and every honest node reconstructs identical bytes (determinism).
+        if _da.encode(data, k, n)["commitment"] != commitment:
+            return None
+        DA.put(data, k, n)                                   # cache -> we can now serve it too
         return data
     except Exception:
         return None

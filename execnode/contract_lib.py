@@ -74,23 +74,35 @@ def accumulator_methods(m="acc"):
 
 
 def commit_reveal_methods():
-    """Two-phase fair randomness, keyed by a gameId = ARG(0):
-        commit(gameId, hash)   — first, each of two players stores HASH(secret) (computed off-chain).
-        reveal(gameId, secret) — later, each proves HASH(secret)==their commit; the secret is recorded.
-        flip(gameId)           — once both revealed, returns parity of HASH(secret0 ‖ secret1) ∈ {0,1}.
-    Fair because neither player learns the other's secret before committing. Generalizes to sealed-bid
-    auctions (compare revealed bids) and lotteries (more players/one more MOD)."""
+    """Two-phase fair randomness, keyed by a gameId = ARG(0). Strict phase + player binding:
+        commit(gameId, hash)   — commit phase ONLY (no reveals yet) and only the FIRST TWO players; each
+                                 stores HASH(secret) and gets a fixed slot (1-based).
+        reveal(gameId, secret) — only a committed player, once; proves HASH(secret)==their commit; the
+                                 secret is recorded at their fixed slot.
+        flip(gameId)           — once BOTH committed players revealed, returns parity of
+                                 HASH(secret0 ‖ secret1) ∈ {0,1} (slot 0 ‖ slot 1).
+    Binding matters: gating commit on `nrev==0` stops the second mover from committing AFTER seeing the
+    other's revealed secret (which would let it CHOOSE the outcome), and gating reveal on having committed
+    (max 2 committers) stops a third party from hijacking or DoSing the game via an extra reveal.
+    KNOWN LIMITATION (inherent to commit-reveal): the LAST revealer already knows the result and can simply
+    withhold its reveal to abort — so this is a fair-RESULT oracle for a demo, not an escrow. A real stake
+    needs a reveal deadline + forfeit-to-opponent, settled on L1/the bridge (value can't live in this VM).
+    Generalizes to sealed-bid auctions and lotteries."""
+    K = key2([ARG(0)], [CALLER()])   # commit/slot/done are all keyed by gameId|caller
     return {
-        # store HASH(secret) at commit[gameId|caller]; refuse a second commit from the same player
-        "commit": [*key2([ARG(0)], [CALLER()]), DUP(), MLOAD("commit"), NOT(), REQUIRE(),
-                   ARG(1), MSTORE("commit"), HALT()],
-        # verify HASH(secret)==commit, then append the secret at rev[gameId|idx] and bump nrev[gameId]
-        "reveal": [*key2([ARG(0)], [CALLER()]), MLOAD("commit"), ARG(1), HASH(), EQ(), REQUIRE(),
-                   ARG(0), MLOAD("nrev"),                          # [idx]
-                   ARG(0), PUSH(_SEP), CONCAT(), SWAP(), CONCAT(), # [gameId|idx]
-                   ARG(1), MSTORE("rev"),                          # rev[gameId|idx] = secret
+        "commit": [ARG(0), MLOAD("nrev"), NOT(), REQUIRE(),               # commit phase: no reveals yet
+                   ARG(0), MLOAD("ncom"), PUSH(2), LT(), REQUIRE(),       # at most two players
+                   *K, MLOAD("commit"), NOT(), REQUIRE(),                 # not already committed
+                   *K, ARG(0), MLOAD("ncom"), PUSH(1), ADD(), MSTORE("slot"),  # slot = ncom+1 (1-based)
+                   *K, ARG(1), MSTORE("commit"),                          # commit[gameId|caller] = hash
+                   ARG(0), ARG(0), MLOAD("ncom"), PUSH(1), ADD(), MSTORE("ncom"), HALT()],
+        "reveal": [*K, MLOAD("commit"), ARG(1), HASH(), EQ(), REQUIRE(),  # HASH(secret) == your commit
+                   *K, MLOAD("done"), NOT(), REQUIRE(),                   # you haven't revealed yet
+                   *K, PUSH(1), MSTORE("done"),
+                   ARG(0), PUSH(_SEP), CONCAT(),                          # [gameId|]
+                   *K, MLOAD("slot"), PUSH(1), SUB(),                     # [gameId|, idx]  (slot-1)
+                   CONCAT(), ARG(1), MSTORE("rev"),                       # rev[gameId|idx] = secret
                    ARG(0), ARG(0), MLOAD("nrev"), PUSH(1), ADD(), MSTORE("nrev"), HALT()],
-        # both revealed -> fair coin = parity of HASH(secret0 ‖ secret1)
         "flip": [ARG(0), MLOAD("nrev"), PUSH(2), EQ(), REQUIRE(),
                  ARG(0), PUSH(_SEP), CONCAT(), PUSH(0), CONCAT(), MLOAD("rev"),
                  ARG(0), PUSH(_SEP), CONCAT(), PUSH(1), CONCAT(), MLOAD("rev"),

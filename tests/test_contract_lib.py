@@ -74,12 +74,35 @@ def t4_coin_flip_reveal_mismatch_and_double_commit_rejected():
     st = _st(); cid = _deploy(st, C.COIN_FLIP)
     g, sa = 7, 999
     _call(st, cid, "commit", [g, _hash_value(sa)], who=A, txid="ca")
-    _call(st, cid, "commit", [g, _hash_value(sa)], who=A, txid="ca2")   # double commit -> revert
+    _call(st, cid, "commit", [g, _hash_value(sa)], who=A, txid="ca2")   # double commit by A -> revert
+    assert st.contracts[cid]["storage"].get("ncom", {}).get(str(g)) == 1, "A committed once; double-commit rejected"
     _call(st, cid, "reveal", [g, 111], who=A, txid="bad")              # wrong secret -> revert
-    # re-read storage each time: apply_blob REPLACES the storage dict, so a captured ref goes stale
-    assert st.contracts[cid]["storage"].get("nrev", {}).get(str(g), 0) == 0, "no reveal after a mismatched secret"
+    assert str(g) not in st.contracts[cid]["storage"].get("nrev", {}), "no reveal after a mismatched secret"
     _call(st, cid, "reveal", [g, sa], who=A, txid="ok")               # correct secret -> recorded
     assert st.contracts[cid]["storage"]["nrev"][str(g)] == 1, "correct reveal recorded"
+
+def t5_coin_flip_phase_and_player_binding():
+    """The 2nd mover can't commit AFTER a reveal (can't choose the outcome); a non-committer can't reveal
+    (can't hijack/DoS the game). These are the audit's H-2/H-3 fixes."""
+    st = _st(); cid = _deploy(st, C.COIN_FLIP)
+    g, sa, sb = 3, 111, 222
+    _call(st, cid, "commit", [g, _hash_value(sa)], who=A, txid="ca")
+    _call(st, cid, "reveal", [g, sa], who=A, txid="ra")               # A reveals -> commit phase closes
+    _call(st, cid, "commit", [g, _hash_value(sb)], who=B, txid="cb")  # B commits after a reveal -> REVERT
+    assert st.contracts[cid]["storage"].get("ncom", {}).get(str(g)) == 1, "no commit after a reveal (2nd mover can't choose)"
+    _call(st, cid, "reveal", [g, 999], who="ndoCarol", txid="rc")     # non-committer reveal -> REVERT
+    assert st.contracts[cid]["storage"]["nrev"][str(g)] == 1, "non-committer reveal rejected (no hijack/DoS)"
+
+
+def t6_vm_operand_cap_reverts_not_ooms():
+    """A DUP;MUL squaring blowup (2^(2^n)) is capped -> the call REVERTS fast (no gigabyte bignum / OOM).
+    Gas counts instructions, not operand size, so this is the audit's H-1 fix."""
+    from execnode.contract_lib import PUSH, DUP, MUL, MSTORE, HALT
+    boom = [PUSH(2)] + [DUP(), MUL()] * 40 + [PUSH("k"), PUSH(1), MSTORE("m"), HALT()]
+    st = _st(); cid = _deploy(st, {"boom": boom})
+    r = _call(st, cid, "boom", [], txid="b")           # capped at _MAX_INT_BITS -> revert before any huge alloc
+    assert "revert" in r.lower(), r
+    assert not st.contracts[cid]["storage"].get("m"), "blowup reverted -> nothing stored"
 
 
 for name, fn in sorted(globals().items()):

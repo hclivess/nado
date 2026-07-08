@@ -75,6 +75,24 @@ def _int(x):
     return x
 
 
+# Gas counts INSTRUCTIONS, not operand SIZE — so without this cap a handful of cheap ops (DUP;MUL squaring,
+# or DUP;CONCAT string-doubling) grows a single value to gigabytes, and because replay is deterministic it
+# OOMs every exec node at the same L1 height (a whole-layer liveness kill for one blob fee). Bound the size of
+# any value a growth op produces; oversize -> VMRevert (the call reverts, never a crash/OOM).
+_MAX_INT_BITS = 4096
+_MAX_STR_LEN = 4096
+
+def _bound(v):
+    """Reject an over-large int/str operand (VMRevert). Returned unchanged when within bounds."""
+    if isinstance(v, int):
+        if v.bit_length() > _MAX_INT_BITS:
+            raise VMRevert("int operand too large")
+    elif isinstance(v, str):
+        if len(v) > _MAX_STR_LEN:
+            raise VMRevert("string operand too large")
+    return v
+
+
 def run(code, method, caller, args, storage):
     """Execute code[method]. `storage` is {mapname: {key: int}}. Runs on a deep copy; returns
     (ok, return_value, new_storage). On a missing method, REQUIRE-fail, out-of-gas, or any runtime
@@ -92,7 +110,7 @@ def run(code, method, caller, args, storage):
                 raise VMOutOfGas("gas limit exceeded")
             op = ins[0]
             if op == "PUSH":
-                stack.append(ins[1])
+                stack.append(_bound(ins[1]))
             elif op == "POP":
                 stack.pop()
             elif op == "DUP":
@@ -112,11 +130,11 @@ def run(code, method, caller, args, storage):
                 b = stack.pop()
                 a = stack.pop()
                 if op == "ADD":
-                    stack.append(_int(a) + _int(b))
+                    stack.append(_bound(_int(a) + _int(b)))
                 elif op == "SUB":
-                    stack.append(_int(a) - _int(b))
+                    stack.append(_bound(_int(a) - _int(b)))
                 elif op == "MUL":
-                    stack.append(_int(a) * _int(b))
+                    stack.append(_bound(_int(a) * _int(b)))
                 elif op == "DIV":
                     if _int(b) == 0:
                         raise VMRevert("division by zero")
@@ -140,7 +158,7 @@ def run(code, method, caller, args, storage):
                 elif op == "OR":
                     stack.append(1 if (a or b) else 0)
                 elif op == "CONCAT":
-                    stack.append(str(a) + str(b))
+                    stack.append(_bound(str(a) + str(b)))
             elif op == "MLOAD":
                 key = stack.pop()
                 stack.append(st.get(ins[1], {}).get(str(key), 0))

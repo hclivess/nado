@@ -118,7 +118,12 @@ class DaStore:
             if r:
                 known[i] = r[0]
         try:
-            return da.reconstruct(meta, known)
+            data = da.reconstruct(meta, known)
+            # meta (k/n/stripes/length) may have been stored from an untrusted peer's `accept`; round-trip the
+            # result against the commitment so a lied manifest can't yield wrong-but-passing bytes.
+            if da.encode(data, int(meta["k"]), int(meta["n"]))["commitment"] != commitment:
+                return None
+            return data
         except Exception:
             return None
 
