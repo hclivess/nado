@@ -251,7 +251,7 @@ non-spendable `bonded` column. Bonded-lane selection weight is:
 shares = min(bonded, BOND_CAP) // B_MIN      (0 below B_MIN)
 ```
 
-with `B_MIN = 100 NADO` per share and `BOND_CAP = 10,000 NADO`. Two consequences:
+with `B_MIN = 10 NADO` per share and `BOND_CAP = 1,000 NADO`. Two consequences:
 
 - **Split-neutral.** Sharding capital across many addresses gives *zero*
   advantage — weight depends only on total bonded capital, capped per identity.
@@ -268,6 +268,23 @@ with `B_MIN = 100 NADO` per share and `BOND_CAP = 10,000 NADO`. Two consequences
 > `get_bonded_registry` still passes `fidelity = None` to `selection_shares`, so the *older*
 > per-identity **fidelity** ramp remains dormant on the bonded lane — the live time-dimension
 > defense there is the `bond_since` producer ramp above. *(implemented)*
+
+> **Bonded lane + FFG finality — now active (10-NADO entry).** With `B_MIN` at the old 1,000-NADO
+> level no fair-launch miner could grind enough to reach the bonding threshold, so the bonded registry
+> sat **empty** and every block fell back to the zero-stake OPEN lane — no economic weight behind
+> blocks. Lowering `B_MIN` to **10 NADO** (and `BOND_CAP` to 1,000 NADO, `MAX_SHARES = 100` unchanged)
+> made the threshold reachable for an ordinary miner, and the registry populated immediately: blocks now
+> produce on the **bonded lane** in stake-weighted proportion. Each lane carries distinct security — the
+> OPEN lane is Sybil-capped *presence*, the BONDED lane is stake-weighted *capital* that both draws
+> producers (this section) and backs finality. Block-authorship equivocation (two signed blocks at the
+> same height+parent) is slashable via the portable double-sign proof (#15), and **FFG-lite**
+> stake-attested epoch checkpoints — justifying at a strict **>2/3 bonded-stake** quorum (#6) — now
+> record an **accountable economic-finality** point with real stake behind it. **Honest scope
+> (unchanged):** FFG does **not** reduce confirmation latency. Confirmation finality remains the
+> depth-based floor `max(prev, tip − FINALITY_DEPTH)` (**~12 blocks**, #17); FFG is **epoch-granular**
+> (`EPOCH_LENGTH = 60`) accountability and long-range security layered *on top of* that floor, never a
+> speedup, and it can never stall the chain (Sections 7.2–7.3). Attestation-equivocation slashing is
+> still future work, so FFG's stake-slashing backing remains partial (Section 7.4). *(implemented)*
 
 ### 2.6 Empty-lane policy (one-directional, fail-closed)
 
@@ -329,7 +346,7 @@ first needs it. *(implemented — `epoch_beacon`, `compute_beacon`)*
 > eclipse hazard, since an under-synced node would draw a different producer set for
 > the whole epoch. It now **raises instead of substituting** (a missing finalized
 > anchor means this node is under-synced and must resync). The anchor is also kept
-> un-reorgable by the **enforced** ordering `max_rollbacks (10) < FINALITY_DEPTH (30)
+> un-reorgable by the **enforced** ordering `max_rollbacks (10) < FINALITY_DEPTH (12)
 > < EPOCH_LENGTH (60)` (Section 7), so it is finalized before any epoch it governs
 > goes live. *(implemented)*
 
@@ -869,11 +886,11 @@ safety core sound. The fixes are reflected throughout this section.
   gated on an exact `chain_id` match in `/status` (absent field = mismatch), so nodes
   from a different chain or an earlier relaunch never enter the consensus pools.
 - **#17 — Enforced finality floor.** A block at height H finalizes everything
-  at/below `H − FINALITY_DEPTH` (`FINALITY_DEPTH = 30`); the persisted, monotonic
+  at/below `H − FINALITY_DEPTH` (`FINALITY_DEPTH = 12`); the persisted, monotonic
   `finalized_height` (KV `meta`) is advanced by `incorporate_block` as
   `max(prev, tip − FINALITY_DEPTH)`, and `rollback_one_block` **raises
   `FinalityViolation`** rather than revert below it. The enforced ordering
-  `max_rollbacks (10) < FINALITY_DEPTH (30) < EPOCH_LENGTH (60)` keeps honest reorgs
+  `max_rollbacks (10) < FINALITY_DEPTH (12) < EPOCH_LENGTH (60)` keeps honest reorgs
   clear of the floor while capping a long-range reorg below one epoch.
 - **#18 — Fail-loud epoch beacon + commit-reveal RANDAO.** `epoch_beacon` mixes the
   hash of the first block of the previous epoch (a finalized, non-parent anchor) with
@@ -1011,7 +1028,7 @@ residuals, is [`doc/security-audit.md`](security-audit.md).
 
 **Confirmed sound (audited, no change needed):** the **atomic incorporate/rollback**
 window; the **monotonic finalized-height floor** (and the enforced
-`max_rollbacks(10) < FINALITY_DEPTH(30) < EPOCH_LENGTH(60)` ordering); the tight
+`max_rollbacks(10) < FINALITY_DEPTH(12) < EPOCH_LENGTH(60)` ordering); the tight
 RANDAO reveal-immutability bound; **equivocation-proof unforgeability** with the
 no-innocent-victim address binding; the **detached-signature-outside-the-hash**
 property; and **pubkey-once** key→sender binding with full-body/replay binding.
@@ -1199,8 +1216,8 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | `OPEN_BPS` | `3000` (30.00%) | Open-lane share of slots — the structural Sybil ceiling. |
 | `K_OPEN` | `12` (= `EPOCH_LENGTH*OPEN_BPS//BPS_DENOM`) | Open slots/epoch; the other 48 are bonded. |
 | `BPS_DENOM` | `10000` | Basis-point denominator. |
-| `B_MIN` | `1e12` (100 NADO) | Capital per bonded selection share; 0 shares below this. |
-| `BOND_CAP` | `1e14` (10,000 NADO) | Max effective bond per identity (anti-whale). |
+| `B_MIN` | `1e11` (10 NADO) | Capital per bonded selection share; 0 shares below this. Low enough that a fair-launch miner can enter the staking lane — the bonded registry no longer sits empty. |
+| `BOND_CAP` | `1e13` (1,000 NADO) | Max effective bond per identity (anti-whale); still `100 × B_MIN`. |
 | `MAX_SHARES` | `100` (= `BOND_CAP//B_MIN`) | Variance cap; max bonded shares one identity wields. |
 | `BOND_UNLOCK_DELAY` | `1440` blocks | Unbond timelock — **enforced**: `unbond` is a release request (stake stays bonded + slashable); fee-exempt `withdraw` claims it at/after `release_block = current + 1440`. |
 | `BOND_RAMP_EPOCHS` | `30` | Bonded **producer-selection** weight ramps 0→full over this many epochs by stake-weighted bond age (`bond_since`) — anti-sudden-whale; **producer draw only**, never fork-choice/FFG/settlement weight (Section 4.5, doc/takeover-resistance.md). |
@@ -1231,11 +1248,11 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | `ALIAS_REGISTRATION_FEE` | `10_000_000` (0.001 NADO) | Anti-squat fee to register an alias (name → owner address). |
 | `HTLC_ESCROW` | `"htlc"` | Keyless escrow account holding all locked HTLC coins — trustless cross-chain atomic swaps (Section 4.6). |
 | `HTLC_MIN_TIMELOCK` / `HTLC_MAX_TIMELOCK` | `10` / `1_000_000` blocks | Bounds on an HTLC lock's absolute block-height expiry (SHA-256 hashlock). |
-| `SLASH_BOND_PENALTY` | `B_MIN` (one share, 100 NADO) | Bonded stake burned per proven equivocation (#15 step 5C); revert-symmetric, one-per-(offender, height). |
+| `SLASH_BOND_PENALTY` | `B_MIN` (one share, 10 NADO) | Bonded stake burned per proven equivocation (#15 step 5C); revert-symmetric, one-per-(offender, height). |
 | `FFG_NUM` / `FFG_DEN` | `2` / `3` | FFG-lite justify threshold: a checkpoint justifies at *strictly* >2/3 of total bonded shares (#6). Additive signal, exposed at `/status.ffg_finalized`. |
 | Rate limit | `30 req / 60s` per IP | On `/submit_transaction` (GET+POST); HTTP 429 over the limit. |
 | `transaction_pool_limit` | `150000` | Hard mempool cap (anti-OOM). |
-| `FINALITY_DEPTH` | `30` | Enforced finality floor: rollback refuses to revert below `tip − 30` (`FinalityViolation`). |
+| `FINALITY_DEPTH` | `12` | Enforced finality floor: rollback refuses to revert below `tip − 12` (`FinalityViolation`). |
 | `max_rollbacks` | `10` (default; asserted `< FINALITY_DEPTH < EPOCH_LENGTH`) | Bounded reorg burst rate-limit; the finalized floor is the hard cap. |
 | Announce rate limit | `10 req / 60s` per IP | On `/announce_peer` (eclipse-flood throttle); HTTP 429 over the limit. |
 

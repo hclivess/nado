@@ -186,11 +186,26 @@ pair moves it back out after a timelock (see below). Bonded selection weight is
 
 - **Split-neutral** — weight depends only on total bonded capital, so sharding across many addresses
   gains nothing.
-- **Whale-capped** — a single identity tops out at `BOND_CAP = 100,000 NADO` (`B_MIN = 1,000 NADO` per
+- **Whale-capped** — a single identity tops out at `BOND_CAP = 1,000 NADO` (`B_MIN = 10 NADO` per
   share), so no whale can monopolise the lane. The bond is **refundable** — you keep your coins.
 
+> **Bonded lane + FFG finality — now active.** At the **10-NADO** entry the bonded registry is
+> **populated** and blocks began producing on the bonded lane the moment `B_MIN` dropped. At the old
+> 1,000-NADO entry nobody on a fair launch could grind enough to bond, so the registry sat **empty** and
+> every block fell back to the zero-stake OPEN lane — no economic weight behind blocks. Now each lane
+> carries distinct security: the **OPEN lane** is Sybil-capped *presence*, the **BONDED lane** is
+> stake-weighted *capital* that both draws its share of producers and backs finality. A validator that
+> signs **two blocks at the same height+parent** is slashable via the portable double-sign proof
+> (below), and **FFG** (Casper-style stake-attested epoch checkpoints, justifying at a **>2/3
+> bonded-stake** quorum) now records an **accountable economic-finality** point with real stake behind
+> it. **Honest scope:** FFG does **not** speed up confirmations — confirmation finality is still the
+> depth-based floor at `tip − FINALITY_DEPTH` (**~12 blocks**). FFG is **epoch-granular** (60 blocks)
+> accountability and long-range security layered *on top of* that floor, never a latency reduction, and
+> it can never stall the chain. (Attestation-equivocation slashing is still future work, so FFG's
+> stake-slashing backing remains partial — see the residuals below.)
+
 > **Bonded mining is passive — no work, no need to be online.** Once you hold enough to bond (`B_MIN =
-> 1,000 NADO`), you can stop *actively* mining: the bonded lane is **staking**, not proof-of-work. There is
+> 10 NADO`), you can stop *actively* mining: the bonded lane is **staking**, not proof-of-work. There is
 > **no PoW/PoSW to compute, no periodic recert, and no requirement to keep the app or a node open** — the
 > beacon draws you in proportion to your stake, and because winners are credited **by address**, a relay
 > builds your winning block even while you're offline. With **auto-bond** on, rewards compound straight back
@@ -329,7 +344,7 @@ their weight in the bonded lane without any manual `bond` transactions. It is **
 bonded lane hands-free) and fully **overridable** — set `0` to keep all rewards spendable; an explicit
 `0` is remembered and never reverts to the default. It is throttled to **at most one bond per epoch**,
 only fires once the accrued amount clears a small dust floor (so each bond dwarfs its tiny fee), and
-**stops automatically at `BOND_CAP`** (100,000 NADO — bonding past it buys no extra selection weight, so
+**stops automatically at `BOND_CAP`** (1,000 NADO — bonding past it buys no extra selection weight, so
 it never needlessly freezes coins). It is available in **all three clients**:
 
 - **Node (unattended):** set `auto_bond_percent` in `private/config.dat`, or the
@@ -501,8 +516,8 @@ code.
   counts as a mismatch), so nodes from a different chain/relaunch never enter the consensus pools at
   all — a foreign chain's frozen weight can't trip the caught-up gate.
 - **Enforced finality floor** — a block at height H finalizes everything at/below `H - FINALITY_DEPTH`
-  (`FINALITY_DEPTH = 30`); rollback **refuses** to cross the persisted, monotonic finalized height
-  (raises `FinalityViolation`). The ordering `max_rollbacks (10) < FINALITY_DEPTH (30) < EPOCH_LENGTH
+  (`FINALITY_DEPTH = 12`); rollback **refuses** to cross the persisted, monotonic finalized height
+  (raises `FinalityViolation`). The ordering `max_rollbacks (10) < FINALITY_DEPTH (12) < EPOCH_LENGTH
   (60)` means honest reorgs never hit the floor while a long-range reorg is capped below one epoch.
 - **Fail-loud epoch beacon** — `epoch_beacon` chains from the hash of the first block of the previous
   epoch (a finalized, non-parent anchor), and now **raises instead of silently substituting**
