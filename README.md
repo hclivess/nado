@@ -709,6 +709,8 @@ shape is unchanged (49 chars).
 - **Consensus hardening plan** — [`doc/consensus-hardening-plan.md`](doc/consensus-hardening-plan.md):
   the locked, ordered design for the remaining security milestones.
 - **Storage design** — [`doc/storage-kv-migration.md`](doc/storage-kv-migration.md).
+- **Execution-layer instructions** — [`doc/exec-instructions.md`](doc/exec-instructions.md): every blob op
+  (deploy/call/upgrade, bridge/dividend, coin flip, emit, privacy) with params + how to submit and read.
 - **Release notes** — [`RELEASE_NOTES.md`](RELEASE_NOTES.md).
 - Project site: <https://nadochain.com>
 

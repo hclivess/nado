@@ -11,7 +11,7 @@ here is a consensus rule; it lives in the interface, the CLI's number formatting
 
 | Symbol | Named for | Who / contribution | Value (NADO) | In raw |
 |---|---|---|---:|---:|
-| **dag** | **Dagmar** | Jan's wife | 10⁻¹ | `1,000,000,000` |
+| **dag** | **Dagmar** | Jan's wife and cofounder | 10⁻¹ | `1,000,000,000` |
 | **jan** | **Jan Kučera** (`hclivess`) | author of NADO — and of Bismuth before it | 10⁻² | `100,000,000` |
 | **syl** | **Sylvain** (`EggPool`) | one of Bismuth's principal contributors — ran Eggpool; core mining & infrastructure | 10⁻³ | `10,000,000` |
 | **bry** | **Bryan McEachran** | the most important historical community member | 10⁻⁴ | `1,000,000` |
@@ -19,7 +19,7 @@ here is a consensus rule; it lives in the interface, the CLI's number formatting
 | **geh** | **Geir Hovland** (`geho2`) | co-author of the peer-reviewed control-theory analysis of the PoW difficulty controller | 10⁻⁶ | `10,000` |
 | **vit** | **Vitalik Buterin** | the account model and FFG (Casper) finality NADO adopts | 10⁻⁷ | `1,000` |
 | **nak** | **Satoshi Nakamoto** | proof-of-work and the no-premine fair-launch ethos | 10⁻⁸ | `100` |
-| **dam** | **Damian** (`alias-bitsignal`) | code contributor | 10⁻⁹ | `10` |
+| **dam** | **Damian** (`alias-bitsignal`) | code contributor & infrastructure maintainer | 10⁻⁹ | `10` |
 | **eli** | **Eli Ben-Sasson** | co-inventor of zk-STARKs — NADO's private-transfer proofs | 10⁻¹⁰ | `1` |
 | **NADO** | the coin | — | 1 | `10,000,000,000` |
 
