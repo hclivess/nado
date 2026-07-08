@@ -1098,6 +1098,18 @@ Additional hardening and feature items, all currently **planned/partial**:
   (256 KiB) and 10 s blocks, and rising **independently** as erasure-coded DA sampling
   raises the blob budget without making phones store more. The live mining wallet surfaces
   this at the **Settlement** tab (`/exec/settlement` + `/get_settled`).
+- **Why a quorum, not a zkVM (yet).** NADO settles with a bonded-stake quorum, not validity
+  proofs, and that is a deliberate weight decision. The quorum settles a batch by having
+  bonded validators **run a simple interpreter and attest the root** — roughly *native
+  execution* cost, an integer stake-compare on L1, a small auditable VM, and a trust
+  assumption (2/3 honest bonded stake) **identical to NADO's own finality**, so a rollup is
+  *as secure as the base chain* for ~free. A zkVM would instead **prove every executed
+  instruction**: on the order of **10⁴–10⁶× the compute**, minutes-to-hours of proving on
+  large RAM/GPU hardware, and a big consensus-critical verifier — buying exactly one thing,
+  trustlessness against a *colluding validator supermajority* (and permissionless, non-bonded
+  rollups). NADO ships the light exec-node model now and keeps the zkVM as a **drop-in
+  upgrade behind the same `settlement_justified` seam**, for when a rollup's value outgrows the
+  stake securing it. See [l2-settlement.md](l2-settlement.md) / [rollups-and-settlement.md](rollups-and-settlement.md).
 - **Scaling** ([scaling-analysis.md](scaling-analysis.md)) — pluggable native-ML-DSA backend
   (shipped) + mempool O(N²) fix (shipped); the real structural fix is **aggregating the O(N)
   per-epoch consensus messages** (presence-root → PQ proof-of-threshold), since

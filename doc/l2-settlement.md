@@ -91,6 +91,33 @@ DA + one proof" scales without bound on the execution side.
 
 ---
 
+## 3a. Cost: the exec-node quorum vs. a zkVM — real numbers
+
+Why NADO settles with a bonded quorum and may keep it **permanently**, treating the zkVM as an optional
+upgrade it is deliberately *not* obligated to take. The weight difference is enormous, and the zkVM buys
+exactly one thing: removing the honest-majority assumption.
+
+| | **Exec-node quorum (2a — shipped, possibly permanent)** | **zkVM validity proof (2b — optional)** |
+|---|---|---|
+| To settle a batch | bonded nodes **run the interpreter** (`execnode/vm.py`, **142 lines**) and attest the root | a prover generates a **STARK over every executed instruction** |
+| Compute to settle | ~**native execution** (µs–ms per call) | **~10³–10⁶× native** (modern GPU zkVMs ~10³–10⁴×); seconds–minutes per batch |
+| Prover hardware | commodity — the VM runs on a phone | tens of GB RAM, typically a GPU / proving cluster |
+| L1 verification | **8 lines — one integer compare** (`settlement_justified`) | verify a STARK — a large consensus-critical verifier |
+| Proof on L1 | none (just stake attestations) | ~tens of KB – a few MB (FRI) |
+| New code / audit surface | a **142-line** VM + a **97-line** settlement predicate | a general RISC-V zkVM: **~50k–100k+ lines** + arithmetization — for scale, NADO's *single-circuit* FRI prover for the shielded pool is already **2,446 lines** |
+| Trust | **2/3 honest bonded stake — identical to NADO finality** | cryptographic soundness only (no honest majority) |
+| What it buys | a rollup **as secure as L1, today, for ~free** | trustlessness vs. a *colluding* validator supermajority; permissionless (non-bonded) rollups; TVL beyond staked value |
+
+**Read:** the exec-node model settles at *native cost* with an *8-line* L1 check and a *142-line* VM, at exactly
+NADO's own security. A zkVM pays **3–6 orders of magnitude** more compute, needs proving hardware, and adds a
+large consensus-critical verifier — all to remove one assumption (that 2/3 of bonded stake is honest — the
+*same* assumption already securing every NADO balance). That is a real upgrade for very-high-value or
+permissionless rollups, and a poor trade for everything else. **If stronger trust is ever wanted without a
+zkVM, a fraud proof** (one honest watcher instead of 2/3) is the far lighter path — so the `settlement_justified`
+seam is kept as cheap optionality, not a commitment to build a zkVM.
+
+---
+
 ## 4. Where the throughput actually comes from
 
 Per settlement epoch, **L1's total work is bounded and independent of L2 transaction count**:

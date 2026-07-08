@@ -191,6 +191,15 @@
     </div>
   </section>
 
+  <section id="settlement">
+    <h2>Settled by stake, not a zkVM</h2>
+    <p class="sub">NADO settles its execution layer with a bonded-stake quorum — and may keep it that way. A rollup ends up <b>as secure as NADO itself</b>, at near-zero cost. Here's the weight difference, with real numbers.</p>
+    <div class="grid">
+      <div class="card"><div class="ico">⚡</div><h3>The exec-node model (what NADO does)</h3><p>Bonded validators run a <b>142-line</b> interpreter and attest the state root; L1 checks it with an <b>8-line integer compare</b>. Roughly native cost, runs on a phone, and the trust assumption is 2/3 honest bonded stake — <b>identical to NADO's own finality</b>.</p></div>
+      <div class="card"><div class="ico">🏋️</div><h3>A zkVM (the heavy alternative)</h3><p>Proving every executed instruction costs <b>~10³–10⁶× native</b>, needs a GPU/cluster and minutes per batch, and adds a <b>~50,000+ line</b> consensus-critical verifier — all to remove one assumption most chains never remove. NADO keeps it as an option, not a requirement.</p></div>
+    </div>
+  </section>
+
   <section id="treasury">
     <h2 data-i18n="treas.h2">A treasury that can't be hoarded</h2>
     <p class="sub" data-i18n-html="treas.sub">10% of every block reward funds an ecosystem treasury — but there is no founder

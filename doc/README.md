@@ -33,6 +33,23 @@ It also records the multi-agent **security review** that motivated much of this 
 | [exchange-integration.md](exchange-integration.md) | **Exchange/custodian guide** — REST endpoints, `ndo` address checksums, credit-at-`finalized_height`, ML-DSA withdrawal signing; why the RPC is not Bitcoin/ETH JSON-RPC |
 | [units.md](units.md) | The named sub-unit ladder (`dag`…`eli`) — a display convention over the raw-integer ledger, honoring the people behind NADO |
 
+## Settlement model — exec-node quorum, not a zkVM
+
+NADO settles its execution layer with a **bonded-stake quorum**, and may keep it permanently rather than adopt
+a zkVM. The weight difference, with real numbers:
+
+| | Exec-node quorum (shipped) | zkVM validity proof (optional) |
+|---|---|---|
+| Settle a batch | run the VM (`execnode/vm.py`, **142 lines**), attest the root | prove every executed instruction (STARK) |
+| Compute | ~native (µs–ms) | **~10³–10⁶× native** — GPU/cluster, seconds–minutes |
+| L1 verify | **8 lines / one integer compare** | a large consensus-critical STARK verifier |
+| New audit surface | 142-line VM + 97-line predicate | a general zkVM: **~50k–100k+ lines** |
+| Trust | 2/3 honest bonded stake — **= NADO finality** | cryptographic soundness only |
+
+A rollup is **as secure as L1 for ~free**; a zkVM would pay 3–6 orders of magnitude more to remove one
+assumption (that 2/3 of bonded stake is honest — the same assumption already securing every balance). Full
+analysis + the lighter fraud-proof middle option: [l2-settlement.md](l2-settlement.md) §3a.
+
 ## Implementation status (at a glance)
 
 | Stage | Scope | Status |
