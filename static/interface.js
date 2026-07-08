@@ -1817,6 +1817,61 @@ async function resumePendingForumLogin() {
   }
 }
 
+// ---- dApp exec-call signing: a NADO dApp (e.g. coinflip.nadochain.com) bounces the user here to sign & submit
+// ONE execution-layer contract call with their wallet, then returns. Same redirect pattern as the forum SSO,
+// but this signs a REAL (fee-only) blob tx — so we confirm explicitly, only return to an ALLOWLISTED dApp
+// origin, and it can never move funds beyond the network fee (a `blob` tx has amount 0).
+const EXEC_SIGN_ALLOW = ["https://coinflip.nadochain.com"];
+let pendingExecSign = (() => {
+  try {
+    const p = new URLSearchParams(location.search);
+    const b = p.get("exec_sign");
+    return b ? { payload: b, ret: p.get("ret") || "", app: p.get("app") || "a dApp" } : null;
+  } catch (e) { return null; }
+})();
+function _decodeArg(a) { return (a && typeof a === "object" && "$big" in a) ? BigInt(a.$big) : a; }   // 256-bit args ride as {$big:"…"}
+async function resumePendingExecSign() {
+  const req = pendingExecSign;
+  if (!req || !state.wallet) return;
+  pendingExecSign = null;
+  try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {}
+  let call, retUrl;
+  try { call = JSON.parse(decodeURIComponent(escape(atob(req.payload)))); retUrl = new URL(req.ret); }
+  catch (e) { uiAlert(i18("dapp.bad", "Ignored a malformed signing request.")); return; }
+  if (!EXEC_SIGN_ALLOW.includes(retUrl.origin)) {
+    uiAlert(i18("dapp.badOrigin", "Ignored a signing request for an unrecognised site.") + " (" + retUrl.origin + ")");
+    return;
+  }
+  const back = (params) => { location.href = req.ret + (req.ret.includes("?") ? "&" : "?") + params; };
+  if (call.connect) {   // lightweight "sign in": just return the wallet address, no transaction, no fee
+    const c = await uiConfirm({
+      title: i18("dapp.connectTitle", "Sign in"),
+      body: i18("dapp.connectBody", "{app} wants your wallet address ({a}) to sign you in. No transaction — nothing moves.",
+        { app: req.app, a: state.wallet.address.slice(0, 14) + "…" }),
+      confirmText: i18("dapp.connect", "Sign in"),
+    });
+    back(c ? "ok=1&addr=" + state.wallet.address : "ok=0");
+    return;
+  }
+  const okc = await uiConfirm({
+    title: i18("dapp.title", "Sign a contract call"),
+    body: i18("dapp.body", "{app} wants to submit “{label}” from your wallet ({a}). This is a fee-only execution-layer call — it moves no funds beyond the tiny network fee.",
+      { app: req.app, label: call.label || (call.method + "()"), a: state.wallet.address.slice(0, 14) + "…" }),
+    confirmText: i18("dapp.sign", "Sign & submit"),
+  });
+  if (!okc) { back("ok=0"); return; }
+  try {
+    const latest = await getLatestBlock();
+    if (!latest) throw new Error("relay unavailable");
+    const payload = { op: "call", contract: call.cid, method: call.method, args: (call.args || []).map(_decodeArg) };
+    if (call.ns && call.ns !== "default") payload.ns = call.ns;
+    const tx = buildBlobTx(state.wallet, payload, latest.block_number + 8, MIN_TX_FEE, nowSeconds());
+    const res = await submitTransaction(tx);
+    if (res.data && res.data.result) back("ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address);
+    else back("ok=0&err=" + encodeURIComponent(((res.data && res.data.message) || "rejected").slice(0, 80)));
+  } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
+}
+
 function showWalletUI() {
   show("onboard", false);
   show("savePrompt", false);
@@ -1850,6 +1905,7 @@ function showWalletUI() {
   resumePendingPay();   // if a #pay link was opened before this wallet existed, prefill the Send now
   resumePendingClaim(); // if a #claim link was opened before this wallet existed, receive the banknote now
   resumePendingForumLogin(); // if the forum bounced us here to sign a login challenge, prompt + sign now
+  resumePendingExecSign();   // if a dApp (e.g. coinflip) bounced us here to sign a contract call, prompt + sign
 }
 
 function adoptWallet(w, { needsSavePrompt }) {

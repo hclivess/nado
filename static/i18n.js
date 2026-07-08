@@ -28,6 +28,8 @@
       "rollup.contracts":"Contracts","rollup.myContracts":"My contracts","rollup.allContracts":"All contracts (search)","rollup.selectContract":"— select a contract —",
       "rollup.selectMethod":"— method —","rollup.needContract":"Select a contract first.","rollup.needMethod":"Select a method.","rollup.searchPh":"search by contract id…","rollup.contractId":"Contract",
       "rollup.history":"Call history","rollup.noArgs":"no arguments","rollup.noHistory":"No calls yet.","rollup.histSent":"sent (applies at finality)",
+      "dapp.title":"Sign a contract call","dapp.sign":"Sign & submit","dapp.bad":"Ignored a malformed signing request.","dapp.badOrigin":"Ignored a signing request for an unrecognised site.",
+      "dapp.body":"{app} wants to submit “{label}” from your wallet ({a}). This is a fee-only execution-layer call — it moves no funds beyond the tiny network fee.",
       "msg.title":"Messages","msg.sub":"Off-chain · end-to-end encrypted · post-quantum · free. History stays on this device.",
       "msg.new":"New","msg.send":"Send","msg.toPh":"alias or ndo… address","msg.bodyPh":"Write a message…",
       "msg.st.delivered":"✓ delivered","msg.st.sent":"· sent","msg.st.undelivered":"not delivered",
@@ -67,6 +69,11 @@
       "btn.selftest":"Run self-test","btn.forget":"Forget wallet"
     },
     cs: {
+      "dapp.bad":"Poškozený požadavek na podpis byl ignorován.",
+      "dapp.badOrigin":"Požadavek na podpis z nerozpoznaného webu byl ignorován.",
+      "dapp.body":"{app} chce z vaší peněženky ({a}) odeslat „{label}“. Jde o volání exekuční vrstvy pouze s poplatkem — nepřesouvá žádné prostředky kromě nepatrného síťového poplatku.",
+      "dapp.sign":"Podepsat a odeslat",
+      "dapp.title":"Podepsat volání kontraktu",
       "rollup.allContracts":"Všechny kontrakty (hledat)",
       "rollup.contractId":"Kontrakt",
       "rollup.contracts":"Kontrakty",
@@ -208,6 +215,11 @@
       "ex.totalSupply":"Celková zásoba","ex.transactions":"Transakce","ex.treasury":"Pokladna","ex.txid":"Txid"
     },
     es: {
+      "dapp.bad":"Se ignoró una solicitud de firma con formato incorrecto.",
+      "dapp.badOrigin":"Se ignoró una solicitud de firma de un sitio no reconocido.",
+      "dapp.body":"{app} quiere enviar «{label}» desde tu monedero ({a}). Es una llamada a la capa de ejecución solo con comisión — no mueve fondos más allá de la pequeña comisión de red.",
+      "dapp.sign":"Firmar y enviar",
+      "dapp.title":"Firmar una llamada de contrato",
       "rollup.allContracts":"Todos los contratos (buscar)",
       "rollup.contractId":"Contrato",
       "rollup.contracts":"Contratos",
@@ -386,6 +398,11 @@
       "ex.totalSupply":"Suministro total","ex.transactions":"Transacciones","ex.treasury":"Tesorería","ex.txid":"Txid"
     },
     pt: {
+      "dapp.bad":"Pedido de assinatura malformado ignorado.",
+      "dapp.badOrigin":"Pedido de assinatura de um site não reconhecido ignorado.",
+      "dapp.body":"{app} pretende submeter «{label}» a partir da sua carteira ({a}). Trata-se de uma chamada à camada de execução apenas com taxa — não movimenta fundos além da pequena taxa de rede.",
+      "dapp.sign":"Assinar e enviar",
+      "dapp.title":"Assinar uma chamada de contrato",
       "rollup.allContracts":"Todos os contratos (procurar)",
       "rollup.contractId":"Contrato",
       "rollup.contracts":"Contratos",
@@ -564,6 +581,11 @@
       "ex.totalSupply":"Fornecimento total","ex.transactions":"Transações","ex.treasury":"Tesouraria","ex.txid":"Txid"
     },
     fr: {
+      "dapp.bad":"Requête de signature malformée ignorée.",
+      "dapp.badOrigin":"Requête de signature d’un site non reconnu ignorée.",
+      "dapp.body":"{app} veut soumettre « {label} » depuis votre portefeuille ({a}). Il s’agit d’un appel de la couche d’exécution avec frais uniquement — il ne déplace aucun fonds au-delà des faibles frais de réseau.",
+      "dapp.sign":"Signer et envoyer",
+      "dapp.title":"Signer un appel de contrat",
       "rollup.allContracts":"Tous les contrats (recherche)",
       "rollup.contractId":"Contrat",
       "rollup.contracts":"Contrats",
@@ -742,6 +764,11 @@
       "ex.totalSupply":"Offre totale","ex.transactions":"Transactions","ex.treasury":"Trésorerie","ex.txid":"Txid"
     },
     de: {
+      "dapp.bad":"Fehlerhafte Signieranfrage wurde ignoriert.",
+      "dapp.badOrigin":"Signieranfrage von einer unbekannten Website wurde ignoriert.",
+      "dapp.body":"{app} möchte „{label}“ aus deiner Wallet ({a}) einreichen. Dies ist ein reiner Gebühren-Aufruf der Ausführungsschicht — er bewegt außer der geringen Netzwerkgebühr keine Gelder.",
+      "dapp.sign":"Signieren & senden",
+      "dapp.title":"Vertragsaufruf signieren",
       "rollup.allContracts":"Alle Verträge (Suche)",
       "rollup.contractId":"Vertrag",
       "rollup.contracts":"Verträge",
@@ -920,6 +947,11 @@
       "ex.totalSupply":"Gesamtangebot","ex.transactions":"Transaktionen","ex.treasury":"Treasury","ex.txid":"Txid"
     },
     it: {
+      "dapp.bad":"Richiesta di firma non valida ignorata.",
+      "dapp.badOrigin":"Richiesta di firma da un sito non riconosciuto ignorata.",
+      "dapp.body":"{app} vuole inviare «{label}» dal tuo wallet ({a}). È una chiamata al livello di esecuzione con sola commissione — non movimenta fondi oltre la piccola commissione di rete.",
+      "dapp.sign":"Firma e invia",
+      "dapp.title":"Firma una chiamata al contratto",
       "rollup.allContracts":"Tutti i contratti (cerca)",
       "rollup.contractId":"Contratto",
       "rollup.contracts":"Contratti",
@@ -1098,6 +1130,11 @@
       "ex.totalSupply":"Offerta totale","ex.transactions":"Transazioni","ex.treasury":"Tesoreria","ex.txid":"Txid"
     },
     ru: {
+      "dapp.bad":"Некорректный запрос на подпись проигнорирован.",
+      "dapp.badOrigin":"Запрос на подпись с неизвестного сайта проигнорирован.",
+      "dapp.body":"{app} хочет отправить «{label}» из вашего кошелька ({a}). Это вызов слоя исполнения только с комиссией — он не перемещает средства, кроме небольшой сетевой комиссии.",
+      "dapp.sign":"Подписать и отправить",
+      "dapp.title":"Подписать вызов контракта",
       "rollup.allContracts":"Все контракты (поиск)",
       "rollup.contractId":"Контракт",
       "rollup.contracts":"Контракты",
@@ -1276,6 +1313,11 @@
       "ex.totalSupply":"Общее предложение","ex.transactions":"Транзакции","ex.treasury":"Казна","ex.txid":"Txid"
     },
     zh: {
+      "dapp.bad":"已忽略一个格式错误的签名请求。",
+      "dapp.badOrigin":"已忽略一个来自无法识别站点的签名请求。",
+      "dapp.body":"{app} 想从你的钱包（{a}）提交“{label}”。这是一个仅收费的执行层调用——除了极小的网络费用外，不会转移任何资金。",
+      "dapp.sign":"签名并提交",
+      "dapp.title":"签名合约调用",
       "rollup.allContracts":"所有合约（搜索）",
       "rollup.contractId":"合约",
       "rollup.contracts":"合约",
@@ -1454,6 +1496,11 @@
       "ex.totalSupply":"总供应量","ex.transactions":"交易","ex.treasury":"国库","ex.txid":"Txid"
     },
     ja: {
+      "dapp.bad":"不正な署名リクエストを無視しました。",
+      "dapp.badOrigin":"認識されていないサイトからの署名リクエストを無視しました。",
+      "dapp.body":"{app} がお使いのウォレット（{a}）から「{label}」を送信しようとしています。これは手数料のみの実行レイヤー呼び出しで — わずかなネットワーク手数料以外の資金は移動しません。",
+      "dapp.sign":"署名して送信",
+      "dapp.title":"コントラクト呼び出しに署名",
       "rollup.allContracts":"すべてのコントラクト（検索）",
       "rollup.contractId":"コントラクト",
       "rollup.contracts":"コントラクト",
@@ -1632,6 +1679,11 @@
       "ex.totalSupply":"総供給量","ex.transactions":"トランザクション","ex.treasury":"トレジャリー","ex.txid":"Txid"
     },
     ko: {
+      "dapp.bad":"잘못된 서명 요청을 무시했습니다.",
+      "dapp.badOrigin":"인식되지 않은 사이트의 서명 요청을 무시했습니다.",
+      "dapp.body":"{app}이(가) 회원님의 지갑({a})에서 “{label}”을(를) 제출하려고 합니다. 이는 수수료 전용 실행 레이어 호출로 — 소액의 네트워크 수수료 외에는 어떤 자금도 이동하지 않습니다.",
+      "dapp.sign":"서명 및 전송",
+      "dapp.title":"컨트랙트 호출 서명",
       "rollup.allContracts":"모든 컨트랙트 (검색)",
       "rollup.contractId":"컨트랙트",
       "rollup.contracts":"컨트랙트",
@@ -1810,6 +1862,11 @@
       "ex.totalSupply":"총 공급량","ex.transactions":"트랜잭션","ex.treasury":"트레저리","ex.txid":"Txid"
     },
     ar: {
+      "dapp.bad":"تم تجاهل طلب توقيع غير صالح.",
+      "dapp.badOrigin":"تم تجاهل طلب توقيع من موقع غير معروف.",
+      "dapp.body":"يريد {app} إرسال ”{label}“ من محفظتك ({a}). هذا استدعاء لطبقة التنفيذ برسوم فقط — ولا يحرّك أي أموال سوى رسوم الشبكة الزهيدة.",
+      "dapp.sign":"التوقيع والإرسال",
+      "dapp.title":"توقيع استدعاء عقد",
       "rollup.allContracts":"كل العقود (بحث)",
       "rollup.contractId":"العقد",
       "rollup.contracts":"العقود",
@@ -1988,6 +2045,11 @@
       "ex.totalSupply":"إجمالي المعروض","ex.transactions":"المعاملات","ex.treasury":"الخزانة","ex.txid":"Txid"
     },
     hi: {
+      "dapp.bad":"एक ख़राब हस्ताक्षर अनुरोध को अनदेखा किया गया।",
+      "dapp.badOrigin":"एक अपरिचित साइट से आए हस्ताक्षर अनुरोध को अनदेखा किया गया।",
+      "dapp.body":"{app} आपके वॉलेट ({a}) से ”{label}“ सबमिट करना चाहता है। यह केवल-शुल्क वाला निष्पादन-परत कॉल है — यह मामूली नेटवर्क शुल्क के अलावा कोई धनराशि स्थानांतरित नहीं करता।",
+      "dapp.sign":"हस्ताक्षर करें और भेजें",
+      "dapp.title":"अनुबंध कॉल पर हस्ताक्षर करें",
       "rollup.allContracts":"सभी कॉन्ट्रैक्ट (खोजें)",
       "rollup.contractId":"कॉन्ट्रैक्ट",
       "rollup.contracts":"कॉन्ट्रैक्ट",
@@ -2166,6 +2228,11 @@
       "ex.totalSupply":"कुल आपूर्ति","ex.transactions":"लेनदेन","ex.treasury":"कोष","ex.txid":"Txid"
     },
     tr: {
+      "dapp.bad":"Hatalı biçimlendirilmiş imza isteği yok sayıldı.",
+      "dapp.badOrigin":"Tanınmayan bir siteden gelen imza isteği yok sayıldı.",
+      "dapp.body":"{app}, cüzdanınızdan ({a}) “{label}” göndermek istiyor. Bu, yalnızca ücret içeren bir yürütme katmanı çağrısıdır — küçük ağ ücreti dışında hiçbir fon hareket ettirmez.",
+      "dapp.sign":"İmzala ve gönder",
+      "dapp.title":"Bir sözleşme çağrısını imzala",
       "rollup.allContracts":"Tüm sözleşmeler (ara)",
       "rollup.contractId":"Sözleşme",
       "rollup.contracts":"Sözleşmeler",
@@ -2344,6 +2411,11 @@
       "ex.totalSupply":"Toplam arz","ex.transactions":"İşlemler","ex.treasury":"Hazine","ex.txid":"Txid"
     },
     id: {
+      "dapp.bad":"Permintaan penandatanganan yang rusak diabaikan.",
+      "dapp.badOrigin":"Permintaan penandatanganan dari situs yang tidak dikenali diabaikan.",
+      "dapp.body":"{app} ingin mengirim “{label}” dari dompet Anda ({a}). Ini adalah panggilan lapisan eksekusi khusus biaya — tidak memindahkan dana apa pun selain biaya jaringan yang kecil.",
+      "dapp.sign":"Tanda tangani & kirim",
+      "dapp.title":"Tanda tangani panggilan kontrak",
       "rollup.allContracts":"Semua kontrak (cari)",
       "rollup.contractId":"Kontrak",
       "rollup.contracts":"Kontrak",
@@ -2522,6 +2594,11 @@
       "ex.totalSupply":"Total pasokan","ex.transactions":"Transaksi","ex.treasury":"Kas","ex.txid":"Txid"
     },
     vi: {
+      "dapp.bad":"Đã bỏ qua một yêu cầu ký không hợp lệ.",
+      "dapp.badOrigin":"Đã bỏ qua một yêu cầu ký từ trang web không được nhận diện.",
+      "dapp.body":"{app} muốn gửi “{label}” từ ví của bạn ({a}). Đây là lệnh gọi tầng thực thi chỉ tính phí — nó không chuyển bất kỳ khoản tiền nào ngoài khoản phí mạng nhỏ.",
+      "dapp.sign":"Ký và gửi",
+      "dapp.title":"Ký một lệnh gọi hợp đồng",
       "rollup.allContracts":"Tất cả hợp đồng (tìm kiếm)",
       "rollup.contractId":"Hợp đồng",
       "rollup.contracts":"Hợp đồng",

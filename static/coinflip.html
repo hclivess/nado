@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NADO Coin Flip — provably fair, post-quantum</title>
+<style>
+  :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
+    color:var(--txt);font:15px/1.5 var(--sans);min-height:100vh}
+  .wrap{max-width:640px;margin:0 auto;padding:22px 16px 60px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  header .logo{font-size:26px}
+  header h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.2px}
+  header h1 .a{color:var(--accent2)}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 16px}
+  .card{background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  .card h2{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 0;min-width:0}
+  label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
+  input{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+  input:focus{outline:none;border-color:var(--accent2)}
+  button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:11px;background:var(--elev2);color:var(--txt);padding:11px 15px;cursor:pointer;transition:transform .05s,border-color .15s}
+  button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
+  button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
+  .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
+  .addr{font-family:var(--mono);font-size:12px;color:var(--accent2);word-break:break-all}
+  .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2)}
+  .b{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;margin-left:6px}
+  .b.ok{background:rgba(0,173,147,.16);color:var(--accent2)}
+  .b.pend{background:rgba(210,153,34,.16);color:#e3b341}
+  .b.dimb{background:rgba(147,161,176,.12);color:var(--dim)}
+  #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
+  /* coin */
+  .coinwrap{display:flex;flex-direction:column;align-items:center;gap:10px;margin:14px 0}
+  .coin{width:96px;height:96px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:40px;font-weight:800;
+    color:#04110a;background:radial-gradient(circle at 35% 30%,#ffe89a,#d29922);border:3px solid #b5810f;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  .coin.heads{background:radial-gradient(circle at 35% 30%,#7ff0d8,var(--accent))}
+  .coin.tails{background:radial-gradient(circle at 35% 30%,#ffd27f,var(--danger))}
+  .coin.spin{animation:spin 1s linear infinite}
+  @keyframes spin{0%{transform:rotateY(0)}100%{transform:rotateY(360deg)}}
+  #result{font-size:16px;font-weight:800}
+  footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
+  a{color:var(--accent2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><span class="logo">🪙</span><h1>NADO <span class="a">Coin Flip</span></h1></header>
+  <p class="sub">A provably-fair 2-player coin flip on the NADO execution layer. Commit-reveal: neither player can bias the outcome — each commits a hashed secret first, then reveals; the coin is the parity of <span class="mono">HASH(secret₀‖secret₁)</span>. Post-quantum wallet, no install.</p>
+
+  <div id="status"></div>
+
+  <!-- WALLET (delegated — the NADO wallet signs each move) -->
+  <div class="card">
+    <h2>Wallet</h2>
+    <p class="small dim">Your moves are signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — you'll be bounced there to confirm each move (commit / reveal), then straight back here. Your key never touches this site. You need a little NADO for the tiny per-move fee.</p>
+    <div class="kv mt"><span class="k">Playing as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
+  </div>
+
+  <!-- PLAY (shown once signed in) -->
+  <div class="card hidden" id="play">
+    <h2>Play</h2>
+    <div class="row">
+      <button class="primary" id="btnNew">New game</button>
+    </div>
+    <div class="row mt">
+      <input id="joinId" placeholder="join a game by ID" inputmode="numeric" autocomplete="off">
+      <button class="ghost" id="btnJoin" style="flex:0 0 auto">Join</button>
+    </div>
+    <div class="mt small dim" id="recent"></div>
+  </div>
+
+  <!-- ACTIVE GAME -->
+  <div class="card hidden" id="activeGame">
+    <h2>Game <span id="gameId" class="mono"></span></h2>
+    <div class="coinwrap">
+      <div class="coin spin" id="coin">?</div>
+      <div id="result" class="dim">Waiting for both reveals…</div>
+    </div>
+    <div class="kv"><span class="k">Status</span><span class="mono" id="gStatus">…</span></div>
+    <div class="small mt" id="myCommit"></div>
+    <div class="small" id="myReveal"></div>
+    <div class="row mt"><button class="primary" id="btnReveal">Reveal my secret</button></div>
+    <label class="mt">Share this game (send to your opponent)</label>
+    <input id="shareLink" class="mono" readonly onclick="this.select()">
+  </div>
+
+  <!-- FAIRNESS -->
+  <div class="card">
+    <h2>Provably fair — no cheating</h2>
+    <p class="small dim" style="line-height:1.6">
+      The outcome is the parity of <span class="mono">HASH(secret₀ ‖ secret₁)</span>, and the contract enforces it on-chain:
+      <br>• <b>You can't bias it.</b> Both players <b>commit</b> a hash of their secret <b>before anyone reveals</b>, so neither knows the other's secret when they lock theirs in — nobody can pick the result.
+      <br>• <b>No committing after a reveal.</b> The contract refuses any commit once a reveal has landed (the fix for the "second mover chooses" attack).
+      <br>• <b>Two players only, committers only reveal.</b> A third party can't hijack or spoil a game.
+      <br>• <b>Honest limit:</b> the last person to reveal already knows the result, so a sore loser can <i>refuse to reveal</i> and deadlock the game — but they <b>cannot force a win</b>, only stall it (there's no stake to steal). A reveal deadline + forfeit is a mainnet feature.
+    </p>
+  </div>
+
+  <footer>
+    Runs on <a href="https://get.nadochain.com/">NADO</a> · contract calls ride L1 as ordered blobs, apply at finality (a few minutes).
+    Your secret stays in this browser until you reveal it. <a href="https://get.nadochain.com/rollup">See the contract</a>.
+  </footer>
+</div>
+<script type="module" src="/static/coinflip.js"></script>
+</body>
+</html>
