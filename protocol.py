@@ -340,6 +340,11 @@ SLASH_BOND_PENALTY = B_MIN
 # monotonic (max of the time-based floor and the FFG height), so the advance needs no rollback logic.
 FFG_NUM = 2
 FFG_DEN = 3
+# INACTIVITY LEAK (#6): a bonded validator that hasn't attested any checkpoint within this many epochs is
+# LEAKED from the FFG quorum DENOMINATOR (attestation_ops.active_shares) — its stake stays, but its finality
+# VOTE lapses, so bonded-but-absent stake can't wedge finality forever. Small: finality is fresh, and a
+# validator attesting each epoch is always inside the window (grace for a brief outage before its vote drops).
+INACTIVITY_WINDOW = 3
 
 # Open lane: free entry via a one-time light registration PoW; weight = floor + diligence ramp.
 # NO auto-bond faucet: free presence must NEVER mint bonded stake (that pipe lets a Sybil swarm

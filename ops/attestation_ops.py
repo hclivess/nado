@@ -18,16 +18,31 @@ Pure, deterministic, integer-only over committed state.
 from ops import kv_ops
 from ops.account_ops import get_bonded_registry
 from ops.mining_ops import total_bonded_shares, selection_shares
-from protocol import FFG_NUM, FFG_DEN, EPOCH_LENGTH
+from protocol import FFG_NUM, FFG_DEN, EPOCH_LENGTH, INACTIVITY_WINDOW
 
 # how many epochs back to scan for a finalizable checkpoint (finality is fresh; a small window suffices)
 _FFG_LOOKBACK_EPOCHS = 8
 
 
+def active_shares(epoch: int, bonded_registry: dict) -> int:
+    """INACTIVITY LEAK (#6): total selection shares of bonded validators that ATTESTED any checkpoint on
+    -chain within the last INACTIVITY_WINDOW epochs. A validator that has gone DARK for the whole window is
+    leaked from the FFG quorum DENOMINATOR, so a live attesting majority can always finalize instead of
+    being blocked forever by bonded-but-absent stake. Deterministic (on-chain attestations), so every node
+    computes the identical active set + quorum. The absent validator keeps its stake (this leaks its FFG
+    VOTE, not its bond) — going dark simply forfeits its say in finality until it attests again."""
+    active = set()
+    for e in range(max(0, epoch - INACTIVITY_WINDOW + 1), epoch + 1):
+        for v, _h in kv_ops.attestations_for_epoch(e):
+            if v in bonded_registry:
+                active.add(v)
+    return sum(selection_shares(bonded_registry[v]["bonded"]) for v in active)
+
+
 def checkpoint_justified(epoch: int, checkpoint_hash: str, bonded_registry: dict) -> bool:
-    """True when the bonded shares attesting (epoch, checkpoint_hash) STRICTLY EXCEED FFG_NUM/FFG_DEN of
-    the total bonded shares. Integer comparison (attesting*FFG_DEN > total*FFG_NUM) — no floats."""
-    total = total_bonded_shares(bonded_registry)
+    """True when the bonded shares attesting (epoch, checkpoint_hash) STRICTLY EXCEED FFG_NUM/FFG_DEN of the
+    ACTIVE bonded shares (see active_shares — the inactivity leak). Integer comparison, no floats."""
+    total = active_shares(epoch, bonded_registry)
     if total == 0:
         return False
     attesting = 0

@@ -105,6 +105,58 @@ def construct_attestation_tx(keydict, target_epoch, target_hash, target_block):
     return tx
 
 
+# Attestation-equivocation slash heights are namespaced ABOVE any real block height so an FFG double-vote
+# slash for epoch E can never collide with a block-authorship slash at block height E.
+_ATTEST_SLASH_BASE = 1 << 40
+
+
+def verify_attestation_equivocation_proof(proof):
+    """Verify an FFG ATTESTATION double-vote: the SAME bonded validator SIGNED two attestations for the SAME
+    target_epoch but DIFFERENT target_hash. proof = {"attest_a": <signed attest tx>, "attest_b": <signed
+    attest tx>}. Returns (offender_address, target_epoch) when valid, else None. Unforgeable: only the
+    key-holder can sign either attestation, and there is NO honest reason to attest two checkpoints for one
+    epoch — so a valid proof is irrefutable evidence of a finality double-vote."""
+    try:
+        def _open(tx):
+            if not isinstance(tx, dict) or tx.get("recipient") != "attest":
+                return None
+            pk, sig, txid, sender = tx.get("public_key"), tx.get("signature"), tx.get("txid"), tx.get("sender")
+            if not (pk and sig and txid and sender) or not isinstance(sig, str):
+                return None
+            if not proof_sender(public_key=pk, sender=sender):        # pubkey must hash to the claimed sender
+                return None
+            body = {k: v for k, v in tx.items() if k not in ("txid", "signature")}
+            if create_txid(body) != txid:                              # txid binds the full attestation body
+                return None
+            if not verify(signed=sig, public_key=pk, message=unhex(txid)):
+                return None
+            d = tx.get("data") or {}
+            return sender, d.get("target_epoch"), d.get("target_hash")
+        ra = _open((proof or {}).get("attest_a")); rb = _open((proof or {}).get("attest_b"))
+        if not ra or not rb:
+            return None
+        (sa, ea, ha), (sb, eb, hb) = ra, rb
+        if sa != sb or ea != eb or not isinstance(ea, int) or isinstance(ea, bool) or ea < 0:
+            return None
+        if not ha or not hb or ha == hb:                               # must be two DIFFERENT checkpoints
+            return None
+        return sa, int(ea)
+    except Exception:
+        return None
+
+
+def resolve_slash(data):
+    """Resolve a slash proof — block-authorship OR FFG-attestation equivocation — to (offender, dedup_height).
+    Attestation slashes are namespaced at _ATTEST_SLASH_BASE+epoch so they never collide with a block-height
+    slash. Returns None if neither proof verifies. Shared by validate_transaction + reflect_transaction."""
+    if isinstance(data, dict) and ("attest_a" in data or "attest_b" in data):
+        r = verify_attestation_equivocation_proof(data)
+        return (r[0], _ATTEST_SLASH_BASE + r[1]) if r else None
+    from ops.block_ops import verify_equivocation_proof
+    r = verify_equivocation_proof(data)
+    return (r[0], r[1]) if r else None
+
+
 def construct_commit_tx(keydict, target_epoch, commitment, target_block):
     """Build a SIGNED RANDAO commit tx (#7): a bonded validator publishes a secret's commitment for
     target_epoch's beacon (submitted in epoch E-2). Fee-exempt, zero-amount."""
@@ -485,10 +537,9 @@ def validate_transaction(transaction, logger, block_height):
         # same identity validly signed two blocks at one slot. Anyone may report it (the proof is
         # the anti-spam: it can't be forged, and one-per-(offender,height) blocks replay). The
         # offender must currently hold >= SLASH_BOND_PENALTY so apply_slash never floors (revert-safe).
-        from ops.block_ops import verify_equivocation_proof
         assert transaction["amount"] == 0, "Slash tx must have zero amount"
         assert transaction["fee"] == 0, "Slash tx is fee-exempt (fee must be 0)"
-        result = verify_equivocation_proof(transaction.get("data"))
+        result = resolve_slash(transaction.get("data"))   # block-authorship OR FFG-attestation equivocation
         assert result, "Invalid or missing equivocation proof"
         offender, height = result
         assert not kv_ops.slash_exists(offender, height), "This offence is already slashed (replay)"

@@ -99,9 +99,11 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     # validate_transaction already verified the proof + that the offender holds enough bond + is not
     # already slashed at this height, so reflect just extracts (offender, height) and burns the bond.
     if recipient == "slash":
-        proof = transaction.get("data") or {}
-        offender = make_address(proof["public_key"])
-        apply_slash(address=offender, height=proof["block_number"], logger=logger, revert=revert)
+        from ops.transaction_ops import resolve_slash   # lazy: transaction_ops imports account_ops
+        result = resolve_slash(transaction.get("data") or {})   # block-authorship OR FFG-attestation equivocation
+        if result:
+            offender, height = result
+            apply_slash(address=offender, height=height, logger=logger, revert=revert)
         return
 
     # --- FFG attestation (#6): record/revert a bonded validator's checkpoint attestation. Validation
