@@ -24,7 +24,7 @@
       "rollup.relayDown":"Relay unavailable.","rollup.deploySent":"Deploy submitted — appears after finality (a few minutes).",
       "rollup.callSent":"Call submitted — state updates after finality.","rollup.rejected":"Rejected: ","rollup.result":"Result: ",
       "rollup.deployedAs":"Deployed as","rollup.afterFinality":"live after finality (a few minutes).","rollup.pendingTag":"pending",
-      "rollup.pendingDetail":"Pending — appears once applied at finality (a few minutes).",
+      "rollup.pendingDetail":"Pending — appears once applied at finality (a few minutes).","rollup.clickMethod":"(click one to call it)",
       "msg.title":"Messages","msg.sub":"Off-chain · end-to-end encrypted · post-quantum · free. History stays on this device.",
       "msg.new":"New","msg.send":"Send","msg.toPh":"alias or ndo… address","msg.bodyPh":"Write a message…",
       "msg.st.delivered":"✓ delivered","msg.st.sent":"· sent","msg.st.undelivered":"not delivered",

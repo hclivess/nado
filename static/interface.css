@@ -342,3 +342,4 @@ a { color: var(--accent-2); }
 .rollup-item { padding: 6px 9px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 4px; cursor: pointer; }
 .rollup-item:hover { border-color: var(--accent); }
 .rollup-item.rollup-pending { border-style: dashed; opacity: .72; }
+.rollup-mbtn { padding: 5px 10px; font-size: 13px; }

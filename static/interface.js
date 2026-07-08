@@ -3498,8 +3498,13 @@ async function rollupShowContract(cid) {
       return;
     }
     const c = await r.json();
-    d.innerHTML = '<div class="label">' + i18("rollup.methods", "Methods") + '</div><div class="mono small">' + esc((c.methods || []).join(", "))
-      + '</div><div class="label mt">' + i18("rollup.storage", "Storage") + '</div><pre class="mono small">' + esc(JSON.stringify(c.storage || {}, null, 1)) + '</pre>';
+    const chips = (c.methods || []).map((m) => '<button class="ghost rollup-mbtn" data-m="' + esc(m) + '">' + esc(m) + '</button>').join(" ");
+    d.innerHTML = '<div class="label">' + i18("rollup.methods", "Methods") + ' <span class="faint small">' + esc(i18("rollup.clickMethod", "(click one to call it)")) + '</span></div>'
+      + '<div class="row" style="gap:6px;margin-top:4px">' + (chips || '<span class="faint small">—</span>') + '</div>'
+      + '<div class="label mt">' + i18("rollup.storage", "Storage") + '</div><pre class="mono small">' + esc(JSON.stringify(c.storage || {}, null, 1)) + '</pre>';
+    d.querySelectorAll(".rollup-mbtn").forEach((b) => b.onclick = () => {   // fill the call form, ready for args
+      $("rollupCallCid").value = cid; $("rollupCallMethod").value = b.dataset.m; $("rollupCallArgs").focus();
+    });
   } catch (e) { d.textContent = i18("rollup.execDown", "Execution node unreachable."); }
 }
 
