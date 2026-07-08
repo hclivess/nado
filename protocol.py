@@ -301,7 +301,7 @@ RANDAO_ENFORCED = False
 # guarantees: an honest reorg (<= max_rollbacks deep) never hits the floor, and a malicious/long-range
 # reorg is capped below one epoch so the epoch-beacon anchor is un-reorgable. (The presence recert lease
 # spans POSW_LEASE_EPOCHS, far beyond any rollback window, so a reorg can never strand a valid lease.)
-FINALITY_DEPTH = 30
+FINALITY_DEPTH = 12
 
 # Bonded lane: locked refundable stake, split-neutral, per-identity capped.
 B_MIN = 10_000_000_000_000         # 1,000 NADO: capital per bonded selection share (staking-lane entry).

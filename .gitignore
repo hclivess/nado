@@ -163,3 +163,10 @@ peers.dat
 # runtime-derived build stamp (git HEAD written on every boot by versioner) — must not be tracked,
 # or it shows dirty forever (its content can never equal the commit that records it). See versioner.py.
 version
+
+# scratch/e2e orchestrators + local secrets (never commit)
+.myflip_secret
+.coinflip_cid
+_cf_e2e.py
+_cf_open.py
+_cf_stakes_e2e.py

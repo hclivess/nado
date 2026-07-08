@@ -927,7 +927,10 @@ def _html_response(request, full):
     with open(full, "rb") as f:
         body = _stamp_static_refs(f.read())
     etag = '"' + hashlib.blake2b(body, digest_size=16).hexdigest() + '"'
-    headers = {"Cache-Control": "no-cache", "ETag": etag, "Access-Control-Allow-Origin": "*"}
+    # X-Frame-Options/frame-ancestors: the wallet must NEVER be framed — the exec_sign / forum-login confirm is
+    # the only human gate, and a header-delivered frame denial defeats clickjacking of it (a <meta> CSP cannot).
+    headers = {"Cache-Control": "no-cache", "ETag": etag, "Access-Control-Allow-Origin": "*",
+               "X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'"}
     inm = request.headers.get("If-None-Match", "")
     if etag in (t.strip() for t in inm.split(",")):
         return web.Response(status=304, headers=headers)

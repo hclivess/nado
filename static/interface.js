@@ -1853,19 +1853,55 @@ async function resumePendingExecSign() {
     back(c ? "ok=1&addr=" + state.wallet.address : "ok=0");
     return;
   }
+  if (call.deposit) {   // BRIDGE DEPOSIT: move the user's OWN L1 funds into their OWN exec balance (safe, bounded — no third-party recipient)
+    let amt; try { amt = BigInt(call.deposit.amount); } catch (e) { back("ok=0&err=bad+amount"); return; }
+    if (amt <= 0n) { back("ok=0"); return; }
+    const okc = await uiConfirm({
+      title: i18("dapp.depTitle", "Deposit to the exec layer"),
+      body: i18("dapp.depBody", "{app}: move {n} NADO from your L1 balance into your execution-layer balance so you can stake it — it stays yours.",
+        { app: req.app, n: rawToNado(amt) }),
+      rows: [{ k: i18("dapp.amount", "Amount"), v: rawToNado(amt) + " NADO" }],
+      confirmText: i18("dapp.deposit", "Deposit"),
+    });
+    if (!okc) { back("ok=0"); return; }
+    try {
+      const latest = await getLatestBlock();
+      if (!latest) throw new Error("relay unavailable");
+      const draft = { sender: state.wallet.address, recipient: "bridge", amount: amt, timestamp: nowSeconds(),
+        data: "", nonce: randNonce(), public_key: state.wallet.publicKey, target_block: latest.block_number + 8, chain_id: CHAIN_ID };
+      const tx = finalizeTransaction(draft, state.wallet.privateKey, MIN_TX_FEE);
+      const res = await submitTransaction(tx);
+      back(res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address
+                                       : "ok=0&err=" + encodeURIComponent(((res.data && res.data.message) || "rejected").slice(0, 80)));
+    } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
+    return;
+  }
+  // decode {$big} recursively so 256-bit args (commit hashes) rebuild as BigInt anywhere in the payload
+  const decodeDeep = (v) => Array.isArray(v) ? v.map(decodeDeep)
+    : (v && typeof v === "object") ? ("$big" in v ? BigInt(v.$big) : Object.fromEntries(Object.keys(v).map((k) => [k, decodeDeep(v[k])])))
+    : v;
+  // the dApp may send a FULL blob payload (call.blob) or the legacy {cid,method,args} call shape
+  const blob = decodeDeep(call.blob || { op: "call", contract: call.cid, method: call.method, args: call.args || [] });
+  if (call.ns && call.ns !== "default" && blob.ns === undefined) blob.ns = call.ns;
+  // AUDIT FIX: show the REAL action (op + key fields), never just the dApp's free-text label, so the confirm can't be spoofed
+  const rows = [{ k: i18("dapp.action", "Action"), v: String(blob.op || "call") }];
+  if (blob.contract) rows.push({ k: i18("dapp.contract", "Contract"), v: String(blob.contract).slice(0, 22) });
+  if (blob.method)   rows.push({ k: i18("dapp.method", "Method"), v: String(blob.method) });
+  if (blob.game !== undefined)  rows.push({ k: i18("dapp.game", "Game"), v: String(blob.game) });
+  try { if (blob.stake  !== undefined) rows.push({ k: i18("dapp.stake", "Stake"),  v: rawToNado(BigInt(blob.stake)) + " NADO" }); } catch (e) {}
+  try { if (blob.amount !== undefined && blob.amount) rows.push({ k: i18("dapp.amount", "Amount"), v: rawToNado(BigInt(blob.amount)) + " NADO" }); } catch (e) {}
   const okc = await uiConfirm({
     title: i18("dapp.title", "Sign a contract call"),
-    body: i18("dapp.body", "{app} wants to submit “{label}” from your wallet ({a}). This is a fee-only execution-layer call — it moves no funds beyond the tiny network fee.",
-      { app: req.app, label: call.label || (call.method + "()"), a: state.wallet.address.slice(0, 14) + "…" }),
+    body: i18("dapp.body2", "{app} wants to sign & submit this from your wallet ({a}). It moves no L1 funds beyond the network fee.",
+      { app: req.app, a: state.wallet.address.slice(0, 14) + "…" }),
+    rows,
     confirmText: i18("dapp.sign", "Sign & submit"),
   });
   if (!okc) { back("ok=0"); return; }
   try {
     const latest = await getLatestBlock();
     if (!latest) throw new Error("relay unavailable");
-    const payload = { op: "call", contract: call.cid, method: call.method, args: (call.args || []).map(_decodeArg) };
-    if (call.ns && call.ns !== "default") payload.ns = call.ns;
-    const tx = buildBlobTx(state.wallet, payload, latest.block_number + 8, MIN_TX_FEE, nowSeconds());
+    const tx = buildBlobTx(state.wallet, blob, latest.block_number + 8, MIN_TX_FEE, nowSeconds());
     const res = await submitTransaction(tx);
     if (res.data && res.data.result) back("ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address);
     else back("ok=0&err=" + encodeURIComponent(((res.data && res.data.message) || "rejected").slice(0, 80)));

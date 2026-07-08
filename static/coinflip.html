@@ -52,23 +52,34 @@
 <body>
 <div class="wrap">
   <header><span class="logo">🪙</span><h1>NADO <span class="a">Coin Flip</span></h1></header>
-  <p class="sub">A provably-fair 2-player coin flip on the NADO execution layer. Commit-reveal: neither player can bias the outcome — each commits a hashed secret first, then reveals; the coin is the parity of <span class="mono">HASH(secret₀‖secret₁)</span>. Post-quantum wallet, no install.</p>
+  <p class="sub">A provably-fair, <b>staked</b> 2-player coin flip on the NADO execution layer. Both stake NADO into a pot; the winner (parity of <span class="mono">HASH(secret₀‖secret₁)</span>) takes it all. Commit-reveal means nobody can bias the result. Post-quantum wallet, no install.</p>
 
   <div id="status"></div>
 
-  <!-- WALLET (delegated — the NADO wallet signs each move) -->
+  <!-- WALLET -->
   <div class="card">
     <h2>Wallet</h2>
-    <p class="small dim">Your moves are signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — you'll be bounced there to confirm each move (commit / reveal), then straight back here. Your key never touches this site. You need a little NADO for the tiny per-move fee.</p>
+    <p class="small dim">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site. Stakes live in the execution layer: deposit NADO to bet, withdraw winnings any time.</p>
     <div class="kv mt"><span class="k">Playing as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k">Exec balance</span><span class="mono" id="bal">—</span></div>
     <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
   </div>
 
   <!-- PLAY (shown once signed in) -->
   <div class="card hidden" id="play">
-    <h2>Play</h2>
+    <h2>Bankroll</h2>
     <div class="row">
-      <button class="primary" id="btnNew">New game</button>
+      <input id="depAmt" placeholder="NADO to deposit" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto">Deposit</button>
+    </div>
+    <div class="row mt">
+      <input id="wdAmt" placeholder="NADO to withdraw" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
+    </div>
+    <h2 class="mt">Play for stakes</h2>
+    <div class="row">
+      <input id="stakeAmt" placeholder="stake (NADO)" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNew" style="flex:0 0 auto">New game</button>
     </div>
     <div class="row mt">
       <input id="joinId" placeholder="join a game by ID" inputmode="numeric" autocomplete="off">
@@ -84,10 +95,17 @@
       <div class="coin spin" id="coin">?</div>
       <div id="result" class="dim">Waiting for both reveals…</div>
     </div>
+    <div class="kv"><span class="k">Pot</span><span class="mono" id="pot">—</span></div>
+    <div class="kv"><span class="k">Stake each</span><span class="mono" id="stakeShown">—</span></div>
     <div class="kv"><span class="k">Status</span><span class="mono" id="gStatus">…</span></div>
-    <div class="small mt" id="myCommit"></div>
+    <div class="mt small" id="players"></div>
+    <div class="small mt" id="myBet"></div>
     <div class="small" id="myReveal"></div>
-    <div class="row mt"><button class="primary" id="btnReveal">Reveal my secret</button></div>
+    <div class="row mt">
+      <button class="primary hidden" id="btnReveal">Reveal my secret</button>
+      <button class="primary hidden" id="btnSettle">Settle &amp; pay winner</button>
+      <button class="ghost hidden" id="btnClaim">Claim (opponent stalled)</button>
+    </div>
     <label class="mt">Share this game (send to your opponent)</label>
     <input id="shareLink" class="mono" readonly onclick="this.select()">
   </div>
@@ -100,7 +118,7 @@
       <br>• <b>You can't bias it.</b> Both players <b>commit</b> a hash of their secret <b>before anyone reveals</b>, so neither knows the other's secret when they lock theirs in — nobody can pick the result.
       <br>• <b>No committing after a reveal.</b> The contract refuses any commit once a reveal has landed (the fix for the "second mover chooses" attack).
       <br>• <b>Two players only, committers only reveal.</b> A third party can't hijack or spoil a game.
-      <br>• <b>Honest limit:</b> the last person to reveal already knows the result, so a sore loser can <i>refuse to reveal</i> and deadlock the game — but they <b>cannot force a win</b>, only stall it (there's no stake to steal). A reveal deadline + forfeit is a mainnet feature.
+      <br>• <b>Sore losers cannot steal.</b> The last revealer sees the result first, so a loser might withhold their reveal — but after the on-chain deadline the player who <i>did</i> reveal <b>claims the whole pot by forfeit</b>. Withholding only loses your stake. If nobody reveals (or no opponent shows), stakes refund. Escrow and payout are enforced on-chain and reconcile exactly — nothing minted or lost.
     </p>
   </div>
 

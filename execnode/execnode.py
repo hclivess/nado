@@ -483,6 +483,31 @@ async def h_view(request):
     return web.json_response({"cid": cid, "method": method, "result": st.view(cid, method, args)})
 
 
+async def h_flip_game(request):
+    """Staked coin-flip game state (?game=&ns=) for the Coin Flip dApp: stake, pot, per-player committed/
+    revealed flags, settled + result. Exposes only public on-chain state (never a secret before its reveal)."""
+    from hashing import blake2b_hash
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
+    gid = str(request.query.get("game", ""))
+    g = st.games.get(gid)
+    if not g:
+        return web.json_response({"exists": False, "cursor": st.cursor})
+    players = {a: {"slot": p["slot"], "committed": True, "revealed": p["secret"] is not None}
+               for a, p in g["players"].items()}
+    nrev = sum(1 for p in g["players"].values() if p["secret"] is not None)
+    out = {"exists": True, "stake": g["stake"], "pot": g["pot"], "settled": g["settled"],
+           "deadline": g["deadline"], "cursor": st.cursor, "ncom": len(g["players"]), "nrev": nrev,
+           "players": players}
+    if len(g["players"]) == 2 and nrev == 2:      # both revealed -> the result is public + reproducible
+        s1 = next(p["secret"] for p in g["players"].values() if p["slot"] == 1)
+        s2 = next(p["secret"] for p in g["players"].values() if p["slot"] == 2)
+        out["result"] = int(blake2b_hash([s1, s2]), 16) % 2
+        out["winner_slot"] = 1 if out["result"] == 0 else 2
+    return web.json_response(out)
+
+
 async def h_outbox(request):
     """List the cross-domain outbox messages emitted by namespace ?ns= (each {seq, from, to_ns, data})."""
     st = _state_for(request)
@@ -743,6 +768,7 @@ async def main():
                     web.get("/exec/contracts", h_contracts),
                     web.get("/exec/contract", h_contract),
                     web.get("/exec/view", h_view),
+                    web.get("/exec/flip_game", h_flip_game),
                     web.get("/exec/outbox", h_outbox),
                     web.get("/exec/outbox_proof", h_outbox_proof),
                     web.get("/exec/inbox", h_inbox),

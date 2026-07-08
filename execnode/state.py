@@ -76,6 +76,9 @@ def _normalize_bundle(bundle):
             c["cur"] = int(c["cur"]); c["nxt"] = int(c["nxt"])
 
 
+
+FLIP_REVEAL_WINDOW = 1000   # exec-cursor blocks a player has to reveal before the pot can be CLAIMED by forfeit
+
 class ExecState:
     def __init__(self, path):
         """Initialise every state component empty, then load() the last snapshot from `path` if one
@@ -117,6 +120,11 @@ class ExecState:
         # This reentrant lock makes the double-spend check + the mutation atomic, and gives save() a
         # consistent snapshot, so two racing identical unshields can't both record an exit.
         self._mutate_lock = threading.RLock()
+        # STAKED COIN FLIP: a native 2-player commit-reveal betting game. Stakes are ESCROWED from the bridged
+        # balance into the game pot (committed in state_root), and the winner's pot is credited back to their
+        # bridge balance (claimable on L1 like any bridge withdrawal). A cursor-based reveal DEADLINE lets a
+        # griefed player CLAIM by forfeit, so a sore loser who withholds their reveal only loses their stake.
+        self.games = {}            # gid(str) -> {stake, pot, settled, deadline, players:{addr:{commit,slot,secret}}}
         self.load()
 
     # --- persistence -----------------------------------------------------------------------------
@@ -142,6 +150,7 @@ class ExecState:
                 self.shielded = ShieldedPool.from_dict(d["shielded"])
             self.unshield_withdrawals = d.get("unshield_withdrawals", {})
             self.uw_nonce = d.get("uw_nonce", 0)
+            self.games = d.get("games", {})
             if "field_pool" in d:
                 from execnode.shielded_field import FieldShieldedPool
                 self.field_pool = FieldShieldedPool.from_dict(d["field_pool"])
@@ -161,7 +170,7 @@ class ExecState:
                        "div_carry": self.div_carry, "dividend_withdrawals": self.dividend_withdrawals,
                        "dw_nonce": self.dw_nonce, "shielded": self.shielded.to_dict(),
                        "unshield_withdrawals": self.unshield_withdrawals, "uw_nonce": self.uw_nonce,
-                       "field_pool": self.field_pool.to_dict()}
+                       "field_pool": self.field_pool.to_dict(), "games": self.games}
         # '~tmp' (not '.tmp'): a namespace state path is STATE_PATH + '.' + ns and ns excludes '~', so this
         # temp can never equal another namespace's persistent path (a ns literally named 'tmp' would have
         # collided a '.tmp' temp and corrupted its state on every default save).
@@ -194,6 +203,10 @@ class ExecState:
         out.append(canonical_bytes(["field_nfset", *sorted(str(n) for n in self.field_pool.nullifiers)]))
         for nonce, w in self.unshield_withdrawals.items():
             out.append(unshield_leaf(w["addr"], w["amount"], nonce))
+        for gid in sorted(self.games):                           # STAKED coin-flip games (escrowed pots + state)
+            g = self.games[gid]
+            players = sorted([a, p["slot"], p["commit"], p["secret"]] for a, p in g["players"].items())
+            out.append(canonical_bytes(["flip_game", gid, g["stake"], g["pot"], bool(g["settled"]), g["deadline"], players]))
         for msg in self.outbox:                                  # cross-domain messages emitted (append-only)
             out.append(_outbox_leaf(msg))
         for i, msg in enumerate(self.inbox):                     # cross-domain messages delivered (append-only)
@@ -424,6 +437,32 @@ class ExecState:
                     return f"call {cid}.{method} by {sender[:12]}… -> ok"
                 return f"call {cid}.{method} by {sender[:12]}… -> revert (no-op)"
 
+            if op == "upgrade":
+                # ALPHANET: contracts are UPGRADABLE by their deployer. The cid + storage are preserved; the code
+                # (and optional abi/runtime) are replaced. Only the original deployer may upgrade. This deliberately
+                # breaks strict immutability — a mainnet contract would gate this behind on-chain governance / a
+                # timelock, but on alphanet the deployer owns their contract outright.
+                cid = payload.get("contract")
+                code = payload.get("code")
+                c = self.contracts.get(cid)
+                if not c:
+                    return f"skip: no contract {cid}"
+                if c.get("deployer") != sender:
+                    return "skip: only the deployer can upgrade this contract"
+                rt_name = payload.get("runtime", c.get("runtime", runtimes.DEFAULT_RUNTIME))
+                rt = runtimes.get(rt_name)
+                if rt is None:
+                    return f"skip: unknown runtime {rt_name!r}"
+                try:
+                    rt.validate_code(code)
+                except Exception as e:
+                    return f"skip: invalid code ({e})"
+                c["code"] = code
+                c["runtime"] = rt_name
+                if isinstance(payload.get("abi"), dict):
+                    c["abi"] = payload["abi"]
+                return f"upgrade {cid} by {sender[:12]}… (code replaced, storage kept)"
+
             if op == "emit":
                 # Emit a cross-domain MESSAGE: append {seq, from, to_ns, data} to the outbox, committed in
                 # state_root as an outbox leaf and provable via outbox_proof(seq). This blob only COMMITS the
@@ -464,6 +503,86 @@ class ExecState:
                 nonce = str(self.dw_nonce)
                 self.dividend_withdrawals[nonce] = {"addr": sender, "amount": amt}
                 return f"collect_dividend {amt} by {sender[:12]}… -> nonce {nonce}"
+
+            # ---- STAKED COIN FLIP (native betting module) ------------------------------------------------
+            if op in ("flip_bet", "flip_reveal", "flip_settle", "flip_claim"):
+                from execnode.vm import _hash_value
+                gid = str(payload.get("game"))
+
+                if op == "flip_bet":
+                    commit, stake = payload.get("commit"), payload.get("stake")
+                    if not isinstance(commit, int) or isinstance(commit, bool) or commit < 0:
+                        return "skip: bad commit"
+                    if not isinstance(stake, int) or isinstance(stake, bool) or stake <= 0:
+                        return "skip: bad stake"
+                    g = self.games.get(gid)
+                    if g is None:                                   # open a new game as player 1
+                        if self.bridge.get(sender, 0) < stake:
+                            return f"skip: insufficient bridge balance for {sender[:12]}…"
+                        self.bridge[sender] -= stake
+                        if self.bridge[sender] == 0: del self.bridge[sender]
+                        self.games[gid] = {"stake": stake, "pot": stake, "settled": False,
+                                           "deadline": self.cursor + FLIP_REVEAL_WINDOW,
+                                           "players": {sender: {"commit": commit, "slot": 1, "secret": None}}}
+                        return f"flip_bet open {gid} stake {stake} by {sender[:12]}…"
+                    if g["settled"]:            return "skip: game already settled"
+                    if sender in g["players"]:  return "skip: already in this game"
+                    if len(g["players"]) >= 2:  return "skip: game full"
+                    if stake != g["stake"]:     return "skip: stake must match the opener's"
+                    if self.bridge.get(sender, 0) < stake:
+                        return f"skip: insufficient bridge balance for {sender[:12]}…"
+                    self.bridge[sender] -= stake
+                    if self.bridge[sender] == 0: del self.bridge[sender]
+                    g["pot"] += stake
+                    g["players"][sender] = {"commit": commit, "slot": 2, "secret": None}
+                    g["deadline"] = self.cursor + FLIP_REVEAL_WINDOW   # reveal window opens when both are in
+                    return f"flip_bet join {gid} by {sender[:12]}…"
+
+                if op == "flip_reveal":
+                    secret = payload.get("secret")
+                    if not isinstance(secret, int) or isinstance(secret, bool):
+                        return "skip: bad secret"
+                    g = self.games.get(gid)
+                    if not g or g["settled"]:        return "skip: no open game"
+                    if len(g["players"]) < 2:        return "skip: need two players first"
+                    pl = g["players"].get(sender)
+                    if not pl:                       return "skip: not a player in this game"
+                    if pl["secret"] is not None:     return "skip: already revealed"
+                    if _hash_value(secret) != pl["commit"]:
+                        return "skip: secret does not open your commit"
+                    pl["secret"] = secret
+                    return f"flip_reveal {gid} by {sender[:12]}…"
+
+                if op == "flip_settle":
+                    g = self.games.get(gid)
+                    if not g or g["settled"]:        return "skip: nothing to settle"
+                    if len(g["players"]) == 2 and all(p["secret"] is not None for p in g["players"].values()):
+                        s1 = next(p["secret"] for p in g["players"].values() if p["slot"] == 1)
+                        s2 = next(p["secret"] for p in g["players"].values() if p["slot"] == 2)
+                        result = int(blake2b_hash([s1, s2]), 16) % 2   # 0 -> slot1 wins, 1 -> slot2 wins
+                        wslot = 1 if result == 0 else 2
+                        winner = next(a for a, p in g["players"].items() if p["slot"] == wslot)
+                        self.bridge[winner] = self.bridge.get(winner, 0) + g["pot"]
+                        g["pot"] = 0; g["settled"] = True
+                        return f"flip_settle {gid} -> slot{wslot} ({winner[:12]}…) wins"
+                    return "skip: both must reveal first (or flip_claim after the deadline)"
+
+                if op == "flip_claim":
+                    g = self.games.get(gid)
+                    if not g or g["settled"]:        return "skip: nothing to claim"
+                    if self.cursor <= g["deadline"]: return "skip: reveal deadline not passed yet"
+                    revealed = [a for a, p in g["players"].items() if p["secret"] is not None]
+                    if len(revealed) == 1:                          # opponent withheld -> revealer takes the pot
+                        w = revealed[0]
+                        self.bridge[w] = self.bridge.get(w, 0) + g["pot"]
+                        g["pot"] = 0; g["settled"] = True
+                        return f"flip_claim {gid} -> {w[:12]}… wins by forfeit"
+                    if len(revealed) == 2:                          # already resolvable -> settle instead
+                        return "skip: both revealed — use flip_settle"
+                    for a, p in g["players"].items():               # nobody revealed / no opponent -> refund stakes
+                        self.bridge[a] = self.bridge.get(a, 0) + g["stake"]
+                    g["pot"] = 0; g["settled"] = True
+                    return f"flip_claim {gid} -> refunded (no result)"
 
             if op == "field_transfer":
                 # PHASE-2: a full join-split STARK proof (delegated-prover output). The bundle rides as an
