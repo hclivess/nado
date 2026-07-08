@@ -42,7 +42,8 @@ const LS_ME = "nado_coinflip_me", LS_G = "nado_coinflip_games", LS_P = "nado_coi
 const gamesLoad = () => { try { return JSON.parse(localStorage.getItem(LS_G) || "{}"); } catch { return {}; } };
 const gamesSave = (g) => { try { localStorage.setItem(LS_G, JSON.stringify(g)); } catch {} };
 let me = localStorage.getItem(LS_ME) || null;
-let active = null, lastGame = null, myBalance = 0n;
+let active = null, lastGame = null, myBalance = 0n, myL1Balance = 0n;
+const FEE = 1000n;   // MIN_TX_FEE (raw) — a deposit spends amount + this from the L1 wallet
 
 // ---- amounts / secrets ---------------------------------------------------------------------------
 const randId = () => globalThis.crypto.getRandomValues(new Uint32Array(1))[0] % 1000000000;
@@ -88,10 +89,15 @@ function handleReturn() {
 
 // ---- reads ---------------------------------------------------------------------------------------
 async function fetchBalance() {
+  if (!me) { myBalance = 0n; myL1Balance = 0n; return; }
   try {
     const b = await (await fetch(base() + "/exec/bridge?ns=" + NS, { cache: "no-store" })).json();
     myBalance = BigInt((b.balances || {})[me] || 0);
   } catch { myBalance = 0n; }
+  try {
+    const a = await (await fetch(base() + "/get_account?address=" + encodeURIComponent(me), { cache: "no-store" })).json();
+    myL1Balance = BigInt(a.balance || 0);   // L1 wallet balance — what a deposit can draw from
+  } catch { myL1Balance = 0n; }
 }
 async function fetchGame(gid) {
   try { return await (await fetch(base() + "/exec/flip_game?ns=" + NS + "&game=" + gid, { cache: "no-store" })).json(); }
@@ -111,6 +117,11 @@ const disp = (addr) => !addr ? "—" : (_aliasCache[addr] ? "@" + _aliasCache[ad
 function doDeposit() {
   const raw = nadoToRaw($("depAmt").value);
   if (!raw) { $("status").textContent = "Enter an amount to deposit."; return; }
+  if (raw + FEE > myL1Balance) {
+    $("status").textContent = "Not enough in your L1 wallet: you have " + rawToNado(myL1Balance) +
+      " NADO (deposit needs " + rawToNado(raw) + " + a tiny fee). Mine or receive more first.";
+    return;
+  }
   deposit(raw);
 }
 async function newGame() {
@@ -174,6 +185,7 @@ function render() {
   $("btnSignIn").classList.toggle("hidden", signedIn);
   $("who").textContent = signedIn ? disp(me) : "not signed in";
   $("bal").textContent = rawToNado(myBalance) + " NADO";
+  $("l1bal").textContent = rawToNado(myL1Balance) + " NADO";
   $("play").classList.toggle("hidden", !signedIn);
   const g = gamesLoad(), ids = Object.keys(g).sort((a, b) => g[b].ts - g[a].ts).slice(0, 8);
   $("recent").innerHTML = ids.length
