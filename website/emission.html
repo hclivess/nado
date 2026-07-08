@@ -145,7 +145,7 @@
       as more coins are bonded. There is no hard cap and no halving cliff — instead, once real usage
       arrives, <b>the supply peaks and then shrinks forever</b>. Drag the sliders and watch it happen.</p>
     <div class="badges">
-      <span class="badge">⏱ <b>10 s blocks</b> — consensus-frozen</span>
+      <span class="badge">⏱ <b>6 s blocks</b></span>
       <span class="badge">⬆ max <b>0.1 NADO</b>/block, ever</span>
       <span class="badge">🔥 <b>100% of fees burned</b></span>
       <span class="badge">🛡 perpetual tail ≈ <b>52k NADO/yr</b> — no security cliff</span>
@@ -219,7 +219,7 @@
     <h3 style="color:var(--txt)">The model (consensus-frozen)</h3>
     Reward per block = <code>0.1 · m(r)</code> with <code>m(r)=0.15+0.85·e<sup>−4r</sup></code>, where
     <code>r</code> is the bonded share of supply — the more the network bonds, the less it mints. Blocks come
-    every <b>10 seconds</b> (a consensus constant, not a knob). There is <b>no fee-weighted term and no
+    every <b>6 seconds</b> (a non-consensus pacing target, operator-tunable). There is <b>no fee-weighted term and no
     ceiling</b>: fees are <b>destroyed</b>, so <code>net = minted − fees</code>. Since <code>m ≤ 1</code>,
     <b>0.1 NADO/block is the maximum emission ever</b>, and <code>m</code> never reaches zero — a perpetual
     tail of ≈0.0166 NADO/block (~52,000 NADO/yr) keeps block production paid forever: <b>no hard cap, no
@@ -340,7 +340,7 @@
 <script>
 (function(){
   "use strict";
-  var BASE=0.1, M_MIN=0.15, K=4.0, BLOCK_TIME=10;
+  var BASE=0.1, M_MIN=0.15, K=4.0, BLOCK_TIME=6;
   var BLOCKS_YR=365*86400/BLOCK_TIME, BLOCKS_DAY=86400/BLOCK_TIME;
   var YEARS=20;
 
