@@ -128,13 +128,28 @@ def valid_block_timestamp(new_block):
         return True
 
 
+def _lands_flexibly(transaction):
+    """True if a tx has NO landing-block-dependent protocol timing, so it may be included in ANY block up to
+    its target_block (a plain EXPIRY window) instead of one exact height. Value transfers, `blob` (exec-layer,
+    applied in L1 order regardless of which block), and bridge in/out simply apply when included. Everything
+    else — epoch-timed RANDAO (commit/reveal/attest), release-timed bond/unbond, PoW-anchored register, settle,
+    governance — keeps EXACT landing so its timing invariants hold. target_block still bounds the tx's life
+    (mempool gate: tip < target_block < tip+360), so an unincluded tx still expires and can't be replayed."""
+    r = transaction.get("recipient")
+    return r in ("blob", "bridge", "bridge_withdraw") or (isinstance(r, str) and r.startswith("ndo"))
+
+
 def check_target_match(transaction_list, block_number, logger):
     """Verification-side gate: EVERY transaction in the block must target exactly this block number
     (target_block binds a tx to one height, so it cannot be replayed into a different block).
     Fails CLOSED — a malformed transaction returns False, never a pass."""
     try:
         for transaction in transaction_list:
-            if transaction["target_block"] != block_number:
+            tb = transaction["target_block"]
+            if _lands_flexibly(transaction):
+                if block_number > tb:            # expired: its target_block (deadline) already passed
+                    return False
+            elif tb != block_number:             # timing-critical: must land at exactly target_block
                 return False
         return True
     except Exception as e:
@@ -151,7 +166,11 @@ def match_transactions_target(transaction_list, block_number, logger):
         matched_txs = []
 
         for transaction in transaction_list:
-            if transaction["target_block"] == block_number:
+            tb = transaction["target_block"]
+            if _lands_flexibly(transaction):
+                if block_number <= tb:           # valid until its target_block deadline
+                    matched_txs.append(transaction)
+            elif tb == block_number:             # timing-critical: exact landing
                 matched_txs.append(transaction)
 
         # AUDIT FIX: drop duplicate reserved txs (e.g. two withdraws of one unbond, two heartbeats of
