@@ -45,6 +45,7 @@ let me = localStorage.getItem(LS_ME) || null;
 let active = null, lastGame = null, myBalance = 0n, myL1Balance = 0n;
 const FEE = 1000n;   // MIN_TX_FEE (raw) — a deposit spends amount + this from the L1 wallet
 let deepLinkGame = null;   // set when arriving via ?game= — pulses the Join (or Sign-in) button until joined
+const stageCache = {};     // gid -> {settled, ncom} : drives the game-list colours (settled is terminal, cached)
 
 // ---- amounts / secrets ---------------------------------------------------------------------------
 const randId = () => globalThis.crypto.getRandomValues(new Uint32Array(1))[0] % 1000000000;
@@ -186,8 +187,18 @@ function doWithdraw() {
 async function refreshActive() {
   await fetchBalance();
   if (active != null) lastGame = await fetchGame(active);
+  await refreshStages();
   await resolveAliases([me].concat(lastGame && lastGame.players ? Object.keys(lastGame.players) : []));
   render();
+}
+async function refreshStages() {
+  const g = gamesLoad();
+  const ids = Object.keys(g).sort((a, b) => g[b].ts - g[a].ts).slice(0, 8);
+  await Promise.all(ids.map(async (id) => {
+    if ((stageCache[id] || {}).settled) return;              // settled is terminal — keep the cached stage
+    const gg = await fetchGame(id);
+    if (gg && gg.exists) stageCache[id] = { settled: !!gg.settled, ncom: gg.ncom || 0 };
+  }));
 }
 
 // ---- render --------------------------------------------------------------------------------------
@@ -218,7 +229,11 @@ function render() {
   $("btnJoin").classList.toggle("pulse", wantsJoin && signedIn);
   const g = gamesLoad(), ids = Object.keys(g).sort((a, b) => g[b].ts - g[a].ts).slice(0, 8);
   $("recent").innerHTML = ids.length
-    ? ids.map((id) => '<button class="chip" data-g="' + id + '">#' + id + " · " + rawToNado(g[id].stake || "0") + "</button>").join(" ")
+    ? ids.map((id) => {
+        const st = stageCache[id]; let cls = "", tag = "";
+        if (st) { if (st.settled) { cls = " done"; tag = "✓ "; } else if (st.ncom >= 2) { cls = " live"; tag = "▶ "; } else { cls = " open"; tag = "⏳ "; } }
+        return '<button class="chip' + cls + '" data-g="' + id + '">' + tag + "#" + id + " · " + rawToNado(g[id].stake || "0") + "</button>";
+      }).join(" ")
     : '<span class="dim">No games yet.</span>';
   $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { active = parseInt(b.dataset.g, 10); refreshActive(); });
   renderActive();

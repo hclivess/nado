@@ -33,6 +33,9 @@
   .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
   .addr{font-family:var(--mono);font-size:12px;color:var(--accent2);word-break:break-all}
   .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2)}
+  .chip.open{border-color:#e3b341;color:#e3b341}       /* waiting for an opponent */
+  .chip.live{border-color:var(--accent2);color:var(--accent2)}  /* both in — playing */
+  .chip.done{opacity:.5}                                /* finished / settled */
   .b{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;margin-left:6px}
   .b.ok{background:rgba(0,173,147,.16);color:var(--accent2)}
   .b.pend{background:rgba(210,153,34,.16);color:#e3b341}
@@ -89,7 +92,8 @@
       <input id="joinId" placeholder="join a game by ID" inputmode="numeric" autocomplete="off">
       <button class="ghost" id="btnJoin" style="flex:0 0 auto">Join</button>
     </div>
-    <div class="mt small dim" id="recent"></div>
+    <div class="small dim mt">Your games <span style="opacity:.7">· ⏳ open · ▶ playing · ✓ done</span></div>
+    <div class="small dim" id="recent"></div>
   </div>
 
   <!-- ACTIVE GAME -->
