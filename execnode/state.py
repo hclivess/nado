@@ -128,49 +128,69 @@ class ExecState:
         self.load()
 
     # --- persistence -----------------------------------------------------------------------------
+    def _restore(self, d):
+        """Populate every field from a payload dict (what load() does after json.load). Every key is
+        optional with an empty default, so old snapshots (pre-dividend/shielded/…) still load AND it works
+        on a bare (un-__init__'d) instance — see clone()."""
+        from execnode.shielded_field import FieldShieldedPool
+        self.contracts = d.get("contracts", {})
+        self.cursor = d.get("cursor", -1)
+        self.bridge = d.get("bridge", {})
+        self.withdrawals = d.get("withdrawals", {})
+        self.wd_nonce = d.get("wd_nonce", 0)
+        self.outbox = d.get("outbox", [])
+        self.inbox = d.get("inbox", [])
+        self.dividend = d.get("dividend", {})
+        self.last_div_epoch = d.get("last_div_epoch", -1)
+        self.div_carry = d.get("div_carry", 0)
+        self.dividend_withdrawals = d.get("dividend_withdrawals", {})
+        self.dw_nonce = d.get("dw_nonce", 0)
+        self.shielded = ShieldedPool.from_dict(d["shielded"]) if "shielded" in d else ShieldedPool()
+        self.unshield_withdrawals = d.get("unshield_withdrawals", {})
+        self.uw_nonce = d.get("uw_nonce", 0)
+        self.games = d.get("games", {})
+        self.field_pool = FieldShieldedPool.from_dict(d["field_pool"]) if "field_pool" in d else FieldShieldedPool()
+
+    def _snapshot(self):
+        """The full serializable payload (identical to what save() writes), taken UNDER the mutate lock so a
+        concurrent thread-apply can't tear it. Shared by save() and clone()."""
+        with self._mutate_lock:
+            return {"contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
+                    "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce,
+                    "outbox": self.outbox, "inbox": self.inbox,
+                    "dividend": self.dividend, "last_div_epoch": self.last_div_epoch,
+                    "div_carry": self.div_carry, "dividend_withdrawals": self.dividend_withdrawals,
+                    "dw_nonce": self.dw_nonce, "shielded": self.shielded.to_dict(),
+                    "unshield_withdrawals": self.unshield_withdrawals, "uw_nonce": self.uw_nonce,
+                    "field_pool": self.field_pool.to_dict(), "games": self.games}
+
+    def clone(self):
+        """A deep, independent, DISK-FREE copy for provisional/speculative apply (the unfinalized L1 tail).
+        The RLock is rebuilt fresh (locks aren't copyable) and __init__ is skipped so it never reads disk.
+        Operations on the clone NEVER touch the finalized state — settlement/state_root/save stay exact."""
+        import copy
+        snap = copy.deepcopy(self._snapshot())
+        c = ExecState.__new__(ExecState)
+        c.path = self.path + "#prov"       # sentinel: a clone is display-only and must never be save()d
+        c._mutate_lock = threading.RLock()
+        c._restore(snap)
+        return c
+
     def load(self):
-        """Restore the last save()d snapshot from self.path, if any. Every key is optional with an empty
-        default, so snapshots written by older versions (pre-dividend, pre-shielded, …) still load."""
+        """Restore the last save()d snapshot from self.path, if any."""
         if os.path.exists(self.path):
             with open(self.path) as f:
                 d = json.load(f)
-            self.contracts = d.get("contracts", {})
-            self.cursor = d.get("cursor", -1)
-            self.bridge = d.get("bridge", {})
-            self.withdrawals = d.get("withdrawals", {})
-            self.wd_nonce = d.get("wd_nonce", 0)
-            self.outbox = d.get("outbox", [])
-            self.inbox = d.get("inbox", [])
-            self.dividend = d.get("dividend", {})
-            self.last_div_epoch = d.get("last_div_epoch", -1)
-            self.div_carry = d.get("div_carry", 0)
-            self.dividend_withdrawals = d.get("dividend_withdrawals", {})
-            self.dw_nonce = d.get("dw_nonce", 0)
-            if "shielded" in d:
-                self.shielded = ShieldedPool.from_dict(d["shielded"])
-            self.unshield_withdrawals = d.get("unshield_withdrawals", {})
-            self.uw_nonce = d.get("uw_nonce", 0)
-            self.games = d.get("games", {})
-            if "field_pool" in d:
-                from execnode.shielded_field import FieldShieldedPool
-                self.field_pool = FieldShieldedPool.from_dict(d["field_pool"])
+            self._restore(d)
 
     def save(self):
         """Atomically persist the whole state: snapshot under the mutate lock (consistent vs concurrent
         thread-applies), then write sorted-key JSON to a tmp file and os.replace it — a crash mid-write
         can never leave a torn state file."""
-        # M-10: hold the mutate lock while snapshotting so a concurrent thread-apply can't mutate the
-        # nullifier set / commitment list mid-serialization (which could produce a torn snapshot or raise
-        # "set changed size during iteration").
-        with self._mutate_lock:
-            payload = {"contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
-                       "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce,
-                       "outbox": self.outbox, "inbox": self.inbox,
-                       "dividend": self.dividend, "last_div_epoch": self.last_div_epoch,
-                       "div_carry": self.div_carry, "dividend_withdrawals": self.dividend_withdrawals,
-                       "dw_nonce": self.dw_nonce, "shielded": self.shielded.to_dict(),
-                       "unshield_withdrawals": self.unshield_withdrawals, "uw_nonce": self.uw_nonce,
-                       "field_pool": self.field_pool.to_dict(), "games": self.games}
+        # M-10: _snapshot() holds the mutate lock while building the payload so a concurrent thread-apply
+        # can't mutate the nullifier set / commitment list mid-serialization (torn snapshot / "set changed
+        # size during iteration").
+        payload = self._snapshot()
         # '~tmp' (not '.tmp'): a namespace state path is STATE_PATH + '.' + ns and ns excludes '~', so this
         # temp can never equal another namespace's persistent path (a ns literally named 'tmp' would have
         # collided a '.tmp' temp and corrupted its state on every default save).

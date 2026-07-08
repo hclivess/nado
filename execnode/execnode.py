@@ -87,8 +87,17 @@ _last_settled_cursor = -1
 
 
 def _state_for(request):
-    """The ExecState for the request's ?ns= (default 'default'), or None if this node doesn't run that ns."""
-    return states.get(request.query.get("ns", "default"))
+    """The ExecState for the request's ?ns= (default 'default'), or None if this node doesn't run that ns.
+    ?provisional=1 returns the fast PRE-FINALITY clone (unfinalized L1 tail speculatively applied), so a
+    dApp sees moves within ~one block (~6s) instead of a full finality window; falls back to the finalized
+    state when the provisional view isn't ready. Provisional is display-only — settlement/proofs read the
+    finalized state (a plain fetch, no ?provisional)."""
+    ns = request.query.get("ns", "default")
+    if request.query.get("provisional") in ("1", "true", "yes"):
+        pv = prov_states
+        if pv is not None and ns in pv:
+            return pv[ns]
+    return states.get(ns)
 
 
 async def maybe_settle(session):
@@ -126,11 +135,98 @@ async def _get_json(session, path):
         return await r.json(content_type=None)
 
 
+# PROVISIONAL (fast, pre-finality) view: clones of the finalized states with the UNFINALIZED L1 tail
+# speculatively applied. Rebuilt every poll from the finalized checkpoint, so a reorg self-heals on the next
+# rebuild and no persistent/finalized state is ever touched. Readers opt in with ?provisional=1. None until
+# the first refresh (readers then fall back to the finalized state).
+prov_states = None
+PROV_MAX_TAIL = 64          # cap the speculative tail depth (bounds work if this node is far behind the tip)
+
+
+async def _apply_block(session, states_map, default_state, block, verbose=True):
+    """Apply ONE L1 block's exec-relevant txs — blobs to their namespace in states_map, bridge/shield to
+    default_state — then advance every state's cursor to this height. Returns False (applying NOTHING) if a
+    field_transfer proof is unavailable via DA, so the block STALLS in L1 order. Shared by the finalized tail
+    AND the provisional clone, so both apply identically."""
+    h = block["block_number"]
+    # DA PRE-RESOLVE (all-or-nothing): resolve every field_transfer proof BEFORE mutating, so one missing
+    # proof stalls the whole block rather than half-applying it (every node fetches the same bundle -> no divergence).
+    resolved = {}
+    for tx in block.get("block_transactions", []):
+        d = tx.get("data")
+        if (tx.get("recipient") == "blob" and isinstance(d, dict)
+                and d.get("op") == "field_transfer" and d.get("proof_da") and "bundle_json" not in d):
+            bb = await da_fetch(session, d["proof_da"])
+            if bb is None:
+                if verbose:
+                    print(f"[execnode] block {h}: a field_transfer proof is UNAVAILABLE via DA — stalling at {h}", flush=True)
+                return False
+            resolved[tx.get("txid")] = bb.decode()
+    for tx in block.get("block_transactions", []):
+        if tx.get("txid") in resolved and isinstance(tx.get("data"), dict):
+            tx = {**tx, "data": {**tx["data"], "bundle_json": resolved[tx["txid"]]}}
+        r = tx.get("recipient")
+        if r == "blob":
+            d = tx.get("data")
+            bns = d.get("ns", "default") if isinstance(d, dict) else "default"
+            tgt = states_map.get(bns)
+            if tgt is not None:
+                res = tgt.apply_blob(d, tx.get("sender"), tx.get("txid"))
+                if verbose:
+                    print(f"[execnode] block {h} ns={bns}: {res}", flush=True)
+        elif r == "xmsg":
+            d = tx.get("data") or {}
+            tgt = states_map.get(d.get("to_ns"))
+            if tgt is not None:
+                res = tgt.apply_xmsg(d.get("from_ns", "default"), d.get("message") or {})
+                if verbose:
+                    print(f"[execnode] block {h} ns={d.get('to_ns')}: {res}", flush=True)
+        elif r == "bridge":
+            default_state.credit_deposit(tx.get("sender"), tx.get("amount", 0))
+            if verbose:
+                print(f"[execnode] block {h}: bridge deposit {tx.get('amount')} by {(tx.get('sender') or '')[:12]}…", flush=True)
+        elif r == "shield":
+            d = tx.get("data") or {}
+            if d.get("field"):
+                res = default_state.apply_field_shield(tx.get("amount", 0), d.get("owner"), d.get("rho"))
+            else:
+                res = default_state.apply_shield(tx.get("amount", 0), d.get("out_commitments", []), d.get("openings", []))
+            if verbose:
+                print(f"[execnode] block {h}: {res}", flush=True)
+    for _st in states_map.values():
+        _st.cursor = h
+    return True
+
+
+async def _refresh_provisional(session, finalized, tip):
+    """Rebuild the provisional states: clone the finalized states and speculatively apply the UNFINALIZED
+    tail (finalized+1 .. tip). Rebuilt from the finalized checkpoint every poll, so a reorg self-heals and no
+    persistent state can be corrupted. Best-effort: leaves prov_states None (readers fall back to finalized)
+    if there's nothing unfinalized."""
+    global prov_states
+    tip = min(tip, finalized + PROV_MAX_TAIL)
+    if tip <= finalized:
+        prov_states = None
+        return
+    clones = {ns: st.clone() for ns, st in states.items()}
+    default_clone = clones.get("default")
+    h = finalized + 1
+    while h <= tip:
+        block = await _get_json(session, f"/get_block_number?number={h}")
+        if not isinstance(block, dict) or "block_transactions" not in block:
+            break                                # unfetchable / body-less -> stop the speculative tail here
+        if not await _apply_block(session, clones, default_clone, block, verbose=False):
+            break
+        h += 1
+    prov_states = clones
+
+
 async def tail_loop():
     """Follow L1 forever: each poll, replay every newly FINALIZED block's exec-relevant txs (blob /
     bridge / shield) into `state` in block order — skipping pruned (body-less) finalized blocks — then
-    accrue the presence dividend, persist, and settle if enabled. Only FINALIZED blocks are consumed, so
-    the cursor never has to handle a reorg. Any error just waits out the poll interval; the loop never dies."""
+    accrue the presence dividend, persist, settle if enabled, and rebuild the fast PROVISIONAL view over the
+    unfinalized tail. Only FINALIZED blocks mutate the persistent state, so its cursor never handles a reorg;
+    the provisional clone absorbs the tail (and any reorg) harmlessly. Any error waits out the poll; never dies."""
     print(f"[execnode] tailing {L1} · state={STATE_PATH} · cursor={state.cursor}", flush=True)
     async with aiohttp.ClientSession() as session:
         while True:
@@ -147,66 +243,12 @@ async def tail_loop():
                         # A FINALIZED block (h <= finalized) with no body is PRUNED (rolling mode drops old
                         # block bodies, leaving only {block_number}). Such blocks predate the exec features and
                         # carry nothing to replay, so SKIP them — otherwise a fresh exec node can never
-                        # cold-start on a pruned chain. (A body that is merely lagging can't be finalized.)
+                        # cold-start on a pruned chain. Advance only the default cursor (the loop watermark);
+                        # other ns cursors catch up on the next block with a body.
                         state.cursor = h
                         continue
-                    # DA PRE-RESOLVE (all-or-nothing per block): a field_transfer blob carries only the
-                    # proof's `proof_da` commitment (the ~1-4MB STARK proof is too big for an L1 blob). Resolve
-                    # every such proof from the DA layer BEFORE mutating any state, so a single unavailable
-                    # proof stalls the WHOLE block in L1 order rather than half-applying it. Every honest node
-                    # fetches the identical bundle by commitment → applies the identical transfer → no divergence.
-                    resolved = {}
-                    stalled = False
-                    for tx in block.get("block_transactions", []):
-                        d = tx.get("data")
-                        if (tx.get("recipient") == "blob" and isinstance(d, dict)
-                                and d.get("op") == "field_transfer" and d.get("proof_da") and "bundle_json" not in d):
-                            bb = await da_fetch(session, d["proof_da"])
-                            if bb is None:
-                                stalled = True
-                                break
-                            resolved[tx.get("txid")] = bb.decode()
-                    if stalled:
-                        print(f"[execnode] block {h}: a field_transfer proof is UNAVAILABLE via DA — "
-                              f"stalling at {h} (retry next poll; L1 order preserved)", flush=True)
-                        break                                  # do NOT advance cursor; no partial apply
-                    for tx in block.get("block_transactions", []):
-                        if tx.get("txid") in resolved and isinstance(tx.get("data"), dict):
-                            tx = {**tx, "data": {**tx["data"], "bundle_json": resolved[tx["txid"]]}}
-                        r = tx.get("recipient")
-                        if r == "blob":
-                            # Route the blob to its namespace's state. A blob's ns lives inside its (opaque-to-L1)
-                            # payload; default when absent. Blobs for a namespace this node doesn't run are ignored.
-                            d = tx.get("data")
-                            bns = d.get("ns", "default") if isinstance(d, dict) else "default"
-                            tgt = states.get(bns)
-                            if tgt is not None:
-                                res = tgt.apply_blob(d, tx.get("sender"), tx.get("txid"))
-                                print(f"[execnode] block {h} ns={bns}: {res}", flush=True)
-                        elif r == "xmsg":                            # L1-verified cross-domain delivery -> receiver inbox
-                            # L1 already verified the message against from_ns's SETTLED root + burned its
-                            # nullifier; the exec node just records it in the receiving namespace's inbox.
-                            d = tx.get("data") or {}
-                            tgt = states.get(d.get("to_ns"))
-                            if tgt is not None:
-                                res = tgt.apply_xmsg(d.get("from_ns", "default"), d.get("message") or {})
-                                print(f"[execnode] block {h} ns={d.get('to_ns')}: {res}", flush=True)
-                        elif r == "bridge":                          # L1 deposit -> credit exec-side balance
-                            state.credit_deposit(tx.get("sender"), tx.get("amount", 0))
-                            print(f"[execnode] block {h}: bridge deposit {tx.get('amount')} by "
-                                  f"{(tx.get('sender') or '')[:12]}…", flush=True)
-                        elif r == "shield":                          # L1 shielded-pool deposit -> add the notes
-                            d = tx.get("data") or {}
-                            if d.get("field"):                       # Phase-2 field-native note
-                                # C-2: value is bound to the L1 escrow — the exec node recomputes the note
-                                # commitment from tx.amount + the depositor's (owner, rho), never a client cm.
-                                res = state.apply_field_shield(tx.get("amount", 0), d.get("owner"), d.get("rho"))
-                            else:
-                                res = state.apply_shield(tx.get("amount", 0), d.get("out_commitments", []),
-                                                         d.get("openings", []))
-                            print(f"[execnode] block {h}: {res}", flush=True)
-                    for _st in states.values():   # every namespace tails the same L1 → advance together
-                        _st.cursor = h
+                    if not await _apply_block(session, states, state, block, verbose=True):
+                        break                                  # DA stall: do NOT advance the cursor; retry next poll
                     applied += 1
                 if applied:
                     # PRESENCE DIVIDEND (doc/presence-dividend.md) — DETERMINISTIC per-epoch accrual: for each
@@ -238,6 +280,15 @@ async def tail_loop():
                           + (f" · +{len(states)-1} rollup ns" if len(states) > 1 else ""), flush=True)
                     if SETTLE:
                         await maybe_settle(session)
+                # Rebuild the PROVISIONAL view EVERY poll (even with no newly-finalized block — the tip still
+                # advances ~every block_time, so a just-included bet/reveal/deposit shows within ~one block
+                # instead of a whole finality window). Best-effort; never breaks the finalized tail.
+                try:
+                    latest = await _get_json(session, "/get_latest_block")
+                    tip = int(latest.get("block_number", state.cursor)) if isinstance(latest, dict) else state.cursor
+                    await _refresh_provisional(session, state.cursor, tip)
+                except Exception as e:
+                    print(f"[execnode] provisional refresh error: {e}", flush=True)
             except Exception as e:
                 print(f"[execnode] tail error: {e}", flush=True)
             await asyncio.sleep(POLL)
@@ -604,6 +655,10 @@ async def _cors(request, handler):
     resp.headers["Access-Control-Allow-Origin"] = "*"
     resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     resp.headers["Access-Control-Allow-Headers"] = "*"
+    # Exec state is live + per-request (finalized vs ?provisional). NEVER let a proxy/CDN cache it, or two
+    # clients can see divergent game/balance state. no-store beats any edge caching regardless of the fetch's
+    # own cache mode.
+    resp.headers["Cache-Control"] = "no-store"
     return resp
 
 
