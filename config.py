@@ -98,7 +98,8 @@ def create_config(ip: str, config_path: str = f"{get_home()}/private/config.dat"
         "server_key": create_nonce(length=64),
         "min_peers": 2,
         "max_rollbacks": 10,
-        "finality_depth": 30,
+        "finality_depth": 12,
+        "block_time": 6,
         "cascade_limit": 1,
         # AUTO-BOND (non-consensus): % of newly-mined earnings to auto-compound into bonded stake,
         # unattended. Defaults to protocol.AUTO_BOND_DEFAULT_PERCENT (80) so a fresh node joins the
