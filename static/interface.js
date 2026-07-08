@@ -3846,7 +3846,7 @@ async function msgPublishPrekey() {
 
 async function msgOpen() {
   const m = await loadMessaging();
-  if (!m) { $("msgThread").innerHTML = '<div class="empty">Messaging needs the ML-KEM crypto bundle — reload the page.</div>'; return; }
+  if (!m) { $("msgThread").innerHTML = '<div class="empty">' + escapeHtml(i18("msg.needBundle", "Messaging needs the ML-KEM crypto bundle — reload the page.")) + '</div>'; return; }
   if (!msgIdentity()) return;
   if (state._msgPublished !== state.wallet.address) msgPublishPrekey().catch(() => {});   // be reachable
   $("msgSendBtn").onclick = () => msgSend().catch(() => {});
@@ -3866,7 +3866,7 @@ async function msgSend() {
   let addr = toRaw;
   if (!/^ndo[0-9a-f]{40,}$/i.test(toRaw)) {                       // resolve an alias
     const owner = await resolveAlias(toRaw.replace(/^@/, ""));
-    if (!owner) { $("msgHint").textContent = "No such alias: " + toRaw; return; }
+    if (!owner) { $("msgHint").textContent = i18("msg.noAlias", "No such alias:") + " " + toRaw; return; }
     addr = owner;
   }
   const id = msgIdentity(), ts = _nowSec();
@@ -3875,7 +3875,7 @@ async function msgSend() {
   const kemPub = await msgFetchKemPub(addr);
   if (!kemPub) {
     conv.messages.push({ id: "local-" + ts + "-" + Math.floor(Math.random() * 1e6), dir: "out", body, ts,
-      status: "undelivered", reason: "no messaging key on-chain yet — they need to open NADO once to publish it" });
+      status: "undelivered", reason: i18("msg.noKeyYet", "no messaging key on-chain yet — they need to open NADO once to publish it") });
     msgHistSave(hist); $("msgBody").value = ""; renderMessages(); return;
   }
   let res, mid;
@@ -3884,9 +3884,9 @@ async function msgSend() {
       { type: "msg", from: state.wallet.address, alias: myPrimaryAlias(), body, ts }, ts);
     mid = m.messageId(env);
     res = await (await fetch(relayBase() + "/message", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(env) })).json();
-  } catch (e) { res = { result: false, reason: e && e.message || "send failed" }; }
+  } catch (e) { res = { result: false, reason: e && e.message || i18("msg.sendFail", "send failed") }; }
   conv.messages.push({ id: mid || ("local-" + ts), dir: "out", body, ts,
-    status: (res && res.result) ? "sent" : "undelivered", reason: (res && res.result) ? null : (res && res.reason || "send failed") });
+    status: (res && res.result) ? "sent" : "undelivered", reason: (res && res.result) ? null : (res && res.reason || i18("msg.sendFail", "send failed")) });
   msgHistSave(hist); $("msgBody").value = ""; renderMessages();
 }
 
@@ -3970,9 +3970,9 @@ async function msgInitBackground() {
 
 function _msgStatusLabel(msg) {
   if (msg.dir === "in") return "";
-  if (msg.status === "delivered") return "✓ delivered";
-  if (msg.status === "sent") return "· sent";
-  if (msg.status === "undelivered") return "✕ " + (msg.reason || "not delivered");
+  if (msg.status === "delivered") return i18("msg.st.delivered", "✓ delivered");
+  if (msg.status === "sent") return i18("msg.st.sent", "· sent");
+  if (msg.status === "undelivered") return "✕ " + (msg.reason || i18("msg.st.undelivered", "not delivered"));
   return "";
 }
 
@@ -3983,13 +3983,13 @@ function renderMessages() {
   const peers = Object.keys(hist).sort((a, b) => _lastTs(hist[b]) - _lastTs(hist[a]));
   // conversation list
   if (!peers.length) {
-    listEl.innerHTML = '<div class="small faint" style="padding:4px 0">No conversations yet — enter an alias or address above and say hi.</div>';
+    listEl.innerHTML = '<div class="small faint" style="padding:4px 0">' + escapeHtml(i18("msg.noConv", "No conversations yet — enter an alias or address above and say hi.")) + '</div>';
   } else {
     listEl.innerHTML = peers.map((p) => {
       const c = hist[p], last = c.messages[c.messages.length - 1];
       const name = c.alias ? "@" + escapeHtml(c.alias) : escapeHtml(p.slice(0, 18)) + "…";
       const active = state.msgActivePeer === p ? " msgconv-active" : "";
-      const prev = last ? escapeHtml((last.dir === "out" ? "You: " : "") + last.body).slice(0, 46) : "";
+      const prev = last ? escapeHtml((last.dir === "out" ? i18("msg.youPrefix", "You: ") : "") + last.body).slice(0, 46) : "";
       return `<button class="msgconv${active}" data-peer="${escapeHtml(p)}"><b>${name}</b><span class="small faint">${prev}</span></button>`;
     }).join("");
     listEl.querySelectorAll(".msgconv").forEach((b) => b.onclick = () => {
