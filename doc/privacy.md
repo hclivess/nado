@@ -164,6 +164,20 @@ It's now **L1-ordered + DA-available**, so the whole quorum can reconstruct + se
   half-applying it. Every honest node fetches the identical bundle by commitment → applies the identical
   transfer → identical committed root. Phones never touch any of this — it is a full/exec/DA-node concern.
 - DA is a **rolling window**: once a transfer is settled + snapshotted, its proof is `prune()`-able.
+
+**Known limitation (exec-layer liveness, not a safety break) — availability-halt griefing.** Because L1
+treats a blob as opaque, it can't check that the proof behind a `field_transfer` blob's `proof_da` commitment
+was ever published to DA. If an attacker submits such a blob and never publishes the proof, every exec node's
+pre-resolve `stall`s at that height (the cursor can't advance past an unresolved proof, all-or-nothing per
+block), halting the execution layer for the cost of one blob fee. This is **safe** — no fork, no state
+divergence, L1 itself is unaffected, and it **recovers** the instant the proof becomes available — but it is a
+real griefing DoS on the exec layer. A local "skip after N blocks" rule is NOT a fix: availability isn't a
+deterministic predicate (it depends on what each node can fetch), so skipping would diverge state. The sound
+mainnet fixes make availability an **on-chain deterministic fact** before a blob is consumable: (a) a
+**proof-of-publication** the blob must carry (threshold receipts from a bonded DA set attesting they hold ≥k
+shards), rejected at L1 inclusion if missing; or (b) a **deterministic expiry** keyed to an on-chain
+availability attestation quorum (the skip decision reads the same settled record on every node). Tracked as
+the DA layer's blocking item for a non-alpha launch.
 | ML-DSA spend authorisation (a leaked note opening can't move funds) | ✅ (tests/test_shielded.py t7) |
 
 The honest summary: the **pool is real, sound, and frozen behind a verifier seam**; the **zero-knowledge**
