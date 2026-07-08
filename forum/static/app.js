@@ -239,6 +239,12 @@ async function saveEdit(id) {
   else if (errEl) errEl.textContent = r.error || "failed";
 }
 
+// app.js is an ES module, so its functions are NOT global — expose the edit handlers on window so the
+// inline onclick= in the rendered post markup (and the Save/Cancel buttons) can reach them.
+window.startEdit = startEdit;
+window.saveEdit = saveEdit;
+window.cancelEdit = cancelEdit;
+
 async function renderTally(pid) {
   try {
     if (!TREASURY) TREASURY = await getJSON("/api/treasury");
