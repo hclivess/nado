@@ -304,36 +304,64 @@ async def h_da_get(request):
     return web.Response(body=data, content_type="application/octet-stream")
 
 
+async def _da_sources(session):
+    """DA endpoints to try for a shard, in order — UNIVERSAL, no single hardcoded provider:
+    the live L1 PEER SET (each peer runs the exec/DA node on the same convention port), plus an optional
+    NADO_DA_URL seed. Availability rides the peer network, so any node that holds a shard can serve it."""
+    out, seen = [], set()
+    try:
+        async with session.get(L1 + "/peers", timeout=aiohttp.ClientTimeout(total=10)) as r:
+            peers = await r.json() if r.status == 200 else []
+    except Exception:
+        peers = []
+    for p in (peers or []):
+        host = str(p).split(":")[0].strip()                 # peer IP, strip any :port
+        url = f"http://{host}:{PORT}" if host else ""       # its exec/DA node (same host, exec port)
+        if url and url not in seen:
+            seen.add(url); out.append(url)
+    if DA_URL and DA_URL not in seen:
+        out.append(DA_URL)                                  # optional extra seed, NOT the only source
+    return out
+
+
 async def da_fetch(session, commitment):
-    """Resolve `commitment` to bytes: local store first, else pull k(+1) VERIFIED shards from the configured
-    DA peer (NADO_DA_URL) and reconstruct trustlessly. Caches the result locally so we can re-serve it.
-    Returns bytes or None if unavailable."""
+    """Resolve `commitment` to bytes: local store first, else collect k(+1) VERIFIED shards from ACROSS the
+    peer network (any peers that hold them) and reconstruct trustlessly. Caches the result locally so this
+    node can then re-serve it (proofs spread organically as nodes fetch). Returns bytes or None if the whole
+    reachable network can't supply k good shards."""
     local = DA.get(commitment)
     if local is not None:
         return local
-    if not DA_URL:
+    meta, pairs = None, {}
+    for src in await _da_sources(session):
+        try:
+            if meta is None:
+                async with session.get(f"{src}/da/meta?c={commitment}",
+                                       timeout=aiohttp.ClientTimeout(total=10)) as r:
+                    meta = await r.json() if r.status == 200 else None
+            if meta is None:
+                continue
+            need = int(meta["k"]) + 1                        # +1 gives da.reconstruct its consistency check
+            for i in range(int(meta["n"])):
+                if i in pairs:
+                    continue
+                async with session.get(f"{src}/da/shard?c={commitment}&i={i}",
+                                       timeout=aiohttp.ClientTimeout(total=10)) as r:
+                    if r.status != 200:
+                        continue
+                    jj = await r.json()
+                pairs[i] = (i, bytes.fromhex(jj["shard"]), jj["proof"])
+                if len(pairs) >= need:
+                    break
+            if len(pairs) >= need:
+                break
+        except Exception:
+            continue
+    if meta is None or len(pairs) < int(meta["k"]):
         return None
     try:
-        async with session.get(f"{DA_URL}/da/meta?c={commitment}",
-                               timeout=aiohttp.ClientTimeout(total=15)) as r:
-            if r.status != 200:
-                return None
-            meta = await r.json()
-        pairs = []
-        for i in range(int(meta["n"])):
-            async with session.get(f"{DA_URL}/da/shard?c={commitment}&i={i}",
-                                   timeout=aiohttp.ClientTimeout(total=15)) as r:
-                if r.status != 200:
-                    continue
-                jj = await r.json()
-            pairs.append((i, bytes.fromhex(jj["shard"]), jj["proof"]))
-            if len(pairs) >= int(meta["k"]) + 1:            # +1 gives da.reconstruct its consistency check
-                break
-        data = reconstruct_from(meta, pairs)                # verifies every shard vs the commitment
-        try:
-            DA.put(data, int(meta["k"]), int(meta["n"]))    # cache under the same (deterministic) commitment
-        except Exception:
-            pass
+        data = reconstruct_from(meta, list(pairs.values()))  # verifies every shard vs the commitment
+        DA.put(data, int(meta["k"]), int(meta["n"]))         # cache -> we can now serve it too
         return data
     except Exception:
         return None
@@ -368,13 +396,28 @@ async def h_settlement(request):
     })
 
 
+async def h_examples(request):
+    """The starter contract library (execnode/contract_lib.py) as {name: {method: bytecode}} — the wallet's
+    Rollup tab offers these as one-click deploys."""
+    from execnode import contract_lib
+    return web.json_response({"examples": contract_lib.EXAMPLES})
+
+
+async def h_runtimes(request):
+    """The contract runtimes this node can execute (pluggable — stackvm is the default). A deploy blob may
+    name one via {"op":"deploy","runtime":"<name>",...}."""
+    from execnode import runtimes
+    return web.json_response({"runtimes": runtimes.names(), "default": runtimes.DEFAULT_RUNTIME})
+
+
 async def h_contracts(request):
     """List every deployed contract in ?ns= (cid, deployer, method names) — storage omitted, use /exec/contract."""
     st = _state_for(request)
     if st is None:
         return _NS404()
     return web.json_response({"ns": request.query.get("ns", "default"), "contracts": [
-        {"cid": cid, "deployer": c["deployer"], "methods": list(c["code"].keys())}
+        {"cid": cid, "deployer": c["deployer"], "methods": list(c["code"].keys()),
+         "runtime": c.get("runtime", "stackvm")}
         for cid, c in st.contracts.items()]})
 
 
@@ -662,6 +705,8 @@ async def main():
                     web.get("/exec/shielded_note", h_shielded_note),
                     web.get("/exec/unshields", h_unshields),
                     web.get("/exec/unshield_proof", h_unshield_proof),
+                    web.get("/exec/examples", h_examples),
+                    web.get("/exec/runtimes", h_runtimes),
                     web.get("/exec/contracts", h_contracts),
                     web.get("/exec/contract", h_contract),
                     web.get("/exec/view", h_view),

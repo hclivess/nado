@@ -17,6 +17,7 @@ import threading
 from hashing import (blake2b_hash, merkle_root, merkle_proof, withdrawal_leaf, dividend_leaf,
                      unshield_leaf, canonical_bytes, outbox_leaf)
 from execnode.vm import validate_code, run, VMError
+from execnode import runtimes   # pluggable contract-runtime registry (stackvm is the default plugin)
 from execnode.shielded import ShieldedPool, apply_transfer
 
 # Coin-amount ceiling for shielded values/exits — far below the Goldilocks field size (P ≈ 2^64). The
@@ -387,17 +388,21 @@ class ExecState:
 
             if op == "deploy":
                 code = payload.get("code")
-                validate_code(code)                       # raises VMError on bad bytecode
+                rt_name = payload.get("runtime", runtimes.DEFAULT_RUNTIME)   # pluggable: which VM runs it
+                rt = runtimes.get(rt_name)
+                if rt is None:
+                    return f"skip: unknown runtime {rt_name!r}"
+                rt.validate_code(code)                    # raises VMError on bad code (caught below)
                 cid = self.contract_id(sender, code, payload.get("nonce", txid))
                 if cid in self.contracts:
                     return f"skip: contract {cid} already exists"
                 storage = {}
                 if "constructor" in code:
-                    ok, _ret, storage = run(code, "constructor", sender, [], {})
+                    ok, _ret, storage = rt.run(code, "constructor", sender, [], {})
                     if not ok:
                         storage = {}                      # constructor reverted -> deploy with empty state
-                self.contracts[cid] = {"code": code, "storage": storage, "deployer": sender}
-                return f"deploy {cid} by {sender[:12]}…"
+                self.contracts[cid] = {"code": code, "storage": storage, "deployer": sender, "runtime": rt_name}
+                return f"deploy {cid} ({rt_name}) by {sender[:12]}…"
 
             if op == "call":
                 cid = payload.get("contract")
@@ -408,7 +413,10 @@ class ExecState:
                     return f"skip: no contract {cid}"
                 if not isinstance(args, list):
                     return "skip: args must be a list"
-                ok, _ret, new_storage = run(c["code"], method, sender, args, c["storage"])
+                rt = runtimes.get(c.get("runtime", runtimes.DEFAULT_RUNTIME))
+                if rt is None:
+                    return f"skip: unknown runtime for {cid}"
+                ok, _ret, new_storage = rt.run(c["code"], method, sender, args, c["storage"])
                 if ok:
                     c["storage"] = new_storage
                     return f"call {cid}.{method} by {sender[:12]}… -> ok"
@@ -504,5 +512,8 @@ class ExecState:
         c = self.contracts.get(cid)
         if not c:
             return None
-        ok, ret, _ = run(c["code"], method, "view", args or [], c["storage"])
+        rt = runtimes.get(c.get("runtime", runtimes.DEFAULT_RUNTIME))
+        if rt is None:
+            return None
+        ok, ret, _ = rt.run(c["code"], method, "view", args or [], c["storage"])
         return ret if ok else None
