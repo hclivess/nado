@@ -996,8 +996,17 @@ class CoreClient(threading.Thread):
         # REFUSES to cross it. Monotonic (max), recomputable, and crash-conservative: a crash between
         # the block commit above and this write leaves the floor one behind (never ahead) and it
         # re-advances on the next block — it can never finalize something that wasn't committed.
+        # The floor is the DEEPER (higher) of two guarantees: the always-advancing time/depth floor
+        # (tip - finality_depth, subjective but live), and the FFG checkpoint (block E*EPOCH_LENGTH that a
+        # >2/3 bonded-stake quorum attested — OBJECTIVE, accountable, slashable). Folding FFG in makes a
+        # stake-finalized checkpoint UN-REORGABLE (rollback_one_block refuses to cross finalized_height),
+        # so remote sync can never adopt a heavier chain that conflicts with it — the safety FFG was built
+        # for, now enforced instead of merely observed. FFG normally trails the depth floor, so on a healthy
+        # synced node this is the depth floor; it binds when FFG is ahead (e.g. a shallow finality_depth, or
+        # a node catching up whose depth floor hasn't advanced yet).
         new_final = max(self.memserver.finalized_height,
-                        block["block_number"] - self.memserver.finality_depth)
+                        block["block_number"] - self.memserver.finality_depth,
+                        int(getattr(self.memserver, "ffg_finalized", 0) or 0))
         if new_final > self.memserver.finalized_height:
             set_finalized_height(new_final)
             self.memserver.finalized_height = new_final
@@ -1026,10 +1035,12 @@ class CoreClient(threading.Thread):
             self.logger.error(f"State checkpoint at height {n} failed (non-fatal): {e}")
 
     def update_ffg_and_attest(self):
-        """FFG (#6): refresh the stake-attested finalized checkpoint (observability) and, if we are a
-        bonded validator who hasn't attested the current epoch, broadcast our attestation. Best-effort:
-        it NEVER raises into the core loop and never blocks production; FFG is an additive accountability
-        signal, not the liveness-critical finality (that stays the time-based floor)."""
+        """FFG (#6): refresh the stake-attested finalized checkpoint and, if we are a bonded validator who
+        hasn't attested the current epoch, broadcast our attestation. The checkpoint is now FOLDED INTO the
+        enforced finality floor (see incorporate_block: finalized_height = max(depth floor, ffg_finalized)),
+        so a >2/3-stake-attested checkpoint is objectively un-reorgable — not merely observed. Best-effort:
+        it NEVER raises into the core loop and never blocks production; the depth floor remains the liveness
+        guarantee, FFG is the stronger objective floor layered on top (usually trailing it)."""
         try:
             latest = self.memserver.latest_block
             epoch = epoch_of(latest["block_number"])

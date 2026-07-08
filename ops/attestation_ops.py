@@ -8,9 +8,10 @@ FFG_NUM/FFG_DEN of the total bonded shares, and FINALIZES with slashable-stake b
 child checkpoint are both justified (two-consecutive).
 
 SAFETY NOTE: this is an ADDITIONAL, observable, *accountable* finality signal. It does NOT replace the
-time-based finality floor (#17 step 1), which is already deeper and guarantees liveness (finalized_height
+time-based finality floor (#17 step 1), which is usually deeper and guarantees liveness (finalized_height
 keeps advancing even if attestations stall). So FFG can never stall the chain — it only records the
-stronger, stake-attested finality point (exposed in /status) on top of the always-advancing floor.
+stronger, stake-attested finality point that is FOLDED INTO the enforced floor (core_loop.incorporate_block:
+# finalized_height = max(depth floor, ffg_finalized)) so it is objectively un-reorgable, plus exposed in /status.
 
 Pure, deterministic, integer-only over committed state.
 """
