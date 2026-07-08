@@ -149,12 +149,14 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     # of (exec_cursor, state_root). Fee-exempt; the SETTLED root is a derived quorum read, so nothing else
     # to persist here. Revert-symmetric via settlement_del. ---
     if recipient == "settle":
+        from protocol import DEFAULT_NS
         data = transaction.get("data") or {}
         cursor, root = data["exec_cursor"], data["state_root"]
+        ns = data.get("ns", DEFAULT_NS)
         if revert:
-            kv_ops.settlement_del(cursor, sender, root)
+            kv_ops.settlement_del(ns, cursor, sender, root)
         else:
-            kv_ops.settlement_put(cursor, sender, root)
+            kv_ops.settlement_put(ns, cursor, sender, root)
         return
 
     # --- BRIDGE DEPOSIT (Phase 2): move amount+fee from sender, LOCK `amount` in the escrow, burn the fee.

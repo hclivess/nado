@@ -76,6 +76,20 @@ BRIDGE_ESCROW = "bridge"          # the escrow pseudo-account holding all bridge
 SETTLE_NUM = 2
 SETTLE_DEN = 3
 
+# SETTLEMENT NAMESPACES (multi-rollup): a `settle`/`bridge_withdraw` tx may name a rollup namespace (`ns`)
+# so many execution layers settle to L1 INDEPENDENTLY under the same bonded quorum — L1 keeps one settled
+# pointer per `ns`. Omitting `ns` means DEFAULT_NS, so the single pre-namespace execution layer (and its
+# bridge/dividend) is unchanged. `ns` is a short id: lowercase [a-z0-9._-], <= NS_MAX_LEN. `blob` payloads
+# stay OPAQUE to L1, so their namespacing lives inside the bytes execnodes decode — no L1 blob change.
+DEFAULT_NS = "default"
+NS_MAX_LEN = 32
+_NS_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789._-"
+
+
+def valid_namespace(ns) -> bool:
+    """True for a well-formed settlement namespace id (or None ⇒ caller substitutes DEFAULT_NS)."""
+    return isinstance(ns, str) and 1 <= len(ns) <= NS_MAX_LEN and all(c in _NS_CHARS for c in ns)
+
 # --- Registration Proof of Sequential Work (doc/ip-spoofing-and-sybil.md, Appendix A) ---
 # The one-time cost to register an OPEN-lane identity is a hash-based PoSW (ops/posw.py): a length-POSW_T
 # sequential blake2b chain (NON-parallelizable, so a GPU can't mint identities in bulk the way it can with

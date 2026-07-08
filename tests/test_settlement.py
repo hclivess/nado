@@ -15,7 +15,7 @@ logger = logging.getLogger("settle"); logger.addHandler(logging.NullHandler())
 from genesis import create_indexers
 create_indexers()
 
-from protocol import B_MIN, SETTLE_NUM, SETTLE_DEN
+from protocol import B_MIN, SETTLE_NUM, SETTLE_DEN, DEFAULT_NS
 from ops import kv_ops
 from ops.account_ops import create_account, get_account, reflect_transaction, get_bonded_registry
 from ops.transaction_ops import construct_settle_tx, validate_transaction
@@ -48,11 +48,11 @@ V2 = _validator(1)
 def t1_quorum_predicate():
     """Prove settlement_justified flips true only once attesting bonded shares exceed the 2/3 quorum, and only for the attested root."""
     reg = get_bonded_registry()
-    kv_ops.settlement_put(100, V2["address"], ROOT_A)            # 1 share attesting -> 1/5, not justified
-    assert not settlement_justified(100, ROOT_A, reg)
-    kv_ops.settlement_put(100, V1["address"], ROOT_A)            # +4 shares -> 5/5 > 2/3, justified
-    assert settlement_justified(100, ROOT_A, reg)
-    assert not settlement_justified(100, ROOT_B, reg), "a root no one attested is never justified"
+    kv_ops.settlement_put(DEFAULT_NS, 100, V2["address"], ROOT_A) # 1 share attesting -> 1/5, not justified
+    assert not settlement_justified(DEFAULT_NS, 100, ROOT_A, reg)
+    kv_ops.settlement_put(DEFAULT_NS, 100, V1["address"], ROOT_A) # +4 shares -> 5/5 > 2/3, justified
+    assert settlement_justified(DEFAULT_NS, 100, ROOT_A, reg)
+    assert not settlement_justified(DEFAULT_NS, 100, ROOT_B, reg), "a root no one attested is never justified"
 
 def t2_latest_settled_and_reflect():
     """Prove reflecting a settle tx from a supermajority validator makes latest_settled report that (cursor, root)."""
@@ -88,6 +88,43 @@ def t6_non_bonded_cannot_settle():
     poor = gk(); create_account(poor["address"], balance=B_MIN)   # no bond
     assert raises(lambda: validate_transaction(construct_settle_tx(poor, 500, ROOT_A, 1), logger, 1)), \
         "a non-bonded sender cannot settle"
+
+def t7_namespace_isolation():
+    """Prove settlements are per-namespace: a rollup's settled root never moves another namespace's pointer
+    or the default layer, and the SAME validator may settle the SAME cursor in two different namespaces
+    (uniqueness is per (ns, validator, cursor))."""
+    a = construct_settle_tx(V1, exec_cursor=700, state_root=ROOT_A, target_block=1, ns="rollupa")
+    validate_transaction(a, logger, 1); reflect_transaction(a, logger, 1)     # V1 = 4/5 > 2/3 -> settled in rollupa
+    assert latest_settled("rollupa") == (700, ROOT_A), "rollupa settled"
+    assert latest_settled("rollupb") == (-1, None), "a different namespace is unaffected"
+    assert latest_settled()[0] != 700, "the default namespace is unaffected by a rollupa settle"
+    # same validator, same cursor, DIFFERENT namespace -> allowed and independent
+    b = construct_settle_tx(V1, exec_cursor=700, state_root=ROOT_B, target_block=1, ns="rollupb")
+    validate_transaction(b, logger, 1); reflect_transaction(b, logger, 1)
+    assert latest_settled("rollupb") == (700, ROOT_B), "rollupb settles independently at the same cursor"
+
+def _resign(tx, kd):
+    """Recompute txid + signature after mutating tx.data (so validation fails on the RULE, not the sig)."""
+    from ops.transaction_ops import create_txid
+    from Curve25519 import sign, unhex
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=kd["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+def t8_non_canonical_default_ns_rejected():
+    """Prove an explicit ns='default' in settle data is rejected (default must be omitted — canonical form),
+    signing over the tampered body so the failure is the ns rule, not the signature."""
+    tx = construct_settle_tx(V1, exec_cursor=800, state_root=ROOT_A, target_block=1)
+    tx["data"]["ns"] = DEFAULT_NS
+    _resign(tx, V1)
+    assert raises(lambda: validate_transaction(tx, logger, 1)), "explicit default ns must be rejected"
+
+def t9_bad_namespace_rejected():
+    """Prove a malformed namespace id (invalid charset) is rejected, signed over the bad body."""
+    bad = construct_settle_tx(V1, exec_cursor=900, state_root=ROOT_A, target_block=1, ns="rollupa")
+    bad["data"]["ns"] = "BadNS!"
+    _resign(bad, V1)
+    assert raises(lambda: validate_transaction(bad, logger, 1)), "invalid ns charset must be rejected"
 
 for name, fn in list(globals().items()):
     if name.startswith("t") and callable(fn) and name[1].isdigit():

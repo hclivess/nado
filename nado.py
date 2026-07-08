@@ -799,15 +799,18 @@ async def get_open_weights(request):
 
 
 async def get_settled(request):
-    """GET /get_settled: the canonical SETTLED execution-layer checkpoint {exec_cursor, state_root} —
-    the state the bonded quorum has attested; what exec nodes and bridges treat as L1-enforced."""
-    # The canonical SETTLED execution-layer checkpoint (Phase 2): the (exec_cursor, state_root) the bonded
-    # quorum has attested. Execution nodes / bridges read this as the L1-enforced exec-layer state.
+    """GET /get_settled[?ns=]: the canonical SETTLED execution-layer checkpoint {ns, exec_cursor, state_root}
+    for namespace `ns` (default DEFAULT_NS) — the state the bonded quorum has attested; what exec nodes and
+    bridges treat as L1-enforced."""
+    from protocol import DEFAULT_NS, valid_namespace
+    ns = _q(request, "ns", DEFAULT_NS)
+    if not valid_namespace(ns):
+        return _resp({"error": "invalid ns"}, status=400)
     def _work():
-        """Read the latest settled checkpoint (worker thread)."""
+        """Read the latest settled checkpoint for the namespace (worker thread)."""
         from ops.settlement_ops import latest_settled
-        cursor, root = latest_settled()
-        return {"exec_cursor": cursor, "state_root": root}
+        cursor, root = latest_settled(ns)
+        return {"ns": ns, "exec_cursor": cursor, "state_root": root}
     return _resp(await asyncio.to_thread(_work))
 
 

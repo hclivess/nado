@@ -173,6 +173,7 @@ async def h_settlement(request):
     settled. The interface combines this with L1's /get_settled (the ecosystem-wide justified root) to show
     'this node's tip' vs 'the settled root' and how far behind settlement is."""
     return web.json_response({
+        "ns": "default",   # this exec node settles the default namespace (its single state)
         "cursor": state.cursor,
         "state_root": state.state_root(),
         "contracts": len(state.contracts),

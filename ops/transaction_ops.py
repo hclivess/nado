@@ -20,7 +20,7 @@ from ops import kv_ops
 from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH,
                       BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK, BRIDGE_ESCROW, DIVIDEND_POOL,
                       POSW_S, POSW_K, POSW_ANCHOR_OFFSET, HTLC_MIN_TIMELOCK,
-                      HTLC_MAX_TIMELOCK, SHIELD_ESCROW, RESERVED_RECIPIENTS)
+                      HTLC_MAX_TIMELOCK, SHIELD_ESCROW, RESERVED_RECIPIENTS, DEFAULT_NS, valid_namespace)
 
 
 def _is_hex(s) -> bool:
@@ -237,12 +237,17 @@ def construct_blob_tx(keydict, payload, target_block, fee):
     return tx
 
 
-def construct_settle_tx(keydict, exec_cursor, state_root, target_block):
+def construct_settle_tx(keydict, exec_cursor, state_root, target_block, ns=DEFAULT_NS):
     """Build a SIGNED execution-layer settlement attestation: recipient 'settle', data
-    {exec_cursor, state_root}, fee-exempt (fee 0). Posted by a bonded validator running an exec node."""
+    {exec_cursor, state_root[, ns]}, fee-exempt (fee 0). Posted by a bonded validator running an exec node.
+    `ns` names the rollup namespace; the default namespace is omitted from `data` so default-layer settle txs
+    stay byte-identical to the pre-namespace format."""
+    d = {"exec_cursor": int(exec_cursor), "state_root": state_root}
+    if ns != DEFAULT_NS:
+        d["ns"] = ns
     tx = {"sender": keydict["address"], "recipient": "settle", "amount": 0,
           "timestamp": get_timestamp_seconds(),
-          "data": {"exec_cursor": int(exec_cursor), "state_root": state_root},
+          "data": d,
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
     tx["txid"] = create_txid(tx)
@@ -297,12 +302,15 @@ def construct_bridge_deposit_tx(keydict, amount, target_block, fee):
     return tx
 
 
-def construct_bridge_withdraw_tx(keydict, addr, amount, nonce, proof, target_block):
+def construct_bridge_withdraw_tx(keydict, addr, amount, nonce, proof, target_block, ns=DEFAULT_NS):
     """Build a SIGNED bridge EXIT: recipient 'bridge_withdraw', fee-exempt, data carries the Merkle proof
-    that {addr, amount, nonce} is in the settled execution-layer root."""
+    that {addr, amount, nonce} is in namespace `ns`'s settled execution-layer root (default ns omitted)."""
+    d = {"addr": addr, "amount": int(amount), "nonce": nonce, "proof": proof}
+    if ns != DEFAULT_NS:
+        d["ns"] = ns
     tx = {"sender": keydict["address"], "recipient": "bridge_withdraw", "amount": 0,
           "timestamp": get_timestamp_seconds(),
-          "data": {"addr": addr, "amount": int(amount), "nonce": nonce, "proof": proof},
+          "data": d,
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
     tx["txid"] = create_txid(tx)
@@ -347,7 +355,8 @@ def reserved_uniqueness_key(tx):
         if r == "alias":
             return ("alias", (tx.get("data") or {}).get("name"))     # one op per name per block
         if r == "settle":
-            return ("settle", tx["sender"], (tx.get("data") or {}).get("exec_cursor"))  # one per (validator, cursor)
+            _d = tx.get("data") or {}
+            return ("settle", _d.get("ns", DEFAULT_NS), tx["sender"], _d.get("exec_cursor"))  # one per (ns, validator, cursor)
         if r == "bridge_withdraw":
             d = tx.get("data") or {}
             return ("bridge_withdraw", d.get("addr"), d.get("nonce"))                    # one claim per (addr, nonce)
@@ -596,11 +605,14 @@ def validate_transaction(transaction, logger, block_height):
         data = transaction.get("data") or {}
         cursor = data.get("exec_cursor")
         root = data.get("state_root")
+        ns = data.get("ns", DEFAULT_NS)
+        assert valid_namespace(ns), "Settle ns must be a valid namespace id ([a-z0-9._-], <=32)"
+        assert ns != DEFAULT_NS or "ns" not in data, "default namespace must be omitted from settle data (canonical form)"
         assert isinstance(cursor, int) and not isinstance(cursor, bool) and cursor >= 0, "Settle exec_cursor must be a non-negative int"
         assert isinstance(root, str) and len(root) == 64 and all(c in "0123456789abcdef" for c in root), "Settle state_root must be 64-hex"
         acc = get_account(transaction["sender"], create_on_error=False)
         assert acc and acc.get("bonded", 0) >= B_MIN, "Settle sender is not a bonded validator"
-        assert not kv_ops.settlement_exists(cursor, transaction["sender"]), "Validator already settled this exec_cursor"
+        assert not kv_ops.settlement_exists(ns, cursor, transaction["sender"]), "Validator already settled this (ns, exec_cursor)"
     elif recipient == "bridge":
         # BRIDGE DEPOSIT (Phase 2): lock L1 coins into escrow; an exec node credits the sender exec-side.
         assert transaction["amount"] > 0, "Bridge deposit amount must be positive"
@@ -614,11 +626,13 @@ def validate_transaction(transaction, logger, block_height):
         assert transaction["fee"] == 0, "bridge_withdraw is fee-exempt"
         data = transaction.get("data") or {}
         addr, amount, nonce, proof = data.get("addr"), data.get("amount"), data.get("nonce"), data.get("proof")
+        ns = data.get("ns", DEFAULT_NS)
+        assert valid_namespace(ns), "bridge_withdraw ns must be a valid namespace id"
         assert addr == transaction["sender"], "bridge_withdraw must be self-claimed (sender == addr)"
         assert isinstance(amount, int) and not isinstance(amount, bool) and amount > 0, "bad withdraw amount"
         assert isinstance(nonce, str) and isinstance(proof, list), "bad withdraw nonce/proof"
-        _cur, settled_root = latest_settled()
-        assert settled_root, "no settled execution-layer root yet"
+        _cur, settled_root = latest_settled(ns)
+        assert settled_root, "no settled execution-layer root yet for this namespace"
         assert verify_merkle_proof(withdrawal_leaf(addr, amount, nonce), proof, settled_root), \
             "withdrawal is not proven against the settled execution-layer root"
         assert not kv_ops.bridge_nullifier_exists(addr, nonce), "this withdrawal was already claimed"

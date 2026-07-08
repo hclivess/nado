@@ -487,38 +487,45 @@ def attestations_for_epoch(epoch: int):
 
 # --- Execution-layer settlement (Phase 2): tally per (exec_cursor, state_root) + one-per-(validator,cursor) ---
 
-def _settle_unique_key(validator: str, cursor: int) -> str:
-    """meta key of the one-settlement-per-(validator, exec_cursor) uniqueness marker."""
-    return f"settle:{validator}:{int(cursor)}"
+def _settle_key(ns: str, cursor: int) -> bytes:
+    """DUPSORT key for the settlements db: namespace + NUL + big-endian cursor. The fixed 8-byte cursor
+    tail lets settlement_cursors() split ns from cursor by prefix. Namespacing lets many rollups settle
+    to L1 independently under one bonded quorum."""
+    return ns.encode() + b"\x00" + be8(cursor)
 
 
-def settlement_exists(cursor: int, validator: str) -> bool:
-    """True if `validator` already attested a settlement for this exec_cursor (one-per-validator guard)."""
-    return meta_get_int(_settle_unique_key(validator, cursor), 0) == 1
+def _settle_unique_key(ns: str, validator: str, cursor: int) -> str:
+    """meta key of the one-settlement-per-(ns, validator, exec_cursor) uniqueness marker."""
+    return f"settle:{ns}:{validator}:{int(cursor)}"
 
 
-def settlement_put(cursor: int, validator: str, state_root: str):
-    """Record a bonded validator's settlement attestation of (exec_cursor, state_root)."""
+def settlement_exists(ns: str, cursor: int, validator: str) -> bool:
+    """True if `validator` already attested a settlement for (ns, exec_cursor) (one-per-validator guard)."""
+    return meta_get_int(_settle_unique_key(ns, validator, cursor), 0) == 1
+
+
+def settlement_put(ns: str, cursor: int, validator: str, state_root: str):
+    """Record a bonded validator's settlement attestation of (ns, exec_cursor, state_root)."""
     def _do(txn):
-        txn.put(be8(cursor), f"{validator}|{state_root}".encode(), db=_dbs()["settlements"], dupdata=True)
+        txn.put(_settle_key(ns, cursor), f"{validator}|{state_root}".encode(), db=_dbs()["settlements"], dupdata=True)
     _write(_do)
-    meta_set_int(_settle_unique_key(validator, cursor), 1)
+    meta_set_int(_settle_unique_key(ns, validator, cursor), 1)
 
 
-def settlement_del(cursor: int, validator: str, state_root: str):
+def settlement_del(ns: str, cursor: int, validator: str, state_root: str):
     """Revert settlement_put exactly (rollback): delete the DUPSORT row + the uniqueness marker."""
     def _do(txn):
-        txn.delete(be8(cursor), f"{validator}|{state_root}".encode(), db=_dbs()["settlements"])
+        txn.delete(_settle_key(ns, cursor), f"{validator}|{state_root}".encode(), db=_dbs()["settlements"])
     _write(_do)
-    meta_del(_settle_unique_key(validator, cursor))
+    meta_del(_settle_unique_key(ns, validator, cursor))
 
 
-def settlements_for_cursor(cursor: int):
-    """List (validator, state_root) settlement attestations recorded for `cursor`, DUPSORT order."""
+def settlements_for_cursor(ns: str, cursor: int):
+    """List (validator, state_root) settlement attestations recorded for (ns, cursor), DUPSORT order."""
     def _do(txn):
         out = []
         with txn.cursor(db=_dbs()["settlements"]) as cur:
-            if cur.set_key(be8(cursor)):
+            if cur.set_key(_settle_key(ns, cursor)):
                 for v in cur.iternext_dup(keys=False, values=True):
                     validator, state_root = v.decode().split("|", 1)
                     out.append((validator, state_root))
@@ -526,14 +533,16 @@ def settlements_for_cursor(cursor: int):
     return _read(_do)
 
 
-def settlement_cursors():
-    """All exec_cursors that have at least one settlement attestation, ascending."""
+def settlement_cursors(ns: str):
+    """All exec_cursors in namespace `ns` that have at least one settlement attestation, ascending."""
+    prefix = ns.encode() + b"\x00"
     def _do(txn):
         out = []
         with txn.cursor(db=_dbs()["settlements"]) as cur:
             if cur.first():
                 for k in cur.iternext_nodup(keys=True, values=False):
-                    out.append(int.from_bytes(k, "big"))
+                    if k.startswith(prefix) and len(k) == len(prefix) + 8:
+                        out.append(int.from_bytes(k[len(prefix):], "big"))
         return out
     return _read(_do)
 

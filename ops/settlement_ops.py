@@ -12,39 +12,60 @@ behind the exact same signature — nothing else in L1 changes.
 from ops import kv_ops
 from ops.account_ops import get_bonded_registry
 from ops.mining_ops import total_bonded_shares, selection_shares
-from protocol import SETTLE_NUM, SETTLE_DEN
+from protocol import SETTLE_NUM, SETTLE_DEN, DEFAULT_NS
+
+# PHASE-2b SEAM. A validity-proof verifier can be registered here to justify a settled root WITHOUT a bonded
+# quorum: a callable (ns, cursor, state_root) -> bool that checks a single succinct STARK over the
+# blob→state transition. Default None ⇒ Phase-2a bonded-quorum only. When set, a root is justified if the
+# proof verifies OR the quorum is met (proof-preferred, quorum as liveness fallback during rollout). This is
+# the ONLY line that changes to flip the settlement layer from committee-trust to cryptographic-trust; the
+# arbitrary-execution zkVM prover that would back it is a separate crypto build (see doc/settlement-layer.md).
+_PROOF_VERIFIER = None
 
 
-def settlement_justified(cursor: int, state_root: str, bonded_registry: dict) -> bool:
-    """True when the bonded shares attesting (cursor, state_root) STRICTLY EXCEED SETTLE_NUM/SETTLE_DEN of
-    the total bonded shares. Integer comparison (attesting*SETTLE_DEN > total*SETTLE_NUM) — no floats."""
+def set_settlement_verifier(fn):
+    """Install (or clear, with None) the Phase-2b validity-proof verifier. fn(ns, cursor, state_root)->bool."""
+    global _PROOF_VERIFIER
+    _PROOF_VERIFIER = fn
+
+
+def settlement_justified(ns: str, cursor: int, state_root: str, bonded_registry: dict) -> bool:
+    """True when (ns, cursor, state_root) is justified: a Phase-2b validity proof verifies (if a verifier is
+    installed) OR the bonded shares attesting it STRICTLY EXCEED SETTLE_NUM/SETTLE_DEN of the total bonded
+    shares. Integer comparison (attesting*SETTLE_DEN > total*SETTLE_NUM) — no floats."""
+    if _PROOF_VERIFIER is not None:
+        try:
+            if _PROOF_VERIFIER(ns, cursor, state_root):
+                return True
+        except Exception:
+            pass   # a broken/absent proof falls through to the bonded-quorum path (never blocks settlement)
     total = total_bonded_shares(bonded_registry)
     if total == 0:
         return False
     attesting = 0
-    for validator, root in kv_ops.settlements_for_cursor(cursor):
+    for validator, root in kv_ops.settlements_for_cursor(ns, cursor):
         if root == state_root and validator in bonded_registry:
             attesting += selection_shares(bonded_registry[validator]["bonded"])
     return attesting * SETTLE_DEN > total * SETTLE_NUM
 
 
-def latest_settled():
-    """The (exec_cursor, state_root) with the HIGHEST cursor currently justified by the bonded quorum, or
+def latest_settled(ns: str = DEFAULT_NS):
+    """The (exec_cursor, state_root) with the HIGHEST cursor currently justified in namespace `ns`, or
     (-1, None) if none. DERIVED (not a stored watermark) so it is revert-safe — rolling back a settle tx
     removes its attestation and this recomputes. Uses the current committed bonded registry."""
     reg = get_bonded_registry()
     if total_bonded_shares(reg) == 0:
         return (-1, None)
     best = (-1, None)
-    for cursor in kv_ops.settlement_cursors():
+    for cursor in kv_ops.settlement_cursors(ns):
         if cursor <= best[0]:
             continue
         seen = set()
-        for _v, root in kv_ops.settlements_for_cursor(cursor):
+        for _v, root in kv_ops.settlements_for_cursor(ns, cursor):
             if root in seen:
                 continue
             seen.add(root)
-            if settlement_justified(cursor, root, reg):
+            if settlement_justified(ns, cursor, root, reg):
                 best = (cursor, root)
                 break
     return best

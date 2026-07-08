@@ -29,6 +29,7 @@ It also records the multi-agent **security review** that motivated much of this 
 | [execution-layer.md](execution-layer.md) | The separate **RISC-V execution layer** — sovereign (Phase 1) → settled (Phase 2), opaque `blob`s, one bounded proof verifier, PQ-sound proving; what touches L1 vs. never does |
 | [l2-settlement.md](l2-settlement.md) | **Settlement layer / ultimate scaling** — NADO as a shared ordering + DA + settlement layer for L2 rollups; bonded-quorum settlement (built) → one STARK validity proof → recursive aggregation, where **L1 cost is O(1) per batch regardless of L2 throughput** |
 | [settlement-layer.md](settlement-layer.md) | **Implementation spec** for the settlement layer — data/tx formats, the node↔execnode↔interface wiring, the `settlement_justified` verifier seam, namespaces, the mining-wallet Settlement tab, phased checklist + tests |
+| [rollups-and-settlement.md](rollups-and-settlement.md) | **Complete architecture** — the exec node, blobs/DA, **namespaces (built)**, what a rollup is, settlement, and the **tunnels** (bridge + shielded + dividend + cross-rollup); security invariants + a built-vs-designed table + file map |
 | [exchange-integration.md](exchange-integration.md) | **Exchange/custodian guide** — REST endpoints, `ndo` address checksums, credit-at-`finalized_height`, ML-DSA withdrawal signing; why the RPC is not Bitcoin/ETH JSON-RPC |
 | [units.md](units.md) | The named sub-unit ladder (`dag`…`eli`) — a display convention over the raw-integer ledger, honoring the people behind NADO |
 
