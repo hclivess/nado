@@ -487,11 +487,12 @@ async def _cors(request, handler):
     from the L1 port, making every /exec/* browser fetch cross-origin."""
     # The light-miner page is served by the L1 node on a DIFFERENT port (:9173), so every /exec/* fetch from
     # the browser is cross-origin — without these headers the browser silently blocks the response (curl
-    # doesn't, which is why it worked in tests but not in the wallet). Allow any origin. NOTE: most /exec/*
-    # routes are read-only, but /exec/apply_field_transfer and /exec/prove_transfer[2] DO mutate the pool and
-    # are UNAUTHENTICATED — they are safe to expose only because (a) the exec node binds loopback unless
-    # NADO_EXEC_BIND is opened, (b) the STARK size bound rejects oversized proofs before allocation, and (c) an
-    # in-flight semaphore caps concurrent proving/applying. Also answer the CORS preflight.
+    # doesn't, which is why it worked in tests but not in the wallet). Allow any origin. NOTE: the /exec/*
+    # routes are read-only or compute-only — the /exec/prove_transfer[2] delegated provers PROVE and RETURN a
+    # proof, they don't mutate (DA-only: transfers apply solely via the L1-ordered blob stream). They are
+    # UNAUTHENTICATED — safe to expose because (a) the exec node binds loopback unless NADO_EXEC_BIND is opened,
+    # (b) the STARK size bound rejects oversized inputs before allocation, and (c) an in-flight semaphore caps
+    # concurrent proving. /da/publish is likewise size-capped + semaphore-bounded. Also answer the CORS preflight.
     if request.method == "OPTIONS":
         resp = web.Response(status=204)
     else:
@@ -527,10 +528,10 @@ async def h_field_shielded(request):
 
 
 async def h_prove_transfer(request):
-    """Delegated prover, 1-output: the wallet POSTs its SECRET witness (nsk, note opening, output, amounts);
-    we build the Merkle path, prove the join-split STARK off the event loop, then verify+APPLY it locally —
-    the ~1MB proof never leaves this node, only the settled root does. Semaphore-bounded (H-7); mutating and
-    UNAUTHENTICATED, hence the loopback-by-default bind."""
+    """Delegated prover, 1-output (DA-only): the wallet POSTs its SECRET witness (nsk, note opening, output,
+    amounts); we build the Merkle path and prove the join-split STARK off the event loop, then RETURN the
+    proof as bundle_json. The caller publishes it to /da/publish + submits the commitment blob; we NEVER apply
+    out-of-band. Semaphore-bounded (H-7); UNAUTHENTICATED, hence the loopback-by-default bind."""
     # DELEGATED PROVER: the wallet POSTs its secret witness; we build the Merkle path from the field pool and
     # produce the full join-split STARK proof. Returns the bundle as an opaque JSON string (big field ints).
     try:
@@ -549,19 +550,16 @@ async def h_prove_transfer(request):
             return SFP.prove_transfer(fp, int(w["nsk"]), int(w["value_in"]), int(w["rho_in"]), pos,
                                       int(w["out_value"]), int(w["out_owner"]), int(w["out_rho"]),
                                       int(w["public_value"]), int(w["fee"]), withdraw_addr=w.get("withdraw_addr"))
-        async with _sem():                                 # H-7: bound concurrent proving/applying
+        async with _sem():                                 # H-7: bound concurrent proving
             bundle, public = await asyncio.to_thread(_prove)   # heavy STARK proving off the event loop
             if w.get("withdraw_addr"):
                 bundle["withdraw_addr"] = w["withdraw_addr"]
-            # The exec node is BOTH the delegated prover and the pool authority: prove -> verify -> APPLY. The
-            # 900KB+ proof never touches L1 — only the small settled result does (via the bonded-quorum state
-            # root, like the bridge). apply runs off the event loop; its nullifier critical section + save are
-            # serialized by ExecState._mutate_lock (M-10).
-            applied = await asyncio.to_thread(state.apply_field_transfer, bundle)
-            await asyncio.to_thread(state.save)
-        ok = "skip" not in applied
+        # DA-ONLY (alphanet, no legacy single-operator apply): the delegated prover RETURNS the proof; the
+        # caller publishes it to /da/publish and submits an L1 blob carrying only the commitment, so every
+        # exec node applies it in L1 order. The exec node NEVER applies a transfer out-of-band. The bundle
+        # rides as an opaque JSON STRING (its big field ints survive re-parse).
         return web.json_response({
-            "applied": applied, "ok": ok,
+            "bundle_json": json.dumps(bundle),
             "root": str(public["root"]), "nf": str(public["nullifiers"][0]),
             "cm_out": str(public["out_commitments"][0]),
             "public_value": public["public_value"], "fee": public["fee"],
@@ -580,60 +578,9 @@ async def h_field_leaves(request):
     return web.json_response({"leaves": [str(c) for c in state.field_pool.commitments]})
 
 
-def _normalize_bundle(bundle):
-    """Coerce a browser-generated joinsplit2 bundle's stringified big field ints back to Python ints,
-    IN PLACE, everywhere the verifier expects numbers (statement, proof params, FRI, openings). JSON can't
-    carry BigInt, so JS serializes them as strings. No-op for non-joinsplit2 bundles."""
-    # a browser-generated bundle carries big field ints as STRINGS (JSON can't hold BigInt) -> back to ints
-    js = (bundle.get("stark") or {}).get("joinsplit2")
-    if not js:
-        return
-    for k in ("root", "nf", "cm_out1", "cm_out2", "public_value", "fee"):
-        if k in js and js[k] is not None:
-            js[k] = int(js[k])
-    p = js.get("proof") or {}
-    for f in ("T", "W", "N", "blowup", "deg_bound", "D"):
-        if f in p:
-            p[f] = int(p[f])
-    fr = p.get("fri") or {}
-    if "offset" in fr:
-        fr["offset"] = int(fr["offset"])
-    if "pow" in fr and fr["pow"] is not None:
-        fr["pow"] = int(fr["pow"])                 # C-1 grinding nonce (JSON number -> int)
-    if "final" in fr:
-        fr["final"] = [int(x) for x in fr["final"]]
-    for q in fr.get("queries", []):
-        for s in q.get("steps", []):
-            s["lo"] = int(s["lo"]); s["hi"] = int(s["hi"])
-    for op in p.get("openings", []):
-        for c in op.get("cols", []):
-            c["cur"] = int(c["cur"]); c["nxt"] = int(c["nxt"])
-
-
-async def h_apply_field_transfer(request):
-    """ON-DEVICE path: the browser POSTs a finished proof bundle; we normalize its string ints, then only
-    VERIFY + APPLY (semaphore-bounded) — no witness ever reaches this node. Mutating and unauthenticated,
-    same exposure caveats as the prover endpoints."""
-    # ON-DEVICE path: the browser already proved; we only VERIFY + APPLY (the witness never reached us).
-    try:
-        bundle = await request.json()
-    except Exception:
-        return web.json_response({"error": "bad json"}, status=400)
-    try:
-        _normalize_bundle(bundle)
-        async with _sem():                                 # H-7: bound concurrent verify+apply
-            applied = await asyncio.to_thread(state.apply_field_transfer, bundle)
-            await asyncio.to_thread(state.save)
-        js = (bundle.get("stark") or {}).get("joinsplit2") or {}
-        return web.json_response({"applied": applied, "ok": "skip" not in applied,
-                                  "cm_out1": str(js.get("cm_out1")), "cm_out2": str(js.get("cm_out2"))})
-    except Exception as e:
-        return web.json_response({"error": str(e)}, status=400)
-
-
 async def h_prove_transfer2(request):
     """Delegated prover, 2-output (send v1 to recipient + keep v2 change) — otherwise identical to
-    h_prove_transfer: prove off-loop, verify, apply, save, all semaphore-bounded."""
+    h_prove_transfer: prove off-loop, then RETURN bundle_json for the caller to DA-publish + blob (no apply)."""
     # DELEGATED PROVER, 2-output: send v1 to a recipient + keep v2 change. Proves -> verifies -> applies.
     try:
         w = await request.json()
@@ -652,14 +599,14 @@ async def h_prove_transfer2(request):
                                        int(w["v1"]), int(w["o1"]), int(w["r1"]),
                                        int(w["v2"]), int(w["o2"]), int(w["r2"]),
                                        int(w["public_value"]), int(w["fee"]), withdraw_addr=w.get("withdraw_addr"))
-        async with _sem():                                 # H-7: bound concurrent proving/applying
+        async with _sem():                                 # H-7: bound concurrent proving
             bundle, public = await asyncio.to_thread(_prove)
             if w.get("withdraw_addr"):
                 bundle["withdraw_addr"] = w["withdraw_addr"]
-            applied = await asyncio.to_thread(state.apply_field_transfer, bundle)
-            await asyncio.to_thread(state.save)
+        # DA-ONLY: return the proof; the caller publishes it to DA + submits the commitment blob (see
+        # h_prove_transfer). No out-of-band apply.
         return web.json_response({
-            "applied": applied, "ok": "skip" not in applied,
+            "bundle_json": json.dumps(bundle),
             "root": str(public["root"]), "nf": str(public["nullifiers"][0]),
             "cm_out1": str(public["out_commitments"][0]), "cm_out2": str(public["out_commitments"][1]),
         })
@@ -710,7 +657,6 @@ async def main():
                     web.get("/exec/shielded", h_shielded),
                     web.get("/exec/field_shielded", h_field_shielded),
                     web.get("/exec/field_leaves", h_field_leaves),
-                    web.post("/exec/apply_field_transfer", h_apply_field_transfer),
                     web.post("/exec/prove_transfer", h_prove_transfer),
                     web.post("/exec/prove_transfer2", h_prove_transfer2),
                     web.get("/exec/shielded_note", h_shielded_note),

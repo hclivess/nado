@@ -44,6 +44,37 @@ def _inbox_leaf(i, msg):
     return canonical_bytes(["inbox", int(i), msg.get("from_ns"), int(msg.get("seq", -1)), msg.get("data")])
 
 
+def _normalize_bundle(bundle):
+    """Coerce a BROWSER-generated joinsplit2 bundle's stringified big field ints back to Python ints, IN
+    PLACE, everywhere the verifier expects numbers. JS can't carry BigInt in JSON, so it serializes them as
+    strings; the on-device proof now rides the DA layer and is applied via apply_blob->apply_field_transfer
+    (no HTTP handler in between), so normalization MUST live here, not in a route. Idempotent — int() on an
+    already-int is a no-op, so Python-generated bundles pass through untouched. No-op for non-joinsplit2."""
+    js = (bundle.get("stark") or {}).get("joinsplit2")
+    if not js:
+        return
+    for k in ("root", "nf", "cm_out1", "cm_out2", "public_value", "fee"):
+        if k in js and js[k] is not None:
+            js[k] = int(js[k])
+    p = js.get("proof") or {}
+    for f in ("T", "W", "N", "blowup", "deg_bound", "D"):
+        if f in p:
+            p[f] = int(p[f])
+    fr = p.get("fri") or {}
+    if "offset" in fr:
+        fr["offset"] = int(fr["offset"])
+    if "pow" in fr and fr["pow"] is not None:
+        fr["pow"] = int(fr["pow"])                 # C-1 grinding nonce (JSON number -> int)
+    if "final" in fr:
+        fr["final"] = [int(x) for x in fr["final"]]
+    for q in fr.get("queries", []):
+        for s in q.get("steps", []):
+            s["lo"] = int(s["lo"]); s["hi"] = int(s["hi"])
+    for op in p.get("openings", []):
+        for c in op.get("cols", []):
+            c["cur"] = int(c["cur"]); c["nxt"] = int(c["nxt"])
+
+
 class ExecState:
     def __init__(self, path):
         """Initialise every state component empty, then load() the last snapshot from `path` if one
@@ -281,6 +312,7 @@ class ExecState:
         """Apply a Phase-2 STARK transfer: verify the join-split proof, reject a double-spend, then record the
         nullifier + append the output commitment. public_value<0 records a provable unshield exit."""
         from execnode import shielded
+        _normalize_bundle(bundle)   # browser bundles carry big ints as strings (JS can't JSON BigInt) -> ints
         stark_b = bundle.get("stark") or {}
         if "joinsplit2" in stark_b:                     # 2-output transfer (send + change)
             js = stark_b["joinsplit2"]
