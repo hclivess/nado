@@ -149,21 +149,42 @@
 
   <!-- TAB BAR (shown once a wallet exists) -->
   <nav id="tabbar" class="tabbar hidden">
-    <button class="tab active" data-tabbtn="wallet" data-i18n="tab.wallet">Wallet</button>
-    <button class="tab" data-tabbtn="send" data-i18n="tab.send">Send</button>
-    <button class="tab" data-tabbtn="receive" data-i18n="tab.receive">Receive</button>
-    <button class="tab" data-tabbtn="aliases" data-i18n="tab.aliases">Aliases</button>
+    <div class="tabgroup">
+      <button type="button" class="tabgroup-btn" data-i18n="tab.wallet">Wallet</button>
+      <div class="tabmenu">
+        <button class="tab active" data-tabbtn="wallet" data-i18n="tab.overview">Overview</button>
+        <button class="tab" data-tabbtn="send" data-i18n="tab.send">Send</button>
+        <button class="tab" data-tabbtn="receive" data-i18n="tab.receive">Receive</button>
+        <button class="tab" data-tabbtn="aliases" data-i18n="tab.aliases">Aliases</button>
+        <button class="tab" data-tabbtn="history" data-i18n="tab.history">History</button>
+      </div>
+    </div>
     <button class="tab" data-tabbtn="stake" data-i18n="tab.stake">Stake</button>
-    <button class="tab" data-tabbtn="quorum" data-i18n="tab.quorum">Quorum</button>
-    <button class="tab" data-tabbtn="multisig" data-i18n="tab.multisig">Multisig</button>
+    <div class="tabgroup">
+      <button type="button" class="tabgroup-btn" data-i18n="tab.rollups">Rollups</button>
+      <div class="tabmenu">
+        <button class="tab" data-tabbtn="rollup" data-i18n="tab.rollup">Contracts</button>
+        <button class="tab" data-tabbtn="settlement" data-i18n="tab.settlement">Settlement</button>
+        <button class="tab" data-tabbtn="shield" data-i18n="tab.shield">Shield (private)</button>
+        <button class="tab" data-tabbtn="swap" data-i18n="tab.swap">Swap</button>
+      </div>
+    </div>
+    <div class="tabgroup">
+      <button type="button" class="tabgroup-btn" data-i18n="tab.explore">Explore</button>
+      <div class="tabmenu">
+        <button class="tab" data-tabbtn="explore" data-i18n="tab.explorer">Explorer</button>
+        <button class="tab" data-tabbtn="rich" data-i18n="tab.rich">Rich list</button>
+        <button class="tab" data-tabbtn="stats" data-i18n="tab.stats">Stats</button>
+      </div>
+    </div>
+    <div class="tabgroup">
+      <button type="button" class="tabgroup-btn" data-i18n="tab.govern">Govern</button>
+      <div class="tabmenu">
+        <button class="tab" data-tabbtn="quorum" data-i18n="tab.quorum">Quorum</button>
+        <button class="tab" data-tabbtn="multisig" data-i18n="tab.multisig">Multisig</button>
+      </div>
+    </div>
     <button class="tab" data-tabbtn="messages" data-i18n="tab.messages">Messages<span id="msgBadge" class="tabbadge hidden"></span></button>
-    <button class="tab" data-tabbtn="history" data-i18n="tab.history">History</button>
-    <button class="tab" data-tabbtn="rich" data-i18n="tab.rich">Rich list</button>
-    <button class="tab" data-tabbtn="stats" data-i18n="tab.stats">Stats</button>
-    <button class="tab" data-tabbtn="swap" data-i18n="tab.swap">Swap</button>
-    <button class="tab" data-tabbtn="shield" data-i18n="tab.shield">Shield</button>
-    <button class="tab" data-tabbtn="settlement">Settlement</button>
-    <button class="tab" data-tabbtn="explore" data-i18n="tab.explore">Explore</button>
     <button class="tab" data-tabbtn="settings" data-i18n="tab.settings">Settings</button>
   </nav>
 

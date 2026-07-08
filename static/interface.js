@@ -3345,7 +3345,7 @@ async function renderSwaps() {
 }
 
 // Deep-linkable tab URLs — /aliases, /messages, /send, … (the node serves the interface at each path).
-const TAB_NAMES = new Set(["wallet", "send", "receive", "aliases", "stake", "quorum", "multisig", "messages", "history", "rich", "stats", "swap", "shield", "settlement", "explore", "settings"]);
+const TAB_NAMES = new Set(["wallet", "send", "receive", "aliases", "stake", "quorum", "multisig", "messages", "history", "rich", "stats", "swap", "shield", "settlement", "rollup", "explore", "settings"]);
 
 // Read-only Settlement (L2) view: L1's justified settled root (/get_settled) vs this exec node's tip
 // (/exec/settlement) vs the mining wallet's bonded role. Fail-soft: any source may be down (exec node not
@@ -4400,7 +4400,7 @@ function wireEvents() {
     e.target.value = "";                               // allow re-selecting the same file later
   };
 
-  document.querySelectorAll("#tabbar .tab").forEach((b) => { b.onclick = () => showTab(b.dataset.tabbtn); });
+  document.querySelectorAll("#tabbar .tab").forEach((b) => { b.onclick = () => { showTab(b.dataset.tabbtn); b.blur(); }; });
 
   $("btnSend").onclick = () => doSend();
   $("sendTo").oninput = validateSendTo;

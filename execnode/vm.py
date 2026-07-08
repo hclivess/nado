@@ -11,9 +11,16 @@ L1 orders + stores opaque blobs; this replays them. A VM bug can never fork the 
 Contract shape:  { "<method>": [ [OP, arg?], ... ], ... }
   - the optional method "constructor" runs once at deploy (caller = deployer, args = []).
 Opcodes:
-  PUSH v · POP · DUP · SWAP · ADD SUB MUL · LT GT GTE LTE EQ AND OR · NOT · CONCAT
-  CALLER · ARG i · MLOAD map · MSTORE map · REQUIRE · RETURN · HALT
+  PUSH v · POP · DUP · SWAP · ADD SUB MUL DIV MOD · LT GT GTE LTE EQ AND OR · NOT · CONCAT
+  HASH · CALLER · ARG i · MLOAD map · MSTORE map · REQUIRE · RETURN · HALT
+
+HASH pops one value and pushes blake2b(canonical(value)) as a 256-bit int — the primitive that makes
+commit-reveal contracts (fair coin flip, sealed-bid, lotteries) possible on a deterministic VM: a player
+commits HASH(secret), later reveals `secret`, and the contract re-hashes to check it. DIV/MOD revert on a
+zero divisor (so the call is a no-op, never a crash).
 """
+import hashlib
+import json as _json
 
 GAS_LIMIT = 100_000
 
@@ -30,9 +37,14 @@ class VMOutOfGas(VMError):
     pass
 
 
-_BINOPS = {"ADD", "SUB", "MUL", "LT", "GT", "EQ", "GTE", "LTE", "AND", "OR", "CONCAT"}
-_KNOWN = _BINOPS | {"PUSH", "POP", "DUP", "SWAP", "NOT", "CALLER", "ARG",
+_BINOPS = {"ADD", "SUB", "MUL", "DIV", "MOD", "LT", "GT", "EQ", "GTE", "LTE", "AND", "OR", "CONCAT"}
+_KNOWN = _BINOPS | {"PUSH", "POP", "DUP", "SWAP", "NOT", "HASH", "CALLER", "ARG",
                     "MLOAD", "MSTORE", "REQUIRE", "RETURN", "HALT"}
+
+
+def _hash_value(v):
+    """Deterministic blake2b of a canonical encoding of `v` -> 256-bit int (commit-reveal primitive)."""
+    return int.from_bytes(hashlib.blake2b(_json.dumps(v, sort_keys=True).encode(), digest_size=32).digest(), "big")
 
 
 def validate_code(code):
@@ -94,6 +106,8 @@ def run(code, method, caller, args, storage):
                 stack.append(caller)
             elif op == "NOT":
                 stack.append(0 if stack.pop() else 1)
+            elif op == "HASH":
+                stack.append(_hash_value(stack.pop()))
             elif op in _BINOPS:
                 b = stack.pop()
                 a = stack.pop()
@@ -103,6 +117,14 @@ def run(code, method, caller, args, storage):
                     stack.append(_int(a) - _int(b))
                 elif op == "MUL":
                     stack.append(_int(a) * _int(b))
+                elif op == "DIV":
+                    if _int(b) == 0:
+                        raise VMRevert("division by zero")
+                    stack.append(_int(a) // _int(b))
+                elif op == "MOD":
+                    if _int(b) == 0:
+                        raise VMRevert("modulo by zero")
+                    stack.append(_int(a) % _int(b))
                 elif op == "LT":
                     stack.append(1 if _int(a) < _int(b) else 0)
                 elif op == "GT":
