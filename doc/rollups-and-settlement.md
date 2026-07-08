@@ -101,8 +101,11 @@ bonded quorum. L1 keeps **one settled pointer per `ns`** (`latest_settled(ns)`).
 
 Implemented across `protocol.py` (`DEFAULT_NS`, `valid_namespace`), `ops/kv_ops.py`, `ops/settlement_ops.py`,
 `ops/account_ops.py`, `ops/transaction_ops.py`, `nado.py`, `execnode/execnode.py`; covered by
-`tests/test_settlement.py` t7–t9 (isolation, canonical-form, bad-id rejection). **`execnode` currently runs one
-state = the default namespace; a per-`ns` exec node is the next execnode step.**
+`tests/test_settlement.py` t7–t9 (isolation, canonical-form, bad-id rejection). **`execnode` now runs a
+per-namespace state registry** (`NADO_EXEC_NAMESPACES`): the default full-featured layer plus contract-only
+rollup namespaces, each with its own state file, blob-routed by the blob's `ns`, and settled independently via
+`maybe_settle` (one `settle` per namespace). The `/exec/*` read endpoints take `?ns=`. Covered by
+`tests/test_exec_namespaces.py` (routing, isolation, unrun-drop, default determinism).
 
 ---
 
@@ -213,9 +216,9 @@ settlement, whether **your** exec root agrees with the quorum, and **your role**
 | `settle` + bonded-quorum settlement, `/get_settled` | **built** |
 | Bridge / shielded / dividend tunnels (Merkle-proof exits) | **built** |
 | **Namespaces (multi-rollup): `ns` on settle/bridge, per-ns pointer, isolation** | **built (this work)** |
+| **Per-`ns` execution node** (registry of states, blob-routed, settle-per-ns, `/exec/*?ns=`) | **built (this work)** |
 | Phase-2b settlement verifier **seam** (`set_settlement_verifier`) | **built (inert DI)** |
 | Phase-2b **validity proof** (zkVM over arbitrary exec) | **designed — real crypto build, not stubbed** |
-| Per-`ns` execution node (multiple states in one process) | designed |
 | DA erasure-coding + hash-based sampling; higher blob budget | designed |
 | Recursive proof aggregation (one proof settles many rollups) | designed |
 | Cross-rollup message tunnel + forced-exit escape hatch | designed |

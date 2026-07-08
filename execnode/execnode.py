@@ -57,8 +57,26 @@ def _sem():
 SETTLE = os.environ.get("NADO_EXEC_SETTLE", "").strip().lower() in ("1", "true", "yes", "on")
 SETTLE_EVERY = int(os.environ.get("NADO_EXEC_SETTLE_EVERY", "5"))
 
-state = ExecState(STATE_PATH)
+# NAMESPACES this node maintains (multi-rollup). The DEFAULT namespace is the full canonical exec layer
+# (contracts + bridge + shielded pool + presence dividend). Any EXTRA namespaces (NADO_EXEC_NAMESPACES,
+# comma-separated, validated) are contract-only rollups fed by `blob`s tagged with their ns; each persists to
+# its own state file and settles independently. `default` is always present so the wallet's shielded/bridge/
+# dividend endpoints keep working.
+def _ns_state_path(ns):
+    return STATE_PATH if ns == "default" else f"{STATE_PATH}.{ns}"
+
+from protocol import valid_namespace as _valid_ns
+_extra_ns = [s.strip() for s in os.environ.get("NADO_EXEC_NAMESPACES", "").split(",")
+             if s.strip() and s.strip() != "default" and _valid_ns(s.strip())]
+NAMESPACES = ["default"] + _extra_ns
+states = {ns: ExecState(_ns_state_path(ns)) for ns in NAMESPACES}
+state = states["default"]   # the full-featured default layer; shielded/bridge/dividend endpoints use it
 _last_settled_cursor = -1
+
+
+def _state_for(request):
+    """The ExecState for the request's ?ns= (default 'default'), or None if this node doesn't run that ns."""
+    return states.get(request.query.get("ns", "default"))
 
 
 async def maybe_settle(session):
@@ -72,15 +90,20 @@ async def maybe_settle(session):
         from ops.key_ops import load_keys
         keys = load_keys()
         latest = await _get_json(session, "/get_latest_block")
-        tx = construct_settle_tx(keys, state.cursor, state.state_root(), int(latest["block_number"]) + 2)
-        async with session.post(L1 + "/submit_transaction", json=tx,
-                                timeout=aiohttp.ClientTimeout(total=15)) as r:
-            out = await r.json(content_type=None)
-        if isinstance(out, dict) and out.get("result"):
+        target = int(latest["block_number"]) + 2
+        ok_any = False
+        for ns, st in states.items():
+            tx = construct_settle_tx(keys, st.cursor, st.state_root(), target, ns=ns)
+            async with session.post(L1 + "/submit_transaction", json=tx,
+                                    timeout=aiohttp.ClientTimeout(total=15)) as r:
+                out = await r.json(content_type=None)
+            if isinstance(out, dict) and out.get("result"):
+                ok_any = True
+                print(f"[execnode] SETTLE ns={ns} cursor {st.cursor} root {st.state_root()[:16]}… → L1", flush=True)
+            else:
+                print(f"[execnode] settle ns={ns} not accepted: {out}", flush=True)
+        if ok_any:
             _last_settled_cursor = state.cursor
-            print(f"[execnode] SETTLE cursor {state.cursor} root {state.state_root()[:16]}… → L1", flush=True)
-        else:
-            print(f"[execnode] settle not accepted: {out}", flush=True)
     except Exception as e:
         print(f"[execnode] settle error: {e}", flush=True)
 
@@ -118,8 +141,14 @@ async def tail_loop():
                     for tx in block.get("block_transactions", []):
                         r = tx.get("recipient")
                         if r == "blob":
-                            res = state.apply_blob(tx.get("data"), tx.get("sender"), tx.get("txid"))
-                            print(f"[execnode] block {h}: {res}", flush=True)
+                            # Route the blob to its namespace's state. A blob's ns lives inside its (opaque-to-L1)
+                            # payload; default when absent. Blobs for a namespace this node doesn't run are ignored.
+                            d = tx.get("data")
+                            bns = d.get("ns", "default") if isinstance(d, dict) else "default"
+                            tgt = states.get(bns)
+                            if tgt is not None:
+                                res = tgt.apply_blob(d, tx.get("sender"), tx.get("txid"))
+                                print(f"[execnode] block {h} ns={bns}: {res}", flush=True)
                         elif r == "bridge":                          # L1 deposit -> credit exec-side balance
                             state.credit_deposit(tx.get("sender"), tx.get("amount", 0))
                             print(f"[execnode] block {h}: bridge deposit {tx.get('amount')} by "
@@ -134,7 +163,8 @@ async def tail_loop():
                                 res = state.apply_shield(tx.get("amount", 0), d.get("out_commitments", []),
                                                          d.get("openings", []))
                             print(f"[execnode] block {h}: {res}", flush=True)
-                    state.cursor = h
+                    for _st in states.values():   # every namespace tails the same L1 → advance together
+                        _st.cursor = h
                     applied += 1
                 if applied:
                     # PRESENCE DIVIDEND (doc/presence-dividend.md): distribute the DIVIDEND_POOL growth among
@@ -150,9 +180,11 @@ async def tail_loop():
                             print(f"[execnode] dividend +{dist} raw to {len(weights)} present miner(s)", flush=True)
                     except Exception as e:
                         print(f"[execnode] dividend accrue error: {e}", flush=True)
-                    state.save()
+                    for _st in states.values():
+                        _st.save()
                     print(f"[execnode] +{applied} block(s) → cursor {state.cursor} · "
-                          f"root {state.state_root()[:16]}… · {len(state.contracts)} contract(s)", flush=True)
+                          f"root {state.state_root()[:16]}… · {len(state.contracts)} contract(s)"
+                          + (f" · +{len(states)-1} rollup ns" if len(states) > 1 else ""), flush=True)
                     if SETTLE:
                         await maybe_settle(session)
             except Exception as e:
@@ -161,22 +193,31 @@ async def tail_loop():
 
 
 # --- read-only query API ---------------------------------------------------------------------------
+_NS404 = lambda: web.json_response({"error": "namespace not served by this node"}, status=404)
+
+
 async def h_root(request):
-    """Node summary: exec state_root, applied cursor, contract count, and the L1 being tailed."""
-    return web.json_response({"state_root": state.state_root(), "cursor": state.cursor,
-                              "contracts": len(state.contracts), "l1": L1})
+    """Node summary for ?ns= (default): exec state_root, applied cursor, contract count, L1 tailed."""
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
+    return web.json_response({"ns": request.query.get("ns", "default"), "state_root": st.state_root(),
+                              "cursor": st.cursor, "contracts": len(st.contracts), "l1": L1})
 
 
 async def h_settlement(request):
-    """Settlement status for THIS exec node: its current (cursor, state_root), whether it posts `settle`
-    attestations to L1 (the bonded-validator duty, NADO_EXEC_SETTLE), the cadence, and the last cursor it
-    settled. The interface combines this with L1's /get_settled (the ecosystem-wide justified root) to show
-    'this node's tip' vs 'the settled root' and how far behind settlement is."""
+    """Settlement status for namespace ?ns= (default): its current (cursor, state_root), whether this node
+    posts `settle` attestations (NADO_EXEC_SETTLE), the cadence, the last cursor it settled, and every
+    namespace this node runs. The interface combines this with L1's /get_settled?ns= to show tip vs settled."""
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
     return web.json_response({
-        "ns": "default",   # this exec node settles the default namespace (its single state)
-        "cursor": state.cursor,
-        "state_root": state.state_root(),
-        "contracts": len(state.contracts),
+        "ns": request.query.get("ns", "default"),
+        "namespaces": list(states.keys()),
+        "cursor": st.cursor,
+        "state_root": st.state_root(),
+        "contracts": len(st.contracts),
         "settle_enabled": SETTLE,
         "settle_every": SETTLE_EVERY,
         "last_settled_cursor": _last_settled_cursor,
@@ -185,16 +226,22 @@ async def h_settlement(request):
 
 
 async def h_contracts(request):
-    """List every deployed contract (cid, deployer, method names) — storage omitted, use /exec/contract."""
-    return web.json_response({"contracts": [
+    """List every deployed contract in ?ns= (cid, deployer, method names) — storage omitted, use /exec/contract."""
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
+    return web.json_response({"ns": request.query.get("ns", "default"), "contracts": [
         {"cid": cid, "deployer": c["deployer"], "methods": list(c["code"].keys())}
-        for cid, c in state.contracts.items()]})
+        for cid, c in st.contracts.items()]})
 
 
 async def h_contract(request):
-    """One contract in full (?cid=): deployer, method names, and its ENTIRE storage. 404 if unknown."""
+    """One contract in full (?cid=&ns=): deployer, method names, and its ENTIRE storage. 404 if unknown."""
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
     cid = request.query.get("cid", "")
-    c = state.contracts.get(cid)
+    c = st.contracts.get(cid)
     if not c:
         return web.json_response({"error": "not found"}, status=404)
     return web.json_response({"cid": cid, "deployer": c["deployer"],
@@ -202,16 +249,19 @@ async def h_contract(request):
 
 
 async def h_view(request):
-    """Read-only contract call (?cid&method&args=<JSON list>) via ExecState.view — storage is never
+    """Read-only contract call (?cid&method&args=<JSON list>&ns=) via ExecState.view — storage is never
     persisted; unparsable args degrade to []. Result is None for a missing contract/method or a revert."""
     import json
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
     cid = request.query.get("cid", "")
     method = request.query.get("method", "")
     try:
         args = json.loads(request.query.get("args", "[]"))
     except Exception:
         args = []
-    return web.json_response({"cid": cid, "method": method, "result": state.view(cid, method, args)})
+    return web.json_response({"cid": cid, "method": method, "result": st.view(cid, method, args)})
 
 
 async def h_bridge(request):

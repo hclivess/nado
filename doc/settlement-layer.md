@@ -153,7 +153,8 @@ The interface (`static/interface.html` + `interface.js`) already fetches `relayB
 
 **execnode**
 - [x] `GET /exec/settlement` status endpoint (done).
-- [ ] `ns` awareness: filter blobs by namespace, keep per-`ns` state + root, settle per `ns`.
+- [x] `ns` awareness: per-namespace state registry (`NADO_EXEC_NAMESPACES`), blobs routed by `ns`, per-`ns`
+  state + root, one `settle` per namespace, `/exec/*?ns=` (`tests/test_exec_namespaces.py`).
 - [ ] Phase-2b: `prove_settlement(prev_root, blobs, new_root)` over the FRI backend; post proof + root.
 
 **L1 (`ops/`, `protocol.py`, `nado.py`)**
