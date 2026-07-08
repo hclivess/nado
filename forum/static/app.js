@@ -66,6 +66,9 @@ function bindModButtons() {
   app.querySelectorAll("[data-mod]").forEach((el) => {
     el.onclick = () => modAction(JSON.parse(el.dataset.mod), el.dataset.confirm || null);
   });
+  app.querySelectorAll("[data-edit]").forEach((el) => {   // Edit buttons, same delegation as mod buttons
+    el.onclick = () => startEdit(+el.dataset.edit);
+  });
 }
 const modBtn = (payload, label, confirmMsg) =>
   '<button class="btn ghost sm" data-mod="' + esc(JSON.stringify(payload)) + '"' +
@@ -169,9 +172,10 @@ async function viewThread(id) {
           : "") +
         "</span>";
     }
-    // your own posts (and, for convenience, a mod on any) get an inline edit affordance
+    // your own posts (and, for convenience, a mod on any) get an Edit button — SAME style + wiring as the
+    // mod buttons (btn ghost sm + data-edit bound in bindModButtons), so it matches Delete.
     const editBtn = (!p.deleted && ME && (ME.address === p.author || isMod))
-      ? ' <a href="#" class="pedit" onclick="return startEdit(' + p.id + ')">edit</a>' : "";
+      ? ' <button class="btn ghost sm" data-edit="' + p.id + '">Edit</button>' : "";
     const editedTag = p.edited_at ? ' <span class="pill">edited ' + ago(p.edited_at) + "</span>" : "";
     return '<div class="post' + (p.deleted ? " deleted" : "") + '" id="post-' + p.id + '"><div class="phead"><span>' +
       userLink(p.author, d.authors) + "</span>" + (p.deleted ? '<span class="pill del">deleted</span>' : "") +
@@ -205,22 +209,24 @@ async function viewThread(id) {
   };
 }
 
-// ---- inline post editing ------------------------------------------------------------------------
+// ---- inline post editing (same button + event-delegation pattern as the mod buttons) -------------
 function startEdit(id) {
   const body = document.getElementById("body-" + id);
-  if (!body || document.getElementById("edit-" + id)) return false;
+  if (!body || document.getElementById("edit-" + id)) return;
   const md = (window.__MD || {})[id] || "";
   body.dataset.prev = body.innerHTML;                       // stash the rendered body to restore on cancel
   const ta = document.createElement("textarea");
   ta.id = "edit-" + id; ta.value = md; ta.style.cssText = "width:100%;min-height:120px";
   const row = document.createElement("div");
   row.className = "row"; row.style.marginTop = "8px";
-  row.innerHTML = '<button class="btn" onclick="saveEdit(' + id + ')">Save</button> ' +
-    '<button class="btn secondary" onclick="cancelEdit(' + id + ')">Cancel</button> ' +
-    '<span class="err" id="editerr-' + id + '"></span>';
+  const save = document.createElement("button"); save.className = "btn ghost sm"; save.textContent = "Save";
+  const cancel = document.createElement("button"); cancel.className = "btn ghost sm"; cancel.textContent = "Cancel";
+  const err = document.createElement("span"); err.className = "err"; err.id = "editerr-" + id;
+  save.onclick = () => saveEdit(id);
+  cancel.onclick = () => cancelEdit(id);
+  row.append(save, cancel, err);
   body.innerHTML = "";
-  body.appendChild(ta); body.appendChild(row); ta.focus();
-  return false;
+  body.append(ta, row); ta.focus();
 }
 
 function cancelEdit(id) {
@@ -238,12 +244,6 @@ async function saveEdit(id) {
   if (r.ok) route();                                        // re-render the thread (shows the "edited" tag)
   else if (errEl) errEl.textContent = r.error || "failed";
 }
-
-// app.js is an ES module, so its functions are NOT global — expose the edit handlers on window so the
-// inline onclick= in the rendered post markup (and the Save/Cancel buttons) can reach them.
-window.startEdit = startEdit;
-window.saveEdit = saveEdit;
-window.cancelEdit = cancelEdit;
 
 async function renderTally(pid) {
   try {

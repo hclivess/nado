@@ -88,5 +88,4 @@ a.btn:hover{text-decoration:none}
 .pill.del{background:rgba(248,81,73,.10);color:var(--danger);border-color:rgba(248,81,73,.4)}
 .modbar{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
 .pmod{display:inline-flex;gap:6px;margin-left:auto}
-.pedit{margin-left:6px;cursor:pointer;text-decoration:underline}
 .post.deleted{opacity:.55;border-style:dashed}
