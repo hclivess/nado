@@ -3181,63 +3181,9 @@ function pieChart(id, slices, opts) {
   });
 }
 
-// Open a social-network share intent for the miner link (falls back to the native share sheet / copy).
-// Brand-icon social buttons, mounted next to every QR. Each block declares its share CONTEXT (site / pay /
-// zpay / zcode); a [data-private] block only offers the person-to-person channels. Only claim codes are
-// bearer secrets — a shielded ADDRESS is just a receive capability (knowing it reveals nothing on-chain),
-// so its payment link gets the full public set like a normal address.
-const SOCIAL_ICONS = {
-  x: "M17.53 3H21l-7.19 8.21L22.5 21h-6.75l-5.02-6.56L4.99 21H1.5l7.68-8.78L1 3h6.92l4.54 5.99L17.53 3Zm-1.18 16h1.86L7.02 4.94H5.05L16.35 19Z",
-  telegram: "M21.9 4.3 2.6 11.7c-.9.4-.9 1.3.02 1.63l4.9 1.53 1.86 5.9c.24.66.13.92.82.92.53 0 .77-.24 1.06-.53l2.35-2.28 4.9 3.62c.9.5 1.55.24 1.77-.83l3.2-15.06c.32-1.32-.5-1.9-1.36-1.6ZM8.5 13.4l9.9-6.24c.44-.27.85-.12.52.18L10.9 15l-.32 3.4-2.08-5Z",
-  whatsapp: "M12.04 2c-5.5 0-9.95 4.45-9.95 9.94 0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38c1.45.79 3.08 1.2 4.79 1.2 5.5 0 9.95-4.45 9.95-9.94S17.54 2 12.04 2Zm5.8 14.05c-.24.68-1.42 1.31-1.96 1.36-.5.05-1.14.07-1.84-.11-.42-.13-.97-.31-1.67-.61-2.94-1.27-4.86-4.23-5.01-4.42-.15-.2-1.2-1.59-1.2-3.03s.76-2.15 1.03-2.45c.27-.3.58-.37.78-.37h.56c.18 0 .42-.07.66.5l.81 1.96c.07.14.11.3.02.48l-.27.45c-.14.16-.29.35-.41.47-.14.14-.28.29-.12.56.16.27.71 1.17 1.53 1.9 1.05.94 1.94 1.23 2.21 1.37.27.14.43.12.59-.07l.86-1.06c.18-.27.36-.23.61-.14l1.71.81c.25.12.42.18.48.28.06.14.06.62-.18 1.3Z",
-  reddit: "M22 12c0-1.1-.9-2-2-2-.53 0-1.01.21-1.37.55-1.35-.9-3.2-1.48-5.24-1.55l.89-4.02 2.8.62c0 .69.56 1.25 1.25 1.25s1.25-.56 1.25-1.25-.56-1.25-1.25-1.25c-.49 0-.91.28-1.11.69l-3.13-.7a.3.3 0 0 0-.35.22l-1 4.44c-2.07.06-3.94.63-5.31 1.54C6.51 10.21 6.03 10 5.5 10c-1.1 0-2 .9-2 2 0 .81.48 1.5 1.17 1.81-.03.19-.05.39-.05.59 0 2.98 3.47 5.4 7.75 5.4s7.75-2.42 7.75-5.4c0-.2-.02-.39-.05-.58C21.52 13.5 22 12.81 22 12ZM8 13.5c0-.69.56-1.25 1.25-1.25s1.25.56 1.25 1.25-.56 1.25-1.25 1.25S8 14.19 8 13.5Zm7.36 3.28c-.86.86-2.5.93-2.86.93s-2-.07-2.86-.93a.31.31 0 0 1 .44-.44c.54.54 1.71.74 2.42.74s1.88-.2 2.42-.74a.31.31 0 1 1 .44.44Zm-.11-2.03c-.69 0-1.25-.56-1.25-1.25s.56-1.25 1.25-1.25 1.25.56 1.25 1.25-.56 1.25-1.25 1.25Z",
-  facebook: "M22 12.06C22 6.5 17.52 2 12 2S2 6.5 2 12.06c0 5.02 3.66 9.18 8.44 9.94v-7.03H7.9v-2.9h2.54V9.85c0-2.52 1.5-3.91 3.78-3.91 1.09 0 2.24.2 2.24.2v2.47h-1.26c-1.24 0-1.63.78-1.63 1.57v1.88h2.78l-.44 2.9h-2.34V22C18.34 21.24 22 17.08 22 12.06Z",
-  email: "M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2Zm0 4-8 5-8-5V6l8 5 8-5v2Z",
-};
-const SOCIAL_LABELS = { x: "X", telegram: "Telegram", whatsapp: "WhatsApp", reddit: "Reddit", facebook: "Facebook", email: "Email" };
-const SOCIAL_ALL = ["x", "telegram", "whatsapp", "reddit", "facebook", "email"];
-const SOCIAL_PRIVATE = ["telegram", "whatsapp", "email"];   // no public broadcast for bearer secrets
-
-function socialButtonsHTML(ctx, priv) {
-  return (priv ? SOCIAL_PRIVATE : SOCIAL_ALL).map((n) =>
-    `<button class="social-btn" data-social="${n}" data-share="${ctx}" title="Share on ${SOCIAL_LABELS[n]}" aria-label="Share on ${SOCIAL_LABELS[n]}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${SOCIAL_ICONS[n]}"/></svg></button>`
-  ).join("");
-}
-function mountSocial() {
-  document.querySelectorAll(".social-share[data-share]").forEach((el) => {
-    if (!el.dataset.mounted) { el.innerHTML = socialButtonsHTML(el.dataset.share, el.hasAttribute("data-private")); el.dataset.mounted = "1"; }
-  });
-  document.querySelectorAll(".social-btn[data-social]").forEach((btn) => {
-    btn.onclick = () => socialShare(btn.getAttribute("data-social"), btn.getAttribute("data-share"));
-  });
-}
-
-function _sharePayload(ctx) {
-  if (ctx === "pay") return { url: payLink(state.wallet.address, currentRecvAmount()), text: i18("share.payMsg", "Pay me on NADO:"), title: "NADO payment request" };
-  if (ctx === "zpay") return { url: payLink(shieldAddr(), currentZrecvAmount()), text: i18("share.zpayMsg", "Pay me privately on NADO — shielded payment link:"), title: "NADO private payment request" };
-  if (ctx === "zcode") return { url: claimLink((($("zsendCode") || {}).textContent) || ""), text: i18("share.zcodeMsg", "A private NADO banknote for you — open to claim:"), title: "NADO shielded claim link" };
-  return { url: shareUrl(), text: i18("share.msg", "Mine NADO in your browser — no install, no signup. Open and go:"), title: "NADO — mine from your phone" };
-}
-function socialShare(platform, ctx) {
-  const { url, text, title } = _sharePayload(ctx);
-  const u = encodeURIComponent(url), tx = encodeURIComponent(text), ti = encodeURIComponent(title);
-  if (platform === "facebook") {
-    // Facebook's share dialog silently drops any prefilled message and only renders the URL's Open Graph card.
-    // So copy the message for the user to paste, then open the sharer — they get the card AND their words ready.
-    try { copyToClipboard(text + " " + url); } catch (e) {}
-    log("info", i18("share.fbCopied", "Message copied — paste it into your Facebook post."));
-    window.open(`https://www.facebook.com/sharer/sharer.php?u=${u}&quote=${tx}`, "_blank", "noopener,noreferrer");
-    return;
-  }
-  const targets = {
-    x: `https://twitter.com/intent/tweet?text=${tx}%20${u}`,
-    telegram: `https://t.me/share/url?url=${u}&text=${tx}`,
-    whatsapp: `https://wa.me/?text=${tx}%20${u}`,
-    reddit: `https://www.reddit.com/submit?url=${u}&title=${ti}`,
-    email: `mailto:?subject=${ti}&body=${tx}%20${u}`,
-  };
-  if (targets[platform]) window.open(targets[platform], "_blank", "noopener,noreferrer");
-}
+// Social brand-icon share buttons were removed: every share context (pay / site / zpay / zcode) already
+// has a single "Share" button that uses the native share sheet (navigator.share) with a clipboard
+// fallback — the same clean format as the Coin Flip dApp. No more direct per-network icons.
 
 function barChart(id, values, labels, opts) {
   opts = opts || {}; const svg = _svgClear(id); if (!svg) return;
@@ -4780,7 +4726,6 @@ function wireEvents() {
   $("recvAmount").oninput = () => renderReceiveQR();   // live-update the QR + payment link
   $("btnSharePay").onclick = () => sharePayLink();
   if ($("btnShareMiner")) $("btnShareMiner").onclick = () => shareMiner();
-  mountSocial();   // populate the brand-icon social buttons next to every QR + wire them to their context
 
   $("btnSaveRelay").onclick = () => {
     const v = $("relayUrl").value.trim();
