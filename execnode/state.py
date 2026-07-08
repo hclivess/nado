@@ -483,6 +483,22 @@ class ExecState:
                     c["abi"] = payload["abi"]
                 return f"upgrade {cid} by {sender[:12]}… (code replaced, storage kept)"
 
+            if op == "transfer_contract":
+                # CONTRACT TRANSFERENCE: hand a contract's OWNERSHIP (the deployer right — who may upgrade /
+                # transfer it) to another address. Only the current owner (deployer) may transfer; code, storage
+                # and cid are unchanged. Lets a contract be handed to a new maintainer without redeploying.
+                cid = payload.get("contract")
+                to = payload.get("to")
+                c = self.contracts.get(cid)
+                if not c:
+                    return f"skip: no contract {cid}"
+                if c.get("deployer") != sender:
+                    return "skip: only the current owner (deployer) can transfer this contract"
+                if not isinstance(to, str) or not to:
+                    return "skip: transfer_contract needs a non-empty 'to' address"
+                c["deployer"] = to
+                return f"transfer_contract {cid} owner {sender[:12]}… -> {to[:12]}…"
+
             if op == "emit":
                 # Emit a cross-domain MESSAGE: append {seq, from, to_ns, data} to the outbox, committed in
                 # state_root as an outbox leaf and provable via outbox_proof(seq). This blob only COMMITS the
@@ -544,6 +560,15 @@ class ExecState:
                         self.games[gid] = {"stake": stake, "pot": stake, "settled": False,
                                            "deadline": self.cursor + FLIP_REVEAL_WINDOW,
                                            "players": {sender: {"commit": commit, "slot": 1, "secret": None}}}
+                        # REMATCH invite (no re-share): if this game is a rematch of a FINISHED game the opener
+                        # PLAYED, stamp the old game with a pointer to this new one, so the opponent — still
+                        # watching the old game — is invited to join it in place. Only a player of the settled
+                        # old game may set it, once (first rematch wins). Non-consensus UX hint (not a value).
+                        rof = payload.get("rematch_of")
+                        if rof is not None:
+                            og = self.games.get(str(rof))
+                            if og and og.get("settled") and sender in og.get("players", {}) and not og.get("rematch"):
+                                og["rematch"] = gid
                         return f"flip_bet open {gid} stake {stake} by {sender[:12]}…"
                     if g["settled"]:            return "skip: game already settled"
                     if sender in g["players"]:  return "skip: already in this game"

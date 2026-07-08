@@ -147,13 +147,20 @@ async function joinGame() {
   }
   bet(gid, need, "join");
 }
-function bet(gameId, stakeRaw, role) {
+function bet(gameId, stakeRaw, role, rematchOf) {
   const g = gamesLoad();
   const secretStr = (g[gameId] && g[gameId].secret) ? g[gameId].secret : randSecret().toString();
   g[gameId] = { secret: secretStr, role, ts: Date.now(), bet: (g[gameId] || {}).bet, reveal: (g[gameId] || {}).reveal, stake: stakeRaw.toString() }; gamesSave(g);
   active = gameId; render();
-  signBlob({ op: "flip_bet", game: gameId, commit: commitHashOf(BigInt(secretStr)), stake: stakeRaw },
-    "bet " + rawToNado(stakeRaw) + " NADO on game #" + gameId, { gameId, phase: "bet" });
+  const payload = { op: "flip_bet", game: gameId, commit: commitHashOf(BigInt(secretStr)), stake: stakeRaw };
+  if (rematchOf != null) payload.rematch_of = rematchOf;    // rematch: stamps a "join in place" invite on the old game
+  signBlob(payload, "bet " + rawToNado(stakeRaw) + " NADO on game #" + gameId, { gameId, phase: "bet" });
+}
+// join the rematch the opponent started (invited in place — no re-share)
+function joinRematch() {
+  const rg = lastGame && lastGame.rematch;
+  if (rg == null) return;
+  $("joinId").value = rg; active = rg; joinGame();
 }
 function reveal() {
   const g = gamesLoad()[active];
@@ -165,7 +172,7 @@ function rematch() {
     : ((gamesLoad()[active] || {}).stake ? BigInt(gamesLoad()[active].stake) : null);
   if (!stake) { $("status").textContent = "Open a new game from the panel above."; return; }
   if (myBalance < stake) { $("status").textContent = "Deposit more to play again — you have " + rawToNado(myBalance) + " NADO, need " + rawToNado(stake) + "."; return; }
-  bet(randId(), stake, "new");   // continue playing: a brand-new game at the same stake
+  bet(randId(), stake, "new", active);   // rematch: fresh game, same stake, invites the opponent in the OLD game
 }
 const settle = () => signBlob({ op: "flip_settle", game: active }, "settle game #" + active, { gameId: active, phase: "settle" });
 const claim = () => signBlob({ op: "flip_claim", game: active }, "claim game #" + active, { gameId: active, phase: "claim" });
@@ -195,6 +202,7 @@ function wireUI() {
   $("btnWithdraw").onclick = doWithdraw;
   $("btnShare").onclick = shareGame;
   $("btnRematch").onclick = rematch;
+  $("btnJoinRematch").onclick = joinRematch;
 }
 const badge = (s) => s === "confirmed" ? '<span class="b ok">confirmed ✓</span>' : s === "pending" ? '<span class="b pend">pending…</span>' : '<span class="b dimb">—</span>';
 function render() {
@@ -247,7 +255,9 @@ function renderActive() {
   $("btnReveal").classList.toggle("hidden", !(mine && !mine.revealed && bothIn && !lg.settled));
   $("btnSettle").classList.toggle("hidden", !(bothRev && !lg.settled));
   $("btnClaim").classList.toggle("hidden", !pastDeadline);
-  $("btnRematch").classList.toggle("hidden", !lg.settled);   // continue playing once this game is done
+  const hasRematch = !!lg.rematch;
+  $("btnRematch").classList.toggle("hidden", !(lg.settled && !hasRematch));                                  // start a rematch
+  $("btnJoinRematch").classList.toggle("hidden", !(lg.settled && hasRematch && String(active) !== String(lg.rematch)));  // opponent invited you
   // coin / result
   const coin = $("coin");
   if (lg.settled && (lg.result === 0 || lg.result === 1)) {

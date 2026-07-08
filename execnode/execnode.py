@@ -551,6 +551,8 @@ async def h_flip_game(request):
     out = {"exists": True, "stake": g["stake"], "pot": g["pot"], "settled": g["settled"],
            "deadline": g["deadline"], "cursor": st.cursor, "ncom": len(g["players"]), "nrev": nrev,
            "players": players}
+    if g.get("rematch"):                          # a player opened a rematch -> invite the opponent in place
+        out["rematch"] = g["rematch"]
     if len(g["players"]) == 2 and nrev == 2:      # both revealed -> the result is public + reproducible
         s1 = next(p["secret"] for p in g["players"].values() if p["slot"] == 1)
         s2 = next(p["secret"] for p in g["players"].values() if p["slot"] == 2)
