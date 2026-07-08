@@ -148,7 +148,29 @@ async def tail_loop():
                         # cold-start on a pruned chain. (A body that is merely lagging can't be finalized.)
                         state.cursor = h
                         continue
+                    # DA PRE-RESOLVE (all-or-nothing per block): a field_transfer blob carries only the
+                    # proof's `proof_da` commitment (the ~1-4MB STARK proof is too big for an L1 blob). Resolve
+                    # every such proof from the DA layer BEFORE mutating any state, so a single unavailable
+                    # proof stalls the WHOLE block in L1 order rather than half-applying it. Every honest node
+                    # fetches the identical bundle by commitment → applies the identical transfer → no divergence.
+                    resolved = {}
+                    stalled = False
                     for tx in block.get("block_transactions", []):
+                        d = tx.get("data")
+                        if (tx.get("recipient") == "blob" and isinstance(d, dict)
+                                and d.get("op") == "field_transfer" and d.get("proof_da") and "bundle_json" not in d):
+                            bb = await da_fetch(session, d["proof_da"])
+                            if bb is None:
+                                stalled = True
+                                break
+                            resolved[tx.get("txid")] = bb.decode()
+                    if stalled:
+                        print(f"[execnode] block {h}: a field_transfer proof is UNAVAILABLE via DA — "
+                              f"stalling at {h} (retry next poll; L1 order preserved)", flush=True)
+                        break                                  # do NOT advance cursor; no partial apply
+                    for tx in block.get("block_transactions", []):
+                        if tx.get("txid") in resolved and isinstance(tx.get("data"), dict):
+                            tx = {**tx, "data": {**tx["data"], "bundle_json": resolved[tx["txid"]]}}
                         r = tx.get("recipient")
                         if r == "blob":
                             # Route the blob to its namespace's state. A blob's ns lives inside its (opaque-to-L1)
