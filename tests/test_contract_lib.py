@@ -94,6 +94,18 @@ def t5_coin_flip_phase_and_player_binding():
     assert st.contracts[cid]["storage"]["nrev"][str(g)] == 1, "non-committer reveal rejected (no hijack/DoS)"
 
 
+def t7_deploy_stores_abi():
+    """A deploy blob's optional `abi` (arg names + docs) is stored on the contract record — the UX metadata
+    the wallet renders as labelled arg inputs. Non-consensus, but deterministic (rides the deploy blob)."""
+    st = _st(); abi = C.ABIS["counter"]
+    cid = st.contract_id(A, C.COUNTER, "n1")
+    st.apply_blob({"op": "deploy", "code": C.COUNTER, "abi": abi, "nonce": "n1"}, sender=A, txid="d")
+    assert st.contracts[cid]["abi"] == abi, "abi stored on the contract record"
+    st2 = _st()   # a deploy WITHOUT an abi -> empty (not None), so /exec always returns an object
+    st2.apply_blob({"op": "deploy", "code": C.COUNTER, "nonce": "n1"}, sender=A, txid="d")
+    assert st2.contracts[st2.contract_id(A, C.COUNTER, "n1")]["abi"] == {}
+
+
 def t6_vm_operand_cap_reverts_not_ooms():
     """A DUP;MUL squaring blowup (2^(2^n)) is capped -> the call REVERTS fast (no gigabyte bignum / OOM).
     Gas counts instructions, not operand size, so this is the audit's H-1 fix."""
