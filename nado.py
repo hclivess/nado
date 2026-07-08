@@ -11,9 +11,16 @@ import msgpack
 import zstandard as _zstd
 from aiohttp import web
 
-# Reused, thread-safe compressor for the zstd block-sync wire format (see serialize()). level 3 matches the
-# on-disk block format (ops/block_ops); it writes the content size into the frame so the client can decode.
-_ZSTD_WIRE = _zstd.ZstdCompressor(level=3)
+# zstd block-sync wire compressor (level 3 matches the on-disk block format; writes the content size into the
+# frame so the client can decode). python-zstandard ZstdCompressor is NOT thread-safe, so use a THREAD-LOCAL
+# instance — a shared one, hit concurrently by the API + peer-serving paths, corrupts memory and SEGVs.
+import threading as _threading
+_zstd_wire_tls = _threading.local()
+def _zstd_wire():
+    c = getattr(_zstd_wire_tls, "c", None)
+    if c is None:
+        c = _zstd_wire_tls.c = _zstd.ZstdCompressor(level=3)
+    return c
 
 import versioner
 from config import get_config, get_timestamp_seconds
@@ -73,7 +80,7 @@ def serialize(output, name=None, compress=None):
         # than it needs to be; zstd recovers it (a 50-block batch: ~336KB -> ~115KB). The json/msgpack paths
         # are left untouched so browser light-miners (which fetch single small objects, not block batches)
         # keep working with no zstd dependency.
-        output = _ZSTD_WIRE.compress(msgpack.packb(output))
+        output = _zstd_wire().compress(msgpack.packb(output))
     elif compress == "msgpack":
         output = msgpack.packb(output)
     elif not isinstance(output, dict) and name:

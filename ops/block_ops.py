@@ -22,18 +22,33 @@ import zstandard as zstd
 # (ML-DSA) sigs bloat blocks. This is purely LOCAL/non-consensus (the block HASH is over
 # canonical_bytes, never the stored file), so it can change with no fork. Genesis is also stored
 # this way (genesis.make_genesis calls save_block).
-_ZSTD_C = zstd.ZstdCompressor(level=3)
-_ZSTD_D = zstd.ZstdDecompressor()
+# python-zstandard's ZstdCompressor/ZstdDecompressor are NOT thread-safe — a single instance shared across
+# the node's threads (mining, peer sync, consensus, API disk-reads) corrupts memory and SEGVs backend_c.so.
+# Give each thread its OWN context (cheap; reused within the thread, which is safe).
+import threading as _threading
+_zstd_tls = _threading.local()
+
+def _zc():
+    c = getattr(_zstd_tls, "c", None)
+    if c is None:
+        c = _zstd_tls.c = zstd.ZstdCompressor(level=3)
+    return c
+
+def _zd():
+    d = getattr(_zstd_tls, "d", None)
+    if d is None:
+        d = _zstd_tls.d = zstd.ZstdDecompressor()
+    return d
 
 
 def _pack_block(block) -> bytes:
     """local zstd(msgpack) block-body encoding — non-consensus, see module note (#14)."""
-    return _ZSTD_C.compress(msgpack.packb(block))
+    return _zc().compress(msgpack.packb(block))
 
 
 def _unpack_block(raw: bytes):
     """inverse of _pack_block for locally-stored (trusted) block files."""
-    return msgpack.unpackb(_ZSTD_D.decompress(raw), raw=False)
+    return msgpack.unpackb(_zd().decompress(raw), raw=False)
 
 
 # Bounded decompress for the zstd block-sync WIRE payload (get_blocks_after/before). max_output_size caps a
