@@ -60,10 +60,18 @@ state is*; L1 is the authority on *what order the inputs came in and which root 
   | Endpoint | Purpose |
   |---|---|
   | `/exec/root`, `/exec/settlement` | state root / cursor / settlement status (settle_enabled, last_settled_cursor, ns) |
-  | `/exec/contracts`, `/exec/contract`, `/exec/view` | deployed contracts + storage + read-only calls |
+  | `/exec/contracts`, `/exec/contract`, `/exec/view` | deployed contracts (+ runtime) + storage + read-only calls |
+  | `/exec/examples`, `/exec/runtimes` | the starter contract library + the pluggable runtimes this node can run |
   | `/exec/bridge`, `/exec/withdrawal_proof` | bridge credit view + the Merkle exit proof (tunnels, §7) |
-  | `/exec/shielded*`, `/exec/prove_transfer*`, `/exec/unshield*` | shielded pool + on-device proving |
+  | `/exec/shielded*`, `/exec/prove_transfer*`, `/exec/unshield*` | shielded pool + delegated **prove-only** proving |
   | `/exec/dividend*` | presence-dividend accrual + exit proof |
+  | `/da/publish`, `/da/meta`, `/da/shard`, `/da/get`, `/da/accept` | erasure-coded DA store/serving (§3a) |
+
+- **Pluggable runtimes.** The contract engine is a **registry** (`execnode/runtimes.py`): a contract records the
+  runtime it deployed under (`{"op":"deploy","runtime":"<name>",...}`, default `stackvm`) and every call/view
+  dispatches back to it, so the VM is swappable without touching `state.py` or L1 consensus. A runtime is any
+  object with `validate_code` + `run(code, method, caller, args, storage) → (ok, ret, new_storage)`;
+  determinism is the only hard requirement.
 
 ---
 
@@ -115,6 +123,56 @@ Programmability data reaches the exec layer as **opaque blobs** carried in L1 bl
 - Blob bodies are prunable after the DA window (`rolling-mode-and-da.md`); phones **sample**, they don't store.
 - Because blobs are opaque, a blob's **namespace lives inside the bytes the exec node decodes** — L1 needs no
   blob change to support many rollups (contrast §4).
+
+---
+
+## 3a. DA store & serving — for pruned blobs and oversized proofs — **BUILT**
+
+A blob rides L1 for *ordering*, but its body is prunable and some payloads (a shielded-transfer STARK proof is
+~1–4 MB) are far too big for the 16 KiB per-tx blob cap. Both need **data availability** beyond L1: an
+erasure-coded store served across the peer network.
+
+- **Codec (`ops/da.py`).** Reed–Solomon k-of-n over `P = 2⁶¹−1` (Lagrange), with an **index-bound hash-based
+  (PQ) Merkle commitment** over the shard set. `encode(data,k,n) → {commitment, shards, …}`;
+  `sample_proof`/`verify_sample` check one `(shard, proof)` against the commitment; `reconstruct` rebuilds from
+  any k (and detects a corrupt shard via the redundancy).
+- **Store + serving (`ops/da_store.py`, `/da/*`).** `DaStore.put` erasure-codes + stores every `(shard, proof)`;
+  `accept` stores a *peer-supplied* shard **only if it verifies** against the commitment (no poisoning); `get`
+  reconstructs locally; `prune` drops a settled commitment (rolling window). Served over `/da/publish · meta ·
+  shard · get · accept`.
+- **Universal fetch.** `da_fetch` resolves a commitment by pulling k(+1) **verified** shards from **across the
+  live L1 peer set** (each peer runs the exec/DA node on the convention port) — not a single configured URL —
+  and caches the result, so proofs **spread organically** as nodes fetch. Phones never participate: DA is a
+  full/exec/DA-node concern; phones read state from relays.
+
+### DA-backed shielded transfers (the shielded pool is multi-validator-settleable)
+
+A shielded transfer's proof can't fit a blob, so **only its statement + the proof's DA `commitment` ride L1**
+(`{op:"field_transfer","proof_da":<commitment>}`), fixing the transfer's order and (via the commitment) its
+content. Each exec node **pre-resolves** every such proof from DA *before* mutating state, all-or-nothing per
+block — an unavailable proof **stalls the block in L1 order** rather than half-applying it. Every honest node
+fetches the identical bundle by commitment and applies the identical transfer, so the pool is reconstructible
+by the whole bonded quorum (not a single operator). The wallet's on-device prover publishes the proof to
+`/da/publish` then submits the commitment blob (DA-only — no legacy single-node apply path). See
+[privacy.md](privacy.md).
+
+---
+
+## 3b. Contract library — the first exec-node contracts — **BUILT**
+
+`execnode/contract_lib.py` is a small assembler abstraction plus **generalized method patterns** and the first
+example contracts built from them, so new contracts compose from patterns instead of hand-rolled opcodes:
+
+- **`counter_methods`** → `COUNTER`: a shared integer (`inc`/`get`).
+- **`accumulator_methods`** → `TIP_JAR`: a per-caller running total (`add`/`of`/`mine`) — generalizes tips,
+  reputation, per-address vote weight.
+- **`commit_reveal_methods`** → `COIN_FLIP`: a fair 2-player coin flip — each player `commit`s `HASH(secret)`,
+  then `reveal`s; `flip` returns the parity of `HASH(secret₀‖secret₁)`, unbiasable until both secrets are out.
+  Generalizes sealed-bid auctions and lotteries. (Needs the VM's `HASH`/`MOD` primitives.)
+
+Because VM storage values are ints, a contract can remember an address only as a *key*, not a value — so
+`COIN_FLIP` is a fair-**result** oracle, not an escrow; staking value belongs on L1/the bridge, not in the
+pure-compute VM. Served to the wallet's Rollup tab via `/exec/examples` for one-click deploy.
 
 ---
 
@@ -235,6 +293,12 @@ The mining wallet's **Settlement tab** (`static/interface.*`, `/settlement`) sho
 the L1 settled root & cursor (`/get_settled`), this exec node's tip (`/exec/settlement`), the **gap** awaiting
 settlement, whether **your** exec root agrees with the quorum, and **your role** (Settling / Bonded-not-settling
 / Observer) from your bonded stake. Bridge, shielded, and dividend tunnels are driven from their own tabs.
+
+The **Rollup tab** (`/rollup`) is the contract front-end: pick a namespace, **browse** deployed contracts (list
+→ methods + storage), **deploy** (paste code or one-click an example from `/exec/examples`), and **call** a
+method (a `call` blob, applied at finality) or **view** it read-only (`/exec/view`). Each contract shows its
+pluggable runtime. Tabs are grouped into dropdown menus (Wallet / Rollups / Explore / Govern) and everything is
+routed through i18n.
 
 ---
 
