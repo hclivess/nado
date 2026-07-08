@@ -48,7 +48,10 @@ def main():
         print("FATAL: no `en` table found"); return 2
     en = langs["en"]
 
-    missing_en = sorted(ref - en)
+    # keys built at runtime (i18("hist."+type, …)) surface as a trailing-dot prefix; swap role labels pass a
+    # COMPUTED fallback (not a static string) — neither is a real static key, so exclude them.
+    DYNAMIC = {"swap.roleClaimant", "swap.roleSender"}
+    missing_en = sorted(k for k in (ref - en) if not k.endswith(".") and k not in DYNAMIC)
     print(f"referenced keys: {len(ref)} | en defines: {len(en)} | languages: {len(langs)}\n")
     if missing_en:
         print(f"[FAIL] {len(missing_en)} referenced key(s) MISSING from the English base (render raw fallback):")
