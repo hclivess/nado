@@ -781,20 +781,44 @@ async def get_rich_list(request):
 
 
 async def get_open_weights(request):
-    """GET /get_open_weights: the CURRENT epoch's open registry as {address: fidelity-weighted open-lane
-    shares} — the execution node reads this to accrue the presence dividend. Rate-limited 60/min per IP."""
-    # Present open registry + open-lane weights for the CURRENT epoch — the execution node reads this to
-    # accrue the presence dividend to currently-present miners, fidelity-weighted (doc/presence-dividend.md).
+    """GET /get_open_weights[?epoch=E]: open-lane weights {address: fidelity-weighted shares}. With ?epoch=
+    it returns the DETERMINISTIC, reconstructible weights_at_epoch(E) (present set + fidelity AS OF epoch E)
+    — what the execution node accrues the presence dividend against, per completed epoch. Without it, the
+    CURRENT epoch's live weights (legacy). Rate-limited 60/min per IP."""
     if _rate_limited(request, 60):
         return _RL
+    q_epoch = request.query.get("epoch")
     def _work():
-        """Read the open registry and weight by fidelity (worker thread)."""
-        from ops.account_ops import get_open_registry
+        """Read the open-lane weights (worker thread)."""
         from ops.mining_ops import open_shares, epoch_of
+        if q_epoch is not None:
+            from ops.dividend_ops import weights_at_epoch
+            try:
+                e = int(q_epoch)
+            except (TypeError, ValueError):
+                return {"error": "bad epoch"}
+            return {"epoch": e, "weights": weights_at_epoch(e)}
+        from ops.account_ops import get_open_registry
         epoch = epoch_of(memserver.latest_block["block_number"])
         reg = get_open_registry(epoch)
         weights = {addr: open_shares(info.get("fidelity", 0)) for addr, info in reg.items()}
         return {"epoch": epoch, "weights": weights}
+    return _resp(await asyncio.to_thread(_work))
+
+
+async def get_dividend_inflow(request):
+    """GET /get_dividend_inflow?epoch=E: the TOTAL DIVIDEND_POOL inflow credited during epoch E — the
+    deterministic, epoch-bound amount the execution node distributes over weights_at_epoch(E). 400 on a bad
+    epoch. Rate-limited 60/min per IP."""
+    if _rate_limited(request, 60):
+        return _RL
+    try:
+        e = int(request.query.get("epoch", ""))
+    except (TypeError, ValueError):
+        return _resp({"error": "bad epoch"}, status=400)
+    def _work():
+        from ops.kv_ops import dividend_inflow_get
+        return {"epoch": e, "inflow": dividend_inflow_get(e)}
     return _resp(await asyncio.to_thread(_work))
 
 
@@ -1112,6 +1136,7 @@ async def make_app(port):
         web.get("/posw_difficulty", get_posw_difficulty),
         web.get("/get_rich_list", get_rich_list),
         web.get("/get_open_weights", get_open_weights),
+        web.get("/get_dividend_inflow", get_dividend_inflow),
         web.get("/get_settled", get_settled),
         web.get("/resolve_alias", resolve_alias),
         web.get("/msig_address", msig_address),

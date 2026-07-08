@@ -15,6 +15,7 @@ from protocol import (split_open_block_reward, split_bonded_block_reward, TREASU
                       DIVIDEND_POOL)
 from ops.account_ops import change_balance, increase_produced_count
 from ops.mining_ops import lane_of, epoch_of
+from ops import kv_ops
 from ops.block_ops import epoch_beacon
 
 
@@ -36,6 +37,9 @@ def credit_block_reward(block, logger, revert=False):
         change_balance(address=creator, amount=tip, revert=revert, logger=logger)
         if dividend:
             change_balance(address=DIVIDEND_POOL, amount=dividend, revert=revert, logger=logger)
+            # track the per-epoch dividend inflow (deterministic, revert-symmetric) so the exec node can
+            # accrue an epoch-bound amount over weights_at_epoch instead of a live pool-balance delta.
+            kv_ops.dividend_inflow_add(epoch_of(block["block_number"]), dividend, revert)
         if treasury:
             change_balance(address=TREASURY_ADDRESS, amount=treasury, revert=revert, logger=logger)
         increase_produced_count(address=creator, amount=tip, revert=revert, logger=logger)
@@ -45,6 +49,9 @@ def credit_block_reward(block, logger, revert=False):
         change_balance(address=creator, amount=producer_cut, revert=revert, logger=logger)
         if dividend:
             change_balance(address=DIVIDEND_POOL, amount=dividend, revert=revert, logger=logger)
+            # track the per-epoch dividend inflow (deterministic, revert-symmetric) so the exec node can
+            # accrue an epoch-bound amount over weights_at_epoch instead of a live pool-balance delta.
+            kv_ops.dividend_inflow_add(epoch_of(block["block_number"]), dividend, revert)
         if treasury:
             change_balance(address=TREASURY_ADDRESS, amount=treasury, revert=revert, logger=logger)
         increase_produced_count(address=creator, amount=producer_cut, revert=revert, logger=logger)

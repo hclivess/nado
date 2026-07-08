@@ -175,17 +175,26 @@ async def tail_loop():
                         _st.cursor = h
                     applied += 1
                 if applied:
-                    # PRESENCE DIVIDEND (doc/presence-dividend.md): distribute the DIVIDEND_POOL growth among
-                    # the CURRENTLY-PRESENT open miners, fidelity-weighted. Read the pool balance + present
-                    # weights from L1; accrue_dividend only credits miners in this epoch's present set.
+                    # PRESENCE DIVIDEND (doc/presence-dividend.md) — DETERMINISTIC per-epoch accrual: for each
+                    # fully-completed epoch not yet accrued, distribute that epoch's total DIVIDEND_POOL inflow
+                    # (L1 /get_dividend_inflow?epoch=E) over weights_at_epoch(E) (L1 /get_open_weights?epoch=E).
+                    # Both are epoch-bound, so accrual is a PURE FUNCTION of the finalized block stream —
+                    # identical on every node, committed in state_root. (The old code read a LIVE pool balance +
+                    # LIVE current-epoch weights per poll batch → non-deterministic → default-layer settlement
+                    # divergence.) Dividend is a DEFAULT-layer feature, so it accrues on `state`.
                     try:
-                        pool = await _get_json(session, "/get_account?address=dividend")
-                        pool_bal = int(pool.get("balance", 0)) if isinstance(pool, dict) and "balance" in pool else 0
-                        ow = await _get_json(session, "/get_open_weights")
-                        weights = (ow or {}).get("weights", {}) if isinstance(ow, dict) else {}
-                        dist = state.accrue_dividend(pool_bal, weights)
-                        if dist:
-                            print(f"[execnode] dividend +{dist} raw to {len(weights)} present miner(s)", flush=True)
+                        from protocol import EPOCH_LENGTH
+                        cur_epoch = state.cursor // EPOCH_LENGTH
+                        while state.last_div_epoch < cur_epoch - 1:      # only epochs the cursor has fully passed
+                            E = state.last_div_epoch + 1
+                            inf = await _get_json(session, f"/get_dividend_inflow?epoch={E}")
+                            inflow = int(inf.get("inflow", 0)) if isinstance(inf, dict) else 0
+                            ow = await _get_json(session, f"/get_open_weights?epoch={E}")
+                            weights = (ow or {}).get("weights", {}) if isinstance(ow, dict) else {}
+                            dist = state.accrue_dividend_epoch(inflow, weights)
+                            state.last_div_epoch = E
+                            if dist:
+                                print(f"[execnode] dividend epoch {E}: +{dist} raw to {len(weights)} miner(s)", flush=True)
                     except Exception as e:
                         print(f"[execnode] dividend accrue error: {e}", flush=True)
                     for _st in states.values():

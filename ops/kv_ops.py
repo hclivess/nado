@@ -688,6 +688,22 @@ def xmsg_nullifier_del(from_ns: str, seq: int):
     meta_del(f"xmsgnull:{from_ns}:{int(seq)}")
 
 
+# --- Per-epoch DIVIDEND inflow: the total credited to DIVIDEND_POOL during each epoch, so the execution
+# node distributes a DETERMINISTIC, epoch-bound amount (over weights_at_epoch) instead of a live pool-balance
+# delta. Revert-symmetric (a rolled-back block subtracts its credit). Makes accrual a pure function of the
+# finalized block stream. ---
+
+def dividend_inflow_add(epoch: int, amount: int, revert: bool = False):
+    """Accumulate (revert=False) or reverse (revert=True) the DIVIDEND_POOL inflow credited during `epoch`."""
+    k = f"divinflow:{int(epoch)}"
+    meta_set_int(k, meta_get_int(k, 0) + (-int(amount) if revert else int(amount)))
+
+
+def dividend_inflow_get(epoch: int) -> int:
+    """Total dividend inflow credited during `epoch` (0 if none)."""
+    return meta_get_int(f"divinflow:{int(epoch)}", 0)
+
+
 # --- Shielded-pool UNSHIELD nullifiers: each (addr, nonce) unshield exit is claimable on L1 exactly once ---
 def shield_nullifier_exists(addr: str, nonce: str) -> bool:
     """True if the (addr, nonce) unshield exit was already claimed (double-claim replay guard)."""

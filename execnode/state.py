@@ -66,7 +66,7 @@ class ExecState:
         # currently-present miners, fidelity-weighted. `collect_dividend` burns a balance into a provable
         # withdrawal (same machinery as the bridge), claimed on L1 against the settled root.
         self.dividend = {}         # addr -> accrued (uncollected) dividend, raw
-        self.dividend_pool_seen = 0  # last L1 DIVIDEND_POOL balance already distributed (delta = new dividend)
+        self.last_div_epoch = -1   # highest fully-completed epoch already accrued (deterministic watermark)
         self.div_carry = 0         # undistributed remainder carried to the next accrual (no dust lost)
         self.dividend_withdrawals = {}  # nonce(str) -> {"addr":.., "amount":..} : provable dividend claims
         self.dw_nonce = 0          # monotonic dividend-withdrawal nonce counter (deterministic)
@@ -102,7 +102,7 @@ class ExecState:
             self.outbox = d.get("outbox", [])
             self.inbox = d.get("inbox", [])
             self.dividend = d.get("dividend", {})
-            self.dividend_pool_seen = d.get("dividend_pool_seen", 0)
+            self.last_div_epoch = d.get("last_div_epoch", -1)
             self.div_carry = d.get("div_carry", 0)
             self.dividend_withdrawals = d.get("dividend_withdrawals", {})
             self.dw_nonce = d.get("dw_nonce", 0)
@@ -125,7 +125,7 @@ class ExecState:
             payload = {"contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
                        "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce,
                        "outbox": self.outbox, "inbox": self.inbox,
-                       "dividend": self.dividend, "dividend_pool_seen": self.dividend_pool_seen,
+                       "dividend": self.dividend, "last_div_epoch": self.last_div_epoch,
                        "div_carry": self.div_carry, "dividend_withdrawals": self.dividend_withdrawals,
                        "dw_nonce": self.dw_nonce, "shielded": self.shielded.to_dict(),
                        "unshield_withdrawals": self.unshield_withdrawals, "uw_nonce": self.uw_nonce,
@@ -201,26 +201,19 @@ class ExecState:
         proof = merkle_proof(self._leaves(), dividend_leaf(w["addr"], w["amount"], str(nonce)))
         return {"addr": w["addr"], "amount": w["amount"], "nonce": str(nonce), "proof": proof}
 
-    def accrue_dividend(self, pool_balance, weights):
-        """Distribute the DIVIDEND_POOL growth since the last call among the CURRENTLY-PRESENT open miners,
-        pro-rata by their open-lane WEIGHT (fidelity 1..10). `weights` = {addr: weight} for THIS epoch's
-        present set; absent miners aren't in it and accrue nothing. The remainder carries so no raw is lost.
-        Returns the amount distributed. (Off-L1; the resulting balances are committed in state_root.)"""
-        pool_balance = int(pool_balance)
-        delta = pool_balance - self.dividend_pool_seen
-        if delta <= 0 or not weights:
-            # Track the watermark DOWN as well as up. The DIVIDEND_POOL balance legitimately shrinks when a
-            # dividend_withdraw claim debits it — but those coins were already distributed in an EARLIER accrual
-            # (you can only claim what was accrued -> collected -> settled), so the baseline must follow the pool
-            # down. The old max() pinned it at the high-water mark, so any fresh inflow BELOW that mark (after a
-            # claim, or an L1 reorg reversing a pool credit) yielded delta<=0 and was distributed to NOBODY until
-            # cumulative inflow re-crossed the mark — stranding accrual. This is off-L1 and the L1 pool-floor at
-            # claim (pool.balance >= amount) caps aggregate payout regardless, so tracking down cannot over-pay L1.
-            self.dividend_pool_seen = pool_balance
-            return 0
-        pot = delta + self.div_carry
-        total_w = sum(max(1, int(w)) for w in weights.values())
-        if total_w <= 0:
+    def accrue_dividend_epoch(self, inflow, weights):
+        """DETERMINISTIC per-epoch accrual. Distribute `inflow` — the TOTAL DIVIDEND_POOL inflow credited
+        during one epoch (from L1 `dividend_inflow_get(E)`, revert-safe) — plus the carried remainder among
+        `weights` = weights_at_epoch(E) (fidelity-weighted, from L1), pro-rata and integer-only. This is a
+        PURE FUNCTION of (inflow, weights): every node that accrues the same epoch reaches the identical
+        `dividend` map, so the committed state_root can't diverge (the old accrue_dividend read a LIVE pool
+        balance + LIVE current-epoch weights per poll batch — non-deterministic, which broke settlement of
+        the default layer). No present miners this epoch → the whole inflow carries forward (no raw lost).
+        Returns the amount distributed. The caller advances last_div_epoch and never re-accrues an epoch."""
+        pot = int(inflow) + self.div_carry
+        total_w = sum(max(1, int(w)) for w in weights.values()) if weights else 0
+        if pot <= 0 or total_w <= 0:
+            self.div_carry = max(0, pot)                         # carry forward until there's a present set
             return 0
         distributed = 0
         for addr, w in sorted(weights.items()):                  # sorted -> deterministic across nodes
@@ -229,7 +222,6 @@ class ExecState:
                 self.dividend[addr] = self.dividend.get(addr, 0) + share
                 distributed += share
         self.div_carry = pot - distributed                       # keep the sub-unit remainder for next time
-        self.dividend_pool_seen = pool_balance
         return distributed
 
     def state_root(self):
