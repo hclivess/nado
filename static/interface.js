@@ -4164,6 +4164,34 @@ async function ensureFastStarkHash() {
   try { setFieldWasm(await initGoldilocksWasm()); } catch (e) { /* NTT stays pure-JS BigInt */ }
   _starkInit = true;
 }
+// DA-backed submission: publish the ~1-4MB proof to the DA layer (too big for a 16KB blob), then submit an
+// L1 blob carrying ONLY the proof's commitment. Every exec node resolves the proof by that commitment from
+// DA and applies it in L1 ORDER — so the shielded pool becomes reconstructible by the whole bonded quorum,
+// not just the one node we POST to. Falls back to the legacy single-operator POST /exec/apply_field_transfer
+// when the node exposes no /da/publish (older nodes), so the flow keeps working through the transition.
+async function _daSubmitFieldTransfer(bundle, execBase) {
+  let commitment = null;
+  try {
+    const pr = await fetch(execBase + "/da/publish", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bundle) });
+    if (pr.ok) commitment = (await pr.json()).commitment;
+  } catch (e) { /* DA unreachable -> legacy fallback below */ }
+  if (commitment && state.wallet) {
+    const latest = await getLatestBlock();
+    if (latest) {
+      const tx = buildBlobTx(state.wallet, { op: "field_transfer", proof_da: commitment },
+        latest.block_number + 8, MIN_TX_FEE, nowSeconds());
+      const res = await submitTransaction(tx);
+      return { ok: !!(res.data && res.data.result), da: true, commitment, txid: tx.txid,
+               message: res.data && res.data.message };
+    }
+  }
+  // legacy single-operator fallback: apply directly on the exec node we're talking to
+  const res = await (await fetch(execBase + "/exec/apply_field_transfer", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bundle) })).json();
+  return { ok: res.ok, applied: res.applied, da: false };
+}
+
 async function _onDeviceProve2(wit, execBase) {
   await ensureFastStarkHash();
   ensureShielded();
@@ -4189,9 +4217,10 @@ async function _onDeviceProve2(wit, execBase) {
   const bundle = { stark: { joinsplit2: { proof: ser(proof), root: bt.root.toString(), nf: bt.nf.toString(),
     cm_out1: bt.cm1.toString(), cm_out2: bt.cm2.toString(), public_value: wit.public_value, fee: wit.fee } } };
   if (wit.withdraw_addr) bundle.withdraw_addr = wit.withdraw_addr;
-  const res = await (await fetch(execBase + "/exec/apply_field_transfer", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bundle) })).json();
-  return { ok: res.ok, applied: res.applied, cm_out1: bt.cm1.toString(), cm_out2: bt.cm2.toString() };
+  // DA-backed path (falls back to legacy POST-apply on nodes without /da/publish)
+  const res = await _daSubmitFieldTransfer(bundle, execBase);
+  return { ok: res.ok, applied: res.applied, da: res.da, commitment: res.commitment,
+           cm_out1: bt.cm1.toString(), cm_out2: bt.cm2.toString() };
 }
 if (typeof window !== "undefined") window.nadoProve2 = _onDeviceProve2;
 
