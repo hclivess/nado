@@ -78,6 +78,41 @@ def t4_default_determinism_preserved():
     assert s1.state_root() == s2.state_root(), "default determinism holds"
 
 
+def t5_outbox_emit_commit_and_proof():
+    """Prove `emit` commits a cross-domain message in state_root and outbox_proof verifies against it."""
+    from hashing import verify_merkle_proof
+    from execnode.state import _outbox_leaf
+    st = _states(["default"])["default"]
+    r0 = st.state_root()
+    st.apply_blob({"op": "emit", "to_ns": "rollupb", "data": {"hello": 1}}, A, "e1")
+    st.apply_blob({"op": "emit", "to_ns": "rollupb", "data": [1, 2, 3]}, B, "e2")
+    assert len(st.outbox) == 2, "two messages committed"
+    assert st.state_root() != r0, "emitting a message changes the committed root"
+    p = st.outbox_proof(0)
+    assert p is not None and p["message"]["from"] == A and p["message"]["to_ns"] == "rollupb"
+    assert verify_merkle_proof(_outbox_leaf(p["message"]), p["proof"], st.state_root()), \
+        "message proves against state_root"
+    assert st.outbox_proof(9) is None, "unknown seq -> None"
+
+def t6_outbox_determinism():
+    """Prove two nodes emitting the same messages reach the same state_root (message commitment is deterministic)."""
+    s1 = _states(["default"])["default"]; s2 = _states(["default"])["default"]
+    for s in (s1, s2):
+        s.apply_blob({"op": "emit", "to_ns": "x", "data": {"k": "v"}}, A, "e1")
+    assert s1.state_root() == s2.state_root(), "same emits -> same root"
+
+def t7_outbox_persists():
+    """Prove the outbox survives a save/load round-trip (a restarted exec node keeps its messages)."""
+    import tempfile
+    from execnode.state import ExecState
+    path = tempfile.mktemp(prefix="nado_ob_", suffix=".json")
+    s = ExecState(path)
+    s.apply_blob({"op": "emit", "to_ns": "y", "data": 7}, A, "e1")
+    root = s.state_root(); s.save()
+    s2 = ExecState(path)
+    assert len(s2.outbox) == 1 and s2.state_root() == root, "outbox reloaded, root identical"
+
+
 for name, fn in list(globals().items()):
     if name.startswith("t") and callable(fn) and name[1].isdigit():
         check(name, fn)

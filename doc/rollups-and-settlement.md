@@ -67,6 +67,43 @@ state is*; L1 is the authority on *what order the inputs came in and which root 
 
 ---
 
+## 2a. The VM vs. the execution node — a precise split
+
+These are two different things, and conflating them causes confusion. The **VM** is a pure function; the
+**execution node** is the stateful service around it.
+
+| | **The VM** (`execnode/vm.py`) | **The execution node** (`execnode/execnode.py` + `execnode/state.py`) |
+|---|---|---|
+| What it is | a deterministic **interpreter for one contract call** | a long-running **service** that holds state and orchestrates everything |
+| Shape | `run(code, method, sender, args, storage) → (ok, ret, new_storage)` — a **pure function** | a process: tail loop + `ExecState` + `/exec/*` HTTP API |
+| Owns state? | **No** — storage is passed in, new storage returned out | **Yes** — contracts, bridge balances, shielded pool, dividend, **outbox**, cursor (`ExecState`) |
+| Knows blocks / L1 / cursor? | **No** | **Yes** — tails finalized L1 blocks, tracks `cursor` |
+| Knows blobs / deploy / emit / bridge / settlement / namespaces? | **No** | **Yes** — `apply_blob` dispatch, `credit_deposit`, `maybe_settle`, per-`ns` states |
+| I/O, network, time? | **None** (sandboxed — no ambient anything, no floats) | network (L1 + API), disk (persistence), poll timer |
+| Determinism scope | one call is a pure function of its inputs | the **whole state** is a pure function of the ordered L1 blob stream |
+| On failure | a revert is `ok=False`, storage unchanged | a bad blob is a skipped no-op; the loop never dies |
+| Merkle root / proofs | — | `state_root()`, `withdrawal_proof`, `outbox_proof`, … |
+| Relationship | **called by** the node for `deploy` (constructor) and `call` | **calls** the VM as a subroutine; does everything else itself |
+
+**In one sentence:** the VM runs a *single contract method* in a sandbox; the execution node is the service
+that holds the state, reads the ordered L1 blobs, decides what each blob does, invokes the VM for the contract
+ones, and commits / serves / settles the result.
+
+What happens when block N arrives:
+1. the **exec node** pulls block N's blobs in L1 order (per namespace);
+2. for a `call`/`deploy` blob it **invokes the VM** (`run(...)`) with the target contract's current storage;
+3. it writes the VM's `new_storage` back into `ExecState.contracts`;
+4. for non-contract ops (`emit`, `bridge`, `shield`, `dividend`) the **exec node handles them directly — the
+   VM is never involved**;
+5. it recomputes `state_root()`, persists, and (if bonded) settles it.
+
+The VM never sees a bridge, a blob, a namespace, an outbox, or a settlement — those are **all** the exec node.
+This split is deliberate: the VM stays a tiny, auditable, deterministic core, while the node carries the messy
+orchestration. It also draws the Phase-2b line exactly — a validity proof would prove **the VM's execution**
+(the pure function), never the node's orchestration.
+
+---
+
 ## 3. Data availability — `blob`s
 
 Programmability data reaches the exec layer as **opaque blobs** carried in L1 blocks:
@@ -172,11 +209,17 @@ settled-root Merkle-proof pattern** as the bridge.
 The open-lane **presence dividend** accrues off-L1 on the exec layer and is withdrawn in aggregate via
 `dividend_withdraw`, proven against the settled root (`presence-dividend.md`). Same exit pattern.
 
-### 7.4 Cross-rollup message tunnel (namespace A → namespace B) — **DESIGN**
-Because all namespaces settle to the same L1 and read the same ordered stream, a message from rollup A can be a
-blob A emits that B consumes, finalized against A's settled root. Atomicity/latency semantics and a
-forced-inclusion **escape hatch** (exit against the last settled root if a rollup stalls) are open items
-(`l2-settlement.md` §9).
+### 7.4 Cross-rollup message tunnel (namespace A → namespace B) — **outbox BUILT, delivery DESIGN**
+The **sender half is built**: the `emit` blob op appends a message to the rollup's **outbox**
+(`ExecState.outbox`), committed in `state_root` and provable via `outbox_proof(seq)` /
+`GET /exec/outbox_proof?ns=&seq=` — the exact `withdrawal_proof` pattern (`tests/test_exec_namespaces.py`
+t5–t7). A consumer verifies that Merkle branch against A's **settled** root (`/get_settled?ns=A`).
+The **delivery half is design**: a receiver consuming a message *deterministically* (a deliver-blob carrying
+the message + proof + a nullifier, verified against A's settled root **inside B's own blob stream** so every
+B-node agrees on B's root), plus atomicity/latency semantics and a forced-inclusion **escape hatch** — open
+items (`l2-settlement.md` §9). Only the trustless proof-carrying path is sound: a receiver must never fold in
+a message that isn't in its own blob stream, or its `state_root` would diverge from B-only nodes and break
+settlement.
 
 **Every tunnel shares one invariant:** value/messages only cross on a **proof against a settled root** +
 **nullifier** (no replay). The settled root is the single trust anchor; the tunnels never trust the exec node
@@ -221,7 +264,8 @@ settlement, whether **your** exec root agrees with the quorum, and **your role**
 | Phase-2b **validity proof** (zkVM over arbitrary exec) | **designed — real crypto build, not stubbed** |
 | DA erasure-coding + hash-based sampling; higher blob budget | designed |
 | Recursive proof aggregation (one proof settles many rollups) | designed |
-| Cross-rollup message tunnel + forced-exit escape hatch | designed |
+| **Cross-domain outbox** (`emit` op, committed messages, `outbox_proof`) | **built (this work)** |
+| Cross-rollup message **delivery** (proof-carrying deliver-blob) + forced-exit escape hatch | designed |
 
 ---
 
@@ -233,6 +277,7 @@ settlement, whether **your** exec root agrees with the quorum, and **your role**
 | Settlement predicate + pointer + 2b seam | `ops/settlement_ops.settlement_justified` / `latest_settled` / `set_settlement_verifier` |
 | Settle tx + validation + reflect | `ops/transaction_ops.construct_settle_tx` + settle validate arm; `ops/account_ops` reflect arm |
 | Bridge tunnel | `construct_bridge_deposit_tx` / `construct_bridge_withdraw_tx`; `bridge`/`bridge_withdraw` arms; `execnode.state.withdrawal_proof` |
+| Cross-domain outbox | `emit` op + `execnode.state.outbox` / `_outbox_leaf` / `outbox_proof`; `/exec/outbox`, `/exec/outbox_proof` |
 | Exec node | `execnode/execnode.py` (tail, `maybe_settle`, `/exec/*`), `execnode/state.py`, `execnode/vm.py`, `execnode/stark/` |
 | Node API | `nado.py` `/get_settled?ns=`, `/exec/*` proxy |
 | Wallet | `static/interface.html` + `interface.js` Settlement tab; `nado._TAB_PATHS` |

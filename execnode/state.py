@@ -32,6 +32,14 @@ from execnode.shielded import ShieldedPool, apply_transfer
 MAX_EXIT_VALUE = 1 << 61
 
 
+def _outbox_leaf(msg):
+    """Canonical Merkle leaf for one outbox message. Deterministic (json sort_keys) so every node commits
+    the identical leaf — the message is then provable against state_root via ExecState.outbox_proof, the
+    sound foundation a consumer (another rollup, or L1) verifies once the root is SETTLED."""
+    return canonical_bytes(["outbox", int(msg["seq"]), msg["from"], msg["to_ns"],
+                            json.dumps(msg.get("data"), sort_keys=True)])
+
+
 class ExecState:
     def __init__(self, path):
         """Initialise every state component empty, then load() the last snapshot from `path` if one
@@ -42,6 +50,11 @@ class ExecState:
         self.bridge = {}           # addr -> exec-side bridged balance (credited by L1 `bridge` deposits)
         self.withdrawals = {}      # nonce(str) -> {"addr":.., "amount":..} : provable exit records
         self.wd_nonce = 0          # monotonic withdrawal-nonce counter (deterministic)
+        # CROSS-DOMAIN OUTBOX: messages emitted by this layer (via the `emit` blob op), each committed as a
+        # Merkle leaf in state_root and provable via outbox_proof(seq). This is the sound foundation for
+        # cross-rollup / L1-bound messaging; CONSUMPTION (verifying against the sender's SETTLED root) is a
+        # separate step, see doc/rollups-and-settlement.md §7.4. Append-only; seq == index.
+        self.outbox = []           # [{"seq":i, "from":addr, "to_ns":ns, "data":<any>}]
         # PRESENCE DIVIDEND (doc/presence-dividend.md): off-L1 accrual of the OPEN-lane DIVIDEND_POOL to the
         # currently-present miners, fidelity-weighted. `collect_dividend` burns a balance into a provable
         # withdrawal (same machinery as the bridge), claimed on L1 against the settled root.
@@ -79,6 +92,7 @@ class ExecState:
             self.bridge = d.get("bridge", {})
             self.withdrawals = d.get("withdrawals", {})
             self.wd_nonce = d.get("wd_nonce", 0)
+            self.outbox = d.get("outbox", [])
             self.dividend = d.get("dividend", {})
             self.dividend_pool_seen = d.get("dividend_pool_seen", 0)
             self.div_carry = d.get("div_carry", 0)
@@ -101,7 +115,7 @@ class ExecState:
         # "set changed size during iteration").
         with self._mutate_lock:
             payload = {"contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
-                       "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce,
+                       "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce, "outbox": self.outbox,
                        "dividend": self.dividend, "dividend_pool_seen": self.dividend_pool_seen,
                        "div_carry": self.div_carry, "dividend_withdrawals": self.dividend_withdrawals,
                        "dw_nonce": self.dw_nonce, "shielded": self.shielded.to_dict(),
@@ -136,6 +150,8 @@ class ExecState:
         out.append(canonical_bytes(["field_nfset", *sorted(str(n) for n in self.field_pool.nullifiers)]))
         for nonce, w in self.unshield_withdrawals.items():
             out.append(unshield_leaf(w["addr"], w["amount"], nonce))
+        for msg in self.outbox:                                  # cross-domain messages (append-only)
+            out.append(_outbox_leaf(msg))
         return out
 
     def unshields_for(self, addr):
@@ -214,6 +230,16 @@ class ExecState:
             return None
         proof = merkle_proof(self._leaves(), withdrawal_leaf(w["addr"], w["amount"], str(nonce)))
         return {"addr": w["addr"], "amount": w["amount"], "nonce": str(nonce), "proof": proof}
+
+    def outbox_proof(self, seq):
+        """(msg, proof) for outbox message `seq`, provable against state_root; None if absent. Mirrors
+        withdrawal_proof: a consumer verifies merkle_proof(leaf, proof, settled_root) against the sender
+        rollup's SETTLED root (from L1 /get_settled?ns=) to accept the message trust-minimized."""
+        try:
+            msg = self.outbox[int(seq)]
+        except (IndexError, ValueError, TypeError):
+            return None
+        return {"message": msg, "proof": merkle_proof(self._leaves(), _outbox_leaf(msg))}
 
     def credit_deposit(self, addr, amount):
         """Credit an exec-side bridge balance from an L1 `bridge` deposit (read from the ordered stream)."""
@@ -341,6 +367,18 @@ class ExecState:
                     c["storage"] = new_storage
                     return f"call {cid}.{method} by {sender[:12]}… -> ok"
                 return f"call {cid}.{method} by {sender[:12]}… -> revert (no-op)"
+
+            if op == "emit":
+                # Emit a cross-domain MESSAGE: append {seq, from, to_ns, data} to the outbox, committed in
+                # state_root as an outbox leaf and provable via outbox_proof(seq). This blob only COMMITS the
+                # message; a consumer (another rollup / L1) verifies + delivers it against this rollup's
+                # SETTLED root separately (doc/rollups-and-settlement.md §7.4). Append-only, seq == index.
+                to_ns = payload.get("to_ns")
+                if not isinstance(to_ns, str) or not to_ns:
+                    return "skip: emit needs a non-empty string to_ns"
+                seq = len(self.outbox)
+                self.outbox.append({"seq": seq, "from": sender, "to_ns": to_ns, "data": payload.get("data")})
+                return f"emit #{seq} -> ns={to_ns} by {sender[:12]}…"
 
             if op == "bridge_withdraw":
                 # burn the sender's exec-side bridge balance and record a provable withdrawal leaf; once

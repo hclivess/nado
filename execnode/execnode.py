@@ -264,6 +264,29 @@ async def h_view(request):
     return web.json_response({"cid": cid, "method": method, "result": st.view(cid, method, args)})
 
 
+async def h_outbox(request):
+    """List the cross-domain outbox messages emitted by namespace ?ns= (each {seq, from, to_ns, data})."""
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
+    return web.json_response({"ns": request.query.get("ns", "default"), "outbox": st.outbox})
+
+
+async def h_outbox_proof(request):
+    """Merkle proof (?ns=&seq=) that outbox message `seq` is committed in the namespace's state_root (also
+    returned). A consumer verifies it against the sender rollup's SETTLED root (L1 /get_settled?ns=). 404 if
+    the seq is unknown."""
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
+    p = st.outbox_proof(request.query.get("seq", ""))
+    if p is None:
+        return web.json_response({"error": "not found"}, status=404)
+    p["ns"] = request.query.get("ns", "default")
+    p["state_root"] = st.state_root()
+    return web.json_response(p)
+
+
 async def h_bridge(request):
     """All exec-side bridge balances plus every recorded (still-claimable) withdrawal record."""
     return web.json_response({"balances": state.bridge, "withdrawals": state.withdrawals})
@@ -544,6 +567,8 @@ async def main():
                     web.get("/exec/contracts", h_contracts),
                     web.get("/exec/contract", h_contract),
                     web.get("/exec/view", h_view),
+                    web.get("/exec/outbox", h_outbox),
+                    web.get("/exec/outbox_proof", h_outbox_proof),
                     web.get("/exec/bridge", h_bridge),
                     web.get("/exec/withdrawal_proof", h_withdrawal_proof),
                     web.get("/exec/dividend", h_dividend),
