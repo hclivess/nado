@@ -155,6 +155,7 @@ async function viewThread(id) {
   if (d.thread.pid) html += '<div class="card" id="pidBox"><span class="pill pid">treasury proposal</span> ' +
     '<span class="addr">' + esc(d.thread.pid.slice(0, 18)) + '…</span><div class="tally" id="tally">loading tally…</div></div>';
   html += d.posts.map((p) => {
+    (window.__MD || (window.__MD = {}))[p.id] = p.body_md;   // raw markdown source for the inline editor
     let mod = "";
     if (isMod) {
       mod = '<span class="pmod">' +
@@ -168,10 +169,14 @@ async function viewThread(id) {
           : "") +
         "</span>";
     }
-    return '<div class="post' + (p.deleted ? " deleted" : "") + '"><div class="phead"><span>' +
+    // your own posts (and, for convenience, a mod on any) get an inline edit affordance
+    const editBtn = (!p.deleted && ME && (ME.address === p.author || isMod))
+      ? ' <a href="#" class="pedit" onclick="return startEdit(' + p.id + ')">edit</a>' : "";
+    const editedTag = p.edited_at ? ' <span class="pill">edited ' + ago(p.edited_at) + "</span>" : "";
+    return '<div class="post' + (p.deleted ? " deleted" : "") + '" id="post-' + p.id + '"><div class="phead"><span>' +
       userLink(p.author, d.authors) + "</span>" + (p.deleted ? '<span class="pill del">deleted</span>' : "") +
-      "<span>" + ago(p.created_at) + "</span>" + mod +
-      "</div><div class=\"body\">" + fmt(p.body_md) + "</div></div>";
+      "<span>" + ago(p.created_at) + "</span>" + editedTag + mod + editBtn +
+      '</div><div class="body" id="body-' + p.id + '">' + fmt(p.body_md) + "</div></div>";
   }).join("");
   if (ME && ME.can_post && !d.thread.locked) {
     html += '<div class="card"><h2>Reply</h2><textarea id="rBody" placeholder="Write a reply…"></textarea>' +
@@ -198,6 +203,40 @@ async function viewThread(id) {
     if (res.ok) route();
     else { document.getElementById("rErr").textContent = res.error || "failed"; rb.disabled = false; }
   };
+}
+
+// ---- inline post editing ------------------------------------------------------------------------
+function startEdit(id) {
+  const body = document.getElementById("body-" + id);
+  if (!body || document.getElementById("edit-" + id)) return false;
+  const md = (window.__MD || {})[id] || "";
+  body.dataset.prev = body.innerHTML;                       // stash the rendered body to restore on cancel
+  const ta = document.createElement("textarea");
+  ta.id = "edit-" + id; ta.value = md; ta.style.cssText = "width:100%;min-height:120px";
+  const row = document.createElement("div");
+  row.className = "row"; row.style.marginTop = "8px";
+  row.innerHTML = '<button class="btn" onclick="saveEdit(' + id + ')">Save</button> ' +
+    '<button class="btn secondary" onclick="cancelEdit(' + id + ')">Cancel</button> ' +
+    '<span class="err" id="editerr-' + id + '"></span>';
+  body.innerHTML = "";
+  body.appendChild(ta); body.appendChild(row); ta.focus();
+  return false;
+}
+
+function cancelEdit(id) {
+  const body = document.getElementById("body-" + id);
+  if (body && body.dataset.prev !== undefined) { body.innerHTML = body.dataset.prev; delete body.dataset.prev; }
+}
+
+async function saveEdit(id) {
+  const ta = document.getElementById("edit-" + id);
+  const errEl = document.getElementById("editerr-" + id);
+  if (!ta) return;
+  const body = (ta.value || "").trim();
+  if (!body) { if (errEl) errEl.textContent = "empty"; return; }
+  const r = await postJSON("/api/edit_post", { post_id: id, body });
+  if (r.ok) route();                                        // re-render the thread (shows the "edited" tag)
+  else if (errEl) errEl.textContent = r.error || "failed";
 }
 
 async function renderTally(pid) {

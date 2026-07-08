@@ -565,6 +565,36 @@ async def api_reply(request):
     _last_post[a] = time.time(); _reap_last_post()
     return web.json_response({"ok": True})
 
+
+async def api_edit_post(request):
+    """POST /api/edit_post — edit the body of YOUR OWN post (a mod may edit any). JSON body:
+    {post_id (int), body}. Sets body_md + edited_at; a deleted post can't be edited. No anti-spam gate
+    (editing isn't a new post), but a banned user has no valid session. Returns {ok, edited_at, body_md}."""
+    a = current_user(request)
+    if not a:
+        return jerr("not logged in", 401)
+    try:
+        data = await request.json()
+        pid = int(data.get("post_id", 0))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return jerr("bad post_id")
+    body = (data.get("body") or "").strip()[:BODY_MAX]
+    if not body:
+        return jerr("empty body")
+    con = db()
+    p = con.execute("SELECT * FROM posts WHERE id=?", (pid,)).fetchone()
+    if not p or p["deleted"]:
+        con.close(); return jerr("no such post", 404)
+    role = user_role(con, a)
+    if role == "banned":
+        con.close(); return jerr("this address is banned", 403)
+    if p["author"] != a and role != "mod":
+        con.close(); return jerr("you can only edit your own posts", 403)
+    now = int(time.time())
+    con.execute("UPDATE posts SET body_md=?, edited_at=? WHERE id=?", (body, now, pid))
+    touch_user(con, a); con.commit(); con.close()
+    return web.json_response({"ok": True, "edited_at": now, "body_md": body})
+
 # thread flag toggles: action -> (column, value). Soft delete/restore included (nothing is ever DROPped).
 _THREAD_ACTIONS = {"lock": ("locked", 1), "unlock": ("locked", 0),
                    "pin": ("pinned", 1), "unpin": ("pinned", 0),
@@ -763,6 +793,7 @@ def build_app():
         web.get("/api/thread", api_thread),
         web.post("/api/thread", api_new_thread),
         web.post("/api/reply", api_reply),
+        web.post("/api/edit_post", api_edit_post),
         web.post("/api/mod", api_mod),
         web.get("/api/treasury", api_treasury),
         web.get("/api/profile", api_profile),
