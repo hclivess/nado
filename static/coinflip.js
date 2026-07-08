@@ -11,6 +11,33 @@ const RAW = 10n ** 10n;                 // 1 NADO = 1e10 raw units
 const base = () => location.origin.replace(/\/+$/, "");
 const $ = (id) => document.getElementById(id);
 
+// ---- QR (vendored, best-effort — same generator as the wallet) -----------------------------------
+let qrEncode = null;
+async function loadQR() { try { const m = await import("./vendor/qrcode.js"); qrEncode = m.qrMatrix || null; } catch { qrEncode = null; } }
+function drawQR(canvas, note, text, targetPx) {
+  if (!qrEncode || !canvas) { if (canvas) canvas.classList.add("hidden"); if (note) note.classList.remove("hidden"); return; }
+  try {
+    let m; try { m = qrEncode(text, "M"); } catch { m = qrEncode(text, "L"); }
+    const n = m.length, quiet = 4, dim = n + quiet * 2, px = Math.max(2, Math.floor((targetPx || 200) / dim)), size = dim * px;
+    canvas.width = size; canvas.height = size; canvas.style.width = size + "px"; canvas.style.height = size + "px";
+    const ctx = canvas.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, size, size); ctx.fillStyle = "#000";
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (m[r][c]) ctx.fillRect((c + quiet) * px, (r + quiet) * px, px, px);
+    canvas.classList.remove("hidden"); if (note) note.classList.add("hidden");
+  } catch { canvas.classList.add("hidden"); if (note) note.classList.remove("hidden"); }
+}
+async function shareGame() {
+  if (active == null) return;
+  const url = base() + "/?game=" + active;
+  const stake = (lastGame && lastGame.exists) ? rawToNado(lastGame.stake) + " NADO " : "";
+  if (navigator.share) {
+    try { await navigator.share({ title: "NADO Coin Flip", text: "Flip me for " + stake + "on NADO — join game #" + active + ":", url }); return; }
+    catch (e) { if (e && e.name === "AbortError") return; }
+  }
+  const btn = $("btnShare"); let ok = false;
+  try { await navigator.clipboard.writeText(url); ok = true; } catch {}
+  if (btn) { btn.textContent = ok ? "Copied ✓" : "copy failed"; setTimeout(() => (btn.textContent = "Share"), 1400); }
+}
+
 const LS_ME = "nado_coinflip_me", LS_G = "nado_coinflip_games", LS_P = "nado_coinflip_pending";
 const gamesLoad = () => { try { return JSON.parse(localStorage.getItem(LS_G) || "{}"); } catch { return {}; } };
 const gamesSave = (g) => { try { localStorage.setItem(LS_G, JSON.stringify(g)); } catch {} };
@@ -139,6 +166,7 @@ function wireUI() {
   $("btnSettle").onclick = settle;
   $("btnClaim").onclick = claim;
   $("btnWithdraw").onclick = doWithdraw;
+  $("btnShare").onclick = shareGame;
 }
 const badge = (s) => s === "confirmed" ? '<span class="b ok">confirmed ✓</span>' : s === "pending" ? '<span class="b pend">pending…</span>' : '<span class="b dimb">—</span>';
 function render() {
@@ -161,6 +189,7 @@ function renderActive() {
   const lg = lastGame || {}, local = gamesLoad()[active] || {}, mine = (lg.players || {})[me];
   $("gameId").textContent = "#" + active;
   $("shareLink").value = base() + "/?game=" + active;
+  drawQR($("shareQR"), $("shareQRNote"), base() + "/?game=" + active, 200);
   $("pot").textContent = lg.exists ? rawToNado(lg.pot) + " NADO" : "—";
   $("stakeShown").textContent = lg.exists ? rawToNado(lg.stake) + " NADO" : (local.stake ? rawToNado(local.stake) + " NADO" : "—");
   $("gStatus").textContent = lg.exists ? (lg.ncom + "/2 in · " + lg.nrev + "/2 revealed" + (lg.settled ? " · settled" : "")) : "opening…";
@@ -190,6 +219,7 @@ function renderActive() {
 async function boot() {
   try { await loadCrypto(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
   wireUI();
+  loadQR();
   handleReturn();
   const q = new URLSearchParams(location.search).get("game");
   if (q) { $("joinId").value = q; if (active == null) active = parseInt(q, 10); }   // deep link -> show + auto-poll the game

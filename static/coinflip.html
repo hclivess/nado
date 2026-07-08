@@ -106,8 +106,14 @@
       <button class="primary hidden" id="btnSettle">Settle &amp; pay winner</button>
       <button class="ghost hidden" id="btnClaim">Claim (opponent stalled)</button>
     </div>
-    <label class="mt">Share this game (send to your opponent)</label>
+    <label class="mt">Invite an opponent</label>
     <input id="shareLink" class="mono" readonly onclick="this.select()">
+    <div class="row mt" style="align-items:center;gap:8px">
+      <button class="primary" id="btnShare" style="flex:0 0 auto">Share</button>
+      <span class="dim small">or scan the code to join this game</span>
+    </div>
+    <canvas id="shareQR" class="hidden" style="margin:12px auto 0;display:block;border-radius:8px;background:#fff;padding:8px"></canvas>
+    <div id="shareQRNote" class="hidden dim small mt">QR generator unavailable — copy the link above.</div>
   </div>
 
   <!-- FAIRNESS -->
