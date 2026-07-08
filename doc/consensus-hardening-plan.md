@@ -11,23 +11,32 @@
   from the security path; trust demoted to advisory).
 - **Step 4 — beacon fail-loud: DONE** (silent `GENESIS_BEACON` fallback removed).
 - **Step 5 — pubkey-once (#19) + detached OPTIONAL winner signature (#15): DONE**, now **INCLUDING the
-  equivocation-slashing action (step 5C):** a fee-exempt `slash` tx carrying the two-conflicting-
-  signatures proof (from the detached winner signature) burns `SLASH_BOND_PENALTY` (= `B_MIN`, one
-  share) of the offender's **bonded** stake. Replay-guarded one-per-(offender, height) via a `meta`
-  slash marker; revert-symmetric; burned, not paid to the reporter (anyone may report; the proof is
-  the anti-spam). `verify_equivocation_proof` (`block_ops.py`), `apply_slash` (`account_ops.py`),
-  validation + `reflect_transaction` slash branch.
-- **Step 6 — FFG-lite objective finality (#6): DONE — but ADDITIVE, with an honest scope deviation
-  from the design body below.** Bonded validators emit one `attest` tx per epoch for the epoch
-  checkpoint; a checkpoint JUSTIFIES at strictly **>2/3** of total bonded shares
-  (`attesting*FFG_DEN > total*FFG_NUM`, `FFG_NUM=2`/`FFG_DEN=3`) and FINALIZES on two-consecutive-
-  justified (`ffg_finalized_checkpoint`). On-chain `UNIQUE(validator, epoch)` (attestation index +
-  meta marker) prevents on-chain double-voting. Exposed as **`/status.ffg_finalized`**. **NOTE the
-  shipped shape differs from Step 6's design body:** FFG is wired as an **additive, observable, stake-
-  attested finality SIGNAL layered on top of the time-based floor — it does NOT replace or advance the
-  #17 `finalized_height` rollback bound.** The rollback floor stays purely time-based (`max(prev,
-  tip − FINALITY_DEPTH)`, the liveness guarantee), so FFG **can never stall the chain**; it only
-  records the stronger, accountable finality point alongside it.
+  equivocation-slashing action (step 5C) for BOTH offence types:** a fee-exempt `slash` tx carrying a
+  proof burns `SLASH_BOND_PENALTY` (= `B_MIN`, one share) of the offender's **bonded** stake. The
+  proof is either **(a) block-authorship** — two conflicting winner signatures at one height+parent
+  (`verify_equivocation_proof`, `block_ops.py`) — or **(b) FFG-attestation** — two conflicting `attest`
+  txs for one `target_epoch` with different `target_hash`
+  (`verify_attestation_equivocation_proof`, `transaction_ops.py`); `resolve_slash` unifies them.
+  Replay-guarded one-per-(offender, height) via a `meta` slash marker (attestation slashes namespaced
+  above real block heights); revert-symmetric; burned, not paid to the reporter (anyone may report; the
+  proof is the anti-spam). `apply_slash` (`account_ops.py`), validation + `reflect_transaction` slash
+  branch. **This punishes equivocation, not Sybil-ness** (Sybil = open-lane `OPEN_BPS` cap + locked
+  bonded shares, separately).
+- **Step 6 — FFG objective finality (#6): DONE — and now ENFORCED (matches the design body below).**
+  Bonded validators emit one `attest` tx per epoch for the epoch checkpoint; a checkpoint JUSTIFIES at
+  strictly **>2/3** of the **active** bonded shares (`attesting*FFG_DEN > total*FFG_NUM`,
+  `FFG_NUM=2`/`FFG_DEN=3`) and FINALIZES on two-consecutive-justified (`ffg_finalized_checkpoint`).
+  On-chain `UNIQUE(validator, epoch)` (attestation index + meta marker) prevents on-chain double-voting
+  (cross-fork double-votes are now slashable, Step 5). Exposed as **`/status.ffg_finalized`**. The
+  finalized checkpoint is **folded into the enforced rollback floor** in `incorporate_block`:
+  `finalized_height = max(prev, tip − FINALITY_DEPTH, ffg_finalized)`, so a >2/3-attested checkpoint is
+  **objectively un-reorgable** (`rollback_one_block` refuses to cross it) — no longer merely observed.
+  **INACTIVITY LEAK:** the justify-quorum DENOMINATOR is `active_shares` — bonded validators that
+  attested *some* checkpoint within the last `INACTIVITY_WINDOW = 3` epochs, NOT all bonded stake — so a
+  dark validator is leaked from the finality quorum (its **vote** lapses, **bond untouched**) and a live
+  attesting majority always finalizes. Because FFG is layered on the always-advancing time-based depth
+  floor (the liveness guarantee) and normally *trails* it, FFG **can never stall the chain** and does not
+  speed confirmations; it is the objective/long-range finality on top of the fast subjective floor.
 - **Step 7 — commit-reveal RANDAO (#7): DONE.** Bonded validators `commit` a secret's hash in epoch
   E-2 and `reveal` it in E-1's FINALIZED window; `epoch_beacon` now mixes the finalized anchor with
   the revealed secrets (`compute_beacon(GENESIS_BEACON, [anchor] + secrets)`) so no single anchor-

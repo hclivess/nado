@@ -28,7 +28,11 @@ tested); the remaining items are documented residuals / future hardening.
   `max_rollbacks(10) < FINALITY_DEPTH(30) < EPOCH_LENGTH(60)` asserted at startup; no below-floor reorg.
 - The RANDAO **reveal-immutability bound** (`E*EPOCH_LENGTH - FINALITY_DEPTH - 1`) is exactly tight —
   the `-1` is load-bearing; a `max_rollbacks`-deep reorg cannot change a finalized reveal set.
-- **FFG cannot move the rollback floor or stall the chain** (it only sets `/status.ffg_finalized`).
+- **FFG now advances the rollback floor but can never stall the chain.** A finalized checkpoint is folded
+  in as `finalized_height = max(prev, tip − FINALITY_DEPTH, ffg_finalized)`, making a >2/3-attested
+  checkpoint objectively un-reorgable; because it is layered on the always-advancing depth floor (the
+  liveness guarantee) and its quorum uses the *active* bonded set (inactivity leak), a stalled or absent
+  attester set never wedges finality. Exposed at `/status.ffg_finalized`.
 - **Equivocation-proof unforgeability** (two distinct-message ML-DSA sigs; no malleability/single-sig
   reuse) and **no innocent-victim spoof** (offender = `make_address(pubkey)`; ~168-bit address grind).
 - **Detached signature is outside the block hash** (attach/remove/grind can't change hash/weight/reward).
@@ -43,9 +47,12 @@ tested); the remaining items are documented residuals / future hardening.
   reveals has up to `2^m` grinding combinations; with zero reveals the beacon falls back to the
   finalized anchor (anchor-grindable). Defeated whenever ≥1 honest secret is revealed after the anchor.
   Adding a withholder fidelity dock + a minimum-reveal rule is future work.
-- **FFG "slashable-stake backing" is aspirational** — there is no attestation-equivocation slashing yet
-  (only block-authorship equivocation). On-chain double-voting is prevented by the per-epoch uniqueness
-  marker; cross-fork attestation equivocation is unpunished. FFG remains an observational signal.
+- **FFG slashable-stake backing: CLOSED (no longer a residual).** FFG is now enforced (its finalized
+  checkpoint folds into the rollback floor, above), and **attestation-equivocation slashing is live**:
+  two conflicting attestations for one epoch (same `target_epoch`, different `target_hash`) form a
+  portable proof (`verify_attestation_equivocation_proof`) that burns `SLASH_BOND_PENALTY` of bonded
+  stake via the same `slash` path as block-authorship equivocation (`resolve_slash`). The per-epoch
+  uniqueness marker still blocks on-chain double-voting; cross-fork double-voting is now punished.
 - **The bonded `MAX_SHARES` cap is per-identity, not aggregate** — sharding capital above `BOND_CAP`
   across addresses recovers full proportional weight. The bonded lane is therefore capital-proportional
   ("pay-to-win") by design; the cap limits single-address variance, not aggregate stake.

@@ -23,7 +23,8 @@ confers no advantage and there is nothing to grind. Coins enter circulation only
 
 > **Status: testnet-stage alpha, NOT yet mainnet-launched.** The fair-mining economics and the full
 > consensus-security hardening plan (objective fork-choice, enforced finality, grind-proof chain
-> weight, detached winner signatures + **equivocation slashing**, **FFG-lite stake-attested finality**,
+> weight, detached winner signatures + **equivocation slashing** (block-authorship + FFG attestation),
+> **enforced FFG stake-attested finality**,
 > **commit-reveal RANDAO**) are now implemented; the multi-node, epoch-crossing behaviour of the last
 > three is still only lightly exercised empirically (see [Security](#security)). What genuinely remains
 > is a subset of **eclipse hardening** (ASN-level peer diversity, pinned multi-seed bootstrap, snapshot-
@@ -195,14 +196,18 @@ pair moves it back out after a timelock (see below). Bonded selection weight is
 > every block fell back to the zero-stake OPEN lane — no economic weight behind blocks. Now each lane
 > carries distinct security: the **OPEN lane** is Sybil-capped *presence*, the **BONDED lane** is
 > stake-weighted *capital* that both draws its share of producers and backs finality. A validator that
-> signs **two blocks at the same height+parent** is slashable via the portable double-sign proof
-> (below), and **FFG** (Casper-style stake-attested epoch checkpoints, justifying at a **>2/3
-> bonded-stake** quorum) now records an **accountable economic-finality** point with real stake behind
-> it. **Honest scope:** FFG does **not** speed up confirmations — confirmation finality is still the
-> depth-based floor at `tip − FINALITY_DEPTH` (**~12 blocks**). FFG is **epoch-granular** (60 blocks)
-> accountability and long-range security layered *on top of* that floor, never a latency reduction, and
-> it can never stall the chain. (Attestation-equivocation slashing is still future work, so FFG's
-> stake-slashing backing remains partial — see the residuals below.)
+> signs **two blocks at the same height+parent** — or **two conflicting FFG attestations** for one epoch —
+> is slashable via a portable proof (below), and **FFG** (Casper-style stake-attested epoch checkpoints,
+> justifying at a **strict >2/3** quorum) now **enforces** finality: a justified→finalized checkpoint is
+> folded into the persisted rollback floor, so a >2/3-attested checkpoint is **objectively un-reorgable**
+> (remote sync can't adopt a conflicting heavier chain) — it is no longer merely observed. **Honest scope:**
+> FFG does **not** speed up confirmations — confirmation finality is still the depth-based floor at
+> `tip − FINALITY_DEPTH` (**~12 blocks**), and FFG (**epoch-granular**, 60 blocks) normally *trails* that
+> floor. FFG is the **objective, accountable, long-range** finality layer on top of the fast **subjective**
+> depth floor, never a latency reduction, and it can never stall the chain: the quorum denominator is the
+> *active* bonded set (validators that attested within `INACTIVITY_WINDOW = 3` epochs), so a bonded validator
+> that goes dark is **leaked from the finality quorum** (its vote lapses, its bond untouched) and a live
+> attesting majority can always finalize.
 
 > **Bonded mining is passive — no work, no need to be online.** Once you hold enough to bond (`B_MIN =
 > 10 NADO`), you can stop *actively* mining: the bonded lane is **staking**, not proof-of-work. There is
@@ -526,20 +531,35 @@ code.
   ML-DSA signature **outside** the hash preimage (so it never affects the hash, weight, validity, or
   reward); verifiers reject a present-but-forged or wrong-signer signature. An offline winner's
   relay-built block is simply unsigned and still valid — **"win-while-offline" is preserved**.
-- **Equivocation slashing** — two valid winner signatures over *different* blocks at the *same*
-  height+parent form a portable proof that an identity double-authored a slot. A fee-exempt `slash`
-  transaction carrying that proof burns `SLASH_BOND_PENALTY` (= `B_MIN`, one bonded share) of the
-  offender's **bonded** stake. Anyone may report it (the unforgeable proof is the anti-spam); it is
-  replay-guarded to **one slash per (offender, height)**, revert-symmetric on rollback, and the coins
-  are **destroyed** (the deterrent is the loss, not a bounty). Validation requires the offender still
-  hold the penalty so the dock never floors.
-- **FFG-lite stake-attested finality** — bonded validators emit one `attest` transaction per epoch for
-  that epoch's checkpoint (its first block). A checkpoint **justifies** at *strictly* >2/3 of total
-  bonded shares (`FFG_NUM/FFG_DEN = 2/3`) and **finalizes** on two-consecutive-justified; on-chain
-  `UNIQUE(validator, epoch)` prevents double-voting. This is exposed as **`/status.ffg_finalized`**.
-  It is an **additive, observable, accountable** finality signal layered *on top of* the depth-based
-  floor — it does **not** replace the time-based `finalized_height` (which stays the deeper rollback
-  bound and guarantees liveness), so FFG can never stall the chain.
+- **Equivocation slashing (both proof types)** — slashing punishes **double-signing**, and covers two
+  distinct offences under one `resolve_slash` path: **(1) block-authorship equivocation** — two valid
+  winner signatures over *different* blocks at the *same* height+parent; and **(2) FFG-attestation
+  equivocation** — the same validator signs **two conflicting `attest` transactions** for one
+  `target_epoch` (same epoch, different `target_hash` — a finality double-vote). Either forms a portable,
+  unforgeable proof (only the key-holder can sign either message). A fee-exempt `slash` transaction
+  carrying the proof burns `SLASH_BOND_PENALTY` (= `B_MIN`, one bonded share) of the offender's **bonded**
+  stake. Anyone may report it (the proof is the anti-spam); it is replay-guarded to **one slash per
+  (offender, height)** — attestation slashes are namespaced above real block heights so the two proof
+  types never collide — revert-symmetric on rollback, and the coins are **destroyed** (the deterrent is
+  the loss, not a bounty). Validation requires the offender still hold the penalty so the dock never
+  floors. **This punishes equivocation, not Sybil-ness** — Sybil resistance is a separate mechanism
+  (open lane capped at `OPEN_BPS = 30%` + PoSW cost; bonded lane split-neutral with 10-NADO-locked shares).
+- **FFG stake-attested finality (enforced)** — bonded validators emit one `attest` transaction per epoch
+  for that epoch's checkpoint (its first block). A checkpoint **justifies** when attesting bonded shares
+  *strictly* exceed >2/3 (`FFG_NUM/FFG_DEN = 2/3`) of the **active** quorum, and **finalizes** on
+  two-consecutive-justified; on-chain `UNIQUE(validator, epoch)` prevents on-chain double-voting (and a
+  cross-fork double-vote is now slashable — above). The finalized checkpoint is **folded into the
+  persisted rollback floor** (`finalized_height = max(prev, tip − FINALITY_DEPTH, ffg_finalized)`), so a
+  >2/3-attested checkpoint is **objectively un-reorgable** — remote sync cannot adopt a heavier
+  conflicting chain. **Inactivity leak:** the quorum denominator is `active_shares` — the selection
+  shares of bonded validators that attested *some* checkpoint within the last `INACTIVITY_WINDOW = 3`
+  epochs — **not** all bonded stake. A validator that goes dark is leaked from the finality quorum (its
+  **vote** lapses; its **bond is untouched**), so a live attesting majority always finalizes instead of
+  being wedged by bonded-but-absent stake. This is what let `ffg_finalized` start advancing despite many
+  bonded-but-non-attesting dust accounts. **Honest scope:** FFG is **epoch-granular** and normally
+  *trails* the depth floor, so confirmation latency remains the depth floor (~12 blocks) — FFG is the
+  objective/long-range finality layer on top of the fast subjective floor, never a speedup, and (being
+  layered on the always-advancing floor) it can never stall the chain. Exposed at **`/status.ffg_finalized`**.
 - **Commit-reveal RANDAO (voluntary participation)** — bonded validators `commit` a
   secret's hash in epoch E−2 and `reveal` it in E−1's finalized window; `epoch_beacon` mixes the
   finalized prior-epoch anchor with the revealed secrets, so **no single anchor-producer controls the
@@ -573,11 +593,12 @@ code.
 
 ### Lightly exercised (implemented + unit-tested, but not yet hardened on a live multi-node net)
 
-The equivocation slashing, FFG-lite finality, and commit-reveal RANDAO above are **wired and
-unit-tested for correctness**, but their **multi-node, epoch-crossing** behaviour has only been
-**lightly exercised empirically**: the core loop's ~10 s/block cadence makes crossing the 120+ blocks
-needed to observe a full justify→finalize and a complete commit→reveal cycle slow. They engage as the
-chain crosses epochs; treat their cross-epoch dynamics as not-yet-battle-tested.
+The equivocation slashing (both proof types), FFG finality, and commit-reveal RANDAO above are **wired
+and unit-tested for correctness**, and FFG now **finalizes live** (`ffg_finalized` advances past 0 once
+the active bonded set attests two consecutive checkpoints). Their **multi-node, adversarial,
+epoch-crossing** behaviour is still only **lightly exercised empirically**: the core loop's ~10 s/block
+cadence makes exercising a full justify→finalize under contention and a complete commit→reveal cycle
+slow. Treat their cross-epoch adversarial dynamics as not-yet-battle-tested.
 
 ### Planned (designed, NOT yet implemented — do not rely on these)
 
@@ -588,9 +609,10 @@ chain crosses epochs; treat their cross-epoch dynamics as not-yet-battle-tested.
 
 ### Honest statement of current limits
 
-Objective fork-choice, enforced finality, equivocation slashing, FFG-lite stake-attested finality, and
-the commit-reveal RANDAO make a zero-bond Sybil/IP reorg ineffective, bound the disagreement window
-below one epoch, and layer accountable finality and a non-grindable beacon on top — a substantial
+Objective fork-choice, enforced finality, equivocation slashing (block-authorship + FFG attestation),
+enforced FFG stake-attested finality, and the commit-reveal RANDAO make a zero-bond Sybil/IP reorg
+ineffective, bound the disagreement window below one epoch, and layer objective finality and a
+non-grindable beacon on top — a substantial
 hardening over the previous peer-count fork-choice. Beyond the lightly-exercised cross-epoch behaviour
 of FFG/RANDAO and the outstanding eclipse hardening above, the **documented residuals** from the audit
 (see [`doc/security-audit.md`](doc/security-audit.md)) — none a theft or fork vector — are:
@@ -600,10 +622,12 @@ of FFG/RANDAO and the outstanding eclipse hardening above, the **documented resi
   epoch of production. The residual is only the classic last-revealer bit: with `m` colluding
   withholders, up to `2^m` beacon outcomes — each priced at `m` epochs of forfeited rewards, and
   defeated whenever ≥1 honest secret is revealed after the anchor.
-- **FFG "slashable-stake backing" is aspirational** — there is **no attestation-equivocation slashing**
-  yet (only block-authorship equivocation is slashable). On-chain double-voting is blocked by the
-  per-epoch `UNIQUE(validator, epoch)` marker, but cross-fork attestation equivocation is unpunished;
-  FFG remains an observational signal.
+- **FFG slashable-stake backing: CLOSED.** FFG is no longer observational — the finalized checkpoint is
+  **enforced** in the rollback floor (objectively un-reorgable), and **attestation-equivocation slashing
+  is live**: a validator that signs two conflicting attestations for one epoch loses `SLASH_BOND_PENALTY`
+  of bonded stake via the same `slash` path as block-authorship double-signing. On-chain double-voting is
+  still blocked by the per-epoch `UNIQUE(validator, epoch)` marker; cross-fork double-voting is now
+  punished rather than merely prevented.
 - **The bonded `MAX_SHARES` cap is per-identity, not aggregate** — sharding capital above `BOND_CAP`
   across addresses recovers full proportional weight. The bonded lane is **capital-proportional by
   design**; the cap only limits single-address variance, not aggregate stake.

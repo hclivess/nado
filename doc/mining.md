@@ -169,7 +169,12 @@ Continuity fidelity: `FIDELITY_CAP = 30` consecutive recerts (was 1000 in the he
 `FIDELITY_DECAY` constant any more, and no `FAUCET_STARTER_BOND`: free presence must never mint
 bonded stake, so there is deliberately **no auto-bond faucet**).
 
-Slashing is implemented (`SLASH_BOND_PENALTY = B_MIN`, one share per proven equivocation). Still
+Slashing is implemented (`SLASH_BOND_PENALTY = B_MIN`, one share burned per proven equivocation) and
+now covers **both** equivocation types: block-authorship (two signed blocks at one height+parent) **and**
+FFG-attestation double-votes (two conflicting `attest` txs for one epoch). It punishes **equivocation, not
+Sybil-ness** — Sybil is bounded separately by the `OPEN_BPS` open-lane cap and the locked bonded shares.
+FFG finality is likewise **enforced** now (a >2/3-attested checkpoint folds into the rollback floor,
+un-reorgable), with an inactivity leak so a dark validator loses its finality vote (not its bond). Still
 open for simulation: relay-commission cap, the exact fidelity/open-weight curve, and the bond floor.
 
 > Burn note: the original design sketch had a "congestion-priced registration **burn**"; since
