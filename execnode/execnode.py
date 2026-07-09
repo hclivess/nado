@@ -583,6 +583,43 @@ async def h_flip_games(request):
     return web.json_response({"games": rows[:200], "cursor": st.cursor})
 
 
+async def h_flip_scoreboard(request):
+    """GLOBAL coin-flip leaderboard: aggregate wins/losses/net over every SETTLED game (public state). The
+    winner is recomputed deterministically from the revealed secrets (or the sole revealer on a forfeit
+    claim); the winner nets +stake, the loser −stake. ?provisional=1 for the fast view. Ranked by net."""
+    from hashing import blake2b_hash
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
+    stats = {}
+    def bump(addr, won, net):
+        s = stats.setdefault(addr, {"addr": addr, "wins": 0, "losses": 0, "games": 0, "net": 0})
+        s["games"] += 1; s["net"] += net
+        s["wins" if won else "losses"] += 1
+    for g in st.games.values():
+        if not g.get("settled") or len(g["players"]) != 2:
+            continue
+        by_slot = {p["slot"]: (a, p) for a, p in g["players"].items()}
+        if 1 not in by_slot or 2 not in by_slot:
+            continue
+        (a1, p1), (a2, p2) = by_slot[1], by_slot[2]
+        s1, s2 = p1.get("secret"), p2.get("secret")
+        if s1 is not None and s2 is not None:
+            wslot = 1 if (int(blake2b_hash([s1, s2]), 16) % 2) == 0 else 2
+        elif s1 is not None:
+            wslot = 1                          # forfeit: only slot 1 revealed
+        elif s2 is not None:
+            wslot = 2
+        else:
+            continue                           # nobody revealed -> refund, no winner
+        stake = g["stake"]
+        win_addr, lose_addr = (a1, a2) if wslot == 1 else (a2, a1)
+        bump(win_addr, True, stake)
+        bump(lose_addr, False, -stake)
+    board = sorted(stats.values(), key=lambda x: (-x["net"], -x["wins"], x["losses"]))
+    return web.json_response({"board": board[:100], "cursor": st.cursor})
+
+
 async def h_outbox(request):
     """List the cross-domain outbox messages emitted by namespace ?ns= (each {seq, from, to_ns, data})."""
     st = _state_for(request)
@@ -849,6 +886,7 @@ async def main():
                     web.get("/exec/view", h_view),
                     web.get("/exec/flip_game", h_flip_game),
                     web.get("/exec/flip_games", h_flip_games),
+                    web.get("/exec/flip_scoreboard", h_flip_scoreboard),
                     web.get("/exec/outbox", h_outbox),
                     web.get("/exec/outbox_proof", h_outbox_proof),
                     web.get("/exec/inbox", h_inbox),

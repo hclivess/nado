@@ -36,6 +36,11 @@
   .chip.open{border-color:#e3b341;color:#e3b341}       /* waiting for an opponent */
   .chip.live{border-color:var(--accent2);color:var(--accent2)}  /* both in — playing */
   .chip.done{opacity:.5}                                /* finished / settled */
+  table.score{width:100%;border-collapse:collapse;font-size:13px}
+  table.score th,table.score td{text-align:left;padding:6px 6px;border-bottom:1px solid var(--border)}
+  table.score th{color:var(--dim);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+  table.score td.pos{color:var(--accent2);font-weight:600}table.score td.neg{color:var(--danger)}
+  table.score tr.me td{background:rgba(0,201,167,.08)}
   .b{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;margin-left:6px}
   .b.ok{background:rgba(0,173,147,.16);color:var(--accent2)}
   .b.pend{background:rgba(210,153,34,.16);color:#e3b341}
@@ -101,6 +106,13 @@
     <h2>🎲 Public games</h2>
     <p class="small dim">Every game lives in public state — browse open tables and <b>join anyone</b>, or watch games in progress. <span style="opacity:.7">⏳ open · ▶ playing · ✓ done</span></p>
     <div class="small mt" id="lobbyList"><span class="dim">Loading…</span></div>
+  </div>
+
+  <!-- GLOBAL SCOREBOARD -->
+  <div class="card" id="scoreboard">
+    <h2>🏆 Scoreboard</h2>
+    <p class="small dim">Global standings across every finished game — ranked by net NADO won.</p>
+    <div class="mt" id="scoreList"><span class="dim">Loading…</span></div>
   </div>
 
   <!-- ACTIVE GAME -->

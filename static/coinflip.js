@@ -189,8 +189,26 @@ async function refreshActive() {
   if (active != null) lastGame = await fetchGame(active);
   await refreshStages();
   renderLobby(await fetchLobby());
+  renderScoreboard(await fetchScoreboard());
   await resolveAliases([me].concat(lastGame && lastGame.players ? Object.keys(lastGame.players) : []));
   render();
+}
+async function fetchScoreboard() {
+  try { return (await (await fetch(base() + "/exec/flip_scoreboard?provisional=1", { cache: "no-store" })).json()).board || []; }
+  catch { return []; }
+}
+async function renderScoreboard(board) {
+  const el = $("scoreList"); if (!el) return;
+  if (!board.length) { el.innerHTML = '<span class="dim">No finished games yet — be the first on the board.</span>'; return; }
+  const top = board.slice(0, 10);
+  await resolveAliases(top.map((r) => r.addr));
+  el.innerHTML = '<table class="score"><thead><tr><th>#</th><th>Player</th><th>W–L</th><th>Net</th></tr></thead><tbody>'
+    + top.map((r, i) => {
+        const net = (r.net >= 0 ? "+" : "") + rawToNado(r.net) + " NADO";
+        const you = r.addr === me;
+        return '<tr' + (you ? ' class="me"' : "") + '><td>' + (i + 1) + '</td><td>' + disp(r.addr) + (you ? " (you)" : "") +
+          '</td><td>W' + r.wins + "–L" + r.losses + '</td><td class="' + (r.net >= 0 ? "pos" : "neg") + '">' + net + "</td></tr>";
+      }).join("") + "</tbody></table>";
 }
 async function fetchLobby() {
   try { return (await (await fetch(base() + "/exec/flip_games?provisional=1", { cache: "no-store" })).json()).games || []; }
