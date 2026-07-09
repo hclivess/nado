@@ -77,8 +77,24 @@
     <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
   </div>
 
-  <!-- PLAY (shown once signed in) -->
+  <!-- PLAY (game actions: new game + join — shown once signed in) -->
   <div class="card hidden" id="play">
+    <h2>Play for stakes</h2>
+    <div class="row">
+      <input id="stakeAmt" placeholder="stake (NADO)" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNew" style="flex:0 0 auto">New game</button>
+    </div>
+    <label class="mt">Join a game by ID</label>
+    <div class="row">
+      <input id="joinId" placeholder="game ID" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="btnJoin" style="flex:0 0 auto">Join</button>
+    </div>
+    <div class="small dim mt">Your games <span style="opacity:.7">· ⏳ open · ▶ playing · ✓ done</span></div>
+    <div class="small dim" id="recent"></div>
+  </div>
+
+  <!-- BANKROLL (deposit / withdraw — shown once signed in) -->
+  <div class="card hidden" id="bankroll">
     <h2>Bankroll</h2>
     <div class="row">
       <input id="depAmt" placeholder="NADO to deposit" inputmode="decimal" autocomplete="off">
@@ -88,17 +104,6 @@
       <input id="wdAmt" placeholder="NADO to withdraw" inputmode="decimal" autocomplete="off">
       <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
     </div>
-    <h2 class="mt">Play for stakes</h2>
-    <div class="row">
-      <input id="stakeAmt" placeholder="stake (NADO)" inputmode="decimal" autocomplete="off">
-      <button class="primary" id="btnNew" style="flex:0 0 auto">New game</button>
-    </div>
-    <div class="row mt">
-      <input id="joinId" placeholder="join a game by ID" inputmode="numeric" autocomplete="off">
-      <button class="ghost" id="btnJoin" style="flex:0 0 auto">Join</button>
-    </div>
-    <div class="small dim mt">Your games <span style="opacity:.7">· ⏳ open · ▶ playing · ✓ done</span></div>
-    <div class="small dim" id="recent"></div>
   </div>
 
   <!-- PUBLIC LOBBY (games are public — anyone can browse + join) -->

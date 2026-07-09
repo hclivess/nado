@@ -246,6 +246,7 @@ function wireUI() {
   $("btnDeposit").onclick = doDeposit;
   $("btnNew").onclick = newGame;
   $("btnJoin").onclick = joinGame;
+  $("joinId").oninput = () => render();   // re-evaluate Join pulse/enabled state as the ID changes
   $("btnReveal").onclick = reveal;
   $("btnSettle").onclick = settle;
   $("btnClaim").onclick = claim;
@@ -263,10 +264,24 @@ function render() {
   $("bal").textContent = rawToNado(myBalance) + " NADO";
   $("l1bal").textContent = rawToNado(myL1Balance) + " NADO";
   $("play").classList.toggle("hidden", !signedIn);
-  // arrived via a share link + haven't joined yet -> pulse the next action (Sign in first, else Join) so it's obvious
-  const wantsJoin = !!deepLinkGame && !((gamesLoad()[deepLinkGame] || {}).bet);
-  $("btnSignIn").classList.toggle("pulse", wantsJoin && !signedIn);
-  $("btnJoin").classList.toggle("pulse", wantsJoin && signedIn);
+  $("bankroll").classList.toggle("hidden", !signedIn);
+  // Join guidance: pulse + enable Join ONLY for a game (typed / deep-linked / lobby-clicked) that is joinable
+  // AND you're not already in. Disable it for a game you already joined, or one that's full / settled.
+  const jid = ($("joinId").value || "").trim();
+  const lgv = lastGame || {};
+  let iAmIn = false, stageJoinable = true;
+  if (jid && String(active) === jid && lgv.exists) {          // we're viewing this game -> exact state
+    iAmIn = !!(lgv.players && lgv.players[me]);
+    stageJoinable = !lgv.settled && lgv.ncom < 2;
+  } else if (jid) {                                            // otherwise use the cached stage / local record
+    iAmIn = !!(gamesLoad()[jid] || {}).bet;
+    const js = stageCache[jid];
+    if (js) stageJoinable = !js.settled && js.ncom < 2;
+  }
+  const joinable = !!jid && !iAmIn && stageJoinable;
+  $("btnJoin").disabled = !!jid && !joinable;                 // greyed out when the entered game isn't joinable
+  $("btnJoin").classList.toggle("pulse", joinable && signedIn);
+  $("btnSignIn").classList.toggle("pulse", joinable && !signedIn);
   const g = gamesLoad(), ids = Object.keys(g).sort((a, b) => g[b].ts - g[a].ts).slice(0, 8);
   $("recent").innerHTML = ids.length
     ? ids.map((id) => {
