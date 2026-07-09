@@ -183,11 +183,12 @@ function render() {
   const jid = ($("joinId").value || "").trim();
   const tb = (jid && String(activeTable) === jid && lastTable && lastTable.exists) ? lastTable : null;
   const stake = nadoToRaw($("stakeAmt").value);
-  const phaseOk = !tb || tb.phase === "betting";
   const need = stake ? returnRaw(stake, target) - stake : null;
   const covers = !(tb && need != null && (BigInt(tb.bankroll) - BigInt(tb.committed)) < need);
   const canAfford = !(signedIn && stake && dapp.exec < stake);
-  const betable = !!jid && !!stake && phaseOk && canAfford && covers;
+  // only enable/pulse Place-roll once the table is LIVE on-chain and taking bets — never pulse a button
+  // whose bet would fail (table not landed yet, wrong phase, unaffordable, or uncovered).
+  const betable = !!tb && tb.phase === "betting" && !!stake && canAfford && covers;
   $("btnBet").disabled = !betable;
   $("btnBet").classList.toggle("pulse", betable && signedIn);
   $("btnSignIn").classList.toggle("pulse", !!jid && !!stake && !signedIn);
@@ -221,6 +222,7 @@ function renderActive() {
   $("gameId").textContent = "#" + activeTable;
   $("shareLink").value = base() + "/?table=" + activeTable;
   drawQR($("shareQR"), $("shareQRNote"), base() + "/?table=" + activeTable, 180);
+  $("gBank").textContent = tb.exists ? (disp(tb.bank) + (iAmBank ? " — that's you (you're the house here)" : "")) : (T.bankroll ? "you (opening…)" : "—");
   $("gBankroll").textContent = tb.exists ? rawToNado(tb.bankroll) + " NADO" : (T.bankroll ? rawToNado(T.bankroll) + " NADO" : "—");
   $("gCover").textContent = tb.exists ? rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) + " NADO free" : "—";
   let phaseTxt = "opening… (confirming on-chain, ~1 min)";

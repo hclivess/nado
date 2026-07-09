@@ -214,19 +214,25 @@ function render() {
     : '<span class="dim">Tap numbers or a bet region on the table to build your bet.</span>';
   const jid = ($("joinId").value || "").trim();
   const tb = (jid && String(activeTable) === jid && lastTable && lastTable.exists) ? lastTable : null;
-  const canBetPhase = !tb || tb.phase === "betting";
   const canAfford = !(signedIn && stakeRaw && dapp.exec < stakeRaw);
   const need = (stakeRaw && M) ? stakeRaw * BigInt(M - 1) : null;
   const bankCovers = !(tb && need != null && (BigInt(tb.bankroll) - BigInt(tb.committed)) < need);
-  const betable = !!jid && !!c && !!stakeRaw && canBetPhase && canAfford && bankCovers;
+  // only enable/pulse once the table is LIVE on-chain and in its betting window (never pulse a doomed bet)
+  const betable = !!tb && tb.phase === "betting" && !!c && !!stakeRaw && canAfford && bankCovers;
   $("btnBet").disabled = !betable;
   $("btnBet").classList.toggle("pulse", betable && signedIn);
   $("btnSignIn").classList.toggle("pulse", !!jid && !!c && !signedIn);
+  // always explain what's needed / why Place bet is blocked (incl. betting at your own table)
   let hint = "";
-  if (jid && c && signedIn && canBetPhase) {
-    if (stakeRaw && dapp.exec < stakeRaw) hint = "Not enough NADO — your bet stakes " + rawToNado(stakeRaw) + " but your exec balance is " + rawToNado(dapp.exec) + ". Deposit at least " + rawToNado(stakeRaw - dapp.exec) + " more below.";
-    else if (tb && !bankCovers) hint = "This table can't cover a " + M + "× win right now (bankroll left: " + rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) + " NADO). Lower your stake or widen your bet.";
-  } else if (jid && tb && tb.phase !== "betting") hint = "Betting is closed on table #" + jid + " (" + tb.phase + ").";
+  if (signedIn) {
+    if (!jid) hint = "Pick a table in the lobby below, or bank your own above — then build a bet and set a stake.";
+    else if (jid && !tb) hint = "Table #" + jid + " isn't on-chain yet — if you just opened it, give it ~1 min to confirm.";
+    else if (tb && tb.phase !== "betting") hint = "Betting is closed on table #" + jid + " (" + tb.phase + ").";
+    else if (!c) hint = "Tap numbers or a bet region on the table to build your bet — you can bet at your own table too.";
+    else if (!stakeRaw) hint = "Enter a stake (NADO), then Place bet.";
+    else if (dapp.exec < stakeRaw) hint = "Not enough NADO — your bet stakes " + rawToNado(stakeRaw) + " but your exec balance is " + rawToNado(dapp.exec) + ". Deposit at least " + rawToNado(stakeRaw - dapp.exec) + " more below.";
+    else if (tb && !bankCovers) hint = "This table's bankroll can't cover a " + M + "× win (free: " + rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) + " NADO). Lower your stake, widen your bet, or Top up the bankroll.";
+  }
   const jh = $("joinHint"); if (jh) { jh.textContent = hint; jh.classList.toggle("hidden", !hint); }
   const T = load(LS_T), S = load(LS_S), mine = [];
   for (const t of Object.keys(T)) mine.push({ id: +t, role: "bank", ts: T[t].ts });
@@ -246,6 +252,7 @@ function renderActive() {
   $("gameId").textContent = "#" + activeTable;
   $("shareLink").value = base() + "/?table=" + activeTable;
   drawQR($("shareQR"), $("shareQRNote"), base() + "/?table=" + activeTable, 180);
+  $("gBank").textContent = tb.exists ? (disp(tb.bank) + (iAmBank ? " — that's you (you're the house here)" : "")) : (T.bankroll ? "you (opening…)" : "—");
   $("gBankroll").textContent = tb.exists ? rawToNado(tb.bankroll) + " NADO" : (T.bankroll ? rawToNado(T.bankroll) + " NADO" : "—");
   $("gCover").textContent = tb.exists ? rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) + " NADO free" : "—";
   let phaseTxt = "opening… (confirming on-chain, ~1 min)";
