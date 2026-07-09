@@ -376,6 +376,8 @@ function renderActive() {
   const pastDeadline = lg.exists && !lg.settled && typeof lg.cursor === "number" && lg.cursor > lg.deadline;
   $("btnReveal").classList.toggle("hidden", !(mine && !mine.revealed && bothIn && !lg.settled));
   $("btnSettle").classList.toggle("hidden", !(bothRev && !lg.settled));
+  // either player can trigger settle, but only the winner collects — label it for who's clicking
+  if (bothRev && !lg.settled) $("btnSettle").textContent = (mine && lg.winner_slot === mine.slot) ? "💰 Collect the pot" : "Pay out the winner";
   $("btnClaim").classList.toggle("hidden", !pastDeadline);
   $("btnCancel").classList.toggle("hidden", !(me && lg.exists && !lg.settled && lg.ncom === 1 && mine && mine.slot === 1));   // reclaim an un-joined game
   $("btnJoinActive").classList.toggle("hidden", !(me && lg.exists && !lg.settled && lg.ncom < 2 && !mine));  // browse->join
