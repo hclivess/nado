@@ -64,7 +64,8 @@ const betSlots = () => { const a = [...selected].sort((x, y) => x - y); while (a
 function openTable(t, bankrollRaw) {
   const T = load(LS_T); const secret = (T[t] && T[t].secret) ? T[t].secret : randSecret().toString();
   T[t] = { secret, bankroll: bankrollRaw.toString(), ts: Date.now() }; save(LS_T, T);
-  activeTable = t; render();
+  activeTable = t; $("joinId").value = String(t);   // target your own table so you can also bet at it
+  render();
   dapp.call("open", [t, commitHashOf(BigInt(secret))], bankrollRaw, "bank roulette table #" + t + " · " + rawToNado(bankrollRaw) + " NADO", { table: t, phase: "open" });
 }
 function newTable() {
@@ -133,7 +134,7 @@ async function renderScoreboard(board) {
 function renderLobby(sto) {
   const el = $("lobbyList"); if (!el) return;
   const tables = allTables(sto).map((t) => tableFrom(sto, t)).filter((t) => t.exists && !t.closed);
-  const rank = { betting: 0, spinning: 1, forfeit: 1, revealed: 2, done: 3 }, tag = { betting: "🟢", spinning: "🎡", revealed: "✓", forfeit: "⚠" };
+  const rank = { betting: 0, spinning: 1, forfeit: 1, revealed: 2, done: 3 }, tag = { betting: "🟢", spinning: "🌀", revealed: "✓", forfeit: "⚠" };
   tables.sort((a, b) => (rank[a.phase] - rank[b.phase]) || (b.joinDeadline - a.joinDeadline));
   const shown = tables.slice(0, 24);
   el.innerHTML = shown.length ? shown.map((t) => {
@@ -240,7 +241,7 @@ function renderActive() {
   let phaseTxt = "opening…";
   if (tb.exists) {
     if (tb.phase === "betting") phaseTxt = "🟢 betting open — " + (dapp.cursor != null ? blocksToTime(tb.joinDeadline - dapp.cursor) + " left" : "…") + " · " + tb.seatCount + " seat" + (tb.seatCount === 1 ? "" : "s");
-    else if (tb.phase === "spinning") phaseTxt = "🎡 betting closed — waiting for the bank to spin";
+    else if (tb.phase === "spinning") phaseTxt = "🌀 betting closed — waiting for the bank to spin";
     else if (tb.phase === "forfeit") phaseTxt = "⚠ bank didn't spin — claim your max win";
     else if (tb.phase === "revealed") phaseTxt = "✓ spun — " + tb.settledCount + "/" + tb.seatCount + " seats collected";
     else if (tb.phase === "done") phaseTxt = "table closed";
@@ -261,7 +262,7 @@ function renderActive() {
   };
   $("seats").innerHTML = lastSeats.length ? lastSeats.map(seatRow).join("") : '<span class="dim">No seats yet — be the first to bet.</span>';
   $("btnReveal").classList.toggle("hidden", !(iAmBank && tb.exists && !tb.revealed && tb.phase === "spinning"));
-  $("btnReveal").textContent = "🎡 Spin the wheel (" + tb.seatCount + " bet" + (tb.seatCount === 1 ? "" : "s") + ")";
+  $("btnReveal").textContent = "🌀 Spin the wheel (" + tb.seatCount + " bet" + (tb.seatCount === 1 ? "" : "s") + ")";
   const wrap = $("myActions"); wrap.innerHTML = "";
   for (const s of mySeats) {
     if (s.settled) continue;

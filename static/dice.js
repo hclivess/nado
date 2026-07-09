@@ -53,7 +53,8 @@ async function fetchTable(t) { const sto = await dapp.storage(); return sto ? ta
 function openTable(t, bankrollRaw) {
   const T = load(LS_T); const secret = (T[t] && T[t].secret) ? T[t].secret : randSecret().toString();
   T[t] = { secret, bankroll: bankrollRaw.toString(), ts: Date.now() }; save(LS_T, T);
-  activeTable = t; render();
+  activeTable = t; $("joinId").value = String(t);   // target your own table so you can also roll at it
+  render();
   dapp.call("open", [t, commitHashOf(BigInt(secret))], bankrollRaw, "bank a dice table #" + t + " · " + rawToNado(bankrollRaw) + " NADO", { table: t, phase: "open" });
 }
 function newTable() {

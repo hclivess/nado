@@ -33,7 +33,8 @@
   .game{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:24px;display:flex;flex-direction:column;
     transition:transform .12s ease,border-color .12s ease,box-shadow .12s ease}
   .game.live:hover{transform:translateY(-3px);border-color:var(--accent);box-shadow:0 12px 34px rgba(0,173,147,.20)}
-  .game .ico{font-size:40px;line-height:1;margin-bottom:14px}
+  .game .ico{margin-bottom:14px;height:46px}
+  .game .ico svg{display:block;filter:drop-shadow(0 4px 12px rgba(0,0,0,.35))}
   .game h3{margin:0 0 4px;font-size:21px}
   .game .tag{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--accent2);margin-bottom:10px}
   .game .tag.soon{color:var(--faint)}
@@ -89,25 +90,59 @@
 </div>
 
 <script>
+// clean inline SVG logos (no external assets; each ~44px, on the NADO palette)
+const SVG = {
+  coin:`<svg viewBox="0 0 48 48" width="46" height="46" fill="none" aria-hidden="true">
+    <path d="M10 17a15 15 0 0 1 28 0" stroke="#00c9a7" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+    <path d="M38 17l-4.6 .3 2.2-4z" fill="#00c9a7"/>
+    <circle cx="24" cy="27" r="13" fill="#e3b341" stroke="#b5810f" stroke-width="2.5"/>
+    <circle cx="24" cy="27" r="8.6" stroke="#a9760a" stroke-width="1.4" fill="none"/>
+    <text x="24" y="32.5" text-anchor="middle" font-size="13" font-weight="800" fill="#7a5606" font-family="system-ui">N</text></svg>`,
+  roulette:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
+    <circle cx="24" cy="24" r="16" fill="#0b0f14" stroke="#b5810f" stroke-width="2"/>
+    <g stroke="#0b0f14" stroke-width=".6">
+      <path d="M24 24 L24 8 A16 16 0 0 1 35.3 12.7 Z" fill="#d0362b"/>
+      <path d="M24 24 L35.3 12.7 A16 16 0 0 1 40 24 Z" fill="#20272f"/>
+      <path d="M24 24 L40 24 A16 16 0 0 1 35.3 35.3 Z" fill="#1f8f4e"/>
+      <path d="M24 24 L35.3 35.3 A16 16 0 0 1 24 40 Z" fill="#d0362b"/>
+      <path d="M24 24 L24 40 A16 16 0 0 1 12.7 35.3 Z" fill="#20272f"/>
+      <path d="M24 24 L12.7 35.3 A16 16 0 0 1 8 24 Z" fill="#d0362b"/>
+      <path d="M24 24 L8 24 A16 16 0 0 1 12.7 12.7 Z" fill="#20272f"/>
+      <path d="M24 24 L12.7 12.7 A16 16 0 0 1 24 8 Z" fill="#20272f"/></g>
+    <circle cx="24" cy="24" r="6" fill="#e3b341" stroke="#b5810f" stroke-width="1.4"/>
+    <circle cx="24" cy="24" r="2.2" fill="#0b0f14"/>
+    <circle cx="24" cy="10.5" r="2" fill="#fff"/></svg>`,
+  dice:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
+    <rect x="9" y="9" width="30" height="30" rx="7" fill="#e6edf3" stroke="#243140" stroke-width="2"/>
+    <circle cx="17" cy="17" r="2.8" fill="#20272f"/><circle cx="31" cy="17" r="2.8" fill="#20272f"/>
+    <circle cx="24" cy="24" r="2.8" fill="#00ad93"/>
+    <circle cx="17" cy="31" r="2.8" fill="#20272f"/><circle cx="31" cy="31" r="2.8" fill="#20272f"/></svg>`,
+  chess:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
+    <rect x="22.4" y="6" width="3.2" height="8" rx="1" fill="#00c9a7"/>
+    <rect x="18.6" y="8.4" width="10.8" height="3.2" rx="1.2" fill="#00c9a7"/>
+    <path d="M24 13.5c-6.4 2-9.5 6-9.5 10.5l3 6h13l3-6c0-4.5-3.1-8.5-9.5-10.5z" fill="#00c9a7"/>
+    <path d="M17.5 30h13l-1.4 4.2h-10.2z" fill="#00ad93"/>
+    <rect x="14.5" y="34" width="19" height="4.4" rx="2.2" fill="#00c9a7"/></svg>`,
+};
 // The game directory — add a new game by appending one object here (the page renders it automatically).
 const GAMES = [
-  { icon:"🪙", name:"Coin Flip", tag:"Live", live:true, url:"https://coinflip.nadochain.com",
+  { svg:SVG.coin, name:"Coin Flip", tag:"Live", live:true, url:"https://coinflip.nadochain.com",
     blurb:"A fair 2-player coin flip for stakes. Both players stake into a pot; the winner (parity of the two committed secrets) takes it all. The simplest provably-fair bet on NADO.",
     meta:["2 players","Winner takes the pot","Commit-reveal","0% house edge"] },
-  { icon:"🎡", name:"Roulette", tag:"Live", live:true, url:"https://roulette.nadochain.com",
-    blurb:"Peer-banked European roulette on the full table. Bank a table or bet against one — a win pays the true 36 ÷ (numbers covered), the exact 2.70% single-zero edge. Straight-ups to even-money, all on-chain.",
-    meta:["Bank or bet","Full table","Fixed odds","2.70% edge"] },
-  { icon:"🎲", name:"Dice", tag:"Live", live:true, url:"https://dice.nadochain.com",
+  { svg:SVG.roulette, name:"Roulette", tag:"Live", live:true, url:"https://roulette.nadochain.com",
+    blurb:"Peer-banked multiplayer European roulette on the full table. Bank a shared wheel or bet against one — a win pays the true 36 ÷ (numbers covered), the exact 2.70% single-zero edge. All on-chain.",
+    meta:["Bank or bet","Full table","Multiplayer","2.70% edge"] },
+  { svg:SVG.dice, name:"Dice", tag:"Live", live:true, url:"https://dice.nadochain.com",
     blurb:"The classic adjustable-odds dice — slide your win chance and the payout auto-scales (99 ÷ target, a flat 1% edge). Peer-banked and multiplayer: each bet gets its own roll, all resolved by one bank spin.",
     meta:["Bank or roll","Win-chance slider","Multiplayer","1% edge"] },
-  { icon:"♟️", name:"Chess", tag:"Soon", live:false, url:null,
+  { svg:SVG.chess, name:"Chess", tag:"Soon", live:false, url:null,
     blurb:"Stake a wager, play a real game of chess, winner takes the pot — with on-chain escrow and a timeout so a resigning or vanishing opponent can't steal. Coming next.",
     meta:["2 players","Wager escrow","Skill, not chance"] },
 ];
 const el = document.getElementById("games");
 el.innerHTML = GAMES.map((g) => `
   <div class="game${g.live ? " live" : ""}">
-    <div class="ico">${g.icon}</div>
+    <div class="ico">${g.svg}</div>
     <div class="tag${g.live ? "" : " soon"}">${g.tag}</div>
     <h3>${g.name}</h3>
     <p>${g.blurb}</p>
