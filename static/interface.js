@@ -561,6 +561,22 @@ function buildBlobTx(wallet, payload, targetBlock, fee, timestamp) {
     nonce: randNonce(), public_key: wallet.publicKey, target_block: targetBlock, chain_id: CHAIN_ID };
   return finalizeTransaction(draft, wallet.privateKey, fee);
 }
+// ML-DSA-44 signing is HEDGED (randomized): a rare signature verifies locally yet is rejected by the node /
+// peers as "Invalid signature" (the JS and native verifiers disagree on a boundary case). Each rebuild
+// re-signs with FRESH randomness and a fresh nonce, so simply resubmitting clears it. Retry ONLY on a
+// signature-related rejection — any other rejection (insufficient balance, bad amount, expired) won't be
+// fixed by re-signing, so return it immediately. `buildTxFn` MUST build+sign a brand-new tx on each call.
+async function submitResilient(buildTxFn, tries = 6) {
+  let last = null, tx = null;
+  for (let i = 0; i < tries; i++) {
+    tx = await buildTxFn();
+    const res = await submitTransaction(tx);
+    if (res && res.data && res.data.result) return { res, tx };
+    last = res;
+    if (!/signature/i.test((res && res.data && res.data.message) || "")) break;
+  }
+  return { res: last, tx };
+}
 function buildDividendWithdrawTx(wallet, addr, amount, nonce, proof, targetBlock, timestamp) {
   const draft = { sender: wallet.address, recipient: "dividend_withdraw", amount: 0, timestamp,
     data: { addr, amount, nonce, proof }, nonce: randNonce(), public_key: wallet.publicKey,
@@ -1906,14 +1922,15 @@ async function resumePendingExecSign() {
     });
     if (!okc) { back("ok=0"); return; }
     try {
-      const latest = await getLatestBlock();
-      if (!latest) throw new Error("relay unavailable");
-      const draft = { sender: state.wallet.address, recipient: "bridge", amount: amt, timestamp: nowSeconds(),
-        data: "", nonce: randNonce(), public_key: state.wallet.publicKey, target_block: latest.block_number + 15, chain_id: CHAIN_ID };
-      const tx = finalizeTransaction(draft, state.wallet.privateKey, MIN_TX_FEE);
-      const res = await submitTransaction(tx);
-      back(res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address
-                                       : "ok=0&err=" + encodeURIComponent(((res.data && res.data.message) || "rejected").slice(0, 80)));
+      const { res, tx } = await submitResilient(async () => {
+        const latest = await getLatestBlock();
+        if (!latest) throw new Error("relay unavailable");
+        const draft = { sender: state.wallet.address, recipient: "bridge", amount: amt, timestamp: nowSeconds(),
+          data: "", nonce: randNonce(), public_key: state.wallet.publicKey, target_block: latest.block_number + 15, chain_id: CHAIN_ID };
+        return finalizeTransaction(draft, state.wallet.privateKey, MIN_TX_FEE);
+      });
+      back(res && res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address
+                                       : "ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
     } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
     return;
   }
@@ -1947,12 +1964,15 @@ async function resumePendingExecSign() {
   });
   if (!okc) { back("ok=0"); return; }
   try {
-    const latest = await getLatestBlock();
-    if (!latest) throw new Error("relay unavailable");
-    const tx = buildBlobTx(state.wallet, blob, latest.block_number + 15, MIN_TX_FEE, nowSeconds());   // short expiry; flexible landing mines it in the next produced block
-    const res = await submitTransaction(tx);
-    if (res.data && res.data.result) back("ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address);
-    else back("ok=0&err=" + encodeURIComponent(((res.data && res.data.message) || "rejected").slice(0, 80)));
+    // short expiry; flexible landing mines it in the next produced block. submitResilient re-signs + resubmits
+    // on the rare hedged "Invalid signature" rejection so a contract call isn't lost to a bad signature draw.
+    const { res, tx } = await submitResilient(async () => {
+      const latest = await getLatestBlock();
+      if (!latest) throw new Error("relay unavailable");
+      return buildBlobTx(state.wallet, blob, latest.block_number + 15, MIN_TX_FEE, nowSeconds());
+    });
+    if (res && res.data && res.data.result) back("ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address);
+    else back("ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
   } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
 }
 
