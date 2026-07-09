@@ -38,8 +38,12 @@ class VMOutOfGas(VMError):
 
 
 _BINOPS = {"ADD", "SUB", "MUL", "DIV", "MOD", "LT", "GT", "EQ", "GTE", "LTE", "AND", "OR", "CONCAT"}
+# VALUE/PAY/CURSOR (#value): the escrow primitive that lets a contract hold + move real bridged NADO — VALUE
+# pushes the NADO escrowed with THIS call (debited from the caller into the contract), PAY pops (amount, to)
+# and schedules a payout FROM the contract's escrow to `to`, CURSOR pushes the L1 block height (for deadlines).
 _KNOWN = _BINOPS | {"PUSH", "POP", "DUP", "SWAP", "NOT", "HASH", "CALLER", "ARG",
-                    "MLOAD", "MSTORE", "REQUIRE", "RETURN", "HALT"}
+                    "MLOAD", "MSTORE", "REQUIRE", "RETURN", "HALT", "VALUE", "PAY", "CURSOR"}
+_MAX_PAYOUTS = 16          # bound the payouts one call can schedule (anti-abuse; a flip settles to ONE winner)
 
 
 def _hash_value(v):
@@ -93,15 +97,18 @@ def _bound(v):
     return v
 
 
-def run(code, method, caller, args, storage):
-    """Execute code[method]. `storage` is {mapname: {key: int}}. Runs on a deep copy; returns
-    (ok, return_value, new_storage). On a missing method, REQUIRE-fail, out-of-gas, or any runtime
-    error it returns (False, None, <ORIGINAL storage>) — i.e. the call is a no-op (revert)."""
+def run(code, method, caller, args, storage, value=0, cursor=0):
+    """Execute code[method]. `storage` is {mapname: {key: int|str}}. `value` is the NADO (raw) escrowed with
+    this call (already debited from the caller into the contract by the exec); `cursor` is the L1 height.
+    Runs on a deep copy; returns (ok, return_value, new_storage, payouts) where payouts is [(to, amount)] the
+    contract scheduled via PAY (the exec pays them FROM the contract's escrow). On a missing method,
+    REQUIRE-fail, out-of-gas, or any runtime error it returns (False, None, <ORIGINAL storage>, []) — a no-op."""
     import copy
     if method not in code:
-        return (False, None, storage)
+        return (False, None, storage, [])
     st = copy.deepcopy(storage)
     stack = []
+    payouts = []
     gas = 0
     try:
         for ins in code[method]:
@@ -122,6 +129,19 @@ def run(code, method, caller, args, storage):
                 stack.append(args[i] if 0 <= i < len(args) else 0)
             elif op == "CALLER":
                 stack.append(caller)
+            elif op == "VALUE":
+                stack.append(_int(value))
+            elif op == "CURSOR":
+                stack.append(_int(cursor))
+            elif op == "PAY":
+                amount = _int(stack.pop())
+                to = stack.pop()
+                if amount < 0 or not isinstance(to, str) or not to:
+                    raise VMRevert("bad PAY (amount>=0, non-empty str recipient)")
+                if amount > 0:
+                    payouts.append((to, amount))
+                    if len(payouts) > _MAX_PAYOUTS:
+                        raise VMRevert("too many payouts")
             elif op == "NOT":
                 stack.append(0 if stack.pop() else 1)
             elif op == "HASH":
@@ -163,20 +183,23 @@ def run(code, method, caller, args, storage):
                 key = stack.pop()
                 stack.append(st.get(ins[1], {}).get(str(key), 0))
             elif op == "MSTORE":
-                val = _int(stack.pop())
+                val = stack.pop()             # int OR str (JSON-safe) — strings let a contract store addresses
+                if not isinstance(val, (int, str)) or isinstance(val, bool):
+                    raise VMRevert("MSTORE value must be int or str")
+                _bound(val)
                 key = str(stack.pop())
                 m = st.setdefault(ins[1], {})
-                if val == 0:
-                    m.pop(key, None)          # keep state minimal: a zero balance is absence
+                if val == 0 or val == "":
+                    m.pop(key, None)          # keep state minimal: a zero / empty value is absence
                 else:
                     m[key] = val
             elif op == "REQUIRE":
                 if not stack.pop():
                     raise VMRevert("REQUIRE failed")
             elif op == "RETURN":
-                return (True, stack.pop() if stack else None, st)
+                return (True, stack.pop() if stack else None, st, payouts)
             elif op == "HALT":
-                return (True, None, st)
-        return (True, None, st)
+                return (True, None, st, payouts)
+        return (True, None, st, payouts)
     except (VMRevert, VMOutOfGas, IndexError, KeyError, ValueError, TypeError):
-        return (False, None, storage)
+        return (False, None, storage, [])

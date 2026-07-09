@@ -534,90 +534,8 @@ async def h_view(request):
     return web.json_response({"cid": cid, "method": method, "result": st.view(cid, method, args)})
 
 
-async def h_flip_game(request):
-    """Staked coin-flip game state (?game=&ns=) for the Coin Flip dApp: stake, pot, per-player committed/
-    revealed flags, settled + result. Exposes only public on-chain state (never a secret before its reveal)."""
-    from hashing import blake2b_hash
-    st = _state_for(request)
-    if st is None:
-        return _NS404()
-    gid = str(request.query.get("game", ""))
-    g = st.games.get(gid)
-    if not g:
-        return web.json_response({"exists": False, "cursor": st.cursor})
-    players = {a: {"slot": p["slot"], "committed": True, "revealed": p["secret"] is not None}
-               for a, p in g["players"].items()}
-    nrev = sum(1 for p in g["players"].values() if p["secret"] is not None)
-    out = {"exists": True, "stake": g["stake"], "pot": g["pot"], "settled": g["settled"],
-           "deadline": g["deadline"], "cursor": st.cursor, "ncom": len(g["players"]), "nrev": nrev,
-           "players": players}
-    if g.get("rematch"):                          # a player opened a rematch -> invite the opponent in place
-        out["rematch"] = g["rematch"]
-    if len(g["players"]) == 2 and nrev == 2:      # both revealed -> the result is public + reproducible
-        s1 = next(p["secret"] for p in g["players"].values() if p["slot"] == 1)
-        s2 = next(p["secret"] for p in g["players"].values() if p["slot"] == 2)
-        out["result"] = int(blake2b_hash([s1, s2]), 16) % 2
-        out["winner_slot"] = 1 if out["result"] == 0 else 2
-    return web.json_response(out)
-
-
-async def h_flip_games(request):
-    """PUBLIC LOBBY: list coin-flip games (public state only — never a secret) so anyone can browse + join.
-    ?stage=open|live|done filters (open = still waiting for a 2nd player). ?provisional=1 for the fast view.
-    Sorted most-recent-first (by deadline, set at open) and capped."""
-    st = _state_for(request)
-    if st is None:
-        return _NS404()
-    stage = request.query.get("stage", "")
-    rows = []
-    for gid, g in st.games.items():
-        ncom = len(g["players"])
-        settled = bool(g["settled"])
-        s = "done" if settled else ("live" if ncom >= 2 else "open")
-        if stage and stage != s:
-            continue
-        rows.append({"game": gid, "stake": g["stake"], "pot": g["pot"], "settled": settled,
-                     "ncom": ncom, "nrev": sum(1 for p in g["players"].values() if p["secret"] is not None),
-                     "deadline": g["deadline"], "stage": s})
-    rows.sort(key=lambda r: -r["deadline"])                     # roughly most-recent first
-    return web.json_response({"games": rows[:200], "cursor": st.cursor})
-
-
-async def h_flip_scoreboard(request):
-    """GLOBAL coin-flip leaderboard: aggregate wins/losses/net over every SETTLED game (public state). The
-    winner is recomputed deterministically from the revealed secrets (or the sole revealer on a forfeit
-    claim); the winner nets +stake, the loser −stake. ?provisional=1 for the fast view. Ranked by net."""
-    from hashing import blake2b_hash
-    st = _state_for(request)
-    if st is None:
-        return _NS404()
-    stats = {}
-    def bump(addr, won, net):
-        s = stats.setdefault(addr, {"addr": addr, "wins": 0, "losses": 0, "games": 0, "net": 0})
-        s["games"] += 1; s["net"] += net
-        s["wins" if won else "losses"] += 1
-    for g in st.games.values():
-        if not g.get("settled") or len(g["players"]) != 2:
-            continue
-        by_slot = {p["slot"]: (a, p) for a, p in g["players"].items()}
-        if 1 not in by_slot or 2 not in by_slot:
-            continue
-        (a1, p1), (a2, p2) = by_slot[1], by_slot[2]
-        s1, s2 = p1.get("secret"), p2.get("secret")
-        if s1 is not None and s2 is not None:
-            wslot = 1 if (int(blake2b_hash([s1, s2]), 16) % 2) == 0 else 2
-        elif s1 is not None:
-            wslot = 1                          # forfeit: only slot 1 revealed
-        elif s2 is not None:
-            wslot = 2
-        else:
-            continue                           # nobody revealed -> refund, no winner
-        stake = g["stake"]
-        win_addr, lose_addr = (a1, a2) if wslot == 1 else (a2, a1)
-        bump(win_addr, True, stake)
-        bump(lose_addr, False, -stake)
-    board = sorted(stats.values(), key=lambda x: (-x["net"], -x["wins"], x["losses"]))
-    return web.json_response({"board": board[:100], "cursor": st.cursor})
+# (coinflip read endpoints removed — the Coin Flip dApp reads its state from the generic /exec/contract
+# endpoint, since it is now an on-chain contract, not a native module)
 
 
 async def h_outbox(request):
@@ -884,9 +802,6 @@ async def main():
                     web.get("/exec/contracts", h_contracts),
                     web.get("/exec/contract", h_contract),
                     web.get("/exec/view", h_view),
-                    web.get("/exec/flip_game", h_flip_game),
-                    web.get("/exec/flip_games", h_flip_games),
-                    web.get("/exec/flip_scoreboard", h_flip_scoreboard),
                     web.get("/exec/outbox", h_outbox),
                     web.get("/exec/outbox_proof", h_outbox_proof),
                     web.get("/exec/inbox", h_inbox),

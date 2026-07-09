@@ -1931,10 +1931,17 @@ async function resumePendingExecSign() {
   if (blob.game !== undefined)  rows.push({ k: i18("dapp.game", "Game"), v: String(blob.game) });
   try { if (blob.stake  !== undefined) rows.push({ k: i18("dapp.stake", "Stake"),  v: rawToNado(BigInt(blob.stake)) + " NADO" }); } catch (e) {}
   try { if (blob.amount !== undefined && blob.amount) rows.push({ k: i18("dapp.amount", "Amount"), v: rawToNado(BigInt(blob.amount)) + " NADO" }); } catch (e) {}
+  // A `call` can carry VALUE — real NADO escrowed from YOUR exec balance into the contract. Show it prominently
+  // (it can't be spoofed by the dApp's label) so signing a staking call is always an informed choice.
+  let escrow = 0n; try { escrow = blob.value ? BigInt(blob.value) : 0n; } catch (e) { escrow = 0n; }
+  if (escrow > 0n) rows.push({ k: i18("dapp.escrows", "Escrows from your exec balance"), v: rawToNado(escrow) + " NADO" });
   const okc = await uiConfirm({
     title: i18("dapp.title", "Sign a contract call"),
-    body: i18("dapp.body2", "{app} wants to sign & submit this from your wallet ({a}). It moves no L1 funds beyond the network fee.",
-      { app: req.app, a: state.wallet.address.slice(0, 14) + "…" }),
+    body: escrow > 0n
+      ? i18("dapp.bodyValue", "{app} wants to sign & submit this from your wallet ({a}). It ESCROWS {v} NADO from your exec balance into the contract (no L1 funds move beyond the network fee).",
+          { app: req.app, a: state.wallet.address.slice(0, 14) + "…", v: rawToNado(escrow) })
+      : i18("dapp.body2", "{app} wants to sign & submit this from your wallet ({a}). It moves no L1 funds beyond the network fee.",
+          { app: req.app, a: state.wallet.address.slice(0, 14) + "…" }),
     rows,
     confirmText: i18("dapp.sign", "Sign & submit"),
   });

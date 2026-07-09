@@ -1,8 +1,10 @@
 // coinflip.js — NADO Coin Flip: a fair, STAKED 2-player commit-reveal game on the execution layer.
 // Value flows through the bridge: deposit L1 NADO -> exec balance -> stake into a game pot -> winner takes the
-// pot -> withdraw to L1. It's a NATIVE betting module (ops flip_bet/flip_reveal/flip_settle/flip_claim), so
-// there is no contract to deploy. Login + every signature is delegated to the NADO wallet (get.nadochain.com)
-// via the exec_sign redirect; the key never touches this origin. coinflip only holds the game secret.
+// pot -> winner -> withdraw to L1. It is an ON-CHAIN CONTRACT (runtime stackvm, cid below) called via the
+// GENERIC exec `call` op — the stake is escrowed as the call's VALUE and paid out by the contract's PAY; there
+// is NO coinflip-specific API. Reads derive from the contract's storage (/exec/contract). Login + every
+// signature is delegated to the NADO wallet (get.nadochain.com) via exec_sign; the key never touches this
+// origin, and this page only holds the game secret until reveal.
 import { loadCrypto, blake2bHash } from "./nadotx.js";
 
 const NS = "default";
@@ -101,10 +103,61 @@ async function fetchBalance() {
     myL1Balance = BigInt(a.balance || 0);   // L1 wallet balance — what a deposit can draw from
   } catch { myL1Balance = 0n; }
 }
-async function fetchGame(gid) {
-  try { return await (await fetch(base() + "/exec/flip_game?ns=" + NS + "&game=" + gid + "&provisional=1", { cache: "no-store" })).json(); }
+const CID = "7ee95a0abd6e00d12edc3bf39f4c8f2d";   // the Coin Flip CONTRACT (runtime stackvm) — staked via VALUE/PAY, no native API
+
+// generic contract call, signed by the wallet; valueRaw (raw NADO) is ESCROWED from the caller's bridge balance
+function callC(method, args, valueRaw, label, pend) {
+  const payload = { op: "call", contract: CID, method, args };
+  if (valueRaw != null) payload.value = valueRaw;
+  signBlob(payload, label, pend);
+}
+// coin result — MUST match the contract: HASH(s1+s2) % 2, HASH = blake2b(decimal string) as a 256-bit int
+function coinResult(s1, s2) { return Number(BigInt("0x" + blake2bHash((BigInt(s1) + BigInt(s2)).toString())) % 2n); }
+
+// ---- reads: game / lobby / scoreboard are all DERIVED from the contract's storage maps ----------
+let lastStorage = {};
+async function fetchStorage() {
+  try { return (await (await fetch(base() + "/exec/contract?ns=" + NS + "&cid=" + CID + "&provisional=1", { cache: "no-store" })).json()).storage || {}; }
   catch { return null; }
 }
+const _m = (sto, name) => sto[name] || {};
+const allGids = (sto) => Object.keys(_m(sto, "nn"));
+function gameFrom(sto, gid) {
+  gid = String(gid); const nn = _m(sto, "nn")[gid] || 0;
+  if (!nn) return { exists: false };
+  const p1 = _m(sto, "p1")[gid], p2 = _m(sto, "p2")[gid];
+  const r1 = _m(sto, "r1")[gid] ? 1 : 0, r2 = _m(sto, "r2")[gid] ? 1 : 0;
+  const players = {};
+  if (p1) players[p1] = { slot: 1, committed: true, revealed: !!r1 };
+  if (p2) players[p2] = { slot: 2, committed: true, revealed: !!r2 };
+  const settled = !!_m(sto, "sd")[gid], ws = _m(sto, "ws")[gid] || 0;
+  const g = { exists: true, stake: _m(sto, "st")[gid] || 0, pot: _m(sto, "pt")[gid] || 0, settled,
+              ncom: nn, nrev: r1 + r2, deadline: _m(sto, "dl")[gid] || 0, players };
+  if (settled && ws) { g.winner_slot = ws; g.result = ws === 1 ? 0 : 1; }
+  else if (r1 && r2) { const s1 = _m(sto, "s1")[gid], s2 = _m(sto, "s2")[gid]; if (s1 != null && s2 != null) { g.result = coinResult(s1, s2); g.winner_slot = g.result === 0 ? 1 : 2; } }
+  return g;
+}
+function lobbyFrom(sto) {
+  return allGids(sto).map((gid) => {
+    const nn = _m(sto, "nn")[gid], settled = !!_m(sto, "sd")[gid];
+    return { game: gid, stake: _m(sto, "st")[gid] || 0, pot: _m(sto, "pt")[gid] || 0, settled, ncom: nn,
+             nrev: (_m(sto, "r1")[gid] ? 1 : 0) + (_m(sto, "r2")[gid] ? 1 : 0),
+             stage: settled ? "done" : (nn >= 2 ? "live" : "open"), deadline: _m(sto, "dl")[gid] || 0 };
+  }).sort((a, b) => b.deadline - a.deadline);
+}
+function boardFrom(sto) {
+  const stats = {};
+  const bump = (a, won, net) => { const x = stats[a] || (stats[a] = { addr: a, wins: 0, losses: 0, games: 0, net: 0 }); x.games++; x.net += net; won ? x.wins++ : x.losses++; };
+  for (const gid of allGids(sto)) {
+    if (!_m(sto, "sd")[gid]) continue;
+    const p1 = _m(sto, "p1")[gid], p2 = _m(sto, "p2")[gid], ws = _m(sto, "ws")[gid];
+    if (!p1 || !p2 || !ws) continue;
+    const stake = _m(sto, "st")[gid] || 0, win = ws === 1 ? p1 : p2, lose = ws === 1 ? p2 : p1;
+    bump(win, true, stake); bump(lose, false, -stake);
+  }
+  return Object.values(stats).sort((a, b) => (b.net - a.net) || (b.wins - a.wins));
+}
+async function fetchGame(gid) { const sto = await fetchStorage(); return sto ? gameFrom(sto, gid) : null; }
 
 const _aliasCache = {};   // address -> "@alias" | null (short address). Same registry the wallet/forum use.
 async function resolveAliases(addrs) {
@@ -130,7 +183,7 @@ async function newGame() {
   const raw = nadoToRaw($("stakeAmt").value);
   if (!raw) { $("status").textContent = "Enter a stake (NADO)."; return; }
   if (myBalance < raw) { $("status").textContent = "Deposit first — your exec balance is " + rawToNado(myBalance) + " NADO."; return; }
-  bet(randId(), raw, "new");
+  bet(randId(), raw, "open");
 }
 async function joinGame() {
   const gid = parseInt($("joinId").value, 10);
@@ -148,40 +201,45 @@ async function joinGame() {
   }
   bet(gid, need, "join");
 }
-function bet(gameId, stakeRaw, role, rematchOf) {
+function bet(gameId, stakeRaw, method) {   // method: "open" (slot 1) or "join" (slot 2) — the contract escrows VALUE
   const g = gamesLoad();
   const secretStr = (g[gameId] && g[gameId].secret) ? g[gameId].secret : randSecret().toString();
-  g[gameId] = { secret: secretStr, role, ts: Date.now(), bet: (g[gameId] || {}).bet, reveal: (g[gameId] || {}).reveal, stake: stakeRaw.toString() }; gamesSave(g);
+  g[gameId] = { secret: secretStr, role: method, ts: Date.now(), bet: (g[gameId] || {}).bet, reveal: (g[gameId] || {}).reveal, stake: stakeRaw.toString() }; gamesSave(g);
   active = gameId; render();
-  const payload = { op: "flip_bet", game: gameId, commit: commitHashOf(BigInt(secretStr)), stake: stakeRaw };
-  if (rematchOf != null) payload.rematch_of = rematchOf;    // rematch: stamps a "join in place" invite on the old game
-  signBlob(payload, "bet " + rawToNado(stakeRaw) + " NADO on game #" + gameId, { gameId, phase: "bet" });
+  callC(method, [gameId, commitHashOf(BigInt(secretStr))], stakeRaw,
+        (method === "open" ? "open" : "join") + " game #" + gameId + " · " + rawToNado(stakeRaw) + " NADO",
+        { gameId, phase: "bet" });
 }
-// join the rematch the opponent started (invited in place — no re-share)
-function joinRematch() {
-  const rg = lastGame && lastGame.rematch;
-  if (rg == null) return;
-  $("joinId").value = rg; active = rg; joinGame();
+// join the game currently being viewed (from the lobby / an open table)
+async function joinActive() {
+  if (active == null || !lastGame || !lastGame.exists) return;
+  await fetchBalance();
+  const need = BigInt(lastGame.stake);
+  if (myBalance < need) { $("status").textContent = "You need " + rawToNado(need) + " NADO in your exec balance to join (you have " + rawToNado(myBalance) + ")."; render(); return; }
+  bet(active, need, "join");
 }
 function reveal() {
   const g = gamesLoad()[active];
   if (!g) { $("status").textContent = "No secret for this game on this device."; return; }
-  signBlob({ op: "flip_reveal", game: active, secret: BigInt(g.secret) }, "flip the coin · game #" + active, { gameId: active, phase: "reveal" });
+  const slot = (lastGame && lastGame.players && lastGame.players[me]) ? lastGame.players[me].slot : (g.role === "join" ? 2 : 1);
+  callC("reveal" + slot, [active, BigInt(g.secret)], null, "flip the coin · game #" + active, { gameId: active, phase: "reveal" });
 }
 // The rematch game id is DERIVED from the old game (not random), so BOTH players clicking "Play again"
 // land in the SAME game — whoever's bet lands first opens it, the other joins slot 2. No split-into-two.
 function rematchGidFor(oldGid) {
   return Number((BigInt(oldGid) * 6364136223846793005n + 1442695040888963407n) % 1000000000n);
 }
-function rematch() {
+async function rematch() {
   const stake = (lastGame && lastGame.exists) ? BigInt(lastGame.stake)
     : ((gamesLoad()[active] || {}).stake ? BigInt(gamesLoad()[active].stake) : null);
   if (!stake) { $("status").textContent = "Open a new game from the panel above."; return; }
   if (myBalance < stake) { $("status").textContent = "Deposit more to play again — you have " + rawToNado(myBalance) + " NADO, need " + rawToNado(stake) + "."; return; }
-  bet(rematchGidFor(active), stake, "new", active);   // same stake, deterministic id, stamps the old game's invite
+  const rgid = rematchGidFor(active);                 // deterministic -> both "Play again" clicks meet in ONE game
+  const rg = await fetchGame(rgid);
+  bet(rgid, stake, (rg && rg.exists && rg.ncom >= 1 && !rg.settled) ? "join" : "open");
 }
-const settle = () => signBlob({ op: "flip_settle", game: active }, "settle game #" + active, { gameId: active, phase: "settle" });
-const claim = () => signBlob({ op: "flip_claim", game: active }, "claim game #" + active, { gameId: active, phase: "claim" });
+const settle = () => callC("settle", [active], null, "settle game #" + active, { gameId: active, phase: "settle" });
+const claim = () => callC("claim", [active], null, "claim game #" + active, { gameId: active, phase: "claim" });
 function doWithdraw() {
   const raw = nadoToRaw($("wdAmt").value);
   if (!raw) { $("status").textContent = "Enter an amount to withdraw."; return; }
@@ -191,16 +249,16 @@ function doWithdraw() {
 
 async function refreshActive() {
   await fetchBalance();
-  if (active != null) lastGame = await fetchGame(active);
-  await refreshStages();
-  renderLobby(await fetchLobby());
-  renderScoreboard(await fetchScoreboard());
+  const sto = await fetchStorage();
+  if (sto) {
+    lastStorage = sto;
+    if (active != null) lastGame = gameFrom(sto, active);
+    for (const gid of allGids(sto)) stageCache[gid] = { settled: !!_m(sto, "sd")[gid], ncom: _m(sto, "nn")[gid] || 0 };
+    renderLobby(lobbyFrom(sto));
+    renderScoreboard(boardFrom(sto));
+  }
   await resolveAliases([me].concat(lastGame && lastGame.players ? Object.keys(lastGame.players) : []));
   render();
-}
-async function fetchScoreboard() {
-  try { return (await (await fetch(base() + "/exec/flip_scoreboard?provisional=1", { cache: "no-store" })).json()).board || []; }
-  catch { return []; }
 }
 async function renderScoreboard(board) {
   const el = $("scoreList"); if (!el) return;
@@ -209,15 +267,11 @@ async function renderScoreboard(board) {
   await resolveAliases(top.map((r) => r.addr));
   el.innerHTML = '<table class="score"><thead><tr><th>#</th><th>Player</th><th>W–L</th><th>Net</th></tr></thead><tbody>'
     + top.map((r, i) => {
-        const net = (r.net >= 0 ? "+" : "") + rawToNado(r.net) + " NADO";
+        const net = (r.net < 0 ? "-" : "+") + rawToNado(Math.abs(r.net)) + " NADO";
         const you = r.addr === me;
         return '<tr' + (you ? ' class="me"' : "") + '><td>' + (i + 1) + '</td><td>' + disp(r.addr) + (you ? " (you)" : "") +
           '</td><td>W' + r.wins + "–L" + r.losses + '</td><td class="' + (r.net >= 0 ? "pos" : "neg") + '">' + net + "</td></tr>";
       }).join("") + "</tbody></table>";
-}
-async function fetchLobby() {
-  try { return (await (await fetch(base() + "/exec/flip_games?provisional=1", { cache: "no-store" })).json()).games || []; }
-  catch { return []; }
 }
 function renderLobby(games) {
   const el = $("lobbyList"); if (!el) return;
@@ -229,15 +283,6 @@ function renderLobby(games) {
     active = parseInt(b.dataset.lg, 10); $("joinId").value = b.dataset.lg; refreshActive();
     try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch {}
   });
-}
-async function refreshStages() {
-  const g = gamesLoad();
-  const ids = Object.keys(g).sort((a, b) => g[b].ts - g[a].ts).slice(0, 8);
-  await Promise.all(ids.map(async (id) => {
-    if ((stageCache[id] || {}).settled) return;              // settled is terminal — keep the cached stage
-    const gg = await fetchGame(id);
-    if (gg && gg.exists) stageCache[id] = { settled: !!gg.settled, ncom: gg.ncom || 0 };
-  }));
 }
 
 // ---- render --------------------------------------------------------------------------------------
@@ -253,8 +298,7 @@ function wireUI() {
   $("btnWithdraw").onclick = doWithdraw;
   $("btnShare").onclick = shareGame;
   $("btnRematch").onclick = rematch;
-  $("btnJoinActive").onclick = joinGame;
-  $("btnJoinRematch").onclick = joinRematch;
+  $("btnJoinActive").onclick = joinActive;
 }
 const badge = (s) => s === "confirmed" ? '<span class="b ok">confirmed ✓</span>' : s === "pending" ? '<span class="b pend">pending…</span>' : '<span class="b dimb">—</span>';
 function render() {
@@ -331,9 +375,7 @@ function renderActive() {
   $("btnSettle").classList.toggle("hidden", !(bothRev && !lg.settled));
   $("btnClaim").classList.toggle("hidden", !pastDeadline);
   $("btnJoinActive").classList.toggle("hidden", !(me && lg.exists && !lg.settled && lg.ncom < 2 && !mine));  // browse->join
-  const hasRematch = !!lg.rematch;
-  $("btnRematch").classList.toggle("hidden", !(lg.settled && !hasRematch));                                  // start a rematch
-  $("btnJoinRematch").classList.toggle("hidden", !(lg.settled && hasRematch && String(active) !== String(lg.rematch)));  // opponent invited you
+  $("btnRematch").classList.toggle("hidden", !lg.settled);   // Play again (deterministic id -> both clicks meet in one game)
   // coin / result
   const coin = $("coin");
   if (lg.settled && (lg.result === 0 || lg.result === 1)) {
