@@ -14,7 +14,7 @@ here is a consensus rule; it lives in the interface, the CLI's number formatting
 | **dag** | **Dagmar** | Jan's wife and cofounder | 10⁻¹ | `1,000,000,000` |
 | **jan** | **Jan Kučera** (`hclivess`) | author of NADO — and of Bismuth before it | 10⁻² | `100,000,000` |
 | **syl** | **Sylvain** (`EggPool`) | one of Bismuth's principal contributors — ran Eggpool; core mining & infrastructure | 10⁻³ | `10,000,000` |
-| **bry** | **Bryan McEachran** | the most important historical community member | 10⁻⁴ | `1,000,000` |
+| **ala** | **ALATAY** | the most important historical community member | 10⁻⁴ | `1,000,000` |
 | **kha** | **Khaa Aarl** | friend and early supporter | 10⁻⁵ | `100,000` |
 | **geh** | **Geir Hovland** (`geho2`) | co-author of the peer-reviewed control-theory analysis of the PoW difficulty controller | 10⁻⁶ | `10,000` |
 | **vit** | **Vitalik Buterin** | the account model and FFG (Casper) finality NADO adopts | 10⁻⁷ | `1,000` |
@@ -24,7 +24,7 @@ here is a consensus rule; it lives in the interface, the CLI's number formatting
 | **NADO** | the coin | — | 1 | `10,000,000,000` |
 
 ```
-1 NADO = 10 dag = 100 jan = 1,000 syl = 10,000 bry = 100,000 kha
+1 NADO = 10 dag = 100 jan = 1,000 syl = 10,000 ala = 100,000 kha
        = 1,000,000 geh = 10,000,000 vit = 100,000,000 nak = 1,000,000,000 dam = 10,000,000,000 eli
 ```
 
@@ -50,7 +50,7 @@ here is a consensus rule; it lives in the interface, the CLI's number formatting
 | `1` | `1 eli` |
 | `100` | `1 nak` |
 | `1_000` | `1 vit` |
-| `1_000_000` | `1 bry` |
+| `1_000_000` | `1 ala` |
 | `100_000_000` | `1 jan` |
 | `1_000_000_000` | `1 dag` |
 | `1_500_000_000` | `0.15 NADO` (= `1.5 dag` = `15 jan`) |
