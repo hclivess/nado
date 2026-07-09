@@ -14,6 +14,20 @@ const LS_T = "nado_dice_tables", LS_S = "nado_dice_seats";
 const load = (k) => { try { return JSON.parse(localStorage.getItem(k) || "{}"); } catch { return {}; } };
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 let activeTable = null, lastTable = null, lastSeats = [], target = 50;
+let knownTables = new Set(), knownSeats = new Set();   // ids that actually exist on-chain (for "Your tables")
+// hide a locally-opened table/seat from "Your tables" if it never landed on-chain (and isn't freshly pending),
+// and prune the local record entirely once it's clearly dead — so failed opens don't linger in the list.
+function pruneAndTrack(sto) {
+  knownTables = new Set(allTables(sto));
+  knownSeats = new Set(Object.keys(_m(sto, "gg")));
+  const T = load(LS_T); let c = false;
+  for (const t of Object.keys(T)) if (!knownTables.has(t) && Date.now() - (T[t].ts || 0) > 600000) { delete T[t]; c = true; }
+  if (c) save(LS_T, T);
+  const S = load(LS_S); c = false;
+  for (const g of Object.keys(S)) if (!knownSeats.has(g) && Date.now() - (S[g].ts || 0) > 600000) { delete S[g]; c = true; }
+  if (c) save(LS_S, S);
+}
+const landedOrPending = (live, ts) => live || Date.now() - (ts || 0) < 120000;   // on-chain, or still confirming
 
 // dice roll — MUST match the contract: HASH(bankSecret + seatId) % 100
 const rollOf = (secret, g) => Number(BigInt("0x" + blake2bHash((BigInt(secret) + BigInt(g)).toString())) % BigInt(PN));
@@ -56,6 +70,12 @@ function openTable(t, bankrollRaw) {
   activeTable = t; $("joinId").value = String(t);   // target your own table so you can also roll at it
   render();
   dapp.call("open", [t, commitHashOf(BigInt(secret))], bankrollRaw, "bank a dice table #" + t + " · " + rawToNado(bankrollRaw) + " NADO", { table: t, phase: "open" });
+}
+function reopenTable() {   // retry an open that never landed — the same id is still fresh on-chain
+  const T = load(LS_T)[activeTable]; if (!T || !T.bankroll) return;
+  const raw = BigInt(T.bankroll);
+  if (dapp.exec < raw) { $("status").textContent = "Deposit first — your exec balance is " + rawToNado(dapp.exec) + " NADO, but this bankroll needs " + rawToNado(raw) + "."; return; }
+  openTable(activeTable, raw);
 }
 async function newTable() {
   const raw = nadoToRaw($("bankrollAmt").value);
@@ -100,6 +120,7 @@ async function refreshActive() {
   await dapp.refresh();
   const sto = await dapp.storage();
   if (sto) {
+    pruneAndTrack(sto);
     if (activeTable != null) { lastTable = tableFrom(sto, activeTable); lastSeats = seatsOfTable(sto, activeTable); }
     renderLobby(sto); renderScoreboard(boardFrom(sto));
   }
@@ -164,6 +185,7 @@ function wireUI() {
   $("btnBet").onclick = doBet;
   $("btnReveal").onclick = revealTable;
   $("btnClose").onclick = closeTable;
+  $("btnReopen").onclick = reopenTable;
   $("btnFund").onclick = fundTable;
   $("btnShare").onclick = () => share(base() + "/?table=" + activeTable, "Roll at my dice table #" + activeTable + " on NADO:", $("btnShare"));
   $("target").oninput = () => { syncSlider(); render(); };
@@ -206,10 +228,14 @@ function render() {
   // my recent tables/seats
   const T = load(LS_T), S = load(LS_S), mine = [];
   for (const t of Object.keys(T)) mine.push({ id: +t, role: "bank", ts: T[t].ts });
-  for (const g of Object.keys(S)) mine.push({ id: S[g].table, role: "bet", ts: S[g].ts });
+  for (const g of Object.keys(S)) mine.push({ id: S[g].table, seat: g, role: "bet", ts: S[g].ts });
   mine.sort((a, b) => b.ts - a.ts); const seen = new Set();
-  $("recent").innerHTML = mine.filter((x) => { const k = x.id + x.role; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 8)
-    .map((x) => '<button class="chip" data-t="' + x.id + '">' + (x.role === "bank" ? "🏦" : "🎲") + " #" + x.id + "</button>").join(" ") || '<span class="dim">No tables yet.</span>';
+  const shown = mine.filter((x) => {   // only show entries that landed on-chain (or are still confirming)
+    const live = x.role === "bank" ? knownTables.has(String(x.id)) : knownSeats.has(String(x.seat));
+    if (!landedOrPending(live, x.ts)) return false;
+    const k = x.id + x.role; if (seen.has(k)) return false; seen.add(k); return true;
+  }).slice(0, 8);
+  $("recent").innerHTML = shown.length ? shown.map((x) => '<button class="chip" data-t="' + x.id + '">' + (x.role === "bank" ? "🏦" : "🎲") + " #" + x.id + "</button>").join(" ") : '<span class="dim">No tables yet.</span>';
   $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => {
     const id = parseInt(b.dataset.t, 10);
     activeTable = id; $("joinId").value = String(id);
@@ -242,6 +268,8 @@ function renderActive() {
     else if (tb.phase === "done") phaseTxt = "table closed";
   }
   $("gStatus").textContent = phaseTxt;
+  // a table you opened that never landed on-chain: offer a one-click Re-open (same id is still fresh)
+  $("btnReopen").classList.toggle("hidden", !(!tb.exists && T.bankroll && T.ts && Date.now() - T.ts > 120000));
   // seats — each with its own roll once revealed
   const seatRow = (s) => {
     const you = s.addr === dapp.me ? '<b style="color:var(--accent2)">you</b> ' : "";

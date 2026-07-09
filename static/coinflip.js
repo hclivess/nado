@@ -143,6 +143,9 @@ async function refreshActive() {
   if (sto) {
     if (active != null) lastGame = gameFrom(sto, active);
     for (const gid of allGids(sto)) stageCache[gid] = { settled: !!_m(sto, "sd")[gid], ncom: _m(sto, "nn")[gid] || 0, stake: _m(sto, "st")[gid] || 0 };
+    const gg = gamesLoad(); let pruned = false;   // drop local games that never landed on-chain (10 min+)
+    for (const id of Object.keys(gg)) if (!stageCache[id] && Date.now() - (gg[id].ts || 0) > 600000) { delete gg[id]; pruned = true; }
+    if (pruned) gamesSave(gg);
     renderLobby(lobbyFrom(sto));
     renderScoreboard(boardFrom(sto));
   }
@@ -174,6 +177,12 @@ function renderLobby(games) {
   });
 }
 
+function reopenGame() {   // retry an open that never landed (same id is still fresh)
+  const L = gamesLoad()[active]; if (!L || L.role !== "open" || !L.stake) return;
+  const raw = BigInt(L.stake);
+  if (dapp.exec < raw) { $("status").textContent = "Deposit first — this stake needs " + rawToNado(raw) + " NADO."; return; }
+  bet(active, raw, "open");
+}
 // ---- render --------------------------------------------------------------------------------------
 function wireUI() {
   $("btnSignIn").onclick = () => dapp.signIn();
@@ -189,6 +198,7 @@ function wireUI() {
   $("btnRematch").onclick = rematch;
   $("btnJoinActive").onclick = joinActive;
   $("btnCancel").onclick = cancelGame;
+  $("btnReopen").onclick = reopenGame;
 }
 const badge = (s) => s === "confirmed" ? '<span class="b ok">confirmed ✓</span>' : s === "pending" ? '<span class="b pend">pending…</span>' : '<span class="b dimb">—</span>';
 function render() {
@@ -222,7 +232,7 @@ function render() {
   const showShortfall = !!jid && signedIn && !iAmIn && stageJoinable && needStake != null && dapp.exec < needStake;
   if (jh) { jh.textContent = showShortfall ? shortfallMsg(needStake, dapp.exec) : ""; jh.classList.toggle("hidden", !showShortfall); }
   const g = gamesLoad();
-  const ids = Object.keys(g).filter((id) => stageCache[id]).sort((a, b) => g[b].ts - g[a].ts).slice(0, 8);
+  const ids = Object.keys(g).filter((id) => stageCache[id] || Date.now() - (g[id].ts || 0) < 120000).sort((a, b) => g[b].ts - g[a].ts).slice(0, 8);
   $("recent").innerHTML = ids.length
     ? ids.map((id) => {
         const st = stageCache[id]; let cls = "", tag = "";
@@ -279,6 +289,7 @@ function renderActive() {
   const jah = $("joinActiveHint");
   if (jah) { jah.textContent = shortActive ? shortfallMsg(needActive, dapp.exec) : ""; jah.classList.toggle("hidden", !shortActive); }
   $("btnRematch").classList.toggle("hidden", !lg.settled);
+  $("btnReopen").classList.toggle("hidden", !(local.role === "open" && local.stake && !lg.exists && local.ts && Date.now() - local.ts > 120000));
   const coin = $("coin");
   if (lg.settled && (lg.result === 0 || lg.result === 1)) {
     coin.className = "coin " + (lg.result === 0 ? "heads" : "tails"); coin.textContent = lg.result === 0 ? "H" : "T";

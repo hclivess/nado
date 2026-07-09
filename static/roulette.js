@@ -18,6 +18,25 @@ const LS_T = "nado_roul_tables", LS_S = "nado_roul_seats";
 const load = (k) => { try { return JSON.parse(localStorage.getItem(k) || "{}"); } catch { return {}; } };
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 let activeTable = null, lastTable = null, lastSeats = [], selected = new Set();
+let knownTables = new Set(), knownSeats = new Set();   // ids that actually exist on-chain (for "Your tables")
+// hide/prune locally-opened tables/seats that never landed on-chain so failed opens don't linger in the list
+function pruneAndTrack(sto) {
+  knownTables = new Set(allTables(sto));
+  knownSeats = new Set(Object.keys(_m(sto, "gg")));
+  const T = load(LS_T); let c = false;
+  for (const t of Object.keys(T)) if (!knownTables.has(t) && Date.now() - (T[t].ts || 0) > 600000) { delete T[t]; c = true; }
+  if (c) save(LS_T, T);
+  const S = load(LS_S); c = false;
+  for (const g of Object.keys(S)) if (!knownSeats.has(g) && Date.now() - (S[g].ts || 0) > 600000) { delete S[g]; c = true; }
+  if (c) save(LS_S, S);
+}
+const landedOrPending = (live, ts) => live || Date.now() - (ts || 0) < 120000;
+function reopenTable() {   // retry an open that never landed (same id is still fresh on-chain)
+  const T = load(LS_T)[activeTable]; if (!T || !T.bankroll) return;
+  const raw = BigInt(T.bankroll);
+  if (dapp.exec < raw) { $("status").textContent = "Deposit first — your exec balance is " + rawToNado(dapp.exec) + " NADO, but this bankroll needs " + rawToNado(raw) + "."; return; }
+  openTable(activeTable, raw);
+}
 
 // shared spin — MUST match the contract: HASH(bankSecret + tableId) % 37
 const spinResult = (secret, t) => Number(BigInt("0x" + blake2bHash((BigInt(secret) + BigInt(t)).toString())) % BigInt(PN));
@@ -114,6 +133,7 @@ async function refreshActive() {
   await dapp.refresh();
   const sto = await dapp.storage();
   if (sto) {
+    pruneAndTrack(sto);
     if (activeTable != null) { lastTable = tableFrom(sto, activeTable); lastSeats = seatsOfTable(sto, activeTable); }
     renderLobby(sto); renderScoreboard(boardFrom(sto));
   }
@@ -196,6 +216,7 @@ function wireUI() {
   $("btnReveal").onclick = revealTable;
   $("btnClose").onclick = closeTable;
   $("btnFund").onclick = fundTable;
+  $("btnReopen").onclick = reopenTable;
   $("btnShare").onclick = () => share(base() + "/?table=" + activeTable, "Bet at my roulette table #" + activeTable + " on NADO:", $("btnShare"));
   buildTable();
 }
@@ -236,10 +257,14 @@ function render() {
   const jh = $("joinHint"); if (jh) { jh.textContent = hint; jh.classList.toggle("hidden", !hint); }
   const T = load(LS_T), S = load(LS_S), mine = [];
   for (const t of Object.keys(T)) mine.push({ id: +t, role: "bank", ts: T[t].ts });
-  for (const g of Object.keys(S)) mine.push({ id: S[g].table, role: "bet", ts: S[g].ts });
+  for (const g of Object.keys(S)) mine.push({ id: S[g].table, seat: g, role: "bet", ts: S[g].ts });
   mine.sort((a, b) => b.ts - a.ts); const seen = new Set();
-  $("recent").innerHTML = mine.filter((x) => { const k = x.id + x.role; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 8)
-    .map((x) => '<button class="chip" data-t="' + x.id + '">' + (x.role === "bank" ? "🏦" : "🎯") + " #" + x.id + "</button>").join(" ") || '<span class="dim">No tables yet.</span>';
+  const shown = mine.filter((x) => {
+    const live = x.role === "bank" ? knownTables.has(String(x.id)) : knownSeats.has(String(x.seat));
+    if (!landedOrPending(live, x.ts)) return false;
+    const k = x.id + x.role; if (seen.has(k)) return false; seen.add(k); return true;
+  }).slice(0, 8);
+  $("recent").innerHTML = shown.length ? shown.map((x) => '<button class="chip" data-t="' + x.id + '">' + (x.role === "bank" ? "🏦" : "🎯") + " #" + x.id + "</button>").join(" ") : '<span class="dim">No tables yet.</span>';
   $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => {
     const id = parseInt(b.dataset.t, 10);
     activeTable = id; $("joinId").value = String(id);
@@ -272,6 +297,7 @@ function renderActive() {
     else if (tb.phase === "done") phaseTxt = "table closed";
   }
   $("gStatus").textContent = phaseTxt;
+  $("btnReopen").classList.toggle("hidden", !(!tb.exists && T.bankroll && T.ts && Date.now() - T.ts > 120000));
   const wheel = $("wheel");
   if (tb.result != null) { wheel.className = "wheel " + colorOf(tb.result); wheel.textContent = tb.result; $("result").textContent = colorOf(tb.result).toUpperCase() + " " + tb.result; }
   else if (tb.phase === "spinning" || tb.phase === "forfeit") { wheel.className = "wheel spin"; wheel.textContent = "?"; $("result").textContent = tb.phase === "forfeit" ? "Bank stalled — claim below" : "Betting closed — spinning soon"; }

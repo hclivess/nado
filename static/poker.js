@@ -12,6 +12,20 @@ const LS_G = "nado_poker_games";
 const load = () => { try { return JSON.parse(localStorage.getItem(LS_G) || "{}"); } catch { return {}; } };
 const save = (v) => { try { localStorage.setItem(LS_G, JSON.stringify(v)); } catch {} };
 let activeGame = null, lastGame = null;
+let knownGames = new Set();   // game ids that exist on-chain (for "Your games")
+function pruneAndTrack(sto) {
+  knownGames = new Set(allGids(sto));
+  const G = load(); let c = false;
+  for (const g of Object.keys(G)) if (!knownGames.has(g) && Date.now() - (G[g].ts || 0) > 600000) { delete G[g]; c = true; }
+  if (c) save(G);
+}
+const landedOrPending = (g, ts) => knownGames.has(String(g)) || Date.now() - (ts || 0) < 120000;
+function reopenGame() {   // retry an open that never landed (same id is still fresh)
+  const L = load()[activeGame]; if (!L || L.role !== "p1" || !L.stake || !L.secret) return;
+  const raw = BigInt(L.stake);
+  if (dapp.exec < raw) { $("status").textContent = "Deposit first — this stake needs " + rawToNado(raw) + " NADO."; return; }
+  dapp.call("open", [activeGame, commitHashOf(BigInt(L.secret))], raw, "open poker game #" + activeGame + " · " + rawToNado(raw) + " NADO", { game: activeGame, phase: "bet" });
+}
 
 // ---- reads (poker storage schema) ----------------------------------------------------------------
 const allGids = (sto) => Object.keys(_m(sto, "nn"));
@@ -74,7 +88,7 @@ const cancelGame = () => dapp.call("cancel", [activeGame], null, "cancel game #"
 async function refreshActive() {
   await dapp.refresh();
   const sto = await dapp.storage();
-  if (sto) { if (activeGame != null) lastGame = gameFrom(sto, activeGame); renderLobby(sto); }
+  if (sto) { pruneAndTrack(sto); if (activeGame != null) lastGame = gameFrom(sto, activeGame); renderLobby(sto); }
   await resolveAliases([dapp.me].concat(lastGame ? [lastGame.p1, lastGame.p2] : []));
   render();
 }
@@ -105,6 +119,7 @@ function wireUI() {
   $("btnJoin").onclick = joinGame;
   $("joinId").oninput = () => render();
   $("btnReveal").onclick = revealMe;
+  $("btnReopen").onclick = reopenGame;
   $("btnResign").onclick = resignGame;
   $("btnSplit").onclick = agreeSplit;
   $("btnAbort").onclick = abortGame;
@@ -119,7 +134,7 @@ function render() {
   $("l1bal").textContent = rawToNado(dapp.l1) + " NADO";
   $("play").classList.toggle("hidden", !signedIn);
   $("bankroll").classList.toggle("hidden", !signedIn);
-  const G = load(), ids = Object.keys(G).sort((a, b) => G[b].ts - G[a].ts).slice(0, 8);
+  const G = load(), ids = Object.keys(G).filter((g) => landedOrPending(g, G[g].ts)).sort((a, b) => G[b].ts - G[a].ts).slice(0, 8);
   $("recent").innerHTML = ids.length ? ids.map((g) => '<button class="chip" data-g="' + g + '">🂡 #' + g + "</button>").join(" ") : '<span class="dim">No games yet.</span>';
   $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeGame = parseInt(b.dataset.g, 10); refreshActive(); });
   renderActive();
@@ -156,6 +171,7 @@ function renderActive() {
     st = iRevealed ? "waiting for your opponent to reveal…" : (local.reveal === "pending" ? "your reveal is confirming (~1 min)…" : "both in — reveal your cards to show down");
   }
   $("gStatus").textContent = st;
+  $("btnReopen").classList.toggle("hidden", !(local.role === "p1" && local.stake && local.secret && !g.exists && local.ts && Date.now() - local.ts > 120000));
   // buttons
   const live = g.exists && g.nn === 2 && !g.settled, iAmIn = !!slot;
   const iRevealed = slot === 1 ? g.r1 : g.r2;

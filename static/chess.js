@@ -12,6 +12,20 @@ const LS_G = "nado_chess_games";
 const load = () => { try { return JSON.parse(localStorage.getItem(LS_G) || "{}"); } catch { return {}; } };
 const save = (v) => { try { localStorage.setItem(LS_G, JSON.stringify(v)); } catch {} };
 let activeGame = null, lastGame = null, engine = new Chess(), selected = null, pendingEnc = null, flipBoard = false;
+let knownGames = new Set();   // game ids that exist on-chain (for "Your games")
+function pruneAndTrack(sto) {
+  knownGames = new Set(allGids(sto));
+  const G = load(); let c = false;
+  for (const g of Object.keys(G)) if (!knownGames.has(g) && Date.now() - (G[g].ts || 0) > 600000) { delete G[g]; c = true; }
+  if (c) save(G);
+}
+const landedOrPending = (g, ts) => knownGames.has(String(g)) || Date.now() - (ts || 0) < 120000;
+function reopenGame() {   // retry an open that never landed (same id is still fresh)
+  const L = load()[activeGame]; if (!L || L.role !== "white" || !L.stake) return;
+  const raw = BigInt(L.stake);
+  if (dapp.exec < raw) { $("status").textContent = "Deposit first — this stake needs " + rawToNado(raw) + " NADO."; return; }
+  dapp.call("open", [activeGame], raw, "open chess game #" + activeGame + " · " + rawToNado(raw) + " NADO stake", { game: activeGame, phase: "open" });
+}
 
 // ---- square <-> index <-> move encoding (must match the contract: from + to*64 + promo*4096) -----
 const FILES = "abcdefgh";
@@ -86,6 +100,7 @@ async function refreshActive() {
   await dapp.refresh();
   const sto = await dapp.storage();
   if (sto) {
+    pruneAndTrack(sto);
     if (activeGame != null) {
       lastGame = gameFrom(sto, activeGame);
       if (pendingEnc != null && lastGame.moves.length >= lastGame.mc && lastGame.moves.some((m) => encMove(m) === pendingEnc)) pendingEnc = null;
@@ -168,6 +183,7 @@ function wireUI() {
   $("btnSettle").onclick = () => { const r = resultCode(); if (r) agree(r); };
   $("btnAbort").onclick = abortGame;
   $("btnCancel").onclick = cancelGame;
+  $("btnReopen").onclick = reopenGame;
   $("btnFlip").onclick = () => { flipBoard = !flipBoard; renderBoard(); };
   $("btnShare").onclick = () => share(base() + "/?game=" + activeGame, "Play me at chess for " + (lastGame && lastGame.exists ? rawToNado(lastGame.stake) + " NADO " : "") + "on NADO — game #" + activeGame + ":", $("btnShare"));
 }
@@ -185,7 +201,7 @@ function render() {
   $("play").classList.toggle("hidden", !signedIn);
   $("bankroll").classList.toggle("hidden", !signedIn);
   // my recent games
-  const G = load(), ids = Object.keys(G).sort((a, b) => G[b].ts - G[a].ts).slice(0, 8);
+  const G = load(), ids = Object.keys(G).filter((g) => landedOrPending(g, G[g].ts)).sort((a, b) => G[b].ts - G[a].ts).slice(0, 8);
   $("recent").innerHTML = ids.length ? ids.map((g) => '<button class="chip" data-g="' + g + '">' + (G[g].role === "white" ? "♔" : "♚") + " #" + g + "</button>").join(" ") : '<span class="dim">No games yet.</span>';
   $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeGame = parseInt(b.dataset.g, 10); pendingEnc = null; refreshActive(); });
   renderActive();
@@ -212,6 +228,7 @@ function renderActive() {
   else if (over) st = engine.isCheckmate() ? ("Checkmate — " + (rc === 1 ? "White" : "Black") + " wins") : engine.isStalemate() ? "Stalemate — draw" : "Draw";
   else if (g.exists) st = (engine.turn() === "w" ? "White" : "Black") + " to move" + (engine.inCheck() ? " · CHECK" : "") + (myTurn(g, engine) ? " — your move" : (pendingEnc != null ? " · your move is confirming (~1 min)…" : " — waiting for opponent (~1 min)"));
   $("gStatus").textContent = st;
+  $("btnReopen").classList.toggle("hidden", !(local.role === "white" && local.stake && !g.exists && local.ts && Date.now() - local.ts > 120000));
   // buttons
   const iAmIn = side != null, live = g.exists && g.nn === 2 && !g.settled;
   const iAmWinner = over && ((rc === 1 && side === "w") || (rc === 2 && side === "b"));
