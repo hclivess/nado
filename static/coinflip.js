@@ -240,6 +240,7 @@ async function rematch() {
 }
 const settle = () => callC("settle", [active], null, "settle game #" + active, { gameId: active, phase: "settle" });
 const claim = () => callC("claim", [active], null, "claim game #" + active, { gameId: active, phase: "claim" });
+const cancelGame = () => callC("cancel", [active], null, "cancel game #" + active, { gameId: active, phase: "cancel" });
 function doWithdraw() {
   const raw = nadoToRaw($("wdAmt").value);
   if (!raw) { $("status").textContent = "Enter an amount to withdraw."; return; }
@@ -299,6 +300,7 @@ function wireUI() {
   $("btnShare").onclick = shareGame;
   $("btnRematch").onclick = rematch;
   $("btnJoinActive").onclick = joinActive;
+  $("btnCancel").onclick = cancelGame;
 }
 const badge = (s) => s === "confirmed" ? '<span class="b ok">confirmed ✓</span>' : s === "pending" ? '<span class="b pend">pending…</span>' : '<span class="b dimb">—</span>';
 function render() {
@@ -374,6 +376,7 @@ function renderActive() {
   $("btnReveal").classList.toggle("hidden", !(mine && !mine.revealed && bothIn && !lg.settled));
   $("btnSettle").classList.toggle("hidden", !(bothRev && !lg.settled));
   $("btnClaim").classList.toggle("hidden", !pastDeadline);
+  $("btnCancel").classList.toggle("hidden", !(me && lg.exists && !lg.settled && lg.ncom === 1 && mine && mine.slot === 1));   // reclaim an un-joined game
   $("btnJoinActive").classList.toggle("hidden", !(me && lg.exists && !lg.settled && lg.ncom < 2 && !mine));  // browse->join
   $("btnRematch").classList.toggle("hidden", !lg.settled);   // Play again (deterministic id -> both clicks meet in one game)
   // coin / result

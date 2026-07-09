@@ -102,7 +102,7 @@ deploys with **empty storage**.
 
 ### `call`
 
-Invoke a method, persisting storage on success.
+Invoke a method, persisting storage on success. Optionally **escrow NADO** into the contract for the call.
 
 | field | req | meaning |
 |---|---|---|
@@ -110,16 +110,34 @@ Invoke a method, persisting storage on success.
 | `contract` | yes | target `cid` |
 | `method` | yes | method name to run |
 | `args` | no | argument **list** (default `[]`; must be a list) |
+| `value` | no | raw NADO to escrow from the caller's bridge INTO the contract for this call (`int >= 0`, bool rejected; default `0`) |
 | `ns` | no | namespace |
 
 Runs `method` on the contract's runtime with `sender` as caller. On success the returned storage replaces the
 contract's storage; on **revert it is a no-op** (`"… -> revert (no-op)"`).
 
-**Skips if:** no such contract; `args` is not a list; unknown runtime.
+**Value / escrow semantics.** When `value > 0`, that many raw NADO are debited from `bridge[sender]` and
+credited into the contract's own bridge balance (`bridge[cid]`) **before** the method runs, so the `VALUE`
+opcode reflects it and `PAY` can draw on it. A **revert refunds the escrow exactly** — no NADO is created or
+lost. Any `PAY` payouts the method schedules are applied **from the contract's balance** after it returns; a
+call whose total payouts **exceed the contract's balance reverts** (and refunds), so a contract balance can
+never go negative and no NADO is minted. This makes a contract able to **hold and move real bridged NADO** — a
+generic escrow/staking primitive, not specific to any one dApp (see the Coin Flip example, §5).
+
+**Skips if:** no such contract; `args` is not a list; `value` not a non-negative int; unknown runtime;
+insufficient bridge balance for `value`.
 
 ```json
 {"op":"call","contract":"<cid hex>","method":"set","args":["hello",42]}
+{"op":"call","contract":"<cid hex>","method":"open","args":[7,<commit int>],"value":100000}
 ```
+
+**VM value opcodes** (`execnode/vm.py`, `stackvm` runtime) — the primitives a contract uses to interact with
+escrow: `VALUE` pushes the NADO escrowed with THIS call; `PAY` pops `amount` then `to` and schedules a payout
+of `amount` raw NADO from the contract's escrow to `to` (max 16 payouts/call; `amount == 0` skipped; `to` must
+be a non-empty string); `CURSOR` pushes the current L1 block height (for deadlines). `MSTORE` stores an int
+**or** string (strings let a contract store addresses); a `0`/empty value deletes the key. `run()` returns
+`(ok, return_value, new_storage, payouts)`.
 
 ### `upgrade`
 
@@ -217,92 +235,36 @@ L1 with the proof from `/exec/dividend_proof?nonce=` after settlement (fee-exemp
 
 ---
 
-## 5. Coin flip (native staked module)
+## 5. Coin Flip (example contract)
 
-A built-in two-player commit-reveal coin flip — no contract to deploy. Stakes are escrowed from bridge
-balances. `game` is an integer id (coerced to string internally). `FLIP_REVEAL_WINDOW = 1000` exec-cursor
-blocks. See the Coin Flip dApp (coinflip.nadochain.com).
+Coin Flip is **not a native module** — there is no coinflip-specific op or API. It is an ordinary on-chain
+contract (`execnode/contracts/coinflip.json`, runtime `stackvm`) exercised entirely through the generic
+`call`/`view`/`upgrade` surface, and it is the **reference example of the `VALUE`/`PAY` escrow pattern** (§3):
+stakes are real bridged NADO escrowed into the contract via `call`'s `value`, and the pot is paid out via `PAY`.
 
-### `flip_bet`
+It is deployed at `cid = 7ee95a0abd6e00d12edc3bf39f4c8f2d` (node-owned, so **upgradable** by the node via the
+`upgrade` op). `game` is an integer id (used as the storage key). The reveal window is `1000` L1 blocks
+(`CURSOR + 1000` deadline). All methods are called with the generic `call` op:
 
-Open a game (slot 1) or join it (slot 2), escrowing the stake from your bridge balance into the pot.
+| method | args | value | effect |
+|---|---|---|---|
+| `open` | `game, commit` | `= stake` | open a fresh game (slot 1), escrow the stake as the pot; `commit = HASH(secret)` |
+| `join` | `game, commit` | `= stake` | join as slot 2 (stake must equal the opener's); adds to the pot; sets `deadline = CURSOR + 1000` |
+| `reveal1` / `reveal2` | `game, secret` | `0` | reveal your secret; reverts unless `HASH(secret)` matches your stored commit |
+| `settle` | `game` | `0` | after both reveal, pay the whole pot to the winner via `PAY` — `result = HASH(s1+s2) % 2` (`0` → slot 1, `1` → slot 2) |
+| `claim` | `game` | `0` | after the reveal deadline: the lone revealer takes the pot by forfeit, or (nobody revealed) each stake is refunded |
 
-| field | req | meaning |
-|---|---|---|
-| `op` | yes | `"flip_bet"` |
-| `game` | yes | game id |
-| `commit` | yes | non-negative `int` = `_hash_value(secret)` (256-bit; `execnode/vm.py`) |
-| `stake` | yes | positive `int` raw stake (bool rejected) |
-| `ns` | no | namespace |
+Because every method reverts on any bad precondition (wrong stake, wrong secret, wrong turn, double-join,
+already settled), a losing or absent player can only stall, never steal; the `value`-escrow refund and the
+"payouts ≤ contract balance" rule (§3) guarantee no NADO is minted or lost.
 
-First caller opens the game, escrows `stake`, sets `deadline = cursor + FLIP_REVEAL_WINDOW`. A second matching
-caller joins slot 2, escrows a matching stake, and the deadline is reset to `cursor + FLIP_REVEAL_WINDOW`.
-
-**Rejects BEFORE debiting any funds** (no stake is lost) if: bad `commit`; bad `stake`; game already settled;
-`sender` already in the game; game full (`>= 2` players); `stake != opener's stake`; insufficient bridge
-balance.
-
-```json
-{"op":"flip_bet","game":7,"commit":<int hash>,"stake":100000}
-```
-
-### `flip_reveal`
-
-| field | req | meaning |
-|---|---|---|
-| `op` | yes | `"flip_reveal"` |
-| `game` | yes | game id |
-| `secret` | yes | `int` opening the commit (`_hash_value(secret) == commit`) |
-| `ns` | no | namespace |
-
-**Skips if:** bad `secret`; no open/unsettled game; fewer than 2 players; `sender` not a player; already
-revealed; secret does not open your commit.
+The Coin Flip dApp (`coinflip.nadochain.com`) reads game / lobby / scoreboard by **deriving them from the
+contract's storage maps** via the generic `GET /exec/contract` endpoint (§8) — there is no dedicated read API.
 
 ```json
-{"op":"flip_reveal","game":7,"secret":<int>}
-```
-
-### `flip_settle`
-
-Settle once both players have revealed.
-
-| field | req | meaning |
-|---|---|---|
-| `op` | yes | `"flip_settle"` |
-| `game` | yes | game id |
-| `ns` | no | namespace |
-
-Result: `int(blake2b_hash([s1, s2]), 16) % 2` — `0` → slot 1 wins, `1` → slot 2 wins. Pays the whole `pot`
-to the winner's bridge balance and marks the game `settled`. (`/exec/flip_game` already exposes `result` +
-`winner_slot` as soon as both reveal, before settle is submitted.)
-
-**Skips if:** nothing to settle (no game / already settled); not both players revealed (use `flip_claim` after
-the deadline).
-
-```json
-{"op":"flip_settle","game":7}
-```
-
-### `flip_claim`
-
-Anti-grief resolution after the reveal deadline passes.
-
-| field | req | meaning |
-|---|---|---|
-| `op` | yes | `"flip_claim"` |
-| `game` | yes | game id |
-| `ns` | no | namespace |
-
-Branches (only after `cursor > deadline`):
-- **exactly one** player revealed → that player takes the whole pot by forfeit.
-- **both** revealed → skip (`"both revealed — use flip_settle"`).
-- **nobody** revealed (or no opponent joined) → each player is refunded their `stake`; game marked settled.
-
-**Skips if:** nothing to claim (no game / already settled); the reveal deadline has not passed
-(`cursor <= deadline`).
-
-```json
-{"op":"flip_claim","game":7}
+{"op":"call","contract":"7ee95a0abd6e00d12edc3bf39f4c8f2d","method":"open","args":[7,<commit int>],"value":100000}
+{"op":"call","contract":"7ee95a0abd6e00d12edc3bf39f4c8f2d","method":"reveal1","args":[7,<secret int>]}
+{"op":"call","contract":"7ee95a0abd6e00d12edc3bf39f4c8f2d","method":"settle","args":[7]}
 ```
 
 ---
@@ -388,7 +350,6 @@ must be read from the **finalized** state for a valid claim.
 | `/exec/contracts` | contract list (cid, deployer, methods, runtime, abi); storage omitted | `ns`, `deployer`, `prefix`, `limit` (default 100, max 500), `provisional` |
 | `/exec/contract` | one contract in full incl. entire storage; 404 if unknown | `cid`, `ns`, `provisional` |
 | `/exec/view` | read-only method call (storage never persisted); `result` null on missing/revert | `cid`, `method`, `args` (JSON list), `ns`, `provisional` |
-| `/exec/flip_game` | coin-flip game state; `result`+`winner_slot` once both reveal | `game`, `ns`, `provisional` |
 | `/exec/outbox` | cross-domain outbox messages `{seq, from, to_ns, data}` | `ns`, `provisional` |
 | `/exec/outbox_proof` | Merkle proof that outbox `seq` is in the ns `state_root` | `ns`, `seq` |
 | `/exec/inbox` | messages delivered to this ns (from L1-verified `xmsg`) | `ns`, `provisional` |

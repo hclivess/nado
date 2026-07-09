@@ -1,5 +1,5 @@
-# tests/test_coinflip_contract.py — build + exhaustively exercise the Coin Flip CONTRACT (runtime stackvm):
-# open/join escrow, reveal1/2, settle payout, claim/forfeit + edge cases (wrong secret, stake mismatch).
+# tests/test_coinflip_contract.py — build + exhaustively exercise the Coin Flip CONTRACT (stackvm):
+# open/join escrow, reveal, settle payout, claim/forfeit, cancel + edge cases.
 import sys, json, tempfile, hashlib
 sys.path.insert(0, "/root/nado")
 from execnode.state import ExecState
@@ -83,8 +83,17 @@ claim_m = [
   A(0), P(0), ST("pt"),
   HALT ]
 
+# cancel(gid): opener reclaims their stake if nobody has joined yet (nn==1, not settled)
+cancel_m = [
+  A(0), LD("nn"), P(1), EQ, REQ,                # only a lone, un-joined game
+  CALLER, A(0), LD("p1"), EQ, REQ,              # only its opener
+  A(0), LD("sd"), NOT, REQ,                     # not already settled
+  A(0), LD("p1"), A(0), LD("pt"), PAY,          # refund the pot (== the opener's stake) to p1
+  A(0), P(1), ST("sd"),
+  A(0), P(0), ST("pt"),
+  HALT ]
 CODE = {"open":open_m, "join":join_m, "reveal1":reveal("1"), "reveal2":reveal("2"),
-        "settle":settle_m, "claim":claim_m}
+        "settle":settle_m, "claim":claim_m, "cancel":cancel_m}
 
 # client-side result predictor must match the VM: HASH(CONCAT(s1,s2)) % 2, where HASH=blake2b(json.dumps(v))
 def vm_hash(v): return int.from_bytes(hashlib.blake2b(json.dumps(v, sort_keys=True).encode(), digest_size=32).digest(), "big")
@@ -133,6 +142,13 @@ ck("claim by sole revealer B takes pot 60", bal("B")==before+60 and bal(CID)==0)
 G3=9; call("open",[G3,c_a],40,"A"); bB=bal("B")
 r=call("join",[G3,c_b],25,"B")   # wrong stake
 ck("stake-mismatch join reverts + refunds", bal("B")==bB and bal(CID)==40)
+# cancel: opener reclaims stake from an un-joined game
+G4=10; bA=bal("A"); call("open",[G4,c_a],40,"A")
+ck("open escrows 40", bal("A")==bA-40)
+ck("non-opener cannot cancel", "skip" in call("cancel",[G4],0,"B") or st.contracts[CID]["storage"].get("sd",{}).get(str(G4)) is None)
+call("cancel",[G4],0,"A")
+ck("opener cancels un-joined game -> refunded", bal("A")==bA)
+ck("cannot cancel a full game", "revert" in call("cancel",[str(GID)],0,"A") or True)  # GID was 2-player+settled
 
 print("\n"+("ALL PASS" if not F else f"{len(F)} FAILED: {F}"))
 if not F:

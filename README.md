@@ -710,7 +710,8 @@ shape is unchanged (49 chars).
   the locked, ordered design for the remaining security milestones.
 - **Storage design** — [`doc/storage-kv-migration.md`](doc/storage-kv-migration.md).
 - **Execution-layer instructions** — [`doc/exec-instructions.md`](doc/exec-instructions.md): every blob op
-  (deploy/call/upgrade, bridge/dividend, coin flip, emit, privacy) with params + how to submit and read.
+  (deploy/call/upgrade with `value` escrow, bridge/dividend, emit, privacy) with params + how to submit and
+  read — plus the Coin Flip example contract that showcases the VM's `VALUE`/`PAY` escrow primitive.
 - **Previous-network snapshot** — [`doc/previous-network-snapshot.md`](doc/previous-network-snapshot.md):
   the prior NADO network's final account balances (2,801 holders), exported from its ledger index — the
   dev-fund premine excluded, in keeping with the no-premine relaunch.
