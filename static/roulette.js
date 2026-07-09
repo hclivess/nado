@@ -9,7 +9,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, commitHashOf, blake
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
 const CID = "186ebadb975794e2ed7eeb1c7b5115a5";
-const PN = 37, MAXSLOTS = 18, SENTINEL = 99, BLOCK_SECS = 6;
+const PN = 37, MAXSLOTS = 18, BLOCK_SECS = 6;
 const dapp = new NadoDapp({ cid: CID, app: "Roulette" });
 const RED = new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
 const colorOf = (n) => n === 0 ? "green" : (RED.has(n) ? "red" : "black");
@@ -91,7 +91,7 @@ async function doBet() {
   const need = stake * BigInt(betMult() - 1);
   if (BigInt(tb.bankroll) - BigInt(tb.committed) < need) { $("status").textContent = "This table can't cover a " + betMult() + "× win right now (bankroll left: " + rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) + " NADO). Lower your stake or widen your bet."; render(); return; }
   const g = randId(), slots = betSlots(), S = load(LS_S);
-  S[g] = { table: t, stake: stake.toString(), numbers: slots.filter((n) => n < PN), ts: Date.now() }; save(LS_S, S);
+  S[g] = { table: t, stake: stake.toString(), numbers: [...selected], ts: Date.now() }; save(LS_S, S);
   activeTable = t; render();
   dapp.call("bet", [g, t, ...slots], stake, "bet " + rawToNado(stake) + " NADO on " + selected.size + " number(s) · table #" + t, { table: t, seat: g, phase: "bet" });
 }

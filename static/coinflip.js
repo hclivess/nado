@@ -13,7 +13,7 @@ const dapp = new NadoDapp({ cid: CID, app: "Coin Flip" });
 const LS_G = "nado_coinflip_games";
 const gamesLoad = () => { try { return JSON.parse(localStorage.getItem(LS_G) || "{}"); } catch { return {}; } };
 const gamesSave = (g) => { try { localStorage.setItem(LS_G, JSON.stringify(g)); } catch {} };
-let active = null, lastGame = null, deepLinkGame = null;
+let active = null, lastGame = null;
 const stageCache = {};     // gid -> {settled, ncom, stake} : drives the game-list colours + Join affordability
 
 // insufficient-exec-balance message: what the game costs, what you hold, and exactly how much more to deposit
@@ -81,7 +81,7 @@ async function newGame() {
 async function joinGame() {
   const gid = parseInt($("joinId").value, 10);
   if (!gid) return;
-  deepLinkGame = null; $("btnJoin").classList.remove("pulse");
+  $("btnJoin").classList.remove("pulse");
   const g = await fetchGame(gid);
   if (!g || !g.exists) { $("status").textContent = "No such game yet — ask your opponent for the ID after they open it."; return; }
   if (g.settled || g.ncom >= 2) { $("status").textContent = "That game is full or already settled."; return; }
@@ -307,7 +307,7 @@ async function boot() {
   if ($("play") && $("activeGame")) $("play").parentNode.insertBefore($("activeGame"), $("play"));
   loadQR();
   const q = new URLSearchParams(location.search).get("game");
-  if (q) { $("joinId").value = q; if (active == null) active = parseInt(q, 10); deepLinkGame = q; }
+  if (q) { $("joinId").value = q; if (active == null) active = parseInt(q, 10); }
   render();
   refreshActive();
   setInterval(refreshActive, 3000);
