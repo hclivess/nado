@@ -47,7 +47,7 @@ let me = localStorage.getItem(LS_ME) || null;
 let active = null, lastGame = null, myBalance = 0n, myL1Balance = 0n;
 const FEE = 1000n;   // MIN_TX_FEE (raw) — a deposit spends amount + this from the L1 wallet
 let deepLinkGame = null;   // set when arriving via ?game= — pulses the Join (or Sign-in) button until joined
-const stageCache = {};     // gid -> {settled, ncom} : drives the game-list colours (settled is terminal, cached)
+const stageCache = {};     // gid -> {settled, ncom, stake} : drives the game-list colours + Join affordability
 
 // ---- amounts / secrets ---------------------------------------------------------------------------
 const randId = () => globalThis.crypto.getRandomValues(new Uint32Array(1))[0] % 1000000000;
@@ -59,6 +59,9 @@ function nadoToRaw(s) {
   return raw > 0n ? raw : null;
 }
 const rawToNado = (raw) => { raw = BigInt(raw); const w = raw / RAW, f = (raw % RAW).toString().padStart(10, "0").replace(/0+$/, ""); return f ? `${w}.${f}` : `${w}`; };
+// insufficient-exec-balance message: what the game costs, what you hold, and exactly how much more to deposit
+const shortfallMsg = (need, have) => "Not enough NADO to join — this game stakes " + rawToNado(need) + ", but your exec balance is "
+  + rawToNado(have) + ". Deposit at least " + rawToNado(need - have) + " more NADO below, then join.";
 const encBig = (v) => typeof v === "bigint" ? { $big: v.toString() }
   : Array.isArray(v) ? v.map(encBig)
   : (v && typeof v === "object") ? Object.fromEntries(Object.keys(v).map((k) => [k, encBig(v[k])])) : v;
@@ -254,7 +257,7 @@ async function refreshActive() {
   if (sto) {
     lastStorage = sto;
     if (active != null) lastGame = gameFrom(sto, active);
-    for (const gid of allGids(sto)) stageCache[gid] = { settled: !!_m(sto, "sd")[gid], ncom: _m(sto, "nn")[gid] || 0 };
+    for (const gid of allGids(sto)) stageCache[gid] = { settled: !!_m(sto, "sd")[gid], ncom: _m(sto, "nn")[gid] || 0, stake: _m(sto, "st")[gid] || 0 };
     renderLobby(lobbyFrom(sto));
     renderScoreboard(boardFrom(sto));
   }
@@ -324,10 +327,19 @@ function render() {
     const js = stageCache[jid];
     if (js) stageJoinable = !js.settled && js.ncom < 2;
   }
-  const joinable = !!jid && !iAmIn && stageJoinable;
+  // the stake this game costs (exact when we're viewing it; otherwise from the cached lobby stage)
+  let needStake = null;
+  if (jid && String(active) === jid && lgv.exists) needStake = BigInt(lgv.stake || 0);
+  else if (jid && stageCache[jid] && stageCache[jid].stake != null) needStake = BigInt(stageCache[jid].stake);
+  // can't afford it once signed in with a known stake -> block the join and say exactly why + how much to deposit
+  const canAfford = !(signedIn && needStake != null && myBalance < needStake);
+  const joinable = !!jid && !iAmIn && stageJoinable && canAfford;
   $("btnJoin").disabled = !!jid && !joinable;                 // greyed out when the entered game isn't joinable
   $("btnJoin").classList.toggle("pulse", joinable && signedIn);
   $("btnSignIn").classList.toggle("pulse", joinable && !signedIn);
+  const jh = $("joinHint");                                   // inline shortfall message under the Join row
+  const showShortfall = !!jid && signedIn && !iAmIn && stageJoinable && needStake != null && myBalance < needStake;
+  if (jh) { jh.textContent = showShortfall ? shortfallMsg(needStake, myBalance) : ""; jh.classList.toggle("hidden", !showShortfall); }
   const g = gamesLoad();
   const ids = Object.keys(g).filter((id) => stageCache[id]).sort((a, b) => g[b].ts - g[a].ts).slice(0, 8);   // only games that exist on-chain
   $("recent").innerHTML = ids.length
@@ -380,7 +392,13 @@ function renderActive() {
   if (bothRev && !lg.settled) $("btnSettle").textContent = (mine && lg.winner_slot === mine.slot) ? "💰 Collect the pot" : "Pay out the winner";
   $("btnClaim").classList.toggle("hidden", !pastDeadline);
   $("btnCancel").classList.toggle("hidden", !(me && lg.exists && !lg.settled && lg.ncom === 1 && mine && mine.slot === 1));   // reclaim an un-joined game
-  $("btnJoinActive").classList.toggle("hidden", !(me && lg.exists && !lg.settled && lg.ncom < 2 && !mine));  // browse->join
+  const canSeeJoinActive = !!(me && lg.exists && !lg.settled && lg.ncom < 2 && !mine);   // browse->join
+  $("btnJoinActive").classList.toggle("hidden", !canSeeJoinActive);
+  const needActive = lg.exists ? BigInt(lg.stake || 0) : 0n;
+  const shortActive = canSeeJoinActive && myBalance < needActive;   // can join, but can't afford the stake
+  $("btnJoinActive").disabled = shortActive;
+  const jah = $("joinActiveHint");
+  if (jah) { jah.textContent = shortActive ? shortfallMsg(needActive, myBalance) : ""; jah.classList.toggle("hidden", !shortActive); }
   $("btnRematch").classList.toggle("hidden", !lg.settled);   // Play again (deterministic id -> both clicks meet in one game)
   // coin / result
   const coin = $("coin");

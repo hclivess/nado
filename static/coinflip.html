@@ -31,6 +31,7 @@
   button.pulse{animation:cfpulse 1.25s ease-in-out infinite}
   button.ghost.pulse{border-color:var(--accent2);color:var(--accent2)}
   .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
+  .warn{color:var(--danger);font-weight:600;line-height:1.45}
   .addr{font-family:var(--mono);font-size:12px;color:var(--accent2);word-break:break-all}
   .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2)}
   .chip.open{border-color:#e3b341;color:#e3b341}       /* waiting for an opponent */
@@ -89,6 +90,7 @@
       <input id="joinId" placeholder="game ID" inputmode="numeric" autocomplete="off">
       <button class="primary" id="btnJoin" style="flex:0 0 auto">Join</button>
     </div>
+    <div class="small warn mt hidden" id="joinHint"></div>
     <div class="small dim mt">Your games <span style="opacity:.7">· ⏳ open · ▶ playing · ✓ done</span></div>
     <div class="small dim" id="recent"></div>
   </div>
@@ -141,6 +143,7 @@
       <button class="ghost hidden" id="btnCancel">Cancel — reclaim stake (no one joined)</button>
       <button class="primary hidden" id="btnRematch">🔁 Play again</button>
     </div>
+    <div class="small warn mt hidden" id="joinActiveHint"></div>
     <label class="mt">Invite an opponent</label>
     <input id="shareLink" class="mono" readonly onclick="this.select()">
     <div class="row mt" style="align-items:center;gap:8px">
