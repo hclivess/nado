@@ -1878,7 +1878,7 @@ async function resumePendingForumLogin() {
 // ONE execution-layer contract call with their wallet, then returns. Same redirect pattern as the forum SSO,
 // but this signs a REAL (fee-only) blob tx — so we confirm explicitly, only return to an ALLOWLISTED dApp
 // origin, and it can never move funds beyond the network fee (a `blob` tx has amount 0).
-const EXEC_SIGN_ALLOW = ["https://coinflip.nadochain.com", "https://roulette.nadochain.com"];
+const EXEC_SIGN_ALLOW = ["https://coinflip.nadochain.com", "https://roulette.nadochain.com", "https://dice.nadochain.com", "https://chess.nadochain.com"];
 let pendingExecSign = (() => {
   try {
     const p = new URLSearchParams(location.search);

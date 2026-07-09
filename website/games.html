@@ -97,9 +97,12 @@ const GAMES = [
   { icon:"🎡", name:"Roulette", tag:"Live", live:true, url:"https://roulette.nadochain.com",
     blurb:"Peer-banked European roulette on the full table. Bank a table or bet against one — a win pays the true 36 ÷ (numbers covered), the exact 2.70% single-zero edge. Straight-ups to even-money, all on-chain.",
     meta:["Bank or bet","Full table","Fixed odds","2.70% edge"] },
-  { icon:"🎲", name:"Dice", tag:"Soon", live:false, url:null,
-    blurb:"Roll under / over a target for a payout scaled to your odds. Same commit-reveal fairness, coming next.",
-    meta:["Coming soon"] },
+  { icon:"🎲", name:"Dice", tag:"Live", live:true, url:"https://dice.nadochain.com",
+    blurb:"The classic adjustable-odds dice — slide your win chance and the payout auto-scales (99 ÷ target, a flat 1% edge). Peer-banked and multiplayer: each bet gets its own roll, all resolved by one bank spin.",
+    meta:["Bank or roll","Win-chance slider","Multiplayer","1% edge"] },
+  { icon:"♟️", name:"Chess", tag:"Soon", live:false, url:null,
+    blurb:"Stake a wager, play a real game of chess, winner takes the pot — with on-chain escrow and a timeout so a resigning or vanishing opponent can't steal. Coming next.",
+    meta:["2 players","Wager escrow","Skill, not chance"] },
 ];
 const el = document.getElementById("games");
 el.innerHTML = GAMES.map((g) => `

@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NADO Dice — provably fair, multiplayer, post-quantum</title>
+<style>
+  :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--win:#2fbf71;--lose:#f85149;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
+    color:var(--txt);font:15px/1.5 var(--sans);min-height:100vh}
+  .wrap{max-width:640px;margin:0 auto;padding:22px 16px 60px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  header .logo{font-size:26px}
+  header h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.2px}
+  header h1 .a{color:var(--accent2)}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 16px}
+  .card{background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  .card h2{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 0;min-width:0}
+  label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
+  input{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+  input:focus{outline:none;border-color:var(--accent2)}
+  input[type=range]{-webkit-appearance:none;appearance:none;height:10px;padding:0;background:linear-gradient(90deg,var(--accent) 0,var(--accent2) 100%);border-radius:999px;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+  input[type=range]::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab}
+  button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:11px;background:var(--elev2);color:var(--txt);padding:11px 15px;cursor:pointer;transition:transform .05s,border-color .15s}
+  button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
+  button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
+  @keyframes dpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,201,167,.45)}50%{transform:scale(1.04);box-shadow:0 0 0 6px rgba(0,201,167,0)}}
+  button.pulse{animation:dpulse 1.25s ease-in-out infinite}
+  .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
+  .warn{color:var(--danger);font-weight:600;line-height:1.45}
+  .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}
+  .chip.betting{border-color:var(--accent2);color:var(--accent2)}
+  .chip.spinning{border-color:#e3b341;color:#e3b341}
+  .chip.forfeit{border-color:var(--danger);color:var(--danger)}
+  .chip.revealed,.chip.done{opacity:.55}
+  table.score{width:100%;border-collapse:collapse;font-size:13px}
+  table.score th,table.score td{text-align:left;padding:6px 6px;border-bottom:1px solid var(--border)}
+  table.score th{color:var(--dim);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+  table.score td.pos{color:var(--accent2);font-weight:600}table.score td.neg{color:var(--danger)}
+  table.score tr.me td{background:rgba(0,201,167,.08)}
+  .b{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;margin-left:6px}
+  .b.ok{background:rgba(0,173,147,.16);color:var(--accent2)}
+  .b.pend{background:rgba(210,153,34,.16);color:#e3b341}
+  .b.dimb{background:rgba(147,161,176,.12);color:var(--dim)}
+  #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
+  .seat{font-size:13px;padding:6px 0;border-bottom:1px solid var(--border)}
+  .wroll{color:var(--win)}.lroll{color:var(--lose)}
+  /* dice meter */
+  .meter{display:flex;justify-content:space-around;text-align:center;margin:6px 0 4px;gap:10px}
+  .meter .m{flex:1}
+  .meter .m b{display:block;font-size:22px;font-weight:800}
+  .meter .m span{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
+  .under{color:var(--accent2)}
+  #payoutPreview{font-size:12.5px;color:var(--dim);text-align:center;min-height:16px}
+  footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
+  a{color:var(--accent2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><span class="logo">🎲</span><h1>NADO <span class="a">Dice</span></h1></header>
+  <p class="sub">A provably-fair, <b>peer-banked multiplayer</b> dice on the NADO execution layer. Slide your win chance; the payout auto-scales (<span class="mono">99 ÷ target</span>, a flat 1% edge). A bank opens a table, everyone bets during the window, then one roll — each seat gets its own <span class="mono">HASH(bankSecret ‖ seatId) mod 100</span>. Post-quantum wallet, no install.</p>
+
+  <div id="status"></div>
+
+  <div class="card">
+    <h2>Wallet</h2>
+    <p class="small dim">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
+    <div class="kv mt"><span class="k">Playing as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k">Wallet (L1, depositable)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k">Exec balance (playable)</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
+  </div>
+
+  <!-- BET -->
+  <div class="card hidden" id="play">
+    <h2>🎲 Roll at a table</h2>
+    <div class="row" id="betCard">
+      <input id="joinId" placeholder="table ID (or pick from the lobby)" inputmode="numeric" autocomplete="off">
+      <input id="stakeAmt" placeholder="stake (NADO)" inputmode="decimal" autocomplete="off">
+    </div>
+    <div class="meter">
+      <div class="m"><b class="under">under <span id="winChanceTarget"></span></b><span>you win if the roll is under your target</span></div>
+    </div>
+    <input type="range" id="target" min="2" max="98" value="50" class="mt">
+    <div class="meter mt">
+      <div class="m"><b id="winChance">50%</b><span>win chance</span></div>
+      <div class="m"><b id="multiplier">1.98×</b><span>payout</span></div>
+    </div>
+    <div id="payoutPreview"></div>
+    <button class="primary mt" id="btnBet" style="width:100%">Place roll</button>
+    <div class="small warn mt hidden" id="joinHint"></div>
+    <div class="small dim mt">Your tables <span style="opacity:.7">· 🏦 you bank · 🎲 you roll</span></div>
+    <div class="small dim" id="recent"></div>
+  </div>
+
+  <!-- BANK -->
+  <div class="card hidden" id="bankcard">
+    <h2>🏦 Bank a table</h2>
+    <p class="small dim">Put up a bankroll and be the house: rollers play against it during a ~3-minute window; then you sign <b>one</b> roll and every seat is decided. You keep losing stakes and the 1% edge. If you never roll, seats reclaim their max win.</p>
+    <div class="row">
+      <input id="bankrollAmt" placeholder="bankroll (NADO)" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNewTable" style="flex:0 0 auto">Open table</button>
+    </div>
+  </div>
+
+  <!-- BANKROLL -->
+  <div class="card hidden" id="bankroll">
+    <h2>Bankroll</h2>
+    <div class="row">
+      <input id="bankAmt" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
+    </div>
+    <div class="small dim mt">Deposit moves L1 → exec (playable); Withdraw moves exec → L1.</div>
+  </div>
+
+  <!-- LOBBY -->
+  <div class="card" id="lobby">
+    <h2>🎲 Public tables</h2>
+    <p class="small dim">Live tables — join any one whose window is open and roll against its bank. <span style="opacity:.7">🟢 betting · 🎲 rolling · ⚠ claim</span></p>
+    <div class="small mt" id="lobbyList"><span class="dim">Loading…</span></div>
+  </div>
+
+  <!-- SCOREBOARD -->
+  <div class="card" id="scoreboard">
+    <h2>🏆 Scoreboard</h2>
+    <p class="small dim">Global standings across every finished roll — banks and rollers alike, ranked by net NADO.</p>
+    <div class="mt" id="scoreList"><span class="dim">Loading…</span></div>
+  </div>
+
+  <!-- ACTIVE TABLE -->
+  <div class="card hidden" id="activeGame">
+    <h2>Table <span id="gameId" class="mono"></span></h2>
+    <div class="kv"><span class="k">Status</span><span class="mono" id="gStatus">…</span></div>
+    <div class="kv"><span class="k">Bankroll</span><span class="mono" id="gBankroll">—</span></div>
+    <div class="kv"><span class="k">Coverage left</span><span class="mono" id="gCover">—</span></div>
+    <div class="mt small dim">Seats</div>
+    <div id="seats"></div>
+    <div class="row mt" id="myActions"></div>
+    <div class="row mt">
+      <button class="primary hidden" id="btnReveal">🎲 Roll the dice</button>
+      <button class="ghost hidden" id="btnClose">Close table</button>
+    </div>
+    <label class="mt">Invite rollers</label>
+    <input id="shareLink" class="mono" readonly onclick="this.select()">
+    <div class="row mt" style="align-items:center;gap:8px">
+      <button class="primary" id="btnShare" style="flex:0 0 auto">Share</button>
+      <span class="dim small">or scan the code to roll at this table</span>
+    </div>
+    <canvas id="shareQR" class="hidden" style="margin:12px auto 0;display:block;border-radius:8px;background:#fff;padding:8px"></canvas>
+    <div id="shareQRNote" class="hidden dim small mt">QR generator unavailable — copy the link above.</div>
+  </div>
+
+  <div class="card">
+    <h2>Provably fair — no cheating</h2>
+    <p class="small dim" style="line-height:1.6">
+      <b>Your roll is fixed before you bet.</b> The bank commits <span class="mono">HASH(secret)</span> when it opens the table, so every roll is locked and hidden before betting — the bank can't change it or aim it, and you bet blind. When the window closes the bank reveals the secret and each seat's roll is derived as <span class="mono">HASH(secret ‖ seatId) mod 100</span> — your own independent throw. A win pays <span class="mono">99 ÷ target</span> (1% edge). If the bank never rolls, after the deadline every seat claims its max win, so stalling always costs the bank.
+    </p>
+  </div>
+
+  <footer>Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · <a href="https://get.nadochain.com/rollup">see the contract</a>.</footer>
+</div>
+<script type="module" src="/static/dice.js"></script>
+</body>
+</html>
