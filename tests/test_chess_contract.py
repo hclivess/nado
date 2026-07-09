@@ -21,7 +21,7 @@ def LD(m): return ["MLOAD", m]
 def ST(m): return ["MSTORE", m]
 def OP(o): return [o]
 CALLER=OP("CALLER"); VALUE=OP("VALUE"); CURSOR=OP("CURSOR")
-ADD=OP("ADD"); SUB=OP("SUB"); MUL=OP("MUL"); EQ=OP("EQ"); GT=OP("GT"); NOT=OP("NOT"); OR=OP("OR")
+ADD=OP("ADD"); SUB=OP("SUB"); MUL=OP("MUL"); MOD=OP("MOD"); EQ=OP("EQ"); GT=OP("GT"); NOT=OP("NOT"); OR=OP("OR"); AND=OP("AND")
 REQ=OP("REQUIRE"); PAY=OP("PAY"); HALT=OP("HALT")
 WINDOW = 14400        # ~1 day at 6s: after this, an unresolved game can be aborted (refunded)
 
@@ -110,7 +110,23 @@ cancel_m = [
   A(0), P(0), ST("pt"),
   HALT ]
 
-CODE = {"open":open_m, "join":join_m, "resign":resign_m, "agree":agree_m, "abort":abort_m, "cancel":cancel_m}
+# move(g, enc): record a move on-chain (a trustless, ordered game log + a move clock). enc packs the move
+# (from + to*64 + promo*4096). Enforces TURN ORDER (white on even ply, black on odd) and resets the clock;
+# it does NOT referee legality (the browser engine does that) — but since the only settlements are resign /
+# mutual-agree / refund-on-timeout, an illegal or disputed move can at worst force a refund, never a theft.
+move_m = [
+  A(0), LD("nn"), P(2), EQ, REQ,
+  A(0), LD("sd"), NOT, REQ,
+  A(1), P(0), GT, REQ,                          # enc > 0
+  # turn: white(p1) on even ply, black(p2) on odd ply
+  CALLER, A(0), LD("p1"), EQ, A(0), LD("mc"), P(2), MOD, P(0), EQ, AND,
+  CALLER, A(0), LD("p2"), EQ, A(0), LD("mc"), P(2), MOD, P(1), EQ, AND,
+  OR, REQ,
+  A(0), P(10000), MUL, A(0), LD("mc"), ADD, A(1), ST("mv"),   # mv[g*10000+ply] = enc
+  A(0), A(0), LD("mc"), P(1), ADD, ST("mc"),                  # ply++
+  A(0), CURSOR, P(WINDOW), ADD, ST("dl"),                     # reset the move clock
+  HALT ]
+CODE = {"open":open_m, "join":join_m, "move":move_m, "resign":resign_m, "agree":agree_m, "abort":abort_m, "cancel":cancel_m}
 
 F=[]
 def ck(n,c): print(("  ok  " if c else " FAIL ")+n); (F.append(n) if not c else None)
@@ -169,6 +185,19 @@ ck("opener cancels -> refunded", bal("W")==bW+STAKE and M("sd",6)==1)
 call("open",[7],STAKE,"W"); call("join",[7],STAKE,"B")
 ck("non-player cannot resign", "revert" in call("resign",[7],0,"C"))
 ck("bad result rejected", "revert" in call("agree",[7,5],0,"W") and M("a1",7)==0)
+
+# move: on-chain move log with strict turn order
+call("open",[8],STAKE,"W"); call("join",[8],STAKE,"B")
+ck("black cannot move first", "revert" in call("move",[8,1804],0,"B") and M("mc",8)==0)
+ck("non-player cannot move", "revert" in call("move",[8,1804],0,"C"))
+call("move",[8,1804],0,"W")                       # white e2e4 (enc)
+ck("white move recorded at ply 0", M("mc",8)==1 and M("mv",80000)==1804)
+ck("white cannot move again", "revert" in call("move",[8,777],0,"W") and M("mc",8)==1)
+call("move",[8,2000],0,"B")                       # black replies at ply 1
+ck("black move recorded at ply 1", M("mc",8)==2 and M("mv",80001)==2000)
+# after moves, resign still resolves (loser concedes)
+bW=bal("W"); call("resign",[8],0,"B")             # black resigns -> white takes pot
+ck("resign after moves pays the winner", bal("W")==bW+2*STAKE and M("sd",8)==1)
 
 print("\n"+("ALL PASS" if not F else f"{len(F)} FAILED: {F}"))
 if not F:

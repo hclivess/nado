@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NADO Chess — play for stakes, post-quantum</title>
+<style>
+  :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--light:#c7d2dc;--darksq:#4a6072;--sel:#00c9a7;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
+    color:var(--txt);font:15px/1.5 var(--sans);min-height:100vh}
+  .wrap{max-width:640px;margin:0 auto;padding:22px 16px 60px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  header .logo{font-size:26px}
+  header h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.2px}
+  header h1 .a{color:var(--accent2)}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 16px}
+  .card{background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  .card h2{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 0;min-width:0}
+  label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
+  input{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+  input:focus{outline:none;border-color:var(--accent2)}
+  button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:11px;background:var(--elev2);color:var(--txt);padding:11px 15px;cursor:pointer;transition:transform .05s,border-color .15s}
+  button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
+  button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
+  .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
+  .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}
+  .chip.open{border-color:var(--accent2);color:var(--accent2)}.chip.live{border-color:#e3b341;color:#e3b341}
+  #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
+  /* board */
+  #board{display:grid;grid-template-columns:repeat(8,1fr);width:100%;max-width:440px;margin:10px auto;aspect-ratio:1/1;
+    border:3px solid #2a3947;border-radius:6px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.45);touch-action:manipulation}
+  .sq{position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none}
+  .sq.light{background:var(--light)}.sq.dark{background:var(--darksq)}
+  .sq .pc{font-size:min(8vw,34px);line-height:1;filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
+  .sq.sel{box-shadow:inset 0 0 0 3px var(--sel)}
+  .sq.last{background-image:linear-gradient(rgba(0,201,167,.28),rgba(0,201,167,.28))}
+  .sq.target::after{content:"";position:absolute;width:28%;height:28%;border-radius:50%;background:rgba(0,120,90,.55)}
+  .sq.capture{box-shadow:inset 0 0 0 4px rgba(0,150,110,.75)}
+  .sq.check{background-image:radial-gradient(circle,rgba(248,81,73,.75),transparent 70%)}
+  #players .chip{font-size:12.5px}
+  #settleHint{font-size:12.5px;color:var(--dim);margin-top:8px;line-height:1.45}
+  footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
+  a{color:var(--accent2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><span class="logo">♟️</span><h1>NADO <span class="a">Chess</span></h1></header>
+  <p class="sub">Play a real game of chess <b>for stakes</b> on the NADO execution layer. Both players stake equally; every move is recorded on-chain (a trustless game log), and the pot settles by <b>resignation, mutual agreement, or a refund timeout</b> — so a stall or a disputed move can never rob you. The board + full legality run in your browser. Post-quantum wallet, no install.</p>
+
+  <div id="status"></div>
+
+  <div class="card">
+    <h2>Wallet</h2>
+    <p class="small dim">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
+    <div class="kv mt"><span class="k">Playing as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k">Wallet (L1, depositable)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k">Exec balance (stakeable)</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
+  </div>
+
+  <!-- PLAY -->
+  <div class="card hidden" id="play">
+    <h2>♟ Play for stakes</h2>
+    <div class="row">
+      <input id="stakeAmt" placeholder="stake (NADO)" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNew" style="flex:0 0 auto">New game</button>
+    </div>
+    <label class="mt">Join a game by ID</label>
+    <div class="row">
+      <input id="joinId" placeholder="game ID" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="btnJoin" style="flex:0 0 auto">Join</button>
+    </div>
+    <div class="small dim mt">Your games <span style="opacity:.7">· ♔ you are white · ♚ you are black</span></div>
+    <div class="small dim" id="recent"></div>
+  </div>
+
+  <!-- BANKROLL -->
+  <div class="card hidden" id="bankroll">
+    <h2>Bankroll</h2>
+    <div class="row">
+      <input id="bankAmt" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
+    </div>
+    <div class="small dim mt">Deposit moves L1 → exec (stakeable); Withdraw moves exec → L1.</div>
+  </div>
+
+  <!-- LOBBY -->
+  <div class="card" id="lobby">
+    <h2>♟ Open games</h2>
+    <p class="small dim">Challenge anyone — join an open game or watch one in progress. <span style="opacity:.7">♙ open · ▶ live</span></p>
+    <div class="small mt" id="lobbyList"><span class="dim">Loading…</span></div>
+  </div>
+
+  <!-- ACTIVE GAME -->
+  <div class="card hidden" id="activeGame">
+    <h2>Game <span id="gameId" class="mono"></span></h2>
+    <div id="players" class="mt"></div>
+    <div id="board"></div>
+    <div class="kv"><span class="k">Pot</span><span class="mono" id="gPot">—</span></div>
+    <div class="kv"><span class="k">Status</span><span class="mono" id="gStatus">…</span></div>
+    <div id="settleHint"></div>
+    <div class="row mt">
+      <button class="primary hidden" id="btnResign">Resign</button>
+      <button class="ghost hidden" id="btnDraw">Offer draw</button>
+      <button class="primary hidden" id="btnSettle">Agree draw</button>
+      <button class="ghost hidden" id="btnAbort">Claim refund (opponent stalled)</button>
+      <button class="ghost hidden" id="btnCancel">Cancel — reclaim stake</button>
+      <button class="ghost" id="btnFlip" style="flex:0 0 auto">Flip board</button>
+    </div>
+    <label class="mt">Invite your opponent</label>
+    <input id="shareLink" class="mono" readonly onclick="this.select()">
+    <div class="row mt"><button class="primary" id="btnShare" style="flex:0 0 auto">Share</button></div>
+  </div>
+
+  <div class="card">
+    <h2>How the wager is safe</h2>
+    <p class="small dim" style="line-height:1.6">
+      Chess is skill, so the contract is a pure <b>wager escrow</b> — the board and every rule are refereed in your browser by a perft-verified engine, and moves are logged on-chain in order.
+      <br>• <b>Decisive game:</b> the loser <b>resigns</b> (or concedes a checkmate) and the winner is paid the pot.
+      <br>• <b>Draw:</b> both players agree — the stakes refund.
+      <br>• <b>Stall or dispute:</b> after the move deadline either player claims a <b>refund</b>. Because the only outcomes are concede / agree / refund, <b>no one can ever be robbed</b> — at worst a wager voids. (Automatic on-chain checkmate enforcement is a planned upgrade; the contract is upgradable.)
+    </p>
+  </div>
+
+  <footer>Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · moves ride L1 as ordered blobs (a move confirms in ~1 min).</footer>
+</div>
+<script type="module" src="/static/chess.js"></script>
+</body>
+</html>
