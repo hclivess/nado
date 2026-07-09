@@ -328,7 +328,8 @@ function render() {
   $("btnJoin").disabled = !!jid && !joinable;                 // greyed out when the entered game isn't joinable
   $("btnJoin").classList.toggle("pulse", joinable && signedIn);
   $("btnSignIn").classList.toggle("pulse", joinable && !signedIn);
-  const g = gamesLoad(), ids = Object.keys(g).sort((a, b) => g[b].ts - g[a].ts).slice(0, 8);
+  const g = gamesLoad();
+  const ids = Object.keys(g).filter((id) => stageCache[id]).sort((a, b) => g[b].ts - g[a].ts).slice(0, 8);   // only games that exist on-chain
   $("recent").innerHTML = ids.length
     ? ids.map((id) => {
         const st = stageCache[id]; let cls = "", tag = "";
