@@ -43,7 +43,7 @@ keep the last K epochs of bodies, drop the rest, and define who still has the ol
 ## 2. Rolling mode (L1 history pruning)
 
 ### 2.1 The retention window — IMPLEMENTED (Phase 1)
-`protocol.HISTORY_RETENTION_BLOCKS` (default **10 000** ≈ 16.7 hours at 6 s blocks; config /
+`protocol.HISTORY_RETENTION_BLOCKS` (default **100 800** ≈ 1 week at 6 s blocks; config /
 `NADO_HISTORY_RETENTION_BLOCKS` overridable) sets how many recent block **bodies** a rolling
 node keeps. Below that, finalized **body files** (`blocks/<hash>.block`) are dropped; the
 **state**, and the tiny **number↔hash indexes**, always stay.

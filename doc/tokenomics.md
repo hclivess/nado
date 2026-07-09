@@ -149,8 +149,8 @@ premine). It is spent by **bonded-quorum governance**, not by any individual:
 - `TREASURY_MAX_SPEND_BPS = 2500` — any single proposal may spend **at most 25 %** of the
   *current* treasury balance, bounding blast radius.
 - `TREASURY_VOTE_ACTIVATION_EPOCHS` — a delay before a newly-bonded identity's vote counts
-  (alpha value low; raise to ~180 ≈ 18 hours for mainnet).
-- **Anti-hoard self-burn**: every `TREASURY_SPEND_PERIOD = 10800` blocks, `TREASURY_BURN_BPS =
+  (alpha value low; raise to ~240 ≈ 1 day for mainnet).
+- **Anti-hoard self-burn**: every `TREASURY_SPEND_PERIOD = 14400` blocks, `TREASURY_BURN_BPS =
   100` (**1 %**) of the balance above `TREASURY_RUNWAY_FLOOR` is burned, so an idle treasury
   can't simply be hoarded. Governance details: [treasury.md](treasury.md).
 
@@ -216,7 +216,7 @@ part of emission and hold no key:
 | `BOND_UNLOCK_DELAY` | 1440 blocks | Post-unbond lock (slashable) |
 | `SLASH_BOND_PENALTY` | `B_MIN` (1 000 NADO) | Burned per proven equivocation |
 | `TREASURY_MAX_SPEND_BPS` | 2500 (25 %) | Max single proposal vs current balance |
-| `TREASURY_SPEND_PERIOD` | 10 800 blocks | Self-burn cadence |
+| `TREASURY_SPEND_PERIOD` | 14 400 blocks | Self-burn cadence (~1 day @6s) |
 | `TREASURY_BURN_BPS` | 100 (1 %) | Self-burn of balance above the floor |
 | `MIN_TX_FEE` | 1 000 raw | Consensus anti-spam fee floor |
 

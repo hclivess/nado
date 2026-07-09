@@ -187,7 +187,7 @@ Open-lane participation costs no coins. An identity:
    nodes discard. The wallet shows the resulting wait ETA. *(implemented; doc/registration-difficulty.md)*
 
    Registration is a **renewable presence lease**: a valid PoSW grants open-lane eligibility for
-   `POSW_LEASE_EPOCHS` (~18 hours); to stay eligible an identity renews with a *fresh* PoSW (each
+   `POSW_LEASE_EPOCHS` (≈ 1 day); to stay eligible an identity renews with a *fresh* PoSW (each
    recorded in a revert-safe `recerts` store; `get_open_registry` requires a recert within the
    lease). This converts a one-time entry cost into a **continuous per-identity upkeep cost** —
    a Sybil farm must keep spending sequential time on every mask, forever, not just once. The
@@ -687,7 +687,7 @@ file, so the storage encoding can change with no fork. *(implemented)*
 **archive** node by default (`config.archive = true`, keeps every body forever — no
 behaviour change) or as a **rolling/pruned** node (`archive = false` / `NADO_ARCHIVE=0`),
 which deletes finalized body *files* older than `HISTORY_RETENTION_BLOCKS` (default 10 000
-≈ 16.7 hours) while **always keeping** state and the tiny number↔hash indexes. An audit of every
+≈ 1 week) while **always keeping** state and the tiny number↔hash indexes. An audit of every
 historical block read fixed the safe floor: only `get_block_reward` re-reads a historical
 *body* (the block at `tip − REWARD_WINDOW`); the beacon/FFG read *hashes* from the index, not
 bodies. `block_ops.prune_block_bodies` therefore floors retention at
@@ -1256,13 +1256,13 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | `BOND_RAMP_EPOCHS` | `30` | Bonded **producer-selection** weight ramps 0→full over this many epochs by stake-weighted bond age (`bond_since`) — anti-sudden-whale; **producer draw only**, never fork-choice/FFG/settlement weight (Section 4.5, doc/takeover-resistance.md). |
 | `POSW_T` / `POSW_S` / `POSW_K` | `1_000_000` / `2_000` / `20` | Sequential registration Proof-of-Work: chain length / checkpoint segment / Fiat-Shamir spot-checks (~1 s in-browser; verify `O(k·S)`). Post-quantum, consensus-verified; prices identity creation in non-parallelizable time. |
 | `POSW_ANCHOR_OFFSET` | `30` | PoSW challenge anchors to `block[target_block − 30]` (≥ finality depth → stable, node-derived). |
-| `POSW_LEASE_EPOCHS` | `180` (~18 hours) | Renewable presence lease: a registration/recert keeps an identity open-lane-eligible this long; renew with a fresh PoSW to persist (continuous per-identity upkeep). **Presence IS the lease — there is no heartbeat.** |
+| `POSW_LEASE_EPOCHS` | `240` (~1 day) | Renewable presence lease: a registration/recert keeps an identity open-lane-eligible this long; renew with a fresh PoSW to persist (continuous per-identity upkeep). **Presence IS the lease — there is no heartbeat.** |
 | `OPEN_BASE_FLOOR` | `1` | Min open-lane weight for any present identity (never 0). |
 | `OPEN_FID_BONUS` | `9` | Max open diligence bonus; open weight ranges 2..10. |
 | `GC_IDLE_EPOCHS` | `1000` | Intended idle-registry prune window (state-bloat bound) — **defined, not yet wired** (Section 7.4). |
 | `FIDELITY_CAP` | `30` | Consecutive recerts (~days) to fully ramp the open bonus (was 1000; recert-driven now). |
 | `FIDELITY_GAIN` | `1` | Fidelity increment per continuous recert; a lapse (gap > lease) resets the streak. |
-| `HISTORY_RETENTION_BLOCKS` | `10_000` | Rolling-node body-retention window (~16.7 hours); archive nodes keep all (Section 6.1). |
+| `HISTORY_RETENTION_BLOCKS` | `100_800` | Rolling-node body-retention window (~1 week @6s); archive nodes keep all (Section 6.1). |
 | `max_registrations_per_ip` | `64`/hr | Progressive per-range OPEN-lane onboarding cap (relay admission, Section 2.4). |
 | `AUTO_BOND_DEFAULT_PERCENT` | `80` | Default share of new rewards auto-bonded when unset (client/operator; overridable). |
 | `TREASURY_GENESIS` | `0` | **No premine** — treasury starts empty. |

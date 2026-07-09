@@ -163,7 +163,7 @@ rationale and the takeover math: **doc/takeover-resistance.md**.
 Bonded lane: `B_MIN = 1e12` (100 NADO), `BOND_CAP = 1e14` (10k NADO), `MAX_SHARES = 100`,
 `EPOCH_LENGTH = 60`, `BOND_UNLOCK_DELAY = 1440`, `BOND_RAMP_EPOCHS = 30`.
 Open lane: `OPEN_BPS = 3000` (30% ⇒ `K_OPEN = 18` slots/epoch), `OPEN_BASE_FLOOR = 2`,
-`OPEN_FID_BONUS = 8` (open weight ranges 2..10), `POSW_LEASE_EPOCHS = 180` (≈ 1 day recert lease).
+`OPEN_FID_BONUS = 8` (open weight ranges 2..10), `POSW_LEASE_EPOCHS = 240` (≈ 1 day recert lease).
 Continuity fidelity: `FIDELITY_CAP = 30` consecutive recerts (was 1000 in the heartbeat design),
 `FIDELITY_GAIN = 1` per continuous recert — a lapse **resets** the streak (there is no separate
 `FIDELITY_DECAY` constant any more, and no `FAUCET_STARTER_BOND`: free presence must never mint

@@ -85,7 +85,7 @@ non-aggregatable PQ sig × pure-Python verify** is the scaling envelope.
 
 (The OPEN lane is **no longer** a per-epoch cost. The old per-epoch heartbeat tx was removed:
 OPEN-lane presence is now a renewable PoSW **recert lease** (`register` tx), renewed only once per
-`POSW_LEASE_EPOCHS` (~18 hours), so the open-lane message load amortizes to ≈ N_open / `POSW_LEASE_EPOCHS`
+`POSW_LEASE_EPOCHS` (≈ 1 day), so the open-lane message load amortizes to ≈ N_open / `POSW_LEASE_EPOCHS`
 per epoch — negligible next to the bonded ~3N. The dominant O(N)-per-epoch term is the bonded
 attest/commit/reveal set.)
 

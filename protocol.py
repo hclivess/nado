@@ -107,7 +107,7 @@ POSW_ANCHOR_OFFSET = 30      # anchor block = target_block − this (>= FINALITY
 # out of the open registry. This turns "pay once, farm forever" into "pay continuously to keep each
 # identity alive" — a Sybil farm's cost scales with size × time. At ~8 min/epoch, ~180 epochs ≈ 1 day, so
 # an honest phone spends ~1 s of PoSW per day; a renewal is due once the lease is RENEW_FRACTION spent.
-POSW_LEASE_EPOCHS = 180      # a registration/recert keeps you eligible this many epochs (~1 day)
+POSW_LEASE_EPOCHS = 240      # a registration/recert keeps you eligible this many epochs (~1 day: 240×60×6s = 24h)
 
 # --- Registration-rate PoSW difficulty (doc/ip-spoofing-and-sybil.md): the required PoSW work SCALES with
 # recent registration volume, so a sudden identity FLOOD gets progressively more expensive. CONSENSUS-BOUND —
@@ -185,7 +185,7 @@ TREASURY_VOTE_ACTIVATION_EPOCHS = 3     # ALPHA testing value (was 180 ≈ 1 day
 # Anti-hoard self-burn (doc/treasury.md §3.2): every TREASURY_SPEND_PERIOD blocks, burn TREASURY_BURN_BPS of
 # the treasury balance ABOVE a floor so an un-deployed treasury actively shrinks (the Bismuth fix). Flat
 # Polkadot-style burn; the floor protects a nascent treasury. Revert-symmetric (the burned amount is stored).
-TREASURY_SPEND_PERIOD = 10800   # burn cadence in blocks (~1 day at ~8s blocks)
+TREASURY_SPEND_PERIOD = 14400   # burn cadence in blocks (~1 day at 6s blocks)
 TREASURY_BURN_BPS = 100         # burn 1.00% of the balance above the floor each period
 TREASURY_RUNWAY_FLOOR = 0       # balance at/below this is never burned (0 = burn from the first coin; tune up later)
 REWARD_WINDOW = 100          # retained as the prune/rollback safety window (block_ops.prune_block_bodies);
@@ -267,9 +267,9 @@ AUTO_BOND_DEFAULT_PERCENT = 80
 # window MUST exceed REWARD_WINDOW (+ FINALITY_DEPTH for the rollback window). Default 300 gives margin;
 # prune_block_bodies additionally floors it at REWARD_WINDOW+FINALITY_DEPTH so a misconfig can't corrupt
 # the reward calc. This is a per-node choice (archive nodes keep everything); it changes NO block/hash.
-# 10_000 blocks ~= 1 week of history at 60s blocks — generous recent-body window while still bounding
-# a rolling node's disk (the unbounded->bounded win); archive nodes keep everything.
-HISTORY_RETENTION_BLOCKS = 10_000
+# 100_800 blocks ~= 1 week of history at 6s blocks (7×14,400) — generous recent-body window while still
+# bounding a rolling node's disk (the unbounded->bounded win); archive nodes keep everything.
+HISTORY_RETENTION_BLOCKS = 100_800
 
 # --- Mining: TWO-LANE diligence selection (PROVISIONAL — simulate before lock-in) ---
 # Each epoch's slots split into an OPEN lane (anyone, zero coins) and a BONDED lane (locked stake).

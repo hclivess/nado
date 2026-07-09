@@ -149,7 +149,7 @@ bonded slot is skipped, never the reverse, so the free lane can never absorb bon
    can't mint identities in bulk, and the proof is **validated by every node in consensus**
    (`validate_transaction`, the block-validation path) — not just the relay you connect to, so a bogus
    registration is rejected network-wide. Registration is a **renewable presence lease**
-   (`POSW_LEASE_EPOCHS`, ~18 hours): to stay in the open lane you renew with a *fresh* PoSW, turning
+   (`POSW_LEASE_EPOCHS`, ≈ 1 day): to stay in the open lane you renew with a *fresh* PoSW, turning
    "pay once, farm forever" into "pay continuously per identity." The structural ~30 % lane cap is still
    the *hard* Sybil bound; the PoSW lease prices identity creation **and upkeep** in real sequential time
    on top. The recert is the **single presence signal — there is no separate heartbeat.** You're eligible
@@ -687,7 +687,7 @@ files under `blocks/`, and consensus hashing stays canonical JSON — neither is
 **Archive vs rolling nodes (opt-in history pruning).** By default a node is an **archive** node
 (`config.archive = true`) that keeps every block body forever. Set `archive = false` (or `NADO_ARCHIVE=0`)
 to run a **rolling/pruned** node that drops finalized block *bodies* older than `HISTORY_RETENTION_BLOCKS`
-(default 10 000 ≈ 16.7 hours) while **always** keeping state and the number↔hash indexes — so it stays a full
+(default 100 800 ≈ 1 week) while **always** keeping state and the number↔hash indexes — so it stays a full
 validator and still serves the beacon/FFG lookbacks, with bounded disk. Retention is floored internally at
 `REWARD_WINDOW + FINALITY_DEPTH` so pruning can never corrupt the reward calc or a legal rollback. This
 keeps phones viable under adoption; see [`doc/rolling-mode-and-da.md`](doc/rolling-mode-and-da.md).
