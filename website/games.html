@@ -152,9 +152,9 @@ const GAMES = [
   { svg:SVG.kostky, name:"Farkle", tag:"Soon", live:false, url:null,
     blurb:"The push-your-luck dice classic (aka Ten Thousand): roll six dice from the cup, set aside 1s, 5s and three-of-a-kinds, and keep going or bank — but a scoreless roll busts the whole turn.",
     meta:["6 dice","Push your luck","Bank or bust"] },
-  { svg:SVG.poker, name:"Poker", tag:"Soon", live:false, url:null,
-    blurb:"Heads-up poker for stakes on NADO — coming to the tables.",
-    meta:["Cards","For stakes","Planned"] },
+  { svg:SVG.poker, name:"Poker", tag:"Live", live:true, url:"https://poker.nadochain.com",
+    blurb:"Heads-up 5-card poker showdown for stakes. Both players commit a secret; on reveal both browsers deal the same shuffled hands from HASH(secret₀‖secret₁) — nobody picks their cards. Best hand wins; concede / agree / refund settlement, so a stall can't rob you.",
+    meta:["2 players","Commit-reveal deal","Verified evaluator","For stakes"] },
 ];
 const el = document.getElementById("games");
 el.innerHTML = GAMES.map((g) => `
