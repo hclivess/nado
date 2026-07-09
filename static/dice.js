@@ -57,10 +57,11 @@ function openTable(t, bankrollRaw) {
   render();
   dapp.call("open", [t, commitHashOf(BigInt(secret))], bankrollRaw, "bank a dice table #" + t + " · " + rawToNado(bankrollRaw) + " NADO", { table: t, phase: "open" });
 }
-function newTable() {
+async function newTable() {
   const raw = nadoToRaw($("bankrollAmt").value);
   if (!raw) { $("status").textContent = "Enter a bankroll (NADO)."; return; }
-  if (dapp.exec < raw) { $("status").textContent = "Deposit first — your exec balance is " + rawToNado(dapp.exec) + " NADO."; return; }
+  await dapp.refresh();   // fresh balance so we never submit an open the escrow will reject
+  if (dapp.exec < raw) { $("status").textContent = "Deposit first — your exec balance is " + rawToNado(dapp.exec) + " NADO, but this bankroll needs " + rawToNado(raw) + ". Use Deposit below."; return; }
   openTable(randId(), raw);
 }
 async function doBet() {
@@ -190,11 +191,16 @@ function render() {
   $("btnBet").disabled = !betable;
   $("btnBet").classList.toggle("pulse", betable && signedIn);
   $("btnSignIn").classList.toggle("pulse", !!jid && !!stake && !signedIn);
+  // always explain why "Place roll" is disabled so the flow is never a mystery (incl. betting at your own table)
   let hint = "";
-  if (jid && signedIn && phaseOk) {
-    if (stake && dapp.exec < stake) hint = "Not enough NADO — this rolls " + rawToNado(stake) + " but your exec balance is " + rawToNado(dapp.exec) + ". Deposit at least " + rawToNado(stake - dapp.exec) + " more below.";
-    else if (tb && !covers) hint = "This table can't cover a " + multOf(target).toFixed(2) + "× win right now (bankroll left: " + rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) + " NADO). Lower your stake or raise your win chance.";
-  } else if (jid && tb && tb.phase !== "betting") hint = "Betting is closed on table #" + jid + " (" + tb.phase + ").";
+  if (signedIn) {
+    if (!jid) hint = "Pick a table in the lobby below, or bank your own above — then set a stake and Place roll.";
+    else if (tb && tb.phase !== "betting") hint = "Betting is closed on table #" + jid + " (" + tb.phase + ").";
+    else if (!stake) hint = "Enter a stake (NADO) and set your win chance, then Place roll — you can bet at your own table too.";
+    else if (dapp.exec < stake) hint = "Not enough NADO — this rolls " + rawToNado(stake) + " but your exec balance is " + rawToNado(dapp.exec) + ". Deposit at least " + rawToNado(stake - dapp.exec) + " more below.";
+    else if (tb && !covers) hint = "This table's bankroll can't cover a " + multOf(target).toFixed(2) + "× win (free: " + rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) + " NADO). Lower your stake, raise your win chance, or Top up the bankroll.";
+    else if (!tb) hint = "Table #" + jid + " isn't on-chain yet — if you just opened it, give it ~1 min to confirm.";
+  }
   const jh = $("joinHint"); if (jh) { jh.textContent = hint; jh.classList.toggle("hidden", !hint); }
   // my recent tables/seats
   const T = load(LS_T), S = load(LS_S), mine = [];

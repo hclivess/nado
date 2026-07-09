@@ -70,10 +70,11 @@ function openTable(t, bankrollRaw) {
   render();
   dapp.call("open", [t, commitHashOf(BigInt(secret))], bankrollRaw, "bank roulette table #" + t + " · " + rawToNado(bankrollRaw) + " NADO", { table: t, phase: "open" });
 }
-function newTable() {
+async function newTable() {
   const raw = nadoToRaw($("bankrollAmt").value);
   if (!raw) { $("status").textContent = "Enter a bankroll (NADO) to bank a table."; return; }
-  if (dapp.exec < raw) { $("status").textContent = "Deposit first — your exec balance is " + rawToNado(dapp.exec) + " NADO."; return; }
+  await dapp.refresh();   // fresh balance so we never submit an open the escrow will reject
+  if (dapp.exec < raw) { $("status").textContent = "Deposit first — your exec balance is " + rawToNado(dapp.exec) + " NADO, but this bankroll needs " + rawToNado(raw) + ". Use Deposit below."; return; }
   openTable(randId(), raw);
 }
 async function doBet() {
