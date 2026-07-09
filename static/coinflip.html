@@ -99,13 +99,11 @@
   <div class="card hidden" id="bankroll">
     <h2>Bankroll</h2>
     <div class="row">
-      <input id="depAmt" placeholder="NADO to deposit" inputmode="decimal" autocomplete="off">
+      <input id="bankAmt" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
       <button class="ghost" id="btnDeposit" style="flex:0 0 auto">Deposit</button>
-    </div>
-    <div class="row mt">
-      <input id="wdAmt" placeholder="NADO to withdraw" inputmode="decimal" autocomplete="off">
       <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
     </div>
+    <div class="small dim mt">Deposit moves L1 → exec (stakeable); Withdraw moves exec → L1.</div>
   </div>
 
   <!-- PUBLIC LOBBY (games are public — anyone can browse + join) -->

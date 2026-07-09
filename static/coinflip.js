@@ -173,7 +173,7 @@ const disp = (addr) => !addr ? "—" : (_aliasCache[addr] ? "@" + _aliasCache[ad
 
 // ---- actions -------------------------------------------------------------------------------------
 function doDeposit() {
-  const raw = nadoToRaw($("depAmt").value);
+  const raw = nadoToRaw($("bankAmt").value);
   if (!raw) { $("status").textContent = "Enter an amount to deposit."; return; }
   if (raw + FEE > myL1Balance) {
     $("status").textContent = "Not enough in your L1 wallet: you have " + rawToNado(myL1Balance) +
@@ -245,7 +245,7 @@ const settle = () => callC("settle", [active], null, "settle game #" + active, {
 const claim = () => callC("claim", [active], null, "claim game #" + active, { gameId: active, phase: "claim" });
 const cancelGame = () => callC("cancel", [active], null, "cancel game #" + active, { gameId: active, phase: "cancel" });
 function doWithdraw() {
-  const raw = nadoToRaw($("wdAmt").value);
+  const raw = nadoToRaw($("bankAmt").value);
   if (!raw) { $("status").textContent = "Enter an amount to withdraw."; return; }
   if (myBalance < raw) { $("status").textContent = "You only have " + rawToNado(myBalance) + " NADO in the exec layer."; return; }
   signBlob({ op: "bridge_withdraw", amount: raw }, "withdraw " + rawToNado(raw) + " NADO to L1", { phase: "withdraw" });
