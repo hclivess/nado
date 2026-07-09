@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NADO Games — provably-fair on-chain games</title>
+<meta name="description" content="Provably-fair games on the NADO execution layer — post-quantum wallet, no install. Coin Flip and Roulette, with more on the way.">
+<link rel="icon" href="/favicon.ico">
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#111823; --line:#1c2530; --txt:#e6edf3; --muted:#8b9bab; --faint:#5c6b7a;
+    --accent:#00ad93; --accent2:#00c9a7; --deep:#004438;
+    --sans:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--sans);line-height:1.55;min-height:100vh}
+  a{color:var(--accent2);text-decoration:none}a:hover{text-decoration:underline}
+  .wrap{max-width:1040px;margin:0 auto;padding:0 20px}
+  .glow{position:fixed;inset:0;z-index:-1;overflow:hidden;background:
+    radial-gradient(60% 50% at 50% -10%,rgba(0,173,147,.12),transparent 70%),
+    radial-gradient(40% 40% at 90% 10%,rgba(0,201,167,.07),transparent 70%)}
+  header{display:flex;align-items:center;justify-content:space-between;padding:20px 0;gap:16px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.5px;font-size:20px}
+  .brand img{width:34px;height:34px}
+  nav a{color:var(--muted);margin-left:22px;font-size:15px;font-weight:600}
+  nav a:hover{color:var(--txt);text-decoration:none}
+  .hero{text-align:center;padding:44px 0 26px}
+  .hero h1{font-size:clamp(30px,5.5vw,48px);line-height:1.08;margin:6px 0 10px;letter-spacing:-.5px}
+  .hero h1 .g{background:linear-gradient(120deg,var(--accent2),#7fe9d6);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero p.lead{font-size:clamp(16px,2.2vw,20px);color:var(--muted);max-width:660px;margin:0 auto}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;padding:14px 0 30px}
+  .game{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:24px;display:flex;flex-direction:column;
+    transition:transform .12s ease,border-color .12s ease,box-shadow .12s ease}
+  .game.live:hover{transform:translateY(-3px);border-color:var(--accent);box-shadow:0 12px 34px rgba(0,173,147,.20)}
+  .game .ico{font-size:40px;line-height:1;margin-bottom:14px}
+  .game h3{margin:0 0 4px;font-size:21px}
+  .game .tag{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--accent2);margin-bottom:10px}
+  .game .tag.soon{color:var(--faint)}
+  .game p{margin:0 0 18px;color:var(--muted);font-size:14.5px;flex:1}
+  .game .meta{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+  .pill{background:rgba(0,173,147,.08);border:1px solid rgba(0,173,147,.22);border-radius:999px;padding:4px 11px;font-size:12px;color:var(--muted)}
+  .btn{display:inline-block;text-align:center;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#04110a;
+    font-weight:800;padding:13px 22px;border-radius:12px;font-size:15px;border:0;cursor:pointer;
+    box-shadow:0 6px 22px rgba(0,173,147,.30);transition:transform .12s ease,box-shadow .12s ease}
+  .btn:hover{text-decoration:none;transform:translateY(-1px);box-shadow:0 10px 28px rgba(0,173,147,.42)}
+  .btn.disabled{background:transparent;color:var(--faint);border:1px solid var(--line);box-shadow:none;cursor:default;font-weight:700}
+  .fair{margin:8px 0 40px;background:rgba(0,173,147,.06);border:1px solid rgba(0,173,147,.25);border-radius:16px;padding:20px 22px;color:var(--muted);font-size:14.5px}
+  .fair b{color:var(--txt)}
+  .fair h2{margin:0 0 8px;font-size:20px;color:var(--txt)}
+  footer{border-top:1px solid var(--line);padding:30px 0 50px;color:var(--faint);font-size:14px;text-align:center}
+  footer a{color:var(--muted);margin:0 10px}
+  @media(max-width:560px){nav{display:none}}
+</style>
+</head>
+<body>
+<div class="glow"></div>
+<div class="wrap">
+  <header>
+    <a class="brand" href="/" style="color:inherit"><img src="/logo.svg" alt=""> NADO</a>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/emission">Emission</a>
+      <a href="https://forum.nadochain.com">Forum</a>
+      <a href="https://github.com/hclivess/nado">GitHub</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <h1>NADO <span class="g">Games</span></h1>
+    <p class="lead">Provably-fair games on the NADO execution layer. Sign in with your post-quantum wallet, stake real NADO, and win — the outcome is enforced on-chain by commit-reveal, so nobody can cheat. No install, no house account.</p>
+  </section>
+
+  <div class="grid" id="games"></div>
+
+  <div class="fair">
+    <h2>Provably fair — by construction</h2>
+    Every game is an ordinary <b>on-chain contract</b> on NADO's execution layer (no special server, no house
+    account). Outcomes come from <b>commit-reveal</b>: players commit a hash of a secret before anyone reveals,
+    so no one can bias the result, and payouts are escrowed and settled by the contract itself — nothing is
+    minted or lost. Your key never leaves your <a href="https://get.nadochain.com/">NADO wallet</a>; each game
+    only bounces you there to sign. <a href="https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md">See how the contracts work →</a>
+  </div>
+
+  <footer>
+    <a href="/">Home</a><a href="https://get.nadochain.com/">Wallet</a><a href="https://github.com/hclivess/nado">GitHub</a>
+    <div style="margin-top:12px">Play responsibly — these are real-value games of chance.</div>
+  </footer>
+</div>
+
+<script>
+// The game directory — add a new game by appending one object here (the page renders it automatically).
+const GAMES = [
+  { icon:"🪙", name:"Coin Flip", tag:"Live", live:true, url:"https://coinflip.nadochain.com",
+    blurb:"A fair 2-player coin flip for stakes. Both players stake into a pot; the winner (parity of the two committed secrets) takes it all. The simplest provably-fair bet on NADO.",
+    meta:["2 players","Winner takes the pot","Commit-reveal","0% house edge"] },
+  { icon:"🎡", name:"Roulette", tag:"Live", live:true, url:"https://roulette.nadochain.com",
+    blurb:"Peer-banked European roulette on the full table. Bank a table or bet against one — a win pays the true 36 ÷ (numbers covered), the exact 2.70% single-zero edge. Straight-ups to even-money, all on-chain.",
+    meta:["Bank or bet","Full table","Fixed odds","2.70% edge"] },
+  { icon:"🎲", name:"Dice", tag:"Soon", live:false, url:null,
+    blurb:"Roll under / over a target for a payout scaled to your odds. Same commit-reveal fairness, coming next.",
+    meta:["Coming soon"] },
+];
+const el = document.getElementById("games");
+el.innerHTML = GAMES.map((g) => `
+  <div class="game${g.live ? " live" : ""}">
+    <div class="ico">${g.icon}</div>
+    <div class="tag${g.live ? "" : " soon"}">${g.tag}</div>
+    <h3>${g.name}</h3>
+    <p>${g.blurb}</p>
+    <div class="meta">${g.meta.map((m) => `<span class="pill">${m}</span>`).join("")}</div>
+    ${g.live ? `<a class="btn" href="${g.url}">Play ${g.name} →</a>`
+             : `<span class="btn disabled">Coming soon</span>`}
+  </div>`).join("");
+</script>
+</body>
+</html>
