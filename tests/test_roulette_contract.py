@@ -52,19 +52,26 @@ open_m = [
   A(0), CURSOR, P(JOIN_WINDOW + REVEAL_WINDOW), ADD, ST("tv"),
   HALT ]
 
-# bet(g, t, n0..n17)  value=stake  -> take a seat at table t during the window (no bettor secret needed)
+# bet(g, t, n0..n17)  value=stake  -> take a seat at table t during the window (no bettor secret needed).
+# Every covered number MUST be a real pocket 0..36 (unused slots are padded with a REPEAT of a covered
+# number, not a sentinel) so the cov write key g*37+n can never leave seat g's own [g*37, g*37+36] range
+# (a raw out-of-range n once let an attacker delete another seat's coverage). Count = DISTINCT covered
+# numbers via summing cov, so repeated pads don't inflate it.
 bet_m  = [ A(0), P(0), GT, REQ,                 # seat id > 0
            A(1), P(0), GT, REQ,                 # table id > 0
            VALUE, P(0), GT, REQ,                # stake > 0
            A(0), LD("gg"), P(0), EQ, REQ,       # seat id fresh
            A(1), LD("ta"), P(0), EQ, NOT, REQ,  # table exists
+           A(1), LD("tz"), NOT, REQ,            # table NOT closed  (blocks the bet-after-close drain)
            A(1), LD("tr"), NOT, REQ,            # bank not revealed yet
            CURSOR, A(1), LD("tj"), LTE, REQ ]   # within the betting window
-for i in range(MAXSLOTS):                       # cov[g*37+n_i] = inRange(n_i)
-    bet_m += [ A(0), P(PN), MUL, A(2+i), ADD ] + inRange(2+i) + [ ST("cov") ]
-bet_m += [ A(0), P(0) ]                          # [g, acc] -> derive count
-for i in range(MAXSLOTS):
-    bet_m += inRange(2+i) + [ ADD ]
+for i in range(MAXSLOTS):                       # REQUIRE every slot n in [0,36]
+    bet_m += [ A(2+i), P(0), GTE, A(2+i), P(36), LTE, AND, REQ ]
+for i in range(MAXSLOTS):                       # cov[g*37+n_i] = 1  (keys stay in seat g's own range)
+    bet_m += [ A(0), P(PN), MUL, A(2+i), ADD, P(1), ST("cov") ]
+bet_m += [ A(0), P(0) ]                          # [g, acc] -> count = sum over pockets of cov[g*37+n]
+for n in range(PN):
+    bet_m += [ A(0), P(PN), MUL, P(n), ADD, LD("cov"), ADD ]
 bet_m += [ ST("gc"),
            A(0), LD("gc"), P(0), GT, REQ ]       # >=1 number
 # bank must cover this seat on TOP of all outstanding seats:  committed + stake*(M-1) <= bankroll
@@ -151,13 +158,14 @@ CODE = {"open":open_m, "bet":bet_m, "reveal":reveal_m, "settle":settle_m, "claim
 def vm_hash(v): return int.from_bytes(hashlib.blake2b(json.dumps(v, sort_keys=True).encode(), digest_size=32).digest(), "big")
 def spin(secret, t): return vm_hash(secret + t) % PN
 RED = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
-def pad(nums): nums = sorted(set(nums)); return nums + [SENTINEL]*(MAXSLOTS-len(nums))
+def pad(nums): nums = sorted(set(nums)); rep = nums[0] if nums else 0; return nums + [rep]*(MAXSLOTS-len(nums))  # pad with a repeat (all slots must be real pockets 0..36)
 
 # ---- TESTS ----
 F=[]
 def ck(n,c): print(("  ok  " if c else " FAIL ")+n); (F.append(n) if not c else None)
 st=ExecState(tempfile.mktemp()); st.cursor=100
-for a in ("BANK","B1","B2","B3"): st.credit_deposit(a, 1000000)
+for a in ("BANK","B1","B2","B3","VIC"): st.credit_deposit(a, 1000000)
+st.credit_deposit("SECBANK", 100000000)   # a well-funded bank for the security regression tests
 st.apply_blob({"op":"deploy","code":CODE,"runtime":"stackvm","nonce":"roulette-multi"},"BANK","d0")
 CID=list(st.contracts)[0]
 def bal(a): return st.bridge.get(a,0)
@@ -262,6 +270,21 @@ call("fund",[20],4000,"BANK")
 ck("fund raised bankroll + pool", M("tk",20)==5000 and M("tp",20)==5000)
 call("bet",[201,20]+pad([res]),100,"B1")
 ck("bigger bet fits after top-up", M("gg",201)==20)
+
+# SECURITY: bet-after-close cross-table drain must be blocked
+st.cursor=3000; call("open",[30,cB],5000,"SECBANK"); call("close",[30],0,"SECBANK")   # empty table, bank reclaims
+ck("bet on a CLOSED table is rejected (no cross-table drain)", "revert" in call("bet",[301,30]+pad([res]),100,"B1") and M("gg",301)==0)
+# SECURITY: an out-of-range covered number is rejected (no cross-seat cov corruption)
+st.cursor=3100; call("open",[31,cB],5000000,"SECBANK")
+res31 = spin(sB, 31)                            # the winning number for THIS table
+badslots = [5, (100-1)*PN + res31] + [5]*16     # a raw out-of-range n that used to alias another seat's key
+ck("out-of-range covered number is rejected", "revert" in call("bet",[311,31]+badslots,100,"B1") and M("gg",311)==0)
+# and a legit adjacent-seat bet cannot delete a victim seat's coverage
+call("bet",[312,31]+pad([res31]),100,"VIC")     # victim covers the winning number
+call("bet",[313,31]+pad([(res31+9)%37]),100,"B1")   # attacker seat nearby, only in-range numbers
+st.cursor=3100+JOIN_WINDOW+1; call("reveal",[31,sB],0,"SECBANK")
+bVIC=bal("VIC"); call("settle",[312],0,"VIC")
+ck("victim's winning payout is intact (cov not corrupted)", bal("VIC")==bVIC+100*36 and M("gw",312)==1)
 
 print("\n"+("ALL PASS" if not F else f"{len(F)} FAILED: {F}"))
 if not F:

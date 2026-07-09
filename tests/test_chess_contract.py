@@ -36,6 +36,7 @@ open_m = [
   HALT ]
 join_m = [
   A(0), LD("nn"), P(1), EQ, REQ,
+  A(0), LD("sd"), NOT, REQ,                     # not settled (cancelled game keeps nn==1; block re-join)
   VALUE, A(0), LD("st"), EQ, REQ,              # equal stake
   CALLER, A(0), LD("p1"), EQ, NOT, REQ,        # not yourself
   A(0), A(0), LD("pt"), VALUE, ADD, ST("pt"),
@@ -61,7 +62,7 @@ agree_m = [
   A(0), LD("sd"), NOT, REQ,
   # validate r in {1,2,3}: (r>=1) and (r<=3)
   A(1), P(0), GT, REQ,
-  A(1), P(4), GT, NOT, REQ,
+  A(1), P(3), GT, NOT, REQ,
   # a1[g] = caller==p1 ? r : a1[g]   (branchless: a1 = a1*(caller!=p1) + r*(caller==p1))
   A(0),
       A(0), LD("a1"), CALLER, A(0), LD("p1"), EQ, NOT, MUL,
@@ -198,6 +199,13 @@ ck("black move recorded at ply 1", M("mc",8)==2 and M("mv",80001)==2000)
 # after moves, resign still resolves (loser concedes)
 bW=bal("W"); call("resign",[8],0,"B")             # black resigns -> white takes pot
 ck("resign after moves pays the winner", bal("W")==bW+2*STAKE and M("sd",8)==1)
+
+# --- SECURITY regressions (audit fixes) ---
+st.cursor=100
+call("open",[50],STAKE,"W"); call("cancel",[50],0,"W")
+ck("SEC: cannot join a cancelled game (no stranded stake)", "revert" in call("join",[50],STAKE,"B") and M("nn",50)==1)
+call("open",[51],STAKE,"W"); call("join",[51],STAKE,"B")
+ck("SEC: agree(r=4) is rejected (no frozen pot)", "revert" in call("agree",[51,4],0,"W") and M("a1",51)==0)
 
 print("\n"+("ALL PASS" if not F else f"{len(F)} FAILED: {F}"))
 if not F:

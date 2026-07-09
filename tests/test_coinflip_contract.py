@@ -29,6 +29,7 @@ open_m = [
 # join(gid, commit)  value=stake  -> slot 2
 join_m = [
   A(0), LD("nn"), P(1), EQ, REQ,                # REQUIRE nn[gid]==1
+  A(0), LD("sd"), NOT, REQ,                     # REQUIRE not settled (a cancelled game keeps nn==1; block re-join)
   VALUE, A(0), LD("st"), EQ, REQ,               # REQUIRE value==st[gid]
   CALLER, A(0), LD("p1"), EQ, NOT, REQ,         # REQUIRE caller!=p1[gid]
   A(0), A(0), LD("pt"), VALUE, ADD, ST("pt"),   # pt[gid]+=value
@@ -40,6 +41,7 @@ join_m = [
 def reveal(slot):
   p,c,s,r = "p"+slot,"c"+slot,"s"+slot,"r"+slot
   return [
+    A(0), LD("nn"), P(2), EQ, REQ,              # REQUIRE both joined before any reveal (no early-reveal grind)
     CALLER, A(0), LD(p), EQ, REQ,               # REQUIRE caller==pN[gid]
     A(1), HASH, A(0), LD(c), EQ, REQ,           # REQUIRE HASH(secret)==cN[gid]
     A(0), LD(r), NOT, REQ,                       # REQUIRE not already revealed
@@ -69,6 +71,7 @@ claim_m = [
   CURSOR, A(0), LD("dl"), GT, REQ,              # cursor>deadline
   A(0), LD("sd"), NOT, REQ,                     # not settled
   A(0), LD("nn"), P(2), EQ, REQ,                # both committed
+  A(0), LD("r1"), A(0), LD("r2"), MUL, NOT, REQ,  # NOT both revealed (that case is settle — else the pot would lock)
   # amount1 = pot*r1*(1-r2) + stake*(1-r1)*(1-r2)
   A(0), LD("p1"),
   A(0), LD("pt"), A(0), LD("r1"), MUL, P(1), A(0), LD("r2"), SUB, MUL,      # pot*r1*(1-r2)
@@ -149,6 +152,18 @@ ck("non-opener cannot cancel", "skip" in call("cancel",[G4],0,"B") or st.contrac
 call("cancel",[G4],0,"A")
 ck("opener cancels un-joined game -> refunded", bal("A")==bA)
 ck("cannot cancel a full game", "revert" in call("cancel",[str(GID)],0,"A") or True)  # GID was 2-player+settled
+
+# --- SECURITY regressions (audit fixes) ---
+st.cursor=100
+call("open",[50,c_a],40,"A"); call("cancel",[50],0,"A")
+ck("SEC: cannot join a cancelled game", "revert" in call("join",[50,c_b],40,"A") and st.contracts[CID]["storage"]["nn"][str(50)]==1)
+call("open",[51,c_a],40,"A")
+ck("SEC: reveal before join rejected", "revert" in call("reveal1",[51,s_a],0,"A"))
+call("join",[51,c_b],40,"B"); call("reveal1",[51,s_a],0,"A"); call("reveal2",[51,s_b],0,"B")
+st.cursor = st.cursor + 5000
+ck("SEC: claim with BOTH revealed is rejected (no pot lock)", "revert" in call("claim",[51],0,"C"))
+b=bal("A" if predict(s_a,s_b)==0 else "B"); call("settle",[51],0,"A")
+ck("SEC: settle still pays the winner after that", bal("A" if predict(s_a,s_b)==0 else "B")==b+80)
 
 print("\n"+("ALL PASS" if not F else f"{len(F)} FAILED: {F}"))
 if not F:

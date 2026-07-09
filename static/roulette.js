@@ -58,7 +58,9 @@ async function fetchTable(t) { const sto = await dapp.storage(); return sto ? ta
 // ---- bet maths -----------------------------------------------------------------------------------
 const betCount = () => selected.size;
 const betMult = () => { const c = betCount(); return c >= 1 && c <= MAXSLOTS ? Math.floor(36 / c) : 0; };
-const betSlots = () => { const a = [...selected].sort((x, y) => x - y); while (a.length < MAXSLOTS) a.push(SENTINEL); return a; };
+// pad unused slots with a REPEAT of the first covered number (all 18 slots must be real pockets 0..36; the
+// contract derives the DISTINCT count, so repeats don't inflate it). Sentinels are no longer accepted.
+const betSlots = () => { const a = [...selected].sort((x, y) => x - y); const rep = a.length ? a[0] : 0; while (a.length < MAXSLOTS) a.push(rep); return a; };
 
 // ---- actions -------------------------------------------------------------------------------------
 function openTable(t, bankrollRaw) {

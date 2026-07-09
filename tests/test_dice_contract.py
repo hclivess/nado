@@ -49,6 +49,7 @@ bet_m = [
   VALUE, P(0), GT, REQ,                         # stake > 0
   A(0), LD("gg"), P(0), EQ, REQ,                # seat fresh
   A(1), LD("ta"), P(0), EQ, NOT, REQ,           # table exists
+  A(1), LD("tz"), NOT, REQ,                     # table NOT closed (blocks the bet-after-close drain)
   A(1), LD("tr"), NOT, REQ,                     # bank not revealed
   CURSOR, A(1), LD("tj"), LTE, REQ,             # within window
   A(2), P(MMIN), GTE, REQ,                      # M >= 2
@@ -205,6 +206,10 @@ call("fund",[20],5000000,"BANK")
 ck("fund raised bankroll + pool", Mv("tk",20)==1000+5000000 and Mv("tp",20)==1000+5000000)
 call("bet",[201,20,2],STAKE,"B1")
 ck("bigger bet fits after top-up", Mv("gg",201)==20)
+
+# SECURITY: bet-after-close cross-table drain must be blocked
+st.cursor=3000; call("open",[30,cB],5000,"BANK"); call("close",[30],0,"BANK")   # empty table, bank reclaims
+ck("bet on a CLOSED dice table is rejected (no cross-table drain)", "revert" in call("bet",[301,30,50],STAKE,"B1") and Mv("gg",301)==0)
 
 print("\n"+("ALL PASS" if not F else f"{len(F)} FAILED: {F}"))
 if not F:

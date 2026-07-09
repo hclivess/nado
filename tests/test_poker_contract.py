@@ -35,6 +35,7 @@ open_m = [
   HALT ]
 join_m = [
   A(0), LD("nn"), P(1), EQ, REQ,
+  A(0), LD("sd"), NOT, REQ,                    # not settled (cancelled game keeps nn==1; block re-join)
   VALUE, A(0), LD("st"), EQ, REQ,
   CALLER, A(0), LD("p1"), EQ, NOT, REQ,
   A(0), A(0), LD("pt"), VALUE, ADD, ST("pt"),
@@ -45,7 +46,8 @@ join_m = [
   HALT ]
 def reveal(slot):
     p,c,s,r = "p"+slot,"c"+slot,"s"+slot,"r"+slot
-    return [ CALLER, A(0), LD(p), EQ, REQ,
+    return [ A(0), LD("nn"), P(2), EQ, REQ,          # both joined before any reveal (no early-reveal grind)
+             CALLER, A(0), LD(p), EQ, REQ,
              A(1), HASH, A(0), LD(c), EQ, REQ,
              A(0), LD(r), NOT, REQ,
              A(0), A(1), ST(s),
@@ -65,7 +67,7 @@ resign_m = [
 agree_m = [
   A(0), LD("nn"), P(2), EQ, REQ,
   A(0), LD("sd"), NOT, REQ,
-  A(1), P(0), GT, REQ, A(1), P(4), GT, NOT, REQ,          # r in {1,2,3}
+  A(1), P(0), GT, REQ, A(1), P(3), GT, NOT, REQ,          # r in {1,2,3}
   A(0),
       A(0), LD("a1"), CALLER, A(0), LD("p1"), EQ, NOT, MUL,
       A(1), CALLER, A(0), LD("p1"), EQ, MUL, ADD, ST("a1"),
@@ -158,6 +160,15 @@ call("cancel",[5],0,"A"); ck("opener cancels -> refunded", bal("A")==bA+STAKE an
 call("open",[6,ca],STAKE,"A"); call("join",[6,cb],STAKE,"B")
 ck("non-player cannot resign", "revert" in call("resign",[6],0,"C"))
 ck("bad result rejected", "revert" in call("agree",[6,9],0,"A") and M("a1",6)==0)
+
+# --- SECURITY regressions (audit fixes) ---
+st.cursor=100
+call("open",[50,ca],STAKE,"A"); call("cancel",[50],0,"A")
+ck("SEC: cannot join a cancelled game", "revert" in call("join",[50,cb],STAKE,"B") and M("nn",50)==1)
+call("open",[51,ca],STAKE,"A")
+ck("SEC: reveal before join rejected", "revert" in call("reveal1",[51,sa],0,"A") and M("r1",51)==0)
+call("join",[51,cb],STAKE,"B")
+ck("SEC: agree(r=4) rejected (no frozen pot)", "revert" in call("agree",[51,4],0,"A") and M("a1",51)==0)
 
 print("\n"+("ALL PASS" if not F else f"{len(F)} FAILED: {F}"))
 if not F:
