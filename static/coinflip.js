@@ -230,7 +230,12 @@ function render() {
         return '<button class="chip' + cls + '" data-g="' + id + '">' + tag + "#" + id + " · " + rawToNado(g[id].stake || "0") + "</button>";
       }).join(" ")
     : '<span class="dim">No games yet.</span>';
-  $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { active = parseInt(b.dataset.g, 10); refreshActive(); });
+  $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => {
+    active = parseInt(b.dataset.g, 10); $("joinId").value = String(active);
+    $("status").textContent = "Game #" + active + " selected.";
+    refreshActive();
+    try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
+  });
   renderActive();
 }
 function renderActive() {

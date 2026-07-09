@@ -240,7 +240,13 @@ function render() {
   mine.sort((a, b) => b.ts - a.ts); const seen = new Set();
   $("recent").innerHTML = mine.filter((x) => { const k = x.id + x.role; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 8)
     .map((x) => '<button class="chip" data-t="' + x.id + '">' + (x.role === "bank" ? "🏦" : "🎯") + " #" + x.id + "</button>").join(" ") || '<span class="dim">No tables yet.</span>';
-  $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeTable = parseInt(b.dataset.t, 10); refreshActive(); });
+  $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => {
+    const id = parseInt(b.dataset.t, 10);
+    activeTable = id; $("joinId").value = String(id);
+    $("status").textContent = "Table #" + id + " selected.";
+    refreshActive();
+    try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
+  });
   renderActive();
 }
 function renderActive() {
