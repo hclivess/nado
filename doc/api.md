@@ -108,11 +108,6 @@ Signing is ML-DSA-44 over `create_txid(body)` (blake2b of the canonical body min
 | GET | `/exec/outbox` · `/exec/outbox_proof` | `?ns=` / `?seq=` | emitted messages + proofs |
 | GET | `/exec/inbox` | `?ns=` | delivered messages |
 
-### Coin Flip (staked betting) — **new**
-| Method | Path | Params | Returns |
-|---|---|---|---|
-| GET | `/exec/flip_game` | `?ns=&game=<id>` | game state (see §4) |
-
 ### Data availability (erasure-coded blobs)
 | Method | Path | Params | Returns |
 |---|---|---|---|
@@ -127,18 +122,17 @@ Send a `blob` tx (`recipient:"blob"`, `amount:0`, `data:<payload>`) via `POST /s
 
 | `op` | Payload fields | Effect |
 |---|---|---|
-| `deploy` | `code, abi?, nonce?, runtime?` | Deploy a contract. `cid = hash(["deploy", deployer, code, nonce])[:32]`, immutable. |
-| `call` | `contract, method, args[]` | Invoke a contract method; persists new storage if it doesn't revert. |
+| `deploy` | `code, abi?, nonce?, runtime?` | Deploy a contract. `cid = hash(["deploy", deployer, code, nonce])[:32]`. |
+| `call` | `contract, method, args[], value?` | Invoke a contract method; persists new storage if it doesn't revert. `value` escrows raw NADO from your bridge balance into the contract for the call (the VM's `VALUE` opcode sees it; `PAY` spends it; a revert refunds exactly). |
+| `upgrade` | `contract, code, runtime?, abi?` | Deployer-only (alphanet): replace a contract's code, keeping its cid + storage. |
 | `emit` | `to_ns, data` | Append a cross-domain message to the outbox. |
 | `bridge_withdraw` | `amount` | Burn exec bridge balance → provable L1 exit (claim with `/exec/withdrawal_proof`). |
 | `collect_dividend` | — | Burn accrued dividend → provable L1 claim. |
 | `shielded_transfer` / `field_transfer` | proof/bundle | Private transfer inside a shielded pool. |
-| `flip_bet` | `game, commit, stake` | **Coin Flip:** open/join a game; escrow `stake` from your bridge balance into the pot. |
-| `flip_reveal` | `game, secret` | Reveal your secret (must satisfy `HASH(secret)==commit`). |
-| `flip_settle` | `game` | After both reveal, pay the pot to the winner (`blake2b([s₁,s₂])%2`). Anyone may call. |
-| `flip_claim` | `game` | After the reveal deadline: revealer wins by forfeit, or stakes are refunded. |
 
-Contract call args and the 256-bit `commit`/`secret` ride as **bare JSON integers** (`nadotx.canonicalize` emits BigInt as digits, matching the node), so they survive signing byte-for-byte.
+There is **no coinflip-specific op** — the Coin Flip dApp is a contract driven entirely through `call`/`view`/`upgrade` (see §5).
+
+Contract call args and 256-bit commit/secret integers ride as **bare JSON integers** (`nadotx.canonicalize` emits BigInt as digits, matching the node), so they survive signing byte-for-byte.
 
 ## 4. Recipient-typed L1 transactions
 
@@ -159,19 +153,20 @@ Besides `blob`, `POST /submit_transaction` accepts these `recipient` values (bui
 
 ## 5. Coin Flip dApp flow (`coinflip.nadochain.com`)
 
-A fair, **staked** 2-player game entirely on-chain, signed by your NADO wallet (delegated via the `exec_sign` redirect — the key never touches the dApp):
+A fair, **staked** 2-player game that is an ordinary on-chain **contract** — not a native module. It lives at
+`execnode/contracts/coinflip.json` (runtime `stackvm`), deployed at cid `7ee95a0abd6e00d12edc3bf39f4c8f2d`
+(node-owned, so upgradable via the `upgrade` op), and is driven entirely through the generic `call` op with
+`value` escrow. It is the reference example of the VM's `VALUE`/`PAY` escrow primitive. Every call is signed by
+your NADO wallet (delegated via the `exec_sign` redirect — the key never touches the dApp):
 
 1. **Fund** — bridge NADO into the exec layer (recipient `bridge` deposit) → your `bridge` balance.
-2. **Bet** — `flip_bet {game, commit=HASH(secret), stake}`. First bettor opens; the second must match the stake. Both stakes escrow into the pot.
-3. **Reveal** — `flip_reveal {game, secret}` (256-bit secret; the commit was public, so low entropy would be brute-forceable — the dApp uses a full CSPRNG secret).
-4. **Settle** — once both revealed, `flip_settle {game}` pays `2×stake` to the winner (parity of `blake2b([s₁,s₂])`).
-5. **Or claim** — if an opponent withholds their reveal past the deadline (`cursor + 1000` blocks), `flip_claim {game}` awards the pot to the revealer by forfeit (no-reveal/no-opponent games refund). A sore loser can only stall, never steal.
+2. **Open / join** — `call open {game, commit=HASH(secret)}` with `value=stake` opens a game; a second player `call join {game, commit}` with a matching `value=stake`. Each `value` escrows the stake into the contract as the pot.
+3. **Reveal** — `call reveal1|reveal2 {game, secret}` (256-bit CSPRNG secret; the commit is public, so low entropy would be brute-forceable).
+4. **Settle** — once both revealed, `call settle {game}` `PAY`s the whole pot to the winner (`result = HASH(s₁+s₂) % 2` → slot 1 or 2).
+5. **Or claim** — if an opponent withholds their reveal past the deadline (`CURSOR + 1000` blocks), `call claim {game}` awards the pot to the revealer by forfeit (no-reveal/no-opponent games refund). A sore loser can only stall, never steal.
 6. **Cash out** — `bridge_withdraw {amount}` → claim on L1 with `/exec/withdrawal_proof`.
 
-Game state is public at `GET /exec/flip_game?game=<id>`:
-```json
-{ "exists": true, "stake": 1000, "pot": 2000, "settled": true,
-  "deadline": 22168, "cursor": 21200, "ncom": 2, "nrev": 2,
-  "players": { "ndo…": {"slot":1,"committed":true,"revealed":true} },
-  "result": 0, "winner_slot": 1 }
-```
+There is **no coinflip read API**: the dApp derives game / lobby / scoreboard from the contract's storage maps
+via the generic `GET /exec/contract?cid=7ee95a0abd6e00d12edc3bf39f4c8f2d` (storage maps: `st` stake, `pt` pot,
+`sd` settled, `nn` player count, `dl` deadline, `p1`/`p2` addresses, `c1`/`c2` commits, `s1`/`s2` secrets,
+`r1`/`r2` revealed flags, `ws` winner slot).

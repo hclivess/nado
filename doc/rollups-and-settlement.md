@@ -170,9 +170,12 @@ example contracts built from them, so new contracts compose from patterns instea
   then `reveal`s; `flip` returns the parity of `HASH(secret₀‖secret₁)`, unbiasable until both secrets are out.
   Generalizes sealed-bid auctions and lotteries. (Needs the VM's `HASH`/`MOD` primitives.)
 
-Because VM storage values are ints, a contract can remember an address only as a *key*, not a value — so
-`COIN_FLIP` is a fair-**result** oracle, not an escrow; staking value belongs on L1/the bridge, not in the
-pure-compute VM. Served to the wallet's Rollup tab via `/exec/examples` for one-click deploy.
+This library `COIN_FLIP` is a fair-**result** oracle demo, not an escrow. (The VM has since gained a
+`VALUE`/`PAY` escrow primitive and `MSTORE` now stores addresses as string values, so a contract *can* hold and
+move real bridged NADO — the **live, staked** Coin Flip dApp is exactly that: a deployed contract
+`execnode/contracts/coinflip.json` at cid `7ee95a0abd6e00d12edc3bf39f4c8f2d`; see
+[exec-instructions.md](exec-instructions.md) §3/§5.) The library example is served to the wallet's Rollup tab
+via `/exec/examples` for one-click deploy.
 
 ---
 
