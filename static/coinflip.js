@@ -168,12 +168,17 @@ function reveal() {
   if (!g) { $("status").textContent = "No secret for this game on this device."; return; }
   signBlob({ op: "flip_reveal", game: active, secret: BigInt(g.secret) }, "flip the coin · game #" + active, { gameId: active, phase: "reveal" });
 }
+// The rematch game id is DERIVED from the old game (not random), so BOTH players clicking "Play again"
+// land in the SAME game — whoever's bet lands first opens it, the other joins slot 2. No split-into-two.
+function rematchGidFor(oldGid) {
+  return Number((BigInt(oldGid) * 6364136223846793005n + 1442695040888963407n) % 1000000000n);
+}
 function rematch() {
   const stake = (lastGame && lastGame.exists) ? BigInt(lastGame.stake)
     : ((gamesLoad()[active] || {}).stake ? BigInt(gamesLoad()[active].stake) : null);
   if (!stake) { $("status").textContent = "Open a new game from the panel above."; return; }
   if (myBalance < stake) { $("status").textContent = "Deposit more to play again — you have " + rawToNado(myBalance) + " NADO, need " + rawToNado(stake) + "."; return; }
-  bet(randId(), stake, "new", active);   // rematch: fresh game, same stake, invites the opponent in the OLD game
+  bet(rematchGidFor(active), stake, "new", active);   // same stake, deterministic id, stamps the old game's invite
 }
 const settle = () => signBlob({ op: "flip_settle", game: active }, "settle game #" + active, { gameId: active, phase: "settle" });
 const claim = () => signBlob({ op: "flip_claim", game: active }, "claim game #" + active, { gameId: active, phase: "claim" });
