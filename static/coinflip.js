@@ -275,6 +275,11 @@ function renderActive() {
   $("players").innerHTML = playersHtml || '<span class="dim">no players yet</span>';
   // my local move status, upgraded to confirmed once the chain reflects it
   const betC = mine ? "confirmed" : local.bet, revC = (mine && mine.revealed) ? "confirmed" : local.reveal;
+  // "Your bet/flip" only belong to MY OWN game — hide them when I'm just watching/browsing a game I'm not in
+  // (e.g. a settled game opened from the public lobby), so a stale local flag can't show "flip: pending" there.
+  const showMine = !!mine || (local.bet === "pending" && !lg.settled);
+  $("myBet").classList.toggle("hidden", !showMine);
+  $("myReveal").classList.toggle("hidden", !showMine);
   // my join was submitted but I'm not on-chain and the game already has 2 players -> it never landed (someone
   // filled it first, or my bet was rejected). Say so clearly instead of hanging on "pending" forever.
   if (!mine && local.bet === "pending" && lg.exists && lg.ncom >= 2)
