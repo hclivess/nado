@@ -193,8 +193,15 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
                 res = default_state.apply_shield(tx.get("amount", 0), d.get("out_commitments", []), d.get("openings", []))
             if verbose:
                 print(f"[execnode] block {h}: {res}", flush=True)
+        elif r == "reveal":
+            # RANDAO reveal (#randao): accumulate the secret into every namespace's beacon accumulator, so the
+            # BEACON opcode can read the same grind-resistant chain randomness consensus derives.
+            d = tx.get("data") or {}
+            for _st in states_map.values():
+                _st.record_reveal(d.get("target_epoch"), d.get("secret"))
     for _st in states_map.values():
         _st.cursor = h
+        _st.advance_beacons(h)      # cache every epoch beacon now finalized at this height
     return True
 
 

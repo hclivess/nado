@@ -41,8 +41,13 @@ _BINOPS = {"ADD", "SUB", "MUL", "DIV", "MOD", "LT", "GT", "EQ", "GTE", "LTE", "A
 # VALUE/PAY/CURSOR (#value): the escrow primitive that lets a contract hold + move real bridged NADO — VALUE
 # pushes the NADO escrowed with THIS call (debited from the caller into the contract), PAY pops (amount, to)
 # and schedules a payout FROM the contract's escrow to `to`, CURSOR pushes the L1 block height (for deadlines).
+# BEACON (#randao): pops an epoch and pushes that epoch's FINALIZED consensus RANDAO beacon as a 256-bit int
+# — the grind-resistant, unpredictable-until-finalized randomness NADO's bonded validators produce by
+# commit-reveal. It reverts if the epoch's beacon isn't finalized yet, so a game can only read a beacon that
+# was fixed AFTER its bets closed. This is what lets a game settle OBJECTIVELY from chain randomness with no
+# player secret-reveal and no trusted party (doc/execution-layer.md).
 _KNOWN = _BINOPS | {"PUSH", "POP", "DUP", "SWAP", "NOT", "HASH", "CALLER", "ARG",
-                    "MLOAD", "MSTORE", "REQUIRE", "RETURN", "HALT", "VALUE", "PAY", "CURSOR"}
+                    "MLOAD", "MSTORE", "REQUIRE", "RETURN", "HALT", "VALUE", "PAY", "CURSOR", "BEACON"}
 _MAX_PAYOUTS = 16          # bound the payouts one call can schedule (anti-abuse; a flip settles to ONE winner)
 
 
@@ -97,7 +102,7 @@ def _bound(v):
     return v
 
 
-def run(code, method, caller, args, storage, value=0, cursor=0):
+def run(code, method, caller, args, storage, value=0, cursor=0, beacons=None):
     """Execute code[method]. `storage` is {mapname: {key: int|str}}. `value` is the NADO (raw) escrowed with
     this call (already debited from the caller into the contract by the exec); `cursor` is the L1 height.
     Runs on a deep copy; returns (ok, return_value, new_storage, payouts) where payouts is [(to, amount)] the
@@ -133,6 +138,12 @@ def run(code, method, caller, args, storage, value=0, cursor=0):
                 stack.append(_int(value))
             elif op == "CURSOR":
                 stack.append(_int(cursor))
+            elif op == "BEACON":
+                ep = _int(stack.pop())
+                bv = (beacons or {}).get(ep)
+                if bv is None:                       # not finalized yet (or before genesis) -> revert (no-op call)
+                    raise VMRevert("beacon for epoch not available")
+                stack.append(_int(bv))
             elif op == "PAY":
                 amount = _int(stack.pop())
                 to = stack.pop()

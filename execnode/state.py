@@ -119,6 +119,14 @@ class ExecState:
         # This reentrant lock makes the double-spend check + the mutation atomic, and gives save() a
         # consistent snapshot, so two racing identical unshields can't both record an exit.
         self._mutate_lock = threading.RLock()
+        # RANDAO beacon (#randao): the exec node collects per-epoch reveal secrets from the finalized L1
+        # blocks it replays and chains them into the same beacon consensus uses (ops.mining_ops.compute_beacon).
+        # This is an L1-DERIVED input (like cursor), not exec state — so it is persisted for restart but NOT
+        # committed to state_root. The BEACON opcode reads self.beacons; a game settles objectively from it
+        # with NO player secret-reveal. beacons[E] is final once the cursor has entered epoch E.
+        self.randao_reveals = {}   # epoch(int) -> set(secret hex) accumulated from `reveal` txs
+        self.beacons = {}          # epoch(int) -> beacon(int), cached
+        self.beacon_floor = None   # first epoch we witness in full (set on first advance) — below it, unavailable
         self.load()
 
     # --- persistence -----------------------------------------------------------------------------
@@ -143,6 +151,9 @@ class ExecState:
         self.unshield_withdrawals = d.get("unshield_withdrawals", {})
         self.uw_nonce = d.get("uw_nonce", 0)
         self.field_pool = FieldShieldedPool.from_dict(d["field_pool"]) if "field_pool" in d else FieldShieldedPool()
+        self.randao_reveals = {int(e): set(v) for e, v in d.get("randao_reveals", {}).items()}
+        self.beacons = {int(e): int(v) for e, v in d.get("beacons", {}).items()}
+        self.beacon_floor = d.get("beacon_floor")
 
     def _snapshot(self):
         """The full serializable payload (identical to what save() writes), taken UNDER the mutate lock so a
@@ -155,7 +166,9 @@ class ExecState:
                     "div_carry": self.div_carry, "dividend_withdrawals": self.dividend_withdrawals,
                     "dw_nonce": self.dw_nonce, "shielded": self.shielded.to_dict(),
                     "unshield_withdrawals": self.unshield_withdrawals, "uw_nonce": self.uw_nonce,
-                    "field_pool": self.field_pool.to_dict()}
+                    "field_pool": self.field_pool.to_dict(),
+                    "randao_reveals": {str(e): sorted(v) for e, v in self.randao_reveals.items()},
+                    "beacons": {str(e): str(v) for e, v in self.beacons.items()}, "beacon_floor": self.beacon_floor}
 
     def clone(self):
         """A deep, independent, DISK-FREE copy for provisional/speculative apply (the unfinalized L1 tail).
@@ -313,6 +326,41 @@ class ExecState:
         """Credit an exec-side bridge balance from an L1 `bridge` deposit (read from the ordered stream)."""
         self.bridge[addr] = self.bridge.get(addr, 0) + int(amount)
 
+    # --- RANDAO beacon (#randao) -----------------------------------------------------------------
+    def record_reveal(self, target_epoch, secret):
+        """Accumulate one RANDAO reveal secret for target_epoch, from a finalized L1 `reveal` tx."""
+        try:
+            e = int(target_epoch)
+            if e >= 0 and isinstance(secret, str) and secret:
+                self.randao_reveals.setdefault(e, set()).add(secret)
+        except Exception:
+            pass
+
+    def advance_beacons(self, cursor):
+        """Cache every epoch beacon now FINAL at `cursor`. Each beacon depends ONLY on that epoch's finalized
+        reveals — beacon(E) = compute_beacon(GENESIS_BEACON, sorted(reveals[E]) + [E]) — NOT a cross-epoch chain,
+        so it is a pure function of finalized L1 data: any node that witnessed all of epoch E-1 (where E's
+        reveals land) computes the identical beacon(E), regardless of when it started. `beacon_floor` is the
+        first epoch we witnessed in full (this node began mid-flight, so earlier epochs are marked unavailable
+        rather than computed from partial reveals). Prunes ancient epochs to bound memory."""
+        from protocol import EPOCH_LENGTH, GENESIS_BEACON
+        from ops.mining_ops import compute_beacon
+        if cursor is None or cursor < 0:
+            return
+        cur_epoch = int(cursor) // EPOCH_LENGTH
+        if self.beacon_floor is None:
+            # E's reveals are submitted during E-1; starting mid-flight, E = cur_epoch+2 is the first epoch
+            # whose ENTIRE preceding epoch we are guaranteed to witness from here on.
+            self.beacon_floor = cur_epoch + 2
+        start = max(self.beacon_floor, (max(self.beacons) + 1) if self.beacons else 0)
+        for e in range(start, cur_epoch + 1):
+            secrets = sorted(self.randao_reveals.get(e, set())) + [str(e)]   # +epoch: distinct even if 0 reveals
+            self.beacons[e] = int(compute_beacon(GENESIS_BEACON, secrets), 16)
+        keep = cur_epoch - 4000
+        if keep > 0:
+            for e in [e for e in self.beacons if e < keep]:
+                self.beacons.pop(e, None); self.randao_reveals.pop(e, None)
+
     def apply_field_shield(self, amount, owner, rho):
         """Add a field-native note for an L1 field-shield deposit. C-2: the note value is BOUND to the L1
         escrow — the exec node computes the commitment itself as commit(amount, owner, rho) from the
@@ -420,7 +468,7 @@ class ExecState:
                     return f"skip: contract {cid} already exists"
                 storage = {}
                 if "constructor" in code:
-                    ok, _ret, storage, _pay = rt.run(code, "constructor", sender, [], {}, cursor=self.cursor)
+                    ok, _ret, storage, _pay = rt.run(code, "constructor", sender, [], {}, cursor=self.cursor, beacons=self.beacons)
                     if not ok:
                         storage = {}                      # constructor reverted -> deploy with empty state
                 abi = payload.get("abi")   # optional, non-consensus UX metadata {method:{args,doc}}
@@ -453,7 +501,7 @@ class ExecState:
                         del self.bridge[sender]
                     self.bridge[cid] = self.bridge.get(cid, 0) + value
                 ok, _ret, new_storage, payouts = rt.run(c["code"], method, sender, args, c["storage"],
-                                                        value=value, cursor=self.cursor)
+                                                        value=value, cursor=self.cursor, beacons=self.beacons)
                 def _refund():
                     if value > 0:
                         self.bridge[cid] = self.bridge.get(cid, 0) - value
@@ -616,5 +664,5 @@ class ExecState:
         rt = runtimes.get(c.get("runtime", runtimes.DEFAULT_RUNTIME))
         if rt is None:
             return None
-        ok, ret, _, _ = rt.run(c["code"], method, "view", args or [], c["storage"], cursor=self.cursor)
+        ok, ret, _, _ = rt.run(c["code"], method, "view", args or [], c["storage"], cursor=self.cursor, beacons=self.beacons)
         return ret if ok else None
