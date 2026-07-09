@@ -137,7 +137,16 @@ close_m = [
   A(0), P(0), ST("tp"),
   HALT ]
 
-CODE = {"open":open_m, "bet":bet_m, "reveal":reveal_m, "settle":settle_m, "claim":claim_m, "close":close_m}
+# fund(t)  value=extra  -> the bank tops up its table's bankroll (more coverage for bigger bets) during betting
+fund_m = [
+  CALLER, A(0), LD("ta"), EQ, REQ,              # only the bank
+  A(0), LD("tr"), NOT, REQ,                      # before the reveal
+  A(0), LD("tz"), NOT, REQ,                      # not closed
+  VALUE, P(0), GT, REQ,
+  A(0), A(0), LD("tk"), VALUE, ADD, ST("tk"),   # bankroll += value
+  A(0), A(0), LD("tp"), VALUE, ADD, ST("tp"),   # pool += value
+  HALT ]
+CODE = {"open":open_m, "bet":bet_m, "reveal":reveal_m, "settle":settle_m, "claim":claim_m, "close":close_m, "fund":fund_m}
 
 def vm_hash(v): return int.from_bytes(hashlib.blake2b(json.dumps(v, sort_keys=True).encode(), digest_size=32).digest(), "big")
 def spin(secret, t): return vm_hash(secret + t) % PN
@@ -244,6 +253,15 @@ ck("non-bank cannot close", "revert" in call("close",[3],0,"B1"))
 # wrong-secret reveal reverts
 st.cursor=1100; call("open",[6,cB],5000,"BANK"); st.cursor=1100+JOIN_WINDOW+1
 ck("wrong-secret reveal reverts", "revert" in call("reveal",[6,111],0,"BANK") and M("tr",6)==0)
+
+# fund: the bank tops up a table's bankroll mid-window so a bigger bet fits
+st.cursor=2000; call("open",[20,cB],1000,"BANK")
+ck("small bankroll blocks a straight-up", "revert" in call("bet",[201,20]+pad([res]),100,"B1") and M("gg",201)==0)
+ck("non-bank cannot fund", "revert" in call("fund",[20],4000,"B1"))
+call("fund",[20],4000,"BANK")
+ck("fund raised bankroll + pool", M("tk",20)==5000 and M("tp",20)==5000)
+call("bet",[201,20]+pad([res]),100,"B1")
+ck("bigger bet fits after top-up", M("gg",201)==20)
 
 print("\n"+("ALL PASS" if not F else f"{len(F)} FAILED: {F}"))
 if not F:

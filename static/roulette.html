@@ -185,8 +185,12 @@
     <div id="myStuff" class="mt"></div>
     <div class="row mt" id="myActions"></div>
     <div class="row mt">
-      <button class="primary hidden" id="btnReveal">🎡 Spin the wheel</button>
+      <button class="primary hidden" id="btnReveal">🌀 Spin the wheel</button>
       <button class="ghost hidden" id="btnClose">Close table</button>
+    </div>
+    <div class="row mt hidden" id="fundRow">
+      <input id="fundAmt" placeholder="add to bankroll (NADO)" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnFund" style="flex:0 0 auto">Top up</button>
     </div>
     <label class="mt">Invite bettors</label>
     <input id="shareLink" class="mono" readonly onclick="this.select()">

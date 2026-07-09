@@ -97,6 +97,12 @@ function revealTable() {
   if (!T || !T.secret) { $("status").textContent = "No bank secret for this table on this device."; return; }
   dapp.call("reveal", [activeTable, BigInt(T.secret)], null, "spin the wheel · table #" + activeTable, { table: activeTable, phase: "reveal" });
 }
+function fundTable() {
+  const raw = nadoToRaw($("fundAmt").value);
+  if (!raw) { $("status").textContent = "Enter an amount to add to this table's bankroll."; return; }
+  if (dapp.exec < raw) { $("status").textContent = "Deposit first — your exec balance is " + rawToNado(dapp.exec) + " NADO."; return; }
+  dapp.call("fund", [activeTable], raw, "top up table #" + activeTable + " bankroll · " + rawToNado(raw) + " NADO", { table: activeTable, phase: "fund" });
+}
 const settleSeat = (g) => dapp.call("settle", [g], null, "collect seat #" + g, { table: activeTable, phase: "settle" });
 const claimSeat = (g) => dapp.call("claim", [g], null, "claim seat #" + g + " (bank stalled)", { table: activeTable, phase: "claim" });
 const closeTable = () => dapp.call("close", [activeTable], null, "close table #" + activeTable, { table: activeTable, phase: "close" });
@@ -186,6 +192,7 @@ function wireUI() {
   $("stakeAmt").oninput = () => render();
   $("btnReveal").onclick = revealTable;
   $("btnClose").onclick = closeTable;
+  $("btnFund").onclick = fundTable;
   $("btnShare").onclick = () => share(base() + "/?table=" + activeTable, "Bet at my roulette table #" + activeTable + " on NADO:", $("btnShare"));
   buildTable();
 }
@@ -277,6 +284,8 @@ function renderActive() {
   }
   $("btnClose").classList.toggle("hidden", !(iAmBank && tb.exists && !tb.closed && tb.settledCount >= tb.seatCount && (tb.revealed || tb.phase === "forfeit" || tb.seatCount === 0)));
   $("btnClose").textContent = tb.seatCount === 0 ? "Cancel — reclaim bankroll" : "Close table — reclaim " + rawToNado(tb.pool);
+  // the bank can top up the bankroll while the table is still taking bets (more coverage -> bigger bets fit)
+  $("fundRow").classList.toggle("hidden", !(iAmBank && tb.exists && !tb.revealed && !tb.closed));
 }
 
 // ---- boot ----------------------------------------------------------------------------------------
