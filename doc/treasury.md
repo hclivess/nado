@@ -157,7 +157,7 @@ is precisely the Bismuth mistake. But every marketing dollar is gated by attribu
 Two workable designs; NADO should ship **one** and can migrate later:
 
 - **(Recommended, minimal-change) Idle-treasury decay + burn.** Each *spend period* (proposal below: **8,640
-  blocks ≈ ~1 day** at alpha block time; a monthly ≈ 30-day period is the mainnet target), after payouts, burn
+  blocks ≈ ~14.4 hours** at the 6 s alpha block time; a monthly ≈ 30-day period is the mainnet target), after payouts, burn
   a fixed fraction of the treasury balance **above a runway target** `R_target`:
 
   ```

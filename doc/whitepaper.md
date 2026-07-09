@@ -20,7 +20,7 @@
 > exploitable issue** it surfaced and confirmed the safety core sound, and the
 > **unbond timelock is now enforced** (Section 4.4). Two honest caveats remain:
 > (1) the **multi-node, epoch-crossing** behaviour of FFG and RANDAO is only
-> *lightly exercised* empirically (unit-tested for correctness; the ~10 s/block
+> *lightly exercised* empirically (unit-tested for correctness; the ~6 s/block
 > cadence makes crossing 120+ blocks slow), and (2) a subset of **eclipse hardening**
 > (ASN-level peer diversity, pinned multi-seed bootstrap, snapshot-bootstrap binding
 > to a finalized signed checkpoint) is **still genuinely planned/post-launch**.
@@ -187,14 +187,14 @@ Open-lane participation costs no coins. An identity:
    nodes discard. The wallet shows the resulting wait ETA. *(implemented; doc/registration-difficulty.md)*
 
    Registration is a **renewable presence lease**: a valid PoSW grants open-lane eligibility for
-   `POSW_LEASE_EPOCHS` (~1 day); to stay eligible an identity renews with a *fresh* PoSW (each
+   `POSW_LEASE_EPOCHS` (~18 hours); to stay eligible an identity renews with a *fresh* PoSW (each
    recorded in a revert-safe `recerts` store; `get_open_registry` requires a recert within the
    lease). This converts a one-time entry cost into a **continuous per-identity upkeep cost** —
    a Sybil farm must keep spending sequential time on every mask, forever, not just once. The
    structural `OPEN_BPS` lane cap remains the *hard* Sybil bound; the PoSW lease prices identity
    creation **and upkeep** in real, non-parallelizable time on top. *(implemented)*
 The recert is the **single presence signal — there is no separate heartbeat.** `get_open_registry` includes
-an identity iff it has a recert within the last `POSW_LEASE_EPOCHS` (≈ 1 day), derived from a revert-safe
+an identity iff it has a recert within the last `POSW_LEASE_EPOCHS` (≈ 18 hours), derived from a revert-safe
 epoch-keyed index. This makes AFK mining trivial: **one ~1 s PoSW buys a full lease of eligibility, locked
 phone or not** — no relay, no pre-signed heartbeats, no per-epoch traffic. And **kept open, the client mines
 *forever***: it auto-renews the lease (~1 s) just before it lapses, auto-bonds rewards if enabled, and
@@ -421,8 +421,8 @@ mining lane — register for free, earn the base subsidy from block 1. *(impleme
 
 Every block reward is:
 
-1. a flat **base subsidy floor** `BASE_SUBSIDY = 0.1 NADO/block` (~144 NADO/day
-   at 60s blocks), independent of fees. Without a floor, a no-premine chain
+1. a flat **base subsidy floor** `BASE_SUBSIDY = 0.1 NADO/block` (~1,440 NADO/day
+   at 6s blocks), independent of fees. Without a floor, a no-premine chain
    deadlocks (0 coins → 0 fees → 0 reward forever); plus
 2. a **fee-weighted elastic term** equal to the **trailing 100-block
    (`REWARD_WINDOW = 100`) average fee per block**, computed from the block's own
@@ -687,7 +687,7 @@ file, so the storage encoding can change with no fork. *(implemented)*
 **archive** node by default (`config.archive = true`, keeps every body forever — no
 behaviour change) or as a **rolling/pruned** node (`archive = false` / `NADO_ARCHIVE=0`),
 which deletes finalized body *files* older than `HISTORY_RETENTION_BLOCKS` (default 10 000
-≈ 1 week) while **always keeping** state and the tiny number↔hash indexes. An audit of every
+≈ 16.7 hours) while **always keeping** state and the tiny number↔hash indexes. An audit of every
 historical block read fixed the safe floor: only `get_block_reward` re-reads a historical
 *body* (the block at `tip − REWARD_WINDOW`); the beacon/FFG read *hashes* from the index, not
 bodies. `block_ops.prune_block_bodies` therefore floors retention at
@@ -974,7 +974,7 @@ safety core sound. The fixes are reflected throughout this section.
   unit-tested for correctness, and FFG now **finalizes live** (`ffg_finalized` advances
   past 0 once the active bonded set attests two consecutive checkpoints), but their
   **multi-node, adversarial, epoch-crossing** behaviour is only **lightly exercised**
-  empirically — the core loop's ~10 s/block cadence makes exercising a full
+  empirically — the core loop's ~6 s/block cadence makes exercising a full
   justify→finalize under contention and a complete commit→reveal cycle slow. Treat their
   cross-epoch adversarial dynamics as not-yet-battle-tested. There is also **no explicit RANDAO
   withholder fidelity dock** (Section 3.3).
@@ -1096,7 +1096,7 @@ open-value mainnet now:
 
 1. **Harden FFG/RANDAO across epochs** — the slashing/FFG/RANDAO mechanisms are wired
    and unit-tested, but their multi-node, epoch-crossing behaviour needs sustained
-   live exercise (the ~10 s/block cadence makes crossing 120+ blocks slow).
+   live exercise (the ~6 s/block cadence makes crossing 120+ blocks slow).
 2. **Broad eclipse hardening** — ASN-level peer-diversity caps (the per-/16 cap is
    live), pinned anchor outbound slots, a multi-seed bootstrap list, snapshot-bootstrap
    binding to a finalized signed checkpoint; apply `check_ip` to all outbound probes.
@@ -1165,7 +1165,7 @@ Additional hardening and feature items, all currently **planned/partial**:
   payment throughput stays deliberately modest (large PQ signatures, phone-validatable);
   **aggregate L2 throughput is bounded by data-availability bandwidth, not L1 execution** —
   on the order of hundreds–thousands of L2 tx/s at the current `MAX_BLOB_BYTES_PER_BLOCK`
-  (256 KiB) and 10 s blocks, and rising **independently** as erasure-coded DA sampling
+  (256 KiB) and 6 s blocks, and rising **independently** as erasure-coded DA sampling
   raises the blob budget without making phones store more. The live mining wallet surfaces
   this at the **Settlement** tab (`/exec/settlement` + `/get_settled`).
 - **Why a quorum, not a zkVM (yet).** NADO settles with a bonded-stake quorum, not validity
@@ -1256,20 +1256,20 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | `BOND_RAMP_EPOCHS` | `30` | Bonded **producer-selection** weight ramps 0→full over this many epochs by stake-weighted bond age (`bond_since`) — anti-sudden-whale; **producer draw only**, never fork-choice/FFG/settlement weight (Section 4.5, doc/takeover-resistance.md). |
 | `POSW_T` / `POSW_S` / `POSW_K` | `1_000_000` / `2_000` / `20` | Sequential registration Proof-of-Work: chain length / checkpoint segment / Fiat-Shamir spot-checks (~1 s in-browser; verify `O(k·S)`). Post-quantum, consensus-verified; prices identity creation in non-parallelizable time. |
 | `POSW_ANCHOR_OFFSET` | `30` | PoSW challenge anchors to `block[target_block − 30]` (≥ finality depth → stable, node-derived). |
-| `POSW_LEASE_EPOCHS` | `180` (~1 day) | Renewable presence lease: a registration/recert keeps an identity open-lane-eligible this long; renew with a fresh PoSW to persist (continuous per-identity upkeep). **Presence IS the lease — there is no heartbeat.** |
+| `POSW_LEASE_EPOCHS` | `180` (~18 hours) | Renewable presence lease: a registration/recert keeps an identity open-lane-eligible this long; renew with a fresh PoSW to persist (continuous per-identity upkeep). **Presence IS the lease — there is no heartbeat.** |
 | `OPEN_BASE_FLOOR` | `1` | Min open-lane weight for any present identity (never 0). |
 | `OPEN_FID_BONUS` | `9` | Max open diligence bonus; open weight ranges 2..10. |
 | `GC_IDLE_EPOCHS` | `1000` | Intended idle-registry prune window (state-bloat bound) — **defined, not yet wired** (Section 7.4). |
 | `FIDELITY_CAP` | `30` | Consecutive recerts (~days) to fully ramp the open bonus (was 1000; recert-driven now). |
 | `FIDELITY_GAIN` | `1` | Fidelity increment per continuous recert; a lapse (gap > lease) resets the streak. |
-| `HISTORY_RETENTION_BLOCKS` | `10_000` | Rolling-node body-retention window (~1 wk); archive nodes keep all (Section 6.1). |
+| `HISTORY_RETENTION_BLOCKS` | `10_000` | Rolling-node body-retention window (~16.7 hours); archive nodes keep all (Section 6.1). |
 | `max_registrations_per_ip` | `64`/hr | Progressive per-range OPEN-lane onboarding cap (relay admission, Section 2.4). |
 | `AUTO_BOND_DEFAULT_PERCENT` | `80` | Default share of new rewards auto-bonded when unset (client/operator; overridable). |
 | `TREASURY_GENESIS` | `0` | **No premine** — treasury starts empty. |
 | `TREASURY_BPS` | `1000` (10.00%) | Treasury share of each reward; bonded producer gets the other 90%. |
 | `OPEN_TIP_BPS` | `3000` (30.00%) | OPEN-lane producer's tip; treasury keeps 10%; the rest (~70%) accrues to the **presence-dividend pool** (Section 4.4). |
 | `DIVIDEND_POOL` | `"dividend"` | Reserved L1 account the open-lane dividend accrues to (`O(1)` on L1; redistributed off-L1, fidelity-weighted). |
-| `BASE_SUBSIDY` | `1e9` (0.1 NADO) | Flat per-block emission floor (~144 NADO/day at 60s blocks). |
+| `BASE_SUBSIDY` | `1e9` (0.1 NADO) | Flat per-block emission floor (~1,440 NADO/day at 6s blocks). |
 | `REWARD_WINDOW` | `100` | Trailing blocks averaged for the elastic fee reward. |
 | `REWARD_CAP` | `5e9` (0.5 NADO) | Max reward per block. |
 | `MIN_TX_FEE` | `1000` raw | Deterministic minimum fee floor (ordinary transfers and `bond`; `register`/recert, `unbond`, `withdraw` and the reserved consensus/exec txns — `slash`/`attest`/`commit`/`reveal`/`settle`/`bridge_withdraw`/`dividend_withdraw` — are fee-exempt). |

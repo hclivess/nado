@@ -76,8 +76,8 @@ reward = clamp(reward, BASE_SUBSIDY, REWARD_CAP)
 
 **Supply is uncapped but rate-bounded.** Emission never falls below the base subsidy, so NADO
 has a perpetual (disinflationary-by-ratio) tail rather than a hard cap. As an order of
-magnitude, at a ~60 s block cadence the floor is ~1 440 blocks/day × 0.1 = **~144 NADO/day**;
-at the cap, ~720 NADO/day. (Block cadence is a network parameter, so treat these as
+magnitude, at a ~6 s block cadence the floor is ~14 400 blocks/day × 0.1 = **~1,440 NADO/day**;
+at the cap, ~7,200 NADO/day. (Block cadence is a network parameter, so treat these as
 illustrative — emission is defined **per block**, not per day.)
 
 Fees themselves are **destroyed**, not paid to the producer — so higher usage raises *everyone's*
@@ -149,7 +149,7 @@ premine). It is spent by **bonded-quorum governance**, not by any individual:
 - `TREASURY_MAX_SPEND_BPS = 2500` — any single proposal may spend **at most 25 %** of the
   *current* treasury balance, bounding blast radius.
 - `TREASURY_VOTE_ACTIVATION_EPOCHS` — a delay before a newly-bonded identity's vote counts
-  (alpha value low; raise to ~180 ≈ 1 day for mainnet).
+  (alpha value low; raise to ~180 ≈ 18 hours for mainnet).
 - **Anti-hoard self-burn**: every `TREASURY_SPEND_PERIOD = 10800` blocks, `TREASURY_BURN_BPS =
   100` (**1 %**) of the balance above `TREASURY_RUNWAY_FLOOR` is burned, so an idle treasury
   can't simply be hoarded. Governance details: [treasury.md](treasury.md).
