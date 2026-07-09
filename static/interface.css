@@ -272,6 +272,16 @@ a { color: var(--accent-2); }
 .toast.ok { border-color: rgba(63,185,80,.4); color: var(--accent); }
 .toast.info { border-color: rgba(47,129,247,.4); color: #9fc6ff; }
 
+/* Address book (Send tab): saved contacts with labels + resolved @aliases */
+.ab-head { font-weight:600; margin:8px 0 4px; opacity:.85; }
+.ab-row { display:flex; align-items:baseline; gap:8px; padding:5px 0; border-bottom:1px solid var(--line,#1c2530); }
+.ab-row:last-child { border-bottom:none; }
+.ab-name { font-weight:600; cursor:pointer; }
+.ab-sub { font-size:11px; }
+.ab-acts { margin-left:auto; white-space:nowrap; }
+.ab-acts a { cursor:pointer; margin-left:10px; opacity:.6; text-decoration:none; }
+.ab-acts a:hover { opacity:1; }
+
 /* Custom dialogs (replace native confirm/alert/prompt) — styled + translatable */
 .modal-backdrop { position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center;
   padding:20px; background:rgba(3,6,10,.66); backdrop-filter:blur(3px); animation:modalFade .14s ease; }

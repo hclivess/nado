@@ -298,30 +298,71 @@ async function validateSendTo() {
 
 // ADDRESS BOOK: every recipient you send to (alias or address) is remembered in localStorage, offered
 // as native autocomplete on the Send field (datalist) + clickable recent chips to reselect.
+// ADDRESS BOOK: saved contacts [{addr,label}] (label = your nickname). Each contact also shows its on-chain
+// @alias. Auto-saved on send + manually via ⭐ Save; rename/remove inline; feeds the Send recipient autocomplete.
 const LS_ADDRBOOK = "nado_addrbook";
-function addrBookLoad() { try { return JSON.parse(localStorage.getItem(LS_ADDRBOOK) || "[]"); } catch { return []; } }
-function addrBookAdd(to) {
-  to = (to || "").trim();
-  if (!to) return;
-  let book = addrBookLoad().filter((x) => x !== to);
-  book.unshift(to);
-  book = book.slice(0, 40);
-  try { localStorage.setItem(LS_ADDRBOOK, JSON.stringify(book)); } catch (e) {}
-  addrBookRender();
+function addrBookLoad() {
+  try {
+    return JSON.parse(localStorage.getItem(LS_ADDRBOOK) || "[]")
+      .map((x) => typeof x === "string" ? { addr: x, label: "" } : { addr: (x && x.addr) || "", label: (x && x.label) || "" })
+      .filter((x) => x.addr);
+  } catch { return []; }
+}
+function addrBookSave(book) { try { localStorage.setItem(LS_ADDRBOOK, JSON.stringify(book.slice(0, 100))); } catch (e) {} }
+function addrBookAdd(addr, label) {
+  addr = (addr || "").trim().toLowerCase();
+  if (!addr) return;
+  const book = addrBookLoad(), existing = book.find((x) => x.addr === addr);
+  const keepLabel = (label || "").trim() || (existing && existing.label) || "";   // re-send must not wipe a label
+  const rest = book.filter((x) => x.addr !== addr);
+  rest.unshift({ addr, label: keepLabel });
+  addrBookSave(rest); addrBookRender();
+}
+function addrBookRemove(addr) { addrBookSave(addrBookLoad().filter((x) => x.addr !== addr)); addrBookRender(); }
+function addrBookSetLabel(addr, label) {
+  const book = addrBookLoad(), e = book.find((x) => x.addr === addr);
+  if (e) { e.label = (label || "").trim(); addrBookSave(book); addrBookRender(); }
+}
+const _abAlias = {};   // addr -> alias name ("" if none), resolved from chain
+async function abResolveAliases(addrs) {
+  await Promise.all([...new Set(addrs)].filter((a) => a && /^ndo/.test(a) && !(a in _abAlias)).map(async (a) => {
+    try { const r = await (await fetch(relayBase() + "/get_aliases_of?address=" + encodeURIComponent(a), { cache: "no-store" })).json(); _abAlias[a] = (r.aliases && r.aliases[0]) || ""; }
+    catch { _abAlias[a] = ""; }
+  }));
+}
+const _abShort = (a) => /^ndo[0-9a-f]{46}$/.test(a) ? a.slice(0, 10) + "…" + a.slice(-4) : a;
+function _abRow(x) {
+  const alias = _abAlias[x.addr] ? "@" + _abAlias[x.addr] : "", short = _abShort(x.addr);
+  const name = x.label || alias || short;
+  const sub = [alias && alias !== name ? alias : "", short !== name ? short : ""].filter(Boolean).join(" · ");
+  const a = x.addr.replace(/"/g, "&quot;");
+  return `<div class="ab-row"><a class="addrpick ab-name" data-to="${a}" title="Send to this contact">${escapeHtml(name)}</a>`
+    + (sub ? `<span class="ab-sub faint">${escapeHtml(sub)}</span>` : "")
+    + `<span class="ab-acts"><a class="ab-edit" data-abaddr="${a}" title="Rename">✎</a><a class="ab-del" data-abaddr="${a}" title="Remove">✕</a></span></div>`;
+}
+async function saveCurrentContact() {
+  let to = ($("sendTo").value || "").trim().toLowerCase(); let alias = "";
+  if (!to) { setMsg("sendMsg", "Enter an address or alias to save.", "err"); return; }
+  if (!validateAddress(to) && looksLikeAlias(to)) {
+    const owner = await resolveAlias(to);
+    if (!owner) { setMsg("sendMsg", `Alias "${to}" is not registered.`, "err"); return; }
+    alias = to; to = owner;
+  }
+  if (!validateAddress(to)) { setMsg("sendMsg", "Enter a valid ndo… address or a registered alias to save.", "err"); return; }
+  const label = await uiPrompt({ title: i18("ab.nameIt", "Name this contact (optional):"), placeholder: alias || "e.g. Alice" });
+  if (label === null) return;
+  addrBookAdd(to, (label || "").trim() || alias);
+  setMsg("sendMsg", i18("ab.saved", "Saved to your address book."), null);
 }
 function addrBookRender() {
   const book = addrBookLoad();
   const dl = $("sendToBook");
-  if (dl) dl.innerHTML = book.map((x) => `<option value="${x.replace(/"/g, "&quot;")}"></option>`).join("");
-  const chips = $("addrBook");
-  if (chips) {
-    chips.innerHTML = book.length
-      ? "Recent: " + book.slice(0, 8).map((x) => {
-          const label = /^ndo[0-9a-f]{46}$/.test(x) ? x.slice(0, 10) + "…" : x;   // aliases whole, addresses shortened
-          return `<a class="ex-link addrpick" data-to="${x.replace(/"/g, "&quot;")}" style="margin-right:8px">${label}</a>`;
-        }).join("")
-      : "";
-  }
+  if (dl) dl.innerHTML = book.map((x) => `<option value="${x.addr.replace(/"/g, "&quot;")}">${escapeHtml(x.label || "")}</option>`).join("");
+  const box = $("addrBook"); if (!box) return;
+  if (!book.length) { box.innerHTML = '<span class="faint">No saved contacts yet — send to someone, or ⭐ Save an address.</span>'; return; }
+  const paint = () => { box.innerHTML = '<div class="ab-head">📇 Address book</div>' + book.map(_abRow).join(""); };
+  paint();
+  abResolveAliases(book.map((x) => x.addr)).then(paint);
 }
 
 function powTarget() { return 1n << BigInt(256 - REGISTER_POW_BITS); }
@@ -2277,7 +2318,7 @@ async function doSend() {
     const targetBlock = await nextTargetBlock();
     // PUBKEY-ONCE: omit the 1312-byte public_key once the sender's pubkey is established on-chain.
     const tx = buildTransferTx(state.wallet, recipient, rawAmount, fee, targetBlock, "", nowSeconds(), !pubkeyEstablished(acc));
-    if (await submitAndReport(tx, "Transfer", "sendMsg")) { addrBookAdd(recipient); $("sendAmount").value = ""; show("payBanner", false); }
+    if (await submitAndReport(tx, "Transfer", "sendMsg")) { addrBookAdd(resolvedOwner || recipient, looksLikeAlias(recipient) ? recipient : ""); $("sendAmount").value = ""; show("payBanner", false); }
   } catch (e) { setMsg("sendMsg", i18("msg.sendFailed", "Send failed:") + " " + e.message, "err"); }
   finally { btn.disabled = false; }
 }
@@ -4668,6 +4709,11 @@ function wireEvents() {
     }
     const p = e.target.closest && e.target.closest("a.addrpick[data-to]");
     if (p) { e.preventDefault(); showTab("send"); $("sendTo").value = p.dataset.to; validateSendTo(); }
+    const ed = e.target.closest && e.target.closest("a.ab-edit[data-abaddr]");
+    if (ed) { e.preventDefault(); const cur = (addrBookLoad().find((x) => x.addr === ed.dataset.abaddr) || {}).label || "";
+      uiPrompt({ title: i18("ab.rename", "Rename contact:"), value: cur, placeholder: "nickname" }).then((v) => { if (v !== null) addrBookSetLabel(ed.dataset.abaddr, v); }); }
+    const dl2 = e.target.closest && e.target.closest("a.ab-del[data-abaddr]");
+    if (dl2) { e.preventDefault(); addrBookRemove(dl2.dataset.abaddr); }
   });
   // re-render dynamic (JS-set) strings — badges, mining status — when the language changes
   window.addEventListener("nado-lang", () => {
@@ -4708,6 +4754,7 @@ function wireEvents() {
   document.querySelectorAll("#tabbar .tab").forEach((b) => { b.onclick = () => { showTab(b.dataset.tabbtn); b.blur(); }; });
 
   $("btnSend").onclick = () => doSend();
+  if ($("btnSaveContact")) $("btnSaveContact").onclick = () => saveCurrentContact();
   $("sendTo").oninput = validateSendTo;
   $("btnBond").onclick = () => doBond("bond");
   $("btnUnbond").onclick = () => doBond("unbond");
