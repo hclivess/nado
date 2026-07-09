@@ -238,7 +238,9 @@ function renderActive() {
   drawQR($("shareQR"), $("shareQRNote"), base() + "/?table=" + activeTable, 180);
   $("gBankroll").textContent = tb.exists ? rawToNado(tb.bankroll) + " NADO" : (T.bankroll ? rawToNado(T.bankroll) + " NADO" : "—");
   $("gCover").textContent = tb.exists ? rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) + " NADO free" : "—";
-  let phaseTxt = "opening…";
+  let phaseTxt = "opening… (confirming on-chain, ~1 min)";
+  if (!tb.exists && T.ts && Date.now() - T.ts > 150000)   // opened locally but never landed on-chain
+    phaseTxt = "⚠ this table didn't land — it was likely rejected (did your exec balance cover the bankroll?). Deposit enough, then open again.";
   if (tb.exists) {
     if (tb.phase === "betting") phaseTxt = "🟢 betting open — " + (dapp.cursor != null ? blocksToTime(tb.joinDeadline - dapp.cursor) + " left" : "…") + " · " + tb.seatCount + " seat" + (tb.seatCount === 1 ? "" : "s");
     else if (tb.phase === "spinning") phaseTxt = "🌀 betting closed — waiting for the bank to spin";

@@ -122,6 +122,18 @@ const SVG = {
     <path d="M24 13.5c-6.4 2-9.5 6-9.5 10.5l3 6h13l3-6c0-4.5-3.1-8.5-9.5-10.5z" fill="#00c9a7"/>
     <path d="M17.5 30h13l-1.4 4.2h-10.2z" fill="#00ad93"/>
     <rect x="14.5" y="34" width="19" height="4.4" rx="2.2" fill="#00c9a7"/></svg>`,
+  kostky:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
+    <rect x="5" y="21" width="16" height="16" rx="4" fill="#e6edf3" stroke="#243140" stroke-width="1.6"/>
+    <circle cx="9.5" cy="25.5" r="1.6" fill="#20272f"/><circle cx="16.5" cy="32.5" r="1.6" fill="#20272f"/><circle cx="13" cy="29" r="1.6" fill="#00ad93"/>
+    <rect x="27" y="21" width="16" height="16" rx="4" fill="#e3b341" stroke="#8a6209" stroke-width="1.6"/>
+    <circle cx="31.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="31.5" cy="32.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="32.5" r="1.6" fill="#3a2a05"/>
+    <rect x="16" y="6" width="16" height="16" rx="4" fill="#d0362b" stroke="#8a1a12" stroke-width="1.6"/>
+    <circle cx="24" cy="14" r="1.9" fill="#fff"/></svg>`,
+  poker:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
+    <rect x="8" y="13" width="18" height="24" rx="3" fill="#e6edf3" stroke="#243140" stroke-width="1.6" transform="rotate(-9 17 25)"/>
+    <path d="M14 20c-2.4 2.4-4 3.4-4 5.4 0 1.4 1.1 2.2 2.2 2.2.5 0 1-.2 1.3-.5-.2 1-.6 1.7-1.2 2.2h3.4c-.6-.5-1-1.2-1.2-2.2.3.3.8.5 1.3.5 1.1 0 2.2-.8 2.2-2.2 0-2-1.6-3-4-5.4z" fill="#20272f" transform="rotate(-9 14 25)"/>
+    <rect x="22" y="13" width="18" height="24" rx="3" fill="#fff" stroke="#243140" stroke-width="1.6" transform="rotate(9 31 25)"/>
+    <path d="M31 30c-.7-.7-3.2-2.3-3.2-4.6 0-1.3 1-2.2 2.1-2.2.6 0 1.1.3 1.1.9 0-.6.5-.9 1.1-.9 1.1 0 2.1.9 2.1 2.2 0 2.3-2.5 3.9-3.2 4.6z" fill="#d0362b" transform="rotate(9 31 26)"/></svg>`,
 };
 // The game directory — add a new game by appending one object here (the page renders it automatically).
 const GAMES = [
@@ -135,8 +147,14 @@ const GAMES = [
     blurb:"The classic adjustable-odds dice — slide your win chance and the payout auto-scales (99 ÷ target, a flat 1% edge). Peer-banked and multiplayer: each bet gets its own roll, all resolved by one bank spin.",
     meta:["Bank or roll","Win-chance slider","Multiplayer","1% edge"] },
   { svg:SVG.chess, name:"Chess", tag:"Soon", live:false, url:null,
-    blurb:"Stake a wager, play a real game of chess, winner takes the pot — with on-chain escrow and a timeout so a resigning or vanishing opponent can't steal. Coming next.",
+    blurb:"Stake a wager, play a real game of chess, winner takes the pot — on-chain escrow with resign / mutual-agreement settlement (and a refund timeout so a stall can never steal). Board + moves in the browser.",
     meta:["2 players","Wager escrow","Skill, not chance"] },
+  { svg:SVG.kostky, name:"Kostky", tag:"Soon", live:false, url:null,
+    blurb:"The Czech pub classic (Farkle / Ten Thousand): roll six dice from the cup, set aside 1s, 5s and three-of-a-kinds, and push your luck — bank your points or roll again, but a scoreless roll busts the whole turn.",
+    meta:["6 dice","Push your luck","Bank or bust"] },
+  { svg:SVG.poker, name:"Poker", tag:"Soon", live:false, url:null,
+    blurb:"Heads-up poker for stakes on NADO — coming to the tables.",
+    meta:["Cards","For stakes","Planned"] },
 ];
 const el = document.getElementById("games");
 el.innerHTML = GAMES.map((g) => `
