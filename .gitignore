@@ -167,6 +167,7 @@ version
 # scratch/e2e orchestrators + local secrets (never commit)
 .myflip_secret
 .coinflip_cid
+.roulette_cid
 _cf_e2e.py
 _cf_open.py
 _cf_stakes_e2e.py

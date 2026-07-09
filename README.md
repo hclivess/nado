@@ -711,7 +711,9 @@ shape is unchanged (49 chars).
 - **Storage design** — [`doc/storage-kv-migration.md`](doc/storage-kv-migration.md).
 - **Execution-layer instructions** — [`doc/exec-instructions.md`](doc/exec-instructions.md): every blob op
   (deploy/call/upgrade with `value` escrow, bridge/dividend, emit, privacy) with params + how to submit and
-  read — plus the Coin Flip example contract that showcases the VM's `VALUE`/`PAY` escrow primitive.
+  read — plus the Coin Flip and Roulette example contracts that showcase the VM's `VALUE`/`PAY` escrow
+  primitive (peer-to-peer pot vs. peer-banked fixed-odds; live at `coinflip.nadochain.com` /
+  `roulette.nadochain.com`, both ordinary upgradable `stackvm` contracts with no game-specific API).
 - **Previous-network snapshot** — [`doc/previous-network-snapshot.md`](doc/previous-network-snapshot.md):
   the prior NADO network's final account balances (2,801 holders), exported from its ledger index — the
   dev-fund premine excluded, in keeping with the no-premine relaunch.

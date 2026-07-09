@@ -269,6 +269,48 @@ contract's storage maps** via the generic `GET /exec/contract` endpoint (§8) �
 
 ---
 
+## 5b. Roulette (example contract)
+
+Roulette is the same story as Coin Flip — **not a native module**, no roulette-specific op or API — but it
+shows the escrow pattern extended to a **house-banked, fixed-odds** game. It is an ordinary on-chain contract
+(`execnode/contracts/roulette.json`, runtime `stackvm`) deployed at `cid = 186ebadb975794e2ed7eeb1c7b5115a5`
+(node-owned, **upgradable**), exercised entirely through the generic `call`/`view`/`upgrade` surface.
+
+It is **peer-banked**: each `game` is two seats — a **bank** (posts a bankroll, commits a secret) and a
+**bettor** (stakes a bet on a set of table numbers, commits a secret). One shared spin
+`result = HASH(bankSecret + bettorSecret) % 37` (0..36) is fair for the identical reason Coin Flip is: neither
+secret is revealed until both are committed. `commit = HASH(secret)`, reveal window `1000` L1 blocks.
+
+**Universal payout rule.** A bet is just the *set of numbers it covers*; a winning bet returns
+`stake × (36 ÷ count)`, where `count` is how many numbers it covers (straight `1`→36×, split `2`→18×, street
+`3`→12×, corner `4`→9×, line `6`→6×, dozen/column `12`→3×, even-money `18`→2×). With 37 pockets this is the
+exact single-zero house edge (`1/37` ≈ 2.70%) for **every** bet — the contract never needs to know bet *types*.
+The covered set is passed as 18 fixed slots (`n0…n17`), padded with a sentinel (`99`); `count` is **derived**
+on-chain (so coverage can't be understated), and each covered number `n` is recorded at `cov[game*37+n]`.
+
+| method | args | value | effect |
+|---|---|---|---|
+| `open` | `game, bankCommit` | `= bankroll` | bank a fresh table (seat 1), escrow the bankroll |
+| `join` | `game, betCommit, n0…n17` | `= stake` | bet at the table (seat 2): record the covered set + `count`; reverts unless the bankroll covers the max win (`bankroll ≥ stake × (36÷count − 1)`); sets `deadline = CURSOR + 1000` |
+| `reveal1` / `reveal2` | `game, secret` | `0` | bank / bettor reveal; reverts unless `HASH(secret)` matches the stored commit |
+| `settle` | `game` | `0` | after both reveal: spin `r = HASH(s1+s2) % 37`; if `r` is covered, `PAY` the bettor `stake × 36÷count` from the bankroll, else sweep the stake into the bank. Stores `ro[game]=r+1`, `wn[game]=win` |
+| `claim` | `game` | `0` | after the deadline (not both revealed): a stalling bank pays the bettor their **max** win; a stalling bettor forfeits the stake to the bank; if neither revealed, both are refunded |
+| `cancel` | `game` | `0` | the bank reclaims its bankroll from a table nobody joined (`nn==1`) |
+
+Each bank escrows **only its own table's bankroll** and receives that table's exact result (`bankroll ± net`)
+to its bridge balance — withdrawable to L1 via `bridge_withdraw` (§4). House winnings are therefore returned
+fairly to whoever funded that table, with no shared pool and no trust. The Roulette dApp
+(`roulette.nadochain.com`) derives table / lobby / scoreboard state from `GET /exec/contract` (§8); there is no
+dedicated read API. The build + full test vector is `tests/test_roulette_contract.py`.
+
+```json
+{"op":"call","contract":"186ebadb975794e2ed7eeb1c7b5115a5","method":"open","args":[7,<bankCommit>],"value":5000000000000}
+{"op":"call","contract":"186ebadb975794e2ed7eeb1c7b5115a5","method":"join","args":[7,<betCommit>,17,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99],"value":100000000000}
+{"op":"call","contract":"186ebadb975794e2ed7eeb1c7b5115a5","method":"settle","args":[7]}
+```
+
+---
+
 ## 6. Cross-domain messaging
 
 ### `emit`
