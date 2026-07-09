@@ -1,29 +1,23 @@
-# tests/test_roulette_contract.py — build + exhaustively exercise the ROULETTE CONTRACT (stackvm).
+# tests/test_roulette_contract.py — build + exhaustively exercise the MULTI-SEAT ROULETTE CONTRACT (stackvm).
 #
-# PEER-BANKED European (single-zero) roulette, reusing Coin Flip's exact commit-reveal skeleton
-# (open/join/reveal/settle/claim/cancel) but with a house/bettor asymmetry and FIXED-ODDS payouts:
+# SHARED-WHEEL, peer-banked European (single-zero) roulette: ONE bank opens a table with a bankroll and a
+# committed secret; up to many BETTORS take independent seats during a betting WINDOW, each staking a bet on a
+# set of covered numbers. When the window closes the bank reveals its secret and ONE shared spin
+#   result = HASH(bankSecret + tableId) % 37   (0..36)
+# resolves every seat. Fairness is the standard provably-fair "server seed" model: the number is fixed the
+# moment the bank commits (before any bet) and hidden from bettors (they see only HASH(secret)), so the bank
+# can neither change it nor tailor it to the bets, and bettors bet blind — no bettor secret is needed, which is
+# what lets each seat settle INDEPENDENTLY (a no-show can never stall the table).
 #
-#   * The BANK opens a table, escrowing a bankroll and committing HASH(bankSecret).
-#   * The BETTOR joins, escrowing their stake, committing HASH(bettorSecret), and declaring their bet as a
-#     SET of covered numbers (any roulette bet — straight/split/street/corner/line/dozen/column/red/black/
-#     even/odd/low/high — is just a set of the numbers it covers; the UI translates table clicks into a set).
-#   * One shared spin  r = HASH(s1 + s2) % 37  (0..36), fair because neither secret is revealed before both
-#     are committed — identical guarantee to Coin Flip.
-#   * UNIVERSAL PAYOUT RULE: a winning bet returns  stake * 36 / count  (count = how many numbers it covers).
-#     straight(1)->36x  split(2)->18x  street(3)->12x  corner(4)->9x  line(6)->6x  dozen/col(12)->3x
-#     even-money(18)->2x.  With 37 pockets this yields the exact single-zero house edge (1/37 ~ 2.70%) for
-#     EVERY bet — the 0 is simply in no even-money/group set, so the contract never needs to know bet TYPES.
-#   * Winnings PAY out of the bank's bankroll to the bettor; a loss sweeps the bettor's stake into the bank.
-#     Both sides land in the winner's exec (bridge) balance, withdrawable to L1 — the bank withdraws its
-#     capital +/- results, so house wins are returned fairly to whoever funded that table's bankroll.
-#   * Forfeit (claim after deadline) mirrors Coin Flip: a withholding bank pays the bettor their MAX win; a
-#     withholding bettor forfeits their stake to the bank; if neither revealed, both are refunded. cancel lets
-#     a lone bank reclaim its bankroll before anyone joins.
+# Payout is the universal roulette rule: a winning seat returns stake * 36/count (count = numbers covered) —
+# the exact 2.70% single-zero edge for every bet. Winners are paid from the bankroll; losing stakes stay with
+# the bank. The bank escrows enough to cover every outstanding seat's max win (a running `committed` guard), so
+# even if the bank stalls, each seat can force-claim its MAX win after the reveal deadline (forfeit). The bank
+# reclaims its remaining pool with `close` once every seat is resolved.
 import sys, json, tempfile, hashlib
 sys.path.insert(0, "/root/nado")
 from execnode.state import ExecState
 
-# ---- tiny assembler (same style as test_coinflip_contract.py) ----
 def P(v): return ["PUSH", v]
 def A(i): return ["ARG", i]
 def LD(m): return ["MLOAD", m]
@@ -34,243 +28,222 @@ ADD=OP("ADD"); SUB=OP("SUB"); MUL=OP("MUL"); DIV=OP("DIV"); MOD=OP("MOD")
 EQ=OP("EQ"); GT=OP("GT"); GTE=OP("GTE"); LTE=OP("LTE"); AND=OP("AND"); NOT=OP("NOT")
 REQ=OP("REQUIRE"); PAY=OP("PAY"); HALT=OP("HALT")
 
-MAXSLOTS = 18            # the biggest roulette bet covers 18 numbers (red/black/even/odd/low/high)
-SLOT0 = 2               # covered numbers arrive as ARG 2..19 (ARG0=gid, ARG1=commit); pad unused with a sentinel
-SENTINEL = 99           # any value outside [0,36]; sentinel slots contribute nothing (inRange==0)
-REVEAL_WINDOW = 1000    # blocks until a stalled game can be force-resolved by claim (matches Coin Flip)
-PN = 37                 # pockets: 0..36 (European, single zero)
+MAXSLOTS = 18; PN = 37; SENTINEL = 99
+JOIN_WINDOW = 30            # blocks the betting window stays open (~3 min at 6s)
+REVEAL_WINDOW = 100         # blocks after the window for the bank to reveal before seats can force-claim (~10 min)
 
-# maps: bk=bankroll st=stake cn=count sd=settled nn=count(0/1/2) dl=deadline
-#       p1/c1/s1/r1 = bank addr/commit/secret/revealed   p2/c2/s2/r2 = bettor …
-#       cov[gid*37+n]=1 marks a covered number   ro[gid]=result+1 (1..37)   wn[gid]=win flag  (UI reads)
-def inRange(i):   # (v_i >= 0) AND (v_i <= 36) -> 1 for a real number, 0 for the sentinel
-    return [A(i), P(0), GTE, A(i), P(36), LTE, AND]
+# table t maps: tk=bankroll tp=pool tc=committed(exposure) ta=bankAddr th=commit ts=secret tr=revealed
+#               tj=joinDeadline tv=revealDeadline tn=seatCount tx=settledCount tz=closed
+# seat g maps:  gs=stake gc=count gg=tableId(0=unused) ga=bettor gd=settled  cov[g*37+n]=covered  gr/gw=UI
+def inRange(i): return [A(i), P(0), GTE, A(i), P(36), LTE, AND]
+def netmax(gkey_idx):   # stake*(M-1) = VALUE*((36//count)-1)  (only valid while VALUE == this seat's stake)
+    return [VALUE, P(36), A(gkey_idx), LD("gc"), DIV, P(1), SUB, MUL]
 
-# open(gid, bankCommit)  value=bankroll  -> fresh table, the bank sits in slot 1
+# open(t, bankCommit)  value=bankroll  -> a fresh table with a betting window
 open_m = [
-  VALUE, P(0), GT, REQ,                         # bankroll > 0
-  A(0), LD("nn"), P(0), EQ, REQ,                # gid is fresh (single-use ids)
-  A(0), VALUE, ST("bk"),                        # bk[gid]=bankroll
-  A(0), CALLER, ST("p1"),                       # p1[gid]=bank
-  A(0), A(1), ST("c1"),                         # c1[gid]=bankCommit
-  A(0), P(1), ST("nn"),                         # nn[gid]=1
+  VALUE, P(0), GT, REQ,
+  A(0), P(0), GT, REQ,                          # table id > 0
+  A(0), LD("ta"), P(0), EQ, REQ,                # table id is fresh (single-use)
+  A(0), VALUE, ST("tk"),                        # bankroll
+  A(0), VALUE, ST("tp"),                        # pool starts = bankroll
+  A(0), CALLER, ST("ta"),
+  A(0), A(1), ST("th"),
+  A(0), CURSOR, P(JOIN_WINDOW), ADD, ST("tj"),
+  A(0), CURSOR, P(JOIN_WINDOW + REVEAL_WINDOW), ADD, ST("tv"),
   HALT ]
 
-# join(gid, bettorCommit, n0..n17)  value=stake  -> the bettor sits in slot 2 with a covered-number set
-join_m  = [ A(0), LD("nn"), P(1), EQ, REQ,      # table is open (bank present, no bettor yet)
-            VALUE, P(0), GT, REQ,               # stake > 0
-            CALLER, A(0), LD("p1"), EQ, NOT, REQ ]  # the bank can't bet against itself
-# cov[gid*37 + n_i] = inRange(n_i)   (sentinel -> value 0 -> stored as absence; no junk, no stale keys)
+# bet(g, t, n0..n17)  value=stake  -> take a seat at table t during the window (no bettor secret needed)
+bet_m  = [ A(0), P(0), GT, REQ,                 # seat id > 0
+           A(1), P(0), GT, REQ,                 # table id > 0
+           VALUE, P(0), GT, REQ,                # stake > 0
+           A(0), LD("gg"), P(0), EQ, REQ,       # seat id fresh
+           A(1), LD("ta"), P(0), EQ, NOT, REQ,  # table exists
+           A(1), LD("tr"), NOT, REQ,            # bank not revealed yet
+           CURSOR, A(1), LD("tj"), LTE, REQ ]   # within the betting window
+for i in range(MAXSLOTS):                       # cov[g*37+n_i] = inRange(n_i)
+    bet_m += [ A(0), P(PN), MUL, A(2+i), ADD ] + inRange(2+i) + [ ST("cov") ]
+bet_m += [ A(0), P(0) ]                          # [g, acc] -> derive count
 for i in range(MAXSLOTS):
-    join_m += [ A(0), P(PN), MUL, A(SLOT0+i), ADD ] + inRange(SLOT0+i) + [ ST("cov") ]
-# count = sum of inRange over all slots ; cn[gid]=count  (DERIVED, so the bettor can't understate coverage)
-join_m += [ A(0), P(0) ]                        # [gid, acc] — gid stays at the bottom as the cn key
-for i in range(MAXSLOTS):
-    join_m += inRange(SLOT0+i) + [ ADD ]        # acc += inRange(n_i)
-join_m += [ ST("cn"),                           # cn[gid]=count
-            A(0), LD("cn"), P(0), GT, REQ ]     # at least one number covered
-# bank must cover the NET win: bk >= stake * ((36 // count) - 1)   (M=36//count is the total return factor)
-join_m += [ A(0), LD("bk"),
-            VALUE, P(36), A(0), LD("cn"), DIV, P(1), SUB, MUL,
-            GTE, REQ ]
-join_m += [ A(0), VALUE, ST("st"),
-            A(0), CALLER, ST("p2"),
-            A(0), A(1), ST("c2"),
-            A(0), P(2), ST("nn"),
-            A(0), CURSOR, P(REVEAL_WINDOW), ADD, ST("dl"),
-            HALT ]
+    bet_m += inRange(2+i) + [ ADD ]
+bet_m += [ ST("gc"),
+           A(0), LD("gc"), P(0), GT, REQ ]       # >=1 number
+# bank must cover this seat on TOP of all outstanding seats:  committed + stake*(M-1) <= bankroll
+bet_m += [ A(1), LD("tc") ] + netmax(0) + [ ADD, A(1), LD("tk"), LTE, REQ ]
+# commit the seat + update table running totals
+bet_m += [ A(1), A(1), LD("tc") ] + netmax(0) + [ ADD, ST("tc") ]     # tc[t]+=netmax
+bet_m += [ A(1), A(1), LD("tp"), VALUE, ADD, ST("tp"),                # tp[t]+=stake
+           A(0), VALUE, ST("gs"),
+           A(0), A(1), ST("gg"),
+           A(0), CALLER, ST("ga"),
+           A(1), A(1), LD("tn"), P(1), ADD, ST("tn"),                 # tn[t]++
+           HALT ]
 
-def reveal(slot):
-    p,c,s,r = "p"+slot,"c"+slot,"s"+slot,"r"+slot
-    return [ CALLER, A(0), LD(p), EQ, REQ,      # only that seat's player
-             A(1), HASH, A(0), LD(c), EQ, REQ,  # HASH(secret) == commit
-             A(0), LD(r), NOT, REQ,             # not already revealed
-             A(0), A(1), ST(s),
-             A(0), P(1), ST(r),
-             HALT ]
+# reveal(t, secret)  -> the bank reveals AFTER the window; fixes the one shared result for every seat
+reveal_m = [
+  CALLER, A(0), LD("ta"), EQ, REQ,
+  A(1), HASH, A(0), LD("th"), EQ, REQ,          # HASH(secret)==commit
+  A(0), LD("tr"), NOT, REQ,                      # not already revealed
+  CURSOR, A(0), LD("tj"), GT, REQ,              # only after the betting window closed
+  A(0), A(1), ST("ts"),
+  A(0), P(1), ST("tr"),
+  HALT ]
 
-# settle(gid): both revealed -> spin r=HASH(s1+s2)%37, pay the bettor 36/count on a win else sweep to the bank
+# settle(g)  -> resolve seat g after its table revealed: pay stake*36/count on a win, else stake stays w/ bank
 settle_m = [
-  A(0), LD("nn"), P(2), EQ, REQ,
-  A(0), LD("r1"), REQ,
-  A(0), LD("r2"), REQ,
-  A(0), LD("sd"), NOT, REQ,
-  A(0), A(0), LD("s1"), A(0), LD("s2"), ADD, HASH, P(PN), MOD, P(1), ADD, ST("ro"),   # ro[gid]=r+1 (1..37)
-  A(0), A(0), P(PN), MUL, A(0), LD("ro"), P(1), SUB, ADD, LD("cov"), ST("wn"),        # wn[gid]=cov[gid*37+r]
+  A(0), LD("gg"), P(0), EQ, NOT, REQ,           # seat exists
+  A(0), LD("gd"), NOT, REQ,                      # not settled
+  A(0), LD("gg"), LD("tr"), REQ,                # its table's bank revealed
+  # r = HASH(ts[tab] + tab) % 37 ; gr[g]=r+1
+  A(0),
+  A(0), LD("gg"), LD("ts"), A(0), LD("gg"), ADD, HASH, P(PN), MOD, P(1), ADD, ST("gr"),
+  # win = cov[g*37 + r]
+  A(0), A(0), P(PN), MUL, A(0), LD("gr"), P(1), SUB, ADD, LD("cov"), ST("gw"),
   # PAY bettor  stake * (36//count) * win
-  A(0), LD("p2"),
-  A(0), LD("st"), P(36), A(0), LD("cn"), DIV, MUL, A(0), LD("wn"), MUL, PAY,
-  # PAY bank  (bankroll + stake) - bettorPayout
-  A(0), LD("p1"),
-  A(0), LD("bk"), A(0), LD("st"), ADD,
-  A(0), LD("st"), P(36), A(0), LD("cn"), DIV, MUL, A(0), LD("wn"), MUL, SUB, PAY,
-  A(0), P(1), ST("sd"),
-  A(0), P(0), ST("bk"),
-  A(0), P(0), ST("st"),
+  A(0), LD("ga"),
+  A(0), LD("gs"), P(36), A(0), LD("gc"), DIV, MUL, A(0), LD("gw"), MUL, PAY,
+  # tp[tab] -= payout ; tc[tab] -= stake*(M-1) ; mark settled ; tx[tab]++
+  A(0), LD("gg"), A(0), LD("gg"), LD("tp"),
+      A(0), LD("gs"), P(36), A(0), LD("gc"), DIV, MUL, A(0), LD("gw"), MUL, SUB, ST("tp"),
+  A(0), LD("gg"), A(0), LD("gg"), LD("tc"),
+      A(0), LD("gs"), P(36), A(0), LD("gc"), DIV, P(1), SUB, MUL, SUB, ST("tc"),
+  A(0), P(1), ST("gd"),
+  A(0), LD("gg"), A(0), LD("gg"), LD("tx"), P(1), ADD, ST("tx"),
   HALT ]
 
-# claim(gid): after the deadline, resolve a stalled game (NOT both revealed). Withholding bank -> bettor's max
-# win; withholding bettor -> forfeits stake to bank; neither revealed -> refund both.
+# claim(g)  -> forfeit: bank never revealed by the reveal deadline, so seat g takes its MAX win
 claim_m = [
-  CURSOR, A(0), LD("dl"), GT, REQ,              # past deadline
-  A(0), LD("sd"), NOT, REQ,                     # not settled
-  A(0), LD("nn"), P(2), EQ, REQ,                # both committed
-  A(0), LD("r1"), A(0), LD("r2"), MUL, NOT, REQ,  # NOT(both revealed) — that case is settle()
-  # bettor gets:  stake*M*bettorOnly  +  stake*none        (bettorOnly=(1-r1)*r2 ; none=(1-r1)*(1-r2))
-  A(0), LD("p2"),
-  A(0), LD("st"), P(36), A(0), LD("cn"), DIV, MUL,                       # stake*M
-      P(1), A(0), LD("r1"), SUB, A(0), LD("r2"), MUL, MUL,              #   * bettorOnly
-  A(0), LD("st"), P(1), A(0), LD("r1"), SUB, MUL, P(1), A(0), LD("r2"), SUB, MUL,   # stake*none
-  ADD, PAY,
-  # bank gets:  (bk+st)*bankOnly + (bk+st - stake*M)*bettorOnly + bk*none   (bankOnly=r1*(1-r2))
-  A(0), LD("p1"),
-  A(0), LD("bk"), A(0), LD("st"), ADD, A(0), LD("r1"), MUL, P(1), A(0), LD("r2"), SUB, MUL,   # (bk+st)*bankOnly
-  A(0), LD("bk"), A(0), LD("st"), ADD, A(0), LD("st"), P(36), A(0), LD("cn"), DIV, MUL, SUB,  # (bk+st-stake*M)
-      P(1), A(0), LD("r1"), SUB, A(0), LD("r2"), MUL, MUL,              #   * bettorOnly
-  A(0), LD("bk"), P(1), A(0), LD("r1"), SUB, MUL, P(1), A(0), LD("r2"), SUB, MUL,   # bk*none
-  ADD, ADD, PAY,
-  A(0), P(1), ST("sd"),
-  A(0), P(0), ST("bk"),
-  A(0), P(0), ST("st"),
+  A(0), LD("gg"), P(0), EQ, NOT, REQ,
+  A(0), LD("gd"), NOT, REQ,
+  A(0), LD("gg"), LD("tr"), NOT, REQ,           # bank did NOT reveal
+  CURSOR, A(0), LD("gg"), LD("tv"), GT, REQ,    # past the reveal deadline
+  A(0), LD("ga"),
+  A(0), LD("gs"), P(36), A(0), LD("gc"), DIV, MUL, PAY,          # PAY stake*M
+  A(0), LD("gg"), A(0), LD("gg"), LD("tp"),
+      A(0), LD("gs"), P(36), A(0), LD("gc"), DIV, MUL, SUB, ST("tp"),
+  A(0), LD("gg"), A(0), LD("gg"), LD("tc"),
+      A(0), LD("gs"), P(36), A(0), LD("gc"), DIV, P(1), SUB, MUL, SUB, ST("tc"),
+  A(0), P(1), ST("gd"),
+  A(0), LD("gg"), A(0), LD("gg"), LD("tx"), P(1), ADD, ST("tx"),
   HALT ]
 
-# cancel(gid): the bank reclaims its bankroll from a table nobody joined (nn==1, not settled)
-cancel_m = [
-  A(0), LD("nn"), P(1), EQ, REQ,
-  CALLER, A(0), LD("p1"), EQ, REQ,
-  A(0), LD("sd"), NOT, REQ,
-  A(0), LD("p1"), A(0), LD("bk"), PAY,
-  A(0), P(1), ST("sd"),
-  A(0), P(0), ST("bk"),
+# close(t)  -> the bank reclaims the remaining pool once EVERY seat is resolved (tx==tn); also cancels an
+# empty table (tn==0). Requires the caller be the bank and the table not already closed.
+close_m = [
+  CALLER, A(0), LD("ta"), EQ, REQ,
+  A(0), LD("tz"), NOT, REQ,                      # not already closed
+  A(0), LD("tx"), A(0), LD("tn"), EQ, REQ,       # all seats settled/claimed
+  A(0), LD("ta"), A(0), LD("tp"), PAY,           # pay the bank the leftover pool
+  A(0), P(1), ST("tz"),
+  A(0), P(0), ST("tp"),
   HALT ]
 
-CODE = {"open":open_m, "join":join_m, "reveal1":reveal("1"), "reveal2":reveal("2"),
-        "settle":settle_m, "claim":claim_m, "cancel":cancel_m}
+CODE = {"open":open_m, "bet":bet_m, "reveal":reveal_m, "settle":settle_m, "claim":claim_m, "close":close_m}
 
-# ---- client-side result predictor must match the VM: HASH(s1+s2) % 37, HASH=blake2b(json.dumps(v)) ----
 def vm_hash(v): return int.from_bytes(hashlib.blake2b(json.dumps(v, sort_keys=True).encode(), digest_size=32).digest(), "big")
-def spin(s1, s2): return vm_hash(s1 + s2) % PN
-
-# roulette layout helpers (for building covered-number sets in the tests, mirrored by the UI)
+def spin(secret, t): return vm_hash(secret + t) % PN
 RED = {1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36}
-def pad(nums):
-    nums = sorted(set(nums))
-    return nums + [SENTINEL]*(MAXSLOTS-len(nums))
+def pad(nums): nums = sorted(set(nums)); return nums + [SENTINEL]*(MAXSLOTS-len(nums))
 
 # ---- TESTS ----
 F=[]
 def ck(n,c): print(("  ok  " if c else " FAIL ")+n); (F.append(n) if not c else None)
-
 st=ExecState(tempfile.mktemp()); st.cursor=100
-for a in ("BANK","BET","C"): st.credit_deposit(a, 100000)
-st.apply_blob({"op":"deploy","code":CODE,"runtime":"stackvm","nonce":"roulette"},"BANK","d0")
+for a in ("BANK","B1","B2","B3"): st.credit_deposit(a, 1000000)
+st.apply_blob({"op":"deploy","code":CODE,"runtime":"stackvm","nonce":"roulette-multi"},"BANK","d0")
 CID=list(st.contracts)[0]
 def bal(a): return st.bridge.get(a,0)
-def sto(m,g): return st.contracts[CID]["storage"].get(m,{}).get(str(g),0)
+def M(m,g): return st.contracts[CID]["storage"].get(m,{}).get(str(g),0)
 def call(m,args,val,who): return st.apply_blob({"op":"call","contract":CID,"method":m,"args":args,"value":val},who,m+str(args))
 
-sB, sP = 555, 777                     # bank + bettor secrets
-cB, cP = vm_hash(sB), vm_hash(sP)
-res = spin(sB, sP)                    # the deterministic wheel result for this secret pair
-print(f"[wheel result for the test secret pair = {res}]")
+T=1; BANKROLL=200000
+sB = 987654321
+cB = vm_hash(sB)
+res = spin(sB, T)
+print(f"[shared wheel result for this table = {res}]")
 
-# --- straight-up bet on a single number, bankroll must cover 35:1 ---
-GID=1; BANKROLL=5000; STAKE=100
-call("open",[GID,cB],BANKROLL,"BANK")
-ck("open escrows bankroll 5000", bal("BANK")==100000-BANKROLL and bal(CID)==BANKROLL)
-# bettor bets the number that WILL come up (res) straight-up -> must win 36x
-call("join",[GID,cP]+pad([res]),STAKE,"BET")
-ck("join escrows stake (contract holds bankroll+stake)", bal(CID)==BANKROLL+STAKE)
-ck("count derived = 1 (straight)", sto("cn",GID)==1)
-call("reveal1",[GID,sB],0,"BANK"); call("reveal2",[GID,sP],0,"BET")
-ck("both revealed", sto("r1",GID)==1 and sto("r2",GID)==1)
-bBankBefore, bBetBefore = bal("BANK"), bal("BET")
-call("settle",[GID],0,"BANK")
-ck(f"result stored ro=res+1 ({res+1})", sto("ro",GID)==res+1)
-ck("straight-up WIN pays bettor 36x stake (3600)", bal("BET")==bBetBefore+STAKE*36)
-ck("bank pays net 3500 from bankroll", bal("BANK")==bBankBefore+(BANKROLL+STAKE)-STAKE*36)
-ck("contract balance back to 0", bal(CID)==0)
-ck("win flag set", sto("wn",GID)==1)
-ck("settled + escrow cleared", sto("sd",GID)==1 and sto("bk",GID)==0 and sto("st",GID)==0)
+call("open",[T,cB],BANKROLL,"BANK")
+ck("open escrows bankroll", bal("BANK")==1000000-BANKROLL and bal(CID)==BANKROLL)
+ck("betting window open (tj set)", M("tj",T)==100+JOIN_WINDOW and M("tr",T)==0)
 
-# --- straight-up bet on the WRONG number -> bank sweeps the stake ---
-G2=2; call("open",[G2,cB],5000,"BANK");
-wrong = (res+1)%PN
-call("join",[G2,cP]+pad([wrong]),100,"BET")
-call("reveal1",[G2,sB],0,"BANK"); call("reveal2",[G2,sP],0,"BET")
-bBank=bal("BANK")
-call("settle",[G2],0,"BET")
-ck("losing bet: bank keeps bankroll + stake", bal("BANK")==bBank+5000+100)
-ck("losing bet: win flag unset", sto("wn",G2)==0)
+# three bettors take seats during the window: one on the winning number (straight), one on RED, one on a dozen
+G1,G2,G3 = 11,12,13
+onwin = res                             # straight-up on the number that will hit
+call("bet",[G1,T]+pad([onwin]),1000,"B1")
+ck("seat1 straight-up escrowed", M("gg",G1)==T and M("gc",G1)==1 and bal(CID)==BANKROLL+1000)
+call("bet",[G2,T]+pad(sorted(RED)),2000,"B2")
+ck("seat2 RED escrowed (count 18)", M("gc",G2)==18)
+call("bet",[G3,T]+pad(list(range(1,13))),3000,"B3")
+ck("seat3 dozen escrowed (count 12)", M("gc",G3)==12)
+ck("committed tracks outstanding max net exposure",
+   M("tc",T)==1000*35 + 2000*1 + 3000*2)     # stake*(M-1) per seat
 
-# --- even-money RED bet (18 numbers), pays 2x ---
-G3=3; call("open",[G3,cB],5000,"BANK")
+# cannot reveal during the window
+r=call("reveal",[T,sB],0,"BANK"); ck("reveal blocked during window", "revert" in r and M("tr",T)==0)
+# cannot bet after the window; and cover guard blocks an over-large bet
+st.cursor = 100 + JOIN_WINDOW + 1
+rlate=call("bet",[99,T]+pad([5]),1000,"B1"); ck("bet blocked after window closes", "revert" in rlate and M("gg",99)==0)
+
+# a fresh table to test the cover guard precisely
+call("open",[2,cB],1000,"BANK"); st.cursor=100  # reset cursor to be inside the new window
+# straight-up needs bank to cover 35x; stake 100 -> 3500 > 1000 bankroll -> revert
+rc=call("bet",[21,2]+pad([7]),100,"B1"); ck("under-bankrolled straight-up seat reverts", "revert" in rc and M("gg",21)==0)
+call("bet",[22,2]+pad(sorted(RED)),100,"B1"); ck("even-money seat fits the small bankroll", M("gg",22)==2 and M("gc",22)==18)
+
+# ---- resolve table T: bank reveals after the window, one shared spin decides all three seats ----
+st.cursor = 100 + JOIN_WINDOW + 1
+call("reveal",[T,sB],0,"BANK")
+ck("bank revealed after window", M("tr",T)==1 and M("ts",T)==sB)
+
+b1,b2,b3,bBank = bal("B1"),bal("B2"),bal("B3"),bal("BANK")
+call("settle",[G1],0,"B1")
+ck("seat1 result stored (r+1)", M("gr",G1)==res+1)
+ck("seat1 straight-up WON pays 36x (36000)", bal("B1")==b1+1000*36 and M("gw",G1)==1)
+call("settle",[G2],0,"B2")
 redwin = res in RED
-call("join",[G3,cP]+pad(sorted(RED)),200,"BET")
-ck("count derived = 18 (red)", sto("cn",G3)==18)
-call("reveal1",[G3,sB],0,"BANK"); call("reveal2",[G3,sP],0,"BET")
-bBet=bal("BET"); bBank=bal("BANK")
-call("settle",[G3],0,"BANK")
-if redwin:
-    ck("RED win pays 2x (400)", bal("BET")==bBet+400 and bal("BANK")==bBank+(5000+200)-400)
-else:
-    ck("RED loss sweeps stake to bank", bal("BANK")==bBank+5000+200 and bal("BET")==bBet)
+if redwin: ck("seat2 RED win pays 2x", bal("B2")==b2+4000)
+else:      ck("seat2 RED lost -> stake kept by bank pool", bal("B2")==b2 and M("gw",G2)==0)
+call("settle",[G3],0,"B3")
+dozwin = res in set(range(1,13))
+if dozwin: ck("seat3 dozen win pays 3x", bal("B3")==b3+9000)
+else:      ck("seat3 dozen lost", bal("B3")==b3 and M("gw",G3)==0)
+ck("all three seats settled (tx==tn)", M("tx",T)==3 and M("tn",T)==3)
 
-# --- a dozen bet (12 numbers) pays 3x, and understating coverage is impossible (count is derived) ---
-G4=4; call("open",[G4,cB],5000,"BANK")
-dozen1 = list(range(1,13))
-call("join",[G4,cP]+pad(dozen1),150,"BET")
-ck("count derived = 12 (dozen)", sto("cn",G4)==12)
+# committed released to 0 after all settle
+ck("committed released to zero", M("tc",T)==0)
+# bank closes -> reclaims the remaining pool; contract conserves exactly
+poolLeft = M("tp",T)
+bankBefore = bal("BANK")
+call("close",[T],0,"BANK")
+ck("bank reclaims leftover pool on close", bal("BANK")==bankBefore+poolLeft and M("tz",T)==1)
+# conservation across table T: bank net = bankroll +/- (all seat results), nothing minted/lost
+# (verified implicitly: contract balance only holds table 2's escrow now)
+ck("only table-2 escrow remains in the contract", bal(CID)==1000+100)  # table2 bankroll + its one seat stake
 
-# --- bank-cover guard: a stake whose 36x win exceeds the bankroll is REJECTED (bettor refunded) ---
-G5=5; call("open",[G5,cB],1000,"BANK")   # bankroll only 1000
-bBet=bal("BET")
-r=call("join",[G5,cP]+pad([res]),100,"BET")   # straight-up needs bank to cover 3500 > 1000 -> revert
-ck("under-bankrolled straight-up join reverts + refunds", "revert" in r and bal("BET")==bBet and sto("nn",G5)==1)
-# but an even-money bet (needs only 1x cover) on the same 1000 bankroll is fine
-call("join",[G5,cP]+pad(sorted(RED)),100,"BET")
-ck("even-money join fits the small bankroll", sto("nn",G5)==2 and sto("cn",G5)==18)
+# ---- forfeit: a bank that never reveals -> seats force-claim their MAX win ----
+st.cursor = 500
+call("open",[3,cB],200000,"BANK")
+call("bet",[31,3]+pad([res]),1000,"B1")     # straight-up
+call("bet",[32,3]+pad(sorted(RED)),2000,"B2")
+st.cursor = 500 + JOIN_WINDOW + REVEAL_WINDOW + 1   # past reveal deadline, bank silent
+q1,q2=bal("B1"),bal("B2")
+call("claim",[31],0,"B1"); call("claim",[32],0,"B2")
+ck("forfeit: straight-up seat claims max 36x", bal("B1")==q1+36000)
+ck("forfeit: RED seat claims max 2x", bal("B2")==q2+4000)
+ck("forfeit seats marked settled", M("tx",3)==2)
+# cannot claim before the deadline on another table
+st.cursor=700; call("open",[4,cB],200000,"BANK"); call("bet",[41,4]+pad([1]),1000,"B1")
+rce=call("claim",[41],0,"B1"); ck("claim blocked before deadline", "revert" in rce and M("gd",41)==0)
 
-# --- claim: bank withholds (only bettor revealed) after deadline -> bettor gets MAX win ---
-G6=6; call("open",[G6,cB],5000,"BANK")
-call("join",[G6,cP]+pad([7]),100,"BET")   # straight-up on 7 -> M=36
-call("reveal2",[G6,sP],0,"BET")           # bettor reveals, bank goes dark
-st.cursor = 100 + REVEAL_WINDOW + 5
-bBet=bal("BET"); bBank=bal("BANK"); cCID=bal(CID)
-call("claim",[G6],0,"BET")
-ck("withholding bank -> bettor claims max win (3600)", bal("BET")==bBet+3600)
-ck("withholding bank -> bank gets bk+st-3600", bal("BANK")==bBank+(5000+100)-3600 and bal(CID)==cCID-5100)
+# close cancels an empty table (tn==0) -> bank reclaims full bankroll
+st.cursor=900; bankPre=bal("BANK"); call("open",[5,cB],5000,"BANK")
+ck("empty open escrows 5000", bal("BANK")==bankPre-5000)
+call("close",[5],0,"BANK")
+ck("close on an empty table refunds the bankroll", bal("BANK")==bankPre)
+ck("non-bank cannot close", "revert" in call("close",[3],0,"B1"))
 
-# --- claim: bettor withholds (only bank revealed) -> bettor forfeits stake to bank ---
-st.cursor=100
-G7=7; call("open",[G7,cB],5000,"BANK")
-call("join",[G7,cP]+pad([7]),100,"BET")
-call("reveal1",[G7,sB],0,"BANK")          # bank reveals, bettor goes dark
-st.cursor = 100 + REVEAL_WINDOW + 5
-bBank=bal("BANK"); cCID=bal(CID)
-call("claim",[G7],0,"BANK")
-ck("withholding bettor -> bank takes bankroll + stake", bal("BANK")==bBank+5000+100 and bal(CID)==cCID-5100)
-
-# --- claim: neither revealed -> refund both ---
-st.cursor=100
-G8=8; bBankStart=bal("BANK"); bBetStart=bal("BET"); cCID=bal(CID)
-call("open",[G8,cB],5000,"BANK"); call("join",[G8,cP]+pad([7]),100,"BET")
-st.cursor = 100 + REVEAL_WINDOW + 5
-call("claim",[G8],0,"C")
-ck("neither revealed -> both refunded", bal("BANK")==bBankStart and bal("BET")==bBetStart and bal(CID)==cCID)
-
-# --- cancel: lone bank reclaims its bankroll ---
-st.cursor=100
-G9=9; bBank=bal("BANK"); cCID=bal(CID); call("open",[G9,cB],5000,"BANK")
-ck("open escrows 5000", bal("BANK")==bBank-5000)
-ck("non-bank cannot cancel", "revert" in call("cancel",[G9],0,"BET") and sto("sd",G9)==0)
-call("cancel",[G9],0,"BANK")
-ck("bank cancels un-joined table -> refunded", bal("BANK")==bBank and bal(CID)==cCID)
-
-# --- wrong-secret reveal reverts (no state change) ---
-G10=10; call("open",[G10,cB],5000,"BANK"); call("join",[G10,cP]+pad([7]),100,"BET")
-call("reveal1",[G10, 999999],0,"BANK")
-ck("wrong-secret reveal reverts", sto("r1",G10)==0)
+# wrong-secret reveal reverts
+st.cursor=1100; call("open",[6,cB],5000,"BANK"); st.cursor=1100+JOIN_WINDOW+1
+ck("wrong-secret reveal reverts", "revert" in call("reveal",[6,111],0,"BANK") and M("tr",6)==0)
 
 print("\n"+("ALL PASS" if not F else f"{len(F)} FAILED: {F}"))
 if not F:

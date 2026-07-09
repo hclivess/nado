@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NADO Roulette — provably fair, post-quantum</title>
+<title>NADO Roulette — provably fair, multiplayer, post-quantum</title>
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
     --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--red:#d0362b;--black:#20272f;--green:#1f8f4e;
@@ -27,15 +27,15 @@
   button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
   button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
   button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
-  @keyframes rpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,201,167,.45)}50%{transform:scale(1.05);box-shadow:0 0 0 6px rgba(0,201,167,0)}}
+  @keyframes rpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,201,167,.45)}50%{transform:scale(1.04);box-shadow:0 0 0 6px rgba(0,201,167,0)}}
   button.pulse{animation:rpulse 1.25s ease-in-out infinite}
   .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
   .warn{color:var(--danger);font-weight:600;line-height:1.45}
-  .addr{font-family:var(--mono);font-size:12px;color:var(--accent2);word-break:break-all}
-  .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2)}
-  .chip.open{border-color:#e3b341;color:#e3b341}
-  .chip.live{border-color:var(--accent2);color:var(--accent2)}
-  .chip.done{opacity:.5}
+  .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}
+  .chip.betting{border-color:var(--accent2);color:var(--accent2)}
+  .chip.spinning{border-color:#e3b341;color:#e3b341}
+  .chip.forfeit{border-color:var(--danger);color:var(--danger)}
+  .chip.revealed,.chip.done{opacity:.55}
   table.score{width:100%;border-collapse:collapse;font-size:13px}
   table.score th,table.score td{text-align:left;padding:6px 6px;border-bottom:1px solid var(--border)}
   table.score th{color:var(--dim);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
@@ -47,28 +47,26 @@
   .b.dimb{background:rgba(147,161,176,.12);color:var(--dim)}
   #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}
   .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
-  /* ---- the roulette TABLE ---- */
   .tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
   .rtable{min-width:340px}
   #tableGrid{display:grid;grid-template-columns:34px repeat(12,1fr) 40px;grid-auto-rows:34px;gap:3px}
-  .cell{padding:0;border-radius:6px;font-size:13px;font-weight:700;color:#fff;border:1px solid rgba(255,255,255,.10);display:flex;align-items:center;justify-content:center;min-width:0}
+  .cell{padding:0;border-radius:6px;font-size:13px;font-weight:700;color:#fff;border:1px solid rgba(255,255,255,.10);display:flex;align-items:center;justify-content:center;min-width:0;cursor:pointer}
   .cell.red{background:var(--red)}.cell.black{background:var(--black)}.cell.green{background:var(--green)}
   .cell.zero{grid-row:1 / span 3;grid-column:1;writing-mode:vertical-rl;transform:rotate(180deg);font-size:15px}
   .cell.col2to1{background:var(--elev2);color:var(--dim);font-size:11px}
-  .cell.sel{outline:3px solid var(--accent2);outline-offset:-1px;box-shadow:0 0 10px rgba(0,201,167,.6);color:#fff}
+  .cell.sel{outline:3px solid var(--accent2);outline-offset:-1px;box-shadow:0 0 10px rgba(0,201,167,.6)}
   .cell:hover:not(.col2to1){filter:brightness(1.15)}
   .outside{display:grid;grid-template-columns:34px repeat(3,1fr) 40px;gap:3px;margin-top:3px}
-  .outside .z{grid-column:1}
+  .evenrow{display:grid;grid-template-columns:34px repeat(6,1fr);gap:3px;margin-top:3px}
+  .outside .z,.evenrow .z{grid-column:1}
   .obtn{padding:8px 4px;border-radius:6px;font-size:11.5px;font-weight:700;background:var(--elev2);color:var(--txt);border:1px solid var(--border);cursor:pointer}
   .obtn:hover{border-color:var(--accent2)}
-  .evenrow{display:grid;grid-template-columns:34px repeat(6,1fr);gap:3px;margin-top:3px}
-  .evenrow .z{grid-column:1}
   .obtn .di{display:inline-block;width:11px;height:11px;transform:rotate(45deg);border-radius:2px;vertical-align:-1px}
   .di.red{background:var(--red)}.di.black{background:var(--black);border:1px solid #444}
   #betInfo{font-size:13px;margin-top:10px;min-height:20px}
-  .pip{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;font-size:11px;font-weight:800;color:#fff;margin:1px}
+  .pip{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;font-size:10.5px;font-weight:800;color:#fff;margin:1px}
   .pip.red{background:var(--red)}.pip.black{background:var(--black)}.pip.green{background:var(--green)}
-  /* wheel result */
+  .seat{font-size:13px;padding:6px 0;border-bottom:1px solid var(--border)}
   .wheelwrap{display:flex;flex-direction:column;align-items:center;gap:10px;margin:14px 0}
   .wheel{width:92px;height:92px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:800;color:#fff;
     background:radial-gradient(circle at 35% 30%,#3a4653,#20272f);border:4px solid #b5810f;box-shadow:0 8px 24px rgba(0,0,0,.4)}
@@ -85,21 +83,21 @@
 <body>
 <div class="wrap">
   <header><span class="logo">🎡</span><h1>NADO <span class="a">Roulette</span></h1></header>
-  <p class="sub">A provably-fair, <b>peer-banked</b> European roulette on the NADO execution layer. Bank a table or bet against one; the shared spin is the parity-free <span class="mono">HASH(secret₀‖secret₁) mod 37</span>, so nobody can bias it. A win pays the true <span class="mono">36 ÷ (numbers you covered)</span> — the single-zero house edge, 2.70%. Post-quantum wallet, no install.</p>
+  <p class="sub">A provably-fair, <b>peer-banked multiplayer</b> European roulette on the NADO execution layer. A table is one shared wheel: the bank opens it, everyone bets during the window, then one spin — <span class="mono">HASH(bankSecret ‖ tableId) mod 37</span> — decides every seat. A win pays the true <span class="mono">36 ÷ numbers-covered</span> (2.70% single-zero edge). Post-quantum wallet, no install.</p>
 
   <div id="status"></div>
 
   <!-- WALLET -->
   <div class="card">
     <h2>Wallet</h2>
-    <p class="small dim">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site. Stakes live in the execution layer: deposit NADO to play, withdraw winnings any time.</p>
+    <p class="small dim">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site. Deposit NADO to play, withdraw winnings any time.</p>
     <div class="kv mt"><span class="k">Playing as</span><span class="mono" id="who">not signed in</span></div>
     <div class="kv"><span class="k">Wallet (L1, depositable)</span><span class="mono" id="l1bal">—</span></div>
     <div class="kv"><span class="k">Exec balance (playable)</span><span class="mono" id="bal">—</span></div>
     <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
   </div>
 
-  <!-- BET AT A TABLE (bettor) — the main attraction -->
+  <!-- BET AT A TABLE -->
   <div class="card hidden" id="play">
     <h2>🎯 Bet at a table</h2>
     <div class="row">
@@ -130,24 +128,24 @@
     <div id="betInfo"></div>
     <div class="row mt" style="align-items:center">
       <button class="ghost" id="btnClearBet" style="flex:0 0 auto">Clear</button>
-      <button class="primary" id="btnJoin" style="flex:1 1 auto">Place bet &amp; join</button>
+      <button class="primary" id="btnBet" style="flex:1 1 auto">Place bet</button>
     </div>
     <div class="small warn mt hidden" id="joinHint"></div>
-    <div class="small dim mt">Your tables <span style="opacity:.7">· 🏦 you bank · 🎯 you bet · ⏳ open · ▶ live · ✓ done</span></div>
+    <div class="small dim mt">Your tables <span style="opacity:.7">· 🏦 you bank · 🎯 you bet</span></div>
     <div class="small dim" id="recent"></div>
   </div>
 
-  <!-- BANK A TABLE (house) -->
+  <!-- BANK A TABLE -->
   <div class="card hidden" id="bankcard">
     <h2>🏦 Bank a table</h2>
-    <p class="small dim">Put up a bankroll and be the house: bettors play against it. You take losing stakes and the green-zero edge; you pay winners from the bankroll. The bankroll caps the biggest bet a table can accept (it must cover a 35:1 straight-up).</p>
+    <p class="small dim">Put up a bankroll and open a shared table. Bettors play against it during a ~3-minute window; then you sign <b>one</b> spin and the wheel decides everyone. You keep losing stakes and the green-zero edge. If you never spin, bettors reclaim their max win — so it always pays to spin.</p>
     <div class="row">
       <input id="bankrollAmt" placeholder="bankroll (NADO)" inputmode="decimal" autocomplete="off">
       <button class="primary" id="btnNewTable" style="flex:0 0 auto">Open table</button>
     </div>
   </div>
 
-  <!-- BANKROLL (deposit / withdraw — one field, two buttons) -->
+  <!-- BANKROLL -->
   <div class="card hidden" id="bankroll">
     <h2>Bankroll</h2>
     <div class="row">
@@ -161,43 +159,40 @@
   <!-- PUBLIC LOBBY -->
   <div class="card" id="lobby">
     <h2>🎲 Public tables</h2>
-    <p class="small dim">Every table lives in public state — browse open tables and <b>bet against any bank</b>, or watch games in progress. <span style="opacity:.7">⏳ open · ▶ live · ✓ done</span></p>
+    <p class="small dim">Live tables — join any one whose window is still open and bet against its bank. <span style="opacity:.7">🟢 betting · 🎡 spinning · ⚠ claim</span></p>
     <div class="small mt" id="lobbyList"><span class="dim">Loading…</span></div>
   </div>
 
-  <!-- GLOBAL SCOREBOARD -->
+  <!-- SCOREBOARD -->
   <div class="card" id="scoreboard">
     <h2>🏆 Scoreboard</h2>
-    <p class="small dim">Global standings across every finished game — banks and bettors alike, ranked by net NADO won.</p>
+    <p class="small dim">Global standings across every finished bet — banks and bettors alike, ranked by net NADO won.</p>
     <div class="mt" id="scoreList"><span class="dim">Loading…</span></div>
   </div>
 
-  <!-- ACTIVE GAME -->
+  <!-- ACTIVE TABLE -->
   <div class="card hidden" id="activeGame">
     <h2>Table <span id="gameId" class="mono"></span></h2>
     <div class="wheelwrap">
-      <div class="wheel spin" id="wheel">?</div>
-      <div id="result" class="dim">Waiting…</div>
+      <div class="wheel" id="wheel">?</div>
+      <div id="result" class="dim">…</div>
     </div>
-    <div class="kv"><span class="k">Bankroll</span><span class="mono" id="gBankroll">—</span></div>
-    <div class="kv"><span class="k">Bet stake</span><span class="mono" id="gStake">—</span></div>
-    <div class="kv"><span class="k">Bet on</span><span id="gBet">—</span></div>
     <div class="kv"><span class="k">Status</span><span class="mono" id="gStatus">…</span></div>
-    <div class="mt small" id="seats"></div>
-    <div class="small mt" id="myBet"></div>
-    <div class="small" id="myReveal"></div>
+    <div class="kv"><span class="k">Bankroll</span><span class="mono" id="gBankroll">—</span></div>
+    <div class="kv"><span class="k">Coverage left</span><span class="mono" id="gCover">—</span></div>
+    <div class="mt small dim">Seats</div>
+    <div id="seats"></div>
+    <div id="myStuff" class="mt"></div>
+    <div class="row mt" id="myActions"></div>
     <div class="row mt">
-      <button class="primary hidden" id="btnReveal">🔓 Reveal &amp; spin</button>
-      <button class="primary hidden" id="btnSettle">💰 Spin &amp; pay out</button>
-      <button class="ghost hidden" id="btnClaim">Claim (opponent stalled)</button>
-      <button class="ghost hidden" id="btnCancel">Cancel — reclaim bankroll (no one joined)</button>
-      <button class="primary hidden" id="btnRematch">🔁 Play again</button>
+      <button class="primary hidden" id="btnReveal">🎡 Spin the wheel</button>
+      <button class="ghost hidden" id="btnClose">Close table</button>
     </div>
-    <label class="mt">Invite an opponent</label>
+    <label class="mt">Invite bettors</label>
     <input id="shareLink" class="mono" readonly onclick="this.select()">
     <div class="row mt" style="align-items:center;gap:8px">
       <button class="primary" id="btnShare" style="flex:0 0 auto">Share</button>
-      <span class="dim small">or scan the code to join this table</span>
+      <span class="dim small">or scan the code to bet at this table</span>
     </div>
     <canvas id="shareQR" class="hidden" style="margin:12px auto 0;display:block;border-radius:8px;background:#fff;padding:8px"></canvas>
     <div id="shareQRNote" class="hidden dim small mt">QR generator unavailable — copy the link above.</div>
@@ -207,17 +202,17 @@
   <div class="card">
     <h2>Provably fair — no cheating</h2>
     <p class="small dim" style="line-height:1.6">
-      The winning number is <span class="mono">HASH(bankSecret ‖ bettorSecret) mod 37</span>, enforced on-chain:
-      <br>• <b>Nobody can bias the spin.</b> Bank and bettor each <b>commit</b> a hash of their secret <b>before either reveals</b>, so neither can steer the wheel once bets are locked.
-      <br>• <b>Fair, transparent odds.</b> A winning bet always returns <span class="mono">36 ÷ (numbers covered)</span>: straight-up 36×, split 18×, corner 9×, dozen 3×, red/even 2×. With 37 pockets that is exactly the 2.70% single-zero edge — the bank's only advantage is the green 0.
-      <br>• <b>Sore losers cannot steal.</b> The last revealer sees the result first, so a loser might stall — but after the on-chain deadline the honest side <b>claims by forfeit</b> (a stalling bank pays the bettor their max win; a stalling bettor forfeits the stake). If nobody reveals, both are refunded.
-      <br>• <b>House wins are withdrawable.</b> Each bank escrows only its own table's bankroll and receives that table's exact result to its exec balance — so a banker withdraws its capital ± results, no pooling, no trust.
+      One shared wheel per table, enforced on-chain:
+      <br>• <b>The number is locked before any bet.</b> The bank commits <span class="mono">HASH(secret)</span> when it opens the table, so the winning number is fixed and hidden before betting starts — the bank can't change it or aim it at the bets, and bettors bet blind. When the window closes the bank reveals the secret and the one number is derived for everyone.
+      <br>• <b>Every seat is independent.</b> You only sign once — your bet. A no-show never stalls the table, and one reveal settles all seats. A win pays the true <span class="mono">36 ÷ numbers-covered</span>.
+      <br>• <b>The bank can't run.</b> If the bank never spins, after the deadline every seat claims its <b>maximum</b> win — so stalling always costs the bank more than spinning. The bank escrows enough to cover every seat's max at once.
+      <br>• <b>House wins are withdrawable.</b> Each bank escrows only its own table's bankroll and reclaims it (± results) with one close — no shared pool, no trust.
     </p>
   </div>
 
   <footer>
     Runs on <a href="https://get.nadochain.com/">NADO</a> · contract calls ride L1 as ordered blobs, apply at finality (a few minutes).
-    Your secret stays in this browser until you reveal it. <a href="https://get.nadochain.com/rollup">See the contract</a>.
+    <a href="https://get.nadochain.com/rollup">See the contract</a>.
   </footer>
 </div>
 <script type="module" src="/static/roulette.js"></script>

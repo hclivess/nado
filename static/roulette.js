@@ -1,26 +1,24 @@
-// roulette.js — NADO Roulette: a provably-fair, PEER-BANKED European (single-zero) roulette on the execution
-// layer. It reuses Coin Flip's exact commit-reveal skeleton, so a game is two seats: a BANK (posts a bankroll,
-// commits a secret) and a BETTOR (stakes a bet on a set of table numbers, commits a secret). One shared spin
-// r = HASH(bankSecret + bettorSecret) % 37 is fair because neither secret is revealed before both are
-// committed. A winning bet returns stake × 36/count (the universal roulette rule → exact 2.70% single-zero
-// edge); a loss sweeps the stake into the bank. Everything is an ON-CHAIN CONTRACT (runtime stackvm, cid
-// below) called via the GENERIC exec `call` op — stakes/bankrolls are escrowed as VALUE and paid by PAY; there
-// is NO roulette-specific API. Login + every signature is delegated to the NADO wallet (get.nadochain.com).
+// roulette.js — NADO Roulette: a provably-fair, peer-banked, MULTIPLAYER European (single-zero) roulette on
+// the execution layer. A table is one shared wheel: a BANK opens it with a bankroll and a committed secret,
+// then during a betting WINDOW any number of BETTORS take a seat by staking a bet on a set of table numbers
+// (one signature per bet — no per-player secret). When the window closes the bank reveals its secret and ONE
+// shared spin  result = HASH(bankSecret + tableId) % 37  decides every seat at once. A win pays the true
+// 36/count; losers' stakes go to the bank. Each seat settles INDEPENDENTLY, so a no-show never stalls the
+// table; if the bank itself stalls, every seat force-claims its MAX win after the deadline. It is an ordinary
+// upgradable stackvm CONTRACT (cid below) driven through the generic exec `call` op — no roulette-specific API.
 import { loadCrypto, blake2bHash } from "./nadotx.js";
 
 const NS = "default";
 const WALLET = "https://get.nadochain.com";
-const RAW = 10n ** 10n;                 // 1 NADO = 1e10 raw units
-const PN = 37;                          // pockets 0..36
-const MAXSLOTS = 18, SENTINEL = 99;     // biggest bet covers 18 numbers; pad unused slots with the sentinel
+const RAW = 10n ** 10n;
+const PN = 37, MAXSLOTS = 18, SENTINEL = 99;
+const BLOCK_SECS = 6;
 const base = () => location.origin.replace(/\/+$/, "");
 const $ = (id) => document.getElementById(id);
-
-// European wheel colours — the one set with no formula; everything else derives from it.
 const RED = new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
 const colorOf = (n) => n === 0 ? "green" : (RED.has(n) ? "red" : "black");
 
-// ---- QR (vendored, best-effort — same generator as the wallet / coinflip) ------------------------
+// ---- QR (vendored) -------------------------------------------------------------------------------
 let qrEncode = null;
 async function loadQR() { try { const m = await import("./vendor/qrcode.js"); qrEncode = m.qrMatrix || null; } catch { qrEncode = null; } }
 function drawQR(canvas, note, text, targetPx) {
@@ -34,12 +32,11 @@ function drawQR(canvas, note, text, targetPx) {
     canvas.classList.remove("hidden"); if (note) note.classList.add("hidden");
   } catch { canvas.classList.add("hidden"); if (note) note.classList.remove("hidden"); }
 }
-async function shareGame() {
-  if (active == null) return;
-  const url = base() + "/?game=" + active;
-  const stake = (lastGame && lastGame.exists) ? "for " + rawToNado(lastGame.bankroll) + " NADO " : "";
+async function shareTable() {
+  if (activeTable == null) return;
+  const url = base() + "/?table=" + activeTable;
   if (navigator.share) {
-    try { await navigator.share({ title: "NADO Roulette", text: "Bet against my bank " + stake + "on NADO — table #" + active + ":", url }); return; }
+    try { await navigator.share({ title: "NADO Roulette", text: "Bet at my roulette table #" + activeTable + " on NADO:", url }); return; }
     catch (e) { if (e && e.name === "AbortError") return; }
   }
   const btn = $("btnShare"); let ok = false;
@@ -47,20 +44,18 @@ async function shareGame() {
   if (btn) { btn.textContent = ok ? "Copied ✓" : "copy failed"; setTimeout(() => (btn.textContent = "Share"), 1400); }
 }
 
-const LS_ME = "nado_roulette_me", LS_G = "nado_roulette_games", LS_P = "nado_roulette_pending";
-const gamesLoad = () => { try { return JSON.parse(localStorage.getItem(LS_G) || "{}"); } catch { return {}; } };
-const gamesSave = (g) => { try { localStorage.setItem(LS_G, JSON.stringify(g)); } catch {} };
+const LS_ME = "nado_roul_me", LS_T = "nado_roul_tables", LS_S = "nado_roul_seats", LS_P = "nado_roul_pending";
+const load = (k) => { try { return JSON.parse(localStorage.getItem(k) || "{}"); } catch { return {}; } };
+const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 let me = localStorage.getItem(LS_ME) || null;
-let active = null, lastGame = null, myBalance = 0n, myL1Balance = 0n;
-let selected = new Set();     // the numbers the bettor is covering right now (the table selection)
+let activeTable = null, lastTable = null, lastSeats = [], myBalance = 0n, myL1Balance = 0n, lastCursor = null;
+let selected = new Set();
 const FEE = 1000n;
-let deepLinkGame = null;
-const stageCache = {};        // gid -> {settled, ncom, bankroll} : drives list colours + join affordability
 
 // ---- amounts / secrets ---------------------------------------------------------------------------
-const randId = () => globalThis.crypto.getRandomValues(new Uint32Array(1))[0] % 1000000000;
+const randId = () => globalThis.crypto.getRandomValues(new Uint32Array(1))[0] % 1000000000 + 1;   // 1..1e9
 const randSecret = () => { let h = "0x"; for (const b of globalThis.crypto.getRandomValues(new Uint8Array(32))) h += b.toString(16).padStart(2, "0"); return BigInt(h); };
-const commitHashOf = (secret) => BigInt("0x" + blake2bHash(secret));   // 256-bit; == VM HASH(secret)
+const commitHashOf = (secret) => BigInt("0x" + blake2bHash(secret));
 function nadoToRaw(s) {
   s = String(s || "").trim(); if (!/^\d+(\.\d+)?$/.test(s)) return null;
   const [w, f = ""] = s.split("."); const raw = BigInt(w) * RAW + BigInt((f + "0000000000").slice(0, 10));
@@ -71,17 +66,24 @@ const encBig = (v) => typeof v === "bigint" ? { $big: v.toString() }
   : Array.isArray(v) ? v.map(encBig)
   : (v && typeof v === "object") ? Object.fromEntries(Object.keys(v).map((k) => [k, encBig(v[k])])) : v;
 
-// ---- delegated wallet signing (redirect) ---------------------------------------------------------
+// ---- delegated wallet signing --------------------------------------------------------------------
 function go(obj, pend) {
   const payload = btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
-  localStorage.setItem(LS_P, JSON.stringify(pend || {}));
+  save(LS_P, pend || {});
   location.href = WALLET + "/?exec_sign=" + encodeURIComponent(payload) + "&ret=" + encodeURIComponent(base() + "/") + "&app=" + encodeURIComponent("Roulette");
 }
 const signIn = () => go({ connect: true, label: "sign in" }, { phase: "connect" });
 const deposit = (raw) => go({ deposit: { amount: raw.toString() }, label: "deposit " + rawToNado(raw) + " NADO" }, { phase: "deposit" });
 const signBlob = (blob, label, pend) => go({ blob: encBig(blob), label }, pend);
+const CID = "186ebadb975794e2ed7eeb1c7b5115a5";
+function callC(method, args, valueRaw, label, pend) {
+  const payload = { op: "call", contract: CID, method, args };
+  if (valueRaw != null) payload.value = valueRaw;
+  signBlob(payload, label, pend);
+}
+// shared spin — MUST match the contract: HASH(secret + tableId) % 37
+function spinResult(secret, t) { return Number(BigInt("0x" + blake2bHash((BigInt(secret) + BigInt(t)).toString())) % BigInt(PN)); }
 
-// on return from the wallet
 function handleReturn() {
   const p = new URLSearchParams(location.search);
   if (!p.has("ok")) return;
@@ -91,88 +93,64 @@ function handleReturn() {
   try { history.replaceState(null, "", location.pathname); } catch {}
   if (ok && addr) { me = addr; localStorage.setItem(LS_ME, addr); }
   if (!pend) return;
-  const label = { connect: "Signed in.", deposit: "Deposit submitted — confirming on-chain…", bet: "Bet submitted — confirming…",
-                  reveal: "Reveal submitted — confirming…", settle: "Paying out…", claim: "Claiming…", withdraw: "Withdrawal submitted." }[pend.phase] || "Submitted.";
-  if (pend.gameId != null) active = pend.gameId;
-  if (ok && pend.phase === "bet") { const g = gamesLoad(); if (g[pend.gameId]) { g[pend.gameId].bet = "pending"; gamesSave(g); } }
-  if (ok && pend.phase === "reveal") { const g = gamesLoad(); if (g[pend.gameId]) { g[pend.gameId].reveal = "pending"; gamesSave(g); } }
+  const label = { connect: "Signed in.", deposit: "Deposit submitted — confirming on-chain…", open: "Table opening — confirming…",
+    bet: "Bet placed — confirming…", reveal: "Spinning the wheel — confirming…", settle: "Collecting…",
+    claim: "Claiming…", close: "Closing table…", withdraw: "Withdrawal submitted." }[pend.phase] || "Submitted.";
+  if (pend.table != null) activeTable = pend.table;
+  if (ok && pend.phase === "bet" && pend.seat != null) { const s = load(LS_S); if (s[pend.seat]) { s[pend.seat].bet = "pending"; save(LS_S, s); } }
+  if (ok && pend.phase === "reveal" && pend.table != null) { const t = load(LS_T); if (t[pend.table]) { t[pend.table].reveal = "pending"; save(LS_T, t); } }
   $("status").textContent = ok ? label : "Rejected" + (err ? ": " + err : ".");
 }
 
 // ---- reads ---------------------------------------------------------------------------------------
 async function fetchBalance() {
   if (!me) { myBalance = 0n; myL1Balance = 0n; return; }
-  try {
-    const b = await (await fetch(base() + "/exec/bridge?ns=" + NS + "&provisional=1", { cache: "no-store" })).json();
-    myBalance = BigInt((b.balances || {})[me] || 0);
-  } catch { myBalance = 0n; }
-  try {
-    const a = await (await fetch(base() + "/get_account?address=" + encodeURIComponent(me), { cache: "no-store" })).json();
-    myL1Balance = BigInt(a.balance || 0);
-  } catch { myL1Balance = 0n; }
+  try { const b = await (await fetch(base() + "/exec/bridge?ns=" + NS + "&provisional=1", { cache: "no-store" })).json(); myBalance = BigInt((b.balances || {})[me] || 0); } catch { myBalance = 0n; }
+  try { const a = await (await fetch(base() + "/get_account?address=" + encodeURIComponent(me), { cache: "no-store" })).json(); myL1Balance = BigInt(a.balance || 0); } catch { myL1Balance = 0n; }
 }
-const CID = "186ebadb975794e2ed7eeb1c7b5115a5";   // the Roulette CONTRACT (runtime stackvm) — staked via VALUE/PAY, no native API
-
-// generic contract call, signed by the wallet; valueRaw (raw NADO) is ESCROWED from the caller's bridge balance
-function callC(method, args, valueRaw, label, pend) {
-  const payload = { op: "call", contract: CID, method, args };
-  if (valueRaw != null) payload.value = valueRaw;
-  signBlob(payload, label, pend);
+async function pollCursor() {
+  try { const s = await (await fetch(base() + "/exec/root?ns=" + NS + "&provisional=1", { cache: "no-store" })).json(); lastCursor = s.cursor != null ? Number(s.cursor) : lastCursor; } catch {}
 }
-// spin result — MUST match the contract: HASH(s1+s2) % 37, HASH = blake2b(decimal string) as a 256-bit int
-function spinResult(s1, s2) { return Number(BigInt("0x" + blake2bHash((BigInt(s1) + BigInt(s2)).toString())) % BigInt(PN)); }
-
-// ---- reads: game / lobby / scoreboard are all DERIVED from the contract's storage maps ----------
-let lastStorage = {};
 async function fetchStorage() {
   try { return (await (await fetch(base() + "/exec/contract?ns=" + NS + "&cid=" + CID + "&provisional=1", { cache: "no-store" })).json()).storage || {}; }
   catch { return null; }
 }
 const _m = (sto, name) => sto[name] || {};
-const allGids = (sto) => Object.keys(_m(sto, "nn"));
-// the covered numbers of a game: cov is keyed by gid*37+n, so scan 0..36
-function coveredOf(sto, gid) {
-  const cov = _m(sto, "cov"), out = []; const b = Number(gid) * PN;
-  for (let n = 0; n < PN; n++) if (cov[String(b + n)]) out.push(n);
-  return out;
+const allTables = (sto) => Object.keys(_m(sto, "ta"));
+const allSeats = (sto) => Object.keys(_m(sto, "gg"));
+function coveredOf(sto, g) { const cov = _m(sto, "cov"), out = [], b = Number(g) * PN; for (let n = 0; n < PN; n++) if (cov[String(b + n)]) out.push(n); return out; }
+
+// a table's phase from the current cursor
+function tablePhase(tb) {
+  if (tb.closed) return "done";
+  if (tb.revealed) return "revealed";
+  const cur = lastCursor;
+  if (cur == null) return "betting";
+  if (cur <= tb.joinDeadline) return "betting";
+  if (cur <= tb.revealDeadline) return "spinning";
+  return "forfeit";
 }
-function gameFrom(sto, gid) {
-  gid = String(gid); const nn = _m(sto, "nn")[gid] || 0;
-  if (!nn) return { exists: false };
-  const bank = _m(sto, "p1")[gid], bettor = _m(sto, "p2")[gid];
-  const r1 = _m(sto, "r1")[gid] ? 1 : 0, r2 = _m(sto, "r2")[gid] ? 1 : 0;
-  const settled = !!_m(sto, "sd")[gid];
-  const g = { exists: true, bank, bettor, bankroll: _m(sto, "bk")[gid] || 0, stake: _m(sto, "st")[gid] || 0,
-              count: _m(sto, "cn")[gid] || 0, settled, ncom: nn, r1, r2, deadline: _m(sto, "dl")[gid] || 0,
-              covered: bettor ? coveredOf(sto, gid) : [] };
-  const roStored = _m(sto, "ro")[gid] || 0;
-  if (settled && roStored) { g.result = roStored - 1; g.win = _m(sto, "wn")[gid] ? 1 : 0; }
-  else if (r1 && r2) { const s1 = _m(sto, "s1")[gid], s2 = _m(sto, "s2")[gid];
-    if (s1 != null && s2 != null) { g.result = spinResult(s1, s2); g.win = g.covered.includes(g.result) ? 1 : 0; } }
-  return g;
+function tableFrom(sto, t) {
+  t = String(t); const bank = _m(sto, "ta")[t];
+  if (!bank) return { exists: false };
+  const tb = { exists: true, id: Number(t), bank, bankroll: _m(sto, "tk")[t] || 0, pool: _m(sto, "tp")[t] || 0,
+    committed: _m(sto, "tc")[t] || 0, revealed: !!_m(sto, "tr")[t], secret: _m(sto, "ts")[t] || null,
+    joinDeadline: _m(sto, "tj")[t] || 0, revealDeadline: _m(sto, "tv")[t] || 0,
+    seatCount: _m(sto, "tn")[t] || 0, settledCount: _m(sto, "tx")[t] || 0, closed: !!_m(sto, "tz")[t] };
+  tb.result = (tb.revealed && tb.secret != null) ? spinResult(tb.secret, tb.id) : null;
+  tb.phase = tablePhase(tb);
+  return tb;
 }
-function lobbyFrom(sto) {
-  return allGids(sto).map((gid) => {
-    const nn = _m(sto, "nn")[gid], settled = !!_m(sto, "sd")[gid];
-    return { game: gid, bankroll: _m(sto, "bk")[gid] || 0, stake: _m(sto, "st")[gid] || 0, settled, ncom: nn,
-             stage: settled ? "done" : (nn >= 2 ? "live" : "open"), deadline: _m(sto, "dl")[gid] || 0 };
-  }).sort((a, b) => b.deadline - a.deadline);
-}
-// scoreboard: net NADO across finished games, for BOTH banks and bettors (a table is zero-sum bank vs bettor)
-function boardFrom(sto) {
-  const stats = {};
-  const bump = (a, net) => { const x = stats[a] || (stats[a] = { addr: a, wins: 0, losses: 0, games: 0, net: 0 }); x.games++; x.net += net; net >= 0 ? x.wins++ : x.losses++; };
-  for (const gid of allGids(sto)) {
-    if (!_m(sto, "sd")[gid]) continue;
-    const bank = _m(sto, "p1")[gid], bettor = _m(sto, "p2")[gid];
-    if (!bank || !bettor) continue;                       // cancelled (no bettor) — not a played game
-    const stake = _m(sto, "st")[gid] || 0, cn = _m(sto, "cn")[gid] || 1, win = _m(sto, "wn")[gid] ? 1 : 0;
-    const bettorNet = win ? stake * (Math.floor(36 / cn) - 1) : -stake;   // bettor gains net win, or loses stake
-    bump(bettor, bettorNet); bump(bank, -bettorNet);
+function seatsOfTable(sto, t) {
+  t = String(t); const gg = _m(sto, "gg"), out = [];
+  for (const g of Object.keys(gg)) if (String(gg[g]) === t) {
+    const covered = coveredOf(sto, g), cn = _m(sto, "gc")[g] || covered.length || 1;
+    out.push({ g: Number(g), addr: _m(sto, "ga")[g], stake: _m(sto, "gs")[g] || 0, count: cn, covered,
+      settled: !!_m(sto, "gd")[g], mult: Math.floor(36 / cn) });
   }
-  return Object.values(stats).sort((a, b) => (b.net - a.net) || (b.wins - a.wins));
+  return out.sort((a, b) => a.g - b.g);
 }
-async function fetchGame(gid) { const sto = await fetchStorage(); return sto ? gameFrom(sto, gid) : null; }
+async function fetchTable(t) { const sto = await fetchStorage(); return sto ? tableFrom(sto, t) : null; }
 
 const _aliasCache = {};
 async function resolveAliases(addrs) {
@@ -181,22 +159,19 @@ async function resolveAliases(addrs) {
     catch { _aliasCache[a] = null; }
   }));
 }
-const disp = (addr) => !addr ? "—" : (_aliasCache[addr] ? "@" + _aliasCache[addr] : addr.slice(0, 10) + "…" + addr.slice(-4));
+const disp = (addr) => !addr ? "—" : (_aliasCache[addr] ? "@" + _aliasCache[addr] : addr.slice(0, 8) + "…" + addr.slice(-4));
 
-// ---- bet maths (universal roulette rule) ---------------------------------------------------------
+// ---- bet maths -----------------------------------------------------------------------------------
 const betCount = () => selected.size;
-const betMult = () => { const c = betCount(); return c >= 1 && c <= MAXSLOTS ? Math.floor(36 / c) : 0; };   // total return factor
+const betMult = () => { const c = betCount(); return c >= 1 && c <= MAXSLOTS ? Math.floor(36 / c) : 0; };
 const betSlots = () => { const a = [...selected].sort((x, y) => x - y); while (a.length < MAXSLOTS) a.push(SENTINEL); return a; };
+const blocksToTime = (b) => { b = Math.max(0, b) * BLOCK_SECS; const m = Math.floor(b / 60), s = b % 60; return m + ":" + String(s).padStart(2, "0"); };
 
 // ---- actions -------------------------------------------------------------------------------------
 function doDeposit() {
   const raw = nadoToRaw($("bankAmt").value);
   if (!raw) { $("status").textContent = "Enter an amount to deposit."; return; }
-  if (raw + FEE > myL1Balance) {
-    $("status").textContent = "Not enough in your L1 wallet: you have " + rawToNado(myL1Balance) +
-      " NADO (deposit needs " + rawToNado(raw) + " + a tiny fee). Mine or receive more first.";
-    return;
-  }
+  if (raw + FEE > myL1Balance) { $("status").textContent = "Not enough in your L1 wallet: you have " + rawToNado(myL1Balance) + " NADO. Mine or receive more first."; return; }
   deposit(raw);
 }
 function doWithdraw() {
@@ -205,151 +180,123 @@ function doWithdraw() {
   if (myBalance < raw) { $("status").textContent = "You only have " + rawToNado(myBalance) + " NADO in the exec layer."; return; }
   signBlob({ op: "bridge_withdraw", amount: raw }, "withdraw " + rawToNado(raw) + " NADO to L1", { phase: "withdraw" });
 }
-// BANK a table: escrow a bankroll, commit a secret
-async function openTable(gid, bankrollRaw) {
-  const g = gamesLoad();
-  const secretStr = (g[gid] && g[gid].secret) ? g[gid].secret : randSecret().toString();
-  g[gid] = { secret: secretStr, role: "bank", ts: Date.now(), bet: (g[gid] || {}).bet, reveal: (g[gid] || {}).reveal, bankroll: bankrollRaw.toString() }; gamesSave(g);
-  active = gid; render();
-  callC("open", [gid, commitHashOf(BigInt(secretStr))], bankrollRaw,
-        "bank table #" + gid + " · " + rawToNado(bankrollRaw) + " NADO bankroll", { gameId: gid, phase: "bet" });
+function openTable(t, bankrollRaw) {
+  const T = load(LS_T);
+  const secretStr = (T[t] && T[t].secret) ? T[t].secret : randSecret().toString();
+  T[t] = { secret: secretStr, bankroll: bankrollRaw.toString(), ts: Date.now(), reveal: (T[t] || {}).reveal }; save(LS_T, T);
+  activeTable = t; render();
+  callC("open", [t, commitHashOf(BigInt(secretStr))], bankrollRaw, "bank roulette table #" + t + " · " + rawToNado(bankrollRaw) + " NADO", { table: t, phase: "open" });
 }
-async function newTable() {
+function newTable() {
   const raw = nadoToRaw($("bankrollAmt").value);
   if (!raw) { $("status").textContent = "Enter a bankroll (NADO) to bank a table."; return; }
   if (myBalance < raw) { $("status").textContent = "Deposit first — your exec balance is " + rawToNado(myBalance) + " NADO."; return; }
   openTable(randId(), raw);
 }
-// BET at a table: escrow the stake, commit a secret, declare the covered-number set
-async function joinTable(gid, stakeRaw, slots) {
-  const g = gamesLoad();
-  const secretStr = (g[gid] && g[gid].secret) ? g[gid].secret : randSecret().toString();
-  g[gid] = { secret: secretStr, role: "bettor", ts: Date.now(), bet: (g[gid] || {}).bet, reveal: (g[gid] || {}).reveal,
-             stake: stakeRaw.toString(), numbers: slots.filter((n) => n < PN) }; gamesSave(g);
-  active = gid; render();
-  callC("join", [gid, commitHashOf(BigInt(secretStr)), ...slots], stakeRaw,
-        "bet " + rawToNado(stakeRaw) + " NADO on " + slots.filter((n) => n < PN).length + " number(s) · table #" + gid, { gameId: gid, phase: "bet" });
-}
-async function doJoin() {
-  const gid = parseInt($("joinId").value, 10);
-  if (!gid) { $("status").textContent = "Enter a table ID (or pick one from the lobby)."; return; }
-  deepLinkGame = null; $("btnJoin").classList.remove("pulse");
+async function doBet() {
+  const t = parseInt($("joinId").value, 10);
+  if (!t) { $("status").textContent = "Enter a table ID (or pick one from the lobby)."; return; }
   if (!betCount()) { $("status").textContent = "Pick at least one number on the table to bet on."; return; }
-  const g = await fetchGame(gid);
-  if (!g || !g.exists) { $("status").textContent = "No such table yet — ask the bank for the ID after they open it."; return; }
-  if (g.settled || g.ncom >= 2) { $("status").textContent = "That table is full or already settled."; return; }
-  await fetchBalance();
   const stake = nadoToRaw($("stakeAmt").value);
   if (!stake) { $("status").textContent = "Enter a stake (NADO)."; return; }
+  const tb = await fetchTable(t);
+  if (!tb || !tb.exists) { $("status").textContent = "No such table yet — ask the bank for the ID after they open it."; return; }
+  if (tb.phase !== "betting") { $("status").textContent = "Betting is closed on that table (" + tb.phase + ")."; return; }
+  await fetchBalance();
   if (myBalance < stake) { $("status").textContent = "You need " + rawToNado(stake) + " NADO in your exec balance (you have " + rawToNado(myBalance) + "). Deposit first."; render(); return; }
   const need = stake * BigInt(betMult() - 1);
-  if (BigInt(g.bankroll) < need) { $("status").textContent = "This table's bankroll (" + rawToNado(g.bankroll) + " NADO) can't cover a " + betMult() + "× win. Lower your stake, widen your bet, or pick a bigger table."; render(); return; }
-  joinTable(gid, stake, betSlots());
+  if (BigInt(tb.bankroll) - BigInt(tb.committed) < need) { $("status").textContent = "This table can't cover a " + betMult() + "× win right now (bankroll left: " + rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) + " NADO). Lower your stake or widen your bet."; render(); return; }
+  const g = randId(), slots = betSlots();
+  const S = load(LS_S);
+  S[g] = { table: t, stake: stake.toString(), numbers: slots.filter((n) => n < PN), ts: Date.now(), bet: undefined }; save(LS_S, S);
+  activeTable = t; render();
+  callC("bet", [g, t, ...slots], stake, "bet " + rawToNado(stake) + " NADO on " + selected.size + " number(s) · table #" + t, { table: t, seat: g, phase: "bet" });
 }
-function reveal() {
-  const g = gamesLoad()[active];
-  if (!g) { $("status").textContent = "No secret for this table on this device."; return; }
-  const mine = (lastGame && lastGame.bank === me) ? 1 : (lastGame && lastGame.bettor === me) ? 2 : (g.role === "bank" ? 1 : 2);
-  callC("reveal" + mine, [active, BigInt(g.secret)], null, "reveal your secret · table #" + active, { gameId: active, phase: "reveal" });
+function revealTable() {
+  const T = load(LS_T)[activeTable];
+  if (!T || !T.secret) { $("status").textContent = "No bank secret for this table on this device."; return; }
+  callC("reveal", [activeTable, BigInt(T.secret)], null, "spin the wheel · table #" + activeTable, { table: activeTable, phase: "reveal" });
 }
-const settle = () => callC("settle", [active], null, "spin & pay out · table #" + active, { gameId: active, phase: "settle" });
-const claim = () => callC("claim", [active], null, "claim (opponent stalled) · table #" + active, { gameId: active, phase: "claim" });
-const cancelGame = () => callC("cancel", [active], null, "cancel table #" + active, { gameId: active, phase: "cancel" });
-
-// deterministic rematch id (same LCG as coinflip) — both players' "Play again" land in ONE new table, roles kept
-function rematchGidFor(oldGid) { return Number((BigInt(oldGid) * 6364136223846793005n + 1442695040888963407n) % 1000000000n); }
-async function rematch() {
-  if (!lastGame || !lastGame.exists) return;
-  const rgid = rematchGidFor(active);
-  if (lastGame.bank === me) {
-    const bankroll = BigInt(lastGame.bankroll);
-    if (myBalance < bankroll) { $("status").textContent = "Deposit more to bank again — need " + rawToNado(bankroll) + " NADO."; return; }
-    openTable(rgid, bankroll);
-  } else if (lastGame.bettor === me) {
-    const stake = BigInt(lastGame.stake), slots = lastGame.covered.slice();
-    while (slots.length < MAXSLOTS) slots.push(SENTINEL);
-    const rg = await fetchGame(rgid);
-    if (!rg || !rg.exists) { $("status").textContent = "Waiting for the bank to start the rematch (table #" + rgid + ")…"; active = rgid; render(); return; }
-    if (myBalance < stake) { $("status").textContent = "Deposit more to play again — need " + rawToNado(stake) + " NADO."; return; }
-    joinTable(rgid, stake, slots);
-  }
-}
+const settleSeat = (g) => callC("settle", [g], null, "collect seat #" + g, { table: activeTable, phase: "settle" });
+const claimSeat = (g) => callC("claim", [g], null, "claim seat #" + g + " (bank stalled)", { table: activeTable, phase: "claim" });
+const closeTable = () => callC("close", [activeTable], null, "close table #" + activeTable, { table: activeTable, phase: "close" });
 
 async function refreshActive() {
   await fetchBalance();
   const sto = await fetchStorage();
   if (sto) {
-    lastStorage = sto;
-    if (active != null) lastGame = gameFrom(sto, active);
-    for (const gid of allGids(sto)) stageCache[gid] = { settled: !!_m(sto, "sd")[gid], ncom: _m(sto, "nn")[gid] || 0, bankroll: _m(sto, "bk")[gid] || 0 };
-    renderLobby(lobbyFrom(sto));
+    if (activeTable != null) { lastTable = tableFrom(sto, activeTable); lastSeats = seatsOfTable(sto, activeTable); }
+    renderLobby(sto);
     renderScoreboard(boardFrom(sto));
+    lastStorage = sto;
   }
-  await resolveAliases([me].concat(lastGame ? [lastGame.bank, lastGame.bettor] : []));
+  await resolveAliases([me].concat(lastTable ? [lastTable.bank] : []).concat(lastSeats.map((s) => s.addr)));
   render();
+}
+let lastStorage = {};
+// scoreboard: net NADO across finished (settled) seats + the bank's net per table
+function boardFrom(sto) {
+  const stats = {};
+  const bump = (a, net) => { const x = stats[a] || (stats[a] = { addr: a, wins: 0, losses: 0, games: 0, net: 0 }); x.games++; x.net += net; net >= 0 ? x.wins++ : x.losses++; };
+  for (const g of allSeats(sto)) {
+    if (!_m(sto, "gd")[g]) continue;                    // only settled seats
+    const t = String(_m(sto, "gg")[g]); const tb = tableFrom(sto, t);
+    if (!tb.exists || tb.result == null) continue;
+    const covered = coveredOf(sto, g), cn = _m(sto, "gc")[g] || 1, stake = _m(sto, "gs")[g] || 0;
+    const win = covered.includes(tb.result);
+    const seatNet = win ? stake * (Math.floor(36 / cn) - 1) : -stake;
+    bump(_m(sto, "ga")[g], seatNet); bump(tb.bank, -seatNet);
+  }
+  return Object.values(stats).sort((a, b) => (b.net - a.net) || (b.wins - a.wins));
 }
 async function renderScoreboard(board) {
   const el = $("scoreList"); if (!el) return;
-  if (!board.length) { el.innerHTML = '<span class="dim">No finished games yet — be the first on the board.</span>'; return; }
+  if (!board.length) { el.innerHTML = '<span class="dim">No finished bets yet — be the first on the board.</span>'; return; }
   const top = board.slice(0, 10);
   await resolveAliases(top.map((r) => r.addr));
   el.innerHTML = '<table class="score"><thead><tr><th>#</th><th>Player</th><th>W–L</th><th>Net</th></tr></thead><tbody>'
-    + top.map((r, i) => {
-        const net = (r.net < 0 ? "-" : "+") + rawToNado(Math.abs(r.net)) + " NADO";
-        const you = r.addr === me;
-        return '<tr' + (you ? ' class="me"' : "") + '><td>' + (i + 1) + '</td><td>' + disp(r.addr) + (you ? " (you)" : "") +
-          '</td><td>W' + r.wins + "–L" + r.losses + '</td><td class="' + (r.net >= 0 ? "pos" : "neg") + '">' + net + "</td></tr>";
-      }).join("") + "</tbody></table>";
+    + top.map((r, i) => { const net = (r.net < 0 ? "-" : "+") + rawToNado(Math.abs(r.net)) + " NADO"; const you = r.addr === me;
+        return '<tr' + (you ? ' class="me"' : "") + '><td>' + (i + 1) + '</td><td>' + disp(r.addr) + (you ? " (you)" : "") + '</td><td>W' + r.wins + "–L" + r.losses + '</td><td class="' + (r.net >= 0 ? "pos" : "neg") + '">' + net + "</td></tr>"; }).join("") + "</tbody></table>";
 }
-function renderLobby(games) {
+function renderLobby(sto) {
   const el = $("lobbyList"); if (!el) return;
-  const rank = { open: 0, live: 1, done: 2 }, tag = { open: "⏳", live: "▶", done: "✓" }, verb = { open: " · bet here", live: " · watch", done: "" };
-  const shown = (games || []).slice().sort((a, b) => rank[a.stage] - rank[b.stage]).slice(0, 24);
+  const tables = allTables(sto).map((t) => tableFrom(sto, t)).filter((t) => t.exists && !t.closed);
+  const rank = { betting: 0, spinning: 1, revealed: 2, forfeit: 1, done: 3 };
+  const tag = { betting: "🟢", spinning: "🎡", revealed: "✓", forfeit: "⚠" };
+  tables.sort((a, b) => (rank[a.phase] - rank[b.phase]) || (b.joinDeadline - a.joinDeadline));
+  const shown = tables.slice(0, 24);
   if (!shown.length) { el.innerHTML = '<span class="dim">No tables yet — bank one below.</span>'; return; }
-  el.innerHTML = shown.map((g) => '<button class="chip ' + g.stage + '" data-lg="' + g.game + '">' + tag[g.stage] + " #" + g.game + " · bank " + rawToNado(g.bankroll) + " NADO" + verb[g.stage] + "</button>").join(" ");
-  el.querySelectorAll(".chip").forEach((b) => b.onclick = () => {
-    active = parseInt(b.dataset.lg, 10); $("joinId").value = b.dataset.lg; refreshActive();
-    try { $("betTable").scrollIntoView({ behavior: "smooth", block: "center" }); } catch {}
-  });
+  el.innerHTML = shown.map((t) => {
+    const left = t.phase === "betting" && lastCursor != null ? " · " + blocksToTime(t.joinDeadline - lastCursor) + " left" : "";
+    const verb = t.phase === "betting" ? " · bet" : t.phase === "spinning" ? " · spinning" : t.phase === "forfeit" ? " · claim" : "";
+    return '<button class="chip ' + t.phase + '" data-t="' + t.id + '">' + (tag[t.phase] || "") + " #" + t.id + " · bank " + rawToNado(t.bankroll) + " · " + t.seatCount + " seat" + (t.seatCount === 1 ? "" : "s") + left + verb + "</button>";
+  }).join(" ");
+  el.querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeTable = parseInt(b.dataset.t, 10); $("joinId").value = b.dataset.t; refreshActive(); try { $("betTable").scrollIntoView({ behavior: "smooth", block: "center" }); } catch {} });
 }
 
-// ---- the roulette TABLE (bettor's bet builder) ---------------------------------------------------
-// quick outside bets -> the exact number set each covers
-const GROUPS = {
-  "1-18": range(1, 18), "19-36": range(19, 36), EVEN: evens(), ODD: odds(),
-  RED: [...RED].sort((a, b) => a - b), BLACK: range(1, 36).filter((n) => !RED.has(n)),
-  "1st 12": range(1, 12), "2nd 12": range(13, 24), "3rd 12": range(25, 36),
-  C1: col(1), C2: col(2), C3: col(3),
-};
+// ---- the roulette TABLE (bet builder) ------------------------------------------------------------
+const GROUPS = { "1-18": range(1, 18), "19-36": range(19, 36), EVEN: range(1,36).filter(n=>n%2===0), ODD: range(1,36).filter(n=>n%2===1),
+  RED: [...RED].sort((a,b)=>a-b), BLACK: range(1,36).filter(n=>!RED.has(n)),
+  "1st 12": range(1,12), "2nd 12": range(13,24), "3rd 12": range(25,36), C1: col(1), C2: col(2), C3: col(3) };
 function range(a, b) { const o = []; for (let i = a; i <= b; i++) o.push(i); return o; }
-function evens() { return range(1, 36).filter((n) => n % 2 === 0); }
-function odds() { return range(1, 36).filter((n) => n % 2 === 1); }
-function col(c) { return range(1, 36).filter((n) => (n % 3) === (c % 3)); }   // C3 -> n%3==0
+function col(c) { return range(1, 36).filter((n) => (n % 3) === (c % 3)); }
 function buildTable() {
-  const grid = $("tableGrid"); if (!grid || grid.dataset.built) return;
-  grid.dataset.built = "1";
-  // 0 cell (spans all three rows)
+  const grid = $("tableGrid"); if (!grid || grid.dataset.built) return; grid.dataset.built = "1";
   let html = '<button class="cell green zero" data-n="0">0</button>';
-  // numbers 1..36 laid out in the standard 3×12 grid (top row 3,6,9…; bottom row 1,4,7…)
   for (let rrow = 0; rrow < 3; rrow++) for (let ccol = 0; ccol < 12; ccol++) {
-    const n = ccol * 3 + (3 - rrow);   // rrow0->+3 (top), rrow1->+2, rrow2->+1 (bottom)
+    const n = ccol * 3 + (3 - rrow);
     html += '<button class="cell ' + colorOf(n) + '" data-n="' + n + '" style="grid-row:' + (rrow + 1) + ';grid-column:' + (ccol + 2) + '">' + n + "</button>";
   }
-  // column 2:1 buttons at the right
-  for (let rrow = 0; rrow < 3; rrow++)
-    html += '<button class="cell col2to1" data-grp="C' + (3 - rrow) + '" style="grid-row:' + (rrow + 1) + ';grid-column:14">2:1</button>';
+  for (let rrow = 0; rrow < 3; rrow++) html += '<button class="cell col2to1" data-grp="C' + (3 - rrow) + '" style="grid-row:' + (rrow + 1) + ';grid-column:14">2:1</button>';
   grid.innerHTML = html;
   grid.querySelectorAll("[data-n]").forEach((b) => b.onclick = () => toggleNum(parseInt(b.dataset.n, 10)));
   grid.querySelectorAll("[data-grp]").forEach((b) => b.onclick = () => selectGroup(b.dataset.grp));
-  // outside-bet buttons (dozens + even-money) already in the HTML
   document.querySelectorAll("[data-grp2]").forEach((b) => b.onclick = () => selectGroup(b.dataset.grp2));
   const clr = $("btnClearBet"); if (clr) clr.onclick = () => { selected = new Set(); paintTable(); render(); };
 }
 function toggleNum(n) { if (selected.has(n)) selected.delete(n); else if (selected.size < MAXSLOTS) selected.add(n); paintTable(); render(); }
-function selectGroup(key) { const nums = GROUPS[key] || []; selected = new Set(nums.slice(0, MAXSLOTS)); paintTable(); render(); }
-function paintTable() {
-  document.querySelectorAll("#tableGrid .cell[data-n]").forEach((b) => b.classList.toggle("sel", selected.has(parseInt(b.dataset.n, 10))));
-}
+function selectGroup(key) { selected = new Set((GROUPS[key] || []).slice(0, MAXSLOTS)); paintTable(); render(); }
+function paintTable() { document.querySelectorAll("#tableGrid .cell[data-n]").forEach((b) => b.classList.toggle("sel", selected.has(parseInt(b.dataset.n, 10)))); }
 
 // ---- render --------------------------------------------------------------------------------------
 function wireUI() {
@@ -357,15 +304,12 @@ function wireUI() {
   $("btnDeposit").onclick = doDeposit;
   $("btnWithdraw").onclick = doWithdraw;
   $("btnNewTable").onclick = newTable;
-  $("btnJoin").onclick = doJoin;
+  $("btnBet").onclick = doBet;
   $("joinId").oninput = () => render();
   $("stakeAmt").oninput = () => render();
-  $("btnReveal").onclick = reveal;
-  $("btnSettle").onclick = settle;
-  $("btnClaim").onclick = claim;
-  $("btnCancel").onclick = cancelGame;
-  $("btnShare").onclick = shareGame;
-  $("btnRematch").onclick = rematch;
+  $("btnReveal").onclick = revealTable;
+  $("btnClose").onclick = closeTable;
+  $("btnShare").onclick = shareTable;
   buildTable();
 }
 const badge = (s) => s === "confirmed" ? '<span class="b ok">confirmed ✓</span>' : s === "pending" ? '<span class="b pend">pending…</span>' : '<span class="b dimb">—</span>';
@@ -378,120 +322,102 @@ function render() {
   $("play").classList.toggle("hidden", !signedIn);
   $("bankcard").classList.toggle("hidden", !signedIn);
   $("bankroll").classList.toggle("hidden", !signedIn);
-  // bet summary: count · multiplier · payout on a stake
-  const c = betCount(), M = betMult();
-  const stakeRaw = nadoToRaw($("stakeAmt").value);
+  const c = betCount(), M = betMult(), stakeRaw = nadoToRaw($("stakeAmt").value);
   $("betInfo").innerHTML = c
-    ? "Covering <b>" + c + "</b> number" + (c > 1 ? "s" : "") + " · pays <b>" + M + "×</b>" +
-      (stakeRaw ? " · win returns <b>" + rawToNado(stakeRaw * BigInt(M)) + " NADO</b> (net +" + rawToNado(stakeRaw * BigInt(M - 1)) + ")" : "")
+    ? "Covering <b>" + c + "</b> number" + (c > 1 ? "s" : "") + " · pays <b>" + M + "×</b>" + (stakeRaw ? " · win returns <b>" + rawToNado(stakeRaw * BigInt(M)) + " NADO</b> (net +" + rawToNado(stakeRaw * BigInt(M - 1)) + ")" : "")
     : '<span class="dim">Tap numbers or a bet region on the table to build your bet.</span>';
-  // Join affordability / joinability (mirrors coinflip): needs a table id, a bet, enough balance, and a bank
-  // that can cover the win. Disable + explain instead of failing after the click.
+  // Bet button affordability (mirrors the coinflip lessons)
   const jid = ($("joinId").value || "").trim();
-  const lgv = lastGame || {};
-  let iAmIn = false, stageJoinable = true, bankroll = null;
-  if (jid && String(active) === jid && lgv.exists) {
-    iAmIn = lgv.bank === me || lgv.bettor === me;
-    stageJoinable = !lgv.settled && lgv.ncom < 2; bankroll = BigInt(lgv.bankroll);
-  } else if (jid && stageCache[jid]) {
-    iAmIn = !!(gamesLoad()[jid] || {}).bet;
-    stageJoinable = !stageCache[jid].settled && stageCache[jid].ncom < 2; bankroll = BigInt(stageCache[jid].bankroll || 0);
-  }
+  const tb = (jid && String(activeTable) === jid && lastTable && lastTable.exists) ? lastTable : null;
+  const canBetPhase = !tb || tb.phase === "betting";
+  const canAfford = !(signedIn && stakeRaw && myBalance < stakeRaw);
   const need = (stakeRaw && M) ? stakeRaw * BigInt(M - 1) : null;
-  const canAffordStake = !(signedIn && stakeRaw && myBalance < stakeRaw);
-  const bankCovers = !(bankroll != null && need != null && bankroll < need);
-  const joinable = !!jid && !!c && !!stakeRaw && !iAmIn && stageJoinable && canAffordStake && bankCovers;
-  $("btnJoin").disabled = !joinable;
-  $("btnJoin").classList.toggle("pulse", joinable && signedIn);
-  $("btnSignIn").classList.toggle("pulse", !!jid && !!c && stageJoinable && !signedIn);
-  // inline hint explaining the current blocker (only once a table + a bet exist)
+  const bankCovers = !(tb && need != null && (BigInt(tb.bankroll) - BigInt(tb.committed)) < need);
+  const betable = !!jid && !!c && !!stakeRaw && canBetPhase && canAfford && bankCovers;
+  $("btnBet").disabled = !betable;
+  $("btnBet").classList.toggle("pulse", betable && signedIn);
+  $("btnSignIn").classList.toggle("pulse", !!jid && !!c && !signedIn);
   let hint = "";
-  if (jid && c && signedIn && !iAmIn && stageJoinable) {
+  if (jid && c && signedIn && canBetPhase) {
     if (stakeRaw && myBalance < stakeRaw) hint = "Not enough NADO — your bet stakes " + rawToNado(stakeRaw) + " but your exec balance is " + rawToNado(myBalance) + ". Deposit at least " + rawToNado(stakeRaw - myBalance) + " more below.";
-    else if (!bankCovers) hint = "This table's bankroll (" + rawToNado(bankroll) + " NADO) can't cover a " + M + "× win on " + rawToNado(stakeRaw) + ". Lower your stake, widen your bet, or pick a bigger table.";
-  }
+    else if (tb && !bankCovers) hint = "This table can't cover a " + M + "× win right now (bankroll left: " + rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) + " NADO). Lower your stake or widen your bet.";
+  } else if (jid && tb && tb.phase !== "betting") hint = "Betting is closed on table #" + jid + " (" + tb.phase + ").";
   const jh = $("joinHint"); if (jh) { jh.textContent = hint; jh.classList.toggle("hidden", !hint); }
-  // your tables (only those that exist on-chain)
-  const g = gamesLoad();
-  const ids = Object.keys(g).filter((id) => stageCache[id]).sort((a, b) => g[b].ts - g[a].ts).slice(0, 8);
-  $("recent").innerHTML = ids.length
-    ? ids.map((id) => {
-        const stg = stageCache[id]; let cls = "", tag = "";
-        if (stg.settled) { cls = " done"; tag = "✓ "; } else if (stg.ncom >= 2) { cls = " live"; tag = "▶ "; } else { cls = " open"; tag = "⏳ "; }
-        const role = g[id].role === "bank" ? "🏦" : "🎯";
-        return '<button class="chip' + cls + '" data-g="' + id + '">' + tag + role + " #" + id + "</button>";
-      }).join(" ")
-    : '<span class="dim">No tables yet.</span>';
-  $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { active = parseInt(b.dataset.g, 10); refreshActive(); });
+  // my recent tables + seats
+  const T = load(LS_T), S = load(LS_S);
+  const mine = [];
+  for (const t of Object.keys(T)) mine.push({ id: +t, role: "bank", ts: T[t].ts });
+  for (const g of Object.keys(S)) mine.push({ id: S[g].table, role: "bet", seat: +g, ts: S[g].ts });
+  mine.sort((a, b) => b.ts - a.ts);
+  const seen = new Set();
+  $("recent").innerHTML = mine.filter((x) => { const k = x.id + x.role; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 8)
+    .map((x) => '<button class="chip" data-t="' + x.id + '">' + (x.role === "bank" ? "🏦" : "🎯") + " #" + x.id + "</button>").join(" ") || '<span class="dim">No tables yet.</span>';
+  $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeTable = parseInt(b.dataset.t, 10); refreshActive(); });
   renderActive();
 }
 function renderActive() {
   const box = $("activeGame");
-  if (active == null) { box.classList.add("hidden"); return; }
+  if (activeTable == null) { box.classList.add("hidden"); return; }
   box.classList.remove("hidden");
-  const lg = lastGame || {}, local = gamesLoad()[active] || {};
-  const iAmBank = lg.bank === me, iAmBettor = lg.bettor === me, iAmIn = iAmBank || iAmBettor;
-  const mySlot = iAmBank ? 1 : iAmBettor ? 2 : 0;
-  const myRevealed = mySlot === 1 ? lg.r1 : mySlot === 2 ? lg.r2 : 0;
-  $("gameId").textContent = "#" + active;
-  $("shareLink").value = base() + "/?game=" + active;
-  drawQR($("shareQR"), $("shareQRNote"), base() + "/?game=" + active, 200);
-  $("gBankroll").textContent = lg.exists ? rawToNado(lg.bankroll) + " NADO" : (local.bankroll ? rawToNado(local.bankroll) + " NADO" : "—");
-  $("gStake").textContent = lg.exists && lg.stake ? rawToNado(lg.stake) + " NADO" : (local.stake ? rawToNado(local.stake) + " NADO" : "—");
-  const covered = (lg.covered && lg.covered.length) ? lg.covered : (local.numbers || []);
-  $("gBet").innerHTML = covered.length
-    ? covered.map((n) => '<span class="pip ' + colorOf(n) + '">' + n + "</span>").join(" ") + ' <span class="dim">· ' + (lg.count || covered.length) + " no. · " + (lg.count ? Math.floor(36 / lg.count) : "?") + "× </span>"
-    : '<span class="dim">no bet yet</span>';
-  $("gStatus").textContent = lg.exists ? (lg.ncom + "/2 seated · " + ((lg.r1 ? 1 : 0) + (lg.r2 ? 1 : 0)) + "/2 revealed" + (lg.settled ? " · settled" : (lg.ncom >= 2 ? " · ⚡ live" : " · waiting for a bettor"))) : "opening…";
-  // seats
-  const seat = (addr, role, revealed) => addr ? '<span class="chip">' + (addr === me ? "you " : "") + role + " " + disp(addr) + (revealed ? " ✓" : "") + "</span>" : "";
-  let seats = seat(lg.bank, "🏦 bank", lg.r1);
-  if (lg.bettor) seats += " " + seat(lg.bettor, "🎯 bettor", lg.r2);
-  else if (!iAmBank && local.role === "bettor" && local.bet === "pending") seats += ' <span class="chip" style="opacity:.75">you · confirming…</span>';
-  $("seats").innerHTML = seats || '<span class="dim">no players yet</span>';
-  // my move badges (only when I'm in the game)
-  const betC = iAmIn ? "confirmed" : (local.bet === "pending" ? "pending" : null);
-  const revC = myRevealed ? "confirmed" : local.reveal;
-  const showMine = iAmIn || (local.bet === "pending" && !lg.settled);
-  $("myBet").classList.toggle("hidden", !showMine);
-  $("myReveal").classList.toggle("hidden", !showMine);
-  if (!iAmIn && local.bet === "pending" && lg.exists && lg.ncom >= 2)
-    $("myBet").innerHTML = 'Your bet: <span class="b" style="background:rgba(248,81,73,.16);color:var(--danger)">didn\'t land — table filled first (your stake is safe)</span>';
-  else
-    $("myBet").innerHTML = (local.role === "bank" ? "Your bank: " : "Your bet: ") + badge(betC);
-  $("myReveal").innerHTML = "Your reveal: " + badge(revC);
-  // buttons
-  const bothIn = lg.ncom === 2, bothRev = lg.r1 && lg.r2;
-  const pastDeadline = lg.exists && !lg.settled && lastCursor != null && lastCursor > lg.deadline;
-  $("btnReveal").classList.toggle("hidden", !(iAmIn && !myRevealed && bothIn && !lg.settled));
-  $("btnSettle").classList.toggle("hidden", !(bothRev && !lg.settled));
-  if (bothRev && !lg.settled) {
-    const iWon = (iAmBettor && lg.win) || (iAmBank && lg.win === 0 && lg.result != null);
-    $("btnSettle").textContent = iAmIn ? (iWon ? "💰 Collect your winnings" : "Spin & pay out") : "Spin & pay out";
+  const tb = lastTable || {}, T = load(LS_T)[activeTable] || {}, S = load(LS_S);
+  const iAmBank = tb.bank === me;
+  const mySeats = lastSeats.filter((s) => s.addr === me);
+  $("gameId").textContent = "#" + activeTable;
+  $("shareLink").value = base() + "/?table=" + activeTable;
+  drawQR($("shareQR"), $("shareQRNote"), base() + "/?table=" + activeTable, 180);
+  $("gBankroll").textContent = tb.exists ? rawToNado(tb.bankroll) + " NADO" : (T.bankroll ? rawToNado(T.bankroll) + " NADO" : "—");
+  const left = tb.exists && !tb.committed ? tb.bankroll : (tb.exists ? BigInt(tb.bankroll) - BigInt(tb.committed) : 0);
+  $("gCover").textContent = tb.exists ? rawToNado(left) + " NADO free" : "—";
+  // phase line + countdown
+  let phaseTxt = "opening…";
+  if (tb.exists) {
+    if (tb.phase === "betting") phaseTxt = "🟢 betting open — " + (lastCursor != null ? blocksToTime(tb.joinDeadline - lastCursor) + " left" : "…") + " · " + tb.seatCount + " seat" + (tb.seatCount === 1 ? "" : "s");
+    else if (tb.phase === "spinning") phaseTxt = "🎡 betting closed — waiting for the bank to spin";
+    else if (tb.phase === "forfeit") phaseTxt = "⚠ bank didn't spin — claim your max win";
+    else if (tb.phase === "revealed") phaseTxt = "✓ spun — " + tb.settledCount + "/" + tb.seatCount + " seats collected";
+    else if (tb.phase === "done") phaseTxt = "table closed";
   }
-  $("btnClaim").classList.toggle("hidden", !pastDeadline);
-  $("btnCancel").classList.toggle("hidden", !(iAmBank && lg.exists && !lg.settled && lg.ncom === 1));
-  $("btnRematch").classList.toggle("hidden", !(lg.settled && iAmIn));
-  // the wheel result
+  $("gStatus").textContent = phaseTxt;
+  // the wheel
   const wheel = $("wheel");
-  if (lg.result != null && (bothRev || lg.settled)) {
-    wheel.className = "wheel " + colorOf(lg.result); wheel.textContent = lg.result;
-    const w = iAmIn ? ((iAmBettor && lg.win) ? "you WON " + rawToNado(BigInt(lg.stake) * BigInt(Math.floor(36 / lg.count))) + " NADO 🎉"
-                      : (iAmBank && !lg.win) ? "your bank WON +" + rawToNado(lg.stake) + " NADO 🎉"
-                      : "you lost")
-                    : (lg.win ? "bettor won" : "bank won");
-    $("result").textContent = colorOf(lg.result).toUpperCase() + " " + lg.result + " — " + w + (lg.settled ? "" : " · paying out…");
-  } else {
-    wheel.className = "wheel spin"; wheel.textContent = "?";
-    $("result").textContent = bothIn ? "Both seated — reveal to spin the wheel!"
-      : (local.bet === "pending" && !iAmIn) ? "Your bet is confirming on-chain (~1 min)…"
-      : lg.ncom === 1 ? "Waiting for a bettor to sit down…" : "Waiting for the bank…";
+  if (tb.result != null) { wheel.className = "wheel " + colorOf(tb.result); wheel.textContent = tb.result;
+    $("result").textContent = colorOf(tb.result).toUpperCase() + " " + tb.result; }
+  else if (tb.phase === "spinning" || tb.phase === "forfeit") { wheel.className = "wheel spin"; wheel.textContent = "?"; $("result").textContent = tb.phase === "forfeit" ? "Bank stalled — claim below" : "Betting closed — spinning soon"; }
+  else { wheel.className = "wheel"; wheel.textContent = "?"; $("result").textContent = tb.phase === "betting" ? "Place your bets!" : "…"; }
+  // seats list
+  const seatRow = (s) => {
+    const youTag = s.addr === me ? '<b style="color:var(--accent2)">you</b> ' : "";
+    const pips = s.covered.slice(0, 6).map((n) => '<span class="pip ' + colorOf(n) + '">' + n + "</span>").join("") + (s.covered.length > 6 ? " +" + (s.covered.length - 6) : "");
+    let out = "";
+    if (tb.result != null) { const win = s.covered.includes(tb.result);
+      out = s.settled ? (win ? '<span class="b ok">won ' + rawToNado(BigInt(s.stake) * BigInt(s.mult)) + "</span>" : '<span class="b dimb">no win</span>')
+                      : (win ? '<span class="b pend">wins ' + rawToNado(BigInt(s.stake) * BigInt(s.mult)) + " — collect</span>" : '<span class="b dimb">lost</span>'); }
+    return '<div class="seat">' + youTag + disp(s.addr) + ' · <span class="mono">' + rawToNado(s.stake) + "</span> on " + pips + " <span class='dim'>(" + s.mult + "×)</span> " + out + "</div>";
+  };
+  $("seats").innerHTML = lastSeats.length ? lastSeats.map(seatRow).join("") : '<span class="dim">No seats yet — be the first to bet.</span>';
+  // my seats' pending bets not yet on-chain
+  const myPending = Object.keys(S).filter((g) => S[g].table === activeTable && S[g].bet === "pending" && !mySeats.some((s) => s.g === +g));
+  $("myStuff").innerHTML = myPending.length ? myPending.map((g) => '<div class="seat"><b style="color:var(--accent2)">you</b> · ' + rawToNado(S[g].stake) + ' NADO on ' + (S[g].numbers || []).length + " no. " + badge("pending") + "</div>").join("") : "";
+  // action buttons
+  const bankPending = T.reveal === "pending";
+  $("btnReveal").classList.toggle("hidden", !(iAmBank && tb.exists && !tb.revealed && (tb.phase === "spinning") && !bankPending));
+  $("btnReveal").textContent = "🎡 Spin the wheel (" + tb.seatCount + " bet" + (tb.seatCount === 1 ? "" : "s") + ")";
+  // per-seat collect/claim buttons for MY seats
+  const wrap = $("myActions"); wrap.innerHTML = "";
+  for (const s of mySeats) {
+    if (s.settled) continue;
+    if (tb.phase === "revealed") { const win = s.covered.includes(tb.result);
+      const b = document.createElement("button"); b.className = "primary"; b.style.flex = "1 1 auto";
+      b.textContent = win ? "💰 Collect " + rawToNado(BigInt(s.stake) * BigInt(s.mult)) + " (seat #" + s.g + ")" : "Close out seat #" + s.g;
+      b.onclick = () => settleSeat(s.g); if (win || iAmBank) wrap.appendChild(b);
+    } else if (tb.phase === "forfeit") {
+      const b = document.createElement("button"); b.className = "primary"; b.style.flex = "1 1 auto";
+      b.textContent = "⚠ Claim max win — seat #" + s.g; b.onclick = () => claimSeat(s.g); wrap.appendChild(b);
+    }
   }
-}
-
-let lastCursor = null;
-async function pollCursor() {   // the applied L1 height, for the claim (past-deadline) affordance
-  try { const s = await (await fetch(base() + "/exec/root?ns=" + NS + "&provisional=1", { cache: "no-store" })).json(); lastCursor = s.cursor != null ? Number(s.cursor) : lastCursor; } catch {}
+  // bank close (reclaim pool) once every seat is resolved
+  $("btnClose").classList.toggle("hidden", !(iAmBank && tb.exists && !tb.closed && tb.settledCount >= tb.seatCount && (tb.revealed || tb.phase === "forfeit" || tb.seatCount === 0)));
+  $("btnClose").textContent = tb.seatCount === 0 ? "Cancel — reclaim bankroll" : "Close table — reclaim " + rawToNado(tb.pool);
 }
 
 async function boot() {
@@ -500,11 +426,10 @@ async function boot() {
   if ($("play") && $("activeGame")) $("play").parentNode.insertBefore($("activeGame"), $("play"));
   loadQR();
   handleReturn();
-  const q = new URLSearchParams(location.search).get("game");
-  if (q) { $("joinId").value = q; if (active == null) active = parseInt(q, 10); deepLinkGame = q; }
+  const q = new URLSearchParams(location.search).get("table");
+  if (q) { $("joinId").value = q; if (activeTable == null) activeTable = parseInt(q, 10); }
   if (me) await fetchBalance();
-  paintTable();
-  render();
+  paintTable(); render();
   pollCursor(); refreshActive();
   setInterval(() => { pollCursor(); refreshActive(); }, 3000);
 }
