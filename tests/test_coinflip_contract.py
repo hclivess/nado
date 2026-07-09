@@ -168,7 +168,11 @@ ck("SEC: settle still pays the winner after that", bal("A" if predict(s_a,s_b)==
 print("\n"+("ALL PASS" if not F else f"{len(F)} FAILED: {F}"))
 if not F:
     import os
-    committed=json.load(open(os.path.join(os.path.dirname(__file__),"..","execnode","contracts","coinflip.json")))
-    assert committed==CODE, "execnode/contracts/coinflip.json is STALE — re-run to regenerate"
-    print("committed coinflip.json matches the assembled contract")
+    outp = os.path.join(os.path.dirname(__file__),"..","execnode","contracts","coinflip.json")
+    if os.environ.get("WRITE"):
+        json.dump(CODE, open(outp,"w")); print("WROTE", outp)
+    else:
+        committed=json.load(open(outp)) if os.path.exists(outp) else None
+        assert committed==CODE, "execnode/contracts/coinflip.json is STALE — re-run with WRITE=1 to regenerate"
+        print("committed coinflip.json matches the assembled contract")
 sys.exit(1 if F else 0)
