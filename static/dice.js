@@ -129,7 +129,14 @@ function renderLobby(sto) {
     const verb = t.phase === "betting" ? " · bet" : t.phase === "spinning" ? " · rolling" : t.phase === "forfeit" ? " · claim" : "";
     return '<button class="chip ' + t.phase + '" data-t="' + t.id + '">' + (tag[t.phase] || "") + " #" + t.id + " · bank " + rawToNado(t.bankroll) + " · " + t.seatCount + " roll" + (t.seatCount === 1 ? "" : "s") + left + verb + "</button>";
   }).join(" ") : '<span class="dim">No tables yet — bank one below.</span>';
-  el.querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeTable = parseInt(b.dataset.t, 10); $("joinId").value = b.dataset.t; refreshActive(); try { $("betCard").scrollIntoView({ behavior: "smooth", block: "center" }); } catch {} });
+  el.querySelectorAll(".chip").forEach((b) => b.onclick = () => {
+    const id = parseInt(b.dataset.t, 10);
+    activeTable = id; $("joinId").value = String(id);
+    $("status").textContent = "Table #" + id + " selected — set your stake and win chance, then Place roll.";
+    refreshActive();
+    try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
+    try { $("stakeAmt").focus(); } catch {}
+  });
 }
 
 // ---- render --------------------------------------------------------------------------------------
