@@ -202,6 +202,7 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
     for _st in states_map.values():
         _st.cursor = h
         _st.advance_beacons(h)      # cache every epoch beacon now finalized at this height
+        _st.record_block_hash(h, block.get("block_hash"))   # BLOCKHASH randomness for this finalized height
     return True
 
 
@@ -545,6 +546,29 @@ async def h_view(request):
 # endpoint, since it is now an on-chain contract, not a native module)
 
 
+async def h_blockhash(request):
+    """One or more finalized L1 block hashes for the BLOCKHASH randomness (?height=H  or  ?heights=H1,H2,…).
+    Returns {height: hex|null} — null if the height is in the future or older than the node retains. Lets a game
+    UI compute the same objective result the contract will (e.g. show the wheel land before anyone settles)."""
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
+    q = request.query
+    hs = []
+    if q.get("height"):
+        hs = [q["height"]]
+    elif q.get("heights"):
+        hs = q["heights"].split(",")
+    out = {}
+    for h in hs:
+        try:
+            hi = int(h); v = st.block_hashes.get(hi)
+            out[str(hi)] = (format(v, "x") if v is not None else None)
+        except Exception:
+            pass
+    return web.json_response({"cursor": st.cursor, "hashes": out})
+
+
 async def h_outbox(request):
     """List the cross-domain outbox messages emitted by namespace ?ns= (each {seq, from, to_ns, data})."""
     st = _state_for(request)
@@ -809,6 +833,7 @@ async def main():
                     web.get("/exec/contracts", h_contracts),
                     web.get("/exec/contract", h_contract),
                     web.get("/exec/view", h_view),
+                    web.get("/exec/blockhash", h_blockhash),
                     web.get("/exec/outbox", h_outbox),
                     web.get("/exec/outbox_proof", h_outbox_proof),
                     web.get("/exec/inbox", h_inbox),

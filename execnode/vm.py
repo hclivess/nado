@@ -46,8 +46,14 @@ _BINOPS = {"ADD", "SUB", "MUL", "DIV", "MOD", "LT", "GT", "EQ", "GTE", "LTE", "A
 # commit-reveal. It reverts if the epoch's beacon isn't finalized yet, so a game can only read a beacon that
 # was fixed AFTER its bets closed. This is what lets a game settle OBJECTIVELY from chain randomness with no
 # player secret-reveal and no trusted party (doc/execution-layer.md).
+# BLOCKHASH (#randao): pops an L1 block height and pushes that FINALIZED block's hash as a 256-bit int. A block's
+# hash is unpredictable until the block is mined but immutable once finalized and IDENTICAL on every node, so it
+# is objective chain randomness a contract can pin to a FUTURE height: a table fixes settle_height when it opens,
+# bets close at that height, and the result is derived from BLOCKHASH(settle_height) — nobody can know it while
+# betting is open, nobody has to "spin", and every node computes the same outcome. Reverts if the height is in
+# the future (> cursor) or older than the exec node retains, so a game can only read a hash fixed AFTER bets close.
 _KNOWN = _BINOPS | {"PUSH", "POP", "DUP", "SWAP", "NOT", "HASH", "CALLER", "ARG",
-                    "MLOAD", "MSTORE", "REQUIRE", "RETURN", "HALT", "VALUE", "PAY", "CURSOR", "BEACON"}
+                    "MLOAD", "MSTORE", "REQUIRE", "RETURN", "HALT", "VALUE", "PAY", "CURSOR", "BEACON", "BLOCKHASH"}
 _MAX_PAYOUTS = 16          # bound the payouts one call can schedule (anti-abuse; a flip settles to ONE winner)
 
 
@@ -102,7 +108,7 @@ def _bound(v):
     return v
 
 
-def run(code, method, caller, args, storage, value=0, cursor=0, beacons=None):
+def run(code, method, caller, args, storage, value=0, cursor=0, beacons=None, block_hashes=None):
     """Execute code[method]. `storage` is {mapname: {key: int|str}}. `value` is the NADO (raw) escrowed with
     this call (already debited from the caller into the contract by the exec); `cursor` is the L1 height.
     Runs on a deep copy; returns (ok, return_value, new_storage, payouts) where payouts is [(to, amount)] the
@@ -144,6 +150,12 @@ def run(code, method, caller, args, storage, value=0, cursor=0, beacons=None):
                 if bv is None:                       # not finalized yet (or before genesis) -> revert (no-op call)
                     raise VMRevert("beacon for epoch not available")
                 stack.append(_int(bv))
+            elif op == "BLOCKHASH":
+                hgt = _int(stack.pop())
+                hv = (block_hashes or {}).get(hgt)
+                if hv is None:                       # future height, or older than the exec node retains -> revert
+                    raise VMRevert("block hash for height not available")
+                stack.append(_int(hv))
             elif op == "PAY":
                 amount = _int(stack.pop())
                 to = stack.pop()

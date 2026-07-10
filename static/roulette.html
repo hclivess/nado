@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NADO Roulette — provably fair, multiplayer, post-quantum</title>
+<title>NADO Roulette — auto-spinning, provably fair, post-quantum</title>
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
     --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--red:#d0362b;--black:#20272f;--green:#1f8f4e;
@@ -33,9 +33,7 @@
   .warn{color:var(--danger);font-weight:600;line-height:1.45}
   .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}
   .chip.betting{border-color:var(--accent2);color:var(--accent2)}
-  .chip.spinning{border-color:#e3b341;color:#e3b341}
-  .chip.forfeit{border-color:var(--danger);color:var(--danger)}
-  .chip.revealed,.chip.done{opacity:.55}
+  .chip.done{opacity:.55}
   .chip.pending{opacity:.6;border-style:dashed}
   table.score{width:100%;border-collapse:collapse;font-size:13px}
   table.score th,table.score td{text-align:left;padding:6px 6px;border-bottom:1px solid var(--border)}
@@ -84,7 +82,7 @@
 <body>
 <div class="wrap">
   <header><span class="logo"><svg viewBox="0 0 48 48" width="30" height="30" aria-hidden="true"><circle cx="24" cy="24" r="16" fill="#0b0f14" stroke="#b5810f" stroke-width="2"/><g stroke="#0b0f14" stroke-width=".6"><path d="M24 24 L24 8 A16 16 0 0 1 35.3 12.7 Z" fill="#d0362b"/><path d="M24 24 L35.3 12.7 A16 16 0 0 1 40 24 Z" fill="#20272f"/><path d="M24 24 L40 24 A16 16 0 0 1 35.3 35.3 Z" fill="#1f8f4e"/><path d="M24 24 L35.3 35.3 A16 16 0 0 1 24 40 Z" fill="#d0362b"/><path d="M24 24 L24 40 A16 16 0 0 1 12.7 35.3 Z" fill="#20272f"/><path d="M24 24 L12.7 35.3 A16 16 0 0 1 8 24 Z" fill="#d0362b"/><path d="M24 24 L8 24 A16 16 0 0 1 12.7 12.7 Z" fill="#20272f"/><path d="M24 24 L12.7 12.7 A16 16 0 0 1 24 8 Z" fill="#20272f"/></g><circle cx="24" cy="24" r="6" fill="#e3b341" stroke="#b5810f" stroke-width="1.4"/><circle cx="24" cy="10.5" r="2" fill="#fff"/></svg></span><h1>NADO <span class="a">Roulette</span></h1></header>
-  <p class="sub">A provably-fair, <b>peer-banked multiplayer</b> European roulette on the NADO execution layer. A table is one shared wheel: the bank opens it, everyone bets during the window, then one spin — <span class="mono">HASH(bankSecret ‖ tableId) mod 37</span> — decides every seat. A win pays the true <span class="mono">36 ÷ numbers-covered</span> (2.70% single-zero edge). Post-quantum wallet, no install.</p>
+  <p class="sub">A provably-fair, <b>peer-banked multiplayer</b> European roulette on the NADO execution layer. Each table <b>spins itself automatically every ~2 minutes</b> — nobody has to reveal or spin. Bet on any numbers; the result is fixed by a <b>future L1 block hash</b> nobody can predict while betting is open, so the wheel is honest by construction. A win pays the true <span class="mono">36 ÷ numbers-covered</span> (2.70% single-zero edge). Post-quantum wallet, no install.</p>
 
   <div id="status"></div>
 
@@ -98,40 +96,14 @@
     <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
   </div>
 
-  <!-- BET AT A TABLE -->
+  <!-- FIND A TABLE -->
   <div class="card hidden" id="play">
-    <h2>🎯 Bet at a table</h2>
+    <h2>🎯 Find a table</h2>
+    <p class="small dim">Pick a table from the lobby below, or open one by ID — then the bet layout opens for that table.</p>
     <div class="row">
-      <input id="joinId" placeholder="table ID (or pick from the lobby)" inputmode="numeric" autocomplete="off">
-      <input id="stakeAmt" placeholder="stake (NADO)" inputmode="decimal" autocomplete="off">
+      <input id="joinId" placeholder="table ID" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="btnGoTable" style="flex:0 0 auto">Open table</button>
     </div>
-    <div class="tablewrap mt" id="betTable">
-      <div class="rtable">
-        <div id="tableGrid"></div>
-        <div class="outside">
-          <span class="z"></span>
-          <button class="obtn" data-grp2="1st 12">1st 12</button>
-          <button class="obtn" data-grp2="2nd 12">2nd 12</button>
-          <button class="obtn" data-grp2="3rd 12">3rd 12</button>
-          <span></span>
-        </div>
-        <div class="evenrow">
-          <span class="z"></span>
-          <button class="obtn" data-grp2="1-18">1–18</button>
-          <button class="obtn" data-grp2="EVEN">EVEN</button>
-          <button class="obtn" data-grp2="RED"><span class="di red"></span></button>
-          <button class="obtn" data-grp2="BLACK"><span class="di black"></span></button>
-          <button class="obtn" data-grp2="ODD">ODD</button>
-          <button class="obtn" data-grp2="19-36">19–36</button>
-        </div>
-      </div>
-    </div>
-    <div id="betInfo"></div>
-    <div class="row mt" style="align-items:center">
-      <button class="ghost" id="btnClearBet" style="flex:0 0 auto">Clear</button>
-      <button class="primary" id="btnBet" style="flex:1 1 auto">Place bet</button>
-    </div>
-    <div class="small warn mt hidden" id="joinHint"></div>
     <div class="small dim mt">Your tables <span style="opacity:.7">· 🏦 you bank · 🎯 you bet</span></div>
     <div class="small dim" id="recent"></div>
   </div>
@@ -139,7 +111,7 @@
   <!-- BANK A TABLE -->
   <div class="card hidden" id="bankcard">
     <h2>🏦 Bank a table</h2>
-    <p class="small dim">Put up a bankroll and open a shared table. Bettors play against it during a ~3-minute window; then you sign <b>one</b> spin and the wheel decides everyone. You keep losing stakes and the green-zero edge. If you never spin, bettors reclaim their max win — so it always pays to spin.</p>
+    <p class="small dim">Put up a bankroll and open a shared, self-spinning table. Bettors play against it round after round; you keep losing stakes and the green-zero edge, and the wheel resolves itself from the chain — you never have to spin or sign anything again. Top up or close the table any time.</p>
     <div class="row">
       <input id="bankrollAmt" placeholder="bankroll (NADO)" inputmode="decimal" autocomplete="off">
       <button class="primary" id="btnNewTable" style="flex:0 0 auto">Open table</button>
@@ -160,18 +132,18 @@
   <!-- PUBLIC LOBBY -->
   <div class="card" id="lobby">
     <h2>🎲 Public tables</h2>
-    <p class="small dim">Live tables — join any one whose window is still open and bet against its bank. <span style="opacity:.7">🟢 betting · 🎡 spinning · ⚠ claim</span></p>
+    <p class="small dim">Live self-spinning tables — tap one to bet against its bank. <span style="opacity:.7">🟢 open for bets</span></p>
     <div class="small mt" id="lobbyList"><span class="dim">Loading…</span></div>
   </div>
 
   <!-- SCOREBOARD -->
   <div class="card" id="scoreboard">
     <h2>🏆 Scoreboard</h2>
-    <p class="small dim">Global standings across every finished bet — banks and bettors alike, ranked by net NADO won.</p>
+    <p class="small dim">Global standings across every settled bet — banks and bettors alike, ranked by net NADO won.</p>
     <div class="mt" id="scoreList"><span class="dim">Loading…</span></div>
   </div>
 
-  <!-- ACTIVE TABLE -->
+  <!-- ACTIVE TABLE (bet builder lives here — only visible once a table is chosen) -->
   <div class="card hidden" id="activeGame">
     <h2>Table <span id="gameId" class="mono"></span></h2>
     <div class="wheelwrap">
@@ -182,13 +154,45 @@
     <div class="kv"><span class="k">Bank (the house — pays winners)</span><span class="mono" id="gBank">—</span></div>
     <div class="kv"><span class="k">Bankroll</span><span class="mono" id="gBankroll">—</span></div>
     <div class="kv"><span class="k">Coverage left</span><span class="mono" id="gCover">—</span></div>
+
+    <!-- BET BUILDER -->
+    <div id="betBuilder" class="mt">
+      <label>Build your bet for the next spin</label>
+      <input id="stakeAmt" placeholder="stake (NADO)" inputmode="decimal" autocomplete="off">
+      <div class="tablewrap mt" id="betTable">
+        <div class="rtable">
+          <div id="tableGrid"></div>
+          <div class="outside">
+            <span class="z"></span>
+            <button class="obtn" data-grp2="1st 12">1st 12</button>
+            <button class="obtn" data-grp2="2nd 12">2nd 12</button>
+            <button class="obtn" data-grp2="3rd 12">3rd 12</button>
+            <span></span>
+          </div>
+          <div class="evenrow">
+            <span class="z"></span>
+            <button class="obtn" data-grp2="1-18">1–18</button>
+            <button class="obtn" data-grp2="EVEN">EVEN</button>
+            <button class="obtn" data-grp2="RED"><span class="di red"></span></button>
+            <button class="obtn" data-grp2="BLACK"><span class="di black"></span></button>
+            <button class="obtn" data-grp2="ODD">ODD</button>
+            <button class="obtn" data-grp2="19-36">19–36</button>
+          </div>
+        </div>
+      </div>
+      <div id="betInfo"></div>
+      <div class="row mt" style="align-items:center">
+        <button class="ghost" id="btnClearBet" style="flex:0 0 auto">Clear</button>
+        <button class="primary" id="btnBet" style="flex:1 1 auto">Place bet</button>
+      </div>
+      <div class="small warn mt hidden" id="joinHint"></div>
+    </div>
+
     <div class="mt small dim">Seats</div>
     <div id="seats"></div>
-    <div id="myStuff" class="mt"></div>
     <div class="row mt" id="myActions"></div>
     <div class="row mt">
       <button class="primary hidden" id="btnReopen">🔄 Re-open — try again</button>
-      <button class="primary hidden" id="btnReveal">🌀 Spin the wheel</button>
       <button class="ghost hidden" id="btnClose">Close table</button>
     </div>
     <div class="row mt hidden" id="fundRow">
@@ -207,13 +211,13 @@
 
   <!-- FAIRNESS -->
   <div class="card">
-    <h2>Provably fair — no cheating</h2>
+    <h2>Provably fair — no house spin, no secrets</h2>
     <p class="small dim" style="line-height:1.6">
-      One shared wheel per table, enforced on-chain:
-      <br>• <b>The number is locked before any bet.</b> The bank commits <span class="mono">HASH(secret)</span> when it opens the table, so the winning number is fixed and hidden before betting starts — the bank can't change it or aim it at the bets, and bettors bet blind. When the window closes the bank reveals the secret and the one number is derived for everyone.
-      <br>• <b>Every seat is independent.</b> You only sign once — your bet. A no-show never stalls the table, and one reveal settles all seats. A win pays the true <span class="mono">36 ÷ numbers-covered</span>.
-      <br>• <b>The bank can't run.</b> If the bank never spins, after the deadline every seat claims its <b>maximum</b> win — so stalling always costs the bank more than spinning. The bank escrows enough to cover every seat's max at once.
-      <br>• <b>House wins are withdrawable.</b> Each bank escrows only its own table's bankroll and reclaims it (± results) with one close — no shared pool, no trust.
+      One shared wheel per table, resolved entirely by the chain:
+      <br>• <b>Every ~2 minutes the wheel spins itself.</b> Each bet is bound to a future settle block; the winning number is <span class="mono">HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37</span>. Those block hashes don't exist yet when you bet, so <b>nobody — not you, not the bank, not the block producer — can know or steer the result</b> while betting is open. Two consecutive blocks are mixed so no single miner can grind it.
+      <br>• <b>No one has to spin.</b> There's no reveal and no secret. Once your settle block is finalized, <b>anyone</b> can settle your seat and the chain pays a win automatically — a stalling bank can never rob you, because there's nothing for the bank to withhold.
+      <br>• <b>A win pays the true <span class="mono">36 ÷ numbers-covered</span>.</b> Losing stakes fold into the bankroll, so the table keeps spinning round after round.
+      <br>• <b>House money is withdrawable.</b> Each bank escrows only its own table's bankroll and reclaims it (± results) with one close — no shared pool, no trust.
     </p>
   </div>
 

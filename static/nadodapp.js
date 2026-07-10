@@ -21,6 +21,10 @@ const WALLET = "https://get.nadochain.com";
 export const base = () => location.origin.replace(/\/+$/, "");
 export const $ = (id) => document.getElementById(id);
 export const _m = (sto, name) => (sto && sto[name]) || {};
+// gate(map): show/hide a set of elements by id in ONE call — map is { elementId: shouldShow }. Every game uses
+// it to keep "signed-in only" panels AND the in-game STAGE (the board / wheel / felt / bet layout) hidden until
+// they apply, so a player never sees a playing field for a game they haven't opened. Missing ids are ignored.
+export const gate = (map) => { for (const id in map) { const el = document.getElementById(id); if (el) el.classList.toggle("hidden", !map[id]); } };
 
 // ---- amounts -------------------------------------------------------------------------------------
 export function nadoToRaw(s) {

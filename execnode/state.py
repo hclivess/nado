@@ -127,6 +127,11 @@ class ExecState:
         self.randao_reveals = {}   # epoch(int) -> set(secret hex) accumulated from `reveal` txs
         self.beacons = {}          # epoch(int) -> beacon(int), cached
         self.beacon_floor = None   # first epoch we witness in full (set on first advance) — below it, unavailable
+        # BLOCKHASH randomness (#randao): finalized L1 block hashes, height(int) -> hash(int). Like the beacon this
+        # is an L1-DERIVED input (identical on every node once finalized), persisted for restart but NOT committed
+        # to state_root. The BLOCKHASH opcode reads it so a game can pin its result to a FUTURE height whose hash
+        # nobody can predict at bet time. Bounded ring (recent heights only).
+        self.block_hashes = {}     # height(int) -> block hash(int)
         self.load()
 
     # --- persistence -----------------------------------------------------------------------------
@@ -154,6 +159,7 @@ class ExecState:
         self.randao_reveals = {int(e): set(v) for e, v in d.get("randao_reveals", {}).items()}
         self.beacons = {int(e): int(v) for e, v in d.get("beacons", {}).items()}
         self.beacon_floor = d.get("beacon_floor")
+        self.block_hashes = {int(h): int(v) for h, v in d.get("block_hashes", {}).items()}
 
     def _snapshot(self):
         """The full serializable payload (identical to what save() writes), taken UNDER the mutate lock so a
@@ -168,7 +174,8 @@ class ExecState:
                     "unshield_withdrawals": self.unshield_withdrawals, "uw_nonce": self.uw_nonce,
                     "field_pool": self.field_pool.to_dict(),
                     "randao_reveals": {str(e): sorted(v) for e, v in self.randao_reveals.items()},
-                    "beacons": {str(e): str(v) for e, v in self.beacons.items()}, "beacon_floor": self.beacon_floor}
+                    "beacons": {str(e): str(v) for e, v in self.beacons.items()}, "beacon_floor": self.beacon_floor,
+                    "block_hashes": {str(h): str(v) for h, v in self.block_hashes.items()}}
 
     def clone(self):
         """A deep, independent, DISK-FREE copy for provisional/speculative apply (the unfinalized L1 tail).
@@ -361,6 +368,22 @@ class ExecState:
             for e in [e for e in self.beacons if e < keep]:
                 self.beacons.pop(e, None); self.randao_reveals.pop(e, None)
 
+    def record_block_hash(self, height, block_hash):
+        """Record one finalized L1 block hash for the BLOCKHASH opcode. `block_hash` is the block's hex hash;
+        it becomes readable only once the cursor has reached `height` (a game can pin a FUTURE settle height
+        whose hash nobody can predict while bets are open). Bounded ring — keeps the most recent ~20000 heights
+        (~1.4 days at 6s), far more than any table's bet-to-settle window needs."""
+        try:
+            h = int(height)
+            if h < 0 or not isinstance(block_hash, str) or not block_hash:
+                return
+            self.block_hashes[h] = int(block_hash, 16)
+            if len(self.block_hashes) > 20000:
+                for k in sorted(self.block_hashes)[:len(self.block_hashes) - 20000]:
+                    self.block_hashes.pop(k, None)
+        except Exception:
+            pass
+
     def apply_field_shield(self, amount, owner, rho):
         """Add a field-native note for an L1 field-shield deposit. C-2: the note value is BOUND to the L1
         escrow — the exec node computes the commitment itself as commit(amount, owner, rho) from the
@@ -468,7 +491,7 @@ class ExecState:
                     return f"skip: contract {cid} already exists"
                 storage = {}
                 if "constructor" in code:
-                    ok, _ret, storage, _pay = rt.run(code, "constructor", sender, [], {}, cursor=self.cursor, beacons=self.beacons)
+                    ok, _ret, storage, _pay = rt.run(code, "constructor", sender, [], {}, cursor=self.cursor, beacons=self.beacons, block_hashes=self.block_hashes)
                     if not ok:
                         storage = {}                      # constructor reverted -> deploy with empty state
                 abi = payload.get("abi")   # optional, non-consensus UX metadata {method:{args,doc}}
@@ -501,7 +524,7 @@ class ExecState:
                         del self.bridge[sender]
                     self.bridge[cid] = self.bridge.get(cid, 0) + value
                 ok, _ret, new_storage, payouts = rt.run(c["code"], method, sender, args, c["storage"],
-                                                        value=value, cursor=self.cursor, beacons=self.beacons)
+                                                        value=value, cursor=self.cursor, beacons=self.beacons, block_hashes=self.block_hashes)
                 def _refund():
                     if value > 0:
                         self.bridge[cid] = self.bridge.get(cid, 0) - value
@@ -664,5 +687,5 @@ class ExecState:
         rt = runtimes.get(c.get("runtime", runtimes.DEFAULT_RUNTIME))
         if rt is None:
             return None
-        ok, ret, _, _ = rt.run(c["code"], method, "view", args or [], c["storage"], cursor=self.cursor, beacons=self.beacons)
+        ok, ret, _, _ = rt.run(c["code"], method, "view", args or [], c["storage"], cursor=self.cursor, beacons=self.beacons, block_hashes=self.block_hashes)
         return ret if ok else None
