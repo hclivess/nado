@@ -900,19 +900,47 @@ async def htlcs(request):
 # browser AND the CDN edge) while an edit still propagates on the next page load — the interface pulls
 # ~1.5 MB of JS (i18n.js alone is ~1 MiB), which under the old blanket no-store re-downloaded every visit.
 _STATIC_REF_RE = re.compile(rb'((?:src|href)=")(/static/[A-Za-z0-9_./-]+)(")')
+# ES-module import specifiers inside a served .js:  from "./x.js"  ·  import("./x.js")  ·  import "./x.js"
+_JS_IMPORT_RE = re.compile(rb'(\bfrom\s*["\']|import\s*\(\s*["\']|import\s*["\'])(\.{1,2}/[A-Za-z0-9_./-]+\.js)(["\'])')
+
+
+def _js_epoch():
+    """A single version number = the NEWEST mtime across ALL static .js files. Every .js reference (HTML
+    <script> AND in-file ES imports) is stamped with THIS, so editing ANY module bumps the version of the
+    WHOLE graph at once. That guarantees coherency: a browser/CDN can never load a fresh game.js against a
+    stale cached nadodapp.js (the bug that made 'sign in do nothing' after an SDK export was added) — the
+    stamped URLs all change together, so a cache miss on one is a cache miss on all its dependencies."""
+    newest = 0
+    try:
+        for name in os.listdir(_STATIC_DIR):
+            if name.endswith(".js"):
+                newest = max(newest, int(os.stat(os.path.join(_STATIC_DIR, name)).st_mtime))
+    except OSError:
+        pass
+    return newest
 
 
 def _stamp_static_refs(html):
-    """Rewrite src/href="/static/<asset>" references in `html` (bytes) to .../<asset>?v=<mtime>.
-    References whose file doesn't exist are left untouched."""
+    """Rewrite src/href="/static/<asset>" references in `html` (bytes) to .../<asset>?v=<version>. A .js
+    asset is stamped with the global JS epoch (so all modules bust together); other assets use their own
+    mtime. References whose file doesn't exist are left untouched."""
+    jsep = _js_epoch()
     def sub(m):
         rel = m.group(2)[len(b"/static/"):].decode()
         try:
-            v = int(os.stat(os.path.join(_STATIC_DIR, rel)).st_mtime)
+            v = jsep if rel.endswith(".js") else int(os.stat(os.path.join(_STATIC_DIR, rel)).st_mtime)
         except (OSError, UnicodeDecodeError):
             return m.group(0)
         return m.group(1) + m.group(2) + b"?v=%d" % v + m.group(3)
     return _STATIC_REF_RE.sub(sub, html)
+
+
+def _stamp_js_imports(js_bytes):
+    """Rewrite a served .js file's relative ES-module imports (from './x.js') to '.../x.js?v=<js epoch>',
+    so the shared modules (nadodapp.js, nadotx.js, …) are fetched at the SAME coherent version as the
+    importing file — never a stale CDN-cached copy that's missing a newly-added export."""
+    v = b"?v=%d" % _js_epoch()
+    return _JS_IMPORT_RE.sub(lambda m: m.group(1) + m.group(2) + v + m.group(3), js_bytes)
 
 
 def _html_response(request, full):
@@ -947,6 +975,13 @@ async def static_handler(request):
     immutable = request.query.get("v", "").isdigit()
     headers = {"Cache-Control": "public, max-age=31536000, immutable" if immutable else "no-cache",
                "Access-Control-Allow-Origin": "*"}
+    # A .js module's relative imports are rewritten to the coherent global JS version so the CDN can never
+    # pair a fresh importer with a stale imported module (missing-export -> dead page). Read + rewrite in
+    # process (JS files are small); everything else streams via FileResponse.
+    if full.endswith(".js"):
+        with open(full, "rb") as f:
+            body = _stamp_js_imports(f.read())
+        return web.Response(body=body, content_type="application/javascript", charset="utf-8", headers=headers)
     return web.FileResponse(full, headers=headers)
 
 
