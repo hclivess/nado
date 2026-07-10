@@ -9,6 +9,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
 const CID = "05ea18398f08373343f49a4f51daf78c";
+const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="5" y="21" width="16" height="16" rx="4" fill="#e6edf3" stroke="#243140" stroke-width="1.6"/>     <circle cx="9.5" cy="25.5" r="1.6" fill="#20272f"/><circle cx="16.5" cy="32.5" r="1.6" fill="#20272f"/><circle cx="13" cy="29" r="1.6" fill="#00ad93"/>     <rect x="27" y="21" width="16" height="16" rx="4" fill="#e3b341" stroke="#8a6209" stroke-width="1.6"/>     <circle cx="31.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="31.5" cy="32.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="32.5" r="1.6" fill="#3a2a05"/>     <rect x="16" y="6" width="16" height="16" rx="4" fill="#d0362b" stroke="#8a1a12" stroke-width="1.6"/>     <circle cx="24" cy="14" r="1.9" fill="#fff"/></svg>';
 const dapp = new NadoDapp({ cid: CID, app: "Farkle" });
 const JOIN = 20, PLAY = 600, GAP = 2, MAXP = 8;           // MUST match the contract
 const BASE = { 1: 1000, 2: 200, 3: 300, 4: 400, 5: 500, 6: 600 };
@@ -213,7 +214,7 @@ function render() {
   for (const t of Object.keys(T)) mine.push({ id: +t, role: "host", ts: T[t].ts });
   for (const g of Object.keys(S)) mine.push({ id: S[g].table, seat: g, role: "seat", ts: S[g].ts });
   mine.sort((a, b) => b.ts - a.ts); const seen = new Set();
-  const shown = mine.filter((x) => { x.live = x.role === "host" ? knownTables.has(String(x.id)) : knownSeats.has(String(x.seat)); x.icon = "🎲"; const k = String(x.id); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 8);
+  const shown = mine.filter((x) => { x.live = x.role === "host" ? knownTables.has(String(x.id)) : knownSeats.has(String(x.seat)); x.icon = GICON; const k = String(x.id); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 8);
   for (const x of shown) { if (x.live && lastSto) { const tb = tableFrom(lastSto, x.id); if (tb.exists) x.tag = tb.closed ? "finished ✓" : tb.phase === "join" ? "joining" : tb.phase === "play" ? "in play" : "settle!"; } }
   recentChips($("recent"), shown, selectTable, "No tables yet.");
   renderActive();

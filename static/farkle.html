@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NADO Farkle — push your luck for the pot, post-quantum</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20y%3D%22.9em%22%20font-size%3D%2290%22%3E%E2%9A%A1%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%2048%2048%22%20width%3D%2264%22%20height%3D%2264%22%20aria-hidden%3D%22true%22%3E%0A%20%20%20%20%3Crect%20x%3D%225%22%20y%3D%2221%22%20width%3D%2216%22%20height%3D%2216%22%20rx%3D%224%22%20fill%3D%22%23e6edf3%22%20stroke%3D%22%23243140%22%20stroke-width%3D%221.6%22/%3E%0A%20%20%20%20%3Ccircle%20cx%3D%229.5%22%20cy%3D%2225.5%22%20r%3D%221.6%22%20fill%3D%22%2320272f%22/%3E%3Ccircle%20cx%3D%2216.5%22%20cy%3D%2232.5%22%20r%3D%221.6%22%20fill%3D%22%2320272f%22/%3E%3Ccircle%20cx%3D%2213%22%20cy%3D%2229%22%20r%3D%221.6%22%20fill%3D%22%2300ad93%22/%3E%0A%20%20%20%20%3Crect%20x%3D%2227%22%20y%3D%2221%22%20width%3D%2216%22%20height%3D%2216%22%20rx%3D%224%22%20fill%3D%22%23e3b341%22%20stroke%3D%22%238a6209%22%20stroke-width%3D%221.6%22/%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2231.5%22%20cy%3D%2225.5%22%20r%3D%221.6%22%20fill%3D%22%233a2a05%22/%3E%3Ccircle%20cx%3D%2238.5%22%20cy%3D%2225.5%22%20r%3D%221.6%22%20fill%3D%22%233a2a05%22/%3E%3Ccircle%20cx%3D%2231.5%22%20cy%3D%2232.5%22%20r%3D%221.6%22%20fill%3D%22%233a2a05%22/%3E%3Ccircle%20cx%3D%2238.5%22%20cy%3D%2232.5%22%20r%3D%221.6%22%20fill%3D%22%233a2a05%22/%3E%0A%20%20%20%20%3Crect%20x%3D%2216%22%20y%3D%226%22%20width%3D%2216%22%20height%3D%2216%22%20rx%3D%224%22%20fill%3D%22%23d0362b%22%20stroke%3D%22%238a1a12%22%20stroke-width%3D%221.6%22/%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2224%22%20cy%3D%2214%22%20r%3D%221.9%22%20fill%3D%22%23fff%22/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
@@ -74,7 +74,13 @@
 </head>
 <body>
 <div class="wrap">
-  <header><span class="logo">🎲</span><h1>NADO <span class="a">Farkle</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
+  <header><span class="logo"><svg viewBox="0 0 48 48" width="28" height="28" aria-hidden="true">
+    <rect x="5" y="21" width="16" height="16" rx="4" fill="#e6edf3" stroke="#243140" stroke-width="1.6"/>
+    <circle cx="9.5" cy="25.5" r="1.6" fill="#20272f"/><circle cx="16.5" cy="32.5" r="1.6" fill="#20272f"/><circle cx="13" cy="29" r="1.6" fill="#00ad93"/>
+    <rect x="27" y="21" width="16" height="16" rx="4" fill="#e3b341" stroke="#8a6209" stroke-width="1.6"/>
+    <circle cx="31.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="31.5" cy="32.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="32.5" r="1.6" fill="#3a2a05"/>
+    <rect x="16" y="6" width="16" height="16" rx="4" fill="#d0362b" stroke="#8a1a12" stroke-width="1.6"/>
+    <circle cx="24" cy="14" r="1.9" fill="#fff"/></svg></span><h1>NADO <span class="a">Farkle</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
   <p class="sub">The push-your-luck dice classic (Ten Thousand), <b>multiplayer, winner takes the pot</b>. Ante in, then it's a real turn: <b>roll</b>, set aside the scoring dice, and choose to <b>bank</b> or push your luck — a scoreless roll <b>farkles</b> your turn to zero. Every roll's dice come from a <b>future block hash</b> nobody can predict, so it's objective and unriggable. Highest banked score takes the pot.</p>
 
   <div id="status"></div>

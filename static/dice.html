@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NADO Dice — auto-rolling, provably fair, post-quantum</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20y%3D%22.9em%22%20font-size%3D%2290%22%3E%F0%9F%8E%B2%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%2048%2048%22%20width%3D%2264%22%20height%3D%2264%22%20aria-hidden%3D%22true%22%3E%0A%20%20%20%20%3Crect%20x%3D%229%22%20y%3D%229%22%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23e6edf3%22%20stroke%3D%22%23243140%22%20stroke-width%3D%222%22/%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2217%22%20cy%3D%2217%22%20r%3D%222.8%22%20fill%3D%22%2320272f%22/%3E%3Ccircle%20cx%3D%2231%22%20cy%3D%2217%22%20r%3D%222.8%22%20fill%3D%22%2320272f%22/%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2224%22%20cy%3D%2224%22%20r%3D%222.8%22%20fill%3D%22%2300ad93%22/%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2217%22%20cy%3D%2231%22%20r%3D%222.8%22%20fill%3D%22%2320272f%22/%3E%3Ccircle%20cx%3D%2231%22%20cy%3D%2231%22%20r%3D%222.8%22%20fill%3D%22%2320272f%22/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
@@ -73,7 +73,11 @@
 </head>
 <body>
 <div class="wrap">
-  <header><span class="logo">🎲</span><h1>NADO <span class="a">Dice</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
+  <header><span class="logo"><svg viewBox="0 0 48 48" width="28" height="28" aria-hidden="true">
+    <rect x="9" y="9" width="30" height="30" rx="7" fill="#e6edf3" stroke="#243140" stroke-width="2"/>
+    <circle cx="17" cy="17" r="2.8" fill="#20272f"/><circle cx="31" cy="17" r="2.8" fill="#20272f"/>
+    <circle cx="24" cy="24" r="2.8" fill="#00ad93"/>
+    <circle cx="17" cy="31" r="2.8" fill="#20272f"/><circle cx="31" cy="31" r="2.8" fill="#20272f"/></svg></span><h1>NADO <span class="a">Dice</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
   <p class="sub">A provably-fair, <b>peer-banked multiplayer</b> dice on the NADO execution layer. Slide your win chance; the payout auto-scales (<span class="mono">99 ÷ target</span>, a flat 1% edge). Each table <b>rolls itself every ~2 minutes</b> — no bank reveal, no secrets. Your roll comes from a <b>future L1 block hash</b> nobody can predict while betting is open: <span class="mono">HASH(blockhash ‖ seatId) mod 100</span>. Post-quantum wallet, no install.</p>
 
   <div id="status"></div>

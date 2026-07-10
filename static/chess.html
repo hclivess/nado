@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NADO Chess — play for stakes, post-quantum</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20y%3D%22.9em%22%20font-size%3D%2290%22%3E%E2%99%9E%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%2048%2048%22%20width%3D%2264%22%20height%3D%2264%22%20aria-hidden%3D%22true%22%3E%0A%20%20%20%20%3Crect%20x%3D%2222.4%22%20y%3D%226%22%20width%3D%223.2%22%20height%3D%228%22%20rx%3D%221%22%20fill%3D%22%2300c9a7%22/%3E%0A%20%20%20%20%3Crect%20x%3D%2218.6%22%20y%3D%228.4%22%20width%3D%2210.8%22%20height%3D%223.2%22%20rx%3D%221.2%22%20fill%3D%22%2300c9a7%22/%3E%0A%20%20%20%20%3Cpath%20d%3D%22M24%2013.5c-6.4%202-9.5%206-9.5%2010.5l3%206h13l3-6c0-4.5-3.1-8.5-9.5-10.5z%22%20fill%3D%22%2300c9a7%22/%3E%0A%20%20%20%20%3Cpath%20d%3D%22M17.5%2030h13l-1.4%204.2h-10.2z%22%20fill%3D%22%2300ad93%22/%3E%0A%20%20%20%20%3Crect%20x%3D%2214.5%22%20y%3D%2234%22%20width%3D%2219%22%20height%3D%224.4%22%20rx%3D%222.2%22%20fill%3D%22%2300c9a7%22/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
@@ -59,7 +59,12 @@
 </head>
 <body>
 <div class="wrap">
-  <header><span class="logo">♟️</span><h1>NADO <span class="a">Chess</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
+  <header><span class="logo"><svg viewBox="0 0 48 48" width="28" height="28" aria-hidden="true">
+    <rect x="22.4" y="6" width="3.2" height="8" rx="1" fill="#00c9a7"/>
+    <rect x="18.6" y="8.4" width="10.8" height="3.2" rx="1.2" fill="#00c9a7"/>
+    <path d="M24 13.5c-6.4 2-9.5 6-9.5 10.5l3 6h13l3-6c0-4.5-3.1-8.5-9.5-10.5z" fill="#00c9a7"/>
+    <path d="M17.5 30h13l-1.4 4.2h-10.2z" fill="#00ad93"/>
+    <rect x="14.5" y="34" width="19" height="4.4" rx="2.2" fill="#00c9a7"/></svg></span><h1>NADO <span class="a">Chess</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
   <p class="sub">Play a real game of chess <b>for stakes</b> on the NADO execution layer. Both players stake equally; every move is recorded on-chain (a trustless game log), and the pot settles by <b>resignation, mutual agreement, or a refund timeout</b> — so a stall or a disputed move can never rob you. The board + full legality run in your browser. Post-quantum wallet, no install.</p>
 
   <div id="status"></div>
