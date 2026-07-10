@@ -45,9 +45,9 @@ PAYEE = generate_keys()["address"]
 H = 100                                           # any landing block (multisig has no activation gate)
 create_account(MSIG, balance=10_000_000_000)
 
-def _draft(amount=1_000_000, fee=MIN_TX_FEE * 3, recipient=PAYEE, target_block=H, threshold=2):
+def _draft(amount=1_000_000, fee=MIN_TX_FEE * 3, recipient=PAYEE, max_block=H, threshold=2):
     """Fresh unsigned 2-of-3 proposal from the shared multisig account."""
-    return draft_multisig_spend(threshold, MEMBERS, recipient, amount, fee, target_block)
+    return draft_multisig_spend(threshold, MEMBERS, recipient, amount, fee, max_block)
 
 def _signed(signers, **kw):
     """Proposal signed by the given member keydicts."""

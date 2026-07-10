@@ -45,7 +45,7 @@ def t1_keys():
     assert reserved_uniqueness_key(tx("unbond")) == ("unbond", "s")
     # heartbeat is RETIRED (recert-via-register is the presence mechanism, doc/presence-dividend.md
     # §2.4) — it is no longer a reserved recipient and must not claim a uniqueness slot
-    assert reserved_uniqueness_key(tx("heartbeat", target_block=125)) is None
+    assert reserved_uniqueness_key(tx("heartbeat", max_block=125)) is None
     assert reserved_uniqueness_key(tx("register")) == ("register", "s")
     assert reserved_uniqueness_key(tx("reveal", data={"secret": "abc", "target_epoch": 4})) == ("reveal", "abc")
     assert reserved_uniqueness_key(tx("attest", data={"target_epoch": 3, "target_hash": "h"})) == ("attest", "s", 3)
@@ -94,7 +94,7 @@ def t4_attest_cross_block():
     tb = epoch * EPOCH_LENGTH + 3
     at = {"sender": s, "recipient": "attest", "amount": 0, "timestamp": 1,
           "data": {"target_epoch": epoch, "target_hash": "bb" * 32}, "nonce": "a2",
-          "public_key": kd["public_key"], "target_block": tb, "chain_id": CHAIN_ID, "fee": 0}
+          "public_key": kd["public_key"], "max_block": tb, "chain_id": CHAIN_ID, "fee": 0}
     at["txid"] = create_txid(at); at["signature"] = sign(kd["private_key"], unhex(at["txid"]))
     try:
         validate_transaction(at, logger, block_height=tb); raise RuntimeError("2nd attestation accepted")

@@ -25,7 +25,7 @@ from hashing import create_nonce
 from protocol import CHAIN_ID, MIN_TX_FEE, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET
 
 DEC = 10 ** 10  # NADO has 10 decimals
-MARGIN = 6      # target_block headroom: small so the tx lands in its exact target block (the node's own txs
+MARGIN = 6      # max_block headroom: small so the tx lands in its exact target block (the node's own txs
                 # use +2..+5); this also keeps the register PoSW anchor (target-30) in a settled epoch.
 
 
@@ -55,15 +55,15 @@ def _submit(node, tx):
 
 
 def _tip(node):
-    """Current chain-tip block number, used to aim target_block = tip + MARGIN."""
+    """Current chain-tip block number, used to aim max_block = tip + MARGIN."""
     return int(_get(node, "/get_latest_block")["block_number"])
 
 
-def _draft(kd, recipient, amount, data, target_block):
+def _draft(kd, recipient, amount, data, max_block):
     """Assemble the unsigned tx dict (same field set the web interface builds) for T.create_transaction."""
     return {"sender": kd["address"], "recipient": recipient, "amount": int(amount),
             "timestamp": get_timestamp_seconds(), "data": data, "nonce": create_nonce(),
-            "public_key": kd["public_key"], "target_block": int(target_block), "chain_id": CHAIN_ID}
+            "public_key": kd["public_key"], "max_block": int(max_block), "chain_id": CHAIN_ID}
 
 
 # ---- commands ------------------------------------------------------------------------------------
@@ -109,7 +109,7 @@ def c_collect(kd, node, a):
 
 
 def c_register(kd, node, a):
-    """One-time open-lane mining registration: fetch the PoSW anchor block (target_block - 30) and the
+    """One-time open-lane mining registration: fetch the PoSW anchor block (max_block - 30) and the
     node's current required T, compute the sequential proof locally (can take a while), then submit.
     The anchor must be settled by submission time — MARGIN keeps it inside an already-final range."""
     tb = _tip(node) + MARGIN
@@ -163,7 +163,7 @@ def c_bridge_deposit(kd, node, a):
 # Flow: `msig-address` derives the shared account (fund it like any address); `msig-propose` drafts a
 # spend + adds YOUR signature and writes a proposal JSON file; pass that file to each co-signer for
 # `msig-sign`; whoever holds the threshold-th signature runs `msig-submit`. The proposal expires when
-# the chain passes its target_block (~50 min of co-signing headroom) — re-propose if it goes stale.
+# the chain passes its max_block (~50 min of co-signing headroom) — re-propose if it goes stale.
 
 def _msig_members(a):
     """Parse + canonicalize the --members list (comma-separated, any order -> sorted lowercase)."""
@@ -193,7 +193,7 @@ def c_msig_propose(kd, node, a):
     with open(a.out, "w") as f:
         json.dump(tx, f)
     print("proposal written:", a.out)
-    print("txid:", tx["txid"], " signatures:", n, "/", a.threshold, " expires at block", tx["target_block"])
+    print("txid:", tx["txid"], " signatures:", n, "/", a.threshold, " expires at block", tx["max_block"])
 
 
 def c_msig_sign(kd, node, a):

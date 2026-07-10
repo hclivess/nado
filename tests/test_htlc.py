@@ -52,22 +52,22 @@ def bal(a):
 def lock(txid, amount=AMT, fee=MIN_TX_FEE):
     """Build a bare htlc_lock tx dict (Alice locks amount for Bob under HASH, expiry 100)."""
     return {"sender": ALICE, "recipient": "htlc_lock", "amount": amount, "fee": fee, "txid": txid,
-            "target_block": 10, "data": {"claimant": BOB, "hashlock": HASH, "expiry": 100}}
+            "max_block": 10, "data": {"claimant": BOB, "hashlock": HASH, "expiry": 100}}
 def claim(hid, preimage=PRE):
     """Build a bare htlc_claim tx dict (Bob claims HTLC hid with preimage)."""
     return {"sender": BOB, "recipient": "htlc_claim", "amount": 0, "fee": 0, "txid": "c_" + hid,
-            "target_block": 20, "data": {"htlc_id": hid, "preimage": preimage}}
+            "max_block": 20, "data": {"htlc_id": hid, "preimage": preimage}}
 def refund(hid):
     """Build a bare htlc_refund tx dict (Alice reclaims HTLC hid after expiry)."""
     return {"sender": ALICE, "recipient": "htlc_refund", "amount": 0, "fee": 0, "txid": "r_" + hid,
-            "target_block": 200, "data": {"htlc_id": hid}}
+            "max_block": 200, "data": {"htlc_id": hid}}
 
 # --- signed envelopes for VALIDATION tests ---
 def signed(kd, recipient, data, amount=0, fee=0, target=20):
     """Build a fully signed tx envelope (txid + signature) from keydict kd for validation tests."""
     tx = {"sender": kd["address"], "recipient": recipient, "amount": amount, "fee": fee, "data": data,
           "timestamp": 1, "nonce": "n" + recipient + str(target), "public_key": kd["public_key"],
-          "target_block": target, "chain_id": CHAIN_ID}
+          "max_block": target, "chain_id": CHAIN_ID}
     tx["txid"] = create_txid(tx); tx["signature"] = sign(kd["private_key"], unhex(tx["txid"]))
     return tx
 
@@ -123,7 +123,7 @@ def t5_revert_symmetry_refund():
 def _expect_reject(tx, substr):
     """Assert validate_transaction rejects tx with an AssertionError containing substr."""
     try:
-        validate_transaction(tx, logger, block_height=tx["target_block"]); raise RuntimeError("accepted!")
+        validate_transaction(tx, logger, block_height=tx["max_block"]); raise RuntimeError("accepted!")
     except AssertionError as e:
         assert substr in str(e), f"wrong reason: {e}"
 
@@ -134,7 +134,7 @@ def t6_guards():
                           "expiry": 100, "status": "open"})
     # wrong preimage
     _expect_reject(signed(BK, "htlc_claim", {"htlc_id": "G", "preimage": "bb" * 32}, target=20), "preimage does not match")
-    # claim after expiry (target_block >= expiry)
+    # claim after expiry (max_block >= expiry)
     _expect_reject(signed(BK, "htlc_claim", {"htlc_id": "G", "preimage": PRE}, target=100), "expired")
     # claim by a non-claimant (Alice tries)
     _expect_reject(signed(AK, "htlc_claim", {"htlc_id": "G", "preimage": PRE}, target=20), "only the claimant")

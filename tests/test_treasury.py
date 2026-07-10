@@ -52,12 +52,12 @@ PID = treasury_proposal_id(GRANTEE, AMOUNT, MEMO, NONCE, EXP)
 
 def _vote(v, recipient=GRANTEE, amount=AMOUNT, memo=MEMO, nonce=NONCE):
     """Cast validator v's treasury_vote for the proposal: validate and reflect it at block 1."""
-    tx = construct_treasury_vote_tx(v, recipient, amount, memo, nonce, target_block=1, expiry=EXP)
+    tx = construct_treasury_vote_tx(v, recipient, amount, memo, nonce, max_block=1, expiry=EXP)
     validate_transaction(tx, logger, 1); reflect_transaction(tx, logger, 1)
 
 def _exec_tx(recipient=GRANTEE, amount=AMOUNT, memo=MEMO, nonce=NONCE):
     """Build a treasury_execute tx from VS[0] for the proposal and return it (not validated/reflected)."""
-    return construct_treasury_execute_tx(VS[0], recipient, amount, memo, nonce, target_block=1, expiry=EXP)
+    return construct_treasury_execute_tx(VS[0], recipient, amount, memo, nonce, max_block=1, expiry=EXP)
 
 def t1_below_quorum_blocks_payout():
     """Prove 2/4 bonded stake (50%, below 2/3) is not justified and treasury_execute is rejected with a quorum error."""
@@ -104,7 +104,7 @@ def t5_only_bonded_stake_may_vote():
     """Prove an account with coins but no bond cannot cast a treasury_vote."""
     outsider = generate_keys()
     create_account(outsider["address"], balance=B_MIN)   # has coins but is NOT bonded
-    tx = construct_treasury_vote_tx(outsider, GRANTEE, AMOUNT, MEMO, "p3", target_block=1, expiry=EXP)
+    tx = construct_treasury_vote_tx(outsider, GRANTEE, AMOUNT, MEMO, "p3", max_block=1, expiry=EXP)
     try:
         validate_transaction(tx, logger, 1); assert False, "a non-bonded account cannot vote"
     except AssertionError as e:
@@ -118,13 +118,13 @@ def t6_revert_symmetry_votes_and_payout():
         _vote(v, memo=memo, nonce=nonce)
     assert treasury_justified(pid, get_bonded_registry(), CUR)
     # revert one vote -> quorum drops
-    rv = construct_treasury_vote_tx(VS[2], GRANTEE, AMOUNT, memo, nonce, target_block=1, expiry=EXP)
+    rv = construct_treasury_vote_tx(VS[2], GRANTEE, AMOUNT, memo, nonce, max_block=1, expiry=EXP)
     reflect_transaction(rv, logger, 1, revert=True)
     assert not treasury_justified(pid, get_bonded_registry(), CUR), "reverting a vote drops the quorum"
     reflect_transaction(rv, logger, 1)              # re-apply -> justified again
     assert treasury_justified(pid, get_bonded_registry(), CUR)
     # execute, then revert the payout
-    ex = construct_treasury_execute_tx(VS[0], GRANTEE, AMOUNT, memo, nonce, target_block=1, expiry=EXP)
+    ex = construct_treasury_execute_tx(VS[0], GRANTEE, AMOUNT, memo, nonce, max_block=1, expiry=EXP)
     validate_transaction(ex, logger, 1)
     t0, g0 = bal(TREASURY_ADDRESS), bal(GRANTEE)
     reflect_transaction(ex, logger, 1)
@@ -143,7 +143,7 @@ def t7_fresh_stake_is_outside_the_electorate():
     kv_ops.bond_since_put(whale["address"], CUR)                 # ...but bonded THIS epoch (age 0 < activation window)
     memo, nonce = "capture attempt", "p5"
     pid = treasury_proposal_id(GRANTEE, AMOUNT, memo, nonce, EXP)
-    wv = construct_treasury_vote_tx(whale, GRANTEE, AMOUNT, memo, nonce, target_block=1, expiry=EXP)
+    wv = construct_treasury_vote_tx(whale, GRANTEE, AMOUNT, memo, nonce, max_block=1, expiry=EXP)
     validate_transaction(wv, logger, 1); reflect_transaction(wv, logger, 1)   # the whale CAN cast a vote...
     assert not treasury_justified(pid, get_bonded_registry(), CUR), "fresh whale stake cannot pass a proposal alone"
     for v in VS:                                                 # ...but the aged validators decide it
@@ -169,21 +169,21 @@ def t9_expired_proposal_cannot_execute():
     memo, nonce, exp = "expiring grant", "p8", 3
     pid = treasury_proposal_id(GRANTEE, AMOUNT, memo, nonce, exp)
     for v in VS:                                                # all 4 -> full quorum regardless of prior tests
-        tx = construct_treasury_vote_tx(v, GRANTEE, AMOUNT, memo, nonce, target_block=1, expiry=exp)
+        tx = construct_treasury_vote_tx(v, GRANTEE, AMOUNT, memo, nonce, max_block=1, expiry=exp)
         validate_transaction(tx, logger, 1); reflect_transaction(tx, logger, 1)
     assert treasury_justified(pid, get_bonded_registry(), CUR), "fully voted -> justified"
-    late = construct_treasury_execute_tx(VS[0], GRANTEE, AMOUNT, memo, nonce, target_block=5, expiry=exp)  # 5 > expiry 3
+    late = construct_treasury_execute_tx(VS[0], GRANTEE, AMOUNT, memo, nonce, max_block=5, expiry=exp)  # 5 > expiry 3
     try:
         validate_transaction(late, logger, 5); assert False, "a payout past the expiry block must fail"
     except AssertionError as e:
         assert "expired" in str(e), f"wrong error: {e}"
-    # a payout AT/before the expiry (target_block 3 <= expiry 3) passes validation
-    validate_transaction(construct_treasury_execute_tx(VS[0], GRANTEE, AMOUNT, memo, nonce, target_block=3, expiry=exp), logger, 3)
+    # a payout AT/before the expiry (max_block 3 <= expiry 3) passes validation
+    validate_transaction(construct_treasury_execute_tx(VS[0], GRANTEE, AMOUNT, memo, nonce, max_block=3, expiry=exp), logger, 3)
 
 def t10_vote_after_expiry_rejected():
     """Prove a treasury_vote targeting a block past the proposal's expiry is rejected."""
-    # you cannot even vote on an already-expired proposal (target_block > expiry) — no dead-proposal bloat.
-    tx = construct_treasury_vote_tx(VS[0], GRANTEE, AMOUNT, "late vote", "p9", target_block=10, expiry=4)  # 10 > 4
+    # you cannot even vote on an already-expired proposal (max_block > expiry) — no dead-proposal bloat.
+    tx = construct_treasury_vote_tx(VS[0], GRANTEE, AMOUNT, "late vote", "p9", max_block=10, expiry=4)  # 10 > 4
     try:
         validate_transaction(tx, logger, 10); assert False, "voting past expiry must fail"
     except AssertionError as e:
@@ -200,7 +200,7 @@ def t11_vote_change_and_withdraw():
     _vote(VS[2], memo=memo, nonce=nonce)                                            # 3/4 -> reaches 2/3
     assert treasury_justified(pid, get_bonded_registry(), CUR), "3/4 reaches quorum"
     # VS[2] WITHDRAWS by re-voting 'no' -> its snapshot weight goes to 0 -> quorum drops back below 2/3
-    wd = construct_treasury_vote_tx(VS[2], GRANTEE, AMOUNT, memo, nonce, target_block=1, expiry=EXP, choice="no")
+    wd = construct_treasury_vote_tx(VS[2], GRANTEE, AMOUNT, memo, nonce, max_block=1, expiry=EXP, choice="no")
     validate_transaction(wd, logger, 1); reflect_transaction(wd, logger, 1)
     assert kv_ops.treasury_vote_weight(pid, VS[2]["address"]) == 0, "a withdrawn/'no' vote stores 0 weight"
     assert not treasury_justified(pid, get_bonded_registry(), CUR), "withdrawing a vote drops the quorum"

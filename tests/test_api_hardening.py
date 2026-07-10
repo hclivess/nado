@@ -44,7 +44,7 @@ def t1_walks_past_chained_proxies():
 def t3_legit_tx_roundtrips_both_encodings():
     """Prove a realistic tx decodes intact via unpack_tx for both msgpack and JSON bodies."""
     tx = {"sender": "ndo" + "a" * 46, "recipient": "register", "amount": 0, "fee": 0,
-          "target_block": 100, "posw": {"segments": list(range(200)), "openings": ["ab" * 32] * 20}}
+          "max_block": 100, "posw": {"segments": list(range(200)), "openings": ["ab" * 32] * 20}}
     assert unpack_tx(msgpack.packb(tx), "application/msgpack") == tx
     import json
     assert unpack_tx(json.dumps(tx).encode(), "application/json") == tx

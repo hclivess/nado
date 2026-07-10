@@ -37,7 +37,7 @@ def _acc(a):
 def t1_builder_shape_and_signed_kempub():
     """Prove construct_msgkey_tx builds a fee-exempt tx whose txid commits to kem_pub but excludes public_key."""
     kd = generate_keydict()
-    tx = construct_msgkey_tx(kd, KEM1, target_block=100)
+    tx = construct_msgkey_tx(kd, KEM1, max_block=100)
     assert tx["recipient"] == "msgkey" and tx["amount"] == 0 and tx["fee"] == 0
     assert tx["kem_pub"] == KEM1 and tx["sender"] == kd["address"]
     # the txid preimage is the body WITHOUT txid/signature (those are added after)
@@ -80,7 +80,7 @@ def t4_rotation_revert_restores_prior_key():
     create_account(A)
     reflect_transaction(construct_msgkey_tx(kd, KEM1, 100), logger=logger, block_height=100)
     snap = _acc(A)                                   # has KEM1
-    tx2 = construct_msgkey_tx(kd, KEM2, 101)         # ROTATE to KEM2 (distinct txid via nonce/target_block)
+    tx2 = construct_msgkey_tx(kd, KEM2, 101)         # ROTATE to KEM2 (distinct txid via nonce/max_block)
     reflect_transaction(tx2, logger=logger, block_height=101)
     assert get_account(A).get("kem_pub") == KEM2, "rotation did not overwrite kem_pub"
     reflect_transaction(tx2, logger=logger, block_height=101, revert=True)
@@ -93,9 +93,9 @@ def t5_validate_gate():
     """Prove validate_transaction accepts a well-formed msgkey tx and rejects a wrong-length kem_pub."""
     from ops.transaction_ops import validate_transaction
     kd = generate_keydict()
-    good = construct_msgkey_tx(kd, KEM1, target_block=2)
+    good = construct_msgkey_tx(kd, KEM1, max_block=2)
     validate_transaction(good, logger=logger, block_height=0)      # well-formed -> must NOT raise
-    bad = construct_msgkey_tx(kd, "aa" * 10, target_block=2)        # kem_pub too short (still validly signed)
+    bad = construct_msgkey_tx(kd, "aa" * 10, max_block=2)        # kem_pub too short (still validly signed)
     try:
         validate_transaction(bad, logger=logger, block_height=0)
         raise RuntimeError("a malformed kem_pub was accepted")

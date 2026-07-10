@@ -1059,10 +1059,10 @@ class CoreClient(threading.Thread):
             checkpoint_hash = get_block_hash_by_number(epoch * EPOCH_LENGTH)
             if not checkpoint_hash:
                 return
-            target_block = min(latest["block_number"] + 5, (epoch + 1) * EPOCH_LENGTH - 1)
-            if target_block <= latest["block_number"]:
+            max_block = min(latest["block_number"] + 5, (epoch + 1) * EPOCH_LENGTH - 1)
+            if max_block <= latest["block_number"]:
                 return  # at the epoch's final block -> attest next epoch instead
-            tx = construct_attestation_tx(self.memserver.keydict, epoch, checkpoint_hash, target_block)
+            tx = construct_attestation_tx(self.memserver.keydict, epoch, checkpoint_hash, max_block)
             result = self.memserver.merge_transaction(tx, user_origin=True)
             if result and result.get("result"):
                 self.logger.info(f"FFG: attested epoch {epoch} ckpt {checkpoint_hash[:12]} "
@@ -1084,7 +1084,7 @@ class CoreClient(threading.Thread):
 
             # COMMIT for epoch current+2 (we are in its E-2). RETRIED while the window lasts: the
             # old single-shot guard (skip once the secret existed in randao_secrets) meant a commit
-            # tx that missed its exact target_block was never re-issued — the validator silently sat
+            # tx that missed its exact max_block was never re-issued — the validator silently sat
             # out the whole epoch, weakening the beacon (and forfeiting production rights whenever
             # RANDAO_ENFORCED is on; participation is voluntary under the current policy). Reusing
             # the stored secret keeps the commitment identical, so a raced duplicate is simply
@@ -1092,11 +1092,11 @@ class CoreClient(threading.Thread):
             e_commit = current_epoch + 2
             if (kv_ops.commit_get(self.memserver.address, e_commit) is None
                     and not self._reserved_tx_pending("commit", e_commit)):
-                target_block = min(latest["block_number"] + 5, (current_epoch + 1) * EPOCH_LENGTH - 1)
-                if target_block > latest["block_number"]:
+                max_block = min(latest["block_number"] + 5, (current_epoch + 1) * EPOCH_LENGTH - 1)
+                if max_block > latest["block_number"]:
                     secret = self.memserver.randao_secrets.get(e_commit) or _secrets.token_hex(32)
                     self.memserver.randao_secrets[e_commit] = secret
-                    tx = construct_commit_tx(kd, e_commit, beacon_commitment(secret), target_block)
+                    tx = construct_commit_tx(kd, e_commit, beacon_commitment(secret), max_block)
                     self.memserver.merge_transaction(tx, user_origin=True)
 
             # REVEAL for epoch current+1 (we are in its E-1 finalized window), if we hold its secret
@@ -1105,11 +1105,11 @@ class CoreClient(threading.Thread):
             if secret and kv_ops.commit_get(self.memserver.address, e_reveal) is not None:
                 lo = current_epoch * EPOCH_LENGTH
                 hi = e_reveal * EPOCH_LENGTH - FINALITY_DEPTH - 1
-                target_block = latest["block_number"] + 5
-                if (lo <= target_block <= hi
+                max_block = latest["block_number"] + 5
+                if (lo <= max_block <= hi
                         and secret not in kv_ops.reveals_for_epoch(e_reveal)
                         and not self._reserved_tx_pending("reveal", e_reveal)):
-                    tx = construct_reveal_tx(kd, e_reveal, secret, target_block)
+                    tx = construct_reveal_tx(kd, e_reveal, secret, max_block)
                     self.memserver.merge_transaction(tx, user_origin=True)
         except Exception as e:
             self.logger.error(f"RANDAO commit/reveal failed: {e}")
@@ -1164,8 +1164,8 @@ class CoreClient(threading.Thread):
             to_bond = min(to_bond, BOND_CAP - bonded)
             if to_bond < AUTO_BOND_MIN_RAW or balance < to_bond + MIN_TX_FEE:
                 return                                  # accrue (don't rebaseline) until it's worth a tx
-            target_block = self.memserver.latest_block["block_number"] + 2
-            tx = construct_bond_tx(self.memserver.keydict, to_bond, MIN_TX_FEE, target_block)
+            max_block = self.memserver.latest_block["block_number"] + 2
+            tx = construct_bond_tx(self.memserver.keydict, to_bond, MIN_TX_FEE, max_block)
             self.memserver.merge_transaction(tx, user_origin=True)
             self.last_auto_bond_epoch = epoch
             # account for the gain now; the bond+fee will reduce balance in a later block (negative
@@ -1173,7 +1173,7 @@ class CoreClient(threading.Thread):
             self.auto_bond_baseline = balance - to_bond - MIN_TX_FEE
             self.logger.info(
                 f"Auto-bond: bonding {to_bond} raw ({pct}% of {gain} new earnings) into the bonded lane "
-                f"(target_block {target_block})")
+                f"(max_block {max_block})")
         except Exception as e:
             self.logger.warning(f"Auto-bond skipped: {e}")
 
@@ -1194,11 +1194,11 @@ class CoreClient(threading.Thread):
                 # re-read its own account from the KV store every ~1s pass forever, for nothing.
                 self.last_auto_collect_epoch = epoch
                 return                                  # not an open-lane member -> nothing accrues
-            target_block = self.memserver.latest_block["block_number"] + 2
-            tx = construct_blob_tx(self.memserver.keydict, {"op": "collect_dividend"}, target_block, MIN_TX_FEE)
+            max_block = self.memserver.latest_block["block_number"] + 2
+            tx = construct_blob_tx(self.memserver.keydict, {"op": "collect_dividend"}, max_block, MIN_TX_FEE)
             self.memserver.merge_transaction(tx, user_origin=True)
             self.last_auto_collect_epoch = epoch
-            self.logger.info(f"Auto-collect: swept presence dividend (target_block {target_block})")
+            self.logger.info(f"Auto-collect: swept presence dividend (max_block {max_block})")
         except Exception as e:
             self.logger.info(f"Auto-collect skipped: {e}")
 
@@ -1223,16 +1223,16 @@ class CoreClient(threading.Thread):
             from ops import posw
             from ops.block_ops import get_block_hash_by_number
             from ops.reg_difficulty import required_posw_t
-            target_block = self.memserver.latest_block["block_number"] + 4
-            anchor = get_block_hash_by_number(max(0, target_block - POSW_ANCHOR_OFFSET))
+            max_block = self.memserver.latest_block["block_number"] + 4
+            anchor = get_block_hash_by_number(max(0, max_block - POSW_ANCHOR_OFFSET))
             if not anchor:
                 return
-            req_t = required_posw_t(epoch_of(max(0, target_block - POSW_ANCHOR_OFFSET)))
+            req_t = required_posw_t(epoch_of(max(0, max_block - POSW_ANCHOR_OFFSET)))
             proof = posw.prove(posw.challenge_bytes(self.memserver.address, anchor), T=req_t, S=POSW_S, k=POSW_K)
-            tx = construct_register_tx(self.memserver.keydict, target_block, proof)
+            tx = construct_register_tx(self.memserver.keydict, max_block, proof)
             self.memserver.merge_transaction(tx, user_origin=True)
             self.last_auto_register_epoch = epoch
-            self.logger.info(f"Auto-register: (re)joined the open lane (target_block {target_block}, PoSW T={req_t})")
+            self.logger.info(f"Auto-register: (re)joined the open lane (max_block {max_block}, PoSW T={req_t})")
         except Exception as e:
             self.logger.info(f"Auto-register skipped: {e}")
 

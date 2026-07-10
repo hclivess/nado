@@ -408,10 +408,10 @@ class NodeClient:
         """Height of the chain tip."""
         return int(self.get_latest_block()["block_number"])
 
-    def get_target_block(self):
-        """Target block for a fresh tx: tip + 2, mirroring transaction_ops.get_target_block so
+    def get_max_block(self):
+        """Target block for a fresh tx: tip + 2, mirroring transaction_ops.get_max_block so
         wallet-built txs land in exactly the validity window the node expects."""
-        # node convention (transaction_ops.get_target_block): latest + 2
+        # node convention (transaction_ops.get_max_block): latest + 2
         return self.get_latest_block_number() + 2
 
     def get_supply(self):
@@ -1565,11 +1565,11 @@ class WalletWindow(QMainWindow):
         recipients) using the repo's own draft/create functions — the wallet never reimplements tx
         hashing or signing, so its txids can't diverge from consensus. Blocking; worker-only."""
         keys = self.keys
-        target = self.client.get_target_block()
+        target = self.client.get_max_block()
         draft = draft_transaction(
             sender=keys["address"], recipient=recipient, amount=amount_raw,
             public_key=keys["public_key"], timestamp=get_timestamp_seconds(),
-            data="", target_block=target,
+            data="", max_block=target,
         )
         tx = create_transaction(draft, keys["private_key"], fee=fee)
         return self.client.submit_transaction(tx)
@@ -1582,10 +1582,10 @@ class WalletWindow(QMainWindow):
         nonce = solve_registration_pow(keys["address"])
         if nonce is None or not verify_registration_pow(keys["address"], nonce):
             raise NodeError("could not solve registration proof-of-work")
-        target = self.client.get_target_block()
+        target = self.client.get_max_block()
         draft = draft_open_lane_transaction(
             sender=keys["address"], recipient="register", public_key=keys["public_key"],
-            timestamp=get_timestamp_seconds(), target_block=target, pow_nonce=nonce,
+            timestamp=get_timestamp_seconds(), max_block=target, pow_nonce=nonce,
         )
         tx = create_transaction(draft, keys["private_key"], fee=0)
         return self.client.submit_transaction(tx)
@@ -1600,7 +1600,7 @@ class WalletWindow(QMainWindow):
         epoch = num // EPOCH_LENGTH  # must match the node's block_height // EPOCH_LENGTH on merge
         draft = draft_open_lane_transaction(
             sender=keys["address"], recipient="heartbeat", public_key=keys["public_key"],
-            timestamp=get_timestamp_seconds(), target_block=target, epoch=epoch,
+            timestamp=get_timestamp_seconds(), max_block=target, epoch=epoch,
         )
         tx = create_transaction(draft, keys["private_key"], fee=0)
         resp = self.client.submit_transaction(tx)

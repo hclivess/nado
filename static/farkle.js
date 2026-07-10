@@ -123,6 +123,12 @@ async function joinTable() {
   activeTable = t; render();
   dapp.call("join", [t, g], ante, "join Farkle table #" + t + " · ante " + rawToNado(ante) + " NADO", { table: t, seat: g, phase: "join" });
 }
+function reopenTable() {   // retry an open/join that didn't confirm (same ante, fresh attempt)
+  const T = load(LS_T)[activeTable];
+  if (T && T.ante) { const raw = BigInt(T.ante); if (!canPay(dapp, raw, "Re-opening this table")) return; openTable(activeTable, randId(), raw); return; }
+  // otherwise retry joining
+  joinTable();
+}
 const doRoll = (g) => { keep = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }; dapp.call("roll", [g], null, "roll the dice · Farkle #" + activeTable, { table: activeTable, seat: g, phase: "roll" }); };
 function doHold(g, cont) {
   dapp.call("hold", [g, keep[1], keep[2], keep[3], keep[4], keep[5], keep[6], cont], null,
@@ -202,6 +208,7 @@ function wireUI() {
   wireWallet(dapp);
   $("btnNewTable").onclick = newTable;
   $("btnJoin").onclick = joinTable;
+  if ($("btnReopen")) $("btnReopen").onclick = reopenTable;
   $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = "Enter a table ID, or pick one from the lobby."; };
   $("btnSettle").onclick = settleTable;
   $("btnReclaim").onclick = reclaimTable;
@@ -235,6 +242,12 @@ function renderActive() {
     else phaseTxt = "🏁 play window closed — settle below";
   }
   $("gStatus").textContent = phaseTxt;
+  // the ONE join affordance: only shown when you can actually take a seat (open window, not already in)
+  const joinable = tb.exists && tb.phase === "join" && dapp.me && !me;
+  if ($("btnJoin")) { $("btnJoin").classList.toggle("hidden", !joinable); $("btnJoin").textContent = "🪑 Sit down — ante " + (tb.exists ? rawToNado(tb.ante) : "?") + " NADO"; }
+  // reopen: your open/join didn't confirm within ~2 min
+  const stalled = !tb.exists && T.ts && Date.now() - T.ts > 120000;
+  if ($("btnReopen")) $("btnReopen").classList.toggle("hidden", !stalled);
 
   const feat = $("feature"), acts = $("myActions"); acts.innerHTML = "";
   const btn = (txt, fn, primary) => { const b = document.createElement("button"); b.className = primary ? "primary" : "ghost"; b.style.flex = "1 1 auto"; b.innerHTML = txt; b.onclick = fn; acts.appendChild(b); return b; };
@@ -288,7 +301,6 @@ function renderActive() {
     return '<div class="seat">' + you + disp(s.addr) + " " + tag + "</div>";
   }).join("") : '<span class="dim">No players yet.</span>';
 
-  if (tb.phase === "join" && !me && dapp.me) btn("🪑 Sit down — ante " + rawToNado(tb.ante) + " NADO", joinTable, true);
   const allDone = tb.exists && tb.seatCount > 0 && tb.finishedCount >= tb.seatCount && !tb.closed;
   if (tb.phase === "over" && !tb.closed) for (const s of lastSeats) if (!s.finished) { btn("⏱ Finalize seat #" + s.g, () => timeoutSeat(s.g), false); break; }
   $("btnSettle").classList.toggle("hidden", !(allDone && tb.leader));

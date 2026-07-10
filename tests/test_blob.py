@@ -44,7 +44,7 @@ A = _key(1_000_000 + MIN_TX_FEE * 10)
 
 def t1_valid_blob_validates_and_burns_fee():
     """Prove a valid blob tx validates and applying it burns only the DA fee."""
-    tx = construct_blob_tx(A, {"op": "deploy", "code": {"constructor": []}}, target_block=1, fee=MIN_TX_FEE)
+    tx = construct_blob_tx(A, {"op": "deploy", "code": {"constructor": []}}, max_block=1, fee=MIN_TX_FEE)
     validate_transaction(tx, logger, 1)
     before = _bal(A["address"])
     reflect_transaction(tx, logger, 1)
@@ -52,7 +52,7 @@ def t1_valid_blob_validates_and_burns_fee():
 
 def t2_revert_unburns_fee():
     """Prove reverting a blob tx refunds the burned DA fee (revert-symmetry)."""
-    tx = construct_blob_tx(A, "some-opaque-string", target_block=1, fee=MIN_TX_FEE)
+    tx = construct_blob_tx(A, "some-opaque-string", max_block=1, fee=MIN_TX_FEE)
     before = _bal(A["address"])
     reflect_transaction(tx, logger, 1)
     assert _bal(A["address"]) == before - MIN_TX_FEE
@@ -62,24 +62,24 @@ def t2_revert_unburns_fee():
 def t3_oversize_payload_rejected():
     """Prove a payload over BLOB_MAX_BYTES fails validation."""
     big = "x" * (BLOB_MAX_BYTES + 100)
-    tx = construct_blob_tx(A, big, target_block=1, fee=MIN_TX_FEE)
+    tx = construct_blob_tx(A, big, max_block=1, fee=MIN_TX_FEE)
     assert blob_payload_size(big) > BLOB_MAX_BYTES
     assert raises(lambda: validate_transaction(tx, logger, 1)), "oversize blob must reject"
 
 def t4_nonzero_amount_rejected():
     """Prove a blob tx with amount>0 fails validation."""
-    tx = construct_blob_tx(A, "x", target_block=1, fee=MIN_TX_FEE)
+    tx = construct_blob_tx(A, "x", max_block=1, fee=MIN_TX_FEE)
     tx["amount"] = 5   # tamper (txid/sig now stale, but the amount assert fires first)
     assert raises(lambda: validate_transaction(tx, logger, 1)), "blob with amount>0 must reject"
 
 def t5_empty_payload_rejected():
     """Prove an empty blob payload fails validation."""
-    tx = construct_blob_tx(A, "", target_block=1, fee=MIN_TX_FEE)
+    tx = construct_blob_tx(A, "", max_block=1, fee=MIN_TX_FEE)
     assert raises(lambda: validate_transaction(tx, logger, 1)), "empty blob payload must reject"
 
 def t6_below_min_fee_rejected():
     """Prove a blob tx paying below the minimum DA fee fails validation."""
-    tx = construct_blob_tx(A, "x", target_block=1, fee=0)
+    tx = construct_blob_tx(A, "x", max_block=1, fee=0)
     assert raises(lambda: validate_transaction(tx, logger, 1)), "blob below min DA fee must reject"
 
 def t7_per_block_blob_cap():
@@ -89,7 +89,7 @@ def t7_per_block_blob_cap():
     # one ~10KB blob per tx; enough of them to exceed the per-block cap
     per = 10 * 1024
     n = MAX_BLOB_BYTES_PER_BLOCK // per + 2
-    blobs = [construct_blob_tx(A, "x" * per, target_block=1, fee=MIN_TX_FEE) for _ in range(n)]
+    blobs = [construct_blob_tx(A, "x" * per, max_block=1, fee=MIN_TX_FEE) for _ in range(n)]
     assert raises(lambda: assert_block_blob_cap(blobs)), "over-cap block must be rejected"
     kept = cap_block_blobs(blobs)
     assert block_blob_bytes(kept) <= MAX_BLOB_BYTES_PER_BLOCK, "assembly must trim blobs under the cap"
@@ -101,7 +101,7 @@ def t8_non_blob_txs_never_dropped_by_cap():
     from ops.transaction_ops import cap_block_blobs
     # a normal (non-blob) tx is always kept regardless of blob pressure
     normal = {"recipient": "ndoxxxx", "txid": "aa", "data": ""}
-    big = construct_blob_tx(A, "x" * (BLOB_MAX_BYTES), target_block=1, fee=MIN_TX_FEE)
+    big = construct_blob_tx(A, "x" * (BLOB_MAX_BYTES), max_block=1, fee=MIN_TX_FEE)
     kept = cap_block_blobs([normal, big] + [construct_blob_tx(A, "y" * (BLOB_MAX_BYTES), 1, MIN_TX_FEE) for _ in range(20)])
     assert normal in kept, "non-blob tx must never be dropped by the blob cap"
 

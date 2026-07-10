@@ -18,8 +18,8 @@ def check(name, fn):
         fails += 1; print("FAIL  " + name + ": " + str(e)); traceback.print_exc()
 
 def tx(txid, target, fee=0, recipient="ndoRECIPIENT"):
-    """Build a minimal tx dict with the given txid, target_block, fee and recipient."""
-    return {"txid": txid, "target_block": target, "fee": fee, "recipient": recipient, "amount": 1}
+    """Build a minimal tx dict with the given txid, max_block, fee and recipient."""
+    return {"txid": txid, "max_block": target, "fee": fee, "recipient": recipient, "amount": 1}
 
 def t1_due_low_fee_not_starved_by_undue_high_fee():
     """Prove merge_buffer promotes a due fee-0 tx even when an undue high-fee tx sits ahead of it."""
@@ -32,7 +32,7 @@ def t1_due_low_fee_not_starved_by_undue_high_fee():
     assert {t["txid"] for t in out["from_buffer"]} == {"high"}
 
 def t2_promotes_all_in_window():
-    """Prove merge_buffer promotes exactly the txs whose target_block falls in (block_min, block_max]."""
+    """Prove merge_buffer promotes exactly the txs whose max_block falls in (block_min, block_max]."""
     frm = [tx("a", 5), tx("b", 5), tx("c", 9), tx("d", 4)]
     out = merge_buffer(frm, [], block_max=5, block_min=4)   # window (4,5] -> a,b only
     assert {t["txid"] for t in out["to_buffer"]} == {"a", "b"}

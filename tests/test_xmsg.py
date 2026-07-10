@@ -43,7 +43,7 @@ def _emit_and_settle(ns_from, cursor, to_ns="rollupb", data={"hi": 1}):
     st.apply_blob({"op": "emit", "to_ns": to_ns, "data": data}, sender="ndoalice", txid="e1")
     root = st.state_root()
     op = st.outbox_proof(0)
-    reflect_transaction(construct_settle_tx(V, exec_cursor=cursor, state_root=root, target_block=1, ns=ns_from), logger, 1)
+    reflect_transaction(construct_settle_tx(V, exec_cursor=cursor, state_root=root, max_block=1, ns=ns_from), logger, 1)
     assert latest_settled(ns_from)[1] == root, "A root settled on L1"
     return op["message"], op["proof"]
 
@@ -51,7 +51,7 @@ def _emit_and_settle(ns_from, cursor, to_ns="rollupb", data={"hi": 1}):
 def t1_valid_delivery_then_replay_rejected():
     """A settled message delivers once (proof verifies vs the settled root); a replay is blocked by the nullifier."""
     msg, proof = _emit_and_settle("nsa", 1)
-    xt = construct_xmsg_tx(U, "nsa", "rollupb", msg, proof, target_block=1)
+    xt = construct_xmsg_tx(U, "nsa", "rollupb", msg, proof, max_block=1)
     validate_transaction(xt, logger, 1)
     reflect_transaction(xt, logger, 1)                        # burns (nsa, 0) nullifier
     assert raises(lambda: validate_transaction(xt, logger, 1)), "replay must be rejected by the nullifier"
@@ -60,7 +60,7 @@ def t2_forged_payload_rejected():
     """Tampering the message payload (keeping the real proof) fails the settled-root Merkle check."""
     msg, proof = _emit_and_settle("nsb", 2, data={"hi": 1})
     forged = dict(msg); forged["data"] = {"hi": 999}
-    xt = construct_xmsg_tx(U, "nsb", "rollupb", forged, proof, target_block=1)
+    xt = construct_xmsg_tx(U, "nsb", "rollupb", forged, proof, max_block=1)
     assert raises(lambda: validate_transaction(xt, logger, 1)), "forged payload fails the proof"
 
 def t3_unsettled_namespace_rejected():
@@ -68,13 +68,13 @@ def t3_unsettled_namespace_rejected():
     st = ExecState(tempfile.mktemp(suffix=".json"))
     st.apply_blob({"op": "emit", "to_ns": "rollupb", "data": {"x": 1}}, sender="ndoalice", txid="e1")
     op = st.outbox_proof(0)
-    xt = construct_xmsg_tx(U, "neverset", "rollupb", op["message"], op["proof"], target_block=1)
+    xt = construct_xmsg_tx(U, "neverset", "rollupb", op["message"], op["proof"], max_block=1)
     assert raises(lambda: validate_transaction(xt, logger, 1)), "no settled root -> reject"
 
 def t4_to_ns_mismatch_rejected():
     """The delivery to_ns must match the message's own to_ns (can't re-route a message to another rollup)."""
     msg, proof = _emit_and_settle("nsc", 3, to_ns="rollupb")
-    xt = construct_xmsg_tx(U, "nsc", "rollupOTHER", msg, proof, target_block=1)   # message says rollupb
+    xt = construct_xmsg_tx(U, "nsc", "rollupOTHER", msg, proof, max_block=1)   # message says rollupb
     assert raises(lambda: validate_transaction(xt, logger, 1)), "to_ns mismatch -> reject"
 
 def t5_receiver_inbox_commitment():

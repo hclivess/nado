@@ -130,26 +130,26 @@ def valid_block_timestamp(new_block):
 
 def _lands_flexibly(transaction):
     """True if a tx has NO landing-block-dependent protocol timing, so it may be included in ANY block up to
-    its target_block (a plain EXPIRY window) instead of one exact height. Value transfers, `blob` (exec-layer,
+    its max_block (a plain EXPIRY window) instead of one exact height. Value transfers, `blob` (exec-layer,
     applied in L1 order regardless of which block), and bridge in/out simply apply when included. Everything
     else — epoch-timed RANDAO (commit/reveal/attest), release-timed bond/unbond, PoW-anchored register, settle,
-    governance — keeps EXACT landing so its timing invariants hold. target_block still bounds the tx's life
-    (mempool gate: tip < target_block < tip+360), so an unincluded tx still expires and can't be replayed."""
+    governance — keeps EXACT landing so its timing invariants hold. max_block still bounds the tx's life
+    (mempool gate: tip < max_block < tip+360), so an unincluded tx still expires and can't be replayed."""
     r = transaction.get("recipient")
     return r in ("blob", "bridge", "bridge_withdraw") or (isinstance(r, str) and r.startswith("ndo"))
 
 
 def check_target_match(transaction_list, block_number, logger):
     """Verification-side gate: EVERY transaction in the block must target exactly this block number
-    (target_block binds a tx to one height, so it cannot be replayed into a different block).
+    (max_block binds a tx to one height, so it cannot be replayed into a different block).
     Fails CLOSED — a malformed transaction returns False, never a pass."""
     try:
         for transaction in transaction_list:
-            tb = transaction["target_block"]
+            tb = transaction["max_block"]
             if _lands_flexibly(transaction):
-                if block_number > tb:            # expired: its target_block (deadline) already passed
+                if block_number > tb:            # expired: its max_block (deadline) already passed
                     return False
-            elif tb != block_number:             # timing-critical: must land at exactly target_block
+            elif tb != block_number:             # timing-critical: must land at exactly max_block
                 return False
         return True
     except Exception as e:
@@ -166,9 +166,9 @@ def match_transactions_target(transaction_list, block_number, logger):
         matched_txs = []
 
         for transaction in transaction_list:
-            tb = transaction["target_block"]
+            tb = transaction["max_block"]
             if _lands_flexibly(transaction):
-                if block_number <= tb:           # valid until its target_block deadline
+                if block_number <= tb:           # valid until its max_block deadline
                     matched_txs.append(transaction)
             elif tb == block_number:             # timing-critical: exact landing
                 matched_txs.append(transaction)
@@ -375,7 +375,7 @@ def epoch_beacon(epoch):
             f"this node must resync")
     # COMMIT-REVEAL RANDAO (#7 step 7): mix the finalized anchor with the bonded validators' REVEALED
     # secrets for this epoch, so no single anchor-producer controls the beacon. Secrets are committed
-    # in epoch E-2 and revealed in E-1's FINALIZED window (validation bounds the reveal's target_block
+    # in epoch E-2 and revealed in E-1's FINALIZED window (validation bounds the reveal's max_block
     # to <= E*EPOCH_LENGTH - FINALITY_DEPTH - 1), so they are immutable when this beacon is first needed
     # (block E*EPOCH_LENGTH) -> deterministic + grind-resistant. With zero reveals the beacon falls back
     # to the anchor-only value (liveness); compute_beacon re-sorts, so input order is irrelevant.

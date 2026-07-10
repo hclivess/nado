@@ -56,7 +56,7 @@ def t1_quorum_predicate():
 
 def t2_latest_settled_and_reflect():
     """Prove reflecting a settle tx from a supermajority validator makes latest_settled report that (cursor, root)."""
-    tx = construct_settle_tx(V1, exec_cursor=200, state_root=ROOT_A, target_block=1)
+    tx = construct_settle_tx(V1, exec_cursor=200, state_root=ROOT_A, max_block=1)
     validate_transaction(tx, logger, 1)
     reflect_transaction(tx, logger, 1)                          # V1 alone = 4/5 shares > 2/3 -> settled
     cur, root = latest_settled()
@@ -64,19 +64,19 @@ def t2_latest_settled_and_reflect():
 
 def t3_one_settle_per_validator_per_cursor():
     """Prove a second settle tx from the same validator for the same cursor is rejected."""
-    tx2 = construct_settle_tx(V1, exec_cursor=200, state_root=ROOT_A, target_block=1)
+    tx2 = construct_settle_tx(V1, exec_cursor=200, state_root=ROOT_A, max_block=1)
     assert raises(lambda: validate_transaction(tx2, logger, 1)), "second settle from same validator/cursor must reject"
 
 def t4_below_quorum_not_settled():
     """Prove a cursor attested by only 1/5 of bonded shares does not settle."""
     # a fresh cursor attested only by V2 (1/5) must NOT settle
-    reflect_transaction(construct_settle_tx(V2, exec_cursor=300, state_root=ROOT_B, target_block=1), logger, 1)
+    reflect_transaction(construct_settle_tx(V2, exec_cursor=300, state_root=ROOT_B, max_block=1), logger, 1)
     cur, root = latest_settled()
     assert cur != 300, "1/5 stake must not settle"
 
 def t5_revert_unsettles():
     """Prove reverting the settle tx removes the settlement (latest_settled is derived, revert-safe)."""
-    tx = construct_settle_tx(V1, exec_cursor=400, state_root=ROOT_A, target_block=1)
+    tx = construct_settle_tx(V1, exec_cursor=400, state_root=ROOT_A, max_block=1)
     reflect_transaction(tx, logger, 1)
     assert latest_settled()[0] == 400, "settled after apply"
     reflect_transaction(tx, logger, 1, revert=True)
@@ -93,13 +93,13 @@ def t7_namespace_isolation():
     """Prove settlements are per-namespace: a rollup's settled root never moves another namespace's pointer
     or the default layer, and the SAME validator may settle the SAME cursor in two different namespaces
     (uniqueness is per (ns, validator, cursor))."""
-    a = construct_settle_tx(V1, exec_cursor=700, state_root=ROOT_A, target_block=1, ns="rollupa")
+    a = construct_settle_tx(V1, exec_cursor=700, state_root=ROOT_A, max_block=1, ns="rollupa")
     validate_transaction(a, logger, 1); reflect_transaction(a, logger, 1)     # V1 = 4/5 > 2/3 -> settled in rollupa
     assert latest_settled("rollupa") == (700, ROOT_A), "rollupa settled"
     assert latest_settled("rollupb") == (-1, None), "a different namespace is unaffected"
     assert latest_settled()[0] != 700, "the default namespace is unaffected by a rollupa settle"
     # same validator, same cursor, DIFFERENT namespace -> allowed and independent
-    b = construct_settle_tx(V1, exec_cursor=700, state_root=ROOT_B, target_block=1, ns="rollupb")
+    b = construct_settle_tx(V1, exec_cursor=700, state_root=ROOT_B, max_block=1, ns="rollupb")
     validate_transaction(b, logger, 1); reflect_transaction(b, logger, 1)
     assert latest_settled("rollupb") == (700, ROOT_B), "rollupb settles independently at the same cursor"
 
@@ -114,14 +114,14 @@ def _resign(tx, kd):
 def t8_non_canonical_default_ns_rejected():
     """Prove an explicit ns='default' in settle data is rejected (default must be omitted — canonical form),
     signing over the tampered body so the failure is the ns rule, not the signature."""
-    tx = construct_settle_tx(V1, exec_cursor=800, state_root=ROOT_A, target_block=1)
+    tx = construct_settle_tx(V1, exec_cursor=800, state_root=ROOT_A, max_block=1)
     tx["data"]["ns"] = DEFAULT_NS
     _resign(tx, V1)
     assert raises(lambda: validate_transaction(tx, logger, 1)), "explicit default ns must be rejected"
 
 def t9_bad_namespace_rejected():
     """Prove a malformed namespace id (invalid charset) is rejected, signed over the bad body."""
-    bad = construct_settle_tx(V1, exec_cursor=900, state_root=ROOT_A, target_block=1, ns="rollupa")
+    bad = construct_settle_tx(V1, exec_cursor=900, state_root=ROOT_A, max_block=1, ns="rollupa")
     bad["data"]["ns"] = "BadNS!"
     _resign(bad, V1)
     assert raises(lambda: validate_transaction(bad, logger, 1)), "invalid ns charset must be rejected"

@@ -117,10 +117,10 @@ def verify_multisig_origin(transaction) -> bool:
 # entry, and whoever holds the M-th signature submits. Lazy imports avoid transaction_ops <-> here
 # cycles (transaction_ops also imports this module lazily, from inside validate_origin).
 
-def draft_multisig_spend(threshold, members, recipient, amount, fee, target_block, data=""):
+def draft_multisig_spend(threshold, members, recipient, amount, fee, max_block, data=""):
     """Build an UNSIGNED multisig spend proposal: canonical descriptor + body + txid, with an empty
     signature list for members to fill. Raises if the descriptor is malformed. NOTE the landing
-    window: target_block must be < 360 blocks ahead when the last signature lands and the tx is
+    window: max_block must be < 360 blocks ahead when the last signature lands and the tx is
     submitted (mempool hygiene drops anything staler), so collect signatures promptly or re-draft."""
     from hashing import create_nonce
     from config import get_timestamp_seconds
@@ -135,7 +135,7 @@ def draft_multisig_spend(threshold, members, recipient, amount, fee, target_bloc
         "timestamp": get_timestamp_seconds(),
         "data": data,
         "nonce": create_nonce(),
-        "target_block": int(target_block),
+        "max_block": int(max_block),
         "chain_id": CHAIN_ID,
         "multisig": {"threshold": threshold, "members": members},
         "fee": int(fee),

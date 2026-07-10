@@ -175,6 +175,12 @@ async function newTable() {
   if (!canPay(dapp, buyin, "Opening this table")) return;
   sit(randId(), "open", buyin, ante);
 }
+function reopenTable() {   // retry an open that didn't confirm within ~2 min
+  const T = load(LS_T)[activeTable]; if (!T || !T.ante) return;
+  const buyin = nadoToRaw($("buyinAmt").value) || BigInt(T.ante);
+  if (!canPay(dapp, buyin, "Re-opening this table")) return;
+  sit(activeTable, "open", buyin, BigInt(T.ante));
+}
 async function joinTable() {
   const t = activeTable;
   if (!t) { $("status").textContent = "Pick a table first."; return; }
@@ -294,6 +300,7 @@ function wireUI() {
   $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = "Enter a table ID, or pick one from the lobby."; };
   $("btnReclaim").onclick = reclaimTable;
   $("btnCancel").onclick = cancelTable;
+  if ($("btnReopen")) $("btnReopen").onclick = reopenTable;
   $("btnShare").onclick = () => share(base() + "/?table=" + activeTable, "Sit down at my hold'em table #" + activeTable + " on NADO:", $("btnShare"));
 }
 function render() {
@@ -445,6 +452,8 @@ function renderActive() {
   }
   $("btnReclaim").classList.toggle("hidden", !(tb.exists && !tb.closed && tb.phase === "over" && !tb.leader && iAmHost));
   $("btnCancel").classList.toggle("hidden", !(tb.exists && !tb.closed && tb.seatCount === 1 && iAmHost));
+  const stalledOpen = !tb.exists && T.ts && Date.now() - T.ts > 120000;
+  if ($("btnReopen")) $("btnReopen").classList.toggle("hidden", !stalledOpen);
   const jh = $("joinHint");
   const hint = dapp.me && activeTable != null && !tb.exists ? dapp.whereIs("table", activeTable, T.ts) : "";
   if (jh) { jh.textContent = hint; jh.classList.toggle("hidden", !hint); }

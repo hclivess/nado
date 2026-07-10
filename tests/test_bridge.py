@@ -57,7 +57,7 @@ def t2_full_bridge_roundtrip():
     """Prove the full bridge flow: L1 deposit escrows, exec credits+withdraws, root settles, proven exit releases escrow, nullifier blocks a double-claim."""
     D, W = 500_000, 300_000
     # 1) L1 DEPOSIT -> escrow locks D
-    dep = construct_bridge_deposit_tx(U, D, target_block=1, fee=MIN_TX_FEE)
+    dep = construct_bridge_deposit_tx(U, D, max_block=1, fee=MIN_TX_FEE)
     validate_transaction(dep, logger, 1)
     u0 = _bal(U["address"])
     reflect_transaction(dep, logger, 1)
@@ -75,11 +75,11 @@ def t2_full_bridge_roundtrip():
     assert verify_merkle_proof(withdrawal_leaf(U["address"], W, "1"), p["proof"], root), "exec proof self-consistent"
 
     # 3) SETTLE the exec root on L1 (bonded quorum: V alone = 4/4 > 2/3)
-    reflect_transaction(construct_settle_tx(V, exec_cursor=7, state_root=root, target_block=1), logger, 1)
+    reflect_transaction(construct_settle_tx(V, exec_cursor=7, state_root=root, max_block=1), logger, 1)
     assert latest_settled()[1] == root, "root settled on L1"
 
     # 4) L1 EXIT: prove the withdrawal against the settled root -> escrow releases W to the user
-    wtx = construct_bridge_withdraw_tx(U, U["address"], W, p["nonce"], p["proof"], target_block=1)
+    wtx = construct_bridge_withdraw_tx(U, U["address"], W, p["nonce"], p["proof"], max_block=1)
     validate_transaction(wtx, logger, 1)
     ub = _bal(U["address"])
     reflect_transaction(wtx, logger, 1)
@@ -96,7 +96,7 @@ def t3_withdraw_without_settlement_rejected():
     st.credit_deposit(U["address"], 100_000)
     st.apply_blob({"op": "bridge_withdraw", "amount": 100_000}, sender=U["address"], txid="wd2")
     p = st.withdrawal_proof("1")
-    wtx = construct_bridge_withdraw_tx(U, U["address"], 100_000, "1", p["proof"], target_block=1)
+    wtx = construct_bridge_withdraw_tx(U, U["address"], 100_000, "1", p["proof"], max_block=1)
     # this exact (unsettled) root is not the settled one -> proof fails against the settled root
     assert raises(lambda: validate_transaction(wtx, logger, 1)), "unsettled withdrawal must reject"
 
@@ -108,8 +108,8 @@ def t4_forged_amount_rejected():
     st.apply_blob({"op": "bridge_withdraw", "amount": 40_000}, sender=U["address"], txid="wd3")
     p = st.withdrawal_proof("1")
     root = st.state_root()
-    reflect_transaction(construct_settle_tx(V, exec_cursor=99, state_root=root, target_block=1), logger, 1)
-    forged = construct_bridge_withdraw_tx(U, U["address"], 99_999, "1", p["proof"], target_block=1)  # wrong amount
+    reflect_transaction(construct_settle_tx(V, exec_cursor=99, state_root=root, max_block=1), logger, 1)
+    forged = construct_bridge_withdraw_tx(U, U["address"], 99_999, "1", p["proof"], max_block=1)  # wrong amount
     assert raises(lambda: validate_transaction(forged, logger, 1)), "forged amount must fail the proof"
 
 for name, fn in list(globals().items()):

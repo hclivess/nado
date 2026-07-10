@@ -43,7 +43,7 @@ async def get_recommneded_fee(target, port, base_fee, logger):
         logger.warning(f"Failed to get recommended fee: {e}")
 
 
-async def get_target_block(target, port, logger):
+async def get_max_block(target, port, logger):
     """Client-side helper: ask a peer for its latest block and aim the new tx two blocks ahead, so it
     lands inside the acceptance window despite propagation lag. None (logged warning) on failure."""
     try:
@@ -58,12 +58,12 @@ async def get_target_block(target, port, logger):
 
 
 def remove_outdated_transactions(transaction_list, block_number):
-    """Mempool hygiene: keep only txs whose target_block is still ahead of the chain tip and within
+    """Mempool hygiene: keep only txs whose max_block is still ahead of the chain tip and within
     the 360-block landing window — anything outside can never be included, so holding it only bloats
     the pool."""
     cleaned = []
     for transaction in transaction_list:
-        if block_number < transaction["target_block"] < block_number + 360:
+        if block_number < transaction["max_block"] < block_number + 360:
             cleaned.append(transaction)
 
     return cleaned
@@ -91,15 +91,15 @@ def get_transaction(txid, logger):
         return None
 
 
-def construct_attestation_tx(keydict, target_epoch, target_hash, target_block):
+def construct_attestation_tx(keydict, target_epoch, target_hash, max_block):
     """Build a SIGNED FFG attestation tx (#6) from a bonded validator's keydict: attests checkpoint
     (target_epoch, target_hash). Fee-exempt, zero-amount; pubkey-once carries public_key (the node
-    relays its own attestations so its pubkey is established). target_block must be inside target_epoch."""
+    relays its own attestations so its pubkey is established). max_block must be inside target_epoch."""
     tx = {"sender": keydict["address"], "recipient": "attest", "amount": 0,
           "timestamp": get_timestamp_seconds(),
           "data": {"target_epoch": int(target_epoch), "target_hash": target_hash},
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
@@ -157,33 +157,33 @@ def resolve_slash(data):
     return (r[0], r[1]) if r else None
 
 
-def construct_commit_tx(keydict, target_epoch, commitment, target_block):
+def construct_commit_tx(keydict, target_epoch, commitment, max_block):
     """Build a SIGNED RANDAO commit tx (#7): a bonded validator publishes a secret's commitment for
     target_epoch's beacon (submitted in epoch E-2). Fee-exempt, zero-amount."""
     tx = {"sender": keydict["address"], "recipient": "commit", "amount": 0,
           "timestamp": get_timestamp_seconds(),
           "data": {"target_epoch": int(target_epoch), "commitment": commitment},
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
 
 
-def construct_reveal_tx(keydict, target_epoch, secret, target_block):
+def construct_reveal_tx(keydict, target_epoch, secret, max_block):
     """Build a SIGNED RANDAO reveal tx (#7): opens the validator's prior commitment, contributing the
     secret to target_epoch's beacon (submitted in epoch E-1's finalized window). Fee-exempt."""
     tx = {"sender": keydict["address"], "recipient": "reveal", "amount": 0,
           "timestamp": get_timestamp_seconds(),
           "data": {"target_epoch": int(target_epoch), "secret": secret},
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
 
 
-def construct_bond_tx(keydict, amount, fee, target_block):
+def construct_bond_tx(keydict, amount, fee, max_block):
     """Build a SIGNED bond tx (used by the node's unattended AUTO-BOND loop): moves `amount` raw from
     the sender's spendable balance into bonded stake. A bond is an ordinary transfer whose recipient is
     the reserved name "bond" (account_ops.reflect_transaction handles the balance->bonded move), so the
@@ -191,26 +191,26 @@ def construct_bond_tx(keydict, amount, fee, target_block):
     tx = {"sender": keydict["address"], "recipient": "bond", "amount": int(amount),
           "timestamp": get_timestamp_seconds(), "data": "",
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": int(fee)}
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": int(fee)}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
 
 
-def construct_unbond_tx(keydict, amount, target_block):
+def construct_unbond_tx(keydict, amount, max_block):
     """Build a SIGNED unbond tx: moves `amount` raw from bonded stake back to spendable (after the unlock
     delay). FEE-EXEMPT — the node rejects a non-zero fee on an unbond, so a fully-bonded wallet can always
     exit. Mirror of construct_bond_tx; shared by the wallet, the CLI, and the headless agent."""
     tx = {"sender": keydict["address"], "recipient": "unbond", "amount": int(amount),
           "timestamp": get_timestamp_seconds(), "data": "",
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
 
 
-def construct_register_tx(keydict, target_block, posw_proof):
+def construct_register_tx(keydict, max_block, posw_proof):
     """Build a SIGNED open-lane registration/renewal tx. FEE-EXEMPT + zero-amount; carries the sequential
     PoSW proof (ops.posw.prove of posw.challenge_bytes(sender, anchor-block-hash)) that gates open-lane entry.
     posw rides in the signed body (create_txid commits it — only public_key is excluded), exactly like the
@@ -218,13 +218,13 @@ def construct_register_tx(keydict, target_block, posw_proof):
     tx = {"sender": keydict["address"], "recipient": "register", "amount": 0,
           "timestamp": get_timestamp_seconds(), "data": "",
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0, "posw": posw_proof}
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0, "posw": posw_proof}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
 
 
-def construct_msgkey_tx(keydict, kem_pub, target_block):
+def construct_msgkey_tx(keydict, kem_pub, max_block):
     """Build a SIGNED on-chain messaging-key tx. FEE-EXEMPT + zero-amount identity tx (recipient 'msgkey')
     that BINDS the sender's ML-KEM-768 encryption pubkey (`kem_pub`, 2368 hex chars) to their on-chain
     account, so anyone can DM them by address/alias with no off-chain prekey publish. kem_pub rides top-level
@@ -234,7 +234,7 @@ def construct_msgkey_tx(keydict, kem_pub, target_block):
     tx = {"sender": keydict["address"], "recipient": "msgkey", "amount": 0,
           "timestamp": get_timestamp_seconds(), "data": "",
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0, "kem_pub": kem_pub}
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0, "kem_pub": kem_pub}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
@@ -277,19 +277,19 @@ def cap_block_blobs(transactions, logger=None):
     return out
 
 
-def construct_blob_tx(keydict, payload, target_block, fee):
+def construct_blob_tx(keydict, payload, max_block, fee):
     """Build a SIGNED data-availability blob tx: recipient is the reserved name "blob"; the OPAQUE
     execution-layer payload rides in `data`. L1 orders + stores it and burns the fee, never decoding it."""
     tx = {"sender": keydict["address"], "recipient": "blob", "amount": 0,
           "timestamp": get_timestamp_seconds(), "data": payload,
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": int(fee)}
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": int(fee)}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
 
 
-def construct_settle_tx(keydict, exec_cursor, state_root, target_block, ns=DEFAULT_NS):
+def construct_settle_tx(keydict, exec_cursor, state_root, max_block, ns=DEFAULT_NS):
     """Build a SIGNED execution-layer settlement attestation: recipient 'settle', data
     {exec_cursor, state_root[, ns]}, fee-exempt (fee 0). Posted by a bonded validator running an exec node.
     `ns` names the rollup namespace; the default namespace is omitted from `data` so default-layer settle txs
@@ -301,7 +301,7 @@ def construct_settle_tx(keydict, exec_cursor, state_root, target_block, ns=DEFAU
           "timestamp": get_timestamp_seconds(),
           "data": d,
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
@@ -317,7 +317,7 @@ def _treasury_spend_body(recipient, amount, memo, nonce, expiry):
             "spend": {"recipient": recipient, "amount": int(amount), "memo": memo, "nonce": nonce, "expiry": int(expiry)}}
 
 
-def construct_treasury_vote_tx(keydict, recipient, amount, memo, nonce, target_block, expiry, choice="yes", fee=None):
+def construct_treasury_vote_tx(keydict, recipient, amount, memo, nonce, max_block, expiry, choice="yes", fee=None):
     """Build a SIGNED treasury vote (doc/treasury.md §3.3): recipient 'treasury_vote', cast by a bonded validator.
     Carries a small anti-spam FEE + the full spend + its id, so the vote binds to EXACTLY that payout (recipient,
     amount, AND expiry block). `choice` is 'yes' (approve) or 'no' (oppose/withdraw); re-voting overwrites."""
@@ -325,36 +325,36 @@ def construct_treasury_vote_tx(keydict, recipient, amount, memo, nonce, target_b
     tx = {"sender": keydict["address"], "recipient": "treasury_vote", "amount": 0,
           "timestamp": get_timestamp_seconds(), "data": body,
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": int(MIN_TX_FEE if fee is None else fee)}
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": int(MIN_TX_FEE if fee is None else fee)}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
 
 
-def construct_treasury_execute_tx(keydict, recipient, amount, memo, nonce, target_block, expiry, fee=None):
+def construct_treasury_execute_tx(keydict, recipient, amount, memo, nonce, max_block, expiry, fee=None):
     """Build a SIGNED treasury PAYOUT trigger (doc/treasury.md §3.3): recipient 'treasury_execute'. Carries a small
     anti-spam FEE. Pays the proposal out once the bonded quorum has approved it (and only at/before its expiry)."""
     tx = {"sender": keydict["address"], "recipient": "treasury_execute", "amount": 0,
           "timestamp": get_timestamp_seconds(), "data": _treasury_spend_body(recipient, amount, memo, nonce, expiry),
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": int(MIN_TX_FEE if fee is None else fee)}
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": int(MIN_TX_FEE if fee is None else fee)}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
 
 
-def construct_bridge_deposit_tx(keydict, amount, target_block, fee):
+def construct_bridge_deposit_tx(keydict, amount, max_block, fee):
     """Build a SIGNED bridge DEPOSIT: recipient 'bridge', amount locked into escrow; exec node credits it."""
     tx = {"sender": keydict["address"], "recipient": "bridge", "amount": int(amount),
           "timestamp": get_timestamp_seconds(), "data": "", "nonce": create_nonce(),
-          "public_key": keydict["public_key"], "target_block": int(target_block),
+          "public_key": keydict["public_key"], "max_block": int(max_block),
           "chain_id": CHAIN_ID, "fee": int(fee)}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
 
 
-def construct_bridge_withdraw_tx(keydict, addr, amount, nonce, proof, target_block, ns=DEFAULT_NS):
+def construct_bridge_withdraw_tx(keydict, addr, amount, nonce, proof, max_block, ns=DEFAULT_NS):
     """Build a SIGNED bridge EXIT: recipient 'bridge_withdraw', fee-exempt, data carries the Merkle proof
     that {addr, amount, nonce} is in namespace `ns`'s settled execution-layer root (default ns omitted)."""
     d = {"addr": addr, "amount": int(amount), "nonce": nonce, "proof": proof}
@@ -364,13 +364,13 @@ def construct_bridge_withdraw_tx(keydict, addr, amount, nonce, proof, target_blo
           "timestamp": get_timestamp_seconds(),
           "data": d,
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": 0}
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
 
 
-def construct_xmsg_tx(keydict, from_ns, to_ns, message, proof, target_block):
+def construct_xmsg_tx(keydict, from_ns, to_ns, message, proof, max_block):
     """Build a SIGNED cross-rollup message DELIVERY: recipient 'xmsg', fee-exempt, data carries the outbox
     `message` {seq, from, to_ns, data} + the Merkle `proof` that it is committed in from_ns's SETTLED root.
     L1 verifies that ONE proof against latest_settled(from_ns) and burns the (from_ns, seq) nullifier; the
@@ -379,14 +379,14 @@ def construct_xmsg_tx(keydict, from_ns, to_ns, message, proof, target_block):
     d = {"from_ns": from_ns, "to_ns": to_ns, "message": message, "proof": proof}
     tx = {"sender": keydict["address"], "recipient": "xmsg", "amount": 0,
           "timestamp": get_timestamp_seconds(), "data": d, "nonce": create_nonce(),
-          "public_key": keydict["public_key"], "target_block": int(target_block),
+          "public_key": keydict["public_key"], "max_block": int(max_block),
           "chain_id": CHAIN_ID, "fee": 0}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
 
 
-def construct_alias_tx(keydict, op, name, target_block, fee, to=None):
+def construct_alias_tx(keydict, op, name, max_block, fee, to=None):
     """Build a SIGNED alias op tx (op in {"register","transfer","unregister"}); recipient is the reserved
     name "alias" and the operation rides in `data`. `to` is the new owner for a transfer. amount is 0."""
     data = {"op": op, "name": name}
@@ -395,7 +395,7 @@ def construct_alias_tx(keydict, op, name, target_block, fee, to=None):
     tx = {"sender": keydict["address"], "recipient": "alias", "amount": 0,
           "timestamp": get_timestamp_seconds(), "data": data,
           "nonce": create_nonce(), "public_key": keydict["public_key"],
-          "target_block": int(target_block), "chain_id": CHAIN_ID, "fee": int(fee)}
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": int(fee)}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx
@@ -548,7 +548,7 @@ def validate_transaction(transaction, logger, block_height):
             "Offender holds insufficient bonded stake to slash"
     elif recipient == "attest":
         # FFG attestation (#6): a BONDED validator attests the CURRENT epoch's checkpoint (the first
-        # block of the epoch its target_block falls in). Fee-exempt validator duty; one per validator
+        # block of the epoch its max_block falls in). Fee-exempt validator duty; one per validator
         # per epoch (the attestation index rejects a second -> no on-chain double-vote). data carries
         # {target_epoch, target_hash}; target_hash must equal the real checkpoint block hash.
         from ops.block_ops import get_block_hash_by_number
@@ -559,7 +559,7 @@ def validate_transaction(transaction, logger, block_height):
         epoch = data.get("target_epoch")
         target_hash = data.get("target_hash")
         assert isinstance(epoch, int) and not isinstance(epoch, bool), "Attest target_epoch must be an int"
-        assert epoch == transaction["target_block"] // EPOCH_LENGTH, "Attest target_epoch != target_block's epoch"
+        assert epoch == transaction["max_block"] // EPOCH_LENGTH, "Attest target_epoch != max_block's epoch"
         acc = get_account(transaction["sender"], create_on_error=False)
         assert acc and acc.get("bonded", 0) >= B_MIN, "Attester is not a bonded validator"
         assert not kv_ops.attestation_exists(epoch, transaction["sender"]), "Validator already attested this epoch"
@@ -577,7 +577,7 @@ def validate_transaction(transaction, logger, block_height):
         assert isinstance(E, int) and not isinstance(E, bool) and E >= 2, "target_epoch must be an int >= 2"
         acc = get_account(transaction["sender"], create_on_error=False)
         assert acc and acc.get("bonded", 0) >= B_MIN, "Commit/reveal sender is not a bonded validator"
-        tb = transaction["target_block"]
+        tb = transaction["max_block"]
         if recipient == "commit":
             # commit must land in epoch E-2 (before E-1's reveal window), one per (sender, E)
             assert epoch_of(tb) == E - 2, "Commit must target a block in epoch E-2"
@@ -601,7 +601,7 @@ def validate_transaction(transaction, logger, block_height):
     elif recipient in ("unbond", "withdraw"):
         # UNBOND DELAY: fee-exempt actions on the sender's OWN stake. `unbond` requests a release (coins
         # stay bonded + slashable); `withdraw` claims it only at/after the matured release_block. Bound
-        # to target_block (the deterministic landing block) so the mempool gate and block validation agree.
+        # to max_block (the deterministic landing block) so the mempool gate and block validation agree.
         assert transaction["fee"] == 0, "unbond/withdraw is fee-exempt (fee must be 0)"
         acc = get_account(transaction["sender"], create_on_error=False)
         assert acc, "unbond/withdraw from an account with no stake"
@@ -612,7 +612,7 @@ def validate_transaction(transaction, logger, block_height):
             assert pending is None, "an unbond is already pending (one withdrawal at a time)"
         else:  # withdraw
             assert pending, "no pending unbond to withdraw"
-            assert transaction["target_block"] >= pending["release_block"], \
+            assert transaction["max_block"] >= pending["release_block"], \
                 "unbond has not matured yet (BOND_UNLOCK_DELAY)"
             data = transaction.get("data") or {}
             assert data.get("amount") == pending["amount"] and data.get("release_block") == pending["release_block"], \
@@ -624,12 +624,12 @@ def validate_transaction(transaction, logger, block_height):
         assert transaction["fee"] == 0, "register tx is fee-exempt (fee must be 0)"
         # SEQUENTIAL Proof-of-Work (doc/ip-spoofing-and-sybil.md, Appendix A): a non-parallelizable hash-chain
         # PoSW so a GPU can't mint identities in bulk. The challenge binds sender ‖ hash of block
-        # (target_block − POSW_ANCHOR_OFFSET) — a finalized, stable block — so the proof is un-precomputable
+        # (max_block − POSW_ANCHOR_OFFSET) — a finalized, stable block — so the proof is un-precomputable
         # far ahead and non-reusable. `register` is a RENEWABLE presence LEASE and the SINGLE presence signal
         # (no separate heartbeat): a fresh recert keeps you eligible for POSW_LEASE_EPOCHS (doc/presence-dividend.md §2.4).
         from ops import posw
         from ops.block_ops import get_block_hash_by_number
-        anchor = get_block_hash_by_number(max(0, transaction["target_block"] - POSW_ANCHOR_OFFSET))
+        anchor = get_block_hash_by_number(max(0, transaction["max_block"] - POSW_ANCHOR_OFFSET))
         assert anchor, "PoSW anchor block not found"
         proof = transaction.get("posw")
         assert proof, "Missing registration PoSW"
@@ -638,7 +638,7 @@ def validate_transaction(transaction, logger, block_height):
         # and rejects an under-worked proof (a modified node can't register cheaply). See ops/reg_difficulty.py.
         from ops.reg_difficulty import required_posw_t
         from ops.mining_ops import epoch_of
-        req_t = required_posw_t(epoch_of(max(0, transaction["target_block"] - POSW_ANCHOR_OFFSET)))
+        req_t = required_posw_t(epoch_of(max(0, transaction["max_block"] - POSW_ANCHOR_OFFSET)))
         assert posw.verify(posw.challenge_bytes(transaction["sender"], anchor), proof,
                            req_t, POSW_S, POSW_K), "Invalid registration PoSW (or below the required difficulty)"
     elif recipient == "msgkey":
@@ -774,7 +774,7 @@ def validate_transaction(transaction, logger, block_height):
         assert acc.get("balance", 0) >= transaction["fee"], "treasury_vote sender cannot afford the fee"
         # the proposal's expiry must be in the future (you can't vote on an already-expired proposal) and no more
         # than TREASURY_PROPOSAL_MAX_TTL out — bounds stale execution + the size of the live proposal set.
-        assert transaction["target_block"] <= sexpiry <= transaction["target_block"] + TREASURY_PROPOSAL_MAX_TTL, \
+        assert transaction["max_block"] <= sexpiry <= transaction["max_block"] + TREASURY_PROPOSAL_MAX_TTL, \
             "proposal expiry must be >= this block and <= this block + TREASURY_PROPOSAL_MAX_TTL"
         # CHANGE/WITHDRAW: re-voting is allowed and OVERWRITES the prior vote (revert-symmetric in reflect).
         # "yes" approves at the snapshot weight; "no" withdraws/opposes (counts as 0). Choice is outside the pid
@@ -803,7 +803,7 @@ def validate_transaction(transaction, logger, block_height):
         assert isinstance(sexpiry, int) and not isinstance(sexpiry, bool) and sexpiry > 0, "treasury spend needs a positive int expiry block"
         assert pid == treasury_proposal_id(sr, sa, memo, snonce, sexpiry), "pid does not match the spend content"
         assert not kv_ops.treasury_executed_exists(pid), "this proposal was already executed"
-        assert transaction["target_block"] <= sexpiry, "this proposal has expired (past its bound expiry block)"
+        assert transaction["max_block"] <= sexpiry, "this proposal has expired (past its bound expiry block)"
         sender_acc = get_account(transaction["sender"], create_on_error=False)
         assert sender_acc and sender_acc.get("balance", 0) >= transaction["fee"], "treasury_execute sender cannot afford the fee"
         assert kv_ops.treasury_voters(pid), "no votes recorded for this proposal"          # cheap gate BEFORE the O(N) scan
@@ -811,12 +811,12 @@ def validate_transaction(transaction, logger, block_height):
         bal = treasury.get("balance", 0) if treasury else 0
         assert bal >= sa, "treasury underfunded for this payout"
         assert sa * BPS_DENOM <= bal * TREASURY_MAX_SPEND_BPS, "treasury spend exceeds the per-proposal cap (% of balance)"
-        assert treasury_justified(pid, get_bonded_registry(), epoch_of(transaction["target_block"])), \
+        assert treasury_justified(pid, get_bonded_registry(), epoch_of(transaction["max_block"])), \
             "treasury proposal has not reached the bonded quorum"
     elif recipient == "htlc_lock":
         # HTLC LOCK (cross-chain atomic swap): escrow `amount` under a SHA-256 hashlock + block-height timelock.
         data = transaction.get("data") or {}
-        h = transaction["target_block"]                          # deterministic landing height (mempool == build)
+        h = transaction["max_block"]                          # deterministic landing height (mempool == build)
         assert transaction["amount"] > 0, "HTLC lock amount must be positive"
         assert transaction["fee"] >= MIN_TX_FEE, f"HTLC lock fee below minimum {MIN_TX_FEE}"
         claimant, hashlock, expiry = data.get("claimant"), data.get("hashlock"), data.get("expiry")
@@ -829,7 +829,7 @@ def validate_transaction(transaction, logger, block_height):
         # HTLC CLAIM: reveal the preimage before expiry. Fee-EXEMPT so a zero-balance claimant can still claim.
         import hashlib
         data = transaction.get("data") or {}
-        h = transaction["target_block"]
+        h = transaction["max_block"]
         assert transaction["amount"] == 0, "htlc_claim carries no amount"
         assert transaction["fee"] == 0, "htlc_claim is fee-exempt"
         hid, preimage = data.get("htlc_id"), data.get("preimage")
@@ -843,7 +843,7 @@ def validate_transaction(transaction, logger, block_height):
     elif recipient == "htlc_refund":
         # HTLC REFUND: the original sender reclaims an unclaimed lock after expiry. Fee-EXEMPT.
         data = transaction.get("data") or {}
-        h = transaction["target_block"]
+        h = transaction["max_block"]
         assert transaction["amount"] == 0, "htlc_refund carries no amount"
         assert transaction["fee"] == 0, "htlc_refund is fee-exempt"
         hid = data.get("htlc_id")
@@ -1117,7 +1117,7 @@ def create_transaction(draft, private_key, fee):
     return transaction_message
 
 
-def draft_transaction(sender, recipient, amount, public_key, timestamp, data, target_block):
+def draft_transaction(sender, recipient, amount, public_key, timestamp, data, max_block):
     """construct to be able to calculate base fee, signature and txid are not present here"""
     transaction_message = {
         "sender": sender,
@@ -1127,14 +1127,14 @@ def draft_transaction(sender, recipient, amount, public_key, timestamp, data, ta
         "data": data,
         "nonce": create_nonce(),
         "public_key": public_key,
-        "target_block": target_block,
+        "max_block": max_block,
         "chain_id": CHAIN_ID,
     }
 
     return transaction_message
 
 
-def draft_open_lane_transaction(sender, recipient, public_key, timestamp, target_block,
+def draft_open_lane_transaction(sender, recipient, public_key, timestamp, max_block,
                                 pow_nonce=None, epoch=None):
     """Draft a FEE-EXEMPT open-lane mining tx (recipient 'register' or 'heartbeat'): amount 0, and
     create_transaction will set fee 0. Carries pow_nonce (register) or epoch (heartbeat) in the
@@ -1148,7 +1148,7 @@ def draft_open_lane_transaction(sender, recipient, public_key, timestamp, target
         "data": "",
         "nonce": create_nonce(),
         "public_key": public_key,
-        "target_block": target_block,
+        "max_block": max_block,
         "chain_id": CHAIN_ID,
     }
     if pow_nonce is not None:
@@ -1254,7 +1254,7 @@ if __name__ == "__main__":
                                       data=data,
                                       public_key=public_key,
                                       timestamp=get_timestamp_seconds(),
-                                      target_block=asyncio.run(get_target_block(target=ips[0],
+                                      max_block=asyncio.run(get_max_block(target=ips[0],
                                                                                 port=port,
                                                                                 logger=logger)))
             fee = asyncio.run(get_recommneded_fee(

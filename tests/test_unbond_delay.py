@@ -39,11 +39,11 @@ create_account(val["address"], bonded=5 * B_MIN)
 H = 100  # the block the unbond lands in
 
 
-def signed(recipient, amount, data, target_block):
+def signed(recipient, amount, data, max_block):
     """Build a signed transaction from val to recipient (txid computed, signature attached)."""
     tx = {"sender": val["address"], "recipient": recipient, "amount": amount, "timestamp": 1, "data": data,
-          "nonce": f"{recipient}{target_block}", "public_key": val["public_key"],
-          "target_block": target_block, "chain_id": CHAIN_ID, "fee": 0}
+          "nonce": f"{recipient}{max_block}", "public_key": val["public_key"],
+          "max_block": max_block, "chain_id": CHAIN_ID, "fee": 0}
     tx["txid"] = create_txid(tx); tx["signature"] = sign(val["private_key"], unhex(tx["txid"]))
     return tx
 
@@ -77,7 +77,7 @@ def t3_withdraw_before_maturity():
     """Prove a withdraw before the release_block matures is rejected ('not matured')."""
     pending = kv_ops.unbond_get(val["address"])
     tx = signed("withdraw", 0, {"amount": pending["amount"], "release_block": pending["release_block"]},
-                pending["release_block"] - 1)  # target_block BEFORE maturity
+                pending["release_block"] - 1)  # max_block BEFORE maturity
     try:
         validate_transaction(tx, logger, block_height=H + 5); raise RuntimeError("premature withdraw accepted")
     except AssertionError as e:
@@ -106,7 +106,7 @@ def t5_revert_symmetric():
     v2 = generate_keydict(); create_account(v2["address"], bonded=4 * B_MIN)
     before = get_account(v2["address"])["bonded"]
     tx = {"sender": v2["address"], "recipient": "unbond", "amount": B_MIN, "timestamp": 1, "data": "",
-          "nonce": "u", "public_key": v2["public_key"], "target_block": 200, "chain_id": CHAIN_ID, "fee": 0}
+          "nonce": "u", "public_key": v2["public_key"], "max_block": 200, "chain_id": CHAIN_ID, "fee": 0}
     tx["txid"] = create_txid(tx); tx["signature"] = sign(v2["private_key"], unhex(tx["txid"]))
     with kv_ops.write_txn():
         reflect_transaction(tx, logger=logger, block_height=200)

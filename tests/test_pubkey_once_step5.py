@@ -47,7 +47,7 @@ def dump_env():
 kd = generate_keydict()
 sender = kd["address"]
 body = {"sender": sender, "recipient": "register", "amount": 0, "timestamp": 1, "data": "",
-        "nonce": "abc123", "public_key": kd["public_key"], "target_block": 5,
+        "nonce": "abc123", "public_key": kd["public_key"], "max_block": 5,
         "chain_id": CHAIN_ID, "fee": 0, "epoch": 0}
 
 

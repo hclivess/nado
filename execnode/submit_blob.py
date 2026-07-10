@@ -56,9 +56,9 @@ def main():
         payload = {"op": "call", "contract": cid, "method": method, "args": call_args}
 
     latest = _get(args.l1, "/get_latest_block")
-    target_block = int(latest["block_number"]) + 2
-    tx = construct_blob_tx(keys, payload, target_block=target_block, fee=args.fee)
-    print(f"submitting blob tx {tx['txid'][:16]}… (target_block {target_block}) → {args.l1}")
+    max_block = int(latest["block_number"]) + 2
+    tx = construct_blob_tx(keys, payload, max_block=max_block, fee=args.fee)
+    print(f"submitting blob tx {tx['txid'][:16]}… (max_block {max_block}) → {args.l1}")
     print(json.dumps(_post(args.l1, "/submit_transaction", tx), indent=2))
     if args.action == "deploy":
         # echo the deterministic contract id the execution node will assign

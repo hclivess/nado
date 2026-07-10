@@ -44,11 +44,11 @@ val = generate_keydict()
 create_account(val["address"], bonded=B_MIN)
 
 
-def signed(recipient, data, target_block, kd=val):
+def signed(recipient, data, max_block, kd=val):
     """Build and sign a fee-0 reserved tx (commit/reveal) from keydict kd with txid + signature attached."""
     tx = {"sender": kd["address"], "recipient": recipient, "amount": 0, "timestamp": 1, "data": data,
-          "nonce": f"{recipient}{target_block}", "public_key": kd["public_key"],
-          "target_block": target_block, "chain_id": CHAIN_ID, "fee": 0}
+          "nonce": f"{recipient}{max_block}", "public_key": kd["public_key"],
+          "max_block": max_block, "chain_id": CHAIN_ID, "fee": 0}
     tx["txid"] = create_txid(tx); tx["signature"] = sign(kd["private_key"], unhex(tx["txid"]))
     return tx
 

@@ -38,7 +38,7 @@ def cull_buffer(buffer, limit) -> list:
 
 
 def merge_buffer(from_buffer, to_buffer, block_max, block_min) -> dict:
-    """Promote EVERY tx whose target_block is in (block_min, block_max] from `from_buffer` into `to_buffer`, and
+    """Promote EVERY tx whose max_block is in (block_min, block_max] from `from_buffer` into `to_buffer`, and
     keep the rest in `from_buffer`. Single O(N) pass, order-independent.
 
     The old code re-selected the max-FEE tx each iteration and, when that tx did not match the window, left it
@@ -51,7 +51,7 @@ def merge_buffer(from_buffer, to_buffer, block_max, block_min) -> dict:
         tid = tx.get("txid")
         if tid in in_to:
             continue                                            # already in to_buffer — drop the duplicate
-        if block_min < tx["target_block"] <= block_max:
+        if block_min < tx["max_block"] <= block_max:
             to_buffer.append(tx)
             in_to.add(tid)
         else:

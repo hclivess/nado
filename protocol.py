@@ -13,12 +13,12 @@ from hashing import blake2b_hash  # leaf module (stdlib only) -> no import cycle
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "alphanet-2"
+CHAIN_ID = "alphanet-3"
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
 
-GENESIS_TIMESTAMP = 1783641600  # 2026-07-10 00:00 UTC — alphanet-2 reboot (chain_id out of block hash + carried balances)
+GENESIS_TIMESTAMP = 1783645200  # 2026-07-10 01:00 UTC — alphanet-3 (target_block -> max_block rename + generous tx TTL)
 
 # --- Reserved, keyless protocol pseudo-addresses (no private key) ---
 # "bond"/"unbond": pseudo-recipients used by the bonding transactions (see S4).
@@ -95,12 +95,12 @@ def valid_namespace(ns) -> bool:
 # sequential blake2b chain (NON-parallelizable, so a GPU can't mint identities in bulk the way it can with
 # the old hashcash), verified cheaply via POSW_K Fiat-Shamir spot-checks over POSW_S-step segments. Post-
 # quantum (only assumes blake2b). The challenge binds address‖anchor where anchor = hash of block
-# (target_block − POSW_ANCHOR_OFFSET) — a FINALIZED, stable block, so the proof is un-precomputable far in
+# (max_block − POSW_ANCHOR_OFFSET) — a FINALIZED, stable block, so the proof is un-precomputable far in
 # advance and non-reusable across identities. Tuned so an honest phone spends ~1 s once.
 POSW_T = 1_000_000           # total sequential hash steps (~1 s on a phone; single-core spam < ~1M/day)
 POSW_S = 2_000               # steps per checkpoint segment -> C = T // S = 500 segments
 POSW_K = 20                  # Fiat-Shamir spot-checks (soundness); verify ~ (K+1)·S hashes
-POSW_ANCHOR_OFFSET = 30      # anchor block = target_block − this (>= FINALITY_DEPTH: finalized & stable)
+POSW_ANCHOR_OFFSET = 30      # anchor block = max_block − this (>= FINALITY_DEPTH: finalized & stable)
 
 # PERIODIC PRESENCE: registration is a renewable LEASE. A `register` (with a fresh PoSW) grants OPEN-lane
 # eligibility for POSW_LEASE_EPOCHS; to stay present you renew (another PoSW) each period, else you lapse

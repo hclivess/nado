@@ -45,7 +45,7 @@ def _dump():
 def signed(kd, recipient, amount, fee, data, target=20):
     """Build a fully signed transaction from key dict kd with a valid txid and signature."""
     tx = {"sender": kd["address"], "recipient": recipient, "amount": amount, "fee": fee, "data": data,
-          "timestamp": 1, "nonce": "n" + recipient, "public_key": kd["public_key"], "target_block": target,
+          "timestamp": 1, "nonce": "n" + recipient, "public_key": kd["public_key"], "max_block": target,
           "chain_id": CHAIN_ID}
     tx["txid"] = create_txid(tx); tx["signature"] = sign(kd["private_key"], unhex(tx["txid"]))
     return tx

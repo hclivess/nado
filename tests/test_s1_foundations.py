@@ -63,7 +63,7 @@ def build_tx(chain=None, fee=MIN_TX_FEE):
     """Draft and sign a self-send tx from kd, optionally overriding chain_id and fee."""
     d = draft_transaction(sender=kd["address"], recipient=kd["address"], amount=1000,
                           public_key=kd["public_key"], timestamp=get_timestamp_seconds(),
-                          data={"x":"y"}, target_block=5)
+                          data={"x":"y"}, max_block=5)
     if chain is not None: d["chain_id"] = chain
     return create_transaction(draft=d, private_key=kd["private_key"], fee=fee)
 

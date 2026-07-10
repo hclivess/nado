@@ -250,11 +250,11 @@ class MemServer:
     def merge_transaction(self, transaction, user_origin=False) -> dict:
         """warning, can get stuck if not efficient"""
         # AUDIT FIX: a malicious peer can serve a /transaction_pool list with a malformed entry; the
-        # pre-validation field accesses below (sender, target_block) would KeyError/TypeError and abort
+        # pre-validation field accesses below (sender, max_block) would KeyError/TypeError and abort
         # the whole merge batch. Reject malformed txs up front so the rest of the batch still merges.
         if (not isinstance(transaction, dict) or "sender" not in transaction
-                or not isinstance(transaction.get("target_block"), int)
-                or isinstance(transaction.get("target_block"), bool)):
+                or not isinstance(transaction.get("max_block"), int)
+                or isinstance(transaction.get("max_block"), bool)):
             return {"result": False, "message": "Malformed transaction"}
 
         # Anti-DoS: hard-cap the mempool so a flood (incl. fee-exempt register/heartbeat spam) cannot
@@ -268,18 +268,18 @@ class MemServer:
                 + len(self.user_tx_buffer)) >= self.transaction_pool_limit:
             return {"result": False, "message": "Mempool full"}
 
-        # CHEAP BOUNDS FIRST (audit): the two integer target_block compares run before the LMDB
+        # CHEAP BOUNDS FIRST (audit): the two integer max_block compares run before the LMDB
         # get_account read — a stale re-gossiped tx (the most common reject under load, since peers
         # re-serve their whole pool every second) must not cost a DB hit to reject.
-        # `<=` (was `<`): the drain promotes only target_block STRICTLY greater than the tip
+        # `<=` (was `<`): the drain promotes only max_block STRICTLY greater than the tip
         # (merge_buffer block_min < target), so a tx targeting the current tip was acknowledged
         # "Success", could never be mined, and silently aged out — reject it up front instead.
-        if transaction["target_block"] <= self.latest_block["block_number"]:
+        if transaction["max_block"] <= self.latest_block["block_number"]:
             msg = {"result": False,
                    "message": f"Target block too low"}
             return msg
 
-        elif transaction["target_block"] > self.latest_block["block_number"] + 360:
+        elif transaction["max_block"] > self.latest_block["block_number"] + 360:
             msg = {"result": False,
                    "message": f"Target block too high"}
             return msg

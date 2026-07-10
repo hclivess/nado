@@ -7,7 +7,7 @@ difficulty from the committed recert index and REJECTS a registration whose PoSW
 edits their own node to skip the client-side work simply produces proofs that every HONEST node rejects — the
 difficulty is not a client courtesy, it is a validity rule.
 
-Determinism: the difficulty is keyed off the FINALIZED PoSW ANCHOR epoch (the anchor is target_block −
+Determinism: the difficulty is keyed off the FINALIZED PoSW ANCHOR epoch (the anchor is max_block −
 POSW_ANCHOR_OFFSET, already ≥ FINALITY_DEPTH deep), so the recert counts it reads are settled and identical on
 every node. Self-scaling: difficulty is the recent registration rate measured against a longer trailing-average
 baseline (with a floor), so a normal-sized, healthy network sits at 1× and only abnormal bursts are throttled.

@@ -43,11 +43,11 @@ def _bal(a):
     """Spendable balance of address a."""
     return get_account(a)["balance"]
 
-def _transfer_tx(kd, recipient, amount, fee, target_block=1):
+def _transfer_tx(kd, recipient, amount, fee, max_block=1):
     """Build a signed plain transfer tx from keypair kd to recipient."""
     tx = {"sender": kd["address"], "recipient": recipient, "amount": int(amount),
           "timestamp": get_timestamp_seconds(), "data": "", "nonce": create_nonce(),
-          "public_key": kd["public_key"], "target_block": int(target_block),
+          "public_key": kd["public_key"], "max_block": int(max_block),
           "chain_id": CHAIN_ID, "fee": int(fee)}
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=kd["private_key"], message=unhex(tx["txid"]))
@@ -60,7 +60,7 @@ C = _key(1_000_000 + MIN_TX_FEE * 10)
 
 def t1_register():
     """Prove alias registration sets the owner, charges the registration fee, and resolves."""
-    tx = construct_alias_tx(A, "register", "alice", target_block=1, fee=ALIAS_REGISTRATION_FEE)
+    tx = construct_alias_tx(A, "register", "alice", max_block=1, fee=ALIAS_REGISTRATION_FEE)
     validate_transaction(tx, logger, 1)
     before = _bal(A["address"])
     reflect_transaction(tx, logger, 1)
@@ -70,12 +70,12 @@ def t1_register():
 
 def t2_duplicate_register_rejected():
     """Prove registering an already-taken alias fails validation."""
-    tx = construct_alias_tx(B, "register", "alice", target_block=1, fee=ALIAS_REGISTRATION_FEE)
+    tx = construct_alias_tx(B, "register", "alice", max_block=1, fee=ALIAS_REGISTRATION_FEE)
     assert raises(lambda: validate_transaction(tx, logger, 1)), "already-registered must reject"
 
 def t3_send_to_alias_credits_owner():
     """Prove a transfer addressed to a registered alias validates and credits the alias owner."""
-    tx = _transfer_tx(C, "alice", amount=50_000, fee=MIN_TX_FEE, target_block=2)
+    tx = _transfer_tx(C, "alice", amount=50_000, fee=MIN_TX_FEE, max_block=2)
     validate_transaction(tx, logger, 2)            # alias resolves -> valid recipient
     before = _bal(A["address"])
     reflect_transaction(tx, logger, 2)
@@ -83,12 +83,12 @@ def t3_send_to_alias_credits_owner():
 
 def t4_transfer_alias():
     """Prove alias ownership transfers to the new owner, who then receives sends to the alias."""
-    tx = construct_alias_tx(A, "transfer", "alice", target_block=1, fee=MIN_TX_FEE, to=B["address"])
+    tx = construct_alias_tx(A, "transfer", "alice", max_block=1, fee=MIN_TX_FEE, to=B["address"])
     validate_transaction(tx, logger, 1)
     reflect_transaction(tx, logger, 1)
     assert kv_ops.alias_get("alice") == B["address"], "ownership moved to B"
     # a send now credits B
-    tx2 = _transfer_tx(C, "alice", amount=30_000, fee=MIN_TX_FEE, target_block=3)
+    tx2 = _transfer_tx(C, "alice", amount=30_000, fee=MIN_TX_FEE, max_block=3)
     before = _bal(B["address"])
     reflect_transaction(tx2, logger, 3)
     assert _bal(B["address"]) == before + 30_000
@@ -102,7 +102,7 @@ def t5_non_owner_cannot_transfer_or_unregister():
 
 def t6_unregister_frees_name():
     """Prove unregister frees the name and sends to the now-free alias are rejected."""
-    tx = construct_alias_tx(B, "unregister", "alice", target_block=1, fee=MIN_TX_FEE)
+    tx = construct_alias_tx(B, "unregister", "alice", max_block=1, fee=MIN_TX_FEE)
     validate_transaction(tx, logger, 1)
     reflect_transaction(tx, logger, 1)
     assert kv_ops.alias_get("alice") is None, "freed"
@@ -120,7 +120,7 @@ def t7_name_validation():
 def t8_revert_register():
     """Prove reverting a register clears the alias and refunds the registration fee."""
     before = _bal(A["address"])
-    tx = construct_alias_tx(A, "register", "revtest", target_block=1, fee=ALIAS_REGISTRATION_FEE)
+    tx = construct_alias_tx(A, "register", "revtest", max_block=1, fee=ALIAS_REGISTRATION_FEE)
     reflect_transaction(tx, logger, 1)
     assert kv_ops.alias_get("revtest") == A["address"] and _bal(A["address"]) == before - ALIAS_REGISTRATION_FEE
     reflect_transaction(tx, logger, 1, revert=True)
@@ -150,7 +150,7 @@ def t10_send_to_alias_indexed_under_owner():
     # alias string — otherwise it never shows in the recipient's history.
     from ops.transaction_ops import index_transactions
     reflect_transaction(construct_alias_tx(A, "register", "histname", 1, ALIAS_REGISTRATION_FEE), logger, 6)
-    tx = _transfer_tx(C, "histname", amount=12345, fee=MIN_TX_FEE, target_block=7)
+    tx = _transfer_tx(C, "histname", amount=12345, fee=MIN_TX_FEE, max_block=7)
     a_before = _bal(A["address"])
     index_transactions({"block_number": 7}, [tx], logger)
     assert _bal(A["address"]) == a_before + 12345, "owner credited"

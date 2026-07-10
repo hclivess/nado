@@ -25,14 +25,14 @@ import * as sjoinsplit2 from "./stark/joinsplit2.js";
 import * as sstark from "./stark/stark.js";
 import { treePath } from "./stark/tree.js";
 import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js";
-const CHAIN_ID = "alphanet-2";
+const CHAIN_ID = "alphanet-3";
 const EPOCH_LENGTH = 60;
 const FINALITY_DEPTH = 30;     // protocol.py: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1
 const REGISTER_POW_BITS = 16;  // legacy hashcash (retired) — kept only for the self-test vector
 // Registration Proof of Sequential Work (must match protocol.py). Non-parallelizable ~1 s chain; the
 // registration is a renewable presence LEASE renewed once ~POSW_LEASE_EPOCHS (≈1 day at ~8 min/epoch).
 const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 30, POSW_LEASE_EPOCHS = 180;
-// Headroom (in blocks) between the current tip and the register/recert target_block, so the tx still lands
+// Headroom (in blocks) between the current tip and the register/recert max_block, so the tx still lands
 // BEFORE its target while the sequential PoW is computing. It is capped by POSW_ANCHOR_OFFSET: the anchor is
 // block (target − POSW_ANCHOR_OFFSET), which the client must be able to FETCH now, so target ≤ tip + offset.
 // The old value (8 blocks ≈ 64 s at 8 s/block) was too tight when the PoW runs in pure JS (WASM unavailable) —
@@ -422,7 +422,7 @@ function buildRegisterTx(wallet, targetBlock, posw, timestamp) {
     data: "",
     nonce: randNonce(),
     public_key: wallet.publicKey,
-    target_block: targetBlock,
+    max_block: targetBlock,
     chain_id: CHAIN_ID,
     posw,                        // sequential Proof of Work (renewable presence lease); replaces pow_nonce
   };
@@ -442,7 +442,7 @@ function buildMsgkeyTx(wallet, kemPubHex, targetBlock, timestamp) {
     data: "",
     nonce: randNonce(),
     public_key: wallet.publicKey,
-    target_block: targetBlock,
+    max_block: targetBlock,
     chain_id: CHAIN_ID,
     kem_pub: kemPubHex,
   };
@@ -458,7 +458,7 @@ async function miningHashDeps() {
   return { blake2b: _wasmB2b ? (b) => _wasmB2b(b) : blake2b, bytesToHex, hexToBytes };
 }
 
-// Fetch the PoSW anchor (hash of block target_block − POSW_ANCHOR_OFFSET — a finalized, stable block that
+// Fetch the PoSW anchor (hash of block max_block − POSW_ANCHOR_OFFSET — a finalized, stable block that
 // the node derives identically), compute the non-parallelizable sequential proof, and build the register tx.
 async function computeRegisterTx(targetBlock, onProgress, requiredT) {
   const anchorNum = Math.max(0, targetBlock - POSW_ANCHOR_OFFSET);
@@ -501,7 +501,7 @@ function buildTransferTx(wallet, recipient, rawAmount, fee, targetBlock, data, t
     timestamp,
     data: data || "",
     nonce: randNonce(),
-    target_block: targetBlock,
+    max_block: targetBlock,
     chain_id: CHAIN_ID,
   };
   if (includePubkey) draft.public_key = wallet.publicKey;
@@ -558,7 +558,7 @@ function execBase() {
  * carries it is settled by the bonded quorum. */
 function buildBlobTx(wallet, payload, targetBlock, fee, timestamp) {
   const draft = { sender: wallet.address, recipient: "blob", amount: 0, timestamp, data: payload,
-    nonce: randNonce(), public_key: wallet.publicKey, target_block: targetBlock, chain_id: CHAIN_ID };
+    nonce: randNonce(), public_key: wallet.publicKey, max_block: targetBlock, chain_id: CHAIN_ID };
   return finalizeTransaction(draft, wallet.privateKey, fee);
 }
 // ML-DSA-44 signing is HEDGED (randomized): a rare signature verifies locally yet is rejected by the node /
@@ -588,7 +588,7 @@ async function submitResilient(buildTxFn, tries = 8) {
 function buildDividendWithdrawTx(wallet, addr, amount, nonce, proof, targetBlock, timestamp) {
   const draft = { sender: wallet.address, recipient: "dividend_withdraw", amount: 0, timestamp,
     data: { addr, amount, nonce, proof }, nonce: randNonce(), public_key: wallet.publicKey,
-    target_block: targetBlock, chain_id: CHAIN_ID };
+    max_block: targetBlock, chain_id: CHAIN_ID };
   return finalizeTransaction(draft, wallet.privateKey, 0);   // fee-exempt
 }
 
@@ -1217,7 +1217,7 @@ async function maybeRenewLease(acc) {
   _renewingLease = true;
   try {
     log("info", i18("log.leaseRenewing", "Presence lease expiring — renewing (fresh sequential proof)…"));
-    // Up to 2 attempts: if the chain outran target_block while the (pure-JS) PoW was computing, recompute
+    // Up to 2 attempts: if the chain outran max_block while the (pure-JS) PoW was computing, recompute
     // against a fresh tip. Each attempt targets tip + POSW_TARGET_MARGIN (max headroom for the proof).
     let lastMsg = "";
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -1301,7 +1301,7 @@ function showRegProgress(label, stats) {
 // acceptance. Does NOT wait for on-chain confirmation (the poll loop owns that). Returns true if the
 // tx was accepted into the mempool, false if the relay rejected it.
 async function submitRegistration() {
-  // need latest block for target_block
+  // need latest block for max_block
   const latest = await getLatestBlock();
   if (!latest || typeof latest.block_number !== "number") throw new RelayUnreachable("relay /get_latest_block unavailable");
   state.latest = latest.block_number;
@@ -1333,7 +1333,7 @@ async function submitRegistration() {
   savePoswRate(diff.reqT, Date.now() - t0);
   log("ok", `Sequential PoW computed in ${((Date.now() - t0) / 1000).toFixed(1)}s (${diff.reqT.toLocaleString()} hashes${diff.mult > 1 ? `, ×${diff.mult} difficulty` : ""}).`);
   setRegBanner(i18("reg.submitting", "Submitting registration to the network…") + REASSURE);
-  log("info", `Submitting register tx ${tx.txid.slice(0, 16)}… (target_block ${targetBlock}).`);
+  log("info", `Submitting register tx ${tx.txid.slice(0, 16)}… (max_block ${targetBlock}).`);
   const res = await submitTransaction(tx);
   const m = res.data && (res.data.message || JSON.stringify(res.data));
   if (!(res.data && res.data.result)) {
@@ -1942,7 +1942,7 @@ async function resumePendingExecSign() {
         const latest = await getLatestBlock();
         if (!latest) throw new Error("relay unavailable");
         const draft = { sender: state.wallet.address, recipient: "bridge", amount: amt, timestamp: nowSeconds(),
-          data: "", nonce: randNonce(), public_key: state.wallet.publicKey, target_block: latest.block_number + 15, chain_id: CHAIN_ID };
+          data: "", nonce: randNonce(), public_key: state.wallet.publicKey, max_block: latest.block_number + 300, chain_id: CHAIN_ID };
         return finalizeTransaction(draft, state.wallet.privateKey, MIN_TX_FEE);
       });
       back(res && res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address
@@ -1977,7 +1977,7 @@ async function resumePendingExecSign() {
     const { res, tx } = await submitResilient(async () => {
       const latest = await getLatestBlock();
       if (!latest) throw new Error("relay unavailable");
-      return buildBlobTx(state.wallet, blob, latest.block_number + 15, MIN_TX_FEE, nowSeconds());
+      return buildBlobTx(state.wallet, blob, latest.block_number + 300, MIN_TX_FEE, nowSeconds());
     });
     if (res && res.data && res.data.result) back("ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address);
     else back("ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
@@ -2089,12 +2089,12 @@ const VEC = {
   pow_target_str: "1766847064778384329583297500742918515827483896875618958121606201292619776",
   pow_hash_int_str: "17809026246977670515167752421706303018992963831983493225416033548923031",
   fixed_priv: "4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a4d3c2b1a", // 32-byte ML-DSA-44 seed
-  register_tx: { sender: "ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84", recipient: "register", amount: 0, timestamp: 1700000000, data: "", nonce: "fixednonc", public_key: "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", target_block: 12345, chain_id: "nado-relaunch-1", pow_nonce: 2108331, fee: 0, txid: "71ba7ea5dff6b128de55651c24dda450ffaef5dfa853b8b75f710eeb28faef3e", signature: "42944e232fdc8c31c7e06bbfd08842e83c0ff738d64c48299b6b94e89cc2da644c1b741bbd39780affc8564473424e30be7ded23be2c4400991e23a9ee5e810e" },
-  register_canonical: "{\"amount\":0,\"chain_id\":\"nado-relaunch-1\",\"data\":\"\",\"fee\":0,\"nonce\":\"fixednonc\",\"pow_nonce\":2108331,\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"register\",\"sender\":\"ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84\",\"target_block\":12345,\"timestamp\":1700000000}",
-  heartbeat_tx: { sender: "ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84", recipient: "heartbeat", amount: 0, timestamp: 1700000000, data: "", nonce: "fixednonc", public_key: "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", target_block: 12345, chain_id: "nado-relaunch-1", epoch: 205, fee: 0, txid: "fef23a0cb2a032386271e84b585e786d1a9d6c182687fc8c3a8936a18454222a", signature: "1f525959cad52328829902cb5d703593b4c6df3fb948fecb4b1e0e3ad7276ee89e7e6c7b099ca04eb82f301de97e42c287879887f689528b6bfab2fbf9f1880b" },
-  heartbeat_canonical: "{\"amount\":0,\"chain_id\":\"nado-relaunch-1\",\"data\":\"\",\"epoch\":205,\"fee\":0,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"heartbeat\",\"sender\":\"ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84\",\"target_block\":12345,\"timestamp\":1700000000}",
-  transfer_tx: { sender: "ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84", recipient: "ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29", amount: 123456, timestamp: 1700000000, data: "hello world", nonce: "fixednonc", public_key: "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", target_block: 12345, chain_id: "nado-relaunch-1", fee: 1000, txid: "857c54c68ccb67f5cba24c6503593a262ea22583d99553ab8143e94058b7a366", signature: "3fdd647501c3727378a01cd7ec1d0a09c318b8fe95ac3084e6f6848a49252263161e852c5e821869a78dec9ee5e4e03016e22eecf2bdc3b9654a201a723f450c" },
-  transfer_canonical: "{\"amount\":123456,\"chain_id\":\"nado-relaunch-1\",\"data\":\"hello world\",\"fee\":1000,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29\",\"sender\":\"ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84\",\"target_block\":12345,\"timestamp\":1700000000}",
+  register_tx: { sender: "ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84", recipient: "register", amount: 0, timestamp: 1700000000, data: "", nonce: "fixednonc", public_key: "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", max_block: 12345, chain_id: "nado-relaunch-1", pow_nonce: 2108331, fee: 0, txid: "71ba7ea5dff6b128de55651c24dda450ffaef5dfa853b8b75f710eeb28faef3e", signature: "42944e232fdc8c31c7e06bbfd08842e83c0ff738d64c48299b6b94e89cc2da644c1b741bbd39780affc8564473424e30be7ded23be2c4400991e23a9ee5e810e" },
+  register_canonical: "{\"amount\":0,\"chain_id\":\"nado-relaunch-1\",\"data\":\"\",\"fee\":0,\"nonce\":\"fixednonc\",\"pow_nonce\":2108331,\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"register\",\"sender\":\"ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84\",\"max_block\":12345,\"timestamp\":1700000000}",
+  heartbeat_tx: { sender: "ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84", recipient: "heartbeat", amount: 0, timestamp: 1700000000, data: "", nonce: "fixednonc", public_key: "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", max_block: 12345, chain_id: "nado-relaunch-1", epoch: 205, fee: 0, txid: "fef23a0cb2a032386271e84b585e786d1a9d6c182687fc8c3a8936a18454222a", signature: "1f525959cad52328829902cb5d703593b4c6df3fb948fecb4b1e0e3ad7276ee89e7e6c7b099ca04eb82f301de97e42c287879887f689528b6bfab2fbf9f1880b" },
+  heartbeat_canonical: "{\"amount\":0,\"chain_id\":\"nado-relaunch-1\",\"data\":\"\",\"epoch\":205,\"fee\":0,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"heartbeat\",\"sender\":\"ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84\",\"max_block\":12345,\"timestamp\":1700000000}",
+  transfer_tx: { sender: "ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84", recipient: "ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29", amount: 123456, timestamp: 1700000000, data: "hello world", nonce: "fixednonc", public_key: "1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38", max_block: 12345, chain_id: "nado-relaunch-1", fee: 1000, txid: "857c54c68ccb67f5cba24c6503593a262ea22583d99553ab8143e94058b7a366", signature: "3fdd647501c3727378a01cd7ec1d0a09c318b8fe95ac3084e6f6848a49252263161e852c5e821869a78dec9ee5e4e03016e22eecf2bdc3b9654a201a723f450c" },
+  transfer_canonical: "{\"amount\":123456,\"chain_id\":\"nado-relaunch-1\",\"data\":\"hello world\",\"fee\":1000,\"nonce\":\"fixednonc\",\"public_key\":\"1e9f9f319a9ee0f98b3147a67dca40e7296d5e847b34ad683692f39264379f38\",\"recipient\":\"ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29\",\"sender\":\"ndo1e9f9f319a9ee0f98b3147a67dca40e7296d5e847bdd84\",\"max_block\":12345,\"timestamp\":1700000000}",
 };
 
 function bodyOf(tx) {
@@ -3173,7 +3173,7 @@ function exRenderTx(t) {
     ["To", exReservedOrAddr(t.recipient)],
     ["Amount", exNado(t.amount)],
     ["Fee", exNado(t.fee || 0)],
-    ["Target block", t.target_block != null ? exLink("b", String(t.target_block), "#" + t.target_block) : "—"],
+    ["Target block", t.max_block != null ? exLink("b", String(t.max_block), "#" + t.max_block) : "—"],
     ["Timestamp", exTime(t.timestamp)],
     t.data ? ["Data", `<span class="mono">${exEsc(typeof t.data === "string" ? t.data.slice(0, 200) : JSON.stringify(t.data))}</span>`] : null,
   ])}`;
@@ -4000,7 +4000,7 @@ async function msigPropose() {
     const latest = await getLatestBlock();
     const body = {
       sender, recipient, amount: rawAmount, timestamp: nowSeconds(), data: "",
-      nonce: randNonce(), target_block: latest.block_number + MSIG_TARGET_HEADROOM,
+      nonce: randNonce(), max_block: latest.block_number + MSIG_TARGET_HEADROOM,
       chain_id: CHAIN_ID, multisig: { threshold: d.threshold, members: d.members }, fee,
     };
     const tx = { ...body, txid: createTxid(body), signature: [] };
@@ -4028,7 +4028,7 @@ function msigRefreshStatus() {
     i18("msig.stTo", "to {a}", { a: tx.recipient }),
     rawToNado(BigInt(tx.amount)) + " NADO",
     i18("msig.stSigs", "signatures {have}/{need}", { have: signed.length, need: d.threshold }),
-    i18("msig.stExpiry", "valid until block {b}", { b: tx.target_block }),
+    i18("msig.stExpiry", "valid until block {b}", { b: tx.max_block }),
   ];
   let verdict;
   if (ready) verdict = '<span class="ok">' + i18("msig.stReady", "Ready to submit ✓") + "</span>";
@@ -4338,7 +4338,7 @@ async function submitTreasurySpend(kind, recipient, amountRaw, memo, nonce, expi
   const draft = { sender: state.wallet.address, recipient: kind, amount: 0, timestamp: nowSeconds(),
     data,
     nonce: randNonce(), public_key: state.wallet.publicKey,
-    target_block: latest.block_number + 8, chain_id: CHAIN_ID };
+    max_block: latest.block_number + 8, chain_id: CHAIN_ID };
   return submitTransaction(finalizeTransaction(draft, state.wallet.privateKey, MIN_TX_FEE));
 }
 async function proposeSpend() {

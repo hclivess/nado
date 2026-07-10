@@ -33,7 +33,7 @@ PK = "ab" * 656   # a plausible ML-DSA-44 pubkey hex (length irrelevant here)
 def _tx(txid, amount, public_key=None):
     """Build a minimal s->r transfer tx, optionally carrying a public_key."""
     t = {"sender": "s", "recipient": "r", "amount": amount, "fee": 0, "txid": txid,
-         "nonce": txid, "timestamp": 1, "target_block": 500, "chain_id": CHAIN_ID}
+         "nonce": txid, "timestamp": 1, "max_block": 500, "chain_id": CHAIN_ID}
     if public_key:
         t["public_key"] = public_key
     return t
@@ -67,7 +67,7 @@ def t2_revert_of_the_establishing_tx_still_clears_pubkey():
     create_account("s2", balance=10_000)
     create_account("r2", balance=0)
     tx = {"sender": "s2", "recipient": "r2", "amount": 50, "fee": 0, "txid": "t_first",
-          "nonce": "n", "timestamp": 1, "target_block": 500, "chain_id": CHAIN_ID, "public_key": PK}
+          "nonce": "n", "timestamp": 1, "max_block": 500, "chain_id": CHAIN_ID, "public_key": PK}
     blk = {"block_number": 501, "block_transactions": [tx]}
     index_transactions(block=blk, sorted_transactions=[tx], logger=logger)   # first tx -> stores pubkey
     assert get_account("s2").get("public_key") == PK

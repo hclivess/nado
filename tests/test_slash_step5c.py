@@ -68,7 +68,7 @@ def t4_end_to_end():
     reporter = generate_keydict()
     proof = mkproof()
     tx = {"sender": reporter["address"], "recipient": "slash", "amount": 0, "timestamp": 1, "data": proof,
-          "nonce": "s1", "public_key": reporter["public_key"], "target_block": 105, "chain_id": CHAIN_ID, "fee": 0}
+          "nonce": "s1", "public_key": reporter["public_key"], "max_block": 105, "chain_id": CHAIN_ID, "fee": 0}
     tx["txid"] = create_txid(tx); tx["signature"] = sign(reporter["private_key"], unhex(tx["txid"]))
 
     assert validate_transaction(tx, logger, block_height=100), "valid slash tx must validate"
@@ -99,7 +99,7 @@ def t5_insufficient_bond():
     proof = mkproof(kd=poor)
     reporter = generate_keydict()
     tx = {"sender": reporter["address"], "recipient": "slash", "amount": 0, "timestamp": 1, "data": proof,
-          "nonce": "s2", "public_key": reporter["public_key"], "target_block": 105, "chain_id": CHAIN_ID, "fee": 0}
+          "nonce": "s2", "public_key": reporter["public_key"], "max_block": 105, "chain_id": CHAIN_ID, "fee": 0}
     tx["txid"] = create_txid(tx); tx["signature"] = sign(reporter["private_key"], unhex(tx["txid"]))
     try:
         validate_transaction(tx, logger, block_height=100); raise RuntimeError("slash of unbonded accepted")

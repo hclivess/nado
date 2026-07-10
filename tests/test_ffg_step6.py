@@ -78,7 +78,7 @@ def t3_attest_tx():
     kv_ops.block_index_put(3 * EPOCH_LENGTH, H3)
     tx = {"sender": val["address"], "recipient": "attest", "amount": 0, "timestamp": 1,
           "data": {"target_epoch": 3, "target_hash": H3}, "nonce": "att", "public_key": val["public_key"],
-          "target_block": 3 * EPOCH_LENGTH + 5, "chain_id": CHAIN_ID, "fee": 0}
+          "max_block": 3 * EPOCH_LENGTH + 5, "chain_id": CHAIN_ID, "fee": 0}
     tx["txid"] = create_txid(tx); tx["signature"] = sign(val["private_key"], unhex(tx["txid"]))
     assert validate_transaction(tx, logger, block_height=3 * EPOCH_LENGTH + 1), "bonded validator attest must validate"
     with kv_ops.write_txn():

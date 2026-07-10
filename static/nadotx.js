@@ -96,7 +96,7 @@ export function nowSeconds() { return Math.floor(Date.now() / 1000); }
 // build+sign a `blob` tx carrying an opaque exec-layer payload (deploy/call/…)
 export function buildBlobTx(wallet, payload, targetBlock, fee, chainId) {
   const draft = { sender: wallet.address, recipient: "blob", amount: 0, timestamp: nowSeconds(), data: payload,
-    nonce: randNonce(), public_key: wallet.publicKey, target_block: targetBlock, chain_id: chainId };
+    nonce: randNonce(), public_key: wallet.publicKey, max_block: targetBlock, chain_id: chainId };
   return finalizeTx(draft, wallet.privateKey, fee);
 }
 
