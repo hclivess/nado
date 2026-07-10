@@ -89,8 +89,18 @@ class MemServer:
         block_ends_info = get_block_ends_info(logger=logger)
         self.latest_block = block_ends_info["latest_block"]
         self.earliest_block = block_ends_info["earliest_block"]
-        self.transaction_pool_limit = 150000
-        self.transaction_buffer_limit = 1500000
+        # MEMPOOL CAPS (LOCAL policy, non-consensus — get_byte_size is a rough sys.getsizeof(repr) estimate).
+        # These were ONE fused constant (150000) that meant "150k txs" in the accept gate but "150000 BYTES"
+        # (~146 KB) in cull_buffer — and 146 KB is SMALLER than one block's blob budget (MAX_BLOB_BYTES_PER_BLOCK
+        # = 256 KB), so cull evicted blob txs before a block could ever fill to 256 KB. Split into:
+        #   transaction_pool_max_txs   — the count gate (how many txs the mempool may hold), and
+        #   transaction_pool_max_bytes — the cull byte budget: MUST exceed a full block's blobs (so a block can
+        #                                always fill) and stay under MAX_PEER_BODY (8 MiB, the /transaction_pool
+        #                                fetch cap) so the pool stays transferable between peers. 4 MiB = 16
+        #                                full blocks of blobs, well under the 8 MiB wire cap.
+        self.transaction_pool_max_txs = 150000
+        self.transaction_pool_max_bytes = 4 * 1024 * 1024      # 4 MiB (>> 256 KiB block, << 8 MiB peer body)
+        self.transaction_buffer_limit = 4 * 1024 * 1024        # staging buffer byte cap — match the pool
         self.cascade_depth = 0
         self.force_sync_ip = None
         self.rollbacks = 0
@@ -265,7 +275,7 @@ class MemServer:
         # load: three .copy()s + a concat on EVERY merge attempt). The union is built lazily below,
         # only once a tx has cleared the cheap rejects and actually needs membership / single-spend.
         if (len(self.transaction_pool) + len(self.tx_buffer)
-                + len(self.user_tx_buffer)) >= self.transaction_pool_limit:
+                + len(self.user_tx_buffer)) >= self.transaction_pool_max_txs:
             return {"result": False, "message": "Mempool full"}
 
         # CHEAP BOUNDS FIRST (audit): the two integer max_block compares run before the LMDB

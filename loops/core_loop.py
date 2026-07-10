@@ -200,7 +200,7 @@ class CoreClient(threading.Thread):
                                                            limit=self.memserver.transaction_buffer_limit)
 
                     self.memserver.transaction_pool = cull_buffer(buffer=buffered["to_buffer"],
-                                                                  limit=self.memserver.transaction_pool_limit)
+                                                                  limit=self.memserver.transaction_pool_max_bytes)
 
             # CONSENSUS MEMPOOL RECONCILE — at most once per block interval: if our pool hash is in the
             # minority vs peers, replace it (last-effort convergence). Time-gated (replaces the old
@@ -480,7 +480,7 @@ class CoreClient(threading.Thread):
             local = self.memserver.transaction_pool
             seen = {tx.get("txid") for tx in local}
             merged = local + [tx for tx in peer_pool if tx.get("txid") not in seen]
-            self.memserver.transaction_pool = cull_buffer(merged, self.memserver.transaction_pool_limit)
+            self.memserver.transaction_pool = cull_buffer(merged, self.memserver.transaction_pool_max_bytes)
 
     def replace_pool(self, peer, key):
         """replace pool (block, tx) when out of sync to prevent forking"""
