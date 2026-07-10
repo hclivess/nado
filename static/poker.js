@@ -346,7 +346,16 @@ function renderActive() {
   betRow.classList.add("hidden");
   if (tb.exists && !tb.closed && dapp.me) {
     if (tb.phase === "join" && !me) btn("🪑 Sit down — ante " + rawToNado(tb.ante) + " NADO", joinTable, true);
-    if (tb.phase === "street" && me && !fk) {
+    const rec = me ? (load(LS_S)[me.g] || {}) : {};
+    const localFold = !!rec.folded;
+    const setFold = (v) => { const S = load(LS_S); if (S[me.g]) { S[me.g].folded = v ? Date.now() : 0; save(LS_S, S); } render(); };
+    if (tb.phase === "street" && me && !fk && localFold) {
+      const note = document.createElement("div"); note.className = "small"; note.style.cssText = "flex:1 1 100%;color:var(--dim);font-weight:700";
+      note.textContent = "✋ You folded — sitting this hand out. Your chips stay in the pot.";
+      wrap.appendChild(note);
+      btn("↩ Undo fold — you can still call until the street closes", () => setFold(false), false);
+    }
+    if (tb.phase === "street" && me && !fk && !localFold) {
       betRow.classList.remove("hidden");
       const myIn = me.cs[tb.street], owe = priceNow - myIn;
       $("betInfo").innerHTML = priceNow
@@ -361,8 +370,15 @@ function renderActive() {
         doBet(raw, "bet " + rawToNado(raw) + " NADO");
       }, owe <= 0);
       rb.disabled = !canRaise;
+      btn("🙅 Fold" + (owe > 0 ? " — give up " + rawToNado(me.total + Number(tb.ante || 0)) + " in the pot" : ""), () => setFold(true), false);
     }
-    if (tb.phase === "showdown" && me && !fk) {
+    if (tb.phase === "showdown" && me && !fk && localFold && !me.revealed) {
+      const note = document.createElement("div"); note.className = "small"; note.style.cssText = "flex:1 1 100%;color:var(--dim);font-weight:700";
+      note.textContent = "✋ You folded — your cards stay mucked.";
+      wrap.appendChild(note);
+      btn("↩ Undo — show your cards after all (you're still eligible)", () => setFold(false), false);
+    }
+    if (tb.phase === "showdown" && me && !fk && !localFold) {
       const stillIn = lastSeats.filter((x) => !foldedAt(x, tb));
       const waitingOn = stillIn.filter((x) => !x.revealed);
       if (!me.revealed && watch && watch.phase === "reveal") btn("⏳ Showing your hand — confirming on-chain…", () => {}, false).disabled = true;

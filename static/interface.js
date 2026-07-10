@@ -798,7 +798,7 @@ function nadoToRaw(amountStr) {
 // of blocks (~80%). Bonded rewards are shared across all bonded shares (B_MIN = 1,000 NADO each), so the APY on
 // staked capital ≈ (annual bonded producer reward ÷ total bonded shares) ÷ B_MIN. The dividend is paid to
 // PRESENT open-lane miners (not to stake), so it's shown separately as a capital-free bonus.
-const B_MIN_RAW = 10_000_000_000_000n;     // protocol.py: 1,000 NADO per bonded selection share (raised from 100)
+const B_MIN_RAW = 100_000_000_000n;        // protocol.py B_MIN: 10 NADO per bonded selection share — MUST track the node
 const BASE_SUBSIDY_RAW = 1_000_000_000n;   // protocol.py: 0.1 NADO/block reward floor
 async function estimateSavingsApy() {
   const box = $("apyResult");
