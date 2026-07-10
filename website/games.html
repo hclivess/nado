@@ -73,7 +73,7 @@
 
   <section class="hero">
     <h1>NADO <span class="g">Games</span></h1>
-    <p class="lead">Provably-fair games on the NADO execution layer. Sign in with your post-quantum wallet, stake real NADO, and win — the outcome is enforced on-chain by commit-reveal, so nobody can cheat. No install, no house account.</p>
+    <p class="lead">Provably-fair games on the NADO execution layer. Sign in with your post-quantum wallet, stake real NADO, and win — every outcome is decided by future block hashes and enforced on-chain, so nobody can cheat. No install, no house account.</p>
   </section>
 
   <div class="grid" id="games"></div>
@@ -81,9 +81,9 @@
   <div class="fair">
     <h2>Provably fair — by construction</h2>
     Every game is an ordinary <b>on-chain contract</b> on NADO's execution layer (no special server, no house
-    account). Outcomes come from <b>commit-reveal</b>: players commit a hash of a secret before anyone reveals,
-    so no one can bias the result, and payouts are escrowed and settled by the contract itself — nothing is
-    minted or lost. Your key never leaves your <a href="https://get.nadochain.com/">NADO wallet</a>; each game
+    account). Outcomes come from <b>future L1 block hashes</b> that don't exist yet while betting is open —
+    no player, no host, no block producer can know or steer a result (Hold'em adds commit-reveal so your hole
+    cards stay yours alone). Payouts are escrowed and settled by the contract itself — nothing is minted or lost. Your key never leaves your <a href="https://get.nadochain.com/">NADO wallet</a>; each game
     only bounces you there to sign. <a href="https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md">See how the contracts work →</a>
   </div>
 

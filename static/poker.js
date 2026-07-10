@@ -9,7 +9,7 @@
 //     hand on-chain (straight flush … high card, kickers included — 4000/4000 differential-verified).
 //     Best hand takes the pot. Board + each hand draw from independent decks (exact duplicates are legal).
 import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, commitHashOf, blake2bHash, _m, $, base, gate,
-         hoist, blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, renderWallet, renderScore,
+         hoist, orderCards, blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, renderWallet, renderScore,
          scoreBump, scoreSort, recentChips, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
@@ -366,7 +366,7 @@ dapp.onReturn((pend, ok, err) => {
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
-  wireUI(); loadQR(); hoist("activeGame");
+  wireUI(); loadQR(); orderCards(["activeGame","lobby","play","opencard","walletcard","bankroll","scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (activeTable == null) activeTable = parseInt(q, 10); }
   render(); refreshActive();

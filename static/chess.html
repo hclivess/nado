@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NADO Chess — play for stakes, post-quantum</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20y%3D%22.9em%22%20font-size%3D%2290%22%3E%E2%99%9E%3C/text%3E%3C/svg%3E">
+<meta name="theme-color" content="#0b0f14">
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
     --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--light:#eaeef2;--darksq:#43586a;--sel:#00c9a7;
@@ -49,18 +51,20 @@
   .sq.check{background-image:radial-gradient(circle,rgba(248,81,73,.75),transparent 70%)}
   #players .chip{font-size:12.5px}
   #settleHint{font-size:12.5px;color:var(--dim);margin-top:8px;line-height:1.45}
+  header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev);white-space:nowrap}
+  header .hub:hover{color:var(--accent2);border-color:var(--accent2)}
   footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
   a{color:var(--accent2)}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header><span class="logo">♟️</span><h1>NADO <span class="a">Chess</span></h1></header>
+  <header><span class="logo">♟️</span><h1>NADO <span class="a">Chess</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
   <p class="sub">Play a real game of chess <b>for stakes</b> on the NADO execution layer. Both players stake equally; every move is recorded on-chain (a trustless game log), and the pot settles by <b>resignation, mutual agreement, or a refund timeout</b> — so a stall or a disputed move can never rob you. The board + full legality run in your browser. Post-quantum wallet, no install.</p>
 
   <div id="status"></div>
 
-  <div class="card">
+  <div class="card" id="walletcard">
     <h2>Wallet</h2>
     <p class="small dim">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
     <div class="kv mt"><span class="k">Playing as</span><span class="mono" id="who">not signed in</span></div>

@@ -3,7 +3,7 @@
 // strategy). At the table's settle block, each seat's WHOLE turn is auto-played on-chain from a FINALIZED L1
 // block hash — one beacon draw resolves a full turn, no per-roll waits. Highest banked score takes the pot.
 // The same auto-play runs here (matching the contract's die formula exactly) so you can watch your turn roll out.
-import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate, hoist, blocksToTime,
+import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate, hoist, orderCards, blocksToTime,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, renderWallet, renderScore, scoreBump, scoreSort,
          recentChips, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
@@ -263,7 +263,7 @@ dapp.onReturn((pend, ok, err) => {
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
-  wireUI(); hoist("activeGame"); loadQR(); syncThreshold();
+  wireUI(); orderCards(["activeGame","lobby","play","opencard","walletcard","bankroll","scoreboard"]); loadQR(); syncThreshold();
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (activeTable == null) activeTable = parseInt(q, 10); }
   render(); refreshActive();

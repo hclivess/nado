@@ -28,6 +28,17 @@ export const gate = (map) => { for (const id in map) { const el = document.getEl
 // hoist(id): move an element to the TOP of the page (right after #status) so the actual game/board is the first
 // thing a player sees when they're in a game. Call once at boot; the element stays hidden (via gate) until active.
 export const hoist = (id, refId = "status") => { const el = document.getElementById(id), ref = document.getElementById(refId); if (el && ref && ref.parentNode) ref.parentNode.insertBefore(el, ref.nextSibling); };
+// orderCards(ids): arrange the page's cards right after #status in the given order — the GAME DISPLAY first,
+// the public lobby directly under it, wallet/plumbing demoted below. So the moment a player opens/joins a
+// game, the board/felt/wheel is the first thing on screen. Ids missing on a page are skipped.
+export function orderCards(ids) {
+  let anchor = document.getElementById("status");
+  if (!anchor || !anchor.parentNode) return;
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (el) { anchor.parentNode.insertBefore(el, anchor.nextSibling); anchor = el; }
+  }
+}
 
 // ---- amounts -------------------------------------------------------------------------------------
 export function nadoToRaw(s) {

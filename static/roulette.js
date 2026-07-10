@@ -7,7 +7,7 @@
 // Once the settle block is final, ANYONE can settle a seat (it pays the bettor) — a stalling bank can't rob
 // anyone. A win pays the true 36/count; losing stakes fold into the bankroll. Ordinary upgradable stackvm
 // contract, no game-specific API.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, hoist, chainResult, blocksToTime,
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, hoist, orderCards, chainResult, blocksToTime,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, renderWallet, renderScore, scoreBump, scoreSort,
          recentChips, statusLabel, tablesOf as allTables, readTable,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
@@ -279,7 +279,7 @@ dapp.onReturn((pend, ok, err) => {
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
-  wireUI(); loadQR(); hoist("activeGame");
+  wireUI(); loadQR(); orderCards(["activeGame","lobby","play","bankcard","walletcard","bankroll","scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (activeTable == null) activeTable = parseInt(q, 10); }
   paintTable(); render(); refreshActive();
