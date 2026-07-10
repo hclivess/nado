@@ -102,7 +102,7 @@ function petsFrom(sto) {
     p.base = p.gene ? G.baseStats(p.gene, p.sp) : null;
     p.bonus = p.gene ? G.STAT_NAMES.map((_n, i) => _m(sto, "tb")[pid + "|" + i] || 0) : null;
     p.level = G.levelOf(p.tf || 0);
-    p.label = p.nm ? p.nm : (p.hatched ? G.SPECIES[p.sp].name : "Egg") + " #" + String(pid).slice(0, 4);
+    p.label = p.nm ? p.nm : (p.hatched ? G.SPECIES[p.sp].name : "Egg") + " #" + String(pid).slice(-4);
     out[pid] = p;
   }
   return out;
@@ -168,9 +168,10 @@ function acceptBattle(bid) {
 const resolveBattle = (bid) => dapp.call("resolve_battle", [Number(bid)], null, "settle battle #" + bid, { bid, phase: "resolveb" });
 const cancelBattle = (bid) => dapp.call("cancel_battle", [Number(bid)], null, "withdraw challenge #" + bid, { bid, phase: "cancelb" });
 const refundBattle = (bid) => dapp.call("refund_battle", [Number(bid)], null, "reclaim stakes of battle #" + bid, { bid, phase: "cancelb" });
-function rename(pid) {
+function nameIt(pid) {
   const name = $("nameInput").value.trim().slice(0, 24);
-  dapp.call("name", [Number(pid), name], null, name ? 'name pet #' + pid + ' "' + name + '"' : "clear pet #" + pid + " name", { pid, phase: "rename" });
+  if (!name) return alertBar("Pick a name — it's permanent, like a real pet's.");
+  dapp.call("name", [Number(pid), name], null, 'name pet #' + pid + ' "' + name + '" (permanent)', { pid, phase: "rename" }, { confirm: 1 });
 }
 function listPet(pid) {
   const raw = nadoToRaw($("listPrice").value);
@@ -197,8 +198,10 @@ async function transfer(pid) {
 }
 
 // ---- refresh loop ----------------------------------------------------------------------------------
+let BURNED = 0n;
 async function refreshAll() {
   await dapp.refresh();
+  try { BURNED = BigInt((await (await fetch(base() + "/exec/bridge?ns=default&provisional=1", { cache: "no-store" })).json()).balances.burn || 0); } catch {}
   const sto = await dapp.storage();
   if (sto) {
     BATTLES = battlesFrom(sto);
@@ -217,6 +220,12 @@ async function refreshAll() {
     for (const pid of Object.keys(l)) if (!PETS[pid] && Date.now() - (l[pid].ts || 0) > 600000) { delete l[pid]; ch = true; }
     if (ch) Lsave(l);
     await resolveAliases(Object.values(PETS).map((p) => p.owner).concat([dapp.me]).filter(Boolean).slice(0, 60));
+    // an in-flight action whose effect is now visible on-chain is done — stop showing "confirming…"
+    const f = dapp.inflight;
+    if (f && ((f.phase === "mint" && PETS[f.pid]) || (f.phase === "hatch" && PETS[f.pid] && PETS[f.pid].hatched)
+        || (f.phase === "buy" && PETS[f.pid] && PETS[f.pid].mine)
+        || (f.phase === "challenge" && BATTLES[f.bid]) || (f.phase === "accept" && BATTLES[f.bid] && BATTLES[f.bid].wn >= 2)
+        || (f.phase === "resolveb" && BATTLES[f.bid] && BATTLES[f.bid].wn === 3))) dapp.clearInflight();
   }
   render();
 }
@@ -239,7 +248,7 @@ function renderActive() {
   if (!p) {                                        // not on-chain (yet)
     $("petId").textContent = "#" + active; $("petRar").innerHTML = "";
     $("petStage").innerHTML = eggSvg("egg-idle", 0);
-    $("petName").textContent = "Egg #" + String(active).slice(0, 4);
+    $("petName").textContent = "Egg #" + String(active).slice(-4);
     $("petSpecies").textContent = "";
     $("petMsg").textContent = dapp.whereIs("pet", active, local.ts);
     gate({ lifeWrap: false, hatchRow: false, feedRow: false, statsWrap: false, challengeRow: false, ownRow: false });
@@ -323,7 +332,11 @@ function renderActive() {
     const mine = myPets().filter((x) => x.hatched && !x.dead);
     $("myPetSel").innerHTML = mine.length ? mine.map((x) => `<option value="${x.id}">${esc(x.label)} · ⚡${x.pw}</option>`).join("") : '<option value="">no living pet — adopt below</option>';
   }
-  if (p.mine && !p.dead && document.activeElement !== $("nameInput")) $("nameInput").value = p.nm || "";
+  if (p.mine && !p.dead) {
+    const named = !!p.nm;
+    $("nameInput").classList.toggle("hidden", named);
+    $("btnRename").classList.toggle("hidden", named);
+  }
   shareInvite("pet", p.id, (p.hatched ? "Meet " + p.label + ", my " + sp.rarity + " " + sp.name + " on NADO Pets:" : "My NADO Pets egg is incubating:"));
   maybePlayHatch(p);
 }
@@ -335,16 +348,44 @@ function petCard(p, sel) {
     <div class="po">${p.hatched ? `<span style="color:${sp.color}">${sp.rarity}</span> · ⚡${p.pw}` : "incubating"}${p.dead ? " · ✝" : ""}</div>
     <div class="po">${p.price && !p.dead ? `🏷 ${rawToNado(p.price)} NADO` : esc(disp(p.owner))}</div></div>`;
 }
+// grid view state: search + sort + how many are shown (pagination keeps 10k pets browsable)
+const VIEW = { g: { q: "", sort: "new", n: 24 }, m: { q: "", sort: "priceAsc", n: 24 } };
+const SORTS = {
+  new: (a, b) => b.bh - a.bh,                                        // mint block = age
+  rarity: (a, b) => b.sp - a.sp || b.pw - a.pw,
+  power: (a, b) => b.pw - a.pw,
+  level: (a, b) => b.level - a.level || b.pw - a.pw,
+  priceAsc: (a, b) => a.price - b.price,
+  priceDesc: (a, b) => b.price - a.price,
+};
+function matches(p, q) {
+  if (!q) return true;
+  q = q.toLowerCase().replace(/^[@#]/, "");
+  return (p.nm && p.nm.toLowerCase().includes(q)) || p.id.includes(q)
+    || (p.hatched && G.SPECIES[p.sp].name.toLowerCase().includes(q))
+    || (p.hatched && G.SPECIES[p.sp].rarity.toLowerCase().includes(q))
+    || p.owner.toLowerCase().startsWith(q) || disp(p.owner).toLowerCase().replace(/^@/, "").includes(q);
+}
+function grid(el, moreBtn, list, v, empty) {
+  const shown = list.slice(0, v.n);
+  el.innerHTML = shown.map((p) => petCard(p, String(active) === p.id)).join("") || `<span class="dim small">${empty}</span>`;
+  moreBtn.classList.toggle("hidden", list.length <= v.n);
+  if (list.length > v.n) moreBtn.textContent = "Show more (" + (list.length - v.n) + " more)";
+}
 function renderGrids() {
-  const all = Object.values(PETS).sort((a, b) => (b.hatched ? G.SPECIES[b.sp].pct * -1 : 1) - (a.hatched ? G.SPECIES[a.sp].pct * -1 : 1) || b.pw - a.pw);
+  const all = Object.values(PETS);
   const mine = myPets();
   const pendings = Object.keys(L()).filter((pid) => !PETS[pid]);
   $("myPetGrid").innerHTML = (mine.map((p) => petCard(p, String(active) === p.id)).join("")
-    + pendings.map((pid) => `<div class="pcard egg pending" data-pet="${pid}">${eggSvg("egg-idle", 0)}<div class="pn">🥚 #${String(pid).slice(0, 4)}</div><div class="po">confirming ⏳</div></div>`).join(""))
+    + pendings.map((pid) => `<div class="pcard egg pending" data-pet="${pid}">${eggSvg("egg-idle", 0)}<div class="pn">🥚 #${String(pid).slice(-4)}</div><div class="po">confirming ⏳</div></div>`).join(""))
     || '<span class="dim small">No pets yet — adopt your first egg below.</span>';
-  $("gallery").innerHTML = all.map((p) => petCard(p, String(active) === p.id)).join("") || '<span class="dim small">No pets exist yet. Yours could be the very first.</span>';
-  const forSale = all.filter((p) => p.price && !p.dead).sort((a, b) => a.price - b.price);
-  $("marketGrid").innerHTML = forSale.map((p) => petCard(p, String(active) === p.id)).join("") || '<span class="dim small">Nothing for sale right now — list one of yours from its pet card.</span>';
+  $("petCount").textContent = all.length ? "— " + all.length : "";
+  grid($("gallery"), $("btnMoreGallery"),
+    all.filter((p) => matches(p, VIEW.g.q)).sort(SORTS[VIEW.g.sort] || SORTS.new),
+    VIEW.g, "No pets exist yet. Yours could be the very first.");
+  grid($("marketGrid"), $("btnMoreMarket"),
+    all.filter((p) => p.price && !p.dead && matches(p, VIEW.m.q)).sort(SORTS[VIEW.m.sort] || SORTS.priceAsc),
+    VIEW.m, VIEW.m.q ? "No listed pet matches your search." : "Nothing for sale right now — list one of yours from its pet card.");
   document.querySelectorAll("[data-pet]").forEach((el) => el.onclick = () => { active = el.dataset.pet; render(); try { $("activePet").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
   // hall of fame
   const top = Object.values(PETS).filter((p) => p.hatched && !p.dead).sort((a, b) => b.pw - a.pw).slice(0, 10);
@@ -457,7 +498,8 @@ function render() {
   const signedIn = renderWallet(dapp);
   gate({ bankroll: signedIn, myPets: signedIn, adopt: signedIn, battlesCard: signedIn });
   $("btnMint").disabled = dapp.busy("mint");
-  $("btnMint").textContent = dapp.busy("mint") ? "⏳ Egg confirming on-chain…" : "🥚 Adopt an egg · 1 NADO";
+  $("btnMint").textContent = dapp.busy("mint") ? "⏳ Egg confirming on-chain…" : "🥚 Adopt an egg · burn 1 NADO";
+  if ($("burnTally")) $("burnTally").textContent = BURNED > 0n ? "🔥 " + rawToNado(BURNED) + " NADO burned by pets so far — adoption, food and training all destroy supply." : "";
   renderActive(); renderGrids(); renderBattles(); renderArena();
 }
 
@@ -473,11 +515,18 @@ function wireUI() {
   $("feed3d").onclick = () => preset(3 * BLOCKS_PER_DAY);
   $("feedFull").onclick = () => preset(parseInt($("feedFull").dataset.blocks || "0", 10));
   $("btnChallenge").onclick = () => challenge(active);
-  $("btnRename").onclick = () => rename(active);
+  $("btnRename").onclick = () => nameIt(active);
   $("btnTransfer").onclick = () => transfer(active);
   $("btnList").onclick = () => listPet(active);
   $("btnUnlist").onclick = () => unlistPet(active);
   $("btnBuy").onclick = () => buyPet(active);
+  const wireView = (v, q, s, more) => {
+    $(q).oninput = () => { v.q = $(q).value.trim(); v.n = 24; renderGrids(); };
+    $(s).onchange = () => { v.sort = $(s).value; v.n = 24; renderGrids(); };
+    $(more).onclick = () => { v.n += 48; renderGrids(); };
+  };
+  wireView(VIEW.g, "galleryQ", "gallerySort", "btnMoreGallery");
+  wireView(VIEW.m, "marketQ", "marketSort", "btnMoreMarket");
 }
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.pid != null) active = pend.pid;
@@ -488,7 +537,7 @@ dapp.onReturn((pend, ok, err) => {
     feed: "Nom nom — the meal is confirming…", train: "Training session booked — confirming…",
     trainres: "Revealing the result — confirming…", challenge: "Challenge sent — the owner must accept it.",
     accept: "Battle on! The chain decides in ~2 blocks…", resolveb: "Settling the battle…",
-    cancelb: "Withdrawing…", rename: "Naming — confirming…", xfer: "Transferring your pet — confirming…",
+    cancelb: "Withdrawing…", rename: "Naming — it's for life; confirming…", xfer: "Transferring your pet — confirming…",
     market: "Updating the listing — confirming…", buy: "Buying — confirming on-chain (~1 min)…" });
 });
 async function boot() {

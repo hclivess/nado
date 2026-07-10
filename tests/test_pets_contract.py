@@ -12,8 +12,9 @@
 #
 # SURVIVAL — pets eat real NADO. feed(value) extends fed_until by value / (appetite * FEED_DIV) blocks
 # (≈1 NADO/day at appetite 50), belly capped at 7 days ahead; when the cursor passes fed_until the pet is
-# DEAD — permanently: no feeding, no transfer, no training, no battles. Fed NADO stays escrowed in the
-# contract forever (a pure sink — there is no house).
+# DEAD — permanently: no feeding, no transfer, no training, no battles. Mint, food and training fees are
+# BURNED — PAYed to the dead "burn" bridge key (not a valid address, no key can ever spend it), a public
+# tally. There is no house; the contract's own balance only ever holds open battle pots.
 #
 # TRAINING — abilities unlock beyond the hatch-locked bases through training with a LIMIT-FUNCTION success
 # chance (no hard cap, ever-diminishing) whose constant scales with RARITY — rare pets train easier:
@@ -75,10 +76,13 @@ def stat_base_ops(i_ops):
     return [A(0), LD("gn"), P(1000), ADD, *i_ops, ADD, HASH, P(60), MOD, P(1), ADD,
             A(0), LD("sp"), P(1), SUB, P(15), MUL, ADD]
 
-mint_m = [                                        # mint(pid)  value = MINT_FEE exactly
+BURN = "burn"   # the dead sink: PAYing here moves NADO to a bridge key NO wallet can ever sign for (not a
+                # valid ndo… address), so mint/food/training fees are burned — publicly tallied, gone forever.
+mint_m = [                                        # mint(pid)  value = MINT_FEE exactly — BURNED
   VALUE, P(MINT_FEE), EQ, REQ,
   A(0), P(0), GT, REQ,                            # pid: positive int (GT type-gates)
   A(0), LD("ow"), P(0), EQ, REQ,                  # fresh id
+  P(BURN), VALUE, PAY,
   A(0), CALLER, ST("ow"),
   A(0), CURSOR, P(HATCH_DELAY), ADD, ST("bh"),    # gene block — hashes don't exist yet
   A(0), CURSOR, P(HATCH_DELAY + START_BELLY), ADD, ST("fu"),
@@ -114,10 +118,11 @@ rebirth_m = [                                     # rebirth(pid) — owner re-ro
   A(0), CURSOR, P(HATCH_DELAY), ADD, ST("bh"),
   HALT ]
 
-feed_m = [                                        # feed(pid)  value = the meal (raw NADO)
+feed_m = [                                        # feed(pid)  value = the meal (raw NADO) — BURNED
   VALUE, P(0), GT, REQ,
   A(0), LD("gn"), P(0), EQ, NOT, REQ,             # hatched (an egg doesn't eat)
   CURSOR, A(0), LD("fu"), LTE, REQ,               # ALIVE — dead is dead
+  P(BURN), VALUE, PAY,
   A(0),                                           # key for fu
   A(0), LD("fu"),
   VALUE, A(0), LD("ap"), P(FEED_DIV), MUL, DIV,   # blocks gained = value / (appetite * FEED_DIV)
@@ -161,13 +166,17 @@ buy_m = [                                         # buy(pid)  value = the exact 
   A(0), P(0), ST("mp"),
   HALT ]
 
-name_m = [                                        # name(pid, name) — owner-only; empty clears
+name_m = [                                        # name(pid, name) — owner-only, ONCE: a name is for life
   CALLER, A(0), LD("ow"), EQ, REQ,
-  A(0), P(""), A(1), CONCAT, ST("nm"),
+  A(0), LD("nm"), P(0), EQ, REQ,                  # not named yet — no renames, ever
+  P(""), A(1), CONCAT,                            # coerce to string
+  DUP, P(""), EQ, NOT, REQ,                       # and it must actually be a name
+  A(0), SWAP, ST("nm"),
   HALT ]
 
-train_m = [                                       # train(pid, statIdx 0..9)  value = TRAIN_FEE exactly
+train_m = [                                       # train(pid, statIdx 0..9)  value = TRAIN_FEE — BURNED
   VALUE, P(TRAIN_FEE), EQ, REQ,
+  P(BURN), VALUE, PAY,
   A(1), P(0), GTE, REQ, A(1), P(9), LTE, REQ,     # stat index (GTE/LTE type-gate ints)
   CALLER, A(0), LD("ow"), EQ, REQ,
   A(0), LD("gn"), P(0), EQ, NOT, REQ,             # hatched
@@ -294,7 +303,8 @@ set_hashes(T0)
 PID = 424242
 b0 = bal("A")
 call("mint", [PID], MINT_FEE, "A")
-ck("mint escrows exactly 1 NADO", bal("A") == b0 - MINT_FEE and bal(CID) == MINT_FEE)
+ck("mint BURNS exactly 1 NADO (dead 'burn' key, no contract float)",
+   bal("A") == b0 - MINT_FEE and bal(CID) == 0 and bal("burn") == MINT_FEE)
 ck("mint records owner/geneBlock/belly/food", M("ow", PID) == "A" and M("bh", PID) == st.cursor + HATCH_DELAY
    and M("fu", PID) == st.cursor + HATCH_DELAY + START_BELLY and M("tf", PID) == MINT_FEE and M("ct", "n") == 1)
 ck("mint duplicate id reverts", rv(call("mint", [PID], MINT_FEE, "B")))
@@ -346,10 +356,10 @@ ck("transfer to empty / self reverts", rv(call("transfer", [PID, ""], 0, "A")) a
 call("transfer", [PID, "B"], 0, "A")
 ck("owner transfer moves the pet", M("ow", PID) == "B")
 ck("old owner lost all rights", rv(call("transfer", [PID, "C"], 0, "A")) and rv(call("name", [PID, "Rex"], 0, "A")))
+ck("empty name reverts", rv(call("name", [PID, ""], 0, "B")))
 call("name", [PID, "Rex"], 0, "B")
-ck("new owner can name it", M("nm", PID) == "Rex")
-call("name", [PID, ""], 0, "B")
-ck("empty name clears", M("nm", PID) == 0)
+ck("new owner names it (it was never named)", M("nm", PID) == "Rex")
+ck("a name is FOR LIFE — renaming reverts", rv(call("name", [PID, "Fido"], 0, "B")) and M("nm", PID) == "Rex")
 call("transfer", [EGG, "C"], 0, "A")
 ck("an unhatched egg IS transferable", M("ow", EGG) == "C")
 
@@ -515,8 +525,9 @@ ck("the reborn egg hatches against its NEW block", gR == ref_gene(st.block_hashe
    and M("pw", RB) == ref_power(gR, ref_species(gR)))
 ck("rebirth of a hatched pet reverts", rv(call("rebirth", [RB], 0, "A")))
 
-# ── economics sanity: the contract can never pay out more than the pots it holds ────────────────────
-ck("contract escrow = all mint fees + food + training fees (a pure sink besides pots)", bal(CID) > 0)
+# ── economics sanity: every fee was burned; the contract holds ZERO once all pots are settled ───────
+ck("all mint/food/training fees were burned to the dead key", bal("burn") > 300 * MINT_FEE)
+ck("contract balance is exactly the still-open pots (zero here — everything settled)", bal(CID) == 0)
 
 print("\n" + ("ALL PASS" if not F else f"{len(F)} FAILED: {F}"))
 if not F:

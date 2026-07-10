@@ -249,8 +249,8 @@
     <!-- transfer / rename / sell (mine) -->
     <div class="mt hidden" id="ownRow">
       <div class="row">
-        <input id="nameInput" placeholder="name your pet" maxlength="24" autocomplete="off">
-        <button class="ghost" id="btnRename">Rename</button>
+        <input id="nameInput" placeholder="name your pet — permanent!" maxlength="24" autocomplete="off">
+        <button class="ghost" id="btnRename">Name it</button>
       </div>
       <div class="row mt">
         <input id="xferTo" placeholder="transfer to address or @alias" autocomplete="off">
@@ -307,21 +307,42 @@
 
   <!-- ADOPT -->
   <div class="card hidden" id="adopt">
-    <h2>Adopt an egg — 1 NADO</h2>
-    <p class="small dim">Your egg's animal is decided by a block hash that <b>doesn't exist yet</b> when you sign — not by us, not by you. 70% Poodle · 25% African Grey Parrot · 5% Dragon. It hatches fed for 3 days; after that it eats real NADO (about 1 NADO/day for an average appetite) and <b>dies if you stop</b>. You can own as many as you can feed.</p>
-    <button class="primary mt" id="btnMint" style="width:100%">🥚 Adopt an egg · 1 NADO</button>
+    <h2>Adopt an egg — burn 1 NADO</h2>
+    <p class="small dim">Eggs are bought by <b>burning NADO</b> — the 1 NADO fee is destroyed forever (sent to a dead key no wallet controls), not paid to anyone. Your egg's animal is decided by a block hash that <b>doesn't exist yet</b> when you sign — not by us, not by you. 70% Poodle · 25% African Grey Parrot · 5% Dragon. It hatches fed for 3 days; after that it eats real NADO (burned too — about 1 NADO/day for an average appetite) and <b>dies if you stop</b>. You can own as many as you can feed.</p>
+    <button class="primary mt" id="btnMint" style="width:100%">🥚 Adopt an egg · burn 1 NADO</button>
+    <p class="small mt" id="burnTally" style="color:#ff8d5a"></p>
   </div>
 
   <!-- MARKETPLACE -->
   <div class="card" id="marketCard">
     <h2>Marketplace — pets for sale</h2>
-    <div class="pgrid" id="marketGrid"></div>
+    <div class="row">
+      <input id="marketQ" placeholder="search name / #id / species / @owner" autocomplete="off">
+      <select id="marketSort" style="flex:0 1 170px">
+        <option value="priceAsc">Price: low → high</option>
+        <option value="priceDesc">Price: high → low</option>
+        <option value="rarity">Rarity</option>
+        <option value="power">Power</option>
+      </select>
+    </div>
+    <div class="pgrid mt" id="marketGrid"></div>
+    <button class="ghost mt hidden" id="btnMoreMarket" style="width:100%">Show more</button>
   </div>
 
   <!-- GALLERY -->
   <div class="card" id="galleryCard">
-    <h2>All pets on the chain</h2>
-    <div class="pgrid" id="gallery"></div>
+    <h2>All pets on the chain <span class="dim" id="petCount" style="text-transform:none;letter-spacing:0"></span></h2>
+    <div class="row">
+      <input id="galleryQ" placeholder="search name / #id / species / @owner" autocomplete="off">
+      <select id="gallerySort" style="flex:0 1 170px">
+        <option value="new">Newest</option>
+        <option value="rarity">Rarity</option>
+        <option value="power">Power</option>
+        <option value="level">Level</option>
+      </select>
+    </div>
+    <div class="pgrid mt" id="gallery"></div>
+    <button class="ghost mt hidden" id="btnMoreGallery" style="width:100%">Show more</button>
   </div>
 
   <!-- HALL OF FAME -->
@@ -333,7 +354,7 @@
   <!-- HOW IT WORKS -->
   <div class="card">
     <h2>How it's provably fair</h2>
-    <p class="small dim">A pet's <b>gene</b> is <span class="mono">HASH(blockhash(b) ‖ blockhash(b+1) ‖ petId)</span> where block <span class="mono">b</span> is minted <i>after</i> you sign — nobody (including us) can pick or predict it. The gene fixes the species, rarity and all 10 base stats forever. Training and battles bind to future block hashes the same way; the contract recomputes every roll on-chain, so the result you see is the result everyone's node computes. Food and training fees are locked in the contract forever — there is no house wallet. Ownership is a plain on-chain record: transfer it and the pet is theirs, key and kibble.</p>
+    <p class="small dim">A pet's <b>gene</b> is <span class="mono">HASH(blockhash(b) ‖ blockhash(b+1) ‖ petId)</span> where block <span class="mono">b</span> is minted <i>after</i> you sign — nobody (including us) can pick or predict it. The gene fixes the species, rarity and all 10 base stats forever. Training and battles bind to future block hashes the same way; the contract recomputes every roll on-chain, so the result you see is the result everyone's node computes. Adoption, food and training fees are <b>burned</b> — paid to a dead key no wallet can ever control — so playing shrinks the supply; there is no house wallet. Ownership is a plain on-chain record: transfer it and the pet is theirs, key and kibble.</p>
   </div>
 
   <footer>NADO Pets · on-chain tamagotchi NFTs · post-quantum signatures · no house</footer>

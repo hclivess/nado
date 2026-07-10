@@ -19,7 +19,12 @@ NADO = 10**10; MINT_FEE = NADO; TRAIN_FEE = 5 * 10**9
 def j(u): return json.load(urllib.request.urlopen(u, timeout=8))
 def post(tx):
     r = urllib.request.Request(L1 + "/submit_transaction", data=json.dumps(tx).encode(), headers={"Content-Type": "application/json"})
-    return json.load(urllib.request.urlopen(r, timeout=12))
+    try:
+        return json.load(urllib.request.urlopen(r, timeout=12))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()[:200]
+        print(f"  [reject {e.code}] {body}", flush=True)
+        return {"result": False, "message": body}
 def tip(): return j(L1 + "/get_latest_block")["block_number"]
 def exbal(a):
     try: return int(j(EX + "/exec/bridge?ns=default").get("balances", {}).get(a, 0))
@@ -33,16 +38,25 @@ def bh(h):
     a, b = v.get(str(h)), v.get(str(h + 1))
     return (int(a, 16), int(b, 16)) if a and b else None
 def send(kd, recipient, amount):
-    if recipient == "bridge":
-        return post(construct_bridge_deposit_tx(kd, amount, tip() + 8, MIN_TX_FEE))
-    t = {"sender": kd["address"], "recipient": recipient, "amount": int(amount), "timestamp": get_timestamp_seconds(),
-         "data": "", "nonce": create_nonce(), "public_key": kd["public_key"], "max_block": tip() + 8, "chain_id": CHAIN_ID, "fee": MIN_TX_FEE}
-    t["txid"] = create_txid(t); t["signature"] = sign(private_key=kd["private_key"], message=unhex(t["txid"]))
-    return post(t)
+    for attempt in range(8):                      # transient merge/ratelimit rejects must not kill the run
+        if recipient == "bridge":
+            r = post(construct_bridge_deposit_tx(kd, amount, tip() + 8, MIN_TX_FEE))
+        else:
+            t = {"sender": kd["address"], "recipient": recipient, "amount": int(amount), "timestamp": get_timestamp_seconds(),
+                 "data": "", "nonce": create_nonce(), "public_key": kd["public_key"], "max_block": tip() + 8, "chain_id": CHAIN_ID, "fee": MIN_TX_FEE}
+            t["txid"] = create_txid(t); t["signature"] = sign(private_key=kd["private_key"], message=unhex(t["txid"]))
+            r = post(t)
+        if r.get("result"): return r
+        time.sleep(12)
+    print(f"  [GIVEUP] send {recipient} {amount}", flush=True); sys.exit(1)
 def call(kd, method, args, value=0):
     p = {"op": "call", "contract": CID, "method": method, "args": args}
     if value: p["value"] = int(value)
-    return post(construct_blob_tx(kd, p, tip() + 8, MIN_TX_FEE))
+    for attempt in range(8):                      # a transient pool/ratelimit reject must not kill a 20-min run
+        r = post(construct_blob_tx(kd, p, tip() + 8, MIN_TX_FEE))
+        if r.get("result"): return r
+        time.sleep(12)
+    print(f"  [GIVEUP] call {method}{args}", flush=True); sys.exit(1)
 def wait(cond, label, timeout=900):
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -55,19 +69,29 @@ def wait(cond, label, timeout=900):
 FAILS = []
 def ck(n, c): print(("  PASS " if c else "  FAIL ") + n, flush=True); (None if c else FAILS.append(n))
 
-A = load_keys("/root/nado/private/keys.dat"); B = generate_keydict()
+A = load_keys("/root/nado/private/keys.dat")
+BK = "/root/nado/private/_pets_e2e_b.json"       # persist the test opponent so reruns don't strand deposits
+try: B = json.load(open(BK))
+except Exception: B = generate_keydict(); json.dump(B, open(BK, "w"))
 T = int(time.time())
 PA, PB = T % 10**9, (T + 1) % 10**9
 print(f"A={A['address'][:16]} B={B['address'][:16]} pets A#{PA} B#{PB}", flush=True)
 
 wait(lambda: sto() is not None and j(EX + f"/exec/contract?ns=default&cid={CID}").get("cid") == CID, "pets contract is live on the exec node", 300)
 
-# 1) fund B on L1, both deposit to the exec bridge
-send(A, B["address"], 30 * NADO)
-send(A, "bridge", 20 * NADO)
-wait(lambda: exbal(A["address"]) >= 20 * NADO, "A bridge deposit landed")
-send(B, "bridge", 20 * NADO)
-wait(lambda: exbal(B["address"]) >= 20 * NADO, "B bridge deposit landed")
+# 1) fund B on L1, both deposit to the exec bridge (skipped where a prior run already left balances)
+def l1bal(a):
+    try: return int(j(L1 + f"/get_account?address={a}").get("balance", 0))
+    except Exception: return 0
+if exbal(B["address"]) < 12 * NADO and l1bal(B["address"]) < 25 * NADO:
+    send(A, B["address"], 30 * NADO)
+    wait(lambda: l1bal(B["address"]) >= 25 * NADO, "B funded on L1")
+if exbal(A["address"]) < 12 * NADO:
+    send(A, "bridge", 20 * NADO)
+    wait(lambda: exbal(A["address"]) >= 12 * NADO, "A bridge deposit landed")
+if exbal(B["address"]) < 12 * NADO:
+    send(B, "bridge", 20 * NADO)
+    wait(lambda: exbal(B["address"]) >= 12 * NADO, "B bridge deposit landed")
 
 # 2) mint both eggs
 call(A, "mint", [PA], MINT_FEE); call(B, "mint", [PB], MINT_FEE)
