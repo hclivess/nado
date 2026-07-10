@@ -67,9 +67,14 @@
   .turnhdr{font-size:15px;font-weight:700;text-align:center}
   .sc{color:var(--accent2,#00c9a7)}.farkle{color:var(--danger,#f85149);font-weight:800;text-align:center;font-size:15px}
   .dicerow{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:12px 0}
-  .die{font-size:46px;line-height:1;cursor:pointer;user-select:none;filter:grayscale(.15);transition:transform .07s}
+  .die{display:inline-flex;cursor:pointer;user-select:none;transition:transform .07s}
   .die:active{transform:scale(.92)}
-  .die.kept{color:var(--accent2,#00c9a7);filter:none;text-shadow:0 0 10px rgba(0,201,167,.6)}
+  .dieface{width:52px;height:52px;display:block}
+  .dieface rect{fill:#f4f6f8;stroke:#c3ccd6;stroke-width:2}
+  .dieface circle{fill:#1b2129}
+  .die.kept .dieface rect{fill:var(--accent2,#00c9a7);stroke:#00c9a7;filter:drop-shadow(0 0 8px rgba(0,201,167,.6))}
+  .die.kept .dieface circle{fill:#04110a}
+  .die:not(.kept):hover .dieface rect{stroke:var(--accent2,#00c9a7)}
 </style>
 </head>
 <body>

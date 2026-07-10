@@ -188,7 +188,12 @@ function selectTable(id) {
 }
 
 // ---- dice rendering + selection ------------------------------------------------------------------
-const PIP = { 1: "⚀", 2: "⚁", 3: "⚂", 4: "⚃", 5: "⚄", 6: "⚅" };
+// SVG dice — a rounded face with the standard pip layout per value; .kept re-styles it (see farkle.html)
+const PIP_POS = { 1: [[50,50]], 2: [[30,30],[70,70]], 3: [[30,30],[50,50],[70,70]],
+  4: [[30,30],[70,30],[30,70],[70,70]], 5: [[30,30],[70,30],[50,50],[30,70],[70,70]],
+  6: [[30,30],[70,30],[30,50],[70,50],[30,70],[70,70]] };
+const dieSVG = (f) => '<svg class="dieface" viewBox="0 0 100 100" aria-hidden="true"><rect x="6" y="6" width="88" height="88" rx="20"/>'
+  + PIP_POS[f].map(([x,y]) => '<circle cx="' + x + '" cy="' + y + '" r="9"/>').join("") + "</svg>";
 function myRoll(s) {
   if (!s || !s.rollHeight) return null;
   if (dapp.cursor == null || dapp.cursor < s.rollHeight + 1) return { pending: true, spinsIn: s.rollHeight + 1 - (dapp.cursor || 0) };
@@ -267,7 +272,7 @@ function renderActive() {
         const ks = keepScoreValid(keep, rolled, me.diceLeft);
         const keptLeft = Object.assign({}, keep);
         const diceHtml = dice.map((d) => { const setAside = keptLeft[d] > 0; if (setAside) keptLeft[d]--;
-          return '<span class="die ' + (setAside ? "kept" : "") + '" data-f="' + d + '">' + PIP[d] + "</span>"; }).join("");
+          return '<span class="die ' + (setAside ? "kept" : "") + '" data-f="' + d + '">' + dieSVG(d) + "</span>"; }).join("");
         feat.innerHTML = '<div class="turnhdr">Banked so far <b class="sc">' + me.turnScore + '</b> · this roll:</div>'
           + '<div class="dicerow">' + diceHtml + "</div>"
           + (farkle ? '<div class="farkle mt">💥 FARKLE — no scoring dice. Your turn ends at 0.</div>'
