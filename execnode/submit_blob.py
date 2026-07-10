@@ -3,10 +3,12 @@ CLI to submit a `blob` to L1 — build a SIGNED blob tx (deploy or call) and POS
 The execution node then picks it up from the finalized block and runs it through the VM.
 
 Usage (HOME must point at the wallet's data dir so keys.dat is found):
-  HOME=/root/nado-solo python execnode/submit_blob.py deploy contract.json           [--l1 URL] [--fee N]
+  HOME=/root/nado-solo python execnode/submit_blob.py deploy contract.json            [--l1 URL] [--fee N]
+  HOME=/root/nado-solo python execnode/submit_blob.py upgrade <cid> contract.json      [--l1 URL] [--fee N]
   HOME=/root/nado-solo python execnode/submit_blob.py call <cid> <method> '<args-json>' [--l1 URL] [--fee N]
 
-`contract.json` is the {method: bytecode} object (see execnode/examples/token.json).
+`contract.json` is the {method: bytecode} object (see execnode/examples/token.json). `upgrade` replaces the
+code of an EXISTING contract (cid + storage preserved) — only the original deployer's key may sign it.
 """
 import argparse
 import json
@@ -40,7 +42,7 @@ def main():
     2 blocks ahead of the L1 tip, submit it, and for a deploy echo the deterministic contract id the
     execution node will assign once the blob is mined."""
     ap = argparse.ArgumentParser()
-    ap.add_argument("action", choices=["deploy", "call"])
+    ap.add_argument("action", choices=["deploy", "upgrade", "call"])
     ap.add_argument("rest", nargs="+")
     ap.add_argument("--l1", default=os.environ.get("NADO_L1_URL", "http://127.0.0.1:9173").rstrip("/"))
     ap.add_argument("--fee", type=int, default=MIN_TX_FEE)
@@ -50,6 +52,10 @@ def main():
     if args.action == "deploy":
         code = json.load(open(args.rest[0]))
         payload = {"op": "deploy", "code": code, "nonce": os.urandom(6).hex()}
+    elif args.action == "upgrade":  # upgrade: <cid> contract.json
+        cid = args.rest[0]
+        code = json.load(open(args.rest[1]))
+        payload = {"op": "upgrade", "contract": cid, "code": code}
     else:  # call: <cid> <method> <args-json>
         cid, method = args.rest[0], args.rest[1]
         call_args = json.loads(args.rest[2]) if len(args.rest) > 2 else []

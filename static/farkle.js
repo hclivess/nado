@@ -11,7 +11,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, 
 const CID = "05ea18398f08373343f49a4f51daf78c";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="5" y="21" width="16" height="16" rx="4" fill="#e6edf3" stroke="#243140" stroke-width="1.6"/>     <circle cx="9.5" cy="25.5" r="1.6" fill="#20272f"/><circle cx="16.5" cy="32.5" r="1.6" fill="#20272f"/><circle cx="13" cy="29" r="1.6" fill="#00ad93"/>     <rect x="27" y="21" width="16" height="16" rx="4" fill="#e3b341" stroke="#8a6209" stroke-width="1.6"/>     <circle cx="31.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="31.5" cy="32.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="32.5" r="1.6" fill="#3a2a05"/>     <rect x="16" y="6" width="16" height="16" rx="4" fill="#d0362b" stroke="#8a1a12" stroke-width="1.6"/>     <circle cx="24" cy="14" r="1.9" fill="#fff"/></svg>';
 const dapp = new NadoDapp({ cid: CID, app: "Farkle" });
-const JOIN = 20, PLAY = 600, GAP = 2, MAXP = 8;           // MUST match the contract
+const JOIN = 20, PLAY = 600, GAP = 2, MAXP = 8, TARGET = 4000;   // MUST match the contract
 const BASE = { 1: 1000, 2: 200, 3: 300, 4: 400, 5: 500, 6: 600 };
 
 const LS_T = "nado_farkle_tables", LS_S = "nado_farkle_seats";
@@ -69,7 +69,8 @@ function tableFrom(sto, t) {
   if (!host || t0 == null) return { exists: false };
   const tb = { exists: true, id: Number(t), host, t0, ante: _m(sto, "ts")[t] || 0, pot: _m(sto, "tp")[t] || 0,
     seatCount: _m(sto, "tn")[t] || 0, finishedCount: _m(sto, "tx")[t] || 0,
-    best: _m(sto, "tw")[t] || 0, leader: _m(sto, "tb")[t] || 0, closed: !!_m(sto, "tz")[t] };
+    best: _m(sto, "tw")[t] || 0, leader: _m(sto, "tb")[t] || 0, closed: !!_m(sto, "tz")[t],
+    finalRound: !!_m(sto, "tfr")[t] };
   const cur = dapp.cursor;
   if (cur != null) {
     if (cur < t0 + JOIN) { tb.phase = "join"; tb.left = t0 + JOIN - cur; }
@@ -85,6 +86,7 @@ function seatsOfTable(sto, t) {
     const g = _m(sto, "ti")[String(Number(t) * 16 + i)];
     if (!g) continue;
     const s = { g: Number(g), idx: i, addr: _m(sto, "ga")[g], turnScore: _m(sto, "gts")[g] || 0,
+      grand: _m(sto, "ggs")[g] || 0,
       diceLeft: _m(sto, "gdl")[g] || 0, rollHeight: _m(sto, "grh")[g] || 0, rollNonce: _m(sto, "grn")[g] || 0,
       finished: !!_m(sto, "gfin")[g], final: _m(sto, "gsc")[g] || 0 };
     out.push(s);
@@ -259,7 +261,8 @@ function renderActive() {
   if (tb.exists) {
     if (tb.closed) phaseTxt = "table settled ✓";
     else if (tb.phase === "join") phaseTxt = "🟢 joining open — closes in " + blocksToTime(tb.left) + " · " + tb.seatCount + " player" + (tb.seatCount === 1 ? "" : "s");
-    else if (tb.phase === "play") phaseTxt = "🎲 in play — turns close in " + blocksToTime(tb.left) + " · " + tb.finishedCount + "/" + tb.seatCount + " done";
+    else if (tb.phase === "play") phaseTxt = (tb.finalRound ? "🏁 FINAL ROUND — last turns! " : "🎲 in play — ") + "race to " + TARGET
+      + (tb.best ? " · leader " + tb.best : "") + " · " + tb.finishedCount + "/" + tb.seatCount + " out";
     else phaseTxt = "🏁 play window closed — settle below";
   }
   $("gStatus").textContent = phaseTxt;
@@ -273,25 +276,33 @@ function renderActive() {
   const feat = $("feature"), acts = $("myActions"); acts.innerHTML = "";
   const btn = (txt, fn, primary) => { const b = document.createElement("button"); b.className = primary ? "primary" : "ghost"; b.style.flex = "1 1 auto"; b.innerHTML = txt; b.onclick = fn; acts.appendChild(b); return b; };
   if (me && tb.exists && !tb.closed && tb.phase === "play") {
+    // grand-total header + target progress, shown above every in-turn state
+    const grandHdr = '<div class="turnhdr">Your grand total <b class="sc">' + me.grand + '</b> / ' + TARGET
+      + (tb.best ? ' · leader <b>' + tb.best + '</b>' : '') + '</div>'
+      + (tb.finalRound ? '<div class="farkle mt">🏁 FINAL ROUND — this is your LAST turn. Bank it or bust, then you\'re locked.</div>'
+                       : '<div class="dim small mt">First to ' + TARGET + ' triggers the final round; highest grand total takes the pot.</div>');
     if (me.finished) {
-      feat.innerHTML = '<div class="turnhdr">Your turn is done — <b class="sc">' + me.final + " banked</b>. Waiting for the others…</div>";
+      feat.innerHTML = '<div class="turnhdr">Your run is done — <b class="sc">' + me.final + ' banked</b>'
+        + (tb.leader === me.g ? ' 👑 you lead!' : '') + '. Waiting for the others…</div>';
     } else {
       const r = myRoll(me);
       if (!me.rollHeight) {
-        feat.innerHTML = '<div class="turnhdr">Your turn · <b>' + me.diceLeft + '</b> dice in hand · banked so far <b class="sc">' + me.turnScore + '</b></div>'
-          + '<div class="dim small mt">Roll, then set aside the scoring dice and choose to bank or push on.</div>';
+        feat.innerHTML = grandHdr
+          + '<div class="turnhdr mt">This turn: <b class="sc">' + me.turnScore + '</b> · <b>' + me.diceLeft + '</b> dice in hand</div>'
+          + '<div class="dim small mt">Roll, set aside the scoring dice, then bank into your grand total or push on.</div>';
         btn("🎲 Roll " + me.diceLeft + " dice", () => doRoll(me.g), true);
       } else if (r && r.pending) {
-        feat.innerHTML = '<div class="turnhdr">🎲 Rolling… the dice lock when the block finalizes' + (r.spinsIn ? " (~" + blocksToTime(r.spinsIn) + ")" : "") + ".</div>";
+        feat.innerHTML = grandHdr + '<div class="turnhdr mt">🎲 Rolling… the dice lock when the block finalizes' + (r.spinsIn ? " (~" + blocksToTime(r.spinsIn) + ")" : "") + ".</div>";
       } else if (r && r.dice) {
         const dice = r.dice, rolled = countsOf(dice), farkle = greedyScore(dice) === 0;
         const ks = keepScoreValid(keep, rolled, me.diceLeft);
         const keptLeft = Object.assign({}, keep);
         const diceHtml = dice.map((d) => { const setAside = keptLeft[d] > 0; if (setAside) keptLeft[d]--;
           return '<span class="die ' + (setAside ? "kept" : "") + '" data-f="' + d + '">' + dieSVG(d) + "</span>"; }).join("");
-        feat.innerHTML = '<div class="turnhdr">Banked so far <b class="sc">' + me.turnScore + '</b> · this roll:</div>'
+        const bankTo = me.grand + me.turnScore + ks.score, crosses = !tb.finalRound && bankTo >= TARGET;
+        feat.innerHTML = grandHdr + '<div class="turnhdr mt">This turn so far <b class="sc">' + me.turnScore + '</b> · this roll:</div>'
           + '<div class="dicerow">' + diceHtml + "</div>"
-          + (farkle ? '<div class="farkle mt">💥 FARKLE — no scoring dice. Your turn ends at 0.</div>'
+          + (farkle ? '<div class="farkle mt">💥 FARKLE — no scoring dice. This turn ends at 0 (grand total ' + me.grand + ' stays).</div>'
               : '<div class="mt small">Set aside: <b class="sc">' + ks.score + '</b> pt' + (ks.score === 1 ? "" : "s")
                 + (ks.kept ? "" : ' <span class="dim">(tap scoring dice — 1s &amp; 5s, or three+ of a kind)</span>') + "</div>");
         feat.querySelectorAll(".die").forEach((el) => el.onclick = () => toggleKeep(parseInt(el.dataset.f, 10), dice));
@@ -299,7 +310,7 @@ function renderActive() {
           btn("💥 End turn (farkled)", () => { keep = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }; doHold(me.g, 0); }, true);
         } else {
           const canAct = ks.valid;
-          btn("💰 Bank " + (me.turnScore + ks.score), () => doHold(me.g, 0), canAct).disabled = !canAct;
+          btn("💰 Bank to " + bankTo + (crosses ? " 🏁 (hits " + TARGET + "!)" : ""), () => doHold(me.g, 0), canAct).disabled = !canAct;
           btn("🎲 Set aside &amp; roll on", () => doHold(me.g, 1), false).disabled = !canAct;
         }
       }
@@ -318,9 +329,9 @@ function renderActive() {
     const you = s.addr === dapp.me ? '<b style="color:var(--accent2)">you</b> ' : "";
     const lead = tb.leader === s.g;
     let tag;
-    if (s.finished) tag = s.final > 0 ? '<span class="b ok">' + s.final + (lead ? " 👑" : "") + "</span>" : '<span class="b dimb">farkled</span>';
-    else if (s.rollHeight) tag = '<span class="b pend">rolling…</span>';
-    else tag = '<span class="b pend">turn: ' + s.turnScore + " · " + s.diceLeft + "d</span>";
+    if (s.finished) tag = s.final > 0 ? '<span class="b ok">' + s.final + (lead ? " 👑" : "") + " · out</span>" : '<span class="b dimb">out · 0</span>';
+    else if (s.rollHeight) tag = '<span class="b ok">' + s.grand + '</span> <span class="b pend">rolling…</span>';
+    else tag = '<span class="b ok">' + s.grand + (lead ? " 👑" : "") + '</span>' + (s.turnScore ? ' <span class="b pend">+' + s.turnScore + " turn</span>" : "");
     return '<div class="seat">' + you + disp(s.addr) + " " + tag + "</div>";
   }).join("") : '<span class="dim">No players yet.</span>';
 
