@@ -51,7 +51,11 @@
   .fair h2{margin:0 0 8px;font-size:20px;color:var(--txt)}
   footer{border-top:1px solid var(--line);padding:30px 0 50px;color:var(--faint);font-size:14px;text-align:center}
   footer a{color:var(--muted);margin:0 10px}
-  @media(max-width:560px){nav{display:none}}
+  @media(max-width:560px){
+    header{justify-content:center;text-align:center}
+    nav{width:100%;display:flex;flex-wrap:wrap;justify-content:center;gap:8px 16px}
+    nav a{margin-left:0}
+  }
 </style>
 </head>
 <body>

@@ -119,7 +119,11 @@
     background-position:calc(100% - 15px) 51%,calc(100% - 10px) 51%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
   .langsel:hover{border-color:var(--accent)}
   [dir="rtl"] .hero h1,[dir="rtl"] .sub,[dir="rtl"] .lead{text-align:right}
-  @media(max-width:560px){nav{display:none}}
+  @media(max-width:560px){
+    header{justify-content:center;text-align:center}
+    nav{width:100%;display:flex;flex-wrap:wrap;justify-content:center;gap:8px 16px}
+    nav a{margin-left:0}
+  }
 </style>
 </head>
 <body>
@@ -135,6 +139,7 @@
       <a href="/emission">Emission</a>
       <a href="/games">Games</a>
       <a href="#start" data-i18n="nav.start">Start</a>
+      <a href="https://forum.nadochain.com">Forum</a>
       <a href="https://github.com/hclivess/nado">GitHub</a>
     </nav>
   </header>
@@ -238,7 +243,7 @@
       <div class="step"><h3 data-i18n="step5.h3">Govern</h3><p data-i18n="step5.p">Bond stake, then vote in the Quorum tab on how the
         treasury funds the ecosystem — or lets it burn. The chain's money is governed by the people who hold it, not a founder.</p></div>
     </div>
-    <div class="center" style="margin-top:34px">
+    <div class="center" style="margin-top:34px;display:flex;gap:14px;justify-content:center;flex-wrap:wrap">
       <a class="btn" href="https://get.nadochain.com" data-i18n="hero.open">Open the Interface →</a>
       <a class="btn discord" href="https://discord.gg/6aEBWTvcTV" data-i18n="hero.discord2">💬 Join the Discord</a>
     </div>
@@ -252,6 +257,7 @@
       <a href="https://github.com/hclivess/nado">GitHub</a> ·
       <a href="https://github.com/hclivess/nado/blob/main/doc/whitepaper.md">Whitepaper</a> ·
       <a href="/emission">Emission</a> ·
+      <a href="https://forum.nadochain.com">Forum</a> ·
       <a href="https://discord.gg/6aEBWTvcTV">Discord</a> ·
       <a href="https://twitter.com/nadochain">Twitter/X</a>
     </div>
