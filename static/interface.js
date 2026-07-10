@@ -1964,7 +1964,7 @@ async function resumePendingExecSign() {
   // nothing escrows, nothing moves beyond the network fee) can sign+submit without the confirm tap, so a game
   // isn't interrupted on every action. Anything that moves NADO (value/deposit/withdraw) ALWAYS confirms.
   const AUTOSIGN_KEY = "nado_autosign_dapp";
-  const valueFree = escrow === 0n && (blob.op || "call") === "call" && blob.amount === undefined;
+  const valueFree = escrow === 0n && (blob.op || "call") === "call" && blob.amount === undefined && !call.confirm;
   const submitBlob = async () => {
     const { res, tx } = await submitResilient(async () => {
       const latest = await getLatestBlock();
@@ -2000,7 +2000,14 @@ async function resumePendingExecSign() {
   } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
 }
 
+function wireAutosignToggle() {
+  const el = $("autosignDapp");
+  if (!el) return;
+  el.checked = localStorage.getItem("nado_autosign_dapp") === "1";
+  el.onchange = () => { try { localStorage.setItem("nado_autosign_dapp", el.checked ? "1" : "0"); } catch (e) {} };
+}
 function showWalletUI() {
+  wireAutosignToggle();
   show("onboard", false);
   show("savePrompt", false);
   show("unlockCard", false);

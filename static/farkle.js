@@ -14,6 +14,7 @@ const ROUND_SECS = 6, CAP = 40;   // CAP must match the contract (execnode.vm / 
 const THRESHOLDS = [300, 500, 750, 1000, 1500, 2000, 3000];
 
 const LS_T = "nado_farkle_tables", LS_S = "nado_farkle_seats";
+let lastSto = null;
 let activeTable = null, lastTable = null, lastSeats = [], threshold = 750;
 let knownTables = new Set(), knownSeats = new Set();
 
@@ -120,6 +121,7 @@ async function refreshActive() {
   await dapp.refresh();
   const sto = await dapp.storage();
   if (sto) {
+    lastSto = sto;
     pruneAndTrack(sto);
     if (activeTable != null) {
       lastTable = tableFrom(sto, activeTable);
@@ -200,7 +202,13 @@ function render() {
   for (const t of Object.keys(T)) mine.push({ id: +t, role: "host", ts: T[t].ts });
   for (const g of Object.keys(S)) mine.push({ id: S[g].table, seat: g, role: "seat", ts: S[g].ts });
   mine.sort((a, b) => b.ts - a.ts); const seen = new Set();
-  const shown = mine.filter((x) => { x.live = x.role === "host" ? knownTables.has(String(x.id)) : knownSeats.has(String(x.seat)); x.icon = "🎲"; const k = x.id + x.role; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 8);
+  const shown = mine.filter((x) => { x.live = x.role === "host" ? knownTables.has(String(x.id)) : knownSeats.has(String(x.seat)); x.icon = "🎲"; const k = String(x.id); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 8);
+  for (const x of shown) {
+    if (!x.live || !lastSto) continue;
+    const tb = tableFrom(lastSto, x.id);
+    if (!tb.exists) continue;
+    x.tag = tb.closed ? "finished ✓" : tb.joinOpen ? "joining" : tb.rolled ? (tb.resolvedCount >= tb.seatCount ? "settle!" : "rolled — resolve") : "rolling soon";
+  }
   recentChips($("recent"), shown, selectTable, "No tables yet.");
   renderActive();
 }

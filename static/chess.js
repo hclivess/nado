@@ -107,10 +107,12 @@ const agree = (r) => dapp.call("agree", [activeGame, r], null, (r === 3 ? "agree
 const abortGame = () => dapp.call("abort", [activeGame], null, "claim refund (opponent timed out) · game #" + activeGame, { game: activeGame, phase: "abort" });
 const cancelGame = () => dapp.call("cancel", [activeGame], null, "cancel game #" + activeGame, { game: activeGame, phase: "cancel" });
 
+let lastSto = null;
 async function refreshActive() {
   await dapp.refresh();
   const sto = await dapp.storage();
   if (sto) {
+    lastSto = sto;
     pruneAndTrack(sto);
     if (activeGame != null) {
       lastGame = gameFrom(sto, activeGame);
@@ -208,7 +210,9 @@ function render() {
   $("bankroll").classList.toggle("hidden", !signedIn);
   // my recent games
   const G = load(), ids = Object.keys(G).sort((a, b) => G[b].ts - G[a].ts).slice(0, 8);   // keep every game visible (landed OR confirming)
-  $("recent").innerHTML = ids.length ? ids.map((g) => { const live = knownGames.has(String(g)); return '<button class="chip' + (live ? "" : " pending") + '" data-g="' + g + '"' + (live ? "" : ' title="still confirming on-chain — your game hasn\'t vanished"') + '>' + (G[g].role === "white" ? "♔" : "♚") + " #" + g + (live ? "" : " ⏳") + "</button>"; }).join(" ") : '<span class="dim">No games yet.</span>';
+  $("recent").innerHTML = ids.length ? ids.map((g) => { const live = knownGames.has(String(g)); let tag = "";
+    if (live && lastSto) { const gm = gameFrom(lastSto, g); if (gm.exists) tag = gm.settled ? " · finished ✓" : gm.nn < 2 ? " · waiting for opponent" : " · live — your move?"; }
+    return '<button class="chip' + (live ? "" : " pending") + '" data-g="' + g + '"' + (live ? "" : ' title="still confirming on-chain — your game hasn\'t vanished"') + '>' + (G[g].role === "white" ? "♔" : "♚") + " #" + g + (live ? tag : " · confirming ⏳") + "</button>"; }).join(" ") : '<span class="dim">No games yet.</span>';
   $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeGame = parseInt(b.dataset.g, 10); pendingEnc = null; refreshActive(); });
   renderActive();
 }

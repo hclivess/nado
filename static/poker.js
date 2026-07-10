@@ -8,7 +8,7 @@
 //   · at SHOWDOWN one click reveals your secret; the CONTRACT re-derives your 7 cards and ranks the full
 //     hand on-chain (straight flush … high card, kickers included — 4000/4000 differential-verified).
 //     Best hand takes the pot. Board + each hand draw from independent decks (exact duplicates are legal).
-import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, commitHashOf, blake2bHash, _m, $, base, gate, canPay,
+import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, commitHashOf, blake2bHash, _m, $, base, gate, canPay, alertBar,
          hoist, orderCards, blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, renderWallet, renderScore,
          scoreBump, scoreSort, recentChips, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
@@ -18,6 +18,7 @@ const dapp = new NadoDapp({ cid: CID, app: "Hold'em" });
 const J = 20, S = 30, GRACE = 5, R = 60;          // MUST match the contract (tests/test_holdem_contract.py)
 
 const LS_T = "nado_holdem_tables", LS_S = "nado_holdem_seats";
+let lastSto = null;
 let activeTable = null, lastTable = null, lastSeats = [];
 let knownTables = new Set(), knownSeats = new Set();
 
@@ -111,41 +112,67 @@ function tableFrom(sto, t) {
   return tb;
 }
 function seatsOfTable(sto, t) {
-  t = String(t); const gg = _m(sto, "gg"), out = [];
-  for (const g of Object.keys(gg)) if (String(gg[g]) === t) {
+  t = String(t); const tn = _m(sto, "tn")[t] || 0, out = [];
+  for (let i = 0; i < tn; i++) {                 // JOIN ORDER via the ti index — side pots depend on it
+    const g = _m(sto, "ti")[String(Number(t) * 16 + i)];
+    if (!g) continue;
     const cs = [0, 1, 2, 3, 4].map((k) => k === 0 ? 0 : (_m(sto, "cs")[String(Number(g) * 8 + k)] || 0));
-    const s = { g: Number(g), addr: _m(sto, "ga")[g], cs, revealed: !!_m(sto, "gd")[g],
-      value: _m(sto, "gsc")[g] || 0, secret: _m(sto, "gr")[g] };
-    s.total = cs.reduce((a, b) => a + b, 0);
+    const s = { g: Number(g), idx: i, addr: _m(sto, "ga")[g], cs, stack: _m(sto, "gk")[g] || 0,
+      revealed: !!_m(sto, "gd")[g], value: _m(sto, "gsc")[g] || 0, secret: _m(sto, "gr")[g] };
+    s.total = cs.reduce((a, b) => a + b, 0);     // street chips (ante on top of this)
     out.push(s);
   }
-  return out.sort((a, b) => (b.value - a.value) || (a.g - b.g));
+  return out;
 }
-// folded = failed to match a CLOSED street's price (0 = still in)
+// folded = below a CLOSED street's price while still holding chips (all-in players are never folded)
 function foldedAt(s, tb) {
   if (!tb.exists || tb.phase === "join" || dapp.cursor == null) return 0;
   const closed = tb.phase === "street" ? tb.street - 1 : 4;
-  for (let k = 1; k <= closed; k++) if (s.cs[k] !== tb.price(k)) return k;
+  for (let k = 1; k <= closed; k++) if (s.cs[k] !== tb.price(k) && s.stack > 0) return k;
   return 0;
+}
+// side-pot layers — EXACT mirror of the contract's settle (tests/test_holdem_contract.py settle_ref)
+function sidePots(seats, ante) {
+  const C = seats.map((s) => Number(ante) + s.total);
+  const V = seats.map((s) => (s.revealed && !foldedAt(s, lastTable) ? s.value : 0));
+  const pots = []; let prev = 0;
+  for (let pass = 0; pass < 10; pass++) {
+    let L = 0;
+    for (const c of C) if (c > prev && (L === 0 || c < L)) L = c;
+    if (!L) break;
+    const idxs = C.map((c, i) => c >= L ? i : -1).filter((i) => i >= 0);
+    pots.push({ amt: (L - prev) * idxs.length, idxs });
+    prev = L;
+  }
+  return pots;
 }
 async function fetchTable(t) { const sto = await dapp.storage(); return sto ? tableFrom(sto, t) : null; }
 
 // ---- actions -------------------------------------------------------------------------------------
-function sit(t, method, anteRaw) {                   // open or join: generate the secret (the "draw") locally
+function sit(t, method, buyinRaw, anteRaw) {         // open or join: generate the secret (the "draw") locally
   const g = randId(), x = randSecret();
   const Ssto = load(LS_S); Ssto[g] = { table: t, secret: x.toString(), ts: Date.now() }; save(LS_S, Ssto);
   if (method === "open") { const T = load(LS_T); T[t] = { ante: anteRaw.toString(), ts: Date.now() }; save(LS_T, T); }
   activeTable = t; render();
-  dapp.call(method, [t, g, commitHashOf(x)], anteRaw,
-    (method === "open" ? "open a hold'em table #" + t : "sit down at hold'em table #" + t) + " · ante " + rawToNado(anteRaw) + " NADO",
+  const args = method === "open" ? [t, g, commitHashOf(x), anteRaw] : [t, g, commitHashOf(x)];
+  dapp.call(method, args, buyinRaw,
+    (method === "open" ? "open a hold'em table #" + t : "sit down at hold'em table #" + t)
+      + " · buy-in " + rawToNado(buyinRaw) + " NADO (ante " + rawToNado(anteRaw) + ", stack " + rawToNado(buyinRaw - anteRaw) + ")",
     { table: t, seat: g, phase: method });
 }
+function readBuyin(anteRaw) {
+  const raw = nadoToRaw($("buyinAmt").value);
+  if (!raw) { alertBar("Enter your BUY-IN — the ante (" + rawToNado(anteRaw) + " NADO) goes to the pot, the rest is your stack to bet with. A common buy-in is 20–50× the ante."); return null; }
+  if (raw < anteRaw) { alertBar("The buy-in must at least cover the ante (" + rawToNado(anteRaw) + " NADO)."); return null; }
+  return raw;
+}
 async function newTable() {
-  const raw = nadoToRaw($("anteAmt").value);
-  if (!raw) { $("status").textContent = "Enter an ante (NADO) — everyone pays it to sit down."; return; }
+  const ante = nadoToRaw($("anteAmt").value);
+  if (!ante) { $("status").textContent = "Enter an ante (NADO) — everyone pays it into the pot to sit down."; return; }
+  const buyin = readBuyin(ante); if (!buyin) return;
   await dapp.refresh();
-  if (!canPay(dapp, raw, "Opening this table")) return;
-  sit(randId(), "open", raw);
+  if (!canPay(dapp, buyin, "Opening this table")) return;
+  sit(randId(), "open", buyin, ante);
 }
 async function joinTable() {
   const t = activeTable;
@@ -156,15 +183,17 @@ async function joinTable() {
   if (lastSeats.some((s) => s.addr === dapp.me)) { $("status").textContent = "You're already seated here."; return; }
   await dapp.refresh();
   const ante = BigInt(tb.ante);
-  if (!canPay(dapp, ante, "Sitting down")) { render(); return; }
-  sit(t, "join", ante);
+  const buyin = readBuyin(ante); if (!buyin) return;
+  if (!canPay(dapp, buyin, "Sitting down")) { render(); return; }
+  sit(t, "join", buyin, ante);
 }
 function mySeat() { return lastSeats.find((s) => s.addr === dapp.me); }
 function doBet(amountRaw, label) {
   const s = mySeat(); if (!s) return;
   const k = lastTable && lastTable.street || 1;
-  dapp.call("bet", [s.g], amountRaw, label + " · table #" + activeTable,
-    { table: activeTable, seat: s.g, phase: "bet", k, prev: s.cs[k] });
+  // amount is an ARG (chips move from your escrowed stack, no new value) — confirm:true so autosign never bets
+  dapp.call("bet", [s.g, amountRaw], null, label + " · table #" + activeTable,
+    { table: activeTable, seat: s.g, phase: "bet", k, prev: s.cs[k] }, { confirm: true });
 }
 function doReveal() {
   const s = mySeat(); if (!s) return;
@@ -180,6 +209,7 @@ async function refreshActive() {
   await dapp.refresh();
   const sto = await dapp.storage();
   if (sto) {
+    lastSto = sto;
     pruneAndTrack(sto);
     if (activeTable != null) {
       lastTable = tableFrom(sto, activeTable);
@@ -273,6 +303,12 @@ function render() {
   for (const g of Object.keys(Ssto)) mine.push({ id: Ssto[g].table, seat: g, role: "seat", ts: Ssto[g].ts });
   mine.sort((a, b) => b.ts - a.ts); const seen = new Set();
   const shown = mine.filter((x) => { x.live = x.role === "host" ? knownTables.has(String(x.id)) : knownSeats.has(String(x.seat)); x.icon = "🃏"; const k = String(x.id); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 8);
+  for (const x of shown) {
+    if (!x.live || !lastSto) continue;
+    const tb = tableFrom(lastSto, x.id);
+    if (!tb.exists) continue;
+    x.tag = tb.closed ? "finished ✓" : tb.phase === "join" ? "seating" : tb.phase === "street" ? STREETS[tb.street] : tb.phase === "showdown" ? "SHOWDOWN" : "settle!";
+  }
   recentChips($("recent"), shown, selectTable, "No tables yet.");
   renderActive();
 }
@@ -285,6 +321,11 @@ function renderActive() {
   $("shareLink").value = base() + "/?table=" + activeTable;
   drawQR($("shareQR"), $("shareQRNote"), base() + "/?table=" + activeTable, 180);
   $("gPot").textContent = tb.exists ? rawToNado(tb.pot) + " NADO" : "—";
+  if ($("gPots")) {
+    const pots = tb.exists && tb.phase !== "join" && lastSeats.length ? sidePots(lastSeats, tb.ante) : [];
+    $("gPots").innerHTML = pots.length > 1 ? pots.map((p, n) =>
+      '<div class="kv"><span class="k">' + (n === 0 ? "Main pot" : "Side pot " + n) + " (" + p.idxs.map((i) => disp(lastSeats[i].addr)).join(", ") + ')</span><span class="mono">' + rawToNado(p.amt) + " NADO</span></div>").join("") : "";
+  }
   $("gAnte").textContent = tb.exists ? rawToNado(tb.ante) + " NADO" : "—";
 
   // headline: phase + countdown — always says what happens next
@@ -336,7 +377,8 @@ function renderActive() {
     else if (tb.phase === "street" && s.cs[tb.street] < priceNow) tag = '<span class="b pend">must call ' + rawToNado(priceNow - s.cs[tb.street]) + "</span>";
     else if (tb.phase === "showdown") tag = '<span class="b pend">yet to show</span>';
     else tag = '<span class="b ok">in ✓</span>';
-    return '<div class="seat">' + you + disp(s.addr) + ' · <span class="mono">' + rawToNado(s.total + Number(tb.ante || 0)) + "</span> " + tag + "</div>";
+    const allin = s.stack === 0 && !f && tb.exists && tb.phase !== "join" ? ' <span class="b pend">ALL-IN</span>' : "";
+    return '<div class="seat">' + you + disp(s.addr) + ' · in pot <span class="mono">' + rawToNado(s.total + Number(tb.ante || 0)) + '</span> · stack <span class="mono">' + rawToNado(s.stack) + "</span>" + allin + " " + tag + "</div>";
   }).join("") : '<span class="dim">No players yet.</span>';
 
   // actions — ONE obvious primary thing to do at every phase
@@ -355,21 +397,30 @@ function renderActive() {
       wrap.appendChild(note);
       btn("↩ Undo fold — you can still call until the street closes", () => setFold(false), false);
     }
-    if (tb.phase === "street" && me && !fk && !localFold) {
+    if (tb.phase === "street" && me && !fk && !localFold && me.stack === 0) {
+      const note = document.createElement("div"); note.className = "small"; note.style.cssText = "flex:1 1 100%;color:var(--accent2);font-weight:700";
+      note.textContent = "🔥 You're ALL-IN — nothing left to do; you're live for every pot you funded.";
+      wrap.appendChild(note);
+    }
+    if (tb.phase === "street" && me && !fk && !localFold && me.stack > 0) {
       betRow.classList.remove("hidden");
       const myIn = me.cs[tb.street], owe = priceNow - myIn;
-      $("betInfo").innerHTML = priceNow
-        ? "Street price <b>" + rawToNado(priceNow) + "</b> · you're in for <b>" + rawToNado(myIn) + "</b>" + (owe > 0 ? ' · <b class="warn">call ' + rawToNado(owe) + " or fold when the street closes</b>" : " · matched ✓ (do nothing to check)")
-        : "No bets yet this street — do nothing to <b>check</b>, or open the betting below.";
-      if (owe > 0) btn("📞 Call " + rawToNado(owe) + " — stay in", () => doBet(BigInt(owe), "call " + rawToNado(owe) + " NADO"), true);
+      $("betInfo").innerHTML = "Your stack <b>" + rawToNado(me.stack) + "</b> · " + (priceNow
+        ? "street price <b>" + rawToNado(priceNow) + "</b> · you're in for <b>" + rawToNado(myIn) + "</b>" + (owe > 0 ? ' · <b class="warn">call ' + rawToNado(owe > me.stack ? me.stack : owe) + (owe > me.stack ? " (all-in)" : "") + " or fold when the street closes</b>" : " · matched ✓ (do nothing to check)")
+        : "no bets yet this street — do nothing to <b>check</b>, or open the betting below.");
+      if (owe > 0) {
+        const callAmt = owe > me.stack ? me.stack : owe;
+        btn((owe > me.stack ? "🔥 Call ALL-IN " : "📞 Call ") + rawToNado(callAmt) + " — stay in", () => doBet(BigInt(callAmt), "call " + rawToNado(callAmt) + " NADO"), true);
+      }
       const canRaise = tb.left > GRACE;
       const rb = btn(canRaise ? "⬆ Bet / raise the amount above" : "⬆ Raising closed (last " + GRACE + " blocks are calls only)", () => {
         const raw = nadoToRaw($("betAmt").value);
         if (!raw) { $("status").textContent = "Enter an amount — your street total above " + rawToNado(priceNow) + " raises the price for everyone."; return; }
-        if (!canPay(dapp, raw, "This bet")) return;
+        if (raw > BigInt(me.stack)) { alertBar("That's more than your stack (" + rawToNado(me.stack) + " NADO) — table stakes: you bet what you brought. Use ALL-IN for everything."); return; }
         doBet(raw, "bet " + rawToNado(raw) + " NADO");
       }, owe <= 0);
       rb.disabled = !canRaise;
+      if (canRaise || owe > 0) btn("🔥 ALL-IN — push your whole stack (" + rawToNado(me.stack) + ")", () => doBet(BigInt(me.stack), "ALL-IN " + rawToNado(me.stack) + " NADO"), false);
       btn("🙅 Fold" + (owe > 0 ? " — give up " + rawToNado(me.total + Number(tb.ante || 0)) + " in the pot" : ""), () => setFold(true), false);
     }
     if (tb.phase === "showdown" && me && !fk && localFold && !me.revealed) {

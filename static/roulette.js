@@ -19,6 +19,7 @@ const RED = new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
 const colorOf = (n) => n === 0 ? "green" : (RED.has(n) ? "red" : "black");
 
 const LS_T = "nado_roul_tables", LS_S = "nado_roul_seats";
+let lastSto = null;
 let activeTable = null, lastTable = null, lastSeats = [], selected = new Set();
 let knownTables = new Set(), knownSeats = new Set();
 
@@ -103,6 +104,7 @@ async function refreshActive() {
   await dapp.refresh();
   const sto = await dapp.storage();
   if (sto) {
+    lastSto = sto;
     pruneAndTrack(sto);
     if (activeTable != null) {
       lastTable = tableFrom(sto, activeTable);
@@ -218,8 +220,20 @@ function render() {
   const shown = mine.filter((x) => {
     x.live = x.role === "bank" ? knownTables.has(String(x.id)) : knownSeats.has(String(x.seat));
     x.icon = x.role === "bank" ? "🏦" : "🎯";
-    const k = x.id + x.role; if (seen.has(k)) return false; seen.add(k); return true;
+    const k = String(x.id); if (seen.has(k)) return false; seen.add(k); return true;
   }).slice(0, 8);
+  for (const x of shown) {
+    if (!x.live || !lastSto) continue;
+    const tb = tableFrom(lastSto, x.id);
+    if (!tb.exists) continue;
+    if (tb.closed) x.tag = "finished ✓";
+    else {
+      x.tag = "live";
+      const mySeats = seatsOfTable(lastSto, x.id).filter((st) => st.addr === dapp.me);
+      if (mySeats.some((st) => !st.settled && st.ready && st.win)) x.tag = "💰 win to collect";
+      else if (mySeats.some((st) => st.pending)) x.tag = "your bet spins soon";
+    }
+  }
   recentChips($("recent"), shown, selectTable, "No tables yet.");
   renderActive();
 }

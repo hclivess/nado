@@ -188,7 +188,8 @@ export const scoreSort = (stats) => Object.values(stats).sort((a, b) => (b.net -
 export function recentChips(el, items, onSelect, emptyMsg) {
   if (!el) return;
   el.innerHTML = items.length ? items.map((x) => '<button class="chip' + (x.live ? "" : " pending") + '" data-t="' + x.id + '"'
-      + (x.live ? "" : ' title="still confirming on-chain — your bet hasn\'t vanished"') + ">" + (x.icon || "🎯") + " #" + x.id + (x.live ? "" : " ⏳") + "</button>").join(" ")
+      + (x.live ? "" : ' title="still confirming on-chain — your bet hasn\'t vanished"') + ">" + (x.icon || "🎯") + " #" + x.id
+      + (x.live ? (x.tag ? " · " + x.tag : "") : " · confirming ⏳") + "</button>").join(" ")
     : '<span class="dim">' + (emptyMsg || "No games yet.") + "</span>";
   el.querySelectorAll(".chip").forEach((b) => b.onclick = () => onSelect(parseInt(b.dataset.t, 10)));
 }
@@ -267,12 +268,14 @@ export class NadoDapp {
   signIn() { this._go({ connect: true, label: "sign in" }, { phase: "connect" }); }
   deposit(raw) { this._go({ deposit: { amount: raw.toString() }, label: "deposit " + rawToNado(raw) + " NADO" }, { phase: "deposit" }); }
   withdraw(raw, pend) { this.signBlob({ op: "bridge_withdraw", amount: raw }, "withdraw " + rawToNado(raw) + " NADO to L1", pend || { phase: "withdraw" }); }
-  signBlob(blob, label, pend) { this._go({ blob: encBig(blob), label }, pend); }
-  // generic contract call; valueRaw (raw NADO) is ESCROWED from the caller's bridge balance into the contract
-  call(method, args, valueRaw, label, pend) {
+  signBlob(blob, label, pend, opts) { this._go(Object.assign({ blob: encBig(blob), label }, (opts && opts.confirm) ? { confirm: 1 } : {}), pend); }
+  // generic contract call; valueRaw (raw NADO) is ESCROWED from the caller's bridge balance into the contract.
+  // opts.confirm forces the wallet's manual confirm even when the call is value-free (e.g. a poker bet that
+  // moves chips you already escrowed as your stack) — autosign must never place a bet for you.
+  call(method, args, valueRaw, label, pend, opts) {
     const p = { op: "call", contract: this.cid, method, args };
     if (valueRaw != null) p.value = valueRaw;
-    this.signBlob(p, label, pend);
+    this.signBlob(p, label, pend, opts);
   }
   _handleReturn() {
     const p = new URLSearchParams(location.search);
