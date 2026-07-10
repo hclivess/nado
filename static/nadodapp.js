@@ -249,21 +249,29 @@ export class NadoDapp {
     // a chain hiccup must never be misreported as a vanished table/bet (that's exactly what a rug feels like).
     this.online = null;
     this._onReturn = null;
-    this._bh = {};   // height -> finalized L1 block hash hex | null (BLOCKHASH randomness cache)
+    this._bh = {};        // height -> block hash hex (BLOCKHASH randomness cache; provisional or finalized)
+    this._bhFinal = {};   // height -> 1 once its FINALIZED hash is cached (a frozen value; provisional stays re-checkable)
     this.inflight = null;   // a submitted-but-not-yet-confirmed action (see busy())
   }
-  // blockHashes(heights): fetch + CACHE the finalized L1 block hashes for these heights (from /exec/blockhash),
-  // so a beacon game can compute the same result the contract will. bh(h) reads the cache (hex | null | undefined).
-  async blockHashes(heights) {
-    const need = [...new Set(heights)].filter((h) => this._bh[h] === undefined);
+  // blockHashes(heights, {fast}): fetch + CACHE L1 block hashes for these heights (from /exec/blockhash),
+  // so a beacon game can compute the same result the contract will. bh(h) reads the cache (hex|null|undefined).
+  // DEFAULT = FINALIZED hashes (immutable) — required for HIDDEN info (Hold'em hole cards): a pre-finality
+  // hash that reorged would silently show a different hand at showdown. fast:true opts into the PROVISIONAL
+  // (pre-finality) tail — only for PUBLIC, on-chain-VALIDATED randomness (Farkle dice): a reorg there just
+  // reverts the settling tx (a visible retry), never silent unfairness. fast cuts the reveal wait from
+  // ~FINALITY_DEPTH (~90s) to ~one block (~6-18s). A fast (unfinal) hash is cached but re-checked (it can
+  // still change), so we never freeze a provisional value.
+  async blockHashes(heights, opts) {
+    const fast = !!(opts && opts.fast);
+    const need = [...new Set(heights)].filter((h) => this._bh[h] === undefined || (fast && !this._bhFinal[h]));
     if (need.length) {
       try {
-        // FINALIZED hashes only (no provisional): a pre-finality hash can reorg, and a game must never
-        // preview cards/results from a hash that can still change — the contract settles on the final one.
-        const j = await (await fetch(base() + "/exec/blockhash?ns=" + this.ns + "&heights=" + need.join(","), { cache: "no-store" })).json();
-        // cache HITS only — a finalized hash is immutable, but a null ("not finalized yet") must be
-        // retried on the next poll or the UI would never show the cards/result at all.
-        for (const h of need) { const v = j.hashes && j.hashes[String(h)]; if (v) this._bh[h] = v; }
+        const url = base() + "/exec/blockhash?ns=" + this.ns + (fast ? "&provisional=1" : "") + "&heights=" + need.join(",");
+        const j = await (await fetch(url, { cache: "no-store" })).json();
+        for (const h of need) {
+          const v = j.hashes && j.hashes[String(h)];
+          if (v) { this._bh[h] = v; if (!fast) this._bhFinal[h] = 1; }   // mark finalized values as frozen
+        }
       } catch {}
     }
     return this._bh;

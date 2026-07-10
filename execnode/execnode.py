@@ -547,16 +547,21 @@ async def h_view(request):
 
 
 async def h_blockhash(request):
-    """One or more finalized L1 block hashes for the BLOCKHASH randomness (?height=H  or  ?heights=H1,H2,…).
-    Returns {height: hex|null} — null if the height is in the future or older than the node retains. Lets a game
-    UI compute the same objective result the contract will (e.g. show the wheel land before anyone settles).
+    """One or more L1 block hashes for the BLOCKHASH randomness (?height=H  or  ?heights=H1,H2,…). Returns
+    {height: hex|null} — null if the height is in the future or older than the node retains. Lets a game UI
+    derive the same result the contract will (e.g. show the dice/wheel before anyone settles).
 
-    ALWAYS served from the FINALIZED state — never the provisional clone (?provisional is ignored here). The
-    provisional tail records hashes of blocks that can still REORG; serving one would let a game UI derive
-    cards/results that silently change at finality (a player literally sees a different hand at showdown than
-    they played the whole game with). The beacon's entire contract is immutability: no hash, no answer."""
+    DEFAULT is the FINALIZED state — a hash there can never reorg. This MUST be used for HIDDEN information
+    (Hold'em hole cards): a provisional hash that reorged would silently show a player a different hand at
+    showdown than they played. ?provisional=1 opts INTO the fast pre-finality tail — only safe for PUBLIC,
+    on-chain-VALIDATED randomness (Farkle dice, wheel spins): if such a hash reorgs, the settling tx simply
+    reverts and the player re-acts — a visible retry, never silent unfairness. It cuts the reveal wait from
+    ~FINALITY_DEPTH blocks (~90s) to ~one block (~6-18s)."""
     ns = request.query.get("ns", "default")
-    st = states.get(ns)
+    if request.query.get("provisional") in ("1", "true", "yes") and prov_states and ns in prov_states:
+        st = prov_states[ns]           # fast pre-finality tail (opt-in; public+validated randomness only)
+    else:
+        st = states.get(ns)            # finalized: immutable, safe for hidden info
     if st is None:
         return _NS404()
     q = request.query

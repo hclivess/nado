@@ -149,7 +149,7 @@ async function refreshActive() {
       lastSeats = seatsOfTable(sto, activeTable);
       const cur = dapp.cursor, need = [];
       for (const s of lastSeats) if (s.rollHeight && cur != null && cur >= s.rollHeight + 1) need.push(s.rollHeight, s.rollHeight + 1);
-      if (need.length) await dapp.blockHashes(need);
+      if (need.length) await dapp.blockHashes(need, { fast: true });   // Farkle dice: PUBLIC + on-chain-validated -> provisional (fast) is safe (a reorg just reverts a hold)
     }
     renderLobby(sto); renderScoreboard(boardFrom(sto));
   }
