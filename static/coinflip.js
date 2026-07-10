@@ -8,7 +8,7 @@
 // the contract's PAY. Login + every signature is delegated to the NADO wallet; the key never touches this origin.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, blocksToTime,
          lsLoad, lsSave, wireWallet, renderWallet, renderScore, scoreBump, scoreSort, statusLabel,
-         loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
+         loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
 const CID = "6db8ae21f5b280d411f47ef0581ff802";
 const dapp = new NadoDapp({ cid: CID, app: "Coin Flip" });
@@ -187,8 +187,7 @@ function renderActive() {
   if (active == null) return;
   const lg = lastGame || {}, local = gamesLoad()[active] || {}, mine = (lg.players || {})[dapp.me];
   $("gameId").textContent = "#" + active;
-  $("shareLink").value = base() + "/?game=" + active;
-  drawQR($("shareQR"), $("shareQRNote"), base() + "/?game=" + active, 200);
+  shareInvite("game", active, "Flip me on NADO — join coin flip #" + active + ":");
   $("pot").textContent = lg.exists ? rawToNado(lg.pot) + " NADO" : "—";
   $("stakeShown").textContent = lg.exists ? rawToNado(lg.stake) + " NADO" : (local.stake ? rawToNado(local.stake) + " NADO" : "—");
   $("gStatus").textContent = lg.exists ? (lg.ncom + "/2 in" + (lg.settled ? " · settled" : lg.ncom === 2 ? " · ⚡ flipping" : " · waiting")) : dapp.whereIs("game", active, local.ts);

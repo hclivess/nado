@@ -10,7 +10,7 @@
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, blocksToTime,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, renderWallet, renderScore, scoreBump, scoreSort,
          recentChips, statusLabel, tablesOf as allTables, readTable,
-         loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
+         loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
 const CID = "447a2ed7efc770281cc20990cebb1e5f";
 const PN = 37, MAXSLOTS = 18, BLOCK_SECS = 6, ROUND = 20;   // ROUND must match the contract
@@ -242,8 +242,7 @@ function renderActive() {
   const tb = lastTable || {}, T = load(LS_T)[activeTable] || {};
   const iAmBank = tb.bank === dapp.me, mySeats = lastSeats.filter((s) => s.addr === dapp.me);
   $("gameId").textContent = "#" + activeTable;
-  $("shareLink").value = base() + "/?table=" + activeTable;
-  drawQR($("shareQR"), $("shareQRNote"), base() + "/?table=" + activeTable, 180);
+  shareInvite("table", activeTable, "Bet at my roulette table #" + activeTable + " on NADO:", 180);
   $("gBank").textContent = tb.exists ? (disp(tb.bank) + (iAmBank ? " — that's you (you're the house here)" : "")) : (T.bankroll ? "you (opening…)" : "—");
   $("gBankroll").textContent = tb.exists ? rawToNado(tb.bankroll) + " NADO" : (T.bankroll ? rawToNado(T.bankroll) + " NADO" : "—");
   $("gCover").textContent = tb.exists ? rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) + " NADO free" : "—";

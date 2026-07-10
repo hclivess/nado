@@ -223,6 +223,18 @@ export async function share(url, text, btn) {
   let ok = false; try { await navigator.clipboard.writeText(url); ok = true; } catch {}
   if (btn) { const t = btn.textContent; btn.textContent = ok ? "Copied ✓" : "copy failed"; setTimeout(() => (btn.textContent = t.replace("Copied ✓", "Share").replace("copy failed", "Share") || "Share"), 1400); }
 }
+// shareInvite(kind, id, text, qrpx): the ONE invite block every game shows — populate #shareLink, render
+// #shareQR, and wire #btnShare, all from the active game/table id. Guards the empty-field case: a null id
+// clears the link + hides the QR instead of leaving a stale/blank input. kind is "game" or "table".
+export function shareInvite(kind, id, text, qrpx = 200) {
+  const link = $("shareLink"), btn = $("btnShare");
+  if (id == null) { if (link) link.value = ""; drawQR($("shareQR"), $("shareQRNote"), "", qrpx); return ""; }
+  const url = base() + "/?" + kind + "=" + id;
+  if (link) link.value = url;
+  drawQR($("shareQR"), $("shareQRNote"), url, qrpx);
+  if (btn) btn.onclick = () => share(url, text || ("Join me on NADO: " + url), btn);
+  return url;
+}
 
 // ---- the wallet-backed dApp session --------------------------------------------------------------
 export class NadoDapp {

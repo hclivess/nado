@@ -11,7 +11,7 @@
 import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, commitHashOf, blake2bHash, _m, $, base, gate, canPay, alertBar,
          hoist, orderCards, blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, renderWallet, renderScore,
          scoreBump, scoreSort, recentChips, statusLabel,
-         loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
+         loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
 const CID = "07c7405a1299a6a6506ba9eae7bec0cf";
 const dapp = new NadoDapp({ cid: CID, app: "Hold'em" });
@@ -318,8 +318,7 @@ function renderActive() {
   const tb = lastTable || {}, T = load(LS_T)[activeTable] || {};
   const me = mySeat(), iAmHost = tb.host === dapp.me;
   $("gameId").textContent = "#" + activeTable;
-  $("shareLink").value = base() + "/?table=" + activeTable;
-  drawQR($("shareQR"), $("shareQRNote"), base() + "/?table=" + activeTable, 180);
+  shareInvite("table", activeTable, "Sit down at my hold em table #" + activeTable + " on NADO:", 180);
   $("gPot").textContent = tb.exists ? rawToNado(tb.pot) + " NADO" : "—";
   if ($("gPots")) {
     const pots = tb.exists && tb.phase !== "join" && lastSeats.length ? sidePots(lastSeats, tb.ante) : [];

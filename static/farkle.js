@@ -6,7 +6,7 @@
 import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate, canPay, hoist, orderCards, blocksToTime,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, renderWallet, renderScore, scoreBump, scoreSort,
          recentChips, statusLabel,
-         loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
+         loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
 const CID = "05ea18398f08373343f49a4f51daf78c";
 const dapp = new NadoDapp({ cid: CID, app: "Farkle" });
@@ -217,8 +217,7 @@ function renderActive() {
   const tb = lastTable || {}, T = load(LS_T)[activeTable] || {};
   const iAmHost = tb.host === dapp.me, mySeat = lastSeats.find((s) => s.addr === dapp.me);
   $("gameId").textContent = "#" + activeTable;
-  $("shareLink").value = base() + "/?table=" + activeTable;
-  drawQR($("shareQR"), $("shareQRNote"), base() + "/?table=" + activeTable, 180);
+  shareInvite("table", activeTable, "Join my Farkle table #" + activeTable + " on NADO:", 180);
   $("gPot").textContent = tb.exists ? rawToNado(tb.pot) + " NADO" : (T.ante ? "opening…" : "—");
   $("gAnte").textContent = tb.exists ? rawToNado(tb.ante) + " NADO" : (T.ante ? rawToNado(T.ante) + " NADO" : "—");
   let phaseTxt = dapp.whereIs("table", activeTable, T.ts);
