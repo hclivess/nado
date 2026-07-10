@@ -30,7 +30,9 @@ function pruneAndTrack(sto) {
   for (const g of Object.keys(S)) if (!knownSeats.has(g) && Date.now() - (S[g].ts || 0) > 600000) { delete S[g]; c = true; }
   if (c) save(LS_S, S);
 }
-const landedOrPending = (live, ts) => live || Date.now() - (ts || 0) < 120000;
+// A placed bet/opened table must NEVER silently vanish from the list — it either landed on-chain (show it)
+// or is still confirming (show it, marked ⏳). pruneAndTrack() removes genuinely-dead records after 10 min;
+// until then we keep them visible so a slow-to-confirm bet can't look like it "disappeared".
 function reopenTable() {   // retry an open that never landed (same id is still fresh on-chain)
   const T = load(LS_T)[activeTable]; if (!T || !T.bankroll) return;
   const raw = BigInt(T.bankroll);
@@ -260,11 +262,10 @@ function render() {
   for (const g of Object.keys(S)) mine.push({ id: S[g].table, seat: g, role: "bet", ts: S[g].ts });
   mine.sort((a, b) => b.ts - a.ts); const seen = new Set();
   const shown = mine.filter((x) => {
-    const live = x.role === "bank" ? knownTables.has(String(x.id)) : knownSeats.has(String(x.seat));
-    if (!landedOrPending(live, x.ts)) return false;
+    x.live = x.role === "bank" ? knownTables.has(String(x.id)) : knownSeats.has(String(x.seat));
     const k = x.id + x.role; if (seen.has(k)) return false; seen.add(k); return true;
   }).slice(0, 8);
-  $("recent").innerHTML = shown.length ? shown.map((x) => '<button class="chip" data-t="' + x.id + '">' + (x.role === "bank" ? "🏦" : "🎯") + " #" + x.id + "</button>").join(" ") : '<span class="dim">No tables yet.</span>';
+  $("recent").innerHTML = shown.length ? shown.map((x) => '<button class="chip' + (x.live ? "" : " pending") + '" data-t="' + x.id + '"' + (x.live ? "" : ' title="still confirming on-chain — your bet hasn\'t vanished"') + '>' + (x.role === "bank" ? "🏦" : "🎯") + " #" + x.id + (x.live ? "" : " ⏳") + "</button>").join(" ") : '<span class="dim">No tables yet.</span>';
   $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => {
     const id = parseInt(b.dataset.t, 10);
     activeTable = id; $("joinId").value = String(id);

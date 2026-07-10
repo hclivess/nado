@@ -232,12 +232,15 @@ function render() {
   const showShortfall = !!jid && signedIn && !iAmIn && stageJoinable && needStake != null && dapp.exec < needStake;
   if (jh) { jh.textContent = showShortfall ? shortfallMsg(needStake, dapp.exec) : ""; jh.classList.toggle("hidden", !showShortfall); }
   const g = gamesLoad();
-  const ids = Object.keys(g).filter((id) => stageCache[id] || Date.now() - (g[id].ts || 0) < 120000).sort((a, b) => g[b].ts - g[a].ts).slice(0, 8);
+  // keep every game visible (on-chain OR still confirming) — a placed game must never look like it "disappeared";
+  // pruneAndTrack removes genuinely-dead local records after 10 min.
+  const ids = Object.keys(g).sort((a, b) => g[b].ts - g[a].ts).slice(0, 8);
   $("recent").innerHTML = ids.length
     ? ids.map((id) => {
-        const st = stageCache[id]; let cls = "", tag = "";
+        const st = stageCache[id]; let cls = "", tag = "", title = "";
         if (st) { if (st.settled) { cls = " done"; tag = "✓ "; } else if (st.ncom >= 2) { cls = " live"; tag = "▶ "; } else { cls = " open"; tag = "⏳ "; } }
-        return '<button class="chip' + cls + '" data-g="' + id + '">' + tag + "#" + id + " · " + rawToNado(g[id].stake || "0") + "</button>";
+        else { cls = " pending"; tag = "⏳ "; title = ' title="still confirming on-chain — your game hasn\'t vanished"'; }
+        return '<button class="chip' + cls + '" data-g="' + id + '"' + title + ">" + tag + "#" + id + " · " + rawToNado(g[id].stake || "0") + "</button>";
       }).join(" ")
     : '<span class="dim">No games yet.</span>';
   $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => {

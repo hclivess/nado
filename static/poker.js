@@ -19,7 +19,6 @@ function pruneAndTrack(sto) {
   for (const g of Object.keys(G)) if (!knownGames.has(g) && Date.now() - (G[g].ts || 0) > 600000) { delete G[g]; c = true; }
   if (c) save(G);
 }
-const landedOrPending = (g, ts) => knownGames.has(String(g)) || Date.now() - (ts || 0) < 120000;
 function reopenGame() {   // retry an open that never landed (same id is still fresh)
   const L = load()[activeGame]; if (!L || L.role !== "p1" || !L.stake || !L.secret) return;
   const raw = BigInt(L.stake);
@@ -134,8 +133,8 @@ function render() {
   $("l1bal").textContent = rawToNado(dapp.l1) + " NADO";
   $("play").classList.toggle("hidden", !signedIn);
   $("bankroll").classList.toggle("hidden", !signedIn);
-  const G = load(), ids = Object.keys(G).filter((g) => landedOrPending(g, G[g].ts)).sort((a, b) => G[b].ts - G[a].ts).slice(0, 8);
-  $("recent").innerHTML = ids.length ? ids.map((g) => '<button class="chip" data-g="' + g + '">🂡 #' + g + "</button>").join(" ") : '<span class="dim">No games yet.</span>';
+  const G = load(), ids = Object.keys(G).sort((a, b) => G[b].ts - G[a].ts).slice(0, 8);   // keep every game visible (landed OR confirming)
+  $("recent").innerHTML = ids.length ? ids.map((g) => { const live = knownGames.has(String(g)); return '<button class="chip' + (live ? "" : " pending") + '" data-g="' + g + '"' + (live ? "" : ' title="still confirming on-chain — your game hasn\'t vanished"') + '>🂡 #' + g + (live ? "" : " ⏳") + "</button>"; }).join(" ") : '<span class="dim">No games yet.</span>';
   $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeGame = parseInt(b.dataset.g, 10); refreshActive(); });
   renderActive();
 }
