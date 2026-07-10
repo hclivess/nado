@@ -67,6 +67,53 @@ export function chainResult(shHex, sh1Hex, salt, mod) {
 // blocksToTime(blocks): render a block count as m:ss at the given block time (default 6s) — shared countdown fmt.
 export const blocksToTime = (blocks, secs = 6) => { const b = Math.max(0, blocks) * secs, m = Math.floor(b / 60), s = b % 60; return m + ":" + String(s).padStart(2, "0"); };
 
+// ---- can't-miss feedback (a quiet status line reads as "nothing happened" — a real bug to users) ---
+// alertBar(msg, actionLabel?, actionFn?): a fixed toast at the bottom of the viewport, visible no matter
+// where the user is on the page. Call with no msg to dismiss. One at a time — a new call replaces it.
+export function alertBar(msg, actionLabel, actionFn) {
+  let el = document.getElementById("alertBar");
+  if (el) el.remove();
+  if (!msg) return;
+  el = document.createElement("div");
+  el.id = "alertBar";
+  el.style.cssText = "position:fixed;left:12px;right:12px;bottom:12px;z-index:999;max-width:600px;margin:0 auto;"
+    + "background:#2a1214;border:1px solid rgba(248,81,73,.65);color:#ffb4ae;font-weight:700;font-size:13.5px;"
+    + "border-radius:14px;padding:13px 40px 13px 14px;line-height:1.5;box-shadow:0 10px 34px rgba(0,0,0,.6)";
+  el.textContent = "⚠ " + msg + " ";
+  if (actionLabel && actionFn) {
+    const b = document.createElement("button");
+    b.textContent = actionLabel;
+    b.style.cssText = "display:block;margin-top:9px;font:inherit;font-weight:800;border:0;border-radius:9px;"
+      + "padding:9px 14px;background:linear-gradient(135deg,#00ad93,#00c9a7);color:#04110a;cursor:pointer";
+    b.onclick = () => { el.remove(); actionFn(); };
+    el.appendChild(b);
+  }
+  const x = document.createElement("span");
+  x.textContent = "✕";
+  x.style.cssText = "position:absolute;top:10px;right:13px;cursor:pointer;color:#ff8d85;font-weight:800";
+  x.onclick = () => el.remove();
+  el.appendChild(x);
+  document.body.appendChild(el);
+}
+// canPay(dapp, raw, what): the ONE affordability gate before any join/bet/open. True if payable; otherwise
+// shows the toast with the exact shortfall + a "Go to Deposit" shortcut (scrolls to the bankroll box and
+// pulses Deposit). Signed-out users get a sign-in prompt instead. NO game may fail a stake check silently.
+export function canPay(dapp, raw, what) {
+  if (!dapp.me) {
+    alertBar(what + " needs a wallet — sign in first.", "Sign in with NADO wallet", () => dapp.signIn());
+    return false;
+  }
+  if (dapp.exec >= raw) return true;
+  alertBar(what + " costs " + rawToNado(raw) + " NADO from your playable (exec) balance — you only have "
+    + rawToNado(dapp.exec) + ". Deposit at least " + rawToNado(raw - dapp.exec) + " NADO more, then try again.",
+    "Go to Deposit", () => {
+      const bk = document.getElementById("bankroll"), bd = document.getElementById("btnDeposit");
+      if (bd) bd.classList.add("pulse");
+      if (bk) { bk.classList.remove("hidden"); try { bk.scrollIntoView({ behavior: "smooth", block: "center" }); } catch {} }
+    });
+  return false;
+}
+
 // ---- localStorage records (per-game "my tables/seats" that survive the signing redirect) ----------
 export const lsLoad = (k) => { try { return JSON.parse(localStorage.getItem(k) || "{}"); } catch { return {}; } };
 export const lsSave = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
@@ -197,9 +244,13 @@ export class NadoDapp {
     const need = [...new Set(heights)].filter((h) => this._bh[h] === undefined);
     if (need.length) {
       try {
-        const j = await (await fetch(base() + "/exec/blockhash?ns=" + this.ns + "&provisional=1&heights=" + need.join(","), { cache: "no-store" })).json();
-        for (const h of need) this._bh[h] = (j.hashes && j.hashes[String(h)]) || null;
-      } catch { for (const h of need) this._bh[h] = null; }
+        // FINALIZED hashes only (no provisional): a pre-finality hash can reorg, and a game must never
+        // preview cards/results from a hash that can still change — the contract settles on the final one.
+        const j = await (await fetch(base() + "/exec/blockhash?ns=" + this.ns + "&heights=" + need.join(","), { cache: "no-store" })).json();
+        // cache HITS only — a finalized hash is immutable, but a null ("not finalized yet") must be
+        // retried on the next poll or the UI would never show the cards/result at all.
+        for (const h of need) { const v = j.hashes && j.hashes[String(h)]; if (v) this._bh[h] = v; }
+      } catch {}
     }
     return this._bh;
   }

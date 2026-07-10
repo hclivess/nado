@@ -6,7 +6,7 @@
 // is permissionless and pays the pot to the winner — a sore loser has nothing to withhold. It is an ON-CHAIN
 // CONTRACT (runtime stackvm) called via the generic exec `call` op; the stake is escrowed as VALUE and paid by
 // the contract's PAY. Login + every signature is delegated to the NADO wallet; the key never touches this origin.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, hoist, orderCards, chainResult, blocksToTime,
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, blocksToTime,
          lsLoad, lsSave, wireWallet, renderWallet, renderScore, scoreBump, scoreSort, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
@@ -70,7 +70,7 @@ function bet(gameId, stakeRaw, method) {   // method: "open" (slot 1) or "join" 
 async function newGame() {
   const raw = nadoToRaw($("stakeAmt").value);
   if (!raw) { $("status").textContent = "Enter a stake (NADO)."; return; }
-  if (dapp.exec < raw) { $("status").textContent = "Deposit first — your exec balance is " + rawToNado(dapp.exec) + " NADO."; return; }
+  if (!canPay(dapp, raw, "Opening this game")) return;
   bet(randId(), raw, "open");
 }
 async function joinGame() {
@@ -81,20 +81,20 @@ async function joinGame() {
   if (g.settled || g.ncom >= 2) { $("status").textContent = "That game is full or already settled."; return; }
   await dapp.refresh();
   const need = BigInt(g.stake);
-  if (dapp.exec < need) { $("status").textContent = shortfallMsg(need, dapp.exec); render(); return; }
+  if (!canPay(dapp, need, "Joining this game")) { render(); return; }
   bet(gid, need, "join");
 }
 async function joinActive() {
   if (active == null || !lastGame || !lastGame.exists) return;
   await dapp.refresh();
   const need = BigInt(lastGame.stake);
-  if (dapp.exec < need) { $("status").textContent = shortfallMsg(need, dapp.exec); render(); return; }
+  if (!canPay(dapp, need, "Joining this game")) { render(); return; }
   bet(active, need, "join");
 }
 function reopenGame() {   // retry an open that never landed (same id is still fresh)
   const L = gamesLoad()[active]; if (!L || L.role !== "open" || !L.stake) return;
   const raw = BigInt(L.stake);
-  if (dapp.exec < raw) { $("status").textContent = "Deposit first — this stake needs " + rawToNado(raw) + " NADO."; return; }
+  if (!canPay(dapp, raw, "Re-opening this game")) return;
   bet(active, raw, "open");
 }
 const settle = () => dapp.call("settle", [active], null, "settle game #" + active, { gameId: active, phase: "settle" });
@@ -104,7 +104,7 @@ function rematchGidFor(oldGid) { return Number((BigInt(oldGid) * 636413622384679
 async function rematch() {
   const stake = (lastGame && lastGame.exists) ? BigInt(lastGame.stake) : ((gamesLoad()[active] || {}).stake ? BigInt(gamesLoad()[active].stake) : null);
   if (!stake) { $("status").textContent = "Open a new game from the panel above."; return; }
-  if (dapp.exec < stake) { $("status").textContent = "Deposit more to play again — you have " + rawToNado(dapp.exec) + " NADO, need " + rawToNado(stake) + "."; return; }
+  if (!canPay(dapp, stake, "The rematch")) return;
   const rgid = rematchGidFor(active), rg = await fetchGame(rgid);
   bet(rgid, stake, (rg && rg.exists && rg.ncom >= 1 && !rg.settled) ? "join" : "open");
 }

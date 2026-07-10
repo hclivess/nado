@@ -8,7 +8,7 @@
 //   · at SHOWDOWN one click reveals your secret; the CONTRACT re-derives your 7 cards and ranks the full
 //     hand on-chain (straight flush … high card, kickers included — 4000/4000 differential-verified).
 //     Best hand takes the pot. Board + each hand draw from independent decks (exact duplicates are legal).
-import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, commitHashOf, blake2bHash, _m, $, base, gate,
+import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, commitHashOf, blake2bHash, _m, $, base, gate, canPay,
          hoist, orderCards, blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, renderWallet, renderScore,
          scoreBump, scoreSort, recentChips, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
@@ -144,7 +144,7 @@ async function newTable() {
   const raw = nadoToRaw($("anteAmt").value);
   if (!raw) { $("status").textContent = "Enter an ante (NADO) — everyone pays it to sit down."; return; }
   await dapp.refresh();
-  if (dapp.exec < raw) { $("status").textContent = "Deposit first — your exec balance is " + rawToNado(dapp.exec) + " NADO."; return; }
+  if (!canPay(dapp, raw, "Opening this table")) return;
   sit(randId(), "open", raw);
 }
 async function joinTable() {
@@ -156,19 +156,21 @@ async function joinTable() {
   if (lastSeats.some((s) => s.addr === dapp.me)) { $("status").textContent = "You're already seated here."; return; }
   await dapp.refresh();
   const ante = BigInt(tb.ante);
-  if (dapp.exec < ante) { $("status").textContent = "You need " + rawToNado(ante) + " NADO to match the ante (you have " + rawToNado(dapp.exec) + "). Deposit below."; render(); return; }
+  if (!canPay(dapp, ante, "Sitting down")) { render(); return; }
   sit(t, "join", ante);
 }
 function mySeat() { return lastSeats.find((s) => s.addr === dapp.me); }
 function doBet(amountRaw, label) {
   const s = mySeat(); if (!s) return;
-  dapp.call("bet", [s.g], amountRaw, label + " · table #" + activeTable, { table: activeTable, phase: "bet" });
+  const k = lastTable && lastTable.street || 1;
+  dapp.call("bet", [s.g], amountRaw, label + " · table #" + activeTable,
+    { table: activeTable, seat: s.g, phase: "bet", k, prev: s.cs[k] });
 }
 function doReveal() {
   const s = mySeat(); if (!s) return;
   const rec = load(LS_S)[s.g];
   if (!rec || !rec.secret) { $("status").textContent = "This browser doesn't hold the secret for seat #" + s.g + " — show your cards from the device you joined with."; return; }
-  dapp.call("reveal", [s.g, BigInt(rec.secret)], null, "showdown — show your cards · table #" + activeTable, { table: activeTable, phase: "reveal" });
+  dapp.call("reveal", [s.g, BigInt(rec.secret)], null, "showdown — show your cards · table #" + activeTable, { table: activeTable, seat: s.g, phase: "reveal" });
 }
 const settleTable = () => dapp.call("settle", [activeTable], null, "pay the pot to the best hand · table #" + activeTable, { table: activeTable, phase: "settle" });
 const reclaimTable = () => dapp.call("reclaim", [activeTable], null, "reclaim the dead pot · table #" + activeTable, { table: activeTable, phase: "reclaim" });
@@ -187,6 +189,19 @@ async function refreshActive() {
         if (need.length) await dapp.blockHashes(need);
       }
       lastSeats = seatsOfTable(sto, activeTable);
+    }
+    if (watch) {
+      const done =
+        (watch.phase === "open" || watch.phase === "join") ? !!_m(sto, "gg")[String(watch.seat)] :
+        (watch.phase === "bet") ? (_m(sto, "cs")[String(watch.seat * 8 + watch.k)] || 0) > (watch.prev || 0) :
+        (watch.phase === "reveal") ? !!_m(sto, "gd")[String(watch.seat)] :
+        (watch.phase === "settle") ? !!_m(sto, "tz")[String(watch.table)] : false;
+      if (done) {
+        $("status").textContent = { open: "✓ Table confirmed — you're seated. Share the link below to fill it.",
+          join: "✓ Seat confirmed — you're in the hand.", bet: "✓ Bet confirmed on-chain.",
+          reveal: "✓ Your hand is shown on-chain.", settle: "✓ Pot paid out." }[watch.phase];
+        watch = null;
+      }
     }
     renderLobby(sto); renderScoreboard(boardFrom(sto));
   }
@@ -257,7 +272,7 @@ function render() {
   for (const t of Object.keys(T)) mine.push({ id: +t, role: "host", ts: T[t].ts });
   for (const g of Object.keys(Ssto)) mine.push({ id: Ssto[g].table, seat: g, role: "seat", ts: Ssto[g].ts });
   mine.sort((a, b) => b.ts - a.ts); const seen = new Set();
-  const shown = mine.filter((x) => { x.live = x.role === "host" ? knownTables.has(String(x.id)) : knownSeats.has(String(x.seat)); x.icon = "🃏"; const k = x.id + x.role; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 8);
+  const shown = mine.filter((x) => { x.live = x.role === "host" ? knownTables.has(String(x.id)) : knownSeats.has(String(x.seat)); x.icon = "🃏"; const k = String(x.id); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 8);
   recentChips($("recent"), shown, selectTable, "No tables yet.");
   renderActive();
 }
@@ -342,12 +357,23 @@ function renderActive() {
       const rb = btn(canRaise ? "⬆ Bet / raise the amount above" : "⬆ Raising closed (last " + GRACE + " blocks are calls only)", () => {
         const raw = nadoToRaw($("betAmt").value);
         if (!raw) { $("status").textContent = "Enter an amount — your street total above " + rawToNado(priceNow) + " raises the price for everyone."; return; }
-        if (dapp.exec < raw) { $("status").textContent = "You only have " + rawToNado(dapp.exec) + " NADO playable — deposit below."; return; }
+        if (!canPay(dapp, raw, "This bet")) return;
         doBet(raw, "bet " + rawToNado(raw) + " NADO");
       }, owe <= 0);
       rb.disabled = !canRaise;
     }
-    if (tb.phase === "showdown" && me && !fk && !me.revealed) btn("🃏 Show your cards — claim the pot", doReveal, true);
+    if (tb.phase === "showdown" && me && !fk) {
+      const stillIn = lastSeats.filter((x) => !foldedAt(x, tb));
+      const waitingOn = stillIn.filter((x) => !x.revealed);
+      if (!me.revealed && watch && watch.phase === "reveal") btn("⏳ Showing your hand — confirming on-chain…", () => {}, false).disabled = true;
+      else if (!me.revealed) btn("🃏 Show your cards — claim the pot", doReveal, true);
+      else {
+        const note = document.createElement("div"); note.className = "small"; note.style.cssText = "flex:1 1 100%;color:var(--accent2);font-weight:700";
+        note.textContent = "✓ Your hand is shown (" + stillIn.filter((x) => x.revealed).length + "/" + stillIn.length + ") — " +
+          (waitingOn.length ? "waiting on " + waitingOn.map((x) => x.addr === dapp.me ? "you" : disp(x.addr)).join(", ") : "everyone has shown; settle opens when the reveal window closes.");
+        wrap.appendChild(note);
+      }
+    }
     if (tb.phase === "over" && tb.leader) btn("🏆 Pay the pot to the best hand (" + rawToNado(tb.pot) + ")", settleTable, true);
   }
   $("btnReclaim").classList.toggle("hidden", !(tb.exists && !tb.closed && tb.phase === "over" && !tb.leader && iAmHost));
@@ -358,8 +384,10 @@ function renderActive() {
 }
 
 // ---- boot ----------------------------------------------------------------------------------------
+let watch = null;   // the submitted action we're waiting to see ON-CHAIN (flips status to "confirmed ✓")
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.table != null) activeTable = pend.table;
+  if (ok && pend && ["open", "join", "bet", "reveal", "settle"].includes(pend.phase)) watch = pend;
   $("status").textContent = statusLabel(pend, ok, err, {
     open: "Table opening — confirming…", join: "Taking your seat — confirming…", bet: "Bet placed — confirming…",
     reveal: "Showing your cards — confirming…", settle: "Paying the winner…", reclaim: "Reclaiming…", cancel: "Cancelling…" });

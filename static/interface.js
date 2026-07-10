@@ -597,10 +597,16 @@ async function refreshDividend() {
     d = await r.json();
   } catch (e) { reachable = false; }
   const accrued = BigInt((d && d.accrued) || 0);
+  state._divAccruedNow = accrued.toString();
   const pending = (d && d.pending) || [];
   show("divWrap", mining || accrued > 0n || pending.length > 0);
   if ($("divAccrued")) $("divAccrued").textContent = reachable ? (rawToNado(accrued) + " NADO") : i18("div.unavail", "exec node unreachable");
-  if ($("btnCollectDiv")) $("btnCollectDiv").disabled = !(accrued > 0n) || state._collecting;
+  const inflight = state._divInFlight && state._divInFlight.accrued === accrued.toString() && (Date.now() - state._divInFlight.ts) < 600000;
+  if (state._divInFlight && !inflight) state._divInFlight = null;   // settled (amount changed) or timed out
+  if ($("btnCollectDiv")) {
+    $("btnCollectDiv").disabled = !(accrued > 0n) || state._collecting || !!inflight;
+    $("btnCollectDiv").textContent = inflight ? i18("div.inflight", "Collecting — settling on-chain…") : i18("div.collect", "Collect dividend");
+  }
   if (!reachable) return;
   // AUTO-CLAIM any collected-but-unclaimed dividend whose proof matches the settled root.
   if (pending.length && !state._claiming) { state._claiming = true; try { await claimPendingDividends(pending); } finally { state._claiming = false; } }
@@ -633,8 +639,10 @@ async function collectDividend() {
     if (!latest) throw new RelayUnreachable("relay unavailable");
     const tx = buildBlobTx(state.wallet, { op: "collect_dividend" }, latest.block_number + 8, MIN_TX_FEE, nowSeconds());
     const res = await submitTransaction(tx);
-    if (res.data && res.data.result)
+    if (res.data && res.data.result) {
+      state._divInFlight = { accrued: (state._divAccruedNow || "0"), ts: Date.now() };
       log("ok", i18("div.collecting", "Dividend collection submitted — it lands in your balance automatically once the exec root is settled (a few minutes)."));
+    }
     else log("err", i18("log.collectRejected", "Collect rejected: {m}", {m: (res.data && (res.data.message || ""))}));
   } catch (e) { log("err", i18("log.collectFailed", "Collect failed: {m}", {m: e.message})); }
   finally { state._collecting = false; }
@@ -1952,7 +1960,28 @@ async function resumePendingExecSign() {
   // (it can't be spoofed by the dApp's label) so signing a staking call is always an informed choice.
   let escrow = 0n; try { escrow = blob.value ? BigInt(blob.value) : 0n; } catch (e) { escrow = 0n; }
   if (escrow > 0n) rows.push({ k: i18("dapp.escrows", "Escrows from your exec balance"), v: rawToNado(escrow) + " NADO" });
+  // AUTOSIGN (opt-in): value-free contract calls from APPROVED game origins (chess moves, settles, reveals —
+  // nothing escrows, nothing moves beyond the network fee) can sign+submit without the confirm tap, so a game
+  // isn't interrupted on every action. Anything that moves NADO (value/deposit/withdraw) ALWAYS confirms.
+  const AUTOSIGN_KEY = "nado_autosign_dapp";
+  const valueFree = escrow === 0n && (blob.op || "call") === "call" && blob.amount === undefined;
+  const submitBlob = async () => {
+    const { res, tx } = await submitResilient(async () => {
+      const latest = await getLatestBlock();
+      if (!latest) throw new Error("relay unavailable");
+      return buildBlobTx(state.wallet, blob, latest.block_number + 15, MIN_TX_FEE, nowSeconds());
+    });
+    if (res && res.data && res.data.result) back("ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address);
+    else back("ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
+  };
+  if (valueFree && localStorage.getItem(AUTOSIGN_KEY) === "1") {
+    toast(i18("dapp.autosigned", "Auto-signed {m} for {app} — no funds moved. (Untick the box on any signing dialog to turn auto-sign off.)", { m: String(blob.method || "call"), app: req.app }), "info", 4000);
+    try { await submitBlob(); } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
+    return;
+  }
+  const autosignNow = localStorage.getItem(AUTOSIGN_KEY) === "1";
   const okc = await uiConfirm({
+    checkbox: { label: i18("dapp.autosignOpt", "Auto-sign no-cost game actions (moves, reveals, collects — never bets or deposits) from approved game sites, without asking. You can untick this on any signing dialog."), checked: autosignNow },
     title: i18("dapp.title", "Sign a contract call"),
     body: escrow > 0n
       ? i18("dapp.bodyValue", "{app} wants to sign & submit this from your wallet ({a}). It ESCROWS {v} NADO from your exec balance into the contract (no L1 funds move beyond the network fee).",
@@ -1962,17 +1991,12 @@ async function resumePendingExecSign() {
     rows,
     confirmText: i18("dapp.sign", "Sign & submit"),
   });
+  try { localStorage.setItem(AUTOSIGN_KEY, modalCheckValue() ? "1" : "0"); } catch (e) {}
   if (!okc) { back("ok=0"); return; }
   try {
     // short expiry; flexible landing mines it in the next produced block. submitResilient re-signs + resubmits
     // on the rare hedged "Invalid signature" rejection so a contract call isn't lost to a bad signature draw.
-    const { res, tx } = await submitResilient(async () => {
-      const latest = await getLatestBlock();
-      if (!latest) throw new Error("relay unavailable");
-      return buildBlobTx(state.wallet, blob, latest.block_number + 15, MIN_TX_FEE, nowSeconds());
-    });
-    if (res && res.data && res.data.result) back("ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address);
-    else back("ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
+    await submitBlob();
   } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
 }
 
@@ -2672,6 +2696,7 @@ function _openModal(spec) {
         '<div class="modal-rows hidden"></div><div class="modal-warn hidden"></div>' +
         '<input class="modal-user" type="text" autocomplete="username" tabindex="-1" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />' +
         '<input class="modal-input hidden" autocomplete="off" /><div class="modal-note hidden"></div>' +
+        '<label class="modal-check hidden" style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:var(--dim);margin:10px 0 0;cursor:pointer"><input type="checkbox" style="margin-top:2px"><span></span></label>' +
         '<div class="modal-actions"><button type="button" class="modal-cancel ghost"></button>' +
         '<button type="button" class="modal-ok primary"></button></div></div>';
     document.body.appendChild(_modalEl);
@@ -2691,6 +2716,10 @@ function _openModal(spec) {
     row.appendChild(k); row.appendChild(v); rowsEl.appendChild(row);
   });
   rowsEl.classList.toggle("hidden", !(spec.rows && spec.rows.length));
+  const chk = q(".modal-check");
+  chk.classList.toggle("hidden", !spec.checkbox);
+  if (spec.checkbox) { chk.querySelector("span").textContent = spec.checkbox.label; chk.querySelector("input").checked = !!spec.checkbox.checked; }
+  _modalCheckEl = spec.checkbox ? chk.querySelector("input") : null;
   const inp = q(".modal-input"), isPrompt = _modalKind === "prompt";
   inp.classList.toggle("hidden", !isPrompt);
   const userInp = q(".modal-user");
@@ -2724,6 +2753,8 @@ function _openModal(spec) {
   setTimeout(() => { (isPrompt ? inp : okBtn).focus(); }, 30);
   return new Promise((res) => { _modalResolve = res; });
 }
+let _modalCheckEl = null;
+function modalCheckValue() { return !!(_modalCheckEl && _modalCheckEl.checked); }
 function uiConfirm(spec) { return _openModal(Object.assign({}, spec, { kind: "confirm" })); }
 function uiAlert(body, title) { return _openModal({ kind: "alert", title: title || i18("dlg.notice", "Notice"), body: body, confirmText: i18("dlg.ok", "OK") }); }
 function uiPrompt(spec) { return _openModal(Object.assign({}, spec, { kind: "prompt" })); }
@@ -4357,7 +4388,7 @@ async function renderQuorum() {
   const total = num(d.total_activated_shares) || 0;
   if ($("qPropBtn")) $("qPropBtn").disabled = !canPropose;
   if ($("qStatus")) {
-    if (!canPropose) $("qStatus").innerHTML = '<span class="warn">' + i18("quorum.needBond", "Bond stake in the Savings tab to propose or vote (100 NADO minimum).") + "</span>";
+    if (!canPropose) $("qStatus").innerHTML = '<span class="warn">' + i18("quorum.needBond2", "Proposing and voting need a bonded stake of at least {min} NADO — you have {have} NADO bonded. Bond more in the Savings tab (balance alone doesn't count).", { min: rawToNado(B_MIN_RAW), have: rawToNado(bonded) }) + "</span>";
     else if (total === 0) $("qStatus").innerHTML = '<span class="faint">' + i18("quorum.aging", "Bonded ✓ — your stake counts toward votes once it passes the activation window.") + "</span>";
     else $("qStatus").innerHTML = '<span class="ok">' + i18("quorum.canVote", "You can propose and vote (bonded ✓).") + "</span>";
   }

@@ -3,7 +3,7 @@
 // full legality run in your browser; every move is recorded ON-CHAIN (a trustless, ordered game log with a move
 // clock), and the wager settles by resignation / mutual agreement / refund-on-timeout — so nobody can ever be
 // robbed (a stall or a disputed move at worst refunds both). Correspondence-style: a move confirms in ~1 min.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, hoist, orderCards, resolveAliases, disp, share,
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, canPay, alertBar, hoist, orderCards, resolveAliases, disp, share,
          wireWallet, renderWallet } from "./nadodapp.js";
 import { Chess } from "./chess-engine.js";
 
@@ -23,7 +23,7 @@ function pruneAndTrack(sto) {
 function reopenGame() {   // retry an open that never landed (same id is still fresh)
   const L = load()[activeGame]; if (!L || L.role !== "white" || !L.stake) return;
   const raw = BigInt(L.stake);
-  if (dapp.exec < raw) { $("status").textContent = "Deposit first — this stake needs " + rawToNado(raw) + " NADO."; return; }
+  if (!canPay(dapp, raw, "Re-opening this game")) return;
   dapp.call("open", [activeGame], raw, "open chess game #" + activeGame + " · " + rawToNado(raw) + " NADO stake", { game: activeGame, phase: "open" });
 }
 
@@ -79,7 +79,7 @@ async function fetchGame(g) { const sto = await dapp.storage(); return sto ? gam
 function newGame() {
   const raw = nadoToRaw($("stakeAmt").value);
   if (!raw) { $("status").textContent = "Enter a stake (NADO)."; return; }
-  if (dapp.exec < raw) { $("status").textContent = "⚠ Deposit first — your exec balance is " + rawToNado(dapp.exec) + " NADO."; try { $("bankroll").scrollIntoView({ behavior: "smooth", block: "center" }); $("btnDeposit").classList.add("pulse"); } catch {} return; }
+  if (!canPay(dapp, raw, "Opening this game")) return;
   const g = randId(), G = load(); G[g] = { role: "white", stake: raw.toString(), ts: Date.now() }; save(G);
   activeGame = g; pendingEnc = null; render();
   dapp.call("open", [g], raw, "open chess game #" + g + " · " + rawToNado(raw) + " NADO stake", { game: g, phase: "open" });
@@ -92,7 +92,7 @@ async function joinGame() {
   if (gm.nn >= 2 || gm.settled) { $("status").textContent = "That game is full or finished."; return; }
   await dapp.refresh();
   const stake = BigInt(gm.stake);
-  if (dapp.exec < stake) { $("status").textContent = "⚠ You need " + rawToNado(stake) + " NADO in your exec balance to match the stake (you have " + rawToNado(dapp.exec) + ") — deposit below, then tap Join again."; try { $("bankroll").scrollIntoView({ behavior: "smooth", block: "center" }); $("btnDeposit").classList.add("pulse"); } catch {} render(); return; }
+  if (!canPay(dapp, stake, "Joining this game")) { render(); return; }
   const G = load(); G[g] = { role: "black", stake: stake.toString(), ts: Date.now() }; save(G);
   activeGame = g; pendingEnc = null; render();
   dapp.call("join", [g], stake, "join chess game #" + g + " · " + rawToNado(stake) + " NADO stake", { game: g, phase: "join" });
@@ -186,7 +186,7 @@ function wireUI() {
   wireWallet(dapp);
   $("btnNew").onclick = newGame;
   $("btnJoin").onclick = joinGame;
-  $("btnJoinGame").onclick = () => { $("joinId").value = String(activeGame); joinGame(); };
+  $("btnJoinGame").onclick = () => { if (!dapp.me) return dapp.signIn(); $("joinId").value = String(activeGame); joinGame(); };
   $("joinId").oninput = () => render();
   $("btnResign").onclick = resignGame;
   $("btnDraw").onclick = () => agree(3);
@@ -226,11 +226,15 @@ function renderActive() {
   renderBoard();
   // status line
   let st = dapp.whereIs("game", activeGame, local.ts);
+  if (nudgeJoin && g.exists && g.nn === 1 && !mySide(g)) {
+    nudgeJoin = false;
+    alertBar("Signed in — but you have NOT joined yet. Tap \u201c\u265f Join this game\u201d to take the seat and stake " + rawToNado(g.stake) + " NADO.");
+  }
   const over = g.exists && g.nn === 2 && engine.isGameOver();
   const rc = resultCode();
   if (g.exists && g.settled) st = "✓ settled";
   else if (g.exists && engine._corrupt) st = "⚠ an illegal move reached the chain — this game will refund after the timeout.";
-  else if (g.exists && g.nn < 2) st = local.role === "white" ? "waiting for an opponent to join…" : "opening…";
+  else if (g.exists && g.nn < 2) st = mySide(g) ? "waiting for an opponent — share the link below" : "open seat — join to play for " + rawToNado(g.stake) + " NADO";
   else if (over) st = engine.isCheckmate() ? ("Checkmate — " + (rc === 1 ? "White" : "Black") + " wins") : engine.isStalemate() ? "Stalemate — draw" : "Draw";
   else if (g.exists) st = (engine.turn() === "w" ? "White" : "Black") + " to move" + (engine.inCheck() ? " · CHECK" : "") + (myTurn(g, engine) ? " — your move" : (pendingEnc != null ? " · your move is confirming (~1 min)…" : " — waiting for opponent (~1 min)"));
   $("gStatus").textContent = st;
@@ -254,8 +258,8 @@ function renderActive() {
   $("btnCancel").classList.toggle("hidden", !(g.exists && g.nn === 1 && side === "w" && !g.settled));
   $("btnFlip").classList.toggle("hidden", !g.exists);
   // share-link visitors get the join CTA ON the board card — no hunting for the join panel below
-  $("btnJoinGame").classList.toggle("hidden", !(dapp.me && g.exists && g.nn === 1 && !iAmIn && !g.settled));
-  if (g.exists && g.nn === 1 && !iAmIn) $("btnJoinGame").textContent = "♟ Join this game — stake " + rawToNado(g.stake) + " NADO";
+  $("btnJoinGame").classList.toggle("hidden", !(g.exists && g.nn === 1 && !iAmIn && !g.settled));
+  if (g.exists && g.nn === 1 && !iAmIn) $("btnJoinGame").textContent = (dapp.me ? "♟ Join this game — stake " : "♟ Sign in to join — stake ") + rawToNado(g.stake) + " NADO";
   // agreement progress hint
   const agreed = (g.a1 || g.a2) ? " · agreements: " + (g.a1 ? "White=" + ["","W","B","draw"][g.a1] : "") + " " + (g.a2 ? "Black=" + ["","W","B","draw"][g.a2] : "") : "";
   $("settleHint").textContent = over && !g.settled
@@ -264,7 +268,9 @@ function renderActive() {
 }
 
 // ---- boot ----------------------------------------------------------------------------------------
+let nudgeJoin = false;
 dapp.onReturn((pend, ok, err) => {
+  nudgeJoin = !!(ok && pend && pend.phase === "connect");
   const label = { connect: "Signed in.", deposit: "Deposit submitted — confirming…", open: "Game opening — confirming…",
     join: "Joining — confirming…", move: "Move submitted — confirming on-chain (~1 min)…", resign: "Resigning…",
     agree: "Submitting…", abort: "Claiming refund…", cancel: "Cancelling…", withdraw: "Withdrawal submitted." }[pend && pend.phase] || "Submitted.";

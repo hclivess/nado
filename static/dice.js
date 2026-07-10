@@ -5,7 +5,7 @@
 //     roll_g = HASH( BLOCKHASH(sh) + BLOCKHASH(sh+1) + seatId ) % 100
 // Once the settle block is final, anyone can settle a seat (it pays the bettor); losing stakes fold into the
 // bankroll so the table keeps rolling. Ordinary upgradable stackvm contract, no game-specific API.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, hoist, orderCards, chainResult, blocksToTime,
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, blocksToTime,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, renderWallet, renderScore, scoreBump, scoreSort,
          recentChips, statusLabel, tablesOf as allTables, readTable,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
@@ -51,14 +51,14 @@ function openTable(t, bankrollRaw) {
 function reopenTable() {
   const T = load(LS_T)[activeTable]; if (!T || !T.bankroll) return;
   const raw = BigInt(T.bankroll);
-  if (dapp.exec < raw) { $("status").textContent = "Deposit first — your exec balance is " + rawToNado(dapp.exec) + " NADO, but this bankroll needs " + rawToNado(raw) + "."; return; }
+  if (!canPay(dapp, raw, "Re-opening this table")) return;
   openTable(activeTable, raw);
 }
 async function newTable() {
   const raw = nadoToRaw($("bankrollAmt").value);
   if (!raw) { $("status").textContent = "Enter a bankroll (NADO)."; return; }
   await dapp.refresh();
-  if (dapp.exec < raw) { $("status").textContent = "Deposit first — your exec balance is " + rawToNado(dapp.exec) + " NADO, but this bankroll needs " + rawToNado(raw) + ". Use Deposit below."; return; }
+  if (!canPay(dapp, raw, "Banking this table")) return;
   openTable(randId(), raw);
 }
 async function doBet() {
@@ -70,7 +70,7 @@ async function doBet() {
   if (!tb || !tb.exists) { $("status").textContent = dapp.whereIs("table", t); return; }
   if (tb.closed) { $("status").textContent = "That table is closed."; return; }
   await dapp.refresh();
-  if (dapp.exec < stake) { $("status").textContent = "You need " + rawToNado(stake) + " NADO in your exec balance (you have " + rawToNado(dapp.exec) + "). Deposit first."; render(); return; }
+  if (!canPay(dapp, stake, "This roll")) { render(); return; }
   const need = returnRaw(stake, target) - stake;
   if (BigInt(tb.bankroll) - BigInt(tb.committed) < need) { $("status").textContent = "This table can't cover a " + multOf(target).toFixed(2) + "× win right now. Lower your stake or raise your win chance."; render(); return; }
   const g = randId(), S = load(LS_S);
@@ -81,7 +81,7 @@ async function doBet() {
 function fundTable() {
   const raw = nadoToRaw($("fundAmt").value);
   if (!raw) { $("status").textContent = "Enter an amount to add to this table's bankroll."; return; }
-  if (dapp.exec < raw) { $("status").textContent = "Deposit first — your exec balance is " + rawToNado(dapp.exec) + " NADO."; return; }
+  if (!canPay(dapp, raw, "The top-up")) return;
   dapp.call("fund", [activeTable], raw, "top up table #" + activeTable + " bankroll · " + rawToNado(raw) + " NADO", { table: activeTable, phase: "fund" });
 }
 const settleSeat = (g) => dapp.call("settle", [g], null, "collect seat #" + g, { table: activeTable, phase: "settle" });

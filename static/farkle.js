@@ -3,7 +3,7 @@
 // strategy). At the table's settle block, each seat's WHOLE turn is auto-played on-chain from a FINALIZED L1
 // block hash — one beacon draw resolves a full turn, no per-roll waits. Highest banked score takes the pot.
 // The same auto-play runs here (matching the contract's die formula exactly) so you can watch your turn roll out.
-import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate, hoist, orderCards, blocksToTime,
+import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate, canPay, hoist, orderCards, blocksToTime,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, renderWallet, renderScore, scoreBump, scoreSort,
          recentChips, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
@@ -90,7 +90,7 @@ async function newTable() {
   const raw = nadoToRaw($("anteAmt").value);
   if (!raw) { $("status").textContent = "Enter an ante (NADO)."; return; }
   await dapp.refresh();
-  if (dapp.exec < raw) { $("status").textContent = "Deposit first — your exec balance is " + rawToNado(dapp.exec) + " NADO."; return; }
+  if (!canPay(dapp, raw, "Opening this table")) return;
   openTable(randId(), randId(), raw, threshold);
 }
 async function joinTable() {
@@ -102,14 +102,14 @@ async function joinTable() {
   if (lastSeats.some((s) => s.addr === dapp.me)) { $("status").textContent = "You're already seated at this table."; return; }
   await dapp.refresh();
   const ante = BigInt(tb.ante);
-  if (dapp.exec < ante) { $("status").textContent = "You need " + rawToNado(ante) + " NADO to match the ante (you have " + rawToNado(dapp.exec) + ")."; render(); return; }
+  if (!canPay(dapp, ante, "Joining this table")) { render(); return; }
   const g = randId(), S = load(LS_S); S[g] = { table: t, threshold, ts: Date.now() }; save(LS_S, S); render();
   dapp.call("join", [t, g, threshold], ante, "join Farkle table #" + t + " · chase " + threshold, { table: t, seat: g, phase: "join" });
 }
 function reopenTable() {
   const T = load(LS_T)[activeTable]; if (!T || !T.ante) return;
   const raw = BigInt(T.ante);
-  if (dapp.exec < raw) { $("status").textContent = "Deposit first — this ante needs " + rawToNado(raw) + " NADO."; return; }
+  if (!canPay(dapp, raw, "Re-opening this table")) return;
   openTable(activeTable, randId(), raw, threshold);
 }
 const resolveSeat = (g) => dapp.call("resolve", [g], null, "roll out seat #" + g, { table: activeTable, phase: "resolve" });

@@ -549,8 +549,14 @@ async def h_view(request):
 async def h_blockhash(request):
     """One or more finalized L1 block hashes for the BLOCKHASH randomness (?height=H  or  ?heights=H1,H2,…).
     Returns {height: hex|null} — null if the height is in the future or older than the node retains. Lets a game
-    UI compute the same objective result the contract will (e.g. show the wheel land before anyone settles)."""
-    st = _state_for(request)
+    UI compute the same objective result the contract will (e.g. show the wheel land before anyone settles).
+
+    ALWAYS served from the FINALIZED state — never the provisional clone (?provisional is ignored here). The
+    provisional tail records hashes of blocks that can still REORG; serving one would let a game UI derive
+    cards/results that silently change at finality (a player literally sees a different hand at showdown than
+    they played the whole game with). The beacon's entire contract is immutability: no hash, no answer."""
+    ns = request.query.get("ns", "default")
+    st = states.get(ns)
     if st is None:
         return _NS404()
     q = request.query
