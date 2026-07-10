@@ -10,7 +10,7 @@ from ops.transaction_ops import construct_blob_tx, construct_bridge_deposit_tx, 
 from hashing import create_nonce
 from config import get_timestamp_seconds
 from protocol import MIN_TX_FEE, CHAIN_ID
-from tests.pets_ref import ref_gene, ref_species, ref_stat, ref_power, ref_train_roll, ref_train_ok, ref_battle
+from tests.pets_ref import ref_gene, ref_species, ref_stat, ref_power, ref_train_roll, ref_train_ok, ref_battle_turns
 
 L1 = "http://127.0.0.1:9173"; EX = "http://127.0.0.1:9273"
 CID = "a5099d7f767cfe8e84855a7cb64994cb"
@@ -153,14 +153,19 @@ wait(lambda: M("wn", BID) == 2, "battle accepted, bound to future blocks")
 wh = M("wh", BID)
 wait(lambda: bh(wh) is not None, f"battle blocks {wh},{wh+1} finalized")
 h0, h1 = bh(wh)
-b_wins, dies = ref_battle({wh: h0, wh + 1: h1}, wh, BID, M("pw", PB), M("pw", PA))   # A-side of ref = challenger=PB
+def eff(pid):
+    g = int(M("gs", pid)); sp = ref_species(g)
+    return [ref_stat(g, sp, i) + M("tb", f"{pid}|{i}") for i in range(10)]
+# ref A-side = challenger = PB (challenge was B's pet PB vs A's pet PA)
+b_wins, dies, fh0, fh1, _log = ref_battle_turns({wh: h0, wh + 1: h1}, wh, BID, eff(PB), eff(PA))
 winner, loser = (PB, PA) if b_wins else (PA, PB)
 w_addr = M("ow", winner); ew = exbal(w_addr)
 call(B, "resolve_battle", [BID])
 wait(lambda: M("wn", BID) == 3, "battle settled on-chain")
-ck(f"winner matches reference (pet #{winner}{', loser DIED' if dies else ''})", M("ww", BID) == winner
-   and (M("wd", BID) == (loser if dies else 0)) and exbal(w_addr) == ew + 4 * NADO)
-ck("death applied exactly per reference", (M("fu", loser) == 1) == dies)
+ck(f"turn-based winner matches reference (pet #{winner}{', loser DIED' if dies else ', loser CLAIMED'})",
+   M("ww", BID) == winner and M("wd", BID) == (loser if dies else 0) and exbal(w_addr) == ew + 4 * NADO)
+ck("loser fate: dead (fu=1) or claimed by winner", (M("fu", loser) == 1) if dies else (M("ow", loser) == M("ow", winner)))
+ck("on-chain win/loss records updated", M("wins", winner) == 1 and M("loss", loser) == 1)
 
 print(("\nE2E ALL PASS" if not FAILS else f"\nE2E {len(FAILS)} FAILED: {FAILS}"), flush=True)
 sys.exit(1 if FAILS else 0)
