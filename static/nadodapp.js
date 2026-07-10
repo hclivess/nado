@@ -46,7 +46,7 @@ export function nadoToRaw(s) {
   const [w, f = ""] = s.split("."); const raw = BigInt(w) * RAW + BigInt((f + "0000000000").slice(0, 10));
   return raw > 0n ? raw : null;
 }
-export const rawToNado = (raw) => { raw = BigInt(raw); const w = raw / RAW, f = (raw % RAW).toString().padStart(10, "0").replace(/0+$/, ""); return f ? `${w}.${f}` : `${w}`; };
+export const rawToNado = (raw) => { raw = BigInt(raw ?? 0); const w = raw / RAW, f = (raw % RAW).toString().padStart(10, "0").replace(/0+$/, ""); return f ? `${w}.${f}` : `${w}`; };   // null/undefined -> 0 (a stray undefined must never crash a whole render)
 // recursively wrap BigInt as {$big:"…"} so 256-bit args survive the URL to the wallet (JS can't JSON BigInt)
 export const encBig = (v) => typeof v === "bigint" ? { $big: v.toString() }
   : Array.isArray(v) ? v.map(encBig)

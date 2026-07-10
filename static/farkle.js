@@ -304,7 +304,7 @@ function renderActive() {
   const allDone = tb.exists && tb.seatCount > 0 && tb.finishedCount >= tb.seatCount && !tb.closed;
   if (tb.phase === "over" && !tb.closed) for (const s of lastSeats) if (!s.finished) { btn("⏱ Finalize seat #" + s.g, () => timeoutSeat(s.g), false); break; }
   $("btnSettle").classList.toggle("hidden", !(allDone && tb.leader));
-  $("btnSettle").textContent = "🏆 Pay the winner — pot " + rawToNado(tb.pot);
+  $("btnSettle").textContent = "🏆 Pay the winner — pot " + rawToNado(tb.pot || 0);
   $("btnReclaim").classList.toggle("hidden", !(allDone && !tb.leader && iAmHost));
   $("btnCancel").classList.toggle("hidden", !(tb.exists && !tb.closed && tb.seatCount === 1 && iAmHost));
 }
