@@ -238,6 +238,7 @@ export class NadoDapp {
     this.online = null;
     this._onReturn = null;
     this._bh = {};   // height -> finalized L1 block hash hex | null (BLOCKHASH randomness cache)
+    this.inflight = null;   // a submitted-but-not-yet-confirmed action (see busy())
   }
   // blockHashes(heights): fetch + CACHE the finalized L1 block hashes for these heights (from /exec/blockhash),
   // so a beacon game can compute the same result the contract will. bh(h) reads the cache (hex | null | undefined).
@@ -285,8 +286,24 @@ export class NadoDapp {
     localStorage.removeItem(this.LS_P);
     try { history.replaceState(null, "", location.pathname); } catch {}
     if (ok && addr) { this.me = addr; localStorage.setItem(this.LS_ME, addr); }
+    // remember a just-submitted action so games can show "confirming…" and NEVER re-offer the button the
+    // user already clicked (e.g. coinflip "Join this game" reappearing before the join confirms on-chain).
+    if (ok && pend && pend.phase && !["connect", "deposit", "withdraw"].includes(pend.phase)) {
+      this.inflight = Object.assign({ ts: Date.now() }, pend);
+    }
     if (this._onReturn) this._onReturn(pend, ok, err);
   }
+  // busy(phase, keyName, keyVal): is there an in-flight action of this phase for this game/table/seat?
+  // Auto-expires after 3 min (a lost tx) so a stuck flag can't hide the button forever. Games call
+  // dapp.clearInflight() once they SEE the effect on-chain (the definitive "it landed").
+  busy(phase, keyName, keyVal) {
+    const f = this.inflight;
+    if (!f || f.phase !== phase) return false;
+    if (Date.now() - f.ts > 180000) { this.inflight = null; return false; }
+    if (keyName != null && String(f[keyName]) !== String(keyVal)) return false;
+    return true;
+  }
+  clearInflight() { this.inflight = null; }
 
   // --- reads ---
   async refresh() { await Promise.all([this._balances(), this._cursor()]); }

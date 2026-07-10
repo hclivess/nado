@@ -755,7 +755,10 @@
     <h2 data-i18n="settings.title">Settings</h2>
     <div class="row" style="align-items:flex-start;gap:10px;margin-bottom:14px">
       <input id="autosignDapp" type="checkbox" class="switch" />
-      <label for="autosignDapp" style="margin:0;flex:1;cursor:pointer" data-i18n="settings.autosign">Auto-sign no-cost game actions — chess moves, showdown reveals, collects — from approved game sites, without a confirm tap. Bets, antes, buy-ins and anything that moves NADO always ask.</label>
+      <label for="autosignDapp" style="margin:0;flex:1;cursor:pointer">
+        <b data-i18n="settings.autosign">Auto-sign game moves</b>
+        <span class="small faint" style="display:block" data-i18n="settings.autosignSub">Skip the confirm tap for no-cost actions (chess moves, reveals, collects). Bets and anything that moves NADO always ask.</span>
+      </label>
     </div>
     <label data-i18n="settings.relay">Relay node URL (a full node that accepts your transactions)</label>
     <div class="row">

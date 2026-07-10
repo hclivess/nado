@@ -566,14 +566,22 @@ function buildBlobTx(wallet, payload, targetBlock, fee, timestamp) {
 // re-signs with FRESH randomness and a fresh nonce, so simply resubmitting clears it. Retry ONLY on a
 // signature-related rejection — any other rejection (insufficient balance, bad amount, expired) won't be
 // fixed by re-signing, so return it immediately. `buildTxFn` MUST build+sign a brand-new tx on each call.
-async function submitResilient(buildTxFn, tries = 6) {
+async function submitResilient(buildTxFn, tries = 8) {
   let last = null, tx = null;
   for (let i = 0; i < tries; i++) {
     tx = await buildTxFn();
-    const res = await submitTransaction(tx);
+    let res;
+    try { res = await submitTransaction(tx); }
+    catch (e) { res = { data: { message: String((e && e.message) || e) } }; }   // network/HTTP error -> retry
     if (res && res.data && res.data.result) return { res, tx };
     last = res;
-    if (!/signature/i.test((res && res.data && res.data.message) || "")) break;
+    const msg = (res && res.data && res.data.message) || "";
+    // RETRY the transient rejections a thin/degraded node emits: bad signature draw, a momentary node
+    // stall / pool churn (a bare 403), rate-limit, relay unreachable. Only a DEFINITIVE reject (insufficient
+    // balance, revert, duplicate, expired target) breaks out — retrying those is pointless.
+    const transient = msg === "" || /signature|unreachable|timeout|temporar|degraded|pool|busy|try again|429|forbidden|network/i.test(msg);
+    if (!transient) break;
+    await new Promise((r) => setTimeout(r, 1500 + i * 900));   // back off to ride out a block-production stall
   }
   return { res: last, tx };
 }
@@ -1975,13 +1983,11 @@ async function resumePendingExecSign() {
     else back("ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
   };
   if (valueFree && localStorage.getItem(AUTOSIGN_KEY) === "1") {
-    toast(i18("dapp.autosigned", "Auto-signed {m} for {app} — no funds moved. (Untick the box on any signing dialog to turn auto-sign off.)", { m: String(blob.method || "call"), app: req.app }), "info", 4000);
+    toast(i18("dapp.autosigned2", "Auto-signed \u2713 (no funds moved). Turn off in Settings.", {}), "info", 3000);
     try { await submitBlob(); } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
     return;
   }
-  const autosignNow = localStorage.getItem(AUTOSIGN_KEY) === "1";
   const okc = await uiConfirm({
-    checkbox: { label: i18("dapp.autosignOpt", "Auto-sign no-cost game actions (moves, reveals, collects — never bets or deposits) from approved game sites, without asking. You can untick this on any signing dialog."), checked: autosignNow },
     title: i18("dapp.title", "Sign a contract call"),
     body: escrow > 0n
       ? i18("dapp.bodyValue", "{app} wants to sign & submit this from your wallet ({a}). It ESCROWS {v} NADO from your exec balance into the contract (no L1 funds move beyond the network fee).",
@@ -1991,7 +1997,6 @@ async function resumePendingExecSign() {
     rows,
     confirmText: i18("dapp.sign", "Sign & submit"),
   });
-  try { localStorage.setItem(AUTOSIGN_KEY, modalCheckValue() ? "1" : "0"); } catch (e) {}
   if (!okc) { back("ok=0"); return; }
   try {
     // short expiry; flexible landing mines it in the next produced block. submitResilient re-signs + resubmits

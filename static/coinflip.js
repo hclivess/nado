@@ -161,8 +161,10 @@ function render() {
   if (jid && String(active) === jid && lgv.exists) { iAmIn = !!(lgv.players && lgv.players[dapp.me]); stageJoinable = !lgv.settled && lgv.ncom < 2; needStake = BigInt(lgv.stake || 0); }
   else if (jid) { const js = stageCache[jid]; if (js) { stageJoinable = !js.settled && js.ncom < 2; needStake = js.stake != null ? BigInt(js.stake) : null; } }
   const canAfford = !(signedIn && needStake != null && dapp.exec < needStake);
-  const joinable = !!jid && !iAmIn && stageJoinable && canAfford;
-  $("btnJoin").disabled = !!jid && !joinable;
+  const joiningById = dapp.busy("bet", "gameId", jid);
+  const joinable = !!jid && !iAmIn && stageJoinable && canAfford && !joiningById;
+  $("btnJoin").disabled = (!!jid && !joinable) || joiningById;
+  $("btnJoin").textContent = joiningById ? "⏳ Confirming…" : "Join";
   $("btnJoin").classList.toggle("pulse", joinable && signedIn);
   $("btnSignIn").classList.toggle("pulse", joinable && !signedIn);
   const jh = $("joinHint");
@@ -207,10 +209,13 @@ function renderActive() {
   $("btnSettle").classList.toggle("hidden", !(lg.exists && !lg.settled && lg.ncom === 2 && lg.ready));
   if (lg.ready) $("btnSettle").textContent = (mine && lg.winner_slot === mine.slot) ? "💰 Collect the pot" : "Pay out the winner";
   $("btnCancel").classList.toggle("hidden", !(dapp.me && lg.exists && !lg.settled && lg.ncom === 1 && mine && mine.slot === 1));
-  const canSeeJoinActive = !!(dapp.me && lg.exists && !lg.settled && lg.ncom < 2 && !mine);
+  if (mine) dapp.clearInflight();                              // our seat is on-chain now — stop "confirming…"
+  const joining = dapp.busy("bet", "gameId", active);          // just clicked join/open, not yet confirmed
+  const canSeeJoinActive = !!(dapp.me && lg.exists && !lg.settled && lg.ncom < 2 && !mine && !joining);
   const needActive = lg.exists ? BigInt(lg.stake || 0) : 0n, shortActive = canSeeJoinActive && dapp.exec < needActive;
-  $("btnJoinActive").classList.toggle("hidden", !canSeeJoinActive);
-  $("btnJoinActive").disabled = shortActive;
+  $("btnJoinActive").classList.toggle("hidden", !(canSeeJoinActive || joining));
+  $("btnJoinActive").disabled = shortActive || joining;
+  $("btnJoinActive").textContent = joining ? "⏳ Joining — confirming on-chain…" : "Join this game";
   const jah = $("joinActiveHint"); if (jah) { jah.textContent = shortActive ? shortfallMsg(needActive, dapp.exec) : ""; jah.classList.toggle("hidden", !shortActive); }
   $("btnRematch").classList.toggle("hidden", !lg.settled);
   $("btnReopen").classList.toggle("hidden", !(local.role === "open" && local.stake && !lg.exists && local.ts && Date.now() - local.ts > 120000));
