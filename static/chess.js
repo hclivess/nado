@@ -79,7 +79,7 @@ async function fetchGame(g) { const sto = await dapp.storage(); return sto ? gam
 function newGame() {
   const raw = nadoToRaw($("stakeAmt").value);
   if (!raw) { $("status").textContent = "Enter a stake (NADO)."; return; }
-  if (dapp.exec < raw) { $("status").textContent = "Deposit first — your exec balance is " + rawToNado(dapp.exec) + " NADO."; return; }
+  if (dapp.exec < raw) { $("status").textContent = "⚠ Deposit first — your exec balance is " + rawToNado(dapp.exec) + " NADO."; try { $("bankroll").scrollIntoView({ behavior: "smooth", block: "center" }); $("btnDeposit").classList.add("pulse"); } catch {} return; }
   const g = randId(), G = load(); G[g] = { role: "white", stake: raw.toString(), ts: Date.now() }; save(G);
   activeGame = g; pendingEnc = null; render();
   dapp.call("open", [g], raw, "open chess game #" + g + " · " + rawToNado(raw) + " NADO stake", { game: g, phase: "open" });
@@ -92,7 +92,7 @@ async function joinGame() {
   if (gm.nn >= 2 || gm.settled) { $("status").textContent = "That game is full or finished."; return; }
   await dapp.refresh();
   const stake = BigInt(gm.stake);
-  if (dapp.exec < stake) { $("status").textContent = "You need " + rawToNado(stake) + " NADO to match the stake (you have " + rawToNado(dapp.exec) + "). Deposit first."; render(); return; }
+  if (dapp.exec < stake) { $("status").textContent = "⚠ You need " + rawToNado(stake) + " NADO in your exec balance to match the stake (you have " + rawToNado(dapp.exec) + ") — deposit below, then tap Join again."; try { $("bankroll").scrollIntoView({ behavior: "smooth", block: "center" }); $("btnDeposit").classList.add("pulse"); } catch {} render(); return; }
   const G = load(); G[g] = { role: "black", stake: stake.toString(), ts: Date.now() }; save(G);
   activeGame = g; pendingEnc = null; render();
   dapp.call("join", [g], stake, "join chess game #" + g + " · " + rawToNado(stake) + " NADO stake", { game: g, phase: "join" });
@@ -186,6 +186,7 @@ function wireUI() {
   wireWallet(dapp);
   $("btnNew").onclick = newGame;
   $("btnJoin").onclick = joinGame;
+  $("btnJoinGame").onclick = () => { $("joinId").value = String(activeGame); joinGame(); };
   $("joinId").oninput = () => render();
   $("btnResign").onclick = resignGame;
   $("btnDraw").onclick = () => agree(3);
@@ -252,6 +253,9 @@ function renderActive() {
   $("btnAbort").classList.toggle("hidden", !(iAmIn && pastDeadline));
   $("btnCancel").classList.toggle("hidden", !(g.exists && g.nn === 1 && side === "w" && !g.settled));
   $("btnFlip").classList.toggle("hidden", !g.exists);
+  // share-link visitors get the join CTA ON the board card — no hunting for the join panel below
+  $("btnJoinGame").classList.toggle("hidden", !(dapp.me && g.exists && g.nn === 1 && !iAmIn && !g.settled));
+  if (g.exists && g.nn === 1 && !iAmIn) $("btnJoinGame").textContent = "♟ Join this game — stake " + rawToNado(g.stake) + " NADO";
   // agreement progress hint
   const agreed = (g.a1 || g.a2) ? " · agreements: " + (g.a1 ? "White=" + ["","W","B","draw"][g.a1] : "") + " " + (g.a2 ? "Black=" + ["","W","B","draw"][g.a2] : "") : "";
   $("settleHint").textContent = over && !g.settled
