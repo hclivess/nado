@@ -335,9 +335,12 @@ export class NadoDapp {
   whereIs(kind, id, openedTs) {
     if (this.online === null) return "Loading " + kind + " #" + id + " from the chain…";
     if (this.online === false) return "Can't reach the chain right now — reconnecting… your " + kind + " and funds are safe on-chain.";
+    // We ALWAYS check the exec balance BEFORE submitting (canPay), so a "didn't confirm" is never a funds
+    // problem — it's the network not landing it in time. Say that plainly and point to the retry; never ask
+    // the user a question they can't answer, and never touch their money to find out.
     if (openedTs) return Date.now() - openedTs > 150000
-      ? "⚠ " + kind + " #" + id + " didn't land — it was likely rejected (did your exec balance cover it?)."
+      ? "⚠ " + kind + " #" + id + " didn't confirm — the network was busy. Your funds weren't touched; tap Re-open to try again."
       : kind + " #" + id + " is confirming on-chain (~1 min)…";
-    return kind + " #" + id + " isn't on-chain — if it was just opened, give it ~1 min to confirm; otherwise check the ID.";
+    return kind + " #" + id + " isn't on-chain yet — if you just opened it, give it ~1 min; otherwise check the ID.";
   }
 }
