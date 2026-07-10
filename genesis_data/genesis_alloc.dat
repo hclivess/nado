@@ -1,33 +1,58 @@
 [
 {
+"address": "bridge",
+"balance": 3025100000000,
+"bonded": 0
+},
+{
 "address": "dividend",
-"balance": 7148204511112,
+"balance": 18288382940158,
 "bonded": 0
 },
 {
 "address": "ndo0124894c905dca8fbd058689d75fc0cfc2cd3d6ed846e4",
-"balance": 222837416000,
-"bonded": 9667960000
+"balance": 55571103397,
+"bonded": 1620566616000
+},
+{
+"address": "ndo033f7067be397b8467bf34f7359ba8fa993811952510bf",
+"balance": 17000,
+"bonded": 0
+},
+{
+"address": "ndo056ce44f9903a116b0d9140b295c581f3e883599b1fc18",
+"balance": 178501416000,
+"bonded": 320000000
 },
 {
 "address": "ndo07a8b0aabc2046b69b509df37d33c5d6e47bd8c979f37c",
-"balance": 49800000000,
+"balance": 451100000000,
 "bonded": 0
 },
 {
 "address": "ndo1acf5c2a382b4c473b43cd931a780bb7bbacd858e49e25",
-"balance": 176839968000,
+"balance": 506264842000,
 "bonded": 152240000000
 },
 {
 "address": "ndo1ba515dd1fdb29361d7fe726883c51816ee5e5dfad6053",
-"balance": 31679998000,
-"bonded": 320000000
+"balance": 580294466800,
+"bonded": 123199999200
+},
+{
+"address": "ndo269914b540b48be6ec7a104f7e5b62c574737ee4a719ff",
+"balance": 217247768000,
+"bonded": 67133248000
 },
 {
 "address": "ndo27f2870bb2969a4d2b9d4eea303bedea996b9ccc9384ea",
-"balance": 1097402161887,
-"bonded": 1935983990000
+"balance": 53718735087,
+"bonded": 2016722426800
+},
+{
+"address": "ndo2afdbcf5c0ad2efbed5cb685c7ac3cfe950731a317aba5",
+"balance": 15941208000,
+"bonded": 193582824000
 },
 {
 "address": "ndo2b3d42301c8dfbc938c5022559b2ff9d26ff6a626c638e",
@@ -35,14 +60,39 @@
 "bonded": 480000000
 },
 {
+"address": "ndo3bc29443579d998a8cc4a4435d5a43ed3af7e7968fe943",
+"balance": 38581663000,
+"bonded": 14503360000
+},
+{
+"address": "ndo40adc38004696aedd63a0c4d61a87e243a2fe442f71f38",
+"balance": 246825777000,
+"bonded": 72178672000
+},
+{
+"address": "ndo4217b8e0fab2bae513ce167544386e4651f37686e80dd3",
+"balance": 10000000000,
+"bonded": 0
+},
+{
+"address": "ndo47c7b7b10794d24fd288b96a07acb3de7b87ba4c25e297",
+"balance": 98039004363,
+"bonded": 33846480000
+},
+{
 "address": "ndo49993852335a1783fe9b89f5e4f18862fdc288edc89c72",
-"balance": 97743964200,
-"bonded": 120935996800
+"balance": 490089098800,
+"bonded": 121520635200
 },
 {
 "address": "ndo4dbbd61bcb754b87dbf6ac74745fc391658267e0a7bc41",
-"balance": 116999969000,
-"bonded": 25600000000
+"balance": 987620048500,
+"bonded": 128576584500
+},
+{
+"address": "ndo59c2514ca9766544ddf78a551f54ad1940b54bf01be9a3",
+"balance": 1452830000,
+"bonded": 0
 },
 {
 "address": "ndo59fb0ab58e7dce44949ff04045b690b60098597f41ab19",
@@ -61,28 +111,48 @@
 },
 {
 "address": "ndo6b1b9a1784ed00b8c64262c0e96b915008cef23e6202ae",
-"balance": 251612190800,
-"bonded": 97007999200
+"balance": 1005040001400,
+"bonded": 301811845600
+},
+{
+"address": "ndo6bf4b145c0e2f55588509dc690c836d4a20a9cde100c06",
+"balance": 178703525400,
+"bonded": 240355781600
 },
 {
 "address": "ndo715b244d7195cf922b0248e41fbdfc52713e91b3179660",
-"balance": 161371396999,
-"bonded": 201440000000
+"balance": 216811549798,
+"bonded": 1600475828200
 },
 {
 "address": "ndo79be54f2cedc72892158325f25d67fc2dd4379e909ec0c",
-"balance": 138491986800,
-"bonded": 23807999200
+"balance": 841251302800,
+"bonded": 93649407200
+},
+{
+"address": "ndo7b150040b831abfebd65f70d8b5a768f80d780bb45e9fb",
+"balance": 49998000,
+"bonded": 0
 },
 {
 "address": "ndo7d6ca144c0e42b6ace155e97532a2fd8a7330ba14a4e59",
-"balance": 600000000,
+"balance": 562000000000,
 "bonded": 0
+},
+{
+"address": "ndo872f685b3d19c0955a050b7ff14ca118b861c795fb4039",
+"balance": 194900173000,
+"bonded": 786640000
 },
 {
 "address": "ndo895c50b485d9422db3e8a6fbc09c9aacf1e03e3e9db677",
 "balance": 37200000000,
 "bonded": 0
+},
+{
+"address": "ndo8a3c4483b9bd382a805e900a9742048ffa867aecf531e3",
+"balance": 863744843751,
+"bonded": 190244796650
 },
 {
 "address": "ndo925b6a9c8e901b73c830e0392f81518827f9ef05b6d4b8",
@@ -96,23 +166,38 @@
 },
 {
 "address": "ndob8a63cd74d2bae0bc6f6d09fb14e1108bb69f109a4f944",
-"balance": 19939996000,
+"balance": 465239996000,
 "bonded": 40560000000
 },
 {
+"address": "ndoc041167affec9c9649cbf3fe72f921a7fb001ba983feee",
+"balance": 16865574600,
+"bonded": 4833982400
+},
+{
 "address": "ndoc07231e919e13fa88344cae2f22cf27cb8cc6dbfef0555",
-"balance": 119335331000,
-"bonded": 104183164000
+"balance": 20983303999,
+"bonded": 1186506352000
 },
 {
 "address": "ndoc8ad9fe8e9e4cf0125d1a780eb0990ca291eb832308ca6",
-"balance": 29999995000,
+"balance": 10256374000,
 "bonded": 800000000
 },
 {
+"address": "ndoc9d0175aef17fc36f223af4d28ba1309e6300143197ab1",
+"balance": 19000,
+"bonded": 0
+},
+{
+"address": "ndocb5429c784f3c64fd6597b7c7774ecc23d967572a3e7ac",
+"balance": 854600000,
+"bonded": 0
+},
+{
 "address": "ndocbf9d85b27beddd1adc6eaad6a258411a2e9c02585b66c",
-"balance": 165655696000,
-"bonded": 52320000000
+"balance": 802687021600,
+"bonded": 231065878400
 },
 {
 "address": "ndocde7cb8413d0967eacef0a822fc8170d97f56d8ca1ee77",
@@ -126,8 +211,8 @@
 },
 {
 "address": "ndod9a73931d07aee7bbba6069972c4b15e50e6469832a907",
-"balance": 20359992600,
-"bonded": 4639998400
+"balance": 24326922600,
+"bonded": 4775006400
 },
 {
 "address": "ndoe62ba4958d6878ca85ef1a5565f9b5ac76b95129259984",
@@ -141,8 +226,23 @@
 },
 {
 "address": "ndoebd27698662f14ee2389e509781d5ff57487f4289a2bf2",
-"balance": 5616962477896,
-"bonded": 8965313139104
+"balance": 5808202134896,
+"bonded": 10966615827104
+},
+{
+"address": "ndoef12e5ea9543196709b25112b9b29a3ab662499fce9077",
+"balance": 6393440000,
+"bonded": 0
+},
+{
+"address": "ndof00b8673ed169edb177ae24dd55709f9c316e493395222",
+"balance": 999999000,
+"bonded": 0
+},
+{
+"address": "ndof0ecdee465545399f9a69f0ce62f80e1ceaf7cbc5215a6",
+"balance": 49493213158,
+"bonded": 21556252631
 },
 {
 "address": "ndofb344a07c4c782e22d05444265c3adcc1eedebc8e6ff37",
@@ -151,17 +251,22 @@
 },
 {
 "address": "ndofc258e024e1f3cc746ef6e03a172030828f4ca034b05b6",
-"balance": 59939999000,
+"balance": 460639999000,
 "bonded": 560000000
 },
 {
+"address": "ndofdb2774d125ea4211e0dea5e7101deb7fc7ff307f3f677",
+"balance": 1300455800,
+"bonded": 2965651200
+},
+{
 "address": "shield",
-"balance": 260000000000,
+"balance": 310000000000,
 "bonded": 0
 },
 {
 "address": "treasury",
-"balance": 1432214500000,
+"balance": 4567854354747,
 "bonded": 0
 }
 ]

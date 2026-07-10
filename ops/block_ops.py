@@ -233,6 +233,7 @@ def get_block_candidate(
         block_reward=get_block_reward(parent_block=latest_block),
         parent_cumulative_fees=latest_block.get("cumulative_fees", 0),
         parent_cumulative_weight=latest_block.get("cumulative_weight", 0),
+        chain_id=CHAIN_ID,   # informational label on new blocks (not hashed); a rename shows up here
         block_weight=block_fork_weight(bonded_registry, block_number),  # as-of-parent (registry read above)
     )
     return block
@@ -503,7 +504,8 @@ def block_content_hash(block: dict) -> str:
         "block_creator": block["block_creator"], "block_timestamp": None, "block_transactions": txs,
         "child_hash": None, "block_reward": block["block_reward"],
         "cumulative_fees": block["cumulative_fees"], "cumulative_weight": block["cumulative_weight"],
-        "chain_id": block["chain_id"],
+        "chain_id": None,   # NON-HASHED (see construct_block): genesis-hash + parent linkage identify the
+                            # chain, so a CHAIN_ID change never alters a block hash or breaks genesis sync.
     }
     return blake2b_hash_link(link_from=block["parent_hash"], link_to=preimage)
 
@@ -527,7 +529,7 @@ def save_block(block: dict, logger):
     # and get chained onto, forking every honest node that later re-derives the true hash (the "stuck /
     # rolls back and forth" wedge). Genesis (block 0) is hashed differently (over timestamp+[] only), skip it.
     _hashed = ("block_number", "parent_hash", "block_creator", "block_transactions", "block_reward",
-               "cumulative_fees", "cumulative_weight", "chain_id")
+               "cumulative_fees", "cumulative_weight")   # chain_id is NON-hashed (informational)
     if block.get("block_number", 0) != 0 and all(k in block for k in _hashed):
         expected = block_content_hash(block)
         if expected != block["block_hash"]:
@@ -702,8 +704,20 @@ def construct_block(
         parent_cumulative_fees: int = 0,
         parent_cumulative_weight: int = 0,
         block_weight: int = 0,
+        chain_id: str = None,
 ):
-    """timestamp is approximate so hash matches across the network"""
+    """timestamp is approximate so hash matches across the network.
+
+    chain_id is a NON-HASHED informational field (like block_timestamp / child_hash): it is stamped on the
+    block for display + the peer handshake but is EXCLUDED from block_content_hash and the authorship
+    signature. A chain is identified by its GENESIS HASH (unique via GENESIS_TIMESTAMP) and every block's
+    parent-hash linkage back to it — so a foreign/pre-reboot block can never replay here (its parent_hash
+    won't match our genesis). Keeping chain_id out of the hash is what makes 'sync from genesis always works'
+    invariant to the CHAIN_ID constant: bumping it changes tx domain-separation + the network handshake
+    (meaningful) but can NEVER retroactively change a block hash or break validation of historical blocks.
+    (Transaction replay across chains is prevented separately by the per-tx chain_id.)"""
+    if chain_id is None:
+        chain_id = CHAIN_ID
 
     # CO-8: canonical in-block transaction order. Sort by txid so any two honest nodes that select
     # the SAME tx set produce the IDENTICAL block hash — they can no longer fork on ordering alone
@@ -732,11 +746,12 @@ def construct_block(
         # rebuild_block and verified as-of-parent in verify_block, so a relay cannot forge it. Carried
         # + verified here; the fork-choice switch to argmax(cumulative_weight) lands in step 3.
         "cumulative_weight": parent_cumulative_weight + block_weight,
-        "chain_id": CHAIN_ID,
+        "chain_id": None,          # EXCLUDED from the hash (see docstring); stamped as the real value below
     }
     block_hash = blake2b_hash_link(link_from=parent_hash, link_to=block_message)
     block_message.update(block_hash=block_hash)
     block_message.update(block_timestamp=block_timestamp)
+    block_message.update(chain_id=chain_id)      # informational field, not part of block_hash
     return block_message
 
 
@@ -748,9 +763,12 @@ def construct_block(
 # winner over two different blocks at the same height+parent are a portable EQUIVOCATION proof (slash).
 
 def _block_sig_message_fields(block_number, parent_hash, block_hash) -> bytes:
-    """The exact bytes a winner signs to authenticate a block: blake2b(chain_id, height, parent_hash,
-    block_hash). Field-based so an equivocation proof can reconstruct it without a full block dict."""
-    return _unhex(blake2b_hash([CHAIN_ID, block_number, parent_hash, block_hash]))
+    """The exact bytes a winner signs to authenticate a block: blake2b(height, parent_hash, block_hash).
+    No chain_id: the block_hash is already unique to THIS chain (it descends from a unique genesis via
+    parent_hash), so it can't be replayed onto another chain — and leaving chain_id out keeps signature
+    verification, like block hashing, invariant to a CHAIN_ID constant change. Field-based so an
+    equivocation proof can reconstruct it without a full block dict."""
+    return _unhex(blake2b_hash([block_number, parent_hash, block_hash]))
 
 
 def block_signature_message(block) -> bytes:

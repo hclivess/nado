@@ -943,7 +943,10 @@ class CoreClient(threading.Thread):
             block_reward=get_block_reward(parent_block=parent),
             parent_cumulative_fees=parent.get("cumulative_fees", 0),
             parent_cumulative_weight=parent.get("cumulative_weight", 0),
-            block_weight=block_fork_weight(bonded_registry, block_number))
+            block_weight=block_fork_weight(bonded_registry, block_number),
+            # preserve the REMOTE block's own chain_id label (informational, not hashed) so the rebuilt
+            # block stays byte-identical to what the peer sent; the hash is chain_id-invariant either way.
+            chain_id=block.get("chain_id", CHAIN_ID))
 
     def incorporate_block(self, block: dict, sorted_transactions: list):
         """successful execution mandatory, must not raise a failure"""
@@ -1332,9 +1335,11 @@ class CoreClient(threading.Thread):
             if not valid_block_timestamp(new_block=block):
                 raise ValueError(f"Invalid block timestamp {block['block_timestamp']}")
 
-            # chain-id binds the block to this chain (anti cross-chain / pre-relaunch replay)
-            if block.get("chain_id") != CHAIN_ID:
-                raise ValueError(f"Wrong or missing chain id {block.get('chain_id')!r}")
+            # chain_id is INFORMATIONAL only (no longer in block_hash / signature / weight): a block is bound
+            # to THIS chain by its parent-hash linkage back to our unique genesis, so a foreign or pre-reboot
+            # block can never link in regardless of its chain_id label. We therefore do NOT gate consensus on
+            # it — gating on the live CHAIN_ID constant is exactly what used to break sync-from-genesis after
+            # a rename. (Cross-CHAIN transaction replay is still prevented by the per-tx chain_id check.)
 
             # The reward is RECOMPUTED from the block's parent ancestry and enforced for
             # equality (not merely range-checked): a synced block whose reward != the
