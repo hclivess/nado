@@ -266,7 +266,7 @@ function statRow(p, i) {
   return `<div class="statrow"><span>${G.STAT_ICONS[i]}</span><span>${G.STAT_NAMES[i]}</span>
     <span class="sv">${val}${p.bonus[i] ? ` <span class="up">+${p.bonus[i]}</span>` : ""}</span>
     <div class="bar sbar"><i style="width:${Math.min(100, val)}%"></i></div>
-    ${canTrain ? `<button class="mini ghost" data-train="${i}" title="success chance ${chance.toFixed(0)}%">🏋 ${chance.toFixed(0)}%</button>` : `<span class="small dim">${chance.toFixed(0)}%</span>`}
+    ${canTrain ? `<button class="mini train" data-train="${i}" title="Train ${G.STAT_NAMES[i]} — 0.5 NADO, ${chance.toFixed(0)}% chance to gain +1">🏋 Train · ${chance.toFixed(0)}%</button>` : `<span class="small dim" title="train success chance">${chance.toFixed(0)}%</span>`}
   </div>`;
 }
 function renderActive() {

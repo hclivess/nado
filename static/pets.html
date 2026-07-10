@@ -124,6 +124,8 @@
   .statrow .sv{font-family:var(--mono);text-align:right}
   .statrow .up{color:var(--accent2);font-weight:700;font-size:11px}
   .statrow button{white-space:nowrap}
+  .statrow button.train{background:rgba(0,201,167,.14);border-color:rgba(0,201,167,.5);color:var(--accent2);font-weight:700}
+  .statrow button.train:hover{background:rgba(0,201,167,.24);border-color:var(--accent2)}
 
   /* ---- gallery ---- */
   .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
@@ -237,7 +239,7 @@
 
     <!-- stats + training -->
     <div class="mt hidden" id="statsWrap">
-      <h2>Abilities <span class="dim" style="text-transform:none;letter-spacing:0">— locked at hatch, unlocked by training</span></h2>
+      <h2>Abilities <span class="dim" style="text-transform:none;letter-spacing:0">— tap 🏋 Train on a stat to improve it (0.5 NADO/try)</span></h2>
       <div id="statList"></div>
       <div id="trainPending" class="small mt hidden"></div>
       <p class="small dim mt" id="trainHint"></p>
