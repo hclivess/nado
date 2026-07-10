@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NADO Farkle — push your luck for the pot, post-quantum</title>
+<style>
+  :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--win:#2fbf71;--lose:#f85149;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
+    color:var(--txt);font:15px/1.5 var(--sans);min-height:100vh}
+  .wrap{max-width:640px;margin:0 auto;padding:22px 16px 60px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  header .logo{font-size:26px}
+  header h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.2px}
+  header h1 .a{color:var(--accent2)}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 16px}
+  .card{background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  .card h2{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 0;min-width:0}
+  label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
+  input{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+  input:focus{outline:none;border-color:var(--accent2)}
+  input[type=range]{-webkit-appearance:none;appearance:none;height:10px;padding:0;background:linear-gradient(90deg,var(--accent) 0,var(--danger) 100%);border-radius:999px;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+  input[type=range]::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab}
+  button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:11px;background:var(--elev2);color:var(--txt);padding:11px 15px;cursor:pointer;transition:transform .05s,border-color .15s}
+  button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
+  button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
+  .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
+  .warn{color:var(--danger);font-weight:600;line-height:1.45}
+  .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}
+  .chip.betting{border-color:var(--accent2);color:var(--accent2)}.chip.resolving{border-color:#e3b341;color:#e3b341}
+  .chip.done{opacity:.55}.chip.pending{opacity:.6;border-style:dashed}
+  table.score{width:100%;border-collapse:collapse;font-size:13px}
+  table.score th,table.score td{text-align:left;padding:6px 6px;border-bottom:1px solid var(--border)}
+  table.score th{color:var(--dim);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+  table.score td.pos{color:var(--accent2);font-weight:600}table.score td.neg{color:var(--danger)}
+  table.score tr.me td{background:rgba(0,201,167,.08)}
+  .b{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;margin-left:6px}
+  .b.ok{background:rgba(0,173,147,.16);color:var(--accent2)}
+  .b.pend{background:rgba(210,153,34,.16);color:#e3b341}
+  .b.dimb{background:rgba(147,161,176,.12);color:var(--dim)}
+  #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
+  .seat{font-size:13px;padding:6px 0;border-bottom:1px solid var(--border)}
+  .thrbox{text-align:center;margin:4px 0 2px}
+  .thrbox b{font-size:26px;font-weight:800;color:var(--accent2)}
+  #thrHint{font-size:12px;color:var(--dim);text-align:center;min-height:16px}
+  .feltbox{background:radial-gradient(120% 90% at 50% 30%,#12503c,#0e3b2e);border:1px solid #0a2c22;border-radius:14px;padding:14px;margin:8px 0}
+  .turnhdr{font-size:15px;font-weight:700}.turnhdr.dim{font-weight:500}
+  .sc{color:var(--win)}.farkle{color:var(--lose)}
+  .rolls{margin-top:10px;max-height:240px;overflow-y:auto}
+  .rollline{font-size:15px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;gap:6px}
+  .rollline .rn{font-size:11px;color:#cfe9df;width:16px;text-align:right;opacity:.7}
+  .pip{font-size:26px;line-height:1;color:#f4f6f8}.pip.bust{color:#f5a3a0}
+  .rollline .sc{margin-left:auto;font-weight:700}.rollline .farkle{margin-left:auto;font-weight:800}
+  footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
+  a{color:var(--accent2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><span class="logo">🎲</span><h1>NADO <span class="a">Farkle</span></h1></header>
+  <p class="sub">The push-your-luck dice classic (Ten Thousand), <b>multiplayer, winner takes the pot</b>. Ante in and set how far you dare to push; at the settle block the chain <b>auto-plays your whole turn</b> from a future L1 block hash nobody can predict — set aside 1s, 5s and three-of-a-kinds, but a scoreless roll <b>farkles</b> the lot. Highest banked score takes the pot. Objective, no secrets, post-quantum.</p>
+
+  <div id="status"></div>
+
+  <div class="card">
+    <h2>Wallet</h2>
+    <p class="small dim">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
+    <div class="kv mt"><span class="k">Playing as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k">Wallet (L1, depositable)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k">Exec balance (playable)</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
+  </div>
+
+  <!-- OPEN / STRATEGY -->
+  <div class="card hidden" id="opencard">
+    <h2>🎲 Your greed — how far do you push?</h2>
+    <div class="thrbox">chase <b id="thrVal">750</b> points before banking</div>
+    <input type="range" id="thr" min="0" max="6" value="3">
+    <div id="thrHint"></div>
+    <p class="small dim mt">Lower = play it safe (bank early, rarely farkle). Higher = chase a big score (but farkle more). Your whole turn is auto-played with this strategy from the chain's dice — the same for everyone, nobody can rig it.</p>
+    <label class="mt">Open a new table with an ante</label>
+    <div class="row">
+      <input id="anteAmt" placeholder="ante (NADO)" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNewTable" style="flex:0 0 auto">Open table</button>
+    </div>
+  </div>
+
+  <!-- FIND -->
+  <div class="card hidden" id="play">
+    <h2>🎯 Find a table</h2>
+    <div class="row">
+      <input id="joinId" placeholder="table ID" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="btnGoTable" style="flex:0 0 auto">Go</button>
+    </div>
+    <div class="small dim mt">Your tables <span style="opacity:.7">· 🎲 host / seat</span></div>
+    <div class="small dim" id="recent"></div>
+  </div>
+
+  <!-- BANKROLL -->
+  <div class="card hidden" id="bankroll">
+    <h2>Bankroll</h2>
+    <div class="row">
+      <input id="bankAmt" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
+    </div>
+    <div class="small dim mt">Deposit moves L1 → exec (playable); Withdraw moves exec → L1.</div>
+  </div>
+
+  <!-- LOBBY -->
+  <div class="card" id="lobby">
+    <h2>🎲 Open tables</h2>
+    <p class="small dim">Join any table while its window is open. <span style="opacity:.7">🟢 joining · 🎲 rolled</span></p>
+    <div class="small mt" id="lobbyList"><span class="dim">Loading…</span></div>
+  </div>
+
+  <!-- SCOREBOARD -->
+  <div class="card" id="scoreboard">
+    <h2>🏆 Scoreboard</h2>
+    <p class="small dim">Net NADO across every settled table.</p>
+    <div class="mt" id="scoreList"><span class="dim">Loading…</span></div>
+  </div>
+
+  <!-- ACTIVE TABLE -->
+  <div class="card hidden" id="activeGame">
+    <h2>Table <span id="gameId" class="mono"></span></h2>
+    <div class="feltbox"><div id="feature"><span class="dim">…</span></div></div>
+    <div class="kv"><span class="k">Status</span><span class="mono" id="gStatus">…</span></div>
+    <div class="kv"><span class="k">Pot</span><span class="mono" id="gPot">—</span></div>
+    <div class="kv"><span class="k">Ante</span><span class="mono" id="gAnte">—</span></div>
+    <div class="row mt"><button class="primary" id="btnJoin">Join this table (chase <span id="thrJoin"></span>)</button></div>
+    <div class="mt small dim">Players</div>
+    <div id="seats"></div>
+    <div class="row mt" id="myActions"></div>
+    <div class="row mt">
+      <button class="primary hidden" id="btnReopen">🔄 Re-open — try again</button>
+      <button class="primary hidden" id="btnSettle">🏆 Pay the winner</button>
+      <button class="ghost hidden" id="btnReclaim">Reclaim the pot (all farkled)</button>
+    </div>
+    <label class="mt">Invite players</label>
+    <input id="shareLink" class="mono" readonly onclick="this.select()">
+    <div class="row mt" style="align-items:center;gap:8px">
+      <button class="primary" id="btnShare" style="flex:0 0 auto">Share</button>
+      <span class="dim small">or scan the code to join this table</span>
+    </div>
+    <canvas id="shareQR" class="hidden" style="margin:12px auto 0;display:block;border-radius:8px;background:#fff;padding:8px"></canvas>
+    <div id="shareQRNote" class="hidden dim small mt">QR generator unavailable — copy the link above.</div>
+  </div>
+
+  <div class="card">
+    <h2>Provably fair — the chain rolls, not the house</h2>
+    <p class="small dim" style="line-height:1.6">
+      When you join, you lock in one number: your greed threshold. At the table's settle block your entire turn is auto-played from <span class="mono">HASH(blockhash(H) ‖ blockhash(H+1) ‖ seat)</span> — die #k = <span class="mono">HASH(seed+k) mod 6 + 1</span> — and the contract scores it exactly (1s = 100, 5s = 50, three-of-a-kind and up, straight = 1500; a scoreless roll farkles). Those block hashes don't exist when you ante, so nobody — no player, no host, no producer — can know or steer the dice. Once the block is finalized anyone can roll out any seat; the highest banked score takes the whole pot. If everyone farkles, the host reclaims.
+    </p>
+  </div>
+
+  <footer>Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · <a href="https://get.nadochain.com/rollup">see the contract</a>.</footer>
+</div>
+<script type="module" src="/static/farkle.js"></script>
+</body>
+</html>
