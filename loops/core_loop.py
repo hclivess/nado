@@ -37,7 +37,7 @@ from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN
 from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size
 from ops.peer_ops import check_ip, qualifies_to_sync, get_remote_status
 from ops import snapshot_ops
-from ops.pool_ops import merge_buffer, cull_buffer
+from ops.pool_ops import cull_buffer
 from ops.transaction_ops import remove_outdated_transactions
 from ops.transaction_ops import (
     to_readable_amount,
@@ -159,9 +159,9 @@ class CoreClient(threading.Thread):
         return "produce" if self.memserver.since_last_block >= bt else "building"
 
     def normal_mode(self):
-        """The caught-up per-second pass. Drains the mempool CONTINUOUSLY (user_tx_buffer ->
-        tx_buffer -> transaction_pool, no phase gating — see _mode for why the old period machine
-        lost txs), reconciles the pool with the peer majority at most once per block interval, and
+        """The caught-up per-second pass. Keeps the single mempool within its byte budget (submitted
+        txs already enter transaction_pool directly in merge_transaction — no staged buffer cascade),
+        reconciles the pool with the peer majority at most once per block interval, and
         runs the best-effort periodic duties (FFG attest, RANDAO, auto-bond/collect/register,
         rolling-mode prune). Minting happens ONLY in the 'produce' pacing slot (block_time pacing
         is NOT consensus) and only past three gates: enough peers (min_peers == 0 permits solo
@@ -173,34 +173,15 @@ class CoreClient(threading.Thread):
             mode = self._mode()
             self.memserver.mode = mode
 
-            # CONTINUOUS MEMPOOL DRAIN (every ~1s pass), fully decoupled from the block-production cadence:
-            # user_tx_buffer -> tx_buffer -> transaction_pool. No phase gating -> any submitted tx is
-            # pool-eligible within a second whatever block_time is (kills the old period-0/1 tx-loss window).
-            # the whole read-filter-writeback drain runs under the MEMPOOL LOCK: merge_transaction
-            # (HTTP executor threads + peer loop) appends to these same lists, and an append landing
-            # between our snapshot read and the list reassignment below was silently LOST — a wallet
-            # got "Success" for a tx that then never existed anywhere (audit finding).
+            # SINGLE MEMPOOL (2026-07): submitted txs enter transaction_pool DIRECTLY in merge_transaction,
+            # so the old per-second user_tx_buffer -> tx_buffer -> transaction_pool cascade is gone. Just
+            # keep the pool within its byte budget under the mempool lock (a flood is already count-capped
+            # at accept time; this bounds bytes for the peer-transferable /transaction_pool fetch).
             with self.memserver.mempool_lock:
-                if self.memserver.user_tx_buffer:
-                    buffered = merge_buffer(from_buffer=self.memserver.user_tx_buffer,
-                                            to_buffer=self.memserver.tx_buffer,
-                                            block_max=self.memserver.latest_block["block_number"] + 360,
-                                            block_min=self.memserver.latest_block["block_number"])
-
-                    self.memserver.user_tx_buffer = buffered["from_buffer"]
-                    self.memserver.tx_buffer = buffered["to_buffer"]
-
-                if self.memserver.tx_buffer:
-                    buffered = merge_buffer(from_buffer=self.memserver.tx_buffer,
-                                            to_buffer=self.memserver.transaction_pool,
-                                            block_max=self.memserver.latest_block["block_number"] + 360,
-                                            block_min=self.memserver.latest_block["block_number"])
-
-                    self.memserver.tx_buffer = cull_buffer(buffer=buffered["from_buffer"],
-                                                           limit=self.memserver.transaction_buffer_limit)
-
-                    self.memserver.transaction_pool = cull_buffer(buffer=buffered["to_buffer"],
-                                                                  limit=self.memserver.transaction_pool_max_bytes)
+                if self.memserver.transaction_pool:
+                    self.memserver.transaction_pool = cull_buffer(
+                        buffer=self.memserver.transaction_pool,
+                        limit=self.memserver.transaction_pool_max_bytes)
 
             # CONSENSUS MEMPOOL RECONCILE — at most once per block interval: if our pool hash is in the
             # minority vs peers, replace it (last-effort convergence). Time-gated (replaces the old
@@ -290,18 +271,12 @@ class CoreClient(threading.Thread):
                         self.memserver.block_generation_age = get_timestamp_seconds()
 
                         # same lost-update race as the drain above: snapshot-filter-reassign must be
-                        # atomic vs concurrent merge_transaction appends (mempool lock).
+                        # atomic vs concurrent merge_transaction appends (mempool lock). Drops txs whose
+                        # max_block deadline has passed — an expired tx is NOT re-injected; the wallet
+                        # re-submits a fresh one on the user's action (Re-open), never silently.
                         with self.memserver.mempool_lock:
                             self.memserver.transaction_pool = remove_outdated_transactions(
                                 self.memserver.transaction_pool.copy(),
-                                self.memserver.latest_block["block_number"])
-
-                            self.memserver.tx_buffer = remove_outdated_transactions(
-                                self.memserver.tx_buffer.copy(),
-                                self.memserver.latest_block["block_number"])
-
-                            self.memserver.user_tx_buffer = remove_outdated_transactions(
-                                self.memserver.user_tx_buffer.copy(),
                                 self.memserver.latest_block["block_number"])
                     else:
                         self.logger.warning("No eligible bonded producer this round; skipping production")
@@ -901,14 +876,12 @@ class CoreClient(threading.Thread):
         later candidates ('already attested/revealed this epoch') and poison block production."""
         # .copy(): other threads append to the live lists; iterating a snapshot avoids skipped
         # elements (a false negative here mints the duplicate this guard exists to prevent).
-        for pool in (self.memserver.transaction_pool.copy(), self.memserver.tx_buffer.copy(),
-                     self.memserver.user_tx_buffer.copy()):
-            for tx in pool:
-                if (tx.get("recipient") == recipient
-                        and tx.get("sender") == self.memserver.address
-                        and isinstance(tx.get("data"), dict)
-                        and tx["data"].get("target_epoch") == target_epoch):
-                    return True
+        for tx in self.memserver.transaction_pool.copy():
+            if (tx.get("recipient") == recipient
+                    and tx.get("sender") == self.memserver.address
+                    and isinstance(tx.get("data"), dict)
+                    and tx["data"].get("target_epoch") == target_epoch):
+                return True
         return False
 
     def rebuild_block(self, block):
@@ -1261,6 +1234,37 @@ class CoreClient(threading.Thread):
             self.logger.error("Transactions mismatch target block")
             raise ValueError("Transactions mismatch target block")
 
+        # AT-MOST-ONCE INCLUSION (2026-07, consensus): a txid may be mined in AT MOST ONE block, ever.
+        # (1) no duplicate txid WITHIN this block; (2) no txid already recorded in the on-chain tx-index
+        # by an ANCESTOR block (index is written on incorporate, which is strictly AFTER this check, so
+        # tx_get can only see ancestors — never this block itself). A txid hashes the tx content, so this
+        # makes re-including an IDENTICAL transaction impossible. Fail-closed for a REMOTE block (a peer's
+        # block replaying a mined tx is rejected wholesale); for OUR OWN candidate the offender is dropped
+        # below. This is the fix for the bridge-deposit double-credit (a flexibly-landing tx was otherwise
+        # re-included in every block up to its max_block). Deterministic: the tx-index is a pure function
+        # of committed ancestor state, identical on every node — same class as validate_all_spending.
+        seen_txids = set()
+        already_mined = []
+        for t in transactions:
+            txid = t.get("txid")
+            if txid in seen_txids:
+                self.logger.error(f"Duplicate txid {str(txid)[:16]} within block {block['block_number']}")
+                raise ValueError("Duplicate transaction within block")
+            seen_txids.add(txid)
+            if kv_ops.tx_get(txid) is not None:
+                already_mined.append(t)
+        if already_mined:
+            if remote:
+                self.logger.error(f"Block {block['block_number']} replays {len(already_mined)} already-mined tx(s)")
+                raise ValueError("Block contains an already-mined transaction")
+            # OWN candidate: drop the already-mined stragglers (they linger in the pool until evicted
+            # below) and keep building; produce_block rebuilds + re-hashes the reduced set.
+            for t in already_mined:
+                if t in transactions:
+                    transactions.remove(t)
+                if t in block["block_transactions"]:
+                    block["block_transactions"].remove(t)
+
         # DATA-AVAILABILITY cap (doc/execution-layer.md §3.3): reject a block carrying more blob bytes
         # than phones can be expected to download/relay. Fail-closed like the other block-set checks.
         try:
@@ -1278,14 +1282,9 @@ class CoreClient(threading.Thread):
         else:
             for transaction in transactions:
 
+                # Evict from the single pool so a just-included tx is never re-selected next round.
                 if transaction in self.memserver.transaction_pool:
                     self.memserver.transaction_pool.remove(transaction)
-
-                if transaction in self.memserver.user_tx_buffer:
-                    self.memserver.user_tx_buffer.remove(transaction)
-
-                if transaction in self.memserver.tx_buffer:
-                    self.memserver.tx_buffer.remove(transaction)
 
                 try:
                     # block_height = the block being validated (N) so a register tx's epoch check

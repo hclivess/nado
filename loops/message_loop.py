@@ -128,8 +128,7 @@ class MessageClient(threading.Thread):
 
                 # Supporting detail (kept at debug — the report above is the summary)
                 self.logger.debug(
-                    f"Transactions: {len(self.memserver.transaction_pool)}tp < "
-                    f"{len(self.memserver.tx_buffer)}tb < {len(self.memserver.user_tx_buffer)}ub")
+                    f"Mempool: {len(self.memserver.transaction_pool)} tx")
                 self.logger.debug(
                     f"Tx hash agreement: {int(self.consensus.transaction_hash_pool_percentage)}%")
                 self.logger.debug(

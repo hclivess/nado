@@ -163,15 +163,26 @@ def match_transactions_target(transaction_list, block_number, logger):
     pre-apply everything verify_block will enforce so an honest producer never assembles a block its
     peers must reject. False on error."""
     try:
+        from ops import kv_ops
         matched_txs = []
+        seen = set()
 
         for transaction in transaction_list:
             tb = transaction["max_block"]
+            txid = transaction.get("txid")
+            # AT-MOST-ONCE (2026-07): never re-select a txid already mined (in the on-chain tx-index) or
+            # already picked for THIS candidate. A flexibly-landing tx is otherwise eligible for every
+            # block up to its max_block; without this it was re-included (and re-applied) each block —
+            # the bridge-deposit double-credit. verify_block enforces the same rule for remote blocks.
+            if txid in seen or kv_ops.tx_get(txid) is not None:
+                continue
             if _lands_flexibly(transaction):
                 if block_number <= tb:           # valid until its max_block deadline
                     matched_txs.append(transaction)
+                    seen.add(txid)
             elif tb == block_number:             # timing-critical: exact landing
                 matched_txs.append(transaction)
+                seen.add(txid)
 
         # AUDIT FIX: drop duplicate reserved txs (e.g. two withdraws of one unbond, two heartbeats of
         # one epoch) so an honest producer never assembles a block verify_block would reject.

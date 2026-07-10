@@ -75,11 +75,11 @@ check("rebuilt cumulative_fees reflects the surviving tx set only",
       rebuilt["cumulative_fees"] == 7 + 1)
 
 # (4) the pending-reserved-tx guard: an attest for the same (sender, epoch) already in ANY
-#     pool/buffer suppresses minting a duplicate; other epochs/senders don't
-core = object.__new__(CoreClient)  # no thread/node init needed; the method only reads memserver pools
+#     pool suppresses minting a duplicate; other epochs/senders don't
+# SINGLE MEMPOOL (2026-07): the pending reserved tx lives in the one transaction_pool (buffers removed).
+core = object.__new__(CoreClient)  # no thread/node init needed; the method only reads memserver pool
 pending = {"recipient": "attest", "sender": "ndoME", "data": {"target_epoch": 5}}
-core.memserver = SimpleNamespace(address="ndoME", transaction_pool=[], tx_buffer=[pending],
-                                 user_tx_buffer=[])
+core.memserver = SimpleNamespace(address="ndoME", transaction_pool=[pending])
 check("pending attest for same epoch is detected", core._reserved_tx_pending("attest", 5))
 check("different epoch is not blocked", not core._reserved_tx_pending("attest", 6))
 check("different reserved type is not blocked", not core._reserved_tx_pending("reveal", 5))
