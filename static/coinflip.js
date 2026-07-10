@@ -77,7 +77,7 @@ async function joinGame() {
   const gid = parseInt($("joinId").value, 10);
   if (!gid) return;
   const g = await fetchGame(gid);
-  if (!g || !g.exists) { $("status").textContent = "No such game yet — ask your opponent for the ID after they open it."; return; }
+  if (!g || !g.exists) { $("status").textContent = dapp.whereIs("game", gid); return; }
   if (g.settled || g.ncom >= 2) { $("status").textContent = "That game is full or already settled."; return; }
   await dapp.refresh();
   const need = BigInt(g.stake);

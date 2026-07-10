@@ -147,7 +147,7 @@ The Phase-1 machinery is correctness-first; these are the documented upgrades fo
 
 ### Multi-validator settlement of the pool (the DA-backed transfer path)
 
-A shielded-transfer STARK proof is ~1-4 MB — far past the 16 KiB per-tx blob cap — so it can't ride L1
+A shielded-transfer STARK proof is ~1-4 MB — far past the 64 KiB per-tx blob cap — so it can't ride L1
 directly. Previously a field transfer reached the exec node only via `POST /exec/apply_field_transfer`, so
 different exec nodes held divergent pool state and the bonded quorum could never settle a root covering the
 pool (a **single-operator** shielded pool: a *provable* operator that can't steal/forge but can censor/stall).

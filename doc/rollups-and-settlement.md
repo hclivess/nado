@@ -129,7 +129,7 @@ Programmability data reaches the exec layer as **opaque blobs** carried in L1 bl
 ## 3a. DA store & serving — for pruned blobs and oversized proofs — **BUILT**
 
 A blob rides L1 for *ordering*, but its body is prunable and some payloads (a shielded-transfer STARK proof is
-~1–4 MB) are far too big for the 16 KiB per-tx blob cap. Both need **data availability** beyond L1: an
+~1–4 MB) are far too big for the 64 KiB per-tx blob cap. Both need **data availability** beyond L1: an
 erasure-coded store served across the peer network.
 
 - **Codec (`ops/da.py`).** Reed–Solomon k-of-n over `P = 2⁶¹−1` (Lagrange), with an **index-bound hash-based

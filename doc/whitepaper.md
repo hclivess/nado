@@ -1149,7 +1149,7 @@ Additional hardening and feature items, all currently **planned/partial**:
   index-bound PQ Merkle commitment, self-verifying `(shard, proof)` pairs, k-of-n
   reconstruction pulled across the **live peer set**) carries both pruned rollup blobs and
   the shielded pool's multi-megabyte STARK proofs. A shielded transfer is too big for a
-  16 KiB blob, so **only its statement + the proof's commitment ride L1** (fixing order +
+  64 KiB blob, so **only its statement + the proof's commitment ride L1** (fixing order +
   content) while the proof rides DA; every exec node resolves it by commitment and applies
   in L1 order — making the **shielded pool multi-validator-settleable**, not
   single-operator. Phones never touch DA (they read from relays); it is a full/exec-node

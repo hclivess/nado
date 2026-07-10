@@ -97,7 +97,7 @@ async function joinTable() {
   const t = activeTable;
   if (!t) { $("status").textContent = "Pick a table first."; return; }
   const tb = await fetchTable(t);
-  if (!tb || !tb.exists) { $("status").textContent = "No such table yet — give it ~1 min to confirm."; return; }
+  if (!tb || !tb.exists) { $("status").textContent = dapp.whereIs("table", t); return; }
   if (!tb.joinOpen) { $("status").textContent = "The join window for that table has closed."; return; }
   if (lastSeats.some((s) => s.addr === dapp.me)) { $("status").textContent = "You're already seated at this table."; return; }
   await dapp.refresh();

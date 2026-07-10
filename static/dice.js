@@ -67,7 +67,7 @@ async function doBet() {
   const stake = nadoToRaw($("stakeAmt").value);
   if (!stake) { $("status").textContent = "Enter a stake (NADO)."; return; }
   const tb = await fetchTable(t);
-  if (!tb || !tb.exists) { $("status").textContent = "No such table yet — ask the bank for the ID."; return; }
+  if (!tb || !tb.exists) { $("status").textContent = dapp.whereIs("table", t); return; }
   if (tb.closed) { $("status").textContent = "That table is closed."; return; }
   await dapp.refresh();
   if (dapp.exec < stake) { $("status").textContent = "You need " + rawToNado(stake) + " NADO in your exec balance (you have " + rawToNado(dapp.exec) + "). Deposit first."; render(); return; }

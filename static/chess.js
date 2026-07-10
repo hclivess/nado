@@ -88,7 +88,7 @@ async function joinGame() {
   const g = parseInt($("joinId").value, 10);
   if (!g) { $("status").textContent = "Enter a game ID (or pick one from the lobby)."; return; }
   const gm = await fetchGame(g);
-  if (!gm || !gm.exists) { $("status").textContent = "No such game yet — ask your opponent for the ID."; return; }
+  if (!gm || !gm.exists) { $("status").textContent = dapp.whereIs("game", g); return; }
   if (gm.nn >= 2 || gm.settled) { $("status").textContent = "That game is full or finished."; return; }
   await dapp.refresh();
   const stake = BigInt(gm.stake);
