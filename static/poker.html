@@ -178,7 +178,7 @@
     <h2>How a hand works · provably fair</h2>
     <p class="small dim" style="line-height:1.6">
       <b>Sit down:</b> everyone antes; your browser generates a secret and commits <span class="mono">HASH(secret)</span> on-chain — your hole cards are derived from that secret + a future block hash, so only you can see them and nobody can fake them later.
-      <b>Bet:</b> four streets (pre-flop, flop, turn, river), each ~3 minutes. Match the street's highest bet to stay in, put in more to raise (raises close 30s before the street ends so they're always callable), do nothing to check. Miss the price and you're folded — your chips stay in the pot.
+      <b>Bet:</b> four streets (pre-flop, flop, turn, river), each ~3 minutes. Match the street's highest bet to stay in, put in more to raise (raises close 30s before the street ends so they're always callable), do nothing to check. You can re-raise any number of times — it's no-limit, bounded only by your exec balance. There are no side pots: if you can't match a raise you fold, and your chips stay in the pot — don't sit deeper than you're willing to defend.
       <b>Showdown:</b> one click reveals your secret; the <b>contract</b> re-derives your 7 cards and ranks the full hand on-chain — straight flush to high card, kickers included. Best hand takes the pot; ties keep the first hand shown. The board and each player's hand draw from independent decks, so an exact duplicate card can legally appear — it counts naturally (two K♥ = a pair of kings) and the odds are identical for everyone.
     </p>
   </div>
