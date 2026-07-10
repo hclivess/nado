@@ -174,11 +174,16 @@ class CoreClient(threading.Thread):
             self.memserver.mode = mode
 
             # SINGLE MEMPOOL (2026-07): submitted txs enter transaction_pool DIRECTLY in merge_transaction,
-            # so the old per-second user_tx_buffer -> tx_buffer -> transaction_pool cascade is gone. Just
-            # keep the pool within its byte budget under the mempool lock (a flood is already count-capped
-            # at accept time; this bounds bytes for the peer-transferable /transaction_pool fetch).
+            # so the old per-second user_tx_buffer -> tx_buffer -> transaction_pool cascade is gone. Each
+            # pass: (1) EVICT any tx already MINED (its txid is in the on-chain tx-index) — at-most-once means
+            # it can never be re-included, so keeping it only bloats the pool and empties block candidates
+            # (the zombie cleanup for a tx that mined but reverted at the exec layer, or that a lagging peer
+            # re-gossiped); (2) keep the pool within its byte budget for the peer-transferable fetch.
             with self.memserver.mempool_lock:
                 if self.memserver.transaction_pool:
+                    self.memserver.transaction_pool = [
+                        t for t in self.memserver.transaction_pool
+                        if kv_ops.tx_get(t.get("txid")) is None]
                     self.memserver.transaction_pool = cull_buffer(
                         buffer=self.memserver.transaction_pool,
                         limit=self.memserver.transaction_pool_max_bytes)

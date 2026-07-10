@@ -57,6 +57,17 @@
   .rar.r2{background:rgba(200,107,250,.14);color:var(--purp);border:1px solid rgba(200,107,250,.45)}
   .rar.r3{background:rgba(0,201,167,.13);color:var(--accent2);border:1px solid rgba(0,201,167,.5);box-shadow:0 0 12px rgba(0,201,167,.25)}
 
+  /* ---- rarity aura (wraps the pet; glow scales with rarity, shimmer for shiny) ---- */
+  .aura{display:inline-block;position:relative;line-height:0}
+  .aura.rare svg{filter:drop-shadow(0 0 7px rgba(200,107,250,.75))}
+  .aura.legend svg{filter:drop-shadow(0 0 10px rgba(0,201,167,.85)) drop-shadow(0 0 20px rgba(0,201,167,.4));animation:legendpulse 2.6s ease-in-out infinite}
+  @keyframes legendpulse{0%,100%{filter:drop-shadow(0 0 8px rgba(0,201,167,.7)) drop-shadow(0 0 16px rgba(0,201,167,.3))}50%{filter:drop-shadow(0 0 14px rgba(0,201,167,1)) drop-shadow(0 0 28px rgba(0,201,167,.55))}}
+  .aura.shiny::after{content:"✦";position:absolute;top:2px;right:4px;font-size:13px;color:#ffe08a;text-shadow:0 0 6px #ffd35a;animation:twinkle 1.6s ease-in-out infinite}
+  @keyframes twinkle{0%,100%{opacity:.35;transform:scale(.85) rotate(0)}50%{opacity:1;transform:scale(1.15) rotate(20deg)}}
+  .aura.shiny svg{animation:shimmer 2.4s linear infinite}
+  @keyframes shimmer{0%,100%{filter:saturate(1) brightness(1)}50%{filter:saturate(1.5) brightness(1.18)}}
+  .aura.legend.shiny svg{animation:legendpulse 2.6s ease-in-out infinite,shimmer 2.4s linear infinite}
+
   /* ---- the stage ---- */
   .stage{display:flex;flex-direction:column;align-items:center;gap:6px;margin:6px 0 10px;min-height:190px;justify-content:center}
   .stage svg{width:170px;height:170px;overflow:visible}
@@ -146,6 +157,8 @@
   .winglow{filter:drop-shadow(0 0 16px rgba(0,201,167,.8))}
   #arenaVerdict{text-align:center;font-weight:800;font-size:15px;min-height:22px}
   .vs{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);font-weight:900;font-size:20px;color:var(--gold)}
+  .hpbar{height:7px;border-radius:999px;background:var(--bg);border:1px solid var(--border);overflow:hidden;margin:6px auto 0;max-width:110px}
+  .hpbar>i{display:block;height:100%;width:100%;border-radius:999px;background:linear-gradient(90deg,#d0362b,#e3b341,#00c9a7);transition:width .35s}
 
   .btl{border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin:8px 0;font-size:13px;background:var(--elev2)}
   .btl .who{font-weight:700}
@@ -159,7 +172,7 @@
     <ellipse cx="24" cy="26" rx="14" ry="17" fill="#f5e9d0" stroke="#c8a96a" stroke-width="2"/>
     <circle cx="19" cy="20" r="2.2" fill="#c8a96a"/><circle cx="29" cy="30" r="2.8" fill="#c8a96a"/><circle cx="25" cy="13" r="1.8" fill="#c8a96a"/></svg></span>
     <h1>NADO <span class="a">Pets</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
-  <p class="sub">Digital pets that <b>live on the chain</b> — true NFTs you own, name, feed, train, battle and trade. Adopt an egg for <b>1 NADO</b>; a <b>future block hash</b> nobody can predict decides what hatches: a <b>Poodle</b> (common), an <b>African Grey Parrot</b> (rare) or a <b>Dragon</b> (legendary), with 10 stats locked at hatch. Pets eat real NADO to stay alive — <b>stop feeding and they die</b>. Train them (rarer = easier), challenge other pets for stakes… but the loser of a battle has a <b>1-in-5 chance of dying</b>. Sell and buy pets on the built-in <b>marketplace</b>. Everything — genes, meals, training rolls, fights, sales — is decided and recorded on-chain.</p>
+  <p class="sub">Digital pets that <b>live on the chain</b> — true NFTs you own, name, feed, train, battle and trade. Adopt an egg for <b>1 NADO</b>; a <b>future block hash</b> nobody can predict decides what hatches: a <b>Poodle</b> (common), an <b>African Grey Parrot</b> (rare) or a <b>Dragon</b> (legendary), with 10 stats locked at hatch. Pets eat real NADO to stay alive — <b>stop feeding and they die</b>. Train them (rarer = easier), then challenge other pets to <b>turn-based duels</b> for stakes — the winner takes the pot and <b>claims the losing pet</b>, though the loser has a small <b>10% chance to die</b>. Sell and buy pets on the built-in <b>marketplace</b>. Everything — genes, coats, meals, training rolls, fights, sales — is decided and recorded on-chain.</p>
 
   <div id="status"></div>
 
@@ -198,6 +211,7 @@
     <div class="kv mt"><span class="k">Owner</span><span id="petOwner"></span></div>
     <div class="kv"><span class="k">Level · Power</span><span class="mono" id="petLp"></span></div>
     <div class="kv"><span class="k">Appetite (upkeep)</span><span class="mono" id="petUpkeep"></span></div>
+    <div class="kv"><span class="k">Gene (on-chain, immutable)</span><span class="mono" id="petGene" style="font-size:11px;color:var(--faint);max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span></div>
 
     <!-- hatch -->
     <div class="mt hidden" id="hatchRow">
@@ -237,7 +251,7 @@
         <input id="stakeAmt" placeholder="stake (NADO, 0 ok)" inputmode="decimal" autocomplete="off">
         <button class="primary" id="btnChallenge">⚔ Challenge</button>
       </div>
-      <p class="small dim" id="challengeHint">Winner's owner takes both stakes. The loser has a 20% chance of <b>dying</b>. Their owner must accept.</p>
+      <p class="small dim" id="challengeHint">A turn-based duel decided by a <b>future block hash</b>: speed sets who strikes first, agility dodges, strength &amp; vitality set damage &amp; HP. The <b>defender's owner must accept</b>. Winner takes both stakes and <b>claims the losing pet</b> — but the loser has a small <b>10% chance to die</b> instead.</p>
     </div>
 
     <!-- buy (someone else's listed pet) -->
@@ -258,7 +272,7 @@
       </div>
       <div class="row mt">
         <input id="listPrice" placeholder="ask price (NADO)" inputmode="decimal" autocomplete="off">
-        <button class="ghost" id="btnList">🏷 Sell</button>
+        <button class="ghost" id="btnList">Sell</button>
         <button class="ghost hidden" id="btnUnlist">Remove listing</button>
       </div>
       <p class="small dim mt" id="ownHint">Transfer moves the pet to another wallet forever — it's a real NFT; the new owner feeds it (or doesn't…). Selling lists it on the marketplace below at your ask.</p>
@@ -271,7 +285,7 @@
         <input id="shareLink" readonly>
         <button class="ghost" id="btnShare">Share</button>
       </div>
-      <canvas id="shareQR" class="hidden mt" style="border-radius:10px"></canvas>
+      <canvas id="shareQR" class="hidden mt" style="border-radius:10px;display:block;margin:8px auto 0"></canvas>
       <p class="small dim hidden" id="shareQRNote"></p>
     </div>
   </div>
@@ -280,11 +294,14 @@
   <div class="card hidden" id="arenaCard">
     <h2>Battle <span id="arenaId" class="mono"></span></h2>
     <div class="arena" id="arena">
-      <div class="fighter fl"><div id="arenaL"></div><div class="fname" id="arenaLName"></div><div class="fpow" id="arenaLPow"></div></div>
+      <div class="fighter fl"><div id="arenaL"></div><div class="fname" id="arenaLName"></div><div class="fpow" id="arenaLPow"></div>
+        <div class="hpbar"><i id="arenaLHP"></i></div></div>
       <div class="vs">VS</div>
-      <div class="fighter fr"><div id="arenaR"></div><div class="fname" id="arenaRName"></div><div class="fpow" id="arenaRPow"></div></div>
+      <div class="fighter fr"><div id="arenaR"></div><div class="fname" id="arenaRName"></div><div class="fpow" id="arenaRPow"></div>
+        <div class="hpbar"><i id="arenaRHP"></i></div></div>
     </div>
     <div id="arenaVerdict"></div>
+    <div id="arenaLog" class="small dim" style="text-align:center;min-height:16px;margin-top:4px"></div>
     <div class="row mt">
       <button class="primary hidden" id="btnResolve">⚔ Settle the battle on-chain</button>
       <button class="ghost hidden" id="btnCancelBattle">Withdraw challenge</button>

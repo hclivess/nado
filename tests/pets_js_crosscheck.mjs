@@ -29,10 +29,10 @@ for (const v of V.trainings) {
   eq(`tok(${v.pid},${v.i})`, G.trainOk(roll, v.cur, v.sp), v.ok);
 }
 for (const v of V.battles) {
-  const b = G.battleOf(v.bh0, v.bh1, v.bid, v.pwA, v.pwB);
+  const b = G.battleOf(v.bh0, v.bh1, v.bid, v.effA, v.effB);
   eq(`battle(${v.bid}) winner`, b.aWins, v.aWins);
   eq(`battle(${v.bid}) dies`, b.dies, v.dies);
-  eq(`battle(${v.bid}) scores`, b.scoreA + "/" + b.scoreB, v.scoreA + "/" + v.scoreB);
+  eq(`battle(${v.bid}) final HP`, b.h0 + "/" + b.h1, v.hp0 + "/" + v.hp1);
 }
 console.log(fails ? `${fails}/${n} CHECKS FAILED` : `ALL ${n} JS<->PY CHECKS PASS`);
 process.exit(fails ? 1 : 0);

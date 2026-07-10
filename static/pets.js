@@ -30,46 +30,46 @@ function eggSvg(cls, cracks) {
       <path class="crack${cracks >= 3 ? " show" : ""}" d="M44 68 l9 6 -4 9 10 7" stroke="#8a6f42" stroke-width="2.2" fill="none"/>
     </g></g></svg>`;
 }
-function poodleSvg(cls) {
+function poodleSvg(cls, c) {
   return `<svg viewBox="0 0 120 120"><g class="${cls}">
-    <g class="tail-wag"><circle cx="24" cy="78" r="8" fill="#f3ede2" stroke="#bfae8e" stroke-width="2"/></g>
-    <ellipse cx="52" cy="88" rx="26" ry="17" fill="#f7f2e9" stroke="#bfae8e" stroke-width="2.5"/>
-    <circle cx="38" cy="103" r="6.5" fill="#f3ede2" stroke="#bfae8e" stroke-width="2"/>
-    <circle cx="64" cy="103" r="6.5" fill="#f3ede2" stroke="#bfae8e" stroke-width="2"/>
-    <rect x="70" y="58" width="9" height="26" rx="4.5" fill="#f7f2e9" stroke="#bfae8e" stroke-width="2"/>
-    <g class="head-tilt"><circle cx="80" cy="46" r="17" fill="#f7f2e9" stroke="#bfae8e" stroke-width="2.5"/>
-      <circle cx="66" cy="34" r="9" fill="#f3ede2" stroke="#bfae8e" stroke-width="2"/>
-      <circle cx="93" cy="34" r="9" fill="#f3ede2" stroke="#bfae8e" stroke-width="2"/>
-      <circle cx="80" cy="27" r="10" fill="#f7f2e9" stroke="#bfae8e" stroke-width="2"/>
+    <g class="tail-wag"><circle cx="24" cy="78" r="8" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/></g>
+    <ellipse cx="52" cy="88" rx="26" ry="17" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
+    <circle cx="38" cy="103" r="6.5" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
+    <circle cx="64" cy="103" r="6.5" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
+    <rect x="70" y="58" width="9" height="26" rx="4.5" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
+    <g class="head-tilt"><circle cx="80" cy="46" r="17" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
+      <circle cx="66" cy="34" r="9" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
+      <circle cx="93" cy="34" r="9" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
+      <circle cx="80" cy="27" r="10" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
       <g class="blink"><circle cx="75" cy="45" r="2.6" fill="#2b2118"/><circle cx="87" cy="45" r="2.6" fill="#2b2118"/></g>
       <ellipse cx="81" cy="53" rx="3.4" ry="2.6" fill="#2b2118"/>
       <path d="M81 56 q0 4 -4 5 M81 56 q0 4 4 5" stroke="#2b2118" stroke-width="1.6" fill="none"/></g></g></svg>`;
 }
-function parrotSvg(cls) {
+function parrotSvg(cls, c) {
   return `<svg viewBox="0 0 120 120"><g class="${cls}">
     <path d="M46 104 l5 -12 4 12 Z M60 104 l5 -12 4 12 Z" fill="#6b6f76"/>
-    <ellipse cx="58" cy="70" rx="24" ry="28" fill="#9aa2ad" stroke="#5d6570" stroke-width="2.5"/>
-    <g class="wing-flap"><path d="M42 56 C28 62 26 84 38 94 C46 88 48 68 42 56 Z" fill="#828a96" stroke="#5d6570" stroke-width="2"/></g>
-    <g class="wing-flap right"><path d="M74 56 C88 62 90 84 78 94 C70 88 68 68 74 56 Z" fill="#828a96" stroke="#5d6570" stroke-width="2"/></g>
+    <ellipse cx="58" cy="70" rx="24" ry="28" fill="${c.shade}" stroke="${c.line}" stroke-width="2.5"/>
+    <g class="wing-flap"><path d="M42 56 C28 62 26 84 38 94 C46 88 48 68 42 56 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/></g>
+    <g class="wing-flap right"><path d="M74 56 C88 62 90 84 78 94 C70 88 68 68 74 56 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/></g>
     <path d="M52 94 C50 106 54 114 60 118 C64 112 64 102 62 94 Z" fill="#d0362b" stroke="#8a1a12" stroke-width="2"/>
-    <g class="head-tilt"><circle cx="60" cy="40" r="18" fill="#b9c0c9" stroke="#5d6570" stroke-width="2.5"/>
-      <circle cx="54" cy="36" r="6.5" fill="#f2f4f6" stroke="#5d6570" stroke-width="1.6"/>
+    <g class="head-tilt"><circle cx="60" cy="40" r="18" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
+      <circle cx="54" cy="36" r="6.5" fill="#f2f4f6" stroke="${c.line}" stroke-width="1.6"/>
       <g class="blink"><circle cx="54" cy="36" r="2.6" fill="#20242a"/></g>
       <path d="M72 33 q12 3 10 12 q-2 8 -12 7 q-4 -1 -5 -6 Z" fill="#3a3f45" stroke="#20242a" stroke-width="1.8"/>
       <path d="M74 47 q4 5 1 8" stroke="#20242a" stroke-width="1.6" fill="none"/></g></g></svg>`;
 }
-function dragonSvg(cls) {
+function dragonSvg(cls, c) {
   return `<svg viewBox="0 0 120 120"><g class="${cls}">
-    <path d="M28 92 C16 90 12 80 16 72 C22 78 30 80 36 84 Z" fill="#0f8a74" stroke="#075a4c" stroke-width="2"/>
-    <g class="wing-flap"><path d="M40 52 C24 34 12 36 8 48 C20 46 26 54 30 62 Z" fill="#12a184" stroke="#075a4c" stroke-width="2"/></g>
-    <g class="wing-flap right"><path d="M74 52 C90 34 102 36 106 48 C94 46 88 54 84 62 Z" fill="#12a184" stroke="#075a4c" stroke-width="2"/></g>
-    <ellipse cx="57" cy="80" rx="26" ry="20" fill="#17b795" stroke="#075a4c" stroke-width="2.5"/>
-    <path d="M40 62 l6 -9 6 9 Z M52 58 l6 -10 6 10 Z M64 62 l6 -9 6 9 Z" fill="#0d7a66" stroke="#075a4c" stroke-width="1.6"/>
-    <ellipse cx="57" cy="86" rx="14" ry="10" fill="#bff2e4"/>
-    <g class="head-tilt"><ellipse cx="82" cy="46" rx="17" ry="14" fill="#17b795" stroke="#075a4c" stroke-width="2.5"/>
-      <path d="M72 34 l4 -10 6 8 Z M84 32 l5 -10 5 9 Z" fill="#0d7a66" stroke="#075a4c" stroke-width="1.6"/>
+    <path d="M28 92 C16 90 12 80 16 72 C22 78 30 80 36 84 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
+    <g class="wing-flap"><path d="M40 52 C24 34 12 36 8 48 C20 46 26 54 30 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/></g>
+    <g class="wing-flap right"><path d="M74 52 C90 34 102 36 106 48 C94 46 88 54 84 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/></g>
+    <ellipse cx="57" cy="80" rx="26" ry="20" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
+    <path d="M40 62 l6 -9 6 9 Z M52 58 l6 -10 6 10 Z M64 62 l6 -9 6 9 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/>
+    <ellipse cx="57" cy="86" rx="14" ry="10" fill="#bff2e4" opacity="0.5"/>
+    <g class="head-tilt"><ellipse cx="82" cy="46" rx="17" ry="14" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
+      <path d="M72 34 l4 -10 6 8 Z M84 32 l5 -10 5 9 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/>
       <g class="blink"><circle cx="78" cy="44" r="3" fill="#083b32"/><circle cx="92" cy="44" r="3" fill="#083b32"/></g>
-      <ellipse cx="86" cy="54" rx="9" ry="4.5" fill="#0fa287"/>
+      <ellipse cx="86" cy="54" rx="9" ry="4.5" fill="${c.shade}"/>
       <circle cx="83" cy="53" r="1.2" fill="#083b32"/><circle cx="89" cy="53" r="1.2" fill="#083b32"/>
       <g class="smoke"><circle cx="101" cy="50" r="3.4" fill="#9fb8b2"/></g>
       <g class="smoke s2"><circle cx="103" cy="47" r="2.6" fill="#9fb8b2"/></g></g></g></svg>`;
@@ -83,7 +83,14 @@ function graveSvg() {
     <g class="ghostup"><text x="60" y="30" text-anchor="middle" font-size="16">👻</text></g></g></svg>`;
 }
 const PET_SVGS = { 1: poodleSvg, 2: parrotSvg, 3: dragonSvg };
-const petArt = (p, cls = "pet-idle") => p.dead ? graveSvg() : (p.hatched ? PET_SVGS[p.sp](cls) : eggSvg(p.hatchReady ? "egg-ready egg-glow" : "egg-idle", 0));
+const DEFAULT_COAT = { 1: G.COATS[1][0], 2: G.COATS[2][0], 3: G.COATS[3][0] };
+// draw a pet with its gene-derived coat, wrapped in a rarity-aura span (glow/shimmer via CSS in pets.html)
+function petBody(p, cls = "pet-idle") {
+  const coat = p.gene ? G.coatOf(p.gene, p.sp) : DEFAULT_COAT[p.sp];
+  const aura = p.gene ? G.auraOf(p.sp, coat.shiny) : "";
+  return `<span class="aura ${aura}">${PET_SVGS[p.sp](cls, coat)}</span>`;
+}
+const petArt = (p, cls = "pet-idle") => p.dead ? graveSvg() : (p.hatched ? petBody(p, cls) : eggSvg(p.hatchReady ? "egg-ready egg-glow" : "egg-idle", 0));
 
 // ---- reads: everything derives from the contract's storage maps -----------------------------------
 function petsFrom(sto) {
@@ -93,7 +100,8 @@ function petsFrom(sto) {
     const p = { id: pid, owner: ow[pid], bh: _m(sto, "bh")[pid] || 0, gs, sp: _m(sto, "sp")[pid] || 0,
       ap: _m(sto, "ap")[pid] || 0, pw: _m(sto, "pw")[pid] || 0, fu: _m(sto, "fu")[pid] || 0,
       tf: _m(sto, "tf")[pid] || 0, nm: _m(sto, "nm")[pid] || "", th: _m(sto, "th")[pid] || 0,
-      ti: _m(sto, "ti")[pid] || 0, tr: _m(sto, "tr")[pid] || 0, price: _m(sto, "mp")[pid] || 0 };
+      ti: _m(sto, "ti")[pid] || 0, tr: _m(sto, "tr")[pid] || 0, price: _m(sto, "mp")[pid] || 0,
+      wins: _m(sto, "wins")[pid] || 0, loss: _m(sto, "loss")[pid] || 0 };
     p.hatched = !!gs; p.gene = gs ? BigInt(gs) : null;
     p.dead = cur != null && cur > p.fu;
     p.mine = dapp.me && p.owner === dapp.me;
@@ -117,6 +125,9 @@ function battlesFrom(sto) {
   return out;
 }
 const myPets = () => Object.values(PETS).filter((p) => p.mine);
+// effective stats (base gene stat + trained bonus) — what the turn-based battle actually fights with
+const effOf = (p) => (p.base && p.bonus) ? p.base.map((b, i) => b + p.bonus[i]) : null;
+const recordOf = (p) => (p.wins || 0) + "W–" + (p.loss || 0) + "L";
 const lifeBlocks = (p) => dapp.cursor == null ? null : p.fu - dapp.cursor;
 const lifeText = (p) => { const b = lifeBlocks(p); if (b == null) return "…"; if (b <= 0) return "none";
   const d = Math.floor(b / BLOCKS_PER_DAY), h = Math.floor((b % BLOCKS_PER_DAY) * BLOCK_SECS / 3600);
@@ -263,10 +274,14 @@ function renderActive() {
     $("petStage").innerHTML = petArt(p);
   }
   $("petName").textContent = p.label + (p.dead ? " ✝" : "");
-  $("petSpecies").textContent = p.hatched ? sp.emoji + " " + sp.name + (p.nm ? " · #" + p.id : "") : "Unhatched egg";
+  const coat = p.gene ? G.coatOf(p.gene, p.sp) : null;
+  $("petSpecies").innerHTML = p.hatched
+    ? sp.emoji + " " + esc(coat.name) + " " + sp.name + (coat.shiny ? ' <span style="color:#ffd35a">✦ shiny</span>' : "") + (p.nm ? ' · <span class="dim">#' + p.id + "</span>" : "")
+    : "Unhatched egg";
   $("petOwner").innerHTML = esc(disp(p.owner)) + (p.mine ? ' <span class="b ok">yours</span>' : "");
-  $("petLp").textContent = p.hatched ? "Lv " + p.level + " · ⚡ " + p.pw : "—";
+  $("petLp").textContent = p.hatched ? "Lv " + p.level + " · ⚡ " + p.pw + " · " + recordOf(p) : "—";
   $("petUpkeep").textContent = p.hatched ? p.ap + " · " + rawToNado(G.feedCost(BLOCKS_PER_DAY, p.ap)) + " NADO/day" : "decided at hatch";
+  if ($("petGene")) { $("petGene").textContent = p.gs ? "0x" + p.gene.toString(16) : "—"; $("petGene").title = p.gs || ""; }
   // life bar
   const lb = lifeBlocks(p), pct = lb == null ? 0 : Math.max(0, Math.min(100, 100 * lb / G.BELLY_CAP));
   $("lifeBar").className = "bar" + (p.dead ? " crit" : lb < BLOCKS_PER_DAY / 6 ? " crit" : lb < BLOCKS_PER_DAY ? " low" : "");
@@ -428,12 +443,13 @@ function renderArena() {
   if (!b) { hint.textContent = dapp.whereIs("battle", activeBattle); return; }
   const pa = PETS[b.a], pb = PETS[b.b]; if (!pa || !pb) return;
   if (battlePlaying !== activeBattle) {           // (re)stage the fighters, idle
-    $("arenaL").innerHTML = pa.hatched ? PET_SVGS[pa.sp]("pet-idle") : eggSvg("egg-idle", 0);
-    $("arenaR").innerHTML = pb.hatched ? PET_SVGS[pb.sp]("pet-idle") : eggSvg("egg-idle", 0);
+    $("arenaL").innerHTML = pa.hatched ? petBody(pa, "pet-idle") : eggSvg("egg-idle", 0);
+    $("arenaR").innerHTML = pb.hatched ? petBody(pb, "pet-idle") : eggSvg("egg-idle", 0);
   }
   $("arenaLName").textContent = pa.label; $("arenaRName").textContent = pb.label;
-  $("arenaLPow").textContent = "⚡ " + pa.pw; $("arenaRPow").textContent = "⚡ " + pb.pw;
-  const res = b.wh ? G.battleOf(dapp.bh(b.wh), dapp.bh(b.wh + 1), Number(b.id), pa.pw, pb.pw) : null;
+  $("arenaLPow").textContent = "⚡ " + pa.pw + " · " + recordOf(pa); $("arenaRPow").textContent = "⚡ " + pb.pw + " · " + recordOf(pb);
+  const effA = effOf(pa), effB = effOf(pb);
+  const res = (b.wh && effA && effB) ? G.battleOf(dapp.bh(b.wh), dapp.bh(b.wh + 1), Number(b.id), effA, effB) : null;
   gate({ btnResolve: b.wn === 2 && !!res && !dapp.busy("resolveb", "bid", b.id),
          btnCancelBattle: b.wn === 1 && pa.mine,
          btnRefundBattle: b.wn === 2 && !res && dapp.cursor != null && dapp.cursor > b.wh + G.STALE });
@@ -452,21 +468,37 @@ function renderArena() {
 function playBattle(b, pa, pb, aWins, died, res) {
   if (battlePlaying === b.id) return;
   battlePlaying = b.id;
-  const L_ = $("arenaL"), R_ = $("arenaR"), V = $("arenaVerdict");
-  V.textContent = "⚔ FIGHT!";
-  const step = (el, cls, other) => { el.classList.remove("lungeL", "lungeR", "hitshake"); void el.offsetWidth; el.classList.add(cls); other.classList.add("hitshake"); setTimeout(() => other.classList.remove("hitshake"), 420); };
+  const L_ = $("arenaL"), R_ = $("arenaR"), V = $("arenaVerdict"), LOG = $("arenaLog");
+  const hpL = $("arenaLHP"), hpR = $("arenaRHP");
+  const step = (el, cls, other, hurt) => { el.classList.remove("lungeL", "lungeR", "hitshake"); void el.offsetWidth; el.classList.add(cls); if (hurt) { other.classList.add("hitshake"); setTimeout(() => other.classList.remove("hitshake"), 380); } };
+  // if we have the real turn log, play it out; otherwise fall back to a short flourish
+  const log = res && res.log ? res.log.filter((e) => e.dmg > 0 || e.hit) : null;
+  const hp0max = res ? res.hpA : 100, hp1max = res ? res.hpB : 100;
+  if (hpL) hpL.style.width = "100%"; if (hpR) hpR.style.width = "100%";
+  V.textContent = "⚔ FIGHT!"; if (LOG) LOG.textContent = "";
   let t = 300;
-  for (let k = 0; k < 3; k++) {
-    setTimeout(() => step(L_, "lungeL", R_), t); t += 650;
-    setTimeout(() => step(R_, "lungeR", L_), t); t += 650;
-  }
+  const turns = log && log.length ? log.slice(0, 14) : [{ atk: aWins ? 0 : 1, dmg: 1, hit: 1 }];
+  turns.forEach((e) => {
+    setTimeout(() => {
+      if (e.atk === 0) step(L_, "lungeL", R_, e.hit); else step(R_, "lungeR", L_, e.hit);
+      if (res) {
+        if (hpL) hpL.style.width = Math.max(0, 100 * e.h0 / hp0max) + "%";
+        if (hpR) hpR.style.width = Math.max(0, 100 * e.h1 / hp1max) + "%";
+      }
+      if (LOG) LOG.textContent = (e.atk === 0 ? pa.label : pb.label) + (e.hit ? " hits for " + e.dmg : " misses");
+    }, t);
+    t += 560;
+  });
   setTimeout(() => {
     const w = aWins ? L_ : R_, l = aWins ? R_ : L_;
     w.classList.add("winglow");
     if (died) l.innerHTML = graveSvg(); else l.classList.add("faint");
     const wp2 = aWins ? pa : pb, lp = aWins ? pb : pa;
-    V.innerHTML = "🏆 <b>" + esc(wp2.label) + "</b> wins" + (res ? " (" + res.scoreA + " vs " + res.scoreB + ")" : "") + (died ? " — ☠ <b>" + esc(lp.label) + "</b> did not survive" : " — " + esc(lp.label) + " lives to fight again");
-  }, t + 200);
+    if (LOG) LOG.textContent = "";
+    V.innerHTML = "🏆 <b>" + esc(wp2.label) + "</b> wins!" + (died
+      ? " ☠ <b>" + esc(lp.label) + "</b> fell in battle."
+      : " <b>" + esc(wp2.label) + "</b>'s owner claims <b>" + esc(lp.label) + "</b>.");
+  }, t + 300);
 }
 let hatchDone = {};
 function maybePlayHatch(p) {
@@ -482,15 +514,16 @@ function maybePlayHatch(p) {
   t += 3 * 450 + 250;
   setTimeout(() => { stage.innerHTML = eggSvg("", 4); }, t);          // shells fly
   setTimeout(() => {
-    stage.innerHTML = PET_SVGS[p.sp]("pet-idle pet-pop flash");
+    stage.innerHTML = petBody(p, "pet-idle pet-pop flash");
     for (let s = 0; s < 8; s++) {
       const sp = document.createElement("span"); sp.className = "spark"; sp.textContent = ["✨", "⭐", "💫"][s % 3];
       sp.style.setProperty("--dx", (Math.cos(s * 0.785) * 70) + "px"); sp.style.setProperty("--dy", (Math.sin(s * 0.785) * 70 - 20) + "px");
       stage.style.position = "relative"; sp.style.left = "50%"; sp.style.top = "45%"; stage.appendChild(sp);
       setTimeout(() => sp.remove(), 1100);
     }
-    const spc = G.SPECIES[p.sp];
-    alertBar("🎉 It's a " + spc.rarity.toUpperCase() + " — " + spc.emoji + " " + spc.name + "! Its 10 abilities are now locked into its genes. Name it, feed it, train it.");
+    const spc = G.SPECIES[p.sp], coat = G.coatOf(p.gene, p.sp);
+    alertBar("🎉 It's a " + spc.rarity.toUpperCase() + " — " + coat.name + " " + spc.emoji + " " + spc.name
+      + (coat.shiny ? " ✦ SHINY" : "") + "! Its coat, colour and 10 abilities are all written into its gene, locked forever. Name it, feed it, train it.");
   }, t + 600);
   setTimeout(() => { hatchPlaying = false; render(); }, t + 2400);
 }

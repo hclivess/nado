@@ -4,7 +4,7 @@
 import sys, json, random
 sys.path.insert(0, "/root/nado")
 from tests.pets_ref import (vm_hash, ref_gene, ref_species, ref_stat, ref_power,
-                            ref_train_roll, ref_train_ok, ref_battle)
+                            ref_train_roll, ref_train_ok, ref_battle, ref_battle_turns)
 
 rng = random.Random(20260710)
 hx = lambda v: format(v, "064x")
@@ -20,10 +20,10 @@ for k in range(120):
     roll = ref_train_roll(bh, 0, pid, i)
     trainings.append({"pid": pid, "i": i, "bh0": hx(h0), "bh1": hx(h1), "roll": roll,
                       "cur": cur, "sp": spp, "ok": ref_train_ok(roll, cur, spp)})
-    bid, pwa, pwb = rng.randrange(1, 10**9), rng.randrange(200, 900), rng.randrange(200, 900)
-    a_wins, dies = ref_battle(bh, 0, bid, pwa, pwb)
-    q = h0 + h1 + bid * 8
-    sa, sb = pwa * (75 + vm_hash(q + 1) % 100), pwb * (75 + vm_hash(q + 2) % 100)
-    battles.append({"bid": bid, "bh0": hx(h0), "bh1": hx(h1), "pwA": pwa, "pwB": pwb,
-                    "aWins": a_wins, "dies": dies, "scoreA": sa, "scoreB": sb})
+    bid = rng.randrange(1, 10**9)
+    effA = [rng.randrange(1, 120) for _ in range(10)]
+    effB = [rng.randrange(1, 120) for _ in range(10)]
+    a_wins, dies, bh0, bh1, _log = ref_battle_turns(bh, 0, bid, effA, effB)
+    battles.append({"bid": bid, "bh0": hx(h0), "bh1": hx(h1), "effA": effA, "effB": effB,
+                    "aWins": a_wins, "dies": dies, "hp0": bh0, "hp1": bh1})
 print(json.dumps({"hatches": hatches, "trainings": trainings, "battles": battles}))
