@@ -7,7 +7,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, canPay, alertBar, 
          wireWallet, renderWallet } from "./nadodapp.js";
 import { Chess } from "./chess-engine.js";
 
-const CID = "a17c85c704d18e5527fd833843c37295";
+const CID = "9984ce8c08cbd952c786b86754b05855";
 const dapp = new NadoDapp({ cid: CID, app: "Chess" });
 const LS_G = "nado_chess_games";
 const load = () => { try { return JSON.parse(localStorage.getItem(LS_G) || "{}"); } catch { return {}; } };

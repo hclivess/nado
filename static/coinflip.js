@@ -10,7 +10,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hois
          lsLoad, lsSave, wireWallet, renderWallet, renderScore, scoreBump, scoreSort, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
-const CID = "7ee95a0abd6e00d12edc3bf39f4c8f2d";
+const CID = "6db8ae21f5b280d411f47ef0581ff802";
 const dapp = new NadoDapp({ cid: CID, app: "Coin Flip" });
 const BLOCK_SECS = 6;
 

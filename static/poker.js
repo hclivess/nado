@@ -13,7 +13,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, commitHashOf, blake
          scoreBump, scoreSort, recentChips, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
-const CID = "25ca178d3d96db57a233af6012c38ce0";
+const CID = "07c7405a1299a6a6506ba9eae7bec0cf";
 const dapp = new NadoDapp({ cid: CID, app: "Hold'em" });
 const J = 20, S = 30, GRACE = 5, R = 60;          // MUST match the contract (tests/test_holdem_contract.py)
 

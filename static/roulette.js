@@ -12,7 +12,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hois
          recentChips, statusLabel, tablesOf as allTables, readTable,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
-const CID = "186ebadb975794e2ed7eeb1c7b5115a5";
+const CID = "447a2ed7efc770281cc20990cebb1e5f";
 const PN = 37, MAXSLOTS = 18, BLOCK_SECS = 6, ROUND = 20;   // ROUND must match the contract
 const dapp = new NadoDapp({ cid: CID, app: "Roulette" });
 const RED = new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);

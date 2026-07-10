@@ -8,7 +8,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate,
          recentChips, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
-const CID = "143db4a8ff9f01f95ad0b82a1e950e90";
+const CID = "05ea18398f08373343f49a4f51daf78c";
 const dapp = new NadoDapp({ cid: CID, app: "Farkle" });
 const ROUND_SECS = 6, CAP = 40;   // CAP must match the contract (execnode.vm / farkle_onchain)
 const THRESHOLDS = [300, 500, 750, 1000, 1500, 2000, 3000];
