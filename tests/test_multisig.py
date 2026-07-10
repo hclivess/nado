@@ -22,7 +22,7 @@ from ops.multisig_ops import (multisig_address, validate_descriptor, verify_mult
 from ops.account_ops import create_account, get_account, reflect_transaction
 from ops.transaction_ops import validate_transaction, create_txid
 from ops.key_ops import generate_keys
-from Curve25519 import sign, unhex
+from signatures import sign, unhex
 
 fails = 0
 def check(name, fn):

@@ -8,7 +8,7 @@ from .account_ops import get_bonded_registry, get_open_registry, fetch_totals
 from config import get_timestamp_seconds, get_config, hostport
 from .data_ops import average, get_home, is_hex_hash
 from hashing import blake2b_hash_link, blake2b_hash
-from Curve25519 import sign as _sign_message, verify as _verify_message, unhex as _unhex
+from signatures import sign as _sign_message, verify as _verify_message, unhex as _unhex
 from .address_ops import proof_sender, make_address
 from . import kv_ops
 from .mining_ops import (select_producer_two_lane, lane_of, epoch_of, compute_beacon,
@@ -829,7 +829,7 @@ def sign_block(block, private_key, public_key):
 def verify_block_signature(block) -> bool:
     """Verify the detached winner signature IF present. Absent -> True (optional; offline winner or a
     deterministically-rebuilt block). Present -> the signer's pubkey MUST hash to block_creator (only
-    the selected winner could sign) AND the ML-DSA signature must verify (Curve25519.verify()==True,
+    the selected winner could sign) AND the ML-DSA signature must verify (signatures.verify()==True,
     never equality). A present-but-invalid signature is a forgery/tamper signal and is REJECTED."""
     sig = block.get("block_signature")
     if not sig:

@@ -10,7 +10,7 @@ os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_h4_")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.state import ExecState
 from execnode.shielded import note_commitment, note_nullifier, owner_id, transfer_sighash, merkle_path
-from Curve25519 import generate_keydict, sign, unhex
+from signatures import generate_keydict, sign, unhex
 
 fails = 0
 def check(name, fn):

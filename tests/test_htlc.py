@@ -21,7 +21,7 @@ from protocol import HTLC_ESCROW, HTLC_MIN_TIMELOCK, MIN_TX_FEE
 from ops import kv_ops
 from ops.account_ops import create_account, get_account, reflect_transaction
 from ops.transaction_ops import validate_transaction, reserved_uniqueness_key
-from Curve25519 import generate_keydict, sign, unhex
+from signatures import generate_keydict, sign, unhex
 from ops.transaction_ops import create_txid
 from protocol import CHAIN_ID
 

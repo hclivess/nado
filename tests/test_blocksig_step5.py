@@ -10,7 +10,7 @@ os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_bsig_")
 os.environ["NADO_TESTNET"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from Curve25519 import generate_keydict
+from signatures import generate_keydict
 from ops.block_ops import construct_block, sign_block, verify_block_signature
 
 fails = 0

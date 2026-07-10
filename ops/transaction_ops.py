@@ -2,7 +2,7 @@ import asyncio
 import json
 
 
-from Curve25519 import sign, verify, unhex
+from signatures import sign, verify, unhex
 from ops.account_ops import get_account, reflect_transaction
 from ops.address_ops import proof_sender, make_address
 from ops.address_ops import validate_address

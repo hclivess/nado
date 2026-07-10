@@ -5,7 +5,7 @@
 import json, urllib.request, time, sys
 sys.path.insert(0, "/root/nado")
 from ops.key_ops import load_keys
-from Curve25519 import generate_keydict, sign, unhex
+from signatures import generate_keydict, sign, unhex
 from ops.transaction_ops import construct_blob_tx, construct_bridge_deposit_tx, create_txid
 from hashing import create_nonce
 from config import get_timestamp_seconds

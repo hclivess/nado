@@ -24,7 +24,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from hashing import blake2b_hash
-from Curve25519 import verify as mldsa_verify, unhex   # NADO's post-quantum ML-DSA-44 (module name is legacy)
+from signatures import verify as mldsa_verify, unhex   # NADO's post-quantum ML-DSA-44 (module name is legacy)
 
 SHIELD_DEPTH = 32                                  # Merkle depth -> up to 2**32 notes in the pool
 ANCHOR_WINDOW = 128                                # recent roots a proof may target (bounded so the anchor set

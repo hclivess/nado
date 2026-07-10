@@ -32,7 +32,7 @@ from loops.peer_loop import PeerClient
 from memserver import MemServer
 from ops.account_ops import get_account, fetch_totals, get_bonded_registry
 from ops.address_ops import proof_sender
-from Curve25519 import verify as _mldsa_verify, unhex as _mldsa_unhex
+from signatures import verify as _mldsa_verify, unhex as _mldsa_unhex
 from ops.mining_ops import total_shares
 from ops.block_ops import get_block, fee_over_blocks, get_block_number, SYNC_BATCH_MAX, SYNC_BATCH_BYTES
 from ops.data_ops import get_home, allow_async, get_byte_size

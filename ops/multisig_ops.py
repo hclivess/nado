@@ -32,7 +32,7 @@ Browser/CLI reproducibility: every step is canonical-JSON + blake2b (see hashing
 so a phone derives the identical address and txid.
 """
 
-from Curve25519 import verify, unhex
+from signatures import verify, unhex
 from hashing import blake2b_hash
 from ops.address_ops import make_address, validate_address
 from protocol import MULTISIG_MAX_MEMBERS
@@ -149,7 +149,7 @@ def add_member_signature(transaction, private_key):
     """Append one member's signature entry to a proposal (verifying the txid first, so a member can
     never be tricked into signing a body that doesn't match the id they're shown). Idempotent per
     member; raises if the key isn't a descriptor member. Returns (transaction, signatures_present)."""
-    from Curve25519 import sign, from_private_key
+    from signatures import sign, from_private_key
     from ops.transaction_ops import create_txid
     threshold, members = validate_descriptor(transaction["multisig"])
     body = {k: v for k, v in transaction.items() if k not in ("signature", "txid")}

@@ -21,7 +21,7 @@ from ops.account_ops import create_account, get_account, reflect_transaction
 from ops.transaction_ops import construct_alias_tx, validate_transaction, create_txid, create_nonce
 from ops.key_ops import generate_keys
 from config import get_timestamp_seconds
-from Curve25519 import sign, unhex
+from signatures import sign, unhex
 
 fails = 0
 def check(name, fn):

@@ -17,7 +17,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, REPO)
 sys.path.insert(0, HERE)
 from run_testnet import seed_node, node_ip, status, PORT        # noqa: E402
-from Curve25519 import generate_keydict                          # noqa: E402
+from signatures import generate_keydict                          # noqa: E402
 from protocol import B_MIN                                       # noqa: E402
 
 INTERVAL = 5           # NADO_SNAPSHOT_INTERVAL for the test

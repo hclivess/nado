@@ -25,7 +25,7 @@ from ops.account_ops import create_account, reflect_transaction
 from ops.transaction_ops import create_txid, validate_transaction
 from ops.block_ops import epoch_beacon
 from ops.mining_ops import beacon_commitment
-from Curve25519 import generate_keydict, sign, unhex
+from signatures import generate_keydict, sign, unhex
 from protocol import B_MIN, EPOCH_LENGTH, FINALITY_DEPTH, CHAIN_ID
 
 fails = 0

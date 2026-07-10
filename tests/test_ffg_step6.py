@@ -24,7 +24,7 @@ from ops.account_ops import create_account, get_account, reflect_transaction
 from ops.transaction_ops import create_txid, validate_transaction
 from ops.attestation_ops import checkpoint_justified, ffg_finalized_checkpoint
 from ops.account_ops import get_bonded_registry
-from Curve25519 import generate_keydict, sign, unhex
+from signatures import generate_keydict, sign, unhex
 from protocol import B_MIN, EPOCH_LENGTH, CHAIN_ID
 
 fails = 0

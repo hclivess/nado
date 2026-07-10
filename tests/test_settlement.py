@@ -106,7 +106,7 @@ def t7_namespace_isolation():
 def _resign(tx, kd):
     """Recompute txid + signature after mutating tx.data (so validation fails on the RULE, not the sig)."""
     from ops.transaction_ops import create_txid
-    from Curve25519 import sign, unhex
+    from signatures import sign, unhex
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=kd["private_key"], message=unhex(tx["txid"]))
     return tx

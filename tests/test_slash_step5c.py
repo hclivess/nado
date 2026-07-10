@@ -23,7 +23,7 @@ from ops import kv_ops
 from ops.account_ops import create_account, get_account, reflect_transaction
 from ops.transaction_ops import create_txid, validate_transaction
 from ops.block_ops import _block_sig_message_fields, verify_equivocation_proof
-from Curve25519 import generate_keydict, sign, unhex
+from signatures import generate_keydict, sign, unhex
 from protocol import B_MIN, SLASH_BOND_PENALTY, CHAIN_ID
 
 fails = 0

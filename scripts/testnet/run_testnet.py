@@ -26,7 +26,7 @@ import urllib.request
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO)
 from hashing import base64encode          # noqa: E402
-from Curve25519 import generate_keydict   # noqa: E402
+from signatures import generate_keydict   # noqa: E402
 from protocol import B_MIN                 # noqa: E402  (bond amount; NOT a literal — must be >= B_MIN)
 
 PORT = 9173

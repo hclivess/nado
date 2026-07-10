@@ -22,7 +22,7 @@ from ops import kv_ops
 from ops.account_ops import create_account, reflect_transaction
 from ops.transaction_ops import (reserved_uniqueness_key, dedupe_reserved, assert_unique_reserved,
                                  create_txid, validate_transaction)
-from Curve25519 import generate_keydict, sign, unhex
+from signatures import generate_keydict, sign, unhex
 from protocol import CHAIN_ID, EPOCH_LENGTH, B_MIN
 
 fails = 0

@@ -17,7 +17,7 @@ create_indexers()
 from ops import kv_ops
 from ops.account_ops import create_account, get_account, reflect_transaction
 from ops.transaction_ops import construct_msgkey_tx, create_txid
-from Curve25519 import generate_keydict
+from signatures import generate_keydict
 
 KEM1 = "aa" * 1184     # 2368 hex chars = a well-formed ML-KEM-768 pubkey length
 KEM2 = "bb" * 1184

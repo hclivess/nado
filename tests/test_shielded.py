@@ -12,7 +12,7 @@ import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.shielded import (ShieldedPool, note_commitment, note_nullifier, owner_id, transfer_sighash,
                                merkle_root, merkle_path, verify_path, apply_transfer, EMPTY_ROOT)
-from Curve25519 import generate_keydict, sign, unhex
+from signatures import generate_keydict, sign, unhex
 
 fails = 0
 def check(name, fn):

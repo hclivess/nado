@@ -3,7 +3,7 @@
 NADO Desktop Wallet — a professional, dark-themed PySide6 wallet for the NADO blockchain.
 
 Self-contained single-file GUI. It does NOT touch any consensus code: every txid,
-signature and proof-of-work is produced by the repo's own modules (Curve25519,
+signature and proof-of-work is produced by the repo's own modules (signatures,
 ops.transaction_ops, ops.mining_ops, ...), so the wallet can never desync from the
 chain by reimplementing crypto. All node I/O goes over plain HTTP via `requests`.
 
@@ -85,7 +85,7 @@ _install_repo_import_shim()
 # --- REUSED repo modules (crypto + tx building + constants — never reimplemented here) ----
 import protocol
 from config import get_timestamp_seconds
-from Curve25519 import generate_keydict, from_private_key, sign, verify, unhex  # noqa: F401
+from signatures import generate_keydict, from_private_key, sign, verify, unhex  # noqa: F401
 from ops.address_ops import make_address, validate_address
 from ops.key_ops import load_keys, generate_keys, save_keys
 from ops.mining_ops import (

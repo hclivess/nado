@@ -1,9 +1,8 @@
 """
-Curve25519.py — POST-QUANTUM signatures (ML-DSA-44, FIPS 204 / Dilithium).
+signatures.py — POST-QUANTUM signatures (ML-DSA-44, FIPS 204 / Dilithium).
 
-NOTE: the module NAME is kept only for import stability (transaction_ops, key_ops, the wallets and
-the testnet harness all do `from Curve25519 import ...`); the algorithm is now **ML-DSA-44**, NOT
-Curve25519/Ed25519.
+Renamed from the legacy signatures.py (2026-07): the algorithm is ML-DSA-44, never signatures/Ed25519,
+so the old name was a misnomer. Every `from signatures import ...` was updated to `from signatures import ...`.
 
 BACKENDS (perf — "native ML-DSA is the biggest verification speed-up"):
   * The DEFAULT backend is `dilithium-py` — a PURE-PYTHON implementation, so there is no native
@@ -40,10 +39,22 @@ import importlib
 import os
 import secrets
 import sys
+import threading
 
 from dilithium_py.ml_dsa import ML_DSA_44
 
 from ops.address_ops import make_address
+
+# THREAD-SAFETY (2026-07): the ML-DSA backend (pure-Python dilithium-py's shared ML_DSA_44 instance, and
+# equally a native lib over a shared context) does NOT hold up under concurrent calls — its polynomial
+# ring / NTT mutates MODULE-LEVEL buffers in place, and the GIL releases between bytecodes, so two threads
+# interleaving inside one sign/verify corrupt each other. The node verifies signatures on MANY threads at
+# once (the HTTP executor validating submitted/gossiped txs while the core loop validates a block), so under
+# load a VALID signature spuriously failed verify() ~1 in 5 -> "Invalid signature" 403 (measured: 541/960
+# concurrent verifies wrong; per-thread instances did NOT help -> the shared state is module-level).
+# Serialize every backend call with this lock. Under the GIL only one thread runs Python at a time anyway,
+# so this costs almost nothing in throughput — it only forbids the interleaving that was corrupting state.
+_CRYPTO_LOCK = threading.Lock()
 
 
 def unhex(hexed):
@@ -149,7 +160,7 @@ def _select_backend():
         return candidate
     sys.stderr.write(
         f"[PQ] native backend '{mod_name}' FAILED interop self-test (likely ctx-wrapping mismatch); "
-        f"refusing it and using pure-Python — see Curve25519.py INTEROP TRAP\n")
+        f"refusing it and using pure-Python — see signatures.py INTEROP TRAP\n")
     return _PurePyBackend()
 
 
@@ -158,8 +169,11 @@ _BACKEND = _select_backend()
 
 def _keypair_from_seed(seed: bytes):
     """Deterministic ML-DSA keygen from a 32-byte seed (FIPS 204 KeyGen_internal). Returns
-    (public_key_bytes, secret_key_bytes)."""
-    return _BACKEND.keygen_internal(seed)
+    (public_key_bytes, secret_key_bytes). Locked too: keygen shares the same module-level NTT buffers as
+    sign/verify, so a concurrent keygen (e.g. a wallet import while the node validates a block) would
+    otherwise corrupt an in-flight verification just the same."""
+    with _CRYPTO_LOCK:
+        return _BACKEND.keygen_internal(seed)
 
 
 def sign(private_key, message):
@@ -174,7 +188,8 @@ def sign(private_key, message):
     # default, CROSS-VALIDATED both ways (node sig -> noble verify == true, noble sig -> node verify
     # == true). The signature is hedged/randomized and need NOT be byte-reproducible across impls
     # (consensus checks verify()==True, never sig equality).
-    return _BACKEND.sign_internal(secret, message, secrets.token_bytes(32)).hex()
+    with _CRYPTO_LOCK:                     # backend is not concurrency-safe (shared NTT buffers)
+        return _BACKEND.sign_internal(secret, message, secrets.token_bytes(32)).hex()
 
 
 def verify(signed, public_key, message):
@@ -187,7 +202,8 @@ def verify(signed, public_key, message):
     # `if verify(...)`, and a raising verify could turn a rejection into an unhandled error or be
     # mis-refactored into a silent accept. INTERNAL verify to match the signer above + the browser.
     try:
-        return _BACKEND.verify_internal(unhex(public_key), message, unhex(signed))
+        with _CRYPTO_LOCK:                # backend is not concurrency-safe (shared NTT buffers) — see top
+            return _BACKEND.verify_internal(unhex(public_key), message, unhex(signed))
     except Exception:
         return False
 

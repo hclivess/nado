@@ -1,7 +1,7 @@
 import json
 import os
 
-from Curve25519 import generate_keydict
+from signatures import generate_keydict
 from .data_ops import get_home
 
 

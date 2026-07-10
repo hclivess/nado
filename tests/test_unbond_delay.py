@@ -22,7 +22,7 @@ create_indexers()
 from ops import kv_ops
 from ops.account_ops import create_account, get_account, reflect_transaction
 from ops.transaction_ops import create_txid, validate_transaction
-from Curve25519 import generate_keydict, sign, unhex
+from signatures import generate_keydict, sign, unhex
 from protocol import B_MIN, BOND_UNLOCK_DELAY, CHAIN_ID
 
 fails = 0

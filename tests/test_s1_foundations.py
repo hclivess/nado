@@ -9,7 +9,7 @@ logger = logging.getLogger("s1"); logger.addHandler(logging.NullHandler())
 
 from hashing import blake2b_hash, blake2b_hash_link, canonical_bytes
 from protocol import CHAIN_ID, MIN_TX_FEE
-from Curve25519 import generate_keydict
+from signatures import generate_keydict
 from ops.address_ops import make_address, validate_address
 from ops.transaction_ops import (create_txid, draft_transaction, create_transaction,
                                   validate_transaction, validate_txid)

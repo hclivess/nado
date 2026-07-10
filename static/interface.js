@@ -2072,7 +2072,7 @@ function adoptWallet(w, { needsSavePrompt }) {
 
 /* ----------------------------------------------------------------------------------------------
  * In-page self-test — proves byte-for-byte compatibility with the node's Python.
- * Vectors generated from the live repo (hashing.py / ops/*.py / Curve25519.py).
+ * Vectors generated from the live repo (hashing.py / ops/*.py / signatures.py).
  * -------------------------------------------------------------------------------------------- */
 const VEC = {
   hash_register_list: "8e90f8e4078206d119476611e907e6a829585d2f8393856ca461a26959067a65",

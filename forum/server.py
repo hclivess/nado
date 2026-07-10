@@ -5,7 +5,7 @@ Identity IS your NADO wallet: you sign a one-time challenge with your post-quant
 interface, SSO handoff) and your `ndo…` address is your account. No passwords, no email. Posting is gated to
 REGISTERED on-chain addresses, so spam costs the same sequential PoW the chain already requires.
 
-Stack: aiohttp + SQLite (WAL). Reuses the node's own crypto (Curve25519 / ml-dsa, ops.address_ops,
+Stack: aiohttp + SQLite (WAL). Reuses the node's own crypto (signatures / ml-dsa, ops.address_ops,
 hashing). Runs as its own systemd service behind nginx on forum.nadochain.com.
 
 Security hardening (post adversarial review): browser-bound login challenge (login-CSRF), mod-board reply
@@ -25,7 +25,7 @@ import sqlite3
 import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from Curve25519 import verify as mldsa_verify, unhex
+from signatures import verify as mldsa_verify, unhex
 from ops.address_ops import proof_sender, validate_address
 from hashing import blake2b_hash
 

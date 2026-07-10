@@ -16,7 +16,7 @@ Design (from the red-teamed "Option A" hybrid):
     grindable parent_block_hash seed — audit M6 — is abandoned) and a single withholder gets at
     most one bit of influence (and is penalised at the integration layer). Entry (bond) must be
     committed BEFORE the epoch beacon is revealed, which also kills just-in-time bond grinding.
-  - An Ed25519 signature is NEVER used as the randomness (Curve25519.verify accepts non-unique
+  - An Ed25519 signature is NEVER used as the randomness (signatures.verify accepts non-unique
     (R,S) and would be grindable); signing stays only for authenticating heartbeats/reveals.
 """
 from hashing import blake2b_hash

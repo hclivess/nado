@@ -21,7 +21,7 @@ create_indexers()
 from ops import kv_ops
 from ops.account_ops import create_account, get_account
 from ops.transaction_ops import index_transactions, unindex_transactions, create_txid
-from Curve25519 import generate_keydict
+from signatures import generate_keydict
 from protocol import CHAIN_ID
 
 fails = 0
