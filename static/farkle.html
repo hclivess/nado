@@ -64,12 +64,18 @@
   header .hub:hover{color:var(--accent2);border-color:var(--accent2)}
   footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
   a{color:var(--accent2)}
+  .turnhdr{font-size:15px;font-weight:700;text-align:center}
+  .sc{color:var(--accent2,#00c9a7)}.farkle{color:var(--danger,#f85149);font-weight:800;text-align:center;font-size:15px}
+  .dicerow{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:12px 0}
+  .die{font-size:46px;line-height:1;cursor:pointer;user-select:none;filter:grayscale(.15);transition:transform .07s}
+  .die:active{transform:scale(.92)}
+  .die.kept{color:var(--accent2,#00c9a7);filter:none;text-shadow:0 0 10px rgba(0,201,167,.6)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header><span class="logo">🎲</span><h1>NADO <span class="a">Farkle</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
-  <p class="sub">The push-your-luck dice classic (Ten Thousand), <b>multiplayer, winner takes the pot</b>. Ante in and set how far you dare to push; at the settle block the chain <b>auto-plays your whole turn</b> from a future L1 block hash nobody can predict — set aside 1s, 5s and three-of-a-kinds, but a scoreless roll <b>farkles</b> the lot. Highest banked score takes the pot. Objective, no secrets, post-quantum.</p>
+  <p class="sub">The push-your-luck dice classic (Ten Thousand), <b>multiplayer, winner takes the pot</b>. Ante in, then it's a real turn: <b>roll</b>, set aside the scoring dice, and choose to <b>bank</b> or push your luck — a scoreless roll <b>farkles</b> your turn to zero. Every roll's dice come from a <b>future block hash</b> nobody can predict, so it's objective and unriggable. Highest banked score takes the pot.</p>
 
   <div id="status"></div>
 
@@ -84,11 +90,8 @@
 
   <!-- OPEN / STRATEGY -->
   <div class="card hidden" id="opencard">
-    <h2>🎲 Your greed — how far do you push?</h2>
-    <div class="thrbox">chase <b id="thrVal">750</b> points before banking</div>
-    <input type="range" id="thr" min="0" max="6" value="3">
-    <div id="thrHint"></div>
-    <p class="small dim mt">Lower = play it safe (bank early, rarely farkle). Higher = chase a big score (but farkle more). Your whole turn is auto-played with this strategy from the chain's dice — the same for everyone, nobody can rig it.</p>
+    <h2>Open a Farkle table</h2>
+    <p class="small dim mt">Everyone antes into the pot to take a seat. When joining closes, each player takes their own turn — roll, set aside scoring dice, bank or bust. Highest banked score when the play window ends wins the whole pot.</p>
     <label class="mt">Open a new table with an ante</label>
     <div class="row">
       <input id="anteAmt" placeholder="ante (NADO)" inputmode="decimal" autocomplete="off">
@@ -139,7 +142,7 @@
     <div class="kv"><span class="k">Status</span><span class="mono" id="gStatus">…</span></div>
     <div class="kv"><span class="k">Pot</span><span class="mono" id="gPot">—</span></div>
     <div class="kv"><span class="k">Ante</span><span class="mono" id="gAnte">—</span></div>
-    <div class="row mt"><button class="primary" id="btnJoin">Join this table (chase <span id="thrJoin"></span>)</button></div>
+    <div class="row mt"><button class="primary" id="btnJoin">Join this table</button></div>
     <div class="mt small dim">Players</div>
     <div id="seats"></div>
     <div class="row mt" id="myActions"></div>
@@ -147,6 +150,7 @@
       <button class="primary hidden" id="btnReopen">🔄 Re-open — try again</button>
       <button class="primary hidden" id="btnSettle">🏆 Pay the winner</button>
       <button class="ghost hidden" id="btnReclaim">Reclaim the pot (all farkled)</button>
+      <button class="ghost hidden" id="btnCancel">Cancel — refund the ante</button>
     </div>
     <label class="mt">Invite players</label>
     <input id="shareLink" class="mono" readonly onclick="this.select()">
@@ -161,7 +165,7 @@
   <div class="card">
     <h2>Provably fair — the chain rolls, not the house</h2>
     <p class="small dim" style="line-height:1.6">
-      When you join, you lock in one number: your greed threshold. At the table's settle block your entire turn is auto-played from <span class="mono">HASH(blockhash(H) ‖ blockhash(H+1) ‖ seat)</span> — die #k = <span class="mono">HASH(seed+k) mod 6 + 1</span> — and the contract scores it exactly (1s = 100, 5s = 50, three-of-a-kind and up, straight = 1500; a scoreless roll farkles). Those block hashes don't exist when you ante, so nobody — no player, no host, no producer — can know or steer the dice. Once the block is finalized anyone can roll out any seat; the highest banked score takes the whole pot. If everyone farkles, the host reclaims.
+      Every roll you make binds to a FUTURE block: die #k = <span class="mono">HASH(blockhash(H) ‖ blockhash(H+1) ‖ seat·1000 + nonce·10 + k) mod 6 + 1</span>. Those block hashes don't exist when you tap Roll, so nobody — no player, no host, no producer — can know or steer your dice. The CONTRACT validates the dice you set aside actually score (1s = 100, 5s = 50, three-of-a-kind and up, straight = 1500) and tracks your banked total; a scoreless roll busts the turn. Highest banked score when the play window closes takes the pot; if everyone farkles, the host reclaims. Your browser replays the exact same dice from the block hash, so what you see is what the chain computes.
     </p>
   </div>
 
