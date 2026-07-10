@@ -53,13 +53,16 @@ _BINOPS = {"ADD", "SUB", "MUL", "DIV", "MOD", "LT", "GT", "EQ", "GTE", "LTE", "A
 # betting is open, nobody has to "spin", and every node computes the same outcome. Reverts if the height is in
 # the future (> cursor) or older than the exec node retains, so a game can only read a hash fixed AFTER bets close.
 _KNOWN = _BINOPS | {"PUSH", "POP", "DUP", "SWAP", "NOT", "HASH", "CALLER", "ARG",
-                    "MLOAD", "MSTORE", "REQUIRE", "RETURN", "HALT", "VALUE", "PAY", "CURSOR", "BEACON", "BLOCKHASH"}
+                    "MLOAD", "MSTORE", "REQUIRE", "RETURN", "HALT", "VALUE", "PAY", "CURSOR", "BEACON", "BLOCKHASH",
+                    "JUMP", "JUMPI"}
 _MAX_PAYOUTS = 16          # bound the payouts one call can schedule (anti-abuse; a flip settles to ONE winner)
 
 
 def _hash_value(v):
     """Deterministic blake2b of a canonical encoding of `v` -> 256-bit int (commit-reveal primitive)."""
     return int.from_bytes(hashlib.blake2b(_json.dumps(v, sort_keys=True).encode(), digest_size=32).digest(), "big")
+
+
 
 
 def validate_code(code):
@@ -121,11 +124,14 @@ def run(code, method, caller, args, storage, value=0, cursor=0, beacons=None, bl
     stack = []
     payouts = []
     gas = 0
+    prog = code[method]
+    pc = 0
     try:
-        for ins in code[method]:
-            gas += 1
+        while pc < len(prog):
+            gas += 1                          # every executed instruction costs gas, so any loop halts at GAS_LIMIT
             if gas > GAS_LIMIT:
                 raise VMOutOfGas("gas limit exceeded")
+            ins = prog[pc]
             op = ins[0]
             if op == "PUSH":
                 stack.append(_bound(ins[1]))
@@ -156,6 +162,21 @@ def run(code, method, caller, args, storage, value=0, cursor=0, beacons=None, bl
                 if hv is None:                       # future height, or older than the exec node retains -> revert
                     raise VMRevert("block hash for height not available")
                 stack.append(_int(hv))
+            elif op == "JUMP":                       # generic control flow: pop a RELATIVE offset, pc += offset.
+                t = pc + _int(stack.pop())           # relative so a code block composes wherever it's embedded
+                if not (0 <= t < len(prog)):
+                    raise VMRevert("jump target out of range")
+                pc = t
+                continue                             # skip the pc += 1 below
+            elif op == "JUMPI":                      # pop offset, then cond; pc += offset iff cond != 0 (else fall through)
+                d = _int(stack.pop())
+                cond = stack.pop()
+                if cond:
+                    t = pc + d
+                    if not (0 <= t < len(prog)):
+                        raise VMRevert("jump target out of range")
+                    pc = t
+                    continue
             elif op == "PAY":
                 amount = _int(stack.pop())
                 to = stack.pop()
@@ -223,6 +244,7 @@ def run(code, method, caller, args, storage, value=0, cursor=0, beacons=None, bl
                 return (True, stack.pop() if stack else None, st, payouts)
             elif op == "HALT":
                 return (True, None, st, payouts)
+            pc += 1                                  # advance (JUMP/JUMPI `continue` past this to keep their target)
         return (True, None, st, payouts)
     except (VMRevert, VMOutOfGas, IndexError, KeyError, ValueError, TypeError):
         return (False, None, storage, [])

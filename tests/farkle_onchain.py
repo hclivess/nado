@@ -47,6 +47,10 @@ sys.path.insert(0, "/root/nado")
 from execnode.state import ExecState
 from execnode.vm import GAS_LIMIT
 
+CAP = 40   # max rolls per turn. The bytecode now LOOPS (JUMP) instead of unrolling, so the deploy blob is tiny
+           # regardless of CAP; 40 is generous (turns essentially never exceed ~25). Reference + bytecode share it.
+JUMPI = [["JUMPI"]]
+
 # ── the shared HASH (byte-identical to execnode.vm._hash_value) ─────────────────────────────────────────
 def vm_hash(v):
     return int.from_bytes(hashlib.blake2b(json.dumps(v, sort_keys=True).encode(), digest_size=32).digest(), "big")
@@ -84,7 +88,7 @@ def score_roll(dice):
 def farkle_ref(seed, thr):
     """Reference banked score for a whole auto-play turn (greed threshold `thr`), capped at 40 rolls."""
     remaining, total, k, banked = 6, 0, 0, 0
-    for _ in range(40):
+    for _ in range(CAP):
         dice = [die(seed, k + i) for i in range(remaining)]
         k += remaining
         score, scnt, allsc = score_roll(dice)
@@ -200,12 +204,15 @@ def score_ops(seed_expr, thr_expr, out_prefix, gid_expr=None):
         return ops
 
     prog = []
-    # initialise carried turn state (fixed keys) — MSTORE 0 deletes -> reads back as 0
-    prog += STR("d", P(0)) + STR("t", P(0)) + STR("k", P(0)) + STR("b", P(0)) + STR("r", P(6))
-    for _ in range(40):
-        prog += roll_ops()
-    # write banked score to out_prefix[gid]
-    prog += gid_expr + LDR("b") + STm(out_prefix)
+    # initialise carried turn state (fixed keys) — MSTORE 0 deletes -> reads back as 0. i = loop counter.
+    prog += STR("d", P(0)) + STR("t", P(0)) + STR("k", P(0)) + STR("b", P(0)) + STR("r", P(6)) + STR("i", P(CAP))
+    Ltop = len(prog)                                       # top of the roll loop (LOCAL index)
+    prog += roll_ops()                                     # ONE roll (LOOPED via JUMP, not unrolled CAP times)
+    prog += STR("i", LDR("i") + P(1) + SUB)                # i -= 1
+    prog += LDR("i") + P(0) + GT + LDR("d") + NOT + AND    # cond = (i > 0) AND (not done)
+    j_at = len(prog) + 1                                   # the JUMPI sits right after the PUSH(offset) below
+    prog += P(Ltop - j_at) + JUMPI                         # RELATIVE offset back to Ltop (composes when embedded)
+    prog += gid_expr + LDR("b") + STm(out_prefix)          # write banked score to out_prefix[gid]
     return prog
 
 # ── DIFFERENTIAL TEST ───────────────────────────────────────────────────────────────────────────────────
