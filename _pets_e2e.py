@@ -96,7 +96,7 @@ if exbal(B["address"]) < 12 * NADO:
 # 2) mint both eggs
 call(A, "mint", [PA], MINT_FEE); call(B, "mint", [PB], MINT_FEE)
 wait(lambda: M("ow", PA) == A["address"] and M("ow", PB) == B["address"], "both eggs minted (NFT records on-chain)")
-ck("mint set gene block + 3-day belly", M("bh", PA) > 0 and M("fu", PA) == M("bh", PA) + 43200)
+ck("mint set gene block + 30-day belly", M("bh", PA) > 0 and M("fu", PA) == M("bh", PA) + 432000)
 
 # 3) hatch once the gene blocks are finalized
 for P, K in ((PA, A), (PB, B)):
@@ -112,9 +112,9 @@ for P in (PA, PB):
 
 # 4) feed + name
 apA, fu0 = M("ap", PA), M("fu", PA)
-meal = apA * 14000 * 1000
+meal = apA * 1400 * 1000
 call(A, "feed", [PA], meal)
-wait(lambda: M("fu", PA) == fu0 + 1000, "feeding extended life by exactly value/(appetite*14000) blocks")
+wait(lambda: M("fu", PA) == fu0 + 1000, "feeding extended life by exactly value/(appetite*1400) blocks")
 call(A, "name", [PA, "Zappy"])
 wait(lambda: M("nm", PA) == "Zappy", "named the pet on-chain")
 

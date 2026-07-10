@@ -6,8 +6,9 @@
 // contract (execnode/contracts/pets.json); this file is reads + UI + the wallet-signed calls.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, blocksToTime,
          lsLoad, lsSave, wireWallet, renderWallet, statusLabel,
-         loadQR, resolveAliases, disp, shareInvite } from "./nadodapp.js";
+         loadQR, drawQR, resolveAliases, disp, shareInvite } from "./nadodapp.js";
 import * as G from "./pets-genes.js";
+import { loadCrypto } from "./nadotx.js";
 
 const CID = "a5099d7f767cfe8e84855a7cb64994cb";   // execnode/contracts/pets.json, deployed by the node key
 const dapp = new NadoDapp({ cid: CID, app: "Pets" });
@@ -17,10 +18,434 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 
 let active = null, activeBattle = null;
 let PETS = {}, BATTLES = {}, OFFERS = {}, hatchPlaying = false, battlePlaying = null;
+let stMsgPhase = null;   // phase of the optimistic status line, so it can be cleared once it lands
 
-// ---- SVG art (one <g> per animated part; CSS in pets.html does the moving) ------------------------
+// ---- SVG art -----------------------------------------------------------------------------------------
+// One drawing function per body ARCHETYPE; the 100-animal roster (pets-genes.js) picks an archetype, a
+// palette and variant flags `v`. Every moving part sits in its own <g class="…"> — the CSS in pets.html
+// animates transform/opacity only (GPU-cheap) with transform-box:fill-box, so origins are geometry-proof.
+const INK = "#20242a", BEAKC = "#f2a03b", BEAKL = "#a86a10";
+function pomPath(cx, cy, r, n = 8) {
+  const pts = [];
+  for (let k = 0; k < n; k++) { const a = (-90 + 360 * k / n) * Math.PI / 180; pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]); }
+  const ar = (r * Math.sin(Math.PI / n) * 1.35).toFixed(1);   // bump radius > half-chord => each arc bulges out
+  let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+  for (let k = 1; k <= n; k++) { const [x, y] = pts[k % n]; d += `A${ar} ${ar} 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)}`; }
+  return d + "Z";
+}
+const pom = (cx, cy, r, fill, line, n = 8, w = 2) => `<path d="${pomPath(cx, cy, r, n)}" fill="${fill}" stroke="${line}" stroke-width="${w}" stroke-linejoin="round"/>`;
+// FIERCE: challenger-card mode — the same faces render angry (slanted brows, narrowed eyes, a frown).
+// Set around a single render, never during normal play.
+let FIERCE = 0;
+const brow = (x, y, r, col, dir) => `<path d="M${(x - dir * (r + 2.4)).toFixed(1)} ${(y - r - 3.6).toFixed(1)} L${(x + dir * (r + 1.2)).toFixed(1)} ${(y - r - 0.4).toFixed(1)}" stroke="${col}" stroke-width="2.3" stroke-linecap="round"/>`;
+const eyes2 = (x1, x2, y, r = 2.6, col = INK) => `<g class="blink">${[[x1, 1], [x2, -1]].map(([x, dir]) =>
+  (FIERCE ? `<ellipse cx="${x}" cy="${y}" rx="${r}" ry="${(r * .72).toFixed(2)}" fill="${col}"/>` + brow(x, y, r, col, dir)
+          : `<circle cx="${x}" cy="${y}" r="${r}" fill="${col}"/>`)
+  + `<circle cx="${(x + r * .38).toFixed(1)}" cy="${(y - r * .38).toFixed(1)}" r="${(r * .34).toFixed(2)}" fill="#fff" opacity=".9"/>`).join("")}</g>`;
+const eye1 = (x, y, r = 3, col = INK) => `<g class="blink">${FIERCE
+  ? `<ellipse cx="${x}" cy="${y}" rx="${r}" ry="${(r * .72).toFixed(2)}" fill="${col}"/>` + brow(x, y, r, col, 1)
+  : `<circle cx="${x}" cy="${y}" r="${r}" fill="${col}"/>`}<circle cx="${(x + r * .38).toFixed(1)}" cy="${(y - r * .38).toFixed(1)}" r="${(r * .34).toFixed(2)}" fill="#fff" opacity=".9"/></g>`;
+// eyes must contrast the coat: dark-bodied animals (black cat, crow, gorilla…) get pale eyes
+const lum = (hex) => { const n = parseInt(hex.slice(1), 16); return ((n >> 16) * 3 + ((n >> 8) & 255) * 6 + (n & 255)) / 2550; };
+const eyeCol = (c) => lum(c.body) < 0.32 ? "#e9edf2" : INK;
+const smilew = (x, y, w2 = 3.4, col = INK) => FIERCE
+  ? `<path d="M${x - w2} ${y + 3.2} Q${x} ${y - 1.4} ${x + w2} ${y + 3.2}" stroke="${col}" stroke-width="1.7" fill="none" stroke-linecap="round"/>`
+  : `<path d="M${x} ${y} q0 ${w2} -${w2} ${w2 + 1} M${x} ${y} q0 ${w2} ${w2} ${w2 + 1}" stroke="${col}" stroke-width="1.5" fill="none" stroke-linecap="round"/>`;
+// tube(): an outlined "sausage" stroke — the line color first, the fill color over it (tails, arms, coils)
+const tube = (d, fill, line, w = 6) => `<path d="${d}" fill="none" stroke="${line}" stroke-width="${w + 3}" stroke-linecap="round"/><path d="${d}" fill="none" stroke="${fill}" stroke-width="${w}" stroke-linecap="round"/>`;
+const MIRROR = (inner) => `<g transform="translate(120 0) scale(-1 1)">${inner}</g>`;   // mirror around x=60
+
+function poodleArt(c) {
+  const leg = (x) => `<rect x="${x}" y="88" width="7.5" height="16" rx="3.6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`;
+  return `<g class="tail-wag"><path d="M36 78 Q28 70 25 61" stroke="${c.line}" stroke-width="3" fill="none" stroke-linecap="round"/>${pom(23, 55, 8, c.shade, c.line, 7)}</g>
+    ${leg(46)}${leg(64)}${pom(49.8, 99.5, 5.4, c.shade, c.line, 6)}${pom(67.8, 99.5, 5.4, c.shade, c.line, 6)}
+    <g class="breathe">${pom(42, 84, 15, c.shade, c.line, 9)}${pom(58, 82, 19, c.body, c.line, 10)}</g>
+    <rect x="70" y="56" width="10" height="20" rx="5" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
+    <g class="head-tilt">${pom(63, 50, 8.5, c.shade, c.line, 7)}${pom(97, 50, 8.5, c.shade, c.line, 7)}
+      <circle cx="80" cy="44" r="14.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
+      ${pom(80, 25.5, 10.5, c.body, c.line, 8)}
+      <ellipse cx="80" cy="52.5" rx="7.5" ry="5.5" fill="${c.body}" stroke="${c.line}" stroke-width="1.6"/>
+      <ellipse cx="80" cy="50.6" rx="3.1" ry="2.3" fill="${eyeCol(c)}"/>${smilew(80, 53.2, 3.4, eyeCol(c))}${eyes2(73.5, 86.5, 42.5, 2.5, eyeCol(c))}</g>`;
+}
+function quadArt(c, v) {
+  const chub = v.chubby ? 3 : 0, W = [], H = [];
+  // ears (drawn behind the head)
+  if (v.ears === "point") H.push(`<path d="M68 40 L62 22 L78 32 Z M92 40 L98 22 L82 32 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/><path d="M68 36 L65 27 L73 32 Z M92 36 L95 27 L87 32 Z" fill="${c.shade}"/>`);
+  if (v.ears === "floppy") H.push(`<ellipse cx="66" cy="47" rx="6.2" ry="11.5" fill="${c.shade}" stroke="${c.line}" stroke-width="2" transform="rotate(14 66 47)"/><ellipse cx="94" cy="47" rx="6.2" ry="11.5" fill="${c.shade}" stroke="${c.line}" stroke-width="2" transform="rotate(-14 94 47)"/>`);
+  if (v.ears === "round") H.push(`<circle cx="67" cy="33" r="7.5" fill="${v.panda ? c.line : c.body}" stroke="${c.line}" stroke-width="2"/><circle cx="93" cy="33" r="7.5" fill="${v.panda ? c.line : c.body}" stroke="${c.line}" stroke-width="2"/>${v.panda ? "" : `<circle cx="67" cy="33" r="4" fill="${c.shade}"/><circle cx="93" cy="33" r="4" fill="${c.shade}"/>`}`);
+  if (v.ears === "tall") H.push(`<ellipse cx="72" cy="21" rx="5.6" ry="15" fill="${c.body}" stroke="${c.line}" stroke-width="2" transform="rotate(-7 72 21)"/><ellipse cx="88" cy="21" rx="5.6" ry="15" fill="${c.body}" stroke="${c.line}" stroke-width="2" transform="rotate(7 88 21)"/><ellipse cx="72" cy="23" rx="2.6" ry="10" fill="${c.shade}" transform="rotate(-7 72 23)"/><ellipse cx="88" cy="23" rx="2.6" ry="10" fill="${c.shade}" transform="rotate(7 88 23)"/>`);
+  if (v.horns) H.push(`<path d="M70 34 C66 26 68 20 75 19 C71 24 72 29 74 33 Z M90 34 C94 26 92 20 85 19 C89 24 88 29 86 33 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/>`);
+  if (v.mane) H.push(`<path d="M80 14 C64 14 58 30 60 44 L70 40 C68 28 73 20 80 20 C87 20 92 28 90 40 L100 44 C102 30 96 14 80 14 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>`);
+  if (v.horn) H.push(`<path d="M80 8 L76.5 30 L83.5 30 Z" fill="#f2c94c" stroke="#b58a1a" stroke-width="1.6"/><path d="M77.6 24 l5 -1.6 M78.4 18.5 l4 -1.4 M79.2 13.5 l2.6 -1" stroke="#b58a1a" stroke-width="1.2"/>`);
+  // head + face
+  H.push(`<circle cx="80" cy="46" r="15" fill="${v.wool ? c.shade : c.body}" stroke="${c.line}" stroke-width="2.5"/>`);
+  if (v.wool) H.push(pom(80, 30, 10, c.body, c.line, 8));
+  if (v.panda) H.push(`<ellipse cx="73.5" cy="45" rx="4.6" ry="6" fill="${c.line}" transform="rotate(-14 73.5 45)"/><ellipse cx="86.5" cy="45" rx="4.6" ry="6" fill="${c.line}" transform="rotate(14 86.5 45)"/>`);
+  if (v.mask) H.push(`<path d="M66 41 Q80 35 94 41 L92 49 Q80 43 68 49 Z" fill="${c.line}" opacity=".85"/>`);
+  if (v.patch) H.push(`<circle cx="87" cy="44" r="6" fill="${c.shade}" opacity=".9"/>`);
+  const eyeY = v.panda || v.mask ? 45.5 : 44;
+  H.push(eyes2(74, 86, eyeY, 2.5, v.panda || v.mask ? "#f5f3ee" : eyeCol(c)));
+  if (v.snout) H.push(`<ellipse cx="80" cy="55" rx="7" ry="5.2" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8"/><circle cx="77.4" cy="55" r="1.2" fill="${INK}"/><circle cx="82.6" cy="55" r="1.2" fill="${INK}"/>`);
+  else if (v.bignose) H.push(`<ellipse cx="80" cy="52.5" rx="4.6" ry="6" fill="${INK}"/>${smilew(80, 58, 2.6)}`);
+  else H.push(`<ellipse cx="80" cy="52.8" rx="6.8" ry="5" fill="${v.wool || v.panda ? c.body : c.shade}" opacity=".55"/><ellipse cx="80" cy="51" rx="2.9" ry="2.2" fill="${eyeCol(c)}"/>${smilew(80, 53.4, 3.4, eyeCol(c))}`);
+  if (v.teeth) H.push(`<rect x="77.4" y="56.5" width="2.4" height="3.6" rx="0.8" fill="#fff" stroke="${c.line}" stroke-width="0.8"/><rect x="80.2" y="56.5" width="2.4" height="3.6" rx="0.8" fill="#fff" stroke="${c.line}" stroke-width="0.8"/>`);
+  if (v.whiskers) H.push(`<path d="M70 51 h-9 M70.5 54 l-8.5 2.5 M89.5 51 h9 M89 54 l8.5 2.5" stroke="${INK}" stroke-width="1.1" opacity=".7"/>`);
+  if (v.beard) H.push(`<path d="M76 58 Q80 68 84 58 Q82 64 80 65 Q78 64 76 58 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4"/>`);
+  // tail
+  const T = { curl: tube("M30 82 Q18 78 20 66 Q21 58 29 58", c.body, c.line, 5),
+    thin: `${tube("M30 86 Q16 88 12 78", c.body, c.line, 3)}<circle cx="12" cy="77" r="2.6" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4"/>`,
+    fluff: `<path d="M34 80 C16 86 8 70 15 56 C21 63 30 68 36 74 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>`,
+    rings: `<path d="M34 80 C16 86 8 70 15 56 C21 63 30 68 36 74 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/><path d="M20 62 q6 3 10 8 M15 68 q7 3 13 8" stroke="${c.line}" stroke-width="3.4" opacity=".8"/>`,
+    pom: pom(26, 74, 6.5, c.shade, c.line, 6),
+    hair: tube("M32 80 Q22 84 24 100", c.shade, c.line, 6),
+    paddle: `<rect x="14" y="82" width="15" height="22" rx="7" fill="${c.line}" opacity=".9" transform="rotate(35 21 93)"/><path d="M17 88 l9 4 M15 94 l9 4" stroke="#0b0d10" stroke-width="1.4" transform="rotate(35 21 93)" opacity=".6"/>` };
+  const W2 = [];
+  W2.push(`<g class="tail-wag">${T[v.tail] || T.curl}</g>`);
+  // legs (far pair shaded, near pair body-colored)
+  const legY = 88 - chub / 2;
+  W2.push(`<rect x="44" y="${legY}" width="7" height="${104 - legY}" rx="3.4" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8"/><rect x="72" y="${legY}" width="7" height="${104 - legY}" rx="3.4" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8"/>`);
+  W2.push(`<rect x="36" y="${legY}" width="7.5" height="${105 - legY}" rx="3.6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/><rect x="64" y="${legY}" width="7.5" height="${105 - legY}" rx="3.6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`);
+  // body
+  if (v.spikes) W2.push(`<path d="M30 82 L34 62 L42 72 L48 56 L57 68 L64 54 L72 66 L80 58 L84 72 L84 84 Z" fill="${c.line}" stroke="${c.line}" stroke-width="1.5" stroke-linejoin="round" opacity=".92"/>`);
+  W2.push(`<g class="breathe">${v.wool ? pom(54, 83, 20 + chub, c.body, c.line, 10)
+    : `<ellipse cx="54" cy="${85 - chub / 2}" rx="${26 + chub}" ry="${16 + chub}" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>`}`);
+  if (v.stripeback) W2.push(`<path d="M30 78 Q54 64 78 76 L78 82 Q54 70 30 84 Z" fill="#f5f3ee" opacity=".92"/>`);
+  if (v.stripes) W2.push(`<path d="M44 71 q3 7 0 13 M55 69 q3 8 0 15 M66 71 q3 7 0 13" stroke="${c.shade}" stroke-width="3.2" fill="none" stroke-linecap="round"/>`);
+  if (v.spots) W2.push(`<circle cx="44" cy="80" r="3.4" fill="${c.shade}"/><circle cx="58" cy="74" r="2.8" fill="${c.shade}"/><circle cx="52" cy="90" r="2.6" fill="${c.shade}"/><circle cx="68" cy="86" r="3" fill="${c.shade}"/>`);
+  if (v.patch) W2.push(`<ellipse cx="46" cy="82" rx="8" ry="6.5" fill="${c.shade}" opacity=".85" transform="rotate(-14 46 82)"/>`);
+  if (v.chest) W2.push(`<ellipse cx="68" cy="84" rx="10" ry="10" fill="#f5f0e6" opacity=".85"/>`);
+  W2.push(`</g>`);
+  return W.join("") + W2.join("") + `<g class="head-tilt">${H.join("")}</g>`;
+}
+function birdArt(c, v) {
+  const B = [], scale = v.tiny ? `transform="translate(13 16) scale(.78)"` : "";
+  const legC = "#d98a2b";
+  if (v.peafan) B.push(MIRROR("") + `<g class="fan-sway">${[-52, -30, -8, 14, 36].map((a) => `<g transform="rotate(${a} 60 74)"><path d="M60 74 L57 22 Q60 18 63 22 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4"/><circle cx="60" cy="27" r="5.4" fill="${c.body}" stroke="${c.line}" stroke-width="1.4"/><circle cx="60" cy="27" r="2.4" fill="#f2c040"/></g>`).join("")}</g>`);
+  if (v.fan) B.push(`<g class="fan-sway">${[-56, -34, -12, 10, 32, 54].map((a) => `<g transform="rotate(${a} 60 76)"><path d="M60 76 L54 30 Q60 24 66 30 Z" fill="${a % 3 ? c.shade : c.body}" stroke="${c.line}" stroke-width="1.6"/></g>`).join("")}</g>`);
+  if (v.flame) B.push(`<g class="flamet flick2">${tube("M50 96 Q42 110 30 112", "#ef8b3a", "#c2571a", 5)}${tube("M60 98 Q58 112 48 118", "#f2c040", "#c2871a", 5)}</g>`);
+  else B.push(`<path d="M52 92 C46 104 48 110 54 114 L62 96 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>`);
+  const legTop = v.longlegs ? 88 : 94, legBot = v.longlegs ? 116 : 104;
+  B.push(`<path d="M55 ${legTop} L53 ${legBot} m-4 0 h8 M65 ${legTop} L67 ${legBot} m-4 0 h8" stroke="${legC}" stroke-width="2.4" fill="none" stroke-linecap="round"/>`);
+  B.push(`<g class="breathe"><ellipse cx="60" cy="${v.longlegs ? 64 : 74}" rx="20" ry="22" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>`);
+  const chest = v.chest || (v.flame ? "#f2c040" : "");
+  if (chest) B.push(`<ellipse cx="60" cy="${v.longlegs ? 70 : 80}" rx="11" ry="13" fill="${chest}" opacity=".92"/>`);
+  B.push(`</g>`);
+  const wy = v.longlegs ? 52 : 60;
+  B.push(`<g class="wing-flap"><path d="M44 ${wy} C30 ${wy + 6} 28 ${wy + 28} 40 ${wy + 36} C48 ${wy + 30} 50 ${wy + 12} 44 ${wy} Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/></g>`);
+  B.push(`<g class="wing-flap right"><path d="M76 ${wy} C90 ${wy + 6} 92 ${wy + 28} 80 ${wy + 36} C72 ${wy + 30} 70 ${wy + 12} 76 ${wy} Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/></g>`);
+  const hy = v.longlegs ? 30 : 40;
+  const HD = [];
+  if (v.tufts) HD.push(`<path d="M48 ${hy - 10} L44 ${hy - 22} L56 ${hy - 14} Z M72 ${hy - 10} L76 ${hy - 22} L64 ${hy - 14} Z" fill="${c.body}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>`);
+  if (v.comb) HD.push(`<circle cx="52" cy="${hy - 14}" r="3.6" fill="#d0362b"/><circle cx="60" cy="${hy - 16.5}" r="4" fill="#d0362b"/><circle cx="68" cy="${hy - 14}" r="3.6" fill="#d0362b"/>`);
+  if (v.crest && !v.flame) HD.push(`<path d="M54 ${hy - 13} Q52 ${hy - 26} 60 ${hy - 27} Q58 ${hy - 20} 61 ${hy - 15} Q63 ${hy - 26} 70 ${hy - 24} Q66 ${hy - 18} 66 ${hy - 13} Z" fill="${chest || c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>`);
+  if (v.flame) HD.push(`<g class="flamet">${tube(`M56 ${hy - 13} Q52 ${hy - 26} 58 ${hy - 32}`, "#ef8b3a", "#c2571a", 4)}${tube(`M62 ${hy - 13} Q64 ${hy - 26} 72 ${hy - 28}`, "#f2c040", "#c2871a", 4)}</g>`);
+  HD.push(`<circle cx="60" cy="${hy}" r="15" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>`);
+  if (v.owl) {
+    HD.push(`<circle cx="53" cy="${hy}" r="6.8" fill="#f2ead2" stroke="${c.line}" stroke-width="1.5"/><circle cx="67" cy="${hy}" r="6.8" fill="#f2ead2" stroke="${c.line}" stroke-width="1.5"/>`);
+    HD.push(`<g class="blink"><circle cx="53" cy="${hy}" r="3.4" fill="#e8a83b"/><circle cx="67" cy="${hy}" r="3.4" fill="#e8a83b"/><circle cx="53" cy="${hy}" r="1.7" fill="${INK}"/><circle cx="67" cy="${hy}" r="1.7" fill="${INK}"/></g>`);
+    HD.push(`<path d="M60 ${hy + 2} L57 ${hy + 6} L60 ${hy + 9} L63 ${hy + 6} Z" fill="${BEAKC}" stroke="${BEAKL}" stroke-width="1.4" stroke-linejoin="round"/>`);
+  } else if (v.beak === "flat") {
+    HD.push(eyes2(53.5, 66.5, hy - 3, 2.6, eyeCol(c)));
+    HD.push(`<ellipse cx="60" cy="${hy + 7}" rx="8.4" ry="4.4" fill="${BEAKC}" stroke="${BEAKL}" stroke-width="1.6"/><circle cx="57" cy="${hy + 6}" r="0.9" fill="${BEAKL}"/><circle cx="63" cy="${hy + 6}" r="0.9" fill="${BEAKL}"/>`);
+  } else {
+    HD.push(eyes2(53.5, 66.5, hy - 3, 2.6, eyeCol(c)));
+    HD.push(`<path d="M54.5 ${hy + 3} L65.5 ${hy + 3} L60 ${hy + 10.5} Z" fill="${BEAKC}" stroke="${BEAKL}" stroke-width="1.5" stroke-linejoin="round"/>`);
+  }
+  if (v.wattle) HD.push(`<path d="M58 ${hy + 9} q2 7 4 0 q-1 6 -2 6 t-2 -6 Z" fill="#d0362b" stroke="#8a1a12" stroke-width="1.2"/>`);
+  B.push(`<g class="head-tilt">${HD.join("")}</g>`);
+  return scale ? `<g ${scale}>${B.join("")}</g>` : B.join("");
+}
+function parrotArt(c, v) {
+  const tail = v.tail || "#d0362b", B = [];
+  B.push(`<g class="tail-bob"><path d="M53 90 Q50 106 55 116 L59 116 Q56 104 58 92 Z" fill="${tail}" stroke="${INK}" stroke-width="1.6" opacity=".92"/><path d="M61 92 Q60 106 64 118 L68 117 Q66 104 66 93 Z" fill="${tail}" stroke="${INK}" stroke-width="1.6"/></g>`);
+  B.push(`<path d="M50 98 l-3 6 m3 -6 l0 7 m0 -7 l3 6 M68 98 l-3 6 m3 -6 l0 7 m0 -7 l3 6" stroke="#6b6f76" stroke-width="2" stroke-linecap="round"/>`);
+  B.push(`<g class="breathe"><ellipse cx="59" cy="72" rx="21" ry="24" fill="${c.shade}" stroke="${c.line}" stroke-width="2.5"/>
+    <ellipse cx="59" cy="78" rx="13" ry="15" fill="${c.body}"/>
+    <path d="M50 72 q9 5 18 0 M49 80 q10 5 20 0" stroke="${c.shade}" stroke-width="1.6" fill="none" opacity=".8"/></g>`);
+  B.push(`<g class="wing-flap"><path d="M42 58 C28 64 26 86 38 96 C46 90 48 70 42 58 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/><path d="M38 70 q-2 10 2 18 M42 66 q-3 12 0 22" stroke="${c.line}" stroke-width="1.2" fill="none" opacity=".55"/></g>`);
+  B.push(`<g class="wing-flap right"><path d="M76 58 C90 64 92 86 80 96 C72 90 70 70 76 58 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/><path d="M80 70 q2 10 -2 18 M76 66 q3 12 0 22" stroke="${c.line}" stroke-width="1.2" fill="none" opacity=".55"/></g>`);
+  const HD = [];
+  if (v.bigcrest) HD.push(`<g class="fan-sway">${[-36, -16, 4, 22].map((a) => `<path d="M59 26 Q${59 + a} ${8 - Math.abs(a) / 4} ${59 + a * 1.4} ${14 - Math.abs(a) / 5}" stroke="${v.tail}" stroke-width="4.5" fill="none" stroke-linecap="round"/>`).join("")}</g>`);
+  else if (v.crest) HD.push(`<path d="M52 25 Q50 12 58 10 Q56 18 60 24 Q62 12 70 13 Q65 19 65 25 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>`);
+  HD.push(`<circle cx="59" cy="38" r="16.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>`);
+  if (v.bigbeak) {
+    HD.push(`<ellipse cx="53" cy="36" rx="6.6" ry="8" fill="#eef1f4" stroke="${c.shade}" stroke-width="1.4"/>${eye1(53, 36, 2.7)}`);
+    HD.push(`<path d="M62 32 C84 28 94 36 90 47 C84 55 70 52 63 46 Q60 39 62 32 Z" fill="${v.bigbeak}" stroke="${BEAKL}" stroke-width="1.8" stroke-linejoin="round"/><path d="M64 34 Q78 32 86 38" stroke="${BEAKL}" stroke-width="1.2" fill="none" opacity=".6"/><circle cx="87" cy="45" r="2.8" fill="#2b2b2b" opacity=".35"/>`);
+  } else {
+    // the African-grey signature: bare white eye patches + a SMOOTH centered hook beak (no stray lines)
+    HD.push(`<ellipse cx="51.5" cy="36.5" rx="6.4" ry="7.8" fill="#eef1f4" stroke="${c.shade}" stroke-width="1.4"/><ellipse cx="66.5" cy="36.5" rx="6.4" ry="7.8" fill="#eef1f4" stroke="${c.shade}" stroke-width="1.4"/>`);
+    HD.push(eyes2(51.5, 66.5, 36.5, 2.6));
+    HD.push(`<ellipse cx="59" cy="54.2" rx="3.7" ry="2.3" fill="#23262b"/>`);
+    HD.push(`<path d="M52.6 40.5 C52.6 35.2 55.5 33 59 33 C62.5 33 65.4 35.2 65.4 40.5 C65.4 46.4 62.9 52.3 59.8 55.6 C59.4 56.1 58.7 56.1 58.4 55.6 C55.5 51.2 52.9 45.6 52.6 40.5 Z" fill="#3a3f45" stroke="#16181c" stroke-width="1.7" stroke-linejoin="round"/>`);
+    HD.push(`<circle cx="56.6" cy="36.8" r="0.85" fill="#16181c"/><circle cx="61.4" cy="36.8" r="0.85" fill="#16181c"/><path d="M55 38.5 Q59 36.6 63 38.5" stroke="#565b63" stroke-width="1" fill="none" opacity=".8"/>`);
+  }
+  return B.join("") + `<g class="head-tilt">${HD.join("")}</g>`;
+}
+function penguinArt(c) {
+  return `<path d="M48 100 l-5 4 h11 Z M72 100 l5 4 h-11 Z" fill="${BEAKC}" stroke="${BEAKL}" stroke-width="1.6" stroke-linejoin="round"/>
+    <g class="breathe"><path d="M60 18 C40 18 37 44 39 68 C41 92 48 102 60 102 C72 102 79 92 81 68 C83 44 80 18 60 18 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
+    <path d="M60 34 C50 34 46 52 47 70 C48 88 53 98 60 98 C67 98 72 88 73 70 C74 52 70 34 60 34 Z" fill="#f2f4f6"/></g>
+    <g class="wing-flap"><path d="M41 52 C33 62 33 82 40 90 C45 84 46 64 44 52 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/></g>
+    <g class="wing-flap right"><path d="M79 52 C87 62 87 82 80 90 C75 84 74 64 76 52 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/></g>
+    <g class="head-tilt"><circle cx="53" cy="32" r="5.8" fill="#f2f4f6"/><circle cx="67" cy="32" r="5.8" fill="#f2f4f6"/>
+    ${eyes2(53, 67, 32, 2.4)}
+    <path d="M55 39 L65 39 L60 46 Z" fill="${BEAKC}" stroke="${BEAKL}" stroke-width="1.5" stroke-linejoin="round"/></g>`;
+}
+function fishArt(c, v) {
+  const big = v.big ? 1.15 : 1, F = [];
+  const cy = 64;
+  if (v.puffer) {
+    F.push(`<g class="breathe2">${[...Array(12)].map((_, i) => { const a = i * 30 * Math.PI / 180; return `<path d="M${60 + 19 * Math.cos(a)} ${cy + 19 * Math.sin(a)} L${60 + 27 * Math.cos(a)} ${cy + 27 * Math.sin(a)}" stroke="${c.shade}" stroke-width="2.6" stroke-linecap="round"/>`; }).join("")}
+      <circle cx="60" cy="${cy}" r="20" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
+      <circle cx="53" cy="${cy + 6}" r="1.6" fill="${c.shade}"/><circle cx="63" cy="${cy + 8}" r="1.4" fill="${c.shade}"/><circle cx="58" cy="${cy - 6}" r="1.5" fill="${c.shade}"/></g>`);
+    F.push(`<g class="fin-wave"><path d="M42 ${cy - 4} L30 ${cy - 12} Q32 ${cy} 30 ${cy + 10} L42 ${cy + 4} Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8"/></g>`);
+    F.push(`${eyes2(66, 78, cy - 6, 2.8)}<path d="M70 ${cy + 4} q3 2.5 6 0" stroke="${INK}" stroke-width="1.6" fill="none" stroke-linecap="round"/>`);
+  } else {
+    const rx = 24 * big, ry = (v.tall ? 20 : 15) * big;
+    F.push(`<g class="fin-wave"><path d="M${60 - rx + 3} ${cy} L${60 - rx - 14} ${cy - 15} Q${60 - rx - 9} ${cy} ${60 - rx - 14} ${cy + 15} Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/></g>`);
+    if (v.fan) F.push(`<g class="fin-wave"><path d="M${60 - rx + 4} ${cy} C${60 - rx - 18} ${cy - 22} ${60 - rx - 24} ${cy + 2} ${60 - rx - 16} ${cy + 20} C${60 - rx - 8} ${cy + 12} ${60 - rx - 4} ${cy + 4} ${60 - rx + 4} ${cy} Z" fill="${c.body}" opacity=".7" stroke="${c.line}" stroke-width="1.6"/></g>`);
+    F.push(`<path d="M${60 - rx / 2} ${cy - ry + 4} Q60 ${cy - ry - (v.dorsal ? 20 : v.tall ? 16 : 9)} ${60 + rx / 3} ${cy - ry + 3} Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>`);
+    if (v.tall) F.push(`<path d="M${60 - rx / 3} ${cy + ry - 4} Q60 ${cy + ry + 14} ${60 + rx / 3} ${cy + ry - 3} Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8"/>`);
+    F.push(`<g class="breathe2"><ellipse cx="60" cy="${cy}" rx="${rx}" ry="${ry}" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>`);
+    if (v.dorsal) F.push(`<path d="M${60 - rx} ${cy} Q60 ${cy + ry * 0.9} ${60 + rx - 4} ${cy + 4} Q60 ${cy + ry * 0.4} ${60 - rx} ${cy} Z" fill="#e9ecf2" opacity=".9"/>`);
+    if (v.stripes) F.push(`<path d="M50 ${cy - ry + 2} q3 ${ry} 0 ${2 * ry - 4} M64 ${cy - ry + 2} q3 ${ry} 0 ${2 * ry - 4}" stroke="#f2f4f6" stroke-width="5" fill="none"/><path d="M50 ${cy - ry + 2} q3 ${ry} 0 ${2 * ry - 4} M64 ${cy - ry + 2} q3 ${ry} 0 ${2 * ry - 4}" stroke="${c.line}" stroke-width="6.5" fill="none" opacity=".25"/>`);
+    if (v.patch) F.push(`<circle cx="52" cy="${cy - 6}" r="5.5" fill="#e05a3a" opacity=".9"/><circle cx="68" cy="${cy + 5}" r="4" fill="#e05a3a" opacity=".8"/>`);
+    F.push(`</g>`);
+    F.push(`<g class="fin-wave2"><path d="M58 ${cy + 6} Q50 ${cy + 16} 56 ${cy + 20} Q62 ${cy + 16} 62 ${cy + 8} Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/></g>`);
+    F.push(`${eye1(72 * big > 74 ? 74 : 72, cy - 5, 3)}`);
+    F.push(v.dorsal ? `<path d="M${60 + rx - 10} ${cy + 5} q4 3 8 0" stroke="${INK}" stroke-width="1.7" fill="none" stroke-linecap="round"/><path d="M${60 + rx - 8.5} ${cy + 6.5} l1.5 2 l1.6 -2 l1.6 2 l1.5 -2" stroke="#fff" stroke-width="1.4" fill="none"/>` : `<path d="M${60 + rx - 6} ${cy + 3} q2.5 2 5 0" stroke="${INK}" stroke-width="1.6" fill="none" stroke-linecap="round"/>`);
+    F.push(`<path d="M${60 + rx * 0.45} ${cy - 4} q-3 4.5 0 9" stroke="${c.line}" stroke-width="1.4" fill="none" opacity=".55"/>`);
+  }
+  F.push(`<g class="bub"><circle cx="92" cy="44" r="2.6" fill="none" stroke="#9fd4f2" stroke-width="1.4"/></g><g class="bub b2"><circle cx="97" cy="50" r="1.8" fill="none" stroke="#9fd4f2" stroke-width="1.3"/></g>`);
+  return F.join("");
+}
+function whaleArt(c, v) {
+  const W = [];
+  W.push(`<g class="fin-wave"><path d="M32 74 L15 60 Q21 73 15 86 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/></g>`);
+  W.push(`<g class="breathe2"><path d="M28 76 C28 52 44 44 62 44 C82 44 92 58 92 70 C92 84 82 92 60 92 C40 92 28 88 28 76 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
+    <path d="M34 82 C46 90 74 90 88 78 L88 82 C76 92 44 92 32 84 Z" fill="#e9ecf2" opacity=".85"/>
+    <path d="M40 84 q4 3 9 4 M54 88 q5 1.5 10 1" stroke="${c.line}" stroke-width="1.2" fill="none" opacity=".4"/></g>`);
+  if (v.snout) W.push(`<ellipse cx="92" cy="76" rx="7" ry="4.6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`);
+  W.push(`<g class="fin-wave2"><path d="M56 88 Q50 100 58 104 Q64 98 62 88 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8"/></g>`);
+  W.push(`${eye1(78, 66, 2.9)}<path d="M84 74 q4 3 8 0" stroke="${INK}" stroke-width="1.7" fill="none" stroke-linecap="round"/>`);
+  W.push(`<g class="spout"><path d="M64 42 Q62 32 54 28 M64 42 Q66 31 74 27 M64 42 Q64 30 64 24" stroke="#9fd4f2" stroke-width="2.4" fill="none" stroke-linecap="round"/><circle cx="52" cy="26" r="1.6" fill="#9fd4f2"/><circle cx="76" cy="25" r="1.6" fill="#9fd4f2"/><circle cx="64" cy="21" r="1.8" fill="#9fd4f2"/></g>`);
+  if (v.stars) W.push(`<g class="twinkle"><path d="M48 62 l1.4 3 3 1.4 -3 1.4 -1.4 3 -1.4 -3 -3 -1.4 3 -1.4 Z" fill="#ffe08a"/></g><g class="twinkle t2"><path d="M68 56 l1.1 2.4 2.4 1.1 -2.4 1.1 -1.1 2.4 -1.1 -2.4 -2.4 -1.1 2.4 -1.1 Z" fill="#bfe4ff"/></g><g class="twinkle t3"><circle cx="58" cy="70" r="1.4" fill="#ffe08a"/></g>`);
+  return W.join("");
+}
+function octoArt(c, v) {
+  const big = v.big ? 1.12 : 1, O = [];
+  const arms = [[42, -1], [50, 1], [58, -1], [66, 1], [74, -1]];
+  O.push(arms.map(([x, s], i) => `<g class="${i % 2 ? "tenA" : "tenB"}">${tube(`M${x} 72 C${x - 2 * s} 86 ${x - 10 * s} 92 ${x - 8 * s} 100 Q${x - 7 * s} 105 ${x - 1 * s} 103`, c.body, c.line, 5.5)}</g>`).join(""));
+  if (v.cone) O.push(`<path d="M60 6 L44 46 L76 46 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>`);
+  O.push(`<g class="breathe"><path d="M${60 - 22 * big} 62 C${60 - 22 * big} ${62 - 34 * big} ${60 + 22 * big} ${62 - 34 * big} ${60 + 22 * big} 62 C${60 + 22 * big} 70 ${60 + 18 * big} 74 ${60 + 14 * big} 74 L${60 - 14 * big} 74 C${60 - 18 * big} 74 ${60 - 22 * big} 70 ${60 - 22 * big} 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>`);
+  O.push(`<circle cx="50" cy="46" r="2" fill="${c.shade}"/><circle cx="70" cy="44" r="2.4" fill="${c.shade}"/><circle cx="60" cy="38" r="1.8" fill="${c.shade}"/></g>`);
+  const eyec = v.glow ? "#ffd35a" : INK;
+  O.push(v.glow ? `<g class="blink"><circle cx="52" cy="56" r="3.4" fill="${eyec}" class="glowpulse"/><circle cx="68" cy="56" r="3.4" fill="${eyec}" class="glowpulse"/></g>` : eyes2(52, 68, 56, 3.2));
+  O.push(`<path d="M56 64 q4 3.5 8 0" stroke="${v.glow ? "#e9ecf2" : INK}" stroke-width="1.7" fill="none" stroke-linecap="round"/>`);
+  O.push(`<g class="bub"><circle cx="90" cy="40" r="2.4" fill="none" stroke="#9fd4f2" stroke-width="1.4"/></g>`);
+  return O.join("");
+}
+function jellyArt(c) {
+  return `${[[46, "tenA"], [55, "tenB"], [65, "tenA"], [74, "tenB"]].map(([x, k]) =>
+      `<g class="${k}"><path d="M${x} 66 Q${x - 5} 80 ${x + 2} 90 Q${x + 6} 98 ${x - 2} 104" stroke="${c.shade}" stroke-width="2.6" fill="none" stroke-linecap="round" opacity=".8"/></g>`).join("")}
+    <g class="breathe"><path d="M36 56 Q36 26 60 26 Q84 26 84 56 Q84 66 60 66 Q36 66 36 56 Z" fill="${c.body}" opacity=".85" stroke="${c.line}" stroke-width="2.2"/>
+    <path d="M38 58 q5.5 6 11 0 q5.5 6 11 0 q5.5 6 11 0 q5.5 6 11 0" stroke="${c.line}" stroke-width="1.6" fill="none" opacity=".6"/>
+    <ellipse cx="54" cy="40" rx="9" ry="7" fill="#fff" opacity=".35"/></g>
+    ${eyes2(53, 67, 50, 2.6)}<path d="M56 57 q4 3 8 0" stroke="${INK}" stroke-width="1.6" fill="none" stroke-linecap="round"/>`;
+}
+function turtleArt(c, v) {
+  const T = [];
+  T.push(`<g class="tail-wag">${tube("M34 92 Q26 92 24 87", c.body, c.line, 4)}</g>`);
+  if (v.flippers) T.push(`<g class="fin-wave"><path d="M44 94 Q30 102 24 98 Q32 90 42 88 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/></g><g class="fin-wave2"><path d="M72 94 Q80 104 90 102 Q84 92 74 88 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/></g>`);
+  else T.push(`<ellipse cx="42" cy="98" rx="6.5" ry="5.5" fill="${c.body}" stroke="${c.line}" stroke-width="2"/><ellipse cx="72" cy="98" rx="6.5" ry="5.5" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`);
+  T.push(`<g class="head-tilt"><circle cx="93" cy="80" r="9.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>${eye1(95.5, 77.5, 2.2)}<path d="M96 84 q2.5 1.8 5 0" stroke="${INK}" stroke-width="1.5" fill="none" stroke-linecap="round"/></g>`);
+  T.push(`<g class="breathe"><path d="M30 86 Q30 54 59 54 Q88 54 88 86 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
+    <path d="M45 60 Q45 76 45 84 M59 56 L59 86 M73 60 Q73 76 73 84 M34 74 Q59 66 84 74" stroke="${c.line}" stroke-width="1.4" fill="none" opacity=".5"/>
+    <path d="M28 86 Q59 80 90 86 L90 90 Q59 96 28 90 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/></g>`);
+  return T.join("");
+}
+function snailArt(c) {
+  return `<path d="M34 96 Q34 88 44 88 L82 88 Q94 88 96 96 Q97 102 88 102 L41 102 Q34 102 34 96 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>
+    <g class="head-tilt"><path d="M80 90 Q88 88 90 80 Q91 76 91 72" stroke="${c.body}" stroke-width="9" fill="none" stroke-linecap="round"/><path d="M80 90 Q88 88 90 80 Q91 76 91 72" stroke="${c.line}" stroke-width="11" fill="none" stroke-linecap="round" opacity=".28"/>
+    <circle cx="91" cy="70" r="7" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
+    <g class="antA">${tube("M88 64 Q86 56 83 53", c.body, c.line, 2.4)}<circle cx="82.6" cy="52" r="2.6" fill="${INK}"/></g>
+    <g class="antB">${tube("M94 64 Q96 56 99 53", c.body, c.line, 2.4)}<circle cx="99.4" cy="52" r="2.6" fill="${INK}"/></g>
+    <path d="M92 76 q2.5 2 5 0" stroke="${INK}" stroke-width="1.5" fill="none" stroke-linecap="round"/></g>
+    <g class="breathe"><circle cx="52" cy="70" r="21" fill="${c.shade}" stroke="${c.line}" stroke-width="2.5"/>
+    <path d="M52 70 m0 -15 a15 15 0 1 1 -15 15 a11 11 0 1 0 11 -11 a7 7 0 1 1 -7 7" stroke="${c.line}" stroke-width="1.8" fill="none" opacity=".65"/></g>`;
+}
+function crabArt(c, v) {
+  if (v.slim) {   // shrimp: a curled, segmented tail + long antennae
+    return `<g class="antA">${tube("M76 52 Q94 42 104 44", c.shade, c.line, 1.8)}</g><g class="antB">${tube("M76 56 Q96 52 106 58", c.shade, c.line, 1.8)}</g>
+      <g class="breathe"><path d="M72 52 C88 56 90 74 76 84 C64 92 46 92 38 84 L46 78 C54 84 66 84 72 78 C78 70 74 60 66 58 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M60 60 q8 4 8 14 M50 64 q8 6 6 16 M42 72 q6 4 6 10" stroke="${c.line}" stroke-width="1.4" fill="none" opacity=".5"/>
+      <path d="M38 84 L26 78 Q30 88 26 94 L40 90 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/></g>
+      ${eye1(72, 50, 2.6)}
+      <path d="M70 66 l-4 8 m8 -6 l-3 8 m9 -6 l-4 7" stroke="${c.shade}" stroke-width="2" stroke-linecap="round"/>`;
+  }
+  const K = [];
+  K.push(`<g class="antA"><path d="M50 62 L46 50" stroke="${c.line}" stroke-width="2"/><circle cx="45.4" cy="48" r="3" fill="${INK}"/><circle cx="46.4" cy="47" r="1" fill="#fff" opacity=".9"/></g>`);
+  K.push(`<g class="antB"><path d="M70 62 L74 50" stroke="${c.line}" stroke-width="2"/><circle cx="74.6" cy="48" r="3" fill="${INK}"/><circle cx="75.6" cy="47" r="1" fill="#fff" opacity=".9"/></g>`);
+  K.push([[-1, 0], [-1, 8], [-1, 16], [1, 0], [1, 8], [1, 16]].map(([s, dy]) =>
+    `<path d="M${60 + 18 * s} ${80 + dy / 2} L${60 + 32 * s} ${76 + dy} L${60 + 38 * s} ${86 + dy}" stroke="${c.line}" stroke-width="2.6" fill="none" stroke-linecap="round"/>`).join(""));
+  K.push(`<g class="clawL">${tube("M44 76 Q32 70 28 62", c.body, c.line, 5)}<path d="M30 48 Q19 51 21 61 Q27 67 35 62 Q38 52 30 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/><path d="M25 54 l7 5" stroke="${c.line}" stroke-width="1.6"/></g>`);
+  K.push(`<g class="clawR">${tube("M76 76 Q88 70 92 62", c.body, c.line, 5)}<path d="M90 48 Q101 51 99 61 Q93 67 85 62 Q82 52 90 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/><path d="M95 54 l-7 5" stroke="${c.line}" stroke-width="1.6"/></g>`);
+  if (v.shell) K.push(`<g class="breathe"><circle cx="60" cy="68" r="20" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4"/><path d="M60 68 m0 -14 a14 14 0 1 1 -14 14 a10 10 0 1 0 10 -10 a6 6 0 1 1 -6 6" stroke="${c.line}" stroke-width="1.6" fill="none" opacity=".6"/></g><ellipse cx="60" cy="88" rx="19" ry="9" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>`);
+  else K.push(`<g class="breathe"><ellipse cx="60" cy="80" rx="22" ry="15" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/><path d="M46 74 q14 -7 28 0" stroke="${c.line}" stroke-width="1.3" fill="none" opacity=".45"/></g>`);
+  K.push(`<path d="M54 ${v.shell ? 92 : 84} q6 4 12 0" stroke="${INK}" stroke-width="1.7" fill="none" stroke-linecap="round"/>`);
+  return K.join("");
+}
+function bugArt(c, v) {
+  const B = [];
+  if (v.jumper) {   // grasshopper/cricket: side profile with the big folded jumping legs
+    return `<g class="antA">${tube("M84 58 Q96 44 108 40", c.shade, c.line, 1.8)}</g><g class="antB">${tube("M82 56 Q90 42 98 34", c.shade, c.line, 1.8)}</g>
+      <path d="M34 88 L52 92 M44 90 L60 92" stroke="${c.line}" stroke-width="2" stroke-linecap="round"/>
+      <g class="hopleg"><path d="M56 84 L36 70 L28 92 L34 94" stroke="${c.line}" stroke-width="3.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M56 84 L38 71 L31 91" stroke="${c.shade}" stroke-width="2" fill="none" stroke-linecap="round"/></g>
+      <g class="breathe"><path d="M28 78 Q40 64 66 66 L84 68 Q92 70 90 76 Q86 84 66 86 Q40 88 28 78 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M40 70 Q64 64 84 70" stroke="${c.shade}" stroke-width="2.4" fill="none"/><path d="M46 74 l-2 8 M56 72 l-1 10 M66 72 l0 10" stroke="${c.line}" stroke-width="1.2" opacity=".45" fill="none"/></g>
+      <circle cx="86" cy="64" r="8.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>${eye1(89, 62, 2.6)}
+      <path d="M90 68 q2.5 1.6 5 -0.5" stroke="${INK}" stroke-width="1.4" fill="none" stroke-linecap="round"/>`;
+  }
+  if (v.legs8) B.push([[-1, -6], [-1, 2], [-1, 10], [-1, 18], [1, -6], [1, 2], [1, 10], [1, 18]].map(([s, dy]) =>
+    `<path d="M${60 + 12 * s} ${72 + dy / 2} Q${60 + 30 * s} ${62 + dy} ${60 + 36 * s} ${76 + dy}" stroke="${c.line}" stroke-width="2.4" fill="none" stroke-linecap="round"/>`).join(""));
+  else B.push([[-1, 0], [-1, 9], [-1, 18], [1, 0], [1, 9], [1, 18]].map(([s, dy]) =>
+    `<path d="M${60 + 13 * s} ${64 + dy} L${60 + 28 * s} ${58 + dy} L${60 + 33 * s} ${68 + dy}" stroke="${c.line}" stroke-width="2.4" fill="none" stroke-linecap="round"/>`).join(""));
+  B.push(`<g class="antA">${tube("M54 42 Q48 32 42 28", c.shade, c.line, 2)}<circle cx="41" cy="27" r="2" fill="${c.line}"/></g>`);
+  B.push(`<g class="antB">${tube("M66 42 Q72 32 78 28", c.shade, c.line, 2)}<circle cx="79" cy="27" r="2" fill="${c.line}"/></g>`);
+  if (v.pincers) B.push(`<path d="M50 40 C42 30 44 20 54 18 C48 24 50 32 56 36 Z M70 40 C78 30 76 20 66 18 C72 24 70 32 64 36 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>`);
+  if (v.wings) B.push(`<g class="buzzL"><ellipse cx="38" cy="58" rx="16" ry="8" fill="#eef4f8" opacity=".65" stroke="#b9c6d2" stroke-width="1.4" transform="rotate(-24 38 58)"/></g><g class="buzzR"><ellipse cx="82" cy="58" rx="16" ry="8" fill="#eef4f8" opacity=".65" stroke="#b9c6d2" stroke-width="1.4" transform="rotate(24 82 58)"/></g>`);
+  const slim = v.slim ? 4 : 0, ab = v.chubby ? 2 : 0;
+  if (v.legs8) B.push(`<g class="breathe"><circle cx="60" cy="80" r="16" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/><circle cx="60" cy="56" r="10" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2"/><path d="M56 78 q4 8 8 0 M52 86 q8 6 16 0" stroke="${c.shade}" stroke-width="1.6" fill="none" opacity=".8"/></g>`);
+  else {
+    B.push(`<g class="breathe"><ellipse cx="60" cy="${76 + ab}" rx="${16 - slim + ab}" ry="${20 + ab}" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>`);
+    if (!v.slim) B.push(`<path d="M60 ${57 + ab} L60 ${95 + ab}" stroke="${c.line}" stroke-width="1.6" opacity=".7"/>`);
+    if (v.stripes) B.push(`<path d="M${46 + slim} 68 q14 5 ${28 - 2 * slim} 0 M${45 + slim} 78 q15 5 ${30 - 2 * slim} 0 M${47 + slim} 88 q13 5 ${26 - 2 * slim} 0" stroke="${INK}" stroke-width="4.6" fill="none"/>`);
+    if (v.spots) B.push(`<circle cx="52" cy="68" r="3" fill="${INK}"/><circle cx="68" cy="68" r="3" fill="${INK}"/><circle cx="50" cy="82" r="2.6" fill="${INK}"/><circle cx="70" cy="82" r="2.6" fill="${INK}"/><circle cx="60" cy="91" r="2.8" fill="${INK}"/>`);
+    if (v.sheen) B.push(`<ellipse cx="53" cy="68" rx="4.5" ry="8" fill="#fff" opacity=".28" transform="rotate(16 53 68)"/>`);
+    if (v.glow) B.push(`<ellipse cx="60" cy="90" rx="9" ry="7" fill="#ffe08a" class="glowpulse"/>`);
+    if (v.slim) B.push(`<ellipse cx="60" cy="58" rx="8.5" ry="8" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>`);
+    else B.push(`<ellipse cx="60" cy="55" rx="10" ry="6.5" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>`);
+    B.push(`</g>`);
+  }
+  B.push(`<circle cx="60" cy="${v.legs8 ? 52 : 44}" r="${v.legs8 ? 0 : 8.5}" fill="${c.shade}" stroke="${c.line}" stroke-width="${v.legs8 ? 0 : 2.2}"/>`);
+  const bec = lum(c.shade) < 0.32 ? "#e9edf2" : INK;   // bug faces sit on the shade color
+  B.push(v.legs8 ? `${eyes2(56, 64, 54, 2.6, bec)}<circle cx="52" cy="58" r="1.2" fill="${bec}"/><circle cx="68" cy="58" r="1.2" fill="${bec}"/>` : `${eyes2(56.5, 63.5, 43, 2.2, bec)}<path d="M57.5 48 q2.5 1.8 5 0" stroke="${bec}" stroke-width="1.4" fill="none" stroke-linecap="round"/>`);
+  return B.join("");
+}
+function butterflyArt(c, v) {
+  const upper = v.slim
+    ? `<ellipse cx="34" cy="56" rx="22" ry="6" fill="${c.body}" opacity=".8" stroke="${c.line}" stroke-width="1.6" transform="rotate(-12 34 56)"/><ellipse cx="36" cy="68" rx="19" ry="5" fill="${c.shade}" opacity=".75" stroke="${c.line}" stroke-width="1.5" transform="rotate(6 36 68)"/>`
+    : `<path d="M56 62 C42 38 20 40 21 58 C22 72 40 78 56 72 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+       <path d="M56 74 C44 82 34 94 43 99 C52 102 57 90 57 80 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+       ${v.veins ? `<path d="M54 66 L30 52 M54 68 L26 60 M54 70 L34 72 M55 78 L44 90" stroke="${c.line}" stroke-width="1.3" opacity=".7" fill="none"/><circle cx="27" cy="50" r="1.5" fill="#fff"/><circle cx="23" cy="60" r="1.5" fill="#fff"/><circle cx="33" cy="70" r="1.5" fill="#fff"/>` : `<circle cx="36" cy="56" r="4.5" fill="#fff" opacity=".55"/><circle cx="44" cy="88" r="2.6" fill="#fff" opacity=".5"/>`}`;
+  const wingL = `<g class="bwing">${upper}</g>`;
+  return `${wingL}${MIRROR(wingL)}
+    <ellipse cx="60" cy="${v.slim ? 74 : 72}" rx="4.2" ry="${v.slim ? 22 : 16}" fill="${v.fuzz ? c.shade : INK}" stroke="${v.fuzz ? c.line : "#0c0e10"}" stroke-width="1.6"/>
+    ${v.slim ? `<path d="M60 88 L60 100 m-2.5 -10 h5 m-5 5 h5" stroke="${INK}" stroke-width="2" stroke-linecap="round"/>` : ""}
+    <circle cx="60" cy="52" r="6" fill="${v.fuzz ? c.shade : INK}" stroke="${v.fuzz ? c.line : "#0c0e10"}" stroke-width="1.6"/>
+    <g class="antA">${tube("M57 48 Q52 38 46 35", v.fuzz ? c.shade : INK, "#0c0e10", 1.8)}<circle cx="45" cy="34" r="1.8" fill="${INK}"/></g>
+    <g class="antB">${tube("M63 48 Q68 38 74 35", v.fuzz ? c.shade : INK, "#0c0e10", 1.8)}<circle cx="75" cy="34" r="1.8" fill="${INK}"/></g>
+    <circle cx="57.6" cy="51" r="1.5" fill="#fff"/><circle cx="62.4" cy="51" r="1.5" fill="#fff"/>`;
+}
+function frogArt(c, v) {
+  const F = [];
+  if (v.fintail) F.push(`<g class="tail-wag"><path d="M36 86 C22 84 16 74 20 62 C26 70 34 76 40 80 Z" fill="${c.shade}" opacity=".85" stroke="${c.line}" stroke-width="2"/></g>`);
+  F.push(`<ellipse cx="40" cy="90" rx="10.5" ry="9" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2"/>`);
+  F.push(`<g class="breathe"><path d="M34 92 Q30 64 60 62 Q90 64 86 92 Q88 101 76 101 L44 101 Q32 101 34 92 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
+    <ellipse cx="60" cy="90" rx="16" ry="9.5" fill="#f5efd8" opacity="${v.gills ? ".55" : ".8"}"/></g>`);
+  if (v.warts) F.push(`<circle cx="48" cy="72" r="2" fill="${c.shade}"/><circle cx="66" cy="69" r="2.2" fill="${c.shade}"/><circle cx="74" cy="78" r="1.8" fill="${c.shade}"/><circle cx="42" cy="80" r="1.8" fill="${c.shade}"/>`);
+  F.push(`<path d="M50 96 l-3 5 m3 -5 l1 6 m-1 -6 l4 5 M70 96 l3 5 m-3 -5 l-1 6 m1 -6 l-4 5" stroke="${c.line}" stroke-width="2" stroke-linecap="round"/>`);
+  if (v.gills) F.push(`<g class="antA">${tube("M40 58 Q30 54 26 48", "#e87a9a", "#b04a66", 3)}${tube("M40 62 Q28 62 24 58", "#e87a9a", "#b04a66", 3)}</g><g class="antB">${tube("M80 58 Q90 54 94 48", "#e87a9a", "#b04a66", 3)}${tube("M80 62 Q92 62 96 58", "#e87a9a", "#b04a66", 3)}</g>`);
+  F.push(`<circle cx="47" cy="58" r="8.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/><circle cx="73" cy="58" r="8.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>`);
+  F.push(`<g class="blink"><circle cx="47" cy="57" r="4.6" fill="#fff"/><circle cx="73" cy="57" r="4.6" fill="#fff"/><circle cx="47.5" cy="57.5" r="2.4" fill="${INK}"/><circle cx="72.5" cy="57.5" r="2.4" fill="${INK}"/></g>`);
+  F.push(`<path d="M44 76 Q60 ${v.gills ? 82 : 86} 76 76" stroke="${INK}" stroke-width="1.8" fill="none" stroke-linecap="round"/><circle cx="56" cy="68" r="1" fill="${INK}"/><circle cx="64" cy="68" r="1" fill="${INK}"/>`);
+  if (v.gills) F.push(`<g class="bub"><circle cx="92" cy="38" r="2.2" fill="none" stroke="#9fd4f2" stroke-width="1.3"/></g>`);
+  return F.join("");
+}
+function snakeArt(c) {
+  return `<g class="breathe"><ellipse cx="56" cy="92" rx="27" ry="10.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
+    <ellipse cx="56" cy="78" rx="20" ry="9" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
+    <path d="M36 90 q8 -4 14 0 M60 88 q8 -4 14 0 M44 76 q7 -4 13 0" stroke="${c.shade}" stroke-width="2.6" fill="none" stroke-linecap="round"/></g>
+    <g class="head-tilt">${tube("M62 72 Q76 68 78 56", c.body, c.line, 8)}
+    <ellipse cx="80" cy="50" rx="10.5" ry="8" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
+    ${eyes2(76.5, 84.5, 48, 2.2)}<circle cx="78.5" cy="54.5" r="0.9" fill="${INK}"/><circle cx="83.5" cy="54.5" r="0.9" fill="${INK}"/>
+    <g class="tongue"><path d="M90 52 h7 m0 0 l4 -2.4 m-4 2.4 l4 2.4" stroke="#d0362b" stroke-width="1.7" fill="none" stroke-linecap="round"/></g></g>`;
+}
+function lizardArt(c, v) {
+  const L = [];
+  L.push(v.curl ? `<g class="tail-wag">${tube("M38 84 C20 90 8 78 16 66 C22 58 32 62 28 70 C26 74 20 72 22 68", c.body, c.line, 5)}</g>`
+                : `<g class="tail-wag">${tube("M38 86 C22 90 10 84 12 70", c.body, c.line, 5)}</g>`);
+  const toe = (x, y) => `<circle cx="${x - 3}" cy="${y}" r="1.7" fill="${c.body}" stroke="${c.line}" stroke-width="1"/><circle cx="${x}" cy="${y + 1.5}" r="1.7" fill="${c.body}" stroke="${c.line}" stroke-width="1"/><circle cx="${x + 3}" cy="${y}" r="1.7" fill="${c.body}" stroke="${c.line}" stroke-width="1"/>`;
+  L.push(`${tube("M48 88 L42 98", c.body, c.line, 4)}${toe(41, 100)}${tube("M74 88 L80 98", c.body, c.line, 4)}${toe(81, 100)}`);
+  L.push(`<g class="breathe"><ellipse cx="60" cy="82" rx="25" ry="11.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
+    <path d="M42 76 q18 -7 36 0" stroke="${c.shade}" stroke-width="2.2" fill="none" opacity=".8"/><circle cx="50" cy="84" r="1.8" fill="${c.shade}"/><circle cx="62" cy="87" r="1.8" fill="${c.shade}"/><circle cx="72" cy="83" r="1.6" fill="${c.shade}"/></g>`);
+  const HD = [];
+  if (v.crest) HD.push(`<path d="M84 66 L96 54 L94 68 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>`);
+  HD.push(`<ellipse cx="88" cy="72" rx="12" ry="9" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>`);
+  if (v.curl) HD.push(`<circle cx="88" cy="68" r="5" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/>${eye1(88, 68, 2.2)}`);
+  else HD.push(eye1(90, 68.5, 2.6));
+  HD.push(`<path d="M94 76 q3 1.6 6 -1" stroke="${INK}" stroke-width="1.5" fill="none" stroke-linecap="round"/>`);
+  L.push(`<g class="head-tilt">${HD.join("")}</g>`);
+  return L.join("");
+}
+function monkeyArt(c, v) {
+  const M = [], face = v.big ? c.shade : "#e8cfae", big = v.big ? 1 : 0;
+  if (!v.big) M.push(`<g class="tail-wag">${tube("M42 92 C24 90 18 72 28 60 C34 53 44 56 41 63 C39 68 32 66 34 61", c.body, c.line, 4.5)}${v.tail === "rings" ? `<path d="M28 84 q6 -2 8 -7 M22 74 q7 -1 10 -6 M24 62 q6 1 9 -3" stroke="${c.line}" stroke-width="3.4" opacity=".85"/>` : ""}</g>`);
+  M.push(`<g class="breathe"><ellipse cx="59" cy="${86 - big * 2}" rx="${19 + 5 * big}" ry="${15 + 3 * big}" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
+    <ellipse cx="59" cy="${88 - big * 2}" rx="${10 + 3 * big}" ry="${9 + 2 * big}" fill="${face}" opacity=".9"/></g>`);
+  M.push(`${tube(`M${46 - 4 * big} ${80 - 2 * big} Q${38 - 6 * big} 92 ${40 - 6 * big} 100`, c.body, c.line, 5 + big)}${tube(`M${72 + 4 * big} ${80 - 2 * big} Q${80 + 6 * big} 92 ${78 + 6 * big} 100`, c.body, c.line, 5 + big)}`);
+  const HD = [];
+  HD.push(`<circle cx="44" cy="50" r="6.5" fill="${c.body}" stroke="${c.line}" stroke-width="2"/><circle cx="74" cy="50" r="6.5" fill="${c.body}" stroke="${c.line}" stroke-width="2"/><circle cx="44" cy="50" r="3.2" fill="${face}"/><circle cx="74" cy="50" r="3.2" fill="${face}"/>`);
+  HD.push(`<circle cx="59" cy="49" r="${15.5 + big * 1.5}" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>`);
+  if (v.big) HD.push(`<path d="M50 36 Q59 30 68 36" stroke="${c.line}" stroke-width="3" fill="none"/>`);
+  HD.push(`<path d="M49 45 Q49 38 55 39 Q59 33 63 39 Q69 38 69 45 Q69 52 66 55 L52 55 Q49 52 49 45 Z" fill="${face}" stroke="${c.line}" stroke-width="1.4" opacity=".95"/>`);
+  HD.push(`<ellipse cx="59" cy="55.5" rx="8" ry="6" fill="${face}"/>`);
+  const mec = lum(face) < 0.32 ? "#e9edf2" : INK;   // gorilla's face is dark — keep its eyes readable
+  HD.push(eyes2(54, 64, 46.5, 2.4, mec));
+  HD.push(`<circle cx="57" cy="54" r="1.1" fill="${mec}"/><circle cx="61" cy="54" r="1.1" fill="${mec}"/><path d="M54.5 57.5 Q59 61 63.5 57.5" stroke="${mec}" stroke-width="1.8" fill="none" stroke-linecap="round"/>`);
+  M.push(`<g class="head-tilt">${HD.join("")}</g>`);
+  return M.join("");
+}
+function wigglerArt(c, v) {
+  const segs = [[26, 95], [39, 90], [52, 94], [65, 89], [78, 93]];
+  return segs.map(([x, y], i) => `<g class="seg s${i}">
+      ${v.fuzz ? `<path d="M${x - 5} ${y - 7} l-2 -5 M${x} ${y - 8.5} l0 -5.5 M${x + 5} ${y - 7} l2 -5" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round"/>` : ""}
+      <circle cx="${x}" cy="${y}" r="9" fill="${i % 2 ? c.shade : c.body}" stroke="${c.line}" stroke-width="2.2"/>
+      ${!v.fuzz && i === 2 ? `<path d="M${x - 6} ${y - 3} a6.5 6.5 0 0 1 12 0" stroke="#fff" stroke-width="2.4" fill="none" opacity=".5"/>` : ""}</g>`).join("")
+    + `<g class="seg s5"><circle cx="90" cy="86" r="10.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
+      ${v.fuzz ? `<g class="antA">${tube("M86 77 Q84 70 80 68", c.shade, c.line, 1.8)}</g><g class="antB">${tube("M94 77 Q96 70 100 68", c.shade, c.line, 1.8)}</g>` : ""}
+      ${eyes2(86.5, 94, 84, 2.2)}${smilew(90.5, 89, 2.6)}</g>`;
+}
+function dragonArt(c, v) {
+  const wing = `<path d="M44 60 C36 34 16 26 6 35 C15 37 17 44 12 50 C21 47 25 52 23 59 C31 55 37 59 40 67 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/><path d="M40 61 L15 39 M40 63 L14 50 M41 65 L25 57" stroke="${c.line}" stroke-width="1.2" opacity=".5"/>`;
+  return `<g class="tail-wag">${tube("M34 84 C18 88 8 80 12 66", c.body, c.line, 5.5)}<path d="M14 68 L4 60 L15 58 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/></g>
+    <g class="wing-flap">${wing}</g><g class="wing-flap right">${MIRROR(wing)}</g>
+    <path d="M46 92 l-2 10 m8 -9 l0 10 M70 92 l2 10 m-8 -9 l0 10" stroke="${c.line}" stroke-width="2.6" stroke-linecap="round"/>
+    <g class="breathe"><ellipse cx="58" cy="80" rx="25" ry="19" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
+    <path d="M38 66 Q41 55 46 64 Q47 66 44 67 Z M51 60 Q55 48 60 59 Q61 62 57 62 Z M65 61 Q70 51 73 62 Q73 64 70 64 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.5" stroke-linejoin="round"/>
+    <ellipse cx="58" cy="87" rx="14.5" ry="10" fill="#cfeee2" opacity=".72"/>
+    <path d="M47 82 q11 4 22 0 M46 88 q12 4 24 0 M48 94 q10 3.5 20 0" stroke="${c.line}" stroke-width="1.2" fill="none" opacity=".45"/></g>
+    <g class="head-tilt"><path d="M76 34 C73 22 80 14 89 17 C82 21 82 28 85 35 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.7" stroke-linejoin="round"/>
+    <path d="M89 36 C89 27 95 22 101 25 C96 28 95 33 96 38 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.7" stroke-linejoin="round"/>
+    <ellipse cx="84" cy="46" rx="16.5" ry="13.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
+    <path d="M93 50 Q102 48 103 54 Q103 60 94 59 Q88 58 88 54 Q88 51 93 50 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
+    <circle cx="98" cy="53" r="1.1" fill="${INK}"/><circle cx="98" cy="56.5" r="1.1" fill="${INK}"/>
+    <path d="M90 59 q4 1.6 8 0" stroke="${c.line}" stroke-width="1.4" fill="none"/>
+    <path d="M74 40 q4 -3 8 -1 M88 39 q4 -2 7 0" stroke="${c.line}" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    ${eyes2(79, 91, 44, 2.7, lum(c.body) < 0.32 ? "#bfe8dc" : "#083b32")}
+    <g class="smoke"><circle cx="106" cy="52" r="3.2" fill="#9fb8b2"/></g><g class="smoke s2"><circle cx="108" cy="49" r="2.4" fill="#9fb8b2"/></g></g>`;
+}
+const ART = { poodle: poodleArt, quad: quadArt, bird: birdArt, parrot: parrotArt, penguin: penguinArt,
+  fishy: fishArt, whale: whaleArt, octo: octoArt, jelly: jellyArt, turtle: turtleArt, snail: snailArt,
+  crab: crabArt, bug: bugArt, butterfly: butterflyArt, frog: frogArt, snake: snakeArt, lizard: lizardArt,
+  monkey: monkeyArt, wiggler: wigglerArt, dragon: dragonArt };
+const FLOATERS = new Set(["fishy", "whale", "octo", "jelly", "butterfly"]);   // these drift; land pets bob
+const wrap = (cls, inner, floats) => `<svg viewBox="0 0 120 120">
+  <ellipse class="gshadow" cx="60" cy="107" rx="${floats ? 17 : 25}" ry="4.2" fill="#000" opacity="${floats ? ".1" : ".2"}"/>
+  <g class="${cls}">${inner}</g></svg>`;
+
 function eggSvg(cls, cracks) {
-  return `<svg viewBox="0 0 120 120"><g class="${cls}">
+  return `<svg viewBox="0 0 120 120"><ellipse class="gshadow" cx="60" cy="107" rx="25" ry="4.2" fill="#000" opacity=".2"/><g class="${cls}">
     <g class="shellwrap${cracks >= 4 ? " popped" : ""}">
       <g class="shellL"><path d="M60 16 C38 16 26 44 26 70 C26 88 36 102 48 106 L60 104 L60 16 Z" fill="#f5e9d0" stroke="#c8a96a" stroke-width="2.5"/></g>
       <g class="shellR"><path d="M60 16 C82 16 94 44 94 70 C94 88 84 102 72 106 L60 104 L60 16 Z" fill="#efe0c0" stroke="#c8a96a" stroke-width="2.5"/></g>
@@ -30,50 +455,6 @@ function eggSvg(cls, cracks) {
       <path class="crack${cracks >= 3 ? " show" : ""}" d="M44 68 l9 6 -4 9 10 7" stroke="#8a6f42" stroke-width="2.2" fill="none"/>
     </g></g></svg>`;
 }
-function poodleSvg(cls, c) {
-  return `<svg viewBox="0 0 120 120"><g class="${cls}">
-    <g class="tail-wag"><circle cx="24" cy="78" r="8" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/></g>
-    <ellipse cx="52" cy="88" rx="26" ry="17" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
-    <circle cx="38" cy="103" r="6.5" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
-    <circle cx="64" cy="103" r="6.5" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
-    <rect x="70" y="58" width="9" height="26" rx="4.5" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
-    <g class="head-tilt"><circle cx="80" cy="46" r="17" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
-      <circle cx="66" cy="34" r="9" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
-      <circle cx="93" cy="34" r="9" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
-      <circle cx="80" cy="27" r="10" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
-      <g class="blink"><circle cx="75" cy="45" r="2.6" fill="#2b2118"/><circle cx="87" cy="45" r="2.6" fill="#2b2118"/></g>
-      <ellipse cx="81" cy="53" rx="3.4" ry="2.6" fill="#2b2118"/>
-      <path d="M81 56 q0 4 -4 5 M81 56 q0 4 4 5" stroke="#2b2118" stroke-width="1.6" fill="none"/></g></g></svg>`;
-}
-function parrotSvg(cls, c) {
-  return `<svg viewBox="0 0 120 120"><g class="${cls}">
-    <path d="M46 104 l5 -12 4 12 Z M60 104 l5 -12 4 12 Z" fill="#6b6f76"/>
-    <ellipse cx="58" cy="70" rx="24" ry="28" fill="${c.shade}" stroke="${c.line}" stroke-width="2.5"/>
-    <g class="wing-flap"><path d="M42 56 C28 62 26 84 38 94 C46 88 48 68 42 56 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/></g>
-    <g class="wing-flap right"><path d="M74 56 C88 62 90 84 78 94 C70 88 68 68 74 56 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/></g>
-    <path d="M52 94 C50 106 54 114 60 118 C64 112 64 102 62 94 Z" fill="#d0362b" stroke="#8a1a12" stroke-width="2"/>
-    <g class="head-tilt"><circle cx="60" cy="40" r="18" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
-      <circle cx="54" cy="36" r="6.5" fill="#f2f4f6" stroke="${c.line}" stroke-width="1.6"/>
-      <g class="blink"><circle cx="54" cy="36" r="2.6" fill="#20242a"/></g>
-      <path d="M72 33 q12 3 10 12 q-2 8 -12 7 q-4 -1 -5 -6 Z" fill="#3a3f45" stroke="#20242a" stroke-width="1.8"/>
-      <path d="M74 47 q4 5 1 8" stroke="#20242a" stroke-width="1.6" fill="none"/></g></g></svg>`;
-}
-function dragonSvg(cls, c) {
-  return `<svg viewBox="0 0 120 120"><g class="${cls}">
-    <path d="M28 92 C16 90 12 80 16 72 C22 78 30 80 36 84 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
-    <g class="wing-flap"><path d="M40 52 C24 34 12 36 8 48 C20 46 26 54 30 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/></g>
-    <g class="wing-flap right"><path d="M74 52 C90 34 102 36 106 48 C94 46 88 54 84 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/></g>
-    <ellipse cx="57" cy="80" rx="26" ry="20" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
-    <path d="M40 62 l6 -9 6 9 Z M52 58 l6 -10 6 10 Z M64 62 l6 -9 6 9 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/>
-    <ellipse cx="57" cy="86" rx="14" ry="10" fill="#bff2e4" opacity="0.5"/>
-    <g class="head-tilt"><ellipse cx="82" cy="46" rx="17" ry="14" fill="${c.body}" stroke="${c.line}" stroke-width="2.5"/>
-      <path d="M72 34 l4 -10 6 8 Z M84 32 l5 -10 5 9 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/>
-      <g class="blink"><circle cx="78" cy="44" r="3" fill="#083b32"/><circle cx="92" cy="44" r="3" fill="#083b32"/></g>
-      <ellipse cx="86" cy="54" rx="9" ry="4.5" fill="${c.shade}"/>
-      <circle cx="83" cy="53" r="1.2" fill="#083b32"/><circle cx="89" cy="53" r="1.2" fill="#083b32"/>
-      <g class="smoke"><circle cx="101" cy="50" r="3.4" fill="#9fb8b2"/></g>
-      <g class="smoke s2"><circle cx="103" cy="47" r="2.6" fill="#9fb8b2"/></g></g></g></svg>`;
-}
 function graveSvg() {
   return `<svg viewBox="0 0 120 120"><g>
     <ellipse cx="60" cy="104" rx="34" ry="8" fill="#1c2733"/>
@@ -82,15 +463,100 @@ function graveSvg() {
     <path d="M52 74 h16 M60 66 v16" stroke="#2c3944" stroke-width="3"/>
     <g class="ghostup"><text x="60" y="30" text-anchor="middle" font-size="16">👻</text></g></g></svg>`;
 }
-const PET_SVGS = { 1: poodleSvg, 2: parrotSvg, 3: dragonSvg };
-const DEFAULT_COAT = { 1: G.COATS[1][0], 2: G.COATS[2][0], 3: G.COATS[3][0] };
-// draw a pet with its gene-derived coat, wrapped in a rarity-aura span (glow/shimmer via CSS in pets.html)
+// draw a pet: its animal's archetype body in its gene-derived coat, inside a rarity-aura span
 function petBody(p, cls = "pet-idle") {
-  const coat = p.gene ? G.coatOf(p.gene, p.sp) : DEFAULT_COAT[p.sp];
-  const aura = p.gene ? G.auraOf(p.sp, coat.shiny) : "";
-  return `<span class="aura ${aura}">${PET_SVGS[p.sp](cls, coat)}</span>`;
+  const a = p.animal, coat = G.coatOf(p.gene, a);
+  const aura = G.auraOf(p.sp, coat.shiny);
+  const floats = FLOATERS.has(a.a);
+  return `<span class="aura ${aura}">${wrap(cls + (floats && cls ? " swim" : ""), (ART[a.a] || quadArt)(coat, a.v || {}), floats)}</span>`;
 }
 const petArt = (p, cls = "pet-idle") => p.dead ? graveSvg() : (p.hatched ? petBody(p, cls) : eggSvg(p.hatchReady ? "egg-ready egg-glow" : "egg-idle", 0));
+
+// ---- CHALLENGER CARD: a downloadable PNG — the pet's WARRIOR face, name, power and a QR to its page ---
+const rr = (x, y, w, h, r) => { const p = new Path2D(); p.roundRect(x, y, w, h, r); return p; };
+async function challengerCanvas(p) {
+  const an = p.animal, coat = G.coatOf(p.gene, an), tier = p.tier;
+  FIERCE = 1;                                    // same body, angry face
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 112 112">${(ART[an.a] || quadArt)(coat, an.v || {})}</svg>`;
+  FIERCE = 0;
+  const img = new Image();
+  const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+  try { await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; }); }
+  catch { URL.revokeObjectURL(url); return alertBar("Couldn't render the card image — try again."); }
+  const W = 640, H = 900, cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const x = cv.getContext("2d");
+  // background: night gradient + a menacing tier-colored arena glow
+  const bg = x.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, "#0b0f14"); bg.addColorStop(0.55, "#12080d"); bg.addColorStop(1, "#1a0708");
+  x.fillStyle = bg; x.fillRect(0, 0, W, H);
+  const glow = x.createRadialGradient(W / 2, 400, 40, W / 2, 400, 330);
+  glow.addColorStop(0, tier.color + "55"); glow.addColorStop(0.6, tier.color + "18"); glow.addColorStop(1, "transparent");
+  x.fillStyle = glow; x.fillRect(0, 0, W, H);
+  // flame licks around the pet
+  x.save(); x.globalAlpha = 0.5;
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2, R = 235 + (i % 3) * 22;
+    const fx = W / 2 + Math.cos(a) * R, fy = 400 + Math.sin(a) * R * 0.78;
+    const fl = x.createRadialGradient(fx, fy, 2, fx, fy, 26 + (i % 4) * 9);
+    fl.addColorStop(0, "#ff8d3a"); fl.addColorStop(0.5, "#d0362b44"); fl.addColorStop(1, "transparent");
+    x.fillStyle = fl; x.beginPath(); x.arc(fx, fy, 26 + (i % 4) * 9, 0, 7); x.fill();
+  }
+  x.restore();
+  // frame
+  x.strokeStyle = tier.color; x.lineWidth = 6; x.stroke(rr(14, 14, W - 28, H - 28, 24));
+  x.strokeStyle = "#e3b34188"; x.lineWidth = 2; x.stroke(rr(26, 26, W - 52, H - 52, 16));
+  // header
+  x.textAlign = "center"; x.fillStyle = "#e3b341"; x.font = "800 26px system-ui";
+  x.fillText("⚔  C H A L L E N G E R  ⚔", W / 2, 78);
+  const name = p.label;
+  x.fillStyle = "#f2f4f6"; x.font = `900 ${name.length > 14 ? 40 : 52}px system-ui`;
+  x.shadowColor = tier.color; x.shadowBlur = 18;
+  x.fillText(name, W / 2, name.length > 14 ? 130 : 138, W - 90);
+  x.shadowBlur = 0;
+  x.fillStyle = tier.color; x.font = "700 24px system-ui";
+  x.fillText(`${an.e}  ${coat.name} ${an.n} · ${tier.rarity}${coat.shiny ? " ✦" : ""}`, W / 2, 176, W - 80);
+  // the warrior
+  x.drawImage(img, W / 2 - 190, 192, 380, 380);
+  URL.revokeObjectURL(url);
+  // power plate
+  x.fillStyle = "#0b0f14cc"; x.fill(rr(W / 2 - 190, 586, 380, 72, 16));
+  x.strokeStyle = "#e3b341"; x.lineWidth = 2.5; x.stroke(rr(W / 2 - 190, 586, 380, 72, 16));
+  x.fillStyle = "#ffd35a"; x.font = "900 38px system-ui";
+  x.fillText(`⚡ POWER ${p.pw}`, W / 2, 636);
+  x.fillStyle = "#93a1b0"; x.font = "700 20px system-ui";
+  x.fillText(`Lv ${p.level} · record ${recordOf(p)}`, W / 2, 688);
+  // QR to this pet (scan -> its page, Challenge button and all)
+  const qcv = document.createElement("canvas");
+  drawQR(qcv, null, base() + "/?pet=" + p.id, 150);
+  if (qcv.width > 2) {
+    x.fillStyle = "#fff"; x.fill(rr(W - 182, 722, 144, 144, 10));
+    x.drawImage(qcv, W - 175, 729, 130, 130);
+  }
+  // CHALLENGE ME + the scan invitation (left column, clear of the QR tile)
+  x.textAlign = "left";
+  x.fillStyle = "#f85149"; x.font = "900 42px system-ui";
+  x.shadowColor = "#f85149"; x.shadowBlur = 20;
+  x.fillText("CHALLENGE ME", 46, 764);
+  x.shadowBlur = 0;
+  x.fillStyle = "#93a1b0"; x.font = "600 17px system-ui";
+  x.fillText("scan to face me on-chain:", 46, 798);
+  x.fillStyle = "#00c9a7"; x.font = "700 19px system-ui";
+  x.fillText("pets.nadochain.com", 46, 826);
+  x.fillStyle = "#5d6b7a"; x.font = "600 14px system-ui";
+  x.fillText("NADO PETS · every fight is decided by the chain", 46, 854);
+  return cv;
+}
+async function challengerCard(p) {
+  const cv = await challengerCanvas(p);
+  if (!cv) return;
+  cv.toBlob((b) => {
+    if (!b) return alertBar("Couldn't export the card PNG.");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(b);
+    a.download = "challenger-" + String(p.nm || p.animal.n).replace(/\W+/g, "-").toLowerCase() + "-" + p.id + ".png";
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  });
+}
 
 // ---- reads: everything derives from the contract's storage maps -----------------------------------
 function petsFrom(sto) {
@@ -98,19 +564,24 @@ function petsFrom(sto) {
   for (const pid of Object.keys(ow)) {
     const gs = _m(sto, "gs")[pid] || null;
     const p = { id: pid, owner: ow[pid], bh: _m(sto, "bh")[pid] || 0, gs, sp: _m(sto, "sp")[pid] || 0,
+      si: _m(sto, "si")[pid] || 0, ex: _m(sto, "ex")[pid] || 0,
       ap: _m(sto, "ap")[pid] || 0, pw: _m(sto, "pw")[pid] || 0, fu: _m(sto, "fu")[pid] || 0,
       tf: _m(sto, "tf")[pid] || 0, nm: _m(sto, "nm")[pid] || "", th: _m(sto, "th")[pid] || 0,
       ti: _m(sto, "ti")[pid] || 0, tr: _m(sto, "tr")[pid] || 0, price: _m(sto, "mp")[pid] || 0,
       wins: _m(sto, "wins")[pid] || 0, loss: _m(sto, "loss")[pid] || 0 };
     p.hatched = !!gs; p.gene = gs ? BigInt(gs) : null;
     p.dead = cur != null && cur > p.fu;
+    p.animal = p.hatched ? G.animalOf(p.si, p.sp) : null;   // si==0 -> legacy pet -> the OG three
+    p.tier = G.TIERS[p.sp] || null;
+    p.resting = !p.dead && cur != null && cur < p.ex;       // post-battle exhaustion (no new fights)
+    p.restBlocks = p.resting ? p.ex - cur : 0;
     p.mine = dapp.me && p.owner === dapp.me;
     p.hatchReady = !p.hatched && !!(dapp.bh(p.bh) && dapp.bh(p.bh + 1));
     p.stale = !p.hatched && cur != null && cur >= p.bh + G.STALE;         // gene block pruned -> rebirth
     p.base = p.gene ? G.baseStats(p.gene, p.sp) : null;
     p.bonus = p.gene ? G.STAT_NAMES.map((_n, i) => _m(sto, "tb")[pid + "|" + i] || 0) : null;
     p.level = G.levelOf(p.tf || 0);
-    p.label = p.nm ? p.nm : (p.hatched ? G.SPECIES[p.sp].name : "Egg") + " #" + String(pid).slice(-4);
+    p.label = p.nm ? p.nm : (p.hatched ? p.animal.n : "Egg") + " #" + String(pid).slice(-4);
     out[pid] = p;
   }
   return out;
@@ -137,9 +608,13 @@ const myPets = () => Object.values(PETS).filter((p) => p.mine);
 const effOf = (p) => (p.base && p.bonus) ? p.base.map((b, i) => b + p.bonus[i]) : null;
 const recordOf = (p) => (p.wins || 0) + "W–" + (p.loss || 0) + "L";
 const lifeBlocks = (p) => dapp.cursor == null ? null : p.fu - dapp.cursor;
-const lifeText = (p) => { const b = lifeBlocks(p); if (b == null) return "…"; if (b <= 0) return "none";
-  const d = Math.floor(b / BLOCKS_PER_DAY), h = Math.floor((b % BLOCKS_PER_DAY) * BLOCK_SECS / 3600);
+const dhm = (b) => { const d = Math.floor(b / BLOCKS_PER_DAY), h = Math.floor((b % BLOCKS_PER_DAY) * BLOCK_SECS / 3600);
   return d > 0 ? d + "d " + h + "h" : h > 0 ? h + "h " + Math.floor((b * BLOCK_SECS % 3600) / 60) + "m" : blocksToTime(b) + " min"; };
+const lifeText = (p) => { const b = lifeBlocks(p); return b == null ? "…" : b <= 0 ? "none" : dhm(b); };
+// hunger moods drive the CSS animations: hungry under 3 days of belly, starving under 12 hours.
+// Only HATCHED pets get them — an egg can't be fed, so nagging for food would be a lie.
+const moodOf = (p) => { if (p.dead) return "dead"; if (!p.hatched) return ""; const b = lifeBlocks(p);
+  return b == null ? "" : b < BLOCKS_PER_DAY / 2 ? "starving" : b < 3 * BLOCKS_PER_DAY ? "hungry" : ""; };
 
 // ---- actions ---------------------------------------------------------------------------------------
 const L = () => lsLoad(LS_P), Lsave = (v) => lsSave(LS_P, v);
@@ -157,9 +632,9 @@ function feed(pid, raw) {
   const p = PETS[pid]; if (!p) return;
   const blocks = G.feedBlocks(raw, p.ap);
   if (blocks < 1) return alertBar("That meal is too small — it wouldn't buy a single block of life (this pet's appetite costs " + rawToNado(G.feedCost(1, p.ap)) + " NADO per block).");
-  if (lifeBlocks(p) + blocks > G.BELLY_CAP) return alertBar("Too much food — the belly holds at most 7 days. Fill it with the preset instead.");
+  if (lifeBlocks(p) + blocks > G.BELLY_CAP) return alertBar("Too much food — the belly holds at most 30 days ahead. Use the fill-belly preset instead.");
   if (!canPay(dapp, raw, "This meal")) return;
-  dapp.call("feed", [Number(pid)], raw, "feed " + PETS[pid].label + " · " + rawToNado(raw) + " NADO (+" + (blocks / BLOCKS_PER_DAY).toFixed(1) + "d)", { pid, phase: "feed" });
+  dapp.call("feed", [Number(pid)], raw, "feed " + PETS[pid].label + " · " + rawToNado(raw) + " NADO (+" + (blocks / BLOCKS_PER_DAY).toFixed(1) + "d)", { pid, phase: "feed", fu0: p.fu });
 }
 function train(pid, i) {
   if (!canPay(dapp, G.TRAIN_FEE, "Training")) return;
@@ -170,6 +645,9 @@ const trainResolve = (pid) => dapp.call("train_resolve", [Number(pid)], null, "r
 function challenge(theirPid) {
   const myPid = parseInt($("myPetSel").value, 10);
   if (!myPid) return alertBar("Pick which of your pets fights — you need a living, hatched pet (adopt one below).");
+  const mine = PETS[myPid], theirs = PETS[theirPid];
+  if (mine && mine.resting) return alertBar(mine.label + " is exhausted from its last battle — rested again in " + dhm(mine.restBlocks) + ".");
+  if (theirs && theirs.resting) return alertBar(theirs.label + " is exhausted from its last battle — challenge it again in " + dhm(theirs.restBlocks) + ".");
   const stake = $("stakeAmt").value.trim() === "" || $("stakeAmt").value.trim() === "0" ? 0n : nadoToRaw($("stakeAmt").value);
   if (stake == null) return alertBar("Enter a stake in NADO (0 for a friendly-but-deadly match).");
   if (stake > 0n && !canPay(dapp, stake, "This challenge")) return;
@@ -195,9 +673,9 @@ function nameIt(pid) {
 function listPet(pid) {
   const raw = nadoToRaw($("listPrice").value);
   if (!raw) return alertBar("Enter your ask price in NADO.");
-  dapp.call("list", [Number(pid), raw], null, "sell " + PETS[pid].label + " · ask " + rawToNado(raw) + " NADO", { pid, phase: "market" }, { confirm: 1 });
+  dapp.call("list", [Number(pid), raw], null, "sell " + PETS[pid].label + " · ask " + rawToNado(raw) + " NADO", { pid, phase: "market", mp0: PETS[pid].price }, { confirm: 1 });
 }
-const unlistPet = (pid) => dapp.call("unlist", [Number(pid)], null, "remove " + PETS[pid].label + " from the market", { pid, phase: "market" });
+const unlistPet = (pid) => dapp.call("unlist", [Number(pid)], null, "remove " + PETS[pid].label + " from the market", { pid, phase: "market", mp0: PETS[pid].price });
 function buyPet(pid) {
   const p = PETS[pid]; if (!p || !p.price) return;
   const price = BigInt(p.price);
@@ -249,12 +727,23 @@ async function refreshAll() {
     for (const pid of Object.keys(l)) if (!PETS[pid] && Date.now() - (l[pid].ts || 0) > 600000) { delete l[pid]; ch = true; }
     if (ch) Lsave(l);
     await resolveAliases(Object.values(PETS).map((p) => p.owner).concat([dapp.me]).filter(Boolean).slice(0, 60));
-    // an in-flight action whose effect is now visible on-chain is done — stop showing "confirming…"
+    // an in-flight action whose effect is now visible on-chain is done — stop showing "confirming…".
+    // EVERY phase must be covered here (plus the 3-min expiry), or its status line sticks forever.
     const f = dapp.inflight;
-    if (f && ((f.phase === "mint" && PETS[f.pid]) || (f.phase === "hatch" && PETS[f.pid] && PETS[f.pid].hatched)
-        || (f.phase === "buy" && PETS[f.pid] && PETS[f.pid].mine)
-        || (f.phase === "challenge" && BATTLES[f.bid]) || (f.phase === "accept" && BATTLES[f.bid] && BATTLES[f.bid].wn >= 2)
-        || (f.phase === "resolveb" && BATTLES[f.bid] && BATTLES[f.bid].wn === 3))) dapp.clearInflight();
+    if (f && Date.now() - (f.ts || 0) > 180000) dapp.clearInflight();
+    else if (f) {
+      const p = PETS[f.pid], b = BATTLES[f.bid], o = OFFERS[f.oid];
+      if ((f.phase === "mint" && p) || (f.phase === "hatch" && p && p.hatched)
+        || (f.phase === "buy" && p && p.mine) || (f.phase === "feed" && p && p.fu > (f.fu0 || 0))
+        || (f.phase === "train" && p && p.th) || (f.phase === "trainres" && p && !p.th)
+        || (f.phase === "rename" && p && p.nm) || (f.phase === "xfer" && p && !p.mine)
+        || (f.phase === "market" && p && String(p.price) !== String(f.mp0))
+        || (f.phase === "offer" && o) || (f.phase === "offeract" && o && o.state === 2)
+        || (f.phase === "challenge" && b) || (f.phase === "accept" && b && b.wn >= 2)
+        || ((f.phase === "resolveb" || f.phase === "cancelb") && b && b.wn === 3)) dapp.clearInflight();
+    }
+    // once nothing is in flight, an optimistic "…confirming" status line is stale — clear it
+    if (!dapp.inflight && stMsgPhase) { $("status").textContent = ""; stMsgPhase = null; }
   }
   render();
 }
@@ -266,7 +755,7 @@ function statRow(p, i) {
   // two-segment bar: teal = base (locked at hatch), gold = trained bonus you added
   const baseW = Math.min(100, base), bonusW = Math.min(100 - baseW, bonus);
   const bar = `<div class="bar sbar"><i style="width:${baseW}%"></i>${bonusW > 0 ? `<b style="width:${bonusW}%" title="+${bonus} from training"></b>` : ""}</div>`;
-  return `<div class="statrow"><span>${G.STAT_ICONS[i]}</span><span>${G.STAT_NAMES[i]}</span>
+  return `<div class="statrow"><span title="${G.STAT_ROLES[i]}">${G.STAT_ICONS[i]}</span><span title="In battle: ${G.STAT_ROLES[i]}">${G.STAT_NAMES[i]}</span>
     <span class="sv">${val}${bonus ? ` <span class="up">+${bonus}</span>` : ""}</span>
     ${bar}
     ${canTrain ? `<button class="mini train" data-train="${i}" title="Train ${G.STAT_NAMES[i]} — 0.5 NADO, ${chance.toFixed(0)}% chance to gain +1">🏋 Train · ${chance.toFixed(0)}%</button>` : `<span class="small dim" title="train success chance">${chance.toFixed(0)}%</span>`}
@@ -283,21 +772,21 @@ function renderActive() {
     $("petName").textContent = "Egg #" + String(active).slice(-4);
     $("petSpecies").textContent = "";
     $("petMsg").textContent = dapp.whereIs("pet", active, local.ts);
-    gate({ lifeWrap: false, hatchRow: false, feedRow: false, statsWrap: false, challengeRow: false, ownRow: false });
+    gate({ lifeWrap: false, restWrap: false, hatchRow: false, feedRow: false, statsWrap: false, challengeRow: false, ownRow: false });
+    $("btnCard").classList.add("hidden");
     shareInvite("pet", null); return;
   }
-  const sp = p.hatched ? G.SPECIES[p.sp] : null;
+  const an = p.animal, tier = p.tier;
   $("petId").textContent = "#" + p.id;
-  $("petRar").innerHTML = sp ? `<span class="rar r${p.sp}">${sp.rarity} · ${sp.pct}%</span>` : `<span class="rar r1">Egg</span>`;
+  $("petRar").innerHTML = p.hatched ? `<span class="rar r${p.sp}">${tier.rarity}</span>` : `<span class="rar r1">Egg</span>`;
   if (!hatchPlaying) {
-    const mood = p.dead ? "dead" : "";
-    $("activePet").className = "card " + mood;
+    $("activePet").className = "card " + moodOf(p);
     $("petStage").innerHTML = petArt(p);
   }
   $("petName").textContent = p.label + (p.dead ? " ✝" : "");
-  const coat = p.gene ? G.coatOf(p.gene, p.sp) : null;
+  const coat = p.gene && an ? G.coatOf(p.gene, an) : null;
   $("petSpecies").innerHTML = p.hatched
-    ? sp.emoji + " " + esc(coat.name) + " " + sp.name + (coat.shiny ? ' <span style="color:#ffd35a">✦ shiny</span>' : "") + (p.nm ? ' · <span class="dim">#' + p.id + "</span>" : "")
+    ? an.e + " " + esc(coat.name) + " " + esc(an.n) + (coat.shiny ? ' <span style="color:#ffd35a">✦ shiny</span>' : "") + ' · <span class="dim">1 of 100 animals</span>' + (p.nm ? ' · <span class="dim">#' + p.id + "</span>" : "")
     : "Unhatched egg";
   $("petOwner").innerHTML = esc(disp(p.owner)) + (p.mine ? ' <span class="b ok">yours</span>' : "");
   $("petLp").textContent = p.hatched ? "Lv " + p.level + " · ⚡ " + p.pw + " · " + recordOf(p) : "—";
@@ -306,15 +795,21 @@ function renderActive() {
   if ($("petGene")) { $("petGene").textContent = p.gs ? "0x" + p.gene.toString(16) : "—"; $("petGene").title = p.gs || ""; }
   // life bar
   const lb = lifeBlocks(p), pct = lb == null ? 0 : Math.max(0, Math.min(100, 100 * lb / G.BELLY_CAP));
-  $("lifeBar").className = "bar" + (p.dead ? " crit" : lb < BLOCKS_PER_DAY / 6 ? " crit" : lb < BLOCKS_PER_DAY ? " low" : "");
+  $("lifeBar").className = "bar" + (p.dead ? " crit" : lb < BLOCKS_PER_DAY / 2 ? " crit" : lb < 3 * BLOCKS_PER_DAY ? " low" : "");
   $("lifeBar").firstElementChild.style.width = pct + "%";
-  $("lifeLabel").textContent = p.dead ? "☠ starved / fallen" : lifeText(p) + (lb != null && lb < BLOCKS_PER_DAY && !p.dead ? " — FEED SOON" : "");
+  $("lifeLabel").textContent = p.dead ? "☠ starved / fallen" : lifeText(p) + (lb != null && lb < 3 * BLOCKS_PER_DAY && !p.dead ? " — FEED SOON" : "");
+  // exhaustion (post-battle rest): recovery bar counts UP to ready
+  if (p.resting) {
+    $("restLabel").textContent = dhm(p.restBlocks);
+    $("restBar").firstElementChild.style.width = Math.max(2, Math.min(100, 100 * (1 - p.restBlocks / G.EXHAUST))) + "%";
+  }
   $("petMsg").textContent = p.dead ? (p.hatched ? "This pet has died. Its record stays on-chain forever." : "This egg expired unhatched.")
     : !p.hatched ? (p.hatchReady ? "The gene blocks are final — hatch it!" : p.stale ? "Its gene block was pruned — re-roll below." : "Incubating… the chain is minting its gene blocks (~2 min).") : "";
   // sections
   const canOffer = p.hatched && !p.dead && !p.mine && dapp.me;
   const incoming = Object.values(OFFERS).filter((o) => o.state === 1 && o.pet === p.id);
-  gate({ lifeWrap: true, hatchRow: !p.hatched && !p.dead, feedRow: p.hatched && !p.dead,
+  gate({ lifeWrap: true, restWrap: p.hatched && !p.dead && p.resting,
+         hatchRow: !p.hatched && !p.dead, feedRow: p.hatched && !p.dead,
          statsWrap: p.hatched, challengeRow: p.hatched && !p.dead && !p.mine && dapp.me,
          ownRow: p.mine && !p.dead, buyRow: !!p.price && !p.mine && !p.dead && dapp.me,
          offerRow: canOffer, offersInRow: p.mine && !p.dead && incoming.length > 0 });
@@ -351,12 +846,12 @@ function renderActive() {
     $("btnRebirth").classList.toggle("hidden", !(p.stale && p.mine));
   }
   if (p.hatched && !p.dead) {
-    $("feed1d").textContent = "+1 day · " + rawToNado(G.feedCost(BLOCKS_PER_DAY, p.ap)) + " N";
-    $("feed3d").textContent = "+3 days · " + rawToNado(G.feedCost(3 * BLOCKS_PER_DAY, p.ap)) + " N";
+    $("feed1d").textContent = "+7 days · " + rawToNado(G.feedCost(7 * BLOCKS_PER_DAY, p.ap)) + " N";
+    $("feed3d").textContent = "+14 days · " + rawToNado(G.feedCost(14 * BLOCKS_PER_DAY, p.ap)) + " N";
     const fillB = Math.max(0, G.BELLY_CAP - (lb || 0) - 60);
-    $("feedFull").textContent = "fill belly · " + rawToNado(G.feedCost(fillB, p.ap)) + " N";
+    $("feedFull").textContent = "fill belly (30d) · " + rawToNado(G.feedCost(fillB, p.ap)) + " N";
     $("feedFull").dataset.blocks = fillB;
-    $("feedHint").textContent = "Appetite " + p.ap + ": 1 NADO buys " + (G.feedBlocks(10n ** 10n, p.ap) / BLOCKS_PER_DAY).toFixed(2) + " days. Anyone may feed any pet — a gift.";
+    $("feedHint").textContent = "Appetite " + p.ap + ": 1 NADO buys " + (G.feedBlocks(10n ** 10n, p.ap) / BLOCKS_PER_DAY).toFixed(1) + " days. Anyone may feed any pet — a gift (the belly still tops out 30 days ahead).";
   }
   if (p.hatched) {
     $("statList").innerHTML = G.STAT_NAMES.map((_n, i) => statRow(p, i)).join("");
@@ -380,26 +875,31 @@ function renderActive() {
       }
     }
     $("trainHint").innerHTML = '<span style="color:var(--accent2)">▮ base</span> (locked at hatch) · <span style="color:var(--gold)">▮ trained</span> (your gains). '
-      + "Each attempt costs 0.5 NADO. Success chance = 100·K/(K+stat), K=" + G.trainK(p.sp) + " for a " + (sp ? esc(sp.rarity.toLowerCase()) : "") + " — the better the stat, the harder the gain (no cap, ever). Rarer species train easier.";
+      + "Each attempt costs 0.5 NADO. Success chance = 100·K/(K+stat), K=" + G.trainK(p.sp) + " for a " + (tier ? esc(tier.rarity.toLowerCase()) : "") + " — the better the stat, the harder the gain (no cap, ever). Rarer animals train easier.";
   }
   if (p.hatched && !p.dead && !p.mine && dapp.me) {
     const mine = myPets().filter((x) => x.hatched && !x.dead);
-    $("myPetSel").innerHTML = mine.length ? mine.map((x) => `<option value="${x.id}">${esc(x.label)} · ⚡${x.pw}</option>`).join("") : '<option value="">no living pet — adopt below</option>';
+    $("myPetSel").innerHTML = mine.length
+      ? mine.map((x) => `<option value="${x.id}"${x.resting ? " disabled" : ""}>${esc(x.label)} · ⚡${x.pw}${x.resting ? " · 💤 resting" : ""}</option>`).join("")
+      : '<option value="">no living pet — adopt below</option>';
+    $("btnChallenge").disabled = p.resting;
+    $("btnChallenge").textContent = p.resting ? "💤 Resting · ready in " + dhm(p.restBlocks) : "⚔ Challenge";
   }
   if (p.mine && !p.dead) {
     const named = !!p.nm;
     $("nameInput").classList.toggle("hidden", named);
     $("btnRename").classList.toggle("hidden", named);
   }
-  shareInvite("pet", p.id, (p.hatched ? "Meet " + p.label + ", my " + sp.rarity + " " + sp.name + " on NADO Pets:" : "My NADO Pets egg is incubating:"));
+  shareInvite("pet", p.id, (p.hatched ? "Meet " + p.label + ", my " + tier.rarity + " " + an.n + " on NADO Pets:" : "My NADO Pets egg is incubating:"));
+  $("btnCard").classList.toggle("hidden", !(p.hatched && !p.dead));
   maybePlayHatch(p);
 }
 function petCard(p, sel) {
-  const sp = p.hatched ? G.SPECIES[p.sp] : null;
-  const cls = "pcard" + (p.dead ? " dead" : "") + (!p.hatched ? " egg" : "") + (sel ? " sel" : "");
+  const cls = "pcard" + (p.dead ? " dead" : "") + (!p.hatched ? " egg" : "") + (sel ? " sel" : "") + " " + moodOf(p);
+  const flags = (p.resting ? " 💤" : "") + (!p.dead && moodOf(p) === "hungry" ? " 🍖" : "") + (!p.dead && moodOf(p) === "starving" ? ' <span class="warn">🍖!</span>' : "");
   return `<div class="${cls}" data-pet="${p.id}">${petArt(p, "")}
-    <div class="pn">${p.hatched ? sp.emoji + " " : "🥚 "}${esc(p.label)}</div>
-    <div class="po">${p.hatched ? `<span style="color:${sp.color}">${sp.rarity}</span> · ⚡${p.pw}` : "incubating"}${p.dead ? " · ✝" : ""}</div>
+    <div class="pn">${p.hatched ? p.animal.e + " " : "🥚 "}${esc(p.label)}</div>
+    <div class="po">${p.hatched ? `<span style="color:${p.tier.color}">${p.tier.rarity}</span> · ⚡${p.pw}` : "incubating"}${p.dead ? " · ✝" : ""}${flags}</div>
     <div class="po">${p.price && !p.dead ? `🏷 ${rawToNado(p.price)} NADO` : esc(disp(p.owner))}</div></div>`;
 }
 // grid view state: search + sort + how many are shown (pagination keeps 10k pets browsable)
@@ -416,8 +916,8 @@ function matches(p, q) {
   if (!q) return true;
   q = q.toLowerCase().replace(/^[@#]/, "");
   return (p.nm && p.nm.toLowerCase().includes(q)) || p.id.includes(q)
-    || (p.hatched && G.SPECIES[p.sp].name.toLowerCase().includes(q))
-    || (p.hatched && G.SPECIES[p.sp].rarity.toLowerCase().includes(q))
+    || (p.hatched && p.animal.n.toLowerCase().includes(q))
+    || (p.hatched && p.tier.rarity.toLowerCase().includes(q))
     || p.owner.toLowerCase().startsWith(q) || disp(p.owner).toLowerCase().replace(/^@/, "").includes(q);
 }
 function grid(el, moreBtn, list, v, empty) {
@@ -443,8 +943,8 @@ function renderGrids() {
   document.querySelectorAll("[data-pet]").forEach((el) => el.onclick = () => { active = el.dataset.pet; render(); try { $("activePet").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
   // hall of fame
   const top = Object.values(PETS).filter((p) => p.hatched && !p.dead).sort((a, b) => b.pw - a.pw).slice(0, 10);
-  $("fameList").innerHTML = top.length ? '<table class="score"><thead><tr><th>#</th><th>Pet</th><th>Rarity</th><th>Power</th><th>Owner</th></tr></thead><tbody>'
-    + top.map((p, i) => `<tr${p.mine ? ' class="me"' : ""}><td>${i + 1}</td><td>${G.SPECIES[p.sp].emoji} ${esc(p.label)}</td><td style="color:${G.SPECIES[p.sp].color}">${G.SPECIES[p.sp].rarity}</td><td class="mono">⚡${p.pw} · Lv${p.level}</td><td>${esc(disp(p.owner))}</td></tr>`).join("") + "</tbody></table>"
+  $("fameList").innerHTML = top.length ? '<table class="score"><thead><tr><th>#</th><th>Pet</th><th>Animal</th><th>Power</th><th>Owner</th></tr></thead><tbody>'
+    + top.map((p, i) => `<tr${p.mine ? ' class="me"' : ""}><td>${i + 1}</td><td>${p.animal.e} ${esc(p.label)}</td><td style="color:${p.tier.color}">${esc(p.animal.n)}</td><td class="mono">⚡${p.pw} · Lv${p.level}</td><td>${esc(disp(p.owner))}</td></tr>`).join("") + "</tbody></table>"
     : '<span class="dim small">No living pets yet.</span>';
 }
 function renderBattles() {
@@ -456,8 +956,10 @@ function renderBattles() {
     const inc = mineIds.has(b.b), out = mineIds.has(b.a), involved = inc || out;
     const stakeTxt = b.ws ? rawToNado(b.ws) + " NADO each" : "no stake (still deadly)";
     if (b.wn === 1 && (involved || String(activeBattle) === b.id)) {
+      const tired = pa.resting || pb.resting;   // accept would revert until both fighters are rested
       rows.push(`<div class="btl"><span class="who">${esc(pa.label)}</span> ⚔ challenges <span class="who">${esc(pb.label)}</span> · ${stakeTxt}
-        <div class="act">${inc ? `<button class="mini primary" data-acc="${b.id}">Accept the battle</button>` : ""}
+        <div class="act">${inc ? (tired ? `<span class="small dim">💤 ${esc((pa.resting ? pa : pb).label)} is resting — acceptable in ${dhm(Math.max(pa.restBlocks, pb.restBlocks))}</span>`
+          : `<button class="mini primary" data-acc="${b.id}">Accept the battle</button>`) : ""}
         ${out ? `<button class="mini ghost" data-cxl="${b.id}">Withdraw</button>` : ""}
         <button class="mini ghost" data-view="${b.id}">View</button></div></div>`);
     } else if (b.wn === 2 && (involved || String(activeBattle) === b.id)) {
@@ -524,7 +1026,7 @@ function playBattle(b, pa, pb, aWins, died, res) {
         if (hpL) hpL.style.width = Math.max(0, 100 * e.h0 / hp0max) + "%";
         if (hpR) hpR.style.width = Math.max(0, 100 * e.h1 / hp1max) + "%";
       }
-      if (LOG) LOG.textContent = (e.atk === 0 ? pa.label : pb.label) + (e.hit ? " hits for " + e.dmg : " misses");
+      if (LOG) LOG.textContent = (e.atk === 0 ? pa.label : pb.label) + (e.hit ? (e.crit ? " CRITS 💥 for " : " hits for ") + e.dmg : " misses");
     }, t);
     t += 560;
   });
@@ -560,9 +1062,9 @@ function maybePlayHatch(p) {
       stage.style.position = "relative"; sp.style.left = "50%"; sp.style.top = "45%"; stage.appendChild(sp);
       setTimeout(() => sp.remove(), 1100);
     }
-    const spc = G.SPECIES[p.sp], coat = G.coatOf(p.gene, p.sp);
-    alertBar("🎉 It's a " + spc.rarity.toUpperCase() + " — " + coat.name + " " + spc.emoji + " " + spc.name
-      + (coat.shiny ? " ✦ SHINY" : "") + "! Its coat, colour and 10 abilities are all written into its gene, locked forever. Name it, feed it, train it.");
+    const an = p.animal, coat = G.coatOf(p.gene, an);
+    alertBar("🎉 It's a " + p.tier.rarity.toUpperCase() + " — " + coat.name + " " + an.e + " " + an.n
+      + (coat.shiny ? " ✦ SHINY" : "") + "! One of 100 possible animals — its species, coat and 10 abilities are all written into its gene, locked forever. Name it, feed it, train it.");
   }, t + 600);
   setTimeout(() => { hatchPlaying = false; render(); }, t + 2400);
 }
@@ -583,8 +1085,8 @@ function wireUI() {
   $("btnRebirth").onclick = () => rebirth(active);
   $("btnFeed").onclick = () => { const raw = nadoToRaw($("feedAmt").value); if (!raw) return alertBar("Enter how much NADO to feed."); feed(active, raw); };
   const preset = (blocks) => { const p = PETS[active]; if (p) feed(active, G.feedCost(blocks, p.ap)); };
-  $("feed1d").onclick = () => preset(BLOCKS_PER_DAY);
-  $("feed3d").onclick = () => preset(3 * BLOCKS_PER_DAY);
+  $("feed1d").onclick = () => preset(7 * BLOCKS_PER_DAY);
+  $("feed3d").onclick = () => preset(14 * BLOCKS_PER_DAY);
   $("feedFull").onclick = () => preset(parseInt($("feedFull").dataset.blocks || "0", 10));
   $("btnChallenge").onclick = () => challenge(active);
   $("btnRename").onclick = () => nameIt(active);
@@ -593,6 +1095,7 @@ function wireUI() {
   $("btnUnlist").onclick = () => unlistPet(active);
   $("btnBuy").onclick = () => buyPet(active);
   $("btnOffer").onclick = () => makeOffer(active);
+  $("btnCard").onclick = () => { const p = PETS[active]; if (p && p.hatched && !p.dead) challengerCard(p); };
   const wireView = (v, q, s, more) => {
     $(q).oninput = () => { v.q = $(q).value.trim(); v.n = 24; renderGrids(); };
     $(s).onchange = () => { v.sort = $(s).value; v.n = 24; renderGrids(); };
@@ -605,6 +1108,8 @@ dapp.onReturn((pend, ok, err) => {
   if (pend && pend.pid != null) active = pend.pid;
   if (pend && pend.bid != null) activeBattle = pend.bid;
   if (ok && pend && pend.phase === "train") { const l = L(); if (l[pend.pid]) { l[pend.pid].trainPending = 1; Lsave(l); } }
+  // remember which phase wrote the optimistic line so refreshAll can clear it once the effect lands
+  stMsgPhase = ok && pend && !["connect", "deposit", "withdraw"].includes(pend.phase) ? pend.phase : null;
   $("status").textContent = statusLabel(pend, ok, err, {
     mint: "Egg adopted — confirming on-chain (~1 min)…", hatch: "Hatching — confirming on-chain…",
     feed: "Nom nom — the meal is confirming…", train: "Training session booked — confirming…",
@@ -624,4 +1129,7 @@ async function boot() {
   render(); refreshAll();
   setInterval(refreshAll, 3000);
 }
-boot();
+if ($("btnMint")) boot();   // only boot on the real page — the art gallery imports this module bare
+// debug/gallery surface (no game state). initCrypto loads the hash bundle through THIS module graph —
+// the static server version-stamps import specifiers, so an outside import would hit a second instance.
+export const _art = { ART, wrap, FLOATERS, challengerCanvas, initCrypto: loadCrypto, initQR: loadQR, fierce: (v) => { FIERCE = v ? 1 : 0; } };

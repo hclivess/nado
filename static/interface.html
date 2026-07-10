@@ -121,12 +121,14 @@
       <button id="btnDlKeySave" class="accent" data-i18n="btn.dlKey">⤓ Download key file (JSON)</button>
     </div>
     <div class="row mt">
-      <label class="small" style="display:flex;align-items:center;gap:8px;margin:0">
-        <input type="checkbox" id="ackSave" style="width:auto" /> <span data-i18n="save.ack">I have saved my private key</span>
+      <label class="small tgl" style="display:flex;align-items:center;gap:10px;margin:0;cursor:pointer">
+        <input type="checkbox" id="ackSave" />
+        <span class="tgl-track" aria-hidden="true"><span class="tgl-knob"></span></span>
+        <span data-i18n="save.ack">I have saved my private key</span>
       </label>
     </div>
     <div class="row mt">
-      <button id="btnConfirmSave" class="primary" disabled data-i18n="save.continue">Continue → store on this device</button>
+      <button id="btnConfirmSave" class="primary pulse-ready" disabled data-i18n="save.continue">Continue → store on this device</button>
     </div>
     <p class="small faint mt" data-i18n-html="save.note">“Continue” stores the key in this browser's <span class="mono">localStorage</span> so mining can auto-resume. By default it is plain text — turn on <b>Settings → Encrypt wallet with a password</b> to encrypt it at rest and enable auto-lock. Only keep a plain-text key on a device you trust.</p>
   </div>

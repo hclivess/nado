@@ -325,8 +325,9 @@ export class NadoDapp {
   // dapp.clearInflight() once they SEE the effect on-chain (the definitive "it landed").
   busy(phase, keyName, keyVal) {
     const f = this.inflight;
-    if (!f || f.phase !== phase) return false;
-    if (Date.now() - f.ts > 180000) { this.inflight = null; return false; }
+    if (!f) return false;
+    if (Date.now() - f.ts > 180000) { this.inflight = null; return false; }   // expire FIRST, whatever the
+    if (f.phase !== phase) return false;   // phase asked about — else an unpolled phase sticks forever
     if (keyName != null && String(f[keyName]) !== String(keyVal)) return false;
     return true;
   }

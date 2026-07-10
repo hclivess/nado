@@ -11,7 +11,7 @@
 #     appetite : stat_9 — stored ON-CHAIN because it prices food; power = Σ stats — stored for battles.
 #
 # SURVIVAL — pets eat real NADO. feed(value) extends fed_until by value / (appetite * FEED_DIV) blocks
-# (≈1 NADO/day at appetite 50), belly capped at 7 days ahead; when the cursor passes fed_until the pet is
+# (≈0.1 NADO/day at appetite 50), belly capped at 30 days ahead; when the cursor passes fed_until the pet is
 # DEAD — permanently: no feeding, no transfer, no training, no battles. Mint, food and training fees are
 # BURNED — PAYed to the dead "burn" bridge key (not a valid address, no key can ever spend it), a public
 # tally. There is no house; the contract's own balance only ever holds open battle pots.
@@ -27,11 +27,12 @@
 # the seller from escrow and flips ownership atomically. A manual transfer clears any open listing; a dead
 # pet's sale can never complete. Unhatched eggs may be sold (a mystery box).
 #
-# BATTLES — consent-based (the defender's owner must accept), optionally staked, chain-resolved:
-#     q = BLOCKHASH(wh) + BLOCKHASH(wh+1) + battleId*8            wh = accept cursor + 2
-#     scoreA = powerA * (75 + HASH(q+1)%100);  scoreB = powerB * (75 + HASH(q+2)%100)
-#     winner = A iff scoreA > scoreB (tie -> defender);  pot -> winner pet's CURRENT owner
-#     the LOSER DIES iff HASH(q+3) % 100 < DIE_PCT (20%)          — battles are for keeps.
+# BATTLES — consent-based (the defender's owner must accept), optionally staked, chain-resolved as a
+# turn-based duel over q = BLOCKHASH(wh) + BLOCKHASH(wh+1) + battleId*8 (wh = accept cursor + 2) in which
+# EVERY stat has a Monte-Carlo-balanced role (see tests/pets_ref.py): str damage, agi dodge, vit HP,
+# int accuracy, wis mitigation, cha intimidation, loy regen, luck crit, spd turn-share, app bulk+bite.
+# Winner = higher remaining HP FRACTION (tie -> defender); pot -> winner pet's CURRENT owner, who also
+# CLAIMS the loser; the LOSER DIES iff HASH(q+999999) % 100 < DIE_PCT — battles are for keeps.
 #
 # LIVENESS ESCAPES — the exec layer only retains ~20000 block hashes (~33h), so anything bound to a pruned
 # hash gets an exit: rebirth() re-rolls an unhatched egg's gene block, train() may overwrite a stale pending
@@ -59,16 +60,18 @@ DUP=OP("DUP"); SWAP=OP("SWAP"); REQ=OP("REQUIRE"); PAY=OP("PAY"); HALT=OP("HALT"
 MINT_FEE    = 10**10        # 1 NADO to adopt an egg
 TRAIN_FEE   = 5 * 10**9     # 0.5 NADO per training attempt (kept by the contract, success or not)
 HATCH_DELAY = 2             # gene block = mint cursor + 2 (unknowable when the mint is signed)
-START_BELLY = 43200         # a fresh egg/pet is fed for 3 days (6s blocks)
-BELLY_CAP   = 100800        # can never be fed more than 7 days ahead — care, not a one-off payment
-FEED_DIV    = 14000         # raw NADO per block of life per appetite point (~1 NADO/day at appetite 50)
+START_BELLY = 432000        # a fresh egg/pet is fed for 30 days (6s blocks)
+BELLY_CAP   = 432000        # can never be fed more than 30 days ahead — care, not a one-off payment
+FEED_DIV    = 1400          # raw NADO per block of life per appetite point (~0.1 NADO/day at appetite 50)
 STALE       = 18000         # blocks after which a pending hash-binding is considered pruned (retention 20000)
+EXHAUST     = 3600          # post-battle rest: both fighters are exhausted for 6h (no new battles until rested)
 DIE_PCT     = 10            # the battle loser's chance to die, in % (small — most losers survive + are claimed)
-CAP_BATTLE  = 20            # turns in a battle (unrolled; the fight resolves by KO or higher remaining HP)
+CAP_BATTLE  = 12            # turns in a battle (unrolled; sized so the deploy blob fits BLOB_MAX_BYTES 64KiB)
 S = "S"                     # scratch register map (per-call temporaries, fully rewritten before use)
 
 # storage maps (all keyed by petId unless noted):
-#   ow owner  bh geneBlock  gn gene  sp species(1..3)  ap appetite  pw power  fu fedUntil  tf totalFood
+#   ow owner  bh geneBlock  gn gene  sp rarityTier(1..3)  si speciesId+1(1..100, 0=legacy)  ap appetite
+#   pw power  fu fedUntil  tf totalFood  ex exhaustedUntil (post-battle rest)
 #   nm name   th trainBlock ti trainStat+1  tr lastTrainResult(1 ok/2 fail)  tb trainedBonus (petId|i)
 #   battles keyed by battleId: wa petA  wb petB  ws stake  wp pot  wh resolveBlock  wn state(1 open,
 #   2 accepted, 3 done)  ww winnerPet  wd diedPet(0 none)      ct: "n" -> total pets minted
@@ -100,8 +103,11 @@ hatch_m = [                                       # hatch(pid) — permissionles
   # browser (gs): storage rides to the client as JSON, where a bare 256-bit number would lose precision.
   A(0), A(0), LD("bh"), BLOCKHASH, A(0), LD("bh"), P(1), ADD, BLOCKHASH, ADD, A(0), ADD, HASH, ST("gn"),
   A(0), P(""), A(0), LD("gn"), CONCAT, ST("gs"),
-  # species = 1 + (r>=70) + (r>=95),  r = gene % 100
+  # rarity tier sp = 1 + (r>=70) + (r>=95),  r = gene % 100  (all stat/training math keys off the TIER)
   A(0), A(0), LD("gn"), P(100), MOD, DUP, P(70), GTE, SWAP, P(95), GTE, ADD, P(1), ADD, ST("sp"),
+  # species id si = r + 1 (1..100, 0 = legacy pet hatched before the 100-animal roster) — purely cosmetic:
+  # the client maps it to one of 100 animals (70 common, 25 rare, 5 legendary); tier still decides stats.
+  A(0), A(0), LD("gn"), P(100), MOD, P(1), ADD, ST("si"),
   # appetite = stat_9 (it prices food, so it must live on-chain)
   A(0), *stat_base_ops([P(9)]), ST("ap"),
   # power = Σ_{i=0..9} (HASH(gn+1000+i)%60+1)  +  (sp-1)*150   (== Σ stat_i)
@@ -129,7 +135,7 @@ feed_m = [                                        # feed(pid)  value = the meal 
   VALUE, A(0), LD("ap"), P(FEED_DIV), MUL, DIV,   # blocks gained = value / (appetite * FEED_DIV)
   DUP, P(0), GT, REQ,                             # a meal too small to buy 1 block would be wasted -> revert
   ADD,                                            # new fed_until
-  DUP, CURSOR, P(BELLY_CAP), ADD, LTE, REQ,       # belly cap: never more than 7 days ahead
+  DUP, CURSOR, P(BELLY_CAP), ADD, LTE, REQ,       # belly cap: never more than 30 days ahead
   ST("fu"),
   A(0), A(0), LD("tf"), VALUE, ADD, ST("tf"),
   HALT ]
@@ -249,6 +255,8 @@ challenge_m = [                                   # challenge(bid, myPet, theirP
   CALLER, A(1), LD("ow"), EQ, REQ,                # you send YOUR pet
   CURSOR, A(1), LD("fu"), LTE, REQ,               # both alive
   CURSOR, A(2), LD("fu"), LTE, REQ,
+  CURSOR, A(1), LD("ex"), GTE, REQ,               # both RESTED (no battle within EXHAUST of the last one)
+  CURSOR, A(2), LD("ex"), GTE, REQ,
   A(1), A(2), EQ, NOT, REQ,
   A(0), A(1), ST("wa"), A(0), A(2), ST("wb"),
   A(0), VALUE, ST("ws"), A(0), VALUE, ST("wp"),
@@ -261,14 +269,21 @@ accept_m = [                                      # accept(bid)  value = the cha
   VALUE, A(0), LD("ws"), EQ, REQ,
   CURSOR, A(0), LD("wa"), LD("fu"), LTE, REQ,     # both still alive at consent
   CURSOR, A(0), LD("wb"), LD("fu"), LTE, REQ,
+  CURSOR, A(0), LD("wa"), LD("ex"), GTE, REQ,     # both still rested at consent (the fight happens NOW)
+  CURSOR, A(0), LD("wb"), LD("ex"), GTE, REQ,
   A(0), A(0), LD("wp"), VALUE, ADD, ST("wp"),
   A(0), CURSOR, P(HATCH_DELAY), ADD, ST("wh"),    # the fight is decided by blocks that don't exist yet
+  # the fight is scheduled — BOTH fighters are exhausted from here (rested again EXHAUST blocks after it)
+  A(0), LD("wa"), CURSOR, P(HATCH_DELAY + EXHAUST), ADD, ST("ex"),
+  A(0), LD("wb"), CURSOR, P(HATCH_DELAY + EXHAUST), ADD, ST("ex"),
   A(0), P(2), ST("wn"),
   HALT ]
 
-# ── TURN-BASED BATTLE bytecode (unrolled from the finalized beacon) ─────────────────────────────────
-# Combat stats from the 10 EFFECTIVE stats (base gene stat + trained bonus tb[pid|i]): HP=vit*3+20,
-# ATK=str, DODGE=min(agi,60), SPD=speed. `pid_ops` produces a pet id (e.g. [A(0), LD("wa")] -> wa[bid]).
+# ── TURN-BASED BATTLE v2 bytecode (unrolled from the finalized beacon) ──────────────────────────────
+# EVERY stat fights (constants frozen by Monte-Carlo balancing — see tests/pets_ref.py for the roles):
+# str damage, agi dodge, vit HP, int accuracy, wis mitigation, cha intimidation, loy regen, luck crit,
+# spd turn-share, app bulk+bite. Winner = higher remaining FRACTION of HP (h0*maxB > h1*maxA).
+# `pid_ops` produces a pet id (e.g. [A(0), LD("wa")] -> wa[bid]).
 def eff_stat_ops(pid_ops, i):
     """Effective stat #i for the pet pid_ops points at: base(gene) + trained bonus tb[pid|i]."""
     return [*pid_ops, LD("gn"), P(1000 + i), ADD, HASH, P(60), MOD, P(1), ADD,   # HASH(gn+1000+i)%60 + 1
@@ -278,27 +293,40 @@ def setreg(reg, val_ops):        return [P(reg), *val_ops, ST(S)]
 def reg(r):                      return [P(r), LD(S)]
 PA = [A(0), LD("wa")]            # pet A id (challenger)
 PB = [A(0), LD("wb")]            # pet B id (defender)
-def cap60(reg_name):
-    """Clamp scratch reg to <=60, branchless: raw - (raw-60)*(raw>60)."""
-    return [P(reg_name), *reg(reg_name), *reg(reg_name), P(60), SUB, *reg(reg_name), P(60), GT, MUL, SUB, ST(S)]
+def pick(base, diff):
+    """Branchless side select via a precomputed DIFFERENCE register: base + diff*cu (5 fewer ops/use
+    than the two-sided multiply-by-flag form — the turn is unrolled 12x, bytes matter: 64KiB blob cap)."""
+    return [*reg(base), *reg(diff), *reg("cu"), MUL, ADD]
 
 def battle_turn(t):
-    """One unrolled turn: attacker = cur (0=A,1=B) alternating from the initiative flag; a hit lands iff
-    hitRoll >= defender DODGE; damage = ATK*(60+dmgRoll%61)//100 + 1; once either faints (al=0) all damage
-    is gated off. All branchless (multiply-by-flag), so no jumps."""
-    cur = setreg("cu", reg("sf")) if t % 2 == 0 else setreg("cu", [P(1), *reg("sf"), SUB])
+    """One unrolled turn, all branchless (multiply-by-flag): speed decides who owns the turn; a contested
+    roll (accuracy vs dodge) decides the hit; damage = (50+str+app/4)*(0.6..1.2) doubled on a luck crit,
+    shrunk by the defender's wisdom, minus charisma intimidation (floor 1); both sides then regen loyalty/4
+    capped at max HP. Once either faints (al=0) all damage AND regen are gated off — the fight is frozen."""
     return [
-        *cur,
-        *setreg("hr", [*reg("q"), P(t), ADD, HASH, P(100), MOD]),                 # hitRoll 0..99
-        *setreg("dr", [*reg("q"), P(t + 4096), ADD, HASH, P(61), MOD]),           # dmgRoll 0..60
+        # cu = who attacks (0=A, 1=B): speed turn-share roll — P(A) = (spdA+60)/(spdA+spdB+120)
+        *setreg("cu", [*reg("q"), P(t + 8192), ADD, HASH, *reg("sp"), MOD, *reg("sA"), GTE]),
         *setreg("al", [*reg("h0"), P(0), GT, *reg("h1"), P(0), GT, AND]),         # both still alive?
-        *setreg("at", [*reg("a0"), P(1), *reg("cu"), SUB, MUL, *reg("a1"), *reg("cu"), MUL, ADD]),  # attacker ATK
-        *setreg("do", [*reg("d1"), P(1), *reg("cu"), SUB, MUL, *reg("d0"), *reg("cu"), MUL, ADD]),  # defender DODGE
-        *setreg("ht", [*reg("hr"), *reg("do"), GTE]),                             # hit iff hitRoll>=dodge
-        *setreg("dm", [*reg("ht"), *reg("al"), MUL,
-                       *reg("at"), P(60), *reg("dr"), ADD, MUL, P(100), DIV, P(1), ADD, MUL]),  # damage
-        *setreg("h0", [*reg("h0"), *reg("dm"), *reg("cu"), MUL, SUB]),            # A loses HP on B's turn (cur=1)
-        *setreg("h1", [*reg("h1"), *reg("dm"), P(1), *reg("cu"), SUB, MUL, SUB]), # B loses HP on A's turn (cur=0)
+        *setreg("ac", pick("ac0", "acD")),                                        # attacker accuracy 15+2*int
+        # contested hit: hitRoll*(acc + defender dodge) < 100*acc  — smooth, never saturates
+        *setreg("ht", [*reg("q"), P(t), ADD, HASH, P(100), MOD,
+                       *reg("ac"), *pick("d1", "dD"), ADD, MUL, *reg("ac"), P(100), MUL, LT]),
+        # damage = attackBase*(60+dmgRoll%61)//100 + 1, doubled on a crit (critRoll%100 < attacker luck)
+        *setreg("dm", [*pick("at0", "atD"), P(60), *reg("q"), P(t + 4096), ADD, HASH, P(61), MOD, ADD,
+                       MUL, P(100), DIV, P(1), ADD]),
+        *setreg("dm", [*reg("dm"), P(1),
+                       *reg("q"), P(t + 12288), ADD, HASH, P(100), MOD, *pick("k0", "kD"), LT, ADD, MUL]),
+        *setreg("dm", [*reg("dm"), P(90), MUL, *pick("wq1", "wqD"), DIV]),             # wisdom mitigation
+        *setreg("dm", [*reg("dm"), *pick("c1", "cD"), SUB]),                           # charisma intimidation
+        *setreg("dm", [*reg("dm"), P(1), *reg("dm"), SUB, *reg("dm"), P(1), LT, MUL, ADD]),  # floor 1
+        *setreg("dm", [*reg("dm"), *reg("ht"), MUL, *reg("al"), MUL]),
+        *setreg("h0", [*reg("h0"), *reg("dm"), *reg("cu"), MUL, SUB]),            # A loses HP on B's turn (cu=1)
+        *setreg("h1", [*reg("h1"), *reg("dm"), P(1), *reg("cu"), SUB, MUL, SUB]), # B loses HP on A's turn (cu=0)
+        # loyalty regen, alive-gated, capped at max HP (h + al*loy//4, then h -= (h-max)*(h>max), on-stack)
+        *setreg("h0", [*reg("h0"), *reg("al"), *reg("l0"), MUL, ADD,
+                       DUP, DUP, *reg("m0"), SUB, SWAP, *reg("m0"), GT, MUL, SUB]),
+        *setreg("h1", [*reg("h1"), *reg("al"), *reg("l1"), MUL, ADD,
+                       DUP, DUP, *reg("m1"), SUB, SWAP, *reg("m1"), GT, MUL, SUB]),
     ]
 
 _lo = reg("lo")   # loser pid (stored in scratch)
@@ -307,17 +335,30 @@ resolve_battle_m = [                              # resolve_battle(bid) — perm
   CURSOR, A(0), LD("wh"), P(1), ADD, GTE, REQ,    # both battle blocks FINALIZED (turns decided by them)
   # beacon mix q = bh(wh) + bh(wh+1) + bid*8
   *setreg("q", [A(0), LD("wh"), BLOCKHASH, A(0), LD("wh"), P(1), ADD, BLOCKHASH, ADD, A(0), P(8), MUL, ADD]),
-  # combat stats into scratch (HP, ATK, DODGE) + initiative flag from SPD
-  *setreg("h0", [*eff_stat_ops(PA, 2), P(3), MUL, P(20), ADD]),
-  *setreg("h1", [*eff_stat_ops(PB, 2), P(3), MUL, P(20), ADD]),
-  *setreg("a0", eff_stat_ops(PA, 0)), *setreg("a1", eff_stat_ops(PB, 0)),
-  *setreg("d0", eff_stat_ops(PA, 1)), *cap60("d0"),
-  *setreg("d1", eff_stat_ops(PB, 1)), *cap60("d1"),
-  *setreg("sf", [*eff_stat_ops(PA, 8), *eff_stat_ops(PB, 8), GTE, NOT]),   # 0 if A faster/equal else 1
+  # combat registers from the 10 EFFECTIVE stats (see battle_turn for the per-stat roles). Side-dependent
+  # values are stored as BASE (the cu=0 side) + DIFFERENCE, so each turn selects with base + diff*cu:
+  *setreg("m0", [*eff_stat_ops(PA, 2), P(3), MUL, P(20), ADD, *eff_stat_ops(PA, 9), ADD]),   # max HP A
+  *setreg("m1", [*eff_stat_ops(PB, 2), P(3), MUL, P(20), ADD, *eff_stat_ops(PB, 9), ADD]),   # max HP B
+  *setreg("h0", reg("m0")), *setreg("h1", reg("m1")),
+  *setreg("at0", [P(50), *eff_stat_ops(PA, 0), ADD, *eff_stat_ops(PA, 9), P(4), DIV, ADD]),  # attack base (str+app/4)
+  *setreg("atD", [P(50), *eff_stat_ops(PB, 0), ADD, *eff_stat_ops(PB, 9), P(4), DIV, ADD, *reg("at0"), SUB]),
+  *setreg("ac0", [P(15), *eff_stat_ops(PA, 3), P(2), MUL, ADD]),                             # accuracy (int)
+  *setreg("acD", [P(15), *eff_stat_ops(PB, 3), P(2), MUL, ADD, *reg("ac0"), SUB]),
+  *setreg("d1", eff_stat_ops(PB, 1)),                                                        # defender dodge (agi)
+  *setreg("dD", [*eff_stat_ops(PA, 1), *reg("d1"), SUB]),
+  *setreg("wq1", [P(90), *eff_stat_ops(PB, 4), ADD]),                                        # 90 + defender wis
+  *setreg("wqD", [P(90), *eff_stat_ops(PA, 4), ADD, *reg("wq1"), SUB]),
+  *setreg("c1", [*eff_stat_ops(PB, 5), P(2), DIV]),                                          # defender cha//2
+  *setreg("cD", [*eff_stat_ops(PA, 5), P(2), DIV, *reg("c1"), SUB]),
+  *setreg("k0", eff_stat_ops(PA, 7)),                                                        # attacker luck (crit %)
+  *setreg("kD", [*eff_stat_ops(PB, 7), *reg("k0"), SUB]),
+  *setreg("l0", [*eff_stat_ops(PA, 6), P(4), DIV]), *setreg("l1", [*eff_stat_ops(PB, 6), P(4), DIV]),  # regen/turn
+  *setreg("sA", [*eff_stat_ops(PA, 8), P(60), ADD]),                                         # turn-share (spd)
+  *setreg("sp", [*reg("sA"), *eff_stat_ops(PB, 8), ADD, P(60), ADD]),
   # unrolled turns
   *[ins for t in range(CAP_BATTLE) for ins in battle_turn(t)],
-  # a_wins = h0 > h1 (tie -> defender B); ww = winner pid; lo = loser pid
-  *setreg("g", [*reg("h0"), *reg("h1"), GT]),
+  # a_wins = higher remaining FRACTION: h0*maxB > h1*maxA (tie -> defender B); ww = winner; lo = loser
+  *setreg("g", [*reg("h0"), *reg("m1"), MUL, *reg("h1"), *reg("m0"), MUL, GT]),
   A(0), A(0), LD("wa"), *reg("g"), MUL, A(0), LD("wb"), P(1), *reg("g"), SUB, MUL, ADD, ST("ww"),
   *setreg("lo", [A(0), LD("wa"), A(0), LD("wb"), ADD, A(0), LD("ww"), SUB]),
   # dies = HASH(q+999999) % 100 < DIE_PCT  (small chance)
@@ -374,8 +415,12 @@ st = ExecState(tempfile.mktemp()); T0 = 1000; st.cursor = T0
 for a in ("A", "B", "C"): st.credit_deposit(a, 10**14)
 st.apply_blob({"op": "deploy", "code": CODE, "runtime": "stackvm", "nonce": "pets-v1"}, "A", "d0")
 CID = list(st.contracts)[0]
+_mark = [T0 - 5]   # incremental fill cursor — the 30-day belly pushes the test past 1M blocks
 def set_hashes(upto):
-    for h in range(T0 - 5, upto + 2): st.block_hashes.setdefault(h, vm_hash(["blk", h]))
+    lo = _mark[0]
+    if upto + 2 - lo > 5000: lo = upto - 10   # a big cursor jump leaves a hole — nothing binds inside it
+    for h in range(lo, upto + 2): st.block_hashes.setdefault(h, vm_hash(["blk", h]))
+    _mark[0] = max(_mark[0], upto + 2)
 def bal(a): return st.bridge.get(a, 0)
 def M(m, k): return st.contracts[CID]["storage"].get(m, {}).get(str(k), 0)
 def call(m, args, val, who): return st.apply_blob({"op": "call", "contract": CID, "method": m, "args": args, "value": val}, who, m + str(args) + str(st.cursor))
@@ -409,6 +454,7 @@ ck("hatch locks gene == reference beacon formula", g == ref_gene(st.block_hashes
 ck("hatch locks species/appetite/power == reference", M("sp", PID) == ref_species(g)
    and M("ap", PID) == ref_stat(g, ref_species(g), 9) and M("pw", PID) == ref_power(g, ref_species(g)))
 ck("hatch stores the gene as a decimal string too (JSON-safe for the browser)", M("gs", PID) == str(g))
+ck("hatch stores the species id si = gene%100 + 1 (one of 100 animals)", M("si", PID) == g % 100 + 1)
 ck("hatch twice reverts", rv(call("hatch", [PID], 0, "A")))
 ck("hatch of a nonexistent pet reverts", rv(call("hatch", [999999], 0, "A")))
 
@@ -421,6 +467,7 @@ for k in range(300):
     call("hatch", [pid], 0, "A")
     g = M("gn", pid); s = ref_species(g); hist[M("sp", pid)] += 1
     if not (g == ref_gene(st.block_hashes, M("bh", pid), pid) and M("sp", pid) == s
+            and M("si", pid) == g % 100 + 1
             and M("ap", pid) == ref_stat(g, s, 9) and M("pw", pid) == ref_power(g, s)): mism += 1
 ck(f"DIFFERENTIAL: 300 hatches gene/species/appetite/power bytecode==reference (mism={mism})", mism == 0)
 ck(f"all three species appear — Poodle {hist[1]}, Parrot {hist[2]}, Dragon {hist[3]}",
@@ -434,7 +481,7 @@ ck("feed extends fed_until by value/(appetite*FEED_DIV)", M("fu", PID) == fu0 + 
 ck("feed dust (under 1 block of food) reverts", rv(call("feed", [PID], ap * FEED_DIV - 1, "A")))
 ck("feed zero reverts", rv(call("feed", [PID], 0, "A")))
 over = ap * FEED_DIV * (BELLY_CAP + 5000)
-ck("overfeeding past the 7-day belly cap reverts", rv(call("feed", [PID], over, "A")))
+ck("overfeeding past the 30-day belly cap reverts", rv(call("feed", [PID], over, "A")))
 EGG = 555001; call("mint", [EGG], MINT_FEE, "A")
 ck("feeding an unhatched egg reverts", rv(call("feed", [EGG], meal, "A")))
 
@@ -486,7 +533,7 @@ ck("invested (tf) = mint + every training fee (each train() adds TRAIN_FEE)", M(
 call("train", [TP, 0], TRAIN_FEE, "A")
 st.cursor += STALE + 5                            # hashes for the old session's blocks were never recorded
 ck("resolve of a pruned session reverts", rv(call("train_resolve", [TP], 0, "A")))
-call("feed", [TP], M("ap", TP) * FEED_DIV * (BELLY_CAP - 100), "A")   # keep it alive across the jump
+# (no keep-alive feed needed — the 30-day belly easily covers the STALE jump)
 ck("a stale session may be overwritten by a fresh train", not rv(call("train", [TP, 0], TRAIN_FEE, "A")))
 set_hashes(st.cursor + 3); advance(3); call("train_resolve", [TP], 0, "A")
 ck("the fresh session resolves", M("th", TP) == 0 and M("tr", TP) in (1, 2))
@@ -552,11 +599,22 @@ call("accept", [BID2], 2 * 10**9, "B")
 ck("refund of a live accepted battle reverts (not stale yet)", rv(call("refund_battle", [BID2], 0, "C")))
 advance(3)
 ck("double-resolve reverts", (call("resolve_battle", [BID2], 0, "C") or True) and rv(call("resolve_battle", [BID2], 0, "C")))
+# exhaustion: a scheduled fight tires BOTH pets for EXHAUST blocks after it — no back-to-back battles
+x1, x2, x3 = 4200001, 4200002, 4200003
+mint_and_hatch(x1, "A"); mint_and_hatch(x2, "B"); mint_and_hatch(x3, "A")
+XB = 5200001
+call("challenge", [XB, x1, x2], 0, "A")
+call("accept", [XB], 0, "B")
+ck("accept exhausts both fighters (rested again EXHAUST blocks after the fight)",
+   M("ex", x1) == st.cursor + HATCH_DELAY + EXHAUST and M("ex", x2) == M("ex", x1))
+ck("an exhausted pet cannot start a new battle", rv(call("challenge", [5200002, x1, x3], 0, "A")))
+ck("an exhausted pet cannot be dragged into a new fight either", rv(call("challenge", [5200003, x3, x2], 0, "A")))
+st.cursor += EXHAUST + HATCH_DELAY; set_hashes(st.cursor)          # sleep it off (well inside the 30-day belly)
+ck("rested pets may battle again", not rv(call("challenge", [5200004, x1, x3], 0, "A")))
+call("cancel_battle", [5200004], 0, "A")                            # tidy: no dangling open pot
 # stale accepted battle -> anyone splits the pot back
 g3, g4 = 4100005, 4100006
-mint_and_hatch(g3, "A"); mint_and_hatch(g4, "B")
-call("feed", [g3], M("ap", g3) * FEED_DIV * (BELLY_CAP - 100), "A")
-call("feed", [g4], M("ap", g4) * FEED_DIV * (BELLY_CAP - 100), "B")
+mint_and_hatch(g3, "A"); mint_and_hatch(g4, "B")   # fresh 30-day bellies survive the STALE jump unfed
 BID3 = 5100003
 call("challenge", [BID3, g3, g4], 3 * 10**9, "A")
 call("accept", [BID3], 3 * 10**9, "B")

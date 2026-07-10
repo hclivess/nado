@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>pets art gallery (dev)</title>
+<style>
+  body{background:#0b0f14;color:#e6edf3;font:13px system-ui;margin:16px}
+  .g{display:grid;grid-template-columns:repeat(10,1fr);gap:6px}
+  .c{background:#131a23;border:1px solid #243140;border-radius:8px;padding:4px;text-align:center}
+  .c svg{width:96px;height:96px}
+  .c .n{font-size:9.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .c .t1 .n{color:#e3b341}
+  h2{font-size:13px;margin:14px 0 6px;color:#93a1b0}
+</style>
+</head>
+<body>
+<div id="out">loading…</div>
+<script type="module">
+import { _art } from "/static/pets.js";
+import * as G from "/static/pets-genes.js";
+const { ART, wrap, FLOATERS, challengerCanvas, fierce } = _art;
+await _art.initQR(); await _art.initCrypto();
+const cells = [];
+for (let si = 1; si <= 100; si++) {
+  const a = G.animalOf(si, G.tierOfSi(si));
+  const coat = G.PALS[a.pal][(si * 7) % G.PALS[a.pal].length];
+  const floats = FLOATERS.has(a.a);
+  cells.push(`<div class="c t${G.tierOfSi(si)}">${wrap("pet-idle" + (floats ? " swim" : ""), ART[a.a](coat, a.v || {}), floats)}<div class="n">${si - 1} ${a.e} ${a.n}</div></div>`);
+}
+document.getElementById("out").innerHTML = `<h2>all 100 (one coat each)</h2><div class="g">${cells.join("")}</div>
+  <h2>hero three, all coats</h2><div class="g">${[[0, "poodle"], [70, "grey"], [95, "dragon"]].flatMap(([idx, pal]) =>
+    G.PALS[pal].map((coat) => { const a = G.ANIMALS[idx]; return `<div class="c">${wrap("pet-idle", ART[a.a](coat, a.v || {}), false)}<div class="n">${coat.name} ${a.n}</div></div>`; })).join("")}</div>
+  <h2>fierce (challenger-card faces)</h2><div class="g" id="fierceRow"></div>
+  <h2>challenger cards</h2><div id="cardRow" style="display:flex;gap:10px;flex-wrap:wrap"></div>`;
+fierce(1);
+document.getElementById("fierceRow").innerHTML = [1, 6, 39, 54, 66, 71, 85, 88, 96, 99].map((si) => {
+  const a = G.animalOf(si, G.tierOfSi(si)), coat = G.PALS[a.pal][0];
+  return `<div class="c">${wrap("", ART[a.a](coat, a.v || {}), false)}<div class="n">${a.e} ${a.n}</div></div>`;
+}).join("");
+fierce(0);
+for (const [si, nm, pw] of [[1, "Rex", 412], [71, "Kesha", 486], [96, "Ignis", 545]]) {
+  try {
+    const sp = G.tierOfSi(si), an = G.animalOf(si, sp);
+    const p = { animal: an, tier: G.TIERS[sp], gene: 987654321987654321n + BigInt(si), sp,
+                pw, level: 3, nm, id: String(1000 + si), wins: 4, loss: 1, hatched: true, label: nm };
+    const cv = await challengerCanvas(p);
+    if (cv) { cv.style.width = "300px"; document.getElementById("cardRow").appendChild(cv); }
+    else document.getElementById("cardRow").insertAdjacentHTML("beforeend", "<pre>no canvas for " + nm + "</pre>");
+  } catch (e) { document.getElementById("cardRow").insertAdjacentHTML("beforeend", "<pre>ERR " + nm + ": " + (e && e.message || e) + "\n" + (e && e.stack || "").slice(0, 400) + "</pre>"); }
+}
+window.__done = 1;
+</script>
+</body>
+</html>
