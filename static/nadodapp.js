@@ -25,6 +25,9 @@ export const _m = (sto, name) => (sto && sto[name]) || {};
 // it to keep "signed-in only" panels AND the in-game STAGE (the board / wheel / felt / bet layout) hidden until
 // they apply, so a player never sees a playing field for a game they haven't opened. Missing ids are ignored.
 export const gate = (map) => { for (const id in map) { const el = document.getElementById(id); if (el) el.classList.toggle("hidden", !map[id]); } };
+// hoist(id): move an element to the TOP of the page (right after #status) so the actual game/board is the first
+// thing a player sees when they're in a game. Call once at boot; the element stays hidden (via gate) until active.
+export const hoist = (id, refId = "status") => { const el = document.getElementById(id), ref = document.getElementById(refId); if (el && ref && ref.parentNode) ref.parentNode.insertBefore(el, ref.nextSibling); };
 
 // ---- amounts -------------------------------------------------------------------------------------
 export function nadoToRaw(s) {

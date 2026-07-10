@@ -5,7 +5,7 @@
 //     roll_g = HASH( BLOCKHASH(sh) + BLOCKHASH(sh+1) + seatId ) % 100
 // Once the settle block is final, anyone can settle a seat (it pays the bettor); losing stakes fold into the
 // bankroll so the table keeps rolling. Ordinary upgradable stackvm contract, no game-specific API.
-import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate,
+import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate, hoist,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
 const CID = "e5e5c8558c85b3c45ef386f1fe2bccb4";
@@ -290,7 +290,7 @@ dapp.onReturn((pend, ok, err) => {
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
-  wireUI(); loadQR(); syncSlider();
+  wireUI(); loadQR(); syncSlider(); hoist("activeGame");
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (activeTable == null) activeTable = parseInt(q, 10); }
   render(); refreshActive();

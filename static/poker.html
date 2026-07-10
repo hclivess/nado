@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NADO Poker — heads-up for stakes, post-quantum</title>
+<title>NADO Poker — auto-dealing video poker, post-quantum</title>
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
-    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--felt:#0e3b2e;--card:#f4f6f8;--cardred:#d0362b;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--win:#2fbf71;--felt:#0e3b2e;--card:#f4f6f8;--cardred:#d0362b;
     --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
   *{box-sizing:border-box}
   html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
     color:var(--txt);font:15px/1.5 var(--sans);min-height:100vh}
-  .wrap{max-width:640px;margin:0 auto;padding:22px 16px 60px}
+  .wrap{max-width:660px;margin:0 auto;padding:22px 16px 60px}
   header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
   header .logo{font-size:26px}
   header h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.2px}
@@ -27,24 +27,39 @@
   button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
   button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
   button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
+  @keyframes ppulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,201,167,.45)}50%{transform:scale(1.04);box-shadow:0 0 0 6px rgba(0,201,167,0)}}
+  button.pulse{animation:ppulse 1.25s ease-in-out infinite}
   .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
+  .warn{color:var(--danger);font-weight:600;line-height:1.45}
   .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}
-  .chip.open{border-color:var(--accent2);color:var(--accent2)}.chip.live{border-color:#e3b341;color:#e3b341}
-  .chip.pending{opacity:.6;border-style:dashed}
+  .chip.betting{border-color:var(--accent2);color:var(--accent2)}
+  .chip.done{opacity:.55}.chip.pending{opacity:.6;border-style:dashed}
+  table.score{width:100%;border-collapse:collapse;font-size:13px}
+  table.score th,table.score td{text-align:left;padding:6px 6px;border-bottom:1px solid var(--border)}
+  table.score th{color:var(--dim);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+  table.score td.pos{color:var(--accent2);font-weight:600}table.score td.neg{color:var(--danger)}
+  table.score tr.me td{background:rgba(0,201,167,.08)}
+  .b{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;margin-left:6px}
+  .b.ok{background:rgba(0,173,147,.16);color:var(--accent2)}
+  .b.pend{background:rgba(210,153,34,.16);color:#e3b341}
+  .b.dimb{background:rgba(147,161,176,.12);color:var(--dim)}
   #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}
   .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
-  /* felt table + cards */
-  .felt{background:radial-gradient(120% 90% at 50% 50%,#12503c,var(--felt));border:1px solid #0a2c22;border-radius:16px;padding:16px 12px;margin:8px 0}
-  .seat{margin:6px 0}
-  .seat .lbl{font-size:12.5px;color:#cfe9df;margin-bottom:6px;font-weight:600}
+  .wroll{color:var(--win);font-weight:700}
+  .felt{background:radial-gradient(120% 90% at 50% 50%,#12503c,var(--felt));border:1px solid #0a2c22;border-radius:16px;padding:16px 12px;margin:8px 0;text-align:center}
   .hand{display:flex;gap:6px;justify-content:center}
   .card{width:44px;height:62px;border-radius:6px;background:var(--card);color:#111;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
     font-weight:800;font-size:17px;padding-top:5px;box-shadow:0 2px 6px rgba(0,0,0,.4);font-family:var(--mono)}
   .card.red{color:var(--cardred)}
   .card .suit{font-size:20px;line-height:1;margin-top:-1px}
   .card.back{background:repeating-linear-gradient(45deg,#1c6b52,#1c6b52 6px,#134e3c 6px,#134e3c 12px);border:2px solid #0c3527}
-  @media(max-width:420px){.card{width:38px;height:54px;font-size:15px}.card .suit{font-size:17px}}
-  #settleHint{font-size:12.5px;color:var(--dim);margin-top:8px;line-height:1.45}
+  #featureResult{margin-top:10px;font-size:14px}
+  .minihand{display:inline-flex;gap:2px;vertical-align:middle}
+  .minihand .card{width:22px;height:31px;font-size:9px;padding-top:2px;border-radius:3px}
+  .minihand .card .suit{font-size:10px}
+  .seat{font-size:13px;padding:6px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .paytable{font-size:12px;width:100%;border-collapse:collapse}
+  .paytable td{padding:2px 6px;border-bottom:1px solid var(--border)}.paytable td:last-child{text-align:right;color:var(--accent2);font-weight:700}
   footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
   a{color:var(--accent2)}
 </style>
@@ -52,7 +67,7 @@
 <body>
 <div class="wrap">
   <header><span class="logo">🃏</span><h1>NADO <span class="a">Poker</span></h1></header>
-  <p class="sub">Heads-up <b>5-card poker showdown</b> for stakes on the NADO execution layer. Both players stake and commit a secret; once both reveal, both browsers deal the identical shuffled hands from <span class="mono">HASH(secret₀‖secret₁)</span> — nobody can pick their cards. Best hand wins; the pot settles by concede / agree / refund, so a stall can never rob you. Post-quantum wallet, no install.</p>
+  <p class="sub">Auto-dealing, <b>peer-banked multiplayer</b> video poker on the NADO execution layer. A table <b>deals itself every ~2 minutes</b> — no bank action, no secrets. Your 5 cards come from a <b>future L1 block hash</b> nobody can predict while betting is open, and the <b>contract</b> ranks your hand (Jacks-or-better) and pays the multiplier. Post-quantum wallet, no install.</p>
 
   <div id="status"></div>
 
@@ -61,25 +76,33 @@
     <p class="small dim">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
     <div class="kv mt"><span class="k">Playing as</span><span class="mono" id="who">not signed in</span></div>
     <div class="kv"><span class="k">Wallet (L1, depositable)</span><span class="mono" id="l1bal">—</span></div>
-    <div class="kv"><span class="k">Exec balance (stakeable)</span><span class="mono" id="bal">—</span></div>
+    <div class="kv"><span class="k">Exec balance (playable)</span><span class="mono" id="bal">—</span></div>
     <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
   </div>
 
+  <!-- FIND A TABLE -->
   <div class="card-box hidden" id="play">
-    <h2>🃏 Play for stakes</h2>
+    <h2>🃏 Find a table</h2>
+    <p class="small dim">Pick a table from the lobby below, or open one by ID — then the deal controls open for that table.</p>
     <div class="row">
-      <input id="stakeAmt" placeholder="stake (NADO)" inputmode="decimal" autocomplete="off">
-      <button class="primary" id="btnNew" style="flex:0 0 auto">New game</button>
+      <input id="joinId" placeholder="table ID" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="btnGoTable" style="flex:0 0 auto">Open table</button>
     </div>
-    <label class="mt">Join a game by ID</label>
-    <div class="row">
-      <input id="joinId" placeholder="game ID" inputmode="numeric" autocomplete="off">
-      <button class="primary" id="btnJoin" style="flex:0 0 auto">Join</button>
-    </div>
-    <div class="small dim mt">Your games</div>
+    <div class="small dim mt">Your tables <span style="opacity:.7">· 🏦 you bank · 🂡 you play</span></div>
     <div class="small dim" id="recent"></div>
   </div>
 
+  <!-- BANK -->
+  <div class="card-box hidden" id="bankcard">
+    <h2>🏦 Bank a table</h2>
+    <p class="small dim">Put up a bankroll and be the house: a self-dealing table plays against it hand after hand — you keep losing stakes and the ~3.5% edge, and never have to act again. Cover a 100× royal, so fund it well.</p>
+    <div class="row">
+      <input id="bankrollAmt" placeholder="bankroll (NADO)" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNewTable" style="flex:0 0 auto">Open table</button>
+    </div>
+  </div>
+
+  <!-- BANKROLL -->
   <div class="card-box hidden" id="bankroll">
     <h2>Bankroll</h2>
     <div class="row">
@@ -87,45 +110,84 @@
       <button class="ghost" id="btnDeposit" style="flex:0 0 auto">Deposit</button>
       <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
     </div>
-    <div class="small dim mt">Deposit moves L1 → exec (stakeable); Withdraw moves exec → L1.</div>
+    <div class="small dim mt">Deposit moves L1 → exec (playable); Withdraw moves exec → L1.</div>
   </div>
 
+  <!-- LOBBY -->
   <div class="card-box" id="lobby">
-    <h2>🃏 Open games</h2>
-    <p class="small dim">Challenge anyone — join an open game or watch a showdown. <span style="opacity:.7">🂠 open · ▶ live</span></p>
+    <h2>🃏 Public tables</h2>
+    <p class="small dim">Live self-dealing tables — tap one to play against its bank. <span style="opacity:.7">🟢 open for bets</span></p>
     <div class="small mt" id="lobbyList"><span class="dim">Loading…</span></div>
   </div>
 
+  <!-- SCOREBOARD -->
+  <div class="card-box" id="scoreboard">
+    <h2>🏆 Scoreboard</h2>
+    <p class="small dim">Global standings across every settled hand — banks and players alike, ranked by net NADO.</p>
+    <div class="mt" id="scoreList"><span class="dim">Loading…</span></div>
+  </div>
+
+  <!-- ACTIVE TABLE -->
   <div class="card-box hidden" id="activeGame">
-    <h2>Game <span id="gameId" class="mono"></span></h2>
+    <h2>Table <span id="gameId" class="mono"></span></h2>
     <div class="felt">
-      <div class="seat"><div class="lbl" id="oppLabel">opponent</div><div class="hand" id="oppHand"></div></div>
-      <div class="seat mt"><div class="lbl" id="myLabel">You</div><div class="hand" id="myHand"></div></div>
+      <div class="hand" id="featureHand"></div>
+      <div id="featureResult" class="dim">…</div>
     </div>
-    <div class="kv"><span class="k">Pot</span><span class="mono" id="gPot">—</span></div>
     <div class="kv"><span class="k">Status</span><span class="mono" id="gStatus">…</span></div>
-    <div id="settleHint"></div>
+    <div class="kv"><span class="k">Bank (the house — pays winners)</span><span class="mono" id="gBank">—</span></div>
+    <div class="kv"><span class="k">Bankroll</span><span class="mono" id="gBankroll">—</span></div>
+    <div class="kv"><span class="k">Coverage left</span><span class="mono" id="gCover">—</span></div>
+
+    <div id="betBuilder" class="mt">
+      <label>Deal in for the next hand</label>
+      <div class="row">
+        <input id="stakeAmt" placeholder="stake (NADO)" inputmode="decimal" autocomplete="off">
+        <button class="primary" id="btnBet" style="flex:0 0 auto">Deal me in</button>
+      </div>
+      <div class="small warn mt hidden" id="joinHint"></div>
+      <table class="paytable mt"><tbody>
+        <tr><td>Royal flush</td><td>100×</td></tr>
+        <tr><td>Straight flush</td><td>80×</td></tr>
+        <tr><td>Four of a kind</td><td>50×</td></tr>
+        <tr><td>Full house</td><td>22×</td></tr>
+        <tr><td>Flush</td><td>16×</td></tr>
+        <tr><td>Straight</td><td>10×</td></tr>
+        <tr><td>Three of a kind</td><td>4×</td></tr>
+        <tr><td>Two pair</td><td>3×</td></tr>
+        <tr><td>Jacks or better</td><td>2×</td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="mt small dim">Hands this round</div>
+    <div id="seats"></div>
+    <div class="row mt" id="myActions"></div>
     <div class="row mt">
       <button class="primary hidden" id="btnReopen">🔄 Re-open — try again</button>
-      <button class="primary hidden" id="btnReveal">🎴 Reveal my cards</button>
-      <button class="primary hidden" id="btnResign">Concede</button>
-      <button class="primary hidden" id="btnSplit">Agree split (refund)</button>
-      <button class="ghost hidden" id="btnAbort">Claim refund (opponent stalled)</button>
-      <button class="ghost hidden" id="btnCancel">Cancel — reclaim stake</button>
+      <button class="ghost hidden" id="btnClose">Close table</button>
     </div>
-    <label class="mt">Invite your opponent</label>
+    <div class="row mt hidden" id="fundRow">
+      <input id="fundAmt" placeholder="add to bankroll (NADO)" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnFund" style="flex:0 0 auto">Top up</button>
+    </div>
+    <label class="mt">Invite players</label>
     <input id="shareLink" class="mono" readonly onclick="this.select()">
-    <div class="row mt"><button class="primary" id="btnShare" style="flex:0 0 auto">Share</button></div>
+    <div class="row mt" style="align-items:center;gap:8px">
+      <button class="primary" id="btnShare" style="flex:0 0 auto">Share</button>
+      <span class="dim small">or scan the code to play at this table</span>
+    </div>
+    <canvas id="shareQR" class="hidden" style="margin:12px auto 0;display:block;border-radius:8px;background:#fff;padding:8px"></canvas>
+    <div id="shareQRNote" class="hidden dim small mt">QR generator unavailable — copy the link above.</div>
   </div>
 
   <div class="card-box">
-    <h2>Provably fair &amp; safe</h2>
+    <h2>Provably fair — the contract deals &amp; ranks</h2>
     <p class="small dim" style="line-height:1.6">
-      Both players <b>commit</b> a secret before either reveals, so neither can pick their hand. When both reveal, both browsers derive the <b>same</b> shuffled deck from <span class="mono">HASH(secret₀‖secret₁)</span> and deal 5 cards each — a perft-style verified evaluator ranks them identically for both of you. The pot settles by <b>concede</b> (loser pays the winner), <b>agree a split</b> (tie → refund), or a <b>refund timeout</b> — so a stall or dispute can only refund, never mis-pay.
+      Every ~2 minutes the table deals. Each hand's 5 cards are <span class="mono">HASH(blockhash(H) ‖ blockhash(H+1) ‖ seat ‖ i) mod 52</span> — those block hashes don't exist yet when you deal in, so <b>nobody can know or steer your cards</b> (two blocks are mixed vs a producer grind). The <b>contract itself</b> ranks the hand on-chain and pays the paytable multiplier, so there's no trusted evaluator and no secret. Once your deal block is final, anyone can settle your seat; a win pays automatically. Cards are drawn independently (no shuffle fits the VM), so the paytable is tuned to a ~3.5% house edge. Losing stakes fold into the bankroll.
     </p>
   </div>
 
-  <footer>Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · reveals ride L1 as ordered blobs (~1 min).</footer>
+  <footer>Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · <a href="https://get.nadochain.com/rollup">see the contract</a>.</footer>
 </div>
 <script type="module" src="/static/poker.js"></script>
 </body>

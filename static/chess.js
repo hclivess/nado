@@ -3,7 +3,7 @@
 // full legality run in your browser; every move is recorded ON-CHAIN (a trustless, ordered game log with a move
 // clock), and the wager settles by resignation / mutual agreement / refund-on-timeout — so nobody can ever be
 // robbed (a stall or a disputed move at worst refunds both). Correspondence-style: a move confirms in ~1 min.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, resolveAliases, disp, share } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, hoist, resolveAliases, disp, share } from "./nadodapp.js";
 import { Chess } from "./chess-engine.js";
 
 const CID = "a17c85c704d18e5527fd833843c37295";
@@ -264,7 +264,7 @@ dapp.onReturn((pend, ok, err) => {
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
-  wireUI();
+  wireUI(); hoist("activeGame");
   const q = new URLSearchParams(location.search).get("game");
   if (q) { $("joinId").value = q; if (activeGame == null) activeGame = parseInt(q, 10); }
   render(); refreshActive();

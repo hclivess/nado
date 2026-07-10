@@ -6,7 +6,7 @@
 // is permissionless and pays the pot to the winner — a sore loser has nothing to withhold. It is an ON-CHAIN
 // CONTRACT (runtime stackvm) called via the generic exec `call` op; the stake is escrowed as VALUE and paid by
 // the contract's PAY. Login + every signature is delegated to the NADO wallet; the key never touches this origin.
-import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate,
+import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate, hoist,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
 const CID = "7ee95a0abd6e00d12edc3bf39f4c8f2d";
@@ -278,7 +278,7 @@ dapp.onReturn((pend, ok, err) => {
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
-  wireUI(); loadQR();
+  wireUI(); loadQR(); hoist("activeGame");
   const q = new URLSearchParams(location.search).get("game");
   if (q) { $("joinId").value = q; if (active == null) active = parseInt(q, 10); }
   render(); refreshActive();

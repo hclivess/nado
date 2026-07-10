@@ -1,14 +1,12 @@
-# tests/test_poker_contract.py — build + exercise the POKER WAGER contract (stackvm).
+# tests/test_poker_contract.py — AUTO-DEALING VIDEO POKER (stackvm), peer-banked + multiplayer.
 #
-# Heads-up 5-card poker SHOWDOWN for stakes. Fairness = commit-reveal: both players commit HASH(secret) before
-# either reveals, then reveal; both browsers derive the SAME shuffled deck from HASH(s1+s2) and deal 5 cards
-# each (nobody can pick their hand). The hand is evaluated in the browser (poker-engine.js); the contract is a
-# theft-proof escrow that settles by:
-#   * resign(g): concede -> opponent takes the pot (the loser pays the winner; unilateral, always safe).
-#   * agree(g, r): both submit the SAME result (1=p1 wins, 2=p2 wins, 3=split) -> settle (split refunds each).
-#   * abort(g): after the deadline, refund both (a stall never steals — only voids).
-# Because outcomes are only concede / mutual-agree / refund, a wrong or disputed showdown can at worst refund —
-# never mis-pay. (The result is deterministic + public from the two revealed secrets, so honest play settles.)
+# Same self-dealing multi-seat frame as the new Roulette/Dice, but a seat is a 5-card poker bet vs the bank.
+# Every ROUND blocks the table deals; each seat's 5 cards come from FINALIZED L1 block hashes + its seat id:
+#     card_i = HASH( BLOCKHASH(sh) + BLOCKHASH(sh+1) + seatId*10 + i ) % 52     (i=0..4)
+#     rank = card % 13 (0=2 … 8=T,9=J,10=Q,11=K,12=A) ; suit = card // 13
+# The CONTRACT evaluates the hand on-chain (Jacks-or-better paytable) — objective, no trusted party, no secrets.
+# A win pays stake * paytable[hand]; losing stakes fold into the bankroll. Cards are drawn independently (no
+# shuffle is feasible in the VM), so the paytable is tuned by simulation to a ~3.5% house edge.
 import sys, json, tempfile, hashlib
 sys.path.insert(0, "/root/nado")
 from execnode.state import ExecState
@@ -18,157 +16,191 @@ def A(i): return ["ARG", i]
 def LD(m): return ["MLOAD", m]
 def ST(m): return ["MSTORE", m]
 def OP(o): return [o]
-CALLER=OP("CALLER"); VALUE=OP("VALUE"); CURSOR=OP("CURSOR"); HASH=OP("HASH")
-ADD=OP("ADD"); SUB=OP("SUB"); MUL=OP("MUL"); EQ=OP("EQ"); GT=OP("GT"); NOT=OP("NOT"); OR=OP("OR")
-REQ=OP("REQUIRE"); PAY=OP("PAY"); HALT=OP("HALT")
-WINDOW = 1000    # blocks until an unresolved (un-revealed / un-agreed) game can be aborted -> refunded
+CALLER=OP("CALLER"); VALUE=OP("VALUE"); CURSOR=OP("CURSOR"); HASH=OP("HASH"); BLOCKHASH=OP("BLOCKHASH")
+ADD=OP("ADD"); SUB=OP("SUB"); MUL=OP("MUL"); DIV=OP("DIV"); MOD=OP("MOD")
+EQ=OP("EQ"); GT=OP("GT"); GTE=OP("GTE"); LTE=OP("LTE"); AND=OP("AND"); OR=OP("OR"); NOT=OP("NOT")
+REQ=OP("REQUIRE"); PAY=OP("PAY"); HALT=OP("HALT"); DUP=OP("DUP"); SWAP=OP("SWAP")
 
-# maps: p1/p2 c1/c2 s1/s2 r1/r2  st pt nn sd dl  a1/a2(asserted result 1/2/3)
+ROUND = 20; MAXMULT = 100
+# paytable (total return multiplier), priority high->low; tuned to ~3.5% edge for with-replacement deals
+PAY_TABLE = [("ROY",100),("SF",80),("QUAD",50),("FH",22),("FLUSH",16),("STR",10),("TRIP",4),("TWOP",3),("JACKS",2)]
+FKEY = {"FLUSH":0,"STR":1,"SF":2,"ROY":3,"QUAD":4,"TRIP":5,"NPAIR":6,"TWOP":7,"FH":8,"JACKS":9}
+
+# ---------- Python reference evaluator (must equal the bytecode) ----------
+def poker_mult(cards):
+    ranks=[c%13 for c in cards]; suits=[c//13 for c in cards]
+    has=[0]*13; cnt=[0]*13
+    for r in ranks: has[r]=1; cnt[r]+=1
+    flush = all(s==suits[0] for s in suits)
+    win = lambda s: all(has[s+k] for k in range(5))
+    straight = any(win(s) for s in range(9)) or (has[12] and has[0] and has[1] and has[2] and has[3])
+    sflush = straight and flush
+    royal = sflush and win(8)
+    quad = any(c==4 for c in cnt); trip = any(c==3 for c in cnt)
+    npair = sum(1 for c in cnt if c==2)
+    twopair = npair>=2; fullhouse = trip and npair>=1
+    jacks = any((v>=9 and cnt[v]>=2) for v in range(13))
+    ind = {"ROY":royal,"SF":sflush,"QUAD":quad,"FH":fullhouse,"FLUSH":flush,"STR":straight,"TRIP":trip,"TWOP":twopair,"JACKS":jacks}
+    for name,m in PAY_TABLE:
+        if ind[name]: return m
+    return 0
+
+# ---------- bytecode generator for settle ----------
+def card_seed(i):   # bh(sh)+bh(sh+1)+seatId*10+i   (seatId = ARG 0)
+    return ([A(0),LD("gh"),BLOCKHASH] + [A(0),LD("gh"),P(1),ADD,BLOCKHASH,ADD]
+          + [A(0),P(10),MUL,P(i),ADD, ADD, HASH, P(52), MOD])
+def gen_settle():
+    g=[ A(0), LD("gg"), P(0), EQ, NOT, REQ,
+        A(0), LD("gd"), NOT, REQ,
+        CURSOR, A(0), LD("gh"), P(1), ADD, GTE, REQ ]
+    for i in range(5):   # deal: cc[i]=card, cr[i]=rank, cs[i]=suit
+        g += [P(i)] + card_seed(i) + [ST("cc")]
+        g += [P(i), P(i),LD("cc"), P(13), MOD, ST("cr")]
+        g += [P(i), P(i),LD("cc"), P(13), DIV, ST("cs")]
+    for v in range(13):  # cn[v]=count, hv[v]=has
+        g += [P(v), P(0)]
+        for i in range(5): g += [P(i),LD("cr"), P(v), EQ, ADD]
+        g += [ST("cn")]
+        g += [P(v), P(v),LD("cn"), P(1), GTE, ST("hv")]
+    F=FKEY
+    g += [P(F["FLUSH"]),
+          P(0),LD("cs"), P(1),LD("cs"), EQ,
+          P(1),LD("cs"), P(2),LD("cs"), EQ, AND,
+          P(2),LD("cs"), P(3),LD("cs"), EQ, AND,
+          P(3),LD("cs"), P(4),LD("cs"), EQ, AND, ST("f")]
+    g += [P(F["STR"]), P(0)]
+    for s in range(9):
+        g += [P(s),LD("hv"), P(s+1),LD("hv"), AND, P(s+2),LD("hv"), AND, P(s+3),LD("hv"), AND, P(s+4),LD("hv"), AND, OR]
+    g += [P(12),LD("hv"), P(0),LD("hv"), AND, P(1),LD("hv"), AND, P(2),LD("hv"), AND, P(3),LD("hv"), AND, OR, ST("f")]
+    g += [P(F["SF"]), P(F["STR"]),LD("f"), P(F["FLUSH"]),LD("f"), AND, ST("f")]
+    g += [P(F["ROY"]), P(F["SF"]),LD("f"),
+          P(8),LD("hv"), P(9),LD("hv"), AND, P(10),LD("hv"), AND, P(11),LD("hv"), AND, P(12),LD("hv"), AND, AND, ST("f")]
+    g += [P(F["QUAD"]), P(0)]
+    for v in range(13): g += [P(v),LD("cn"), P(4), EQ, OR]
+    g += [ST("f")]
+    g += [P(F["TRIP"]), P(0)]
+    for v in range(13): g += [P(v),LD("cn"), P(3), EQ, OR]
+    g += [ST("f")]
+    g += [P(F["NPAIR"]), P(0)]
+    for v in range(13): g += [P(v),LD("cn"), P(2), EQ, ADD]
+    g += [ST("f")]
+    g += [P(F["TWOP"]), P(F["NPAIR"]),LD("f"), P(2), GTE, ST("f")]
+    g += [P(F["FH"]), P(F["TRIP"]),LD("f"), P(F["NPAIR"]),LD("f"), P(1), GTE, AND, ST("f")]
+    g += [P(F["JACKS"]), P(0)]
+    for v in range(9,13): g += [P(v),LD("cn"), P(2), GTE, OR]
+    g += [ST("f")]
+    # mult via nested select into mv[0]:  acc = sel(flag, k, acc) built innermost->outermost
+    g += [P(0), P(0)]
+    for name,k in reversed(PAY_TABLE):
+        g += [DUP, P(k), SWAP, SUB, P(F[name]),LD("f"), MUL, ADD]
+    g += [ST("mv")]
+    g += [A(0), P(0),LD("mv"), ST("gr")]
+    g += [A(0), P(0),LD("mv"), P(0), GT, ST("gw")]
+    g += [A(0), LD("ga"), A(0), LD("gs"), P(0),LD("mv"), MUL, PAY]
+    g += [A(0),LD("gg"), A(0),LD("gg"),LD("tp"), A(0),LD("gs"), P(0),LD("mv"), MUL, SUB, ST("tp")]
+    g += [A(0),LD("gg"), A(0),LD("gg"),LD("tc"), A(0),LD("gs"), P(MAXMULT-1), MUL, SUB, ST("tc")]
+    g += [A(0),LD("gg"), A(0),LD("gg"),LD("tk"), A(0),LD("gs"), ADD, A(0),LD("gs"), P(0),LD("mv"), MUL, SUB, ST("tk")]
+    g += [A(0), P(1), ST("gd")]
+    g += [A(0),LD("gg"), A(0),LD("gg"),LD("tx"), P(1), ADD, ST("tx")]
+    g += [HALT]
+    return g
+
 open_m = [
   VALUE, P(0), GT, REQ,
-  A(0), LD("nn"), P(0), EQ, REQ,
-  A(0), VALUE, ST("st"),
-  A(0), VALUE, ST("pt"),
-  A(0), CALLER, ST("p1"),
-  A(0), A(1), ST("c1"),
-  A(0), P(1), ST("nn"),
+  A(0), P(0), GT, REQ,
+  A(0), LD("ta"), P(0), EQ, REQ,
+  A(0), VALUE, ST("tk"),
+  A(0), VALUE, ST("tp"),
+  A(0), CALLER, ST("ta"),
+  A(0), CURSOR, ST("t0"),
   HALT ]
-join_m = [
-  A(0), LD("nn"), P(1), EQ, REQ,
-  A(0), LD("sd"), NOT, REQ,                    # not settled (cancelled game keeps nn==1; block re-join)
-  VALUE, A(0), LD("st"), EQ, REQ,
-  CALLER, A(0), LD("p1"), EQ, NOT, REQ,
-  A(0), A(0), LD("pt"), VALUE, ADD, ST("pt"),
-  A(0), CALLER, ST("p2"),
-  A(0), A(1), ST("c2"),
-  A(0), P(2), ST("nn"),
-  A(0), CURSOR, P(WINDOW), ADD, ST("dl"),
+bet_m = [   # bet(g, t) value=stake -> a 5-card hand is dealt at the round's settle height
+  A(0), P(0), GT, REQ,
+  A(1), P(0), GT, REQ,
+  VALUE, P(0), GT, REQ,
+  A(0), LD("gg"), P(0), EQ, REQ,
+  A(1), LD("ta"), P(0), EQ, NOT, REQ,
+  A(1), LD("tz"), NOT, REQ,
+  A(1), LD("tc"), VALUE, P(MAXMULT-1), MUL, ADD, A(1), LD("tk"), LTE, REQ,   # cover 99x
+  A(1), A(1), LD("tc"), VALUE, P(MAXMULT-1), MUL, ADD, ST("tc"),
+  A(1), A(1), LD("tp"), VALUE, ADD, ST("tp"),
+  A(0), VALUE, ST("gs"),
+  A(0), A(1), ST("gg"),
+  A(0), CALLER, ST("ga"),
+  A(0), CURSOR, A(1), LD("t0"), SUB, P(ROUND), DIV, P(1), ADD, P(ROUND), MUL, A(1), LD("t0"), ADD, ST("gh"),
+  A(1), A(1), LD("tn"), P(1), ADD, ST("tn"),
   HALT ]
-def reveal(slot):
-    p,c,s,r = "p"+slot,"c"+slot,"s"+slot,"r"+slot
-    return [ A(0), LD("nn"), P(2), EQ, REQ,          # both joined before any reveal (no early-reveal grind)
-             CALLER, A(0), LD(p), EQ, REQ,
-             A(1), HASH, A(0), LD(c), EQ, REQ,
-             A(0), LD(r), NOT, REQ,
-             A(0), A(1), ST(s),
-             A(0), P(1), ST(r),
-             HALT ]
-# resign(g): concede -> the OTHER player takes the pot
-resign_m = [
-  A(0), LD("nn"), P(2), EQ, REQ,
-  A(0), LD("sd"), NOT, REQ,
-  CALLER, A(0), LD("p1"), EQ, CALLER, A(0), LD("p2"), EQ, OR, REQ,
-  A(0), LD("p2"), A(0), LD("pt"), CALLER, A(0), LD("p1"), EQ, MUL, PAY,
-  A(0), LD("p1"), A(0), LD("pt"), CALLER, A(0), LD("p2"), EQ, MUL, PAY,
-  A(0), P(1), ST("sd"),
-  A(0), P(0), ST("pt"),
+settle_m = gen_settle()
+close_m = [
+  CALLER, A(0), LD("ta"), EQ, REQ,
+  A(0), LD("tz"), NOT, REQ,
+  A(0), LD("tx"), A(0), LD("tn"), EQ, REQ,
+  A(0), LD("ta"), A(0), LD("tp"), PAY,
+  A(0), P(1), ST("tz"),
+  A(0), P(0), ST("tp"),
   HALT ]
-# agree(g, r): 1=p1 wins,2=p2 wins,3=split ; both agree same r -> settle
-agree_m = [
-  A(0), LD("nn"), P(2), EQ, REQ,
-  A(0), LD("sd"), NOT, REQ,
-  A(1), P(0), GT, REQ, A(1), P(3), GT, NOT, REQ,          # r in {1,2,3}
-  A(0),
-      A(0), LD("a1"), CALLER, A(0), LD("p1"), EQ, NOT, MUL,
-      A(1), CALLER, A(0), LD("p1"), EQ, MUL, ADD, ST("a1"),
-  A(0),
-      A(0), LD("a2"), CALLER, A(0), LD("p2"), EQ, NOT, MUL,
-      A(1), CALLER, A(0), LD("p2"), EQ, MUL, ADD, ST("a2"),
-  # payP1 = agreed*( pt*(a==1) + st*(a==3) ) ; payP2 = agreed*( pt*(a==2) + st*(a==3) )
-  A(0), LD("p1"),
-      A(0), LD("pt"), A(0), LD("a1"), P(1), EQ, MUL,
-      A(0), LD("st"), A(0), LD("a1"), P(3), EQ, MUL, ADD,
-      A(0), LD("a1"), A(0), LD("a2"), EQ, A(0), LD("a1"), P(0), GT, MUL, MUL,
-  PAY,
-  A(0), LD("p2"),
-      A(0), LD("pt"), A(0), LD("a1"), P(2), EQ, MUL,
-      A(0), LD("st"), A(0), LD("a1"), P(3), EQ, MUL, ADD,
-      A(0), LD("a1"), A(0), LD("a2"), EQ, A(0), LD("a1"), P(0), GT, MUL, MUL,
-  PAY,
-  A(0), A(0), LD("a1"), A(0), LD("a2"), EQ, A(0), LD("a1"), P(0), GT, MUL, ST("sd"),
-  A(0), A(0), LD("pt"), P(1), A(0), LD("a1"), A(0), LD("a2"), EQ, A(0), LD("a1"), P(0), GT, MUL, SUB, MUL, ST("pt"),
+fund_m = [
+  CALLER, A(0), LD("ta"), EQ, REQ,
+  A(0), LD("tz"), NOT, REQ,
+  VALUE, P(0), GT, REQ,
+  A(0), A(0), LD("tk"), VALUE, ADD, ST("tk"),
+  A(0), A(0), LD("tp"), VALUE, ADD, ST("tp"),
   HALT ]
-abort_m = [
-  A(0), LD("nn"), P(2), EQ, REQ,
-  A(0), LD("sd"), NOT, REQ,
-  CURSOR, A(0), LD("dl"), GT, REQ,
-  A(0), LD("p1"), A(0), LD("st"), PAY,
-  A(0), LD("p2"), A(0), LD("st"), PAY,
-  A(0), P(1), ST("sd"),
-  A(0), P(0), ST("pt"),
-  HALT ]
-cancel_m = [
-  A(0), LD("nn"), P(1), EQ, REQ,
-  CALLER, A(0), LD("p1"), EQ, REQ,
-  A(0), LD("sd"), NOT, REQ,
-  A(0), LD("p1"), A(0), LD("pt"), PAY,
-  A(0), P(1), ST("sd"),
-  A(0), P(0), ST("pt"),
-  HALT ]
-
-CODE = {"open":open_m, "join":join_m, "reveal1":reveal("1"), "reveal2":reveal("2"),
-        "resign":resign_m, "agree":agree_m, "abort":abort_m, "cancel":cancel_m}
+CODE = {"open":open_m, "bet":bet_m, "settle":settle_m, "close":close_m, "fund":fund_m}
 
 def vm_hash(v): return int.from_bytes(hashlib.blake2b(json.dumps(v, sort_keys=True).encode(), digest_size=32).digest(), "big")
+def cards_of(bh, sh, g): return [vm_hash(bh[sh] + bh[sh+1] + g*10 + i) % 52 for i in range(5)]
+
+# ---------- TESTS ----------
 F=[]
 def ck(n,c): print(("  ok  " if c else " FAIL ")+n); (F.append(n) if not c else None)
-st=ExecState(tempfile.mktemp()); st.cursor=100
-for a in ("A","B","C"): st.credit_deposit(a, 1000000)
-st.apply_blob({"op":"deploy","code":CODE,"runtime":"stackvm","nonce":"poker"},"A","d0")
+def C(rank, suit): return suit*13 + rank
+ck("ref: royal flush -> 100", poker_mult([C(8,0),C(9,0),C(10,0),C(11,0),C(12,0)])==100)
+ck("ref: straight flush -> 80", poker_mult([C(3,1),C(4,1),C(5,1),C(6,1),C(7,1)])==80)
+ck("ref: quads -> 50", poker_mult([C(5,0),C(5,1),C(5,2),C(5,3),C(2,0)])==50)
+ck("ref: full house -> 22", poker_mult([C(7,0),C(7,1),C(7,2),C(2,0),C(2,1)])==22)
+ck("ref: flush -> 16", poker_mult([C(2,2),C(5,2),C(8,2),C(10,2),C(12,2)])==16)
+ck("ref: straight -> 10", poker_mult([C(4,0),C(5,1),C(6,2),C(7,3),C(8,0)])==10)
+ck("ref: wheel straight -> 10", poker_mult([C(12,0),C(0,1),C(1,2),C(2,3),C(3,0)])==10)
+ck("ref: trips -> 4", poker_mult([C(9,0),C(9,1),C(9,2),C(2,0),C(4,1)])==4)
+ck("ref: two pair -> 3", poker_mult([C(9,0),C(9,1),C(4,2),C(4,3),C(2,0)])==3)
+ck("ref: pair of kings -> 2", poker_mult([C(11,0),C(11,1),C(2,2),C(5,3),C(8,0)])==2)
+ck("ref: pair of fives -> 0", poker_mult([C(3,0),C(3,1),C(2,2),C(5,3),C(8,0)])==0)
+ck("ref: high card -> 0", poker_mult([C(2,0),C(5,1),C(8,2),C(10,3),C(12,0)])==0)
+
+st=ExecState(tempfile.mktemp()); T0=100; st.cursor=T0
+st.credit_deposit("BANK", 10**14)
+for a in range(50): st.credit_deposit("P%d"%a, 10**11)
+st.apply_blob({"op":"deploy","code":CODE,"runtime":"stackvm","nonce":"poker-beacon"},"BANK","d0")
 CID=list(st.contracts)[0]
-def bal(a): return st.bridge.get(a,0)
-def M(m,g): return st.contracts[CID]["storage"].get(m,{}).get(str(g),0)
+def Mv(m,g): return st.contracts[CID]["storage"].get(m,{}).get(str(g),0)
 def call(m,args,val,who): return st.apply_blob({"op":"call","contract":CID,"method":m,"args":args,"value":val},who,m+str(args))
-STAKE=10000
-sa,sb=111,222; ca,cb=vm_hash(sa),vm_hash(sb)
 
-# full showdown: both commit + reveal, A concedes -> B wins pot
-call("open",[1,ca],STAKE,"A"); call("join",[1,cb],STAKE,"B")
-ck("join -> pot 2*stake", M("pt",1)==2*STAKE and bal(CID)==2*STAKE)
-call("reveal1",[1,sa],0,"A"); call("reveal2",[1,sb],0,"B")
-ck("both revealed (secrets on-chain for the shared deck)", M("s1",1)==sa and M("s2",1)==sb)
-ck("wrong-secret reveal reverts", "revert" in call("reveal1",[1,999],0,"A"))   # already revealed anyway
-bB=bal("B"); call("resign",[1],0,"A")
-ck("A concedes -> B takes pot", bal("B")==bB+2*STAKE and M("sd",1)==1)
+T=1; call("open",[T],10**13,"BANK")
+STAKE=1000; N=600
+for i in range(N): call("bet",[1000+i, T], STAKE, "P%d"%(i%50))
+sh=Mv("gh",1000)
+st.block_hashes[sh]   = vm_hash(["bh", sh, 7])
+st.block_hashes[sh+1] = vm_hash(["bh", sh+1, 9])
+st.cursor = sh+2
+mism=0; cats={}
+for i in range(N):
+    g=1000+i; call("settle",[g],0,"P%d"%(i%50))
+    onchain = Mv("gr",g)
+    ref = poker_mult(cards_of(st.block_hashes, sh, g))
+    cats[ref]=cats.get(ref,0)+1
+    if onchain != ref: mism += 1
+ck(f"DIFFERENTIAL: {N}/{N} hands bytecode==reference", mism==0)
+print("   hand-multiplier distribution seen:", dict(sorted(cats.items())))
+ck("pool never negative", Mv("tp",T) >= 0)
+ck("committed released to 0 after all settle", (Mv("tc",T) or 0)==0)
+ck("bankroll non-negative", Mv("tk",T) >= 0)
+ck("all seats settled", Mv("tx",T)==N and Mv("tn",T)==N)
 
-# agreement path: both agree A(p1) wins
-call("open",[2,ca],STAKE,"A"); call("join",[2,cb],STAKE,"B")
-call("reveal1",[2,sa],0,"A"); call("reveal2",[2,sb],0,"B")
-call("agree",[2,1],0,"A"); ck("one-sided agree does not settle", M("sd",2)==0)
-bA=bal("A"); call("agree",[2,1],0,"B")
-ck("both agree p1 -> p1 takes pot", bal("A")==bA+2*STAKE and M("sd",2)==1)
-
-# split: both agree draw -> refund each
-call("open",[3,ca],STAKE,"A"); call("join",[3,cb],STAKE,"B")
-bA,bB=bal("A"),bal("B"); call("agree",[3,3],0,"A"); call("agree",[3,3],0,"B")
-ck("both agree split -> refund each", bal("A")==bA+STAKE and bal("B")==bB+STAKE and M("sd",3)==1)
-
-# disagreement -> abort refunds after deadline
-call("open",[4,ca],STAKE,"A"); call("join",[4,cb],STAKE,"B")
-call("agree",[4,1],0,"A"); call("agree",[4,2],0,"B")
-ck("disagreement does not settle", M("sd",4)==0)
-ck("abort before deadline blocked", "revert" in call("abort",[4],0,"C"))
-st.cursor=100+WINDOW+1
-bA,bB=bal("A"),bal("B"); call("abort",[4],0,"C")
-ck("abort after deadline refunds both", bal("A")==bA+STAKE and bal("B")==bB+STAKE and M("sd",4)==1)
-
-# cancel un-joined
-st.cursor=100; call("open",[5,ca],STAKE,"A"); bA=bal("A")
-ck("non-opener cannot cancel", "revert" in call("cancel",[5],0,"B"))
-call("cancel",[5],0,"A"); ck("opener cancels -> refunded", bal("A")==bA+STAKE and M("sd",5)==1)
-# guards
-call("open",[6,ca],STAKE,"A"); call("join",[6,cb],STAKE,"B")
-ck("non-player cannot resign", "revert" in call("resign",[6],0,"C"))
-ck("bad result rejected", "revert" in call("agree",[6,9],0,"A") and M("a1",6)==0)
-
-# --- SECURITY regressions (audit fixes) ---
-st.cursor=100
-call("open",[50,ca],STAKE,"A"); call("cancel",[50],0,"A")
-ck("SEC: cannot join a cancelled game", "revert" in call("join",[50,cb],STAKE,"B") and M("nn",50)==1)
-call("open",[51,ca],STAKE,"A")
-ck("SEC: reveal before join rejected", "revert" in call("reveal1",[51,sa],0,"A") and M("r1",51)==0)
-call("join",[51,cb],STAKE,"B")
-ck("SEC: agree(r=4) rejected (no frozen pot)", "revert" in call("agree",[51,4],0,"A") and M("a1",51)==0)
+st.cursor=99999; call("open",[9],5000,"BANK")
+ck("under-bankrolled bet reverts (needs 99x cover)", "revert" in call("bet",[901,9],1000,"P0") and Mv("gg",901)==0)
+call("open",[10],10**8,"BANK"); call("close",[10],0,"BANK")
+ck("bet on a CLOSED table reverts", "revert" in call("bet",[1001,10],1000,"P0"))
 
 print("\n"+("ALL PASS" if not F else f"{len(F)} FAILED: {F}"))
 if not F:
