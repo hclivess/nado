@@ -65,7 +65,7 @@
 <body>
 <div class="wrap">
   <header><span class="logo">🪙</span><h1>NADO <span class="a">Coin Flip</span></h1></header>
-  <p class="sub">A provably-fair, <b>staked</b> 2-player coin flip on the NADO execution layer. Both stake NADO into a pot; the winner (parity of <span class="mono">HASH(secret₀‖secret₁)</span>) takes it all. Commit-reveal means nobody can bias the result. Post-quantum wallet, no install.</p>
+  <p class="sub">A provably-fair, <b>staked</b> 2-player coin flip on the NADO execution layer. Both stake NADO into a pot; the winner takes it all. No secrets, no flip to sign — once both are in, the coin is decided by a <b>future L1 block hash</b> nobody can predict (parity of <span class="mono">HASH(blockhash ‖ game)</span>). You sign once: your stake. Post-quantum wallet, no install.</p>
 
   <div id="status"></div>
 
@@ -136,9 +136,7 @@
     <div class="small" id="myReveal"></div>
     <div class="row mt">
       <button class="primary hidden" id="btnJoinActive">Join this game</button>
-      <button class="primary hidden" id="btnReveal">🪙 Flip the coin</button>
       <button class="primary hidden" id="btnSettle">💰 Collect the pot</button>
-      <button class="ghost hidden" id="btnClaim">Claim (opponent stalled)</button>
       <button class="ghost hidden" id="btnCancel">Cancel — reclaim stake (no one joined)</button>
       <button class="primary hidden" id="btnReopen">🔄 Re-open — try again</button>
       <button class="primary hidden" id="btnRematch">🔁 Play again</button>
@@ -156,19 +154,18 @@
 
   <!-- FAIRNESS -->
   <div class="card">
-    <h2>Provably fair — no cheating</h2>
+    <h2>Provably fair — no secrets, no flip to sign</h2>
     <p class="small dim" style="line-height:1.6">
-      The outcome is the parity of <span class="mono">HASH(secret₀ ‖ secret₁)</span>, and the contract enforces it on-chain:
-      <br>• <b>You can't bias it.</b> Both players <b>commit</b> a hash of their secret <b>before anyone reveals</b>, so neither knows the other's secret when they lock theirs in — nobody can pick the result.
-      <br>• <b>No committing after a reveal.</b> The contract refuses any commit once a reveal has landed (the fix for the "second mover chooses" attack).
-      <br>• <b>Two players only, committers only reveal.</b> A third party can't hijack or spoil a game.
-      <br>• <b>Sore losers cannot steal.</b> The last revealer sees the result first, so a loser might withhold their reveal — but after the on-chain deadline the player who <i>did</i> reveal <b>claims the whole pot by forfeit</b>. Withholding only loses your stake. If nobody reveals (or no opponent shows), stakes refund. Escrow and payout are enforced on-chain and reconcile exactly — nothing minted or lost.
+      The coin is decided entirely by the chain: <span class="mono">HASH(blockhash(H) ‖ blockhash(H+1) ‖ game) mod 2</span>.
+      <br>• <b>Nobody can bias it.</b> When the second player joins, the game is bound to a future settle block. Those block hashes don't exist yet when either of you stakes, so neither player — nor the block producer — can know or steer the result (two blocks are mixed so no single miner can grind it).
+      <br>• <b>No secret, no flip step.</b> You sign <b>once</b> — your stake. There's nothing to reveal and nothing to withhold.
+      <br>• <b>A sore loser can't stall you.</b> Once the settle block is finalized, <b>anyone</b> can settle the game and the chain pays the pot to the winner. Before an opponent joins, the opener can cancel and reclaim. Escrow and payout reconcile exactly on-chain — nothing minted or lost.
     </p>
   </div>
 
   <footer>
     Runs on <a href="https://get.nadochain.com/">NADO</a> · contract calls ride L1 as ordered blobs, apply at finality (a few minutes).
-    Your secret stays in this browser until you reveal it. <a href="https://get.nadochain.com/rollup">See the contract</a>.
+    The coin is decided by finalized block hashes — no secrets, no reveal. <a href="https://get.nadochain.com/rollup">See the contract</a>.
   </footer>
 </div>
 <script type="module" src="/static/coinflip.js"></script>

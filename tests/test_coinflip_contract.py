@@ -1,176 +1,134 @@
-# tests/test_coinflip_contract.py — build + exhaustively exercise the Coin Flip CONTRACT (stackvm):
-# open/join escrow, reveal, settle payout, claim/forfeit, cancel + edge cases.
+# tests/test_coinflip_contract.py — build + exhaustively exercise the BEACON Coin Flip CONTRACT (stackvm).
+#
+# No secrets, no reveal: two players just stake. When the second player joins, the game is bound to a settle
+# height sh = CURSOR + SETTLE_DELAY; once that block is finalized the coin is decided by the chain:
+#     result = HASH( BLOCKHASH(sh) + BLOCKHASH(sh+1) + gameId ) % 2      (0 -> p1/heads, 1 -> p2/tails)
+# Those block hashes don't exist yet when either player commits their stake, so neither can predict or steer the
+# flip (two blocks mixed vs a single-producer grind). settle is PERMISSIONLESS and pays the pot to the winner.
+# Before an opponent joins, the opener can cancel and reclaim. Players sign ONCE (their stake) — nothing else.
 import sys, json, tempfile, hashlib
 sys.path.insert(0, "/root/nado")
 from execnode.state import ExecState
 
-# ---- tiny assembler ----
 def P(v): return ["PUSH", v]
 def A(i): return ["ARG", i]
 def LD(m): return ["MLOAD", m]
 def ST(m): return ["MSTORE", m]
 def OP(o): return [o]
-CALLER=OP("CALLER"); VALUE=OP("VALUE"); CURSOR=OP("CURSOR"); HASH=OP("HASH"); CONCAT=OP("CONCAT")
-ADD=OP("ADD"); SUB=OP("SUB"); MUL=OP("MUL"); MOD=OP("MOD"); EQ=OP("EQ"); GT=OP("GT"); NOT=OP("NOT")
+CALLER=OP("CALLER"); VALUE=OP("VALUE"); CURSOR=OP("CURSOR"); HASH=OP("HASH"); BLOCKHASH=OP("BLOCKHASH")
+ADD=OP("ADD"); SUB=OP("SUB"); MUL=OP("MUL"); MOD=OP("MOD"); EQ=OP("EQ"); GT=OP("GT"); GTE=OP("GTE"); NOT=OP("NOT")
 REQ=OP("REQUIRE"); PAY=OP("PAY"); HALT=OP("HALT")
-REVEAL_WINDOW=1000
 
-# maps: st=stake pt=pot sd=settled nn=count dl=deadline p1/p2=addr c1/c2=commit s1/s2=secret r1/r2=revealed
-# open(gid, commit)  value=stake  -> fresh game, slot 1
+SETTLE_DELAY = 2   # blocks after the game fills before the flip block; result reads sh and sh+1
+
+# maps: st=stake pt=pot sd=settled nn=count sh=settleHeight p1/p2=addr ws=winnerSlot(1|2)
 open_m = [
-  VALUE, P(0), GT, REQ,                         # REQUIRE value>0
-  A(0), LD("nn"), P(0), EQ, REQ,                # REQUIRE nn[gid]==0 (fresh)
-  A(0), VALUE, ST("st"),                        # st[gid]=value
-  A(0), VALUE, ST("pt"),                        # pt[gid]=value
-  A(0), CALLER, ST("p1"),                       # p1[gid]=caller
-  A(0), A(1), ST("c1"),                         # c1[gid]=commit
-  A(0), P(1), ST("nn"),                         # nn[gid]=1
+  VALUE, P(0), GT, REQ,                         # value>0
+  A(0), P(0), GT, REQ,                           # gid>0
+  A(0), LD("nn"), P(0), EQ, REQ,                # fresh
+  A(0), VALUE, ST("st"),
+  A(0), VALUE, ST("pt"),
+  A(0), CALLER, ST("p1"),
+  A(0), P(1), ST("nn"),
   HALT ]
-# join(gid, commit)  value=stake  -> slot 2
+
+# join(gid)  value=stake  -> slot 2; binds the settle height
 join_m = [
-  A(0), LD("nn"), P(1), EQ, REQ,                # REQUIRE nn[gid]==1
-  A(0), LD("sd"), NOT, REQ,                     # REQUIRE not settled (a cancelled game keeps nn==1; block re-join)
-  VALUE, A(0), LD("st"), EQ, REQ,               # REQUIRE value==st[gid]
-  CALLER, A(0), LD("p1"), EQ, NOT, REQ,         # REQUIRE caller!=p1[gid]
-  A(0), A(0), LD("pt"), VALUE, ADD, ST("pt"),   # pt[gid]+=value
+  A(0), LD("nn"), P(1), EQ, REQ,                # exactly one player so far
+  A(0), LD("sd"), NOT, REQ,                      # not settled/cancelled
+  VALUE, A(0), LD("st"), EQ, REQ,               # stake matches
+  CALLER, A(0), LD("p1"), EQ, NOT, REQ,         # opponent isn't the opener
   A(0), CALLER, ST("p2"),
-  A(0), A(1), ST("c2"),
+  A(0), A(0), LD("pt"), VALUE, ADD, ST("pt"),
   A(0), P(2), ST("nn"),
-  A(0), CURSOR, P(REVEAL_WINDOW), ADD, ST("dl"),# dl[gid]=cursor+window
+  A(0), CURSOR, P(SETTLE_DELAY), ADD, ST("sh"),  # sh = cursor + SETTLE_DELAY
   HALT ]
-def reveal(slot):
-  p,c,s,r = "p"+slot,"c"+slot,"s"+slot,"r"+slot
-  return [
-    A(0), LD("nn"), P(2), EQ, REQ,              # REQUIRE both joined before any reveal (no early-reveal grind)
-    CALLER, A(0), LD(p), EQ, REQ,               # REQUIRE caller==pN[gid]
-    A(1), HASH, A(0), LD(c), EQ, REQ,           # REQUIRE HASH(secret)==cN[gid]
-    A(0), LD(r), NOT, REQ,                       # REQUIRE not already revealed
-    A(0), A(1), ST(s),                           # sN[gid]=secret
-    A(0), P(1), ST(r),                           # rN[gid]=1
-    HALT ]
-# settle(gid): both revealed -> result=HASH(CONCAT(s1,s2))%2, pay pot to winner (branchless)
+
+# settle(gid): PERMISSIONLESS once sh+1 is finalized — the chain decides + pays the winner the whole pot
 settle_m = [
-  A(0), LD("nn"), P(2), EQ, REQ,                # both in
-  A(0), LD("r1"), REQ,                          # r1
-  A(0), LD("r2"), REQ,                          # r2
-  A(0), LD("sd"), NOT, REQ,                     # not settled
-  A(0), A(0), LD("s1"), A(0), LD("s2"), ADD, HASH, P(2), MOD, ST("tmp"),  # tmp[gid]=result(0/1); ADD is client-replicable
-  A(0), A(0), LD("tmp"), P(1), ADD, ST("ws"),   # ws[gid]=result+1 (1 or 2) -> winner slot, readable by the UI
-  # PAY p1, pot*(1-result)
-  A(0), LD("p1"),
-  A(0), LD("pt"), P(1), A(0), LD("tmp"), SUB, MUL, PAY,
-  # PAY p2, pot*result
-  A(0), LD("p2"),
-  A(0), LD("pt"), A(0), LD("tmp"), MUL, PAY,
-  A(0), P(0), ST("tmp"),
-  A(0), P(1), ST("sd"),
-  A(0), P(0), ST("pt"),
-  HALT ]
-# claim(gid): after deadline. only-revealer takes pot; if neither revealed, refund each their stake.
-claim_m = [
-  CURSOR, A(0), LD("dl"), GT, REQ,              # cursor>deadline
-  A(0), LD("sd"), NOT, REQ,                     # not settled
-  A(0), LD("nn"), P(2), EQ, REQ,                # both committed
-  A(0), LD("r1"), A(0), LD("r2"), MUL, NOT, REQ,  # NOT both revealed (that case is settle — else the pot would lock)
-  # amount1 = pot*r1*(1-r2) + stake*(1-r1)*(1-r2)
-  A(0), LD("p1"),
-  A(0), LD("pt"), A(0), LD("r1"), MUL, P(1), A(0), LD("r2"), SUB, MUL,      # pot*r1*(1-r2)
-  A(0), LD("st"), P(1), A(0), LD("r1"), SUB, MUL, P(1), A(0), LD("r2"), SUB, MUL,  # stake*(1-r1)*(1-r2)
-  ADD, PAY,
-  # amount2 = pot*r2*(1-r1) + stake*(1-r1)*(1-r2)
-  A(0), LD("p2"),
-  A(0), LD("pt"), A(0), LD("r2"), MUL, P(1), A(0), LD("r1"), SUB, MUL,
-  A(0), LD("st"), P(1), A(0), LD("r1"), SUB, MUL, P(1), A(0), LD("r2"), SUB, MUL,
-  ADD, PAY,
+  A(0), LD("nn"), P(2), EQ, REQ,                # full
+  A(0), LD("sd"), NOT, REQ,                      # not settled
+  CURSOR, A(0), LD("sh"), P(1), ADD, GTE, REQ,  # sh+1 finalized
+  # ws = HASH(bh(sh)+bh(sh+1)+gid) % 2 + 1   (1 -> p1, 2 -> p2)
+  A(0),
+  A(0), LD("sh"), BLOCKHASH,
+  A(0), LD("sh"), P(1), ADD, BLOCKHASH, ADD,
+  A(0), ADD, HASH, P(2), MOD, P(1), ADD, ST("ws"),
+  # PAY winner the pot:  p1 gets pt*(ws==1), p2 gets pt*(ws==2)  (a 0 payout is a no-op)
+  A(0), LD("p1"), A(0), LD("pt"), A(0), LD("ws"), P(1), SUB, NOT, MUL, PAY,
+  A(0), LD("p2"), A(0), LD("pt"), A(0), LD("ws"), P(1), SUB, MUL, PAY,
   A(0), P(1), ST("sd"),
   A(0), P(0), ST("pt"),
   HALT ]
 
-# cancel(gid): opener reclaims their stake if nobody has joined yet (nn==1, not settled)
+# cancel(gid): the opener reclaims the pot while no opponent has joined
 cancel_m = [
-  A(0), LD("nn"), P(1), EQ, REQ,                # only a lone, un-joined game
-  CALLER, A(0), LD("p1"), EQ, REQ,              # only its opener
-  A(0), LD("sd"), NOT, REQ,                     # not already settled
-  A(0), LD("p1"), A(0), LD("pt"), PAY,          # refund the pot (== the opener's stake) to p1
+  CALLER, A(0), LD("p1"), EQ, REQ,
+  A(0), LD("nn"), P(1), EQ, REQ,
+  A(0), LD("sd"), NOT, REQ,
+  A(0), LD("p1"), A(0), LD("pt"), PAY,
   A(0), P(1), ST("sd"),
   A(0), P(0), ST("pt"),
   HALT ]
-CODE = {"open":open_m, "join":join_m, "reveal1":reveal("1"), "reveal2":reveal("2"),
-        "settle":settle_m, "claim":claim_m, "cancel":cancel_m}
+CODE = {"open":open_m, "join":join_m, "settle":settle_m, "cancel":cancel_m}
 
-# client-side result predictor must match the VM: HASH(CONCAT(s1,s2)) % 2, where HASH=blake2b(json.dumps(v))
 def vm_hash(v): return int.from_bytes(hashlib.blake2b(json.dumps(v, sort_keys=True).encode(), digest_size=32).digest(), "big")
-def predict(s1, s2): return vm_hash(s1 + s2) % 2
+def flip(bh, sh, g): return vm_hash(bh[sh] + bh[sh+1] + g) % 2   # 0->p1, 1->p2
 
-# ---- TESTS ----
 F=[]
 def ck(n,c): print(("  ok  " if c else " FAIL ")+n); (F.append(n) if not c else None)
-
-st=ExecState(tempfile.mktemp()); st.cursor=100
-for a in ("A","B","C"): st.credit_deposit(a, 1000)
-st.apply_blob({"op":"deploy","code":CODE,"runtime":"stackvm","nonce":"cf"},"A","d0")
+st=ExecState(tempfile.mktemp()); T0=100; st.cursor=T0
+for a in ("A","B","C"): st.credit_deposit(a, 100000)
+st.apply_blob({"op":"deploy","code":CODE,"runtime":"stackvm","nonce":"coinflip-beacon"},"A","d0")
 CID=list(st.contracts)[0]
+def set_hashes(upto):
+    for h in range(T0, upto+2): st.block_hashes[h]=vm_hash(["blk",h])
 def bal(a): return st.bridge.get(a,0)
+def M(m,g): return st.contracts[CID]["storage"].get(m,{}).get(str(g),0)
 def call(m,args,val,who): return st.apply_blob({"op":"call","contract":CID,"method":m,"args":args,"value":val},who,m+str(args))
 
-# secrets whose commit the client computes as HASH(secret)
-s_a, s_b = 111111, 222222
-c_a, c_b = vm_hash(s_a), vm_hash(s_b)
-GID=7
-call("open",[GID,c_a],50,"A")
-ck("open escrows 50", bal("A")==950 and bal(CID)==50)
-call("join",[GID,c_b],50,"B")
-ck("join escrows 50 (pot 100)", bal("B")==950 and bal(CID)==100)
-ck("join by same player would revert", call("join",[GID,c_a],50,"A").startswith("call") and bal(CID)==100)  # A not nn==1 anymore -> revert
-call("reveal1",[GID,s_a],0,"A"); call("reveal2",[GID,s_b],0,"B")
-ck("both revealed", st.contracts[CID]["storage"].get("r1",{}).get(str(GID))==1 and st.contracts[CID]["storage"]["r2"][str(GID)]==1)
-res=predict(s_a,s_b); winner="A" if res==0 else "B"
-call("settle",[GID],0,"A")
-ck(f"settle pays pot 100 to winner ({winner})", bal(winner)==1050 and bal(CID)==0)
-ck("loser stays at 950", bal("A" if winner=="B" else "B")==950)
-ck("settled flag set + pot 0", st.contracts[CID]["storage"]["sd"][str(GID)]==1)
-ck("winner slot ws stored (1 or 2)", st.contracts[CID]["storage"]["ws"][str(GID)]==(1 if res==0 else 2))
+# open + join
+G=7001
+call("open",[G],50,"A")
+ck("open escrows stake", bal("A")==100000-50 and M("st",G)==50 and M("nn",G)==1 and M("pt",G)==50)
+ck("open by fresh id only (re-open reverts)", "revert" in call("open",[G],50,"A"))
+ck("opener cannot join own game", "revert" in call("join",[G],50,"A"))
+ck("stake-mismatch join reverts + refunds", "revert" in call("join",[G],40,"B") and bal("B")==100000)
+call("join",[G],50,"B")
+sh=M("sh",G)
+ck("join escrows, pot=100, nn=2", M("pt",G)==100 and M("nn",G)==2 and M("p2",G)=="B")
+ck("settle height bound = cursor+delay", sh==T0+SETTLE_DELAY)
+ck("third player cannot join a full game", "revert" in call("join",[G],50,"C"))
 
-# wrong commit reveal reverts (no state change)
-G2=8; call("open",[G2,c_a],30,"A"); call("join",[G2,c_b],30,"B")
-call("reveal1",[G2, 999],0,"A")   # wrong secret
-ck("wrong-secret reveal reverts", str(G2) not in st.contracts[CID]["storage"].get("r1",{}))
-# claim: only B reveals, after deadline -> B takes pot 60
-call("reveal2",[G2,s_b],0,"B")
-st.cursor = 100 + REVEAL_WINDOW + 5   # past deadline
-before=bal("B"); call("claim",[G2],0,"B")
-ck("claim by sole revealer B takes pot 60", bal("B")==before+60 and bal(CID)==0)
+# settle too early reverts
+ck("settle before settle-height reverts", "revert" in call("settle",[G],0,"C"))
 
-# stake mismatch join reverts + refunds
-G3=9; call("open",[G3,c_a],40,"A"); bB=bal("B")
-r=call("join",[G3,c_b],25,"B")   # wrong stake
-ck("stake-mismatch join reverts + refunds", bal("B")==bB and bal(CID)==40)
-# cancel: opener reclaims stake from an un-joined game
-G4=10; bA=bal("A"); call("open",[G4,c_a],40,"A")
-ck("open escrows 40", bal("A")==bA-40)
-ck("non-opener cannot cancel", "skip" in call("cancel",[G4],0,"B") or st.contracts[CID]["storage"].get("sd",{}).get(str(G4)) is None)
-call("cancel",[G4],0,"A")
-ck("opener cancels un-joined game -> refunded", bal("A")==bA)
-ck("cannot cancel a full game", "revert" in call("cancel",[str(GID)],0,"A") or True)  # GID was 2-player+settled
+# finalize sh+1, settle (permissionless)
+st.cursor=sh+2; set_hashes(st.cursor)
+res=flip(st.block_hashes, sh, G); winner="A" if res==0 else "B"; loser="B" if res==0 else "A"
+bw=bal(winner)
+call("settle",[G],0,"C")   # settled by a THIRD party — still pays the real winner
+ck(f"coin={res} -> winner {winner} paid the pot", bal(winner)==bw+100)
+ck("winner slot recorded", M("ws",G)==(1 if res==0 else 2))
+ck("settled flag + pot 0", M("sd",G)==1 and (M("pt",G) or 0)==0)
+ck("double-settle reverts", "revert" in call("settle",[G],0,"C"))
 
-# --- SECURITY regressions (audit fixes) ---
-st.cursor=100
-call("open",[50,c_a],40,"A"); call("cancel",[50],0,"A")
-ck("SEC: cannot join a cancelled game", "revert" in call("join",[50,c_b],40,"A") and st.contracts[CID]["storage"]["nn"][str(50)]==1)
-call("open",[51,c_a],40,"A")
-ck("SEC: reveal before join rejected", "revert" in call("reveal1",[51,s_a],0,"A"))
-call("join",[51,c_b],40,"B"); call("reveal1",[51,s_a],0,"A"); call("reveal2",[51,s_b],0,"B")
-st.cursor = st.cursor + 5000
-ck("SEC: claim with BOTH revealed is rejected (no pot lock)", "revert" in call("claim",[51],0,"C"))
-b=bal("A" if predict(s_a,s_b)==0 else "B"); call("settle",[51],0,"A")
-ck("SEC: settle still pays the winner after that", bal("A" if predict(s_a,s_b)==0 else "B")==b+80)
+# cancel path: opener reclaims before anyone joins
+G2=7002
+call("open",[G2],70,"A"); ba=bal("A")
+ck("cancel refunds opener", "revert" not in call("cancel",[G2],0,"A") and bal("A")==ba+70)
+ck("cannot join a cancelled game", "revert" in call("join",[G2],70,"B"))
+ck("non-opener cannot cancel", (lambda: (call("open",[7003],30,"A"), "revert" in call("cancel",[7003],0,"B"))[-1])())
+
+# SECURITY: cannot settle a game that never filled
+call("open",[7004],25,"A"); st.cursor+=10; set_hashes(st.cursor)
+ck("SEC: settle on a 1-player game reverts", "revert" in call("settle",[7004],0,"A"))
 
 print("\n"+("ALL PASS" if not F else f"{len(F)} FAILED: {F}"))
 if not F:
     import os
     outp = os.path.join(os.path.dirname(__file__),"..","execnode","contracts","coinflip.json")
-    if os.environ.get("WRITE"):
-        json.dump(CODE, open(outp,"w")); print("WROTE", outp)
+    if os.environ.get("WRITE"): json.dump(CODE, open(outp,"w")); print("WROTE", outp)
     else:
         committed=json.load(open(outp)) if os.path.exists(outp) else None
         assert committed==CODE, "execnode/contracts/coinflip.json is STALE — re-run with WRITE=1 to regenerate"
