@@ -7,6 +7,7 @@
 // CONTRACT (runtime stackvm) called via the generic exec `call` op; the stake is escrowed as VALUE and paid by
 // the contract's PAY. Login + every signature is delegated to the NADO wallet; the key never touches this origin.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, hoist, chainResult, blocksToTime,
+         lsLoad, lsSave, wireWallet, renderWallet, renderScore, scoreBump, scoreSort, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
 const CID = "7ee95a0abd6e00d12edc3bf39f4c8f2d";
@@ -14,8 +15,8 @@ const dapp = new NadoDapp({ cid: CID, app: "Coin Flip" });
 const BLOCK_SECS = 6;
 
 const LS_G = "nado_coinflip_games";
-const gamesLoad = () => { try { return JSON.parse(localStorage.getItem(LS_G) || "{}"); } catch { return {}; } };
-const gamesSave = (g) => { try { localStorage.setItem(LS_G, JSON.stringify(g)); } catch {} };
+const gamesLoad = () => lsLoad(LS_G);
+const gamesSave = (g) => lsSave(LS_G, g);
 let active = null, lastGame = null;
 const stageCache = {};     // gid -> {settled, ncom, stake}
 
@@ -47,31 +48,19 @@ function lobbyFrom(sto) {
   });
 }
 function boardFrom(sto) {
-  const stats = {}, bump = (a, won, net) => { const x = stats[a] || (stats[a] = { addr: a, wins: 0, losses: 0, games: 0, net: 0 }); x.games++; x.net += net; won ? x.wins++ : x.losses++; };
+  const stats = {};
   for (const gid of allGids(sto)) {
     if (!_m(sto, "sd")[gid]) continue;
     const p1 = _m(sto, "p1")[gid], p2 = _m(sto, "p2")[gid], ws = _m(sto, "ws")[gid];
     if (!p1 || !p2 || !ws) continue;
     const stake = _m(sto, "st")[gid] || 0, win = ws === 1 ? p1 : p2, lose = ws === 1 ? p2 : p1;
-    bump(win, true, stake); bump(lose, false, -stake);
+    scoreBump(stats, win, stake); scoreBump(stats, lose, -stake);
   }
-  return Object.values(stats).sort((a, b) => (b.net - a.net) || (b.wins - a.wins));
+  return scoreSort(stats);
 }
 async function fetchGame(gid) { const sto = await dapp.storage(); return sto ? gameFrom(sto, gid) : null; }
 
 // ---- actions -------------------------------------------------------------------------------------
-function doDeposit() {
-  const raw = nadoToRaw($("bankAmt").value);
-  if (!raw) { $("status").textContent = "Enter an amount to deposit."; return; }
-  if (raw + 1000n > dapp.l1) { $("status").textContent = "Not enough in your L1 wallet: you have " + rawToNado(dapp.l1) + " NADO."; return; }
-  dapp.deposit(raw);
-}
-function doWithdraw() {
-  const raw = nadoToRaw($("bankAmt").value);
-  if (!raw) { $("status").textContent = "Enter an amount to withdraw."; return; }
-  if (dapp.exec < raw) { $("status").textContent = "You only have " + rawToNado(dapp.exec) + " NADO in the exec layer."; return; }
-  dapp.withdraw(raw);
-}
 function bet(gameId, stakeRaw, method) {   // method: "open" (slot 1) or "join" (slot 2)
   const g = gamesLoad();
   g[gameId] = { role: method, ts: Date.now(), bet: (g[gameId] || {}).bet, stake: stakeRaw.toString() }; gamesSave(g);
@@ -139,14 +128,7 @@ async function refreshActive() {
   await resolveAliases([dapp.me].concat(lastGame && lastGame.players ? Object.keys(lastGame.players) : []));
   render();
 }
-async function renderScoreboard(board) {
-  const el = $("scoreList"); if (!el) return;
-  if (!board.length) { el.innerHTML = '<span class="dim">No finished games yet — be the first on the board.</span>'; return; }
-  const top = board.slice(0, 10); await resolveAliases(top.map((r) => r.addr));
-  el.innerHTML = '<table class="score"><thead><tr><th>#</th><th>Player</th><th>W–L</th><th>Net</th></tr></thead><tbody>'
-    + top.map((r, i) => { const net = (r.net < 0 ? "-" : "+") + rawToNado(Math.abs(r.net)) + " NADO", you = r.addr === dapp.me;
-        return '<tr' + (you ? ' class="me"' : "") + '><td>' + (i + 1) + '</td><td>' + disp(r.addr) + (you ? " (you)" : "") + '</td><td>W' + r.wins + "–L" + r.losses + '</td><td class="' + (r.net >= 0 ? "pos" : "neg") + '">' + net + "</td></tr>"; }).join("") + "</tbody></table>";
-}
+const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, "No finished games yet — be the first on the board.");
 function renderLobby(games) {
   const el = $("lobbyList"); if (!el) return;
   const rank = { open: 0, live: 1, done: 2 }, tag = { open: "⏳", live: "▶", done: "✓" }, verb = { open: " · join", live: " · watch", done: "" };
@@ -158,13 +140,11 @@ function renderLobby(games) {
 
 // ---- render --------------------------------------------------------------------------------------
 function wireUI() {
-  $("btnSignIn").onclick = () => dapp.signIn();
-  $("btnDeposit").onclick = doDeposit;
+  wireWallet(dapp);
   $("btnNew").onclick = newGame;
   $("btnJoin").onclick = joinGame;
   $("joinId").oninput = () => render();
   $("btnSettle").onclick = settle;
-  $("btnWithdraw").onclick = doWithdraw;
   $("btnShare").onclick = () => share(base() + "/?game=" + active, "Flip me " + (lastGame && lastGame.exists ? "for " + rawToNado(lastGame.stake) + " NADO " : "") + "on NADO — join game #" + active + ":", $("btnShare"));
   $("btnRematch").onclick = rematch;
   $("btnJoinActive").onclick = joinActive;
@@ -173,12 +153,8 @@ function wireUI() {
 }
 const badge = (s) => s === "confirmed" ? '<span class="b ok">confirmed ✓</span>' : s === "pending" ? '<span class="b pend">pending…</span>' : '<span class="b dimb">—</span>';
 function render() {
-  const signedIn = !!dapp.me;
+  const signedIn = renderWallet(dapp);
   gate({ play: signedIn, bankroll: signedIn, activeGame: active != null });
-  $("btnSignIn").classList.toggle("hidden", signedIn);
-  $("who").textContent = signedIn ? disp(dapp.me) : "not signed in";
-  $("bal").textContent = rawToNado(dapp.exec) + " NADO";
-  $("l1bal").textContent = rawToNado(dapp.l1) + " NADO";
   const jid = ($("joinId").value || "").trim();
   const lgv = lastGame || {};
   let iAmIn = false, stageJoinable = true, needStake = null;
@@ -213,7 +189,7 @@ function renderActive() {
   drawQR($("shareQR"), $("shareQRNote"), base() + "/?game=" + active, 200);
   $("pot").textContent = lg.exists ? rawToNado(lg.pot) + " NADO" : "—";
   $("stakeShown").textContent = lg.exists ? rawToNado(lg.stake) + " NADO" : (local.stake ? rawToNado(local.stake) + " NADO" : "—");
-  $("gStatus").textContent = lg.exists ? (lg.ncom + "/2 in" + (lg.settled ? " · settled" : lg.ncom === 2 ? " · ⚡ flipping" : " · waiting")) : "opening…";
+  $("gStatus").textContent = lg.exists ? (lg.ncom + "/2 in" + (lg.settled ? " · settled" : lg.ncom === 2 ? " · ⚡ flipping" : " · waiting")) : dapp.whereIs("game", active, local.ts);
   const pl = lg.players || {};
   const byslot = Object.keys(pl).sort((a, b) => pl[a].slot - pl[b].slot);
   let playersHtml = byslot.map((a) => '<span class="chip">' + (a === dapp.me ? "you " : "") + disp(a) + " · slot " + pl[a].slot + "</span>").join(" ");
@@ -253,11 +229,9 @@ function renderActive() {
 
 // ---- boot ----------------------------------------------------------------------------------------
 dapp.onReturn((pend, ok, err) => {
-  const label = { connect: "Signed in.", deposit: "Deposit submitted — confirming on-chain…", bet: "Bet submitted — confirming…",
-    settle: "Settling…", cancel: "Cancelling…", withdraw: "Withdrawal submitted." }[pend && pend.phase] || "Submitted.";
   if (pend && pend.gameId != null) active = pend.gameId;
   if (ok && pend && pend.phase === "bet") { const g = gamesLoad(); if (g[pend.gameId]) { g[pend.gameId].bet = "pending"; gamesSave(g); } }
-  $("status").textContent = ok ? label : "Rejected" + (err ? ": " + err : ".");
+  $("status").textContent = statusLabel(pend, ok, err, { bet: "Bet submitted — confirming…", settle: "Settling…" });
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }

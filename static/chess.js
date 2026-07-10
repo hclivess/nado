@@ -3,7 +3,8 @@
 // full legality run in your browser; every move is recorded ON-CHAIN (a trustless, ordered game log with a move
 // clock), and the wager settles by resignation / mutual agreement / refund-on-timeout — so nobody can ever be
 // robbed (a stall or a disputed move at worst refunds both). Correspondence-style: a move confirms in ~1 min.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, hoist, resolveAliases, disp, share } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, hoist, resolveAliases, disp, share,
+         wireWallet, renderWallet } from "./nadodapp.js";
 import { Chess } from "./chess-engine.js";
 
 const CID = "a17c85c704d18e5527fd833843c37295";
@@ -182,9 +183,7 @@ function renderBoard() {
 
 // ---- render --------------------------------------------------------------------------------------
 function wireUI() {
-  $("btnSignIn").onclick = () => dapp.signIn();
-  $("btnDeposit").onclick = () => { const raw = nadoToRaw($("bankAmt").value); if (!raw) return ($("status").textContent = "Enter an amount to deposit."); if (raw + 1000n > dapp.l1) return ($("status").textContent = "Not enough in your L1 wallet (" + rawToNado(dapp.l1) + " NADO)."); dapp.deposit(raw); };
-  $("btnWithdraw").onclick = () => { const raw = nadoToRaw($("bankAmt").value); if (!raw) return ($("status").textContent = "Enter an amount to withdraw."); if (dapp.exec < raw) return ($("status").textContent = "You only have " + rawToNado(dapp.exec) + " NADO in the exec layer."); dapp.withdraw(raw); };
+  wireWallet(dapp);
   $("btnNew").onclick = newGame;
   $("btnJoin").onclick = joinGame;
   $("joinId").oninput = () => render();
@@ -203,11 +202,7 @@ function resultCode() {   // 1=white wins, 2=black wins, 3=draw ; null if not ov
   return 3;   // stalemate / draw
 }
 function render() {
-  const signedIn = !!dapp.me;
-  $("btnSignIn").classList.toggle("hidden", signedIn);
-  $("who").textContent = signedIn ? disp(dapp.me) : "not signed in";
-  $("bal").textContent = rawToNado(dapp.exec) + " NADO";
-  $("l1bal").textContent = rawToNado(dapp.l1) + " NADO";
+  const signedIn = renderWallet(dapp);
   $("play").classList.toggle("hidden", !signedIn);
   $("bankroll").classList.toggle("hidden", !signedIn);
   // my recent games
@@ -229,7 +224,7 @@ function renderActive() {
   $("players").innerHTML = '<span class="chip">♔ ' + wName + '</span> <span class="chip">♚ ' + bName + "</span>";
   renderBoard();
   // status line
-  let st = "opening…";
+  let st = dapp.whereIs("game", activeGame, local.ts);
   const over = g.exists && g.nn === 2 && engine.isGameOver();
   const rc = resultCode();
   if (g.exists && g.settled) st = "✓ settled";

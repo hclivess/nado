@@ -6,6 +6,8 @@
 // Once the settle block is final, anyone can settle a seat (it pays the bettor); losing stakes fold into the
 // bankroll so the table keeps rolling. Ordinary upgradable stackvm contract, no game-specific API.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, hoist, chainResult, blocksToTime,
+         lsLoad as load, lsSave as save, lsPrune, wireWallet, renderWallet, renderScore, scoreBump, scoreSort,
+         recentChips, statusLabel, tablesOf as allTables, readTable,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
 const CID = "e5e5c8558c85b3c45ef386f1fe2bccb4";
@@ -13,37 +15,18 @@ const PN = 100, MMIN = 2, MMAX = 98, EDGE = 99, BLOCK_SECS = 6, ROUND = 20;
 const dapp = new NadoDapp({ cid: CID, app: "Dice" });
 
 const LS_T = "nado_dice_tables", LS_S = "nado_dice_seats";
-const load = (k) => { try { return JSON.parse(localStorage.getItem(k) || "{}"); } catch { return {}; } };
-const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 let activeTable = null, lastTable = null, lastSeats = [], target = 50;
 let knownTables = new Set(), knownSeats = new Set();
 
 function pruneAndTrack(sto) {
-  knownTables = new Set(allTables(sto));
-  knownSeats = new Set(Object.keys(_m(sto, "gg")));
-  const T = load(LS_T); let c = false;
-  for (const t of Object.keys(T)) if (!knownTables.has(t) && Date.now() - (T[t].ts || 0) > 600000) { delete T[t]; c = true; }
-  if (c) save(LS_T, T);
-  const S = load(LS_S); c = false;
-  for (const g of Object.keys(S)) if (!knownSeats.has(g) && Date.now() - (S[g].ts || 0) > 600000) { delete S[g]; c = true; }
-  if (c) save(LS_S, S);
+  knownTables = lsPrune(LS_T, allTables(sto));
+  knownSeats = lsPrune(LS_S, Object.keys(_m(sto, "gg")));
 }
 const multOf = (M) => EDGE / M;
 const returnRaw = (stake, M) => BigInt(stake) * BigInt(EDGE) / BigInt(M);
 
 // ---- reads (dice-specific storage schema) --------------------------------------------------------
-const allTables = (sto) => Object.keys(_m(sto, "t0"));
-function tableFrom(sto, t) {
-  t = String(t); const bank = _m(sto, "ta")[t], t0 = _m(sto, "t0")[t];
-  if (!bank || t0 == null) return { exists: false };
-  const tb = { exists: true, id: Number(t), bank, bankroll: _m(sto, "tk")[t] || 0, pool: _m(sto, "tp")[t] || 0,
-    committed: _m(sto, "tc")[t] || 0, t0, seatCount: _m(sto, "tn")[t] || 0,
-    settledCount: _m(sto, "tx")[t] || 0, closed: !!_m(sto, "tz")[t] };
-  tb.phase = tb.closed ? "done" : "betting";
-  const cur = dapp.cursor;
-  if (cur != null) { tb.nextSettle = t0 + (Math.floor((cur - t0) / ROUND) + 1) * ROUND; tb.roundEndsIn = tb.nextSettle - cur; }
-  return tb;
-}
+const tableFrom = (sto, t) => readTable(sto, t, dapp.cursor, ROUND);
 function seatsOfTable(sto, t) {
   t = String(t); const gg = _m(sto, "gg"), cur = dapp.cursor, out = [];
   for (const g of Object.keys(gg)) if (String(gg[g]) === t) {
@@ -124,24 +107,17 @@ async function refreshActive() {
   render();
 }
 function boardFrom(sto) {
-  const stats = {}, bump = (a, net) => { const x = stats[a] || (stats[a] = { addr: a, wins: 0, losses: 0, games: 0, net: 0 }); x.games++; x.net += net; net >= 0 ? x.wins++ : x.losses++; };
+  const stats = {};
   for (const g of Object.keys(_m(sto, "gd"))) {
     if (!_m(sto, "gd")[g]) continue;
     const t = String(_m(sto, "gg")[g]), bank = _m(sto, "ta")[t]; if (!bank) continue;
     const M = _m(sto, "gm")[g] || 1, stake = _m(sto, "gs")[g] || 0, win = !!_m(sto, "gw")[g];
     const net = win ? Number(returnRaw(stake, M)) - stake : -stake;
-    bump(_m(sto, "ga")[g], net); bump(bank, -net);
+    scoreBump(stats, _m(sto, "ga")[g], net); scoreBump(stats, bank, -net);
   }
-  return Object.values(stats).sort((a, b) => (b.net - a.net) || (b.wins - a.wins));
+  return scoreSort(stats);
 }
-async function renderScoreboard(board) {
-  const el = $("scoreList"); if (!el) return;
-  if (!board.length) { el.innerHTML = '<span class="dim">No settled rolls yet — be the first on the board.</span>'; return; }
-  const top = board.slice(0, 10); await resolveAliases(top.map((r) => r.addr));
-  el.innerHTML = '<table class="score"><thead><tr><th>#</th><th>Player</th><th>W–L</th><th>Net</th></tr></thead><tbody>'
-    + top.map((r, i) => { const net = (r.net < 0 ? "-" : "+") + rawToNado(Math.abs(r.net)) + " NADO", you = r.addr === dapp.me;
-        return '<tr' + (you ? ' class="me"' : "") + '><td>' + (i + 1) + '</td><td>' + disp(r.addr) + (you ? " (you)" : "") + '</td><td>W' + r.wins + "–L" + r.losses + '</td><td class="' + (r.net >= 0 ? "pos" : "neg") + '">' + net + "</td></tr>"; }).join("") + "</tbody></table>";
-}
+const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, "No settled rolls yet — be the first on the board.");
 function renderLobby(sto) {
   const el = $("lobbyList"); if (!el) return;
   const tables = allTables(sto).map((t) => tableFrom(sto, t)).filter((t) => t.exists && !t.closed);
@@ -170,9 +146,7 @@ function syncSlider() {
   $("payoutPreview").textContent = stake ? "win pays " + rawToNado(returnRaw(stake, target)) + " NADO" : "";
 }
 function wireUI() {
-  $("btnSignIn").onclick = () => dapp.signIn();
-  $("btnDeposit").onclick = () => { const raw = nadoToRaw($("bankAmt").value); if (!raw) return ($("status").textContent = "Enter an amount to deposit."); if (raw + 1000n > dapp.l1) return ($("status").textContent = "Not enough in your L1 wallet (" + rawToNado(dapp.l1) + " NADO)."); dapp.deposit(raw); };
-  $("btnWithdraw").onclick = () => { const raw = nadoToRaw($("bankAmt").value); if (!raw) return ($("status").textContent = "Enter an amount to withdraw."); if (dapp.exec < raw) return ($("status").textContent = "You only have " + rawToNado(dapp.exec) + " NADO in the exec layer."); dapp.withdraw(raw); };
+  wireWallet(dapp);
   $("btnNewTable").onclick = newTable;
   $("btnBet").onclick = doBet;
   $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = "Enter a table ID, or pick one from the lobby."; };
@@ -184,12 +158,8 @@ function wireUI() {
   $("stakeAmt").oninput = () => { syncSlider(); render(); };
 }
 function render() {
-  const signedIn = !!dapp.me;
+  const signedIn = renderWallet(dapp);
   gate({ play: signedIn, bankcard: signedIn, bankroll: signedIn, activeGame: activeTable != null });
-  $("btnSignIn").classList.toggle("hidden", signedIn);
-  $("who").textContent = signedIn ? disp(dapp.me) : "not signed in";
-  $("bal").textContent = rawToNado(dapp.exec) + " NADO";
-  $("l1bal").textContent = rawToNado(dapp.l1) + " NADO";
   const tb = (activeTable != null && lastTable && lastTable.exists && !lastTable.closed) ? lastTable : null;
   const stake = nadoToRaw($("stakeAmt").value);
   const need = stake ? returnRaw(stake, target) - stake : null;
@@ -199,7 +169,7 @@ function render() {
   if ($("btnBet")) { $("btnBet").disabled = !betable; $("btnBet").classList.toggle("pulse", betable && signedIn); }
   let hint = "";
   if (signedIn && activeTable != null) {
-    if (!tb && !lastTable?.exists) hint = "Table #" + activeTable + " isn't on-chain yet — if you just opened it, give it ~1 min to confirm.";
+    if (!tb && !lastTable?.exists) hint = dapp.whereIs("table", activeTable, (load(LS_T)[activeTable] || {}).ts);
     else if (lastTable && lastTable.closed) hint = "Table #" + activeTable + " is closed.";
     else if (!stake) hint = "Enter a stake (NADO) and set your win chance, then Place roll — you can bet at your own table too.";
     else if (dapp.exec < stake) hint = "Not enough NADO — this rolls " + rawToNado(stake) + " but your exec balance is " + rawToNado(dapp.exec) + ". Deposit at least " + rawToNado(stake - dapp.exec) + " more below.";
@@ -212,10 +182,10 @@ function render() {
   mine.sort((a, b) => b.ts - a.ts); const seen = new Set();
   const shown = mine.filter((x) => {
     x.live = x.role === "bank" ? knownTables.has(String(x.id)) : knownSeats.has(String(x.seat));
+    x.icon = x.role === "bank" ? "🏦" : "🎲";
     const k = x.id + x.role; if (seen.has(k)) return false; seen.add(k); return true;
   }).slice(0, 8);
-  $("recent").innerHTML = shown.length ? shown.map((x) => '<button class="chip' + (x.live ? "" : " pending") + '" data-t="' + x.id + '"' + (x.live ? "" : ' title="still confirming on-chain — your bet hasn\'t vanished"') + '>' + (x.role === "bank" ? "🏦" : "🎲") + " #" + x.id + (x.live ? "" : " ⏳") + "</button>").join(" ") : '<span class="dim">No tables yet.</span>';
-  $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => selectTable(parseInt(b.dataset.t, 10)));
+  recentChips($("recent"), shown, selectTable, "No tables yet.");
   renderActive();
 }
 function renderActive() {
@@ -228,9 +198,7 @@ function renderActive() {
   $("gBank").textContent = tb.exists ? (disp(tb.bank) + (iAmBank ? " — that's you (you're the house here)" : "")) : (T.bankroll ? "you (opening…)" : "—");
   $("gBankroll").textContent = tb.exists ? rawToNado(tb.bankroll) + " NADO" : (T.bankroll ? rawToNado(T.bankroll) + " NADO" : "—");
   $("gCover").textContent = tb.exists ? rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) + " NADO free" : "—";
-  let phaseTxt = "opening… (confirming on-chain, ~1 min)";
-  if (!tb.exists && T.ts && Date.now() - T.ts > 150000)
-    phaseTxt = "⚠ this table didn't land — it was likely rejected (did your exec balance cover the bankroll?). Deposit enough, then open again.";
+  let phaseTxt = dapp.whereIs("table", activeTable, T.ts);
   if (tb.exists) {
     if (tb.closed) phaseTxt = "table closed";
     else phaseTxt = "🟢 rolling every " + blocksToTime(ROUND) + " — next roll in " + (tb.roundEndsIn != null ? blocksToTime(tb.roundEndsIn) : "…") + " · " + tb.seatCount + " roll" + (tb.seatCount === 1 ? "" : "s");
@@ -265,11 +233,8 @@ function renderActive() {
 
 // ---- boot ----------------------------------------------------------------------------------------
 dapp.onReturn((pend, ok, err) => {
-  const label = { connect: "Signed in.", deposit: "Deposit submitted — confirming…", open: "Table opening — confirming…",
-    bet: "Bet placed — confirming…", settle: "Collecting…", fund: "Topping up…",
-    close: "Closing…", withdraw: "Withdrawal submitted." }[pend && pend.phase] || "Submitted.";
   if (pend && pend.table != null) activeTable = pend.table;
-  $("status").textContent = ok ? label : "Rejected" + (err ? ": " + err : ".");
+  $("status").textContent = statusLabel(pend, ok, err);
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
