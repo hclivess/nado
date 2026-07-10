@@ -261,11 +261,14 @@ async function refreshAll() {
 
 // ---- render ----------------------------------------------------------------------------------------
 function statRow(p, i) {
-  const val = p.base[i] + p.bonus[i], chance = G.trainChance(p.sp, val);
+  const base = p.base[i], bonus = p.bonus[i], val = base + bonus, chance = G.trainChance(p.sp, val);
   const canTrain = p.mine && !p.dead && !p.th;
+  // two-segment bar: teal = base (locked at hatch), gold = trained bonus you added
+  const baseW = Math.min(100, base), bonusW = Math.min(100 - baseW, bonus);
+  const bar = `<div class="bar sbar"><i style="width:${baseW}%"></i>${bonusW > 0 ? `<b style="width:${bonusW}%" title="+${bonus} from training"></b>` : ""}</div>`;
   return `<div class="statrow"><span>${G.STAT_ICONS[i]}</span><span>${G.STAT_NAMES[i]}</span>
-    <span class="sv">${val}${p.bonus[i] ? ` <span class="up">+${p.bonus[i]}</span>` : ""}</span>
-    <div class="bar sbar"><i style="width:${Math.min(100, val)}%"></i></div>
+    <span class="sv">${val}${bonus ? ` <span class="up">+${bonus}</span>` : ""}</span>
+    ${bar}
     ${canTrain ? `<button class="mini train" data-train="${i}" title="Train ${G.STAT_NAMES[i]} — 0.5 NADO, ${chance.toFixed(0)}% chance to gain +1">🏋 Train · ${chance.toFixed(0)}%</button>` : `<span class="small dim" title="train success chance">${chance.toFixed(0)}%</span>`}
   </div>`;
 }
@@ -299,6 +302,7 @@ function renderActive() {
   $("petOwner").innerHTML = esc(disp(p.owner)) + (p.mine ? ' <span class="b ok">yours</span>' : "");
   $("petLp").textContent = p.hatched ? "Lv " + p.level + " · ⚡ " + p.pw + " · " + recordOf(p) : "—";
   $("petUpkeep").textContent = p.hatched ? p.ap + " · " + rawToNado(G.feedCost(BLOCKS_PER_DAY, p.ap)) + " NADO/day" : "decided at hatch";
+  if ($("petInvested")) $("petInvested").textContent = p.hatched || p.tf ? rawToNado(p.tf) + " NADO" : "—";
   if ($("petGene")) { $("petGene").textContent = p.gs ? "0x" + p.gene.toString(16) : "—"; $("petGene").title = p.gs || ""; }
   // life bar
   const lb = lifeBlocks(p), pct = lb == null ? 0 : Math.max(0, Math.min(100, 100 * lb / G.BELLY_CAP));
@@ -375,7 +379,8 @@ function renderActive() {
         const l = L(); delete l[p.id].trainPending; delete l[p.id].trainStat; Lsave(l);
       }
     }
-    $("trainHint").textContent = "Each attempt costs 0.5 NADO. Success chance = 100·K/(K+stat), K=" + G.trainK(p.sp) + " for a " + (sp ? sp.rarity.toLowerCase() : "") + " — the better the stat, the harder the gain (no cap, ever). Rarer species train easier.";
+    $("trainHint").innerHTML = '<span style="color:var(--accent2)">▮ base</span> (locked at hatch) · <span style="color:var(--gold)">▮ trained</span> (your gains). '
+      + "Each attempt costs 0.5 NADO. Success chance = 100·K/(K+stat), K=" + G.trainK(p.sp) + " for a " + (sp ? esc(sp.rarity.toLowerCase()) : "") + " — the better the stat, the harder the gain (no cap, ever). Rarer species train easier.";
   }
   if (p.hatched && !p.dead && !p.mine && dapp.me) {
     const mine = myPets().filter((x) => x.hatched && !x.dead);

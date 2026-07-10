@@ -217,6 +217,7 @@ train_m = [                                       # train(pid, statIdx 0..9)  va
   CURSOR, A(0), LD("th"), P(STALE), ADD, GT, OR, REQ,   # …or the pending one's hash is pruned (fee forfeit)
   A(0), CURSOR, P(HATCH_DELAY), ADD, ST("th"),
   A(0), A(1), P(1), ADD, ST("ti"),                # stored 1-based so 0 never reads as "absent"
+  A(0), A(0), LD("tf"), P(TRAIN_FEE), ADD, ST("tf"),   # tf = total NADO invested (mint + food + training)
   HALT ]
 
 _i_ops = [A(0), LD("ti"), P(1), SUB]              # the pending session's stat index
@@ -479,6 +480,7 @@ for n in range(60):
 ck(f"DIFFERENTIAL: 60 training sessions bytecode==reference (mism={mismt}, {wins} ups, {fails} fails)",
    mismt == 0 and wins > 5 and fails > 5)
 ck("power grew by exactly the successful sessions", M("pw", TP) == ref_power(gT, spT) + wins)
+ck("invested (tf) = mint + every training fee (each train() adds TRAIN_FEE)", M("tf", TP) == MINT_FEE + 60 * TRAIN_FEE)
 
 # stale pending session: unresolved past STALE can be overwritten (fee forfeit), resolve of it reverts
 call("train", [TP, 0], TRAIN_FEE, "A")

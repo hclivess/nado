@@ -120,7 +120,10 @@
   .bar.low>i{background:linear-gradient(90deg,#b3541e,#e3b341)}
   .bar.crit>i{background:linear-gradient(90deg,#a12622,var(--danger))}
   .statrow{display:grid;grid-template-columns:26px 96px 34px 1fr auto;gap:8px;align-items:center;font-size:12.5px;padding:3px 0}
-  .statrow .sbar{height:8px}
+  .statrow .sbar{height:8px;display:flex}
+  .statrow .sbar>i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:999px 0 0 999px}
+  .statrow .sbar>b{display:block;height:100%;background:linear-gradient(90deg,var(--gold),#ffd35a);border-radius:0 999px 999px 0;box-shadow:0 0 6px rgba(227,179,65,.6)}
+  .statrow .sbar>i:only-child{border-radius:999px}
   .statrow .sv{font-family:var(--mono);text-align:right}
   .statrow .up{color:var(--accent2);font-weight:700;font-size:11px}
   .statrow button{white-space:nowrap}
@@ -213,6 +216,7 @@
     <div class="kv mt"><span class="k">Owner</span><span id="petOwner"></span></div>
     <div class="kv"><span class="k">Level · Power</span><span class="mono" id="petLp"></span></div>
     <div class="kv"><span class="k">Appetite (upkeep)</span><span class="mono" id="petUpkeep"></span></div>
+    <div class="kv"><span class="k">Invested (mint + food + training)</span><span class="mono" id="petInvested"></span></div>
     <div class="kv"><span class="k">Gene (on-chain, immutable)</span><span class="mono" id="petGene" style="font-size:11px;color:var(--faint);max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span></div>
 
     <!-- hatch -->
