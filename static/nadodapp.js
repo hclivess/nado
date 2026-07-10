@@ -298,6 +298,10 @@ export class NadoDapp {
     localStorage.removeItem(this.LS_P);
     try { history.replaceState(null, "", location.pathname); } catch {}
     if (ok && addr) { this.me = addr; localStorage.setItem(this.LS_ME, addr); }
+    // A REJECTED action (ok=0 with a reason) must be shown LOUDLY — never left to masquerade as the
+    // optimistic "confirming…" placeholder. The err is the node's real reason (e.g. a chain_id mismatch
+    // from a stale cached wallet), which is exactly what the user needs to see.
+    if (!ok && err) { try { alertBar("Rejected: " + err + (/chain id/i.test(err) ? " — hard-refresh this page and your wallet to update to the current network." : "")); } catch (e) {} }
     // remember a just-submitted action so games can show "confirming…" and NEVER re-offer the button the
     // user already clicked (e.g. coinflip "Join this game" reappearing before the join confirms on-chain).
     if (ok && pend && pend.phase && !["connect", "deposit", "withdraw"].includes(pend.phase)) {
