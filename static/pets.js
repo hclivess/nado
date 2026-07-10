@@ -16,7 +16,7 @@ const LS_P = "nado_pets_mine";                    // {pid: {ts, hatchPending?, t
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 let active = null, activeBattle = null;
-let PETS = {}, BATTLES = {}, hatchPlaying = false, battlePlaying = null;
+let PETS = {}, BATTLES = {}, OFFERS = {}, hatchPlaying = false, battlePlaying = null;
 
 // ---- SVG art (one <g> per animated part; CSS in pets.html does the moving) ------------------------
 function eggSvg(cls, cracks) {
@@ -115,6 +115,14 @@ function petsFrom(sto) {
   }
   return out;
 }
+function offersFrom(sto) {
+  const os = _m(sto, "os"), out = {};
+  for (const oid of Object.keys(os)) {
+    out[oid] = { id: oid, buyer: String(_m(sto, "ob")[oid] || ""), pet: String(_m(sto, "op")[oid] || ""),
+      value: _m(sto, "ov")[oid] || 0, state: _m(sto, "os")[oid] || 0 };
+  }
+  return out;
+}
 function battlesFrom(sto) {
   const wa = _m(sto, "wa"), out = {};
   for (const bid of Object.keys(wa)) {
@@ -196,6 +204,16 @@ function buyPet(pid) {
   if (!canPay(dapp, price, "Buying this pet")) return;
   dapp.call("buy", [Number(pid)], price, "buy " + p.label + " · " + rawToNado(price) + " NADO", { pid, phase: "buy" }, { confirm: 1 });
 }
+function makeOffer(pid) {
+  const p = PETS[pid]; if (!p) return;
+  const raw = nadoToRaw($("offerAmt").value);
+  if (!raw) return alertBar("Enter your offer in NADO.");
+  if (!canPay(dapp, raw, "This offer")) return;
+  const oid = randId();
+  dapp.call("offer", [oid, Number(pid)], raw, "offer " + rawToNado(raw) + " NADO for " + p.label, { pid, oid, phase: "offer" }, { confirm: 1 });
+}
+const acceptOffer = (oid, label) => dapp.call("accept_offer", [Number(oid)], null, "accept offer #" + oid + (label ? " for " + label : ""), { oid, phase: "offeract" }, { confirm: 1 });
+const cancelOffer = (oid) => dapp.call("cancel_offer", [Number(oid)], null, "withdraw offer #" + oid, { oid, phase: "offeract" });
 async function transfer(pid) {
   let to = $("xferTo").value.trim();
   if (to.startsWith("@")) {
@@ -215,7 +233,7 @@ async function refreshAll() {
   try { BURNED = BigInt((await (await fetch(base() + "/exec/bridge?ns=default&provisional=1", { cache: "no-store" })).json()).balances.burn || 0); } catch {}
   const sto = await dapp.storage();
   if (sto) {
-    BATTLES = battlesFrom(sto);
+    BATTLES = battlesFrom(sto); OFFERS = offersFrom(sto);
     // hashes we need: the active egg's gene blocks, pending trainings, accepted battles
     const want = [];
     const pre = petsFrom(sto);
@@ -290,9 +308,25 @@ function renderActive() {
   $("petMsg").textContent = p.dead ? (p.hatched ? "This pet has died. Its record stays on-chain forever." : "This egg expired unhatched.")
     : !p.hatched ? (p.hatchReady ? "The gene blocks are final — hatch it!" : p.stale ? "Its gene block was pruned — re-roll below." : "Incubating… the chain is minting its gene blocks (~2 min).") : "";
   // sections
+  const canOffer = p.hatched && !p.dead && !p.mine && dapp.me;
+  const incoming = Object.values(OFFERS).filter((o) => o.state === 1 && o.pet === p.id);
   gate({ lifeWrap: true, hatchRow: !p.hatched && !p.dead, feedRow: p.hatched && !p.dead,
          statsWrap: p.hatched, challengeRow: p.hatched && !p.dead && !p.mine && dapp.me,
-         ownRow: p.mine && !p.dead, buyRow: !!p.price && !p.mine && !p.dead && dapp.me });
+         ownRow: p.mine && !p.dead, buyRow: !!p.price && !p.mine && !p.dead && dapp.me,
+         offerRow: canOffer, offersInRow: p.mine && !p.dead && incoming.length > 0 });
+  if (canOffer) {
+    const mine = Object.values(OFFERS).filter((o) => o.state === 1 && o.pet === p.id && o.buyer === dapp.me);
+    $("myOffersOut").innerHTML = mine.length
+      ? "Your open offer: " + mine.map((o) => rawToNado(o.value) + " NADO <button class='mini ghost' data-canceloffer='" + o.id + "'>withdraw</button>").join(" ")
+      : "Bid any amount; it's escrowed and refunded if you withdraw or it's never accepted.";
+    $("myOffersOut").querySelectorAll("[data-canceloffer]").forEach((b) => b.onclick = () => cancelOffer(b.dataset.canceloffer));
+  }
+  if (p.mine && !p.dead && incoming.length) {
+    incoming.sort((a, b) => b.value - a.value);
+    $("offersInList").innerHTML = incoming.map((o) => '<div class="btl">💬 <b>' + rawToNado(o.value) + " NADO</b> from " + esc(disp(o.buyer))
+      + ' <div class="act"><button class="mini primary" data-acceptoffer="' + o.id + '">Accept &amp; sell</button></div></div>').join("");
+    $("offersInList").querySelectorAll("[data-acceptoffer]").forEach((b) => b.onclick = () => acceptOffer(b.dataset.acceptoffer, p.label));
+  }
   if (p.price && !p.mine && !p.dead) {
     const busyBuy = dapp.busy("buy", "pid", p.id);
     $("btnBuy").textContent = busyBuy ? "⏳ Buying — confirming on-chain…" : "🛒 Buy " + p.label + " · " + rawToNado(p.price) + " NADO";
@@ -553,6 +587,7 @@ function wireUI() {
   $("btnList").onclick = () => listPet(active);
   $("btnUnlist").onclick = () => unlistPet(active);
   $("btnBuy").onclick = () => buyPet(active);
+  $("btnOffer").onclick = () => makeOffer(active);
   const wireView = (v, q, s, more) => {
     $(q).oninput = () => { v.q = $(q).value.trim(); v.n = 24; renderGrids(); };
     $(s).onchange = () => { v.sort = $(s).value; v.n = 24; renderGrids(); };
@@ -571,7 +606,8 @@ dapp.onReturn((pend, ok, err) => {
     trainres: "Revealing the result — confirming…", challenge: "Challenge sent — the owner must accept it.",
     accept: "Battle on! The chain decides in ~2 blocks…", resolveb: "Settling the battle…",
     cancelb: "Withdrawing…", rename: "Naming — it's for life; confirming…", xfer: "Transferring your pet — confirming…",
-    market: "Updating the listing — confirming…", buy: "Buying — confirming on-chain (~1 min)…" });
+    market: "Updating the listing — confirming…", buy: "Buying — confirming on-chain (~1 min)…",
+    offer: "Offer sent — escrowed until the owner accepts.", offeract: "Confirming…" });
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }

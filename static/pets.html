@@ -260,6 +260,22 @@
       <p class="small dim mt">The price goes straight from your exec balance to the current owner; the pet is yours the moment it confirms — genes, level, trained stats, hunger and all.</p>
     </div>
 
+    <!-- make an offer (any pet you don't own) -->
+    <div class="mt hidden" id="offerRow">
+      <label>Make an offer (bid held in escrow until the owner accepts)</label>
+      <div class="row">
+        <input id="offerAmt" placeholder="your offer (NADO)" inputmode="decimal" autocomplete="off">
+        <button class="ghost" id="btnOffer">💬 Send offer</button>
+      </div>
+      <p class="small dim" id="myOffersOut"></p>
+    </div>
+
+    <!-- incoming offers (owner sees bids on this pet) -->
+    <div class="mt hidden" id="offersInRow">
+      <label>Offers on this pet</label>
+      <div id="offersInList"></div>
+    </div>
+
     <!-- transfer / rename / sell (mine) -->
     <div class="mt hidden" id="ownRow">
       <div class="row">

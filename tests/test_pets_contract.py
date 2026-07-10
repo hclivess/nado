@@ -167,6 +167,37 @@ buy_m = [                                         # buy(pid)  value = the exact 
   A(0), P(0), ST("mp"),
   HALT ]
 
+# OFFERS — a buyer escrows a bid on ANY existing pet (listed or not); the pet's CURRENT owner may accept
+# (pet -> buyer, escrow -> owner) or the buyer may cancel (escrow back). Keyed by offerId. Maps: ob buyer,
+# op pet, ov value, os state (1 open, 2 closed). Multiple offers on one pet coexist; accepting one moves the
+# pet, the rest stay cancelable by their bidders. Offers on a pet follow it (any later owner can accept).
+offer_m = [                                       # offer(offerId, pid)  value = the bid (raw NADO)
+  A(0), P(0), GT, REQ,                            # offerId: positive int
+  A(0), LD("os"), P(0), EQ, REQ,                  # fresh offer id
+  VALUE, P(0), GT, REQ,                           # bid > 0
+  A(1), LD("ow"), P(0), EQ, NOT, REQ,             # the pet exists
+  CURSOR, A(1), LD("fu"), LTE, REQ,               # and is alive
+  CALLER, A(1), LD("ow"), EQ, NOT, REQ,           # can't bid on your own pet
+  A(0), CALLER, ST("ob"), A(0), A(1), ST("op"), A(0), VALUE, ST("ov"), A(0), P(1), ST("os"),
+  HALT ]
+
+accept_offer_m = [                                # accept_offer(offerId) — the pet's CURRENT owner accepts
+  A(0), LD("os"), P(1), EQ, REQ,
+  CALLER, A(0), LD("op"), LD("ow"), EQ, REQ,      # caller owns the offered pet
+  CURSOR, A(0), LD("op"), LD("fu"), LTE, REQ,     # the pet is still alive
+  CALLER, A(0), LD("ov"), PAY,                    # escrow -> the (accepting) owner
+  A(0), LD("op"), A(0), LD("ob"), ST("ow"),       # pet -> the buyer
+  A(0), LD("op"), P(0), ST("mp"),                 # clear any open sale listing on it
+  A(0), P(2), ST("os"),
+  HALT ]
+
+cancel_offer_m = [                                # cancel_offer(offerId) — the bidder reclaims the escrow
+  CALLER, A(0), LD("ob"), EQ, REQ,
+  A(0), LD("os"), P(1), EQ, REQ,
+  A(0), LD("ob"), A(0), LD("ov"), PAY,
+  A(0), P(2), ST("os"),
+  HALT ]
+
 name_m = [                                        # name(pid, name) — owner-only, ONCE: a name is for life
   CALLER, A(0), LD("ow"), EQ, REQ,
   A(0), LD("nm"), P(0), EQ, REQ,                  # not named yet — no renames, ever
@@ -322,6 +353,7 @@ refund_battle_m = [                               # refund_battle(bid) — accep
 
 CODE = {"mint": mint_m, "hatch": hatch_m, "rebirth": rebirth_m, "feed": feed_m, "transfer": transfer_m,
         "name": name_m, "list": list_m, "unlist": unlist_m, "buy": buy_m,
+        "offer": offer_m, "accept_offer": accept_offer_m, "cancel_offer": cancel_offer_m,
         "train": train_m, "train_resolve": train_resolve_m, "challenge": challenge_m,
         "accept": accept_m, "resolve_battle": resolve_battle_m, "cancel_battle": cancel_battle_m,
         "refund_battle": refund_battle_m}
@@ -558,6 +590,43 @@ MPE = 6100002; call("mint", [MPE], MINT_FEE, "A")
 call("list", [MPE, PRICE], 0, "A")
 ck("an unhatched egg can be listed (mystery box) and bought", M("mp", MPE) == PRICE
    and (call("buy", [MPE], PRICE, "C") or True) and M("ow", MPE) == "C")
+
+# ── offers: escrowed bids on any pet; owner accepts or bidder cancels ────────────────────────────────
+OP1 = 6200001; mint_and_hatch(OP1, "A")
+BID_OK = 8 * 10**10
+ck("offer on your own pet reverts", rv(call("offer", [7200001, OP1], BID_OK, "A")))
+ck("zero-value offer reverts", rv(call("offer", [7200001, OP1], 0, "B")))
+ck("offer on a nonexistent pet reverts", rv(call("offer", [7200001, 999998], BID_OK, "B")))
+bB = bal("B")
+call("offer", [7200001, OP1], BID_OK, "B")
+ck("offer escrows the bid + records it", bal("B") == bB - BID_OK and M("os", 7200001) == 1
+   and M("ob", 7200001) == "B" and M("op", 7200001) == OP1 and M("ov", 7200001) == BID_OK and bal(CID) >= BID_OK)
+ck("reusing an offer id reverts", rv(call("offer", [7200001, OP1], BID_OK, "C")))
+ck("a non-owner cannot accept an offer", rv(call("accept_offer", [7200001], 0, "C")))
+ck("the bidder cannot accept their own offer (not the owner)", rv(call("accept_offer", [7200001], 0, "B")))
+# a SECOND, higher offer from C coexists
+call("offer", [7200002, OP1], BID_OK * 2, "C")
+ck("multiple offers on one pet coexist", M("os", 7200002) == 1 and M("op", 7200002) == OP1)
+bA = bal("A")
+call("accept_offer", [7200002], 0, "A")            # owner takes the higher offer
+ck("accept pays the owner + moves the pet to the bidder", bal("A") == bA + BID_OK * 2
+   and M("ow", OP1) == "C" and M("os", 7200002) == 2)
+ck("accepting an already-closed offer reverts", rv(call("accept_offer", [7200002], 0, "C")))
+ck("the losing (first) offer is still open + cancelable by its bidder", M("os", 7200001) == 1)
+ck("a non-bidder cannot cancel someone's offer", rv(call("cancel_offer", [7200001], 0, "A")))
+bB = bal("B")
+call("cancel_offer", [7200001], 0, "B")
+ck("cancel refunds the bidder", bal("B") == bB + BID_OK and M("os", 7200001) == 2)
+ck("double-cancel reverts", rv(call("cancel_offer", [7200001], 0, "B")))
+# an offer whose pet DIED can't be accepted (owner reclaims via cancel path is the bidder's, not owner's)
+OP2 = 6200002; mint_and_hatch(OP2, "A")
+call("offer", [7200003, OP2], BID_OK, "B")
+st.cursor = M("fu", OP2) + 1; set_hashes(st.cursor)
+ck("accepting an offer on a DEAD pet reverts", rv(call("accept_offer", [7200003], 0, "A")))
+bB = bal("B")
+call("cancel_offer", [7200003], 0, "B")
+ck("the bidder can still reclaim an offer on a dead pet", bal("B") == bB + BID_OK)
+set_hashes(st.cursor + 1)
 
 # ── death is death ───────────────────────────────────────────────────────────────────────────────────
 DP = 7100001; gD = mint_and_hatch(DP, "A")
