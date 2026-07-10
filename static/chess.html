@@ -6,7 +6,7 @@
 <title>NADO Chess — play for stakes, post-quantum</title>
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
-    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--light:#c7d2dc;--darksq:#4a6072;--sel:#00c9a7;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--light:#eaeef2;--darksq:#43586a;--sel:#00c9a7;
     --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
   *{box-sizing:border-box}
   html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
@@ -34,11 +34,14 @@
   #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}
   .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
   /* board */
-  #board{display:grid;grid-template-columns:repeat(8,1fr);width:100%;max-width:440px;margin:10px auto;aspect-ratio:1/1;
+  #board{display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);width:100%;max-width:440px;margin:10px auto;aspect-ratio:1/1;
     border:3px solid #2a3947;border-radius:6px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.45);touch-action:manipulation}
-  .sq{position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none}
+  .sq{position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;min-width:0;min-height:0;overflow:hidden}
   .sq.light{background:var(--light)}.sq.dark{background:var(--darksq)}
-  .sq .pc{font-size:min(8vw,34px);line-height:1;filter:drop-shadow(0 1px 1px rgba(0,0,0,.4))}
+  .sq .pc{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+  .sq .pc svg{width:86%;height:86%;display:block;stroke-width:1.1;stroke-linejoin:round;stroke-linecap:round;filter:drop-shadow(0 1px 1px rgba(0,0,0,.35))}
+  .sq .pc.w svg{fill:#f3f6f9;stroke:#12161b}   /* white army: light fill, dark outline */
+  .sq .pc.b svg{fill:#1b2129;stroke:#e3e9ef}   /* black army: dark fill, light outline */
   .sq.sel{box-shadow:inset 0 0 0 3px var(--sel)}
   .sq.last{background-image:linear-gradient(rgba(0,201,167,.28),rgba(0,201,167,.28))}
   .sq.target::after{content:"";position:absolute;width:28%;height:28%;border-radius:50%;background:rgba(0,120,90,.55)}

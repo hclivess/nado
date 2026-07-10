@@ -34,7 +34,18 @@ const PROMO = [null, "n", "b", "r", "q"];
 const encMove = (m) => sqToIdx(m.from) + sqToIdx(m.to) * 64 + (PROMO.indexOf(m.promotion || null) > 0 ? PROMO.indexOf(m.promotion) : 0) * 4096;
 function decMove(enc) { const from = enc % 64, to = Math.floor(enc / 64) % 64, pc = Math.floor(enc / 4096);
   return { from: idxToSq(from), to: idxToSq(to), promotion: PROMO[pc] || undefined }; }
-const GLYPH = { w: { k: "♔", q: "♕", r: "♖", b: "♗", n: "♘", p: "♙" }, b: { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" } };
+// Inline SVG piece silhouettes (viewBox 0 0 45 45), one shape set for BOTH armies — colour is done in CSS
+// (.pc.w = light fill / dark outline, .pc.b = dark fill / light outline), so the pieces are crisp and the two
+// sides are unmistakable at any size and identical on every OS (Unicode chess glyphs render differently per font).
+const SHAPE = {
+  p: '<circle cx="22.5" cy="15" r="5.2"/><path d="M14.5 34.5Q16 24 22.5 21.5 29 24 30.5 34.5Z"/>',
+  r: '<path d="M13 34.5h19v-3.5h-19z"/><path d="M15.5 31v-11h14v11z"/><path d="M14 20v-6.5h4.2v2.6h3.1v-2.6h2.4v2.6h3.1v-2.6h4.2v6.5z"/>',
+  n: '<path d="M17 34.5h14v-3h-14z"/><path d="M24.5 12C20 11.5 16.5 13.5 16 17c-.2 1.5.5 2.5 1.5 3-2 1.5-3 4-2.5 7l3.5-2.5c.5-.2.9.3.7.9-.7 1.6-1.2 3.6-1 5.6l.5 1h12.3c.5-6 0-12.5-3-16-1-1.5-2-2.5-3.5-3z"/>',
+  b: '<circle cx="22.5" cy="9" r="2"/><path d="M22.5 11C27 15 28.5 19.5 28.5 22 28.5 25 25.5 26.5 22.5 26.5 19.5 26.5 16.5 25 16.5 22 16.5 19.5 18 15 22.5 11Z"/><path d="M14.5 34.5Q16 27.5 22.5 26.5 29 27.5 30.5 34.5Z"/>',
+  q: '<path d="M13 34.5Q13.5 22 22.5 22 31.5 22 32 34.5Z"/><path d="M11 23 9 13l6.5 5.5L22.5 9.5l7 9L36 13l-2 10z"/><circle cx="9" cy="13" r="2"/><circle cx="15.5" cy="18.5" r="1.8"/><circle cx="22.5" cy="9.5" r="2"/><circle cx="29.5" cy="18.5" r="1.8"/><circle cx="36" cy="13" r="2"/>',
+  k: '<rect x="21.3" y="6.5" width="2.4" height="8" rx=".4"/><rect x="18.6" y="9" width="7.8" height="2.4" rx=".4"/><path d="M13.5 34.5Q12.5 22 22.5 19.5 32.5 22 31.5 34.5Z"/>',
+};
+const pieceSVG = (type) => '<svg viewBox="0 0 45 45" aria-hidden="true">' + SHAPE[type] + "</svg>";
 
 // ---- reads (chess storage schema) ----------------------------------------------------------------
 const allGids = (sto) => Object.keys(_m(sto, "nn"));
@@ -163,7 +174,7 @@ function renderBoard() {
     if (legalTargets.has(sq)) cls.push(p ? "capture" : "target");
     if (lastMv && (sq === lastMv.from || sq === lastMv.to)) cls.push("last");
     if (p && p.type === "k" && p.color === engine.turn() && engine.inCheck()) cls.push("check");
-    html += '<div class="' + cls.join(" ") + '" data-sq="' + sq + '">' + (p ? '<span class="pc">' + GLYPH[p.color][p.type] + "</span>" : "") + "</div>";
+    html += '<div class="' + cls.join(" ") + '" data-sq="' + sq + '">' + (p ? '<span class="pc ' + p.color + '">' + pieceSVG(p.type) + "</span>" : "") + "</div>";
   }
   wrap.innerHTML = html;
   wrap.querySelectorAll(".sq").forEach((el) => el.onclick = () => onSquareClick(el.dataset.sq));
