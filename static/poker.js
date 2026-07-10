@@ -4,7 +4,7 @@
 //     card_i = HASH( BLOCKHASH(sh) + BLOCKHASH(sh+1) + seatId*10 + i ) % 52
 // The CONTRACT evaluates the hand (Jacks-or-better paytable) and pays stake × multiplier; the same evaluator
 // runs here for a live preview. settle is permissionless; losing stakes fold into the bankroll. No game API.
-import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate, hoist,
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, hoist, chainResult, blocksToTime,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
 const CID = "167b7ff631fbeb53c74c5123412d13cb";
@@ -19,7 +19,6 @@ const load = (k) => { try { return JSON.parse(localStorage.getItem(k) || "{}"); 
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 let activeTable = null, lastTable = null, lastSeats = [];
 let knownTables = new Set(), knownSeats = new Set();
-const bhCache = {};
 
 function pruneAndTrack(sto) {
   knownTables = new Set(allTables(sto));
@@ -31,14 +30,12 @@ function pruneAndTrack(sto) {
   for (const g of Object.keys(S)) if (!knownSeats.has(g) && Date.now() - (S[g].ts || 0) > 600000) { delete S[g]; c = true; }
   if (c) save(LS_S, S);
 }
-const blocksToTime = (b) => { b = Math.max(0, b) * BLOCK_SECS; const m = Math.floor(b / 60), s = b % 60; return m + ":" + String(s).padStart(2, "0"); };
 
 // ---- card + hand eval (MUST match the contract) --------------------------------------------------
-function cardsOf(shHex, sh1Hex, g) {
+function cardsOf(shHex, sh1Hex, g) {   // 5 cards via the shared chain-result formula (salt = g*10+i, mod 52)
   if (!shHex || !sh1Hex) return null;
-  const base = BigInt("0x" + shHex) + BigInt("0x" + sh1Hex);
   const out = [];
-  for (let i = 0; i < 5; i++) out.push(Number(BigInt("0x" + blake2bHash(base + BigInt(g * 10 + i))) % 52n));  // BigInt seed -> bare digits
+  for (let i = 0; i < 5; i++) out.push(chainResult(shHex, sh1Hex, g * 10 + i, 52));
   return out;
 }
 function handEval(cards) {   // -> { mult, name }
@@ -58,15 +55,6 @@ function handEval(cards) {   // -> { mult, name }
     "Flush": flush, "Straight": straight, "Three of a kind": trip, "Two pair": twopair, "Jacks or better": jacks };
   for (const [name, m] of PAYS) if (ind[name]) return { mult: m, name };
   return { mult: 0, name: "No pair" };
-}
-async function fetchHashes(heights) {
-  const need = [...new Set(heights)].filter((h) => bhCache[h] === undefined);
-  if (!need.length) return;
-  try {
-    const r = await fetch(base() + "/exec/blockhash?ns=" + dapp.ns + "&provisional=1&heights=" + need.join(","), { cache: "no-store" });
-    const j = await r.json();
-    for (const h of need) bhCache[h] = (j.hashes && j.hashes[String(h)]) || null;
-  } catch { for (const h of need) bhCache[h] = null; }
 }
 
 // ---- reads ---------------------------------------------------------------------------------------
@@ -88,7 +76,7 @@ function seatsOfTable(sto, t) {
     const gh = _m(sto, "gh")[g] || 0, settled = !!_m(sto, "gd")[g];
     const s = { g: Number(g), addr: _m(sto, "ga")[g], stake: _m(sto, "gs")[g] || 0, gh, settled };
     if ((settled || (cur != null && cur >= gh + 1))) {
-      const cards = cardsOf(bhCache[gh], bhCache[gh + 1], Number(g));
+      const cards = cardsOf(dapp.bh(gh), dapp.bh(gh + 1), Number(g));
       if (cards) { s.cards = cards; const e = handEval(cards); s.mult = e.mult; s.name = e.name; s.win = e.mult > 0; s.ready = !settled; }
       else if (!settled) { s.pending = true; s.spinsIn = 0; }
     } else { s.pending = true; s.spinsIn = cur != null ? gh - cur : null; }
@@ -153,7 +141,7 @@ async function refreshActive() {
       for (const g of Object.keys(_m(sto, "gg"))) if (String(_m(sto, "gg")[g]) === String(activeTable)) {
         const gh = _m(sto, "gh")[g] || 0; if (cur != null && cur >= gh + 1) need.push(gh, gh + 1);
       }
-      if (need.length) await fetchHashes(need);
+      if (need.length) await dapp.blockHashes(need);
       lastSeats = seatsOfTable(sto, activeTable);
     }
     renderLobby(sto); renderScoreboard(boardFrom(sto));

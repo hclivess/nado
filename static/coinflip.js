@@ -6,7 +6,7 @@
 // is permissionless and pays the pot to the winner — a sore loser has nothing to withhold. It is an ON-CHAIN
 // CONTRACT (runtime stackvm) called via the generic exec `call` op; the stake is escrowed as VALUE and paid by
 // the contract's PAY. Login + every signature is delegated to the NADO wallet; the key never touches this origin.
-import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate, hoist,
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, hoist, chainResult, blocksToTime,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
 const CID = "7ee95a0abd6e00d12edc3bf39f4c8f2d";
@@ -18,26 +18,9 @@ const gamesLoad = () => { try { return JSON.parse(localStorage.getItem(LS_G) || 
 const gamesSave = (g) => { try { localStorage.setItem(LS_G, JSON.stringify(g)); } catch {} };
 let active = null, lastGame = null;
 const stageCache = {};     // gid -> {settled, ncom, stake}
-const bhCache = {};        // height -> hex|null
 
 const shortfallMsg = (need, have) => "Not enough NADO to join — this game stakes " + rawToNado(need) + ", but your exec balance is "
   + rawToNado(have) + ". Deposit at least " + rawToNado(need - have) + " more NADO below, then join.";
-const blocksToTime = (b) => { b = Math.max(0, b) * BLOCK_SECS; const m = Math.floor(b / 60), s = b % 60; return m + ":" + String(s).padStart(2, "0"); };
-// coin result — MUST match the contract: HASH(bh(sh)+bh(sh+1)+gid) % 2, HASH = blake2b(decimal) as int
-function flipFrom(shHex, sh1Hex, g) {
-  if (!shHex || !sh1Hex) return null;
-  const seed = BigInt("0x" + shHex) + BigInt("0x" + sh1Hex) + BigInt(g);   // BigInt so canonicalize emits bare digits
-  return Number(BigInt("0x" + blake2bHash(seed)) % 2n);
-}
-async function fetchHashes(heights) {
-  const need = [...new Set(heights)].filter((h) => bhCache[h] === undefined);
-  if (!need.length) return;
-  try {
-    const r = await fetch(base() + "/exec/blockhash?ns=" + dapp.ns + "&provisional=1&heights=" + need.join(","), { cache: "no-store" });
-    const j = await r.json();
-    for (const h of need) bhCache[h] = (j.hashes && j.hashes[String(h)]) || null;
-  } catch { for (const h of need) bhCache[h] = null; }
-}
 
 // ---- reads: all DERIVED from the contract's storage maps ----------------------------------------
 const allGids = (sto) => Object.keys(_m(sto, "nn"));
@@ -52,7 +35,7 @@ function gameFrom(sto, gid) {
               ncom: nn, sh: _m(sto, "sh")[gid] || 0, players, id: Number(gid) };
   const cur = dapp.cursor;
   if (settled && ws) { g.winner_slot = ws; g.result = ws === 1 ? 0 : 1; }
-  else if (nn === 2 && cur != null && cur >= g.sh + 1) { const r = flipFrom(bhCache[g.sh], bhCache[g.sh + 1], gid); if (r != null) { g.result = r; g.winner_slot = r === 0 ? 1 : 2; g.ready = true; } }
+  else if (nn === 2 && cur != null && cur >= g.sh + 1) { const r = chainResult(dapp.bh(g.sh), dapp.bh(g.sh + 1), gid, 2); if (r != null) { g.result = r; g.winner_slot = r === 0 ? 1 : 2; g.ready = true; } }
   else if (nn === 2 && cur != null) g.flipsIn = g.sh + 1 - cur;
   return g;
 }
@@ -145,7 +128,7 @@ async function refreshActive() {
     // fetch block hashes to resolve the active game's flip client-side
     if (active != null) {
       const nn = _m(sto, "nn")[String(active)] || 0, sh = _m(sto, "sh")[String(active)] || 0, cur = dapp.cursor;
-      if (nn === 2 && !_m(sto, "sd")[String(active)] && cur != null && cur >= sh + 1) await fetchHashes([sh, sh + 1]);
+      if (nn === 2 && !_m(sto, "sd")[String(active)] && cur != null && cur >= sh + 1) await dapp.blockHashes([sh, sh + 1]);
       lastGame = gameFrom(sto, active);
     }
     const gg = gamesLoad(); let pruned = false;

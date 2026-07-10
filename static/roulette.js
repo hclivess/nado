@@ -7,7 +7,7 @@
 // Once the settle block is final, ANYONE can settle a seat (it pays the bettor) — a stalling bank can't rob
 // anyone. A win pays the true 36/count; losing stakes fold into the bankroll. Ordinary upgradable stackvm
 // contract, no game-specific API.
-import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate, hoist,
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, hoist, chainResult, blocksToTime,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
 const CID = "186ebadb975794e2ed7eeb1c7b5115a5";
@@ -21,7 +21,6 @@ const load = (k) => { try { return JSON.parse(localStorage.getItem(k) || "{}"); 
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
 let activeTable = null, lastTable = null, lastSeats = [], selected = new Set();
 let knownTables = new Set(), knownSeats = new Set();
-const bhCache = {};   // height -> hex|null (finalized L1 block hashes, fetched from /exec/blockhash)
 
 function pruneAndTrack(sto) {
   knownTables = new Set(allTables(sto));
@@ -40,23 +39,6 @@ function reopenTable() {   // retry an open that never landed (same id is still 
   openTable(activeTable, raw);
 }
 
-const blocksToTime = (b) => { b = Math.max(0, b) * BLOCK_SECS; const m = Math.floor(b / 60), s = b % 60; return m + ":" + String(s).padStart(2, "0"); };
-// the wheel result — MUST match the contract: HASH(bh(sh) + bh(sh+1) + tableId) % 37, HASH = blake2b(decimal) int
-function spinFrom(shHex, sh1Hex, t) {
-  if (!shHex || !sh1Hex) return null;
-  // pass a BigInt (NOT a string) so canonicalize emits bare digits, matching the VM's HASH(<int>) exactly
-  const seed = BigInt("0x" + shHex) + BigInt("0x" + sh1Hex) + BigInt(t);
-  return Number(BigInt("0x" + blake2bHash(seed)) % BigInt(PN));
-}
-async function fetchHashes(heights) {
-  const need = [...new Set(heights)].filter((h) => bhCache[h] === undefined);
-  if (!need.length) return;
-  try {
-    const r = await fetch(base() + "/exec/blockhash?ns=" + dapp.ns + "&provisional=1&heights=" + need.join(","), { cache: "no-store" });
-    const j = await r.json();
-    for (const h of need) bhCache[h] = (j.hashes && j.hashes[String(h)]) || null;
-  } catch { for (const h of need) bhCache[h] = null; }
-}
 
 // ---- reads (roulette-specific storage schema) ----------------------------------------------------
 const allTables = (sto) => Object.keys(_m(sto, "t0"));   // t0 present == a NEW-schema (auto-rolling) table
@@ -80,7 +62,7 @@ function seatsOfTable(sto, t) {
     const s = { g: Number(g), addr: _m(sto, "ga")[g], stake: _m(sto, "gs")[g] || 0, count: cn, covered,
       gh, settled, mult: Math.floor(36 / cn) };
     if (settled) { const gr = _m(sto, "gr")[g] || 0; s.result = gr ? gr - 1 : null; s.win = !!_m(sto, "gw")[g]; }
-    else if (cur != null && cur >= gh + 1) { s.result = spinFrom(bhCache[gh], bhCache[gh + 1], t); s.ready = true; s.win = s.result != null ? covered.includes(s.result) : null; }
+    else if (cur != null && cur >= gh + 1) { s.result = chainResult(dapp.bh(gh), dapp.bh(gh + 1), t, PN); s.ready = true; s.win = s.result != null ? covered.includes(s.result) : null; }
     else { s.pending = true; s.spinsIn = cur != null ? gh - cur : null; }   // waiting for its round to end
     out.push(s);
   }
@@ -146,7 +128,7 @@ async function refreshActive() {
       for (const g of Object.keys(_m(sto, "gg"))) if (String(_m(sto, "gg")[g]) === String(activeTable)) {
         const gh = _m(sto, "gh")[g] || 0; if (!_m(sto, "gd")[g] && cur != null && cur >= gh + 1) { need.push(gh, gh + 1); }
       }
-      if (need.length) await fetchHashes(need);
+      if (need.length) await dapp.blockHashes(need);
       lastSeats = seatsOfTable(sto, activeTable);
     }
     renderLobby(sto); renderScoreboard(boardFrom(sto));

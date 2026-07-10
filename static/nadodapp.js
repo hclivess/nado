@@ -45,6 +45,16 @@ export const encBig = (v) => typeof v === "bigint" ? { $big: v.toString() }
 export const randId = () => globalThis.crypto.getRandomValues(new Uint32Array(1))[0] % 1000000000 + 1;   // 1..1e9
 export const randSecret = () => { let h = "0x"; for (const b of globalThis.crypto.getRandomValues(new Uint8Array(32))) h += b.toString(16).padStart(2, "0"); return BigInt(h); };
 export const commitHashOf = (secret) => BigInt("0x" + blake2bHash(secret));   // 256-bit; == VM HASH(secret)
+// chainResult(shHex, sh1Hex, salt, mod): the ONE beacon-game result formula, shared by every game so it can
+// never drift from the contract — result = HASH(bh(sh) + bh(sh+1) + salt) % mod. Passes a BigInt to blake2bHash
+// so canonicalize emits bare digits, EXACTLY matching the VM's HASH(<int>). Returns null if a hash is missing.
+export function chainResult(shHex, sh1Hex, salt, mod) {
+  if (!shHex || !sh1Hex) return null;
+  const seed = BigInt("0x" + shHex) + BigInt("0x" + sh1Hex) + BigInt(salt);
+  return Number(BigInt("0x" + blake2bHash(seed)) % BigInt(mod));
+}
+// blocksToTime(blocks): render a block count as m:ss at the given block time (default 6s) — shared countdown fmt.
+export const blocksToTime = (blocks, secs = 6) => { const b = Math.max(0, blocks) * secs, m = Math.floor(b / 60), s = b % 60; return m + ":" + String(s).padStart(2, "0"); };
 
 // ---- QR (vendored, best-effort — same generator as the wallet) -----------------------------------
 let qrEncode = null;
@@ -87,7 +97,21 @@ export class NadoDapp {
     this.me = localStorage.getItem(this.LS_ME) || null;
     this.exec = 0n; this.l1 = 0n; this.cursor = null;
     this._onReturn = null;
+    this._bh = {};   // height -> finalized L1 block hash hex | null (BLOCKHASH randomness cache)
   }
+  // blockHashes(heights): fetch + CACHE the finalized L1 block hashes for these heights (from /exec/blockhash),
+  // so a beacon game can compute the same result the contract will. bh(h) reads the cache (hex | null | undefined).
+  async blockHashes(heights) {
+    const need = [...new Set(heights)].filter((h) => this._bh[h] === undefined);
+    if (need.length) {
+      try {
+        const j = await (await fetch(base() + "/exec/blockhash?ns=" + this.ns + "&provisional=1&heights=" + need.join(","), { cache: "no-store" })).json();
+        for (const h of need) this._bh[h] = (j.hashes && j.hashes[String(h)]) || null;
+      } catch { for (const h of need) this._bh[h] = null; }
+    }
+    return this._bh;
+  }
+  bh(h) { return this._bh[h]; }
   async init() { await loadCrypto(); this._handleReturn(); if (this.me) await this.refresh(); }
   onReturn(fn) { this._onReturn = fn; }        // fn(pend, ok, err) — game marks its own local state + status
 
