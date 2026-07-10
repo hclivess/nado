@@ -256,22 +256,22 @@
   <div class="card" id="walletcard">
     <h2>Wallet</h2>
     <div class="kv"><span class="k">Signed in as</span><span class="addr" id="who">not signed in</span></div>
-    <div class="kv"><span class="k">Playable (exec) balance</span><span class="mono" id="bal">—</span></div>
-    <div class="kv"><span class="k">L1 wallet balance</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
+    <div class="kv"><span class="k">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
     <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
     <p class="small dim mt">Your key never touches this page — signing happens in your wallet at get.nadochain.com, then you bounce back.</p>
   </div>
 
   <!-- BANKROLL -->
   <div class="card hidden" id="bankroll">
-    <h2>Bankroll — deposit / withdraw</h2>
+    <h2>🪙 Tokens — buy in / cash out</h2>
     <label>Amount (NADO)</label>
     <div class="row">
       <input id="bankAmt" placeholder="e.g. 10" inputmode="decimal" autocomplete="off">
       <button id="btnDeposit">Deposit</button>
       <button class="ghost" id="btnWithdraw">Withdraw</button>
     </div>
-    <p class="small dim mt">Deposits move NADO from your L1 wallet to the playable exec balance your pets eat from; withdraw any time.</p>
+    <p class="small dim mt">Deposits buy tokens with NADO (1 : 1) — the playable balance your pets eat from; withdraw back to your wallet any time.</p>
   </div>
 
   <!-- ACTIVE PET -->

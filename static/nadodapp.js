@@ -107,8 +107,8 @@ export function canPay(dapp, raw, what) {
     return false;
   }
   if (dapp.exec >= raw) return true;
-  alertBar(what + " costs " + rawToNado(raw) + " NADO from your playable (exec) balance — you only have "
-    + rawToNado(dapp.exec) + ". Deposit at least " + rawToNado(raw - dapp.exec) + " NADO more, then try again.",
+  alertBar(what + " costs " + rawToNado(raw) + " NADO in tokens — you only have "
+    + rawToNado(dapp.exec) + ". Buy at least " + rawToNado(raw - dapp.exec) + " NADO of tokens (Deposit), then try again.",
     "Go to Deposit", () => {
       const bk = document.getElementById("bankroll"), bd = document.getElementById("btnDeposit");
       if (bd) bd.classList.add("pulse");

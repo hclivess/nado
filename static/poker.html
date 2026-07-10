@@ -83,8 +83,8 @@
     <h2>Wallet</h2>
     <p class="small dim">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
     <div class="kv mt"><span class="k">Playing as</span><span class="mono" id="who">not signed in</span></div>
-    <div class="kv"><span class="k">Wallet (L1, depositable)</span><span class="mono" id="l1bal">—</span></div>
-    <div class="kv"><span class="k">Exec balance (playable)</span><span class="mono" id="bal">—</span></div>
+    <div class="kv"><span class="k">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
     <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
   </div>
 
@@ -105,8 +105,8 @@
     <h2>🪑 Open a table</h2>
     <p class="small dim">Set the ante — everyone (you included) pays it into the pot to sit down. Seating stays open ~2 minutes, then the hand deals and plays itself out on-chain: four betting streets, then showdown.</p>
     <div class="row">
-      <input id="anteAmt" placeholder="ante (NADO)" inputmode="decimal" autocomplete="off">
-      <input id="buyinAmt" placeholder="buy-in (NADO) — ante + your stack" inputmode="decimal" autocomplete="off">
+      <input id="anteAmt" value="1" placeholder="ante (NADO)" inputmode="decimal" autocomplete="off">
+      <input id="buyinAmt" value="1" placeholder="buy-in (NADO) — ante + your stack" inputmode="decimal" autocomplete="off">
       <button class="primary" id="btnNewTable" style="flex:0 0 auto">Open table</button>
     </div>
     <p class="small dim mt">Table stakes: your buy-in covers the ante (into the pot) and the rest is your <b>stack</b> — the chips you bet with this hand. A common buy-in is 20–50× the ante. Whatever you don't bet comes back at settle.</p>
@@ -114,13 +114,13 @@
 
   <!-- BANKROLL -->
   <div class="card-box hidden" id="bankroll">
-    <h2>Bankroll</h2>
+    <h2>🪙 Tokens — buy in / cash out</h2>
     <div class="row">
       <input id="bankAmt" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
       <button class="ghost" id="btnDeposit" style="flex:0 0 auto">Deposit</button>
       <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
     </div>
-    <div class="small dim mt">Deposit moves L1 → exec (playable); Withdraw moves exec → L1. Bets escrow from your exec balance.</div>
+    <div class="small dim mt">Deposit buys tokens with NADO (1 : 1); Withdraw cashes your tokens back out to the wallet. Bets escrow from your tokens.</div>
   </div>
 
   <!-- LOBBY -->
