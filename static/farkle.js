@@ -3,7 +3,7 @@
 // roll FARKLES your turn. No autoplay. Each roll's randomness is pinned to a FUTURE block hash nobody can
 // predict, so the dice are objective and unriggable. Highest banked score when the table's play window ends
 // takes the whole pot. Built on the shared SDK (nadodapp.js) — matches tests/test_farkle_contract.py exactly.
-import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate, canPay, hoist, orderCards,
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, hoist, orderCards,
          blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, renderWallet, renderScore,
          scoreBump, scoreSort, recentChips, statusLabel, shareInvite,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
@@ -129,6 +129,21 @@ function reopenTable() {   // retry an open/join that didn't confirm (same ante,
   // otherwise retry joining
   joinTable();
 }
+async function rematch() {
+  const tb = lastTable || {}, T = load(LS_T)[activeTable] || {};
+  const ante = tb.exists ? BigInt(tb.ante) : (T.ante ? BigInt(T.ante) : null);
+  if (!ante) { $("status").textContent = "Open a new table from the panel above."; return; }
+  await dapp.refresh();
+  if (!canPay(dapp, ante, "The rematch")) return;
+  const rtid = rematchId(activeTable), rt = await fetchTable(rtid);
+  if (rt && rt.exists && rt.phase === "join") {   // someone already opened the rematch -> take a seat instead of colliding
+    activeTable = rtid; $("joinId").value = String(rtid); render();
+    const g = randId(), S = load(LS_S); S[g] = { table: rtid, ts: Date.now() }; save(LS_S, S);
+    dapp.call("join", [rtid, g], ante, "join Farkle table #" + rtid + " · ante " + rawToNado(ante) + " NADO", { table: rtid, seat: g, phase: "join" });
+    return;
+  }
+  openTable(rtid, randId(), ante);
+}
 const doRoll = (g) => { keep = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }; dapp.call("roll", [g], null, "roll the dice · Farkle #" + activeTable, { table: activeTable, seat: g, phase: "roll" }); };
 function doHold(g, cont) {
   dapp.call("hold", [g, keep[1], keep[2], keep[3], keep[4], keep[5], keep[6], cont], null,
@@ -214,6 +229,7 @@ function wireUI() {
   $("btnNewTable").onclick = newTable;
   $("btnJoin").onclick = joinTable;
   if ($("btnReopen")) $("btnReopen").onclick = reopenTable;
+  if ($("btnRematch")) $("btnRematch").onclick = rematch;
   $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = "Enter a table ID, or pick one from the lobby."; };
   $("btnSettle").onclick = settleTable;
   $("btnReclaim").onclick = reclaimTable;
@@ -295,6 +311,8 @@ function renderActive() {
   } else {
     feat.innerHTML = "";
   }
+  // the green felt is only shown when it actually holds content (no empty bar before/after play)
+  if ($("felt")) $("felt").classList.toggle("hidden", !feat.innerHTML.trim());
 
   $("seats").innerHTML = lastSeats.length ? lastSeats.map((s) => {
     const you = s.addr === dapp.me ? '<b style="color:var(--accent2)">you</b> ' : "";
@@ -312,6 +330,8 @@ function renderActive() {
   $("btnSettle").textContent = "🏆 Pay the winner — pot " + rawToNado(tb.pot || 0);
   $("btnReclaim").classList.toggle("hidden", !(allDone && !tb.leader && iAmHost));
   $("btnCancel").classList.toggle("hidden", !(tb.exists && !tb.closed && tb.seatCount === 1 && iAmHost));
+  // once the pot is paid, offer a one-tap rematch — everyone who was here derives the same fresh table id
+  if ($("btnRematch")) $("btnRematch").classList.toggle("hidden", !(tb.exists && tb.closed && dapp.me && (me || iAmHost)));
 }
 
 // ---- boot ----------------------------------------------------------------------------------------

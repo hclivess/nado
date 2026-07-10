@@ -54,6 +54,9 @@ export const encBig = (v) => typeof v === "bigint" ? { $big: v.toString() }
 
 // ---- commit-reveal secrets -----------------------------------------------------------------------
 export const randId = () => globalThis.crypto.getRandomValues(new Uint32Array(1))[0] % 1000000000 + 1;   // 1..1e9
+// deterministic rematch id: every player at oldId who taps "Play again" derives the SAME fresh id, so they
+// reconvene at one new game/table instead of scattering to random ids. (LCG mix -> uniform over 0..1e9)
+export const rematchId = (oldId) => Number((BigInt(oldId) * 6364136223846793005n + 1442695040888963407n) % 1000000000n);
 export const randSecret = () => { let h = "0x"; for (const b of globalThis.crypto.getRandomValues(new Uint8Array(32))) h += b.toString(16).padStart(2, "0"); return BigInt(h); };
 export const commitHashOf = (secret) => BigInt("0x" + blake2bHash(secret));   // 256-bit; == VM HASH(secret)
 // chainResult(shHex, sh1Hex, salt, mod): the ONE beacon-game result formula, shared by every game so it can

@@ -6,7 +6,7 @@
 // is permissionless and pays the pot to the winner — a sore loser has nothing to withhold. It is an ON-CHAIN
 // CONTRACT (runtime stackvm) called via the generic exec `call` op; the stake is escrowed as VALUE and paid by
 // the contract's PAY. Login + every signature is delegated to the NADO wallet; the key never touches this origin.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, blocksToTime,
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, blocksToTime,
          lsLoad, lsSave, wireWallet, renderWallet, renderScore, scoreBump, scoreSort, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
@@ -100,13 +100,11 @@ function reopenGame() {   // retry an open that never landed (same id is still f
 }
 const settle = () => dapp.call("settle", [active], null, "settle game #" + active, { gameId: active, phase: "settle" });
 const cancelGame = () => dapp.call("cancel", [active], null, "cancel game #" + active, { gameId: active, phase: "cancel" });
-// deterministic rematch id -> BOTH players clicking "Play again" land in the SAME game
-function rematchGidFor(oldGid) { return Number((BigInt(oldGid) * 6364136223846793005n + 1442695040888963407n) % 1000000000n); }
 async function rematch() {
   const stake = (lastGame && lastGame.exists) ? BigInt(lastGame.stake) : ((gamesLoad()[active] || {}).stake ? BigInt(gamesLoad()[active].stake) : null);
   if (!stake) { $("status").textContent = "Open a new game from the panel above."; return; }
   if (!canPay(dapp, stake, "The rematch")) return;
-  const rgid = rematchGidFor(active), rg = await fetchGame(rgid);
+  const rgid = rematchId(active), rg = await fetchGame(rgid);
   bet(rgid, stake, (rg && rg.exists && rg.ncom >= 1 && !rg.settled) ? "join" : "open");
 }
 
