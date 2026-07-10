@@ -460,19 +460,27 @@ class CoreClient(threading.Thread):
         return True
 
     def replace_transaction_pool(self):
-        """Adopt a sync-qualified peer's transaction pool wholesale when ours hashed into the pool
-        MINORITY (normal_mode's once-per-interval reconcile). Mempool convergence only — NOT chain
-        fork-choice (tx-pool agreement stays plurality-based; the chain uses objective weight).
-        Best-effort: no qualifying peer or a failed fetch simply keeps our current pool."""
+        """Reconcile toward a sync-qualified peer's transaction pool when ours hashed into the MINORITY
+        (normal_mode's once-per-interval convergence). MERGE, not wholesale replace: UNION the peer's txs
+        into ours (dedup by txid, cull to the byte limit), the same way the 3-level buffer pipeline
+        (user_tx_buffer -> tx_buffer -> transaction_pool) and the peer-gossip merge already union incoming
+        txs. Wholesale replace was the crutch's flaw: a node that had just accepted a user's tx (so its pool
+        went minority) would ADOPT a peer pool WITHOUT that tx and silently DROP it before it could gossip
+        out. A union can never lose a local tx, and both sides still converge to the same set after a
+        reconcile round. Mempool convergence only — NOT chain fork-choice (a block is validated from its OWN
+        tx set via rebuild_block, so pool agreement is a latency optimisation, never a correctness gate).
+        Best-effort: no qualifying peer, an empty peer pool, or a failed fetch simply keeps our pool intact."""
         sync_from = self.get_peer_to_sync_from(source_pool=self.consensus.block_hash_pool)
-        """get peer which is in majority for the given hash_pool"""
-
-        if sync_from:
-            suggested_tx_pool = self.replace_pool(peer=sync_from, key="transaction_pool")
-
-            if suggested_tx_pool:
-                with self.memserver.mempool_lock:
-                    self.memserver.transaction_pool = suggested_tx_pool
+        if not sync_from:
+            return
+        peer_pool = self.replace_pool(peer=sync_from, key="transaction_pool")
+        if not peer_pool:                     # empty peer pool or a fetch failure -> nothing to merge
+            return
+        with self.memserver.mempool_lock:
+            local = self.memserver.transaction_pool
+            seen = {tx.get("txid") for tx in local}
+            merged = local + [tx for tx in peer_pool if tx.get("txid") not in seen]
+            self.memserver.transaction_pool = cull_buffer(merged, self.memserver.transaction_pool_limit)
 
     def replace_pool(self, peer, key):
         """replace pool (block, tx) when out of sync to prevent forking"""
