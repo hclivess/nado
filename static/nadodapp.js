@@ -302,6 +302,8 @@ export class NadoDapp {
     this.LS_ME = "nado_" + slug + "_me"; this.LS_P = "nado_" + slug + "_pending"; this.LS_INVITE = "nado_" + slug + "_invite";
     this.me = localStorage.getItem(this.LS_ME) || null;
     this.exec = 0n; this.l1 = 0n; this.cursor = null;
+    this._inviteFn = null;   // a followed share-link's join intent — sticky until the join actually commits
+    this._inviteExec = null; // exec balance at last invite attempt, so a landed deposit can re-fire the join
     // online: null = never reached the chain API yet (first load), true = last read OK, false = last read
     // FAILED (node restarting / network). Games must consult this before claiming something "isn't on-chain" —
     // a chain hiccup must never be misreported as a vanished table/bet (that's exactly what a rug feels like).
@@ -391,10 +393,22 @@ export class NadoDapp {
   }
   clearInflight() { this.inflight = null; }
   // consumeInvite(fn): after a share-link visitor signs in (inviteGate), replay the join they asked for.
+  // The intent is STICKY: it is NOT dropped on the first attempt, because joining a staked table usually
+  // needs a deposit first (a wallet round-trip whose funds land a few seconds LATER). We keep the invite
+  // in localStorage and re-fire fn(id) on every return AND the moment a deposit lands (exec balance rises),
+  // so the seat is taken automatically instead of the player having to hunt for the table again. The game
+  // MUST call dapp.clearInvite() the instant it actually commits the join (right before submitting), and
+  // for terminal cases (table gone / seating closed / already seated). Pass no fn to just retry the stored
+  // intent (used by the deposit-landed hook). fn(id) may be async; its return value is not required.
   consumeInvite(fn) {
-    let id = null; try { id = localStorage.getItem(this.LS_INVITE); localStorage.removeItem(this.LS_INVITE); } catch (e) {}
-    if (id != null && id !== "" && this.me) fn(id);
+    if (fn) this._inviteFn = fn;
+    const f = this._inviteFn; if (!f || !this.me) return;
+    let id = null; try { id = localStorage.getItem(this.LS_INVITE); } catch (e) {}
+    if (id == null || id === "") { this._inviteFn = null; return; }
+    this._inviteExec = this.exec;
+    try { f(id); } catch (e) {}
   }
+  clearInvite() { try { localStorage.removeItem(this.LS_INVITE); } catch (e) {} this._inviteFn = null; this._inviteExec = null; }
 
   // --- reads ---
   async refresh() { await Promise.all([this._balances(), this._cursor()]); }
@@ -402,6 +416,9 @@ export class NadoDapp {
     if (!this.me) { this.exec = 0n; this.l1 = 0n; return; }
     try { const b = await (await fetch(base() + "/exec/bridge?ns=" + this.ns + "&provisional=1", { cache: "no-store" })).json(); this.exec = BigInt((b.balances || {})[this.me] || 0); } catch { this.exec = 0n; }
     try { const a = await (await fetch(base() + "/get_account?address=" + encodeURIComponent(this.me), { cache: "no-store" })).json(); this.l1 = BigInt(a.balance || 0); } catch { this.l1 = 0n; }
+    // deposit landed while a share-link join is still pending → replay it now that funds are here, so the
+    // seat is taken automatically. Fire only on an INCREASE (never every poll) so it can't spam the toast.
+    if (this._inviteFn && this._inviteExec != null && this.exec > this._inviteExec) this.consumeInvite();
     const w = this._balWatch;
     if (w) {
       if (w.exec == null) { w.exec = this.exec; w.l1 = this.l1; w.ts = Date.now(); }   // baseline: first read after return

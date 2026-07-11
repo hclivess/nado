@@ -217,6 +217,7 @@ function renderActive() {
   const needActive = lg.exists ? BigInt(lg.stake || 0) : 0n, shortActive = canSeeJoinActive && dapp.exec < needActive;
   $("btnJoinActive").classList.toggle("hidden", !(canSeeJoinActive || joining));
   $("btnJoinActive").disabled = shortActive || joining;
+  $("btnJoinActive").classList.toggle("pulse", canSeeJoinActive && !shortActive && !joining);
   $("btnJoinActive").textContent = joining ? "⏳ Joining — confirming on-chain…" : "Join this game";
   const jah = $("joinActiveHint"); if (jah) { jah.textContent = shortActive ? shortfallMsg(needActive, dapp.exec) : ""; jah.classList.toggle("hidden", !shortActive); }
   $("btnRematch").classList.toggle("hidden", !lg.settled);

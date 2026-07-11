@@ -40,9 +40,12 @@ function newGame() {
   dapp.call("open", [g], raw, "open tic-tac-toe #" + g + " · stake " + rawToNado(raw) + " NADO", { game: g, phase: "open" });
 }
 function joinGame() {
-  const gm = lastGame; if (!gm || !gm.exists || gm.nn !== 1) return;
+  const gm = lastGame;
+  if (!gm || !gm.exists) { if (gm) dapp.clearInvite(); return; }
+  if (gm.nn !== 1) { dapp.clearInvite(); return; }   // not open for a second player (empty or full/finished)
   const stake = BigInt(gm.stake);
-  if (!canPay(dapp, stake, "Joining this game")) return;
+  if (!canPay(dapp, stake, "Joining this game")) return;   // keep the invite: it re-fires when the deposit lands
+  dapp.clearInvite();
   const G = load(LS_G); G[activeGame] = { role: "o", ts: Date.now() }; save(LS_G, G);
   dapp.call("join", [activeGame], stake, "join tic-tac-toe #" + activeGame + " · " + rawToNado(stake) + " NADO stake", { game: activeGame, phase: "join" });
 }
@@ -80,6 +83,9 @@ async function refreshAll() {
         $("status").textContent = { open: "✓ Game is on-chain — send your opponent the invite below.",
           join: "✓ You're in — X moves first.", move: "✓ Move landed.",
           resign: "✓ Resigned.", abort: "✓ Refunded.", cancel: "✓ Cancelled — stake refunded." }[watch.phase];
+        watch = null;
+      } else if (watch.ts && Date.now() - watch.ts > 75000) {
+        $("status").textContent = "Still settling on-chain — your move and funds are safe; the board updates by itself.";
         watch = null;
       }
     }
@@ -158,9 +164,9 @@ function render() {
   const wrap = $("gameActions"); wrap.innerHTML = "";
   if (gm.sd && dapp.me) { const rb = document.createElement("button"); rb.className = "primary"; rb.style.flex = "1 1 auto";
     rb.textContent = "↻ Play again — new game at " + rawToNado(gm.stake) + " NADO"; rb.onclick = () => rematch(gm.stake); wrap.appendChild(rb); }
-  const btn = (txt, fn, primary) => { const b = document.createElement("button"); b.className = primary ? "primary" : "ghost"; b.style.flex = "1 1 auto"; b.textContent = txt; b.onclick = fn; wrap.appendChild(b); return b; };
+  const btn = (txt, fn, primary, pulse) => { const b = document.createElement("button"); b.className = (primary ? "primary" : "ghost") + (pulse ? " pulse" : ""); b.style.flex = "1 1 auto"; b.textContent = txt; b.onclick = fn; wrap.appendChild(b); return b; };
   if (!gm.sd && dapp.me) {
-    if (gm.nn === 1 && !playing) btn("⭕ Join — stake " + rawToNado(gm.stake) + " NADO", joinGame, true);
+    if (gm.nn === 1 && !playing) btn("⭕ Join — stake " + rawToNado(gm.stake) + " NADO", joinGame, true, true);
     if (gm.nn === 1 && meX) btn("Cancel — refund my stake", cancelGame, false);
     if (gm.nn === 2 && playing) btn("🏳 Resign — concede the pot", resignGame, false);
     if (gm.nn === 2 && dapp.cursor != null && dapp.cursor > gm.dl)
@@ -177,11 +183,16 @@ function rematch(stakeRaw) {
   dapp.call("open", [g], BigInt(stakeRaw), "rematch tic-tac-toe #" + g + " · stake " + rawToNado(stakeRaw) + " NADO", { game: g, phase: "open" });
 }
 // ---- boot ------------------------------------------------------------------------------------------
+const replayInvite = async (id) => {   // load the invited game FIRST so joinGame's lastGame check isn't stale
+  activeGame = parseInt(id, 10);
+  const sto = await dapp.storage(); if (sto) lastGame = gameFrom(sto, activeGame);
+  joinGame();
+};
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.game != null) activeGame = pend.game;
-  if (ok && pend && pend.phase === "connect") dapp.consumeInvite((id) => { activeGame = parseInt(id, 10); joinGame(); });
+  if (ok && pend && (pend.phase === "connect" || pend.phase === "deposit")) dapp.consumeInvite(replayInvite);
   if (!ok) pendingCell = null;
-  if (ok && pend && ["open", "join", "move", "resign", "abort", "cancel"].includes(pend.phase)) watch = pend;
+  if (ok && pend && ["open", "join", "move", "resign", "abort", "cancel"].includes(pend.phase)) watch = Object.assign({}, pend, { ts: Date.now() });
   $("status").textContent = statusLabel(pend, ok, err, {
     open: "Opening the game — confirming…", join: "Joining — confirming…", move: "Move sent — landing in the next block…",
     resign: "Resigning…", abort: "Refunding…", cancel: "Cancelling…" });
@@ -203,6 +214,7 @@ async function boot() {
         body: gm && gm.exists ? ("Play " + disp(gm.p1) + " for <b>" + rawToNado(gm.stake) + " NADO</b> — winner takes the pot.") : "Sign in to join this game.",
         joinLabel: "Sign in & join" }); }
   }
+  if (dapp.me) dapp.consumeInvite(replayInvite);   // signed in with a pending invite (e.g. reloaded mid-deposit) → auto-join
   render(); refreshAll();
   setInterval(refreshAll, 3000);
 }

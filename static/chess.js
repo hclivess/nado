@@ -90,11 +90,12 @@ async function joinGame() {
   const g = parseInt($("joinId").value, 10);
   if (!g) { $("status").textContent = "Enter a game ID (or pick one from the lobby)."; return; }
   const gm = await fetchGame(g);
-  if (!gm || !gm.exists) { $("status").textContent = dapp.whereIs("game", g); return; }
-  if (gm.nn >= 2 || gm.settled) { $("status").textContent = "That game is full or finished."; return; }
+  if (!gm || !gm.exists) { $("status").textContent = dapp.whereIs("game", g); if (gm) dapp.clearInvite(); return; }
+  if (gm.nn >= 2 || gm.settled) { $("status").textContent = "That game is full or finished."; dapp.clearInvite(); return; }
   await dapp.refresh();
   const stake = BigInt(gm.stake);
-  if (!canPay(dapp, stake, "Joining this game")) { render(); return; }
+  if (!canPay(dapp, stake, "Joining this game")) { render(); return; }   // keep the invite: it re-fires when the deposit lands
+  dapp.clearInvite();
   const G = load(); G[g] = { role: "black", stake: stake.toString(), ts: Date.now() }; save(G);
   activeGame = g; pendingEnc = null; render();
   dapp.call("join", [g], stake, "join chess game #" + g + " · " + rawToNado(stake) + " NADO stake", { game: g, phase: "join" });
@@ -105,7 +106,7 @@ function submitMove(m) {
   // wallet retry of THIS move can never land turns later against a changed position.
   const ply = lastGame ? lastGame.mc : 0;
   pendingEnc = enc; selected = null; render();
-  dapp.call("move", [activeGame, enc, ply], null, "move " + m.from + m.to + (m.promotion ? "=" + m.promotion.toUpperCase() : "") + " · game #" + activeGame, { game: activeGame, phase: "move" });
+  dapp.call("move", [activeGame, enc, ply], null, "move " + m.from + m.to + (m.promotion ? "=" + m.promotion.toUpperCase() : "") + " · game #" + activeGame, { game: activeGame, phase: "move", ply });
 }
 const resignGame = () => dapp.call("resign", [activeGame], null, "resign game #" + activeGame, { game: activeGame, phase: "resign" });
 const agree = (r) => dapp.call("agree", [activeGame, r], null, (r === 3 ? "agree a draw" : "confirm the result") + " · game #" + activeGame, { game: activeGame, phase: "agree" });
@@ -125,6 +126,24 @@ async function refreshActive() {
       if (!replaying) engine = rebuildEngine(lastGame);
       haveState = true;
       try { if (!engine._corrupt) localStorage.setItem(LS_POS + activeGame, engine.fen()); } catch (e) {}
+    }
+    if (watch) {   // resolve the transient green #status line once the action lands on-chain (or give up gracefully)
+      const g = gameFrom(sto, watch.game);
+      const done =
+        watch.phase === "open"   ? g.exists :
+        watch.phase === "join"   ? g.nn === 2 :
+        watch.phase === "move"   ? g.mc > watch.ply :
+        watch.phase === "cancel" ? !g.exists :
+        /* resign, agree, abort */ (g.settled || !g.exists);
+      if (done) {
+        $("status").textContent = { open: "✓ Game is on-chain — share the invite below.", join: "✓ You're in — the game is live.",
+          move: "✓ Move landed.", resign: "✓ Resigned — result recorded.", agree: "✓ Result recorded.",
+          abort: "✓ Refunded.", cancel: "✓ Cancelled — stake refunded." }[watch.phase] || "✓ Confirmed.";
+        watch = null;
+      } else if (Date.now() - watch.ts > 75000) {
+        $("status").textContent = "Still settling on-chain — your move and funds are safe; the board updates by itself.";
+        watch = null;
+      }
     }
     renderLobby(sto);
   }
@@ -302,14 +321,19 @@ function startReplay() {
   };
   engine = new Chess(); renderBoard(); setTimeout(step, 400);
 }
+const replayInvite = (id) => { activeGame = parseInt(id, 10); const j = $("joinId"); if (j) j.value = String(activeGame); joinGame(); };
+let watch = null;   // the submitted action we're waiting to confirm on-chain (clears the green #status line)
 dapp.onReturn((pend, ok, err) => {
   nudgeJoin = !!(ok && pend && pend.phase === "connect");
   const label = { connect: "Signed in.", deposit: "Deposit submitted — confirming…", open: "Game opening — confirming…",
     join: "Joining — confirming…", move: "Move submitted — confirming…", resign: "Resigning — confirming…",
     agree: "Submitting…", abort: "Claiming refund…", cancel: "Cancelling…", withdraw: "Withdrawal submitted." }[pend && pend.phase] || "Submitted.";
   if (pend && pend.game != null) activeGame = pend.game;
-  if (ok && pend && pend.phase === "connect") dapp.consumeInvite((id) => { activeGame = parseInt(id, 10); $("joinId").value = id; joinGame(); });
+  if (ok && pend && (pend.phase === "connect" || pend.phase === "deposit")) dapp.consumeInvite(replayInvite);
   if (!ok) pendingEnc = null;   // a rejected move must not linger optimistically
+  // arm the confirmation watch so this transient "…confirming" line resolves on-chain (or times out) instead
+  // of hanging forever — deposit/withdraw are self-watched by the SDK's balance poll.
+  if (ok && pend && ["open", "join", "move", "resign", "agree", "abort", "cancel"].includes(pend.phase)) watch = { phase: pend.phase, game: activeGame, ply: pend.ply || 0, ts: Date.now() };
   $("status").textContent = ok ? label : "Rejected" + (err ? ": " + err : ".");
 });
 async function boot() {
@@ -321,6 +345,7 @@ async function boot() {
     inviteGate(dapp, { id: parseInt(q,10), title: "You're invited to a chess game",
       body: gm && gm.exists ? ("Play " + disp(gm.white) + " for <b>" + rawToNado(gm.stake) + " NADO</b> — winner takes the pot.") : "Sign in to join this game.",
       joinLabel: "Sign in & join" }); }
+  else if (dapp.me) dapp.consumeInvite(replayInvite);   // signed in with a pending invite (e.g. reloaded mid-deposit) → auto-join
   render(); refreshActive();
   setInterval(refreshActive, 3000);
 }

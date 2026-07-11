@@ -199,13 +199,14 @@ async function joinTable() {
   const t = activeTable;
   if (!t) { $("status").textContent = "Pick a table first."; return; }
   const tb = await fetchTable(t);
-  if (!tb || !tb.exists) { $("status").textContent = dapp.whereIs("table", t); return; }
-  if (tb.phase !== "join") { $("status").textContent = "Seating is closed — this hand is already underway. Open a new table."; return; }
-  if (lastSeats.some((s) => s.addr === dapp.me)) { $("status").textContent = "You're already seated here."; return; }
+  if (!tb || !tb.exists) { $("status").textContent = dapp.whereIs("table", t); if (tb) dapp.clearInvite(); return; }
+  if (tb.phase !== "join") { $("status").textContent = "Seating is closed — this hand is already underway. Open a new table."; dapp.clearInvite(); return; }
+  if (lastSeats.some((s) => s.addr === dapp.me)) { $("status").textContent = "You're already seated here."; dapp.clearInvite(); return; }
   await dapp.refresh();
   const ante = BigInt(tb.ante);
   const buyin = readBuyin(ante); if (!buyin) return;
-  if (!canPay(dapp, buyin, "Sitting down")) { render(); return; }
+  if (!canPay(dapp, buyin, "Sitting down")) { render(); return; }   // keep the invite: it re-fires when the deposit lands
+  dapp.clearInvite();   // committing the seat now — don't replay it again
   sit(t, "join", buyin, ante);
 }
 function mySeat() { return lastSeats.find((s) => s.addr === dapp.me); }
@@ -269,6 +270,9 @@ async function refreshActive() {
           start: "✓ Dealt! Cards are locking in the next blocks — hole cards appear once they finalize.",
           closest: "✓ Street closed — the next card is locking in now.",
           leave: "✓ You left the table — buy-in refunded in full." }[watch.phase];
+        watch = null;
+      } else if (watch.ts && Date.now() - watch.ts > 75000) {
+        $("status").textContent = "Still settling on-chain — your chips and funds are safe; the table updates by itself.";
         watch = null;
       }
     }
@@ -435,7 +439,7 @@ function renderActive() {
 
   // actions — ONE obvious primary thing to do at every phase
   const wrap = $("myActions"); wrap.innerHTML = "";
-  const btn = (txt, fn, primary) => { const b = document.createElement("button"); b.className = primary ? "primary" : "ghost"; b.style.flex = "1 1 auto"; b.textContent = txt; b.onclick = fn; wrap.appendChild(b); return b; };
+  const btn = (txt, fn, primary, pulse) => { const b = document.createElement("button"); b.className = (primary ? "primary" : "ghost") + (pulse ? " pulse" : ""); b.style.flex = "1 1 auto"; b.textContent = txt; b.onclick = fn; wrap.appendChild(b); return b; };
   const betRow = $("betRow");
   betRow.classList.add("hidden");
   // joining? suggest the HOST's buy-in (ante + host stack) so a 0.1-ante table never asks for 20 NADO
@@ -446,7 +450,7 @@ function renderActive() {
   if (tb.exists && !tb.closed && dapp.me) {
     if (tb.phase === "join" && !me) {
       if (watch && watch.phase === "join") btn("⏳ Taking your seat — confirming on-chain…", () => {}, false).disabled = true;
-      else btn("🪑 Sit down — buy-in " + ($("buyinAmt").value || rawToNado(tb.ante)) + " NADO (ante " + rawToNado(tb.ante) + ")", joinTable, true);
+      else btn("🪑 Sit down — buy-in " + ($("buyinAmt").value || rawToNado(tb.ante)) + " NADO (ante " + rawToNado(tb.ante) + ")", joinTable, true, true);
     }
     if (tb.phase === "street" && iAmHost) {
       // closable iff nobody owes a call: every seat matched the street price, is all-in, or folded earlier
@@ -537,10 +541,11 @@ function renderActive() {
 
 // ---- boot ----------------------------------------------------------------------------------------
 let watch = null;   // the submitted action we're waiting to see ON-CHAIN (flips status to "confirmed ✓")
+const replayInvite = (id) => { activeTable = parseInt(id, 10); const j = $("joinId"); if (j) j.value = String(activeTable); joinTable(); };
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.table != null) activeTable = pend.table;
-  if (ok && pend && pend.phase === "connect") dapp.consumeInvite((id) => { activeTable = parseInt(id, 10); joinTable(); });
-  if (ok && pend && ["open", "join", "bet", "reveal", "settle", "start", "leave", "closest"].includes(pend.phase)) watch = pend;
+  if (ok && pend && (pend.phase === "connect" || pend.phase === "deposit")) dapp.consumeInvite(replayInvite);
+  if (ok && pend && ["open", "join", "bet", "reveal", "settle", "start", "leave", "closest"].includes(pend.phase)) watch = Object.assign({}, pend, { ts: Date.now() });
   $("status").textContent = statusLabel(pend, ok, err, {
     open: "Table opening — confirming…", join: "Taking your seat — confirming…", bet: "Bet placed — confirming…",
     reveal: "Showing your cards — confirming…", settle: "Paying the winner…", reclaim: "Reclaiming…", cancel: "Cancelling…",
@@ -555,6 +560,7 @@ async function boot() {
     inviteGate(dapp, { id: parseInt(q, 10), title: "You're invited to a hold'em table",
       body: tb && tb.exists ? ("Sit down for an ante of <b>" + rawToNado(tb.ante) + " NADO</b> — real multiplayer Texas Hold'em.") : "Sign in to sit down at this table.",
       joinLabel: "Sign in & sit down" }); }
+  else if (dapp.me) dapp.consumeInvite(replayInvite);   // signed in with a pending invite (e.g. reloaded mid-deposit) → auto-seat
   render(); refreshActive();
   setInterval(refreshActive, 3000);
 }
