@@ -30,7 +30,7 @@ export const STAT_ROLES = [
   "attack damage", "dodge (harder to hit)", "hit points (×3)", "accuracy (beats dodge)",
   "mitigation (shrinks damage taken)", "intimidation (flat damage reduction)",
   "regeneration (heals every turn)", "critical hits (double damage)",
-  "turn share (attacks more often)", "bulk & bite (+HP, +damage) — also sets food cost"];
+  "turn share (attacks more often)", "bulk & bite (+HP, +damage). Food cost is fixed by the HATCHED appetite — training this is free muscle, it never raises your food bill"];
 
 // ---- the VM's HASH over a BigInt (canonicalize emits bare digits, exactly json.dumps(int)) ---------
 export const vmHash = (v) => BigInt("0x" + blake2bHash(v));
