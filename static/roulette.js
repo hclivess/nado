@@ -51,7 +51,7 @@ function seatsOfTable(sto, t) {
     else { s.pending = true; s.spinsIn = cur != null ? gh - cur : null; }   // waiting for its round to end
     out.push(s);
   }
-  return out.sort((a, b) => b.g - a.g);
+  return out.sort((a, b) => (b.gh - a.gh) || (b.g - a.g));   // newest FIRST by bound block height (seat ids are random, not time-ordered)
 }
 async function fetchTable(t) { const sto = await dapp.storage(); return sto ? tableFrom(sto, t) : null; }
 
