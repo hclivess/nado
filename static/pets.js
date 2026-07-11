@@ -649,7 +649,7 @@ function maybeAutoMint() {
 }
 function hatch(pid) {
   const l = L(); (l[pid] = l[pid] || { ts: Date.now() }).hatchPending = 1; Lsave(l);
-  dapp.call("hatch", [pid], null, "hatch egg #" + pid, { pid, phase: "hatch" });
+  dapp.call("hatch", [Number(pid)], null, "hatch egg #" + pid, { pid, phase: "hatch" });   // pid MUST be an int: the contract computes gene = HASH(bh0+bh1+pid); a string pid reverts on the ADD
 }
 // HATCH ALL: spam-adopting leaves several ready eggs; hatching them one card at a time feels stuck. This
 // hatches EVERY ready egg — the wallet redirect serialises each (value-free hatch → auto-signs, a quick
@@ -668,7 +668,7 @@ function maybeAutoHatch() {
   if (!eggs.length) { try { localStorage.removeItem("nado_pets_hatchall"); } catch (e) {} return; }
   hatch(eggs[0].id);
 }
-const rebirth = (pid) => dapp.call("rebirth", [pid], null, "re-roll egg #" + pid, { pid, phase: "hatch" });
+const rebirth = (pid) => dapp.call("rebirth", [Number(pid)], null, "re-roll egg #" + pid, { pid, phase: "hatch" });   // int pid (consistency + the pid rides into the gene at the next hatch)
 function feed(pid, raw) {
   const p = PETS[pid]; if (!p) return;
   const blocks = G.feedBlocks(raw, p.ap);
