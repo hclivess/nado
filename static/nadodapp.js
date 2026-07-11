@@ -39,6 +39,23 @@ export function orderCards(ids) {
     if (el) { anchor.parentNode.insertBefore(el, anchor.nextSibling); anchor = el; }
   }
 }
+// enableClickFeedback(): a teal press/ripple on EVERY button click. Vital now that BACKGROUND signing means a
+// click no longer navigates away — without it a submitted bet/spin/buy-in feels like nothing happened. Injected
+// once (dapp.init calls it); a capturing document listener flashes the clicked button, forcing a reflow so rapid
+// re-clicks re-trigger the animation. Purely cosmetic; ignores disabled buttons.
+let _clickFxOn = false;
+function enableClickFeedback() {
+  if (_clickFxOn || typeof document === "undefined") return; _clickFxOn = true;
+  const s = document.createElement("style");
+  s.textContent = "@keyframes nadoClickFx{0%{box-shadow:0 0 0 0 rgba(0,201,167,.6);transform:scale(.96)}100%{box-shadow:0 0 0 16px rgba(0,201,167,0);transform:scale(1)}}button.nado-fx{animation:nadoClickFx .5s ease-out}";
+  document.head.appendChild(s);
+  document.addEventListener("click", (e) => {
+    const b = e.target && e.target.closest && e.target.closest("button");
+    if (!b || b.disabled) return;
+    b.classList.remove("nado-fx"); void b.offsetWidth; b.classList.add("nado-fx");
+    setTimeout(() => b.classList.remove("nado-fx"), 550);
+  }, true);
+}
 
 // ---- amounts -------------------------------------------------------------------------------------
 export function nadoToRaw(s) {
@@ -379,7 +396,7 @@ export class NadoDapp {
     return this._bh;
   }
   bh(h) { return this._bh[h]; }
-  async init() { await loadCrypto(); this._handleReturn(); if (this.me) await this.refresh(); }
+  async init() { enableClickFeedback(); await loadCrypto(); this._handleReturn(); if (this.me) await this.refresh(); }
   onReturn(fn) { this._onReturn = fn; }        // fn(pend, ok, err) — game marks its own local state + status
 
   // --- delegated signing (the wallet holds the key; the game NEVER sees it) -------------------------
@@ -422,6 +439,7 @@ export class NadoDapp {
   _bgFlushToRedirect() {
     const svc = this._bgSvc; if (!svc) return;
     const jobs = svc.queue.splice(0); if (svc.cur) { svc.cur = null; }
+    this._bgBusy(false);
     for (const j of jobs) this._goRedirect(j.obj, j.pend);
   }
   _goBackground(obj, pend, isValue) {
@@ -429,6 +447,18 @@ export class NadoDapp {
     if (!svc || svc.dead) return this._goRedirect(obj, pend);
     svc.queue.push({ obj, pend, isValue });
     this._bgPump();
+    this._bgSyncBusy();
+  }
+  // a small "🔏 Signing…" pill while any background sign is in flight — the only visible cue during the ~1s the
+  // hidden signer takes, since a background action no longer navigates the tab. Auto-hides when the queue drains.
+  _bgSyncBusy() { const s = this._bgSvc; this._bgBusy(!!(s && !s.dead && (s.cur || s.queue.length))); }
+  _bgBusy(on) {
+    let el = (typeof document !== "undefined") && document.getElementById("nadoBgBusy");
+    if (on) {
+      if (!el) { el = document.createElement("div"); el.id = "nadoBgBusy";
+        el.style.cssText = "position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9998;background:#131a23;border:1px solid #00c9a7;color:#00c9a7;font:600 12px/1.4 system-ui,sans-serif;padding:7px 14px;border-radius:999px;box-shadow:0 6px 20px rgba(0,0,0,.5);pointer-events:none";
+        el.textContent = "🔏 Signing…"; (document.body || document.documentElement).appendChild(el); }
+    } else if (el) el.remove();
   }
   _bgPump() {
     const svc = this._bgSvc;
@@ -445,6 +475,7 @@ export class NadoDapp {
         try { this.refresh(); } catch (e) {}                      // pull the freshly-landed state, no reload
       }
       this._bgPump();                                             // serve the next queued request
+      this._bgSyncBusy();
     };
     svc.timer = setTimeout(() => {                                // the loaded wallet went silent → treat service as dead, redirect
       if (!svc.cur) return; svc.cur = null; svc.dead = true;
