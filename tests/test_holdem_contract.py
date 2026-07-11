@@ -2,22 +2,26 @@
 # stacks, all-in, layered SIDE POTS with exact splits. Commit-reveal hole cards, beacon community cards,
 # deadline-based betting streets, on-chain 7-card showdown. No house, no dealer, no turn order.
 #
-# THE HAND (all heights derived from d0 = the DEAL anchor; S=30 per street, R=60 reveal):
+# THE HAND (heights derived from d0 = the DEAL anchor; F0 shuffle, S per street MAX, R reveal):
 #   seating             open/join escrow buy-ins; seating stays open INDEFINITELY — there is NO timer.
-#                       The HOST controls the start: start(t) sets d0 = td[t] = cursor+2 ("deal now" —
-#                       two blocks that don't exist yet when the host signs, so the deal stays unknowable).
-#                       Before the deal any NON-host seat may leave(g) for a full refund; the host cancels.
+#                       The HOST controls the start: start(t) sets d0 = td[t] = cursor+2 ("deal now").
+#                       ONE SEAT PER ADDRESS (a double-click can never seat you twice). Before the deal
+#                       any NON-host seat may leave(g) for a full refund; the host cancels.
 #   d0 = td[t]          hole cards seeded by BH(d0),BH(d0+1) + each player's SECRET (committed at
-#                       open/join as HASH(x) — only you can compute your cards, the chain verifies later)
-#   (d0,     d0+S ]     PREFLOP betting     flop   = BH(d0+S),BH(d0+S+1)   ← unknowable while you bet
-#   (d0+S,   d0+2S]     FLOP betting        turn   = BH(d0+2S),BH(d0+2S+1)
-#   (d0+2S,  d0+3S]     TURN betting        river  = BH(d0+3S),BH(d0+3S+1)
-#   (d0+3S,  d0+4S]     RIVER betting
-#   (d0+4S,  d0+4S+R]   SHOWDOWN: reveal(g, x) — verify commit, derive 7 cards, rank ON-CHAIN (eval7_ops,
+#                       open/join as HASH(x)); betting does NOT open yet —
+#   b0 = d0 + F0        the SHUFFLE: F0 covers finality so every player SEES their hole cards before any
+#                       pre-flop bet (real hold'em rule — no blind betting window).
+#   street k spans (c_{k-1}, c_k]  with  c_0 = b0  and  c_k = sc[t*8+k] if the HOST force-closed it,
+#                       else c_{k-1} + S. close_street(t) is allowed ONLY when nobody owes a call
+#                       (every seat matched the price, is all-in, or folded earlier) and sets
+#                       c_k = cursor+2 — a checked-around street ends NOW instead of idling to its
+#                       deadline, and a host can never slam the door on a pending call/raise.
+#   cards: flop = BH(c1),BH(c1+1) · turn = BH(c2),… · river = BH(c3),… — always the street's ACTUAL
+#                       close blocks, unknowable while that street is open (forced or scheduled).
+#   (c4, c4+R]          SHOWDOWN: reveal(g, x) — verify commit, derive 7 cards, rank ON-CHAIN (eval7_ops,
 #                       4000/4000 differential-verified incl. kickers).
-#   after d0+4S+R       settle(t): SIDE-POT distribution (below) + every seat's unspent stack refunded.
-#                       EARLY SETTLE: once EVERY seat has revealed (tx==tn) settle runs immediately —
-#                       no dead waiting when the whole table already showed their hands.
+#   after c4+R          settle(t): SIDE-POT distribution (below) + every seat's unspent stack refunded.
+#                       EARLY SETTLE: once EVERY seat has revealed (tx==tn) settle runs immediately.
 #
 # TABLE STAKES: open/join escrow a BUY-IN (>= the ante); the ante goes to the pot, the rest is your STACK
 # gk[g]. bet(g, amt) moves amt from your stack into the street — no new escrow mid-hand. Betting is
@@ -41,12 +45,13 @@ from holdem_onchain import (vm_hash, draw, hole_ref, board_ref, eval7_ref, deal_
 
 CURSOR=[["CURSOR"]]; VALUE=[["VALUE"]]; BLOCKHASH=[["BLOCKHASH"]]; CALLER=[["CALLER"]]
 PAY=[["PAY"]]; REQ=[["REQUIRE"]]; HALT=[["HALT"]]; LTE=[["LTE"]]
-S, GRACE, R = 30, 5, 60
+F0, S, GRACE, R = 14, 20, 5, 60   # F0 shuffle (finality 12 + margin) · S = street CEILING (host can close early)
 MAXP = 9                     # poker-standard table cap; also bounds settle's O(n²) loops + the payout list
 
 # table t: ta=host t0=openHeight td=dealAnchor(0=seating) ts=ante tp=pot tn=seats tx=reveals tw=bestValue
 #          tb=leaderSeat tz=closed
-#          ms[t*8+k]=street-k price (k=1..4) · ti[t*16+i]=seat id at join index i (0..tn-1)
+#          ms[t*8+k]=street-k price (k=1..4) · sc[t*8+k]=street-k FORCED close height (0 = on schedule)
+#          ti[t*16+i]=seat id at join index i (0..tn-1)
 # seat g:  gg=tableId ga=addr gc=commitHash gk=stack gd=revealed gsc=handValue gr=revealedSecret
 #          cs[g*8+k]=street-k contribution
 # scratch S arrays during settle (i = join index): 600+i=C_i 700+i=V_i 800+i=payout_i 900+i=seatId_i
@@ -79,6 +84,9 @@ join_m = (VALUE+P(0)+GT+REQ
   + VALUE+A(0)+LD("ts")+GTE+REQ                            # buy-in covers the ante (rest = stack, your choice)
   + A(0)+LD("td")+P(0)+EQ+REQ                              # seating open until the HOST deals — no timer
   + A(0)+LD("tn")+P(MAXP)+LT+REQ                           # table cap
+  # ONE SEAT PER ADDRESS: a wallet retry / double-click can never seat the same player twice
+  + STR("n", A(0)+LD("tn"))
+  + loop_i("n", lambda: (A(0)+P(16)+MUL+LDR("i")+ADD+LD("ti")) + LD("ga") + CALLER + EQ + NOT + REQ)
   + A(2)+P(0)+EQ+NOT+REQ
   + A(0)+A(0)+LD("tp")+A(0)+LD("ts")+ADD+STm("tp")
   + A(1)+A(0)+STm("gg") + A(1)+CALLER+STm("ga") + A(1)+A(2)+STm("gc")
@@ -114,6 +122,26 @@ leave_m = (A(0)+LD("gg")+P(0)+EQ+NOT+REQ
   + CALLER + (LDR("t")+LD("ts")) + A(0)+LD("gk") + ADD + PAY
   + A(0)+P(0)+STm("gk") + A(0)+P(0)+STm("gg")
   + HALT)
+
+def closes_ops():
+    """Compute the betting timeline into scratch from reg "t": b0 = td+F0 (shuffle over, cards visible),
+    then c_k = sc[t*8+k] if the host force-closed street k, else c_{k-1}+S. Every consumer of street
+    boundaries (bet/reveal/settle/reclaim/close_street) derives them EXACTLY this way."""
+    ops = STR("b0", LDR("t")+LD("td")+P(F0)+ADD)
+    prev = "b0"
+    for k in range(1, 5):
+        ops += STR("_s", LDR("t")+P(8)+MUL+P(k)+ADD+LD("sc"))
+        ops += STR("c%d" % k, LDR("_s") + (LDR("_s")+P(0)+GT) + MUL
+                   + (LDR(prev)+P(S)+ADD) + (LDR("_s")+P(0)+EQ) + MUL + ADD)
+        prev = "c%d" % k
+    return ops
+
+def _ck_of_k():
+    """scratch ck = the CURRENT street's close height (k in reg 'k')."""
+    return STR("ck", LDR("c1") + (LDR("k")+P(1)+EQ) + MUL
+                + LDR("c2") + (LDR("k")+P(2)+EQ) + MUL + ADD
+                + LDR("c3") + (LDR("k")+P(3)+EQ) + MUL + ADD
+                + LDR("c4") + (LDR("k")+P(4)+EQ) + MUL + ADD)
 
 def _match_loop_bet():
     """bet: REQUIRE cs[g*8+j]==ms[t*8+j] for closed streets j<k (an all-in player can never reach bet)."""
