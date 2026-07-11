@@ -683,6 +683,12 @@ function train(pid, i) {
   dapp.call("train", [Number(pid), i], G.TRAIN_FEE, "train " + PETS[pid].label + " · " + G.STAT_NAMES[i] + " · 0.5 NADO", { pid, phase: "train" });
 }
 const trainResolve = (pid) => dapp.call("train_resolve", [Number(pid)], null, "reveal training result for " + PETS[pid].label, { pid, phase: "trainres" });
+// AUTO-REVEAL: a finished training session settles itself the moment its result blocks finalize (value-free →
+// signs silently in the background), so you never have to tap "Reveal the result". One per refresh tick.
+function maybeAutoReveal() {
+  const ready = myPets().filter((p) => p.th && dapp.cursor != null && dapp.cursor >= p.th + 1 && dapp.bh(p.th) && dapp.bh(p.th + 1));
+  dapp.autoCollect(ready, (p) => trainResolve(p.id), { key: (p) => "reveal:" + p.id });
+}
 function challenge(theirPid) {
   const myPid = parseInt($("myPetSel").value, 10);
   if (!myPid) return alertBar("Pick which of your pets fights — you need a living, hatched pet (adopt one below).");
@@ -789,6 +795,7 @@ async function refreshAll() {
     if (!dapp.inflight && stMsgPhase) { $("status").textContent = ""; stMsgPhase = null; }
     maybeAutoHatch();   // continue a "Hatch all" run once the previous hatch has confirmed
     maybeAutoMint();    // continue a "Adopt N eggs" batch once the previous mint has confirmed
+    maybeAutoReveal();  // auto-reveal any finished training the moment its result blocks finalize
   }
   render();
 }
