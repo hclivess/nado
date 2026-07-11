@@ -808,7 +808,7 @@ function statRow(p, i) {
   const baseW = Math.min(100, base), bonusW = Math.min(100 - baseW, bonus);
   const bar = `<div class="bar sbar"><i style="width:${baseW}%"></i>${bonusW > 0 ? `<b style="width:${bonusW}%" title="+${bonus} from training"></b>` : ""}</div>`;
   return `<div class="statrow"><span title="${G.STAT_ROLES[i]}">${G.STAT_ICONS[i]}</span><span title="In battle: ${G.STAT_ROLES[i]}">${G.STAT_NAMES[i]}</span>
-    <span class="sv">${val}${bonus ? ` <span class="up">+${bonus}</span>` : ""}</span>
+    <span class="sv">${val}${bonus ? ` <span class="up" title="+${bonus} from training${i === 9 ? " — battle bonus only; the food bill stays at the hatched appetite" : ""}">+${bonus}</span>` : ""}</span>
     ${bar}
     ${canTrain ? `<button class="mini train" data-train="${i}" title="Train ${G.STAT_NAMES[i]} — 0.5 NADO, ${chance.toFixed(0)}% chance to gain +1">🏋 Train · ${chance.toFixed(0)}%</button>` : `<span class="small dim" title="train success chance">${chance.toFixed(0)}%</span>`}
   </div>`;
@@ -843,7 +843,7 @@ function renderActive() {
     : "Unhatched egg";
   $("petOwner").innerHTML = esc(disp(p.owner)) + (p.mine ? ' <span class="b ok">yours</span>' : "");
   $("petLp").textContent = p.hatched ? "Lv " + p.level + " · ⚡ " + p.pw + " · " + recordOf(p) : "—";
-  $("petUpkeep").textContent = p.hatched ? p.ap + " · " + rawToNado(G.feedCost(BLOCKS_PER_DAY, p.ap)) + " NADO/day" : "decided at hatch";
+  $("petUpkeep").textContent = p.hatched ? p.ap + " (locked at hatch) · " + rawToNado(G.feedCost(BLOCKS_PER_DAY, p.ap)) + " NADO/day" : "decided at hatch";
   if ($("petInvested")) $("petInvested").textContent = p.hatched || p.tf ? rawToNado(p.tf) + " NADO" : "—";
   if ($("petGene")) { $("petGene").textContent = p.gs ? "0x" + p.gene.toString(16) : "—"; $("petGene").title = p.gs || ""; }
   // life bar
@@ -904,7 +904,9 @@ function renderActive() {
     const fillB = Math.max(0, G.BELLY_CAP - (lb || 0) - 60);
     $("feedFull").textContent = "fill belly (30d) · " + rawToNado(G.feedCost(fillB, p.ap)) + " N";
     $("feedFull").dataset.blocks = fillB;
-    $("feedHint").textContent = "Appetite " + p.ap + ": 1 NADO buys " + (G.feedBlocks(10n ** 10n, p.ap) / BLOCKS_PER_DAY).toFixed(1) + " days. Anyone may feed any pet — a gift (the belly still tops out 30 days ahead).";
+    $("feedHint").textContent = "Hatched appetite " + p.ap + ": 1 NADO buys " + (G.feedBlocks(10n ** 10n, p.ap) / BLOCKS_PER_DAY).toFixed(1) + " days"
+      + (p.bonus && p.bonus[9] ? " (trained Appetite +" + p.bonus[9] + " is battle muscle only — the food bill never changes)" : "")
+      + ". Anyone may feed any pet — a gift (the belly still tops out 30 days ahead).";
     dapp.syncPctSlider("feed", { slider: "feedSlider", input: "feedAmt" }, dapp.exec);   // feed: % of playable balance
   }
   if (p.hatched) {
