@@ -1902,6 +1902,21 @@ let pendingExecSign = (() => {
     return b ? { payload: b, ret: p.get("ret") || "", app: p.get("app") || "a dApp", bg: p.get("bg") === "1" } : null;
   } catch (e) { return null; }
 })();
+// EARLY background-sign triage: a hidden-iframe (bg=1) request that CAN'T be signed silently must bounce the
+// game back to the visible redirect FAST — before the ~1s crypto boot — else it waits out the SDK's timeout
+// (resumePendingExecSign only runs from showWalletUI(), which a locked wallet never reaches). Handles the
+// cheap, boot-independent rejects (bg off / no wallet / encrypted-locked). An unencrypted wallet with bg on
+// falls through to the normal resumePendingExecSign, which autosigns or posts needui("confirm").
+function bgExecTriageEarly() {
+  const req = pendingExecSign;
+  if (!req || !req.bg) return;
+  let retOrigin = ""; try { retOrigin = new URL(req.ret).origin; } catch (e) { pendingExecSign = null; return; }
+  const reject = (reason) => { pendingExecSign = null; try { window.parent.postMessage({ nadoExecSign: 1, needui: 1, reason }, retOrigin); } catch (e) {} };
+  if (localStorage.getItem("nado_bg_sign") === "0") return reject("off");
+  const w = loadWallet();
+  if (!w) return reject("off");         // no wallet on this device → the game redirects (onboarding elsewhere)
+  if (w.enc) return reject("locked");   // encrypted → a hidden frame can't prompt for the password
+}
 function _decodeArg(a) { return (a && typeof a === "object" && "$big" in a) ? BigInt(a.$big) : a; }   // 256-bit args ride as {$big:"…"}
 async function resumePendingExecSign() {
   const req = pendingExecSign;
@@ -1911,10 +1926,10 @@ async function resumePendingExecSign() {
   // untrusted origin, a manual confirm) posts {needui} so the game falls back to the visible full-page redirect.
   const bg = !!req.bg;
   let retOrigin = ""; try { retOrigin = new URL(req.ret).origin; } catch (e) {}
-  const needUI = () => { if (bg && retOrigin) { try { window.parent.postMessage({ nadoExecSign: 1, needui: 1 }, retOrigin); } catch (e) {} } };
+  const needUI = (reason) => { if (bg && retOrigin) { try { window.parent.postMessage({ nadoExecSign: 1, needui: 1, reason: reason || "confirm" }, retOrigin); } catch (e) {} } };
   // background signing is a user setting (default ON). Turned off → always fall back to the visible redirect.
-  if (bg && localStorage.getItem("nado_bg_sign") === "0") { pendingExecSign = null; needUI(); return; }
-  if (!state.wallet) { pendingExecSign = null; needUI(); return; }   // a hidden iframe can't show the unlock screen
+  if (bg && localStorage.getItem("nado_bg_sign") === "0") { pendingExecSign = null; needUI("off"); return; }
+  if (!state.wallet) { pendingExecSign = null; needUI("locked"); return; }   // a hidden iframe can't show the unlock screen
   pendingExecSign = null;
   if (!bg) { try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {} }
   let call, retUrl;
@@ -1925,7 +1940,7 @@ async function resumePendingExecSign() {
   const skipOriginCheck = localStorage.getItem("nado_skip_origin_check") === "1";
   const trustedOrigin = EXEC_SIGN_ALLOW.includes(retUrl.origin);
   if (!trustedOrigin && !skipOriginCheck) {
-    if (bg) return needUI();   // don't silently sign for an unknown site in a hidden frame — redirect so the warning shows
+    if (bg) return needUI("untrusted");   // don't silently sign for an unknown site in a hidden frame — redirect so the warning shows
     uiAlert(i18("dapp.badOrigin", "Ignored a signing request for an unrecognised site.") + " (" + retUrl.origin + ")");
     return;
   }
@@ -5016,6 +5031,7 @@ function wireEvents() {
  * Boot
  * -------------------------------------------------------------------------------------------- */
 async function boot() {
+  bgExecTriageEarly();   // hidden-iframe sign request we can't autosign silently → bounce to the redirect NOW, before the crypto load
   // relay
   state.relay = localStorage.getItem(LS_RELAY) || null;
   $("relayUrl").value = state.relay || "";

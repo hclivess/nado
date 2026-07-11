@@ -302,6 +302,8 @@ export class NadoDapp {
     this.LS_ME = "nado_" + slug + "_me"; this.LS_P = "nado_" + slug + "_pending"; this.LS_INVITE = "nado_" + slug + "_invite";
     this.LS_AUTOCOLLECT = "nado_" + slug + "_autocollect";   // opt-out flag for auto-collect (default ON)
     this._autoTried = new Set();   // settle targets already attempted this session (stops a rejected settle looping)
+    this._bgOff = false;      // learned this session: the wallet can't background-sign at all (locked / bg off / untrusted) → always redirect
+    this._bgValueUI = false;  // learned: staked calls need a manual confirm here → redirect them directly (value-free still backgrounds)
     this.me = localStorage.getItem(this.LS_ME) || null;
     this.exec = 0n; this.l1 = 0n; this.cursor = null;
     this._inviteFn = null;   // a followed share-link's join intent — sticky until the join actually commits
@@ -355,7 +357,7 @@ export class NadoDapp {
     localStorage.setItem(this.LS_P, JSON.stringify(pend || {}));
     location.href = WALLET + "/?exec_sign=" + encodeURIComponent(payload) + "&ret=" + encodeURIComponent(base() + "/") + "&app=" + encodeURIComponent(this.app);
   }
-  _goBackground(obj, pend) {
+  _goBackground(obj, pend, isValue) {
     let walletOrigin; try { walletOrigin = new URL(WALLET).origin; } catch (e) { return this._goRedirect(obj, pend); }
     const payload = btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
     const frame = document.createElement("iframe");
@@ -368,7 +370,13 @@ export class NadoDapp {
     const onMsg = (e) => {
       if (done || e.origin !== walletOrigin) return;
       const d = e.data; if (!d || d.nadoExecSign == null) return;
-      if (d.needui) { fallback(); return; }                        // wallet can't autosign silently → visible redirect
+      if (d.needui) {
+        // learn WHY, so future calls skip the wasted iframe: a global block (off/locked/untrusted) stops all
+        // backgrounding; a per-call "confirm" only stops STAKED calls (value-free moves still autosign).
+        if (d.reason === "off" || d.reason === "locked" || d.reason === "untrusted") this._bgOff = true;
+        else if (isValue) this._bgValueUI = true;
+        fallback(); return;                                        // wallet can't autosign silently → visible redirect
+      }
       done = true; cleanup();
       const ok = d.ok === 1 || d.ok === true || d.ok === "1";      // postMessage carries the "ok=1" param as a STRING
       this._applyReturn(pend, ok, d.addr || null, d.err ? String(d.err) : "");
@@ -378,23 +386,28 @@ export class NadoDapp {
     tid = setTimeout(fallback, 9000);                               // wallet didn't answer (offline / heavy) → redirect
     (document.body || document.documentElement).appendChild(frame);
   }
-  _go(obj, pend, bg) {
-    if (bg && !obj.confirm) this._goBackground(obj, pend);
+  _go(obj, pend, bg, isValue) {
+    if (bg && !obj.confirm) this._goBackground(obj, pend, isValue);
     else this._goRedirect(obj, pend);
   }
   signIn() { this._goRedirect({ connect: true, label: "sign in" }, { phase: "connect" }); }
   deposit(raw) { this._goRedirect({ deposit: { amount: raw.toString() }, label: "deposit " + rawToNado(raw) + " NADO" }, { phase: "deposit" }); }
   withdraw(raw, pend) { this.signBlob({ op: "bridge_withdraw", amount: raw }, "withdraw " + rawToNado(raw) + " NADO to L1", pend || { phase: "withdraw" }); }
-  signBlob(blob, label, pend, opts) { this._go(Object.assign({ blob: encBig(blob), label }, (opts && opts.confirm) ? { confirm: 1 } : {}), pend, !!(opts && opts.bg)); }
+  signBlob(blob, label, pend, opts) { this._go(Object.assign({ blob: encBig(blob), label }, (opts && opts.confirm) ? { confirm: 1 } : {}), pend, !!(opts && opts.bg), !!(opts && opts.isValue)); }
   // generic contract call; valueRaw (raw NADO) is ESCROWED from the caller's bridge balance into the contract.
-  // opts.confirm forces the wallet's manual confirm even when the call is value-free (e.g. a poker bet that
-  // moves chips you already escrowed as your stack) — autosign must never place a bet for you. A value-free
-  // call that isn't confirm-forced is BACKGROUND-able (signs in a hidden iframe, no tab navigation).
+  // opts.confirm forces the wallet's manual confirm (e.g. a poker bet that moves chips you already escrowed) —
+  // autosign must never place a bet for you. EVERY non-confirm call is BACKGROUND-able: it's attempted in a
+  // hidden iframe, and the WALLET decides whether it can sign silently (value-free auto-sign, or a bet within
+  // the cap / auto-sign-all for a staked call like a slot Spin) or must open for a confirm (→ needui → redirect).
+  // Learned flags (_bgOff / _bgValueUI) route straight to the redirect once the wallet says it can't autosign,
+  // so a non-autosign wallet never eats the iframe→redirect double-load twice.
   call(method, args, valueRaw, label, pend, opts) {
     const p = { op: "call", contract: this.cid, method, args };
-    if (valueRaw != null) p.value = valueRaw;
-    const bg = valueRaw == null && !(opts && opts.confirm);
-    this.signBlob(p, label, pend, Object.assign({}, opts, { bg }));
+    const isValue = valueRaw != null;
+    if (isValue) p.value = valueRaw;
+    let bg = !(opts && opts.confirm) && !this._bgOff;
+    if (bg && isValue && this._bgValueUI) bg = false;   // this wallet confirms staked calls → redirect it directly
+    this.signBlob(p, label, pend, Object.assign({}, opts, { bg, isValue }));
   }
   // apply a signing RESULT (from either transport) — set the address / inflight / balance-watch and fire onReturn
   _applyReturn(pend, ok, addr, err) {
