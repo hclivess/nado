@@ -39,7 +39,7 @@ import sys, os, json, tempfile, random
 sys.path.insert(0, "/root/nado"); sys.path.insert(0, "/root/nado/tests")
 from execnode.state import ExecState
 from execnode.vm import GAS_LIMIT
-from holdem_onchain import (vm_hash, draw, hole_ref, board_ref, eval7_ref, deal_ops, eval7_ops,
+from holdem_onchain import (vm_hash, draw, hole_ref, board_ref, board_ref_h, eval7_ref, deal_ops, eval7_ops,
                             P, A, LD, STm, LDR, STR, LDK, STK, ADD, SUB, MUL, MOD, DIV, EQ, LT, GT, GTE,
                             AND, OR, NOT, HASH, JUMPI)
 
@@ -163,11 +163,11 @@ bet_m = (VALUE+P(0)+EQ+REQ
   + STR("t", A(0)+LD("gg"))
   + LDR("t")+LD("tz")+NOT+REQ
   + A(1)+A(0)+LD("gk")+LTE+REQ                             # table stakes: you bet what you brought
-  + STR("d0", LDR("t")+LD("td"))
-  + LDR("d0")+P(0)+EQ+NOT+REQ                              # the host has dealt
-  + CURSOR+LDR("d0")+GTE+REQ
-  + CURSOR+LDR("d0")+P(4*S)+ADD+LT+REQ
-  + STR("k", CURSOR+LDR("d0")+SUB+P(S)+DIV+P(1)+ADD)
+  + LDR("t")+LD("td")+P(0)+EQ+NOT+REQ                      # the host has dealt
+  + closes_ops()                                           # b0, c1..c4 (with any forced closes)
+  + CURSOR+LDR("b0")+GTE+REQ                               # the shuffle is over — you can SEE your cards
+  + CURSOR+LDR("c4")+LT+REQ
+  + STR("k", P(1) + (CURSOR+LDR("c1")+GTE) + ADD + (CURSOR+LDR("c2")+GTE) + ADD + (CURSOR+LDR("c3")+GTE) + ADD)
   + _match_loop_bet()
   + A(0) + A(0)+LD("gk")+A(1)+SUB + STm("gk")
   + STR("nc", A(0)+P(8)+MUL+LDR("k")+ADD+LD("cs") + A(1) + ADD)
@@ -175,8 +175,42 @@ bet_m = (VALUE+P(0)+EQ+REQ
   + LDR("t") + LDR("t")+LD("tp")+A(1)+ADD + STm("tp")
   + STR("mk", LDR("t")+P(8)+MUL+LDR("k")+ADD+LD("ms"))
   + STR("isR", LDR("nc")+LDR("mk")+GT)
-  + LDR("isR")+NOT + (CURSOR + LDR("d0")+LDR("k")+P(S)+MUL+ADD+P(GRACE)+SUB + LTE) + OR + REQ
+  + _ck_of_k()                                            # raises blocked in the last GRACE blocks of THIS street
+  + LDR("isR")+NOT + (CURSOR + LDR("ck")+P(GRACE)+SUB + LTE) + OR + REQ
   + LDR("t")+P(8)+MUL+LDR("k")+ADD + LDR("mk") + LDR("isR") + (LDR("nc")+LDR("mk")+SUB) + MUL + ADD + STm("ms")
+  + HALT)
+
+# close_street(t): the HOST fast-forwards the CURRENT street — but ONLY when nobody owes a call:
+# every seat has matched the street price, is all-in, or folded on an earlier street. A checked-around
+# street ends NOW (c_k = cursor+2, still two unknowable blocks for the next card); a pending call or a
+# fresh raise makes closing impossible, so the host can never shut anyone out of a decision.
+close_street_m = (CALLER+A(0)+LD("ta")+EQ+REQ
+  + A(0)+LD("tz")+NOT+REQ
+  + A(0)+LD("td")+P(0)+EQ+NOT+REQ
+  + STR("t", A(0))
+  + closes_ops()
+  + CURSOR+LDR("b0")+GTE+REQ                               # betting has opened
+  + CURSOR+LDR("c4")+LT+REQ                                # …and not ended
+  + STR("k", P(1) + (CURSOR+LDR("c1")+GTE) + ADD + (CURSOR+LDR("c2")+GTE) + ADD + (CURSOR+LDR("c3")+GTE) + ADD)
+  + LDR("t")+P(8)+MUL+LDR("k")+ADD+LD("sc")+P(0)+EQ+REQ    # this street not already forced
+  + _ck_of_k()
+  + CURSOR+P(2)+ADD+LDR("ck")+LT+REQ                       # forcing only makes it FASTER, never later
+  # every seat: matched current price OR all-in OR folded on an earlier street
+  + STR("mk", LDR("t")+P(8)+MUL+LDR("k")+ADD+LD("ms"))
+  + STR("ok", P(1))
+  + STR("n", LDR("t")+LD("tn"))
+  + loop_i("n", lambda: (
+      STR("g", (LDR("t")+P(16)+MUL+LDR("i")+ADD) + LD("ti"))
+      + STR("_m", (LDR("g")+P(8)+MUL+LDR("k")+ADD+LD("cs")) + LDR("mk") + EQ)          # matched
+      + STR("_a", LDR("g")+LD("gk")+P(0)+EQ)                                            # all-in
+      + STR("_f", P(0))                                                                 # folded earlier?
+      + sum(( STR("_f", LDR("_f")
+                + ( (LDR("g")+P(8)+MUL+P(j)+ADD+LD("cs")) + (LDR("t")+P(8)+MUL+P(j)+ADD+LD("ms")) + EQ + NOT )
+                + (P(j)+LDR("k")+LT) + MUL + OR )
+             for j in (1, 2, 3)), [])
+      + STR("ok", LDR("ok") + (LDR("_m")+LDR("_a")+OR+LDR("_f")+OR) + AND)))
+  + LDR("ok")+REQ
+  + LDR("t")+P(8)+MUL+LDR("k")+ADD + CURSOR+P(2)+ADD + STm("sc")
   + HALT)
 
 def _match_loop_reveal():
@@ -198,15 +232,16 @@ reveal_m = (A(0)+LD("gg")+P(0)+EQ+NOT+REQ
   + LDR("t")+LD("tz")+NOT+REQ
   + STR("d0", LDR("t")+LD("td"))
   + LDR("d0")+P(0)+EQ+NOT+REQ                              # the host has dealt
-  + CURSOR+LDR("d0")+P(4*S)+ADD+GTE+REQ
-  + CURSOR+LDR("d0")+P(4*S+R)+ADD+LT+REQ
+  + closes_ops()
+  + CURSOR+LDR("c4")+GTE+REQ                               # river street closed (forced or scheduled)
+  + CURSOR+LDR("c4")+P(R)+ADD+LT+REQ
   + A(1)+HASH + A(0)+LD("gc") + EQ + REQ
   + _match_loop_reveal()
-  + deal_ops(
+  + deal_ops(                                              # cards seed from the streets' ACTUAL close blocks
       LDR("d0")+BLOCKHASH + LDR("d0")+P(1)+ADD+BLOCKHASH + ADD + A(1) + ADD + HASH,
-      LDR("d0")+P(S)+ADD+BLOCKHASH + LDR("d0")+P(S+1)+ADD+BLOCKHASH + ADD + LDR("t") + ADD + HASH,
-      LDR("d0")+P(2*S)+ADD+BLOCKHASH + LDR("d0")+P(2*S+1)+ADD+BLOCKHASH + ADD + LDR("t") + ADD + HASH,
-      LDR("d0")+P(3*S)+ADD+BLOCKHASH + LDR("d0")+P(3*S+1)+ADD+BLOCKHASH + ADD + LDR("t") + ADD + HASH)
+      LDR("c1")+BLOCKHASH + LDR("c1")+P(1)+ADD+BLOCKHASH + ADD + LDR("t") + ADD + HASH,
+      LDR("c2")+BLOCKHASH + LDR("c2")+P(1)+ADD+BLOCKHASH + ADD + LDR("t") + ADD + HASH,
+      LDR("c3")+BLOCKHASH + LDR("c3")+P(1)+ADD+BLOCKHASH + ADD + LDR("t") + ADD + HASH)
   + eval7_ops("val")
   + A(0) + LDR("val") + STm("gsc")
   + A(0) + A(1) + STm("gr")
@@ -313,8 +348,9 @@ def _settle_core():
 settle_m = (A(0)+LD("ta")+P(0)+EQ+NOT+REQ
   + A(0)+LD("tz")+NOT+REQ
   + A(0)+LD("td")+P(0)+EQ+NOT+REQ                          # a hand was dealt
+  + STR("t", A(0)) + closes_ops()
   # the reveal window ended — OR every seat already revealed (nothing left to wait for: settle NOW)
-  + (CURSOR + A(0)+LD("td")+P(4*S+R)+ADD + GTE)
+  + (CURSOR + LDR("c4")+P(R)+ADD + GTE)
   + (A(0)+LD("tx") + A(0)+LD("tn") + EQ) + OR + REQ
   + A(0)+LD("tb")+P(0)+EQ+NOT+REQ                          # someone showed a hand
   + STR("n", A(0)+LD("tn"))
@@ -327,7 +363,8 @@ settle_m = (A(0)+LD("ta")+P(0)+EQ+NOT+REQ
 reclaim_m = (CALLER+A(0)+LD("ta")+EQ+REQ
   + A(0)+LD("tz")+NOT+REQ
   + A(0)+LD("td")+P(0)+EQ+NOT+REQ                          # a hand was dealt (else cancel/leave)
-  + CURSOR + A(0)+LD("td")+P(4*S+R)+ADD + GTE + REQ
+  + STR("t", A(0)) + closes_ops()
+  + CURSOR + LDR("c4")+P(R)+ADD + GTE + REQ
   + A(0)+LD("tb")+P(0)+EQ+REQ
   + STR("n", A(0)+LD("tn"))
   + loop_i("n", lambda: (
@@ -350,7 +387,8 @@ cancel_m = (CALLER+A(0)+LD("ta")+EQ+REQ                    # host alone — refu
 # (The one-off rescue() for pre-upgrade tables was removed 2026-07-11 after all such tables closed —
 #  NO legacy paths live in the contract. If a future schema change strands funds, follow the same
 #  pattern: a temporary, height-fenced rescue method that the NEXT upgrade deletes.)
-CODE = {"open":open_m, "join":join_m, "start":start_m, "leave":leave_m, "bet":bet_m, "reveal":reveal_m,
+CODE = {"open":open_m, "join":join_m, "start":start_m, "leave":leave_m, "bet":bet_m,
+        "close_street":close_street_m, "reveal":reveal_m,
         "settle":settle_m, "reclaim":reclaim_m, "cancel":cancel_m}
 
 # ---------------- PYTHON REFERENCE for the side-pot distribution (mirrors settle_m exactly) ----------------
@@ -409,6 +447,7 @@ call("join",[T, 502, vm_hash(xs[502])], 11000, "P2")             # stack 10000 (
 call("join",[T, 503, vm_hash(xs[503])], ANTE, "P3")              # stack 0: ALL-IN from the ante alone
 ck("join: 4 seats, join order recorded, stacks", M("tn",T)==4 and M("ti",T*16+3)==503 and M("gk",502)==10000 and (M("gk",503) or 0)==0)
 ck("buy-in below ante reverts", "revert" in call("join",[T, 599, 7], ANTE-1, "P4"))
+ck("ONE SEAT PER ADDRESS: a double-click can never seat you twice", "revert" in call("join",[T, 597, vm_hash(9)], ANTE, "P1"))
 ck("table cap enforced (const)", MAXP==9)
 # THE HOST DEALS — nothing starts on its own
 ck("bet before the deal reverts", "revert" in call("bet",[501, 100], 0, "P1"))
@@ -419,28 +458,46 @@ D0 = M("td",T)
 ck("start binds the deal to cursor+2 (unknowable when signed)", D0 == st.cursor + 2)
 ck("join after the deal reverts", "revert" in call("join",[T, 598, vm_hash(7)], ANTE, "P4"))
 ck("double start reverts", "revert" in call("start",[T], 0, "HOST"))
+B0 = D0 + F0
 st.cursor = D0 + 2
+ck("betting during the SHUFFLE reverts — cards must be visible before any pre-flop bet",
+   "revert" in call("bet",[501, 100], 0, "P1"))
+st.cursor = B0 + 2
 
 # ---- PREFLOP: P1 raises 20000; HOST calls; P2 can only all-in 10000; P3 already all-in at 0 ----
 ck("bet with value attached reverts", "revert" in call("bet",[501, 100], 5, "P1"))
 call("bet",[501, 20000], 0, "P1")
 ck("raise from stack sets price + shrinks stack", M("ms",T*8+1)==20000 and M("gk",501)==10000)
+ck("street can't be closed while a raise awaits calls", "revert" in call("close_street",[T], 0, "HOST"))
 call("bet",[500, 20000], 0, "HOST")
 ck("bet beyond stack reverts", "revert" in call("bet",[502, 10001], 0, "P2"))
 call("bet",[502, 10000], 0, "P2")                                 # all-in call (below price -> eligible via gk==0)
 ck("all-in call: stack empty, below price", (M("gk",502) or 0)==0 and M("cs",502*8+1)==10000)
 POT = 4*ANTE + 20000 + 20000 + 10000
 ck("pot accumulates from stacks", M("tp",T)==POT)
-# ---- FLOP: HOST bets 5000 more; P1 calls all-in with his last 10000? (bets 5000, keeps 5000) ----
-st.cursor = D0 + S + 2
+# everyone matched or all-in -> the HOST fast-forwards the street
+ck("non-host cannot close the street", "revert" in call("close_street",[T], 0, "P1"))
+st.cursor += 3
+call("close_street",[T], 0, "HOST")
+C1 = M("sc",T*8+1)
+ck("host closes a fully-called street EARLY (c1 = cursor+2, still unknowable)", C1 == st.cursor + 2)
+ck("double close of the same street reverts", "revert" in call("close_street",[T], 0, "HOST"))
+# ---- FLOP (opens right at C1): HOST bets 5000 more; P1 calls ----
+st.cursor = C1 + 2
 call("bet",[500, 5000], 0, "HOST"); call("bet",[501, 5000], 0, "P1")
 POT += 10000
-# ---- TURN/RIVER: checks ----
-seed_bh(D0, D0+3*S+1, "hand1")
-st.cursor = D0 + 4*S + 1
+C2 = C1 + S                                                       # flop closes on schedule
+# ---- TURN: checked around -> closes INSTANTLY ----
+st.cursor = C2 + 2
+call("close_street",[T], 0, "HOST")
+C3 = M("sc",T*8+3)
+ck("a checked-around street closes instantly", C3 == st.cursor + 2)
+C4 = C3 + S                                                       # river runs its schedule
+seed_bh(D0, C3+1, "hand1")
+st.cursor = C4 + 1
 
 # ---- SHOWDOWN: HOST, P1, P2 reveal; P3 (all-in from ante) reveals too ----
-board = board_ref(st.block_hashes, D0, S, T)
+board = board_ref_h(st.block_hashes, C1, C2, C3, T)
 vals={}
 for g,who in ((500,"HOST"),(501,"P1"),(502,"P2")):
     res = call("reveal",[g, xs[g]], 0, who)
@@ -479,8 +536,9 @@ for it in range(14):
     st.cursor += rng.randrange(0, 40)                       # the host deals whenever they feel like it
     call("start",[t], 0, seats[0]["who"])
     d0 = M("td",t)
+    closes = {0: d0 + F0}
     for k in range(1, 5):
-        st.cursor = d0 + (k-1)*S + 2
+        st.cursor = closes[k-1] + 2
         price = 0
         for sd in seats:
             if sd["out"] or sd["stack"] - sd["spent"] <= 0: continue
@@ -492,18 +550,36 @@ for it in range(14):
                 if "revert" in str(call("bet",[sd["g"], amt], 0, sd["who"])): continue
                 sd["spent"] += amt
                 price = max(price, M("cs", sd["g"]*8+k) or 0)
+        # the HOST may fast-forward iff nobody owes a call (matched / all-in / folded earlier)
+        def _closable():
+            msk = M("ms", t*8+k) or 0
+            for sd in seats:
+                gk = M("gk", sd["g"]) or 0
+                matched = (M("cs", sd["g"]*8+k) or 0) == msk
+                folded = any((M("cs", sd["g"]*8+j) or 0) != (M("ms", t*8+j) or 0) for j in range(1, k))
+                if not (matched or gk == 0 or folded): return False
+            return True
+        closable = _closable()
+        if rng.random() < 0.5 and closable:
+            st.cursor += rng.randrange(0, 4)
+            if "revert" in call("close_street",[t], 0, seats[0]["who"]): mism += 1   # eligible close must succeed
+            closes[k] = st.cursor + 2
+            if (M("sc", t*8+k) or 0) != closes[k]: mism += 1
+        else:
+            if not closable and "revert" not in call("close_street",[t], 0, seats[0]["who"]): mism += 1  # ineligible must revert
+            closes[k] = closes[k-1] + S
         # anyone below price with chips left is folded at street close
         for sd in seats:
             if not sd["out"] and sd["stack"]-sd["spent"] > 0 and (M("cs",sd["g"]*8+k) or 0) < (M("ms",t*8+k) or 0):
                 sd["out"] = True
-    seed_bh(d0, d0+3*S+1, "rt%d"%it)
-    st.cursor = d0 + 4*S + 1
-    board = board_ref(st.block_hashes, d0, S, t)
+    seed_bh(d0, closes[3]+1, "rt%d"%it)
+    st.cursor = closes[4] + 1
+    board = board_ref_h(st.block_hashes, closes[1], closes[2], closes[3], t)
     anyrev = False
     for sd in seats:
         if sd["out"] or rng.random() < 0.12: continue           # some muck on purpose
         if "revert" not in str(call("reveal",[sd["g"], sd["x"]], 0, sd["who"])): anyrev = True
-    st.cursor = d0 + 4*S + R + 1
+    st.cursor = closes[4] + R + 1
     if not anyrev:
         call("reclaim",[t],0,seats[0]["who"]); continue
     Cs = [(ante + sum((M("cs",sd["g"]*8+k) or 0) for k in range(1,5)), (M("gsc",sd["g"]) or 0) if M("gd",sd["g"]) else 0) for sd in seats]
@@ -532,7 +608,7 @@ st.cursor = 90000
 call("open",[60, 600, vm_hash(9), ANTE], ANTE+7777, "HOST"); call("join",[60, 601, vm_hash(10)], ANTE+555, "P5")
 ck("reclaim before any deal reverts (nothing to reclaim — leave/cancel instead)", "revert" in call("reclaim",[60],0,"HOST"))
 call("start",[60],0,"HOST")
-st.cursor = M("td",60) + 4*S + R + 1
+st.cursor = M("td",60) + F0 + 4*S + R + 1
 b0=bal("HOST"); b1=bal("P5")
 call("reclaim",[60],0,"HOST")
 ck("reclaim: stacks refunded + dead pot to host", bal("HOST")==b0+7777+2*ANTE and bal("P5")==b1+555 and M("tz",60)==1)
@@ -555,7 +631,7 @@ ck("leave: full refund, seat freed, order compacted, pot shrunk",
 ck("leave twice reverts", "revert" in call("leave",[701],0,"P6"))
 call("start",[70],0,"HOST")
 ck("leave after the deal reverts", "revert" in call("leave",[702],0,"P7"))
-st.cursor = M("td",70) + 4*S + R + 1
+st.cursor = M("td",70) + F0 + 4*S + R + 1
 b0=bal("HOST"); b1=bal("P7")
 call("reclaim",[70],0,"HOST")
 ck("reclaim honours the post-leave roster", bal("HOST")==b0+1111+2*ANTE and bal("P7")==b1+3333 and M("tz",70)==1)

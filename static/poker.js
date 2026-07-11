@@ -16,8 +16,10 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, commitHashOf, blake
 const CID = "07c7405a1299a6a6506ba9eae7bec0cf";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="8" y="13" width="18" height="24" rx="3" fill="#e6edf3" stroke="#243140" stroke-width="1.6" transform="rotate(-9 17 25)"/>     <path d="M14 20c-2.4 2.4-4 3.4-4 5.4 0 1.4 1.1 2.2 2.2 2.2.5 0 1-.2 1.3-.5-.2 1-.6 1.7-1.2 2.2h3.4c-.6-.5-1-1.2-1.2-2.2.3.3.8.5 1.3.5 1.1 0 2.2-.8 2.2-2.2 0-2-1.6-3-4-5.4z" fill="#20272f" transform="rotate(-9 14 25)"/>     <rect x="22" y="13" width="18" height="24" rx="3" fill="#fff" stroke="#243140" stroke-width="1.6" transform="rotate(9 31 25)"/>     <path d="M31 30c-.7-.7-3.2-2.3-3.2-4.6 0-1.3 1-2.2 2.1-2.2.6 0 1.1.3 1.1.9 0-.6.5-.9 1.1-.9 1.1 0 2.1.9 2.1 2.2 0 2.3-2.5 3.9-3.2 4.6z" fill="#d0362b" transform="rotate(9 31 26)"/></svg>';
 const dapp = new NadoDapp({ cid: CID, app: "Hold'em" });
-const S = 30, GRACE = 5, R = 60;                  // MUST match the contract (tests/test_holdem_contract.py)
+const F0 = 14, S = 20, GRACE = 5, R = 60;         // MUST match the contract (tests/test_holdem_contract.py)
 // NO seating timer: the HOST controls the start — start(t) binds the deal to two future blocks (td).
+// b0 = td+F0: the SHUFFLE — betting opens only once hole cards are finalized (no blind pre-flop).
+// Streets are CEILINGS: the host may close_street() the moment nobody owes a call (c_k = sc[t*8+k]).
 
 const LS_T = "nado_holdem_tables", LS_S = "nado_holdem_seats";
 let lastSto = null;
@@ -42,15 +44,15 @@ function holeCards(bhA, bhB, secret) {
   const hs = seedOf(bhA, bhB, secret); if (hs == null) return null;
   const h0 = drawCard(hs, 0, []); return [h0, drawCard(hs, 1, [h0])];
 }
-function boardCards(t, d0) {                         // as many streets as have finalized hashes
+function boardCards(t, closes) {                     // as many streets as have hashes; seeds = ACTUAL close blocks
   const out = [];
-  const e1 = seedOf(dapp.bh(d0 + S), dapp.bh(d0 + S + 1), t);
+  const e1 = seedOf(dapp.bh(closes[1]), dapp.bh(closes[1] + 1), t);
   if (e1 == null) return out;
   out.push(drawCard(e1, 0, [])); out.push(drawCard(e1, 1, out.slice())); out.push(drawCard(e1, 2, out.slice()));
-  const e2 = seedOf(dapp.bh(d0 + 2 * S), dapp.bh(d0 + 2 * S + 1), t);
+  const e2 = seedOf(dapp.bh(closes[2]), dapp.bh(closes[2] + 1), t);
   if (e2 == null) return out;
   out.push(drawCard(e2, 3, out.slice()));
-  const e3 = seedOf(dapp.bh(d0 + 3 * S), dapp.bh(d0 + 3 * S + 1), t);
+  const e3 = seedOf(dapp.bh(closes[3]), dapp.bh(closes[3] + 1), t);
   if (e3 == null) return out;
   out.push(drawCard(e3, 4, out.slice()));
   return out;
@@ -104,12 +106,19 @@ function tableFrom(sto, t) {
   tb.td = _m(sto, "td")[t] || 0;                   // deal anchor — 0 until the HOST deals
   tb.d0 = tb.td;
   tb.price = (k) => _m(sto, "ms")[String(Number(t) * 8 + k)] || 0;
+  // betting timeline: b0 = td+F0 (the shuffle ends, cards visible), c_k = forced close or c_{k-1}+S
+  tb.b0 = tb.td ? tb.td + F0 : 0;
+  tb.closes = [tb.b0, 0, 0, 0, 0];
+  for (let k = 1; k <= 4; k++) tb.closes[k] = (_m(sto, "sc")[String(Number(t) * 8 + k)] || 0) || tb.closes[k - 1] + S;
   const cur = dapp.cursor;
   if (cur != null) {
     if (!tb.td) tb.phase = "join";                                       // seating open — host hasn't dealt
-    else if (cur < tb.d0) { tb.phase = "dealing"; tb.left = tb.d0 - cur; }
-    else if (cur < tb.d0 + 4 * S) { tb.street = Math.floor((cur - tb.d0) / S) + 1; tb.phase = "street"; tb.left = tb.d0 + tb.street * S - cur; }
-    else if (cur < tb.d0 + 4 * S + R) { tb.phase = "showdown"; tb.left = tb.d0 + 4 * S + R - cur; }
+    else if (cur < tb.b0) { tb.phase = "shuffle"; tb.left = tb.b0 - cur; }
+    else if (cur < tb.closes[4]) {
+      tb.street = 1 + (cur >= tb.closes[1]) + (cur >= tb.closes[2]) + (cur >= tb.closes[3]);
+      tb.phase = "street"; tb.left = tb.closes[tb.street] - cur;
+    }
+    else if (cur < tb.closes[4] + R) { tb.phase = "showdown"; tb.left = tb.closes[4] + R - cur; }
     else tb.phase = "over";
     // EARLY SETTLE: every seat revealed — the contract accepts settle right now
     if (tb.phase === "showdown" && tb.seatCount > 0 && tb.revealCount >= tb.seatCount) tb.phase = "over";
@@ -132,7 +141,7 @@ function seatsOfTable(sto, t) {
 }
 // folded = below a CLOSED street's price while still holding chips (all-in players are never folded)
 function foldedAt(s, tb) {
-  if (!tb.exists || tb.phase === "join" || tb.phase === "dealing" || dapp.cursor == null) return 0;
+  if (!tb.exists || tb.phase === "join" || tb.phase === "shuffle" || dapp.cursor == null) return 0;
   const closed = tb.phase === "street" ? tb.street - 1 : 4;
   for (let k = 1; k <= closed; k++) if (s.cs[k] !== tb.price(k) && s.stack > 0) return k;
   return 0;
@@ -218,6 +227,9 @@ const reclaimTable = () => dapp.call("reclaim", [activeTable], null, "reclaim th
 const cancelTable = () => dapp.call("cancel", [activeTable], null, "cancel table #" + activeTable, { table: activeTable, phase: "cancel" });
 // the HOST deals: binds the hand to two blocks that don't exist yet — nobody can know the cards
 const startTable = () => dapp.call("start", [activeTable], null, "🃏 deal now · table #" + activeTable, { table: activeTable, phase: "start" });
+// the HOST fast-forwards a street once nobody owes a call — a checked-around street ends NOW
+const closeStreet = () => dapp.call("close_street", [activeTable], null, "⏩ close the " + STREETS[(lastTable && lastTable.street) || 1] + " · table #" + activeTable,
+  { table: activeTable, phase: "closest", k: (lastTable && lastTable.street) || 1 });
 function leaveTable() {
   const s = mySeat(); if (!s) return;
   dapp.call("leave", [s.g], null, "leave table #" + activeTable + " — full refund", { table: activeTable, seat: s.g, phase: "leave" });
@@ -236,7 +248,7 @@ async function refreshActive() {
         // HOLE-CARD seeds (d0, d0+1) stay FINALIZED — hidden info; a provisional reorg would silently
         // change your hand at showdown. The COMMUNITY streets are public -> provisional (fast) is safe.
         if (dapp.cursor >= d0 + 1) await dapp.blockHashes([d0, d0 + 1]);
-        for (const h of [d0 + S, d0 + 2 * S, d0 + 3 * S]) if (dapp.cursor >= h + 1) pub.push(h, h + 1);
+        for (const h of [lastTable.closes[1], lastTable.closes[2], lastTable.closes[3]]) if (dapp.cursor >= h + 1) pub.push(h, h + 1);
         if (pub.length) await dapp.blockHashes(pub, { fast: true });
       }
       lastSeats = seatsOfTable(sto, activeTable);
@@ -247,6 +259,7 @@ async function refreshActive() {
         (watch.phase === "bet") ? (_m(sto, "cs")[String(watch.seat * 8 + watch.k)] || 0) > (watch.prev || 0) :
         (watch.phase === "reveal") ? !!_m(sto, "gd")[String(watch.seat)] :
         (watch.phase === "start") ? (_m(sto, "td")[String(watch.table)] || 0) > 0 :
+        (watch.phase === "closest") ? (_m(sto, "sc")[String(Number(watch.table) * 8 + watch.k)] || 0) > 0 :
         (watch.phase === "leave") ? !_m(sto, "gg")[String(watch.seat)] :
         (watch.phase === "settle") ? !!_m(sto, "tz")[String(watch.table)] : false;
       if (done) {
@@ -254,6 +267,7 @@ async function refreshActive() {
           join: "✓ Seat confirmed — you're in the hand.", bet: "✓ Bet confirmed on-chain.",
           reveal: "✓ Your hand is shown on-chain.", settle: "✓ Pot paid out.",
           start: "✓ Dealt! Cards are locking in the next blocks — hole cards appear once they finalize.",
+          closest: "✓ Street closed — the next card is locking in now.",
           leave: "✓ You left the table — buy-in refunded in full." }[watch.phase];
         watch = null;
       }
@@ -370,15 +384,15 @@ function renderActive() {
   if (tb.exists) {
     if (tb.closed) phaseTxt = "hand over — settled ✓";
     else if (tb.phase === "join") phaseTxt = "🟢 seating open — " + tb.seatCount + " player" + (tb.seatCount === 1 ? "" : "s") + " · " + (tb.host === dapp.me ? "YOU deal when ready" : "the host deals when ready");
-    else if (tb.phase === "dealing") phaseTxt = "🃏 dealing — cards lock in " + blocksToTime(tb.left);
-    else if (tb.phase === "street") phaseTxt = "▶ " + STREETS[tb.street].toUpperCase() + " betting — street closes in " + blocksToTime(tb.left);
+    else if (tb.phase === "shuffle") phaseTxt = "🂠 shuffling — your cards land in " + blocksToTime(tb.left) + " (betting opens with cards visible)";
+    else if (tb.phase === "street") phaseTxt = "▶ " + STREETS[tb.street].toUpperCase() + " betting — closes in " + blocksToTime(tb.left) + " (or when the host fast-forwards)";
     else if (tb.phase === "showdown") phaseTxt = "🃏 SHOWDOWN — show your cards within " + blocksToTime(tb.left) + " · " + tb.revealCount + " shown";
     else phaseTxt = "🏁 hand finished — pay out below";
   }
   $("gStatus").textContent = phaseTxt;
 
   // the felt: community + my hole cards
-  const board = tb.exists && tb.td && dapp.cursor != null ? boardCards(activeTable, tb.d0) : [];
+  const board = tb.exists && tb.td && dapp.cursor != null ? boardCards(activeTable, tb.closes) : [];
   $("community").innerHTML = handHTML(board, 5, false);
   $("communityNote").textContent = !tb.exists ? "" :
     tb.phase === "join" ? "the board deals street by street once the host deals" :
@@ -430,7 +444,18 @@ function renderActive() {
     $("buyinAmt").value = rawToNado(Number(tb.ante) + host.stack);
   }
   if (tb.exists && !tb.closed && dapp.me) {
-    if (tb.phase === "join" && !me) btn("🪑 Sit down — buy-in " + ($("buyinAmt").value || rawToNado(tb.ante)) + " NADO (ante " + rawToNado(tb.ante) + ")", joinTable, true);
+    if (tb.phase === "join" && !me) {
+      if (watch && watch.phase === "join") btn("⏳ Taking your seat — confirming on-chain…", () => {}, false).disabled = true;
+      else btn("🪑 Sit down — buy-in " + ($("buyinAmt").value || rawToNado(tb.ante)) + " NADO (ante " + rawToNado(tb.ante) + ")", joinTable, true);
+    }
+    if (tb.phase === "street" && iAmHost) {
+      // closable iff nobody owes a call: every seat matched the street price, is all-in, or folded earlier
+      const pk = tb.price(tb.street);
+      const closable = lastSeats.length > 0 && lastSeats.every((s) => s.cs[tb.street] === pk || s.stack === 0 || foldedAt(s, tb) > 0)
+        && !((_m(lastSto, "sc")[String(Number(activeTable) * 8 + tb.street)] || 0) > 0);
+      if (watch && watch.phase === "closest") btn("⏳ Fast-forwarding the street…", () => {}, false).disabled = true;
+      else if (closable) btn("⏩ Everyone's in — deal the next card NOW", closeStreet, true);
+    }
     // the HOST controls the start — nothing happens until they deal
     if (tb.phase === "join" && iAmHost) {
       if (watch && watch.phase === "start") btn("⏳ Dealing — confirming on-chain…", () => {}, false).disabled = true;
@@ -441,9 +466,9 @@ function renderActive() {
       if (watch && watch.phase === "leave") btn("⏳ Leaving — refunding…", () => {}, false).disabled = true;
       else btn("🚪 Leave the table — full refund (ante + stack)", leaveTable, false);
     }
-    if (tb.phase === "dealing") {
+    if (tb.phase === "shuffle") {
       const note = document.createElement("div"); note.className = "small"; note.style.cssText = "flex:1 1 100%;color:var(--accent2);font-weight:700";
-      note.textContent = "🃏 The deal is locked to blocks " + tb.d0 + "–" + (tb.d0 + 1) + " — betting opens the moment they're minted.";
+      note.textContent = "🂠 Shuffling — your hole cards lock to blocks " + tb.d0 + "–" + (tb.d0 + 1) + " and appear once final; betting opens right after.";
       wrap.appendChild(note);
     }
     const rec = me ? (load(LS_S)[me.g] || {}) : {};
@@ -514,11 +539,11 @@ function renderActive() {
 let watch = null;   // the submitted action we're waiting to see ON-CHAIN (flips status to "confirmed ✓")
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.table != null) activeTable = pend.table;
-  if (ok && pend && ["open", "join", "bet", "reveal", "settle", "start", "leave"].includes(pend.phase)) watch = pend;
+  if (ok && pend && ["open", "join", "bet", "reveal", "settle", "start", "leave", "closest"].includes(pend.phase)) watch = pend;
   $("status").textContent = statusLabel(pend, ok, err, {
     open: "Table opening — confirming…", join: "Taking your seat — confirming…", bet: "Bet placed — confirming…",
     reveal: "Showing your cards — confirming…", settle: "Paying the winner…", reclaim: "Reclaiming…", cancel: "Cancelling…",
-    start: "Dealing — confirming…", leave: "Leaving the table — refunding…" });
+    start: "Dealing — confirming…", leave: "Leaving the table — refunding…", closest: "Fast-forwarding the street…" });
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }

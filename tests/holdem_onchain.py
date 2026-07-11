@@ -42,6 +42,17 @@ def hole_ref(bh, d0, x):
     h0 = draw(hs, 0, ())
     return [h0, draw(hs, 1, (h0,))]
 
+def board_ref_h(bh, c1, c2, c3, t):
+    """Board from EXPLICIT street-close heights (the v3 contract lets the host force-close streets, so
+    the seeds are the actual close blocks, not a fixed d0+k*S schedule)."""
+    e1 = vm_hash(bh[c1] + bh[c1 + 1] + t)
+    b0 = draw(e1, 0, ()); b1 = draw(e1, 1, (b0,)); b2 = draw(e1, 2, (b0, b1))
+    e2 = vm_hash(bh[c2] + bh[c2 + 1] + t)
+    b3 = draw(e2, 3, (b0, b1, b2))
+    e3 = vm_hash(bh[c3] + bh[c3 + 1] + t)
+    b4 = draw(e3, 4, (b0, b1, b2, b3))
+    return [b0, b1, b2, b3, b4]
+
 def board_ref(bh, d0, S, t):
     e1 = vm_hash(bh[d0 + S] + bh[d0 + S + 1] + t)
     b0 = draw(e1, 0, ()); b1 = draw(e1, 1, (b0,)); b2 = draw(e1, 2, (b0, b1))
