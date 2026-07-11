@@ -1917,6 +1917,9 @@ function bgExecTriageEarly() {
   if (!w) return reject("off");         // no wallet on this device → the game redirects (onboarding elsewhere)
   if (w.enc) return reject("locked");   // encrypted → a hidden frame can't prompt for the password
 }
+// BGSVC: this wallet was loaded in a hidden iframe purely as the background-SIGN service (a game's reusable
+// signer). It must stay lean — NO mining, no dashboard, no pollers — just load the key and sign on request.
+const BGSVC = (() => { try { return window.parent !== window && new URLSearchParams(location.search).get("bgsvc") === "1"; } catch (e) { return false; } })();
 function _decodeArg(a) { return (a && typeof a === "object" && "$big" in a) ? BigInt(a.$big) : a; }   // 256-bit args ride as {$big:"…"}
 async function resumePendingExecSign() {
   const req = pendingExecSign;
@@ -5076,12 +5079,13 @@ async function boot() {
     showUnlock();                     // encrypted at rest — require the password before anything
   } else if (w && w.address) {
     state.wallet = w;
-    showWalletUI();
+    if (!BGSVC) showWalletUI();   // the hidden signer service renders no dashboard
     log("info", i18("log.walletLoadedDevice", "Loaded wallet from this device: {a}", {a: w.address}));
     // AUTO-RESUME across a browser refresh: the in-memory mining flag is lost on reload, but the intent is
     // persisted, so we resume without a re-click. This won't double anything — the node dedups heartbeats
-    // one-per-(address,epoch) and won't re-register an already-registered (lease-valid) identity.
-    if (localStorage.getItem(LS_MINING) === "1") {
+    // one-per-(address,epoch) and won't re-register an already-registered (lease-valid) identity. NEVER in the
+    // hidden signer service — that would spin up a duplicate miner in an invisible iframe.
+    if (!BGSVC && localStorage.getItem(LS_MINING) === "1") {
       log("info", i18("log.resuming", "Resuming mining after refresh (no re-click needed)…"));
       startMining();
       resumedMining = true;
@@ -5089,6 +5093,12 @@ async function boot() {
   } else {
     enterOnboarding();
   }
+
+  // BACKGROUND-SIGN SERVICE: a game loaded this wallet in a hidden iframe as its persistent signer. Install the
+  // postMessage sign handler, announce readiness (the ~1s boot is paid once), and SKIP everything else —
+  // no pay/claim deep links, no dashboard poll, no net tag. Just be a signer.
+  installBgSignListener();
+  if (BGSVC) { try { window.parent.postMessage({ nadoBgReady: 1 }, "*"); } catch (e) {} return; }
 
   // payment-request deep link (#pay?to=…&amount=…): prefill a Send if a wallet exists, else stash it
   // and resume after onboarding. Never auto-submits — the user still reviews + confirms.
@@ -5098,6 +5108,22 @@ async function boot() {
   // initial connectivity + dashboard (startMining already kicks a poll when we auto-resumed)
   if (!resumedMining) pollOnce().catch(() => setConn(false));
   initNetTag().catch(() => {});
+}
+
+// A persistent signer: handle exec-sign requests delivered by postMessage from our own game subdomains
+// (the reusable hidden iframe), reusing the same decision + sign path as the URL/redirect flow. Each request
+// posts its result (or {needui}) back to the game via resumePendingExecSign's bg `back`.
+let _bgSignListening = false;
+function installBgSignListener() {
+  if (_bgSignListening) return; _bgSignListening = true;
+  window.addEventListener("message", (e) => {
+    const d = e.data;
+    if (!d || d.nadoExecSignReq !== 1) return;
+    const trusted = EXEC_SIGN_ALLOW.includes(e.origin) || localStorage.getItem("nado_skip_origin_check") === "1";
+    if (!trusted) { try { e.source && e.source.postMessage({ nadoExecSign: 1, needui: 1, reason: "untrusted" }, e.origin); } catch (err) {} return; }
+    pendingExecSign = { payload: d.payload, ret: d.ret || (e.origin + "/"), app: d.app || "a game", bg: true };
+    resumePendingExecSign();
+  });
 }
 
 /* Network tag (header, upper right): which chain THIS wallet build signs for (CHAIN_ID). One

@@ -357,34 +357,64 @@ export class NadoDapp {
     localStorage.setItem(this.LS_P, JSON.stringify(pend || {}));
     location.href = WALLET + "/?exec_sign=" + encodeURIComponent(payload) + "&ret=" + encodeURIComponent(base() + "/") + "&app=" + encodeURIComponent(this.app);
   }
-  _goBackground(obj, pend, isValue) {
-    let walletOrigin; try { walletOrigin = new URL(WALLET).origin; } catch (e) { return this._goRedirect(obj, pend); }
-    const payload = btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
+  // ONE persistent hidden iframe holds a loaded wallet that signs every background request over postMessage —
+  // so we pay the ~1s wallet boot ONCE, not per call. Requests are serialised (one in flight; the rest queue).
+  // Every failure path (service never readies, request times out, wallet says needui) falls back to the proven
+  // per-call redirect, and the learned _bgOff/_bgValueUI flags stop pointless attempts.
+  _ensureBgSvc() {
+    if (this._bgSvc) return this._bgSvc;
+    let walletOrigin; try { walletOrigin = new URL(WALLET).origin; } catch (e) { return null; }
     const frame = document.createElement("iframe");
     frame.setAttribute("aria-hidden", "true");
     frame.style.cssText = "position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;border:0;opacity:0;pointer-events:none";
-    frame.src = WALLET + "/?exec_sign=" + encodeURIComponent(payload) + "&ret=" + encodeURIComponent(base() + "/") + "&app=" + encodeURIComponent(this.app) + "&bg=1";
-    let done = false; let tid = 0;
-    const cleanup = () => { try { window.removeEventListener("message", onMsg); } catch (e) {} clearTimeout(tid); try { frame.remove(); } catch (e) {} };
-    const fallback = () => { if (done) return; done = true; cleanup(); this._goRedirect(obj, pend); };   // any hiccup → the proven redirect
-    const onMsg = (e) => {
-      if (done || e.origin !== walletOrigin) return;
-      const d = e.data; if (!d || d.nadoExecSign == null) return;
-      if (d.needui) {
-        // learn WHY, so future calls skip the wasted iframe: a global block (off/locked/untrusted) stops all
-        // backgrounding; a per-call "confirm" only stops STAKED calls (value-free moves still autosign).
-        if (d.reason === "off" || d.reason === "locked" || d.reason === "untrusted") this._bgOff = true;
-        else if (isValue) this._bgValueUI = true;
-        fallback(); return;                                        // wallet can't autosign silently → visible redirect
-      }
-      done = true; cleanup();
-      const ok = d.ok === 1 || d.ok === true || d.ok === "1";      // postMessage carries the "ok=1" param as a STRING
-      this._applyReturn(pend, ok, d.addr || null, d.err ? String(d.err) : "");
-      try { this.refresh(); } catch (e) {}                          // pull the freshly-landed state without a reload
+    frame.src = WALLET + "/?bgsvc=1";
+    const svc = { frame, walletOrigin, ready: false, dead: false, cur: null, timer: 0, queue: [] };
+    this._bgSvc = svc;
+    svc.onMsg = (e) => {
+      if (e.origin !== svc.walletOrigin) return;
+      const d = e.data; if (!d) return;
+      if (d.nadoBgReady) { svc.ready = true; clearTimeout(svc.readyTimer); this._bgPump(); return; }
+      if (d.nadoExecSign != null && svc.cur) { const cb = svc.cur; svc.cur = null; clearTimeout(svc.timer); cb(d); }
     };
-    window.addEventListener("message", onMsg);
-    tid = setTimeout(fallback, 9000);                               // wallet didn't answer (offline / heavy) → redirect
+    window.addEventListener("message", svc.onMsg);
+    svc.readyTimer = setTimeout(() => { if (!svc.ready) { svc.dead = true; this._bgFlushToRedirect(); } }, 12000);   // never readied (framing blocked?) → redirect everything
     (document.body || document.documentElement).appendChild(frame);
+    return svc;
+  }
+  _bgFlushToRedirect() {
+    const svc = this._bgSvc; if (!svc) return;
+    const jobs = svc.queue.splice(0); if (svc.cur) { svc.cur = null; }
+    for (const j of jobs) this._goRedirect(j.obj, j.pend);
+  }
+  _goBackground(obj, pend, isValue) {
+    const svc = this._ensureBgSvc();
+    if (!svc || svc.dead) return this._goRedirect(obj, pend);
+    svc.queue.push({ obj, pend, isValue });
+    this._bgPump();
+  }
+  _bgPump() {
+    const svc = this._bgSvc;
+    if (!svc || svc.dead || !svc.ready || svc.cur || !svc.queue.length) return;
+    const job = svc.queue.shift();
+    svc.cur = (d) => {
+      if (d.needui) {
+        if (d.reason === "off" || d.reason === "locked" || d.reason === "untrusted") this._bgOff = true;   // global block
+        else if (job.isValue) this._bgValueUI = true;                                                      // staked call needs a confirm
+        this._goRedirect(job.obj, job.pend);
+      } else {
+        const ok = d.ok === 1 || d.ok === true || d.ok === "1";   // the "ok=1" param rides as a STRING
+        this._applyReturn(job.pend, ok, d.addr || null, d.err ? String(d.err) : "");
+        try { this.refresh(); } catch (e) {}                      // pull the freshly-landed state, no reload
+      }
+      this._bgPump();                                             // serve the next queued request
+    };
+    svc.timer = setTimeout(() => {                                // the loaded wallet went silent → treat service as dead, redirect
+      if (!svc.cur) return; svc.cur = null; svc.dead = true;
+      this._goRedirect(job.obj, job.pend); this._bgFlushToRedirect();
+    }, 9000);
+    const payload = btoa(unescape(encodeURIComponent(JSON.stringify(job.obj))));
+    try { svc.frame.contentWindow.postMessage({ nadoExecSignReq: 1, payload, ret: base() + "/", app: this.app }, svc.walletOrigin); }
+    catch (e) { svc.cur = null; clearTimeout(svc.timer); this._goRedirect(job.obj, job.pend); }
   }
   _go(obj, pend, bg, isValue) {
     if (bg && !obj.confirm) this._goBackground(obj, pend, isValue);
