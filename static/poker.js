@@ -8,7 +8,7 @@
 //   · at SHOWDOWN one click reveals your secret; the CONTRACT re-derives your 7 cards and ranks the full
 //     hand on-chain (straight flush … high card, kickers included — 4000/4000 differential-verified).
 //     Best hand takes the pot. Board + each hand draw from independent decks (exact duplicates are legal).
-import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, commitHashOf, blake2bHash, _m, $, base, gate, canPay, alertBar,
+import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, commitHashOf, blake2bHash, _m, $, base, gate, canPay, alertBar, inviteGate,
          hoist, orderCards, blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore,
          scoreBump, scoreSort, recentChips, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
@@ -539,6 +539,7 @@ function renderActive() {
 let watch = null;   // the submitted action we're waiting to see ON-CHAIN (flips status to "confirmed ✓")
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.table != null) activeTable = pend.table;
+  if (ok && pend && pend.phase === "connect") dapp.consumeInvite((id) => { activeTable = parseInt(id, 10); joinTable(); });
   if (ok && pend && ["open", "join", "bet", "reveal", "settle", "start", "leave", "closest"].includes(pend.phase)) watch = pend;
   $("status").textContent = statusLabel(pend, ok, err, {
     open: "Table opening — confirming…", join: "Taking your seat — confirming…", bet: "Bet placed — confirming…",
@@ -550,6 +551,10 @@ async function boot() {
   wireUI(); loadQR(); orderCards(["activeGame","lobby","play","opencard","walletcard","bankroll","scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (activeTable == null) activeTable = parseInt(q, 10); }
+  if (q && !dapp.me) { const tb = await fetchTable(parseInt(q, 10));
+    inviteGate(dapp, { id: parseInt(q, 10), title: "You're invited to a hold'em table",
+      body: tb && tb.exists ? ("Sit down for an ante of <b>" + rawToNado(tb.ante) + " NADO</b> — real multiplayer Texas Hold'em.") : "Sign in to sit down at this table.",
+      joinLabel: "Sign in & sit down" }); }
   render(); refreshActive();
   setInterval(refreshActive, 3000);
 }

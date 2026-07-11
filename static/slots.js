@@ -90,6 +90,21 @@ function fundMachine() {
   if (!canPay(dapp, raw, "Topping up the bank")) return;
   dapp.call("fund", [activeTable], raw, "top up machine #" + activeTable + " · " + rawToNado(raw) + " NADO", { table: activeTable, phase: "fund" });
 }
+// AUTO-SETTLE: the machine settles on its own (user ask). A value-free settle auto-signs, so this is a
+// quick bounce, not a tap. One spin per tick — the wallet redirect serialises it; on return the next
+// ready spin auto-settles, until the board is clean. `autoTried` stops a rejected settle from looping.
+const autoTried = new Set();
+function maybeAutoSettle() {
+  if (localStorage.getItem("nado_slots_autocollect") === "0") return;   // opt-out (default: auto-collect on)
+  if (!dapp.me || dapp.inflight || watch || !lastTable || !lastTable.exists) return;
+  const iAmBank = lastTable.bank === dapp.me;
+  // as the bank: settle ANY ready spin on my machine (pays winners, frees my cover). Otherwise: settle my
+  // OWN ready spins (wins land in my balance; a lost spin still finalises so nothing lingers).
+  const target = mySpins.find((s) => !s.settled && s.ready && !autoTried.has(s.g) && (iAmBank || s.addr === dapp.me));
+  if (!target) return;
+  autoTried.add(target.g);
+  settleSpin(target.g, target.m2, target.stake);
+}
 function readyWins() { return mySpins.filter((s) => s.addr === dapp.me && !s.settled && s.ready && s.m2 > 0); }
 function collectWins() {
   const w = readyWins();
@@ -135,6 +150,7 @@ async function refreshAll() {
     // safety net: never leave the SPIN button disabled once the spin is visibly on-chain, even if `watch`
     // was lost to a reload — clear a "spin" inflight whose seat now exists.
     if (dapp.inflight && dapp.inflight.phase === "spin" && _m(sto, "gg")[String(dapp.inflight.seat)]) dapp.clearInflight();
+    maybeAutoSettle();
     renderLobby(sto);
     renderScore($("scoreList"), boardFrom(sto), dapp.me, "No settled spins yet — pull the first lever.");
     await resolveAliases([dapp.me, lastTable && lastTable.bank].concat(mySpins.map((s) => s.addr)).filter(Boolean));
@@ -241,6 +257,9 @@ function wireUI() {
   $("btnSpin").onclick = doSpin;
   $("btnFund").onclick = fundMachine;
   $("btnCollect").onclick = collectWins;
+  const ac = $("autoCollect");
+  if (ac) { ac.checked = localStorage.getItem("nado_slots_autocollect") !== "0";
+    ac.onchange = () => { try { localStorage.setItem("nado_slots_autocollect", ac.checked ? "1" : "0"); } catch (e) {} }; }
   $("btnClose").onclick = closeMachine;
 }
 async function boot() {

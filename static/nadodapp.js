@@ -74,6 +74,43 @@ export const blocksToTime = (blocks, secs = 6) => { const b = Math.max(0, blocks
 // ---- can't-miss feedback (a quiet status line reads as "nothing happened" — a real bug to users) ---
 // alertBar(msg, actionLabel?, actionFn?): a fixed toast at the bottom of the viewport, visible no matter
 // where the user is on the page. Call with no msg to dismiss. One at a time — a new call replaces it.
+// modalDialog({title, body, okLabel, cancelLabel, onOk}): a centered blocking dialog (games have no wallet
+// modal of their own). Returns nothing; onOk fires on confirm. Used by inviteGate below.
+export function modalDialog({ title, body, okLabel = "OK", cancelLabel = "Cancel", onOk }) {
+  document.getElementById("nadoModal")?.remove();
+  const ov = document.createElement("div");
+  ov.id = "nadoModal";
+  ov.style.cssText = "position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:rgba(4,8,12,.72);padding:16px";
+  const card = document.createElement("div");
+  card.style.cssText = "background:#131a23;border:1px solid #243140;border-radius:16px;max-width:420px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.6)";
+  card.innerHTML = '<div style="font-size:17px;font-weight:800;color:#e6edf3;margin-bottom:8px">' + title + "</div>"
+    + '<div style="font-size:13.5px;color:#93a1b0;line-height:1.55;margin-bottom:16px">' + body + "</div>";
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;gap:10px";
+  const mk = (txt, primary) => { const b = document.createElement("button"); b.textContent = txt;
+    b.style.cssText = "flex:1;font:inherit;font-weight:800;border-radius:11px;padding:12px;cursor:pointer;border:1px solid #243140;"
+      + (primary ? "background:linear-gradient(135deg,#00ad93,#00c9a7);color:#04110a;border-color:transparent" : "background:#1a232e;color:#e6edf3"); return b; };
+  const cancel = mk(cancelLabel, false), ok = mk(okLabel, true);
+  cancel.onclick = () => ov.remove();
+  ok.onclick = () => { ov.remove(); onOk && onOk(); };
+  row.appendChild(cancel); row.appendChild(ok);
+  card.appendChild(row); ov.appendChild(card);
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+}
+// inviteGate(dapp, {kind, id, title, body, joinLabel, onJoin}): a signed-OUT visitor who followed a share
+// link gets a clear FOREGROUND dialog (not a background option). "Sign in & join" records the intent and
+// redirects to the wallet; after sign-in the game replays onJoin(id). Call once on boot when a deep-link
+// id is present and the user isn't signed in; call dapp.consumeInvite(onJoin) from onReturn on connect.
+export function inviteGate(dapp, { kind, id, title, body, joinLabel, onJoin }) {
+  if (dapp.me || id == null) return;
+  modalDialog({
+    title: title || "You're invited",
+    body, okLabel: joinLabel || "Sign in & join", cancelLabel: "Just browse",
+    onOk: () => { try { localStorage.setItem(dapp.LS_INVITE, String(id)); } catch (e) {} dapp.signIn(); },
+  });
+}
+
 export function alertBar(msg, actionLabel, actionFn) {
   let el = document.getElementById("alertBar");
   if (el) el.remove();
@@ -262,7 +299,7 @@ export class NadoDapp {
   constructor({ cid, app, ns = "default" }) {
     this.cid = cid; this.app = app; this.ns = ns;
     const slug = app.replace(/\W+/g, "").toLowerCase();
-    this.LS_ME = "nado_" + slug + "_me"; this.LS_P = "nado_" + slug + "_pending";
+    this.LS_ME = "nado_" + slug + "_me"; this.LS_P = "nado_" + slug + "_pending"; this.LS_INVITE = "nado_" + slug + "_invite";
     this.me = localStorage.getItem(this.LS_ME) || null;
     this.exec = 0n; this.l1 = 0n; this.cursor = null;
     // online: null = never reached the chain API yet (first load), true = last read OK, false = last read
@@ -353,6 +390,11 @@ export class NadoDapp {
     return true;
   }
   clearInflight() { this.inflight = null; }
+  // consumeInvite(fn): after a share-link visitor signs in (inviteGate), replay the join they asked for.
+  consumeInvite(fn) {
+    let id = null; try { id = localStorage.getItem(this.LS_INVITE); localStorage.removeItem(this.LS_INVITE); } catch (e) {}
+    if (id != null && id !== "" && this.me) fn(id);
+  }
 
   // --- reads ---
   async refresh() { await Promise.all([this._balances(), this._cursor()]); }

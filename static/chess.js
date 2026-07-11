@@ -4,7 +4,7 @@
 // clock), and the wager settles by resignation / mutual agreement / refund-on-timeout — so nobody can ever be
 // robbed (a stall or a disputed move at worst refunds both). Correspondence-style: a move confirms in ~1 min.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, canPay, alertBar, hoist, orderCards, resolveAliases, disp, share,
-         wireWallet, stickyInputs, renderWallet } from "./nadodapp.js";
+         wireWallet, inviteGate, stickyInputs, renderWallet } from "./nadodapp.js";
 import { Chess } from "./chess-engine.js";
 
 const CID = "9984ce8c08cbd952c786b86754b05855";
@@ -308,6 +308,7 @@ dapp.onReturn((pend, ok, err) => {
     join: "Joining — confirming…", move: "Move submitted — confirming…", resign: "Resigning — confirming…",
     agree: "Submitting…", abort: "Claiming refund…", cancel: "Cancelling…", withdraw: "Withdrawal submitted." }[pend && pend.phase] || "Submitted.";
   if (pend && pend.game != null) activeGame = pend.game;
+  if (ok && pend && pend.phase === "connect") dapp.consumeInvite((id) => { activeGame = parseInt(id, 10); $("joinId").value = id; joinGame(); });
   if (!ok) pendingEnc = null;   // a rejected move must not linger optimistically
   $("status").textContent = ok ? label : "Rejected" + (err ? ": " + err : ".");
 });
@@ -316,6 +317,10 @@ async function boot() {
   wireUI(); orderCards(["activeGame","lobby","play","walletcard","bankroll"]);
   const q = new URLSearchParams(location.search).get("game");
   if (q) { $("joinId").value = q; if (activeGame == null) { activeGame = parseInt(q, 10); haveState = false; } }
+  if (q && !dapp.me) { const sto = await dapp.storage(); const gm = sto ? gameFrom(sto, parseInt(q,10)) : null;
+    inviteGate(dapp, { id: parseInt(q,10), title: "You're invited to a chess game",
+      body: gm && gm.exists ? ("Play " + disp(gm.white) + " for <b>" + rawToNado(gm.stake) + " NADO</b> — winner takes the pot.") : "Sign in to join this game.",
+      joinLabel: "Sign in & join" }); }
   render(); refreshActive();
   setInterval(refreshActive, 3000);
 }
