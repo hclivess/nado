@@ -425,7 +425,11 @@
   <div class="card hidden" id="adopt">
     <h2>Adopt an egg — burn 1 NADO</h2>
     <p class="small dim">Eggs are bought by <b>burning NADO</b> — the 1 NADO fee is destroyed forever (sent to a dead key no wallet controls), not paid to anyone. Your egg's animal is decided by a block hash that <b>doesn't exist yet</b> when you sign — not by us, not by you: one of <b>100 animals</b>, each an exact 1% roll — 70 common, 25 rare, 5 legendary. It hatches fed for <b>30 days</b>; after that it eats real NADO (burned too — about 0.1 NADO/day for an average appetite, belly holds up to 30 days) and <b>dies if you stop</b>. You can own as many as you can feed.</p>
-    <button class="primary mt" id="btnMint" style="width:100%">🥚 Adopt an egg · burn 1 NADO</button>
+    <div class="row mt" style="align-items:center;gap:8px">
+      <label class="small dim" for="mintQty" style="flex:0 0 auto">How many?</label>
+      <input id="mintQty" type="number" min="1" max="20" step="1" value="1" inputmode="numeric" style="flex:0 0 72px;text-align:center">
+      <button class="primary" id="btnMint" style="flex:1 1 auto">🥚 Adopt · burn 1 NADO</button>
+    </div>
     <p class="small mt" id="burnTally" style="color:#ff8d5a"></p>
   </div>
 

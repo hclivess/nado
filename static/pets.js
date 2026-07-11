@@ -623,6 +623,30 @@ function mint() {
   const pid = randId(); const l = L(); l[pid] = { ts: Date.now() }; Lsave(l); active = pid;
   dapp.call("mint", [pid], G.MINT_FEE, "adopt egg #" + pid + " · 1 NADO", { pid, phase: "mint" });
 }
+// BUY MULTIPLE: adopt N eggs in one go. Each mint BURNS 1 NADO and takes a wallet round-trip, so they're
+// chained — mint one, and on return maybeAutoMint() fires the next until the batch is done. The remaining
+// count lives in localStorage so it survives the redirects. A shortfall stops the batch (canPay guards each).
+function mintMany() {
+  const n = Math.max(1, Math.min(20, parseInt($("mintQty").value, 10) || 1));
+  if (n === 1) return mint();
+  const total = G.MINT_FEE * BigInt(n);
+  if (!canPay(dapp, total, "Adopting " + n + " eggs")) return;
+  try { localStorage.setItem("nado_pets_mintq", String(n)); } catch (e) {}
+  mintNext();
+}
+function mintNext() {
+  let left = 0; try { left = parseInt(localStorage.getItem("nado_pets_mintq") || "0", 10) || 0; } catch (e) {}
+  if (left <= 0) { try { localStorage.removeItem("nado_pets_mintq"); } catch (e) {} return; }
+  try { localStorage.setItem("nado_pets_mintq", String(left - 1)); } catch (e) {}
+  if (left - 1 <= 0) { try { localStorage.removeItem("nado_pets_mintq"); } catch (e) {} }
+  mint();   // decrement BEFORE the redirect so the count is right when we come back
+}
+function maybeAutoMint() {
+  let left = 0; try { left = parseInt(localStorage.getItem("nado_pets_mintq") || "0", 10) || 0; } catch (e) {}
+  if (left <= 0 || !dapp.me || dapp.inflight) return;   // wait for the current mint to confirm first
+  if (dapp.exec < G.MINT_FEE) { try { localStorage.removeItem("nado_pets_mintq"); } catch (e) {} return; }   // out of funds — stop
+  mintNext();
+}
 function hatch(pid) {
   const l = L(); (l[pid] = l[pid] || { ts: Date.now() }).hatchPending = 1; Lsave(l);
   dapp.call("hatch", [pid], null, "hatch egg #" + pid, { pid, phase: "hatch" });
@@ -764,6 +788,7 @@ async function refreshAll() {
     // once nothing is in flight, an optimistic "…confirming" status line is stale — clear it
     if (!dapp.inflight && stMsgPhase) { $("status").textContent = ""; stMsgPhase = null; }
     maybeAutoHatch();   // continue a "Hatch all" run once the previous hatch has confirmed
+    maybeAutoMint();    // continue a "Adopt N eggs" batch once the previous mint has confirmed
   }
   render();
 }
@@ -1098,8 +1123,9 @@ function maybePlayHatch(p) {
 function render() {
   const signedIn = renderWallet(dapp);
   gate({ bankroll: signedIn, myPets: signedIn, adopt: signedIn, battlesCard: signedIn });
-  $("btnMint").disabled = dapp.busy("mint");
-  $("btnMint").textContent = dapp.busy("mint") ? "⏳ Egg confirming on-chain…" : "🥚 Adopt an egg · burn 1 NADO";
+  let mintLeft = 0; try { mintLeft = parseInt(localStorage.getItem("nado_pets_mintq") || "0", 10) || 0; } catch (e) {}
+  $("btnMint").disabled = dapp.busy("mint") || mintLeft > 0;
+  $("btnMint").textContent = mintLeft > 0 ? "⏳ Adopting… (" + mintLeft + " left)" : dapp.busy("mint") ? "⏳ Egg confirming on-chain…" : "🥚 Adopt · burn 1 NADO";
   if ($("burnTally")) $("burnTally").textContent = BURNED > 0n ? "🔥 " + rawToNado(BURNED) + " NADO burned by pets so far — adoption, food and training all destroy supply." : "";
   renderActive(); renderGrids(); renderBattles(); renderArena();
 }
@@ -1108,7 +1134,7 @@ function render() {
 function wireUI() {
   wireWallet(dapp);
   stickyInputs(dapp, ['feedAmt', 'bankAmt', 'offerAmt', 'listPrice', 'stakeAmt']);   // typed amounts persist across turns
-  $("btnMint").onclick = mint;
+  $("btnMint").onclick = mintMany;
   $("btnHatch").onclick = () => hatch(active);
   if ($("btnHatchAll")) $("btnHatchAll").onclick = hatchAll;
   $("btnRebirth").onclick = () => rebirth(active);
