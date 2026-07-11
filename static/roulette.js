@@ -208,6 +208,7 @@ function wireUI() {
   buildTable();
 }
 function render() {
+  dapp.reflectUrl("table", activeTable);   // address bar = the shareable link to the selected table
   const signedIn = renderWallet(dapp);
   gate({ play: signedIn, bankcard: signedIn, bankroll: signedIn, activeGame: activeTable != null });
   const c = betCount(), M = betMult(), stakeRaw = nadoToRaw($("stakeAmt").value);

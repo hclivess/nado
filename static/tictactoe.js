@@ -120,6 +120,7 @@ function renderLobby(sto) {
 
 // ---- render ----------------------------------------------------------------------------------------
 function render() {
+  dapp.reflectUrl("game", activeGame);   // address bar = the shareable link to the selected game
   const signedIn = renderWallet(dapp);
   gate({ opencard: signedIn, bankroll: signedIn, activeGame: activeGame != null });
   const G = load(LS_G);

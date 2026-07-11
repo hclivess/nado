@@ -181,6 +181,7 @@ function wireUI() {
   dapp.wireStakeSlider(maxBetRaw, () => { syncSlider(); render(); });   // owns stakeAmt input + the % slider + Max
 }
 function render() {
+  dapp.reflectUrl("table", activeTable);   // address bar = the shareable link to the selected table
   const signedIn = renderWallet(dapp);
   gate({ play: signedIn, bankcard: signedIn, bankroll: signedIn, activeGame: activeTable != null });
   const tb = (activeTable != null && lastTable && lastTable.exists && !lastTable.closed) ? lastTable : null;

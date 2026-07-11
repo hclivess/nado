@@ -814,6 +814,7 @@ function statRow(p, i) {
   </div>`;
 }
 function renderActive() {
+  dapp.reflectUrl("pet", active);   // address bar = the shareable link to the selected pet
   const p = PETS[active];
   gate({ activePet: active != null });
   if (active == null) return;

@@ -362,6 +362,7 @@ function wireUI() {
   $("btnShare").onclick = () => share(base() + "/?table=" + activeTable, "Sit down at my hold'em table #" + activeTable + " on NADO:", $("btnShare"));
 }
 function render() {
+  dapp.reflectUrl("table", activeTable);   // address bar = the shareable link to the selected table
   const signedIn = renderWallet(dapp);
   gate({ play: signedIn, opencard: signedIn, bankroll: signedIn, activeGame: activeTable != null });
   const T = load(LS_T), Ssto = load(LS_S), mine = [];

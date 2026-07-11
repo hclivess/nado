@@ -238,6 +238,7 @@ function resultCode() {   // 1=white wins, 2=black wins, 3=draw ; null if not ov
   return 3;   // stalemate / draw
 }
 function render() {
+  dapp.reflectUrl("game", activeGame);   // address bar = the shareable link to the selected game
   const signedIn = renderWallet(dapp);
   $("play").classList.toggle("hidden", !signedIn);
   $("bankroll").classList.toggle("hidden", !signedIn);

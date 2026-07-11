@@ -477,6 +477,15 @@ export class NadoDapp {
     return true;
   }
   clearInflight() { this.inflight = null; }
+  // reflectUrl(key, id): keep the address bar pointing at the selected table/game/pet, so it's the exact
+  // shareable link (?<key>=<id>) and Back/refresh return here. replaceState (no history spam); only when it
+  // actually changes. Pass null/"" to clear the param. Call from render().
+  reflectUrl(key, id) {
+    try {
+      const want = (id != null && id !== "") ? "?" + key + "=" + id : "";
+      if (location.search !== want) history.replaceState(null, "", location.pathname + want + location.hash);
+    } catch (e) {}
+  }
 
   // ── AUTO-COLLECT ────────────────────────────────────────────────────────────────────────────────
   // The shared "settle my winnings for me" tick every beacon game had copy-pasted. Call once per refresh

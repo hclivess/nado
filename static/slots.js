@@ -182,6 +182,7 @@ function setReels(syms, spinning, winning) {
   }
 }
 function render() {
+  dapp.reflectUrl("table", activeTable);   // address bar = the shareable link to the selected machine
   const signedIn = renderWallet(dapp);
   gate({ opencard: signedIn, bankroll: signedIn, activeGame: activeTable != null });
   // my machines / spins chips

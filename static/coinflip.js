@@ -167,6 +167,7 @@ function wireUI() {
 }
 const badge = (s) => s === "confirmed" ? '<span class="b ok">confirmed ✓</span>' : s === "pending" ? '<span class="b pend">pending…</span>' : '<span class="b dimb">—</span>';
 function render() {
+  dapp.reflectUrl("game", active);   // address bar = the shareable link to the selected game
   const signedIn = renderWallet(dapp);
   gate({ play: signedIn, bankroll: signedIn, activeGame: active != null });
   const jid = ($("joinId").value || "").trim();
