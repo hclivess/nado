@@ -111,14 +111,18 @@ cancel_m = [
   A(0), P(0), ST("pt"),
   HALT ]
 
-# move(g, enc): record a move on-chain (a trustless, ordered game log + a move clock). enc packs the move
-# (from + to*64 + promo*4096). Enforces TURN ORDER (white on even ply, black on odd) and resets the clock;
-# it does NOT referee legality (the browser engine does that) — but since the only settlements are resign /
-# mutual-agree / refund-on-timeout, an illegal or disputed move can at worst force a refund, never a theft.
+# move(g, enc, ply): record a move on-chain (a trustless, ordered game log + a move clock). enc packs the
+# move (from + to*64 + promo*4096). Enforces TURN ORDER (white on even ply, black on odd) and PLY BINDING:
+# the tx names the exact ply it plays at, so a stale auto-retry of an earlier move can never land turns
+# later against a changed position (that race put an "illegal move" on-chain on 2026-07-11 — both clients
+# honest, a delayed duplicate landed once turn parity matched again). It does NOT referee legality (the
+# browser engine does) — but since the only settlements are resign / mutual-agree / refund-on-timeout,
+# an illegal or disputed move can at worst force a refund, never a theft.
 move_m = [
   A(0), LD("nn"), P(2), EQ, REQ,
   A(0), LD("sd"), NOT, REQ,
   A(1), P(0), GT, REQ,                          # enc > 0
+  A(2), A(0), LD("mc"), EQ, REQ,                # PLY BINDING: this move plays at exactly this ply
   # turn: white(p1) on even ply, black(p2) on odd ply
   CALLER, A(0), LD("p1"), EQ, A(0), LD("mc"), P(2), MOD, P(0), EQ, AND,
   CALLER, A(0), LD("p2"), EQ, A(0), LD("mc"), P(2), MOD, P(1), EQ, AND,
@@ -187,15 +191,21 @@ call("open",[7],STAKE,"W"); call("join",[7],STAKE,"B")
 ck("non-player cannot resign", "revert" in call("resign",[7],0,"C"))
 ck("bad result rejected", "revert" in call("agree",[7,5],0,"W") and M("a1",7)==0)
 
-# move: on-chain move log with strict turn order
+# move: on-chain move log with strict turn order + ply binding
 call("open",[8],STAKE,"W"); call("join",[8],STAKE,"B")
-ck("black cannot move first", "revert" in call("move",[8,1804],0,"B") and M("mc",8)==0)
-ck("non-player cannot move", "revert" in call("move",[8,1804],0,"C"))
-call("move",[8,1804],0,"W")                       # white e2e4 (enc)
+ck("black cannot move first", "revert" in call("move",[8,1804,0],0,"B") and M("mc",8)==0)
+ck("non-player cannot move", "revert" in call("move",[8,1804,0],0,"C"))
+call("move",[8,1804,0],0,"W")                     # white e2e4 (enc) at ply 0
 ck("white move recorded at ply 0", M("mc",8)==1 and M("mv",80000)==1804)
-ck("white cannot move again", "revert" in call("move",[8,777],0,"W") and M("mc",8)==1)
-call("move",[8,2000],0,"B")                       # black replies at ply 1
+ck("white cannot move again", "revert" in call("move",[8,777,1],0,"W") and M("mc",8)==1)
+call("move",[8,2000,1],0,"B")                     # black replies at ply 1
 ck("black move recorded at ply 1", M("mc",8)==2 and M("mv",80001)==2000)
+# THE RETRY RACE (the 2026-07-11 corruption): white's stale duplicate of ply 0 arrives after black moved.
+# Without ply binding it would land at ply 2 against a changed position — now it reverts.
+ck("stale retry of an OLD ply can never land later", "revert" in call("move",[8,1804,0],0,"W") and M("mc",8)==2)
+ck("move with a future ply reverts", "revert" in call("move",[8,900,5],0,"W") and M("mc",8)==2)
+call("move",[8,900,2],0,"W")
+ck("correctly-bound next move still lands", M("mc",8)==3 and M("mv",80002)==900)
 # after moves, resign still resolves (loser concedes)
 bW=bal("W"); call("resign",[8],0,"B")             # black resigns -> white takes pot
 ck("resign after moves pays the winner", bal("W")==bW+2*STAKE and M("sd",8)==1)

@@ -16,7 +16,8 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, commitHashOf, blake
 const CID = "07c7405a1299a6a6506ba9eae7bec0cf";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="8" y="13" width="18" height="24" rx="3" fill="#e6edf3" stroke="#243140" stroke-width="1.6" transform="rotate(-9 17 25)"/>     <path d="M14 20c-2.4 2.4-4 3.4-4 5.4 0 1.4 1.1 2.2 2.2 2.2.5 0 1-.2 1.3-.5-.2 1-.6 1.7-1.2 2.2h3.4c-.6-.5-1-1.2-1.2-2.2.3.3.8.5 1.3.5 1.1 0 2.2-.8 2.2-2.2 0-2-1.6-3-4-5.4z" fill="#20272f" transform="rotate(-9 14 25)"/>     <rect x="22" y="13" width="18" height="24" rx="3" fill="#fff" stroke="#243140" stroke-width="1.6" transform="rotate(9 31 25)"/>     <path d="M31 30c-.7-.7-3.2-2.3-3.2-4.6 0-1.3 1-2.2 2.1-2.2.6 0 1.1.3 1.1.9 0-.6.5-.9 1.1-.9 1.1 0 2.1.9 2.1 2.2 0 2.3-2.5 3.9-3.2 4.6z" fill="#d0362b" transform="rotate(9 31 26)"/></svg>';
 const dapp = new NadoDapp({ cid: CID, app: "Hold'em" });
-const J = 20, S = 30, GRACE = 5, R = 60;          // MUST match the contract (tests/test_holdem_contract.py)
+const S = 30, GRACE = 5, R = 60;                  // MUST match the contract (tests/test_holdem_contract.py)
+// NO seating timer: the HOST controls the start — start(t) binds the deal to two future blocks (td).
 
 const LS_T = "nado_holdem_tables", LS_S = "nado_holdem_seats";
 let lastSto = null;
@@ -100,14 +101,18 @@ function tableFrom(sto, t) {
   const tb = { exists: true, id: Number(t), host, t0, ante: _m(sto, "ts")[t] || 0, pot: _m(sto, "tp")[t] || 0,
     seatCount: _m(sto, "tn")[t] || 0, revealCount: _m(sto, "tx")[t] || 0,
     best: _m(sto, "tw")[t] || 0, leader: _m(sto, "tb")[t] || 0, closed: !!_m(sto, "tz")[t] };
-  tb.d0 = tb.t0 + J;
+  tb.td = _m(sto, "td")[t] || 0;                   // deal anchor — 0 until the HOST deals
+  tb.d0 = tb.td;
   tb.price = (k) => _m(sto, "ms")[String(Number(t) * 8 + k)] || 0;
   const cur = dapp.cursor;
   if (cur != null) {
-    if (cur < tb.d0) { tb.phase = "join"; tb.left = tb.d0 - cur; }
+    if (!tb.td) tb.phase = "join";                                       // seating open — host hasn't dealt
+    else if (cur < tb.d0) { tb.phase = "dealing"; tb.left = tb.d0 - cur; }
     else if (cur < tb.d0 + 4 * S) { tb.street = Math.floor((cur - tb.d0) / S) + 1; tb.phase = "street"; tb.left = tb.d0 + tb.street * S - cur; }
     else if (cur < tb.d0 + 4 * S + R) { tb.phase = "showdown"; tb.left = tb.d0 + 4 * S + R - cur; }
     else tb.phase = "over";
+    // EARLY SETTLE: every seat revealed — the contract accepts settle right now
+    if (tb.phase === "showdown" && tb.seatCount > 0 && tb.revealCount >= tb.seatCount) tb.phase = "over";
     if (tb.closed) tb.phase = "done";
   }
   return tb;
@@ -127,7 +132,7 @@ function seatsOfTable(sto, t) {
 }
 // folded = below a CLOSED street's price while still holding chips (all-in players are never folded)
 function foldedAt(s, tb) {
-  if (!tb.exists || tb.phase === "join" || dapp.cursor == null) return 0;
+  if (!tb.exists || tb.phase === "join" || tb.phase === "dealing" || dapp.cursor == null) return 0;
   const closed = tb.phase === "street" ? tb.street - 1 : 4;
   for (let k = 1; k <= closed; k++) if (s.cs[k] !== tb.price(k) && s.stack > 0) return k;
   return 0;
@@ -211,6 +216,12 @@ function doReveal() {
 const settleTable = () => dapp.call("settle", [activeTable], null, "pay the pot to the best hand · table #" + activeTable, { table: activeTable, phase: "settle" });
 const reclaimTable = () => dapp.call("reclaim", [activeTable], null, "reclaim the dead pot · table #" + activeTable, { table: activeTable, phase: "reclaim" });
 const cancelTable = () => dapp.call("cancel", [activeTable], null, "cancel table #" + activeTable, { table: activeTable, phase: "cancel" });
+// the HOST deals: binds the hand to two blocks that don't exist yet — nobody can know the cards
+const startTable = () => dapp.call("start", [activeTable], null, "🃏 deal now · table #" + activeTable, { table: activeTable, phase: "start" });
+function leaveTable() {
+  const s = mySeat(); if (!s) return;
+  dapp.call("leave", [s.g], null, "leave table #" + activeTable + " — full refund", { table: activeTable, seat: s.g, phase: "leave" });
+}
 
 async function refreshActive() {
   await dapp.refresh();
@@ -220,7 +231,7 @@ async function refreshActive() {
     pruneAndTrack(sto);
     if (activeTable != null) {
       lastTable = tableFrom(sto, activeTable);
-      if (lastTable.exists && dapp.cursor != null) {
+      if (lastTable.exists && lastTable.td && dapp.cursor != null) {
         const d0 = lastTable.d0, need = [];
         for (const h of [d0, d0 + S, d0 + 2 * S, d0 + 3 * S]) if (dapp.cursor >= h + 1) need.push(h, h + 1);
         if (need.length) await dapp.blockHashes(need);
@@ -232,11 +243,15 @@ async function refreshActive() {
         (watch.phase === "open" || watch.phase === "join") ? !!_m(sto, "gg")[String(watch.seat)] :
         (watch.phase === "bet") ? (_m(sto, "cs")[String(watch.seat * 8 + watch.k)] || 0) > (watch.prev || 0) :
         (watch.phase === "reveal") ? !!_m(sto, "gd")[String(watch.seat)] :
+        (watch.phase === "start") ? (_m(sto, "td")[String(watch.table)] || 0) > 0 :
+        (watch.phase === "leave") ? !_m(sto, "gg")[String(watch.seat)] :
         (watch.phase === "settle") ? !!_m(sto, "tz")[String(watch.table)] : false;
       if (done) {
         $("status").textContent = { open: "✓ Table confirmed — you're seated. Share the link below to fill it.",
           join: "✓ Seat confirmed — you're in the hand.", bet: "✓ Bet confirmed on-chain.",
-          reveal: "✓ Your hand is shown on-chain.", settle: "✓ Pot paid out." }[watch.phase];
+          reveal: "✓ Your hand is shown on-chain.", settle: "✓ Pot paid out.",
+          start: "✓ Dealt! Cards are locking in the next blocks — hole cards appear once they finalize.",
+          leave: "✓ You left the table — buy-in refunded in full." }[watch.phase];
         watch = null;
       }
     }
@@ -271,7 +286,7 @@ function renderLobby(sto) {
   tables.sort((a, b) => (b.phase === "join") - (a.phase === "join") || b.id - a.id);
   el.innerHTML = tables.length ? tables.slice(0, 24).map((t) => {
     const tag = t.phase === "join" ? "🟢" : t.phase === "showdown" ? "🃏" : t.phase === "over" ? "🏁" : "▶";
-    const info = t.phase === "join" ? " · seats close " + blocksToTime(t.left) : t.phase === "street" ? " · playing" : "";
+    const info = t.phase === "join" ? " · seating open" : t.phase === "street" || t.phase === "dealing" ? " · playing" : "";
     return '<button class="chip ' + (t.phase === "join" ? "betting" : "") + '" data-t="' + t.id + '">' + tag + " #" + t.id
       + " · ante " + rawToNado(t.ante) + " · " + t.seatCount + " player" + (t.seatCount === 1 ? "" : "s") + info + "</button>";
   }).join(" ") : '<span class="dim">No tables yet — open one below.</span>';
@@ -339,7 +354,8 @@ function renderActive() {
   let phaseTxt = dapp.whereIs("table", activeTable, T.ts);
   if (tb.exists) {
     if (tb.closed) phaseTxt = "hand over — settled ✓";
-    else if (tb.phase === "join") phaseTxt = "🟢 seating open — cards deal in " + blocksToTime(tb.left) + " · " + tb.seatCount + " player" + (tb.seatCount === 1 ? "" : "s");
+    else if (tb.phase === "join") phaseTxt = "🟢 seating open — " + tb.seatCount + " player" + (tb.seatCount === 1 ? "" : "s") + " · " + (tb.host === dapp.me ? "YOU deal when ready" : "the host deals when ready");
+    else if (tb.phase === "dealing") phaseTxt = "🃏 dealing — cards lock in " + blocksToTime(tb.left);
     else if (tb.phase === "street") phaseTxt = "▶ " + STREETS[tb.street].toUpperCase() + " betting — street closes in " + blocksToTime(tb.left);
     else if (tb.phase === "showdown") phaseTxt = "🃏 SHOWDOWN — show your cards within " + blocksToTime(tb.left) + " · " + tb.revealCount + " shown";
     else phaseTxt = "🏁 hand finished — pay out below";
@@ -347,21 +363,21 @@ function renderActive() {
   $("gStatus").textContent = phaseTxt;
 
   // the felt: community + my hole cards
-  const board = tb.exists && tb.phase !== "join" && dapp.cursor != null ? boardCards(activeTable, tb.d0) : [];
+  const board = tb.exists && tb.td && dapp.cursor != null ? boardCards(activeTable, tb.d0) : [];
   $("community").innerHTML = handHTML(board, 5, false);
   $("communityNote").textContent = !tb.exists ? "" :
-    tb.phase === "join" ? "the board deals street by street once seating closes" :
+    tb.phase === "join" ? "the board deals street by street once the host deals" :
     board.length === 0 ? "flop lands when its block finalizes…" :
     board.length === 3 ? "turn card is still in future blocks" :
     board.length === 4 ? "river card is still in future blocks" : "";
   let hole = null, holeTxt = "";
   const fk = me && tb.exists ? foldedAt(me, tb) : 0;
-  if (me && tb.exists && tb.phase !== "join") {
+  if (me && tb.exists && tb.td) {
     const rec = load(LS_S)[me.g];
     if (rec && rec.secret) hole = holeCards(dapp.bh(tb.d0), dapp.bh(tb.d0 + 1), BigInt(rec.secret));
     holeTxt = !rec || !rec.secret ? "your secret lives in the browser you joined with — open this page there to see your cards"
-      : !hole ? "your hole cards land when the deal block finalizes…" : "";
-  } else if (me) holeTxt = "your hole cards deal when seating closes";
+      : !hole ? "your hole cards land when the deal blocks finalize…" : "";
+  } else if (me) holeTxt = tb.host === dapp.me ? "hit 🃏 Deal now below when everyone's seated" : "your hole cards deal when the host starts the hand";
   $("holeWrap").classList.toggle("hidden", !me);
   $("hole").innerHTML = handHTML(hole, 2, true);
   let handName = "";
@@ -395,6 +411,21 @@ function renderActive() {
   betRow.classList.add("hidden");
   if (tb.exists && !tb.closed && dapp.me) {
     if (tb.phase === "join" && !me) btn("🪑 Sit down — ante " + rawToNado(tb.ante) + " NADO", joinTable, true);
+    // the HOST controls the start — nothing happens until they deal
+    if (tb.phase === "join" && iAmHost) {
+      if (watch && watch.phase === "start") btn("⏳ Dealing — confirming on-chain…", () => {}, false).disabled = true;
+      else btn(tb.seatCount >= 2 ? "🃏 Deal now — start the hand (" + tb.seatCount + " players)"
+                                 : "🃏 Deal now — or wait for players (share the invite below)", startTable, tb.seatCount >= 2);
+    }
+    if (tb.phase === "join" && me && !iAmHost) {
+      if (watch && watch.phase === "leave") btn("⏳ Leaving — refunding…", () => {}, false).disabled = true;
+      else btn("🚪 Leave the table — full refund (ante + stack)", leaveTable, false);
+    }
+    if (tb.phase === "dealing") {
+      const note = document.createElement("div"); note.className = "small"; note.style.cssText = "flex:1 1 100%;color:var(--accent2);font-weight:700";
+      note.textContent = "🃏 The deal is locked to blocks " + tb.d0 + "–" + (tb.d0 + 1) + " — betting opens the moment they're minted.";
+      wrap.appendChild(note);
+    }
     const rec = me ? (load(LS_S)[me.g] || {}) : {};
     const localFold = !!rec.folded;
     const setFold = (v) => { const S = load(LS_S); if (S[me.g]) { S[me.g].folded = v ? Date.now() : 0; save(LS_S, S); } render(); };
@@ -444,7 +475,7 @@ function renderActive() {
       else {
         const note = document.createElement("div"); note.className = "small"; note.style.cssText = "flex:1 1 100%;color:var(--accent2);font-weight:700";
         note.textContent = "✓ Your hand is shown (" + stillIn.filter((x) => x.revealed).length + "/" + stillIn.length + ") — " +
-          (waitingOn.length ? "waiting on " + waitingOn.map((x) => x.addr === dapp.me ? "you" : disp(x.addr)).join(", ") : "everyone has shown; settle opens when the reveal window closes.");
+          (waitingOn.length ? "waiting on " + waitingOn.map((x) => x.addr === dapp.me ? "you" : disp(x.addr)).join(", ") : "everyone has shown — the pot can settle right now.");
         wrap.appendChild(note);
       }
     }
@@ -463,10 +494,11 @@ function renderActive() {
 let watch = null;   // the submitted action we're waiting to see ON-CHAIN (flips status to "confirmed ✓")
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.table != null) activeTable = pend.table;
-  if (ok && pend && ["open", "join", "bet", "reveal", "settle"].includes(pend.phase)) watch = pend;
+  if (ok && pend && ["open", "join", "bet", "reveal", "settle", "start", "leave"].includes(pend.phase)) watch = pend;
   $("status").textContent = statusLabel(pend, ok, err, {
     open: "Table opening — confirming…", join: "Taking your seat — confirming…", bet: "Bet placed — confirming…",
-    reveal: "Showing your cards — confirming…", settle: "Paying the winner…", reclaim: "Reclaiming…", cancel: "Cancelling…" });
+    reveal: "Showing your cards — confirming…", settle: "Paying the winner…", reclaim: "Reclaiming…", cancel: "Cancelling…",
+    start: "Dealing — confirming…", leave: "Leaving the table — refunding…" });
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }

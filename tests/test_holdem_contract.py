@@ -2,9 +2,13 @@
 # stacks, all-in, layered SIDE POTS with exact splits. Commit-reveal hole cards, beacon community cards,
 # deadline-based betting streets, on-chain 7-card showdown. No house, no dealer, no turn order.
 #
-# THE HAND (all heights derived from t0 = open height; J=20 join, S=30 per street, R=60 reveal):
-#   d0 = t0+J           join closes; hole cards seeded by BH(d0),BH(d0+1) + each player's SECRET (committed
-#                       at open/join as HASH(x) — only you can compute your cards, the chain verifies later)
+# THE HAND (all heights derived from d0 = the DEAL anchor; S=30 per street, R=60 reveal):
+#   seating             open/join escrow buy-ins; seating stays open INDEFINITELY — there is NO timer.
+#                       The HOST controls the start: start(t) sets d0 = td[t] = cursor+2 ("deal now" —
+#                       two blocks that don't exist yet when the host signs, so the deal stays unknowable).
+#                       Before the deal any NON-host seat may leave(g) for a full refund; the host cancels.
+#   d0 = td[t]          hole cards seeded by BH(d0),BH(d0+1) + each player's SECRET (committed at
+#                       open/join as HASH(x) — only you can compute your cards, the chain verifies later)
 #   (d0,     d0+S ]     PREFLOP betting     flop   = BH(d0+S),BH(d0+S+1)   ← unknowable while you bet
 #   (d0+S,   d0+2S]     FLOP betting        turn   = BH(d0+2S),BH(d0+2S+1)
 #   (d0+2S,  d0+3S]     TURN betting        river  = BH(d0+3S),BH(d0+3S+1)
@@ -12,6 +16,8 @@
 #   (d0+4S,  d0+4S+R]   SHOWDOWN: reveal(g, x) — verify commit, derive 7 cards, rank ON-CHAIN (eval7_ops,
 #                       4000/4000 differential-verified incl. kickers).
 #   after d0+4S+R       settle(t): SIDE-POT distribution (below) + every seat's unspent stack refunded.
+#                       EARLY SETTLE: once EVERY seat has revealed (tx==tn) settle runs immediately —
+#                       no dead waiting when the whole table already showed their hands.
 #
 # TABLE STAKES: open/join escrow a BUY-IN (>= the ante); the ante goes to the pot, the rest is your STACK
 # gk[g]. bet(g, amt) moves amt from your stack into the street — no new escrow mid-hand. Betting is
@@ -35,10 +41,11 @@ from holdem_onchain import (vm_hash, draw, hole_ref, board_ref, eval7_ref, deal_
 
 CURSOR=[["CURSOR"]]; VALUE=[["VALUE"]]; BLOCKHASH=[["BLOCKHASH"]]; CALLER=[["CALLER"]]
 PAY=[["PAY"]]; REQ=[["REQUIRE"]]; HALT=[["HALT"]]; LTE=[["LTE"]]
-J, S, GRACE, R = 20, 30, 5, 60
+S, GRACE, R = 30, 5, 60
 MAXP = 9                     # poker-standard table cap; also bounds settle's O(n²) loops + the payout list
 
-# table t: ta=host t0=openHeight ts=ante tp=pot tn=seats tx=reveals tw=bestValue tb=leaderSeat tz=closed
+# table t: ta=host t0=openHeight td=dealAnchor(0=seating) ts=ante tp=pot tn=seats tx=reveals tw=bestValue
+#          tb=leaderSeat tz=closed
 #          ms[t*8+k]=street-k price (k=1..4) · ti[t*16+i]=seat id at join index i (0..tn-1)
 # seat g:  gg=tableId ga=addr gc=commitHash gk=stack gd=revealed gsc=handValue gr=revealedSecret
 #          cs[g*8+k]=street-k contribution
@@ -70,7 +77,7 @@ join_m = (VALUE+P(0)+GT+REQ
   + A(1)+P(0)+GT+REQ + A(1)+LD("gg")+P(0)+EQ+REQ
   + A(0)+LD("ta")+P(0)+EQ+NOT+REQ + A(0)+LD("tz")+NOT+REQ
   + VALUE+A(0)+LD("ts")+GTE+REQ                            # buy-in covers the ante (rest = stack, your choice)
-  + CURSOR+A(0)+LD("t0")+P(J)+ADD+LT+REQ                   # join window open
+  + A(0)+LD("td")+P(0)+EQ+REQ                              # seating open until the HOST deals — no timer
   + A(0)+LD("tn")+P(MAXP)+LT+REQ                           # table cap
   + A(2)+P(0)+EQ+NOT+REQ
   + A(0)+A(0)+LD("tp")+A(0)+LD("ts")+ADD+STm("tp")
@@ -78,6 +85,34 @@ join_m = (VALUE+P(0)+GT+REQ
   + A(1)+VALUE+A(0)+LD("ts")+SUB+STm("gk")
   + (A(0)+P(16)+MUL+A(0)+LD("tn")+ADD) + A(1) + STm("ti")
   + A(0)+A(0)+LD("tn")+P(1)+ADD+STm("tn")
+  + HALT)
+
+# start(t): the HOST deals — binds the hand to two blocks that don't exist yet (nobody, host included,
+# can know the cards when signing). The game NEVER starts on its own; until then seats may leave().
+start_m = (CALLER+A(0)+LD("ta")+EQ+REQ
+  + A(0)+LD("tz")+NOT+REQ
+  + A(0)+LD("td")+P(0)+EQ+REQ                              # deal once
+  + A(0)+CURSOR+P(2)+ADD+STm("td")
+  + HALT)
+
+# leave(g): before the deal a NON-host seat exits with a FULL refund (ante + stack) — the liveness
+# escape for a host who never deals. Join order stays compact: the last seat moves into the hole.
+leave_m = (A(0)+LD("gg")+P(0)+EQ+NOT+REQ
+  + CALLER+A(0)+LD("ga")+EQ+REQ
+  + STR("t", A(0)+LD("gg"))
+  + LDR("t")+LD("tz")+NOT+REQ
+  + LDR("t")+LD("td")+P(0)+EQ+REQ                          # only while seating is open
+  + CALLER + LDR("t")+LD("ta") + EQ+NOT+REQ                # the host cancels instead of leaving
+  + STR("n", LDR("t")+LD("tn"))
+  + STR("ix", P(0))
+  + loop_i("n", lambda: STR("_h", (LDR("t")+P(16)+MUL+LDR("i")+ADD+LD("ti")) + A(0) + EQ)
+                        + STR("ix", LDR("ix") + LDR("_h") + (LDR("i")+LDR("ix")+SUB) + MUL + ADD))
+  + STR("lg", (LDR("t")+P(16)+MUL+LDR("n")+ADD+P(1)+SUB) + LD("ti"))
+  + (LDR("t")+P(16)+MUL+LDR("ix")+ADD) + LDR("lg") + STm("ti")
+  + LDR("t") + LDR("n")+P(1)+SUB + STm("tn")
+  + LDR("t") + (LDR("t")+LD("tp")) + (LDR("t")+LD("ts")) + SUB + STm("tp")
+  + CALLER + (LDR("t")+LD("ts")) + A(0)+LD("gk") + ADD + PAY
+  + A(0)+P(0)+STm("gk") + A(0)+P(0)+STm("gg")
   + HALT)
 
 def _match_loop_bet():
@@ -100,7 +135,8 @@ bet_m = (VALUE+P(0)+EQ+REQ
   + STR("t", A(0)+LD("gg"))
   + LDR("t")+LD("tz")+NOT+REQ
   + A(1)+A(0)+LD("gk")+LTE+REQ                             # table stakes: you bet what you brought
-  + STR("d0", LDR("t")+LD("t0")+P(J)+ADD)
+  + STR("d0", LDR("t")+LD("td"))
+  + LDR("d0")+P(0)+EQ+NOT+REQ                              # the host has dealt
   + CURSOR+LDR("d0")+GTE+REQ
   + CURSOR+LDR("d0")+P(4*S)+ADD+LT+REQ
   + STR("k", CURSOR+LDR("d0")+SUB+P(S)+DIV+P(1)+ADD)
@@ -132,7 +168,8 @@ reveal_m = (A(0)+LD("gg")+P(0)+EQ+NOT+REQ
   + A(0)+LD("gd")+NOT+REQ
   + STR("t", A(0)+LD("gg"))
   + LDR("t")+LD("tz")+NOT+REQ
-  + STR("d0", LDR("t")+LD("t0")+P(J)+ADD)
+  + STR("d0", LDR("t")+LD("td"))
+  + LDR("d0")+P(0)+EQ+NOT+REQ                              # the host has dealt
   + CURSOR+LDR("d0")+P(4*S)+ADD+GTE+REQ
   + CURSOR+LDR("d0")+P(4*S+R)+ADD+LT+REQ
   + A(1)+HASH + A(0)+LD("gc") + EQ + REQ
@@ -247,7 +284,10 @@ def _settle_core():
 
 settle_m = (A(0)+LD("ta")+P(0)+EQ+NOT+REQ
   + A(0)+LD("tz")+NOT+REQ
-  + CURSOR + A(0)+LD("t0")+P(J+4*S+R)+ADD + GTE + REQ
+  + A(0)+LD("td")+P(0)+EQ+NOT+REQ                          # a hand was dealt
+  # the reveal window ended — OR every seat already revealed (nothing left to wait for: settle NOW)
+  + (CURSOR + A(0)+LD("td")+P(4*S+R)+ADD + GTE)
+  + (A(0)+LD("tx") + A(0)+LD("tn") + EQ) + OR + REQ
   + A(0)+LD("tb")+P(0)+EQ+NOT+REQ                          # someone showed a hand
   + STR("n", A(0)+LD("tn"))
   + _gather_ops()
@@ -258,7 +298,8 @@ settle_m = (A(0)+LD("ta")+P(0)+EQ+NOT+REQ
 # reclaim: NOBODY revealed — every stack comes back, the dead pot goes to the host
 reclaim_m = (CALLER+A(0)+LD("ta")+EQ+REQ
   + A(0)+LD("tz")+NOT+REQ
-  + CURSOR + A(0)+LD("t0")+P(J+4*S+R)+ADD + GTE + REQ
+  + A(0)+LD("td")+P(0)+EQ+NOT+REQ                          # a hand was dealt (else cancel/leave)
+  + CURSOR + A(0)+LD("td")+P(4*S+R)+ADD + GTE + REQ
   + A(0)+LD("tb")+P(0)+EQ+REQ
   + STR("n", A(0)+LD("tn"))
   + loop_i("n", lambda: (
@@ -278,8 +319,29 @@ cancel_m = (CALLER+A(0)+LD("ta")+EQ+REQ                    # host alone — refu
   + A(0)+P(1)+STm("tz") + A(0)+P(0)+STm("tp")
   + HALT)
 
-CODE = {"open":open_m, "join":join_m, "bet":bet_m, "reveal":reveal_m,
-        "settle":settle_m, "reclaim":reclaim_m, "cancel":cancel_m}
+# ONE-OFF RESCUE (remove in the NEXT upgrade): tables opened BEFORE the start-flow upgrade have no td and
+# can never be played under the new rules — anyone may annul such a table, refunding every seat its FULL
+# buy-in (ante + street chips + stack). Height-fenced so no post-upgrade table can ever match.
+RESCUE_BEFORE = 7850         # the 2026-07-11 upgrade landed under this height on the live chain
+rescue_m = (A(0)+LD("ta")+P(0)+EQ+NOT+REQ
+  + A(0)+LD("tz")+NOT+REQ
+  + A(0)+LD("td")+P(0)+EQ+REQ                              # never dealt under the new rules
+  + A(0)+LD("t0")+P(RESCUE_BEFORE)+LT+REQ                  # pre-upgrade tables ONLY
+  + STR("n", A(0)+LD("tn"))
+  + loop_i("n", lambda: (
+      STR("g", (A(0)+P(16)+MUL+LDR("i")+ADD) + LD("ti"))
+      + STR("amt", A(0)+LD("ts") + (LDR("g")+LD("gk")) + ADD
+                   + (LDR("g")+P(8)+MUL+P(1)+ADD+LD("cs")) + ADD
+                   + (LDR("g")+P(8)+MUL+P(2)+ADD+LD("cs")) + ADD
+                   + (LDR("g")+P(8)+MUL+P(3)+ADD+LD("cs")) + ADD
+                   + (LDR("g")+P(8)+MUL+P(4)+ADD+LD("cs")) + ADD)
+      + (LDR("g")+LD("ga")) + LDR("amt") + PAY
+      + LDR("g") + P(0) + STm("gk")))
+  + A(0)+P(1)+STm("tz") + A(0)+P(0)+STm("tp")
+  + HALT)
+
+CODE = {"open":open_m, "join":join_m, "start":start_m, "leave":leave_m, "bet":bet_m, "reveal":reveal_m,
+        "settle":settle_m, "reclaim":reclaim_m, "cancel":cancel_m, "rescue":rescue_m}
 
 # ---------------- PYTHON REFERENCE for the side-pot distribution (mirrors settle_m exactly) ----------------
 def settle_ref(seats):
@@ -326,6 +388,9 @@ def call(m,args,val,who): return st.apply_blob({"op":"call","contract":CID,"meth
 def seed_bh(lo, hi, tag):
     for h in range(lo, hi+1): st.block_hashes[h] = vm_hash([tag, h])
 
+# a pre-upgrade-style table for the one-off rescue (opened under RESCUE_BEFORE, never dealt)
+call("open",[90, 900, vm_hash(31), 500], 500+6000, "HOST"); call("join",[90, 901, vm_hash(32)], 500+800, "P8")
+
 ANTE=1000
 T = 50
 xs = {500: 111111, 501: 222222, 502: 333333, 503: 444444}
@@ -338,7 +403,15 @@ call("join",[T, 503, vm_hash(xs[503])], ANTE, "P3")              # stack 0: ALL-
 ck("join: 4 seats, join order recorded, stacks", M("tn",T)==4 and M("ti",T*16+3)==503 and M("gk",502)==10000 and (M("gk",503) or 0)==0)
 ck("buy-in below ante reverts", "revert" in call("join",[T, 599, 7], ANTE-1, "P4"))
 ck("table cap enforced (const)", MAXP==9)
-D0 = T0 + J
+# THE HOST DEALS — nothing starts on its own
+ck("bet before the deal reverts", "revert" in call("bet",[501, 100], 0, "P1"))
+ck("non-host start reverts", "revert" in call("start",[T], 0, "P1"))
+st.cursor += 7                                                   # seating stayed open well past the old timer
+call("start",[T], 0, "HOST")
+D0 = M("td",T)
+ck("start binds the deal to cursor+2 (unknowable when signed)", D0 == st.cursor + 2)
+ck("join after the deal reverts", "revert" in call("join",[T, 598, vm_hash(7)], ANTE, "P4"))
+ck("double start reverts", "revert" in call("start",[T], 0, "HOST"))
 st.cursor = D0 + 2
 
 # ---- PREFLOP: P1 raises 20000; HOST calls; P2 can only all-in 10000; P3 already all-in at 0 ----
@@ -362,12 +435,15 @@ st.cursor = D0 + 4*S + 1
 # ---- SHOWDOWN: HOST, P1, P2 reveal; P3 (all-in from ante) reveals too ----
 board = board_ref(st.block_hashes, D0, S, T)
 vals={}
-for g,who in ((500,"HOST"),(501,"P1"),(502,"P2"),(503,"P3")):
+for g,who in ((500,"HOST"),(501,"P1"),(502,"P2")):
     res = call("reveal",[g, xs[g]], 0, who)
     vals[g] = eval7_ref(board + hole_ref(st.block_hashes, D0, xs[g]))
     ck(f"reveal ok for {who} (all-in eligibility incl.)", M("gd",g)==1 and M("gsc",g)==vals[g])
-# ---- SETTLE: side pots — C: HOST 26000, P1 26000, P2 11000, P3 1000 ----
-st.cursor = D0 + 4*S + R + 1
+ck("settle blocked while reveals may still come (window open, 3/4 shown)", "revert" in call("settle",[T],0,"anyone"))
+call("reveal",[503, xs[503]], 0, "P3")
+vals[503] = eval7_ref(board + hole_ref(st.block_hashes, D0, xs[503]))
+ck("reveal ok for P3 (all-in eligibility incl.)", M("gd",503)==1 and M("gsc",503)==vals[503])
+# ---- SETTLE — EARLY: everyone revealed, so no waiting for the reveal window to close ----
 C = [ANTE+25000, ANTE+25000, ANTE+10000, ANTE]
 ref = settle_ref(list(zip(C, [vals[500],vals[501],vals[502],vals[503]])))
 pre = {w: bal(w) for w in ("HOST","P1","P2","P3")}
@@ -384,7 +460,7 @@ rng = random.Random(0x51DE)
 mism = 0; hands = 0
 for it in range(14):
     st.cursor = 40000 + it*1000
-    t = 800+it; t0 = st.cursor; d0 = t0+J
+    t = 800+it; t0 = st.cursor
     ante = rng.randrange(100, 2000)
     seats = []
     for j in range(rng.randrange(2, 6)):
@@ -393,6 +469,9 @@ for it in range(14):
         if j==0: call("open",[t, g, vm_hash(x), ante], ante+stack, who)
         else:    call("join",[t, g, vm_hash(x)], ante+stack, who)
         seats.append({"g": g, "x": x, "who": who, "stack": stack, "spent": 0, "out": False})
+    st.cursor += rng.randrange(0, 40)                       # the host deals whenever they feel like it
+    call("start",[t], 0, seats[0]["who"])
+    d0 = M("td",t)
     for k in range(1, 5):
         st.cursor = d0 + (k-1)*S + 2
         price = 0
@@ -444,8 +523,9 @@ ck(f"E2E DIFFERENTIAL: {hands-mism}/{hands} random side-pot settlements bytecode
 # reclaim + cancel refunds with stacks
 st.cursor = 90000
 call("open",[60, 600, vm_hash(9), ANTE], ANTE+7777, "HOST"); call("join",[60, 601, vm_hash(10)], ANTE+555, "P5")
-seed_bh(90000+J, 90000+J+3*S+1, "dead")
-st.cursor = 90000 + J + 4*S + R + 1
+ck("reclaim before any deal reverts (nothing to reclaim — leave/cancel instead)", "revert" in call("reclaim",[60],0,"HOST"))
+call("start",[60],0,"HOST")
+st.cursor = M("td",60) + 4*S + R + 1
 b0=bal("HOST"); b1=bal("P5")
 call("reclaim",[60],0,"HOST")
 ck("reclaim: stacks refunded + dead pot to host", bal("HOST")==b0+7777+2*ANTE and bal("P5")==b1+555 and M("tz",60)==1)
@@ -453,6 +533,35 @@ st.cursor = 95000
 call("open",[61, 610, vm_hash(11), ANTE], ANTE+4242, "HOST")
 b0=bal("HOST"); call("cancel",[61],0,"HOST")
 ck("cancel: full buy-in refunded", bal("HOST")==b0+ANTE+4242 and M("tz",61)==1)
+
+# leave: pre-deal exit with a FULL refund; join order compacts; the host cannot leave
+st.cursor = 97000
+call("open",[70, 700, vm_hash(21), ANTE], ANTE+1111, "HOST")
+call("join",[70, 701, vm_hash(22)], ANTE+2222, "P6")
+call("join",[70, 702, vm_hash(23)], ANTE+3333, "P7")
+ck("host cannot leave (cancel instead)", "revert" in call("leave",[700],0,"HOST"))
+ck("you can only leave YOUR seat", "revert" in call("leave",[701],0,"P7"))
+b=bal("P6")
+call("leave",[701],0,"P6")
+ck("leave: full refund, seat freed, order compacted, pot shrunk",
+   bal("P6")==b+ANTE+2222 and M("tn",70)==2 and M("ti",70*16+1)==702 and (M("gg",701) or 0)==0 and M("tp",70)==2*ANTE)
+ck("leave twice reverts", "revert" in call("leave",[701],0,"P6"))
+call("start",[70],0,"HOST")
+ck("leave after the deal reverts", "revert" in call("leave",[702],0,"P7"))
+st.cursor = M("td",70) + 4*S + R + 1
+b0=bal("HOST"); b1=bal("P7")
+call("reclaim",[70],0,"HOST")
+ck("reclaim honours the post-leave roster", bal("HOST")==b0+1111+2*ANTE and bal("P7")==b1+3333 and M("tz",70)==1)
+
+# one-off rescue: the pre-upgrade table (90) annuls with FULL refunds; post-upgrade tables never match
+call("open",[71, 710, vm_hash(24), ANTE], ANTE+100, "HOST")
+ck("rescue of a POST-upgrade table reverts (height fence)", "revert" in call("rescue",[71],0,"anyone"))
+call("cancel",[71],0,"HOST")
+b0=bal("HOST"); b1=bal("P8")
+call("rescue",[90],0,"anyone")
+ck(f"rescue: pre-upgrade table annulled, full buy-ins refunded (HOST +{bal('HOST')-b0}/6500, P8 +{bal('P8')-b1}/1300)",
+   bal("HOST")==b0+500+6000 and bal("P8")==b1+500+800 and M("tz",90)==1 and (M("tp",90) or 0)==0)
+ck("double rescue reverts", "revert" in call("rescue",[90],0,"anyone"))
 
 print("\n"+("ALL PASS" if not F else f"{len(F)} FAILED: {F}"))
 if not F:

@@ -83,45 +83,13 @@ DICE = {"open":d_open, "bet":d_bet, "reveal":d_reveal, "settle":d_settle, "claim
 def d_roll(secret, g): return vm_hash(secret + g) % PN
 
 # ================================================================================================
-# CHESS CODE (copied from tests/test_chess_contract.py)
+# CHESS CODE — loaded from the SHIPPED artifact (execnode/contracts/chess.json), so the audit always
+# attacks exactly what is deployed. (An inline "verbatim copy" went stale once and kept reporting the
+# already-fixed agree-r=4 and cancel-then-join bugs as live exploits.)
 # ================================================================================================
+import os
 WINDOW = 14400
-c_open = [ VALUE, P(0), GT, REQ, A(0), LD("nn"), P(0), EQ, REQ, A(0), VALUE, ST("st"), A(0), VALUE, ST("pt"),
-  A(0), CALLER, ST("p1"), A(0), P(1), ST("nn"), HALT ]
-c_join = [ A(0), LD("nn"), P(1), EQ, REQ, VALUE, A(0), LD("st"), EQ, REQ, CALLER, A(0), LD("p1"), EQ, NOT, REQ,
-  A(0), A(0), LD("pt"), VALUE, ADD, ST("pt"), A(0), CALLER, ST("p2"), A(0), P(2), ST("nn"),
-  A(0), CURSOR, P(WINDOW), ADD, ST("dl"), HALT ]
-c_resign = [ A(0), LD("nn"), P(2), EQ, REQ, A(0), LD("sd"), NOT, REQ,
-  CALLER, A(0), LD("p1"), EQ, CALLER, A(0), LD("p2"), EQ, OR, REQ,
-  A(0), LD("p2"), A(0), LD("pt"), CALLER, A(0), LD("p1"), EQ, MUL, PAY,
-  A(0), LD("p1"), A(0), LD("pt"), CALLER, A(0), LD("p2"), EQ, MUL, PAY,
-  A(0), P(1), ST("sd"), A(0), P(0), ST("pt"), HALT ]
-c_agree = [ A(0), LD("nn"), P(2), EQ, REQ, A(0), LD("sd"), NOT, REQ,
-  A(1), P(0), GT, REQ, A(1), P(4), GT, NOT, REQ,
-  A(0), A(0), LD("a1"), CALLER, A(0), LD("p1"), EQ, NOT, MUL, A(1), CALLER, A(0), LD("p1"), EQ, MUL, ADD, ST("a1"),
-  A(0), A(0), LD("a2"), CALLER, A(0), LD("p2"), EQ, NOT, MUL, A(1), CALLER, A(0), LD("p2"), EQ, MUL, ADD, ST("a2"),
-  A(0), LD("p1"),
-      A(0), LD("pt"), A(0), LD("a1"), P(1), EQ, MUL,
-      A(0), LD("st"), A(0), LD("a1"), P(3), EQ, MUL, ADD,
-      A(0), LD("a1"), A(0), LD("a2"), EQ, A(0), LD("a1"), P(0), GT, MUL, MUL, PAY,
-  A(0), LD("p2"),
-      A(0), LD("pt"), A(0), LD("a1"), P(2), EQ, MUL,
-      A(0), LD("st"), A(0), LD("a1"), P(3), EQ, MUL, ADD,
-      A(0), LD("a1"), A(0), LD("a2"), EQ, A(0), LD("a1"), P(0), GT, MUL, MUL, PAY,
-  A(0), A(0), LD("a1"), A(0), LD("a2"), EQ, A(0), LD("a1"), P(0), GT, MUL, ST("sd"),
-  A(0), A(0), LD("pt"), P(1), A(0), LD("a1"), A(0), LD("a2"), EQ, A(0), LD("a1"), P(0), GT, MUL, SUB, MUL, ST("pt"),
-  HALT ]
-c_abort = [ A(0), LD("nn"), P(2), EQ, REQ, A(0), LD("sd"), NOT, REQ, CURSOR, A(0), LD("dl"), GT, REQ,
-  A(0), LD("p1"), A(0), LD("st"), PAY, A(0), LD("p2"), A(0), LD("st"), PAY,
-  A(0), P(1), ST("sd"), A(0), P(0), ST("pt"), HALT ]
-c_cancel = [ A(0), LD("nn"), P(1), EQ, REQ, CALLER, A(0), LD("p1"), EQ, REQ, A(0), LD("sd"), NOT, REQ,
-  A(0), LD("p1"), A(0), LD("pt"), PAY, A(0), P(1), ST("sd"), A(0), P(0), ST("pt"), HALT ]
-c_move = [ A(0), LD("nn"), P(2), EQ, REQ, A(0), LD("sd"), NOT, REQ, A(1), P(0), GT, REQ,
-  CALLER, A(0), LD("p1"), EQ, A(0), LD("mc"), P(2), MOD, P(0), EQ, AND,
-  CALLER, A(0), LD("p2"), EQ, A(0), LD("mc"), P(2), MOD, P(1), EQ, AND, OR, REQ,
-  A(0), P(10000), MUL, A(0), LD("mc"), ADD, A(1), ST("mv"),
-  A(0), A(0), LD("mc"), P(1), ADD, ST("mc"), A(0), CURSOR, P(WINDOW), ADD, ST("dl"), HALT ]
-CHESS = {"open":c_open, "join":c_join, "move":c_move, "resign":c_resign, "agree":c_agree, "abort":c_abort, "cancel":c_cancel}
+CHESS = json.load(open(os.path.join(os.path.dirname(__file__), "..", "execnode", "contracts", "chess.json")))
 
 # ---- harness --------------------------------------------------------------------------------------
 EXPLOITS=[]; ROBUST=[]
@@ -336,14 +304,15 @@ CH.st.cursor=100
 
 # --- ATTACK: move() authz / turn / no-fund ---
 CH.call("open",[30],S,"W"); CH.call("join",[30],S,"B")
-r1="revert" in CH.call("move",[30,1804],0,"B")   # black first
-r2="revert" in CH.call("move",[30,1804],0,"EVE") # non-player
+r1="revert" in CH.call("move",[30,1804,0],0,"B")   # black first
+r2="revert" in CH.call("move",[30,1804,0],0,"EVE") # non-player
 c_before=CH.bal(CH.CID)
-CH.call("move",[30,1804],0,"W")
-r3="revert" in CH.call("move",[30,777],0,"W")    # white twice
-CH.call("move",[30,2000],0,"B")
-if r1 and r2 and r3 and CH.bal(CH.CID)==c_before: rep_robust("chess: move() enforces turn+player and NEVER touches funds")
-else: rep_exploit("MED","chess move","move authz/turn broken or move moved funds")
+CH.call("move",[30,1804,0],0,"W")
+r3="revert" in CH.call("move",[30,777,1],0,"W")    # white twice
+r4="revert" in CH.call("move",[30,1804,0],0,"W")   # stale retry of ply 0 (the 2026-07-11 corruption race)
+CH.call("move",[30,2000,1],0,"B")
+if r1 and r2 and r3 and r4 and CH.bal(CH.CID)==c_before: rep_robust("chess: move() enforces turn+player+ply and NEVER touches funds")
+else: rep_exploit("MED","chess move","move authz/turn/ply broken or move moved funds")
 
 # ==================================================================================================
 # ATTACK 6 (flagged): agree() OUT-OF-RANGE r=4 slips the guard.  A(1) P(4) GT NOT REQ accepts r<=4.

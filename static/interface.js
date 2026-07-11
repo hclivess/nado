@@ -2570,7 +2570,11 @@ const RANDAO_RETRY_BLOCKS = 12;          // re-submit an unconfirmed commit/reve
 function randaoKey() { return "nado_randao_" + state.wallet.address; }
 function loadRandao() { try { return JSON.parse(localStorage.getItem(randaoKey()) || "{}"); } catch { return {}; } }
 function saveRandao(m) { try { localStorage.setItem(randaoKey(), JSON.stringify(m)); } catch (e) { /* quota */ } }
-function randaoSecretHex() { const b = new Uint8Array(32); crypto.getRandomValues(b); return bytesToHex(b); }
+// The epoch secret is DERIVED from the wallet key (like ETH validators' deterministic randao_reveal):
+// every device holding this wallet computes the SAME secret, so phone+desktop mining can never
+// split-brain an epoch (device A commits secret A, device B sees "Already committed", then B's reveal
+// "does not open the commitment" — the exact failure this replaces). Only the key holder can compute it.
+function randaoSecretFor(epoch) { return blake2bHash(["nado-randao-secret", masterSeedOf() || state.wallet.privateKey, Number(epoch)]); }
 
 let _randaoBusy = false;
 async function maybeRandao() {
@@ -2595,7 +2599,7 @@ async function maybeRandao() {
       const tb = Math.min(latest + 5, (epochNow + 1) * EPOCH_LENGTH - 1);
       const due = !rec || rec.lastTry == null || (latest - rec.lastTry) >= RANDAO_RETRY_BLOCKS;
       if (tb > latest && due) {
-        if (!rec) { rec = store[eCommit] = { secret: randaoSecretHex() }; }
+        if (!rec) { rec = store[eCommit] = { secret: randaoSecretFor(eCommit) }; }
         rec.lastTry = latest; dirty = true;
         const commitment = blake2bHash(["nado-randao-commit", rec.secret]);
         const tx = buildTransferTx(state.wallet, "commit", 0n, 0,
@@ -2629,6 +2633,10 @@ async function maybeRandao() {
         } else if (/no matching commit/i.test(msg)) {
           rrec.revealed = true;        // commit never landed; nothing more to do for this epoch
           log("err", i18("log.randaoNoCommit", "RANDAO: commit for epoch {e} never landed — bonded rewards skip this epoch.", {e: eReveal}));
+        } else if (/does not open the commitment/i.test(msg)) {
+          rrec.revealed = true;        // a DIFFERENT device committed its own secret for this epoch (old
+          // random-secret scheme). Unwinnable — stop retrying; deterministic secrets prevent this now.
+          log("err", i18("log.randaoSplit", "RANDAO: epoch {e} was committed by another device with a different secret — skipping it (future epochs are safe: secrets are now derived from the key).", {e: eReveal}));
         } else if (!(res.data && res.data.result) && msg) {
           log("err", i18("log.randaoRevealErr", "RANDAO reveal rejected: {m}", {m: msg.slice(0, 120)}));
         }

@@ -100,8 +100,11 @@ async function joinGame() {
 }
 function submitMove(m) {
   const enc = encMove(m);
+  // PLY BINDING: the tx names the exact ply it plays at (the contract requires it), so a stale
+  // wallet retry of THIS move can never land turns later against a changed position.
+  const ply = lastGame ? lastGame.mc : 0;
   pendingEnc = enc; selected = null; render();
-  dapp.call("move", [activeGame, enc], null, "move " + m.from + m.to + (m.promotion ? "=" + m.promotion.toUpperCase() : "") + " · game #" + activeGame, { game: activeGame, phase: "move" });
+  dapp.call("move", [activeGame, enc, ply], null, "move " + m.from + m.to + (m.promotion ? "=" + m.promotion.toUpperCase() : "") + " · game #" + activeGame, { game: activeGame, phase: "move" });
 }
 const resignGame = () => dapp.call("resign", [activeGame], null, "resign game #" + activeGame, { game: activeGame, phase: "resign" });
 const agree = (r) => dapp.call("agree", [activeGame, r], null, (r === 3 ? "agree a draw" : "confirm the result") + " · game #" + activeGame, { game: activeGame, phase: "agree" });

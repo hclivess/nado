@@ -103,10 +103,10 @@
   <!-- OPEN A TABLE -->
   <div class="card-box hidden" id="opencard">
     <h2>🪑 Open a table</h2>
-    <p class="small dim">Set the ante — everyone (you included) pays it into the pot to sit down. Seating stays open ~2 minutes, then the hand deals and plays itself out on-chain: four betting streets, then showdown.</p>
+    <p class="small dim">Set the ante — everyone (you included) pays it into the pot to sit down. Seating stays open until <b>you deal</b> — you control the start; then the hand plays itself out on-chain: four betting streets, then showdown.</p>
     <div class="row">
       <input id="anteAmt" value="1" placeholder="ante (NADO)" inputmode="decimal" autocomplete="off">
-      <input id="buyinAmt" value="1" placeholder="buy-in (NADO) — ante + your stack" inputmode="decimal" autocomplete="off">
+      <input id="buyinAmt" value="20" placeholder="buy-in (NADO) — ante + your stack" inputmode="decimal" autocomplete="off">
       <button class="primary" id="btnNewTable" style="flex:0 0 auto">Open table</button>
     </div>
     <p class="small dim mt">Table stakes: your buy-in covers the ante (into the pot) and the rest is your <b>stack</b> — the chips you bet with this hand. A common buy-in is 20–50× the ante. Whatever you don't bet comes back at settle.</p>
