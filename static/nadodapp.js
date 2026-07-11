@@ -300,6 +300,8 @@ export class NadoDapp {
     this.cid = cid; this.app = app; this.ns = ns;
     const slug = app.replace(/\W+/g, "").toLowerCase();
     this.LS_ME = "nado_" + slug + "_me"; this.LS_P = "nado_" + slug + "_pending"; this.LS_INVITE = "nado_" + slug + "_invite";
+    this.LS_AUTOCOLLECT = "nado_" + slug + "_autocollect";   // opt-out flag for auto-collect (default ON)
+    this._autoTried = new Set();   // settle targets already attempted this session (stops a rejected settle looping)
     this.me = localStorage.getItem(this.LS_ME) || null;
     this.exec = 0n; this.l1 = 0n; this.cursor = null;
     this._inviteFn = null;   // a followed share-link's join intent — sticky until the join actually commits

@@ -1124,8 +1124,10 @@ function render() {
   const signedIn = renderWallet(dapp);
   gate({ bankroll: signedIn, myPets: signedIn, adopt: signedIn, battlesCard: signedIn });
   let mintLeft = 0; try { mintLeft = parseInt(localStorage.getItem("nado_pets_mintq") || "0", 10) || 0; } catch (e) {}
+  const qty = Math.max(1, Math.min(20, parseInt(($("mintQty") || {}).value, 10) || 1));
   $("btnMint").disabled = dapp.busy("mint") || mintLeft > 0;
-  $("btnMint").textContent = mintLeft > 0 ? "⏳ Adopting… (" + mintLeft + " left)" : dapp.busy("mint") ? "⏳ Egg confirming on-chain…" : "🥚 Adopt · burn 1 NADO";
+  $("btnMint").textContent = mintLeft > 0 ? "⏳ Adopting… (" + mintLeft + " left)" : dapp.busy("mint") ? "⏳ Egg confirming on-chain…"
+    : qty > 1 ? "🥚 Adopt " + qty + " eggs · burn " + qty + " NADO" : "🥚 Adopt an egg · burn 1 NADO";
   if ($("burnTally")) $("burnTally").textContent = BURNED > 0n ? "🔥 " + rawToNado(BURNED) + " NADO burned by pets so far — adoption, food and training all destroy supply." : "";
   renderActive(); renderGrids(); renderBattles(); renderArena();
 }
@@ -1135,6 +1137,7 @@ function wireUI() {
   wireWallet(dapp);
   stickyInputs(dapp, ['feedAmt', 'bankAmt', 'offerAmt', 'listPrice', 'stakeAmt']);   // typed amounts persist across turns
   $("btnMint").onclick = mintMany;
+  if ($("mintQty")) $("mintQty").oninput = () => render();
   $("btnHatch").onclick = () => hatch(active);
   if ($("btnHatchAll")) $("btnHatchAll").onclick = hatchAll;
   $("btnRebirth").onclick = () => rebirth(active);
