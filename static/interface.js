@@ -2151,6 +2151,10 @@ function adoptWallet(w, { needsSavePrompt }) {
     $("newAddr").textContent = w.address;
     $("ackSave").checked = false;
     $("btnConfirmSave").disabled = true;
+    // fresh save screen -> restart the onboarding pulse chain at the Download button
+    $("btnDlKeySave").classList.add("pulse-ready");
+    const _tr = document.querySelector("#savePrompt .tgl-track");
+    if (_tr) _tr.classList.remove("pulse-ready");
     show("onboard", false);
     show("savePrompt", true);
   } else {
@@ -2432,6 +2436,22 @@ async function submitAndReport(tx, label, msgId) {
   setMsg(msgId, `${label} rejected: ${m}`, "err");
   log("err", `${label} rejected: ${m}`);
   return false;
+}
+
+async function sendAllToAmount() {
+  // "Send all": fill the amount with the LIVE spendable balance minus the network fee, so the account
+  // empties exactly (dust included) — amount + fee == balance passes the spend check with 0 raw left.
+  // Only fills the field; the user still reviews + confirms via the normal doSend dialog.
+  if (!state.wallet) return;
+  const fee = BigInt(await currentFeeRaw());
+  const acc = await getAccount(state.wallet.address);
+  const all = BigInt((acc && acc.balance) || 0) - fee;
+  if (all <= 0n) {
+    setMsg("sendMsg", i18("msg.dustBelowFee", "Balance is below the network fee — nothing to send."), "err");
+    return;
+  }
+  $("sendAmount").value = rawToNado(all);
+  setMsg("sendMsg", i18("msg.sendAllSet", "Amount set to your entire spendable balance minus the network fee ({a} NADO).", { a: rawToNado(all) }), null);
 }
 
 async function doSend() {
@@ -4854,7 +4874,14 @@ function wireEvents() {
       adoptWallet(keypairFromPriv(priv), { needsSavePrompt: false });
     } catch (e) { uiAlert(i18("import.pasteFailed", "Import failed:") + " " + e.message); }
   };
-  $("ackSave").onchange = (e) => { $("btnConfirmSave").disabled = !e.target.checked; };
+  // ONBOARDING PULSE HANDOFF: the save screen guides the eye through its steps — the Download button
+  // pulses first (static pulse-ready class in the HTML); downloading hands the pulse to the ack toggle;
+  // acking hands it to Continue (whose own pulse-ready arms via :not(:disabled) the moment it enables).
+  $("ackSave").onchange = (e) => {
+    $("btnConfirmSave").disabled = !e.target.checked;
+    const track = document.querySelector("#savePrompt .tgl-track");
+    if (track) track.classList.toggle("pulse-ready", !e.target.checked && !$("btnDlKeySave").classList.contains("pulse-ready"));
+  };
   $("btnConfirmSave").onclick = () => {
     state.wallet = pendingWallet; pendingWallet = null;
     persistWallet(state.wallet);
@@ -4897,7 +4924,13 @@ function wireEvents() {
 
   // --- full-wallet wiring ---
   $("btnDlKey").onclick = downloadKeyFile;
-  $("btnDlKeySave").onclick = downloadKeyFile;
+  $("btnDlKeySave").onclick = () => {
+    downloadKeyFile();
+    // key saved -> hand the onboarding pulse from Download to the "I have saved it" toggle
+    $("btnDlKeySave").classList.remove("pulse-ready");
+    const track = document.querySelector("#savePrompt .tgl-track");
+    if (track && !$("ackSave").checked) track.classList.add("pulse-ready");
+  };
   if ($("btnSwapLock")) $("btnSwapLock").onclick = () => swapLock();
   if ($("btnSwapClaim")) $("btnSwapClaim").onclick = () => swapClaim();
   if ($("btnShield")) $("btnShield").onclick = () => doShield();
@@ -4928,6 +4961,7 @@ function wireEvents() {
   document.querySelectorAll("#tabbar .tab").forEach((b) => { b.onclick = () => { showTab(b.dataset.tabbtn); b.blur(); }; });
 
   $("btnSend").onclick = () => doSend();
+  if ($("btnSendAll")) $("btnSendAll").onclick = () => sendAllToAmount();
   if ($("btnSaveContact")) $("btnSaveContact").onclick = () => saveCurrentContact();
   $("sendTo").oninput = validateSendTo;
   $("btnBond").onclick = () => doBond("bond");
