@@ -94,6 +94,10 @@
       <input id="stakeAmt" value="1" placeholder="bet (NADO)" inputmode="decimal" autocomplete="off">
       <button class="primary" id="btnSpin" style="flex:2 1 auto">🎰 SPIN</button>
     </div>
+    <div id="stakeSliderWrap" class="hidden">
+      <input type="range" id="stakeSlider" min="0" max="100" value="0" step="0.01" class="mt">
+      <div class="kv"><span class="k" id="stakeSliderVal"></span><span class="mono" id="btnMaxBet" style="cursor:pointer;color:var(--gold)">Max: <span id="maxBetVal"></span></span></div>
+    </div>
     <button class="primary hidden mt" id="btnCollect" style="width:100%"></button>
     <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1">Auto-collect my spins — settles for me the moment a spin resolves</span></label>
     <div class="spins mt" id="mySpins"></div>

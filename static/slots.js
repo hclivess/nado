@@ -46,7 +46,21 @@ function machineFrom(sto, t) {
   return { exists: true, id: Number(t), bank, tk: _m(sto, "tk")[t] || 0, tp: _m(sto, "tp")[t] || 0,
     tc: _m(sto, "tc")[t] || 0, tn: _m(sto, "tn")[t] || 0, tx: _m(sto, "tx")[t] || 0, closed: !!_m(sto, "tz")[t] };
 }
-const maxBet = (mc) => Math.max(0, Math.floor((mc.tk - mc.tc) / COVER));
+const maxBet = (mc) => Math.max(0, Math.floor((mc.tk - mc.tc) / COVER));   // biggest bet the bank can 150×-cover (raw)
+function syncStakeSlider() {
+  const sl = $("stakeSlider"), wrap = $("stakeSliderWrap"); if (!sl || !wrap) return;
+  const mc = lastTable;
+  const maxRaw = (mc && mc.exists && !mc.closed) ? BigInt(maxBet(mc)) : 0n;
+  if (maxRaw <= 0n) { wrap.classList.add("hidden"); return; }
+  wrap.classList.remove("hidden");
+  const maxN = parseFloat(rawToNado(maxRaw)) || 0;
+  sl.max = String(maxN);
+  sl.step = String(Math.max(maxN / 200, 0.001));
+  const curN = parseFloat($("stakeAmt").value) || 0;
+  sl.value = String(Math.min(curN, maxN));
+  $("maxBetVal").textContent = rawToNado(maxRaw) + " NADO";
+  $("stakeSliderVal").textContent = "bet " + ($("stakeAmt").value || "0") + " NADO";
+}
 function spinsOf(sto, t) {
   t = String(t); const gg = _m(sto, "gg"), cur = dapp.cursor, out = [];
   for (const g of Object.keys(gg)) if (String(gg[g]) === t) {
@@ -207,8 +221,7 @@ function render() {
   $("bankTag").textContent = "— banked by " + (iAmBank ? "YOU" : disp(mc.bank)) + (mc.closed ? " · CLOSED" : "");
   $("gBank").textContent = rawToNado(mc.tk) + " NADO" + (mc.tc ? " (" + rawToNado(mc.tc) + " reserved)" : "");
   $("gMax").textContent = rawToNado(maxBet(mc)) + " NADO";
-  $("btnSpin").disabled = mc.closed || !dapp.me || dapp.busy("spin");
-  $("btnSpin").textContent = dapp.busy("spin") ? "⏳ Spinning…" : mc.closed ? "machine closed" : "🎰 SPIN";
+  syncStakeSlider();
   gate({ fundRow: iAmBank && !mc.closed });
   // the newest of MY spins drives the reels — ordered by the LOCAL submit time (seat ids are random, so
   // sorting by id would let an old spin hijack the reels and freeze the animation on rapid re-spins)
@@ -216,9 +229,12 @@ function render() {
   const mineSpins = mySpins.filter((s) => s.addr === dapp.me)
     .sort((a, b) => ((Sloc[String(b.g)] || {}).ts || 0) - ((Sloc[String(a.g)] || {}).ts || 0) || b.g - a.g);
   const cur = mineSpins[0];
-  // spin the reels the instant the lever is pulled (busy = submitted, seat not on-chain yet) and keep them
-  // spinning through the pending window, so mashing SPIN never leaves them stuck on a stale result
-  if (dapp.busy("spin") || (cur && cur.pending)) { setReels(null, true, false); $("spinVerdict").textContent = "🎲 The chain is spinning the reels…"; }
+  // SPINNING = the lever was just pulled (busy, seat not on-chain yet) OR the newest spin is still resolving.
+  // The SPIN button is locked for the WHOLE window — you can't fire a second spin over a spinning reel.
+  const spinning = dapp.busy("spin") || (cur && cur.pending);
+  $("btnSpin").disabled = mc.closed || !dapp.me || spinning;
+  $("btnSpin").textContent = spinning ? "🎲 Spinning…" : mc.closed ? "machine closed" : "🎰 SPIN";
+  if (spinning) { setReels(null, true, false); $("spinVerdict").textContent = "🎲 The chain is spinning the reels…"; }
   else if (!cur) { setReels(null, false, false); $("spinVerdict").textContent = mc.closed ? "This machine is closed." : "Place a bet and pull the lever."; }
   else if (cur.syms) {
     const win = cur.m2 > 0, payout = BigInt(cur.stake) * BigInt(cur.m2) / 2n;
@@ -262,6 +278,9 @@ function wireUI() {
   $("btnSpin").onclick = doSpin;
   $("btnFund").onclick = fundMachine;
   $("btnCollect").onclick = collectWins;
+  if ($("stakeAmt")) $("stakeAmt").oninput = () => syncStakeSlider();
+  if ($("stakeSlider")) $("stakeSlider").oninput = () => { $("stakeAmt").value = String($("stakeSlider").value); syncStakeSlider(); };
+  if ($("btnMaxBet")) $("btnMaxBet").onclick = () => { const mc = lastTable; if (mc && mc.exists && !mc.closed) { const m = maxBet(mc); if (m > 0) { $("stakeAmt").value = rawToNado(BigInt(m)); syncStakeSlider(); } } };
   const ac = $("autoCollect");
   if (ac) { ac.checked = localStorage.getItem("nado_slots_autocollect") !== "0";
     ac.onchange = () => { try { localStorage.setItem("nado_slots_autocollect", ac.checked ? "1" : "0"); } catch (e) {} }; }

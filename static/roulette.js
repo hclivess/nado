@@ -189,6 +189,28 @@ function selectGroup(key) { selected = new Set((GROUPS[key] || []).slice(0, MAXS
 function paintTable() { document.querySelectorAll("#tableGrid .cell[data-n]").forEach((b) => b.classList.toggle("sel", selected.has(parseInt(b.dataset.n, 10)))); }
 
 // ---- render --------------------------------------------------------------------------------------
+// MAX BET: the biggest stake this table can cover for the current selection. A win returns stake*M, so the
+// bank's exposure is stake*(M-1) and it must fit the free bankroll:  stake <= (bankroll-committed)/(M-1).
+function maxBetRaw() {
+  const tb = lastTable, M = betMult();
+  if (!tb || !tb.exists || tb.closed || M <= 1) return null;
+  const free = BigInt(tb.bankroll) - BigInt(tb.committed);
+  if (free <= 0n) return null;
+  return free / BigInt(M - 1);
+}
+function syncStakeSlider() {
+  const sl = $("stakeSlider"), wrap = $("stakeSliderWrap"); if (!sl || !wrap) return;
+  const maxRaw = maxBetRaw();
+  if (maxRaw == null || maxRaw <= 0n) { wrap.classList.add("hidden"); return; }
+  wrap.classList.remove("hidden");
+  const maxN = parseFloat(rawToNado(maxRaw)) || 0;
+  sl.max = String(maxN);
+  sl.step = String(Math.max(maxN / 200, 0.001));
+  const curN = parseFloat($("stakeAmt").value) || 0;
+  sl.value = String(Math.min(curN, maxN));
+  $("maxBetVal").textContent = rawToNado(maxRaw) + " NADO";
+  $("stakeSliderVal").textContent = "stake " + ($("stakeAmt").value || "0") + " NADO";
+}
 function wireUI() {
   wireWallet(dapp);
   stickyInputs(dapp, ['stakeAmt', 'bankrollAmt', 'fundAmt', 'bankAmt', 'betAmt']);   // typed amounts persist across turns
@@ -196,6 +218,8 @@ function wireUI() {
   $("btnBet").onclick = doBet;
   $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = "Enter a table ID, or pick one from the lobby."; };
   $("stakeAmt").oninput = () => render();
+  $("stakeSlider").oninput = () => { $("stakeAmt").value = String($("stakeSlider").value); render(); };
+  $("btnMaxBet").onclick = () => { const m = maxBetRaw(); if (m && m > 0n) { $("stakeAmt").value = rawToNado(m); render(); } };
   $("btnClose").onclick = closeTable;
   const ac = $("autoCollect");
   if (ac) { ac.checked = localStorage.getItem("nado_roulette_autocollect") !== "0";
@@ -229,6 +253,7 @@ function render() {
     else if (tb && !bankCovers) hint = "This table's bankroll can't cover a " + M + "× win (free: " + rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) + " NADO). Lower your stake, widen your bet, or Top up the bankroll.";
   }
   const jh = $("joinHint"); if (jh) { jh.textContent = hint; jh.classList.toggle("hidden", !hint); }
+  syncStakeSlider();   // keep the max-bet slider in step with the selection + live free cover
   // "Your tables" — never hide a placed bet/table; mark pending until it lands
   const T = load(LS_T), S = load(LS_S), mine = [];
   for (const t of Object.keys(T)) mine.push({ id: +t, role: "bank", ts: T[t].ts });

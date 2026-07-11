@@ -167,6 +167,10 @@
     <div id="betBuilder" class="mt">
       <label>Build your bet for the next spin</label>
       <input id="stakeAmt" value="1" placeholder="stake (NADO)" inputmode="decimal" autocomplete="off">
+      <div id="stakeSliderWrap" class="hidden">
+        <input type="range" id="stakeSlider" min="0" max="100" value="0" step="0.01" class="mt">
+        <div class="meter"><div class="m"><span id="stakeSliderVal"></span></div><div class="m" style="text-align:right"><b class="sel" id="btnMaxBet" style="cursor:pointer">Max: <span id="maxBetVal"></span></b><span>most this table can cover now</span></div></div>
+      </div>
       <div class="tablewrap mt" id="betTable">
         <div class="rtable">
           <div id="tableGrid"></div>
