@@ -2571,14 +2571,13 @@ function randaoKey() { return "nado_randao_" + state.wallet.address; }
 function loadRandao() { try { return JSON.parse(localStorage.getItem(randaoKey()) || "{}"); } catch { return {}; } }
 function saveRandao(m) { try { localStorage.setItem(randaoKey(), JSON.stringify(m)); } catch (e) { /* quota */ } }
 // The epoch secret is DERIVED from the wallet key (like ETH validators' deterministic randao_reveal):
-// every device holding this wallet computes the SAME secret, so phone+desktop mining can never
-// split-brain an epoch (device A commits secret A, device B sees "Already committed", then B's reveal
-// "does not open the commitment" — the exact failure this replaces). Only the key holder can compute it.
+// every device holding this wallet computes the SAME secret, so multi-device mining can never
+// split-brain an epoch. Only the key holder can compute it; the commit binds it two epochs ahead.
 function randaoSecretFor(epoch) { return blake2bHash(["nado-randao-secret", masterSeedOf() || state.wallet.privateKey, Number(epoch)]); }
 
 let _randaoBusy = false;
-const _randaoDead = new Set();     // epochs proven unwinnable THIS SESSION — never resubmit, whatever localStorage says
-let _randaoSplitLogged = false;    // the split-brain explanation is logged ONCE, then doomed epochs skip silently
+const _randaoDead = new Set();     // epochs with a DETERMINISTIC reveal rejection — same inputs give the same
+                                   // answer, so a resubmit can never succeed; never send one twice
 async function maybeRandao() {
   if (_randaoBusy || !state.wallet || state.locked || state.latest == null) return;
   _randaoBusy = true;
@@ -2636,13 +2635,8 @@ async function maybeRandao() {
           rrec.revealed = true; _randaoDead.add(eReveal); saveRandao(store);   // persist NOW, not just end-of-cycle
           log("err", i18("log.randaoNoCommit", "RANDAO: commit for epoch {e} never landed — bonded rewards skip this epoch.", {e: eReveal}));
         } else if (/does not open the commitment/i.test(msg)) {
-          // a device still running the OLD wallet committed its own random secret for this epoch.
-          // Unwinnable from here (that device can still reveal it itself) — go quiet, never resubmit.
-          rrec.revealed = true; _randaoDead.add(eReveal); saveRandao(store);
-          if (!_randaoSplitLogged) {
-            _randaoSplitLogged = true;
-            log("err", i18("log.randaoSplit", "RANDAO: another of your devices is still running the OLD wallet and committing its own secrets (epoch {e}) — RELOAD the wallet page on every device. That device can still reveal its own epochs; this one will skip them silently from now on.", {e: eReveal}));
-          }
+          rrec.revealed = true; _randaoDead.add(eReveal); saveRandao(store);   // deterministic — retrying can't help
+          log("err", i18("log.randaoRevealErr", "RANDAO reveal rejected: {m}", {m: msg.slice(0, 120)}));
         } else if (!(res.data && res.data.result) && msg) {
           log("err", i18("log.randaoRevealErr", "RANDAO reveal rejected: {m}", {m: msg.slice(0, 120)}));
         }
