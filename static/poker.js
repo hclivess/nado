@@ -295,8 +295,10 @@ function renderLobby(sto) {
   }).join(" ") : '<span class="dim">No tables yet — open one below.</span>';
   el.querySelectorAll(".chip").forEach((b) => b.onclick = () => selectTable(parseInt(b.dataset.t, 10)));
 }
+let buyinEdited = false;   // the player typed their own buy-in — stop auto-suggesting
 function selectTable(id) {
   activeTable = id; $("joinId").value = String(id);
+  buyinEdited = false;     // fresh table -> fresh suggestion (match the host)
   $("status").textContent = "Table #" + id + " selected.";
   refreshActive();
   try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
@@ -314,7 +316,16 @@ const handHTML = (cards, n, big) => Array.from({ length: n }, (_, i) => cardHTML
 // ---- render --------------------------------------------------------------------------------------
 function wireUI() {
   wireWallet(dapp);
-  stickyInputs(dapp, ['anteAmt', 'buyinAmt', 'betAmt', 'bankAmt', 'stakeAmt']);   // typed amounts persist across turns
+  stickyInputs(dapp, ['anteAmt', 'betAmt', 'bankAmt', 'stakeAmt']);   // typed amounts persist across turns
+  // the BUY-IN is context-dependent (never sticky, never a fixed default): it follows the ante when you
+  // open (20x) and matches the HOST's buy-in when you join — until you type your own number.
+  $("buyinAmt").addEventListener("input", () => { buyinEdited = true; });
+  $("anteAmt").addEventListener("input", () => {
+    if (buyinEdited) return;
+    const a = parseFloat($("anteAmt").value);
+    if (a > 0) $("buyinAmt").value = String(Math.round(a * 20 * 1e6) / 1e6);
+  });
+  if (!$("buyinAmt").value) $("buyinAmt").value = String((parseFloat($("anteAmt").value) || 1) * 20);
   $("btnNewTable").onclick = newTable;
   $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = "Enter a table ID, or pick one from the lobby."; };
   $("btnReclaim").onclick = reclaimTable;
@@ -413,8 +424,13 @@ function renderActive() {
   const btn = (txt, fn, primary) => { const b = document.createElement("button"); b.className = primary ? "primary" : "ghost"; b.style.flex = "1 1 auto"; b.textContent = txt; b.onclick = fn; wrap.appendChild(b); return b; };
   const betRow = $("betRow");
   betRow.classList.add("hidden");
+  // joining? suggest the HOST's buy-in (ante + host stack) so a 0.1-ante table never asks for 20 NADO
+  if (tb.exists && tb.phase === "join" && !me && !buyinEdited && lastSeats.length) {
+    const host = lastSeats.find((s) => s.addr === tb.host) || lastSeats[0];
+    $("buyinAmt").value = rawToNado(Number(tb.ante) + host.stack);
+  }
   if (tb.exists && !tb.closed && dapp.me) {
-    if (tb.phase === "join" && !me) btn("🪑 Sit down — ante " + rawToNado(tb.ante) + " NADO", joinTable, true);
+    if (tb.phase === "join" && !me) btn("🪑 Sit down — buy-in " + ($("buyinAmt").value || rawToNado(tb.ante)) + " NADO (ante " + rawToNado(tb.ante) + ")", joinTable, true);
     // the HOST controls the start — nothing happens until they deal
     if (tb.phase === "join" && iAmHost) {
       if (watch && watch.phase === "start") btn("⏳ Dealing — confirming on-chain…", () => {}, false).disabled = true;

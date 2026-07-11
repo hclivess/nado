@@ -42,7 +42,8 @@ export function orderCards(ids) {
 
 // ---- amounts -------------------------------------------------------------------------------------
 export function nadoToRaw(s) {
-  s = String(s || "").trim(); if (!/^\d+(\.\d+)?$/.test(s)) return null;
+  s = String(s || "").trim().replace(",", ".");   // Czech/EU keyboards type "0,20" — accept it as 0.20
+  if (!/^\d+(\.\d+)?$/.test(s)) return null;
   const [w, f = ""] = s.split("."); const raw = BigInt(w) * RAW + BigInt((f + "0000000000").slice(0, 10));
   return raw > 0n ? raw : null;
 }
