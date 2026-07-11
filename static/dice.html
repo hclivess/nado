@@ -34,6 +34,10 @@
   button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
   @keyframes dpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,201,167,.45)}50%{transform:scale(1.04);box-shadow:0 0 0 6px rgba(0,201,167,0)}}
   button.pulse{animation:dpulse 1.25s ease-in-out infinite}
+  .switch{position:relative;width:46px;height:26px;-webkit-appearance:none;appearance:none;outline:none;border:0;padding:0;box-sizing:border-box;background:var(--border);border-radius:999px;cursor:pointer;transition:background .18s;flex:0 0 auto;margin:0}
+  .switch:checked{background:linear-gradient(135deg,#00ad93,#00c9a7)}
+  .switch::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:left .18s}
+  .switch:checked::after{left:23px}
   .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
   .warn{color:var(--danger);font-weight:600;line-height:1.45}
   .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}
@@ -167,6 +171,7 @@
     <div class="mt small dim">Seats</div>
     <div id="seats"></div>
     <div class="row mt" id="myActions"></div>
+    <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1">Auto-collect my winnings — settles a winning roll for me the moment it resolves</span></label>
     <div class="row mt">
       <button class="primary hidden" id="btnReopen">🔄 Re-open — try again</button>
       <button class="ghost hidden" id="btnClose">Close table</button>

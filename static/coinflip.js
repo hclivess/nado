@@ -99,6 +99,19 @@ function reopenGame() {   // retry an open that never landed (same id is still f
   bet(active, raw, "open");
 }
 const settle = () => dapp.call("settle", [active], null, "settle game #" + active, { gameId: active, phase: "settle" });
+// AUTO-COLLECT: once the flip is decided, the WINNER's pot auto-settles (value-free → auto-signs, a quick
+// bounce not a tap). One per tick; `autoTried` stops a rejected settle from looping. Opt-out per game.
+const autoTried = new Set();
+function maybeAutoSettle() {
+  if (localStorage.getItem("nado_coinflip_autocollect") === "0") return;
+  if (!dapp.me || dapp.inflight || active == null) return;
+  const lg = lastGame;
+  if (!lg || !lg.exists || lg.settled || lg.ncom !== 2 || !lg.ready) return;
+  const mine = (lg.players || {})[dapp.me];
+  if (!mine || lg.winner_slot !== mine.slot || autoTried.has(active)) return;   // only auto-collect MY winnings
+  autoTried.add(active);
+  settle();
+}
 const cancelGame = () => dapp.call("cancel", [active], null, "cancel game #" + active, { gameId: active, phase: "cancel" });
 async function rematch() {
   const stake = (lastGame && lastGame.exists) ? BigInt(lastGame.stake) : ((gamesLoad()[active] || {}).stake ? BigInt(gamesLoad()[active].stake) : null);
@@ -129,6 +142,7 @@ async function refreshActive() {
   }
   await resolveAliases([dapp.me].concat(lastGame && lastGame.players ? Object.keys(lastGame.players) : []));
   render();
+  maybeAutoSettle();
 }
 const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, "No finished games yet — be the first on the board.");
 function renderLobby(games) {
@@ -148,6 +162,9 @@ function wireUI() {
   $("btnJoin").onclick = joinGame;
   $("joinId").oninput = () => render();
   $("btnSettle").onclick = settle;
+  const ac = $("autoCollect");
+  if (ac) { ac.checked = localStorage.getItem("nado_coinflip_autocollect") !== "0";
+    ac.onchange = () => { try { localStorage.setItem("nado_coinflip_autocollect", ac.checked ? "1" : "0"); } catch (e) {} }; }
   $("btnShare").onclick = () => share(base() + "/?game=" + active, "Flip me " + (lastGame && lastGame.exists ? "for " + rawToNado(lastGame.stake) + " NADO " : "") + "on NADO — join game #" + active + ":", $("btnShare"));
   $("btnRematch").onclick = rematch;
   $("btnJoinActive").onclick = joinActive;

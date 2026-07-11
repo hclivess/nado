@@ -87,6 +87,17 @@ function fundTable() {
   dapp.call("fund", [activeTable], raw, "top up table #" + activeTable + " bankroll · " + rawToNado(raw) + " NADO", { table: activeTable, phase: "fund" });
 }
 const settleSeat = (g) => dapp.call("settle", [g], null, "collect seat #" + g, { table: activeTable, phase: "settle" });
+// AUTO-COLLECT: a resolved WINNING seat settles itself (value-free → auto-signs, a quick bounce). One per
+// tick; `autoTried` stops a rejected settle from looping. Opt-out per game (default on).
+const autoTried = new Set();
+function maybeAutoSettle() {
+  if (localStorage.getItem("nado_dice_autocollect") === "0") return;
+  if (!dapp.me || dapp.inflight || !lastTable || !lastTable.exists) return;
+  const t = lastSeats.find((s) => s.addr === dapp.me && !s.settled && s.ready && s.win && !autoTried.has(s.g));
+  if (!t) return;
+  autoTried.add(t.g);
+  settleSeat(t.g);
+}
 const closeTable = () => dapp.call("close", [activeTable], null, "close table #" + activeTable, { table: activeTable, phase: "close" });
 
 async function refreshActive() {
@@ -108,6 +119,7 @@ async function refreshActive() {
   }
   await resolveAliases([dapp.me].concat(lastTable ? [lastTable.bank] : []).concat(lastSeats.map((s) => s.addr)));
   render();
+  maybeAutoSettle();
 }
 function boardFrom(sto) {
   const stats = {};
@@ -155,6 +167,9 @@ function wireUI() {
   $("btnBet").onclick = doBet;
   $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = "Enter a table ID, or pick one from the lobby."; };
   $("btnClose").onclick = closeTable;
+  const ac = $("autoCollect");
+  if (ac) { ac.checked = localStorage.getItem("nado_dice_autocollect") !== "0";
+    ac.onchange = () => { try { localStorage.setItem("nado_dice_autocollect", ac.checked ? "1" : "0"); } catch (e) {} }; }
   $("btnReopen").onclick = reopenTable;
   $("btnFund").onclick = fundTable;
   $("btnShare").onclick = () => share(base() + "/?table=" + activeTable, "Roll at my dice table #" + activeTable + " on NADO:", $("btnShare"));
