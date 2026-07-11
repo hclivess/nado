@@ -13,7 +13,8 @@ const dapp = new NadoDapp({ cid: CID, app: "Chess" });
 const LS_G = "nado_chess_games";
 const load = () => { try { return JSON.parse(localStorage.getItem(LS_G) || "{}"); } catch { return {}; } };
 const save = (v) => { try { localStorage.setItem(LS_G, JSON.stringify(v)); } catch {} };
-let activeGame = null, lastGame = null, engine = new Chess(), selected = null, pendingEnc = null, flipBoard = false;
+let activeGame = null, lastGame = null, engine = new Chess(), selected = null, pendingEnc = null, flipBoard = false, haveState = false, replayPly = null;
+const LS_POS = "nado_chess_fen_";
 let knownGames = new Set();   // game ids that exist on-chain (for "Your games")
 function pruneAndTrack(sto) {
   knownGames = new Set(allGids(sto));
@@ -58,7 +59,7 @@ function gameFrom(sto, g) {
   if (!nn) return { exists: false };
   return { exists: true, id: Number(g), white: _m(sto, "p1")[g], black: _m(sto, "p2")[g],
     stake: _m(sto, "st")[g] || 0, pot: _m(sto, "pt")[g] || 0, nn, settled: !!_m(sto, "sd")[g],
-    deadline: _m(sto, "dl")[g] || 0, mc: _m(sto, "mc")[g] || 0, a1: _m(sto, "a1")[g] || 0, a2: _m(sto, "a2")[g] || 0,
+    deadline: _m(sto, "dl")[g] || 0, mc: _m(sto, "mc")[g] || 0, a1: _m(sto, "a1")[g] || 0, a2: _m(sto, "a2")[g] || 0, wr: _m(sto, "wr")[g] || 0,
     moves: movesOf(sto, g) };
 }
 // rebuild the board by replaying the on-chain move log; corrupted (an illegal on-chain move) -> flagged
@@ -121,7 +122,9 @@ async function refreshActive() {
     if (activeGame != null) {
       lastGame = gameFrom(sto, activeGame);
       if (pendingEnc != null && lastGame.moves.length >= lastGame.mc && lastGame.moves.some((m) => encMove(m) === pendingEnc)) pendingEnc = null;
-      engine = rebuildEngine(lastGame);
+      if (!replaying) engine = rebuildEngine(lastGame);
+      haveState = true;
+      try { if (!engine._corrupt) localStorage.setItem(LS_POS + activeGame, engine.fen()); } catch (e) {}
     }
     renderLobby(sto);
   }
@@ -137,7 +140,7 @@ function renderLobby(sto) {
     const stage = g.nn < 2 ? "open" : "live", verb = g.nn < 2 ? " · join" : " · watch";
     return '<button class="chip ' + stage + '" data-g="' + g.id + '">' + (g.nn < 2 ? "♙" : "▶") + " #" + g.id + " · " + rawToNado(g.stake) + " NADO" + verb + "</button>";
   }).join(" ") : '<span class="dim">No games yet — open one above.</span>';
-  el.querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeGame = parseInt(b.dataset.g, 10); pendingEnc = null; $("joinId").value = b.dataset.g;
+  el.querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeGame = parseInt(b.dataset.g, 10); pendingEnc = null; haveState = false; replayPly = null; $("joinId").value = b.dataset.g;
     $("status").textContent = "Game #" + activeGame + " selected."; refreshActive(); try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
 }
 
@@ -162,6 +165,11 @@ function onSquareClick(sq) {
 }
 function renderBoard() {
   const wrap = $("board"); if (!wrap) return;
+  // before this game's real state has loaded, DON'T paint the default starting position (the flash the
+  // user hated on every wallet round-trip): restore the last-known board from cache if we have it.
+  if (activeGame != null && !haveState) {
+    try { const f = localStorage.getItem(LS_POS + activeGame); if (f) { const e2 = new Chess(); e2.load(f); engine = e2; } } catch (e) {}
+  }
   const g = lastGame || {};
   const side = mySide(g), flip = flipBoard || side === "b";   // black sees the board from their side
   const board = engine.board();   // 8x8, [0][0] = a8
@@ -202,6 +210,7 @@ function wireUI() {
   $("btnCancel").onclick = cancelGame;
   $("btnReopen").onclick = reopenGame;
   $("btnFlip").onclick = () => { flipBoard = !flipBoard; renderBoard(); };
+  $("btnReplay").onclick = startReplay;
   $("btnShare").onclick = () => share(base() + "/?game=" + activeGame, "Play me at chess for " + (lastGame && lastGame.exists ? rawToNado(lastGame.stake) + " NADO " : "") + "on NADO — game #" + activeGame + ":", $("btnShare"));
 }
 function resultCode() {   // 1=white wins, 2=black wins, 3=draw ; null if not over
@@ -218,7 +227,7 @@ function render() {
   $("recent").innerHTML = ids.length ? ids.map((g) => { const live = knownGames.has(String(g)); let tag = "";
     if (live && lastSto) { const gm = gameFrom(lastSto, g); if (gm.exists) tag = gm.settled ? " · finished ✓" : gm.nn < 2 ? " · waiting for opponent" : " · live — your move?"; }
     return '<button class="chip' + (live ? "" : " pending") + '" data-g="' + g + '"' + (live ? "" : ' title="still confirming on-chain — your game hasn\'t vanished"') + '>' + (G[g].role === "white" ? "♔" : "♚") + " #" + g + (live ? tag : " · confirming ⏳") + "</button>"; }).join(" ") : '<span class="dim">No games yet.</span>';
-  $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeGame = parseInt(b.dataset.g, 10); pendingEnc = null; refreshActive(); });
+  $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeGame = parseInt(b.dataset.g, 10); pendingEnc = null; haveState = false; replayPly = null; refreshActive(); });
   renderActive();
 }
 function renderActive() {
@@ -241,11 +250,13 @@ function renderActive() {
   }
   const over = g.exists && g.nn === 2 && engine.isGameOver();
   const rc = resultCode();
-  if (g.exists && g.settled) st = "✓ settled";
+  if (g.exists && g.settled) {
+    st = g.wr === 3 ? "✓ Draw — stakes refunded" : g.wr ? ("✓ " + (g.wr === 1 ? "White" : "Black") + " wins" + (((g.wr===1&&side==="w")||(g.wr===2&&side==="b")) ? " — you won! 🏆" : side ? " — you lost" : "")) : "✓ settled";
+  }
   else if (g.exists && engine._corrupt) st = "⚠ an illegal move reached the chain — this game will refund after the timeout.";
   else if (g.exists && g.nn < 2) st = mySide(g) ? "waiting for an opponent — share the link below" : "open seat — join to play for " + rawToNado(g.stake) + " NADO";
   else if (over) st = engine.isCheckmate() ? ("Checkmate — " + (rc === 1 ? "White" : "Black") + " wins") : engine.isStalemate() ? "Stalemate — draw" : "Draw";
-  else if (g.exists) st = (engine.turn() === "w" ? "White" : "Black") + " to move" + (engine.inCheck() ? " · CHECK" : "") + (myTurn(g, engine) ? " — your move" : (pendingEnc != null ? " · your move is confirming (~1 min)…" : " — waiting for opponent (~1 min)"));
+  else if (g.exists) st = (engine.turn() === "w" ? "White" : "Black") + " to move" + (engine.inCheck() ? " · CHECK" : "") + (myTurn(g, engine) ? " — your move" : (pendingEnc != null ? " · your move is confirming…" : " — waiting for opponent…"));
   $("gStatus").textContent = st;
   $("btnReopen").classList.toggle("hidden", !(local.role === "white" && local.stake && !g.exists && local.ts && Date.now() - local.ts > 120000));
   // buttons
@@ -266,6 +277,7 @@ function renderActive() {
   $("btnAbort").classList.toggle("hidden", !(iAmIn && pastDeadline));
   $("btnCancel").classList.toggle("hidden", !(g.exists && g.nn === 1 && side === "w" && !g.settled));
   $("btnFlip").classList.toggle("hidden", !g.exists);
+  $("btnReplay").classList.toggle("hidden", !(g.exists && (g.settled || (g.nn === 2 && engine.isGameOver())) && (g.moves || []).length > 0));
   // share-link visitors get the join CTA ON the board card — no hunting for the join panel below
   $("btnJoinGame").classList.toggle("hidden", !(g.exists && g.nn === 1 && !iAmIn && !g.settled));
   if (g.exists && g.nn === 1 && !iAmIn) $("btnJoinGame").textContent = (dapp.me ? "♟ Join this game — stake " : "♟ Sign in to join — stake ") + rawToNado(g.stake) + " NADO";
@@ -277,11 +289,23 @@ function renderActive() {
 }
 
 // ---- boot ----------------------------------------------------------------------------------------
-let nudgeJoin = false;
+let nudgeJoin = false, replaying = false;
+function startReplay() {
+  const moves = (lastGame && lastGame.moves) || [];
+  if (!moves.length || replaying) return;
+  replaying = true;
+  const re = new Chess();
+  let i = 0;
+  const step = () => {
+    if (i < moves.length) { const m = moves[i++]; re.move({ from: m.from, to: m.to, promotion: m.promotion }); engine = re; renderBoard(); setTimeout(step, 750); }
+    else { replaying = false; engine = rebuildEngine(lastGame); renderBoard(); }   // land back on the final position
+  };
+  engine = new Chess(); renderBoard(); setTimeout(step, 400);
+}
 dapp.onReturn((pend, ok, err) => {
   nudgeJoin = !!(ok && pend && pend.phase === "connect");
   const label = { connect: "Signed in.", deposit: "Deposit submitted — confirming…", open: "Game opening — confirming…",
-    join: "Joining — confirming…", move: "Move submitted — confirming on-chain (~1 min)…", resign: "Resigning…",
+    join: "Joining — confirming…", move: "Move submitted — confirming…", resign: "Resigning — confirming…",
     agree: "Submitting…", abort: "Claiming refund…", cancel: "Cancelling…", withdraw: "Withdrawal submitted." }[pend && pend.phase] || "Submitted.";
   if (pend && pend.game != null) activeGame = pend.game;
   if (!ok) pendingEnc = null;   // a rejected move must not linger optimistically
@@ -291,7 +315,7 @@ async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
   wireUI(); orderCards(["activeGame","lobby","play","walletcard","bankroll"]);
   const q = new URLSearchParams(location.search).get("game");
-  if (q) { $("joinId").value = q; if (activeGame == null) activeGame = parseInt(q, 10); }
+  if (q) { $("joinId").value = q; if (activeGame == null) { activeGame = parseInt(q, 10); haveState = false; } }
   render(); refreshActive();
   setInterval(refreshActive, 3000);
 }

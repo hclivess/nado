@@ -52,6 +52,8 @@ resign_m = [
   # winner = (caller==p1) ? p2 : p1 ; PAY winner pot  (branchless via two guarded PAYs)
   A(0), LD("p2"), A(0), LD("pt"), CALLER, A(0), LD("p1"), EQ, MUL, PAY,   # if caller==p1 -> pay p2
   A(0), LD("p1"), A(0), LD("pt"), CALLER, A(0), LD("p2"), EQ, MUL, PAY,   # if caller==p2 -> pay p1
+  # wr = winner side for the UI: caller==p1(white resigns) -> black wins(2); caller==p2 -> white wins(1)
+  A(0), P(2), CALLER, A(0), LD("p1"), EQ, MUL, P(1), CALLER, A(0), LD("p2"), EQ, MUL, ADD, ST("wr"),
   A(0), P(1), ST("sd"),
   A(0), P(0), ST("pt"),
   HALT ]
@@ -87,9 +89,11 @@ agree_m = [
       A(0), LD("st"), A(0), LD("a1"), P(3), EQ, MUL, ADD,
       A(0), LD("a1"), A(0), LD("a2"), EQ, A(0), LD("a1"), P(0), GT, MUL, MUL,
   PAY,
-  # sd = agreed ; pt = pt*(1-agreed)
+  # sd = agreed ; pt = pt*(1-agreed) ; wr = agreed ? a1 : wr  (the agreed result 1/2/3 for the UI)
   A(0), A(0), LD("a1"), A(0), LD("a2"), EQ, A(0), LD("a1"), P(0), GT, MUL, ST("sd"),
   A(0), A(0), LD("pt"), P(1), A(0), LD("a1"), A(0), LD("a2"), EQ, A(0), LD("a1"), P(0), GT, MUL, SUB, MUL, ST("pt"),
+  A(0), A(0), LD("wr"), A(0), LD("a1"), A(0), LD("a2"), EQ, A(0), LD("a1"), P(0), GT, MUL, NOT, MUL,
+       A(0), LD("a1"), A(0), LD("a1"), A(0), LD("a2"), EQ, A(0), LD("a1"), P(0), GT, MUL, MUL, ADD, ST("wr"),
   HALT ]
 # abort(g): after the deadline, refund both (a stall can never steal — only void)
 abort_m = [
@@ -98,6 +102,7 @@ abort_m = [
   CURSOR, A(0), LD("dl"), GT, REQ,
   A(0), LD("p1"), A(0), LD("st"), PAY,
   A(0), LD("p2"), A(0), LD("st"), PAY,
+  A(0), P(3), ST("wr"),                          # aborted = draw/refund (3) for the UI
   A(0), P(1), ST("sd"),
   A(0), P(0), ST("pt"),
   HALT ]
@@ -150,20 +155,20 @@ ck("open escrows stake", bal("W")==1000000-STAKE and bal(CID)==STAKE)
 call("join",[1],STAKE,"B")
 ck("join -> pot 2*stake", bal(CID)==2*STAKE and M("pt",1)==2*STAKE)
 bB=bal("B"); call("resign",[1],0,"W")
-ck("white resigns -> black takes pot", bal("B")==bB+2*STAKE and bal(CID)==0 and M("sd",1)==1)
+ck("white resigns -> black takes pot + wr=2 (black wins)", bal("B")==bB+2*STAKE and bal(CID)==0 and M("sd",1)==1 and M("wr",1)==2)
 
 # --- agreement path: both agree white wins ---
 call("open",[2],STAKE,"W"); call("join",[2],STAKE,"B")
 call("agree",[2,1],0,"W")            # white asserts white wins
 ck("one-sided agree does not settle", M("sd",2)==0 and bal(CID)==2*STAKE)
 bW=bal("W"); call("agree",[2,1],0,"B")   # black agrees white wins
-ck("both agree white -> white takes pot", bal("W")==bW+2*STAKE and M("sd",2)==1)
+ck("both agree white -> white takes pot + wr=1", bal("W")==bW+2*STAKE and M("sd",2)==1 and M("wr",2)==1)
 
 # --- agreement path: draw refunds both ---
 call("open",[3],STAKE,"W"); call("join",[3],STAKE,"B")
 bW,bB=bal("W"),bal("B")
 call("agree",[3,3],0,"W"); call("agree",[3,3],0,"B")
-ck("both agree draw -> refund each", bal("W")==bW+STAKE and bal("B")==bB+STAKE and M("sd",3)==1)
+ck("both agree draw -> refund each + wr=3", bal("W")==bW+STAKE and bal("B")==bB+STAKE and M("sd",3)==1 and M("wr",3)==3)
 
 # --- disagreement never settles; abort after deadline refunds both ---
 call("open",[4],STAKE,"W"); call("join",[4],STAKE,"B")
@@ -173,7 +178,7 @@ ck("abort before deadline blocked", "revert" in call("abort",[4],0,"C"))
 st.cursor = 100 + WINDOW + 1
 bW,bB=bal("W"),bal("B")
 call("abort",[4],0,"C")
-ck("abort after deadline refunds both (no theft)", bal("W")==bW+STAKE and bal("B")==bB+STAKE and M("sd",4)==1)
+ck("abort after deadline refunds both (no theft) + wr=3", bal("W")==bW+STAKE and bal("B")==bB+STAKE and M("sd",4)==1 and M("wr",4)==3)
 
 # --- black wins by agreement ---
 st.cursor=100; call("open",[5],STAKE,"W"); call("join",[5],STAKE,"B")
