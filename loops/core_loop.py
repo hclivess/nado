@@ -61,7 +61,6 @@ NO_SYNCABLE_LOG_INTERVAL = 30
 # its snapshot/finality floor) re-imports a seed's snapshot to recover; bound the retry so a persistently
 # failing import can't hammer the seed every pass.
 REANCHOR_COOLDOWN = 30
-WEDGE_OVERRIDE_SECS = 45   # after a heavier tip fails verification, mint our own chain this long before re-chasing
 
 
 def peer_claims_heavier_tip(statuses, our_weight, have_peers, rejected_tips):
@@ -135,14 +134,6 @@ class CoreClient(threading.Thread):
         # cooldown for the seed-anchored RE-ANCHOR (wedge recovery): re-importing a seed's snapshot is
         # expensive, so a wedged node attempts it at most once per this interval rather than every ~1s pass.
         self._last_reanchor_ts = 0
-        # WEDGE-OVERRIDE (2026-07-11): when fast-forward onto a strictly-heavier tip repeatedly FAILS
-        # VERIFICATION (its chain extends our own tip with an invalid block — e.g. one that replays an
-        # already-mined tx), the node used to re-enter emergency forever and NEVER mint, freezing on one
-        # height. We never adopt the invalid block (safety holds), but we must keep making progress on OUR
-        # valid chain. After such a failure we set this timestamp: until it passes, minority_block_consensus
-        # ignores the heavier-but-unverifiable tip so normal_mode mints. Advancing our own tip changes the
-        # sync topology (the peer no longer extends our tip) and routes to the reorg/re-anchor path.
-        self._wedge_override_until = 0
         # throttle the once-per-block-interval consensus mempool reconcile (normal_mode).
         self._last_reconcile = 0
         # once-per-new-block throttle for the periodic duties in normal_mode (FFG/RANDAO/auto-*).
@@ -432,12 +423,6 @@ class CoreClient(threading.Thread):
         hh = self.consensus.heaviest_block_hash
         if hh is None:
             """not ready (no tip weights collected yet)"""
-            return False
-        # WEDGE-OVERRIDE: a strictly-heavier tip whose chain we just PROVED unverifiable (invalid block
-        # extending our tip) must not keep us out of consensus — we can't adopt it, so mint our own valid
-        # chain for a window instead of re-entering emergency forever. Bounded + self-expiring; a genuinely
-        # heavier VALID chain never trips this (it fast-forwards cleanly and never sets the timestamp).
-        if get_timestamp_seconds() < self._wedge_override_until:
             return False
         # AUDIT FIX (same-length fork wedge): heaviest_block_hash is the GLOBAL best tip by
         # (cumulative_weight DESC, block_hash ASC) over all advertised tips INCLUDING our own. The old
@@ -787,12 +772,6 @@ class CoreClient(threading.Thread):
                         # returns False when interrupted by shutdown — don't reject the tip then.)
                         if not self.memserver.terminate:
                             self._reject_heaviest_tip()
-                            # this heavier tip's chain is UNVERIFIABLE to us (a bad block extends our tip).
-                            # Grant a mint window on our own valid chain so we don't freeze here forever.
-                            self._wedge_override_until = get_timestamp_seconds() + WEDGE_OVERRIDE_SECS
-                            self.logger.warning(f"Heavier tip's chain failed verification at block "
-                                                f"{str(block.get('block_number'))} — minting our own valid "
-                                                f"chain for {WEDGE_OVERRIDE_SECS}s (never adopting the bad block)")
                         rejected = True
                         break
 
