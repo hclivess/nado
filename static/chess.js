@@ -13,7 +13,7 @@ const dapp = new NadoDapp({ cid: CID, app: "Chess" });
 const LS_G = "nado_chess_games";
 const load = () => { try { return JSON.parse(localStorage.getItem(LS_G) || "{}"); } catch { return {}; } };
 const save = (v) => { try { localStorage.setItem(LS_G, JSON.stringify(v)); } catch {} };
-let activeGame = null, lastGame = null, engine = new Chess(), selected = null, pendingEnc = null, flipBoard = false, haveState = false, replayPly = null;
+let activeGame = null, lastGame = null, engine = new Chess(), selected = null, pendingEnc = null, flipBoard = false, haveState = false, replayPly = null, lastDrawOffer = null;
 const LS_POS = "nado_chess_fen_";
 let knownGames = new Set();   // game ids that exist on-chain (for "Your games")
 function pruneAndTrack(sto) {
@@ -283,7 +283,19 @@ function renderActive() {
   const iAmWinner = over && ((rc === 1 && side === "w") || (rc === 2 && side === "b"));
   const iAmLoser = over && ((rc === 2 && side === "w") || (rc === 1 && side === "b"));
   $("btnResign").classList.toggle("hidden", !(live && iAmIn && !over));
-  $("btnDraw").classList.toggle("hidden", !(live && iAmIn && !over));          // offer/accept a draw (both must agree)
+  // offer/accept a draw — BOTH must agree(3). Surface the offer so it isn't a silent no-op: after you offer,
+  // the button reads "waiting"; when your OPPONENT has offered, it flips to a pulsing "Accept draw" + a banner.
+  const drawShown = live && iAmIn && !over;
+  const myA = side === "w" ? g.a1 : (side === "b" ? g.a2 : 0);
+  const oppA = side === "w" ? g.a2 : (side === "b" ? g.a1 : 0);
+  $("btnDraw").classList.toggle("hidden", !drawShown);
+  if (drawShown) {
+    if (oppA === 3) { $("btnDraw").textContent = "🤝 Accept draw — refund both stakes"; $("btnDraw").classList.add("pulse"); }
+    else if (myA === 3) { $("btnDraw").textContent = "½ Draw offered — waiting for opponent…"; $("btnDraw").classList.remove("pulse"); }
+    else { $("btnDraw").textContent = "½ Offer draw"; $("btnDraw").classList.remove("pulse"); }
+    if (oppA === 3 && myA !== 3) { if (lastDrawOffer !== activeGame) { lastDrawOffer = activeGame; alertBar("Your opponent offers a DRAW — tap “🤝 Accept draw” to split the stakes back, or just keep playing to decline."); } }
+    else if (lastDrawOffer === activeGame) lastDrawOffer = null;
+  } else if (lastDrawOffer === activeGame) lastDrawOffer = null;
   // settle: on a decisive result the LOSER resigns (pays the winner); on a draw both agree
   $("btnSettle").classList.toggle("hidden", !(live && iAmIn && over && rc === 3));
   $("btnSettle").textContent = "Agree draw (refund both)";
