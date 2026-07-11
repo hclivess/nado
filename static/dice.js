@@ -180,10 +180,12 @@ function wireUI() {
   $("target").oninput = () => { syncSlider(); render(); };
   dapp.wireStakeSlider(maxBetRaw, () => { syncSlider(); render(); });   // owns stakeAmt input + the % slider + Max
   dapp.wirePctSlider("bankroll", { slider: "bankrollSlider", input: "bankrollAmt" }, () => dapp.exec, render);   // bank a table: % of your playable balance
+  dapp.wirePctSlider("fund", { slider: "fundSlider", input: "fundAmt" }, () => dapp.exec, render);   // top up the bankroll: % of your playable balance
 }
 function render() {
   dapp.reflectUrl("table", activeTable);   // address bar = the shareable link to the selected table
   dapp.syncPctSlider("bankroll", { slider: "bankrollSlider", input: "bankrollAmt" }, dapp.exec);
+  dapp.syncPctSlider("fund", { slider: "fundSlider", input: "fundAmt" }, dapp.exec);
   const signedIn = renderWallet(dapp);
   gate({ play: signedIn, bankcard: signedIn, bankroll: signedIn, activeGame: activeTable != null });
   const tb = (activeTable != null && lastTable && lastTable.exists && !lastTable.closed) ? lastTable : null;
