@@ -210,11 +210,16 @@ function render() {
   $("btnSpin").disabled = mc.closed || !dapp.me || dapp.busy("spin");
   $("btnSpin").textContent = dapp.busy("spin") ? "⏳ Spinning…" : mc.closed ? "machine closed" : "🎰 SPIN";
   gate({ fundRow: iAmBank && !mc.closed });
-  // the newest of MY spins drives the reels
-  const mineSpins = mySpins.filter((s) => s.addr === dapp.me);
+  // the newest of MY spins drives the reels — ordered by the LOCAL submit time (seat ids are random, so
+  // sorting by id would let an old spin hijack the reels and freeze the animation on rapid re-spins)
+  const Sloc = load(LS_S);
+  const mineSpins = mySpins.filter((s) => s.addr === dapp.me)
+    .sort((a, b) => ((Sloc[String(b.g)] || {}).ts || 0) - ((Sloc[String(a.g)] || {}).ts || 0) || b.g - a.g);
   const cur = mineSpins[0];
-  if (!cur) { setReels(null, false, false); $("spinVerdict").textContent = mc.closed ? "This machine is closed." : "Place a bet and pull the lever."; }
-  else if (cur.pending) { setReels(null, true, false); $("spinVerdict").textContent = "🎲 The chain is spinning the reels…"; }
+  // spin the reels the instant the lever is pulled (busy = submitted, seat not on-chain yet) and keep them
+  // spinning through the pending window, so mashing SPIN never leaves them stuck on a stale result
+  if (dapp.busy("spin") || (cur && cur.pending)) { setReels(null, true, false); $("spinVerdict").textContent = "🎲 The chain is spinning the reels…"; }
+  else if (!cur) { setReels(null, false, false); $("spinVerdict").textContent = mc.closed ? "This machine is closed." : "Place a bet and pull the lever."; }
   else if (cur.syms) {
     const win = cur.m2 > 0, payout = BigInt(cur.stake) * BigInt(cur.m2) / 2n;
     setReels(cur.syms, false, win);

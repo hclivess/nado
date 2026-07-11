@@ -152,6 +152,29 @@ function selectTable(id) {
 }
 
 // ---- render --------------------------------------------------------------------------------------
+// MAX BET: the biggest stake this table can still cover at the current win-chance. A win pays
+// returnRaw(stake,target); the bank's exposure is that minus the stake, and it must fit the free bankroll:
+//   stake*(EDGE-target)/target <= (bankroll - committed)  =>  stake <= free*target/(EDGE-target)
+function maxBetRaw() {
+  const tb = lastTable;
+  if (!tb || !tb.exists || tb.closed) return null;
+  const free = BigInt(tb.bankroll) - BigInt(tb.committed);
+  if (free <= 0n || EDGE - target <= 0) return null;
+  return free * BigInt(target) / BigInt(EDGE - target);
+}
+function syncStakeSlider() {
+  const sl = $("stakeSlider"), wrap = $("stakeSliderWrap"); if (!sl || !wrap) return;
+  const maxRaw = maxBetRaw();
+  if (maxRaw == null || maxRaw <= 0n) { wrap.classList.add("hidden"); return; }
+  wrap.classList.remove("hidden");
+  const maxN = parseFloat(rawToNado(maxRaw)) || 0;
+  sl.max = String(maxN);
+  sl.step = String(Math.max(maxN / 200, 0.001));
+  const curN = parseFloat($("stakeAmt").value) || 0;
+  sl.value = String(Math.min(curN, maxN));
+  $("maxBetVal").textContent = rawToNado(maxRaw) + " NADO";
+  $("stakeSliderVal").textContent = "stake " + ($("stakeAmt").value || "0") + " NADO";
+}
 function syncSlider() {
   target = Math.min(MMAX, Math.max(MMIN, parseInt($("target").value, 10) || 50));
   $("winChanceTarget").textContent = target;
@@ -159,6 +182,7 @@ function syncSlider() {
   $("multiplier").textContent = multOf(target).toFixed(2) + "×";
   const stake = nadoToRaw($("stakeAmt").value);
   $("payoutPreview").textContent = stake ? "win pays " + rawToNado(returnRaw(stake, target)) + " NADO" : "";
+  syncStakeSlider();
 }
 function wireUI() {
   wireWallet(dapp);
@@ -175,6 +199,8 @@ function wireUI() {
   $("btnShare").onclick = () => share(base() + "/?table=" + activeTable, "Roll at my dice table #" + activeTable + " on NADO:", $("btnShare"));
   $("target").oninput = () => { syncSlider(); render(); };
   $("stakeAmt").oninput = () => { syncSlider(); render(); };
+  $("stakeSlider").oninput = () => { const v = $("stakeSlider").value; $("stakeAmt").value = String(v); syncSlider(); render(); };
+  $("btnMaxBet").onclick = () => { const m = maxBetRaw(); if (m && m > 0n) { $("stakeAmt").value = rawToNado(m); syncSlider(); render(); } };
 }
 function render() {
   const signedIn = renderWallet(dapp);
@@ -195,6 +221,7 @@ function render() {
     else if (tb && !covers) hint = "This table's bankroll can't cover a " + multOf(target).toFixed(2) + "× win (free: " + rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) + " NADO). Lower your stake, raise your win chance, or Top up the bankroll.";
   }
   const jh = $("joinHint"); if (jh) { jh.textContent = hint; jh.classList.toggle("hidden", !hint); }
+  syncStakeSlider();   // keep the max-bet slider in step with the table's live free cover
   const T = load(LS_T), S = load(LS_S), mine = [];
   for (const t of Object.keys(T)) mine.push({ id: +t, role: "bank", ts: T[t].ts });
   for (const g of Object.keys(S)) mine.push({ id: S[g].table, seat: g, role: "bet", ts: S[g].ts });
