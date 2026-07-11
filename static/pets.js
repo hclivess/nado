@@ -627,6 +627,23 @@ function hatch(pid) {
   const l = L(); (l[pid] = l[pid] || { ts: Date.now() }).hatchPending = 1; Lsave(l);
   dapp.call("hatch", [pid], null, "hatch egg #" + pid, { pid, phase: "hatch" });
 }
+// HATCH ALL: spam-adopting leaves several ready eggs; hatching them one card at a time feels stuck. This
+// hatches EVERY ready egg — the wallet redirect serialises each (value-free hatch → auto-signs, a quick
+// bounce), and on return maybeAutoHatch() fires the next until none remain. Flag survives the round-trips.
+const readyEggs = () => myPets().filter((p) => !p.hatched && !p.dead && p.hatchReady);
+function hatchAll() {
+  const eggs = readyEggs();
+  if (!eggs.length) return;
+  try { localStorage.setItem("nado_pets_hatchall", "1"); } catch (e) {}
+  active = eggs[0].id; hatch(eggs[0].id);
+}
+function maybeAutoHatch() {
+  if (localStorage.getItem("nado_pets_hatchall") !== "1") return;
+  if (!dapp.me || dapp.inflight) return;                 // wait for the current hatch to confirm first
+  const eggs = readyEggs();
+  if (!eggs.length) { try { localStorage.removeItem("nado_pets_hatchall"); } catch (e) {} return; }
+  hatch(eggs[0].id);
+}
 const rebirth = (pid) => dapp.call("rebirth", [pid], null, "re-roll egg #" + pid, { pid, phase: "hatch" });
 function feed(pid, raw) {
   const p = PETS[pid]; if (!p) return;
@@ -746,6 +763,7 @@ async function refreshAll() {
     }
     // once nothing is in flight, an optimistic "…confirming" status line is stale — clear it
     if (!dapp.inflight && stMsgPhase) { $("status").textContent = ""; stMsgPhase = null; }
+    maybeAutoHatch();   // continue a "Hatch all" run once the previous hatch has confirmed
   }
   render();
 }
@@ -935,6 +953,13 @@ function renderGrids() {
   $("myPetGrid").innerHTML = (mine.map((p) => petCard(p, String(active) === p.id)).join("")
     + pendings.map((pid) => `<div class="pcard egg pending" data-pet="${pid}">${eggSvg("egg-idle", 0)}<div class="pn">🥚 #${String(pid).slice(-4)}</div><div class="po">confirming ⏳</div></div>`).join(""))
     || '<span class="dim small">No pets yet — adopt your first egg below.</span>';
+  const nReady = readyEggs().length, running = localStorage.getItem("nado_pets_hatchall") === "1";
+  const bha = $("btnHatchAll");
+  if (bha) {
+    bha.classList.toggle("hidden", nReady === 0 && !running);
+    bha.disabled = !!dapp.inflight || nReady === 0;
+    bha.textContent = running ? "🐣 Hatching all… (" + nReady + " left)" : "🐣 Hatch all ready eggs (" + nReady + ")";
+  }
   $("petCount").textContent = all.length ? "— " + all.length : "";
   grid($("gallery"), $("btnMoreGallery"),
     all.filter((p) => matches(p, VIEW.g.q)).sort(SORTS[VIEW.g.sort] || SORTS.new),
@@ -1085,6 +1110,7 @@ function wireUI() {
   stickyInputs(dapp, ['feedAmt', 'bankAmt', 'offerAmt', 'listPrice', 'stakeAmt']);   // typed amounts persist across turns
   $("btnMint").onclick = mint;
   $("btnHatch").onclick = () => hatch(active);
+  if ($("btnHatchAll")) $("btnHatchAll").onclick = hatchAll;
   $("btnRebirth").onclick = () => rebirth(active);
   $("btnFeed").onclick = () => { const raw = nadoToRaw($("feedAmt").value); if (!raw) return alertBar("Enter how much NADO to feed."); feed(active, raw); };
   const preset = (blocks) => { const p = PETS[active]; if (p) feed(active, G.feedCost(blocks, p.ap)); };
