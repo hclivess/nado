@@ -10,7 +10,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, c
          lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
-const CID = "6db8ae21f5b280d411f47ef0581ff802";
+const CID = "d0c95d981fa9b0c521bdcff28662c0df";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" fill="none" aria-hidden="true">     <ellipse cx="18" cy="27" rx="10.5" ry="12.5" fill="#c8901a" stroke="#8a6209" stroke-width="1.6"/>     <circle cx="28" cy="24" r="13" fill="#e3b341" stroke="#b5810f" stroke-width="2.4"/>     <circle cx="28" cy="24" r="8.6" stroke="#a9760a" stroke-width="1.3" fill="none"/>     <text x="28" y="29" text-anchor="middle" font-size="13" font-weight="800" fill="#7a5606" font-family="system-ui">N</text></svg>';
 const dapp = new NadoDapp({ cid: CID, app: "Coin Flip" });
 const BLOCK_SECS = 6;

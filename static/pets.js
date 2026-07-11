@@ -10,7 +10,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orde
 import * as G from "./pets-genes.js";
 import { loadCrypto } from "./nadotx.js";
 
-const CID = "a5099d7f767cfe8e84855a7cb64994cb";   // execnode/contracts/pets.json, deployed by the node key
+const CID = "645867ace4eaf09d1b7e78b6a1529576";   // execnode/contracts/pets.json, deployed by the node key
 const dapp = new NadoDapp({ cid: CID, app: "Pets" });
 const BLOCK_SECS = 6, BLOCKS_PER_DAY = 86400 / BLOCK_SECS;
 const LS_P = "nado_pets_mine";                    // {pid: {ts, hatchPending?, trainPending?}} local flags

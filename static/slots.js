@@ -9,7 +9,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
          recentChips, statusLabel, loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
-const CID = "f976149cd5e8de62b24ee3ed13179c15";
+const CID = "1f5ea94c30db542b0754ea1dfb43ed36";
 const GICON = "🎰";
 const dapp = new NadoDapp({ cid: CID, app: "Slots" });
 const SPIN_D = 2, MAXM2 = 300, COVER = (MAXM2 - 2) / 2;   // cover per spin = stake * 149

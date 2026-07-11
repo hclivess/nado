@@ -6,7 +6,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orde
          lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
          recentChips, statusLabel, loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
-const CID = "d5fe16cd61dd2a056463c1f54952c649";
+const CID = "68f2bf23441437af6655e2eba4a71ba1";
 const GICON = "⭕";
 const dapp = new NadoDapp({ cid: CID, app: "TicTacToe" });
 const WINDOW = 300;

@@ -10,7 +10,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hois
          recentChips, statusLabel, tablesOf as allTables, readTable,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
-const CID = "b57e43fa5f732f9b63ac49e501318637";
+const CID = "9cbf40d70631f7ee86f58192de847273";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="9" y="9" width="30" height="30" rx="7" fill="#e6edf3" stroke="#243140" stroke-width="2"/>     <circle cx="17" cy="17" r="2.8" fill="#20272f"/><circle cx="31" cy="17" r="2.8" fill="#20272f"/>     <circle cx="24" cy="24" r="2.8" fill="#00ad93"/>     <circle cx="17" cy="31" r="2.8" fill="#20272f"/><circle cx="31" cy="31" r="2.8" fill="#20272f"/></svg>';
 const PN = 100, MMIN = 2, MMAX = 98, EDGE = 99, BLOCK_SECS = 6, ROUND = 20;
 const dapp = new NadoDapp({ cid: CID, app: "Dice" });
