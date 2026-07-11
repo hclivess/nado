@@ -319,29 +319,11 @@ cancel_m = (CALLER+A(0)+LD("ta")+EQ+REQ                    # host alone — refu
   + A(0)+P(1)+STm("tz") + A(0)+P(0)+STm("tp")
   + HALT)
 
-# ONE-OFF RESCUE (remove in the NEXT upgrade): tables opened BEFORE the start-flow upgrade have no td and
-# can never be played under the new rules — anyone may annul such a table, refunding every seat its FULL
-# buy-in (ante + street chips + stack). Height-fenced so no post-upgrade table can ever match.
-RESCUE_BEFORE = 7850         # the 2026-07-11 upgrade landed under this height on the live chain
-rescue_m = (A(0)+LD("ta")+P(0)+EQ+NOT+REQ
-  + A(0)+LD("tz")+NOT+REQ
-  + A(0)+LD("td")+P(0)+EQ+REQ                              # never dealt under the new rules
-  + A(0)+LD("t0")+P(RESCUE_BEFORE)+LT+REQ                  # pre-upgrade tables ONLY
-  + STR("n", A(0)+LD("tn"))
-  + loop_i("n", lambda: (
-      STR("g", (A(0)+P(16)+MUL+LDR("i")+ADD) + LD("ti"))
-      + STR("amt", A(0)+LD("ts") + (LDR("g")+LD("gk")) + ADD
-                   + (LDR("g")+P(8)+MUL+P(1)+ADD+LD("cs")) + ADD
-                   + (LDR("g")+P(8)+MUL+P(2)+ADD+LD("cs")) + ADD
-                   + (LDR("g")+P(8)+MUL+P(3)+ADD+LD("cs")) + ADD
-                   + (LDR("g")+P(8)+MUL+P(4)+ADD+LD("cs")) + ADD)
-      + (LDR("g")+LD("ga")) + LDR("amt") + PAY
-      + LDR("g") + P(0) + STm("gk")))
-  + A(0)+P(1)+STm("tz") + A(0)+P(0)+STm("tp")
-  + HALT)
-
+# (The one-off rescue() for pre-upgrade tables was removed 2026-07-11 after all such tables closed —
+#  NO legacy paths live in the contract. If a future schema change strands funds, follow the same
+#  pattern: a temporary, height-fenced rescue method that the NEXT upgrade deletes.)
 CODE = {"open":open_m, "join":join_m, "start":start_m, "leave":leave_m, "bet":bet_m, "reveal":reveal_m,
-        "settle":settle_m, "reclaim":reclaim_m, "cancel":cancel_m, "rescue":rescue_m}
+        "settle":settle_m, "reclaim":reclaim_m, "cancel":cancel_m}
 
 # ---------------- PYTHON REFERENCE for the side-pot distribution (mirrors settle_m exactly) ----------------
 def settle_ref(seats):
@@ -387,9 +369,6 @@ def M(m,k): return st.contracts[CID]["storage"].get(m,{}).get(str(k))
 def call(m,args,val,who): return st.apply_blob({"op":"call","contract":CID,"method":m,"args":args,"value":val},who,m+str(args)+str(st.cursor))
 def seed_bh(lo, hi, tag):
     for h in range(lo, hi+1): st.block_hashes[h] = vm_hash([tag, h])
-
-# a pre-upgrade-style table for the one-off rescue (opened under RESCUE_BEFORE, never dealt)
-call("open",[90, 900, vm_hash(31), 500], 500+6000, "HOST"); call("join",[90, 901, vm_hash(32)], 500+800, "P8")
 
 ANTE=1000
 T = 50
@@ -552,16 +531,7 @@ st.cursor = M("td",70) + 4*S + R + 1
 b0=bal("HOST"); b1=bal("P7")
 call("reclaim",[70],0,"HOST")
 ck("reclaim honours the post-leave roster", bal("HOST")==b0+1111+2*ANTE and bal("P7")==b1+3333 and M("tz",70)==1)
-
-# one-off rescue: the pre-upgrade table (90) annuls with FULL refunds; post-upgrade tables never match
-call("open",[71, 710, vm_hash(24), ANTE], ANTE+100, "HOST")
-ck("rescue of a POST-upgrade table reverts (height fence)", "revert" in call("rescue",[71],0,"anyone"))
-call("cancel",[71],0,"HOST")
-b0=bal("HOST"); b1=bal("P8")
-call("rescue",[90],0,"anyone")
-ck(f"rescue: pre-upgrade table annulled, full buy-ins refunded (HOST +{bal('HOST')-b0}/6500, P8 +{bal('P8')-b1}/1300)",
-   bal("HOST")==b0+500+6000 and bal("P8")==b1+500+800 and M("tz",90)==1 and (M("tp",90) or 0)==0)
-ck("double rescue reverts", "revert" in call("rescue",[90],0,"anyone"))
+ck("NO legacy: the one-off rescue method is gone", "rescue" not in CODE and "revert" in call("rescue",[70],0,"anyone"))
 
 print("\n"+("ALL PASS" if not F else f"{len(F)} FAILED: {F}"))
 if not F:
