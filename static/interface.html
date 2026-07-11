@@ -759,7 +759,14 @@
       <input id="autosignDapp" type="checkbox" class="switch" />
       <label for="autosignDapp" style="margin:0;flex:1;cursor:pointer">
         <b data-i18n="settings.autosign">Auto-sign game moves</b>
-        <span class="small faint" style="display:block" data-i18n="settings.autosignSub">Skip the confirm tap for no-cost actions (chess moves, reveals, collects). Bets and anything that moves NADO always ask.</span>
+        <span class="small faint" style="display:block" data-i18n="settings.autosignSub">On by default: no-cost actions (chess moves, reveals, collects) sign without a tap. Bets and anything that moves NADO always ask.</span>
+      </label>
+    </div>
+    <div class="row" style="align-items:flex-start;gap:10px;margin-bottom:14px">
+      <input id="skipOriginCheck" type="checkbox" class="switch" />
+      <label for="skipOriginCheck" style="margin:0;flex:1;cursor:pointer">
+        <b data-i18n="settings.trustAny">Trust any site that asks me to sign</b>
+        <span class="small faint" style="display:block" data-i18n="settings.trustAnySub">Off by default — only the official NADO games may request a signature. Turn on to allow other sites; they'll still show a confirm that names the site (never auto-signed).</span>
       </label>
     </div>
     <label data-i18n="settings.relay">Relay node URL (a full node that accepts your transactions)</label>
@@ -812,6 +819,13 @@
     <div id="log"></div>
   </div>
 
+  <nav class="wlinks" style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin:22px 0 6px;font-size:13px;font-weight:600">
+    <a href="https://nadochain.com">🏠 Home</a>
+    <a href="https://nadochain.com/games">🎮 Games</a>
+    <a href="https://forum.nadochain.com">💬 Forum</a>
+    <a href="https://nadochain.com/emission.html">📈 Emission</a>
+    <a href="https://github.com/hclivess/nado">⌨ GitHub</a>
+  </nav>
   <footer data-i18n-html="footer">
     NADO light-miner · the chain stays on full nodes; this page only generates keys, registers, and renews
     your presence lease. Your reward lands on your address because a relay builds the block crediting it.

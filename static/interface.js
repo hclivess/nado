@@ -1911,7 +1911,11 @@ async function resumePendingExecSign() {
   let call, retUrl;
   try { call = JSON.parse(decodeURIComponent(escape(atob(req.payload)))); retUrl = new URL(req.ret); }
   catch (e) { uiAlert(i18("dapp.bad", "Ignored a malformed signing request.")); return; }
-  if (!EXEC_SIGN_ALLOW.includes(retUrl.origin)) {
+  // The origin allowlist is the default guard. A user can opt to skip it (Settings → "Trust any site that
+  // asks me to sign") — unknown origins then get a LOUDER confirm that names the origin, never a silent pass.
+  const skipOriginCheck = localStorage.getItem("nado_skip_origin_check") === "1";
+  const trustedOrigin = EXEC_SIGN_ALLOW.includes(retUrl.origin);
+  if (!trustedOrigin && !skipOriginCheck) {
     uiAlert(i18("dapp.badOrigin", "Ignored a signing request for an unrecognised site.") + " (" + retUrl.origin + ")");
     return;
   }
@@ -1982,8 +1986,13 @@ async function resumePendingExecSign() {
     if (res && res.data && res.data.result) back("ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address);
     else back("ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
   };
-  if (valueFree && localStorage.getItem(AUTOSIGN_KEY) === "1") {
-    toast(i18("dapp.autosigned2", "Auto-signed \u2713 (no funds moved). Turn off in Settings.", {}), "info", 3000);
+  // AUTOSIGN IS DEFAULT-ON for value-free moves (user ask: zero friction for non-monetary actions). Only
+  // an explicit "0" (turned off in Settings) disables it. Anything moving NADO never autosigns.
+  // never autosign for an origin that isn't on the trusted allowlist (even if the user enabled skip) —
+  // an untrusted site always gets an explicit confirm that names it.
+  const autosignOn = localStorage.getItem(AUTOSIGN_KEY) !== "0" && trustedOrigin;
+  if (valueFree && autosignOn) {
+    signSplash(req.app);   // full-screen "signing\u2026" cover so the dashboard never flashes before the bounce
     try { await submitBlob(); } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
     return;
   }
@@ -1995,9 +2004,13 @@ async function resumePendingExecSign() {
       : i18("dapp.body2", "{app} wants to sign & submit this from your wallet ({a}). It moves no L1 funds beyond the network fee.",
           { app: req.app, a: state.wallet.address.slice(0, 14) + "…" }),
     rows,
+    // value-free calls carry the autosign toggle right in the dialog (restored — it used to live here):
+    // tick it and future game moves sign silently. Value/stake calls never show it (they always confirm).
+    checkbox: valueFree ? { label: i18("dapp.autoOptIn", "Auto-sign game moves like this from now on (nothing moves but the fee)"), checked: false } : null,
     confirmText: i18("dapp.sign", "Sign & submit"),
   });
   if (!okc) { back("ok=0"); return; }
+  if (valueFree && modalCheckValue()) { try { localStorage.setItem(AUTOSIGN_KEY, "1"); } catch (e) {} }
   try {
     // short expiry; flexible landing mines it in the next produced block. submitResilient re-signs + resubmits
     // on the rare hedged "Invalid signature" rejection so a contract call isn't lost to a bad signature draw.
@@ -2008,8 +2021,28 @@ async function resumePendingExecSign() {
 function wireAutosignToggle() {
   const el = $("autosignDapp");
   if (!el) return;
-  el.checked = localStorage.getItem("nado_autosign_dapp") === "1";
+  el.checked = localStorage.getItem("nado_autosign_dapp") !== "0";   // default ON for value-free moves
   el.onchange = () => { try { localStorage.setItem("nado_autosign_dapp", el.checked ? "1" : "0"); } catch (e) {} };
+  const so = $("skipOriginCheck");
+  if (so) {
+    so.checked = localStorage.getItem("nado_skip_origin_check") === "1";
+    so.onchange = () => { try { localStorage.setItem("nado_skip_origin_check", so.checked ? "1" : "0"); } catch (e) {} };
+  }
+}
+// signSplash: a full-screen cover shown the instant we decide to auto-sign, so the wallet dashboard never
+// flashes before we submit + bounce back to the game. Removed automatically when the page unloads.
+function signSplash(app) {
+  try {
+    if (document.getElementById("signSplash")) return;
+    const d = document.createElement("div");
+    d.id = "signSplash";
+    d.style.cssText = "position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:radial-gradient(700px 400px at 50% 40%,rgba(0,173,147,.14),#0b0f14 70%);color:#e6edf3;font:600 15px system-ui";
+    d.innerHTML = '<div style="width:44px;height:44px;border:3px solid #243140;border-top-color:#00c9a7;border-radius:50%;animation:ssspin .8s linear infinite"></div>'
+      + '<div>🔏 Signing your ' + (app ? String(app).replace(/[<>&]/g, "") + " " : "") + 'move…</div>'
+      + '<div style="font-size:12px;color:#93a1b0">back to the game in a moment</div>'
+      + '<style>@keyframes ssspin{to{transform:rotate(360deg)}}</style>';
+    document.body.appendChild(d);
+  } catch (e) {}
 }
 function showWalletUI() {
   wireAutosignToggle();
