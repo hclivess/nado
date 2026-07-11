@@ -190,7 +190,7 @@ function renderBoard() {
     try { const f = localStorage.getItem(LS_POS + activeGame); if (f) { const e2 = new Chess(); e2.load(f); engine = e2; } } catch (e) {}
   }
   const g = lastGame || {};
-  const side = mySide(g), flip = flipBoard || side === "b";   // black sees the board from their side
+  const side = mySide(g), flip = flipBoard !== (side === "b");   // black defaults to their own side; the flip button INVERTS it (XOR, so black can flip too)
   const board = engine.board();   // 8x8, [0][0] = a8
   const legalTargets = selected ? new Set(engine.moves({ square: selected }).map((m) => m.to)) : new Set();
   const lastMv = (g.moves && g.moves.length) ? g.moves[g.moves.length - 1] : null;
