@@ -1977,6 +1977,11 @@ async function resumePendingExecSign() {
   // isn't interrupted on every action. Anything that moves NADO (value/deposit/withdraw) ALWAYS confirms.
   const AUTOSIGN_KEY = "nado_autosign_dapp";
   const valueFree = escrow === 0n && (blob.op || "call") === "call" && blob.amount === undefined && !call.confirm;
+  // BET CAP: a `call` that escrows NADO (a slot spin, a small bet) can also auto-sign — but ONLY up to a
+  // user-set ceiling, so a game can never quietly drain more than you allow. 0 (default) = always confirm
+  // bets. The escrow is from the bounded EXEC/playable balance, never L1, and only from trusted origins.
+  let betCap = 0n; try { betCap = BigInt(localStorage.getItem("nado_autosign_bet_cap_raw") || "0"); } catch (e) { betCap = 0n; }
+  const smallBet = escrow > 0n && escrow <= betCap && (blob.op || "call") === "call" && blob.amount === undefined && !call.confirm;
   const submitBlob = async () => {
     const { res, tx } = await submitResilient(async () => {
       const latest = await getLatestBlock();
@@ -1991,7 +1996,11 @@ async function resumePendingExecSign() {
   // never autosign for an origin that isn't on the trusted allowlist (even if the user enabled skip) —
   // an untrusted site always gets an explicit confirm that names it.
   const autosignOn = localStorage.getItem(AUTOSIGN_KEY) !== "0" && trustedOrigin;
-  if (valueFree && autosignOn) {
+  // AUTO-SIGN EVERYTHING (opt-in): sign ANY contract call from a trusted game \u2014 bets included \u2014 with no
+  // tap. Off by default; the user turns it on in Settings or straight from a sign dialog. Untrusted
+  // origins are still never auto-signed.
+  const autosignAll = localStorage.getItem("nado_autosign_all") === "1" && trustedOrigin;
+  if (autosignAll || (valueFree && autosignOn) || smallBet) {
     signSplash(req.app);   // full-screen "signing\u2026" cover so the dashboard never flashes before the bounce
     try { await submitBlob(); } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
     return;
@@ -2004,13 +2013,14 @@ async function resumePendingExecSign() {
       : i18("dapp.body2", "{app} wants to sign & submit this from your wallet ({a}). It moves no L1 funds beyond the network fee.",
           { app: req.app, a: state.wallet.address.slice(0, 14) + "…" }),
     rows,
-    // value-free calls carry the autosign toggle right in the dialog (restored — it used to live here):
-    // tick it and future game moves sign silently. Value/stake calls never show it (they always confirm).
-    checkbox: valueFree ? { label: i18("dapp.autoOptIn", "Auto-sign game moves like this from now on (nothing moves but the fee)"), checked: false } : null,
+    // One opt-in on every trusted-game dialog: auto-sign ALL exec-layer calls from now on. These only ever
+    // escrow from your playable (exec/VM) balance — never your L1 wallet — so ticking it lets bets/spins and
+    // moves alike sign with no tap. Only shown for trusted origins.
+    checkbox: trustedOrigin ? { label: i18("dapp.autoExecOptIn", "Auto-sign exec-layer game calls from now on (escrow from your playable balance, never L1)"), checked: false } : null,
     confirmText: i18("dapp.sign", "Sign & submit"),
   });
   if (!okc) { back("ok=0"); return; }
-  if (valueFree && modalCheckValue()) { try { localStorage.setItem(AUTOSIGN_KEY, "1"); } catch (e) {} }
+  if (trustedOrigin && modalCheckValue()) { try { localStorage.setItem("nado_autosign_all", "1"); } catch (e) {} }
   try {
     // short expiry; flexible landing mines it in the next produced block. submitResilient re-signs + resubmits
     // on the rare hedged "Invalid signature" rejection so a contract call isn't lost to a bad signature draw.
@@ -2027,6 +2037,16 @@ function wireAutosignToggle() {
   if (so) {
     so.checked = localStorage.getItem("nado_skip_origin_check") === "1";
     so.onchange = () => { try { localStorage.setItem("nado_skip_origin_check", so.checked ? "1" : "0"); } catch (e) {} };
+  }
+  const aa = $("autosignAll");
+  if (aa) {
+    aa.checked = localStorage.getItem("nado_autosign_all") === "1";
+    aa.onchange = () => { try { localStorage.setItem("nado_autosign_all", aa.checked ? "1" : "0"); } catch (e) {} };
+  }
+  const bc = $("autosignBetCap");
+  if (bc) {
+    try { const raw = localStorage.getItem("nado_autosign_bet_cap_raw"); bc.value = raw && raw !== "0" ? rawToNado(BigInt(raw)) : ""; } catch (e) {}
+    bc.onchange = () => { try { const r = nadoToRaw(bc.value); localStorage.setItem("nado_autosign_bet_cap_raw", r ? r.toString() : "0"); } catch (e) {} };
   }
 }
 // signSplash: a full-screen cover shown the instant we decide to auto-sign, so the wallet dashboard never

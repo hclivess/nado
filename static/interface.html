@@ -769,6 +769,18 @@
         <span class="small faint" style="display:block" data-i18n="settings.trustAnySub">Off by default — only the official NADO games may request a signature. Turn on to allow other sites; they'll still show a confirm that names the site (never auto-signed).</span>
       </label>
     </div>
+    <div class="row" style="align-items:flex-start;gap:10px;margin-bottom:14px">
+      <input id="autosignAll" type="checkbox" class="switch" />
+      <label for="autosignAll" style="margin:0;flex:1;cursor:pointer">
+        <b data-i18n="settings.autosignAll">Auto-sign all exec-layer game escrow</b>
+        <span class="small faint" style="display:block" data-i18n="settings.autosignAllSub">Fast casino play: EVERY call from a trusted NADO game signs with no tap — bets and spins included. These only ever escrow from your playable (exec/VM) balance, never your L1 wallet. Deposits and withdrawals still always confirm.</span>
+      </label>
+    </div>
+    <div style="margin-bottom:14px">
+      <label data-i18n="settings.betCap">…or only auto-sign bets up to (NADO)</label>
+      <div class="row"><input id="autosignBetCap" inputmode="decimal" placeholder="0 = always confirm bets" style="max-width:200px"></div>
+      <span class="small faint" data-i18n="settings.betCapSub">A middle ground if you leave the switch above off: bets/spins that escrow up to this much sign without a tap; bigger stakes always ask.</span>
+    </div>
     <label data-i18n="settings.relay">Relay node URL (a full node that accepts your transactions)</label>
     <div class="row">
       <input id="relayUrl" class="grow" placeholder="https://node.example:9173" />
