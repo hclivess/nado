@@ -90,6 +90,12 @@ function fundMachine() {
   if (!canPay(dapp, raw, "Topping up the bank")) return;
   dapp.call("fund", [activeTable], raw, "top up machine #" + activeTable + " · " + rawToNado(raw) + " NADO", { table: activeTable, phase: "fund" });
 }
+function readyWins() { return mySpins.filter((s) => s.addr === dapp.me && !s.settled && s.ready && s.m2 > 0); }
+function collectWins() {
+  const w = readyWins();
+  if (!w.length) return;
+  settleSpin(w[0].g, w[0].m2, w[0].stake);   // one tx per settle; the button re-offers the next on return
+}
 const closeMachine = () => dapp.call("close", [activeTable], null, "close machine #" + activeTable + " — cash the bank out", { table: activeTable, phase: "close" }, { confirm: 1 });
 
 // ---- refresh ---------------------------------------------------------------------------------------
@@ -122,9 +128,13 @@ async function refreshAll() {
       if (done) {
         $("status").textContent = { open: "✓ Machine is live — share it and earn the edge.", spin: "✓ Spin locked to the next blocks…",
           settle: "✓ Settled on-chain.", close: "✓ Machine closed — bank cashed out.", fund: "✓ Bank topped up." }[watch.phase] || "✓ Confirmed.";
+        dapp.clearInflight();   // re-enable the SPIN button the instant the spin lands (was stuck disabled ~3 min)
         watch = null;
       }
     }
+    // safety net: never leave the SPIN button disabled once the spin is visibly on-chain, even if `watch`
+    // was lost to a reload — clear a "spin" inflight whose seat now exists.
+    if (dapp.inflight && dapp.inflight.phase === "spin" && _m(sto, "gg")[String(dapp.inflight.seat)]) dapp.clearInflight();
     renderLobby(sto);
     renderScore($("scoreList"), boardFrom(sto), dapp.me, "No settled spins yet — pull the first lever.");
     await resolveAliases([dapp.me, lastTable && lastTable.bank].concat(mySpins.map((s) => s.addr)).filter(Boolean));
@@ -196,6 +206,11 @@ function render() {
       ? '<span class="win">' + cur.syms.map((s) => SYM[s]).join(" ") + " — WIN " + rawToNado(payout) + " NADO (" + (cur.m2 / 2) + "×)!</span>"
       : cur.syms.map((s) => SYM[s]).join(" ") + " — no luck, spin again";
   }
+  // one-tap collect: sum the player's ready winnings
+  const wins = mySpins.filter((s) => s.addr === dapp.me && !s.settled && s.ready && s.m2 > 0);
+  const winTotal = wins.reduce((a, s) => a + BigInt(s.stake) * BigInt(s.m2) / 2n, 0n);
+  $("btnCollect").classList.toggle("hidden", wins.length === 0);
+  if (wins.length) $("btnCollect").textContent = "💰 Collect " + (wins.length > 1 ? wins.length + " wins · " : "") + rawToNado(winTotal) + " NADO";
   // spin history with collect buttons
   $("mySpins").innerHTML = mySpins.slice(0, 8).map((s) => {
     const who = s.addr === dapp.me ? "<b>you</b>" : disp(s.addr);
@@ -225,6 +240,7 @@ function wireUI() {
   $("btnNewMachine").onclick = openMachine;
   $("btnSpin").onclick = doSpin;
   $("btnFund").onclick = fundMachine;
+  $("btnCollect").onclick = collectWins;
   $("btnClose").onclick = closeMachine;
 }
 async function boot() {
