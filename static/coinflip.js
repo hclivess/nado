@@ -153,6 +153,7 @@ function renderLobby(games) {
 // ---- render --------------------------------------------------------------------------------------
 function wireUI() {
   wireWallet(dapp);
+  dapp.wirePctSlider("stake", { slider: "stakeSlider", input: "stakeAmt" }, () => dapp.exec, render);   // play for stakes: % of your playable balance
   stickyInputs(dapp, ['stakeAmt', 'bankAmt']);   // typed amounts persist across turns
   $("btnNew").onclick = newGame;
   $("btnJoin").onclick = joinGame;
@@ -168,6 +169,7 @@ function wireUI() {
 const badge = (s) => s === "confirmed" ? '<span class="b ok">confirmed ✓</span>' : s === "pending" ? '<span class="b pend">pending…</span>' : '<span class="b dimb">—</span>';
 function render() {
   dapp.reflectUrl("game", active);   // address bar = the shareable link to the selected game
+  dapp.syncPctSlider("stake", { slider: "stakeSlider", input: "stakeAmt" }, dapp.exec);
   const signedIn = renderWallet(dapp);
   gate({ play: signedIn, bankroll: signedIn, activeGame: active != null });
   const jid = ($("joinId").value || "").trim();

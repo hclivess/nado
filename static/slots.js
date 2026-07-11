@@ -183,6 +183,7 @@ function setReels(syms, spinning, winning) {
 }
 function render() {
   dapp.reflectUrl("table", activeTable);   // address bar = the shareable link to the selected machine
+  dapp.syncPctSlider("bankroll", { slider: "bankrollSlider", input: "bankrollAmt" }, dapp.exec);
   const signedIn = renderWallet(dapp);
   gate({ opencard: signedIn, bankroll: signedIn, activeGame: activeTable != null });
   // my machines / spins chips
@@ -261,6 +262,7 @@ function wireUI() {
   $("btnFund").onclick = fundMachine;
   $("btnCollect").onclick = collectWins;
   dapp.wireStakeSlider(maxBetRaw, () => syncStakeSlider());   // owns stakeAmt input + the % slider + Max
+  dapp.wirePctSlider("bankroll", { slider: "bankrollSlider", input: "bankrollAmt" }, () => dapp.exec, render);   // open a machine: % of your playable balance
   dapp.wireAutoCollect();
   $("btnClose").onclick = closeMachine;
 }

@@ -200,6 +200,7 @@ function wireUI() {
   $("btnBet").onclick = doBet;
   $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = "Enter a table ID, or pick one from the lobby."; };
   dapp.wireStakeSlider(maxBetRaw, () => render());   // owns stakeAmt input + the % slider + Max
+  dapp.wirePctSlider("bankroll", { slider: "bankrollSlider", input: "bankrollAmt" }, () => dapp.exec, render);   // bank a table: % of your playable balance
   $("btnClose").onclick = closeTable;
   dapp.wireAutoCollect();
   $("btnFund").onclick = fundTable;
@@ -209,6 +210,7 @@ function wireUI() {
 }
 function render() {
   dapp.reflectUrl("table", activeTable);   // address bar = the shareable link to the selected table
+  dapp.syncPctSlider("bankroll", { slider: "bankrollSlider", input: "bankrollAmt" }, dapp.exec);
   const signedIn = renderWallet(dapp);
   gate({ play: signedIn, bankcard: signedIn, bankroll: signedIn, activeGame: activeTable != null });
   const c = betCount(), M = betMult(), stakeRaw = nadoToRaw($("stakeAmt").value);

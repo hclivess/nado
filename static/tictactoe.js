@@ -121,6 +121,7 @@ function renderLobby(sto) {
 // ---- render ----------------------------------------------------------------------------------------
 function render() {
   dapp.reflectUrl("game", activeGame);   // address bar = the shareable link to the selected game
+  dapp.syncPctSlider("stake", { slider: "stakeSlider", input: "stakeAmt" }, dapp.exec);
   const signedIn = renderWallet(dapp);
   gate({ opencard: signedIn, bankroll: signedIn, activeGame: activeGame != null });
   const G = load(LS_G);
@@ -200,6 +201,7 @@ dapp.onReturn((pend, ok, err) => {
 });
 function wireUI() {
   wireWallet(dapp);
+  dapp.wirePctSlider("stake", { slider: "stakeSlider", input: "stakeAmt" }, () => dapp.exec, render);   // play for stakes: % of your playable balance
   stickyInputs(dapp, ['stakeAmt', 'bankAmt']);   // typed amounts persist across turns
   $("btnNewGame").onclick = newGame;
 }

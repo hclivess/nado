@@ -24,6 +24,9 @@
   .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 0;min-width:0}
   label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
   input,select{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:10px;padding:0;border:0;margin:12px 0;background:linear-gradient(90deg,var(--accent) 0,var(--accent2) 100%);border-radius:999px;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+  input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab}
   input:focus,select:focus{outline:none;border-color:var(--accent2)}
   button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:11px;background:var(--elev2);color:var(--txt);padding:11px 15px;cursor:pointer;transition:transform .05s,border-color .15s}
   button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
@@ -32,6 +35,8 @@
   button.mini{padding:5px 10px;font-size:11.5px;border-radius:8px}
   @keyframes cfpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,201,167,.45)}50%{transform:scale(1.05);box-shadow:0 0 0 6px rgba(0,201,167,0)}}
   button.pulse{animation:cfpulse 1.25s ease-in-out infinite}
+  @keyframes waitpulse{0%,100%{opacity:.5}50%{opacity:1}}
+  .waitpulse{animation:waitpulse 1.15s ease-in-out infinite;color:var(--accent2)}
   .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
   .warn{color:var(--danger);font-weight:600;line-height:1.45}
   .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}

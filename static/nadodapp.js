@@ -146,8 +146,8 @@ export function canPay(dapp, raw, what) {
   }
   if (dapp.exec >= raw) return true;
   alertBar(what + " costs " + rawToNado(raw) + " NADO in tokens — you only have "
-    + rawToNado(dapp.exec) + ". Buy at least " + rawToNado(raw - dapp.exec) + " NADO of tokens (Deposit), then try again.",
-    "Go to Deposit", () => {
+    + rawToNado(dapp.exec) + ". Buy at least " + rawToNado(raw - dapp.exec) + " NADO of tokens (Buy in), then try again.",
+    "Go to Buy in", () => {
       const bk = document.getElementById("bankroll"), bd = document.getElementById("btnDeposit");
       if (bd) bd.classList.add("pulse");
       if (bk) { bk.classList.remove("hidden"); try { bk.scrollIntoView({ behavior: "smooth", block: "center" }); } catch {} }
@@ -194,11 +194,46 @@ export const disp = (addr) => !addr ? "—" : (_aliasCache[addr] ? "@" + _aliasC
 
 // ---- shared UI blocks (every game has these exact elements — keep them in ONE place) --------------
 // wireWallet(dapp): the sign-in / deposit / withdraw buttons ("bankAmt" input) — identical in every game.
+const _L1_FEE_RESERVE = RAW / 1000n;   // leave ~0.001 NADO of L1 for the deposit tx fee when buying in 100%
 export function wireWallet(dapp) {
   const st = (m) => { const s = $("status"); if (s) s.textContent = m; };
   if ($("btnSignIn")) $("btnSignIn").onclick = () => dapp.signIn();
   if ($("btnDeposit")) $("btnDeposit").onclick = () => { const raw = nadoToRaw($("bankAmt").value); if (!raw) return st("Enter an amount to deposit."); if (raw + 1000n > dapp.l1) return st("Not enough in your L1 wallet (" + rawToNado(dapp.l1) + " NADO)."); dapp.deposit(raw); };
   if ($("btnWithdraw")) $("btnWithdraw").onclick = () => { const raw = nadoToRaw($("bankAmt").value); if (!raw) return st("Enter an amount to withdraw."); if (dapp.exec < raw) return st("You only have " + rawToNado(dapp.exec) + " NADO in the exec layer."); dapp.withdraw(raw); };
+  // BUY-IN / CASH-OUT % sliders: replace the Tokens amount row with two slider rows, each with ITS OWN button
+  // on the right — Buy in (a % of your L1 wallet, minus a tiny fee reserve) with Deposit, Cash out (a % of your
+  // playable balance) with Withdraw. Each button submits its own slider's resolved amount (independent).
+  const bankInput = $("bankAmt");
+  if (bankInput && !document.getElementById("buyinSlider")) {
+    const dep = $("btnDeposit"), wd = $("btnWithdraw");
+    const oldRow = bankInput.closest(".row") || bankInput;
+    const buyMax = () => dapp.l1 > _L1_FEE_RESERVE ? dapp.l1 - _L1_FEE_RESERVE : 0n;
+    const pctOf = (slId, maxRaw) => { const p = Math.max(0, Math.min(100, parseFloat(document.getElementById(slId).value) || 0)); return p >= 100 ? maxRaw : (BigInt(Math.round(p * 100)) * maxRaw) / 10000n; };
+    const mkRow = (slId, label, btn) => {
+      const box = document.createElement("div"); box.style.margin = "14px 0 0";
+      // header: the action verb (left) + the resolved % · amount (right) — well ABOVE the slider so the knob never covers it
+      const head = document.createElement("div"); head.className = "small"; head.style.cssText = "display:flex;justify-content:space-between;gap:8px;margin-bottom:2px;font-weight:700;color:var(--txt)";
+      head.innerHTML = '<span>' + label + '</span><span class="mono dim" id="' + slId + 'P">0% · 0 NADO</span>';
+      // slider + its button on ONE line — the slider flexes, the button is fixed on the right (never wraps below)
+      const r = document.createElement("div"); r.style.cssText = "display:flex;gap:10px;align-items:center";
+      const sl = document.createElement("input"); sl.type = "range"; sl.id = slId; sl.min = "0"; sl.max = "100"; sl.value = "0"; sl.step = "1"; sl.style.cssText = "flex:1 1 auto;width:auto;min-width:0;margin:0";
+      r.appendChild(sl); if (btn) { btn.style.cssText = "flex:0 0 auto"; r.appendChild(btn); }
+      const hint = document.createElement("div"); hint.className = "small dim"; hint.style.marginTop = "3px"; hint.id = slId + "M";
+      box.appendChild(head); box.appendChild(r); box.appendChild(hint);
+      return { box, sl };
+    };
+    if (dep) dep.textContent = "Buy in"; if (wd) wd.textContent = "Cash out";
+    const bi = mkRow("buyinSlider", "⬆ Buy in", dep);
+    const co = mkRow("cashoutSlider", "⬇ Cash out", wd);
+    oldRow.insertAdjacentElement("afterend", co.box);
+    oldRow.insertAdjacentElement("afterend", bi.box);
+    oldRow.classList.add("hidden");   // the old amount+buttons row (buttons were moved into the slider rows)
+    const upd = (slId, maxFn) => { const p = Math.round(parseFloat(document.getElementById(slId).value) || 0); document.getElementById(slId + "P").textContent = p + "% · " + rawToNado(pctOf(slId, maxFn())) + " NADO"; };
+    bi.sl.oninput = () => upd("buyinSlider", buyMax);
+    co.sl.oninput = () => upd("cashoutSlider", () => dapp.exec);
+    if (dep) dep.onclick = () => { const raw = pctOf("buyinSlider", buyMax()); if (raw <= 0n) return st("Slide how much to buy in."); if (raw + 1000n > dapp.l1) return st("Not enough in your L1 wallet (" + rawToNado(dapp.l1) + " NADO)."); dapp.deposit(raw); };
+    if (wd) wd.onclick = () => { const raw = pctOf("cashoutSlider", dapp.exec); if (raw <= 0n) return st("Slide how much to cash out."); if (dapp.exec < raw) return st("You only have " + rawToNado(dapp.exec) + " NADO playable."); dapp.withdraw(raw); };
+  }
 }
 // renderWallet(dapp): the who/bal/l1bal header row; returns signedIn so render() can gate on it.
 export function renderWallet(dapp) {
@@ -207,6 +242,8 @@ export function renderWallet(dapp) {
   if ($("who")) $("who").textContent = signedIn ? disp(dapp.me) : "not signed in";
   if ($("bal")) $("bal").textContent = rawToNado(dapp.exec) + " NADO";
   if ($("l1bal")) $("l1bal").textContent = rawToNado(dapp.l1) + " NADO";
+  const bm = document.getElementById("buyinSliderM"); if (bm) bm.textContent = "of " + rawToNado(dapp.l1) + " wallet";
+  const cm = document.getElementById("cashoutSliderM"); if (cm) cm.textContent = "of " + rawToNado(dapp.exec) + " playable";
   return signedIn;
 }
 // renderScore(el, board, me, empty): the shared win/loss leaderboard table.
@@ -236,10 +273,10 @@ export function recentChips(el, items, onSelect, emptyMsg) {
 }
 // statusLabel(pend, ok, err, extra): the shared post-redirect status line. Games pass extra phase labels.
 export function statusLabel(pend, ok, err, extra) {
-  const labels = Object.assign({ connect: "Signed in.", deposit: "Deposit submitted — confirming…",
+  const labels = Object.assign({ connect: "Signed in.", deposit: "Buy-in submitted — confirming…",
     open: "Table opening — confirming…", bet: "Bet placed — confirming…", join: "Joining — confirming…",
     settle: "Collecting — confirming on-chain (~1 min)…", fund: "Topping up…", close: "Closing…",
-    resolve: "Rolling out — confirming…", cancel: "Cancelling…", withdraw: "Withdrawal submitted." }, extra || {});
+    resolve: "Rolling out — confirming…", cancel: "Cancelling…", withdraw: "Cash-out submitted." }, extra || {});
   return ok ? (labels[pend && pend.phase] || "Submitted.") : "Rejected" + (err ? ": " + err : ".");
 }
 
@@ -422,8 +459,8 @@ export class NadoDapp {
     else this._goRedirect(obj, pend);
   }
   signIn() { this._goRedirect({ connect: true, label: "sign in" }, { phase: "connect" }); }
-  deposit(raw) { this._goRedirect({ deposit: { amount: raw.toString() }, label: "deposit " + rawToNado(raw) + " NADO" }, { phase: "deposit" }); }
-  withdraw(raw, pend) { this.signBlob({ op: "bridge_withdraw", amount: raw }, "withdraw " + rawToNado(raw) + " NADO to L1", pend || { phase: "withdraw" }); }
+  deposit(raw) { this._goRedirect({ deposit: { amount: raw.toString() }, label: "buy in " + rawToNado(raw) + " NADO" }, { phase: "deposit" }); }
+  withdraw(raw, pend) { this.signBlob({ op: "bridge_withdraw", amount: raw }, "cash out " + rawToNado(raw) + " NADO", pend || { phase: "withdraw" }); }
   signBlob(blob, label, pend, opts) { this._go(Object.assign({ blob: encBig(blob), label }, (opts && opts.confirm) ? { confirm: 1 } : {}), pend, !!(opts && opts.bg), !!(opts && opts.isValue)); }
   // generic contract call; valueRaw (raw NADO) is ESCROWED from the caller's bridge balance into the contract.
   // opts.confirm forces the wallet's manual confirm (e.g. a poker bet that moves chips you already escrowed) —
@@ -514,39 +551,60 @@ export class NadoDapp {
   }
 
   // ── MAX-BET STAKE SLIDER ───────────────────────────────────────────────────────────────────────
-  // syncStakeSlider(maxRaw, ids): a PERCENT slider (fixed 0..100) of the table's current max coverable bet.
-  // In "pct" mode the NADO amount is DERIVED from the live max, so 100% is always exactly the current max and
-  // the thumb never has to chase a moving value. In "amount" mode (the user typed a figure) the thumb just
-  // reflects the implied %. maxRaw is BigInt (null/≤0 hides the wrap). Call from render().
-  syncStakeSlider(maxRaw, ids = {}) {
-    const sl = document.getElementById(ids.slider || "stakeSlider");
-    const wrap = document.getElementById(ids.wrap || "stakeSliderWrap");
-    const stake = document.getElementById(ids.stake || "stakeAmt");
-    if (!sl || !wrap || !stake) return;
-    if (maxRaw == null || maxRaw <= 0n) { wrap.classList.add("hidden"); return; }
-    wrap.classList.remove("hidden");
+  // ── the ONE percent-slider primitive: a fixed 0..100% slider bound to a number input, resolving to a % of
+  // some live max (a bet's coverable max, your L1 wallet, your playable balance…). In "pct" mode the AMOUNT is
+  // DERIVED from the live max (100% is always exactly the current max, no chasing a moving value); typing an
+  // amount switches to "amount" mode and the thumb reflects the implied %. State is per `name` so many can
+  // coexist. wirePctSlider() binds the slider+input+Max once; syncPctSlider() refreshes it from render().
+  // ids: { slider, input, wrap?, max?, maxLabel?, pctLabel? } are element ids.
+  wirePctSlider(name, ids, maxRawFn, onChange) {
+    if (!this._pct) this._pct = {};
+    this._pct[name] = "amount";
+    const inp = ids.input && document.getElementById(ids.input);
+    let sl = ids.slider && document.getElementById(ids.slider);
+    if (!sl && inp && ids.slider && ids.inject !== false) {   // no slider in the HTML → inject one right after the input
+      sl = document.createElement("input");
+      sl.type = "range"; sl.id = ids.slider; sl.min = "0"; sl.max = "100"; sl.value = "0"; sl.step = "1"; sl.className = "mt";
+      const lbl = document.createElement("div");
+      lbl.className = "small dim"; lbl.style.cssText = "display:flex;justify-content:space-between;gap:8px";
+      lbl.innerHTML = '<span id="' + ids.slider + '_p"></span><span id="' + ids.slider + '_m" class="mono"></span>';
+      const anchor = inp.closest(".row") || inp;
+      anchor.insertAdjacentElement("afterend", sl);
+      sl.insertAdjacentElement("afterend", lbl);
+    }
+    const maxBtn = ids.max && document.getElementById(ids.max);
+    if (sl) sl.oninput = () => { this._pct[name] = "pct"; onChange && onChange(); };
+    if (inp) inp.oninput = () => { this._pct[name] = "amount"; onChange && onChange(); };
+    if (maxBtn) maxBtn.onclick = () => { this._pct[name] = "pct"; if (sl) sl.value = "100"; onChange && onChange(); };
+  }
+  syncPctSlider(name, ids, maxRaw) {
+    const sl = ids.slider && document.getElementById(ids.slider);
+    const inp = ids.input && document.getElementById(ids.input);
+    const wrap = ids.wrap ? document.getElementById(ids.wrap) : sl;
+    if (!sl || !inp) return;
+    if (maxRaw == null || maxRaw <= 0n) { if (wrap) wrap.classList.add("hidden"); return; }
+    if (wrap) wrap.classList.remove("hidden");
     sl.min = "0"; sl.max = "100"; sl.step = "1";
     const maxN = parseFloat(rawToNado(maxRaw)) || 0;
-    if (this._stakeMode === "pct") {
+    const mode = (this._pct && this._pct[name]) || "amount";
+    if (mode === "pct") {
       const pct = Math.max(0, Math.min(100, parseFloat(sl.value) || 0));
-      stake.value = rawToNado(pct >= 100 ? maxRaw : (BigInt(Math.round(pct * 100)) * maxRaw) / 10000n);   // % of the LIVE max; 100% = exact max
+      inp.value = rawToNado(pct >= 100 ? maxRaw : (BigInt(Math.round(pct * 100)) * maxRaw) / 10000n);   // % of the LIVE max; 100% = exact max
     } else if (document.activeElement !== sl) {
-      const a = parseFloat(stake.value) || 0;
-      sl.value = String(maxN > 0 ? Math.max(0, Math.min(100, Math.round(a / maxN * 100))) : 0);            // reflect the typed amount as a %
+      const a = parseFloat(inp.value) || 0;
+      sl.value = String(maxN > 0 ? Math.max(0, Math.min(100, Math.round(a / maxN * 100))) : 0);          // reflect the typed amount as a %
     }
     const pctNow = Math.round(parseFloat(sl.value) || 0);
-    const mv = document.getElementById(ids.maxVal || "maxBetVal"); if (mv) mv.textContent = rawToNado(maxRaw) + " NADO";
-    const sv = document.getElementById(ids.sliderVal || "stakeSliderVal"); if (sv) sv.textContent = pctNow + "% · " + (stake.value || "0") + " NADO";
+    const setT = (elid, txt) => { if (elid) { const e = document.getElementById(elid); if (e) e.textContent = txt; } };
+    setT(ids.maxLabel || (ids.slider + "_m"), rawToNado(maxRaw) + " NADO");
+    setT(ids.pctLabel || (ids.slider + "_p"), pctNow + "% · " + (inp.value || "0") + " NADO");
   }
-  // wireStakeSlider(maxRawFn, onChange, ids): own the slider + the number input + the "Max" shortcut. Dragging
-  // the slider → percent mode; typing the amount → amount mode; "Max" → 100%. onChange() re-renders. Call once.
+  // the bet slider is just the primitive bound to the stake input (kept as named helpers so games don't change)
+  syncStakeSlider(maxRaw, ids = {}) {
+    this.syncPctSlider("stake", { slider: ids.slider || "stakeSlider", input: ids.stake || "stakeAmt", wrap: ids.wrap || "stakeSliderWrap", maxLabel: ids.maxVal || "maxBetVal", pctLabel: ids.sliderVal || "stakeSliderVal" }, maxRaw);
+  }
   wireStakeSlider(maxRawFn, onChange, ids = {}) {
-    const sl = document.getElementById(ids.slider || "stakeSlider");
-    const stake = document.getElementById(ids.stake || "stakeAmt");
-    const maxBtn = document.getElementById(ids.maxBtn || "btnMaxBet");
-    if (sl) sl.oninput = () => { this._stakeMode = "pct"; onChange && onChange(); };
-    if (stake) stake.oninput = () => { this._stakeMode = "amount"; onChange && onChange(); };
-    if (maxBtn) maxBtn.onclick = () => { this._stakeMode = "pct"; if (sl) sl.value = "100"; onChange && onChange(); };
+    this.wirePctSlider("stake", { slider: ids.slider || "stakeSlider", input: ids.stake || "stakeAmt", max: ids.maxBtn || "btnMaxBet" }, maxRawFn, onChange);
   }
 
   // consumeInvite(fn): after a share-link visitor signs in (inviteGate), replay the join they asked for.
@@ -583,7 +641,7 @@ export class NadoDapp {
         this._balWatch = null;
         const el = document.getElementById("status");   // only replace the OPTIMISTIC line, never a newer message
         if (el && /confirming|submitted/i.test(el.textContent || "")) {
-          el.textContent = w.phase === "deposit" ? "✓ Tokens bought — your playable balance is updated." : "✓ Withdrawn — back in your main-chain wallet.";
+          el.textContent = w.phase === "deposit" ? "✓ Tokens bought — your playable balance is updated." : "✓ Cashed out — back in your main-chain wallet.";
         }
       }
     }

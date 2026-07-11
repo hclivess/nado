@@ -905,6 +905,7 @@ function renderActive() {
     $("feedFull").textContent = "fill belly (30d) · " + rawToNado(G.feedCost(fillB, p.ap)) + " N";
     $("feedFull").dataset.blocks = fillB;
     $("feedHint").textContent = "Appetite " + p.ap + ": 1 NADO buys " + (G.feedBlocks(10n ** 10n, p.ap) / BLOCKS_PER_DAY).toFixed(1) + " days. Anyone may feed any pet — a gift (the belly still tops out 30 days ahead).";
+    dapp.syncPctSlider("feed", { slider: "feedSlider", input: "feedAmt" }, dapp.exec);   // feed: % of playable balance
   }
   if (p.hatched) {
     $("statList").innerHTML = G.STAT_NAMES.map((_n, i) => statRow(p, i)).join("");
@@ -917,7 +918,7 @@ function renderActive() {
       tp.classList.remove("hidden");
       tp.innerHTML = "🏋 Training <b>" + G.STAT_NAMES[i] + "</b>… " + (ready
         ? '<button class="mini primary" id="btnTrainRes">Reveal the result</button>'
-        : "result locked in blocks " + p.th + "–" + (p.th + 1) + " (~" + blocksToTime(Math.max(0, p.th + 1 - (dapp.cursor || p.th))) + " + finality)");
+        : '<span class="waitpulse">result locking in blocks ' + p.th + "–" + (p.th + 1) + " (~" + blocksToTime(Math.max(0, p.th + 1 - (dapp.cursor || p.th))) + " + finality)…</span>");
       if (ready) $("btnTrainRes").onclick = () => trainResolve(p.id);
     } else {
       tp.classList.add("hidden");
@@ -1150,6 +1151,7 @@ function wireUI() {
   if ($("btnHatchAll")) $("btnHatchAll").onclick = hatchAll;
   $("btnRebirth").onclick = () => rebirth(active);
   $("btnFeed").onclick = () => { const raw = nadoToRaw($("feedAmt").value); if (!raw) return alertBar("Enter how much NADO to feed."); feed(active, raw); };
+  dapp.wirePctSlider("feed", { slider: "feedSlider", input: "feedAmt" }, () => dapp.exec, render);   // feed: % of your playable balance
   const preset = (blocks) => { const p = PETS[active]; if (p) feed(active, G.feedCost(blocks, p.ap)); };
   $("feed1d").onclick = () => preset(7 * BLOCKS_PER_DAY);
   $("feed3d").onclick = () => preset(14 * BLOCKS_PER_DAY);
