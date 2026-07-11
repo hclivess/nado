@@ -330,12 +330,26 @@ def prune_block_bodies(finalized_height: int, retention: int, logger) -> int:
     end = min(prune_below, start + 4000)                      # bound per-call work (first enable on a long chain)
     home = get_home()
     pruned = 0
+    kept_blob = 0
     for h in range(start, end):
         bh = kv_ops.hash_by_number(h)                         # index is kept -> still resolvable after prune
         if not bh:
             continue
         path = f"{home}/blocks/{bh}.block"
         if os.path.exists(path):
+            # CONTRACT-DATA SAFETY (2026-07-11): the execution node reads `blob` payloads (contract
+            # deploys/calls) DIRECTLY out of block bodies as it tails finalized blocks. If a blob-bearing
+            # body is pruned before a lagging / cold-starting exec node consumes it, that contract data is
+            # gone forever (the exec tail skips body-less blocks). So NEVER prune a body that carries a
+            # blob tx — keep the full on-chain contract history replayable regardless of exec-node lag.
+            # (Bodies are loaded only during pruning, which is incremental + bounded; blob blocks are rare.)
+            try:
+                body = load_block_from_hash(bh, logger)
+                if body and any(t.get("recipient") == "blob" for t in body.get("block_transactions", [])):
+                    kept_blob += 1
+                    continue
+            except Exception:
+                continue                                       # can't inspect it -> never delete it (fail-safe)
             try:
                 os.remove(path)
                 pruned += 1
@@ -350,9 +364,10 @@ def prune_block_bodies(finalized_height: int, retention: int, logger) -> int:
             _update_block_ends({"earliest_block": neh}, logger=logger)
         except Exception as e:
             logger.warning(f"prune: earliest-pointer update failed: {e}")
-    if pruned:
+    if pruned or kept_blob:
         logger.info(f"Rolling mode: pruned {pruned} block bodies below height {end} "
-                    f"(retention {eff_retention}, finalized {finalized_height}); indexes + state kept.")
+                    f"(retention {eff_retention}, finalized {finalized_height}); kept {kept_blob} blob-bearing "
+                    f"bodies (contract history) + all indexes + state.")
     return pruned
 
 

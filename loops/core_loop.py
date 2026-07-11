@@ -866,6 +866,14 @@ class CoreClient(threading.Thread):
         selected = []
         for tx in self.memserver.transaction_pool.copy():
             try:
+                # AT-MOST-ONCE (halt fix 2026-07-11): an ALREADY-MINED txid must never enter our own
+                # candidate. verify_block would drop it — but only AFTER construct_block hashed the set,
+                # mutating the block post-hash so save_block refuses it and we wedge on this height
+                # forever (a sync donor re-injecting the mined tx via "Replacing transaction_pool" made
+                # the node stall on one block number indefinitely). Skip it here so the candidate hash is
+                # correct from the start. Same tx-index oracle verify_block/the pool-cull already use.
+                if kv_ops.tx_get(tx.get("txid")) is not None:
+                    continue
                 validate_transaction(transaction=tx, logger=self.logger, block_height=next_height)
                 validate_all_spending(transaction_pool=selected + [tx])
             except Exception as e:
