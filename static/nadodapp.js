@@ -318,6 +318,9 @@ export class NadoDapp {
     if (ok && pend && pend.phase && !["connect", "deposit", "withdraw"].includes(pend.phase)) {
       this.inflight = Object.assign({ ts: Date.now() }, pend);
     }
+    // deposit/withdraw confirmations are watched by the SDK itself: their optimistic status line
+    // ("Deposit submitted — confirming…") clears the moment the balances MOVE (or after 3 min).
+    if (ok && pend && (pend.phase === "deposit" || pend.phase === "withdraw")) this._balWatch = { phase: pend.phase, exec: null };
     if (this._onReturn) this._onReturn(pend, ok, err);
   }
   // busy(phase, keyName, keyVal): is there an in-flight action of this phase for this game/table/seat?
@@ -339,6 +342,17 @@ export class NadoDapp {
     if (!this.me) { this.exec = 0n; this.l1 = 0n; return; }
     try { const b = await (await fetch(base() + "/exec/bridge?ns=" + this.ns + "&provisional=1", { cache: "no-store" })).json(); this.exec = BigInt((b.balances || {})[this.me] || 0); } catch { this.exec = 0n; }
     try { const a = await (await fetch(base() + "/get_account?address=" + encodeURIComponent(this.me), { cache: "no-store" })).json(); this.l1 = BigInt(a.balance || 0); } catch { this.l1 = 0n; }
+    const w = this._balWatch;
+    if (w) {
+      if (w.exec == null) { w.exec = this.exec; w.l1 = this.l1; w.ts = Date.now(); }   // baseline: first read after return
+      else if (this.exec !== w.exec || this.l1 !== w.l1 || Date.now() - w.ts > 180000) {
+        this._balWatch = null;
+        const el = document.getElementById("status");   // only replace the OPTIMISTIC line, never a newer message
+        if (el && /confirming|submitted/i.test(el.textContent || "")) {
+          el.textContent = w.phase === "deposit" ? "✓ Tokens bought — your playable balance is updated." : "✓ Withdrawn — back in your main-chain wallet.";
+        }
+      }
+    }
   }
   async _cursor() { try { const s = await (await fetch(base() + "/exec/root?ns=" + this.ns + "&provisional=1", { cache: "no-store" })).json(); this.cursor = s.cursor != null ? Number(s.cursor) : this.cursor; } catch {} }
   async storage() {

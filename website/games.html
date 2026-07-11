@@ -143,6 +143,18 @@ const SVG = {
     <path d="M18 18 l4 4 -3 4 4 4" stroke="#8a6f42" stroke-width="1.6" fill="none"/>
     <circle cx="30" cy="30" r="2.6" fill="#d9c49a"/><circle cx="27" cy="14" r="1.8" fill="#d9c49a"/><circle cx="17" cy="32" r="1.9" fill="#d9c49a"/>
     <path d="M31 15 q6 -6 10 -2 q-3 5 -8 5" fill="#12a184" stroke="#075a4c" stroke-width="1.4"/></svg>`,
+  slots:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
+    <rect x="6" y="10" width="36" height="28" rx="6" fill="#e6edf3" stroke="#243140" stroke-width="2"/>
+    <rect x="11" y="16" width="8" height="16" rx="2" fill="#fff" stroke="#243140" stroke-width="1.2"/>
+    <rect x="20" y="16" width="8" height="16" rx="2" fill="#fff" stroke="#243140" stroke-width="1.2"/>
+    <rect x="29" y="16" width="8" height="16" rx="2" fill="#fff" stroke="#243140" stroke-width="1.2"/>
+    <circle cx="15" cy="24" r="2.6" fill="#d0362b"/><circle cx="24" cy="24" r="2.6" fill="#e3b341"/>
+    <text x="33" y="28" text-anchor="middle" font-size="10" font-weight="900" fill="#00ad93" font-family="system-ui">7</text>
+    <rect x="42" y="14" width="3" height="10" rx="1.5" fill="#93a1b0"/><circle cx="43.5" cy="12.5" r="3" fill="#d0362b"/></svg>`,
+  ttt:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
+    <path d="M18 8v32M30 8v32M8 18h32M8 30h32" stroke="#e6edf3" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M10.5 10.5l5 5m0-5l-5 5M33 33l5 5m0-5l-5 5" stroke="#00c9a7" stroke-width="2.6" stroke-linecap="round"/>
+    <circle cx="24" cy="24" r="3.6" fill="none" stroke="#e3b341" stroke-width="2.6"/></svg>`,
   tcg:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
     <rect x="12" y="7" width="24" height="34" rx="4" fill="#e6edf3" stroke="#243140" stroke-width="1.6"/>
     <path d="M12 11a4 4 0 0 1 4-4h16a4 4 0 0 1 4 4v5H12z" fill="#00ad93"/>
@@ -174,6 +186,12 @@ const GAMES = [
   { svg:SVG.pets, name:"NADO Pets", tag:"Live", live:true, url:"https://pets.nadochain.com",
     blurb:"On-chain tamagotchi NFTs. Adopt an egg and a future block hash decides what hatches — Poodle, African Grey Parrot or a legendary Dragon — with 10 stats locked at birth. Feed them real NADO or they die, train them (rarer trains easier), battle other pets for stakes (losers can die), and trade them on the marketplace.",
     meta:["True NFTs","Feed or they die","Train & battle","Marketplace"] },
+  { svg:SVG.slots, name:"Slots", tag:"Live", live:true, url:"https://slots.nadochain.com",
+    blurb:"Classic 3-reel slots where players own the machines. Open one, bank it, and earn the published 4.2% edge — or spin someone else's for up to 150× on triple sevens. Every spin is decided by two future block hashes; the exact 95.80% RTP is proven by full enumeration and enforced on-chain.",
+    meta:["Own the machine","150× jackpot","RTP 95.80% exact","Results in seconds"] },
+  { svg:SVG.ttt, name:"Tic-Tac-Toe", tag:"Live", live:true, url:"https://tictactoe.nadochain.com",
+    blurb:"The classic, for stakes — and the contract itself referees: every move is validated on-chain, three-in-a-row pays the pot instantly, a full board refunds both. Ply-bound moves make replays impossible; a stalling opponent only ever voids the game.",
+    meta:["2 players","Contract-refereed","Instant payout","Winner takes the pot"] },
   { svg:SVG.tcg, name:"Trading Card Game", tag:"Soon", live:false, url:null,
     blurb:"A collectible card game on NADO — mint, own and trade post-quantum cards, then battle for stakes. Cards are on-chain assets you truly own; matches settle objectively on the execution layer. Think Pokémon, but yours to keep and trade.",
     meta:["Collect & trade","On-chain cards","Battle for stakes","Coming soon"] },

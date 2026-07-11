@@ -232,9 +232,12 @@ async function refreshActive() {
     if (activeTable != null) {
       lastTable = tableFrom(sto, activeTable);
       if (lastTable.exists && lastTable.td && dapp.cursor != null) {
-        const d0 = lastTable.d0, need = [];
-        for (const h of [d0, d0 + S, d0 + 2 * S, d0 + 3 * S]) if (dapp.cursor >= h + 1) need.push(h, h + 1);
-        if (need.length) await dapp.blockHashes(need);
+        const d0 = lastTable.d0, pub = [];
+        // HOLE-CARD seeds (d0, d0+1) stay FINALIZED — hidden info; a provisional reorg would silently
+        // change your hand at showdown. The COMMUNITY streets are public -> provisional (fast) is safe.
+        if (dapp.cursor >= d0 + 1) await dapp.blockHashes([d0, d0 + 1]);
+        for (const h of [d0 + S, d0 + 2 * S, d0 + 3 * S]) if (dapp.cursor >= h + 1) pub.push(h, h + 1);
+        if (pub.length) await dapp.blockHashes(pub, { fast: true });
       }
       lastSeats = seatsOfTable(sto, activeTable);
     }

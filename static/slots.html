@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NADO Slots — player-banked slot machines, provably fair</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Crect%20x%3D%226%22%20y%3D%2210%22%20width%3D%2236%22%20height%3D%2228%22%20rx%3D%226%22%20fill%3D%22%23e6edf3%22%20stroke%3D%22%23243140%22%20stroke-width%3D%222%22/%3E%3Crect%20x%3D%2211%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%2216%22%20rx%3D%222%22%20fill%3D%22%23d0362b%22/%3E%3Crect%20x%3D%2220%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%2216%22%20rx%3D%222%22%20fill%3D%22%2300ad93%22/%3E%3Crect%20x%3D%2229%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%2216%22%20rx%3D%222%22%20fill%3D%22%23e3b341%22/%3E%3C/svg%3E">
+<meta name="theme-color" content="#0b0f14">
+<style>
+  :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--win:#2fbf71;--gold:#e3b341;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
+    color:var(--txt);font:15px/1.5 var(--sans);min-height:100vh}
+  .wrap{max-width:640px;margin:0 auto;padding:22px 16px 60px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  header .logo{font-size:26px}
+  header h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.2px}
+  header h1 .a{color:var(--accent2)}
+  header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev);white-space:nowrap}
+  header .hub:hover{color:var(--accent2);border-color:var(--accent2)}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 16px}
+  .card{background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  .card h2{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 0;min-width:0}
+  label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
+  input{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+  input:focus{outline:none;border-color:var(--accent2)}
+  button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:11px;background:var(--elev2);color:var(--txt);padding:11px 15px;cursor:pointer;transition:transform .05s,border-color .15s}
+  button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
+  button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
+  @keyframes spulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,201,167,.45)}50%{transform:scale(1.04);box-shadow:0 0 0 6px rgba(0,201,167,0)}}
+  button.pulse{animation:spulse 1.25s ease-in-out infinite}
+  .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
+  .warn{color:var(--danger);font-weight:600;line-height:1.45}
+  .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}
+  .chip.betting{border-color:var(--accent2);color:var(--accent2)}
+  .chip.pending{opacity:.6;border-style:dashed}
+  #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
+  table.score{width:100%;border-collapse:collapse;font-size:13px}
+  table.score th,table.score td{text-align:left;padding:6px 6px;border-bottom:1px solid var(--border)}
+  table.score th{color:var(--dim);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+  table.score tr.me td{background:rgba(0,201,167,.08)}
+  table.score .pos{color:var(--win)}table.score .neg{color:var(--danger)}
+  footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
+  a{color:var(--accent2)}
+
+  /* ---- the machine ---- */
+  .machine{background:linear-gradient(180deg,#182230,#10161f);border:2px solid var(--gold);border-radius:18px;padding:18px 14px 14px;box-shadow:0 10px 34px rgba(0,0,0,.5), inset 0 0 40px rgba(227,179,65,.05)}
+  .reels{display:flex;gap:10px;justify-content:center}
+  .reel{flex:0 0 92px;height:104px;background:#f5f2ea;border-radius:12px;border:3px solid #243140;display:flex;align-items:center;justify-content:center;font-size:54px;overflow:hidden;position:relative}
+  .reel.spin::after{content:"🍒\A🍋\A🍊\A🍇\A🔔\A💎\A7️⃣";white-space:pre;position:absolute;inset:0;font-size:54px;line-height:104px;text-align:center;animation:reelspin .28s linear infinite}
+  .reel.spin span{visibility:hidden}
+  @keyframes reelspin{0%{transform:translateY(-728px)}100%{transform:translateY(0)}}
+  .reel.hit{box-shadow:0 0 18px rgba(227,179,65,.9);border-color:var(--gold)}
+  #spinVerdict{text-align:center;font-weight:800;font-size:16px;min-height:24px;margin-top:10px}
+  #spinVerdict .win{color:var(--gold);text-shadow:0 0 12px rgba(227,179,65,.6)}
+  .spins .btl{border:1px solid var(--border);border-radius:12px;padding:8px 12px;margin:6px 0;font-size:12.5px;background:var(--elev2);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .paytable td{font-size:12.5px;padding:3px 6px}
+  .paytable .m{color:var(--gold);font-weight:800;text-align:right}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><span class="logo">🎰</span><h1>NADO <span class="a">Slots</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
+  <p class="sub">Classic 3-reel slots where <b>players own the machines</b>. Anyone can open a machine and bank it — the bank earns the published <b>4.2% edge</b>; spinners win up to <b>150×</b> on triple 7️⃣. Every spin is decided by <b>two future block hashes</b> nobody can know when you pull the lever — no house secrets, no waiting: results land in seconds. Exact RTP <b>95.80%</b>, proven by full enumeration of the reels, enforced on-chain.</p>
+
+  <div id="status"></div>
+
+  <!-- THE MACHINE -->
+  <div class="card hidden" id="activeGame">
+    <h2>Machine <span id="gameId" class="mono"></span> <span id="bankTag" class="dim" style="text-transform:none;letter-spacing:0"></span></h2>
+    <div class="machine">
+      <div class="reels">
+        <div class="reel" id="reel0"><span>❔</span></div>
+        <div class="reel" id="reel1"><span>❔</span></div>
+        <div class="reel" id="reel2"><span>❔</span></div>
+      </div>
+      <div id="spinVerdict"></div>
+    </div>
+    <div class="kv mt"><span class="k">Bank (can it pay 150×?)</span><span class="mono" id="gBank">—</span></div>
+    <div class="kv"><span class="k">Max bet right now</span><span class="mono" id="gMax">—</span></div>
+    <div class="row mt">
+      <input id="stakeAmt" value="1" placeholder="bet (NADO)" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnSpin" style="flex:2 1 auto">🎰 SPIN</button>
+    </div>
+    <div class="spins mt" id="mySpins"></div>
+    <!-- bank owner tools -->
+    <div class="row mt hidden" id="fundRow">
+      <input id="fundAmt" value="10" placeholder="add to the bank (NADO)" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnFund" style="flex:0 0 auto">Top up</button>
+      <button class="ghost" id="btnClose" style="flex:0 0 auto">Close &amp; cash out</button>
+    </div>
+    <div class="mt">
+      <label>Invite spinners</label>
+      <div class="row">
+        <input id="shareLink" class="mono" readonly onclick="this.select()">
+        <button class="ghost" id="btnShare" style="flex:0 0 auto">Share</button>
+      </div>
+      <canvas id="shareQR" class="hidden" style="margin:12px auto 0;display:block;border-radius:8px;background:#fff;padding:8px"></canvas>
+      <div id="shareQRNote" class="hidden dim small mt"></div>
+    </div>
+  </div>
+
+  <!-- LOBBY -->
+  <div class="card" id="lobby">
+    <h2>Machines on the floor</h2>
+    <div id="lobbyList"><span class="dim">Loading…</span></div>
+    <div id="recent" class="small dim mt"></div>
+  </div>
+
+  <!-- OPEN A MACHINE -->
+  <div class="card hidden" id="opencard">
+    <h2>🏦 Open your own machine</h2>
+    <p class="small dim">Bank a machine and earn the <b>4.2% house edge</b> on every spin. The bank must always cover a 150× jackpot, so the max bet scales with your bank (max bet ≈ bank ÷ 149). Top it up or close and cash out any time — open spins always settle first.</p>
+    <div class="row">
+      <input id="bankrollAmt" value="200" placeholder="bank (NADO)" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNewMachine" style="flex:0 0 auto">🎰 Open machine</button>
+    </div>
+  </div>
+
+  <!-- PAYTABLE -->
+  <div class="card" id="paytableCard">
+    <h2>Paytable — per 1 bet</h2>
+    <table class="score paytable">
+      <tr><td>7️⃣ 7️⃣ 7️⃣</td><td class="m">150×</td><td>💎 💎 💎</td><td class="m">50×</td></tr>
+      <tr><td>🔔 🔔 🔔</td><td class="m">30×</td><td>🍇 🍇 🍇</td><td class="m">15×</td></tr>
+      <tr><td>🍊 🍊 🍊</td><td class="m">12×</td><td>🍋 🍋 🍋</td><td class="m">10×</td></tr>
+      <tr><td>🍒 🍒 🍒</td><td class="m">8×</td><td>two 7️⃣</td><td class="m">5×</td></tr>
+      <tr><td>two 🍒 (no 7)</td><td class="m">3×</td><td>one 7️⃣</td><td class="m">1.5×</td></tr>
+    </table>
+    <p class="small dim mt">Reel weights (of 64 stops): 🍒16 🍋14 🍊12 🍇10 🔔6 💎4 7️⃣2 — identical on all three reels. RTP is exactly <span class="mono">95.796%</span> (full 64³ enumeration); the remaining 4.204% is the machine owner's edge. Hit rate ≈ 26%.</p>
+  </div>
+
+  <!-- WALLET -->
+  <div class="card" id="walletcard">
+    <h2>Wallet</h2>
+    <div class="kv"><span class="k">Signed in as</span><span class="addr" id="who">not signed in</span></div>
+    <div class="kv"><span class="k">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
+    <div class="kv"><span class="k">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
+    <p class="small dim mt">Your key never touches this page — signing happens in your wallet at get.nadochain.com, then you bounce back.</p>
+  </div>
+
+  <!-- TOKENS -->
+  <div class="card hidden" id="bankroll">
+    <h2>🪙 Tokens — buy in / cash out</h2>
+    <label>Amount (NADO)</label>
+    <div class="row">
+      <input id="bankAmt" value="10" placeholder="e.g. 10" inputmode="decimal" autocomplete="off">
+      <button id="btnDeposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw">Withdraw</button>
+    </div>
+    <p class="small dim mt">Deposit buys tokens with NADO (1 : 1); Withdraw cashes your tokens back out to the wallet.</p>
+  </div>
+
+  <!-- SCOREBOARD -->
+  <div class="card" id="scoreboard">
+    <h2>🏆 Scoreboard — luckiest spinners</h2>
+    <div id="scoreList"><span class="dim">Loading…</span></div>
+  </div>
+
+  <!-- FAIRNESS -->
+  <div class="card">
+    <h2>How it's provably fair</h2>
+    <p class="small dim">A spin that lands in block <span class="mono">B</span> is decided by <span class="mono">HASH(blockhash(B+2) ‖ blockhash(B+3) ‖ spinId)</span> — two blocks that <b>don't exist yet</b> when you sign, mixed so no single producer can steer them. Three stops (0–63) map to weighted reels, and the contract recomputes the exact same stops and pays the published paytable on-chain. The bank commits a full 150× cover for every open spin, so the machine can never welsh. No house — machines are owned and banked by players.</p>
+  </div>
+
+  <footer>NADO Slots · player-banked machines · post-quantum signatures · no house</footer>
+</div>
+<script type="module" src="/static/slots.js"></script>
+</body>
+</html>

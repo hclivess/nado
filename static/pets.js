@@ -720,7 +720,9 @@ async function refreshAll() {
       if (p.th && dapp.cursor != null && dapp.cursor >= p.th + 1) want.push(p.th, p.th + 1);
     }
     for (const b of Object.values(BATTLES)) if (b.wn === 2 && dapp.cursor != null && dapp.cursor >= b.wh + 1) want.push(b.wh, b.wh + 1);
-    if (want.length) await dapp.blockHashes(want.slice(0, 40));
+    // FAST provisional: genes/training/battles are PUBLIC randomness the contract re-validates at
+    // hatch/resolve — a pre-finality reorg just reverts that tx visibly, never a silent unfairness
+    if (want.length) await dapp.blockHashes(want.slice(0, 40), { fast: true });
     PETS = petsFrom(sto);                       // re-derive with hashes cached (hatchReady)
     // prune local records that never landed
     const l = L(); let ch = false;

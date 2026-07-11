@@ -116,7 +116,10 @@ async function refreshActive() {
     // fetch block hashes to resolve the active game's flip client-side
     if (active != null) {
       const nn = _m(sto, "nn")[String(active)] || 0, sh = _m(sto, "sh")[String(active)] || 0, cur = dapp.cursor;
-      if (nn === 2 && !_m(sto, "sd")[String(active)] && cur != null && cur >= sh + 1) await dapp.blockHashes([sh, sh + 1]);
+      // FAST (provisional) hashes: the flip is PUBLIC randomness the settle re-validates on-chain, so a
+      // reorg can only revert the settling tx visibly — never flip a coin silently. Result shows in one
+      // block (~6-18s) instead of waiting ~90s for finality (same rule Farkle's dice use).
+      if (nn === 2 && !_m(sto, "sd")[String(active)] && cur != null && cur >= sh + 1) await dapp.blockHashes([sh, sh + 1], { fast: true });
       lastGame = gameFrom(sto, active);
     }
     const gg = gamesLoad(); let pruned = false;

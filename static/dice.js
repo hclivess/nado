@@ -101,7 +101,7 @@ async function refreshActive() {
       for (const g of Object.keys(_m(sto, "gg"))) if (String(_m(sto, "gg")[g]) === String(activeTable)) {
         const gh = _m(sto, "gh")[g] || 0; if (!_m(sto, "gd")[g] && cur != null && cur >= gh + 1) need.push(gh, gh + 1);
       }
-      if (need.length) await dapp.blockHashes(need);
+      if (need.length) await dapp.blockHashes(need, { fast: true });   // dice rolls: PUBLIC + on-chain-validated -> provisional (fast) is safe; results show ~one block after the roll instead of waiting out finality
       lastSeats = seatsOfTable(sto, activeTable);
     }
     renderLobby(sto); renderScoreboard(boardFrom(sto));

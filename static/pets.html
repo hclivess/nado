@@ -267,7 +267,7 @@
     <h2>🪙 Tokens — buy in / cash out</h2>
     <label>Amount (NADO)</label>
     <div class="row">
-      <input id="bankAmt" placeholder="e.g. 10" inputmode="decimal" autocomplete="off">
+      <input id="bankAmt" value="10" placeholder="e.g. 10" inputmode="decimal" autocomplete="off">
       <button id="btnDeposit">Deposit</button>
       <button class="ghost" id="btnWithdraw">Withdraw</button>
     </div>
@@ -329,7 +329,7 @@
       <h2>Challenge this pet</h2>
       <div class="row">
         <select id="myPetSel"></select>
-        <input id="stakeAmt" placeholder="stake (NADO, 0 ok)" inputmode="decimal" autocomplete="off">
+        <input id="stakeAmt" value="1" placeholder="stake (NADO, 0 ok)" inputmode="decimal" autocomplete="off">
         <button class="primary" id="btnChallenge">⚔ Challenge</button>
       </div>
       <p class="small dim" id="challengeHint">A turn-based duel decided by a <b>future block hash</b> where <b>every stat fights</b>: 💪 damage · 🤸 dodge · ❤️ HP · 🧠 accuracy · 🦉 mitigation · ✨ intimidation · 🤝 regen · 🍀 crits · ⚡ turn share · 🍖 bulk — Monte-Carlo balanced so <b>power is a true score</b> (equal power ≈ 50/50, any +12 stat points ≈ +4-7% win). The <b>defender's owner must accept</b>. Winner takes both stakes and <b>claims the losing pet</b> — but the loser has a small <b>10% chance to die</b> instead. Both fighters are then <b>exhausted for 6 hours</b> — no back-to-back battles.</p>

@@ -108,7 +108,7 @@
     <h2>🏦 Bank a table</h2>
     <p class="small dim">Put up a bankroll and be the house: a self-rolling table plays against it round after round — you keep losing stakes and the 1% edge, and never have to roll or sign anything again. Top up or close any time.</p>
     <div class="row">
-      <input id="bankrollAmt" placeholder="bankroll (NADO)" inputmode="decimal" autocomplete="off">
+      <input id="bankrollAmt" value="100" placeholder="bankroll (NADO)" inputmode="decimal" autocomplete="off">
       <button class="primary" id="btnNewTable" style="flex:0 0 auto">New table</button>
     </div>
   </div>
@@ -117,7 +117,7 @@
   <div class="card hidden" id="bankroll">
     <h2>🪙 Tokens — buy in / cash out</h2>
     <div class="row">
-      <input id="bankAmt" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
+      <input id="bankAmt" value="10" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
       <button class="ghost" id="btnDeposit" style="flex:0 0 auto">Deposit</button>
       <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
     </div>
@@ -150,7 +150,7 @@
     <!-- ROLL CONTROLS -->
     <div id="betBuilder" class="mt">
       <label>Set your roll for the next spin</label>
-      <input id="stakeAmt" placeholder="stake (NADO)" inputmode="decimal" autocomplete="off">
+      <input id="stakeAmt" value="1" placeholder="stake (NADO)" inputmode="decimal" autocomplete="off">
       <div class="meter mt">
         <div class="m"><b class="under">under <span id="winChanceTarget"></span></b><span>you win if the roll is under your target</span></div>
       </div>
@@ -172,7 +172,7 @@
       <button class="ghost hidden" id="btnClose">Close table</button>
     </div>
     <div class="row mt hidden" id="fundRow">
-      <input id="fundAmt" placeholder="add to bankroll (NADO)" inputmode="decimal" autocomplete="off">
+      <input id="fundAmt" value="10" placeholder="add to bankroll (NADO)" inputmode="decimal" autocomplete="off">
       <button class="ghost" id="btnFund" style="flex:0 0 auto">Top up</button>
     </div>
     <label class="mt">Invite rollers</label>
