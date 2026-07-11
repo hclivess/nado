@@ -7,7 +7,7 @@
 // CONTRACT (runtime stackvm) called via the generic exec `call` op; the stake is escrowed as VALUE and paid by
 // the contract's PAY. Login + every signature is delegated to the NADO wallet; the key never touches this origin.
 import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, blocksToTime,
-         lsLoad, lsSave, wireWallet, renderWallet, renderScore, scoreBump, scoreSort, statusLabel,
+         lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
 const CID = "6db8ae21f5b280d411f47ef0581ff802";
@@ -143,6 +143,7 @@ function renderLobby(games) {
 // ---- render --------------------------------------------------------------------------------------
 function wireUI() {
   wireWallet(dapp);
+  stickyInputs(dapp, ['stakeAmt', 'bankAmt']);   // typed amounts persist across turns
   $("btnNew").onclick = newGame;
   $("btnJoin").onclick = joinGame;
   $("joinId").oninput = () => render();

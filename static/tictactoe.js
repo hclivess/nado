@@ -3,7 +3,7 @@
 // pot instantly, and a full board auto-refunds both stakes. Ply-bound moves (the chess retry-race
 // lesson), resign/abort escapes, and a short ~30-min move clock. Built on the shared SDK (nadodapp.js).
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, blocksToTime,
-         lsLoad as load, lsSave as save, lsPrune, wireWallet, renderWallet, renderScore, scoreBump, scoreSort,
+         lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
          recentChips, statusLabel, loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
 const CID = "d5fe16cd61dd2a056463c1f54952c649";
@@ -179,6 +179,7 @@ dapp.onReturn((pend, ok, err) => {
 });
 function wireUI() {
   wireWallet(dapp);
+  stickyInputs(dapp, ['stakeAmt', 'bankAmt']);   // typed amounts persist across turns
   $("btnNewGame").onclick = newGame;
 }
 async function boot() {

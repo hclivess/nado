@@ -6,7 +6,7 @@
 // full-enumeration-proven — see tests/test_slots_contract.py). The machine's bank commits a 150x cover
 // for every open spin, so it can never welsh. Settle is permissionless; a pruned spin refunds via claim.
 import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate, canPay, orderCards, alertBar,
-         lsLoad as load, lsSave as save, lsPrune, wireWallet, renderWallet, renderScore, scoreBump, scoreSort,
+         lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
          recentChips, statusLabel, loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
 const CID = "f976149cd5e8de62b24ee3ed13179c15";
@@ -221,6 +221,7 @@ dapp.onReturn((pend, ok, err) => {
 });
 function wireUI() {
   wireWallet(dapp);
+  stickyInputs(dapp, ['stakeAmt', 'bankrollAmt', 'fundAmt', 'bankAmt']);   // typed amounts persist across turns
   $("btnNewMachine").onclick = openMachine;
   $("btnSpin").onclick = doSpin;
   $("btnFund").onclick = fundMachine;

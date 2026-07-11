@@ -9,7 +9,7 @@
 //     hand on-chain (straight flush … high card, kickers included — 4000/4000 differential-verified).
 //     Best hand takes the pot. Board + each hand draw from independent decks (exact duplicates are legal).
 import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, commitHashOf, blake2bHash, _m, $, base, gate, canPay, alertBar,
-         hoist, orderCards, blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, renderWallet, renderScore,
+         hoist, orderCards, blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore,
          scoreBump, scoreSort, recentChips, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
@@ -314,6 +314,7 @@ const handHTML = (cards, n, big) => Array.from({ length: n }, (_, i) => cardHTML
 // ---- render --------------------------------------------------------------------------------------
 function wireUI() {
   wireWallet(dapp);
+  stickyInputs(dapp, ['anteAmt', 'buyinAmt', 'betAmt', 'bankAmt', 'stakeAmt']);   // typed amounts persist across turns
   $("btnNewTable").onclick = newTable;
   $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = "Enter a table ID, or pick one from the lobby."; };
   $("btnReclaim").onclick = reclaimTable;

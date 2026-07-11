@@ -4,7 +4,7 @@
 // predict, so the dice are objective and unriggable. Highest banked score when the table's play window ends
 // takes the whole pot. Built on the shared SDK (nadodapp.js) — matches tests/test_farkle_contract.py exactly.
 import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, hoist, orderCards,
-         blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, renderWallet, renderScore,
+         blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore,
          scoreBump, scoreSort, recentChips, statusLabel, shareInvite,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
@@ -228,6 +228,7 @@ function toggleKeep(face, dice) {
 // ---- render --------------------------------------------------------------------------------------
 function wireUI() {
   wireWallet(dapp);
+  stickyInputs(dapp, ['stakeAmt', 'anteAmt', 'bankAmt']);   // typed amounts persist across turns
   $("btnNewTable").onclick = newTable;
   $("btnJoin").onclick = joinTable;
   if ($("btnReopen")) $("btnReopen").onclick = reopenTable;

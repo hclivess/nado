@@ -220,6 +220,23 @@ export function readTable(sto, t, cursor, ROUND) {
   return tb;
 }
 
+// ---- sticky inputs: what the player typed survives the wallet round-trip and the next turn --------
+// stickyInputs(dapp, ids): per-game localStorage memory for bet/stake/amount fields — a 0.001-NADO bet
+// typed once stays there for every following turn. The static value="1" defaults only apply until the
+// player first types; an emptied field clears the memory (back to the default next load).
+export function stickyInputs(dapp, ids) {
+  const key = "nado_" + dapp.app.replace(/\W+/g, "").toLowerCase() + "_inputs";
+  let saved = {}; try { saved = JSON.parse(localStorage.getItem(key) || "{}"); } catch {}
+  for (const id of ids) {
+    const el = $(id); if (!el) continue;
+    if (saved[id] != null && saved[id] !== "") el.value = saved[id];
+    el.addEventListener("input", () => {
+      if (el.value === "") delete saved[id]; else saved[id] = el.value;
+      try { localStorage.setItem(key, JSON.stringify(saved)); } catch (e) { /* quota */ }
+    });
+  }
+}
+
 // ---- Share (Web Share API -> clipboard fallback), with button feedback ---------------------------
 export async function share(url, text, btn) {
   if (navigator.share) { try { await navigator.share({ title: "NADO", text, url }); return; } catch (e) { if (e && e.name === "AbortError") return; } }

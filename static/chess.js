@@ -4,7 +4,7 @@
 // clock), and the wager settles by resignation / mutual agreement / refund-on-timeout — so nobody can ever be
 // robbed (a stall or a disputed move at worst refunds both). Correspondence-style: a move confirms in ~1 min.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, canPay, alertBar, hoist, orderCards, resolveAliases, disp, share,
-         wireWallet, renderWallet } from "./nadodapp.js";
+         wireWallet, stickyInputs, renderWallet } from "./nadodapp.js";
 import { Chess } from "./chess-engine.js";
 
 const CID = "9984ce8c08cbd952c786b86754b05855";
@@ -190,6 +190,7 @@ function renderBoard() {
 // ---- render --------------------------------------------------------------------------------------
 function wireUI() {
   wireWallet(dapp);
+  stickyInputs(dapp, ['stakeAmt', 'bankAmt']);   // typed amounts persist across turns
   $("btnNew").onclick = newGame;
   $("btnJoin").onclick = joinGame;
   $("btnJoinGame").onclick = () => { if (!dapp.me) return dapp.signIn(); $("joinId").value = String(activeGame); joinGame(); };
