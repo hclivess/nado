@@ -224,18 +224,13 @@ function doReveal() {
   dapp.call("reveal", [s.g, BigInt(rec.secret)], null, "showdown — show your cards · table #" + activeTable, { table: activeTable, seat: s.g, phase: "reveal" });
 }
 const settleTable = () => dapp.call("settle", [activeTable], null, "pay the pot to the best hand · table #" + activeTable, { table: activeTable, phase: "settle" });
-// AUTO-COLLECT: once the hand is over the WINNER's pot auto-settles (value-free → auto-signs, a quick
-// bounce). One per tick; `autoTried` stops a rejected settle from looping. Opt-out (default on).
-const autoTried = new Set();
+// AUTO-COLLECT the WINNER's pot once the hand is over (shared SDK tick — opt-out slider, autoTried dedup)
 function maybeAutoSettle() {
-  if (localStorage.getItem("nado_poker_autocollect") === "0") return;
-  if (!dapp.me || dapp.inflight || watch) return;
   const tb = lastTable;
   if (!tb || !tb.exists || tb.closed || tb.phase !== "over" || !tb.leader) return;
   const s = mySeat();
-  if (!s || s.g !== tb.leader || autoTried.has(activeTable)) return;   // only the winner auto-collects the pot
-  autoTried.add(activeTable);
-  settleTable();
+  if (!s || s.g !== tb.leader) return;   // only the winner auto-collects the pot
+  dapp.autoCollect([{ g: activeTable }], () => settleTable(), { blocked: watch });
 }
 const reclaimTable = () => dapp.call("reclaim", [activeTable], null, "reclaim the dead pot · table #" + activeTable, { table: activeTable, phase: "reclaim" });
 const cancelTable = () => dapp.call("cancel", [activeTable], null, "cancel table #" + activeTable, { table: activeTable, phase: "cancel" });
@@ -348,9 +343,7 @@ const handHTML = (cards, n, big) => Array.from({ length: n }, (_, i) => cardHTML
 // ---- render --------------------------------------------------------------------------------------
 function wireUI() {
   wireWallet(dapp);
-  const ac = $("autoCollect");
-  if (ac) { ac.checked = localStorage.getItem("nado_poker_autocollect") !== "0";
-    ac.onchange = () => { try { localStorage.setItem("nado_poker_autocollect", ac.checked ? "1" : "0"); } catch (e) {} }; }
+  dapp.wireAutoCollect();
   stickyInputs(dapp, ['anteAmt', 'betAmt', 'bankAmt', 'stakeAmt']);   // typed amounts persist across turns
   // the BUY-IN is context-dependent (never sticky, never a fixed default): it follows the ante when you
   // open (20x) and matches the HOST's buy-in when you join — until you type your own number.

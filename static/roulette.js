@@ -99,16 +99,10 @@ function fundTable() {
   dapp.call("fund", [activeTable], raw, "top up table #" + activeTable + " bankroll · " + rawToNado(raw) + " NADO", { table: activeTable, phase: "fund" });
 }
 const settleSeat = (g) => dapp.call("settle", [g], null, "collect seat #" + g, { table: activeTable, phase: "settle" });
-// AUTO-COLLECT: a resolved WINNING seat settles itself (value-free → auto-signs, a quick bounce). One per
-// tick; `autoTried` stops a rejected settle from looping. Opt-out per game (default on).
-const autoTried = new Set();
+// AUTO-COLLECT a resolved WINNING seat (shared SDK tick — opt-out slider, one-per-refresh, autoTried dedup)
 function maybeAutoSettle() {
-  if (localStorage.getItem("nado_roulette_autocollect") === "0") return;
-  if (!dapp.me || dapp.inflight || !lastTable || !lastTable.exists) return;
-  const t = lastSeats.find((s) => s.addr === dapp.me && !s.settled && s.ready && s.win && !autoTried.has(s.g));
-  if (!t) return;
-  autoTried.add(t.g);
-  settleSeat(t.g);
+  if (!lastTable || !lastTable.exists) return;
+  dapp.autoCollect(lastSeats.filter((s) => s.addr === dapp.me && !s.settled && s.ready && s.win), (s) => settleSeat(s.g));
 }
 const closeTable = () => dapp.call("close", [activeTable], null, "close table #" + activeTable, { table: activeTable, phase: "close" });
 
@@ -198,19 +192,7 @@ function maxBetRaw() {
   if (free <= 0n) return null;
   return free / BigInt(M - 1);
 }
-function syncStakeSlider() {
-  const sl = $("stakeSlider"), wrap = $("stakeSliderWrap"); if (!sl || !wrap) return;
-  const maxRaw = maxBetRaw();
-  if (maxRaw == null || maxRaw <= 0n) { wrap.classList.add("hidden"); return; }
-  wrap.classList.remove("hidden");
-  const maxN = parseFloat(rawToNado(maxRaw)) || 0;
-  sl.max = String(maxN);
-  sl.step = "any";   // continuous — so the thumb can always reach EXACTLY max (a fixed step usually can't divide max)
-  const curN = parseFloat($("stakeAmt").value) || 0;
-  sl.value = String(Math.min(curN, maxN));
-  $("maxBetVal").textContent = rawToNado(maxRaw) + " NADO";
-  $("stakeSliderVal").textContent = "stake " + ($("stakeAmt").value || "0") + " NADO";
-}
+const syncStakeSlider = () => dapp.syncStakeSlider(maxBetRaw());   // shared SDK slider
 function wireUI() {
   wireWallet(dapp);
   stickyInputs(dapp, ['stakeAmt', 'bankrollAmt', 'fundAmt', 'bankAmt', 'betAmt']);   // typed amounts persist across turns
@@ -218,12 +200,9 @@ function wireUI() {
   $("btnBet").onclick = doBet;
   $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = "Enter a table ID, or pick one from the lobby."; };
   $("stakeAmt").oninput = () => render();
-  $("stakeSlider").oninput = () => { $("stakeAmt").value = String($("stakeSlider").value); render(); };
-  $("btnMaxBet").onclick = () => { const m = maxBetRaw(); if (m && m > 0n) { $("stakeAmt").value = rawToNado(m); render(); } };
+  dapp.wireStakeSlider(maxBetRaw, () => render());
   $("btnClose").onclick = closeTable;
-  const ac = $("autoCollect");
-  if (ac) { ac.checked = localStorage.getItem("nado_roulette_autocollect") !== "0";
-    ac.onchange = () => { try { localStorage.setItem("nado_roulette_autocollect", ac.checked ? "1" : "0"); } catch (e) {} }; }
+  dapp.wireAutoCollect();
   $("btnFund").onclick = fundTable;
   $("btnReopen").onclick = reopenTable;
   $("btnShare").onclick = () => share(base() + "/?table=" + activeTable, "Bet at my roulette table #" + activeTable + " on NADO:", $("btnShare"));

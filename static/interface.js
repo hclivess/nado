@@ -1899,27 +1899,42 @@ let pendingExecSign = (() => {
   try {
     const p = new URLSearchParams(location.search);
     const b = p.get("exec_sign");
-    return b ? { payload: b, ret: p.get("ret") || "", app: p.get("app") || "a dApp" } : null;
+    return b ? { payload: b, ret: p.get("ret") || "", app: p.get("app") || "a dApp", bg: p.get("bg") === "1" } : null;
   } catch (e) { return null; }
 })();
 function _decodeArg(a) { return (a && typeof a === "object" && "$big" in a) ? BigInt(a.$big) : a; }   // 256-bit args ride as {$big:"…"}
 async function resumePendingExecSign() {
   const req = pendingExecSign;
-  if (!req || !state.wallet) return;
+  if (!req) return;
+  // BACKGROUND signing: a game loaded us in a hidden iframe (bg=1) for a value-free autosign. We postMessage
+  // the result to the game's origin instead of navigating. Anything that would need UI (locked wallet, an
+  // untrusted origin, a manual confirm) posts {needui} so the game falls back to the visible full-page redirect.
+  const bg = !!req.bg;
+  let retOrigin = ""; try { retOrigin = new URL(req.ret).origin; } catch (e) {}
+  const needUI = () => { if (bg && retOrigin) { try { window.parent.postMessage({ nadoExecSign: 1, needui: 1 }, retOrigin); } catch (e) {} } };
+  // background signing is a user setting (default ON). Turned off → always fall back to the visible redirect.
+  if (bg && localStorage.getItem("nado_bg_sign") === "0") { pendingExecSign = null; needUI(); return; }
+  if (!state.wallet) { pendingExecSign = null; needUI(); return; }   // a hidden iframe can't show the unlock screen
   pendingExecSign = null;
-  try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {}
+  if (!bg) { try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {} }
   let call, retUrl;
   try { call = JSON.parse(decodeURIComponent(escape(atob(req.payload)))); retUrl = new URL(req.ret); }
-  catch (e) { uiAlert(i18("dapp.bad", "Ignored a malformed signing request.")); return; }
+  catch (e) { if (bg) return needUI(); uiAlert(i18("dapp.bad", "Ignored a malformed signing request.")); return; }
   // The origin allowlist is the default guard. A user can opt to skip it (Settings → "Trust any site that
   // asks me to sign") — unknown origins then get a LOUDER confirm that names the origin, never a silent pass.
   const skipOriginCheck = localStorage.getItem("nado_skip_origin_check") === "1";
   const trustedOrigin = EXEC_SIGN_ALLOW.includes(retUrl.origin);
   if (!trustedOrigin && !skipOriginCheck) {
+    if (bg) return needUI();   // don't silently sign for an unknown site in a hidden frame — redirect so the warning shows
     uiAlert(i18("dapp.badOrigin", "Ignored a signing request for an unrecognised site.") + " (" + retUrl.origin + ")");
     return;
   }
-  const back = (params) => { location.href = req.ret + (req.ret.includes("?") ? "&" : "?") + params; };
+  // In background mode the result is postMessaged to the game (parsed from the same "ok=1&…" string the
+  // redirect would carry); otherwise it navigates back as before.
+  const back = bg
+    ? (params) => { const o = { nadoExecSign: 1 }; try { new URLSearchParams(params).forEach((v, k) => { o[k] = v; }); } catch (e) {} try { window.parent.postMessage(o, retUrl.origin); } catch (e) {} }
+    : (params) => { location.href = req.ret + (req.ret.includes("?") ? "&" : "?") + params; };
+  if (bg && (call.connect || call.deposit)) return needUI();   // sign-in / deposit always need the visible confirm
   if (call.connect) {   // lightweight "sign in": just return the wallet address, no transaction, no fee
     const c = await uiConfirm({
       title: i18("dapp.connectTitle", "Sign in"),
@@ -2001,10 +2016,11 @@ async function resumePendingExecSign() {
   // origins are still never auto-signed.
   const autosignAll = localStorage.getItem("nado_autosign_all") === "1" && trustedOrigin;
   if (autosignAll || (valueFree && autosignOn) || smallBet) {
-    signSplash(req.app);   // full-screen "signing\u2026" cover so the dashboard never flashes before the bounce
+    if (!bg) signSplash(req.app);   // full-screen "signing\u2026" cover so the dashboard never flashes before the bounce (not needed in a hidden frame)
     try { await submitBlob(); } catch (e) { back("ok=0&err=" + encodeURIComponent(String(e.message || e).slice(0, 80))); }
     return;
   }
+  if (bg) return needUI();   // this call needs a manual confirm \u2014 can't show a dialog in a hidden frame \u2192 redirect
   const okc = await uiConfirm({
     title: i18("dapp.title", "Sign a contract call"),
     body: escrow > 0n
@@ -2033,6 +2049,11 @@ function wireAutosignToggle() {
   if (!el) return;
   el.checked = localStorage.getItem("nado_autosign_dapp") !== "0";   // default ON for value-free moves
   el.onchange = () => { try { localStorage.setItem("nado_autosign_dapp", el.checked ? "1" : "0"); } catch (e) {} };
+  const bs = $("bgSign");
+  if (bs) {
+    bs.checked = localStorage.getItem("nado_bg_sign") !== "0";   // default ON: silent background signing
+    bs.onchange = () => { try { localStorage.setItem("nado_bg_sign", bs.checked ? "1" : "0"); } catch (e) {} };
+  }
   const so = $("skipOriginCheck");
   if (so) {
     so.checked = localStorage.getItem("nado_skip_origin_check") === "1";

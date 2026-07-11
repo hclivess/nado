@@ -764,6 +764,13 @@
       </label>
     </div>
     <div class="row" style="align-items:flex-start;gap:10px;margin-bottom:14px">
+      <input id="bgSign" type="checkbox" class="switch" />
+      <label for="bgSign" style="margin:0;flex:1;cursor:pointer">
+        <b data-i18n="settings.bgSign">Sign in the background (no wallet pop-over)</b>
+        <span class="small faint" style="display:block" data-i18n="settings.bgSignSub">On by default: auto-signed game moves are signed silently in a hidden frame, so playing never yanks the tab to the wallet and back. Only your own NADO games can request it; anything needing a confirm still opens the wallet normally. Turn off to always open the wallet to sign.</span>
+      </label>
+    </div>
+    <div class="row" style="align-items:flex-start;gap:10px;margin-bottom:14px">
       <input id="skipOriginCheck" type="checkbox" class="switch" />
       <label for="skipOriginCheck" style="margin:0;flex:1;cursor:pointer">
         <b data-i18n="settings.trustAny">Trust any site that asks me to sign</b>

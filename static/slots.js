@@ -47,20 +47,8 @@ function machineFrom(sto, t) {
     tc: _m(sto, "tc")[t] || 0, tn: _m(sto, "tn")[t] || 0, tx: _m(sto, "tx")[t] || 0, closed: !!_m(sto, "tz")[t] };
 }
 const maxBet = (mc) => Math.max(0, Math.floor((mc.tk - mc.tc) / COVER));   // biggest bet the bank can 150×-cover (raw)
-function syncStakeSlider() {
-  const sl = $("stakeSlider"), wrap = $("stakeSliderWrap"); if (!sl || !wrap) return;
-  const mc = lastTable;
-  const maxRaw = (mc && mc.exists && !mc.closed) ? BigInt(maxBet(mc)) : 0n;
-  if (maxRaw <= 0n) { wrap.classList.add("hidden"); return; }
-  wrap.classList.remove("hidden");
-  const maxN = parseFloat(rawToNado(maxRaw)) || 0;
-  sl.max = String(maxN);
-  sl.step = "any";   // continuous — so the thumb can always reach EXACTLY max (a fixed step usually can't divide max)
-  const curN = parseFloat($("stakeAmt").value) || 0;
-  sl.value = String(Math.min(curN, maxN));
-  $("maxBetVal").textContent = rawToNado(maxRaw) + " NADO";
-  $("stakeSliderVal").textContent = "bet " + ($("stakeAmt").value || "0") + " NADO";
-}
+const maxBetRaw = () => { const mc = lastTable; return (mc && mc.exists && !mc.closed) ? BigInt(maxBet(mc)) : null; };
+const syncStakeSlider = () => dapp.syncStakeSlider(maxBetRaw(), { label: "bet " });   // shared SDK slider
 function spinsOf(sto, t) {
   t = String(t); const gg = _m(sto, "gg"), cur = dapp.cursor, out = [];
   for (const g of Object.keys(gg)) if (String(gg[g]) === t) {
@@ -104,20 +92,13 @@ function fundMachine() {
   if (!canPay(dapp, raw, "Topping up the bank")) return;
   dapp.call("fund", [activeTable], raw, "top up machine #" + activeTable + " · " + rawToNado(raw) + " NADO", { table: activeTable, phase: "fund" });
 }
-// AUTO-SETTLE: the machine settles on its own (user ask). A value-free settle auto-signs, so this is a
-// quick bounce, not a tap. One spin per tick — the wallet redirect serialises it; on return the next
-// ready spin auto-settles, until the board is clean. `autoTried` stops a rejected settle from looping.
-const autoTried = new Set();
+// AUTO-SETTLE via the shared SDK tick (opt-out slider, one-per-refresh, autoTried dedup). As the bank:
+// settle ANY ready spin on my machine (pays winners, frees my cover). Otherwise: settle my OWN ready spins.
 function maybeAutoSettle() {
-  if (localStorage.getItem("nado_slots_autocollect") === "0") return;   // opt-out (default: auto-collect on)
-  if (!dapp.me || dapp.inflight || watch || !lastTable || !lastTable.exists) return;
+  if (!lastTable || !lastTable.exists) return;
   const iAmBank = lastTable.bank === dapp.me;
-  // as the bank: settle ANY ready spin on my machine (pays winners, frees my cover). Otherwise: settle my
-  // OWN ready spins (wins land in my balance; a lost spin still finalises so nothing lingers).
-  const target = mySpins.find((s) => !s.settled && s.ready && !autoTried.has(s.g) && (iAmBank || s.addr === dapp.me));
-  if (!target) return;
-  autoTried.add(target.g);
-  settleSpin(target.g, target.m2, target.stake);
+  dapp.autoCollect(mySpins.filter((s) => !s.settled && s.ready && (iAmBank || s.addr === dapp.me)),
+    (s) => settleSpin(s.g, s.m2, s.stake), { blocked: watch });
 }
 function readyWins() { return mySpins.filter((s) => s.addr === dapp.me && !s.settled && s.ready && s.m2 > 0); }
 function collectWins() {
@@ -279,11 +260,8 @@ function wireUI() {
   $("btnFund").onclick = fundMachine;
   $("btnCollect").onclick = collectWins;
   if ($("stakeAmt")) $("stakeAmt").oninput = () => syncStakeSlider();
-  if ($("stakeSlider")) $("stakeSlider").oninput = () => { $("stakeAmt").value = String($("stakeSlider").value); syncStakeSlider(); };
-  if ($("btnMaxBet")) $("btnMaxBet").onclick = () => { const mc = lastTable; if (mc && mc.exists && !mc.closed) { const m = maxBet(mc); if (m > 0) { $("stakeAmt").value = rawToNado(BigInt(m)); syncStakeSlider(); } } };
-  const ac = $("autoCollect");
-  if (ac) { ac.checked = localStorage.getItem("nado_slots_autocollect") !== "0";
-    ac.onchange = () => { try { localStorage.setItem("nado_slots_autocollect", ac.checked ? "1" : "0"); } catch (e) {} }; }
+  dapp.wireStakeSlider(maxBetRaw, () => syncStakeSlider());
+  dapp.wireAutoCollect();
   $("btnClose").onclick = closeMachine;
 }
 async function boot() {

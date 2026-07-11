@@ -342,23 +342,75 @@ export class NadoDapp {
   async init() { await loadCrypto(); this._handleReturn(); if (this.me) await this.refresh(); }
   onReturn(fn) { this._onReturn = fn; }        // fn(pend, ok, err) — game marks its own local state + status
 
-  // --- delegated signing (redirect to the wallet, which signs + submits, then bounces back) ---
-  _go(obj, pend) {
+  // --- delegated signing (the wallet holds the key; the game NEVER sees it) -------------------------
+  // Two transports. (1) REDIRECT: navigate the whole tab to the wallet, which signs + submits + bounces
+  // back. Needed whenever the wallet must show UI (sign-in, deposit, a manual bet confirm) or unlock.
+  // (2) BACKGROUND: for value-free autosign-eligible calls (game moves, auto-collect settles), load the
+  // wallet in a HIDDEN IFRAME and let it sign + submit + postMessage the result — NO navigation, so
+  // auto-collect doesn't yank the tab to the wallet and back. The iframe falls back to the redirect the
+  // instant the wallet says it needs UI (locked / not autosigned / untrusted) or doesn't answer in time,
+  // so the worst case is exactly today's behaviour.
+  _goRedirect(obj, pend) {
     const payload = btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
     localStorage.setItem(this.LS_P, JSON.stringify(pend || {}));
     location.href = WALLET + "/?exec_sign=" + encodeURIComponent(payload) + "&ret=" + encodeURIComponent(base() + "/") + "&app=" + encodeURIComponent(this.app);
   }
-  signIn() { this._go({ connect: true, label: "sign in" }, { phase: "connect" }); }
-  deposit(raw) { this._go({ deposit: { amount: raw.toString() }, label: "deposit " + rawToNado(raw) + " NADO" }, { phase: "deposit" }); }
+  _goBackground(obj, pend) {
+    let walletOrigin; try { walletOrigin = new URL(WALLET).origin; } catch (e) { return this._goRedirect(obj, pend); }
+    const payload = btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
+    const frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    frame.style.cssText = "position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;border:0;opacity:0;pointer-events:none";
+    frame.src = WALLET + "/?exec_sign=" + encodeURIComponent(payload) + "&ret=" + encodeURIComponent(base() + "/") + "&app=" + encodeURIComponent(this.app) + "&bg=1";
+    let done = false; let tid = 0;
+    const cleanup = () => { try { window.removeEventListener("message", onMsg); } catch (e) {} clearTimeout(tid); try { frame.remove(); } catch (e) {} };
+    const fallback = () => { if (done) return; done = true; cleanup(); this._goRedirect(obj, pend); };   // any hiccup → the proven redirect
+    const onMsg = (e) => {
+      if (done || e.origin !== walletOrigin) return;
+      const d = e.data; if (!d || d.nadoExecSign == null) return;
+      if (d.needui) { fallback(); return; }                        // wallet can't autosign silently → visible redirect
+      done = true; cleanup();
+      const ok = d.ok === 1 || d.ok === true || d.ok === "1";      // postMessage carries the "ok=1" param as a STRING
+      this._applyReturn(pend, ok, d.addr || null, d.err ? String(d.err) : "");
+      try { this.refresh(); } catch (e) {}                          // pull the freshly-landed state without a reload
+    };
+    window.addEventListener("message", onMsg);
+    tid = setTimeout(fallback, 9000);                               // wallet didn't answer (offline / heavy) → redirect
+    (document.body || document.documentElement).appendChild(frame);
+  }
+  _go(obj, pend, bg) {
+    if (bg && !obj.confirm) this._goBackground(obj, pend);
+    else this._goRedirect(obj, pend);
+  }
+  signIn() { this._goRedirect({ connect: true, label: "sign in" }, { phase: "connect" }); }
+  deposit(raw) { this._goRedirect({ deposit: { amount: raw.toString() }, label: "deposit " + rawToNado(raw) + " NADO" }, { phase: "deposit" }); }
   withdraw(raw, pend) { this.signBlob({ op: "bridge_withdraw", amount: raw }, "withdraw " + rawToNado(raw) + " NADO to L1", pend || { phase: "withdraw" }); }
-  signBlob(blob, label, pend, opts) { this._go(Object.assign({ blob: encBig(blob), label }, (opts && opts.confirm) ? { confirm: 1 } : {}), pend); }
+  signBlob(blob, label, pend, opts) { this._go(Object.assign({ blob: encBig(blob), label }, (opts && opts.confirm) ? { confirm: 1 } : {}), pend, !!(opts && opts.bg)); }
   // generic contract call; valueRaw (raw NADO) is ESCROWED from the caller's bridge balance into the contract.
   // opts.confirm forces the wallet's manual confirm even when the call is value-free (e.g. a poker bet that
-  // moves chips you already escrowed as your stack) — autosign must never place a bet for you.
+  // moves chips you already escrowed as your stack) — autosign must never place a bet for you. A value-free
+  // call that isn't confirm-forced is BACKGROUND-able (signs in a hidden iframe, no tab navigation).
   call(method, args, valueRaw, label, pend, opts) {
     const p = { op: "call", contract: this.cid, method, args };
     if (valueRaw != null) p.value = valueRaw;
-    this.signBlob(p, label, pend, opts);
+    const bg = valueRaw == null && !(opts && opts.confirm);
+    this.signBlob(p, label, pend, Object.assign({}, opts, { bg }));
+  }
+  // apply a signing RESULT (from either transport) — set the address / inflight / balance-watch and fire onReturn
+  _applyReturn(pend, ok, addr, err) {
+    if (ok && addr) { this.me = addr; localStorage.setItem(this.LS_ME, addr); }
+    // A REJECTED action (ok=0 with a reason) must be shown LOUDLY — never left to masquerade as the
+    // optimistic "confirming…" placeholder. The err is the node's real reason (e.g. a chain_id mismatch).
+    if (!ok && err) { try { alertBar("Rejected: " + err + (/chain id/i.test(err) ? " — hard-refresh this page and your wallet to update to the current network." : "")); } catch (e) {} }
+    // remember a just-submitted action so games can show "confirming…" and NEVER re-offer the button the
+    // user already clicked (e.g. coinflip "Join this game" reappearing before the join confirms on-chain).
+    if (ok && pend && pend.phase && !["connect", "deposit", "withdraw"].includes(pend.phase)) {
+      this.inflight = Object.assign({ ts: Date.now() }, pend);
+    }
+    // deposit/withdraw confirmations are watched by the SDK itself: their optimistic status line clears the
+    // moment the balances MOVE (or after 3 min).
+    if (ok && pend && (pend.phase === "deposit" || pend.phase === "withdraw")) this._balWatch = { phase: pend.phase, exec: null };
+    if (this._onReturn) this._onReturn(pend, ok, err);
   }
   _handleReturn() {
     const p = new URLSearchParams(location.search);
@@ -367,20 +419,7 @@ export class NadoDapp {
     let pend = null; try { pend = JSON.parse(localStorage.getItem(this.LS_P) || "null"); } catch {}
     localStorage.removeItem(this.LS_P);
     try { history.replaceState(null, "", location.pathname); } catch {}
-    if (ok && addr) { this.me = addr; localStorage.setItem(this.LS_ME, addr); }
-    // A REJECTED action (ok=0 with a reason) must be shown LOUDLY — never left to masquerade as the
-    // optimistic "confirming…" placeholder. The err is the node's real reason (e.g. a chain_id mismatch
-    // from a stale cached wallet), which is exactly what the user needs to see.
-    if (!ok && err) { try { alertBar("Rejected: " + err + (/chain id/i.test(err) ? " — hard-refresh this page and your wallet to update to the current network." : "")); } catch (e) {} }
-    // remember a just-submitted action so games can show "confirming…" and NEVER re-offer the button the
-    // user already clicked (e.g. coinflip "Join this game" reappearing before the join confirms on-chain).
-    if (ok && pend && pend.phase && !["connect", "deposit", "withdraw"].includes(pend.phase)) {
-      this.inflight = Object.assign({ ts: Date.now() }, pend);
-    }
-    // deposit/withdraw confirmations are watched by the SDK itself: their optimistic status line
-    // ("Deposit submitted — confirming…") clears the moment the balances MOVE (or after 3 min).
-    if (ok && pend && (pend.phase === "deposit" || pend.phase === "withdraw")) this._balWatch = { phase: pend.phase, exec: null };
-    if (this._onReturn) this._onReturn(pend, ok, err);
+    this._applyReturn(pend, ok, addr, err);
   }
   // busy(phase, keyName, keyVal): is there an in-flight action of this phase for this game/table/seat?
   // Auto-expires after 3 min (a lost tx) so a stuck flag can't hide the button forever. Games call
@@ -394,6 +433,61 @@ export class NadoDapp {
     return true;
   }
   clearInflight() { this.inflight = null; }
+
+  // ── AUTO-COLLECT ────────────────────────────────────────────────────────────────────────────────
+  // The shared "settle my winnings for me" tick every beacon game had copy-pasted. Call once per refresh
+  // AFTER state is derived, passing the ALREADY-FILTERED list of settleable items (my ready wins, etc.) and
+  // a settle(item) that fires the value-free settle (which auto-signs → a quick bounce, not a tap). One per
+  // tick — the wallet redirect serialises it; on return the next fires until the board is clean. Opt-out via
+  // nado_<slug>_autocollect. `autoTried` (per session) stops a rejected settle from looping. opts.blocked lets
+  // a game pass its own "already waiting on a tx" flag (e.g. a confirmation `watch`). opts.key ids an item
+  // (default it.g). Returns true if it fired a settle.
+  autoCollect(candidates, settle, opts = {}) {
+    if (!this.me || this.inflight || opts.blocked) return false;
+    try { if (localStorage.getItem(this.LS_AUTOCOLLECT) === "0") return false; } catch (e) {}
+    const keyOf = opts.key || ((x) => x.g);
+    const t = (candidates || []).find((x) => !this._autoTried.has(keyOf(x)));
+    if (!t) return false;
+    this._autoTried.add(keyOf(t));
+    settle(t);
+    return true;
+  }
+  // wireAutoCollect(el): bind the standard "Auto-collect my winnings" slider (#autoCollect by default) to the
+  // opt-out flag. Default ON. Call once from wireUI.
+  wireAutoCollect(el) {
+    el = el || document.getElementById("autoCollect"); if (!el) return;
+    try { el.checked = localStorage.getItem(this.LS_AUTOCOLLECT) !== "0"; } catch (e) { el.checked = true; }
+    el.onchange = () => { try { localStorage.setItem(this.LS_AUTOCOLLECT, el.checked ? "1" : "0"); } catch (e) {} };
+  }
+
+  // ── MAX-BET STAKE SLIDER ───────────────────────────────────────────────────────────────────────
+  // syncStakeSlider(maxRaw, ids): drive a stake range-slider bounded by maxRaw (BigInt, or null/≤0 to hide the
+  // wrap). Keeps the number input and the slider in sync and renders the "Max: X" shortcut. step="any" so the
+  // thumb can always reach EXACTLY max. ids overrides the default element ids. Call from render().
+  syncStakeSlider(maxRaw, ids = {}) {
+    const sl = document.getElementById(ids.slider || "stakeSlider");
+    const wrap = document.getElementById(ids.wrap || "stakeSliderWrap");
+    const stake = document.getElementById(ids.stake || "stakeAmt");
+    if (!sl || !wrap || !stake) return;
+    if (maxRaw == null || maxRaw <= 0n) { wrap.classList.add("hidden"); return; }
+    wrap.classList.remove("hidden");
+    const maxN = parseFloat(rawToNado(maxRaw)) || 0;
+    sl.max = String(maxN); sl.step = "any";
+    // don't yank the thumb while the user is dragging it — reassigning value mid-drag pins it below max
+    if (document.activeElement !== sl) sl.value = String(Math.min(parseFloat(stake.value) || 0, maxN));
+    const mv = document.getElementById(ids.maxVal || "maxBetVal"); if (mv) mv.textContent = rawToNado(maxRaw) + " NADO";
+    const sv = document.getElementById(ids.sliderVal || "stakeSliderVal"); if (sv) sv.textContent = (ids.label || "stake ") + (stake.value || "0") + " NADO";
+  }
+  // wireStakeSlider(maxRawFn, onChange, ids): wire the slider + "Max" shortcut once. maxRawFn() returns the
+  // current max (BigInt|null); onChange() re-renders. Call from wireUI.
+  wireStakeSlider(maxRawFn, onChange, ids = {}) {
+    const sl = document.getElementById(ids.slider || "stakeSlider");
+    const stake = document.getElementById(ids.stake || "stakeAmt");
+    const maxBtn = document.getElementById(ids.maxBtn || "btnMaxBet");
+    if (sl && stake) sl.oninput = () => { stake.value = String(sl.value); onChange && onChange(); };
+    if (maxBtn && stake) maxBtn.onclick = () => { const m = maxRawFn(); if (m && m > 0n) { stake.value = rawToNado(m); onChange && onChange(); } };
+  }
+
   // consumeInvite(fn): after a share-link visitor signs in (inviteGate), replay the join they asked for.
   // The intent is STICKY: it is NOT dropped on the first attempt, because joining a staked table usually
   // needs a deposit first (a wallet round-trip whose funds land a few seconds LATER). We keep the invite
