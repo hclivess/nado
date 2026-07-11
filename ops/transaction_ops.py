@@ -289,6 +289,20 @@ def construct_blob_tx(keydict, payload, max_block, fee):
     return tx
 
 
+def construct_dividend_withdraw_tx(keydict, amount, nonce, proof, max_block):
+    """Build a SIGNED presence-dividend claim: recipient 'dividend_withdraw', fee-exempt, self-claimed
+    (data.addr == sender). Releases a COLLECTED {addr, amount, nonce} from the DIVIDEND_POOL once its
+    Merkle proof verifies against the settled execution-layer root (validate_transaction checks that)."""
+    tx = {"sender": keydict["address"], "recipient": "dividend_withdraw", "amount": 0,
+          "timestamp": get_timestamp_seconds(),
+          "data": {"addr": keydict["address"], "amount": int(amount), "nonce": str(nonce), "proof": proof},
+          "nonce": create_nonce(), "public_key": keydict["public_key"],
+          "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": 0}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
 def construct_settle_tx(keydict, exec_cursor, state_root, max_block, ns=DEFAULT_NS):
     """Build a SIGNED execution-layer settlement attestation: recipient 'settle', data
     {exec_cursor, state_root[, ns]}, fee-exempt (fee 0). Posted by a bonded validator running an exec node.

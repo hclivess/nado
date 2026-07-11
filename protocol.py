@@ -250,10 +250,16 @@ MIN_TX_FEE = 1000
 # --- Auto-bond (NON-CONSENSUS client/operator convenience; never validated on-chain) ---
 # A miner can opt to route a percentage of newly-mined spendable earnings straight into bonded stake
 # (auto-compounding the bonded lane). It is implemented identically in the node loop (unattended),
-# the desktop wallet, and the browser light-miner. AUTO_BOND_MIN_RAW is a dust floor: an auto-bond
-# only fires once the accrued amount-to-bond reaches it, so each bond tx dwarfs its own fee instead of
-# spamming tiny bonds. Purely a client default — nodes/clients may mirror or override it freely.
-AUTO_BOND_MIN_RAW = 10_000_000     # 0.001 NADO: smallest worthwhile auto-bond (10,000x MIN_TX_FEE)
+# the desktop wallet, and the browser light-miner. The dust floors below are DERIVED FROM THE FEE the
+# auto tx actually pays (MIN_TX_FEE — there is no fee market; every fee check is a flat floor), so an
+# auto tx only fires once the amount moved dwarfs its own fee (fee <= 0.01% of the amount) and the
+# profitability guarantee survives any retune of MIN_TX_FEE. Purely client defaults — overridable freely.
+AUTO_MIN_FEE_MULTIPLE = 10_000     # each auto tx must move >= this many times its own fee
+AUTO_BOND_MIN_RAW = AUTO_MIN_FEE_MULTIPLE * MIN_TX_FEE     # 0.001 NADO at defaults: smallest worthwhile auto-bond
+# Same floor for the presence-dividend auto-sweep: a `collect_dividend` blob burns MIN_TX_FEE, so the node
+# only sweeps once its accrued dividend (read from the local exec node) reaches this — below it, the
+# accrual just keeps growing fee-free until it's worth a tx.
+AUTO_COLLECT_MIN_RAW = AUTO_MIN_FEE_MULTIPLE * MIN_TX_FEE  # 0.001 NADO at defaults: smallest sweep-worthy dividend
 # Default auto-bond percentage applied when the operator/user has NOT chosen one (fresh node config,
 # a browser with no saved preference, a new desktop wallet). 80 = route 80% of newly-mined spendable
 # earnings into bonded stake out of the box, so miners join the capital-gated bonded lane hands-free

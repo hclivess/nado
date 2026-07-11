@@ -33,7 +33,7 @@ from ops.block_ops import (
 )
 from ops.mining_ops import select_producer_two_lane, epoch_of, total_bonded_shares, block_fork_weight
 from ops import kv_ops
-from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW
+from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW, AUTO_COLLECT_MIN_RAW
 from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size
 from ops.peer_ops import check_ip, qualifies_to_sync, get_remote_status
 from ops import snapshot_ops
@@ -48,7 +48,8 @@ import secrets as _secrets
 from rollback import rollback_one_block, MissingParentError, FinalityViolation
 from ops.reward_ops import credit_block_reward, apply_treasury_burn
 from ops.transaction_ops import (construct_attestation_tx, construct_commit_tx, construct_reveal_tx,
-                                 construct_bond_tx, construct_blob_tx, construct_register_tx)
+                                 construct_bond_tx, construct_blob_tx, construct_register_tx,
+                                 construct_dividend_withdraw_tx)
 from ops.attestation_ops import ffg_finalized_checkpoint
 from ops.mining_ops import beacon_commitment
 from protocol import EPOCH_LENGTH, FINALITY_DEPTH, REWARD_WINDOW
@@ -1171,28 +1172,68 @@ class CoreClient(threading.Thread):
         except Exception as e:
             self.logger.warning(f"Auto-bond skipped: {e}")
 
+    def _exec_get(self, path):
+        """GET a JSON view from THIS BOX's exec node (localhost:NADO_EXEC_PORT) — the accrual oracle for
+        auto-collect. None on any failure (no exec node running here is a normal configuration)."""
+        import json as _json
+        import os as _os
+        import urllib.request as _rq
+        try:
+            port = int(_os.environ.get("NADO_EXEC_PORT", "9273"))
+            with _rq.urlopen(f"http://127.0.0.1:{port}{path}", timeout=3) as r:
+                return _json.loads(r.read(1_000_000))
+        except Exception:
+            return None
+
     def maybe_auto_collect(self):
-        """AUTO-COLLECT (default on, memserver.auto_collect_dividend): once per epoch, sweep this node's accrued
-        presence dividend into a provable collection (a `collect_dividend` blob the exec node settles). Only
-        OPEN-lane members accrue a dividend, so we skip unless we're registered — a bonded-only node has nothing
-        to collect and would just burn the dust fee. Best-effort; never raises into the core loop."""
+        """AUTO-COLLECT (default on, memserver.auto_collect_dividend): once per epoch, sweep this node's
+        accrued presence dividend — but only when the sweep is worth its fee. The LOCAL exec node is the
+        accrual oracle: we read our exact accrued balance and only send the fee-burning `collect_dividend`
+        blob once it reaches AUTO_COLLECT_MIN_RAW (10,000x the fee). The old path swept BLIND whenever
+        `registered` was set — a fresh registrant (or an already-swept epoch) burned MIN_TX_FEE for the
+        exec node to answer "skip: no accrued dividend". No local exec node -> never spend blind.
+
+        Also AUTO-CLAIMS: `collect_dividend` only moves the accrual into a provable withdrawal — the coins
+        land on L1 via a fee-exempt `dividend_withdraw` Merkle proof once the exec root SETTLES. The browser
+        wallet auto-claims for its user (interface.js claimPendingDividends); a headless node previously
+        never did, stranding every auto-collected sweep in pending forever. Claim first, then sweep, so one
+        epoch's duty pass drains both sides. Keyed on the exec view, not the `registered` flag — a lapsed
+        member with leftover accrual still gets swept. Best-effort; never raises into the core loop."""
         if not getattr(self.memserver, "auto_collect_dividend", True):
             return
         try:
             epoch = epoch_of(self.memserver.latest_block["block_number"])
             if self.last_auto_collect_epoch == epoch:
                 return
-            acc = get_account(self.memserver.address)
-            if not acc or int(acc.get("registered", 0)) != 1:
-                # throttle this probe too: without setting the epoch marker, a bonded-only node
-                # re-read its own account from the KV store every ~1s pass forever, for nothing.
-                self.last_auto_collect_epoch = epoch
-                return                                  # not an open-lane member -> nothing accrues
+            self.last_auto_collect_epoch = epoch        # one probe per epoch, reachable or not
+            d = self._exec_get(f"/exec/dividend?address={self.memserver.address}")
+            if d is None:
+                return                                  # no accrual oracle -> unknown amount -> don't burn a fee blind
             max_block = self.memserver.latest_block["block_number"] + 2
+            # (1) CLAIM collected-but-unclaimed withdrawals whose proof matches the SETTLED root (fee-exempt,
+            # so always worth sending; an unsettled one just waits for a later epoch).
+            pending = d.get("pending") or []
+            if pending:
+                from ops.settlement_ops import latest_settled
+                _cur, settled_root = latest_settled()
+                for w in pending:
+                    pr = self._exec_get(f"/exec/dividend_proof?nonce={w['nonce']}")
+                    if not pr or not settled_root or pr.get("state_root") != settled_root:
+                        continue                        # proof must be against the SETTLED root; retry next epoch
+                    tx = construct_dividend_withdraw_tx(
+                        self.memserver.keydict, int(w["amount"]), str(w["nonce"]), pr["proof"], max_block)
+                    self.memserver.merge_transaction(tx, user_origin=True)
+                    self.logger.info(
+                        f"Auto-collect: claimed settled dividend withdrawal of {w['amount']} raw "
+                        f"(nonce {w['nonce']}, max_block {max_block})")
+            # (2) SWEEP the accrued balance once it dwarfs the fee; below the floor it keeps accruing fee-free.
+            accrued = int(d.get("accrued", 0))
+            if accrued < AUTO_COLLECT_MIN_RAW:
+                return
             tx = construct_blob_tx(self.memserver.keydict, {"op": "collect_dividend"}, max_block, MIN_TX_FEE)
             self.memserver.merge_transaction(tx, user_origin=True)
-            self.last_auto_collect_epoch = epoch
-            self.logger.info(f"Auto-collect: swept presence dividend (max_block {max_block})")
+            self.logger.info(
+                f"Auto-collect: swept presence dividend of {accrued} raw (fee {MIN_TX_FEE}, max_block {max_block})")
         except Exception as e:
             self.logger.info(f"Auto-collect skipped: {e}")
 
