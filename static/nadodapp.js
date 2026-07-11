@@ -304,6 +304,7 @@ export class NadoDapp {
     this._autoTried = new Set();   // settle targets already attempted this session (stops a rejected settle looping)
     this._bgOff = false;      // learned this session: the wallet can't background-sign at all (locked / bg off / untrusted) → always redirect
     this._bgValueUI = false;  // learned: staked calls need a manual confirm here → redirect them directly (value-free still backgrounds)
+    this._stakeMode = "amount";   // bet slider: "amount" = user typed a NADO figure; "pct" = user set a % of the table max
     this.me = localStorage.getItem(this.LS_ME) || null;
     this.exec = 0n; this.l1 = 0n; this.cursor = null;
     this._inviteFn = null;   // a followed share-link's join intent — sticky until the join actually commits
@@ -504,9 +505,10 @@ export class NadoDapp {
   }
 
   // ── MAX-BET STAKE SLIDER ───────────────────────────────────────────────────────────────────────
-  // syncStakeSlider(maxRaw, ids): drive a stake range-slider bounded by maxRaw (BigInt, or null/≤0 to hide the
-  // wrap). Keeps the number input and the slider in sync and renders the "Max: X" shortcut. step="any" so the
-  // thumb can always reach EXACTLY max. ids overrides the default element ids. Call from render().
+  // syncStakeSlider(maxRaw, ids): a PERCENT slider (fixed 0..100) of the table's current max coverable bet.
+  // In "pct" mode the NADO amount is DERIVED from the live max, so 100% is always exactly the current max and
+  // the thumb never has to chase a moving value. In "amount" mode (the user typed a figure) the thumb just
+  // reflects the implied %. maxRaw is BigInt (null/≤0 hides the wrap). Call from render().
   syncStakeSlider(maxRaw, ids = {}) {
     const sl = document.getElementById(ids.slider || "stakeSlider");
     const wrap = document.getElementById(ids.wrap || "stakeSliderWrap");
@@ -514,21 +516,28 @@ export class NadoDapp {
     if (!sl || !wrap || !stake) return;
     if (maxRaw == null || maxRaw <= 0n) { wrap.classList.add("hidden"); return; }
     wrap.classList.remove("hidden");
+    sl.min = "0"; sl.max = "100"; sl.step = "1";
     const maxN = parseFloat(rawToNado(maxRaw)) || 0;
-    sl.max = String(maxN); sl.step = "any";
-    // don't yank the thumb while the user is dragging it — reassigning value mid-drag pins it below max
-    if (document.activeElement !== sl) sl.value = String(Math.min(parseFloat(stake.value) || 0, maxN));
+    if (this._stakeMode === "pct") {
+      const pct = Math.max(0, Math.min(100, parseFloat(sl.value) || 0));
+      stake.value = rawToNado(pct >= 100 ? maxRaw : (BigInt(Math.round(pct * 100)) * maxRaw) / 10000n);   // % of the LIVE max; 100% = exact max
+    } else if (document.activeElement !== sl) {
+      const a = parseFloat(stake.value) || 0;
+      sl.value = String(maxN > 0 ? Math.max(0, Math.min(100, Math.round(a / maxN * 100))) : 0);            // reflect the typed amount as a %
+    }
+    const pctNow = Math.round(parseFloat(sl.value) || 0);
     const mv = document.getElementById(ids.maxVal || "maxBetVal"); if (mv) mv.textContent = rawToNado(maxRaw) + " NADO";
-    const sv = document.getElementById(ids.sliderVal || "stakeSliderVal"); if (sv) sv.textContent = (ids.label || "stake ") + (stake.value || "0") + " NADO";
+    const sv = document.getElementById(ids.sliderVal || "stakeSliderVal"); if (sv) sv.textContent = pctNow + "% · " + (stake.value || "0") + " NADO";
   }
-  // wireStakeSlider(maxRawFn, onChange, ids): wire the slider + "Max" shortcut once. maxRawFn() returns the
-  // current max (BigInt|null); onChange() re-renders. Call from wireUI.
+  // wireStakeSlider(maxRawFn, onChange, ids): own the slider + the number input + the "Max" shortcut. Dragging
+  // the slider → percent mode; typing the amount → amount mode; "Max" → 100%. onChange() re-renders. Call once.
   wireStakeSlider(maxRawFn, onChange, ids = {}) {
     const sl = document.getElementById(ids.slider || "stakeSlider");
     const stake = document.getElementById(ids.stake || "stakeAmt");
     const maxBtn = document.getElementById(ids.maxBtn || "btnMaxBet");
-    if (sl && stake) sl.oninput = () => { stake.value = String(sl.value); onChange && onChange(); };
-    if (maxBtn && stake) maxBtn.onclick = () => { const m = maxRawFn(); if (m && m > 0n) { stake.value = rawToNado(m); onChange && onChange(); } };
+    if (sl) sl.oninput = () => { this._stakeMode = "pct"; onChange && onChange(); };
+    if (stake) stake.oninput = () => { this._stakeMode = "amount"; onChange && onChange(); };
+    if (maxBtn) maxBtn.onclick = () => { this._stakeMode = "pct"; if (sl) sl.value = "100"; onChange && onChange(); };
   }
 
   // consumeInvite(fn): after a share-link visitor signs in (inviteGate), replay the join they asked for.

@@ -199,8 +199,7 @@ function wireUI() {
   $("btnNewTable").onclick = newTable;
   $("btnBet").onclick = doBet;
   $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = "Enter a table ID, or pick one from the lobby."; };
-  $("stakeAmt").oninput = () => render();
-  dapp.wireStakeSlider(maxBetRaw, () => render());
+  dapp.wireStakeSlider(maxBetRaw, () => render());   // owns stakeAmt input + the % slider + Max
   $("btnClose").onclick = closeTable;
   dapp.wireAutoCollect();
   $("btnFund").onclick = fundTable;

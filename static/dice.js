@@ -178,8 +178,7 @@ function wireUI() {
   $("btnFund").onclick = fundTable;
   $("btnShare").onclick = () => share(base() + "/?table=" + activeTable, "Roll at my dice table #" + activeTable + " on NADO:", $("btnShare"));
   $("target").oninput = () => { syncSlider(); render(); };
-  $("stakeAmt").oninput = () => { syncSlider(); render(); };
-  dapp.wireStakeSlider(maxBetRaw, () => { syncSlider(); render(); });
+  dapp.wireStakeSlider(maxBetRaw, () => { syncSlider(); render(); });   // owns stakeAmt input + the % slider + Max
 }
 function render() {
   const signedIn = renderWallet(dapp);

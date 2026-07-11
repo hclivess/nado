@@ -259,8 +259,7 @@ function wireUI() {
   $("btnSpin").onclick = doSpin;
   $("btnFund").onclick = fundMachine;
   $("btnCollect").onclick = collectWins;
-  if ($("stakeAmt")) $("stakeAmt").oninput = () => syncStakeSlider();
-  dapp.wireStakeSlider(maxBetRaw, () => syncStakeSlider());
+  dapp.wireStakeSlider(maxBetRaw, () => syncStakeSlider());   // owns stakeAmt input + the % slider + Max
   dapp.wireAutoCollect();
   $("btnClose").onclick = closeMachine;
 }
