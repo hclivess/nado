@@ -61,6 +61,12 @@
   .spins .btl{border:1px solid var(--border);border-radius:12px;padding:8px 12px;margin:6px 0;font-size:12.5px;background:var(--elev2);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .paytable td{font-size:12.5px;padding:3px 6px}
   .paytable .m{color:var(--gold);font-weight:800;text-align:right}
+  .switch{position:relative;width:46px;height:26px;-webkit-appearance:none;appearance:none;outline:none;
+    background:var(--border);border-radius:999px;cursor:pointer;transition:background .18s;flex:0 0 auto;margin:0}
+  .switch:checked{background:linear-gradient(135deg,#00ad93,#00c9a7)}
+  .switch::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:left .18s}
+  .switch:checked::after{left:23px}
 </style>
 </head>
 <body>
@@ -88,7 +94,7 @@
       <button class="primary" id="btnSpin" style="flex:2 1 auto">🎰 SPIN</button>
     </div>
     <button class="primary hidden mt" id="btnCollect" style="width:100%"></button>
-    <label class="small dim mt" style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="autoCollect" style="width:auto"> Auto-collect my spins (settles for me when a spin resolves)</label>
+    <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1">Auto-collect my spins — settles for me the moment a spin resolves</span></label>
     <div class="spins mt" id="mySpins"></div>
     <!-- bank owner tools -->
     <div class="row mt hidden" id="fundRow">
