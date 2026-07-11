@@ -55,7 +55,7 @@ function syncStakeSlider() {
   wrap.classList.remove("hidden");
   const maxN = parseFloat(rawToNado(maxRaw)) || 0;
   sl.max = String(maxN);
-  sl.step = String(Math.max(maxN / 200, 0.001));
+  sl.step = "any";   // continuous — so the thumb can always reach EXACTLY max (a fixed step usually can't divide max)
   const curN = parseFloat($("stakeAmt").value) || 0;
   sl.value = String(Math.min(curN, maxN));
   $("maxBetVal").textContent = rawToNado(maxRaw) + " NADO";
