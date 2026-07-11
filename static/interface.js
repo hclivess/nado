@@ -2773,7 +2773,7 @@ function _openModal(spec) {
         '<div class="modal-rows hidden"></div><div class="modal-warn hidden"></div>' +
         '<input class="modal-user" type="text" autocomplete="username" tabindex="-1" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />' +
         '<input class="modal-input hidden" autocomplete="off" /><div class="modal-note hidden"></div>' +
-        '<label class="modal-check hidden" style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;color:var(--dim);margin:10px 0 0;cursor:pointer"><input type="checkbox" style="margin-top:2px"><span></span></label>' +
+        '<label class="modal-check hidden" style="display:flex;gap:10px;align-items:center;font-size:12.5px;color:var(--dim);margin:10px 0 0;cursor:pointer"><input type="checkbox" class="switch"><span></span></label>' +
         '<div class="modal-actions"><button type="button" class="modal-cancel ghost"></button>' +
         '<button type="button" class="modal-ok primary"></button></div></div>';
     document.body.appendChild(_modalEl);
