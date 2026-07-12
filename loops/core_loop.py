@@ -143,6 +143,10 @@ class CoreClient(threading.Thread):
         # While the donor still advertises the current heaviest hash, it is re-verified with one
         # knows_block dial instead of a full pool re-scan every ~1s emergency pass.
         self._sync_donor = (None, None)
+        # LOG-ONCE guard for _candidate_pool: txids already surfaced as "Candidate excludes…" so the
+        # same lingering pool tx (chiefly stale/duplicate RANDAO commit-reveal + attest txs that sit in
+        # the mempool until they age out of their epoch window) is not re-logged every candidate pass.
+        self._excluded_logged = set()
 
     def _mode(self):
         """Local production pacing (block_time is NOT consensus — verify only checks timestamp <= now, and
@@ -855,8 +859,9 @@ class CoreClient(threading.Thread):
         keeps the aggregate per-account spend of the SELECTED set within balance, so verify_block's
         whole-block spending check cannot abort our own candidate either."""
         next_height = self.memserver.latest_block["block_number"] + 1
+        pool = self.memserver.transaction_pool.copy()
         selected = []
-        for tx in self.memserver.transaction_pool.copy():
+        for tx in pool:
             try:
                 # AT-MOST-ONCE (halt fix 2026-07-11): an ALREADY-MINED txid must never enter our own
                 # candidate. verify_block would drop it — but only AFTER construct_block hashed the set,
@@ -869,9 +874,19 @@ class CoreClient(threading.Thread):
                 validate_transaction(transaction=tx, logger=self.logger, block_height=next_height)
                 validate_all_spending(transaction_pool=selected + [tx])
             except Exception as e:
-                self.logger.info(f"Candidate excludes pool tx {str(tx.get('txid'))[:16]}: {e}")
+                # LOG-ONCE per txid: these exclusions recur on every ~1s candidate pass (a lingering
+                # duplicate/stale tx is re-validated and re-excluded each time), so logging one line per
+                # tx per block buries the log. Surface each excluded txid once; the prune below re-arms
+                # it if the same id ever leaves the pool and returns.
+                txid = tx.get("txid")
+                if txid not in self._excluded_logged:
+                    self.logger.info(f"Candidate excludes pool tx {str(txid)[:16]}: {e}")
+                    self._excluded_logged.add(txid)
                 continue
             selected.append(tx)
+        # keep the log-once set bounded and self-healing: drop ids no longer in the pool (mined or aged
+        # out) so a genuinely fresh occurrence of the same id logs again.
+        self._excluded_logged &= {tx.get("txid") for tx in pool}
         return selected
 
     def _reserved_tx_pending(self, recipient, target_epoch):
