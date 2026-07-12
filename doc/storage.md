@@ -48,9 +48,14 @@ history) are deterministic and identical across nodes — required because `get_
 tx history feed consensus selection. `DUPSORT` gives auto-deduped multi-value keys, so one
 recert per `(address, epoch)` is enforced for free.
 
-(Block **bodies** remain one `zstd(msgpack)` file per hash under `blocks/` — they were always
-documents, and consensus hashing is over canonical JSON, never the stored file, so neither is
-touched by the index.)
+(Block **bodies** live in append-only **segment files** — `blocks/seg-<n>.dat`, ~64 MB each,
+`zstd(codec)` records addressed by a `hash -> (segment, offset, len)` locator in the node-LOCAL
+`block_loc` sub-DB (excluded from snapshots; see `ops/segment_store.py`). Records are crc-guarded
+and self-describing (they carry their block hash), so the locator index stays derived/rebuildable.
+Crash safety mirrors the old per-file temp+fsync+rename: a record is appended + fsynced BEFORE its
+locator commits, torn tails are truncated at startup, and deletion is by UNREFERENCING inside the
+caller's write txn — whole segments are reclaimed once empty. Consensus hashing is over canonical
+JSON, never the stored bytes, so none of this touches consensus.)
 
 ## Crash-atomic block application (audit LO-1 / CO-4)
 

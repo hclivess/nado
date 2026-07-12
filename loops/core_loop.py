@@ -12,7 +12,6 @@ from ops.block_ops import (
     SYNC_BATCH_MAX,
     get_from_single_target,
     get_block_candidate,
-    update_child_in_latest_block,
     save_block,
     set_latest_block_info,
     set_earliest_block_info,
@@ -980,12 +979,12 @@ class CoreClient(threading.Thread):
 
         self.logger.warning(f"Producing block")
 
-        # File writes FIRST (idempotent, safe to redo on replay): the block body must exist
-        # before block_index references it, and the parent's child pointer is idempotent.
+        # Body write FIRST (idempotent, safe to redo on replay): the fsynced segment record +
+        # locator must exist before block_index references it. The parent's child pointer is no
+        # longer persisted — child_hash is DERIVED from the number->hash index at read time
+        # (block_ops._stamp_child), which the append-only segment store requires and which stays
+        # correct across reorgs by construction.
         save_block(block, self.logger)
-        update_child_in_latest_block(child_hash=block["block_hash"],
-                                     logger=self.logger,
-                                     parent=self.memserver.latest_block)
 
         # ATOMIC state mutation: tx index + balances + treasury + produced + totals + the
         # block_index 'applied' marker all commit together or not at all, so a crash mid-apply

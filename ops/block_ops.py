@@ -11,6 +11,7 @@ from hashing import blake2b_hash_link, blake2b_hash
 from signatures import sign as _sign_message, verify as _verify_message, unhex as _unhex
 from .address_ops import proof_sender, make_address
 from . import kv_ops
+from . import segment_store
 from .mining_ops import (select_producer_two_lane, lane_of, epoch_of, compute_beacon,
                          total_bonded_shares, block_fork_weight, beacon_commitment)
 from protocol import (CHAIN_ID, REWARD_WINDOW, BASE_SUBSIDY, GENESIS_BEACON, EPOCH_LENGTH,
@@ -269,53 +270,112 @@ def recommended_fee(latest_block) -> int:
     return average(fees) if fees else 0
 
 
-def block_path(block_hash: str) -> str:
-    """Filesystem path of a block body: blocks/<hash[:3]>/<hash>.block — SHARDED by the first 3 hex
-    chars (4096 dirs) so an archive node's store never degenerates into one directory with millions
-    of dirents (readdir/fsck/backup pathology at chain scale). Purely a LOCAL layout choice: hashes,
-    the wire format and the number<->hash index are untouched. Callers validate the hash first
-    (is_hex_hash) — this function only formats the path."""
-    return f"{get_home()}/blocks/{block_hash[:3]}/{block_hash}.block"
+def _stamp_child(block):
+    """Stamp the DERIVED child pointer onto a loaded block: child = the CANONICAL block at height+1
+    (number->hash index). The old model persisted child_hash into the parent's stored body
+    (update_child_in_latest_block rewrote the file), which the append-only segment store forbids —
+    and deriving is strictly MORE reorg-correct: a stored pointer kept naming a rolled-back orphan
+    until its replacement arrived, while the index always names the live canonical child (or None
+    at the tip). The forward sync walk (/get_blocks_after) and the explorer read this field."""
+    try:
+        block["child_hash"] = kv_ops.hash_by_number(block["block_number"] + 1)
+    except Exception:
+        block["child_hash"] = None
+    return block
+
+
+def _load_body(block_hash: str):
+    """Verified block dict from the segment store via the hash->locator index, or None. Every
+    failure mode (no locator, deleted segment, crc/hash mismatch) is a clean miss."""
+    loc = kv_ops.block_loc_get(block_hash)
+    if loc is None:
+        return None
+    payload = segment_store.read(loc[0], loc[1], loc[2], block_hash)
+    if payload is None:
+        return None
+    return _stamp_child(_unpack_block(payload))
 
 
 def migrate_block_store(logger) -> int:
-    """One-time, idempotent startup migration: move any *.block file still sitting FLAT in blocks/
-    into its shard dir. O(files still flat); a migrated store scans only the (empty) top level.
-    Crash-safe: os.replace per file, and a re-run simply moves whatever is left."""
+    """One-time, idempotent startup migration into the append-only SEGMENT store: sweep any legacy
+    per-file bodies (flat blocks/*.block AND sharded blocks/<hhh>/*.block) into segments, indexing
+    each hash->locator, then delete the file. Batched (append N -> one fsync via the store's
+    per-record fsync -> one locator txn -> unlink N) and crash-safe: a file is deleted only AFTER
+    its locator committed, so a crash re-migrates at most the current batch (duplicate records are
+    inert garbage; the locator always points at the newest copy). Also repairs a torn segment tail
+    (segment_store.init) on every boot."""
+    segment_store.init()
     root = f"{get_home()}/blocks"
     moved = 0
+    batch = []                                   # [(path, hash, seg, off, ln)]
+
+    def _flush():
+        nonlocal moved
+        if not batch:
+            return
+        with kv_ops.write_txn():
+            for _p, h, seg, off, ln in batch:
+                kv_ops.block_loc_put(h, seg, off, ln)
+        for p, _h, _s, _o, _l in batch:
+            try:
+                os.remove(p)
+            except OSError as e:
+                logger.warning(f"migrate: could not remove {p}: {e}")
+        moved += len(batch)
+        batch.clear()
+
+    try:
+        entries = []
+        with os.scandir(root) as it:
+            for entry in it:
+                if entry.is_file() and entry.name.endswith(".block"):
+                    entries.append(entry.path)
+                elif entry.is_dir() and len(entry.name) == 3:          # shard dir from the interim layout
+                    with os.scandir(entry.path) as sub:
+                        entries.extend(e.path for e in sub if e.is_file() and e.name.endswith(".block"))
+    except FileNotFoundError:
+        return 0
+    for path in entries:
+        h = os.path.basename(path)[:-6]
+        if not is_hex_hash(h):
+            continue
+        try:
+            with open(path, "rb") as f:
+                payload = f.read()
+        except OSError as e:
+            logger.warning(f"migrate: could not read {path}: {e}")
+            continue
+        seg, off, ln = segment_store.append(h, payload)
+        batch.append((path, h, seg, off, ln))
+        if len(batch) >= 512:
+            _flush()
+    _flush()
+    # sweep now-empty shard dirs from the interim layout
     try:
         with os.scandir(root) as it:
             for entry in it:
-                name = entry.name
-                if not entry.is_file() or not name.endswith(".block"):
-                    continue
-                h = name[:-6]
-                if not is_hex_hash(h):
-                    continue
-                shard = f"{root}/{h[:3]}"
-                os.makedirs(shard, exist_ok=True)
-                os.replace(entry.path, f"{shard}/{name}")
-                moved += 1
+                if entry.is_dir() and len(entry.name) == 3:
+                    try:
+                        os.rmdir(entry.path)
+                    except OSError:
+                        pass
     except FileNotFoundError:
-        return 0
+        pass
     if moved:
-        logger.warning(f"Block store migrated to sharded layout: {moved} file(s) moved into blocks/<hhh>/")
+        logger.warning(f"Block store migrated to append-only segments: {moved} body file(s) folded "
+                       f"into blocks/seg-*.dat (locators in LMDB block_loc)")
     return moved
 
 
 def get_block(block):
     """return a block by its hash"""
     # SECURITY: `block` reaches here from the unauthenticated /get_block?hash= arg;
-    # validate it is a real block hash so it can't traverse to arbitrary *.block paths
+    # validate it is a real block hash so a malformed value can never resolve to a body
     # (also collapses the missing-vs-malformed responses into one 'not found').
     if not is_hex_hash(block):
         return False
-    path = block_path(block)
-    if os.path.exists(path):
-        with open(path, "rb") as file:
-            return _unpack_block(file.read())
-    return False
+    body = _load_body(block)
+    return body if body is not None else False
 
 
 def get_block_number(number):
@@ -338,9 +398,11 @@ def get_block_hash_by_number(number):
 
 
 def prune_block_bodies(finalized_height: int, retention: int, logger) -> int:
-    """ROLLING MODE (doc/rolling-mode-and-da.md): delete block BODY files (blocks/<hash>.block) for
-    FINALIZED heights older than the retention window, while KEEPING the number<->hash index (so the
-    beacon/FFG hash lookbacks via get_block_hash_by_number still resolve) and STATE (never touched).
+    """ROLLING MODE (doc/rolling-mode-and-da.md): unreference block BODIES (drop their segment-store
+    locators) for FINALIZED heights older than the retention window, while KEEPING the number<->hash
+    index (so the beacon/FFG hash lookbacks via get_block_hash_by_number still resolve) and STATE
+    (never touched). Segment FILES are reclaimed wholesale once every body in them is unreferenced;
+    blob-bearing bodies are copied forward into the active segment first (contract history).
 
     Correctness floor: the deepest consensus read of a historical BODY today is rollback, which
     re-reads bodies within FINALITY_DEPTH of the tip (the old get_block_reward lookback at
@@ -370,27 +432,46 @@ def prune_block_bodies(finalized_height: int, retention: int, logger) -> int:
         bh = kv_ops.hash_by_number(h)                         # index is kept -> still resolvable after prune
         if not bh:
             continue
-        path = block_path(bh)
-        if os.path.exists(path):
-            # CONTRACT-DATA SAFETY (2026-07-11): the execution node reads `blob` payloads (contract
-            # deploys/calls) DIRECTLY out of block bodies as it tails finalized blocks. If a blob-bearing
-            # body is pruned before a lagging / cold-starting exec node consumes it, that contract data is
-            # gone forever (the exec tail skips body-less blocks). So NEVER prune a body that carries a
-            # blob tx — keep the full on-chain contract history replayable regardless of exec-node lag.
-            # (Bodies are loaded only during pruning, which is incremental + bounded; blob blocks are rare.)
-            try:
-                body = load_block_from_hash(bh, logger)
-                if body and any(t.get("recipient") == "blob" for t in body.get("block_transactions", [])):
-                    kept_blob += 1
-                    continue
-            except Exception:
-                continue                                       # can't inspect it -> never delete it (fail-safe)
-            try:
-                os.remove(path)
-                pruned += 1
-            except OSError as e:
-                logger.warning(f"prune: could not remove {path}: {e}")
+        loc = kv_ops.block_loc_get(bh)
+        if loc is None:
+            continue                                          # already unreferenced
+        # CONTRACT-DATA SAFETY (2026-07-11): the execution node reads `blob` payloads (contract
+        # deploys/calls) DIRECTLY out of block bodies as it tails finalized blocks. If a blob-bearing
+        # body is pruned before a lagging / cold-starting exec node consumes it, that contract data is
+        # gone forever (the exec tail skips body-less blocks). So NEVER prune a body that carries a
+        # blob tx — COPY IT FORWARD into the active segment instead (locator repoints, old segment is
+        # unpinned), keeping the full contract history replayable while whole old segments still GC.
+        # (Bodies are loaded only during pruning, which is incremental + bounded; blob blocks are rare.)
+        try:
+            body = load_block_from_hash(bh, logger)
+            if body and any(t.get("recipient") == "blob" for t in body.get("block_transactions", [])):
+                if loc[0] != segment_store.active_segment():   # already in the active segment -> nothing to do
+                    payload = segment_store.read(loc[0], loc[1], loc[2], bh)
+                    if payload is None:
+                        continue                               # can't read it -> never touch it (fail-safe)
+                    seg, off, ln = segment_store.append(bh, payload)
+                    kv_ops.block_loc_put(bh, seg, off, ln)     # repoint; old segment's live count drops
+                kept_blob += 1
+                continue
+        except Exception:
+            continue                                           # can't inspect it -> never delete it (fail-safe)
+        if kv_ops.block_loc_del(bh):
+            pruned += 1
     kv_ops.meta_set_int("pruned_below", end)                  # advance past gap heights too (idempotent, monotonic)
+    # WHOLE-SEGMENT GC: a segment whose live-locator count reached zero holds only unreferenced
+    # garbage — reclaim the file. The ACTIVE segment is never deleted (segment_store refuses).
+    reclaimed = 0
+    try:
+        active = segment_store.active_segment()
+        live = kv_ops.seg_live_counts()                       # segments with >0 live locators
+        for name in os.listdir(f"{get_home()}/blocks"):
+            if not (name.startswith("seg-") and name.endswith(".dat")):
+                continue
+            seg = int(name[4:-4], 16)
+            if seg != active and live.get(seg, 0) == 0 and segment_store.delete_segment(seg):
+                reclaimed += 1
+    except Exception as e:
+        logger.warning(f"prune: segment GC pass failed (non-fatal): {e}")
     # Keep the earliest-block pointer at the earliest RETAINED body (height `end`, which is NOT pruned), so
     # get_block_ends_info never loads a pruned body (which returns False and 403s /status).
     neh = kv_ops.hash_by_number(end)
@@ -399,10 +480,11 @@ def prune_block_bodies(finalized_height: int, retention: int, logger) -> int:
             _update_block_ends({"earliest_block": neh}, logger=logger)
         except Exception as e:
             logger.warning(f"prune: earliest-pointer update failed: {e}")
-    if pruned or kept_blob:
-        logger.info(f"Rolling mode: pruned {pruned} block bodies below height {end} "
-                    f"(retention {eff_retention}, finalized {finalized_height}); kept {kept_blob} blob-bearing "
-                    f"bodies (contract history) + all indexes + state.")
+    if pruned or kept_blob or reclaimed:
+        logger.info(f"Rolling mode: unreferenced {pruned} block bodies below height {end} "
+                    f"(retention {eff_retention}, finalized {finalized_height}); carried {kept_blob} "
+                    f"blob-bearing bodies forward (contract history); reclaimed {reclaimed} dead "
+                    f"segment file(s); all indexes + state kept.")
     return pruned
 
 
@@ -537,16 +619,16 @@ def block_already_indexed(block_hash):
 
 
 def load_block_from_hash(block_hash: str, logger):
-    """load a block body by hash, returning False (logged at info) instead of raising — sync and
-    block-ends paths probe for bodies that may legitimately be absent (rolling-mode pruned). The
-    hash is validated so a peer-supplied value cannot traverse to arbitrary *.block paths."""
-    # SECURITY: reachable from the unauthenticated /get_blocks_after / /get_blocks_before
-    # hash arg; validate so it can't read arbitrary *.block paths off disk.
+    """load a block body by hash, returning False instead of raising — sync and block-ends paths
+    probe for bodies that may legitimately be absent (rolling-mode pruned). The hash is validated
+    so a peer-supplied value can never resolve outside the locator index; the segment read is
+    crc+hash verified, so a corrupt record is a clean miss, never junk."""
+    # SECURITY: reachable from the unauthenticated /get_blocks_after / /get_blocks_before hash arg.
     if not is_hex_hash(block_hash):
         return False
     try:
-        with open(block_path(block_hash), "rb") as infile:
-            return _unpack_block(infile.read())
+        body = _load_body(block_hash)
+        return body if body is not None else False
     except Exception as e:
         logger.info(f"Failed to load block {block_hash}: {e}")
         return False
@@ -572,15 +654,17 @@ def block_content_hash(block: dict) -> str:
 
 
 def save_block(block: dict, logger):
-    """Persist a block body to blocks/<hash>.block — the single storage choke point, where the
-    HASH-CONSISTENCY invariant is enforced: the (peer-supplied) hash must be a real hex hash (no
-    path traversal outside blocks/), and a non-genesis block whose content does not hash to its own
+    """Persist a block body into the append-only SEGMENT store (ops/segment_store.py) — the single
+    storage choke point, where the HASH-CONSISTENCY invariant is enforced: the (peer-supplied) hash
+    must be a real hex hash, and a non-genesis block whose content does not hash to its own
     block_hash is REFUSED with a raise — persisting a forged or reorg-corrupted body and chaining
-    onto it would fork every honest node that later re-derives the true hash. Crash-safe: pack
-    once, temp file + fsync + atomic os.replace so a reader never sees a half-written body; bounded
-    retries then raise, so a persistent error (full disk, permissions) fails LOUDLY instead of
-    silently wedging the caller."""
-    # SECURITY: a synced block's hash is peer-supplied; refuse to write outside blocks/
+    onto it would fork every honest node that later re-derives the true hash. Crash-safe, same
+    contract as the old temp+fsync+os.replace file: the record is APPENDED and FSYNCED before its
+    LMDB locator commits, so a reader can never resolve a half-written body (a crash between the
+    two leaves inert unreferenced bytes). Re-saving a hash appends a fresh record and repoints the
+    locator (last-write-wins, mirroring the old file overwrite). Bounded retries then raise, so a
+    persistent error (full disk, permissions) fails LOUDLY instead of silently wedging the caller."""
+    # SECURITY: a synced block's hash is peer-supplied; refuse anything that isn't a real hex hash.
     if not is_hex_hash(block.get("block_hash")):
         logger.warning(f"Refusing to save block with invalid hash {block.get('block_hash')!r}")
         return False
@@ -598,23 +682,18 @@ def save_block(block: dict, logger):
                          f"hashes to {expected[:16]} but block_hash={str(block.get('block_hash'))[:16]} "
                          f"(forged or corrupt) — this would fork the chain")
             raise ValueError(f"hash-inconsistent block #{block.get('block_number')} refused")
-    path = block_path(block['block_hash'])
-    os.makedirs(os.path.dirname(path), exist_ok=True)   # shard dir, created on demand
-    tmp_path = f"{path}.tmp"
 
-    # pack once, write to a temp file, fsync, then atomically rename into place. os.replace
-    # is atomic so a reader never sees a half-written block. Bounded retries: the old
-    # `while True` spun forever on a persistent error (full disk / permissions), silently
-    # wedging the caller; after the cap we raise so the node fails loudly and can restart.
+    # child_hash is DERIVED at read time from the number->hash index (_stamp_child) — normalize it
+    # to None in the stored record so the append-only store never carries a stale pointer.
+    stored = dict(block)
+    stored["child_hash"] = None
+
     last_error = None
     for _ in range(60):
         try:
-            packed = _pack_block(block)
-            with open(tmp_path, "wb") as outfile:
-                outfile.write(packed)
-                outfile.flush()
-                os.fsync(outfile.fileno())
-            os.replace(tmp_path, path)
+            payload = _pack_block(stored)
+            seg, off, ln = segment_store.append(block["block_hash"], payload)   # fsynced
+            kv_ops.block_loc_put(block["block_hash"], seg, off, ln)             # then referenced
             return True
         except Exception as e:
             last_error = e
@@ -670,30 +749,15 @@ def get_block_ends_info(logger):
 
 def unindex_block(block, logger):
     """Rollback mirror of index_block_number + save_block: remove both directions of the
-    number<->hash mapping INSIDE the active rollback write txn (so a failure aborts the WHOLE
-    rollback atomically — index/unindex must be exact inverses or a replayed block double-applies),
-    then best-effort delete the body file. The file removal is bounded and non-fatal by design: a
-    leftover *.block body is inert once unindexed (consensus lookups resolve via the index), whereas
-    spinning on it would stall the single block-processing thread."""
-    # Delete both directions of the number<->hash mapping. Called inside the rollback write txn
-    # (kv_ops uses the active txn), so an error propagates and aborts the WHOLE rollback rather than
-    # leaving it half-reverted — no infinite retry loop is needed or correct under LMDB.
+    number<->hash mapping AND the body's segment locator INSIDE the active rollback write txn — so
+    a failure aborts the WHOLE rollback atomically (index/unindex must be exact inverses or a
+    replayed block double-applies), and an aborted rollback RESTORES the body reference too. This
+    is strictly stronger than the old best-effort file unlink, which could delete a body whose
+    rollback then aborted. The unreferenced record bytes stay in the segment as inert garbage
+    (whole-segment GC reclaims them); the orphan can never be served — every lookup goes through
+    the locator."""
     kv_ops.block_index_del(block_number=block['block_number'], block_hash=block['block_hash'])
-
-    block_data = block_path(block['block_hash'])
-    # bounded + backed off: the old inner loop had no sleep and never gave up,
-    # so a permission error / open handle spun a CPU at 100% forever.
-    for _ in range(10):
-        if not os.path.exists(block_data):
-            break
-        try:
-            os.remove(block_data)
-            break
-        except FileNotFoundError:
-            break
-        except Exception as e:
-            logger.error(f"Failed to remove {block_data}: {e}")
-            time.sleep(1)
+    kv_ops.block_loc_del(block['block_hash'])
 
 
 def _update_block_ends(updates: dict, logger):
@@ -911,14 +975,6 @@ async def knows_block(target_peer, port, hash, logger):
     except Exception as e:
         logger.error(f"Failed to check block {hash} from {target_peer}: {e}")
         return False
-
-
-def update_child_in_latest_block(child_hash, logger, parent):
-    """the only method to save block except for creation to avoid read/write collision"""
-    # save_block is now bounded + atomic and raises on persistent failure; the old
-    # `while True` here had NO sleep, so any persistent error pinned a CPU at 100% forever.
-    parent["child_hash"] = child_hash
-    return save_block(parent, logger=logger)
 
 
 async def get_blocks_after(target_peer, from_hash, logger, count=50, compress="zstd"):

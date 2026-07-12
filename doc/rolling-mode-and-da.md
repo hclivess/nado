@@ -31,9 +31,9 @@ Rolling mode prunes **history**, never **state**.
   with a blake2b **Merkle `state_root`**, accepted only on **80% peer quorum**, anchored to
   the block hash at C, then the short C..tip tail is replayed through normal validation.
   `transactions.db` is explicitly **not** consensus-critical (explorer/history, rebuildable).
-- **Block bodies are already separable.** Stored as `zstd(msgpack)` files under `blocks/`;
-  the LMDB KV is a **derived, rebuildable index**. `kv_ops` already has prune primitives
-  (block-by-num / block-by-hash delete, `hb_revert_gc`, `iter_block_numbers`).
+- **Block bodies are already separable.** Stored as `zstd(codec)` records in append-only
+  segment files under `blocks/` (see `ops/segment_store.py`; ~300 files/year instead of one
+  file per block); the LMDB KV is a **derived, rebuildable index**, including the body locators.
 
 **A snapshot is already a pruned state.** Rolling mode is mostly: *keep making snapshots,
 keep the last K epochs of bodies, drop the rest, and define who still has the old data.*
@@ -45,8 +45,10 @@ keep the last K epochs of bodies, drop the rest, and define who still has the ol
 ### 2.1 The retention window — IMPLEMENTED (Phase 1)
 `protocol.HISTORY_RETENTION_BLOCKS` (default **100 800** ≈ 1 week at 6 s blocks; config /
 `NADO_HISTORY_RETENTION_BLOCKS` overridable) sets how many recent block **bodies** a rolling
-node keeps. Below that, finalized **body files** (`blocks/<hash>.block`) are dropped; the
-**state**, and the tiny **number↔hash indexes**, always stay.
+node keeps. Below that, finalized **bodies** are UNREFERENCED (their segment locators dropped)
+and whole segment files are reclaimed once every body in them is gone — blob-bearing bodies are
+copied forward first (contract history); the **state**, and the tiny **number↔hash indexes**,
+always stay.
 
 **Retention-floor invariant (correctness-critical) — the audit refined this.** The design
 first guessed the floor was ≈ `FINALITY_DEPTH`; the actual audit of every historical

@@ -16,8 +16,10 @@ DETERMINISM: LMDB stores keys (and DUPSORT dups) in sorted byte order, so range 
 are deterministic and identical across nodes — required because get_open_registry and tx history
 feed consensus selection.
 
-The KV store is a DERIVED, rebuildable index. Block bodies stay zstd(codec) files under blocks/
-and consensus hashing stays canonical_bytes — neither is touched here.
+The KV store is a DERIVED, rebuildable index. Block bodies are zstd(codec) records in append-only
+segment files under blocks/ (ops/segment_store.py; the hash->locator `block_loc` sub-DB here is
+NODE-LOCAL and snapshot-excluded, and records are self-describing so it stays rebuildable) —
+consensus hashing stays canonical_bytes, untouched by any of this.
 """
 import os
 import struct
@@ -49,7 +51,7 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   commits           "sender|target_epoch"    -> commitment                                   (RANDAO #7)
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
-_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert")
+_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert", "block_loc")
 _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch", "treasury_votes")
 
 # CONSENSUS STATE a snapshot carries: every sub-DB EXCEPT the block-body + tx HISTORY (explorer-only,
@@ -67,7 +69,11 @@ _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settl
 # history + block BODIES stay out; the recent bodies a node still needs (the rollback window +
 # serving peers; REWARD_WINDOW kept as margin) are backfilled in loops/core_loop.snapshot_bootstrap.
 _HISTORY_DBS = frozenset(("tx", "tx_by_sender", "tx_by_recipient"))
-SNAPSHOT_DBS = tuple(sorted(set(_PLAIN_DBS + _DUP_DBS) - _HISTORY_DBS))
+# block_loc is NODE-LOCAL storage layout (hash -> segment/offset locators + per-segment live
+# counters, see ops/segment_store.py) — NEVER snapshot-carried: another node's segments differ, and
+# leaking locators into the snapshot payload would fork the canonical state root across nodes.
+_LOCAL_DBS = frozenset(("block_loc",))
+SNAPSHOT_DBS = tuple(sorted(set(_PLAIN_DBS + _DUP_DBS) - _HISTORY_DBS - _LOCAL_DBS))
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
 ACCOUNT_FIELDS = ("balance", "produced", "bonded", "registered", "fidelity", "last_hb_epoch")
@@ -1143,6 +1149,85 @@ def hash_by_number(block_number: int):
 def block_hash_indexed(block_hash: str) -> bool:
     """True if this exact block hash is in the index (idempotency guard for incorporate)."""
     return _read(lambda txn: txn.get(block_hash.encode(), db=_dbs()["block_by_hash"]) is not None)
+
+
+# --- block-body LOCATORS (segment store, ops/segment_store.py) -------------------------------------
+# hash(hex utf8) -> ">IQI" (segment, offset, record_len) in the NODE-LOCAL `block_loc` sub-DB
+# (excluded from snapshots — see _LOCAL_DBS). Per-segment LIVE-locator counters live in the SAME
+# sub-DB under b"\x00seg:<n>" keys (the \x00 prefix can never collide with a hex-hash key) so a
+# locator put/del and its counter move commit in ONE txn — rolling-mode GC deletes a segment file
+# exactly when its live count reaches zero.
+
+_LOC = struct.Struct(">IQI")
+
+
+def _seg_key(seg: int) -> bytes:
+    return b"\x00seg:" + be8(seg)
+
+
+def _seg_adjust(txn, seg: int, delta: int):
+    db = _dbs()["block_loc"]
+    k = _seg_key(seg)
+    raw = txn.get(k, db=db)
+    n = (un_be8(raw) if raw is not None else 0) + delta
+    if n > 0:
+        txn.put(k, be8(n), db=db)
+    else:
+        txn.delete(k, db=db)
+
+
+def block_loc_put(block_hash: str, seg: int, offset: int, length: int):
+    """Point a block hash at its segment record (last-write-wins, mirroring the old file overwrite).
+    Maintains the per-segment live counters atomically (old segment --, new segment ++)."""
+    def _do(txn):
+        db = _dbs()["block_loc"]
+        key = block_hash.encode()
+        old = txn.get(key, db=db)
+        if old is not None:
+            old_seg, _o, _l = _LOC.unpack(old)
+            _seg_adjust(txn, old_seg, -1)
+        txn.put(key, _LOC.pack(seg, offset, length), db=db)
+        _seg_adjust(txn, seg, +1)
+    _write(_do)
+
+
+def block_loc_get(block_hash: str):
+    """(segment, offset, record_len) for a block body, or None (absent/pruned)."""
+    def _do(txn):
+        raw = txn.get(block_hash.encode(), db=_dbs()["block_loc"])
+        return _LOC.unpack(raw) if raw is not None else None
+    return _read(_do)
+
+
+def block_loc_del(block_hash: str) -> bool:
+    """Unreference a block body (rollback / rolling-mode prune) — joins the caller's write txn, so
+    a rollback abort restores the locator (STRICTLY better than the old best-effort file unlink).
+    The segment bytes become inert garbage; whole-segment GC reclaims them. True if it existed."""
+    def _do(txn):
+        db = _dbs()["block_loc"]
+        key = block_hash.encode()
+        raw = txn.get(key, db=db)
+        if raw is None:
+            return False
+        seg, _o, _l = _LOC.unpack(raw)
+        txn.delete(key, db=db)
+        _seg_adjust(txn, seg, -1)
+        return True
+    return _write(_do)
+
+
+def seg_live_counts() -> dict:
+    """{segment: live locator count} — rolling-mode GC deletes segment files whose count is gone."""
+    def _do(txn):
+        out = {}
+        with txn.cursor(db=_dbs()["block_loc"]) as cur:
+            if cur.set_range(b"\x00seg:"):
+                for k, v in cur:
+                    if not k.startswith(b"\x00seg:"):
+                        break
+                    out[un_be8(k[len(b"\x00seg:"):])] = un_be8(v)
+        return out
+    return _read(_do)
 
 
 # --- transaction index (primary + DUPSORT secondaries) --------------------------------------------

@@ -1320,12 +1320,14 @@ if not os.path.exists(f"{get_home()}/index/block_ends.dat"):
         logger=logger,
     )
 
-# BLOCK-STORE SHARDING migration (idempotent, one-time): move flat blocks/*.block into shard dirs.
+# BLOCK-STORE migration (idempotent, one-time): fold any legacy per-file bodies (flat or sharded
+# *.block) into the append-only segment store, and repair a torn segment tail from a crash mid-append.
 try:
     from ops.block_ops import migrate_block_store
     migrate_block_store(logger)
 except Exception as _e:
-    logger.error(f"block-store shard migration failed (non-fatal; flat files remain readable next run): {_e}")
+    logger.error(f"block-store segment migration failed: {_e}")
+    raise SystemExit(1)   # a half-migrated store must not silently run — fix disk/permissions and restart
 
 # Self-heal the recert_by_epoch presence index on EVERY boot (idempotent). get_open_registry reads this
 # epoch-keyed index; on a node upgraded across the heartbeat->lease refactor it starts empty, so any miner

@@ -1,13 +1,16 @@
 """
-Rolling-mode history pruning (doc/rolling-mode-and-da.md): prune_block_bodies deletes old block BODY
-files while KEEPING the number<->hash index (beacon/FFG still resolve), never prunes within the
-reward/rollback window (so get_block_reward's tip-REWARD_WINDOW body read is always satisfied), and is
-idempotent + incremental via the meta watermark. Fake block files + index entries — no real chain.
+Rolling-mode history pruning (doc/rolling-mode-and-da.md) over the append-only SEGMENT store:
+prune_block_bodies UNREFERENCES old block bodies (drops their hash->locator entries) while KEEPING
+the number<->hash index (beacon/FFG still resolve), never prunes within the reward/rollback window,
+is idempotent + incremental via the meta watermark — and reclaims whole segment FILES once every
+body in them is unreferenced (the active segment is never deleted). Fake bodies + index entries —
+no real chain.
 
 Run: python3 tests/test_rolling_prune.py
 """
 import os, sys, tempfile, traceback, logging
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_prune_")
+os.environ["NADO_SEGMENT_BYTES"] = "4096"   # tiny segments so the whole-segment GC path actually rolls over
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 for d in ("index", "blocks", "logs", "peers"):
     os.makedirs(f"{os.environ['HOME']}/nado/{d}", exist_ok=True)
@@ -17,7 +20,7 @@ from genesis import create_indexers
 create_indexers()
 
 from protocol import REWARD_WINDOW, FINALITY_DEPTH
-from ops import kv_ops
+from ops import kv_ops, segment_store
 from ops.block_ops import prune_block_bodies
 from ops.data_ops import get_home
 
@@ -32,43 +35,54 @@ def check(name, fn):
     except Exception as e:
         fails += 1; print(f"FAIL  {name}: {e}"); traceback.print_exc()
 
-def _body_path(h):
-    """Resolve height h to its body file path via the number->hash index, or None if unindexed."""
-    bh = kv_ops.hash_by_number(h)
-    from ops.block_ops import block_path
-    return block_path(bh) if bh else None
-
 def body_exists(h):
-    """True if the block BODY file for height h still exists on disk."""
-    p = _body_path(h)
-    return bool(p) and os.path.exists(p)
+    """True if the block BODY for height h is still referenced (segment locator present)."""
+    bh = kv_ops.hash_by_number(h)
+    return bool(bh) and kv_ops.block_loc_get(bh) is not None
 
 def indexed(h):
     """True if height h still has a number->hash index entry."""
     return kv_ops.hash_by_number(h) is not None
 
-# Build fake blocks 1..600: an index entry (number<->hash) + a tiny body file each.
+def segment_files():
+    return sorted(n for n in os.listdir(f"{HOME}/blocks") if n.startswith("seg-") and n.endswith(".dat"))
+
+# Build fake blocks 1..600: an index entry (number<->hash) + a segment-store body each. Payloads are
+# opaque bytes (not decodable blocks) — the prune blob-check load fails CLOSED to "not a blob" (same
+# as before with raw body files), so eviction proceeds exactly like a plain value-transfer block.
 N = 600
 for h in range(1, N + 1):
     bh = f"{h:064x}"
     kv_ops.block_index_put(block_number=h, block_hash=bh)
-    from ops.block_ops import block_path as _bp
-    os.makedirs(os.path.dirname(_bp(bh)), exist_ok=True)
-    with open(_bp(bh), "wb") as f:
-        f.write(b"body")
+    seg, off, ln = segment_store.append(bh, b"body-%d" % h)
+    kv_ops.block_loc_put(bh, seg, off, ln)
+SEGS_BEFORE = segment_files()
 
 def t1_prunes_below_window_keeps_index():
-    """Prove pruning deletes bodies below finalized-retention, keeps the number<->hash index and reward-window body, and advances the watermark."""
+    """Prove pruning unreferences bodies below finalized-retention, keeps the number<->hash index and reward-window body, and advances the watermark."""
     # finalized=400, retention=150 (>= FLOOR) -> prune_below = 400 - 150 = 250
     n = prune_block_bodies(400, 150, logger)
     assert n == 249, f"expected 249 pruned (heights 1..249), got {n}"
-    assert not body_exists(1) and not body_exists(249), "old bodies must be gone"
+    assert not body_exists(1) and not body_exists(249), "old bodies must be unreferenced"
     assert body_exists(250) and body_exists(400), "bodies within retention must remain"
     # index is KEPT even for pruned heights (beacon/FFG resolve hashes without the body)
     assert indexed(1) and indexed(249), "number<->hash index must survive a body prune"
     # correctness floor: the reward-window body (finalized - REWARD_WINDOW = 300) must still be present
     assert body_exists(400 - REWARD_WINDOW), "reward-window body must never be pruned"
     assert kv_ops.meta_get_int("pruned_below", -1) == 250, "watermark advances to prune_below"
+
+def t1b_dead_segments_reclaimed():
+    """Prove whole segment FILES are deleted once every body in them is unreferenced, and the active segment always survives."""
+    now = segment_files()
+    assert len(now) < len(SEGS_BEFORE), f"expected dead segments reclaimed ({len(SEGS_BEFORE)} -> {len(now)})"
+    active_name = f"seg-{segment_store.active_segment():08x}.dat"
+    assert active_name in now, "the active segment must never be deleted"
+    # every surviving non-active segment still holds live bodies
+    live = kv_ops.seg_live_counts()
+    for name in now:
+        seg = int(name[4:-4], 16)
+        assert seg == segment_store.active_segment() or live.get(seg, 0) > 0, \
+            f"{name} survived with zero live bodies"
 
 def t2_idempotent_noop():
     """Prove a second identical prune call is a no-op (watermark makes it idempotent)."""
@@ -87,8 +101,6 @@ def t3_incremental_on_new_finality():
 
 def t4_safety_floor_protects_reward_and_rollback_window():
     """Prove a tiny misconfigured retention is floored at REWARD_WINDOW+FINALITY_DEPTH+1 so reward and rollback bodies survive."""
-    # A misconfigured tiny retention MUST still be floored at REWARD_WINDOW+FINALITY_DEPTH+1, so the
-    # reward lookback (tip-REWARD_WINDOW) and rollback window (FINALITY_DEPTH) are never pruned.
     n = prune_block_bodies(600, 1, logger)          # retention=1 -> effective floor FLOOR
     expected_prune_below = 600 - FLOOR              # never above this
     assert body_exists(600 - REWARD_WINDOW), "reward-window body must survive even a tiny retention"
@@ -101,9 +113,9 @@ def t5_nothing_to_prune_on_short_chain():
     kv_ops.meta_set_int("pruned_below", 0)          # reset watermark
     assert prune_block_bodies(FLOOR, 150, logger) == 0, "finalized <= floor -> nothing prunable"
 
-for name, fn in list(globals().items()):
-    if name.startswith("t") and callable(fn) and name[1].isdigit():
-        check(name, fn)
+for name, fn in sorted((n, f) for n, f in list(globals().items())
+                       if n.startswith("t") and callable(f) and n[1].isdigit()):
+    check(name, fn)
 
 print(f"\n{'ALL PASSED' if not fails else str(fails)+' FAILED'}")
 sys.exit(1 if fails else 0)
