@@ -92,6 +92,18 @@ BRIDGE_ESCROW = "bridge"          # the escrow pseudo-account holding all bridge
 # Phase-2b behind the same interface (settlement_ops.settlement_justified). 2/3 stake quorum, like FFG.
 SETTLE_NUM = 2
 SETTLE_DEN = 3
+# SETTLEMENT INACTIVITY LEAK (mirrors the FFG leak in ops/attestation_ops.active_shares): the quorum
+# DENOMINATOR is the bonded shares of validators that have posted a settle attestation for the
+# namespace within this many exec cursors of the highest attested cursor — bonded validators that do
+# NOT run an exec+settle node leak out of the settlement quorum instead of blocking it forever.
+# WHY: the original denominator was ALL bonded stake, so the moment non-settling validators bonded
+# past 1/3 of shares, no root could EVER settle — every dividend/bridge/unshield claim on L1 failed
+# with "no settled execution-layer root yet" while the exec side had already burned the balance into
+# a withdrawal record (funds stuck, not lost). Same trust trade FFG accepted: going dark forfeits
+# your say, and a hostile LONE settler only controls the root if every honest settler has been dark
+# for the whole window (~2.4h at 6s blocks; systemd restarts make that an outage, not an accident).
+# The optimistic fraud proof (doc/dividend-fraud-proof.md) is the planned trust upgrade on top.
+SETTLE_ACTIVITY_CURSORS = 1440
 
 # SETTLEMENT NAMESPACES (multi-rollup): a `settle`/`bridge_withdraw` tx may name a rollup namespace (`ns`)
 # so many execution layers settle to L1 INDEPENDENTLY under the same bonded quorum — L1 keeps one settled

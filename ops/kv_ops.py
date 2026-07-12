@@ -568,6 +568,42 @@ def settlements_for_cursor(ns: str, cursor: int):
     return _read(_do)
 
 
+def settlement_max_cursor(ns: str) -> int:
+    """Highest exec cursor with at least one settlement attestation in `ns`, or -1. Range-seek on
+    the (ns, cursor) key prefix — O(log n), never a full scan."""
+    prefix = ns.encode() + b"\x00"
+    def _do(txn):
+        best = -1
+        with txn.cursor(db=_dbs()["settlements"]) as cur:
+            # seek just past the ns prefix space, then step back to the last key inside it
+            if cur.set_range(prefix + b"\xff" * 8):
+                if cur.prev_nodup() and cur.key().startswith(prefix) and len(cur.key()) == len(prefix) + 8:
+                    best = int.from_bytes(cur.key()[len(prefix):], "big")
+            elif cur.last():
+                if cur.key().startswith(prefix) and len(cur.key()) == len(prefix) + 8:
+                    best = int.from_bytes(cur.key()[len(prefix):], "big")
+        return best
+    return _read(_do)
+
+
+def settlement_validators_since(ns: str, floor_cursor: int) -> set:
+    """Validators with ANY settle attestation for `ns` at a cursor >= floor_cursor — the ACTIVE
+    settler set for the settlement inactivity leak (protocol.SETTLE_ACTIVITY_CURSORS). Range scan
+    from the floor key; O(attestations inside the window), independent of total history."""
+    prefix = ns.encode() + b"\x00"
+    start = prefix + be8(max(0, int(floor_cursor)))
+    def _do(txn):
+        out = set()
+        with txn.cursor(db=_dbs()["settlements"]) as cur:
+            if cur.set_range(start):
+                for k, v in cur.iternext(keys=True, values=True):
+                    if not k.startswith(prefix) or len(k) != len(prefix) + 8:
+                        break
+                    out.add(v.decode().split("|", 1)[0])
+        return out
+    return _read(_do)
+
+
 def settlement_cursors(ns: str):
     """All exec_cursors in namespace `ns` that have at least one settlement attestation, ascending."""
     prefix = ns.encode() + b"\x00"

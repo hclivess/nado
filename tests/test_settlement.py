@@ -19,7 +19,7 @@ from protocol import B_MIN, SETTLE_NUM, SETTLE_DEN, DEFAULT_NS
 from ops import kv_ops
 from ops.account_ops import create_account, get_account, reflect_transaction, get_bonded_registry
 from ops.transaction_ops import construct_settle_tx, validate_transaction
-from ops.settlement_ops import settlement_justified, latest_settled
+from ops.settlement_ops import settlement_justified, latest_settled, active_settler_shares
 from ops.key_ops import generate_keys
 
 fails = 0
@@ -46,13 +46,16 @@ V1 = _validator(4)
 V2 = _validator(1)
 
 def t1_quorum_predicate():
-    """Prove settlement_justified flips true only once attesting bonded shares exceed the 2/3 quorum, and only for the attested root."""
+    """Prove settlement_justified flips true only once attesting shares exceed 2/3 of the ACTIVE
+    settler set (the inactivity leak), and only for the attested root."""
     reg = get_bonded_registry()
-    kv_ops.settlement_put(DEFAULT_NS, 100, V2["address"], ROOT_A) # 1 share attesting -> 1/5, not justified
-    assert not settlement_justified(DEFAULT_NS, 100, ROOT_A, reg)
+    kv_ops.settlement_put(DEFAULT_NS, 90, V1["address"], ROOT_B)  # activate V1 (4 shares) in the window
+    kv_ops.settlement_put(DEFAULT_NS, 100, V2["address"], ROOT_A) # V2 active too; ROOT_A@100 = 1/5 active
+    assert active_settler_shares(DEFAULT_NS, reg) == 5, "both settlers active -> denominator 5"
+    assert not settlement_justified(DEFAULT_NS, 100, ROOT_A, reg), "1/5 of active must not justify"
     kv_ops.settlement_put(DEFAULT_NS, 100, V1["address"], ROOT_A) # +4 shares -> 5/5 > 2/3, justified
     assert settlement_justified(DEFAULT_NS, 100, ROOT_A, reg)
-    assert not settlement_justified(DEFAULT_NS, 100, ROOT_B, reg), "a root no one attested is never justified"
+    assert not settlement_justified(DEFAULT_NS, 100, ROOT_B, reg), "a root without quorum at this cursor is not justified"
 
 def t2_latest_settled_and_reflect():
     """Prove reflecting a settle tx from a supermajority validator makes latest_settled report that (cursor, root)."""
@@ -125,6 +128,39 @@ def t9_bad_namespace_rejected():
     bad["data"]["ns"] = "BadNS!"
     _resign(bad, V1)
     assert raises(lambda: validate_transaction(bad, logger, 1)), "invalid ns charset must be rejected"
+
+def t9_inactivity_leak_dark_majority_cannot_block():
+    """THE LEAK (the live alphanet failure): a bonded MAJORITY that never runs an exec+settle node
+    must not block settlement forever — it leaks out of the denominator; the active settlers'
+    supermajority settles. (Old spec: denominator = ALL bonded stake -> nothing ever settled once
+    non-settlers bonded past 1/3, and every dividend/bridge claim failed on L1.)"""
+    dark = _validator(45)                                        # 45 dark shares vs 5 active -> 10% active
+    reg = get_bonded_registry()
+    assert active_settler_shares(DEFAULT_NS, reg) == 5, "dark stake must not enter the denominator"
+    tx = construct_settle_tx(V1, exec_cursor=1000, state_root=ROOT_A, max_block=1)
+    validate_transaction(tx, logger, 1); reflect_transaction(tx, logger, 1)
+    assert latest_settled() == (1000, ROOT_A), "active supermajority settles despite a dark bonded majority"
+    # and the dark validator RE-ENTERS the moment it attests (the leak is participation, not punishment):
+    # with 45 of 50 active shares it now justifies its own attestations, and V1's old 4/5 dominance
+    # is DILUTED below quorum for anything the newcomer doesn't co-sign.
+    kv_ops.settlement_put(DEFAULT_NS, 1001, dark["address"], ROOT_B)
+    assert active_settler_shares(DEFAULT_NS, reg) == 50, "attesting re-enters the denominator"
+    assert settlement_justified(DEFAULT_NS, 1001, ROOT_B, reg), "45/50 active is a supermajority"
+    kv_ops.settlement_put(DEFAULT_NS, 1002, V1["address"], ROOT_A)
+    assert not settlement_justified(DEFAULT_NS, 1002, ROOT_A, reg), \
+        "V1's 4/50 no longer justifies alone once the big settler participates"
+
+def t10_window_expiry_leaks_stale_settlers():
+    """Prove a settler with no attestation within SETTLE_ACTIVITY_CURSORS of the newest one leaks
+    back out of the denominator."""
+    from protocol import SETTLE_ACTIVITY_CURSORS
+    reg = get_bonded_registry()
+    top = kv_ops.settlement_max_cursor(DEFAULT_NS)
+    far = top + SETTLE_ACTIVITY_CURSORS + 10
+    kv_ops.settlement_put(DEFAULT_NS, far, V1["address"], ROOT_A)   # V1 advances the window far ahead
+    active = active_settler_shares(DEFAULT_NS, reg)
+    assert active == 4, f"only V1 is inside the window now, got {active}"
+    assert settlement_justified(DEFAULT_NS, far, ROOT_A, reg), "the lone in-window settler justifies alone"
 
 for name, fn in list(globals().items()):
     if name.startswith("t") and callable(fn) and name[1].isdigit():

@@ -49,7 +49,7 @@ by a bonded-stake quorum, later by one STARK proof, behind the same predicate.
 |---|---|---|
 | `blob` carrier | `protocol.RESERVED_RECIPIENTS`, `MAX_BLOB_BYTES_PER_BLOCK = 262144` | opaque, size-capped, fee-per-byte |
 | `settle` tx | `ops.transaction_ops.construct_settle_tx(keydict, exec_cursor, state_root, target_block)` | `{recipient:"settle", data:{exec_cursor, state_root}, fee:0}`; one attestation per `(validator, cursor)` |
-| verifier seam | `ops.settlement_ops.settlement_justified(cursor, state_root, bonded_registry) -> bool` | `attesting_shares * SETTLE_DEN > total * SETTLE_NUM` (2/3) |
+| verifier seam | `ops.settlement_ops.settlement_justified(cursor, state_root, bonded_registry) -> bool` | `attesting_shares * SETTLE_DEN > active_settler_shares * SETTLE_NUM` (2/3 of ACTIVE settlers — the inactivity leak, `SETTLE_ACTIVITY_CURSORS`) |
 | settled pointer | `ops.settlement_ops.latest_settled() -> (cursor, root)` | derived (revert-safe); exposed at `GET /get_settled` |
 | bridge | `bridge` / `bridge_withdraw` recipients; `execnode.state.withdrawal_proof(nonce)` | deposit→credit→burn→Merkle-proof-vs-settled-root→release |
 | exec tail + settle | `execnode/execnode.py` `apply loop`, `maybe_settle()` (`NADO_EXEC_SETTLE`, every `SETTLE_EVERY`) | consumes only FINALIZED blocks |

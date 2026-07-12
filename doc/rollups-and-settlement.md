@@ -232,7 +232,14 @@ Contracts run in the RISC-V-class VM off L1 (`execution-layer.md` §5); contract
 1. A bonded validator's exec node posts `settle{exec_cursor, state_root[, ns]}` (`construct_settle_tx`,
    fee-exempt, one per `(ns, validator, cursor)`).
 2. On each block L1 evaluates `settlement_ops.settlement_justified(ns, cursor, root, bonded_registry)`:
-   **attesting bonded shares > `SETTLE_NUM/SETTLE_DEN` (2/3)** — the same integer stake quorum as FFG finality.
+   **attesting bonded shares > `SETTLE_NUM/SETTLE_DEN` (2/3) of the ACTIVE settler set** — the same
+   integer stake quorum as FFG finality, with FFG's **inactivity leak** applied to settlement too
+   (`SETTLE_ACTIVITY_CURSORS`): bonded validators that do not run an exec+settle node leak out of the
+   denominator instead of freezing settlement (the live failure this fixed — with the denominator at ALL
+   bonded stake, no root could settle once non-settlers bonded past 1/3, and every dividend/bridge/unshield
+   claim was rejected with "no settled execution-layer root yet"). Trust: the settled root is controlled by
+   >2/3 of validators that actually settle; a hostile LONE settler needs every honest settler dark for the
+   whole window (~2.4 h). The optimistic fraud proof (dividend-fraud-proof.md) remains the trust upgrade.
 3. `latest_settled(ns)` is the **highest justified** `(cursor, root)` — **derived**, not stored, so a reorg of
    a `settle` tx cleanly un-justifies it. Exposed at `/get_settled?ns=`.
 

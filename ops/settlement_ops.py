@@ -12,7 +12,7 @@ behind the exact same signature — nothing else in L1 changes.
 from ops import kv_ops
 from ops.account_ops import get_bonded_registry
 from ops.mining_ops import total_bonded_shares, selection_shares
-from protocol import SETTLE_NUM, SETTLE_DEN, DEFAULT_NS
+from protocol import SETTLE_NUM, SETTLE_DEN, DEFAULT_NS, SETTLE_ACTIVITY_CURSORS
 
 # PHASE-2b SEAM. A validity-proof verifier can be registered here to justify a settled root WITHOUT a bonded
 # quorum: a callable (ns, cursor, state_root) -> bool that checks a single succinct STARK over the
@@ -29,17 +29,33 @@ def set_settlement_verifier(fn):
     _PROOF_VERIFIER = fn
 
 
+def active_settler_shares(ns: str, bonded_registry: dict) -> int:
+    """SETTLEMENT INACTIVITY LEAK (protocol.SETTLE_ACTIVITY_CURSORS — the FFG active_shares pattern):
+    total bonded shares of validators that posted a settle attestation for `ns` within the activity
+    window of the HIGHEST attested cursor. Bonded validators that never run an exec+settle node LEAK
+    from the quorum denominator instead of blocking settlement forever — going dark forfeits their
+    say in the settled root (their bond is untouched), and they re-enter the moment they attest.
+    Deterministic: attestations are committed on-chain state, so every node derives the same set."""
+    top = kv_ops.settlement_max_cursor(ns)
+    if top < 0:
+        return 0
+    active = kv_ops.settlement_validators_since(ns, top - SETTLE_ACTIVITY_CURSORS)
+    return sum(selection_shares(bonded_registry[v]["bonded"]) for v in active if v in bonded_registry)
+
+
 def settlement_justified(ns: str, cursor: int, state_root: str, bonded_registry: dict) -> bool:
     """True when (ns, cursor, state_root) is justified: a Phase-2b validity proof verifies (if a verifier is
-    installed) OR the bonded shares attesting it STRICTLY EXCEED SETTLE_NUM/SETTLE_DEN of the total bonded
-    shares. Integer comparison (attesting*SETTLE_DEN > total*SETTLE_NUM) — no floats."""
+    installed) OR the bonded shares attesting it STRICTLY EXCEED SETTLE_NUM/SETTLE_DEN of the ACTIVE
+    settler shares (the inactivity leak above — the denominator was ALL bonded stake, which froze
+    settlement, and with it every dividend/bridge/unshield claim, as soon as non-settling validators
+    bonded past 1/3). Integer comparison (attesting*SETTLE_DEN > total*SETTLE_NUM) — no floats."""
     if _PROOF_VERIFIER is not None:
         try:
             if _PROOF_VERIFIER(ns, cursor, state_root):
                 return True
         except Exception:
             pass   # a broken/absent proof falls through to the bonded-quorum path (never blocks settlement)
-    total = total_bonded_shares(bonded_registry)
+    total = active_settler_shares(ns, bonded_registry)
     if total == 0:
         return False
     attesting = 0
@@ -56,19 +72,17 @@ def latest_settled(ns: str = DEFAULT_NS):
     reg = get_bonded_registry()
     if total_bonded_shares(reg) == 0:
         return (-1, None)
-    best = (-1, None)
-    for cursor in kv_ops.settlement_cursors(ns):
-        if cursor <= best[0]:
-            continue
+    # walk DESCENDING and return the first justified (cursor, root) — the old ascending full scan
+    # re-evaluated every cursor ever attested (O(history) per call, on the claim-validation path).
+    for cursor in reversed(kv_ops.settlement_cursors(ns)):
         seen = set()
         for _v, root in kv_ops.settlements_for_cursor(ns, cursor):
             if root in seen:
                 continue
             seen.add(root)
             if settlement_justified(ns, cursor, root, reg):
-                best = (cursor, root)
-                break
-    return best
+                return (cursor, root)
+    return (-1, None)
 
 
 def _vote_activated(info: dict, current_epoch: int) -> bool:

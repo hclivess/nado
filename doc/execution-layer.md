@@ -89,7 +89,9 @@ programmability immediately with zero L1 risk, and the one later concession (a v
 >   `tests/test_execnode_vm.py`. Proven live end-to-end (token deploy + transfer via blobs).
 > - **Phase 2 (settled + bridge):** `settle` records a bonded validator's `(exec_cursor, state_root)`;
 >   `ops/settlement_ops.settlement_justified()` (the pluggable verifier seam) settles a root once bonded
->   shares exceed 2/3, exposed at `/get_settled` (`tests/test_settlement.py`). The exec `state_root` is a
+>   shares exceed 2/3 of the ACTIVE settler set (the settlement inactivity leak,
+>   `SETTLE_ACTIVITY_CURSORS` — non-settling bonded stake leaks from the denominator), exposed at
+>   `/get_settled` (`tests/test_settlement.py`). The exec `state_root` is a
 >   **Merkle** root, so a `bridge` deposit → exec credit → `bridge_withdraw` burn → **Merkle proof against
 >   the settled root** → L1 escrow release round-trips trust-minimized (`tests/test_bridge.py`).
 > - **Still to do:** the DA availability/pruning window, and **Phase-2b** — replacing the bonded-quorum

@@ -1,3 +1,27 @@
+# Alphanet fix — 2026-07-13 (settlement inactivity leak: dividends claimable again)
+
+> **Consensus-affecting** (changes what L1 accepts as the settled exec root) — update all nodes.
+
+Dividend (and bridge/unshield) claims were failing with *"no settled execution-layer root yet"*:
+the settlement quorum denominator was **all bonded stake**, and only one validator runs an
+exec+settle node — the moment non-settling validators bonded past 1/3 of shares (day one), no
+root could ever be justified. Users' `collect_dividend` burns landed in exec-side withdrawal
+records that could never be claimed (funds stuck, not lost — 406 records, ~131.8 NADO).
+
+Fix: settlement now uses the **same inactivity leak FFG finality already has** — the denominator
+is the bonded shares of validators that posted a settle attestation within
+`SETTLE_ACTIVITY_CURSORS` (1440 exec cursors ≈ 2.4 h) of the newest one. Validators that don't
+settle leak out of the quorum instead of freezing it, and re-enter the moment they attest.
+Trust: the settled root is now controlled by >2/3 of *participating* settlers (today: the genesis
+operator's node — equivalent to the chain's first days); the optimistic dividend fraud proof
+remains the planned trust upgrade. `latest_settled` also now walks cursors newest-first instead
+of scanning the whole attestation history per claim validation.
+
+All previously stuck dividend withdrawal records become claimable as soon as a post-fix root
+settles — no user action was lost; wallets can simply re-claim.
+
+---
+
 # Alphanet update — 2026-07-12 (scale & storage pass)
 
 > Applies to `alphanet-4`. **No legacy tolerance:** all nodes must update together — the wire
