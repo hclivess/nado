@@ -1,0 +1,19 @@
+# NADO Bet oracle worker. Each run: (1) fill — pull upcoming fixtures from the free public source and
+# create markets (no money moves; safe), then (2) resolve — post results for matches that have FINISHED
+# with a clear scoreline, as the node's oracle key. The contract refunds via void/deadline if a match is
+# postponed or unresolved, and the bot skips anything ambiguous. Runs one shot per timer tick
+# (bet-oracle.timer). HOME=/root so the oracle wallet key (private/keys.dat) is found.
+#
+# To make resolution HUMAN-REVIEWED instead of automatic, drop `--submit` from the resolve line (it then
+# only LOGS proposed results — see them with `journalctl -u bet-oracle -f`) and `systemctl daemon-reload`.
+[Unit]
+Description=NADO Bet oracle — fill upcoming fixtures + post finished results
+After=network-online.target nado.service nado-exec.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=HOME=/root
+WorkingDirectory=/root/nado
+ExecStart=/root/nado/nado_venv/bin/python /root/nado/scripts/bet_oracle.py fill --submit
+ExecStart=/root/nado/nado_venv/bin/python /root/nado/scripts/bet_oracle.py resolve --submit
