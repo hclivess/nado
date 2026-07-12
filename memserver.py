@@ -106,7 +106,6 @@ class MemServer:
         self.transaction_pool_max_txs = 150000
         self.transaction_pool_max_bytes = 4 * 1024 * 1024      # 4 MiB (>> 256 KiB block, << 8 MiB peer body)
         self.transaction_buffer_limit = 4 * 1024 * 1024        # staging buffer byte cap — match the pool
-        self.cascade_depth = 0
         self.force_sync_ip = None
         self.rollbacks = 0
         self.can_mine = False
@@ -134,7 +133,6 @@ class MemServer:
         # and revealed in E-1. In-memory only (a secret never revealed after a restart is simply a
         # wasted commit — harmless; the beacon falls back to the anchor + other validators' reveals).
         self.randao_secrets = {}
-        self.cascade_limit = self.config.get("cascade_limit") or 1
         # Fast bootstrap is snapshot sync (ops/snapshot_ops.py) — quorum/checkpoint-gated, never a
         # validation-skipping bypass. Do NOT add one (it enables forged-tx injection).
         # AUTO-BOND (non-consensus): route this % of newly-mined spendable earnings straight into

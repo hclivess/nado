@@ -1369,7 +1369,6 @@ except Exception as e:
 # producer (every bond < B_MIN, or none seeded) -> fail-closed selection silently produces no blocks.
 _registry = get_bonded_registry()
 logger.warning(f"Bonded producer registry: {len(_registry)} eligible, total_shares={total_shares(_registry)}")
-logger.info(f"Cascade depth limit: {memserver.cascade_limit}")
 
 consensus = ConsensusClient(memserver=memserver, logger=logger)
 consensus.start()

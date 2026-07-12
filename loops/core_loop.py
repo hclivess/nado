@@ -359,53 +359,46 @@ class CoreClient(threading.Thread):
         """do not sync from self"""
 
         try:
-            # #16 step 3: order candidate tips by OBJECTIVE cumulative_weight (heaviest first), NOT by
-            # peer-count occurrence — so we sync toward the heaviest valid chain, not the most-advertised
-            # one (which a Sybil peer-set could dominate). tip_weights includes our own tip.
+            # #16 step 3: sync toward the OBJECTIVELY heaviest advertised tip (by cumulative_weight,
+            # lowest-hash tie-break), NOT the most-advertised one (which a Sybil peer-set could
+            # dominate). tip_weights includes our own tip. We only ever target the single canonical
+            # (heaviest) tip — syncing toward a lighter, non-canonical tip would contradict fork-choice.
             distinct_hashes = [h for h in set(source_pool_copy.values()) if h is not None]
-            sorted_hashes = sorted(
-                distinct_hashes,
-                key=lambda h: (-self.consensus.tip_weights.get(h, -1), h)
-            )[:self.memserver.cascade_limit]
 
             # (no "No hashes to sync from" log here: it fires every ~1s core-loop pass whenever no peer has
             # advertised a tip — a persistent normal WAITING state on a lone/bootstrap node, already visible
             # in the periodic status line. When empty we just fall through and return None.)
-            if not sorted_hashes:
+            if not distinct_hashes:
                 return None
+            heaviest_hash = min(distinct_hashes,
+                                key=lambda h: (-self.consensus.tip_weights.get(h, -1), h))
 
             # DONOR CACHE: reuse the previously selected donor while it still advertises the current
             # heaviest hash and passes the in-memory gate. Liveness is NOT assumed — the root-knowledge
             # dial re-runs (one round-trip), so a died-since donor falls through to a fresh scan instead
             # of being handed to emergency_mode, where a false knows_block(tip) would suggest a reorg.
             cached_peer, cached_hash = self._sync_donor
-            if cached_peer is not None and cached_hash == sorted_hashes[0]:
-                if (self._donor_gate_passes(cached_peer, cached_hash, source_pool_copy)
+            if cached_peer is not None and cached_hash == heaviest_hash:
+                if (self._donor_gate_passes(cached_peer, heaviest_hash, source_pool_copy)
                         and self._root_known_to(cached_peer)):
-                    self.memserver.cascade_depth = 1
                     return cached_peer
                 self._sync_donor = (None, None)
 
-            for depth, hash_candidate in enumerate(sorted_hashes, start=1):
-                """go from the heaviest advertised tip to the lightest one"""
-                self.memserver.cascade_depth = depth
+            for peer in shuffle_dict(source_pool_copy):
+                if not self._donor_gate_passes(peer, heaviest_hash, source_pool_copy):
+                    continue
 
-                for peer in shuffle_dict(source_pool_copy):
-                    if not self._donor_gate_passes(peer, hash_candidate, source_pool_copy):
-                        continue
-
-                    # in-memory gate passed -> the single network check (can this donor serve our root?)
-                    try:
-                        if self._root_known_to(peer):
-                            if peer != cached_peer:
-                                self.logger.info(f"Selected sync donor {peer} for tip "
-                                                 f"{hash_candidate[:12]} (candidate depth {depth})")
-                            self._sync_donor = (peer, hash_candidate)
-                            return peer
-                        self.logger.debug(f"{peer} not qualified for sync: our root hash is unknown to them")
-                    except Exception as e:
-                        self.logger.info(f"Peer {peer} error: {e}")
-                        self.memserver.ban_peer(peer)
+                # in-memory gate passed -> the single network check (can this donor serve our root?)
+                try:
+                    if self._root_known_to(peer):
+                        if peer != cached_peer:
+                            self.logger.info(f"Selected sync donor {peer} for tip {heaviest_hash[:12]}")
+                        self._sync_donor = (peer, heaviest_hash)
+                        return peer
+                    self.logger.debug(f"{peer} not qualified for sync: our root hash is unknown to them")
+                except Exception as e:
+                    self.logger.info(f"Peer {peer} error: {e}")
+                    self.memserver.ban_peer(peer)
 
             self.logger.debug("Ran out of options when picking a sync donor")
             return None
@@ -729,8 +722,6 @@ class CoreClient(threading.Thread):
                             self.logger.warning("Re-anchored from seed snapshot; continuing with tail sync")
                             continue
                         break
-
-                    self.logger.info(f"Maximum reached cascade depth: {self.memserver.cascade_depth}")
 
         except Exception as e:
             self.logger.info(f"Error: {e}")
