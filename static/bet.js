@@ -112,6 +112,11 @@ async function refreshAll() {
   if (sto) lastSto = sto;
   if (lastSto) await resolveAliases([dapp.me, cfg(lastSto, "admin")].filter(Boolean));
   render();
+  // AUTO-COLLECT (shared SDK tick, opt-out): claim any settled market that owes me, one per refresh
+  if (lastSto) {
+    const owed = allMarkets(lastSto).filter((m) => claimable(m) > 0);
+    dapp.autoCollect(owed, (m) => claimMarket(m.id), { key: (x) => x.id });
+  }
 }
 function selectMarket(id) {
   activeMarket = Number(id); selOutcome = null;
@@ -209,6 +214,7 @@ function renderActive(sto) {
   const canBet = mk.status === "open";
   gate({ betBuilder: canBet });
   if (canBet) {
+    dapp.syncStakeSlider(dapp.exec);   // keep the % slider in step with your live playable balance
     const stake = nadoToRaw($("stakeAmt").value);
     let prev = "";
     if (selOutcome != null && stake) {
@@ -265,9 +271,11 @@ function renderActive(sto) {
 // ---- boot ----------------------------------------------------------------------------------------
 function wireUI() {
   wireWallet(dapp);
+  dapp.wireAutoCollect();   // shared "Auto-collect my winnings" opt-out toggle (#autoCollect)
   stickyInputs(dapp, ["stakeAmt", "bankAmt", "cmTitle", "cmLabels", "cmEvent", "cmCloseMin", "cmVoidHrs"]);
   $("btnBet").onclick = placeBet;
-  $("stakeAmt").addEventListener("input", () => { if (lastSto) renderActive(lastSto); });
+  // shared SDK stake slider: the stake input + a 0–100% slider + Max, bound to your playable balance
+  dapp.wireStakeSlider(() => dapp.exec, () => { if (lastSto) renderActive(lastSto); });
   $("btnCreate").onclick = createMarket;
   $("btnAddSource").onclick = addSource;
   $("btnAddOracle").onclick = addOracle;

@@ -31,6 +31,14 @@
   button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
   @keyframes dpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,201,167,.45)}50%{transform:scale(1.04);box-shadow:0 0 0 6px rgba(0,201,167,0)}}
   button.pulse{animation:dpulse 1.25s ease-in-out infinite}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:10px;padding:0;border:0;margin:12px 0;background:linear-gradient(90deg,var(--accent) 0,var(--accent2) 100%);border-radius:999px;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+  input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab}
+  .switch{position:relative;width:46px;height:26px;-webkit-appearance:none;appearance:none;outline:none;border:0;padding:0;box-sizing:border-box;background:var(--border);border-radius:999px;cursor:pointer;transition:background .18s;flex:0 0 auto;margin:0}
+  .switch:checked{background:linear-gradient(135deg,#00ad93,#00c9a7)}
+  .switch::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:left .18s}
+  .switch:checked::after{left:23px}
+  .under{color:var(--accent2)}
   .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
   .warn{color:var(--danger);font-weight:600;line-height:1.45}
   .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
@@ -118,6 +126,13 @@
     <div id="betBuilder" class="mt hidden">
       <label>Your stake</label>
       <input id="stakeAmt" value="1" placeholder="stake (NADO)" inputmode="decimal" autocomplete="off">
+      <div id="stakeSliderWrap" class="hidden">
+        <input type="range" id="stakeSlider" min="0" max="100" value="0" step="1" class="mt">
+        <div class="small dim" style="display:flex;justify-content:space-between;gap:8px">
+          <span id="stakeSliderVal"></span>
+          <b class="under" id="btnMaxBet" style="cursor:pointer">Max: <span id="maxBetVal"></span></b>
+        </div>
+      </div>
       <div id="payoutPreview" class="small dim mt"></div>
       <button class="primary mt" id="btnBet" style="width:100%">Place bet</button>
       <div class="small warn mt hidden" id="betHint"></div>
@@ -125,6 +140,7 @@
 
     <div id="myPositions"></div>
     <div class="row mt" id="claimRow"></div>
+    <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1">Auto-collect my winnings — claims a settled market for me the moment it resolves in my favour</span></label>
 
     <!-- ORACLE controls (only for an oracle key) -->
     <div id="oracleControls" class="hidden">
