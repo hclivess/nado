@@ -75,7 +75,7 @@ function quadArt(c, v) {
   if (v.ears === "round") H.push(`<circle cx="67" cy="33" r="7.5" fill="${v.panda ? c.line : c.body}" stroke="${c.line}" stroke-width="2"/><circle cx="93" cy="33" r="7.5" fill="${v.panda ? c.line : c.body}" stroke="${c.line}" stroke-width="2"/>${v.panda ? "" : `<circle cx="67" cy="33" r="4" fill="${c.shade}"/><circle cx="93" cy="33" r="4" fill="${c.shade}"/>`}`);
   if (v.ears === "tall") H.push(`<ellipse cx="72" cy="21" rx="5.6" ry="15" fill="${c.body}" stroke="${c.line}" stroke-width="2" transform="rotate(-7 72 21)"/><ellipse cx="88" cy="21" rx="5.6" ry="15" fill="${c.body}" stroke="${c.line}" stroke-width="2" transform="rotate(7 88 21)"/><ellipse cx="72" cy="23" rx="2.6" ry="10" fill="${c.shade}" transform="rotate(-7 72 23)"/><ellipse cx="88" cy="23" rx="2.6" ry="10" fill="${c.shade}" transform="rotate(7 88 23)"/>`);
   if (v.horns) H.push(`<path d="M70 34 C66 26 68 20 75 19 C71 24 72 29 74 33 Z M90 34 C94 26 92 20 85 19 C89 24 88 29 86 33 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/>`);
-  if (v.mane) H.push(`<path d="M80 14 C64 14 58 30 60 44 L70 40 C68 28 73 20 80 20 C87 20 92 28 90 40 L100 44 C102 30 96 14 80 14 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>`);
+  if (v.mane) H.push(`<path d="M72 40 C58 44 50 58 49 82 C55 66 64 52 76 47 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/><path d="M62 52 C58 62 56 72 56 80 M68 47 C65 56 63 65 63 72" stroke="${c.line}" stroke-width="1.1" fill="none" opacity=".55"/>`);
   if (v.horn) H.push(`<path d="M80 8 L76.5 30 L83.5 30 Z" fill="#f2c94c" stroke="#b58a1a" stroke-width="1.6"/><path d="M77.6 24 l5 -1.6 M78.4 18.5 l4 -1.4 M79.2 13.5 l2.6 -1" stroke="#b58a1a" stroke-width="1.2"/>`);
   // head + face
   H.push(`<circle cx="80" cy="46" r="15" fill="${v.wool ? c.shade : c.body}" stroke="${c.line}" stroke-width="2.5"/>`);
@@ -105,6 +105,8 @@ function quadArt(c, v) {
   const legY = 88 - chub / 2;
   W2.push(`<rect x="44" y="${legY}" width="7" height="${104 - legY}" rx="3.4" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8"/><rect x="72" y="${legY}" width="7" height="${104 - legY}" rx="3.4" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8"/>`);
   W2.push(`<rect x="36" y="${legY}" width="7.5" height="${105 - legY}" rx="3.6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/><rect x="64" y="${legY}" width="7.5" height="${105 - legY}" rx="3.6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`);
+  // neck (mane animals only — bridges the head to the body so the mane has a crest to sit on)
+  if (v.mane) W2.push(`<path d="M64 48 C58 60 54 72 54 84 L78 84 C80 70 82 58 82 50 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>`);
   // body
   if (v.spikes) W2.push(`<path d="M30 82 L34 62 L42 72 L48 56 L57 68 L64 54 L72 66 L80 58 L84 72 L84 84 Z" fill="${c.line}" stroke="${c.line}" stroke-width="1.5" stroke-linejoin="round" opacity=".92"/>`);
   W2.push(`<g class="breathe">${v.wool ? pom(54, 83, 20 + chub, c.body, c.line, 10)
@@ -297,12 +299,12 @@ function crabArt(c, v) {
 }
 function bugArt(c, v) {
   const B = [];
-  if (v.jumper) {   // grasshopper/cricket: side profile with the big folded jumping legs
+  if (v.jumper) {   // grasshopper/cricket: side profile — hind jumping legs plus front & mid walking legs
     return `<g class="antA">${tube("M84 58 Q96 44 108 40", c.shade, c.line, 1.8)}</g><g class="antB">${tube("M82 56 Q90 42 98 34", c.shade, c.line, 1.8)}</g>
-      <path d="M34 88 L52 92 M44 90 L60 92" stroke="${c.line}" stroke-width="2" stroke-linecap="round"/>
-      <g class="hopleg"><path d="M56 84 L36 70 L28 92 L34 94" stroke="${c.line}" stroke-width="3.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M56 84 L38 71 L31 91" stroke="${c.shade}" stroke-width="2" fill="none" stroke-linecap="round"/></g>
+      <path d="M76 82 L79 95 L87 100 M62 84 L60 96 L69 101" stroke="${c.line}" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
       <g class="breathe"><path d="M28 78 Q40 64 66 66 L84 68 Q92 70 90 76 Q86 84 66 86 Q40 88 28 78 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M40 70 Q64 64 84 70" stroke="${c.shade}" stroke-width="2.4" fill="none"/><path d="M46 74 l-2 8 M56 72 l-1 10 M66 72 l0 10" stroke="${c.line}" stroke-width="1.2" opacity=".45" fill="none"/></g>
+      <g class="hopleg"><path d="M21 55 L36 101 L44 103" fill="none" stroke="${c.line}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M50 80 Q22 82 20 53 Q26 68 42 76 Q50 79 50 80 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/><path d="M44 78 Q30 78 24 60" fill="none" stroke="${c.shade}" stroke-width="2" stroke-linecap="round"/></g>
       <circle cx="86" cy="64" r="8.5" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/>${eye1(89, 62, 2.6)}
       <path d="M90 68 q2.5 1.6 5 -0.5" stroke="${INK}" stroke-width="1.4" fill="none" stroke-linecap="round"/>`;
   }
@@ -316,10 +318,16 @@ function bugArt(c, v) {
   if (v.wings) B.push(`<g class="buzzL"><ellipse cx="38" cy="58" rx="16" ry="8" fill="#eef4f8" opacity=".65" stroke="#b9c6d2" stroke-width="1.4" transform="rotate(-24 38 58)"/></g><g class="buzzR"><ellipse cx="82" cy="58" rx="16" ry="8" fill="#eef4f8" opacity=".65" stroke="#b9c6d2" stroke-width="1.4" transform="rotate(24 82 58)"/></g>`);
   const slim = v.slim ? 4 : 0, ab = v.chubby ? 2 : 0;
   if (v.legs8) B.push(`<g class="breathe"><circle cx="60" cy="80" r="16" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/><circle cx="60" cy="56" r="10" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2"/><path d="M56 78 q4 8 8 0 M52 86 q8 6 16 0" stroke="${c.shade}" stroke-width="1.6" fill="none" opacity=".8"/></g>`);
+  else if (v.wasp) B.push(`<g class="breathe"><ellipse cx="60" cy="56" rx="9" ry="8" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/><path d="M55.5 63 h9 l-1 5 h-7 Z" fill="${c.line}"/><path d="M51 71 Q60 66 69 71 Q67 91 60 102 Q53 91 51 71 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>${v.stripes ? `<path d="M53 77 q7 3 14 0 M55 85 q5 3 10 0" stroke="${INK}" stroke-width="4.2" fill="none"/>` : ""}<path d="M60 102 l-2.4 7 l2.4 2.4 l2.4 -2.4 Z" fill="${c.line}"/></g>`);
   else {
-    B.push(`<g class="breathe"><ellipse cx="60" cy="${76 + ab}" rx="${16 - slim + ab}" ry="${20 + ab}" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>`);
-    if (!v.slim) B.push(`<path d="M60 ${57 + ab} L60 ${95 + ab}" stroke="${c.line}" stroke-width="1.6" opacity=".7"/>`);
-    if (v.stripes) B.push(`<path d="M${46 + slim} 68 q14 5 ${28 - 2 * slim} 0 M${45 + slim} 78 q15 5 ${30 - 2 * slim} 0 M${47 + slim} 88 q13 5 ${26 - 2 * slim} 0" stroke="${INK}" stroke-width="4.6" fill="none"/>`);
+    const brx = v.bumble ? 20 : 16 - slim + ab, bry = v.bumble ? 19 : 20 + ab, bcy = 76 + (v.bumble ? 2 : ab);
+    B.push(`<g class="breathe">`);
+    if (v.bumble) B.push(`<g>${[...Array(22)].map((_, k) => { const a = k * Math.PI * 2 / 22, x = 60 + brx * Math.cos(a), y = bcy + bry * Math.sin(a); return `<path d="M${x.toFixed(1)} ${y.toFixed(1)} l${(3.2 * Math.cos(a)).toFixed(1)} ${(3.2 * Math.sin(a)).toFixed(1)}" stroke="${c.shade}" stroke-width="1.8" stroke-linecap="round"/>`; }).join("")}</g>`);
+    B.push(`<ellipse cx="60" cy="${bcy}" rx="${brx}" ry="${bry}" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>`);
+    if (!v.slim && !v.bumble) B.push(`<path d="M60 ${57 + ab} L60 ${95 + ab}" stroke="${c.line}" stroke-width="1.6" opacity=".7"/>`);
+    if (v.stripes) B.push(v.bumble
+      ? `<path d="M41 68 q19 8 38 0 M42 82 q18 8 36 0 M46 94 q14 6 28 0" stroke="${INK}" stroke-width="6.5" fill="none"/>`
+      : `<path d="M${46 + slim} 68 q14 5 ${28 - 2 * slim} 0 M${45 + slim} 78 q15 5 ${30 - 2 * slim} 0 M${47 + slim} 88 q13 5 ${26 - 2 * slim} 0" stroke="${INK}" stroke-width="4.6" fill="none"/>`);
     if (v.spots) B.push(`<circle cx="52" cy="68" r="3" fill="${INK}"/><circle cx="68" cy="68" r="3" fill="${INK}"/><circle cx="50" cy="82" r="2.6" fill="${INK}"/><circle cx="70" cy="82" r="2.6" fill="${INK}"/><circle cx="60" cy="91" r="2.8" fill="${INK}"/>`);
     if (v.sheen) B.push(`<ellipse cx="53" cy="68" rx="4.5" ry="8" fill="#fff" opacity=".28" transform="rotate(16 53 68)"/>`);
     if (v.glow) B.push(`<ellipse cx="60" cy="90" rx="9" ry="7" fill="#ffe08a" class="glowpulse"/>`);
