@@ -105,8 +105,16 @@ function quadArt(c, v) {
   const legY = 88 - chub / 2;
   W2.push(`<rect x="44" y="${legY}" width="7" height="${104 - legY}" rx="3.4" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8"/><rect x="72" y="${legY}" width="7" height="${104 - legY}" rx="3.4" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8"/>`);
   W2.push(`<rect x="36" y="${legY}" width="7.5" height="${105 - legY}" rx="3.6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/><rect x="64" y="${legY}" width="7.5" height="${105 - legY}" rx="3.6" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`);
-  // neck (mane animals only — bridges the head to the body so the mane has a crest to sit on)
-  if (v.mane) W2.push(`<path d="M64 48 C58 60 54 72 54 84 L78 84 C80 70 82 58 82 50 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>`);
+  // neck: bridge head->body so it doesn't read as a floating head (drawn behind the body, which covers its
+  // base for a seamless join). Its shape varies by ear type — a good stand-in for the animal's build — so
+  // categories differ at a glance: pricked-ear hunters (cat/fox/squirrel/pony) get a slim upright neck,
+  // floppy-ear stock (dogs/cattle/pigs) a thick one, round-ear critters (mice/hamster/bears) a short one,
+  // tall-ear (rabbit/donkey) a long slender one. Mane animals additionally get the mane crest on top.
+  const neckD = v.mane ? "M67 43 C61 57 57 70 57 84 L75 84 C79 66 80 53 79 45 Z"          // equine: long, slender
+    : v.ears === "floppy" ? "M60 50 C56 62 52 74 52 84 L80 84 C82 72 84 60 83 52 Z"       // dogs/cattle/pigs: thick
+    : v.ears === "round" || v.ears === "tall" ? "M66 51 C62 63 59 74 59 84 L77 84 C79 71 79 59 78 53 Z"  // rodents/rabbit: short
+    : "M64 48 C58 60 54 72 54 84 L78 84 C80 70 82 58 82 50 Z";                            // cats/foxes: slim upright
+  W2.push(`<path d="${neckD}" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>`);
   // body
   if (v.spikes) W2.push(`<path d="M30 82 L34 62 L42 72 L48 56 L57 68 L64 54 L72 66 L80 58 L84 72 L84 84 Z" fill="${c.line}" stroke="${c.line}" stroke-width="1.5" stroke-linejoin="round" opacity=".92"/>`);
   W2.push(`<g class="breathe">${v.wool ? pom(54, 83, 20 + chub, c.body, c.line, 10)
