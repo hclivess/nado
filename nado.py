@@ -1272,11 +1272,6 @@ async def make_app(port):
         web.get("/transaction_hash_pool", _dump_handler("transactions_hash_pool", lambda: {
             "transactions_hash_pool": consensus.transaction_hash_pool,
             "majority_transactions_hash_pool": consensus.majority_transaction_pool_hash})),
-        # SINGLE MEMPOOL: the staging buffers are gone. These legacy endpoints stay so a mixed-version
-        # peer still fetching /transaction_buffer keeps learning our txs — both now serve the one pool
-        # (buffer) / empty (user buffer), never a missing attribute.
-        web.get("/transaction_buffer", _dump_handler("transaction_buffer", lambda: memserver.transaction_pool)),
-        web.get("/user_transaction_buffer", _dump_handler("user_transaction_buffer", lambda: [])),
         web.get("/get_latest_block", latest_block),
         web.get("/get_supply", get_supply),
         web.get("/announce_peer", announce_peer),

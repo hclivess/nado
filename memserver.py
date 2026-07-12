@@ -281,11 +281,12 @@ class MemServer:
 
     async def _fetch_missing_remote_txs(self, pool_peers) -> list:
         """ids from all divergent peers in parallel -> per-peer want-lists (deduped across peers,
-        mined txids excluded) -> parallel bounded body fetches. Best-effort: a peer that fails or
-        predates /transaction_ids is skipped this pass."""
+        mined txids excluded) -> parallel bounded body fetches. A peer that cannot serve the
+        reconciliation wire goes to the purge queue like any other failing peer (no legacy wire)."""
         from compounder import compound_get_tx_ids, post_txs_by_id
         semaphore = asyncio.Semaphore(50)
-        ids_by_peer = await compound_get_tx_ids(pool_peers, self.port, self.logger, semaphore)
+        ids_by_peer = await compound_get_tx_ids(pool_peers, self.port, self.logger,
+                                                self.purge_peers_list, semaphore)
         if not ids_by_peer:
             return []
         local = {t.get("txid") for t in self.transaction_pool}

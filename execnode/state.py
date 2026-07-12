@@ -91,7 +91,8 @@ class ExecState:
         # CROSS-DOMAIN OUTBOX: messages emitted by this layer (via the `emit` blob op), each committed as a
         # Merkle leaf in state_root and provable via outbox_proof(seq). This is the sound foundation for
         # cross-rollup / L1-bound messaging; CONSUMPTION (verifying against the sender's SETTLED root) is a
-        # separate step, see doc/rollups-and-settlement.md §7.4. Append-only; seq == index.
+        # separate step, see doc/rollups-and-settlement.md §7.4. Keyed by seq; a message is GC'd once its
+        # finalized xmsg delivery burns the (from_ns, seq) L1 nullifier (drop_consumed_outbox).
         self.outbox = {}           # str(seq) -> {"seq":i, "from":addr, "to_ns":ns, "data":<any>}
         self.outbox_seq = 0        # monotonic next-seq counter — seqs stay unique after consumed-msg GC
         # CROSS-DOMAIN INBOX: messages DELIVERED to this rollup by an L1-verified `xmsg` (verified against the
@@ -162,11 +163,14 @@ class ExecState:
         self.withdrawals = d.get("withdrawals", {})
         self.wd_nonce = d.get("wd_nonce", 0)
         ob = d.get("outbox", {})
-        if isinstance(ob, list):                      # legacy shape: a dense list, seq == index
-            ob = {str(m.get("seq", i)): m for i, m in enumerate(ob)}
+        if not isinstance(ob, dict):
+            # NO legacy shapes on alphanet: a pre-dict outbox snapshot must not half-load — fail
+            # loudly; the operator re-bootstraps from a settled checkpoint (NADO_EXEC_BOOTSTRAP).
+            raise ValueError("exec state has a legacy outbox shape — re-bootstrap this node")
         self.outbox = ob
-        self.outbox_seq = int(d.get("outbox_seq",
-                                    (max((int(k) for k in ob), default=-1) + 1)))
+        # floor the counter at max(seq)+1 so seqs can never be reused after consumed-message GC
+        self.outbox_seq = max(int(d.get("outbox_seq", 0)),
+                              max((int(k) for k in ob), default=-1) + 1)
         self.inbox = d.get("inbox", [])
         self.dividend = d.get("dividend", {})
         self.last_div_epoch = d.get("last_div_epoch", -1)

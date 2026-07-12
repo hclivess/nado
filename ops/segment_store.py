@@ -29,8 +29,9 @@ record bytes become inert garbage. Whole segments are GC'd by rolling-mode pruni
 live-locator count (kv_ops seg_live counters) reaches zero.
 
 One writer thread is assumed per home (the core loop; genesis/migration run before it starts) —
-appends are serialized by a per-home lock anyway. Reads use os.pread on cached fds (thread-safe,
-offset-explicit) from the many HTTP threads.
+appends are serialized by a per-home lock anyway. Reads come from the many HTTP threads through a
+cached per-segment file object under a read lock — PORTABLE seek+read only (no os.pread: it does
+not exist on Windows, and a node must run identically on every OS).
 """
 import os
 import struct
@@ -82,7 +83,7 @@ class _Store:
     def __init__(self, home):
         self.home = home
         self.lock = threading.RLock()
-        self.read_fds = {}                            # seg -> fd (os.pread; invalidated on delete)
+        self.read_files = {}                          # seg -> open 'rb' file (seek+read under read_lock)
         self.read_lock = threading.Lock()
         d = segments_dir(home)
         os.makedirs(d, exist_ok=True)
@@ -96,6 +97,9 @@ class _Store:
         self.active_seg = max(segs) if segs else 0
         self._repair_tail()
         self.active_f = open(segment_path(self.active_seg, home), "ab")
+        # EXPLICIT end-seek: 'ab' guarantees writes land at EOF, but tell() right after open is 0 on
+        # Windows (CRT) vs EOF on POSIX — seek makes the size bookkeeping identical everywhere.
+        self.active_f.seek(0, os.SEEK_END)
         self.active_size = self.active_f.tell()
 
     def _repair_tail(self):
@@ -121,6 +125,7 @@ class _Store:
             pass
         self.active_seg += 1
         self.active_f = open(segment_path(self.active_seg, self.home), "ab")
+        self.active_f.seek(0, os.SEEK_END)            # Windows 'ab' tell()==0 quirk, see __init__
         self.active_size = self.active_f.tell()
 
     def append(self, block_hash_hex: str, payload: bytes):
@@ -150,21 +155,20 @@ class _Store:
                 self._roll()
             return seg, off, len(record)
 
-    def _read_fd(self, seg: int):
-        with self.read_lock:
-            fd = self.read_fds.get(seg)
-            if fd is None:
-                fd = os.open(segment_path(seg, self.home), os.O_RDONLY)
-                self.read_fds[seg] = fd
-            return fd
-
     def read(self, seg: int, off: int, total_len: int, expect_hash_hex: str):
         """Verified payload bytes for a locator, or None (missing segment, torn read, crc mismatch,
-        or a locator pointing at a different block's record — every failure is a miss, never junk)."""
+        or a locator pointing at a different block's record — every failure is a miss, never junk).
+        Cached per-segment 'rb' file, seek+read under the read lock: portable across every OS
+        (os.pread does not exist on Windows — the launch bug a Windows joiner hit live)."""
         try:
-            fd = self._read_fd(seg)
-            raw = os.pread(fd, total_len, off)
-        except OSError:
+            with self.read_lock:
+                f = self.read_files.get(seg)
+                if f is None:
+                    f = open(segment_path(seg, self.home), "rb")
+                    self.read_files[seg] = f
+                f.seek(off)
+                raw = f.read(total_len)
+        except (OSError, ValueError):                 # ValueError: read on a file closed by delete_segment
             return None
         if len(raw) != total_len or raw[:4] != MAGIC:
             return None
@@ -183,10 +187,10 @@ class _Store:
             if seg == self.active_seg:
                 return False
             with self.read_lock:
-                fd = self.read_fds.pop(seg, None)
-                if fd is not None:
+                f = self.read_files.pop(seg, None)
+                if f is not None:
                     try:
-                        os.close(fd)
+                        f.close()                     # also required on Windows: can't unlink an open file
                     except OSError:
                         pass
             try:

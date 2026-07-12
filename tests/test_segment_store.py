@@ -11,6 +11,12 @@ Append-only segment block store (ops/segment_store.py + kv_ops block_loc + block
 Run: python3 tests/test_segment_store.py
 """
 import os, sys, tempfile, traceback, logging
+# WINDOWS EMULATION (regression guard): os.pread/os.pwrite do not exist on Windows — a joiner hit
+# exactly this live (every body read AttributeError'd -> latest_block False -> every loop crashed).
+# Deleting them here pins the store to portable file I/O forever.
+for _posix_only in ("pread", "pwrite"):
+    if hasattr(os, _posix_only):
+        delattr(os, _posix_only)
 os.environ["HOME"] = tempfile.mkdtemp(prefix="nado_segstore_")
 os.environ["NADO_SEGMENT_BYTES"] = "2048"   # tiny segments -> rollover under test data sizes
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

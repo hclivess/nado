@@ -5,7 +5,7 @@ Exec-layer state-root growth bounds (execnode/state.py):
   2. drop_consumed_outbox: a finalized xmsg delivery GCs the SOURCE outbox message; seqs stay
      monotonic afterwards (no reuse)
   3. field-nullifier DIGEST leaf: root is bounded in nullifier-set size but still binds it
-  4. legacy outbox (list) snapshots restore into the dict shape losslessly
+  4. a legacy (list) outbox snapshot is REFUSED loudly (no legacy shapes on alphanet)
 
 Run: python3 tests/test_exec_state_gc.py
 """
@@ -79,16 +79,19 @@ def t3_field_nfset_digest_bounded():
     assert st.state_root() != r_full, "...but the digest changes with the set"
 
 
-def t4_legacy_outbox_list_restores():
+def t4_legacy_outbox_shape_refused():
     st = _st()
-    st._restore({"contracts": {}, "cursor": 5,
-                 "outbox": [{"seq": 0, "from": "ndoA", "to_ns": "b", "data": "x"},
-                            {"seq": 1, "from": "ndoA", "to_ns": "b", "data": "y"}]})
-    assert st.outbox == {"0": {"seq": 0, "from": "ndoA", "to_ns": "b", "data": "x"},
-                         "1": {"seq": 1, "from": "ndoA", "to_ns": "b", "data": "y"}}
-    assert st.outbox_seq == 2, "counter resumes past the legacy tail"
-    st.apply_blob({"op": "emit", "to_ns": "b", "data": "z"}, sender="ndoA", txid="t")
-    assert st.outbox["2"]["seq"] == 2
+    try:
+        st._restore({"contracts": {}, "cursor": 5,
+                     "outbox": [{"seq": 0, "from": "ndoA", "to_ns": "b", "data": "x"}]})
+        raise SystemExit("legacy list outbox must be refused")
+    except ValueError as e:
+        assert "legacy outbox" in str(e)
+    # and the seq counter is floored past any present seqs (never reused after GC)
+    st2 = _st()
+    st2._restore({"contracts": {}, "cursor": 5, "outbox_seq": 0,
+                  "outbox": {"7": {"seq": 7, "from": "ndoA", "to_ns": "b", "data": "x"}}})
+    assert st2.outbox_seq == 8, "counter must be floored above the highest present seq"
 
 
 for name, fn in sorted((n, f) for n, f in list(globals().items())

@@ -58,28 +58,33 @@ async def compound_get_list_of(key, entries, port, logger, fail_storage, semapho
     return sort_list_dict(success_storage)
 
 
-async def get_tx_ids_of(peer, port, logger, semaphore):
-    """GET /transaction_ids from one peer -> (peer, [txid,...]) or None. SILENT on failure (no
-    fail_storage): an id-less response just skips reconciliation this pass — a peer on the old wire
-    (no /transaction_ids yet) must not get purged for it; dead peers are caught by the status poll."""
+async def get_tx_ids_of(peer, port, logger, fail_storage, semaphore):
+    """GET /transaction_ids from one peer -> (peer, [txid,...]) or None. A peer that cannot serve
+    the reconciliation wire is treated like any other failing peer (fail_storage -> purge queue) —
+    NO legacy-wire tolerance on alphanet; the whole mesh speaks one protocol version."""
     url_construct = f"http://{hostport(peer, port)}/transaction_ids?compress=zstd"
     try:
         async with semaphore:
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(url_construct) as response:
                     if response.status != 200:
-                        return None
+                        raise ValueError(f"HTTP {response.status}")
                     body = await read_capped(response, MAX_PEER_BODY)
                     fetched = unpack_zstd_peer(body)
-                    return (peer, fetched) if isinstance(fetched, list) else None
-    except Exception:
+                    if not isinstance(fetched, list):
+                        raise ValueError("malformed id list")
+                    return peer, fetched
+    except Exception as e:
+        if peer not in fail_storage:
+            logger.error(f"Compounder: Failed to get transaction ids of {peer}: {e}")
+            fail_storage.append(peer)
         return None
 
 
-async def compound_get_tx_ids(ips, port, logger, semaphore):
+async def compound_get_tx_ids(ips, port, logger, fail_storage, semaphore):
     """{peer: [txid,...]} for every peer that answered /transaction_ids — the cheap half of mempool
     set reconciliation (ids are ~64B vs ~7KB per full ML-DSA tx)."""
-    results = await asyncio.gather(*[get_tx_ids_of(ip, port, logger, semaphore) for ip in ips])
+    results = await asyncio.gather(*[get_tx_ids_of(ip, port, logger, fail_storage, semaphore) for ip in ips])
     return {peer: ids for peer, ids in filter(None, results)}
 
 
