@@ -220,20 +220,22 @@ class MemServer:
         return transaction_pool_hash
 
     def get_upcoming_block_hash(self):
-        """blake2b of the SORTED tx set that would go into the NEXT block — the mature, target-height
-        subset (match_transactions_target for tip+1), i.e. EXACTLY what block determinism / the
-        fast-forward depend on. Unlike the whole-pool hash it excludes immature (min_block not yet
-        reached) and future-targeted txs that won't be in the next block, so two nodes at the same tip
-        agree here even when their full pools differ. None when the next block would be empty."""
+        """blake2b of the NEXT block's content ON TOP OF OUR TIP: parent hash + next height + the mature,
+        target-height tx subset (match_transactions_target). This is EXACTLY what block determinism / the
+        fast-forward depend on — two nodes at the same tip agree here iff they will build the identical
+        next block, INCLUDING an empty one (a produced block always has a hash). Unlike the whole-pool
+        hash it excludes immature (min_block not reached) and future-targeted txs that won't be in the
+        next block. parent+height make it tip-specific, so nodes on a different tip correctly don't match.
+        NEVER None (an empty next block still hashes) — so a peer's absence of eligible txs is a real,
+        comparable signal, not a null that poisons the majority."""
         from ops.block_ops import match_transactions_target
-        if not self.transaction_pool:
-            return None
-        next_height = self.latest_block["block_number"] + 1
+        parent = self.latest_block
+        next_height = parent["block_number"] + 1
         matched = match_transactions_target(transaction_list=self.transaction_pool.copy(),
-                                            block_number=next_height, logger=self.logger)
-        if not matched:                                   # empty set or a match error (False)
-            return None
-        return blake2b_hash(sort_transaction_pool(matched))
+                                            block_number=next_height, logger=self.logger) if self.transaction_pool else []
+        if matched is False:                              # a match error -> treat as empty
+            matched = []
+        return blake2b_hash([parent["block_hash"], next_height, sort_transaction_pool(matched)])
 
     def get_uptime(self) -> int:
         """Whole seconds this node process has been up (NOT system uptime) — refreshed into
