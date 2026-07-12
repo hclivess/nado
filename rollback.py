@@ -46,6 +46,12 @@ def rollback_one_block(logger, block) -> dict:
     # balances and the produced metric return exactly to prior), the totals, and the indexes — atomically.
     # Single source (ops.reward_ops.credit_block_reward) shared with apply, so the two can never drift.
     with kv_ops.write_txn():
+        # IDLE-GC revert FIRST (mirror of apply running last in incorporate): restores any account
+        # docs / recert rows / watermarks the boundary block's sweep removed (ops/gc_ops.py). A
+        # non-boundary block has no record and this is a no-op.
+        from ops.gc_ops import revert_idle_gc
+        revert_idle_gc(block["block_number"], logger)
+
         credit_block_reward(block, logger=logger, revert=True)
         apply_treasury_burn(block, logger=logger, revert=True)   # restore any anti-hoard burn at this height
 

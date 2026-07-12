@@ -230,6 +230,32 @@ async def get_recommended_fee(request):
     return _resp({"fee": recommended_fee(memserver.latest_block) + 1})
 
 
+async def transactions_by_id(request):
+    """POST /transactions_by_id?compress=: body = codec list of txids (bounded); returns the named
+    transactions from OUR pool — the expensive half of mempool set reconciliation, proportional to
+    what the caller is actually missing instead of the whole pool. Rate-limited 120/min per IP."""
+    if _rate_limited(request, 120):
+        return _RL
+    body = await request.read()
+
+    def _work(raw):
+        from ops import codec as _codec
+        if not raw or len(raw) > (1 << 20):
+            return "Error: bad body", 400
+        try:
+            ids = _codec.unpack(raw)
+        except Exception:
+            return "Error: undecodable body", 400
+        if not isinstance(ids, list) or len(ids) > 1000:
+            return "Error: too many ids", 400
+        wanted = {i for i in ids if isinstance(i, str) and len(i) <= 64}
+        txs = [t for t in memserver.transaction_pool if t.get("txid") in wanted]
+        return serialize(name="transactions", output=txs, compress=_q(request, "compress", "none")), 200
+
+    out, code = await asyncio.to_thread(_work, body)
+    return _resp(out, status=code)
+
+
 async def submit_transaction(request):
     """POST /submit_transaction: decode a JSON-codec tx from the body (size-bounded by unpack_tx so an
     oversized/malformed payload can't balloon memory) and merge it into the pool as user-origin. `register`
@@ -873,6 +899,15 @@ async def get_open_weights(request):
                 e = int(q_epoch)
             except (TypeError, ValueError):
                 return {"error": "bad epoch"}
+            # WEIGHT SAFETY (idle-GC, ops/gc_ops.py): weights_at_epoch(E) replays recert rows down
+            # to E - SATURATION_LOOKBACK_EPOCHS; rows below the gc_rows_below watermark are GONE.
+            # Refuse (410-style error) rather than serve a silently-truncated reconstruction — a
+            # cold exec node must bootstrap from a SETTLED checkpoint instead of ancient replay.
+            from protocol import SATURATION_LOOKBACK_EPOCHS
+            from ops import kv_ops as _kv
+            if e - SATURATION_LOOKBACK_EPOCHS < _kv.meta_get_int("gc_rows_below", 0):
+                return {"error": "epoch too old: recert history pruned (bootstrap the exec node "
+                                 "from a settled checkpoint)", "epoch": e}
             return {"epoch": e, "weights": weights_at_epoch(e)}
         from ops.account_ops import get_open_registry
         epoch = epoch_of(memserver.latest_block["block_number"])
@@ -1227,6 +1262,11 @@ async def make_app(port):
         web.get("/get_account", account),
         web.get("/get_account_mempool", account_mempool),
         web.get("/transaction_pool", _dump_handler("transaction_pool", lambda: memserver.transaction_pool)),
+        # mempool SET RECONCILIATION wire (memserver.merge_remote_transactions): the cheap id list +
+        # the bounded fetch-by-id — divergent peers no longer re-download each other's whole pools.
+        web.get("/transaction_ids", _dump_handler("transaction_ids",
+                                                  lambda: [t.get("txid") for t in memserver.transaction_pool])),
+        web.post("/transactions_by_id", transactions_by_id),
         web.get("/transaction_hash_pool", _dump_handler("transactions_hash_pool", lambda: {
             "transactions_hash_pool": consensus.transaction_hash_pool,
             "majority_transactions_hash_pool": consensus.majority_transaction_pool_hash})),

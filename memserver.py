@@ -1,7 +1,6 @@
 import asyncio
 import threading
 
-from compounder import compound_get_list_of
 from config import get_timestamp_seconds, get_config
 from hashing import blake2b_hash
 from ops.account_ops import get_account, get_finalized_height
@@ -262,27 +261,57 @@ class MemServer:
         reported_uptime by the core loop and shared with peers via /status."""
         return get_timestamp_seconds() - self.start_time
 
+    # per-peer/per-pass bound on bodies fetched during set reconciliation; the server side caps a
+    # /transactions_by_id request at the same figure. The remainder arrives on the next 1s pass.
+    _RECONCILE_MAX_IDS = 1000
+
     def merge_remote_transactions(self, user_origin=False, skip_pool_peers=()) -> None:
-        """reach out to all peers and merge their transaction_pool into ours (single-mempool model —
-        the old separate buffer fetch is gone; every tx lives in the one pool that peers gossip).
-        skip_pool_peers: peers whose ADVERTISED transaction_pool_hash already equals ours (caller
-        computes it from the consensus status pool) — fetching their full pool every second only
-        re-downloads data we provably hold (audit: O(peers × pool) bandwidth per second for zero new
-        information)."""
+        """MEMPOOL SET RECONCILIATION (replaces the full-pool download): for each peer whose
+        advertised pool hash differs from ours (skip_pool_peers filters the identical ones), fetch
+        its txid LIST (/transaction_ids, ~64B/tx), diff against what we hold + what is already
+        MINED, and fetch ONLY the missing bodies (/transactions_by_id). The old path re-downloaded
+        every divergent peer's ENTIRE pool every second — O(peers × pool) bandwidth for mostly-known
+        data; this is O(peers × ids) + O(genuinely missing bodies), a ~100x cut with ~7KB ML-DSA
+        txs. Each missing txid is claimed from ONE peer per pass (no duplicate downloads)."""
         pool_peers = [p for p in self.peers if p not in skip_pool_peers]
         if pool_peers:
-            remote_pool_transactions = asyncio.run(
-                compound_get_list_of(
-                    key="transaction_pool",
-                    entries=pool_peers,
-                    port=self.port,
-                    logger=self.logger,
-                    fail_storage=self.purge_peers_list,
-                    compress="zstd",
-                    semaphore=asyncio.Semaphore(50)
-                )
-            )
-            self.merge_transactions(remote_pool_transactions, user_origin)
+            missing = asyncio.run(self._fetch_missing_remote_txs(pool_peers))
+            if missing:
+                self.merge_transactions(missing, user_origin)
+
+    async def _fetch_missing_remote_txs(self, pool_peers) -> list:
+        """ids from all divergent peers in parallel -> per-peer want-lists (deduped across peers,
+        mined txids excluded) -> parallel bounded body fetches. Best-effort: a peer that fails or
+        predates /transaction_ids is skipped this pass."""
+        from compounder import compound_get_tx_ids, post_txs_by_id
+        semaphore = asyncio.Semaphore(50)
+        ids_by_peer = await compound_get_tx_ids(pool_peers, self.port, self.logger, semaphore)
+        if not ids_by_peer:
+            return []
+        local = {t.get("txid") for t in self.transaction_pool}
+        claimed = set()
+        plans = []
+        for peer, ids in ids_by_peer.items():
+            want = []
+            for i in ids:
+                if (isinstance(i, str) and len(i) <= 64 and i not in local and i not in claimed
+                        and kv_ops.tx_get(i) is None):        # already MINED -> never re-fetch (the old flood)
+                    want.append(i)
+                    if len(want) >= self._RECONCILE_MAX_IDS:
+                        break
+            if want:
+                claimed.update(want)
+                plans.append((peer, want))
+        if not plans:
+            return []
+        batches = await asyncio.gather(*[
+            post_txs_by_id(peer, self.port, want, self.logger, self.purge_peers_list, semaphore)
+            for peer, want in plans])
+        out = []
+        for batch in batches:
+            if isinstance(batch, list):
+                out.extend(batch)
+        return out
 
 
     def merge_transaction(self, transaction, user_origin=False) -> dict:

@@ -51,7 +51,7 @@ MAP_SIZE = 16 * 1024 * 1024 * 1024
 #   commits           "sender|target_epoch"    -> commitment                                   (RANDAO #7)
 #   reveals           target_epoch(8B BE)      -> secret                            [DUPSORT]  (RANDAO #7)
 #   unbonds           address                  -> msgpack({amount, release_block})         (unbond delay)
-_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert", "block_loc")
+_PLAIN_DBS = ("accounts", "totals", "block_by_num", "block_by_hash", "tx", "meta", "commits", "unbonds", "hb_revert", "aliases", "htlcs", "bond_since", "bond_since_revert", "treasury_proposals", "msgkey_revert", "block_loc", "gc_revert")
 _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settlements", "recerts", "recert_by_epoch", "treasury_votes")
 
 # CONSENSUS STATE a snapshot carries: every sub-DB EXCEPT the block-body + tx HISTORY (explorer-only,
@@ -69,10 +69,11 @@ _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settl
 # history + block BODIES stay out; the recent bodies a node still needs (the rollback window +
 # serving peers; REWARD_WINDOW kept as margin) are backfilled in loops/core_loop.snapshot_bootstrap.
 _HISTORY_DBS = frozenset(("tx", "tx_by_sender", "tx_by_recipient"))
-# block_loc is NODE-LOCAL storage layout (hash -> segment/offset locators + per-segment live
-# counters, see ops/segment_store.py) — NEVER snapshot-carried: another node's segments differ, and
-# leaking locators into the snapshot payload would fork the canonical state root across nodes.
-_LOCAL_DBS = frozenset(("block_loc",))
+# NODE-LOCAL sub-DBs — NEVER snapshot-carried (leaking them would fork the canonical state root):
+#   block_loc — segment-store locators + per-segment live counters (another node's segments differ)
+#   gc_revert — idle-GC rollback records keyed by height (ops/gc_ops.py): purely local rollback
+#               support, pruned lazily below the finalized height with no determinism requirement
+_LOCAL_DBS = frozenset(("block_loc", "gc_revert"))
 SNAPSHOT_DBS = tuple(sorted(set(_PLAIN_DBS + _DUP_DBS) - _HISTORY_DBS - _LOCAL_DBS))
 
 # account doc fields that default to 0 when missing on read (schemaless: extra fields pass through).
@@ -1384,3 +1385,97 @@ def restore_snapshot_state(triples, txn=None):
         _do(txn)
     else:
         _write(_do)
+
+
+# --- idle-account GC support (ops/gc_ops.py — CONSENSUS sweeps, NODE-LOCAL revert records) ---------
+
+def account_raw_get(address: str):
+    """The FULL normalized account doc including schemaless extras (public_key, kem_pub, ...), or
+    None if absent — the GC eligibility check must see extras, which get_account also passes through
+    but this makes the None-vs-empty distinction explicit."""
+    def _do(txn):
+        raw = txn.get(address.encode(), db=_dbs()["accounts"])
+        return _normalize(_unpack(raw)) if raw is not None else None
+    return _read(_do)
+
+
+def account_raw_put(address: str, body: dict):
+    """Restore a GC'd account doc byte-identically (gc revert path)."""
+    def _do(txn):
+        txn.put(address.encode(), _pack(_normalize(body)), db=_dbs()["accounts"])
+    _write(_do)
+
+
+def account_del(address: str) -> bool:
+    """Delete an account doc (idle-GC apply path; joins the block's write txn). True if it existed."""
+    def _do(txn):
+        return txn.delete(address.encode(), db=_dbs()["accounts"])
+    return _write(_do)
+
+
+def recert_bucket_addresses(epoch: int) -> list:
+    """All addresses with a recert recorded AT `epoch`, in LMDB dup order (sorted -> deterministic
+    on every node). The idle-GC candidate enumerator: an idle address's LATEST recert sits in some
+    old bucket, so scanning each bucket exactly once (watermarked) visits every candidate."""
+    def _do(txn):
+        out = []
+        with txn.cursor(db=_dbs()["recert_by_epoch"]) as cur:
+            if cur.set_key(be8(int(epoch))):
+                for v in cur.iternext_dup(keys=False, values=True):
+                    out.append(v.decode())
+        return out
+    return _read(_do)
+
+
+def recert_bucket_del(epoch: int) -> list:
+    """Delete the WHOLE recert bucket at `epoch` from BOTH indexes (row-retention sweep). Returns
+    the deleted (address, epoch) pairs for the gc revert record."""
+    def _do(txn):
+        pairs = []
+        with txn.cursor(db=_dbs()["recert_by_epoch"]) as cur:
+            if cur.set_key(be8(int(epoch))):
+                for v in cur.iternext_dup(keys=False, values=True):
+                    pairs.append(v.decode())
+        for addr in pairs:
+            txn.delete(addr.encode(), be8(int(epoch)), db=_dbs()["recerts"])
+            txn.delete(be8(int(epoch)), addr.encode(), db=_dbs()["recert_by_epoch"])
+        return [(addr, int(epoch)) for addr in pairs]
+    return _write(_do)
+
+
+def gc_revert_put(height: int, record: dict):
+    """Persist the idle-GC revert record for the boundary block at `height` (NODE-LOCAL; commits
+    inside the block's write txn, so it exists exactly iff the sweep's mutations committed)."""
+    def _do(txn):
+        txn.put(be8(int(height)), _pack(record), db=_dbs()["gc_revert"])
+    _write(_do)
+
+
+def gc_revert_pop(height: int):
+    """Fetch + delete the revert record for `height` (rollback path), or None if the sweep at that
+    height was a complete no-op (then the revert is too)."""
+    def _do(txn):
+        key = be8(int(height))
+        raw = txn.get(key, db=_dbs()["gc_revert"])
+        if raw is None:
+            return None
+        txn.delete(key, db=_dbs()["gc_revert"])
+        return _unpack(raw)
+    return _write(_do)
+
+
+def gc_revert_prune(below_height: int) -> int:
+    """Drop revert records below the finalized height — rollback can never reach them (NODE-LOCAL,
+    so this needs no cross-node determinism). Returns rows dropped."""
+    def _do(txn):
+        n = 0
+        with txn.cursor(db=_dbs()["gc_revert"]) as cur:
+            if cur.first():
+                while un_be8(cur.key()) < below_height:
+                    if not cur.delete():
+                        break
+                    n += 1
+                    if not cur.first():
+                        break
+        return n
+    return _write(_do)

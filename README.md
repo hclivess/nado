@@ -631,8 +631,9 @@ of FFG/RANDAO and the outstanding eclipse hardening above, the **documented resi
 - **The bonded `MAX_SHARES` cap is per-identity, not aggregate** — sharding capital above `BOND_CAP`
   across addresses recovers full proportional weight. The bonded lane is **capital-proportional by
   design**; the cap only limits single-address variance, not aggregate stake.
-- **Registration / fee-exempt state growth** — `register` writes a permanent account doc; idle-account GC
-  is **not yet implemented**. Bounded today by the lane cap, per-IP rate limit, mempool cap, and the
+- **Registration / fee-exempt state growth** — `register` writes an account doc; **idle-account GC is implemented**
+  (`ops/gc_ops.py`): long-lapsed empty docs and ancient recert rows are swept deterministically
+  in-block at epoch boundaries (revert-safe, snapshot-root-identical on every node). Also bounded by the lane cap, per-IP rate limit, mempool cap, and the
   in-block one-register-per-sender dedup; idle-account GC is future work.
 - **Fidelity is continuity over recerts** — `apply_register` adds a step for each *continuous* recert
   (gap ≤ the lease) and resets the streak on a lapse; it ramps the open bonus over `FIDELITY_CAP` recerts.

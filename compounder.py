@@ -58,6 +58,53 @@ async def compound_get_list_of(key, entries, port, logger, fail_storage, semapho
     return sort_list_dict(success_storage)
 
 
+async def get_tx_ids_of(peer, port, logger, semaphore):
+    """GET /transaction_ids from one peer -> (peer, [txid,...]) or None. SILENT on failure (no
+    fail_storage): an id-less response just skips reconciliation this pass — a peer on the old wire
+    (no /transaction_ids yet) must not get purged for it; dead peers are caught by the status poll."""
+    url_construct = f"http://{hostport(peer, port)}/transaction_ids?compress=zstd"
+    try:
+        async with semaphore:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
+                async with session.get(url_construct) as response:
+                    if response.status != 200:
+                        return None
+                    body = await read_capped(response, MAX_PEER_BODY)
+                    fetched = unpack_zstd_peer(body)
+                    return (peer, fetched) if isinstance(fetched, list) else None
+    except Exception:
+        return None
+
+
+async def compound_get_tx_ids(ips, port, logger, semaphore):
+    """{peer: [txid,...]} for every peer that answered /transaction_ids — the cheap half of mempool
+    set reconciliation (ids are ~64B vs ~7KB per full ML-DSA tx)."""
+    results = await asyncio.gather(*[get_tx_ids_of(ip, port, logger, semaphore) for ip in ips])
+    return {peer: ids for peer, ids in filter(None, results)}
+
+
+async def post_txs_by_id(peer, port, txids, logger, fail_storage, semaphore):
+    """POST /transactions_by_id: fetch ONLY the named txs from a peer's pool (the expensive half of
+    set reconciliation, now proportional to what we're actually missing). Returns a list ([] on
+    any failure)."""
+    from ops import codec
+    url_construct = f"http://{hostport(peer, port)}/transactions_by_id?compress=zstd"
+    try:
+        async with semaphore:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+                async with session.post(url_construct, data=codec.pack(list(txids))) as response:
+                    if response.status != 200:
+                        return []
+                    body = await read_capped(response, MAX_PEER_BODY)
+                    fetched = unpack_zstd_peer(body)
+                    return fetched if isinstance(fetched, list) else []
+    except Exception as e:
+        if peer not in fail_storage:
+            logger.error(f"Compounder: Failed to fetch txs by id from {peer}: {e}")
+            fail_storage.append(peer)
+        return []
+
+
 async def send_transaction(peer, port, logger, fail_storage, transaction, semaphore):
     """method compounded by compound_send_transaction"""
 

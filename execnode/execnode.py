@@ -68,6 +68,15 @@ def _sem():
 # (needs its keys.dat via HOME). NADO_EXEC_SETTLE=1 to enable; settles at most every SETTLE_EVERY blocks.
 SETTLE = os.environ.get("NADO_EXEC_SETTLE", "").strip().lower() in ("1", "true", "yes", "on")
 SETTLE_EVERY = int(os.environ.get("NADO_EXEC_SETTLE_EVERY", "5"))
+# SETTLED-CHECKPOINT BOOTSTRAP (idle-GC companion, see protocol.py GC note): a COLD exec node can no
+# longer replay dividend accrual from genesis once L1 prunes ancient recert rows — instead it adopts a
+# donor's snapshot VERIFIED against the L1-settled root (trust-minimized: the quorum vouches for the
+# root, the joiner recomputes it from the payload). Set NADO_EXEC_BOOTSTRAP=http://<donor-exec>:9273.
+BOOTSTRAP = os.environ.get("NADO_EXEC_BOOTSTRAP", "").rstrip("/")
+# per-ns stash of the snapshot AT our last accepted settle, PRE-SERIALIZED to a JSON string
+# (aliasing the live state dicts would let later mutations drift the payload away from its root) —
+# what /exec/state_snapshot serves so a joiner can verify it against the L1-settled (cursor, root).
+_settled_snapshots = {}
 
 # NAMESPACES this node maintains (multi-rollup). The DEFAULT namespace is the full canonical exec layer
 # (contracts + bridge + shielded pool + presence dividend). Any EXTRA namespaces (NADO_EXEC_NAMESPACES,
@@ -120,6 +129,12 @@ async def maybe_settle(session):
                 out = await r.json(content_type=None)
             if isinstance(out, dict) and out.get("result"):
                 ok_any = True
+                # stash the snapshot AT this settle so /exec/state_snapshot can serve a joiner a
+                # payload that is verifiable against exactly this (cursor, root) once justified.
+                # Serialized NOW — the live dicts keep mutating, a reference stash would drift.
+                _settled_snapshots[ns] = json.dumps({"ns": ns, "cursor": st.cursor,
+                                                     "state_root": st.state_root(),
+                                                     "state": st._snapshot()}, sort_keys=True)
                 print(f"[execnode] SETTLE ns={ns} cursor {st.cursor} root {st.state_root()[:16]}… → L1", flush=True)
             else:
                 print(f"[execnode] settle ns={ns} not accepted: {out}", flush=True)
@@ -181,6 +196,18 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
                 res = tgt.apply_xmsg(d.get("from_ns", "default"), d.get("message") or {})
                 if verbose:
                     print(f"[execnode] block {h} ns={d.get('to_ns')}: {res}", flush=True)
+            # the delivery burned the (from_ns, seq) L1 nullifier — GC the SOURCE outbox record too
+            src = states_map.get(d.get("from_ns", "default"))
+            if src is not None:
+                src.drop_consumed_outbox((d.get("message") or {}).get("seq"))
+        elif r in ("bridge_withdraw", "dividend_withdraw", "unshield"):
+            # a FINALIZED claim burned its L1 nullifier — the exec-side exit record is dead weight
+            # in state_root now; GC it (state.drop_claimed). ns-aware for bridge_withdraw.
+            d = tx.get("data") or {}
+            ns = d.get("ns", "default") if r == "bridge_withdraw" else "default"
+            tgt = states_map.get(ns)
+            if tgt is not None:
+                tgt.drop_claimed(r, d.get("nonce"))
         elif r == "bridge":
             default_state.credit_deposit(tx.get("sender"), tx.get("amount", 0))
             if verbose:
@@ -241,6 +268,52 @@ async def _refresh_provisional(session, finalized, tip, tip_hash=None):
     _prov_key = key if h > tip else None
 
 
+async def _maybe_bootstrap(session):
+    """SETTLED-CHECKPOINT BOOTSTRAP (joiner side): a FRESH namespace state (cursor -1) with
+    NADO_EXEC_BOOTSTRAP set adopts the donor's last-settled snapshot INSTEAD of replaying from
+    genesis (required once L1's idle-GC prunes ancient recert rows — /get_open_weights refuses the
+    ancient epochs a genesis replay would need). Trust-minimized: the payload is accepted ONLY if
+    the state_root RECOMPUTED from it matches the L1-settled (cursor, root) for the namespace —
+    the bonded quorum vouches for the root, never the donor. Retries a few times (donor may not
+    have settled since ITS restart; the L1 quorum may lag the donor's stash), then falls back to
+    plain replay (fine on a young/unpruned chain, loudly wrong later via the accrual guard)."""
+    if not BOOTSTRAP:
+        return
+    import threading as _threading
+    for ns, st in states.items():
+        if st.cursor >= 0:
+            continue                                   # existing state — never overwrite
+        for attempt in range(12):
+            try:
+                async with session.get(f"{BOOTSTRAP}/exec/state_snapshot?ns={ns}",
+                                       timeout=aiohttp.ClientTimeout(total=30)) as r:
+                    snap = await r.json(content_type=None)
+                if not isinstance(snap, dict) or "state" not in snap:
+                    raise ValueError(f"donor has no snapshot: {snap}")
+                settled = await _get_json(session, f"/get_settled?ns={ns}")
+                cand = ExecState.__new__(ExecState)    # verify on a scratch instance, never on `st`
+                cand.path = st.path + "#bootstrap-verify"
+                cand._mutate_lock = _threading.RLock()
+                cand._restore(snap["state"])
+                root = cand.state_root()
+                if (settled.get("state_root") == root
+                        and int(settled.get("exec_cursor", -2)) == int(snap.get("cursor", -3))):
+                    st._restore(snap["state"])         # payload carries cursor/last_div_epoch/pools
+                    st.save()
+                    print(f"[execnode] BOOTSTRAPPED ns={ns} from settled checkpoint cursor {st.cursor} "
+                          f"root {root[:16]}… (verified against L1 quorum)", flush=True)
+                    break
+                raise ValueError(f"snapshot (cursor {snap.get('cursor')}, root {root[:12]}…) is not the "
+                                 f"L1-settled checkpoint ({settled.get('exec_cursor')}, "
+                                 f"{str(settled.get('state_root'))[:12]}…) — retrying")
+            except Exception as e:
+                print(f"[execnode] bootstrap ns={ns} attempt {attempt + 1}: {e}", flush=True)
+                await asyncio.sleep(5)
+        else:
+            print(f"[execnode] bootstrap ns={ns} FAILED after retries — continuing with plain replay "
+                  f"(safe only while L1 still retains full recert history)", flush=True)
+
+
 async def tail_loop():
     """Follow L1 forever: each poll, replay every newly FINALIZED block's exec-relevant txs (blob /
     bridge / shield) into `state` in block order — skipping pruned (body-less) finalized blocks — then
@@ -249,6 +322,7 @@ async def tail_loop():
     the provisional clone absorbs the tail (and any reorg) harmlessly. Any error waits out the poll; never dies."""
     print(f"[execnode] tailing {L1} · state={STATE_PATH} · cursor={state.cursor}", flush=True)
     async with aiohttp.ClientSession() as session:
+        await _maybe_bootstrap(session)
         while True:
             try:
                 status = await _get_json(session, "/status")
@@ -286,6 +360,14 @@ async def tail_loop():
                             inf = await _get_json(session, f"/get_dividend_inflow?epoch={E}")
                             inflow = int(inf.get("inflow", 0)) if isinstance(inf, dict) else 0
                             ow = await _get_json(session, f"/get_open_weights?epoch={E}")
+                            if isinstance(ow, dict) and ow.get("error"):
+                                # L1 pruned the recert history this epoch's weights need (idle-GC).
+                                # NEVER accrue from a truncated reconstruction (would fork the
+                                # settled root) — stall accrual + tell the operator to re-bootstrap.
+                                print(f"[execnode] dividend accrual STALLED at epoch {E}: {ow['error']} — "
+                                      f"re-bootstrap this node from a settled checkpoint "
+                                      f"(NADO_EXEC_BOOTSTRAP)", flush=True)
+                                break
                             weights = (ow or {}).get("weights", {}) if isinstance(ow, dict) else {}
                             dist = state.accrue_dividend_epoch(inflow, weights)
                             state.last_div_epoch = E
@@ -452,6 +534,19 @@ async def da_fetch(session, commitment):
         return None
 
 
+async def h_state_snapshot(request):
+    """GET /exec/state_snapshot?ns=: the FULL state payload as of this node's LAST ACCEPTED settle,
+    {ns, cursor, state_root, state} — the settled-checkpoint bootstrap donor side. The joiner
+    re-derives state_root from `state` and accepts only if it matches the L1-settled (cursor, root),
+    so a lying donor can waste its time but never poison it. 404 until this node has settled once."""
+    ns = request.query.get("ns", "default")
+    raw = _settled_snapshots.get(ns)
+    if raw is None:
+        return web.json_response({"error": "no settled snapshot yet (node hasn't settled since start)"},
+                                 status=404)
+    return web.Response(text=raw, content_type="application/json")
+
+
 async def h_root(request):
     """Node summary for ?ns= (default): exec state_root, applied cursor, contract count, L1 tailed."""
     st = _state_for(request)
@@ -598,7 +693,8 @@ async def h_outbox(request):
     st = _state_for(request)
     if st is None:
         return _NS404()
-    return web.json_response({"ns": request.query.get("ns", "default"), "outbox": st.outbox})
+    return web.json_response({"ns": request.query.get("ns", "default"),
+                              "outbox": sorted(st.outbox.values(), key=lambda m: m.get("seq", 0))})
 
 
 async def h_outbox_proof(request):
@@ -850,6 +946,7 @@ async def main():
     loop forever — the HTTP server and the L1 tail share one event loop."""
     app = web.Application(middlewares=[_cors], client_max_size=MAX_BODY_BYTES)   # H-7: cap POST body size
     app.add_routes([web.get("/exec/root", h_root),
+                    web.get("/exec/state_snapshot", h_state_snapshot),
                     web.get("/exec/settlement", h_settlement),
                     web.get("/exec/shielded", h_shielded),
                     web.get("/exec/field_shielded", h_field_shielded),

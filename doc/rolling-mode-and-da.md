@@ -107,7 +107,16 @@ the 80% quorum can't be gamed by a colluding minority.
 
 ## 3. Idle-account GC (scaling item #4) — consensus-critical state pruning
 
-Idle **account-row** GC is not implemented (a placeholder `GC_IDLE_EPOCHS` constant was removed as dead code; reintroduce it with the feature). Presence itself is
+**IMPLEMENTED** (`ops/gc_ops.py`): deterministic, in-block, revert-safe. Two watermarked sweeps
+run inside the first block of each epoch's write txn — trivially-empty account docs whose lease
+lapsed > `GC_IDLE_EPOCHS` (1000) ago are deleted (schemaless extras like `public_key`/`kem_pub`
+exempt an account permanently); recert rows older than `RECERT_HISTORY_EPOCHS` (10 000) drop by
+whole epoch buckets, ordered so rows outlive the account sweep that reads them. Weight safety: a
+continuous recert run crossing the retention horizon necessarily exceeds `FIDELITY_CAP`, so
+`open_shares(fidelity_at_epoch(E))` is byte-identical with or without the pruned rows for every E
+still served (`/get_open_weights` refuses older epochs; cold exec nodes bootstrap from a settled
+checkpoint via `NADO_EXEC_BOOTSTRAP` instead of genesis replay). Rollback restores everything from
+the node-local `gc_revert` record. Presence itself is
 now self-bounding — the old per-epoch heartbeat rows are gone, replaced by the PoSW **recert lease**
 (`recerts` / `recert_by_epoch`), which lapses if not renewed each `POSW_LEASE_EPOCHS` — yet the free
 OPEN lane's fee-exempt `register` (recert) txs still create permanent **account** state that never

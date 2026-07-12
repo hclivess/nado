@@ -1007,6 +1007,15 @@ class CoreClient(threading.Thread):
             index_totals(produced=totals["produced"],
                          fees=totals["fees"])
 
+            # IDLE-ACCOUNT GC (consensus, doc in ops/gc_ops.py): at epoch boundaries, sweep
+            # long-lapsed empty account docs + ancient recert rows — fixed position in the txn so
+            # every node mutates identically; revert-safe via the node-local gc_revert record.
+            from ops.gc_ops import apply_idle_gc
+            gc_stats = apply_idle_gc(block["block_number"], self.logger)
+            if gc_stats["accounts"] or gc_stats["rows"]:
+                self.logger.info(f"Idle GC at block {block['block_number']}: "
+                                 f"{gc_stats['accounts']} empty account(s), {gc_stats['rows']} recert row(s)")
+
             index_block_number(block)  # the applied marker, atomic with the state above
 
         # Advance the tip pointer file only AFTER the atomic state commit. A crash before this
@@ -1032,6 +1041,12 @@ class CoreClient(threading.Thread):
         if new_final > self.memserver.finalized_height:
             set_finalized_height(new_final)
             self.memserver.finalized_height = new_final
+
+        # lazy NODE-LOCAL cleanup: idle-GC revert records below finality can never be needed
+        # (rollback refuses to cross the floor). Epoch boundaries only — negligible either way.
+        if block["block_number"] % EPOCH_LENGTH == 0:
+            from ops.gc_ops import prune_local_revert_records
+            prune_local_revert_records(self.memserver.finalized_height)
 
         # ROLLING-NODE SYNC: at each checkpoint interval, persist a verified snapshot of state@N.
         # The write txn above has committed and no later block is applied yet, so accounts.db == state@N

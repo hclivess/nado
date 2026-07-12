@@ -383,12 +383,37 @@ OPEN_BASE_FLOOR = 2                # every registered+present identity's minimum
                                    # day one (was 10%) — fairer to new phones, while keeping a 5x loyalty premium.
 OPEN_FID_BONUS = 8                 # max diligence bonus: open weight ranges OPEN_BASE_FLOOR..+8 (2..10)
 
+# --- Idle-account GC (CONSENSUS — deterministic in-block sweeps at epoch boundaries; ops/gc_ops.py) ---
+# Fee-exempt `register` writes permanent account docs + recert rows — the unbounded state-growth vector
+# the audits flagged. Two decoupled sweeps run INSIDE the first block of each epoch's write txn, so every
+# node mutates state identically (a local sweep would fork snapshot state roots):
+#   1. ACCOUNT sweep: delete the account DOC of an address whose lease lapsed > GC_IDLE_EPOCHS ago and
+#      whose doc is trivially empty (balance=bonded=produced=0, no schemaless extras like public_key /
+#      kem_pub). Its recert ROWS are kept (dividend-weight history) until sweep 2 catches them.
+#   2. RECERT-ROW retention: drop whole epoch buckets of recert rows older than RECERT_HISTORY_EPOCHS.
+#      Weight safety: fidelity saturates at FIDELITY_CAP, and a continuous run is broken by any gap
+#      > POSW_LEASE_EPOCHS — so reconstructing open_shares(fidelity_at_epoch(E)) needs at most
+#      SATURATION_LOOKBACK_EPOCHS = (FIDELITY_CAP+1) * POSW_LEASE_EPOCHS of rows behind E: any run that
+#      spans the retention horizon must contain >= RECERT_HISTORY/POSW_LEASE (> FIDELITY_CAP) recerts and
+#      is therefore capped identically with or without the pre-horizon rows. Ancient epochs beyond that
+#      are NOT reconstructible — cold-starting exec nodes bootstrap from a SETTLED checkpoint instead of
+#      replaying from genesis (execnode NADO_EXEC_BOOTSTRAP; /get_open_weights refuses unsafe epochs).
+# Both sweeps advance meta watermarks (consensus state) and are bounded per boundary (GC_MAX_PER_EPOCH)
+# so a boundary block can never stall; revert records live in the NODE-LOCAL gc_revert sub-DB so a
+# rollback of the boundary block restores every deleted row/doc exactly.
+GC_IDLE_EPOCHS = 1000                    # lease lapsed this long (~4 days) -> empty account doc is GC-able
+RECERT_HISTORY_EPOCHS = 10_000           # recert rows retained (~6 weeks) — >> SATURATION_LOOKBACK_EPOCHS
+GC_MAX_PER_EPOCH = 2000                  # per-boundary work bound (rows+accounts touched)
+
 # Continuity FIDELITY — now driven by the PoSW RECERT (the single presence signal; there is no separate
 # heartbeat). Each continuous recert (gap <= POSW_LEASE_EPOCHS) adds FIDELITY_GAIN; a lapse RESETS the streak.
 # So fidelity measures CONSECUTIVE recerts (≈ days of continuous presence). A churned/rotated Sybil cannot keep
 # a ramp it stopped paying for. It is only a ~5x open-weight booster, NOT the Sybil bound (the 30% lane cap is).
 FIDELITY_CAP = 30                  # consecutive recerts (~days) to fully ramp the open bonus
 FIDELITY_GAIN = 1                  # per continuous recert
+# deepest recert-row lookback any WEIGHT reconstruction needs (see the idle-GC note above):
+# a run longer than this is fidelity-capped, so pre-horizon rows can never change open_shares.
+SATURATION_LOOKBACK_EPOCHS = (FIDELITY_CAP + 1) * POSW_LEASE_EPOCHS
 
 # Seed for the per-epoch selection beacon (S4.3). Epochs 0-1 use this fixed constant directly
 # (no finalized prior epoch exists yet); epoch>=2 chains it with the hash of the first block of

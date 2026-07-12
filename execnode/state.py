@@ -92,7 +92,8 @@ class ExecState:
         # Merkle leaf in state_root and provable via outbox_proof(seq). This is the sound foundation for
         # cross-rollup / L1-bound messaging; CONSUMPTION (verifying against the sender's SETTLED root) is a
         # separate step, see doc/rollups-and-settlement.md §7.4. Append-only; seq == index.
-        self.outbox = []           # [{"seq":i, "from":addr, "to_ns":ns, "data":<any>}]
+        self.outbox = {}           # str(seq) -> {"seq":i, "from":addr, "to_ns":ns, "data":<any>}
+        self.outbox_seq = 0        # monotonic next-seq counter — seqs stay unique after consumed-msg GC
         # CROSS-DOMAIN INBOX: messages DELIVERED to this rollup by an L1-verified `xmsg` (verified against the
         # sender namespace's SETTLED root on L1). Committed in state_root so every receiver node agrees.
         self.inbox = []            # [{"from_ns":ns, "seq":i, "data":<any>}]
@@ -160,7 +161,12 @@ class ExecState:
         self.bridge = d.get("bridge", {})
         self.withdrawals = d.get("withdrawals", {})
         self.wd_nonce = d.get("wd_nonce", 0)
-        self.outbox = d.get("outbox", [])
+        ob = d.get("outbox", {})
+        if isinstance(ob, list):                      # legacy shape: a dense list, seq == index
+            ob = {str(m.get("seq", i)): m for i, m in enumerate(ob)}
+        self.outbox = ob
+        self.outbox_seq = int(d.get("outbox_seq",
+                                    (max((int(k) for k in ob), default=-1) + 1)))
         self.inbox = d.get("inbox", [])
         self.dividend = d.get("dividend", {})
         self.last_div_epoch = d.get("last_div_epoch", -1)
@@ -183,7 +189,7 @@ class ExecState:
         with self._mutate_lock:
             return {"contracts": self.contracts, "cursor": self.cursor, "bridge": self.bridge,
                     "withdrawals": self.withdrawals, "wd_nonce": self.wd_nonce,
-                    "outbox": self.outbox, "inbox": self.inbox,
+                    "outbox": self.outbox, "outbox_seq": self.outbox_seq, "inbox": self.inbox,
                     "dividend": self.dividend, "last_div_epoch": self.last_div_epoch,
                     "div_carry": self.div_carry, "dividend_withdrawals": self.dividend_withdrawals,
                     "dw_nonce": self.dw_nonce, "shielded": self.shielded.to_dict(),
@@ -260,11 +266,14 @@ class ExecState:
         out.append(canonical_bytes(["shield_root", self.shielded.root()]))
         out.append(canonical_bytes(["shield_nfset", self.shielded.nullifier_digest()]))
         out.append(canonical_bytes(["field_root", str(self.field_pool.root())]))
-        out.append(canonical_bytes(["field_nfset", *sorted(str(n) for n in self.field_pool.nullifiers)]))
+        # ONE bounded digest leaf for the whole field-nullifier set (mirrors shield_nfset): the old
+        # leaf concatenated EVERY nullifier, growing without bound in the committed state.
+        out.append(canonical_bytes(["field_nfset",
+                                    blake2b_hash(["field_nfset", *sorted(str(n) for n in self.field_pool.nullifiers)])]))
         for nonce, w in self.unshield_withdrawals.items():
             out.append(unshield_leaf(w["addr"], w["amount"], nonce))
-        for msg in self.outbox:                                  # cross-domain messages emitted (append-only)
-            out.append(_outbox_leaf(msg))
+        for _s, msg in sorted(self.outbox.items(), key=lambda kv: int(kv[0])):
+            out.append(_outbox_leaf(msg))            # emitted cross-domain messages (consumed ones GC'd)
         for i, msg in enumerate(self.inbox):                     # cross-domain messages delivered (append-only)
             out.append(_inbox_leaf(i, msg))
         return out
@@ -357,8 +366,8 @@ class ExecState:
         withdrawal_proof: a consumer verifies merkle_proof(leaf, proof, settled_root) against the sender
         rollup's SETTLED root (from L1 /get_settled?ns=) to accept the message trust-minimized."""
         try:
-            msg = self.outbox[int(seq)]
-        except (IndexError, ValueError, TypeError):
+            msg = self.outbox[str(int(seq))]
+        except (KeyError, ValueError, TypeError):
             return None
         return {"message": msg, "proof": merkle_proof(self._leaves(), _outbox_leaf(msg))}
 
@@ -371,6 +380,32 @@ class ExecState:
             self.inbox.append({"from_ns": from_ns, "seq": message.get("seq"), "data": message.get("data")})
             self._touch()
         return f"deliver from ns={from_ns} seq={message.get('seq')}"
+
+    def drop_claimed(self, kind, nonce):
+        """GC a withdrawal/dividend/unshield record whose CLAIM tx finalized on L1 (the nullifier is
+        burned there, so the exit can never be claimed again and its proof is never needed) — bounds
+        state_root cost, which otherwise grew one leaf per exit forever. Deterministic: every exec
+        node reads the same finalized claim from the L1 stream. No-op on an unknown nonce."""
+        m = {"bridge_withdraw": self.withdrawals,
+             "dividend_withdraw": self.dividend_withdrawals,
+             "unshield": self.unshield_withdrawals}.get(kind)
+        if m is None:
+            return
+        with self._mutate_lock:
+            if m.pop(str(nonce), None) is not None:
+                self._touch()
+
+    def drop_consumed_outbox(self, seq):
+        """GC an outbox message whose `xmsg` delivery finalized on L1 (its (from_ns, seq) nullifier
+        is burned — it can never deliver again). Bounds the one-leaf-per-message outbox growth.
+        Deterministic for the same reason as drop_claimed. No-op on an unknown seq."""
+        with self._mutate_lock:
+            try:
+                key = str(int(seq))
+            except (TypeError, ValueError):
+                return
+            if self.outbox.pop(key, None) is not None:
+                self._touch()
 
     def credit_deposit(self, addr, amount):
         """Credit an exec-side bridge balance from an L1 `bridge` deposit (read from the ordered stream)."""
@@ -655,8 +690,9 @@ class ExecState:
                 to_ns = payload.get("to_ns")
                 if not isinstance(to_ns, str) or not to_ns:
                     return "skip: emit needs a non-empty string to_ns"
-                seq = len(self.outbox)
-                self.outbox.append({"seq": seq, "from": sender, "to_ns": to_ns, "data": payload.get("data")})
+                seq = self.outbox_seq
+                self.outbox[str(seq)] = {"seq": seq, "from": sender, "to_ns": to_ns, "data": payload.get("data")}
+                self.outbox_seq = seq + 1
                 return f"emit #{seq} -> ns={to_ns} by {sender[:12]}…"
 
             if op == "bridge_withdraw":
