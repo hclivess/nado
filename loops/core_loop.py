@@ -257,8 +257,7 @@ class CoreClient(threading.Thread):
                 # min_peers == 0 enables SOLO production (a single node mints without a peer mesh) —
                 # used for a stable single-node relay/demo where multi-node fork-choice churn is undesirable.
                 if (len(peers) >= self.memserver.min_peers
-                        and not self.memserver.force_sync_ip
-                        and not _peer_ahead):
+                        and not self.memserver.force_sync_ip):
                     block_candidate = get_block_candidate(logger=self.logger,
                                                           transaction_pool=self._candidate_pool(),
                                                           latest_block=self.memserver.latest_block
@@ -266,28 +265,48 @@ class CoreClient(threading.Thread):
 
                     # S4.3: get_block_candidate returns None when no bonded identity is eligible
                     # (empty registry / total_shares == 0). Skip this round rather than crash.
+                    #
+                    # DETERMINISTIC FAST-FORWARD (fixes block gaps >> block_time on a healthy multi-producer
+                    # mesh): production is byte-identical across nodes — same parent + same mempool -> same
+                    # block_hash (the timestamp is OUTSIDE the hashed preimage). So being one block behind a
+                    # peer does NOT require fetching that block: we can rebuild it. The old gate refused to
+                    # mint whenever ANY peer advertised a heavier tip (_peer_ahead), so nodes serialised on
+                    # each other's tips and the network crawled at propagation speed instead of the block_time
+                    # pacing. Now: when a peer is ahead we still build the next block, and if its hash matches
+                    # a tip a peer already advertises it IS the canonical next block — incorporate our own
+                    # identical copy (no fetch). Only when our build matches NO advertised tip (genuine
+                    # mempool divergence, or we are >1 block behind) do we hold off and let emergency sync
+                    # fetch the canonical chain — so fork-safety is unchanged.
                     if block_candidate is not None:
-                        # #15 step 5: if WE are the selected winner (we hold block_creator's key),
-                        # attach the detached authorship signature. A relay building this block for an
-                        # OFFLINE winner cannot (no key) and leaves it unsigned — still valid (win-offline).
-                        if (self.memserver.address == block_candidate["block_creator"]
-                                and block_candidate["block_number"] > self.last_signed_height):
-                            sign_block(block_candidate, self.memserver.private_key, self.memserver.public_key)
-                            self.last_signed_height = block_candidate["block_number"]
-                        self.produce_block(block=block_candidate,
-                                           remote=False,
-                                           remote_peer=None)
+                        behind = _peer_ahead and block_candidate["block_hash"] not in \
+                            set(self.consensus.block_hash_pool.copy().values())
+                        if behind:
+                            # can't reconstruct the canonical tip from our own mempool -> defer to sync
+                            self.logger.debug("Behind on an un-reconstructable tip; deferring to sync")
+                        else:
+                            # #15 step 5: sign only when LEADING (not _peer_ahead). If WE are the selected
+                            # winner, attach the detached authorship signature; a relay (or a fast-forward
+                            # catch-up copy) leaves it unsigned — still valid (win-offline). Not signing a
+                            # fast-forward copy avoids any same-height authorship edge case while behind.
+                            if (not _peer_ahead
+                                    and self.memserver.address == block_candidate["block_creator"]
+                                    and block_candidate["block_number"] > self.last_signed_height):
+                                sign_block(block_candidate, self.memserver.private_key, self.memserver.public_key)
+                                self.last_signed_height = block_candidate["block_number"]
+                            self.produce_block(block=block_candidate,
+                                               remote=False,
+                                               remote_peer=None)
 
-                        self.memserver.block_generation_age = get_timestamp_seconds()
+                            self.memserver.block_generation_age = get_timestamp_seconds()
 
-                        # same lost-update race as the drain above: snapshot-filter-reassign must be
-                        # atomic vs concurrent merge_transaction appends (mempool lock). Drops txs whose
-                        # max_block deadline has passed — an expired tx is NOT re-injected; the wallet
-                        # re-submits a fresh one on the user's action (Re-open), never silently.
-                        with self.memserver.mempool_lock:
-                            self.memserver.transaction_pool = remove_outdated_transactions(
-                                self.memserver.transaction_pool.copy(),
-                                self.memserver.latest_block["block_number"])
+                            # same lost-update race as the drain above: snapshot-filter-reassign must be
+                            # atomic vs concurrent merge_transaction appends (mempool lock). Drops txs whose
+                            # max_block deadline has passed — an expired tx is NOT re-injected; the wallet
+                            # re-submits a fresh one on the user's action (Re-open), never silently.
+                            with self.memserver.mempool_lock:
+                                self.memserver.transaction_pool = remove_outdated_transactions(
+                                    self.memserver.transaction_pool.copy(),
+                                    self.memserver.latest_block["block_number"])
                     else:
                         self.logger.warning("No eligible bonded producer this round; skipping production")
 
