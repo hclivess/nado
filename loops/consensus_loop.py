@@ -52,9 +52,11 @@ class ConsensusClient(threading.Thread):
         self.block_hash_pool = {}
         self.status_pool = {}
         self.transaction_hash_pool = {}
+        self.upcoming_block_hash_pool = {}   # peer -> advertised NEXT-block tx-set hash (the determinism signal)
 
         self.majority_block_hash = None
         self.majority_transaction_pool_hash = None
+        self.majority_upcoming_block_hash = None
 
         # #16/#17 step 3: OBJECTIVE heaviest-cumulative_weight fork-choice (replaces the Sybil-swingable
         # plurality majority_block_hash for the BLOCK chain). Peer IPs contribute ZERO weight; only the
@@ -73,6 +75,7 @@ class ConsensusClient(threading.Thread):
         self._reject_clear_counter = 0
 
         self.transaction_hash_pool_percentage = 0
+        self.upcoming_block_hash_pool_percentage = 0
         self.block_hash_pool_percentage = 0
 
     def refresh_hashes(self):
@@ -86,6 +89,9 @@ class ConsensusClient(threading.Thread):
         get_from_pool(source="latest_block_hash",
                       target=self.block_hash_pool,
                       pool=self.status_pool)
+        get_from_pool(source="upcoming_block_hash",
+                      target=self.upcoming_block_hash_pool,
+                      pool=self.status_pool)
 
         # majorities FIRST, percentages second: computing the percentages against the previous
         # pass's majority graded the OLD winner for one pass after every majority flip (the
@@ -94,6 +100,12 @@ class ConsensusClient(threading.Thread):
         self.majority_transaction_pool_hash = get_pool_majority(
             self.transaction_hash_pool
         )
+        # UPCOMING-BLOCK agreement: the plurality NEXT-block tx-set hash across peers at our tip. This is
+        # what block determinism / the fast-forward actually depend on — the mempool reconcile targets THIS
+        # (not the whole-pool hash), so nodes converge on the next block's content, ignoring immature/future
+        # txs that won't be in it. Cross-tip peers advertise a different-height hash and simply don't form a
+        # majority with us (safe: no spurious reconcile), so this only bites when same-tip peers disagree.
+        self.majority_upcoming_block_hash = get_pool_majority(self.upcoming_block_hash_pool)
 
         self.block_hash_pool_percentage = get_pool_percentage(
             self.block_hash_pool, self.majority_block_hash
@@ -101,6 +113,10 @@ class ConsensusClient(threading.Thread):
 
         self.transaction_hash_pool_percentage = get_pool_percentage(
             self.transaction_hash_pool, self.majority_transaction_pool_hash
+        )
+
+        self.upcoming_block_hash_pool_percentage = get_pool_percentage(
+            self.upcoming_block_hash_pool, self.majority_upcoming_block_hash
         )
 
         self.refresh_heaviest_tip()
@@ -155,6 +171,7 @@ class ConsensusClient(threading.Thread):
                 start = get_timestamp_seconds()
 
                 self.memserver.transaction_pool_hash = self.memserver.get_transaction_pool_hash()
+                self.memserver.upcoming_block_hash = self.memserver.get_upcoming_block_hash()
 
                 self.refresh_hashes()
 

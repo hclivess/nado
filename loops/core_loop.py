@@ -193,16 +193,19 @@ class CoreClient(threading.Thread):
                         buffer=self.memserver.transaction_pool,
                         limit=self.memserver.transaction_pool_max_bytes)
 
-            # CONSENSUS MEMPOOL RECONCILE — at most once per block interval: if our pool hash is in the
-            # minority vs peers, replace it (last-effort convergence). Time-gated (replaces the old
-            # period-2 + replaced_this_round flag dance).
+            # CONSENSUS MEMPOOL RECONCILE — at most once per block interval: converge toward the peer
+            # majority. Keyed on the UPCOMING-BLOCK hash (the mature next-block tx set), NOT the whole-pool
+            # hash, so we only reconcile when the NEXT BLOCK would actually differ — immature/future txs
+            # that won't be in it no longer trigger pointless unions. Convergence still UNIONS the peer's
+            # full pool (replace_transaction_pool), which fixes the missing mature tx. Time-gated.
             now = get_timestamp_seconds()
             if now - self._last_reconcile >= self.memserver.block_time:
                 self._last_reconcile = now
-                if minority_consensus(majority_hash=self.consensus.majority_transaction_pool_hash,
-                                      sample_hash=self.memserver.transaction_pool_hash):
+                if minority_consensus(majority_hash=self.consensus.majority_upcoming_block_hash,
+                                      sample_hash=self.memserver.upcoming_block_hash):
                     self.replace_transaction_pool()
                     self.memserver.transaction_pool_hash = self.memserver.get_transaction_pool_hash()
+                    self.memserver.upcoming_block_hash = self.memserver.get_upcoming_block_hash()
 
             # PERIODIC DUTIES, throttled to once per NEW BLOCK (audit): they depend only on chain
             # state (epoch windows, registries, balances), which changes exactly when the tip
@@ -1566,6 +1569,7 @@ class CoreClient(threading.Thread):
         self.memserver.transaction_pool_hash = (
             self.memserver.get_transaction_pool_hash()
         )
+        self.memserver.upcoming_block_hash = self.memserver.get_upcoming_block_hash()
 
     def check_mode(self):
         """Decide the next pass's mode: emergency (sync/reorg) when the objective fork-choice says a

@@ -132,6 +132,9 @@ class MessageClient(threading.Thread):
                 self.logger.debug(
                     f"Tx hash agreement: {int(self.consensus.transaction_hash_pool_percentage)}%")
                 self.logger.debug(
+                    f"Upcoming-block agreement: {int(self.consensus.upcoming_block_hash_pool_percentage)}% "
+                    f"(next-block tx set — what the fast-forward depends on)")
+                self.logger.debug(
                     f"Latest hash: {self.memserver.latest_block['block_hash']}")
                 self.logger.debug(
                     f"Purge queue: {len(self.memserver.purge_peers_list)} · "

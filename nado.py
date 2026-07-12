@@ -180,6 +180,7 @@ async def status(request):
             "reported_uptime": memserver.reported_uptime,
             "address": memserver.address,
             "transaction_pool_hash": memserver.transaction_pool_hash,
+            "upcoming_block_hash": memserver.upcoming_block_hash,
             "latest_block_hash": lb.get("block_hash"),
             "latest_block_weight": lb.get("cumulative_weight", 0),
             "earliest_block_hash": eb.get("block_hash"),
