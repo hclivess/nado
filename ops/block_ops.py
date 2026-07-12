@@ -14,7 +14,7 @@ from . import kv_ops
 from .mining_ops import (select_producer_two_lane, lane_of, epoch_of, compute_beacon,
                          total_bonded_shares, block_fork_weight, beacon_commitment)
 from protocol import (CHAIN_ID, REWARD_WINDOW, BASE_SUBSIDY, GENESIS_BEACON, EPOCH_LENGTH,
-                      B_MIN, TREASURY_GENESIS, BOND_ELASTIC_MULT_BPS)
+                      B_MIN, TREASURY_GENESIS, BOND_ELASTIC_MULT_BPS, BLOCK_TIMESTAMP_DRIFT)
 import zstandard as zstd
 
 # Block bodies are stored as zstd(msgpack(block)) (#14): msgpack is a compact portable container,
@@ -117,12 +117,15 @@ def get_block_reward(parent_block=None):
 
 
 def valid_block_timestamp(new_block):
-    """Consensus gate: a block's timestamp may never lie in the FUTURE of the local clock. That is
-    the ONLY timestamp rule — block_timestamp sits OUTSIDE the hash preimage (construct_block hashes
-    it as None), so a producer can stamp wall-clock without changing the block hash, and nodes with
-    slightly-skewed clocks still agree on validity of anything already in the past."""
+    """Consensus gate: a block's timestamp may lie at most BLOCK_TIMESTAMP_DRIFT seconds in the
+    FUTURE of the local clock. That is the ONLY timestamp rule — block_timestamp sits OUTSIDE the
+    hash preimage (construct_block hashes it as None), so a producer can stamp wall-clock without
+    changing the block hash. The drift window exists because clocks skew between HONEST nodes: with
+    zero tolerance, a producer 1 s ahead of a validator got its block rejected, and the production
+    clamp (max(now, parent_ts)) propagated one fast clock's stamp to every following producer —
+    "Invalid block timestamp" with no attacker anywhere."""
     new_timestamp = new_block["block_timestamp"]
-    if new_timestamp > get_timestamp_seconds():
+    if new_timestamp > get_timestamp_seconds() + BLOCK_TIMESTAMP_DRIFT:
         return False
     else:
         return True

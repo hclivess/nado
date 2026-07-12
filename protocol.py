@@ -20,6 +20,15 @@ DENOMINATION = 10_000_000_000  # 1e10
 
 GENESIS_TIMESTAMP = 1783645200  # 2026-07-10 01:00 UTC — alphanet-3 (target_block -> max_block rename + generous tx TTL)
 
+# Clock-skew allowance for block timestamps: a block may be stamped up to this many seconds in the
+# FUTURE of the local clock and still validate. Zero tolerance rejected honest blocks whenever the
+# producer's clock ran even 1 s ahead of a validator's — and the producer-side monotonic clamp
+# (block_timestamp = max(now, parent_ts)) then PROPAGATED one fast clock's stamp to every following
+# honest producer, so well-clocked nodes kept logging "Invalid block timestamp" with no attacker in
+# sight. Bounded abuse: timestamps aren't hashed, but validation caps them at now+DRIFT, so a lying
+# relay can push chain time at most this far ahead of real time (it can't compound block over block).
+BLOCK_TIMESTAMP_DRIFT = 30
+
 # --- Reserved, keyless protocol pseudo-addresses (no private key) ---
 # "bond"/"unbond": pseudo-recipients used by the bonding transactions (see S4).
 # (The "burn" mechanic was removed entirely: no burn address, no burned counter, no
