@@ -167,37 +167,34 @@
     <div id="myBetsList"><span class="dim">You haven't placed a bet yet.</span></div>
   </div>
 
-  <!-- ORACLE / ADMIN PANEL -->
+  <!-- CREATE A MARKET (permissionless) -->
   <div class="card oracle hidden" id="oraclePanel">
-    <h2>🔮 Oracle console</h2>
-    <p class="small dim">You hold an oracle/admin key. List a match for betting; results are posted from the <b>Match</b> view once it ends.</p>
-    <label class="mt">Match title</label>
+    <h2>➕ Create a market</h2>
+    <p class="small dim">Anyone can list a market — a match, a fight, any yes/no question. <b>You choose who resolves it:</b> leave the resolver blank to settle it yourself, or name a set of addresses and require M-of-N agreement. Bettors are always protected by the deadline → refund.</p>
+    <label class="mt">Title</label>
     <input id="cmTitle" placeholder="e.g. Arsenal vs Chelsea" autocomplete="off">
-    <label class="mt">Outcomes (one per line — e.g. Arsenal / Draw / Chelsea)</label>
+    <label class="mt">Outcomes (comma- or line-separated)</label>
     <input id="cmLabels" placeholder="Arsenal, Draw, Chelsea" autocomplete="off">
     <div class="row mt">
-      <div><label>Source</label><select id="cmSource"></select></div>
-      <div><label>Event id (source's own)</label><input id="cmEvent" placeholder="e.g. 133602" autocomplete="off"></div>
+      <div><label>Source (optional)</label><select id="cmSource"></select></div>
+      <div><label>Event id (if a source)</label><input id="cmEvent" placeholder="e.g. 133602" autocomplete="off"></div>
     </div>
     <div class="row mt">
       <div><label>Betting closes in (minutes)</label><input id="cmCloseMin" value="60" inputmode="numeric" autocomplete="off"></div>
       <div><label>Auto-void after (hours)</label><input id="cmVoidHrs" value="24" inputmode="numeric" autocomplete="off"></div>
     </div>
-    <button class="primary mt" id="btnCreate" style="width:100%">List match for betting</button>
+    <label class="mt">Resolver address(es) — blank = you resolve it (up to 3, comma-separated)</label>
+    <input id="cmResolvers" class="mono" placeholder="ndo… , ndo… , ndo…" autocomplete="off">
+    <label class="mt">Threshold (M-of-N — how many resolvers must agree)</label>
+    <input id="cmThreshold" placeholder="1" inputmode="numeric" autocomplete="off" style="max-width:160px">
+    <button class="primary mt" id="btnCreate" style="width:100%">Create market</button>
 
-    <div class="divlabel">Configuration</div>
-    <div class="kv"><span class="k">Oracle keys · threshold</span><span class="mono" id="cfgLine">—</span></div>
-    <div class="row mt">
-      <input id="srcName" placeholder="add source (e.g. thesportsdb)" autocomplete="off">
-      <button class="ghost" id="btnAddSource" style="flex:0 0 auto">Add source</button>
-    </div>
-    <div class="row mt" id="adminOnly">
-      <input id="orcAddr" placeholder="oracle address (ndo…)" autocomplete="off" class="mono">
-      <button class="ghost" id="btnAddOracle" style="flex:0 0 auto">Add oracle</button>
-    </div>
-    <div class="row mt" id="thrRow">
-      <input id="thrVal" placeholder="threshold (M-of-N)" inputmode="numeric" autocomplete="off">
-      <button class="ghost" id="btnSetThreshold" style="flex:0 0 auto">Set threshold</button>
+    <div id="adminCfg" class="hidden">
+      <div class="divlabel">Admin — public source registry</div>
+      <div class="row mt">
+        <input id="srcName" placeholder="add source (e.g. thesportsdb)" autocomplete="off">
+        <button class="ghost" id="btnAddSource" style="flex:0 0 auto">Add source</button>
+      </div>
     </div>
   </div>
 

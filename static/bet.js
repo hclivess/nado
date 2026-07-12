@@ -20,6 +20,10 @@ let lastSto = null, activeMarket = null, selOutcome = null;
 const cfg = (sto, k) => _m(sto, "cfg")[k];
 const isOracle = (sto) => !!dapp.me && Number(_m(sto, "orc")[dapp.me] || 0) === 1;
 const isAdmin  = (sto) => !!dapp.me && dapp.me === cfg(sto, "admin");
+// may the signed-in user resolve market m? — a named resolver of THIS market, or the admin for a
+// legacy (resolver-less) market. Mirrors the contract's resolve/void gate.
+const canResolveMkt = (sto, m) => !!dapp.me && (Number(_m(sto, "mres")[m + "|" + dapp.me] || 0) === 1
+  || (Number(_m(sto, "mrc")[m] || 0) === 0 && dapp.me === cfg(sto, "admin")));
 const sourcesOf = (sto) => { const s = _m(sto, "src"), n = Number(cfg(sto, "srcN") || 0), out = []; for (let i = 0; i < n; i++) if (s[i]) out.push(s[i]); return out; };
 
 function parseMarket(sto, id) {
@@ -88,21 +92,23 @@ function createMarket() {
   const source = $("cmSource").value || "";
   const ev = ($("cmEvent").value || "").trim();
   const closeMin = parseFloat($("cmCloseMin").value) || 0, voidHrs = parseFloat($("cmVoidHrs").value) || 0;
-  if (!title) return set("Give the match a title.");
+  // resolver set: up to 3 addresses (comma/space/line separated); blank -> you resolve it yourself
+  const resolvers = ($("cmResolvers").value || "").split(/[\n,\s]+/).map((s) => s.trim()).filter(Boolean).slice(0, 3);
+  const thr = parseInt($("cmThreshold").value, 10) || 0;
+  if (!title) return set("Give the market a title.");
   if (labels.length < 2) return set("List at least two outcomes (comma- or line-separated).");
-  if (!source) return set("Add and pick a source first.");
   if (closeMin <= 0) return set("Betting must close in a positive number of minutes.");
+  if (thr && resolvers.length && thr > resolvers.length) return set("Threshold can't exceed the number of resolvers.");
   if (dapp.cursor == null) return set("Chain height unknown — try again in a moment.");
   const lock = Math.round(dapp.cursor + closeMin * BPM);
   const deadline = Math.round(lock + Math.max(voidHrs, 0.5) * 60 * BPM);
   const id = randId();
   const desc = [title].concat(labels).join("\n");
-  dapp.call("create_market", [id, labels.length, lock, deadline, desc, source, ev], null,
-            "list “" + title + "” for betting", { market: id, phase: "create" });
+  const r = resolvers.concat(["", "", ""]);
+  dapp.call("create_market", [id, labels.length, lock, deadline, desc, source, ev, thr, r[0], r[1], r[2]], null,
+            "list “" + title + "”", { market: id, phase: "create" });
 }
 const addSource = () => { const n = ($("srcName").value || "").trim(); if (!n) return set("Enter a source name."); dapp.call("add_source", [n], null, "add source " + n, { phase: "src" }); };
-const addOracle = () => { const a = ($("orcAddr").value || "").trim(); if (!a) return set("Enter an oracle address."); dapp.call("set_oracle", [a, 1], null, "add oracle " + disp(a), { phase: "orc" }); };
-const setThreshold = () => { const m = parseInt($("thrVal").value, 10); if (!m || m < 1) return set("Enter a threshold ≥ 1."); dapp.call("set_threshold", [m], null, "require " + m + "-of-N oracles", { phase: "thr" }); };
 const set = (m) => { $("status").textContent = m; };
 
 // ---- refresh + render ----------------------------------------------------------------------------
@@ -195,7 +201,7 @@ function render() {
   const rank = { open: 0, locked: 1, resolved: 2, void: 3 };
   mkts.sort((a, b) => (rank[a.status] - rank[b.status]) || (a.lock - b.lock) || (b.id - a.id));
   $("marketsList").innerHTML = mkts.length ? mkts.map(marketCard).join("")
-    : '<span class="dim">No matches listed yet' + (isOracle(sto) ? " — list one in the Oracle console below." : ", check back soon.") + "</span>";
+    : '<span class="dim">No matches listed yet' + (signedIn ? " — create one below." : ", check back soon.") + "</span>";
   $("marketsList").querySelectorAll(".mkt").forEach((el) => el.onclick = () => selectMarket(el.dataset.m));
 
   // my bets
@@ -215,13 +221,13 @@ function render() {
   const srcs = sourcesOf(sto);
   $("sourcesList").innerHTML = srcs.length ? srcs.map((s) => '<span class="b dimb" style="margin:0 4px 4px 0;display:inline-block">' + esc(s) + "</span>").join("")
     : '<span class="dim">none configured yet</span>';
-  const oracle = isOracle(sto), admin = isAdmin(sto);
-  gate({ oraclePanel: oracle });
-  if (oracle) {
-    $("cmSource").innerHTML = srcs.length ? srcs.map((s) => '<option>' + esc(s) + "</option>").join("")
-      : '<option value="">— add a source first —</option>';
-    $("cfgLine").textContent = (cfg(sto, "oc") || 1) + " key(s) · " + (cfg(sto, "thr") || 1) + "-of-N";
-    gate({ adminOnly: admin, thrRow: admin });
+  const admin = isAdmin(sto);
+  gate({ oraclePanel: signedIn });   // creating a market is PERMISSIONLESS — anyone signed in can list one
+  if (signedIn) {
+    // source is optional: pick a registered public source (auto-resolvable) or leave it self-resolved
+    $("cmSource").innerHTML = '<option value="">— none / I\'ll resolve it —</option>'
+      + srcs.map((s) => '<option>' + esc(s) + "</option>").join("");
+    gate({ adminCfg: admin });   // add-source is protocol config, admin only
   }
   renderActive(sto);
 }
@@ -289,10 +295,11 @@ function renderActive(sto) {
     cr.innerHTML = '<div class="small dim">You already collected from this match.</div>';
   }
 
-  // oracle controls
-  const oracle = isOracle(sto);
-  gate({ oracleControls: oracle && (mk.status === "locked" || mk.status === "open") });
-  if (oracle && (mk.status === "locked" || mk.status === "open")) {
+  // resolve/void controls — shown to anyone who may resolve THIS market (its named resolvers, or the
+  // admin for a legacy market)
+  const canRes = canResolveMkt(sto, mk.id);
+  gate({ oracleControls: canRes && (mk.status === "locked" || mk.status === "open") });
+  if (canRes && (mk.status === "locked" || mk.status === "open")) {
     const canResolve = mk.status === "locked";
     $("resolveOutcomes").innerHTML = mk.labels.map((lab, i) =>
       '<button class="out" data-o="' + i + '"' + (canResolve ? "" : " disabled") + '><div class="lab">' + esc(lab) + " won</div></button>").join("");
@@ -310,9 +317,7 @@ function wireUI() {
   // shared SDK stake slider: the stake input + a 0–100% slider + Max, bound to your playable balance
   dapp.wireStakeSlider(() => dapp.exec, () => { if (lastSto) renderActive(lastSto); });
   $("btnCreate").onclick = createMarket;
-  $("btnAddSource").onclick = addSource;
-  $("btnAddOracle").onclick = addOracle;
-  $("btnSetThreshold").onclick = setThreshold;
+  if ($("btnAddSource")) $("btnAddSource").onclick = addSource;
   $("btnShare").onclick = () => share(base() + "/?market=" + activeMarket, "Bet on this match on NADO:", $("btnShare"));
 }
 dapp.onReturn((pend, ok, err) => {

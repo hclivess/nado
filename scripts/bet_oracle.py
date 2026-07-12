@@ -33,10 +33,11 @@ from ops.key_ops import load_keys
 from protocol import MIN_TX_FEE
 
 BET_CID = "fe303d9880c8222dcf3b9953eb86a0fa"   # execnode/contracts/bet.json (nonce "bet-v1")
-# Major soccer leagues to seed matches from (TheSportsDB league ids). 1X2 (home/draw/away) markets.
+# Major soccer competitions to seed matches from (TheSportsDB league ids). 1X2 (home/draw/away) markets.
 # Override with --leagues "4328,4335,…". All soccer, so the 3-outcome shape is always right.
-DEFAULT_LEAGUES = ["4328", "4335", "4332", "4331", "4334", "4480", "4346", "4337"]
-# EPL · La Liga · Serie A · Bundesliga · Ligue 1 · UEFA Champions League · MLS · Eredivisie
+DEFAULT_LEAGUES = ["4429", "4481", "4480", "4328", "4335", "4332", "4331", "4334", "4346", "4337"]
+# FIFA World Cup · UEFA Europa League · UEFA Champions League · EPL · La Liga · Serie A · Bundesliga
+# · Ligue 1 · MLS · Eredivisie   (internationals first so World Cup / continental ties show up)
 
 
 def _get(url, timeout=15):
@@ -188,6 +189,9 @@ def main():
 
     if args.action == "fill":
         keys = load_keys()
+        # official markets name THIS oracle key as their sole resolver (threshold 1); users who create
+        # their own markets from the UI name their own resolver set instead.
+        resolver = keys["address"]
         now = int(time.time())
         tip = int(_get(f"{args.l1}/get_latest_block")["block_number"])
         spb = secs_per_block(args.l1)
@@ -223,7 +227,7 @@ def main():
                 created += 1
                 tag = f"{e.get('strLeague', '?')}, kickoff {e.get('strTimestamp', '?')}Z"
                 if args.submit:
-                    txid, msg = submit(args.l1, "create_market", [mid, 3, lock, deadline, desc, "thesportsdb", ev], keys, args.fee)
+                    txid, msg = submit(args.l1, "create_market", [mid, 3, lock, deadline, desc, "thesportsdb", ev, 1, resolver, "", ""], keys, args.fee)
                     print(f"  + {mid}  {title}  ({tag}) -> {msg}")
                 else:
                     print(f"  [dry] {mid}  {title}  ({tag}, lock +{int(lead / spb)} blk)")
