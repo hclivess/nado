@@ -127,24 +127,16 @@ async function refreshActive() {
       haveState = true;
       try { if (!engine._corrupt) localStorage.setItem(LS_POS + activeGame, engine.fen()); } catch (e) {}
     }
-    if (watch) {   // resolve the transient green #status line once the action lands on-chain (or give up gracefully)
-      const g = gameFrom(sto, watch.game);
-      const done =
-        watch.phase === "open"   ? g.exists :
-        watch.phase === "join"   ? g.nn === 2 :
-        watch.phase === "move"   ? g.mc > watch.ply :
-        watch.phase === "cancel" ? !g.exists :
-        /* resign, agree, abort */ (g.settled || !g.exists);
-      if (done) {
-        $("status").textContent = { open: "✓ Game is on-chain — share the invite below.", join: "✓ You're in — the game is live.",
-          move: "✓ Move landed.", resign: "✓ Resigned — result recorded.", agree: "✓ Result recorded.",
-          abort: "✓ Refunded.", cancel: "✓ Cancelled — stake refunded." }[watch.phase] || "✓ Confirmed.";
-        watch = null;
-      } else if (Date.now() - watch.ts > 75000) {
-        $("status").textContent = "Still settling on-chain — your move and funds are safe; the board updates by itself.";
-        watch = null;
-      }
-    }
+    // resolve the transient #status line once the action lands on-chain (SDK also covers the tip-advance
+    // + 3-min fallbacks). Predicate reads live game state; sto is captured from this scope.
+    dapp.settleInflight((f) => {
+      const g = gameFrom(sto, f.game);
+      return f.phase === "open" ? g.exists
+        : f.phase === "join" ? g.nn === 2
+        : f.phase === "move" ? g.mc > (f.ply || 0)
+        : f.phase === "cancel" ? !g.exists
+        : (g.settled || !g.exists);   // resign, agree, abort
+    });
     renderLobby(sto);
   }
   await resolveAliases([dapp.me].concat(lastGame ? [lastGame.white, lastGame.black] : []));
@@ -337,19 +329,19 @@ function startReplay() {
   engine = new Chess(); renderBoard(); setTimeout(step, 400);
 }
 const replayInvite = (id) => { activeGame = parseInt(id, 10); const j = $("joinId"); if (j) j.value = String(activeGame); joinGame(); };
-let watch = null;   // the submitted action we're waiting to confirm on-chain (clears the green #status line)
+const CH_CONFIRMING = { connect: "Signed in.", deposit: "Deposit submitted — confirming…", open: "Game opening — confirming…",
+  join: "Joining — confirming…", move: "Move submitted — confirming…", resign: "Resigning — confirming…",
+  agree: "Submitting…", abort: "Claiming refund…", cancel: "Cancelling…", withdraw: "Withdrawal submitted." };
+const CH_DONE = { open: "✓ Game is on-chain — share the invite below.", join: "✓ You're in — the game is live.",
+  move: "✓ Move landed.", resign: "✓ Resigned — result recorded.", agree: "✓ Result recorded.",
+  abort: "✓ Refunded.", cancel: "✓ Cancelled — stake refunded." };
+dapp.doneLabels(CH_DONE);
 dapp.onReturn((pend, ok, err) => {
   nudgeJoin = !!(ok && pend && pend.phase === "connect");
-  const label = { connect: "Signed in.", deposit: "Deposit submitted — confirming…", open: "Game opening — confirming…",
-    join: "Joining — confirming…", move: "Move submitted — confirming…", resign: "Resigning — confirming…",
-    agree: "Submitting…", abort: "Claiming refund…", cancel: "Cancelling…", withdraw: "Withdrawal submitted." }[pend && pend.phase] || "Submitted.";
   if (pend && pend.game != null) activeGame = pend.game;
   if (ok && pend && (pend.phase === "connect" || pend.phase === "deposit")) dapp.consumeInvite(replayInvite);
   if (!ok) pendingEnc = null;   // a rejected move must not linger optimistically
-  // arm the confirmation watch so this transient "…confirming" line resolves on-chain (or times out) instead
-  // of hanging forever — deposit/withdraw are self-watched by the SDK's balance poll.
-  if (ok && pend && ["open", "join", "move", "resign", "agree", "abort", "cancel"].includes(pend.phase)) watch = { phase: pend.phase, game: activeGame, ply: pend.ply || 0, ts: Date.now() };
-  $("status").textContent = ok ? label : "Rejected" + (err ? ": " + err : ".");
+  dapp.showReturn(pend, ok, err, CH_CONFIRMING);   // SDK owns the #status line + confirmation lifecycle
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
