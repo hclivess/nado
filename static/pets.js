@@ -855,7 +855,7 @@ function renderActive() {
   $("petName").textContent = p.label + (p.dead ? " ✝" : "");
   const coat = p.gene && an ? G.coatOf(p.gene, an) : null;
   $("petSpecies").innerHTML = p.hatched
-    ? an.e + " " + esc(coat.name) + " " + esc(an.n) + (coat.shiny ? ' <span style="color:#ffd35a">✦ shiny</span>' : "") + ' · <span class="dim">1 of 100 animals</span>' + (p.nm ? ' · <span class="dim">#' + p.id + "</span>" : "")
+    ? an.e + " " + esc(coat.name) + " " + esc(an.n) + (coat.shiny ? ' <span style="color:#ffd35a">✦ shiny</span>' : "") + ' · <span class="dim">1 of 107 animals</span>' + (p.nm ? ' · <span class="dim">#' + p.id + "</span>" : "")
     : "Unhatched egg";
   $("petOwner").innerHTML = esc(disp(p.owner)) + (p.mine ? ' <span class="b ok">yours</span>' : "");
   $("petLp").textContent = p.hatched ? "Lv " + p.level + " · ⚡ " + p.pw + " · " + recordOf(p) : "—";
@@ -1143,7 +1143,7 @@ function maybePlayHatch(p) {
     }
     const an = p.animal, coat = G.coatOf(p.gene, an);
     alertBar("🎉 It's a " + p.tier.rarity.toUpperCase() + " — " + coat.name + " " + an.e + " " + an.n
-      + (coat.shiny ? " ✦ SHINY" : "") + "! One of 100 possible animals — its species, coat and 10 abilities are all written into its gene, locked forever. Name it, feed it, train it.");
+      + (coat.shiny ? " ✦ SHINY" : "") + "! One of 107 possible animals across six rarity tiers — its species, coat and 10 abilities are all written into its gene, locked forever. Name it, feed it, train it.");
   }, t + 600);
   setTimeout(() => { hatchPlaying = false; render(); }, t + 2400);
 }

@@ -20,6 +20,8 @@ for (const v of V.hatches) {
   eq(`gene(${v.pid})`, gene, v.gene);
   const sp = G.speciesOf(gene);
   eq(`species(${v.pid})`, sp, v.sp);
+  eq(`si(${v.pid})`, G.speciesIdOf(gene, sp), v.si);
+  eq(`tierOfSi(${v.pid})`, G.tierOfSi(v.si), v.sp);      // roster band must agree with the tier roll
   eq(`stats(${v.pid})`, G.baseStats(gene, sp).join(","), v.stats.join(","));
   eq(`power(${v.pid})`, G.powerOf(gene, sp), v.pw);
 }

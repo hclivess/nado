@@ -9,8 +9,21 @@ def vm_hash(v):
     return int.from_bytes(hashlib.blake2b(json.dumps(v, sort_keys=True).encode(), digest_size=32).digest(), "big")
 
 def ref_gene(bh, b, pid):       return vm_hash(bh[b] + bh[b + 1] + pid)
-def ref_species(gene):          r = gene % 100; return 1 + (r >= 70) + (r >= 95)
-def ref_stat(gene, sp, i):      return vm_hash(gene + 1000 + i) % 60 + 1 + (sp - 1) * 15
+
+# ── rarity: SIX tiers on a geometric ~4.5x decay (Common..Omega). The tier roll is a fresh 100000-wide gene
+# slice, independent of the species pick, so odds are decoupled from how many animals live in each tier.
+# TIER_CUM = cumulative thresholds; sp = 1 + how many you clear. Odds: 78 / 17 / 3.9 / 0.85 / 0.21 / 0.04 %.
+TIER_CUM   = [78000, 95000, 98900, 99750, 99960]          # mod 100000
+TIER_BASE  = {1: 1, 2: 71, 3: 96, 4: 101, 5: 105, 6: 107}  # first si of each tier's roster band
+TIER_COUNT = {1: 70, 2: 25, 3: 5, 4: 4, 5: 2, 6: 1}        # animals in each tier (sum = 107)
+STAT_TIER_BONUS = 6                                         # +6/stat per tier (Elo-validated ~76% adjacent)
+
+def ref_tier(gene):
+    rt = vm_hash(gene + 555) % 100000
+    return 1 + sum(1 for t in TIER_CUM if rt >= t)
+def ref_species(gene):          return ref_tier(gene)   # legacy name: returns the TIER (sp) — callers use it as sp
+def ref_si(gene, sp):           return TIER_BASE[sp] + vm_hash(gene + 777) % TIER_COUNT[sp]
+def ref_stat(gene, sp, i):      return vm_hash(gene + 1000 + i) % 60 + 1 + (sp - 1) * STAT_TIER_BONUS
 def ref_power(gene, sp):        return sum(ref_stat(gene, sp, i) for i in range(10))
 def ref_train_roll(bh, th, pid, i): return vm_hash(bh[th] + bh[th + 1] + pid * 16 + i) % 100
 

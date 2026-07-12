@@ -16,11 +16,19 @@ export const STALE       = 18000;             // pending hash-bindings older tha
 export const DIE_PCT     = 10;                // battle loser's death chance, % (small — most losers are claimed)
 export const EXHAUST     = 3600;              // post-battle rest: both fighters sleep it off for 6h
 
-// rarity TIER (contract map `sp`, 1..3) — decides stats/training; r = gene%100: <70 common, <95 rare
+// rarity TIER (contract map `sp`, 1..6) — decides stats/training. A fresh 100000-wide gene slice on a
+// geometric ~4.5x decay (see speciesOf); +6/stat per tier so each step is a beatable ~76% edge and
+// investment can overcome a rarity gap. MUST mirror tests/pets_ref.py (TIER_CUM/BASE/COUNT + bonus).
+export const TIER_CUM   = [78000, 95000, 98900, 99750, 99960];   // cumulative tier thresholds (mod 100000)
+export const TIER_BASE  = { 1: 1, 2: 71, 3: 96, 4: 101, 5: 105, 6: 107 };  // first si of each tier's band
+export const TIER_COUNT = { 1: 70, 2: 25, 3: 5, 4: 4, 5: 2, 6: 1 };        // animals per tier (sum 107)
 export const TIERS = {
-  1: { rarity: "Common",    pct: 70, color: "#e3b341" },
-  2: { rarity: "Rare",      pct: 25, color: "#c86bfa" },
-  3: { rarity: "Legendary", pct: 5,  color: "#00c9a7" },
+  1: { rarity: "Common",    pct: 78,   color: "#e3b341" },
+  2: { rarity: "Rare",      pct: 17,   color: "#c86bfa" },
+  3: { rarity: "Legendary", pct: 3.9,  color: "#00c9a7" },
+  4: { rarity: "Epic",      pct: 0.85, color: "#ff6ec7" },
+  5: { rarity: "Mythic",    pct: 0.21, color: "#ffa23b" },
+  6: { rarity: "Omega",     pct: 0.04, color: "#45e0ff" },
 };
 export const STAT_NAMES = ["Strength", "Agility", "Vitality", "Intelligence", "Wisdom",
                            "Charisma", "Loyalty", "Luck", "Speed", "Appetite"];
@@ -41,7 +49,10 @@ export function geneOf(bh0Hex, bh1Hex, pid) {
   if (!bh0Hex || !bh1Hex) return null;
   return vmHash(hexInt(bh0Hex) + hexInt(bh1Hex) + BigInt(pid));
 }
-export function speciesOf(gene) { const r = gene % 100n; return 1 + (r >= 70n ? 1 : 0) + (r >= 95n ? 1 : 0); }
+// TIER (sp, 1..6) from a fresh 100000-wide gene slice — geometric odds 78/17/3.9/0.85/0.21/0.04 %.
+export function speciesOf(gene) { const rt = Number(vmHash(gene + 555n) % 100000n); return 1 + TIER_CUM.filter((t) => rt >= t).length; }
+// species id si — the animal WITHIN the tier's roster band (independent gene slice). Matches ref_si.
+export function speciesIdOf(gene, sp) { return TIER_BASE[sp] + Number(vmHash(gene + 777n) % BigInt(TIER_COUNT[sp])); }
 
 // ---- the 100-animal roster ---------------------------------------------------------------------------
 // Species id si = gene%100 + 1 (stored on-chain at hatch; 0 = a legacy pet hatched before the roster).
@@ -154,9 +165,20 @@ export const ANIMALS = [
   A("Kraken", "🐙", "octo", "teal", { big: 1, glow: 1 }),
   A("Unicorn", "🦄", "quad", "white", { ears: "point", horn: 1, mane: 1, tail: "hair" }),
   A("Star Whale", "🐋", "whale", "purple", { stars: 1 }),
+  // ---- epics (si 101..104, ~0.85% total) — mythological beasts, drawn on existing bodies with a premium
+  //      palette + the epic aura (auraOf); the tier, not the art, is what makes them rare ----
+  A("Griffin", "🦅", "bird", "gold", { crest: 1, tufts: 1, chest: "#f2e2b0" }),
+  A("Cerberus", "🐺", "quad", "night", { ears: "point", mask: 1, chest: 1, tail: "fluff" }),
+  A("Basilisk", "🐍", "snake", "purple", { crest: 1 }),
+  A("Manticore", "🦁", "quad", "red", { ears: "point", mane: 1, horns: 1, tail: "fluff" }),
+  // ---- mythics (si 105..106, ~0.21% total) ----
+  A("Leviathan", "🐋", "whale", "teal", { stars: 1, big: 1 }),
+  A("Seraph", "🕊️", "bird", "white", { crest: 1, flame: 1, tufts: 1 }),
+  // ---- omega (si 107, ~0.04% — 1 in ~2400 hatches) ----
+  A("Ouroboros", "🐉", "dragon", "dragon", { glow: 1 }),
 ];
-// tier of a species id (1-based si): matches the contract's r-thresholds exactly
-export const tierOfSi = (si) => si <= 70 ? 1 : si <= 95 ? 2 : 3;
+// tier of a species id (1-based si): matches the contract's roster bands (TIER_BASE/TIER_COUNT) exactly
+export const tierOfSi = (si) => si <= 70 ? 1 : si <= 95 ? 2 : si <= 100 ? 3 : si <= 104 ? 4 : si <= 106 ? 5 : 6;
 // the animal an on-chain pet renders as: si>0 -> roster entry; si==0 (legacy, pre-roster) -> the OG three
 const LEGACY = { 1: 0, 2: 70, 3: 95 };   // sp tier -> roster index of Poodle / African Grey / Dragon
 export const animalOf = (si, sp) => ANIMALS[si > 0 ? si - 1 : (LEGACY[sp] ?? 0)];
@@ -279,9 +301,12 @@ export function coatOf(gene, animal) {
   const shiny = vmHash(gene + 9000n) % 16n === 0n;   // ~6.25% shiny (extra shimmer, cosmetic)
   return { ...palette[idx], idx, shiny };
 }
-// rarity visual tier: 1 subtle, 2 purple glow, 3 legendary aura (+shiny stacks on top)
-export const auraOf = (sp, shiny) => ({ 1: shiny ? "shiny" : "", 2: shiny ? "rare shiny" : "rare", 3: shiny ? "legend shiny" : "legend" }[sp] || "");
-export function statOf(gene, sp, i) { return Number(vmHash(gene + 1000n + BigInt(i)) % 60n) + 1 + (sp - 1) * 15; }
+// rarity visual tier: 1 subtle, 2 rare glow, 3 legend aura, 4 epic, 5 mythic, 6 omega (+shiny stacks on top)
+export const auraOf = (sp, shiny) => {
+  const base = { 1: "", 2: "rare", 3: "legend", 4: "epic", 5: "mythic", 6: "omega" }[sp] || "";
+  return shiny ? (base ? base + " shiny" : "shiny") : base;
+};
+export function statOf(gene, sp, i) { return Number(vmHash(gene + 1000n + BigInt(i)) % 60n) + 1 + (sp - 1) * 6; }
 export function baseStats(gene, sp) { return STAT_NAMES.map((_n, i) => statOf(gene, sp, i)); }
 export function powerOf(gene, sp) { return baseStats(gene, sp).reduce((a, b) => a + b, 0); }
 

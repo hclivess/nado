@@ -76,9 +76,11 @@ S = "S"                     # scratch register map (per-call temporaries, fully 
 #   battles keyed by battleId: wa petA  wb petB  ws stake  wp pot  wh resolveBlock  wn state(1 open,
 #   2 accepted, 3 done)  ww winnerPet  wd diedPet(0 none)      ct: "n" -> total pets minted
 def stat_base_ops(i_ops):
-    """base stat for stat-index produced by i_ops: HASH(gn+1000+i)%60 + 1 + (sp-1)*15   (needs ARG0=pid)."""
+    """base stat for stat-index produced by i_ops: HASH(gn+1000+i)%60 + 1 + (sp-1)*6   (needs ARG0=pid).
+    +6/tier (was +15): six tiers now span the power range the old three did, so each rarity step is the
+    Elo-ladder-standard ~76% edge (beatable), and training can overcome a rarity gap — see pets_ref."""
     return [A(0), LD("gn"), P(1000), ADD, *i_ops, ADD, HASH, P(60), MOD, P(1), ADD,
-            A(0), LD("sp"), P(1), SUB, P(15), MUL, ADD]
+            A(0), LD("sp"), P(1), SUB, P(6), MUL, ADD]
 
 BURN = "burn"   # the dead sink: PAYing here moves NADO to a bridge key NO wallet can ever sign for (not a
                 # valid ndo… address), so mint/food/training fees are burned — publicly tallied, gone forever.
@@ -103,18 +105,45 @@ hatch_m = [                                       # hatch(pid) — permissionles
   # browser (gs): storage rides to the client as JSON, where a bare 256-bit number would lose precision.
   A(0), A(0), LD("bh"), BLOCKHASH, A(0), LD("bh"), P(1), ADD, BLOCKHASH, ADD, A(0), ADD, HASH, ST("gn"),
   A(0), P(""), A(0), LD("gn"), CONCAT, ST("gs"),
-  # rarity tier sp = 1 + (r>=70) + (r>=95),  r = gene % 100  (all stat/training math keys off the TIER)
-  A(0), A(0), LD("gn"), P(100), MOD, DUP, P(70), GTE, SWAP, P(95), GTE, ADD, P(1), ADD, ST("sp"),
-  # species id si = r + 1 (1..100, 0 = legacy pet hatched before the 100-animal roster) — purely cosmetic:
-  # the client maps it to one of 100 animals (70 common, 25 rare, 5 legendary); tier still decides stats.
-  A(0), A(0), LD("gn"), P(100), MOD, P(1), ADD, ST("si"),
+  # rarity TIER sp (1..6): a fresh 100000-wide gene slice on a geometric ~4.5x decay, INDEPENDENT of the
+  # species pick (so odds decouple from how many animals live in a tier). Store the roll in scratch S, then
+  # sp = 1 + Σ(rt >= threshold). Thresholds MUST equal pets_ref.TIER_CUM. Odds 78/17/3.9/0.85/0.21/0.04 %.
+  A(0), A(0), LD("gn"), P(555), ADD, HASH, P(100000), MOD, ST(S),
+  A(0), P(1),
+  A(0), LD(S), P(78000), GTE, ADD,
+  A(0), LD(S), P(95000), GTE, ADD,
+  A(0), LD(S), P(98900), GTE, ADD,
+  A(0), LD(S), P(99750), GTE, ADD,
+  A(0), LD(S), P(99960), GTE, ADD,
+  ST("sp"),
+  # species id si = TIER_BASE[sp] + HASH(gn+777) % TIER_COUNT[sp] — the animal within the tier's roster band.
+  # base/count are piecewise-linear in sp via (sp>=k) flags (MUST equal pets_ref.TIER_BASE / TIER_COUNT):
+  #   count = 70 - 45*(sp>=2) - 20*(sp>=3) - 1*(sp>=4) - 2*(sp>=5) - 1*(sp>=6)  -> 70,25,5,4,2,1
+  #   base  =  1 + 70*(sp>=2) + 25*(sp>=3) +  5*(sp>=4) + 4*(sp>=5) + 2*(sp>=6)  ->  1,71,96,101,105,107
+  A(0),
+  P(70),
+  A(0), LD("sp"), P(2), GTE, P(45), MUL, SUB,
+  A(0), LD("sp"), P(3), GTE, P(20), MUL, SUB,
+  A(0), LD("sp"), P(4), GTE, P(1),  MUL, SUB,
+  A(0), LD("sp"), P(5), GTE, P(2),  MUL, SUB,
+  A(0), LD("sp"), P(6), GTE, P(1),  MUL, SUB,
+  ST(S),
+  A(0),
+  P(1),
+  A(0), LD("sp"), P(2), GTE, P(70), MUL, ADD,
+  A(0), LD("sp"), P(3), GTE, P(25), MUL, ADD,
+  A(0), LD("sp"), P(4), GTE, P(5),  MUL, ADD,
+  A(0), LD("sp"), P(5), GTE, P(4),  MUL, ADD,
+  A(0), LD("sp"), P(6), GTE, P(2),  MUL, ADD,
+  A(0), LD("gn"), P(777), ADD, HASH, A(0), LD(S), MOD, ADD,
+  ST("si"),
   # appetite = stat_9 (it prices food, so it must live on-chain)
   A(0), *stat_base_ops([P(9)]), ST("ap"),
-  # power = Σ_{i=0..9} (HASH(gn+1000+i)%60+1)  +  (sp-1)*150   (== Σ stat_i)
+  # power = Σ_{i=0..9} (HASH(gn+1000+i)%60+1)  +  (sp-1)*60   (== Σ stat_i, with +6/stat/tier over 10 stats)
   A(0), P(0),
   *[ins for i in range(10) for ins in
       [A(0), LD("gn"), P(1000 + i), ADD, HASH, P(60), MOD, P(1), ADD, ADD]],
-  A(0), LD("sp"), P(1), SUB, P(150), MUL, ADD, ST("pw"),
+  A(0), LD("sp"), P(1), SUB, P(60), MUL, ADD, ST("pw"),
   HALT ]
 
 rebirth_m = [                                     # rebirth(pid) — owner re-rolls a PRUNED unhatched egg
@@ -287,7 +316,7 @@ accept_m = [                                      # accept(bid)  value = the cha
 def eff_stat_ops(pid_ops, i):
     """Effective stat #i for the pet pid_ops points at: base(gene) + trained bonus tb[pid|i]."""
     return [*pid_ops, LD("gn"), P(1000 + i), ADD, HASH, P(60), MOD, P(1), ADD,   # HASH(gn+1000+i)%60 + 1
-            *pid_ops, LD("sp"), P(1), SUB, P(15), MUL, ADD,                       # + (species-1)*15
+            *pid_ops, LD("sp"), P(1), SUB, P(6), MUL, ADD,                        # + (tier-1)*6
             *pid_ops, P("|" + str(i)), CONCAT, LD("tb"), ADD]                     # + tb[pid|i]
 def setreg(reg, val_ops):        return [P(reg), *val_ops, ST(S)]
 def reg(r):                      return [P(r), LD(S)]
@@ -401,7 +430,7 @@ CODE = {"mint": mint_m, "hatch": hatch_m, "rebirth": rebirth_m, "feed": feed_m, 
         "refund_battle": refund_battle_m}
 
 # ── PYTHON REFERENCE, shared with the JS crosscheck (tests/pets_ref.py is the single source) ────────
-from tests.pets_ref import (vm_hash, ref_gene, ref_species, ref_stat, ref_power,
+from tests.pets_ref import (vm_hash, ref_gene, ref_species, ref_tier, ref_si, ref_stat, ref_power,
                             ref_train_roll, ref_train_ok, ref_battle, ref_battle_turns)
 def eff_stats(g, sp, pid):   # 10 EFFECTIVE stats = base(gene) + trained bonus tb[pid|i]
     return [ref_stat(g, sp, i) + M("tb", f"{pid}|{i}") for i in range(10)]
@@ -454,11 +483,11 @@ ck("hatch locks gene == reference beacon formula", g == ref_gene(st.block_hashes
 ck("hatch locks species/appetite/power == reference", M("sp", PID) == ref_species(g)
    and M("ap", PID) == ref_stat(g, ref_species(g), 9) and M("pw", PID) == ref_power(g, ref_species(g)))
 ck("hatch stores the gene as a decimal string too (JSON-safe for the browser)", M("gs", PID) == str(g))
-ck("hatch stores the species id si = gene%100 + 1 (one of 100 animals)", M("si", PID) == g % 100 + 1)
+ck("hatch stores the species id si within the tier's roster band == reference", M("si", PID) == ref_si(g, ref_species(g)))
 ck("hatch twice reverts", rv(call("hatch", [PID], 0, "A")))
 ck("hatch of a nonexistent pet reverts", rv(call("hatch", [999999], 0, "A")))
 
-hist = {1: 0, 2: 0, 3: 0}
+hist = {t: 0 for t in range(1, 7)}
 mism = 0
 for k in range(300):
     pid = 10**6 + k
@@ -467,11 +496,13 @@ for k in range(300):
     call("hatch", [pid], 0, "A")
     g = M("gn", pid); s = ref_species(g); hist[M("sp", pid)] += 1
     if not (g == ref_gene(st.block_hashes, M("bh", pid), pid) and M("sp", pid) == s
-            and M("si", pid) == g % 100 + 1
+            and M("si", pid) == ref_si(g, s)
             and M("ap", pid) == ref_stat(g, s, 9) and M("pw", pid) == ref_power(g, s)): mism += 1
-ck(f"DIFFERENTIAL: 300 hatches gene/species/appetite/power bytecode==reference (mism={mism})", mism == 0)
-ck(f"all three species appear — Poodle {hist[1]}, Parrot {hist[2]}, Dragon {hist[3]}",
-   hist[1] > 150 and hist[2] > 30 and hist[3] > 2)
+ck(f"DIFFERENTIAL: 300 hatches gene/tier/species/appetite/power bytecode==reference (mism={mism})", mism == 0)
+# the common tiers must dominate on the ~4.5x geometric curve (78/17/3.9% for C/R/L); higher tiers are too
+# rare to reliably appear in 300 draws, so only the bottom three are asserted present.
+ck(f"tier distribution sane — C {hist[1]}, R {hist[2]}, L {hist[3]}, E {hist[4]}, M {hist[5]}, Ω {hist[6]}",
+   hist[1] > 180 and hist[2] > 20 and hist[1] > hist[2] > hist[3])
 
 # ── feed ─────────────────────────────────────────────────────────────────────────────────────────────
 ap = M("ap", PID); fu0 = M("fu", PID)

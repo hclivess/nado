@@ -61,6 +61,9 @@
   .rar.r1{background:rgba(227,179,65,.15);color:var(--gold);border:1px solid rgba(227,179,65,.4)}
   .rar.r2{background:rgba(200,107,250,.14);color:var(--purp);border:1px solid rgba(200,107,250,.45)}
   .rar.r3{background:rgba(0,201,167,.13);color:var(--accent2);border:1px solid rgba(0,201,167,.5);box-shadow:0 0 12px rgba(0,201,167,.25)}
+  .rar.r4{background:rgba(255,110,199,.14);color:#ff6ec7;border:1px solid rgba(255,110,199,.5);box-shadow:0 0 12px rgba(255,110,199,.3)}
+  .rar.r5{background:rgba(255,162,59,.15);color:#ffa23b;border:1px solid rgba(255,162,59,.55);box-shadow:0 0 14px rgba(255,162,59,.35)}
+  .rar.r6{background:linear-gradient(90deg,rgba(255,110,199,.2),rgba(69,224,255,.2),rgba(200,107,250,.2));color:#eaf6ff;border:1px solid rgba(120,220,255,.7);box-shadow:0 0 16px rgba(69,224,255,.45)}
 
   /* ---- rarity aura (wraps the pet; glow scales with rarity, shimmer for shiny) ---- */
   .aura{display:inline-block;position:relative;line-height:0}
@@ -72,6 +75,16 @@
   .aura.shiny svg{animation:shimmer 2.4s linear infinite}
   @keyframes shimmer{0%,100%{filter:saturate(1) brightness(1)}50%{filter:saturate(1.5) brightness(1.18)}}
   .aura.legend.shiny svg{animation:legendpulse 2.6s ease-in-out infinite,shimmer 2.4s linear infinite}
+  /* ---- ultra tiers: epic (pink) < mythic (fire) < omega (rotating rainbow halo) — each rarer & louder ---- */
+  .aura.epic svg{filter:drop-shadow(0 0 11px rgba(255,110,199,.9)) drop-shadow(0 0 22px rgba(255,110,199,.45));animation:epicpulse 2.4s ease-in-out infinite}
+  @keyframes epicpulse{0%,100%{filter:drop-shadow(0 0 9px rgba(255,110,199,.75)) drop-shadow(0 0 18px rgba(255,110,199,.35))}50%{filter:drop-shadow(0 0 16px rgba(255,110,199,1)) drop-shadow(0 0 32px rgba(255,110,199,.6))}}
+  .aura.mythic svg{filter:drop-shadow(0 0 12px rgba(255,179,71,.95)) drop-shadow(0 0 26px rgba(255,120,60,.5));animation:mythicpulse 2s ease-in-out infinite}
+  @keyframes mythicpulse{0%,100%{filter:drop-shadow(0 0 10px rgba(255,179,71,.8)) drop-shadow(0 0 20px rgba(255,120,60,.4))}50%{filter:drop-shadow(0 0 18px rgba(255,200,90,1)) drop-shadow(0 0 36px rgba(255,120,60,.65))}}
+  .aura.omega{position:relative}
+  .aura.omega::before{content:"";position:absolute;inset:-7px;border-radius:50%;z-index:-1;filter:blur(9px);opacity:.6;background:conic-gradient(from 0deg,#ff6ec7,#ffb347,#00e5c0,#4aa3ff,#c86bfa,#ff6ec7);animation:omegaspin 4s linear infinite}
+  @keyframes omegaspin{to{transform:rotate(360deg)}}
+  .aura.omega svg{filter:drop-shadow(0 0 10px rgba(0,229,192,.9)) drop-shadow(0 0 20px rgba(255,110,199,.5));animation:omegapulse 2.2s ease-in-out infinite}
+  @keyframes omegapulse{0%,100%{filter:drop-shadow(0 0 10px rgba(0,229,192,.85)) drop-shadow(0 0 20px rgba(255,110,199,.45)) saturate(1.2)}50%{filter:drop-shadow(0 0 18px rgba(0,229,192,1)) drop-shadow(0 0 34px rgba(255,110,199,.7)) saturate(1.5)}}
 
   /* ---- the stage ---- */
   .stage{display:flex;flex-direction:column;align-items:center;gap:6px;margin:6px 0 10px;min-height:190px;justify-content:center}
