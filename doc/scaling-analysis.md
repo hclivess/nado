@@ -108,10 +108,11 @@ attest/commit/reveal set.)
 This is the one genuine architecture investment for scale. It is a **consensus change** and
 warrants its own design doc + tests before shipping — flagged here, not implemented.
 
-### C. Unbounded free-lane state — see §4 / `doc/rolling-mode-and-da.md`
-OPEN-lane `register` (PoSW recert) txs are fee-exempt and create permanent account state (the recert
-lease itself lapses, but the account row persists). Bounding it is idle-account GC
-(consensus-critical) + rolling history pruning.
+### C. Unbounded free-lane state — ✅ BOUNDED (idle-account GC shipped)
+OPEN-lane `register` (PoSW recert) txs are fee-exempt and used to create permanent account state.
+Now bounded by the deterministic in-block idle-account GC (`ops/gc_ops.py`, §4 /
+`doc/rolling-mode-and-da.md` §3): trivially-empty docs sweep at `GC_IDLE_EPOCHS`, recert rows at
+`RECERT_HISTORY_EPOCHS`, revert-safe, snapshot-root-identical on every node.
 
 ---
 
@@ -120,10 +121,30 @@ lease itself lapses, but the account row persists). Bounding it is idle-account 
 - Block cadence is config-driven (`block_time` default 6 s, `EPOCH_LENGTH=60`) — headroom,
   not a bottleneck.
 - LMDB single-atomic-`write_txn` per block is a sound commit model (no write-amplification
-  pathology); block bodies are `zstd(msgpack)`.
+  pathology); block bodies are `zstd(codec)` records in append-only segment files
+  (`ops/segment_store.py` — ~300 files/year, not one inode per block).
 - Snapshot bootstrap exists (`snapshot_ops`, state-only `accounts.db` + Merkle `state_root`,
   80% peer quorum) so new nodes don't replay from genesis — the seed of rolling mode.
 - The execution-layer plan correctly means L1 never has to be a high-TPS machine.
+
+## Shipped 2026-07-12 (hot-path + state-growth pass)
+
+- **Registry scans cached per committed-write generation** — `get_bonded_registry` /
+  `get_open_registry` no longer full-scan the accounts table ~5× per produced/verified block
+  (and per `/mining_status` poll); any LMDB commit invalidates, in-txn reads bypass.
+- **Per-second mempool hashing is O(1) between pool changes** — the consensus loop's
+  `transaction_pool_hash` / `upcoming_block_hash` are cached on pool identity+length
+  (+ tip hash + write generation), instead of sorting + canonical-serializing the whole
+  pool twice a second forever.
+- **Mempool SET RECONCILIATION** — divergent peers exchange txid lists (`/transaction_ids`)
+  and fetch only missing bodies (`POST /transactions_by_id`), replacing the
+  O(peers × pool)/s full-pool re-download (~100× with ~7 KB ML-DSA txs).
+- **Segment block store** — one inode per block → ~300 append-only files/year; whole-segment
+  reclamation under rolling mode (see storage.md).
+- **Idle-account GC** (§C above) and **exec-layer state-root growth bounds** (claimed exits +
+  consumed outbox messages GC'd on their finalized L1 claims; field-nullifier set committed
+  as one digest leaf) — with the exec **settled-checkpoint bootstrap** replacing genesis
+  replay for cold exec nodes.
 
 ## Priority order
 

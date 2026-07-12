@@ -49,6 +49,13 @@ Every honest exec node now computes the **identical** root at a given cursor. `g
 `?epoch=` parameter so the exec node (and the L1 challenge path) read the present set + weights **for a
 specific historical epoch**, from the single L1 source of truth (`get_open_registry(e)`), not the tip.
 
+**Retention bound (idle-GC, 2026-07-12):** recert rows survive `RECERT_HISTORY_EPOCHS` (10 000
+epochs ≈ 6 weeks) — far beyond any challenge window — and the fidelity-saturation argument
+(`protocol.py` GC note) keeps every still-served weight byte-exact after pruning.
+`/get_open_weights` REFUSES an epoch whose lookback would cross the pruned horizon (never a
+silently-truncated reconstruction); a cold exec node bootstraps from a settled checkpoint
+(`NADO_EXEC_BOOTSTRAP`) instead of ancient replay.
+
 Pool **inflow** `P_e` (not the pool *balance*) is the accrual driver — this is drawdown-immune by
 construction and also removes the balance-watermark stranding bug (see [presence-dividend.md](presence-dividend.md)).
 

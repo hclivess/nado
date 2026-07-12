@@ -674,25 +674,33 @@ NADO separates three concerns that are easy to conflate.
 
 ### 6.1 Block bodies (local, non-consensus)
 
-Block bodies are persisted as `zstd(msgpack(block))` files at
-`blocks/<hash>.block` (zstd level 3, to recover the ~2x redundancy of hex
-signature/pubkey strings — important for PQ-sized signatures). A 4-byte zstd frame
-magic is sniffed on read so legacy raw-msgpack bodies still decode. Writes are
-crash-safe: write to `<hash>.block.tmp`, flush+fsync, then atomic
-`os.replace` (bounded to 60 retries, then raise). This on-disk format is **purely
-local**: the block hash is computed over **canonical JSON**, never over the stored
-file, so the storage encoding can change with no fork. *(implemented)*
+Block bodies are persisted as `zstd(codec)` records in **append-only segment files**
+(`blocks/seg-<n>.dat`, 64 MB target, `ops/segment_store.py`) — roughly **300 files per
+year** instead of one inode per block, with sequential reads for sync serving. Each
+record is crc-guarded and self-describing (it carries its block hash), addressed by a
+`hash → (segment, offset, len)` locator in a node-local, snapshot-excluded LMDB sub-DB
+(`block_loc`) — a derived, rebuildable index. zstd recovers the ~2x redundancy of hex
+signature/pubkey strings (important for PQ-sized signatures). Writes are crash-safe:
+a record is appended + fsynced **before** its locator commits (a crash between the two
+leaves inert unreferenced bytes, never a resolvable half-write); a torn tail is
+truncated at startup; deletion is by **unreferencing** inside the caller's LMDB txn —
+an aborted rollback restores the body reference. `child_hash` is not stored: it is
+derived from the number→hash index at read time, which stays correct across reorgs by
+construction. This on-disk format is **purely local**: the block hash is computed over
+**canonical JSON**, never over the stored bytes, so the storage layout can change with
+no fork. *(implemented)*
 
 **Rolling mode (opt-in history pruning)** *(implemented, Phase 1)*. A node runs as an
 **archive** node by default (`config.archive = true`, keeps every body forever — no
 behaviour change) or as a **rolling/pruned** node (`archive = false` / `NADO_ARCHIVE=0`),
-which deletes finalized body *files* older than `HISTORY_RETENTION_BLOCKS` (default 10 000
-≈ 1 week) while **always keeping** state and the tiny number↔hash indexes. An audit of every
-historical block read fixed the safe floor: only `get_block_reward` re-reads a historical
-*body* (the block at `tip − REWARD_WINDOW`); the beacon/FFG read *hashes* from the index, not
-bodies. `block_ops.prune_block_bodies` therefore floors retention at
-`REWARD_WINDOW + FINALITY_DEPTH + 1` internally, so a misconfig can never corrupt the reward
-calc or a legal rollback, and prunes incrementally via a `pruned_below` watermark. Since the
+which UNREFERENCES finalized bodies older than `HISTORY_RETENTION_BLOCKS` (default 100 800
+≈ 1 week at 6 s) while **always keeping** state and the tiny number↔hash indexes; whole
+segment files are reclaimed once every body in them is unreferenced, with blob-bearing
+bodies copied forward first (contract history stays replayable). The deepest consensus
+read of a historical *body* today is rollback (within `FINALITY_DEPTH` of the tip) — the
+beacon/FFG read *hashes* from the index, not bodies. `block_ops.prune_block_bodies`
+floors retention at `REWARD_WINDOW + FINALITY_DEPTH + 1` internally, so a misconfig can
+never break a legal rollback, and prunes incrementally via a `pruned_below` watermark. Since the
 index is kept, a pruned node still validates and serves the beacon/FFG lookbacks. This is the
 first phase of the rolling-mode + data-availability design ([rolling-mode-and-da.md](rolling-mode-and-da.md)).
 
@@ -704,8 +712,9 @@ LMDB environment (`index/state/`) with named sub-DBs: `accounts`, `totals`,
 `block_by_num`, `block_by_hash`, `tx`, `tx_by_sender`, `tx_by_recipient`,
 `recerts`/`recert_by_epoch` (the renewable-presence lease index, which **replaced** the
 old `heartbeats` sub-DB), `htlcs`, `bond_since`, `meta` (plus `commits`, `reveals`,
-`attestations`, `settlements`, `unbonds`, `aliases`). Account/state records are **schemaless msgpack documents
-with no columns** (`{balance, produced, bonded, registered, fidelity, …}`), so adding
+`attestations`, `settlements`, `unbonds`, `aliases`; plus the node-local, snapshot-excluded
+`block_loc` body locators and `gc_revert` idle-GC rollback records). Account/state records are
+**schemaless codec documents with no columns** (`{balance, produced, bonded, registered, fidelity, …}`), so adding
 a field — as the relaunch did with `registered`/`fidelity`/`public_key` — needs **no
 DDL and no migration**. Integer keys are 8-byte big-endian so range scans
 (`block_by_num`, `recert_by_epoch` lease window, `tx_by_*` history) preserve numeric
@@ -723,10 +732,10 @@ rebuildable index* — block bodies and consensus hashing are not touched by it 
 
 ### 6.3 Wire transport vs. consensus preimage
 
-`msgpack` is used **only** as wire/transport encoding (RPC `?compress=msgpack`,
-block sync, and the POST submit body for PQ-sized transactions) and as the local
-block-body container — **never** as the hashed preimage, which is always canonical
-JSON. A `POST /submit_transaction` endpoint was added because an ML-DSA-44
+The wire/transport encoding is the portable JSON codec (`ops/codec.py` — it replaced
+msgpack, which cannot carry >64-bit integers; the `?compress=` values keep their names),
+also used inside the zstd block-sync wire and the local block-body records — **never** as
+the hashed preimage, which is always canonical JSON. A `POST /submit_transaction` endpoint was added because an ML-DSA-44
 transaction (~7.8 KB) does not fit a GET URL; both GET and POST paths are
 rate-limited (Section 7). *(implemented)*
 
@@ -1069,8 +1078,8 @@ double-voting; cross-fork double-voting is now punished, not merely prevented).
 **Documented residuals (NOT theft or fork vectors), scheduled before mainnet:** no
 RANDAO withholder/reveal-censorship penalty (Section 3.3); the bonded `MAX_SHARES` cap is **per-identity, not aggregate**
 (the bonded lane is capital-proportional by design, the cap only bounds
-single-address variance); `register`/fee-exempt **state growth** (`GC_IDLE_EPOCHS`
-defined but unwired — idle-account GC is future work); and snapshot bootstrap trusts an
+single-address variance); `register`/fee-exempt **state growth is now bounded** — the
+deterministic in-block idle-account GC is live (`ops/gc_ops.py`, Section 6.1a); and snapshot bootstrap trusts an
 80%-of-peers quorum with **no hardcoded finalized checkpoint** (weak-subjectivity).
 (Continuity fidelity is now a **recert streak** — continuous recerts accumulate and a
 lapse resets it, Section 2.4 — and a **progressive per-range IP registration cap** now
@@ -1116,7 +1125,10 @@ Additional hardening and feature items, all currently **planned/partial**:
   (`verify_attestation_equivocation_proof`) that burns `SLASH_BOND_PENALTY` via the same
   `slash` path as block-authorship equivocation. FFG is also now **enforced** in the
   rollback floor, no longer observational (Sections 7.2, 7.4).
-- **Idle-account GC** wiring `GC_IDLE_EPOCHS` to bound `register`/fee-exempt state
+- ~~**Idle-account GC** wiring `GC_IDLE_EPOCHS` to bound `register`/fee-exempt state~~ **— DONE**:
+  deterministic in-block sweeps at epoch boundaries (`ops/gc_ops.py`): trivially-empty account docs
+  idle > `GC_IDLE_EPOCHS` are deleted; recert rows drop past `RECERT_HISTORY_EPOCHS` with a
+  saturation proof that keeps every still-served dividend weight byte-exact; revert-safe; bounded
   growth (defined but unwired today — Section 7.4).
 - ~~**Absence-decay** for fidelity~~ **— DONE (recert streak)**: continuity fidelity is
   now a **consecutive-recert streak** that resets on a lapse (revert-symmetric — Section
@@ -1186,9 +1198,10 @@ Additional hardening and feature items, all currently **planned/partial**:
   non-aggregatable PQ signatures × O(N) messages × pure-Python verify is the binding wall.
 - **Rolling mode & data availability** ([rolling-mode-and-da.md](rolling-mode-and-da.md)) —
   keep state + a window of epochs, prune older history (phone-mineable under adoption).
-  **Phase 1 (opt-in body pruning, archive default) is implemented** (Section 6.1);
-  consensus-critical idle-account GC (Phase 2) and **hash-based (post-quantum, not KZG)**
-  erasure-coded DA sampling for execution-layer blobs (Phase 3) remain designed.
+  **Phase 1 (opt-in body pruning + whole-segment reclamation, archive default) is
+  implemented** (Section 6.1), and the **consensus-critical idle-account GC (Phase 2) is now
+  implemented** (`ops/gc_ops.py`); **hash-based (post-quantum, not KZG)** erasure-coded DA
+  sampling for execution-layer blobs (Phase 3) remains designed.
 
 ---
 
@@ -1215,8 +1228,8 @@ Additional hardening and feature items, all currently **planned/partial**:
 - **Unbond is now timelocked.** `unbond` is a release *request* that keeps the
   stake bonded and slashable for `BOND_UNLOCK_DELAY = 1440` blocks; a fee-exempt
   `withdraw` claims it only at/after maturity (Section 4.4).
-- **No idle-account GC; no halving schedule.** Treat
-  these as not-present today (Section 7.4). (FFG attestation-equivocation slashing **is**
+- **No halving schedule** (idle-account GC **is** now live — deterministic in-block
+  sweeps, `ops/gc_ops.py`). (FFG attestation-equivocation slashing **is**
   now present — Section 7.4. The **bonded sudden-whale producer ramp**
   *is* now live — `BOND_RAMP_EPOCHS`, Section 4.5 — and continuity fidelity is a
   consecutive-recert streak, so there is no gradual absence-decay constant.)
@@ -1259,7 +1272,8 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | `POSW_LEASE_EPOCHS` | `240` (~1 day) | Renewable presence lease: a registration/recert keeps an identity open-lane-eligible this long; renew with a fresh PoSW to persist (continuous per-identity upkeep). **Presence IS the lease — there is no heartbeat.** |
 | `OPEN_BASE_FLOOR` | `1` | Min open-lane weight for any present identity (never 0). |
 | `OPEN_FID_BONUS` | `9` | Max open diligence bonus; open weight ranges 2..10. |
-| `GC_IDLE_EPOCHS` | `1000` | Intended idle-registry prune window (state-bloat bound) — **defined, not yet wired** (Section 7.4). |
+| `GC_IDLE_EPOCHS` | `1000` | Idle-account GC horizon (~4 days): a trivially-empty account whose lease lapsed this long ago is swept in-block at the next epoch boundary — **live** (`ops/gc_ops.py`). |
+| `RECERT_HISTORY_EPOCHS` | `10_000` | Recert-row retention (~6 weeks); rows drop by whole epoch buckets. Exceeds the fidelity-saturation lookback `(FIDELITY_CAP+1)×POSW_LEASE_EPOCHS`, so every still-served dividend weight is byte-exact after pruning. |
 | `FIDELITY_CAP` | `30` | Consecutive recerts (~days) to fully ramp the open bonus (was 1000; recert-driven now). |
 | `FIDELITY_GAIN` | `1` | Fidelity increment per continuous recert; a lapse (gap > lease) resets the streak. |
 | `HISTORY_RETENTION_BLOCKS` | `100_800` | Rolling-node body-retention window (~1 week @6s); archive nodes keep all (Section 6.1). |

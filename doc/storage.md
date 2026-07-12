@@ -83,8 +83,11 @@ independent of the index engine and still apply):
 - `set_latest_block_info` / `set_earliest_block_info` → atomic `_update_block_ends`
   (temp file + fsync + `os.replace`). The old write-then-**read-back-and-compare**
   `while not old_hash == new_hash` loop could spin forever; it is gone.
-- `save_block` → bounded retries + atomic rename, then **raise** (the old `while True` spun
-  forever on a full disk). `update_child_in_latest_block` is no longer a no-sleep spinner.
+- `save_block` → segment append + fsync BEFORE the locator commits, bounded retries, then
+  **raise** (the old `while True` spun forever on a full disk). The parent-rewrite
+  `update_child_in_latest_block` is gone entirely — `child_hash` is derived from the
+  number→hash index at read time (append-only storage forbids in-place rewrites, and the
+  derived pointer is more reorg-correct anyway).
 - `rollback_one_block` → raises `MissingParentError` when the parent block is missing (e.g. a
   snapshot-bootstrapped node rolling back past its checkpoint), and `FinalityViolation` when the
   reorg would cross the enforced finality floor; `core_loop` catches both and resyncs forward.

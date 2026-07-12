@@ -682,8 +682,10 @@ State lives in a single **schemaless, memory-mapped, ACID key-value store (LMDB)
 which **replaced the prior SQLite index**. Account/state records are schemaless msgpack documents
 (no columns, no DDL), so adding a field needs no migration. A whole block's mutations (account docs,
 tx index, block index, totals, heartbeats) commit in **one** write transaction, so a crash leaves a
-block either fully applied or not at all, and replay is idempotent. Block bodies stay as `zstd(msgpack)`
-files under `blocks/`, and consensus hashing stays canonical JSON — neither is touched by the index.
+block either fully applied or not at all, and replay is idempotent. Block bodies are `zstd(codec)`
+records in append-only **segment files** under `blocks/` (`ops/segment_store.py` — ~300 files/year
+instead of one per block; crc-guarded, fsynced before their LMDB locator commits, torn tails repaired
+at startup), and consensus hashing stays canonical JSON — neither is touched by the index.
 
 **Archive vs rolling nodes (opt-in history pruning).** By default a node is an **archive** node
 (`config.archive = true`) that keeps every block body forever. Set `archive = false` (or `NADO_ARCHIVE=0`)
@@ -755,9 +757,10 @@ loops.
 
 A block is built with `construct_block()`, then produced via `produce_block()` →
 `verify_block()` (with `rebuild_block()` to recompute hashes/weights for remotely received blocks) →
-`incorporate_block()`. The mempool has three levels: `user_tx_buffer` (direct user submissions) →
-`tx_buffer` (merged with other nodes' pools for the next block) → `transaction_pool` (merged in before
-block production).
+`incorporate_block()`. There is ONE mempool (`transaction_pool`): a submitted tx is validated and
+enters it directly, and peers keep pools converged by **set reconciliation** — when advertised pool
+hashes differ, a node fetches the peer's txid list (`/transaction_ids`, ~64 B/tx) and downloads only
+the bodies it is actually missing (`POST /transactions_by_id`), never the whole pool.
 
 ### Contributing
 

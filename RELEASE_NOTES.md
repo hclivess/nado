@@ -1,3 +1,51 @@
+# Alphanet update — 2026-07-12 (scale & storage pass)
+
+> Applies to `alphanet-4`. **No legacy tolerance:** all nodes must update together — the wire
+> (mempool set reconciliation), the exec settled root (state-shape changes), and the idle-GC
+> consensus sweep (activates ~epoch 1000) are not interoperable with older builds.
+
+## Storage
+- **Append-only SEGMENT block store** (`ops/segment_store.py`): block bodies are crc-guarded,
+  self-describing records in `blocks/seg-*.dat` (64 MB target, ~300 files/year instead of one
+  inode per block), addressed by LMDB locators (node-local `block_loc` sub-DB, snapshot-excluded).
+  Crash contract preserved: append + fsync BEFORE the locator commits; torn tails truncated at
+  startup; rollback drops the locator INSIDE the rollback txn (stronger than the old file unlink).
+  One-time idempotent startup migration folds legacy per-file bodies in. `child_hash` is now
+  DERIVED from the number→hash index at read time (more reorg-correct; the parent-rewrite is gone).
+  Rolling mode unreferences bodies and reclaims whole dead segments (blob bodies copied forward).
+  Fully portable file I/O (a Windows joiner surfaced an `os.pread` dependency — fixed, and the
+  test suite now emulates Windows for the storage layer).
+
+## Consensus / state growth
+- **Idle-account GC** (`ops/gc_ops.py`): deterministic in-block sweeps at epoch boundaries —
+  trivially-empty account docs idle > `GC_IDLE_EPOCHS` (1000) are deleted; recert rows drop past
+  `RECERT_HISTORY_EPOCHS` (10 000) with a fidelity-saturation proof that keeps every still-served
+  dividend weight byte-exact. Revert-safe (node-local `gc_revert` records), bounded per boundary,
+  snapshot-root-identical on every node. `/get_open_weights` refuses epochs whose lookback would
+  cross the pruned horizon.
+- **Exec settled-checkpoint bootstrap**: cold exec nodes adopt a donor's last-settled snapshot
+  (`/exec/state_snapshot` + `NADO_EXEC_BOOTSTRAP=<donor>`), verified against the L1-settled
+  `(cursor, root)` — replaces genesis replay once ancient history prunes.
+
+## Networking
+- **Mempool set reconciliation**: divergent peers exchange txid lists (`GET /transaction_ids`)
+  and fetch only the missing bodies (`POST /transactions_by_id`, ≤1000/req) — ~100× less
+  bandwidth than the old full-pool re-download with ~7 KB ML-DSA txs. The legacy
+  `/transaction_buffer` endpoints are removed.
+
+## Execution layer (settled root CHANGES — deploy all exec nodes together)
+- Claimed bridge/dividend/unshield exit records are GC'd when their finalized L1 claim burns the
+  nullifier; the outbox is seq-keyed with consumed-message GC; the field-nullifier set is
+  committed as ONE digest leaf. `state_root`/`_leaves` cached (12 ms → 0.004 ms per read),
+  provisional rebuilds skipped when nothing changed, VM storage copies ~150× faster.
+
+## Node performance
+- Producer registries cached per committed-write generation (no more ~5 full account-table scans
+  per block); per-second mempool hashing O(1) between pool changes; `/get_recommended_fee` fixed
+  (the old helper re-read the tip 250×) and served from memory.
+
+---
+
 # NADO Relaunch 1 — `nado-relaunch-1`
 
 > ⚠️ **BREAKING — NOT COMPATIBLE WITH ANY PRIOR RELEASE (0.25–0.27).**

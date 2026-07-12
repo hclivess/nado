@@ -207,7 +207,8 @@ Merkle proof.
 Burns `amount` from `bridge[sender]`, increments `wd_nonce`, records
 `withdrawals[str(nonce)] = {"addr": sender, "amount": amount}`. Fetch the proof from
 `/exec/withdrawal_proof?nonce=` and submit it to L1's `bridge_withdraw` recipient (via
-`construct_bridge_withdraw_tx`) once settled.
+`construct_bridge_withdraw_tx`) once settled. Once that L1 claim FINALIZES (nullifier burned),
+every exec node GCs the record (`drop_claimed`) — exit records don't accumulate in `state_root`.
 
 **Skips if:** `amount` not a positive int; bridge balance `< amount`.
 
@@ -225,7 +226,8 @@ Collect the sender's whole accrued presence-dividend (see [`presence-dividend.md
 | `ns` | no | namespace |
 
 Burns the entire `dividend[sender]` into `dividend_withdrawals[str(dw_nonce)] = {"addr", "amount"}`. Claim on
-L1 with the proof from `/exec/dividend_proof?nonce=` after settlement (fee-exempt `dividend_withdraw` tx).
+L1 with the proof from `/exec/dividend_proof?nonce=` after settlement (fee-exempt `dividend_withdraw` tx);
+the record is GC'd once the finalized claim burns its nullifier (same pattern as `bridge_withdraw`).
 
 **Skips if:** no accrued dividend for `sender` (`amount <= 0`).
 
@@ -356,7 +358,8 @@ refunds, auto-void, 2-of-3 threshold, double-claim guards) is `tests/test_bet_co
 ### `emit`
 
 Commit a cross-domain message into the outbox (committed in `state_root`, provable via
-`/exec/outbox_proof`).
+`/exec/outbox_proof`). The outbox is keyed by a persisted monotonic `seq` (never reused); a message
+is GC'd once its finalized `xmsg` delivery burns the `(from_ns, seq)` L1 nullifier.
 
 | field | req | meaning |
 |---|---|---|

@@ -115,9 +115,10 @@ The Phase-1 machinery is correctness-first; these are the documented upgrades fo
   frontier/incremental tree for O(depth)-per-append root + path (the module flags the seam).
 - **Bounded anchors.** The anchor set is capped to `ANCHOR_WINDOW = 128` recent roots (not every historical
   root), so it never grows without limit — clients prove against a fresh root.
-- **Compact state-root binding.** The exec `state_root` commits the pool with just TWO leaves (root +
-  nullifier digest), so it is O(1) in pool size; only pending *unshield* exits add a leaf each (and are
-  GC-able once claimed + settled).
+- **Compact state-root binding.** The exec `state_root` commits each pool (transparent AND
+  field-native) with just TWO leaves (root + nullifier digest), so it is O(1) in pool size; pending
+  *unshield* exits add a leaf each and are **GC'd automatically** once their finalized L1 claim
+  burns the nullifier (`ExecState.drop_claimed`).
 - **Nullifier accumulator.** The nullifier digest is an O(n) hash today; swap in an incremental accumulator
   (or a sparse-Merkle nullifier tree) at large scale.
 - **STARK verification is off the phone** — on the execution node — so proof *verification* cost never

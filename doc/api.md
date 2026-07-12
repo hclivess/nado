@@ -21,8 +21,10 @@ Signing is ML-DSA-44 over `create_txid(body)` (blake2b of the canonical body min
 | POST | `/submit_transaction` | body = signed tx JSON | `{result: bool, message}` |
 | GET | `/get_transaction` | `?txid=` | the tx + its block, or not-found |
 | GET | `/get_transactions_of_account` | `?address=&min_block=` | txs touching an account |
-| GET | `/transaction_pool` · `/transaction_buffer` · `/transaction_hash_pool` | — | current mempool views |
-| GET | `/get_recommended_fee` | — | suggested fee |
+| GET | `/transaction_pool` · `/transaction_hash_pool` | — | current mempool views |
+| GET | `/transaction_ids` | `?compress=zstd` | txids only (~64B/tx) — the cheap half of mempool set reconciliation |
+| POST | `/transactions_by_id` | body = codec list of txids (≤1000) | only the named txs — divergent peers fetch just what they miss |
+| GET | `/get_recommended_fee` | — | suggested fee (tip block's mean fee + 1, in-memory) |
 
 ### Blocks & chain
 | Method | Path | Params | Returns |
@@ -47,7 +49,7 @@ Signing is ML-DSA-44 over `create_txid(body)` (blake2b of the canonical body min
 ### Mining, governance, dividends
 | Method | Path | Params | Returns |
 |---|---|---|---|
-| GET | `/mining_status` · `/posw_difficulty` · `/get_open_weights` | `?epoch=` | mining / open-lane state |
+| GET | `/mining_status` · `/posw_difficulty` · `/get_open_weights` | `?epoch=` | mining / open-lane state. `?epoch=` REFUSES epochs whose recert lookback crosses the idle-GC row-retention horizon (a cold exec node bootstraps from a settled checkpoint instead) |
 | GET | `/treasury_status` | — | treasury + governance |
 | GET | `/get_dividend_inflow` | — | presence-dividend pool inflow |
 
@@ -72,6 +74,7 @@ Signing is ML-DSA-44 over `create_txid(body)` (blake2b of the canonical body min
 |---|---|---|---|
 | GET | `/exec/root` | `?ns=` | `{cursor, state_root}` — applied height + Merkle root |
 | GET | `/exec/settlement` | `?ns=` | settlement status vs L1 |
+| GET | `/exec/state_snapshot` | `?ns=` | full state payload as of this node's last accepted settle — the settled-checkpoint bootstrap donor side (joiner verifies its recomputed root against L1 `/get_settled`); 404 until the node has settled once |
 
 ### Contracts (pluggable VM runtimes)
 | Method | Path | Params | Returns |
@@ -105,7 +108,7 @@ Signing is ML-DSA-44 over `create_txid(body)` (blake2b of the canonical body min
 ### Cross-domain messaging
 | Method | Path | Params | Returns |
 |---|---|---|---|
-| GET | `/exec/outbox` · `/exec/outbox_proof` | `?ns=` / `?seq=` | emitted messages + proofs |
+| GET | `/exec/outbox` · `/exec/outbox_proof` | `?ns=` / `?seq=` | emitted messages + proofs (a message is GC'd once its finalized `xmsg` delivery burns the L1 nullifier) |
 | GET | `/exec/inbox` | `?ns=` | delivered messages |
 
 ### Data availability (erasure-coded blobs)

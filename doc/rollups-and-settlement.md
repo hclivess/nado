@@ -53,6 +53,11 @@ state is*; L1 is the authority on *what order the inputs came in and which root 
 - **Prove (privacy today).** `execnode/stark/` is a real **hash-based FRI/STARK prover over Goldilocks**
   (`fri.py`, `joinsplit_transfer.py`, `goldilocks_native.py`) that proves shielded-pool transfers in-browser.
   This is the same PQ-sound machinery a Phase-2b **settlement** proof would reuse (§6).
+- **Bootstrap.** A COLD exec node with `NADO_EXEC_BOOTSTRAP=<donor exec url>` adopts the donor's
+  last-settled snapshot (`GET /exec/state_snapshot?ns=`) instead of replaying from genesis — accepted
+  ONLY if the state_root recomputed from the payload matches the L1-settled `(cursor, root)`, so the
+  bonded quorum (never the donor) vouches for it. Required once L1's idle-GC prunes ancient recert
+  rows (`/get_open_weights` refuses epochs it can no longer reconstruct exactly).
 - **Settle.** If run by a bonded validator with `NADO_EXEC_SETTLE=1`, `maybe_settle()` posts a `settle`
   attestation of `(cursor, state_root)` to L1 every `SETTLE_EVERY` blocks.
 - **Serve.** A read-only `/exec/*` API for wallets/bridges:
@@ -282,6 +287,11 @@ L1-verified `xmsg` from the finalized stream and fold it into their `inbox`, com
 never has to decide what is settled; L1, which holds the settled roots, decides. The leaf L1 verifies is the
 shared `hashing.outbox_leaf`, byte-identical to what the exec node commits. Covered by `tests/test_xmsg.py`
 (valid delivery, replay / forgery / unsettled / to_ns-mismatch rejection, receiver inbox commitment).
+**Consumed-message GC (2026-07-12):** the outbox is keyed by `seq` with a persisted monotonic
+counter (seqs never reused); once a message's finalized `xmsg` delivery burns its L1
+`(from_ns, seq)` nullifier, every exec node deterministically drops the source record — the
+one-leaf-per-message outbox no longer grows forever. The same pattern GCs claimed
+bridge/dividend/unshield exit records (`ExecState.drop_claimed`).
 Remaining: multi-message atomicity/latency semantics and a forced-inclusion **escape hatch**.
 
 **Every tunnel shares one invariant:** value/messages only cross on a **proof against a settled root** +
