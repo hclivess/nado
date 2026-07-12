@@ -75,7 +75,10 @@ function quadArt(c, v) {
   if (v.ears === "round") H.push(`<circle cx="67" cy="33" r="7.5" fill="${v.panda ? c.line : c.body}" stroke="${c.line}" stroke-width="2"/><circle cx="93" cy="33" r="7.5" fill="${v.panda ? c.line : c.body}" stroke="${c.line}" stroke-width="2"/>${v.panda ? "" : `<circle cx="67" cy="33" r="4" fill="${c.shade}"/><circle cx="93" cy="33" r="4" fill="${c.shade}"/>`}`);
   if (v.ears === "tall") H.push(`<ellipse cx="72" cy="21" rx="5.6" ry="15" fill="${c.body}" stroke="${c.line}" stroke-width="2" transform="rotate(-7 72 21)"/><ellipse cx="88" cy="21" rx="5.6" ry="15" fill="${c.body}" stroke="${c.line}" stroke-width="2" transform="rotate(7 88 21)"/><ellipse cx="72" cy="23" rx="2.6" ry="10" fill="${c.shade}" transform="rotate(-7 72 23)"/><ellipse cx="88" cy="23" rx="2.6" ry="10" fill="${c.shade}" transform="rotate(7 88 23)"/>`);
   if (v.horns) H.push(`<path d="M70 34 C66 26 68 20 75 19 C71 24 72 29 74 33 Z M90 34 C94 26 92 20 85 19 C89 24 88 29 86 33 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/>`);
-  if (v.mane) H.push(`<path d="M72 40 C58 44 50 58 49 82 C55 66 64 52 76 47 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/><path d="M62 52 C58 62 56 72 56 80 M68 47 C65 56 63 65 63 72" stroke="${c.line}" stroke-width="1.1" fill="none" opacity=".55"/>`);
+  // MANE: a full crest running from the poll down the neck to the withers, its outer edge broken into
+  // three overlapping locks (+ hair lines) so it reads as a mane of many strands, not the single hanging
+  // strand it used to be. Drawn behind the head; the forelock (below, after the face) completes it in front.
+  if (v.mane) H.push(`<path d="M71 37 C55 40 46 54 44 72 C43 80 46 89 52 88 C56 82 58 66 64 52 C67 46 70 42 71 37 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/><path d="M67 41 C58 44 51 51 48 61 C52 57 58 53 66 51 Z M64 53 C55 57 49 65 47 76 C51 71 57 67 64 65 Z M60 66 C53 71 49 79 49 88 C53 83 58 80 62 79 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/><path d="M63 45 C56 51 51 61 49 74 M67 48 C60 55 55 66 54 80 M59 60 C54 67 52 76 53 85" stroke="${c.line}" stroke-width="1" fill="none" opacity=".5"/>`);
   if (v.horn) H.push(`<path d="M80 8 L76.5 30 L83.5 30 Z" fill="#f2c94c" stroke="#b58a1a" stroke-width="1.6"/><path d="M77.6 24 l5 -1.6 M78.4 18.5 l4 -1.4 M79.2 13.5 l2.6 -1" stroke="#b58a1a" stroke-width="1.2"/>`);
   // head + face
   H.push(`<circle cx="80" cy="46" r="15" fill="${v.wool ? c.shade : c.body}" stroke="${c.line}" stroke-width="2.5"/>`);
@@ -91,6 +94,9 @@ function quadArt(c, v) {
   if (v.teeth) H.push(`<rect x="77.4" y="56.5" width="2.4" height="3.6" rx="0.8" fill="#fff" stroke="${c.line}" stroke-width="0.8"/><rect x="80.2" y="56.5" width="2.4" height="3.6" rx="0.8" fill="#fff" stroke="${c.line}" stroke-width="0.8"/>`);
   if (v.whiskers) H.push(`<path d="M70 51 h-9 M70.5 54 l-8.5 2.5 M89.5 51 h9 M89 54 l8.5 2.5" stroke="${INK}" stroke-width="1.1" opacity=".7"/>`);
   if (v.beard) H.push(`<path d="M76 58 Q80 68 84 58 Q82 64 80 65 Q78 64 76 58 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4"/>`);
+  // FORELOCK: a short mane crest between the ears on the upper forehead — drawn in FRONT of the head but
+  // kept above the eyes so it never crowds the face. The finishing touch that reads unmistakably "equine".
+  if (v.mane) H.push(`<path d="M80 29 C74 31 72 36 75 42 C76 38 78 38 79 39 C80 37 81 37 82 39 C85 35 85 31 80 29 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/><path d="M78 33 C77 36 77 39 78 41 M82 33 C82 36 81 39 80 41" stroke="${c.line}" stroke-width="0.9" fill="none" opacity=".45"/>`);
   // tail
   const T = { curl: tube("M30 82 Q18 78 20 66 Q21 58 29 58", c.body, c.line, 5),
     thin: `${tube("M30 86 Q16 88 12 78", c.body, c.line, 3)}<circle cx="12" cy="77" r="2.6" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4"/>`,
