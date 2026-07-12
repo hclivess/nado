@@ -1069,6 +1069,27 @@ function armAutolock() {
   if (m > 0 && walletIsEncrypted() && !state.locked) _autolockTimer = setTimeout(lockWallet, m * 60000);
 }
 function bumpAutolock() { if (!state.locked && state.wallet) armAutolock(); }
+// Settings → "Allowed dApp sites": show the built-in official games (read-only) + the user's added
+// origins (each removable), and wire the add button. Re-rendered whenever the list changes.
+function renderAllowedOrigins() {
+  const el = $("allowedOriginsList");
+  if (!el) return;
+  const strip = (o) => o.replace(/^https?:\/\//, "");
+  const chip = (o, rm) => '<span style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line,#1c2530);border-radius:999px;padding:3px 10px;margin:3px 4px 0 0;font-size:12px">'
+    + strip(o) + (rm ? ' <a href="#" data-rm="' + encodeURIComponent(o) + '" title="remove" style="text-decoration:none;color:var(--danger,#f85149)">✕</a>' : '') + '</span>';
+  const user = userAllowedOrigins();
+  el.innerHTML =
+    '<div class="faint">' + i18("settings.officialGames", "Official games (always allowed):") + '</div>'
+    + '<div style="margin:4px 0 8px">' + EXEC_SIGN_ALLOW.map((o) => chip(o, false)).join("") + '</div>'
+    + '<div class="faint">' + i18("settings.yourSites", "Your added sites:") + '</div>'
+    + '<div style="margin-top:4px">' + (user.length ? user.map((o) => chip(o, true)).join("") : '<span class="faint">' + i18("settings.noneAdded", "none yet") + '</span>') + '</div>';
+  el.querySelectorAll("[data-rm]").forEach((a) => a.onclick = (ev) => {
+    ev.preventDefault();
+    const o = decodeURIComponent(a.dataset.rm);
+    saveUserAllowedOrigins(userAllowedOrigins().filter((x) => x !== o));
+    renderAllowedOrigins();
+  });
+}
 function renderSecurity() {
   const enc = walletIsEncrypted();
   if ($("secStatus")) $("secStatus").innerHTML = enc
@@ -1936,7 +1957,24 @@ async function resumePendingForumLogin() {
 // ONE execution-layer contract call with their wallet, then returns. Same redirect pattern as the forum SSO,
 // but this signs a REAL (fee-only) blob tx — so we confirm explicitly, only return to an ALLOWLISTED dApp
 // origin, and it can never move funds beyond the network fee (a `blob` tx has amount 0).
-const EXEC_SIGN_ALLOW = ["https://coinflip.nadochain.com", "https://roulette.nadochain.com", "https://dice.nadochain.com", "https://chess.nadochain.com", "https://poker.nadochain.com", "https://farkle.nadochain.com", "https://pets.nadochain.com", "https://slots.nadochain.com", "https://tictactoe.nadochain.com"];
+const EXEC_SIGN_ALLOW = ["https://coinflip.nadochain.com", "https://roulette.nadochain.com", "https://dice.nadochain.com", "https://chess.nadochain.com", "https://poker.nadochain.com", "https://farkle.nadochain.com", "https://pets.nadochain.com", "https://slots.nadochain.com", "https://tictactoe.nadochain.com", "https://bet.nadochain.com"];
+// USER-CONFIGURABLE allowlist (Settings → "Allowed dApp sites"): extra origins the user trusts to request
+// signatures, on TOP of the built-in official games above. Stored as a JSON array of "https://host" origins.
+const ALLOW_LS = "nado_allowed_origins";
+function userAllowedOrigins() {
+  try { const v = JSON.parse(localStorage.getItem(ALLOW_LS) || "[]"); return Array.isArray(v) ? v.filter((x) => typeof x === "string") : []; }
+  catch (e) { return []; }
+}
+function saveUserAllowedOrigins(list) { try { localStorage.setItem(ALLOW_LS, JSON.stringify([...new Set(list)])); } catch (e) {} }
+// normalize a user-typed site to a bare origin ("https://host[:port]"); "" if it isn't a valid https URL
+function normalizeOrigin(s) {
+  s = (s || "").trim(); if (!s) return "";
+  if (!/^https?:\/\//i.test(s)) s = "https://" + s;
+  try { const u = new URL(s); return u.protocol === "https:" ? u.origin : ""; } catch (e) { return ""; }
+}
+// an origin the user may sign for: a built-in official game OR one they added in Settings (NOT the
+// blanket "trust any site" bypass — callers add that separately so an unknown site still gets a louder path)
+const originAllowed = (origin) => EXEC_SIGN_ALLOW.includes(origin) || userAllowedOrigins().includes(origin);
 let pendingExecSign = (() => {
   try {
     const p = new URLSearchParams(location.search);
@@ -1983,7 +2021,7 @@ async function resumePendingExecSign() {
   // The origin allowlist is the default guard. A user can opt to skip it (Settings → "Trust any site that
   // asks me to sign") — unknown origins then get a LOUDER confirm that names the origin, never a silent pass.
   const skipOriginCheck = localStorage.getItem("nado_skip_origin_check") === "1";
-  const trustedOrigin = EXEC_SIGN_ALLOW.includes(retUrl.origin);
+  const trustedOrigin = originAllowed(retUrl.origin);
   if (!trustedOrigin && !skipOriginCheck) {
     if (bg) return needUI("untrusted");   // don't silently sign for an unknown site in a hidden frame — redirect so the warning shows
     uiAlert(i18("dapp.badOrigin", "Ignored a signing request for an unrecognised site.") + " (" + retUrl.origin + ")");
@@ -2118,6 +2156,18 @@ function wireAutosignToggle() {
   if (so) {
     so.checked = localStorage.getItem("nado_skip_origin_check") === "1";
     so.onchange = () => { try { localStorage.setItem("nado_skip_origin_check", so.checked ? "1" : "0"); } catch (e) {} };
+  }
+  renderAllowedOrigins();
+  const aoBtn = $("btnAddOrigin"), aoIn = $("allowedOriginInput");
+  if (aoBtn && aoIn) {
+    const add = () => {
+      const o = normalizeOrigin(aoIn.value);
+      if (!o) { uiAlert(i18("settings.badSite", "Enter a valid https site, e.g. https://site.example")); return; }
+      const list = userAllowedOrigins(); if (!list.includes(o)) list.push(o);
+      saveUserAllowedOrigins(list); aoIn.value = ""; renderAllowedOrigins();
+    };
+    aoBtn.onclick = add;
+    aoIn.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); add(); } };
   }
   const aa = $("autosignAll");
   if (aa) {
@@ -5195,7 +5245,7 @@ function installBgSignListener() {
   window.addEventListener("message", (e) => {
     const d = e.data;
     if (!d || d.nadoExecSignReq !== 1) return;
-    const trusted = EXEC_SIGN_ALLOW.includes(e.origin) || localStorage.getItem("nado_skip_origin_check") === "1";
+    const trusted = originAllowed(e.origin) || localStorage.getItem("nado_skip_origin_check") === "1";
     if (!trusted) { try { e.source && e.source.postMessage({ nadoExecSign: 1, needui: 1, reason: "untrusted" }, e.origin); } catch (err) {} return; }
     pendingExecSign = { payload: d.payload, ret: d.ret || (e.origin + "/"), app: d.app || "a game", bg: true };
     resumePendingExecSign();

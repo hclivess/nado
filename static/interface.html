@@ -787,6 +787,15 @@
         <span class="small faint" style="display:block" data-i18n="settings.trustAnySub">Off by default — only the official NADO games may request a signature. Turn on to allow other sites; they'll still show a confirm that names the site (never auto-signed).</span>
       </label>
     </div>
+    <div style="margin-bottom:14px">
+      <b data-i18n="settings.allowSites">Allowed dApp sites</b>
+      <span class="small faint" style="display:block" data-i18n="settings.allowSitesSub">Sites you trust to request signatures, on top of the official NADO games. Add a dApp's exact origin; anything that moves NADO still shows a confirm that names the site.</span>
+      <div id="allowedOriginsList" class="small mt"></div>
+      <div class="row mt">
+        <input id="allowedOriginInput" class="grow" placeholder="https://site.example" autocomplete="off" spellcheck="false" />
+        <button id="btnAddOrigin" class="accent" style="flex:0 0 auto" data-i18n="btn.addSite">Add site</button>
+      </div>
+    </div>
     <div class="row" style="align-items:flex-start;gap:10px;margin-bottom:14px">
       <input id="autosignAll" type="checkbox" class="switch" />
       <label for="autosignAll" style="margin:0;flex:1;cursor:pointer">
