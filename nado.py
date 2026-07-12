@@ -905,7 +905,9 @@ async def get_open_weights(request):
             # cold exec node must bootstrap from a SETTLED checkpoint instead of ancient replay.
             from protocol import SATURATION_LOOKBACK_EPOCHS
             from ops import kv_ops as _kv
-            if e - SATURATION_LOOKBACK_EPOCHS < _kv.meta_get_int("gc_rows_below", 0):
+            # the reconstruction needs rows from max(0, E - lookback); refuse iff pruning has
+            # crossed that floor (with nothing pruned yet — watermark 0 — every epoch serves).
+            if max(0, e - SATURATION_LOOKBACK_EPOCHS) < _kv.meta_get_int("gc_rows_below", 0):
                 return {"error": "epoch too old: recert history pruned (bootstrap the exec node "
                                  "from a settled checkpoint)", "epoch": e}
             return {"epoch": e, "weights": weights_at_epoch(e)}
