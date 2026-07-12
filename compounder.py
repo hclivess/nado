@@ -5,7 +5,7 @@ from urllib.parse import quote
 import aiohttp
 from ops.data_ops import sort_list_dict
 from ops.log_ops import get_logger
-from ops.net_ops import read_capped, unpack_peer, unpack_peer_control, MAX_PEER_BODY
+from ops.net_ops import read_capped, unpack_peer, unpack_zstd_peer, MAX_PEER_BODY
 from config import hostport
 """this module is optimized for low memory and bandwidth usage"""
 
@@ -25,10 +25,11 @@ async def get_list_of(key, peer, port, fail_storage, logger, semaphore, compress
             
             async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(url_construct) as response:
-                    if response.status != 200:                          # an error body isn't the payload we asked for
-                        raise IOError(f"HTTP {response.status}")
                     body = await read_capped(response, MAX_PEER_BODY)   # anti-OOM: cap untrusted peer body
-                    fetched = unpack_peer_control(body, compress, key=key)  # tolerant: zstd if it is, else JSON
+                    if compress == "zstd":
+                        fetched = unpack_zstd_peer(body)                # bomb-capped zstd(msgpack) wire
+                    else:
+                        fetched = json.loads(body.decode())[key]
         return fetched
 
     except Exception as e:
@@ -138,10 +139,11 @@ async def get_status(peer, port, logger, fail_storage, semaphore, compress=None)
             
             async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(url_construct) as response:
-                    if response.status != 200:                          # an error body isn't the payload we asked for
-                        raise IOError(f"HTTP {response.status}")
                     body = await read_capped(response, MAX_PEER_BODY)   # anti-OOM: cap untrusted peer body
-                    fetched = unpack_peer_control(body, compress)       # tolerant: zstd if it is, else JSON
+                    if compress == "zstd":
+                        fetched = unpack_zstd_peer(body)                # bomb-capped zstd(msgpack) wire
+                    else:
+                        fetched = json.loads(body.decode())
 
                     return peer, fetched
 

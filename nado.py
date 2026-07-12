@@ -642,7 +642,11 @@ async def snapshot_manifest(request):
         manifest = snapshot_ops.load_checkpoint_manifest(h) if h is not None else None
         if not manifest:
             return None, 404
-        return manifest, 200
+        # HONOR ?compress: peers pull this with ?compress=zstd (ops.snapshot_ops.fetch_snapshot). Returning the
+        # raw dict here made /get_snapshot_manifest ignore the param and answer JSON while /status et al. sent
+        # zstd — so every zstd-expecting fetcher hit "Unknown frame descriptor" and no node could ever
+        # re-anchor off this one. serialize() with compress="none" still returns the dict unchanged.
+        return serialize(output=manifest, compress=compress), 200
     out, code = await asyncio.to_thread(_work)
     if out is None:
         return _resp("No snapshot available (chain too short / no finalized checkpoint)", status=404)

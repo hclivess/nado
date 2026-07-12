@@ -90,29 +90,6 @@ def unpack_zstd_peer(body, cap=MAX_PEER_BODY):
     return codec.unpack(bounded_zstd_decompress(body, cap))
 
 
-ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"     # first 4 bytes of every standard zstd frame (little-endian 0xFD2FB528)
-
-
-def unpack_peer_control(body, compress, key=None, cap=MAX_PEER_BODY):
-    """Tolerantly decode a peer's /status|/peers control body. We request ?compress=zstd BEFORE we know the
-    peer's version (the status probe is the first contact), so a peer that predates zstd support — or one
-    that returned an uncompressed error body — will answer in plain JSON. Blindly zstd-decoding that raised
-    'Unknown frame descriptor' and dropped an otherwise-fine peer with an ERROR log every cycle. Sniff
-    instead: a genuine zstd frame starts with ZSTD_MAGIC (JSON never does — it starts with '{'/whitespace),
-    so decode zstd when the magic is present and fall back to JSON otherwise. Bomb caps still apply to the
-    zstd path via unpack_zstd_peer.
-
-    `key`: the ?compress=zstd wire packs a non-dict payload (e.g. /peers' list) BARE, but the plain-JSON
-    path (nado.serialize's fallback) wraps it as {key: payload}. When a key is given and the decoded JSON is
-    that wrapper, unwrap it — so the caller always gets the same shape whichever encoding the peer chose."""
-    if compress == "zstd" and body[:4] == ZSTD_MAGIC:
-        return unpack_zstd_peer(body, cap)
-    decoded = json.loads(body.decode())
-    if key is not None and isinstance(decoded, dict) and key in decoded:
-        return decoded[key]
-    return decoded
-
-
 def client_ip_from(peer, xff_header, trusted):
     """Resolve the real client IP. By DEFAULT the raw socket peer — X-Forwarded-For is IGNORED so the per-IP
     rate limits + anti-Sybil registration cap can't be header-spoofed. ONLY when `peer` is itself a configured
