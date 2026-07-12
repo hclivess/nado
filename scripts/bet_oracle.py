@@ -25,7 +25,7 @@ Usage (HOME must point at the oracle wallet's data dir so keys.dat is found — 
     HOME=/root python scripts/bet_oracle.py void <marketId> --submit # force-void one market
         [--l1 URL] [--exec URL] [--cid CID] [--sportsdb-key K]
 """
-import argparse, json, os, sys, urllib.request, urllib.parse
+import argparse, calendar, json, os, sys, time, urllib.request, urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ops.transaction_ops import construct_blob_tx
@@ -33,6 +33,10 @@ from ops.key_ops import load_keys
 from protocol import MIN_TX_FEE
 
 BET_CID = "fe303d9880c8222dcf3b9953eb86a0fa"   # execnode/contracts/bet.json (nonce "bet-v1")
+# Major soccer leagues to seed matches from (TheSportsDB league ids). 1X2 (home/draw/away) markets.
+# Override with --leagues "4328,4335,…". All soccer, so the 3-outcome shape is always right.
+DEFAULT_LEAGUES = ["4328", "4335", "4332", "4331", "4334", "4480", "4346", "4337"]
+# EPL · La Liga · Serie A · Bundesliga · Ligue 1 · UEFA Champions League · MLS · Eredivisie
 
 
 def _get(url, timeout=15):
@@ -112,24 +116,120 @@ def submit(l1, method, args, keys, fee):
     return tx["txid"][:16], resp.get("message")
 
 
+def secs_per_block(l1, n=20):
+    """Measure the recent wall-clock seconds/block so lock heights land near real kickoff time (the
+    live chain can run slower than the 6s target)."""
+    try:
+        tip = int(_get(f"{l1}/get_latest_block")["block_number"])
+        a = _get(f"{l1}/get_block_number?number={tip - n}").get("block_timestamp")
+        b = _get(f"{l1}/get_block_number?number={tip}").get("block_timestamp")
+        if a and b and b > a:
+            return max(1.0, (b - a) / n)
+    except Exception:
+        pass
+    return 6.0
+
+
+def thesportsdb_next(league, key):
+    """Upcoming events for a TheSportsDB league id (free endpoint)."""
+    try:
+        d = _get(f"https://www.thesportsdb.com/api/v1/json/{key}/eventsnextleague.php?id={urllib.parse.quote(league)}")
+        return (d or {}).get("events") or []
+    except Exception:
+        return []
+
+
+def event_teams(e):
+    """(home, away) from an event, falling back to splitting 'A vs B'."""
+    home, away = (e.get("strHomeTeam") or "").strip(), (e.get("strAwayTeam") or "").strip()
+    if not home or not away:
+        parts = (e.get("strEvent") or "").split(" vs ")
+        if len(parts) == 2:
+            home, away = home or parts[0].strip(), away or parts[1].strip()
+    return home, away
+
+
+def kickoff_epoch(e):
+    """UTC epoch seconds of an event's kickoff, or None."""
+    ts = e.get("strTimestamp")
+    if not ts:
+        d, t = e.get("dateEvent"), e.get("strTime")
+        ts = f"{d}T{t}" if d and t else None
+    if not ts:
+        return None
+    try:
+        return calendar.timegm(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S"))
+    except Exception:
+        return None
+
+
 def main():
+    global BET_CID
     ap = argparse.ArgumentParser()
-    ap.add_argument("action", choices=["list", "resolve", "void"])
+    ap.add_argument("action", choices=["list", "fill", "resolve", "void"])
     ap.add_argument("rest", nargs="*")
     ap.add_argument("--l1", default=os.environ.get("NADO_L1_URL", "http://127.0.0.1:9173").rstrip("/"))
     ap.add_argument("--exec", dest="exec_url", default=os.environ.get("NADO_EXEC_URL", "http://127.0.0.1:9273").rstrip("/"))
     ap.add_argument("--cid", default=BET_CID)
     ap.add_argument("--sportsdb-key", default=os.environ.get("SPORTSDB_KEY", "3"))
+    ap.add_argument("--leagues", default=os.environ.get("BET_LEAGUES", ""), help="comma-separated TheSportsDB league ids (default: majors)")
+    ap.add_argument("--max", type=int, default=int(os.environ.get("BET_FILL_MAX", "24")), help="max new markets to create per fill")
+    ap.add_argument("--min-lead-min", type=int, default=30, help="skip matches kicking off sooner than this (need a betting window)")
+    ap.add_argument("--void-hours", type=float, default=6.0, help="auto-void a market this many hours after kickoff if unresolved")
     ap.add_argument("--fee", type=int, default=MIN_TX_FEE)
     ap.add_argument("--submit", action="store_true", help="actually post (default: dry-run)")
     args = ap.parse_args()
-    global BET_CID
     BET_CID = args.cid
 
     root = _get(f"{args.exec_url}/exec/root")
     cursor = root.get("cursor")
     sto = read_storage(args.exec_url, BET_CID)
     markets = parse_markets(sto, cursor)
+
+    if args.action == "fill":
+        keys = load_keys()
+        now = int(time.time())
+        tip = int(_get(f"{args.l1}/get_latest_block")["block_number"])
+        spb = secs_per_block(args.l1)
+        existing_ev = {str(sto.get("ev", {}).get(m, "")) for m in sto.get("mk", {})}
+        leagues = [x.strip() for x in (args.leagues.split(",") if args.leagues else DEFAULT_LEAGUES) if x.strip()]
+        created = 0
+        print(f"fill: tip {tip} · ~{spb:.1f}s/block · {len(leagues)} leagues · cap {args.max}"
+              + ("" if args.submit else "  (DRY-RUN — add --submit to create)"))
+        for lg in leagues:
+            if created >= args.max:
+                break
+            for e in thesportsdb_next(lg, args.sportsdb_key):
+                if created >= args.max:
+                    break
+                ev = str(e.get("idEvent") or "")
+                if not ev or not ev.isdigit() or ev in existing_ev:
+                    continue
+                ko = kickoff_epoch(e)
+                if ko is None:
+                    continue
+                lead = ko - now
+                if lead < args.min_lead_min * 60:      # too soon / already kicked off -> no betting window
+                    continue
+                home, away = event_teams(e)
+                if not home or not away:
+                    continue
+                title = (e.get("strEvent") or f"{home} vs {away}").strip()
+                desc = "\n".join([title, home, "Draw", away])
+                lock = tip + max(1, int(lead / spb))
+                deadline = lock + max(1, int(args.void_hours * 3600 / spb))
+                mid = int(ev)
+                existing_ev.add(ev)
+                created += 1
+                tag = f"{e.get('strLeague', '?')}, kickoff {e.get('strTimestamp', '?')}Z"
+                if args.submit:
+                    txid, msg = submit(args.l1, "create_market", [mid, 3, lock, deadline, desc, "thesportsdb", ev], keys, args.fee)
+                    print(f"  + {mid}  {title}  ({tag}) -> {msg}")
+                else:
+                    print(f"  [dry] {mid}  {title}  ({tag}, lock +{int(lead / spb)} blk)")
+        print(f"\n{created} market(s) {'created' if args.submit else 'proposed'}"
+              + ("" if args.submit else " — re-run with --submit to create them"))
+        return
 
     if args.action == "void":
         if not args.rest:

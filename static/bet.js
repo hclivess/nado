@@ -150,6 +150,38 @@ function outcomesHTML(mk, opts) {
 }
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+// Live match details from the source named on the market (transparency: the same free public feed the
+// oracle resolves from). TheSportsDB allows browser CORS. Cached per (source,event) for the session; a
+// completed fetch re-renders the open market. Best-effort — a missing/failed lookup just shows nothing.
+const _evCache = {};
+async function loadEventDetails(mk) {
+  const el = $("mDetails");
+  if (!el) return;
+  if (mk.source !== "thesportsdb" || !mk.ev) { el.innerHTML = ""; return; }
+  const key = mk.source + ":" + mk.ev;
+  if (!(key in _evCache)) {
+    _evCache[key] = null;   // in-flight: don't refetch on the next 4s tick
+    try {
+      const r = await fetch("https://www.thesportsdb.com/api/v1/json/3/lookupevent.php?id=" + encodeURIComponent(mk.ev));
+      const d = await r.json();
+      _evCache[key] = (d && d.events && d.events[0]) || false;
+    } catch (e) { _evCache[key] = false; }
+    if (activeMarket === mk.id && lastSto) renderActive(lastSto);   // re-render once details arrive
+    return;
+  }
+  const e = _evCache[key];
+  if (e == null) return;                     // still loading
+  if (e === false) { el.innerHTML = '<span class="dim">match details unavailable from ' + esc(mk.source) + "</span>"; return; }
+  const bits = [];
+  if (e.strEvent) bits.push("<b>" + esc(e.strEvent) + "</b>");
+  if (e.strTimestamp) { const dt = new Date(e.strTimestamp + (/[zZ]|[+-]\d\d:?\d\d$/.test(e.strTimestamp) ? "" : "Z")); if (!isNaN(dt)) bits.push("🗓 " + dt.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })); }
+  if (e.strLeague) bits.push("🏆 " + esc(e.strLeague) + (e.strSport ? " (" + esc(e.strSport) + ")" : ""));
+  const hs = e.intHomeScore, as = e.intAwayScore, st = (e.strStatus || "").trim();
+  if (hs != null && hs !== "" && as != null && as !== "") bits.push('<b class="under">' + esc(hs) + "–" + esc(as) + "</b>" + (st && !/finished|ft/i.test(st) ? " " + esc(st) : ""));
+  else if (st && !/not started|ns/i.test(st)) bits.push(esc(st));
+  el.innerHTML = bits.join(" · ");
+}
+
 function render() {
   const sto = lastSto;
   const signedIn = renderWallet(dapp);
@@ -204,6 +236,7 @@ function renderActive(sto) {
   $("mStatus").textContent = statusText(mk);
   $("mPool").textContent = rawToNado(mk.total) + " NADO";
   $("mSource").textContent = mk.source ? (mk.source + (mk.ev ? " · event " + mk.ev : "")) : "—";
+  loadEventDetails(mk);   // pull kickoff / league / status / score from the source (best-effort)
   shareInvite("market", mk.id, "Bet on " + mk.title + " on NADO:", 180);
 
   // outcome picker (only clickable while open)
