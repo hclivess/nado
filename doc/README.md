@@ -31,6 +31,7 @@ It also records the multi-agent **security review** that motivated much of this 
 | [settlement-layer.md](settlement-layer.md) | **Implementation spec** for the settlement layer — data/tx formats, the node↔execnode↔interface wiring, the `settlement_justified` verifier seam, namespaces, the mining-wallet Settlement tab, phased checklist + tests |
 | [rollups-and-settlement.md](rollups-and-settlement.md) | **Complete architecture** — the exec node, blobs/DA, **namespaces (built)**, what a rollup is, settlement, and the **tunnels** (bridge + shielded + dividend + cross-rollup); security invariants + a built-vs-designed table + file map |
 | [exchange-integration.md](exchange-integration.md) | **Exchange/custodian guide** — REST endpoints, `ndo` address checksums, credit-at-`finalized_height`, ML-DSA withdrawal signing; why the RPC is not Bitcoin/ETH JSON-RPC |
+| [dex-bridge.md](dex-bridge.md) | **Decentralized exchange & bridge — no authority** — HTLC atomic-swap bridge + an ownerless on-chain order book (exec-layer contract), matching, cross-chain preimage settlement, intra-NADO atomic swaps, watchtowers, the free-option problem, MEV/ordering, and a phased build plan. The trustless alternative to a custodial/multisig bridge |
 | [units.md](units.md) | The named sub-unit ladder (`dag`…`eli`) — a display convention over the raw-integer ledger, honoring the people behind NADO |
 
 ## Settlement model — exec-node quorum, not a zkVM
