@@ -517,7 +517,7 @@ export class NadoDapp {
     // remember a just-submitted action so games can show "confirming…" and NEVER re-offer the button the
     // user already clicked (e.g. coinflip "Join this game" reappearing before the join confirms on-chain).
     if (ok && pend && pend.phase && !["connect", "deposit", "withdraw"].includes(pend.phase)) {
-      this.inflight = Object.assign({ ts: Date.now() }, pend);
+      this.inflight = Object.assign({ ts: Date.now(), cur0: this.cursor }, pend);   // cur0: tip at submit (settleInflight fallback)
     }
     // deposit/withdraw confirmations are watched by the SDK itself: their optimistic status line clears the
     // moment the balances MOVE (or after 3 min).
@@ -545,6 +545,30 @@ export class NadoDapp {
     return true;
   }
   clearInflight() { this.inflight = null; }
+
+  // ── OPTIMISTIC STATUS LIFECYCLE (shared, so games don't each reimplement it) ──────────────────────
+  // A value/game action submits -> we show "…confirming…" in #status; once it LANDS (or times out) we
+  // retire the line to a "✓ done" label. Games: call doneLabels() once, showReturn() from onReturn(),
+  // and settleInflight(landedFn) each refresh. landedFn is the game's own on-chain "did it land?" check;
+  // without one, the line clears ~2 tips after submit (or after 3 min) so it can never stick forever.
+  setStatus(text) { const s = document.getElementById("status"); if (s) s.textContent = text; }
+  doneLabels(map) { this._stDone = map || {}; return this; }
+  // showReturn(pend, ok, err, labels): set the post-redirect status line and remember the optimistic phase
+  showReturn(pend, ok, err, labels) {
+    this.setStatus(statusLabel(pend, ok, err, labels));
+    this._stActive = (ok && pend && pend.phase && !err) ? pend.phase : null;
+  }
+  settleInflight(landedFn) {
+    const f = this.inflight;
+    if (!f) return;
+    let landed = Date.now() - (f.ts || 0) > 180000;                                  // hard timeout (lost tx)
+    if (!landed && typeof landedFn === "function") { try { landed = !!landedFn(f); } catch (e) {} }
+    if (!landed && f.cur0 != null && this.cursor != null && this.cursor >= f.cur0 + 2) landed = true;  // tip advanced
+    if (!landed) return;
+    const phase = f.phase;
+    this.clearInflight();
+    if (this._stActive === phase) { this.setStatus((this._stDone && this._stDone[phase]) || ""); this._stActive = null; }
+  }
   // reflectUrl(key, id): keep the address bar pointing at the selected table/game/pet, so it's the exact
   // shareable link (?<key>=<id>) and Back/refresh return here. replaceState (no history spam); only when it
   // actually changes. Pass null/"" to clear the param. Call from render().

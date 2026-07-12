@@ -246,6 +246,7 @@ function leaveTable() {
 
 async function refreshActive() {
   await dapp.refresh();
+  dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
   const sto = await dapp.storage();
   if (sto) {
     lastSto = sto;
@@ -591,7 +592,7 @@ dapp.onReturn((pend, ok, err) => {
   if (pend && pend.table != null) activeTable = pend.table;
   if (ok && pend && (pend.phase === "connect" || pend.phase === "deposit")) dapp.consumeInvite(replayInvite);
   if (ok && pend && ["open", "join", "bet", "reveal", "settle", "start", "leave", "closest"].includes(pend.phase)) watch = Object.assign({}, pend, { ts: Date.now() });
-  $("status").textContent = statusLabel(pend, ok, err, {
+  dapp.showReturn(pend, ok, err, {
     open: "Table opening — confirming…", join: "Taking your seat — confirming…", bet: "Bet placed — confirming…",
     reveal: "Showing your cards — confirming…", settle: "Paying the winner…", reclaim: "Reclaiming…", cancel: "Cancelling…",
     start: "Dealing — confirming…", leave: "Leaving the table — refunding…", closest: "Fast-forwarding the street…" });

@@ -119,6 +119,7 @@ async function rematch() {
 
 async function refreshActive() {
   await dapp.refresh();
+  dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
   const sto = await dapp.storage();
   if (sto) {
     for (const gid of allGids(sto)) stageCache[gid] = { settled: !!_m(sto, "sd")[gid], ncom: _m(sto, "nn")[gid] || 0, stake: _m(sto, "st")[gid] || 0 };
@@ -253,7 +254,7 @@ function renderActive() {
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.gameId != null) active = pend.gameId;
   if (ok && pend && pend.phase === "bet") { const g = gamesLoad(); if (g[pend.gameId]) { g[pend.gameId].bet = "pending"; gamesSave(g); } }
-  $("status").textContent = statusLabel(pend, ok, err, { bet: "Bet submitted — confirming…", settle: "Settling…" });
+  dapp.showReturn(pend, ok, err, { bet: "Bet submitted — confirming…", settle: "Settling…" });
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }

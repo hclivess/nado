@@ -111,6 +111,7 @@ const closeMachine = () => dapp.call("close", [activeTable], null, "close machin
 // ---- refresh ---------------------------------------------------------------------------------------
 async function refreshAll() {
   await dapp.refresh();
+  dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
   const sto = await dapp.storage();
   if (sto) {
     lastSto = sto;
@@ -251,7 +252,7 @@ function render() {
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.table != null) activeTable = pend.table;
   if (ok && pend && ["open", "spin", "settle", "close", "fund"].includes(pend.phase)) watch = pend;
-  $("status").textContent = statusLabel(pend, ok, err, {
+  dapp.showReturn(pend, ok, err, {
     open: "Machine opening — confirming…", spin: "🎰 Spin submitted — the reels lock to the next blocks…",
     settle: "Settling on-chain…", fund: "Topping up the bank…", close: "Closing the machine…" });
 });

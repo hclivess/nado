@@ -14,7 +14,25 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, bloc
 const CID = "fe303d9880c8222dcf3b9953eb86a0fa";   // execnode/contracts/bet.json, deployed by the node key (nonce "bet-v1")
 const dapp = new NadoDapp({ cid: CID, app: "Bet" });
 const BLOCK_SECS = 6, BPM = 60 / BLOCK_SECS;   // 10 blocks / minute
-let lastSto = null, activeMarket = null, selOutcome = null, stPhase = null;
+let lastSto = null, activeMarket = null, selOutcome = null;
+// optimistic-status labels (SDK owns the lifecycle via showReturn/settleInflight/doneLabels)
+const CONFIRMING = { bet: "Bet placed — confirming on-chain…", claim: "Collecting your winnings — confirming…",
+  create: "Listing your market — confirming…", resolve: "Posting the result — confirming…",
+  void: "Voiding — refunding bettors…", src: "Adding source — confirming…" };
+const DONE = { bet: "✓ Bet confirmed", claim: "✓ Winnings collected", create: "✓ Market listed",
+  resolve: "✓ Result posted", void: "✓ Market voided", src: "✓ Source added" };
+// game-specific "did the in-flight action land on-chain?" check for dapp.settleInflight
+function actionLanded(f) {
+  const sto = lastSto, me = dapp.me, m = f.market;
+  if (!sto || !me) return false;
+  if (f.phase === "bet") return Number(_m(sto, "us")[m + "|" + me] || 0) > (f.prevUs || 0);
+  if (f.phase === "claim") return !!_m(sto, "cl")[m + "|" + me];
+  if (f.phase === "create") return !!_m(sto, "mk")[m];
+  if (f.phase === "resolve") return !!_m(sto, "dn")[m] || !!_m(sto, "vd")[m] || Number(_m(sto, "vt")[m + "|" + me] || 0) > 0;
+  if (f.phase === "void") return !!_m(sto, "vd")[m];
+  if (f.phase === "src") return true;
+  return false;
+}
 
 // ---- reads (bet-specific storage schema) ---------------------------------------------------------
 const cfg = (sto, k) => _m(sto, "cfg")[k];
@@ -120,34 +138,11 @@ async function refreshAll() {
   if (sto) lastSto = sto;
   if (lastSto) await resolveAliases([dapp.me, cfg(lastSto, "admin")].filter(Boolean));
   render();
-  if (lastSto) clearConfirmed(lastSto);   // retire the optimistic "confirming…" line once the action lands
+  dapp.settleInflight(actionLanded);   // SDK retires the optimistic "confirming…" line once the action lands
   // AUTO-COLLECT (shared SDK tick, opt-out): claim any settled market that owes me, one per refresh
   if (lastSto) {
     const owed = allMarkets(lastSto).filter((m) => claimable(m) > 0);
     dapp.autoCollect(owed, (m) => claimMarket(m.id), { key: (x) => x.id });
-  }
-}
-
-// Clear the optimistic "…confirming…" status once the in-flight action is visible on-chain (or after it
-// times out) — the SDK only auto-watches deposits/withdrawals, so game actions must clear their own line.
-const CONFIRMED = { bet: "✓ Bet confirmed", claim: "✓ Winnings collected", create: "✓ Market listed",
-  resolve: "✓ Result posted", void: "✓ Market voided", src: "✓ Source added" };
-function clearConfirmed(sto) {
-  const f = dapp.inflight;
-  if (!f) return;
-  let landed = Date.now() - (f.ts || 0) > 180000;   // safety timeout
-  const m = f.market, me = dapp.me;
-  if (!landed && f.phase === "src") landed = true;
-  if (!landed && m != null && me) {
-    if (f.phase === "bet") landed = Number(_m(sto, "us")[m + "|" + me] || 0) > (f.prevUs || 0);
-    else if (f.phase === "claim") landed = !!_m(sto, "cl")[m + "|" + me];
-    else if (f.phase === "create") landed = !!_m(sto, "mk")[m];
-    else if (f.phase === "resolve") landed = !!_m(sto, "dn")[m] || !!_m(sto, "vd")[m] || Number(_m(sto, "vt")[m + "|" + me] || 0) > 0;
-    else if (f.phase === "void") landed = !!_m(sto, "vd")[m];
-  }
-  if (landed) {
-    dapp.clearInflight();
-    if (stPhase) { set(CONFIRMED[stPhase] || ""); stPhase = null; }
   }
 }
 function selectMarket(id) {
@@ -348,13 +343,10 @@ function wireUI() {
   if ($("btnAddSource")) $("btnAddSource").onclick = addSource;
   $("btnShare").onclick = () => share(base() + "/?market=" + activeMarket, "Bet on this match on NADO:", $("btnShare"));
 }
+dapp.doneLabels(DONE);
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.market != null) activeMarket = pend.market;
-  if (ok && pend && pend.phase) stPhase = pend.phase;   // remember it so clearConfirmed can retire the line
-  $("status").textContent = statusLabel(pend, ok, err, {
-    bet: "Bet placed — confirming on-chain…", claim: "Collecting your winnings — confirming…",
-    create: "Listing your market — confirming…", resolve: "Posting the result — confirming…",
-    void: "Voiding — refunding bettors…", src: "Adding source — confirming…" });
+  dapp.showReturn(pend, ok, err, CONFIRMING);   // SDK sets #status + tracks the optimistic phase
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }

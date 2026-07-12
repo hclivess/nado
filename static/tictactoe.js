@@ -64,6 +64,7 @@ const cancelGame = () => dapp.call("cancel", [activeGame], null, "cancel game #"
 // ---- refresh ---------------------------------------------------------------------------------------
 async function refreshAll() {
   await dapp.refresh();
+  dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
   const sto = await dapp.storage();
   if (sto) {
     lastSto = sto;
@@ -195,7 +196,7 @@ dapp.onReturn((pend, ok, err) => {
   if (ok && pend && (pend.phase === "connect" || pend.phase === "deposit")) dapp.consumeInvite(replayInvite);
   if (!ok) pendingCell = null;
   if (ok && pend && ["open", "join", "move", "resign", "abort", "cancel"].includes(pend.phase)) watch = Object.assign({}, pend, { ts: Date.now() });
-  $("status").textContent = statusLabel(pend, ok, err, {
+  dapp.showReturn(pend, ok, err, {
     open: "Opening the game — confirming…", join: "Joining — confirming…", move: "Move sent — landing in the next block…",
     resign: "Resigning…", abort: "Refunding…", cancel: "Cancelling…" });
 });

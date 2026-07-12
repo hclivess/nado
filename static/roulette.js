@@ -108,6 +108,7 @@ const closeTable = () => dapp.call("close", [activeTable], null, "close table #"
 
 async function refreshActive() {
   await dapp.refresh();
+  dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
   const sto = await dapp.storage();
   if (sto) {
     lastSto = sto;
@@ -313,7 +314,7 @@ function renderActive() {
 // ---- boot ----------------------------------------------------------------------------------------
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.table != null) activeTable = pend.table;
-  $("status").textContent = statusLabel(pend, ok, err);
+  dapp.showReturn(pend, ok, err);
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }

@@ -158,6 +158,7 @@ const timeoutSeat = (g) => dapp.call("timeout", [g], null, "time out seat #" + g
 
 async function refreshActive() {
   await dapp.refresh();
+  dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
   const sto = await dapp.storage();
   if (sto) {
     lastSto = sto; pruneAndTrack(sto);
@@ -349,7 +350,7 @@ function renderActive() {
 // ---- boot ----------------------------------------------------------------------------------------
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.table != null) activeTable = pend.table;
-  $("status").textContent = statusLabel(pend, ok, err, { roll: "Rolling…", hold: "Confirming your move…", settle: "Paying the winner…", reclaim: "Reclaiming…", timeout: "Finalizing…" });
+  dapp.showReturn(pend, ok, err, { roll: "Rolling…", hold: "Confirming your move…", settle: "Paying the winner…", reclaim: "Reclaiming…", timeout: "Finalizing…" });
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }

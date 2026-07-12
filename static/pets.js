@@ -18,7 +18,6 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 
 let active = null, activeBattle = null;
 let PETS = {}, BATTLES = {}, OFFERS = {}, hatchPlaying = false, battlePlaying = null;
-let stMsgPhase = null;   // phase of the optimistic status line, so it can be cleared once it lands
 
 // ---- SVG art -----------------------------------------------------------------------------------------
 // One drawing function per body ARCHETYPE; the 100-animal roster (pets-genes.js) picks an archetype, a
@@ -800,23 +799,19 @@ async function refreshAll() {
     for (const pid of Object.keys(l)) if (!PETS[pid] && Date.now() - (l[pid].ts || 0) > 600000) { delete l[pid]; ch = true; }
     if (ch) Lsave(l);
     await resolveAliases(Object.values(PETS).map((p) => p.owner).concat([dapp.me]).filter(Boolean).slice(0, 60));
-    // an in-flight action whose effect is now visible on-chain is done — stop showing "confirming…".
-    // EVERY phase must be covered here (plus the 3-min expiry), or its status line sticks forever.
-    const f = dapp.inflight;
-    if (f && Date.now() - (f.ts || 0) > 180000) dapp.clearInflight();
-    else if (f) {
+    // retire the optimistic "confirming…" line once the action's effect is visible on-chain (SDK also
+    // covers the 3-min expiry + tip-advance fallback). EVERY phase must be covered by this predicate.
+    dapp.settleInflight((f) => {
       const p = PETS[f.pid], b = BATTLES[f.bid], o = OFFERS[f.oid];
-      if ((f.phase === "mint" && p) || (f.phase === "hatch" && p && p.hatched)
+      return (f.phase === "mint" && p) || (f.phase === "hatch" && p && p.hatched)
         || (f.phase === "buy" && p && p.mine) || (f.phase === "feed" && p && p.fu > (f.fu0 || 0))
         || (f.phase === "train" && p && p.th) || (f.phase === "trainres" && p && !p.th)
         || (f.phase === "rename" && p && p.nm) || (f.phase === "xfer" && p && !p.mine)
         || (f.phase === "market" && p && String(p.price) !== String(f.mp0))
         || (f.phase === "offer" && o) || (f.phase === "offeract" && o && o.state === 2)
         || (f.phase === "challenge" && b) || (f.phase === "accept" && b && b.wn >= 2)
-        || ((f.phase === "resolveb" || f.phase === "cancelb") && b && b.wn === 3)) dapp.clearInflight();
-    }
-    // once nothing is in flight, an optimistic "…confirming" status line is stale — clear it
-    if (!dapp.inflight && stMsgPhase) { $("status").textContent = ""; stMsgPhase = null; }
+        || ((f.phase === "resolveb" || f.phase === "cancelb") && b && b.wn === 3);
+    });
     maybeAutoHatch();   // continue a "Hatch all" run once the previous hatch has confirmed
     maybeAutoMint();    // continue a "Adopt N eggs" batch once the previous mint has confirmed
     maybeAutoReveal();  // auto-reveal any finished training the moment its result blocks finalize
@@ -1202,9 +1197,7 @@ dapp.onReturn((pend, ok, err) => {
   if (pend && pend.pid != null) active = pend.pid;
   if (pend && pend.bid != null) activeBattle = pend.bid;
   if (ok && pend && pend.phase === "train") { const l = L(); if (l[pend.pid]) { l[pend.pid].trainPending = 1; Lsave(l); } }
-  // remember which phase wrote the optimistic line so refreshAll can clear it once the effect lands
-  stMsgPhase = ok && pend && !["connect", "deposit", "withdraw"].includes(pend.phase) ? pend.phase : null;
-  $("status").textContent = statusLabel(pend, ok, err, {
+  dapp.showReturn(pend, ok, err, {
     mint: "Egg adopted — confirming on-chain (~1 min)…", hatch: "Hatching — confirming on-chain…",
     feed: "Nom nom — the meal is confirming…", train: "Training session booked — confirming…",
     trainres: "Revealing the result — confirming…", challenge: "Challenge sent — the owner must accept it.",
