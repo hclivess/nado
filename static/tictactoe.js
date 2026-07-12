@@ -57,7 +57,7 @@ function moveCell(i) {
     (gm.mc % 2 === 0 ? "✕" : "◯") + " on cell " + (i + 1) + " · game #" + activeGame,
     { game: activeGame, phase: "move", cell: i, ply: gm.mc });
 }
-const resignGame = () => dapp.call("resign", [activeGame], null, "resign game #" + activeGame, { game: activeGame, phase: "resign" }, { confirm: 1 });
+const resignGame = () => dapp.call("resign", [activeGame], null, "resign game #" + activeGame, { game: activeGame, phase: "resign" });   // wallet-policy confirm — chess resign already works this way
 const abortGame = () => dapp.call("abort", [activeGame], null, "refund a stalled game #" + activeGame, { game: activeGame, phase: "abort" });
 const cancelGame = () => dapp.call("cancel", [activeGame], null, "cancel game #" + activeGame, { game: activeGame, phase: "cancel" });
 

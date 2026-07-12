@@ -701,13 +701,13 @@ function challenge(theirPid) {
   const bid = randId();
   dapp.call("challenge", [bid, myPid, Number(theirPid)], stake > 0n ? stake : null,
     "challenge " + PETS[theirPid].label + " with " + PETS[myPid].label + (stake > 0n ? " · stake " + rawToNado(stake) + " NADO" : ""),
-    { bid, phase: "challenge" }, { confirm: 1 });
+    { bid, phase: "challenge" });   // no forced confirm — the WALLET decides (like chess/farkle joins): default wallets still get the visible confirm via needui→redirect, auto-sign-all plays uninterrupted
 }
 function acceptBattle(bid) {
   const b = BATTLES[bid]; if (!b) return;
   const stake = BigInt(b.ws || 0);
   if (stake > 0n && !canPay(dapp, stake, "Accepting this battle")) return;
-  dapp.call("accept", [Number(bid)], stake > 0n ? stake : null, "accept battle #" + bid + (stake > 0n ? " · stake " + rawToNado(stake) + " NADO" : ""), { bid, phase: "accept" }, { confirm: 1 });
+  dapp.call("accept", [Number(bid)], stake > 0n ? stake : null, "accept battle #" + bid + (stake > 0n ? " · stake " + rawToNado(stake) + " NADO" : ""), { bid, phase: "accept" });   // wallet-policy confirm (see challenge)
 }
 const resolveBattle = (bid) => dapp.call("resolve_battle", [Number(bid)], null, "settle battle #" + bid, { bid, phase: "resolveb" });
 const cancelBattle = (bid) => dapp.call("cancel_battle", [Number(bid)], null, "withdraw challenge #" + bid, { bid, phase: "cancelb" });
