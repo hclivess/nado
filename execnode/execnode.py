@@ -613,8 +613,15 @@ async def h_inbox(request):
 
 
 async def h_bridge(request):
-    """All exec-side bridge balances plus every recorded (still-claimable) withdrawal record."""
-    return web.json_response({"balances": state.bridge, "withdrawals": state.withdrawals})
+    """All exec-side bridge balances plus every recorded (still-claimable) withdrawal record.
+    ?provisional=1 reads the fast pre-finality clone (display-only, like every other provisional read);
+    bridge balances live on the DEFAULT layer regardless of ?ns=, so pick the default clone directly."""
+    st = state
+    if request.query.get("provisional") in ("1", "true", "yes"):
+        pv = prov_states
+        if pv is not None and "default" in pv:
+            st = pv["default"]
+    return web.json_response({"balances": st.bridge, "withdrawals": st.withdrawals, "cursor": st.cursor})
 
 
 async def h_withdrawal_proof(request):

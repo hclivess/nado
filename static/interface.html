@@ -206,11 +206,15 @@
       <button class="copy" data-i18n="btn.copy" data-copy="walAddr">Copy</button></div>
     <div class="stat-grid mt">
       <div class="stat" data-i18n-title="tip.free" title="FREE — your spendable balance: coins you can send or bond right now.">
-        <div class="label" data-i18n="lbl.free">Free <span class="hint">ⓘ</span></div><div class="value sm" id="walBalance">—</div></div>
+        <div class="label" data-i18n="lbl.free">Free <span class="hint">ⓘ</span></div><div class="value sm" id="walBalance">—</div>
+        <div class="pend hidden" id="walBalancePend" data-i18n-title="tip.pendFree" title="Still confirming — the network is sealing these coins into a block. They are NOT spendable yet; they'll appear in your balance automatically (usually well under a minute). Nothing is lost."></div></div>
       <div class="stat" data-i18n-title="tip.bonded" title="BONDED — coins locked as bonded stake. Bonded stake increases your odds in the bonded mining lane; it unlocks BOND_UNLOCK_DELAY (1440) blocks after you request an unbond.">
         <div class="label" data-i18n="lbl.bonded">Bonded <span class="hint">ⓘ</span></div><div class="value sm" id="walBonded">—</div></div>
       <div class="stat" data-i18n-title="tip.total" title="TOTAL — free (spendable) + bonded (staked).">
         <div class="label" data-i18n="lbl.total">Total <span class="hint">ⓘ</span></div><div class="value sm" id="walTotal">—</div></div>
+      <div class="stat hidden" id="walExecStat" data-i18n-title="tip.playable" title="PLAYABLE (TOKENS) — your execution-layer balance: the tokens the NADO games spend and pay out. Buy in from your Free balance in any game; cash out any time to get NADO back.">
+        <div class="label" data-i18n="lbl.playable">🪙 Playable <span class="hint">ⓘ</span></div><div class="value sm" id="walExec">—</div>
+        <div class="pend hidden" id="walExecPend" data-i18n-title="tip.pendExec" title="Still confirming — this buy-in / cash-out is being sealed into a block. It is NOT playable yet; your token balance updates automatically (usually well under a minute). Nothing is lost."></div></div>
       <div class="stat" data-i18n-title="tip.registered" title="REGISTERED — you've done the one-time on-chain registration (a quick proof-of-work). It's required once before you can mine the OPEN lane. Done automatically when you start mining.">
         <div class="label" data-i18n="lbl.registered">Registered <span class="hint">ⓘ</span></div><div class="value sm" id="walReg">—</div></div>
       <div class="stat" data-i18n-title="tip.present" title="PRESENT — you hold a valid presence lease (a recent PoSW recert), so you're currently ELIGIBLE to win open-lane blocks. The wallet renews the lease automatically before it lapses; if it stops, presence lapses and you stop earning until it resumes.">
@@ -218,6 +222,10 @@
       <div class="stat" data-i18n-title="tip.fidelity" title="FIDELITY — a continuity score that rises each epoch you stay present (up to a cap) and increases your weight in the open lane, so steady miners win a bit more often. Going absent reduces its effect.">
         <div class="label" data-i18n="lbl.fidelity">Fidelity <span class="hint">ⓘ</span></div><div class="value sm" id="walFidelity">—</div></div>
     </div>
+
+    <!-- PENDING EXPLAINER: shown only while something is confirming, so a mid-flight send/buy-in/cash-out
+         never looks like lost money — the single most nervous-making moment in any wallet. -->
+    <div id="walPendNote" class="pendnote hidden" data-i18n="pend.note">⏳ Amounts marked “confirming” are being sealed into a block right now. They can't be spent or played yet — they unlock automatically, usually in under a minute. Nothing is lost.</div>
 
     <!-- a little touch: your pile of coins, scaled to the richest wallet on the network -->
     <div id="coinPileWrap" class="mt hidden" style="text-align:center">
@@ -337,6 +345,7 @@
       <span class="hint" data-i18n-title="tip.fee" title="A tiny network fee set automatically to the protocol minimum. It is destroyed, not paid to anyone. Shown in NADO.">ⓘ</span>
     </div>
     <div class="small faint" data-i18n="send.spendable">Spendable balance: <span id="sendAvail" class="mono">—</span></div>
+    <div class="pend hidden" id="sendPend" data-i18n-title="tip.pendFree" title="Still confirming — the network is sealing these coins into a block. They are NOT spendable yet; they'll appear in your balance automatically (usually well under a minute). Nothing is lost."></div>
     <div class="mt"><button type="button" id="btnSendAll" class="copy" data-i18n="btn.sendAll">💸 Send all</button></div>
     <button id="btnSend" class="primary mt" style="width:100%" data-i18n="btn.reviewSend">Review &amp; send</button>
     <div id="sendMsg" class="small mt faint"></div>

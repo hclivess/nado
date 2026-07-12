@@ -1765,6 +1765,10 @@ async function refreshDashboard() {
     $("stkBonded").textContent = "0 NADO";
   }
 
+  // pending (mempool / pre-block) money — in flight either way, shown but clearly NOT usable yet.
+  // Runs for brand-new accounts too: an incoming first payment should show as "arriving", not nothing.
+  refreshPending(addr).catch(() => {});
+
   if (ms) {
     state.blockTime = ms.block_time || state.blockTime;
     $("walPresent").innerHTML = ms.registered_present ? `<span class="badge ok">${i18("badge.present","present")}</span>` : `<span class="badge no">${i18("badge.absent","absent")}</span>`;
@@ -1790,6 +1794,44 @@ async function refreshDashboard() {
   } else {
     $("walPresent").textContent = "—";
   }
+}
+
+/* PENDING / CONFIRMING balances — money on its way in or out of the account. People get nervous the
+ * second a send/buy-in leaves the button and the number doesn't move; these amber chips show exactly
+ * what's in flight, clearly marked as still confirming and NOT usable yet.
+ * Sources: /get_account_mempool (L1 pool summary — an older relay 404s and the chips just stay hidden)
+ * + /exec/bridge?provisional=1 for the playable (exec-layer token) balance, the SAME provisional read
+ * the games use, so the wallet and the games never show two disagreeing token balances. */
+async function refreshPending(addr) {
+  let mp = null;
+  try { const r = await rpcJSON("/get_account_mempool?address=" + encodeURIComponent(addr), { retry: false }); if (r.ok && r.data && typeof r.data === "object") mp = r.data; } catch (e) { /* relay blip / old node */ }
+  const freeIn = BigInt((mp && mp.free_in) || 0), freeOut = BigInt((mp && mp.free_out) || 0);
+  const execIn = BigInt((mp && mp.exec_in) || 0), execOut = BigInt((mp && mp.exec_out) || 0);
+
+  let exec = null;   // playable (exec) balance; null = exec node unreachable -> keep whatever is shown
+  try {
+    const b = await (await fetch(execBase() + "/exec/bridge?provisional=1", { cache: "no-store" })).json();
+    exec = BigInt((b.balances || {})[addr] || 0);
+  } catch (e) { /* exec node briefly down — fail soft */ }
+
+  const chip = (el, inRaw, outRaw) => {
+    if (!el) return false;
+    const parts = [];
+    if (inRaw > 0n) parts.push(i18("pend.arriving", "+{a} arriving", { a: rawToNado(inRaw) }));
+    if (outRaw > 0n) parts.push(i18("pend.leaving", "−{a} leaving", { a: rawToNado(outRaw) }));
+    const on = parts.length > 0;
+    el.textContent = on ? "⏳ " + parts.join(" · ") + " — " + i18("pend.confirming", "confirming…") : "";
+    el.classList.toggle("hidden", !on);
+    return on;
+  };
+  const anyFree = chip($("walBalancePend"), freeIn, freeOut);
+  chip($("sendPend"), freeIn, freeOut);
+  const anyExec = chip($("walExecPend"), execIn, execOut);
+  if (exec != null) $("walExec").textContent = rawToNado(exec) + " NADO";
+  // the Playable row only appears once there's something to say (a balance or an in-flight buy-in) —
+  // a wallet that never touched the games doesn't grow an extra 0-row.
+  if ((exec != null && exec > 0n) || anyExec) show("walExecStat", true);
+  show("walPendNote", anyFree || anyExec);
 }
 
 function renderLanes(ms) {

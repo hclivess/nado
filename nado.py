@@ -529,6 +529,77 @@ async def account(request):
     return _resp(out, status=code)
 
 
+async def account_mempool(request):
+    """GET /get_account_mempool?address=: the address's PENDING (mempool — not yet sealed into a block)
+    activity, summarized for wallet display: raw totals arriving into / leaving the spendable balance
+    (free_in/free_out) and moving into / out of the execution-layer playable balance (exec_in/exec_out),
+    plus light per-tx summaries (no pubkeys/signatures/proofs — a pool dump is megabytes of PQ material,
+    this is a few hundred bytes). Pure in-memory pool scan + at most a few alias lookups per call."""
+    def _work():
+        """Blocking pool scan (worker thread — alias resolution reads LMDB)."""
+        try:
+            addr = _q(request, "address", memserver.address)
+            lb = memserver.latest_block if isinstance(memserver.latest_block, dict) else {}
+            height = int(lb.get("block_number") or 0)
+            from ops import alias_ops
+            free_in = free_out = exec_in = exec_out = 0
+            txs = []
+            for tx in list(memserver.transaction_pool):
+                if not isinstance(tx, dict):
+                    continue
+                if int(tx.get("max_block") or 0) <= height:
+                    continue    # expired leftover — can never enter a block, so it isn't "confirming"
+                sender, recipient = tx.get("sender"), tx.get("recipient")
+                amount, fee = int(tx.get("amount") or 0), int(tx.get("fee") or 0)
+                data = tx.get("data") if isinstance(tx.get("data"), dict) else {}
+                fi = fo = ei = eo = 0
+                # exits proven straight to data["addr"] (bridge/shield claims), whoever submitted them
+                if recipient in ("bridge_withdraw", "unshield") and data.get("addr") == addr:
+                    fi += int(data.get("amount") or 0)
+                if sender == addr:
+                    if recipient == "withdraw":            # matured unbond claim: bonded -> spendable
+                        fi += int(data.get("amount") or 0)
+                    elif recipient == "bridge":            # L1 -> exec (playable) deposit
+                        fo += amount + fee
+                        ei += amount
+                    elif recipient == "blob":              # exec call: the fee leaves L1; a value escrows from playable
+                        fo += fee
+                        op = data.get("op")
+                        if op == "call":
+                            eo += int(data.get("value") or 0)
+                        elif op == "bridge_withdraw":      # playable -> L1 (lands via a later bridge_withdraw claim)
+                            eo += int(data.get("amount") or 0)
+                    elif recipient in ("bridge_withdraw", "unshield", "unbond", "register", "heartbeat",
+                                       "msgkey", "attest", "commit", "reveal", "settle", "slash",
+                                       "xmsg", "htlc_claim"):
+                        pass                               # fee-exempt / no spendable movement (exit credits handled above)
+                    else:                                  # plain send, bond, shield, alias, htlc_lock, ...
+                        fo += amount + fee
+                        if recipient == addr:
+                            fi += amount                   # self-send: only the fee actually leaves
+                else:
+                    # incoming: direct address match, or a send addressed to one of the address's aliases
+                    to = recipient
+                    if to and not to.startswith("ndo"):
+                        to = alias_ops.resolve_alias(recipient) or recipient
+                    if to == addr:
+                        fi += amount
+                if fi or fo or ei or eo:
+                    free_in += fi; free_out += fo; exec_in += ei; exec_out += eo
+                    if len(txs) < 50:
+                        txs.append({"txid": tx.get("txid"), "sender": sender, "recipient": recipient,
+                                    "amount": amount, "fee": fee, "op": data.get("op") if data else None,
+                                    "free_in": fi, "free_out": fo, "exec_in": ei, "exec_out": eo})
+            out = {"address": addr, "height": height,
+                   "free_in": free_in, "free_out": free_out, "exec_in": exec_in, "exec_out": exec_out,
+                   "txs": txs}
+            return serialize(name="account_mempool", output=out, compress=_q(request, "compress", "none")), 200
+        except Exception as e:
+            return f"Error: {e}", 403
+    out, code = await asyncio.to_thread(_work)
+    return _resp(out, status=code)
+
+
 async def announce_peer(request):
     """GET /announce_peer?ip=: offer this node a peer candidate. The IP must pass check_ip (routable,
     non-internal), answer a live remote /status probe, and run a compatible protocol before it is saved
@@ -1150,6 +1221,7 @@ async def make_app(port):
         web.get("/get_block_number", block_by_number),
         web.get("/get_block", block_by_hash),
         web.get("/get_account", account),
+        web.get("/get_account_mempool", account_mempool),
         web.get("/transaction_pool", _dump_handler("transaction_pool", lambda: memserver.transaction_pool)),
         web.get("/transaction_hash_pool", _dump_handler("transactions_hash_pool", lambda: {
             "transactions_hash_pool": consensus.transaction_hash_pool,
