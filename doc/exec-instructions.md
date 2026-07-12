@@ -309,6 +309,46 @@ dedicated read API. The build + full test vector is `tests/test_roulette_contrac
 {"op":"call","contract":"186ebadb975794e2ed7eeb1c7b5115a5","method":"settle","args":[7]}
 ```
 
+## 5c. Sports Bet (example contract — parimutuel + oracle)
+
+Sports Bet (`execnode/contracts/bet.json`, runtime `stackvm`, `cid = fe303d9880c8222dcf3b9953eb86a0fa`,
+live at `bet.nadochain.com`) is the first example contract whose outcome is **not** derivable from chain
+randomness — it settles on a **real-world result**. Two ideas the earlier games don't have:
+
+**Parimutuel, no house.** Every `bet(m, outcome)` escrows its `VALUE` into one pool per market. When the
+result is posted, the winning outcome's backers split the **whole** pool pro-rata:
+`payout = your_stake × total_pool ÷ winning_pool`. There is no bookmaker taking the other side and no fixed
+odds — the odds shown are just the live pool ratios. Payouts are **pull-based**: each bettor calls
+`claim(m)` and the contract computes their own share (the VM caps `PAY` at 16 recipients, so a
+push-to-all settle could never serve a large market). The escrow-conservation check (`state.py`) means the
+contract can never pay out more than it holds; integer-division dust (a few raw units per market) stays in
+escrow.
+
+**Configurable oracle.** A blockchain can't see a football score, so an authorized **oracle key** posts it
+via `resolve(m, outcome)`. The oracle *set* is on-chain and admin-configurable: `set_oracle(addr, on)` adds
+or removes keys, `set_threshold(M)` requires **M-of-N** agreement (each oracle votes once; the first outcome
+to reach the threshold finalizes). A free public **source registry** (`add_source(name)` → `thesportsdb`,
+`football-data`, …) is stored on-chain for transparency, and each market records which source + event id
+resolves it. **Bettor protection:** `void(m)` refunds every stake 1:1 — callable by an oracle any time
+before resolution, or by **anyone** once the market's deadline height passes (so a vanished oracle can't
+trap funds); a winning outcome with zero backers auto-voids. The constructor makes the deployer the admin
+and first oracle at threshold 1.
+
+Methods: `create_market(m, nout, lock, deadline, desc, source, ev)` (oracle/admin; `desc` is a
+`\n`-joined blob — title then one label per outcome), `bet(m, outcome)` (+`value`), `resolve(m, outcome)`
+(oracle), `void(m)`, `claim(m)`. Outcomes are integers `0..nout-1` everywhere. The dApp derives all
+markets / odds / positions from `GET /exec/contract` (§8); there is no dedicated read API. The resolver
+that reads the public source and posts results is `scripts/bet_oracle.py` (dry-run by default). The build +
+full test vector (48 assertions: pro-rata math, payout conservation, oracle/admin gating, void/deadline
+refunds, auto-void, 2-of-3 threshold, double-claim guards) is `tests/test_bet_contract.py`.
+
+```json
+{"op":"call","contract":"fe303d9880c8222dcf3b9953eb86a0fa","method":"create_market","args":[770077,3,<lockH>,<deadlineH>,"Arsenal vs Chelsea\nArsenal\nDraw\nChelsea","thesportsdb","2052744"]}
+{"op":"call","contract":"fe303d9880c8222dcf3b9953eb86a0fa","method":"bet","args":[770077,0],"value":100000000000}
+{"op":"call","contract":"fe303d9880c8222dcf3b9953eb86a0fa","method":"resolve","args":[770077,0]}
+{"op":"call","contract":"fe303d9880c8222dcf3b9953eb86a0fa","method":"claim","args":[770077]}
+```
+
 ---
 
 ## 6. Cross-domain messaging

@@ -90,10 +90,11 @@ add_source = (
     store("cfg", [[P("srcN")]], [P("srcN"), LD("cfg"), P(1), ADD]) +     # srcN++
     [HALT])
 
-# create_market(m, nout, lock, deadline, desc, source): an oracle OR the admin lists a match.
+# create_market(m, nout, lock, deadline, desc, source, ev): an oracle OR the admin lists a match.
 # desc is a '\n'-joined blob: line 0 = title, lines 1..nout = outcome labels. source = which registered
-# source resolves it. lock = L1 height betting closes (kickoff); deadline = height past which anyone
-# may void if still unresolved.
+# source resolves it; ev = the source's own event id (so the resolver bot can map this market to the real
+# match, and the UI can deep-link the result). lock = L1 height betting closes (kickoff); deadline =
+# height past which anyone may void if still unresolved.
 ORACLE_OR_ADMIN = [CALLER, LD("orc")] + [CALLER, P("admin"), LD("cfg"), EQ] + [OR, REQ]
 create_market = (
     ORACLE_OR_ADMIN +
@@ -107,6 +108,7 @@ create_market = (
     store("dl", [[A(0)]], [A(3)]) +
     store("ds", [[A(0)]], [A(4)]) +
     store("so", [[A(0)]], [A(5)]) +
+    store("ev", [[A(0)]], [A(6)]) +
     [HALT])
 
 # bet(m, outcome) with VALUE: stake on an outcome while the market is open and before it locks.
@@ -201,9 +203,9 @@ ck("add_source: registered", S("src", 0) == "thesportsdb" and S("src", 1) == "fo
 # --- market 1: a 3-way soccer match, single oracle, X/Y/Z back it, home team (outcome 0) wins -------
 M1 = 5001
 DESC = "Arsenal vs Chelsea\nArsenal\nDraw\nChelsea"
-ck("create_market: non-oracle/non-admin reverts", "revert" in call("create_market", [M1, 3, T0+100, T0+400, DESC, "thesportsdb"], None, "X"))
-call("create_market", [M1, 3, T0+100, T0+400, DESC, "thesportsdb"], None, "ADMIN")
-ck("create_market: stored", S("mk", M1) == 1 and S("no", M1) == 3 and S("lk", M1) == T0+100 and S("dl", M1) == T0+400 and S("ds", M1) == DESC and S("so", M1) == "thesportsdb")
+ck("create_market: non-oracle/non-admin reverts", "revert" in call("create_market", [M1, 3, T0+100, T0+400, DESC, "thesportsdb", "133602"], None, "X"))
+call("create_market", [M1, 3, T0+100, T0+400, DESC, "thesportsdb", "133602"], None, "ADMIN")
+ck("create_market: stored", S("mk", M1) == 1 and S("no", M1) == 3 and S("lk", M1) == T0+100 and S("dl", M1) == T0+400 and S("ds", M1) == DESC and S("so", M1) == "thesportsdb" and S("ev", M1) == "133602")
 ck("create_market: duplicate id reverts", "revert" in call("create_market", [M1, 2, T0+100, T0+400, "x", "y"], None, "ADMIN"))
 ck("create_market: <2 outcomes reverts", "revert" in call("create_market", [5099, 1, T0+100, T0+400, "x", "y"], None, "ADMIN"))
 ck("create_market: lock in past reverts", "revert" in call("create_market", [5098, 2, T0-1, T0+400, "x", "y"], None, "ADMIN"))
@@ -244,7 +246,7 @@ ck("claim: payouts never exceed the pool (dust >= 0)", bal(CID) >= 0 and (300*15
 
 # --- market 2: oracle voids a postponed match -> everyone refunded 1:1 -----------------------------
 M2 = 5002
-call("create_market", [M2, 2, T0+200, T0+500, "Game B\nHome\nAway", "thesportsdb"], None, "ADMIN")
+call("create_market", [M2, 2, T0+200, T0+500, "Game B\nHome\nAway", "thesportsdb", "ev2"], None, "ADMIN")
 call("bet", [M2, 0], 400, "X")
 call("bet", [M2, 1], 600, "Y")
 bx, by = bal("X"), bal("Y")
@@ -257,7 +259,7 @@ ck("void: full refunds", bal("X") == bx + 400 and bal("Y") == by + 600)
 
 # --- market 3: oracle vanishes -> anyone voids after the deadline -> refunds ------------------------
 M3 = 5003
-call("create_market", [M3, 2, T0+300, T0+600, "Game C\nHome\nAway", "thesportsdb"], None, "ADMIN")
+call("create_market", [M3, 2, T0+300, T0+600, "Game C\nHome\nAway", "thesportsdb", "ev3"], None, "ADMIN")
 call("bet", [M3, 0], 250, "Z")
 ck("deadline void: before deadline by non-oracle reverts", (lambda: (setattr(st, "cursor", T0+590), "revert" in call("void", [M3], None, "Z"))[-1])())
 st.cursor = T0 + 620   # past the deadline
@@ -269,7 +271,7 @@ ck("deadline void: refunded", bal("Z") == bz + 250)
 # --- market 4: posted winner had ZERO backers -> auto-void -> refunds -------------------------------
 M4 = 5004
 st.cursor = T0 + 700
-call("create_market", [M4, 3, T0+750, T0+900, "Game D\nH\nX\nA", "thesportsdb"], None, "ADMIN")
+call("create_market", [M4, 3, T0+750, T0+900, "Game D\nH\nX\nA", "thesportsdb", "ev4"], None, "ADMIN")
 call("bet", [M4, 0], 100, "X")
 call("bet", [M4, 1], 100, "Y")     # nobody backs outcome 2
 st.cursor = T0 + 760
@@ -290,7 +292,7 @@ ck("set_threshold: now 2-of-3", S("cfg", "thr") == 2)
 
 M5 = 5005
 st.cursor = T0 + 800
-call("create_market", [M5, 2, T0+850, T0+1000, "Game E\nHome\nAway", "football-data"], None, "O2")   # an oracle can list too
+call("create_market", [M5, 2, T0+850, T0+1000, "Game E\nHome\nAway", "football-data", "ev5"], None, "O2")   # an oracle can list too
 call("bet", [M5, 0], 1000, "X")
 call("bet", [M5, 1], 1000, "Y")
 st.cursor = T0 + 860
@@ -305,7 +307,7 @@ ck("2-of-3: winner X takes the pool", bal("X") == bx + 1000*2000//1000)   # 300.
 
 # disagreeing votes never reach threshold on any single outcome
 M6 = 5006
-call("create_market", [M6, 2, T0+900, T0+1100, "Game F\nHome\nAway", "football-data"], None, "ADMIN")
+call("create_market", [M6, 2, T0+900, T0+1100, "Game F\nHome\nAway", "football-data", "ev6"], None, "ADMIN")
 call("bet", [M6, 0], 500, "X"); call("bet", [M6, 1], 500, "Y")
 st.cursor = T0 + 910
 call("resolve", [M6, 0], None, "ADMIN")   # votes 0
