@@ -110,10 +110,12 @@ function quadArt(c, v) {
   // categories differ at a glance: pricked-ear hunters (cat/fox/squirrel/pony) get a slim upright neck,
   // floppy-ear stock (dogs/cattle/pigs) a thick one, round-ear critters (mice/hamster/bears) a short one,
   // tall-ear (rabbit/donkey) a long slender one. Mane animals additionally get the mane crest on top.
-  const neckD = v.mane ? "M67 43 C61 57 57 70 57 84 L75 84 C79 66 80 53 79 45 Z"          // equine: long, slender
-    : v.ears === "floppy" ? "M60 50 C56 62 52 74 52 84 L80 84 C82 72 84 60 83 52 Z"       // dogs/cattle/pigs: thick
-    : v.ears === "round" || v.ears === "tall" ? "M66 51 C62 63 59 74 59 84 L77 84 C79 71 79 59 78 53 Z"  // rodents/rabbit: short
-    : "M64 48 C58 60 54 72 54 84 L78 84 C80 70 82 58 82 50 Z";                            // cats/foxes: slim upright
+  // each neck TAPERS from a slim throat under the head to wider shoulders (a straight column reads as
+  // "sturdy" — wrong on a mouse). Width scales with build: rodents get a delicate throat, stock a thick one.
+  const neckD = v.mane ? "M69 45 C63 58 58 70 57 84 L74 84 C78 67 79 55 78 46 Z"           // equine: long, slender
+    : v.ears === "floppy" ? "M64 51 C60 63 55 74 54 84 L82 84 C83 71 82 60 80 51 Z"        // dogs/cattle/pigs: thick
+    : v.ears === "round" || v.ears === "tall" ? "M71 53 C68 63 65 73 64 83 L76 83 C77 72 77 62 77 54 Z"  // rodents/rabbit: thin & short
+    : "M68 50 C63 61 59 72 58 84 L78 84 C80 71 80 60 78 50 Z";                             // cats/foxes: slim upright
   W2.push(`<path d="${neckD}" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>`);
   // body
   if (v.spikes) W2.push(`<path d="M30 82 L34 62 L42 72 L48 56 L57 68 L64 54 L72 66 L80 58 L84 72 L84 84 Z" fill="${c.line}" stroke="${c.line}" stroke-width="1.5" stroke-linejoin="round" opacity=".92"/>`);
