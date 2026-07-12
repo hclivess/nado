@@ -68,6 +68,20 @@
   .minihand .card{width:22px;height:31px;font-size:9px;padding-top:2px;border-radius:3px}
   .minihand .card .suit{font-size:10px}
   #holeNote,#communityNote{margin-top:8px;font-size:13px;color:#cfe9de;min-height:16px}
+  .rankGuide{margin-top:12px;border-top:1px solid var(--border);padding-top:10px}
+  .rankGuide>summary{cursor:pointer;font-size:12px;color:var(--accent2);font-weight:700;letter-spacing:.02em;list-style:none}
+  .rankGuide>summary::-webkit-details-marker{display:none}
+  .rankGuide>summary::before{content:"▸ ";color:var(--dim)}
+  .rankGuide[open]>summary::before{content:"▾ "}
+  .rankGuide .hint{font-size:11px;color:var(--dim);margin:8px 0 4px}
+  .rk{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:5px 8px;border-radius:8px;border:1px solid transparent}
+  .rk+.rk{margin-top:2px}
+  .rk .rkname{font-size:12px;font-weight:700;min-width:118px}
+  .rk .rkdesc{font-size:11px;color:var(--dim);flex:1;min-width:130px}
+  .rk .minihand{margin-left:auto}
+  .rk.on{background:rgba(0,173,147,.15);border-color:var(--accent2)}
+  .rk.on .rkname{color:var(--accent2)}
+  .rk.on .rkname::after{content:" ← you";font-size:10px;color:var(--accent2);font-weight:800}
   .seat{font-size:13px;padding:6px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
   header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev);white-space:nowrap}
   header .hub:hover{color:var(--accent2);border-color:var(--accent2)}
@@ -157,6 +171,11 @@
         <div id="holeNote"></div>
       </div>
     </div>
+    <details class="rankGuide" id="rankGuideBox" open>
+      <summary>Hand rankings — strongest to weakest</summary>
+      <div class="hint">New to poker? Your current best hand lights up here as the board is dealt. Higher on the list wins.</div>
+      <div id="rankGuide"></div>
+    </details>
     <div class="kv"><span class="k">Status</span><span class="mono" id="gStatus">…</span></div>
     <div class="kv"><span class="k">Pot</span><span class="mono" id="gPot">—</span></div>
     <div id="gPots"></div>

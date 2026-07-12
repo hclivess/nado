@@ -340,8 +340,38 @@ function cardHTML(c, big) {
 }
 const handHTML = (cards, n, big) => Array.from({ length: n }, (_, i) => cardHTML(cards && cards[i] != null ? cards[i] : null, big)).join("");
 
+// Hand-rankings cheat sheet (strongest -> weakest). `cat` matches eval7's category (v / 14^5), so the
+// player's CURRENT best hand row lights up live as the board deals — beginners see exactly where they
+// stand and what beats it. Example card indices are suit*13 + rank (see cardHTML): they're illustrative
+// only, never re-evaluated. Card ranks: 0='2'…8='10',9='J',10='Q',11='K',12='A'; suits ♠0 ♥1 ♦2 ♣3.
+const RANK_GUIDE = [
+  [8, "Straight Flush", "Five in a row, all one suit (10–A = Royal Flush)", [21, 22, 23, 24, 25]],
+  [7, "Four of a Kind", "All four cards of one rank", [7, 20, 33, 46, 11]],
+  [6, "Full House", "Three of a kind plus a pair", [10, 23, 36, 3, 16]],
+  [5, "Flush", "Five of one suit, in any order", [38, 35, 32, 30, 27]],
+  [4, "Straight", "Five in a row, mixed suits", [3, 17, 31, 6, 20]],
+  [3, "Three of a Kind", "Three cards of one rank", [5, 18, 31, 11, 0]],
+  [2, "Two Pair", "Two different pairs", [11, 24, 2, 15, 20]],
+  [1, "Pair", "Two cards of the same rank", [8, 21, 11, 3, 14]],
+  [0, "High Card", "Nothing made — your highest card plays", [12, 24, 33, 42, 13]],
+];
+const CAT_UNIT = 14 ** 5;   // eval7 packs category as the top base-14 digit: category = v / 14^5
+function renderRankGuide() {
+  const el = $("rankGuide");
+  if (!el) return;
+  el.innerHTML = RANK_GUIDE.map(([cat, name, desc, ex]) =>
+    `<div class="rk" data-cat="${cat}"><span class="rkname">${name}</span>` +
+    `<span class="rkdesc">${desc}</span>` +
+    `<span class="minihand">${ex.map((c) => cardHTML(c, false)).join("")}</span></div>`).join("");
+}
+// highlight the row for the player's current best category (-1 clears all — pre-flop, folded-out, no seat)
+function markRankGuide(cat) {
+  document.querySelectorAll("#rankGuide .rk").forEach((n) => n.classList.toggle("on", +n.dataset.cat === cat));
+}
+
 // ---- render --------------------------------------------------------------------------------------
 function wireUI() {
+  renderRankGuide();
   wireWallet(dapp);
   dapp.wireAutoCollect();
   stickyInputs(dapp, ['anteAmt', 'betAmt', 'bankAmt', 'stakeAmt']);   // typed amounts persist across turns
@@ -424,10 +454,14 @@ function renderActive() {
   } else if (me) holeTxt = tb.host === dapp.me ? "hit 🃏 Deal now below when everyone's seated" : "your hole cards deal when the host starts the hand";
   $("holeWrap").classList.toggle("hidden", !me);
   $("hole").innerHTML = handHTML(hole, 2, true);
-  let handName = "";
-  if (hole && board.length >= 3) handName = eval7(board.concat(hole)).name + (board.length < 5 ? " (so far)" : "");
-  else if (hole) handName = "your hole cards — the flop comes next";
+  let handName = "", curCat = -1;
+  if (hole && board.length >= 3) {
+    const ev = eval7(board.concat(hole));
+    handName = ev.name + (board.length < 5 ? " (so far)" : "");
+    curCat = Math.floor(ev.v / CAT_UNIT);
+  } else if (hole) handName = "your hole cards — the flop comes next";
   $("holeNote").textContent = fk ? "✗ folded on the " + STREETS[fk] + " — your chips stay in the pot" : (handName || holeTxt);
+  markRankGuide(curCat);   // light up the player's current rank in the cheat sheet (-1 clears it)
 
   // players
   const priceNow = tb.exists && tb.phase === "street" ? tb.price(tb.street) : 0;
