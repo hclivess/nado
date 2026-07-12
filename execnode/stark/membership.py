@@ -102,7 +102,6 @@ def _transitions():
         t0 = F.pw(F.add(cur[S0], per[0]), alghash.ALPHA)
         t1 = F.pw(F.add(cur[S1], per[1]), alghash.ALPHA)
         return F.add(F.mul(2, t0), t1), F.add(t0, F.mul(3, t1))
-    RC = per_idx = None
     def c_s1(cur, nxt, per):                                          # s1 always follows the round unless a reset
         """Capacity lane: nxt s1 = r1, or IV on a level-end reset. Never absorbed — that's what keeps the
         sponge binding."""

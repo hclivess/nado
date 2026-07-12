@@ -1,5 +1,4 @@
 from ops import kv_ops
-from ops.address_ops import make_address
 from protocol import B_MIN, EPOCH_LENGTH, FIDELITY_GAIN, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS, HTLC_ESCROW, SHIELD_ESCROW
 
 # Account state lives in the schemaless `accounts` sub-DB as a msgpack document keyed by address
@@ -432,6 +431,23 @@ def change_bonded(address: str, amount: int, logger, revert=False):
     return True
 
 
+# bonded-registry cache: one ((env_path, write_generation), registry) tuple — a SINGLE reference so
+# a reader can never pair a stale key with a newer registry under concurrent replacement (GIL-atomic
+# load/store). The registry is a pure function of committed state, so an unchanged write generation
+# returns the identical result WITHOUT re-scanning the whole accounts sub-DB (the scan is O(total
+# accounts) and this is called ~5x per block across produce/verify/reward plus per /mining_status
+# poll — the dominant per-block cost at scale). env_path is in the key so tests that switch HOME can
+# never serve another home's registry.
+_bonded_reg_cache = [None]          # [(key, registry)] or [None]
+
+
+def _compute_bonded_registry():
+    accts = [(addr, doc) for addr, doc in kv_ops.iter_accounts() if doc.get("bonded", 0) >= B_MIN]
+    since = kv_ops.bond_since_many([a for a, _ in accts])
+    return {addr: {"bonded": doc["bonded"], "fidelity": None, "bond_since": since.get(addr)}
+            for addr, doc in accts}
+
+
 def get_bonded_registry():
     """Producer registry from committed account state (S4.3):
     {address: {"bonded": int, "fidelity": None, "bond_since": int}} for every account with bonded >= B_MIN.
@@ -442,11 +458,22 @@ def get_bonded_registry():
     the same dict on every node (LMDB iterates by sorted address). `fidelity` stays None (the
     selection_shares fidelity ramp is off on the bonded lane). `bond_since` is the stake-weighted bond age
     epoch (0 = unset = fully aged): it drives the PRODUCER-selection ramp ONLY (mining_ops.bond_ramp_weight),
-    NOT total_bonded_shares — so fork-choice weight + the FFG/settlement quorum stay ramp-free."""
-    accts = [(addr, doc) for addr, doc in kv_ops.iter_accounts() if doc.get("bonded", 0) >= B_MIN]
-    since = kv_ops.bond_since_many([a for a, _ in accts])
-    return {addr: {"bonded": doc["bonded"], "fidelity": None, "bond_since": since.get(addr)}
-            for addr, doc in accts}
+    NOT total_bonded_shares — so fork-choice weight + the FFG/settlement quorum stay ramp-free.
+
+    Cached per committed-write generation (any commit invalidates); INSIDE an open write txn the
+    cache is bypassed entirely, because in-txn reads must see the block's own uncommitted bond
+    mutations. Returns a fresh copy each call (outer dict + per-address dicts) so no caller can
+    mutate the cached master."""
+    if kv_ops.in_write_txn():
+        return _compute_bonded_registry()
+    key = (kv_ops.env_path(), kv_ops.write_generation())
+    entry = _bonded_reg_cache[0]
+    if entry is None or entry[0] != key:
+        # key captured BEFORE the scan: a concurrent commit mid-scan bumps the generation, so a
+        # torn read can be stored only under the OLD key and gets recomputed on the next call.
+        entry = (key, _compute_bonded_registry())
+        _bonded_reg_cache[0] = entry
+    return {addr: dict(info) for addr, info in entry[1].items()}
 
 
 def apply_bond_since(address, delta, block_height, txid, revert=False):
@@ -481,19 +508,35 @@ def apply_bond_since(address, delta, block_height, txid, revert=False):
     kv_ops.bond_since_put(address, new_since)
 
 
+# open-registry cache, mirroring _bonded_reg_cache: keyed by (env, committed-write generation, epoch)
+# so the recert-index scan + per-member account reads run once per committed state per epoch instead
+# of ~4x per block (produce + verify + mining_status polls).
+_open_reg_cache = [None]            # [(key, registry)] or [None] — single GIL-atomic slot, like above
+
+
 def get_open_registry(current_epoch: int):
     """OPEN-lane producer registry (S4 two-lane): {address: {"fidelity": int}} for every account with a
     VALID LEASE — a PoSW recert within the last POSW_LEASE_EPOCHS. Presence IS the lease: there is no
     separate heartbeat mechanism (doc/presence-dividend.md §2.4) — the recert is the single presence +
     anti-Sybil signal. Membership is DERIVED from the revert-safe recert_by_epoch index (incorporate
     inserts, rollback deletes), so a lapsed identity drops out automatically. Deterministic, and read
-    against PARENT state on the production/verification paths (as-of-parent guard, task #17)."""
-    registry = {}
-    for address in kv_ops.recert_addresses_after(current_epoch - POSW_LEASE_EPOCHS):
-        account = kv_ops.get_account(address)
-        if account and account.get("registered", 0) == 1:
-            registry[address] = {"fidelity": account.get("fidelity", 0)}
-    return registry
+    against PARENT state on the production/verification paths (as-of-parent guard, task #17).
+    Cached per committed-write generation (bypassed inside a write txn), like get_bonded_registry."""
+    def _compute():
+        registry = {}
+        for address in kv_ops.recert_addresses_after(current_epoch - POSW_LEASE_EPOCHS):
+            account = kv_ops.get_account(address)
+            if account and account.get("registered", 0) == 1:
+                registry[address] = {"fidelity": account.get("fidelity", 0)}
+        return registry
+    if kv_ops.in_write_txn():
+        return _compute()
+    key = (kv_ops.env_path(), kv_ops.write_generation(), current_epoch)
+    entry = _open_reg_cache[0]
+    if entry is None or entry[0] != key:
+        entry = (key, _compute())
+        _open_reg_cache[0] = entry
+    return {addr: dict(info) for addr, info in entry[1].items()}
 
 
 def apply_register(address: str, epoch: int, logger, revert=False):

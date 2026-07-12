@@ -2,9 +2,9 @@
 Schemaless key-value index for NADO (LMDB / MDBX data model), replacing the SQLite index.
 
 Per doc/storage-kv-migration.md: ONE memory-mapped, ACID, single-writer LMDB env with named
-sub-DBs. Account/state records are *schemaless msgpack documents* (no columns, no DDL) so adding
-a field needs no migration. This module encapsulates ALL key-encoding (8-byte big-endian ints) and
-value (de)serialization (msgpack) so call-sites never touch raw bytes.
+sub-DBs. Account/state records are *schemaless codec documents* (ops/codec.py JSON — no columns, no
+DDL) so adding a field needs no migration. This module encapsulates ALL key-encoding (8-byte
+big-endian ints) and value (de)serialization (the codec) so call-sites never touch raw bytes.
 
 ATOMICITY: a whole block mutation (account docs + tx index + block index + totals + heartbeats)
 commits in ONE env.begin(write=True) via the write_txn() context manager -> crash-atomic, directly
@@ -16,7 +16,7 @@ DETERMINISM: LMDB stores keys (and DUPSORT dups) in sorted byte order, so range 
 are deterministic and identical across nodes — required because get_open_registry and tx history
 feed consensus selection.
 
-The KV store is a DERIVED, rebuildable index. Block bodies stay zstd(msgpack) files under blocks/
+The KV store is a DERIVED, rebuildable index. Block bodies stay zstd(codec) files under blocks/
 and consensus hashing stays canonical_bytes — neither is touched here.
 """
 import os
@@ -64,8 +64,8 @@ _DUP_DBS = ("tx_by_sender", "tx_by_recipient", "attestations", "reveals", "settl
 # boundaries and PoSW anchors that sit BEFORE the snapshot height — which the C+1..tip tail replay never
 # rebuilds. Without them epoch_beacon raises "finalized anchor #N missing" and the node can't produce/verify.
 # This mirrors rolling mode (which likewise ALWAYS keeps num<->hash and drops only bodies). The heavy tx
-# history + block BODIES stay out; the recent bodies a node still needs (get_block_reward's REWARD_WINDOW
-# cumulative_fees lookback) are backfilled from the donor in loops/core_loop.snapshot_bootstrap.
+# history + block BODIES stay out; the recent bodies a node still needs (the rollback window +
+# serving peers; REWARD_WINDOW kept as margin) are backfilled in loops/core_loop.snapshot_bootstrap.
 _HISTORY_DBS = frozenset(("tx", "tx_by_sender", "tx_by_recipient"))
 SNAPSHOT_DBS = tuple(sorted(set(_PLAIN_DBS + _DUP_DBS) - _HISTORY_DBS))
 
@@ -87,6 +87,31 @@ _envs_lock = threading.Lock()
 # one atomic unit. When absent (a Tornado read path, or a standalone genesis write) each helper uses
 # its own short transaction.
 _local = threading.local()
+
+# COMMITTED-WRITE GENERATION: bumped once per committed write (outermost write_txn or a standalone
+# _write). Read-side caches (account_ops.get_bonded_registry) key on this: unchanged generation ==
+# byte-identical committed state, so a cached derivation is exact, and ANY commit — block
+# incorporation, rollback, snapshot restore, genesis — invalidates. Lock-guarded so two threads
+# committing back-to-back can never merge into one bump (a lost bump would leave a cache stale).
+_write_gen = 0
+_write_gen_lock = threading.Lock()
+
+
+def _bump_write_gen():
+    global _write_gen
+    with _write_gen_lock:
+        _write_gen += 1
+
+
+def write_generation() -> int:
+    """Monotonic committed-state version (see _write_gen). Cheap cache key for derived reads."""
+    return _write_gen
+
+
+def in_write_txn() -> bool:
+    """True while THIS thread holds an open write_txn — derived-read caches must bypass themselves
+    then, because in-txn reads see the block's own uncommitted mutations."""
+    return getattr(_local, "wtxn", None) is not None
 
 
 def env_path(home=None):
@@ -175,13 +200,13 @@ def _split_dup_tx_value(v: bytes):
 
 
 def _pack(doc) -> bytes:
-    """msgpack-encode a stored value (use_bin_type so str/bytes round-trip unambiguously — same content
-    always yields the same bytes, which revert-symmetry and the state root depend on)."""
+    """codec-encode a stored value (same content always yields the same bytes, which
+    revert-symmetry and the state root depend on)."""
     return codec.pack(doc)
 
 
 def _unpack(raw: bytes):
-    """Decode msgpack bytes written by _pack (raw=False -> text comes back as str, not bytes)."""
+    """Decode codec bytes written by _pack."""
     return codec.unpack(raw)
 
 
@@ -210,6 +235,7 @@ class _WriteTxn:
             _local.wtxn = None
             if exc_type is None:
                 txn.commit()
+                _bump_write_gen()
             else:
                 txn.abort()
         return False  # never suppress
@@ -238,7 +264,9 @@ def _write(fn):
     if active is not None:
         return fn(active)
     with get_env().begin(write=True) as txn:
-        return fn(txn)
+        result = fn(txn)
+    _bump_write_gen()
+    return result
 
 
 # --- accounts (schemaless docs) -------------------------------------------------------------------
@@ -1237,17 +1265,6 @@ def msgkey_revert_pop(txid: str):
 
 # --- maintenance helpers (prune) ------------------------------------------------------------------
 
-
-
-def clear_accounts_and_totals(txn=None):
-    """Drop all account docs + reset totals (snapshot import replaces them wholesale)."""
-    def _do(t):
-        t.drop(_dbs()["accounts"], delete=False)   # empty the sub-DB, keep the handle
-        t.put(_TOTALS_KEY, _pack({"produced": 0, "fees": 0}), db=_dbs()["totals"])
-    if txn is not None:
-        _do(txn)
-    else:
-        _write(_do)
 
 
 def drop_tx_index():

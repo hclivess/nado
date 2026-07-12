@@ -13,7 +13,8 @@ Run: python3 tests/test_read_capped.py
 """
 import os, sys, asyncio
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import msgpack, zstandard
+import zstandard
+from ops import codec
 from ops.net_ops import read_capped, bounded_zstd_decompress, unpack_zstd_peer
 
 class _Segmented:
@@ -62,10 +63,10 @@ async def main():
     check("empty body returns b''", await read_capped(_Resp(b"", seg=100), 100) == b"")
 
     # --- bounded_zstd_decompress: anti-bomb for the ?compress=zstd wire ---
-    # a legit small zstd(msgpack) payload round-trips
+    # a legit small zstd(codec) payload round-trips
     payload = {"a": 1, "b": [1, 2, 3], "s": "x" * 1000}
-    frame = zstandard.ZstdCompressor(level=3).compress(msgpack.packb(payload))
-    check("legit zstd(msgpack) round-trips", unpack_zstd_peer(frame) == payload)
+    frame = zstandard.ZstdCompressor(level=3).compress(codec.pack(payload))
+    check("legit zstd(codec) round-trips", unpack_zstd_peer(frame) == payload)
 
     # THE BOMB: a frame declaring a large content size (here 64 MiB of zeros -> tiny frame) must be
     # refused by a smaller cap, EVEN THOUGH the one-shot max_output_size arg would honor the declaration.

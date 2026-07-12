@@ -9,7 +9,7 @@ path from this tree and proves the whole join-split (execnode/stark/joinsplit_ci
 one proof (via verify_transfer's Phase-2 seam). Works on any phone today; a blind/WASM prover is the private
 endgame.
 """
-from execnode.stark import field as F, alghash, membership as MB, joinsplit_circuit as JC, joinsplit2 as J2
+from execnode.stark import field as F, alghash, joinsplit_circuit as JC, joinsplit2 as J2
 
 TREE_DEPTH = 12                                   # 2^12 = 4096 notes (alpha); proving cost scales with depth
 EMPTY_LEAF = 0                                     # field element for an empty slot

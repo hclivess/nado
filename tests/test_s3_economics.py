@@ -48,11 +48,8 @@ check("genesis: treasury seeded, founder empty (no premine)", t2)
 #    UNcapped. With no bonded stake the bonded ratio is 0 -> multiplier 1.0 -> exactly BASE_SUBSIDY,
 #    regardless of cumulative_fees. BASE_SUBSIDY is the MAX emission/block (m<=1). See bond-elastic-emission.md
 def t3():
-    """Prove get_block_reward is exactly BASE_SUBSIDY with no bonded stake — fee-independent, uncapped, parent_block optional."""
-    assert get_block_reward(parent_block={"block_number": 150, "cumulative_fees": 50_000_000}) == BASE_SUBSIDY
-    assert get_block_reward(parent_block={"block_number": 10, "cumulative_fees": 7_000_000}) == BASE_SUBSIDY
-    assert get_block_reward(parent_block={"block_number": 10, "cumulative_fees": 10**18}) == BASE_SUBSIDY  # no cap, fee-independent
-    assert get_block_reward() == BASE_SUBSIDY  # parent_block optional now
+    """Prove get_block_reward is exactly BASE_SUBSIDY with no bonded stake — fee-independent, uncapped."""
+    assert get_block_reward() == BASE_SUBSIDY
 check("get_block_reward: flat base subsidy, fee-independent, no cap", t3)
 
 # 4. construct_block commits cumulative_fees = parent_cumfee + this block's fees, + chain_id

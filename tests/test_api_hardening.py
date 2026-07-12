@@ -2,13 +2,13 @@
 API hardening (ops/net_ops.py + nado.py wiring):
   1. client_ip_from — X-Forwarded-For is trusted ONLY behind a configured proxy (no rate-limit/Sybil spoofing)
   2. force_sync target validation — check_ip rejects non-routable/internal forced_ip (SSRF)
-  3. unpack_tx — size-bounded msgpack/JSON decode (oversized body + collection-bomb rejected)
+  3. unpack_tx — size-bounded JSON-codec decode (oversized/empty body rejected)
 
 Run: python3 tests/test_api_hardening.py
 """
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import msgpack
+from ops import codec
 from ops.net_ops import client_ip_from, unpack_tx, MAX_TX_BODY
 
 fails = 0
@@ -41,36 +41,26 @@ def t1_walks_past_chained_proxies():
     assert client_ip_from("10.0.0.1", "10.0.0.1, 10.0.0.2", trusted) == "10.0.0.1"
 
 # ---- 3. unpack_tx (size-bounded decode) -----------------------------------------------------------
-def t3_legit_tx_roundtrips_both_encodings():
-    """Prove a realistic tx decodes intact via unpack_tx for both msgpack and JSON bodies."""
+def t3_legit_tx_roundtrips():
+    """Prove a realistic tx decodes intact via unpack_tx (the JSON codec wire, ops/codec.py)."""
     tx = {"sender": "ndo" + "a" * 46, "recipient": "register", "amount": 0, "fee": 0,
           "max_block": 100, "posw": {"segments": list(range(200)), "openings": ["ab" * 32] * 20}}
-    assert unpack_tx(msgpack.packb(tx), "application/msgpack") == tx
+    assert unpack_tx(codec.pack(tx)) == tx
     import json
-    assert unpack_tx(json.dumps(tx).encode(), "application/json") == tx
+    assert unpack_tx(json.dumps(tx).encode()) == tx   # plain JSON is the same wire
 
 def t3_oversized_body_rejected():
     """Prove unpack_tx rejects a body larger than MAX_TX_BODY."""
     big = b"\xa0" + b"x" * (MAX_TX_BODY + 10)     # > 1 MiB
     try:
-        unpack_tx(big, "application/msgpack"); raise SystemExit("should have raised")
-    except SystemExit: raise
-    except Exception: pass
-
-def t3_collection_bomb_rejected():
-    """Prove unpack_tx rejects a small-bytes msgpack declaring a huge array (max_array_len guard)."""
-    # a small-BYTES msgpack (~200 KB, under the body cap) that declares 200k array elements -> max_array_len
-    bomb = msgpack.packb([0] * 200_000)
-    assert len(bomb) < MAX_TX_BODY, "bomb must be under the body cap so we test max_array_len, not the length"
-    try:
-        unpack_tx(bomb, "application/msgpack"); raise SystemExit("should have raised")
+        unpack_tx(big); raise SystemExit("should have raised")
     except SystemExit: raise
     except Exception: pass
 
 def t3_empty_body_rejected():
     """Prove unpack_tx rejects a None/empty body."""
     try:
-        unpack_tx(None, "application/msgpack"); raise SystemExit("should have raised")
+        unpack_tx(None); raise SystemExit("should have raised")
     except SystemExit: raise
     except Exception: pass
 

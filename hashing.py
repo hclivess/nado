@@ -1,7 +1,7 @@
 import json
 import random
 import string
-from base64 import b64encode, b64decode
+from base64 import b64encode
 from hashlib import blake2b
 
 
@@ -15,11 +15,6 @@ def create_nonce(length: int = 8):
 def base64encode(data: str) -> str:
     """str -> base64 str (utf-8); trivial transport-encoding helper, no consensus role."""
     return b64encode(data.encode()).decode()
-
-
-def base64decode(data: str) -> str:
-    """base64 str -> original str (inverse of base64encode)."""
-    return b64decode(data).decode()
 
 
 def canonical_bytes(data) -> bytes:
@@ -165,4 +160,3 @@ def treasury_proposal_id(recipient, amount, memo, nonce, expiry) -> str:
 if __name__ == "__main__":
     blake2b_hash_link("test_old", "test_new")
     print(base64encode("b64test"))
-    print(base64decode(base64encode("b64test")))

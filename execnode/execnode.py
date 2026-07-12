@@ -206,16 +206,26 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
     return True
 
 
-async def _refresh_provisional(session, finalized, tip):
+# key of the last COMPLETE provisional build: (finalized, tip, tip_hash, sum of base-state versions).
+# tip_hash pins the whole unfinalized tail (parent-hash linkage), the version sum pins the base states —
+# so an identical key proves the rebuild would reproduce the exact same clones. None -> always rebuild.
+_prov_key = None
+
+
+async def _refresh_provisional(session, finalized, tip, tip_hash=None):
     """Rebuild the provisional states: clone the finalized states and speculatively apply the UNFINALIZED
     tail (finalized+1 .. tip). Rebuilt from the finalized checkpoint every poll, so a reorg self-heals and no
     persistent state can be corrupted. Best-effort: leaves prov_states None (readers fall back to finalized)
     if there's nothing unfinalized."""
-    global prov_states
+    global prov_states, _prov_key
     tip = min(tip, finalized + PROV_MAX_TAIL)
     if tip <= finalized:
         prov_states = None
+        _prov_key = None
         return
+    key = (finalized, tip, tip_hash, sum(st._mut_gen for st in states.values()))
+    if prov_states is not None and tip_hash is not None and key == _prov_key:
+        return                                   # nothing changed since the last COMPLETE build — keep it
     clones = {ns: st.clone() for ns, st in states.items()}
     default_clone = clones.get("default")
     h = finalized + 1
@@ -227,6 +237,8 @@ async def _refresh_provisional(session, finalized, tip):
             break
         h += 1
     prov_states = clones
+    # record the key only for a COMPLETE build; a partial one (fetch break) must retry next poll
+    _prov_key = key if h > tip else None
 
 
 async def tail_loop():
@@ -294,7 +306,8 @@ async def tail_loop():
                 try:
                     latest = await _get_json(session, "/get_latest_block")
                     tip = int(latest.get("block_number", state.cursor)) if isinstance(latest, dict) else state.cursor
-                    await _refresh_provisional(session, state.cursor, tip)
+                    tip_hash = latest.get("block_hash") if isinstance(latest, dict) else None
+                    await _refresh_provisional(session, state.cursor, tip, tip_hash)
                 except Exception as e:
                     print(f"[execnode] provisional refresh error: {e}", flush=True)
             except Exception as e:

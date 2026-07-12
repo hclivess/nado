@@ -1,7 +1,8 @@
 """
 FFG-lite objective finality unit checks (#6).
 
-- checkpoint_justified: STRICTLY > FFG_NUM/FFG_DEN of total bonded shares.
+- checkpoint_justified: STRICTLY > FFG_NUM/FFG_DEN of the ACTIVE bonded shares (attested within
+  INACTIVITY_WINDOW — the inactivity leak; dark validators drop out of the denominator).
 - ffg_finalized_checkpoint: two-consecutive-justified epochs finalize the earlier checkpoint.
 - attestation tx: validates for a bonded validator, ONE per (validator, epoch) (no on-chain double-vote),
   and is revert-symmetric.
@@ -47,8 +48,14 @@ kv_ops.block_index_put(2 * EPOCH_LENGTH, H_CHILD)
 
 
 def t1_threshold():
-    """Prove checkpoint_justified needs STRICTLY >2/3 of bonded shares: 2/4 attesters fail, 3/4 justify."""
+    """Prove checkpoint_justified needs STRICTLY >2/3 of the ACTIVE bonded shares: with all four
+    validators active (each attested within INACTIVITY_WINDOW), 2/4 attesters fail, 3/4 justify."""
     reg = get_bonded_registry()
+    # make ALL FOUR validators ACTIVE for the epoch-1 quorum: each attests epoch 0 (inside the
+    # INACTIVITY_WINDOW lookback), so the denominator is the full 4 shares — the leak (below) is
+    # what removes dark validators, and t1 must measure the threshold, not the leak.
+    for v in VALS:
+        kv_ops.attestation_put(0, v["address"], "0" * 64)
     # 2 of 4 attest epoch 1 -> NOT justified (2*3=6 !> 4*2=8)
     for v in VALS[:2]:
         kv_ops.attestation_put(1, v["address"], H_E)
@@ -56,7 +63,25 @@ def t1_threshold():
     # 3rd attests -> justified (3*3=9 > 8)
     kv_ops.attestation_put(1, VALS[2]["address"], H_E)
     assert checkpoint_justified(1, H_E, reg), "3/4 must justify"
-check("checkpoint_justified: strict >2/3 bonded shares", t1_threshold)
+check("checkpoint_justified: strict >2/3 of ACTIVE bonded shares", t1_threshold)
+
+
+def t1b_inactivity_leak():
+    """Prove the INACTIVITY LEAK: a validator dark for the whole window drops out of the quorum
+    denominator, so the remaining live majority can justify without it."""
+    from ops.attestation_ops import active_shares
+    from protocol import INACTIVITY_WINDOW
+    reg = get_bonded_registry()
+    far = 1 + INACTIVITY_WINDOW + 5           # an epoch far enough that no VALS attestation is in-window
+    H_FAR = "d" * 64
+    kv_ops.block_index_put(far * EPOCH_LENGTH, H_FAR)
+    for v in VALS[:2]:                         # only 2 of 4 are active near `far`
+        kv_ops.attestation_put(far, v["address"], H_FAR)
+    assert active_shares(far, reg) == sum(
+        1 for _ in VALS[:2]), "dark validators must leak from the active denominator"
+    # 2 attesting of 2 active -> justified even though it is only 2 of 4 bonded
+    assert checkpoint_justified(far, H_FAR, reg), "live majority must justify once dark stake leaks"
+check("inactivity leak: dark validators drop from the FFG denominator", t1b_inactivity_leak)
 
 
 def t2_finalize():

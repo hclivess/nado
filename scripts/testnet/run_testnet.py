@@ -15,8 +15,6 @@ mainnet. This harness only touches throwaway temp dirs; it does not touch any re
 import json
 import os
 import secrets
-import shutil
-import socket
 import subprocess
 import sys
 import tempfile

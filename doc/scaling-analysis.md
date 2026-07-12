@@ -57,7 +57,7 @@ so changing it is a real consensus change for modest marginal benefit. **Recomme
 not change the canonical encoding;** the cheap win is already in place.
 
 ### 4. Idle-account GC — see `doc/rolling-mode-and-da.md` (consensus-critical)
-`GC_IDLE_EPOCHS = 1000` is defined; presence itself is now self-bounding — the old per-epoch
+Idle-account GC is unimplemented (the placeholder `GC_IDLE_EPOCHS` constant was removed as dead code); presence itself is now self-bounding — the old per-epoch
 heartbeat rows are gone, replaced by the PoSW **recert lease** (`recerts` / `recert_by_epoch`), which
 a node must renew each `POSW_LEASE_EPOCHS` or lapse — but idle **account-row** GC is still not wired.
 Pruning an account row changes the **state root**, so it must be deterministic and applied identically

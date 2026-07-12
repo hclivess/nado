@@ -50,10 +50,10 @@ def t2():
     def advance(prev, height):
         """Compute the new finalized floor from the previous floor and the current height."""
         return max(prev, height - FINALITY_DEPTH)
-    assert advance(0, 10) == 0, "below depth must not finalize anything (max with 0)"
+    assert advance(0, min(10, FINALITY_DEPTH)) == 0, "below depth must not finalize anything (max with 0)"
     assert advance(0, FINALITY_DEPTH + 5) == 5, "H-depth once past the depth"
-    assert advance(40, 50) == 40, "must never regress (50-30=20 < 40)"
-    assert advance(40, 100) == 70, "advances when H-depth exceeds prev"
+    assert advance(40, FINALITY_DEPTH + 30) == 40, "must never regress (H-depth=30 < 40)"
+    assert advance(40, FINALITY_DEPTH + 70) == 70, "advances when H-depth exceeds prev"
 check("advance = max(prev, H - FINALITY_DEPTH) is monotonic + depth-lagged", t2)
 
 

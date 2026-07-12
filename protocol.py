@@ -286,12 +286,12 @@ AUTO_BOND_DEFAULT_PERCENT = 80
 # --- Rolling mode / history retention (NON-CONSENSUS node-local policy; see doc/rolling-mode-and-da.md) ---
 # A "rolling" (pruned) node keeps STATE + a window of recent block BODIES and drops older bodies, so the
 # ledger stops growing unbounded (keeps phones viable under adoption). Pruning body files is safe ONLY
-# above the deepest lookback that re-reads a historical BODY on the consensus path — the audit found that
-# is get_block_reward, which reads cumulative_fees from the block at tip-REWARD_WINDOW (100). Hashes for
-# the beacon/FFG come from the tiny number<->hash INDEX (always retained), NOT bodies. So the retention
-# window MUST exceed REWARD_WINDOW (+ FINALITY_DEPTH for the rollback window). Default 300 gives margin;
-# prune_block_bodies additionally floors it at REWARD_WINDOW+FINALITY_DEPTH so a misconfig can't corrupt
-# the reward calc. This is a per-node choice (archive nodes keep everything); it changes NO block/hash.
+# above the deepest lookback that re-reads a historical BODY on the consensus path — today that is
+# rollback (bodies within FINALITY_DEPTH of the tip); the old get_block_reward lookback at
+# tip-REWARD_WINDOW is GONE (emission is flat * bond-elastic, computed from committed state), and
+# REWARD_WINDOW survives purely as extra safety margin in the prune floor. Hashes for the beacon/FFG
+# come from the tiny number<->hash INDEX (always retained), NOT bodies. prune_block_bodies floors the
+# retention at REWARD_WINDOW+FINALITY_DEPTH+1 so even a misconfigured tiny value cannot break rollback. This is a per-node choice (archive nodes keep everything); it changes NO block/hash.
 # 100_800 blocks ~= 1 week of history at 6s blocks (7×14,400) — generous recent-body window while still
 # bounding a rolling node's disk (the unbounded->bounded win); archive nodes keep everything.
 HISTORY_RETENTION_BLOCKS = 100_800
@@ -382,7 +382,6 @@ OPEN_BASE_FLOOR = 2                # every registered+present identity's minimum
                                    # 1->2 so a genuine newcomer earns 2/10 = 20% of a mature miner's rate on
                                    # day one (was 10%) — fairer to new phones, while keeping a 5x loyalty premium.
 OPEN_FID_BONUS = 8                 # max diligence bonus: open weight ranges OPEN_BASE_FLOOR..+8 (2..10)
-GC_IDLE_EPOCHS = 1000              # prune registry rows idle this long (bounds state bloat)
 
 # Continuity FIDELITY — now driven by the PoSW RECERT (the single presence signal; there is no separate
 # heartbeat). Each continuous recert (gap <= POSW_LEASE_EPOCHS) adds FIDELITY_GAIN; a lapse RESETS the streak.

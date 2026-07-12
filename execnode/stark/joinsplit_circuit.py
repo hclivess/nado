@@ -9,7 +9,7 @@ zero-knowledge proof, revealing only the public root, nullifier, output commitme
   v_in + public_value = v_out + fee                        (value conservation, over the SECRET values)
   0 <= v_in, v_out < 2^62                                  (C-3 in-circuit range proof — see below)
 
-Extends the authorised-spend circuit (execnode/stark/spend_full) with an OUTPUT region and value conservation.
+Extends the authorised-spend circuit (a former standalone module, since removed) with an OUTPUT region and value conservation.
 v_in and v_out live in persistent register columns so conservation is a linear check over the SECRET values;
 the CONS register (= v_in - v_out) is pinned to (fee - public_value). Regions run back-to-back
 (OWNER, COMMIT, NULLIFIER, MEMBERSHIP, OUTPUT); handoffs capture each region's output into a register.

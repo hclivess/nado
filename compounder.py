@@ -5,7 +5,7 @@ from urllib.parse import quote
 import aiohttp
 from ops.data_ops import sort_list_dict
 from ops.log_ops import get_logger
-from ops.net_ops import read_capped, unpack_peer, unpack_zstd_peer, MAX_PEER_BODY
+from ops.net_ops import read_capped, unpack_zstd_peer, MAX_PEER_BODY
 from config import hostport
 """this module is optimized for low memory and bandwidth usage"""
 
@@ -56,39 +56,6 @@ async def compound_get_list_of(key, entries, port, logger, fail_storage, semapho
         success_storage.extend(entry)
 
     return sort_list_dict(success_storage)
-
-
-async def get_url(peer, port, url, logger, fail_storage, semaphore):
-    """method compounded by compound_get_url"""
-
-    url_construct = f"http://{hostport(peer, port)}/{url}"
-    try:
-        async with semaphore:
-            
-            async with aiohttp.ClientSession(timeout = aiohttp.ClientTimeout(total=5)) as session:
-                async with session.get(url_construct) as response:
-                    fetched = await response.text()
-                    return peer, fetched
-
-    except Exception as e:
-        if peer not in fail_storage:
-            logger.error(f"Compounder: Failed to get URL {url_construct} {e}")
-            fail_storage.append(peer)
-
-async def compound_get_url(ips, port, url, logger, fail_storage, semaphore):
-    """returns result of urls with arbitrary data past slash"""
-    result = list(
-        filter(
-            None,
-            await asyncio.gather(*[get_url(ip, port, url, logger, fail_storage, semaphore) for ip in ips]),
-        )
-    )
-
-    result_dict = {}
-    for entry in result:
-        result_dict[entry[0]] = entry[1]
-
-    return result_dict
 
 
 async def send_transaction(peer, port, logger, fail_storage, transaction, semaphore):

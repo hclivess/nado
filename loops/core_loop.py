@@ -31,7 +31,7 @@ from ops.block_ops import (
     prune_block_bodies,
     randao_eligible_bonded,
 )
-from ops.mining_ops import select_producer_two_lane, epoch_of, total_bonded_shares, block_fork_weight
+from ops.mining_ops import select_producer_two_lane, epoch_of, block_fork_weight
 from ops import kv_ops
 from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW, AUTO_COLLECT_MIN_RAW
 from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size
@@ -114,7 +114,6 @@ class CoreClient(threading.Thread):
         self.memserver = memserver
         self.consensus = consensus
         self.run_interval = 1
-        self.consecutive = 0
         # AUDIT FIX (honest-signer guard): the highest block height we've attached our detached winner
         # signature to. We only ever sign a STRICTLY-higher height, so after a reorg + re-produce we
         # never sign a second, different block at a height we already signed (which a connected
@@ -299,8 +298,6 @@ class CoreClient(threading.Thread):
                             self.produce_block(block=block_candidate,
                                                remote=False,
                                                remote_peer=None)
-
-                            self.memserver.block_generation_age = get_timestamp_seconds()
 
                             # same lost-update race as the drain above: snapshot-filter-reassign must be
                             # atomic vs concurrent merge_transaction appends (mempool lock). Drops txs whose
@@ -617,9 +614,9 @@ class CoreClient(threading.Thread):
 
             # BACKFILL the recent block BODIES the C+1..tip tail replay can NOT rebuild. block_by_num/hash
             # arrived in the snapshot, so HASH lookbacks (beacon anchor (epoch-1)*EPOCH_LENGTH, FFG/PoSW
-            # epoch boundaries) already resolve — but a few lookbacks read the block BODY just behind C,
-            # notably get_block_reward's cumulative_fees at (C - REWARD_WINDOW). Without those bodies the very
-            # first produced/verified block C+1 crashes ("anchor #N missing" / reward lookback). Walk back by
+            # epoch boundaries) already resolve — but rollback and block serving read block BODIES just
+            # behind C (the old get_block_reward body lookback is gone; REWARD_WINDOW is kept as margin).
+            # Without those bodies a post-snapshot rollback would fail. Walk back by
             # parent_hash from the anchor, fetching + saving each body. Bounded + best-effort (a pruned donor
             # may lack the deepest ones; we stop cleanly and set earliest to the oldest we actually got).
             tail_depth = REWARD_WINDOW + 2 * EPOCH_LENGTH + FINALITY_DEPTH
@@ -963,7 +960,7 @@ class CoreClient(threading.Thread):
             parent_hash=parent["block_hash"],
             creator=winner,
             transaction_pool=block["block_transactions"],
-            block_reward=get_block_reward(parent_block=parent),
+            block_reward=get_block_reward(),
             parent_cumulative_fees=parent.get("cumulative_fees", 0),
             parent_cumulative_weight=parent.get("cumulative_weight", 0),
             block_weight=block_fork_weight(bonded_registry, block_number),
@@ -1439,7 +1436,7 @@ class CoreClient(threading.Thread):
             # before change_balance; the exact-match check below is the real validation.
             if not isinstance(reward, int) or isinstance(reward, bool) or reward < 0 or reward > BASE_SUBSIDY:
                 raise ValueError(f"Invalid block reward {reward!r}")
-            expected_reward = get_block_reward(parent_block=self.memserver.latest_block)
+            expected_reward = get_block_reward()
             if reward != expected_reward:
                 raise ValueError(f"Block reward {reward} != deterministic {expected_reward}")
 
@@ -1528,11 +1525,6 @@ class CoreClient(threading.Thread):
                 if self.memserver.address == block["block_creator"]:
                     sign_block(block, self.memserver.private_key, self.memserver.public_key)
                 verified_block = sort_list_dict(block["block_transactions"])
-
-            if self.memserver.latest_block["block_creator"] == block["block_creator"]:
-                self.consecutive += 1
-            else:
-                self.consecutive = 0
 
             self.incorporate_block(block=block, sorted_transactions=verified_block)
             self.memserver.latest_block = block

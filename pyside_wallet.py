@@ -85,7 +85,7 @@ _install_repo_import_shim()
 # --- REUSED repo modules (crypto + tx building + constants — never reimplemented here) ----
 import protocol
 from config import get_timestamp_seconds
-from signatures import generate_keydict, from_private_key, sign, verify, unhex  # noqa: F401
+from signatures import from_private_key
 from ops.address_ops import make_address, validate_address
 from ops.key_ops import load_keys, generate_keys, save_keys
 from ops.mining_ops import (
@@ -97,7 +97,6 @@ from ops.transaction_ops import (
     draft_transaction,
     draft_open_lane_transaction,
     create_transaction,
-    to_raw_amount,        # noqa: F401  (Decimal path used for input; kept for parity)
     to_readable_amount,
 )
 

@@ -1,8 +1,6 @@
 """Network-facing helpers shared by the HTTP API (nado.py): trusted-proxy client-IP resolution and a
 size-bounded transaction deserializer. Kept SIDE-EFFECT-FREE and dependency-light so they can be unit-tested
 without importing the node (which generates keys / touches the data dir at import time)."""
-import json
-
 from ops import codec
 import zstandard
 
@@ -11,10 +9,9 @@ import zstandard
 # tiny element becomes a ~50-byte Python object — and can't be hit by any legit tx: a blob payload is
 # <= BLOB_MAX_BYTES (16 KiB) and the largest single field (ML-DSA pubkey/sig hex, PoSW proof) is a few KB.
 MAX_TX_BODY = 1 << 20            # 1 MiB, matches aiohttp's default client_max_size
-def unpack_tx(body, content_type):
-    """Decode a submitted transaction body (msgpack or JSON) with explicit size bounds. Raises (rejected as a
-    400/403 by the caller) on an oversized body or an over-large msgpack collection, instead of letting
-    msgpack allocate unboundedly. Preserves the previous default of strict string map keys."""
+def unpack_tx(body):
+    """Decode a submitted transaction body (the JSON codec wire — see ops/codec.py) with an explicit
+    size bound. Raises (rejected as a 400/403 by the caller) on an empty or oversized body."""
     if body is None:
         raise ValueError("empty transaction body")
     if len(body) > MAX_TX_BODY:

@@ -105,7 +105,7 @@ the 80% quorum can't be gamed by a colluding minority.
 
 ## 3. Idle-account GC (scaling item #4) — consensus-critical state pruning
 
-`GC_IDLE_EPOCHS = 1000` is defined, but idle **account-row** GC is not wired. Presence itself is
+Idle **account-row** GC is not implemented (a placeholder `GC_IDLE_EPOCHS` constant was removed as dead code; reintroduce it with the feature). Presence itself is
 now self-bounding — the old per-epoch heartbeat rows are gone, replaced by the PoSW **recert lease**
 (`recerts` / `recert_by_epoch`), which lapses if not renewed each `POSW_LEASE_EPOCHS` — yet the free
 OPEN lane's fee-exempt `register` (recert) txs still create permanent **account** state that never

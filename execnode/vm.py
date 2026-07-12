@@ -117,10 +117,12 @@ def run(code, method, caller, args, storage, value=0, cursor=0, beacons=None, bl
     Runs on a deep copy; returns (ok, return_value, new_storage, payouts) where payouts is [(to, amount)] the
     contract scheduled via PAY (the exec pays them FROM the contract's escrow). On a missing method,
     REQUIRE-fail, out-of-gas, or any runtime error it returns (False, None, <ORIGINAL storage>, []) — a no-op."""
-    import copy
     if method not in code:
         return (False, None, storage, [])
-    st = copy.deepcopy(storage)
+    # storage is strictly {mapname: {key: int|str}} (MSTORE enforces scalar values), so a two-level
+    # shallow copy is exactly equivalent to the old copy.deepcopy — without deepcopy's per-object
+    # memo overhead, which dominated every call/view on contracts with large maps.
+    st = {m: dict(kv) for m, kv in storage.items()}
     stack = []
     payouts = []
     gas = 0

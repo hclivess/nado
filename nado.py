@@ -34,7 +34,7 @@ from ops.account_ops import get_account, fetch_totals, get_bonded_registry
 from ops.address_ops import proof_sender
 from signatures import verify as _mldsa_verify, unhex as _mldsa_unhex
 from ops.mining_ops import total_shares
-from ops.block_ops import get_block, fee_over_blocks, get_block_number, SYNC_BATCH_MAX, SYNC_BATCH_BYTES
+from ops.block_ops import get_block, recommended_fee, get_block_number, SYNC_BATCH_MAX, SYNC_BATCH_BYTES
 from ops.data_ops import get_home, allow_async, get_byte_size
 from ops.key_ops import keyfile_found, generate_keys, save_keys
 from ops.log_ops import get_logger
@@ -226,23 +226,22 @@ async def mining_status(request):
 
 
 async def get_recommended_fee(request):
-    """GET /get_recommended_fee: {"fee": N} — the recent-blocks fee estimate + 1, what a wallet should attach."""
-    fee = await asyncio.to_thread(lambda: fee_over_blocks(logger=logger) + 1)
-    return _resp({"fee": fee})
+    """GET /get_recommended_fee: {"fee": N} — the tip block's mean fee + 1, what a wallet should attach."""
+    return _resp({"fee": recommended_fee(memserver.latest_block) + 1})
 
 
 async def submit_transaction(request):
-    """POST /submit_transaction: decode a msgpack/JSON tx from the body (size-bounded by unpack_tx so an
+    """POST /submit_transaction: decode a JSON-codec tx from the body (size-bounded by unpack_tx so an
     oversized/malformed payload can't balloon memory) and merge it into the pool as user-origin. `register`
     txs additionally pass the per-source-IP anti-Sybil registration budget. 200 on accept, 403 on reject,
     429 over the 30/min IP rate limit."""
     if _rate_limited(request, 30):
         return _RL
 
-    def _work(body, ctype, ip):
+    def _work(body, ip):
         """Decode, anti-Sybil check, and pool-merge the tx (worker thread)."""
         try:
-            transaction = unpack_tx(body, ctype)   # size-bounded msgpack/JSON decode (ops/net_ops.py)
+            transaction = unpack_tx(body)   # size-bounded JSON-codec decode (ops/net_ops.py)
             rej = _ip_registration_rejection(ip, transaction)
             if rej:
                 return rej, 429
@@ -251,7 +250,7 @@ async def submit_transaction(request):
         except Exception as e:
             return f"Error: {e}", 403
     body = await request.read()
-    out, code = await asyncio.to_thread(_work, body, request.headers.get("Content-Type", ""), _ip(request))
+    out, code = await asyncio.to_thread(_work, body, _ip(request))
     return _resp(out, status=code)
 
 
@@ -1113,17 +1112,17 @@ async def post_message(request):
     id}; 403 on rejection, 429 over the 30/min IP rate limit."""
     if _rate_limited(request, 30):
         return _RL
-    def _work(body, ctype):
+    def _work(body):
         """Decode + pool-admit the envelope (worker thread)."""
         try:
-            env = unpack_tx(body, ctype)
+            env = unpack_tx(body)
             ok, why, mid = memserver.message_pool.add_message(
                 env, get_timestamp_seconds(), _msg_is_registered, _msg_verify_sig)
             return {"result": ok, "reason": why, "id": mid}, (200 if ok else 403)
         except Exception as e:
             return f"Error: {e}", 403
     body = await request.read()
-    out, code = await asyncio.to_thread(_work, body, request.headers.get("Content-Type", ""))
+    out, code = await asyncio.to_thread(_work, body)
     return _resp(out, status=code)
 
 
@@ -1158,16 +1157,16 @@ async def post_msg_key(request):
     rate-limited 20/min per IP."""
     if _rate_limited(request, 20):
         return _RL
-    def _work(body, ctype):
+    def _work(body):
         """Decode + pool-admit the prekey bundle (worker thread)."""
         try:
-            bundle = unpack_tx(body, ctype)
+            bundle = unpack_tx(body)
             ok, why = memserver.message_pool.add_prekey(bundle, _msg_is_registered, _prekey_verify_sig)
             return {"result": ok, "reason": why}, (200 if ok else 403)
         except Exception as e:
             return f"Error: {e}", 403
     body = await request.read()
-    out, code = await asyncio.to_thread(_work, body, request.headers.get("Content-Type", ""))
+    out, code = await asyncio.to_thread(_work, body)
     return _resp(out, status=code)
 
 
@@ -1320,6 +1319,13 @@ if not os.path.exists(f"{get_home()}/index/block_ends.dat"):
         timestamp=GENESIS_TIMESTAMP,
         logger=logger,
     )
+
+# BLOCK-STORE SHARDING migration (idempotent, one-time): move flat blocks/*.block into shard dirs.
+try:
+    from ops.block_ops import migrate_block_store
+    migrate_block_store(logger)
+except Exception as _e:
+    logger.error(f"block-store shard migration failed (non-fatal; flat files remain readable next run): {_e}")
 
 # Self-heal the recert_by_epoch presence index on EVERY boot (idempotent). get_open_registry reads this
 # epoch-keyed index; on a node upgraded across the heartbeat->lease refactor it starts empty, so any miner

@@ -32,7 +32,6 @@ class MemServer:
         mis-set config fails loudly at boot instead of silently disabling a protection later."""
         self.logger = logger
         self.logger.info("Starting MemServer")
-        self.genesis_timestamp = 1669852800
 
         self.purge_peers_list = []
 
@@ -66,12 +65,10 @@ class MemServer:
             self.message_pool.load(self.message_pool_path, get_timestamp_seconds())
         except Exception:
             pass   # a corrupt/absent pool file is fine — a fresh empty pool is always valid
-        self.since_last_block = 0
         self.peer_buffer = []
         self.ip = self.config["ip"]
         self.port = self.config["port"]
         self.terminate = False
-        self.producers_refresh_interval = 10
         self.heavy_refresh_interval = 360
 
         # Target seconds between blocks (local production pacing — NOT consensus; verify only checks
@@ -86,7 +83,6 @@ class MemServer:
 
         self.transaction_pool_hash = None
         self.upcoming_block_hash = None   # hash of the NEXT block's tx set (mature subset) — the determinism signal
-        self.block_generation_age = 0 # time since last block (real, not target)
         self.reported_uptime = self.get_uptime()
 
         self.emergency_mode = False
@@ -106,7 +102,6 @@ class MemServer:
         #                                full blocks of blobs, well under the 8 MiB wire cap.
         self.transaction_pool_max_txs = 150000
         self.transaction_pool_max_bytes = 4 * 1024 * 1024      # 4 MiB (>> 256 KiB block, << 8 MiB peer body)
-        self.transaction_buffer_limit = 4 * 1024 * 1024        # staging buffer byte cap — match the pool
         self.force_sync_ip = None
         self.rollbacks = 0
         self.can_mine = False
@@ -207,17 +202,32 @@ class MemServer:
         if peer not in self.purge_peers_list and peer not in self.unreachable:
             self.purge_peers_list.append(peer)
 
+    # HASH CACHES for the two per-second consensus signals below. Key = the pool LIST OBJECT itself
+    # (the cache keeps a live reference, so CPython can never recycle its id) + its length: every
+    # pool mutation either REASSIGNS self.transaction_pool (merge_transaction's post-append sort,
+    # purge, drain, cull — a new object) or changes its LENGTH in place (block-inclusion evict), so
+    # (same object, same length) proves the tx set is unchanged and the cached hash is exact. This
+    # turns the old O(pool)·sort + canonical-serialize EVERY SECOND into O(1) between pool changes —
+    # the whole-mempool rehash was the classic hot-loop serialization cost at mempool scale.
+    _pool_hash_cache = None            # (pool_obj, len, hash)
+    _upcoming_hash_cache = None        # (pool_obj, len, parent_hash, kv_write_gen, hash)
+
     def get_transaction_pool_hash(self) -> [str, None]:
         """blake2b of the SORTED transaction pool (None when empty). Sorting first makes the hash
         canonical — two nodes holding the same tx set report the same hash regardless of arrival
         order — which is what lets the consensus loop majority-vote on pool hashes instead of
-        shipping full pools around. Hashes a copy so a concurrent merge can't mutate mid-sort."""
-        if self.transaction_pool:
-            sorted_transaction_pool = sort_transaction_pool(self.transaction_pool.copy())
-            transaction_pool_hash = blake2b_hash(sorted_transaction_pool)
-        else:
-            transaction_pool_hash = None
-        return transaction_pool_hash
+        shipping full pools around. Hashes a copy so a concurrent merge can't mutate mid-sort.
+        Cached per pool object+length (see cache note above) — a pure function of the tx set."""
+        pool = self.transaction_pool
+        if not pool:
+            return None
+        cached = self._pool_hash_cache
+        if cached is not None and cached[0] is pool and cached[1] == len(pool):
+            return cached[2]
+        snapshot = pool.copy()
+        pool_hash = blake2b_hash(sort_transaction_pool(snapshot))
+        self._pool_hash_cache = (pool, len(snapshot), pool_hash)
+        return pool_hash
 
     def get_upcoming_block_hash(self):
         """blake2b of the NEXT block's content ON TOP OF OUR TIP: parent hash + next height + the mature,
@@ -227,15 +237,25 @@ class MemServer:
         hash it excludes immature (min_block not reached) and future-targeted txs that won't be in the
         next block. parent+height make it tip-specific, so nodes on a different tip correctly don't match.
         NEVER None (an empty next block still hashes) — so a peer's absence of eligible txs is a real,
-        comparable signal, not a null that poisons the majority."""
+        comparable signal, not a null that poisons the majority.
+        Cached per (pool object+length, tip hash, committed-write generation): the match also reads
+        the on-chain mined-txid index, and the write generation invalidates on ANY commit, so the
+        cache can never outlive the state it was derived from."""
         from ops.block_ops import match_transactions_target
         parent = self.latest_block
+        pool = self.transaction_pool
+        cached = self._upcoming_hash_cache
+        key = (len(pool), parent["block_hash"], kv_ops.write_generation())
+        if cached is not None and cached[0] is pool and cached[1:4] == key:
+            return cached[4]
         next_height = parent["block_number"] + 1
-        matched = match_transactions_target(transaction_list=self.transaction_pool.copy(),
-                                            block_number=next_height, logger=self.logger) if self.transaction_pool else []
+        matched = match_transactions_target(transaction_list=pool.copy(),
+                                            block_number=next_height, logger=self.logger) if pool else []
         if matched is False:                              # a match error -> treat as empty
             matched = []
-        return blake2b_hash([parent["block_hash"], next_height, sort_transaction_pool(matched)])
+        upcoming = blake2b_hash([parent["block_hash"], next_height, sort_transaction_pool(matched)])
+        self._upcoming_hash_cache = (pool, *key, upcoming)
+        return upcoming
 
     def get_uptime(self) -> int:
         """Whole seconds this node process has been up (NOT system uptime) — refreshed into

@@ -52,14 +52,6 @@ def _encode_stripe(data_syms, n):
     return [_lagrange_eval(pts, x) for x in range(1, n + 1)]           # evaluate at x = 1..n
 
 
-def _decode_stripe(known, k):
-    """known = {shard_index(0-based): symbol}; needs >= k entries. Recover the k data symbols (x = 1..k)."""
-    pts = [(idx + 1, sym % P) for idx, sym in list(known.items())[:k]]
-    if len(pts) < k:
-        raise ValueError(f"need >= {k} shards to reconstruct, have {len(pts)}")
-    return [_lagrange_eval(pts, x) for x in range(1, k + 1)]
-
-
 def _pack(data):
     """bytes -> list of field symbols (7 bytes each, last zero-padded). Returns (symbols, original_length)."""
     syms = [int.from_bytes(data[i:i + SYMBOL_BYTES].ljust(SYMBOL_BYTES, b"\x00"), "big")

@@ -28,13 +28,13 @@ class EchoRuntime:
         if not isinstance(code, dict):
             raise ValueError("code must be an object")
         return True
-    def run(self, code, method, caller, args, storage):
+    def run(self, code, method, caller, args, storage, **kwargs):   # kwargs: value/cursor/beacons/... (echo ignores them)
         st = copy.deepcopy(storage)
         if method == "set":
-            st.setdefault("e", {})[str(args[0])] = int(args[1]); return (True, None, st)
+            st.setdefault("e", {})[str(args[0])] = int(args[1]); return (True, None, st, [])
         if method == "get":
-            return (True, st.get("e", {}).get(str(args[0]), 0), st)
-        return (False, None, storage)
+            return (True, st.get("e", {}).get(str(args[0]), 0), st, [])
+        return (False, None, storage, [])
 
 
 def t1_custom_runtime_dispatch():

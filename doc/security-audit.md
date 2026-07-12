@@ -56,8 +56,8 @@ tested); the remaining items are documented residuals / future hardening.
 - **The bonded `MAX_SHARES` cap is per-identity, not aggregate** — sharding capital above `BOND_CAP`
   across addresses recovers full proportional weight. The bonded lane is therefore capital-proportional
   ("pay-to-win") by design; the cap limits single-address variance, not aggregate stake.
-- **Registration / fee-exempt state growth** — `register` writes a permanent account doc; `GC_IDLE_EPOCHS`
-  is defined but not yet wired, and the registration PoW does not bind `target_block`. Bounded today by
+- **Registration / fee-exempt state growth** — `register` writes a permanent account doc; idle-account GC
+  is not yet implemented, and the registration PoW does not bind `target_block`. Bounded today by
   the lane cap (share), per-IP rate limit, mempool cap, and the in-block one-register-per-sender dedup,
   but idle-account GC + per-sender mempool occupancy caps are future work.
 - **`FIDELITY_DECAY` is unused** (absent identities keep accumulated fidelity); bounded by the open-lane

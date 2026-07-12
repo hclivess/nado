@@ -13,7 +13,7 @@ surface — the node validates a CLI tx exactly like a browser one (signature, P
 Commands: info · send · register · bond · unbond · alias · propose · vote · execute · collect · bridge-deposit
           msig-address · msig-propose · msig-sign · msig-submit   (M-of-N multisig co-signing)
 """
-import argparse, json, os, sys, time, urllib.request
+import argparse, json, os, sys, urllib.request
 from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

@@ -16,7 +16,7 @@ import threading
 
 from hashing import (blake2b_hash, merkle_root, merkle_proof, withdrawal_leaf, dividend_leaf,
                      unshield_leaf, canonical_bytes, outbox_leaf)
-from execnode.vm import validate_code, run, VMError
+from execnode.vm import VMError
 from execnode import runtimes   # pluggable contract-runtime registry (stackvm is the default plugin)
 from execnode.shielded import ShieldedPool, apply_transfer
 
@@ -132,7 +132,22 @@ class ExecState:
         # to state_root. The BLOCKHASH opcode reads it so a game can pin its result to a FUTURE height whose hash
         # nobody can predict at bet time. Bounded ring (recent heights only).
         self.block_hashes = {}     # height(int) -> block hash(int)
+        # STATE-ROOT CACHE: _leaves()/state_root() are pure functions of the root-committed state, but
+        # were recomputed from scratch on EVERY /exec/root poll, proof request and settle (O(total
+        # state), the execnode's dominant CPU cost). Cache leaves+root; every root-affecting mutator
+        # calls _touch() (under _mutate_lock) to invalidate. _mut_gen versions the whole state so the
+        # provisional rebuild can skip cloning when nothing changed.
+        self._leaf_cache = None
+        self._root_cache = None
+        self._mut_gen = 0
         self.load()
+
+    def _touch(self):
+        """Invalidate the leaf/root cache and bump the state version. Called by every mutator that
+        can change _leaves() output (and by _restore). Safe on a bare instance (clone())."""
+        self._leaf_cache = None
+        self._root_cache = None
+        self._mut_gen = getattr(self, "_mut_gen", 0) + 1
 
     # --- persistence -----------------------------------------------------------------------------
     def _restore(self, d):
@@ -160,6 +175,7 @@ class ExecState:
         self.beacons = {int(e): int(v) for e, v in d.get("beacons", {}).items()}
         self.beacon_floor = d.get("beacon_floor")
         self.block_hashes = {int(h): int(v) for h, v in d.get("block_hashes", {}).items()}
+        self._touch()          # also (re)creates the cache fields on a bare clone() instance
 
     def _snapshot(self):
         """The full serializable payload (identical to what save() writes), taken UNDER the mutate lock so a
@@ -214,7 +230,18 @@ class ExecState:
 
     def _leaves(self):
         """Every piece of execution-layer state as a canonical Merkle leaf: contract storage, bridged
-        balances, and withdrawal records. The set is identical on every honest node → identical root."""
+        balances, and withdrawal records. The set is identical on every honest node → identical root.
+        CACHED until a mutator _touch()es; computed under the mutate lock so a concurrent thread-apply
+        can never tear the snapshot into the cache."""
+        cached = self._leaf_cache
+        if cached is not None:
+            return cached
+        with self._mutate_lock:
+            if self._leaf_cache is None:
+                self._leaf_cache = self._compute_leaves()
+            return self._leaf_cache
+
+    def _compute_leaves(self):
         out = []
         for cid, c in self.contracts.items():
             for m, kv in c.get("storage", {}).items():
@@ -276,6 +303,13 @@ class ExecState:
         return {"addr": w["addr"], "amount": w["amount"], "nonce": str(nonce), "proof": proof}
 
     def accrue_dividend_epoch(self, inflow, weights):
+        with self._mutate_lock:
+            try:
+                return self._accrue_dividend_epoch_inner(inflow, weights)
+            finally:
+                self._touch()
+
+    def _accrue_dividend_epoch_inner(self, inflow, weights):
         """DETERMINISTIC per-epoch accrual. Distribute `inflow` — the TOTAL DIVIDEND_POOL inflow credited
         during one epoch (from L1 `dividend_inflow_get(E)`, revert-safe) — plus the carried remainder among
         `weights` = weights_at_epoch(E) (fidelity-weighted, from L1), pro-rata and integer-only. This is a
@@ -300,8 +334,15 @@ class ExecState:
 
     def state_root(self):
         """MERKLE root over all execution-layer state — identical on every honest node at the same cursor.
-        This is the root the bonded quorum settles on L1; a bridge withdrawal is proven against it."""
-        return merkle_root(self._leaves())
+        This is the root the bonded quorum settles on L1; a bridge withdrawal is proven against it.
+        Cached with _leaves() (invalidated together by _touch)."""
+        root = self._root_cache
+        if root is None:
+            with self._mutate_lock:
+                if self._root_cache is None:
+                    self._root_cache = merkle_root(self._leaves())
+                root = self._root_cache
+        return root
 
     def withdrawal_proof(self, nonce):
         """(addr, amount, nonce, proof) for a recorded withdrawal, provable against state_root; None if absent."""
@@ -326,12 +367,16 @@ class ExecState:
         message against `from_ns`'s SETTLED root and burned its (from_ns, seq) nullifier, so the exec node
         just records it (committed in state_root). Deterministic: every receiver node reads the same `xmsg`
         from the finalized stream and appends the identical inbox entry."""
-        self.inbox.append({"from_ns": from_ns, "seq": message.get("seq"), "data": message.get("data")})
+        with self._mutate_lock:
+            self.inbox.append({"from_ns": from_ns, "seq": message.get("seq"), "data": message.get("data")})
+            self._touch()
         return f"deliver from ns={from_ns} seq={message.get('seq')}"
 
     def credit_deposit(self, addr, amount):
         """Credit an exec-side bridge balance from an L1 `bridge` deposit (read from the ordered stream)."""
-        self.bridge[addr] = self.bridge.get(addr, 0) + int(amount)
+        with self._mutate_lock:
+            self.bridge[addr] = self.bridge.get(addr, 0) + int(amount)
+            self._touch()
 
     # --- RANDAO beacon (#randao) -----------------------------------------------------------------
     def record_reveal(self, target_epoch, secret):
@@ -398,6 +443,7 @@ class ExecState:
             cm = alghash.commit(amount, int(owner) % _F.P, int(rho) % _F.P)
             with self._mutate_lock:                       # M-10: serialize field_pool mutation vs thread-applies
                 self.field_pool.append(cm)
+                self._touch()
             return f"field-shield {amount} -> field note #{len(self.field_pool.commitments)}"
         except Exception as e:
             return f"skip field-shield: {e}"
@@ -447,6 +493,7 @@ class ExecState:
                 self.uw_nonce += 1
                 nonce = str(self.uw_nonce)
                 self.unshield_withdrawals[nonce] = {"addr": addr, "amount": -pv}
+            self._touch()
         if pv < 0:
             return f"field-unshield {-pv} -> {addr[:12]}… nonce {nonce}"
         return "field-transfer ok"
@@ -460,7 +507,9 @@ class ExecState:
             public = {"root": self.shielded.root(), "nullifiers": [], "out_commitments": list(out_commitments),
                       "public_value": int(amount), "fee": 0}
             proof = {"inputs": [], "outputs": list(outputs)}
-            ok, reason = apply_transfer(self.shielded, public, proof, self.shielded.knows_root)
+            with self._mutate_lock:
+                ok, reason = apply_transfer(self.shielded, public, proof, self.shielded.knows_root)
+                self._touch()
             return f"shield {amount} -> {len(out_commitments)} note(s)" if ok else f"skip shield: {reason}"
         except Exception as e:
             return f"skip shield: {e}"
@@ -472,6 +521,13 @@ class ExecState:
 
     # --- applying blobs --------------------------------------------------------------------------
     def apply_blob(self, payload, sender, txid):
+        with self._mutate_lock:
+            try:
+                return self._apply_blob_inner(payload, sender, txid)
+            finally:
+                self._touch()
+
+    def _apply_blob_inner(self, payload, sender, txid):
         """Apply ONE blob payload from sender (the blob tx's L1 sender). Returns a short human string.
         Never raises: a malformed or reverting blob is a no-op ('skip'/'revert')."""
         try:

@@ -35,7 +35,8 @@ def check(name, fn):
 def _body_path(h):
     """Resolve height h to its body file path via the number->hash index, or None if unindexed."""
     bh = kv_ops.hash_by_number(h)
-    return f"{HOME}/blocks/{bh}.block" if bh else None
+    from ops.block_ops import block_path
+    return block_path(bh) if bh else None
 
 def body_exists(h):
     """True if the block BODY file for height h still exists on disk."""
@@ -51,7 +52,9 @@ N = 600
 for h in range(1, N + 1):
     bh = f"{h:064x}"
     kv_ops.block_index_put(block_number=h, block_hash=bh)
-    with open(f"{HOME}/blocks/{bh}.block", "wb") as f:
+    from ops.block_ops import block_path as _bp
+    os.makedirs(os.path.dirname(_bp(bh)), exist_ok=True)
+    with open(_bp(bh), "wb") as f:
         f.write(b"body")
 
 def t1_prunes_below_window_keeps_index():

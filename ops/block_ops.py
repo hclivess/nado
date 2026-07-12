@@ -17,9 +17,9 @@ from protocol import (CHAIN_ID, REWARD_WINDOW, BASE_SUBSIDY, GENESIS_BEACON, EPO
                       B_MIN, TREASURY_GENESIS, BOND_ELASTIC_MULT_BPS, BLOCK_TIMESTAMP_DRIFT)
 import zstandard as zstd
 
-# Block bodies are stored as zstd(msgpack(block)) (#14): msgpack is a compact portable container,
-# and zstd recovers the ~2x redundancy of hex signature/pubkey strings — important once post-quantum
-# (ML-DSA) sigs bloat blocks. This is purely LOCAL/non-consensus (the block HASH is over
+# Block bodies are stored as zstd(codec(block)) (#14) — ops/codec.py is a compact portable JSON
+# container (it replaced msgpack, which cannot hold >64-bit ints), and zstd recovers the ~2x redundancy
+# of hex signature/pubkey strings — important once post-quantum (ML-DSA) sigs bloat blocks. This is purely LOCAL/non-consensus (the block HASH is over
 # canonical_bytes, never the stored file), so it can change with no fork. Genesis is also stored
 # this way (genesis.make_genesis calls save_block).
 # python-zstandard's ZstdCompressor/ZstdDecompressor are NOT thread-safe — a single instance shared across
@@ -42,7 +42,7 @@ def _zd():
 
 
 def _pack_block(block) -> bytes:
-    """local zstd(msgpack) block-body encoding — non-consensus, see module note (#14)."""
+    """local zstd(codec) block-body encoding — non-consensus, see module note (#14)."""
     return _zc().compress(codec.pack(block))
 
 
@@ -99,7 +99,7 @@ def bond_elastic_mult_bps() -> int:
     return BOND_ELASTIC_MULT_BPS[min(100, pct)]
 
 
-def get_block_reward(parent_block=None):
+def get_block_reward():
     """FLAT base subsidy scaled by the BOND-ELASTIC multiplier — super hard money (doc/bond-elastic-emission.md).
 
         reward = BASE_SUBSIDY * m(bonded_ratio)          # m in (~0.24, 1], integer bps
@@ -111,8 +111,7 @@ def get_block_reward(parent_block=None):
         MIN emission/block = m_min * BASE_SUBSIDY (~0.024 NADO) — the perpetual tail; production never
         drops to zero, so there is no security cliff (and no hard cap).
     Deterministic: bond_elastic_mult_bps() reads committed parent state, the same basis verify_block already
-    uses to recompute cumulative_weight, so full and snapshot/pruned nodes agree. `parent_block` is unused
-    (kept for call-site stability)."""
+    uses to recompute cumulative_weight, so full and snapshot/pruned nodes agree."""
     return BASE_SUBSIDY * bond_elastic_mult_bps() // 10000
 
 
@@ -252,7 +251,7 @@ def get_block_candidate(
         parent_hash=latest_block["block_hash"],
         creator=winner,
         transaction_pool=targeted_transactions,
-        block_reward=get_block_reward(parent_block=latest_block),
+        block_reward=get_block_reward(),
         parent_cumulative_fees=latest_block.get("cumulative_fees", 0),
         parent_cumulative_weight=latest_block.get("cumulative_weight", 0),
         chain_id=CHAIN_ID,   # informational label on new blocks (not hashed); a rename shows up here
@@ -261,21 +260,48 @@ def get_block_candidate(
     return block
 
 
-def fee_over_blocks(logger, number_of_blocks=250):
-    """returns average fee over last x blocks"""
-    last_block = get_block_ends_info(logger=logger)["latest_block"]
+def recommended_fee(latest_block) -> int:
+    """Integer mean fee of the TIP block's transactions (0 when it carried none) — the wallet fee
+    hint served by /get_recommended_fee. Pure in-memory read of the caller's latest block: the old
+    fee_over_blocks helper claimed a 250-block average but only ever re-read the tip's tx list 250
+    times over, while ALSO re-loading block bodies from disk on every API call."""
+    fees = [t["fee"] for t in latest_block.get("block_transactions", [])]
+    return average(fees) if fees else 0
 
-    if last_block["block_number"] < number_of_blocks:
-        number_of_blocks = last_block["block_number"]
 
-    fees = []
-    for number in range(0, number_of_blocks):
-        for transaction in last_block["block_transactions"]:
-            fees.append(transaction["fee"])
-    if fees:
-        return average(fees)
-    else:
+def block_path(block_hash: str) -> str:
+    """Filesystem path of a block body: blocks/<hash[:3]>/<hash>.block — SHARDED by the first 3 hex
+    chars (4096 dirs) so an archive node's store never degenerates into one directory with millions
+    of dirents (readdir/fsck/backup pathology at chain scale). Purely a LOCAL layout choice: hashes,
+    the wire format and the number<->hash index are untouched. Callers validate the hash first
+    (is_hex_hash) — this function only formats the path."""
+    return f"{get_home()}/blocks/{block_hash[:3]}/{block_hash}.block"
+
+
+def migrate_block_store(logger) -> int:
+    """One-time, idempotent startup migration: move any *.block file still sitting FLAT in blocks/
+    into its shard dir. O(files still flat); a migrated store scans only the (empty) top level.
+    Crash-safe: os.replace per file, and a re-run simply moves whatever is left."""
+    root = f"{get_home()}/blocks"
+    moved = 0
+    try:
+        with os.scandir(root) as it:
+            for entry in it:
+                name = entry.name
+                if not entry.is_file() or not name.endswith(".block"):
+                    continue
+                h = name[:-6]
+                if not is_hex_hash(h):
+                    continue
+                shard = f"{root}/{h[:3]}"
+                os.makedirs(shard, exist_ok=True)
+                os.replace(entry.path, f"{shard}/{name}")
+                moved += 1
+    except FileNotFoundError:
         return 0
+    if moved:
+        logger.warning(f"Block store migrated to sharded layout: {moved} file(s) moved into blocks/<hhh>/")
+    return moved
 
 
 def get_block(block):
@@ -285,13 +311,11 @@ def get_block(block):
     # (also collapses the missing-vs-malformed responses into one 'not found').
     if not is_hex_hash(block):
         return False
-    block_path = f"{get_home()}/blocks/{block}.block"
-    if os.path.exists(block_path):
-        with open(block_path, "rb") as file:
-            block = _unpack_block(file.read())
-        return block
-    else:
-        return False
+    path = block_path(block)
+    if os.path.exists(path):
+        with open(path, "rb") as file:
+            return _unpack_block(file.read())
+    return False
 
 
 def get_block_number(number):
@@ -318,11 +342,12 @@ def prune_block_bodies(finalized_height: int, retention: int, logger) -> int:
     FINALIZED heights older than the retention window, while KEEPING the number<->hash index (so the
     beacon/FFG hash lookbacks via get_block_hash_by_number still resolve) and STATE (never touched).
 
-    Correctness floor (from the audit): the deepest consensus read of a historical BODY is
-    get_block_reward, which loads the block at tip-REWARD_WINDOW for its cumulative_fees; rollback
-    re-reads bodies within FINALITY_DEPTH of the tip. So we NEVER prune within
+    Correctness floor: the deepest consensus read of a historical BODY today is rollback, which
+    re-reads bodies within FINALITY_DEPTH of the tip (the old get_block_reward lookback at
+    tip-REWARD_WINDOW no longer exists — emission is flat * bond-elastic from committed state, and
+    REWARD_WINDOW survives only as extra margin here). We NEVER prune within
     max(retention, REWARD_WINDOW+FINALITY_DEPTH+1) of the finalized height — even a misconfigured tiny
-    `retention` cannot corrupt the reward calc or a legal rollback. Returns the number of files pruned.
+    `retention` cannot break a legal rollback. Returns the number of files pruned.
 
     Idempotent + incremental: a `pruned_below` watermark (meta) records the height under which bodies
     are already gone, so each call scans only the new delta; per-call work is capped so enabling this on
@@ -339,14 +364,13 @@ def prune_block_bodies(finalized_height: int, retention: int, logger) -> int:
     if start >= prune_below:
         return 0
     end = min(prune_below, start + 4000)                      # bound per-call work (first enable on a long chain)
-    home = get_home()
     pruned = 0
     kept_blob = 0
     for h in range(start, end):
         bh = kv_ops.hash_by_number(h)                         # index is kept -> still resolvable after prune
         if not bh:
             continue
-        path = f"{home}/blocks/{bh}.block"
+        path = block_path(bh)
         if os.path.exists(path):
             # CONTRACT-DATA SAFETY (2026-07-11): the execution node reads `blob` payloads (contract
             # deploys/calls) DIRECTLY out of block bodies as it tails finalized blocks. If a blob-bearing
@@ -521,7 +545,7 @@ def load_block_from_hash(block_hash: str, logger):
     if not is_hex_hash(block_hash):
         return False
     try:
-        with open(f"{get_home()}/blocks/{block_hash}.block", "rb") as infile:
+        with open(block_path(block_hash), "rb") as infile:
             return _unpack_block(infile.read())
     except Exception as e:
         logger.info(f"Failed to load block {block_hash}: {e}")
@@ -574,7 +598,8 @@ def save_block(block: dict, logger):
                          f"hashes to {expected[:16]} but block_hash={str(block.get('block_hash'))[:16]} "
                          f"(forged or corrupt) — this would fork the chain")
             raise ValueError(f"hash-inconsistent block #{block.get('block_number')} refused")
-    path = f"{get_home()}/blocks/{block['block_hash']}.block"
+    path = block_path(block['block_hash'])
+    os.makedirs(os.path.dirname(path), exist_ok=True)   # shard dir, created on demand
     tmp_path = f"{path}.tmp"
 
     # pack once, write to a temp file, fsync, then atomically rename into place. os.replace
@@ -655,7 +680,7 @@ def unindex_block(block, logger):
     # leaving it half-reverted — no infinite retry loop is needed or correct under LMDB.
     kv_ops.block_index_del(block_number=block['block_number'], block_hash=block['block_hash'])
 
-    block_data = f"{get_home()}/blocks/{block['block_hash']}.block"
+    block_data = block_path(block['block_hash'])
     # bounded + backed off: the old inner loop had no sleep and never gave up,
     # so a permission error / open handle spun a CPU at 100% forever.
     for _ in range(10):
@@ -946,7 +971,7 @@ async def get_blocks_before(target_peer, from_hash, logger, count=50, compress="
 
 
 async def get_from_single_target(key, target_peer, logger) -> list:
-    """obtain from a single target over the bomb-capped zstd(msgpack) wire, returns list ([] on failure).
+    """obtain from a single target over the bomb-capped zstd(codec) wire, returns list ([] on failure).
     The old JSON path also had NO body cap — a malicious peer could stream unbounded bytes."""
     from ops.net_ops import read_capped, unpack_zstd_peer, MAX_PEER_BODY
 

@@ -49,7 +49,7 @@ reward = min(max(reward, 0), REWARD_CAP)
 - Enforced in `core_loop.verify_block`: a block whose `block_reward` ≠ the deterministic value
   is rejected. `rebuild_block` recomputes the reward + `cumulative_fees` from the local tip, so
   a peer can never inject an inflated reward.
-- The old `fee_over_blocks` is **buggy** (it sums the last block N times) and is **not used**.
+- The old `fee_over_blocks` (buggy: it summed the last block N times) was replaced by `recommended_fee` - the tip block's mean fee, computed in memory for `/get_recommended_fee`.
 
 ## The 90/10 split (canonical)
 
