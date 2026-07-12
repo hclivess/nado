@@ -150,7 +150,9 @@ def check_target_match(transaction_list, block_number, logger):
         for transaction in transaction_list:
             tb = transaction["max_block"]
             if _lands_flexibly(transaction):
-                if block_number > tb:            # expired: its max_block (deadline) already passed
+                # eligible window [min_block, max_block] (see match_transactions_target): too-early is as
+                # invalid as expired, so no producer can front-run a tx before it has propagated.
+                if block_number < transaction.get("min_block", 0) or block_number > tb:
                     return False
             elif tb != block_number:             # timing-critical: must land at exactly max_block
                 return False
@@ -180,7 +182,13 @@ def match_transactions_target(transaction_list, block_number, logger):
             if txid in seen or kv_ops.tx_get(txid) is not None:
                 continue
             if _lands_flexibly(transaction):
-                if block_number <= tb:           # valid until its max_block deadline
+                # INCLUSION DELAY: a flexibly-landing tx becomes eligible only from its sender-set
+                # min_block (default 0). Set to submit_tip + a couple blocks by wallets, this guarantees
+                # the tx has gossiped to EVERY producer before any of them may include it — so all nodes
+                # hold the identical mature tx set at each height and build byte-identical blocks (the
+                # deterministic fast-forward then always hits). min_block is in the signed txid, so every
+                # node agrees on the eligibility window; absent -> 0 keeps historical blocks valid.
+                if transaction.get("min_block", 0) <= block_number <= tb:   # [min_block, max_block]
                     matched_txs.append(transaction)
                     seen.add(txid)
             elif tb == block_number:             # timing-critical: exact landing

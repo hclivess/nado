@@ -30,7 +30,7 @@ import argparse, calendar, json, os, sys, time, urllib.request, urllib.parse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ops.transaction_ops import construct_blob_tx
 from ops.key_ops import load_keys
-from protocol import MIN_TX_FEE
+from protocol import MIN_TX_FEE, TX_INCLUSION_DELAY
 
 BET_CID = "fe303d9880c8222dcf3b9953eb86a0fa"   # execnode/contracts/bet.json (nonce "bet-v1")
 # Major soccer competitions to seed matches from (TheSportsDB league ids). 1X2 (home/draw/away) markets.
@@ -111,8 +111,9 @@ def winning_outcome(mk, hs, as_):
 
 def submit(l1, method, args, keys, fee):
     latest = _get(f"{l1}/get_latest_block")
+    tip = int(latest["block_number"])
     payload = {"op": "call", "contract": BET_CID, "method": method, "args": args}
-    tx = construct_blob_tx(keys, payload, max_block=int(latest["block_number"]) + 20, fee=fee)
+    tx = construct_blob_tx(keys, payload, max_block=tip + 20, fee=fee, min_block=tip + TX_INCLUSION_DELAY)
     resp = _post(f"{l1}/submit_transaction", tx)
     return tx["txid"][:16], resp.get("message")
 

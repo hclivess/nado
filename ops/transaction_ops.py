@@ -277,13 +277,17 @@ def cap_block_blobs(transactions, logger=None):
     return out
 
 
-def construct_blob_tx(keydict, payload, max_block, fee):
+def construct_blob_tx(keydict, payload, max_block, fee, min_block=0):
     """Build a SIGNED data-availability blob tx: recipient is the reserved name "blob"; the OPAQUE
-    execution-layer payload rides in `data`. L1 orders + stores it and burns the fee, never decoding it."""
+    execution-layer payload rides in `data`. L1 orders + stores it and burns the fee, never decoding it.
+    min_block (submit_tip + TX_INCLUSION_DELAY) is the earliest height a producer may include it — see
+    protocol.TX_INCLUSION_DELAY; 0 = immediate."""
     tx = {"sender": keydict["address"], "recipient": "blob", "amount": 0,
           "timestamp": get_timestamp_seconds(), "data": payload,
           "nonce": create_nonce(), "public_key": keydict["public_key"],
           "max_block": int(max_block), "chain_id": CHAIN_ID, "fee": int(fee)}
+    if int(min_block) > 0:
+        tx["min_block"] = int(min_block)
     tx["txid"] = create_txid(tx)
     tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
     return tx

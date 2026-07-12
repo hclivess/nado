@@ -62,8 +62,10 @@ def main():
         payload = {"op": "call", "contract": cid, "method": method, "args": call_args}
 
     latest = _get(args.l1, "/get_latest_block")
-    max_block = int(latest["block_number"]) + 2
-    tx = construct_blob_tx(keys, payload, max_block=max_block, fee=args.fee)
+    from protocol import TX_INCLUSION_DELAY
+    tip = int(latest["block_number"])
+    max_block = tip + 20                       # comfortable landing window (was +2 — too tight to mine)
+    tx = construct_blob_tx(keys, payload, max_block=max_block, fee=args.fee, min_block=tip + TX_INCLUSION_DELAY)
     print(f"submitting blob tx {tx['txid'][:16]}… (max_block {max_block}) → {args.l1}")
     print(json.dumps(_post(args.l1, "/submit_transaction", tx), indent=2))
     if args.action == "deploy":

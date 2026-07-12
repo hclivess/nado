@@ -29,6 +29,14 @@ GENESIS_TIMESTAMP = 1783645200  # 2026-07-10 01:00 UTC — alphanet-3 (target_bl
 # relay can push chain time at most this far ahead of real time (it can't compound block over block).
 BLOCK_TIMESTAMP_DRIFT = 30
 
+# INCLUSION DELAY (blocks): a flexibly-landing tx sets min_block = submit_tip + this, so no producer may
+# include it until it has had this many blocks (~this * block_time seconds) to gossip to EVERY producer.
+# All nodes then hold the identical mature tx set at each height and build byte-identical blocks, so the
+# deterministic fast-forward (loops/core_loop) always hits and block time tracks block_time instead of
+# lagging on transient mempool divergence. Enforced in block_ops (producer + verifier); absent min_block
+# defaults to 0 (immediate), so historical blocks stay valid.
+TX_INCLUSION_DELAY = 2
+
 # --- Reserved, keyless protocol pseudo-addresses (no private key) ---
 # "bond"/"unbond": pseudo-recipients used by the bonding transactions (see S4).
 # (The "burn" mechanic was removed entirely: no burn address, no burned counter, no

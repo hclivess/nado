@@ -40,6 +40,10 @@ const POSW_T = 1_000_000, POSW_S = 2_000, POSW_K = 20, POSW_ANCHOR_OFFSET = 30, 
 const POSW_TARGET_MARGIN = POSW_ANCHOR_OFFSET;
 const DENOMINATION = 10_000_000_000n; // 1 NADO in raw units (1e10)
 const MIN_TX_FEE = 1000;
+// Blocks to delay a flexibly-landing tx's earliest inclusion (min_block = tip + this) so it gossips to
+// every producer before any may include it -> identical mempools -> byte-identical blocks -> the node
+// fast-forward always hits (steady block_time). Mirror of protocol.TX_INCLUSION_DELAY.
+const TX_INCLUSION_DELAY = 2;
 const BOND_UNLOCK_DELAY = 1440; // protocol.py: blocks a bond stays locked after an unbond request
 const BOND_CAP = 100_000_000_000_000n;  // protocol.py: 10,000 NADO — bonding past this buys no weight
 const ALIAS_REGISTRATION_FEE = 10_000_000; // protocol.py: 0.001 NADO anti-squat fee for `alias` register
@@ -493,7 +497,7 @@ function savePoswRate(hashes, ms) { if (hashes > 0 && ms > 200) { try { localSto
 // on-chain (i.e. this could be the address's first tx). Callers pass includePubkey=false once
 // /get_account shows the pubkey is established (registered, or a stored public_key) — omitting the
 // key then. Including it is always safe (the node accepts a redundant key), so default to true.
-function buildTransferTx(wallet, recipient, rawAmount, fee, targetBlock, data, timestamp, includePubkey = true) {
+function buildTransferTx(wallet, recipient, rawAmount, fee, targetBlock, data, timestamp, includePubkey = true, minBlock = 0) {
   const draft = {
     sender: wallet.address,
     recipient,
@@ -504,6 +508,9 @@ function buildTransferTx(wallet, recipient, rawAmount, fee, targetBlock, data, t
     max_block: targetBlock,
     chain_id: CHAIN_ID,
   };
+  // earliest-inclusion (propagation delay) — only a value transfer / bridge tx lands flexibly, so the
+  // node ignores it for exact-landing reserved recipients. See TX_INCLUSION_DELAY.
+  if (minBlock) draft.min_block = minBlock;
   if (includePubkey) draft.public_key = wallet.publicKey;
   return finalizeTransaction(draft, wallet.privateKey, fee);
 }
@@ -556,9 +563,10 @@ function execBase() {
 /* PRESENCE DIVIDEND (doc/presence-dividend.md). accrued lives off-L1 on the execution node; "Collect" submits
  * a fee-cheap collect blob, then the accrued amount is claimed to L1 automatically once the exec root that
  * carries it is settled by the bonded quorum. */
-function buildBlobTx(wallet, payload, targetBlock, fee, timestamp) {
+function buildBlobTx(wallet, payload, targetBlock, fee, timestamp, minBlock) {
   const draft = { sender: wallet.address, recipient: "blob", amount: 0, timestamp, data: payload,
     nonce: randNonce(), public_key: wallet.publicKey, max_block: targetBlock, chain_id: CHAIN_ID };
+  if (minBlock) draft.min_block = minBlock;   // earliest-inclusion (propagation delay) — see TX_INCLUSION_DELAY
   return finalizeTransaction(draft, wallet.privateKey, fee);
 }
 // ML-DSA-44 signing is HEDGED (randomized): a rare signature verifies locally yet is rejected by the node /
@@ -2059,7 +2067,8 @@ async function resumePendingExecSign() {
         const latest = await getLatestBlock();
         if (!latest) throw new Error("relay unavailable");
         const draft = { sender: state.wallet.address, recipient: "bridge", amount: amt, timestamp: nowSeconds(),
-          data: "", nonce: randNonce(), public_key: state.wallet.publicKey, max_block: latest.block_number + 300, chain_id: CHAIN_ID };
+          data: "", nonce: randNonce(), public_key: state.wallet.publicKey, max_block: latest.block_number + 300,
+          min_block: latest.block_number + TX_INCLUSION_DELAY, chain_id: CHAIN_ID };
         return finalizeTransaction(draft, state.wallet.privateKey, MIN_TX_FEE);
       });
       back(res && res.data && res.data.result ? "ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address
@@ -2099,7 +2108,7 @@ async function resumePendingExecSign() {
     const { res, tx } = await submitResilient(async () => {
       const latest = await getLatestBlock();
       if (!latest) throw new Error("relay unavailable");
-      return buildBlobTx(state.wallet, blob, latest.block_number + 300, MIN_TX_FEE, nowSeconds());
+      return buildBlobTx(state.wallet, blob, latest.block_number + 300, MIN_TX_FEE, nowSeconds(), latest.block_number + TX_INCLUSION_DELAY);
     });
     if (res && res.data && res.data.result) back("ok=1&txid=" + tx.txid + "&addr=" + state.wallet.address);
     else back("ok=0&err=" + encodeURIComponent(((res && res.data && res.data.message) || "rejected").slice(0, 80)));
