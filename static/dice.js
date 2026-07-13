@@ -7,7 +7,7 @@
 // bankroll so the table keeps rolling. Ordinary upgradable stackvm contract, no game-specific API.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, blocksToTime,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
-         recentChips, statusLabel, tablesOf as allTables, readTable,
+         recentChips, statusLabel, tablesOf as allTables, readTable, alertBar, notify,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
 const CID = "9cbf40d70631f7ee86f58192de847273";
@@ -59,23 +59,23 @@ function reopenTable() {
 }
 async function newTable() {
   const raw = nadoToRaw($("bankrollAmt").value);
-  if (!raw) { $("status").textContent = window.t("dice.enterBankroll", "Enter a bankroll (NADO)."); return; }
+  if (!raw) return alertBar(window.t("dice.enterBankroll", "Enter a bankroll (NADO)."));
   await dapp.refresh();
   if (!canPay(dapp, raw, "Banking this table")) return;
   openTable(randId(), raw);
 }
 async function doBet() {
   const t = activeTable;
-  if (!t) { $("status").textContent = window.t("dice.pickFirst", "Pick a table first."); return; }
+  if (!t) return alertBar(window.t("dice.pickFirst", "Pick a table first."));
   const stake = nadoToRaw($("stakeAmt").value);
-  if (!stake) { $("status").textContent = window.t("dice.enterStake", "Enter a stake (NADO)."); return; }
+  if (!stake) return alertBar(window.t("dice.enterStake", "Enter a stake (NADO)."));
   const tb = await fetchTable(t);
-  if (!tb || !tb.exists) { $("status").textContent = dapp.whereIs("table", t); return; }
-  if (tb.closed) { $("status").textContent = window.t("dice.tableClosed", "That table is closed."); return; }
+  if (!tb || !tb.exists) return alertBar(dapp.whereIs("table", t));
+  if (tb.closed) return alertBar(window.t("dice.tableClosed", "That table is closed."));
   await dapp.refresh();
   if (!canPay(dapp, stake, "This roll")) { render(); return; }
   const need = returnRaw(stake, target) - stake;
-  if (BigInt(tb.bankroll) - BigInt(tb.committed) < need) { $("status").textContent = window.t("dice.cantCover1", "This table can't cover a {m}× win right now. Lower your stake or raise your win chance.", { m: multOf(target).toFixed(2) }); render(); return; }
+  if (BigInt(tb.bankroll) - BigInt(tb.committed) < need) { alertBar(window.t("dice.cantCover1", "This table can't cover a {m}× win right now. Lower your stake or raise your win chance.", { m: multOf(target).toFixed(2) })); render(); return; }
   const g = randId(), S = load(LS_S);
   S[g] = { table: t, stake: stake.toString(), M: target, ts: Date.now() }; save(LS_S, S);
   render();
@@ -83,7 +83,7 @@ async function doBet() {
 }
 function fundTable() {
   const raw = nadoToRaw($("fundAmt").value);
-  if (!raw) { $("status").textContent = window.t("dice.enterFund", "Enter an amount to add to this table's bankroll."); return; }
+  if (!raw) return alertBar(window.t("dice.enterFund", "Enter an amount to add to this table's bankroll."));
   if (!canPay(dapp, raw, "The top-up")) return;
   dapp.call("fund", [activeTable], raw, window.t("dice.callFund", "top up table #{t} bankroll · {amt} NADO", { t: activeTable, amt: rawToNado(raw) }), { table: activeTable, phase: "fund" });
 }
@@ -143,7 +143,7 @@ function renderLobby(sto) {
 }
 function selectTable(id) {
   activeTable = id; seatsN = 40; $("joinId").value = String(id);
-  $("status").textContent = window.t("dice.tableSelected", "Table #{id} — set your stake and win chance, then Place roll.", { id });
+  notify(window.t("dice.tableSelected", "Table #{id} — set your stake and win chance, then Place roll.", { id }));
   refreshActive();
   try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
 }
@@ -174,7 +174,7 @@ function wireUI() {
   stickyInputs(dapp, ['stakeAmt', 'bankrollAmt', 'fundAmt', 'bankAmt']);   // typed amounts persist across turns
   $("btnNewTable").onclick = newTable;
   $("btnBet").onclick = doBet;
-  $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = window.t("dice.enterTableId", "Enter a table ID, or pick one from the lobby."); };
+  $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else alertBar(window.t("dice.enterTableId", "Enter a table ID, or pick one from the lobby.")); };
   $("btnClose").onclick = closeTable;
   if ($("btnMoreSeats")) $("btnMoreSeats").onclick = () => { seatsN += 60; renderActive(); };
   dapp.wireAutoCollect();

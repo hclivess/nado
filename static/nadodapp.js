@@ -128,16 +128,32 @@ export function inviteGate(dapp, { kind, id, title, body, joinLabel, onJoin }) {
   });
 }
 
-export function alertBar(msg, actionLabel, actionFn) {
+// alertBar(msg, actionLabel?, actionFn?, opts?): the shared FOREGROUND notification — one fixed banner at the
+// bottom, prominent enough that feedback is never missed (unlike the easily-overlooked #status line). Tones:
+//   "warn" (default) — red ⚠, PERSISTENT: validation failures / errors the user must act on.
+//   "info"           — teal, AUTO-DISMISSES: a selection prompt or neutral heads-up ("Table #X — set your stake").
+//   "ok"             — green ✓, AUTO-DISMISSES: a positive confirmation.
+// Auto-dismiss is suppressed whenever there's an action button (the user must decide) or opts.sticky. Games
+// should send anything a player needs to NOTICE here instead of #status; #status stays for the in-place
+// "confirming…" lifecycle. `notify`/`toast`/`ok` below are thin helpers over this.
+const _ALERT_TONES = {
+  warn: { bg: "#2a1214", bd: "rgba(248,81,73,.65)", fg: "#ffb4ae", icon: "⚠ " },
+  info: { bg: "#0e2027", bd: "rgba(0,201,167,.5)", fg: "#7fe9d3", icon: "" },
+  ok:   { bg: "#0f2417", bd: "rgba(0,201,167,.55)", fg: "#8ff0c6", icon: "✓ " },
+};
+export function alertBar(msg, actionLabel, actionFn, opts) {
+  opts = opts || {};
+  clearTimeout(alertBar._t);
   let el = document.getElementById("alertBar");
   if (el) el.remove();
   if (!msg) return;
+  const t = _ALERT_TONES[opts.tone] || _ALERT_TONES.warn;
   el = document.createElement("div");
   el.id = "alertBar";
   el.style.cssText = "position:fixed;left:12px;right:12px;bottom:12px;z-index:999;max-width:600px;margin:0 auto;"
-    + "background:#2a1214;border:1px solid rgba(248,81,73,.65);color:#ffb4ae;font-weight:700;font-size:13.5px;"
+    + "background:" + t.bg + ";border:1px solid " + t.bd + ";color:" + t.fg + ";font-weight:700;font-size:13.5px;"
     + "border-radius:14px;padding:13px 40px 13px 14px;line-height:1.5;box-shadow:0 10px 34px rgba(0,0,0,.6)";
-  el.textContent = "⚠ " + msg + " ";
+  el.textContent = t.icon + msg + " ";
   if (actionLabel && actionFn) {
     const b = document.createElement("button");
     b.textContent = actionLabel;
@@ -152,7 +168,13 @@ export function alertBar(msg, actionLabel, actionFn) {
   x.onclick = () => el.remove();
   el.appendChild(x);
   document.body.appendChild(el);
+  // transient tones (info/ok) fade themselves so neutral prompts don't linger; warns and actionable bars stay.
+  if (opts.tone && opts.tone !== "warn" && !actionFn && !opts.sticky)
+    alertBar._t = setTimeout(() => { if (document.getElementById("alertBar") === el) el.remove(); }, opts.ms || 4500);
 }
+// convenience wrappers so call sites read intent: notify()=neutral prompt, ok()=success, warn()=alertBar default.
+export const notify = (msg, ms) => alertBar(msg, null, null, { tone: "info", ms });
+export const okBar = (msg, ms) => alertBar(msg, null, null, { tone: "ok", ms });
 // canPay(dapp, raw, what): the ONE affordability gate before any join/bet/open. True if payable; otherwise
 // shows the toast with the exact shortfall + a "Go to Deposit" shortcut (scrolls to the bankroll box and
 // pulses Deposit). Signed-out users get a sign-in prompt instead. NO game may fail a stake check silently.
