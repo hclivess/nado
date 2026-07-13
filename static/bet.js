@@ -22,6 +22,19 @@ const VOID_GRACE_SEC = 300;
 const fmtLeft = (s) => { s = Math.max(0, Math.round(s)); const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60), ss = s % 60;
   return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : m ? `${m}m ${ss}s` : `${ss}s`; };
 let lastSto = null, activeMarket = null, selOutcome = null;
+// Matches list scales to thousands: filter (settled markets accumulate forever, so hide them by default) +
+// text search + a DOM cap so we never inject thousands of cards at once. shownN grows via "show more".
+const PAGE_SIZE = 60;
+let searchQ = "", mktFilter = "live", shownN = PAGE_SIZE;
+const isSettled = (m) => m.status === "resolved" || m.status === "void";
+function visibleMarkets(mkts) {
+  const q = searchQ.trim().toLowerCase();
+  return mkts.filter((m) => {
+    if (mktFilter === "live" && isSettled(m)) return false;
+    if (mktFilter === "settled" && !isSettled(m)) return false;
+    return !q || m.title.toLowerCase().includes(q) || String(m.id).includes(q);
+  });
+}
 // optimistic-status labels (SDK owns the lifecycle via showReturn/settleInflight/doneLabels)
 const CONFIRMING = { bet: window.t("bet.cfBet", "Bet placed — confirming on-chain…"), claim: window.t("bet.cfClaim", "Collecting your winnings — confirming…"),
   create: window.t("bet.cfCreate", "Listing your market — confirming…"), resolve: window.t("bet.cfResolve", "Posting the result — confirming…"),
@@ -224,14 +237,30 @@ function render() {
   if (!sto) { $("marketsList").innerHTML = '<span class="dim">' + window.t("bet.connecting", "Connecting to the chain…") + '</span>'; return; }
   dapp.reflectUrl("market", activeMarket);
 
-  // markets list — open first (by soonest close), then locked, then settled
+  // markets list — open first (by soonest close), then locked, then settled. Filtered + capped so a board of
+  // thousands never builds thousands of DOM nodes: we sort, apply the search/filter, then render only a slice.
   const mkts = allMarkets(sto);
-  for (const mk of mkts) mk.outsHTML = outcomesHTML(mk);
   const rank = { open: 0, locked: 1, resolved: 2, void: 3 };
   mkts.sort((a, b) => (rank[a.status] - rank[b.status]) || (a.lock - b.lock) || (b.id - a.id));
-  $("marketsList").innerHTML = mkts.length ? mkts.map(marketCard).join("")
-    : '<span class="dim">' + window.t("bet.noMatches", "No matches listed yet") + (signedIn ? window.t("bet.noMatchesCreate", " — create one below.") : window.t("bet.noMatchesSoon", ", check back soon.")) + "</span>";
-  $("marketsList").querySelectorAll(".mkt").forEach((el) => el.onclick = () => selectMarket(el.dataset.m));
+  const visible = visibleMarkets(mkts);
+  const slice = visible.slice(0, shownN);
+  for (const mk of slice) mk.outsHTML = outcomesHTML(mk);   // odds HTML only for the cards we actually render
+  const ml = $("marketsList");
+  if (!visible.length) {
+    ml.innerHTML = '<span class="dim">' + (mkts.length
+      ? window.t("bet.noMatchZero", "No matches match your search/filter.")
+      : window.t("bet.noMatches", "No matches listed yet") + (signedIn ? window.t("bet.noMatchesCreate", " — create one below.") : window.t("bet.noMatchesSoon", ", check back soon."))) + "</span>";
+  } else {
+    let html = slice.map(marketCard).join("");
+    if (visible.length > slice.length)
+      html += '<button id="mktMore" class="ghost" style="width:100%;margin-top:8px">'
+        + window.t("bet.showMore", "Show more ({n} more)", { n: visible.length - slice.length }) + "</button>";
+    ml.innerHTML = html;
+  }
+  $("mktCount").textContent = mkts.length
+    ? window.t("bet.countShown", "Showing {shown} of {total} matches", { shown: slice.length, total: visible.length })
+      + (visible.length !== mkts.length ? window.t("bet.countFiltered", " (filtered from {all})", { all: mkts.length }) : "")
+    : "";
 
   // my bets
   const mine = mkts.filter((m) => m.myTotal > 0);
@@ -350,6 +379,17 @@ function wireUI() {
   $("btnCreate").onclick = createMarket;
   if ($("btnAddSource")) $("btnAddSource").onclick = addSource;
   $("btnShare").onclick = () => share(base() + "/?market=" + activeMarket, window.t("bet.shareThis", "Bet on this match on NADO:"), $("btnShare"));
+  // ONE delegated handler for the whole (capped) list — a card click selects, "Show more" grows the slice.
+  // Delegation means we don't (re)bind a listener per card, so cost stays flat as the board grows.
+  $("marketsList").addEventListener("click", (e) => {
+    if (e.target.closest("#mktMore")) { shownN += PAGE_SIZE; render(); return; }
+    const card = e.target.closest(".mkt");
+    if (card) selectMarket(card.dataset.m);
+  });
+  // search + filter reset the slice and re-render off the last-known storage (no chain round-trip)
+  const relist = () => { shownN = PAGE_SIZE; if (lastSto) render(); };
+  $("mktSearch").addEventListener("input", (e) => { searchQ = e.target.value; relist(); });
+  $("mktFilter").addEventListener("change", (e) => { mktFilter = e.target.value; relist(); });
 }
 dapp.doneLabels(DONE);
 dapp.onReturn((pend, ok, err) => {

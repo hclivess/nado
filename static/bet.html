@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NADO Bet — parimutuel sports betting, no house, post-quantum</title>
+<title>NADO Bet — parimutuel betting on any event, no house, post-quantum</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Ccircle%20cx%3D%2224%22%20cy%3D%2224%22%20r%3D%2218%22%20fill%3D%22%23e6edf3%22%20stroke%3D%22%23243140%22%20stroke-width%3D%222%22/%3E%3Cpath%20d%3D%22M24%2010%20l4%208%20-4%206%20-4%20-6%20z%20M14%2020%20l8%202%202%206%20-6%204%20-6%20-6%20z%20M34%2020%20l-8%202%20-2%206%206%204%206%20-6%20z%22%20fill%3D%22%2300ad93%22/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
 <script src="/static/i18n.js"></script>
@@ -82,7 +82,7 @@
     <circle cx="24" cy="24" r="18" fill="#e6edf3" stroke="#243140" stroke-width="2"/>
     <path d="M24 10 l4 8 -4 6 -4 -6 z M14 20 l8 2 2 6 -6 4 -6 -6 z M34 20 l-8 2 -2 6 6 4 6 -6 z" fill="#00ad93"/></svg></span>
     <h1>NADO <span class="a">Bet</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="bet.allGames">🎮 All games</a></header>
-  <p class="sub" data-i18n-html="bet.sub">Provably-fair <b>parimutuel sports betting</b> on the NADO execution layer — <b>no house, no bookmaker</b>. Everyone's stake goes into one pool; when the match ends the <b>winning side splits the whole pool pro-rata</b> (a racetrack tote). The real-world result is posted on-chain by a <b>configurable oracle</b> reading free public sources; if a match is postponed or never resolved, every stake is <b>refunded</b>. Post-quantum wallet, no install.</p>
+  <p class="sub" data-i18n-html="bet.sub">Provably-fair parimutuel betting on the NADO execution layer — bet on any event, no house, no bookmaker. Everyone's stake goes into one pool; when the event resolves the winning side splits the whole pool pro-rata (a racetrack tote). The real-world result is posted on-chain by a configurable oracle reading free public sources; if an event is postponed or never resolved, every stake is refunded. Post-quantum wallet, no install.</p>
 
   <div id="status"></div>
 
@@ -108,8 +108,17 @@
 
   <!-- MATCHES -->
   <div class="card" id="matches">
-    <h2 data-i18n="bet.matchesHead">⚽ Matches — open for bets</h2>
+    <h2 data-i18n="bet.matchesHead">🎯 Events — open for bets</h2>
     <p class="small dim" data-i18n-html="bet.matchesNote">Tap a match to bet. Odds are <b>live</b> and set by the crowd: each outcome pays <span class="mono">total pool ÷ that outcome's pool</span> if it wins. <span style="opacity:.75">🟢 open · 🔒 locked · ✅ resolved · ↩ void</span></p>
+    <div class="mt" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input id="mktSearch" placeholder="🔎 Search team or league…" data-i18n-ph="bet.searchPh" autocomplete="off" style="flex:1;min-width:160px">
+      <select id="mktFilter" style="flex:0 0 auto;width:auto">
+        <option value="live" data-i18n="bet.filterLive">Open &amp; upcoming</option>
+        <option value="all" data-i18n="bet.filterAll">All</option>
+        <option value="settled" data-i18n="bet.filterSettled">Settled</option>
+      </select>
+    </div>
+    <div class="small dim mt" id="mktCount"></div>
     <div class="small mt" id="marketsList"><span class="dim" data-i18n="bet.loadingMatches">Loading matches…</span></div>
   </div>
 
