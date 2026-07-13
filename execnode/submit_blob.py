@@ -18,9 +18,18 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import base64
+import zstandard
 from ops.transaction_ops import construct_blob_tx
 from ops.key_ops import load_keys
 from protocol import MIN_TX_FEE
+
+def _codez(code):
+    """zstd(level 19) + base64 the contract code — the verbose JSON-opcode format is ~16-26x compressible, so a
+    big verifier rides in a small blob. The exec node's deploy/upgrade handler decodes `codez` back to the same
+    dict (cid hashes the DECODED code, so compression is transparent)."""
+    raw = json.dumps(code, separators=(",", ":"), sort_keys=True).encode()
+    return base64.b64encode(zstandard.ZstdCompressor(level=19).compress(raw)).decode()
 
 
 def _get(l1, path):
@@ -51,11 +60,11 @@ def main():
     keys = load_keys()
     if args.action == "deploy":
         code = json.load(open(args.rest[0]))
-        payload = {"op": "deploy", "code": code, "nonce": os.urandom(6).hex()}
+        payload = {"op": "deploy", "codez": _codez(code), "nonce": os.urandom(6).hex()}
     elif args.action == "upgrade":  # upgrade: <cid> contract.json
         cid = args.rest[0]
         code = json.load(open(args.rest[1]))
-        payload = {"op": "upgrade", "contract": cid, "code": code}
+        payload = {"op": "upgrade", "contract": cid, "codez": _codez(code)}
     else:  # call: <cid> <method> <args-json>
         cid, method = args.rest[0], args.rest[1]
         call_args = json.loads(args.rest[2]) if len(args.rest) > 2 else []
@@ -71,7 +80,7 @@ def main():
     if args.action == "deploy":
         # echo the deterministic contract id the execution node will assign
         from execnode.state import ExecState
-        cid = ExecState.contract_id(ExecState.__new__(ExecState), keys["address"], payload["code"], payload["nonce"])
+        cid = ExecState.contract_id(ExecState.__new__(ExecState), keys["address"], code, payload["nonce"])
         print(f"contract id (once mined): {cid}")
 
 

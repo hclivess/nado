@@ -19,6 +19,28 @@ from hashing import (blake2b_hash, merkle_root, merkle_proof, withdrawal_leaf, d
 from execnode.vm import VMError
 from execnode import runtimes   # pluggable contract-runtime registry (stackvm is the default plugin)
 from execnode.shielded import ShieldedPool, apply_transfer
+import base64
+import zstandard as _zstd
+
+# Contract code may arrive zstd-compressed as `codez` (base64 of a zstd frame) instead of raw `code`. The
+# verbose JSON-opcode format is ~16-26x compressible, so a big verifier fits a small blob (battleship 110K->4.3K).
+# Deterministic across nodes (zstd decode + json parse are canonical), and cid still hashes the DECODED code dict,
+# so compression is transparent to the contract id. Decompress is STREAMING + bounded (anti zstd-bomb).
+CONTRACT_CODE_MAX_BYTES = 4 * 1024 * 1024
+def _bounded_unzstd(body, cap):
+    dctx = _zstd.ZstdDecompressor(); parts, total = [], 0
+    with dctx.stream_reader(body) as r:
+        while True:
+            ch = r.read(65536)
+            if not ch: break
+            total += len(ch)
+            if total > cap: raise ValueError("contract code decompresses beyond cap")
+            parts.append(ch)
+    return b"".join(parts)
+def _decode_code(payload):
+    cz = payload.get("codez")
+    if cz is None: return payload.get("code")
+    return json.loads(_bounded_unzstd(base64.b64decode(cz), CONTRACT_CODE_MAX_BYTES))
 
 # Coin-amount ceiling for shielded values/exits — far below the Goldilocks field size (P ≈ 2^64). The
 # join-split circuit only constrains public_value/fee MODULO P, so without an absolute bound a wraparound
@@ -579,7 +601,7 @@ class ExecState:
             op = payload.get("op")
 
             if op == "deploy":
-                code = payload.get("code")
+                code = _decode_code(payload)              # raw `code` or zstd `codez`
                 rt_name = payload.get("runtime", runtimes.DEFAULT_RUNTIME)   # pluggable: which VM runs it
                 rt = runtimes.get(rt_name)
                 if rt is None:
@@ -654,7 +676,7 @@ class ExecState:
                 # breaks strict immutability — a mainnet contract would gate this behind on-chain governance / a
                 # timelock, but on alphanet the deployer owns their contract outright.
                 cid = payload.get("contract")
-                code = payload.get("code")
+                code = _decode_code(payload)              # raw `code` or zstd `codez`
                 c = self.contracts.get(cid)
                 if not c:
                     return f"skip: no contract {cid}"
