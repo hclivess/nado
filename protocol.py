@@ -123,6 +123,15 @@ SETTLE_ACTIVITY_CURSORS = 1440
 #    the full-set quorum. Epoch X's committee derives from beacon(X) (fixed before X starts and
 #    grind-resistant), so membership is known exactly when the duties are due.
 DUTY_COMMITTEE_SEATS = 128
+# FFG committee-seat INACTIVITY LEAK: a checkpoint justifies when the committee seats attesting it
+# exceed FFG_NUM/FFG_DEN of the seats held by RECENTLY-ACTIVE committee members — those with an
+# attestation in the last INACTIVITY_WINDOW epochs. Seats of members dark for the whole window LEAK
+# from the denominator (their bond stays; they just forfeit their finality say), so a live attesting
+# supermajority always finalizes instead of being blocked by bonded-but-absent stake — the same
+# liveness guarantee FFG had before the committee, now seat-quantized. Members active recently but
+# idle THIS epoch still count in the denominator (they correctly dilute), so the threshold stays a
+# real 2/3-of-participating-stake bar, not "one seat justifies."
+INACTIVITY_WINDOW = 3
 
 # SETTLEMENT NAMESPACES (multi-rollup): a `settle`/`bridge_withdraw` tx may name a rollup namespace (`ns`)
 # so many execution layers settle to L1 INDEPENDENTLY under the same bonded quorum — L1 keeps one settled

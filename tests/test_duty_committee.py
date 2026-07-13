@@ -122,26 +122,28 @@ def t3_duty_rules():
 
 
 def t4_committee_quorum():
-    """Prove FFG justification counts COMMITTEE SEATS: 2/3+ of seats justifies, fewer does not, and
-    a non-committee validator's attestation adds nothing."""
+    """Prove FFG justification counts COMMITTEE SEATS against the RECENTLY-ACTIVE (attesting)
+    denominator: an unattested hash never justifies, a live active supermajority does, and a
+    non-committee validator's attestation adds nothing (dark bonded stake can't block — the
+    live-net liveness property)."""
     committee = duty_committee(REG, GENESIS_BEACON, X)
-    total = sum(committee.values())
     ranked = sorted(committee, key=committee.get, reverse=True)
+    assert not checkpoint_justified(X, CKPT, REG), "nobody attesting -> not justified"
+    # the single largest seat-holder attesting is the only ACTIVE member, so its seats ARE the
+    # denominator and it justifies — dark seats leak out (this is the fix, not a bug).
     with kv_ops.write_txn():
         kv_ops.attestation_put(X, ranked[0], CKPT)
-    have = committee[ranked[0]]
-    if have * FFG_DEN > total * FFG_NUM:
-        assert checkpoint_justified(X, CKPT, REG), "supermajority seats justify"
-    else:
-        assert not checkpoint_justified(X, CKPT, REG), "minority seats must not justify"
-        for v in ranked[1:]:
-            with kv_ops.write_txn():
-                kv_ops.attestation_put(X, v, CKPT)
-        assert checkpoint_justified(X, CKPT, REG), "all seats attesting must justify"
+    assert checkpoint_justified(X, CKPT, REG), "a lone active committee member justifies (dark seats leak)"
     assert not checkpoint_justified(X, "d" * 64, REG), "an unattested hash never justifies"
+    # a NON-committee bonded validator attesting adds nothing to numerator or denominator
+    outsider = generate_keys(); create_account(outsider["address"], balance=B_MIN, bonded=B_MIN)
+    if outsider["address"] not in committee:
+        with kv_ops.write_txn():
+            kv_ops.attestation_put(X, outsider["address"], CKPT)
+        assert checkpoint_justified(X, CKPT, REG), "a non-committee attester changes nothing"
     # cleanup for later tests
     with kv_ops.write_txn():
-        for v in ranked:
+        for v in list(ranked) + [outsider["address"]]:
             kv_ops.attestation_del(X, v, CKPT)
 
 

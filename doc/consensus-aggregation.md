@@ -80,21 +80,23 @@ mirroring `_weighted_draw`). So:
 
 - **Expected seats ∝ stake.** A validator with fraction *f* of bonded stake expects *128·f* seats.
 - **Consensus load is O(128), constant in N.** At 16 or 16 000 validators, ≤128 duty txs per epoch.
-- **The seat quorum converges on the stake quorum.** FFG justification now counts **seats**:
-  `attesting_seats · FFG_DEN > total_seats · FFG_NUM` (`attestation_ops.checkpoint_justified`). Because seats
-  are stake-proportional, a 2/3-seat supermajority *is* a ~2/3-stake supermajority. For an adversary holding
-  < 1/3 of bonded stake, P(≥ 2/3 of 128 sampled seats) is cryptographically negligible (Chernoff) — the
-  standard committee-security argument. With few validators, every share-holder lands seats and behavior is
-  identical to the old full-set quorum.
+- **The seat quorum converges on the stake quorum.** FFG justification counts **seats**:
+  `attesting_seats · FFG_DEN > active_seats · FFG_NUM` (`attestation_ops.checkpoint_justified`, where
+  `active_seats` is the leaked denominator of the next bullet). Because seats are stake-proportional, a
+  2/3-seat supermajority *is* a ~2/3-stake supermajority. For an adversary holding < 1/3 of bonded stake,
+  P(≥ 2/3 of 128 sampled seats) is cryptographically negligible (Chernoff) — the standard committee-security
+  argument. With few validators, every share-holder lands seats and behavior matches the old full-set quorum.
 - **Grind-resistant + known in advance.** Epoch X's committee derives from `beacon(X)`, which is fixed before
   X begins (the epoch-beacon anchor is deeply finalized; the RANDAO reveals mixed in are immutable when X
   starts). So membership is deterministic and known exactly when duties come due, and no producer can grind
   it.
-- **Resampling replaces the inactivity leak.** The old FFG denominator was all bonded stake with an
-  "inactivity leak" (dark validators leaked out over a window). The committee makes that structural: a dark
-  seat blocks only *its own* epoch's justification, and the next epoch resamples a fresh committee. FFG stays
-  additive — the time/depth finality floor keeps advancing regardless (`incorporate_block`), so liveness
-  never depends on any particular committee.
+- **Inactivity leak, now over seats.** FFG justification counts attesting seats against the seats held by
+  **recently-active** committee members (those who attested within `INACTIVITY_WINDOW` epochs) — seats of
+  members dark for the whole window leak from the denominator, so a live attesting supermajority always
+  finalizes instead of being frozen by bonded-but-absent stake (the same liveness guarantee FFG had before
+  the committee, seat-quantized; members active-but-idle this epoch still dilute, keeping the bar a real 2/3
+  of participating stake). FFG also stays additive — the time/depth finality floor advances regardless
+  (`incorporate_block`), so liveness never hinges on any single committee.
 
 ### 3c. Backward compatibility — none at runtime, full for history
 

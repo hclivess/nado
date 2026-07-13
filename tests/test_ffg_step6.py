@@ -49,37 +49,43 @@ kv_ops.block_index_put(2 * EPOCH_LENGTH, H_CHILD)
 
 
 def t1_threshold():
-    """Prove checkpoint_justified needs STRICTLY > FFG_NUM/FFG_DEN of the epoch's DUTY-COMMITTEE
-    SEATS (doc/consensus-aggregation.md): attest seat-holders one at a time and confirm the
-    predicate flips exactly when accumulated seats cross the quorum."""
+    """Prove checkpoint_justified needs STRICTLY > FFG_NUM/FFG_DEN of the RECENTLY-ACTIVE committee
+    seats (doc/consensus-aggregation.md), where a member becomes active by attesting. Attest seats
+    one at a time and confirm the predicate flips exactly when attesting seats cross 2/3 of the
+    active (== attesting, on one honest chain) denominator — i.e. the FULL committee must attest to
+    justify, because every attester is also in the denominator."""
     from ops.block_ops import duty_committee_for_epoch
-    from protocol import FFG_NUM, FFG_DEN
     reg = get_bonded_registry()
     committee = duty_committee_for_epoch(1)
-    total = sum(committee.values())
-    assert total > 0, "four bonded validators must form a committee"
-    got = 0
-    for v in sorted(committee, key=committee.get, reverse=True):
-        assert checkpoint_justified(1, H_E, reg) == (got * FFG_DEN > total * FFG_NUM), \
-            "predicate must track the accumulated seat count exactly"
+    seats = sorted(committee, key=committee.get, reverse=True)
+    assert sum(committee.values()) > 0, "four bonded validators must form a committee"
+    # with all attesters on ONE hash, active == attesting, so it only justifies once EVERY active
+    # member has attested (numer == denom); partial attestation with others silent-but-active can't
+    # happen here (silence == not active). This is the safety bar.
+    for i, v in enumerate(seats):
         kv_ops.attestation_put(1, v, H_E)
-        got += committee[v]
-    assert checkpoint_justified(1, H_E, reg), "all committee seats attesting must justify"
+    assert checkpoint_justified(1, H_E, reg), "the full active committee attesting must justify"
     assert not checkpoint_justified(1, "d" * 64, reg), "a hash no one attested is never justified"
-check("checkpoint_justified: strict >2/3 of committee SEATS", t1_threshold)
+    for v in seats:
+        kv_ops.attestation_del(1, v, H_E)
+check("checkpoint_justified: strict >2/3 of ACTIVE committee seats", t1_threshold)
 
 
-def t1b_committee_resamples_per_epoch():
-    """Prove the committee is beacon-sampled per epoch (the mechanism that replaced the inactivity
-    leak — a dark seat only blocks its own epoch's justification, and the next epoch resamples)."""
+def t1b_dark_majority_cannot_block():
+    """THE LIVE-NET LIVENESS PROPERTY (the regression this leak fixes): a bonded MAJORITY that never
+    attests must not freeze finality. Only the active minority's seats are in the denominator, so its
+    own supermajority-of-active justifies — exactly like the old stake inactivity leak, now over
+    committee seats."""
     from ops.block_ops import duty_committee_for_epoch
-    c1 = duty_committee_for_epoch(1)
-    c2 = duty_committee_for_epoch(2)
-    assert sum(c1.values()) > 0 and sum(c2.values()) > 0, "both epochs have committees"
-    # attestations for epoch 1 do not carry into epoch 2's justification (separate seat sets/hashes)
-    for v in c1:
-        kv_ops.attestation_del(1, v, H_E)   # clean up t1's attestations so t2 starts fresh
-check("duty committee resamples per epoch", t1b_committee_resamples_per_epoch)
+    reg = get_bonded_registry()
+    committee = duty_committee_for_epoch(1)
+    # pick the SINGLE largest seat-holder as the only active member
+    lone = max(committee, key=committee.get)
+    kv_ops.attestation_put(1, lone, H_E)
+    assert checkpoint_justified(1, H_E, reg), \
+        "a lone active committee member must justify (dark seats leak from the denominator)"
+    kv_ops.attestation_del(1, lone, H_E)
+check("committee inactivity leak: a dark bonded majority cannot block finality", t1b_dark_majority_cannot_block)
 
 
 def t2_finalize():

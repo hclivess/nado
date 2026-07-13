@@ -18,7 +18,7 @@ Pure, deterministic, integer-only over committed state.
 from ops import kv_ops
 from ops.account_ops import get_bonded_registry
 from ops.mining_ops import total_bonded_shares, selection_shares
-from protocol import FFG_NUM, FFG_DEN, EPOCH_LENGTH
+from protocol import FFG_NUM, FFG_DEN, EPOCH_LENGTH, INACTIVITY_WINDOW
 
 # how many epochs back to scan for a finalizable checkpoint (finality is fresh; a small window suffices)
 _FFG_LOOKBACK_EPOCHS = 8
@@ -26,24 +26,36 @@ _FFG_LOOKBACK_EPOCHS = 8
 
 def checkpoint_justified(epoch: int, checkpoint_hash: str, bonded_registry: dict) -> bool:
     """True when the DUTY-COMMITTEE SEATS attesting (epoch, checkpoint_hash) STRICTLY EXCEED
-    FFG_NUM/FFG_DEN of the epoch's total committee seats (doc/consensus-aggregation.md). The
-    committee (mining_ops.duty_committee over beacon(epoch)) replaces the old whole-registry
-    denominator + inactivity leak: seats are stake-weighted draws, so the seat quorum converges on
-    the stake quorum while bounding the per-epoch consensus load to O(seats) at ANY validator
-    count; resampling every epoch IS the inactivity handling (a dark seat blocks only its own
-    epoch's justification, and FFG stays additive — the depth floor still advances). Deterministic:
-    committee + attestations derive from committed state. Integer comparison, no floats."""
+    FFG_NUM/FFG_DEN of the seats held by RECENTLY-ACTIVE committee members (doc/consensus-aggregation.md).
+
+    The committee (mining_ops.duty_committee over beacon(epoch)) bounds the per-epoch consensus load
+    to O(seats) at ANY validator count, and seats are stake-weighted so the seat quorum converges on
+    the stake quorum. The DENOMINATOR applies the FFG inactivity leak in seat form: only committee
+    members that attested SOME checkpoint within the last INACTIVITY_WINDOW epochs count, so seats of
+    members dark for the whole window leak out (their bond stays — this leaks the finality VOTE, not
+    the stake) and a live attesting supermajority always finalizes rather than being blocked forever
+    by bonded-but-absent stake. Members active recently but idle THIS epoch still count (they dilute),
+    keeping the bar a real 2/3 of participating stake. Deterministic (committee + on-chain
+    attestations from committed state); integer comparison, no floats."""
     from ops.block_ops import duty_committee_for_epoch
     try:
         committee = duty_committee_for_epoch(epoch)
     except Exception:
         return False                        # beacon anchor unavailable -> cannot justify (fail closed)
-    total = sum(committee.values())
+    if not committee:
+        return False
+    # RECENTLY-ACTIVE set: committee members with any attestation in the last INACTIVITY_WINDOW epochs.
+    active = set()
+    for e in range(max(0, epoch - INACTIVITY_WINDOW + 1), epoch + 1):
+        for v, _h in kv_ops.attestations_for_epoch(e):
+            if v in committee:
+                active.add(v)
+    total = sum(seats for v, seats in committee.items() if v in active)   # leaked denominator
     if total == 0:
         return False
     attested = {v for v, h in kv_ops.attestations_for_epoch(epoch)
-                if h == checkpoint_hash and v in bonded_registry}
-    attesting = sum(seats for v, seats in committee.items() if v in attested)
+                if h == checkpoint_hash and v in bonded_registry and v in committee}
+    attesting = sum(committee[v] for v in attested)
     return attesting * FFG_DEN > total * FFG_NUM
 
 
