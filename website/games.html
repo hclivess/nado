@@ -217,7 +217,7 @@ const GAMES = [
 const el = document.getElementById("games");
 // window.t comes from /static/i18n.js (loaded in <head>); it falls back to the English arg if the key
 // isn't defined, so the lobby renders in English even before its table loads, and re-renders on switch.
-const T = (k, fb, vars) => (window.t ? window.t(k, fb, vars) : fb);
+const T = (k, fb, vars) => { let s = window.t ? window.t(k, fb, vars) : fb; if (vars) for (const p in vars) s = String(s).split("{" + p + "}").join(String(vars[p])); return s; };
 function renderGames() {
   el.innerHTML = GAMES.map((g) => {
     const name = T("games." + g.slug + ".name", g.name);
