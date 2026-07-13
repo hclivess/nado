@@ -388,6 +388,11 @@ export class NadoDapp {
     this._stakeMode = "amount";   // bet slider: "amount" = user typed a NADO figure; "pct" = user set a % of the table max
     this.me = localStorage.getItem(this.LS_ME) || null;
     this.exec = 0n; this.l1 = 0n; this.cursor = null; this.now = null;
+    // Capture a wallet return (?ok=1&addr=…) SYNCHRONOUSLY at construction — before any early render() can
+    // canonicalise the URL via reflectUrl() and wipe these params. _handleReturn() (in init, after the game has
+    // wired onReturn) then applies the stashed result. Games that render before init (e.g. for an instant grid)
+    // used to lose the sign-in this way. Only consumes a REAL return (ok present) — a plain ?game= invite is left intact.
+    this._ret = this._captureReturn();
     this._inviteFn = null;   // a followed share-link's join intent — sticky until the join actually commits
     this._inviteExec = null; // exec balance at last invite attempt, so a landed deposit can re-fire the join
     // online: null = never reached the chain API yet (first load), true = last read OK, false = last read
@@ -551,14 +556,23 @@ export class NadoDapp {
     if (ok && pend && (pend.phase === "deposit" || pend.phase === "withdraw")) this._balWatch = { phase: pend.phase, exec: null };
     if (this._onReturn) this._onReturn(pend, ok, err);
   }
+  // Read + STRIP the wallet return params right now (constructor time), so a later reflectUrl() can't clobber
+  // them. Returns {ok, addr, err} or null. The hash is preserved (only the query is canonicalised away).
+  _captureReturn() {
+    try {
+      const p = new URLSearchParams(location.search);
+      if (!p.has("ok")) return null;   // not a return — leave ?game=/?table= invite links untouched
+      const r = { ok: p.get("ok") === "1", addr: p.get("addr") || null, err: p.get("err") ? decodeURIComponent(p.get("err")) : "" };
+      try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {}
+      return r;
+    } catch (e) { return null; }
+  }
   _handleReturn() {
-    const p = new URLSearchParams(location.search);
-    if (!p.has("ok")) return;
-    const ok = p.get("ok") === "1", addr = p.get("addr"), err = p.get("err") ? decodeURIComponent(p.get("err")) : "";
+    const r = this._ret; this._ret = null;
+    if (!r) return;
     let pend = null; try { pend = JSON.parse(localStorage.getItem(this.LS_P) || "null"); } catch {}
     localStorage.removeItem(this.LS_P);
-    try { history.replaceState(null, "", location.pathname); } catch {}
-    this._applyReturn(pend, ok, addr, err);
+    this._applyReturn(pend, r.ok, r.addr, r.err);
   }
   // busy(phase, keyName, keyVal): is there an in-flight action of this phase for this game/table/seat?
   // Auto-expires after 3 min (a lost tx) so a stuck flag can't hide the button forever. Games call
