@@ -156,6 +156,7 @@ async function joinGame() {
 function joinableActive() { const gm = lastGame; return !!(gm && gm.exists && gm.nn === 1 && gm.mineSlot === 0 && dapp.me); }
 function fire() {
   const gm = lastGame; if (!gm || !gm.myTurn) return alertBar(window.t("bs.notYourTurn", "It's not your turn."));
+  if (dapp.busy("fire", "game", activeGame)) return;   // a shot is already in flight — never double-fire (the old dupes reverted)
   if (target == null) return alertBar(window.t("bs.pickTarget", "Tap an enemy cell to aim, then Fire."));
   if (setOf(myFired, activeGame).has(target)) return alertBar(window.t("bs.already", "You already fired there — pick another cell."));
   const t = target; target = null;
@@ -251,12 +252,13 @@ function renderBoards(gm) {
   $("myGrid").innerHTML = hm;
   // ENEMY board: my shots + their proven results — from the append-only myFired/myRes; a fired cell stays "…"
   // (optimistic) until the enemy proves the result, and never flickers back to fog on a provisional wobble.
+  const canShoot = gm.myTurn && !dapp.busy("fire", "game", gm.id);   // no aiming while a shot is already in flight
   let he = "";
   for (let c = 0; c < CELLS; c++) {
     const r = mR[c] || 0, fired = mF.has(c);
     const sel = target === c ? " sel" : "";
     const cls = r === 2 ? "hit" : r === 1 ? "miss" : fired ? "pending" : "fog" + sel;
-    he += gridCell(cls, r === 2 ? "✸" : r === 1 ? "•" : fired ? "…" : "", c, gm.myTurn && !fired);
+    he += gridCell(cls, r === 2 ? "✸" : r === 1 ? "•" : fired ? "…" : "", c, canShoot && !fired);
   }
   $("enemyGrid").innerHTML = he;
   $("enemyGrid").querySelectorAll("[data-fire]").forEach((el) => el.onclick = () => { target = Number(el.dataset.fire); render(); });
@@ -294,7 +296,7 @@ function renderActive(sto) {
   if (gm.nn === 2) renderBoards(gm);
   // controls
   const canJoin = gm.nn === 1 && gm.mineSlot === 0 && dapp.me;
-  const canFire = gm.myTurn && target != null;
+  const canFire = gm.myTurn && target != null && !dapp.busy("fire", "game", gm.id);
   gate({ fireRow: gm.nn === 2 && !gm.over, joinRow: canJoin });
   const bf = $("btnFire"); if (bf) { bf.disabled = !canFire; bf.classList.toggle("pulse", canFire); bf.textContent = target != null ? window.t("bs.fireAt", "🔥 Fire at {cell}", { cell: coord(target) }) : window.t("bs.fire", "🔥 Fire"); }
   gate({ btnResign: gm.nn === 2 && !gm.over && gm.mineSlot, btnCancel: gm.nn === 1 && gm.mineSlot === 1,
