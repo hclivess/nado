@@ -1187,7 +1187,8 @@ Additional hardening and feature items, all currently **planned/partial**:
   assumption (2/3 honest bonded stake) **identical to NADO's own finality**, so a rollup is
   *as secure as the base chain* for ~free. A zkVM would instead **prove every executed
   instruction**: on the order of **10⁴–10⁶× the compute**, minutes-to-hours of proving on
-  large RAM/GPU hardware, and a big consensus-critical verifier — buying exactly one thing,
+  large RAM/GPU hardware, and a far larger trusted codebase — a full prover plus arithmetization
+  (the on-chain verifier itself is small) — buying exactly one thing,
   trustlessness against a *colluding validator supermajority* (and permissionless, non-bonded
   rollups). NADO ships the light exec-node model now and keeps the zkVM as a **drop-in
   upgrade behind the same `settlement_justified` seam**, for when a rollup's value outgrows the
