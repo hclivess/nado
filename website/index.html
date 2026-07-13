@@ -135,6 +135,7 @@
     <nav>
       <a href="#what" data-i18n="nav.what">What</a>
       <a href="#features" data-i18n="nav.features">Features</a>
+      <a href="#build">Build</a>
       <a href="#treasury" data-i18n="nav.treasury">Treasury</a>
       <a href="/emission">Emission</a>
       <a href="/games">Games</a>
@@ -190,7 +191,7 @@
         signatures, cross-validated between the browser and full nodes. No pre-quantum crypto anywhere.</p></div>
       <div class="card"><div class="ico">🛡️</div><h3 data-i18n="feat.shield.h3">Shielded pool</h3><p data-i18n="feat.shield.p">Optional post-quantum zk-STARK privacy:
         prove a transfer on your own device so no one — not even a node — sees your amounts or keys.</p></div>
-      <div class="card"><div class="ico">⚙️</div><h3>Scales past the phone</h3><p>A separate execution layer settles to NADO with one succinct proof per batch — L1 verifies a kilobyte, it never re-runs your transactions. Aggregate throughput grows with data availability, not L1 load, so phones stay light while the network scales.</p></div>
+      <div class="card"><div class="ico">⚙️</div><h3>Scales to millions of miners</h3><p>Consensus overhead is decoupled from validator count: a stake-weighted committee posts one merged duty per epoch, so the chain carries a constant handful of consensus messages whether 16 or 16,000,000 miners are online. An optional native verifier checks post-quantum signatures ~55× faster. Contracts live on a separate execution layer that settles with one proof per batch — L1 verifies a kilobyte, never re-runs your transactions.</p></div>
       <div class="card"><div class="ico">🪶</div><h3 data-i18n="feat.light.h3">Lightweight &amp; reproducible</h3><p data-i18n="feat.light.p">Consensus hashing is
         over canonical JSON, so a browser reproduces every address and transaction id byte-for-byte. No full node needed.</p></div>
       <div class="card"><div class="ico">🎲</div><h3 data-i18n="feat.randao.h3">Randomness nobody controls</h3><p data-i18n="feat.randao.p">Producers are drawn by a
@@ -205,6 +206,25 @@
     <p class="sub">NADO settles its rollups with a bonded-stake quorum — a rollup ends up <b>as secure as NADO itself</b>, at near-zero cost.</p>
     <div class="grid">
       <div class="card"><div class="ico">⚡</div><h3>Up to 1,000,000× lighter than a zkVM</h3><p>NADO settles a rollup by running a <b>142-line</b> interpreter and checking one <b>8-line</b> stake vote — roughly native speed, it runs on a phone. A zkVM proving every executed instruction would burn up to <b>1,000,000×</b> more compute (a GPU cluster, minutes per batch) and add a <b>50,000+ line</b> consensus-critical verifier — all to buy a trust guarantee NADO already has from its staked validators.</p></div>
+    </div>
+  </section>
+
+  <section id="build">
+    <h2>Deploy anything. Bankroll it in one click.</h2>
+    <p class="sub">Smart-contract deployment is open to <b>anyone</b> — no allowlist, no approval, no gatekeeper.
+      Want to open a casino, a prediction market, a lottery, a token? Ship it, then fund the house with a single button.
+      You pay the network fee and nothing else — the coins you bankroll it with are <b>yours</b>, giving out
+      <b>free #giveaway money</b> to whoever plays.</p>
+    <div class="grid">
+      <div class="card"><div class="ico">🚀</div><h3>Permissionless by default</h3><p>Every deployment path is
+        ungated. There is no team to email, no KYC, no listing fee — the same rule for the first contract and the
+        millionth. If you can click, you can deploy.</p></div>
+      <div class="card"><div class="ico">🎰</div><h3>One-click bankroll</h3><p>Casino, prediction market, dice,
+        lottery — press one button to seed the pot. The contract pays winners from the funds you put in; you set the
+        odds and the house edge, or run it at zero and just give money away.</p></div>
+      <div class="card"><div class="ico">🪙</div><h3>Just the network fee</h3><p>No platform cut, no revenue share,
+        no rent to a middleman. You pay NADO's tiny transaction fee to deploy and fund — everything else is yours to
+        keep or hand out.</p></div>
     </div>
   </section>
 
