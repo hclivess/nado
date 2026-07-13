@@ -18,6 +18,7 @@ export { loadCrypto, blake2bHash };
 
 export const RAW = 10n ** 10n;                 // 1 NADO = 1e10 raw units
 const WALLET = "https://get.nadochain.com";
+const STICKY_GRACE_MS = 20000;   // how long a provisional state REGRESSION is treated as flicker (ignored) before it's accepted as a real reorg — see dapp.accept()
 export const base = () => location.origin.replace(/\/+$/, "");
 export const $ = (id) => document.getElementById(id);
 export const _m = (sto, name) => (sto && sto[name]) || {};
@@ -599,6 +600,22 @@ export class NadoDapp {
     const phase = f.phase;
     this.clearInflight();
     if (this._stActive === phase) { const d = this._stDone && this._stDone[phase]; if (d) okBar(d); this._stActive = null; }
+  }
+  // ── ANTI-ROLLBACK (good-faith real-time state) ────────────────────────────────────────────────────
+  // The client reads PROVISIONAL (pre-finality) state, which the exec node rebuilds every poll — so a poll
+  // can momentarily return LESS than a previous one (the unfinalized tail hasn't re-applied a tx yet), making a
+  // board/table flicker BACKWARD. accept(key, progress) is the good-faith guard: `progress` is a monotonic count
+  // for the active game/table (moves played, seats, round…). It returns TRUE to apply the new state, or FALSE to
+  // IGNORE a transient regression (keep showing the higher state we already have — the tx will re-land). A drop
+  // that PERSISTS past STICKY_GRACE_MS is a genuine reorg and is accepted. Switching key (new game) resets it.
+  // So a signed turn stays on screen the moment it's made and never blinks away; true finality is just the end
+  // state. Games: gate their state-apply on this instead of reinventing per-game de-flicker.
+  accept(key, progress) {
+    const s = this._sticky;
+    if (!s || s.key !== key) { this._sticky = { key, max: progress, ts: Date.now() }; return true; }
+    if (progress >= s.max) { s.max = progress; s.ts = Date.now(); return true; }        // progressed → apply
+    if (Date.now() - s.ts > STICKY_GRACE_MS) { s.max = progress; s.ts = Date.now(); return true; }   // sustained → real reorg
+    return false;                                                                       // transient flicker → ignore
   }
   // reflectUrl(key, id): keep the address bar pointing at the selected table/game/pet, so it's the exact
   // shareable link (?<key>=<id>) and Back/refresh return here. replaceState (no history spam); only when it

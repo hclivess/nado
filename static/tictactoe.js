@@ -73,8 +73,13 @@ async function refreshAll() {
     lastSto = sto;
     lsPrune(LS_G, Object.keys(_m(sto, "p1")));
     if (activeGame != null) {
-      lastGame = gameFrom(sto, activeGame);
-      if (pendingCell != null && lastGame.exists && lastGame.board[pendingCell] !== 0) pendingCell = null;
+      const ng = gameFrom(sto, activeGame);
+      // good-faith anti-rollback: ignore a provisional poll that regresses this game — keep the higher state.
+      const prog = (ng.sd ? 1e9 : 0) + (ng.nn || 0) * 100000 + (ng.mc || 0);
+      if (dapp.accept("ttt:" + activeGame, prog)) {
+        lastGame = ng;
+        if (pendingCell != null && lastGame.exists && lastGame.board[pendingCell] !== 0) pendingCell = null;
+      }
     }
     if (watch) {
       const g = String(watch.game);

@@ -145,11 +145,17 @@ async function refreshActive() {
     lastSto = sto;
     pruneAndTrack(sto);
     if (activeGame != null) {
-      lastGame = gameFrom(sto, activeGame);
-      if (pendingEnc != null && lastGame.moves.length >= lastGame.mc && lastGame.moves.some((m) => encMove(m) === pendingEnc)) pendingEnc = null;
-      if (!replaying) engine = rebuildEngine(lastGame);
-      haveState = true;
-      try { if (!engine._corrupt) localStorage.setItem(LS_POS + activeGame, engine.fen()); } catch (e) {}
+      const ng = gameFrom(sto, activeGame);
+      // good-faith anti-rollback: ignore a provisional poll that regresses this game (fewer moves / un-joined /
+      // un-settled) — keep the higher state we already show; a real reorg is accepted after the grace window.
+      const prog = (ng.settled ? 1e9 : 0) + (ng.nn || 0) * 100000 + (ng.mc || 0);
+      if (dapp.accept("chess:" + activeGame, prog)) {
+        lastGame = ng;
+        if (pendingEnc != null && lastGame.moves.length >= lastGame.mc && lastGame.moves.some((m) => encMove(m) === pendingEnc)) pendingEnc = null;
+        if (!replaying) engine = rebuildEngine(lastGame);
+        haveState = true;
+        try { if (!engine._corrupt) localStorage.setItem(LS_POS + activeGame, engine.fen()); } catch (e) {}
+      }
     }
     // resolve the transient #status line once the action lands on-chain (SDK also covers the tip-advance
     // + 3-min fallbacks). Predicate reads live game state; sto is captured from this scope.
