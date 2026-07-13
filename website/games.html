@@ -171,8 +171,8 @@ const SVG = {
 };
 // The game directory — add a new game by appending one object here (the page renders it automatically).
 const GAMES = [
-  { svg:SVG.bet, name:"Sports Bet", tag:"Live", live:true, slug:"bet", url:"https://bet.nadochain.com",
-    blurb:"Parimutuel sports betting — no house, no bookmaker. Everyone's stake goes into one pool and the winning side splits it pro-rata (a racetrack tote), so the odds are set by the crowd, not a book. Match results are posted on-chain by a configurable oracle reading free public sources; a postponed or unresolved match refunds every stake 1:1.",
+  { svg:SVG.bet, name:"Bet", tag:"Live", live:true, slug:"bet", url:"https://bet.nadochain.com",
+    blurb:"Parimutuel betting on any event — no house, no bookmaker. Everyone's stake goes into one pool and the winning side splits it pro-rata (a racetrack tote), so the odds are set by the crowd, not a book. Results are posted on-chain by a configurable oracle reading free public sources; a postponed or unresolved event refunds every stake 1:1.",
     meta:["No house","Crowd-set odds","Oracle-resolved","Postponed → refund"] },
   { svg:SVG.coin, name:"Coin Flip", tag:"Live", live:true, slug:"coinflip", url:"https://coinflip.nadochain.com",
     blurb:"A fair 2-player coin flip for stakes. Both stake into a pot; the winner is decided by a future L1 block hash nobody can predict — no secrets, nothing to reveal, you sign once. Winner takes the pot.",
