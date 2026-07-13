@@ -167,15 +167,18 @@ function fire() {
 }
 // as the player fired upon, AUTO-reveal the result of the enemy's pending shot against my board (background-signed,
 // value-free) — so my opponent sees hit/miss within ~1 block instead of waiting for me to take a turn.
-const answering = new Set();
+// auto-action guard: a per-game COOLDOWN (not a permanent flag) so we never double-submit, but ALSO never wedge —
+// if an action fired against provisional state that then reorged, it retries after the cooldown. (Money is safe
+// regardless: settlement reads the FINALIZED exec state, which can't roll back; this is purely to un-stick the UI.)
+const RETRY_MS = 30000, answerAt = {}, claimAt = {};
+const recently = (m, g) => m[g] != null && Date.now() - m[g] < RETRY_MS;
 function autoAnswer(sto) {
   if (!sto || !dapp.me) return;
   for (const g of Object.keys(load(LS_G))) {
-    const gm = gameFrom(sto, g); if (!gm.toAnswer) continue;
+    const gm = gameFrom(sto, g); if (!gm.toAnswer) { delete answerAt[g]; continue; }
     const mine = myBoard(g); if (!mine) continue;                         // can't prove without my board (boardLost)
-    const key = g + "|" + gm.pc;
-    if (answering.has(key) || dapp.busy("answer", "game", Number(g))) continue;
-    answering.add(key);
+    if (recently(answerAt, g) || dapp.busy("answer", "game", Number(g))) continue;
+    answerAt[g] = Date.now();
     const c = gm.pc, tree = buildTree(mine.board, mine.salts);
     const proof = [mine.board[c], mine.salts[c], ...cellProof(tree, c)];
     dapp.call("answer", [Number(g), ...proof], null, "answer the shot at " + coord(c) + " · battleship #" + g, { game: Number(g), phase: "answer" });
@@ -186,7 +189,6 @@ const claimTimeout = () => dapp.call("timeout", [activeGame], null, "claim the s
 const cancelGame = () => dapp.call("cancel", [activeGame], null, "cancel battleship #" + activeGame, { game: activeGame, phase: "cancel" });
 // reveal-at-claim: the WINNER collects a decided pot by revealing their 5 ship placements + salt-seed; the
 // contract rebuilds the tree from them and pays only if it matches the committed root (a shape-cheat can't).
-const claiming = new Set();
 function claimWin(g) {
   const mine = myBoard(g);
   if (!mine || !mine.spec || mine.seed == null) return alertBar(window.t("bs.boardLost", "Your board for this game isn't on this device — play from the device that placed the fleet."));
@@ -200,8 +202,10 @@ function autoSettle(sto) {
   if (!sto || !dapp.me) return;
   for (const g of Object.keys(load(LS_G))) {
     const gm = gameFrom(sto, g);
-    if (!gm.exists || gm.sd || !gm.dc || !gm.mineSlot || gm.wr !== gm.mineSlot) continue;
-    if (!claiming.has(g) && !dapp.busy("claim", "game", Number(g))) { claiming.add(g); claimWin(Number(g)); }
+    if (!gm.exists || gm.sd || !gm.dc || !gm.mineSlot || gm.wr !== gm.mineSlot) { delete claimAt[g]; continue; }
+    if (recently(claimAt, g) || dapp.busy("claim", "game", Number(g))) continue;
+    claimAt[g] = Date.now();
+    claimWin(Number(g));
   }
 }
 async function rematch() {
@@ -392,7 +396,7 @@ dapp.doneLabels({ open: window.t("bs.dnOpen", "✓ Game is on-chain — send the
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.game != null) activeGame = pend.game;
   if (!ok && pend && pend.phase === "fire" && pend.shot != null) { setOf(myFired, pend.game).delete(pend.shot); render(); }   // rejected → un-paint the optimistic shot
-  if (!ok && pend && pend.phase === "answer") { for (const k of [...answering]) if (k.startsWith(pend.game + "|")) answering.delete(k); }   // let the auto-answer retry
+  if (!ok && pend && pend.phase === "answer") delete answerAt[pend.game];   // rejected at signing → let the auto-answer retry now
   dapp.showReturn(pend, ok, err, { open: window.t("bs.cfOpen", "Opening — confirming…"), join: window.t("bs.cfJoin", "Joining — confirming…"),
     fire: window.t("bs.cfFire", "Firing — confirming on-chain…"), resign: window.t("bs.cfResign", "Resigning…"), timeout: window.t("bs.cfTimeout", "Claiming…"), cancel: window.t("bs.cfCancel", "Cancelling…"),
     claim: window.t("bs.cfClaim", "Revealing your fleet to collect…"), forfeit: window.t("bs.cfForfeit", "Claiming the pot…") });
