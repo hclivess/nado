@@ -34,11 +34,19 @@ from protocol import MIN_TX_FEE, TX_INCLUSION_DELAY
 
 BET_CID = "fe303d9880c8222dcf3b9953eb86a0fa"   # execnode/contracts/bet.json (nonce "bet-v1")
 VOID_GRACE_SEC = 300   # wiggle room past the deadline before auto-voiding (the chain clock is only ~tens-of-seconds precise)
-# Major soccer competitions to seed matches from (TheSportsDB league ids). 1X2 (home/draw/away) markets.
-# Override with --leagues "4328,4335,…". All soccer, so the 3-outcome shape is always right.
-DEFAULT_LEAGUES = ["4429", "4481", "4480", "4328", "4335", "4332", "4331", "4334", "4346", "4337"]
-# FIFA World Cup · UEFA Europa League · UEFA Champions League · EPL · La Liga · Serie A · Bundesliga
-# · Ligue 1 · MLS · Eredivisie   (internationals first so World Cup / continental ties show up)
+# Soccer competitions to seed 1X2 (home/draw/away) markets from (TheSportsDB league ids). Override with
+# --leagues "4328,4335,…". The free key returns only the SINGLE next fixture per league, so BREADTH of leagues
+# is what fills the board — especially with the European majors in their summer break (their next fixture is a
+# far-off August one). The list below spans continents + divisions so whatever is in-season contributes a match;
+# fill's soccer-guard skips any league id that (on the free key) maps to a non-soccer event. Internationals first
+# so World Cup / continental ties surface. Kept moderate + paced (see fill) to stay under the free-key rate limit.
+DEFAULT_LEAGUES = [
+    "4429", "4480", "4481", "4485", "4422",          # World Cup · UCL · UEL · UECL · Copa Sudamericana
+    "4328", "4329", "4335", "4332", "4331", "4334",  # EPL · EFL Championship · La Liga · Serie A · Bundesliga · Ligue 1
+    "4337", "4344", "4346", "4354",                  # Eredivisie · Portugal Primeira · MLS · Ukrainian PL
+    "4351", "4404", "4356", "4499", "4368",          # Brazil Serie A/B · Argentine Primera · Swedish Allsvenskan · Norway Eliteserien
+    "4621", "4632", "4628", "4963",                  # Austrian Bundesliga · Danish 2nd · China League One · Finnish Ykkönen
+]
 
 
 def _get(url, timeout=15):
@@ -209,12 +217,19 @@ def main():
         created = 0
         print(f"fill: chain-time {now} · {len(leagues)} leagues · cap {args.max}"
               + ("" if args.submit else "  (DRY-RUN — add --submit to create)"))
-        for lg in leagues:
+        for li, lg in enumerate(leagues):
             if created >= args.max:
                 break
+            if li:
+                time.sleep(0.3)   # pace the per-league calls so a wide list stays under the free-key rate limit
             for e in thesportsdb_next(lg, args.sportsdb_key):
                 if created >= args.max:
                     break
+                # soccer-guard: on the free key some league ids map to a non-soccer event (ice hockey, motorsport).
+                # We only build 3-way 1X2 (HOME/DRAW/AWAY) markets, so anything that isn't soccer is skipped —
+                # this makes it safe to seed a broad league list without minting nonsense markets.
+                if (e.get("strSport") or "Soccer") != "Soccer":
+                    continue
                 ev = str(e.get("idEvent") or "")
                 if not ev or not ev.isdigit() or ev in live_ev:
                     continue
