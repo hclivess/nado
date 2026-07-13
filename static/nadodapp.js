@@ -442,7 +442,9 @@ export class NadoDapp {
   _goRedirect(obj, pend) {
     const payload = btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
     localStorage.setItem(this.LS_P, JSON.stringify(pend || {}));
-    location.href = WALLET + "/?exec_sign=" + encodeURIComponent(payload) + "&ret=" + encodeURIComponent(base() + "/") + "&app=" + encodeURIComponent(this.app);
+    // preserve the CURRENT url (path + query) as the return target, so a share-link's ?game=/?table= survives the
+    // sign-in round-trip instead of being dropped — the invitee lands back on the invited game, not a blank slate.
+    location.href = WALLET + "/?exec_sign=" + encodeURIComponent(payload) + "&ret=" + encodeURIComponent(base() + location.pathname + location.search) + "&app=" + encodeURIComponent(this.app);
   }
   // ONE persistent hidden iframe holds a loaded wallet that signs every background request over postMessage —
   // so we pay the ~1s wallet boot ONCE, not per call. Requests are serialised (one in flight; the rest queue).
@@ -563,7 +565,11 @@ export class NadoDapp {
       const p = new URLSearchParams(location.search);
       if (!p.has("ok")) return null;   // not a return — leave ?game=/?table= invite links untouched
       const r = { ok: p.get("ok") === "1", addr: p.get("addr") || null, err: p.get("err") ? decodeURIComponent(p.get("err")) : "" };
-      try { history.replaceState(null, "", location.pathname + location.hash); } catch (e) {}
+      // strip ONLY the wallet-return params; KEEP any app params (?game=/?table=/?market=) so a signed-in-from-invite
+      // visitor still lands on the shared game rather than a blank slate.
+      p.delete("ok"); p.delete("addr"); p.delete("err");
+      const qs = p.toString();
+      try { history.replaceState(null, "", location.pathname + (qs ? "?" + qs : "") + location.hash); } catch (e) {}
       return r;
     } catch (e) { return null; }
   }

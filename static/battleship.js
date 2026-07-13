@@ -150,6 +150,8 @@ async function joinGame() {
   saveBoard(activeGame, 2, board, salts, gm.stake, seed, spec);
   dapp.call("join", [activeGame, root], stake, "join battleship #" + activeGame + " · " + rawToNado(stake) + " NADO stake", { game: activeGame, phase: "join" });
 }
+// am I looking at someone else's OPEN game that I can join? (drives the setup button's open-vs-join behaviour)
+function joinableActive() { const gm = lastGame; return !!(gm && gm.exists && gm.nn === 1 && gm.mineSlot === 0 && dapp.me); }
 function fire() {
   const gm = lastGame; if (!gm || !gm.myTurn) return alertBar(window.t("bs.notYourTurn", "It's not your turn."));
   if (target == null) return alertBar(window.t("bs.pickTarget", "Tap an enemy cell to aim, then Fire."));
@@ -304,6 +306,8 @@ function render() {
   const sto = lastSto;
   if (sto) { renderLobby(sto); if (activeGame != null) renderActive(sto); else gate({ activeGame: false }); }
   else gate({ activeGame: false });
+  const bo = $("btnOpen"); if (bo) bo.textContent = joinableActive()
+    ? window.t("bs.joinThisBtn", "⚓ Place fleet & join #{id}", { id: activeGame }) : window.t("bs.openGame", "Open a battle");
   // my recent games
   const G = load(LS_G);
   const mine = Object.keys(G).map((g) => ({ id: +g, ts: G[g].ts, icon: "🚢", live: !!(sto && _m(sto, "p1")[g]) })).sort((a, b) => b.ts - a.ts).slice(0, 8);
@@ -331,7 +335,9 @@ function wireUI() {
   wireWallet(dapp);
   dapp.wirePctSlider("stake", { slider: "stakeSlider", input: "stakeAmt" }, () => dapp.exec, render);
   stickyInputs(dapp, ["stakeAmt", "bankAmt"]);
-  $("btnOpen").onclick = openGame;
+  // when you've landed on someone's OPEN game (via a share link), the setup card's primary button JOINS that
+  // game instead of opening a brand-new one — otherwise it's easy to accidentally start a fresh game.
+  $("btnOpen").onclick = () => joinableActive() ? joinGame() : openGame();
   $("btnJoinGame").onclick = () => { if (!dapp.me) return dapp.signIn(); joinGame(); };
   $("btnFire").onclick = fire;
   $("btnRandom").onclick = () => { ships = randFleetShips(); selShip = 0; syncFleet(); render(); };

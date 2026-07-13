@@ -97,7 +97,8 @@
     "bs.dnClaim": "✓ Fleet revealed — winnings collected!",
     "bs.dnForfeit": "✓ Pot claimed — opponent never revealed a valid fleet.",
     "bs.cfClaim": "Revealing your fleet to collect…",
-    "bs.cfForfeit": "Claiming the pot…"
+    "bs.cfForfeit": "Claiming the pot…",
+    "bs.joinThisBtn": "⚓ Place fleet & join #{id}"
   },
   "cs": {
     "bs.allGames": "🎮 Všechny hry",
@@ -197,7 +198,8 @@
     "bs.dnClaim": "✓ Flotila odhalena — výhra vybrána!",
     "bs.dnForfeit": "✓ Bank nárokován — soupeř neodhalil platnou flotilu.",
     "bs.cfClaim": "Odhaluji tvou flotilu pro výběr…",
-    "bs.cfForfeit": "Nárokuji bank…"
+    "bs.cfForfeit": "Nárokuji bank…",
+    "bs.joinThisBtn": "⚓ Rozmísti flotilu a připoj se k #{id}"
   },
   "es": {
     "bs.allGames": "🎮 Todos los juegos",
@@ -297,7 +299,8 @@
     "bs.dnClaim": "✓ Flota revelada — ¡ganancias cobradas!",
     "bs.dnForfeit": "✓ Bote reclamado — el rival nunca reveló una flota válida.",
     "bs.cfClaim": "Revelando tu flota para cobrar…",
-    "bs.cfForfeit": "Reclamando el bote…"
+    "bs.cfForfeit": "Reclamando el bote…",
+    "bs.joinThisBtn": "⚓ Coloca tu flota y únete a #{id}"
   },
   "pt": {
     "bs.allGames": "🎮 Todos os jogos",
@@ -397,7 +400,8 @@
     "bs.dnClaim": "✓ Frota revelada — ganhos recebidos!",
     "bs.dnForfeit": "✓ Pote reivindicado — o oponente nunca revelou uma frota válida.",
     "bs.cfClaim": "Revelando sua frota para receber…",
-    "bs.cfForfeit": "Reivindicando o pote…"
+    "bs.cfForfeit": "Reivindicando o pote…",
+    "bs.joinThisBtn": "⚓ Posicione a frota e entre em #{id}"
   },
   "fr": {
     "bs.allGames": "🎮 Tous les jeux",
@@ -497,7 +501,8 @@
     "bs.dnClaim": "✓ Flotte révélée — gains encaissés !",
     "bs.dnForfeit": "✓ Cagnotte réclamée — l'adversaire n'a jamais révélé de flotte valide.",
     "bs.cfClaim": "Révélation de votre flotte pour encaisser…",
-    "bs.cfForfeit": "Réclamation de la cagnotte…"
+    "bs.cfForfeit": "Réclamation de la cagnotte…",
+    "bs.joinThisBtn": "⚓ Placez la flotte et rejoignez #{id}"
   },
   "de": {
     "bs.allGames": "🎮 Alle Spiele",
@@ -597,7 +602,8 @@
     "bs.dnClaim": "✓ Flotte offengelegt — Gewinn kassiert!",
     "bs.dnForfeit": "✓ Pot beansprucht — Gegner hat nie eine gültige Flotte offengelegt.",
     "bs.cfClaim": "Deine Flotte wird zum Kassieren offengelegt…",
-    "bs.cfForfeit": "Pot wird beansprucht…"
+    "bs.cfForfeit": "Pot wird beansprucht…",
+    "bs.joinThisBtn": "⚓ Flotte platzieren & #{id} beitreten"
   },
   "it": {
     "bs.allGames": "🎮 Tutti i giochi",
@@ -697,7 +703,8 @@
     "bs.dnClaim": "✓ Flotta rivelata — vincita incassata!",
     "bs.dnForfeit": "✓ Piatto riscosso — l'avversario non ha mai rivelato una flotta valida.",
     "bs.cfClaim": "Rivelo la tua flotta per incassare…",
-    "bs.cfForfeit": "Riscuoto il piatto…"
+    "bs.cfForfeit": "Riscuoto il piatto…",
+    "bs.joinThisBtn": "⚓ Posiziona la flotta e unisciti a #{id}"
   },
   "ru": {
     "bs.allGames": "🎮 Все игры",
@@ -797,7 +804,8 @@
     "bs.dnClaim": "✓ Флот раскрыт — выигрыш получен!",
     "bs.dnForfeit": "✓ Банк получен — соперник не раскрыл действительный флот.",
     "bs.cfClaim": "Раскрываем ваш флот для выплаты…",
-    "bs.cfForfeit": "Забираем банк…"
+    "bs.cfForfeit": "Забираем банк…",
+    "bs.joinThisBtn": "⚓ Расставьте флот и вступите в #{id}"
   },
   "zh": {
     "bs.allGames": "🎮 所有游戏",
@@ -897,7 +905,8 @@
     "bs.dnClaim": "✓ 舰队已揭示——奖金已领取！",
     "bs.dnForfeit": "✓ 已领取奖池——对手从未揭示有效舰队。",
     "bs.cfClaim": "正在揭示你的舰队以领取…",
-    "bs.cfForfeit": "正在领取奖池…"
+    "bs.cfForfeit": "正在领取奖池…",
+    "bs.joinThisBtn": "⚓ 布置舰队并加入 #{id}"
   },
   "ja": {
     "bs.allGames": "🎮 すべてのゲーム",
@@ -997,7 +1006,8 @@
     "bs.dnClaim": "✓ 艦隊を公開——賞金を獲得！",
     "bs.dnForfeit": "✓ ポットを請求——相手は有効な艦隊を公開しませんでした。",
     "bs.cfClaim": "艦隊を公開して受け取り中…",
-    "bs.cfForfeit": "ポットを請求中…"
+    "bs.cfForfeit": "ポットを請求中…",
+    "bs.joinThisBtn": "⚓ 艦隊を配置して #{id} に参加"
   },
   "ko": {
     "bs.allGames": "🎮 모든 게임",
@@ -1097,7 +1107,8 @@
     "bs.dnClaim": "✓ 함대 공개 — 상금 수령 완료!",
     "bs.dnForfeit": "✓ 판돈 청구 — 상대가 유효한 함대를 공개하지 않았습니다.",
     "bs.cfClaim": "함대를 공개하여 수령 중…",
-    "bs.cfForfeit": "판돈 청구 중…"
+    "bs.cfForfeit": "판돈 청구 중…",
+    "bs.joinThisBtn": "⚓ 함대 배치 후 #{id} 참가"
   },
   "ar": {
     "bs.allGames": "🎮 كل الألعاب",
@@ -1197,7 +1208,8 @@
     "bs.dnClaim": "✓ تم كشف الأسطول — تم تحصيل الأرباح!",
     "bs.dnForfeit": "✓ تم أخذ القِدر — لم يكشف الخصم عن أسطول صالح.",
     "bs.cfClaim": "جارٍ كشف أسطولك للتحصيل…",
-    "bs.cfForfeit": "جارٍ المطالبة بالقِدر…"
+    "bs.cfForfeit": "جارٍ المطالبة بالقِدر…",
+    "bs.joinThisBtn": "⚓ ضع الأسطول وانضم إلى #{id}"
   },
   "hi": {
     "bs.allGames": "🎮 सभी गेम",
@@ -1297,7 +1309,8 @@
     "bs.dnClaim": "✓ बेड़ा प्रकट — जीत वसूल ली!",
     "bs.dnForfeit": "✓ पॉट का दावा किया — प्रतिद्वंद्वी ने वैध बेड़ा कभी प्रकट नहीं किया।",
     "bs.cfClaim": "वसूलने के लिए आपका बेड़ा प्रकट किया जा रहा है…",
-    "bs.cfForfeit": "पॉट का दावा किया जा रहा है…"
+    "bs.cfForfeit": "पॉट का दावा किया जा रहा है…",
+    "bs.joinThisBtn": "⚓ बेड़ा रखें और #{id} में शामिल हों"
   },
   "tr": {
     "bs.allGames": "🎮 Tüm oyunlar",
@@ -1397,7 +1410,8 @@
     "bs.dnClaim": "✓ Filo açıklandı — kazanç alındı!",
     "bs.dnForfeit": "✓ Pot alındı — rakip geçerli bir filo açıklamadı.",
     "bs.cfClaim": "Almak için filon açıklanıyor…",
-    "bs.cfForfeit": "Pot talep ediliyor…"
+    "bs.cfForfeit": "Pot talep ediliyor…",
+    "bs.joinThisBtn": "⚓ Filoyu yerleştir ve #{id}'e katıl"
   },
   "id": {
     "bs.allGames": "🎮 Semua game",
@@ -1497,7 +1511,8 @@
     "bs.dnClaim": "✓ Armada diungkap — kemenangan diambil!",
     "bs.dnForfeit": "✓ Pot diklaim — lawan tak pernah mengungkap armada valid.",
     "bs.cfClaim": "Mengungkap armadamu untuk mengambil…",
-    "bs.cfForfeit": "Mengklaim pot…"
+    "bs.cfForfeit": "Mengklaim pot…",
+    "bs.joinThisBtn": "⚓ Tempatkan armada & gabung #{id}"
   },
   "vi": {
     "bs.allGames": "🎮 Tất cả trò chơi",
@@ -1597,6 +1612,7 @@
     "bs.dnClaim": "✓ Đã tiết lộ hạm đội — đã nhận tiền thắng!",
     "bs.dnForfeit": "✓ Đã nhận nồi — đối thủ chưa từng tiết lộ hạm đội hợp lệ.",
     "bs.cfClaim": "Đang tiết lộ hạm đội để nhận…",
-    "bs.cfForfeit": "Đang nhận nồi…"
+    "bs.cfForfeit": "Đang nhận nồi…",
+    "bs.joinThisBtn": "⚓ Đặt hạm đội & tham gia #{id}"
   }
 }
