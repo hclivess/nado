@@ -155,7 +155,7 @@ const addSource = () => { const n = ($("srcName").value || "").trim(); if (!n) r
 // ---- refresh + render ----------------------------------------------------------------------------
 async function refreshAll() {
   await dapp.refresh();
-  const sto = await dapp.storage();
+  const sto = await dapp.storage({ append: ["mres", "dn"] });
   if (sto) lastSto = sto;
   if (lastSto) await resolveAliases([dapp.me, cfg(lastSto, "admin")].filter(Boolean));
   render();

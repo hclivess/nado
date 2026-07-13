@@ -94,7 +94,7 @@ function seatsOfTable(sto, t) {
   }
   return out.sort((a, b) => a.idx - b.idx);
 }
-async function fetchTable(t) { const sto = await dapp.storage(); return sto ? tableFrom(sto, t) : null; }
+async function fetchTable(t) { const sto = await dapp.storage({ append: ["gfin"] }); return sto ? tableFrom(sto, t) : null; }
 const mySeat = () => lastSeats.find((s) => s.addr === dapp.me);
 
 // ---- actions -------------------------------------------------------------------------------------
@@ -160,7 +160,7 @@ const timeoutSeat = (g) => dapp.call("timeout", [g], null, window.t("farkle.call
 async function refreshActive() {
   await dapp.refresh();
   dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
-  const sto = await dapp.storage();
+  const sto = await dapp.storage({ append: ["gfin"] });
   if (sto) {
     lastSto = sto; pruneAndTrack(sto);
     if (activeTable != null) {

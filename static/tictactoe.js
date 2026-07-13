@@ -29,7 +29,7 @@ function gameFrom(sto, g) {
   for (const ln of LINES) { const v = gm.board[ln[0]]; if (v && v === gm.board[ln[1]] && v === gm.board[ln[2]]) gm.winLine = ln; }
   return gm;
 }
-async function fetchGame(g) { const sto = await dapp.storage(); return sto ? gameFrom(sto, g) : null;
+async function fetchGame(g) { const sto = await dapp.storage({ append: ["sd", "wr", "bd", "p2", "mc", "nn"] }); return sto ? gameFrom(sto, g) : null;
 }
 
 // ---- actions ---------------------------------------------------------------------------------------
@@ -68,7 +68,7 @@ const cancelGame = () => dapp.call("cancel", [activeGame], null, "cancel game #"
 async function refreshAll() {
   await dapp.refresh();
   dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
-  const sto = await dapp.storage();
+  const sto = await dapp.storage({ append: ["sd", "wr", "bd", "p2", "mc", "nn"] });
   if (sto) {
     lastSto = sto;
     lsPrune(LS_G, Object.keys(_m(sto, "p1")));
@@ -213,7 +213,7 @@ async function rematch(stakeRaw) {
 // ---- boot ------------------------------------------------------------------------------------------
 const replayInvite = async (id) => {   // load the invited game FIRST so joinGame's lastGame check isn't stale
   activeGame = parseInt(id, 10);
-  const sto = await dapp.storage(); if (sto) lastGame = gameFrom(sto, activeGame);
+  const sto = await dapp.storage({ append: ["sd", "wr", "bd", "p2", "mc", "nn"] }); if (sto) lastGame = gameFrom(sto, activeGame);
   joinGame();
 };
 dapp.onReturn((pend, ok, err) => {
@@ -239,7 +239,7 @@ async function boot() {
   const q = new URLSearchParams(location.search).get("game");
   if (q) {
     activeGame = parseInt(q, 10);
-    if (!dapp.me) { const sto = await dapp.storage(); const gm = sto ? gameFrom(sto, activeGame) : null;
+    if (!dapp.me) { const sto = await dapp.storage({ append: ["sd", "wr", "bd", "p2", "mc", "nn"] }); const gm = sto ? gameFrom(sto, activeGame) : null;
       inviteGate(dapp, { id: activeGame, title: window.t("ttt.inviteTitle", "You're invited to tic-tac-toe"),
         body: gm && gm.exists ? window.t("ttt.inviteBody", "Play {who} for <b>{amt} NADO</b> — winner takes the pot.", { who: disp(gm.p1), amt: rawToNado(gm.stake) }) : window.t("ttt.inviteBodyGeneric", "Sign in to join this game."),
         joinLabel: window.t("ttt.inviteJoin", "Sign in & join") }); }

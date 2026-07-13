@@ -765,10 +765,36 @@ export class NadoDapp {
   // clock over the browser's so a skewed local clock can't misjudge a deadline; fall back to Date.now() until
   // the first root poll lands.
   chainNow() { return this.now != null ? this.now : Math.floor(Date.now() / 1000); }
-  async storage() {
-    try { const sto = (await (await fetch(base() + "/exec/contract?ns=" + this.ns + "&cid=" + this.cid + "&provisional=1", { cache: "no-store" })).json()).storage || {}; this.online = true; return sto; }
-    catch { this.online = false; return null; }
+  // storage(opts): fetch the contract's PROVISIONAL storage. opts.append = list of APPEND-ONLY map names
+  // (settled flags, moves, results, hit-counts — state that only ever GROWS and never legitimately reverts).
+  // The provisional read tracks the L1 tip, so a shallow reorg can momentarily drop a just-included tx and make
+  // a signed action "blip" out for a poll. We STICKY-MERGE those append-only maps: any key present a moment ago
+  // but missing now is held for STICKY_GRACE_MS (a real deep-reorg removal still clears after the grace). So a
+  // move/shot/result you've seen never flickers away; the chain stays a background confirmer, not a flicker source.
+  async storage(opts) {
+    try {
+      const sto = (await (await fetch(base() + "/exec/contract?ns=" + this.ns + "&cid=" + this.cid + "&provisional=1", { cache: "no-store" })).json()).storage || {};
+      this.online = true;
+      return this._stickMerge(sto, opts && opts.append);
+    } catch { this.online = false; return null; }
   }
+  _stickMerge(sto, append) {
+    if (!append || !append.length) return sto;
+    const now = this._nowMs(), prev = this._stickyPrev || {}, held = this._stickyHeld || (this._stickyHeld = {});
+    for (const m of append) {
+      const cur = sto[m] || (sto[m] = {}), pv = prev[m] || {};
+      for (const k in pv) {
+        const hk = m + " " + k;
+        if (k in cur) { delete held[hk]; continue; }          // still there → clear any grace timer
+        if (held[hk] == null) held[hk] = now;                 // just vanished → start the grace clock
+        if (now - held[hk] < STICKY_GRACE_MS) cur[k] = pv[k]; // within grace → keep showing it (rollback flicker)
+        else delete held[hk];                                 // grace expired → accept the removal
+      }
+    }
+    this._stickyPrev = sto;
+    return sto;
+  }
+  _nowMs() { try { return Date.now(); } catch (e) { return (this._mono = (this._mono || 0) + 3000); } }
   // whereIs(kind, id, openedTs): the ONE "why can't I see my table/game" message. Tri-state on this.online so
   // an unreachable/restarting exec node is reported as exactly that — never as a missing table. openedTs (ms,
   // optional) is when the player submitted the open, for confirming-vs-rejected wording.

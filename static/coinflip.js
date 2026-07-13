@@ -60,7 +60,7 @@ function boardFrom(sto) {
   }
   return scoreSort(stats);
 }
-async function fetchGame(gid) { const sto = await dapp.storage(); return sto ? gameFrom(sto, gid) : null; }
+async function fetchGame(gid) { const sto = await dapp.storage({ append: ["sd", "ws", "p2", "nn"] }); return sto ? gameFrom(sto, gid) : null; }
 
 // ---- actions -------------------------------------------------------------------------------------
 function bet(gameId, stakeRaw, method) {   // method: "open" (slot 1) or "join" (slot 2)
@@ -124,7 +124,7 @@ async function rematch() {
 async function refreshActive() {
   await dapp.refresh();
   dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
-  const sto = await dapp.storage();
+  const sto = await dapp.storage({ append: ["sd", "ws", "p2", "nn"] });
   if (sto) {
     for (const gid of allGids(sto)) stageCache[gid] = { settled: !!_m(sto, "sd")[gid], ncom: _m(sto, "nn")[gid] || 0, stake: _m(sto, "st")[gid] || 0 };
     // fetch block hashes to resolve the active game's flip client-side
