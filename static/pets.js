@@ -582,6 +582,11 @@ async function challengerCard(p) {
 }
 
 // ---- reads: everything derives from the contract's storage maps -----------------------------------
+// A pet's gene string (gs) is immutable once set (rebirth mints a NEW gs), so the heavy decode —
+// BigInt parse + species lookup + base-stat decode — is memoized by pid|gs. petsFrom runs over the WHOLE
+// global roster twice per poll and every 3s; without this cache that gene-decode dominates the main thread
+// at thousands of pets. Cache size tracks the roster (one small entry per distinct gene), never re-decodes.
+const _geneCache = {};
 function petsFrom(sto) {
   const ow = _m(sto, "ow"), cur = dapp.cursor, out = {};
   for (const pid of Object.keys(ow)) {
@@ -592,16 +597,20 @@ function petsFrom(sto) {
       tf: _m(sto, "tf")[pid] || 0, nm: _m(sto, "nm")[pid] || "", th: _m(sto, "th")[pid] || 0,
       ti: _m(sto, "ti")[pid] || 0, tr: _m(sto, "tr")[pid] || 0, price: _m(sto, "mp")[pid] || 0,
       wins: _m(sto, "wins")[pid] || 0, loss: _m(sto, "loss")[pid] || 0 };
-    p.hatched = !!gs; p.gene = gs ? BigInt(gs) : null;
+    p.hatched = !!gs;
+    if (gs) {   // memoized immutable decode (gene / species / base stats) — keyed by the immutable gene
+      const k = pid + "|" + gs;
+      let d = _geneCache[k];
+      if (!d) { const gene = BigInt(gs); d = _geneCache[k] = { gene, animal: G.animalOf(p.si, p.sp), base: G.baseStats(gene, p.sp) }; }
+      p.gene = d.gene; p.animal = d.animal; p.base = d.base;   // si==0 -> legacy pet -> the OG three
+    } else { p.gene = null; p.animal = null; p.base = null; }
     p.dead = cur != null && cur > p.fu;
-    p.animal = p.hatched ? G.animalOf(p.si, p.sp) : null;   // si==0 -> legacy pet -> the OG three
     p.tier = G.TIERS[p.sp] || null;
     p.resting = !p.dead && cur != null && cur < p.ex;       // post-battle exhaustion (no new fights)
     p.restBlocks = p.resting ? p.ex - cur : 0;
     p.mine = dapp.me && p.owner === dapp.me;
     p.hatchReady = !p.hatched && !!(dapp.bh(p.bh) && dapp.bh(p.bh + 1));
     p.stale = !p.hatched && cur != null && cur >= p.bh + G.STALE;         // gene block pruned -> rebirth
-    p.base = p.gene ? G.baseStats(p.gene, p.sp) : null;
     p.bonus = p.gene ? G.STAT_NAMES.map((_n, i) => _m(sto, "tb")[pid + "|" + i] || 0) : null;
     p.level = G.levelOf(p.tf || 0);
     p.label = p.nm ? p.nm : (p.hatched ? p.animal.n : "Egg") + " #" + String(pid).slice(-4);
@@ -978,7 +987,7 @@ function petCard(p, sel) {
     <div class="po">${p.price && !p.dead ? `🏷 ${rawToNado(p.price)} NADO` : esc(disp(p.owner))}</div></div>`;
 }
 // grid view state: search + sort + how many are shown (pagination keeps 10k pets browsable)
-const VIEW = { g: { q: "", sort: "new", n: 24 }, m: { q: "", sort: "priceAsc", n: 24 } };
+const VIEW = { g: { q: "", sort: "new", n: 24 }, m: { q: "", sort: "priceAsc", n: 24 }, me: { n: 24 } };
 const SORTS = {
   new: (a, b) => b.bh - a.bh,                                        // mint block = age
   rarity: (a, b) => b.sp - a.sp || b.pw - a.pw,
@@ -1005,9 +1014,18 @@ function renderGrids() {
   const all = Object.values(PETS);
   const mine = myPets();
   const pendings = Object.keys(L()).filter((pid) => !PETS[pid]);
-  $("myPetGrid").innerHTML = (mine.map((p) => petCard(p, String(active) === p.id)).join("")
+  // Cap owned pets like the gallery — each card is an animated SVG, so a whale holding thousands would
+  // otherwise inject thousands of simultaneously-animating SVGs every poll. Pending eggs (in-flight adoptions)
+  // are inherently few, so they always show.
+  const mineShown = mine.slice(0, VIEW.me.n);
+  $("myPetGrid").innerHTML = (mineShown.map((p) => petCard(p, String(active) === p.id)).join("")
     + pendings.map((pid) => `<div class="pcard egg pending" data-pet="${pid}">${eggSvg("egg-idle", 0)}<div class="pn">🥚 #${String(pid).slice(-4)}</div><div class="po">${window.t("pets.confirming", "confirming ⏳")}</div></div>`).join(""))
     || '<span class="dim small">' + window.t("pets.noPetsYet", "No pets yet — adopt your first egg below.") + '</span>';
+  const bmm = $("btnMoreMine");
+  if (bmm) {
+    bmm.classList.toggle("hidden", mine.length <= VIEW.me.n);
+    if (mine.length > VIEW.me.n) bmm.textContent = window.t("pets.showMoreN", "Show more ({n} more)", { n: mine.length - VIEW.me.n });
+  }
   const nReady = readyEggs().length, running = localStorage.getItem("nado_pets_hatchall") === "1";
   const bha = $("btnHatchAll");
   if (bha) {
@@ -1022,7 +1040,7 @@ function renderGrids() {
   grid($("marketGrid"), $("btnMoreMarket"),
     all.filter((p) => p.price && !p.dead && matches(p, VIEW.m.q)).sort(SORTS[VIEW.m.sort] || SORTS.priceAsc),
     VIEW.m, VIEW.m.q ? window.t("pets.marketNoMatch", "No listed pet matches your search.") : window.t("pets.marketEmpty", "Nothing for sale right now — list one of yours from its pet card."));
-  document.querySelectorAll("[data-pet]").forEach((el) => el.onclick = () => { active = el.dataset.pet; render(); try { $("activePet").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
+  // pet-card selection uses ONE delegated listener (wired once in wireUI), not a per-card rebind every poll.
   // hall of fame
   const top = Object.values(PETS).filter((p) => p.hatched && !p.dead).sort((a, b) => b.pw - a.pw).slice(0, 10);
   $("fameList").innerHTML = top.length ? '<table class="score"><thead><tr><th>#</th><th>' + window.t("pets.thPet", "Pet") + '</th><th>' + window.t("pets.thAnimal", "Animal") + '</th><th>' + window.t("pets.thPower", "Power") + '</th><th>' + window.t("pets.thOwner", "Owner") + '</th></tr></thead><tbody>'
@@ -1032,8 +1050,14 @@ function renderGrids() {
 function renderBattles() {
   const rows = [];
   const mineIds = new Set(myPets().map((p) => p.id));
-  const bs = Object.values(BATTLES).sort((a, b) => Number(b.id) - Number(a.id));
+  // Only battles I'm in (or the one I'm actively viewing) ever render, so filter to those BEFORE sorting —
+  // otherwise we'd sort the entire unbounded battle history every 3s just to drop almost all of it. The scan
+  // itself is cheap boolean checks; the sort + row-building then run on a handful, not thousands.
+  const bs = Object.values(BATTLES)
+    .filter((b) => mineIds.has(b.a) || mineIds.has(b.b) || String(activeBattle) === b.id)
+    .sort((a, b) => Number(b.id) - Number(a.id));
   for (const b of bs) {
+    if (rows.length >= 60) break;   // hard safety cap on rendered rows
     const pa = PETS[b.a], pb = PETS[b.b]; if (!pa || !pb) continue;
     const inc = mineIds.has(b.b), out = mineIds.has(b.a), involved = inc || out;
     const stakeTxt = b.ws ? window.t("pets.stakeEach", "{price} NADO each", { price: rawToNado(b.ws) }) : window.t("pets.noStake", "no stake (still deadly)");
@@ -1054,9 +1078,7 @@ function renderBattles() {
     }
   }
   $("battleList").innerHTML = rows.join("") || '<span class="dim small">' + window.t("pets.noChallenges", "No challenges. Pick a pet in the gallery and challenge it.") + '</span>';
-  document.querySelectorAll("[data-acc]").forEach((el) => el.onclick = () => acceptBattle(el.dataset.acc));
-  document.querySelectorAll("[data-cxl]").forEach((el) => el.onclick = () => cancelBattle(el.dataset.cxl));
-  document.querySelectorAll("[data-view]").forEach((el) => el.onclick = () => { activeBattle = el.dataset.view; battlePlaying = null; render(); try { $("arenaCard").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
+  // button clicks are handled by ONE delegated listener on #battleList (wired once in wireUI), not per-row.
 }
 function renderArena() {
   gate({ arenaCard: activeBattle != null });
@@ -1192,6 +1214,22 @@ function wireUI() {
   };
   wireView(VIEW.g, "galleryQ", "gallerySort", "btnMoreGallery");
   wireView(VIEW.m, "marketQ", "marketSort", "btnMoreMarket");
+  if ($("btnMoreMine")) $("btnMoreMine").onclick = () => { VIEW.me.n += 48; renderGrids(); };
+  // ONE delegated listener for all battle-row buttons (accept / withdraw / view), not one per row per poll.
+  $("battleList").addEventListener("click", (e) => {
+    const acc = e.target.closest("[data-acc]"), cxl = e.target.closest("[data-cxl]"), view = e.target.closest("[data-view]");
+    if (acc) return acceptBattle(acc.dataset.acc);
+    if (cxl) return cancelBattle(cxl.dataset.cxl);
+    if (view) { activeBattle = view.dataset.view; battlePlaying = null; render(); try { $("arenaCard").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} }
+  });
+  // ONE delegated click handler for every pet card across all grids (my pets, gallery, market, pendings) —
+  // survives re-renders and stays flat-cost no matter how many cards exist, replacing the per-card rebind.
+  document.addEventListener("click", (e) => {
+    const card = e.target.closest("[data-pet]");
+    if (!card) return;
+    active = card.dataset.pet; render();
+    try { $("activePet").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
+  });
 }
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.pid != null) active = pend.pid;
