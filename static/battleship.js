@@ -105,6 +105,22 @@ const myBoard = (g) => { const r = load(LS_G)[g]; return r && r.board ? { board:
 
 // ---- state ---------------------------------------------------------------------------------------
 let lastSto = null, activeGame = null, lastGame = null, target = null;
+// APPEND-ONLY optimistic shot views (keyed by game id). A signed shot shows the instant you fire and NEVER
+// un-renders — the chain only CONFIRMS it (for the hit/miss result + payout). A provisional-tip wobble/rollback
+// can drop a cell from the raw storage for a poll; we UNION chain state into these and never shrink, so nothing
+// blips back and forth. myFired = my shots at the enemy · myRes = their proven results · oppFired = enemy shots at me.
+let myFired = {}, myRes = {}, oppFired = {};
+const setOf = (m, g) => m[g] || (m[g] = new Set());
+function ingestShots(sto, g) {   // fold the chain's confirmed shots into the local views (union, monotonic)
+  if (!sto || g == null) return;
+  const gm = gameFrom(sto, g); if (!gm.exists || !gm.mineSlot) return;
+  const opp = gm.mineSlot === 1 ? 2 : 1, mF = setOf(myFired, g), oF = setOf(oppFired, g), mR = myRes[g] || (myRes[g] = {});
+  for (let c = 0; c < CELLS; c++) {
+    if (firedAt(sto, gm.mineSlot, g, c)) mF.add(c);
+    if (firedAt(sto, opp, g, c)) oF.add(c);
+    const r = resultAt(sto, gm.mineSlot, g, c); if (r) mR[c] = r;
+  }
+}
 let ships = randFleetShips();          // the fleet being placed (starts as a valid random layout)
 let placing = boardOf(ships);          // 128-cell 0/1 board derived from `ships` — what commit() hashes
 let selShip = 0;                       // ship slot the tray has "armed" for the next tap-to-place
@@ -137,13 +153,15 @@ async function joinGame() {
 function fire() {
   const gm = lastGame; if (!gm || !gm.myTurn) return alertBar(window.t("bs.notYourTurn", "It's not your turn."));
   if (target == null) return alertBar(window.t("bs.pickTarget", "Tap an enemy cell to aim, then Fire."));
-  if (firedAt(lastSto, gm.mineSlot, activeGame, target)) return alertBar(window.t("bs.already", "You already fired there — pick another cell."));
+  if (setOf(myFired, activeGame).has(target)) return alertBar(window.t("bs.already", "You already fired there — pick another cell."));
   const mine = myBoard(activeGame);
   if (!mine) return alertBar(window.t("bs.boardLost", "Your board for this game isn't on this device — play from the device that placed the fleet."));
   let proof = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];   // isShip, salt, (sib,ss)*7 — dummy on the first move
   if (gm.pex) { const c = gm.pc, tree = buildTree(mine.board, mine.salts); proof = [mine.board[c], mine.salts[c], ...cellProof(tree, c)]; }
   const t = target; target = null;
-  dapp.call("move", [activeGame, t, ...proof], null, "fire at " + coord(t) + " · battleship #" + activeGame, { game: activeGame, phase: "move" });
+  setOf(myFired, activeGame).add(t);   // OPTIMISTIC: paint the shot now; it never blips out while the chain confirms
+  render();
+  dapp.call("move", [activeGame, t, ...proof], null, "fire at " + coord(t) + " · battleship #" + activeGame, { game: activeGame, phase: "move", shot: t });
 }
 const resign = () => dapp.call("resign", [activeGame], null, "resign battleship #" + activeGame, { game: activeGame, phase: "resign" });
 const claimTimeout = () => dapp.call("timeout", [activeGame], null, "claim the stalled pot · battleship #" + activeGame, { game: activeGame, phase: "timeout" });
@@ -204,19 +222,21 @@ function renderPlacement() {
        : ' <span class="b pend">' + window.t("bs.placeShipHint", "pick a ship, tap the grid to place · tap a placed ship to move it") + "</span>");
 }
 function renderBoards(gm) {
-  const mine = myBoard(gm.id), oppSlot = gm.mineSlot === 1 ? 2 : 1;
-  // MY board: my ships + the opponent's shots at me (hit if my ship, else miss)
+  const mine = myBoard(gm.id);
+  const mF = myFired[gm.id] || new Set(), mR = myRes[gm.id] || {}, oF = oppFired[gm.id] || new Set();
+  // MY board: my ships + the opponent's shots at me — read from the append-only oppFired (never blips)
   let hm = "";
   for (let c = 0; c < CELLS; c++) {
-    const ship = mine && mine.board[c], shot = firedAt(lastSto, oppSlot, gm.id, c);
+    const ship = mine && mine.board[c], shot = oF.has(c);
     const cls = shot ? (ship ? "hit" : "miss") : (ship ? "ship" : "sea");
     hm += gridCell(cls, shot ? (ship ? "✸" : "•") : "", c, false);
   }
   $("myGrid").innerHTML = hm;
-  // ENEMY board: my shots + their results; unfired cells are clickable (fog of war)
+  // ENEMY board: my shots + their proven results — from the append-only myFired/myRes; a fired cell stays "…"
+  // (optimistic) until the enemy proves the result, and never flickers back to fog on a provisional wobble.
   let he = "";
   for (let c = 0; c < CELLS; c++) {
-    const r = resultAt(lastSto, gm.mineSlot, gm.id, c), fired = firedAt(lastSto, gm.mineSlot, gm.id, c);
+    const r = mR[c] || 0, fired = mF.has(c);
     const sel = target === c ? " sel" : "";
     const cls = r === 2 ? "hit" : r === 1 ? "miss" : fired ? "pending" : "fog" + sel;
     he += gridCell(cls, r === 2 ? "✸" : r === 1 ? "•" : fired ? "…" : "", c, gm.myTurn && !fired);
@@ -301,7 +321,7 @@ async function refreshAll() {
          : (g.dc || g.sd || !g.exists);                                          // resign / timeout → decided
   });
   const sto = await dapp.storage();
-  if (sto) { lastSto = sto; lsPrune(LS_G, allGids(sto)); await resolveAliases(allGids(sto).flatMap((g) => [_m(sto, "p1")[g], _m(sto, "p2")[g]]).filter(Boolean).slice(0, 40)); }
+  if (sto) { lastSto = sto; ingestShots(sto, activeGame); lsPrune(LS_G, allGids(sto)); await resolveAliases(allGids(sto).flatMap((g) => [_m(sto, "p1")[g], _m(sto, "p2")[g]]).filter(Boolean).slice(0, 40)); }
   autoSettle(sto);                                                               // reveal my fleet to collect any decided win
   render();
 }
@@ -341,6 +361,7 @@ dapp.doneLabels({ open: window.t("bs.dnOpen", "✓ Game is on-chain — send the
   claim: window.t("bs.dnClaim", "✓ Fleet revealed — winnings collected!"), forfeit: window.t("bs.dnForfeit", "✓ Pot claimed — opponent never revealed a valid fleet.") });
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.game != null) activeGame = pend.game;
+  if (!ok && pend && pend.phase === "move" && pend.shot != null) { setOf(myFired, pend.game).delete(pend.shot); render(); }   // rejected → un-paint the optimistic shot
   if (ok && pend && pend.phase === "move") pend.mc0 = lastGame ? lastGame.mc : -1;
   dapp.showReturn(pend, ok, err, { open: window.t("bs.cfOpen", "Opening — confirming…"), join: window.t("bs.cfJoin", "Joining — confirming…"),
     move: window.t("bs.cfMove", "Firing — confirming on-chain…"), resign: window.t("bs.cfResign", "Resigning…"), timeout: window.t("bs.cfTimeout", "Claiming…"), cancel: window.t("bs.cfCancel", "Cancelling…"),
