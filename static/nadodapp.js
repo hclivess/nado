@@ -21,6 +21,10 @@ const WALLET = "https://get.nadochain.com";
 export const base = () => location.origin.replace(/\/+$/, "");
 export const $ = (id) => document.getElementById(id);
 export const _m = (sto, name) => (sto && sto[name]) || {};
+// shared-SDK i18n: every user-facing string the SDK itself emits goes through this, so it translates like the
+// games do. The `sdk.*` keys live in static/i18n_games/sdk.json (merged into i18n.js by merge_games.py). Falls
+// back to the English default when the i18n runtime or a language table is missing.
+const _t = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("sdk." + k, d, v) : d;
 // gate(map): show/hide a set of elements by id in ONE call — map is { elementId: shouldShow }. Every game uses
 // it to keep "signed-in only" panels AND the in-game STAGE (the board / wheel / felt / bet layout) hidden until
 // they apply, so a player never sees a playing field for a game they haven't opened. Missing ids are ignored.
@@ -93,7 +97,7 @@ export const blocksToTime = (blocks, secs = 6) => { const b = Math.max(0, blocks
 // where the user is on the page. Call with no msg to dismiss. One at a time — a new call replaces it.
 // modalDialog({title, body, okLabel, cancelLabel, onOk}): a centered blocking dialog (games have no wallet
 // modal of their own). Returns nothing; onOk fires on confirm. Used by inviteGate below.
-export function modalDialog({ title, body, okLabel = "OK", cancelLabel = "Cancel", onOk }) {
+export function modalDialog({ title, body, okLabel = _t("ok", "OK"), cancelLabel = _t("cancel2", "Cancel"), onOk }) {
   document.getElementById("nadoModal")?.remove();
   const ov = document.createElement("div");
   ov.id = "nadoModal";
@@ -122,8 +126,8 @@ export function modalDialog({ title, body, okLabel = "OK", cancelLabel = "Cancel
 export function inviteGate(dapp, { kind, id, title, body, joinLabel, onJoin }) {
   if (dapp.me || id == null) return;
   modalDialog({
-    title: title || "You're invited",
-    body, okLabel: joinLabel || "Sign in & join", cancelLabel: "Just browse",
+    title: title || _t("invited", "You're invited"),
+    body, okLabel: joinLabel || _t("signJoin", "Sign in & join"), cancelLabel: _t("justBrowse", "Just browse"),
     onOk: () => { try { localStorage.setItem(dapp.LS_INVITE, String(id)); } catch (e) {} dapp.signIn(); },
   });
 }
@@ -180,13 +184,13 @@ export const okBar = (msg, ms) => alertBar(msg, null, null, { tone: "ok", ms });
 // pulses Deposit). Signed-out users get a sign-in prompt instead. NO game may fail a stake check silently.
 export function canPay(dapp, raw, what) {
   if (!dapp.me) {
-    alertBar(what + " needs a wallet — sign in first.", "Sign in with NADO wallet", () => dapp.signIn());
+    alertBar(_t("payNeedWallet", "{what} needs a wallet — sign in first.", { what }), _t("paySignIn", "Sign in with NADO wallet"), () => dapp.signIn());
     return false;
   }
   if (dapp.exec >= raw) return true;
-  alertBar(what + " costs " + rawToNado(raw) + " NADO in tokens — you only have "
-    + rawToNado(dapp.exec) + ". Buy at least " + rawToNado(raw - dapp.exec) + " NADO of tokens (Buy in), then try again.",
-    "Go to Buy in", () => {
+  alertBar(_t("payShort", "{what} costs {cost} NADO in tokens — you only have {have}. Buy at least {need} NADO of tokens (Buy in), then try again.",
+    { what, cost: rawToNado(raw), have: rawToNado(dapp.exec), need: rawToNado(raw - dapp.exec) }),
+    _t("payGoBuy", "Go to Buy in"), () => {
       const bk = document.getElementById("bankroll"), bd = document.getElementById("btnDeposit");
       if (bd) bd.classList.add("pulse");
       if (bk) { bk.classList.remove("hidden"); try { bk.scrollIntoView({ behavior: "smooth", block: "center" }); } catch {} }
@@ -237,8 +241,8 @@ const _L1_FEE_RESERVE = RAW / 1000n;   // leave ~0.001 NADO of L1 for the deposi
 export function wireWallet(dapp) {
   const st = (m) => alertBar(m);   // deposit/withdraw input errors → the prominent toast, not the quiet #status
   if ($("btnSignIn")) $("btnSignIn").onclick = () => dapp.signIn();
-  if ($("btnDeposit")) $("btnDeposit").onclick = () => { const raw = nadoToRaw($("bankAmt").value); if (!raw) return st("Enter an amount to deposit."); if (raw + 1000n > dapp.l1) return st("Not enough in your L1 wallet (" + rawToNado(dapp.l1) + " NADO)."); dapp.deposit(raw); };
-  if ($("btnWithdraw")) $("btnWithdraw").onclick = () => { const raw = nadoToRaw($("bankAmt").value); if (!raw) return st("Enter an amount to withdraw."); if (dapp.exec < raw) return st("You only have " + rawToNado(dapp.exec) + " NADO in the exec layer."); dapp.withdraw(raw); };
+  if ($("btnDeposit")) $("btnDeposit").onclick = () => { const raw = nadoToRaw($("bankAmt").value); if (!raw) return st(_t("depositEnter", "Enter an amount to deposit.")); if (raw + 1000n > dapp.l1) return st(_t("depositShort", "Not enough in your L1 wallet ({bal} NADO).", { bal: rawToNado(dapp.l1) })); dapp.deposit(raw); };
+  if ($("btnWithdraw")) $("btnWithdraw").onclick = () => { const raw = nadoToRaw($("bankAmt").value); if (!raw) return st(_t("withdrawEnter", "Enter an amount to withdraw.")); if (dapp.exec < raw) return st(_t("withdrawShort", "You only have {bal} NADO in the exec layer.", { bal: rawToNado(dapp.exec) })); dapp.withdraw(raw); };
   // BUY-IN / CASH-OUT % sliders: replace the Tokens amount row with two slider rows, each with ITS OWN button
   // on the right — Buy in (a % of your L1 wallet, minus a tiny fee reserve) with Deposit, Cash out (a % of your
   // playable balance) with Withdraw. Each button submits its own slider's resolved amount (independent).
@@ -261,17 +265,17 @@ export function wireWallet(dapp) {
       box.appendChild(head); box.appendChild(r); box.appendChild(hint);
       return { box, sl };
     };
-    if (dep) dep.textContent = "Buy in"; if (wd) wd.textContent = "Cash out";
-    const bi = mkRow("buyinSlider", "⬆ Buy in", dep);
-    const co = mkRow("cashoutSlider", "⬇ Cash out", wd);
+    if (dep) dep.textContent = _t("buyIn", "Buy in"); if (wd) wd.textContent = _t("cashOut", "Cash out");
+    const bi = mkRow("buyinSlider", "⬆ " + _t("buyIn", "Buy in"), dep);
+    const co = mkRow("cashoutSlider", "⬇ " + _t("cashOut", "Cash out"), wd);
     oldRow.insertAdjacentElement("afterend", co.box);
     oldRow.insertAdjacentElement("afterend", bi.box);
     oldRow.classList.add("hidden");   // the old amount+buttons row (buttons were moved into the slider rows)
     const upd = (slId, maxFn) => { const p = Math.round(parseFloat(document.getElementById(slId).value) || 0); document.getElementById(slId + "P").textContent = p + "% · " + rawToNado(pctOf(slId, maxFn())) + " NADO"; };
     bi.sl.oninput = () => upd("buyinSlider", buyMax);
     co.sl.oninput = () => upd("cashoutSlider", () => dapp.exec);
-    if (dep) dep.onclick = () => { const raw = pctOf("buyinSlider", buyMax()); if (raw <= 0n) return st("Slide how much to buy in."); if (raw + 1000n > dapp.l1) return st("Not enough in your L1 wallet (" + rawToNado(dapp.l1) + " NADO)."); dapp.deposit(raw); };
-    if (wd) wd.onclick = () => { const raw = pctOf("cashoutSlider", dapp.exec); if (raw <= 0n) return st("Slide how much to cash out."); if (dapp.exec < raw) return st("You only have " + rawToNado(dapp.exec) + " NADO playable."); dapp.withdraw(raw); };
+    if (dep) dep.onclick = () => { const raw = pctOf("buyinSlider", buyMax()); if (raw <= 0n) return st(_t("slideBuyIn", "Slide how much to buy in.")); if (raw + 1000n > dapp.l1) return st(_t("depositShort", "Not enough in your L1 wallet ({bal} NADO).", { bal: rawToNado(dapp.l1) })); dapp.deposit(raw); };
+    if (wd) wd.onclick = () => { const raw = pctOf("cashoutSlider", dapp.exec); if (raw <= 0n) return st(_t("slideCashOut", "Slide how much to cash out.")); if (dapp.exec < raw) return st(_t("cashOutShort", "You only have {bal} NADO playable.", { bal: rawToNado(dapp.exec) })); dapp.withdraw(raw); };
   }
 }
 // renderWallet(dapp): the who/bal/l1bal header row; returns signedIn so render() can gate on it.
@@ -305,18 +309,18 @@ export const scoreSort = (stats) => Object.values(stats).sort((a, b) => (b.net -
 export function recentChips(el, items, onSelect, emptyMsg) {
   if (!el) return;
   el.innerHTML = items.length ? items.map((x) => '<button class="chip' + (x.live ? "" : " pending") + '" data-t="' + x.id + '"'
-      + (x.live ? "" : ' title="still confirming on-chain — your bet hasn\'t vanished"') + ">" + (x.icon || "🎯") + " #" + x.id
-      + (x.live ? (x.tag ? " · " + x.tag : "") : " · confirming ⏳") + "</button>").join(" ")
-    : '<span class="dim">' + (emptyMsg || "No games yet.") + "</span>";
+      + (x.live ? "" : ' title="' + _t("chipConfirmingTitle", "still confirming on-chain — your entry hasn't vanished") + '"') + ">" + (x.icon || "🎯") + " #" + x.id
+      + (x.live ? (x.tag ? " · " + x.tag : "") : " · " + _t("chipConfirming", "confirming ⏳")) + "</button>").join(" ")
+    : '<span class="dim">' + (emptyMsg || _t("noGamesYet", "No games yet.")) + "</span>";
   el.querySelectorAll(".chip").forEach((b) => b.onclick = () => onSelect(parseInt(b.dataset.t, 10)));
 }
 // statusLabel(pend, ok, err, extra): the shared post-redirect status line. Games pass extra phase labels.
 export function statusLabel(pend, ok, err, extra) {
-  const labels = Object.assign({ connect: "Signed in.", deposit: "Buy-in submitted — confirming…",
-    open: "Table opening — confirming…", bet: "Bet placed — confirming…", join: "Joining — confirming…",
-    settle: "Collecting — confirming on-chain (~1 min)…", fund: "Topping up…", close: "Closing…",
-    resolve: "Rolling out — confirming…", cancel: "Cancelling…", withdraw: "Cash-out submitted." }, extra || {});
-  return ok ? (labels[pend && pend.phase] || "Submitted.") : "Rejected" + (err ? ": " + err : ".");
+  const labels = Object.assign({ connect: _t("connect", "Signed in."), deposit: _t("deposit", "Buy-in submitted — confirming…"),
+    open: _t("open", "Table opening — confirming…"), bet: _t("bet", "Bet placed — confirming…"), join: _t("join", "Joining — confirming…"),
+    settle: _t("settle", "Collecting — confirming on-chain (~1 min)…"), fund: _t("fund", "Topping up…"), close: _t("close", "Closing…"),
+    resolve: _t("resolve", "Rolling out — confirming…"), cancel: _t("cancel", "Cancelling…"), withdraw: _t("withdraw", "Cash-out submitted.") }, extra || {});
+  return ok ? (labels[pend && pend.phase] || _t("submitted", "Submitted.")) : _t("rejected", "Rejected") + (err ? ": " + err : ".");
 }
 
 // ---- the shared auto-rolling table schema (roulette / dice / video-table games) -------------------
@@ -535,7 +539,7 @@ export class NadoDapp {
     if (ok && addr) { this.me = addr; localStorage.setItem(this.LS_ME, addr); }
     // A REJECTED action (ok=0 with a reason) must be shown LOUDLY — never left to masquerade as the
     // optimistic "confirming…" placeholder. The err is the node's real reason (e.g. a chain_id mismatch).
-    if (!ok && err) { try { alertBar("Rejected: " + err + (/chain id/i.test(err) ? " — hard-refresh this page and your wallet to update to the current network." : "")); } catch (e) {} }
+    if (!ok && err) { try { alertBar(_t("rejected", "Rejected") + ": " + err + (/chain id/i.test(err) ? _t("rejectedChainId", " — hard-refresh this page and your wallet to update to the current network.") : "")); } catch (e) {} }
     // remember a just-submitted action so games can show "confirming…" and NEVER re-offer the button the
     // user already clicked (e.g. coinflip "Join this game" reappearing before the join confirms on-chain).
     if (ok && pend && pend.phase && !["connect", "deposit", "withdraw"].includes(pend.phase)) {
@@ -721,7 +725,7 @@ export class NadoDapp {
       if (w.exec == null) { w.exec = this.exec; w.l1 = this.l1; w.ts = Date.now(); }   // baseline: first read after return
       else if (this.exec !== w.exec || this.l1 !== w.l1 || Date.now() - w.ts > 180000) {
         this._balWatch = null;   // balances moved (or timed out) → the buy-in / cash-out landed
-        okBar(w.phase === "deposit" ? "✓ Tokens bought — your playable balance is updated." : "✓ Cashed out — back in your main-chain wallet.");
+        okBar(w.phase === "deposit" ? _t("boughtOk", "✓ Tokens bought — your playable balance is updated.") : _t("cashedOk", "✓ Cashed out — back in your main-chain wallet."));
       }
     }
   }
@@ -738,14 +742,14 @@ export class NadoDapp {
   // an unreachable/restarting exec node is reported as exactly that — never as a missing table. openedTs (ms,
   // optional) is when the player submitted the open, for confirming-vs-rejected wording.
   whereIs(kind, id, openedTs) {
-    if (this.online === null) return "Loading " + kind + " #" + id + " from the chain…";
-    if (this.online === false) return "Can't reach the chain right now — reconnecting… your " + kind + " and funds are safe on-chain.";
+    if (this.online === null) return _t("whereLoading", "Loading {kind} #{id} from the chain…", { kind, id });
+    if (this.online === false) return _t("whereOffline", "Can't reach the chain right now — reconnecting… your {kind} and funds are safe on-chain.", { kind });
     // We ALWAYS check the exec balance BEFORE submitting (canPay), so a "didn't confirm" is never a funds
     // problem — it's the network not landing it in time. Say that plainly and point to the retry; never ask
     // the user a question they can't answer, and never touch their money to find out.
     if (openedTs) return Date.now() - openedTs > 150000
-      ? "⚠ " + kind + " #" + id + " didn't confirm — the network was busy. Your funds weren't touched; tap Re-open to try again."
-      : kind + " #" + id + " is confirming on-chain (~1 min)…";
-    return kind + " #" + id + " isn't on-chain yet — if you just opened it, give it ~1 min; otherwise check the ID.";
+      ? _t("whereFailed", "⚠ {kind} #{id} didn't confirm — the network was busy. Your funds weren't touched; tap Re-open to try again.", { kind, id })
+      : _t("whereConfirming", "{kind} #{id} is confirming on-chain (~1 min)…", { kind, id });
+    return _t("whereMissing", "{kind} #{id} isn't on-chain yet — if you just opened it, give it ~1 min; otherwise check the ID.", { kind, id });
   }
 }
