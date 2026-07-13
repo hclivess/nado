@@ -41,7 +41,10 @@
     "sdk.justBrowse": "Just browse",
     "sdk.noGamesYet": "No games yet.",
     "sdk.chipConfirming": "confirming ⏳",
-    "sdk.chipConfirmingTitle": "still confirming on-chain — your entry hasn't vanished"
+    "sdk.chipConfirmingTitle": "still confirming on-chain — your entry hasn't vanished",
+    "sdk.signing": "🔏 Signing…",
+    "sdk.ofWallet": "of {n} wallet",
+    "sdk.ofPlayable": "of {n} playable"
   },
   "cs": {
     "sdk.connect": "Přihlášeno.",
@@ -85,7 +88,10 @@
     "sdk.justBrowse": "Jen procházet",
     "sdk.noGamesYet": "Zatím žádné hry.",
     "sdk.chipConfirming": "potvrzuje se ⏳",
-    "sdk.chipConfirmingTitle": "stále se potvrzuje na blockchainu — váš vklad nezmizel"
+    "sdk.chipConfirmingTitle": "stále se potvrzuje na blockchainu — váš vklad nezmizel",
+    "sdk.signing": "🔏 Podepisuji…",
+    "sdk.ofWallet": "z {n} v peněžence",
+    "sdk.ofPlayable": "z {n} hratelných"
   },
   "es": {
     "sdk.connect": "Sesión iniciada.",
@@ -129,7 +135,10 @@
     "sdk.justBrowse": "Solo explorar",
     "sdk.noGamesYet": "Aún no hay partidas.",
     "sdk.chipConfirming": "confirmando ⏳",
-    "sdk.chipConfirmingTitle": "aún confirmando en cadena — tu entrada no ha desaparecido"
+    "sdk.chipConfirmingTitle": "aún confirmando en cadena — tu entrada no ha desaparecido",
+    "sdk.signing": "🔏 Firmando…",
+    "sdk.ofWallet": "de {n} en cartera",
+    "sdk.ofPlayable": "de {n} jugable"
   },
   "pt": {
     "sdk.connect": "Sessão iniciada.",
@@ -173,7 +182,10 @@
     "sdk.justBrowse": "Apenas explorar",
     "sdk.noGamesYet": "Ainda não há jogos.",
     "sdk.chipConfirming": "confirmando ⏳",
-    "sdk.chipConfirmingTitle": "ainda confirmando na cadeia — sua entrada não sumiu"
+    "sdk.chipConfirmingTitle": "ainda confirmando na cadeia — sua entrada não sumiu",
+    "sdk.signing": "🔏 Assinando…",
+    "sdk.ofWallet": "de {n} na carteira",
+    "sdk.ofPlayable": "de {n} jogável"
   },
   "fr": {
     "sdk.connect": "Connecté.",
@@ -217,7 +229,10 @@
     "sdk.justBrowse": "Juste parcourir",
     "sdk.noGamesYet": "Aucune partie pour l'instant.",
     "sdk.chipConfirming": "confirmation ⏳",
-    "sdk.chipConfirmingTitle": "confirmation en cours sur la chaîne — votre mise n'a pas disparu"
+    "sdk.chipConfirmingTitle": "confirmation en cours sur la chaîne — votre mise n'a pas disparu",
+    "sdk.signing": "🔏 Signature…",
+    "sdk.ofWallet": "sur {n} du portefeuille",
+    "sdk.ofPlayable": "sur {n} jouable"
   },
   "de": {
     "sdk.connect": "Angemeldet.",
@@ -261,7 +276,10 @@
     "sdk.justBrowse": "Nur stöbern",
     "sdk.noGamesYet": "Noch keine Spiele.",
     "sdk.chipConfirming": "wird bestätigt ⏳",
-    "sdk.chipConfirmingTitle": "wird noch on-chain bestätigt — dein Einsatz ist nicht verschwunden"
+    "sdk.chipConfirmingTitle": "wird noch on-chain bestätigt — dein Einsatz ist nicht verschwunden",
+    "sdk.signing": "🔏 Signieren…",
+    "sdk.ofWallet": "von {n} Wallet",
+    "sdk.ofPlayable": "von {n} spielbar"
   },
   "it": {
     "sdk.connect": "Accesso effettuato.",
@@ -305,7 +323,10 @@
     "sdk.justBrowse": "Solo esplora",
     "sdk.noGamesYet": "Ancora nessuna partita.",
     "sdk.chipConfirming": "in conferma ⏳",
-    "sdk.chipConfirmingTitle": "ancora in conferma on-chain — la tua giocata non è sparita"
+    "sdk.chipConfirmingTitle": "ancora in conferma on-chain — la tua giocata non è sparita",
+    "sdk.signing": "🔏 Firma…",
+    "sdk.ofWallet": "di {n} nel wallet",
+    "sdk.ofPlayable": "di {n} giocabile"
   },
   "ru": {
     "sdk.connect": "Вход выполнен.",
@@ -349,7 +370,10 @@
     "sdk.justBrowse": "Просто посмотреть",
     "sdk.noGamesYet": "Пока нет игр.",
     "sdk.chipConfirming": "подтверждается ⏳",
-    "sdk.chipConfirmingTitle": "ещё подтверждается в сети — ваша ставка не пропала"
+    "sdk.chipConfirmingTitle": "ещё подтверждается в сети — ваша ставка не пропала",
+    "sdk.signing": "🔏 Подпись…",
+    "sdk.ofWallet": "из {n} в кошельке",
+    "sdk.ofPlayable": "из {n} игровых"
   },
   "zh": {
     "sdk.connect": "已登录。",
@@ -393,7 +417,10 @@
     "sdk.justBrowse": "只是看看",
     "sdk.noGamesYet": "还没有游戏。",
     "sdk.chipConfirming": "确认中 ⏳",
-    "sdk.chipConfirmingTitle": "仍在链上确认 — 你的下注没有消失"
+    "sdk.chipConfirmingTitle": "仍在链上确认 — 你的下注没有消失",
+    "sdk.signing": "🔏 签名中…",
+    "sdk.ofWallet": "共 {n} 钱包",
+    "sdk.ofPlayable": "共 {n} 可玩"
   },
   "ja": {
     "sdk.connect": "サインインしました。",
@@ -437,7 +464,10 @@
     "sdk.justBrowse": "見るだけ",
     "sdk.noGamesYet": "まだゲームがありません。",
     "sdk.chipConfirming": "確認中 ⏳",
-    "sdk.chipConfirmingTitle": "まだオンチェーンで確認中 — あなたのエントリーは消えていません"
+    "sdk.chipConfirmingTitle": "まだオンチェーンで確認中 — あなたのエントリーは消えていません",
+    "sdk.signing": "🔏 署名中…",
+    "sdk.ofWallet": "ウォレット {n} 中",
+    "sdk.ofPlayable": "プレイ可能 {n} 中"
   },
   "ko": {
     "sdk.connect": "로그인됨.",
@@ -481,7 +511,10 @@
     "sdk.justBrowse": "둘러보기만",
     "sdk.noGamesYet": "아직 게임이 없습니다.",
     "sdk.chipConfirming": "확인 중 ⏳",
-    "sdk.chipConfirmingTitle": "아직 온체인 확인 중 — 당신의 참가가 사라지지 않았습니다"
+    "sdk.chipConfirmingTitle": "아직 온체인 확인 중 — 당신의 참가가 사라지지 않았습니다",
+    "sdk.signing": "🔏 서명 중…",
+    "sdk.ofWallet": "지갑 {n} 중",
+    "sdk.ofPlayable": "플레이 가능 {n} 중"
   },
   "ar": {
     "sdk.connect": "تم تسجيل الدخول.",
@@ -525,7 +558,10 @@
     "sdk.justBrowse": "تصفّح فقط",
     "sdk.noGamesYet": "لا توجد ألعاب بعد.",
     "sdk.chipConfirming": "جارٍ التأكيد ⏳",
-    "sdk.chipConfirmingTitle": "لا يزال قيد التأكيد على السلسلة — لم يختفِ رهانك"
+    "sdk.chipConfirmingTitle": "لا يزال قيد التأكيد على السلسلة — لم يختفِ رهانك",
+    "sdk.signing": "🔏 جارٍ التوقيع…",
+    "sdk.ofWallet": "من {n} في المحفظة",
+    "sdk.ofPlayable": "من {n} قابلة للعب"
   },
   "hi": {
     "sdk.connect": "साइन इन हो गया।",
@@ -569,7 +605,10 @@
     "sdk.justBrowse": "बस देखें",
     "sdk.noGamesYet": "अभी कोई गेम नहीं।",
     "sdk.chipConfirming": "पुष्टि हो रही है ⏳",
-    "sdk.chipConfirmingTitle": "अभी भी चेन पर पुष्टि हो रही है — आपका दांव गायब नहीं हुआ"
+    "sdk.chipConfirmingTitle": "अभी भी चेन पर पुष्टि हो रही है — आपका दांव गायब नहीं हुआ",
+    "sdk.signing": "🔏 हस्ताक्षर हो रहे…",
+    "sdk.ofWallet": "{n} वॉलेट में से",
+    "sdk.ofPlayable": "{n} खेलने-योग्य में से"
   },
   "tr": {
     "sdk.connect": "Giriş yapıldı.",
@@ -613,7 +652,10 @@
     "sdk.justBrowse": "Sadece göz at",
     "sdk.noGamesYet": "Henüz oyun yok.",
     "sdk.chipConfirming": "onaylanıyor ⏳",
-    "sdk.chipConfirmingTitle": "hâlâ zincirde onaylanıyor — bahsin kaybolmadı"
+    "sdk.chipConfirmingTitle": "hâlâ zincirde onaylanıyor — bahsin kaybolmadı",
+    "sdk.signing": "🔏 İmzalanıyor…",
+    "sdk.ofWallet": "{n} cüzdandan",
+    "sdk.ofPlayable": "{n} oynanabilirden"
   },
   "id": {
     "sdk.connect": "Masuk berhasil.",
@@ -657,7 +699,10 @@
     "sdk.justBrowse": "Lihat-lihat saja",
     "sdk.noGamesYet": "Belum ada permainan.",
     "sdk.chipConfirming": "mengonfirmasi ⏳",
-    "sdk.chipConfirmingTitle": "masih dikonfirmasi on-chain — taruhanmu tidak hilang"
+    "sdk.chipConfirmingTitle": "masih dikonfirmasi on-chain — taruhanmu tidak hilang",
+    "sdk.signing": "🔏 Menandatangani…",
+    "sdk.ofWallet": "dari {n} dompet",
+    "sdk.ofPlayable": "dari {n} dapat dimainkan"
   },
   "vi": {
     "sdk.connect": "Đã đăng nhập.",
@@ -701,6 +746,9 @@
     "sdk.justBrowse": "Chỉ xem",
     "sdk.noGamesYet": "Chưa có trò chơi nào.",
     "sdk.chipConfirming": "đang xác nhận ⏳",
-    "sdk.chipConfirmingTitle": "vẫn đang xác nhận on-chain — lượt đặt của bạn chưa biến mất"
+    "sdk.chipConfirmingTitle": "vẫn đang xác nhận on-chain — lượt đặt của bạn chưa biến mất",
+    "sdk.signing": "🔏 Đang ký…",
+    "sdk.ofWallet": "trong {n} ví",
+    "sdk.ofPlayable": "trong {n} khả dụng"
   }
 }

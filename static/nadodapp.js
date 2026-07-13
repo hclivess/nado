@@ -286,8 +286,8 @@ export function renderWallet(dapp) {
   if ($("who")) $("who").textContent = signedIn ? disp(dapp.me) : "not signed in";
   if ($("bal")) $("bal").textContent = rawToNado(dapp.exec) + " NADO";
   if ($("l1bal")) $("l1bal").textContent = rawToNado(dapp.l1) + " NADO";
-  const bm = document.getElementById("buyinSliderM"); if (bm) bm.textContent = "of " + rawToNado(dapp.l1) + " wallet";
-  const cm = document.getElementById("cashoutSliderM"); if (cm) cm.textContent = "of " + rawToNado(dapp.exec) + " playable";
+  const bm = document.getElementById("buyinSliderM"); if (bm) bm.textContent = _t("sdk.ofWallet", "of {n} wallet", { n: rawToNado(dapp.l1) });
+  const cm = document.getElementById("cashoutSliderM"); if (cm) cm.textContent = _t("sdk.ofPlayable", "of {n} playable", { n: rawToNado(dapp.exec) });
   return signedIn;
 }
 // renderScore(el, board, me, empty): the shared win/loss leaderboard table.
@@ -489,7 +489,7 @@ export class NadoDapp {
     if (on) {
       if (!el) { el = document.createElement("div"); el.id = "nadoBgBusy";
         el.style.cssText = "position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:9998;background:#131a23;border:1px solid #00c9a7;color:#00c9a7;font:600 12px/1.4 system-ui,sans-serif;padding:7px 14px;border-radius:999px;box-shadow:0 6px 20px rgba(0,0,0,.5);pointer-events:none";
-        el.textContent = "🔏 Signing…"; (document.body || document.documentElement).appendChild(el); }
+        el.textContent = _t("sdk.signing", "🔏 Signing…"); (document.body || document.documentElement).appendChild(el); }
     } else if (el) el.remove();
   }
   _bgPump() {
