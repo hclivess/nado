@@ -97,6 +97,12 @@
 <script>
 // clean inline SVG logos (no external assets; each ~44px, on the NADO palette)
 const SVG = {
+  battleship:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
+    <rect x="6" y="30" width="36" height="7" rx="2" fill="#00c9a7"/>
+    <path d="M8 30 L14 19 H34 L40 30 Z" fill="#20272f" stroke="#00c9a7" stroke-width="1.6"/>
+    <rect x="18" y="22" width="4" height="4" fill="#0b0f14"/><rect x="26" y="22" width="4" height="4" fill="#0b0f14"/>
+    <rect x="22.4" y="7" width="3" height="13" fill="#00c9a7"/><rect x="19" y="9" width="10" height="3" rx="1" fill="#00ad93"/>
+    <path d="M6 40 q6 -3 12 0 t12 0 t12 0" stroke="#12384a" stroke-width="2" fill="none"/></svg>`,
   coin:`<svg viewBox="0 0 48 48" width="46" height="46" fill="none" aria-hidden="true">
     <ellipse cx="18" cy="27" rx="10.5" ry="12.5" fill="#c8901a" stroke="#8a6209" stroke-width="1.6"/>
     <circle cx="28" cy="24" r="13" fill="#e3b341" stroke="#b5810f" stroke-width="2.4"/>
@@ -186,6 +192,9 @@ const GAMES = [
   { svg:SVG.chess, name:"Chess", tag:"Live", live:true, slug:"chess", url:"https://chess.nadochain.com",
     blurb:"Play a real game of chess for stakes — a perft-verified engine referees the board in your browser, every move is logged on-chain, and the pot settles by resign / agree / refund-timeout, so a stall can never rob you.",
     meta:["2 players","Wager escrow","Moves on-chain","Skill, not chance"] },
+  { svg:SVG.battleship, name:"Battleship", tag:"Live", live:true, slug:"battleship", url:"https://battleship.nadochain.com",
+    blurb:"Hidden-fleet naval combat for stakes — and your board never leaves your browser. You commit a salted Merkle-sum fingerprint of your fleet; each shot is answered by a proof the contract checks against your commitment, so nobody can lie about a hit or hide a ship to be unsinkable. Sink all 17 enemy cells to take the pot — no reveal, no oracle, just post-quantum hashes.",
+    meta:["2 players","Hidden boards","Provably no cheating","Winner takes the pot"] },
   { svg:SVG.poker, name:"Texas Hold'em", tag:"Live", live:true, slug:"poker", url:"https://poker.nadochain.com",
     blurb:"Real multiplayer hold'em — no house, no dealer. Your hole cards come from a secret only your browser knows, the flop/turn/river from future block hashes, and at showdown the contract ranks every hand on-chain (kickers included). Four betting streets, best hand takes the pot.",
     meta:["Multiplayer","Hidden hole cards","4 betting streets","Winner takes the pot"] },

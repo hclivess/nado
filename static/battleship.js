@@ -1,0 +1,274 @@
+// battleship.js — NADO Battleship: trustless hidden-board naval combat on the execution layer, on the shared
+// SDK (nadodapp.js). Your fleet never leaves your browser: you commit a salted MERKLE-SUM root of your 100-cell
+// board; every shot is answered by revealing just that one cell + its 7-node path, which the contract checks
+// against your root — so nobody can lie about a hit/miss and nobody can hide ships (the same proof binds the
+// ship count to exactly 17). 17 proven hits sinks the enemy fleet and takes the pot. No oracle, no reveal, no
+// STARK — just post-quantum hashes, byte-identical to the contract's HASH. See tests/test_battleship_contract.py.
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, alertBar, notify, okBar,
+         hoist, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore,
+         scoreBump, scoreSort, recentChips, statusLabel, inviteGate, loadQR, drawQR, resolveAliases, disp, share, shareInvite,
+         blocksToTime } from "./nadodapp.js";
+
+const CID = "a2b19b04735da43722be69dde135c44a";   // execnode/contracts/battleship.json (nonce "battleship-v1")
+const dapp = new NadoDapp({ cid: CID, app: "Battleship" });
+const N = 10, CELLS = 100, SHIPS = 17, WINDOW = 600, BLOCK_SECS = 6;
+const FLEET = [5, 4, 3, 3, 2];                 // ship lengths (17 cells)
+const LS_G = "nado_bs_games";                  // gameId -> { role, board:[128], salts:[128 dec-strings], stake, ts }
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// ---- merkle client (MUST byte-match the contract: HASH = blake2b(str(int)); node = HASH(L*2^264 + R*2^8 + sum)) ----
+const MM1 = 1n << 8n, MM2 = 1n << 264n;
+const H = (x) => BigInt("0x" + blake2bHash(x));        // == VM HASH on an integer
+const bitrev7 = (x) => { let r = 0; for (let i = 0; i < 7; i++) r = (r << 1) | ((x >> i) & 1); return r; };
+function buildTree(board, salts) {                     // board:128 (0/1), salts:128 (BigInt) -> {root, levels}
+  const leaves = new Array(128);
+  for (let c = 0; c < 128; c++)
+    leaves[bitrev7(c)] = { h: H(salts[c] * 256n + BigInt(c) * 2n + BigInt(board[c])), s: board[c] };
+  const levels = [leaves]; let cur = leaves;
+  while (cur.length > 1) {
+    const nxt = [];
+    for (let i = 0; i < cur.length; i += 2) {
+      const s = cur[i].s + cur[i + 1].s;
+      nxt.push({ h: H(cur[i].h * MM2 + cur[i + 1].h * MM1 + BigInt(s)), s });
+    }
+    levels.push(nxt); cur = nxt;
+  }
+  return { root: cur[0].h, levels };
+}
+function cellProof(tree, cell) {                       // -> [sib0, ss0, ... sib6, ss6]
+  let pos = bitrev7(cell); const out = [];
+  for (let L = 0; L < 7; L++) { const sib = tree.levels[L][pos ^ 1]; out.push(sib.h, sib.s); pos >>= 1; }
+  return out;
+}
+
+// ---- fleet placement (a valid random layout: FLEET ships, contiguous, non-overlapping, in 10x10) ----
+function randFleet() {
+  const b = new Array(128).fill(0);
+  for (const len of FLEET) {
+    for (let t = 0; t < 800; t++) {
+      const horiz = Math.random() < 0.5;
+      const r = Math.floor(Math.random() * (horiz ? N : N - len + 1));
+      const c = Math.floor(Math.random() * (horiz ? N - len + 1 : N));
+      const cells = []; let ok = true;
+      for (let k = 0; k < len; k++) { const x = (r + (horiz ? 0 : k)) * N + (c + (horiz ? k : 0)); if (b[x]) { ok = false; break; } cells.push(x); }
+      if (ok) { for (const x of cells) b[x] = 1; break; }
+    }
+  }
+  return b;
+}
+const randSalts = () => Array.from({ length: 128 }, () => { let h = "0x"; for (const x of crypto.getRandomValues(new Uint8Array(32))) h += x.toString(16).padStart(2, "0"); return BigInt(h); });
+const shipCount = (b) => { let n = 0; for (let i = 0; i < CELLS; i++) n += b[i]; return n; };
+const coord = (cell) => "ABCDEFGHIJ"[Math.floor(cell / N)] + (cell % N + 1);
+
+// ---- reads (battleship storage schema) -----------------------------------------------------------
+function gameFrom(sto, g) {
+  g = String(g); const p1 = _m(sto, "p1")[g];
+  if (!p1) return { exists: false };
+  const gm = { exists: true, id: Number(g), p1, p2: _m(sto, "p2")[g] || null, stake: String(_m(sto, "st")[g] || 0),
+    pot: Number(_m(sto, "pt")[g] || 0), nn: Number(_m(sto, "nn")[g] || 0), sd: !!_m(sto, "sd")[g],
+    mc: Number(_m(sto, "mc")[g] || 0), pc: Number(_m(sto, "pc")[g] || 0), pex: !!_m(sto, "pex")[g],
+    h1: Number(_m(sto, "h1")[g] || 0), h2: Number(_m(sto, "h2")[g] || 0), wr: Number(_m(sto, "wr")[g] || 0),
+    dl: Number(_m(sto, "dl")[g] || 0) };
+  gm.mineSlot = dapp.me === gm.p1 ? 1 : dapp.me === gm.p2 ? 2 : 0;
+  gm.turnSlot = gm.mc % 2 === 0 ? 1 : 2;
+  gm.myTurn = gm.nn === 2 && !gm.sd && gm.mineSlot === gm.turnSlot;
+  return gm;
+}
+const allGids = (sto) => Object.keys(_m(sto, "p1"));
+async function fetchGame(g) { const sto = await dapp.storage(); return sto ? gameFrom(sto, g) : null; }
+const firedAt = (sto, slot, g, cell) => !!_m(sto, "f" + slot)[g + "|" + cell];
+const resultAt = (sto, slot, g, cell) => Number(_m(sto, "res")[g + "|" + slot + "|" + cell] || 0);   // 0 none · 1 miss · 2 hit
+const myBoard = (g) => { const r = load(LS_G)[g]; return r && r.board ? { board: r.board, salts: r.salts.map((s) => BigInt(s)) } : null; };
+
+// ---- state ---------------------------------------------------------------------------------------
+let lastSto = null, activeGame = null, lastGame = null, target = null;
+let placing = randFleet();
+
+// ---- actions -------------------------------------------------------------------------------------
+function commit() { const board = placing.slice(); const salts = randSalts(); return { root: buildTree(board, salts).root, board, salts }; }
+function saveBoard(g, role, board, salts, stake) { const G = load(LS_G); G[g] = { role, board, salts: salts.map((s) => s.toString()), stake: String(stake), ts: Date.now() }; save(LS_G, G); }
+function openGame() {
+  const raw = nadoToRaw($("stakeAmt").value);
+  if (!raw) return alertBar(window.t("bs.enterStake", "Enter your stake in NADO — your opponent matches it, winner takes both."));
+  if (shipCount(placing) !== SHIPS) return alertBar(window.t("bs.placeFleet", "Place your whole fleet first (all {n} cells).", { n: SHIPS }));
+  if (!canPay(dapp, raw, window.t("bs.whatOpen", "Opening this game"))) return;
+  const g = randId(), { root, board, salts } = commit();
+  saveBoard(g, 1, board, salts, raw); activeGame = g;
+  dapp.call("open", [g, root], raw, "open battleship #" + g + " · stake " + rawToNado(raw) + " NADO", { game: g, phase: "open" });
+}
+async function joinGame() {
+  const gm = lastGame; if (!gm || !gm.exists) { if (gm) dapp.clearInvite(); return; }
+  if (gm.nn !== 1) { dapp.clearInvite(); return; }
+  if (shipCount(placing) !== SHIPS) return alertBar(window.t("bs.placeFleet", "Place your whole fleet first (all {n} cells).", { n: SHIPS }));
+  const stake = BigInt(gm.stake);
+  if (!canPay(dapp, stake, window.t("bs.whatJoin", "Joining this game"))) return;
+  dapp.clearInvite();
+  const { root, board, salts } = commit();
+  saveBoard(activeGame, 2, board, salts, gm.stake);
+  dapp.call("join", [activeGame, root], stake, "join battleship #" + activeGame + " · " + rawToNado(stake) + " NADO stake", { game: activeGame, phase: "join" });
+}
+function fire() {
+  const gm = lastGame; if (!gm || !gm.myTurn) return alertBar(window.t("bs.notYourTurn", "It's not your turn."));
+  if (target == null) return alertBar(window.t("bs.pickTarget", "Tap an enemy cell to aim, then Fire."));
+  if (firedAt(lastSto, gm.mineSlot, activeGame, target)) return alertBar(window.t("bs.already", "You already fired there — pick another cell."));
+  const mine = myBoard(activeGame);
+  if (!mine) return alertBar(window.t("bs.boardLost", "Your board for this game isn't on this device — play from the device that placed the fleet."));
+  let proof = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];   // isShip, salt, (sib,ss)*7 — dummy on the first move
+  if (gm.pex) { const c = gm.pc, tree = buildTree(mine.board, mine.salts); proof = [mine.board[c], mine.salts[c], ...cellProof(tree, c)]; }
+  const t = target; target = null;
+  dapp.call("move", [activeGame, t, ...proof], null, "fire at " + coord(t) + " · battleship #" + activeGame, { game: activeGame, phase: "move" });
+}
+const resign = () => dapp.call("resign", [activeGame], null, "resign battleship #" + activeGame, { game: activeGame, phase: "resign" });
+const claimTimeout = () => dapp.call("timeout", [activeGame], null, "claim the stalled pot · battleship #" + activeGame, { game: activeGame, phase: "timeout" });
+const cancelGame = () => dapp.call("cancel", [activeGame], null, "cancel battleship #" + activeGame, { game: activeGame, phase: "cancel" });
+async function rematch() {
+  const gm = lastGame; if (!gm || !gm.exists) return;
+  const stake = BigInt(gm.stake);
+  if (shipCount(placing) !== SHIPS) return alertBar(window.t("bs.placeFleet", "Place your whole fleet first (all {n} cells).", { n: SHIPS }));
+  if (!canPay(dapp, stake, window.t("bs.whatRematch", "A rematch"))) return;
+  const rid = rematchId(activeGame), rg = await fetchGame(rid), { root, board, salts } = commit();
+  activeGame = rid; target = null;
+  if (rg && rg.exists && rg.nn === 1 && !rg.sd) { saveBoard(rid, 2, board, salts, gm.stake); dapp.call("join", [rid, root], stake, "join rematch battleship #" + rid, { game: rid, phase: "join" }); }
+  else { saveBoard(rid, 1, board, salts, gm.stake); dapp.call("open", [rid, root], stake, "rematch battleship #" + rid, { game: rid, phase: "open" }); }
+}
+
+// ---- render --------------------------------------------------------------------------------------
+function gridCell(cls, label, cell, clickable) {
+  return '<div class="bcell ' + cls + '"' + (clickable ? ' data-fire="' + cell + '"' : "") + ' title="' + coord(cell) + '">' + label + "</div>";
+}
+function renderPlacement() {
+  const el = $("placeGrid"); if (!el) return;
+  let h = "";
+  for (let c = 0; c < CELLS; c++) h += '<div class="bcell ' + (placing[c] ? "ship" : "sea") + '" data-place="' + c + '" title="' + coord(c) + '"></div>';
+  el.innerHTML = h;
+  const n = shipCount(placing);
+  $("fleetCount").innerHTML = window.t("bs.fleetCount", "Fleet: <b>{n}/{total}</b> cells", { n, total: SHIPS })
+    + (n === SHIPS ? ' <span class="b ok">' + window.t("bs.ready", "ready") + "</span>" : ' <span class="b pend">' + window.t("bs.placeMore", "tap the sea to add / a ship to remove") + "</span>");
+}
+function renderBoards(gm) {
+  const mine = myBoard(gm.id), oppSlot = gm.mineSlot === 1 ? 2 : 1;
+  // MY board: my ships + the opponent's shots at me (hit if my ship, else miss)
+  let hm = "";
+  for (let c = 0; c < CELLS; c++) {
+    const ship = mine && mine.board[c], shot = firedAt(lastSto, oppSlot, gm.id, c);
+    const cls = shot ? (ship ? "hit" : "miss") : (ship ? "ship" : "sea");
+    hm += gridCell(cls, shot ? (ship ? "✸" : "•") : "", c, false);
+  }
+  $("myGrid").innerHTML = hm;
+  // ENEMY board: my shots + their results; unfired cells are clickable (fog of war)
+  let he = "";
+  for (let c = 0; c < CELLS; c++) {
+    const r = resultAt(lastSto, gm.mineSlot, gm.id, c), fired = firedAt(lastSto, gm.mineSlot, gm.id, c);
+    const sel = target === c ? " sel" : "";
+    const cls = r === 2 ? "hit" : r === 1 ? "miss" : fired ? "pending" : "fog" + sel;
+    he += gridCell(cls, r === 2 ? "✸" : r === 1 ? "•" : fired ? "…" : "", c, gm.myTurn && !fired);
+  }
+  $("enemyGrid").innerHTML = he;
+  $("enemyGrid").querySelectorAll("[data-fire]").forEach((el) => el.onclick = () => { target = Number(el.dataset.fire); render(); });
+}
+function renderActive(sto) {
+  const ng = gameFrom(sto, activeGame);
+  // good-faith anti-rollback: this game only moves forward (moves + hits + settle), so ignore a provisional dip.
+  const prog = (ng.sd ? 1e9 : 0) + ng.mc * 1000 + ng.h1 + ng.h2;
+  if (dapp.accept("bs:" + activeGame, prog)) lastGame = ng;
+  const gm = lastGame; if (!gm || !gm.exists) { gate({ activeGame: false }); return; }
+  gate({ activeGame: true });
+  $("gId").textContent = "#" + gm.id;
+  $("gPot").textContent = rawToNado(gm.pot) + " NADO";
+  // status line
+  let st;
+  if (gm.sd) st = gm.wr === 0 ? window.t("bs.over", "Game over.")
+    : (gm.wr === gm.mineSlot ? window.t("bs.youWon", "🏆 You sank the enemy fleet — you won {amt} NADO!", { amt: rawToNado(gm.pot || gm.stake * 2) })
+       : window.t("bs.youLost", "☠ Your fleet was sunk — better luck next time."));
+  else if (gm.nn < 2) st = gm.mineSlot === 1 ? window.t("bs.waiting", "Waiting for an opponent — share the link below.") : window.t("bs.openSeat", "Open seat — join to play for {amt} NADO.", { amt: rawToNado(gm.stake) });
+  else if (gm.myTurn) st = gm.pex ? window.t("bs.yourTurnAnswer", "🎯 Your turn — the enemy fired at {cell}. Pick your shot and Fire (your answer is proven automatically).", { cell: coord(gm.pc) })
+      : window.t("bs.yourTurnFire", "🎯 Your turn — fire the first shot!");
+  else st = window.t("bs.oppTurn", "Waiting for the enemy to move…") + (gm.dl && dapp.cursor != null && dapp.cursor > gm.dl ? window.t("bs.stalled", " (stalled — you can claim the pot)") : "");
+  $("gStatus").innerHTML = st;
+  $("hitTally").textContent = window.t("bs.tally", "Your hits: {me}/{total} · Enemy hits: {them}/{total}",
+    { me: gm.mineSlot === 1 ? gm.h1 : gm.h2, them: gm.mineSlot === 1 ? gm.h2 : gm.h1, total: SHIPS });
+  gate({ boards: gm.nn === 2 });
+  if (gm.nn === 2) renderBoards(gm);
+  // controls
+  const canJoin = gm.nn === 1 && gm.mineSlot === 0 && dapp.me;
+  const canFire = gm.myTurn && target != null;
+  gate({ fireRow: gm.nn === 2 && !gm.sd, joinRow: canJoin });
+  const bf = $("btnFire"); if (bf) { bf.disabled = !canFire; bf.classList.toggle("pulse", canFire); bf.textContent = target != null ? window.t("bs.fireAt", "🔥 Fire at {cell}", { cell: coord(target) }) : window.t("bs.fire", "🔥 Fire"); }
+  gate({ btnResign: gm.nn === 2 && !gm.sd && gm.mineSlot, btnCancel: gm.nn === 1 && gm.mineSlot === 1,
+         btnTimeout: gm.nn === 2 && !gm.sd && !gm.myTurn && gm.mineSlot && gm.dl && dapp.cursor != null && dapp.cursor > gm.dl,
+         btnRematch: gm.sd && gm.mineSlot });
+  shareInvite("game", gm.id, window.t("bs.shareText", "Play Battleship vs me on NADO:"), 180);
+}
+function renderLobby(sto) {
+  const el = $("lobbyList"); if (!el) return;
+  const open = allGids(sto).map((g) => gameFrom(sto, g)).filter((g) => g.exists && g.nn === 1 && !g.sd).sort((a, b) => b.id - a.id);
+  el.innerHTML = open.length ? open.slice(0, lobbyN).map((g) =>
+    '<button class="chip betting" data-g="' + g.id + '">🚢 #' + g.id + " · " + window.t("bs.stakeChip", "stake {s}", { s: rawToNado(g.stake) }) + " · " + window.t("bs.byChip", "by {who}", { who: disp(g.p1) }) + "</button>").join(" ")
+    : '<span class="dim">' + window.t("bs.noOpen", "No open games — start one below.") + "</span>";
+  const bm = $("btnMoreLobby");
+  if (bm) { bm.classList.toggle("hidden", open.length <= lobbyN); if (open.length > lobbyN) bm.textContent = window.t("bs.showMore", "Show more ({n} more)", { n: open.length - lobbyN }); }
+  if (!el._deleg) { el._deleg = true; el.addEventListener("click", (e) => { const b = e.target.closest(".chip"); if (b) selectGame(b.dataset.g); }); }
+}
+let lobbyN = 24;
+function selectGame(id) { activeGame = Number(id); target = null; notify(window.t("bs.selected", "Game #{id} selected.", { id })); render(); try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} }
+function render() {
+  dapp.reflectUrl("game", activeGame);
+  const signedIn = renderWallet(dapp);
+  gate({ setup: true, bankroll: signedIn });
+  renderPlacement();
+  const sto = lastSto;
+  if (sto) { renderLobby(sto); if (activeGame != null) renderActive(sto); else gate({ activeGame: false }); }
+  else gate({ activeGame: false });
+  // my recent games
+  const G = load(LS_G);
+  const mine = Object.keys(G).map((g) => ({ id: +g, ts: G[g].ts, icon: "🚢", live: !!(sto && _m(sto, "p1")[g]) })).sort((a, b) => b.ts - a.ts).slice(0, 8);
+  recentChips($("recent"), mine, selectGame, window.t("bs.noGamesYet", "No games yet."));
+}
+
+// ---- refresh loop --------------------------------------------------------------------------------
+async function refreshAll() {
+  await dapp.refresh();
+  dapp.settleInflight((f) => { const g = gameFrom(lastSto || {}, f.game); return f.phase === "open" ? g.exists : f.phase === "join" ? g.nn === 2 : f.phase === "move" ? g.mc > (f.mc0 || -1) : (g.sd || !g.exists); });
+  const sto = await dapp.storage();
+  if (sto) { lastSto = sto; lsPrune(LS_G, allGids(sto)); await resolveAliases(allGids(sto).flatMap((g) => [_m(sto, "p1")[g], _m(sto, "p2")[g]]).filter(Boolean).slice(0, 40)); }
+  render();
+}
+
+// ---- boot ----------------------------------------------------------------------------------------
+function wireUI() {
+  wireWallet(dapp);
+  dapp.wirePctSlider("stake", { slider: "stakeSlider", input: "stakeAmt" }, () => dapp.exec, render);
+  stickyInputs(dapp, ["stakeAmt", "bankAmt"]);
+  $("btnOpen").onclick = openGame;
+  $("btnJoinGame").onclick = () => { if (!dapp.me) return dapp.signIn(); joinGame(); };
+  $("btnFire").onclick = fire;
+  $("btnRandom").onclick = () => { placing = randFleet(); render(); };
+  $("btnResign").onclick = resign;
+  $("btnTimeout").onclick = claimTimeout;
+  $("btnCancel").onclick = cancelGame;
+  $("btnRematch").onclick = rematch;
+  $("btnShare").onclick = () => share(base() + "/?game=" + activeGame, window.t("bs.shareThis", "Play this Battleship game on NADO:"), $("btnShare"));
+  if ($("btnMoreLobby")) $("btnMoreLobby").onclick = () => { lobbyN += 48; if (lastSto) renderLobby(lastSto); };
+  // place / remove a ship cell by tapping the setup grid (delegated)
+  $("placeGrid").addEventListener("click", (e) => { const c = e.target.closest("[data-place]"); if (!c) return; const i = Number(c.dataset.place); placing[i] = placing[i] ? 0 : 1; render(); });
+}
+dapp.doneLabels({ open: window.t("bs.dnOpen", "✓ Game is on-chain — send the invite below."), join: window.t("bs.dnJoin", "✓ You're in — battle on!"),
+  move: window.t("bs.dnMove", "✓ Shot confirmed."), resign: window.t("bs.dnResign", "✓ Resigned."), timeout: window.t("bs.dnTimeout", "✓ Pot claimed."), cancel: window.t("bs.dnCancel", "✓ Cancelled — stake refunded.") });
+dapp.onReturn((pend, ok, err) => {
+  if (pend && pend.game != null) activeGame = pend.game;
+  if (ok && pend && pend.phase === "move") pend.mc0 = lastGame ? lastGame.mc : -1;
+  dapp.showReturn(pend, ok, err, { open: window.t("bs.cfOpen", "Opening — confirming…"), join: window.t("bs.cfJoin", "Joining — confirming…"),
+    move: window.t("bs.cfMove", "Firing — confirming on-chain…"), resign: window.t("bs.cfResign", "Resigning…"), timeout: window.t("bs.cfTimeout", "Claiming…"), cancel: window.t("bs.cfCancel", "Cancelling…") });
+});
+async function boot() {
+  wireUI();
+  orderCards(["activeGame", "setup", "lobby", "walletcard", "bankroll"]);
+  render();                                     // draw the fleet-placement UI immediately (needs no crypto/network)
+  try { await dapp.init(); } catch (e) { alertBar(window.t("bs.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
+  loadQR();
+  const q = new URLSearchParams(location.search).get("game");
+  if (q) { activeGame = parseInt(q, 10); if (!dapp.me) inviteGate(dapp, { kind: "game", id: activeGame, body: window.t("bs.inviteBody", "You've been challenged to a game of Battleship for NADO stakes."), onJoin: () => { const gm = lastGame; if (gm && gm.nn === 1) joinGame(); } }); }
+  render(); refreshAll();
+  setInterval(refreshAll, 3000);
+}
+if ($("btnOpen")) boot();

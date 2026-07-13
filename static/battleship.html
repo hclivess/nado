@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-i18n="bs.docTitle">NADO Battleship — trustless hidden-board naval combat, post-quantum</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Crect%20x%3D%226%22%20y%3D%2230%22%20width%3D%2236%22%20height%3D%228%22%20rx%3D%222%22%20fill%3D%22%2300c9a7%22/%3E%3Cpath%20d%3D%22M8%2030%20L14%2020%20H34%20L40%2030%20Z%22%20fill%3D%22%2320272f%22%20stroke%3D%22%2300c9a7%22%20stroke-width%3D%221.5%22/%3E%3Crect%20x%3D%2222%22%20y%3D%228%22%20width%3D%223%22%20height%3D%2213%22%20fill%3D%22%2300c9a7%22/%3E%3C/svg%3E">
+<meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js"></script>
+<style>
+  :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--win:#2fbf71;--gold:#e3b341;--sea:#0d2b3a;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
+    color:var(--txt);font:15px/1.5 var(--sans);min-height:100vh}
+  .wrap{max-width:680px;margin:0 auto;padding:22px 16px 60px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  header .logo{font-size:26px}
+  header h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.2px}
+  header h1 .a{color:var(--accent2)}
+  header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev);white-space:nowrap}
+  header .hub:hover{color:var(--accent2);border-color:var(--accent2)}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 16px}
+  .card{background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  .card h2{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 0;min-width:0}
+  label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
+  input{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+  input:focus{outline:none;border-color:var(--accent2)}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:10px;padding:0;border:0;margin:12px 0;background:linear-gradient(90deg,var(--accent) 0,var(--accent2) 100%);border-radius:999px;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+  input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab}
+  button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:11px;background:var(--elev2);color:var(--txt);padding:11px 15px;cursor:pointer;transition:transform .05s,border-color .15s}
+  button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
+  button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
+  @keyframes btnpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,201,167,.45)}50%{transform:scale(1.04);box-shadow:0 0 0 6px rgba(0,201,167,0)}}
+  button.pulse{animation:btnpulse 1.25s ease-in-out infinite}
+  .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
+  .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}
+  .chip.betting{border-color:var(--accent2);color:var(--accent2)}.chip.pending{opacity:.6;border-style:dashed}
+  #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}#status:empty{display:none;min-height:0;margin:0}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
+  .b{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700}
+  .b.ok{background:rgba(0,173,147,.16);color:var(--accent2)}.b.pend{background:rgba(210,153,34,.16);color:var(--gold)}
+  footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
+  a{color:var(--accent2)}
+  /* ---- battleship grids ---- */
+  .gridwrap{display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:10px}
+  .gridbox{flex:1 1 260px;min-width:250px}
+  .gridtitle{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);font-weight:700;margin-bottom:6px;text-align:center}
+  .bgrid{display:grid;grid-template-columns:repeat(10,1fr);grid-template-rows:repeat(10,1fr);gap:3px;aspect-ratio:1/1;width:100%}
+  .bcell{background:var(--sea);border:1px solid #12384a;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1;user-select:none;min-width:0;min-height:0}
+  .bcell.ship{background:#31404d;border-color:#48606f}
+  .bcell.hit{background:#7a1f1a;border-color:var(--danger);color:#ffd7d2}
+  .bcell.miss{background:#0b2431;color:#5a7c8c}
+  .bcell.fog{cursor:crosshair}.bcell.fog:hover{background:#12384a;border-color:var(--accent2)}
+  .bcell.fog.sel{outline:2px solid var(--accent2);outline-offset:-1px;background:rgba(0,201,167,.15)}
+  .bcell.pending{background:#123;color:var(--gold);border-style:dashed}
+  #placeGrid .bcell{cursor:pointer}
+  #placeGrid .bcell.ship{background:linear-gradient(135deg,#00ad93,#00c9a7);border-color:transparent}
+  #placeGrid .bcell.sea:hover{background:#12384a}
+  #gStatus{font-weight:700;font-size:14px;line-height:1.4;min-height:22px}
+  #hitTally{text-align:center;color:var(--dim);font-size:12.5px;margin-top:8px;font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><span class="logo">🚢</span><h1>NADO <span class="a" data-i18n="bs.title">Battleship</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="bs.allGames">🎮 All games</a></header>
+  <p class="sub" data-i18n-html="bs.sub">Hidden-fleet naval combat for stakes — and your board <b>never leaves your browser</b>. You commit a cryptographic fingerprint of your fleet; each shot is answered by a proof the contract checks, so nobody can lie about a hit or hide a ship. Sink all 17 enemy cells to take the pot. No house, no oracle — just post-quantum hashes.</p>
+
+  <div id="status"></div>
+
+  <!-- THE GAME -->
+  <div class="card hidden" id="activeGame">
+    <h2 data-i18n="bs.game">Game <span id="gId" class="mono"></span></h2>
+    <div class="kv"><span class="k" data-i18n="bs.pot">Pot</span><span class="mono" id="gPot">—</span></div>
+    <div id="gStatus" class="mt"></div>
+    <div class="gridwrap hidden" id="boards">
+      <div class="gridbox"><div class="gridtitle" data-i18n="bs.enemyWaters">🎯 Enemy waters — tap to fire</div><div class="bgrid" id="enemyGrid"></div></div>
+      <div class="gridbox"><div class="gridtitle" data-i18n="bs.yourFleet">🚢 Your fleet — enemy shots</div><div class="bgrid" id="myGrid"></div></div>
+    </div>
+    <div id="hitTally"></div>
+    <div class="row mt hidden" id="fireRow"><button class="primary" id="btnFire" style="width:100%" data-i18n="bs.fire">🔥 Fire</button></div>
+    <div class="row mt hidden" id="joinRow"><button class="primary pulse" id="btnJoinGame" style="width:100%" data-i18n="bs.joinThis">⚓ Join this battle</button></div>
+    <div class="row mt">
+      <button class="ghost hidden" id="btnResign" style="flex:1 1 auto" data-i18n="bs.resign">🏳 Resign</button>
+      <button class="ghost hidden" id="btnTimeout" style="flex:1 1 auto" data-i18n="bs.timeout">⏰ Claim stalled pot</button>
+      <button class="ghost hidden" id="btnCancel" style="flex:1 1 auto" data-i18n="bs.cancel">Cancel — refund my stake</button>
+      <button class="primary hidden pulse" id="btnRematch" style="flex:1 1 auto" data-i18n="bs.playAgain">↻ Play again</button>
+    </div>
+    <div class="mt">
+      <label data-i18n="bs.invite">Invite your opponent</label>
+      <div class="row">
+        <input id="shareLink" class="mono" readonly onclick="this.select()">
+        <button class="ghost" id="btnShare" style="flex:0 0 auto" data-i18n="bs.share">Share</button>
+      </div>
+      <canvas id="shareQR" class="hidden" style="margin:12px auto 0;display:block;border-radius:8px;background:#fff;padding:8px"></canvas>
+      <div id="shareQRNote" class="hidden dim small mt"></div>
+    </div>
+  </div>
+
+  <!-- SETUP / PLACE FLEET -->
+  <div class="card" id="setup">
+    <h2 data-i18n="bs.placeHead">⚓ Place your fleet &amp; open a battle</h2>
+    <p class="small dim" data-i18n-html="bs.placeBlurb">Your fleet is <b>5 ships</b> (lengths 5·4·3·2·2 = <b>17 cells</b>). Tap 🎲 for a random layout, or tap the sea to add and a ship to remove. Only a fingerprint of your board goes on-chain — the layout stays secret in your browser.</p>
+    <div class="bgrid" id="placeGrid" style="max-width:340px;margin:10px auto"></div>
+    <div class="small mt" id="fleetCount" style="text-align:center"></div>
+    <div class="row mt"><button class="ghost" id="btnRandom" style="flex:0 0 auto" data-i18n="bs.random">🎲 Random</button>
+      <input id="stakeAmt" value="1" placeholder="stake (NADO)" data-i18n-ph="bs.stakePh" inputmode="decimal" autocomplete="off">
+      <input type="range" id="stakeSlider" min="0" max="100" value="0" step="1" class="hidden">
+      <button class="primary" id="btnOpen" style="flex:0 0 auto" data-i18n="bs.openGame">Open a battle</button></div>
+  </div>
+
+  <!-- LOBBY -->
+  <div class="card" id="lobby">
+    <h2 data-i18n="bs.openGames">Open battles</h2>
+    <div id="lobbyList"><span class="dim" data-i18n="bs.loading">Loading…</span></div>
+    <button class="ghost mt hidden" id="btnMoreLobby" style="width:100%" data-i18n="bs.showMore">Show more</button>
+    <div id="recent" class="small dim mt"></div>
+  </div>
+
+  <!-- WALLET -->
+  <div class="card" id="walletcard">
+    <h2 data-i18n="bs.wallet">Wallet</h2>
+    <div class="kv"><span class="k" data-i18n="bs.signedInAs">Signed in as</span><span class="addr" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="bs.tokensStakeable">🪙 Tokens (stakeable)</span><span class="mono" id="bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="bs.walletMain">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="bs.signIn">Sign in with NADO wallet</button></div>
+    <p class="small dim mt" data-i18n="bs.keyNote">Your key never touches this page — signing happens in your wallet at get.nadochain.com, then you bounce back.</p>
+  </div>
+
+  <!-- TOKENS -->
+  <div class="card hidden" id="bankroll">
+    <h2 data-i18n="bs.tokensHead">🪙 Tokens — buy in / cash out</h2>
+    <label data-i18n="bs.amount">Amount (NADO)</label>
+    <div class="row">
+      <input id="bankAmt" value="10" placeholder="e.g. 10" data-i18n-ph="bs.amountPh" inputmode="decimal" autocomplete="off">
+      <button id="btnDeposit" data-i18n="bs.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" data-i18n="bs.withdraw">Withdraw</button>
+    </div>
+  </div>
+
+  <!-- FAIRNESS -->
+  <div class="card">
+    <h2 data-i18n="bs.fairHead">Why nobody can cheat</h2>
+    <p class="small dim" data-i18n-html="bs.fairBody">When you open or join, your browser builds a salted <b>Merkle-sum</b> fingerprint of your 100-cell board and commits only its root. Each time you're fired on, you reveal <b>just that one cell</b> plus a short proof; the contract checks it against your committed root — so a "miss" on a real ship is mathematically impossible, and the same proof binds your fleet to exactly 17 cells (you can't hide ships to be unsinkable). Stalling can't win: past the move clock the waiting player claims the pot. No reveal at the end, no oracle, no trusted party.</p>
+  </div>
+
+  <footer data-i18n="bs.footer">NADO Battleship · trustless commit-reveal · post-quantum signatures · no house</footer>
+</div>
+<script type="module" src="/static/battleship.js"></script>
+</body>
+</html>
