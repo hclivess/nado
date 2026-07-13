@@ -40,6 +40,12 @@ function cellProof(tree, cell) {                       // -> [sib0, ss0, ... sib
   for (let L = 0; L < 7; L++) { const sib = tree.levels[L][pos ^ 1]; out.push(sib.h, sib.s); pos >>= 1; }
   return out;
 }
+// Salts are derived from ONE random seed (salt[c]=HASH(seed*128+c)) so a reveal-at-claim carries just the seed,
+// which the contract regenerates identically. Revealing a single cell's salt during a move can't leak the seed.
+const randSeed = () => { let h = "0x"; for (const x of crypto.getRandomValues(new Uint8Array(32))) h += x.toString(16).padStart(2, "0"); return BigInt(h); };
+const saltsFromSeed = (seed) => Array.from({ length: 128 }, (_, c) => H(seed * 128n + BigInt(c)));
+// the placed fleet as [[anchor,orient]x5] in FLEET order — what claim() reveals (orient: 0 horiz, 1 vert)
+const fleetSpec = () => ships.map((s) => [s.cells[0], (s.cells.length > 1 && s.cells[1] - s.cells[0] === 10) ? 1 : 0]);
 
 // ---- fleet placement: the standard fleet as DISCRETE SHIPS you place (contiguous, non-overlapping, in 10x10).
 // The classic Milton-Bradley fleet exactly matches FLEET [5,4,3,3,2]. Placement is purely a client concern —
@@ -84,17 +90,18 @@ function gameFrom(sto, g) {
     pot: Number(_m(sto, "pt")[g] || 0), nn: Number(_m(sto, "nn")[g] || 0), sd: !!_m(sto, "sd")[g],
     mc: Number(_m(sto, "mc")[g] || 0), pc: Number(_m(sto, "pc")[g] || 0), pex: !!_m(sto, "pex")[g],
     h1: Number(_m(sto, "h1")[g] || 0), h2: Number(_m(sto, "h2")[g] || 0), wr: Number(_m(sto, "wr")[g] || 0),
-    dl: Number(_m(sto, "dl")[g] || 0) };
+    dl: Number(_m(sto, "dl")[g] || 0), dc: !!_m(sto, "dc")[g], cd: Number(_m(sto, "cd")[g] || 0) };
   gm.mineSlot = dapp.me === gm.p1 ? 1 : dapp.me === gm.p2 ? 2 : 0;
   gm.turnSlot = gm.mc % 2 === 0 ? 1 : 2;
-  gm.myTurn = gm.nn === 2 && !gm.sd && gm.mineSlot === gm.turnSlot;
+  gm.over = gm.sd || gm.dc;                              // dc = winner decided (pot escrowed) · sd = pot paid out
+  gm.myTurn = gm.nn === 2 && !gm.over && gm.mineSlot === gm.turnSlot;
   return gm;
 }
 const allGids = (sto) => Object.keys(_m(sto, "p1"));
 async function fetchGame(g) { const sto = await dapp.storage(); return sto ? gameFrom(sto, g) : null; }
 const firedAt = (sto, slot, g, cell) => !!_m(sto, "f" + slot)[g + "|" + cell];
 const resultAt = (sto, slot, g, cell) => Number(_m(sto, "res")[g + "|" + slot + "|" + cell] || 0);   // 0 none · 1 miss · 2 hit
-const myBoard = (g) => { const r = load(LS_G)[g]; return r && r.board ? { board: r.board, salts: r.salts.map((s) => BigInt(s)) } : null; };
+const myBoard = (g) => { const r = load(LS_G)[g]; return r && r.board ? { board: r.board, salts: r.salts.map((s) => BigInt(s)), seed: r.seed != null ? BigInt(r.seed) : null, spec: r.spec || null } : null; };
 
 // ---- state ---------------------------------------------------------------------------------------
 let lastSto = null, activeGame = null, lastGame = null, target = null;
@@ -105,15 +112,15 @@ let horiz = true;                      // placement orientation (↔ / ↕)
 const syncFleet = () => { placing = boardOf(ships); };
 
 // ---- actions -------------------------------------------------------------------------------------
-function commit() { const board = placing.slice(); const salts = randSalts(); return { root: buildTree(board, salts).root, board, salts }; }
-function saveBoard(g, role, board, salts, stake) { const G = load(LS_G); G[g] = { role, board, salts: salts.map((s) => s.toString()), stake: String(stake), ts: Date.now() }; save(LS_G, G); }
+function commit() { const board = placing.slice(), seed = randSeed(), salts = saltsFromSeed(seed), spec = fleetSpec(); return { root: buildTree(board, salts).root, board, salts, seed, spec }; }
+function saveBoard(g, role, board, salts, stake, seed, spec) { const G = load(LS_G); G[g] = { role, board, salts: salts.map((s) => s.toString()), seed: seed.toString(), spec, stake: String(stake), ts: Date.now() }; save(LS_G, G); }
 function openGame() {
   const raw = nadoToRaw($("stakeAmt").value);
   if (!raw) return alertBar(window.t("bs.enterStake", "Enter your stake in NADO — your opponent matches it, winner takes both."));
   if (shipCount(placing) !== SHIPS) return alertBar(window.t("bs.placeFleet", "Place your whole fleet first (all {n} cells).", { n: SHIPS }));
   if (!canPay(dapp, raw, window.t("bs.whatOpen", "Opening this game"))) return;
-  const g = randId(), { root, board, salts } = commit();
-  saveBoard(g, 1, board, salts, raw); activeGame = g;
+  const g = randId(), { root, board, salts, seed, spec } = commit();
+  saveBoard(g, 1, board, salts, raw, seed, spec); activeGame = g;
   dapp.call("open", [g, root], raw, "open battleship #" + g + " · stake " + rawToNado(raw) + " NADO", { game: g, phase: "open" });
 }
 async function joinGame() {
@@ -123,8 +130,8 @@ async function joinGame() {
   const stake = BigInt(gm.stake);
   if (!canPay(dapp, stake, window.t("bs.whatJoin", "Joining this game"))) return;
   dapp.clearInvite();
-  const { root, board, salts } = commit();
-  saveBoard(activeGame, 2, board, salts, gm.stake);
+  const { root, board, salts, seed, spec } = commit();
+  saveBoard(activeGame, 2, board, salts, gm.stake, seed, spec);
   dapp.call("join", [activeGame, root], stake, "join battleship #" + activeGame + " · " + rawToNado(stake) + " NADO stake", { game: activeGame, phase: "join" });
 }
 function fire() {
@@ -141,15 +148,35 @@ function fire() {
 const resign = () => dapp.call("resign", [activeGame], null, "resign battleship #" + activeGame, { game: activeGame, phase: "resign" });
 const claimTimeout = () => dapp.call("timeout", [activeGame], null, "claim the stalled pot · battleship #" + activeGame, { game: activeGame, phase: "timeout" });
 const cancelGame = () => dapp.call("cancel", [activeGame], null, "cancel battleship #" + activeGame, { game: activeGame, phase: "cancel" });
+// reveal-at-claim: the WINNER collects a decided pot by revealing their 5 ship placements + salt-seed; the
+// contract rebuilds the tree from them and pays only if it matches the committed root (a shape-cheat can't).
+const claiming = new Set();
+function claimWin(g) {
+  const mine = myBoard(g);
+  if (!mine || !mine.spec || mine.seed == null) return alertBar(window.t("bs.boardLost", "Your board for this game isn't on this device — play from the device that placed the fleet."));
+  const args = [g]; for (const [a, o] of mine.spec) args.push(a, o); args.push(mine.seed);   // 5x(anchor,orient) + seed(BigInt)
+  dapp.call("claim", args, null, "collect winnings · battleship #" + g, { game: g, phase: "claim" });
+}
+// if the winner never revealed a valid fleet by the deadline (e.g. a shape-cheater), the LOSER takes the pot.
+const forfeitPot = (g) => dapp.call("forfeit", [g], null, "claim the unrevealed pot · battleship #" + g, { game: g, phase: "forfeit" });
+// a decided win that's mine + unpaid → auto-reveal my fleet to collect (once). Runs each refresh over my games.
+function autoSettle(sto) {
+  if (!sto || !dapp.me) return;
+  for (const g of Object.keys(load(LS_G))) {
+    const gm = gameFrom(sto, g);
+    if (!gm.exists || gm.sd || !gm.dc || !gm.mineSlot || gm.wr !== gm.mineSlot) continue;
+    if (!claiming.has(g) && !dapp.busy("claim", "game", Number(g))) { claiming.add(g); claimWin(Number(g)); }
+  }
+}
 async function rematch() {
   const gm = lastGame; if (!gm || !gm.exists) return;
   const stake = BigInt(gm.stake);
   if (shipCount(placing) !== SHIPS) return alertBar(window.t("bs.placeFleet", "Place your whole fleet first (all {n} cells).", { n: SHIPS }));
   if (!canPay(dapp, stake, window.t("bs.whatRematch", "A rematch"))) return;
-  const rid = rematchId(activeGame), rg = await fetchGame(rid), { root, board, salts } = commit();
+  const rid = rematchId(activeGame), rg = await fetchGame(rid), { root, board, salts, seed, spec } = commit();
   activeGame = rid; target = null;
-  if (rg && rg.exists && rg.nn === 1 && !rg.sd) { saveBoard(rid, 2, board, salts, gm.stake); dapp.call("join", [rid, root], stake, "join rematch battleship #" + rid, { game: rid, phase: "join" }); }
-  else { saveBoard(rid, 1, board, salts, gm.stake); dapp.call("open", [rid, root], stake, "rematch battleship #" + rid, { game: rid, phase: "open" }); }
+  if (rg && rg.exists && rg.nn === 1 && !rg.over) { saveBoard(rid, 2, board, salts, gm.stake, seed, spec); dapp.call("join", [rid, root], stake, "join rematch battleship #" + rid, { game: rid, phase: "join" }); }
+  else { saveBoard(rid, 1, board, salts, gm.stake, seed, spec); dapp.call("open", [rid, root], stake, "rematch battleship #" + rid, { game: rid, phase: "open" }); }
 }
 
 // ---- render --------------------------------------------------------------------------------------
@@ -208,9 +235,15 @@ function renderActive(sto) {
   $("gPot").textContent = rawToNado(gm.pot) + " NADO";
   // status line
   let st;
+  const potAmt = rawToNado(gm.pot || BigInt(gm.stake) * 2n);
   if (gm.sd) st = gm.wr === 0 ? window.t("bs.over", "Game over.")
-    : (gm.wr === gm.mineSlot ? window.t("bs.youWon", "🏆 You sank the enemy fleet — you won {amt} NADO!", { amt: rawToNado(gm.pot || gm.stake * 2) })
+    : (gm.wr === gm.mineSlot ? window.t("bs.youWon", "🏆 You sank the enemy fleet — you won {amt} NADO!", { amt: potAmt })
        : window.t("bs.youLost", "☠ Your fleet was sunk — better luck next time."));
+  else if (gm.dc)                                            // winner decided; pot released only on a valid-fleet claim
+    st = gm.wr === gm.mineSlot
+      ? window.t("bs.wonCollect", "🏆 You sank the enemy fleet! Revealing your fleet to collect {amt} NADO…", { amt: potAmt })
+      : window.t("bs.youLost", "☠ Your fleet was sunk — better luck next time.")
+        + (gm.cd && dapp.cursor != null && dapp.cursor > gm.cd ? window.t("bs.winnerStalled", " (winner never revealed a valid fleet — you can claim the pot)") : "");
   else if (gm.nn < 2) st = gm.mineSlot === 1 ? window.t("bs.waiting", "Waiting for an opponent — share the link below.") : window.t("bs.openSeat", "Open seat — join to play for {amt} NADO.", { amt: rawToNado(gm.stake) });
   else if (gm.myTurn) st = gm.pex ? window.t("bs.yourTurnAnswer", "🎯 Your turn — the enemy fired at {cell}. Pick your shot and Fire (your answer is proven automatically).", { cell: coord(gm.pc) })
       : window.t("bs.yourTurnFire", "🎯 Your turn — fire the first shot!");
@@ -223,11 +256,12 @@ function renderActive(sto) {
   // controls
   const canJoin = gm.nn === 1 && gm.mineSlot === 0 && dapp.me;
   const canFire = gm.myTurn && target != null;
-  gate({ fireRow: gm.nn === 2 && !gm.sd, joinRow: canJoin });
+  gate({ fireRow: gm.nn === 2 && !gm.over, joinRow: canJoin });
   const bf = $("btnFire"); if (bf) { bf.disabled = !canFire; bf.classList.toggle("pulse", canFire); bf.textContent = target != null ? window.t("bs.fireAt", "🔥 Fire at {cell}", { cell: coord(target) }) : window.t("bs.fire", "🔥 Fire"); }
-  gate({ btnResign: gm.nn === 2 && !gm.sd && gm.mineSlot, btnCancel: gm.nn === 1 && gm.mineSlot === 1,
-         btnTimeout: gm.nn === 2 && !gm.sd && !gm.myTurn && gm.mineSlot && gm.dl && dapp.cursor != null && dapp.cursor > gm.dl,
-         btnRematch: gm.sd && gm.mineSlot });
+  gate({ btnResign: gm.nn === 2 && !gm.over && gm.mineSlot, btnCancel: gm.nn === 1 && gm.mineSlot === 1,
+         btnTimeout: gm.nn === 2 && !gm.over && !gm.myTurn && gm.mineSlot && gm.dl && dapp.cursor != null && dapp.cursor > gm.dl,
+         btnForfeit: gm.dc && !gm.sd && gm.mineSlot && gm.wr !== gm.mineSlot && gm.wr !== 0 && gm.cd && dapp.cursor != null && dapp.cursor > gm.cd,
+         btnRematch: gm.over && gm.mineSlot });
   shareInvite("game", gm.id, window.t("bs.shareText", "Play Battleship vs me on NADO:"), 180);
 }
 function renderLobby(sto) {
@@ -259,9 +293,16 @@ function render() {
 // ---- refresh loop --------------------------------------------------------------------------------
 async function refreshAll() {
   await dapp.refresh();
-  dapp.settleInflight((f) => { const g = gameFrom(lastSto || {}, f.game); return f.phase === "open" ? g.exists : f.phase === "join" ? g.nn === 2 : f.phase === "move" ? g.mc > (f.mc0 || -1) : (g.sd || !g.exists); });
+  dapp.settleInflight((f) => {
+    const g = gameFrom(lastSto || {}, f.game);
+    return f.phase === "open" ? g.exists : f.phase === "join" ? g.nn === 2 : f.phase === "move" ? g.mc > (f.mc0 || -1)
+         : (f.phase === "claim" || f.phase === "forfeit") ? g.sd                 // pot paid out
+         : f.phase === "cancel" ? (g.sd || !g.exists)
+         : (g.dc || g.sd || !g.exists);                                          // resign / timeout → decided
+  });
   const sto = await dapp.storage();
   if (sto) { lastSto = sto; lsPrune(LS_G, allGids(sto)); await resolveAliases(allGids(sto).flatMap((g) => [_m(sto, "p1")[g], _m(sto, "p2")[g]]).filter(Boolean).slice(0, 40)); }
+  autoSettle(sto);                                                               // reveal my fleet to collect any decided win
   render();
 }
 
@@ -278,6 +319,7 @@ function wireUI() {
   if ($("fleetTray")) $("fleetTray").addEventListener("click", (e) => { const b = e.target.closest("[data-ship]"); if (!b) return; const i = Number(b.dataset.ship); if (ships[i].cells) ships[i].cells = null; selShip = i; syncFleet(); render(); });
   $("btnResign").onclick = resign;
   $("btnTimeout").onclick = claimTimeout;
+  if ($("btnForfeit")) $("btnForfeit").onclick = () => forfeitPot(activeGame);
   $("btnCancel").onclick = cancelGame;
   $("btnRematch").onclick = rematch;
   $("btnShare").onclick = () => share(base() + "/?game=" + activeGame, window.t("bs.shareThis", "Play this Battleship game on NADO:"), $("btnShare"));
@@ -295,12 +337,14 @@ function wireUI() {
   });
 }
 dapp.doneLabels({ open: window.t("bs.dnOpen", "✓ Game is on-chain — send the invite below."), join: window.t("bs.dnJoin", "✓ You're in — battle on!"),
-  move: window.t("bs.dnMove", "✓ Shot confirmed."), resign: window.t("bs.dnResign", "✓ Resigned."), timeout: window.t("bs.dnTimeout", "✓ Pot claimed."), cancel: window.t("bs.dnCancel", "✓ Cancelled — stake refunded.") });
+  move: window.t("bs.dnMove", "✓ Shot confirmed."), resign: window.t("bs.dnResign", "✓ Resigned."), timeout: window.t("bs.dnTimeout", "✓ Pot claimed."), cancel: window.t("bs.dnCancel", "✓ Cancelled — stake refunded."),
+  claim: window.t("bs.dnClaim", "✓ Fleet revealed — winnings collected!"), forfeit: window.t("bs.dnForfeit", "✓ Pot claimed — opponent never revealed a valid fleet.") });
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.game != null) activeGame = pend.game;
   if (ok && pend && pend.phase === "move") pend.mc0 = lastGame ? lastGame.mc : -1;
   dapp.showReturn(pend, ok, err, { open: window.t("bs.cfOpen", "Opening — confirming…"), join: window.t("bs.cfJoin", "Joining — confirming…"),
-    move: window.t("bs.cfMove", "Firing — confirming on-chain…"), resign: window.t("bs.cfResign", "Resigning…"), timeout: window.t("bs.cfTimeout", "Claiming…"), cancel: window.t("bs.cfCancel", "Cancelling…") });
+    move: window.t("bs.cfMove", "Firing — confirming on-chain…"), resign: window.t("bs.cfResign", "Resigning…"), timeout: window.t("bs.cfTimeout", "Claiming…"), cancel: window.t("bs.cfCancel", "Cancelling…"),
+    claim: window.t("bs.cfClaim", "Revealing your fleet to collect…"), forfeit: window.t("bs.cfForfeit", "Claiming the pot…") });
 });
 async function boot() {
   wireUI();

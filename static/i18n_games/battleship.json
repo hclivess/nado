@@ -90,7 +90,14 @@
     "bs.rotate": "Rotate",
     "bs.placeShipHint": "pick a ship, tap the grid to place · tap a placed ship to move it",
     "bs.allPlaced": "Whole fleet placed — tap a ship to move it, or 🎲 for a new layout.",
-    "bs.badPlace": "That ship won't fit there — rotate (↻) or pick another cell."
+    "bs.badPlace": "That ship won't fit there — rotate (↻) or pick another cell.",
+    "bs.forfeit": "🏆 Claim the unrevealed pot",
+    "bs.wonCollect": "🏆 You sank the enemy fleet! Revealing your fleet to collect {amt} NADO…",
+    "bs.winnerStalled": " (winner never revealed a valid fleet — you can claim the pot)",
+    "bs.dnClaim": "✓ Fleet revealed — winnings collected!",
+    "bs.dnForfeit": "✓ Pot claimed — opponent never revealed a valid fleet.",
+    "bs.cfClaim": "Revealing your fleet to collect…",
+    "bs.cfForfeit": "Claiming the pot…"
   },
   "cs": {
     "bs.allGames": "🎮 Všechny hry",
@@ -183,7 +190,14 @@
     "bs.rotate": "Otočit",
     "bs.placeShipHint": "vyber loď, ťukni na mřížku pro umístění · ťukni na loď pro přesun",
     "bs.allPlaced": "Celá flotila umístěna — ťukni na loď pro přesun, nebo 🎲 pro nové rozložení.",
-    "bs.badPlace": "Tam se loď nevejde — otoč (↻) nebo vyber jinou buňku."
+    "bs.badPlace": "Tam se loď nevejde — otoč (↻) nebo vyber jinou buňku.",
+    "bs.forfeit": "🏆 Nárokovat neodhalený bank",
+    "bs.wonCollect": "🏆 Potopil jsi nepřátelskou flotilu! Odhaluji tvou flotilu pro výběr {amt} NADO…",
+    "bs.winnerStalled": " (vítěz neodhalil platnou flotilu — můžeš nárokovat bank)",
+    "bs.dnClaim": "✓ Flotila odhalena — výhra vybrána!",
+    "bs.dnForfeit": "✓ Bank nárokován — soupeř neodhalil platnou flotilu.",
+    "bs.cfClaim": "Odhaluji tvou flotilu pro výběr…",
+    "bs.cfForfeit": "Nárokuji bank…"
   },
   "es": {
     "bs.allGames": "🎮 Todos los juegos",
@@ -276,7 +290,14 @@
     "bs.rotate": "Rotar",
     "bs.placeShipHint": "elige un barco, toca la cuadrícula para colocarlo · toca un barco para moverlo",
     "bs.allPlaced": "Flota completa colocada — toca un barco para moverlo, o 🎲 para un nuevo diseño.",
-    "bs.badPlace": "Ese barco no cabe ahí — rota (↻) o elige otra celda."
+    "bs.badPlace": "Ese barco no cabe ahí — rota (↻) o elige otra celda.",
+    "bs.forfeit": "🏆 Reclamar el bote no revelado",
+    "bs.wonCollect": "🏆 ¡Hundiste la flota enemiga! Revelando tu flota para cobrar {amt} NADO…",
+    "bs.winnerStalled": " (el ganador nunca reveló una flota válida — puedes reclamar el bote)",
+    "bs.dnClaim": "✓ Flota revelada — ¡ganancias cobradas!",
+    "bs.dnForfeit": "✓ Bote reclamado — el rival nunca reveló una flota válida.",
+    "bs.cfClaim": "Revelando tu flota para cobrar…",
+    "bs.cfForfeit": "Reclamando el bote…"
   },
   "pt": {
     "bs.allGames": "🎮 Todos os jogos",
@@ -369,7 +390,14 @@
     "bs.rotate": "Girar",
     "bs.placeShipHint": "escolha um navio, toque na grade para posicioná-lo · toque num navio para movê-lo",
     "bs.allPlaced": "Frota inteira posicionada — toque num navio para movê-lo, ou 🎲 para um novo layout.",
-    "bs.badPlace": "Esse navio não cabe aí — gire (↻) ou escolha outra célula."
+    "bs.badPlace": "Esse navio não cabe aí — gire (↻) ou escolha outra célula.",
+    "bs.forfeit": "🏆 Reivindicar o pote não revelado",
+    "bs.wonCollect": "🏆 Você afundou a frota inimiga! Revelando sua frota para receber {amt} NADO…",
+    "bs.winnerStalled": " (o vencedor nunca revelou uma frota válida — você pode reivindicar o pote)",
+    "bs.dnClaim": "✓ Frota revelada — ganhos recebidos!",
+    "bs.dnForfeit": "✓ Pote reivindicado — o oponente nunca revelou uma frota válida.",
+    "bs.cfClaim": "Revelando sua frota para receber…",
+    "bs.cfForfeit": "Reivindicando o pote…"
   },
   "fr": {
     "bs.allGames": "🎮 Tous les jeux",
@@ -462,7 +490,14 @@
     "bs.rotate": "Pivoter",
     "bs.placeShipHint": "choisissez un navire, touchez la grille pour le placer · touchez un navire pour le déplacer",
     "bs.allPlaced": "Flotte entière placée — touchez un navire pour le déplacer, ou 🎲 pour une nouvelle disposition.",
-    "bs.badPlace": "Ce navire ne rentre pas là — pivotez (↻) ou choisissez une autre case."
+    "bs.badPlace": "Ce navire ne rentre pas là — pivotez (↻) ou choisissez une autre case.",
+    "bs.forfeit": "🏆 Réclamer la cagnotte non révélée",
+    "bs.wonCollect": "🏆 Vous avez coulé la flotte ennemie ! Révélation de votre flotte pour encaisser {amt} NADO…",
+    "bs.winnerStalled": " (le gagnant n'a jamais révélé de flotte valide — vous pouvez réclamer la cagnotte)",
+    "bs.dnClaim": "✓ Flotte révélée — gains encaissés !",
+    "bs.dnForfeit": "✓ Cagnotte réclamée — l'adversaire n'a jamais révélé de flotte valide.",
+    "bs.cfClaim": "Révélation de votre flotte pour encaisser…",
+    "bs.cfForfeit": "Réclamation de la cagnotte…"
   },
   "de": {
     "bs.allGames": "🎮 Alle Spiele",
@@ -555,7 +590,14 @@
     "bs.rotate": "Drehen",
     "bs.placeShipHint": "wähle ein Schiff, tippe aufs Raster zum Platzieren · tippe ein Schiff zum Verschieben",
     "bs.allPlaced": "Ganze Flotte platziert — tippe ein Schiff zum Verschieben, oder 🎲 für eine neue Aufstellung.",
-    "bs.badPlace": "Das Schiff passt dort nicht — drehen (↻) oder ein anderes Feld wählen."
+    "bs.badPlace": "Das Schiff passt dort nicht — drehen (↻) oder ein anderes Feld wählen.",
+    "bs.forfeit": "🏆 Den nicht offengelegten Pot beanspruchen",
+    "bs.wonCollect": "🏆 Du hast die feindliche Flotte versenkt! Deine Flotte wird offengelegt, um {amt} NADO zu kassieren…",
+    "bs.winnerStalled": " (der Gewinner hat nie eine gültige Flotte offengelegt — du kannst den Pot beanspruchen)",
+    "bs.dnClaim": "✓ Flotte offengelegt — Gewinn kassiert!",
+    "bs.dnForfeit": "✓ Pot beansprucht — Gegner hat nie eine gültige Flotte offengelegt.",
+    "bs.cfClaim": "Deine Flotte wird zum Kassieren offengelegt…",
+    "bs.cfForfeit": "Pot wird beansprucht…"
   },
   "it": {
     "bs.allGames": "🎮 Tutti i giochi",
@@ -648,7 +690,14 @@
     "bs.rotate": "Ruota",
     "bs.placeShipHint": "scegli una nave, tocca la griglia per posizionarla · tocca una nave per spostarla",
     "bs.allPlaced": "Intera flotta posizionata — tocca una nave per spostarla, o 🎲 per una nuova disposizione.",
-    "bs.badPlace": "Quella nave non ci sta lì — ruota (↻) o scegli un'altra cella."
+    "bs.badPlace": "Quella nave non ci sta lì — ruota (↻) o scegli un'altra cella.",
+    "bs.forfeit": "🏆 Riscuoti il piatto non rivelato",
+    "bs.wonCollect": "🏆 Hai affondato la flotta nemica! Rivelo la tua flotta per incassare {amt} NADO…",
+    "bs.winnerStalled": " (il vincitore non ha mai rivelato una flotta valida — puoi riscuotere il piatto)",
+    "bs.dnClaim": "✓ Flotta rivelata — vincita incassata!",
+    "bs.dnForfeit": "✓ Piatto riscosso — l'avversario non ha mai rivelato una flotta valida.",
+    "bs.cfClaim": "Rivelo la tua flotta per incassare…",
+    "bs.cfForfeit": "Riscuoto il piatto…"
   },
   "ru": {
     "bs.allGames": "🎮 Все игры",
@@ -741,7 +790,14 @@
     "bs.rotate": "Повернуть",
     "bs.placeShipHint": "выберите корабль, нажмите на сетку, чтобы поставить · нажмите на корабль, чтобы переместить",
     "bs.allPlaced": "Весь флот расставлен — нажмите корабль, чтобы переместить, или 🎲 для новой расстановки.",
-    "bs.badPlace": "Корабль сюда не помещается — поверните (↻) или выберите другую клетку."
+    "bs.badPlace": "Корабль сюда не помещается — поверните (↻) или выберите другую клетку.",
+    "bs.forfeit": "🏆 Забрать нераскрытый банк",
+    "bs.wonCollect": "🏆 Вы потопили флот врага! Раскрываем ваш флот, чтобы забрать {amt} NADO…",
+    "bs.winnerStalled": " (победитель не раскрыл действительный флот — вы можете забрать банк)",
+    "bs.dnClaim": "✓ Флот раскрыт — выигрыш получен!",
+    "bs.dnForfeit": "✓ Банк получен — соперник не раскрыл действительный флот.",
+    "bs.cfClaim": "Раскрываем ваш флот для выплаты…",
+    "bs.cfForfeit": "Забираем банк…"
   },
   "zh": {
     "bs.allGames": "🎮 所有游戏",
@@ -834,7 +890,14 @@
     "bs.rotate": "旋转",
     "bs.placeShipHint": "选择一艘船，点网格放置 · 点已放置的船可移动",
     "bs.allPlaced": "整支舰队已布置——点船可移动，或 🎲 换新布局。",
-    "bs.badPlace": "这艘船放不下——旋转（↻）或换一个格子。"
+    "bs.badPlace": "这艘船放不下——旋转（↻）或换一个格子。",
+    "bs.forfeit": "🏆 领取未揭示的奖池",
+    "bs.wonCollect": "🏆 你击沉了敌方舰队！正在揭示你的舰队以领取 {amt} NADO…",
+    "bs.winnerStalled": " （赢家从未揭示有效舰队——你可以领取奖池）",
+    "bs.dnClaim": "✓ 舰队已揭示——奖金已领取！",
+    "bs.dnForfeit": "✓ 已领取奖池——对手从未揭示有效舰队。",
+    "bs.cfClaim": "正在揭示你的舰队以领取…",
+    "bs.cfForfeit": "正在领取奖池…"
   },
   "ja": {
     "bs.allGames": "🎮 すべてのゲーム",
@@ -927,7 +990,14 @@
     "bs.rotate": "回転",
     "bs.placeShipHint": "船を選び、グリッドをタップして配置 · 配置済みの船をタップで移動",
     "bs.allPlaced": "艦隊をすべて配置——船をタップで移動、または 🎲 で新レイアウト。",
-    "bs.badPlace": "そこには船が入りません——回転（↻）か別のマスを選んでください。"
+    "bs.badPlace": "そこには船が入りません——回転（↻）か別のマスを選んでください。",
+    "bs.forfeit": "🏆 未公開のポットを請求",
+    "bs.wonCollect": "🏆 敵艦隊を撃沈！艦隊を公開して {amt} NADO を受け取っています…",
+    "bs.winnerStalled": " （勝者が有効な艦隊を公開しなかった——ポットを請求できます）",
+    "bs.dnClaim": "✓ 艦隊を公開——賞金を獲得！",
+    "bs.dnForfeit": "✓ ポットを請求——相手は有効な艦隊を公開しませんでした。",
+    "bs.cfClaim": "艦隊を公開して受け取り中…",
+    "bs.cfForfeit": "ポットを請求中…"
   },
   "ko": {
     "bs.allGames": "🎮 모든 게임",
@@ -1020,7 +1090,14 @@
     "bs.rotate": "회전",
     "bs.placeShipHint": "배를 고르고 격자를 탭해 배치 · 배치된 배를 탭하면 이동",
     "bs.allPlaced": "함대 전체 배치됨 — 배를 탭해 이동하거나 🎲로 새 배치.",
-    "bs.badPlace": "그 배는 거기 안 맞습니다 — 회전(↻)하거나 다른 칸을 고르세요."
+    "bs.badPlace": "그 배는 거기 안 맞습니다 — 회전(↻)하거나 다른 칸을 고르세요.",
+    "bs.forfeit": "🏆 공개되지 않은 판돈 청구",
+    "bs.wonCollect": "🏆 적 함대를 격침! 함대를 공개하여 {amt} NADO를 수령 중…",
+    "bs.winnerStalled": " (승자가 유효한 함대를 공개하지 않음 — 판돈을 청구할 수 있습니다)",
+    "bs.dnClaim": "✓ 함대 공개 — 상금 수령 완료!",
+    "bs.dnForfeit": "✓ 판돈 청구 — 상대가 유효한 함대를 공개하지 않았습니다.",
+    "bs.cfClaim": "함대를 공개하여 수령 중…",
+    "bs.cfForfeit": "판돈 청구 중…"
   },
   "ar": {
     "bs.allGames": "🎮 كل الألعاب",
@@ -1113,7 +1190,14 @@
     "bs.rotate": "تدوير",
     "bs.placeShipHint": "اختر سفينة، انقر الشبكة لوضعها · انقر سفينة موضوعة لنقلها",
     "bs.allPlaced": "تم وضع الأسطول كاملاً — انقر سفينة لنقلها، أو 🎲 لتوزيع جديد.",
-    "bs.badPlace": "هذه السفينة لا تتسع هناك — دوّر (↻) أو اختر خلية أخرى."
+    "bs.badPlace": "هذه السفينة لا تتسع هناك — دوّر (↻) أو اختر خلية أخرى.",
+    "bs.forfeit": "🏆 المطالبة بالقِدر غير المكشوف",
+    "bs.wonCollect": "🏆 لقد أغرقت أسطول العدو! جارٍ كشف أسطولك لتحصيل {amt} NADO…",
+    "bs.winnerStalled": " (لم يكشف الفائز عن أسطول صالح — يمكنك المطالبة بالقِدر)",
+    "bs.dnClaim": "✓ تم كشف الأسطول — تم تحصيل الأرباح!",
+    "bs.dnForfeit": "✓ تم أخذ القِدر — لم يكشف الخصم عن أسطول صالح.",
+    "bs.cfClaim": "جارٍ كشف أسطولك للتحصيل…",
+    "bs.cfForfeit": "جارٍ المطالبة بالقِدر…"
   },
   "hi": {
     "bs.allGames": "🎮 सभी गेम",
@@ -1206,7 +1290,14 @@
     "bs.rotate": "घुमाएँ",
     "bs.placeShipHint": "जहाज़ चुनें, रखने के लिए ग्रिड टैप करें · रखे जहाज़ को टैप कर हिलाएँ",
     "bs.allPlaced": "पूरा बेड़ा रखा गया — जहाज़ टैप कर हिलाएँ, या नए विन्यास के लिए 🎲।",
-    "bs.badPlace": "वह जहाज़ वहाँ नहीं आएगा — घुमाएँ (↻) या दूसरा सेल चुनें।"
+    "bs.badPlace": "वह जहाज़ वहाँ नहीं आएगा — घुमाएँ (↻) या दूसरा सेल चुनें।",
+    "bs.forfeit": "🏆 अप्रकट पॉट का दावा करें",
+    "bs.wonCollect": "🏆 आपने दुश्मन बेड़ा डुबो दिया! {amt} NADO वसूलने के लिए आपका बेड़ा प्रकट किया जा रहा है…",
+    "bs.winnerStalled": " (विजेता ने वैध बेड़ा कभी प्रकट नहीं किया — आप पॉट का दावा कर सकते हैं)",
+    "bs.dnClaim": "✓ बेड़ा प्रकट — जीत वसूल ली!",
+    "bs.dnForfeit": "✓ पॉट का दावा किया — प्रतिद्वंद्वी ने वैध बेड़ा कभी प्रकट नहीं किया।",
+    "bs.cfClaim": "वसूलने के लिए आपका बेड़ा प्रकट किया जा रहा है…",
+    "bs.cfForfeit": "पॉट का दावा किया जा रहा है…"
   },
   "tr": {
     "bs.allGames": "🎮 Tüm oyunlar",
@@ -1299,7 +1390,14 @@
     "bs.rotate": "Döndür",
     "bs.placeShipHint": "bir gemi seç, yerleştirmek için ızgaraya dokun · taşımak için yerleştirilmiş gemiye dokun",
     "bs.allPlaced": "Tüm filo yerleştirildi — taşımak için bir gemiye dokun ya da yeni dizilim için 🎲.",
-    "bs.badPlace": "O gemi oraya sığmaz — döndür (↻) ya da başka bir hücre seç."
+    "bs.badPlace": "O gemi oraya sığmaz — döndür (↻) ya da başka bir hücre seç.",
+    "bs.forfeit": "🏆 Açıklanmayan potu talep et",
+    "bs.wonCollect": "🏆 Düşman filosunu batırdın! {amt} NADO'yu almak için filon açıklanıyor…",
+    "bs.winnerStalled": " (kazanan geçerli bir filo açıklamadı — potu talep edebilirsin)",
+    "bs.dnClaim": "✓ Filo açıklandı — kazanç alındı!",
+    "bs.dnForfeit": "✓ Pot alındı — rakip geçerli bir filo açıklamadı.",
+    "bs.cfClaim": "Almak için filon açıklanıyor…",
+    "bs.cfForfeit": "Pot talep ediliyor…"
   },
   "id": {
     "bs.allGames": "🎮 Semua game",
@@ -1392,7 +1490,14 @@
     "bs.rotate": "Putar",
     "bs.placeShipHint": "pilih kapal, ketuk kisi untuk menaruh · ketuk kapal terpasang untuk memindah",
     "bs.allPlaced": "Seluruh armada terpasang — ketuk kapal untuk memindah, atau 🎲 untuk tata letak baru.",
-    "bs.badPlace": "Kapal itu tidak muat di situ — putar (↻) atau pilih sel lain."
+    "bs.badPlace": "Kapal itu tidak muat di situ — putar (↻) atau pilih sel lain.",
+    "bs.forfeit": "🏆 Klaim pot yang tak diungkap",
+    "bs.wonCollect": "🏆 Kamu menenggelamkan armada musuh! Mengungkap armadamu untuk mengambil {amt} NADO…",
+    "bs.winnerStalled": " (pemenang tak pernah mengungkap armada valid — kamu bisa klaim pot)",
+    "bs.dnClaim": "✓ Armada diungkap — kemenangan diambil!",
+    "bs.dnForfeit": "✓ Pot diklaim — lawan tak pernah mengungkap armada valid.",
+    "bs.cfClaim": "Mengungkap armadamu untuk mengambil…",
+    "bs.cfForfeit": "Mengklaim pot…"
   },
   "vi": {
     "bs.allGames": "🎮 Tất cả trò chơi",
@@ -1485,6 +1590,13 @@
     "bs.rotate": "Xoay",
     "bs.placeShipHint": "chọn một tàu, chạm lưới để đặt · chạm tàu đã đặt để di chuyển",
     "bs.allPlaced": "Đã đặt toàn bộ hạm đội — chạm tàu để di chuyển, hoặc 🎲 để xếp lại.",
-    "bs.badPlace": "Tàu đó không vừa chỗ này — xoay (↻) hoặc chọn ô khác."
+    "bs.badPlace": "Tàu đó không vừa chỗ này — xoay (↻) hoặc chọn ô khác.",
+    "bs.forfeit": "🏆 Nhận nồi chưa tiết lộ",
+    "bs.wonCollect": "🏆 Bạn đã đánh chìm hạm đội địch! Đang tiết lộ hạm đội của bạn để nhận {amt} NADO…",
+    "bs.winnerStalled": " (người thắng chưa bao giờ tiết lộ hạm đội hợp lệ — bạn có thể nhận nồi)",
+    "bs.dnClaim": "✓ Đã tiết lộ hạm đội — đã nhận tiền thắng!",
+    "bs.dnForfeit": "✓ Đã nhận nồi — đối thủ chưa từng tiết lộ hạm đội hợp lệ.",
+    "bs.cfClaim": "Đang tiết lộ hạm đội để nhận…",
+    "bs.cfForfeit": "Đang nhận nồi…"
   }
 }
