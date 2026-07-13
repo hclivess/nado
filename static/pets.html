@@ -38,6 +38,10 @@
   button.pulse{animation:cfpulse 1.25s ease-in-out infinite}
   @keyframes waitpulse{0%,100%{opacity:.5}50%{opacity:1}}
   .waitpulse{animation:waitpulse 1.15s ease-in-out infinite;color:var(--accent2)}
+  /* training-in-progress callout: a prominent gold box (training is gold-themed) instead of a tiny dim line */
+  .trainbox{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding:12px 14px;border-radius:12px;
+    font-size:13px;font-weight:700;line-height:1.5;color:var(--gold);background:rgba(227,179,65,.10);
+    border:1px solid rgba(227,179,65,.55);box-shadow:0 4px 16px rgba(0,0,0,.25)}
   .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
   .warn{color:var(--danger);font-weight:600;line-height:1.45}
   .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}
@@ -339,7 +343,7 @@
     <div class="mt hidden" id="statsWrap">
       <h2 data-i18n="pets.abilities">Abilities <span class="dim" style="text-transform:none;letter-spacing:0" data-i18n="pets.abilitiesHint">— tap 🏋 Train on a stat to improve it (0.5 NADO/try)</span></h2>
       <div id="statList"></div>
-      <div id="trainPending" class="small mt hidden"></div>
+      <div id="trainPending" class="trainbox hidden"></div>
       <p class="small dim mt" id="trainHint"></p>
     </div>
 
