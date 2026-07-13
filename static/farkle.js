@@ -176,10 +176,14 @@ async function refreshActive() {
 }
 function boardFrom(sto) {
   const stats = {};
+  // index seats by table in ONE pass — avoids re-scanning the whole seat map per table (O(tables × seats),
+  // unbounded with total game history; now O(seats + tables)).
+  const gg = _m(sto, "gg"), seatsByTable = {};
+  for (const g of Object.keys(gg)) { const t = String(gg[g]); (seatsByTable[t] || (seatsByTable[t] = [])).push(g); }
   for (const t of Object.keys(_m(sto, "ta"))) {
     if (!_m(sto, "tz")[t]) continue;
     const lead = _m(sto, "tb")[t]; if (!lead) continue;
-    const seats = Object.keys(_m(sto, "gg")).filter((g) => String(_m(sto, "gg")[g]) === String(t));
+    const seats = seatsByTable[String(t)] || [];
     const ante = _m(sto, "ts")[t] || 0, pot = ante * seats.length;
     for (const g of seats) scoreBump(stats, _m(sto, "ga")[g], Number(g) === lead ? pot - ante : -ante);
   }

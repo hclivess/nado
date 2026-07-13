@@ -54,13 +54,19 @@ const pieceSVG = (type) => '<svg viewBox="0 0 45 45" aria-hidden="true">' + SHAP
 const allGids = (sto) => Object.keys(_m(sto, "nn"));
 function movesOf(sto, g) { const mv = _m(sto, "mv"), mc = _m(sto, "mc")[g] || 0, out = [];
   for (let i = 0; i < mc; i++) { const e = mv[String(Number(g) * 10000 + i)]; if (e) out.push(decMove(e)); } return out; }
-function gameFrom(sto, g) {
+// gameHead: the scalar fields WITHOUT replaying the move log. The lobby maps this over every game each poll,
+// so it must NOT call movesOf (that replayed every game's whole move history every 3s — O(games × moves)).
+function gameHead(sto, g) {
   g = String(g); const nn = _m(sto, "nn")[g] || 0;
   if (!nn) return { exists: false };
   return { exists: true, id: Number(g), white: _m(sto, "p1")[g], black: _m(sto, "p2")[g],
     stake: _m(sto, "st")[g] || 0, pot: _m(sto, "pt")[g] || 0, nn, settled: !!_m(sto, "sd")[g],
-    deadline: _m(sto, "dl")[g] || 0, mc: _m(sto, "mc")[g] || 0, a1: _m(sto, "a1")[g] || 0, a2: _m(sto, "a2")[g] || 0, wr: _m(sto, "wr")[g] || 0,
-    moves: movesOf(sto, g) };
+    deadline: _m(sto, "dl")[g] || 0, mc: _m(sto, "mc")[g] || 0, a1: _m(sto, "a1")[g] || 0, a2: _m(sto, "a2")[g] || 0, wr: _m(sto, "wr")[g] || 0 };
+}
+function gameFrom(sto, g) {   // full read incl. the replayed move log — for the ACTIVE game, not list views
+  const h = gameHead(sto, g);
+  if (h.exists) h.moves = movesOf(sto, g);
+  return h;
 }
 // rebuild the board by replaying the on-chain move log; corrupted (an illegal on-chain move) -> flagged
 function rebuildEngine(g) {
@@ -144,7 +150,7 @@ async function refreshActive() {
 }
 function renderLobby(sto) {
   const el = $("lobbyList"); if (!el) return;
-  const games = allGids(sto).map((g) => gameFrom(sto, g)).filter((g) => g.exists && !g.settled);
+  const games = allGids(sto).map((g) => gameHead(sto, g)).filter((g) => g.exists && !g.settled);
   games.sort((a, b) => (a.nn - b.nn) || (b.id - a.id));
   const shown = games.slice(0, 24);
   el.innerHTML = shown.length ? shown.map((g) => {
@@ -239,7 +245,7 @@ function render() {
   // my recent games
   const G = load(), ids = Object.keys(G).sort((a, b) => G[b].ts - G[a].ts).slice(0, 8);   // keep every game visible (landed OR confirming)
   $("recent").innerHTML = ids.length ? ids.map((g) => { const live = knownGames.has(String(g)); let tag = "";
-    if (live && lastSto) { const gm = gameFrom(lastSto, g); if (gm.exists) tag = gm.settled ? window.t("chess.tagFinished", " · finished ✓") : gm.nn < 2 ? window.t("chess.tagWaiting", " · waiting for opponent") : window.t("chess.tagLive", " · live — your move?"); }
+    if (live && lastSto) { const gm = gameHead(lastSto, g); if (gm.exists) tag = gm.settled ? window.t("chess.tagFinished", " · finished ✓") : gm.nn < 2 ? window.t("chess.tagWaiting", " · waiting for opponent") : window.t("chess.tagLive", " · live — your move?"); }
     return '<button class="chip' + (live ? "" : " pending") + '" data-g="' + g + '"' + (live ? "" : ' title="' + window.t("chess.confirmingTitle", "still confirming on-chain — your game hasn't vanished") + '"') + '>' + (G[g].role === "white" ? "♔" : "♚") + " #" + g + (live ? tag : window.t("chess.confirmingTag", " · confirming ⏳")) + "</button>"; }).join(" ") : '<span class="dim">' + window.t("chess.noGames", "No games yet.") + '</span>';
   $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeGame = parseInt(b.dataset.g, 10); pendingEnc = null; haveState = false; replayPly = null; refreshActive(); });
   renderActive();

@@ -294,10 +294,14 @@ async function refreshActive() {
 }
 function boardFrom(sto) {
   const stats = {};
+  // index every seat by its table in ONE pass so we don't re-scan the whole seat map per table
+  // (that was O(tables × seats), unbounded with total hand history; this is O(seats + tables)).
+  const gg = _m(sto, "gg"), seatsByTable = {};
+  for (const g of Object.keys(gg)) { const t = String(gg[g]); (seatsByTable[t] || (seatsByTable[t] = [])).push(g); }
   for (const t of Object.keys(_m(sto, "ta"))) {
     if (!_m(sto, "tz")[t]) continue;
     const lead = _m(sto, "tb")[t]; if (!lead) continue;             // cancelled / reclaimed hands don't rank
-    const seats = Object.keys(_m(sto, "gg")).filter((g) => String(_m(sto, "gg")[g]) === String(t));
+    const seats = seatsByTable[String(t)] || [];
     const ante = _m(sto, "ts")[t] || 0, contrib = {}; let pot = 0;
     for (const g of seats) {
       let c = ante;
