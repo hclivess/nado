@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NADO Chess — play for stakes, post-quantum</title>
+<title data-i18n="chess.pageTitle">NADO Chess — play for stakes, post-quantum</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%20width%3D%2264%22%20height%3D%2264%22%20aria-hidden%3D%22true%22%3E%0A%20%20%20%20%3Crect%20x%3D%2222.4%22%20y%3D%226%22%20width%3D%223.2%22%20height%3D%228%22%20rx%3D%221%22%20fill%3D%22%2300c9a7%22/%3E%0A%20%20%20%20%3Crect%20x%3D%2218.6%22%20y%3D%228.4%22%20width%3D%2210.8%22%20height%3D%223.2%22%20rx%3D%221.2%22%20fill%3D%22%2300c9a7%22/%3E%0A%20%20%20%20%3Cpath%20d%3D%22M24%2013.5c-6.4%202-9.5%206-9.5%2010.5l3%206h13l3-6c0-4.5-3.1-8.5-9.5-10.5z%22%20fill%3D%22%2300c9a7%22/%3E%0A%20%20%20%20%3Cpath%20d%3D%22M17.5%2030h13l-1.4%204.2h-10.2z%22%20fill%3D%22%2300ad93%22/%3E%0A%20%20%20%20%3Crect%20x%3D%2214.5%22%20y%3D%2234%22%20width%3D%2219%22%20height%3D%224.4%22%20rx%3D%222.2%22%20fill%3D%22%2300c9a7%22/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js"></script>
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
     --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--light:#eaeef2;--darksq:#43586a;--sel:#00c9a7;
@@ -69,89 +70,89 @@
     <rect x="18.6" y="8.4" width="10.8" height="3.2" rx="1.2" fill="#00c9a7"/>
     <path d="M24 13.5c-6.4 2-9.5 6-9.5 10.5l3 6h13l3-6c0-4.5-3.1-8.5-9.5-10.5z" fill="#00c9a7"/>
     <path d="M17.5 30h13l-1.4 4.2h-10.2z" fill="#00ad93"/>
-    <rect x="14.5" y="34" width="19" height="4.4" rx="2.2" fill="#00c9a7"/></svg></span><h1>NADO <span class="a">Chess</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
-  <p class="sub">Play a real game of chess <b>for stakes</b> on the NADO execution layer. Both players stake equally; every move is recorded on-chain (a trustless game log), and the pot settles by <b>resignation, mutual agreement, or a refund timeout</b> — so a stall or a disputed move can never rob you. The board + full legality run in your browser. Post-quantum wallet, no install.</p>
+    <rect x="14.5" y="34" width="19" height="4.4" rx="2.2" fill="#00c9a7"/></svg></span><h1>NADO <span class="a">Chess</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="chess.allGames">🎮 All games</a></header>
+  <p class="sub" data-i18n-html="chess.sub">Play a real game of chess <b>for stakes</b> on the NADO execution layer. Both players stake equally; every move is recorded on-chain (a trustless game log), and the pot settles by <b>resignation, mutual agreement, or a refund timeout</b> — so a stall or a disputed move can never rob you. The board + full legality run in your browser. Post-quantum wallet, no install.</p>
 
   <div id="status"></div>
 
   <div class="card" id="walletcard">
-    <h2>Wallet</h2>
-    <p class="small dim">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
-    <div class="kv mt"><span class="k">Playing as</span><span class="mono" id="who">not signed in</span></div>
-    <div class="kv"><span class="k">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
-    <div class="kv"><span class="k">🪙 Tokens (stakeable)</span><span class="mono" id="bal">—</span></div>
-    <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
+    <h2 data-i18n="chess.wallet">Wallet</h2>
+    <p class="small dim" data-i18n-html="chess.walletHelp">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
+    <div class="kv mt"><span class="k" data-i18n="chess.playingAs">Playing as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="chess.walletL1">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="chess.tokensStakeable">🪙 Tokens (stakeable)</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="chess.signIn">Sign in with NADO wallet</button></div>
   </div>
 
   <!-- PLAY -->
   <div class="card hidden" id="play">
-    <h2>♟ Play for stakes</h2>
+    <h2 data-i18n="chess.playHead">♟ Play for stakes</h2>
     <div class="row">
-      <input id="stakeAmt" value="1" placeholder="stake (NADO)" inputmode="decimal" autocomplete="off">
-      <button class="primary" id="btnNew" style="flex:0 0 auto">New game</button>
+      <input id="stakeAmt" value="1" placeholder="stake (NADO)" data-i18n-ph="chess.stakePh" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNew" style="flex:0 0 auto" data-i18n="chess.newGameBtn">New game</button>
     </div>
-    <label class="mt">Join a game by ID</label>
+    <label class="mt" data-i18n="chess.joinByIdLabel">Join a game by ID</label>
     <div class="row">
-      <input id="joinId" placeholder="game ID" inputmode="numeric" autocomplete="off">
-      <button class="primary" id="btnJoin" style="flex:0 0 auto">Join</button>
+      <input id="joinId" placeholder="game ID" data-i18n-ph="chess.gameIdPh" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="btnJoin" style="flex:0 0 auto" data-i18n="chess.join">Join</button>
     </div>
-    <div class="small dim mt">Your games <span style="opacity:.7">· ♔ you are white · ♚ you are black</span></div>
+    <div class="small dim mt" data-i18n="chess.yourGames">Your games <span style="opacity:.7" data-i18n="chess.yourGamesLegend">· ♔ you are white · ♚ you are black</span></div>
     <div class="small dim" id="recent"></div>
   </div>
 
   <!-- BANKROLL -->
   <div class="card hidden" id="bankroll">
-    <h2>🪙 Tokens — buy in / cash out</h2>
+    <h2 data-i18n="chess.bankHead">🪙 Tokens — buy in / cash out</h2>
     <div class="row">
-      <input id="bankAmt" value="10" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
-      <button class="ghost" id="btnDeposit" style="flex:0 0 auto">Deposit</button>
-      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
+      <input id="bankAmt" value="10" placeholder="amount (NADO)" data-i18n-ph="chess.amountPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto" data-i18n="chess.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto" data-i18n="chess.withdraw">Withdraw</button>
     </div>
-    <div class="small dim mt">Deposit moves L1 → exec (stakeable); Withdraw moves exec → L1.</div>
+    <div class="small dim mt" data-i18n="chess.bankHelp">Deposit moves L1 → exec (stakeable); Withdraw moves exec → L1.</div>
   </div>
 
   <!-- LOBBY -->
   <div class="card" id="lobby">
-    <h2>♟ Open games</h2>
-    <p class="small dim">Challenge anyone — join an open game or watch one in progress. <span style="opacity:.7">♙ open · ▶ live</span></p>
-    <div class="small mt" id="lobbyList"><span class="dim">Loading…</span></div>
+    <h2 data-i18n="chess.lobbyHead">♟ Open games</h2>
+    <p class="small dim" data-i18n="chess.lobbyHelp">Challenge anyone — join an open game or watch one in progress. <span style="opacity:.7" data-i18n="chess.lobbyLegend">♙ open · ▶ live</span></p>
+    <div class="small mt" id="lobbyList"><span class="dim" data-i18n="chess.loading">Loading…</span></div>
   </div>
 
   <!-- ACTIVE GAME -->
   <div class="card hidden" id="activeGame">
-    <h2>Game <span id="gameId" class="mono"></span></h2>
+    <h2 data-i18n="chess.gameLabel">Game <span id="gameId" class="mono"></span></h2>
     <div id="players" class="mt"></div>
     <div id="board"></div>
-    <div class="kv"><span class="k">Pot</span><span class="mono" id="gPot">—</span></div>
-    <div class="kv"><span class="k">Status</span><span class="mono" id="gStatus">…</span></div>
+    <div class="kv"><span class="k" data-i18n="chess.pot">Pot</span><span class="mono" id="gPot">—</span></div>
+    <div class="kv"><span class="k" data-i18n="chess.statusLabel">Status</span><span class="mono" id="gStatus">…</span></div>
     <div id="settleHint"></div>
     <div class="row mt">
-      <button class="primary hidden" id="btnReopen">🔄 Re-open — try again</button>
-      <button class="primary hidden" id="btnResign">Resign</button>
-      <button class="ghost hidden" id="btnDraw">Offer draw</button>
-      <button class="primary hidden" id="btnSettle">Agree draw</button>
-      <button class="ghost hidden" id="btnAbort">Claim refund (opponent stalled)</button>
-      <button class="ghost hidden" id="btnCancel">Cancel — reclaim stake</button>
-      <button class="primary hidden pulse" id="btnJoinGame" style="flex:1 1 auto">Join this game</button>
-      <button class="ghost" id="btnFlip" style="flex:0 0 auto">Flip board</button>
-      <button class="ghost hidden" id="btnReplay" style="flex:0 0 auto">▶ Replay</button>
+      <button class="primary hidden" id="btnReopen" data-i18n="chess.reopen">🔄 Re-open — try again</button>
+      <button class="primary hidden" id="btnResign" data-i18n="chess.resign">Resign</button>
+      <button class="ghost hidden" id="btnDraw" data-i18n="chess.offerDrawStatic">Offer draw</button>
+      <button class="primary hidden" id="btnSettle" data-i18n="chess.settleStatic">Agree draw</button>
+      <button class="ghost hidden" id="btnAbort" data-i18n="chess.abort">Claim refund (opponent stalled)</button>
+      <button class="ghost hidden" id="btnCancel" data-i18n="chess.cancel">Cancel — reclaim stake</button>
+      <button class="primary hidden pulse" id="btnJoinGame" style="flex:1 1 auto" data-i18n="chess.joinThisGame">Join this game</button>
+      <button class="ghost" id="btnFlip" style="flex:0 0 auto" data-i18n="chess.flip">Flip board</button>
+      <button class="ghost hidden" id="btnReplay" style="flex:0 0 auto" data-i18n="chess.replay">▶ Replay</button>
     </div>
-    <label class="mt">Invite your opponent</label>
+    <label class="mt" data-i18n="chess.inviteLabel">Invite your opponent</label>
     <input id="shareLink" class="mono" readonly onclick="this.select()">
-    <div class="row mt"><button class="primary" id="btnShare" style="flex:0 0 auto">Share</button></div>
+    <div class="row mt"><button class="primary" id="btnShare" style="flex:0 0 auto" data-i18n="chess.share">Share</button></div>
   </div>
 
   <div class="card">
-    <h2>How the wager is safe</h2>
+    <h2 data-i18n="chess.safeHead">How the wager is safe</h2>
     <p class="small dim" style="line-height:1.6">
-      Chess is skill, so the contract is a pure <b>wager escrow</b> — the board and every rule are refereed in your browser by a perft-verified engine, and moves are logged on-chain in order.
-      <br>• <b>Decisive game:</b> the loser <b>resigns</b> (or concedes a checkmate) and the winner is paid the pot.
-      <br>• <b>Draw:</b> both players agree — the stakes refund.
-      <br>• <b>Stall or dispute:</b> after the move deadline either player claims a <b>refund</b>. Because the only outcomes are concede / agree / refund, <b>no one can ever be robbed</b> — at worst a wager voids. (Automatic on-chain checkmate enforcement is a planned upgrade; the contract is upgradable.)
+      <span data-i18n-html="chess.safe1">Chess is skill, so the contract is a pure <b>wager escrow</b> — the board and every rule are refereed in your browser by a perft-verified engine, and moves are logged on-chain in order.</span>
+      <br>• <span data-i18n-html="chess.safe2"><b>Decisive game:</b> the loser <b>resigns</b> (or concedes a checkmate) and the winner is paid the pot.</span>
+      <br>• <span data-i18n-html="chess.safe3"><b>Draw:</b> both players agree — the stakes refund.</span>
+      <br>• <span data-i18n-html="chess.safe4"><b>Stall or dispute:</b> after the move deadline either player claims a <b>refund</b>. Because the only outcomes are concede / agree / refund, <b>no one can ever be robbed</b> — at worst a wager voids. (Automatic on-chain checkmate enforcement is a planned upgrade; the contract is upgradable.)</span>
     </p>
   </div>
 
-  <footer>Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · moves ride L1 as ordered blobs (a move confirms in ~1 min).</footer>
+  <footer data-i18n-html="chess.footer">Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · moves ride L1 as ordered blobs (a move confirms in ~1 min).</footer>
 </div>
 <script type="module" src="/static/chess.js"></script>
 </body>

@@ -6,6 +6,7 @@
 <title>NADO Roulette — auto-spinning, provably fair, post-quantum</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%20width%3D%2264%22%20height%3D%2264%22%20aria-hidden%3D%22true%22%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2224%22%20cy%3D%2224%22%20r%3D%2216%22%20fill%3D%22%230b0f14%22%20stroke%3D%22%23b5810f%22%20stroke-width%3D%222%22/%3E%0A%20%20%20%20%3Cg%20stroke%3D%22%230b0f14%22%20stroke-width%3D%22.6%22%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M24%2024%20L24%208%20A16%2016%200%200%201%2035.3%2012.7%20Z%22%20fill%3D%22%23d0362b%22/%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M24%2024%20L35.3%2012.7%20A16%2016%200%200%201%2040%2024%20Z%22%20fill%3D%22%2320272f%22/%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M24%2024%20L40%2024%20A16%2016%200%200%201%2035.3%2035.3%20Z%22%20fill%3D%22%231f8f4e%22/%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M24%2024%20L35.3%2035.3%20A16%2016%200%200%201%2024%2040%20Z%22%20fill%3D%22%23d0362b%22/%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M24%2024%20L24%2040%20A16%2016%200%200%201%2012.7%2035.3%20Z%22%20fill%3D%22%2320272f%22/%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M24%2024%20L12.7%2035.3%20A16%2016%200%200%201%208%2024%20Z%22%20fill%3D%22%23d0362b%22/%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M24%2024%20L8%2024%20A16%2016%200%200%201%2012.7%2012.7%20Z%22%20fill%3D%22%2320272f%22/%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M24%2024%20L12.7%2012.7%20A16%2016%200%200%201%2024%208%20Z%22%20fill%3D%22%2320272f%22/%3E%3C/g%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2224%22%20cy%3D%2224%22%20r%3D%226%22%20fill%3D%22%23e3b341%22%20stroke%3D%22%23b5810f%22%20stroke-width%3D%221.4%22/%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2224%22%20cy%3D%2224%22%20r%3D%222.2%22%20fill%3D%22%230b0f14%22/%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2224%22%20cy%3D%2210.5%22%20r%3D%222%22%20fill%3D%22%23fff%22/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js"></script>
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
     --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--red:#d0362b;--black:#20272f;--green:#1f8f4e;
@@ -93,142 +94,142 @@
 <body>
 <div class="wrap">
   <header><span class="logo"><svg viewBox="0 0 48 48" width="30" height="30" aria-hidden="true"><circle cx="24" cy="24" r="16" fill="#0b0f14" stroke="#b5810f" stroke-width="2"/><g stroke="#0b0f14" stroke-width=".6"><path d="M24 24 L24 8 A16 16 0 0 1 35.3 12.7 Z" fill="#d0362b"/><path d="M24 24 L35.3 12.7 A16 16 0 0 1 40 24 Z" fill="#20272f"/><path d="M24 24 L40 24 A16 16 0 0 1 35.3 35.3 Z" fill="#1f8f4e"/><path d="M24 24 L35.3 35.3 A16 16 0 0 1 24 40 Z" fill="#d0362b"/><path d="M24 24 L24 40 A16 16 0 0 1 12.7 35.3 Z" fill="#20272f"/><path d="M24 24 L12.7 35.3 A16 16 0 0 1 8 24 Z" fill="#d0362b"/><path d="M24 24 L8 24 A16 16 0 0 1 12.7 12.7 Z" fill="#20272f"/><path d="M24 24 L12.7 12.7 A16 16 0 0 1 24 8 Z" fill="#20272f"/></g><circle cx="24" cy="24" r="6" fill="#e3b341" stroke="#b5810f" stroke-width="1.4"/><circle cx="24" cy="10.5" r="2" fill="#fff"/></svg></span><h1>NADO <span class="a">Roulette</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
-  <p class="sub">A provably-fair, <b>peer-banked multiplayer</b> European roulette on the NADO execution layer. Each table <b>spins itself automatically every ~2 minutes</b> — nobody has to reveal or spin. Bet on any numbers; the result is fixed by a <b>future L1 block hash</b> nobody can predict while betting is open, so the wheel is honest by construction. A win pays the true <span class="mono">36 ÷ numbers-covered</span> (2.70% single-zero edge). Post-quantum wallet, no install.</p>
+  <p class="sub" data-i18n-html="roul.sub">A provably-fair, <b>peer-banked multiplayer</b> European roulette on the NADO execution layer. Each table <b>spins itself automatically every ~2 minutes</b> — nobody has to reveal or spin. Bet on any numbers; the result is fixed by a <b>future L1 block hash</b> nobody can predict while betting is open, so the wheel is honest by construction. A win pays the true <span class="mono">36 ÷ numbers-covered</span> (2.70% single-zero edge). Post-quantum wallet, no install.</p>
 
   <div id="status"></div>
 
   <!-- WALLET -->
   <div class="card" id="walletcard">
-    <h2>Wallet</h2>
-    <p class="small dim">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site. Deposit NADO to play, withdraw winnings any time.</p>
-    <div class="kv mt"><span class="k">Playing as</span><span class="mono" id="who">not signed in</span></div>
-    <div class="kv"><span class="k">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
-    <div class="kv"><span class="k">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
-    <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
+    <h2 data-i18n="roul.walletHead">Wallet</h2>
+    <p class="small dim" data-i18n-html="roul.walletHelp">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site. Deposit NADO to play, withdraw winnings any time.</p>
+    <div class="kv mt"><span class="k" data-i18n="roul.playingAs">Playing as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="roul.walletMain">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="roul.tokensPlayable">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="roul.signIn">Sign in with NADO wallet</button></div>
   </div>
 
   <!-- FIND A TABLE -->
   <div class="card hidden" id="play">
-    <h2>🎯 Find a table</h2>
-    <p class="small dim">Pick a table from the lobby below, or open one by ID — then the bet layout opens for that table.</p>
+    <h2 data-i18n="roul.findHead">🎯 Find a table</h2>
+    <p class="small dim" data-i18n="roul.findHelp">Pick a table from the lobby below, or open one by ID — then the bet layout opens for that table.</p>
     <div class="row">
-      <input id="joinId" placeholder="table ID" inputmode="numeric" autocomplete="off">
-      <button class="primary" id="btnGoTable" style="flex:0 0 auto">Go</button>
+      <input id="joinId" placeholder="table ID" data-i18n-ph="roul.tableIdPh" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="btnGoTable" style="flex:0 0 auto" data-i18n="roul.go">Go</button>
     </div>
-    <div class="small dim mt">Your tables <span style="opacity:.7">· 🏦 you bank · 🎯 you bet</span></div>
+    <div class="small dim mt" data-i18n="roul.yourTables">Your tables <span style="opacity:.7" data-i18n="roul.yourTablesLegend">· 🏦 you bank · 🎯 you bet</span></div>
     <div class="small dim" id="recent"></div>
   </div>
 
   <!-- BANK A TABLE -->
   <div class="card hidden" id="bankcard">
-    <h2>🏦 Bankroll a table</h2>
-    <p class="small dim">Put up a bankroll and open a shared, self-spinning table. Bettors play against it round after round; you keep losing stakes and the green-zero edge, and the wheel resolves itself from the chain — you never have to spin or sign anything again. Top up or close the table any time.</p>
+    <h2 data-i18n="roul.bankHead">🏦 Bankroll a table</h2>
+    <p class="small dim" data-i18n="roul.bankHelp">Put up a bankroll and open a shared, self-spinning table. Bettors play against it round after round; you keep losing stakes and the green-zero edge, and the wheel resolves itself from the chain — you never have to spin or sign anything again. Top up or close the table any time.</p>
     <div class="row">
-      <input id="bankrollAmt" value="100" placeholder="bankroll (NADO)" inputmode="decimal" autocomplete="off">
-      <button class="primary" id="btnNewTable" style="flex:0 0 auto">New table</button>
+      <input id="bankrollAmt" value="100" placeholder="bankroll (NADO)" data-i18n-ph="roul.bankrollPh" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNewTable" style="flex:0 0 auto" data-i18n="roul.newTable">New table</button>
     </div>
   </div>
 
   <!-- BANKROLL -->
   <div class="card hidden" id="bankroll">
-    <h2>🪙 Tokens — buy in / cash out</h2>
+    <h2 data-i18n="roul.tokensHead">🪙 Tokens — buy in / cash out</h2>
     <div class="row">
-      <input id="bankAmt" value="10" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
-      <button class="ghost" id="btnDeposit" style="flex:0 0 auto">Deposit</button>
-      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
+      <input id="bankAmt" value="10" placeholder="amount (NADO)" data-i18n-ph="roul.amountPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto" data-i18n="roul.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto" data-i18n="roul.withdraw">Withdraw</button>
     </div>
-    <div class="small dim mt">Deposit buys tokens with NADO (1 : 1); Withdraw cashes your tokens back out to the wallet.</div>
+    <div class="small dim mt" data-i18n="roul.tokensHelp">Deposit buys tokens with NADO (1 : 1); Withdraw cashes your tokens back out to the wallet.</div>
   </div>
 
   <!-- PUBLIC LOBBY -->
   <div class="card" id="lobby">
-    <h2>🎲 Public tables</h2>
-    <p class="small dim">Live self-spinning tables — tap one to bet against its bank. <span style="opacity:.7">🟢 open for bets</span></p>
-    <div class="small mt" id="lobbyList"><span class="dim">Loading…</span></div>
+    <h2 data-i18n="roul.lobbyHead">🎲 Public tables</h2>
+    <p class="small dim" data-i18n="roul.lobbyHelp">Live self-spinning tables — tap one to bet against its bank. <span style="opacity:.7" data-i18n="roul.openForBets">🟢 open for bets</span></p>
+    <div class="small mt" id="lobbyList"><span class="dim" data-i18n="roul.loading">Loading…</span></div>
   </div>
 
   <!-- SCOREBOARD -->
   <div class="card" id="scoreboard">
-    <h2>🏆 Scoreboard</h2>
-    <p class="small dim">Global standings across every settled bet — banks and bettors alike, ranked by net NADO won.</p>
-    <div class="mt" id="scoreList"><span class="dim">Loading…</span></div>
+    <h2 data-i18n="roul.scoreHead">🏆 Scoreboard</h2>
+    <p class="small dim" data-i18n="roul.scoreHelp">Global standings across every settled bet — banks and bettors alike, ranked by net NADO won.</p>
+    <div class="mt" id="scoreList"><span class="dim" data-i18n="roul.loading">Loading…</span></div>
   </div>
 
   <!-- ACTIVE TABLE (bet builder lives here — only visible once a table is chosen) -->
   <div class="card hidden" id="activeGame">
-    <h2>Table <span id="gameId" class="mono"></span></h2>
+    <h2 data-i18n="roul.tableLabel">Table <span id="gameId" class="mono"></span></h2>
     <div class="wheelwrap">
       <div class="wheel" id="wheel">?</div>
       <div id="result" class="dim">…</div>
     </div>
-    <div class="kv"><span class="k">Status</span><span class="mono" id="gStatus">…</span></div>
-    <div class="kv"><span class="k">Bank (the house — pays winners)</span><span class="mono" id="gBank">—</span></div>
-    <div class="kv"><span class="k">Bankroll</span><span class="mono" id="gBankroll">—</span></div>
-    <div class="kv"><span class="k">Coverage left</span><span class="mono" id="gCover">—</span></div>
+    <div class="kv"><span class="k" data-i18n="roul.statusRow">Status</span><span class="mono" id="gStatus">…</span></div>
+    <div class="kv"><span class="k" data-i18n="roul.bankRow">Bank (the house — pays winners)</span><span class="mono" id="gBank">—</span></div>
+    <div class="kv"><span class="k" data-i18n="roul.bankrollRow">Bankroll</span><span class="mono" id="gBankroll">—</span></div>
+    <div class="kv"><span class="k" data-i18n="roul.coverRow">Coverage left</span><span class="mono" id="gCover">—</span></div>
 
     <!-- BET BUILDER -->
     <div id="betBuilder" class="mt">
-      <label>Build your bet for the next spin</label>
-      <input id="stakeAmt" value="1" placeholder="stake (NADO)" inputmode="decimal" autocomplete="off">
+      <label data-i18n="roul.buildBet">Build your bet for the next spin</label>
+      <input id="stakeAmt" value="1" placeholder="stake (NADO)" data-i18n-ph="roul.stakePh" inputmode="decimal" autocomplete="off">
       <div id="stakeSliderWrap" class="hidden">
         <input type="range" id="stakeSlider" min="0" max="100" value="0" step="0.01" class="mt">
-        <div class="meter"><div class="m"><span id="stakeSliderVal"></span></div><div class="m" style="text-align:right"><b class="sel" id="btnMaxBet" style="cursor:pointer">Max: <span id="maxBetVal"></span></b><span>most this table can cover now</span></div></div>
+        <div class="meter"><div class="m"><span id="stakeSliderVal"></span></div><div class="m" style="text-align:right"><b class="sel" id="btnMaxBet" style="cursor:pointer" data-i18n="roul.max">Max: <span id="maxBetVal"></span></b><span data-i18n="roul.maxHint">most this table can cover now</span></div></div>
       </div>
       <div class="tablewrap mt" id="betTable">
         <div class="rtable">
           <div id="tableGrid"></div>
           <div class="outside">
             <span class="z"></span>
-            <button class="obtn" data-grp2="1st 12">1st 12</button>
-            <button class="obtn" data-grp2="2nd 12">2nd 12</button>
-            <button class="obtn" data-grp2="3rd 12">3rd 12</button>
+            <button class="obtn" data-grp2="1st 12" data-i18n="roul.dozen1">1st 12</button>
+            <button class="obtn" data-grp2="2nd 12" data-i18n="roul.dozen2">2nd 12</button>
+            <button class="obtn" data-grp2="3rd 12" data-i18n="roul.dozen3">3rd 12</button>
             <span></span>
           </div>
           <div class="evenrow">
             <span class="z"></span>
-            <button class="obtn" data-grp2="1-18">1–18</button>
-            <button class="obtn" data-grp2="EVEN">EVEN</button>
+            <button class="obtn" data-grp2="1-18" data-i18n="roul.low">1–18</button>
+            <button class="obtn" data-grp2="EVEN" data-i18n="roul.evenBet">EVEN</button>
             <button class="obtn" data-grp2="RED"><span class="di red"></span></button>
             <button class="obtn" data-grp2="BLACK"><span class="di black"></span></button>
-            <button class="obtn" data-grp2="ODD">ODD</button>
-            <button class="obtn" data-grp2="19-36">19–36</button>
+            <button class="obtn" data-grp2="ODD" data-i18n="roul.oddBet">ODD</button>
+            <button class="obtn" data-grp2="19-36" data-i18n="roul.high">19–36</button>
           </div>
         </div>
       </div>
       <div id="betInfo"></div>
       <div class="row mt" style="align-items:center">
-        <button class="ghost" id="btnClearBet" style="flex:0 0 auto">Clear</button>
-        <button class="primary" id="btnBet" style="flex:1 1 auto">Place bet</button>
+        <button class="ghost" id="btnClearBet" style="flex:0 0 auto" data-i18n="roul.clear">Clear</button>
+        <button class="primary" id="btnBet" style="flex:1 1 auto" data-i18n="roul.placeBet">Place bet</button>
       </div>
       <div class="small warn mt hidden" id="joinHint"></div>
     </div>
 
-    <div class="mt small dim">Seats</div>
+    <div class="mt small dim" data-i18n="roul.seatsHead">Seats</div>
     <div id="seats"></div>
     <div class="row mt" id="myActions"></div>
-    <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1">Auto-collect my winnings — settles a winning spin for me the moment it resolves</span></label>
+    <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1" data-i18n="roul.autoCollect">Auto-collect my winnings — settles a winning spin for me the moment it resolves</span></label>
     <div class="row mt">
-      <button class="primary hidden" id="btnReopen">🔄 Re-open — try again</button>
+      <button class="primary hidden" id="btnReopen" data-i18n="roul.reopen">🔄 Re-open — try again</button>
       <button class="ghost hidden" id="btnClose">Close table</button>
     </div>
     <div class="row mt hidden" id="fundRow">
-      <input id="fundAmt" value="10" placeholder="add to bankroll (NADO)" inputmode="decimal" autocomplete="off">
-      <button class="ghost" id="btnFund" style="flex:0 0 auto">Top up</button>
+      <input id="fundAmt" value="10" placeholder="add to bankroll (NADO)" data-i18n-ph="roul.fundPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnFund" style="flex:0 0 auto" data-i18n="roul.topUp">Top up</button>
     </div>
-    <label class="mt">Invite bettors</label>
+    <label class="mt" data-i18n="roul.invite">Invite bettors</label>
     <input id="shareLink" class="mono" readonly onclick="this.select()">
     <div class="row mt" style="align-items:center;gap:8px">
-      <button class="primary" id="btnShare" style="flex:0 0 auto">Share</button>
-      <span class="dim small">or scan the code to bet at this table</span>
+      <button class="primary" id="btnShare" style="flex:0 0 auto" data-i18n="roul.share">Share</button>
+      <span class="dim small" data-i18n="roul.scanHint">or scan the code to bet at this table</span>
     </div>
     <canvas id="shareQR" class="hidden" style="margin:12px auto 0;display:block;border-radius:8px;background:#fff;padding:8px"></canvas>
-    <div id="shareQRNote" class="hidden dim small mt">QR generator unavailable — copy the link above.</div>
+    <div id="shareQRNote" class="hidden dim small mt" data-i18n="roul.qrUnavail">QR generator unavailable — copy the link above.</div>
   </div>
 
   <!-- FAIRNESS -->
   <div class="card">
-    <h2>Provably fair — no house spin, no secrets</h2>
-    <p class="small dim" style="line-height:1.6">
+    <h2 data-i18n="roul.fairHead">Provably fair — no house spin, no secrets</h2>
+    <p class="small dim" style="line-height:1.6" data-i18n-html="roul.fairBody">
       One shared wheel per table, resolved entirely by the chain:
       <br>• <b>Every ~2 minutes the wheel spins itself.</b> Each bet is bound to a future settle block; the winning number is <span class="mono">HASH(blockhash(H) ‖ blockhash(H+1) ‖ table) mod 37</span>. Those block hashes don't exist yet when you bet, so <b>nobody — not you, not the bank, not the block producer — can know or steer the result</b> while betting is open. Two consecutive blocks are mixed so no single miner can grind it.
       <br>• <b>No one has to spin.</b> There's no reveal and no secret. Once your settle block is finalized, <b>anyone</b> can settle your seat and the chain pays a win automatically — a stalling bank can never rob you, because there's nothing for the bank to withhold.
@@ -237,7 +238,7 @@
     </p>
   </div>
 
-  <footer>
+  <footer data-i18n-html="roul.footer">
     Runs on <a href="https://get.nadochain.com/">NADO</a> · contract calls ride L1 as ordered blobs, apply at finality (a few minutes).
     <a href="https://get.nadochain.com/rollup">See the contract</a>.
   </footer>

@@ -16,11 +16,11 @@ const dapp = new NadoDapp({ cid: CID, app: "Bet" });
 const BLOCK_SECS = 6, BPM = 60 / BLOCK_SECS;   // 10 blocks / minute
 let lastSto = null, activeMarket = null, selOutcome = null;
 // optimistic-status labels (SDK owns the lifecycle via showReturn/settleInflight/doneLabels)
-const CONFIRMING = { bet: "Bet placed — confirming on-chain…", claim: "Collecting your winnings — confirming…",
-  create: "Listing your market — confirming…", resolve: "Posting the result — confirming…",
-  void: "Voiding — refunding bettors…", src: "Adding source — confirming…" };
-const DONE = { bet: "✓ Bet confirmed", claim: "✓ Winnings collected", create: "✓ Market listed",
-  resolve: "✓ Result posted", void: "✓ Market voided", src: "✓ Source added" };
+const CONFIRMING = { bet: window.t("bet.cfBet", "Bet placed — confirming on-chain…"), claim: window.t("bet.cfClaim", "Collecting your winnings — confirming…"),
+  create: window.t("bet.cfCreate", "Listing your market — confirming…"), resolve: window.t("bet.cfResolve", "Posting the result — confirming…"),
+  void: window.t("bet.cfVoid", "Voiding — refunding bettors…"), src: window.t("bet.cfSrc", "Adding source — confirming…") };
+const DONE = { bet: window.t("bet.dnBet", "✓ Bet confirmed"), claim: window.t("bet.dnClaim", "✓ Winnings collected"), create: window.t("bet.dnCreate", "✓ Market listed"),
+  resolve: window.t("bet.dnResolve", "✓ Result posted"), void: window.t("bet.dnVoid", "✓ Market voided"), src: window.t("bet.dnSrc", "✓ Source added") };
 // game-specific "did the in-flight action land on-chain?" check for dapp.settleInflight
 function actionLanded(f) {
   const sto = lastSto, me = dapp.me, m = f.market;
@@ -77,34 +77,34 @@ function claimable(mk) {
     return Math.floor(mk.myStakes[mk.winner] * mk.total / mk.pools[mk.winner]);
   return 0;
 }
-const STATUS_TAG = { open: '<span class="b ok">🟢 open</span>', locked: '<span class="b pend">🔒 locked</span>',
-  resolved: '<span class="b ok">✅ resolved</span>', void: '<span class="b void">↩ void</span>' };
+const statusTag = (s) => ({ open: '<span class="b ok">' + window.t("bet.tagOpen", "🟢 open") + '</span>', locked: '<span class="b pend">' + window.t("bet.tagLocked", "🔒 locked") + '</span>',
+  resolved: '<span class="b ok">' + window.t("bet.tagResolved", "✅ resolved") + '</span>', void: '<span class="b void">' + window.t("bet.tagVoid", "↩ void") + '</span>' }[s]);
 function statusText(mk) {
-  if (mk.voided) return "voided — every stake refunded 1:1";
-  if (mk.resolved) return "resolved — " + mk.labels[mk.winner] + " won";
-  if (mk.locked) return "locked — awaiting the result" + (mk.cur >= mk.deadline ? " (past deadline — anyone can void)" : "");
+  if (mk.voided) return window.t("bet.stVoided", "voided — every stake refunded 1:1");
+  if (mk.resolved) return window.t("bet.stResolved", "resolved — {label} won", { label: mk.labels[mk.winner] });
+  if (mk.locked) return window.t("bet.stLocked", "locked — awaiting the result") + (mk.cur >= mk.deadline ? window.t("bet.stPastDeadline", " (past deadline — anyone can void)") : "");
   const left = mk.cur != null ? blocksToTime(mk.lock - mk.cur) : "…";
-  return "open — betting closes in " + left;
+  return window.t("bet.stOpen", "open — betting closes in {left}", { left });
 }
 
 // ---- actions -------------------------------------------------------------------------------------
 async function placeBet() {
-  if (activeMarket == null || selOutcome == null) { $("status").textContent = "Pick a match and an outcome first."; return; }
+  if (activeMarket == null || selOutcome == null) { $("status").textContent = window.t("bet.pickFirst", "Pick a match and an outcome first."); return; }
   const mk = lastSto && parseMarket(lastSto, activeMarket);
-  if (!mk || mk.status !== "open") { $("status").textContent = "This match isn't open for bets."; render(); return; }
+  if (!mk || mk.status !== "open") { $("status").textContent = window.t("bet.notOpen", "This match isn't open for bets."); render(); return; }
   const stake = nadoToRaw($("stakeAmt").value);
-  if (!stake) { $("status").textContent = "Enter a stake (NADO)."; return; }
+  if (!stake) { $("status").textContent = window.t("bet.enterStake", "Enter a stake (NADO)."); return; }
   await dapp.refresh();
-  if (!canPay(dapp, stake, "This bet")) { render(); return; }
+  if (!canPay(dapp, stake, window.t("bet.thisBet", "This bet"))) { render(); return; }
   const lab = mk.labels[selOutcome];
   // prevUs lets refreshAll detect when THIS bet lands on-chain (my stake in the market grows) and clear
   // the optimistic "confirming…" line — otherwise it sticks forever.
-  dapp.call("bet", [activeMarket, selOutcome], stake, "bet " + rawToNado(stake) + " on " + lab + " · match #" + activeMarket,
+  dapp.call("bet", [activeMarket, selOutcome], stake, window.t("bet.callBet", "bet {amt} on {lab} · match #{id}", { amt: rawToNado(stake), lab, id: activeMarket }),
             { market: activeMarket, phase: "bet", prevUs: mk.myTotal });
 }
-const claimMarket = (m) => dapp.call("claim", [m], null, "collect from match #" + m, { market: m, phase: "claim" });
-const voidMarket  = (m) => dapp.call("void", [m], null, "void match #" + m + " (refund everyone)", { market: m, phase: "void" });
-const resolveMarket = (m, out, lab) => dapp.call("resolve", [m, out], null, "post result: " + lab + " won · match #" + m, { market: m, phase: "resolve" });
+const claimMarket = (m) => dapp.call("claim", [m], null, window.t("bet.callClaim", "collect from match #{id}", { id: m }), { market: m, phase: "claim" });
+const voidMarket  = (m) => dapp.call("void", [m], null, window.t("bet.callVoid", "void match #{id} (refund everyone)", { id: m }), { market: m, phase: "void" });
+const resolveMarket = (m, out, lab) => dapp.call("resolve", [m, out], null, window.t("bet.callResolve", "post result: {lab} won · match #{id}", { lab, id: m }), { market: m, phase: "resolve" });
 
 function createMarket() {
   const title = ($("cmTitle").value || "").trim();
@@ -115,20 +115,20 @@ function createMarket() {
   // resolver set: up to 3 addresses (comma/space/line separated); blank -> you resolve it yourself
   const resolvers = ($("cmResolvers").value || "").split(/[\n,\s]+/).map((s) => s.trim()).filter(Boolean).slice(0, 3);
   const thr = parseInt($("cmThreshold").value, 10) || 0;
-  if (!title) return set("Give the market a title.");
-  if (labels.length < 2) return set("List at least two outcomes (comma- or line-separated).");
-  if (closeMin <= 0) return set("Betting must close in a positive number of minutes.");
-  if (thr && resolvers.length && thr > resolvers.length) return set("Threshold can't exceed the number of resolvers.");
-  if (dapp.cursor == null) return set("Chain height unknown — try again in a moment.");
+  if (!title) return set(window.t("bet.needTitle", "Give the market a title."));
+  if (labels.length < 2) return set(window.t("bet.needOutcomes", "List at least two outcomes (comma- or line-separated)."));
+  if (closeMin <= 0) return set(window.t("bet.needClose", "Betting must close in a positive number of minutes."));
+  if (thr && resolvers.length && thr > resolvers.length) return set(window.t("bet.thrTooHigh", "Threshold can't exceed the number of resolvers."));
+  if (dapp.cursor == null) return set(window.t("bet.heightUnknown", "Chain height unknown — try again in a moment."));
   const lock = Math.round(dapp.cursor + closeMin * BPM);
   const deadline = Math.round(lock + Math.max(voidHrs, 0.5) * 60 * BPM);
   const id = randId();
   const desc = [title].concat(labels).join("\n");
   const r = resolvers.concat(["", "", ""]);
   dapp.call("create_market", [id, labels.length, lock, deadline, desc, source, ev, thr, r[0], r[1], r[2]], null,
-            "list “" + title + "”", { market: id, phase: "create" });
+            window.t("bet.callCreate", "list “{title}”", { title }), { market: id, phase: "create" });
 }
-const addSource = () => { const n = ($("srcName").value || "").trim(); if (!n) return set("Enter a source name."); dapp.call("add_source", [n], null, "add source " + n, { phase: "src" }); };
+const addSource = () => { const n = ($("srcName").value || "").trim(); if (!n) return set(window.t("bet.needSource", "Enter a source name.")); dapp.call("add_source", [n], null, window.t("bet.callAddSource", "add source {n}", { n }), { phase: "src" }); };
 const set = (m) => { $("status").textContent = m; };
 
 // ---- refresh + render ----------------------------------------------------------------------------
@@ -147,7 +147,7 @@ async function refreshAll() {
 }
 function selectMarket(id) {
   activeMarket = Number(id); selOutcome = null;
-  set("Match #" + id + " — pick an outcome and place your bet.");
+  set(window.t("bet.selectPrompt", "Match #{id} — pick an outcome and place your bet.", { id }));
   render();
   try { $("activeMarket").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
 }
@@ -155,10 +155,10 @@ function selectMarket(id) {
 function marketCard(mk) {
   const oddsRow = mk.outsHTML;
   const meta = [];
-  if (mk.myTotal > 0) meta.push('<span class="b ok" style="margin-left:0">your bet ' + rawToNado(mk.myTotal) + "</span>");
+  if (mk.myTotal > 0) meta.push('<span class="b ok" style="margin-left:0">' + window.t("bet.yourBet", "your bet {amt}", { amt: rawToNado(mk.myTotal) }) + "</span>");
   meta.push(statusText(mk));
   return '<div class="mkt' + (mk.id === activeMarket ? " sel" : "") + '" data-m="' + mk.id + '">' +
-    '<div class="top"><span class="ttl">' + esc(mk.title) + "</span>" + STATUS_TAG[mk.status] + "</div>" +
+    '<div class="top"><span class="ttl">' + esc(mk.title) + "</span>" + statusTag(mk.status) + "</div>" +
     '<div class="meta">' + meta.join(" · ") + "</div>" + oddsRow + "</div>";
 }
 function outcomesHTML(mk, opts) {
@@ -213,7 +213,7 @@ function render() {
   const sto = lastSto;
   const signedIn = renderWallet(dapp);
   gate({ bankroll: signedIn });
-  if (!sto) { $("marketsList").innerHTML = '<span class="dim">Connecting to the chain…</span>'; return; }
+  if (!sto) { $("marketsList").innerHTML = '<span class="dim">' + window.t("bet.connecting", "Connecting to the chain…") + '</span>'; return; }
   dapp.reflectUrl("market", activeMarket);
 
   // markets list — open first (by soonest close), then locked, then settled
@@ -222,7 +222,7 @@ function render() {
   const rank = { open: 0, locked: 1, resolved: 2, void: 3 };
   mkts.sort((a, b) => (rank[a.status] - rank[b.status]) || (a.lock - b.lock) || (b.id - a.id));
   $("marketsList").innerHTML = mkts.length ? mkts.map(marketCard).join("")
-    : '<span class="dim">No matches listed yet' + (signedIn ? " — create one below." : ", check back soon.") + "</span>";
+    : '<span class="dim">' + window.t("bet.noMatches", "No matches listed yet") + (signedIn ? window.t("bet.noMatchesCreate", " — create one below.") : window.t("bet.noMatchesSoon", ", check back soon.")) + "</span>";
   $("marketsList").querySelectorAll(".mkt").forEach((el) => el.onclick = () => selectMarket(el.dataset.m));
 
   // my bets
@@ -231,8 +231,8 @@ function render() {
   if (mine.length) $("myBetsList").innerHTML = mine.map((mk) => {
     const c = claimable(mk);
     let tag = statusText(mk);
-    if (c > 0) tag = '<span class="b ok">💰 ' + rawToNado(c) + " to collect</span>";
-    else if (mk.claimed) tag = '<span class="b dimb">collected ✓</span>';
+    if (c > 0) tag = '<span class="b ok">' + window.t("bet.toCollect", "💰 {amt} to collect", { amt: rawToNado(c) }) + "</span>";
+    else if (mk.claimed) tag = '<span class="b dimb">' + window.t("bet.collectedTag", "collected ✓") + "</span>";
     return '<div class="pos" data-m="' + mk.id + '" style="cursor:pointer"><span>' + esc(mk.title) +
       ' <span class="dim">· ' + rawToNado(mk.myTotal) + " staked</span></span><span>" + tag + "</span></div>";
   }).join("");
@@ -241,12 +241,12 @@ function render() {
   // sources + oracle panel
   const srcs = sourcesOf(sto);
   $("sourcesList").innerHTML = srcs.length ? srcs.map((s) => '<span class="b dimb" style="margin:0 4px 4px 0;display:inline-block">' + esc(s) + "</span>").join("")
-    : '<span class="dim">none configured yet</span>';
+    : '<span class="dim">' + window.t("bet.noSources", "none configured yet") + "</span>";
   const admin = isAdmin(sto);
   gate({ oraclePanel: signedIn });   // creating a market is PERMISSIONLESS — anyone signed in can list one
   if (signedIn) {
     // source is optional: pick a registered public source (auto-resolvable) or leave it self-resolved
-    $("cmSource").innerHTML = '<option value="">— none / I\'ll resolve it —</option>'
+    $("cmSource").innerHTML = '<option value="">' + esc(window.t("bet.sourceNone", "— none / I'll resolve it —")) + '</option>'
       + srcs.map((s) => '<option>' + esc(s) + "</option>").join("");
     gate({ adminCfg: admin });   // add-source is protocol config, admin only
   }
@@ -262,9 +262,9 @@ function renderActive(sto) {
   $("mTitle").textContent = mk.title;
   $("mStatus").textContent = statusText(mk);
   $("mPool").textContent = rawToNado(mk.total) + " NADO";
-  $("mSource").textContent = mk.source ? (mk.source + (mk.ev ? " · event " + mk.ev : "")) : "—";
+  $("mSource").textContent = mk.source ? (mk.source + (mk.ev ? window.t("bet.eventTag", " · event {ev}", { ev: mk.ev }) : "")) : "—";
   loadEventDetails(mk);   // pull kickoff / league / status / score from the source (best-effort)
-  shareInvite("market", mk.id, "Bet on " + mk.title + " on NADO:", 180);
+  shareInvite("market", mk.id, window.t("bet.shareMatch", "Bet on {title} on NADO:", { title: mk.title }), 180);
 
   // outcome picker (only clickable while open)
   $("mOutcomes").outerHTML = outcomesHTML(mk, { select: mk.status === "open", click: mk.status === "open" }).replace('class="outs"', 'class="outs" id="mOutcomes"');
@@ -280,19 +280,19 @@ function renderActive(sto) {
     if (selOutcome != null && stake) {
       const np = mk.pools[selOutcome] + Number(stake), nt = mk.total + Number(stake);
       const win = Math.floor(Number(stake) * nt / np);
-      prev = "If " + esc(mk.labels[selOutcome]) + " wins and no one else bets, ≈ " + rawToNado(win) + " NADO (" + (win / Number(stake)).toFixed(2) + "×). Live odds move as others bet.";
-    } else if (selOutcome == null) prev = "Pick an outcome above.";
+      prev = window.t("bet.payoutPreview", "If {lab} wins and no one else bets, ≈ {win} NADO ({x}×). Live odds move as others bet.", { lab: esc(mk.labels[selOutcome]), win: rawToNado(win), x: (win / Number(stake)).toFixed(2) });
+    } else if (selOutcome == null) prev = window.t("bet.pickAbove", "Pick an outcome above.");
     $("payoutPreview").innerHTML = prev;
     const confirming = dapp.busy("bet", "market", mk.id);
     const ok = selOutcome != null && stake && dapp.me && dapp.exec >= stake && !confirming;
     $("btnBet").disabled = !ok;
     $("btnBet").classList.toggle("pulse", !!ok);
-    $("btnBet").textContent = confirming ? "⏳ Bet placed — confirming…"
-      : (selOutcome != null ? "Place bet on " + mk.labels[selOutcome] : "Place bet");
+    $("btnBet").textContent = confirming ? window.t("bet.btnConfirming", "⏳ Bet placed — confirming…")
+      : (selOutcome != null ? window.t("bet.btnBetOn", "Place bet on {lab}", { lab: mk.labels[selOutcome] }) : window.t("bet.btnBet", "Place bet"));
     const hint = $("betHint");
     let h = "";
-    if (!dapp.me) h = "Sign in to bet.";
-    else if (selOutcome != null && stake && dapp.exec < stake) h = "Not enough playable NADO — deposit at least " + rawToNado(stake - dapp.exec) + " more above.";
+    if (!dapp.me) h = window.t("bet.signInToBet", "Sign in to bet.");
+    else if (selOutcome != null && stake && dapp.exec < stake) h = window.t("bet.notEnough", "Not enough playable NADO — deposit at least {amt} more above.", { amt: rawToNado(stake - dapp.exec) });
     hint.textContent = h; hint.classList.toggle("hidden", !h);
   }
 
@@ -300,10 +300,10 @@ function renderActive(sto) {
   const posEl = $("myPositions");
   const held = mk.myStakes.map((s, i) => ({ s, i })).filter((x) => x.s > 0);
   if (held.length) {
-    posEl.innerHTML = '<div class="divlabel">Your bets on this match</div>' + held.map((x) => {
+    posEl.innerHTML = '<div class="divlabel">' + window.t("bet.yourBetsHere", "Your bets on this match") + '</div>' + held.map((x) => {
       let tail = "";
-      if (mk.resolved) tail = x.i === mk.winner ? '<span class="b ok">won</span>' : '<span class="b dimb">lost</span>';
-      else if (mk.voided) tail = '<span class="b void">refund</span>';
+      if (mk.resolved) tail = x.i === mk.winner ? '<span class="b ok">' + window.t("bet.won", "won") + '</span>' : '<span class="b dimb">' + window.t("bet.lost", "lost") + '</span>';
+      else if (mk.voided) tail = '<span class="b void">' + window.t("bet.refund", "refund") + '</span>';
       return '<div class="pos"><span>' + esc(mk.labels[x.i]) + " · " + rawToNado(x.s) + " NADO</span><span>" + tail + "</span></div>";
     }).join("");
   } else posEl.innerHTML = "";
@@ -312,10 +312,10 @@ function renderActive(sto) {
   const c = claimable(mk), cr = $("claimRow"); cr.innerHTML = "";
   if (c > 0) {
     const b = document.createElement("button"); b.className = "primary pulse"; b.style.width = "100%";
-    b.textContent = (mk.voided ? "↩ Reclaim " : "💰 Collect ") + rawToNado(c) + " NADO";
+    b.textContent = mk.voided ? window.t("bet.reclaim", "↩ Reclaim {amt} NADO", { amt: rawToNado(c) }) : window.t("bet.collect", "💰 Collect {amt} NADO", { amt: rawToNado(c) });
     b.onclick = () => claimMarket(mk.id); cr.appendChild(b);
   } else if (mk.claimed && mk.myTotal > 0) {
-    cr.innerHTML = '<div class="small dim">You already collected from this match.</div>';
+    cr.innerHTML = '<div class="small dim">' + window.t("bet.alreadyCollected", "You already collected from this match.") + '</div>';
   }
 
   // resolve/void controls — shown to anyone who may resolve THIS market (its named resolvers, or the
@@ -325,7 +325,7 @@ function renderActive(sto) {
   if (canRes && (mk.status === "locked" || mk.status === "open")) {
     const canResolve = mk.status === "locked";
     $("resolveOutcomes").innerHTML = mk.labels.map((lab, i) =>
-      '<button class="out" data-o="' + i + '"' + (canResolve ? "" : " disabled") + '><div class="lab">' + esc(lab) + " won</div></button>").join("");
+      '<button class="out" data-o="' + i + '"' + (canResolve ? "" : " disabled") + '><div class="lab">' + window.t("bet.outcomeWon", "{lab} won", { lab: esc(lab) }) + "</div></button>").join("");
     $("resolveOutcomes").querySelectorAll("button[data-o]").forEach((el) => el.onclick = () => resolveMarket(mk.id, Number(el.dataset.o), mk.labels[el.dataset.o]));
     $("btnVoid").onclick = () => voidMarket(mk.id);
   }
@@ -341,7 +341,7 @@ function wireUI() {
   dapp.wireStakeSlider(() => dapp.exec, () => { if (lastSto) renderActive(lastSto); });
   $("btnCreate").onclick = createMarket;
   if ($("btnAddSource")) $("btnAddSource").onclick = addSource;
-  $("btnShare").onclick = () => share(base() + "/?market=" + activeMarket, "Bet on this match on NADO:", $("btnShare"));
+  $("btnShare").onclick = () => share(base() + "/?market=" + activeMarket, window.t("bet.shareThis", "Bet on this match on NADO:"), $("btnShare"));
 }
 dapp.doneLabels(DONE);
 dapp.onReturn((pend, ok, err) => {
@@ -349,7 +349,7 @@ dapp.onReturn((pend, ok, err) => {
   dapp.showReturn(pend, ok, err, CONFIRMING);   // SDK sets #status + tracks the optimistic phase
 });
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
+  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("bet.cryptoFail", "Crypto bundle failed to load — reload."); return; }
   wireUI(); loadQR();
   const q = new URLSearchParams(location.search).get("market");
   if (q && activeMarket == null) activeMarket = parseInt(q, 10);

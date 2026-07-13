@@ -48,7 +48,7 @@ function openTable(t, bankrollRaw) {
   const T = load(LS_T); T[t] = { bankroll: bankrollRaw.toString(), ts: Date.now() }; save(LS_T, T);
   activeTable = t; $("joinId").value = String(t);
   render();
-  dapp.call("open", [t], bankrollRaw, "bank a dice table #" + t + " · " + rawToNado(bankrollRaw) + " NADO", { table: t, phase: "open" });
+  dapp.call("open", [t], bankrollRaw, window.t("dice.callOpen", "bank a dice table #{t} · {amt} NADO", { t, amt: rawToNado(bankrollRaw) }), { table: t, phase: "open" });
 }
 function reopenTable() {
   const T = load(LS_T)[activeTable]; if (!T || !T.bankroll) return;
@@ -58,41 +58,41 @@ function reopenTable() {
 }
 async function newTable() {
   const raw = nadoToRaw($("bankrollAmt").value);
-  if (!raw) { $("status").textContent = "Enter a bankroll (NADO)."; return; }
+  if (!raw) { $("status").textContent = window.t("dice.enterBankroll", "Enter a bankroll (NADO)."); return; }
   await dapp.refresh();
   if (!canPay(dapp, raw, "Banking this table")) return;
   openTable(randId(), raw);
 }
 async function doBet() {
   const t = activeTable;
-  if (!t) { $("status").textContent = "Pick a table first."; return; }
+  if (!t) { $("status").textContent = window.t("dice.pickFirst", "Pick a table first."); return; }
   const stake = nadoToRaw($("stakeAmt").value);
-  if (!stake) { $("status").textContent = "Enter a stake (NADO)."; return; }
+  if (!stake) { $("status").textContent = window.t("dice.enterStake", "Enter a stake (NADO)."); return; }
   const tb = await fetchTable(t);
   if (!tb || !tb.exists) { $("status").textContent = dapp.whereIs("table", t); return; }
-  if (tb.closed) { $("status").textContent = "That table is closed."; return; }
+  if (tb.closed) { $("status").textContent = window.t("dice.tableClosed", "That table is closed."); return; }
   await dapp.refresh();
   if (!canPay(dapp, stake, "This roll")) { render(); return; }
   const need = returnRaw(stake, target) - stake;
-  if (BigInt(tb.bankroll) - BigInt(tb.committed) < need) { $("status").textContent = "This table can't cover a " + multOf(target).toFixed(2) + "× win right now. Lower your stake or raise your win chance."; render(); return; }
+  if (BigInt(tb.bankroll) - BigInt(tb.committed) < need) { $("status").textContent = window.t("dice.cantCover1", "This table can't cover a {m}× win right now. Lower your stake or raise your win chance.", { m: multOf(target).toFixed(2) }); render(); return; }
   const g = randId(), S = load(LS_S);
   S[g] = { table: t, stake: stake.toString(), M: target, ts: Date.now() }; save(LS_S, S);
   render();
-  dapp.call("bet", [g, t, target], stake, "roll under " + target + " for " + rawToNado(stake) + " NADO · table #" + t, { table: t, seat: g, phase: "bet" });
+  dapp.call("bet", [g, t, target], stake, window.t("dice.callBet", "roll under {target} for {amt} NADO · table #{t}", { target, amt: rawToNado(stake), t }), { table: t, seat: g, phase: "bet" });
 }
 function fundTable() {
   const raw = nadoToRaw($("fundAmt").value);
-  if (!raw) { $("status").textContent = "Enter an amount to add to this table's bankroll."; return; }
+  if (!raw) { $("status").textContent = window.t("dice.enterFund", "Enter an amount to add to this table's bankroll."); return; }
   if (!canPay(dapp, raw, "The top-up")) return;
-  dapp.call("fund", [activeTable], raw, "top up table #" + activeTable + " bankroll · " + rawToNado(raw) + " NADO", { table: activeTable, phase: "fund" });
+  dapp.call("fund", [activeTable], raw, window.t("dice.callFund", "top up table #{t} bankroll · {amt} NADO", { t: activeTable, amt: rawToNado(raw) }), { table: activeTable, phase: "fund" });
 }
-const settleSeat = (g) => dapp.call("settle", [g], null, "collect seat #" + g, { table: activeTable, phase: "settle" });
+const settleSeat = (g) => dapp.call("settle", [g], null, window.t("dice.callSettle", "collect seat #{g}", { g }), { table: activeTable, phase: "settle" });
 // AUTO-COLLECT a resolved WINNING seat (shared SDK tick — opt-out slider, one-per-refresh, autoTried dedup)
 function maybeAutoSettle() {
   if (!lastTable || !lastTable.exists) return;
   dapp.autoCollect(lastSeats.filter((s) => s.addr === dapp.me && !s.settled && s.ready && s.win), (s) => settleSeat(s.g));
 }
-const closeTable = () => dapp.call("close", [activeTable], null, "close table #" + activeTable, { table: activeTable, phase: "close" });
+const closeTable = () => dapp.call("close", [activeTable], null, window.t("dice.callClose", "close table #{t}", { t: activeTable }), { table: activeTable, phase: "close" });
 
 async function refreshActive() {
   await dapp.refresh();
@@ -127,21 +127,22 @@ function boardFrom(sto) {
   }
   return scoreSort(stats);
 }
-const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, "No settled rolls yet — be the first on the board.");
+const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, window.t("dice.noScores", "No settled rolls yet — be the first on the board."));
 function renderLobby(sto) {
   const el = $("lobbyList"); if (!el) return;
   const tables = allTables(sto).map((t) => tableFrom(sto, t)).filter((t) => t.exists && !t.closed);
   tables.sort((a, b) => b.seatCount - a.seatCount || b.id - a.id);
   const shown = tables.slice(0, 24);
   el.innerHTML = shown.length ? shown.map((t) => {
-    const left = t.roundEndsIn != null ? " · next roll " + blocksToTime(t.roundEndsIn) : "";
-    return '<button class="chip betting" data-t="' + t.id + '">🟢 #' + t.id + " · bank " + rawToNado(t.bankroll) + " · " + t.seatCount + " roll" + (t.seatCount === 1 ? "" : "s") + left + "</button>";
-  }).join(" ") : '<span class="dim">No tables yet — bank one below.</span>';
+    const left = t.roundEndsIn != null ? window.t("dice.nextRoll", " · next roll {time}", { time: blocksToTime(t.roundEndsIn) }) : "";
+    const rolls = t.seatCount === 1 ? window.t("dice.roll", "roll") : window.t("dice.rolls", "rolls");
+    return '<button class="chip betting" data-t="' + t.id + '">' + window.t("dice.lobbyChip", "🟢 #{id} · bank {bank} · {n} {rolls}{left}", { id: t.id, bank: rawToNado(t.bankroll), n: t.seatCount, rolls, left }) + "</button>";
+  }).join(" ") : '<span class="dim">' + window.t("dice.noTables", "No tables yet — bank one below.") + "</span>";
   el.querySelectorAll(".chip").forEach((b) => b.onclick = () => selectTable(parseInt(b.dataset.t, 10)));
 }
 function selectTable(id) {
   activeTable = id; $("joinId").value = String(id);
-  $("status").textContent = "Table #" + id + " — set your stake and win chance, then Place roll.";
+  $("status").textContent = window.t("dice.tableSelected", "Table #{id} — set your stake and win chance, then Place roll.", { id });
   refreshActive();
   try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
 }
@@ -164,7 +165,7 @@ function syncSlider() {
   $("winChance").textContent = target + "%";
   $("multiplier").textContent = multOf(target).toFixed(2) + "×";
   const stake = nadoToRaw($("stakeAmt").value);
-  $("payoutPreview").textContent = stake ? "win pays " + rawToNado(returnRaw(stake, target)) + " NADO" : "";
+  $("payoutPreview").textContent = stake ? window.t("dice.winPays", "win pays {amt} NADO", { amt: rawToNado(returnRaw(stake, target)) }) : "";
   syncStakeSlider();
 }
 function wireUI() {
@@ -172,12 +173,12 @@ function wireUI() {
   stickyInputs(dapp, ['stakeAmt', 'bankrollAmt', 'fundAmt', 'bankAmt']);   // typed amounts persist across turns
   $("btnNewTable").onclick = newTable;
   $("btnBet").onclick = doBet;
-  $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = "Enter a table ID, or pick one from the lobby."; };
+  $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = window.t("dice.enterTableId", "Enter a table ID, or pick one from the lobby."); };
   $("btnClose").onclick = closeTable;
   dapp.wireAutoCollect();
   $("btnReopen").onclick = reopenTable;
   $("btnFund").onclick = fundTable;
-  $("btnShare").onclick = () => share(base() + "/?table=" + activeTable, "Roll at my dice table #" + activeTable + " on NADO:", $("btnShare"));
+  $("btnShare").onclick = () => share(base() + "/?table=" + activeTable, window.t("dice.shareText", "Roll at my dice table #{t} on NADO:", { t: activeTable }), $("btnShare"));
   $("target").oninput = () => { syncSlider(); render(); };
   dapp.wireStakeSlider(maxBetRaw, () => { syncSlider(); render(); });   // owns stakeAmt input + the % slider + Max
   dapp.wirePctSlider("bankroll", { slider: "bankrollSlider", input: "bankrollAmt" }, () => dapp.exec, render);   // bank a table: % of your playable balance
@@ -199,10 +200,10 @@ function render() {
   let hint = "";
   if (signedIn && activeTable != null) {
     if (!tb && !lastTable?.exists) hint = dapp.whereIs("table", activeTable, (load(LS_T)[activeTable] || {}).ts);
-    else if (lastTable && lastTable.closed) hint = "Table #" + activeTable + " is closed.";
-    else if (!stake) hint = "Enter a stake (NADO) and set your win chance, then Place roll — you can bet at your own table too.";
-    else if (dapp.exec < stake) hint = "Not enough NADO — this rolls " + rawToNado(stake) + " but your exec balance is " + rawToNado(dapp.exec) + ". Deposit at least " + rawToNado(stake - dapp.exec) + " more below.";
-    else if (tb && !covers) hint = "This table's bankroll can't cover a " + multOf(target).toFixed(2) + "× win (free: " + rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) + " NADO). Lower your stake, raise your win chance, or Top up the bankroll.";
+    else if (lastTable && lastTable.closed) hint = window.t("dice.tableClosedN", "Table #{t} is closed.", { t: activeTable });
+    else if (!stake) hint = window.t("dice.enterStakeHint", "Enter a stake (NADO) and set your win chance, then Place roll — you can bet at your own table too.");
+    else if (dapp.exec < stake) hint = window.t("dice.notEnough", "Not enough NADO — this rolls {need} but your exec balance is {have}. Deposit at least {short} more below.", { need: rawToNado(stake), have: rawToNado(dapp.exec), short: rawToNado(stake - dapp.exec) });
+    else if (tb && !covers) hint = window.t("dice.cantCover2", "This table's bankroll can't cover a {m}× win (free: {free} NADO). Lower your stake, raise your win chance, or Top up the bankroll.", { m: multOf(target).toFixed(2), free: rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) });
   }
   const jh = $("joinHint"); if (jh) { jh.textContent = hint; jh.classList.toggle("hidden", !hint); }
   syncStakeSlider();   // keep the max-bet slider in step with the table's live free cover
@@ -235,14 +236,14 @@ function renderActive() {
   const tb = lastTable || {}, T = load(LS_T)[activeTable] || {};
   const iAmBank = tb.bank === dapp.me, mySeats = lastSeats.filter((s) => s.addr === dapp.me);
   $("gameId").textContent = "#" + activeTable;
-  shareInvite("table", activeTable, "Roll at my dice table #" + activeTable + " on NADO:", 180);
-  $("gBank").textContent = tb.exists ? (disp(tb.bank) + (iAmBank ? " — that's you (you're the house here)" : "")) : (T.bankroll ? "you (opening…)" : "—");
+  shareInvite("table", activeTable, window.t("dice.shareText", "Roll at my dice table #{t} on NADO:", { t: activeTable }), 180);
+  $("gBank").textContent = tb.exists ? (disp(tb.bank) + (iAmBank ? window.t("dice.thatsYou", " — that's you (you're the house here)") : "")) : (T.bankroll ? window.t("dice.opening", "you (opening…)") : "—");
   $("gBankroll").textContent = tb.exists ? rawToNado(tb.bankroll) + " NADO" : (T.bankroll ? rawToNado(T.bankroll) + " NADO" : "—");
-  $("gCover").textContent = tb.exists ? rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) + " NADO free" : "—";
+  $("gCover").textContent = tb.exists ? window.t("dice.nadoFree", "{amt} NADO free", { amt: rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) }) : "—";
   let phaseTxt = dapp.whereIs("table", activeTable, T.ts);
   if (tb.exists) {
-    if (tb.closed) phaseTxt = "table closed";
-    else phaseTxt = "🟢 rolling every " + blocksToTime(ROUND) + " — next roll in " + (tb.roundEndsIn != null ? blocksToTime(tb.roundEndsIn) : "…") + " · " + tb.seatCount + " roll" + (tb.seatCount === 1 ? "" : "s");
+    if (tb.closed) phaseTxt = window.t("dice.phaseClosed", "table closed");
+    else phaseTxt = window.t("dice.phaseRolling", "🟢 rolling every {every} — next roll in {next} · {n} {rolls}", { every: blocksToTime(ROUND), next: tb.roundEndsIn != null ? blocksToTime(tb.roundEndsIn) : "…", n: tb.seatCount, rolls: tb.seatCount === 1 ? window.t("dice.roll", "roll") : window.t("dice.rolls", "rolls") });
   }
   $("gStatus").textContent = phaseTxt;
   $("btnReopen").classList.toggle("hidden", !(!tb.exists && T.bankroll && T.ts && Date.now() - T.ts > 120000));
@@ -251,24 +252,24 @@ function renderActive() {
   const die = $("die");
   if (die) { if (resolved.length) { die.textContent = resolved[0].roll; die.className = "die " + (resolved[0].win ? "wroll" : "lroll"); } else { die.textContent = "?"; die.className = "die"; } }
   const seatRow = (s) => {
-    const you = s.addr === dapp.me ? '<b style="color:var(--accent2)">you</b> ' : "";
-    let out = "on <b>under " + s.M + "</b> <span class='dim'>(" + multOf(s.M).toFixed(2) + "×)</span>";
-    if (s.roll != null) out += ' → rolled <b class="' + (s.win ? "wroll" : "lroll") + '">' + s.roll + "</b> "
-        + (s.settled ? (s.win ? '<span class="b ok">won ' + rawToNado(returnRaw(s.stake, s.M)) + "</span>" : '<span class="b dimb">no win</span>')
-                     : (s.win ? '<span class="b pend">won ' + rawToNado(returnRaw(s.stake, s.M)) + " — collect</span>" : '<span class="b dimb">lost</span>'));
-    else out += ' <span class="b pend">rolls in ' + (s.spinsIn != null ? blocksToTime(s.spinsIn) : "…") + "</span>";
+    const you = s.addr === dapp.me ? '<b style="color:var(--accent2)">' + window.t("dice.you", "you") + '</b> ' : "";
+    let out = window.t("dice.seatBet", "on <b>under {m}</b> <span class='dim'>({mult}×)</span>", { m: s.M, mult: multOf(s.M).toFixed(2) });
+    if (s.roll != null) out += ' → ' + window.t("dice.rolled", "rolled") + ' <b class="' + (s.win ? "wroll" : "lroll") + '">' + s.roll + "</b> "
+        + (s.settled ? (s.win ? '<span class="b ok">' + window.t("dice.won", "won {amt}", { amt: rawToNado(returnRaw(s.stake, s.M)) }) + "</span>" : '<span class="b dimb">' + window.t("dice.noWin", "no win") + "</span>")
+                     : (s.win ? '<span class="b pend">' + window.t("dice.wonCollect", "won {amt} — collect", { amt: rawToNado(returnRaw(s.stake, s.M)) }) + "</span>" : '<span class="b dimb">' + window.t("dice.lost", "lost") + "</span>"));
+    else out += ' <span class="b pend">' + window.t("dice.rollsIn", "rolls in {time}", { time: s.spinsIn != null ? blocksToTime(s.spinsIn) : "…" }) + "</span>";
     return '<div class="seat">' + you + disp(s.addr) + ' · <span class="mono">' + rawToNado(s.stake) + "</span> " + out + "</div>";
   };
-  $("seats").innerHTML = lastSeats.length ? lastSeats.map(seatRow).join("") : '<span class="dim">No rolls yet — be the first to bet.</span>';
+  $("seats").innerHTML = lastSeats.length ? lastSeats.map(seatRow).join("") : '<span class="dim">' + window.t("dice.noRolls", "No rolls yet — be the first to bet.") + "</span>";
   const wrap = $("myActions"); wrap.innerHTML = "";
   for (const s of mySeats) {
     if (s.settled || !s.ready) continue;
     const b = document.createElement("button"); b.className = "primary"; b.style.flex = "1 1 auto";
-    b.textContent = s.win ? "💰 Collect " + rawToNado(returnRaw(s.stake, s.M)) + " (seat #" + s.g + ")" : "Close out seat #" + s.g;
+    b.textContent = s.win ? window.t("dice.collectSeat", "💰 Collect {amt} (seat #{g})", { amt: rawToNado(returnRaw(s.stake, s.M)), g: s.g }) : window.t("dice.closeOutSeat", "Close out seat #{g}", { g: s.g });
     b.onclick = () => settleSeat(s.g); if (s.win || iAmBank) wrap.appendChild(b);
   }
   $("btnClose").classList.toggle("hidden", !(iAmBank && tb.exists && !tb.closed && tb.settledCount >= tb.seatCount));
-  $("btnClose").textContent = tb.seatCount === 0 ? "Cancel — reclaim bankroll" : "Close table — reclaim " + rawToNado(tb.pool);
+  $("btnClose").textContent = tb.seatCount === 0 ? window.t("dice.cancelReclaim", "Cancel — reclaim bankroll") : window.t("dice.closeReclaim", "Close table — reclaim {amt}", { amt: rawToNado(tb.pool) });
   $("fundRow").classList.toggle("hidden", !(iAmBank && tb.exists && !tb.closed));
 }
 
@@ -278,7 +279,7 @@ dapp.onReturn((pend, ok, err) => {
   dapp.showReturn(pend, ok, err);
 });
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
+  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("dice.cryptoFail", "Crypto bundle failed to load — reload."); return; }
   wireUI(); loadQR(); syncSlider(); orderCards(["activeGame","lobby","play","bankcard","walletcard","bankroll","scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (activeTable == null) activeTable = parseInt(q, 10); }

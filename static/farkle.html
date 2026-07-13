@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NADO Farkle — push your luck for the pot, post-quantum</title>
+<title data-i18n="farkle.title">NADO Farkle — push your luck for the pot, post-quantum</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%20width%3D%2264%22%20height%3D%2264%22%20aria-hidden%3D%22true%22%3E%0A%20%20%20%20%3Crect%20x%3D%225%22%20y%3D%2221%22%20width%3D%2216%22%20height%3D%2216%22%20rx%3D%224%22%20fill%3D%22%23e6edf3%22%20stroke%3D%22%23243140%22%20stroke-width%3D%221.6%22/%3E%0A%20%20%20%20%3Ccircle%20cx%3D%229.5%22%20cy%3D%2225.5%22%20r%3D%221.6%22%20fill%3D%22%2320272f%22/%3E%3Ccircle%20cx%3D%2216.5%22%20cy%3D%2232.5%22%20r%3D%221.6%22%20fill%3D%22%2320272f%22/%3E%3Ccircle%20cx%3D%2213%22%20cy%3D%2229%22%20r%3D%221.6%22%20fill%3D%22%2300ad93%22/%3E%0A%20%20%20%20%3Crect%20x%3D%2227%22%20y%3D%2221%22%20width%3D%2216%22%20height%3D%2216%22%20rx%3D%224%22%20fill%3D%22%23e3b341%22%20stroke%3D%22%238a6209%22%20stroke-width%3D%221.6%22/%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2231.5%22%20cy%3D%2225.5%22%20r%3D%221.6%22%20fill%3D%22%233a2a05%22/%3E%3Ccircle%20cx%3D%2238.5%22%20cy%3D%2225.5%22%20r%3D%221.6%22%20fill%3D%22%233a2a05%22/%3E%3Ccircle%20cx%3D%2231.5%22%20cy%3D%2232.5%22%20r%3D%221.6%22%20fill%3D%22%233a2a05%22/%3E%3Ccircle%20cx%3D%2238.5%22%20cy%3D%2232.5%22%20r%3D%221.6%22%20fill%3D%22%233a2a05%22/%3E%0A%20%20%20%20%3Crect%20x%3D%2216%22%20y%3D%226%22%20width%3D%2216%22%20height%3D%2216%22%20rx%3D%224%22%20fill%3D%22%23d0362b%22%20stroke%3D%22%238a1a12%22%20stroke-width%3D%221.6%22/%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2224%22%20cy%3D%2214%22%20r%3D%221.9%22%20fill%3D%22%23fff%22/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js"></script>
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
     --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--win:#2fbf71;--lose:#f85149;
@@ -85,103 +86,103 @@
     <rect x="27" y="21" width="16" height="16" rx="4" fill="#e3b341" stroke="#8a6209" stroke-width="1.6"/>
     <circle cx="31.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="31.5" cy="32.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="32.5" r="1.6" fill="#3a2a05"/>
     <rect x="16" y="6" width="16" height="16" rx="4" fill="#d0362b" stroke="#8a1a12" stroke-width="1.6"/>
-    <circle cx="24" cy="14" r="1.9" fill="#fff"/></svg></span><h1>NADO <span class="a">Farkle</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
-  <p class="sub">The push-your-luck dice classic (Ten Thousand), <b>multiplayer, winner takes the pot</b>. Ante in, then take <b>turn after turn</b>: <b>roll</b>, set aside the scoring dice, and <b>bank</b> into your running total or push your luck — a scoreless roll <b>farkles</b> the turn to zero (your banked total is safe). First to <b>4,000</b> triggers a <b>final round</b>; the highest grand total takes the pot. Every roll's dice come from a <b>future block hash</b> nobody can predict — objective and unriggable.</p>
+    <circle cx="24" cy="14" r="1.9" fill="#fff"/></svg></span><h1>NADO <span class="a">Farkle</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="farkle.allGames">🎮 All games</a></header>
+  <p class="sub" data-i18n-html="farkle.sub">The push-your-luck dice classic (Ten Thousand), <b>multiplayer, winner takes the pot</b>. Ante in, then take <b>turn after turn</b>: <b>roll</b>, set aside the scoring dice, and <b>bank</b> into your running total or push your luck — a scoreless roll <b>farkles</b> the turn to zero (your banked total is safe). First to <b>4,000</b> triggers a <b>final round</b>; the highest grand total takes the pot. Every roll's dice come from a <b>future block hash</b> nobody can predict — objective and unriggable.</p>
 
   <div id="status"></div>
 
   <div class="card" id="walletcard">
-    <h2>Wallet</h2>
-    <p class="small dim">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
-    <div class="kv mt"><span class="k">Playing as</span><span class="mono" id="who">not signed in</span></div>
-    <div class="kv"><span class="k">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
-    <div class="kv"><span class="k">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
-    <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
+    <h2 data-i18n="farkle.wallet">Wallet</h2>
+    <p class="small dim" data-i18n-html="farkle.walletHint">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
+    <div class="kv mt"><span class="k" data-i18n="farkle.playingAs">Playing as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="farkle.walletL1">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="farkle.tokensPlayable">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="farkle.signIn">Sign in with NADO wallet</button></div>
   </div>
 
   <!-- OPEN / STRATEGY -->
   <div class="card hidden" id="opencard">
-    <h2>Open a Farkle table</h2>
-    <p class="small dim mt">Everyone antes into the pot to take a seat. When joining closes, players take turn after turn — roll, set aside scoring dice, bank into a running grand total or push your luck. First to 4,000 triggers a final round (everyone else gets one last turn); the highest grand total takes the whole pot.</p>
-    <label class="mt">Open a new table with an ante</label>
+    <h2 data-i18n="farkle.openTableH">Open a Farkle table</h2>
+    <p class="small dim mt" data-i18n="farkle.openIntro">Everyone antes into the pot to take a seat. When joining closes, players take turn after turn — roll, set aside scoring dice, bank into a running grand total or push your luck. First to 4,000 triggers a final round (everyone else gets one last turn); the highest grand total takes the whole pot.</p>
+    <label class="mt" data-i18n="farkle.openLabel">Open a new table with an ante</label>
     <div class="row">
-      <input id="anteAmt" value="1" placeholder="ante (NADO)" inputmode="decimal" autocomplete="off">
-      <button class="primary" id="btnNewTable" style="flex:0 0 auto">Open table</button>
+      <input id="anteAmt" value="1" placeholder="ante (NADO)" data-i18n-ph="farkle.antePh" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNewTable" style="flex:0 0 auto" data-i18n="farkle.openBtn">Open table</button>
     </div>
   </div>
 
   <!-- FIND -->
   <div class="card hidden" id="play">
-    <h2>🎯 Find a table</h2>
+    <h2 data-i18n="farkle.findH">🎯 Find a table</h2>
     <div class="row">
-      <input id="joinId" placeholder="table ID" inputmode="numeric" autocomplete="off">
-      <button class="primary" id="btnGoTable" style="flex:0 0 auto">Go</button>
+      <input id="joinId" placeholder="table ID" data-i18n-ph="farkle.tableIdPh" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="btnGoTable" style="flex:0 0 auto" data-i18n="farkle.go">Go</button>
     </div>
-    <div class="small dim mt">Your tables <span style="opacity:.7">· 🎲 host / seat</span></div>
+    <div class="small dim mt" data-i18n="farkle.yourTables">Your tables <span style="opacity:.7" data-i18n="farkle.hostSeat">· 🎲 host / seat</span></div>
     <div class="small dim" id="recent"></div>
   </div>
 
   <!-- BANKROLL -->
   <div class="card hidden" id="bankroll">
-    <h2>🪙 Tokens — buy in / cash out</h2>
+    <h2 data-i18n="farkle.tokensH">🪙 Tokens — buy in / cash out</h2>
     <div class="row">
-      <input id="bankAmt" value="10" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
-      <button class="ghost" id="btnDeposit" style="flex:0 0 auto">Deposit</button>
-      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
+      <input id="bankAmt" value="10" placeholder="amount (NADO)" data-i18n-ph="farkle.amountPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto" data-i18n="farkle.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto" data-i18n="farkle.withdraw">Withdraw</button>
     </div>
-    <div class="small dim mt">Deposit buys tokens with NADO (1 : 1); Withdraw cashes your tokens back out to the wallet.</div>
+    <div class="small dim mt" data-i18n="farkle.bankHint">Deposit buys tokens with NADO (1 : 1); Withdraw cashes your tokens back out to the wallet.</div>
   </div>
 
   <!-- LOBBY -->
   <div class="card" id="lobby">
-    <h2>🎲 Open tables</h2>
-    <p class="small dim">Join any table while its window is open. <span style="opacity:.7">🟢 joining · 🎲 rolled</span></p>
-    <div class="small mt" id="lobbyList"><span class="dim">Loading…</span></div>
+    <h2 data-i18n="farkle.lobbyH">🎲 Open tables</h2>
+    <p class="small dim" data-i18n="farkle.lobbyHint">Join any table while its window is open. <span style="opacity:.7" data-i18n="farkle.lobbyLegend">🟢 joining · 🎲 rolled</span></p>
+    <div class="small mt" id="lobbyList"><span class="dim" data-i18n="farkle.loading">Loading…</span></div>
   </div>
 
   <!-- SCOREBOARD -->
   <div class="card" id="scoreboard">
-    <h2>🏆 Scoreboard</h2>
-    <p class="small dim">Net NADO across every settled table.</p>
-    <div class="mt" id="scoreList"><span class="dim">Loading…</span></div>
+    <h2 data-i18n="farkle.scoreboardH">🏆 Scoreboard</h2>
+    <p class="small dim" data-i18n="farkle.scoreboardHint">Net NADO across every settled table.</p>
+    <div class="mt" id="scoreList"><span class="dim" data-i18n="farkle.loading">Loading…</span></div>
   </div>
 
   <!-- ACTIVE TABLE -->
   <div class="card hidden" id="activeGame">
-    <h2>Table <span id="gameId" class="mono"></span></h2>
+    <h2 data-i18n="farkle.tableH">Table <span id="gameId" class="mono"></span></h2>
     <div class="feltbox hidden" id="felt"><div id="feature"></div></div>
-    <div class="kv"><span class="k">Status</span><span class="mono" id="gStatus">…</span></div>
-    <div class="kv"><span class="k">Pot</span><span class="mono" id="gPot">—</span></div>
-    <div class="kv"><span class="k">Ante</span><span class="mono" id="gAnte">—</span></div>
-    <div class="row mt"><button class="primary" id="btnJoin">Join this table</button></div>
-    <div class="mt small dim">Players</div>
+    <div class="kv"><span class="k" data-i18n="farkle.status">Status</span><span class="mono" id="gStatus">…</span></div>
+    <div class="kv"><span class="k" data-i18n="farkle.pot">Pot</span><span class="mono" id="gPot">—</span></div>
+    <div class="kv"><span class="k" data-i18n="farkle.ante">Ante</span><span class="mono" id="gAnte">—</span></div>
+    <div class="row mt"><button class="primary" id="btnJoin" data-i18n="farkle.joinBtn">Join this table</button></div>
+    <div class="mt small dim" data-i18n="farkle.players">Players</div>
     <div id="seats"></div>
     <div class="row mt" id="myActions"></div>
     <div class="row mt">
-      <button class="primary hidden" id="btnReopen">🔄 Re-open — try again</button>
-      <button class="primary hidden" id="btnSettle">🏆 Pay the winner</button>
-      <button class="primary hidden" id="btnRematch">🔄 Play again — same table, fresh ante</button>
-      <button class="ghost hidden" id="btnReclaim">Reclaim the pot (all farkled)</button>
-      <button class="ghost hidden" id="btnCancel">Cancel — refund the ante</button>
+      <button class="primary hidden" id="btnReopen" data-i18n="farkle.reopen">🔄 Re-open — try again</button>
+      <button class="primary hidden" id="btnSettle" data-i18n="farkle.paySettle">🏆 Pay the winner</button>
+      <button class="primary hidden" id="btnRematch" data-i18n="farkle.rematch">🔄 Play again — same table, fresh ante</button>
+      <button class="ghost hidden" id="btnReclaim" data-i18n="farkle.reclaim">Reclaim the pot (all farkled)</button>
+      <button class="ghost hidden" id="btnCancel" data-i18n="farkle.cancel">Cancel — refund the ante</button>
     </div>
-    <label class="mt">Invite players</label>
+    <label class="mt" data-i18n="farkle.invite">Invite players</label>
     <input id="shareLink" class="mono" readonly onclick="this.select()">
     <div class="row mt" style="align-items:center;gap:8px">
-      <button class="primary" id="btnShare" style="flex:0 0 auto">Share</button>
-      <span class="dim small">or scan the code to join this table</span>
+      <button class="primary" id="btnShare" style="flex:0 0 auto" data-i18n="farkle.share">Share</button>
+      <span class="dim small" data-i18n="farkle.scanHint">or scan the code to join this table</span>
     </div>
     <canvas id="shareQR" class="hidden" style="margin:12px auto 0;display:block;border-radius:8px;background:#fff;padding:8px"></canvas>
-    <div id="shareQRNote" class="hidden dim small mt">QR generator unavailable — copy the link above.</div>
+    <div id="shareQRNote" class="hidden dim small mt" data-i18n="farkle.qrNote">QR generator unavailable — copy the link above.</div>
   </div>
 
   <div class="card">
-    <h2>Provably fair — the chain rolls, not the house</h2>
+    <h2 data-i18n="farkle.fairH">Provably fair — the chain rolls, not the house</h2>
     <p class="small dim" style="line-height:1.6">
-      Every roll you make binds to a FUTURE block: die #k = <span class="mono">HASH(blockhash(H) ‖ blockhash(H+1) ‖ seat·1000 + nonce·10 + k) mod 6 + 1</span>. Those block hashes don't exist when you tap Roll, so nobody — no player, no host, no producer — can know or steer your dice. The CONTRACT validates the dice you set aside actually score (1s = 100, 5s = 50, three-of-a-kind and up, straight = 1500) and tracks your banked total; a scoreless roll busts the turn. Highest banked score when the play window closes takes the pot; if everyone farkles, the host reclaims. Your browser replays the exact same dice from the block hash, so what you see is what the chain computes.
+      <span data-i18n="farkle.fairPre">Every roll you make binds to a FUTURE block: die #k =</span> <span class="mono">HASH(blockhash(H) ‖ blockhash(H+1) ‖ seat·1000 + nonce·10 + k) mod 6 + 1</span>. <span data-i18n="farkle.fairPost">Those block hashes don't exist when you tap Roll, so nobody — no player, no host, no producer — can know or steer your dice. The CONTRACT validates the dice you set aside actually score (1s = 100, 5s = 50, three-of-a-kind and up, straight = 1500) and tracks your banked total; a scoreless roll busts the turn. Highest banked score when the play window closes takes the pot; if everyone farkles, the host reclaims. Your browser replays the exact same dice from the block hash, so what you see is what the chain computes.</span>
     </p>
   </div>
 
-  <footer>Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · <a href="https://get.nadochain.com/rollup">see the contract</a>.</footer>
+  <footer><span data-i18n="farkle.runsOn">Runs on</span> <a href="https://get.nadochain.com/">NADO</a> · <a href="/games" data-i18n="farkle.moreGames">more games</a> · <a href="https://get.nadochain.com/rollup" data-i18n="farkle.seeContract">see the contract</a>.</footer>
 </div>
 <script type="module" src="/static/farkle.js"></script>
 </body>

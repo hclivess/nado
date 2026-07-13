@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NADO Slots — player-banked slot machines, provably fair</title>
+<title data-i18n="slots.title">NADO Slots — player-banked slot machines, provably fair</title>
+<script src="/static/i18n.js"></script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Crect%20x%3D%226%22%20y%3D%2210%22%20width%3D%2236%22%20height%3D%2228%22%20rx%3D%226%22%20fill%3D%22%23e6edf3%22%20stroke%3D%22%23243140%22%20stroke-width%3D%222%22/%3E%3Crect%20x%3D%2211%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%2216%22%20rx%3D%222%22%20fill%3D%22%23d0362b%22/%3E%3Crect%20x%3D%2220%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%2216%22%20rx%3D%222%22%20fill%3D%22%2300ad93%22/%3E%3Crect%20x%3D%2229%22%20y%3D%2216%22%20width%3D%228%22%20height%3D%2216%22%20rx%3D%222%22%20fill%3D%22%23e3b341%22/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
 <style>
@@ -75,14 +76,14 @@
 </head>
 <body>
 <div class="wrap">
-  <header><span class="logo">🎰</span><h1>NADO <span class="a">Slots</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
-  <p class="sub">Classic 3-reel slots where <b>players own the machines</b>. Anyone can open a machine and bank it — the bank earns the published <b>4.2% edge</b>; spinners win up to <b>150×</b> on triple 7️⃣. Every spin is decided by <b>two future block hashes</b> nobody can know when you pull the lever — no house secrets, no waiting: results land in seconds. Exact RTP <b>95.80%</b>, proven by full enumeration of the reels, enforced on-chain.</p>
+  <header><span class="logo">🎰</span><h1>NADO <span class="a">Slots</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="slots.allGames">🎮 All games</a></header>
+  <p class="sub" data-i18n-html="slots.sub">Classic 3-reel slots where <b>players own the machines</b>. Anyone can open a machine and bank it — the bank earns the published <b>4.2% edge</b>; spinners win up to <b>150×</b> on triple 7️⃣. Every spin is decided by <b>two future block hashes</b> nobody can know when you pull the lever — no house secrets, no waiting: results land in seconds. Exact RTP <b>95.80%</b>, proven by full enumeration of the reels, enforced on-chain.</p>
 
   <div id="status"></div>
 
   <!-- THE MACHINE -->
   <div class="card hidden" id="activeGame">
-    <h2>Machine <span id="gameId" class="mono"></span> <span id="bankTag" class="dim" style="text-transform:none;letter-spacing:0"></span></h2>
+    <h2 data-i18n="slots.machine">Machine <span id="gameId" class="mono"></span> <span id="bankTag" class="dim" style="text-transform:none;letter-spacing:0"></span></h2>
     <div class="machine">
       <div class="reels">
         <div class="reel" id="reel0"><span>❔</span></div>
@@ -91,30 +92,30 @@
       </div>
       <div id="spinVerdict"></div>
     </div>
-    <div class="kv mt"><span class="k">Bank (can it pay 150×?)</span><span class="mono" id="gBank">—</span></div>
-    <div class="kv"><span class="k">Max bet right now</span><span class="mono" id="gMax">—</span></div>
+    <div class="kv mt"><span class="k" data-i18n="slots.bankCanPay">Bank (can it pay 150×?)</span><span class="mono" id="gBank">—</span></div>
+    <div class="kv"><span class="k" data-i18n="slots.maxBetNow">Max bet right now</span><span class="mono" id="gMax">—</span></div>
     <div class="row mt">
-      <input id="stakeAmt" value="1" placeholder="bet (NADO)" inputmode="decimal" autocomplete="off">
+      <input id="stakeAmt" value="1" placeholder="bet (NADO)" data-i18n-ph="slots.betPh" inputmode="decimal" autocomplete="off">
       <button class="primary" id="btnSpin" style="flex:2 1 auto">🎰 SPIN</button>
     </div>
     <div id="stakeSliderWrap" class="hidden">
       <input type="range" id="stakeSlider" min="0" max="100" value="0" step="0.01" class="mt">
-      <div class="kv"><span class="k" id="stakeSliderVal"></span><span class="mono" id="btnMaxBet" style="cursor:pointer;color:var(--gold)">Max: <span id="maxBetVal"></span></span></div>
+      <div class="kv"><span class="k" id="stakeSliderVal"></span><span class="mono" id="btnMaxBet" style="cursor:pointer;color:var(--gold)" data-i18n="slots.max">Max: <span id="maxBetVal"></span></span></div>
     </div>
     <button class="primary hidden mt" id="btnCollect" style="width:100%"></button>
-    <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1">Auto-collect my spins — settles for me the moment a spin resolves</span></label>
+    <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1" data-i18n="slots.autoCollect">Auto-collect my spins — settles for me the moment a spin resolves</span></label>
     <div class="spins mt" id="mySpins"></div>
     <!-- bank owner tools -->
     <div class="row mt hidden" id="fundRow">
-      <input id="fundAmt" value="10" placeholder="add to the bank (NADO)" inputmode="decimal" autocomplete="off">
-      <button class="ghost" id="btnFund" style="flex:0 0 auto">Top up</button>
-      <button class="ghost" id="btnClose" style="flex:0 0 auto">Close &amp; cash out</button>
+      <input id="fundAmt" value="10" placeholder="add to the bank (NADO)" data-i18n-ph="slots.fundPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnFund" style="flex:0 0 auto" data-i18n="slots.topUp">Top up</button>
+      <button class="ghost" id="btnClose" style="flex:0 0 auto" data-i18n="slots.closeCashout">Close &amp; cash out</button>
     </div>
     <div class="mt">
-      <label>Invite spinners</label>
+      <label data-i18n="slots.inviteSpinners">Invite spinners</label>
       <div class="row">
         <input id="shareLink" class="mono" readonly onclick="this.select()">
-        <button class="ghost" id="btnShare" style="flex:0 0 auto">Share</button>
+        <button class="ghost" id="btnShare" style="flex:0 0 auto" data-i18n="slots.share">Share</button>
       </div>
       <canvas id="shareQR" class="hidden" style="margin:12px auto 0;display:block;border-radius:8px;background:#fff;padding:8px"></canvas>
       <div id="shareQRNote" class="hidden dim small mt"></div>
@@ -123,69 +124,69 @@
 
   <!-- LOBBY -->
   <div class="card" id="lobby">
-    <h2>Machines on the floor</h2>
-    <div id="lobbyList"><span class="dim">Loading…</span></div>
+    <h2 data-i18n="slots.floorTitle">Machines on the floor</h2>
+    <div id="lobbyList"><span class="dim" data-i18n="slots.loading">Loading…</span></div>
     <div id="recent" class="small dim mt"></div>
   </div>
 
   <!-- OPEN A MACHINE -->
   <div class="card hidden" id="opencard">
-    <h2>🏦 Bankroll your own machine</h2>
-    <p class="small dim">Bank a machine and earn the <b>4.2% house edge</b> on every spin. The bank must always cover a 150× jackpot, so the max bet scales with your bank (max bet ≈ bank ÷ 149). Top it up or close and cash out any time — open spins always settle first.</p>
+    <h2 data-i18n="slots.openTitle">🏦 Bankroll your own machine</h2>
+    <p class="small dim" data-i18n-html="slots.openHelp">Bank a machine and earn the <b>4.2% house edge</b> on every spin. The bank must always cover a 150× jackpot, so the max bet scales with your bank (max bet ≈ bank ÷ 149). Top it up or close and cash out any time — open spins always settle first.</p>
     <div class="row">
-      <input id="bankrollAmt" value="200" placeholder="bank (NADO)" inputmode="decimal" autocomplete="off">
-      <button class="primary" id="btnNewMachine" style="flex:0 0 auto">🎰 Open machine</button>
+      <input id="bankrollAmt" value="200" placeholder="bank (NADO)" data-i18n-ph="slots.bankPh" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNewMachine" style="flex:0 0 auto" data-i18n="slots.openMachine">🎰 Open machine</button>
     </div>
   </div>
 
   <!-- PAYTABLE -->
   <div class="card" id="paytableCard">
-    <h2>Paytable — per 1 bet</h2>
+    <h2 data-i18n="slots.paytableTitle">Paytable — per 1 bet</h2>
     <table class="score paytable">
       <tr><td>7️⃣ 7️⃣ 7️⃣</td><td class="m">150×</td><td>💎 💎 💎</td><td class="m">50×</td></tr>
       <tr><td>🔔 🔔 🔔</td><td class="m">30×</td><td>🍇 🍇 🍇</td><td class="m">15×</td></tr>
       <tr><td>🍊 🍊 🍊</td><td class="m">12×</td><td>🍋 🍋 🍋</td><td class="m">10×</td></tr>
-      <tr><td>🍒 🍒 🍒</td><td class="m">8×</td><td>two 7️⃣</td><td class="m">5×</td></tr>
-      <tr><td>two 🍒 (no 7)</td><td class="m">3×</td><td>one 7️⃣</td><td class="m">1.5×</td></tr>
+      <tr><td>🍒 🍒 🍒</td><td class="m">8×</td><td data-i18n="slots.two7">two 7️⃣</td><td class="m">5×</td></tr>
+      <tr><td data-i18n="slots.twoCherry">two 🍒 (no 7)</td><td class="m">3×</td><td data-i18n="slots.one7">one 7️⃣</td><td class="m">1.5×</td></tr>
     </table>
-    <p class="small dim mt">Reel weights (of 64 stops): 🍒16 🍋14 🍊12 🍇10 🔔6 💎4 7️⃣2 — identical on all three reels. RTP is exactly <span class="mono">95.796%</span> (full 64³ enumeration); the remaining 4.204% is the machine owner's edge. Hit rate ≈ 26%.</p>
+    <p class="small dim mt" data-i18n-html="slots.reelWeights">Reel weights (of 64 stops): 🍒16 🍋14 🍊12 🍇10 🔔6 💎4 7️⃣2 — identical on all three reels. RTP is exactly <span class="mono">95.796%</span> (full 64³ enumeration); the remaining 4.204% is the machine owner's edge. Hit rate ≈ 26%.</p>
   </div>
 
   <!-- WALLET -->
   <div class="card" id="walletcard">
-    <h2>Wallet</h2>
-    <div class="kv"><span class="k">Signed in as</span><span class="addr" id="who">not signed in</span></div>
-    <div class="kv"><span class="k">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
-    <div class="kv"><span class="k">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
-    <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
-    <p class="small dim mt">Your key never touches this page — signing happens in your wallet at get.nadochain.com, then you bounce back.</p>
+    <h2 data-i18n="slots.walletTitle">Wallet</h2>
+    <div class="kv"><span class="k" data-i18n="slots.signedInAs">Signed in as</span><span class="addr" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="slots.tokensPlayable">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="slots.walletMain">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="slots.signIn">Sign in with NADO wallet</button></div>
+    <p class="small dim mt" data-i18n-html="slots.walletHelp">Your key never touches this page — signing happens in your wallet at get.nadochain.com, then you bounce back.</p>
   </div>
 
   <!-- TOKENS -->
   <div class="card hidden" id="bankroll">
-    <h2>🪙 Tokens — buy in / cash out</h2>
-    <label>Amount (NADO)</label>
+    <h2 data-i18n="slots.tokensTitle">🪙 Tokens — buy in / cash out</h2>
+    <label data-i18n="slots.amountNado">Amount (NADO)</label>
     <div class="row">
-      <input id="bankAmt" value="10" placeholder="e.g. 10" inputmode="decimal" autocomplete="off">
-      <button id="btnDeposit">Deposit</button>
-      <button class="ghost" id="btnWithdraw">Withdraw</button>
+      <input id="bankAmt" value="10" placeholder="e.g. 10" data-i18n-ph="slots.egTen" inputmode="decimal" autocomplete="off">
+      <button id="btnDeposit" data-i18n="slots.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" data-i18n="slots.withdraw">Withdraw</button>
     </div>
-    <p class="small dim mt">Deposit buys tokens with NADO (1 : 1); Withdraw cashes your tokens back out to the wallet.</p>
+    <p class="small dim mt" data-i18n-html="slots.tokensHelp">Deposit buys tokens with NADO (1 : 1); Withdraw cashes your tokens back out to the wallet.</p>
   </div>
 
   <!-- SCOREBOARD -->
   <div class="card" id="scoreboard">
-    <h2>🏆 Scoreboard — luckiest spinners</h2>
-    <div id="scoreList"><span class="dim">Loading…</span></div>
+    <h2 data-i18n="slots.scoreTitle">🏆 Scoreboard — luckiest spinners</h2>
+    <div id="scoreList"><span class="dim" data-i18n="slots.loading">Loading…</span></div>
   </div>
 
   <!-- FAIRNESS -->
   <div class="card">
-    <h2>How it's provably fair</h2>
-    <p class="small dim">A spin that lands in block <span class="mono">B</span> is decided by <span class="mono">HASH(blockhash(B+2) ‖ blockhash(B+3) ‖ spinId)</span> — two blocks that <b>don't exist yet</b> when you sign, mixed so no single producer can steer them. Three stops (0–63) map to weighted reels, and the contract recomputes the exact same stops and pays the published paytable on-chain. The bank commits a full 150× cover for every open spin, so the machine can never welsh. No house — machines are owned and banked by players.</p>
+    <h2 data-i18n="slots.fairTitle">How it's provably fair</h2>
+    <p class="small dim" data-i18n-html="slots.fairBody">A spin that lands in block <span class="mono">B</span> is decided by <span class="mono">HASH(blockhash(B+2) ‖ blockhash(B+3) ‖ spinId)</span> — two blocks that <b>don't exist yet</b> when you sign, mixed so no single producer can steer them. Three stops (0–63) map to weighted reels, and the contract recomputes the exact same stops and pays the published paytable on-chain. The bank commits a full 150× cover for every open spin, so the machine can never welsh. No house — machines are owned and banked by players.</p>
   </div>
 
-  <footer>NADO Slots · player-banked machines · post-quantum signatures · no house</footer>
+  <footer data-i18n="slots.footer">NADO Slots · player-banked machines · post-quantum signatures · no house</footer>
 </div>
 <script type="module" src="/static/slots.js"></script>
 </body>

@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NADO Dice — auto-rolling, provably fair, post-quantum</title>
+<title data-i18n="dice.title">NADO Dice — auto-rolling, provably fair, post-quantum</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%20width%3D%2264%22%20height%3D%2264%22%20aria-hidden%3D%22true%22%3E%0A%20%20%20%20%3Crect%20x%3D%229%22%20y%3D%229%22%20width%3D%2230%22%20height%3D%2230%22%20rx%3D%227%22%20fill%3D%22%23e6edf3%22%20stroke%3D%22%23243140%22%20stroke-width%3D%222%22/%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2217%22%20cy%3D%2217%22%20r%3D%222.8%22%20fill%3D%22%2320272f%22/%3E%3Ccircle%20cx%3D%2231%22%20cy%3D%2217%22%20r%3D%222.8%22%20fill%3D%22%2320272f%22/%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2224%22%20cy%3D%2224%22%20r%3D%222.8%22%20fill%3D%22%2300ad93%22/%3E%0A%20%20%20%20%3Ccircle%20cx%3D%2217%22%20cy%3D%2231%22%20r%3D%222.8%22%20fill%3D%22%2320272f%22/%3E%3Ccircle%20cx%3D%2231%22%20cy%3D%2231%22%20r%3D%222.8%22%20fill%3D%22%2320272f%22/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js"></script>
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
     --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--win:#2fbf71;--lose:#f85149;
@@ -81,127 +82,127 @@
     <rect x="9" y="9" width="30" height="30" rx="7" fill="#e6edf3" stroke="#243140" stroke-width="2"/>
     <circle cx="17" cy="17" r="2.8" fill="#20272f"/><circle cx="31" cy="17" r="2.8" fill="#20272f"/>
     <circle cx="24" cy="24" r="2.8" fill="#00ad93"/>
-    <circle cx="17" cy="31" r="2.8" fill="#20272f"/><circle cx="31" cy="31" r="2.8" fill="#20272f"/></svg></span><h1>NADO <span class="a">Dice</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
-  <p class="sub">A provably-fair, <b>peer-banked multiplayer</b> dice on the NADO execution layer. Slide your win chance; the payout auto-scales (<span class="mono">99 ÷ target</span>, a flat 1% edge). Each table <b>rolls itself every ~2 minutes</b> — no bank reveal, no secrets. Your roll comes from a <b>future L1 block hash</b> nobody can predict while betting is open: <span class="mono">HASH(blockhash ‖ seatId) mod 100</span>. Post-quantum wallet, no install.</p>
+    <circle cx="17" cy="31" r="2.8" fill="#20272f"/><circle cx="31" cy="31" r="2.8" fill="#20272f"/></svg></span><h1>NADO <span class="a">Dice</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="dice.allGames">🎮 All games</a></header>
+  <p class="sub" data-i18n-html="dice.sub">A provably-fair, <b>peer-banked multiplayer</b> dice on the NADO execution layer. Slide your win chance; the payout auto-scales (<span class="mono">99 ÷ target</span>, a flat 1% edge). Each table <b>rolls itself every ~2 minutes</b> — no bank reveal, no secrets. Your roll comes from a <b>future L1 block hash</b> nobody can predict while betting is open: <span class="mono">HASH(blockhash ‖ seatId) mod 100</span>. Post-quantum wallet, no install.</p>
 
   <div id="status"></div>
 
   <div class="card" id="walletcard">
-    <h2>Wallet</h2>
-    <p class="small dim">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
-    <div class="kv mt"><span class="k">Playing as</span><span class="mono" id="who">not signed in</span></div>
-    <div class="kv"><span class="k">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
-    <div class="kv"><span class="k">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
-    <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
+    <h2 data-i18n="dice.walletH">Wallet</h2>
+    <p class="small dim" data-i18n-html="dice.walletHelp">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
+    <div class="kv mt"><span class="k" data-i18n="dice.playingAs">Playing as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="dice.walletMain">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="dice.tokensPlayable">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="dice.signIn">Sign in with NADO wallet</button></div>
   </div>
 
   <!-- FIND A TABLE -->
   <div class="card hidden" id="play">
-    <h2>🎲 Find a table</h2>
-    <p class="small dim">Pick a table from the lobby below, or open one by ID — then the roll controls open for that table.</p>
+    <h2 data-i18n="dice.findTableH">🎲 Find a table</h2>
+    <p class="small dim" data-i18n="dice.findTableHelp">Pick a table from the lobby below, or open one by ID — then the roll controls open for that table.</p>
     <div class="row">
-      <input id="joinId" placeholder="table ID" inputmode="numeric" autocomplete="off">
-      <button class="primary" id="btnGoTable" style="flex:0 0 auto">Go</button>
+      <input id="joinId" placeholder="table ID" data-i18n-ph="dice.joinIdPh" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="btnGoTable" style="flex:0 0 auto" data-i18n="dice.go">Go</button>
     </div>
-    <div class="small dim mt">Your tables <span style="opacity:.7">· 🏦 you bank · 🎲 you roll</span></div>
+    <div class="small dim mt" data-i18n-html="dice.yourTables">Your tables <span style="opacity:.7">· 🏦 you bank · 🎲 you roll</span></div>
     <div class="small dim" id="recent"></div>
   </div>
 
   <!-- BANK -->
   <div class="card hidden" id="bankcard">
-    <h2>🏦 Bankroll a table</h2>
-    <p class="small dim">Put up a bankroll and be the house: a self-rolling table plays against it round after round — you keep losing stakes and the 1% edge, and never have to roll or sign anything again. Top up or close any time.</p>
+    <h2 data-i18n="dice.bankH">🏦 Bankroll a table</h2>
+    <p class="small dim" data-i18n="dice.bankHelp">Put up a bankroll and be the house: a self-rolling table plays against it round after round — you keep losing stakes and the 1% edge, and never have to roll or sign anything again. Top up or close any time.</p>
     <div class="row">
-      <input id="bankrollAmt" value="100" placeholder="bankroll (NADO)" inputmode="decimal" autocomplete="off">
-      <button class="primary" id="btnNewTable" style="flex:0 0 auto">New table</button>
+      <input id="bankrollAmt" value="100" placeholder="bankroll (NADO)" data-i18n-ph="dice.bankrollPh" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNewTable" style="flex:0 0 auto" data-i18n="dice.newTable">New table</button>
     </div>
   </div>
 
   <!-- BANKROLL -->
   <div class="card hidden" id="bankroll">
-    <h2>🪙 Tokens — buy in / cash out</h2>
+    <h2 data-i18n="dice.tokensH">🪙 Tokens — buy in / cash out</h2>
     <div class="row">
-      <input id="bankAmt" value="10" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
-      <button class="ghost" id="btnDeposit" style="flex:0 0 auto">Deposit</button>
-      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
+      <input id="bankAmt" value="10" placeholder="amount (NADO)" data-i18n-ph="dice.amountPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto" data-i18n="dice.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto" data-i18n="dice.withdraw">Withdraw</button>
     </div>
-    <div class="small dim mt">Deposit buys tokens with NADO (1 : 1); Withdraw cashes your tokens back out to the wallet.</div>
+    <div class="small dim mt" data-i18n="dice.tokensHelp">Deposit buys tokens with NADO (1 : 1); Withdraw cashes your tokens back out to the wallet.</div>
   </div>
 
   <!-- LOBBY -->
   <div class="card" id="lobby">
-    <h2>🎲 Public tables</h2>
-    <p class="small dim">Live self-rolling tables — tap one to roll against its bank. <span style="opacity:.7">🟢 open for bets</span></p>
-    <div class="small mt" id="lobbyList"><span class="dim">Loading…</span></div>
+    <h2 data-i18n="dice.lobbyH">🎲 Public tables</h2>
+    <p class="small dim" data-i18n-html="dice.lobbyHelp">Live self-rolling tables — tap one to roll against its bank. <span style="opacity:.7">🟢 open for bets</span></p>
+    <div class="small mt" id="lobbyList"><span class="dim" data-i18n="dice.loading">Loading…</span></div>
   </div>
 
   <!-- SCOREBOARD -->
   <div class="card" id="scoreboard">
-    <h2>🏆 Scoreboard</h2>
-    <p class="small dim">Global standings across every settled roll — banks and rollers alike, ranked by net NADO.</p>
-    <div class="mt" id="scoreList"><span class="dim">Loading…</span></div>
+    <h2 data-i18n="dice.scoreH">🏆 Scoreboard</h2>
+    <p class="small dim" data-i18n="dice.scoreHelp">Global standings across every settled roll — banks and rollers alike, ranked by net NADO.</p>
+    <div class="mt" id="scoreList"><span class="dim" data-i18n="dice.loading">Loading…</span></div>
   </div>
 
   <!-- ACTIVE TABLE (roll controls live here — only visible once a table is chosen) -->
   <div class="card hidden" id="activeGame">
-    <h2>Table <span id="gameId" class="mono"></span></h2>
+    <h2 data-i18n="dice.tableH">Table <span id="gameId" class="mono"></span></h2>
     <div class="diewrap"><div class="die" id="die">?</div></div>
-    <div class="kv"><span class="k">Status</span><span class="mono" id="gStatus">…</span></div>
-    <div class="kv"><span class="k">Bank (the house — pays winners)</span><span class="mono" id="gBank">—</span></div>
-    <div class="kv"><span class="k">Bankroll</span><span class="mono" id="gBankroll">—</span></div>
-    <div class="kv"><span class="k">Coverage left</span><span class="mono" id="gCover">—</span></div>
+    <div class="kv"><span class="k" data-i18n="dice.statusK">Status</span><span class="mono" id="gStatus">…</span></div>
+    <div class="kv"><span class="k" data-i18n="dice.bankK">Bank (the house — pays winners)</span><span class="mono" id="gBank">—</span></div>
+    <div class="kv"><span class="k" data-i18n="dice.bankrollK">Bankroll</span><span class="mono" id="gBankroll">—</span></div>
+    <div class="kv"><span class="k" data-i18n="dice.coverK">Coverage left</span><span class="mono" id="gCover">—</span></div>
 
     <!-- ROLL CONTROLS -->
     <div id="betBuilder" class="mt">
-      <label>Set your roll for the next spin</label>
-      <input id="stakeAmt" value="1" placeholder="stake (NADO)" inputmode="decimal" autocomplete="off">
+      <label data-i18n="dice.setRoll">Set your roll for the next spin</label>
+      <input id="stakeAmt" value="1" placeholder="stake (NADO)" data-i18n-ph="dice.stakePh" inputmode="decimal" autocomplete="off">
       <div id="stakeSliderWrap" class="hidden">
         <input type="range" id="stakeSlider" min="0" max="100" value="0" step="0.01" class="mt">
-        <div class="meter"><div class="m"><span id="stakeSliderVal"></span></div><div class="m" style="text-align:right"><b class="under" id="btnMaxBet" style="cursor:pointer">Max: <span id="maxBetVal"></span></b><span>most this table can cover now</span></div></div>
+        <div class="meter"><div class="m"><span id="stakeSliderVal"></span></div><div class="m" style="text-align:right"><b class="under" id="btnMaxBet" style="cursor:pointer" data-i18n="dice.max">Max: <span id="maxBetVal"></span></b><span data-i18n="dice.maxHint">most this table can cover now</span></div></div>
       </div>
       <div class="meter mt">
-        <div class="m"><b class="under">under <span id="winChanceTarget"></span></b><span>you win if the roll is under your target</span></div>
+        <div class="m"><b class="under" data-i18n="dice.under">under <span id="winChanceTarget"></span></b><span data-i18n="dice.underHint">you win if the roll is under your target</span></div>
       </div>
       <input type="range" id="target" min="2" max="98" value="50" class="mt">
       <div class="meter mt">
-        <div class="m"><b id="winChance">50%</b><span>win chance</span></div>
-        <div class="m"><b id="multiplier">1.98×</b><span>payout</span></div>
+        <div class="m"><b id="winChance">50%</b><span data-i18n="dice.winChance">win chance</span></div>
+        <div class="m"><b id="multiplier">1.98×</b><span data-i18n="dice.payout">payout</span></div>
       </div>
       <div id="payoutPreview"></div>
-      <button class="primary mt" id="btnBet" style="width:100%">Place roll</button>
+      <button class="primary mt" id="btnBet" style="width:100%" data-i18n="dice.placeRoll">Place roll</button>
       <div class="small warn mt hidden" id="joinHint"></div>
     </div>
 
-    <div class="mt small dim">Seats</div>
+    <div class="mt small dim" data-i18n="dice.seatsLabel">Seats</div>
     <div id="seats"></div>
     <div class="row mt" id="myActions"></div>
-    <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1">Auto-collect my winnings — settles a winning roll for me the moment it resolves</span></label>
+    <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1" data-i18n="dice.autoCollect">Auto-collect my winnings — settles a winning roll for me the moment it resolves</span></label>
     <div class="row mt">
-      <button class="primary hidden" id="btnReopen">🔄 Re-open — try again</button>
-      <button class="ghost hidden" id="btnClose">Close table</button>
+      <button class="primary hidden" id="btnReopen" data-i18n="dice.reopen">🔄 Re-open — try again</button>
+      <button class="ghost hidden" id="btnClose" data-i18n="dice.closeTable">Close table</button>
     </div>
     <div class="row mt hidden" id="fundRow">
-      <input id="fundAmt" value="10" placeholder="add to bankroll (NADO)" inputmode="decimal" autocomplete="off">
-      <button class="ghost" id="btnFund" style="flex:0 0 auto">Top up</button>
+      <input id="fundAmt" value="10" placeholder="add to bankroll (NADO)" data-i18n-ph="dice.fundPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnFund" style="flex:0 0 auto" data-i18n="dice.topUp">Top up</button>
     </div>
-    <label class="mt">Invite rollers</label>
+    <label class="mt" data-i18n="dice.invite">Invite rollers</label>
     <input id="shareLink" class="mono" readonly onclick="this.select()">
     <div class="row mt" style="align-items:center;gap:8px">
-      <button class="primary" id="btnShare" style="flex:0 0 auto">Share</button>
-      <span class="dim small">or scan the code to roll at this table</span>
+      <button class="primary" id="btnShare" style="flex:0 0 auto" data-i18n="dice.share">Share</button>
+      <span class="dim small" data-i18n="dice.scanHint">or scan the code to roll at this table</span>
     </div>
     <canvas id="shareQR" class="hidden" style="margin:12px auto 0;display:block;border-radius:8px;background:#fff;padding:8px"></canvas>
-    <div id="shareQRNote" class="hidden dim small mt">QR generator unavailable — copy the link above.</div>
+    <div id="shareQRNote" class="hidden dim small mt" data-i18n="dice.qrNote">QR generator unavailable — copy the link above.</div>
   </div>
 
   <div class="card">
-    <h2>Provably fair — no house roll, no secrets</h2>
-    <p class="small dim" style="line-height:1.6">
+    <h2 data-i18n="dice.fairH">Provably fair — no house roll, no secrets</h2>
+    <p class="small dim" style="line-height:1.6" data-i18n-html="dice.fairText">
       Every ~2 minutes the table rolls itself. Each bet is bound to a future settle block; your roll is <span class="mono">HASH(blockhash(H) ‖ blockhash(H+1) ‖ seatId) mod 100</span>. Those block hashes don't exist yet when you bet, so <b>nobody — not you, not the bank, not the block producer — can know or steer your roll</b> while betting is open (two blocks are mixed so no single miner can grind it). Once your settle block is final, <b>anyone</b> can settle your seat and the chain pays a win automatically — a stalling bank can't rob you. A win pays <span class="mono">99 ÷ target</span> (1% edge); losing stakes fold into the bankroll so the table keeps rolling.
     </p>
   </div>
 
-  <footer>Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · <a href="https://get.nadochain.com/rollup">see the contract</a>.</footer>
+  <footer data-i18n-html="dice.footer">Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · <a href="https://get.nadochain.com/rollup">see the contract</a>.</footer>
 </div>
 <script type="module" src="/static/dice.js"></script>
 </body>

@@ -505,7 +505,7 @@ async function challengerCanvas(p) {
   const img = new Image();
   const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
   try { await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; }); }
-  catch { URL.revokeObjectURL(url); return alertBar("Couldn't render the card image — try again."); }
+  catch { URL.revokeObjectURL(url); return alertBar(window.t("pets.cardRenderFail", "Couldn't render the card image — try again.")); }
   const W = 640, H = 900, cv = document.createElement("canvas"); cv.width = W; cv.height = H;
   const x = cv.getContext("2d");
   // background: night gradient + a menacing tier-colored arena glow
@@ -530,7 +530,7 @@ async function challengerCanvas(p) {
   x.strokeStyle = "#e3b34188"; x.lineWidth = 2; x.stroke(rr(26, 26, W - 52, H - 52, 16));
   // header
   x.textAlign = "center"; x.fillStyle = "#e3b341"; x.font = "800 26px system-ui";
-  x.fillText("⚔  C H A L L E N G E R  ⚔", W / 2, 78);
+  x.fillText(window.t("pets.cardHeader", "⚔  C H A L L E N G E R  ⚔"), W / 2, 78);
   const name = p.label;
   x.fillStyle = "#f2f4f6"; x.font = `900 ${name.length > 14 ? 40 : 52}px system-ui`;
   x.shadowColor = tier.color; x.shadowBlur = 18;
@@ -545,9 +545,9 @@ async function challengerCanvas(p) {
   x.fillStyle = "#0b0f14cc"; x.fill(rr(W / 2 - 190, 586, 380, 72, 16));
   x.strokeStyle = "#e3b341"; x.lineWidth = 2.5; x.stroke(rr(W / 2 - 190, 586, 380, 72, 16));
   x.fillStyle = "#ffd35a"; x.font = "900 38px system-ui";
-  x.fillText(`⚡ POWER ${p.pw}`, W / 2, 636);
+  x.fillText(window.t("pets.cardPower", "⚡ POWER {pw}", { pw: p.pw }), W / 2, 636);
   x.fillStyle = "#93a1b0"; x.font = "700 20px system-ui";
-  x.fillText(`Lv ${p.level} · record ${recordOf(p)}`, W / 2, 688);
+  x.fillText(window.t("pets.cardRecord", "Lv {lv} · record {rec}", { lv: p.level, rec: recordOf(p) }), W / 2, 688);
   // QR to this pet (scan -> its page, Challenge button and all)
   const qcv = document.createElement("canvas");
   drawQR(qcv, null, base() + "/?pet=" + p.id, 150);
@@ -559,21 +559,21 @@ async function challengerCanvas(p) {
   x.textAlign = "left";
   x.fillStyle = "#f85149"; x.font = "900 42px system-ui";
   x.shadowColor = "#f85149"; x.shadowBlur = 20;
-  x.fillText("CHALLENGE ME", 46, 764);
+  x.fillText(window.t("pets.cardChallengeMe", "CHALLENGE ME"), 46, 764);
   x.shadowBlur = 0;
   x.fillStyle = "#93a1b0"; x.font = "600 17px system-ui";
-  x.fillText("scan to face me on-chain:", 46, 798);
+  x.fillText(window.t("pets.cardScan", "scan to face me on-chain:"), 46, 798);
   x.fillStyle = "#00c9a7"; x.font = "700 19px system-ui";
   x.fillText("pets.nadochain.com", 46, 826);
   x.fillStyle = "#5d6b7a"; x.font = "600 14px system-ui";
-  x.fillText("NADO PETS · every fight is decided by the chain", 46, 854);
+  x.fillText(window.t("pets.cardFooter", "NADO PETS · every fight is decided by the chain"), 46, 854);
   return cv;
 }
 async function challengerCard(p) {
   const cv = await challengerCanvas(p);
   if (!cv) return;
   cv.toBlob((b) => {
-    if (!b) return alertBar("Couldn't export the card PNG.");
+    if (!b) return alertBar(window.t("pets.cardExportFail", "Couldn't export the card PNG."));
     const a = document.createElement("a");
     a.href = URL.createObjectURL(b);
     a.download = "challenger-" + String(p.nm || p.animal.n).replace(/\W+/g, "-").toLowerCase() + "-" + p.id + ".png";
@@ -633,7 +633,7 @@ const recordOf = (p) => (p.wins || 0) + "W–" + (p.loss || 0) + "L";
 const lifeBlocks = (p) => dapp.cursor == null ? null : p.fu - dapp.cursor;
 const dhm = (b) => { const d = Math.floor(b / BLOCKS_PER_DAY), h = Math.floor((b % BLOCKS_PER_DAY) * BLOCK_SECS / 3600);
   return d > 0 ? d + "d " + h + "h" : h > 0 ? h + "h " + Math.floor((b * BLOCK_SECS % 3600) / 60) + "m" : blocksToTime(b) + " min"; };
-const lifeText = (p) => { const b = lifeBlocks(p); return b == null ? "…" : b <= 0 ? "none" : dhm(b); };
+const lifeText = (p) => { const b = lifeBlocks(p); return b == null ? "…" : b <= 0 ? window.t("pets.lifeNone", "none") : dhm(b); };
 // hunger moods drive the CSS animations: hungry under 3 days of belly, starving under 12 hours.
 // Only HATCHED pets get them — an egg can't be fed, so nagging for food would be a lie.
 const moodOf = (p) => { if (p.dead) return "dead"; if (!p.hatched) return ""; const b = lifeBlocks(p);
@@ -695,8 +695,8 @@ const rebirth = (pid) => dapp.call("rebirth", [Number(pid)], null, "re-roll egg 
 function feed(pid, raw) {
   const p = PETS[pid]; if (!p) return;
   const blocks = G.feedBlocks(raw, p.ap);
-  if (blocks < 1) return alertBar("That meal is too small — it wouldn't buy a single block of life (this pet's appetite costs " + rawToNado(G.feedCost(1, p.ap)) + " NADO per block).");
-  if (lifeBlocks(p) + blocks > G.BELLY_CAP) return alertBar("Too much food — the belly holds at most 30 days ahead. Use the fill-belly preset instead.");
+  if (blocks < 1) return alertBar(window.t("pets.mealTooSmall", "That meal is too small — it wouldn't buy a single block of life (this pet's appetite costs {cost} NADO per block).", { cost: rawToNado(G.feedCost(1, p.ap)) }));
+  if (lifeBlocks(p) + blocks > G.BELLY_CAP) return alertBar(window.t("pets.tooMuchFood", "Too much food — the belly holds at most 30 days ahead. Use the fill-belly preset instead."));
   if (!canPay(dapp, raw, "This meal")) return;
   dapp.call("feed", [Number(pid)], raw, "feed " + PETS[pid].label + " · " + rawToNado(raw) + " NADO (+" + (blocks / BLOCKS_PER_DAY).toFixed(1) + "d)", { pid, phase: "feed", fu0: p.fu });
 }
@@ -714,12 +714,12 @@ function maybeAutoReveal() {
 }
 function challenge(theirPid) {
   const myPid = parseInt($("myPetSel").value, 10);
-  if (!myPid) return alertBar("Pick which of your pets fights — you need a living, hatched pet (adopt one below).");
+  if (!myPid) return alertBar(window.t("pets.pickFighter", "Pick which of your pets fights — you need a living, hatched pet (adopt one below)."));
   const mine = PETS[myPid], theirs = PETS[theirPid];
-  if (mine && mine.resting) return alertBar(mine.label + " is exhausted from its last battle — rested again in " + dhm(mine.restBlocks) + ".");
-  if (theirs && theirs.resting) return alertBar(theirs.label + " is exhausted from its last battle — challenge it again in " + dhm(theirs.restBlocks) + ".");
+  if (mine && mine.resting) return alertBar(window.t("pets.mineExhausted", "{label} is exhausted from its last battle — rested again in {time}.", { label: mine.label, time: dhm(mine.restBlocks) }));
+  if (theirs && theirs.resting) return alertBar(window.t("pets.theirsExhausted", "{label} is exhausted from its last battle — challenge it again in {time}.", { label: theirs.label, time: dhm(theirs.restBlocks) }));
   const stake = $("stakeAmt").value.trim() === "" || $("stakeAmt").value.trim() === "0" ? 0n : nadoToRaw($("stakeAmt").value);
-  if (stake == null) return alertBar("Enter a stake in NADO (0 for a friendly-but-deadly match).");
+  if (stake == null) return alertBar(window.t("pets.enterStake", "Enter a stake in NADO (0 for a friendly-but-deadly match)."));
   if (stake > 0n && !canPay(dapp, stake, "This challenge")) return;
   const bid = randId();
   dapp.call("challenge", [bid, myPid, Number(theirPid)], stake > 0n ? stake : null,
@@ -737,12 +737,12 @@ const cancelBattle = (bid) => dapp.call("cancel_battle", [Number(bid)], null, "w
 const refundBattle = (bid) => dapp.call("refund_battle", [Number(bid)], null, "reclaim stakes of battle #" + bid, { bid, phase: "cancelb" });
 function nameIt(pid) {
   const name = $("nameInput").value.trim().slice(0, 24);
-  if (!name) return alertBar("Pick a name — it's permanent, like a real pet's.");
+  if (!name) return alertBar(window.t("pets.pickName", "Pick a name — it's permanent, like a real pet's."));
   dapp.call("name", [Number(pid), name], null, 'name pet #' + pid + ' "' + name + '" (permanent)', { pid, phase: "rename" }, { confirm: 1 });
 }
 function listPet(pid) {
   const raw = nadoToRaw($("listPrice").value);
-  if (!raw) return alertBar("Enter your ask price in NADO.");
+  if (!raw) return alertBar(window.t("pets.enterAsk", "Enter your ask price in NADO."));
   dapp.call("list", [Number(pid), raw], null, "sell " + PETS[pid].label + " · ask " + rawToNado(raw) + " NADO", { pid, phase: "market", mp0: PETS[pid].price }, { confirm: 1 });
 }
 const unlistPet = (pid) => dapp.call("unlist", [Number(pid)], null, "remove " + PETS[pid].label + " from the market", { pid, phase: "market", mp0: PETS[pid].price });
@@ -755,7 +755,7 @@ function buyPet(pid) {
 function makeOffer(pid) {
   const p = PETS[pid]; if (!p) return;
   const raw = nadoToRaw($("offerAmt").value);
-  if (!raw) return alertBar("Enter your offer in NADO.");
+  if (!raw) return alertBar(window.t("pets.enterOffer", "Enter your offer in NADO."));
   if (!canPay(dapp, raw, "This offer")) return;
   const oid = randId();
   dapp.call("offer", [oid, Number(pid)], raw, "offer " + rawToNado(raw) + " NADO for " + p.label, { pid, oid, phase: "offer" }, { confirm: 1 });
@@ -767,10 +767,10 @@ async function transfer(pid) {
   if (to.startsWith("@")) {
     try { const r = await (await fetch(base() + "/resolve_alias?name=" + encodeURIComponent(to.slice(1)), { cache: "no-store" })).json(); to = r.address || r.owner || ""; }
     catch { to = ""; }
-    if (!to) return alertBar("That @alias doesn't resolve to an address.");
+    if (!to) return alertBar(window.t("pets.aliasNoResolve", "That @alias doesn't resolve to an address."));
   }
-  if (!to || !to.startsWith("ndo")) return alertBar("Enter the receiving NADO address (ndo…) or a registered @alias.");
-  if (to === dapp.me) return alertBar("That's you — pick another wallet.");
+  if (!to || !to.startsWith("ndo")) return alertBar(window.t("pets.enterRecipient", "Enter the receiving NADO address (ndo…) or a registered @alias."));
+  if (to === dapp.me) return alertBar(window.t("pets.thatsYou", "That's you — pick another wallet."));
   dapp.call("transfer", [Number(pid), to], null, "transfer " + PETS[pid].label + " to " + to.slice(0, 10) + "…", { pid, phase: "xfer" }, { confirm: 1 });
 }
 
@@ -850,7 +850,7 @@ function renderActive() {
   }
   const an = p.animal, tier = p.tier;
   $("petId").textContent = "#" + p.id;
-  $("petRar").innerHTML = p.hatched ? `<span class="rar r${p.sp}">${tier.rarity}</span>` : `<span class="rar r1">Egg</span>`;
+  $("petRar").innerHTML = p.hatched ? `<span class="rar r${p.sp}">${tier.rarity}</span>` : `<span class="rar r1">${window.t("pets.egg", "Egg")}</span>`;
   if (!hatchPlaying) {
     $("activePet").className = "card " + moodOf(p);
     $("petStage").innerHTML = petArt(p);
@@ -858,25 +858,25 @@ function renderActive() {
   $("petName").textContent = p.label + (p.dead ? " ✝" : "");
   const coat = p.gene && an ? G.coatOf(p.gene, an) : null;
   $("petSpecies").innerHTML = p.hatched
-    ? an.e + " " + esc(coat.name) + " " + esc(an.n) + (coat.shiny ? ' <span style="color:#ffd35a">✦ shiny</span>' : "") + ' · <span class="dim">1 of 107 animals</span>' + (p.nm ? ' · <span class="dim">#' + p.id + "</span>" : "")
-    : "Unhatched egg";
-  $("petOwner").innerHTML = esc(disp(p.owner)) + (p.mine ? ' <span class="b ok">yours</span>' : "");
+    ? an.e + " " + esc(coat.name) + " " + esc(an.n) + (coat.shiny ? ' <span style="color:#ffd35a">' + window.t("pets.shiny", "✦ shiny") + '</span>' : "") + ' · <span class="dim">' + window.t("pets.oneOf107", "1 of 107 animals") + '</span>' + (p.nm ? ' · <span class="dim">#' + p.id + "</span>" : "")
+    : window.t("pets.unhatchedEgg", "Unhatched egg");
+  $("petOwner").innerHTML = esc(disp(p.owner)) + (p.mine ? ' <span class="b ok">' + window.t("pets.yours", "yours") + '</span>' : "");
   $("petLp").textContent = p.hatched ? "Lv " + p.level + " · ⚡ " + p.pw + " · " + recordOf(p) : "—";
-  $("petUpkeep").textContent = p.hatched ? p.ap + " (locked at hatch) · " + rawToNado(G.feedCost(BLOCKS_PER_DAY, p.ap)) + " NADO/day" : "decided at hatch";
+  $("petUpkeep").textContent = p.hatched ? window.t("pets.upkeepLine", "{ap} (locked at hatch) · {perday} NADO/day", { ap: p.ap, perday: rawToNado(G.feedCost(BLOCKS_PER_DAY, p.ap)) }) : window.t("pets.decidedAtHatch", "decided at hatch");
   if ($("petInvested")) $("petInvested").textContent = p.hatched || p.tf ? rawToNado(p.tf) + " NADO" : "—";
   if ($("petGene")) { $("petGene").textContent = p.gs ? "0x" + p.gene.toString(16) : "—"; $("petGene").title = p.gs || ""; }
   // life bar
   const lb = lifeBlocks(p), pct = lb == null ? 0 : Math.max(0, Math.min(100, 100 * lb / G.BELLY_CAP));
   $("lifeBar").className = "bar" + (p.dead ? " crit" : lb < BLOCKS_PER_DAY / 2 ? " crit" : lb < 3 * BLOCKS_PER_DAY ? " low" : "");
   $("lifeBar").firstElementChild.style.width = pct + "%";
-  $("lifeLabel").textContent = p.dead ? "☠ starved / fallen" : lifeText(p) + (lb != null && lb < 3 * BLOCKS_PER_DAY && !p.dead ? " — FEED SOON" : "");
+  $("lifeLabel").textContent = p.dead ? window.t("pets.starvedFallen", "☠ starved / fallen") : lifeText(p) + (lb != null && lb < 3 * BLOCKS_PER_DAY && !p.dead ? window.t("pets.feedSoon", " — FEED SOON") : "");
   // exhaustion (post-battle rest): recovery bar counts UP to ready
   if (p.resting) {
     $("restLabel").textContent = dhm(p.restBlocks);
     $("restBar").firstElementChild.style.width = Math.max(2, Math.min(100, 100 * (1 - p.restBlocks / G.EXHAUST))) + "%";
   }
-  $("petMsg").textContent = p.dead ? (p.hatched ? "This pet has died. Its record stays on-chain forever." : "This egg expired unhatched.")
-    : !p.hatched ? (p.hatchReady ? "The gene blocks are final — hatch it!" : p.stale ? "Its gene block was pruned — re-roll below." : "Incubating… the chain is minting its gene blocks (~2 min).") : "";
+  $("petMsg").textContent = p.dead ? (p.hatched ? window.t("pets.petDied", "This pet has died. Its record stays on-chain forever.") : window.t("pets.eggExpired", "This egg expired unhatched."))
+    : !p.hatched ? (p.hatchReady ? window.t("pets.genesFinal", "The gene blocks are final — hatch it!") : p.stale ? window.t("pets.genePruned", "Its gene block was pruned — re-roll below.") : window.t("pets.incubating", "Incubating… the chain is minting its gene blocks (~2 min).")) : "";
   // sections
   const canOffer = p.hatched && !p.dead && !p.mine && dapp.me;
   const incoming = Object.values(OFFERS).filter((o) => o.state === 1 && o.pet === p.id);
@@ -888,44 +888,44 @@ function renderActive() {
   if (canOffer) {
     const mine = Object.values(OFFERS).filter((o) => o.state === 1 && o.pet === p.id && o.buyer === dapp.me);
     $("myOffersOut").innerHTML = mine.length
-      ? "Your open offer: " + mine.map((o) => rawToNado(o.value) + " NADO <button class='mini ghost' data-canceloffer='" + o.id + "'>withdraw</button>").join(" ")
-      : "Bid any amount; it's escrowed and refunded if you withdraw or it's never accepted.";
+      ? window.t("pets.yourOpenOffer", "Your open offer:") + " " + mine.map((o) => rawToNado(o.value) + " NADO <button class='mini ghost' data-canceloffer='" + o.id + "'>" + window.t("pets.withdrawLc", "withdraw") + "</button>").join(" ")
+      : window.t("pets.bidAny", "Bid any amount; it's escrowed and refunded if you withdraw or it's never accepted.");
     $("myOffersOut").querySelectorAll("[data-canceloffer]").forEach((b) => b.onclick = () => cancelOffer(b.dataset.canceloffer));
   }
   if (p.mine && !p.dead && incoming.length) {
     incoming.sort((a, b) => b.value - a.value);
     $("offersInList").innerHTML = incoming.map((o) => '<div class="btl">💬 <b>' + rawToNado(o.value) + " NADO</b> from " + esc(disp(o.buyer))
-      + ' <div class="act"><button class="mini primary" data-acceptoffer="' + o.id + '">Accept &amp; sell</button></div></div>').join("");
+      + ' <div class="act"><button class="mini primary" data-acceptoffer="' + o.id + '">' + window.t("pets.acceptSell", "Accept &amp; sell") + '</button></div></div>').join("");
     $("offersInList").querySelectorAll("[data-acceptoffer]").forEach((b) => b.onclick = () => acceptOffer(b.dataset.acceptoffer, p.label));
   }
   if (p.price && !p.mine && !p.dead) {
     const busyBuy = dapp.busy("buy", "pid", p.id);
-    $("btnBuy").textContent = busyBuy ? "⏳ Buying — confirming on-chain…" : "🛒 Buy " + p.label + " · " + rawToNado(p.price) + " NADO";
+    $("btnBuy").textContent = busyBuy ? window.t("pets.buyingConfirm", "⏳ Buying — confirming on-chain…") : window.t("pets.buyBtn", "🛒 Buy {label} · {price} NADO", { label: p.label, price: rawToNado(p.price) });
     $("btnBuy").disabled = busyBuy;
   }
   if (p.mine && !p.dead) {
     $("btnList").classList.toggle("hidden", !!p.price);
     $("listPrice").classList.toggle("hidden", !!p.price);
     $("btnUnlist").classList.toggle("hidden", !p.price);
-    if (p.price) $("btnUnlist").textContent = "Remove listing (ask " + rawToNado(p.price) + " NADO)";
+    if (p.price) $("btnUnlist").textContent = window.t("pets.removeListingPrice", "Remove listing (ask {price} NADO)", { price: rawToNado(p.price) });
   }
   if (!p.hatched && !p.dead) {
     $("btnHatch").disabled = !p.hatchReady || dapp.busy("hatch", "pid", p.id);
     $("btnHatch").classList.toggle("pulse", p.hatchReady && !dapp.busy("hatch", "pid", p.id));
-    $("btnHatch").textContent = dapp.busy("hatch", "pid", p.id) ? "⏳ Hatching — confirming on-chain…" : "🐣 Hatch the egg";
-    $("hatchHint").textContent = p.hatchReady ? "Anyone may hatch it; the animal was already decided by blocks " + p.bh + "–" + (p.bh + 1) + "."
-      : "Hatchable once blocks " + p.bh + "–" + (p.bh + 1) + " are finalized" + (dapp.cursor ? " (now at " + dapp.cursor + ", ~" + blocksToTime(Math.max(0, p.bh + 1 - dapp.cursor)) + " + finality)" : "") + ".";
+    $("btnHatch").textContent = dapp.busy("hatch", "pid", p.id) ? window.t("pets.hatchingConfirm", "⏳ Hatching — confirming on-chain…") : window.t("pets.hatchEgg", "🐣 Hatch the egg");
+    $("hatchHint").textContent = p.hatchReady ? window.t("pets.hatchReadyHint", "Anyone may hatch it; the animal was already decided by blocks {a}–{b}.", { a: p.bh, b: p.bh + 1 })
+      : window.t("pets.hatchWaitHint", "Hatchable once blocks {a}–{b} are finalized", { a: p.bh, b: p.bh + 1 }) + (dapp.cursor ? window.t("pets.hatchWaitNow", " (now at {cur}, ~{time} + finality)", { cur: dapp.cursor, time: blocksToTime(Math.max(0, p.bh + 1 - dapp.cursor)) }) : "") + ".";
     $("btnRebirth").classList.toggle("hidden", !(p.stale && p.mine));
   }
   if (p.hatched && !p.dead) {
-    $("feed1d").textContent = "+7 days · " + rawToNado(G.feedCost(7 * BLOCKS_PER_DAY, p.ap)) + " N";
-    $("feed3d").textContent = "+14 days · " + rawToNado(G.feedCost(14 * BLOCKS_PER_DAY, p.ap)) + " N";
+    $("feed1d").textContent = window.t("pets.feed1d", "+7 days · {cost} N", { cost: rawToNado(G.feedCost(7 * BLOCKS_PER_DAY, p.ap)) });
+    $("feed3d").textContent = window.t("pets.feed3d", "+14 days · {cost} N", { cost: rawToNado(G.feedCost(14 * BLOCKS_PER_DAY, p.ap)) });
     const fillB = Math.max(0, G.BELLY_CAP - (lb || 0) - 60);
-    $("feedFull").textContent = "fill belly (30d) · " + rawToNado(G.feedCost(fillB, p.ap)) + " N";
+    $("feedFull").textContent = window.t("pets.feedFull", "fill belly (30d) · {cost} N", { cost: rawToNado(G.feedCost(fillB, p.ap)) });
     $("feedFull").dataset.blocks = fillB;
-    $("feedHint").textContent = "Hatched appetite " + p.ap + ": 1 NADO buys " + (G.feedBlocks(10n ** 10n, p.ap) / BLOCKS_PER_DAY).toFixed(1) + " days"
-      + (p.bonus && p.bonus[9] ? " (trained Appetite +" + p.bonus[9] + " is battle muscle only — the food bill never changes)" : "")
-      + ". Anyone may feed any pet — a gift (the belly still tops out 30 days ahead).";
+    $("feedHint").textContent = window.t("pets.feedHint1", "Hatched appetite {ap}: 1 NADO buys {days} days", { ap: p.ap, days: (G.feedBlocks(10n ** 10n, p.ap) / BLOCKS_PER_DAY).toFixed(1) })
+      + (p.bonus && p.bonus[9] ? window.t("pets.feedHintTrained", " (trained Appetite +{b} is battle muscle only — the food bill never changes)", { b: p.bonus[9] }) : "")
+      + window.t("pets.feedHint2", ". Anyone may feed any pet — a gift (the belly still tops out 30 days ahead).");
     dapp.syncPctSlider("feed", { slider: "feedSlider", input: "feedAmt" }, dapp.exec);   // feed: % of playable balance
   }
   if (p.hatched) {
@@ -937,35 +937,35 @@ function renderActive() {
       const ready = dapp.cursor != null && dapp.cursor >= p.th + 1 && dapp.bh(p.th) && dapp.bh(p.th + 1);
       const i = p.ti - 1;
       tp.classList.remove("hidden");
-      tp.innerHTML = "🏋 Training <b>" + G.STAT_NAMES[i] + "</b>… " + (ready
-        ? '<button class="mini primary" id="btnTrainRes">Reveal the result</button>'
-        : '<span class="waitpulse">result locking in blocks ' + p.th + "–" + (p.th + 1) + " (~" + blocksToTime(Math.max(0, p.th + 1 - (dapp.cursor || p.th))) + " + finality)…</span>");
+      tp.innerHTML = window.t("pets.trainingStat", "🏋 Training <b>{stat}</b>… ", { stat: G.STAT_NAMES[i] }) + (ready
+        ? '<button class="mini primary" id="btnTrainRes">' + window.t("pets.revealResult", "Reveal the result") + '</button>'
+        : '<span class="waitpulse">' + window.t("pets.resultLocking", "result locking in blocks {a}–{b} (~{time} + finality)…", { a: p.th, b: p.th + 1, time: blocksToTime(Math.max(0, p.th + 1 - (dapp.cursor || p.th))) }) + '</span>');
       if (ready) $("btnTrainRes").onclick = () => trainResolve(p.id);
     } else {
       tp.classList.add("hidden");
       if (local.trainPending === 2 && p.tr) {     // its resolve just landed — announce it once
         const ok = p.tr === 1;
-        alertBar(ok ? "🎉 Training paid off — " + p.label + " got +1 " + (local.trainStat || "to a stat") + "!" : "Training didn't stick this time — the fee is spent, try again.");
+        alertBar(ok ? window.t("pets.trainWin", "🎉 Training paid off — {label} got +1 {stat}!", { label: p.label, stat: local.trainStat || window.t("pets.aStat", "to a stat") }) : window.t("pets.trainFail", "Training didn't stick this time — the fee is spent, try again."));
         const l = L(); delete l[p.id].trainPending; delete l[p.id].trainStat; Lsave(l);
       }
     }
-    $("trainHint").innerHTML = '<span style="color:var(--accent2)">▮ base</span> (locked at hatch) · <span style="color:var(--gold)">▮ trained</span> (your gains). '
-      + "Each attempt costs 0.5 NADO. Success chance = 100·K/(K+stat), K=" + G.trainK(p.sp) + " for a " + (tier ? esc(tier.rarity.toLowerCase()) : "") + " — the better the stat, the harder the gain (no cap, ever). Rarer animals train easier.";
+    $("trainHint").innerHTML = '<span style="color:var(--accent2)">' + window.t("pets.legBase", "▮ base") + '</span> ' + window.t("pets.legBaseNote", "(locked at hatch)") + ' · <span style="color:var(--gold)">' + window.t("pets.legTrained", "▮ trained") + '</span> ' + window.t("pets.legTrainedNote", "(your gains).") + ' '
+      + window.t("pets.trainFormula", "Each attempt costs 0.5 NADO. Success chance = 100·K/(K+stat), K={k} for a {rarity} — the better the stat, the harder the gain (no cap, ever). Rarer animals train easier.", { k: G.trainK(p.sp), rarity: (tier ? esc(tier.rarity.toLowerCase()) : "") });
   }
   if (p.hatched && !p.dead && !p.mine && dapp.me) {
     const mine = myPets().filter((x) => x.hatched && !x.dead);
     $("myPetSel").innerHTML = mine.length
-      ? mine.map((x) => `<option value="${x.id}"${x.resting ? " disabled" : ""}>${esc(x.label)} · ⚡${x.pw}${x.resting ? " · 💤 resting" : ""}</option>`).join("")
-      : '<option value="">no living pet — adopt below</option>';
+      ? mine.map((x) => `<option value="${x.id}"${x.resting ? " disabled" : ""}>${esc(x.label)} · ⚡${x.pw}${x.resting ? " · 💤 " + window.t("pets.restingLc", "resting") : ""}</option>`).join("")
+      : '<option value="">' + window.t("pets.noLivingPet", "no living pet — adopt below") + '</option>';
     $("btnChallenge").disabled = p.resting;
-    $("btnChallenge").textContent = p.resting ? "💤 Resting · ready in " + dhm(p.restBlocks) : "⚔ Challenge";
+    $("btnChallenge").textContent = p.resting ? window.t("pets.restingReady", "💤 Resting · ready in {time}", { time: dhm(p.restBlocks) }) : window.t("pets.challenge", "⚔ Challenge");
   }
   if (p.mine && !p.dead) {
     const named = !!p.nm;
     $("nameInput").classList.toggle("hidden", named);
     $("btnRename").classList.toggle("hidden", named);
   }
-  shareInvite("pet", p.id, (p.hatched ? "Meet " + p.label + ", my " + tier.rarity + " " + an.n + " on NADO Pets:" : "My NADO Pets egg is incubating:"));
+  shareInvite("pet", p.id, (p.hatched ? window.t("pets.shareMeet", "Meet {label}, my {rarity} {animal} on NADO Pets:", { label: p.label, rarity: tier.rarity, animal: an.n }) : window.t("pets.shareEgg", "My NADO Pets egg is incubating:")));
   $("btnCard").classList.toggle("hidden", !(p.hatched && !p.dead));
   maybePlayHatch(p);
 }
@@ -974,7 +974,7 @@ function petCard(p, sel) {
   const flags = (p.resting ? " 💤" : "") + (!p.dead && moodOf(p) === "hungry" ? " 🍖" : "") + (!p.dead && moodOf(p) === "starving" ? ' <span class="warn">🍖!</span>' : "");
   return `<div class="${cls}" data-pet="${p.id}">${petArt(p, "")}
     <div class="pn">${p.hatched ? p.animal.e + " " : "🥚 "}${esc(p.label)}</div>
-    <div class="po">${p.hatched ? `<span style="color:${p.tier.color}">${p.tier.rarity}</span> · ⚡${p.pw}` : "incubating"}${p.dead ? " · ✝" : ""}${flags}</div>
+    <div class="po">${p.hatched ? `<span style="color:${p.tier.color}">${p.tier.rarity}</span> · ⚡${p.pw}` : window.t("pets.incubatingShort", "incubating")}${p.dead ? " · ✝" : ""}${flags}</div>
     <div class="po">${p.price && !p.dead ? `🏷 ${rawToNado(p.price)} NADO` : esc(disp(p.owner))}</div></div>`;
 }
 // grid view state: search + sort + how many are shown (pagination keeps 10k pets browsable)
@@ -999,35 +999,35 @@ function grid(el, moreBtn, list, v, empty) {
   const shown = list.slice(0, v.n);
   el.innerHTML = shown.map((p) => petCard(p, String(active) === p.id)).join("") || `<span class="dim small">${empty}</span>`;
   moreBtn.classList.toggle("hidden", list.length <= v.n);
-  if (list.length > v.n) moreBtn.textContent = "Show more (" + (list.length - v.n) + " more)";
+  if (list.length > v.n) moreBtn.textContent = window.t("pets.showMoreN", "Show more ({n} more)", { n: list.length - v.n });
 }
 function renderGrids() {
   const all = Object.values(PETS);
   const mine = myPets();
   const pendings = Object.keys(L()).filter((pid) => !PETS[pid]);
   $("myPetGrid").innerHTML = (mine.map((p) => petCard(p, String(active) === p.id)).join("")
-    + pendings.map((pid) => `<div class="pcard egg pending" data-pet="${pid}">${eggSvg("egg-idle", 0)}<div class="pn">🥚 #${String(pid).slice(-4)}</div><div class="po">confirming ⏳</div></div>`).join(""))
-    || '<span class="dim small">No pets yet — adopt your first egg below.</span>';
+    + pendings.map((pid) => `<div class="pcard egg pending" data-pet="${pid}">${eggSvg("egg-idle", 0)}<div class="pn">🥚 #${String(pid).slice(-4)}</div><div class="po">${window.t("pets.confirming", "confirming ⏳")}</div></div>`).join(""))
+    || '<span class="dim small">' + window.t("pets.noPetsYet", "No pets yet — adopt your first egg below.") + '</span>';
   const nReady = readyEggs().length, running = localStorage.getItem("nado_pets_hatchall") === "1";
   const bha = $("btnHatchAll");
   if (bha) {
     bha.classList.toggle("hidden", nReady === 0 && !running);
     bha.disabled = !!dapp.inflight || nReady === 0;
-    bha.textContent = running ? "🐣 Hatching all… (" + nReady + " left)" : "🐣 Hatch all ready eggs (" + nReady + ")";
+    bha.textContent = running ? window.t("pets.hatchingAll", "🐣 Hatching all… ({n} left)", { n: nReady }) : window.t("pets.hatchAllN", "🐣 Hatch all ready eggs ({n})", { n: nReady });
   }
   $("petCount").textContent = all.length ? "— " + all.length : "";
   grid($("gallery"), $("btnMoreGallery"),
     all.filter((p) => matches(p, VIEW.g.q)).sort(SORTS[VIEW.g.sort] || SORTS.new),
-    VIEW.g, "No pets exist yet. Yours could be the very first.");
+    VIEW.g, window.t("pets.galleryEmpty", "No pets exist yet. Yours could be the very first."));
   grid($("marketGrid"), $("btnMoreMarket"),
     all.filter((p) => p.price && !p.dead && matches(p, VIEW.m.q)).sort(SORTS[VIEW.m.sort] || SORTS.priceAsc),
-    VIEW.m, VIEW.m.q ? "No listed pet matches your search." : "Nothing for sale right now — list one of yours from its pet card.");
+    VIEW.m, VIEW.m.q ? window.t("pets.marketNoMatch", "No listed pet matches your search.") : window.t("pets.marketEmpty", "Nothing for sale right now — list one of yours from its pet card."));
   document.querySelectorAll("[data-pet]").forEach((el) => el.onclick = () => { active = el.dataset.pet; render(); try { $("activePet").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
   // hall of fame
   const top = Object.values(PETS).filter((p) => p.hatched && !p.dead).sort((a, b) => b.pw - a.pw).slice(0, 10);
-  $("fameList").innerHTML = top.length ? '<table class="score"><thead><tr><th>#</th><th>Pet</th><th>Animal</th><th>Power</th><th>Owner</th></tr></thead><tbody>'
+  $("fameList").innerHTML = top.length ? '<table class="score"><thead><tr><th>#</th><th>' + window.t("pets.thPet", "Pet") + '</th><th>' + window.t("pets.thAnimal", "Animal") + '</th><th>' + window.t("pets.thPower", "Power") + '</th><th>' + window.t("pets.thOwner", "Owner") + '</th></tr></thead><tbody>'
     + top.map((p, i) => `<tr${p.mine ? ' class="me"' : ""}><td>${i + 1}</td><td>${p.animal.e} ${esc(p.label)}</td><td style="color:${p.tier.color}">${esc(p.animal.n)}</td><td class="mono">⚡${p.pw} · Lv${p.level}</td><td>${esc(disp(p.owner))}</td></tr>`).join("") + "</tbody></table>"
-    : '<span class="dim small">No living pets yet.</span>';
+    : '<span class="dim small">' + window.t("pets.noLivingPets", "No living pets yet.") + '</span>';
 }
 function renderBattles() {
   const rows = [];
@@ -1036,24 +1036,24 @@ function renderBattles() {
   for (const b of bs) {
     const pa = PETS[b.a], pb = PETS[b.b]; if (!pa || !pb) continue;
     const inc = mineIds.has(b.b), out = mineIds.has(b.a), involved = inc || out;
-    const stakeTxt = b.ws ? rawToNado(b.ws) + " NADO each" : "no stake (still deadly)";
+    const stakeTxt = b.ws ? window.t("pets.stakeEach", "{price} NADO each", { price: rawToNado(b.ws) }) : window.t("pets.noStake", "no stake (still deadly)");
     if (b.wn === 1 && (involved || String(activeBattle) === b.id)) {
       const tired = pa.resting || pb.resting;   // accept would revert until both fighters are rested
-      rows.push(`<div class="btl"><span class="who">${esc(pa.label)}</span> ⚔ challenges <span class="who">${esc(pb.label)}</span> · ${stakeTxt}
-        <div class="act">${inc ? (tired ? `<span class="small dim">💤 ${esc((pa.resting ? pa : pb).label)} is resting — acceptable in ${dhm(Math.max(pa.restBlocks, pb.restBlocks))}</span>`
-          : `<button class="mini primary" data-acc="${b.id}">Accept the battle</button>`) : ""}
-        ${out ? `<button class="mini ghost" data-cxl="${b.id}">Withdraw</button>` : ""}
-        <button class="mini ghost" data-view="${b.id}">View</button></div></div>`);
+      rows.push(`<div class="btl"><span class="who">${esc(pa.label)}</span>${window.t("pets.challengesMid", " ⚔ challenges ")}<span class="who">${esc(pb.label)}</span> · ${stakeTxt}
+        <div class="act">${inc ? (tired ? `<span class="small dim">${window.t("pets.isResting", "💤 {label} is resting — acceptable in {time}", { label: esc((pa.resting ? pa : pb).label), time: dhm(Math.max(pa.restBlocks, pb.restBlocks)) })}</span>`
+          : `<button class="mini primary" data-acc="${b.id}">${window.t("pets.acceptBattle", "Accept the battle")}</button>`) : ""}
+        ${out ? `<button class="mini ghost" data-cxl="${b.id}">${window.t("pets.withdraw", "Withdraw")}</button>` : ""}
+        <button class="mini ghost" data-view="${b.id}">${window.t("pets.view", "View")}</button></div></div>`);
     } else if (b.wn === 2 && (involved || String(activeBattle) === b.id)) {
-      rows.push(`<div class="btl">⚡ <span class="who">${esc(pa.label)}</span> vs <span class="who">${esc(pb.label)}</span> — fighting! · ${stakeTxt}
-        <div class="act"><button class="mini primary" data-view="${b.id}">Watch the battle</button></div></div>`);
+      rows.push(`<div class="btl">⚡ <span class="who">${esc(pa.label)}</span> ${window.t("pets.vsLc", "vs")} <span class="who">${esc(pb.label)}</span> ${window.t("pets.fighting", "— fighting!")} · ${stakeTxt}
+        <div class="act"><button class="mini primary" data-view="${b.id}">${window.t("pets.watchBattle", "Watch the battle")}</button></div></div>`);
     } else if (b.wn === 3 && involved && rows.length < 14 && b.ww) {
       const w = PETS[b.ww];
-      rows.push(`<div class="btl">✓ <span class="who">${esc(w ? w.label : "#" + b.ww)}</span> won ${esc(pa.label)} vs ${esc(pb.label)}${b.wd ? ` · ☠ ${esc((PETS[b.wd] || {}).label || "#" + b.wd)} died` : ""}
-        <div class="act"><button class="mini ghost" data-view="${b.id}">Replay</button></div></div>`);
+      rows.push(`<div class="btl">✓ <span class="who">${esc(w ? w.label : "#" + b.ww)}</span> ${window.t("pets.wonResult", "won {a} vs {b}", { a: esc(pa.label), b: esc(pb.label) })}${b.wd ? window.t("pets.diedSuffix", " · ☠ {d} died", { d: esc((PETS[b.wd] || {}).label || "#" + b.wd) }) : ""}
+        <div class="act"><button class="mini ghost" data-view="${b.id}">${window.t("pets.replay", "Replay")}</button></div></div>`);
     }
   }
-  $("battleList").innerHTML = rows.join("") || '<span class="dim small">No challenges. Pick a pet in the gallery and challenge it.</span>';
+  $("battleList").innerHTML = rows.join("") || '<span class="dim small">' + window.t("pets.noChallenges", "No challenges. Pick a pet in the gallery and challenge it.") + '</span>';
   document.querySelectorAll("[data-acc]").forEach((el) => el.onclick = () => acceptBattle(el.dataset.acc));
   document.querySelectorAll("[data-cxl]").forEach((el) => el.onclick = () => cancelBattle(el.dataset.cxl));
   document.querySelectorAll("[data-view]").forEach((el) => el.onclick = () => { activeBattle = el.dataset.view; battlePlaying = null; render(); try { $("arenaCard").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
@@ -1079,13 +1079,13 @@ function renderArena() {
   $("btnResolve").onclick = () => resolveBattle(b.id);
   $("btnCancelBattle").onclick = () => cancelBattle(b.id);
   $("btnRefundBattle").onclick = () => refundBattle(b.id);
-  if (b.wn === 1) { $("arenaVerdict").textContent = "Awaiting consent…"; hint.textContent = "The challenged pet's owner must accept (matching the stake) before the chain schedules the fight."; }
-  else if (b.wn === 2 && !res) { $("arenaVerdict").textContent = "⚡ Fight locked to blocks " + b.wh + "–" + (b.wh + 1); hint.textContent = "Nobody can know the outcome until those blocks are finalized (~" + blocksToTime(Math.max(0, b.wh + 1 - (dapp.cursor || b.wh))) + " + finality)."; }
+  if (b.wn === 1) { $("arenaVerdict").textContent = window.t("pets.awaitingConsent", "Awaiting consent…"); hint.textContent = window.t("pets.awaitConsentHint", "The challenged pet's owner must accept (matching the stake) before the chain schedules the fight."); }
+  else if (b.wn === 2 && !res) { $("arenaVerdict").textContent = window.t("pets.fightLocked", "⚡ Fight locked to blocks {a}–{b}", { a: b.wh, b: b.wh + 1 }); hint.textContent = window.t("pets.fightLockedHint", "Nobody can know the outcome until those blocks are finalized (~{time} + finality).", { time: blocksToTime(Math.max(0, b.wh + 1 - (dapp.cursor || b.wh))) }); }
   else if ((b.wn === 2 && res) || b.wn === 3) {
     const aWins = b.wn === 3 ? b.ww === b.a : res.aWins;
     const died = b.wn === 3 ? b.wd : (res.dies ? (aWins ? b.b : b.a) : 0);
     playBattle(b, pa, pb, aWins, died, res);
-    hint.textContent = b.wn === 3 ? "Settled on-chain." + (b.ws ? "" : " (friendly match — no stakes moved)") : "The chain has decided — settling records it and pays the pot" + (b.ws ? " (" + rawToNado(2 * b.ws) + " NADO) " : " ") + "to the winner's owner. Anyone may settle.";
+    hint.textContent = b.wn === 3 ? window.t("pets.settledOnchain", "Settled on-chain.") + (b.ws ? "" : window.t("pets.friendlyNoStake", " (friendly match — no stakes moved)")) : window.t("pets.chainDecided1", "The chain has decided — settling records it and pays the pot") + (b.ws ? window.t("pets.potAmount", " ({amt} NADO) ", { amt: rawToNado(2 * b.ws) }) : " ") + window.t("pets.chainDecided2", "to the winner's owner. Anyone may settle.");
   }
 }
 function playBattle(b, pa, pb, aWins, died, res) {
@@ -1098,7 +1098,7 @@ function playBattle(b, pa, pb, aWins, died, res) {
   const log = res && res.log ? res.log.filter((e) => e.dmg > 0 || e.hit) : null;
   const hp0max = res ? res.hpA : 100, hp1max = res ? res.hpB : 100;
   if (hpL) hpL.style.width = "100%"; if (hpR) hpR.style.width = "100%";
-  V.textContent = "⚔ FIGHT!"; if (LOG) LOG.textContent = "";
+  V.textContent = window.t("pets.fight", "⚔ FIGHT!"); if (LOG) LOG.textContent = "";
   let t = 300;
   const turns = log && log.length ? log.slice(0, 14) : [{ atk: aWins ? 0 : 1, dmg: 1, hit: 1 }];
   turns.forEach((e) => {
@@ -1108,7 +1108,7 @@ function playBattle(b, pa, pb, aWins, died, res) {
         if (hpL) hpL.style.width = Math.max(0, 100 * e.h0 / hp0max) + "%";
         if (hpR) hpR.style.width = Math.max(0, 100 * e.h1 / hp1max) + "%";
       }
-      if (LOG) LOG.textContent = (e.atk === 0 ? pa.label : pb.label) + (e.hit ? (e.crit ? " CRITS 💥 for " : " hits for ") + e.dmg : " misses");
+      if (LOG) LOG.textContent = (e.atk === 0 ? pa.label : pb.label) + (e.hit ? window.t(e.crit ? "pets.critsFor" : "pets.hitsFor", e.crit ? " CRITS 💥 for " : " hits for ") + e.dmg : window.t("pets.misses", " misses"));
     }, t);
     t += 560;
   });
@@ -1118,9 +1118,9 @@ function playBattle(b, pa, pb, aWins, died, res) {
     if (died) l.innerHTML = graveSvg(); else l.classList.add("faint");
     const wp2 = aWins ? pa : pb, lp = aWins ? pb : pa;
     if (LOG) LOG.textContent = "";
-    V.innerHTML = "🏆 <b>" + esc(wp2.label) + "</b> wins!" + (died
-      ? " ☠ <b>" + esc(lp.label) + "</b> fell in battle."
-      : " <b>" + esc(wp2.label) + "</b>'s owner claims <b>" + esc(lp.label) + "</b>.");
+    V.innerHTML = window.t("pets.wins", "🏆 <b>{w}</b> wins!", { w: esc(wp2.label) }) + (died
+      ? window.t("pets.fell", " ☠ <b>{l}</b> fell in battle.", { l: esc(lp.label) })
+      : window.t("pets.claims", " <b>{w}</b>'s owner claims <b>{l}</b>.", { w: esc(wp2.label), l: esc(lp.label) }));
   }, t + 300);
 }
 let hatchDone = {};
@@ -1145,8 +1145,8 @@ function maybePlayHatch(p) {
       setTimeout(() => sp.remove(), 1100);
     }
     const an = p.animal, coat = G.coatOf(p.gene, an);
-    alertBar("🎉 It's a " + p.tier.rarity.toUpperCase() + " — " + coat.name + " " + an.e + " " + an.n
-      + (coat.shiny ? " ✦ SHINY" : "") + "! One of 107 possible animals across six rarity tiers — its species, coat and 10 abilities are all written into its gene, locked forever. Name it, feed it, train it.");
+    alertBar(window.t("pets.hatchReveal", "🎉 It's a {rarity} — {coat} {emoji} {animal}{shiny}! One of 107 possible animals across six rarity tiers — its species, coat and 10 abilities are all written into its gene, locked forever. Name it, feed it, train it.",
+      { rarity: p.tier.rarity.toUpperCase(), coat: coat.name, emoji: an.e, animal: an.n, shiny: coat.shiny ? window.t("pets.shinySuffix", " ✦ SHINY") : "" }));
   }, t + 600);
   setTimeout(() => { hatchPlaying = false; render(); }, t + 2400);
 }
@@ -1156,9 +1156,9 @@ function render() {
   let mintLeft = 0; try { mintLeft = parseInt(localStorage.getItem("nado_pets_mintq") || "0", 10) || 0; } catch (e) {}
   const qty = Math.max(1, Math.min(20, parseInt(($("mintQty") || {}).value, 10) || 1));
   $("btnMint").disabled = dapp.busy("mint") || mintLeft > 0;
-  $("btnMint").textContent = mintLeft > 0 ? "⏳ Adopting… (" + mintLeft + " left)" : dapp.busy("mint") ? "⏳ Egg confirming on-chain…"
-    : qty > 1 ? "🥚 Adopt " + qty + " eggs · burn " + qty + " NADO" : "🥚 Adopt an egg · burn 1 NADO";
-  if ($("burnTally")) $("burnTally").textContent = BURNED > 0n ? "🔥 " + rawToNado(BURNED) + " NADO burned by pets so far — adoption, food and training all destroy supply." : "";
+  $("btnMint").textContent = mintLeft > 0 ? window.t("pets.adoptingN", "⏳ Adopting… ({n} left)", { n: mintLeft }) : dapp.busy("mint") ? window.t("pets.eggConfirming", "⏳ Egg confirming on-chain…")
+    : qty > 1 ? window.t("pets.adoptManyBtn", "🥚 Adopt {n} eggs · burn {n} NADO", { n: qty }) : window.t("pets.adoptOneBtn", "🥚 Adopt an egg · burn 1 NADO");
+  if ($("burnTally")) $("burnTally").textContent = BURNED > 0n ? window.t("pets.burnTally", "🔥 {amt} NADO burned by pets so far — adoption, food and training all destroy supply.", { amt: rawToNado(BURNED) }) : "";
   renderActive(); renderGrids(); renderBattles(); renderArena();
 }
 
@@ -1171,7 +1171,7 @@ function wireUI() {
   $("btnHatch").onclick = () => hatch(active);
   if ($("btnHatchAll")) $("btnHatchAll").onclick = hatchAll;
   $("btnRebirth").onclick = () => rebirth(active);
-  $("btnFeed").onclick = () => { const raw = nadoToRaw($("feedAmt").value); if (!raw) return alertBar("Enter how much NADO to feed."); feed(active, raw); };
+  $("btnFeed").onclick = () => { const raw = nadoToRaw($("feedAmt").value); if (!raw) return alertBar(window.t("pets.enterFeed", "Enter how much NADO to feed.")); feed(active, raw); };
   dapp.wirePctSlider("feed", { slider: "feedSlider", input: "feedAmt" }, () => dapp.exec, render);   // feed: % of your playable balance
   const preset = (blocks) => { const p = PETS[active]; if (p) feed(active, G.feedCost(blocks, p.ap)); };
   $("feed1d").onclick = () => preset(7 * BLOCKS_PER_DAY);
@@ -1198,16 +1198,16 @@ dapp.onReturn((pend, ok, err) => {
   if (pend && pend.bid != null) activeBattle = pend.bid;
   if (ok && pend && pend.phase === "train") { const l = L(); if (l[pend.pid]) { l[pend.pid].trainPending = 1; Lsave(l); } }
   dapp.showReturn(pend, ok, err, {
-    mint: "Egg adopted — confirming on-chain (~1 min)…", hatch: "Hatching — confirming on-chain…",
-    feed: "Nom nom — the meal is confirming…", train: "Training session booked — confirming…",
-    trainres: "Revealing the result — confirming…", challenge: "Challenge sent — the owner must accept it.",
-    accept: "Battle on! The chain decides in ~2 blocks…", resolveb: "Settling the battle…",
-    cancelb: "Withdrawing…", rename: "Naming — it's for life; confirming…", xfer: "Transferring your pet — confirming…",
-    market: "Updating the listing — confirming…", buy: "Buying — confirming on-chain (~1 min)…",
-    offer: "Offer sent — escrowed until the owner accepts.", offeract: "Confirming…" });
+    mint: window.t("pets.rtMint", "Egg adopted — confirming on-chain (~1 min)…"), hatch: window.t("pets.rtHatch", "Hatching — confirming on-chain…"),
+    feed: window.t("pets.rtFeed", "Nom nom — the meal is confirming…"), train: window.t("pets.rtTrain", "Training session booked — confirming…"),
+    trainres: window.t("pets.rtTrainres", "Revealing the result — confirming…"), challenge: window.t("pets.rtChallenge", "Challenge sent — the owner must accept it."),
+    accept: window.t("pets.rtAccept", "Battle on! The chain decides in ~2 blocks…"), resolveb: window.t("pets.rtResolveb", "Settling the battle…"),
+    cancelb: window.t("pets.rtCancelb", "Withdrawing…"), rename: window.t("pets.rtRename", "Naming — it's for life; confirming…"), xfer: window.t("pets.rtXfer", "Transferring your pet — confirming…"),
+    market: window.t("pets.rtMarket", "Updating the listing — confirming…"), buy: window.t("pets.rtBuy", "Buying — confirming on-chain (~1 min)…"),
+    offer: window.t("pets.rtOffer", "Offer sent — escrowed until the owner accepts."), offeract: window.t("pets.rtOfferact", "Confirming…") });
 });
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
+  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("pets.cryptoFail", "Crypto bundle failed to load — reload."); return; }
   wireUI(); loadQR();
   orderCards(["activePet", "arenaCard", "battlesCard", "myPets", "adopt", "marketCard", "galleryCard", "fameCard", "walletcard", "bankroll"]);
   const q = new URLSearchParams(location.search);

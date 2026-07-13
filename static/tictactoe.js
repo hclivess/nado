@@ -32,8 +32,8 @@ function gameFrom(sto, g) {
 // ---- actions ---------------------------------------------------------------------------------------
 function newGame() {
   const raw = nadoToRaw($("stakeAmt").value);
-  if (!raw) return alertBar("Enter your stake in NADO — your opponent matches it, winner takes both.");
-  if (!canPay(dapp, raw, "Opening this game")) return;
+  if (!raw) return alertBar(window.t("ttt.enterStake", "Enter your stake in NADO — your opponent matches it, winner takes both."));
+  if (!canPay(dapp, raw, window.t("ttt.whatOpen", "Opening this game"))) return;
   const g = randId();
   const G = load(LS_G); G[g] = { role: "x", ts: Date.now() }; save(LS_G, G);
   activeGame = g;
@@ -44,7 +44,7 @@ function joinGame() {
   if (!gm || !gm.exists) { if (gm) dapp.clearInvite(); return; }
   if (gm.nn !== 1) { dapp.clearInvite(); return; }   // not open for a second player (empty or full/finished)
   const stake = BigInt(gm.stake);
-  if (!canPay(dapp, stake, "Joining this game")) return;   // keep the invite: it re-fires when the deposit lands
+  if (!canPay(dapp, stake, window.t("ttt.whatJoin", "Joining this game"))) return;   // keep the invite: it re-fires when the deposit lands
   dapp.clearInvite();
   const G = load(LS_G); G[activeGame] = { role: "o", ts: Date.now() }; save(LS_G, G);
   dapp.call("join", [activeGame], stake, "join tic-tac-toe #" + activeGame + " · " + rawToNado(stake) + " NADO stake", { game: activeGame, phase: "join" });
@@ -81,17 +81,17 @@ async function refreshAll() {
         watch.phase === "move" ? (_m(sto, "mc")[g] || 0) > watch.ply :
         !!_m(sto, "sd")[g];
       if (done) {
-        $("status").textContent = { open: "✓ Game is on-chain — send your opponent the invite below.",
-          join: "✓ You're in — X moves first.", move: "✓ Move landed.",
-          resign: "✓ Resigned.", abort: "✓ Refunded.", cancel: "✓ Cancelled — stake refunded." }[watch.phase];
+        $("status").textContent = { open: window.t("ttt.stOpen", "✓ Game is on-chain — send your opponent the invite below."),
+          join: window.t("ttt.stJoin", "✓ You're in — X moves first."), move: window.t("ttt.stMove", "✓ Move landed."),
+          resign: window.t("ttt.stResign", "✓ Resigned."), abort: window.t("ttt.stAbort", "✓ Refunded."), cancel: window.t("ttt.stCancel", "✓ Cancelled — stake refunded.") }[watch.phase];
         watch = null;
       } else if (watch.ts && Date.now() - watch.ts > 75000) {
-        $("status").textContent = "Still settling on-chain — your move and funds are safe; the board updates by itself.";
+        $("status").textContent = window.t("ttt.stSettling", "Still settling on-chain — your move and funds are safe; the board updates by itself.");
         watch = null;
       }
     }
     renderLobby(sto);
-    renderScore($("scoreList"), boardFrom(sto), dapp.me, "No finished games yet — open the first challenge.");
+    renderScore($("scoreList"), boardFrom(sto), dapp.me, window.t("ttt.noFinished", "No finished games yet — open the first challenge."));
     const gm = lastGame || {};
     await resolveAliases([dapp.me, gm.p1, gm.p2].filter(Boolean));
   }
@@ -114,8 +114,8 @@ function renderLobby(sto) {
   const open = Object.keys(_m(sto, "p1")).map((g) => gameFrom(sto, g))
     .filter((g) => g.exists && g.nn === 1 && !g.sd).sort((a, b) => b.id - a.id);
   el.innerHTML = open.length ? open.slice(0, 24).map((g) =>
-    '<button class="chip betting" data-g="' + g.id + '">⭕ #' + g.id + " · stake " + rawToNado(g.stake) + " · by " + disp(g.p1) + "</button>").join(" ")
-    : '<span class="dim">No open challenges — start one below.</span>';
+    '<button class="chip betting" data-g="' + g.id + '">' + window.t("ttt.lobbyChip", "⭕ #{id} · stake {stake} · by {who}", { id: g.id, stake: rawToNado(g.stake), who: disp(g.p1) }) + "</button>").join(" ")
+    : '<span class="dim">' + window.t("ttt.noOpen", "No open challenges — start one below.") + '</span>';
   el.querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeGame = parseInt(b.dataset.g, 10); refreshAll(); });
 }
 
@@ -131,28 +131,30 @@ function render() {
   for (const x of mine) {
     if (!x.live || !lastSto) continue;
     const gm = gameFrom(lastSto, x.id);
-    x.tag = gm.sd ? "finished ✓" : gm.nn === 1 ? "waiting" : gm.turnAddr === dapp.me ? "YOUR MOVE" : "their move";
+    x.tag = gm.sd ? window.t("ttt.tagFinished", "finished ✓") : gm.nn === 1 ? window.t("ttt.tagWaiting", "waiting") : gm.turnAddr === dapp.me ? window.t("ttt.tagYourMove", "YOUR MOVE") : window.t("ttt.tagTheirMove", "their move");
   }
   recentChips($("recent"), mine, (id) => { activeGame = id; refreshAll(); }, "");
   if (activeGame == null) return;
   const gm = lastGame || {};
   $("gameId").textContent = "#" + activeGame;
-  shareInvite("game", activeGame, "Beat me at tic-tac-toe for " + (gm.exists ? rawToNado(gm.stake) : "") + " NADO on NADO:", 180);
+  shareInvite("game", activeGame, window.t("ttt.shareText", "Beat me at tic-tac-toe for {amt} NADO on NADO:", { amt: gm.exists ? rawToNado(gm.stake) : "" }), 180);
   if (!gm.exists) {
     $("verdict").textContent = dapp.whereIs("game", activeGame, (G[activeGame] || {}).ts);
     $("board").innerHTML = ""; $("gPot").textContent = "—"; $("gPlayers").textContent = "—"; $("gameActions").innerHTML = ""; return;
   }
   const meX = gm.p1 === dapp.me, meO = gm.p2 === dapp.me, playing = meX || meO;
   $("gPot").textContent = rawToNado(gm.pot || (gm.sd ? 0 : gm.stake)) + " NADO";
-  $("gPlayers").innerHTML = '<span style="color:var(--accent2)">✕ ' + disp(gm.p1) + (meX ? " (you)" : "") + "</span> vs " +
-    (gm.p2 ? '<span style="color:var(--gold)">◯ ' + disp(gm.p2) + (meO ? " (you)" : "") + "</span>" : '<span class="dim">waiting…</span>');
+  const youTag = window.t("ttt.you", " (you)");
+  $("gPlayers").innerHTML = '<span style="color:var(--accent2)">✕ ' + disp(gm.p1) + (meX ? youTag : "") + "</span> vs " +
+    (gm.p2 ? '<span style="color:var(--gold)">◯ ' + disp(gm.p2) + (meO ? youTag : "") + "</span>" : '<span class="dim">' + window.t("ttt.waitingDots", "waiting…") + '</span>');
   // verdict line
   let v = "";
-  if (gm.sd) v = gm.wr === 3 ? "🤝 Draw — both stakes refunded." : (gm.wr === 1 ? "✕" : "◯") + " wins the pot!" +
-      ((gm.wr === 1 && meX) || (gm.wr === 2 && meO) ? " 🏆 That's you!" : "");
-  else if (gm.nn === 1) v = meX ? "Waiting for an opponent — share the invite below." : "Open challenge — join below!";
-  else if (gm.turnAddr === dapp.me) v = '<span class="yourturn">▶ YOUR MOVE — tap a cell</span>';
-  else v = "Waiting for " + disp(gm.turnAddr) + " to move…";
+  if (gm.sd) v = gm.wr === 3 ? window.t("ttt.draw", "🤝 Draw — both stakes refunded.")
+      : window.t("ttt.winsPot", "{mark} wins the pot!", { mark: gm.wr === 1 ? "✕" : "◯" }) +
+      ((gm.wr === 1 && meX) || (gm.wr === 2 && meO) ? window.t("ttt.thatsYou", " 🏆 That's you!") : "");
+  else if (gm.nn === 1) v = meX ? window.t("ttt.waitOpponent", "Waiting for an opponent — share the invite below.") : window.t("ttt.openJoin", "Open challenge — join below!");
+  else if (gm.turnAddr === dapp.me) v = '<span class="yourturn">' + window.t("ttt.yourMove", "▶ YOUR MOVE — tap a cell") + '</span>';
+  else v = window.t("ttt.waitingFor", "Waiting for {who} to move…", { who: disp(gm.turnAddr) });
   $("verdict").innerHTML = v;
   // the board
   const marks = ["", "✕", "◯"], cls = ["", "x", "o"];
@@ -166,21 +168,21 @@ function render() {
   // actions
   const wrap = $("gameActions"); wrap.innerHTML = "";
   if (gm.sd && dapp.me) { const rb = document.createElement("button"); rb.className = "primary"; rb.style.flex = "1 1 auto";
-    rb.textContent = "↻ Play again — new game at " + rawToNado(gm.stake) + " NADO"; rb.onclick = () => rematch(gm.stake); wrap.appendChild(rb); }
+    rb.textContent = window.t("ttt.playAgain", "↻ Play again — new game at {stake} NADO", { stake: rawToNado(gm.stake) }); rb.onclick = () => rematch(gm.stake); wrap.appendChild(rb); }
   const btn = (txt, fn, primary, pulse) => { const b = document.createElement("button"); b.className = (primary ? "primary" : "ghost") + (pulse ? " pulse" : ""); b.style.flex = "1 1 auto"; b.textContent = txt; b.onclick = fn; wrap.appendChild(b); return b; };
   if (!gm.sd && dapp.me) {
-    if (gm.nn === 1 && !playing) btn("⭕ Join — stake " + rawToNado(gm.stake) + " NADO", joinGame, true, true);
-    if (gm.nn === 1 && meX) btn("Cancel — refund my stake", cancelGame, false);
-    if (gm.nn === 2 && playing) btn("🏳 Resign — concede the pot", resignGame, false);
+    if (gm.nn === 1 && !playing) btn(window.t("ttt.joinStake", "⭕ Join — stake {stake} NADO", { stake: rawToNado(gm.stake) }), joinGame, true, true);
+    if (gm.nn === 1 && meX) btn(window.t("ttt.cancelRefund", "Cancel — refund my stake"), cancelGame, false);
+    if (gm.nn === 2 && playing) btn(window.t("ttt.resignConcede", "🏳 Resign — concede the pot"), resignGame, false);
     if (gm.nn === 2 && dapp.cursor != null && dapp.cursor > gm.dl)
-      btn("⏰ Opponent timed out — refund both stakes", abortGame, true);
+      btn(window.t("ttt.opponentTimedOut", "⏰ Opponent timed out — refund both stakes"), abortGame, true);
     else if (gm.nn === 2 && dapp.cursor != null && gm.turnAddr !== dapp.me && playing)
-      wrap.insertAdjacentHTML("beforeend", '<div class="small dim" style="flex:1 1 100%">move clock: refundable in ' + blocksToTime(gm.dl - dapp.cursor) + " if they stall</div>");
+      wrap.insertAdjacentHTML("beforeend", '<div class="small dim" style="flex:1 1 100%">' + window.t("ttt.moveClock", "move clock: refundable in {t} if they stall", { t: blocksToTime(gm.dl - dapp.cursor) }) + "</div>");
   }
 }
 
 function rematch(stakeRaw) {
-  if (!canPay(dapp, BigInt(stakeRaw), "A rematch")) return;
+  if (!canPay(dapp, BigInt(stakeRaw), window.t("ttt.whatRematch", "A rematch"))) return;
   const g = randId(); const G = load(LS_G); G[g] = { role: "x", ts: Date.now() }; save(LS_G, G);
   activeGame = g; pendingCell = null;
   dapp.call("open", [g], BigInt(stakeRaw), "rematch tic-tac-toe #" + g + " · stake " + rawToNado(stakeRaw) + " NADO", { game: g, phase: "open" });
@@ -207,16 +209,16 @@ function wireUI() {
   $("btnNewGame").onclick = newGame;
 }
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
+  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("ttt.cryptoFail", "Crypto bundle failed to load — reload."); return; }
   wireUI(); loadQR();
   orderCards(["activeGame", "lobby", "opencard", "walletcard", "bankroll", "scoreboard"]);
   const q = new URLSearchParams(location.search).get("game");
   if (q) {
     activeGame = parseInt(q, 10);
     if (!dapp.me) { const sto = await dapp.storage(); const gm = sto ? gameFrom(sto, activeGame) : null;
-      inviteGate(dapp, { id: activeGame, title: "You're invited to tic-tac-toe",
-        body: gm && gm.exists ? ("Play " + disp(gm.p1) + " for <b>" + rawToNado(gm.stake) + " NADO</b> — winner takes the pot.") : "Sign in to join this game.",
-        joinLabel: "Sign in & join" }); }
+      inviteGate(dapp, { id: activeGame, title: window.t("ttt.inviteTitle", "You're invited to tic-tac-toe"),
+        body: gm && gm.exists ? window.t("ttt.inviteBody", "Play {who} for <b>{amt} NADO</b> — winner takes the pot.", { who: disp(gm.p1), amt: rawToNado(gm.stake) }) : window.t("ttt.inviteBodyGeneric", "Sign in to join this game."),
+        joinLabel: window.t("ttt.inviteJoin", "Sign in & join") }); }
   }
   if (dapp.me) dapp.consumeInvite(replayInvite);   // signed in with a pending invite (e.g. reloaded mid-deposit) → auto-join
   render(); refreshAll();

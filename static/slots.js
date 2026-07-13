@@ -48,7 +48,7 @@ function machineFrom(sto, t) {
 }
 const maxBet = (mc) => Math.max(0, Math.floor((mc.tk - mc.tc) / COVER));   // biggest bet the bank can 150×-cover (raw)
 const maxBetRaw = () => { const mc = lastTable; return (mc && mc.exists && !mc.closed) ? BigInt(maxBet(mc)) : null; };
-const syncStakeSlider = () => dapp.syncStakeSlider(maxBetRaw(), { label: "bet " });   // shared SDK slider
+const syncStakeSlider = () => dapp.syncStakeSlider(maxBetRaw(), { label: window.t("slots.betSliderLabel", "bet ") });   // shared SDK slider
 function spinsOf(sto, t) {
   t = String(t); const gg = _m(sto, "gg"), cur = dapp.cursor, out = [];
   for (const g of Object.keys(gg)) if (String(gg[g]) === t) {
@@ -65,32 +65,32 @@ function spinsOf(sto, t) {
 // ---- actions ---------------------------------------------------------------------------------------
 function openMachine() {
   const raw = nadoToRaw($("bankrollAmt").value);
-  if (!raw) return alertBar("Enter the bank in NADO — the machine can accept bets up to bank ÷ 149 (it must always cover a 150× jackpot).");
+  if (!raw) return alertBar(window.t("slots.enterBank", "Enter the bank in NADO — the machine can accept bets up to bank ÷ 149 (it must always cover a 150× jackpot)."));
   if (!canPay(dapp, raw, "Banking a machine")) return;
   const t = randId();
   const T = load(LS_T); T[t] = { ts: Date.now() }; save(LS_T, T);
   activeTable = t;
-  dapp.call("open", [t], raw, "open slot machine #" + t + " · bank " + rawToNado(raw) + " NADO", { table: t, phase: "open" });
+  dapp.call("open", [t], raw, window.t("slots.openLabel", "open slot machine #{t} · bank {n} NADO", { t, n: rawToNado(raw) }), { table: t, phase: "open" });
 }
 async function doSpin() {
   const mc = lastTable; if (!mc || !mc.exists) return;
   const raw = nadoToRaw($("stakeAmt").value);
-  if (!raw) return alertBar("Enter your bet in NADO.");
+  if (!raw) return alertBar(window.t("slots.enterBet", "Enter your bet in NADO."));
   const mb = maxBet(mc);
-  if (raw > BigInt(mb)) return alertBar("This machine's bank can only cover bets up to " + rawToNado(mb) + " NADO right now (every spin reserves a 150× jackpot cover).");
+  if (raw > BigInt(mb)) return alertBar(window.t("slots.bankCap", "This machine's bank can only cover bets up to {n} NADO right now (every spin reserves a 150× jackpot cover).", { n: rawToNado(mb) }));
   if (!canPay(dapp, raw, "This spin")) return;
   const g = randId();
   const S = load(LS_S); S[g] = { table: activeTable, ts: Date.now() }; save(LS_S, S);
-  dapp.call("spin", [g, activeTable], raw, "🎰 spin machine #" + activeTable + " · " + rawToNado(raw) + " NADO", { table: activeTable, seat: g, phase: "spin" });
+  dapp.call("spin", [g, activeTable], raw, window.t("slots.spinLabel", "🎰 spin machine #{t} · {n} NADO", { t: activeTable, n: rawToNado(raw) }), { table: activeTable, seat: g, phase: "spin" });
 }
 const settleSpin = (g, m2, stake) => dapp.call("settle", [g], null,
-  (m2 > 0 ? "💰 collect " + rawToNado(BigInt(stake) * BigInt(m2) / 2n) + " NADO" : "finish spin #" + g), { table: activeTable, seat: g, phase: "settle" });
-const claimSpin = (g) => dapp.call("claim", [g], null, "refund pruned spin #" + g, { table: activeTable, seat: g, phase: "settle" });
+  (m2 > 0 ? window.t("slots.collectLabel", "💰 collect {n} NADO", { n: rawToNado(BigInt(stake) * BigInt(m2) / 2n) }) : window.t("slots.finishLabel", "finish spin #{g}", { g })), { table: activeTable, seat: g, phase: "settle" });
+const claimSpin = (g) => dapp.call("claim", [g], null, window.t("slots.refundLabel", "refund pruned spin #{g}", { g }), { table: activeTable, seat: g, phase: "settle" });
 function fundMachine() {
   const raw = nadoToRaw($("fundAmt").value);
-  if (!raw) return alertBar("Enter how much NADO to add to the bank.");
+  if (!raw) return alertBar(window.t("slots.enterFund", "Enter how much NADO to add to the bank."));
   if (!canPay(dapp, raw, "Topping up the bank")) return;
-  dapp.call("fund", [activeTable], raw, "top up machine #" + activeTable + " · " + rawToNado(raw) + " NADO", { table: activeTable, phase: "fund" });
+  dapp.call("fund", [activeTable], raw, window.t("slots.fundLabel", "top up machine #{t} · {n} NADO", { t: activeTable, n: rawToNado(raw) }), { table: activeTable, phase: "fund" });
 }
 // AUTO-SETTLE via the shared SDK tick (opt-out slider, one-per-refresh, autoTried dedup). As the bank:
 // settle ANY ready spin on my machine (pays winners, frees my cover). Otherwise: settle my OWN ready spins.
@@ -106,7 +106,7 @@ function collectWins() {
   if (!w.length) return;
   settleSpin(w[0].g, w[0].m2, w[0].stake);   // one tx per settle; the button re-offers the next on return
 }
-const closeMachine = () => dapp.call("close", [activeTable], null, "close machine #" + activeTable + " — cash the bank out", { table: activeTable, phase: "close" }, { confirm: 1 });
+const closeMachine = () => dapp.call("close", [activeTable], null, window.t("slots.closeLabel", "close machine #{t} — cash the bank out", { t: activeTable }), { table: activeTable, phase: "close" }, { confirm: 1 });
 
 // ---- refresh ---------------------------------------------------------------------------------------
 async function refreshAll() {
@@ -137,8 +137,8 @@ async function refreshAll() {
         watch.phase === "close" ? !!_m(sto, "tz")[String(watch.table)] :
         watch.phase === "fund" ? true : false;
       if (done) {
-        $("status").textContent = { open: "✓ Machine is live — share it and earn the edge.", spin: "✓ Spin locked to the next blocks…",
-          settle: "✓ Settled on-chain.", close: "✓ Machine closed — bank cashed out.", fund: "✓ Bank topped up." }[watch.phase] || "✓ Confirmed.";
+        $("status").textContent = { open: window.t("slots.liveMsg", "✓ Machine is live — share it and earn the edge."), spin: window.t("slots.spinLockedMsg", "✓ Spin locked to the next blocks…"),
+          settle: window.t("slots.settledMsg", "✓ Settled on-chain."), close: window.t("slots.closedMsg", "✓ Machine closed — bank cashed out."), fund: window.t("slots.toppedMsg", "✓ Bank topped up.") }[watch.phase] || window.t("slots.confirmedMsg", "✓ Confirmed.");
         dapp.clearInflight();   // re-enable the SPIN button the instant the spin lands (was stuck disabled ~3 min)
         watch = null;
       }
@@ -148,7 +148,7 @@ async function refreshAll() {
     if (dapp.inflight && dapp.inflight.phase === "spin" && _m(sto, "gg")[String(dapp.inflight.seat)]) dapp.clearInflight();
     maybeAutoSettle();
     renderLobby(sto);
-    renderScore($("scoreList"), boardFrom(sto), dapp.me, "No settled spins yet — pull the first lever.");
+    renderScore($("scoreList"), boardFrom(sto), dapp.me, window.t("slots.noSpins", "No settled spins yet — pull the first lever."));
     await resolveAliases([dapp.me, lastTable && lastTable.bank].concat(mySpins.map((s) => s.addr)).filter(Boolean));
   }
   render();
@@ -168,8 +168,8 @@ function renderLobby(sto) {
   const ms = Object.keys(_m(sto, "ta")).map((t) => machineFrom(sto, t)).filter((m) => m.exists && !m.closed);
   ms.sort((a, b) => b.tk - a.tk);
   el.innerHTML = ms.length ? ms.slice(0, 24).map((m) =>
-    '<button class="chip betting" data-t="' + m.id + '">🎰 #' + m.id + " · bank " + rawToNado(m.tk) + " · max bet " + rawToNado(maxBet(m)) + "</button>").join(" ")
-    : '<span class="dim">No machines on the floor yet — open the first one below and earn the edge.</span>';
+    '<button class="chip betting" data-t="' + m.id + '">' + window.t("slots.chip", "🎰 #{id} · bank {bank} · max bet {max}", { id: m.id, bank: rawToNado(m.tk), max: rawToNado(maxBet(m)) }) + "</button>").join(" ")
+    : '<span class="dim">' + window.t("slots.noMachines", "No machines on the floor yet — open the first one below and earn the edge.") + "</span>";
   el.querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeTable = parseInt(b.dataset.t, 10); refreshAll(); });
 }
 
@@ -200,11 +200,11 @@ function render() {
   if (activeTable == null) return;
   const mc = lastTable || {};
   $("gameId").textContent = "#" + activeTable;
-  shareInvite("table", activeTable, "Spin my slot machine #" + activeTable + " on NADO — up to 150×:", 180);
+  shareInvite("table", activeTable, window.t("slots.shareMsg", "Spin my slot machine #{t} on NADO — up to 150×:", { t: activeTable }), 180);
   if (!mc.exists) { $("spinVerdict").textContent = dapp.whereIs("machine", activeTable, (load(LS_T)[activeTable] || {}).ts); setReels(null, false, false); return; }
   const iAmBank = mc.bank === dapp.me;
-  $("bankTag").textContent = "— banked by " + (iAmBank ? "YOU" : disp(mc.bank)) + (mc.closed ? " · CLOSED" : "");
-  $("gBank").textContent = rawToNado(mc.tk) + " NADO" + (mc.tc ? " (" + rawToNado(mc.tc) + " reserved)" : "");
+  $("bankTag").textContent = window.t("slots.bankedBy", "— banked by {who}", { who: iAmBank ? window.t("slots.you", "YOU") : disp(mc.bank) }) + (mc.closed ? window.t("slots.closedTag", " · CLOSED") : "");
+  $("gBank").textContent = rawToNado(mc.tk) + " NADO" + (mc.tc ? window.t("slots.reserved", " ({n} reserved)", { n: rawToNado(mc.tc) }) : "");
   $("gMax").textContent = rawToNado(maxBet(mc)) + " NADO";
   syncStakeSlider();
   gate({ fundRow: iAmBank && !mc.closed });
@@ -218,31 +218,32 @@ function render() {
   // The SPIN button is locked for the WHOLE window — you can't fire a second spin over a spinning reel.
   const spinning = dapp.busy("spin") || (cur && cur.pending);
   $("btnSpin").disabled = mc.closed || !dapp.me || spinning;
-  $("btnSpin").textContent = spinning ? "🎲 Spinning…" : mc.closed ? "machine closed" : "🎰 SPIN";
-  if (spinning) { setReels(null, true, false); $("spinVerdict").textContent = "🎲 The chain is spinning the reels…"; }
-  else if (!cur) { setReels(null, false, false); $("spinVerdict").textContent = mc.closed ? "This machine is closed." : "Place a bet and pull the lever."; }
+  $("btnSpin").textContent = spinning ? window.t("slots.spinning", "🎲 Spinning…") : mc.closed ? window.t("slots.machineClosed", "machine closed") : window.t("slots.spin", "🎰 SPIN");
+  if (spinning) { setReels(null, true, false); $("spinVerdict").textContent = window.t("slots.spinningReels", "🎲 The chain is spinning the reels…"); }
+  else if (!cur) { setReels(null, false, false); $("spinVerdict").textContent = mc.closed ? window.t("slots.machineClosedMsg", "This machine is closed.") : window.t("slots.placeBet", "Place a bet and pull the lever."); }
   else if (cur.syms) {
     const win = cur.m2 > 0, payout = BigInt(cur.stake) * BigInt(cur.m2) / 2n;
     setReels(cur.syms, false, win);
+    const reelSyms = cur.syms.map((s) => SYM[s]).join(" ");
     $("spinVerdict").innerHTML = win
-      ? '<span class="win">' + cur.syms.map((s) => SYM[s]).join(" ") + " — WIN " + rawToNado(payout) + " NADO (" + (cur.m2 / 2) + "×)!</span>"
-      : cur.syms.map((s) => SYM[s]).join(" ") + " — no luck, spin again";
+      ? '<span class="win">' + window.t("slots.winLine", "{syms} — WIN {n} NADO ({mult}×)!", { syms: reelSyms, n: rawToNado(payout), mult: cur.m2 / 2 }) + "</span>"
+      : window.t("slots.noLuck", "{syms} — no luck, spin again", { syms: reelSyms });
   }
   // one-tap collect: sum the player's ready winnings
   const wins = mySpins.filter((s) => s.addr === dapp.me && !s.settled && s.ready && s.m2 > 0);
   const winTotal = wins.reduce((a, s) => a + BigInt(s.stake) * BigInt(s.m2) / 2n, 0n);
   $("btnCollect").classList.toggle("hidden", wins.length === 0);
-  if (wins.length) $("btnCollect").textContent = "💰 Collect " + (wins.length > 1 ? wins.length + " wins · " : "") + rawToNado(winTotal) + " NADO";
+  if (wins.length) $("btnCollect").textContent = window.t("slots.collectTotal", "💰 Collect {many}{n} NADO", { many: wins.length > 1 ? window.t("slots.winsCount", "{c} wins · ", { c: wins.length }) : "", n: rawToNado(winTotal) });
   // spin history with collect buttons
   $("mySpins").innerHTML = mySpins.slice(0, 8).map((s) => {
-    const who = s.addr === dapp.me ? "<b>you</b>" : disp(s.addr);
+    const who = s.addr === dapp.me ? "<b>" + window.t("slots.youLower", "you") + "</b>" : disp(s.addr);
     const res = s.syms ? s.syms.map((x) => SYM[x]).join("") : "⏳";
     const pay = s.m2 ? rawToNado(BigInt(s.stake) * BigInt(s.m2) / 2n) + " NADO" : "";
     const act = !s.settled && s.ready
-      ? (s.m2 > 0 ? '<button class="pulse" style="padding:4px 10px;font-size:12px" data-collect="' + s.g + '" data-m2="' + s.m2 + '" data-stake="' + s.stake + '">💰 Collect ' + pay + "</button>"
-                  : '<button class="ghost" style="padding:4px 10px;font-size:12px" data-collect="' + s.g + '" data-m2="0" data-stake="' + s.stake + '">settle</button>')
-      : s.settled ? (s.m2 > 0 ? '<span style="color:var(--gold)">paid ' + pay + "</span>" : '<span class="dim">—</span>') : "";
-    return '<div class="btl">' + who + " bet " + rawToNado(s.stake) + " → " + res + " " + act + "</div>";
+      ? (s.m2 > 0 ? '<button class="pulse" style="padding:4px 10px;font-size:12px" data-collect="' + s.g + '" data-m2="' + s.m2 + '" data-stake="' + s.stake + '">' + window.t("slots.collectShort", "💰 Collect {pay}", { pay }) + "</button>"
+                  : '<button class="ghost" style="padding:4px 10px;font-size:12px" data-collect="' + s.g + '" data-m2="0" data-stake="' + s.stake + '">' + window.t("slots.settleShort", "settle") + "</button>")
+      : s.settled ? (s.m2 > 0 ? '<span style="color:var(--gold)">' + window.t("slots.paid", "paid {pay}", { pay }) + "</span>" : '<span class="dim">—</span>') : "";
+    return '<div class="btl">' + window.t("slots.betRow", "{who} bet {n} → {res} {act}", { who, n: rawToNado(s.stake), res, act }) + "</div>";
   }).join("");
   $("mySpins").querySelectorAll("[data-collect]").forEach((b) => b.onclick = () =>
     settleSpin(parseInt(b.dataset.collect, 10), parseInt(b.dataset.m2, 10), b.dataset.stake));
@@ -253,8 +254,8 @@ dapp.onReturn((pend, ok, err) => {
   if (pend && pend.table != null) activeTable = pend.table;
   if (ok && pend && ["open", "spin", "settle", "close", "fund"].includes(pend.phase)) watch = pend;
   dapp.showReturn(pend, ok, err, {
-    open: "Machine opening — confirming…", spin: "🎰 Spin submitted — the reels lock to the next blocks…",
-    settle: "Settling on-chain…", fund: "Topping up the bank…", close: "Closing the machine…" });
+    open: window.t("slots.openingMsg", "Machine opening — confirming…"), spin: window.t("slots.spinSubmittedMsg", "🎰 Spin submitted — the reels lock to the next blocks…"),
+    settle: window.t("slots.settlingMsg", "Settling on-chain…"), fund: window.t("slots.toppingMsg", "Topping up the bank…"), close: window.t("slots.closingMsg", "Closing the machine…") });
 });
 function wireUI() {
   wireWallet(dapp);
@@ -270,7 +271,7 @@ function wireUI() {
   $("btnClose").onclick = closeMachine;
 }
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
+  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("slots.cryptoFail", "Crypto bundle failed to load — reload."); return; }
   wireUI(); loadQR();
   orderCards(["activeGame", "lobby", "opencard", "paytableCard", "walletcard", "bankroll", "scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");

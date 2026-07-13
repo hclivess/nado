@@ -6,6 +6,7 @@
 <title>NADO Bet — parimutuel sports betting, no house, post-quantum</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Ccircle%20cx%3D%2224%22%20cy%3D%2224%22%20r%3D%2218%22%20fill%3D%22%23e6edf3%22%20stroke%3D%22%23243140%22%20stroke-width%3D%222%22/%3E%3Cpath%20d%3D%22M24%2010%20l4%208%20-4%206%20-4%20-6%20z%20M14%2020%20l8%202%202%206%20-6%204%20-6%20-6%20z%20M34%2020%20l-8%202%20-2%206%206%204%206%20-6%20z%22%20fill%3D%22%2300ad93%22/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js"></script>
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
     --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--win:#2fbf71;--lose:#f85149;--gold:#e3b341;
@@ -80,136 +81,136 @@
   <header><span class="logo"><svg viewBox="0 0 48 48" width="28" height="28" aria-hidden="true">
     <circle cx="24" cy="24" r="18" fill="#e6edf3" stroke="#243140" stroke-width="2"/>
     <path d="M24 10 l4 8 -4 6 -4 -6 z M14 20 l8 2 2 6 -6 4 -6 -6 z M34 20 l-8 2 -2 6 6 4 6 -6 z" fill="#00ad93"/></svg></span>
-    <h1>NADO <span class="a">Bet</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
-  <p class="sub">Provably-fair <b>parimutuel sports betting</b> on the NADO execution layer — <b>no house, no bookmaker</b>. Everyone's stake goes into one pool; when the match ends the <b>winning side splits the whole pool pro-rata</b> (a racetrack tote). The real-world result is posted on-chain by a <b>configurable oracle</b> reading free public sources; if a match is postponed or never resolved, every stake is <b>refunded</b>. Post-quantum wallet, no install.</p>
+    <h1>NADO <span class="a">Bet</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="bet.allGames">🎮 All games</a></header>
+  <p class="sub" data-i18n-html="bet.sub">Provably-fair <b>parimutuel sports betting</b> on the NADO execution layer — <b>no house, no bookmaker</b>. Everyone's stake goes into one pool; when the match ends the <b>winning side splits the whole pool pro-rata</b> (a racetrack tote). The real-world result is posted on-chain by a <b>configurable oracle</b> reading free public sources; if a match is postponed or never resolved, every stake is <b>refunded</b>. Post-quantum wallet, no install.</p>
 
   <div id="status"></div>
 
   <div class="card" id="walletcard">
-    <h2>Wallet</h2>
-    <p class="small dim">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
-    <div class="kv mt"><span class="k">Playing as</span><span class="mono" id="who">not signed in</span></div>
-    <div class="kv"><span class="k">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
-    <div class="kv"><span class="k">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
-    <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
+    <h2 data-i18n="bet.wallet">Wallet</h2>
+    <p class="small dim" data-i18n-html="bet.walletNote">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
+    <div class="kv mt"><span class="k" data-i18n="bet.playingAs">Playing as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="bet.walletMain">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="bet.tokensPlayable">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="bet.signIn">Sign in with NADO wallet</button></div>
   </div>
 
   <!-- TOKENS -->
   <div class="card hidden" id="bankroll">
-    <h2>🪙 Tokens — buy in / cash out</h2>
+    <h2 data-i18n="bet.tokensHead">🪙 Tokens — buy in / cash out</h2>
     <div class="row">
-      <input id="bankAmt" value="10" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
-      <button class="ghost" id="btnDeposit" style="flex:0 0 auto">Deposit</button>
-      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
+      <input id="bankAmt" value="10" placeholder="amount (NADO)" data-i18n-ph="bet.amountPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto" data-i18n="bet.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto" data-i18n="bet.withdraw">Withdraw</button>
     </div>
-    <div class="small dim mt">Deposit buys tokens with NADO (1 : 1); Withdraw cashes them back out to the wallet.</div>
+    <div class="small dim mt" data-i18n="bet.tokensNote">Deposit buys tokens with NADO (1 : 1); Withdraw cashes them back out to the wallet.</div>
   </div>
 
   <!-- MATCHES -->
   <div class="card" id="matches">
-    <h2>⚽ Matches — open for bets</h2>
-    <p class="small dim">Tap a match to bet. Odds are <b>live</b> and set by the crowd: each outcome pays <span class="mono">total pool ÷ that outcome's pool</span> if it wins. <span style="opacity:.75">🟢 open · 🔒 locked · ✅ resolved · ↩ void</span></p>
-    <div class="small mt" id="marketsList"><span class="dim">Loading matches…</span></div>
+    <h2 data-i18n="bet.matchesHead">⚽ Matches — open for bets</h2>
+    <p class="small dim" data-i18n-html="bet.matchesNote">Tap a match to bet. Odds are <b>live</b> and set by the crowd: each outcome pays <span class="mono">total pool ÷ that outcome's pool</span> if it wins. <span style="opacity:.75">🟢 open · 🔒 locked · ✅ resolved · ↩ void</span></p>
+    <div class="small mt" id="marketsList"><span class="dim" data-i18n="bet.loadingMatches">Loading matches…</span></div>
   </div>
 
   <!-- ACTIVE MARKET -->
   <div class="card hidden" id="activeMarket">
-    <h2>Match <span id="mId" class="mono"></span></h2>
+    <h2 data-i18n="bet.match">Match <span id="mId" class="mono"></span></h2>
     <div id="mTitle" style="font-size:16px;font-weight:800;margin-bottom:4px"></div>
-    <div class="kv"><span class="k">Status</span><span class="mono" id="mStatus">…</span></div>
-    <div class="kv"><span class="k">Total pool</span><span class="mono" id="mPool">—</span></div>
-    <div class="kv"><span class="k">Resolved by</span><span class="mono" id="mSource">—</span></div>
+    <div class="kv"><span class="k" data-i18n="bet.status">Status</span><span class="mono" id="mStatus">…</span></div>
+    <div class="kv"><span class="k" data-i18n="bet.totalPool">Total pool</span><span class="mono" id="mPool">—</span></div>
+    <div class="kv"><span class="k" data-i18n="bet.resolvedBy">Resolved by</span><span class="mono" id="mSource">—</span></div>
     <div id="mDetails" class="small dim" style="margin:6px 0 2px"></div>
 
-    <div class="divlabel">Pick an outcome</div>
+    <div class="divlabel" data-i18n="bet.pickOutcome">Pick an outcome</div>
     <div class="outs" id="mOutcomes"></div>
 
     <div id="betBuilder" class="mt hidden">
-      <label>Your stake</label>
-      <input id="stakeAmt" value="1" placeholder="stake (NADO)" inputmode="decimal" autocomplete="off">
+      <label data-i18n="bet.yourStake">Your stake</label>
+      <input id="stakeAmt" value="1" placeholder="stake (NADO)" data-i18n-ph="bet.stakePh" inputmode="decimal" autocomplete="off">
       <div id="stakeSliderWrap" class="hidden">
         <input type="range" id="stakeSlider" min="0" max="100" value="0" step="1" class="mt">
         <div class="small dim" style="display:flex;justify-content:space-between;gap:8px">
           <span id="stakeSliderVal"></span>
-          <b class="under" id="btnMaxBet" style="cursor:pointer">Max: <span id="maxBetVal"></span></b>
+          <b class="under" id="btnMaxBet" style="cursor:pointer" data-i18n="bet.max">Max: <span id="maxBetVal"></span></b>
         </div>
       </div>
       <div id="payoutPreview" class="small dim mt"></div>
-      <button class="primary mt" id="btnBet" style="width:100%">Place bet</button>
+      <button class="primary mt" id="btnBet" style="width:100%" data-i18n="bet.placeBet">Place bet</button>
       <div class="small warn mt hidden" id="betHint"></div>
     </div>
 
     <div id="myPositions"></div>
     <div class="row mt" id="claimRow"></div>
-    <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1">Auto-collect my winnings — claims a settled market for me the moment it resolves in my favour</span></label>
+    <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1" data-i18n="bet.autoCollect">Auto-collect my winnings — claims a settled market for me the moment it resolves in my favour</span></label>
 
     <!-- ORACLE controls (only for an oracle key) -->
     <div id="oracleControls" class="hidden">
-      <div class="divlabel">🔮 Oracle — post the result</div>
-      <p class="small dim">Only an authorized oracle key sees this. Post the real outcome after the match ends, or void a postponed match (everyone refunded).</p>
+      <div class="divlabel" data-i18n="bet.oracleHead">🔮 Oracle — post the result</div>
+      <p class="small dim" data-i18n-html="bet.oracleNote">Only an authorized oracle key sees this. Post the real outcome after the match ends, or void a postponed match (everyone refunded).</p>
       <div class="outs" id="resolveOutcomes"></div>
-      <div class="row mt"><button class="ghost" id="btnVoid" style="flex:0 0 auto">↩ Void &amp; refund</button></div>
+      <div class="row mt"><button class="ghost" id="btnVoid" style="flex:0 0 auto" data-i18n="bet.voidRefund">↩ Void &amp; refund</button></div>
     </div>
 
-    <label class="mt">Invite bettors</label>
+    <label class="mt" data-i18n="bet.inviteBettors">Invite bettors</label>
     <input id="shareLink" class="mono" readonly onclick="this.select()">
     <div class="row mt" style="align-items:center;gap:8px">
-      <button class="primary" id="btnShare" style="flex:0 0 auto">Share</button>
-      <span class="dim small">or scan the code to bet on this match</span>
+      <button class="primary" id="btnShare" style="flex:0 0 auto" data-i18n="bet.share">Share</button>
+      <span class="dim small" data-i18n="bet.orScan">or scan the code to bet on this match</span>
     </div>
     <canvas id="shareQR" class="hidden" style="margin:12px auto 0;display:block;border-radius:8px;background:#fff;padding:8px"></canvas>
-    <div id="shareQRNote" class="hidden dim small mt">QR generator unavailable — copy the link above.</div>
+    <div id="shareQRNote" class="hidden dim small mt" data-i18n="bet.qrUnavail">QR generator unavailable — copy the link above.</div>
   </div>
 
   <!-- MY BETS -->
   <div class="card hidden" id="mybets">
-    <h2>🎟️ My bets</h2>
-    <div id="myBetsList"><span class="dim">You haven't placed a bet yet.</span></div>
+    <h2 data-i18n="bet.myBetsHead">🎟️ My bets</h2>
+    <div id="myBetsList"><span class="dim" data-i18n="bet.noBetYet">You haven't placed a bet yet.</span></div>
   </div>
 
   <!-- CREATE A MARKET (permissionless) -->
   <div class="card oracle hidden" id="oraclePanel">
-    <h2>➕ Create a market</h2>
-    <p class="small dim">Anyone can list a market — a match, a fight, any yes/no question. <b>You choose who resolves it:</b> leave the resolver blank to settle it yourself, or name a set of addresses and require M-of-N agreement. Bettors are always protected by the deadline → refund.</p>
-    <label class="mt">Title</label>
-    <input id="cmTitle" placeholder="e.g. Arsenal vs Chelsea" autocomplete="off">
-    <label class="mt">Outcomes (comma- or line-separated)</label>
-    <input id="cmLabels" placeholder="Arsenal, Draw, Chelsea" autocomplete="off">
+    <h2 data-i18n="bet.createHead">➕ Create a market</h2>
+    <p class="small dim" data-i18n-html="bet.createNote">Anyone can list a market — a match, a fight, any yes/no question. <b>You choose who resolves it:</b> leave the resolver blank to settle it yourself, or name a set of addresses and require M-of-N agreement. Bettors are always protected by the deadline → refund.</p>
+    <label class="mt" data-i18n="bet.titleLabel">Title</label>
+    <input id="cmTitle" placeholder="e.g. Arsenal vs Chelsea" data-i18n-ph="bet.titlePh" autocomplete="off">
+    <label class="mt" data-i18n="bet.outcomesLabel">Outcomes (comma- or line-separated)</label>
+    <input id="cmLabels" placeholder="Arsenal, Draw, Chelsea" data-i18n-ph="bet.outcomesPh" autocomplete="off">
     <div class="row mt">
-      <div><label>Source (optional)</label><select id="cmSource"></select></div>
-      <div><label>Event id (if a source)</label><input id="cmEvent" placeholder="e.g. 133602" autocomplete="off"></div>
+      <div><label data-i18n="bet.sourceLabel">Source (optional)</label><select id="cmSource"></select></div>
+      <div><label data-i18n="bet.eventLabel">Event id (if a source)</label><input id="cmEvent" placeholder="e.g. 133602" data-i18n-ph="bet.eventPh" autocomplete="off"></div>
     </div>
     <div class="row mt">
-      <div><label>Betting closes in (minutes)</label><input id="cmCloseMin" value="60" inputmode="numeric" autocomplete="off"></div>
-      <div><label>Auto-void after (hours)</label><input id="cmVoidHrs" value="24" inputmode="numeric" autocomplete="off"></div>
+      <div><label data-i18n="bet.closesLabel">Betting closes in (minutes)</label><input id="cmCloseMin" value="60" inputmode="numeric" autocomplete="off"></div>
+      <div><label data-i18n="bet.voidAfterLabel">Auto-void after (hours)</label><input id="cmVoidHrs" value="24" inputmode="numeric" autocomplete="off"></div>
     </div>
-    <label class="mt">Resolver address(es) — blank = you resolve it (up to 3, comma-separated)</label>
-    <input id="cmResolvers" class="mono" placeholder="ndo… , ndo… , ndo…" autocomplete="off">
-    <label class="mt">Threshold (M-of-N — how many resolvers must agree)</label>
+    <label class="mt" data-i18n="bet.resolversLabel">Resolver address(es) — blank = you resolve it (up to 3, comma-separated)</label>
+    <input id="cmResolvers" class="mono" placeholder="ndo… , ndo… , ndo…" data-i18n-ph="bet.resolversPh" autocomplete="off">
+    <label class="mt" data-i18n="bet.thresholdLabel">Threshold (M-of-N — how many resolvers must agree)</label>
     <input id="cmThreshold" placeholder="1" inputmode="numeric" autocomplete="off" style="max-width:160px">
-    <button class="primary mt" id="btnCreate" style="width:100%">Create market</button>
+    <button class="primary mt" id="btnCreate" style="width:100%" data-i18n="bet.createBtn">Create market</button>
 
     <div id="adminCfg" class="hidden">
-      <div class="divlabel">Admin — public source registry</div>
+      <div class="divlabel" data-i18n="bet.adminHead">Admin — public source registry</div>
       <div class="row mt">
-        <input id="srcName" placeholder="add source (e.g. thesportsdb)" autocomplete="off">
-        <button class="ghost" id="btnAddSource" style="flex:0 0 auto">Add source</button>
+        <input id="srcName" placeholder="add source (e.g. thesportsdb)" data-i18n-ph="bet.addSourcePh" autocomplete="off">
+        <button class="ghost" id="btnAddSource" style="flex:0 0 auto" data-i18n="bet.addSource">Add source</button>
       </div>
     </div>
   </div>
 
   <!-- HOW IT WORKS -->
   <div class="card">
-    <h2>No house · provably settled</h2>
-    <p class="small dim" style="line-height:1.6">
+    <h2 data-i18n="bet.howHead">No house · provably settled</h2>
+    <p class="small dim" style="line-height:1.6" data-i18n-html="bet.howBody">
       <b>Parimutuel:</b> every bet on a match goes into one escrow pool held by the contract. When the result is posted, the <b>winning outcome's backers split the entire pool</b> in proportion to their stake — your payout is <span class="mono">your stake × total pool ÷ winning pool</span>. There's no bookmaker taking the other side and no fixed odds: the odds you see are just the live pool ratios, and they move as people bet. The contract can never pay out more than it holds.<br><br>
       <b>The result</b> is the one thing a blockchain can't see, so an authorized <b>oracle</b> posts it on-chain, reading a <b>free public source</b> (shown on each match). The oracle set is configurable and can require <b>M-of-N</b> agreement. <b>You're protected:</b> the oracle can void a postponed/cancelled match, and if no result is posted by the match's deadline <b>anyone</b> can void it — either way every stake is refunded 1:1. If the winning outcome had no backers, the match auto-voids.
     </p>
-    <div class="divlabel">Configured sources</div>
+    <div class="divlabel" data-i18n="bet.configuredSources">Configured sources</div>
     <div class="small" id="sourcesList"><span class="dim">—</span></div>
   </div>
 
-  <footer>Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · <a href="https://get.nadochain.com/rollup">see the contract</a>.</footer>
+  <footer data-i18n-html="bet.footer">Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · <a href="https://get.nadochain.com/rollup">see the contract</a>.</footer>
 </div>
 <script type="module" src="/static/bet.js"></script>
 </body>

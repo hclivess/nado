@@ -6,6 +6,7 @@
 <title>NADO Pets — on-chain tamagotchi NFTs, post-quantum</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Cellipse%20cx%3D%2224%22%20cy%3D%2226%22%20rx%3D%2214%22%20ry%3D%2217%22%20fill%3D%22%23f5e9d0%22%20stroke%3D%22%23c8a96a%22%20stroke-width%3D%222%22/%3E%3Ccircle%20cx%3D%2219%22%20cy%3D%2220%22%20r%3D%222.2%22%20fill%3D%22%23c8a96a%22/%3E%3Ccircle%20cx%3D%2229%22%20cy%3D%2230%22%20r%3D%222.8%22%20fill%3D%22%23c8a96a%22/%3E%3Ccircle%20cx%3D%2225%22%20cy%3D%2213%22%20r%3D%221.8%22%20fill%3D%22%23c8a96a%22/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js"></script>
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
     --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--gold:#e3b341;--purp:#c86bfa;
@@ -265,66 +266,66 @@
   <header><span class="logo"><svg viewBox="0 0 48 48" width="30" height="30" aria-hidden="true">
     <ellipse cx="24" cy="26" rx="14" ry="17" fill="#f5e9d0" stroke="#c8a96a" stroke-width="2"/>
     <circle cx="19" cy="20" r="2.2" fill="#c8a96a"/><circle cx="29" cy="30" r="2.8" fill="#c8a96a"/><circle cx="25" cy="13" r="1.8" fill="#c8a96a"/></svg></span>
-    <h1>NADO <span class="a">Pets</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
-  <p class="sub">Digital pets that <b>live on the chain</b> — true NFTs you own, name, feed, train, battle and trade. Adopt an egg for <b>1 NADO</b>; a <b>future block hash</b> nobody can predict decides which of <b>100 animals</b> hatches — dogs, cats, turtles, fish, bugs, octopuses, monkeys… <b>70 common, 25 rare and 5 legendary</b> (Dragon, Phoenix, Kraken, Unicorn, Star Whale), with 10 stats locked at hatch. Pets eat real NADO to stay alive — <b>stop feeding and they die</b> (a full belly lasts 30 days). Train them (rarer = easier), then challenge other pets to <b>turn-based duels</b> for stakes where <b>every stat fights</b> — the winner takes the pot and <b>claims the losing pet</b>, though the loser has a small <b>10% chance to die</b>; both fighters are <b>exhausted for 6 hours</b> after. Sell and buy pets on the built-in <b>marketplace</b>. Everything — genes, species, coats, meals, training rolls, fights, sales — is decided and recorded on-chain.</p>
+    <h1>NADO <span class="a">Pets</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="pets.allGames">🎮 All games</a></header>
+  <p class="sub" data-i18n-html="pets.sub">Digital pets that <b>live on the chain</b> — true NFTs you own, name, feed, train, battle and trade. Adopt an egg for <b>1 NADO</b>; a <b>future block hash</b> nobody can predict decides which of <b>100 animals</b> hatches — dogs, cats, turtles, fish, bugs, octopuses, monkeys… <b>70 common, 25 rare and 5 legendary</b> (Dragon, Phoenix, Kraken, Unicorn, Star Whale), with 10 stats locked at hatch. Pets eat real NADO to stay alive — <b>stop feeding and they die</b> (a full belly lasts 30 days). Train them (rarer = easier), then challenge other pets to <b>turn-based duels</b> for stakes where <b>every stat fights</b> — the winner takes the pot and <b>claims the losing pet</b>, though the loser has a small <b>10% chance to die</b>; both fighters are <b>exhausted for 6 hours</b> after. Sell and buy pets on the built-in <b>marketplace</b>. Everything — genes, species, coats, meals, training rolls, fights, sales — is decided and recorded on-chain.</p>
 
   <div id="status"></div>
 
   <!-- WALLET -->
   <div class="card" id="walletcard">
-    <h2>Wallet</h2>
-    <div class="kv"><span class="k">Signed in as</span><span class="addr" id="who">not signed in</span></div>
-    <div class="kv"><span class="k">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
-    <div class="kv"><span class="k">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
-    <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
-    <p class="small dim mt">Your key never touches this page — signing happens in your wallet at get.nadochain.com, then you bounce back.</p>
+    <h2 data-i18n="pets.wallet">Wallet</h2>
+    <div class="kv"><span class="k" data-i18n="pets.signedInAs">Signed in as</span><span class="addr" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="pets.tokensPlayable">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="pets.walletMain">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="pets.signIn">Sign in with NADO wallet</button></div>
+    <p class="small dim mt" data-i18n="pets.keyNote">Your key never touches this page — signing happens in your wallet at get.nadochain.com, then you bounce back.</p>
   </div>
 
   <!-- BANKROLL -->
   <div class="card hidden" id="bankroll">
-    <h2>🪙 Tokens — buy in / cash out</h2>
-    <label>Amount (NADO)</label>
+    <h2 data-i18n="pets.tokensBuyCash">🪙 Tokens — buy in / cash out</h2>
+    <label data-i18n="pets.amountNado">Amount (NADO)</label>
     <div class="row">
-      <input id="bankAmt" value="10" placeholder="e.g. 10" inputmode="decimal" autocomplete="off">
-      <button id="btnDeposit">Deposit</button>
-      <button class="ghost" id="btnWithdraw">Withdraw</button>
+      <input id="bankAmt" value="10" placeholder="e.g. 10" data-i18n-ph="pets.egAmt" inputmode="decimal" autocomplete="off">
+      <button id="btnDeposit" data-i18n="pets.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" data-i18n="pets.withdraw">Withdraw</button>
     </div>
-    <p class="small dim mt">Deposits buy tokens with NADO (1 : 1) — the playable balance your pets eat from; withdraw back to your wallet any time.</p>
+    <p class="small dim mt" data-i18n="pets.depositNote">Deposits buy tokens with NADO (1 : 1) — the playable balance your pets eat from; withdraw back to your wallet any time.</p>
   </div>
 
   <!-- ACTIVE PET -->
   <div class="card hidden" id="activePet">
-    <h2>Pet <span id="petId" class="mono"></span> <span id="petRar"></span></h2>
+    <h2 data-i18n="pets.petLabel">Pet <span id="petId" class="mono"></span> <span id="petRar"></span></h2>
     <div class="stage" id="petStage"></div>
     <div style="text-align:center"><span id="petName"></span><div id="petSpecies"></div></div>
     <div id="petMsg" class="small dim mt" style="text-align:center"></div>
     <div class="mt" id="lifeWrap">
-      <label>Belly — life left: <b id="lifeLabel"></b></label>
+      <label data-i18n="pets.bellyLifeLeft">Belly — life left: <b id="lifeLabel"></b></label>
       <div class="bar" id="lifeBar"><i style="width:0%"></i></div>
     </div>
     <div class="mt hidden" id="restWrap">
-      <label>💤 Exhausted after battle — ready to fight again in <b id="restLabel"></b></label>
+      <label data-i18n="pets.exhaustedReady">💤 Exhausted after battle — ready to fight again in <b id="restLabel"></b></label>
       <div class="bar rest" id="restBar"><i style="width:0%"></i></div>
     </div>
-    <div class="kv mt"><span class="k">Owner</span><span id="petOwner"></span></div>
-    <div class="kv"><span class="k">Level · Power</span><span class="mono" id="petLp"></span></div>
-    <div class="kv"><span class="k">Appetite (upkeep)</span><span class="mono" id="petUpkeep"></span></div>
-    <div class="kv"><span class="k">Invested (mint + food + training)</span><span class="mono" id="petInvested"></span></div>
-    <div class="kv"><span class="k">Gene (on-chain, immutable)</span><span class="mono" id="petGene" style="font-size:11px;color:var(--faint);max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span></div>
+    <div class="kv mt"><span class="k" data-i18n="pets.owner">Owner</span><span id="petOwner"></span></div>
+    <div class="kv"><span class="k" data-i18n="pets.levelPower">Level · Power</span><span class="mono" id="petLp"></span></div>
+    <div class="kv"><span class="k" data-i18n="pets.appetiteUpkeep">Appetite (upkeep)</span><span class="mono" id="petUpkeep"></span></div>
+    <div class="kv"><span class="k" data-i18n="pets.invested">Invested (mint + food + training)</span><span class="mono" id="petInvested"></span></div>
+    <div class="kv"><span class="k" data-i18n="pets.geneLabel">Gene (on-chain, immutable)</span><span class="mono" id="petGene" style="font-size:11px;color:var(--faint);max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span></div>
 
     <!-- hatch -->
     <div class="mt hidden" id="hatchRow">
-      <button class="primary" id="btnHatch" style="width:100%">🐣 Hatch the egg</button>
+      <button class="primary" id="btnHatch" style="width:100%" data-i18n="pets.hatchEgg">🐣 Hatch the egg</button>
       <p class="small dim mt" id="hatchHint"></p>
-      <button class="ghost hidden mt" id="btnRebirth">♻ Re-roll the egg (its gene block was pruned)</button>
+      <button class="ghost hidden mt" id="btnRebirth" data-i18n="pets.rerollEgg">♻ Re-roll the egg (its gene block was pruned)</button>
     </div>
 
     <!-- feed -->
     <div class="mt hidden" id="feedRow">
-      <label>Feed (NADO from your exec balance)</label>
+      <label data-i18n="pets.feedLabel">Feed (NADO from your exec balance)</label>
       <div class="row">
-        <input id="feedAmt" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
-        <button class="primary" id="btnFeed">🍖 Feed</button>
+        <input id="feedAmt" placeholder="amount (NADO)" data-i18n-ph="pets.amountNadoPh" inputmode="decimal" autocomplete="off">
+        <button class="primary" id="btnFeed" data-i18n="pets.feed">🍖 Feed</button>
       </div>
       <div class="presets">
         <button class="mini ghost" id="feed1d"></button>
@@ -336,7 +337,7 @@
 
     <!-- stats + training -->
     <div class="mt hidden" id="statsWrap">
-      <h2>Abilities <span class="dim" style="text-transform:none;letter-spacing:0">— tap 🏋 Train on a stat to improve it (0.5 NADO/try)</span></h2>
+      <h2 data-i18n="pets.abilities">Abilities <span class="dim" style="text-transform:none;letter-spacing:0" data-i18n="pets.abilitiesHint">— tap 🏋 Train on a stat to improve it (0.5 NADO/try)</span></h2>
       <div id="statList"></div>
       <div id="trainPending" class="small mt hidden"></div>
       <p class="small dim mt" id="trainHint"></p>
@@ -344,63 +345,63 @@
 
     <!-- challenge (someone else's pet) -->
     <div class="mt hidden" id="challengeRow">
-      <h2>Challenge this pet</h2>
+      <h2 data-i18n="pets.challengeThis">Challenge this pet</h2>
       <div class="row">
         <select id="myPetSel"></select>
-        <input id="stakeAmt" value="1" placeholder="stake (NADO, 0 ok)" inputmode="decimal" autocomplete="off">
-        <button class="primary" id="btnChallenge">⚔ Challenge</button>
+        <input id="stakeAmt" value="1" placeholder="stake (NADO, 0 ok)" data-i18n-ph="pets.stakePh" inputmode="decimal" autocomplete="off">
+        <button class="primary" id="btnChallenge" data-i18n="pets.challenge">⚔ Challenge</button>
       </div>
-      <p class="small dim" id="challengeHint">A turn-based duel decided by a <b>future block hash</b> where <b>every stat fights</b>: 💪 damage · 🤸 dodge · ❤️ HP · 🧠 accuracy · 🦉 mitigation · ✨ intimidation · 🤝 regen · 🍀 crits · ⚡ turn share · 🍖 bulk — Monte-Carlo balanced so <b>power is a true score</b> (equal power ≈ 50/50, any +12 stat points ≈ +4-7% win). The <b>defender's owner must accept</b>. Winner takes both stakes and <b>claims the losing pet</b> — but the loser has a small <b>10% chance to die</b> instead. Both fighters are then <b>exhausted for 6 hours</b> — no back-to-back battles.</p>
+      <p class="small dim" id="challengeHint" data-i18n-html="pets.challengeHint">A turn-based duel decided by a <b>future block hash</b> where <b>every stat fights</b>: 💪 damage · 🤸 dodge · ❤️ HP · 🧠 accuracy · 🦉 mitigation · ✨ intimidation · 🤝 regen · 🍀 crits · ⚡ turn share · 🍖 bulk — Monte-Carlo balanced so <b>power is a true score</b> (equal power ≈ 50/50, any +12 stat points ≈ +4-7% win). The <b>defender's owner must accept</b>. Winner takes both stakes and <b>claims the losing pet</b> — but the loser has a small <b>10% chance to die</b> instead. Both fighters are then <b>exhausted for 6 hours</b> — no back-to-back battles.</p>
     </div>
 
     <!-- buy (someone else's listed pet) -->
     <div class="mt hidden" id="buyRow">
       <button class="primary" id="btnBuy" style="width:100%"></button>
-      <p class="small dim mt">The price goes straight from your exec balance to the current owner; the pet is yours the moment it confirms — genes, level, trained stats, hunger and all.</p>
+      <p class="small dim mt" data-i18n="pets.buyNote">The price goes straight from your exec balance to the current owner; the pet is yours the moment it confirms — genes, level, trained stats, hunger and all.</p>
     </div>
 
     <!-- make an offer (any pet you don't own) -->
     <div class="mt hidden" id="offerRow">
-      <label>Make an offer (bid held in escrow until the owner accepts)</label>
+      <label data-i18n="pets.makeOfferLabel">Make an offer (bid held in escrow until the owner accepts)</label>
       <div class="row">
-        <input id="offerAmt" placeholder="your offer (NADO)" inputmode="decimal" autocomplete="off">
-        <button class="ghost" id="btnOffer">💬 Send offer</button>
+        <input id="offerAmt" placeholder="your offer (NADO)" data-i18n-ph="pets.offerPh" inputmode="decimal" autocomplete="off">
+        <button class="ghost" id="btnOffer" data-i18n="pets.sendOffer">💬 Send offer</button>
       </div>
       <p class="small dim" id="myOffersOut"></p>
     </div>
 
     <!-- incoming offers (owner sees bids on this pet) -->
     <div class="mt hidden" id="offersInRow">
-      <label>Offers on this pet</label>
+      <label data-i18n="pets.offersOnPet">Offers on this pet</label>
       <div id="offersInList"></div>
     </div>
 
     <!-- transfer / rename / sell (mine) -->
     <div class="mt hidden" id="ownRow">
       <div class="row">
-        <input id="nameInput" placeholder="name your pet — permanent!" maxlength="24" autocomplete="off">
-        <button class="ghost" id="btnRename">Name it</button>
+        <input id="nameInput" placeholder="name your pet — permanent!" data-i18n-ph="pets.namePetPh" maxlength="24" autocomplete="off">
+        <button class="ghost" id="btnRename" data-i18n="pets.nameIt">Name it</button>
       </div>
       <div class="row mt">
-        <input id="xferTo" placeholder="transfer to address or @alias" autocomplete="off">
-        <button class="ghost" id="btnTransfer">Transfer</button>
+        <input id="xferTo" placeholder="transfer to address or @alias" data-i18n-ph="pets.transferPh" autocomplete="off">
+        <button class="ghost" id="btnTransfer" data-i18n="pets.transfer">Transfer</button>
       </div>
       <div class="row mt">
-        <input id="listPrice" placeholder="ask price (NADO)" inputmode="decimal" autocomplete="off">
-        <button class="ghost" id="btnList">Sell</button>
-        <button class="ghost hidden" id="btnUnlist">Remove listing</button>
+        <input id="listPrice" placeholder="ask price (NADO)" data-i18n-ph="pets.askPricePh" inputmode="decimal" autocomplete="off">
+        <button class="ghost" id="btnList" data-i18n="pets.sell">Sell</button>
+        <button class="ghost hidden" id="btnUnlist" data-i18n="pets.removeListing">Remove listing</button>
       </div>
-      <p class="small dim mt" id="ownHint">Transfer moves the pet to another wallet forever — it's a real NFT; the new owner feeds it (or doesn't…). Selling lists it on the marketplace below at your ask.</p>
+      <p class="small dim mt" id="ownHint" data-i18n="pets.ownHint">Transfer moves the pet to another wallet forever — it's a real NFT; the new owner feeds it (or doesn't…). Selling lists it on the marketplace below at your ask.</p>
     </div>
 
     <!-- share -->
     <div class="mt">
-      <label>Show off / invite</label>
+      <label data-i18n="pets.showOff">Show off / invite</label>
       <div class="row">
         <input id="shareLink" readonly>
-        <button class="ghost" id="btnShare">Share</button>
+        <button class="ghost" id="btnShare" data-i18n="pets.share">Share</button>
       </div>
-      <button class="ghost mt hidden" id="btnCard" style="width:100%">⚔ Download the challenger card — fierce face, power &amp; QR</button>
+      <button class="ghost mt hidden" id="btnCard" style="width:100%" data-i18n="pets.downloadCard">⚔ Download the challenger card — fierce face, power &amp; QR</button>
       <canvas id="shareQR" class="hidden mt" style="border-radius:10px;display:block;margin:8px auto 0"></canvas>
       <p class="small dim hidden" id="shareQRNote"></p>
     </div>
@@ -408,94 +409,94 @@
 
   <!-- BATTLE ARENA -->
   <div class="card hidden" id="arenaCard">
-    <h2>Battle <span id="arenaId" class="mono"></span></h2>
+    <h2 data-i18n="pets.battle">Battle <span id="arenaId" class="mono"></span></h2>
     <div class="arena" id="arena">
       <div class="fighter fl"><div id="arenaL"></div><div class="fname" id="arenaLName"></div><div class="fpow" id="arenaLPow"></div>
         <div class="hpbar"><i id="arenaLHP"></i></div></div>
-      <div class="vs">VS</div>
+      <div class="vs" data-i18n="pets.vs">VS</div>
       <div class="fighter fr"><div id="arenaR"></div><div class="fname" id="arenaRName"></div><div class="fpow" id="arenaRPow"></div>
         <div class="hpbar"><i id="arenaRHP"></i></div></div>
     </div>
     <div id="arenaVerdict"></div>
     <div id="arenaLog" class="small dim" style="text-align:center;min-height:16px;margin-top:4px"></div>
     <div class="row mt">
-      <button class="primary hidden" id="btnResolve">⚔ Settle the battle on-chain</button>
-      <button class="ghost hidden" id="btnCancelBattle">Withdraw challenge</button>
-      <button class="ghost hidden" id="btnRefundBattle">Reclaim stale stakes</button>
+      <button class="primary hidden" id="btnResolve" data-i18n="pets.settleBattle">⚔ Settle the battle on-chain</button>
+      <button class="ghost hidden" id="btnCancelBattle" data-i18n="pets.withdrawChallenge">Withdraw challenge</button>
+      <button class="ghost hidden" id="btnRefundBattle" data-i18n="pets.reclaimStakes">Reclaim stale stakes</button>
     </div>
     <p class="small dim mt" id="arenaHint"></p>
   </div>
 
   <!-- BATTLES -->
   <div class="card hidden" id="battlesCard">
-    <h2>Challenges &amp; battles</h2>
+    <h2 data-i18n="pets.challengesBattles">Challenges &amp; battles</h2>
     <div id="battleList"></div>
   </div>
 
   <!-- MY PETS -->
   <div class="card hidden" id="myPets">
-    <h2>My pets</h2>
-    <button class="primary hidden mt" id="btnHatchAll" style="width:100%">🐣 Hatch all ready eggs</button>
+    <h2 data-i18n="pets.myPets">My pets</h2>
+    <button class="primary hidden mt" id="btnHatchAll" style="width:100%" data-i18n="pets.hatchAllBtn">🐣 Hatch all ready eggs</button>
     <div class="pgrid mt" id="myPetGrid"></div>
   </div>
 
   <!-- ADOPT -->
   <div class="card hidden" id="adopt">
-    <h2>Adopt an egg — burn 1 NADO</h2>
-    <p class="small dim">Eggs are bought by <b>burning NADO</b> — the 1 NADO fee is destroyed forever (sent to a dead key no wallet controls), not paid to anyone. Your egg's animal is decided by a block hash that <b>doesn't exist yet</b> when you sign — not by us, not by you: one of <b>100 animals</b>, each an exact 1% roll — 70 common, 25 rare, 5 legendary. It hatches fed for <b>30 days</b>; after that it eats real NADO (burned too — about 0.1 NADO/day for an average appetite, belly holds up to 30 days) and <b>dies if you stop</b>. You can own as many as you can feed.</p>
+    <h2 data-i18n="pets.adoptHead">Adopt an egg — burn 1 NADO</h2>
+    <p class="small dim" data-i18n-html="pets.adoptNote">Eggs are bought by <b>burning NADO</b> — the 1 NADO fee is destroyed forever (sent to a dead key no wallet controls), not paid to anyone. Your egg's animal is decided by a block hash that <b>doesn't exist yet</b> when you sign — not by us, not by you: one of <b>100 animals</b>, each an exact 1% roll — 70 common, 25 rare, 5 legendary. It hatches fed for <b>30 days</b>; after that it eats real NADO (burned too — about 0.1 NADO/day for an average appetite, belly holds up to 30 days) and <b>dies if you stop</b>. You can own as many as you can feed.</p>
     <div class="row mt" style="align-items:center;gap:8px">
-      <label class="small dim" for="mintQty" style="flex:0 0 auto">How many?</label>
+      <label class="small dim" for="mintQty" style="flex:0 0 auto" data-i18n="pets.howMany">How many?</label>
       <input id="mintQty" type="number" min="1" max="20" step="1" value="1" inputmode="numeric" style="flex:0 0 72px;text-align:center">
-      <button class="primary" id="btnMint" style="flex:1 1 auto">🥚 Adopt · burn 1 NADO</button>
+      <button class="primary" id="btnMint" style="flex:1 1 auto" data-i18n="pets.adoptBtn">🥚 Adopt · burn 1 NADO</button>
     </div>
     <p class="small mt" id="burnTally" style="color:#ff8d5a"></p>
   </div>
 
   <!-- MARKETPLACE -->
   <div class="card" id="marketCard">
-    <h2>Marketplace — pets for sale</h2>
+    <h2 data-i18n="pets.marketHead">Marketplace — pets for sale</h2>
     <div class="row">
-      <input id="marketQ" placeholder="search name / #id / species / @owner" autocomplete="off">
+      <input id="marketQ" placeholder="search name / #id / species / @owner" data-i18n-ph="pets.searchPh" autocomplete="off">
       <select id="marketSort" style="flex:0 1 170px">
-        <option value="priceAsc">Price: low → high</option>
-        <option value="priceDesc">Price: high → low</option>
-        <option value="rarity">Rarity</option>
-        <option value="power">Power</option>
+        <option value="priceAsc" data-i18n="pets.sortPriceAsc">Price: low → high</option>
+        <option value="priceDesc" data-i18n="pets.sortPriceDesc">Price: high → low</option>
+        <option value="rarity" data-i18n="pets.sortRarity">Rarity</option>
+        <option value="power" data-i18n="pets.sortPower">Power</option>
       </select>
     </div>
     <div class="pgrid mt" id="marketGrid"></div>
-    <button class="ghost mt hidden" id="btnMoreMarket" style="width:100%">Show more</button>
+    <button class="ghost mt hidden" id="btnMoreMarket" style="width:100%" data-i18n="pets.showMore">Show more</button>
   </div>
 
   <!-- GALLERY -->
   <div class="card" id="galleryCard">
-    <h2>All pets on the chain <span class="dim" id="petCount" style="text-transform:none;letter-spacing:0"></span></h2>
+    <h2 data-i18n="pets.allPets">All pets on the chain <span class="dim" id="petCount" style="text-transform:none;letter-spacing:0"></span></h2>
     <div class="row">
-      <input id="galleryQ" placeholder="search name / #id / species / @owner" autocomplete="off">
+      <input id="galleryQ" placeholder="search name / #id / species / @owner" data-i18n-ph="pets.searchPh" autocomplete="off">
       <select id="gallerySort" style="flex:0 1 170px">
-        <option value="new">Newest</option>
-        <option value="rarity">Rarity</option>
-        <option value="power">Power</option>
-        <option value="level">Level</option>
+        <option value="new" data-i18n="pets.sortNew">Newest</option>
+        <option value="rarity" data-i18n="pets.sortRarity">Rarity</option>
+        <option value="power" data-i18n="pets.sortPower">Power</option>
+        <option value="level" data-i18n="pets.sortLevel">Level</option>
       </select>
     </div>
     <div class="pgrid mt" id="gallery"></div>
-    <button class="ghost mt hidden" id="btnMoreGallery" style="width:100%">Show more</button>
+    <button class="ghost mt hidden" id="btnMoreGallery" style="width:100%" data-i18n="pets.showMore">Show more</button>
   </div>
 
   <!-- HALL OF FAME -->
   <div class="card" id="fameCard">
-    <h2>Hall of fame — strongest living pets</h2>
+    <h2 data-i18n="pets.fameHead">Hall of fame — strongest living pets</h2>
     <div id="fameList"></div>
   </div>
 
   <!-- HOW IT WORKS -->
   <div class="card">
-    <h2>How it's provably fair</h2>
-    <p class="small dim">A pet's <b>gene</b> is <span class="mono">HASH(blockhash(b) ‖ blockhash(b+1) ‖ petId)</span> where block <span class="mono">b</span> is minted <i>after</i> you sign — nobody (including us) can pick or predict it. The gene fixes the animal (<span class="mono">gene % 100</span> picks one of the 100 species), its rarity tier, coat and all 10 base stats forever. Training and battles bind to future block hashes the same way; the contract recomputes every roll on-chain, so the result you see is the result everyone's node computes. Adoption, food and training fees are <b>burned</b> — paid to a dead key no wallet can ever control — so playing shrinks the supply; there is no house wallet. Ownership is a plain on-chain record: transfer it and the pet is theirs, key and kibble.</p>
+    <h2 data-i18n="pets.fairHead">How it's provably fair</h2>
+    <p class="small dim" data-i18n-html="pets.fairNote">A pet's <b>gene</b> is <span class="mono">HASH(blockhash(b) ‖ blockhash(b+1) ‖ petId)</span> where block <span class="mono">b</span> is minted <i>after</i> you sign — nobody (including us) can pick or predict it. The gene fixes the animal (<span class="mono">gene % 100</span> picks one of the 100 species), its rarity tier, coat and all 10 base stats forever. Training and battles bind to future block hashes the same way; the contract recomputes every roll on-chain, so the result you see is the result everyone's node computes. Adoption, food and training fees are <b>burned</b> — paid to a dead key no wallet can ever control — so playing shrinks the supply; there is no house wallet. Ownership is a plain on-chain record: transfer it and the pet is theirs, key and kibble.</p>
   </div>
 
-  <footer>NADO Pets · on-chain tamagotchi NFTs · post-quantum signatures · no house</footer>
+  <footer data-i18n="pets.footer">NADO Pets · on-chain tamagotchi NFTs · post-quantum signatures · no house</footer>
 </div>
 <script type="module" src="/static/pets.js"></script>
 </body>

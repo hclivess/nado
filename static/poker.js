@@ -170,42 +170,43 @@ function sit(t, method, buyinRaw, anteRaw) {         // open or join: generate t
   if (method === "open") { const T = load(LS_T); T[t] = { ante: anteRaw.toString(), ts: Date.now() }; save(LS_T, T); }
   activeTable = t; render();
   const args = method === "open" ? [t, g, commitHashOf(x), anteRaw] : [t, g, commitHashOf(x)];
-  dapp.call(method, args, buyinRaw,
-    (method === "open" ? "open a hold'em table #" + t : "sit down at hold'em table #" + t)
-      + " · buy-in " + rawToNado(buyinRaw) + " NADO (ante " + rawToNado(anteRaw) + ", stack " + rawToNado(buyinRaw - anteRaw) + ")",
-    { table: t, seat: g, phase: method });
+  const vars = { t, b: rawToNado(buyinRaw), a: rawToNado(anteRaw), s: rawToNado(buyinRaw - anteRaw) };
+  const desc = method === "open"
+    ? window.t("poker.openDesc", "open a hold'em table #{t} · buy-in {b} NADO (ante {a}, stack {s})", vars)
+    : window.t("poker.sitDesc", "sit down at hold'em table #{t} · buy-in {b} NADO (ante {a}, stack {s})", vars);
+  dapp.call(method, args, buyinRaw, desc, { table: t, seat: g, phase: method });
 }
 function readBuyin(anteRaw) {
   const raw = nadoToRaw($("buyinAmt").value);
-  if (!raw) { alertBar("Enter your BUY-IN — the ante (" + rawToNado(anteRaw) + " NADO) goes to the pot, the rest is your stack to bet with. A common buy-in is 20–50× the ante."); return null; }
-  if (raw < anteRaw) { alertBar("The buy-in must at least cover the ante (" + rawToNado(anteRaw) + " NADO)."); return null; }
+  if (!raw) { alertBar(window.t("poker.enterBuyin", "Enter your BUY-IN — the ante ({a} NADO) goes to the pot, the rest is your stack to bet with. A common buy-in is 20–50× the ante.", { a: rawToNado(anteRaw) })); return null; }
+  if (raw < anteRaw) { alertBar(window.t("poker.buyinCoverAnte", "The buy-in must at least cover the ante ({a} NADO).", { a: rawToNado(anteRaw) })); return null; }
   return raw;
 }
 async function newTable() {
   const ante = nadoToRaw($("anteAmt").value);
-  if (!ante) { $("status").textContent = "Enter an ante (NADO) — everyone pays it into the pot to sit down."; return; }
+  if (!ante) { $("status").textContent = window.t("poker.enterAnte", "Enter an ante (NADO) — everyone pays it into the pot to sit down."); return; }
   const buyin = readBuyin(ante); if (!buyin) return;
   await dapp.refresh();
-  if (!canPay(dapp, buyin, "Opening this table")) return;
+  if (!canPay(dapp, buyin, window.t("poker.ctxOpening", "Opening this table"))) return;
   sit(randId(), "open", buyin, ante);
 }
 function reopenTable() {   // retry an open that didn't confirm within ~2 min
   const T = load(LS_T)[activeTable]; if (!T || !T.ante) return;
   const buyin = nadoToRaw($("buyinAmt").value) || BigInt(T.ante);
-  if (!canPay(dapp, buyin, "Re-opening this table")) return;
+  if (!canPay(dapp, buyin, window.t("poker.ctxReopening", "Re-opening this table"))) return;
   sit(activeTable, "open", buyin, BigInt(T.ante));
 }
 async function joinTable() {
   const t = activeTable;
-  if (!t) { $("status").textContent = "Pick a table first."; return; }
+  if (!t) { $("status").textContent = window.t("poker.pickTableFirst", "Pick a table first."); return; }
   const tb = await fetchTable(t);
   if (!tb || !tb.exists) { $("status").textContent = dapp.whereIs("table", t); if (tb) dapp.clearInvite(); return; }
-  if (tb.phase !== "join") { $("status").textContent = "Seating is closed — this hand is already underway. Open a new table."; dapp.clearInvite(); return; }
-  if (lastSeats.some((s) => s.addr === dapp.me)) { $("status").textContent = "You're already seated here."; dapp.clearInvite(); return; }
+  if (tb.phase !== "join") { $("status").textContent = window.t("poker.seatingClosed", "Seating is closed — this hand is already underway. Open a new table."); dapp.clearInvite(); return; }
+  if (lastSeats.some((s) => s.addr === dapp.me)) { $("status").textContent = window.t("poker.alreadySeated", "You're already seated here."); dapp.clearInvite(); return; }
   await dapp.refresh();
   const ante = BigInt(tb.ante);
   const buyin = readBuyin(ante); if (!buyin) return;
-  if (!canPay(dapp, buyin, "Sitting down")) { render(); return; }   // keep the invite: it re-fires when the deposit lands
+  if (!canPay(dapp, buyin, window.t("poker.ctxSitting", "Sitting down"))) { render(); return; }   // keep the invite: it re-fires when the deposit lands
   dapp.clearInvite();   // committing the seat now — don't replay it again
   sit(t, "join", buyin, ante);
 }
@@ -214,16 +215,16 @@ function doBet(amountRaw, label) {
   const s = mySeat(); if (!s) return;
   const k = lastTable && lastTable.street || 1;
   // amount is an ARG (chips move from your escrowed stack, no new value) — confirm:true so autosign never bets
-  dapp.call("bet", [s.g, amountRaw], null, label + " · table #" + activeTable,
+  dapp.call("bet", [s.g, amountRaw], null, window.t("poker.betAction", "{label} · table #{t}", { label, t: activeTable }),
     { table: activeTable, seat: s.g, phase: "bet", k, prev: s.cs[k] }, { confirm: true });
 }
 function doReveal() {
   const s = mySeat(); if (!s) return;
   const rec = load(LS_S)[s.g];
-  if (!rec || !rec.secret) { $("status").textContent = "This browser doesn't hold the secret for seat #" + s.g + " — show your cards from the device you joined with."; return; }
-  dapp.call("reveal", [s.g, BigInt(rec.secret)], null, "showdown — show your cards · table #" + activeTable, { table: activeTable, seat: s.g, phase: "reveal" });
+  if (!rec || !rec.secret) { $("status").textContent = window.t("poker.noSecretHere", "This browser doesn't hold the secret for seat #{g} — show your cards from the device you joined with.", { g: s.g }); return; }
+  dapp.call("reveal", [s.g, BigInt(rec.secret)], null, window.t("poker.revealDesc", "showdown — show your cards · table #{t}", { t: activeTable }), { table: activeTable, seat: s.g, phase: "reveal" });
 }
-const settleTable = () => dapp.call("settle", [activeTable], null, "pay the pot to the best hand · table #" + activeTable, { table: activeTable, phase: "settle" });
+const settleTable = () => dapp.call("settle", [activeTable], null, window.t("poker.settleDesc", "pay the pot to the best hand · table #{t}", { t: activeTable }), { table: activeTable, phase: "settle" });
 // AUTO-COLLECT the WINNER's pot once the hand is over (shared SDK tick — opt-out slider, autoTried dedup)
 function maybeAutoSettle() {
   const tb = lastTable;
@@ -232,16 +233,16 @@ function maybeAutoSettle() {
   if (!s || s.g !== tb.leader) return;   // only the winner auto-collects the pot
   dapp.autoCollect([{ g: activeTable }], () => settleTable(), { blocked: watch });
 }
-const reclaimTable = () => dapp.call("reclaim", [activeTable], null, "reclaim the dead pot · table #" + activeTable, { table: activeTable, phase: "reclaim" });
-const cancelTable = () => dapp.call("cancel", [activeTable], null, "cancel table #" + activeTable, { table: activeTable, phase: "cancel" });
+const reclaimTable = () => dapp.call("reclaim", [activeTable], null, window.t("poker.reclaimDesc", "reclaim the dead pot · table #{t}", { t: activeTable }), { table: activeTable, phase: "reclaim" });
+const cancelTable = () => dapp.call("cancel", [activeTable], null, window.t("poker.cancelDesc", "cancel table #{t}", { t: activeTable }), { table: activeTable, phase: "cancel" });
 // the HOST deals: binds the hand to two blocks that don't exist yet — nobody can know the cards
-const startTable = () => dapp.call("start", [activeTable], null, "🃏 deal now · table #" + activeTable, { table: activeTable, phase: "start" });
+const startTable = () => dapp.call("start", [activeTable], null, window.t("poker.startDesc", "🃏 deal now · table #{t}", { t: activeTable }), { table: activeTable, phase: "start" });
 // the HOST fast-forwards a street once nobody owes a call — a checked-around street ends NOW
-const closeStreet = () => dapp.call("close_street", [activeTable], null, "⏩ close the " + STREETS[(lastTable && lastTable.street) || 1] + " · table #" + activeTable,
+const closeStreet = () => dapp.call("close_street", [activeTable], null, window.t("poker.closeDesc", "⏩ close the {street} · table #{t}", { street: streetName((lastTable && lastTable.street) || 1), t: activeTable }),
   { table: activeTable, phase: "closest", k: (lastTable && lastTable.street) || 1 });
 function leaveTable() {
   const s = mySeat(); if (!s) return;
-  dapp.call("leave", [s.g], null, "leave table #" + activeTable + " — full refund", { table: activeTable, seat: s.g, phase: "leave" });
+  dapp.call("leave", [s.g], null, window.t("poker.leaveDesc", "leave table #{t} — full refund", { t: activeTable }), { table: activeTable, seat: s.g, phase: "leave" });
 }
 
 async function refreshActive() {
@@ -273,15 +274,15 @@ async function refreshActive() {
         (watch.phase === "leave") ? !_m(sto, "gg")[String(watch.seat)] :
         (watch.phase === "settle") ? !!_m(sto, "tz")[String(watch.table)] : false;
       if (done) {
-        $("status").textContent = { open: "✓ Table confirmed — you're seated. Share the link below to fill it.",
-          join: "✓ Seat confirmed — you're in the hand.", bet: "✓ Bet confirmed on-chain.",
-          reveal: "✓ Your hand is shown on-chain.", settle: "✓ Pot paid out.",
-          start: "✓ Dealt! Cards are locking in the next blocks — hole cards appear once they finalize.",
-          closest: "✓ Street closed — the next card is locking in now.",
-          leave: "✓ You left the table — buy-in refunded in full." }[watch.phase];
+        $("status").textContent = { open: window.t("poker.doneOpen", "✓ Table confirmed — you're seated. Share the link below to fill it."),
+          join: window.t("poker.doneJoin", "✓ Seat confirmed — you're in the hand."), bet: window.t("poker.doneBet", "✓ Bet confirmed on-chain."),
+          reveal: window.t("poker.doneReveal", "✓ Your hand is shown on-chain."), settle: window.t("poker.doneSettle", "✓ Pot paid out."),
+          start: window.t("poker.doneStart", "✓ Dealt! Cards are locking in the next blocks — hole cards appear once they finalize."),
+          closest: window.t("poker.doneClose", "✓ Street closed — the next card is locking in now."),
+          leave: window.t("poker.doneLeave", "✓ You left the table — buy-in refunded in full.") }[watch.phase];
         watch = null;
       } else if (watch.ts && Date.now() - watch.ts > 75000) {
-        $("status").textContent = "Still settling on-chain — your chips and funds are safe; the table updates by itself.";
+        $("status").textContent = window.t("poker.stillSettling", "Still settling on-chain — your chips and funds are safe; the table updates by itself.");
         watch = null;
       }
     }
@@ -310,24 +311,25 @@ function boardFrom(sto) {
   }
   return scoreSort(stats);
 }
-const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, "No finished hands yet — be the first on the board.");
+const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, window.t("poker.noFinishedHands", "No finished hands yet — be the first on the board."));
 function renderLobby(sto) {
   const el = $("lobbyList"); if (!el) return;
   const tables = Object.keys(_m(sto, "ta")).map((t) => tableFrom(sto, t)).filter((t) => t.exists && !t.closed);
   tables.sort((a, b) => (b.phase === "join") - (a.phase === "join") || b.id - a.id);
   el.innerHTML = tables.length ? tables.slice(0, 24).map((t) => {
     const tag = t.phase === "join" ? "🟢" : t.phase === "showdown" ? "🃏" : t.phase === "over" ? "🏁" : "▶";
-    const info = t.phase === "join" ? " · seating open" : t.phase === "street" || t.phase === "dealing" ? " · playing" : "";
+    const info = t.phase === "join" ? window.t("poker.lobbySeatingOpen", " · seating open") : t.phase === "street" || t.phase === "dealing" ? window.t("poker.lobbyPlaying", " · playing") : "";
+    const players = t.seatCount === 1 ? window.t("poker.players1", "{n} player", { n: t.seatCount }) : window.t("poker.playersN", "{n} players", { n: t.seatCount });
     return '<button class="chip ' + (t.phase === "join" ? "betting" : "") + '" data-t="' + t.id + '">' + tag + " #" + t.id
-      + " · ante " + rawToNado(t.ante) + " · " + t.seatCount + " player" + (t.seatCount === 1 ? "" : "s") + info + "</button>";
-  }).join(" ") : '<span class="dim">No tables yet — open one below.</span>';
+      + " · " + window.t("poker.lobbyAnte", "ante {a}", { a: rawToNado(t.ante) }) + " · " + players + info + "</button>";
+  }).join(" ") : '<span class="dim">' + window.t("poker.noTablesOpen", "No tables yet — open one below.") + '</span>';
   el.querySelectorAll(".chip").forEach((b) => b.onclick = () => selectTable(parseInt(b.dataset.t, 10)));
 }
 let buyinEdited = false;   // the player typed their own buy-in — stop auto-suggesting
 function selectTable(id) {
   activeTable = id; $("joinId").value = String(id);
   buyinEdited = false;     // fresh table -> fresh suggestion (match the host)
-  $("status").textContent = "Table #" + id + " selected.";
+  $("status").textContent = window.t("poker.tableSelected", "Table #{id} selected.", { id });
   refreshActive();
   try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
 }
@@ -361,8 +363,8 @@ function renderRankGuide() {
   const el = $("rankGuide");
   if (!el) return;
   el.innerHTML = RANK_GUIDE.map(([cat, name, desc, ex]) =>
-    `<div class="rk" data-cat="${cat}"><span class="rkname">${name}</span>` +
-    `<span class="rkdesc">${desc}</span>` +
+    `<div class="rk" data-cat="${cat}"><span class="rkname">${window.t("poker.rank" + cat + "name", name)}</span>` +
+    `<span class="rkdesc">${window.t("poker.rank" + cat + "desc", desc)}</span>` +
     `<span class="minihand">${ex.map((c) => cardHTML(c, false)).join("")}</span></div>`).join("");
 }
 // highlight the row for the player's current best category (-1 clears all — pre-flop, folded-out, no seat)
@@ -386,11 +388,11 @@ function wireUI() {
   });
   if (!$("buyinAmt").value) $("buyinAmt").value = String((parseFloat($("anteAmt").value) || 1) * 20);
   $("btnNewTable").onclick = newTable;
-  $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = "Enter a table ID, or pick one from the lobby."; };
+  $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = window.t("poker.enterTableId", "Enter a table ID, or pick one from the lobby."); };
   $("btnReclaim").onclick = reclaimTable;
   $("btnCancel").onclick = cancelTable;
   if ($("btnReopen")) $("btnReopen").onclick = reopenTable;
-  $("btnShare").onclick = () => share(base() + "/?table=" + activeTable, "Sit down at my hold'em table #" + activeTable + " on NADO:", $("btnShare"));
+  $("btnShare").onclick = () => share(base() + "/?table=" + activeTable, window.t("poker.shareMsg", "Sit down at my hold'em table #{t} on NADO:", { t: activeTable }), $("btnShare"));
 }
 function render() {
   dapp.reflectUrl("table", activeTable);   // address bar = the shareable link to the selected table
@@ -405,35 +407,38 @@ function render() {
     if (!x.live || !lastSto) continue;
     const tb = tableFrom(lastSto, x.id);
     if (!tb.exists) continue;
-    x.tag = tb.closed ? "finished ✓" : tb.phase === "join" ? "seating" : tb.phase === "street" ? STREETS[tb.street] : tb.phase === "showdown" ? "SHOWDOWN" : "settle!";
+    x.tag = tb.closed ? window.t("poker.tagFinished", "finished ✓") : tb.phase === "join" ? window.t("poker.tagSeating", "seating") : tb.phase === "street" ? streetName(tb.street) : tb.phase === "showdown" ? window.t("poker.tagShowdown", "SHOWDOWN") : window.t("poker.tagSettle", "settle!");
   }
-  recentChips($("recent"), shown, selectTable, "No tables yet.");
+  recentChips($("recent"), shown, selectTable, window.t("poker.noTablesShort", "No tables yet."));
   renderActive();
 }
 const STREETS = ["", "pre-flop", "flop", "turn", "river"];
+const STREET_KEYS = ["", "preflop", "flop", "turn", "river"];
+const streetName = (k) => window.t("poker.street_" + STREET_KEYS[k], STREETS[k]);
 function renderActive() {
   if (activeTable == null) return;
   const tb = lastTable || {}, T = load(LS_T)[activeTable] || {};
   const me = mySeat(), iAmHost = tb.host === dapp.me;
   $("gameId").textContent = "#" + activeTable;
-  shareInvite("table", activeTable, "Sit down at my hold em table #" + activeTable + " on NADO:", 180);
+  shareInvite("table", activeTable, window.t("poker.shareMsg2", "Sit down at my hold em table #{t} on NADO:", { t: activeTable }), 180);
   $("gPot").textContent = tb.exists ? rawToNado(tb.pot) + " NADO" : "—";
   if ($("gPots")) {
     const pots = tb.exists && tb.phase !== "join" && lastSeats.length ? sidePots(lastSeats, tb.ante) : [];
     $("gPots").innerHTML = pots.length > 1 ? pots.map((p, n) =>
-      '<div class="kv"><span class="k">' + (n === 0 ? "Main pot" : "Side pot " + n) + " (" + p.idxs.map((i) => disp(lastSeats[i].addr)).join(", ") + ')</span><span class="mono">' + rawToNado(p.amt) + " NADO</span></div>").join("") : "";
+      '<div class="kv"><span class="k">' + (n === 0 ? window.t("poker.mainPot", "Main pot") : window.t("poker.sidePot", "Side pot {n}", { n })) + " (" + p.idxs.map((i) => disp(lastSeats[i].addr)).join(", ") + ')</span><span class="mono">' + rawToNado(p.amt) + " NADO</span></div>").join("") : "";
   }
   $("gAnte").textContent = tb.exists ? rawToNado(tb.ante) + " NADO" : "—";
 
   // headline: phase + countdown — always says what happens next
   let phaseTxt = dapp.whereIs("table", activeTable, T.ts);
   if (tb.exists) {
-    if (tb.closed) phaseTxt = "hand over — settled ✓";
-    else if (tb.phase === "join") phaseTxt = "🟢 seating open — " + tb.seatCount + " player" + (tb.seatCount === 1 ? "" : "s") + " · " + (tb.host === dapp.me ? "YOU deal when ready" : "the host deals when ready");
-    else if (tb.phase === "shuffle") phaseTxt = "🂠 shuffling — your cards land in " + blocksToTime(tb.left) + " (betting opens with cards visible)";
-    else if (tb.phase === "street") phaseTxt = "▶ " + STREETS[tb.street].toUpperCase() + " betting — closes in " + blocksToTime(tb.left) + " (or when the host fast-forwards)";
-    else if (tb.phase === "showdown") phaseTxt = "🃏 SHOWDOWN — show your cards within " + blocksToTime(tb.left) + " · " + tb.revealCount + " shown";
-    else phaseTxt = "🏁 hand finished — pay out below";
+    const players = tb.seatCount === 1 ? window.t("poker.players1", "{n} player", { n: tb.seatCount }) : window.t("poker.playersN", "{n} players", { n: tb.seatCount });
+    if (tb.closed) phaseTxt = window.t("poker.phaseOver", "hand over — settled ✓");
+    else if (tb.phase === "join") phaseTxt = window.t("poker.phaseSeating", "🟢 seating open — {players} · {who}", { players, who: tb.host === dapp.me ? window.t("poker.youDeal", "YOU deal when ready") : window.t("poker.hostDeals", "the host deals when ready") });
+    else if (tb.phase === "shuffle") phaseTxt = window.t("poker.phaseShuffle", "🂠 shuffling — your cards land in {time} (betting opens with cards visible)", { time: blocksToTime(tb.left) });
+    else if (tb.phase === "street") phaseTxt = window.t("poker.phaseStreet", "▶ {street} betting — closes in {time} (or when the host fast-forwards)", { street: streetName(tb.street).toUpperCase(), time: blocksToTime(tb.left) });
+    else if (tb.phase === "showdown") phaseTxt = window.t("poker.phaseShowdown", "🃏 SHOWDOWN — show your cards within {time} · {n} shown", { time: blocksToTime(tb.left), n: tb.revealCount });
+    else phaseTxt = window.t("poker.phaseFinished", "🏁 hand finished — pay out below");
   }
   $("gStatus").textContent = phaseTxt;
 
@@ -441,47 +446,47 @@ function renderActive() {
   const board = tb.exists && tb.td && dapp.cursor != null ? boardCards(activeTable, tb.closes) : [];
   $("community").innerHTML = handHTML(board, 5, false);
   $("communityNote").textContent = !tb.exists ? "" :
-    tb.phase === "join" ? "the board deals street by street once the host deals" :
-    board.length === 0 ? "flop lands when its block finalizes…" :
-    board.length === 3 ? "turn card is still in future blocks" :
-    board.length === 4 ? "river card is still in future blocks" : "";
+    tb.phase === "join" ? window.t("poker.boardDealsLater", "the board deals street by street once the host deals") :
+    board.length === 0 ? window.t("poker.flopPending", "flop lands when its block finalizes…") :
+    board.length === 3 ? window.t("poker.turnPending", "turn card is still in future blocks") :
+    board.length === 4 ? window.t("poker.riverPending", "river card is still in future blocks") : "";
   let hole = null, holeTxt = "";
   const fk = me && tb.exists ? foldedAt(me, tb) : 0;
   if (me && tb.exists && tb.td) {
     const rec = load(LS_S)[me.g];
     if (rec && rec.secret) hole = holeCards(dapp.bh(tb.d0), dapp.bh(tb.d0 + 1), BigInt(rec.secret));
-    holeTxt = !rec || !rec.secret ? "your secret lives in the browser you joined with — open this page there to see your cards"
-      : !hole ? "your hole cards land when the deal blocks finalize…" : "";
-  } else if (me) holeTxt = tb.host === dapp.me ? "hit 🃏 Deal now below when everyone's seated" : "your hole cards deal when the host starts the hand";
+    holeTxt = !rec || !rec.secret ? window.t("poker.secretElsewhere", "your secret lives in the browser you joined with — open this page there to see your cards")
+      : !hole ? window.t("poker.holePending", "your hole cards land when the deal blocks finalize…") : "";
+  } else if (me) holeTxt = tb.host === dapp.me ? window.t("poker.hostHitDeal", "hit 🃏 Deal now below when everyone's seated") : window.t("poker.holeAfterStart", "your hole cards deal when the host starts the hand");
   $("holeWrap").classList.toggle("hidden", !me);
   $("hole").innerHTML = handHTML(hole, 2, true);
   let handName = "", curCat = -1;
   if (hole && board.length >= 3) {
     const ev = eval7(board.concat(hole));
-    handName = ev.name + (board.length < 5 ? " (so far)" : "");
+    handName = ev.name + (board.length < 5 ? window.t("poker.soFar", " (so far)") : "");
     curCat = Math.floor(ev.v / CAT_UNIT);
-  } else if (hole) handName = "your hole cards — the flop comes next";
-  $("holeNote").textContent = fk ? "✗ folded on the " + STREETS[fk] + " — your chips stay in the pot" : (handName || holeTxt);
+  } else if (hole) handName = window.t("poker.holeFlopNext", "your hole cards — the flop comes next");
+  $("holeNote").textContent = fk ? window.t("poker.foldedNote", "✗ folded on the {street} — your chips stay in the pot", { street: streetName(fk) }) : (handName || holeTxt);
   markRankGuide(curCat);   // light up the player's current rank in the cheat sheet (-1 clears it)
 
   // players
   const priceNow = tb.exists && tb.phase === "street" ? tb.price(tb.street) : 0;
   $("seats").innerHTML = lastSeats.length ? lastSeats.map((s) => {
-    const you = s.addr === dapp.me ? '<b style="color:var(--accent2)">you</b> ' : "";
+    const you = s.addr === dapp.me ? '<b style="color:var(--accent2)">' + window.t("poker.you", "you") + '</b> ' : "";
     const f = tb.exists ? foldedAt(s, tb) : 0;
     let tag;
     if (s.revealed) {
       const oppHole = s.secret != null ? holeCards(dapp.bh(tb.d0), dapp.bh(tb.d0 + 1), BigInt(s.secret)) : null;
-      const nm = oppHole && board.length === 5 ? eval7(board.concat(oppHole)).name : "shown";
+      const nm = oppHole && board.length === 5 ? eval7(board.concat(oppHole)).name : window.t("poker.shown", "shown");
       tag = '<span class="minihand">' + (oppHole ? handHTML(oppHole, 2, false) : "") + '</span> <span class="b ' + (tb.leader === s.g ? 'ok">👑 ' : 'dimb">') + nm + "</span>";
     }
-    else if (f) tag = '<span class="b dimb">folded (' + STREETS[f] + ")</span>";
-    else if (tb.phase === "street" && s.cs[tb.street] < priceNow) tag = '<span class="b pend">must call ' + rawToNado(priceNow - s.cs[tb.street]) + "</span>";
-    else if (tb.phase === "showdown") tag = '<span class="b pend">yet to show</span>';
-    else tag = '<span class="b ok">in ✓</span>';
-    const allin = s.stack === 0 && !f && tb.exists && tb.phase !== "join" ? ' <span class="b pend">ALL-IN</span>' : "";
-    return '<div class="seat">' + you + disp(s.addr) + ' · in pot <span class="mono">' + rawToNado(s.total + Number(tb.ante || 0)) + '</span> · stack <span class="mono">' + rawToNado(s.stack) + "</span>" + allin + " " + tag + "</div>";
-  }).join("") : '<span class="dim">No players yet.</span>';
+    else if (f) tag = '<span class="b dimb">' + window.t("poker.foldedTag", "folded ({street})", { street: streetName(f) }) + "</span>";
+    else if (tb.phase === "street" && s.cs[tb.street] < priceNow) tag = '<span class="b pend">' + window.t("poker.mustCall", "must call {a}", { a: rawToNado(priceNow - s.cs[tb.street]) }) + "</span>";
+    else if (tb.phase === "showdown") tag = '<span class="b pend">' + window.t("poker.yetToShow", "yet to show") + '</span>';
+    else tag = '<span class="b ok">' + window.t("poker.inCheck", "in ✓") + '</span>';
+    const allin = s.stack === 0 && !f && tb.exists && tb.phase !== "join" ? ' <span class="b pend">' + window.t("poker.allIn", "ALL-IN") + '</span>' : "";
+    return '<div class="seat">' + you + disp(s.addr) + ' · ' + window.t("poker.inPot", "in pot") + ' <span class="mono">' + rawToNado(s.total + Number(tb.ante || 0)) + '</span> · ' + window.t("poker.stack", "stack") + ' <span class="mono">' + rawToNado(s.stack) + "</span>" + allin + " " + tag + "</div>";
+  }).join("") : '<span class="dim">' + window.t("poker.noPlayers", "No players yet.") + '</span>';
 
   // actions — ONE obvious primary thing to do at every phase
   const wrap = $("myActions"); wrap.innerHTML = "";
@@ -495,30 +500,30 @@ function renderActive() {
   }
   if (tb.exists && !tb.closed && dapp.me) {
     if (tb.phase === "join" && !me) {
-      if (watch && watch.phase === "join") btn("⏳ Taking your seat — confirming on-chain…", () => {}, false).disabled = true;
-      else btn("🪑 Sit down — buy-in " + ($("buyinAmt").value || rawToNado(tb.ante)) + " NADO (ante " + rawToNado(tb.ante) + ")", joinTable, true, true);
+      if (watch && watch.phase === "join") btn(window.t("poker.takingSeat", "⏳ Taking your seat — confirming on-chain…"), () => {}, false).disabled = true;
+      else btn(window.t("poker.sitDownBtn", "🪑 Sit down — buy-in {b} NADO (ante {a})", { b: ($("buyinAmt").value || rawToNado(tb.ante)), a: rawToNado(tb.ante) }), joinTable, true, true);
     }
     if (tb.phase === "street" && iAmHost) {
       // closable iff nobody owes a call: every seat matched the street price, is all-in, or folded earlier
       const pk = tb.price(tb.street);
       const closable = lastSeats.length > 0 && lastSeats.every((s) => s.cs[tb.street] === pk || s.stack === 0 || foldedAt(s, tb) > 0)
         && !((_m(lastSto, "sc")[String(Number(activeTable) * 8 + tb.street)] || 0) > 0);
-      if (watch && watch.phase === "closest") btn("⏳ Fast-forwarding the street…", () => {}, false).disabled = true;
-      else if (closable) btn("⏩ Everyone's in — deal the next card NOW", closeStreet, true);
+      if (watch && watch.phase === "closest") btn(window.t("poker.fastForwarding", "⏳ Fast-forwarding the street…"), () => {}, false).disabled = true;
+      else if (closable) btn(window.t("poker.dealNextNow", "⏩ Everyone's in — deal the next card NOW"), closeStreet, true);
     }
     // the HOST controls the start — nothing happens until they deal
     if (tb.phase === "join" && iAmHost) {
-      if (watch && watch.phase === "start") btn("⏳ Dealing — confirming on-chain…", () => {}, false).disabled = true;
-      else btn(tb.seatCount >= 2 ? "🃏 Deal now — start the hand (" + tb.seatCount + " players)"
-                                 : "🃏 Deal now — or wait for players (share the invite below)", startTable, tb.seatCount >= 2);
+      if (watch && watch.phase === "start") btn(window.t("poker.dealingConfirm", "⏳ Dealing — confirming on-chain…"), () => {}, false).disabled = true;
+      else btn(tb.seatCount >= 2 ? window.t("poker.dealNowStart", "🃏 Deal now — start the hand ({n} players)", { n: tb.seatCount })
+                                 : window.t("poker.dealNowWait", "🃏 Deal now — or wait for players (share the invite below)"), startTable, tb.seatCount >= 2);
     }
     if (tb.phase === "join" && me && !iAmHost) {
-      if (watch && watch.phase === "leave") btn("⏳ Leaving — refunding…", () => {}, false).disabled = true;
-      else btn("🚪 Leave the table — full refund (ante + stack)", leaveTable, false);
+      if (watch && watch.phase === "leave") btn(window.t("poker.leavingRefund", "⏳ Leaving — refunding…"), () => {}, false).disabled = true;
+      else btn(window.t("poker.leaveBtn", "🚪 Leave the table — full refund (ante + stack)"), leaveTable, false);
     }
     if (tb.phase === "shuffle") {
       const note = document.createElement("div"); note.className = "small"; note.style.cssText = "flex:1 1 100%;color:var(--accent2);font-weight:700";
-      note.textContent = "🂠 Shuffling — your hole cards lock to blocks " + tb.d0 + "–" + (tb.d0 + 1) + " and appear once final; betting opens right after.";
+      note.textContent = window.t("poker.shufflingNote", "🂠 Shuffling — your hole cards lock to blocks {a}–{b} and appear once final; betting opens right after.", { a: tb.d0, b: tb.d0 + 1 });
       wrap.appendChild(note);
     }
     const rec = me ? (load(LS_S)[me.g] || {}) : {};
@@ -526,62 +531,71 @@ function renderActive() {
     const setFold = (v) => { const S = load(LS_S); if (S[me.g]) { S[me.g].folded = v ? Date.now() : 0; save(LS_S, S); } render(); };
     if (tb.phase === "street" && me && !fk && localFold) {
       const note = document.createElement("div"); note.className = "small"; note.style.cssText = "flex:1 1 100%;color:var(--dim);font-weight:700";
-      note.textContent = "✋ You folded — sitting this hand out. Your chips stay in the pot.";
+      note.textContent = window.t("poker.foldedSitOut", "✋ You folded — sitting this hand out. Your chips stay in the pot.");
       wrap.appendChild(note);
-      btn("↩ Undo fold — you can still call until the street closes", () => setFold(false), false);
+      btn(window.t("poker.undoFold", "↩ Undo fold — you can still call until the street closes"), () => setFold(false), false);
     }
     if (tb.phase === "street" && me && !fk && !localFold && me.stack === 0) {
       const note = document.createElement("div"); note.className = "small"; note.style.cssText = "flex:1 1 100%;color:var(--accent2);font-weight:700";
-      note.textContent = "🔥 You're ALL-IN — nothing left to do; you're live for every pot you funded.";
+      note.textContent = window.t("poker.allInNote", "🔥 You're ALL-IN — nothing left to do; you're live for every pot you funded.");
       wrap.appendChild(note);
     }
     if (tb.phase === "street" && me && !fk && !localFold && me.stack > 0) {
       betRow.classList.remove("hidden");
       const myIn = me.cs[tb.street], owe = priceNow - myIn;
-      $("betInfo").innerHTML = "Your stack <b>" + rawToNado(me.stack) + "</b> · " + (priceNow
-        ? "street price <b>" + rawToNado(priceNow) + "</b> · you're in for <b>" + rawToNado(myIn) + "</b>" + (owe > 0 ? ' · <b class="warn">call ' + rawToNado(owe > me.stack ? me.stack : owe) + (owe > me.stack ? " (all-in)" : "") + " or fold when the street closes</b>" : " · matched ✓ (do nothing to check)")
-        : "no bets yet this street — do nothing to <b>check</b>, or open the betting below.");
+      let betInfo;
+      if (priceNow) {
+        let tail;
+        if (owe > 0) {
+          const callTxt = rawToNado(owe > me.stack ? me.stack : owe) + (owe > me.stack ? window.t("poker.allInParen", " (all-in)") : "");
+          tail = window.t("poker.callOrFold", ' · <b class="warn">call {c} or fold when the street closes</b>', { c: callTxt });
+        } else tail = window.t("poker.matchedCheck", " · matched ✓ (do nothing to check)");
+        betInfo = window.t("poker.betInfoPriced", "Your stack <b>{stack}</b> · street price <b>{price}</b> · you're in for <b>{in}</b>", { stack: rawToNado(me.stack), price: rawToNado(priceNow), in: rawToNado(myIn) }) + tail;
+      } else {
+        betInfo = window.t("poker.betInfoOpen", "Your stack <b>{stack}</b> · no bets yet this street — do nothing to <b>check</b>, or open the betting below.", { stack: rawToNado(me.stack) });
+      }
+      $("betInfo").innerHTML = betInfo;
       if (owe > 0) {
         const callAmt = owe > me.stack ? me.stack : owe;
-        btn((owe > me.stack ? "🔥 Call ALL-IN " : "📞 Call ") + rawToNado(callAmt) + " — stay in", () => doBet(BigInt(callAmt), "call " + rawToNado(callAmt) + " NADO"), true);
+        btn((owe > me.stack ? window.t("poker.callAllInBtn", "🔥 Call ALL-IN {a} — stay in", { a: rawToNado(callAmt) }) : window.t("poker.callBtn", "📞 Call {a} — stay in", { a: rawToNado(callAmt) })), () => doBet(BigInt(callAmt), window.t("poker.callLabel", "call {a} NADO", { a: rawToNado(callAmt) })), true);
       }
       const canRaise = tb.left > GRACE;
-      const rb = btn(canRaise ? "⬆ Bet / raise the amount above" : "⬆ Raising closed (last " + GRACE + " blocks are calls only)", () => {
+      const rb = btn(canRaise ? window.t("poker.raiseBtn", "⬆ Bet / raise the amount above") : window.t("poker.raiseClosed", "⬆ Raising closed (last {n} blocks are calls only)", { n: GRACE }), () => {
         const raw = nadoToRaw($("betAmt").value);
-        if (!raw) { $("status").textContent = "Enter an amount — your street total above " + rawToNado(priceNow) + " raises the price for everyone."; return; }
-        if (raw > BigInt(me.stack)) { alertBar("That's more than your stack (" + rawToNado(me.stack) + " NADO) — table stakes: you bet what you brought. Use ALL-IN for everything."); return; }
-        doBet(raw, "bet " + rawToNado(raw) + " NADO");
+        if (!raw) { $("status").textContent = window.t("poker.enterRaise", "Enter an amount — your street total above {price} raises the price for everyone.", { price: rawToNado(priceNow) }); return; }
+        if (raw > BigInt(me.stack)) { alertBar(window.t("poker.overStack", "That's more than your stack ({stack} NADO) — table stakes: you bet what you brought. Use ALL-IN for everything.", { stack: rawToNado(me.stack) })); return; }
+        doBet(raw, window.t("poker.betLabel", "bet {a} NADO", { a: rawToNado(raw) }));
       }, owe <= 0);
       rb.disabled = !canRaise;
-      if (canRaise || owe > 0) btn("🔥 ALL-IN — push your whole stack (" + rawToNado(me.stack) + ")", () => doBet(BigInt(me.stack), "ALL-IN " + rawToNado(me.stack) + " NADO"), false);
-      btn("🙅 Fold" + (owe > 0 ? " — give up " + rawToNado(me.total + Number(tb.ante || 0)) + " in the pot" : ""), () => setFold(true), false);
+      if (canRaise || owe > 0) btn(window.t("poker.allInBtn", "🔥 ALL-IN — push your whole stack ({stack})", { stack: rawToNado(me.stack) }), () => doBet(BigInt(me.stack), window.t("poker.allInLabel", "ALL-IN {a} NADO", { a: rawToNado(me.stack) })), false);
+      btn(window.t("poker.foldBtn", "🙅 Fold") + (owe > 0 ? window.t("poker.foldGiveUp", " — give up {a} in the pot", { a: rawToNado(me.total + Number(tb.ante || 0)) }) : ""), () => setFold(true), false);
     }
     if (tb.phase === "showdown" && me && !fk && localFold && !me.revealed) {
       const note = document.createElement("div"); note.className = "small"; note.style.cssText = "flex:1 1 100%;color:var(--dim);font-weight:700";
-      note.textContent = "✋ You folded — your cards stay mucked.";
+      note.textContent = window.t("poker.foldedMucked", "✋ You folded — your cards stay mucked.");
       wrap.appendChild(note);
-      btn("↩ Undo — show your cards after all (you're still eligible)", () => setFold(false), false);
+      btn(window.t("poker.undoShow", "↩ Undo — show your cards after all (you're still eligible)"), () => setFold(false), false);
     }
     if (tb.phase === "showdown" && me && !fk && !localFold) {
       const stillIn = lastSeats.filter((x) => !foldedAt(x, tb));
       const waitingOn = stillIn.filter((x) => !x.revealed);
-      if (!me.revealed && watch && watch.phase === "reveal") btn("⏳ Showing your hand — confirming on-chain…", () => {}, false).disabled = true;
-      else if (!me.revealed) btn("🃏 Show your cards — claim the pot", doReveal, true);
+      if (!me.revealed && watch && watch.phase === "reveal") btn(window.t("poker.showingHand", "⏳ Showing your hand — confirming on-chain…"), () => {}, false).disabled = true;
+      else if (!me.revealed) btn(window.t("poker.showCardsBtn", "🃏 Show your cards — claim the pot"), doReveal, true);
       else {
         const note = document.createElement("div"); note.className = "small"; note.style.cssText = "flex:1 1 100%;color:var(--accent2);font-weight:700";
-        note.textContent = "✓ Your hand is shown (" + stillIn.filter((x) => x.revealed).length + "/" + stillIn.length + ") — " +
-          (waitingOn.length ? "waiting on " + waitingOn.map((x) => x.addr === dapp.me ? "you" : disp(x.addr)).join(", ") : "everyone has shown — the pot can settle right now.");
+        note.textContent = window.t("poker.handShown", "✓ Your hand is shown ({shown}/{total}) — ", { shown: stillIn.filter((x) => x.revealed).length, total: stillIn.length }) +
+          (waitingOn.length ? window.t("poker.waitingOn", "waiting on {who}", { who: waitingOn.map((x) => x.addr === dapp.me ? window.t("poker.you", "you") : disp(x.addr)).join(", ") }) : window.t("poker.allShown", "everyone has shown — the pot can settle right now."));
         wrap.appendChild(note);
       }
     }
-    if (tb.phase === "over" && tb.leader) btn("🏆 Pay the pot to the best hand (" + rawToNado(tb.pot) + ")", settleTable, true);
+    if (tb.phase === "over" && tb.leader) btn(window.t("poker.payPotBtn", "🏆 Pay the pot to the best hand ({pot})", { pot: rawToNado(tb.pot) }), settleTable, true);
   }
   $("btnReclaim").classList.toggle("hidden", !(tb.exists && !tb.closed && tb.phase === "over" && !tb.leader && iAmHost));
   $("btnCancel").classList.toggle("hidden", !(tb.exists && !tb.closed && tb.seatCount === 1 && iAmHost));
   const stalledOpen = !tb.exists && T.ts && Date.now() - T.ts > 120000;
   if ($("btnReopen")) $("btnReopen").classList.toggle("hidden", !stalledOpen);
   const jh = $("joinHint");
-  const hint = dapp.me && activeTable != null && !tb.exists ? dapp.whereIs("table", activeTable, T.ts) : "";
+  const hint = dapp.me && activeTable != null && !tb.exists ? dapp.whereIs("table", activeTable, T.ts) : "";  // SDK-localized
   if (jh) { jh.textContent = hint; jh.classList.toggle("hidden", !hint); }
 }
 
@@ -593,19 +607,19 @@ dapp.onReturn((pend, ok, err) => {
   if (ok && pend && (pend.phase === "connect" || pend.phase === "deposit")) dapp.consumeInvite(replayInvite);
   if (ok && pend && ["open", "join", "bet", "reveal", "settle", "start", "leave", "closest"].includes(pend.phase)) watch = Object.assign({}, pend, { ts: Date.now() });
   dapp.showReturn(pend, ok, err, {
-    open: "Table opening — confirming…", join: "Taking your seat — confirming…", bet: "Bet placed — confirming…",
-    reveal: "Showing your cards — confirming…", settle: "Paying the winner…", reclaim: "Reclaiming…", cancel: "Cancelling…",
-    start: "Dealing — confirming…", leave: "Leaving the table — refunding…", closest: "Fast-forwarding the street…" });
+    open: window.t("poker.retOpen", "Table opening — confirming…"), join: window.t("poker.retJoin", "Taking your seat — confirming…"), bet: window.t("poker.retBet", "Bet placed — confirming…"),
+    reveal: window.t("poker.retReveal", "Showing your cards — confirming…"), settle: window.t("poker.retSettle", "Paying the winner…"), reclaim: window.t("poker.retReclaim", "Reclaiming…"), cancel: window.t("poker.retCancel", "Cancelling…"),
+    start: window.t("poker.retStart", "Dealing — confirming…"), leave: window.t("poker.retLeave", "Leaving the table — refunding…"), closest: window.t("poker.retClose", "Fast-forwarding the street…") });
 });
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
+  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("poker.cryptoFail", "Crypto bundle failed to load — reload."); return; }
   wireUI(); loadQR(); orderCards(["activeGame","lobby","play","opencard","walletcard","bankroll","scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (activeTable == null) activeTable = parseInt(q, 10); }
   if (q && !dapp.me) { const tb = await fetchTable(parseInt(q, 10));
-    inviteGate(dapp, { id: parseInt(q, 10), title: "You're invited to a hold'em table",
-      body: tb && tb.exists ? ("Sit down for an ante of <b>" + rawToNado(tb.ante) + " NADO</b> — real multiplayer Texas Hold'em.") : "Sign in to sit down at this table.",
-      joinLabel: "Sign in & sit down" }); }
+    inviteGate(dapp, { id: parseInt(q, 10), title: window.t("poker.inviteTitle", "You're invited to a hold'em table"),
+      body: tb && tb.exists ? window.t("poker.inviteBody", "Sit down for an ante of <b>{a} NADO</b> — real multiplayer Texas Hold'em.", { a: rawToNado(tb.ante) }) : window.t("poker.inviteBodyGeneric", "Sign in to sit down at this table."),
+      joinLabel: window.t("poker.inviteJoin", "Sign in & sit down") }); }
   else if (dapp.me) dapp.consumeInvite(replayInvite);   // signed in with a pending invite (e.g. reloaded mid-deposit) → auto-seat
   render(); refreshActive();
   setInterval(refreshActive, 3000);

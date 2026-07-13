@@ -21,8 +21,9 @@ const gamesSave = (g) => lsSave(LS_G, g);
 let active = null, lastGame = null;
 const stageCache = {};     // gid -> {settled, ncom, stake}
 
-const shortfallMsg = (need, have) => "Not enough NADO to join — this game stakes " + rawToNado(need) + ", but your exec balance is "
-  + rawToNado(have) + ". Deposit at least " + rawToNado(need - have) + " more NADO below, then join.";
+const shortfallMsg = (need, have) => window.t("coinflip.shortfall",
+  "Not enough NADO to join — this game stakes {need}, but your exec balance is {have}. Deposit at least {more} more NADO below, then join.",
+  { need: rawToNado(need), have: rawToNado(have), more: rawToNado(need - have) });
 
 // ---- reads: all DERIVED from the contract's storage maps ----------------------------------------
 const allGids = (sto) => Object.keys(_m(sto, "nn"));
@@ -66,11 +67,14 @@ function bet(gameId, stakeRaw, method) {   // method: "open" (slot 1) or "join" 
   const g = gamesLoad();
   g[gameId] = { role: method, ts: Date.now(), bet: (g[gameId] || {}).bet, stake: stakeRaw.toString() }; gamesSave(g);
   active = gameId; render();
-  dapp.call(method, [gameId], stakeRaw, (method === "open" ? "open" : "join") + " game #" + gameId + " · " + rawToNado(stakeRaw) + " NADO", { gameId, phase: "bet" });
+  const betDesc = method === "open"
+    ? window.t("coinflip.openDesc", "open game #{id} · {amt} NADO", { id: gameId, amt: rawToNado(stakeRaw) })
+    : window.t("coinflip.joinDesc", "join game #{id} · {amt} NADO", { id: gameId, amt: rawToNado(stakeRaw) });
+  dapp.call(method, [gameId], stakeRaw, betDesc, { gameId, phase: "bet" });
 }
 async function newGame() {
   const raw = nadoToRaw($("stakeAmt").value);
-  if (!raw) { $("status").textContent = "Enter a stake (NADO)."; return; }
+  if (!raw) { $("status").textContent = window.t("coinflip.enterStake", "Enter a stake (NADO)."); return; }
   if (!canPay(dapp, raw, "Opening this game")) return;
   bet(randId(), raw, "open");
 }
@@ -79,7 +83,7 @@ async function joinGame() {
   if (!gid) return;
   const g = await fetchGame(gid);
   if (!g || !g.exists) { $("status").textContent = dapp.whereIs("game", gid); return; }
-  if (g.settled || g.ncom >= 2) { $("status").textContent = "That game is full or already settled."; return; }
+  if (g.settled || g.ncom >= 2) { $("status").textContent = window.t("coinflip.fullOrSettled", "That game is full or already settled."); return; }
   await dapp.refresh();
   const need = BigInt(g.stake);
   if (!canPay(dapp, need, "Joining this game")) { render(); return; }
@@ -98,7 +102,7 @@ function reopenGame() {   // retry an open that never landed (same id is still f
   if (!canPay(dapp, raw, "Re-opening this game")) return;
   bet(active, raw, "open");
 }
-const settle = () => dapp.call("settle", [active], null, "settle game #" + active, { gameId: active, phase: "settle" });
+const settle = () => dapp.call("settle", [active], null, window.t("coinflip.settleDesc", "settle game #{id}", { id: active }), { gameId: active, phase: "settle" });
 // AUTO-COLLECT the WINNER's pot once the flip is decided (shared SDK tick — opt-out slider, autoTried dedup)
 function maybeAutoSettle() {
   if (active == null) return;
@@ -108,10 +112,10 @@ function maybeAutoSettle() {
   if (!mine || lg.winner_slot !== mine.slot) return;   // only auto-collect MY winnings
   dapp.autoCollect([{ g: active }], () => settle());
 }
-const cancelGame = () => dapp.call("cancel", [active], null, "cancel game #" + active, { gameId: active, phase: "cancel" });
+const cancelGame = () => dapp.call("cancel", [active], null, window.t("coinflip.cancelDesc", "cancel game #{id}", { id: active }), { gameId: active, phase: "cancel" });
 async function rematch() {
   const stake = (lastGame && lastGame.exists) ? BigInt(lastGame.stake) : ((gamesLoad()[active] || {}).stake ? BigInt(gamesLoad()[active].stake) : null);
-  if (!stake) { $("status").textContent = "Open a new game from the panel above."; return; }
+  if (!stake) { $("status").textContent = window.t("coinflip.openNewPanel", "Open a new game from the panel above."); return; }
   if (!canPay(dapp, stake, "The rematch")) return;
   const rgid = rematchId(active), rg = await fetchGame(rgid);
   bet(rgid, stake, (rg && rg.exists && rg.ncom >= 1 && !rg.settled) ? "join" : "open");
@@ -141,12 +145,13 @@ async function refreshActive() {
   render();
   maybeAutoSettle();
 }
-const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, "No finished games yet — be the first on the board.");
+const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, window.t("coinflip.noFinished", "No finished games yet — be the first on the board."));
 function renderLobby(games) {
   const el = $("lobbyList"); if (!el) return;
-  const rank = { open: 0, live: 1, done: 2 }, tag = { open: "⏳", live: "▶", done: "✓" }, verb = { open: " · join", live: " · watch", done: "" };
+  const rank = { open: 0, live: 1, done: 2 }, tag = { open: "⏳", live: "▶", done: "✓" },
+    verb = { open: window.t("coinflip.verbJoin", " · join"), live: window.t("coinflip.verbWatch", " · watch"), done: "" };
   const shown = (games || []).slice().sort((a, b) => rank[a.stage] - rank[b.stage]).slice(0, 24);
-  if (!shown.length) { el.innerHTML = '<span class="dim">No games yet — open one above.</span>'; return; }
+  if (!shown.length) { el.innerHTML = '<span class="dim">' + window.t("coinflip.noGamesOpenAbove", "No games yet — open one above.") + '</span>'; return; }
   el.innerHTML = shown.map((g) => '<button class="chip ' + g.stage + '" data-lg="' + g.game + '">' + tag[g.stage] + " #" + g.game + " · " + rawToNado(g.stake) + " NADO" + verb[g.stage] + "</button>").join(" ");
   el.querySelectorAll(".chip").forEach((b) => b.onclick = () => { active = parseInt(b.dataset.lg, 10); $("joinId").value = b.dataset.lg; refreshActive(); try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
 }
@@ -161,13 +166,16 @@ function wireUI() {
   $("joinId").oninput = () => render();
   $("btnSettle").onclick = settle;
   dapp.wireAutoCollect();
-  $("btnShare").onclick = () => share(base() + "/?game=" + active, "Flip me " + (lastGame && lastGame.exists ? "for " + rawToNado(lastGame.stake) + " NADO " : "") + "on NADO — join game #" + active + ":", $("btnShare"));
+  $("btnShare").onclick = () => {
+    const forPart = (lastGame && lastGame.exists) ? window.t("coinflip.shareFor", "for {amt} NADO ", { amt: rawToNado(lastGame.stake) }) : "";
+    share(base() + "/?game=" + active, window.t("coinflip.shareMsg", "Flip me {for}on NADO — join game #{id}:", { for: forPart, id: active }), $("btnShare"));
+  };
   $("btnRematch").onclick = rematch;
   $("btnJoinActive").onclick = joinActive;
   $("btnCancel").onclick = cancelGame;
   $("btnReopen").onclick = reopenGame;
 }
-const badge = (s) => s === "confirmed" ? '<span class="b ok">confirmed ✓</span>' : s === "pending" ? '<span class="b pend">pending…</span>' : '<span class="b dimb">—</span>';
+const badge = (s) => s === "confirmed" ? '<span class="b ok">' + window.t("coinflip.confirmed", "confirmed ✓") + '</span>' : s === "pending" ? '<span class="b pend">' + window.t("coinflip.pending", "pending…") + '</span>' : '<span class="b dimb">—</span>';
 function render() {
   dapp.reflectUrl("game", active);   // address bar = the shareable link to the selected game
   dapp.syncPctSlider("stake", { slider: "stakeSlider", input: "stakeAmt" }, dapp.exec);
@@ -182,7 +190,7 @@ function render() {
   const joiningById = dapp.busy("bet", "gameId", jid);
   const joinable = !!jid && !iAmIn && stageJoinable && canAfford && !joiningById;
   $("btnJoin").disabled = (!!jid && !joinable) || joiningById;
-  $("btnJoin").textContent = joiningById ? "⏳ Confirming…" : "Join";
+  $("btnJoin").textContent = joiningById ? window.t("coinflip.confirming", "⏳ Confirming…") : window.t("coinflip.join", "Join");
   $("btnJoin").classList.toggle("pulse", joinable && signedIn);
   $("btnSignIn").classList.toggle("pulse", joinable && !signedIn);
   const jh = $("joinHint");
@@ -194,37 +202,37 @@ function render() {
     ? ids.map((id) => {
         const st = stageCache[id]; let cls = "", tag = "", title = "";
         if (st) { if (st.settled) { cls = " done"; tag = "✓ "; } else if (st.ncom >= 2) { cls = " live"; tag = "▶ "; } else { cls = " open"; tag = "⏳ "; } }
-        else { cls = " pending"; tag = "⏳ "; title = ' title="still confirming on-chain — your game hasn\'t vanished"'; }
+        else { cls = " pending"; tag = "⏳ "; title = ' title="' + window.t("coinflip.pendingTitle", "still confirming on-chain — your game hasn't vanished") + '"'; }
         return '<button class="chip' + cls + '" data-g="' + id + '"' + title + ">" + tag + "#" + id + " · " + rawToNado(g[id].stake || "0") + "</button>";
       }).join(" ")
-    : '<span class="dim">No games yet.</span>';
-  $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { active = parseInt(b.dataset.g, 10); $("joinId").value = String(active); $("status").textContent = "Game #" + active + " selected."; refreshActive(); try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
+    : '<span class="dim">' + window.t("coinflip.noGamesYet", "No games yet.") + '</span>';
+  $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { active = parseInt(b.dataset.g, 10); $("joinId").value = String(active); $("status").textContent = window.t("coinflip.gameSelected", "Game #{id} selected.", { id: active }); refreshActive(); try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
   renderActive();
 }
 function renderActive() {
   if (active == null) return;
   const lg = lastGame || {}, local = gamesLoad()[active] || {}, mine = (lg.players || {})[dapp.me];
   $("gameId").textContent = "#" + active;
-  shareInvite("game", active, "Flip me on NADO — join coin flip #" + active + ":");
+  shareInvite("game", active, window.t("coinflip.inviteText", "Flip me on NADO — join coin flip #{id}:", { id: active }));
   $("pot").textContent = lg.exists ? rawToNado(lg.pot) + " NADO" : "—";
   $("stakeShown").textContent = lg.exists ? rawToNado(lg.stake) + " NADO" : (local.stake ? rawToNado(local.stake) + " NADO" : "—");
-  $("gStatus").textContent = lg.exists ? (lg.ncom + "/2 in" + (lg.settled ? " · settled" : lg.ncom === 2 ? " · ⚡ flipping" : " · waiting")) : dapp.whereIs("game", active, local.ts);
+  $("gStatus").textContent = lg.exists ? (window.t("coinflip.inCount", "{n}/2 in", { n: lg.ncom }) + (lg.settled ? window.t("coinflip.stSettled", " · settled") : lg.ncom === 2 ? window.t("coinflip.stFlipping", " · ⚡ flipping") : window.t("coinflip.stWaiting", " · waiting"))) : dapp.whereIs("game", active, local.ts);
   const pl = lg.players || {};
   const byslot = Object.keys(pl).sort((a, b) => pl[a].slot - pl[b].slot);
-  let playersHtml = byslot.map((a) => '<span class="chip">' + (a === dapp.me ? "you " : "") + disp(a) + " · slot " + pl[a].slot + "</span>").join(" ");
+  let playersHtml = byslot.map((a) => '<span class="chip">' + (a === dapp.me ? window.t("coinflip.you", "you ") : "") + disp(a) + window.t("coinflip.slotN", " · slot {n}", { n: pl[a].slot }) + "</span>").join(" ");
   const myJoinPending = !mine && local.bet === "pending" && lg.exists && lg.ncom < 2;
-  if (myJoinPending) playersHtml += ' <span class="chip" style="opacity:.75">you · confirming…</span>';
-  $("players").innerHTML = playersHtml || '<span class="dim">no players yet</span>';
+  if (myJoinPending) playersHtml += ' <span class="chip" style="opacity:.75">' + window.t("coinflip.youConfirming", "you · confirming…") + '</span>';
+  $("players").innerHTML = playersHtml || '<span class="dim">' + window.t("coinflip.noPlayers", "no players yet") + '</span>';
   const showMine = !!mine || (local.bet === "pending" && !lg.settled);
   $("myBet").classList.toggle("hidden", !showMine);
   $("myReveal").classList.add("hidden");   // no reveal step in the beacon model
   if (!mine && local.bet === "pending" && lg.exists && lg.ncom >= 2)
-    $("myBet").innerHTML = 'Your bet: <span class="b" style="background:rgba(248,81,73,.16);color:var(--danger)">didn\'t land — game filled first (your stake is safe)</span>';
-  else $("myBet").innerHTML = "Your bet: " + badge(mine ? "confirmed" : local.bet);
+    $("myBet").innerHTML = window.t("coinflip.yourBet", "Your bet:") + ' <span class="b" style="background:rgba(248,81,73,.16);color:var(--danger)">' + window.t("coinflip.betDidntLand", "didn't land — game filled first (your stake is safe)") + '</span>';
+  else $("myBet").innerHTML = window.t("coinflip.yourBet", "Your bet:") + " " + badge(mine ? "confirmed" : local.bet);
   // actions
   const resolved = lg.result === 0 || lg.result === 1;
   $("btnSettle").classList.toggle("hidden", !(lg.exists && !lg.settled && lg.ncom === 2 && lg.ready));
-  if (lg.ready) $("btnSettle").textContent = (mine && lg.winner_slot === mine.slot) ? "💰 Collect the pot" : "Pay out the winner";
+  if (lg.ready) $("btnSettle").textContent = (mine && lg.winner_slot === mine.slot) ? window.t("coinflip.collectPot", "💰 Collect the pot") : window.t("coinflip.payWinner", "Pay out the winner");
   $("btnCancel").classList.toggle("hidden", !(dapp.me && lg.exists && !lg.settled && lg.ncom === 1 && mine && mine.slot === 1));
   if (mine) dapp.clearInflight();                              // our seat is on-chain now — stop "confirming…"
   const joining = dapp.busy("bet", "gameId", active);          // just clicked join/open, not yet confirmed
@@ -233,7 +241,7 @@ function renderActive() {
   $("btnJoinActive").classList.toggle("hidden", !(canSeeJoinActive || joining));
   $("btnJoinActive").disabled = shortActive || joining;
   $("btnJoinActive").classList.toggle("pulse", canSeeJoinActive && !shortActive && !joining);
-  $("btnJoinActive").textContent = joining ? "⏳ Joining — confirming on-chain…" : "Join this game";
+  $("btnJoinActive").textContent = joining ? window.t("coinflip.joiningConfirm", "⏳ Joining — confirming on-chain…") : window.t("coinflip.joinThisGame", "Join this game");
   const jah = $("joinActiveHint"); if (jah) { jah.textContent = shortActive ? shortfallMsg(needActive, dapp.exec) : ""; jah.classList.toggle("hidden", !shortActive); }
   $("btnRematch").classList.toggle("hidden", !lg.settled);
   $("btnReopen").classList.toggle("hidden", !(local.role === "open" && local.stake && !lg.exists && local.ts && Date.now() - local.ts > 120000));
@@ -242,11 +250,16 @@ function renderActive() {
   if (resolved) {
     coin.className = "coin " + (lg.result === 0 ? "heads" : "tails"); coin.textContent = lg.result === 0 ? "H" : "T";
     const iWon = mine && lg.winner_slot === mine.slot;
-    $("result").textContent = (lg.result === 0 ? "HEADS" : "TAILS") + " — " + (mine ? (iWon ? "you WON " + rawToNado(BigInt(lg.stake) * 2n) + " NADO 🎉" : "you lost") : "slot " + lg.winner_slot + " won") + (lg.settled ? "" : " · collect below");
+    const face = lg.result === 0 ? window.t("coinflip.heads", "HEADS") : window.t("coinflip.tails", "TAILS");
+    const outcome = mine
+      ? (iWon ? window.t("coinflip.youWon", "you WON {amt} NADO 🎉", { amt: rawToNado(BigInt(lg.stake) * 2n) }) : window.t("coinflip.youLost", "you lost"))
+      : window.t("coinflip.slotWon", "slot {n} won", { n: lg.winner_slot });
+    const tail = lg.settled ? "" : window.t("coinflip.collectBelow", " · collect below");
+    $("result").textContent = face + " — " + outcome + tail;
   } else {
     coin.className = "coin spin"; coin.textContent = "?";
-    $("result").textContent = lg.ncom === 2 ? ("Both in — the chain flips in " + (lg.flipsIn != null ? blocksToTime(lg.flipsIn) : "…"))
-      : myJoinPending ? "Your join is confirming on-chain (~1 min)…" : "Waiting for a second player…";
+    $("result").textContent = lg.ncom === 2 ? window.t("coinflip.bothInFlips", "Both in — the chain flips in {t}", { t: lg.flipsIn != null ? blocksToTime(lg.flipsIn) : "…" })
+      : myJoinPending ? window.t("coinflip.joinConfirming", "Your join is confirming on-chain (~1 min)…") : window.t("coinflip.waitingSecond", "Waiting for a second player…");
   }
 }
 
@@ -254,10 +267,10 @@ function renderActive() {
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.gameId != null) active = pend.gameId;
   if (ok && pend && pend.phase === "bet") { const g = gamesLoad(); if (g[pend.gameId]) { g[pend.gameId].bet = "pending"; gamesSave(g); } }
-  dapp.showReturn(pend, ok, err, { bet: "Bet submitted — confirming…", settle: "Settling…" });
+  dapp.showReturn(pend, ok, err, { bet: window.t("coinflip.betSubmitted", "Bet submitted — confirming…"), settle: window.t("coinflip.settling", "Settling…") });
 });
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
+  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("coinflip.cryptoFail", "Crypto bundle failed to load — reload."); return; }
   wireUI(); loadQR(); orderCards(["activeGame","lobby","play","walletcard","bankroll","scoreboard"]);
   const q = new URLSearchParams(location.search).get("game");
   if (q) { $("joinId").value = q; if (active == null) active = parseInt(q, 10); }

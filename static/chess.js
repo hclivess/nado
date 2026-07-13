@@ -80,7 +80,7 @@ async function fetchGame(g) { const sto = await dapp.storage(); return sto ? gam
 // ---- actions -------------------------------------------------------------------------------------
 function newGame() {
   const raw = nadoToRaw($("stakeAmt").value);
-  if (!raw) { $("status").textContent = "Enter a stake (NADO)."; return; }
+  if (!raw) { $("status").textContent = window.t("chess.enterStake", "Enter a stake (NADO)."); return; }
   if (!canPay(dapp, raw, "Opening this game")) return;
   const g = randId(), G = load(); G[g] = { role: "white", stake: raw.toString(), ts: Date.now() }; save(G);
   activeGame = g; pendingEnc = null; render();
@@ -88,10 +88,10 @@ function newGame() {
 }
 async function joinGame() {
   const g = parseInt($("joinId").value, 10);
-  if (!g) { $("status").textContent = "Enter a game ID (or pick one from the lobby)."; return; }
+  if (!g) { $("status").textContent = window.t("chess.enterGameId", "Enter a game ID (or pick one from the lobby)."); return; }
   const gm = await fetchGame(g);
   if (!gm || !gm.exists) { $("status").textContent = dapp.whereIs("game", g); if (gm) dapp.clearInvite(); return; }
-  if (gm.nn >= 2 || gm.settled) { $("status").textContent = "That game is full or finished."; dapp.clearInvite(); return; }
+  if (gm.nn >= 2 || gm.settled) { $("status").textContent = window.t("chess.fullOrFinished", "That game is full or finished."); dapp.clearInvite(); return; }
   await dapp.refresh();
   const stake = BigInt(gm.stake);
   if (!canPay(dapp, stake, "Joining this game")) { render(); return; }   // keep the invite: it re-fires when the deposit lands
@@ -148,24 +148,24 @@ function renderLobby(sto) {
   games.sort((a, b) => (a.nn - b.nn) || (b.id - a.id));
   const shown = games.slice(0, 24);
   el.innerHTML = shown.length ? shown.map((g) => {
-    const stage = g.nn < 2 ? "open" : "live", verb = g.nn < 2 ? " · join" : " · watch";
+    const stage = g.nn < 2 ? "open" : "live", verb = g.nn < 2 ? window.t("chess.joinSuffix", " · join") : window.t("chess.watchSuffix", " · watch");
     return '<button class="chip ' + stage + '" data-g="' + g.id + '">' + (g.nn < 2 ? "♙" : "▶") + " #" + g.id + " · " + rawToNado(g.stake) + " NADO" + verb + "</button>";
-  }).join(" ") : '<span class="dim">No games yet — open one above.</span>';
+  }).join(" ") : '<span class="dim">' + window.t("chess.noGamesLobby", "No games yet — open one above.") + '</span>';
   el.querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeGame = parseInt(b.dataset.g, 10); pendingEnc = null; haveState = false; replayPly = null; $("joinId").value = b.dataset.g;
-    $("status").textContent = "Game #" + activeGame + " selected."; refreshActive(); try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
+    $("status").textContent = window.t("chess.gameSelected", "Game #{id} selected.", { id: activeGame }); refreshActive(); try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
 }
 
 // ---- board rendering + interaction ---------------------------------------------------------------
 function onSquareClick(sq) {
   const g = lastGame; if (!g || !g.exists) return;
-  if (!myTurn(g, engine)) { $("status").textContent = engine.isGameOver() ? "The game is over." : "Not your turn yet."; return; }
+  if (!myTurn(g, engine)) { $("status").textContent = engine.isGameOver() ? window.t("chess.gameOverMsg", "The game is over.") : window.t("chess.notYourTurn", "Not your turn yet."); return; }
   const piece = engine.get(sq);
   if (selected) {
     const legal = engine.moves({ square: selected }).filter((m) => m.to === sq);
     if (legal.length) {
       let m = legal[0];
       if (legal.length > 1 && legal[0].promotion) {  // promotion — ask which piece
-        const want = (prompt("Promote to (q, r, b, n)?", "q") || "q").toLowerCase();
+        const want = (prompt(window.t("chess.promotePrompt", "Promote to (q, r, b, n)?"), "q") || "q").toLowerCase();
         m = legal.find((x) => x.promotion === want) || legal.find((x) => x.promotion === "q") || legal[0];
       }
       submitMove(m); return;
@@ -223,7 +223,7 @@ function wireUI() {
   $("btnReopen").onclick = reopenGame;
   $("btnFlip").onclick = () => { flipBoard = !flipBoard; renderBoard(); };
   $("btnReplay").onclick = startReplay;
-  $("btnShare").onclick = () => share(base() + "/?game=" + activeGame, "Play me at chess for " + (lastGame && lastGame.exists ? rawToNado(lastGame.stake) + " NADO " : "") + "on NADO — game #" + activeGame + ":", $("btnShare"));
+  $("btnShare").onclick = () => share(base() + "/?game=" + activeGame, window.t("chess.shareText", "Play me at chess for {stake}on NADO — game #{id}:", { stake: lastGame && lastGame.exists ? rawToNado(lastGame.stake) + " NADO " : "", id: activeGame }), $("btnShare"));
 }
 function resultCode() {   // 1=white wins, 2=black wins, 3=draw ; null if not over
   if (!engine.isGameOver()) return null;
@@ -239,8 +239,8 @@ function render() {
   // my recent games
   const G = load(), ids = Object.keys(G).sort((a, b) => G[b].ts - G[a].ts).slice(0, 8);   // keep every game visible (landed OR confirming)
   $("recent").innerHTML = ids.length ? ids.map((g) => { const live = knownGames.has(String(g)); let tag = "";
-    if (live && lastSto) { const gm = gameFrom(lastSto, g); if (gm.exists) tag = gm.settled ? " · finished ✓" : gm.nn < 2 ? " · waiting for opponent" : " · live — your move?"; }
-    return '<button class="chip' + (live ? "" : " pending") + '" data-g="' + g + '"' + (live ? "" : ' title="still confirming on-chain — your game hasn\'t vanished"') + '>' + (G[g].role === "white" ? "♔" : "♚") + " #" + g + (live ? tag : " · confirming ⏳") + "</button>"; }).join(" ") : '<span class="dim">No games yet.</span>';
+    if (live && lastSto) { const gm = gameFrom(lastSto, g); if (gm.exists) tag = gm.settled ? window.t("chess.tagFinished", " · finished ✓") : gm.nn < 2 ? window.t("chess.tagWaiting", " · waiting for opponent") : window.t("chess.tagLive", " · live — your move?"); }
+    return '<button class="chip' + (live ? "" : " pending") + '" data-g="' + g + '"' + (live ? "" : ' title="' + window.t("chess.confirmingTitle", "still confirming on-chain — your game hasn't vanished") + '"') + '>' + (G[g].role === "white" ? "♔" : "♚") + " #" + g + (live ? tag : window.t("chess.confirmingTag", " · confirming ⏳")) + "</button>"; }).join(" ") : '<span class="dim">' + window.t("chess.noGames", "No games yet.") + '</span>';
   $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeGame = parseInt(b.dataset.g, 10); pendingEnc = null; haveState = false; replayPly = null; refreshActive(); });
   renderActive();
 }
@@ -260,17 +260,22 @@ function renderActive() {
   let st = dapp.whereIs("game", activeGame, local.ts);
   if (nudgeJoin && g.exists && g.nn === 1 && !mySide(g)) {
     nudgeJoin = false;
-    alertBar("Signed in — but you have NOT joined yet. Tap \u201c\u265f Join this game\u201d to take the seat and stake " + rawToNado(g.stake) + " NADO.");
+    alertBar(window.t("chess.notJoined", "Signed in — but you have NOT joined yet. Tap \u201c\u265f Join this game\u201d to take the seat and stake {amt} NADO.", { amt: rawToNado(g.stake) }));
   }
   const over = g.exists && g.nn === 2 && engine.isGameOver();
   const rc = resultCode();
   if (g.exists && g.settled) {
-    st = g.wr === 3 ? "✓ Draw — stakes refunded" : g.wr ? ("✓ " + (g.wr === 1 ? "White" : "Black") + " wins" + (((g.wr===1&&side==="w")||(g.wr===2&&side==="b")) ? " — you won! 🏆" : side ? " — you lost" : "")) : "✓ settled";
+    const sideName = g.wr === 1 ? window.t("chess.white", "White") : window.t("chess.black", "Black");
+    st = g.wr === 3 ? window.t("chess.drawRefunded", "✓ Draw — stakes refunded")
+      : g.wr ? (((g.wr===1&&side==="w")||(g.wr===2&&side==="b")) ? window.t("chess.winYou", "✓ {side} wins — you won! 🏆", { side: sideName })
+          : side ? window.t("chess.winLost", "✓ {side} wins — you lost", { side: sideName })
+          : window.t("chess.winNeutral", "✓ {side} wins", { side: sideName }))
+      : window.t("chess.settled", "✓ settled");
   }
-  else if (g.exists && engine._corrupt) st = "⚠ an illegal move reached the chain — this game will refund after the timeout.";
-  else if (g.exists && g.nn < 2) st = mySide(g) ? "waiting for an opponent — share the link below" : "open seat — join to play for " + rawToNado(g.stake) + " NADO";
-  else if (over) st = engine.isCheckmate() ? ("Checkmate — " + (rc === 1 ? "White" : "Black") + " wins") : engine.isStalemate() ? "Stalemate — draw" : "Draw";
-  else if (g.exists) st = (engine.turn() === "w" ? "White" : "Black") + " to move" + (engine.inCheck() ? " · CHECK" : "") + (myTurn(g, engine) ? " — your move" : (pendingEnc != null ? " · your move is confirming…" : " — waiting for opponent…"));
+  else if (g.exists && engine._corrupt) st = window.t("chess.illegal", "⚠ an illegal move reached the chain — this game will refund after the timeout.");
+  else if (g.exists && g.nn < 2) st = mySide(g) ? window.t("chess.waitingShare", "waiting for an opponent — share the link below") : window.t("chess.openSeat", "open seat — join to play for {amt} NADO", { amt: rawToNado(g.stake) });
+  else if (over) st = engine.isCheckmate() ? window.t("chess.checkmateMsg", "Checkmate — {side} wins", { side: rc === 1 ? window.t("chess.white", "White") : window.t("chess.black", "Black") }) : engine.isStalemate() ? window.t("chess.stalemateMsg", "Stalemate — draw") : window.t("chess.drawMsg", "Draw");
+  else if (g.exists) st = window.t("chess.toMove", "{side} to move", { side: engine.turn() === "w" ? window.t("chess.white", "White") : window.t("chess.black", "Black") }) + (engine.inCheck() ? window.t("chess.checkSuffix", " · CHECK") : "") + (myTurn(g, engine) ? window.t("chess.yourMove", " — your move") : (pendingEnc != null ? window.t("chess.moveConfirming", " · your move is confirming…") : window.t("chess.waitingOpp", " — waiting for opponent…")));
   $("gStatus").textContent = st;
   $("btnReopen").classList.toggle("hidden", !(local.role === "white" && local.stake && !g.exists && local.ts && Date.now() - local.ts > 120000));
   // buttons
@@ -285,19 +290,19 @@ function renderActive() {
   const oppA = side === "w" ? g.a2 : (side === "b" ? g.a1 : 0);
   $("btnDraw").classList.toggle("hidden", !drawShown);
   if (drawShown) {
-    if (oppA === 3) { $("btnDraw").textContent = "🤝 Accept draw — refund both stakes"; $("btnDraw").classList.add("pulse"); }
-    else if (myA === 3) { $("btnDraw").textContent = "½ Draw offered — waiting for opponent…"; $("btnDraw").classList.remove("pulse"); }
-    else { $("btnDraw").textContent = "½ Offer draw"; $("btnDraw").classList.remove("pulse"); }
-    if (oppA === 3 && myA !== 3) { if (lastDrawOffer !== activeGame) { lastDrawOffer = activeGame; alertBar("Your opponent offers a DRAW — tap “🤝 Accept draw” to split the stakes back, or just keep playing to decline."); } }
+    if (oppA === 3) { $("btnDraw").textContent = window.t("chess.acceptDraw", "🤝 Accept draw — refund both stakes"); $("btnDraw").classList.add("pulse"); }
+    else if (myA === 3) { $("btnDraw").textContent = window.t("chess.drawOfferedWait", "½ Draw offered — waiting for opponent…"); $("btnDraw").classList.remove("pulse"); }
+    else { $("btnDraw").textContent = window.t("chess.offerDrawPulse", "½ Offer draw"); $("btnDraw").classList.remove("pulse"); }
+    if (oppA === 3 && myA !== 3) { if (lastDrawOffer !== activeGame) { lastDrawOffer = activeGame; alertBar(window.t("chess.oppOffersDraw", "Your opponent offers a DRAW — tap “🤝 Accept draw” to split the stakes back, or just keep playing to decline.")); } }
     else if (lastDrawOffer === activeGame) lastDrawOffer = null;
   } else if (lastDrawOffer === activeGame) lastDrawOffer = null;
   // settle: on a decisive result the LOSER resigns (pays the winner); on a draw both agree
   $("btnSettle").classList.toggle("hidden", !(live && iAmIn && over && rc === 3));
-  $("btnSettle").textContent = "Agree draw (refund both)";
+  $("btnSettle").textContent = window.t("chess.agreeDrawRefund", "Agree draw (refund both)");
   if (live && iAmIn && over && rc !== 3) {   // decisive: loser concedes via resign to pay the winner
     $("btnResign").classList.remove("hidden");
-    $("btnResign").textContent = iAmLoser ? "Concede — pay out the winner" : "Resign";
-  } else $("btnResign").textContent = "Resign";
+    $("btnResign").textContent = iAmLoser ? window.t("chess.concede", "Concede — pay out the winner") : window.t("chess.resign", "Resign");
+  } else $("btnResign").textContent = window.t("chess.resign", "Resign");
   // abort (refund) once the opponent has blown the move clock
   const pastDeadline = live && dapp.cursor != null && dapp.cursor > g.deadline;
   $("btnAbort").classList.toggle("hidden", !(iAmIn && pastDeadline));
@@ -306,11 +311,12 @@ function renderActive() {
   $("btnReplay").classList.toggle("hidden", !(g.exists && (g.settled || (g.nn === 2 && engine.isGameOver())) && (g.moves || []).length > 0));
   // share-link visitors get the join CTA ON the board card — no hunting for the join panel below
   $("btnJoinGame").classList.toggle("hidden", !(g.exists && g.nn === 1 && !iAmIn && !g.settled));
-  if (g.exists && g.nn === 1 && !iAmIn) $("btnJoinGame").textContent = (dapp.me ? "♟ Join this game — stake " : "♟ Sign in to join — stake ") + rawToNado(g.stake) + " NADO";
+  if (g.exists && g.nn === 1 && !iAmIn) $("btnJoinGame").textContent = dapp.me ? window.t("chess.joinStake", "♟ Join this game — stake {amt} NADO", { amt: rawToNado(g.stake) }) : window.t("chess.signJoinStake", "♟ Sign in to join — stake {amt} NADO", { amt: rawToNado(g.stake) });
   // agreement progress hint
-  const agreed = (g.a1 || g.a2) ? " · agreements: " + (g.a1 ? "White=" + ["","W","B","draw"][g.a1] : "") + " " + (g.a2 ? "Black=" + ["","W","B","draw"][g.a2] : "") : "";
+  const drawShort = ["", "W", "B", window.t("chess.drawShort", "draw")];
+  const agreed = (g.a1 || g.a2) ? window.t("chess.agreementsLabel", " · agreements:") + (g.a1 ? " " + window.t("chess.white", "White") + "=" + drawShort[g.a1] : "") + (g.a2 ? " " + window.t("chess.black", "Black") + "=" + drawShort[g.a2] : "") : "";
   $("settleHint").textContent = over && !g.settled
-    ? (rc === 3 ? "It's a draw — both players agree to refund." : (iAmWinner ? "You won! Waiting for your opponent to concede (or claim a refund after the timeout)." : iAmLoser ? "You're beaten — concede to pay out the winner." : "")) + agreed
+    ? (rc === 3 ? window.t("chess.itsDraw", "It's a draw — both players agree to refund.") : (iAmWinner ? window.t("chess.youWonWaiting", "You won! Waiting for your opponent to concede (or claim a refund after the timeout).") : iAmLoser ? window.t("chess.beaten", "You're beaten — concede to pay out the winner.") : "")) + agreed
     : "";
 }
 
@@ -329,12 +335,12 @@ function startReplay() {
   engine = new Chess(); renderBoard(); setTimeout(step, 400);
 }
 const replayInvite = (id) => { activeGame = parseInt(id, 10); const j = $("joinId"); if (j) j.value = String(activeGame); joinGame(); };
-const CH_CONFIRMING = { connect: "Signed in.", deposit: "Deposit submitted — confirming…", open: "Game opening — confirming…",
-  join: "Joining — confirming…", move: "Move submitted — confirming…", resign: "Resigning — confirming…",
-  agree: "Submitting…", abort: "Claiming refund…", cancel: "Cancelling…", withdraw: "Withdrawal submitted." };
-const CH_DONE = { open: "✓ Game is on-chain — share the invite below.", join: "✓ You're in — the game is live.",
-  move: "✓ Move landed.", resign: "✓ Resigned — result recorded.", agree: "✓ Result recorded.",
-  abort: "✓ Refunded.", cancel: "✓ Cancelled — stake refunded." };
+const CH_CONFIRMING = { connect: window.t("chess.cfConnect", "Signed in."), deposit: window.t("chess.cfDeposit", "Deposit submitted — confirming…"), open: window.t("chess.cfOpen", "Game opening — confirming…"),
+  join: window.t("chess.cfJoin", "Joining — confirming…"), move: window.t("chess.cfMove", "Move submitted — confirming…"), resign: window.t("chess.cfResign", "Resigning — confirming…"),
+  agree: window.t("chess.cfAgree", "Submitting…"), abort: window.t("chess.cfAbort", "Claiming refund…"), cancel: window.t("chess.cfCancel", "Cancelling…"), withdraw: window.t("chess.cfWithdraw", "Withdrawal submitted.") };
+const CH_DONE = { open: window.t("chess.doneOpen", "✓ Game is on-chain — share the invite below."), join: window.t("chess.doneJoin", "✓ You're in — the game is live."),
+  move: window.t("chess.doneMove", "✓ Move landed."), resign: window.t("chess.doneResign", "✓ Resigned — result recorded."), agree: window.t("chess.doneAgree", "✓ Result recorded."),
+  abort: window.t("chess.doneAbort", "✓ Refunded."), cancel: window.t("chess.doneCancel", "✓ Cancelled — stake refunded.") };
 dapp.doneLabels(CH_DONE);
 dapp.onReturn((pend, ok, err) => {
   nudgeJoin = !!(ok && pend && pend.phase === "connect");
@@ -344,14 +350,14 @@ dapp.onReturn((pend, ok, err) => {
   dapp.showReturn(pend, ok, err, CH_CONFIRMING);   // SDK owns the #status line + confirmation lifecycle
 });
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
+  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("chess.cryptoFail", "Crypto bundle failed to load — reload."); return; }
   wireUI(); orderCards(["activeGame","lobby","play","walletcard","bankroll"]);
   const q = new URLSearchParams(location.search).get("game");
   if (q) { $("joinId").value = q; if (activeGame == null) { activeGame = parseInt(q, 10); haveState = false; } }
   if (q && !dapp.me) { const sto = await dapp.storage(); const gm = sto ? gameFrom(sto, parseInt(q,10)) : null;
-    inviteGate(dapp, { id: parseInt(q,10), title: "You're invited to a chess game",
-      body: gm && gm.exists ? ("Play " + disp(gm.white) + " for <b>" + rawToNado(gm.stake) + " NADO</b> — winner takes the pot.") : "Sign in to join this game.",
-      joinLabel: "Sign in & join" }); }
+    inviteGate(dapp, { id: parseInt(q,10), title: window.t("chess.inviteTitle", "You're invited to a chess game"),
+      body: gm && gm.exists ? window.t("chess.inviteBody", "Play {who} for <b>{amt} NADO</b> — winner takes the pot.", { who: disp(gm.white), amt: rawToNado(gm.stake) }) : window.t("chess.inviteBodySignin", "Sign in to join this game."),
+      joinLabel: window.t("chess.inviteJoin", "Sign in & join") }); }
   else if (dapp.me) dapp.consumeInvite(replayInvite);   // signed in with a pending invite (e.g. reloaded mid-deposit) → auto-join
   render(); refreshActive();
   setInterval(refreshActive, 3000);

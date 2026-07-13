@@ -102,28 +102,28 @@ function openTable(t, g, anteRaw) {
   T[t] = { ante: anteRaw.toString(), ts: Date.now() }; save(LS_T, T);
   S[g] = { table: t, ts: Date.now() }; save(LS_S, S);
   activeTable = t; render();
-  dapp.call("open", [t, g], anteRaw, "open a Farkle table #" + t + " · ante " + rawToNado(anteRaw) + " NADO", { table: t, seat: g, phase: "open" });
+  dapp.call("open", [t, g], anteRaw, window.t("farkle.callOpen", "open a Farkle table #{t} · ante {a} NADO", { t, a: rawToNado(anteRaw) }), { table: t, seat: g, phase: "open" });
 }
 async function newTable() {
   const raw = nadoToRaw($("anteAmt").value);
-  if (!raw) { $("status").textContent = "Enter an ante (NADO) — everyone antes into the pot."; return; }
+  if (!raw) { $("status").textContent = window.t("farkle.enterAnte", "Enter an ante (NADO) — everyone antes into the pot."); return; }
   await dapp.refresh();
   if (!canPay(dapp, raw, "Opening this table")) return;
   openTable(randId(), randId(), raw);
 }
 async function joinTable() {
   const t = activeTable;
-  if (!t) { $("status").textContent = "Pick a table first."; return; }
+  if (!t) { $("status").textContent = window.t("farkle.pickFirst", "Pick a table first."); return; }
   const tb = await fetchTable(t);
   if (!tb || !tb.exists) { $("status").textContent = dapp.whereIs("table", t); return; }
-  if (tb.phase !== "join") { $("status").textContent = "The join window for that table has closed."; return; }
-  if (lastSeats.some((s) => s.addr === dapp.me)) { $("status").textContent = "You're already seated at this table."; return; }
+  if (tb.phase !== "join") { $("status").textContent = window.t("farkle.joinClosed", "The join window for that table has closed."); return; }
+  if (lastSeats.some((s) => s.addr === dapp.me)) { $("status").textContent = window.t("farkle.alreadySeated", "You're already seated at this table."); return; }
   await dapp.refresh();
   const ante = BigInt(tb.ante);
   if (!canPay(dapp, ante, "Joining this table")) { render(); return; }
   const g = randId(), S = load(LS_S); S[g] = { table: t, ts: Date.now() }; save(LS_S, S);
   activeTable = t; render();
-  dapp.call("join", [t, g], ante, "join Farkle table #" + t + " · ante " + rawToNado(ante) + " NADO", { table: t, seat: g, phase: "join" });
+  dapp.call("join", [t, g], ante, window.t("farkle.callJoin", "join Farkle table #{t} · ante {a} NADO", { t, a: rawToNado(ante) }), { table: t, seat: g, phase: "join" });
 }
 function reopenTable() {   // retry an open/join that didn't confirm (same ante, fresh attempt)
   const T = load(LS_T)[activeTable];
@@ -134,27 +134,27 @@ function reopenTable() {   // retry an open/join that didn't confirm (same ante,
 async function rematch() {
   const tb = lastTable || {}, T = load(LS_T)[activeTable] || {};
   const ante = tb.exists ? BigInt(tb.ante) : (T.ante ? BigInt(T.ante) : null);
-  if (!ante) { $("status").textContent = "Open a new table from the panel above."; return; }
+  if (!ante) { $("status").textContent = window.t("farkle.openFromPanel", "Open a new table from the panel above."); return; }
   await dapp.refresh();
   if (!canPay(dapp, ante, "The rematch")) return;
   const rtid = rematchId(activeTable), rt = await fetchTable(rtid);
   if (rt && rt.exists && rt.phase === "join") {   // someone already opened the rematch -> take a seat instead of colliding
     activeTable = rtid; $("joinId").value = String(rtid); render();
     const g = randId(), S = load(LS_S); S[g] = { table: rtid, ts: Date.now() }; save(LS_S, S);
-    dapp.call("join", [rtid, g], ante, "join Farkle table #" + rtid + " · ante " + rawToNado(ante) + " NADO", { table: rtid, seat: g, phase: "join" });
+    dapp.call("join", [rtid, g], ante, window.t("farkle.callJoin", "join Farkle table #{t} · ante {a} NADO", { t: rtid, a: rawToNado(ante) }), { table: rtid, seat: g, phase: "join" });
     return;
   }
   openTable(rtid, randId(), ante);
 }
-const doRoll = (g) => { keep = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }; dapp.call("roll", [g], null, "roll the dice · Farkle #" + activeTable, { table: activeTable, seat: g, phase: "roll" }); };
+const doRoll = (g) => { keep = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }; dapp.call("roll", [g], null, window.t("farkle.callRoll", "roll the dice · Farkle #{t}", { t: activeTable }), { table: activeTable, seat: g, phase: "roll" }); };
 function doHold(g, cont) {
   dapp.call("hold", [g, keep[1], keep[2], keep[3], keep[4], keep[5], keep[6], cont], null,
-    (cont ? "set aside + roll again" : "bank the turn") + " · Farkle #" + activeTable, { table: activeTable, seat: g, phase: "hold" });
+    window.t(cont ? "farkle.callHoldRoll" : "farkle.callHoldBank", cont ? "set aside + roll again" : "bank the turn") + " · Farkle #" + activeTable, { table: activeTable, seat: g, phase: "hold" });
 }
-const settleTable = () => dapp.call("settle", [activeTable], null, "pay the winner · table #" + activeTable, { table: activeTable, phase: "settle" });
-const reclaimTable = () => dapp.call("reclaim", [activeTable], null, "reclaim the pot · table #" + activeTable, { table: activeTable, phase: "reclaim" });
-const cancelTable = () => dapp.call("cancel", [activeTable], null, "cancel table #" + activeTable, { table: activeTable, phase: "cancel" });
-const timeoutSeat = (g) => dapp.call("timeout", [g], null, "time out seat #" + g, { table: activeTable, phase: "timeout" });
+const settleTable = () => dapp.call("settle", [activeTable], null, window.t("farkle.callSettle", "pay the winner · table #{t}", { t: activeTable }), { table: activeTable, phase: "settle" });
+const reclaimTable = () => dapp.call("reclaim", [activeTable], null, window.t("farkle.callReclaim", "reclaim the pot · table #{t}", { t: activeTable }), { table: activeTable, phase: "reclaim" });
+const cancelTable = () => dapp.call("cancel", [activeTable], null, window.t("farkle.callCancel", "cancel table #{t}", { t: activeTable }), { table: activeTable, phase: "cancel" });
+const timeoutSeat = (g) => dapp.call("timeout", [g], null, window.t("farkle.callTimeout", "time out seat #{g}", { g }), { table: activeTable, phase: "timeout" });
 
 async function refreshActive() {
   await dapp.refresh();
@@ -185,22 +185,23 @@ function boardFrom(sto) {
   }
   return scoreSort(stats);
 }
-const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, "No finished tables yet — be the first on the board.");
+const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, window.t("farkle.noTablesBoard", "No finished tables yet — be the first on the board."));
 function renderLobby(sto) {
   const el = $("lobbyList"); if (!el) return;
   const tables = Object.keys(_m(sto, "ta")).map((t) => tableFrom(sto, t)).filter((t) => t.exists && !t.closed);
   tables.sort((a, b) => (b.phase === "join") - (a.phase === "join") || b.id - a.id);
   el.innerHTML = tables.length ? tables.slice(0, 24).map((t) => {
     const tag = t.phase === "join" ? "🟢" : t.phase === "play" ? "🎲" : "🏁";
-    const info = t.phase === "join" ? " · joins close " + blocksToTime(t.left) : t.phase === "play" ? " · in play" : "";
+    const info = t.phase === "join" ? window.t("farkle.joinsClose", " · joins close {time}", { time: blocksToTime(t.left) }) : t.phase === "play" ? window.t("farkle.inPlay", " · in play") : "";
     return '<button class="chip ' + (t.phase === "join" ? "betting" : "") + '" data-t="' + t.id + '">' + tag + " #" + t.id
-      + " · pot " + rawToNado(t.pot) + " · " + t.seatCount + " player" + (t.seatCount === 1 ? "" : "s") + info + "</button>";
-  }).join(" ") : '<span class="dim">No tables yet — open one below.</span>';
+      + " · " + window.t("farkle.potLabel", "pot {p}", { p: rawToNado(t.pot) }) + " · "
+      + window.t(t.seatCount === 1 ? "farkle.player1" : "farkle.playerN", t.seatCount === 1 ? "{n} player" : "{n} players", { n: t.seatCount }) + info + "</button>";
+  }).join(" ") : '<span class="dim">' + window.t("farkle.noTablesLobby", "No tables yet — open one below.") + '</span>';
   el.querySelectorAll(".chip").forEach((b) => b.onclick = () => selectTable(parseInt(b.dataset.t, 10)));
 }
 function selectTable(id) {
   activeTable = id; $("joinId").value = String(id);
-  $("status").textContent = "Table #" + id + " selected.";
+  $("status").textContent = window.t("farkle.tableSelected", "Table #{id} selected.", { id });
   refreshActive();
   try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
 }
@@ -234,7 +235,7 @@ function wireUI() {
   $("btnJoin").onclick = joinTable;
   if ($("btnReopen")) $("btnReopen").onclick = reopenTable;
   if ($("btnRematch")) $("btnRematch").onclick = rematch;
-  $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = "Enter a table ID, or pick one from the lobby."; };
+  $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = window.t("farkle.enterTableId", "Enter a table ID, or pick one from the lobby."); };
   $("btnSettle").onclick = settleTable;
   $("btnReclaim").onclick = reclaimTable;
   $("btnCancel").onclick = cancelTable;
@@ -255,22 +256,25 @@ function renderActive() {
   if (activeTable == null) return;
   const tb = lastTable || {}, T = load(LS_T)[activeTable] || {}, me = mySeat(), iAmHost = tb.host === dapp.me;
   $("gameId").textContent = "#" + activeTable;
-  shareInvite("table", activeTable, "Join my Farkle table #" + activeTable + " on NADO:", 180);
+  shareInvite("table", activeTable, window.t("farkle.shareMsg", "Join my Farkle table #{t} on NADO:", { t: activeTable }), 180);
   $("gPot").textContent = tb.exists ? rawToNado(tb.pot) + " NADO" : "—";
   $("gAnte").textContent = tb.exists ? rawToNado(tb.ante) + " NADO" : "—";
 
   let phaseTxt = dapp.whereIs("table", activeTable, T.ts);
   if (tb.exists) {
-    if (tb.closed) phaseTxt = "table settled ✓";
-    else if (tb.phase === "join") phaseTxt = "🟢 joining open — closes in " + blocksToTime(tb.left) + " · " + tb.seatCount + " player" + (tb.seatCount === 1 ? "" : "s");
-    else if (tb.phase === "play") phaseTxt = (tb.finalRound ? "🏁 FINAL ROUND — last turns! " : "🎲 in play — ") + "race to " + TARGET
-      + (tb.best ? " · leader " + tb.best : "") + " · " + tb.finishedCount + "/" + tb.seatCount + " out";
-    else phaseTxt = "🏁 play window closed — settle below";
+    if (tb.closed) phaseTxt = window.t("farkle.tableSettled", "table settled ✓");
+    else if (tb.phase === "join") phaseTxt = window.t(tb.seatCount === 1 ? "farkle.joiningOpen1" : "farkle.joiningOpenN",
+      tb.seatCount === 1 ? "🟢 joining open — closes in {time} · {n} player" : "🟢 joining open — closes in {time} · {n} players", { time: blocksToTime(tb.left), n: tb.seatCount });
+    else if (tb.phase === "play") phaseTxt = (tb.finalRound ? window.t("farkle.finalRoundPre", "🏁 FINAL ROUND — last turns! ") : window.t("farkle.inPlayPre", "🎲 in play — "))
+      + window.t("farkle.raceTo", "race to {target}", { target: TARGET })
+      + (tb.best ? window.t("farkle.leaderPart", " · leader {best}", { best: tb.best }) : "")
+      + window.t("farkle.outPart", " · {done}/{total} out", { done: tb.finishedCount, total: tb.seatCount });
+    else phaseTxt = window.t("farkle.windowClosed", "🏁 play window closed — settle below");
   }
   $("gStatus").textContent = phaseTxt;
   // the ONE join affordance: only shown when you can actually take a seat (open window, not already in)
   const joinable = tb.exists && tb.phase === "join" && dapp.me && !me;
-  if ($("btnJoin")) { $("btnJoin").classList.toggle("hidden", !joinable); $("btnJoin").textContent = "🪑 Sit down — ante " + (tb.exists ? rawToNado(tb.ante) : "?") + " NADO"; }
+  if ($("btnJoin")) { $("btnJoin").classList.toggle("hidden", !joinable); $("btnJoin").textContent = window.t("farkle.sitDown", "🪑 Sit down — ante {a} NADO", { a: tb.exists ? rawToNado(tb.ante) : "?" }); }
   // reopen: your open/join didn't confirm within ~2 min
   const stalled = !tb.exists && T.ts && Date.now() - T.ts > 120000;
   if ($("btnReopen")) $("btnReopen").classList.toggle("hidden", !stalled);
@@ -279,22 +283,22 @@ function renderActive() {
   const btn = (txt, fn, primary) => { const b = document.createElement("button"); b.className = primary ? "primary" : "ghost"; b.style.flex = "1 1 auto"; b.innerHTML = txt; b.onclick = fn; acts.appendChild(b); return b; };
   if (me && tb.exists && !tb.closed && tb.phase === "play") {
     // grand-total header + target progress, shown above every in-turn state
-    const grandHdr = '<div class="turnhdr">Your grand total <b class="sc">' + me.grand + '</b> / ' + TARGET
-      + (tb.best ? ' · leader <b>' + tb.best + '</b>' : '') + '</div>'
-      + (tb.finalRound ? '<div class="farkle mt">🏁 FINAL ROUND — this is your LAST turn. Bank it or bust, then you\'re locked.</div>'
-                       : '<div class="dim small mt">First to ' + TARGET + ' triggers the final round; highest grand total takes the pot.</div>');
+    const grandHdr = '<div class="turnhdr">' + window.t("farkle.grandTotal", "Your grand total") + ' <b class="sc">' + me.grand + '</b> / ' + TARGET
+      + (tb.best ? ' · ' + window.t("farkle.leaderLabel", "leader") + ' <b>' + tb.best + '</b>' : '') + '</div>'
+      + (tb.finalRound ? '<div class="farkle mt">' + window.t("farkle.finalRoundTurn", "🏁 FINAL ROUND — this is your LAST turn. Bank it or bust, then you're locked.") + '</div>'
+                       : '<div class="dim small mt">' + window.t("farkle.firstToTriggers", "First to {target} triggers the final round; highest grand total takes the pot.", { target: TARGET }) + '</div>');
     if (me.finished) {
-      feat.innerHTML = '<div class="turnhdr">Your run is done — <b class="sc">' + me.final + ' banked</b>'
-        + (tb.leader === me.g ? ' 👑 you lead!' : '') + '. Waiting for the others…</div>';
+      feat.innerHTML = '<div class="turnhdr">' + window.t("farkle.runDone", "Your run is done —") + ' <b class="sc">' + window.t("farkle.bankedAmt", "{n} banked", { n: me.final }) + '</b>'
+        + (tb.leader === me.g ? ' ' + window.t("farkle.youLead", "👑 you lead!") : '') + '. ' + window.t("farkle.waitingOthers", "Waiting for the others…") + '</div>';
     } else {
       const r = myRoll(me);
       if (!me.rollHeight) {
         feat.innerHTML = grandHdr
-          + '<div class="turnhdr mt">This turn: <b class="sc">' + me.turnScore + '</b> · <b>' + me.diceLeft + '</b> dice in hand</div>'
-          + '<div class="dim small mt">Roll, set aside the scoring dice, then bank into your grand total or push on.</div>';
-        btn("🎲 Roll " + me.diceLeft + " dice", () => doRoll(me.g), true);
+          + '<div class="turnhdr mt">' + window.t("farkle.thisTurnLabel", "This turn:") + ' <b class="sc">' + me.turnScore + '</b> · <b>' + me.diceLeft + '</b> ' + window.t("farkle.diceInHand", "dice in hand") + '</div>'
+          + '<div class="dim small mt">' + window.t("farkle.rollHelp", "Roll, set aside the scoring dice, then bank into your grand total or push on.") + '</div>';
+        btn(window.t("farkle.rollDiceBtn", "🎲 Roll {n} dice", { n: me.diceLeft }), () => doRoll(me.g), true);
       } else if (r && r.pending) {
-        feat.innerHTML = grandHdr + '<div class="turnhdr mt">🎲 Rolling… the dice lock when the block finalizes' + (r.spinsIn ? " (~" + blocksToTime(r.spinsIn) + ")" : "") + ".</div>";
+        feat.innerHTML = grandHdr + '<div class="turnhdr mt">' + window.t("farkle.rollingLock", "🎲 Rolling… the dice lock when the block finalizes") + (r.spinsIn ? " (~" + blocksToTime(r.spinsIn) + ")" : "") + ".</div>";
       } else if (r && r.dice) {
         const dice = r.dice, rolled = countsOf(dice), farkle = greedyScore(dice) === 0;
         const ks = keepScoreValid(keep, rolled, me.diceLeft);
@@ -302,25 +306,25 @@ function renderActive() {
         const diceHtml = dice.map((d) => { const setAside = keptLeft[d] > 0; if (setAside) keptLeft[d]--;
           return '<span class="die ' + (setAside ? "kept" : "") + '" data-f="' + d + '">' + dieSVG(d) + "</span>"; }).join("");
         const bankTo = me.grand + me.turnScore + ks.score, crosses = !tb.finalRound && bankTo >= TARGET;
-        feat.innerHTML = grandHdr + '<div class="turnhdr mt">This turn so far <b class="sc">' + me.turnScore + '</b> · this roll:</div>'
+        feat.innerHTML = grandHdr + '<div class="turnhdr mt">' + window.t("farkle.thisTurnSoFar", "This turn so far") + ' <b class="sc">' + me.turnScore + '</b> · ' + window.t("farkle.thisRollLabel", "this roll:") + '</div>'
           + '<div class="dicerow">' + diceHtml + "</div>"
-          + (farkle ? '<div class="farkle mt">💥 FARKLE — no scoring dice. This turn ends at 0 (grand total ' + me.grand + ' stays).</div>'
-              : '<div class="mt small">Set aside: <b class="sc">' + ks.score + '</b> pt' + (ks.score === 1 ? "" : "s")
-                + (ks.kept ? "" : ' <span class="dim">(tap scoring dice — 1s &amp; 5s, or three+ of a kind)</span>') + "</div>");
+          + (farkle ? '<div class="farkle mt">' + window.t("farkle.farkleMsg", "💥 FARKLE — no scoring dice. This turn ends at 0 (grand total {grand} stays).", { grand: me.grand }) + '</div>'
+              : '<div class="mt small">' + window.t("farkle.setAsideLabel", "Set aside:") + ' <b class="sc">' + ks.score + '</b> ' + window.t(ks.score === 1 ? "farkle.pt" : "farkle.pts", ks.score === 1 ? "pt" : "pts")
+                + (ks.kept ? "" : ' <span class="dim">' + window.t("farkle.tapScoring", "(tap scoring dice — 1s & 5s, or three+ of a kind)") + '</span>') + "</div>");
         feat.querySelectorAll(".die").forEach((el) => el.onclick = () => toggleKeep(parseInt(el.dataset.f, 10), dice));
         if (farkle) {
-          btn("💥 End turn (farkled)", () => { keep = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }; doHold(me.g, 0); }, true);
+          btn(window.t("farkle.endTurnFarkled", "💥 End turn (farkled)"), () => { keep = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }; doHold(me.g, 0); }, true);
         } else {
           const canAct = ks.valid;
-          btn("💰 Bank to " + bankTo + (crosses ? " 🏁 (hits " + TARGET + "!)" : ""), () => doHold(me.g, 0), canAct).disabled = !canAct;
-          btn("🎲 Set aside &amp; roll on", () => doHold(me.g, 1), false).disabled = !canAct;
+          btn(window.t("farkle.bankTo", "💰 Bank to {n}", { n: bankTo }) + (crosses ? window.t("farkle.hitsTarget", " 🏁 (hits {target}!)", { target: TARGET }) : ""), () => doHold(me.g, 0), canAct).disabled = !canAct;
+          btn(window.t("farkle.setAsideRollOn", "🎲 Set aside & roll on"), () => doHold(me.g, 1), false).disabled = !canAct;
         }
       }
     }
   } else if (me && tb.phase === "join") {
-    feat.innerHTML = '<div class="turnhdr dim">You\'re seated — the table starts when joining closes.</div>';
+    feat.innerHTML = '<div class="turnhdr dim">' + window.t("farkle.seatedWait", "You're seated — the table starts when joining closes.") + '</div>';
   } else if (tb.phase === "join") {
-    feat.innerHTML = '<div class="turnhdr dim">Ante to take a seat, then it\'s roll / bank / bust — real Farkle.</div>';
+    feat.innerHTML = '<div class="turnhdr dim">' + window.t("farkle.anteToSeat", "Ante to take a seat, then it's roll / bank / bust — real Farkle.") + '</div>';
   } else {
     feat.innerHTML = "";
   }
@@ -328,19 +332,19 @@ function renderActive() {
   if ($("felt")) $("felt").classList.toggle("hidden", !feat.innerHTML.trim());
 
   $("seats").innerHTML = lastSeats.length ? lastSeats.map((s) => {
-    const you = s.addr === dapp.me ? '<b style="color:var(--accent2)">you</b> ' : "";
+    const you = s.addr === dapp.me ? '<b style="color:var(--accent2)">' + window.t("farkle.you", "you") + '</b> ' : "";
     const lead = tb.leader === s.g;
     let tag;
-    if (s.finished) tag = s.final > 0 ? '<span class="b ok">' + s.final + (lead ? " 👑" : "") + " · out</span>" : '<span class="b dimb">out · 0</span>';
-    else if (s.rollHeight) tag = '<span class="b ok">' + s.grand + '</span> <span class="b pend">rolling…</span>';
-    else tag = '<span class="b ok">' + s.grand + (lead ? " 👑" : "") + '</span>' + (s.turnScore ? ' <span class="b pend">+' + s.turnScore + " turn</span>" : "");
+    if (s.finished) tag = s.final > 0 ? '<span class="b ok">' + s.final + (lead ? " 👑" : "") + window.t("farkle.dotOut", " · out") + '</span>' : '<span class="b dimb">' + window.t("farkle.outZero", "out · 0") + '</span>';
+    else if (s.rollHeight) tag = '<span class="b ok">' + s.grand + '</span> <span class="b pend">' + window.t("farkle.rolling", "rolling…") + '</span>';
+    else tag = '<span class="b ok">' + s.grand + (lead ? " 👑" : "") + '</span>' + (s.turnScore ? ' <span class="b pend">' + window.t("farkle.turnTag", "+{n} turn", { n: s.turnScore }) + "</span>" : "");
     return '<div class="seat">' + you + disp(s.addr) + " " + tag + "</div>";
-  }).join("") : '<span class="dim">No players yet.</span>';
+  }).join("") : '<span class="dim">' + window.t("farkle.noPlayers", "No players yet.") + '</span>';
 
   const allDone = tb.exists && tb.seatCount > 0 && tb.finishedCount >= tb.seatCount && !tb.closed;
-  if (tb.phase === "over" && !tb.closed) for (const s of lastSeats) if (!s.finished) { btn("⏱ Finalize seat #" + s.g, () => timeoutSeat(s.g), false); break; }
+  if (tb.phase === "over" && !tb.closed) for (const s of lastSeats) if (!s.finished) { btn(window.t("farkle.finalizeSeat", "⏱ Finalize seat #{g}", { g: s.g }), () => timeoutSeat(s.g), false); break; }
   $("btnSettle").classList.toggle("hidden", !(allDone && tb.leader));
-  $("btnSettle").textContent = "🏆 Pay the winner — pot " + rawToNado(tb.pot || 0);
+  $("btnSettle").textContent = window.t("farkle.paySettleBtn", "🏆 Pay the winner — pot {pot}", { pot: rawToNado(tb.pot || 0) });
   $("btnReclaim").classList.toggle("hidden", !(allDone && !tb.leader && iAmHost));
   $("btnCancel").classList.toggle("hidden", !(tb.exists && !tb.closed && tb.seatCount === 1 && iAmHost));
   // once the pot is paid, offer a one-tap rematch — everyone who was here derives the same fresh table id
@@ -350,10 +354,10 @@ function renderActive() {
 // ---- boot ----------------------------------------------------------------------------------------
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.table != null) activeTable = pend.table;
-  dapp.showReturn(pend, ok, err, { roll: "Rolling…", hold: "Confirming your move…", settle: "Paying the winner…", reclaim: "Reclaiming…", timeout: "Finalizing…" });
+  dapp.showReturn(pend, ok, err, { roll: window.t("farkle.stRoll", "Rolling…"), hold: window.t("farkle.stHold", "Confirming your move…"), settle: window.t("farkle.stSettle", "Paying the winner…"), reclaim: window.t("farkle.stReclaim", "Reclaiming…"), timeout: window.t("farkle.stTimeout", "Finalizing…") });
 });
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = "Crypto bundle failed to load — reload."; return; }
+  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("farkle.cryptoFail", "Crypto bundle failed to load — reload."); return; }
   wireUI(); loadQR(); orderCards(["activeGame", "lobby", "play", "opencard", "walletcard", "bankroll", "scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (activeTable == null) activeTable = parseInt(q, 10); }

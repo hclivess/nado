@@ -6,6 +6,7 @@
 <title>NADO Hold'em — multiplayer Texas Hold'em, post-quantum</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%20width%3D%2264%22%20height%3D%2264%22%20aria-hidden%3D%22true%22%3E%0A%20%20%20%20%3Crect%20x%3D%228%22%20y%3D%2213%22%20width%3D%2218%22%20height%3D%2224%22%20rx%3D%223%22%20fill%3D%22%23e6edf3%22%20stroke%3D%22%23243140%22%20stroke-width%3D%221.6%22%20transform%3D%22rotate%28-9%2017%2025%29%22/%3E%0A%20%20%20%20%3Cpath%20d%3D%22M14%2020c-2.4%202.4-4%203.4-4%205.4%200%201.4%201.1%202.2%202.2%202.2.5%200%201-.2%201.3-.5-.2%201-.6%201.7-1.2%202.2h3.4c-.6-.5-1-1.2-1.2-2.2.3.3.8.5%201.3.5%201.1%200%202.2-.8%202.2-2.2%200-2-1.6-3-4-5.4z%22%20fill%3D%22%2320272f%22%20transform%3D%22rotate%28-9%2014%2025%29%22/%3E%0A%20%20%20%20%3Crect%20x%3D%2222%22%20y%3D%2213%22%20width%3D%2218%22%20height%3D%2224%22%20rx%3D%223%22%20fill%3D%22%23fff%22%20stroke%3D%22%23243140%22%20stroke-width%3D%221.6%22%20transform%3D%22rotate%289%2031%2025%29%22/%3E%0A%20%20%20%20%3Cpath%20d%3D%22M31%2030c-.7-.7-3.2-2.3-3.2-4.6%200-1.3%201-2.2%202.1-2.2.6%200%201.1.3%201.1.9%200-.6.5-.9%201.1-.9%201.1%200%202.1.9%202.1%202.2%200%202.3-2.5%203.9-3.2%204.6z%22%20fill%3D%22%23d0362b%22%20transform%3D%22rotate%289%2031%2026%29%22/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js"></script>
 <style>
   :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
     --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--win:#2fbf71;--felt:#0e3b2e;--card:#f4f6f8;--cardred:#d0362b;
@@ -95,130 +96,130 @@
     <rect x="8" y="13" width="18" height="24" rx="3" fill="#e6edf3" stroke="#243140" stroke-width="1.6" transform="rotate(-9 17 25)"/>
     <path d="M14 20c-2.4 2.4-4 3.4-4 5.4 0 1.4 1.1 2.2 2.2 2.2.5 0 1-.2 1.3-.5-.2 1-.6 1.7-1.2 2.2h3.4c-.6-.5-1-1.2-1.2-2.2.3.3.8.5 1.3.5 1.1 0 2.2-.8 2.2-2.2 0-2-1.6-3-4-5.4z" fill="#20272f" transform="rotate(-9 14 25)"/>
     <rect x="22" y="13" width="18" height="24" rx="3" fill="#fff" stroke="#243140" stroke-width="1.6" transform="rotate(9 31 25)"/>
-    <path d="M31 30c-.7-.7-3.2-2.3-3.2-4.6 0-1.3 1-2.2 2.1-2.2.6 0 1.1.3 1.1.9 0-.6.5-.9 1.1-.9 1.1 0 2.1.9 2.1 2.2 0 2.3-2.5 3.9-3.2 4.6z" fill="#d0362b" transform="rotate(9 31 26)"/></svg></span><h1>NADO <span class="a">Hold'em</span></h1><a class="hub" href="https://nadochain.com/games">🎮 All games</a></header>
-  <p class="sub">Real <b>multiplayer Texas Hold'em</b> on the NADO execution layer — no house, no dealer. Your hole cards come from a secret <b>only your browser knows</b>; the flop, turn and river come from <b>future block hashes</b> nobody can predict while you bet. At showdown the <b>contract itself</b> ranks the hands on-chain and pays every pot — main and side pots, all-ins and splits included. Post-quantum wallet, no install.</p>
+    <path d="M31 30c-.7-.7-3.2-2.3-3.2-4.6 0-1.3 1-2.2 2.1-2.2.6 0 1.1.3 1.1.9 0-.6.5-.9 1.1-.9 1.1 0 2.1.9 2.1 2.2 0 2.3-2.5 3.9-3.2 4.6z" fill="#d0362b" transform="rotate(9 31 26)"/></svg></span><h1>NADO <span class="a">Hold'em</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="poker.allGames">🎮 All games</a></header>
+  <p class="sub" data-i18n-html="poker.sub">Real <b>multiplayer Texas Hold'em</b> on the NADO execution layer — no house, no dealer. Your hole cards come from a secret <b>only your browser knows</b>; the flop, turn and river come from <b>future block hashes</b> nobody can predict while you bet. At showdown the <b>contract itself</b> ranks the hands on-chain and pays every pot — main and side pots, all-ins and splits included. Post-quantum wallet, no install.</p>
 
   <div id="status"></div>
 
   <div class="card-box" id="walletcard">
-    <h2>Wallet</h2>
-    <p class="small dim">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
-    <div class="kv mt"><span class="k">Playing as</span><span class="mono" id="who">not signed in</span></div>
-    <div class="kv"><span class="k">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
-    <div class="kv"><span class="k">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
-    <div class="row mt"><button class="primary" id="btnSignIn">Sign in with NADO wallet</button></div>
+    <h2 data-i18n="poker.wallet">Wallet</h2>
+    <p class="small dim" data-i18n-html="poker.walletHint">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
+    <div class="kv mt"><span class="k" data-i18n="poker.playingAs">Playing as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="poker.l1label">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="poker.tokensPlayable">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="poker.signIn">Sign in with NADO wallet</button></div>
   </div>
 
   <!-- FIND A TABLE -->
   <div class="card-box hidden" id="play">
-    <h2>🃏 Find a table</h2>
-    <p class="small dim">Pick a table from the lobby, or go to one by ID. Sit down while seating is open — then the hand plays out street by street.</p>
+    <h2 data-i18n="poker.findTable">🃏 Find a table</h2>
+    <p class="small dim" data-i18n="poker.findTableHint">Pick a table from the lobby, or go to one by ID. Sit down while seating is open — then the hand plays out street by street.</p>
     <div class="row">
-      <input id="joinId" placeholder="table ID" inputmode="numeric" autocomplete="off">
-      <button class="primary" id="btnGoTable" style="flex:0 0 auto">Go</button>
+      <input id="joinId" placeholder="table ID" data-i18n-ph="poker.tableIdPh" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="btnGoTable" style="flex:0 0 auto" data-i18n="poker.go">Go</button>
     </div>
-    <div class="small dim mt">Your tables</div>
+    <div class="small dim mt" data-i18n="poker.yourTables">Your tables</div>
     <div class="small dim" id="recent"></div>
   </div>
 
   <!-- OPEN A TABLE -->
   <div class="card-box hidden" id="opencard">
-    <h2>🪑 Open a table</h2>
-    <p class="small dim">Set the ante — everyone (you included) pays it into the pot to sit down. Seating stays open until <b>you deal</b> — you control the start; then the hand plays itself out on-chain: four betting streets, then showdown.</p>
+    <h2 data-i18n="poker.openTable">🪑 Open a table</h2>
+    <p class="small dim" data-i18n-html="poker.openHint">Set the ante — everyone (you included) pays it into the pot to sit down. Seating stays open until <b>you deal</b> — you control the start; then the hand plays itself out on-chain: four betting streets, then showdown.</p>
     <div class="row">
-      <input id="anteAmt" value="1" placeholder="ante (NADO)" inputmode="decimal" autocomplete="off">
-      <input id="buyinAmt" placeholder="buy-in (NADO) — ante + your stack" inputmode="decimal" autocomplete="off">
-      <button class="primary" id="btnNewTable" style="flex:0 0 auto">Open table</button>
+      <input id="anteAmt" value="1" placeholder="ante (NADO)" data-i18n-ph="poker.antePh" inputmode="decimal" autocomplete="off">
+      <input id="buyinAmt" placeholder="buy-in (NADO) — ante + your stack" data-i18n-ph="poker.buyinPh" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNewTable" style="flex:0 0 auto" data-i18n="poker.openTableBtn">Open table</button>
     </div>
-    <p class="small dim mt">Table stakes: your buy-in covers the ante (into the pot) and the rest is your <b>stack</b> — the chips you bet with this hand. A common buy-in is 20–50× the ante. Whatever you don't bet comes back at settle.</p>
+    <p class="small dim mt" data-i18n-html="poker.stakesHint">Table stakes: your buy-in covers the ante (into the pot) and the rest is your <b>stack</b> — the chips you bet with this hand. A common buy-in is 20–50× the ante. Whatever you don't bet comes back at settle.</p>
   </div>
 
   <!-- BANKROLL -->
   <div class="card-box hidden" id="bankroll">
-    <h2>🪙 Tokens — buy in / cash out</h2>
+    <h2 data-i18n="poker.tokensTitle">🪙 Tokens — buy in / cash out</h2>
     <div class="row">
-      <input id="bankAmt" value="10" placeholder="amount (NADO)" inputmode="decimal" autocomplete="off">
-      <button class="ghost" id="btnDeposit" style="flex:0 0 auto">Deposit</button>
-      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto">Withdraw</button>
+      <input id="bankAmt" value="10" placeholder="amount (NADO)" data-i18n-ph="poker.amountPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto" data-i18n="poker.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto" data-i18n="poker.withdraw">Withdraw</button>
     </div>
-    <div class="small dim mt">Deposit buys tokens with NADO (1 : 1); Withdraw cashes your tokens back out to the wallet. Bets escrow from your tokens.</div>
+    <div class="small dim mt" data-i18n="poker.bankHint">Deposit buys tokens with NADO (1 : 1); Withdraw cashes your tokens back out to the wallet. Bets escrow from your tokens.</div>
   </div>
 
   <!-- LOBBY -->
   <div class="card-box" id="lobby">
-    <h2>🃏 Public tables</h2>
-    <p class="small dim">Live hold'em tables — tap one to watch or sit down. <span style="opacity:.7">🟢 seating open · ▶ playing · 🃏 showdown</span></p>
+    <h2 data-i18n="poker.publicTables">🃏 Public tables</h2>
+    <p class="small dim" data-i18n-html="poker.lobbyHint">Live hold'em tables — tap one to watch or sit down. <span style="opacity:.7">🟢 seating open · ▶ playing · 🃏 showdown</span></p>
     <div class="small mt" id="lobbyList"><span class="dim">Loading…</span></div>
   </div>
 
   <!-- SCOREBOARD -->
   <div class="card-box" id="scoreboard">
-    <h2>🏆 Scoreboard</h2>
-    <p class="small dim">Global standings across every finished hand, ranked by net NADO.</p>
+    <h2 data-i18n="poker.scoreboard">🏆 Scoreboard</h2>
+    <p class="small dim" data-i18n="poker.scoreHint">Global standings across every finished hand, ranked by net NADO.</p>
     <div class="mt" id="scoreList"><span class="dim">Loading…</span></div>
   </div>
 
   <!-- ACTIVE TABLE -->
   <div class="card-box hidden" id="activeGame">
-    <h2>Table <span id="gameId" class="mono"></span></h2>
+    <h2 data-i18n="poker.tableLabel">Table <span id="gameId" class="mono"></span></h2>
     <div class="felt">
-      <div class="lbl">Community cards</div>
+      <div class="lbl" data-i18n="poker.communityCards">Community cards</div>
       <div class="hand" id="community"></div>
       <div id="communityNote"></div>
       <div id="holeWrap" class="hidden">
-        <div class="lbl" style="margin-top:12px">Your hole cards</div>
+        <div class="lbl" style="margin-top:12px" data-i18n="poker.holeCards">Your hole cards</div>
         <div class="hand" id="hole"></div>
         <div id="holeNote"></div>
       </div>
     </div>
     <details class="rankGuide" id="rankGuideBox" open>
-      <summary>Hand rankings — strongest to weakest</summary>
-      <div class="hint">New to poker? Your current best hand lights up here as the board is dealt. Higher on the list wins.</div>
+      <summary data-i18n="poker.rankSummary">Hand rankings — strongest to weakest</summary>
+      <div class="hint" data-i18n="poker.rankHint">New to poker? Your current best hand lights up here as the board is dealt. Higher on the list wins.</div>
       <div id="rankGuide"></div>
     </details>
-    <div class="kv"><span class="k">Status</span><span class="mono" id="gStatus">…</span></div>
-    <div class="kv"><span class="k">Pot</span><span class="mono" id="gPot">—</span></div>
+    <div class="kv"><span class="k" data-i18n="poker.statusLabel">Status</span><span class="mono" id="gStatus">…</span></div>
+    <div class="kv"><span class="k" data-i18n="poker.potLabel">Pot</span><span class="mono" id="gPot">—</span></div>
     <div id="gPots"></div>
-    <div class="kv"><span class="k">Ante</span><span class="mono" id="gAnte">—</span></div>
+    <div class="kv"><span class="k" data-i18n="poker.anteLabel">Ante</span><span class="mono" id="gAnte">—</span></div>
     <div class="small warn mt hidden" id="joinHint"></div>
 
     <div class="mt hidden" id="betRow">
       <div class="small" id="betInfo"></div>
       <div class="row mt">
-        <input id="betAmt" placeholder="bet / raise amount (NADO)" inputmode="decimal" autocomplete="off">
+        <input id="betAmt" placeholder="bet / raise amount (NADO)" data-i18n-ph="poker.betPh" inputmode="decimal" autocomplete="off">
       </div>
     </div>
     <div class="row mt" id="myActions"></div>
-    <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1">Auto-collect my winnings — pays the pot to me the moment I win the hand</span></label>
+    <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1" data-i18n="poker.autoCollect">Auto-collect my winnings — pays the pot to me the moment I win the hand</span></label>
     <div class="row mt">
-      <button class="primary hidden" id="btnReopen">🔄 Re-open — try again</button>
-      <button class="ghost hidden" id="btnReclaim">Reclaim the dead pot</button>
-      <button class="ghost hidden" id="btnCancel">Cancel — refund the ante</button>
+      <button class="primary hidden" id="btnReopen" data-i18n="poker.reopen">🔄 Re-open — try again</button>
+      <button class="ghost hidden" id="btnReclaim" data-i18n="poker.reclaimBtn">Reclaim the dead pot</button>
+      <button class="ghost hidden" id="btnCancel" data-i18n="poker.cancelBtn">Cancel — refund the ante</button>
     </div>
 
-    <div class="mt small dim">Players</div>
+    <div class="mt small dim" data-i18n="poker.players">Players</div>
     <div id="seats"></div>
 
-    <label class="mt">Invite players</label>
+    <label class="mt" data-i18n="poker.invitePlayers">Invite players</label>
     <input id="shareLink" class="mono" readonly onclick="this.select()">
     <div class="row mt" style="align-items:center;gap:8px">
-      <button class="primary" id="btnShare" style="flex:0 0 auto">Share</button>
-      <span class="dim small">or scan the code to sit at this table</span>
+      <button class="primary" id="btnShare" style="flex:0 0 auto" data-i18n="poker.share">Share</button>
+      <span class="dim small" data-i18n="poker.orScan">or scan the code to sit at this table</span>
     </div>
     <canvas id="shareQR" class="hidden" style="margin:12px auto 0;display:block;border-radius:8px;background:#fff;padding:8px"></canvas>
-    <div id="shareQRNote" class="hidden dim small mt">QR generator unavailable — copy the link above.</div>
+    <div id="shareQRNote" class="hidden dim small mt" data-i18n="poker.qrUnavailable">QR generator unavailable — copy the link above.</div>
   </div>
 
   <div class="card-box">
-    <h2>How a hand works · provably fair</h2>
-    <p class="small dim" style="line-height:1.6">
+    <h2 data-i18n="poker.howTitle">How a hand works · provably fair</h2>
+    <p class="small dim" style="line-height:1.6" data-i18n-html="poker.howBody">
       <b>Sit down:</b> everyone antes; your browser generates a secret and commits <span class="mono">HASH(secret)</span> on-chain — your hole cards are derived from that secret + a future block hash, so only you can see them and nobody can fake them later.
       <b>Bet:</b> four streets (pre-flop, flop, turn, river). Pre-flop opens only after your hole cards are dealt and visible — no blind betting. Each street has a 2-minute ceiling, but the <b>host can deal the next card the instant everyone's matched</b> (a checked-around street ends at once), so play is fast. Match the street's highest bet to stay in, put in more to raise (raises close in the last few blocks so they're always callable), do nothing to check. You can re-raise any number of times — no-limit up to your STACK (table stakes: you bet what you bought in with). Can't match a raise? Go ALL-IN with the rest of your stack and stay live: SIDE POTS make sure you can only win what you matched from each opponent, exactly like a casino table. Split pots divide evenly.
       <b>Showdown:</b> one click reveals your secret; the <b>contract</b> re-derives your 7 cards and ranks the full hand on-chain — straight flush to high card, kickers included. Best hand takes the pot; ties keep the first hand shown. The board and each player's hand draw from independent decks, so an exact duplicate card can legally appear — it counts naturally (two K♥ = a pair of kings) and the odds are identical for everyone.
     </p>
   </div>
 
-  <footer>Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · <a href="https://get.nadochain.com/rollup">see the contract</a>.</footer>
+  <footer data-i18n-html="poker.footer">Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · <a href="https://get.nadochain.com/rollup">see the contract</a>.</footer>
 </div>
 <script type="module" src="/static/poker.js"></script>
 </body>
