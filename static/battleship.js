@@ -41,20 +41,36 @@ function cellProof(tree, cell) {                       // -> [sib0, ss0, ... sib
   return out;
 }
 
-// ---- fleet placement (a valid random layout: FLEET ships, contiguous, non-overlapping, in 10x10) ----
-function randFleet() {
-  const b = new Array(128).fill(0);
-  for (const len of FLEET) {
-    for (let t = 0; t < 800; t++) {
-      const horiz = Math.random() < 0.5;
-      const r = Math.floor(Math.random() * (horiz ? N : N - len + 1));
-      const c = Math.floor(Math.random() * (horiz ? N - len + 1 : N));
-      const cells = []; let ok = true;
-      for (let k = 0; k < len; k++) { const x = (r + (horiz ? 0 : k)) * N + (c + (horiz ? k : 0)); if (b[x]) { ok = false; break; } cells.push(x); }
-      if (ok) { for (const x of cells) b[x] = 1; break; }
-    }
+// ---- fleet placement: the standard fleet as DISCRETE SHIPS you place (contiguous, non-overlapping, in 10x10).
+// The classic Milton-Bradley fleet exactly matches FLEET [5,4,3,3,2]. Placement is purely a client concern —
+// the 128-cell occupancy board it produces feeds the SAME merkle commitment, so the contract is untouched. ----
+const SHIP_KEYS = ["carrier", "battleship", "cruiser", "submarine", "destroyer"];   // parallel to FLEET
+const SHIP_EN = ["Carrier", "Battleship", "Cruiser", "Submarine", "Destroyer"];
+const newFleet = () => FLEET.map((len, i) => ({ i, len, key: SHIP_KEYS[i], cells: null }));   // cells:null = unplaced
+// the cells a ship of `len` occupies anchored (top-left) at `cell`, orientation h (horizontal); null if off-grid
+function shipCells(cell, len, h) {
+  const r = Math.floor(cell / N), c = cell % N;
+  if (h ? c + len > N : r + len > N) return null;
+  const out = []; for (let k = 0; k < len; k++) out.push(h ? cell + k : cell + k * N);
+  return out;
+}
+const occupiedCells = (fl, exceptI) => { const s = new Set(); for (const sh of fl) if (sh.cells && sh.i !== exceptI) for (const c of sh.cells) s.add(c); return s; };
+// place ship slot `idx` anchored at `cell` in orientation `h`; true on success (in-bounds + no overlap)
+function placeAt(fl, idx, cell, h) {
+  const cells = shipCells(cell, fl[idx].len, h); if (!cells) return false;
+  const occ = occupiedCells(fl, idx); if (cells.some((c) => occ.has(c))) return false;
+  fl[idx].cells = cells; return true;
+}
+const shipAt = (fl, cell) => fl.find((s) => s.cells && s.cells.includes(cell));
+const firstUnplaced = (fl) => { const s = fl.find((x) => !x.cells); return s ? s.i : -1; };
+const boardOf = (fl) => { const b = new Array(128).fill(0); for (const s of fl) if (s.cells) for (const c of s.cells) b[c] = 1; return b; };
+function randFleetShips() {
+  const fl = newFleet();
+  for (const s of fl) for (let t = 0; t < 800; t++) {
+    const h = Math.random() < 0.5, r = Math.floor(Math.random() * (h ? N : N - s.len + 1)), c = Math.floor(Math.random() * (h ? N - s.len + 1 : N));
+    if (placeAt(fl, s.i, r * N + c, h)) break;
   }
-  return b;
+  return fl;
 }
 const randSalts = () => Array.from({ length: 128 }, () => { let h = "0x"; for (const x of crypto.getRandomValues(new Uint8Array(32))) h += x.toString(16).padStart(2, "0"); return BigInt(h); });
 const shipCount = (b) => { let n = 0; for (let i = 0; i < CELLS; i++) n += b[i]; return n; };
@@ -82,7 +98,11 @@ const myBoard = (g) => { const r = load(LS_G)[g]; return r && r.board ? { board:
 
 // ---- state ---------------------------------------------------------------------------------------
 let lastSto = null, activeGame = null, lastGame = null, target = null;
-let placing = randFleet();
+let ships = randFleetShips();          // the fleet being placed (starts as a valid random layout)
+let placing = boardOf(ships);          // 128-cell 0/1 board derived from `ships` — what commit() hashes
+let selShip = 0;                       // ship slot the tray has "armed" for the next tap-to-place
+let horiz = true;                      // placement orientation (↔ / ↕)
+const syncFleet = () => { placing = boardOf(ships); };
 
 // ---- actions -------------------------------------------------------------------------------------
 function commit() { const board = placing.slice(); const salts = randSalts(); return { root: buildTree(board, salts).root, board, salts }; }
@@ -138,12 +158,23 @@ function gridCell(cls, label, cell, clickable) {
 }
 function renderPlacement() {
   const el = $("placeGrid"); if (!el) return;
+  const occ = new Set(); for (const s of ships) if (s.cells) for (const c of s.cells) occ.add(c);
   let h = "";
-  for (let c = 0; c < CELLS; c++) h += '<div class="bcell ' + (placing[c] ? "ship" : "sea") + '" data-place="' + c + '" title="' + coord(c) + '"></div>';
+  for (let c = 0; c < CELLS; c++) h += '<div class="bcell ' + (occ.has(c) ? "ship" : "sea") + '" data-place="' + c + '" title="' + coord(c) + '"></div>';
   el.innerHTML = h;
+  const tray = $("fleetTray");
+  if (tray) tray.innerHTML = ships.map((s) => {
+    const placed = !!s.cells, sel = s.i === selShip;
+    return '<button type="button" class="shipbtn' + (sel ? " sel" : "") + (placed ? " placed" : "") + '" data-ship="' + s.i + '">'
+      + '<span class="sname">' + window.t("bs.ship_" + s.key, SHIP_EN[s.i]) + "</span>"
+      + '<span class="spips">' + "▮".repeat(s.len) + "</span>"
+      + '<span class="stag">' + (placed ? "✓" : s.len) + "</span></button>";
+  }).join("");
+  const br = $("btnRotate"); if (br) br.textContent = (horiz ? "↔ " : "↕ ") + window.t("bs.rotate", "Rotate");
   const n = shipCount(placing);
   $("fleetCount").innerHTML = window.t("bs.fleetCount", "Fleet: <b>{n}/{total}</b> cells", { n, total: SHIPS })
-    + (n === SHIPS ? ' <span class="b ok">' + window.t("bs.ready", "ready") + "</span>" : ' <span class="b pend">' + window.t("bs.placeMore", "tap the sea to add / a ship to remove") + "</span>");
+    + (n === SHIPS ? ' <span class="b ok">' + window.t("bs.ready", "ready") + "</span>"
+       : ' <span class="b pend">' + window.t("bs.placeShipHint", "pick a ship, tap the grid to place · tap a placed ship to move it") + "</span>");
 }
 function renderBoards(gm) {
   const mine = myBoard(gm.id), oppSlot = gm.mineSlot === 1 ? 2 : 1;
@@ -242,15 +273,26 @@ function wireUI() {
   $("btnOpen").onclick = openGame;
   $("btnJoinGame").onclick = () => { if (!dapp.me) return dapp.signIn(); joinGame(); };
   $("btnFire").onclick = fire;
-  $("btnRandom").onclick = () => { placing = randFleet(); render(); };
+  $("btnRandom").onclick = () => { ships = randFleetShips(); selShip = 0; syncFleet(); render(); };
+  if ($("btnRotate")) $("btnRotate").onclick = () => { horiz = !horiz; render(); };
+  if ($("fleetTray")) $("fleetTray").addEventListener("click", (e) => { const b = e.target.closest("[data-ship]"); if (!b) return; const i = Number(b.dataset.ship); if (ships[i].cells) ships[i].cells = null; selShip = i; syncFleet(); render(); });
   $("btnResign").onclick = resign;
   $("btnTimeout").onclick = claimTimeout;
   $("btnCancel").onclick = cancelGame;
   $("btnRematch").onclick = rematch;
   $("btnShare").onclick = () => share(base() + "/?game=" + activeGame, window.t("bs.shareThis", "Play this Battleship game on NADO:"), $("btnShare"));
   if ($("btnMoreLobby")) $("btnMoreLobby").onclick = () => { lobbyN += 48; if (lastSto) renderLobby(lastSto); };
-  // place / remove a ship cell by tapping the setup grid (delegated)
-  $("placeGrid").addEventListener("click", (e) => { const c = e.target.closest("[data-place]"); if (!c) return; const i = Number(c.dataset.place); placing[i] = placing[i] ? 0 : 1; render(); });
+  // ship-based placement: tap a placed ship to pick it up, or tap empty water to drop the armed ship (delegated)
+  $("placeGrid").addEventListener("click", (e) => {
+    const c = e.target.closest("[data-place]"); if (!c) return;
+    const cell = Number(c.dataset.place), hit = shipAt(ships, cell);
+    if (hit) { hit.cells = null; selShip = hit.i; syncFleet(); return render(); }   // pick up a ship
+    let idx = (ships[selShip] && !ships[selShip].cells) ? selShip : firstUnplaced(ships);
+    if (idx < 0) return notify(window.t("bs.allPlaced", "Whole fleet placed — tap a ship to move it, or 🎲 for a new layout."));
+    if (!placeAt(ships, idx, cell, horiz)) return notify(window.t("bs.badPlace", "That ship won't fit there — rotate (↻) or pick another cell."));
+    selShip = firstUnplaced(ships); if (selShip < 0) selShip = idx;
+    syncFleet(); render();
+  });
 }
 dapp.doneLabels({ open: window.t("bs.dnOpen", "✓ Game is on-chain — send the invite below."), join: window.t("bs.dnJoin", "✓ You're in — battle on!"),
   move: window.t("bs.dnMove", "✓ Shot confirmed."), resign: window.t("bs.dnResign", "✓ Resigned."), timeout: window.t("bs.dnTimeout", "✓ Pot claimed."), cancel: window.t("bs.dnCancel", "✓ Cancelled — stake refunded.") });

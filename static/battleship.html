@@ -61,6 +61,14 @@
   #placeGrid .bcell{cursor:pointer}
   #placeGrid .bcell.ship{background:linear-gradient(135deg,#00ad93,#00c9a7);border-color:transparent}
   #placeGrid .bcell.sea:hover{background:#12384a}
+  .tray{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:4px auto 2px;max-width:360px}
+  .shipbtn{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 9px;border-radius:10px;border:1px solid #1d2a36;background:#0f1720;color:var(--dim);cursor:pointer;font:600 11px/1 system-ui,sans-serif;min-width:56px}
+  .shipbtn .sname{font-size:10.5px;letter-spacing:.02em}
+  .shipbtn .spips{color:var(--accent2);font-size:12px;letter-spacing:1px}
+  .shipbtn .stag{font-size:10px;color:var(--dim)}
+  .shipbtn.sel{border-color:var(--accent2);background:rgba(0,201,167,.12);color:#eaf6f3;box-shadow:0 0 0 1px var(--accent2)}
+  .shipbtn.placed{opacity:.55}.shipbtn.placed .stag{color:var(--accent)}
+  #btnRotate{flex:0 0 auto}
   #gStatus{font-weight:700;font-size:14px;line-height:1.4;min-height:22px}
   #hitTally{text-align:center;color:var(--dim);font-size:12.5px;margin-top:8px;font-family:var(--mono)}
 </style>
@@ -104,10 +112,12 @@
   <!-- SETUP / PLACE FLEET -->
   <div class="card" id="setup">
     <h2 data-i18n="bs.placeHead">⚓ Place your fleet &amp; open a battle</h2>
-    <p class="small dim" data-i18n-html="bs.placeBlurb">Your fleet is <b>5 ships</b> (lengths 5·4·3·2·2 = <b>17 cells</b>). Tap 🎲 for a random layout, or tap the sea to add and a ship to remove. Only a fingerprint of your board goes on-chain — the layout stays secret in your browser.</p>
+    <p class="small dim" data-i18n-html="bs.placeBlurb">Your fleet is <b>5 ships</b> (lengths 5·4·3·3·2 = <b>17 cells</b>). Pick a ship, tap the grid to place it, ↻ to rotate; tap a placed ship to move it. 🎲 lays out a random fleet. Only a fingerprint of your board goes on-chain — the layout stays secret in your browser.</p>
+    <div class="tray" id="fleetTray"></div>
     <div class="bgrid" id="placeGrid" style="max-width:340px;margin:10px auto"></div>
     <div class="small mt" id="fleetCount" style="text-align:center"></div>
     <div class="row mt"><button class="ghost" id="btnRandom" style="flex:0 0 auto" data-i18n="bs.random">🎲 Random</button>
+      <button class="ghost" id="btnRotate" style="flex:0 0 auto">↔ Rotate</button>
       <input id="stakeAmt" value="1" placeholder="stake (NADO)" data-i18n-ph="bs.stakePh" inputmode="decimal" autocomplete="off">
       <input type="range" id="stakeSlider" min="0" max="100" value="0" step="1" class="hidden">
       <button class="primary" id="btnOpen" style="flex:0 0 auto" data-i18n="bs.openGame">Open a battle</button></div>
