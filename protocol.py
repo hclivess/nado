@@ -183,13 +183,17 @@ POSW_DIFF_MAX_MULT = 16      # cap: never require more than 16x the base PoSW (b
 # execution nodes that replay these blobs in block order. This is the entire L1 surface for Phase 1:
 # a fee-metered, size-capped, opaque byte channel. Contracts, the VM, and their state never touch
 # consensus, so phone-mining and the base ledger are unaffected.
-BLOB_MAX_BYTES = 64 * 1024        # per-tx opaque payload cap (canonical bytes) — bounds block growth.
-                                  # 16K->64K for large contract deploys (hold'em's on-chain 7-card evaluator);
-                                  # still 1/4 of the per-block envelope below, so DA bounds are unchanged.
+BLOB_MAX_BYTES = 512 * 1024       # per-tx opaque payload cap (canonical bytes) — bounds block growth.
+                                  # 64K->512K so genuinely complex game contracts (e.g. battleship's on-chain
+                                  # merkle-sum fleet verifier) deploy in one blob. This is a CEILING, not the norm:
+                                  # game MOVES are ~hundreds of bytes; only rare one-time DEPLOYS approach it, and
+                                  # blob spam is bounded economically by the burned DA fee. For a contract larger
+                                  # than a whole block, the scalable path is a CHUNKED multi-blob deploy that the
+                                  # exec node reassembles — not an ever-bigger cap that bloats phone-side DA.
 # Per-BLOCK total-blob-bytes cap (doc/execution-layer.md §3.3): the sum of all blob payloads in one block
 # is bounded so a single block cannot bloat data-availability beyond what phones download/relay. This is
 # a CONSENSUS check (verify_block rejects an over-cap block; block assembly drops the excess).
-MAX_BLOB_BYTES_PER_BLOCK = 256 * 1024
+MAX_BLOB_BYTES_PER_BLOCK = 1024 * 1024
 
 # --- Aliases (human-readable names -> address; register / transfer / unregister on-chain) ---
 # An alias lets a user send to a short name instead of the 49-char ndo address. Names are a scarce

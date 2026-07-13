@@ -69,6 +69,34 @@ def make_proof(board, salts, cell):
         pos //= 2
     return board[cell], salts[cell], sibs
 
+# ---- reveal-at-claim: derive salts from ONE seed + validate a fleet is the standard 5 ships ----------
+# Salts are now seed-derived (salt[c]=HASH(seed*128+c)) so a claim reveals just the seed, not 128 salts.
+# The client uses the identical formula, so per-cell move proofs are unchanged; individual revealed salts
+# don't leak the seed (one-way hash).
+FLEET_LENS = [5, 4, 3, 3, 2]                       # ship lengths, in claim-arg order
+def seed_salt(seed, c):    return VMHASH(seed * 128 + c)
+def salts_from_seed(seed): return [seed_salt(seed, c) for c in range(128)]
+def ship_cells(anchor, orient, length):
+    step = 1 + orient * 9                          # 1 = horizontal, 10 = vertical
+    return [anchor + k * step for k in range(length)]
+def board_from_ships(ships):                       # ships = [(anchor,orient) x5] -> 128-cell board
+    b = [0] * 128
+    for (a, o), L in zip(ships, FLEET_LENS):
+        for c in ship_cells(a, o, L): b[c] = 1
+    return b
+def valid_fleet(ships):
+    occ = set()
+    for (a, o), L in zip(ships, FLEET_LENS):
+        if not (0 <= a <= 99) or o not in (0, 1): return False
+        cells = ship_cells(a, o, L); last = cells[-1]
+        if last > 99: return False
+        if o == 0 and a // 10 != last // 10: return False     # a horizontal ship must stay in one row
+        for c in cells:
+            if c in occ: return False                          # no overlap
+            occ.add(c)
+    return len(occ) == 17
+def root_from_ships(ships, seed): return build_root(board_from_ships(ships), salts_from_seed(seed))
+
 # ---- contract methods ----------------------------------------------------------------------------
 # maps: p1 p2 (addrs) · r1 r2 (roots) · st(stake) pt(pot) nn(count) sd(settled) dl(deadline) · mc(move#/turn)
 #       pc(pending shot cell) pex(pending exists) · h1 h2 (hit counts) · f1[g|cell] f2[g|cell] (fired) · wr(winner)
@@ -115,7 +143,7 @@ def _mk_move():
     P1v   = [P("P1"), LD(S)]                 # push iAmP1 (0/1)
     NOTP1 = [P(1), P("P1"), LD(S), SUB]      # 1 - P1
     ops  = [A(0), LD("nn"), P(2), EQ, REQ]
-    ops += [A(0), LD("sd"), NOT, REQ]
+    ops += [A(0), LD("dc"), NOT, REQ]                                                    # no moves once decided
     ops += [CALLER, A(0), LD("p1"), EQ, A(0), LD("mc"), P(2), MOD, P(0), EQ, AND,        # my turn: p1 on even mc,
             CALLER, A(0), LD("p2"), EQ, A(0), LD("mc"), P(2), MOD, P(1), EQ, AND, OR, REQ]  #          p2 on odd mc
     ops += [P("P1"), CALLER, A(0), LD("p1"), EQ, ST(S)]                                   # P1 = caller==p1
@@ -132,19 +160,19 @@ def _mk_move():
     ops += RESKEY + [A(2), P(1), ADD, A(0), LD("pex"), MUL, ST("res")]
     P1WIN = [A(0), LD("h1"), P(SHIPS), EQ]; P2WIN = [A(0), LD("h2"), P(SHIPS), EQ]
     ANYWIN = P1WIN + P2WIN + [OR]
-    ops += [A(0), LD("p1"), A(0), LD("pt")] + P1WIN + [MUL, PAY]                           # pay winner the pot
-    ops += [A(0), LD("p2"), A(0), LD("pt")] + P2WIN + [MUL, PAY]
+    # DECIDE, don't pay: 17 hits fixes the winner, but the pot is released only by claim() once the winner
+    # reveals a VALID fleet (so a shape-cheater can never collect). wr=winner slot · dc=decided · cd=claim clock.
     ops += [A(0), P(1)] + P1WIN + [MUL, P(2)] + P2WIN + [MUL, ADD, ST("wr")]
-    ops += [A(0)] + ANYWIN + [ST("sd")]
-    ops += [A(0), A(0), LD("pt"), P(1)] + ANYWIN + [SUB, MUL, ST("pt")]
-    NOTDONE = [A(0), LD("sd"), NOT]
+    ops += [A(0)] + ANYWIN + [ST("dc")]
+    ops += [A(0), CURSOR, P(WINDOW), ADD, ST("cd")]
+    NOTDONE = [A(0), LD("dc"), NOT]
     FKEY = [A(0), P("|"), OP("CONCAT"), A(1), OP("CONCAT")]                                # "g|cell"
-    ops += [A(0), LD("sd"), A(1), P(0), GTE, A(1), P(99), LTE, AND, OR, REQ]               # playing ⇒ cell 0..99
+    ops += [A(0), LD("dc"), A(1), P(0), GTE, A(1), P(99), LTE, AND, OR, REQ]               # playing ⇒ cell 0..99
     ALREADY = FKEY + [LD("f1")] + P1v + [MUL] + FKEY + [LD("f2")] + NOTP1 + [MUL, ADD]     # my prior shot here?
-    ops += [A(0), LD("sd")] + ALREADY + [P(0), EQ, OR, REQ]                                # playing ⇒ not already fired
+    ops += [A(0), LD("dc")] + ALREADY + [P(0), EQ, OR, REQ]                                # playing ⇒ not already fired
     ops += FKEY + P1v   + NOTDONE + [MUL, ST("f1")]                                        # record fire in my slot
     ops += FKEY + NOTP1 + NOTDONE + [MUL, ST("f2")]
-    ops += [A(0), A(1)] + NOTDONE + [MUL, A(0), LD("pc"), A(0), LD("sd"), MUL, ADD, ST("pc")]  # pc = playing?fireCell:pc
+    ops += [A(0), A(1)] + NOTDONE + [MUL, A(0), LD("pc"), A(0), LD("dc"), MUL, ADD, ST("pc")]  # pc = playing?fireCell:pc
     ops += [A(0)] + NOTDONE + [ST("pex")]
     ops += [A(0), A(0), LD("mc"), P(1)] + NOTDONE + [MUL, ADD, ST("mc")]                   # mc += playing
     ops += [A(0), CURSOR, P(WINDOW), ADD, ST("dl")]
@@ -155,25 +183,95 @@ move_m = _mk_move()
 
 resign_m = [
   A(0), LD("nn"), P(2), EQ, REQ,
-  A(0), LD("sd"), NOT, REQ,
+  A(0), LD("dc"), NOT, REQ,
   CALLER, A(0), LD("p1"), EQ, CALLER, A(0), LD("p2"), EQ, OR, REQ,
-  A(0), LD("p2"), A(0), LD("pt"), CALLER, A(0), LD("p1"), EQ, MUL, PAY,
-  A(0), LD("p1"), A(0), LD("pt"), CALLER, A(0), LD("p2"), EQ, MUL, PAY,
+  # resigner forfeits → opponent is the winner; pot is released by the winner's claim() (valid-fleet reveal).
   A(0), P(2), CALLER, A(0), LD("p1"), EQ, MUL, P(1), CALLER, A(0), LD("p2"), EQ, MUL, ADD, ST("wr"),
-  A(0), P(1), ST("sd"),
-  A(0), P(0), ST("pt"),
+  A(0), P(1), ST("dc"),
+  A(0), CURSOR, P(WINDOW), ADD, ST("cd"),
   HALT ]
-# timeout(g): past the move deadline, the player whose turn it is NOT (the waiter) claims the win.
+# timeout(g): past the move deadline, the player whose turn it is NOT (the waiter) is the winner; they then claim().
 timeout_m = [
   A(0), LD("nn"), P(2), EQ, REQ,
-  A(0), LD("sd"), NOT, REQ,
+  A(0), LD("dc"), NOT, REQ,
   CURSOR, A(0), LD("dl"), GT, REQ,
   # current mover = p1 if mc even else p2; caller must be the OTHER (the one being stalled on)
   CALLER, A(0), LD("p1"), EQ, A(0), LD("mc"), P(2), MOD, P(1), EQ, AND,     # p1 waits when it's p2's turn (mc odd)
   CALLER, A(0), LD("p2"), EQ, A(0), LD("mc"), P(2), MOD, P(0), EQ, AND,     # p2 waits when it's p1's turn (mc even)
   OR, REQ,
-  CALLER, A(0), LD("pt"), PAY,                                     # the waiter (caller) WINS the pot
   A(0), P(1), CALLER, A(0), LD("p1"), EQ, MUL, P(2), CALLER, A(0), LD("p2"), EQ, MUL, ADD, ST("wr"),
+  A(0), P(1), ST("dc"),
+  A(0), CURSOR, P(WINDOW), ADD, ST("cd"),
+  HALT ]
+# claim(g, a0,o0,a1,o1,a2,o2,a3,o3,a4,o4, seed): the WINNER of a decided game reveals their 5 ship placements
+# + salt-seed to collect. The contract rebuilds the whole 128-leaf merkle-sum tree from those ships (salts
+# derived as HASH(seed*128+c)), REQUIREs the rebuilt root == the winner's committed root AND the total ship
+# count == 17 — so the committed board provably IS the 5 standard contiguous, in-bounds, non-overlapping ships.
+# A shape-cheater's scattered commitment can't be reproduced from valid ships, so they can never claim.
+KEY = lambda L, i: L * 256 + i            # unique (level,index) slot in the scratch tree maps TH/TS
+def _mk_claim():
+    a  = lambda i: A(1 + 2*i)             # anchor arg of ship i
+    o  = lambda i: A(2 + 2*i)             # orientation arg of ship i (0 horiz, 1 vert)
+    SEED = A(11)
+    W1 = [A(0), LD("wr"), P(1), EQ]                                     # winner is p1?  (wr==1)
+    # roots are integers so we can pick the winner's commitment arithmetically; ADDRESSES can't be (they're
+    # strings) — so the caller-is-winner test and the payout use guard flags, never address arithmetic.
+    WIN_ROOT  = [A(0), LD("r1")] + W1 + [MUL, A(0), LD("r2"), P(1)] + W1 + [SUB, MUL, ADD]
+    ops  = [A(0), LD("nn"), P(2), EQ, REQ]
+    ops += [A(0), LD("dc"), REQ]                                        # game must be DECIDED
+    ops += [A(0), LD("sd"), NOT, REQ]                                   # not already settled/paid
+    ops += [CALLER, A(0), LD("p1"), EQ, A(0), LD("wr"), P(1), EQ, AND,  # caller is the winner:
+            CALLER, A(0), LD("p2"), EQ, A(0), LD("wr"), P(2), EQ, AND, OR, REQ]  #  (p1 & wr==1) or (p2 & wr==2)
+    # per-ship shape validity: in-bounds, orientation boolean, last cell on-grid, horizontal ships stay in one row
+    for i in range(5):
+        L = FLEET_LENS[i]
+        last = [a(i), P(L-1), ADD, P(9*(L-1)), o(i), MUL, ADD]         # a + (L-1) + 9*(L-1)*o  (= last cell)
+        ops += [a(i), P(0), GTE, REQ]
+        ops += [a(i), P(99), LTE, REQ]
+        ops += [o(i), P(1), LTE, REQ, o(i), P(0), GTE, REQ]
+        ops += last + [P(99), LTE, REQ]
+        ops += [o(i)] + [a(i), P(10), DIV] + last + [P(10), DIV, EQ, OR, REQ]   # vertical OR same row
+    # build the occupancy map O[cell]: clear all 128, then set the 17 ship cells (overlap => fewer than 17 ones)
+    for c in range(128): ops += [P(c), P(0), ST("O")]
+    for i in range(5):
+        L = FLEET_LENS[i]
+        for k in range(L):
+            cell = [a(i)] if k == 0 else [a(i), P(k), ADD, P(9*k), o(i), MUL, ADD]   # a + k*(1+9o)
+            ops += cell + [P(1), ST("O")]
+    # rebuild the merkle-sum tree. level 0: leaf(c)=HASH(HASH(seed*128+c)*256 + 2c + O[c]) at pos bitrev7(c).
+    for c in range(128):
+        pos = bitrev7(c)
+        salt = [SEED, P(128), MUL, P(c), ADD, HASH]
+        leaf = salt + [P(256), MUL, P(2*c), ADD, P(c), LD("O"), ADD, HASH]
+        ops += [P(KEY(0, pos))] + leaf + [ST("TH")]
+        ops += [P(KEY(0, pos)), P(c), LD("O"), ST("TS")]
+    for Lv in range(1, LEVELS + 1):                                    # 7 pairings: 128 -> 1
+        for i in range(128 >> Lv):
+            lh, rh = KEY(Lv-1, 2*i), KEY(Lv-1, 2*i+1)
+            node = [P(lh), LD("TH"), P(M2), MUL, P(rh), LD("TH"), P(M1), MUL, ADD,
+                    P(lh), LD("TS"), P(rh), LD("TS"), ADD, ADD, HASH]
+            ops += [P(KEY(Lv, i))] + node + [ST("TH")]
+            ops += [P(KEY(Lv, i)), P(lh), LD("TS"), P(rh), LD("TS"), ADD, ST("TS")]
+    root = KEY(LEVELS, 0)
+    ops += [P(root), LD("TS"), P(SHIPS), EQ, REQ]                       # exactly 17 ship cells (catches overlap)
+    ops += [P(root), LD("TH")] + WIN_ROOT + [EQ, REQ]                   # rebuilt root == the winner's commitment
+    ops += [A(0), LD("p1"), A(0), LD("pt"), A(0), LD("wr"), P(1), EQ, MUL, PAY]   # pay the winner (guarded amount)
+    ops += [A(0), LD("p2"), A(0), LD("pt"), A(0), LD("wr"), P(2), EQ, MUL, PAY]
+    ops += [A(0), P(1), ST("sd")]
+    ops += [A(0), P(0), ST("pt")]
+    ops += [HALT]
+    return ops
+claim_m = _mk_claim()
+# forfeit(g): the winner never proved a valid fleet before the claim deadline → the LOSER takes the pot.
+forfeit_m = [
+  A(0), LD("nn"), P(2), EQ, REQ,
+  A(0), LD("dc"), REQ,
+  A(0), LD("sd"), NOT, REQ,
+  CURSOR, A(0), LD("cd"), GT, REQ,
+  CALLER, A(0), LD("p1"), EQ, A(0), LD("wr"), P(2), EQ, AND,              # caller is the LOSER:
+  CALLER, A(0), LD("p2"), EQ, A(0), LD("wr"), P(1), EQ, AND, OR, REQ,     #  (p1 & wr==2) or (p2 & wr==1)
+  A(0), LD("p1"), A(0), LD("pt"), A(0), LD("wr"), P(2), EQ, MUL, PAY,     # pay the loser the pot (guarded amount)
+  A(0), LD("p2"), A(0), LD("pt"), A(0), LD("wr"), P(1), EQ, MUL, PAY,
   A(0), P(1), ST("sd"),
   A(0), P(0), ST("pt"),
   HALT ]
@@ -181,12 +279,14 @@ cancel_m = [
   A(0), LD("nn"), P(1), EQ, REQ,
   CALLER, A(0), LD("p1"), EQ, REQ,
   A(0), LD("sd"), NOT, REQ,
+  A(0), LD("dc"), NOT, REQ,
   A(0), LD("p1"), A(0), LD("pt"), PAY,
   A(0), P(1), ST("sd"),
   A(0), P(0), ST("pt"),
   HALT ]
 
-CODE = {"open":open_m, "join":join_m, "move":move_m, "resign":resign_m, "timeout":timeout_m, "cancel":cancel_m}
+CODE = {"open":open_m, "join":join_m, "move":move_m, "resign":resign_m, "timeout":timeout_m,
+        "cancel":cancel_m, "claim":claim_m, "forfeit":forfeit_m}
 
 # ================= TESTS =================
 F=[]
@@ -213,13 +313,22 @@ def proof_args(board, salts, cell):
     for (h,s) in sibs: a += [h, s]
     return a   # -> [isShip, salt, sib0,ss0, ... sib6,ss6]
 
-# two valid 17-cell fleets
-FA = list(range(0,5))+list(range(10,14))+list(range(20,23))+list(range(30,33))+list(range(40,42))   # 5+4+3+3+2
-FB = [c+5 for c in FA]
-boardA, saltsA = rand_board(FA)
-boardB, saltsB = rand_board(FB)
+# two valid 17-cell fleets, expressed as SHIP placements (anchor,orient); salts are seed-derived so a claim
+# reveals just the seed. board_from_ships(shipsA) reproduces the old FA cell set exactly.
+shipsA = [(0,0),(10,0),(20,0),(30,0),(40,0)]     # 5·4·3·3·2 across rows 0-4, all horizontal
+shipsB = [(5,0),(15,0),(25,0),(35,0),(45,0)]     # same, shifted right by 5
+seedA = 0xA1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1A1
+seedB = 0xB2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2
+FA = [c for (a,o),L in zip(shipsA,FLEET_LENS) for c in ship_cells(a,o,L)]
+FB = [c for (a,o),L in zip(shipsB,FLEET_LENS) for c in ship_cells(a,o,L)]
+boardA, saltsA = board_from_ships(shipsA), salts_from_seed(seedA)
+boardB, saltsB = board_from_ships(shipsB), salts_from_seed(seedB)
 rootA = build_root(boardA, saltsA)
 rootB = build_root(boardB, saltsB)
+def cl_args(g, ships, seed):
+    r = [g]
+    for (a, o) in ships: r += [a, o]
+    return r + [seed]
 
 STAKE=10**9
 call("open",[1, rootA], STAKE, "A")
@@ -249,26 +358,40 @@ ck("A cannot prove a FALSE miss (isShip=0 on a real ship)", rv(call("move",[1, 6
 call("move",[1, 6]+proof_args(boardA,saltsA,0), 0, "A")   # A proves B's shot(0)=HIT for B, fires at B's cell 6
 ck("A proved B's shot (cell 0 ∈ A) = HIT for B", M("h2",1)==1)
 
-# Full game to a win: A sinks all 17 of B's ships (FB). A fires FB cells; B proves each as a HIT (-> h1). Between,
-# B fires at A's FA cells and A proves them. A wins when h1 reaches 17.
+# reference sanity for the fleet validator the contract mirrors
+ck("(ref) valid_fleet accepts the standard fleet", valid_fleet(shipsA) and valid_fleet(shipsB))
+ck("(ref) valid_fleet rejects overlap / off-grid",
+   (not valid_fleet([(0,0),(0,0),(20,0),(30,0),(40,0)])) and (not valid_fleet([(96,0),(10,0),(20,0),(30,0),(40,0)])))
+
+# Full game to a win, then DECIDE→CLAIM settlement. A sinks all 17 of B's ships (FB). A fires FB cells; B proves
+# each as a HIT (-> h1); between, B fires A's FA cells and A proves them. A is DECIDED the winner at h1==17.
 call("open",[2, rootA], STAKE, "A")
 call("join",[2, rootB], STAKE, "B")
 bA=bal("A")
 call("move",[2, FB[0]]+[0,0]+[0,0]*7, 0, "A")             # A fires B-ship 0 (first move, proof ignored)
 for i in range(1, 18):
     call("move",[2, FA[i-1]]+proof_args(boardB,saltsB,FB[i-1]), 0, "B")   # B proves A's shot FB[i-1]=HIT (h1++), fires FA[i-1]
-    if M("sd",2)==1: break
+    if M("dc",2)==1: break
     call("move",[2, FB[i]]+proof_args(boardA,saltsA,FA[i-1]), 0, "A")     # A proves B's shot FA[i-1], fires next B-ship FB[i]
-ck("A sank all 17 of B's ships -> A wins the pot", M("wr",2)==1 and M("sd",2)==1 and M("h1",2)==17 and bal("A")>=bA+STAKE and M("pt",2)==0)
+ck("A sank all 17 -> DECIDED for A, pot still ESCROWED (not auto-paid)",
+   M("dc",2)==1 and M("wr",2)==1 and M("h1",2)==17 and M("sd",2)==0 and M("pt",2)==2*STAKE and bal("A")==bA)
+ck("the loser B cannot claim A's win", rv(call("claim", cl_args(2, shipsB, seedB), 0, "B")))
+ck("claim with the wrong seed (root mismatch) reverts", rv(call("claim", cl_args(2, shipsA, seedB), 0, "A")))
+ck("claim with a mismatched fleet (root mismatch) reverts", rv(call("claim", cl_args(2, shipsB, seedA), 0, "A")))
+call("claim", cl_args(2, shipsA, seedA), 0, "A")
+ck("winner A reveals a VALID fleet -> pot released to A", M("sd",2)==1 and M("pt",2)==0 and bal("A")>=bA+STAKE)
+ck("A cannot double-claim", rv(call("claim", cl_args(2, shipsA, seedA), 0, "A")))
 
-# timeout: fresh game, B never proves A's shot -> A (waiter) claims after the deadline
+# timeout: B never proves A's shot -> A (the waiter) is DECIDED the winner, then claims by revealing its fleet.
 call("open",[3, rootA], STAKE, "A"); call("join",[3, rootB], STAKE, "B")
 call("move",[3, FB[0]]+[0,0]+[0,0]*7, 0, "A")        # A fired, now it's B's turn (mc odd)
 ck("timeout before deadline reverts", rv(call("timeout",[3], 0, "A")))
 st.cursor += WINDOW+1
-bA=bal("A")
 call("timeout",[3], 0, "A")
-ck("A claims the stalled pot after the deadline", M("wr",3)==1 and M("sd",3)==1 and bal("A")>=bA+2*STAKE)
+ck("timeout DECIDES for the waiter A; pot still escrowed", M("dc",3)==1 and M("wr",3)==1 and M("sd",3)==0 and M("pt",3)==2*STAKE)
+bA=bal("A")
+call("claim", cl_args(3, shipsA, seedA), 0, "A")
+ck("A claims the stalled pot after revealing a valid fleet", M("sd",3)==1 and M("pt",3)==0 and bal("A")>=bA+2*STAKE)
 
 # cancel: un-joined game refunds the opener
 call("open",[4, rootA], STAKE, "A")
@@ -293,6 +416,46 @@ call("move",[6, FA[0]]+proof_args(boardB,saltsB,FB[0]), 0, "B")    # B proves, f
 call("move",[6, FB[1]]+proof_args(boardA,saltsA,FA[0]), 0, "A")    # A proves, fires FB[1]
 ck("re-firing a cell already shot reverts",
    rv(call("move",[6, FA[0]]+proof_args(boardB,saltsB,FB[1]), 0, "B")))   # B tries to fire FA[0] again
+
+# adversarial: a SCATTERED-fleet committer can win (opponent resigns) but can NEVER claim — no set of valid
+# ships reproduces a scattered root — so after the claim deadline the honest loser forfeits and recovers the pot.
+scat = [0,2,4,6,8, 20,22,24,26, 40,42,44, 60,62,64, 80,82]          # 17 non-contiguous cells (illegal fleet)
+seedS = 0xC3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3C3
+scatBoard = [0]*128
+for c in scat: scatBoard[c]=1
+scatRoot = build_root(scatBoard, salts_from_seed(seedS))
+call("open",[7, scatRoot], STAKE, "A")               # A commits a scattered (cheating) board
+call("join",[7, rootB], STAKE, "B")
+call("resign",[7], 0, "B")                           # B resigns -> A is DECIDED the winner
+ck("cheat game decided for A, pot escrowed", M("dc",7)==1 and M("wr",7)==1 and M("sd",7)==0 and M("pt",7)==2*STAKE)
+ck("cheater A cannot claim (no valid fleet reproduces a scattered root)", rv(call("claim", cl_args(7, shipsA, seedA), 0, "A")))
+ck("forfeit before the claim deadline reverts", rv(call("forfeit",[7], 0, "B")))
+st.cursor += WINDOW+1
+bB=bal("B")
+call("forfeit",[7], 0, "B")
+ck("after the deadline the honest loser B recovers the pot; the cheater gets nothing",
+   M("sd",7)==1 and M("pt",7)==0 and bal("B")>=bB+2*STAKE)
+
+# adversarial: claim() rejects off-grid / overlapping fleets even from the legitimate winner; a valid one pays.
+call("open",[8, rootA], STAKE, "A"); call("join",[8, rootB], STAKE, "B")
+call("resign",[8], 0, "B")                           # A wins by B's resignation
+ck("claim with an OFF-GRID ship reverts (in-bounds check)",
+   rv(call("claim", cl_args(8, [(96,0),(10,0),(20,0),(30,0),(40,0)], seedA), 0, "A")))
+ck("claim with OVERLAPPING ships reverts (sum/root mismatch)",
+   rv(call("claim", cl_args(8, [(0,0),(0,0),(20,0),(30,0),(40,0)], seedA), 0, "A")))
+bA=bal("A")
+call("claim", cl_args(8, shipsA, seedA), 0, "A")
+ck("winner A claims a resign-win with a valid fleet -> paid", M("sd",8)==1 and bal("A")>=bA+STAKE)
+
+# forfeit guards: only the loser, only after the deadline; an honest winner is never time-barred from claiming.
+call("open",[9, rootA], STAKE, "A"); call("join",[9, rootB], STAKE, "B")
+call("resign",[9], 0, "B")                           # A wins
+st.cursor += WINDOW+1
+ck("the winner cannot forfeit-to-self", rv(call("forfeit",[9], 0, "A")))
+ck("a third party cannot forfeit", rv(call("forfeit",[9], 0, "EVE")))
+bA=bal("A")
+call("claim", cl_args(9, shipsA, seedA), 0, "A")
+ck("winner may still claim after the deadline (claim is not time-barred)", M("sd",9)==1 and bal("A")>=bA+STAKE)
 
 # ---- regenerate the committed contract artifact ----
 import os
