@@ -161,7 +161,7 @@ function sidePots(seats, ante) {
   }
   return pots;
 }
-async function fetchTable(t) { const sto = await dapp.storage({ append: ["gd", "gr"] }); return sto ? tableFrom(sto, t) : null; }
+async function fetchTable(t) { const sto = await dapp.storage(); return sto ? tableFrom(sto, t) : null; }
 
 // ---- actions -------------------------------------------------------------------------------------
 function sit(t, method, buyinRaw, anteRaw) {         // open or join: generate the secret (the "draw") locally
@@ -248,7 +248,7 @@ function leaveTable() {
 async function refreshActive() {
   await dapp.refresh();
   dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
-  const sto = await dapp.storage({ append: ["gd", "gr"] });
+  const sto = await dapp.storage();
   if (sto) {
     lastSto = sto;
     pruneAndTrack(sto);

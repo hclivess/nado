@@ -81,7 +81,7 @@ function rebuildEngine(g) {
 }
 function mySide(g) { return g.white === dapp.me ? "w" : g.black === dapp.me ? "b" : null; }
 function myTurn(g, e) { const s = mySide(g); return s && e.turn() === s && g.nn === 2 && !g.settled && !e.isGameOver(); }
-async function fetchGame(g) { const sto = await dapp.storage({ append: ["sd", "wr", "mv", "p2", "mc", "nn"] }); return sto ? gameFrom(sto, g) : null; }
+async function fetchGame(g) { const sto = await dapp.storage({ append: ["wr", "mv", "mc", "p2", "nn"] }); return sto ? gameFrom(sto, g) : null; }
 
 // ---- actions -------------------------------------------------------------------------------------
 function newGame() {
@@ -140,7 +140,7 @@ const cancelGame = () => dapp.call("cancel", [activeGame], null, "cancel game #"
 let lastSto = null;
 async function refreshActive() {
   await dapp.refresh();
-  const sto = await dapp.storage({ append: ["sd", "wr", "mv", "p2", "mc", "nn"] });
+  const sto = await dapp.storage({ append: ["wr", "mv", "mc", "p2", "nn"] });
   if (sto) {
     lastSto = sto;
     pruneAndTrack(sto);
@@ -387,7 +387,7 @@ async function boot() {
   wireUI(); orderCards(["activeGame","lobby","play","walletcard","bankroll"]);
   const q = new URLSearchParams(location.search).get("game");
   if (q) { $("joinId").value = q; if (activeGame == null) { activeGame = parseInt(q, 10); haveState = false; } }
-  if (q && !dapp.me) { const sto = await dapp.storage({ append: ["sd", "wr", "mv", "p2", "mc", "nn"] }); const gm = sto ? gameFrom(sto, parseInt(q,10)) : null;
+  if (q && !dapp.me) { const sto = await dapp.storage({ append: ["wr", "mv", "mc", "p2", "nn"] }); const gm = sto ? gameFrom(sto, parseInt(q,10)) : null;
     inviteGate(dapp, { id: parseInt(q,10), title: window.t("chess.inviteTitle", "You're invited to a chess game"),
       body: gm && gm.exists ? window.t("chess.inviteBody", "Play {who} for <b>{amt} NADO</b> — winner takes the pot.", { who: disp(gm.white), amt: rawToNado(gm.stake) }) : window.t("chess.inviteBodySignin", "Sign in to join this game."),
       joinLabel: window.t("chess.inviteJoin", "Sign in & join") }); }
