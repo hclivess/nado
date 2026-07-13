@@ -4,7 +4,7 @@
 // clock), and the wager settles by resignation / mutual agreement / refund-on-timeout — so nobody can ever be
 // robbed (a stall or a disputed move at worst refunds both). Correspondence-style: a move confirms in ~1 min.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, canPay, alertBar, hoist, orderCards, resolveAliases, disp, share,
-         wireWallet, inviteGate, stickyInputs, renderWallet } from "./nadodapp.js";
+         wireWallet, inviteGate, stickyInputs, renderWallet, notify } from "./nadodapp.js";
 import { Chess } from "./chess-engine.js";
 
 const CID = "d066be12f6e7eb20c226a7f4b68b0632";
@@ -86,7 +86,7 @@ async function fetchGame(g) { const sto = await dapp.storage(); return sto ? gam
 // ---- actions -------------------------------------------------------------------------------------
 function newGame() {
   const raw = nadoToRaw($("stakeAmt").value);
-  if (!raw) { $("status").textContent = window.t("chess.enterStake", "Enter a stake (NADO)."); return; }
+  if (!raw) return alertBar(window.t("chess.enterStake", "Enter a stake (NADO)."));
   if (!canPay(dapp, raw, "Opening this game")) return;
   const g = randId(), G = load(); G[g] = { role: "white", stake: raw.toString(), ts: Date.now() }; save(G);
   activeGame = g; pendingEnc = null; render();
@@ -94,10 +94,10 @@ function newGame() {
 }
 async function joinGame() {
   const g = parseInt($("joinId").value, 10);
-  if (!g) { $("status").textContent = window.t("chess.enterGameId", "Enter a game ID (or pick one from the lobby)."); return; }
+  if (!g) return alertBar(window.t("chess.enterGameId", "Enter a game ID (or pick one from the lobby)."));
   const gm = await fetchGame(g);
-  if (!gm || !gm.exists) { $("status").textContent = dapp.whereIs("game", g); if (gm) dapp.clearInvite(); return; }
-  if (gm.nn >= 2 || gm.settled) { $("status").textContent = window.t("chess.fullOrFinished", "That game is full or finished."); dapp.clearInvite(); return; }
+  if (!gm || !gm.exists) { alertBar(dapp.whereIs("game", g)); if (gm) dapp.clearInvite(); return; }
+  if (gm.nn >= 2 || gm.settled) { alertBar(window.t("chess.fullOrFinished", "That game is full or finished.")); dapp.clearInvite(); return; }
   await dapp.refresh();
   const stake = BigInt(gm.stake);
   if (!canPay(dapp, stake, "Joining this game")) { render(); return; }   // keep the invite: it re-fires when the deposit lands
@@ -158,13 +158,13 @@ function renderLobby(sto) {
     return '<button class="chip ' + stage + '" data-g="' + g.id + '">' + (g.nn < 2 ? "♙" : "▶") + " #" + g.id + " · " + rawToNado(g.stake) + " NADO" + verb + "</button>";
   }).join(" ") : '<span class="dim">' + window.t("chess.noGamesLobby", "No games yet — open one above.") + '</span>';
   el.querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeGame = parseInt(b.dataset.g, 10); pendingEnc = null; haveState = false; replayPly = null; $("joinId").value = b.dataset.g;
-    $("status").textContent = window.t("chess.gameSelected", "Game #{id} selected.", { id: activeGame }); refreshActive(); try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
+    notify(window.t("chess.gameSelected", "Game #{id} selected.", { id: activeGame })); refreshActive(); try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
 }
 
 // ---- board rendering + interaction ---------------------------------------------------------------
 function onSquareClick(sq) {
   const g = lastGame; if (!g || !g.exists) return;
-  if (!myTurn(g, engine)) { $("status").textContent = engine.isGameOver() ? window.t("chess.gameOverMsg", "The game is over.") : window.t("chess.notYourTurn", "Not your turn yet."); return; }
+  if (!myTurn(g, engine)) return alertBar(engine.isGameOver() ? window.t("chess.gameOverMsg", "The game is over.") : window.t("chess.notYourTurn", "Not your turn yet."));
   const piece = engine.get(sq);
   if (selected) {
     const legal = engine.moves({ square: selected }).filter((m) => m.to === sq);

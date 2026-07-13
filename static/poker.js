@@ -9,7 +9,7 @@
 //     hand on-chain (straight flush … high card, kickers included — 4000/4000 differential-verified).
 //     Best hand takes the pot. Board + each hand draw from independent decks (exact duplicates are legal).
 import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, commitHashOf, blake2bHash, _m, $, base, gate, canPay, alertBar, inviteGate,
-         hoist, orderCards, blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore,
+         hoist, orderCards, blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, notify,
          scoreBump, scoreSort, recentChips, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
@@ -184,7 +184,7 @@ function readBuyin(anteRaw) {
 }
 async function newTable() {
   const ante = nadoToRaw($("anteAmt").value);
-  if (!ante) { $("status").textContent = window.t("poker.enterAnte", "Enter an ante (NADO) — everyone pays it into the pot to sit down."); return; }
+  if (!ante) return alertBar(window.t("poker.enterAnte", "Enter an ante (NADO) — everyone pays it into the pot to sit down."));
   const buyin = readBuyin(ante); if (!buyin) return;
   await dapp.refresh();
   if (!canPay(dapp, buyin, window.t("poker.ctxOpening", "Opening this table"))) return;
@@ -198,11 +198,11 @@ function reopenTable() {   // retry an open that didn't confirm within ~2 min
 }
 async function joinTable() {
   const t = activeTable;
-  if (!t) { $("status").textContent = window.t("poker.pickTableFirst", "Pick a table first."); return; }
+  if (!t) return alertBar(window.t("poker.pickTableFirst", "Pick a table first."));
   const tb = await fetchTable(t);
-  if (!tb || !tb.exists) { $("status").textContent = dapp.whereIs("table", t); if (tb) dapp.clearInvite(); return; }
-  if (tb.phase !== "join") { $("status").textContent = window.t("poker.seatingClosed", "Seating is closed — this hand is already underway. Open a new table."); dapp.clearInvite(); return; }
-  if (lastSeats.some((s) => s.addr === dapp.me)) { $("status").textContent = window.t("poker.alreadySeated", "You're already seated here."); dapp.clearInvite(); return; }
+  if (!tb || !tb.exists) { alertBar(dapp.whereIs("table", t)); if (tb) dapp.clearInvite(); return; }
+  if (tb.phase !== "join") { alertBar(window.t("poker.seatingClosed", "Seating is closed — this hand is already underway. Open a new table.")); dapp.clearInvite(); return; }
+  if (lastSeats.some((s) => s.addr === dapp.me)) { alertBar(window.t("poker.alreadySeated", "You're already seated here.")); dapp.clearInvite(); return; }
   await dapp.refresh();
   const ante = BigInt(tb.ante);
   const buyin = readBuyin(ante); if (!buyin) return;
@@ -221,7 +221,7 @@ function doBet(amountRaw, label) {
 function doReveal() {
   const s = mySeat(); if (!s) return;
   const rec = load(LS_S)[s.g];
-  if (!rec || !rec.secret) { $("status").textContent = window.t("poker.noSecretHere", "This browser doesn't hold the secret for seat #{g} — show your cards from the device you joined with.", { g: s.g }); return; }
+  if (!rec || !rec.secret) return alertBar(window.t("poker.noSecretHere", "This browser doesn't hold the secret for seat #{g} — show your cards from the device you joined with.", { g: s.g }));
   dapp.call("reveal", [s.g, BigInt(rec.secret)], null, window.t("poker.revealDesc", "showdown — show your cards · table #{t}", { t: activeTable }), { table: activeTable, seat: s.g, phase: "reveal" });
 }
 const settleTable = () => dapp.call("settle", [activeTable], null, window.t("poker.settleDesc", "pay the pot to the best hand · table #{t}", { t: activeTable }), { table: activeTable, phase: "settle" });
@@ -333,7 +333,7 @@ let buyinEdited = false;   // the player typed their own buy-in — stop auto-su
 function selectTable(id) {
   activeTable = id; $("joinId").value = String(id);
   buyinEdited = false;     // fresh table -> fresh suggestion (match the host)
-  $("status").textContent = window.t("poker.tableSelected", "Table #{id} selected.", { id });
+  notify(window.t("poker.tableSelected", "Table #{id} selected.", { id }));
   refreshActive();
   try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
 }
@@ -392,7 +392,7 @@ function wireUI() {
   });
   if (!$("buyinAmt").value) $("buyinAmt").value = String((parseFloat($("anteAmt").value) || 1) * 20);
   $("btnNewTable").onclick = newTable;
-  $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = window.t("poker.enterTableId", "Enter a table ID, or pick one from the lobby."); };
+  $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else alertBar(window.t("poker.enterTableId", "Enter a table ID, or pick one from the lobby.")); };
   $("btnReclaim").onclick = reclaimTable;
   $("btnCancel").onclick = cancelTable;
   if ($("btnReopen")) $("btnReopen").onclick = reopenTable;
@@ -566,7 +566,7 @@ function renderActive() {
       const canRaise = tb.left > GRACE;
       const rb = btn(canRaise ? window.t("poker.raiseBtn", "⬆ Bet / raise the amount above") : window.t("poker.raiseClosed", "⬆ Raising closed (last {n} blocks are calls only)", { n: GRACE }), () => {
         const raw = nadoToRaw($("betAmt").value);
-        if (!raw) { $("status").textContent = window.t("poker.enterRaise", "Enter an amount — your street total above {price} raises the price for everyone.", { price: rawToNado(priceNow) }); return; }
+        if (!raw) return alertBar(window.t("poker.enterRaise", "Enter an amount — your street total above {price} raises the price for everyone.", { price: rawToNado(priceNow) }));
         if (raw > BigInt(me.stack)) { alertBar(window.t("poker.overStack", "That's more than your stack ({stack} NADO) — table stakes: you bet what you brought. Use ALL-IN for everything.", { stack: rawToNado(me.stack) })); return; }
         doBet(raw, window.t("poker.betLabel", "bet {a} NADO", { a: rawToNado(raw) }));
       }, owe <= 0);

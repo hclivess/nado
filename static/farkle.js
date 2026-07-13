@@ -6,6 +6,7 @@
 import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, hoist, orderCards,
          blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore,
          scoreBump, scoreSort, recentChips, statusLabel, shareInvite,
+         alertBar, notify,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
 const CID = "daa45eda99742933f5337eb11eb3e76c";
@@ -106,18 +107,18 @@ function openTable(t, g, anteRaw) {
 }
 async function newTable() {
   const raw = nadoToRaw($("anteAmt").value);
-  if (!raw) { $("status").textContent = window.t("farkle.enterAnte", "Enter an ante (NADO) — everyone antes into the pot."); return; }
+  if (!raw) return alertBar(window.t("farkle.enterAnte", "Enter an ante (NADO) — everyone antes into the pot."));
   await dapp.refresh();
   if (!canPay(dapp, raw, "Opening this table")) return;
   openTable(randId(), randId(), raw);
 }
 async function joinTable() {
   const t = activeTable;
-  if (!t) { $("status").textContent = window.t("farkle.pickFirst", "Pick a table first."); return; }
+  if (!t) return alertBar(window.t("farkle.pickFirst", "Pick a table first."));
   const tb = await fetchTable(t);
-  if (!tb || !tb.exists) { $("status").textContent = dapp.whereIs("table", t); return; }
-  if (tb.phase !== "join") { $("status").textContent = window.t("farkle.joinClosed", "The join window for that table has closed."); return; }
-  if (lastSeats.some((s) => s.addr === dapp.me)) { $("status").textContent = window.t("farkle.alreadySeated", "You're already seated at this table."); return; }
+  if (!tb || !tb.exists) return alertBar(dapp.whereIs("table", t));
+  if (tb.phase !== "join") return alertBar(window.t("farkle.joinClosed", "The join window for that table has closed."));
+  if (lastSeats.some((s) => s.addr === dapp.me)) return alertBar(window.t("farkle.alreadySeated", "You're already seated at this table."));
   await dapp.refresh();
   const ante = BigInt(tb.ante);
   if (!canPay(dapp, ante, "Joining this table")) { render(); return; }
@@ -134,7 +135,7 @@ function reopenTable() {   // retry an open/join that didn't confirm (same ante,
 async function rematch() {
   const tb = lastTable || {}, T = load(LS_T)[activeTable] || {};
   const ante = tb.exists ? BigInt(tb.ante) : (T.ante ? BigInt(T.ante) : null);
-  if (!ante) { $("status").textContent = window.t("farkle.openFromPanel", "Open a new table from the panel above."); return; }
+  if (!ante) return alertBar(window.t("farkle.openFromPanel", "Open a new table from the panel above."));
   await dapp.refresh();
   if (!canPay(dapp, ante, "The rematch")) return;
   const rtid = rematchId(activeTable), rt = await fetchTable(rtid);
@@ -205,7 +206,7 @@ function renderLobby(sto) {
 }
 function selectTable(id) {
   activeTable = id; $("joinId").value = String(id);
-  $("status").textContent = window.t("farkle.tableSelected", "Table #{id} selected.", { id });
+  notify(window.t("farkle.tableSelected", "Table #{id} selected.", { id }));
   refreshActive();
   try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
 }
@@ -239,7 +240,7 @@ function wireUI() {
   $("btnJoin").onclick = joinTable;
   if ($("btnReopen")) $("btnReopen").onclick = reopenTable;
   if ($("btnRematch")) $("btnRematch").onclick = rematch;
-  $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = window.t("farkle.enterTableId", "Enter a table ID, or pick one from the lobby."); };
+  $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else alertBar(window.t("farkle.enterTableId", "Enter a table ID, or pick one from the lobby.")); };
   $("btnSettle").onclick = settleTable;
   $("btnReclaim").onclick = reclaimTable;
   $("btnCancel").onclick = cancelTable;

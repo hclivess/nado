@@ -9,6 +9,7 @@
 // pull-based (each bettor calls claim). Outcomes are integers 0..nout-1 everywhere.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay,
          wireWallet, stickyInputs, renderWallet, statusLabel, disp, resolveAliases,
+         alertBar, notify,
          loadQR, share, shareInvite } from "./nadodapp.js";
 
 const CID = "fe303d9880c8222dcf3b9953eb86a0fa";   // execnode/contracts/bet.json, deployed by the node key (nonce "bet-v1")
@@ -110,11 +111,11 @@ function statusText(mk) {
 
 // ---- actions -------------------------------------------------------------------------------------
 async function placeBet() {
-  if (activeMarket == null || selOutcome == null) { $("status").textContent = window.t("bet.pickFirst", "Pick a match and an outcome first."); return; }
+  if (activeMarket == null || selOutcome == null) return alertBar(window.t("bet.pickFirst", "Pick a match and an outcome first."));
   const mk = lastSto && parseMarket(lastSto, activeMarket);
-  if (!mk || mk.status !== "open") { $("status").textContent = window.t("bet.notOpen", "This match isn't open for bets."); render(); return; }
+  if (!mk || mk.status !== "open") { alertBar(window.t("bet.notOpen", "This match isn't open for bets.")); render(); return; }
   const stake = nadoToRaw($("stakeAmt").value);
-  if (!stake) { $("status").textContent = window.t("bet.enterStake", "Enter a stake (NADO)."); return; }
+  if (!stake) return alertBar(window.t("bet.enterStake", "Enter a stake (NADO)."));
   await dapp.refresh();
   if (!canPay(dapp, stake, window.t("bet.thisBet", "This bet"))) { render(); return; }
   const lab = mk.labels[selOutcome];
@@ -136,10 +137,10 @@ function createMarket() {
   // resolver set: up to 3 addresses (comma/space/line separated); blank -> you resolve it yourself
   const resolvers = ($("cmResolvers").value || "").split(/[\n,\s]+/).map((s) => s.trim()).filter(Boolean).slice(0, 3);
   const thr = parseInt($("cmThreshold").value, 10) || 0;
-  if (!title) return set(window.t("bet.needTitle", "Give the market a title."));
-  if (labels.length < 2) return set(window.t("bet.needOutcomes", "List at least two outcomes (comma- or line-separated)."));
-  if (closeMin <= 0) return set(window.t("bet.needClose", "Betting must close in a positive number of minutes."));
-  if (thr && resolvers.length && thr > resolvers.length) return set(window.t("bet.thrTooHigh", "Threshold can't exceed the number of resolvers."));
+  if (!title) return alertBar(window.t("bet.needTitle", "Give the market a title."));
+  if (labels.length < 2) return alertBar(window.t("bet.needOutcomes", "List at least two outcomes (comma- or line-separated)."));
+  if (closeMin <= 0) return alertBar(window.t("bet.needClose", "Betting must close in a positive number of minutes."));
+  if (thr && resolvers.length && thr > resolvers.length) return alertBar(window.t("bet.thrTooHigh", "Threshold can't exceed the number of resolvers."));
   const now = dapp.chainNow();
   const lock = Math.round(now + closeMin * 60);               // betting closes closeMin minutes from now (epoch secs)
   const deadline = Math.round(lock + Math.max(voidHrs, 0.5) * 3600);   // anyone may void this long after close
@@ -149,8 +150,7 @@ function createMarket() {
   dapp.call("create_market", [id, labels.length, lock, deadline, desc, source, ev, thr, r[0], r[1], r[2]], null,
             window.t("bet.callCreate", "list “{title}”", { title }), { market: id, phase: "create" });
 }
-const addSource = () => { const n = ($("srcName").value || "").trim(); if (!n) return set(window.t("bet.needSource", "Enter a source name.")); dapp.call("add_source", [n], null, window.t("bet.callAddSource", "add source {n}", { n }), { phase: "src" }); };
-const set = (m) => { $("status").textContent = m; };
+const addSource = () => { const n = ($("srcName").value || "").trim(); if (!n) return alertBar(window.t("bet.needSource", "Enter a source name.")); dapp.call("add_source", [n], null, window.t("bet.callAddSource", "add source {n}", { n }), { phase: "src" }); };
 
 // ---- refresh + render ----------------------------------------------------------------------------
 async function refreshAll() {
@@ -168,7 +168,7 @@ async function refreshAll() {
 }
 function selectMarket(id) {
   activeMarket = Number(id); selOutcome = null;
-  set(window.t("bet.selectPrompt", "Match #{id} — pick an outcome and place your bet.", { id }));
+  notify(window.t("bet.selectPrompt", "Match #{id} — pick an outcome and place your bet.", { id }));
   render();
   try { $("activeMarket").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
 }

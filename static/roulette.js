@@ -9,7 +9,7 @@
 // contract, no game-specific API.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, blocksToTime,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
-         recentChips, statusLabel, tablesOf as allTables, readTable,
+         recentChips, statusLabel, tablesOf as allTables, readTable, alertBar, notify,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
 const CID = "e04c329d0b57c9ea40493e957adfee9c";
@@ -71,24 +71,24 @@ function openTable(t, bankrollRaw) {
 }
 async function newTable() {
   const raw = nadoToRaw($("bankrollAmt").value);
-  if (!raw) { $("status").textContent = window.t("roul.needBankroll", "Enter a bankroll (NADO) to bank a table."); return; }
+  if (!raw) return alertBar(window.t("roul.needBankroll", "Enter a bankroll (NADO) to bank a table."));
   await dapp.refresh();
   if (!canPay(dapp, raw, "Banking this table")) return;
   openTable(randId(), raw);
 }
 async function doBet() {
   const t = activeTable;
-  if (!t) { $("status").textContent = window.t("roul.pickTableFirst", "Pick a table first."); return; }
-  if (!betCount()) { $("status").textContent = window.t("roul.pickNumber", "Pick at least one number on the table to bet on."); return; }
+  if (!t) return alertBar(window.t("roul.pickTableFirst", "Pick a table first."));
+  if (!betCount()) return alertBar(window.t("roul.pickNumber", "Pick at least one number on the table to bet on."));
   const stake = nadoToRaw($("stakeAmt").value);
-  if (!stake) { $("status").textContent = window.t("roul.enterStake", "Enter a stake (NADO)."); return; }
+  if (!stake) return alertBar(window.t("roul.enterStake", "Enter a stake (NADO)."));
   const tb = await fetchTable(t);
-  if (!tb || !tb.exists) { $("status").textContent = dapp.whereIs("table", t); return; }
-  if (tb.closed) { $("status").textContent = window.t("roul.tableClosedMsg", "That table is closed."); return; }
+  if (!tb || !tb.exists) return alertBar(dapp.whereIs("table", t));
+  if (tb.closed) return alertBar(window.t("roul.tableClosedMsg", "That table is closed."));
   await dapp.refresh();
   if (!canPay(dapp, stake, "This bet")) { render(); return; }
   const need = stake * BigInt(betMult() - 1);
-  if (BigInt(tb.bankroll) - BigInt(tb.committed) < need) { $("status").textContent = window.t("roul.cantCoverNow", "This table can't cover a {mult}× win right now (bankroll left: {left} NADO). Lower your stake or widen your bet.", { mult: betMult(), left: rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) }); render(); return; }
+  if (BigInt(tb.bankroll) - BigInt(tb.committed) < need) { alertBar(window.t("roul.cantCoverNow", "This table can't cover a {mult}× win right now (bankroll left: {left} NADO). Lower your stake or widen your bet.", { mult: betMult(), left: rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) })); render(); return; }
   const g = randId(), slots = betSlots(), S = load(LS_S);
   S[g] = { table: t, stake: stake.toString(), numbers: [...selected], ts: Date.now() }; save(LS_S, S);
   render();
@@ -96,7 +96,7 @@ async function doBet() {
 }
 function fundTable() {
   const raw = nadoToRaw($("fundAmt").value);
-  if (!raw) { $("status").textContent = window.t("roul.enterTopUp", "Enter an amount to add to this table's bankroll."); return; }
+  if (!raw) return alertBar(window.t("roul.enterTopUp", "Enter an amount to add to this table's bankroll."));
   if (!canPay(dapp, raw, "The top-up")) return;
   dapp.call("fund", [activeTable], raw, "top up table #" + activeTable + " bankroll · " + rawToNado(raw) + " NADO", { table: activeTable, phase: "fund" });
 }
@@ -157,7 +157,7 @@ function renderLobby(sto) {
 }
 function selectTable(id) {
   activeTable = id; seatsN = 40; $("joinId").value = String(id);
-  $("status").textContent = window.t("roul.tableSelected", "Table #{id} — build your bet on the layout and set a stake, then Place bet.", { id });
+  notify(window.t("roul.tableSelected", "Table #{id} — build your bet on the layout and set a stake, then Place bet.", { id }));
   refreshActive();
   try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
 }
@@ -202,7 +202,7 @@ function wireUI() {
   stickyInputs(dapp, ['stakeAmt', 'bankrollAmt', 'fundAmt', 'bankAmt', 'betAmt']);   // typed amounts persist across turns
   $("btnNewTable").onclick = newTable;
   $("btnBet").onclick = doBet;
-  $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = window.t("roul.enterTableId", "Enter a table ID, or pick one from the lobby."); };
+  $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else alertBar(window.t("roul.enterTableId", "Enter a table ID, or pick one from the lobby.")); };
   dapp.wireStakeSlider(maxBetRaw, () => render());   // owns stakeAmt input + the % slider + Max
   dapp.wirePctSlider("bankroll", { slider: "bankrollSlider", input: "bankrollAmt" }, () => dapp.exec, render);   // bank a table: % of your playable balance
   dapp.wirePctSlider("fund", { slider: "fundSlider", input: "fundAmt" }, () => dapp.exec, render);   // top up the bankroll: % of your playable balance

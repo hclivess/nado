@@ -7,7 +7,7 @@
 // CONTRACT (runtime stackvm) called via the generic exec `call` op; the stake is escrowed as VALUE and paid by
 // the contract's PAY. Login + every signature is delegated to the NADO wallet; the key never touches this origin.
 import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, blocksToTime,
-         lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, statusLabel,
+         lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, statusLabel, alertBar, notify,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
 const CID = "d0c95d981fa9b0c521bdcff28662c0df";
@@ -74,7 +74,7 @@ function bet(gameId, stakeRaw, method) {   // method: "open" (slot 1) or "join" 
 }
 async function newGame() {
   const raw = nadoToRaw($("stakeAmt").value);
-  if (!raw) { $("status").textContent = window.t("coinflip.enterStake", "Enter a stake (NADO)."); return; }
+  if (!raw) return alertBar(window.t("coinflip.enterStake", "Enter a stake (NADO)."));
   if (!canPay(dapp, raw, "Opening this game")) return;
   bet(randId(), raw, "open");
 }
@@ -82,8 +82,8 @@ async function joinGame() {
   const gid = parseInt($("joinId").value, 10);
   if (!gid) return;
   const g = await fetchGame(gid);
-  if (!g || !g.exists) { $("status").textContent = dapp.whereIs("game", gid); return; }
-  if (g.settled || g.ncom >= 2) { $("status").textContent = window.t("coinflip.fullOrSettled", "That game is full or already settled."); return; }
+  if (!g || !g.exists) return alertBar(dapp.whereIs("game", gid));
+  if (g.settled || g.ncom >= 2) return alertBar(window.t("coinflip.fullOrSettled", "That game is full or already settled."));
   await dapp.refresh();
   const need = BigInt(g.stake);
   if (!canPay(dapp, need, "Joining this game")) { render(); return; }
@@ -115,7 +115,7 @@ function maybeAutoSettle() {
 const cancelGame = () => dapp.call("cancel", [active], null, window.t("coinflip.cancelDesc", "cancel game #{id}", { id: active }), { gameId: active, phase: "cancel" });
 async function rematch() {
   const stake = (lastGame && lastGame.exists) ? BigInt(lastGame.stake) : ((gamesLoad()[active] || {}).stake ? BigInt(gamesLoad()[active].stake) : null);
-  if (!stake) { $("status").textContent = window.t("coinflip.openNewPanel", "Open a new game from the panel above."); return; }
+  if (!stake) return alertBar(window.t("coinflip.openNewPanel", "Open a new game from the panel above."));
   if (!canPay(dapp, stake, "The rematch")) return;
   const rgid = rematchId(active), rg = await fetchGame(rgid);
   bet(rgid, stake, (rg && rg.exists && rg.ncom >= 1 && !rg.settled) ? "join" : "open");
@@ -206,7 +206,7 @@ function render() {
         return '<button class="chip' + cls + '" data-g="' + id + '"' + title + ">" + tag + "#" + id + " · " + rawToNado(g[id].stake || "0") + "</button>";
       }).join(" ")
     : '<span class="dim">' + window.t("coinflip.noGamesYet", "No games yet.") + '</span>';
-  $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { active = parseInt(b.dataset.g, 10); $("joinId").value = String(active); $("status").textContent = window.t("coinflip.gameSelected", "Game #{id} selected.", { id: active }); refreshActive(); try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
+  $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { active = parseInt(b.dataset.g, 10); $("joinId").value = String(active); notify(window.t("coinflip.gameSelected", "Game #{id} selected.", { id: active })); refreshActive(); try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
   renderActive();
 }
 function renderActive() {
