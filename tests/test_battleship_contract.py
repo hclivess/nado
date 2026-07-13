@@ -126,6 +126,10 @@ def _mk_move():
     HIT = [A(0), LD("pex"), A(2), P(1), EQ, AND]                                           # hit = pex && isShip==1
     ops += [A(0), A(0), LD("h2")] + HIT + P1v   + [MUL, ADD, ST("h2")]                     # opp(=p2 if I'm p1) hits += hit
     ops += [A(0), A(0), LD("h1")] + HIT + NOTP1 + [MUL, ADD, ST("h1")]
+    # record the shot RESULT so the ATTACKER's UI can render it: res[g|attackerSlot|pc] = (isShip+1)*pex.
+    # attackerSlot = the opponent of the caller = 1+P1 (I'm p1 → attacker is p2 → 2; I'm p2 → attacker p1 → 1).
+    RESKEY = ([A(0), P("|"), OP("CONCAT")] + [P(1)] + P1v + [ADD, OP("CONCAT"), P("|"), OP("CONCAT"), A(0), LD("pc"), OP("CONCAT")])
+    ops += RESKEY + [A(2), P(1), ADD, A(0), LD("pex"), MUL, ST("res")]
     P1WIN = [A(0), LD("h1"), P(SHIPS), EQ]; P2WIN = [A(0), LD("h2"), P(SHIPS), EQ]
     ANYWIN = P1WIN + P2WIN + [OR]
     ops += [A(0), LD("p1"), A(0), LD("pt")] + P1WIN + [MUL, PAY]                           # pay winner the pot
@@ -238,6 +242,7 @@ def bad_miss(board, salts, cell):
 # cell 5 ∈ FB (a ship in B), cell 0 ∈ FA (a ship in A). A fired at 5. B proves it against B's board -> HIT for A.
 call("move",[1, 0]+proof_args(boardB,saltsB,5), 0, "B")   # B proves A's shot(5)=HIT, fires at A's cell 0
 ck("B proved A's shot (cell 5 ∈ B) = HIT for A", M("h1",1)==1 and M("pc",1)==0 and M("mc",1)==2)
+ck("shot RESULT recorded for the attacker's UI (res[g|1|5]=2=hit)", M("res","1|1|5")==2)
 
 # A must now prove B's shot at cell 0 (∈ FA). A cannot claim a FALSE miss on it.
 ck("A cannot prove a FALSE miss (isShip=0 on a real ship)", rv(call("move",[1, 6]+bad_miss(boardA,saltsA,0), 0, "A")))
