@@ -2,7 +2,7 @@
 // board fits in the VM): move() checks turn + free cell ON-CHAIN, detects three-in-a-row and pays the
 // pot instantly, and a full board auto-refunds both stakes. Ply-bound moves (the chess retry-race
 // lesson), resign/abort escapes, and a short ~30-min move clock. Built on the shared SDK (nadodapp.js).
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, blocksToTime, inviteGate,
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, blocksToTime, inviteGate,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
          recentChips, statusLabel, loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
@@ -82,12 +82,12 @@ async function refreshAll() {
         watch.phase === "move" ? (_m(sto, "mc")[g] || 0) > watch.ply :
         !!_m(sto, "sd")[g];
       if (done) {
-        $("status").textContent = { open: window.t("ttt.stOpen", "✓ Game is on-chain — send your opponent the invite below."),
+        okBar({ open: window.t("ttt.stOpen", "✓ Game is on-chain — send your opponent the invite below."),
           join: window.t("ttt.stJoin", "✓ You're in — X moves first."), move: window.t("ttt.stMove", "✓ Move landed."),
-          resign: window.t("ttt.stResign", "✓ Resigned."), abort: window.t("ttt.stAbort", "✓ Refunded."), cancel: window.t("ttt.stCancel", "✓ Cancelled — stake refunded.") }[watch.phase];
+          resign: window.t("ttt.stResign", "✓ Resigned."), abort: window.t("ttt.stAbort", "✓ Refunded."), cancel: window.t("ttt.stCancel", "✓ Cancelled — stake refunded.") }[watch.phase]);
         watch = null;
       } else if (watch.ts && Date.now() - watch.ts > 75000) {
-        $("status").textContent = window.t("ttt.stSettling", "Still settling on-chain — your move and funds are safe; the board updates by itself.");
+        notify(window.t("ttt.stSettling", "Still settling on-chain — your move and funds are safe; the board updates by itself."));
         watch = null;
       }
     }
@@ -216,7 +216,7 @@ function wireUI() {
   if ($("btnMoreLobby")) $("btnMoreLobby").onclick = () => { lobbyN += 48; if (lastSto) renderLobby(lastSto); };
 }
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("ttt.cryptoFail", "Crypto bundle failed to load — reload."); return; }
+  try { await dapp.init(); } catch (e) { alertBar(window.t("ttt.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR();
   orderCards(["activeGame", "lobby", "opencard", "walletcard", "bankroll", "scoreboard"]);
   const q = new URLSearchParams(location.search).get("game");

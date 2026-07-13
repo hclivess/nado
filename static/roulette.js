@@ -327,7 +327,7 @@ dapp.onReturn((pend, ok, err) => {
   dapp.showReturn(pend, ok, err);
 });
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("roul.cryptoFail", "Crypto bundle failed to load — reload."); return; }
+  try { await dapp.init(); } catch (e) { alertBar(window.t("roul.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR(); orderCards(["activeGame","lobby","play","bankcard","walletcard","bankroll","scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (activeTable == null) activeTable = parseInt(q, 10); }

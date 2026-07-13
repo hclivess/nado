@@ -5,7 +5,7 @@
 // Symbols come off weighted 64-stop virtual reels; the paytable pays up to 150x (exact RTP 95.796%,
 // full-enumeration-proven — see tests/test_slots_contract.py). The machine's bank commits a 150x cover
 // for every open spin, so it can never welsh. Settle is permissionless; a pruned spin refunds via claim.
-import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate, canPay, orderCards, alertBar,
+import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate, canPay, orderCards, alertBar, okBar,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
          recentChips, statusLabel, loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
@@ -138,8 +138,8 @@ async function refreshAll() {
         watch.phase === "close" ? !!_m(sto, "tz")[String(watch.table)] :
         watch.phase === "fund" ? true : false;
       if (done) {
-        $("status").textContent = { open: window.t("slots.liveMsg", "✓ Machine is live — share it and earn the edge."), spin: window.t("slots.spinLockedMsg", "✓ Spin locked to the next blocks…"),
-          settle: window.t("slots.settledMsg", "✓ Settled on-chain."), close: window.t("slots.closedMsg", "✓ Machine closed — bank cashed out."), fund: window.t("slots.toppedMsg", "✓ Bank topped up.") }[watch.phase] || window.t("slots.confirmedMsg", "✓ Confirmed.");
+        okBar({ open: window.t("slots.liveMsg", "✓ Machine is live — share it and earn the edge."), spin: window.t("slots.spinLockedMsg", "✓ Spin locked to the next blocks…"),
+          settle: window.t("slots.settledMsg", "✓ Settled on-chain."), close: window.t("slots.closedMsg", "✓ Machine closed — bank cashed out."), fund: window.t("slots.toppedMsg", "✓ Bank topped up.") }[watch.phase] || window.t("slots.confirmedMsg", "✓ Confirmed."));
         dapp.clearInflight();   // re-enable the SPIN button the instant the spin lands (was stuck disabled ~3 min)
         watch = null;
       }
@@ -278,7 +278,7 @@ function wireUI() {
   $("btnClose").onclick = closeMachine;
 }
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("slots.cryptoFail", "Crypto bundle failed to load — reload."); return; }
+  try { await dapp.init(); } catch (e) { alertBar(window.t("slots.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR();
   orderCards(["activeGame", "lobby", "opencard", "paytableCard", "walletcard", "bankroll", "scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");

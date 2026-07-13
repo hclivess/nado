@@ -362,7 +362,7 @@ dapp.onReturn((pend, ok, err) => {
   dapp.showReturn(pend, ok, err, { roll: window.t("farkle.stRoll", "Rolling…"), hold: window.t("farkle.stHold", "Confirming your move…"), settle: window.t("farkle.stSettle", "Paying the winner…"), reclaim: window.t("farkle.stReclaim", "Reclaiming…"), timeout: window.t("farkle.stTimeout", "Finalizing…") });
 });
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("farkle.cryptoFail", "Crypto bundle failed to load — reload."); return; }
+  try { await dapp.init(); } catch (e) { alertBar(window.t("farkle.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR(); orderCards(["activeGame", "lobby", "play", "opencard", "walletcard", "bankroll", "scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (activeTable == null) activeTable = parseInt(q, 10); }

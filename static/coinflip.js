@@ -270,7 +270,7 @@ dapp.onReturn((pend, ok, err) => {
   dapp.showReturn(pend, ok, err, { bet: window.t("coinflip.betSubmitted", "Bet submitted — confirming…"), settle: window.t("coinflip.settling", "Settling…") });
 });
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("coinflip.cryptoFail", "Crypto bundle failed to load — reload."); return; }
+  try { await dapp.init(); } catch (e) { alertBar(window.t("coinflip.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR(); orderCards(["activeGame","lobby","play","walletcard","bankroll","scoreboard"]);
   const q = new URLSearchParams(location.search).get("game");
   if (q) { $("joinId").value = q; if (active == null) active = parseInt(q, 10); }

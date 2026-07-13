@@ -397,7 +397,7 @@ dapp.onReturn((pend, ok, err) => {
   dapp.showReturn(pend, ok, err, CONFIRMING);   // SDK sets #status + tracks the optimistic phase
 });
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("bet.cryptoFail", "Crypto bundle failed to load — reload."); return; }
+  try { await dapp.init(); } catch (e) { alertBar(window.t("bet.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR();
   const q = new URLSearchParams(location.search).get("market");
   if (q && activeMarket == null) activeMarket = parseInt(q, 10);

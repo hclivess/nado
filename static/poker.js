@@ -9,7 +9,7 @@
 //     hand on-chain (straight flush … high card, kickers included — 4000/4000 differential-verified).
 //     Best hand takes the pot. Board + each hand draw from independent decks (exact duplicates are legal).
 import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, commitHashOf, blake2bHash, _m, $, base, gate, canPay, alertBar, inviteGate,
-         hoist, orderCards, blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, notify,
+         hoist, orderCards, blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, notify, okBar,
          scoreBump, scoreSort, recentChips, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
@@ -274,15 +274,15 @@ async function refreshActive() {
         (watch.phase === "leave") ? !_m(sto, "gg")[String(watch.seat)] :
         (watch.phase === "settle") ? !!_m(sto, "tz")[String(watch.table)] : false;
       if (done) {
-        $("status").textContent = { open: window.t("poker.doneOpen", "✓ Table confirmed — you're seated. Share the link below to fill it."),
+        okBar({ open: window.t("poker.doneOpen", "✓ Table confirmed — you're seated. Share the link below to fill it."),
           join: window.t("poker.doneJoin", "✓ Seat confirmed — you're in the hand."), bet: window.t("poker.doneBet", "✓ Bet confirmed on-chain."),
           reveal: window.t("poker.doneReveal", "✓ Your hand is shown on-chain."), settle: window.t("poker.doneSettle", "✓ Pot paid out."),
           start: window.t("poker.doneStart", "✓ Dealt! Cards are locking in the next blocks — hole cards appear once they finalize."),
           closest: window.t("poker.doneClose", "✓ Street closed — the next card is locking in now."),
-          leave: window.t("poker.doneLeave", "✓ You left the table — buy-in refunded in full.") }[watch.phase];
+          leave: window.t("poker.doneLeave", "✓ You left the table — buy-in refunded in full.") }[watch.phase]);
         watch = null;
       } else if (watch.ts && Date.now() - watch.ts > 75000) {
-        $("status").textContent = window.t("poker.stillSettling", "Still settling on-chain — your chips and funds are safe; the table updates by itself.");
+        notify(window.t("poker.stillSettling", "Still settling on-chain — your chips and funds are safe; the table updates by itself."));
         watch = null;
       }
     }
@@ -616,7 +616,7 @@ dapp.onReturn((pend, ok, err) => {
     start: window.t("poker.retStart", "Dealing — confirming…"), leave: window.t("poker.retLeave", "Leaving the table — refunding…"), closest: window.t("poker.retClose", "Fast-forwarding the street…") });
 });
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("poker.cryptoFail", "Crypto bundle failed to load — reload."); return; }
+  try { await dapp.init(); } catch (e) { alertBar(window.t("poker.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR(); orderCards(["activeGame","lobby","play","opencard","walletcard","bankroll","scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (activeTable == null) activeTable = parseInt(q, 10); }

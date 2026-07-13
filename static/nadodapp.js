@@ -139,7 +139,7 @@ export function inviteGate(dapp, { kind, id, title, body, joinLabel, onJoin }) {
 const _ALERT_TONES = {
   warn: { bg: "#2a1214", bd: "rgba(248,81,73,.65)", fg: "#ffb4ae", icon: "⚠ " },
   info: { bg: "#0e2027", bd: "rgba(0,201,167,.5)", fg: "#7fe9d3", icon: "" },
-  ok:   { bg: "#0f2417", bd: "rgba(0,201,167,.55)", fg: "#8ff0c6", icon: "✓ " },
+  ok:   { bg: "#0f2417", bd: "rgba(0,201,167,.55)", fg: "#8ff0c6", icon: "" },   // messages carry their own ✓
 };
 export function alertBar(msg, actionLabel, actionFn, opts) {
   opts = opts || {};
@@ -235,7 +235,7 @@ export const disp = (addr) => !addr ? "—" : (_aliasCache[addr] ? "@" + _aliasC
 // wireWallet(dapp): the sign-in / deposit / withdraw buttons ("bankAmt" input) — identical in every game.
 const _L1_FEE_RESERVE = RAW / 1000n;   // leave ~0.001 NADO of L1 for the deposit tx fee when buying in 100%
 export function wireWallet(dapp) {
-  const st = (m) => { const s = $("status"); if (s) s.textContent = m; };
+  const st = (m) => alertBar(m);   // deposit/withdraw input errors → the prominent toast, not the quiet #status
   if ($("btnSignIn")) $("btnSignIn").onclick = () => dapp.signIn();
   if ($("btnDeposit")) $("btnDeposit").onclick = () => { const raw = nadoToRaw($("bankAmt").value); if (!raw) return st("Enter an amount to deposit."); if (raw + 1000n > dapp.l1) return st("Not enough in your L1 wallet (" + rawToNado(dapp.l1) + " NADO)."); dapp.deposit(raw); };
   if ($("btnWithdraw")) $("btnWithdraw").onclick = () => { const raw = nadoToRaw($("bankAmt").value); if (!raw) return st("Enter an amount to withdraw."); if (dapp.exec < raw) return st("You only have " + rawToNado(dapp.exec) + " NADO in the exec layer."); dapp.withdraw(raw); };
@@ -573,12 +573,17 @@ export class NadoDapp {
   // retire the line to a "✓ done" label. Games: call doneLabels() once, showReturn() from onReturn(),
   // and settleInflight(landedFn) each refresh. landedFn is the game's own on-chain "did it land?" check;
   // without one, the line clears ~2 tips after submit (or after 3 min) so it can never stick forever.
-  setStatus(text) { const s = document.getElementById("status"); if (s) s.textContent = text; }
   doneLabels(map) { this._stDone = map || {}; return this; }
-  // showReturn(pend, ok, err, labels): set the post-redirect status line and remember the optimistic phase
+  // showReturn(pend, ok, err, labels): surface an accepted action's "…confirming…" as a transient info toast.
+  // Rejections already popped a warn toast in _applyReturn, so we don't re-show them here; settleInflight /
+  // _balWatch raise the "✓ done" toast once the action lands on-chain. ALL feedback flows through the shared
+  // toast (alertBar/notify/okBar) — nothing writes the easily-missed #status line anymore.
   showReturn(pend, ok, err, labels) {
-    this.setStatus(statusLabel(pend, ok, err, labels));
-    this._stActive = (ok && pend && pend.phase && !err) ? pend.phase : null;
+    if (!ok || !pend || !pend.phase) { this._stActive = null; return; }
+    this._stActive = pend.phase;
+    const msg = statusLabel(pend, ok, err, labels);
+    if (pend.phase === "connect") okBar(msg);   // one-off success, no pending on-chain effect to confirm
+    else notify(msg);                           // "…confirming…" — auto-dismisses; the ✓ toast follows on land
   }
   settleInflight(landedFn) {
     const f = this.inflight;
@@ -589,7 +594,7 @@ export class NadoDapp {
     if (!landed) return;
     const phase = f.phase;
     this.clearInflight();
-    if (this._stActive === phase) { this.setStatus((this._stDone && this._stDone[phase]) || ""); this._stActive = null; }
+    if (this._stActive === phase) { const d = this._stDone && this._stDone[phase]; if (d) okBar(d); this._stActive = null; }
   }
   // reflectUrl(key, id): keep the address bar pointing at the selected table/game/pet, so it's the exact
   // shareable link (?<key>=<id>) and Back/refresh return here. replaceState (no history spam); only when it
@@ -715,11 +720,8 @@ export class NadoDapp {
     if (w) {
       if (w.exec == null) { w.exec = this.exec; w.l1 = this.l1; w.ts = Date.now(); }   // baseline: first read after return
       else if (this.exec !== w.exec || this.l1 !== w.l1 || Date.now() - w.ts > 180000) {
-        this._balWatch = null;
-        const el = document.getElementById("status");   // only replace the OPTIMISTIC line, never a newer message
-        if (el && /confirming|submitted/i.test(el.textContent || "")) {
-          el.textContent = w.phase === "deposit" ? "✓ Tokens bought — your playable balance is updated." : "✓ Cashed out — back in your main-chain wallet.";
-        }
+        this._balWatch = null;   // balances moved (or timed out) → the buy-in / cash-out landed
+        okBar(w.phase === "deposit" ? "✓ Tokens bought — your playable balance is updated." : "✓ Cashed out — back in your main-chain wallet.");
       }
     }
   }

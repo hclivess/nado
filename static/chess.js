@@ -356,7 +356,7 @@ dapp.onReturn((pend, ok, err) => {
   dapp.showReturn(pend, ok, err, CH_CONFIRMING);   // SDK owns the #status line + confirmation lifecycle
 });
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("chess.cryptoFail", "Crypto bundle failed to load — reload."); return; }
+  try { await dapp.init(); } catch (e) { alertBar(window.t("chess.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); orderCards(["activeGame","lobby","play","walletcard","bankroll"]);
   const q = new URLSearchParams(location.search).get("game");
   if (q) { $("joinId").value = q; if (activeGame == null) { activeGame = parseInt(q, 10); haveState = false; } }

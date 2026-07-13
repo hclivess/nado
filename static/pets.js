@@ -1245,7 +1245,7 @@ dapp.onReturn((pend, ok, err) => {
     offer: window.t("pets.rtOffer", "Offer sent — escrowed until the owner accepts."), offeract: window.t("pets.rtOfferact", "Confirming…") });
 });
 async function boot() {
-  try { await dapp.init(); } catch (e) { $("status").textContent = window.t("pets.cryptoFail", "Crypto bundle failed to load — reload."); return; }
+  try { await dapp.init(); } catch (e) { alertBar(window.t("pets.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR();
   orderCards(["activePet", "arenaCard", "battlesCard", "myPets", "adopt", "marketCard", "galleryCard", "fameCard", "walletcard", "bankroll"]);
   const q = new URLSearchParams(location.search);
