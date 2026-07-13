@@ -14,6 +14,7 @@ const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
 const LS_G = "nado_ttt_games";
 
 let lastSto = null, activeGame = null, lastGame = null, watch = null, pendingCell = null;
+let lobbyN = 24;   // the lobby is the only discovery path (no go-to-id box), so cap + "Show more" keeps it browsable
 
 // ---- reads -----------------------------------------------------------------------------------------
 function gameFrom(sto, g) {
@@ -113,10 +114,15 @@ function renderLobby(sto) {
   const el = $("lobbyList");
   const open = Object.keys(_m(sto, "p1")).map((g) => gameFrom(sto, g))
     .filter((g) => g.exists && g.nn === 1 && !g.sd).sort((a, b) => b.id - a.id);
-  el.innerHTML = open.length ? open.slice(0, 24).map((g) =>
+  el.innerHTML = open.length ? open.slice(0, lobbyN).map((g) =>
     '<button class="chip betting" data-g="' + g.id + '">' + window.t("ttt.lobbyChip", "⭕ #{id} · stake {stake} · by {who}", { id: g.id, stake: rawToNado(g.stake), who: disp(g.p1) }) + "</button>").join(" ")
     : '<span class="dim">' + window.t("ttt.noOpen", "No open challenges — start one below.") + '</span>';
-  el.querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeGame = parseInt(b.dataset.g, 10); refreshAll(); });
+  const bm = $("btnMoreLobby");
+  if (bm) {
+    bm.classList.toggle("hidden", open.length <= lobbyN);
+    if (open.length > lobbyN) bm.textContent = window.t("ttt.showMoreN", "Show more ({n} more)", { n: open.length - lobbyN });
+  }
+  if (!el._deleg) { el._deleg = true; el.addEventListener("click", (e) => { const b = e.target.closest(".chip"); if (b) { activeGame = parseInt(b.dataset.g, 10); refreshAll(); } }); }
 }
 
 // ---- render ----------------------------------------------------------------------------------------
@@ -207,6 +213,7 @@ function wireUI() {
   dapp.wirePctSlider("stake", { slider: "stakeSlider", input: "stakeAmt" }, () => dapp.exec, render);   // play for stakes: % of your playable balance
   stickyInputs(dapp, ['stakeAmt', 'bankAmt']);   // typed amounts persist across turns
   $("btnNewGame").onclick = newGame;
+  if ($("btnMoreLobby")) $("btnMoreLobby").onclick = () => { lobbyN += 48; if (lastSto) renderLobby(lastSto); };
 }
 async function boot() {
   try { await dapp.init(); } catch (e) { $("status").textContent = window.t("ttt.cryptoFail", "Crypto bundle failed to load — reload."); return; }

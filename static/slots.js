@@ -17,6 +17,7 @@ const SYM = ["🍒", "🍋", "🍊", "🍇", "🔔", "💎", "7️⃣"];
 const LS_T = "nado_slots_machines", LS_S = "nado_slots_spins";
 
 let lastSto = null, activeTable = null, lastTable = null, mySpins = [];
+let lobbyN = 24;   // the lobby is the only discovery path (no go-to-id box), so cap + "Show more" keeps it browsable
 let knownTables = new Set(), knownSeats = new Set(), watch = null, reelAnim = null;
 
 // ---- derivation (mirror of the contract — display only; settle recomputes it on-chain) --------------
@@ -167,10 +168,15 @@ function renderLobby(sto) {
   const el = $("lobbyList");
   const ms = Object.keys(_m(sto, "ta")).map((t) => machineFrom(sto, t)).filter((m) => m.exists && !m.closed);
   ms.sort((a, b) => b.tk - a.tk);
-  el.innerHTML = ms.length ? ms.slice(0, 24).map((m) =>
+  el.innerHTML = ms.length ? ms.slice(0, lobbyN).map((m) =>
     '<button class="chip betting" data-t="' + m.id + '">' + window.t("slots.chip", "🎰 #{id} · bank {bank} · max bet {max}", { id: m.id, bank: rawToNado(m.tk), max: rawToNado(maxBet(m)) }) + "</button>").join(" ")
     : '<span class="dim">' + window.t("slots.noMachines", "No machines on the floor yet — open the first one below and earn the edge.") + "</span>";
-  el.querySelectorAll(".chip").forEach((b) => b.onclick = () => { activeTable = parseInt(b.dataset.t, 10); refreshAll(); });
+  const bm = $("btnMoreLobby");
+  if (bm) {
+    bm.classList.toggle("hidden", ms.length <= lobbyN);
+    if (ms.length > lobbyN) bm.textContent = window.t("slots.showMoreN", "Show more ({n} more)", { n: ms.length - lobbyN });
+  }
+  if (!el._deleg) { el._deleg = true; el.addEventListener("click", (e) => { const b = e.target.closest(".chip"); if (b) { activeTable = parseInt(b.dataset.t, 10); refreshAll(); } }); }
 }
 
 // ---- render ----------------------------------------------------------------------------------------
@@ -261,6 +267,7 @@ function wireUI() {
   wireWallet(dapp);
   stickyInputs(dapp, ['stakeAmt', 'bankrollAmt', 'fundAmt', 'bankAmt']);   // typed amounts persist across turns
   $("btnNewMachine").onclick = openMachine;
+  if ($("btnMoreLobby")) $("btnMoreLobby").onclick = () => { lobbyN += 48; if (lastSto) renderLobby(lastSto); };
   $("btnSpin").onclick = doSpin;
   $("btnFund").onclick = fundMachine;
   $("btnCollect").onclick = collectWins;
