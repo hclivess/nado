@@ -23,6 +23,7 @@ const colorName = (n) => { const c = colorOf(n); return c === "red" ? window.t("
 const LS_T = "nado_roul_tables", LS_S = "nado_roul_seats";
 let lastSto = null;
 let activeTable = null, lastTable = null, lastSeats = [], selected = new Set();
+let seatsN = 40;   // cap how many of a table's (unbounded) seats we render at once; "Show more" grows it
 let knownTables = new Set(), knownSeats = new Set();
 
 function pruneAndTrack(sto) {
@@ -155,7 +156,7 @@ function renderLobby(sto) {
   el.querySelectorAll(".chip").forEach((b) => b.onclick = () => selectTable(parseInt(b.dataset.t, 10)));
 }
 function selectTable(id) {
-  activeTable = id; $("joinId").value = String(id);
+  activeTable = id; seatsN = 40; $("joinId").value = String(id);
   $("status").textContent = window.t("roul.tableSelected", "Table #{id} — build your bet on the layout and set a stake, then Place bet.", { id });
   refreshActive();
   try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
@@ -206,6 +207,7 @@ function wireUI() {
   dapp.wirePctSlider("bankroll", { slider: "bankrollSlider", input: "bankrollAmt" }, () => dapp.exec, render);   // bank a table: % of your playable balance
   dapp.wirePctSlider("fund", { slider: "fundSlider", input: "fundAmt" }, () => dapp.exec, render);   // top up the bankroll: % of your playable balance
   $("btnClose").onclick = closeTable;
+  if ($("btnMoreSeats")) $("btnMoreSeats").onclick = () => { seatsN += 60; renderActive(); };
   dapp.wireAutoCollect();
   $("btnFund").onclick = fundTable;
   $("btnReopen").onclick = reopenTable;
@@ -283,9 +285,9 @@ function renderActive() {
   $("gStatus").textContent = phaseTxt;
   $("btnReopen").classList.toggle("hidden", !(!tb.exists && T.bankroll && T.ts && Date.now() - T.ts > 120000));
   // wheel: show the most recent resolvable result at this table (settled or client-computed), else spinning/idle
-  const resolved = lastSeats.filter((s) => s.result != null).sort((a, b) => b.gh - a.gh);
+  const top = lastSeats.find((s) => s.result != null);   // lastSeats is newest-first, so first-with-result is newest
   const wheel = $("wheel"), anyPending = lastSeats.some((s) => s.pending);
-  if (resolved.length) { const n = resolved[0].result; wheel.className = "wheel " + colorOf(n); wheel.textContent = n; $("result").textContent = window.t("roul.lastSpin", "Last spin: {color} {n}", { color: colorName(n), n }); }
+  if (top) { const n = top.result; wheel.className = "wheel " + colorOf(n); wheel.textContent = n; $("result").textContent = window.t("roul.lastSpin", "Last spin: {color} {n}", { color: colorName(n), n }); }
   else if (anyPending) { wheel.className = "wheel spin"; wheel.textContent = "?"; $("result").textContent = window.t("roul.bettingOpen", "Betting open — the wheel spins soon"); }
   else { wheel.className = "wheel"; wheel.textContent = "?"; $("result").textContent = tb.exists && !tb.closed ? window.t("roul.placeBets", "Place your bets!") : "…"; }
   // seats
@@ -298,7 +300,13 @@ function renderActive() {
     else tag = '<span class="b pend">' + window.t("roul.spinsInTag", "spins in {t}", { t: (s.spinsIn != null ? blocksToTime(s.spinsIn) : "…") }) + "</span>";
     return '<div class="seat">' + youTag + disp(s.addr) + ' · <span class="mono">' + rawToNado(s.stake) + "</span> " + window.t("roul.on", "on") + " " + pips + " <span class='dim'>(" + s.mult + "×)</span> " + tag + "</div>";
   };
-  $("seats").innerHTML = lastSeats.length ? lastSeats.map(seatRow).join("") : '<span class="dim">' + window.t("roul.noSeats", "No seats yet — be the first to bet.") + "</span>";
+  // render only a capped slice — a busy table accrues unboundedly many seats over its life
+  $("seats").innerHTML = lastSeats.length ? lastSeats.slice(0, seatsN).map(seatRow).join("") : '<span class="dim">' + window.t("roul.noSeats", "No seats yet — be the first to bet.") + "</span>";
+  const bms = $("btnMoreSeats");
+  if (bms) {
+    bms.classList.toggle("hidden", lastSeats.length <= seatsN);
+    if (lastSeats.length > seatsN) bms.textContent = window.t("roul.showMoreN", "Show more ({n} more)", { n: lastSeats.length - seatsN });
+  }
   // my collect actions
   const wrap = $("myActions"); wrap.innerHTML = "";
   for (const s of mySeats) {

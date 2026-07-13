@@ -18,6 +18,7 @@ const dapp = new NadoDapp({ cid: CID, app: "Dice" });
 const LS_T = "nado_dice_tables", LS_S = "nado_dice_seats";
 let lastSto = null;
 let activeTable = null, lastTable = null, lastSeats = [], target = 50;
+let seatsN = 40;   // cap how many of a table's (unbounded) seats we render at once; "Show more" grows it
 let knownTables = new Set(), knownSeats = new Set();
 
 function pruneAndTrack(sto) {
@@ -141,7 +142,7 @@ function renderLobby(sto) {
   el.querySelectorAll(".chip").forEach((b) => b.onclick = () => selectTable(parseInt(b.dataset.t, 10)));
 }
 function selectTable(id) {
-  activeTable = id; $("joinId").value = String(id);
+  activeTable = id; seatsN = 40; $("joinId").value = String(id);
   $("status").textContent = window.t("dice.tableSelected", "Table #{id} — set your stake and win chance, then Place roll.", { id });
   refreshActive();
   try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
@@ -175,6 +176,7 @@ function wireUI() {
   $("btnBet").onclick = doBet;
   $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else $("status").textContent = window.t("dice.enterTableId", "Enter a table ID, or pick one from the lobby."); };
   $("btnClose").onclick = closeTable;
+  if ($("btnMoreSeats")) $("btnMoreSeats").onclick = () => { seatsN += 60; renderActive(); };
   dapp.wireAutoCollect();
   $("btnReopen").onclick = reopenTable;
   $("btnFund").onclick = fundTable;
@@ -247,10 +249,10 @@ function renderActive() {
   }
   $("gStatus").textContent = phaseTxt;
   $("btnReopen").classList.toggle("hidden", !(!tb.exists && T.bankroll && T.ts && Date.now() - T.ts > 120000));
-  // die shows the most recent resolved roll at this table
-  const resolved = lastSeats.filter((s) => s.roll != null).sort((a, b) => b.gh - a.gh);
+  // die shows the most recent resolved roll — lastSeats is already newest-first, so the first with a roll wins
+  const top = lastSeats.find((s) => s.roll != null);
   const die = $("die");
-  if (die) { if (resolved.length) { die.textContent = resolved[0].roll; die.className = "die " + (resolved[0].win ? "wroll" : "lroll"); } else { die.textContent = "?"; die.className = "die"; } }
+  if (die) { if (top) { die.textContent = top.roll; die.className = "die " + (top.win ? "wroll" : "lroll"); } else { die.textContent = "?"; die.className = "die"; } }
   const seatRow = (s) => {
     const you = s.addr === dapp.me ? '<b style="color:var(--accent2)">' + window.t("dice.you", "you") + '</b> ' : "";
     let out = window.t("dice.seatBet", "on <b>under {m}</b> <span class='dim'>({mult}×)</span>", { m: s.M, mult: multOf(s.M).toFixed(2) });
@@ -260,7 +262,13 @@ function renderActive() {
     else out += ' <span class="b pend">' + window.t("dice.rollsIn", "rolls in {time}", { time: s.spinsIn != null ? blocksToTime(s.spinsIn) : "…" }) + "</span>";
     return '<div class="seat">' + you + disp(s.addr) + ' · <span class="mono">' + rawToNado(s.stake) + "</span> " + out + "</div>";
   };
-  $("seats").innerHTML = lastSeats.length ? lastSeats.map(seatRow).join("") : '<span class="dim">' + window.t("dice.noRolls", "No rolls yet — be the first to bet.") + "</span>";
+  // render only a capped slice — a busy table accrues unboundedly many seats over its life
+  $("seats").innerHTML = lastSeats.length ? lastSeats.slice(0, seatsN).map(seatRow).join("") : '<span class="dim">' + window.t("dice.noRolls", "No rolls yet — be the first to bet.") + "</span>";
+  const bms = $("btnMoreSeats");
+  if (bms) {
+    bms.classList.toggle("hidden", lastSeats.length <= seatsN);
+    if (lastSeats.length > seatsN) bms.textContent = window.t("dice.showMoreN", "Show more ({n} more)", { n: lastSeats.length - seatsN });
+  }
   const wrap = $("myActions"); wrap.innerHTML = "";
   for (const s of mySeats) {
     if (s.settled || !s.ready) continue;
