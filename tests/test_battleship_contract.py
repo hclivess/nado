@@ -118,17 +118,19 @@ join_m = [
   A(0), CALLER, ST("p2"),
   A(0), A(1), ST("r2"),                 # p2's board commitment
   A(0), P(2), ST("nn"),
+  A(0), P(1), ST("tf"),                 # p1 fires first (tf = whose turn to FIRE)
   A(0), CURSOR, P(WINDOW), ADD, ST("dl"),
   HALT ]
 
 # root-agnostic recompute of the merkle-sum for cell (cell_ops pushes the cell#), leaving the reconstructed
 # hash in S["h"] and the accumulated ship-count in S["s"]. Uses ONLY [ ]-sequenced instructions (+ joins seqs).
-def _merkle_recompute(cell_ops):
-    ops  = [P("h"), A(3), P(256), MUL] + cell_ops + [P(2), MUL, ADD, A(2), ADD, HASH, ST(S)]   # leaf=HASH(salt*256+cell*2+isShip)
-    ops += [P("s"), A(2), ST(S)]                                                                 # s = isShip
+def _merkle_recompute(cell_ops, base=2):
+    isShip, salt = A(base), A(base + 1)             # base=2 for the old move layout; answer() uses base=1 (no fireCell arg)
+    ops  = [P("h"), salt, P(256), MUL] + cell_ops + [P(2), MUL, ADD, isShip, ADD, HASH, ST(S)]  # leaf=HASH(salt*256+cell*2+isShip)
+    ops += [P("s"), isShip, ST(S)]                                                               # s = isShip
     for L in range(LEVELS):
         div = 2 ** (LEVELS - 1 - L)                 # dir bit = (cell // div) % 2  (bit-reversed leaf position)
-        sibH = A(4 + 2*L); sibS = A(5 + 2*L)
+        sibH = A(base + 2 + 2*L); sibS = A(base + 3 + 2*L)
         ops += [P("s"), P("s"), LD(S), sibS, ADD, ST(S)]                                          # s += sibSum
         ops += [P("d")] + cell_ops + [P(div), DIV, P(2), MOD, ST(S)]                              # d = direction
         ops += [P("a"), P("h"), LD(S), P(1), P("d"), LD(S), SUB, MUL, sibH, P("d"), LD(S), MUL, ADD, ST(S)]  # a = h*(1-d)+sib*d
@@ -136,50 +138,61 @@ def _merkle_recompute(cell_ops):
         ops += [P("h"), P("a"), LD(S), P(M2), MUL, P("b"), LD(S), P(M1), MUL, ADD, P("s"), LD(S), ADD, HASH, ST(S)]  # h=HASH(a*M2+b*M1+s)
     return ops
 
-# move(g, fireCell, isShip, salt, sib0,ss0 .. sib6,ss6): prove the OPPONENT's pending shot at MY board
-# (skipped on the very first move), credit the hit, settle if 17, then fire MY next shot. Branch-free: every
-# guard is an algebraic 0/1 flag multiplied in, so there are no JUMPs.
-def _mk_move():
-    P1v   = [P("P1"), LD(S)]                 # push iAmP1 (0/1)
-    NOTP1 = [P(1), P("P1"), LD(S), SUB]      # 1 - P1
+# ---- turn model: FIRE then ANSWER, split so the defender's client can auto-reveal the result immediately ----
+# tf = whose turn it is to FIRE (1/2) when nothing is pending. pex = a shot awaits an answer. pf = who fired that
+# pending shot (the OTHER player must answer it). fd["g|slot|cell"] = that slot fired there. So you fire(); your
+# opponent's client answer()s at once (proving hit/miss vs THEIR committed board) and you see the result in ~1
+# block instead of waiting for their whole turn. Both branch-free.
+def _mk_fire():
     ops  = [A(0), LD("nn"), P(2), EQ, REQ]
-    ops += [A(0), LD("dc"), NOT, REQ]                                                    # no moves once decided
-    ops += [CALLER, A(0), LD("p1"), EQ, A(0), LD("mc"), P(2), MOD, P(0), EQ, AND,        # my turn: p1 on even mc,
-            CALLER, A(0), LD("p2"), EQ, A(0), LD("mc"), P(2), MOD, P(1), EQ, AND, OR, REQ]  #          p2 on odd mc
-    ops += [P("P1"), CALLER, A(0), LD("p1"), EQ, ST(S)]                                   # P1 = caller==p1
-    ops += _merkle_recompute([A(0), LD("pc")])                                            # recompute proof of pc
-    MYROOT = [A(0), LD("r1")] + P1v + [MUL, A(0), LD("r2")] + NOTP1 + [MUL, ADD]           # myroot = P1?r1:r2
-    ops += [A(0), LD("pex"), NOT, P("h"), LD(S)] + MYROOT + [EQ, OR, REQ]                  # pex ⇒ h==myroot
-    ops += [A(0), LD("pex"), NOT, P("s"), LD(S), P(SHIPS), EQ, OR, REQ]                    # pex ⇒ sum==17
-    HIT = [A(0), LD("pex"), A(2), P(1), EQ, AND]                                           # hit = pex && isShip==1
-    ops += [A(0), A(0), LD("h2")] + HIT + P1v   + [MUL, ADD, ST("h2")]                     # opp(=p2 if I'm p1) hits += hit
-    ops += [A(0), A(0), LD("h1")] + HIT + NOTP1 + [MUL, ADD, ST("h1")]
-    # record the shot RESULT so the ATTACKER's UI can render it: res[g|attackerSlot|pc] = (isShip+1)*pex.
-    # attackerSlot = the opponent of the caller = 1+P1 (I'm p1 → attacker is p2 → 2; I'm p2 → attacker p1 → 1).
-    RESKEY = ([A(0), P("|"), OP("CONCAT")] + [P(1)] + P1v + [ADD, OP("CONCAT"), P("|"), OP("CONCAT"), A(0), LD("pc"), OP("CONCAT")])
-    ops += RESKEY + [A(2), P(1), ADD, A(0), LD("pex"), MUL, ST("res")]
-    P1WIN = [A(0), LD("h1"), P(SHIPS), EQ]; P2WIN = [A(0), LD("h2"), P(SHIPS), EQ]
-    ANYWIN = P1WIN + P2WIN + [OR]
-    # DECIDE, don't pay: 17 hits fixes the winner, but the pot is released only by claim() once the winner
-    # reveals a VALID fleet (so a shape-cheater can never collect). wr=winner slot · dc=decided · cd=claim clock.
-    ops += [A(0), P(1)] + P1WIN + [MUL, P(2)] + P2WIN + [MUL, ADD, ST("wr")]
-    ops += [A(0)] + ANYWIN + [ST("dc")]
-    ops += [A(0), CURSOR, P(WINDOW), ADD, ST("cd")]
-    NOTDONE = [A(0), LD("dc"), NOT]
-    FKEY = [A(0), P("|"), OP("CONCAT"), A(1), OP("CONCAT")]                                # "g|cell"
-    ops += [A(0), LD("dc"), A(1), P(0), GTE, A(1), P(99), LTE, AND, OR, REQ]               # playing ⇒ cell 0..99
-    ALREADY = FKEY + [LD("f1")] + P1v + [MUL] + FKEY + [LD("f2")] + NOTP1 + [MUL, ADD]     # my prior shot here?
-    ops += [A(0), LD("dc")] + ALREADY + [P(0), EQ, OR, REQ]                                # playing ⇒ not already fired
-    ops += FKEY + P1v   + NOTDONE + [MUL, ST("f1")]                                        # record fire in my slot
-    ops += FKEY + NOTP1 + NOTDONE + [MUL, ST("f2")]
-    ops += [A(0), A(1)] + NOTDONE + [MUL, A(0), LD("pc"), A(0), LD("dc"), MUL, ADD, ST("pc")]  # pc = playing?fireCell:pc
-    ops += [A(0)] + NOTDONE + [ST("pex")]
-    ops += [A(0), A(0), LD("mc"), P(1)] + NOTDONE + [MUL, ADD, ST("mc")]                   # mc += playing
-    ops += [A(0), CURSOR, P(WINDOW), ADD, ST("dl")]
+    ops += [A(0), LD("dc"), NOT, REQ]
+    ops += [A(0), LD("pex"), NOT, REQ]                                        # nothing may be awaiting an answer
+    ops += [P("P1"), CALLER, A(0), LD("p1"), EQ, ST(S)]                       # P1 = caller==p1
+    MYSLOT = [P(1), P("P1"), LD(S), MUL, P(2), P(1), P("P1"), LD(S), SUB, MUL, ADD]   # 1 if p1 else 2
+    ops += [CALLER, A(0), LD("p1"), EQ, CALLER, A(0), LD("p2"), EQ, OR, REQ]  # caller is a player
+    ops += [A(0), LD("tf")] + MYSLOT + [EQ, REQ]                              # it's my turn to fire
+    ops += [A(1), P(0), GTE, A(1), P(99), LTE, AND, REQ]                      # cell in 0..99
+    FDK = [A(0), P("|"), OP("CONCAT")] + MYSLOT + [OP("CONCAT"), P("|"), OP("CONCAT"), A(1), OP("CONCAT")]   # "g|slot|cell"
+    ops += FDK + [LD("fd"), P(0), EQ, REQ]                                    # not already fired here by me
+    ops += FDK + [P(1), ST("fd")]                                            # record my shot
+    ops += [A(0), A(1), ST("pc")]                                            # the cell now awaiting an answer
+    ops += [A(0), P(1), ST("pex")]
+    ops += [A(0)] + MYSLOT + [ST("pf")]                                      # I fired it -> the opponent answers
+    ops += [A(0), CURSOR, P(WINDOW), ADD, ST("dl")]                          # answer clock
     ops += [HALT]
     return ops
 
-move_m = _mk_move()
+# answer(g, isShip, salt, sib0,ss0 .. sib6,ss6): as the player fired upon, reveal that cell against MY committed
+# board -> credit the shooter's hit, record the result, settle at 17 -> then it becomes MY turn to fire.
+def _mk_answer():
+    P1v = [P("P1"), LD(S)]; NOTP1 = [P(1), P("P1"), LD(S), SUB]
+    ops  = [A(0), LD("nn"), P(2), EQ, REQ]
+    ops += [A(0), LD("dc"), NOT, REQ]
+    ops += [A(0), LD("pex"), REQ]                                            # a shot must be pending
+    ops += [P("P1"), CALLER, A(0), LD("p1"), EQ, ST(S)]                      # P1 = caller==p1
+    MYSLOT = [P(1)] + P1v + [MUL, P(2)] + NOTP1 + [MUL, ADD]                 # 1 if p1 else 2
+    ops += MYSLOT + [A(0), LD("pf"), ADD, P(3), EQ, REQ]                     # I'm the answerer: myslot + pf == 3
+    ops += _merkle_recompute([A(0), LD("pc")], base=1)                       # recompute pc's proof (isShip=A1, salt=A2)
+    MYROOT = [A(0), LD("r1")] + P1v + [MUL, A(0), LD("r2")] + NOTP1 + [MUL, ADD]
+    ops += [P("h"), LD(S)] + MYROOT + [EQ, REQ]                              # leaf hashes to MY committed root (no lying)
+    ops += [P("s"), LD(S), P(SHIPS), EQ, REQ]                                # sum == 17 (can't hide ships)
+    HIT = [A(1), P(1), EQ]                                                    # isShip == 1
+    ops += [A(0), A(0), LD("h1")] + HIT + [A(0), LD("pf"), P(1), EQ, MUL, ADD, ST("h1")]   # firer(pf) hits += hit
+    ops += [A(0), A(0), LD("h2")] + HIT + [A(0), LD("pf"), P(2), EQ, MUL, ADD, ST("h2")]
+    RESKEY = [A(0), P("|"), OP("CONCAT"), A(0), LD("pf"), OP("CONCAT"), P("|"), OP("CONCAT"), A(0), LD("pc"), OP("CONCAT")]
+    ops += RESKEY + [A(1), P(1), ADD, ST("res")]                             # res[g|firer|cell] = isShip+1 (1 miss,2 hit)
+    P1WIN = [A(0), LD("h1"), P(SHIPS), EQ]; P2WIN = [A(0), LD("h2"), P(SHIPS), EQ]
+    ANYWIN = P1WIN + P2WIN + [OR]
+    ops += [A(0), P(1)] + P1WIN + [MUL, P(2)] + P2WIN + [MUL, ADD, ST("wr")]
+    ops += [A(0)] + ANYWIN + [ST("dc")]                                      # 17 hits -> decided (winner claims the pot)
+    ops += [A(0), CURSOR, P(WINDOW), ADD, ST("cd")]
+    ops += [A(0), P(0), ST("pex")]                                          # answered -> nothing pending
+    ops += [A(0)] + MYSLOT + [ST("tf")]                                      # I answered -> now it's MY turn to fire
+    ops += [A(0), CURSOR, P(WINDOW), ADD, ST("dl")]                          # fire clock
+    ops += [HALT]
+    return ops
+fire_m = _mk_fire()
+answer_m = _mk_answer()
 
 resign_m = [
   A(0), LD("nn"), P(2), EQ, REQ,
@@ -190,15 +203,17 @@ resign_m = [
   A(0), P(1), ST("dc"),
   A(0), CURSOR, P(WINDOW), ADD, ST("cd"),
   HALT ]
-# timeout(g): past the move deadline, the player whose turn it is NOT (the waiter) is the winner; they then claim().
+# timeout(g): past the deadline, the WAITER (the one being stalled on) wins, then claim()s. The staller is whoever
+# owes the next action: if a shot is pending (pex) the answerer (3-pf) owes it → waiter = pf; else the firer (tf)
+# owes it → waiter = 3-tf. So waiterSlot = pex ? pf : 3-tf.
+_WAITER = [A(0), LD("pex"), A(0), LD("pf"), MUL,                          # pex*pf
+           P(1), A(0), LD("pex"), SUB, P(3), A(0), LD("tf"), SUB, MUL, ADD]  # + (1-pex)*(3-tf)
 timeout_m = [
   A(0), LD("nn"), P(2), EQ, REQ,
   A(0), LD("dc"), NOT, REQ,
   CURSOR, A(0), LD("dl"), GT, REQ,
-  # current mover = p1 if mc even else p2; caller must be the OTHER (the one being stalled on)
-  CALLER, A(0), LD("p1"), EQ, A(0), LD("mc"), P(2), MOD, P(1), EQ, AND,     # p1 waits when it's p2's turn (mc odd)
-  CALLER, A(0), LD("p2"), EQ, A(0), LD("mc"), P(2), MOD, P(0), EQ, AND,     # p2 waits when it's p1's turn (mc even)
-  OR, REQ,
+  CALLER, A(0), LD("p1"), EQ] + _WAITER + [P(1), EQ, AND,                 # caller is the waiter (p1) ...
+  CALLER, A(0), LD("p2"), EQ] + _WAITER + [P(2), EQ, AND, OR, REQ,        # ... or (p2)
   A(0), P(1), CALLER, A(0), LD("p1"), EQ, MUL, P(2), CALLER, A(0), LD("p2"), EQ, MUL, ADD, ST("wr"),
   A(0), P(1), ST("dc"),
   A(0), CURSOR, P(WINDOW), ADD, ST("cd"),
@@ -285,7 +300,7 @@ cancel_m = [
   A(0), P(0), ST("pt"),
   HALT ]
 
-CODE = {"open":open_m, "join":join_m, "move":move_m, "resign":resign_m, "timeout":timeout_m,
+CODE = {"open":open_m, "join":join_m, "fire":fire_m, "answer":answer_m, "resign":resign_m, "timeout":timeout_m,
         "cancel":cancel_m, "claim":claim_m, "forfeit":forfeit_m}
 
 # ================= TESTS =================
@@ -336,43 +351,44 @@ call("join",[1, rootB], STAKE, "B")
 ck("pot escrows both stakes", M("pt",1)==2*STAKE and bal(CID)==2*STAKE)
 ck("commitments stored", M("r1",1)==rootA and M("r2",1)==rootB)
 
-# A fires first (no proof yet). Fire at B's cell 5 (a ship in FB).
-call("move",[1, 5, 0,0]+[0,0]*7, 0, "A")
-ck("A's first shot recorded, turn -> B", M("pc",1)==5 and M("pex",1)==1 and M("mc",1)==1)
-ck("B cannot move out of turn... A tries again", rv(call("move",[1, 6, 0,0]+[0,0]*7, 0, "A")))
-
 def bad_miss(board, salts, cell):
     """A FALSE 'miss' proof: claim isShip=0 for a real ship, reusing its true salt+siblings (leaf won't match root)."""
     _, salt, sibs = make_proof(board, salts, cell)
     a=[0, salt]
     for (h,s) in sibs: a += [h,s]
     return a
+def fire(g, cell, who):      return call("fire", [g, cell], 0, who)
+def answer(g, board, salts, cell, who): return call("answer", [g]+proof_args(board, salts, cell), 0, who)
 
-# cell 5 ∈ FB (a ship in B), cell 0 ∈ FA (a ship in A). A fired at 5. B proves it against B's board -> HIT for A.
-call("move",[1, 0]+proof_args(boardB,saltsB,5), 0, "B")   # B proves A's shot(5)=HIT, fires at A's cell 0
-ck("B proved A's shot (cell 5 ∈ B) = HIT for A", M("h1",1)==1 and M("pc",1)==0 and M("mc",1)==2)
+# A fires first at B's cell 5 (a ship in FB). No proof — the RESULT comes from B's answer().
+fire(1, 5, "A")
+ck("A's shot is pending B's answer (pex, pf=A)", M("pc",1)==5 and M("pex",1)==1 and M("pf",1)==1)
+ck("A can't fire again while a shot awaits an answer", rv(fire(1, 6, "A")))
+ck("A (the shooter) can't answer their own shot", rv(answer(1, boardB, saltsB, 5, "A")))
+ck("B can't answer a FALSE miss on a real ship", rv(call("answer",[1]+bad_miss(boardB,saltsB,5), 0, "B")))
+answer(1, boardB, saltsB, 5, "B")                    # B reveals cell 5 (∈ FB) = HIT for A; now B's turn to fire
+ck("B answered A's shot(5∈B)=HIT for A → B fires next", M("h1",1)==1 and M("pex",1)==0 and M("tf",1)==2)
 ck("shot RESULT recorded for the attacker's UI (res[g|1|5]=2=hit)", M("res","1|1|5")==2)
-
-# A must now prove B's shot at cell 0 (∈ FA). A cannot claim a FALSE miss on it.
-ck("A cannot prove a FALSE miss (isShip=0 on a real ship)", rv(call("move",[1, 6]+bad_miss(boardA,saltsA,0), 0, "A")))
-call("move",[1, 6]+proof_args(boardA,saltsA,0), 0, "A")   # A proves B's shot(0)=HIT for B, fires at B's cell 6
-ck("A proved B's shot (cell 0 ∈ A) = HIT for B", M("h2",1)==1)
+ck("A cannot fire out of turn (it's B's turn)", rv(fire(1, 7, "A")))
+fire(1, 0, "B")                                      # B fires at A's cell 0 (∈ FA)
+ck("A can't answer a FALSE miss", rv(call("answer",[1]+bad_miss(boardA,saltsA,0), 0, "A")))
+answer(1, boardA, saltsA, 0, "A")                    # A reveals cell 0 = HIT for B
+ck("A answered B's shot(0∈A)=HIT for B → A fires next", M("h2",1)==1 and M("tf",1)==1)
 
 # reference sanity for the fleet validator the contract mirrors
 ck("(ref) valid_fleet accepts the standard fleet", valid_fleet(shipsA) and valid_fleet(shipsB))
 ck("(ref) valid_fleet rejects overlap / off-grid",
    (not valid_fleet([(0,0),(0,0),(20,0),(30,0),(40,0)])) and (not valid_fleet([(96,0),(10,0),(20,0),(30,0),(40,0)])))
 
-# Full game to a win, then DECIDE→CLAIM settlement. A sinks all 17 of B's ships (FB). A fires FB cells; B proves
-# each as a HIT (-> h1); between, B fires A's FA cells and A proves them. A is DECIDED the winner at h1==17.
+# Full game to a win, then DECIDE→CLAIM settlement. A sinks all 17 of B's ships (FB): each round A fires FB[i],
+# B answers it (h1++); between, B fires A's FA[i] and A answers. A is DECIDED the winner at h1==17.
 call("open",[2, rootA], STAKE, "A")
 call("join",[2, rootB], STAKE, "B")
 bA=bal("A")
-call("move",[2, FB[0]]+[0,0]+[0,0]*7, 0, "A")             # A fires B-ship 0 (first move, proof ignored)
-for i in range(1, 18):
-    call("move",[2, FA[i-1]]+proof_args(boardB,saltsB,FB[i-1]), 0, "B")   # B proves A's shot FB[i-1]=HIT (h1++), fires FA[i-1]
+for i in range(17):
+    fire(2, FB[i], "A"); answer(2, boardB, saltsB, FB[i], "B")   # A fires, B answers → h1++
     if M("dc",2)==1: break
-    call("move",[2, FB[i]]+proof_args(boardA,saltsA,FA[i-1]), 0, "A")     # A proves B's shot FA[i-1], fires next B-ship FB[i]
+    fire(2, FA[i], "B"); answer(2, boardA, saltsA, FA[i], "A")   # B fires, A answers
 ck("A sank all 17 -> DECIDED for A, pot still ESCROWED (not auto-paid)",
    M("dc",2)==1 and M("wr",2)==1 and M("h1",2)==17 and M("sd",2)==0 and M("pt",2)==2*STAKE and bal("A")==bA)
 ck("the loser B cannot claim A's win", rv(call("claim", cl_args(2, shipsB, seedB), 0, "B")))
@@ -382,16 +398,25 @@ call("claim", cl_args(2, shipsA, seedA), 0, "A")
 ck("winner A reveals a VALID fleet -> pot released to A", M("sd",2)==1 and M("pt",2)==0 and bal("A")>=bA+STAKE)
 ck("A cannot double-claim", rv(call("claim", cl_args(2, shipsA, seedA), 0, "A")))
 
-# timeout: B never proves A's shot -> A (the waiter) is DECIDED the winner, then claims by revealing its fleet.
+# timeout #1 — the ANSWERER stalls: A fires, B never answers → A (the waiter=shooter) wins after the deadline.
 call("open",[3, rootA], STAKE, "A"); call("join",[3, rootB], STAKE, "B")
-call("move",[3, FB[0]]+[0,0]+[0,0]*7, 0, "A")        # A fired, now it's B's turn (mc odd)
+fire(3, FB[0], "A")                                  # A fired, awaiting B's answer (pex, pf=A)
 ck("timeout before deadline reverts", rv(call("timeout",[3], 0, "A")))
+ck("the STALLER (B) can't timeout", rv(call("timeout",[3], 0, "B")))
 st.cursor += WINDOW+1
 call("timeout",[3], 0, "A")
-ck("timeout DECIDES for the waiter A; pot still escrowed", M("dc",3)==1 and M("wr",3)==1 and M("sd",3)==0 and M("pt",3)==2*STAKE)
+ck("answerer stalled → waiter A wins; pot still escrowed", M("dc",3)==1 and M("wr",3)==1 and M("sd",3)==0 and M("pt",3)==2*STAKE)
 bA=bal("A")
 call("claim", cl_args(3, shipsA, seedA), 0, "A")
 ck("A claims the stalled pot after revealing a valid fleet", M("sd",3)==1 and M("pt",3)==0 and bal("A")>=bA+2*STAKE)
+
+# timeout #2 — the FIRER stalls: A fires, B answers (now B's turn to fire), B never fires → A (waiter=3-tf) wins.
+call("open",[30, rootA], STAKE, "A"); call("join",[30, rootB], STAKE, "B")
+fire(30, FB[0], "A"); answer(30, boardB, saltsB, FB[0], "B")    # now tf=2 (B must fire)
+ck("firer-stall: waiter B can't timeout (B owes the fire)", rv(call("timeout",[30], 0, "B")))
+st.cursor += WINDOW+1
+call("timeout",[30], 0, "A")
+ck("firer stalled → waiter A wins", M("dc",30)==1 and M("wr",30)==1)
 
 # cancel: un-joined game refunds the opener
 call("open",[4, rootA], STAKE, "A")
@@ -399,23 +424,22 @@ bA=bal("A")
 call("cancel",[4], 0, "A")
 ck("cancel refunds the opener", bal("A")==bA+STAKE and M("sd",4)==1)
 
-# adversarial: a FEWER-SHIPS cheat can't even move — the sum inside the proof binds the count to exactly 17.
+# adversarial: a FEWER-SHIPS cheat can't ANSWER — the sum inside the proof binds the count to exactly 17.
 cheat=[0]*128
 for c in range(16): cheat[c]=1                       # only 16 ships (one hidden)
 csalts=[random.getrandbits(256) for _ in range(128)]
 croot=build_root(cheat,csalts)
-call("open",[5, rootA], STAKE, "A"); call("join",[5, croot], STAKE, "B")
-call("move",[5, 0]+[0,0]+[0,0]*7, 0, "A")            # A fires cell 0
-ck("a <17-ship board can't produce a valid proof (count is bound to 17)",
-   rv(call("move",[5, 30]+proof_args(cheat,csalts,0), 0, "B")))
+call("open",[5, croot], STAKE, "A"); call("join",[5, rootB], STAKE, "B")   # A commits the cheat board
+fire(5, 0, "B")                                      # B fires at A's cell 0; A (cheat board) must answer
+ck("a <17-ship board can't produce a valid answer (count bound to 17)",
+   rv(call("answer",[5]+proof_args(cheat,csalts,0), 0, "A")))
 
 # adversarial: firing the same cell twice is rejected.
 call("open",[6, rootA], STAKE, "A"); call("join",[6, rootB], STAKE, "B")
-call("move",[6, FB[0]]+[0,0]+[0,0]*7, 0, "A")                       # A fires FB[0]
-call("move",[6, FA[0]]+proof_args(boardB,saltsB,FB[0]), 0, "B")    # B proves, fires FA[0]
-call("move",[6, FB[1]]+proof_args(boardA,saltsA,FA[0]), 0, "A")    # A proves, fires FB[1]
-ck("re-firing a cell already shot reverts",
-   rv(call("move",[6, FA[0]]+proof_args(boardB,saltsB,FB[1]), 0, "B")))   # B tries to fire FA[0] again
+fire(6, FB[0], "A"); answer(6, boardB, saltsB, FB[0], "B")    # A fires FB[0], B answers (tf=2)
+fire(6, FA[0], "B"); answer(6, boardA, saltsA, FA[0], "A")    # B fires FA[0], A answers (tf=1)
+fire(6, FB[1], "A"); answer(6, boardB, saltsB, FB[1], "B")    # A fires FB[1], B answers (tf=2)
+ck("re-firing a cell already shot reverts", rv(fire(6, FA[0], "B")))   # B tries to re-fire FA[0]
 
 # adversarial: a SCATTERED-fleet committer can win (opponent resigns) but can NEVER claim — no set of valid
 # ships reproduces a scattered root — so after the claim deadline the honest loser forfeits and recovers the pot.

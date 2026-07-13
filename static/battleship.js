@@ -88,18 +88,20 @@ function gameFrom(sto, g) {
   if (!p1) return { exists: false };
   const gm = { exists: true, id: Number(g), p1, p2: _m(sto, "p2")[g] || null, stake: String(_m(sto, "st")[g] || 0),
     pot: Number(_m(sto, "pt")[g] || 0), nn: Number(_m(sto, "nn")[g] || 0), sd: !!_m(sto, "sd")[g],
-    mc: Number(_m(sto, "mc")[g] || 0), pc: Number(_m(sto, "pc")[g] || 0), pex: !!_m(sto, "pex")[g],
+    pc: Number(_m(sto, "pc")[g] || 0), pex: !!_m(sto, "pex")[g], pf: Number(_m(sto, "pf")[g] || 0), tf: Number(_m(sto, "tf")[g] || 0),
     h1: Number(_m(sto, "h1")[g] || 0), h2: Number(_m(sto, "h2")[g] || 0), wr: Number(_m(sto, "wr")[g] || 0),
     dl: Number(_m(sto, "dl")[g] || 0), dc: !!_m(sto, "dc")[g], cd: Number(_m(sto, "cd")[g] || 0) };
   gm.mineSlot = dapp.me === gm.p1 ? 1 : dapp.me === gm.p2 ? 2 : 0;
-  gm.turnSlot = gm.mc % 2 === 0 ? 1 : 2;
   gm.over = gm.sd || gm.dc;                              // dc = winner decided (pot escrowed) · sd = pot paid out
-  gm.myTurn = gm.nn === 2 && !gm.over && gm.mineSlot === gm.turnSlot;
+  // FIRE/ANSWER model: pex=a shot awaits an answer, pf=who fired it, tf=whose turn to fire when nothing pending.
+  gm.myTurn   = gm.nn === 2 && !gm.over && !gm.pex && gm.tf === gm.mineSlot;                 // my turn to FIRE
+  gm.awaiting = gm.nn === 2 && !gm.over && gm.pex && gm.pf === gm.mineSlot;                  // my shot awaits their answer
+  gm.toAnswer = gm.nn === 2 && !gm.over && gm.pex && gm.pf !== 0 && gm.pf !== gm.mineSlot;   // I must answer their shot
   return gm;
 }
 const allGids = (sto) => Object.keys(_m(sto, "p1"));
 async function fetchGame(g) { const sto = await dapp.storage(); return sto ? gameFrom(sto, g) : null; }
-const firedAt = (sto, slot, g, cell) => !!_m(sto, "f" + slot)[g + "|" + cell];
+const firedAt = (sto, slot, g, cell) => !!_m(sto, "fd")[g + "|" + slot + "|" + cell];
 const resultAt = (sto, slot, g, cell) => Number(_m(sto, "res")[g + "|" + slot + "|" + cell] || 0);   // 0 none · 1 miss · 2 hit
 const myBoard = (g) => { const r = load(LS_G)[g]; return r && r.board ? { board: r.board, salts: r.salts.map((s) => BigInt(s)), seed: r.seed != null ? BigInt(r.seed) : null, spec: r.spec || null } : null; };
 
@@ -156,14 +158,27 @@ function fire() {
   const gm = lastGame; if (!gm || !gm.myTurn) return alertBar(window.t("bs.notYourTurn", "It's not your turn."));
   if (target == null) return alertBar(window.t("bs.pickTarget", "Tap an enemy cell to aim, then Fire."));
   if (setOf(myFired, activeGame).has(target)) return alertBar(window.t("bs.already", "You already fired there — pick another cell."));
-  const mine = myBoard(activeGame);
-  if (!mine) return alertBar(window.t("bs.boardLost", "Your board for this game isn't on this device — play from the device that placed the fleet."));
-  let proof = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];   // isShip, salt, (sib,ss)*7 — dummy on the first move
-  if (gm.pex) { const c = gm.pc, tree = buildTree(mine.board, mine.salts); proof = [mine.board[c], mine.salts[c], ...cellProof(tree, c)]; }
   const t = target; target = null;
   setOf(myFired, activeGame).add(t);   // OPTIMISTIC: paint the shot now; it never blips out while the chain confirms
   render();
-  dapp.call("move", [activeGame, t, ...proof], null, "fire at " + coord(t) + " · battleship #" + activeGame, { game: activeGame, phase: "move", shot: t });
+  // no proof — the RESULT comes from the enemy's answer() (auto-submitted by their client), so you see hit/miss fast
+  dapp.call("fire", [activeGame, t], null, "fire at " + coord(t) + " · battleship #" + activeGame, { game: activeGame, phase: "fire", shot: t });
+}
+// as the player fired upon, AUTO-reveal the result of the enemy's pending shot against my board (background-signed,
+// value-free) — so my opponent sees hit/miss within ~1 block instead of waiting for me to take a turn.
+const answering = new Set();
+function autoAnswer(sto) {
+  if (!sto || !dapp.me) return;
+  for (const g of Object.keys(load(LS_G))) {
+    const gm = gameFrom(sto, g); if (!gm.toAnswer) continue;
+    const mine = myBoard(g); if (!mine) continue;                         // can't prove without my board (boardLost)
+    const key = g + "|" + gm.pc;
+    if (answering.has(key) || dapp.busy("answer", "game", Number(g))) continue;
+    answering.add(key);
+    const c = gm.pc, tree = buildTree(mine.board, mine.salts);
+    const proof = [mine.board[c], mine.salts[c], ...cellProof(tree, c)];
+    dapp.call("answer", [Number(g), ...proof], null, "answer the shot at " + coord(c) + " · battleship #" + g, { game: Number(g), phase: "answer" });
+  }
 }
 const resign = () => dapp.call("resign", [activeGame], null, "resign battleship #" + activeGame, { game: activeGame, phase: "resign" });
 const claimTimeout = () => dapp.call("timeout", [activeGame], null, "claim the stalled pot · battleship #" + activeGame, { game: activeGame, phase: "timeout" });
@@ -248,8 +263,8 @@ function renderBoards(gm) {
 }
 function renderActive(sto) {
   const ng = gameFrom(sto, activeGame);
-  // good-faith anti-rollback: this game only moves forward (moves + hits + settle), so ignore a provisional dip.
-  const prog = (ng.sd ? 1e9 : 0) + ng.mc * 1000 + ng.h1 + ng.h2;
+  // good-faith anti-rollback: this game only moves forward (hits ↑, then decided, then settled), so ignore a dip.
+  const prog = (ng.sd ? 2e9 : 0) + (ng.dc ? 1e9 : 0) + ng.h1 + ng.h2;
   if (dapp.accept("bs:" + activeGame, prog)) lastGame = ng;
   const gm = lastGame; if (!gm || !gm.exists) { gate({ activeGame: false }); return; }
   gate({ activeGame: true });
@@ -267,8 +282,10 @@ function renderActive(sto) {
       : window.t("bs.youLost", "☠ Your fleet was sunk — better luck next time.")
         + (gm.cd && dapp.cursor != null && dapp.cursor > gm.cd ? window.t("bs.winnerStalled", " (winner never revealed a valid fleet — you can claim the pot)") : "");
   else if (gm.nn < 2) st = gm.mineSlot === 1 ? window.t("bs.waiting", "Waiting for an opponent — share the link below.") : window.t("bs.openSeat", "Open seat — join to play for {amt} NADO.", { amt: rawToNado(gm.stake) });
-  else if (gm.myTurn) st = gm.pex ? window.t("bs.yourTurnAnswer", "🎯 Your turn — the enemy fired at {cell}. Pick your shot and Fire (your answer is proven automatically).", { cell: coord(gm.pc) })
-      : window.t("bs.yourTurnFire", "🎯 Your turn — fire the first shot!");
+  else if (gm.toAnswer) st = window.t("bs.answering", "🛡 The enemy fired at {cell} — revealing your board…", { cell: coord(gm.pc) });   // auto-answered
+  else if (gm.awaiting) st = window.t("bs.awaitAnswer", "🎯 Shot fired at {cell} — waiting for the enemy to call it…", { cell: coord(gm.pc) })
+      + (gm.dl && dapp.cursor != null && dapp.cursor > gm.dl ? window.t("bs.stalled", " (stalled — you can claim the pot)") : "");
+  else if (gm.myTurn) st = window.t("bs.yourTurnFire", "🎯 Your turn — fire!");
   else st = window.t("bs.oppTurn", "Waiting for the enemy to move…") + (gm.dl && dapp.cursor != null && dapp.cursor > gm.dl ? window.t("bs.stalled", " (stalled — you can claim the pot)") : "");
   $("gStatus").innerHTML = st;
   $("hitTally").textContent = window.t("bs.tally", "Your hits: {me}/{total} · Enemy hits: {them}/{total}",
@@ -319,14 +336,19 @@ async function refreshAll() {
   await dapp.refresh();
   dapp.settleInflight((f) => {
     const g = gameFrom(lastSto || {}, f.game);
-    return f.phase === "open" ? g.exists : f.phase === "join" ? g.nn === 2 : f.phase === "move" ? g.mc > (f.mc0 || -1)
+    return f.phase === "open" ? g.exists : f.phase === "join" ? g.nn === 2
+         : f.phase === "fire" ? firedAt(lastSto, g.mineSlot, f.game, f.shot)     // my shot is on-chain
+         : f.phase === "answer" ? !g.pex                                         // the pending shot got answered
          : (f.phase === "claim" || f.phase === "forfeit") ? g.sd                 // pot paid out
          : f.phase === "cancel" ? (g.sd || !g.exists)
          : (g.dc || g.sd || !g.exists);                                          // resign / timeout → decided
   });
-  const sto = await dapp.storage();
+  // sticky the APPEND-ONLY maps (fired flags, results, hit counts, settled/decided/winner, join) so they never
+  // blip on a rollback; pex/pf/tf legitimately toggle, so they're left raw.
+  const sto = await dapp.storage({ append: ["fd", "res", "h1", "h2", "sd", "dc", "wr", "p2", "nn"] });
   if (sto) { lastSto = sto; ingestShots(sto, activeGame); lsPrune(LS_G, allGids(sto)); await resolveAliases(allGids(sto).flatMap((g) => [_m(sto, "p1")[g], _m(sto, "p2")[g]]).filter(Boolean).slice(0, 40)); }
   autoSettle(sto);                                                               // reveal my fleet to collect any decided win
+  autoAnswer(sto);                                                               // auto-reveal the result of any shot fired at me
   render();
 }
 
@@ -363,14 +385,14 @@ function wireUI() {
   });
 }
 dapp.doneLabels({ open: window.t("bs.dnOpen", "✓ Game is on-chain — send the invite below."), join: window.t("bs.dnJoin", "✓ You're in — battle on!"),
-  move: window.t("bs.dnMove", "✓ Shot confirmed."), resign: window.t("bs.dnResign", "✓ Resigned."), timeout: window.t("bs.dnTimeout", "✓ Pot claimed."), cancel: window.t("bs.dnCancel", "✓ Cancelled — stake refunded."),
+  fire: window.t("bs.dnFire", "✓ Shot away."), resign: window.t("bs.dnResign", "✓ Resigned."), timeout: window.t("bs.dnTimeout", "✓ Pot claimed."), cancel: window.t("bs.dnCancel", "✓ Cancelled — stake refunded."),
   claim: window.t("bs.dnClaim", "✓ Fleet revealed — winnings collected!"), forfeit: window.t("bs.dnForfeit", "✓ Pot claimed — opponent never revealed a valid fleet.") });
 dapp.onReturn((pend, ok, err) => {
   if (pend && pend.game != null) activeGame = pend.game;
-  if (!ok && pend && pend.phase === "move" && pend.shot != null) { setOf(myFired, pend.game).delete(pend.shot); render(); }   // rejected → un-paint the optimistic shot
-  if (ok && pend && pend.phase === "move") pend.mc0 = lastGame ? lastGame.mc : -1;
+  if (!ok && pend && pend.phase === "fire" && pend.shot != null) { setOf(myFired, pend.game).delete(pend.shot); render(); }   // rejected → un-paint the optimistic shot
+  if (!ok && pend && pend.phase === "answer") { for (const k of [...answering]) if (k.startsWith(pend.game + "|")) answering.delete(k); }   // let the auto-answer retry
   dapp.showReturn(pend, ok, err, { open: window.t("bs.cfOpen", "Opening — confirming…"), join: window.t("bs.cfJoin", "Joining — confirming…"),
-    move: window.t("bs.cfMove", "Firing — confirming on-chain…"), resign: window.t("bs.cfResign", "Resigning…"), timeout: window.t("bs.cfTimeout", "Claiming…"), cancel: window.t("bs.cfCancel", "Cancelling…"),
+    fire: window.t("bs.cfFire", "Firing — confirming on-chain…"), resign: window.t("bs.cfResign", "Resigning…"), timeout: window.t("bs.cfTimeout", "Claiming…"), cancel: window.t("bs.cfCancel", "Cancelling…"),
     claim: window.t("bs.cfClaim", "Revealing your fleet to collect…"), forfeit: window.t("bs.cfForfeit", "Claiming the pot…") });
 });
 async function boot() {

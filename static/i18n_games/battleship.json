@@ -81,7 +81,7 @@
     "bs.youWon": "🏆 You sank the enemy fleet — you won {amt} NADO!",
     "bs.yourFleet": "🚢 Your fleet — enemy shots",
     "bs.yourTurnAnswer": "🎯 Your turn — the enemy fired at {cell}. Pick your shot and Fire (your answer is proven automatically).",
-    "bs.yourTurnFire": "🎯 Your turn — fire the first shot!",
+    "bs.yourTurnFire": "🎯 Your turn — fire!",
     "bs.ship_carrier": "Carrier",
     "bs.ship_battleship": "Battleship",
     "bs.ship_cruiser": "Cruiser",
@@ -98,7 +98,11 @@
     "bs.dnForfeit": "✓ Pot claimed — opponent never revealed a valid fleet.",
     "bs.cfClaim": "Revealing your fleet to collect…",
     "bs.cfForfeit": "Claiming the pot…",
-    "bs.joinThisBtn": "⚓ Place fleet & join #{id}"
+    "bs.joinThisBtn": "⚓ Place fleet & join #{id}",
+    "bs.answering": "🛡 The enemy fired at {cell} — revealing your board…",
+    "bs.awaitAnswer": "🎯 Shot fired at {cell} — waiting for the enemy to call it…",
+    "bs.dnFire": "✓ Shot away.",
+    "bs.cfFire": "Firing — confirming on-chain…"
   },
   "cs": {
     "bs.allGames": "🎮 Všechny hry",
@@ -182,7 +186,7 @@
     "bs.youWon": "🏆 Potopil jsi nepřátelskou flotilu — vyhráváš {amt} NADO!",
     "bs.yourFleet": "🚢 Tvá flotila — nepřátelské výstřely",
     "bs.yourTurnAnswer": "🎯 Jsi na tahu — nepřítel vystřelil na {cell}. Vyber svůj výstřel a Palba (tvá odpověď se dokáže automaticky).",
-    "bs.yourTurnFire": "🎯 Jsi na tahu — vypal první výstřel!",
+    "bs.yourTurnFire": "🎯 Jsi na tahu — pal!",
     "bs.ship_carrier": "Letadlová loď",
     "bs.ship_battleship": "Bitevní loď",
     "bs.ship_cruiser": "Křižník",
@@ -199,7 +203,11 @@
     "bs.dnForfeit": "✓ Bank nárokován — soupeř neodhalil platnou flotilu.",
     "bs.cfClaim": "Odhaluji tvou flotilu pro výběr…",
     "bs.cfForfeit": "Nárokuji bank…",
-    "bs.joinThisBtn": "⚓ Rozmísti flotilu a připoj se k #{id}"
+    "bs.joinThisBtn": "⚓ Rozmísti flotilu a připoj se k #{id}",
+    "bs.answering": "🛡 Nepřítel vystřelil na {cell} — odhaluji tvé pole…",
+    "bs.awaitAnswer": "🎯 Výstřel na {cell} — čeká se, až nepřítel oznámí výsledek…",
+    "bs.dnFire": "✓ Výstřel odeslán.",
+    "bs.cfFire": "Střelba — potvrzuje se…"
   },
   "es": {
     "bs.allGames": "🎮 Todos los juegos",
@@ -283,7 +291,7 @@
     "bs.youWon": "🏆 ¡Hundiste la flota enemiga — ganaste {amt} NADO!",
     "bs.yourFleet": "🚢 Tu flota — disparos enemigos",
     "bs.yourTurnAnswer": "🎯 Tu turno — el enemigo disparó a {cell}. Elige tu disparo y Dispara (tu respuesta se prueba automáticamente).",
-    "bs.yourTurnFire": "🎯 Tu turno — ¡dispara el primer tiro!",
+    "bs.yourTurnFire": "🎯 Tu turno — ¡dispara!",
     "bs.ship_carrier": "Portaaviones",
     "bs.ship_battleship": "Acorazado",
     "bs.ship_cruiser": "Crucero",
@@ -300,7 +308,11 @@
     "bs.dnForfeit": "✓ Bote reclamado — el rival nunca reveló una flota válida.",
     "bs.cfClaim": "Revelando tu flota para cobrar…",
     "bs.cfForfeit": "Reclamando el bote…",
-    "bs.joinThisBtn": "⚓ Coloca tu flota y únete a #{id}"
+    "bs.joinThisBtn": "⚓ Coloca tu flota y únete a #{id}",
+    "bs.answering": "🛡 El enemigo disparó a {cell} — revelando tu tablero…",
+    "bs.awaitAnswer": "🎯 Disparo a {cell} — esperando que el enemigo lo cante…",
+    "bs.dnFire": "✓ Disparo enviado.",
+    "bs.cfFire": "Disparando — confirmando…"
   },
   "pt": {
     "bs.allGames": "🎮 Todos os jogos",
@@ -384,7 +396,7 @@
     "bs.youWon": "🏆 Você afundou a frota inimiga — ganhou {amt} NADO!",
     "bs.yourFleet": "🚢 Sua frota — tiros inimigos",
     "bs.yourTurnAnswer": "🎯 Sua vez — o inimigo atirou em {cell}. Escolha seu tiro e Atire (sua resposta é provada automaticamente).",
-    "bs.yourTurnFire": "🎯 Sua vez — dê o primeiro tiro!",
+    "bs.yourTurnFire": "🎯 Sua vez — atire!",
     "bs.ship_carrier": "Porta-aviões",
     "bs.ship_battleship": "Encouraçado",
     "bs.ship_cruiser": "Cruzador",
@@ -401,7 +413,11 @@
     "bs.dnForfeit": "✓ Pote reivindicado — o oponente nunca revelou uma frota válida.",
     "bs.cfClaim": "Revelando sua frota para receber…",
     "bs.cfForfeit": "Reivindicando o pote…",
-    "bs.joinThisBtn": "⚓ Posicione a frota e entre em #{id}"
+    "bs.joinThisBtn": "⚓ Posicione a frota e entre em #{id}",
+    "bs.answering": "🛡 O inimigo atirou em {cell} — revelando seu tabuleiro…",
+    "bs.awaitAnswer": "🎯 Tiro em {cell} — aguardando o inimigo cantar o resultado…",
+    "bs.dnFire": "✓ Tiro disparado.",
+    "bs.cfFire": "Atirando — confirmando…"
   },
   "fr": {
     "bs.allGames": "🎮 Tous les jeux",
@@ -485,7 +501,7 @@
     "bs.youWon": "🏆 Vous avez coulé la flotte ennemie — vous gagnez {amt} NADO !",
     "bs.yourFleet": "🚢 Votre flotte — tirs ennemis",
     "bs.yourTurnAnswer": "🎯 Votre tour — l'ennemi a tiré sur {cell}. Choisissez votre tir et Feu (votre réponse est prouvée automatiquement).",
-    "bs.yourTurnFire": "🎯 Votre tour — tirez le premier coup !",
+    "bs.yourTurnFire": "🎯 Votre tour — feu !",
     "bs.ship_carrier": "Porte-avions",
     "bs.ship_battleship": "Cuirassé",
     "bs.ship_cruiser": "Croiseur",
@@ -502,7 +518,11 @@
     "bs.dnForfeit": "✓ Cagnotte réclamée — l'adversaire n'a jamais révélé de flotte valide.",
     "bs.cfClaim": "Révélation de votre flotte pour encaisser…",
     "bs.cfForfeit": "Réclamation de la cagnotte…",
-    "bs.joinThisBtn": "⚓ Placez la flotte et rejoignez #{id}"
+    "bs.joinThisBtn": "⚓ Placez la flotte et rejoignez #{id}",
+    "bs.answering": "🛡 L'ennemi a tiré sur {cell} — révélation de votre plateau…",
+    "bs.awaitAnswer": "🎯 Tir sur {cell} — en attente que l'ennemi annonce le résultat…",
+    "bs.dnFire": "✓ Tir parti.",
+    "bs.cfFire": "Tir — confirmation…"
   },
   "de": {
     "bs.allGames": "🎮 Alle Spiele",
@@ -586,7 +606,7 @@
     "bs.youWon": "🏆 Du hast die feindliche Flotte versenkt — du gewinnst {amt} NADO!",
     "bs.yourFleet": "🚢 Deine Flotte — Gegnerschüsse",
     "bs.yourTurnAnswer": "🎯 Du bist am Zug — der Gegner feuerte auf {cell}. Wähle deinen Schuss und Feuer (deine Antwort wird automatisch bewiesen).",
-    "bs.yourTurnFire": "🎯 Du bist am Zug — feuere den ersten Schuss!",
+    "bs.yourTurnFire": "🎯 Du bist am Zug — feuer!",
     "bs.ship_carrier": "Flugzeugträger",
     "bs.ship_battleship": "Schlachtschiff",
     "bs.ship_cruiser": "Kreuzer",
@@ -603,7 +623,11 @@
     "bs.dnForfeit": "✓ Pot beansprucht — Gegner hat nie eine gültige Flotte offengelegt.",
     "bs.cfClaim": "Deine Flotte wird zum Kassieren offengelegt…",
     "bs.cfForfeit": "Pot wird beansprucht…",
-    "bs.joinThisBtn": "⚓ Flotte platzieren & #{id} beitreten"
+    "bs.joinThisBtn": "⚓ Flotte platzieren & #{id} beitreten",
+    "bs.answering": "🛡 Der Gegner feuerte auf {cell} — dein Feld wird aufgedeckt…",
+    "bs.awaitAnswer": "🎯 Schuss auf {cell} — warte, bis der Gegner ihn ansagt…",
+    "bs.dnFire": "✓ Schuss raus.",
+    "bs.cfFire": "Feuer — wird bestätigt…"
   },
   "it": {
     "bs.allGames": "🎮 Tutti i giochi",
@@ -687,7 +711,7 @@
     "bs.youWon": "🏆 Hai affondato la flotta nemica — hai vinto {amt} NADO!",
     "bs.yourFleet": "🚢 La tua flotta — colpi nemici",
     "bs.yourTurnAnswer": "🎯 Il tuo turno — il nemico ha sparato a {cell}. Scegli il tuo colpo e Fuoco (la tua risposta è provata automaticamente).",
-    "bs.yourTurnFire": "🎯 Il tuo turno — spara il primo colpo!",
+    "bs.yourTurnFire": "🎯 Il tuo turno — fuoco!",
     "bs.ship_carrier": "Portaerei",
     "bs.ship_battleship": "Corazzata",
     "bs.ship_cruiser": "Incrociatore",
@@ -704,7 +728,11 @@
     "bs.dnForfeit": "✓ Piatto riscosso — l'avversario non ha mai rivelato una flotta valida.",
     "bs.cfClaim": "Rivelo la tua flotta per incassare…",
     "bs.cfForfeit": "Riscuoto il piatto…",
-    "bs.joinThisBtn": "⚓ Posiziona la flotta e unisciti a #{id}"
+    "bs.joinThisBtn": "⚓ Posiziona la flotta e unisciti a #{id}",
+    "bs.answering": "🛡 Il nemico ha sparato a {cell} — rivelo la tua griglia…",
+    "bs.awaitAnswer": "🎯 Colpo su {cell} — in attesa che il nemico lo annunci…",
+    "bs.dnFire": "✓ Colpo partito.",
+    "bs.cfFire": "Fuoco — in conferma…"
   },
   "ru": {
     "bs.allGames": "🎮 Все игры",
@@ -788,7 +816,7 @@
     "bs.youWon": "🏆 Вы потопили флот врага — вы выиграли {amt} NADO!",
     "bs.yourFleet": "🚢 Ваш флот — выстрелы врага",
     "bs.yourTurnAnswer": "🎯 Ваш ход — враг выстрелил по {cell}. Выберите выстрел и Огонь (ваш ответ доказывается автоматически).",
-    "bs.yourTurnFire": "🎯 Ваш ход — сделайте первый выстрел!",
+    "bs.yourTurnFire": "🎯 Ваш ход — огонь!",
     "bs.ship_carrier": "Авианосец",
     "bs.ship_battleship": "Линкор",
     "bs.ship_cruiser": "Крейсер",
@@ -805,7 +833,11 @@
     "bs.dnForfeit": "✓ Банк получен — соперник не раскрыл действительный флот.",
     "bs.cfClaim": "Раскрываем ваш флот для выплаты…",
     "bs.cfForfeit": "Забираем банк…",
-    "bs.joinThisBtn": "⚓ Расставьте флот и вступите в #{id}"
+    "bs.joinThisBtn": "⚓ Расставьте флот и вступите в #{id}",
+    "bs.answering": "🛡 Враг выстрелил по {cell} — раскрываю ваше поле…",
+    "bs.awaitAnswer": "🎯 Выстрел по {cell} — ждём, пока враг объявит результат…",
+    "bs.dnFire": "✓ Выстрел сделан.",
+    "bs.cfFire": "Выстрел — подтверждается…"
   },
   "zh": {
     "bs.allGames": "🎮 所有游戏",
@@ -889,7 +921,7 @@
     "bs.youWon": "🏆 你击沉了敌方舰队——赢得 {amt} NADO！",
     "bs.yourFleet": "🚢 你的舰队——敌方射击",
     "bs.yourTurnAnswer": "🎯 轮到你了——敌方攻击了 {cell}。选择你的射击并开火（你的应答会自动被证明）。",
-    "bs.yourTurnFire": "🎯 轮到你了——打出第一枪！",
+    "bs.yourTurnFire": "🎯 轮到你了——开火！",
     "bs.ship_carrier": "航空母舰",
     "bs.ship_battleship": "战列舰",
     "bs.ship_cruiser": "巡洋舰",
@@ -906,7 +938,11 @@
     "bs.dnForfeit": "✓ 已领取奖池——对手从未揭示有效舰队。",
     "bs.cfClaim": "正在揭示你的舰队以领取…",
     "bs.cfForfeit": "正在领取奖池…",
-    "bs.joinThisBtn": "⚓ 布置舰队并加入 #{id}"
+    "bs.joinThisBtn": "⚓ 布置舰队并加入 #{id}",
+    "bs.answering": "🛡 敌方攻击了 {cell}——正在揭示你的棋盘…",
+    "bs.awaitAnswer": "🎯 已攻击 {cell}——等待敌方公布结果…",
+    "bs.dnFire": "✓ 已开火。",
+    "bs.cfFire": "开火 — 确认中…"
   },
   "ja": {
     "bs.allGames": "🎮 すべてのゲーム",
@@ -990,7 +1026,7 @@
     "bs.youWon": "🏆 敵艦隊を撃沈——{amt} NADO を獲得！",
     "bs.yourFleet": "🚢 あなたの艦隊——敵の射撃",
     "bs.yourTurnAnswer": "🎯 あなたの番——敵が {cell} を攻撃。射撃を選んで発射（応答は自動で証明されます）。",
-    "bs.yourTurnFire": "🎯 あなたの番——最初の一撃を！",
+    "bs.yourTurnFire": "🎯 あなたの番——射撃！",
     "bs.ship_carrier": "空母",
     "bs.ship_battleship": "戦艦",
     "bs.ship_cruiser": "巡洋艦",
@@ -1007,7 +1043,11 @@
     "bs.dnForfeit": "✓ ポットを請求——相手は有効な艦隊を公開しませんでした。",
     "bs.cfClaim": "艦隊を公開して受け取り中…",
     "bs.cfForfeit": "ポットを請求中…",
-    "bs.joinThisBtn": "⚓ 艦隊を配置して #{id} に参加"
+    "bs.joinThisBtn": "⚓ 艦隊を配置して #{id} に参加",
+    "bs.answering": "🛡 敵が {cell} を攻撃——盤面を公開中…",
+    "bs.awaitAnswer": "🎯 {cell} に射撃——敵の判定を待っています…",
+    "bs.dnFire": "✓ 射撃完了。",
+    "bs.cfFire": "射撃 — 確認中…"
   },
   "ko": {
     "bs.allGames": "🎮 모든 게임",
@@ -1091,7 +1131,7 @@
     "bs.youWon": "🏆 적 함대를 격침 — {amt} NADO 획득!",
     "bs.yourFleet": "🚢 내 함대 — 적의 사격",
     "bs.yourTurnAnswer": "🎯 당신 차례 — 적이 {cell}을(를) 공격했습니다. 사격을 고르고 발사하세요(응답은 자동 증명됩니다).",
-    "bs.yourTurnFire": "🎯 당신 차례 — 첫 사격을 하세요!",
+    "bs.yourTurnFire": "🎯 당신 차례 — 사격!",
     "bs.ship_carrier": "항공모함",
     "bs.ship_battleship": "전함",
     "bs.ship_cruiser": "순양함",
@@ -1108,7 +1148,11 @@
     "bs.dnForfeit": "✓ 판돈 청구 — 상대가 유효한 함대를 공개하지 않았습니다.",
     "bs.cfClaim": "함대를 공개하여 수령 중…",
     "bs.cfForfeit": "판돈 청구 중…",
-    "bs.joinThisBtn": "⚓ 함대 배치 후 #{id} 참가"
+    "bs.joinThisBtn": "⚓ 함대 배치 후 #{id} 참가",
+    "bs.answering": "🛡 적이 {cell}을(를) 공격 — 보드 공개 중…",
+    "bs.awaitAnswer": "🎯 {cell} 사격 — 적의 판정을 기다리는 중…",
+    "bs.dnFire": "✓ 사격 완료.",
+    "bs.cfFire": "사격 — 확인 중…"
   },
   "ar": {
     "bs.allGames": "🎮 كل الألعاب",
@@ -1192,7 +1236,7 @@
     "bs.youWon": "🏆 لقد أغرقت أسطول العدو — ربحت {amt} NADO!",
     "bs.yourFleet": "🚢 أسطولك — طلقات العدو",
     "bs.yourTurnAnswer": "🎯 دورك — أطلق العدو على {cell}. اختر طلقتك وأطلق (يُثبَت ردك تلقائياً).",
-    "bs.yourTurnFire": "🎯 دورك — أطلق الطلقة الأولى!",
+    "bs.yourTurnFire": "🎯 دورك — أطلق!",
     "bs.ship_carrier": "حاملة طائرات",
     "bs.ship_battleship": "بارجة",
     "bs.ship_cruiser": "طرّاد",
@@ -1209,7 +1253,11 @@
     "bs.dnForfeit": "✓ تم أخذ القِدر — لم يكشف الخصم عن أسطول صالح.",
     "bs.cfClaim": "جارٍ كشف أسطولك للتحصيل…",
     "bs.cfForfeit": "جارٍ المطالبة بالقِدر…",
-    "bs.joinThisBtn": "⚓ ضع الأسطول وانضم إلى #{id}"
+    "bs.joinThisBtn": "⚓ ضع الأسطول وانضم إلى #{id}",
+    "bs.answering": "🛡 أطلق العدو على {cell} — جارٍ كشف لوحتك…",
+    "bs.awaitAnswer": "🎯 طلقة على {cell} — في انتظار إعلان العدو للنتيجة…",
+    "bs.dnFire": "✓ تم إطلاق النار.",
+    "bs.cfFire": "إطلاق — جارٍ التأكيد…"
   },
   "hi": {
     "bs.allGames": "🎮 सभी गेम",
@@ -1293,7 +1341,7 @@
     "bs.youWon": "🏆 आपने दुश्मन बेड़ा डुबो दिया — आपने {amt} NADO जीते!",
     "bs.yourFleet": "🚢 आपका बेड़ा — दुश्मन के शॉट",
     "bs.yourTurnAnswer": "🎯 आपकी बारी — दुश्मन ने {cell} पर फ़ायर किया। अपना शॉट चुनें और फ़ायर करें (आपका उत्तर स्वतः प्रमाणित होता है)।",
-    "bs.yourTurnFire": "🎯 आपकी बारी — पहला शॉट दागें!",
+    "bs.yourTurnFire": "🎯 आपकी बारी — फ़ायर!",
     "bs.ship_carrier": "विमानवाहक",
     "bs.ship_battleship": "युद्धपोत",
     "bs.ship_cruiser": "क्रूज़र",
@@ -1310,7 +1358,11 @@
     "bs.dnForfeit": "✓ पॉट का दावा किया — प्रतिद्वंद्वी ने वैध बेड़ा कभी प्रकट नहीं किया।",
     "bs.cfClaim": "वसूलने के लिए आपका बेड़ा प्रकट किया जा रहा है…",
     "bs.cfForfeit": "पॉट का दावा किया जा रहा है…",
-    "bs.joinThisBtn": "⚓ बेड़ा रखें और #{id} में शामिल हों"
+    "bs.joinThisBtn": "⚓ बेड़ा रखें और #{id} में शामिल हों",
+    "bs.answering": "🛡 दुश्मन ने {cell} पर फ़ायर किया — आपका बोर्ड प्रकट हो रहा है…",
+    "bs.awaitAnswer": "🎯 {cell} पर शॉट — दुश्मन के परिणाम बताने का इंतज़ार…",
+    "bs.dnFire": "✓ शॉट भेजा गया।",
+    "bs.cfFire": "फ़ायर — पुष्टि हो रही है…"
   },
   "tr": {
     "bs.allGames": "🎮 Tüm oyunlar",
@@ -1394,7 +1446,7 @@
     "bs.youWon": "🏆 Düşman filosunu batırdın — {amt} NADO kazandın!",
     "bs.yourFleet": "🚢 Filon — düşman atışları",
     "bs.yourTurnAnswer": "🎯 Sıra sende — düşman {cell} hedefine ateş etti. Atışını seç ve Ateş (yanıtın otomatik kanıtlanır).",
-    "bs.yourTurnFire": "🎯 Sıra sende — ilk atışı yap!",
+    "bs.yourTurnFire": "🎯 Sıra sende — ateş!",
     "bs.ship_carrier": "Uçak gemisi",
     "bs.ship_battleship": "Zırhlı",
     "bs.ship_cruiser": "Kruvazör",
@@ -1411,7 +1463,11 @@
     "bs.dnForfeit": "✓ Pot alındı — rakip geçerli bir filo açıklamadı.",
     "bs.cfClaim": "Almak için filon açıklanıyor…",
     "bs.cfForfeit": "Pot talep ediliyor…",
-    "bs.joinThisBtn": "⚓ Filoyu yerleştir ve #{id}'e katıl"
+    "bs.joinThisBtn": "⚓ Filoyu yerleştir ve #{id}'e katıl",
+    "bs.answering": "🛡 Düşman {cell} hedefine ateş etti — tahtan açıklanıyor…",
+    "bs.awaitAnswer": "🎯 {cell} hedefine atış — düşmanın sonucu bildirmesi bekleniyor…",
+    "bs.dnFire": "✓ Atış yapıldı.",
+    "bs.cfFire": "Ateş — onaylanıyor…"
   },
   "id": {
     "bs.allGames": "🎮 Semua game",
@@ -1495,7 +1551,7 @@
     "bs.youWon": "🏆 Kamu menenggelamkan armada musuh — menang {amt} NADO!",
     "bs.yourFleet": "🚢 Armadamu — tembakan musuh",
     "bs.yourTurnAnswer": "🎯 Giliranmu — musuh menembak {cell}. Pilih tembakanmu dan Tembak (jawabanmu dibuktikan otomatis).",
-    "bs.yourTurnFire": "🎯 Giliranmu — lepaskan tembakan pertama!",
+    "bs.yourTurnFire": "🎯 Giliranmu — tembak!",
     "bs.ship_carrier": "Kapal induk",
     "bs.ship_battleship": "Kapal tempur",
     "bs.ship_cruiser": "Penjelajah",
@@ -1512,7 +1568,11 @@
     "bs.dnForfeit": "✓ Pot diklaim — lawan tak pernah mengungkap armada valid.",
     "bs.cfClaim": "Mengungkap armadamu untuk mengambil…",
     "bs.cfForfeit": "Mengklaim pot…",
-    "bs.joinThisBtn": "⚓ Tempatkan armada & gabung #{id}"
+    "bs.joinThisBtn": "⚓ Tempatkan armada & gabung #{id}",
+    "bs.answering": "🛡 Musuh menembak {cell} — mengungkap papanmu…",
+    "bs.awaitAnswer": "🎯 Menembak {cell} — menunggu musuh mengumumkan hasilnya…",
+    "bs.dnFire": "✓ Tembakan meluncur.",
+    "bs.cfFire": "Menembak — mengonfirmasi…"
   },
   "vi": {
     "bs.allGames": "🎮 Tất cả trò chơi",
@@ -1596,7 +1656,7 @@
     "bs.youWon": "🏆 Bạn đã đánh chìm hạm đội địch — thắng {amt} NADO!",
     "bs.yourFleet": "🚢 Hạm đội của bạn — phát bắn của địch",
     "bs.yourTurnAnswer": "🎯 Tới lượt bạn — địch bắn vào {cell}. Chọn phát bắn của bạn và Bắn (câu trả lời được chứng minh tự động).",
-    "bs.yourTurnFire": "🎯 Tới lượt bạn — bắn phát đầu tiên!",
+    "bs.yourTurnFire": "🎯 Tới lượt bạn — bắn!",
     "bs.ship_carrier": "Tàu sân bay",
     "bs.ship_battleship": "Thiết giáp hạm",
     "bs.ship_cruiser": "Tuần dương hạm",
@@ -1613,6 +1673,10 @@
     "bs.dnForfeit": "✓ Đã nhận nồi — đối thủ chưa từng tiết lộ hạm đội hợp lệ.",
     "bs.cfClaim": "Đang tiết lộ hạm đội để nhận…",
     "bs.cfForfeit": "Đang nhận nồi…",
-    "bs.joinThisBtn": "⚓ Đặt hạm đội & tham gia #{id}"
+    "bs.joinThisBtn": "⚓ Đặt hạm đội & tham gia #{id}",
+    "bs.answering": "🛡 Địch bắn vào {cell} — đang tiết lộ bảng của bạn…",
+    "bs.awaitAnswer": "🎯 Đã bắn vào {cell} — chờ địch báo kết quả…",
+    "bs.dnFire": "✓ Đã bắn.",
+    "bs.cfFire": "Bắn — đang xác nhận…"
   }
 }
