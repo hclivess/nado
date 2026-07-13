@@ -1980,9 +1980,13 @@ function normalizeOrigin(s) {
   if (!/^https?:\/\//i.test(s)) s = "https://" + s;
   try { const u = new URL(s); return u.protocol === "https:" ? u.origin : ""; } catch (e) { return ""; }
 }
-// an origin the user may sign for: a built-in official game OR one they added in Settings (NOT the
-// blanket "trust any site" bypass — callers add that separately so an unknown site still gets a louder path)
-const originAllowed = (origin) => EXEC_SIGN_ALLOW.includes(origin) || userAllowedOrigins().includes(origin);
+// Any OFFICIAL NADO subdomain (https://<sub>.nadochain.com) is trusted automatically — the operator controls
+// every nadochain.com subdomain, so a new game (battleship, future ones) works WITHOUT hand-editing a list here.
+// (Value-moving calls still always show an explicit confirm; connect only returns the address after a confirm.)
+const OFFICIAL_ORIGIN = /^https:\/\/([a-z0-9-]+\.)*nadochain\.com$/;
+// an origin the user may sign for: an official nadochain.com game, a built-in entry, OR one they added in
+// Settings (NOT the blanket "trust any site" bypass — callers add that so an unknown 3rd-party gets a louder path).
+const originAllowed = (origin) => OFFICIAL_ORIGIN.test(origin) || EXEC_SIGN_ALLOW.includes(origin) || userAllowedOrigins().includes(origin);
 let pendingExecSign = (() => {
   try {
     const p = new URLSearchParams(location.search);
