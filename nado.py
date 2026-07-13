@@ -919,6 +919,36 @@ async def get_open_weights(request):
     return _resp(await asyncio.to_thread(_work))
 
 
+async def duty_committee(request):
+    """GET /duty_committee[?epoch=E&address=A]: the epoch's DUTY COMMITTEE (consensus-aggregation.md) —
+    {epoch, seats:{address:n}}. If ?address= is given, also {in_committee: bool, seats_of: n}. A bonded
+    validator (the browser light-miner included) posts its merged `duty` tx ONLY when it holds a seat,
+    so this is the pre-check that stops non-committee validators from broadcasting rejected duties.
+    Defaults to the current tip's epoch. Rate-limited 60/min per IP."""
+    if _rate_limited(request, 60):
+        return _RL
+    q_epoch = request.query.get("epoch")
+    addr = request.query.get("address")
+
+    def _work():
+        from ops.block_ops import duty_committee_for_epoch
+        from ops.mining_ops import epoch_of
+        try:
+            e = int(q_epoch) if q_epoch is not None else epoch_of(memserver.latest_block["block_number"])
+        except (TypeError, ValueError):
+            return {"error": "bad epoch"}
+        try:
+            seats = duty_committee_for_epoch(e)
+        except Exception:
+            seats = {}                       # beacon anchor unavailable -> empty (no committee derivable)
+        out = {"epoch": e, "seats": seats}
+        if addr:
+            out["in_committee"] = addr in seats
+            out["seats_of"] = seats.get(addr, 0)
+        return out
+    return _resp(await asyncio.to_thread(_work))
+
+
 async def get_dividend_inflow(request):
     """GET /get_dividend_inflow?epoch=E: the TOTAL DIVIDEND_POOL inflow credited during epoch E — the
     deterministic, epoch-bound amount the execution node distributes over weights_at_epoch(E). 400 on a bad
@@ -1291,6 +1321,7 @@ async def make_app(port):
         web.get("/posw_difficulty", get_posw_difficulty),
         web.get("/get_rich_list", get_rich_list),
         web.get("/get_open_weights", get_open_weights),
+        web.get("/duty_committee", duty_committee),
         web.get("/get_dividend_inflow", get_dividend_inflow),
         web.get("/get_settled", get_settled),
         web.get("/resolve_alias", resolve_alias),

@@ -10,6 +10,8 @@
 
   const T = {
     en: {
+      "log.dutyOk": "Epoch duty submitted for epoch {e} — bonded lane eligible ✓",
+      "log.dutyErr": "Epoch duty rejected: {m}",
       "ab.nameIt": "Name this contact (optional):",
       "ab.rename": "Rename contact:",
       "ab.saved": "Saved to your address book.",
@@ -108,6 +110,8 @@
       "btn.selftest":"Run self-test","btn.forget":"Forget wallet"
     },
     cs: {
+      "log.dutyOk": "Epochová povinnost odeslána pro epochu {e} — staking dráha způsobilá ✓",
+      "log.dutyErr": "Epochová povinnost odmítnuta: {m}",
       "ab.nameIt": "Pojmenujte tento kontakt (nepovinné):",
       "ab.rename": "Přejmenovat kontakt:",
       "ab.saved": "Uloženo do vašeho adresáře.",
@@ -292,6 +296,8 @@
       "ex.totalSupply":"Celková zásoba","ex.transactions":"Transakce","ex.treasury":"Pokladna","ex.txid":"Txid"
     },
     es: {
+      "log.dutyOk": "Deber de época enviado para la época {e} — carril con stake habilitado ✓",
+      "log.dutyErr": "Deber de época rechazado: {m}",
       "ab.nameIt": "Nombra este contacto (opcional):",
       "ab.rename": "Renombrar contacto:",
       "ab.saved": "Guardado en tu agenda.",
@@ -513,6 +519,8 @@
       "ex.totalSupply":"Suministro total","ex.transactions":"Transacciones","ex.treasury":"Tesorería","ex.txid":"Txid"
     },
     pt: {
+      "log.dutyOk": "Dever de época enviado para a época {e} — faixa com stake elegível ✓",
+      "log.dutyErr": "Dever de época rejeitado: {m}",
       "ab.nameIt": "Dê um nome a este contacto (opcional):",
       "ab.rename": "Renomear contacto:",
       "ab.saved": "Guardado na sua lista de contactos.",
@@ -734,6 +742,8 @@
       "ex.totalSupply":"Fornecimento total","ex.transactions":"Transações","ex.treasury":"Tesouraria","ex.txid":"Txid"
     },
     fr: {
+      "log.dutyOk": "Devoir d'époque envoyé pour l'époque {e} — voie avec stake éligible ✓",
+      "log.dutyErr": "Devoir d'époque rejeté : {m}",
       "ab.nameIt": "Nommer ce contact (facultatif) :",
       "ab.rename": "Renommer le contact :",
       "ab.saved": "Enregistré dans votre carnet d'adresses.",
@@ -956,6 +966,8 @@
       "ex.totalSupply":"Offre totale","ex.transactions":"Transactions","ex.treasury":"Trésorerie","ex.txid":"Txid"
     },
     de: {
+      "log.dutyOk": "Epochenpflicht für Epoche {e} gesendet — Stake-Lane berechtigt ✓",
+      "log.dutyErr": "Epochenpflicht abgelehnt: {m}",
       "ab.nameIt": "Diesen Kontakt benennen (optional):",
       "ab.rename": "Kontakt umbenennen:",
       "ab.saved": "In Ihrem Adressbuch gespeichert.",
@@ -1178,6 +1190,8 @@
       "ex.totalSupply":"Gesamtangebot","ex.transactions":"Transaktionen","ex.treasury":"Treasury","ex.txid":"Txid"
     },
     it: {
+      "log.dutyOk": "Dovere di epoca inviato per l'epoca {e} — corsia con stake idonea ✓",
+      "log.dutyErr": "Dovere di epoca rifiutato: {m}",
       "ab.nameIt": "Assegna un nome a questo contatto (facoltativo):",
       "ab.rename": "Rinomina contatto:",
       "ab.saved": "Salvato nella tua rubrica.",
@@ -1400,6 +1414,8 @@
       "ex.totalSupply":"Offerta totale","ex.transactions":"Transazioni","ex.treasury":"Tesoreria","ex.txid":"Txid"
     },
     ru: {
+      "log.dutyOk": "Эпоховая обязанность отправлена для эпохи {e} — стейк-полоса допущена ✓",
+      "log.dutyErr": "Эпоховая обязанность отклонена: {m}",
       "ab.nameIt": "Название контакта (необязательно):",
       "ab.rename": "Переименовать контакт:",
       "ab.saved": "Сохранено в адресную книгу.",
@@ -1622,6 +1638,8 @@
       "ex.totalSupply":"Общее предложение","ex.transactions":"Транзакции","ex.treasury":"Казна","ex.txid":"Txid"
     },
     zh: {
+      "log.dutyOk": "已为第 {e} 轮提交轮次职责——储蓄通道已合格 ✓",
+      "log.dutyErr": "轮次职责被拒绝：{m}",
       "ab.nameIt": "为该联系人命名（可选）：",
       "ab.rename": "重命名联系人：",
       "ab.saved": "已保存到通讯录。",
@@ -1844,6 +1862,8 @@
       "ex.totalSupply":"总供应量","ex.transactions":"交易","ex.treasury":"国库","ex.txid":"Txid"
     },
     ja: {
+      "log.dutyOk": "エポック {e} のエポック職務を送信しました — ステークレーン有効 ✓",
+      "log.dutyErr": "エポック職務が拒否されました: {m}",
       "ab.nameIt": "この連絡先に名前を付ける（任意）：",
       "ab.rename": "連絡先の名前を変更：",
       "ab.saved": "アドレス帳に保存しました。",
@@ -2066,6 +2086,8 @@
       "ex.totalSupply":"総供給量","ex.transactions":"トランザクション","ex.treasury":"トレジャリー","ex.txid":"Txid"
     },
     ko: {
+      "log.dutyOk": "에포크 {e} 의 에포크 임무를 제출했습니다 — 스테이크 레인 자격 ✓",
+      "log.dutyErr": "에포크 임무가 거부되었습니다: {m}",
       "ab.nameIt": "이 연락처의 이름 지정（선택 사항）：",
       "ab.rename": "연락처 이름 변경：",
       "ab.saved": "주소록에 저장되었습니다.",
@@ -2288,6 +2310,8 @@
       "ex.totalSupply":"총 공급량","ex.transactions":"트랜잭션","ex.treasury":"트레저리","ex.txid":"Txid"
     },
     ar: {
+      "log.dutyOk": "تم إرسال واجب الحقبة للحقبة {e} — مسار الرهن مؤهَّل ✓",
+      "log.dutyErr": "رُفض واجب الحقبة: {m}",
       "ab.nameIt": "سمِّ جهة الاتصال هذه (اختياري):",
       "ab.rename": "إعادة تسمية جهة الاتصال:",
       "ab.saved": "تم الحفظ في دفتر العناوين.",
@@ -2510,6 +2534,8 @@
       "ex.totalSupply":"إجمالي المعروض","ex.transactions":"المعاملات","ex.treasury":"الخزانة","ex.txid":"Txid"
     },
     hi: {
+      "log.dutyOk": "एपोक {e} के लिए एपोक कर्तव्य भेजा गया — स्टेक लेन पात्र ✓",
+      "log.dutyErr": "एपोक कर्तव्य अस्वीकृत: {m}",
       "ab.nameIt": "इस संपर्क को नाम दें (वैकल्पिक):",
       "ab.rename": "संपर्क का नाम बदलें:",
       "ab.saved": "आपकी पता-पुस्तिका में सहेजा गया।",
@@ -2732,6 +2758,8 @@
       "ex.totalSupply":"कुल आपूर्ति","ex.transactions":"लेनदेन","ex.treasury":"कोष","ex.txid":"Txid"
     },
     tr: {
+      "log.dutyOk": "{e} dönemi için dönem görevi gönderildi — stake şeridi uygun ✓",
+      "log.dutyErr": "Dönem görevi reddedildi: {m}",
       "ab.nameIt": "Bu kişiye ad verin (isteğe bağlı):",
       "ab.rename": "Kişiyi yeniden adlandır:",
       "ab.saved": "Adres defterinize kaydedildi.",
@@ -2954,6 +2982,8 @@
       "ex.totalSupply":"Toplam arz","ex.transactions":"İşlemler","ex.treasury":"Hazine","ex.txid":"Txid"
     },
     id: {
+      "log.dutyOk": "Tugas epoch dikirim untuk epoch {e} — jalur stake memenuhi syarat ✓",
+      "log.dutyErr": "Tugas epoch ditolak: {m}",
       "ab.nameIt": "Beri nama kontak ini (opsional):",
       "ab.rename": "Ubah nama kontak:",
       "ab.saved": "Tersimpan ke buku alamat Anda.",
@@ -3176,6 +3206,8 @@
       "ex.totalSupply":"Total pasokan","ex.transactions":"Transaksi","ex.treasury":"Kas","ex.txid":"Txid"
     },
     vi: {
+      "log.dutyOk": "Đã gửi nhiệm vụ epoch cho epoch {e} — làn stake đủ điều kiện ✓",
+      "log.dutyErr": "Nhiệm vụ epoch bị từ chối: {m}",
       "ab.nameIt": "Đặt tên cho liên hệ này (tùy chọn):",
       "ab.rename": "Đổi tên liên hệ:",
       "ab.saved": "Đã lưu vào sổ địa chỉ của bạn.",

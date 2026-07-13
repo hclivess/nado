@@ -2791,71 +2791,66 @@ function randaoSecretFor(epoch) { return blake2bHash(["nado-randao-secret", mast
 let _randaoBusy = false;
 const _randaoDead = new Set();     // epochs with a DETERMINISTIC reveal rejection — same inputs give the same
                                    // answer, so a resubmit can never succeed; never send one twice
+const _dutyDone = {};              // epoch X -> true once our duty tx for X was accepted (no re-submit)
+
+// MERGED EPOCH DUTY (doc/consensus-aggregation.md): the node no longer accepts standalone
+// attest/commit/reveal txs — a bonded validator's FFG attest (epoch X) + RANDAO commit (X+2) +
+// reveal (X+1) ride in ONE fee-exempt `duty` tx, and only members of epoch X's beacon-sampled
+// DUTY COMMITTEE may post it. So we (1) confirm we hold a committee seat via /duty_committee before
+// broadcasting anything (a non-member never sends a rejected tx), then (2) submit one duty tx with
+// whatever sections are due. Mirrors the node's maybe_epoch_duty; secrets are deterministic from the
+// wallet key, so no cross-window storage is needed.
 async function maybeRandao() {
   if (_randaoBusy || !state.wallet || state.locked || state.latest == null) return;
   _randaoBusy = true;
   try {
     const acc = await getAccount(state.wallet.address);
-    if (!acc || BigInt(acc.bonded ?? 0) < B_MIN_RAW) return;   // duty applies to bonded validators only
+    if (!acc || BigInt(acc.bonded ?? 0) < B_MIN_RAW) return;   // duties apply to bonded validators only
     const latest = state.latest;
-    const epochNow = Math.floor(latest / EPOCH_LENGTH);
-    const store = loadRandao();
-    let dirty = false;
-    for (const k of Object.keys(store)) {                      // prune epochs whose windows have passed
-      if (Number(k) <= epochNow) { delete store[k]; dirty = true; }
+    const X = Math.floor(latest / EPOCH_LENGTH);
+    for (const k of Object.keys(_dutyDone)) { if (Number(k) < X) delete _dutyDone[k]; }
+    if (_dutyDone[X]) return;                                   // already accepted this epoch
+
+    // COMMITTEE GATE: only seat-holders may post a duty tx — check before broadcasting so a
+    // non-member never emits a tx the node would reject.
+    let inCommittee = false;
+    try {
+      const r = await fetch(relayBase() + "/duty_committee?epoch=" + X + "&address=" + encodeURIComponent(state.wallet.address), { cache: "no-store" });
+      inCommittee = !!(await r.json()).in_committee;
+    } catch (e) { return; }                                    // relay hiccup — try next poll
+    if (!inCommittee) return;                                   // not our epoch to post; wait for a seat
+
+    // reveal window bounds the whole tx's landing block (the tightest of the three sections).
+    const revealHi = (X + 1) * EPOCH_LENGTH - FINALITY_DEPTH - 1;
+    const tb = Math.min(latest + 5, (X + 1) * EPOCH_LENGTH - 1);
+    if (tb <= latest) return;                                   // epoch tail — resume next epoch
+
+    const data = {};
+    // FFG attest (epoch X's checkpoint = first block of X)
+    if (X >= 1) {
+      try {
+        const b = await (await fetch(relayBase() + "/get_block_number?number=" + (X * EPOCH_LENGTH), { cache: "no-store" })).json();
+        if (b && b.block_hash) data.attest = { target_epoch: X, target_hash: b.block_hash };
+      } catch (e) { /* skip attest this pass */ }
+    }
+    // RANDAO commit for X+2 (deterministic secret from the key)
+    data.commit = { target_epoch: X + 2, commitment: blake2bHash(["nado-randao-commit", randaoSecretFor(X + 2)]) };
+    // RANDAO reveal for X+1 (its E-1 finalized window), if the landing block is inside it
+    if (tb <= revealHi && !_randaoDead.has(X + 1)) {
+      data.reveal = { target_epoch: X + 1, secret: randaoSecretFor(X + 1) };
     }
 
-    // COMMIT for epoch current+2 (we are in its E-2 window). Confirmation is observed as the
-    // node rejecting a re-submit with "Already committed" — until then, retry (throttled).
-    const eCommit = epochNow + 2;
-    let rec = store[eCommit];
-    if (!rec || !rec.committed) {
-      const tb = Math.min(latest + 5, (epochNow + 1) * EPOCH_LENGTH - 1);
-      const due = !rec || rec.lastTry == null || (latest - rec.lastTry) >= RANDAO_RETRY_BLOCKS;
-      if (tb > latest && due) {
-        if (!rec) { rec = store[eCommit] = { secret: randaoSecretFor(eCommit) }; }
-        rec.lastTry = latest; dirty = true;
-        const commitment = blake2bHash(["nado-randao-commit", rec.secret]);
-        const tx = buildTransferTx(state.wallet, "commit", 0n, 0,
-                                   tb, { target_epoch: eCommit, commitment },
-                                   nowSeconds(), !pubkeyEstablished(acc));
-        const res = await submitTransaction(tx);
-        const msg = String(res.data && (res.data.message || ""));
-        if (/already committed/i.test(msg)) { rec.committed = true; }
-        else if (!(res.data && res.data.result) && msg) { log("err", i18("log.randaoCommitErr", "RANDAO commit rejected: {m}", {m: msg.slice(0, 120)})); }
-      }
+    const tx = buildTransferTx(state.wallet, "duty", 0n, 0, tb, data, nowSeconds(), !pubkeyEstablished(acc));
+    const res = await submitTransaction(tx);
+    const msg = String(res.data && (res.data.message || ""));
+    if (res.data && res.data.result) {
+      _dutyDone[X] = true;
+      log("ok", i18("log.dutyOk", "Epoch duty submitted for epoch {e} — bonded lane eligible ✓", {e: X}));
+    } else if (/already|no seat|carries no sections/i.test(msg)) {
+      _dutyDone[X] = true;                                      // nothing left to post this epoch
+    } else if (msg) {
+      log("err", i18("log.dutyErr", "Epoch duty rejected: {m}", {m: msg.slice(0, 120)}));
     }
-
-    // REVEAL for epoch current+1 (its E-1 finalized window) — this is what earns the epoch.
-    const eReveal = epochNow + 1;
-    const rrec = store[eReveal];
-    if (rrec && rrec.secret && !rrec.revealed && !_randaoDead.has(eReveal)) {
-      const lo = epochNow * EPOCH_LENGTH;
-      const hi = eReveal * EPOCH_LENGTH - FINALITY_DEPTH - 1;
-      const tb = latest + 5;
-      const due = rrec.lastReveal == null || (latest - rrec.lastReveal) >= RANDAO_RETRY_BLOCKS;
-      if (tb >= lo && tb <= hi && due) {
-        rrec.lastReveal = latest; dirty = true;
-        const tx = buildTransferTx(state.wallet, "reveal", 0n, 0,
-                                   tb, { target_epoch: eReveal, secret: rrec.secret },
-                                   nowSeconds(), !pubkeyEstablished(acc));
-        const res = await submitTransaction(tx);
-        const msg = String(res.data && (res.data.message || ""));
-        if (/already revealed/i.test(msg)) {
-          rrec.revealed = true;
-          log("ok", i18("log.randaoRevealed", "RANDAO reveal confirmed for epoch {e} — bonded lane eligible ✓", {e: eReveal}));
-        } else if (/no matching commit/i.test(msg)) {
-          rrec.revealed = true; _randaoDead.add(eReveal); saveRandao(store);   // persist NOW, not just end-of-cycle
-          log("err", i18("log.randaoNoCommit", "RANDAO: commit for epoch {e} never landed — bonded rewards skip this epoch.", {e: eReveal}));
-        } else if (/does not open the commitment/i.test(msg)) {
-          rrec.revealed = true; _randaoDead.add(eReveal); saveRandao(store);   // deterministic — retrying can't help
-          log("err", i18("log.randaoRevealErr", "RANDAO reveal rejected: {m}", {m: msg.slice(0, 120)}));
-        } else if (!(res.data && res.data.result) && msg) {
-          log("err", i18("log.randaoRevealErr", "RANDAO reveal rejected: {m}", {m: msg.slice(0, 120)}));
-        }
-      }
-    }
-    if (dirty) saveRandao(store);
   } catch (e) { /* best-effort; never break the poll loop */ }
   finally { _randaoBusy = false; }
 }
