@@ -27,7 +27,7 @@ def P(v): return ["PUSH", v]
 def A(i): return ["ARG", i]
 def LD(m): return ["MLOAD", m]
 def ST(m): return ["MSTORE", m]
-CALLER=["CALLER"]; VALUE=["VALUE"]; CURSOR=["CURSOR"]
+CALLER=["CALLER"]; VALUE=["VALUE"]; CURSOR=["CURSOR"]; TIME=["TIME"]
 ADD=["ADD"]; SUB=["SUB"]; MUL=["MUL"]; DIV=["DIV"]
 EQ=["EQ"]; GT=["GT"]; GTE=["GTE"]; LT=["LT"]; LTE=["LTE"]; AND=["AND"]; OR=["OR"]; NOT=["NOT"]
 REQ=["REQUIRE"]; PAY=["PAY"]; HALT=["HALT"]; DUP=["DUP"]; SWAP=["SWAP"]; CONCAT=["CONCAT"]
@@ -97,13 +97,15 @@ add_source = (
 # Empty resolver slots are ignored; if NONE are given the creator becomes the sole resolver. thr defaults
 # to 1 and must be <= the number of resolvers. desc is a '\n'-joined blob: line 0 = title, lines 1..nout =
 # outcome labels. source = a free public source name (transparency); ev = its event id (so a bot can map
-# the market to the real match). lock = L1 height betting closes (kickoff); deadline = height past which
-# anyone may void if still unresolved. mrc = resolver count, mth = threshold, mres[m|addr]=1 membership,
+# the market to the real match). lock = wall-clock epoch seconds betting closes (kickoff); deadline = epoch
+# past which anyone may void if still unresolved. Both are REAL TIME (the TIME opcode), never block height —
+# block rate drifts, so a height-based deadline fires at an unpredictable wall-clock moment (that bug voided
+# live future matches early). Time tracks the real world regardless of how fast blocks come. mrc = resolver count, mth = threshold, mres[m|addr]=1 membership,
 # mcr = creator (attribution). Official (bot-created) markets just name the node key as the resolver.
 create_market = (
     [A(0), LD("mk"), P(0), EQ, REQ] +          # market id is fresh
     [A(1), P(2), GTE, REQ] +                    # at least 2 outcomes
-    [A(2), CURSOR, GT, REQ] +                   # betting closes in the future
+    [A(2), TIME, GT, REQ] +                     # lock (a wall-clock epoch) is in the future
     [A(3), A(2), GT, REQ] +                     # deadline is after the close
     # resolver membership for each provided address (a blank slot writes 0 -> deleted, harmless)
     store("mres", [[A(0)], [A(8)]], present([A(8)])) +
@@ -133,7 +135,7 @@ bet = (
     [A(0), LD("mk"), P(1), EQ, REQ] +           # market exists
     [A(0), LD("dn"), NOT, REQ] +                 # not resolved
     [A(0), LD("vd"), NOT, REQ] +                 # not void
-    [CURSOR, A(0), LD("lk"), LT, REQ] +          # before lock
+    [TIME, A(0), LD("lk"), LT, REQ] +            # before lock (wall-clock now < lock time)
     [A(1), P(0), GTE, REQ] +                      # outcome >= 0
     [A(1), A(0), LD("no"), LT, REQ] +            # outcome < nout
     acc("pl",  [[A(0)], [A(1)]], [VALUE]) +
@@ -159,7 +161,7 @@ resolve = (
     [A(0), LD("mk"), P(1), EQ, REQ] +           # market exists
     [A(0), LD("dn"), NOT, REQ] +                 # not already resolved
     [A(0), LD("vd"), NOT, REQ] +                 # not void
-    [CURSOR, A(0), LD("lk"), GTE, REQ] +         # betting has closed
+    [TIME, A(0), LD("lk"), GTE, REQ] +           # betting has closed (wall-clock now >= lock time)
     [A(1), P(0), GTE, REQ] + [A(1), A(0), LD("no"), LT, REQ] +
     KEY([A(0)], [CALLER]) + [LD("vt"), P(0), EQ, REQ] +    # this resolver hasn't voted
     store("vt", [[A(0)], [CALLER]], [A(1), P(1), ADD]) +   # vt[m|caller] = outcome+1
@@ -177,7 +179,7 @@ void = (
     [A(0), LD("vd"), NOT, REQ] +
     (KEY([A(0)], [CALLER]) + [LD("mres")]                       # a resolver of this market
      + [CALLER, P("admin"), LD("cfg"), EQ] + [OR]               # or the admin
-     + [CURSOR, A(0), LD("dl"), GTE] + [OR]) + [REQ] +          # or past the deadline
+     + [TIME, A(0), LD("dl"), GTE] + [OR]) + [REQ] +            # or past the deadline (wall-clock now >= deadline time)
     store("vd", [[A(0)]], [P(1)]) +
     [HALT])
 
@@ -207,14 +209,14 @@ CODE = {"constructor": constructor, "set_oracle": set_oracle, "set_threshold": s
 # ---- harness --------------------------------------------------------------------------------------
 F = []
 def ck(n, c): print(("  ok  " if c else " FAIL ") + n); (F.append(n) if not c else None)
-st = ExecState(tempfile.mktemp()); T0 = 1000; st.cursor = T0
+st = ExecState(tempfile.mktemp()); T0 = 1000; st.block_ts = T0
 WHO = ["ADMIN", "O2", "O3", "X", "Y", "Z", "W"]
 for a in WHO: st.credit_deposit(a, 1_000_000)
 st.apply_blob({"op": "deploy", "code": CODE, "runtime": "stackvm", "nonce": "bet-v1"}, "ADMIN", "d0")
 CID = list(st.contracts)[0]
 def S(m, key): return st.contracts[CID]["storage"].get(m, {}).get(str(key), 0)
 def bal(a): return st.bridge.get(a, 0)
-def call(m, args, val, who): return st.apply_blob({"op": "call", "contract": CID, "method": m, "args": args, "value": val or 0}, who, m + str(args) + who + str(st.cursor))
+def call(m, args, val, who): return st.apply_blob({"op": "call", "contract": CID, "method": m, "args": args, "value": val or 0}, who, m + str(args) + who + str(st.block_ts))
 
 # create args helper: pad the resolver set to 3 slots (thr=0 -> defaults to 1)
 def CM(m, nout, lk, dl, desc, src, ev, thr=0, resolvers=()):
@@ -257,7 +259,7 @@ ck("bet: nonexistent market reverts", "revert" in call("bet", [9999, 0], 100, "X
 
 # can't resolve before the match locks; only a RESOLVER of this market may resolve
 ck("resolve: before lock reverts", "revert" in call("resolve", [M1, 0], None, "ADMIN"))
-st.cursor = T0 + 120   # kickoff passed, betting closed
+st.block_ts = T0 + 120   # kickoff passed, betting closed
 ck("bet: after lock reverts", "revert" in call("bet", [M1, 0], 100, "X"))
 ck("resolve: non-resolver reverts", "revert" in call("resolve", [M1, 0], None, "X"))
 
@@ -280,7 +282,7 @@ MC = 5010
 call("create_market", CM(MC, 2, T0+150, T0+400, "Fight\nRed\nBlue", "thesportsdb", "evc", resolvers=("W",)), None, "X")
 ck("custom: W is the named resolver, not the creator", S("mres", f"{MC}|W") == 1 and S("mres", f"{MC}|X") == 0 and S("mrc", MC) == 1)
 call("bet", [MC, 0], 100, "Y"); call("bet", [MC, 1], 100, "Z")
-st.cursor = T0 + 160
+st.block_ts = T0 + 160
 ck("custom: the creator can't resolve (not a resolver)", "revert" in call("resolve", [MC, 0], None, "X"))
 ck("custom: the admin can't resolve someone else's market", "revert" in call("resolve", [MC, 0], None, "ADMIN"))
 call("resolve", [MC, 0], None, "W")
@@ -303,8 +305,8 @@ ck("void: full refunds", bal("X") == bx + 400 and bal("Y") == by + 600)
 M3 = 5003
 call("create_market", CM(M3, 2, T0+300, T0+600, "Game C\nHome\nAway", "thesportsdb", "ev3"), None, "ADMIN")
 call("bet", [M3, 0], 250, "Z")
-ck("deadline void: before deadline by non-resolver reverts", (lambda: (setattr(st, "cursor", T0+590), "revert" in call("void", [M3], None, "Z"))[-1])())
-st.cursor = T0 + 620   # past the deadline
+ck("deadline void: before deadline by non-resolver reverts", (lambda: (setattr(st, "block_ts", T0+590), "revert" in call("void", [M3], None, "Z"))[-1])())
+st.block_ts = T0 + 620   # past the deadline
 bz = bal("Z")
 ck("deadline void: ANYONE can void now", "revert" not in call("void", [M3], None, "Z"))
 call("claim", [M3], None, "Z")
@@ -312,11 +314,11 @@ ck("deadline void: refunded", bal("Z") == bz + 250)
 
 # --- market 4: posted winner had ZERO backers -> auto-void -> refunds -------------------------------
 M4 = 5004
-st.cursor = T0 + 700
+st.block_ts = T0 + 700
 call("create_market", CM(M4, 3, T0+750, T0+900, "Game D\nH\nX\nA", "thesportsdb", "ev4"), None, "ADMIN")
 call("bet", [M4, 0], 100, "X")
 call("bet", [M4, 1], 100, "Y")     # nobody backs outcome 2
-st.cursor = T0 + 760
+st.block_ts = T0 + 760
 bx, by = bal("X"), bal("Y")
 call("resolve", [M4, 2], None, "ADMIN")   # outcome 2 won, but pool is empty
 ck("auto-void: unbacked winner -> void not done", S("vd", M4) == 1 and S("dn", M4) == 0)
@@ -325,12 +327,12 @@ ck("auto-void: everyone refunded", bal("X") == bx + 100 and bal("Y") == by + 100
 
 # --- market 5: a 2-of-3 resolver panel named at creation --------------------------------------------
 M5 = 5005
-st.cursor = T0 + 800
+st.block_ts = T0 + 800
 call("create_market", CM(M5, 2, T0+850, T0+1000, "Game E\nHome\nAway", "football-data", "ev5", thr=2, resolvers=("ADMIN", "O2", "O3")), None, "ADMIN")
 ck("2-of-3: panel + threshold stored", S("mrc", M5) == 3 and S("mth", M5) == 2 and S("mres", f"{M5}|O2") == 1)
 call("bet", [M5, 0], 1000, "X")
 call("bet", [M5, 1], 1000, "Y")
-st.cursor = T0 + 860
+st.block_ts = T0 + 860
 ck("2-of-3: a non-panel address can't resolve", "revert" in call("resolve", [M5, 0], None, "W"))
 call("resolve", [M5, 0], None, "ADMIN")
 ck("2-of-3: one vote does NOT finalize", S("dn", M5) == 0 and S("vc", f"{M5}|0") == 1)
@@ -345,7 +347,7 @@ ck("2-of-3: winner X takes the pool", bal("X") == bx + 1000*2000//1000)
 M6 = 5006
 call("create_market", CM(M6, 2, T0+900, T0+1100, "Game F\nHome\nAway", "football-data", "ev6", thr=2, resolvers=("ADMIN", "O2", "O3")), None, "ADMIN")
 call("bet", [M6, 0], 500, "X"); call("bet", [M6, 1], 500, "Y")
-st.cursor = T0 + 910
+st.block_ts = T0 + 910
 call("resolve", [M6, 0], None, "ADMIN")   # votes 0
 call("resolve", [M6, 1], None, "O2")      # votes 1 -> split 1/1, neither hits 2
 ck("2-of-3: split votes do not finalize", S("dn", M6) == 0 and S("vd", M6) == 0)

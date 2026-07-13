@@ -360,7 +360,7 @@ export class NadoDapp {
     this._bgValueUI = false;  // learned: staked calls need a manual confirm here → redirect them directly (value-free still backgrounds)
     this._stakeMode = "amount";   // bet slider: "amount" = user typed a NADO figure; "pct" = user set a % of the table max
     this.me = localStorage.getItem(this.LS_ME) || null;
-    this.exec = 0n; this.l1 = 0n; this.cursor = null;
+    this.exec = 0n; this.l1 = 0n; this.cursor = null; this.now = null;
     this._inviteFn = null;   // a followed share-link's join intent — sticky until the join actually commits
     this._inviteExec = null; // exec balance at last invite attempt, so a landed deposit can re-fire the join
     // online: null = never reached the chain API yet (first load), true = last read OK, false = last read
@@ -701,7 +701,11 @@ export class NadoDapp {
       }
     }
   }
-  async _cursor() { try { const s = await (await fetch(base() + "/exec/root?ns=" + this.ns + "&provisional=1", { cache: "no-store" })).json(); this.cursor = s.cursor != null ? Number(s.cursor) : this.cursor; } catch {} }
+  async _cursor() { try { const s = await (await fetch(base() + "/exec/root?ns=" + this.ns + "&provisional=1", { cache: "no-store" })).json(); this.cursor = s.cursor != null ? Number(s.cursor) : this.cursor; if (s.block_ts != null) this.now = Number(s.block_ts); } catch {} }
+  // chainNow(): the L1 wall-clock the contracts see (the TIME opcode), in epoch seconds. Prefer the chain's
+  // clock over the browser's so a skewed local clock can't misjudge a deadline; fall back to Date.now() until
+  // the first root poll lands.
+  chainNow() { return this.now != null ? this.now : Math.floor(Date.now() / 1000); }
   async storage() {
     try { const sto = (await (await fetch(base() + "/exec/contract?ns=" + this.ns + "&cid=" + this.cid + "&provisional=1", { cache: "no-store" })).json()).storage || {}; this.online = true; return sto; }
     catch { this.online = false; return null; }

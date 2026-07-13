@@ -33,6 +33,7 @@ from ops.key_ops import load_keys
 from protocol import MIN_TX_FEE, TX_INCLUSION_DELAY
 
 BET_CID = "fe303d9880c8222dcf3b9953eb86a0fa"   # execnode/contracts/bet.json (nonce "bet-v1")
+VOID_GRACE_SEC = 300   # wiggle room past the deadline before auto-voiding (the chain clock is only ~tens-of-seconds precise)
 # Major soccer competitions to seed matches from (TheSportsDB league ids). 1X2 (home/draw/away) markets.
 # Override with --leagues "4328,4335,…". All soccer, so the 3-outcome shape is always right.
 DEFAULT_LEAGUES = ["4429", "4481", "4480", "4328", "4335", "4332", "4331", "4334", "4346", "4337"]
@@ -53,12 +54,14 @@ def _post(url, body, timeout=15):
 
 
 def read_storage(exec_url, cid):
-    """The contract's full {map: {key: val}} storage, provisional tail included."""
-    return _get(f"{exec_url}/exec/contract?ns=default&cid={cid}").get("storage", {})
+    """The contract's full {map: {key: val}} storage, provisional tail included (so a just-submitted void/create
+    is visible on the next run without waiting for finality — same fresh view the website reads)."""
+    return _get(f"{exec_url}/exec/contract?ns=default&cid={cid}&provisional=1").get("storage", {})
 
 
-def parse_markets(sto, cursor):
-    """Reconstruct every market from storage (mirrors static/bet.js parseMarket)."""
+def parse_markets(sto, chain_now):
+    """Reconstruct every market from storage (mirrors static/bet.js parseMarket). lk/dl are WALL-CLOCK epoch
+    seconds (the contract's TIME opcode); chain_now is the L1 block timestamp the contract gates on."""
     mk = sto.get("mk", {})
     out = []
     for mid in mk:
@@ -72,8 +75,10 @@ def parse_markets(sto, cursor):
             "labels": labels, "lock": lock, "deadline": deadline,
             "resolved": bool(g("dn")), "void": bool(g("vd")),
             "source": str(g("so") or ""), "ev": str(g("ev") or ""),
-            "locked": cursor is not None and cursor >= lock,
-            "past_deadline": cursor is not None and cursor >= deadline,
+            "locked": chain_now is not None and chain_now >= lock,
+            # wiggle room: only treat a market as past-deadline once we're VOID_GRACE_SEC beyond it, so the
+            # chain clock's tens-of-seconds imprecision can never trigger an auto-void right on the boundary.
+            "past_deadline": chain_now is not None and chain_now >= deadline + VOID_GRACE_SEC,
         })
     return out
 
@@ -118,18 +123,14 @@ def submit(l1, method, args, keys, fee):
     return tx["txid"][:16], resp.get("message")
 
 
-def secs_per_block(l1, n=20):
-    """Measure the recent wall-clock seconds/block so lock heights land near real kickoff time (the
-    live chain can run slower than the 6s target)."""
+def chain_time(l1):
+    """The L1 tip's wall-clock timestamp — the same clock the contract's TIME opcode reads. Markets close/void
+    by real time now, so this replaces the old block-height ↔ time conversion entirely (that conversion assumed a
+    fixed block rate; when the rate drifted, height deadlines fired at the wrong real moment and voided live matches)."""
     try:
-        tip = int(_get(f"{l1}/get_latest_block")["block_number"])
-        a = _get(f"{l1}/get_block_number?number={tip - n}").get("block_timestamp")
-        b = _get(f"{l1}/get_block_number?number={tip}").get("block_timestamp")
-        if a and b and b > a:
-            return max(1.0, (b - a) / n)
+        return int(_get(f"{l1}/get_latest_block")["block_timestamp"])
     except Exception:
-        pass
-    return 6.0
+        return int(time.time())
 
 
 def thesportsdb_next(league, key):
@@ -183,23 +184,30 @@ def main():
     args = ap.parse_args()
     BET_CID = args.cid
 
-    root = _get(f"{args.exec_url}/exec/root")
+    root = _get(f"{args.exec_url}/exec/root?ns=default&provisional=1")
     cursor = root.get("cursor")
+    # the wall-clock the contract gates on: the exec node's applied block_ts, falling back to the L1 tip.
+    chain_now = int(root.get("block_ts") or chain_time(args.l1))
     sto = read_storage(args.exec_url, BET_CID)
-    markets = parse_markets(sto, cursor)
+    markets = parse_markets(sto, chain_now)
 
     if args.action == "fill":
         keys = load_keys()
         # official markets name THIS oracle key as their sole resolver (threshold 1); users who create
         # their own markets from the UI name their own resolver set instead.
         resolver = keys["address"]
-        now = int(time.time())
-        tip = int(_get(f"{args.l1}/get_latest_block")["block_number"])
-        spb = secs_per_block(args.l1)
-        existing_ev = {str(sto.get("ev", {}).get(m, "")) for m in sto.get("mk", {})}
+        # lk/dl are wall-clock epoch seconds now (the contract compares them to TIME), so there is no block-rate
+        # conversion at all — kickoff maps to a fixed real instant regardless of how fast the chain runs.
+        now = chain_now
+        # Dedup by event, but only a LIVE market (neither voided nor resolved) blocks re-listing its event —
+        # a postponed/voided/finished match may be listed again with fresh timing (create_market needs a fresh
+        # market id, so a re-list gets a NEW id below; ev stays the same for source mapping).
+        vd, dn = sto.get("vd", {}), sto.get("dn", {})
+        live_ev = {str(sto.get("ev", {}).get(m, "")) for m in sto.get("mk", {}) if not vd.get(m) and not dn.get(m)}
+        existing_mk = set(sto.get("mk", {}))
         leagues = [x.strip() for x in (args.leagues.split(",") if args.leagues else DEFAULT_LEAGUES) if x.strip()]
         created = 0
-        print(f"fill: tip {tip} · ~{spb:.1f}s/block · {len(leagues)} leagues · cap {args.max}"
+        print(f"fill: chain-time {now} · {len(leagues)} leagues · cap {args.max}"
               + ("" if args.submit else "  (DRY-RUN — add --submit to create)"))
         for lg in leagues:
             if created >= args.max:
@@ -208,7 +216,7 @@ def main():
                 if created >= args.max:
                     break
                 ev = str(e.get("idEvent") or "")
-                if not ev or not ev.isdigit() or ev in existing_ev:
+                if not ev or not ev.isdigit() or ev in live_ev:
                     continue
                 ko = kickoff_epoch(e)
                 if ko is None:
@@ -221,17 +229,25 @@ def main():
                     continue
                 title = (e.get("strEvent") or f"{home} vs {away}").strip()
                 desc = "\n".join([title, home, "Draw", away])
-                lock = tip + max(1, int(lead / spb))
-                deadline = lock + max(1, int(args.void_hours * 3600 / spb))
+                lock = ko                                          # betting closes at kickoff (epoch secs)
+                deadline = ko + int(args.void_hours * 3600)        # anyone may void this long after kickoff if unresolved
+                # market id defaults to the event id; if that id is taken (a prior VOID market for the same match),
+                # bump DETERMINISTICALLY (ev + k·OFFSET) to the next free id. Deterministic (not random) so two fills
+                # racing before either's create is visible pick the SAME id — the contract's fresh-id gate then makes
+                # the second a no-op revert instead of a duplicate market. OFFSET is huge so it never hits another ev.
+                RELIST_OFFSET = 10**12
                 mid = int(ev)
-                existing_ev.add(ev)
+                while str(mid) in existing_mk:
+                    mid += RELIST_OFFSET
+                existing_mk.add(str(mid))
+                live_ev.add(ev)
                 created += 1
                 tag = f"{e.get('strLeague', '?')}, kickoff {e.get('strTimestamp', '?')}Z"
                 if args.submit:
                     txid, msg = submit(args.l1, "create_market", [mid, 3, lock, deadline, desc, "thesportsdb", ev, 1, resolver, "", ""], keys, args.fee)
                     print(f"  + {mid}  {title}  ({tag}) -> {msg}")
                 else:
-                    print(f"  [dry] {mid}  {title}  ({tag}, lock +{int(lead / spb)} blk)")
+                    print(f"  [dry] {mid}  {title}  ({tag}, closes in {int(lead / 60)} min)")
         print(f"\n{created} market(s) {'created' if args.submit else 'proposed'}"
               + ("" if args.submit else " — re-run with --submit to create them"))
         return

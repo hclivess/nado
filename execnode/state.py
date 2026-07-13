@@ -85,6 +85,10 @@ class ExecState:
         self.path = path
         self.contracts = {}        # cid -> {"code": {...}, "storage": {mapname: {key: int}}, "deployer": addr}
         self.cursor = -1           # highest L1 block height fully applied
+        self.block_ts = 0          # wall-clock timestamp of that block (the TIME opcode). Transient: derived
+                                   # from each applied block, NOT committed to state_root — every node sets it
+                                   # from the same finalized block, so TIME stays deterministic without it being
+                                   # a root leaf. Defaults to 0 for a cold view before the first block is applied.
         self.bridge = {}           # addr -> exec-side bridged balance (credited by L1 `bridge` deposits)
         self.withdrawals = {}      # nonce(str) -> {"addr":.., "amount":..} : provable exit records
         self.wd_nonce = 0          # monotonic withdrawal-nonce counter (deterministic)
@@ -586,7 +590,7 @@ class ExecState:
                     return f"skip: contract {cid} already exists"
                 storage = {}
                 if "constructor" in code:
-                    ok, _ret, storage, _pay = rt.run(code, "constructor", sender, [], {}, cursor=self.cursor, beacons=self.beacons, block_hashes=self.block_hashes)
+                    ok, _ret, storage, _pay = rt.run(code, "constructor", sender, [], {}, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes)
                     if not ok:
                         storage = {}                      # constructor reverted -> deploy with empty state
                 abi = payload.get("abi")   # optional, non-consensus UX metadata {method:{args,doc}}
@@ -619,7 +623,7 @@ class ExecState:
                         del self.bridge[sender]
                     self.bridge[cid] = self.bridge.get(cid, 0) + value
                 ok, _ret, new_storage, payouts = rt.run(c["code"], method, sender, args, c["storage"],
-                                                        value=value, cursor=self.cursor, beacons=self.beacons, block_hashes=self.block_hashes)
+                                                        value=value, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes)
                 def _refund():
                     if value > 0:
                         self.bridge[cid] = self.bridge.get(cid, 0) - value
@@ -783,5 +787,5 @@ class ExecState:
         rt = runtimes.get(c.get("runtime", runtimes.DEFAULT_RUNTIME))
         if rt is None:
             return None
-        ok, ret, _, _ = rt.run(c["code"], method, "view", args or [], c["storage"], cursor=self.cursor, beacons=self.beacons, block_hashes=self.block_hashes)
+        ok, ret, _, _ = rt.run(c["code"], method, "view", args or [], c["storage"], cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes)
         return ret if ok else None

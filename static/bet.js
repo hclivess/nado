@@ -7,13 +7,20 @@
 // require M-of-N). Bettors are protected: the oracle can void() a postponed match and, past a per-market
 // deadline, ANYONE can void -> every stake refunds 1:1; an unbacked winner auto-voids. Payouts are
 // pull-based (each bettor calls claim). Outcomes are integers 0..nout-1 everywhere.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, blocksToTime,
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay,
          wireWallet, stickyInputs, renderWallet, statusLabel, disp, resolveAliases,
          loadQR, share, shareInvite } from "./nadodapp.js";
 
 const CID = "fe303d9880c8222dcf3b9953eb86a0fa";   // execnode/contracts/bet.json, deployed by the node key (nonce "bet-v1")
 const dapp = new NadoDapp({ cid: CID, app: "Bet" });
-const BLOCK_SECS = 6, BPM = 60 / BLOCK_SECS;   // 10 blocks / minute
+// Markets close/void by WALL-CLOCK time (the contract's TIME opcode = L1 block timestamp), never block height —
+// block rate drifts, so a height deadline fires at an unpredictable real moment (that bug voided live matches a
+// day early). lk/dl are epoch seconds. VOID_GRACE_SEC is UI wiggle room: the chain clock is only precise to tens
+// of seconds (±30s producer drift + ~1 block of staleness), so we only hint "past deadline — anyone can void"
+// once we're comfortably past it, never right on the boundary.
+const VOID_GRACE_SEC = 300;
+const fmtLeft = (s) => { s = Math.max(0, Math.round(s)); const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60), ss = s % 60;
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : m ? `${m}m ${ss}s` : `${ss}s`; };
 let lastSto = null, activeMarket = null, selOutcome = null;
 // optimistic-status labels (SDK owns the lifecycle via showReturn/settleInflight/doneLabels)
 const CONFIRMING = { bet: window.t("bet.cfBet", "Bet placed — confirming on-chain…"), claim: window.t("bet.cfClaim", "Collecting your winnings — confirming…"),
@@ -55,7 +62,8 @@ function parseMarket(sto, id) {
   const pools = []; for (let i = 0; i < nout; i++) pools.push(Number(_m(sto, "pl")[id + "|" + i] || 0));
   const resolved = !!G("dn"), voided = !!G("vd");
   const winner = resolved ? Number(G("rs")) - 1 : null;
-  const lock = Number(G("lk") || 0), deadline = Number(G("dl") || 0), cur = dapp.cursor;
+  // lk/dl are epoch seconds; cur is the chain's wall-clock now (the same TIME the contract gates on).
+  const lock = Number(G("lk") || 0), deadline = Number(G("dl") || 0), cur = dapp.chainNow();
   const locked = cur != null && cur >= lock;
   const status = voided ? "void" : resolved ? "resolved" : locked ? "locked" : "open";
   const me = dapp.me;
@@ -82,8 +90,8 @@ const statusTag = (s) => ({ open: '<span class="b ok">' + window.t("bet.tagOpen"
 function statusText(mk) {
   if (mk.voided) return window.t("bet.stVoided", "voided — every stake refunded 1:1");
   if (mk.resolved) return window.t("bet.stResolved", "resolved — {label} won", { label: mk.labels[mk.winner] });
-  if (mk.locked) return window.t("bet.stLocked", "locked — awaiting the result") + (mk.cur >= mk.deadline ? window.t("bet.stPastDeadline", " (past deadline — anyone can void)") : "");
-  const left = mk.cur != null ? blocksToTime(mk.lock - mk.cur) : "…";
+  if (mk.locked) return window.t("bet.stLocked", "locked — awaiting the result") + (mk.cur >= mk.deadline + VOID_GRACE_SEC ? window.t("bet.stPastDeadline", " (past deadline — anyone can void)") : "");
+  const left = mk.cur != null ? fmtLeft(mk.lock - mk.cur) : "…";
   return window.t("bet.stOpen", "open — betting closes in {left}", { left });
 }
 
@@ -119,9 +127,9 @@ function createMarket() {
   if (labels.length < 2) return set(window.t("bet.needOutcomes", "List at least two outcomes (comma- or line-separated)."));
   if (closeMin <= 0) return set(window.t("bet.needClose", "Betting must close in a positive number of minutes."));
   if (thr && resolvers.length && thr > resolvers.length) return set(window.t("bet.thrTooHigh", "Threshold can't exceed the number of resolvers."));
-  if (dapp.cursor == null) return set(window.t("bet.heightUnknown", "Chain height unknown — try again in a moment."));
-  const lock = Math.round(dapp.cursor + closeMin * BPM);
-  const deadline = Math.round(lock + Math.max(voidHrs, 0.5) * 60 * BPM);
+  const now = dapp.chainNow();
+  const lock = Math.round(now + closeMin * 60);               // betting closes closeMin minutes from now (epoch secs)
+  const deadline = Math.round(lock + Math.max(voidHrs, 0.5) * 3600);   // anyone may void this long after close
   const id = randId();
   const desc = [title].concat(labels).join("\n");
   const r = resolvers.concat(["", "", ""]);

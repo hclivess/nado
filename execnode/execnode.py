@@ -228,6 +228,7 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
                 _st.record_reveal(d.get("target_epoch"), d.get("secret"))
     for _st in states_map.values():
         _st.cursor = h
+        _st.block_ts = int(block.get("block_timestamp") or _st.block_ts)   # TIME opcode: wall-clock of this block
         _st.advance_beacons(h)      # cache every epoch beacon now finalized at this height
         _st.record_block_hash(h, block.get("block_hash"))   # BLOCKHASH randomness for this finalized height
     return True
@@ -553,7 +554,7 @@ async def h_root(request):
     if st is None:
         return _NS404()
     return web.json_response({"ns": request.query.get("ns", "default"), "state_root": st.state_root(),
-                              "cursor": st.cursor, "contracts": len(st.contracts), "l1": L1})
+                              "cursor": st.cursor, "block_ts": st.block_ts, "contracts": len(st.contracts), "l1": L1})
 
 
 async def h_settlement(request):

@@ -40,7 +40,12 @@ class VMOutOfGas(VMError):
 _BINOPS = {"ADD", "SUB", "MUL", "DIV", "MOD", "LT", "GT", "EQ", "GTE", "LTE", "AND", "OR", "CONCAT"}
 # VALUE/PAY/CURSOR (#value): the escrow primitive that lets a contract hold + move real bridged NADO — VALUE
 # pushes the NADO escrowed with THIS call (debited from the caller into the contract), PAY pops (amount, to)
-# and schedules a payout FROM the contract's escrow to `to`, CURSOR pushes the L1 block height (for deadlines).
+# and schedules a payout FROM the contract's escrow to `to`, CURSOR pushes the L1 block height (a monotonic
+# counter — NOT a clock: block RATE drifts, so heights map to wildly different wall-clock times over a chain's life).
+# TIME pushes the applied L1 block's wall-clock timestamp (Unix epoch seconds). Every node applies the same
+# finalized block, so its block_timestamp is identical everywhere -> TIME is deterministic. It is monotonic
+# non-decreasing (producers stamp max(now, parent_ts)) and can't be set in the future (consensus drift gate),
+# so it is the RIGHT primitive for real-world deadlines (kickoff/void windows) that block height cannot express.
 # BEACON (#randao): pops an epoch and pushes that epoch's FINALIZED consensus RANDAO beacon as a 256-bit int
 # — the grind-resistant, unpredictable-until-finalized randomness NADO's bonded validators produce by
 # commit-reveal. It reverts if the epoch's beacon isn't finalized yet, so a game can only read a beacon that
@@ -53,7 +58,7 @@ _BINOPS = {"ADD", "SUB", "MUL", "DIV", "MOD", "LT", "GT", "EQ", "GTE", "LTE", "A
 # betting is open, nobody has to "spin", and every node computes the same outcome. Reverts if the height is in
 # the future (> cursor) or older than the exec node retains, so a game can only read a hash fixed AFTER bets close.
 _KNOWN = _BINOPS | {"PUSH", "POP", "DUP", "SWAP", "NOT", "HASH", "CALLER", "ARG",
-                    "MLOAD", "MSTORE", "REQUIRE", "RETURN", "HALT", "VALUE", "PAY", "CURSOR", "BEACON", "BLOCKHASH",
+                    "MLOAD", "MSTORE", "REQUIRE", "RETURN", "HALT", "VALUE", "PAY", "CURSOR", "TIME", "BEACON", "BLOCKHASH",
                     "JUMP", "JUMPI"}
 _MAX_PAYOUTS = 16          # bound the payouts one call can schedule (anti-abuse; a flip settles to ONE winner)
 
@@ -111,9 +116,10 @@ def _bound(v):
     return v
 
 
-def run(code, method, caller, args, storage, value=0, cursor=0, beacons=None, block_hashes=None):
+def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None, block_hashes=None):
     """Execute code[method]. `storage` is {mapname: {key: int|str}}. `value` is the NADO (raw) escrowed with
-    this call (already debited from the caller into the contract by the exec); `cursor` is the L1 height.
+    this call (already debited from the caller into the contract by the exec); `cursor` is the L1 height;
+    `timestamp` is the applied L1 block's wall-clock epoch seconds (the TIME opcode).
     Runs on a deep copy; returns (ok, return_value, new_storage, payouts) where payouts is [(to, amount)] the
     contract scheduled via PAY (the exec pays them FROM the contract's escrow). On a missing method,
     REQUIRE-fail, out-of-gas, or any runtime error it returns (False, None, <ORIGINAL storage>, []) — a no-op."""
@@ -152,6 +158,8 @@ def run(code, method, caller, args, storage, value=0, cursor=0, beacons=None, bl
                 stack.append(_int(value))
             elif op == "CURSOR":
                 stack.append(_int(cursor))
+            elif op == "TIME":
+                stack.append(_int(timestamp))
             elif op == "BEACON":
                 ep = _int(stack.pop())
                 bv = (beacons or {}).get(ep)

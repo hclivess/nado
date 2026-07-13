@@ -42,9 +42,9 @@ class _StackVM:
         from execnode import vm
         return vm.validate_code(code)
 
-    def run(self, code, method, caller, args, storage, value=0, cursor=0, beacons=None, block_hashes=None):
+    def run(self, code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None, block_hashes=None):
         from execnode import vm
-        return vm.run(code, method, caller, args, storage, value=value, cursor=cursor, beacons=beacons, block_hashes=block_hashes)
+        return vm.run(code, method, caller, args, storage, value=value, cursor=cursor, timestamp=timestamp, beacons=beacons, block_hashes=block_hashes)
 
 
 register(_StackVM())
