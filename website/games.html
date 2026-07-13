@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NADO Games — provably-fair on-chain games</title>
+<script src="/static/i18n.js"></script>
 <meta name="description" content="Provably-fair games on the NADO execution layer — post-quantum wallet, no install. Coin Flip and Roulette, with more on the way.">
 <link rel="icon" href="/favicon.ico">
 <style>
@@ -64,32 +65,32 @@
   <header>
     <a class="brand" href="/" style="color:inherit"><img src="/logo.svg" alt=""> NADO</a>
     <nav>
-      <a href="/">Home</a>
-      <a href="/emission">Emission</a>
-      <a href="https://forum.nadochain.com">Forum</a>
-      <a href="https://github.com/hclivess/nado">GitHub</a>
+      <a href="/" data-i18n="games.navHome">Home</a>
+      <a href="/emission" data-i18n="games.navEmission">Emission</a>
+      <a href="https://forum.nadochain.com" data-i18n="games.navForum">Forum</a>
+      <a href="https://github.com/hclivess/nado" data-i18n="games.navGitHub">GitHub</a>
     </nav>
   </header>
 
   <section class="hero">
-    <h1>NADO <span class="g">Games</span></h1>
-    <p class="lead">Provably-fair games on the NADO execution layer. Sign in with your post-quantum wallet, stake real NADO, and win — every outcome is decided by future block hashes and enforced on-chain, so nobody can cheat. No install, no house account.</p>
+    <h1>NADO <span class="g" data-i18n="games.title">Games</span></h1>
+    <p class="lead" data-i18n="games.lead">Provably-fair games on the NADO execution layer. Sign in with your post-quantum wallet, stake real NADO, and win — every outcome is decided by future block hashes and enforced on-chain, so nobody can cheat. No install, no house account.</p>
   </section>
 
   <div class="grid" id="games"></div>
 
   <div class="fair">
-    <h2>Provably fair — by construction</h2>
-    Every game is an ordinary <b>on-chain contract</b> on NADO's execution layer (no special server, no house
+    <h2 data-i18n="games.fairH">Provably fair — by construction</h2>
+    <span data-i18n-html="games.fairBody">Every game is an ordinary <b>on-chain contract</b> on NADO's execution layer (no special server, no house
     account). Outcomes come from <b>future L1 block hashes</b> that don't exist yet while betting is open —
     no player, no host, no block producer can know or steer a result (Hold'em adds commit-reveal so your hole
     cards stay yours alone). Payouts are escrowed and settled by the contract itself — nothing is minted or lost. Your key never leaves your <a href="https://get.nadochain.com/">NADO wallet</a>; each game
-    only bounces you there to sign. <a href="https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md">See how the contracts work →</a>
+    only bounces you there to sign. <a href="https://github.com/hclivess/nado/blob/main/doc/exec-instructions.md">See how the contracts work →</a></span>
   </div>
 
   <footer>
     <a href="/">Home</a><a href="https://get.nadochain.com/">Wallet</a><a href="https://github.com/hclivess/nado">GitHub</a>
-    <div style="margin-top:12px">Play responsibly — these are real-value games of chance.</div>
+    <div style="margin-top:12px" data-i18n="games.responsible">Play responsibly — these are real-value games of chance.</div>
   </footer>
 </div>
 
@@ -170,51 +171,65 @@ const SVG = {
 };
 // The game directory — add a new game by appending one object here (the page renders it automatically).
 const GAMES = [
-  { svg:SVG.bet, name:"Sports Bet", tag:"Live", live:true, url:"https://bet.nadochain.com",
+  { svg:SVG.bet, name:"Sports Bet", tag:"Live", live:true, slug:"bet", url:"https://bet.nadochain.com",
     blurb:"Parimutuel sports betting — no house, no bookmaker. Everyone's stake goes into one pool and the winning side splits it pro-rata (a racetrack tote), so the odds are set by the crowd, not a book. Match results are posted on-chain by a configurable oracle reading free public sources; a postponed or unresolved match refunds every stake 1:1.",
     meta:["No house","Crowd-set odds","Oracle-resolved","Postponed → refund"] },
-  { svg:SVG.coin, name:"Coin Flip", tag:"Live", live:true, url:"https://coinflip.nadochain.com",
+  { svg:SVG.coin, name:"Coin Flip", tag:"Live", live:true, slug:"coinflip", url:"https://coinflip.nadochain.com",
     blurb:"A fair 2-player coin flip for stakes. Both stake into a pot; the winner is decided by a future L1 block hash nobody can predict — no secrets, nothing to reveal, you sign once. Winner takes the pot.",
     meta:["2 players","Winner takes the pot","Beacon-decided","0% house edge"] },
-  { svg:SVG.roulette, name:"Roulette", tag:"Live", live:true, url:"https://roulette.nadochain.com",
+  { svg:SVG.roulette, name:"Roulette", tag:"Live", live:true, slug:"roulette", url:"https://roulette.nadochain.com",
     blurb:"Peer-banked multiplayer European roulette that spins itself every ~2 minutes from a future block hash — no house spin, no secrets. A win pays the true 36 ÷ numbers-covered, the exact 2.70% single-zero edge.",
     meta:["Bank or bet","Self-spinning","Multiplayer","2.70% edge"] },
-  { svg:SVG.dice, name:"Dice", tag:"Live", live:true, url:"https://dice.nadochain.com",
+  { svg:SVG.dice, name:"Dice", tag:"Live", live:true, slug:"dice", url:"https://dice.nadochain.com",
     blurb:"Adjustable-odds dice that rolls itself every ~2 minutes from a future block hash. Slide your win chance and the payout auto-scales (99 ÷ target, a flat 1% edge). Peer-banked, multiplayer, no house action.",
     meta:["Bank or roll","Win-chance slider","Self-rolling","1% edge"] },
-  { svg:SVG.chess, name:"Chess", tag:"Live", live:true, url:"https://chess.nadochain.com",
+  { svg:SVG.chess, name:"Chess", tag:"Live", live:true, slug:"chess", url:"https://chess.nadochain.com",
     blurb:"Play a real game of chess for stakes — a perft-verified engine referees the board in your browser, every move is logged on-chain, and the pot settles by resign / agree / refund-timeout, so a stall can never rob you.",
     meta:["2 players","Wager escrow","Moves on-chain","Skill, not chance"] },
-  { svg:SVG.poker, name:"Texas Hold'em", tag:"Live", live:true, url:"https://poker.nadochain.com",
+  { svg:SVG.poker, name:"Texas Hold'em", tag:"Live", live:true, slug:"poker", url:"https://poker.nadochain.com",
     blurb:"Real multiplayer hold'em — no house, no dealer. Your hole cards come from a secret only your browser knows, the flop/turn/river from future block hashes, and at showdown the contract ranks every hand on-chain (kickers included). Four betting streets, best hand takes the pot.",
     meta:["Multiplayer","Hidden hole cards","4 betting streets","Winner takes the pot"] },
-  { svg:SVG.kostky, name:"Farkle", tag:"Live", live:true, url:"https://farkle.nadochain.com",
+  { svg:SVG.kostky, name:"Farkle", tag:"Live", live:true, slug:"farkle", url:"https://farkle.nadochain.com",
     blurb:"The push-your-luck dice classic (aka Ten Thousand): pick how far you dare to push, and the chain auto-plays your whole turn from a future block hash — set aside 1s, 5s and three-of-a-kinds, but a scoreless roll busts it all. Open table, highest score takes the pot.",
     meta:["6 dice","Push your luck","Multiplayer","Winner takes the pot"] },
-  { svg:SVG.pets, name:"NADO Pets", tag:"Live", live:true, url:"https://pets.nadochain.com",
+  { svg:SVG.pets, name:"NADO Pets", tag:"Live", live:true, slug:"pets", url:"https://pets.nadochain.com",
     blurb:"On-chain tamagotchi NFTs. Adopt an egg and a future block hash decides what hatches — Poodle, African Grey Parrot or a legendary Dragon — with 10 stats locked at birth. Feed them real NADO or they die, train them (rarer trains easier), battle other pets for stakes (losers can die), and trade them on the marketplace.",
     meta:["True NFTs","Feed or they die","Train & battle","Marketplace"] },
-  { svg:SVG.slots, name:"Slots", tag:"Live", live:true, url:"https://slots.nadochain.com",
+  { svg:SVG.slots, name:"Slots", tag:"Live", live:true, slug:"slots", url:"https://slots.nadochain.com",
     blurb:"Classic 3-reel slots where players own the machines. Open one, bank it, and earn the published 4.2% edge — or spin someone else's for up to 150× on triple sevens. Every spin is decided by two future block hashes; the exact 95.80% RTP is proven by full enumeration and enforced on-chain.",
     meta:["Own the machine","150× jackpot","RTP 95.80% exact","Results in seconds"] },
-  { svg:SVG.ttt, name:"Tic-Tac-Toe", tag:"Live", live:true, url:"https://tictactoe.nadochain.com",
+  { svg:SVG.ttt, name:"Tic-Tac-Toe", tag:"Live", live:true, slug:"ttt", url:"https://tictactoe.nadochain.com",
     blurb:"The classic, for stakes — and the contract itself referees: every move is validated on-chain, three-in-a-row pays the pot instantly, a full board refunds both. Ply-bound moves make replays impossible; a stalling opponent only ever voids the game.",
     meta:["2 players","Contract-refereed","Instant payout","Winner takes the pot"] },
-  { svg:SVG.tcg, name:"Trading Card Game", tag:"Soon", live:false, url:null,
+  { svg:SVG.tcg, name:"Trading Card Game", tag:"Soon", live:false, slug:"tcg", url:null,
     blurb:"A collectible card game on NADO — mint, own and trade post-quantum cards, then battle for stakes. Cards are on-chain assets you truly own; matches settle objectively on the execution layer. Think Pokémon, but yours to keep and trade.",
     meta:["Collect & trade","On-chain cards","Battle for stakes","Coming soon"] },
 ];
 const el = document.getElementById("games");
-el.innerHTML = GAMES.map((g) => `
+// window.t comes from /static/i18n.js (loaded in <head>); it falls back to the English arg if the key
+// isn't defined, so the lobby renders in English even before its table loads, and re-renders on switch.
+const T = (k, fb, vars) => (window.t ? window.t(k, fb, vars) : fb);
+function renderGames() {
+  el.innerHTML = GAMES.map((g) => {
+    const name = T("games." + g.slug + ".name", g.name);
+    const blurb = T("games." + g.slug + ".blurb", g.blurb);
+    const tag = g.live ? T("games.tagLive", "Live") : T("games.tagSoon", "Soon");
+    const meta = g.meta.map((m, i) => `<span class="pill">${T("games." + g.slug + ".m" + i, m)}</span>`).join("");
+    const cta = g.live ? `<a class="btn" href="${g.url}">${T("games.play", "Play {name} →", { name })}</a>`
+                       : `<span class="btn disabled">${T("games.soon", "Coming soon")}</span>`;
+    return `
   <div class="game${g.live ? " live" : ""}">
     <div class="ico">${g.svg}</div>
-    <div class="tag${g.live ? "" : " soon"}">${g.tag}</div>
-    <h3>${g.name}</h3>
-    <p>${g.blurb}</p>
-    <div class="meta">${g.meta.map((m) => `<span class="pill">${m}</span>`).join("")}</div>
-    ${g.live ? `<a class="btn" href="${g.url}">Play ${g.name} →</a>`
-             : `<span class="btn disabled">Coming soon</span>`}
-  </div>`).join("");
+    <div class="tag${g.live ? "" : " soon"}">${tag}</div>
+    <h3>${name}</h3>
+    <p>${blurb}</p>
+    <div class="meta">${meta}</div>
+    ${cta}
+  </div>`;
+  }).join("");
+}
+renderGames();
+window.addEventListener("nado-lang", renderGames);
 </script>
 </body>
 </html>
