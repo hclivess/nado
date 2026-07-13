@@ -46,7 +46,7 @@ from ops.transaction_ops import (
 import secrets as _secrets
 from rollback import rollback_one_block, MissingParentError, FinalityViolation
 from ops.reward_ops import credit_block_reward, apply_treasury_burn
-from ops.transaction_ops import (construct_attestation_tx, construct_commit_tx, construct_reveal_tx,
+from ops.transaction_ops import (construct_duty_tx,
                                  construct_bond_tx, construct_blob_tx, construct_register_tx,
                                  construct_dividend_withdraw_tx)
 from ops.attestation_ops import ffg_finalized_checkpoint
@@ -212,10 +212,11 @@ class CoreClient(threading.Thread):
             _tip_h = self.memserver.latest_block["block_number"]
             if _tip_h != self._last_duty_height:
                 self._last_duty_height = _tip_h
-                # FFG (#6): refresh the stake-attested finalized checkpoint + (if bonded) attest this epoch.
+                # FFG (#6): refresh the committee-attested finalized checkpoint.
                 self.update_ffg_and_attest()
-                # RANDAO (#7): (if bonded) commit a secret for epoch+2 and reveal epoch+1's in its window.
-                self.maybe_randao()
+                # MERGED EPOCH DUTY (doc/consensus-aggregation.md): if we hold a committee seat,
+                # one tx carries FFG attest + RANDAO commit/reveal for this epoch.
+                self.maybe_epoch_duty()
                 # AUTO-BOND (opt-in): unattended-compound a % of newly-mined earnings into bonded stake.
                 self.maybe_auto_bond()
                 self.maybe_auto_collect()
@@ -908,17 +909,20 @@ class CoreClient(threading.Thread):
         return selected
 
     def _reserved_tx_pending(self, recipient, target_epoch):
-        """True if our own reserved tx (attest/commit/reveal) for this epoch is already waiting in a
-        pool/buffer. Without this check the ~1s core loop mints a fresh duplicate (new nonce -> new
-        txid) every iteration until the first copy is mined; the stragglers then fail validation in
-        later candidates ('already attested/revealed this epoch') and poison block production."""
+        """True if our own reserved tx for this epoch is already waiting in the pool. Without this
+        check the ~1s core loop mints a fresh duplicate (new nonce -> new txid) every iteration
+        until the first copy is mined; the stragglers then fail validation in later candidates and
+        poison block production. A `duty` tx has no top-level target_epoch — it is keyed by the
+        epoch its max_block lands in."""
         # .copy(): other threads append to the live lists; iterating a snapshot avoids skipped
         # elements (a false negative here mints the duplicate this guard exists to prevent).
         for tx in self.memserver.transaction_pool.copy():
-            if (tx.get("recipient") == recipient
-                    and tx.get("sender") == self.memserver.address
-                    and isinstance(tx.get("data"), dict)
-                    and tx["data"].get("target_epoch") == target_epoch):
+            if tx.get("recipient") != recipient or tx.get("sender") != self.memserver.address:
+                continue
+            if recipient == "duty":
+                if epoch_of(tx.get("max_block", 0)) == target_epoch:
+                    return True
+            elif isinstance(tx.get("data"), dict) and tx["data"].get("target_epoch") == target_epoch:
                 return True
         return False
 
@@ -1072,81 +1076,70 @@ class CoreClient(threading.Thread):
             self.logger.error(f"State checkpoint at height {n} failed (non-fatal): {e}")
 
     def update_ffg_and_attest(self):
-        """FFG (#6): refresh the stake-attested finalized checkpoint and, if we are a bonded validator who
-        hasn't attested the current epoch, broadcast our attestation. The checkpoint is now FOLDED INTO the
-        enforced finality floor (see incorporate_block: finalized_height = max(depth floor, ffg_finalized)),
-        so a >2/3-stake-attested checkpoint is objectively un-reorgable — not merely observed. Best-effort:
-        it NEVER raises into the core loop and never blocks production; the depth floor remains the liveness
-        guarantee, FFG is the stronger objective floor layered on top (usually trailing it)."""
+        """FFG (#6): refresh the committee-attested finalized checkpoint (folded into the enforced
+        finality floor by incorporate_block). Attestation EMISSION lives in maybe_epoch_duty — the
+        merged per-epoch duty tx (doc/consensus-aggregation.md). Best-effort; never raises."""
         try:
-            latest = self.memserver.latest_block
-            epoch = epoch_of(latest["block_number"])
+            epoch = epoch_of(self.memserver.latest_block["block_number"])
             self.memserver.ffg_finalized = ffg_finalized_checkpoint(epoch)
-            if epoch < 1:
-                return  # epoch 0's checkpoint is genesis; nothing to attest yet
-            if self.memserver.address not in get_bonded_registry():
-                return  # only bonded validators attest
-            if kv_ops.attestation_exists(epoch, self.memserver.address):
-                return  # already attested this epoch (one per validator per epoch)
-            if self._reserved_tx_pending("attest", epoch):
-                return  # our attestation is already in flight — don't mint a duplicate every loop
-            checkpoint_hash = get_block_hash_by_number(epoch * EPOCH_LENGTH)
-            if not checkpoint_hash:
-                return
-            max_block = min(latest["block_number"] + 5, (epoch + 1) * EPOCH_LENGTH - 1)
-            if max_block <= latest["block_number"]:
-                return  # at the epoch's final block -> attest next epoch instead
-            tx = construct_attestation_tx(self.memserver.keydict, epoch, checkpoint_hash, max_block)
-            result = self.memserver.merge_transaction(tx, user_origin=True)
-            if result and result.get("result"):
-                self.logger.info(f"FFG: attested epoch {epoch} ckpt {checkpoint_hash[:12]} "
-                                 f"(ffg_finalized={self.memserver.ffg_finalized})")
         except Exception as e:
-            self.logger.error(f"FFG update/attest failed: {e}")
+            self.logger.error(f"FFG refresh failed: {e}")
 
-    def maybe_randao(self):
-        """RANDAO (#7): a bonded validator COMMITS a fresh secret for epoch current+2 (we are in its
-        E-2) and REVEALS the secret it committed for epoch current+1 (we are in its E-1 finalized
-        window). Best-effort; never raises into the core loop. Secrets live in memserver.randao_secrets
-        (in-memory: an unrevealed secret after a restart is just a wasted commit, harmless)."""
+    def maybe_epoch_duty(self):
+        """MERGED EPOCH DUTY (doc/consensus-aggregation.md): if this validator holds a seat in the
+        current epoch's duty committee, broadcast ONE fee-exempt `duty` tx carrying every section
+        still due — FFG attest (this epoch X), RANDAO commit (X+2), RANDAO reveal (X+1) — under a
+        single ML-DSA signature (replaces the three separate attest/commit/reveal txs: 3N -> N,
+        and the committee bounds N to O(DUTY_COMMITTEE_SEATS) at any validator count). RETRIED
+        while windows last: an on-chain section stops being offered, so a raced duplicate section
+        just fails validation harmlessly. Secrets live in memserver.randao_secrets (in-memory: an
+        unrevealed secret after a restart is a wasted commit, harmless). Best-effort; never raises."""
         try:
-            if self.memserver.address not in get_bonded_registry():
-                return  # only bonded validators participate in the beacon
+            me = self.memserver.address
+            if me not in get_bonded_registry():
+                return  # only bonded validators carry duties
             latest = self.memserver.latest_block
-            current_epoch = epoch_of(latest["block_number"])
+            X = epoch_of(latest["block_number"])
+            from ops.block_ops import duty_committee_for_epoch
+            if me not in duty_committee_for_epoch(X):
+                return  # no seat this epoch — the committee is resampled from beacon(X+1) next epoch
+            if self._reserved_tx_pending("duty", X):
+                return  # our duty tx is already in flight — don't mint a duplicate every loop
             kd = self.memserver.keydict
 
-            # COMMIT for epoch current+2 (we are in its E-2). RETRIED while the window lasts: the
-            # old single-shot guard (skip once the secret existed in randao_secrets) meant a commit
-            # tx that missed its exact max_block was never re-issued — the validator silently sat
-            # out the whole epoch, weakening the beacon (and forfeiting production rights whenever
-            # RANDAO_ENFORCED is on; participation is voluntary under the current policy). Reusing
-            # the stored secret keeps the commitment identical, so a raced duplicate is simply
-            # rejected by validation ("Already committed for this epoch").
-            e_commit = current_epoch + 2
-            if (kv_ops.commit_get(self.memserver.address, e_commit) is None
-                    and not self._reserved_tx_pending("commit", e_commit)):
-                max_block = min(latest["block_number"] + 5, (current_epoch + 1) * EPOCH_LENGTH - 1)
-                if max_block > latest["block_number"]:
-                    secret = self.memserver.randao_secrets.get(e_commit) or _secrets.token_hex(32)
-                    self.memserver.randao_secrets[e_commit] = secret
-                    tx = construct_commit_tx(kd, e_commit, beacon_commitment(secret), max_block)
-                    self.memserver.merge_transaction(tx, user_origin=True)
+            # the merged tx lands exactly at max_block; every section's window must admit it.
+            reveal_hi = (X + 1) * EPOCH_LENGTH - FINALITY_DEPTH - 1
+            epoch_hi = (X + 1) * EPOCH_LENGTH - 1
+            max_block = min(latest["block_number"] + 5, epoch_hi)
+            if max_block <= latest["block_number"]:
+                return  # epoch tail — duties resume next epoch
 
-            # REVEAL for epoch current+1 (we are in its E-1 finalized window), if we hold its secret
-            e_reveal = current_epoch + 1
+            attest = commit = reveal = None
+            if X >= 1 and not kv_ops.attestation_exists(X, me):
+                checkpoint_hash = get_block_hash_by_number(X * EPOCH_LENGTH)
+                if checkpoint_hash:
+                    attest = {"target_epoch": X, "target_hash": checkpoint_hash}
+            e_commit = X + 2
+            if kv_ops.commit_get(me, e_commit) is None:
+                secret = self.memserver.randao_secrets.get(e_commit) or _secrets.token_hex(32)
+                self.memserver.randao_secrets[e_commit] = secret
+                commit = {"target_epoch": e_commit, "commitment": beacon_commitment(secret)}
+            e_reveal = X + 1
             secret = self.memserver.randao_secrets.get(e_reveal)
-            if secret and kv_ops.commit_get(self.memserver.address, e_reveal) is not None:
-                lo = current_epoch * EPOCH_LENGTH
-                hi = e_reveal * EPOCH_LENGTH - FINALITY_DEPTH - 1
-                max_block = latest["block_number"] + 5
-                if (lo <= max_block <= hi
-                        and secret not in kv_ops.reveals_for_epoch(e_reveal)
-                        and not self._reserved_tx_pending("reveal", e_reveal)):
-                    tx = construct_reveal_tx(kd, e_reveal, secret, max_block)
-                    self.memserver.merge_transaction(tx, user_origin=True)
+            if (secret and kv_ops.commit_get(me, e_reveal) is not None
+                    and max_block <= reveal_hi
+                    and secret not in kv_ops.reveals_for_epoch(e_reveal)):
+                reveal = {"target_epoch": e_reveal, "secret": secret}
+
+            if not (attest or commit or reveal):
+                return  # every duty already on-chain
+            tx = construct_duty_tx(kd, max_block, attest=attest, commit=commit, reveal=reveal)
+            result = self.memserver.merge_transaction(tx, user_origin=True)
+            if result and result.get("result"):
+                self.logger.info(f"Epoch duty {X}: attest={bool(attest)} commit={bool(commit)} "
+                                 f"reveal={bool(reveal)} (ffg_finalized={self.memserver.ffg_finalized})")
         except Exception as e:
-            self.logger.error(f"RANDAO commit/reveal failed: {e}")
+            self.logger.error(f"Epoch duty failed: {e}")
 
     def maybe_prune_history(self):
         """ROLLING MODE (non-consensus, opt-in): on a pruned node (memserver.archive == False), delete

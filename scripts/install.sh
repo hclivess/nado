@@ -27,8 +27,15 @@
 #
 #   sudo scripts/install.sh --service --home /srv/nado-data
 #
+# Native ML-DSA verify backend (Rust, optional): 55x faster signature verification — the L1 node's main
+# CPU cost. install.sh ASKS interactively; force it either way with --pq-native / --no-pq-native. It offers
+# to install Rust via rustup if missing, builds native/mldsa44, and enables it ONLY if it passes the startup
+# interop self-test (so a bad build can never split consensus). Build it later by hand: scripts/build_pq_native.sh
+#
+#   sudo scripts/install.sh --service --pq-native      # unattended node + native verify (auto-installs Rust)
+#
 # Re-running is safe (idempotent): the venv is reused and deps are upgraded in place. The shielded-pool node
-# needs no extra dependencies (aiohttp is already required) and the WASM prover ships prebuilt — nothing to compile.
+# needs no extra dependencies (aiohttp is already required) and the WASM prover ships prebuilt.
 set -euo pipefail
 
 # ---- locate the repo (this script lives in <repo>/scripts/) --------------------------------------
@@ -43,6 +50,10 @@ WITH_SERVICE=0
 WITH_EXEC=0
 EXEC_SETTLE=0
 DATA_HOME=""
+# native ML-DSA (Rust) backend: 55x faster signature verify — the chain's main CPU cost. Empty = ASK
+# interactively (or auto-skip when non-interactive); 1 = build it; 0 = skip. Adopted only if it passes
+# signatures.py's startup interop self-test, so a bad build can never split consensus.
+PQ_NATIVE=""
 # Empty = "not set": the node then uses its own default (config auto_bond_percent, 80). The env var is
 # only baked into the service when explicitly requested, because NADO_AUTO_BOND_PERCENT OVERRIDES config —
 # an unconditional =0 here would silently switch auto-bond off on nodes that rely on the default.
@@ -51,6 +62,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --wallet)      WITH_WALLET=1 ;;
     --service)     WITH_SERVICE=1 ;;
+    --pq-native)   PQ_NATIVE=1 ;;            # build the native Rust ML-DSA verify backend (55x faster)
+    --no-pq-native) PQ_NATIVE=0 ;;           # skip it (stay pure-Python)
     --exec)        WITH_EXEC=1 ;;            # also run the execution / shielded-pool node (:9273)
     --exec-settle) WITH_EXEC=1; EXEC_SETTLE=1 ;;  # + settle the exec state-root to L1 (uses this node's keys)
     --auto-bond)   shift; AUTO_BOND="${1:-0}" ;;
@@ -58,7 +71,7 @@ while [ $# -gt 0 ]; do
     --home)        shift; DATA_HOME="${1:-}" ;;   # chain data goes under <dir>/nado (services run with HOME=<dir>)
     --home=*)      DATA_HOME="${1#*=}" ;;
     -h|--help)
-      sed -n '3,33p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '3,40p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *) echo "Unknown option: $1 (try --help)" >&2; exit 2 ;;
   esac
@@ -136,9 +149,73 @@ fi
 
 echo "==> dependencies installed."
 
+# ---- Rust toolchain helper (shared by the native ML-DSA verify backend + the Goldilocks prover) ---
+# Ensures `cargo` is on PATH; offers to install it via rustup (official, per-user, no root) when missing.
+# Returns 0 if cargo is available afterward, 1 otherwise. Never fails the install — native code is optional.
+ensure_rust() {
+  if command -v cargo >/dev/null 2>&1; then return 0; fi
+  [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env" 2>/dev/null || true
+  if command -v cargo >/dev/null 2>&1; then return 0; fi
+  local do_install="$1"   # "ask" | "yes" | "no"
+  if [ "$do_install" = "no" ]; then return 1; fi
+  if [ "$do_install" = "ask" ]; then
+    if [ ! -t 0 ]; then return 1; fi   # non-interactive: don't silently pull the internet
+    printf "    Rust (cargo) is not installed. Install it now via rustup? [y/N] "
+    read -r _ans || _ans=""
+    case "$_ans" in y|Y|yes|YES) ;; *) return 1 ;; esac
+  fi
+  echo "==> installing Rust via rustup (per-user, no root)..."
+  if command -v curl >/dev/null 2>&1; then
+    curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal >/dev/null 2>&1 || true
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO- https://sh.rustup.rs | sh -s -- -y --profile minimal >/dev/null 2>&1 || true
+  else
+    echo "    (need curl or wget to fetch rustup — skipping; install Rust manually from https://rustup.rs)"
+    return 1
+  fi
+  [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env" 2>/dev/null || true
+  command -v cargo >/dev/null 2>&1
+}
+
+# ---- native ML-DSA-44 verify backend (optional; 55x faster signature verify — the L1 CPU bottleneck) ---
+# Decide whether to build: explicit flag wins; else ASK when interactive, skip when not.
+PQ_BUILT=0
+_pq_want="$PQ_NATIVE"
+if [ -z "$_pq_want" ]; then
+  if [ -t 0 ]; then
+    printf "==> Build the native Rust ML-DSA backend? 55x faster signature verify (needs Rust). [y/N] "
+    read -r _ans || _ans=""
+    case "$_ans" in y|Y|yes|YES) _pq_want=1 ;; *) _pq_want=0 ;; esac
+  else
+    _pq_want=0   # non-interactive default: stay pure-Python unless --pq-native was passed
+  fi
+fi
+if [ "$_pq_want" = "1" ]; then
+  if ensure_rust "yes"; then
+    echo "==> building the native ML-DSA-44 verify backend (native/mldsa44)..."
+    if ( cd "$REPO_DIR/native/mldsa44" && cargo build --release >/dev/null 2>&1 ); then
+      cp "$REPO_DIR/native/mldsa44/target/release/libnado_mldsa44.so" \
+         "$REPO_DIR/native/mldsa44/libnado_mldsa44.so" 2>/dev/null || true
+      # verify it actually passes the interop self-test before we commit to baking the env var in
+      if NADO_PQ_NATIVE_MODULE=nado_pq_native "$VENV_PY" -c \
+           "import sys; sys.path.insert(0,'$REPO_DIR'); import signatures as s; sys.exit(0 if 'native' in s._BACKEND.name else 1)" 2>/dev/null; then
+        PQ_BUILT=1
+        echo "    built + interop-verified: native/mldsa44/libnado_mldsa44.so (55x faster verify)"
+      else
+        echo "    (built but FAILED the interop self-test — not enabling it; staying pure-Python.)"
+      fi
+    else
+      echo "    (build failed — staying pure-Python; still correct, just slower.)"
+    fi
+  else
+    echo "==> Rust not available — skipping the native ML-DSA backend (staying pure-Python)."
+    echo "    To add it later: install Rust (https://rustup.rs), then scripts/build_pq_native.sh"
+  fi
+fi
+
 # ---- native Goldilocks lib (optional; speeds up shielded proving ~2x on top of the pure-Python batch path) ---
 if [ $WITH_EXEC -eq 1 ]; then
-  if command -v cargo >/dev/null 2>&1; then
+  if ensure_rust "ask"; then
     echo "==> building the native Goldilocks NTT (faster shielded proving)..."
     if ( cd "$REPO_DIR/wasm/goldilocks" && cargo build --release >/dev/null 2>&1 ); then
       echo "    built wasm/goldilocks/target/release/libgoldilocks.so"
@@ -146,7 +223,7 @@ if [ $WITH_EXEC -eq 1 ]; then
       echo "    (build failed — the shielded-pool node will use the pure-Python prover; still correct, just slower.)"
     fi
   else
-    echo "==> cargo/Rust not found — the shielded-pool node will use the pure-Python prover (correct, ~2x slower)."
+    echo "==> Rust not available — the shielded-pool node will use the pure-Python prover (correct, ~2x slower)."
     echo "    For faster proving: install Rust (https://rustup.rs), then: (cd wasm/goldilocks && cargo build --release)"
   fi
 fi
@@ -174,6 +251,9 @@ Environment=HOME=$DATA_HOME")
 $([ -n "$AUTO_BOND" ] && echo "# Auto-compound this % of mined rewards into bonded stake (0 = off). See README \"Auto-bond\".
 # Written only because --auto-bond was passed; the env var overrides the node's config default (80).
 Environment=NADO_AUTO_BOND_PERCENT=$AUTO_BOND")
+$([ "$PQ_BUILT" = "1" ] && echo "# Native Rust ML-DSA verify backend (55x faster; built + interop-verified by install.sh).
+# signatures.py re-runs the interop self-test at boot and falls back to pure-Python on any mismatch.
+Environment=NADO_PQ_NATIVE_MODULE=nado_pq_native")
 ExecStart=$VENV_PY $REPO_DIR/nado.py
 Restart=always
 RestartSec=5

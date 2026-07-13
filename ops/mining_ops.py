@@ -205,6 +205,38 @@ def _weighted_draw(registry: dict, weight_fn, beacon: str, slot: int):
     return weighted[-1][0]  # unreachable (draw < total), defensive
 
 
+def duty_committee(bonded_registry: dict, beacon: str, epoch: int) -> dict:
+    """DUTY COMMITTEE (doc/consensus-aggregation.md): {address: seats} for epoch `epoch` —
+    DUTY_COMMITTEE_SEATS independent stake-weighted draws (with replacement) keyed
+    (beacon, "duty:<epoch>:<seat>"), the same deterministic weighted-draw discipline as producer
+    selection (sorted addresses, integer cumulative bands), so every node derives the identical
+    committee from committed parent state. Expected seats are proportional to selection shares;
+    FFG quorum counts SEATS, so the committee quorum converges on the stake quorum. Empty
+    registry -> {} (no committee, nothing justifies — same fail-closed shape as selection)."""
+    from protocol import DUTY_COMMITTEE_SEATS
+    cumulative, total = [], 0
+    for address in sorted(bonded_registry):
+        w = selection_shares(bonded_registry[address]["bonded"])
+        if w > 0:
+            total += w
+            cumulative.append((total, address))
+    if total == 0:
+        return {}
+    seats = {}
+    for i in range(DUTY_COMMITTEE_SEATS):
+        draw = int(blake2b_hash([beacon, f"duty:{int(epoch)}:{i}"]), 16) % total
+        lo, hi = 0, len(cumulative) - 1
+        while lo < hi:                                   # first band with cumulative > draw
+            mid = (lo + hi) // 2
+            if draw < cumulative[mid][0]:
+                hi = mid
+            else:
+                lo = mid + 1
+        addr = cumulative[lo][1]
+        seats[addr] = seats.get(addr, 0) + 1
+    return seats
+
+
 def select_producer_two_lane(open_registry: dict, bonded_registry: dict, beacon: str, slot: int):
     """The live two-lane producer selector. Returns the winning address, or None if the slot is
     skipped (no eligible producer).

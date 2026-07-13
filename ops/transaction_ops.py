@@ -110,6 +110,73 @@ def construct_attestation_tx(keydict, target_epoch, target_hash, max_block):
 _ATTEST_SLASH_BASE = 1 << 40
 
 
+def _validate_attest_fields(data: dict, tb: int, sender: str):
+    """FFG attest field rules, shared by the historical `attest` recipient and the `duty` attest
+    section — byte-identical semantics (historical replay must never drift)."""
+    from ops.block_ops import get_block_hash_by_number
+    epoch = data.get("target_epoch")
+    target_hash = data.get("target_hash")
+    assert isinstance(epoch, int) and not isinstance(epoch, bool), "Attest target_epoch must be an int"
+    assert epoch == tb // EPOCH_LENGTH, "Attest target_epoch != max_block's epoch"
+    acc = get_account(sender, create_on_error=False)
+    assert acc and acc.get("bonded", 0) >= B_MIN, "Attester is not a bonded validator"
+    assert not kv_ops.attestation_exists(epoch, sender), "Validator already attested this epoch"
+    assert target_hash and get_block_hash_by_number(epoch * EPOCH_LENGTH) == target_hash, \
+        "Attest target_hash is not the epoch checkpoint"
+
+
+def _validate_commit_fields(data: dict, tb: int, sender: str):
+    """RANDAO commit field rules (shared historical/duty): lands in the target's E-2, one per (sender, E)."""
+    from ops.mining_ops import epoch_of
+    E = data.get("target_epoch")
+    assert isinstance(E, int) and not isinstance(E, bool) and E >= 2, "target_epoch must be an int >= 2"
+    acc = get_account(sender, create_on_error=False)
+    assert acc and acc.get("bonded", 0) >= B_MIN, "Commit/reveal sender is not a bonded validator"
+    assert epoch_of(tb) == E - 2, "Commit must target a block in epoch E-2"
+    assert data.get("commitment"), "Commit missing commitment"
+    assert kv_ops.commit_get(sender, E) is None, "Already committed for this epoch"
+
+
+def _validate_reveal_fields(data: dict, tb: int, sender: str):
+    """RANDAO reveal field rules (shared historical/duty): lands in the target's E-1 FINALIZED window,
+    opens the sender's own commitment, and each secret seeds the beacon at most once (audit fix)."""
+    from ops.mining_ops import beacon_commitment
+    E = data.get("target_epoch")
+    assert isinstance(E, int) and not isinstance(E, bool) and E >= 2, "target_epoch must be an int >= 2"
+    acc = get_account(sender, create_on_error=False)
+    assert acc and acc.get("bonded", 0) >= B_MIN, "Commit/reveal sender is not a bonded validator"
+    lo = (E - 1) * EPOCH_LENGTH
+    hi = E * EPOCH_LENGTH - FINALITY_DEPTH - 1
+    assert lo <= tb <= hi, "Reveal must land in epoch E-1's finalized window"
+    secret = data.get("secret")
+    commitment = kv_ops.commit_get(sender, E)
+    assert commitment, "No matching commit for this reveal"
+    assert secret and beacon_commitment(secret) == commitment, "Reveal does not open the commitment"
+    assert secret not in kv_ops.reveals_for_epoch(E), "This secret is already revealed for the epoch"
+
+
+def construct_duty_tx(keydict, max_block, attest=None, commit=None, reveal=None):
+    """Build the SIGNED merged per-epoch DUTY tx (doc/consensus-aggregation.md): the validator's FFG
+    attest (landing epoch X), RANDAO commit (X+2) and reveal (X+1) sections — whichever are due —
+    under ONE ML-DSA signature instead of three full txs. Fee-exempt committee duty; lands exactly
+    at max_block like every timing-critical reserved tx."""
+    data = {}
+    if attest is not None:
+        data["attest"] = attest
+    if commit is not None:
+        data["commit"] = commit
+    if reveal is not None:
+        data["reveal"] = reveal
+    assert data, "duty tx needs at least one section"
+    tx = {"sender": keydict["address"], "recipient": "duty", "amount": 0,
+          "timestamp": get_timestamp_seconds(), "data": data, "nonce": create_nonce(),
+          "max_block": max_block, "chain_id": CHAIN_ID, "fee": 0,
+          "public_key": keydict["public_key"]}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
 def verify_attestation_equivocation_proof(proof):
     """Verify an FFG ATTESTATION double-vote: the SAME bonded validator SIGNED two attestations for the SAME
     target_epoch but DIFFERENT target_hash. proof = {"attest_a": <signed attest tx>, "attest_b": <signed
@@ -118,7 +185,7 @@ def verify_attestation_equivocation_proof(proof):
     epoch — so a valid proof is irrefutable evidence of a finality double-vote."""
     try:
         def _open(tx):
-            if not isinstance(tx, dict) or tx.get("recipient") != "attest":
+            if not isinstance(tx, dict) or tx.get("recipient") not in ("attest", "duty"):
                 return None
             pk, sig, txid, sender = tx.get("public_key"), tx.get("signature"), tx.get("txid"), tx.get("sender")
             if not (pk and sig and txid and sender) or not isinstance(sig, str):
@@ -131,6 +198,8 @@ def verify_attestation_equivocation_proof(proof):
             if not verify(signed=sig, public_key=pk, message=unhex(txid)):
                 return None
             d = tx.get("data") or {}
+            if tx.get("recipient") == "duty":                          # attest section inside a merged duty tx
+                d = d.get("attest") or {}
             return sender, d.get("target_epoch"), d.get("target_hash")
         ra = _open((proof or {}).get("attest_a")); rb = _open((proof or {}).get("attest_b"))
         if not ra or not rb:
@@ -434,6 +503,11 @@ def reserved_uniqueness_key(tx):
             return (r, tx["sender"], (tx.get("data") or {}).get("target_epoch"))
         if r == "reveal":
             return ("reveal", (tx.get("data") or {}).get("secret"))   # dedup by secret (cross-validator too)
+        if r == "duty":
+            # handled by reserved_uniqueness_keys (a duty tx emits one key PER SECTION, matching the
+            # historical single-duty keys, plus one per (sender, epoch)); return a sentinel here so
+            # single-key callers still dedupe whole-duty duplicates.
+            return ("duty", tx["sender"], tx["max_block"] // EPOCH_LENGTH)
         if r == "slash":
             d = tx.get("data") or {}
             return ("slash", make_address(d["public_key"]), d["block_number"])
@@ -465,26 +539,46 @@ def reserved_uniqueness_key(tx):
     return None
 
 
+def reserved_uniqueness_keys(tx) -> list:
+    """ALL uniqueness keys a reserved tx occupies in a block. Single-duty txs emit their one
+    historical key (byte-identical to before — historical block validity must never drift); a
+    merged `duty` tx emits its own key PLUS one key per section, MATCHING the historical
+    single-duty keys — so a duty-carried attest and a bare `attest` for the same (sender, epoch)
+    (or two reveals of one secret) can never share a block, in either combination."""
+    base = reserved_uniqueness_key(tx)
+    if base is None:
+        return []
+    keys = [base]
+    if tx.get("recipient") == "duty":
+        d = tx.get("data") or {}
+        if isinstance(d.get("attest"), dict):
+            keys.append(("attest", tx.get("sender"), d["attest"].get("target_epoch")))
+        if isinstance(d.get("commit"), dict):
+            keys.append(("commit", tx.get("sender"), d["commit"].get("target_epoch")))
+        if isinstance(d.get("reveal"), dict):
+            keys.append(("reveal", d["reveal"].get("secret")))
+    return keys
+
+
 def dedupe_reserved(transactions):
-    """Drop duplicate reserved txs (same reserved_uniqueness_key), keeping the first. Used by block
+    """Drop duplicate reserved txs (any shared uniqueness key), keeping the first. Used by block
     assembly so an honest producer never builds a block verify_block would reject for duplicates."""
     seen, out = set(), []
     for t in transactions:
-        k = reserved_uniqueness_key(t)
-        if k is not None:
-            if k in seen:
+        keys = reserved_uniqueness_keys(t)
+        if keys:
+            if any(k in seen for k in keys):
                 continue
-            seen.add(k)
+            seen.update(keys)
         out.append(t)
     return out
 
 
 def assert_unique_reserved(transactions):
-    """Raise if a block contains two reserved txs with the same reserved_uniqueness_key (verify side)."""
+    """Raise if a block contains two reserved txs sharing ANY uniqueness key (verify side)."""
     seen = set()
     for t in transactions:
-        k = reserved_uniqueness_key(t)
-        if k is not None:
+        for k in reserved_uniqueness_keys(t):
             if k in seen:
                 raise ValueError(f"Duplicate reserved transaction in block: {k}")
             seen.add(k)
@@ -565,57 +659,55 @@ def validate_transaction(transaction, logger, block_height):
         assert offender_acc and offender_acc.get("bonded", 0) >= SLASH_BOND_PENALTY, \
             "Offender holds insufficient bonded stake to slash"
     elif recipient == "attest":
-        # FFG attestation (#6): a BONDED validator attests the CURRENT epoch's checkpoint (the first
-        # block of the epoch its max_block falls in). Fee-exempt validator duty; one per validator
-        # per epoch (the attestation index rejects a second -> no on-chain double-vote). data carries
-        # {target_epoch, target_hash}; target_hash must equal the real checkpoint block hash.
-        from ops.block_ops import get_block_hash_by_number
-        from ops.mining_ops import epoch_of
+        # FFG attestation (#6) — HISTORICAL single-duty form: kept consensus-valid forever (genesis
+        # sync replays the pre-`duty` blocks that carry these), but the mempool refuses NEW ones —
+        # honest emission is the merged `duty` tx (doc/consensus-aggregation.md).
         assert transaction["amount"] == 0, "Attest tx must have zero amount"
         assert transaction["fee"] == 0, "Attest tx is fee-exempt (fee must be 0)"
-        data = transaction.get("data") or {}
-        epoch = data.get("target_epoch")
-        target_hash = data.get("target_hash")
-        assert isinstance(epoch, int) and not isinstance(epoch, bool), "Attest target_epoch must be an int"
-        assert epoch == transaction["max_block"] // EPOCH_LENGTH, "Attest target_epoch != max_block's epoch"
-        acc = get_account(transaction["sender"], create_on_error=False)
-        assert acc and acc.get("bonded", 0) >= B_MIN, "Attester is not a bonded validator"
-        assert not kv_ops.attestation_exists(epoch, transaction["sender"]), "Validator already attested this epoch"
-        assert target_hash and get_block_hash_by_number(epoch * EPOCH_LENGTH) == target_hash, \
-            "Attest target_hash is not the epoch checkpoint"
+        _validate_attest_fields(transaction.get("data") or {}, transaction["max_block"], transaction["sender"])
     elif recipient in ("commit", "reveal"):
-        # COMMIT-REVEAL RANDAO (#7): bonded validators COMMIT a secret's hash in epoch E-2 and REVEAL
-        # the secret in epoch E-1's FINALIZED window; the secrets seed epoch E's beacon. Fee-exempt
-        # bonded duty. Committing BEFORE the seeded beacon is revealed kills just-in-time grinding.
-        from ops.mining_ops import epoch_of, beacon_commitment
+        # COMMIT-REVEAL RANDAO (#7) — HISTORICAL single-duty forms (see the `attest` note): valid for
+        # replay, refused at the mempool; honest emission is the merged `duty` tx.
         assert transaction["amount"] == 0, "Commit/reveal tx must have zero amount"
         assert transaction["fee"] == 0, "Commit/reveal tx is fee-exempt (fee must be 0)"
-        data = transaction.get("data") or {}
-        E = data.get("target_epoch")
-        assert isinstance(E, int) and not isinstance(E, bool) and E >= 2, "target_epoch must be an int >= 2"
-        acc = get_account(transaction["sender"], create_on_error=False)
-        assert acc and acc.get("bonded", 0) >= B_MIN, "Commit/reveal sender is not a bonded validator"
-        tb = transaction["max_block"]
         if recipient == "commit":
-            # commit must land in epoch E-2 (before E-1's reveal window), one per (sender, E)
-            assert epoch_of(tb) == E - 2, "Commit must target a block in epoch E-2"
-            assert data.get("commitment"), "Commit missing commitment"
-            assert kv_ops.commit_get(transaction["sender"], E) is None, "Already committed for this epoch"
-        else:  # reveal
-            # reveal must land in epoch E-1's FINALIZED window (so the seed is immutable when E begins),
-            # and must open the sender's own prior commitment.
-            lo = (E - 1) * EPOCH_LENGTH
-            hi = E * EPOCH_LENGTH - FINALITY_DEPTH - 1
-            assert lo <= tb <= hi, "Reveal must land in epoch E-1's finalized window"
-            secret = data.get("secret")
-            commitment = kv_ops.commit_get(transaction["sender"], E)
-            assert commitment, "No matching commit for this reveal"
-            assert secret and beacon_commitment(secret) == commitment, "Reveal does not open the commitment"
-            # AUDIT FIX: each secret may seed the beacon at most once — the DUPSORT row dedups identical
-            # secrets but does not reject the second tx, so a reorg can over-delete the shared row and
-            # desync epoch_beacon (whole-epoch producer fork). Rejecting an already-present secret also
-            # blocks cross-validator commitment-copying.
-            assert secret not in kv_ops.reveals_for_epoch(E), "This secret is already revealed for the epoch"
+            _validate_commit_fields(transaction.get("data") or {}, transaction["max_block"], transaction["sender"])
+        else:
+            _validate_reveal_fields(transaction.get("data") or {}, transaction["max_block"], transaction["sender"])
+    elif recipient == "duty":
+        # MERGED EPOCH DUTY (doc/consensus-aggregation.md): a bonded validator's whole per-epoch
+        # consensus participation in ONE fee-exempt tx — sections `attest` (epoch X = the landing
+        # epoch), `commit` (X+2) and `reveal` (X+1), each optional, each validated by EXACTLY the
+        # same field rules as the historical single-duty forms (shared helpers). The sender must
+        # hold a seat in epoch X's DUTY COMMITTEE (beacon-sampled, stake-weighted — the O(seats)
+        # consensus-load bound); a reveal needs no committee check beyond its own commitment, which
+        # already proves committee membership at commit time.
+        from ops.block_ops import duty_committee_for_epoch
+        from ops.mining_ops import epoch_of
+        assert transaction["amount"] == 0, "Duty tx must have zero amount"
+        assert transaction["fee"] == 0, "Duty tx is fee-exempt (fee must be 0)"
+        data = transaction.get("data") or {}
+        sections = {k: data.get(k) for k in ("attest", "commit", "reveal") if data.get(k) is not None}
+        assert sections, "Duty tx carries no sections"
+        assert set(data.keys()) <= {"attest", "commit", "reveal"}, "Duty tx carries unknown sections"
+        tb = transaction["max_block"]
+        X = epoch_of(tb)
+        acc = get_account(transaction["sender"], create_on_error=False)
+        assert acc and acc.get("bonded", 0) >= B_MIN, "Duty sender is not a bonded validator"
+        committee = duty_committee_for_epoch(X)
+        assert transaction["sender"] in committee, "Duty sender holds no seat in this epoch's committee"
+        if "attest" in sections:
+            a = sections["attest"]
+            assert isinstance(a, dict) and a.get("target_epoch") == X, "Duty attest must target the landing epoch"
+            _validate_attest_fields(a, tb, transaction["sender"])
+        if "commit" in sections:
+            c = sections["commit"]
+            assert isinstance(c, dict) and c.get("target_epoch") == X + 2, "Duty commit must target epoch X+2"
+            _validate_commit_fields(c, tb, transaction["sender"])
+        if "reveal" in sections:
+            r = sections["reveal"]
+            assert isinstance(r, dict) and r.get("target_epoch") == X + 1, "Duty reveal must target epoch X+1"
+            _validate_reveal_fields(r, tb, transaction["sender"])
     elif recipient in ("unbond", "withdraw"):
         # UNBOND DELAY: fee-exempt actions on the sender's OWN stake. `unbond` requests a release (coins
         # stay bonded + slashable); `withdraw` claims it only at/after the matured release_block. Bound

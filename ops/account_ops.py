@@ -133,6 +133,28 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
             kv_ops.reveal_put(data["target_epoch"], data["secret"])
         return
 
+    # --- MERGED EPOCH DUTY (doc/consensus-aggregation.md): apply/revert each carried section with
+    # EXACTLY the same kv mutations as its historical single-duty form, in fixed order (attest,
+    # commit, reveal) — reverted in reverse. Runs inside the block's write txn like everything here.
+    if recipient == "duty":
+        data = transaction.get("data") or {}
+        a, c, r = data.get("attest"), data.get("commit"), data.get("reveal")
+        if revert:
+            if r:
+                kv_ops.reveal_del(r["target_epoch"], r["secret"])
+            if c:
+                kv_ops.commit_del(sender, c["target_epoch"])
+            if a:
+                kv_ops.attestation_del(a["target_epoch"], sender, a["target_hash"])
+        else:
+            if a:
+                kv_ops.attestation_put(a["target_epoch"], sender, a["target_hash"])
+            if c:
+                kv_ops.commit_put(sender, c["target_epoch"], c["commitment"])
+            if r:
+                kv_ops.reveal_put(r["target_epoch"], r["secret"])
+        return
+
     # --- ALIAS op (register / transfer / unregister): change the registry, destroy the fee, no transfer ---
     if recipient == "alias":
         from ops import alias_ops

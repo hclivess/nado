@@ -1277,6 +1277,7 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | `FIDELITY_CAP` | `30` | Consecutive recerts (~days) to fully ramp the open bonus (was 1000; recert-driven now). |
 | `FIDELITY_GAIN` | `1` | Fidelity increment per continuous recert; a lapse (gap > lease) resets the streak. |
 | `HISTORY_RETENTION_BLOCKS` | `100_800` | Rolling-node body-retention window (~1 week @6s); archive nodes keep all (Section 6.1). |
+| `DUTY_COMMITTEE_SEATS` | `128` | Beacon-sampled, stake-weighted seats that may post the merged `duty` tx each epoch — bounds per-epoch consensus load to O(seats), constant in validator count; FFG justification counts seats (consensus-aggregation.md). |
 | `max_registrations_per_ip` | `64`/hr | Progressive per-range OPEN-lane onboarding cap (relay admission, Section 2.4). |
 | `AUTO_BOND_DEFAULT_PERCENT` | `80` | Default share of new rewards auto-bonded when unset (client/operator; overridable). |
 | `TREASURY_GENESIS` | `0` | **No premine** — treasury starts empty. |
@@ -1291,7 +1292,7 @@ All values from `protocol.py` (and noted modules) at this revision. **Provisiona
 | ML-DSA-44 pubkey | `1312` bytes (from 32-byte seed) | Post-quantum public key (FIPS 204). |
 | ML-DSA-44 signature | `~2420` bytes | Post-quantum signature length. |
 | Address format | `"ndo"` + 42-hex pubkey prefix + 4-hex checksum (49 chars) | Checksum = `blake2b_hash(body, size=2)`. |
-| `RESERVED_RECIPIENTS` | `{bond, unbond, withdraw, register, slash, attest, commit, reveal, alias, blob, settle, bridge, bridge_withdraw, dividend, dividend_withdraw, htlc, htlc_lock, htlc_claim, htlc_refund}` | Keyless pseudo-recipients; valid as recipient/target only. **No `heartbeat`** (removed). |
+| `RESERVED_RECIPIENTS` | `{bond, unbond, withdraw, register, slash, attest, commit, reveal, duty, alias, blob, settle, bridge, bridge_withdraw, dividend, dividend_withdraw, htlc, htlc_lock, htlc_claim, htlc_refund, treasury*, msgkey, xmsg}` | Keyless pseudo-recipients; valid as recipient/target only. **No `heartbeat`** (removed). `duty` is the merged FFG-attest + RANDAO-commit/reveal consensus tx (consensus-aggregation.md); the standalone `attest`/`commit`/`reveal` stay valid for historical replay but are no longer emitted. |
 | `ALIAS_REGISTRATION_FEE` | `10_000_000` (0.001 NADO) | Anti-squat fee to register an alias (name → owner address). |
 | `HTLC_ESCROW` | `"htlc"` | Keyless escrow account holding all locked HTLC coins — trustless cross-chain atomic swaps (Section 4.6). |
 | `HTLC_MIN_TIMELOCK` / `HTLC_MAX_TIMELOCK` | `10` / `1_000_000` blocks | Bounds on an HTLC lock's absolute block-height expiry (SHA-256 hashlock). |

@@ -30,7 +30,7 @@ def set_settlement_verifier(fn):
 
 
 def active_settler_shares(ns: str, bonded_registry: dict) -> int:
-    """SETTLEMENT INACTIVITY LEAK (protocol.SETTLE_ACTIVITY_CURSORS — the FFG active_shares pattern):
+    """SETTLEMENT INACTIVITY LEAK (protocol.SETTLE_ACTIVITY_CURSORS — participation-windowed quorum):
     total bonded shares of validators that posted a settle attestation for `ns` within the activity
     window of the HIGHEST attested cursor. Bonded validators that never run an exec+settle node LEAK
     from the quorum denominator instead of blocking settlement forever — going dark forfeits their

@@ -19,7 +19,7 @@ crypto.**
 
 ## Implementation bottlenecks (fixable without design change)
 
-### 1. Pure-Python ML-DSA — the single biggest throughput cost — ✅ seam SHIPPED
+### 1. Pure-Python ML-DSA — the single biggest throughput cost — ✅ seam + NATIVE BACKEND SHIPPED
 `Curve25519.py` ran ML-DSA-44 via `dilithium-py` (pure Python); signature *verification*
 dominates block validation. Native ML-DSA is a 10–100× win — but a blind swap would (a)
 break the deliberate "runs on anything / a phone / a 386" pure-Python design goal, and (b)
@@ -73,15 +73,19 @@ the chain. It is therefore designed (not blind-wired) as the state-pruning secti
 Ethereum compresses thousands of attestations into one BLS signature. **ML-DSA has no
 aggregation** — every attestation/recert/vote is a full ~3.7 KB signature, stored and
 verified individually. PQ security and BLS-style compression are fundamentally at odds, and
-NADO correctly chose PQ. There is no drop-in fix; the escape is §B.
+NADO correctly chose PQ. There is no drop-in fix; the escape is §B — and it is now IMPLEMENTED
+(the merged committee-gated `duty` tx, [consensus-aggregation.md](consensus-aggregation.md)).
 
-### B. Consensus emits O(N) on-chain messages per epoch — the real design fix (#2)
-Confirmed in `loops/core_loop.py`: every bonded validator broadcasts **1 attestation + 1
-commit + 1 reveal per epoch** (`update_ffg_and_attest`, `maybe_randao`). So with N bonded
-validators, **~3N full PQ-signed transactions of pure consensus overhead per epoch**, each
-pure-Python-verified, all competing for the same block space as user payments. At 10k bonded
-validators that's 30k+ overhead txs/epoch before a single user tx. **O(N) messages ×
-non-aggregatable PQ sig × pure-Python verify** is the scaling envelope.
+### B. Consensus emits O(N) on-chain messages per epoch — ✅ FIXED (merged committee-gated `duty`)
+**Was:** every bonded validator broadcast **1 attestation + 1 commit + 1 reveal per epoch**, so ~3N
+full PQ-signed pure-consensus txs/epoch, each pure-Python-verified, competing with user payments —
+`O(N) messages × non-aggregatable PQ sig × pure-Python verify`, the scaling envelope (30k+ overhead
+txs/epoch at 10k validators).
+**Now** (`loops/core_loop.py maybe_epoch_duty`, [consensus-aggregation.md](consensus-aggregation.md)):
+the three duties merge into ONE fee-exempt `duty` tx (3N → N), and only a beacon-sampled,
+stake-weighted **duty committee** of `DUTY_COMMITTEE_SEATS` (128) posts them (N → O(seats), constant
+in N). FFG justification counts committee seats, so the seat supermajority IS a stake supermajority.
+Combined with the native verify backend (§1), consensus overhead is now constant-count + fast-verify.
 
 (The OPEN lane is **no longer** a per-epoch cost. The old per-epoch heartbeat tx was removed:
 OPEN-lane presence is now a renewable PoSW **recert lease** (`register` tx), renewed only once per
@@ -105,8 +109,14 @@ attest/commit/reveal set.)
   threshold approach is the PQ-compatible substitute for BLS aggregation: prove the set of
   valid signatures once, rather than verify N of them on every node.
 
-This is the one genuine architecture investment for scale. It is a **consensus change** and
-warrants its own design doc + tests before shipping — flagged here, not implemented.
+**IMPLEMENTED** ([consensus-aggregation.md](consensus-aggregation.md)): NADO ships §B's aggregation as
+the **merged, committee-gated `duty` tx**. A validator's FFG attest + RANDAO commit + reveal ride in ONE
+fee-exempt signed tx (3N → N), and only a beacon-sampled, stake-weighted **duty committee** of
+`DUTY_COMMITTEE_SEATS` (128) may post them (N → O(seats), constant in validator count); FFG justification
+counts committee seats, so the seat quorum converges on the stake quorum. Plus §A's constant factor: the
+**native Rust ML-DSA verify backend** (`native/mldsa44`, ~55× faster verify, self-test-gated so it can never
+split consensus). A succinct proof-of-threshold (one STARK replacing the ≤128 attestations) is the remaining
+optional step — the committee already bounds the cost to a constant.
 
 ### C. Unbounded free-lane state — ✅ BOUNDED (idle-account GC shipped)
 OPEN-lane `register` (PoSW recert) txs are fee-exempt and used to create permanent account state.
@@ -148,10 +158,10 @@ Now bounded by the deterministic in-block idle-account GC (`ops/gc_ops.py`, §4 
 
 ## Priority order
 
-1. **Native ML-DSA** — seam shipped (#1); install an interop-correct native backend for the
-   10–100× verify win on full nodes.
-2. **Attack the O(N) consensus load** (§B / #2) — the real design fix; presence-root now,
-   succinct PQ proof-of-threshold later.
+1. ~~**Native ML-DSA**~~ **DONE** — the native Rust backend (`native/mldsa44`, ~55× faster verify,
+   interop-self-test-gated) ships; install.sh builds it on request.
+2. ~~**Attack the O(N) consensus load** (§B / #2)~~ **DONE** — merged committee-gated `duty` tx
+   (3N → O(seats)); succinct PQ proof-of-threshold is the optional further step.
 3. ~~Binary encoding (#3)~~ — already handled by zstd; canonical change not worth the
    consensus risk.
 4. **Idle-account GC + rolling history pruning** (#4 / §C) — `doc/rolling-mode-and-da.md`.

@@ -1,3 +1,28 @@
+# Alphanet update — 2026-07-13 (consensus scales to the mainstream)
+
+> **Consensus-affecting** — update all nodes together. The FFG quorum now counts duty-committee
+> seats, and honest validators emit the merged `duty` tx (the standalone attest/commit/reveal stay
+> valid for historical replay but are refused new at the mempool).
+
+Attacks the O(N)-messages × non-aggregatable-PQ-sig × pure-Python-verify wall
+(doc/consensus-aggregation.md):
+
+- **Native Rust ML-DSA verify backend** (`native/mldsa44`, `nado_pq_native.py`): ~55x faster
+  signature verification — the chain's main CPU cost. FIPS 204 internal mode, bound via ctypes like
+  the Goldilocks prover. Adopted ONLY after a startup interop self-test cross-verifies it against the
+  pure-Python signer both ways, so a bad build can never split consensus (it just stays pure-Python).
+  `scripts/install.sh` asks and builds it (offers to install Rust via rustup); `--pq-native` forces it.
+- **Merged, committee-gated epoch duty**: a validator's FFG attest + RANDAO commit + reveal ride in
+  ONE fee-exempt `duty` tx (3N -> N), and only a beacon-sampled, stake-weighted committee of
+  `DUTY_COMMITTEE_SEATS`=128 may post them (N -> O(seats), constant in validator count). FFG
+  justification counts committee seats, so the seat supermajority is a stake supermajority; the
+  committee resamples each epoch (replacing the old inactivity leak).
+
+Net: per-epoch consensus overhead goes from ~3N pure-Python-verified txs to <=128 duty txs verified
+~55x faster — decoupling bonded-validator scaling from the consensus message load.
+
+---
+
 # Alphanet fix — 2026-07-13 (settlement inactivity leak: dividends claimable again)
 
 > **Consensus-affecting** (changes what L1 accepts as the settled exec root) — update all nodes.

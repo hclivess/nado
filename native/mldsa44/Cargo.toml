@@ -1,0 +1,17 @@
+[package]
+name = "nado-mldsa44"
+version = "0.1.0"
+edition = "2021"
+description = "NADO native ML-DSA-44 backend (FIPS 204 internal mode) — Rust cdylib bound by nado_pq_native.py"
+license = "Apache-2.0 OR MIT"
+
+[lib]
+name = "nado_mldsa44"
+crate-type = ["cdylib"]
+
+[dependencies]
+ml-dsa = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = true

@@ -564,6 +564,28 @@ def randao_eligible_bonded(bonded_registry: dict, epoch: int) -> dict:
             if kv_ops.commit_get(a, epoch) in revealed}
 
 
+# duty-committee cache: one ((env, write_generation, epoch), committee) tuple — same discipline
+# as the registry caches (GIL-atomic single slot; any commit invalidates; in-txn reads bypass).
+_duty_committee_cache = [None]
+
+
+def duty_committee_for_epoch(epoch: int) -> dict:
+    """{address: seats} for epoch `epoch`'s duty committee, from committed state: the bonded
+    registry + epoch_beacon(epoch) (fixed before the epoch starts, grind-resistant — the same
+    anchor producer selection uses). Raises like epoch_beacon when the anchor is missing (an
+    under-synced node must not derive a divergent committee). Cached per committed-write
+    generation + epoch."""
+    from ops.mining_ops import duty_committee
+    if kv_ops.in_write_txn():
+        return duty_committee(get_bonded_registry(), epoch_beacon(epoch), epoch)
+    key = (kv_ops.env_path(), kv_ops.write_generation(), int(epoch))
+    entry = _duty_committee_cache[0]
+    if entry is None or entry[0] != key:
+        entry = (key, duty_committee(get_bonded_registry(), epoch_beacon(epoch), epoch))
+        _duty_committee_cache[0] = entry
+    return dict(entry[1])
+
+
 def mining_status(address, latest_block_number, block_time):
     """Two-lane mining snapshot for the wallet's 'expected time to mine' + selection visualization.
     Pure read of committed state. Weights are integer/deterministic; the time ESTIMATE uses floats

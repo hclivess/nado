@@ -43,7 +43,7 @@ TX_INCLUSION_DELAY = 2
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
 # "bond"/"unbond": bonded-lane stake txs. "register": the OPEN-lane (no-coin) mining lease tx
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "slash", "attest", "commit", "reveal", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury", "treasury_vote", "treasury_execute", "msgkey", "xmsg"})
+RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "slash", "attest", "commit", "reveal", "duty", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury", "treasury_vote", "treasury_execute", "msgkey", "xmsg"})
 
 # --- SHIELDED POOL (post-quantum zk-STARK privacy, doc/privacy.md) — L1 side of an EXECUTION-LAYER feature ---
 # L1 never sees a note or verifies a proof; it only escrows the transparent coins that enter/leave the pool
@@ -92,7 +92,7 @@ BRIDGE_ESCROW = "bridge"          # the escrow pseudo-account holding all bridge
 # Phase-2b behind the same interface (settlement_ops.settlement_justified). 2/3 stake quorum, like FFG.
 SETTLE_NUM = 2
 SETTLE_DEN = 3
-# SETTLEMENT INACTIVITY LEAK (mirrors the FFG leak in ops/attestation_ops.active_shares): the quorum
+# SETTLEMENT INACTIVITY LEAK (the participation-windowed quorum pattern, like the FFG duty committee): the quorum
 # DENOMINATOR is the bonded shares of validators that have posted a settle attestation for the
 # namespace within this many exec cursors of the highest attested cursor — bonded validators that do
 # NOT run an exec+settle node leak out of the settlement quorum instead of blocking it forever.
@@ -104,6 +104,25 @@ SETTLE_DEN = 3
 # for the whole window (~2.4h at 6s blocks; systemd restarts make that an outage, not an accident).
 # The optimistic fraud proof (doc/dividend-fraud-proof.md) is the planned trust upgrade on top.
 SETTLE_ACTIVITY_CURSORS = 1440
+
+# --- CONSENSUS-LOAD AGGREGATION (doc/consensus-aggregation.md — the O(N)-messages scaling fix) ---
+# 1. MERGED DUTY TX: a bonded validator's whole per-epoch consensus participation — FFG attest(X) +
+#    RANDAO commit(X+2) + reveal(X+1) — rides in ONE fee-exempt `duty` tx (one ~2.4KB ML-DSA
+#    signature instead of three full txs; the three validation windows all overlap for the entire
+#    epoch minus its last FINALITY_DEPTH+1 blocks). The legacy attest/commit/reveal recipients stay
+#    CONSENSUS-VALID forever (historical blocks contain them; genesis sync must replay them) but the
+#    mempool refuses new ones — honest emission is duty-only.
+# 2. DUTY COMMITTEE: only DUTY_COMMITTEE_SEATS beacon-sampled stake-weighted seats per epoch may
+#    post duties, so the per-epoch consensus load is O(seats) — CONSTANT in validator count — instead
+#    of O(N). Sampling is the same deterministic weighted draw as producer selection, keyed
+#    (beacon(X), "duty", seat), with replacement: a validator's expected seats are proportional to
+#    its stake, and FFG quorum counts SEATS (attesting seats*3 > total seats*2), so the committee
+#    quorum converges on the stake quorum. Security: for an adversary with < 1/3 of bonded stake,
+#    P(>= 2/3 of 128 sampled seats) is cryptographically negligible (Chernoff) — the standard
+#    committee argument. With few validators every share-holder lands seats and behavior matches
+#    the full-set quorum. Epoch X's committee derives from beacon(X) (fixed before X starts and
+#    grind-resistant), so membership is known exactly when the duties are due.
+DUTY_COMMITTEE_SEATS = 128
 
 # SETTLEMENT NAMESPACES (multi-rollup): a `settle`/`bridge_withdraw` tx may name a rollup namespace (`ns`)
 # so many execution layers settle to L1 INDEPENDENTLY under the same bonded quorum — L1 keeps one settled
@@ -377,11 +396,6 @@ SLASH_BOND_PENALTY = B_MIN
 # monotonic (max of the time-based floor and the FFG height), so the advance needs no rollback logic.
 FFG_NUM = 2
 FFG_DEN = 3
-# INACTIVITY LEAK (#6): a bonded validator that hasn't attested any checkpoint within this many epochs is
-# LEAKED from the FFG quorum DENOMINATOR (attestation_ops.active_shares) — its stake stays, but its finality
-# VOTE lapses, so bonded-but-absent stake can't wedge finality forever. Small: finality is fresh, and a
-# validator attesting each epoch is always inside the window (grace for a brief outage before its vote drops).
-INACTIVITY_WINDOW = 3
 
 # Open lane: free entry via a one-time light registration PoW; weight = floor + diligence ramp.
 # NO auto-bond faucet: free presence must NEVER mint bonded stake (that pipe lets a Sybil swarm

@@ -348,6 +348,14 @@ class MemServer:
                    "message": f"Target block too high"}
             return msg
 
+        # SUPERSEDED single-duty forms (doc/consensus-aggregation.md): attest/commit/reveal stay
+        # consensus-valid FOREVER (historical blocks carry them; genesis sync replays them), but NEW
+        # ones are refused at the mempool door — every honest validator emits the merged `duty` tx,
+        # which is what bounds the per-epoch consensus load to the committee. LOCAL policy, not a
+        # validity rule, so replay of old blocks is untouched.
+        elif transaction.get("recipient") in ("attest", "commit", "reveal"):
+            return {"result": False, "message": "Superseded by the merged `duty` tx"}
+
         # AT-MOST-ONCE (2026-07): a txid ALREADY MINED (recorded in the on-chain tx-index by an ancestor
         # block) can never re-enter the mempool. A txid hashes the tx content, so an IDENTICAL transaction
         # has an identical txid — reintroducing/replaying the same transaction is impossible at the entry

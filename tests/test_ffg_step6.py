@@ -1,8 +1,9 @@
 """
 FFG-lite objective finality unit checks (#6).
 
-- checkpoint_justified: STRICTLY > FFG_NUM/FFG_DEN of the ACTIVE bonded shares (attested within
-  INACTIVITY_WINDOW — the inactivity leak; dark validators drop out of the denominator).
+- checkpoint_justified: STRICTLY > FFG_NUM/FFG_DEN of the epoch's DUTY-COMMITTEE SEATS
+  (doc/consensus-aggregation.md — beacon-sampled stake-weighted seats; the committee bounds the
+  per-epoch consensus load to O(seats) and resampling replaces the old inactivity leak).
 - ffg_finalized_checkpoint: two-consecutive-justified epochs finalize the earlier checkpoint.
 - attestation tx: validates for a bonded validator, ONE per (validator, epoch) (no on-chain double-vote),
   and is revert-symmetric.
@@ -48,49 +49,47 @@ kv_ops.block_index_put(2 * EPOCH_LENGTH, H_CHILD)
 
 
 def t1_threshold():
-    """Prove checkpoint_justified needs STRICTLY >2/3 of the ACTIVE bonded shares: with all four
-    validators active (each attested within INACTIVITY_WINDOW), 2/4 attesters fail, 3/4 justify."""
+    """Prove checkpoint_justified needs STRICTLY > FFG_NUM/FFG_DEN of the epoch's DUTY-COMMITTEE
+    SEATS (doc/consensus-aggregation.md): attest seat-holders one at a time and confirm the
+    predicate flips exactly when accumulated seats cross the quorum."""
+    from ops.block_ops import duty_committee_for_epoch
+    from protocol import FFG_NUM, FFG_DEN
     reg = get_bonded_registry()
-    # make ALL FOUR validators ACTIVE for the epoch-1 quorum: each attests epoch 0 (inside the
-    # INACTIVITY_WINDOW lookback), so the denominator is the full 4 shares — the leak (below) is
-    # what removes dark validators, and t1 must measure the threshold, not the leak.
-    for v in VALS:
-        kv_ops.attestation_put(0, v["address"], "0" * 64)
-    # 2 of 4 attest epoch 1 -> NOT justified (2*3=6 !> 4*2=8)
-    for v in VALS[:2]:
-        kv_ops.attestation_put(1, v["address"], H_E)
-    assert not checkpoint_justified(1, H_E, reg), "2/4 must not justify"
-    # 3rd attests -> justified (3*3=9 > 8)
-    kv_ops.attestation_put(1, VALS[2]["address"], H_E)
-    assert checkpoint_justified(1, H_E, reg), "3/4 must justify"
-check("checkpoint_justified: strict >2/3 of ACTIVE bonded shares", t1_threshold)
+    committee = duty_committee_for_epoch(1)
+    total = sum(committee.values())
+    assert total > 0, "four bonded validators must form a committee"
+    got = 0
+    for v in sorted(committee, key=committee.get, reverse=True):
+        assert checkpoint_justified(1, H_E, reg) == (got * FFG_DEN > total * FFG_NUM), \
+            "predicate must track the accumulated seat count exactly"
+        kv_ops.attestation_put(1, v, H_E)
+        got += committee[v]
+    assert checkpoint_justified(1, H_E, reg), "all committee seats attesting must justify"
+    assert not checkpoint_justified(1, "d" * 64, reg), "a hash no one attested is never justified"
+check("checkpoint_justified: strict >2/3 of committee SEATS", t1_threshold)
 
 
-def t1b_inactivity_leak():
-    """Prove the INACTIVITY LEAK: a validator dark for the whole window drops out of the quorum
-    denominator, so the remaining live majority can justify without it."""
-    from ops.attestation_ops import active_shares
-    from protocol import INACTIVITY_WINDOW
-    reg = get_bonded_registry()
-    far = 1 + INACTIVITY_WINDOW + 5           # an epoch far enough that no VALS attestation is in-window
-    H_FAR = "d" * 64
-    kv_ops.block_index_put(far * EPOCH_LENGTH, H_FAR)
-    for v in VALS[:2]:                         # only 2 of 4 are active near `far`
-        kv_ops.attestation_put(far, v["address"], H_FAR)
-    assert active_shares(far, reg) == sum(
-        1 for _ in VALS[:2]), "dark validators must leak from the active denominator"
-    # 2 attesting of 2 active -> justified even though it is only 2 of 4 bonded
-    assert checkpoint_justified(far, H_FAR, reg), "live majority must justify once dark stake leaks"
-check("inactivity leak: dark validators drop from the FFG denominator", t1b_inactivity_leak)
+def t1b_committee_resamples_per_epoch():
+    """Prove the committee is beacon-sampled per epoch (the mechanism that replaced the inactivity
+    leak — a dark seat only blocks its own epoch's justification, and the next epoch resamples)."""
+    from ops.block_ops import duty_committee_for_epoch
+    c1 = duty_committee_for_epoch(1)
+    c2 = duty_committee_for_epoch(2)
+    assert sum(c1.values()) > 0 and sum(c2.values()) > 0, "both epochs have committees"
+    # attestations for epoch 1 do not carry into epoch 2's justification (separate seat sets/hashes)
+    for v in c1:
+        kv_ops.attestation_del(1, v, H_E)   # clean up t1's attestations so t2 starts fresh
+check("duty committee resamples per epoch", t1b_committee_resamples_per_epoch)
 
 
 def t2_finalize():
-    """Prove two consecutive justified epochs finalize the earlier epoch's checkpoint."""
+    """Prove two consecutive justified epochs (each by its own committee) finalize the earlier one."""
+    from ops.block_ops import duty_committee_for_epoch
     reg = get_bonded_registry()
-    # epoch 1 already justified (3 attesters from t1). Justify epoch 2 too -> finalize epoch 1.
-    for v in VALS[:3]:
-        kv_ops.attestation_put(2, v["address"], H_CHILD)
-    assert checkpoint_justified(2, H_CHILD, reg)
+    for E, H in ((1, H_E), (2, H_CHILD)):
+        for v in duty_committee_for_epoch(E):          # every committee seat attests -> justified
+            kv_ops.attestation_put(E, v, H)
+        assert checkpoint_justified(E, H, reg)
     assert ffg_finalized_checkpoint(2) == 1 * EPOCH_LENGTH, "two-consecutive-justified must finalize epoch 1's checkpoint"
 check("ffg_finalized_checkpoint: two-consecutive-justified finalizes the earlier checkpoint", t2_finalize)
 
