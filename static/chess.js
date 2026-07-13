@@ -3,7 +3,7 @@
 // full legality run in your browser; every move is recorded ON-CHAIN (a trustless, ordered game log with a move
 // clock), and the wager settles by resignation / mutual agreement / refund-on-timeout — so nobody can ever be
 // robbed (a stall or a disputed move at worst refunds both). Correspondence-style: a move confirms in ~1 min.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, canPay, alertBar, hoist, orderCards, resolveAliases, disp, share,
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, canPay, alertBar, hoist, orderCards, resolveAliases, disp, share,
          wireWallet, inviteGate, stickyInputs, renderWallet, notify } from "./nadodapp.js";
 import { Chess } from "./chess-engine.js";
 
@@ -105,6 +105,24 @@ async function joinGame() {
   const G = load(); G[g] = { role: "black", stake: stake.toString(), ts: Date.now() }; save(G);
   activeGame = g; pendingEnc = null; render();
   dapp.call("join", [g], stake, "join chess game #" + g + " · " + rawToNado(stake) + " NADO stake", { game: g, phase: "join" });
+}
+// DETERMINISTIC rematch: both players derive the SAME next-game id from the finished one and land in ONE
+// shared game — first tap OPENS it, the other JOINS it (never two colliding games).
+async function rematch() {
+  const g = lastGame; if (!g || !g.exists) return;
+  const stake = BigInt(g.stake);
+  if (!canPay(dapp, stake, window.t("chess.whatRematch", "A rematch"))) return;
+  const rid = rematchId(activeGame), rg = await fetchGame(rid);
+  activeGame = rid; pendingEnc = null; haveState = false; replayPly = null; $("joinId").value = String(rid);
+  const G = load();
+  if (rg && rg.exists && rg.nn === 1 && !rg.settled) {
+    G[rid] = { role: "black", stake: stake.toString(), ts: Date.now() }; save(G);
+    dapp.call("join", [rid], stake, "join rematch chess #" + rid + " · " + rawToNado(stake) + " NADO stake", { game: rid, phase: "join" });
+  } else {
+    G[rid] = { role: "white", stake: stake.toString(), ts: Date.now() }; save(G);
+    dapp.call("open", [rid], stake, "rematch chess #" + rid + " · " + rawToNado(stake) + " NADO stake", { game: rid, phase: "open" });
+  }
+  render();
 }
 function submitMove(m) {
   const enc = encMove(m);
@@ -218,6 +236,7 @@ function wireUI() {
   dapp.wirePctSlider("stake", { slider: "stakeSlider", input: "stakeAmt" }, () => dapp.exec, render);   // play for stakes: % of your playable balance
   stickyInputs(dapp, ['stakeAmt', 'bankAmt']);   // typed amounts persist across turns
   $("btnNew").onclick = newGame;
+  $("btnRematch").onclick = rematch;
   $("btnJoin").onclick = joinGame;
   $("btnJoinGame").onclick = () => { if (!dapp.me) return dapp.signIn(); $("joinId").value = String(activeGame); joinGame(); };
   $("joinId").oninput = () => render();
@@ -289,6 +308,8 @@ function renderActive() {
   const iAmWinner = over && ((rc === 1 && side === "w") || (rc === 2 && side === "b"));
   const iAmLoser = over && ((rc === 2 && side === "w") || (rc === 1 && side === "b"));
   $("btnResign").classList.toggle("hidden", !(live && iAmIn && !over));
+  // once the game is settled, offer both players a one-tap deterministic rematch (same shared next game)
+  $("btnRematch").classList.toggle("hidden", !(g.exists && g.settled && iAmIn));
   // offer/accept a draw — BOTH must agree(3). Surface the offer so it isn't a silent no-op: after you offer,
   // the button reads "waiting"; when your OPPONENT has offered, it flips to a pulsing "Accept draw" + a banner.
   const drawShown = live && iAmIn && !over;

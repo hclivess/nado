@@ -2,7 +2,7 @@
 // board fits in the VM): move() checks turn + free cell ON-CHAIN, detects three-in-a-row and pays the
 // pot instantly, and a full board auto-refunds both stakes. Ply-bound moves (the chess retry-race
 // lesson), resign/abort escapes, and a short ~30-min move clock. Built on the shared SDK (nadodapp.js).
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, blocksToTime, inviteGate,
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, orderCards, alertBar, notify, okBar, blocksToTime, inviteGate,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
          recentChips, statusLabel, loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
@@ -28,6 +28,8 @@ function gameFrom(sto, g) {
   gm.winLine = null;
   for (const ln of LINES) { const v = gm.board[ln[0]]; if (v && v === gm.board[ln[1]] && v === gm.board[ln[2]]) gm.winLine = ln; }
   return gm;
+}
+async function fetchGame(g) { const sto = await dapp.storage(); return sto ? gameFrom(sto, g) : null;
 }
 
 // ---- actions ---------------------------------------------------------------------------------------
@@ -187,11 +189,21 @@ function render() {
   }
 }
 
-function rematch(stakeRaw) {
-  if (!canPay(dapp, BigInt(stakeRaw), window.t("ttt.whatRematch", "A rematch"))) return;
-  const g = randId(); const G = load(LS_G); G[g] = { role: "x", ts: Date.now() }; save(LS_G, G);
-  activeGame = g; pendingCell = null;
-  dapp.call("open", [g], BigInt(stakeRaw), "rematch tic-tac-toe #" + g + " · stake " + rawToNado(stakeRaw) + " NADO", { game: g, phase: "open" });
+async function rematch(stakeRaw) {
+  const stake = BigInt(stakeRaw);
+  if (!canPay(dapp, stake, window.t("ttt.whatRematch", "A rematch"))) return;
+  // DETERMINISTIC rematch: both players derive the SAME next-game id from the finished one, so they land in
+  // ONE shared game — whoever taps first OPENS it, the other JOINS it (never two colliding games).
+  const rid = rematchId(activeGame), rg = await fetchGame(rid);
+  activeGame = rid; pendingCell = null;
+  const G = load(LS_G);
+  if (rg && rg.exists && rg.nn === 1 && !rg.sd) {
+    G[rid] = { role: "o", ts: Date.now() }; save(LS_G, G);
+    dapp.call("join", [rid], stake, "join rematch tic-tac-toe #" + rid + " · " + rawToNado(stake) + " NADO stake", { game: rid, phase: "join" });
+  } else {
+    G[rid] = { role: "x", ts: Date.now() }; save(LS_G, G);
+    dapp.call("open", [rid], stake, "rematch tic-tac-toe #" + rid + " · stake " + rawToNado(stake) + " NADO", { game: rid, phase: "open" });
+  }
 }
 // ---- boot ------------------------------------------------------------------------------------------
 const replayInvite = async (id) => {   // load the invited game FIRST so joinGame's lastGame check isn't stale
