@@ -7,7 +7,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, canPay,
          wireWallet, inviteGate, stickyInputs, renderWallet, notify } from "./nadodapp.js";
 import { Chess } from "./chess-engine.js";
 
-const CID = "d066be12f6e7eb20c226a7f4b68b0632";
+const CID = "8df88a535f84174b0841286859767161";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="22.4" y="6" width="3.2" height="8" rx="1" fill="#00c9a7"/>     <rect x="18.6" y="8.4" width="10.8" height="3.2" rx="1.2" fill="#00c9a7"/>     <path d="M24 13.5c-6.4 2-9.5 6-9.5 10.5l3 6h13l3-6c0-4.5-3.1-8.5-9.5-10.5z" fill="#00c9a7"/>     <path d="M17.5 30h13l-1.4 4.2h-10.2z" fill="#00ad93"/>     <rect x="14.5" y="34" width="19" height="4.4" rx="2.2" fill="#00c9a7"/></svg>';
 const dapp = new NadoDapp({ cid: CID, app: "Chess" });
 const LS_G = "nado_chess_games";
