@@ -94,5 +94,14 @@ epoch aggregation, runtime + 3-way differential), `tests/test_stark_aux.py` (Log
 full deposit→withdraw→settle→release round-trip). **Provable execution is live** (per-call + epoch proofs,
 `/exec/prove_call`, the settlement seam). **Still open:** succinct proof-of-proof aggregation (O(1) proof
 size — the trace-level aggregation is built; recursion is the hedge), the DA availability/pruning window,
-and full-state (non-zkVM op families) settlement. Games: coinflip/dice/roulette/tictactoe ported + live on
-alphanet-5 (`execnode/games/`); the rest are in progress. See `doc/zk-execution-proofs.md`.
+and full-state (non-zkVM op families) settlement. Games: 11 ported + live on alphanet-5
+(coinflip/dice/roulette/slots/mines/blackjack + tictactoe/connect4/reversi/chess + farkle, in
+`execnode/games/`, all E2E-tested in `tests/test_games_e2e.py`); poker/pets/battleship/bet remain. See
+`doc/zk-execution-proofs.md`.
+
+**Contract upgradability (mainnet trust model).** Contracts are mutable by their owner by default and
+immutable once locked. `deploy` records an `upgradable` flag (default `true`; pass `{"upgradable": false}` to
+be immutable from birth); `upgrade` replaces code while preserving cid + storage, but is refused once locked;
+`lock` permanently renounces upgradability (one-way, no unlock); `transfer_contract` hands the owner right on.
+The flag is consensus state (committed in `state_root`) and surfaced by `/exec/contract`. Full reference:
+`doc/exec-instructions.md` §9.1.

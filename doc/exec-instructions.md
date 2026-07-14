@@ -82,9 +82,10 @@ Deploy a contract to a pluggable runtime.
 |---|---|---|
 | `op` | yes | `"deploy"` |
 | `code` | yes | contract code (map of method → bytecode; must pass `runtime.validate_code`) |
-| `runtime` | no | runtime name, default `runtimes.DEFAULT_RUNTIME` (`stackvm`) |
+| `runtime` | no | runtime name, default `runtimes.DEFAULT_RUNTIME` (`zkvm`) |
 | `nonce` | no | deploy nonce; **defaults to the L1 `txid`** |
 | `abi` | no | non-consensus UX metadata `{method: {args, doc}}` (must be a dict, else ignored) |
+| `upgradable` | no | **opt-out immutability flag**, default `true`. `false` deploys a contract that can *never* be `upgrade`d — permanently immutable from block zero. See [§9.1](#91-contract-upgradability--the-mainnet-trust-model). |
 | `ns` | no | namespace |
 
 The contract id is deterministic: `cid = blake2b_hash(["deploy", sender, code, nonce])[:32]`
@@ -92,11 +93,12 @@ The contract id is deterministic: `cid = blake2b_hash(["deploy", sender, code, n
 blob lands. If `code` contains a `"constructor"` method it is run at deploy; if it reverts, the contract
 deploys with **empty storage**.
 
-**Skips if:** payload not a dict; unknown runtime; `code` fails validation (raises `VMError`, caught);
+**Skips if:** payload not a dict; unknown runtime; `code` fails validation (raises `ZkVMError`, caught);
 `cid` already exists.
 
 ```json
-{"op":"deploy","code":{"constructor":"…","get":"…","set":"…"},"runtime":"stackvm",
+{"op":"deploy","code":{"constructor":"…","get":"…","set":"…"},"runtime":"zkvm",
+ "upgradable":true,
  "abi":{"set":{"args":["key","value"],"doc":"store a value"}}}
 ```
 
@@ -152,15 +154,43 @@ Replace a contract's code (and optionally runtime/abi), **preserving its cid and
 | `abi` | no | new abi (installed only if a dict) |
 | `ns` | no | namespace |
 
-**Alphanet rule:** only the original deployer may upgrade — `sender` must equal `contracts[cid].deployer`.
-This deliberately breaks strict immutability: on mainnet an upgrade would be gated behind on-chain
-governance / a timelock, but on alphanet the deployer owns the contract outright (see the code comment in
-`apply_blob`).
+**Ownership rule:** only the current owner may upgrade — `sender` must equal `contracts[cid].deployer`.
 
-**Skips if:** no such contract; `sender` is not the deployer; unknown runtime; new `code` fails validation.
+**Immutability rule:** the upgrade is **refused if the contract is locked** — i.e. it was deployed with
+`{"upgradable": false}` or later `lock`ed. This is the mainnet trust model: a contract can be made permanently
+immutable, and until it is, its owner may iterate freely. See
+[§9.1](#91-contract-upgradability--the-mainnet-trust-model).
+
+**Skips if:** no such contract; `sender` is not the owner; **the contract is locked**; unknown runtime;
+new `code` fails validation.
 
 ```json
 {"op":"upgrade","contract":"<cid hex>","code":{"constructor":"…","set":"…"}}
+```
+
+---
+
+### `lock`
+
+**Permanently renounce upgradability.** A one-way switch: after `lock`, the contract's code can *never* be
+changed again — every future `upgrade` is refused. Storage, code, and cid are untouched; only the
+`upgradable` flag flips to `false`. This is the on-chain primitive that lets a deployer *prove* immutability
+to users (the same guarantee an immutable-from-birth `{"upgradable": false}` deploy gives, but reached after
+a period of iteration). Idempotent — locking an already-locked contract is a no-op.
+
+| field | req | meaning |
+|---|---|---|
+| `op` | yes | `"lock"` |
+| `contract` | yes | target `cid` |
+| `ns` | no | namespace |
+
+**Rule:** only the current owner may lock — `sender` must equal `contracts[cid].deployer`. There is **no
+unlock** — immutability is irreversible by design.
+
+**Skips if:** no such contract; `sender` is not the owner.
+
+```json
+{"op":"lock","contract":"<cid hex>"}
 ```
 
 ---
@@ -460,13 +490,51 @@ must be read from the **finalized** state for a valid claim.
 1. **deploy** — pick a runtime, submit `{op:"deploy", code, …}`. The cid is
    `blake2b_hash(["deploy", sender, code, nonce])[:32]`, deterministic and knowable before the blob lands
    (nonce defaults to the L1 txid). A `constructor`, if present, runs at deploy; a reverting constructor
-   yields empty storage.
+   yields empty storage. Pass `{"upgradable": false}` to deploy **immutable from birth** (see §9.1).
 2. **call** — `{op:"call", contract, method, args}` mutates storage on success, no-ops on revert. Use
    `/exec/view` for read-only calls.
-3. **upgrade** — `{op:"upgrade", contract, code}` replaces code but keeps the cid and storage. **Alphanet:
-   deployer-only** (`sender == deployer`); mainnet would gate this behind governance/timelock.
-4. **transfer_contract** — `{op:"transfer_contract", contract, to}` hands ownership (the upgrade/transfer
+3. **upgrade** — `{op:"upgrade", contract, code}` replaces code but keeps the cid and storage. Owner-only
+   (`sender == deployer`) **and refused once the contract is locked** (see §9.1).
+4. **lock** — `{op:"lock", contract}` permanently renounces upgradability (one-way; no unlock). Owner-only.
+5. **transfer_contract** — `{op:"transfer_contract", contract, to}` hands ownership (the upgrade/lock/transfer
    right) to `to`. Owner-only; code, storage, and cid are unchanged.
 
 Because every write is a blob ordered by L1, contract state is a pure function of the finalized blob stream —
 identical on every exec node and committed in `state_root`.
+
+### 9.1 Contract upgradability — the mainnet trust model
+
+NADO contracts are **mutable by their owner by default, and immutable once locked.** This is a deliberate
+middle path between "always mutable" (convenient, but users must trust the owner forever) and "always
+immutable" (trustless, but unshippable — you can never fix a bug). Every contract carries one boolean,
+`upgradable`, and the lifecycle around it is:
+
+| State | How you get there | `upgrade` allowed? | Reversible? |
+|---|---|---|---|
+| **Upgradable** (default) | `deploy` with no flag, or `{"upgradable": true}` | ✅ owner only | — |
+| **Immutable from birth** | `deploy` with `{"upgradable": false}` | ❌ never | ❌ one-way |
+| **Locked after iteration** | any upgradable contract → `lock` | ❌ never | ❌ one-way |
+
+The design intent for **mainnet**:
+
+- **Ship, iterate, then commit.** Deploy upgradable, fix bugs and tune parameters through `upgrade` (the cid
+  and all user state are preserved across every upgrade), and when the contract is battle-tested, `lock` it.
+  From that block on, users have a cryptographic guarantee — anchored in `state_root` — that the code can
+  never change, exactly as if it had been immutable from day one.
+- **Or commit up front.** A contract that must be trustless from its first transaction (a token, a vault, a
+  game bank) deploys with `{"upgradable": false}` and skips the mutable phase entirely.
+- **Immutability is one-way.** There is no `unlock` op and no governance override. Once `upgradable` is
+  `false` it stays `false` for the life of the chain — that irreversibility is the whole point.
+- **Ownership is separable from mutability.** `transfer_contract` hands the owner right to a new maintainer
+  without touching the lock state. A locked contract stays locked no matter who owns it; transferring an
+  upgradable contract hands the new owner the ability to `upgrade` *and* to `lock`.
+
+**Reading the flag.** `/exec/contract?cid=…&ns=…` returns `"upgradable": <bool>` alongside the contract's
+code/runtime/deployer, so a wallet or explorer can show users whether a contract can still change under them.
+The `deploy`/`lock` log lines also mark a locked contract (`… (zkvm, LOCKED) …`).
+
+**Enforcement** is in `ExecState._apply_blob_inner` (`state.py`): `deploy` records `upgradable`
+(`payload.get("upgradable", True) is not False`); `lock` flips it to `false` for the owner; `upgrade` refuses
+with `skip: contract … is locked (immutable)` when the flag is `false`. Because all three are ordinary
+L1-ordered blobs, the lock state is consensus state — every exec node agrees on it and it is committed in
+`state_root`.

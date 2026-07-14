@@ -35,8 +35,16 @@ refunded to players, supply conserved exactly). Games return only as zkVM ports 
   list field); an `abi._view` schema so `ExecState.decode_view` presents the flat slots as the old named maps
   (a ported game's frontend changes only its `cid`); `chainResultAlg` gives a client-side beacon preview that
   byte-matches the contract's in-VM alghash. Deploy with `python -m execnode.games.deploy <name>`.
-- **Live on alphanet-5:** coinflip, dice, roulette (banked), tictactoe (PvP board). Each verified sound
-  (escrow + payouts) and provable.
+- **Live on alphanet-5 (11):** coinflip, dice, roulette, slots, mines, blackjack (banked); tictactoe,
+  connect4, reversi, chess (PvP board); farkle (multi-seat dice). Each is verified sound (escrow + payouts)
+  and STARK-provable, with a full-game E2E in `tests/test_games_e2e.py`. **Remaining:** poker, pets,
+  battleship, and bet (bet needs a re-key away from string-concat map keys to composite ints).
+- **Shared lean primitives (so re-ports stay cheap):** the banked-table skeleton (`open`/`fund`/`close` +
+  index-append + table view-maps) lives once in `execnode/games/_lib.py` — five banked games that used to
+  carry byte-identical raw-asm copies now call it, so a VM/opcode change touches one place. And the assembler
+  (`zkvmasm.py`) grows a **`rem`/`mod d s`** macro (`d = d % s`): `DIVMOD` leaves the remainder in `r7`, which
+  game logic almost always wants (card%52, id%n, roll%6), and writing that as `divmod d s; mov d r7` was the
+  single most-repeated footgun — forget the `mov` and you silently use the quotient. `rem` makes it atomic.
 - **Two VM lessons the ports drove:** (1) **arg-packing** — the 8-register arg limit is not raised (that
   changes the AIR and still wouldn't fit roulette's 20 args); many-arg games pack into a bitmask + bounded
   in-VM loops (roulette's 37-number coverage). (2) **DIVMOD widened** to a 48-bit quotient / 15-bit divisor
