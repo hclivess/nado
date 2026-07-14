@@ -13,7 +13,8 @@ from execnode.state import ExecState
 from execnode import runtimes
 from execnode.stark import vm_circuit as V
 from execnode.games import (coinflip, dice, roulette, tictactoe as ttt, connect4 as c4,
-                            slots, mines, reversi as rv, chess, farkle as fk, blackjack as bj, bet as bt)
+                            slots, mines, reversi as rv, chess, farkle as fk, blackjack as bj, bet as bt,
+                            battleship as bs)
 
 fails = 0
 def check(name, fn):
@@ -483,6 +484,94 @@ def t_bet_prove():
     assert ok, f"claim proof: {why}"
 
 
+# ---- battleship (hidden boards, merkle-sum proofs per shot, reveal-at-claim fleet check) ----------
+def _bs_setup():
+    import random as _r
+    st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = 100
+    code = bs.build()
+    st.credit_deposit(A, 1_000_000); st.credit_deposit(B, 1_000_000)
+    st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "abi": bs.ABI, "nonce": "n"}, A, "d")
+    cid = st.contract_id(A, code, "n")
+    _r.seed(7)
+    shipsA = [(0, 0), (10, 0), (20, 0), (30, 0), (40, 0)]
+    shipsB = [(55, 0), (4, 1), (9, 1), (77, 0), (90, 0)]
+    bA, bB = bs.board_from_ships(shipsA), bs.board_from_ships(shipsB)
+    seedA, seedB = _r.randint(1, 2**60), _r.randint(1, 2**60)
+    sA, sB = bs.salts_from_seed(seedA), bs.salts_from_seed(seedB)
+    return (st, code, cid, shipsA, shipsB, bA, bB, seedA, seedB, sA, sB,
+            bs.build_root(bA, sA)[0], bs.build_root(bB, sB)[0])
+
+def t_battleship():
+    st, code, cid, shipsA, shipsB, bA, bB, seedA, seedB, sA, sB, rootA, rootB = _bs_setup()
+    rd = lambda f, k: int((st.contracts[cid]["storage"].get("slots") or {}).get(str(f * (1 << 32) + k), 0))
+    call = lambda m, args, val, who: st.apply_blob(
+        {"op": "call", "contract": cid, "method": m, "args": args, "value": val or 0}, who,
+        m + str(args)[:40] + who + str(st.cursor))
+    G = 42
+    assert "ok" in call("open", [G, rootA], 500, A) and "ok" in call("join", [G, rootB], 500, B)
+    cell0 = [c for c in range(100) if bB[c]][0]
+    assert "ok" in call("fire", [G, cell0], None, A)
+    isS, salt, flat = bs.make_proof(bB, sB, cell0)
+    assert "revert" in call("answer", [G, 0, salt] + flat, None, B), "lying about a hit must revert"
+    assert "revert" in call("answer", [G, 1, salt + 1] + flat, None, B), "wrong salt must revert"
+    assert "ok" in call("answer", [G, 1, salt] + flat, None, B)
+    assert rd(bs.H1, G) == 1 and rd(bs.TF, G) == 2
+    b_cells = [c for c in range(100) if bB[c]][1:]
+    a_water = [c for c in range(100) if not bA[c]]
+    for n, cell in enumerate(b_cells):                          # B fires water, A sinks everything
+        st.cursor += 1
+        assert "ok" in call("fire", [G, a_water[n]], None, B)
+        i2, s2, f2 = bs.make_proof(bA, sA, a_water[n])
+        assert "ok" in call("answer", [G, i2, s2] + f2, None, A)
+        st.cursor += 1
+        assert "ok" in call("fire", [G, cell], None, A)
+        i3, s3, f3 = bs.make_proof(bB, sB, cell)
+        assert "ok" in call("answer", [G, i3, s3] + f3, None, B)
+    assert rd(bs.DC, G) == 1 and rd(bs.WR, G) == 1 and rd(bs.H1, G) == 17
+    flatA = [x for ao in shipsA for x in ao]
+    assert "revert" in call("claim", [G] + flatA + [seedA], None, B), "loser can't claim"
+    assert "revert" in call("claim", [G] + [0, 0, 0, 0, 20, 0, 30, 0, 40, 0] + [seedA], None, A), "overlap"
+    b0 = st.bridge.get(A, 0)
+    assert "ok" in call("claim", [G] + flatA + [seedA], None, A)
+    assert st.bridge.get(A, 0) - b0 == 1000, "winner takes the pot"
+    assert not [k for k in st.contracts[cid]["storage"]["slots"] if int(k) >> 32 >= 600], "scratch leaked"
+    v = st.decode_view(st.contracts[cid])
+    assert v["wr"][str(G)] == 1 and v["p1"][str(G)] == A and str(G * 100 + cell0) in v["rs1"]
+
+def t_battleship_stall_paths():
+    st, code, cid, shipsA, shipsB, bA, bB, seedA, seedB, sA, sB, rootA, rootB = _bs_setup()
+    rd = lambda f, k: int((st.contracts[cid]["storage"].get("slots") or {}).get(str(f * (1 << 32) + k), 0))
+    call = lambda m, args, val, who: st.apply_blob(
+        {"op": "call", "contract": cid, "method": m, "args": args, "value": val or 0}, who,
+        m + str(args)[:40] + who + str(st.cursor))
+    G = 43
+    assert "ok" in call("open", [G, rootA], 300, A) and "ok" in call("join", [G, rootB], 300, B)
+    assert "ok" in call("fire", [G, 5], None, A)                # B never answers
+    assert "revert" in call("timeout", [G], None, A), "too early"
+    st.cursor += bs.WINDOW + 1
+    assert "revert" in call("timeout", [G], None, B), "the staller can't win by timeout"
+    assert "ok" in call("timeout", [G], None, A) and rd(bs.WR, G) == 1
+    st.cursor += bs.WINDOW + 1                                  # winner never proves a fleet -> loser forfeits
+    b0 = st.bridge.get(B, 0)
+    assert "ok" in call("forfeit", [G], None, B)
+    assert st.bridge.get(B, 0) - b0 == 600
+
+def t_battleship_answer_proves():
+    st, code, cid, shipsA, shipsB, bA, bB, seedA, seedB, sA, sB, rootA, rootB = _bs_setup()
+    call = lambda m, args, val, who: st.apply_blob(
+        {"op": "call", "contract": cid, "method": m, "args": args, "value": val or 0}, who, m + who)
+    G = 42
+    call("open", [G, rootA], 500, A); call("join", [G, rootB], 500, B)
+    cell0 = [c for c in range(100) if bB[c]][0]
+    call("fire", [G, cell0], None, A)
+    isS, salt, flat = bs.make_proof(bB, sB, cell0)
+    slots = {int(k): int(v) for k, v in st.contracts[cid]["storage"]["slots"].items()}
+    cf, fa = runtimes.zkvm_statement(B, [G, isS, salt] + flat, {})
+    proof, io, ret, ns = V.prove_call(code, "answer", cf, fa, slots, num_queries=NQ, cursor=st.cursor)
+    ok, why = V.verify_call(proof, code, "answer", cf, fa, io, num_queries=NQ, cursor=st.cursor)
+    assert ok, f"answer proof (17 ARG args): {why}"
+
+
 if __name__ == "__main__":
     check("coinflip: open/join/settle/cancel + escrow + view", t_coinflip)
     check("coinflip: settle proves", t_coinflip_prove)
@@ -503,5 +592,8 @@ if __name__ == "__main__":
     check("blackjack: settle proves (dealer loop trace)", t_blackjack_prove)
     check("bet: parimutuel markets, resolver panels, voids, pro-rata claims", t_bet)
     check("bet: create (ARG bus) + claim (DIVMODW) prove", t_bet_prove)
+    check("battleship: full hidden-board game, lie/overlap rejected, pot paid", t_battleship)
+    check("battleship: timeout + forfeit stall paths", t_battleship_stall_paths)
+    check("battleship: answer proves (17-arg merkle proof on the ARG bus)", t_battleship_answer_proves)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)
