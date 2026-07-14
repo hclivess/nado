@@ -61,13 +61,15 @@ def _coset_evaluate(coeffs, N, offset):
     return F.evaluate(g)
 
 
-def _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boundaries, alphas):
+def _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boundaries, alphas,
+                 challenges=None):
     """Evaluate the composition polynomial on the LDE coset: the α-random linear combination of every
     transition constraint divided by its vanishing polynomial (x^T - 1)/(x - last) — zero on every step but
     the wrap-around — plus every boundary column minus its pinned value divided by (x - point). Each quotient
     is a polynomial (hence the sum low-degree) IFF the corresponding constraint actually holds; any violation
     leaves a non-polynomial term that FRI's low-degree test rejects. `next row` on the LDE is index j+blowup
-    (one trace step = blowup coset steps)."""
+    (one trace step = blowup coset steps). With `challenges` (two-phase aux protocol) every constraint is
+    called as con(cur, nxt, per, challenges)."""
     last = F.pw(gT, T - 1)
     # Transition vanishing is the same for every constraint: invZ[j] = (x-last)/(x^T - 1). One batch inversion
     # for the whole vector instead of an inv() per (constraint, point).
@@ -81,8 +83,13 @@ def _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boun
     ai = 0
     for con in transitions:
         a = alphas[ai]; ai += 1
-        for j in range(N):
-            cp[j] = F.add(cp[j], F.mul(a, F.mul(con(cur_rows[j], nxt_rows[j], per_rows[j]), invZ[j])))
+        if challenges is None:
+            for j in range(N):
+                cp[j] = F.add(cp[j], F.mul(a, F.mul(con(cur_rows[j], nxt_rows[j], per_rows[j]), invZ[j])))
+        else:
+            for j in range(N):
+                cp[j] = F.add(cp[j], F.mul(a, F.mul(con(cur_rows[j], nxt_rows[j], per_rows[j], challenges),
+                                                    invZ[j])))
     for (row, col, val) in boundaries:
         a = alphas[ai]; ai += 1
         pt = F.pw(gT, row)
@@ -92,12 +99,22 @@ def _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boun
     return cp
 
 
-def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None):
+def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None,
+          aux_spec=None):
     """Prove `trace` satisfies the AIR (transitions + boundaries [+ public periodic columns]). Interpolates
     and Merkle-commits each column's LDE, draws the constraint-combination challenges α from the committed
     roots (Fiat–Shamir), FRI-proves the composition is low-degree, and opens the cur/next trace rows at every
     FRI query point so the verifier can recompute the composition there. `aux` binds an extra public input
-    (e.g. an unshield withdraw address, H-4) into the transcript. Returns the proof dict."""
+    (e.g. an unshield withdraw address, H-4) into the transcript. Returns the proof dict.
+
+    `aux_spec` enables the TWO-PHASE protocol that lookup/permutation arguments (LogUp — the memory-checking
+    machinery the VM execution circuit needs) require: {"num_challenges": k, "num_aux": n, "build": fn}.
+    Phase 1 commits the MAIN trace columns; only THEN are k challenges drawn from the transcript (so the
+    prover cannot pick witness values that suit them); `build(trace, challenges)` returns n extra aux columns
+    (running sums / helper inverses) which are committed in phase 2 before the constraint αs are drawn.
+    With aux_spec, every transition constraint is called as con(cur, nxt, per, challenges) and cur/nxt span
+    main+aux columns. Without aux_spec the transcript and proof are byte-identical to the one-phase protocol
+    (live shielded-pool proofs are untouched)."""
     periodic = periodic or []
     T = len(trace); W = len(trace[0])
     blowup = _blowup(max_degree); N = blowup * T
@@ -115,8 +132,21 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     for c in range(W):
         root, ml = merkle.commit(col_lde[c])
         col_roots.append(root); col_mlayers.append(ml); t.absorb(root)
+    challenges = None
+    if aux_spec is not None:                 # phase 2: challenges AFTER the main commitment, then aux columns
+        challenges = [t.challenge() for _ in range(aux_spec["num_challenges"])]
+        aux_cols = aux_spec["build"](trace, challenges)
+        if len(aux_cols) != aux_spec["num_aux"] or any(len(c) != T for c in aux_cols):
+            raise ValueError("aux builder returned wrong geometry")
+        for col in aux_cols:
+            lde = _coset_evaluate(F.interpolate([v % F.P for v in col]), N, OFF)
+            col_lde.append(lde)
+            root, ml = merkle.commit(lde)
+            col_roots.append(root); col_mlayers.append(ml); t.absorb(root)
+        W += aux_spec["num_aux"]
     alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
-    cp = _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boundaries, alphas)
+    cp = _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boundaries, alphas,
+                      challenges)
 
     fri_blowup = N // deg_bound
     fri_proof = fri.prove(cp, OFF, fri_blowup, num_queries, transcript=t)
@@ -135,7 +165,8 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
             "boundaries": boundaries, "fri": fri_proof, "openings": openings}
 
 
-def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None):
+def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None,
+           aux_spec=None):
     """Verify a STARK proof. Returns (ok, reason). The AIR itself (transitions, boundaries, periodic,
     max_degree) comes from the CALLER, never from the proof; the proof only supplies commitments and openings.
     Order of checks: LDE geometry pinned to max_degree·T before any allocation (H-7); transcript replayed to
@@ -165,8 +196,22 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         t = Transcript("nado-stark")
         if aux is not None:                  # H-4: same extra public input the prover bound (unshield addr)
             t.absorb("aux", str(aux))        # a tampered value here diverges the transcript -> proof rejected
-        for r in col_roots:
-            t.absorb(r)
+        challenges = None
+        if aux_spec is not None:
+            # Two-phase replay: the aux geometry comes from the CALLER's protocol (aux_spec), never the proof.
+            # Main roots are absorbed first, the k challenges drawn, THEN the aux roots — same order as prove,
+            # so a prover that built aux columns before its main commitment gets different challenges and fails.
+            n_aux = aux_spec["num_aux"]
+            if len(col_roots) != W or W <= n_aux:
+                return False, "bad aux geometry"
+            for r in col_roots[:W - n_aux]:
+                t.absorb(r)
+            challenges = [t.challenge() for _ in range(aux_spec["num_challenges"])]
+            for r in col_roots[W - n_aux:]:
+                t.absorb(r)
+        else:
+            for r in col_roots:
+                t.absorb(r)
         alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
 
         # fri_blowup is ALWAYS 2 for a STARK proof (N = 2·next_pow2(max_degree)·T, deg_bound = N/2), so pin it —
@@ -200,7 +245,8 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
             for con in transitions:
                 a = alphas[ai]; ai += 1
                 z = F.mul(F.sub(xT, 1), F.inv(F.sub(x, last)))
-                cp = F.add(cp, F.mul(a, F.mul(con(cur_row, nxt_row, per), F.inv(z))))
+                cval = con(cur_row, nxt_row, per) if challenges is None else con(cur_row, nxt_row, per, challenges)
+                cp = F.add(cp, F.mul(a, F.mul(cval, F.inv(z))))
             for (row, col, val) in boundaries:
                 a = alphas[ai]; ai += 1
                 pt = F.pw(gT, row)
