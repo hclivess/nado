@@ -10,14 +10,32 @@ tested end-to-end:
 | zkVM execution AIR (101 columns, 94 constraints, 4 LogUp buses) | `execnode/stark/vm_circuit.py` | ✅ (`tests/test_zkvm_circuit.py` — adversarial suite) |
 | exec-layer runtime `"zkvm"` + digest registry + slot storage | `execnode/runtimes.py`, `state.py` | ✅ (`tests/test_zkvm_runtime.py` — 3-way differential) |
 | proven-execution endpoints | `/exec/prove_call`, `/exec/verify_call` | ✅ |
+| **epoch settlement proof** — binds `pre_root → post_root`, installs into the settlement seam | `execnode/settlement_proofs.py` | ✅ (`tests/test_settlement_proof.py` — incl. real `ops.settlement_ops` seam) |
 
 Measured (this host, Python + native Goldilocks): a real contract call (blockhash randomness → LO32 →
 DIVMOD → storage read/modify/write → conditional payout, T=512) **proves in ~25 s, verifies in ~0.25 s**;
 the verifier applies the call by replaying its public I/O log (`zkvm.replay_io`) — **zero re-execution**.
 Proof ~1.5 MB at 8 FRI queries (~10 MB at the protocol 64; Poseidon-Merkle/pruned openings are the known
-size lever). What this ships is the PER-CALL execution-proof primitive; the batch settlement proof
-("blobs since root R₁ yield R₂", §4 step 4) composes these and is the remaining Phase-2b step, along with
-a Rust prover port (~10× — the `wasm/goldilocks` lineage).
+size lever).
+
+**The settlement path is closed end-to-end.** `settlement_proofs.prove_epoch` runs an ordered batch of zkVM
+calls, emits one per-call proof each, and binds the pre/post **zkVM state roots** — which are byte-identical
+to the `["kv", cid, "slots", …]` leaves `execnode/state.py` already commits in `state_root`, so `post_root`
+*is* the settled root's zkVM projection. `verify_epoch` checks the whole batch with **no re-execution**
+(verify each proof → replay each authenticated log → recompute the root), and
+`settlement_proofs.settlement_verifier(...)` plugs straight into `ops.settlement_ops.set_settlement_verifier`
+— the Phase-2b seam — so L1 can justify a root by proof instead of by bonded quorum.
+
+The composition insight that kept this small: because each call's proof already binds its
+authenticated public I/O log, the epoch transition needs **no second in-circuit memory argument** — it is
+`verify-proof → replay-log → chain-root`. Two honest remainders, both noted where they live:
+- **Succinct aggregation** — folding the N per-call proofs into one O(1)-verify proof (STARK recursion). At
+  NADO's volume N is tiny and L1 verifying N sub-second proofs is fine; recursion is the scale hedge, not a
+  correctness gap. The LogUp/aux machinery (`stark/logup.py`) is the groundwork a recursive verifier reuses.
+- **Full-state settlement** — this proves the zkVM-contract projection; the other blob families
+  (bridge/dividend/shielded) already carry their own L1-checkable proofs/arithmetic, and a full-state proof
+  composes this with those.
+- **Rust prover port** (~10×, the `wasm/goldilocks` lineage) — a throughput lever, orthogonal to correctness.
 
 The analysis below is the original feasibility study that led to this design — kept for the reasoning.
 
