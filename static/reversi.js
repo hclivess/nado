@@ -6,7 +6,7 @@
 import { NadoDapp, rawToNado, _m, $, disp } from "./nadodapp.js";
 import { PvpGame } from "./pvpgame.js";
 
-const CID = "017fd842c55254328c4133dc283fcea5";
+const CID = "eb12360a240be03382f2d0b33b345653";
 const PASS = 64;
 const dapp = new NadoDapp({ cid: CID, app: "Reversi" });
 
