@@ -123,7 +123,12 @@ class PeerClient(threading.Thread):
                 # drive + log "No peers" every single second — a peerless node (e.g. a solo/bootstrap or one
                 # that can't yet reach the network) would otherwise flood the log ~once/sec. Retry at most
                 # every PEERLESS_RELOAD_INTERVAL seconds; a reload that finds peers ends the loop naturally.
-                if len(self.memserver.peers) < self.memserver.min_peers:
+                # max(1, min_peers): with min_peers == 0 (solo-capable config) the reload NEVER fired,
+                # so a restarted node sat peerless for minutes until some peer's next inbound announce —
+                # and since min_peers == 0 permits production with zero peers, it minted solo-blind while
+                # the network may have moved (a restart-shaped fork window). An EMPTY dial set always
+                # warrants a drive reload; a genuinely solo node just gets a cheap no-op every 15s.
+                if len(self.memserver.peers) < max(1, self.memserver.min_peers):
                     now = get_timestamp_seconds()
                     if now - self._last_peerless_reload >= PEERLESS_RELOAD_INTERVAL:
                         self._last_peerless_reload = now
