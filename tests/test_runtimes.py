@@ -8,7 +8,7 @@ Run: python3 tests/test_runtimes.py
 import os, sys, copy, tempfile, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.state import ExecState
-from execnode import runtimes, contract_lib as C
+from execnode import runtimes, zkvm_examples as C
 
 fails = 0
 def check(name, fn):
@@ -57,14 +57,14 @@ def t2_unknown_runtime_rejected():
     assert "unknown runtime" in r and not st.contracts, r
 
 
-def t3_default_is_stackvm():
-    """A deploy with no runtime uses the default stackvm plugin, unchanged."""
+def t3_default_is_zkvm():
+    """A deploy with no explicit runtime uses zkvm — the only runtime NADO ships."""
     st = _st()
     cid = st.contract_id("ndoA", C.COUNTER, "n1")
     st.apply_blob({"op": "deploy", "code": C.COUNTER, "nonce": "n1"}, sender="ndoA", txid="d")
-    assert st.contracts[cid]["runtime"] == "stackvm", "default runtime"
-    st.apply_blob({"op": "call", "contract": cid, "method": "inc", "args": []}, sender="ndoA", txid="c")
-    assert st.view(cid, "get", []) == 1, "stackvm still runs"
+    assert st.contracts[cid]["runtime"] == "zkvm", "default runtime"
+    st.apply_blob({"op": "call", "contract": cid, "method": "bump", "args": []}, sender="ndoA", txid="c")
+    assert st.view(cid, "get", []) == 1, "zkvm still runs"
 
 
 for name, fn in sorted(globals().items()):

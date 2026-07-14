@@ -25,10 +25,12 @@ ck("an epoch below the beacon floor is unavailable (no partial-witness beacon)",
 # the BEACON opcode: a contract reads a finalized beacon; a future/unavailable epoch reverts (no-op)
 st = ExecState(tempfile.mktemp()); st.cursor = 1 * EPOCH_LENGTH; st.advance_beacons(st.cursor)   # floor = 3
 st.record_reveal(4, "zz"); st.cursor = 8 * EPOCH_LENGTH; st.advance_beacons(st.cursor)            # epoch 4 >= floor
-CODE = {"getb": [["ARG", 0], ["BEACON"], ["RETURN"]]}
-st.apply_blob({"op": "deploy", "code": CODE, "runtime": "stackvm", "nonce": "b"}, "X", "d")
+from execnode import zkvmasm
+CODE = zkvmasm.assemble_contract({"getb": "beacon r1 r0\n ret r1"})
+st.apply_blob({"op": "deploy", "code": CODE, "nonce": "b"}, "X", "d")
 cid = list(st.contracts)[0]
-b4 = int(compute_beacon(GENESIS_BEACON, ["zz", "4"]), 16)
+from execnode.stark.field import P as _P
+b4 = int(compute_beacon(GENESIS_BEACON, ["zz", "4"]), 16) % _P
 ck("BEACON(finalized epoch) returns the exec beacon", st.view(cid, "getb", [4]) == b4 and 4 in st.beacons)
 ck("BEACON(finalized) is reproducible (deterministic view)", st.view(cid, "getb", [4]) == st.view(cid, "getb", [4]))
 ck("BEACON(future/unavailable epoch) reverts -> None", st.view(cid, "getb", [9999]) is None)

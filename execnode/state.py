@@ -16,8 +16,8 @@ import threading
 
 from hashing import (blake2b_hash, merkle_root, merkle_proof, withdrawal_leaf, dividend_leaf,
                      unshield_leaf, canonical_bytes, outbox_leaf)
-from execnode.vm import VMError
-from execnode import runtimes   # pluggable contract-runtime registry (stackvm is the default plugin)
+from execnode.zkvm import ZkVMError
+from execnode import runtimes   # pluggable contract-runtime registry (zkvm is the only runtime)
 from execnode.shielded import ShieldedPool, apply_transfer
 import base64
 import zstandard as _zstd
@@ -614,7 +614,7 @@ class ExecState:
                 rt = runtimes.get(rt_name)
                 if rt is None:
                     return f"skip: unknown runtime {rt_name!r}"
-                rt.validate_code(code)                    # raises VMError on bad code (caught below)
+                rt.validate_code(code)                    # raises ZkVMError on bad code (caught below)
                 cid = self.contract_id(sender, code, payload.get("nonce", txid))
                 if cid in self.contracts:
                     return f"skip: contract {cid} already exists"
@@ -764,7 +764,7 @@ class ExecState:
                 self.dividend_withdrawals[nonce] = {"addr": sender, "amount": amt}
                 return f"collect_dividend {amt} by {sender[:12]}… -> nonce {nonce}"
 
-# (native coin-flip ops removed — Coin Flip is now the on-chain CONTRACT at runtime 'stackvm', staked via
+# (native coin-flip ops removed — Coin Flip is now the on-chain CONTRACT at runtime 'zkvm', staked via
             # the VALUE/PAY escrow primitive; see doc/exec-instructions.md)
 
             if op == "field_transfer":
@@ -805,7 +805,7 @@ class ExecState:
                 return f"shielded_transfer ok ({len(public.get('out_commitments', []))} out)"
 
             return f"skip: unknown op {op!r}"
-        except VMError as e:
+        except ZkVMError as e:
             return f"skip: bad contract ({e})"
         except Exception as e:
             return f"skip: {e}"

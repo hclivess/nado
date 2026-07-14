@@ -8,18 +8,29 @@ Run: python3 tests/test_exec_namespaces.py
 import os, sys, tempfile, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.state import ExecState
+from execnode import zkvmasm
 
-# minimal fungible-token contract (same bytecode as tests/test_execnode_vm.py)
-TOKEN = {
-    "constructor": [["CALLER"], ["PUSH", 1_000_000], ["MSTORE", "balances"]],
-    "transfer": [
-        ["CALLER"], ["MLOAD", "balances"], ["ARG", 1], ["GTE"], ["REQUIRE"],
-        ["CALLER"], ["CALLER"], ["MLOAD", "balances"], ["ARG", 1], ["SUB"], ["MSTORE", "balances"],
-        ["ARG", 0], ["ARG", 0], ["MLOAD", "balances"], ["ARG", 1], ["ADD"], ["MSTORE", "balances"],
-        ["HALT"],
-    ],
-    "balanceOf": [["ARG", 0], ["MLOAD", "balances"], ["RETURN"]],
-}
+# minimal fungible-token contract, zkVM-native: balances live at slot = holder's address digest
+# (`ctx caller` gives the caller's digest; a string arg is digested at the call boundary).
+TOKEN = zkvmasm.assemble_contract({
+    "constructor": "ctx r0 caller\n movi r1 1000000\n sstore r0 r1\n ret r0",
+    # transfer(to=arg0, amt=arg1): require bal[caller] >= amt, then move it
+    "transfer": """
+        ctx r2 caller
+        sload r3 r2
+        mov r4 r3
+        lt r4 r1
+        notb r4
+        require r4
+        sub r3 r1
+        sstore r2 r3
+        sload r5 r0
+        add r5 r1
+        sstore r0 r5
+        ret r0
+    """,
+    "balanceOf": "sload r1 r0\n ret r1",
+})
 A, B = "ndoalice", "ndobob"
 
 fails = 0

@@ -2,7 +2,7 @@
 NADO execution node (Phase 1) — the "beside the node" process.
 
 It TAILS an L1 NADO node over plain HTTP, pulls the ordered `blob` payloads out of FINALIZED blocks,
-replays them through the deterministic VM (execnode.state / execnode.vm), and persists the resulting
+replays them through the deterministic zkVM (execnode.state / execnode.zkvm), and persists the resulting
 contract state. It also serves a small READ-ONLY query API so wallets and tools can read contract state
 and run view methods. It never speaks to L1 consensus — a VM bug here can't fork the chain
 (doc/execution-layer.md §3.2). Run one per operator who wants programmability; phones do not.
@@ -578,14 +578,14 @@ async def h_settlement(request):
 
 
 async def h_examples(request):
-    """The starter contract library (execnode/contract_lib.py) as {name: {method: bytecode}} — the wallet's
+    """The starter zkVM contract library (execnode/zkvm_examples.py) as {name: {code, abi}} — the wallet's
     Rollup tab offers these as one-click deploys."""
-    from execnode import contract_lib
-    return web.json_response({"examples": contract_lib.LIBRARY})   # name -> {code, abi}
+    from execnode import zkvm_examples
+    return web.json_response({"examples": zkvm_examples.LIBRARY})   # name -> {code, abi}
 
 
 async def h_runtimes(request):
-    """The contract runtimes this node can execute (pluggable — stackvm is the default). A deploy blob may
+    """The contract runtimes this node can execute (zkvm is the only one). A deploy blob may
     name one via {"op":"deploy","runtime":"<name>",...}."""
     from execnode import runtimes
     return web.json_response({"runtimes": runtimes.names(), "default": runtimes.DEFAULT_RUNTIME})
@@ -616,7 +616,7 @@ async def h_contracts(request):
         total += 1
         if len(items) < limit:
             items.append({"cid": cid, "deployer": c["deployer"], "methods": list(c["code"].keys()),
-                          "runtime": c.get("runtime", "stackvm"), "abi": c.get("abi") or {}})
+                          "runtime": c.get("runtime", "zkvm"), "abi": c.get("abi") or {}})
     return web.json_response({"ns": request.query.get("ns", "default"), "contracts": items,
                               "total": total, "limit": limit})
 
@@ -631,7 +631,7 @@ async def h_contract(request):
     if not c:
         return web.json_response({"error": "not found"}, status=404)
     return web.json_response({"cid": cid, "deployer": c["deployer"], "methods": list(c["code"].keys()),
-                              "code": c["code"], "storage": c["storage"], "runtime": c.get("runtime", "stackvm"),
+                              "code": c["code"], "storage": c["storage"], "runtime": c.get("runtime", "zkvm"),
                               "abi": c.get("abi") or {}})
 
 
