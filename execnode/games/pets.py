@@ -23,8 +23,9 @@ Pet fields (key = pid < 2^32): 1(slot: global burn tally) · 2 ow 3 bh 4 gn 5 gl
   32-bit halves — JS floats can't hold a field element) 7 sp 8 si 9 ap 10 pw 11 fu 12 tf 13 ex 14 nm
   15 th 16 ti 17 tr 18 mp 19 wins 20 loss. Trained bonus per stat: field 30+i (i 0..9) keyed pid.
 Offers (key = offerId): 40 ob 41 op 42 ov 43 os. Battles (key = bid): 50 wa 51 wb 52 ws 53 wp 54 wh
-  55 wn 56 ww 57 wd. Index: slot 0 = pet count, field 60 = pid list. Battle scratch: 950+i keyed bid
-  (scrubbed on success; a failed call reverts to a no-op).
+  55 wn 56 ww 57 wd. Indexes: pets (cnt slot 0, list field 60) · offers (cnt slot 2, list field 61) ·
+  battles (cnt slot 3, list field 62). Battle scratch: 950+i keyed bid (scrubbed on success; a failed
+  call reverts to a no-op).
 Methods: mint(pid)[1 NADO] · hatch(pid) · rebirth(pid) · feed(pid)[meal] · transfer(pid,to) ·
   name(pid,name) · list(pid,price) · unlist(pid) · buy(pid)[price] · offer(oid,pid)[bid] ·
   accept_offer(oid) · cancel_offer(oid) · train(pid,stat)[0.5 NADO] · train_resolve(pid) ·
@@ -58,7 +59,8 @@ TH, TI, TR, MP, WINS, LOSS = 15, 16, 17, 18, 19, 20
 TB_BASE = 30
 OB, OP_, OV, OS = 40, 41, 42, 43
 WA, WB, WS, WP, WH, WN, WW, WD = 50, 51, 52, 53, 54, 55, 56, 57
-PLIST = 60
+PLIST, OLIST, WLIST = 60, 61, 62
+OCNT_SLOT, WCNT_SLOT = 2, 3
 SC = 950
 DEBUG_PROBE = False           # test-only: resolve_battle persists its combat scratch to field 990 slots
 _2_32 = 1 << 32
@@ -279,7 +281,9 @@ OFFER = "\n".join(
     + ["ctx r5 caller", f"slot r4 {OW} r1", "sload r6 r4", "eq r6 r5", "notb r6", "require r6"]
     + ["ctx r5 caller"] + _sl(OB) + ["sstore r4 r5"]
     + _sl(OP_) + ["sstore r4 r1"] + _sl(OV) + ["sstore r4 r3"]
-    + _sl(OS) + ["movi r5 1", "sstore r4 r5", "ret r0"])
+    + _sl(OS) + ["movi r5 1", "sstore r4 r5"]
+    + [f"movi r4 {OCNT_SLOT}", "sload r5 r4", f"slot r6 {OLIST} r5", "sstore r6 r0",
+       "movi r3 1", "add r5 r3", "sstore r4 r5", "ret r0"])
 
 ACCEPT_OFFER = "\n".join(
     _sl(OS) + ["sload r5 r4", "movi r6 1", "eq r5 r6", "require r5"]
@@ -368,7 +372,9 @@ CHALLENGE = "\n".join(
     + ["mov r5 r1", "eq r5 r2", "notb r5", "require r5"]
     + _sl(WA) + ["sstore r4 r1"] + _sl(WB) + ["sstore r4 r2"]
     + ["ctx r3 value"] + _sl(WS) + ["sstore r4 r3"] + _sl(WP) + ["sstore r4 r3"]
-    + _sl(WN) + ["movi r5 1", "sstore r4 r5", "ret r0"])
+    + _sl(WN) + ["movi r5 1", "sstore r4 r5"]
+    + [f"movi r4 {WCNT_SLOT}", "sload r5 r4", f"slot r6 {WLIST} r5", "sstore r6 r0",
+       "movi r3 1", "add r5 r3", "sstore r4 r5", "ret r0"])
 
 ACCEPT = "\n".join(
     _sl(WN) + ["sload r5 r4", "movi r6 1", "eq r5 r6", "require r5"]
@@ -585,13 +591,14 @@ ABI = {
                  "th": {"field": TH, "index": "pets"}, "ti": {"field": TI, "index": "pets"},
                  "tr": {"field": TR, "index": "pets"}, "mp": {"field": MP, "index": "pets"},
                  "wins": {"field": WINS, "index": "pets"}, "loss": {"field": LOSS, "index": "pets"},
-                 "ob": {"field": OB, "index": "pets"}, "op": {"field": OP_, "index": "pets"},
-                 "ov": {"field": OV, "index": "pets"}, "os": {"field": OS, "index": "pets"},
-                 "wa": {"field": WA, "index": "pets"}, "wb": {"field": WB, "index": "pets"},
-                 "ws": {"field": WS, "index": "pets"}, "wp": {"field": WP, "index": "pets"},
-                 "wh": {"field": WH, "index": "pets"}, "wn": {"field": WN, "index": "pets"},
-                 "ww": {"field": WW, "index": "pets"}, "wd": {"field": WD, "index": "pets"}},
-        "indexes": {"pets": {"cnt": 0, "list": PLIST}},
+                 "ob": {"field": OB, "index": "offers"}, "op": {"field": OP_, "index": "offers"},
+                 "ov": {"field": OV, "index": "offers"}, "os": {"field": OS, "index": "offers"},
+                 "wa": {"field": WA, "index": "battles"}, "wb": {"field": WB, "index": "battles"},
+                 "ws": {"field": WS, "index": "battles"}, "wp": {"field": WP, "index": "battles"},
+                 "wh": {"field": WH, "index": "battles"}, "wn": {"field": WN, "index": "battles"},
+                 "ww": {"field": WW, "index": "battles"}, "wd": {"field": WD, "index": "battles"}},
+        "indexes": {"pets": {"cnt": 0, "list": PLIST}, "offers": {"cnt": OCNT_SLOT, "list": OLIST},
+                    "battles": {"cnt": WCNT_SLOT, "list": WLIST}},
         "addr": ["ow", "nm", "ob"],
         "board": {"name": "tb", "base": TB_BASE, "cells": 10, "stride": 10, "index": "pets"},
     },

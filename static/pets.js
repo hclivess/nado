@@ -10,7 +10,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orde
 import * as G from "./pets-genes.js";
 import { loadCrypto } from "./nadotx.js";
 
-const CID = "645867ace4eaf09d1b7e78b6a1529576";   // execnode/contracts/pets.json, deployed by the node key
+const CID = "272faddf8fc7f4fe1bcbe746da8b7839";   // execnode/games/pets.py (zkVM, nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Pets" });
 const BLOCK_SECS = 6, BLOCKS_PER_DAY = 86400 / BLOCK_SECS;
 const LS_P = "nado_pets_mine";                    // {pid: {ts, hatchPending?, trainPending?}} local flags
@@ -590,7 +590,8 @@ const _geneCache = {};
 function petsFrom(sto) {
   const ow = _m(sto, "ow"), cur = dapp.cursor, out = {};
   for (const pid of Object.keys(ow)) {
-    const gs = _m(sto, "gs")[pid] || null;
+    const gl = _m(sto, "gl")[pid], gh = _m(sto, "gh")[pid];
+    const gs = gl != null || gh != null ? G.geneFromHalves(gl || 0, gh || 0).toString() : null;
     const p = { id: pid, owner: ow[pid], bh: _m(sto, "bh")[pid] || 0, gs, sp: _m(sto, "sp")[pid] || 0,
       si: _m(sto, "si")[pid] || 0, ex: _m(sto, "ex")[pid] || 0,
       ap: _m(sto, "ap")[pid] || 0, pw: _m(sto, "pw")[pid] || 0, fu: _m(sto, "fu")[pid] || 0,

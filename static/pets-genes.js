@@ -1,9 +1,9 @@
-// pets-genes.js — the PURE derivation core of NADO Pets, shared by the dapp (pets.js) and the Node
-// crosscheck (tests/pets_js_crosscheck.mjs). Every formula here MUST stay byte-identical to the contract
-// bytecode and the Python reference in tests/test_pets_contract.py — this module decides what animal a
-// player sees, its stats, training odds and battle outcomes, so it is differentially verified against the
-// reference. No DOM, no fetch: pass in hex block hashes + storage ints, get facts out.
-import { blake2bHash } from "./nadotx.js";
+// pets-genes.js — the PURE derivation core of NADO Pets, shared by the dapp (pets.js). Every formula here
+// MUST stay byte-identical to the zkVM contract bytecode and its Python reference (execnode/games/pets.py:
+// ref_gene / ref_tier / ref_si / ref_stat / ref_train_* / ref_battle_turns) — this module decides what
+// animal a player sees, its stats, training odds and battle outcomes, so it is differentially verified
+// against that reference. Field-native: every roll is roll32(x) = LO32(alghash(x)). No DOM, no fetch.
+import { algHashn, ALG_P } from "./nadodapp.js";
 
 // ---- constants (mirror tests/test_pets_contract.py) ------------------------------------------------
 export const MINT_FEE    = 10n ** 10n;        // 1 NADO adopts an egg
@@ -40,19 +40,22 @@ export const STAT_ROLES = [
   "regeneration (heals every turn)", "critical hits (double damage)",
   "turn share (attacks more often)", "bulk & bite (+HP, +damage). Food cost is fixed by the HATCHED appetite — training this is free muscle, it never raises your food bill"];
 
-// ---- the VM's HASH over a BigInt (canonicalize emits bare digits, exactly json.dumps(int)) ---------
-export const vmHash = (v) => BigInt("0x" + blake2bHash(v));
+// ---- the contract's roll window: roll32(x) = LO32(alghash HASH(x)) — every derived roll uses it ----
+export const roll32 = (x) => Number(algHashn([x]) & 0xFFFFFFFFn);
 const hexInt = (h) => BigInt("0x" + h);
 
-// gene = HASH( BLOCKHASH(b) + BLOCKHASH(b+1) + petId ) — needs both hashes (hex) from /exec/blockhash
+// gene = HASH( (BLOCKHASH(b) + BLOCKHASH(b+1) + petId) mod P ) — hashes (hex) from /exec/blockhash.
+// The full field element; the chain stores its 32-bit halves as gl/gh (JS floats can't carry it in JSON).
 export function geneOf(bh0Hex, bh1Hex, pid) {
   if (!bh0Hex || !bh1Hex) return null;
-  return vmHash(hexInt(bh0Hex) + hexInt(bh1Hex) + BigInt(pid));
+  const p = ALG_P();
+  return algHashn([(hexInt(bh0Hex) % p + hexInt(bh1Hex) % p + BigInt(pid)) % p]);
 }
+export const geneFromHalves = (gl, gh) => (BigInt(gh) << 32n) | BigInt(gl);   // exact chain -> JS round-trip
 // TIER (sp, 1..6) from a fresh 100000-wide gene slice — geometric odds 78/17/3.9/0.85/0.21/0.04 %.
-export function speciesOf(gene) { const rt = Number(vmHash(gene + 555n) % 100000n); return 1 + TIER_CUM.filter((t) => rt >= t).length; }
+export function speciesOf(gene) { const rt = roll32(gene + 555n) % 100000; return 1 + TIER_CUM.filter((t) => rt >= t).length; }
 // species id si — the animal WITHIN the tier's roster band (independent gene slice). Matches ref_si.
-export function speciesIdOf(gene, sp) { return TIER_BASE[sp] + Number(vmHash(gene + 777n) % BigInt(TIER_COUNT[sp])); }
+export function speciesIdOf(gene, sp) { return TIER_BASE[sp] + roll32(gene + 777n) % TIER_COUNT[sp]; }
 
 // ---- the 100-animal roster ---------------------------------------------------------------------------
 // Species id si = gene%100 + 1 (stored on-chain at hatch; 0 = a legacy pet hatched before the roster).
@@ -297,8 +300,8 @@ export const PALS = {
 };
 export function coatOf(gene, animal) {
   const palette = PALS[animal && animal.pal] || PALS.poodle;
-  const idx = Number(vmHash(gene + 7000n) % BigInt(palette.length));
-  const shiny = vmHash(gene + 9000n) % 16n === 0n;   // ~6.25% shiny (extra shimmer, cosmetic)
+  const idx = roll32(gene + 7000n) % palette.length;
+  const shiny = roll32(gene + 9000n) % 16 === 0;   // ~6.25% shiny (extra shimmer, cosmetic)
   return { ...palette[idx], idx, shiny };
 }
 // rarity visual tier: 1 subtle, 2 rare glow, 3 legend aura, 4 epic, 5 mythic, 6 omega (+shiny stacks on top)
@@ -306,7 +309,7 @@ export const auraOf = (sp, shiny) => {
   const base = { 1: "", 2: "rare", 3: "legend", 4: "epic", 5: "mythic", 6: "omega" }[sp] || "";
   return shiny ? (base ? base + " shiny" : "shiny") : base;
 };
-export function statOf(gene, sp, i) { return Number(vmHash(gene + 1000n + BigInt(i)) % 60n) + 1 + (sp - 1) * 6; }
+export function statOf(gene, sp, i) { return roll32(gene + 1000n + BigInt(i)) % 60 + 1 + (sp - 1) * 6; }
 export function baseStats(gene, sp) { return STAT_NAMES.map((_n, i) => statOf(gene, sp, i)); }
 export function powerOf(gene, sp) { return baseStats(gene, sp).reduce((a, b) => a + b, 0); }
 
@@ -315,7 +318,8 @@ export const trainK = (sp) => 10 + 30 * sp;                        // Poodle 40,
 export const trainChance = (sp, cur) => 100 * trainK(sp) / (trainK(sp) + cur);   // % (display; contract uses ints)
 export function trainRollOf(bh0Hex, bh1Hex, pid, i) {
   if (!bh0Hex || !bh1Hex) return null;
-  return Number(vmHash(hexInt(bh0Hex) + hexInt(bh1Hex) + BigInt(pid) * 16n + BigInt(i)) % 100n);
+  const p = ALG_P();
+  return roll32((hexInt(bh0Hex) % p + hexInt(bh1Hex) % p + BigInt(pid) * 16n + BigInt(i)) % p) % 100;
 }
 export const trainOk = (roll, cur, sp) => roll * (trainK(sp) + cur) < 100 * trainK(sp);
 
@@ -326,19 +330,20 @@ export const trainOk = (roll, cur, sp) => roll * (trainK(sp) + cur) < 100 * trai
 export const CAP_BATTLE = 12;   // MUST equal CAP_BATTLE in the contract + pets_ref.py
 export function battleOf(bh0Hex, bh1Hex, bid, effA, effB) {
   if (!bh0Hex || !bh1Hex) return null;
-  const q = hexInt(bh0Hex) + hexInt(bh1Hex) + BigInt(bid) * 8n;
+  const p = ALG_P();
+  const q = (hexInt(bh0Hex) % p + hexInt(bh1Hex) % p + BigInt(bid) * 8n) % p;
   const hA = 20 + effA[2] * 3 + effA[9], hB = 20 + effB[2] * 3 + effB[9];
   let h0 = hA, h1 = hB;
-  const span = BigInt(effA[8] + effB[8] + 120), thrA = BigInt(effA[8] + 60);
+  const span = effA[8] + effB[8] + 120, thrA = effA[8] + 60;
   const log = [];
   for (let t = 0; t < CAP_BATTLE; t++) {
     const alive = h0 > 0 && h1 > 0 ? 1 : 0;
-    const cur = vmHash(q + BigInt(t + 8192)) % span < thrA ? 0 : 1;   // speed: who owns this turn
+    const cur = roll32(q + BigInt(t + 8192)) % span < thrA ? 0 : 1;   // speed: who owns this turn
     const A = cur === 0 ? effA : effB, B = cur === 0 ? effB : effA;
     const acc = 15 + 2 * A[3];
-    const hit = Number(vmHash(q + BigInt(t)) % 100n) * (acc + B[1]) < 100 * acc ? 1 : 0;
-    let dmg = Math.floor((50 + A[0] + Math.floor(A[9] / 4)) * (60 + Number(vmHash(q + BigInt(t + 4096)) % 61n)) / 100) + 1;
-    const crit = Number(vmHash(q + BigInt(t + 12288)) % 100n) < A[7] ? 1 : 0;
+    const hit = roll32(q + BigInt(t)) % 100 * (acc + B[1]) < 100 * acc ? 1 : 0;
+    let dmg = Math.floor((50 + A[0] + Math.floor(A[9] / 4)) * (60 + roll32(q + BigInt(t + 4096)) % 61) / 100) + 1;
+    const crit = roll32(q + BigInt(t + 12288)) % 100 < A[7] ? 1 : 0;
     dmg += crit * dmg;
     dmg = Math.floor(dmg * 90 / (90 + B[4]));
     dmg = Math.max(1, dmg - Math.floor(B[5] / 2));
@@ -348,8 +353,8 @@ export function battleOf(bh0Hex, bh1Hex, bid, effA, effB) {
     h1 = Math.min(hB, h1 + alive * Math.floor(effB[6] / 4));
     log.push({ t, atk: cur, hit: hit && alive, crit: crit && hit && alive, dmg, h0, h1 });
   }
-  const aWins = h0 * hB > h1 * hA;                 // remaining FRACTION decides (tie -> defender)
-  return { aWins, dies: Number(vmHash(q + 999999n) % 100n) < DIE_PCT, h0, h1, log, hpA: hA, hpB: hB };
+  const aWins = Math.max(h0, 0) * hB > Math.max(h1, 0) * hA;   // remaining FRACTION decides (tie -> defender)
+  return { aWins, dies: roll32(q + 999999n) % 100 < DIE_PCT, h0, h1, log, hpA: hA, hpB: hB };
 }
 
 // ---- husbandry math (ints, exactly the contract's) -------------------------------------------------
