@@ -24,7 +24,9 @@ BEACON read finalized chain randomness through the I/O log (public, so the verif
 """
 from execnode.stark import field as F, alghash
 
-GAS_LIMIT = 8191                 # executed steps per call; keeps T = next_pow2(steps+1) <= 8192 (one proof)
+GAS_LIMIT = 32767                # executed steps per call; keeps T = next_pow2(steps+1) <= 32768 (one proof).
+                                 # Raised from 8191 so the mega-contracts (pets ~8.6k, battleship ~16k rows)
+                                 # fit a single call. The AIR caps at stark.MAX_TRACE_ROWS = 2^17, far above.
 MAX_ARGS = 8
 NUM_REGS = 8
 

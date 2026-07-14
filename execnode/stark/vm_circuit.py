@@ -61,7 +61,7 @@ TAG_FETCH = 1 << 32           # bus domain tags (outside every raw table's value
 TAG_IO = 1 << 33
 MAX_DEGREE = 8                # sponge x^7 under a selector; register-update mux also lands at 8
 MIN_T = 512                   # byte table (256 rows) + headroom must sit within rows 0..T-2
-MAX_T = 8192                  # zkvm.GAS_LIMIT + padding — one call is always one proof
+MAX_T = 32768                 # zkvm.GAS_LIMIT + padding — one call is always one proof (raised for mega-contracts)
 
 _O = zkvm.OP
 _IO_OPS = ("SLOAD", "SSTORE", "PAY", "BHASH", "BEACON", "RET")
