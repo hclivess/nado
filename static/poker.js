@@ -8,12 +8,12 @@
 //   · at SHOWDOWN one click reveals your secret; the CONTRACT re-derives your 7 cards and ranks the full
 //     hand on-chain (straight flush … high card, kickers included — 4000/4000 differential-verified).
 //     Best hand takes the pot. Board + each hand draw from independent decks (exact duplicates are legal).
-import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, commitHashOf, blake2bHash, _m, $, base, gate, canPay, alertBar, inviteGate,
+import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, inviteGate,
          hoist, orderCards, blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, notify, okBar,
          scoreBump, scoreSort, recentChips, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
-const CID = "ac32e1e848c3fcb6277a2ba40b4fbeda";
+const CID = "2fb48456656d5aa253b32ff5d72401ec";   // execnode/games/holdem.py (zkVM, nonce "a5")
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="8" y="13" width="18" height="24" rx="3" fill="#e6edf3" stroke="#243140" stroke-width="1.6" transform="rotate(-9 17 25)"/>     <path d="M14 20c-2.4 2.4-4 3.4-4 5.4 0 1.4 1.1 2.2 2.2 2.2.5 0 1-.2 1.3-.5-.2 1-.6 1.7-1.2 2.2h3.4c-.6-.5-1-1.2-1.2-2.2.3.3.8.5 1.3.5 1.1 0 2.2-.8 2.2-2.2 0-2-1.6-3-4-5.4z" fill="#20272f" transform="rotate(-9 14 25)"/>     <rect x="22" y="13" width="18" height="24" rx="3" fill="#fff" stroke="#243140" stroke-width="1.6" transform="rotate(9 31 25)"/>     <path d="M31 30c-.7-.7-3.2-2.3-3.2-4.6 0-1.3 1-2.2 2.1-2.2.6 0 1.1.3 1.1.9 0-.6.5-.9 1.1-.9 1.1 0 2.1.9 2.1 2.2 0 2.3-2.5 3.9-3.2 4.6z" fill="#d0362b" transform="rotate(9 31 26)"/></svg>';
 const dapp = new NadoDapp({ cid: CID, app: "Hold'em" });
 const F0 = 14, S = 20, GRACE = 5, R = 60;         // MUST match the contract (tests/test_holdem_contract.py)
@@ -31,15 +31,17 @@ function pruneAndTrack(sto) {
   knownSeats = lsPrune(LS_S, Object.keys(_m(sto, "gg")));
 }
 
-// ---- card math (MUST mirror tests/holdem_onchain.py exactly — this is what the contract computes) -----
-const H = (v) => BigInt("0x" + blake2bHash(v));    // vm HASH on a BigInt (canonicalize -> bare digits)
+// ---- card math (MUST mirror execnode/games/holdem.py exactly — this is what the zkVM contract computes) --
+// roll32(x) = LO32(alghash HASH(x)); commit = H(x) = algHashn([x]); seeds are reduced mod the field.
+const roll32 = (x) => Number(algHashn([x]) & 0xFFFFFFFFn);
 function drawCard(seed, slot, excl) {
   for (let a = 0; ; a++) {
-    const c = Number(H(seed + BigInt(slot * 4096 + a)) % 52n);
+    const c = roll32(seed + BigInt(slot * 4096 + a)) % 52;
     if (!excl.includes(c)) return c;
   }
 }
-const seedOf = (aHex, bHex, salt) => (aHex && bHex) ? H(BigInt("0x" + aHex) + BigInt("0x" + bHex) + BigInt(salt)) : null;
+const seedOf = (aHex, bHex, salt) => { if (!aHex || !bHex) return null; const P = ALG_P();
+  return algHashn([(BigInt("0x" + aHex) % P + BigInt("0x" + bHex) % P + BigInt(salt)) % P]); };
 function holeCards(bhA, bhB, secret) {
   const hs = seedOf(bhA, bhB, secret); if (hs == null) return null;
   const h0 = drawCard(hs, 0, []); return [h0, drawCard(hs, 1, [h0])];
@@ -165,11 +167,11 @@ async function fetchTable(t) { const sto = await dapp.storage(); return sto ? ta
 
 // ---- actions -------------------------------------------------------------------------------------
 function sit(t, method, buyinRaw, anteRaw) {         // open or join: generate the secret (the "draw") locally
-  const g = randId(), x = randSecret();
+  const g = randId(), x = randSecret() % ALG_P();   // field-sized: reveal passes x as a zkVM int arg (< P)
   const Ssto = load(LS_S); Ssto[g] = { table: t, secret: x.toString(), ts: Date.now() }; save(LS_S, Ssto);
   if (method === "open") { const T = load(LS_T); T[t] = { ante: anteRaw.toString(), ts: Date.now() }; save(LS_T, T); }
   activeTable = t; render();
-  const args = method === "open" ? [t, g, commitHashOf(x), anteRaw] : [t, g, commitHashOf(x)];
+  const args = method === "open" ? [t, g, algHashn([x]), anteRaw] : [t, g, algHashn([x])];
   const vars = { t, b: rawToNado(buyinRaw), a: rawToNado(anteRaw), s: rawToNado(buyinRaw - anteRaw) };
   const desc = method === "open"
     ? window.t("poker.openDesc", "open a hold'em table #{t} · buy-in {b} NADO (ante {a}, stack {s})", vars)

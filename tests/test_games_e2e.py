@@ -14,7 +14,7 @@ from execnode import runtimes
 from execnode.stark import vm_circuit as V
 from execnode.games import (coinflip, dice, roulette, tictactoe as ttt, connect4 as c4,
                             slots, mines, reversi as rv, chess, farkle as fk, blackjack as bj, bet as bt,
-                            battleship as bs, pets as ptz)
+                            battleship as bs, pets as ptz, holdem as hd)
 
 fails = 0
 def check(name, fn):
@@ -688,6 +688,186 @@ def t_pets_hatch_proves():
     assert ok, f"hatch proof: {why}"
 
 
+# ---- hold'em (multiplayer table stakes, side pots, on-chain 7-card showdown) ----------------------
+def t_holdem_eval():
+    import random as _r
+    code = hd.build()
+    _r.seed(42)
+    for _ in range(300):
+        cards = [_r.randrange(52) for _ in range(7)]           # multi-deck: duplicates legal
+        cf, fa = runtimes.zkvm_statement("fuzz", cards, {})
+        ok, ret, _s, _io = __import__("execnode.zkvm", fromlist=["run"]).run(code, "rank_of", cf, fa, {})
+        assert ok and ret == hd.eval7_ref(cards), f"eval7 differential {cards}: {ret} vs {hd.eval7_ref(cards)}"
+    for cards in ([0, 13, 26, 39, 1, 2, 3], [8, 9, 10, 11, 12, 20, 33], [0, 2, 4, 6, 8, 10, 12],
+                  [12, 0, 1, 2, 3, 30, 40], [0, 0, 13, 13, 26, 26, 39], [5, 5, 5, 5, 18, 31, 44]):
+        cf, fa = runtimes.zkvm_statement("fuzz", cards, {})
+        ok, ret, _s, _io = __import__("execnode.zkvm", fromlist=["run"]).run(code, "rank_of", cf, fa, {})
+        assert ok and ret == hd.eval7_ref(cards), f"shape {cards}"
+
+def _holdem_settle(seats, ante):
+    """Drive settle on a hand-built showdown table; returns {who: net}."""
+    st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = 100
+    code = hd.build()
+    st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "abi": hd.ABI, "nonce": "n"}, A, "d")
+    cid = st.contract_id(A, code, "n")
+    dg = {s["who"]: runtimes.zkvm_addr_digest(s["who"]) for s in seats}
+    for w, d in dg.items():
+        st.zk_addrs[str(d)] = w
+    sl = st.contracts[cid]["storage"]["slots"] = {}
+    put = lambda f, k, v: sl.__setitem__(str(f * (1 << 32) + k), v)
+    T = 1
+    put(hd.TA, T, dg[seats[0]["who"]]); put(hd.TD, T, 50); put(hd.TS, T, ante); put(hd.TN, T, len(seats))
+    put(hd.TX, T, sum(1 for s in seats if s["gd"])); sl[str(0)] = 1
+    for k in range(1, 5):
+        put(hd.SCL_BASE + k, T, 40 + k)
+    best_g, best_v, pot = 0, 0, 0
+    for i, s in enumerate(seats):
+        g = 11 + i
+        put(hd.TI_BASE + i, T, g)
+        put(hd.GG, g, T); put(hd.GD, g, s["gd"]); put(hd.GK, g, s["gk"]); put(hd.GA, g, dg[s["who"]])
+        put(hd.CS_BASE + 1, g, s["cs"]); put(hd.GSC, g, s["gsc"])
+        pot += ante + s["cs"]
+        if s["gsc"] * s["gd"] > best_v:
+            best_v, best_g = s["gsc"] * s["gd"], g
+    put(hd.TB, T, best_g); put(hd.TW, T, best_v); put(hd.TP, T, pot)
+    st.bridge[cid] = pot + sum(s["gk"] for s in seats)
+    st.cursor = 200
+    before = {s["who"]: st.bridge.get(s["who"], 0) for s in seats}
+    assert "ok" in st.apply_blob({"op": "call", "contract": cid, "method": "settle", "args": [T]}, A, "se")
+    assert not [k for k in sl if 800 <= (int(k) >> 32) < 1000], "settle scratch leaked"
+    return {s["who"]: st.bridge.get(s["who"], 0) - before[s["who"]] for s in seats}, pot
+
+def t_holdem_sidepots():
+    H, X, Y = "ndoHH" + "H" * 43, "ndoXX" + "X" * 43, "ndoYY" + "Y" * 43
+    got, pot = _holdem_settle([{"who": H, "gd": 1, "gk": 0, "cs": 100, "gsc": 900},
+                               {"who": X, "gd": 1, "gk": 0, "cs": 400, "gsc": 700},
+                               {"who": Y, "gd": 1, "gk": 0, "cs": 400, "gsc": 700}], 100)
+    assert got[H] == 600 and got[X] == 300 and got[Y] == 300 and sum(got.values()) == pot, "layer+tie"
+    got, _ = _holdem_settle([{"who": H, "gd": 1, "gk": 0, "cs": 500, "gsc": 900},
+                             {"who": X, "gd": 0, "gk": 0, "cs": 100, "gsc": 0}], 100)
+    assert got[H] == 800 and got[X] == 0, "uncalled overbet returns"
+    got, _ = _holdem_settle([{"who": H, "gd": 1, "gk": 0, "cs": 300, "gsc": 900},
+                             {"who": X, "gd": 0, "gk": 1500, "cs": 300, "gsc": 0}], 100)
+    assert got[H] == 800 and got[X] == 1500, "folded seat's stack is still refunded"
+
+def t_holdem_full():
+    import random as _r
+    from execnode.stark import alghash
+    st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = 100
+    code = hd.build()
+    H, X, Y = "ndoHH" + "H" * 43, "ndoXX" + "X" * 43, "ndoYY" + "Y" * 43
+    for a in (H, X, Y):
+        st.credit_deposit(a, 10**12)
+    st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "abi": hd.ABI, "nonce": "n"}, H, "d")
+    cid = st.contract_id(H, code, "n")
+    rd = lambda f, k: int((st.contracts[cid]["storage"].get("slots") or {}).get(str(f * (1 << 32) + k), 0))
+    call = lambda m, args, val, who: st.apply_blob(
+        {"op": "call", "contract": cid, "method": m, "args": args, "value": val or 0}, who,
+        m + str(args)[:40] + who + str(st.cursor))
+    _r.seed(9)
+    T, G1, G2, G3 = 500, 501, 502, 503
+    xh, xa, xb = _r.randint(1, 2**60), _r.randint(1, 2**60), _r.randint(1, 2**60)
+    assert "ok" in call("open", [T, G1, alghash.hashn([xh]), 1000], 10000, H)
+    assert "ok" in call("join", [T, G2, alghash.hashn([xa])], 5000, X)
+    assert "ok" in call("join", [T, G3, alghash.hashn([xb])], 3000, Y)
+    assert "revert" in call("join", [T, 999, alghash.hashn([1])], 3000, Y), "one seat per address"
+    assert "ok" in call("start", [T], None, H)
+    d0 = rd(hd.TD, T)
+    h0d, h1d = _r.randint(1, 2**60), _r.randint(1, 2**60)
+    st.block_hashes[d0] = h0d; st.block_hashes[d0 + 1] = h1d
+    assert "revert" in call("bet", [G1, 100], None, H), "no betting before the shuffle"
+    st.cursor = d0 + hd.F0 + 1
+    assert "ok" in call("bet", [G1, 500], None, H)
+    assert "ok" in call("bet", [G2, 500], None, X)
+    assert "ok" in call("bet", [G3, 2000], None, Y)          # all-in raise
+    assert rd(hd.GK, G3) == 0
+    assert "ok" in call("bet", [G1, 1500], None, H)
+    assert "ok" in call("bet", [G2, 1500], None, X)
+    assert "ok" in call("close_street", [T], None, H)
+    cs = [rd(hd.SCL_BASE + k, T) for k in range(1, 5)]
+    for k in range(1, 4):
+        c = cs[k - 1]
+        st.block_hashes[c] = _r.randint(1, 2**60); st.block_hashes[c + 1] = _r.randint(1, 2**60)
+        st.cursor = c + 1
+        if k == 3:
+            assert "ok" in call("bet", [G1, 1000], None, H)
+            assert "revert" in call("close_street", [T], None, H), "a pending call blocks the close"
+            assert "ok" in call("bet", [G2, 1000], None, X)
+        assert "ok" in call("close_street", [T], None, H)
+        cs = [rd(hd.SCL_BASE + kk, T) for kk in range(1, 5)]
+    c4 = cs[3]
+    st.block_hashes[c4] = _r.randint(1, 2**60); st.block_hashes[c4 + 1] = _r.randint(1, 2**60)
+    st.cursor = c4 + 1
+    board = hd.board_ref(st.block_hashes, cs[0], cs[1], cs[2], T)
+    vals = {}
+    for g, (who, x) in ((G1, (H, xh)), (G2, (X, xa)), (G3, (Y, xb))):
+        ref = hd.eval7_ref(hd.hole_ref(h0d, h1d, x) + board)
+        assert "ok" in call("reveal", [g, x], None, who)
+        assert rd(hd.GSC, g) == ref, "showdown hand value differential"
+        vals[g] = ref
+    assert "revert" in call("reveal", [G1, xh], None, H), "no double reveal"
+    C = {G1: 1000 + 3000, G2: 1000 + 3000, G3: 1000 + 2000}
+    pays = {g: 0 for g in (G1, G2, G3)}
+    prev = 0
+    for L in sorted(set(C.values())):
+        cov = [g for g in (G1, G2, G3) if C[g] >= L]
+        amt = (L - prev) * len(cov)
+        best = max(vals[g] for g in cov)
+        win = [g for g in cov if vals[g] == best]
+        share, rem = divmod(amt, len(win))
+        for i, g in enumerate(win):
+            pays[g] += share + (rem if i == 0 else 0)
+        prev = L
+    stacks = {g: rd(hd.GK, g) for g in (G1, G2, G3)}
+    before = {w: st.bridge.get(w, 0) for w in (H, X, Y)}
+    assert "ok" in call("settle", [T], None, H)
+    who = {G1: H, G2: X, G3: Y}
+    for g in (G1, G2, G3):
+        assert st.bridge.get(who[g], 0) - before[who[g]] == pays[g] + stacks[g], "settle differential"
+    assert rd(hd.TZ, T) == 1
+    v = st.decode_view(st.contracts[cid])
+    assert v["ta"][str(T)] == H and "cs" in v
+
+def t_holdem_reveal_proves():
+    import random as _r
+    from execnode.stark import alghash
+    st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = 100
+    code = hd.build()
+    H, X = "ndoHH" + "H" * 43, "ndoXX" + "X" * 43
+    for a in (H, X):
+        st.credit_deposit(a, 10**12)
+    st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "abi": hd.ABI, "nonce": "n"}, H, "d")
+    cid = st.contract_id(H, code, "n")
+    rd = lambda f, k: int((st.contracts[cid]["storage"].get("slots") or {}).get(str(f * (1 << 32) + k), 0))
+    call = lambda m, args, val, who: st.apply_blob(
+        {"op": "call", "contract": cid, "method": m, "args": args, "value": val or 0}, who, m + who + str(st.cursor))
+    _r.seed(5)
+    T, G1, G2 = 7, 71, 72
+    x1 = _r.randint(1, 2**60)
+    call("open", [T, G1, alghash.hashn([x1]), 1000], 5000, H)
+    call("join", [T, G2, alghash.hashn([_r.randint(1, 2**60)])], 5000, X)
+    call("start", [T], None, H)
+    d0 = rd(hd.TD, T)
+    st.block_hashes[d0] = _r.randint(1, 2**60); st.block_hashes[d0 + 1] = _r.randint(1, 2**60)
+    st.cursor = d0 + hd.F0 + 1
+    call("close_street", [T], None, H)
+    for k in range(1, 5):
+        c = rd(hd.SCL_BASE + k, T)
+        if not c:
+            break
+        st.block_hashes[c] = _r.randint(1, 2**60); st.block_hashes[c + 1] = _r.randint(1, 2**60)
+        st.cursor = c + 1
+        call("close_street", [T], None, H)
+    c4 = rd(hd.SCL_BASE + 4, T)
+    st.cursor = c4 + 1
+    slots = {int(k): int(v) for k, v in st.contracts[cid]["storage"]["slots"].items()}
+    cf, fa = runtimes.zkvm_statement(H, [G1, x1], {})
+    proof, io, ret, ns = V.prove_call(code, "reveal", cf, fa, slots, num_queries=NQ, cursor=st.cursor,
+                                      block_hashes=st.block_hashes)
+    ok, why = V.verify_call(proof, code, "reveal", cf, fa, io, num_queries=NQ, cursor=st.cursor)
+    assert ok, f"reveal proof (deal + 7-card eval): {why}"
+
+
 if __name__ == "__main__":
     check("coinflip: open/join/settle/cancel + escrow + view", t_coinflip)
     check("coinflip: settle proves", t_coinflip_prove)
@@ -713,5 +893,9 @@ if __name__ == "__main__":
     check("battleship: answer proves (17-arg merkle proof on the ARG bus)", t_battleship_answer_proves)
     check("pets: gene/tier/stat/feed/train/battle differentials + marketplace", t_pets)
     check("pets: hatch proves (12-hash gene derivation)", t_pets_hatch_proves)
+    check("holdem: 7-card evaluator differential (300 hands + shapes)", t_holdem_eval)
+    check("holdem: layered side pots, ties, uncalled bets, fold refunds", t_holdem_sidepots)
+    check("holdem: full table-stakes hand, showdown differential, settle", t_holdem_full)
+    check("holdem: reveal proves (deal + on-chain 7-card rank)", t_holdem_reveal_proves)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)
