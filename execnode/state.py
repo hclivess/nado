@@ -625,9 +625,15 @@ class ExecState:
                     if not ok:
                         storage = {}                      # constructor reverted -> deploy with empty state
                 abi = payload.get("abi")   # optional, non-consensus UX metadata {method:{args,doc}}
+                # UPGRADABILITY (per-contract, opt-out): a contract is upgradable by its deployer unless it
+                # deploys with {"upgradable": false}. A stable contract can later renounce upgradability
+                # permanently via the `lock` op. This keeps mainnet safe (lockable/immutable) while letting a
+                # deployer iterate freely until they lock. Default True preserves the alphanet workflow.
+                upgradable = payload.get("upgradable", True) is not False
                 self.contracts[cid] = {"code": code, "storage": storage, "deployer": sender,
-                                       "runtime": rt_name, "abi": abi if isinstance(abi, dict) else {}}
-                return f"deploy {cid} ({rt_name}) by {sender[:12]}…"
+                                       "runtime": rt_name, "abi": abi if isinstance(abi, dict) else {},
+                                       "upgradable": upgradable}
+                return f"deploy {cid} ({rt_name}{'' if upgradable else ', LOCKED'}) by {sender[:12]}…"
 
             if op == "call":
                 cid = payload.get("contract")
@@ -680,11 +686,24 @@ class ExecState:
                 tag = (f" value={value}" if value else "") + (f" paid={total_pay}" if payouts else "")
                 return f"call {cid}.{method} by {sender[:12]}…{tag} -> ok"
 
+            if op == "lock":
+                # RENOUNCE UPGRADABILITY (permanent): the deployer of an upgradable contract locks it forever
+                # (immutability is a one-way switch — this is the mainnet trust primitive). No-op if already
+                # locked. Storage/code/cid unchanged; only future `upgrade`s are refused.
+                cid = payload.get("contract")
+                c = self.contracts.get(cid)
+                if not c:
+                    return f"skip: no contract {cid}"
+                if c.get("deployer") != sender:
+                    return "skip: only the deployer can lock this contract"
+                c["upgradable"] = False
+                return f"lock {cid} by {sender[:12]}… — now immutable"
+
             if op == "upgrade":
-                # ALPHANET: contracts are UPGRADABLE by their deployer. The cid + storage are preserved; the code
-                # (and optional abi/runtime) are replaced. Only the original deployer may upgrade. This deliberately
-                # breaks strict immutability — a mainnet contract would gate this behind on-chain governance / a
-                # timelock, but on alphanet the deployer owns their contract outright.
+                # Contracts are UPGRADABLE by their deployer UNLESS deployed with {"upgradable": false} or later
+                # `lock`ed. The cid + storage are preserved; the code (and optional abi/runtime) are replaced.
+                # A LOCKED contract is permanently immutable (the mainnet-safe path); an upgradable one lets the
+                # deployer iterate. Legacy contracts (no flag) default upgradable.
                 cid = payload.get("contract")
                 code = _decode_code(payload)              # raw `code` or zstd `codez`
                 c = self.contracts.get(cid)
@@ -692,6 +711,8 @@ class ExecState:
                     return f"skip: no contract {cid}"
                 if c.get("deployer") != sender:
                     return "skip: only the deployer can upgrade this contract"
+                if c.get("upgradable", True) is False:
+                    return f"skip: contract {cid} is locked (immutable)"
                 rt_name = payload.get("runtime", c.get("runtime", runtimes.DEFAULT_RUNTIME))
                 rt = runtimes.get(rt_name)
                 if rt is None:

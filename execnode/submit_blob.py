@@ -51,7 +51,7 @@ def main():
     2 blocks ahead of the L1 tip, submit it, and for a deploy echo the deterministic contract id the
     execution node will assign once the blob is mined."""
     ap = argparse.ArgumentParser()
-    ap.add_argument("action", choices=["deploy", "upgrade", "call"])
+    ap.add_argument("action", choices=["deploy", "upgrade", "call", "lock"])
     ap.add_argument("rest", nargs="+")
     ap.add_argument("--l1", default=os.environ.get("NADO_L1_URL", "http://127.0.0.1:9173").rstrip("/"))
     ap.add_argument("--fee", type=int, default=MIN_TX_FEE)
