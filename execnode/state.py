@@ -813,25 +813,35 @@ class ExecState:
     def decode_view(self, c):
         """Present a zkVM contract's flat slot storage as the NAMED MAPS its frontend expects, using the
         optional view schema in its abi["_view"] (doc/zk-execution-proofs.md game model). This is the ONE
-        place the slot model is translated back, so ported game frontends change only their cid. Schema:
-            {"maps": {"<name>": <field_id>, ...},          # game-keyed map -> composite slot field*2^32+key
-             "index": {"cnt": <slot>, "list": <field_id>}, # enumerable key set (count + list of keys)
-             "addr": ["<name>", ...]}                       # fields whose value is an address digest to resolve
-        Returns {name: {str(key): value}} — byte-compatible with the old stackvm storage shape. Missing schema
-        (or a non-zkVM contract) returns the raw storage unchanged."""
+        place the slot model is translated back, so ported game frontends change only their cid.
+
+        Simple schema (single key set, e.g. coinflip):
+            {"maps": {"<name>": <field_id>, ...}, "index": {"cnt": <slot>, "list": <field_id>}, "addr": [...]}
+        Rich schema (several key sets, e.g. dice tables + games):
+            {"maps": {"<name>": {"field": <id>, "index": "<idxname>"}, ...},
+             "indexes": {"<idxname>": {"cnt": <slot>, "list": <field_id>}, ...}, "addr": [...]}
+        Returns {name: {str(key): value}} — byte-compatible with the old stackvm storage. Missing schema (or a
+        non-zkVM contract) returns raw storage unchanged."""
         view = (c.get("abi") or {}).get("_view")
         if not view or c.get("runtime") != "zkvm":
             return c.get("storage", {})
         slots = (c.get("storage") or {}).get("slots") or {}
         def sv(s):
             return int(slots.get(str(s), 0))
-        idx = view.get("index") or {}
-        cnt = sv(idx["cnt"]) if "cnt" in idx else 0
-        list_field = idx.get("list")
-        keys = [sv((list_field << 32) + i) for i in range(cnt)] if list_field is not None else []
+        def enum(idx):                                     # the key set of one index (cnt slot + list field)
+            cnt = sv(idx["cnt"]) if "cnt" in idx else 0
+            lf = idx.get("list")
+            return [sv((lf << 32) + i) for i in range(cnt)] if lf is not None else []
+        indexes = view.get("indexes")
+        default_keys = enum(view["index"]) if "index" in view else []
+        key_cache = {name: enum(idx) for name, idx in (indexes or {}).items()}
         addr_fields = set(view.get("addr") or [])
         out = {}
-        for name, field in (view.get("maps") or {}).items():
+        for name, spec in (view.get("maps") or {}).items():
+            if isinstance(spec, dict):
+                field, keys = spec["field"], key_cache.get(spec.get("index"), default_keys)
+            else:
+                field, keys = spec, default_keys
             m = {}
             for k in keys:
                 val = sv((field << 32) + k)
