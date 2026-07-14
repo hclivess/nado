@@ -12,7 +12,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.state import ExecState
 from execnode import runtimes
 from execnode.stark import vm_circuit as V
-from execnode.games import coinflip, dice, roulette, tictactoe as ttt, connect4 as c4
+from execnode.games import (coinflip, dice, roulette, tictactoe as ttt, connect4 as c4,
+                            slots, mines, reversi as rv, chess)
 
 fails = 0
 def check(name, fn):
@@ -139,6 +140,73 @@ def t_tictactoe_prove():
     _prove(code, "move", A, [42, 2, 4], slots, cursor=100)
 
 
+# ---- slots / mines (banked reveal) -------------------------------------------------------------
+def t_slots():
+    st, code, cid, rd = _fresh(slots, deployer=A)
+    st.credit_deposit(A, 10_000_000_000); st.credit_deposit(B, 10_000_000)
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [5], "value": 5_000_000_000}, A, "1")
+    g = 1000
+    st.apply_blob({"op": "call", "contract": cid, "method": "spin", "args": [g, 5], "value": 10_000}, B, "2")
+    gh = rd(slots.GH, g); st.block_hashes[gh] = 0x1234567; st.block_hashes[gh + 1] = 0x89abcde; st.cursor = gh + 2
+    pbefore = st.bridge.get(B, 0)
+    st.apply_blob({"op": "call", "contract": cid, "method": "settle", "args": [g]}, B, "3")
+    gr = rd(slots.GR, g); gw = rd(slots.GW, g)
+    stops = [(gr - 1) % 64, ((gr - 1) // 64) % 64, ((gr - 1) // 4096) % 64]
+    assert gw == slots.m2_of(stops), "paytable must match reference"
+    assert st.bridge.get(B, 0) - pbefore == 10_000 * gw // 2 and rd(slots.GD, g) == 1
+
+def t_mines():
+    st, code, cid, rd = _fresh(mines, deployer=A)
+    st.credit_deposit(A, 100_000_000_000); st.credit_deposit(B, 10_000_000)
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [5], "value": 50_000_000_000}, A, "1")
+    g = 88
+    st.apply_blob({"op": "call", "contract": cid, "method": "bet", "args": [g, 5, 3], "value": 100_000}, B, "2")
+    st.apply_blob({"op": "call", "contract": cid, "method": "pick", "args": [g, 2]}, B, "3")
+    assert rd(mines.GQ, g) == mines.multiplier(100_000, 0, 3, 2)
+    gh = rd(mines.GH, g); st.block_hashes[gh] = 0xBEEF; st.block_hashes[gh + 1] = 0xCAFE; st.cursor = gh + 2
+    from execnode.stark.field import P
+    q = (0xBEEF % P + 0xCAFE % P + g) % P
+    st.apply_blob({"op": "call", "contract": cid, "method": "resolve", "args": [g]}, B, "4")
+    assert rd(mines.GB, g) == mines.resolve_hit(q, 0, 3, 2)
+
+# ---- reversi (PvP flip) + chess (record/agree) -------------------------------------------------
+def t_reversi():
+    st, code, cid, rd = _fresh(rv, deployer=A)
+    st.credit_deposit(A, 1_000_000); st.credit_deposit(B, 1_000_000)
+    G = 42; bi = lambda cell: (cell // 8 + 1) * 16 + (cell % 8 + 1)
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [G], "value": 100_000}, A, "o")
+    st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [G], "value": 100_000}, B, "j")
+    board = {68: 2, 85: 2, 69: 1, 84: 1}
+    bdc = lambda c: int((st.contracts[cid]["storage"].get("slots") or {}).get(str((rv.BD_BASE + c) * (1 << 32) + G), 0))
+    def legal(k):
+        return [cell for cell in range(64) if board.get(bi(cell), 0) == 0 and rv.flips_for(board, cell, k)]
+    mc = 0
+    for _ in range(5):
+        k = 1 + mc % 2; lg = legal(k)
+        if not lg: break
+        cell = lg[0]; who = A if k == 1 else B
+        st.apply_blob({"op": "call", "contract": cid, "method": "move", "args": [G, cell, mc]}, who, f"m{mc}")
+        for p in rv.flips_for(board, cell, k): board[p] = k
+        board[bi(cell)] = k
+        assert all(bdc(b) == board.get(b, 0) for b in range(160)), "reversi board must match reference"
+        mc += 1
+
+def t_chess():
+    st, code, cid, rd = _fresh(chess, deployer=A)
+    st.credit_deposit(A, 1_000_000); st.credit_deposit(B, 1_000_000)
+    G = 42
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [G], "value": 100_000}, A, "o")
+    st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [G], "value": 100_000}, B, "j")
+    for who, enc, ply in [(A, 796, 0), (B, 2093, 1)]:
+        st.apply_blob({"op": "call", "contract": cid, "method": "move", "args": [G, enc, ply]}, who, f"m{ply}")
+    v = st.decode_view(st.contracts[cid])
+    assert v["mv"][str(G * 10000 + 0)] == 796
+    st.apply_blob({"op": "call", "contract": cid, "method": "agree", "args": [G, 1]}, A, "a1")
+    ab = st.bridge.get(A, 0)
+    st.apply_blob({"op": "call", "contract": cid, "method": "agree", "args": [G, 1]}, B, "a2")
+    assert rd(chess.SD, G) == 1 and st.bridge.get(A, 0) == ab + 200_000
+
+
 if __name__ == "__main__":
     check("coinflip: open/join/settle/cancel + escrow + view", t_coinflip)
     check("coinflip: settle proves", t_coinflip_prove)
@@ -149,5 +217,9 @@ if __name__ == "__main__":
     check("connect4: vertical win, pot paid + view", t_connect4)
     check("tictactoe: wrong turn / wrong ply revert", t_tictactoe_wrongturn_reverts)
     check("tictactoe: winning move proves", t_tictactoe_prove)
+    check("slots: spin/settle paytable matches reference", t_slots)
+    check("mines: bet/pick/resolve multiplier + mine-hit vs reference", t_mines)
+    check("reversi: flip board matches reference", t_reversi)
+    check("chess: move record + agree settlement", t_chess)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

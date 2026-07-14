@@ -111,8 +111,12 @@ Games return only as zkVM ports (`execnode/games/<name>.py`). Each is a self-con
 | roulette | `0ccfa996d30b5228e702a38a29b965fe` | banked; 37-number coverage as a packed bitmask |
 | tictactoe | `d7744c41300ef02b6cc944f0cf1ccdae` | PvP board |
 | connect4 | `67349828b38443eda30de51dea8a3d67` | PvP board (7×6, column-drop) |
+| slots | `d687d1178219753b9d48b9b8cdf25e1a` | banked 3-reel (150× paytable) |
+| mines | `ed48a2011d1c9f563725bed90128be3e` | banked provably-fair reveal |
+| reversi | `eb12360a240be03382f2d0b33b345653` | PvP Othello (8-direction flip) |
+| chess | `8df88a535f84174b0841286859767161` | escrow + move recorder + agree |
 
-Remaining ports (reversi, chess, farkle, bet, slots, mines, blackjack, poker, holdem, pets, battleship) follow
+Remaining ports (farkle, blackjack, poker, holdem, pets, battleship; **bet needs a string→field key redesign**) follow
 the same checklist; the mega-contracts need a feasibility pass against the single-call trace bound
 (`vm_circuit.MAX_T = 8192` rows) before porting.
 
