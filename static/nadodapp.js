@@ -798,6 +798,18 @@ export class NadoDapp {
       return this._stickMerge(sto, opts && opts.append);
     } catch { this.online = false; return null; }
   }
+  // Read-only contract call via GET /exec/view — how a game reads hash-keyed (per-user) zkVM slots that
+  // decode_view can't enumerate (e.g. bet's claimable_of/stake_of). Returns the method's RET value as a
+  // Number, or null on error. Args may be ints or address strings (digested server-side).
+  async view(method, args) {
+    try {
+      const r = await (await fetch(base() + "/exec/view?ns=" + this.ns + "&cid=" + this.cid
+        + "&method=" + encodeURIComponent(method) + "&args=" + encodeURIComponent(JSON.stringify(args || [])),
+        { cache: "no-store" })).json();
+      const v = r && (r.result !== undefined ? r.result : r.ret);
+      return v == null ? null : Number(v);
+    } catch { return null; }
+  }
   _stickMerge(sto, append) {
     if (!append || !append.length) return sto;
     const now = this._nowMs(), prev = this._stickyPrev || {}, held = this._stickyHeld || (this._stickyHeld = {});

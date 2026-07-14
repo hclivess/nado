@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""bet_oracle.py — the resolver for the NADO Bet (parimutuel sports) contract.
+"""bet_oracle.py — the resolver bot for the NADO Bet (parimutuel sports) zkVM contract.
 
-A blockchain can't see the real world, so the Bet contract trusts an ORACLE KEY to post match
-results. This script IS that oracle's helper: it reads the free public source named on each market
-(TheSportsDB by default), works out the winning outcome, and submits resolve()/void() blob txs signed
-by the oracle key. The oracle SET and threshold live in the contract (admin-configurable) — this tool
-just posts one key's vote; run one copy per oracle key for M-of-N.
+Parimutuel = all stakes on a match pool together and the winners split the whole pot pro-rata — no house,
+no bookmaker (see execnode/games/bet.py for the full plain-language explainer). A blockchain can't see the
+real world, so each market names RESOLVER keys at creation. This script IS the official resolver's helper:
+it reads the free public source named on each market (TheSportsDB by default), works out the winning
+outcome, and submits resolve()/void() blob txs signed by its key. Markets it fills name this key as their
+sole resolver (1-of-1); user-created markets name their own resolver sets — this tool just posts one key's
+vote, so run one copy per key for an M-of-N panel.
 
 SAFETY (this moves money): resolution is DRY-RUN by default — it prints what it WOULD post and submits
 nothing. Add --submit to actually vote. Only markets whose betting has CLOSED (past lock) and that are
@@ -32,7 +34,7 @@ from ops.transaction_ops import construct_blob_tx
 from ops.key_ops import load_keys
 from protocol import MIN_TX_FEE, TX_INCLUSION_DELAY
 
-BET_CID = "fe303d9880c8222dcf3b9953eb86a0fa"   # execnode/contracts/bet.json (nonce "bet-v1")
+BET_CID = "066b76360e669c91d81e57197d0c88e3"   # execnode/games/bet.py (zkVM port, nonce "a5")
 VOID_GRACE_SEC = 300   # wiggle room past the deadline before auto-voiding (the chain clock is only ~tens-of-seconds precise)
 # Soccer competitions to seed 1X2 (home/draw/away) markets from (TheSportsDB league ids). Override with
 # --leagues "4328,4335,…". The free key returns only the SINGLE next fixture per league, so BREADTH of leagues
@@ -250,16 +252,20 @@ def main():
                 # bump DETERMINISTICALLY (ev + k·OFFSET) to the next free id. Deterministic (not random) so two fills
                 # racing before either's create is visible pick the SAME id — the contract's fresh-id gate then makes
                 # the second a no-op revert instead of a duplicate market. OFFSET is huge so it never hits another ev.
-                RELIST_OFFSET = 10**12
+                # zkVM market ids must be < 2^32 (composite-slot keys) — the offset is sized so an event id
+                # (~7 digits) survives 4 relists before hitting the ceiling.
+                RELIST_OFFSET = 10**9
                 mid = int(ev)
                 while str(mid) in existing_mk:
                     mid += RELIST_OFFSET
+                if mid >= (1 << 32):
+                    continue
                 existing_mk.add(str(mid))
                 live_ev.add(ev)
                 created += 1
                 tag = f"{e.get('strLeague', '?')}, kickoff {e.get('strTimestamp', '?')}Z"
                 if args.submit:
-                    txid, msg = submit(args.l1, "create_market", [mid, 3, lock, deadline, desc, "thesportsdb", ev, 1, resolver, "", ""], keys, args.fee)
+                    txid, msg = submit(args.l1, "create_market", [mid, 3, lock, deadline, desc, "thesportsdb", ev, 1, resolver, 0, 0], keys, args.fee)
                     print(f"  + {mid}  {title}  ({tag}) -> {msg}")
                 else:
                     print(f"  [dry] {mid}  {title}  ({tag}, closes in {int(lead / 60)} min)")

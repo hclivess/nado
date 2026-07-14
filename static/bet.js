@@ -1,18 +1,25 @@
-// bet.js — NADO Bet: parimutuel sports betting on the execution layer, built on the shared game SDK
-// (nadodapp.js). No house, no bookmaker: every stake on a match goes into ONE escrow pool; when the
-// result is posted the winning outcome's backers split the whole pool pro-rata to their stake
-//     payout = your_stake * total_pool / winning_pool
-// The real-world result is the one thing the chain can't derive, so an authorized ORACLE key posts it
-// via resolve() reading a free public source; the oracle set is configurable (admin can add keys and
-// require M-of-N). Bettors are protected: the oracle can void() a postponed match and, past a per-market
-// deadline, ANYONE can void -> every stake refunds 1:1; an unbacked winner auto-voids. Payouts are
-// pull-based (each bettor calls claim). Outcomes are integers 0..nout-1 everywhere.
+// bet.js — NADO Bet: PARIMUTUEL sports betting on the execution layer (zkVM contract, execnode/games/bet.py),
+// built on the shared game SDK (nadodapp.js).
+//
+// "Parimutuel" in plain language: all money bet on a match goes into ONE shared pot — nobody offers you
+// odds and nobody takes the other side; you bet against the other bettors. When the result is posted, the
+// winners split the whole pot in proportion to their stakes:
+//     payout = your_stake * total_pot / winning_side's_pool
+// The "odds" shown are just the live pot ratio and move as people bet — a racetrack tote board (pari
+// mutuel = "mutual bet"). The contract only escrows and redistributes: no house, no minting, no profit.
+//
+// The real-world result is the one thing the chain can't derive, so each market names its own RESOLVER set
+// at creation (up to 3 addresses, M-of-N threshold; naming nobody makes the creator the resolver). Bettors
+// are protected: a resolver can void() a postponed match and, past a per-market deadline, ANYONE can void
+// -> every stake refunds 1:1; an unbacked winner auto-voids. Payouts are pull-based (each bettor calls
+// claim). Outcomes are integers 0..nout-1 everywhere. Per-user positions are read through the contract's
+// /exec/view methods (claimable_of etc.) — see the myCache notes below.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay,
          wireWallet, stickyInputs, renderWallet, statusLabel, disp, resolveAliases,
          alertBar, notify,
          loadQR, share, shareInvite } from "./nadodapp.js";
 
-const CID = "fe303d9880c8222dcf3b9953eb86a0fa";   // execnode/contracts/bet.json, deployed by the node key (nonce "bet-v1")
+const CID = "066b76360e669c91d81e57197d0c88e3";   // execnode/games/bet.py (zkVM), deployed by the node key (nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Bet" });
 // Markets close/void by WALL-CLOCK time (the contract's TIME opcode = L1 block timestamp), never block height —
 // block rate drifts, so a height deadline fires at an unpredictable real moment (that bug voided live matches a
@@ -44,26 +51,46 @@ const DONE = { bet: window.t("bet.dnBet", "✓ Bet confirmed"), claim: window.t(
   resolve: window.t("bet.dnResolve", "✓ Result posted"), void: window.t("bet.dnVoid", "✓ Market voided"), src: window.t("bet.dnSrc", "✓ Source added") };
 // game-specific "did the in-flight action land on-chain?" check for dapp.settleInflight
 function actionLanded(f) {
-  const sto = lastSto, me = dapp.me, m = f.market;
+  const sto = lastSto, me = dapp.me, m = f.market, my = myCache[m] || {};
   if (!sto || !me) return false;
-  if (f.phase === "bet") return Number(_m(sto, "us")[m + "|" + me] || 0) > (f.prevUs || 0);
-  if (f.phase === "claim") return !!_m(sto, "cl")[m + "|" + me];
+  if (f.phase === "bet") return Number(my.total || 0) > (f.prevUs || 0);
+  if (f.phase === "claim") return !!my.claimed;
   if (f.phase === "create") return !!_m(sto, "mk")[m];
-  if (f.phase === "resolve") return !!_m(sto, "dn")[m] || !!_m(sto, "vd")[m] || Number(_m(sto, "vt")[m + "|" + me] || 0) > 0;
+  if (f.phase === "resolve") return !!_m(sto, "dn")[m] || !!_m(sto, "vd")[m] || Number(my.vote || 0) > 0;
   if (f.phase === "void") return !!_m(sto, "vd")[m];
-  if (f.phase === "src") return true;
   return false;
 }
 
-// ---- reads (bet-specific storage schema) ---------------------------------------------------------
-const cfg = (sto, k) => _m(sto, "cfg")[k];
-const isOracle = (sto) => !!dapp.me && Number(_m(sto, "orc")[dapp.me] || 0) === 1;
-const isAdmin  = (sto) => !!dapp.me && dapp.me === cfg(sto, "admin");
-// may the signed-in user resolve market m? — a named resolver of THIS market, or the admin for a
-// legacy (resolver-less) market. Mirrors the contract's resolve/void gate.
-const canResolveMkt = (sto, m) => !!dapp.me && (Number(_m(sto, "mres")[m + "|" + dapp.me] || 0) === 1
-  || (Number(_m(sto, "mrc")[m] || 0) === 0 && dapp.me === cfg(sto, "admin")));
-const sourcesOf = (sto) => { const s = _m(sto, "src"), n = Number(cfg(sto, "srcN") || 0), out = []; for (let i = 0; i < n; i++) if (s[i]) out.push(s[i]); return out; };
+// ---- reads (bet-specific storage schema — zkVM port) -----------------------------------------------
+// Pools/totals live on-chain in UNITs of 10^4 raw NADO (the contract's DIVMODW-sound money model); the
+// pl board is keyed m*8+i. Metadata (ds/so/ev) are stored as field digests that decode_view resolves back
+// to the original strings, so mk.title/labels read exactly as before. PER-USER positions (stake/claimable/
+// claimed/vote/resolver) live in alghash-keyed slots the storage view can't enumerate — we read them via
+// the contract's read-only views (dapp.view → GET /exec/view) into `myCache`, refreshed for the selected
+// market every poll plus a slow round-robin sweep over the rest (so auto-collect finds old wins from any
+// device without hammering the node).
+const UNIT = 10000;
+const myCache = {};   // id -> {total, claimable, claimed, stakes:[...], resolver, vote} — RAW amounts
+let sweepIdx = 0;
+const KNOWN_SOURCES = ["thesportsdb", "football-data"];   // free public feeds a resolver bot can read
+const canResolveMkt = (_sto, m) => !!((myCache[m] || {}).resolver);
+async function refreshMy(mk) {
+  if (!dapp.me || !mk) return;
+  const id = mk.id, c = myCache[id] || (myCache[id] = { stakes: [] });
+  const [total, claimable, claimed, resolver, vote] = await Promise.all([
+    dapp.view("total_of", [id, dapp.me]), dapp.view("claimable_of", [id, dapp.me]),
+    dapp.view("claimed_of", [id, dapp.me]), dapp.view("resolver_of", [id, dapp.me]),
+    dapp.view("vote_of", [id, dapp.me])]);
+  if (total != null) c.total = total;
+  if (claimable != null) c.claimable = claimable;
+  if (claimed != null) c.claimed = claimed;
+  if (resolver != null) c.resolver = resolver;
+  if (vote != null) c.vote = vote;
+  if (c.total > 0) {
+    const st = await Promise.all(mk.labels.map((_l, i) => dapp.view("stake_of", [id, i, dapp.me])));
+    c.stakes = st.map((v) => Number(v || 0));
+  }
+}
 
 function parseMarket(sto, id) {
   const G = (m) => _m(sto, m)[id];
@@ -72,33 +99,29 @@ function parseMarket(sto, id) {
   const lines = String(G("ds") || "").split("\n");
   const title = lines[0] || ("Match #" + id);
   const labels = []; for (let i = 0; i < nout; i++) labels.push(lines[i + 1] || ("Outcome " + i));
-  const total = Number(_m(sto, "tot")[id] || 0);
-  const pools = []; for (let i = 0; i < nout; i++) pools.push(Number(_m(sto, "pl")[id + "|" + i] || 0));
+  const total = Number(_m(sto, "tot")[id] || 0) * UNIT;
+  const pools = []; for (let i = 0; i < nout; i++) pools.push(Number(_m(sto, "pl")[id * 8 + i] || 0) * UNIT);
   const resolved = !!G("dn"), voided = !!G("vd");
   const winner = resolved ? Number(G("rs")) - 1 : null;
   // lk/dl are epoch seconds; cur is the chain's wall-clock now (the same TIME the contract gates on).
   const lock = Number(G("lk") || 0), deadline = Number(G("dl") || 0), cur = dapp.chainNow();
   const locked = cur != null && cur >= lock;
   const status = voided ? "void" : resolved ? "resolved" : locked ? "locked" : "open";
-  const me = dapp.me;
-  const myStakes = []; for (let i = 0; i < nout; i++) myStakes.push(me ? Number(_m(sto, "stk")[id + "|" + i + "|" + me] || 0) : 0);
-  const myTotal = me ? Number(_m(sto, "us")[id + "|" + me] || 0) : 0;
-  const claimed = me ? !!_m(sto, "cl")[id + "|" + me] : false;
+  const my = myCache[id] || {};
+  const myStakes = []; for (let i = 0; i < nout; i++) myStakes.push(Number((my.stakes || [])[i] || 0));
+  const myTotal = Number(my.total || 0);
+  const claimed = !!my.claimed;
   return { id: Number(id), nout, title, labels, total, pools, resolved, voided, winner, lock, deadline, cur,
-           locked, status, myStakes, myTotal, claimed, source: String(G("so") || ""), ev: String(G("ev") || "") };
+           locked, status, myStakes, myTotal, claimed, claimableAmt: Number(my.claimable || 0),
+           source: String(G("so") || ""), ev: String(G("ev") || "") };
 }
 const allMarkets = (sto) => Object.keys(_m(sto, "mk")).map((id) => parseMarket(sto, id)).filter(Boolean);
 // live decimal odds for outcome i: whole pool ÷ that outcome's pool (what a winning unit returns)
 const oddsOf = (mk, i) => mk.pools[i] > 0 && mk.total > 0 ? mk.total / mk.pools[i] : null;
 const fmtOdds = (o) => o == null ? "—" : o.toFixed(2) + "×";
-// claimable amount for the signed-in bettor (0 if nothing / already claimed / not yet settled)
-function claimable(mk) {
-  if (!mk || mk.claimed || mk.myTotal <= 0) return 0;
-  if (mk.voided) return mk.myTotal;
-  if (mk.resolved && mk.winner != null && mk.pools[mk.winner] > 0)
-    return Math.floor(mk.myStakes[mk.winner] * mk.total / mk.pools[mk.winner]);
-  return 0;
-}
+// claimable amount for the signed-in bettor — the CONTRACT computes it (claimable_of view), so the UI can
+// never disagree with what claim() will actually pay
+const claimable = (mk) => (mk && mk.claimableAmt) || 0;
 const statusTag = (s) => ({ open: '<span class="b ok">' + window.t("bet.tagOpen", "🟢 open") + '</span>', locked: '<span class="b pend">' + window.t("bet.tagLocked", "🔒 locked") + '</span>',
   resolved: '<span class="b ok">' + window.t("bet.tagResolved", "✅ resolved") + '</span>', void: '<span class="b void">' + window.t("bet.tagVoid", "↩ void") + '</span>' }[s]);
 function statusText(mk) {
@@ -114,7 +137,8 @@ async function placeBet() {
   if (activeMarket == null || selOutcome == null) return alertBar(window.t("bet.pickFirst", "Pick a match and an outcome first."));
   const mk = lastSto && parseMarket(lastSto, activeMarket);
   if (!mk || mk.status !== "open") { alertBar(window.t("bet.notOpen", "This match isn't open for bets.")); render(); return; }
-  const stake = nadoToRaw($("stakeAmt").value);
+  // stakes must be UNIT multiples (the contract's pool-unit money model) — round down silently
+  const stake = Math.floor(Number(nadoToRaw($("stakeAmt").value)) / UNIT) * UNIT;
   if (!stake) return alertBar(window.t("bet.enterStake", "Enter a stake (NADO)."));
   await dapp.refresh();
   if (!canPay(dapp, stake, window.t("bet.thisBet", "This bet"))) { render(); return; }
@@ -146,18 +170,28 @@ function createMarket() {
   const deadline = Math.round(lock + Math.max(voidHrs, 0.5) * 3600);   // anyone may void this long after close
   const id = randId();
   const desc = [title].concat(labels).join("\n");
-  const r = resolvers.concat(["", "", ""]);
+  const r = resolvers.concat([0, 0, 0]);                    // 0 = empty resolver slot (zkVM: ints, not "")
   dapp.call("create_market", [id, labels.length, lock, deadline, desc, source, ev, thr, r[0], r[1], r[2]], null,
             window.t("bet.callCreate", "list “{title}”", { title }), { market: id, phase: "create" });
 }
-const addSource = () => { const n = ($("srcName").value || "").trim(); if (!n) return alertBar(window.t("bet.needSource", "Enter a source name.")); dapp.call("add_source", [n], null, window.t("bet.callAddSource", "add source {n}", { n }), { phase: "src" }); };
 
 // ---- refresh + render ----------------------------------------------------------------------------
 async function refreshAll() {
   await dapp.refresh();
   const sto = await dapp.storage();
   if (sto) lastSto = sto;
-  if (lastSto) await resolveAliases([dapp.me, cfg(lastSto, "admin")].filter(Boolean));
+  if (lastSto) await resolveAliases([dapp.me].filter(Boolean));
+  // per-user positions (view calls): always the selected market, plus a slow round-robin sweep over the
+  // rest — a few per tick, so old wins surface for auto-collect from ANY device without hammering the node
+  if (lastSto && dapp.me) {
+    const mkts = allMarkets(lastSto);
+    const act = mkts.find((m) => m.id === activeMarket);
+    if (act) await refreshMy(act);
+    for (let k = 0; k < 3 && mkts.length; k++) {
+      const mk = mkts[sweepIdx++ % mkts.length];
+      if (mk.id !== activeMarket) await refreshMy(mk);
+    }
+  }
   render();
   dapp.settleInflight(actionLanded);   // SDK retires the optimistic "confirming…" line once the action lands
   // AUTO-COLLECT (shared SDK tick, opt-out): claim any settled market that owes me, one per refresh
@@ -275,17 +309,15 @@ function render() {
   }).join("");
   $("myBetsList").querySelectorAll(".pos").forEach((el) => el.onclick = () => selectMarket(el.dataset.m));
 
-  // sources + oracle panel
-  const srcs = sourcesOf(sto);
-  $("sourcesList").innerHTML = srcs.length ? srcs.map((s) => '<span class="b dimb" style="margin:0 4px 4px 0;display:inline-block">' + esc(s) + "</span>").join("")
-    : '<span class="dim">' + window.t("bet.noSources", "none configured yet") + "</span>";
-  const admin = isAdmin(sto);
+  // sources panel — the well-known free public feeds a resolver bot can read (no on-chain registry in the
+  // zkVM port: each market simply names its source as free text, resolved back from its digest)
+  $("sourcesList").innerHTML = KNOWN_SOURCES.map((s) => '<span class="b dimb" style="margin:0 4px 4px 0;display:inline-block">' + esc(s) + "</span>").join("");
   gate({ oraclePanel: signedIn });   // creating a market is PERMISSIONLESS — anyone signed in can list one
   if (signedIn) {
-    // source is optional: pick a registered public source (auto-resolvable) or leave it self-resolved
+    // source is optional: pick a known public source (auto-resolvable) or leave it self-resolved
     $("cmSource").innerHTML = '<option value="">' + esc(window.t("bet.sourceNone", "— none / I'll resolve it —")) + '</option>'
-      + srcs.map((s) => '<option>' + esc(s) + "</option>").join("");
-    gate({ adminCfg: admin });   // add-source is protocol config, admin only
+      + KNOWN_SOURCES.map((s) => '<option>' + esc(s) + "</option>").join("");
+    gate({ adminCfg: false });   // no admin/protocol config in the permissionless zkVM port
   }
   renderActive(sto);
 }
@@ -377,7 +409,6 @@ function wireUI() {
   // shared SDK stake slider: the stake input + a 0–100% slider + Max, bound to your playable balance
   dapp.wireStakeSlider(() => dapp.exec, () => { if (lastSto) renderActive(lastSto); });
   $("btnCreate").onclick = createMarket;
-  if ($("btnAddSource")) $("btnAddSource").onclick = addSource;
   $("btnShare").onclick = () => share(base() + "/?market=" + activeMarket, window.t("bet.shareThis", "Bet on this match on NADO:"), $("btnShare"));
   // ONE delegated handler for the whole (capped) list — a card click selects, "Show more" grows the slice.
   // Delegation means we don't (re)bind a listener per card, so cost stays flat as the board grows.

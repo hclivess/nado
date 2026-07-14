@@ -13,7 +13,7 @@ from execnode.state import ExecState
 from execnode import runtimes
 from execnode.stark import vm_circuit as V
 from execnode.games import (coinflip, dice, roulette, tictactoe as ttt, connect4 as c4,
-                            slots, mines, reversi as rv, chess, farkle as fk, blackjack as bj)
+                            slots, mines, reversi as rv, chess, farkle as fk, blackjack as bj, bet as bt)
 
 fails = 0
 def check(name, fn):
@@ -318,6 +318,171 @@ def t_blackjack_prove():
     assert ok, f"settle proof: {why}"
 
 
+# ---- bet (parimutuel — the whole pot splits pro-rata among the winning outcome's backers) --------
+def t_bet():
+    U = bt.UNIT
+    st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = 100
+    T0 = 1_000_000; st.block_ts = T0
+    code = bt.build()
+    ADM, X, Y, Z, W = A, "ndoXXXX" + "X" * 41, "ndoYYYY" + "Y" * 41, "ndoZZZZ" + "Z" * 41, "ndoWWWW" + "W" * 41
+    for a in (ADM, X, Y, Z, W):
+        st.credit_deposit(a, 10_000 * U)
+    st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "abi": bt.ABI, "nonce": "n"}, ADM, "d")
+    cid = st.contract_id(ADM, code, "n")
+    rd = lambda f, k: int((st.contracts[cid]["storage"].get("slots") or {}).get(str(f * (1 << 32) + k), 0))
+    call = lambda m, args, val, who: st.apply_blob(
+        {"op": "call", "contract": cid, "method": m, "args": args, "value": val or 0}, who,
+        m + str(args) + who + str(st.block_ts))
+    bal = lambda a: st.bridge.get(a, 0)
+    CM = lambda m, nout, lk, dl, desc, thr=0, res=(): [m, nout, lk, dl, desc, "thesportsdb", "133602", thr] \
+        + (list(res) + [0, 0, 0])[:3]
+
+    # market 1: creator (ADM) names no resolver -> resolves it personally
+    M1 = 5001
+    DESC = "Arsenal vs Chelsea\nArsenal\nDraw\nChelsea"
+    assert "ok" in call("create_market", CM(M1, 3, T0 + 100, T0 + 400, DESC), None, ADM)
+    assert rd(bt.MK, M1) == 1 and rd(bt.NO, M1) == 3 and rd(bt.LK, M1) == T0 + 100
+    v = st.decode_view(st.contracts[cid])
+    assert v["ds"][str(M1)] == DESC and v["so"][str(M1)] == "thesportsdb", "digests resolve to text"
+    assert "revert" in call("create_market", CM(M1, 2, T0 + 100, T0 + 400, "x"), None, ADM), "dup id"
+    assert "revert" in call("create_market", CM(5099, 1, T0 + 100, T0 + 400, "x"), None, ADM), "<2 outcomes"
+    assert "revert" in call("create_market", CM(5098, 2, T0 - 1, T0 + 400, "x"), None, ADM), "lock in past"
+    assert "revert" in call("create_market", CM(5097, 2, T0 + 100, T0 + 100, "x"), None, ADM), "deadline<=lock"
+    assert "revert" in call("create_market", CM(5096, 2, T0 + 100, T0 + 400, "x", thr=2, res=(W,)), None, ADM)
+
+    # bets: X 300 on 0, Y 700 on 2, Z 500 on 0 (in UNIT multiples)
+    bx, by, bz = bal(X), bal(Y), bal(Z)
+    call("bet", [M1, 0], 300 * U, X); call("bet", [M1, 2], 700 * U, Y); call("bet", [M1, 0], 500 * U, Z)
+    assert bal(X) == bx - 300 * U and st.bridge[cid] == 1500 * U, "escrowed"
+    assert rd(bt.PL_BASE + 0, M1) == 800 and rd(bt.PL_BASE + 2, M1) == 700 and rd(bt.TOT, M1) == 1500
+    assert st.view(cid, "stake_of", [M1, 0, X]) == 300 * U and st.view(cid, "total_of", [M1, X]) == 300 * U
+    assert "revert" in call("bet", [M1, 0], 0, X), "zero stake"
+    assert "revert" in call("bet", [M1, 0], 100 * U + 5, X), "non-UNIT stake"
+    assert "revert" in call("bet", [M1, 3], 100 * U, X), "bad outcome"
+    assert "revert" in call("bet", [9999, 0], 100 * U, X), "no market"
+
+    # resolve gates
+    assert "revert" in call("resolve", [M1, 0], None, ADM), "before lock"
+    st.block_ts = T0 + 120
+    assert "revert" in call("bet", [M1, 0], 100 * U, X), "after lock"
+    assert "revert" in call("resolve", [M1, 0], None, X), "non-resolver"
+    call("resolve", [M1, 0], None, ADM)
+    assert rd(bt.RS, M1) == 1 and rd(bt.DN, M1) == 1 and rd(bt.VD, M1) == 0
+    assert "revert" in call("resolve", [M1, 2], None, ADM), "double resolve"
+
+    # claims: X and Z split the whole 1500 pro-rata to the 800 pool; Y gets nothing
+    bx, by, bz = bal(X), bal(Y), bal(Z)
+    assert st.view(cid, "claimable_of", [M1, X]) == 300 * 1500 // 800 * U
+    call("claim", [M1], None, X); call("claim", [M1], None, Z)
+    assert bal(X) == bx + 300 * 1500 // 800 * U and bal(Z) == bz + 500 * 1500 // 800 * U
+    assert "revert" in call("claim", [M1], None, Y) and bal(Y) == by, "loser gets nothing"
+    assert "revert" in call("claim", [M1], None, X), "double claim"
+
+    # custom resolver: X lists, W resolves (creator can't)
+    MC = 5010
+    call("create_market", CM(MC, 2, T0 + 150, T0 + 400, "Fight\nRed\nBlue", res=(W,)), None, X)
+    call("bet", [MC, 0], 100 * U, Y); call("bet", [MC, 1], 100 * U, Z)
+    st.block_ts = T0 + 160
+    assert "revert" in call("resolve", [MC, 0], None, X), "creator not a resolver"
+    call("resolve", [MC, 0], None, W)
+    assert rd(bt.DN, MC) == 1 and rd(bt.RS, MC) == 1
+
+    # void by resolver -> 1:1 refunds
+    M2 = 5002
+    call("create_market", CM(M2, 2, T0 + 200, T0 + 500, "B\nH\nA"), None, ADM)
+    call("bet", [M2, 0], 400 * U, X); call("bet", [M2, 1], 600 * U, Y)
+    bx, by = bal(X), bal(Y)
+    assert "revert" in call("void", [M2], None, X), "non-resolver early void"
+    call("void", [M2], None, ADM)
+    assert rd(bt.VD, M2) == 1 and "revert" in call("bet", [M2, 0], 100 * U, Z)
+    call("claim", [M2], None, X); call("claim", [M2], None, Y)
+    assert bal(X) == bx + 400 * U and bal(Y) == by + 600 * U, "void refunds 1:1"
+
+    # deadline void by ANYONE
+    M3 = 5003
+    call("create_market", CM(M3, 2, T0 + 300, T0 + 600, "C\nH\nA"), None, ADM)
+    call("bet", [M3, 0], 250 * U, Z)
+    st.block_ts = T0 + 590
+    assert "revert" in call("void", [M3], None, Z)
+    st.block_ts = T0 + 620; bz = bal(Z)
+    assert "ok" in call("void", [M3], None, Z), "anyone voids past deadline"
+    call("claim", [M3], None, Z)
+    assert bal(Z) == bz + 250 * U
+
+    # auto-void: posted winner had no backers
+    M4 = 5004
+    st.block_ts = T0 + 700
+    call("create_market", CM(M4, 3, T0 + 750, T0 + 900, "D\nH\nX\nA"), None, ADM)
+    call("bet", [M4, 0], 100 * U, X); call("bet", [M4, 1], 100 * U, Y)
+    st.block_ts = T0 + 760; bx, by = bal(X), bal(Y)
+    call("resolve", [M4, 2], None, ADM)
+    assert rd(bt.VD, M4) == 1 and rd(bt.DN, M4) == 0, "unbacked winner auto-voids"
+    call("claim", [M4], None, X); call("claim", [M4], None, Y)
+    assert bal(X) == bx + 100 * U and bal(Y) == by + 100 * U
+
+    # 2-of-3 resolver panel
+    M5 = 5005
+    st.block_ts = T0 + 800
+    call("create_market", CM(M5, 2, T0 + 850, T0 + 1000, "E\nH\nA", thr=2, res=(ADM, W, X)), None, ADM)
+    assert rd(bt.MRC, M5) == 3 and rd(bt.MTH, M5) == 2
+    call("bet", [M5, 0], 1000 * U, Y); call("bet", [M5, 1], 1000 * U, Z)
+    st.block_ts = T0 + 860
+    assert "revert" in call("resolve", [M5, 0], None, Z), "non-panel"
+    call("resolve", [M5, 0], None, ADM)
+    assert rd(bt.DN, M5) == 0 and rd(bt.VC_BASE + 0, M5) == 1, "one vote does not finalize"
+    assert "revert" in call("resolve", [M5, 0], None, ADM), "no double vote"
+    call("resolve", [M5, 0], None, W)
+    assert rd(bt.DN, M5) == 1 and rd(bt.RS, M5) == 1, "second matching vote finalizes"
+    by = bal(Y); call("claim", [M5], None, Y)
+    assert bal(Y) == by + 1000 * 2000 // 1000 * U
+
+    # split votes never finalize until a tie-breaker
+    M6 = 5006
+    call("create_market", CM(M6, 2, T0 + 900, T0 + 1100, "F\nH\nA", thr=2, res=(ADM, W, X)), None, ADM)
+    call("bet", [M6, 0], 500 * U, Y); call("bet", [M6, 1], 500 * U, Z)
+    st.block_ts = T0 + 910
+    call("resolve", [M6, 0], None, ADM); call("resolve", [M6, 1], None, W)
+    assert rd(bt.DN, M6) == 0 and rd(bt.VD, M6) == 0, "split votes hold"
+    call("resolve", [M6, 0], None, X)
+    assert rd(bt.DN, M6) == 1 and rd(bt.RS, M6) == 1, "third vote breaks the tie"
+
+    # views expose everything the frontend renders
+    v = st.decode_view(st.contracts[cid])
+    assert str(M1) in v["mk"] and v["pl"][str(M1 * 8 + 0)] == 800 and v["mcr"][str(M1)] == ADM
+
+
+def t_bet_prove():
+    # prove BOTH new-VM capabilities inside a real contract: create_market's 11 args ride the ARG bus,
+    # claim's pro-rata payout rides DIVMODW.
+    U = bt.UNIT
+    st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = 100
+    T0 = 1_000_000; st.block_ts = T0
+    code = bt.build()
+    st.credit_deposit(A, 10_000 * U); st.credit_deposit(B, 10_000 * U)
+    st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "abi": bt.ABI, "nonce": "n"}, A, "d")
+    cid = st.contract_id(A, code, "n")
+    call = lambda m, args, val, who: st.apply_blob(
+        {"op": "call", "contract": cid, "method": m, "args": args, "value": val or 0}, who, m + who)
+    M = 7001
+    cargs = [M, 2, T0 + 100, T0 + 400, "P\nH\nA", "src", "ev", 0, 0, 0, 0]
+    # prove create_market against the PRE state (fresh slots)
+    cf, fa = runtimes.zkvm_statement(A, cargs, {})
+    proof, io, ret, ns = V.prove_call(code, "create_market", cf, fa, {}, num_queries=NQ, timestamp=T0)
+    ok, why = V.verify_call(proof, code, "create_market", cf, fa, io, num_queries=NQ, timestamp=T0)
+    assert ok, f"create_market proof: {why}"
+    # play the market for real, then prove the claim (DIVMODW payout)
+    call("create_market", cargs, None, A)
+    call("bet", [M, 0], 300 * U, B); call("bet", [M, 1], 700 * U, A)
+    st.block_ts = T0 + 120
+    call("resolve", [M, 0], None, A)
+    slots = {int(k): int(vv) for k, vv in st.contracts[cid]["storage"]["slots"].items()}
+    cf, fa = runtimes.zkvm_statement(B, [M], {})
+    proof, io, ret, ns = V.prove_call(code, "claim", cf, fa, slots, num_queries=NQ, timestamp=st.block_ts)
+    assert ret == 300 * 1000 // 300 * U, "pro-rata payout"
+    ok, why = V.verify_call(proof, code, "claim", cf, fa, io, num_queries=NQ, timestamp=st.block_ts)
+    assert ok, f"claim proof: {why}"
+
+
 if __name__ == "__main__":
     check("coinflip: open/join/settle/cancel + escrow + view", t_coinflip)
     check("coinflip: settle proves", t_coinflip_prove)
@@ -336,5 +501,7 @@ if __name__ == "__main__":
     check("blackjack: deal/reveal/stand/settle vs dealer S17 + payouts + view", t_blackjack)
     check("blackjack: hit-then-bust loses immediately", t_blackjack_hit_bust)
     check("blackjack: settle proves (dealer loop trace)", t_blackjack_prove)
+    check("bet: parimutuel markets, resolver panels, voids, pro-rata claims", t_bet)
+    check("bet: create (ARG bus) + claim (DIVMODW) prove", t_bet_prove)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)
