@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-i18n="bj.title">NADO Blackjack — no dealer to trust, provably fair</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Crect%20x%3D%226%22%20y%3D%228%22%20width%3D%2220%22%20height%3D%2230%22%20rx%3D%223%22%20fill%3D%22%23e6edf3%22%20transform%3D%22rotate(-8%2016%2023)%22/%3E%3Crect%20x%3D%2222%22%20y%3D%228%22%20width%3D%2220%22%20height%3D%2230%22%20rx%3D%223%22%20fill%3D%22%23fff%22%20stroke%3D%22%23243140%22%20transform%3D%22rotate(8%2032%2023)%22/%3E%3Ctext%20x%3D%2212%22%20y%3D%2222%22%20font-size%3D%2211%22%20font-weight%3D%22900%22%20fill%3D%22%23d0362b%22%20transform%3D%22rotate(-8%2016%2023)%22%3EA%3C/text%3E%3Ctext%20x%3D%2228%22%20y%3D%2222%22%20font-size%3D%2211%22%20font-weight%3D%22900%22%20fill%3D%22%2320272f%22%20transform%3D%22rotate(8%2032%2023)%22%3EJ%3C/text%3E%3C/svg%3E">
+<meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js"></script>
+<style>
+  :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--win:#2fbf71;--lose:#f85149;--gold:#e3b341;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
+    color:var(--txt);font:15px/1.5 var(--sans);min-height:100vh}
+  .wrap{max-width:640px;margin:0 auto;padding:22px 16px 60px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  header .logo{font-size:26px}
+  header h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.2px}
+  header h1 .a{color:var(--accent2)}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 16px}
+  .card-p{background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  .card-p h2{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 0;min-width:0}
+  label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
+  input{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+  input:focus{outline:none;border-color:var(--accent2)}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:10px;padding:0;border:0;margin:12px 0;background:linear-gradient(90deg,var(--accent) 0,var(--accent2) 100%);border-radius:999px;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+  input[type=range]::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab}
+  button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:11px;background:var(--elev2);color:var(--txt);padding:11px 15px;cursor:pointer;transition:transform .05s,border-color .15s}
+  button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
+  button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
+  @keyframes dpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,201,167,.45)}50%{transform:scale(1.04);box-shadow:0 0 0 6px rgba(0,201,167,0)}}
+  button.pulse{animation:dpulse 1.25s ease-in-out infinite}
+  .switch{position:relative;width:46px;height:26px;-webkit-appearance:none;appearance:none;outline:none;border:0;padding:0;box-sizing:border-box;background:var(--border);border-radius:999px;cursor:pointer;transition:background .18s;flex:0 0 auto;margin:0}
+  .switch:checked{background:linear-gradient(135deg,#00ad93,#00c9a7)}
+  .switch::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.4);transition:left .18s}
+  .switch:checked::after{left:23px}
+  .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
+  .warn{color:var(--danger);font-weight:600;line-height:1.45}
+  .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}
+  .chip.betting{border-color:var(--accent2);color:var(--accent2)}
+  .chip.pending{opacity:.6;border-style:dashed}
+  table.score{width:100%;border-collapse:collapse;font-size:13px}
+  table.score th,table.score td{text-align:left;padding:6px 6px;border-bottom:1px solid var(--border)}
+  table.score th{color:var(--dim);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+  table.score td.pos{color:var(--accent2);font-weight:600}table.score td.neg{color:var(--danger)}
+  table.score tr.me td{background:rgba(0,201,167,.08)}
+  .b{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;margin-left:6px}
+  .b.ok{background:rgba(0,173,147,.16);color:var(--accent2)}
+  .b.pend{background:rgba(210,153,34,.16);color:#e3b341}
+  .b.dimb{background:rgba(147,161,176,.12);color:var(--dim)}
+  #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}#status:empty{display:none;min-height:0;margin:0}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
+  .seat{font-size:13px;padding:6px 0;border-bottom:1px solid var(--border)}
+  .win{color:var(--win);font-weight:700}.lose{color:var(--lose);font-weight:700}
+  /* the felt */
+  #felt{background:radial-gradient(420px 200px at 50% 30%,#134e42,#0d3a31 75%);border:1px solid #0a2d26;border-radius:16px;padding:16px 12px;margin-top:12px}
+  .feltrow{display:flex;justify-content:center;flex-wrap:wrap;min-height:70px;align-items:center}
+  .feltlabel{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;color:#9fd8c9;text-transform:uppercase;letter-spacing:.08em;margin:2px 4px}
+  .totbadge{font-family:var(--mono);font-size:14px;font-weight:800;color:#fff;background:rgba(0,0,0,.35);border-radius:999px;padding:2px 12px}
+  #verdict{text-align:center;font-size:14.5px;min-height:20px;margin:10px 0 4px}
+  header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev);white-space:nowrap}
+  header .hub:hover{color:var(--accent2);border-color:var(--accent2)}
+  footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
+  a{color:var(--accent2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><span class="logo">🃏</span><h1>NADO <span class="a">Blackjack</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="bj.allGames">🎮 All games</a></header>
+  <p class="sub" data-i18n-html="bj.sub">Blackjack with <b>literally no dealer to trust</b>: the house plays a fixed on-chain strategy (stands on 17), and its cards are drawn from <b>future L1 block hashes bound after you stand</b> — nothing to peek at, nothing to rig. Hit or stand as usual; win pays 2×, blackjack pays 5:2. Every card is verifiable on-chain. Post-quantum wallet, no install.</p>
+
+  <div id="status"></div>
+
+  <div class="card-p" id="walletcard">
+    <h2 data-i18n="bj.walletH">Wallet</h2>
+    <p class="small dim" data-i18n-html="bj.walletHelp">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — your key never touches this site.</p>
+    <div class="kv mt"><span class="k" data-i18n="bj.playingAs">Playing as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="bj.walletMain">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="bj.tokensPlayable">🪙 Tokens (playable)</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="bj.signIn">Sign in with NADO wallet</button></div>
+  </div>
+
+  <!-- FIND A TABLE -->
+  <div class="card-p hidden" id="play">
+    <h2 data-i18n="bj.findH">🃏 Find a table</h2>
+    <p class="small dim" data-i18n="bj.findHelp">Pick a table from the lobby below, or open one by ID.</p>
+    <div class="row">
+      <input id="joinId" placeholder="table ID" data-i18n-ph="bj.joinIdPh" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="btnGoTable" style="flex:0 0 auto" data-i18n="bj.go">Go</button>
+    </div>
+    <div class="small dim mt" data-i18n-html="bj.yourTables">Your tables <span style="opacity:.7">· 🏦 you bank · 🃏 you play</span></div>
+    <div class="small dim" id="recent"></div>
+  </div>
+
+  <!-- BANK -->
+  <div class="card-p hidden" id="bankcard">
+    <h2 data-i18n="bj.bankH">🏦 Bankroll a table</h2>
+    <p class="small dim" data-i18n="bj.bankHelp">Put up a bankroll and be the house: the fixed dealer strategy plays for you with a built-in edge, hand after hand — you never have to deal or sign anything. Top up or close any time.</p>
+    <div class="row">
+      <input id="bankrollAmt" value="100" placeholder="bankroll (NADO)" data-i18n-ph="bj.bankrollPh" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNewTable" style="flex:0 0 auto" data-i18n="bj.newTable">New table</button>
+    </div>
+  </div>
+
+  <!-- BANKROLL -->
+  <div class="card-p hidden" id="bankroll">
+    <h2 data-i18n="bj.tokensH">🪙 Tokens — buy in / cash out</h2>
+    <div class="row">
+      <input id="bankAmt" value="10" placeholder="amount (NADO)" data-i18n-ph="bj.amountPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto" data-i18n="bj.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto" data-i18n="bj.withdraw">Withdraw</button>
+    </div>
+    <div class="small dim mt" data-i18n="bj.tokensHelp">Deposit buys tokens with NADO (1 : 1); Withdraw cashes your tokens back out to the wallet.</div>
+  </div>
+
+  <!-- LOBBY -->
+  <div class="card-p" id="lobby">
+    <h2 data-i18n="bj.lobbyH">🃏 Public tables</h2>
+    <p class="small dim" data-i18n="bj.lobbyHelp">Live tables — tap one to play against its bank.</p>
+    <div class="small mt" id="lobbyList"><span class="dim" data-i18n="bj.loading">Loading…</span></div>
+    <button class="ghost mt hidden" id="btnMoreLobby" style="width:100%" data-i18n="bj.showMore">Show more</button>
+  </div>
+
+  <!-- SCOREBOARD -->
+  <div class="card-p" id="scoreboard">
+    <h2 data-i18n="bj.scoreH">🏆 Scoreboard</h2>
+    <p class="small dim" data-i18n="bj.scoreHelp">Global standings across every finished hand — banks and players alike, ranked by net NADO.</p>
+    <div class="mt" id="scoreList"><span class="dim" data-i18n="bj.loading2">Loading…</span></div>
+  </div>
+
+  <!-- ACTIVE TABLE -->
+  <div class="card-p hidden" id="activeGame">
+    <h2 data-i18n="bj.tableH">Table <span id="gameId" class="mono"></span></h2>
+    <div class="kv"><span class="k" data-i18n="bj.statusK">Status</span><span class="mono" id="gStatus">…</span></div>
+    <div class="kv"><span class="k" data-i18n="bj.bankK">Bank (the house — pays winners)</span><span class="mono" id="gBank">—</span></div>
+    <div class="kv"><span class="k" data-i18n="bj.bankrollK">Bankroll</span><span class="mono" id="gBankroll">—</span></div>
+    <div class="kv"><span class="k" data-i18n="bj.coverK">Coverage left</span><span class="mono" id="gCover">—</span></div>
+
+    <!-- BET BUILDER -->
+    <div id="betBuilder" class="mt hidden">
+      <label data-i18n="bj.placeBet">Place your bet</label>
+      <input id="stakeAmt" value="1" placeholder="stake (NADO)" data-i18n-ph="bj.stakePh" inputmode="decimal" autocomplete="off">
+      <div id="stakeSliderWrap" class="hidden">
+        <input type="range" id="stakeSlider" min="0" max="100" value="0" step="0.01" class="mt">
+        <div class="row"><div style="flex:1"><span class="small" id="stakeSliderVal"></span></div><div style="flex:1;text-align:right"><b class="small" style="color:var(--accent2);cursor:pointer" id="btnMaxBet" data-i18n="bj.max">Max: <span id="maxBetVal"></span></b></div></div>
+      </div>
+      <button class="primary mt" id="btnDeal" style="width:100%" data-i18n="bj.dealBtn">🃏 Deal</button>
+    </div>
+
+    <!-- THE FELT -->
+    <div id="felt" class="hidden">
+      <div class="feltlabel"><span data-i18n="bj.dealerLbl">Dealer — stands on 17</span><span id="dealerNote" class="small"></span></div>
+      <div class="feltrow" id="dealerRow"></div>
+      <div class="feltlabel mt"><span data-i18n="bj.yourHandLbl">Your hand · <span id="handStake" class="mono"></span></span><span class="totbadge" id="playerTotal">—</span></div>
+      <div class="feltrow" id="playerRow"></div>
+      <div id="verdict"></div>
+      <div class="row" id="handActions"></div>
+    </div>
+
+    <div class="mt small dim" data-i18n="bj.handsLabel">Hands at this table</div>
+    <div id="seats"></div>
+    <label class="small dim mt" style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" class="switch" id="autoCollect"> <span style="flex:1" data-i18n="bj.autoCollect">Auto-land my cards — deals, draws and payouts confirm by themselves the moment the chain fixes them</span></label>
+    <div class="row mt">
+      <button class="ghost hidden" id="btnClose" data-i18n="bj.closeTable">Close table — reclaim the pool</button>
+    </div>
+    <div class="row mt hidden" id="fundRow">
+      <input id="fundAmt" value="10" placeholder="add to bankroll (NADO)" data-i18n-ph="bj.fundPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnFund" style="flex:0 0 auto" data-i18n="bj.topUp">Top up</button>
+    </div>
+    <label class="mt" data-i18n="bj.invite">Invite players</label>
+    <input id="shareLink" class="mono" readonly onclick="this.select()">
+    <div class="row mt" style="align-items:center;gap:8px">
+      <button class="primary" id="btnShare" style="flex:0 0 auto" data-i18n="bj.share">Share</button>
+      <span class="dim small" data-i18n="bj.scanHint">or scan the code to play at this table</span>
+    </div>
+    <canvas id="shareQR" class="hidden" style="margin:12px auto 0;display:block;border-radius:8px;background:#fff;padding:8px"></canvas>
+    <div id="shareQRNote" class="hidden dim small mt" data-i18n="bj.qrNote">QR generator unavailable — copy the link above.</div>
+  </div>
+
+  <div class="card-p">
+    <h2 data-i18n="bj.fairH">Provably fair — the dealer is an algorithm</h2>
+    <p class="small dim" style="line-height:1.6" data-i18n-html="bj.fairText">
+      Your cards bind to <b>two future L1 block hashes</b> the moment you bet or hit — <span class="mono">card = HASH(blockhash(H) ‖ blockhash(H+1) ‖ hand ‖ n) mod 52</span> — and the dealer's hole card and hits are drawn the same way from blocks bound <b>only after you stand</b>. Nobody can peek, stack the deck, or grind the result (two blocks are mixed). The dealer must stand on 17 — a fixed strategy enforced by the contract, which also stores every card on-chain and pays wins (2×), pushes (refund) and naturals (5:2) automatically. Cards draw from an infinite shoe (each card independent), the one provably fair way to deal without a dealer.
+    </p>
+  </div>
+
+  <footer data-i18n-html="bj.footer">Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="https://nadochain.com/games">more games</a> · <a href="https://get.nadochain.com/rollup">see the contract</a>.</footer>
+</div>
+<script type="module" src="/static/blackjack.js"></script>
+</body>
+</html>

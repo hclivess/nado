@@ -1966,7 +1966,7 @@ async function resumePendingForumLogin() {
 // ONE execution-layer contract call with their wallet, then returns. Same redirect pattern as the forum SSO,
 // but this signs a REAL (fee-only) blob tx — so we confirm explicitly, only return to an ALLOWLISTED dApp
 // origin, and it can never move funds beyond the network fee (a `blob` tx has amount 0).
-const EXEC_SIGN_ALLOW = ["https://coinflip.nadochain.com", "https://roulette.nadochain.com", "https://dice.nadochain.com", "https://chess.nadochain.com", "https://poker.nadochain.com", "https://farkle.nadochain.com", "https://pets.nadochain.com", "https://slots.nadochain.com", "https://tictactoe.nadochain.com", "https://bet.nadochain.com", "https://battleship.nadochain.com"];
+const EXEC_SIGN_ALLOW = ["https://coinflip.nadochain.com", "https://roulette.nadochain.com", "https://dice.nadochain.com", "https://chess.nadochain.com", "https://poker.nadochain.com", "https://farkle.nadochain.com", "https://pets.nadochain.com", "https://slots.nadochain.com", "https://tictactoe.nadochain.com", "https://bet.nadochain.com", "https://battleship.nadochain.com", "https://mines.nadochain.com", "https://blackjack.nadochain.com", "https://connect4.nadochain.com", "https://reversi.nadochain.com"];
 // USER-CONFIGURABLE allowlist (Settings → "Allowed dApp sites"): extra origins the user trusts to request
 // signatures, on TOP of the built-in official games above. Stored as a JSON array of "https://host" origins.
 const ALLOW_LS = "nado_allowed_origins";

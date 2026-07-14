@@ -1,0 +1,300 @@
+// blackjack.js — NADO Blackjack: fully provable, with NO dealer to trust, built on the shared game SDK
+// (nadodapp.js + bankedgame.js + cards.js). The "dealer" is a fixed on-chain strategy (stands on 17,
+// soft or hard) whose cards come from block hashes bound AFTER you stand — nothing to peek at, nothing
+// to rig. Your cards bind to future blocks at deal/hit time; every card is stored on-chain (pc/dk maps)
+// so the exact hand reconstructs from chain state alone. Win pays 2×, push refunds, natural blackjack
+// 5:2; European no-hole-card timing. See tests/test_blackjack_contract.py.
+import { NadoDapp, rawToNado, nadoToRaw, _m, $, base, gate, canPay, orderCards, alertBar, notify,
+         lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
+         randId, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { BankedGame } from "./bankedgame.js";
+import { chainCards, cardHTML, injectCardCSS, bjTotal } from "./cards.js";
+
+const CID = "7b240c833702a4124b7891bf8006e39a";
+const REAP = 1200;
+const dapp = new NadoDapp({ cid: CID, app: "Blackjack" });
+const bg = new BankedGame(dapp, { icon: "🃏" });
+
+let lastSto = null, myHand = null, watch = null;
+
+// ---- reads (blackjack seat schema; cards live on-chain in pc/dk) ------------------------------------
+function handFrom(sto, g) {
+  g = String(g); const t = _m(sto, "gg")[g];
+  if (!t) return { exists: false, g: Number(g) };
+  const s = { exists: true, g: Number(g), table: Number(t), addr: _m(sto, "ga")[g], stake: _m(sto, "gs")[g] || 0,
+    gf: _m(sto, "gf")[g] || 0, gh: _m(sto, "gh")[g] || 0, gn: _m(sto, "gn")[g] || 0, ge: _m(sto, "ge")[g] || 0,
+    du: _m(sto, "du")[g] || 0, done: !!_m(sto, "gd")[g], res: _m(sto, "gw")[g] || 0, dealerBest: _m(sto, "gr")[g] || 0 };
+  s.cards = []; for (let k = 0; k < s.gn; k++) { const c = _m(sto, "pc")[String(s.g * 16 + k)]; if (c) s.cards.push(c - 1); }
+  s.dealer = []; for (let j = 0; j < 16; j++) { const c = _m(sto, "dk")[String(s.g * 16 + j)]; if (!c) break; s.dealer.push(c - 1); }
+  s.total = bjTotal(s.cards);
+  // a pending binding whose blocks already exist -> PREVIEW the outcome from fast provisional hashes
+  if (!s.done && s.gh && dapp.cursor != null && dapp.cursor >= s.gh + 1) {
+    const bh0 = dapp.bh(s.gh), bh1 = dapp.bh(s.gh + 1);
+    if (s.gf === 1) { const cs = chainCards(bh0, bh1, s.g * 64, 2), up = chainCards(bh0, bh1, s.g * 64 + 16, 1); if (cs && up) s.preview = { cards: cs, up: up[0] }; }
+    else if (s.gf === 3) { const c = chainCards(bh0, bh1, s.g * 64 + s.gn, 1); if (c) s.preview = { card: c[0] }; }
+    else if (s.gf === 4) { const d = previewDealer(bh0, bh1, s.g, s.du - 1); if (d) s.preview = d; }
+    s.ready = !!s.preview;
+  }
+  s.waiting = !s.done && s.gh && !s.ready;
+  s.stale = !s.done && dapp.cursor != null && s.ge && dapp.cursor > s.ge + REAP;
+  return s;
+}
+// simulate the dealer exactly as the contract will (S17): draw dk cards until best >= 17
+function previewDealer(bh0, bh1, g, up) {
+  if (!bh0 || !bh1 || up == null || up < 0) return null;
+  const cards = [];
+  const hand = () => bjTotal([up].concat(cards));
+  for (let j = 0; j < 16; j++) {
+    const c = chainCards(bh0, bh1, g * 64 + 32 + j, 1); if (!c) return null;
+    cards.push(c[0]);
+    if (bjTotal([up].concat(cards)).total >= 17) break;
+  }
+  return { dealer: cards, best: hand().total, bust: hand().total > 21 };
+}
+const handsOfTable = (sto, t) => Object.keys(_m(sto, "gg")).filter((g) => String(_m(sto, "gg")[g]) === String(t))
+  .map((g) => handFrom(sto, g)).sort((a, b) => (b.ge - a.ge) || (b.g - a.g));
+const maxStakeRaw = () => { const tb = lastTable(); return tb && tb.exists && !tb.closed ? tb.free * 2n / 3n : null; };
+const lastTable = () => (lastSto && bg.active != null) ? bg.read(lastSto, bg.active) : null;
+
+// ---- actions -----------------------------------------------------------------------------------------
+function newTable() {
+  const raw = nadoToRaw($("bankrollAmt").value);
+  if (!raw) return alertBar(window.t("bj.enterBankroll", "Enter a bankroll (NADO)."));
+  if (!canPay(dapp, raw, window.t("bj.whatBank", "Banking this table"))) return;
+  bg.open(raw, window.t("bj.callOpen", "bank a blackjack table #{t} · {amt} NADO", { t: bg.active, amt: rawToNado(raw) }));
+  render();
+}
+async function deal() {
+  const tb = lastTable();
+  if (!tb || !tb.exists) return alertBar(dapp.whereIs("table", bg.active));
+  if (tb.closed) return alertBar(window.t("bj.closedTable", "That table is closed."));
+  const stake = nadoToRaw($("stakeAmt").value);
+  if (!stake) return alertBar(window.t("bj.enterStake", "Enter a stake (NADO)."));
+  await dapp.refresh();
+  if (!canPay(dapp, stake, window.t("bj.whatHand", "This hand"))) return;
+  const mx = maxStakeRaw();
+  if (mx != null && stake > mx) return alertBar(window.t("bj.stakeCap", "This table can only cover hands up to {n} NADO right now (every hand reserves a 5:2 blackjack cover).", { n: rawToNado(mx) }));
+  const g = randId();
+  bg.rememberSeat(g, { stake: stake.toString() });
+  myHand = g;
+  dapp.call("deal", [g, bg.active], stake, window.t("bj.callDeal", "🃏 deal blackjack · {amt} NADO · table #{t}", { amt: rawToNado(stake), t: bg.active }), { table: bg.active, seat: g, phase: "deal" });
+  render();
+}
+const hit = () => { const s = myHandObj(); if (s) dapp.call("hit", [s.g], null, window.t("bj.callHit", "hit — one more card · hand #{g}", { g: s.g }), { table: bg.active, seat: s.g, phase: "hit" }); };
+const stand = () => { const s = myHandObj(); if (s) dapp.call("stand", [s.g], null, window.t("bj.callStand", "stand on {n} · hand #{g}", { n: s.total.total, g: s.g }), { table: bg.active, seat: s.g, phase: "stand" }); };
+const RESOLVE_METHOD = { 1: "reveal", 3: "draw", 4: "settle" };
+const resolveHand = (s) => dapp.call(RESOLVE_METHOD[s.gf], [s.g], null, window.t("bj.callResolve", "land the cards · hand #{g}", { g: s.g }), { table: bg.active, seat: s.g, phase: "resolve" });
+const reapHand = (g) => dapp.call("reap", [g], null, window.t("bj.callReap", "release abandoned hand #{g}", { g }), { table: bg.active, seat: g, phase: "resolve" });
+function fundTable() {
+  const raw = nadoToRaw($("fundAmt").value);
+  if (!raw) return alertBar(window.t("bj.enterFund", "Enter an amount to add to this table's bankroll."));
+  if (!canPay(dapp, raw, window.t("bj.whatFund", "The top-up"))) return;
+  bg.fund(raw, window.t("bj.callFund", "top up table #{t} · {amt} NADO", { t: bg.active, amt: rawToNado(raw) }));
+}
+const closeTable = () => bg.close(window.t("bj.callClose", "close table #{t}", { t: bg.active }), { confirm: 1 });
+function maybeAutoResolve(hands) {
+  const tb = lastTable(); if (!tb || !tb.exists) return;
+  const iAmBank = tb.bank === dapp.me;
+  dapp.autoCollect(hands.filter((s) => !s.done && (s.ready && (iAmBank || s.addr === dapp.me) || (iAmBank && s.stale && !s.ready))),
+    (s) => s.ready ? resolveHand(s) : reapHand(s.g), { blocked: watch });
+}
+
+// ---- refresh -----------------------------------------------------------------------------------------
+async function refreshAll() {
+  await dapp.refresh();
+  const sto = await dapp.storage({ append: ["gd", "gw", "pc", "dk", "gn", "gp"] });
+  if (sto) {
+    lastSto = sto;
+    bg.track(sto);
+    if (bg.active != null) await bg.prefetchHashes(sto, (g) => (!_m(sto, "gd")[g] && _m(sto, "gf")[g]) ? _m(sto, "gh")[g] || 0 : 0);
+    if (watch) {
+      const g = String(watch.seat), t = String(watch.table), gf = _m(sto, "gf")[g] || 0;
+      const done =
+        watch.phase === "open" ? !!_m(sto, "ta")[t] :
+        watch.phase === "deal" ? !!_m(sto, "gg")[g] :
+        watch.phase === "hit" ? gf === 3 || gf === 2 && (_m(sto, "gn")[g] || 0) > (watch.gn || 2) || !!_m(sto, "gd")[g] :
+        watch.phase === "stand" ? gf === 4 || !!_m(sto, "gd")[g] :
+        watch.phase === "resolve" ? gf !== (watch.gf || 0) || !!_m(sto, "gd")[g] :
+        watch.phase === "close" ? !!_m(sto, "tz")[t] : true;
+      if (done) {
+        dapp.clearInflight();
+        const okMsg = { open: window.t("bj.stOpen", "✓ Table is live — share it and earn the edge."), deal: window.t("bj.stDeal", "✓ Hand dealt to the next blocks…"),
+          hit: window.t("bj.stHit", "✓ Card bound — landing…"), stand: window.t("bj.stStand", "✓ Standing — the dealer draws from the next blocks…"),
+          resolve: window.t("bj.stResolve", "✓ Cards landed."), fund: window.t("bj.stFund", "✓ Bankroll topped up."), close: window.t("bj.stClose", "✓ Table closed — pool reclaimed.") }[watch.phase];
+        if (okMsg) notify(okMsg);
+        watch = null;
+      } else if (watch.ts && Date.now() - watch.ts > 90000) watch = null;
+    }
+    const hands = bg.active != null ? handsOfTable(sto, bg.active) : [];
+    maybeAutoResolve(hands);
+    bg.lobby($("lobbyList"), sto, (m) => window.t("bj.lobbyChip", "🃏 #{id} · bank {bank} · {n} hands", { id: m.id, bank: rawToNado(m.tk), n: m.tn }), selectTable);
+    renderScore($("scoreList"), boardFrom(sto), dapp.me, window.t("bj.noScores", "No finished hands yet — be the first on the board."));
+    const tb = lastTable();
+    await resolveAliases([dapp.me, tb && tb.exists ? tb.bank : null].concat(hands.slice(0, 12).map((s) => s.addr)).filter(Boolean));
+  }
+  render();
+}
+function boardFrom(sto) {
+  const stats = {};
+  for (const g of Object.keys(_m(sto, "gd"))) {
+    if (!_m(sto, "gd")[g]) continue;
+    const t = String(_m(sto, "gg")[g]), bank = _m(sto, "ta")[t]; if (!bank) continue;
+    const stake = _m(sto, "gs")[g] || 0, res = _m(sto, "gw")[g] || 0;
+    const pay = res === 1 ? 2 * stake : res === 2 ? stake : res === 3 ? Math.floor(stake * 5 / 2) : 0;
+    const who = _m(sto, "ga")[g];
+    scoreBump(stats, who, pay - stake); if (bank !== who) scoreBump(stats, bank, stake - pay);   // self-play: the bank leg would cancel your own win to a bogus ±0
+  }
+  return scoreSort(stats);
+}
+function selectTable(id) {
+  bg.active = id; myHand = null;
+  $("joinId").value = String(id);
+  notify(window.t("bj.tableSelected", "Table #{id} — set your stake, then Deal.", { id }));
+  refreshAll();
+  try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
+}
+function myHandObj() {
+  if (!lastSto || bg.active == null) return null;
+  if (myHand) { const s = handFrom(lastSto, myHand); if (s.exists && String(s.table) === String(bg.active)) return s; }
+  const mine = handsOfTable(lastSto, bg.active).filter((s) => s.addr === dapp.me);
+  const live = mine.find((s) => !s.done);
+  const s = live || (myHand === 0 ? null : mine[0] || null);
+  if (s) myHand = s.g;
+  return s;
+}
+
+// ---- render ------------------------------------------------------------------------------------------
+const RES_TEXT = () => ({
+  1: '<span class="win">' + window.t("bj.resWin", "🏆 You win — paid 2× your stake.") + "</span>",
+  2: window.t("bj.resPush", "🤝 Push — stake refunded."),
+  3: '<span class="win">' + window.t("bj.resBJ", "🂡 BLACKJACK! Paid 5:2.") + "</span>",
+  4: '<span class="lose">' + window.t("bj.resLose", "Dealer wins this one.") + "</span>",
+  5: '<span class="lose">' + window.t("bj.resBust", "💥 Bust — over 21.") + "</span>",
+  6: window.t("bj.resForfeit", "Hand released after inactivity."),
+});
+function render() {
+  dapp.reflectUrl("table", bg.active);
+  dapp.syncPctSlider("bankroll", { slider: "bankrollSlider", input: "bankrollAmt" }, dapp.exec);
+  dapp.syncPctSlider("fund", { slider: "fundSlider", input: "fundAmt" }, dapp.exec);
+  const signedIn = renderWallet(dapp);
+  gate({ play: signedIn, bankcard: signedIn, bankroll: signedIn, activeGame: bg.active != null });
+  bg.recent($("recent"), selectTable, (x) => {
+    if (!lastSto) return "";
+    const live = handsOfTable(lastSto, x.id).some((s) => s.addr === dapp.me && !s.done);
+    return live ? window.t("bj.tagLive", "hand live") : "";
+  });
+  if (bg.active == null) return;
+  const tb = lastTable() || { exists: false };
+  const Trec = bg.tableRec(bg.active) || {};
+  $("gameId").textContent = "#" + bg.active;
+  shareInvite("table", bg.active, window.t("bj.shareText", "Play blackjack at my table #{t} on NADO:", { t: bg.active }), 180);
+  const iAmBank = tb.exists && tb.bank === dapp.me;
+  $("gBank").textContent = tb.exists ? (disp(tb.bank) + (iAmBank ? window.t("bj.thatsYou", " — that's you (the house)") : "")) : (Trec.bankroll ? window.t("bj.opening", "you (opening…)") : "—");
+  $("gBankroll").textContent = tb.exists ? rawToNado(tb.tk) + " NADO" : (Trec.bankroll ? rawToNado(Trec.bankroll) + " NADO" : "—");
+  $("gCover").textContent = tb.exists ? window.t("bj.nadoFree", "{amt} NADO free", { amt: rawToNado(tb.free) }) : "—";
+  $("gStatus").textContent = !tb.exists ? dapp.whereIs("table", bg.active, Trec.ts)
+    : tb.closed ? window.t("bj.phaseClosed", "table closed")
+    : window.t("bj.phaseOpen", "🟢 open · {n} hands played", { n: tb.tx });
+  gate({ fundRow: iAmBank && tb.exists && !tb.closed });
+  $("btnClose").classList.toggle("hidden", !(iAmBank && tb.exists && !tb.closed && tb.tx >= tb.tn));
+  const s = signedIn ? myHandObj() : null;
+  const inHand = s && s.exists;
+  gate({ betBuilder: signedIn && tb.exists && !tb.closed && (!s || s.done), felt: !!inHand });
+  if (signedIn && tb.exists) {
+    dapp.syncStakeSlider(maxStakeRaw());
+    const stake = nadoToRaw($("stakeAmt").value);
+    $("btnDeal").disabled = !stake || (maxStakeRaw() != null && stake > maxStakeRaw()) || dapp.busy("deal") || !!(s && !s.done);
+    $("btnDeal").classList.toggle("pulse", !$("btnDeal").disabled);
+  }
+  if (!inHand) { renderHands(); return; }
+  // ---- the felt ----
+  const dealerCards = [];
+  let dealerNote = "";
+  if (s.du) dealerCards.push(s.du - 1);
+  if (s.done && s.dealer.length) { dealerCards.push(...s.dealer); dealerNote = window.t("bj.dealerShows", "dealer: {n}", { n: s.dealerBest }); }
+  else if (s.gf === 4 && s.preview) { dealerCards.push(...s.preview.dealer); dealerNote = window.t("bj.dealerDrawing", "dealer draws {n} — confirming…", { n: s.preview.best }); }
+  else if (s.gf === 4) { dealerCards.push(null); dealerNote = window.t("bj.dealerWaits", "dealer's cards are locking to the next blocks…"); }
+  else if (s.du) { dealerCards.push(null); dealerNote = window.t("bj.dealerHole", "hole card is drawn after you stand"); }
+  $("dealerRow").innerHTML = dealerCards.length ? dealerCards.map((c) => cardHTML(c)).join("") : cardHTML(null) + cardHTML(null);
+  $("dealerNote").textContent = dealerNote;
+  const pcards = s.cards.slice();
+  if (s.gf === 1 && s.preview) pcards.push(...s.preview.cards);
+  if (s.gf === 3 && s.preview) pcards.push(s.preview.card);
+  $("playerRow").innerHTML = pcards.length ? pcards.map((c) => cardHTML(c, true)).join("") : cardHTML(null, true) + cardHTML(null, true);
+  const pt = bjTotal(pcards);
+  $("playerTotal").textContent = pcards.length ? (pt.total + (pt.soft ? window.t("bj.soft", " soft") : "")) : "—";
+  $("handStake").textContent = rawToNado(s.stake) + " NADO";
+  // verdict
+  let v = "";
+  if (s.done) v = RES_TEXT()[s.res] || "";
+  else if (s.gf === 1) v = s.preview ? window.t("bj.dealLanding", "Your cards are in — confirming on-chain…") : window.t("bj.dealing", "🂠 Dealing from the next blocks…");
+  else if (s.gf === 3) v = s.preview ? window.t("bj.cardLanding", "Card drawn — confirming…") : window.t("bj.drawing", "🂠 Drawing your card…");
+  else if (s.gf === 4) v = s.preview ? (s.preview.bust ? '<span class="win">' + window.t("bj.dealerBusting", "Dealer BUSTS with {n} — confirming your win…", { n: s.preview.best }) + "</span>" : window.t("bj.dealerLanded", "Dealer stands on {n} — settling…", { n: s.preview.best })) : window.t("bj.dealerThinking", "Dealer draws from the next blocks…");
+  else if (pt.bust) v = window.t("bj.busting", "Over 21 — confirming…");
+  else if (pt.natural) v = '<span class="win">' + window.t("bj.natural", "🂡 Blackjack! Stand to collect 5:2.") + "</span>";
+  else v = window.t("bj.yourMove", "Your move: hit for another card, or stand on {n}.", { n: pt.total });
+  $("verdict").innerHTML = v;
+  // actions
+  const acts = $("handActions"); acts.innerHTML = "";
+  const mkBtn = (txt, fn, primary, pulse) => { const b = document.createElement("button"); b.className = (primary ? "primary" : "ghost") + (pulse ? " pulse" : ""); b.style.flex = "1 1 auto"; b.textContent = txt; b.onclick = fn; acts.appendChild(b); return b; };
+  const busy = dapp.busy("hit") || dapp.busy("stand") || dapp.busy("resolve");
+  if (!s.done && s.gf === 2 && s.addr === dapp.me && !busy) {
+    if (s.gn < 11 && !pt.natural) mkBtn(window.t("bj.hit", "🂠 Hit"), hit, false);
+    mkBtn(window.t("bj.stand", "✋ Stand on {n}", { n: pt.total }), stand, true, pt.total >= 17 || pt.natural);
+  }
+  if (!s.done && s.ready && !busy) mkBtn(window.t("bj.landNow", "Land the cards now"), () => resolveHand(s), false);
+  if (s.done && dapp.me) mkBtn(window.t("bj.newHand", "↻ New hand"), () => { myHand = 0; render(); }, true, true);
+  renderHands();
+}
+function renderHands() {
+  const el = $("seats"); if (!el || !lastSto || bg.active == null) return;
+  const tb = lastTable(); const iAmBank = tb && tb.exists && tb.bank === dapp.me;
+  const hands = handsOfTable(lastSto, bg.active).slice(0, 30);
+  const resShort = { 1: window.t("bj.sWin", "won 2×"), 2: window.t("bj.sPush", "push"), 3: window.t("bj.sBJ", "BLACKJACK 5:2"), 4: window.t("bj.sLose", "lost"), 5: window.t("bj.sBust", "bust"), 6: window.t("bj.sVoid", "released") };
+  el.innerHTML = hands.length ? hands.map((s) => {
+    const you = s.addr === dapp.me ? '<b style="color:var(--accent2)">' + window.t("bj.you", "you") + "</b> " : "";
+    let out = s.done
+      ? (s.res === 1 || s.res === 3 ? '<span class="b ok">' : '<span class="b dimb">') + (resShort[s.res] || "—") + "</span>"
+      : '<span class="b pend">' + (s.gf === 2 ? window.t("bj.sPlaying", "{n} showing", { n: s.total.total }) : window.t("bj.sDrawing", "drawing…")) + "</span>";
+    const reapB = s.stale && !s.ready && (iAmBank || s.addr === dapp.me) ? ' <button class="ghost" style="padding:2px 8px;font-size:11px" data-reap="' + s.g + '">' + window.t("bj.releaseSeat", "release") + "</button>" : "";
+    return '<div class="seat">' + you + disp(s.addr) + ' · <span class="mono">' + rawToNado(s.stake) + "</span> " + out + reapB + "</div>";
+  }).join("") : '<span class="dim">' + window.t("bj.noHands", "No hands yet — deal the first one.") + "</span>";
+  el.querySelectorAll("[data-reap]").forEach((b) => b.onclick = () => reapHand(parseInt(b.dataset.reap, 10)));
+}
+
+// ---- boot --------------------------------------------------------------------------------------------
+dapp.onReturn((pend, ok, err) => {
+  if (pend && pend.table != null) bg.active = pend.table;
+  if (pend && pend.seat != null && pend.phase !== "resolve") myHand = pend.seat;
+  if (ok && pend && ["open", "deal", "hit", "stand", "resolve", "fund", "close"].includes(pend.phase)) {
+    watch = Object.assign({}, pend, { ts: Date.now() });
+    if (lastSto && pend.seat != null) { watch.gn = _m(lastSto, "gn")[String(pend.seat)] || 2; watch.gf = _m(lastSto, "gf")[String(pend.seat)] || 0; }
+  }
+  dapp.showReturn(pend, ok, err, {
+    deal: window.t("bj.pendDeal", "🃏 Dealing — the cards lock to the next blocks…"), hit: window.t("bj.pendHit", "Hit — your card locks to the next blocks…"),
+    stand: window.t("bj.pendStand", "Standing — the dealer draws next…"), resolve: window.t("bj.pendResolve", "Landing the cards…") });
+});
+function wireUI() {
+  wireWallet(dapp);
+  stickyInputs(dapp, ["stakeAmt", "bankrollAmt", "fundAmt", "bankAmt"]);
+  $("btnNewTable").onclick = newTable;
+  $("btnDeal").onclick = deal;
+  $("btnGoTable").onclick = () => { const id = parseInt($("joinId").value, 10); if (id) selectTable(id); else alertBar(window.t("bj.enterTableId", "Enter a table ID, or pick one from the lobby.")); };
+  $("btnClose").onclick = closeTable;
+  $("btnFund").onclick = fundTable;
+  dapp.wireStakeSlider(maxStakeRaw, render);
+  dapp.wirePctSlider("bankroll", { slider: "bankrollSlider", input: "bankrollAmt" }, () => dapp.exec, render);
+  dapp.wirePctSlider("fund", { slider: "fundSlider", input: "fundAmt" }, () => dapp.exec, render);
+  dapp.wireAutoCollect();
+}
+async function boot() {
+  try { await dapp.init(); } catch (e) { alertBar(window.t("bj.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
+  injectCardCSS();
+  wireUI(); loadQR();
+  orderCards(["activeGame", "lobby", "play", "bankcard", "walletcard", "bankroll", "scoreboard"]);
+  const q = new URLSearchParams(location.search).get("table");
+  if (q) { $("joinId").value = q; if (bg.active == null) bg.active = parseInt(q, 10); }
+  render(); refreshAll();
+  setInterval(refreshAll, 3000);
+}
+boot();

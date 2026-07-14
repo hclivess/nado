@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-i18n="rv.docTitle">NADO Reversi — staked, contract-refereed</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Crect%20x%3D%226%22%20y%3D%226%22%20width%3D%2236%22%20height%3D%2236%22%20rx%3D%225%22%20fill%3D%22%23145239%22%20stroke%3D%22%231d6b4b%22%20stroke-width%3D%222%22/%3E%3Ccircle%20cx%3D%2218%22%20cy%3D%2218%22%20r%3D%226%22%20fill%3D%22%23111%22/%3E%3Ccircle%20cx%3D%2230%22%20cy%3D%2218%22%20r%3D%226%22%20fill%3D%22%23f2f2f2%22/%3E%3Ccircle%20cx%3D%2218%22%20cy%3D%2230%22%20r%3D%226%22%20fill%3D%22%23f2f2f2%22/%3E%3Ccircle%20cx%3D%2230%22%20cy%3D%2230%22%20r%3D%226%22%20fill%3D%22%23111%22/%3E%3C/svg%3E">
+<meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js"></script>
+<style>
+  :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--win:#2fbf71;--gold:#e3b341;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
+    color:var(--txt);font:15px/1.5 var(--sans);min-height:100vh}
+  .wrap{max-width:640px;margin:0 auto;padding:22px 16px 60px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  header .logo{font-size:26px}
+  header h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.2px}
+  header h1 .a{color:var(--accent2)}
+  header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev);white-space:nowrap}
+  header .hub:hover{color:var(--accent2);border-color:var(--accent2)}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 16px}
+  .card{background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  .card h2{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 0;min-width:0}
+  label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
+  input{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:10px;padding:0;border:0;margin:12px 0;background:linear-gradient(90deg,var(--accent) 0,var(--accent2) 100%);border-radius:999px;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+  input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab}
+  input:focus{outline:none;border-color:var(--accent2)}
+  button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:11px;background:var(--elev2);color:var(--txt);padding:11px 15px;cursor:pointer;transition:transform .05s,border-color .15s}
+  button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
+  button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
+  .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
+  .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}
+  .chip.betting{border-color:var(--accent2);color:var(--accent2)}
+  .chip.pending{opacity:.6;border-style:dashed}
+  #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}#status:empty{display:none;min-height:0;margin:0}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
+  table.score{width:100%;border-collapse:collapse;font-size:13px}
+  table.score th,table.score td{text-align:left;padding:6px 6px;border-bottom:1px solid var(--border)}
+  table.score th{color:var(--dim);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+  table.score tr.me td{background:rgba(0,201,167,.08)}
+  table.score .pos{color:var(--win)}table.score .neg{color:var(--danger)}
+  footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
+  a{color:var(--accent2)}
+  /* ---- the board (8x8 green felt) ---- */
+  #board{display:grid;grid-template-columns:repeat(8,1fr);gap:3px;justify-content:center;margin:10px auto;max-width:440px;
+    background:linear-gradient(160deg,#17603f,#0f402b);border:1px solid #1d6b4b;border-radius:14px;padding:8px}
+  #board:empty{display:none}
+  .rvc{aspect-ratio:1;border-radius:5px;background:rgba(0,0,0,.22);display:flex;align-items:center;justify-content:center;user-select:none;transition:background .12s}
+  .rvc .d{width:80%;height:80%;border-radius:50%}
+  .rvc.p1 .d{background:radial-gradient(circle at 35% 30%,#4d4d4d,#050505);box-shadow:0 1px 3px rgba(0,0,0,.6)}
+  .rvc.p2 .d{background:radial-gradient(circle at 35% 30%,#ffffff,#c9c9c9);box-shadow:0 1px 3px rgba(0,0,0,.4)}
+  .rvc.legal{cursor:pointer}
+  .rvc.legal:hover{background:rgba(0,201,167,.25)}
+  .rvc .hint{width:26%;height:26%;border-radius:50%;background:rgba(0,201,167,.55)}
+  .rvc.pend .d,.rvc.flip .d{opacity:.5}
+  #counts{text-align:center;font-size:14px;min-height:20px;margin:4px 0}
+  #verdict{text-align:center;font-weight:800;font-size:15px;min-height:22px}
+  @keyframes tpulse{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
+  .yourturn{animation:tpulse 1.2s ease-in-out infinite;color:var(--accent2)}
+  @keyframes btnpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,201,167,.45)}50%{transform:scale(1.04);box-shadow:0 0 0 6px rgba(0,201,167,0)}}
+  button.pulse{animation:btnpulse 1.25s ease-in-out infinite}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><span class="logo">⚪</span><h1>NADO <span class="a" data-i18n="rv.title">Reversi</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="rv.allGames">🎮 All games</a></header>
+  <p class="sub" data-i18n-html="rv.sub">Othello, for stakes — and the <b>contract itself is the referee</b>: every placement is verified on-chain (it must flip at least one disc), every bracketed run is flipped by the contract, and when both players pass, the contract <b>counts the discs and pays the majority instantly</b>. No disputes possible. ⚫ moves first; each move lands in the next block (~6–12&nbsp;s). Stalling can't steal — a silent opponent only voids the game and refunds you.</p>
+
+  <div id="status"></div>
+
+  <!-- THE GAME -->
+  <div class="card hidden" id="activeGame">
+    <h2 data-i18n="rv.game">Game <span id="gameId" class="mono"></span></h2>
+    <div class="kv"><span class="k" data-i18n="rv.pot">Pot</span><span class="mono" id="gPot">—</span></div>
+    <div class="kv"><span class="k" data-i18n="rv.players">Players</span><span id="gPlayers" style="text-align:right">—</span></div>
+    <div id="verdict"></div>
+    <div id="counts"></div>
+    <div id="board"></div>
+    <div class="row mt" id="gameActions"></div>
+    <div class="mt">
+      <label data-i18n="rv.invite">Invite your opponent</label>
+      <div class="row">
+        <input id="shareLink" class="mono" readonly onclick="this.select()">
+        <button class="ghost" id="btnShare" style="flex:0 0 auto" data-i18n="rv.share">Share</button>
+      </div>
+      <canvas id="shareQR" class="hidden" style="margin:12px auto 0;display:block;border-radius:8px;background:#fff;padding:8px"></canvas>
+      <div id="shareQRNote" class="hidden dim small mt"></div>
+    </div>
+  </div>
+
+  <!-- LOBBY -->
+  <div class="card" id="lobby">
+    <h2 data-i18n="rv.openChallenges">Open challenges</h2>
+    <div id="lobbyList"><span class="dim" data-i18n="rv.loading">Loading…</span></div>
+    <button class="ghost mt hidden" id="btnMoreLobby" style="width:100%" data-i18n="rv.showMore">Show more</button>
+    <div id="recent" class="small dim mt"></div>
+  </div>
+
+  <!-- NEW GAME -->
+  <div class="card hidden" id="opencard">
+    <h2 data-i18n="rv.startGame">⚫ Start a game</h2>
+    <p class="small dim" data-i18n-html="rv.startBlurb">Stake NADO; your opponent matches it — most discs takes both stakes, an equal count refunds each. You play <b>⚫</b> and move first.</p>
+    <div class="row">
+      <input id="stakeAmt" value="1" placeholder="stake (NADO)" data-i18n-ph="rv.stakePh" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNewGame" style="flex:0 0 auto" data-i18n="rv.openGame">Open a game</button>
+    </div>
+  </div>
+
+  <!-- WALLET -->
+  <div class="card" id="walletcard">
+    <h2 data-i18n="rv.wallet">Wallet</h2>
+    <div class="kv"><span class="k" data-i18n="rv.signedInAs">Signed in as</span><span class="addr" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="rv.tokensStakeable">🪙 Tokens (stakeable)</span><span class="mono" id="bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="rv.walletMain">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="rv.signIn">Sign in with NADO wallet</button></div>
+    <p class="small dim mt" data-i18n="rv.keyNote">Your key never touches this page — signing happens in your wallet at get.nadochain.com, then you bounce back.</p>
+  </div>
+
+  <!-- TOKENS -->
+  <div class="card hidden" id="bankroll">
+    <h2 data-i18n="rv.tokensHead">🪙 Tokens — buy in / cash out</h2>
+    <label data-i18n="rv.amount">Amount (NADO)</label>
+    <div class="row">
+      <input id="bankAmt" value="10" placeholder="e.g. 10" data-i18n-ph="rv.amountPh" inputmode="decimal" autocomplete="off">
+      <button id="btnDeposit" data-i18n="rv.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" data-i18n="rv.withdraw">Withdraw</button>
+    </div>
+    <p class="small dim mt" data-i18n="rv.bankNote">Deposit buys tokens with NADO (1 : 1); Withdraw cashes your tokens back out to the wallet.</p>
+  </div>
+
+  <!-- SCOREBOARD -->
+  <div class="card" id="scoreboard">
+    <h2 data-i18n="rv.scoreboard">🏆 Scoreboard</h2>
+    <div id="scoreList"><span class="dim" data-i18n="rv.loading2">Loading…</span></div>
+  </div>
+
+  <!-- FAIRNESS -->
+  <div class="card">
+    <h2 data-i18n="rv.fairHead">Why nobody can cheat</h2>
+    <p class="small dim" data-i18n-html="rv.fairBody">Every move is a signed transaction bound to its exact turn number — replays and stale retries bounce off. The contract enforces whose turn it is, validates the placement (it must bracket and flip at least one enemy disc — the real Othello rule) and performs every flip itself. Two consecutive passes make the contract count the board and pay the majority in the same instant; an equal count refunds both stakes. If your opponent walks away, the move clock (~30&nbsp;min) lets anyone refund the game — stalling only ever voids, never wins.</p>
+  </div>
+
+  <footer data-i18n="rv.footer">NADO Reversi · contract-refereed wagers · post-quantum signatures · no house</footer>
+</div>
+<script type="module" src="/static/reversi.js"></script>
+</body>
+</html>

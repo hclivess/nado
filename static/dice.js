@@ -124,7 +124,8 @@ function boardFrom(sto) {
     const t = String(_m(sto, "gg")[g]), bank = _m(sto, "ta")[t]; if (!bank) continue;
     const M = _m(sto, "gm")[g] || 1, stake = _m(sto, "gs")[g] || 0, win = !!_m(sto, "gw")[g];
     const net = win ? Number(returnRaw(stake, M)) - stake : -stake;
-    scoreBump(stats, _m(sto, "ga")[g], net); scoreBump(stats, bank, -net);
+    const who = _m(sto, "ga")[g];
+    scoreBump(stats, who, net); if (bank !== who) scoreBump(stats, bank, -net);   // self-play: the bank leg would cancel your own win to a bogus ±0
   }
   return scoreSort(stats);
 }
