@@ -26,7 +26,23 @@ to the `["kv", cid, "slots", …]` leaves `execnode/state.py` already commits in
 `settlement_proofs.settlement_verifier(...)` plugs straight into `ops.settlement_ops.set_settlement_verifier`
 — the Phase-2b seam — so L1 can justify a root by proof instead of by bonded quorum.
 
-The composition insight that kept this small: because each call's proof already binds its
+**alphanet-5 reboot + game migration (2026-07-14, post-v1.0.0-alpha.9).** Deleting stackvm made the zkVM the
+only runtime, so the chain was rebooted to **alphanet-5** with every holder's balance + bonded stake carried
+forward (`tools/alphanet5_carryforward.py`; exec-side balances + dividends folded into L1, contract pots
+refunded to players, supply conserved exactly). Games return only as zkVM ports (`execnode/games/`):
+
+- **Port pattern:** contract in zkvm asm (`slot` macro → `slot = field*2^32 + key`, enumerable via a count +
+  list field); an `abi._view` schema so `ExecState.decode_view` presents the flat slots as the old named maps
+  (a ported game's frontend changes only its `cid`); `chainResultAlg` gives a client-side beacon preview that
+  byte-matches the contract's in-VM alghash. Deploy with `python -m execnode.games.deploy <name>`.
+- **Live on alphanet-5:** coinflip, dice, roulette (banked), tictactoe (PvP board). Each verified sound
+  (escrow + payouts) and provable.
+- **Two VM lessons the ports drove:** (1) **arg-packing** — the 8-register arg limit is not raised (that
+  changes the AIR and still wouldn't fit roulette's 20 args); many-arg games pack into a bitmask + bounded
+  in-VM loops (roulette's 37-number coverage). (2) **DIVMOD widened** to a 48-bit quotient / 15-bit divisor
+  for financial `stake*99/target` (q·b < 2^63 < P stays sound).
+
+The composition insight that kept the settlement proof small: because each call's proof already binds its
 authenticated public I/O log, the epoch transition needs **no second in-circuit memory argument** — it is
 `verify-proof → replay-log → chain-root`. Two honest remainders, both noted where they live:
 - **Succinct aggregation** — folding the N per-call proofs into one O(1)-verify proof (STARK recursion). At
