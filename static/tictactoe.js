@@ -6,7 +6,7 @@
 import { NadoDapp, rawToNado, _m, $, disp } from "./nadodapp.js";
 import { PvpGame } from "./pvpgame.js";
 
-const CID = "68f2bf23441437af6655e2eba4a71ba1";
+const CID = "d7744c41300ef02b6cc944f0cf1ccdae";
 const dapp = new NadoDapp({ cid: CID, app: "TicTacToe" });
 const LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
 
