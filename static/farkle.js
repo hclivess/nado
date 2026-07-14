@@ -9,7 +9,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, 
          alertBar, notify,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 
-const CID = "daa45eda99742933f5337eb11eb3e76c";
+const CID = "b56dd48000707369be1630e41bfb038d";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="5" y="21" width="16" height="16" rx="4" fill="#e6edf3" stroke="#243140" stroke-width="1.6"/>     <circle cx="9.5" cy="25.5" r="1.6" fill="#20272f"/><circle cx="16.5" cy="32.5" r="1.6" fill="#20272f"/><circle cx="13" cy="29" r="1.6" fill="#00ad93"/>     <rect x="27" y="21" width="16" height="16" rx="4" fill="#e3b341" stroke="#8a6209" stroke-width="1.6"/>     <circle cx="31.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="31.5" cy="32.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="32.5" r="1.6" fill="#3a2a05"/>     <rect x="16" y="6" width="16" height="16" rx="4" fill="#d0362b" stroke="#8a1a12" stroke-width="1.6"/>     <circle cx="24" cy="14" r="1.9" fill="#fff"/></svg>';
 const dapp = new NadoDapp({ cid: CID, app: "Farkle" });
 const JOIN = 20, PLAY = 600, GAP = 2, MAXP = 8, TARGET = 4000;   // MUST match the contract
@@ -149,7 +149,7 @@ async function rematch() {
 }
 const doRoll = (g) => { keep = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }; dapp.call("roll", [g], null, window.t("farkle.callRoll", "roll the dice · Farkle #{t}", { t: activeTable }), { table: activeTable, seat: g, phase: "roll" }); };
 function doHold(g, cont) {
-  dapp.call("hold", [g, keep[1], keep[2], keep[3], keep[4], keep[5], keep[6], cont], null,
+  dapp.call("hold", [g, keep[1] | keep[2]<<3 | keep[3]<<6 | keep[4]<<9 | keep[5]<<12 | keep[6]<<15, cont], null,
     window.t(cont ? "farkle.callHoldRoll" : "farkle.callHoldBank", cont ? "set aside + roll again" : "bank the turn") + " · Farkle #" + activeTable, { table: activeTable, seat: g, phase: "hold" });
 }
 const settleTable = () => dapp.call("settle", [activeTable], null, window.t("farkle.callSettle", "pay the winner · table #{t}", { t: activeTable }), { table: activeTable, phase: "settle" });
