@@ -1,0 +1,114 @@
+"""
+VM2 assembler — labels, comments, and the safety/convenience macros contracts are written with
+(doc/zk-execution-proofs.md). Produces the canonical [[op, d, s, imm], ...] instruction lists vm2.py runs
+and the execution AIR proves. Text form:
+
+    ; dice: payout if guess == roll
+    start:
+        ctx r1 caller
+        hash r2 <- r0 r1          ; r2 = alghash.hashn([r0, r1])
+        lo32 r2                   ; window it for divmod
+        movi r3 6
+        divmod r2 r3              ; r2 = quotient, r7 = remainder
+        eq r7 r4
+        jnz r7 @win
+        movi r0 0
+        ret r0
+    win:
+        pay r1 r5
+        movi r0 1
+        ret r0
+
+Macros: hash d <- s1 s2 ... (HINIT/HABS/HR0..7 per element/HOUT) · gte d s (LT;NOTB) · not d (alias NOTB).
+CTX accepts caller|value|cursor|time. Jump targets are @label (absolute, resolved in pass 2).
+"""
+from execnode import vm2
+
+_CTX = {"caller": vm2.CTX_CALLER, "value": vm2.CTX_VALUE, "cursor": vm2.CTX_CURSOR, "time": vm2.CTX_TIME}
+_HR = [f"HR{r}" for r in range(8)]
+
+
+def _reg(tok):
+    if not (len(tok) == 2 and tok[0] == "r" and tok[1].isdigit() and int(tok[1]) < vm2.NUM_REGS):
+        raise vm2.VM2Error(f"bad register {tok!r}")
+    return int(tok[1])
+
+
+def _imm(tok):
+    try:
+        v = int(tok, 0)
+    except ValueError:
+        raise vm2.VM2Error(f"bad immediate {tok!r}")
+    if not (0 <= v < 2**64):
+        raise vm2.VM2Error(f"immediate out of range {tok!r}")
+    return v
+
+
+def assemble(text):
+    """Assemble one method body. Returns the instruction list ready for vm2.validate_code."""
+    # pass 1: expand macros into (op, d, s, imm-or-("@", label)) tuples, record label positions
+    out, labels = [], {}
+    for raw in text.splitlines():
+        line = raw.split(";", 1)[0].strip()
+        if not line:
+            continue
+        if line.endswith(":"):
+            labels[line[:-1].strip()] = len(out)
+            continue
+        toks = line.replace(",", " ").split()
+        op = toks[0].upper()
+        if op == "HASH":                                       # hash d <- s1 s2 ...
+            if len(toks) < 4 or toks[2] != "<-":
+                raise vm2.VM2Error(f"hash syntax: hash d <- s1 s2 ... ({line!r})")
+            d = _reg(toks[1])
+            out.append(["HINIT", 0, 0, 0])
+            for stok in toks[3:]:
+                out.append(["HABS", 0, _reg(stok), 0])
+                for h in _HR:
+                    out.append([h, 0, 0, 0])
+            out.append(["HOUT", d, 0, 0])
+        elif op == "GTE":                                      # gte d s  ->  lt d s ; notb d
+            d, s = _reg(toks[1]), _reg(toks[2])
+            out.append(["LT", d, s, 0])
+            out.append(["NOTB", d, 0, 0])
+        elif op == "NOT":
+            out.append(["NOTB", _reg(toks[1]), 0, 0])
+        elif op == "CTX":
+            if toks[2] not in _CTX:
+                raise vm2.VM2Error(f"ctx wants caller|value|cursor|time ({line!r})")
+            out.append(["CTX", _reg(toks[1]), 0, _CTX[toks[2]]])
+        elif op in ("JMP", "JNZ"):
+            tgt = toks[-1]
+            if not tgt.startswith("@"):
+                raise vm2.VM2Error(f"jump target must be @label ({line!r})")
+            s = _reg(toks[1]) if op == "JNZ" else 0
+            out.append([op, 0, s, ("@", tgt[1:])])
+        elif op == "MOVI":
+            out.append(["MOVI", _reg(toks[1]), 0, _imm(toks[2])])
+        elif op in ("MOV", "ADD", "SUB", "MUL", "EQ", "LT", "DIVMOD", "SLOAD", "SSTORE", "PAY"):
+            out.append([op, _reg(toks[1]), _reg(toks[2]), 0])
+        elif op in ("NEZ", "NOTB", "RANGE", "LO32", "HOUT"):
+            out.append([op, _reg(toks[1]), 0, 0])
+        elif op in ("REQUIRE", "HABS", "RET"):
+            out.append([op, 0, _reg(toks[1]), 0])
+        elif op in ("BHASH", "BEACON"):
+            out.append([op, _reg(toks[1]), _reg(toks[2]), 0])
+        elif op in ("NOP", "HINIT"):
+            out.append([op, 0, 0, 0])
+        else:
+            raise vm2.VM2Error(f"unknown op {op!r}")
+    # pass 2: resolve labels
+    for ins in out:
+        if isinstance(ins[3], tuple):
+            name = ins[3][1]
+            if name not in labels:
+                raise vm2.VM2Error(f"unknown label @{name}")
+            ins[3] = labels[name]
+    return out
+
+
+def assemble_contract(methods):
+    """{method: asm text} -> validated VM2 code object."""
+    code = {m: assemble(t) for m, t in methods.items()}
+    vm2.validate_code(code)
+    return code
