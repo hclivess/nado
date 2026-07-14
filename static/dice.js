@@ -5,12 +5,12 @@
 //     roll_g = HASH( BLOCKHASH(sh) + BLOCKHASH(sh+1) + seatId ) % 100
 // Once the settle block is final, anyone can settle a seat (it pays the bettor); losing stakes fold into the
 // bankroll so the table keeps rolling. Ordinary upgradable stackvm contract, no game-specific API.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, blocksToTime,
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, chainResultAlg, blocksToTime,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
          recentChips, statusLabel, tablesOf as allTables, readTable, alertBar, notify,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
-const CID = "9cbf40d70631f7ee86f58192de847273";
+const CID = "b37251eb6b8bbeedd3a69cad7d6611a1";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="9" y="9" width="30" height="30" rx="7" fill="#e6edf3" stroke="#243140" stroke-width="2"/>     <circle cx="17" cy="17" r="2.8" fill="#20272f"/><circle cx="31" cy="17" r="2.8" fill="#20272f"/>     <circle cx="24" cy="24" r="2.8" fill="#00ad93"/>     <circle cx="17" cy="31" r="2.8" fill="#20272f"/><circle cx="31" cy="31" r="2.8" fill="#20272f"/></svg>';
 const PN = 100, MMIN = 2, MMAX = 98, EDGE = 99, BLOCK_SECS = 6, ROUND = 20;
 const dapp = new NadoDapp({ cid: CID, app: "Dice" });
@@ -36,7 +36,7 @@ function seatsOfTable(sto, t) {
     const M = _m(sto, "gm")[g] || 0, gh = _m(sto, "gh")[g] || 0, settled = !!_m(sto, "gd")[g];
     const s = { g: Number(g), addr: _m(sto, "ga")[g], stake: _m(sto, "gs")[g] || 0, M, gh, settled };
     if (settled) { const gr = _m(sto, "gr")[g] || 0; s.roll = gr ? gr - 1 : null; s.win = !!_m(sto, "gw")[g]; }
-    else if (cur != null && cur >= gh + 1) { s.roll = chainResult(dapp.bh(gh), dapp.bh(gh + 1), g, PN); s.ready = true; s.win = s.roll != null ? s.roll < M : null; }
+    else if (cur != null && cur >= gh + 1) { s.roll = chainResultAlg(dapp.bh(gh), dapp.bh(gh + 1), g, PN); s.ready = true; s.win = s.roll != null ? s.roll < M : null; }
     else { s.pending = true; s.spinsIn = cur != null ? gh - cur : null; }
     out.push(s);
   }
