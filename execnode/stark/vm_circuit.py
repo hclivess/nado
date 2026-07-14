@@ -119,11 +119,13 @@ def _recomp(row, spec):
 
 
 _SPEC63 = [(BL + k, 1 << (8 * k)) for k in range(7)] + [(SL + 0, 1 << 56)]
-_SPEC_Q = [(BL + k, 1 << (8 * k)) for k in range(4)]
-_SPEC_BM1 = [(BL + 4 + k, 1 << (8 * k)) for k in range(3)] + [(SL + 1, 1 << 24)]
-_SPEC_REM = [(BL + 7 + k, 1 << (8 * k)) for k in range(3)] + [(SL + 2, 1 << 24)]
-_SPEC_BR1 = [(BL + 10 + k, 1 << (8 * k)) for k in range(3)] + [(SL + 3, 1 << 24)]
-_SPEC_LO = _SPEC_Q
+# DIVMOD (widened): q is 48-bit (6 byte limbs); b-1 / rem / b-rem-1 are 15-bit (byte + 7-bit) so a small
+# divisor keeps q·b < 2^63 < P — field division cannot wrap. LO32 keeps its own independent lo/hi window.
+_SPEC_Q = [(BL + k, 1 << (8 * k)) for k in range(6)]
+_SPEC_BM1 = [(BL + 6, 1), (SL + 1, 1 << 8)]
+_SPEC_REM = [(BL + 7, 1), (SL + 2, 1 << 8)]
+_SPEC_BR1 = [(BL + 8, 1), (SL + 3, 1 << 8)]
+_SPEC_LO = [(BL + k, 1 << (8 * k)) for k in range(4)]
 _SPEC_HI = [(BL + 4 + k, 1 << (8 * k)) for k in range(4)]
 _BYTE_PAIRS = [(BL + 2 * k, BL + 2 * k + 1) for k in range(6)] + [(BL + 12, None)]   # None = literal 0
 _7BIT_PAIRS = [(SL + 0, SL + 1), (SL + 2, SL + 3)]

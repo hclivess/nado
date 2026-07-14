@@ -102,6 +102,14 @@ def _decomp31(v):
     return _bytes_of(v, 3), (v >> 24) & 127
 
 
+def _decomp15(v):
+    """15-bit window: 1 byte limb + 1 seven-bit limb, or None if v >= 2^15 (the DIVMOD divisor/remainder
+    window). Small divisors keep q·b < 2^63 < P so field-division can't wrap (the classic forgery)."""
+    if v < 0 or v >= 1 << 15:
+        return None
+    return v & 255, (v >> 8) & 127
+
+
 def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None, block_hashes=None,
         witness=False):
     """Execute code[method] with r0..r7 = args (padded). `caller` is a FIELD element (the alghash address
@@ -181,15 +189,15 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
                 bl[:7], sl[0] = dec[0], dec[1]
             elif op_name == "DIVMOD":
                 a, b = rd, rs
-                if not (1 <= b < (1 << 31)):
-                    raise ZkVMRevert("DIVMOD divisor outside [1, 2^31)")
+                if not (1 <= b < (1 << 15)):                  # small divisor keeps q·b < 2^63 (no field wrap)
+                    raise ZkVMRevert("DIVMOD divisor outside [1, 2^15)")
                 q, rem = a // b, a % b
-                if q >= (1 << 32):
-                    raise ZkVMRevert("DIVMOD quotient outside [0, 2^32)")
-                bl[0:4] = _bytes_of(q, 4)
-                d1 = _decomp31(b - 1); bl[4:7], sl[1] = d1[0], d1[1]
-                d2 = _decomp31(rem);   bl[7:10], sl[2] = d2[0], d2[1]
-                d3 = _decomp31(b - rem - 1); bl[10:13], sl[3] = d3[0], d3[1]
+                if q >= (1 << 48):                            # 48-bit quotient window (financial operands)
+                    raise ZkVMRevert("DIVMOD quotient outside [0, 2^48)")
+                bl[0:6] = _bytes_of(q, 6)                     # q: 6 byte limbs
+                bl[6], sl[1] = _decomp15(b - 1)               # b-1, rem, b-rem-1: byte + 7-bit each (15 bits)
+                bl[7], sl[2] = _decomp15(rem)
+                bl[8], sl[3] = _decomp15(b - rem - 1)
                 regs[7] = rem                                 # remainder lands in r7 (fixed convention)
                 res, wr = q, True
             elif op_name == "LO32":

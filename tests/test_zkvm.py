@@ -117,9 +117,9 @@ def t11_witness_limbs():
     ok, ret, st, io, steps = zkvm.run(code, "m", 7, [1000003, 37], {}, witness=True)
     assert ok and len(steps) == 2
     s = steps[0]
-    q = sum(s["bl"][k] << (8 * k) for k in range(4))
-    bm1 = sum(s["bl"][4 + k] << (8 * k) for k in range(3)) + (s["sl"][1] << 24)
-    rem = sum(s["bl"][7 + k] << (8 * k) for k in range(3)) + (s["sl"][2] << 24)
+    q = sum(s["bl"][k] << (8 * k) for k in range(6))                 # 48-bit quotient
+    bm1 = s["bl"][6] + (s["sl"][1] << 8)                             # b-1  (byte + 7-bit)
+    rem = s["bl"][7] + (s["sl"][2] << 8)                             # rem
     assert q == 1000003 // 37 and bm1 == 36 and rem == 1000003 % 37, "witness limbs must recompose"
     assert all(0 <= b < 256 for b in s["bl"]) and all(0 <= x < 128 for x in s["sl"])
 
