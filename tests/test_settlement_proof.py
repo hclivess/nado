@@ -84,7 +84,7 @@ def t3_tampered_post_root_rejected():
 def t4_tampered_log_rejected():
     calls = [{"cid": CID_C, "method": "bump", "caller": ALICE, "args": []}]
     bundle = SP.prove_epoch(_pre(), calls, cursor=200, num_queries=NQ)
-    for e in bundle["calls"][0]["io"]:
+    for e in bundle["io"]:
         if e[0] == 2:            # IO_SSTORE: claim a different stored value
             e[2] = 99
     ok, why, _ = SP.verify_epoch(bundle)

@@ -43,6 +43,20 @@ Z = GS + 1
 W_TOTAL = Z + 1
 NUM_AUX = W_TOTAL - W_MAIN
 
+# ---- periodic (public) column layout ---------------------------------------------------------------
+# The verifier rebuilds ALL of these from the public EPOCH statement (the ordered call list + each call's
+# program) — nothing statement-shaped is read from the proof. An EPOCH is N calls concatenated into one
+# trace so L1 verifies ONE proof for the whole batch (doc/zk-execution-proofs.md — aggregation). A single
+# call is just N=1. Per-call CONTEXT (caller/value/cursor/time/prog) and the call ARGS are periodic columns
+# constant within a call's row block; P_START/P_END mark the block boundaries where registers/pc/sponge reset.
+PP_PROG, PP_PC, PP_OP, PP_D, PP_S, PP_IMM = range(6)     # fetch table row: (prog_id, local pc, op, d, s, imm)
+PL_CTR, PL_KIND, PL_A, PL_B, PL_ACT = range(6, 11)       # io log table row (ctr pins global order)
+PB, PS = 11, 12                                          # byte / 7-bit range tables
+PC_CALLER, PC_VALUE, PC_CURSOR, PC_TIME, PC_PROG = range(13, 18)   # context of the call owning this row
+P_START, P_END = 18, 19                                  # 1 on a call's first row / last-row-before-next-call
+PA = 20                                                  # args of the owning call: PA+0 .. PA+7
+NUM_PERIODIC = PA + NR
+
 TAG_FETCH = 1 << 32           # bus domain tags (outside every raw table's value range)
 TAG_IO = 1 << 33
 MAX_DEGREE = 8                # sponge x^7 under a selector; register-update mux also lands at 8
@@ -175,16 +189,21 @@ def _io_active(row):
     return acc
 
 
-def _fetch_tuple(row, gamma):
-    return logup.combine([TAG_FETCH, row[PC], _op_id(row), _idx(row, D0), _idx(row, S0), row[IMM]], gamma)
+def _fetch_tuple(row, per, gamma):
+    """The instruction fetched at this row, tagged by which PROGRAM the owning call runs (per[PC_PROG]) so a
+    multi-contract epoch's fetch bus can't confuse two programs' instructions."""
+    return logup.combine([TAG_FETCH, per[PC_PROG], row[PC], _op_id(row), _idx(row, D0), _idx(row, S0),
+                          row[IMM]], gamma)
 
 
 def _io_tuple(row, nxt, gamma):
     return logup.combine([TAG_IO, row[IOC], _io_kind_expr(row), _io_a_expr(row), _io_b_expr(row, nxt)], gamma)
 
 
-def _res_expr(row, pub):
-    """Σ f_op · (result value) over the register-writing ops (loads excluded — bus-supplied)."""
+def _res_expr(row, per):
+    """Σ f_op · (result value) over the register-writing ops (loads excluded — bus-supplied). CTX reads the
+    owning call's context from the PERIODIC columns (per-call, so an epoch of calls with different
+    callers/values all verify under one proof)."""
     rdv, rsv = _rd_val(row), _rs_val(row)
     diff = F.sub(rdv, rsv)
     terms = {
@@ -199,7 +218,7 @@ def _res_expr(row, pub):
         "LT": row[WI],
         "DIVMOD": _recomp(row, _SPEC_Q),
         "LO32": _recomp(row, _SPEC_LO),
-        "CTX": _lagrange4(row[IMM], [pub["caller"], pub["value"], pub["cursor"], pub["time"]]),
+        "CTX": _lagrange4(row[IMM], [per[PC_CALLER], per[PC_VALUE], per[PC_CURSOR], per[PC_TIME]]),
         "HOUT": row[H0],
     }
     acc = 0
@@ -216,10 +235,13 @@ def _wr_expr(row):
 
 
 # ---- the transition constraints -------------------------------------------------------------------
-def transitions(pub):
-    """The full constraint list. `pub` = {caller, value, cursor, time} (field elements) — baked in, so a
-    proof only verifies for THAT call context. Every constraint c(cur, nxt, per, chal) with chal = (β, γ).
-    Periodic layout: 0..4 program (pc,op,d,s,imm) · 5..9 log (ctr,kind,a,b,act) · 10 byte table · 11 7bit."""
+def transitions():
+    """The full constraint list. All per-call context is PERIODIC (public), so ONE constraint set proves an
+    EPOCH of N concatenated calls (aggregation) as well as a single call. Every constraint is
+    c(cur, nxt, per, chal), chal = (β, γ). P_START(cur) pins a call's first row (registers←args, pc←0,
+    sponge←0); P_END(cur) disables the held/step transitions on the last row of a call whose successor is a
+    fresh call, so the reset is exactly at the boundary. The io counter is NEVER reset — it serializes the
+    whole epoch's I/O in one global order."""
     cons = []
 
     # -- selector well-formedness: every one-hot group is bits summing to 1 --
@@ -249,27 +271,37 @@ def transitions(pub):
         return s
     cons.append(c_group_d)
 
-    # -- NOP is absorbing (nothing executes after RET / a padding gap) --
+    # -- NOP is absorbing (nothing executes after RET / a padding gap) — but NOT across a call boundary,
+    #    where the next row is the successor call's (pinned) START row instead of a NOP --
     def c_absorb(c, n, p, ch):
         halt = F.add(c[F0 + _O["NOP"]], c[F0 + _O["RET"]])
-        return F.mul(halt, F.sub(n[F0 + _O["NOP"]], 1))
+        return F.mul(F.sub(1, p[P_END]), F.mul(halt, F.sub(n[F0 + _O["NOP"]], 1)))
     cons.append(c_absorb)
 
-    # -- register file: held unless written by the mux; loads are bus-supplied --
+    # -- call-start pins: on the first row of each call, registers = the call's periodic args, pc = 0,
+    #    sponge = (0, 0). This is what "resets" the machine per call so an epoch is a clean concatenation. --
+    for i in range(NR):
+        cons.append((lambda i: lambda c, n, p, ch: F.mul(p[P_START], F.sub(c[R0 + i], p[PA + i])))(i))
+    cons.append(lambda c, n, p, ch: F.mul(p[P_START], c[PC]))
+    cons.append(lambda c, n, p, ch: F.mul(p[P_START], c[H0]))
+    cons.append(lambda c, n, p, ch: F.mul(p[P_START], c[H1]))
+
+    # -- register file: held unless written by the mux; loads are bus-supplied. The step transition is
+    #    disabled on a boundary row (P_END), where the successor's START pin sets the registers instead. --
     for i in range(NR):
         def c_reg(c, n, p, ch, i=i):
             load_i = F.mul(c[D0 + i], F.add(c[F0 + _O["SLOAD"]],
                                             F.add(c[F0 + _O["BHASH"]], c[F0 + _O["BEACON"]])))
-            write = F.mul(c[D0 + i], F.sub(_res_expr(c, pub), F.mul(_wr_expr(c), c[R0 + i])))
+            write = F.mul(c[D0 + i], F.sub(_res_expr(c, p), F.mul(_wr_expr(c), c[R0 + i])))
             # write = d_i·(Σf·res - wr·R_i) = d_i·Σf·(res - R_i)
             rem7 = 0
             if i == 7:                                       # DIVMOD deposits the remainder in r7
                 rem7 = F.mul(c[F0 + _O["DIVMOD"]], F.sub(_recomp(c, _SPEC_REM), c[R0 + 7]))
             delta = F.sub(F.sub(F.sub(n[R0 + i], c[R0 + i]), write), rem7)
-            return F.mul(F.sub(1, load_i), delta)
+            return F.mul(F.sub(1, p[P_END]), F.mul(F.sub(1, load_i), delta))
         cons.append(c_reg)
 
-    # -- sponge lanes --
+    # -- sponge lanes (step transition disabled on a boundary row; the START pin resets to (0,0)) --
     def c_h0(c, n, p, ch):
         d = F.sub(n[H0], c[H0])
         d = F.sub(d, F.mul(c[F0 + _O["HINIT"]], F.neg(c[H0])))
@@ -277,17 +309,17 @@ def transitions(pub):
         for r in range(8):
             r0, _ = _sponge_round(c, r)
             d = F.sub(d, F.mul(c[F0 + _O[f"HR{r}"]], F.sub(r0, c[H0])))
-        return d
+        return F.mul(F.sub(1, p[P_END]), d)
     def c_h1(c, n, p, ch):
         d = F.sub(n[H1], c[H1])
         d = F.sub(d, F.mul(c[F0 + _O["HINIT"]], F.sub(alghash.IV, c[H1])))
         for r in range(8):
             _, r1 = _sponge_round(c, r)
             d = F.sub(d, F.mul(c[F0 + _O[f"HR{r}"]], F.sub(r1, c[H1])))
-        return d
+        return F.mul(F.sub(1, p[P_END]), d)
     cons.extend([c_h0, c_h1])
 
-    # -- pc: +1, jumps, and hold on NOP/RET --
+    # -- pc: +1, jumps, and hold on NOP/RET (step disabled on a boundary; START pins pc = 0) --
     def c_pc(c, n, p, ch):
         d = F.sub(F.sub(n[PC], c[PC]), 1)
         jump = F.sub(c[IMM], F.add(c[PC], 1))
@@ -295,7 +327,7 @@ def transitions(pub):
         nz = F.mul(_rs_val(c), c[WI])
         d = F.sub(d, F.mul(c[F0 + _O["JNZ"]], F.mul(nz, jump)))
         d = F.sub(d, F.mul(F.add(c[F0 + _O["NOP"]], c[F0 + _O["RET"]]), F.neg(1)))
-        return d
+        return F.mul(F.sub(1, p[P_END]), d)
     cons.append(c_pc)
 
     # -- io counter --
@@ -349,15 +381,15 @@ def transitions(pub):
     # -- the four LogUp buses (one shared accumulator) --
     def c_hf(c, n, p, ch):
         active = F.sub(1, c[F0 + _O["NOP"]])
-        return F.sub(F.mul(c[HF], F.add(ch[0], _fetch_tuple(c, ch[1]))), active)
+        return F.sub(F.mul(c[HF], F.add(ch[0], _fetch_tuple(c, p, ch[1]))), active)
     def c_gf(c, n, p, ch):
-        t = logup.combine([TAG_FETCH, p[0], p[1], p[2], p[3], p[4]], ch[1])
+        t = logup.combine([TAG_FETCH, p[PP_PROG], p[PP_PC], p[PP_OP], p[PP_D], p[PP_S], p[PP_IMM]], ch[1])
         return F.sub(F.mul(c[GF], F.add(ch[0], t)), c[MF])
     def c_hio(c, n, p, ch):
         return F.sub(F.mul(c[HIO], F.add(ch[0], _io_tuple(c, n, ch[1]))), _io_active(c))
     def c_gio(c, n, p, ch):
-        t = logup.combine([TAG_IO, p[5], p[6], p[7], p[8]], ch[1])
-        return F.sub(F.mul(c[GIO], F.add(ch[0], t)), p[9])
+        t = logup.combine([TAG_IO, p[PL_CTR], p[PL_KIND], p[PL_A], p[PL_B]], ch[1])
+        return F.sub(F.mul(c[GIO], F.add(ch[0], t)), p[PL_ACT])
     cons.extend([c_hf, c_gf, c_hio, c_gio])
     for j, (ca, cb) in enumerate(_BYTE_PAIRS):
         def c_hb(c, n, p, ch, j=j, ca=ca, cb=cb):
@@ -366,7 +398,7 @@ def transitions(pub):
             return F.sub(lhs, F.add(F.add(F.mul(2, ch[0]), la), lb))
         cons.append(c_hb)
     def c_gb(c, n, p, ch):
-        return F.sub(F.mul(c[GB], F.add(ch[0], p[10])), c[MB])
+        return F.sub(F.mul(c[GB], F.add(ch[0], p[PB])), c[MB])
     cons.append(c_gb)
     for j, (ca, cb) in enumerate(_7BIT_PAIRS):
         def c_hs(c, n, p, ch, j=j, ca=ca, cb=cb):
@@ -374,7 +406,7 @@ def transitions(pub):
             return F.sub(lhs, F.add(F.add(F.mul(2, ch[0]), c[ca]), c[cb]))
         cons.append(c_hs)
     def c_gs(c, n, p, ch):
-        return F.sub(F.mul(c[GS], F.add(ch[0], p[11])), c[MS])
+        return F.sub(F.mul(c[GS], F.add(ch[0], p[PS])), c[MS])
     cons.append(c_gs)
     def c_z(c, n, p, ch):
         term = F.sub(c[HF], c[GF])
@@ -389,56 +421,97 @@ def transitions(pub):
     return cons
 
 
-# ---- witness → trace ------------------------------------------------------------------------------
-def build_trace(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None,
-                block_hashes=None):
-    """Run the interpreter and lay its witness out as the main trace. Returns
-    (trace, T, io_log, ret, new_storage) or raises ZkVMRevert-shaped ValueError if the call reverts
-    (a reverted call is a no-op — there is nothing to prove)."""
-    r = zkvm.run(code, method, caller, list(args), storage, value=value, cursor=cursor, timestamp=timestamp,
-                beacons=beacons, block_hashes=block_hashes, witness=True)
-    ok, ret, new_storage, io, steps = r
-    if not ok:
-        raise ValueError("call reverted — nothing to prove")
-    prog = code[method]
-    n = len(steps)
-    T = max(MIN_T, _next_pow2(n + 2))
-    if T > MAX_T:
-        raise ValueError("trace too long")
-    args8 = [(args[i] if i < len(args) else 0) % F.P for i in range(NR)]
+# ---- an epoch = an ordered list of calls, concatenated into ONE trace --------------------------------
+# Each call is a dict {code, method, caller, args, value, cursor, timestamp, beacons, block_hashes}. A single
+# proven call is the N=1 epoch; settlement proves a whole batch as one proof (doc/zk-execution-proofs.md).
 
+def _prog_key(prog):
+    """A hashable identity for a method's bytecode — same bytecode ⇒ same prog_id in the fetch table."""
+    return tuple(tuple(ins) for ins in prog)
+
+
+def build_epoch_trace(calls):
+    """Run every call and concatenate their witnesses into one trace. Returns
+    (trace, T, blocks, progs, epoch_io, per_call) where `blocks` = [(start_row, n_rows, prog_id, call)] and
+    `progs` = the distinct program list (prog_id = index). Raises ValueError if any call reverts (a reverted
+    call is a no-op — nothing to prove) or the batch exceeds one trace."""
+    prog_ids = {}
+    progs = []
+    blocks = []
     rows = []
-    regs, h0, h1, ioc = args8, 0, 0, 0
-    for st in steps:                                      # row i carries the PRE-state + instruction i
+    epoch_io = []
+    per_call = []
+    ioc = 0
+    for call in calls:
+        code, method = call["code"], call["method"]
+        zkvm.validate_code(code)
+        cf, fargs = call["caller_f"], call["args_f"]
+        r = zkvm.run(code, method, cf, list(fargs), call["slots"], value=call.get("value", 0),
+                     cursor=call.get("cursor", 0), timestamp=call.get("timestamp", 0),
+                     beacons=call.get("beacons"), block_hashes=call.get("block_hashes"), witness=True)
+        ok, ret, new_slots, io, steps = r
+        if not ok:
+            raise ValueError("a call reverted — nothing to prove")
+        prog = code[method]
+        key = _prog_key(prog)
+        if key not in prog_ids:
+            prog_ids[key] = len(progs); progs.append(prog)
+        pid = prog_ids[key]
+        args8 = [(fargs[i] if i < len(fargs) else 0) % F.P for i in range(NR)]
+        start = len(rows)
+        regs, h0, h1 = args8, 0, 0
+        base = ioc                                        # GLOBAL io offset: the witness ioc restarts at 0
+        lioc = 0                                          # per call, so add `base` to keep IOC monotone epoch-wide
+        for st in steps:                                  # row carries the PRE-state + this instruction
+            row = [0] * W_MAIN
+            row[R0:R0 + NR] = regs
+            row[PC], row[IOC], row[IMM] = st["pc"], base + lioc, st["imm"] % F.P
+            row[H0], row[H1] = h0, h1
+            row[WI], row[WJ] = st["wi"], st["wj"]
+            row[F0 + st["op"]] = 1
+            row[D0 + st["d"]] = 1
+            row[S0 + st["s"]] = 1
+            for k, v in enumerate(st["bl"]):
+                row[BL + k] = v
+            for k, v in enumerate(st["sl"]):
+                row[SL + k] = v
+            rows.append(row)
+            regs, h0, h1, lioc = st["regs"], st["h0"], st["h1"], st["ioc_after"]
+        ioc = base + lioc                                 # advance the global counter by this call's io count
+        for e in io:
+            epoch_io.append((e[0], e[1] % F.P, e[2] % F.P))
+        blocks.append((start, len(rows) - start, pid, call))
+        per_call.append({"io": io, "ret": ret, "new_slots": new_slots})
+
+    n = len(rows)
+    total_prog = sum(len(p) for p in progs)
+    T = max(MIN_T, _next_pow2(max(n, total_prog, len(epoch_io), 256) + 2))
+    if T > MAX_T:
+        raise ValueError("epoch too long for one trace")
+
+    ret_pc = rows[-1][PC] if rows else 0
+    last_regs = [rows[-1][R0 + i] for i in range(NR)] if rows else [0] * NR
+    lh0, lh1 = (rows[-1][H0], rows[-1][H1]) if rows else (0, 0)
+    while len(rows) < T:                                  # NOP padding after the last call
         row = [0] * W_MAIN
-        row[R0:R0 + NR] = regs
-        row[PC], row[IOC], row[IMM] = st["pc"], ioc, st["imm"] % F.P
-        row[H0], row[H1] = h0, h1
-        row[WI], row[WJ] = st["wi"], st["wj"]
-        row[F0 + st["op"]] = 1
-        row[D0 + st["d"]] = 1
-        row[S0 + st["s"]] = 1
-        for k, v in enumerate(st["bl"]):
-            row[BL + k] = v
-        for k, v in enumerate(st["sl"]):
-            row[SL + k] = v
-        rows.append(row)
-        regs, h0, h1, ioc = st["regs"], st["h0"], st["h1"], st["ioc_after"]
-    ret_pc = steps[-1]["pc"]                              # RET holds pc; NOP padding keeps holding it
-    while len(rows) < T:                                  # NOP padding: state held, one-hots valid
-        row = [0] * W_MAIN
-        row[R0:R0 + NR] = regs
+        row[R0:R0 + NR] = last_regs
         row[PC], row[IOC] = ret_pc, ioc
-        row[H0], row[H1] = h0, h1
+        row[H0], row[H1] = lh0, lh1
         row[F0 + _O["NOP"]] = 1
         row[D0] = 1
         row[S0] = 1
         rows.append(row)
 
-    # lookup multiplicities (mass over rows 0..T-2 only — row T-1's bus terms never enter Z)
+    # lookup multiplicities (mass over rows 0..T-2 only). Fetch multiplicity is per FETCH-TABLE row j, which
+    # holds instruction (prog offset + local pc); count executed rows by their (prog_id, pc) via the layout.
+    prog_base = {}
+    off = 0
+    for pid, p in enumerate(progs):
+        prog_base[pid] = off; off += len(p)
     mf = [0] * T
-    for st in steps:
-        mf[st["pc"]] += 1
+    for (start, nrows, pid, _call) in blocks:
+        for i in range(start, start + nrows):
+            mf[prog_base[pid] + rows[i][PC]] += 1
     mb = [0] * T
     ms = [0] * T
     for i in range(T - 1):
@@ -450,61 +523,89 @@ def build_trace(code, method, caller, args, storage, value=0, cursor=0, timestam
             ms[r[SL + k]] += 1
     for i in range(T):
         rows[i][MF], rows[i][MB], rows[i][MS] = mf[i], mb[i], ms[i]
-    return rows, T, io, ret, new_storage
+    return rows, T, blocks, progs, epoch_io, per_call
 
 
-def build_periodic(prog, io_log, T):
-    """The 12 public periodic columns: program table (pc,op,d,s,imm), I/O log (ctr,kind,a,b,act), byte and
-    7-bit range tables. The VERIFIER rebuilds these from the public statement — none come from the proof."""
-    L = len(io_log)
-    p_pc = [i if i < len(prog) else 0 for i in range(T)]
-    p_op = [_O[prog[i][0]] if i < len(prog) else 0 for i in range(T)]
-    p_d = [prog[i][1] if i < len(prog) else 0 for i in range(T)]
-    p_s = [prog[i][2] if i < len(prog) else 0 for i in range(T)]
-    p_imm = [prog[i][3] % F.P if i < len(prog) else 0 for i in range(T)]
-    l_ctr = [i if i < L else 0 for i in range(T)]
-    l_kind = [io_log[i][0] if i < L else 0 for i in range(T)]
-    l_a = [io_log[i][1] % F.P if i < L else 0 for i in range(T)]
-    l_b = [io_log[i][2] % F.P if i < L else 0 for i in range(T)]
-    l_act = [1 if i < L else 0 for i in range(T)]
-    b_tbl = [i if i < 256 else 0 for i in range(T)]
-    s_tbl = [i if i < 128 else 0 for i in range(T)]
-    return [p_pc, p_op, p_d, p_s, p_imm, l_ctr, l_kind, l_a, l_b, l_act, b_tbl, s_tbl]
+def build_periodic(blocks, progs, epoch_io, T):
+    """The public periodic columns for an epoch. The VERIFIER rebuilds every one of these from the public
+    statement (the call list + programs) — none come from the proof. Fetch table = the distinct programs
+    concatenated (each row tagged with its prog_id + local pc); io table = the whole epoch's log in one global
+    order; context/args/start-end columns describe which call owns each execution row."""
+    cols = [[0] * T for _ in range(NUM_PERIODIC)]
+    # fetch table: prog_id, local pc, op, d, s, imm  (progs concatenated)
+    j = 0
+    for pid, prog in enumerate(progs):
+        for pc, ins in enumerate(prog):
+            if j >= T:
+                raise ValueError("programs do not fit the trace")
+            cols[PP_PROG][j] = pid; cols[PP_PC][j] = pc; cols[PP_OP][j] = _O[ins[0]]
+            cols[PP_D][j] = ins[1]; cols[PP_S][j] = ins[2]; cols[PP_IMM][j] = ins[3] % F.P
+            j += 1
+    # io log table: global order
+    for i, e in enumerate(epoch_io):
+        if i >= T:
+            raise ValueError("io log does not fit the trace")
+        cols[PL_CTR][i] = i; cols[PL_KIND][i] = e[0]; cols[PL_A][i] = e[1] % F.P; cols[PL_B][i] = e[2] % F.P
+        cols[PL_ACT][i] = 1
+    # range tables
+    for i in range(T):
+        cols[PB][i] = i if i < 256 else 0
+        cols[PS][i] = i if i < 128 else 0
+    # per-execution-row context + args + boundary selectors
+    for bi, (start, nrows, pid, call) in enumerate(blocks):
+        args8 = [(call["args_f"][k] if k < len(call["args_f"]) else 0) % F.P for k in range(NR)]
+        ctx = (call["caller_f"] % F.P, call.get("value", 0) % F.P,
+               call.get("cursor", 0) % F.P, call.get("timestamp", 0) % F.P)
+        for i in range(start, start + nrows):
+            cols[PC_CALLER][i], cols[PC_VALUE][i], cols[PC_CURSOR][i], cols[PC_TIME][i] = ctx
+            cols[PC_PROG][i] = pid
+            for k in range(NR):
+                cols[PA + k][i] = args8[k]
+        cols[P_START][start] = 1
+        # END on this call's last row iff a NEXT call follows (its start row is the reset target)
+        if bi + 1 < len(blocks):
+            cols[P_END][start + nrows - 1] = 1
+    return cols
 
 
-def make_aux_builder(prog, io_log, T):
-    """The prover's phase-2 witness: all 16 challenge-dependent helper/accumulator columns."""
-    per = build_periodic(prog, io_log, T)
+def make_aux_builder(periodic):
+    """The prover's phase-2 witness: the 16 challenge-dependent helper/accumulator columns, built against the
+    already-computed public periodic columns."""
+    per_cols = periodic
 
     def build(trace, chal):
         beta, gamma = chal
+        T = len(trace)
         cols = [[0] * T for _ in range(NUM_AUX)]
         def put(idx, row, val):
             cols[idx - W_MAIN][row] = val
+        def perrow(i):
+            return [per_cols[c][i] for c in range(NUM_PERIODIC)]
         for i in range(T):
             cur = trace[i]
             nxt = trace[i + 1] if i + 1 < T else trace[i]
-            hf = F.mul(F.sub(1, cur[F0 + _O["NOP"]]), F.inv(F.add(beta, _fetch_tuple(cur, gamma))))
-            gf_t = logup.combine([TAG_FETCH, per[0][i], per[1][i], per[2][i], per[3][i], per[4][i]], gamma)
+            p = perrow(i)
+            hf = F.mul(F.sub(1, cur[F0 + _O["NOP"]]), F.inv(F.add(beta, _fetch_tuple(cur, p, gamma))))
+            gf_t = logup.combine([TAG_FETCH, p[PP_PROG], p[PP_PC], p[PP_OP], p[PP_D], p[PP_S], p[PP_IMM]], gamma)
             gf = F.mul(cur[MF], F.inv(F.add(beta, gf_t)))
             hio = F.mul(_io_active(cur), F.inv(F.add(beta, _io_tuple(cur, nxt, gamma))))
-            gio_t = logup.combine([TAG_IO, per[5][i], per[6][i], per[7][i], per[8][i]], gamma)
-            gio = F.mul(per[9][i], F.inv(F.add(beta, gio_t)))
+            gio_t = logup.combine([TAG_IO, p[PL_CTR], p[PL_KIND], p[PL_A], p[PL_B]], gamma)
+            gio = F.mul(p[PL_ACT], F.inv(F.add(beta, gio_t)))
             put(HF, i, hf); put(GF, i, gf); put(HIO, i, hio); put(GIO, i, gio)
-            for j, (ca, cb) in enumerate(_BYTE_PAIRS):
+            for jx, (ca, cb) in enumerate(_BYTE_PAIRS):
                 la, lb = cur[ca], (cur[cb] if cb is not None else 0)
-                put(HB + j, i, F.add(F.inv(F.add(beta, la)), F.inv(F.add(beta, lb))))
-            put(GB, i, F.mul(cur[MB], F.inv(F.add(beta, per[10][i]))))
-            for j, (ca, cb) in enumerate(_7BIT_PAIRS):
-                put(HS + j, i, F.add(F.inv(F.add(beta, cur[ca])), F.inv(F.add(beta, cur[cb]))))
-            put(GS, i, F.mul(cur[MS], F.inv(F.add(beta, per[11][i]))))
+                put(HB + jx, i, F.add(F.inv(F.add(beta, la)), F.inv(F.add(beta, lb))))
+            put(GB, i, F.mul(cur[MB], F.inv(F.add(beta, p[PB]))))
+            for jx, (ca, cb) in enumerate(_7BIT_PAIRS):
+                put(HS + jx, i, F.add(F.inv(F.add(beta, cur[ca])), F.inv(F.add(beta, cur[cb]))))
+            put(GS, i, F.mul(cur[MS], F.inv(F.add(beta, p[PS]))))
         z = 0
         for i in range(T):
             put(Z, i, z)
             term = F.sub(cols[HF - W_MAIN][i], cols[GF - W_MAIN][i])
             term = F.add(term, F.sub(cols[HIO - W_MAIN][i], cols[GIO - W_MAIN][i]))
-            for j in range(7):
-                term = F.add(term, cols[HB - W_MAIN + j][i])
+            for jx in range(7):
+                term = F.add(term, cols[HB - W_MAIN + jx][i])
             term = F.sub(term, cols[GB - W_MAIN][i])
             term = F.add(term, F.add(cols[HS - W_MAIN][i], cols[HS - W_MAIN + 1][i]))
             term = F.sub(term, cols[GS - W_MAIN][i])
@@ -513,60 +614,115 @@ def make_aux_builder(prog, io_log, T):
     return build
 
 
-def _boundaries(args, T):
-    args8 = [(args[i] if i < len(args) else 0) % F.P for i in range(NR)]
-    bnd = [(0, PC, 0), (0, IOC, 0), (0, H0, 0), (0, H1, 0), (0, Z, 0), (T - 1, Z, 0)]
-    bnd += [(0, R0 + i, args8[i]) for i in range(NR)]
-    return bnd
+def _boundaries(T):
+    """Only the GLOBAL boundaries — per-call resets are enforced by the P_START pins inside the constraints.
+    Row 0 is the first call's start (pc/ioc/sponge zero); Z telescopes to 0 at both ends (the LogUp buses
+    balance over the whole epoch)."""
+    return [(0, PC, 0), (0, IOC, 0), (0, H0, 0), (0, H1, 0), (0, Z, 0), (T - 1, Z, 0)]
 
 
-def _aux_spec(prog, io_log, T):
-    return {"num_challenges": 2, "num_aux": NUM_AUX, "build": make_aux_builder(prog, io_log, T)}
+def _aux_spec(periodic):
+    return {"num_challenges": 2, "num_aux": NUM_AUX, "build": make_aux_builder(periodic)}
 
 
+def _norm_call(call):
+    """Fill in the field-form caller/args a call needs (idempotent). `caller`/`args` may be raw (int/str);
+    `caller_f`/`args_f` are the digested field forms the trace uses."""
+    from execnode import runtimes
+    c = dict(call)
+    if "caller_f" not in c or "args_f" not in c:
+        cf, fargs = runtimes.zkvm_statement(c.get("caller", "epoch"), c.get("args", []), {})
+        c["caller_f"], c["args_f"] = cf, fargs
+    c.setdefault("slots", {})
+    return c
+
+
+def prove_epoch_calls(calls, num_queries=stark.NUM_QUERIES):
+    """Prove an ORDERED batch of zkVM calls as ONE proof (aggregation). Each call is
+    {code, method, caller, args, value?, cursor?, timestamp?, beacons?, block_hashes?, slots?}; `slots` is
+    that call's PRE-storage (the caller chains them). Returns (proof, epoch_io, per_call). L1 verifies this
+    single proof for the whole epoch instead of N proofs."""
+    calls = [_norm_call(c) for c in calls]
+    trace, T, blocks, progs, epoch_io, per_call = build_epoch_trace(calls)
+    periodic = build_periodic(blocks, progs, epoch_io, T)
+    proof = stark.prove(trace, transitions(), _boundaries(T), periodic=periodic, max_degree=MAX_DEGREE,
+                        num_queries=num_queries, aux_spec=_aux_spec(periodic))
+    proof["progs"] = [[list(ins) for ins in p] for p in progs]
+    proof["blocks"] = [{"start": s, "n": n, "pid": pid} for (s, n, pid, _c) in blocks]
+    return proof, epoch_io, per_call
+
+
+def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES):
+    """Verify a proven epoch WITHOUT executing any call. `calls` is the public statement (code/method/caller/
+    args/context per call, in order); `epoch_io` the claimed global I/O log. Returns (ok, reason). The
+    periodic tables (programs, log order, per-call context) are rebuilt locally — nothing is trusted from the
+    proof except commitments/openings. On ok, apply the epoch by replaying epoch_io per call."""
+    try:
+        T, W = proof["T"], proof["W"]
+        if not isinstance(T, int) or not (MIN_T <= T <= MAX_T) or W != W_TOTAL:
+            return False, "bad trace geometry"
+        calls = [_norm_call(c) for c in calls]
+        for c in calls:
+            zkvm.validate_code(c["code"])
+            if c["method"] not in c["code"]:
+                return False, "unknown method"
+        # rebuild the (blocks, progs) schedule from the public calls + the proof's declared block lengths,
+        # then re-derive every periodic column and check the declared lengths against the claimed io log.
+        decl = proof.get("blocks")
+        if not isinstance(decl, list) or len(decl) != len(calls):
+            return False, "block schedule missing/mismatched"
+        prog_ids, progs, blocks = {}, [], []
+        for c, b in zip(calls, decl):
+            prog = c["code"][c["method"]]
+            key = _prog_key(prog)
+            if key not in prog_ids:
+                prog_ids[key] = len(progs); progs.append(prog)
+            if not (isinstance(b.get("start"), int) and isinstance(b.get("n"), int) and b["n"] >= 1):
+                return False, "bad block"
+            blocks.append((b["start"], b["n"], prog_ids[key], c))
+        # blocks must tile [0, total) contiguously in order (no gaps/overlaps — that is what makes the
+        # concatenation a faithful sequential execution)
+        pos = 0
+        for (s, n, _pid, _c) in blocks:
+            if s != pos:
+                return False, "non-contiguous block schedule"
+            pos += n
+        if pos > T - 2:
+            return False, "epoch does not fit the trace"
+        for e in epoch_io:
+            if not (isinstance(e, (list, tuple)) and len(e) == 3
+                    and all(isinstance(x, int) and not isinstance(x, bool) and 0 <= x < F.P for x in e)):
+                return False, "malformed io log entry"
+        if len(epoch_io) > T - 2:
+            return False, "io log does not fit the trace"
+        norm_io = [(e[0], e[1] % F.P, e[2] % F.P) for e in epoch_io]
+        periodic = build_periodic(blocks, progs, norm_io, T)
+        return stark.verify(proof, transitions(), _boundaries(T), periodic=periodic, max_degree=MAX_DEGREE,
+                            num_queries=num_queries, aux_spec=_aux_spec(periodic))
+    except Exception as e:
+        return False, f"malformed statement/proof: {e}"
+
+
+# ---- single-call convenience (the N=1 epoch) — the endpoints' interface ------------------------------
 def prove_call(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None,
                block_hashes=None, num_queries=stark.NUM_QUERIES):
-    """Execute + prove one zkVM call. Returns (proof, io_log, ret, new_storage). The proof attests: running
-    PUBLIC code[method] with PUBLIC (caller,value,cursor,time,args) emits exactly PUBLIC io_log. Any node
-    then applies the call via zkvm.replay_io(io_log, ...) — no execution."""
-    zkvm.validate_code(code)
-    trace, T, io, ret, new_storage = build_trace(code, method, caller, args, storage, value=value,
-                                                 cursor=cursor, timestamp=timestamp, beacons=beacons,
-                                                 block_hashes=block_hashes)
-    pub = {"caller": caller % F.P, "value": value % F.P, "cursor": cursor % F.P, "time": timestamp % F.P}
-    prog = code[method]
-    proof = stark.prove(trace, transitions(pub), _boundaries(args, T), periodic=build_periodic(prog, io, T),
-                        max_degree=MAX_DEGREE, num_queries=num_queries, aux_spec=_aux_spec(prog, io, T))
-    return proof, io, ret, new_storage
+    """Execute + prove ONE zkVM call (the N=1 epoch). Returns (proof, io_log, ret, new_storage). `caller`/
+    `args` are already field-form (the runtime digests them at the boundary)."""
+    call = {"code": code, "method": method, "caller_f": caller % F.P,
+            "args_f": [a % F.P for a in args], "caller": caller, "args": list(args),
+            "value": value, "cursor": cursor, "timestamp": timestamp, "beacons": beacons,
+            "block_hashes": block_hashes, "slots": storage}
+    proof, epoch_io, per_call = prove_epoch_calls([call], num_queries=num_queries)
+    pc0 = per_call[0]
+    return proof, pc0["io"], pc0["ret"], pc0["new_slots"]
 
 
 def verify_call(proof, code, method, caller, args, io_log, value=0, cursor=0, timestamp=0,
                 num_queries=stark.NUM_QUERIES):
-    """Verify a proven call WITHOUT executing it. The statement is entirely caller-supplied: code (public,
-    deploy-validated), method, call context, args, and the claimed io_log. Geometry (T, W, program/log fit)
-    is pinned before any crypto. Returns (ok, reason). On ok, apply the call with zkvm.replay_io(io_log, st)
-    — which also re-checks the log against current storage and hands back payouts + chain reads."""
-    try:
-        zkvm.validate_code(code)
-        if method not in code:
-            return False, "unknown method"
-        prog = code[method]
-        T, W = proof["T"], proof["W"]
-        if not isinstance(T, int) or not (MIN_T <= T <= MAX_T) or W != W_TOTAL:
-            return False, "bad trace geometry"
-        if len(prog) > T - 2 or len(io_log) > T - 2:
-            return False, "program or log does not fit the trace"
-        for e in io_log:
-            if not (isinstance(e, (list, tuple)) and len(e) == 3
-                    and all(isinstance(x, int) and not isinstance(x, bool) and 0 <= x < F.P for x in e)):
-                return False, "malformed io log entry"
-        if sum(1 for e in io_log if e[0] == zkvm.IO_RET) != 1 or (io_log and io_log[-1][0] != zkvm.IO_RET):
-            return False, "io log must end with exactly one RET"
-        if not io_log:
-            return False, "empty io log"
-        pub = {"caller": caller % F.P, "value": value % F.P, "cursor": cursor % F.P, "time": timestamp % F.P}
-        return stark.verify(proof, transitions(pub), _boundaries(args, T),
-                            periodic=build_periodic(prog, io_log, T), max_degree=MAX_DEGREE,
-                            num_queries=num_queries, aux_spec=_aux_spec(prog, io_log, T))
-    except Exception as e:
-        return False, f"malformed statement/proof: {e}"
+    """Verify one proven call (N=1 epoch) WITHOUT executing it. Returns (ok, reason)."""
+    if sum(1 for e in io_log if e[0] == zkvm.IO_RET) != 1 or not io_log or io_log[-1][0] != zkvm.IO_RET:
+        return False, "io log must end with exactly one RET"
+    call = {"code": code, "method": method, "caller_f": caller % F.P,
+            "args_f": [a % F.P for a in args], "caller": caller, "args": list(args),
+            "value": value, "cursor": cursor, "timestamp": timestamp}
+    return verify_epoch_calls(proof, [call], io_log, num_queries=num_queries)

@@ -2,22 +2,18 @@
 Epoch settlement proof (doc/zk-execution-proofs.md — Phase-2b) — the capstone that lets L1 accept a settled
 zkVM state root because a PROOF says the ordered calls produce it, not because a bonded committee attested it.
 
-The insight that makes this small: each call already carries a validity proof (execnode/stark/vm_circuit)
-that binds (code, caller, args, context) to an AUTHENTICATED public I/O log. So proving a whole epoch's
-STATE TRANSITION does NOT need a second giant in-circuit memory argument — it is the composition:
+AGGREGATED: the whole epoch is proven as ONE zkVM trace (vm_circuit.prove_epoch_calls) — N calls, possibly
+across many contracts, concatenated into a single STARK. L1 verifies ONE proof for the epoch (~0.3 s,
+independent of the call count) instead of N proofs. `prove_epoch` chains each call's storage, runs the batch
+through the aggregated prover, and binds the pre/post zkVM state roots (the SAME Merkle-leaf shape
+execnode/state.py commits, so the post root is exactly the state_root L1 settles for the zkVM projection).
+`verify_epoch` checks the single proof and replays the epoch's authenticated I/O log to recompute the post
+root — NO re-execution.
 
-    verify every call's proof   →   replay its (now-trusted) log to advance storage   →   chain the roots
-
-`prove_epoch` runs the calls in order, producing one per-call proof each and the pre/post zkVM state roots
-(the SAME Merkle-leaf shape execnode/state.py commits, so the post root is exactly the state_root L1 settles
-for the zkVM projection). `verify_epoch` checks it with NO re-execution: verify each proof, replay each log,
-recompute the post root. What is NOT yet built (and is the honest remaining item) is SUCCINCT AGGREGATION —
-folding the N per-call proofs into one O(1) proof via STARK recursion, so L1 verifies a single proof instead
-of N. At NADO's volume N is tiny and L1 verifying N sub-second proofs is fine; recursion is the scale hedge.
-
-Scope: this proves the zkVM-contract-storage projection of the state transition (the programmable part). The
-other blob ops (bridge/dividend/shielded) already have their own L1-checkable proofs or arithmetic; a
-full-state validity proof composes this with those and is future work, noted in the doc.
+Remaining (documented, not correctness gaps): PROOF-OF-PROOF recursion (verifying a STARK inside a STARK) to
+make the proof O(1) in SIZE too, and full-state settlement composing this zkVM projection with the other blob
+families' own proofs (bridge/dividend/shielded). One trace already caps an epoch at vm_circuit.MAX_T rows, so
+very large epochs split across a few proofs until recursion lands.
 """
 from hashing import canonical_bytes, merkle_root
 from execnode import runtimes, zkvm
@@ -59,15 +55,16 @@ def _apply_payouts(bridge, cid, payouts):
 
 def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
                 pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES):
-    """Prove a batch of zkVM calls as one epoch state transition. `pre_contracts` is the pre-state
+    """Prove a batch of zkVM calls as ONE aggregated epoch proof. `pre_contracts` is the pre-state
     {cid: {"code", "storage": {"slots":{...}}, "runtime":"zkvm"}}; `calls` an ordered list of
-    {cid, method, caller, args, value?}. Returns a self-contained bundle proving pre_root → post_root."""
+    {cid, method, caller, args, value?}. Returns a self-contained bundle: a SINGLE proof binding
+    pre_root → post_root over the whole batch."""
     import copy
     contracts = copy.deepcopy(pre_contracts)
     bridge = dict(pre_bridge or {})
     registry = {}
     pre_root = zkvm_root(contracts)
-    proven = []
+    epoch_calls, public_calls = [], []
     for i, call in enumerate(calls):
         cid, method = call["cid"], call["method"]
         c = contracts.get(cid)
@@ -79,55 +76,71 @@ def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_h
         slots = {int(k): int(v) for k, v in (c["storage"].get("slots") or {}).items()}
         if value > 0:
             bridge[cid] = bridge.get(cid, 0) + value        # escrow the call value into the contract
-        proof, io, ret, _new = vm_circuit.prove_call(c["code"], method, cf, fargs, slots, value=value,
-                                                     cursor=cursor, timestamp=timestamp, beacons=beacons,
-                                                     block_hashes=block_hashes, num_queries=num_queries)
-        # advance the committed storage by REPLAYING the proven log (no re-execution)
-        ok, _ret, new_slots, payouts, _chain = zkvm.replay_io(io, slots)
+        # run once to advance committed storage + resolve payouts (the aggregated prover re-runs internally)
+        ok, _ret, new_slots, io = zkvm.run(c["code"], method, cf, fargs, slots, value=value, cursor=cursor,
+                                           timestamp=timestamp, beacons=beacons, block_hashes=block_hashes)
         if not ok:
-            raise ValueError(f"call {i}: proven log failed to replay")
-        addr_payouts = [(registry[str(to)], amt) for to, amt in payouts if str(to) in registry]
-        if len(addr_payouts) != len(payouts) or not _apply_payouts(bridge, cid, addr_payouts):
+            raise ValueError(f"call {i} reverted — nothing to prove")
+        payouts = [(registry[str(to)], amt) for k, to, amt in io if k == zkvm.IO_PAY and amt > 0
+                   and str(to) in registry]
+        if sum(1 for k, to, amt in io if k == zkvm.IO_PAY and amt > 0) != len(payouts) \
+                or not _apply_payouts(bridge, cid, payouts):
             raise ValueError(f"call {i}: unresolved or unaffordable payout")
         c["storage"] = {"slots": {str(k): v for k, v in sorted(new_slots.items())}}
-        proven.append({"cid": cid, "method": method, "caller": caller, "args": call.get("args", []),
-                       "value": value, "io": [list(e) for e in io], "proof": proof, "ret": str(ret)})
+        epoch_calls.append({"code": c["code"], "method": method, "caller_f": cf, "args_f": fargs,
+                            "caller": caller, "args": call.get("args", []), "value": value, "cursor": cursor,
+                            "timestamp": timestamp, "beacons": beacons, "block_hashes": block_hashes,
+                            "slots": slots})
+        public_calls.append({"cid": cid, "method": method, "caller": caller, "args": call.get("args", []),
+                             "value": value})
+    proof, epoch_io, _per = vm_circuit.prove_epoch_calls(epoch_calls, num_queries=num_queries)
     return {"cursor": cursor, "timestamp": timestamp, "pre_root": pre_root,
-            "post_root": zkvm_root(contracts), "calls": proven,
+            "post_root": zkvm_root(contracts), "calls": public_calls,
+            "io": [list(e) for e in epoch_io], "proof": proof,
             "pre_contracts": {cid: {"code": c["code"], "storage": c["storage"], "runtime": "zkvm"}
                               for cid, c in pre_contracts.items() if c.get("runtime") == "zkvm"},
             "num_queries": num_queries}
 
 
 def verify_epoch(bundle):
-    """Verify an epoch bundle with NO contract re-execution. Returns (ok, reason, post_root). Checks: the
-    pre-state hashes to pre_root; every call proof verifies for its stated (code, caller, args, context);
-    replaying each proven log advances storage; the final storage hashes to post_root. A verifier trusts
-    post_root as the settled zkVM root exactly when this returns ok."""
+    """Verify an aggregated epoch bundle with NO contract re-execution. Returns (ok, reason, post_root):
+    the pre-state must hash to pre_root; the SINGLE proof must verify for the ordered public calls +
+    global I/O log; replaying that log advances each contract's storage to a state hashing to post_root."""
     try:
         import copy
         pre = bundle["pre_contracts"]
         if zkvm_root(pre) != bundle["pre_root"]:
             return False, "pre-state does not match pre_root", None
-        contracts = copy.deepcopy(pre)
         cursor, ts = int(bundle["cursor"]), int(bundle.get("timestamp", 0))
         nq = int(bundle.get("num_queries", vm_circuit.stark.NUM_QUERIES))
-        for i, call in enumerate(bundle["calls"]):
-            cid = call["cid"]
-            c = contracts.get(cid)
+        contracts = copy.deepcopy(pre)
+        epoch_io = [tuple(int(x) for x in e) for e in bundle["io"]]
+        # 1) the single aggregated proof must verify for the whole ordered batch
+        pub_calls = []
+        for call in bundle["calls"]:
+            c = contracts.get(call["cid"])
             if not c or c.get("runtime") != "zkvm":
-                return False, f"call {i}: unknown contract", None
-            cf, fargs = runtimes.zkvm_statement(call.get("caller", "epoch"), call.get("args", []), {})
-            io = [tuple(int(x) for x in e) for e in call["io"]]
-            ok, why = vm_circuit.verify_call(call["proof"], c["code"], call["method"], cf, fargs, io,
-                                             value=int(call.get("value", 0)), cursor=cursor, timestamp=ts,
-                                             num_queries=nq)
-            if not ok:
-                return False, f"call {i} proof invalid: {why}", None
+                return False, "unknown contract", None
+            pub_calls.append({"code": c["code"], "method": call["method"], "caller": call.get("caller", "epoch"),
+                              "args": call.get("args", []), "value": int(call.get("value", 0)),
+                              "cursor": cursor, "timestamp": ts})
+        ok, why = vm_circuit.verify_epoch_calls(bundle["proof"], pub_calls, epoch_io, num_queries=nq)
+        if not ok:
+            return False, f"epoch proof invalid: {why}", None
+        # 2) split the global log back per call (by RET markers) and replay to recompute the post root
+        segs, cur = [], []
+        for e in epoch_io:
+            cur.append(e)
+            if e[0] == zkvm.IO_RET:
+                segs.append(cur); cur = []
+        if len(segs) != len(bundle["calls"]):
+            return False, "io log call count mismatch", None
+        for call, seg in zip(bundle["calls"], segs):
+            c = contracts[call["cid"]]
             slots = {int(k): int(v) for k, v in (c["storage"].get("slots") or {}).items()}
-            ok2, _ret, new_slots, _pay, _chain = zkvm.replay_io(io, slots)
+            ok2, _ret, new_slots, _pay, _chain = zkvm.replay_io(seg, slots)
             if not ok2:
-                return False, f"call {i}: log replay failed", None
+                return False, "log replay failed", None
             c["storage"] = {"slots": {str(k): v for k, v in sorted(new_slots.items())}}
         post = zkvm_root(contracts)
         if post != bundle["post_root"]:
