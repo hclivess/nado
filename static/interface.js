@@ -25,7 +25,7 @@ import * as sjoinsplit2 from "./stark/joinsplit2.js";
 import * as sstark from "./stark/stark.js";
 import { treePath } from "./stark/tree.js";
 import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js";
-const CHAIN_ID = "alphanet-4";
+const CHAIN_ID = "alphanet-5";
 const EPOCH_LENGTH = 60;
 const FINALITY_DEPTH = 30;     // protocol.py: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1
 const REGISTER_POW_BITS = 16;  // legacy hashcash (retired) — kept only for the self-test vector
