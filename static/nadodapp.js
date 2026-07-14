@@ -104,6 +104,14 @@ export function chainResultAlg(shHex, sh1Hex, salt, mod) {
   const h = alghash.hashn([seed]);
   return Number((h & 0xFFFFFFFFn) % BigInt(mod));   // LO32 window, then % mod (matches DIVMOD in the contract)
 }
+// algHashn(elements): the raw in-VM alghash HASH for games that build their own field-native structures
+// (e.g. battleship's merkle-sum board). Accepts BigInt/Number/string, reduces mod P, matches hashn exactly.
+export function algHashn(elements) {
+  _ensureAlg();
+  const P = alghash.P;
+  return alghash.hashn(elements.map((x) => ((BigInt(x) % P) + P) % P));
+}
+export const ALG_P = () => alghash.P;
 // blocksToTime(blocks): render a block count as m:ss at the given block time (default 6s) — shared countdown fmt.
 export const blocksToTime = (blocks, secs = 6) => { const b = Math.max(0, blocks) * secs, m = Math.floor(b / 60), s = b % 60; return m + ":" + String(s).padStart(2, "0"); };
 

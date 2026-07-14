@@ -3,33 +3,35 @@
 // board; every shot is answered by revealing just that one cell + its 7-node path, which the contract checks
 // against your root — so nobody can lie about a hit/miss and nobody can hide ships (the same proof binds the
 // ship count to exactly 17). 17 proven hits sinks the enemy fleet and takes the pot. No oracle, no reveal, no
-// STARK — just post-quantum hashes, byte-identical to the contract's HASH. See tests/test_battleship_contract.py.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, alertBar, notify, okBar,
+// oracle beyond the math — field-native alghash, byte-identical to the zkVM contract's in-VM HASH
+// (execnode/games/battleship.py; every method call is STARK-provable). See tests/test_games_e2e.py.
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, okBar,
          hoist, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore,
          scoreBump, scoreSort, recentChips, statusLabel, inviteGate, loadQR, drawQR, resolveAliases, disp, share, shareInvite,
          blocksToTime } from "./nadodapp.js";
 
-const CID = "a2b19b04735da43722be69dde135c44a";   // execnode/contracts/battleship.json (nonce "battleship-v1")
+const CID = "9c3d01b6b70f507ecc0bbf75b0615940";   // execnode/games/battleship.py (zkVM, nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Battleship" });
 const N = 10, CELLS = 100, SHIPS = 17, WINDOW = 600, BLOCK_SECS = 6;
 const FLEET = [5, 4, 3, 3, 2];                 // ship lengths (17 cells)
 const LS_G = "nado_bs_games";                  // gameId -> { role, board:[128], salts:[128 dec-strings], stake, ts }
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-// ---- merkle client (MUST byte-match the contract: HASH = blake2b(str(int)); node = HASH(L*2^264 + R*2^8 + sum)) ----
-const MM1 = 1n << 8n, MM2 = 1n << 264n;
-const H = (x) => BigInt("0x" + blake2bHash(x));        // == VM HASH on an integer
+// ---- merkle client (MUST byte-match the zkVM contract, execnode/games/battleship.py):
+//   salt(seed,c) = H(1, seed, c) · leaf(c,ship,salt) = H(2, salt, 2c+ship) · node(L,R,s) = H(3, L, R, s)
+// where H = the in-VM alghash (field-native, domain-tagged, ordered absorption = position-binding). ----
+const TAG_SALT = 1n, TAG_LEAF = 2n, TAG_NODE = 3n;
 const bitrev7 = (x) => { let r = 0; for (let i = 0; i < 7; i++) r = (r << 1) | ((x >> i) & 1); return r; };
 function buildTree(board, salts) {                     // board:128 (0/1), salts:128 (BigInt) -> {root, levels}
   const leaves = new Array(128);
   for (let c = 0; c < 128; c++)
-    leaves[bitrev7(c)] = { h: H(salts[c] * 256n + BigInt(c) * 2n + BigInt(board[c])), s: board[c] };
+    leaves[bitrev7(c)] = { h: algHashn([TAG_LEAF, salts[c], BigInt(2 * c + board[c])]), s: board[c] };
   const levels = [leaves]; let cur = leaves;
   while (cur.length > 1) {
     const nxt = [];
     for (let i = 0; i < cur.length; i += 2) {
       const s = cur[i].s + cur[i + 1].s;
-      nxt.push({ h: H(cur[i].h * MM2 + cur[i + 1].h * MM1 + BigInt(s)), s });
+      nxt.push({ h: algHashn([TAG_NODE, cur[i].h, cur[i + 1].h, BigInt(s)]), s });
     }
     levels.push(nxt); cur = nxt;
   }
@@ -40,10 +42,10 @@ function cellProof(tree, cell) {                       // -> [sib0, ss0, ... sib
   for (let L = 0; L < 7; L++) { const sib = tree.levels[L][pos ^ 1]; out.push(sib.h, sib.s); pos >>= 1; }
   return out;
 }
-// Salts are derived from ONE random seed (salt[c]=HASH(seed*128+c)) so a reveal-at-claim carries just the seed,
+// Salts are derived from ONE random seed (salt[c]=H(1,seed,c)) so a reveal-at-claim carries just the seed,
 // which the contract regenerates identically. Revealing a single cell's salt during a move can't leak the seed.
-const randSeed = () => { let h = "0x"; for (const x of crypto.getRandomValues(new Uint8Array(32))) h += x.toString(16).padStart(2, "0"); return BigInt(h); };
-const saltsFromSeed = (seed) => Array.from({ length: 128 }, (_, c) => H(seed * 128n + BigInt(c)));
+const randSeed = () => { let h = "0x"; for (const x of crypto.getRandomValues(new Uint8Array(8))) h += x.toString(16).padStart(2, "0"); return BigInt(h) % ALG_P(); };
+const saltsFromSeed = (seed) => Array.from({ length: 128 }, (_, c) => algHashn([TAG_SALT, seed, BigInt(c)]));
 // the placed fleet as [[anchor,orient]x5] in FLEET order — what claim() reveals (orient: 0 horiz, 1 vert)
 const fleetSpec = () => ships.map((s) => [s.cells[0], (s.cells.length > 1 && s.cells[1] - s.cells[0] === 10) ? 1 : 0]);
 
@@ -78,7 +80,6 @@ function randFleetShips() {
   }
   return fl;
 }
-const randSalts = () => Array.from({ length: 128 }, () => { let h = "0x"; for (const x of crypto.getRandomValues(new Uint8Array(32))) h += x.toString(16).padStart(2, "0"); return BigInt(h); });
 const shipCount = (b) => { let n = 0; for (let i = 0; i < CELLS; i++) n += b[i]; return n; };
 const coord = (cell) => "ABCDEFGHIJ"[Math.floor(cell / N)] + (cell % N + 1);
 
@@ -101,8 +102,8 @@ function gameFrom(sto, g) {
 }
 const allGids = (sto) => Object.keys(_m(sto, "p1"));
 async function fetchGame(g) { const sto = await dapp.storage(); return sto ? gameFrom(sto, g) : null; }
-const firedAt = (sto, slot, g, cell) => !!_m(sto, "fd")[g + "|" + slot + "|" + cell];
-const resultAt = (sto, slot, g, cell) => Number(_m(sto, "res")[g + "|" + slot + "|" + cell] || 0);   // 0 none · 1 miss · 2 hit
+const firedAt = (sto, slot, g, cell) => !!_m(sto, slot === 1 ? "fd1" : "fd2")[Number(g) * 100 + Number(cell)];
+const resultAt = (sto, slot, g, cell) => Number(_m(sto, slot === 1 ? "rs1" : "rs2")[Number(g) * 100 + Number(cell)] || 0);   // 0 none · 1 miss · 2 hit
 const myBoard = (g) => { const r = load(LS_G)[g]; return r && r.board ? { board: r.board, salts: r.salts.map((s) => BigInt(s)), seed: r.seed != null ? BigInt(r.seed) : null, spec: r.spec || null } : null; };
 
 // ---- state ---------------------------------------------------------------------------------------
