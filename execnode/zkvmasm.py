@@ -67,6 +67,14 @@ def assemble(text):
                 for h in _HR:
                     out.append([h, 0, 0, 0])
             out.append(["HOUT", d, 0, 0])
+        elif op == "SLOT":                                     # slot rd <field> rk  ->  rd = field*2^32 + rk
+            # Composite integer storage addressing (doc/zk-execution-proofs.md game model): a game's map
+            # entry lives at slot = field_id * 2^32 + key. field_id*2^32 is a COMPILE-TIME constant (one MOVI)
+            # so a slot address costs just MOVI+ADD, and the frontend computes the identical slot from
+            # (field, key) with no hashing. Keys (game/table/seat ids) are frontend ints < 2^32 -> enumerable.
+            d = _reg(toks[1]); field = _imm(toks[2]); k = _reg(toks[3])
+            out.append(["MOVI", d, 0, field << 32])
+            out.append(["ADD", d, k, 0])
         elif op == "GTE":                                      # gte d s  ->  lt d s ; notb d
             d, s = _reg(toks[1]), _reg(toks[2])
             out.append(["LT", d, s, 0])

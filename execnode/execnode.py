@@ -630,8 +630,10 @@ async def h_contract(request):
     c = st.contracts.get(cid)
     if not c:
         return web.json_response({"error": "not found"}, status=404)
+    # zkVM contracts with a view schema present their flat slots as the named maps the frontend expects
+    # (so a ported game changes only its cid); others return raw storage.
     return web.json_response({"cid": cid, "deployer": c["deployer"], "methods": list(c["code"].keys()),
-                              "code": c["code"], "storage": c["storage"], "runtime": c.get("runtime", "zkvm"),
+                              "code": c["code"], "storage": st.decode_view(c), "runtime": c.get("runtime", "zkvm"),
                               "abi": c.get("abi") or {}})
 
 
