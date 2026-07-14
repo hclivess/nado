@@ -14,7 +14,7 @@ from execnode import runtimes
 from execnode.stark import vm_circuit as V
 from execnode.games import (coinflip, dice, roulette, tictactoe as ttt, connect4 as c4,
                             slots, mines, reversi as rv, chess, farkle as fk, blackjack as bj, bet as bt,
-                            battleship as bs)
+                            battleship as bs, pets as ptz)
 
 fails = 0
 def check(name, fn):
@@ -572,6 +572,122 @@ def t_battleship_answer_proves():
     assert ok, f"answer proof (17 ARG args): {why}"
 
 
+# ---- pets (tamagotchi NFTs: gene/tier/stats, feeding, training, battles, marketplace) -------------
+def t_pets():
+    import random as _r
+    st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = 100
+    code = ptz.build()
+    st.credit_deposit(A, 10**13); st.credit_deposit(B, 10**13)
+    st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "abi": ptz.ABI, "nonce": "n"}, A, "d")
+    cid = st.contract_id(A, code, "n")
+    rd = lambda f, k: int((st.contracts[cid]["storage"].get("slots") or {}).get(str(f * (1 << 32) + k), 0))
+    call = lambda m, args, val, who: st.apply_blob(
+        {"op": "call", "contract": cid, "method": m, "args": args, "value": val or 0}, who,
+        m + str(args)[:30] + who + str(st.cursor))
+    _r.seed(11)
+    genes = {}
+    for i, pid in enumerate((1, 2, 3, 4)):
+        who = A if i % 2 == 0 else B
+        assert "ok" in call("mint", [pid], ptz.MINT_FEE, who)
+        gh = rd(ptz.BH, pid)
+        h0, h1 = _r.randint(1, 2**60), _r.randint(1, 2**60)
+        st.block_hashes[gh] = h0; st.block_hashes[gh + 1] = h1; st.cursor = max(st.cursor, gh + 2)
+        assert "ok" in call("hatch", [pid], None, who)
+        gene = ptz.ref_gene(h0, h1, pid); sp = ptz.ref_tier(gene)
+        assert rd(ptz.GL, pid) == (gene & 0xFFFFFFFF) and rd(ptz.GH, pid) == (gene >> 32)
+        assert rd(ptz.SP, pid) == sp and rd(ptz.SI, pid) == ptz.ref_si(gene, sp)
+        assert rd(ptz.AP, pid) == ptz.ref_stat(gene, sp, 9) and rd(ptz.PW, pid) == ptz.ref_power(gene, sp)
+        genes[pid] = (gene, sp)
+    # feed math + training differential (one success or fail, exact)
+    st.cursor = rd(ptz.FU, 1) - 200000
+    fu0 = rd(ptz.FU, 1)
+    assert "ok" in call("feed", [1], 7 * 10**9, A)
+    assert rd(ptz.FU, 1) == fu0 + 7 * 10**9 // (rd(ptz.AP, 1) * ptz.FEED_DIV), "feed math"
+    for t in range(6):
+        stat = t % 10
+        assert "ok" in call("train", [1, stat], ptz.TRAIN_FEE, A)
+        th = rd(ptz.TH, 1)
+        h0, h1 = _r.randint(1, 2**60), _r.randint(1, 2**60)
+        st.block_hashes[th] = h0; st.block_hashes[th + 1] = h1; st.cursor = max(st.cursor, th + 2)
+        tb0 = rd(ptz.TB_BASE + stat, 1)
+        cur = ptz.ref_stat(*genes[1], stat) + tb0
+        ok_ref = ptz.ref_train_ok(ptz.ref_train_roll(h0, h1, 1, stat), cur, genes[1][1])
+        assert "ok" in call("train_resolve", [1], None, A)
+        assert rd(ptz.TB_BASE + stat, 1) - tb0 == (1 if ok_ref else 0), "train differential"
+    # battles: several fights, each turn-engine result differentially checked vs ref_battle_turns
+    fights = 0
+    for bid in range(100, 108):
+        st.cursor += ptz.EXHAUST + 10
+        alive = lambda p_: rd(ptz.FU, p_) > st.cursor
+        mine = {p_: st.zk_addrs.get(str(rd(ptz.OW, p_))) for p_ in (1, 2, 3, 4)}
+        a_p = [p_ for p_, o in mine.items() if o == A and alive(p_)]
+        b_p = [p_ for p_, o in mine.items() if o == B and alive(p_)]
+        if not a_p or not b_p:
+            continue
+        pa, pb = a_p[0], b_p[0]
+        call("feed", [pa], 5 * 10**9, A); call("feed", [pb], 5 * 10**9, B)
+        if "revert" in call("challenge", [bid, pa, pb], 1000, A):
+            continue
+        if "revert" in call("accept", [bid], 1000, B):
+            continue
+        wh = rd(ptz.WH, bid)
+        h0, h1 = _r.randint(1, 2**60), _r.randint(1, 2**60)
+        st.block_hashes[wh] = h0; st.block_hashes[wh + 1] = h1; st.cursor = max(st.cursor, wh + 2)
+        effA = [ptz.ref_stat(*genes[pa], i) + rd(ptz.TB_BASE + i, pa) for i in range(10)]
+        effB = [ptz.ref_stat(*genes[pb], i) + rd(ptz.TB_BASE + i, pb) for i in range(10)]
+        a_wins, dies, _h0, _h1, _log = ptz.ref_battle_turns(h0, h1, bid, effA, effB)
+        assert "ok" in call("resolve_battle", [bid], None, B)
+        assert rd(ptz.WW, bid) == (pa if a_wins else pb), "battle winner differential"
+        loser = pb if a_wins else pa
+        assert rd(ptz.WD, bid) == (loser if dies else 0), "death differential"
+        assert rd(ptz.OW, loser) == rd(ptz.OW, rd(ptz.WW, bid)), "loser claimed"
+        # gift back so pairings survive (the test drives both keys)
+        back = A if loser == pa else B
+        wo = st.zk_addrs.get(str(rd(ptz.OW, loser)))
+        if rd(ptz.FU, loser) > st.cursor and wo != back:
+            call("transfer", [loser, back], None, wo)
+        fights += 1
+    assert fights >= 3, f"only {fights} fights"
+    # marketplace + naming (fresh pets so they're alive)
+    for pid, who in ((20, A), (21, B)):
+        call("mint", [pid], ptz.MINT_FEE, who)
+        gh = rd(ptz.BH, pid)
+        st.block_hashes[gh] = _r.randint(1, 2**60); st.block_hashes[gh + 1] = _r.randint(1, 2**60)
+        st.cursor = max(st.cursor, gh + 2)
+        call("hatch", [pid], None, who)
+    assert "ok" in call("list", [20, 12345], None, A)
+    b0 = st.bridge.get(A, 0)
+    assert "ok" in call("buy", [20], 12345, B)
+    assert st.bridge.get(A, 0) - b0 == 12345
+    assert "ok" in call("offer", [900, 21], 5000, A)
+    assert "ok" in call("accept_offer", [900], None, B)
+    assert "ok" in call("name", [21, "Rex"], None, A)
+    assert "revert" in call("name", [21, "Fido"], None, A), "no renames"
+    v = st.decode_view(st.contracts[cid])
+    assert v["nm"][str(21)] == "Rex" and "tb" in v
+    assert not [k for k in st.contracts[cid]["storage"]["slots"] if int(k) >> 32 == ptz.SC], "scratch"
+
+def t_pets_hatch_proves():
+    import random as _r
+    st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = 100
+    code = ptz.build()
+    st.credit_deposit(A, 10**12)
+    st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "abi": ptz.ABI, "nonce": "n"}, A, "d")
+    cid = st.contract_id(A, code, "n")
+    rd = lambda f, k: int((st.contracts[cid]["storage"].get("slots") or {}).get(str(f * (1 << 32) + k), 0))
+    st.apply_blob({"op": "call", "contract": cid, "method": "mint", "args": [7], "value": ptz.MINT_FEE}, A, "m")
+    gh = rd(ptz.BH, 7)
+    _r.seed(3)
+    bhs = {gh: _r.randint(1, 2**60), gh + 1: _r.randint(1, 2**60)}
+    st.block_hashes.update(bhs); st.cursor = gh + 2
+    slots = {int(k): int(v) for k, v in st.contracts[cid]["storage"]["slots"].items()}
+    cf, fa = runtimes.zkvm_statement(A, [7], {})
+    proof, io, ret, ns = V.prove_call(code, "hatch", cf, fa, slots, num_queries=NQ, cursor=st.cursor,
+                                      block_hashes=st.block_hashes)
+    ok, why = V.verify_call(proof, code, "hatch", cf, fa, io, num_queries=NQ, cursor=st.cursor)
+    assert ok, f"hatch proof: {why}"
+
+
 if __name__ == "__main__":
     check("coinflip: open/join/settle/cancel + escrow + view", t_coinflip)
     check("coinflip: settle proves", t_coinflip_prove)
@@ -595,5 +711,7 @@ if __name__ == "__main__":
     check("battleship: full hidden-board game, lie/overlap rejected, pot paid", t_battleship)
     check("battleship: timeout + forfeit stall paths", t_battleship_stall_paths)
     check("battleship: answer proves (17-arg merkle proof on the ARG bus)", t_battleship_answer_proves)
+    check("pets: gene/tier/stat/feed/train/battle differentials + marketplace", t_pets)
+    check("pets: hatch proves (12-hash gene derivation)", t_pets_hatch_proves)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)
