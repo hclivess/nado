@@ -7,12 +7,12 @@
 // Once the settle block is final, ANYONE can settle a seat (it pays the bettor) — a stalling bank can't rob
 // anyone. A win pays the true 36/count; losing stakes fold into the bankroll. Ordinary upgradable stackvm
 // contract, no game-specific API.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, blocksToTime,
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, chainResultAlg, blocksToTime,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
          recentChips, statusLabel, tablesOf as allTables, readTable, alertBar, notify,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
-const CID = "e04c329d0b57c9ea40493e957adfee9c";
+const CID = "0ccfa996d30b5228e702a38a29b965fe";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <circle cx="24" cy="24" r="16" fill="#0b0f14" stroke="#b5810f" stroke-width="2"/>     <g stroke="#0b0f14" stroke-width=".6">       <path d="M24 24 L24 8 A16 16 0 0 1 35.3 12.7 Z" fill="#d0362b"/>       <path d="M24 24 L35.3 12.7 A16 16 0 0 1 40 24 Z" fill="#20272f"/>       <path d="M24 24 L40 24 A16 16 0 0 1 35.3 35.3 Z" fill="#1f8f4e"/>       <path d="M24 24 L35.3 35.3 A16 16 0 0 1 24 40 Z" fill="#d0362b"/>       <path d="M24 24 L24 40 A16 16 0 0 1 12.7 35.3 Z" fill="#20272f"/>       <path d="M24 24 L12.7 35.3 A16 16 0 0 1 8 24 Z" fill="#d0362b"/>       <path d="M24 24 L8 24 A16 16 0 0 1 12.7 12.7 Z" fill="#20272f"/>       <path d="M24 24 L12.7 12.7 A16 16 0 0 1 24 8 Z" fill="#20272f"/></g>     <circle cx="24" cy="24" r="6" fill="#e3b341" stroke="#b5810f" stroke-width="1.4"/>     <circle cx="24" cy="24" r="2.2" fill="#0b0f14"/>     <circle cx="24" cy="10.5" r="2" fill="#fff"/></svg>';
 const PN = 37, MAXSLOTS = 18, BLOCK_SECS = 6, ROUND = 20;   // ROUND must match the contract
 const dapp = new NadoDapp({ cid: CID, app: "Roulette" });
@@ -39,7 +39,7 @@ function reopenTable() {   // retry an open that never landed (same id is still 
 
 
 // ---- reads (roulette-specific storage schema) ----------------------------------------------------
-function coveredOf(sto, g) { const cov = _m(sto, "cov"), out = [], b = Number(g) * PN; for (let n = 0; n < PN; n++) if (cov[String(b + n)]) out.push(n); return out; }
+function coveredOf(sto, g) { const mask = BigInt(_m(sto, "gmask")[String(g)] || 0), out = []; for (let n = 0; n < PN; n++) if ((mask >> BigInt(n)) & 1n) out.push(n); return out; }
 const tableFrom = (sto, t) => readTable(sto, t, dapp.cursor, ROUND);
 function seatsOfTable(sto, t) {
   t = String(t); const gg = _m(sto, "gg"), cur = dapp.cursor, out = [];
@@ -49,7 +49,7 @@ function seatsOfTable(sto, t) {
     const s = { g: Number(g), addr: _m(sto, "ga")[g], stake: _m(sto, "gs")[g] || 0, count: cn, covered,
       gh, settled, mult: Math.floor(36 / cn) };
     if (settled) { const gr = _m(sto, "gr")[g] || 0; s.result = gr ? gr - 1 : null; s.win = !!_m(sto, "gw")[g]; }
-    else if (cur != null && cur >= gh + 1) { s.result = chainResult(dapp.bh(gh), dapp.bh(gh + 1), t, PN); s.ready = true; s.win = s.result != null ? covered.includes(s.result) : null; }
+    else if (cur != null && cur >= gh + 1) { s.result = chainResultAlg(dapp.bh(gh), dapp.bh(gh + 1), t, PN); s.ready = true; s.win = s.result != null ? covered.includes(s.result) : null; }
     else { s.pending = true; s.spinsIn = cur != null ? gh - cur : null; }   // waiting for its round to end
     out.push(s);
   }
@@ -60,7 +60,7 @@ async function fetchTable(t) { const sto = await dapp.storage(); return sto ? ta
 // ---- bet maths -----------------------------------------------------------------------------------
 const betCount = () => selected.size;
 const betMult = () => { const c = betCount(); return c >= 1 && c <= MAXSLOTS ? Math.floor(36 / c) : 0; };
-const betSlots = () => { const a = [...selected].sort((x, y) => x - y); const rep = a.length ? a[0] : 0; while (a.length < MAXSLOTS) a.push(rep); return a; };
+const betMask = () => { let m = 0n; for (const n of selected) m |= (1n << BigInt(n)); return m.toString(); };   // 37-bit coverage mask (arg-packed)
 
 // ---- actions -------------------------------------------------------------------------------------
 function openTable(t, bankrollRaw) {
@@ -89,10 +89,10 @@ async function doBet() {
   if (!canPay(dapp, stake, "This bet")) { render(); return; }
   const need = stake * BigInt(betMult() - 1);
   if (BigInt(tb.bankroll) - BigInt(tb.committed) < need) { alertBar(window.t("roul.cantCoverNow", "This table can't cover a {mult}× win right now (bankroll left: {left} NADO). Lower your stake or widen your bet.", { mult: betMult(), left: rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) })); render(); return; }
-  const g = randId(), slots = betSlots(), S = load(LS_S);
+  const g = randId(), S = load(LS_S);
   S[g] = { table: t, stake: stake.toString(), numbers: [...selected], ts: Date.now() }; save(LS_S, S);
   render();
-  dapp.call("bet", [g, t, ...slots], stake, "bet " + rawToNado(stake) + " NADO on " + selected.size + " number(s) · table #" + t, { table: t, seat: g, phase: "bet" });
+  dapp.call("bet", [g, t, betMask()], stake, "bet " + rawToNado(stake) + " NADO on " + selected.size + " number(s) · table #" + t, { table: t, seat: g, phase: "bet" });
 }
 function fundTable() {
   const raw = nadoToRaw($("fundAmt").value);
