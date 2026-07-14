@@ -1,3 +1,64 @@
+# Alphanet update — 2026-07-14 (zkVM execution proofs — the provable execution layer)
+
+> **Execution-layer change (not yet a live cutover).** This lands the full ZK-execution-proof stack
+> (issue #85) and makes the field-native **zkVM the only contract runtime**. It is merged and fully
+> tested, but the **alphanet-5 reboot + game migration is a separate gated cutover** (see the end of
+> this entry) — the live alphanet-4 chain is untouched until that is run.
+
+**The one-line result:** a smart-contract call can now be **proven** and applied by *verifying a proof +
+replaying a tiny public log* instead of re-executing the contract — and a whole epoch of calls settles as
+**one** STARK the base layer checks in ~0.3 s regardless of call count. This is the "verifier, not a VM"
+endgame of `doc/execution-layer.md`, built on the in-repo post-quantum STARK stack (FRI + Goldilocks +
+Poseidon-style hash, no trusted setup).
+
+### What shipped
+
+- **Two-phase STARK + LogUp lookup argument** (`execnode/stark/stark.py` `aux_spec`, `stark/logup.py`) —
+  the memory-checking machinery a provable VM needs: commit the trace, draw Fiat–Shamir challenges, then
+  commit challenge-dependent helper columns. The one-phase path is byte-identical, so every live
+  shielded-pool proof still verifies (the join-split suites pass unchanged).
+- **zkVM** (`execnode/zkvm.py`, `zkvmasm.py`) — a field-native register machine where one step = one STARK
+  row: alghash sponge instead of BLAKE2b, byte-limb comparison/division windows that structurally exclude
+  the field-wraparound forgery, and storage/payouts/randomness/return as an ordered **public I/O log** a
+  verifier replays (`zkvm.replay_io`) rather than executing.
+- **Execution AIR** (`execnode/stark/vm_circuit.py`) — 101 columns, ~100 constraints, four domain-tagged
+  LogUp buses (instruction fetch, the ordered I/O log, and byte/7-bit range tables). A real contract call
+  (blockhash randomness → division → storage read-modify-write → conditional payout) proves in ~25 s and
+  verifies in ~0.25 s.
+- **Epoch aggregation** — per-call context (caller/value/cursor/time/program) and args are periodic public
+  columns; `P_START`/`P_END` reset the machine at call boundaries, so **N calls across many contracts prove
+  as ONE trace**. L1 verifies a single proof per epoch (~0.3 s), independent of the call count.
+- **Epoch settlement proof** (`execnode/settlement_proofs.py`) — binds the pre/post zkVM **state root**
+  (byte-identical to the `["kv", cid, "slots", …]` leaves committed in `state_root`) and installs into
+  `ops.settlement_ops.set_settlement_verifier`, so L1 can justify a settled root by **proof** instead of by
+  bonded quorum. `/exec/prove_call` + `/exec/verify_call` expose per-call proving.
+- **stackvm deleted — no legacy, no history replay.** The old string/BLAKE2b stack VM (`execnode/vm.py`),
+  its `contract_lib`, the 16 stackvm game JSONs, the stackvm assembler and all stackvm-format tests are
+  removed. `DEFAULT_RUNTIME = "zkvm"`; the runtime registry keeps its seam but ships one engine. A new
+  `execnode/zkvm_examples.py` (counter / tip-jar / commit-box, zkVM asm) is the `/exec/examples` library.
+
+Tests: `test_stark_aux`, `test_zkvm`, `test_zkvm_circuit`, `test_zkvm_epoch`, `test_zkvm_runtime`,
+`test_settlement_proof` (all new, all passing), plus the full consensus / shielded-pool / exec suites and
+the exec tests ported off stackvm (`test_runtimes`, `test_upgrade`, `test_exec_namespaces`, `test_beacon`).
+
+### Still pending — the alphanet-5 cutover (gated, not run here)
+
+Deleting stackvm means **games return only as zkVM ports**, and that is a coordinated, destructive cutover
+deliberately **not** performed by this update:
+
+1. **Reboot to `alphanet-5`** (fresh genesis) — regenerate `genesis_alloc.dat` from the live chain first so
+   every holder's **balance + bonded stake carries forward** (block-0 seeding doesn't change the genesis
+   hash). Exec-side user balances + uncollected dividends can additionally be folded into each address's
+   carried balance. Contract-held pot escrow is the one genuinely hard case (ambiguous ownership across a VM
+   change) and needs an explicit refund rule before wiping.
+2. **Migrate the games** — each game needs an **enumerable index** state model (zkVM storage is flat
+   digest-keyed slots that can't be `Object.keys`-iterated like the old named maps), so both the contract
+   and its frontend state-readers are redesigned, then redeployed and re-wired (`static/*.js` CIDs, `/games`).
+
+Until that cutover runs, alphanet-4 keeps operating on the last stackvm build.
+
+---
+
 # Alphanet update — 2026-07-13 (consensus scales to the mainstream)
 
 > **Consensus-affecting** — update all nodes together. The FFG quorum now counts duty-committee
