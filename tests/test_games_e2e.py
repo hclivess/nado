@@ -13,7 +13,7 @@ from execnode.state import ExecState
 from execnode import runtimes
 from execnode.stark import vm_circuit as V
 from execnode.games import (coinflip, dice, roulette, tictactoe as ttt, connect4 as c4,
-                            slots, mines, reversi as rv, chess, farkle as fk)
+                            slots, mines, reversi as rv, chess, farkle as fk, blackjack as bj)
 
 fails = 0
 def check(name, fn):
@@ -239,6 +239,85 @@ def t_farkle():
     assert n >= 3
 
 
+# ---- blackjack (banked, dealer S17, ace-soft) --------------------------------------------------
+def t_blackjack():
+    import random as _r
+    st, code, cid, rd = _fresh(bj, deployer=A)
+    st.credit_deposit(A, 10_000_000_000); st.credit_deposit(B, 10_000_000)
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [5], "value": 5_000_000_000}, A, "o")
+    _r.seed(5); stake = 100_000; wins = pushes = losses = nats = 0
+    for trial in range(30):
+        g = 100 + trial; st.cursor = 200 + trial * 60
+        st.apply_blob({"op": "call", "contract": cid, "method": "deal", "args": [g, 5], "value": stake}, B, "d")
+        gh = rd(bj.GH, g); h0 = _r.randint(1, 2**60); h1 = _r.randint(1, 2**60)
+        st.block_hashes[gh] = h0; st.block_hashes[gh + 1] = h1; st.cursor = gh + 2
+        up = bj.card_at(h0, h1, g * 64, 16)
+        c0 = bj.card_at(h0, h1, g * 64, 0); c1 = bj.card_at(h0, h1, g * 64, 1)
+        ptot, _, _, natural = bj.hand_total([c0, c1])
+        pb = st.bridge.get(B, 0)
+        st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [g]}, B, "r")
+        assert rd(bj.DU, g) - 1 == up, "dealer up card must match reference"
+        if natural:
+            nats += 1
+            assert rd(bj.GD, g) == 1 and st.bridge.get(B, 0) - pb == stake * 5 // 2, "natural pays 5:2"
+            continue
+        st.apply_blob({"op": "call", "contract": cid, "method": "stand", "args": [g]}, B, "s")
+        gh2 = rd(bj.GH, g); h2 = _r.randint(1, 2**60); h3 = _r.randint(1, 2**60)
+        st.block_hashes[gh2] = h2; st.block_hashes[gh2 + 1] = h3; st.cursor = gh2 + 2
+        pb = st.bridge.get(B, 0)
+        st.apply_blob({"op": "call", "contract": cid, "method": "settle", "args": [g]}, B, "e")
+        dtot = bj.dealer_play(h2, h3, g, up)
+        exp = stake * 2 if (dtot > 21 or ptot > dtot) else (stake if ptot == dtot else 0)
+        assert rd(bj.GR, g) == dtot, f"dealer total {rd(bj.GR,g)} != ref {dtot}"
+        assert st.bridge.get(B, 0) - pb == exp, f"payout {st.bridge.get(B,0)-pb} != {exp}"
+        wins += exp == stake * 2 and ptot != dtot; pushes += ptot == dtot; losses += exp == 0
+    assert wins and losses and nats, f"want a mix (w={wins} p={pushes} l={losses} n={nats})"
+    v = st.decode_view(st.contracts[cid])
+    assert "pc" in v and "gr" in v and v["ta"]["5"] == A
+
+def t_blackjack_hit_bust():
+    import random as _r
+    st, code, cid, rd = _fresh(bj, deployer=A)
+    st.credit_deposit(A, 10_000_000_000); st.credit_deposit(B, 10_000_000)
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [5], "value": 5_000_000_000}, A, "o")
+    _r.seed(7); busted = 0
+    for g in range(900, 990):
+        st.cursor = (g + 1) * 100
+        st.apply_blob({"op": "call", "contract": cid, "method": "deal", "args": [g, 5], "value": 100_000}, B, "d")
+        gh = rd(bj.GH, g); st.block_hashes[gh] = _r.randint(1, 2**60); st.block_hashes[gh + 1] = _r.randint(1, 2**60); st.cursor = gh + 2
+        st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [g]}, B, "r")
+        if rd(bj.GD, g):
+            continue
+        pb = st.bridge.get(B, 0)
+        st.apply_blob({"op": "call", "contract": cid, "method": "hit", "args": [g]}, B, "h")
+        gh2 = rd(bj.GH, g); st.block_hashes[gh2] = _r.randint(1, 2**60); st.block_hashes[gh2 + 1] = _r.randint(1, 2**60); st.cursor = gh2 + 2
+        st.apply_blob({"op": "call", "contract": cid, "method": "draw", "args": [g]}, B, "w")
+        if rd(bj.GD, g) == 1 and rd(bj.GW, g) == 2:
+            busted += 1
+            assert st.bridge.get(B, 0) == pb, "a bust pays nothing"
+        if busted >= 2:
+            break
+    assert busted >= 2, "expected some hit-then-bust hands"
+
+def t_blackjack_prove():
+    import random as _r
+    st, code, cid, rd = _fresh(bj, deployer=A)
+    st.credit_deposit(A, 10_000_000_000); st.credit_deposit(B, 10_000_000)
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [5], "value": 5_000_000_000}, A, "o")
+    _r.seed(3); g = 100; st.cursor = 500
+    st.apply_blob({"op": "call", "contract": cid, "method": "deal", "args": [g, 5], "value": 100_000}, B, "d")
+    gh = rd(bj.GH, g); st.block_hashes[gh] = _r.randint(1, 2**60); st.block_hashes[gh + 1] = _r.randint(1, 2**60); st.cursor = gh + 2
+    st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [g]}, B, "r")
+    assert not rd(bj.GD, g)
+    st.apply_blob({"op": "call", "contract": cid, "method": "stand", "args": [g]}, B, "s")
+    gh2 = rd(bj.GH, g); st.block_hashes[gh2] = _r.randint(1, 2**60); st.block_hashes[gh2 + 1] = _r.randint(1, 2**60); st.cursor = gh2 + 2
+    slots = {int(k): int(vv) for k, vv in st.contracts[cid]["storage"]["slots"].items()}
+    cf, fa = runtimes.zkvm_statement(B, [g], {})
+    proof, io, ret, ns = V.prove_call(code, "settle", cf, fa, slots, num_queries=NQ, cursor=st.cursor, block_hashes=st.block_hashes)
+    ok, why = V.verify_call(proof, code, "settle", cf, fa, io, num_queries=NQ, cursor=st.cursor)
+    assert ok, f"settle proof: {why}"
+
+
 if __name__ == "__main__":
     check("coinflip: open/join/settle/cancel + escrow + view", t_coinflip)
     check("coinflip: settle proves", t_coinflip_prove)
@@ -254,5 +333,8 @@ if __name__ == "__main__":
     check("reversi: flip board matches reference", t_reversi)
     check("chess: move record + agree settlement", t_chess)
     check("farkle: roll/hold scoring + banking vs reference", t_farkle)
+    check("blackjack: deal/reveal/stand/settle vs dealer S17 + payouts + view", t_blackjack)
+    check("blackjack: hit-then-bust loses immediately", t_blackjack_hit_bust)
+    check("blackjack: settle proves (dealer loop trace)", t_blackjack_prove)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)
