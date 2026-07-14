@@ -10,7 +10,7 @@ import { NadoDapp, rawToNado, nadoToRaw, blake2bHash, _m, $, base, gate, canPay,
          randId, loadQR, resolveAliases, disp, share, shareInvite, blocksToTime } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
 
-const CID = "ecb7f71c9149e272f537a80bd3392474";
+const CID = "ed48a2011d1c9f563725bed90128be3e";
 const T = 25, NMIN = 1, NMAX = 24, PICK_D = 2, REAP = 1200;
 const dapp = new NadoDapp({ cid: CID, app: "Mines" });
 const bg = new BankedGame(dapp, { icon: "💣" });
