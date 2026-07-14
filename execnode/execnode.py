@@ -634,7 +634,7 @@ async def h_contract(request):
     # (so a ported game changes only its cid); others return raw storage.
     return web.json_response({"cid": cid, "deployer": c["deployer"], "methods": list(c["code"].keys()),
                               "code": c["code"], "storage": st.decode_view(c), "runtime": c.get("runtime", "zkvm"),
-                              "abi": c.get("abi") or {}})
+                              "upgradable": c.get("upgradable", True), "abi": c.get("abi") or {}})
 
 
 async def h_view(request):
