@@ -8,7 +8,7 @@ from config import get_timestamp_seconds
 from config import test_self_port
 from ops.peer_ops import announce_me, get_list_of_peers, load_ips, check_save_peers
 from ops.peer_ops import get_public_ip, update_local_ip, check_ip, subnet_diversity_ok
-from ops.peer_ops import seed_default_peers, seed_peers
+from ops.peer_ops import seed_default_peers, seed_peers, status_fields_well_typed
 from protocol import CHAIN_ID
 
 # How often (seconds) a node BELOW min_peers re-seeds + reloads peers from drive. The peer loop still spins
@@ -207,6 +207,14 @@ class PeerClient(threading.Thread):
                         # gate (_peer_ahead) and minority_block_consensus, stalling production and
                         # looping emergency sync against blocks verify_block can only reject.
                         self.logger.error(f"Chain of {key} is not {CHAIN_ID}: {value.get('chain_id')}")
+                        self.memserver.ban_peer(key)
+                    elif not status_fields_well_typed(value):
+                        # MALFORMED-TYPE status: a numeric field (esp. latest_block_weight) that is
+                        # present but not an int would crash the fork-choice comparison (`str > int`
+                        # TypeError) on EVERY consensus pass and freeze the heaviest-tip refresh
+                        # node-wide — the same halt-class as an unvalidated tx field. Refuse it here so
+                        # no mistyped value ever reaches a comparison.
+                        self.logger.error(f"Status of {key} has malformed field types; refusing")
                         self.memserver.ban_peer(key)
                     else:
                         self.consensus.status_pool[key]=value

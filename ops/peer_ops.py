@@ -93,6 +93,38 @@ def _migrate_legacy_peers():
 
 
 
+# FIELD-TYPE SCHEMA for an admitted /status dict. A peer's status is UNTRUSTED input, and its numeric
+# fields flow straight into consensus arithmetic — latest_block_weight into the objective fork-choice
+# comparison (consensus_loop.refresh_heaviest_tip `w > tip_weights[...]`) and the caught-up gate
+# (core_loop.peer_claims_heavier_tip `weight > our_weight`). In Python 3 `"9" > 5` raises TypeError, so a
+# SINGLE peer advertising a STRING weight would crash the consensus refresh EVERY pass and FREEZE
+# fork-choice node-wide (same halt-class as the unvalidated min_block). We therefore reject a status whose
+# known numeric/hash field is present but wrong-typed, at the admission boundary — so no downstream
+# consumer ever compares a mistyped value. Absent/None is allowed (a mid-restart peer legitimately omits
+# fields); bool is rejected for numerics (True/False must not masquerade as a weight/height).
+_STATUS_INT_FIELDS = ("latest_block_weight", "finalized_height", "ffg_finalized",
+                      "snapshot_height", "reported_uptime", "protocol")
+_STATUS_STR_FIELDS = ("latest_block_hash", "earliest_block_hash", "upcoming_block_hash",
+                      "transaction_pool_hash", "snapshot_hash", "address", "version", "chain_id")
+
+
+def status_fields_well_typed(status) -> bool:
+    """True iff `status` is a dict whose known consensus fields are each absent, None, or the RIGHT type
+    (ints for weights/heights — bool rejected; strings for hashes/ids). Fail-closed: a malformed status
+    is refused at admission so a mistyped weight can never reach a fork-choice comparison and crash it."""
+    if not isinstance(status, dict):
+        return False
+    for f in _STATUS_INT_FIELDS:
+        v = status.get(f)
+        if v is not None and (not isinstance(v, int) or isinstance(v, bool)):
+            return False
+    for f in _STATUS_STR_FIELDS:
+        v = status.get(f)
+        if v is not None and not isinstance(v, str):
+            return False
+    return True
+
+
 async def get_remote_status(target_peer, logger) -> [dict, bool]:
     """fetch a peer's /status dict over the bomb-capped zstd(msgpack) wire (5s total timeout); False on
     any failure. The answer is UNTRUSTED peer input — callers pool it and act on the get_majority vote,
@@ -107,7 +139,9 @@ async def get_remote_status(target_peer, logger) -> [dict, bool]:
                     # anti-OOM: cap the untrusted body like every other peer fetcher (compressed side),
                     # and unpack_zstd_peer caps the decompressed side against a zstd bomb.
                     status = unpack_zstd_peer(await read_capped(response, MAX_PEER_BODY))
-                    return status if isinstance(status, dict) else False
+                    # reject a malformed-typed status here too (this fetcher feeds the snapshot/reanchor
+                    # weight comparisons directly, bypassing the peer_loop admission gate).
+                    return status if status_fields_well_typed(status) else False
                 else:
                     return False
 
