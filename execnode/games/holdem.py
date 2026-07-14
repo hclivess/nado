@@ -433,7 +433,7 @@ def _draw_card(idx, slot, excl_from, excl_n, tag):
     """Draw card #idx into EV scratch (keyed g): retry until ∉ {cards excl_from..excl_from+excl_n-1}."""
     L = ["movi r1 0", f"{tag}_retry:"]
     L += _load(EV_SEED, "r2") + [f"movi r5 {slot * 4096}", "add r2 r5", "add r2 r1"]
-    L += _roll32("r2", "r2") + ["movi r5 52", "divmod r2 r5", "mov r2 r7"]
+    L += _roll32("r2", "r2") + ["movi r5 52", "rem r2 r5"]
     L += ["movi r3 0"]
     for j in range(excl_from, excl_from + excl_n):
         L += _load(EV_CARD + j, "r5") + ["eq r5 r2", "add r3 r5"]

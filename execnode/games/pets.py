@@ -206,7 +206,7 @@ def _hatch():
     L += ["movi r1 0"]                                                           # r1 = power accumulator
     for i in range(10):
         L += ["mov r5 r3", f"movi r6 {1000 + i}", "add r5 r6"] + _roll32("r5", "r5")
-        L += ["movi r6 60", "divmod r5 r6", "mov r5 r7", "movi r6 1", "add r5 r6",
+        L += ["movi r6 60", "rem r5 r6", "movi r6 1", "add r5 r6",
               "mov r6 r2", "movi r4 1", "sub r6 r4", f"movi r4 {STAT_TIER_BONUS}", "mul r6 r4",
               "add r5 r6", "add r1 r5"]
         if i == 9:
@@ -343,7 +343,7 @@ def _train_resolve():
     L += _sl(TH) + ["sload r5 r4", "bhash r2 r5", "movi r6 1", "add r5 r6", "bhash r6 r5", "add r2 r6",
                     "mov r5 r0", "movi r6 16", "mul r5 r6", "add r2 r5",
                     f"movi r5 {_sc(1)}", "sload r5 r5", "add r2 r5"]
-    L += _roll32("r2", "r2") + ["movi r5 100", "divmod r2 r5", "mov r2 r7"]
+    L += _roll32("r2", "r2") + ["movi r5 100", "rem r2 r5"]
     # success = roll*(K+cur) < 100*K ; K = 10 + 30*sp
     L += _sl(SP) + ["sload r5 r4", "movi r6 30", "mul r5 r6", "movi r6 10", "add r5 r6"]   # K
     L += ["mov r6 r5", "add r6 r1", "mul r2 r6",                                 # roll*(K+cur)
@@ -463,7 +463,7 @@ def _resolve_battle():
         L += att(0, "r3") + ["movi r5 50", "add r3 r5"]
         L += att(9, "r6") + ["movi r5 4", "divmod r6 r5", "add r3 r6"]
         L += [f"movi r4 {_bsl(_Q)}", "sload r5 r4", f"movi r6 {t + 4096}", "add r5 r6"]
-        L += _roll32("r5", "r5") + ["movi r6 61", "divmod r5 r6", "mov r5 r7", "movi r6 60", "add r5 r6",
+        L += _roll32("r5", "r5") + ["movi r6 61", "rem r5 r6", "movi r6 60", "add r5 r6",
                                     "mul r3 r5", "movi r5 100", "divmod r3 r5", "movi r5 1", "add r3 r5"]
         # crit: roll32(q+t+12288)%100 < att(7)  ->  dmg += crit*dmg   (roll parked across the stat select)
         L += [f"movi r4 {_bsl(_Q)}", "sload r5 r4", f"movi r6 {t + 12288}", "add r5 r6"]
@@ -521,7 +521,7 @@ def _resolve_battle():
           f"slot r4 {MP} r1", "movi r5 0", "sstore r4 r5"]
     # death: dies = roll32(q+999999)%100 < DIE_PCT ; fu[loser] = dies ? 1 : fu
     L += [f"movi r4 {_bsl(_Q)}", "sload r5 r4", "movi r6 999999", "add r5 r6"]
-    L += _roll32("r5", "r5") + ["movi r6 100", "divmod r5 r6", "mov r5 r7",
+    L += _roll32("r5", "r5") + ["movi r6 100", "rem r5 r6",
                                 f"movi r6 {DIE_PCT}", "lt r5 r6"]                     # r5 = dies
     L += [f"slot r4 {FU} r1", "sload r6 r4", "mov r2 r5", "notb r2", "mul r6 r2", "add r6 r5",
           "sstore r4 r6"]
