@@ -13,6 +13,7 @@ Scratch (field 30, fixed slots 0..5 = r0,r1,r2,s0,s1,s2; cleared at end).  Index
 Methods: open(t)[bankroll] · spin(g,t)[stake] · settle(g) · claim(g) · fund(t)[value] · close(t).
 """
 from execnode import zkvmasm
+from execnode.games import _lib
 
 TA, TK, TP, TC, TZ, TN = 1, 2, 3, 4, 6, 15
 GG, GS, GA, GH, GR, GW, GD = 7, 9, 10, 11, 12, 13, 14
@@ -120,35 +121,7 @@ def _settle():
 
 
 SRC = {
-    "open": """
-        ctx r1 value
-        movi r2 0
-        lt r2 r1
-        require r2
-        movi r2 0
-        lt r2 r0
-        require r2
-        slot r4 1 r0
-        sload r5 r4
-        nez r5
-        notb r5
-        require r5
-        ctx r6 caller
-        slot r4 1 r0
-        sstore r4 r6
-        slot r4 2 r0
-        sstore r4 r1
-        slot r4 3 r0
-        sstore r4 r1
-        movi r4 0
-        sload r5 r4
-        slot r6 16 r5
-        sstore r6 r0
-        movi r3 1
-        add r5 r3
-        sstore r4 r5
-        ret r0
-    """,
+    "open": _lib.open_table(TLIST),
     # spin(g, t)[stake]: reserve a 150x cover (tc += stake*149), like dice bet without a target
     "spin": """
         ctx r3 value
@@ -253,53 +226,8 @@ SRC = {
         sstore r4 r5
         ret r0
     """,
-    "fund": """
-        ctx r1 value
-        ctx r2 caller
-        slot r4 1 r0
-        sload r5 r4
-        eq r5 r2
-        require r5
-        slot r4 6 r0
-        sload r5 r4
-        nez r5
-        notb r5
-        require r5
-        movi r5 0
-        lt r5 r1
-        require r5
-        slot r4 2 r0
-        sload r6 r4
-        add r6 r1
-        sstore r4 r6
-        slot r4 3 r0
-        sload r6 r4
-        add r6 r1
-        sstore r4 r6
-        ret r0
-    """,
-    "close": """
-        ctx r1 caller
-        slot r4 1 r0
-        sload r5 r4
-        eq r5 r1
-        require r5
-        slot r4 6 r0
-        sload r5 r4
-        nez r5
-        notb r5
-        require r5
-        slot r4 3 r0
-        sload r6 r4
-        pay r1 r6
-        slot r4 6 r0
-        movi r5 1
-        sstore r4 r5
-        slot r4 3 r0
-        movi r5 0
-        sstore r4 r5
-        ret r0
-    """,
+    "fund": _lib.fund_table(),
+    "close": _lib.close_table(),
 }
 
 ABI = {
@@ -310,9 +238,7 @@ ABI = {
     "fund": {"args": ["tableId"], "value": True},
     "close": {"args": ["tableId"]},
     "_view": {
-        "maps": {"ta": {"field": TA, "index": "tables"}, "tk": {"field": TK, "index": "tables"},
-                 "tp": {"field": TP, "index": "tables"}, "tc": {"field": TC, "index": "tables"},
-                 "tz": {"field": TZ, "index": "tables"},
+        "maps": {**_lib.view_table_maps("tables"),
                  "gg": {"field": GG, "index": "games"}, "gs": {"field": GS, "index": "games"},
                  "ga": {"field": GA, "index": "games"}, "gh": {"field": GH, "index": "games"},
                  "gr": {"field": GR, "index": "games"}, "gw": {"field": GW, "index": "games"},

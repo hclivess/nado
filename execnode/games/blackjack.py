@@ -15,6 +15,7 @@ Board: PC_BASE(40)+k player cards, DK_BASE(60)+j dealer cards, keyed by g.  Scra
 Methods: open(t)[bank] · deal(g,t)[stake] · reveal(g) · hit(g) · draw(g) · stand(g) · settle(g) · fund/close.
 """
 from execnode import zkvmasm
+from execnode.games import _lib
 from execnode.stark import alghash, field as F
 
 TA, TK, TP, TC, TZ = 1, 2, 3, 4, 6
@@ -80,7 +81,7 @@ def _seed_q():
 def _draw_player(offset, idx):
     """Draw player card at q+offset, store pc[idx]=c+1, add value/ace to php(SC1)/pac(SC2)."""
     L = [f"movi r4 {_s(0)}", "sload r3 r4", f"movi r5 {offset}", "add r3 r5",
-         "hash r3 <- r3", "lo32 r3", "movi r5 52", "divmod r3 r5", "mov r3 r7"]            # r3 = card
+         "hash r3 <- r3", "lo32 r3", "movi r5 52", "rem r3 r5"]            # r3 = card
     L += [f"movi r4 {(PC_BASE + idx) << 32}", "add r4 r0", "mov r5 r3", "movi r6 1", "add r5 r6", "sstore r4 r5"]
     L += _card_val_asm("r3", "r1", "r2")                                     # r1=value, r2=ace
     L += [f"movi r4 {_s(1)}", "sload r5 r4", "add r5 r1", "sstore r4 r5",    # php += value
@@ -176,7 +177,7 @@ SETTLE = f"""
        "jnz r1 @ds_body", "jmp @ds_done", "ds_body:",
        # draw dk[j]: c = HASH(dq+j)%52 ; store dk[j]=c+1 ; hard+=val, aces+=ace
        f"movi r4 {_s(0)}", "sload r3 r4", f"movi r4 {_s(3)}", "sload r5 r4", "add r3 r5",
-       "hash r3 <- r3", "lo32 r3", "movi r5 52", "divmod r3 r5", "mov r3 r7",           # r3=card
+       "hash r3 <- r3", "lo32 r3", "movi r5 52", "rem r3 r5",           # r3=card
        f"movi r4 {DK_BASE << 32}", "movi r5 4294967296", f"movi r6 {_s(3)}", "sload r6 r6", "mul r5 r6",
        "add r4 r5", "add r4 r0", "mov r5 r3", "movi r6 1", "add r5 r6", "sstore r4 r5"]  # dk[j]=c+1
     + _card_val_asm("r3", "r1", "r2")
@@ -217,35 +218,7 @@ SETTLE = f"""
 
 
 SRC = {
-    "open": """
-        ctx r1 value
-        movi r2 0
-        lt r2 r1
-        require r2
-        movi r2 0
-        lt r2 r0
-        require r2
-        slot r4 1 r0
-        sload r5 r4
-        nez r5
-        notb r5
-        require r5
-        ctx r6 caller
-        slot r4 1 r0
-        sstore r4 r6
-        slot r4 2 r0
-        sstore r4 r1
-        slot r4 3 r0
-        sstore r4 r1
-        movi r4 0
-        sload r5 r4
-        slot r6 21 r5
-        sstore r6 r0
-        movi r3 1
-        add r5 r3
-        sstore r4 r5
-        ret r0
-    """,
+    "open": _lib.open_table(TLIST),
     # deal(g, t)[stake]: reserve a 5:2 cover (tc += stake*3/2), start the hand awaiting the reveal blocks
     "deal": """
         ctx r3 value
@@ -370,53 +343,8 @@ SRC = {
         ret r0
     """,
     "settle": SETTLE,
-    "fund": """
-        ctx r1 value
-        ctx r2 caller
-        slot r4 1 r0
-        sload r5 r4
-        eq r5 r2
-        require r5
-        slot r4 6 r0
-        sload r5 r4
-        nez r5
-        notb r5
-        require r5
-        movi r5 0
-        lt r5 r1
-        require r5
-        slot r4 2 r0
-        sload r6 r4
-        add r6 r1
-        sstore r4 r6
-        slot r4 3 r0
-        sload r6 r4
-        add r6 r1
-        sstore r4 r6
-        ret r0
-    """,
-    "close": """
-        ctx r1 caller
-        slot r4 1 r0
-        sload r5 r4
-        eq r5 r1
-        require r5
-        slot r4 6 r0
-        sload r5 r4
-        nez r5
-        notb r5
-        require r5
-        slot r4 3 r0
-        sload r6 r4
-        pay r1 r6
-        slot r4 6 r0
-        movi r5 1
-        sstore r4 r5
-        slot r4 3 r0
-        movi r5 0
-        sstore r4 r5
-        ret r0
-    """,
+    "fund": _lib.fund_table(),
+    "close": _lib.close_table(),
 }
 
 
@@ -427,7 +355,7 @@ def _draw():
     L += _seed_q()
     # card at q + gn ; store pc[gn] = c+1 ; add to php/pac ; gn++
     L += [f"movi r4 {_s(0)}", "sload r3 r4", "slot r4 13 r0", "sload r5 r4", "add r3 r5",   # q+gn
-          "hash r3 <- r3", "lo32 r3", "movi r5 52", "divmod r3 r5", "mov r3 r7"]                          # r3=card
+          "hash r3 <- r3", "lo32 r3", "movi r5 52", "rem r3 r5"]                          # r3=card
     L += [f"movi r4 {PC_BASE << 32}", "movi r5 4294967296", "slot r6 13 r0", "sload r6 r6", "mul r5 r6",
           "add r4 r5", "add r4 r0", "mov r5 r3", "movi r6 1", "add r5 r6", "sstore r4 r5"]   # pc[gn]=c+1
     L += _card_val_asm("r3", "r1", "r2")
@@ -463,9 +391,7 @@ ABI = {
     "fund": {"args": ["tableId"], "value": True},
     "close": {"args": ["tableId"]},
     "_view": {
-        "maps": {"ta": {"field": TA, "index": "tables"}, "tk": {"field": TK, "index": "tables"},
-                 "tp": {"field": TP, "index": "tables"}, "tc": {"field": TC, "index": "tables"},
-                 "tz": {"field": TZ, "index": "tables"},
+        "maps": {**_lib.view_table_maps("tables"),
                  "gg": {"field": GG, "index": "games"}, "gs": {"field": GS, "index": "games"},
                  "ga": {"field": GA, "index": "games"}, "gh": {"field": GH, "index": "games"},
                  "gf": {"field": GF, "index": "games"}, "gn": {"field": GN, "index": "games"},
