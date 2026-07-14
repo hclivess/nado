@@ -13,12 +13,12 @@ from hashing import blake2b_hash  # leaf module (stdlib only) -> no import cycle
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "alphanet-4"
+CHAIN_ID = "alphanet-5"
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
 
-GENESIS_TIMESTAMP = 1783645200  # 2026-07-10 01:00 UTC — alphanet-3 (target_block -> max_block rename + generous tx TTL)
+GENESIS_TIMESTAMP = 1784046000  # 2026-07-14 — alphanet-5 (zkVM-only exec layer; balances/stake carried forward)
 
 # Clock-skew allowance for block timestamps: a block may be stamped up to this many seconds in the
 # FUTURE of the local clock and still validate. Zero tolerance rejected honest blocks whenever the
