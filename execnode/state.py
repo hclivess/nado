@@ -873,9 +873,12 @@ class ExecState:
                 m[str(k)] = val
             if m:
                 out[name] = m
-        # board maps: per-cell fields (base+cell keyed by game) presented as bd[game*stride + cell]
-        bd = view.get("board")
-        if bd:
+        # board maps: per-cell fields (base+cell keyed by game) presented as bd[game*stride + cell].
+        # Any number of them: "board" (one) plus "board2", "board3", … (e.g. blackjack's pc + dk).
+        for bkey in ("board", "board2", "board3", "board4"):
+            bd = view.get(bkey)
+            if not bd:
+                continue
             keys = key_cache.get(bd.get("index"), default_keys)
             m = {}
             for g in keys:
