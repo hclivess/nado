@@ -111,7 +111,7 @@ Invoke a method, persisting storage on success. Optionally **escrow NADO** into 
 | `op` | yes | `"call"` |
 | `contract` | yes | target `cid` |
 | `method` | yes | method name to run |
-| `args` | no | argument **list** (default `[]`; must be a list) |
+| `args` | no | argument **list** (default `[]`; must be a list). Each arg is an **int in the Goldilocks field** or an **address string** (digested to a field element at the call boundary). Up to **1024 args**: the first 8 preload registers r0..r7, and the `ARG` opcode reaches all of them by dynamic index — variadic inputs (merkle proofs, batches) are first-class, no packing needed. |
 | `value` | no | raw NADO to escrow from the caller's bridge INTO the contract for this call (`int >= 0`, bool rejected; default `0`) |
 | `ns` | no | namespace |
 
@@ -341,44 +341,56 @@ dedicated read API. The build + full test vector is `tests/test_roulette_contrac
 {"op":"call","contract":"186ebadb975794e2ed7eeb1c7b5115a5","method":"settle","args":[7]}
 ```
 
-## 5c. Sports Bet (example contract — parimutuel + oracle)
+## 5c. Sports Bet (example contract — parimutuel + per-market resolvers)
 
-Sports Bet (`execnode/contracts/bet.json`, runtime `stackvm`, `cid = fe303d9880c8222dcf3b9953eb86a0fa`,
-live at `bet.nadochain.com`) is the first example contract whose outcome is **not** derivable from chain
-randomness — it settles on a **real-world result**. Two ideas the earlier games don't have:
+Sports Bet (`execnode/games/bet.py`, runtime `zkvm`) is the first example contract whose outcome is **not**
+derivable from chain randomness — it settles on a **real-world result**.
 
-**Parimutuel, no house.** Every `bet(m, outcome)` escrows its `VALUE` into one pool per market. When the
-result is posted, the winning outcome's backers split the **whole** pool pro-rata:
-`payout = your_stake × total_pool ÷ winning_pool`. There is no bookmaker taking the other side and no fixed
-odds — the odds shown are just the live pool ratios. Payouts are **pull-based**: each bettor calls
-`claim(m)` and the contract computes their own share (the VM caps `PAY` at 16 recipients, so a
-push-to-all settle could never serve a large market). The escrow-conservation check (`state.py`) means the
-contract can never pay out more than it holds; integer-division dust (a few raw units per market) stays in
-escrow.
+**What "parimutuel" means (plain language).** All money bet on a match goes into **one shared pot**. Nobody
+offers you odds and nobody takes the other side of your bet — **you bet against the other bettors**. When
+the result is posted, everyone who picked the winning outcome splits the whole pot in proportion to what
+they put in:
 
-**Configurable oracle.** A blockchain can't see a football score, so an authorized **oracle key** posts it
-via `resolve(m, outcome)`. The oracle *set* is on-chain and admin-configurable: `set_oracle(addr, on)` adds
-or removes keys, `set_threshold(M)` requires **M-of-N** agreement (each oracle votes once; the first outcome
-to reach the threshold finalizes). A free public **source registry** (`add_source(name)` → `thesportsdb`,
-`football-data`, …) is stored on-chain for transparency, and each market records which source + event id
-resolves it. **Bettor protection:** `void(m)` refunds every stake 1:1 — callable by an oracle any time
-before resolution, or by **anyone** once the market's deadline height passes (so a vanished oracle can't
-trap funds); a winning outcome with zero backers auto-voids. The constructor makes the deployer the admin
-and first oracle at threshold 1.
+```
+your payout = your_stake × total_pot ÷ winning_side's_pool
+```
 
-Methods: `create_market(m, nout, lock, deadline, desc, source, ev)` (oracle/admin; `desc` is a
-`\n`-joined blob — title then one label per outcome), `bet(m, outcome)` (+`value`), `resolve(m, outcome)`
-(oracle), `void(m)`, `claim(m)`. Outcomes are integers `0..nout-1` everywhere. The dApp derives all
-markets / odds / positions from `GET /exec/contract` (§8); there is no dedicated read API. The resolver
-that reads the public source and posts results is `scripts/bet_oracle.py` (dry-run by default). The build +
-full test vector (48 assertions: pro-rata math, payout conservation, oracle/admin gating, void/deadline
-refunds, auto-void, 2-of-3 threshold, double-claim guards) is `tests/test_bet_contract.py`.
+Example: 800 NADO is bet on Arsenal, 700 on Chelsea (pot 1500). Arsenal wins → each Arsenal backer gets
+their stake × 1500/800 ≈ **1.87×**; Chelsea backers get nothing. The "odds" shown in the UI are just the
+live pot ratio and move as people bet — exactly like a racetrack tote board (that's where the word comes
+from: *pari mutuel*, French for "mutual bet", invented for horse racing in 1867). Because the pot only
+redistributes, the contract **never mints, never profits, and can never owe more than it holds**; payouts
+are pull-based (each bettor `claim`s their own share), so a market scales to any number of bettors.
+
+**Per-market resolvers.** A blockchain can't see a football score, so each market names its own **resolver
+set at creation** — up to 3 addresses with an **M-of-N threshold** (each resolver votes once; the first
+outcome to reach the threshold finalizes). Naming nobody makes the creator the sole resolver. Markets are
+**permissionless** — anyone can list one. Bettor protections: a resolver can `void(m)` a postponed match
+(every stake refunds 1:1); once the market's **deadline** passes *anyone* may void it (a vanished resolver
+can't strand the pot); and a posted winner with **zero backers auto-voids** instead of resolving to an
+unpayable pool.
+
+**zkVM data model.** Market metadata (title + outcome labels, source name, event id) are **string args** —
+digested at the call boundary, stored as digests, resolved back to the original text by `decode_view`
+("hash on-chain, text in the transaction"). Money is tracked in UNITs of 10^4 raw (stakes must be UNIT
+multiples) so `stake×pot` stays inside the `DIVMODW` soundness window; a market's pot caps at 2^31 UNITs.
+Per-user positions live in alghash-keyed slots — the frontend reads them through the read-only **views**
+`claimable_of(m, addr)` / `stake_of(m, i, addr)` / `total_of(m, addr)` / `claimed_of(m, addr)` /
+`vote_of(m, addr)` via `GET /exec/view`.
+
+Methods: `create_market(m, nout, lock, deadline, desc, source, ev, thr, r1, r2, r3)` (11 args — they ride
+the `ARG` indexed-args bus; `desc` is a `\n`-joined blob — title then one label per outcome; `lock`/
+`deadline` are **wall-clock epoch seconds**, never block heights; pass `0` for empty resolver slots),
+`bet(m, outcome)` (+`value`), `resolve(m, outcome)`, `void(m)`, `claim(m)`. Outcomes are integers
+`0..nout-1` everywhere. The pro-rata `claim` division is a single `DIVMODW` (wide-divisor divmod). The full
+scenario suite (pro-rata math, resolver gating, void/deadline refunds, auto-void, 2-of-3 panels, split
+votes, double-claim guards, proofs of `create_market` and `claim`) is in `tests/test_games_e2e.py`.
 
 ```json
-{"op":"call","contract":"fe303d9880c8222dcf3b9953eb86a0fa","method":"create_market","args":[770077,3,<lockH>,<deadlineH>,"Arsenal vs Chelsea\nArsenal\nDraw\nChelsea","thesportsdb","2052744"]}
-{"op":"call","contract":"fe303d9880c8222dcf3b9953eb86a0fa","method":"bet","args":[770077,0],"value":100000000000}
-{"op":"call","contract":"fe303d9880c8222dcf3b9953eb86a0fa","method":"resolve","args":[770077,0]}
-{"op":"call","contract":"fe303d9880c8222dcf3b9953eb86a0fa","method":"claim","args":[770077]}
+{"op":"call","contract":"<bet cid>","method":"create_market","args":[770077,3,<lockEpoch>,<deadlineEpoch>,"Arsenal vs Chelsea\nArsenal\nDraw\nChelsea","thesportsdb","2052744",0,0,0,0]}
+{"op":"call","contract":"<bet cid>","method":"bet","args":[770077,0],"value":100000000000}
+{"op":"call","contract":"<bet cid>","method":"resolve","args":[770077,0]}
+{"op":"call","contract":"<bet cid>","method":"claim","args":[770077]}
 ```
 
 ---

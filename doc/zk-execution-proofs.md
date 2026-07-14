@@ -45,10 +45,33 @@ refunded to players, supply conserved exactly). Games return only as zkVM ports 
   (`zkvmasm.py`) grows a **`rem`/`mod d s`** macro (`d = d % s`): `DIVMOD` leaves the remainder in `r7`, which
   game logic almost always wants (card%52, id%n, roll%6), and writing that as `divmod d s; mov d r7` was the
   single most-repeated footgun — forget the `mov` and you silently use the quotient. `rem` makes it atomic.
-- **Two VM lessons the ports drove:** (1) **arg-packing** — the 8-register arg limit is not raised (that
-  changes the AIR and still wouldn't fit roulette's 20 args); many-arg games pack into a bitmask + bounded
-  in-VM loops (roulette's 37-number coverage). (2) **DIVMOD widened** to a 48-bit quotient / 15-bit divisor
-  for financial `stake*99/target` (q·b < 2^63 < P stays sound).
+- **VM constraint philosophy (mainnet, 2026-07-14):** the VM carries **as few limits as possible** — no
+  replay is enforced on contracts, the *proof* is the gate — so every remaining bound must be either
+  soundness-mandated or proof capacity, never taste. Concretely:
+  - **The 8-arg cap is GONE.** Calls take up to `MAX_ARGS = 1024` arguments. The first 8 still preload
+    r0..r7 (register-ABI compat), and the **`ARG rd rs`** opcode loads `args[rs]` by *dynamic index* — so a
+    contract loops over variadic input (merkle proofs, batch ops) instead of packing bitmasks. Proven by a
+    fifth LogUp bus: the full args vector is a public periodic table `(call, index, value)`, every executed
+    ARG row emits its `(owning call, index, loaded value)` tuple onto the bus, and the multiset must balance —
+    a tampered, truncated, reordered, or cross-call-swapped argument makes the proof unverifiable
+    (`tests/test_zkvm_args.py` proves each of those negatives). The earlier arg-packing ports
+    (roulette's 37-bit mask, farkle's keep-packing) still work — packing is simply no longer *required*.
+  - **Gas/trace ceiling raised to the true AIR capacity:** `GAS_LIMIT = 131070`, `MAX_T = 2^17 = 131072`
+    (`stark.MAX_TRACE_ROWS`). Traces pad to the next power of two of their *actual* length, so small calls
+    prove exactly as fast as before; only the ceiling moved.
+  - **DIVMOD keeps its 48-bit quotient / 15-bit divisor windows** — that one is *soundness*, not taste: the
+    constraint `q·b + r = a` lives in the Goldilocks field, and the windows are what keep `q·b < 2^63 < P`
+    so field wrap-around can't forge a division. But the same soundness budget cuts the other way too:
+    **`DIVMODW`** (new) allows a **32-bit quotient / 31-bit divisor** — division by *data-sized* divisors
+    (pro-rata pool splits: `payout = stake·pot ÷ pool`, price ratios) in ONE op instead of an unrolled
+    long-division loop. It reuses the exact same 13-byte/4-sevenbit witness limbs (zero new columns) and the
+    remainder lands in r7 like DIVMOD (`remw` is the safe remainder-to-dest macro). The parimutuel bet
+    contract's claim is its first consumer.
+  - **Deliberately NOT changed:** true bitwise AND/OR/XOR (a full 64-bit decomposition costs ~64 new limb
+    columns per row — bit tricks on small masks via ADD/MUL stay the idiom) and the 8-register file (ARG +
+    scratch slots relieve the pressure; doubling the register one-hots would widen every row for little
+    gain). The two known big throughput levers stay on the roadmap: the Rust prover port (~10×) and STARK
+    recursion (O(1) settlement verify).
 
 The composition insight that kept the settlement proof small: because each call's proof already binds its
 authenticated public I/O log, the epoch transition needs **no second in-circuit memory argument** — it is

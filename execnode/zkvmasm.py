@@ -22,6 +22,11 @@ and the execution AIR proves. Text form:
 Macros: hash d <- s1 s2 ... (HINIT/HABS/HR0..7 per element/HOUT) · gte d s (LT;NOTB) · not d (alias NOTB) ·
 rem/mod d s (d = d % s — DIVMOD then move r7 remainder into d; the safe form of the card/id/roll pattern) ·
 slot d field k (d = field*2^32 + k). CTX accepts caller|value|cursor|time. Jump targets are @label (pass 2).
+Args: the first 8 call args preload r0..r7; `arg rd rs` loads args[rs] (any of up to 1024) by dynamic index —
+loop over it for variadic inputs (merkle proofs, batches) instead of packing into bitmasks.
+Division: `divmod d s` (q<2^48, divisor<2^15 — big value by small constant) · `divmodw d s` (q<2^32,
+divisor<2^31 — pro-rata pool splits, ratios). Both put the quotient in d and the remainder in r7;
+`rem`/`remw` are the remainder-to-dest forms.
 """
 from execnode import zkvm
 
@@ -80,16 +85,16 @@ def assemble(text):
             d, s = _reg(toks[1]), _reg(toks[2])
             out.append(["LT", d, s, 0])
             out.append(["NOTB", d, 0, 0])
-        elif op in ("REM", "MOD"):                             # rem d s  ->  d = d % s  (remainder to dest)
-            # DIVMOD puts the quotient in `d` and the remainder in r7; the remainder is what game logic almost
-            # always wants (card%52, id%n, roll%6). Writing that as two ops (divmod d s ; mov d r7) is the single
-            # most repeated footgun in these contracts — forget the `mov` and you silently use the QUOTIENT.
-            # `rem` makes it atomic and impossible to get wrong. Guards: d must differ from s and never be r7
-            # (DIVMOD writes both quotient->d and remainder->r7, so d==r7 is ambiguous).
+        elif op in ("REM", "MOD", "REMW"):                     # rem[w] d s  ->  d = d % s  (remainder to dest)
+            # DIVMOD/DIVMODW put the quotient in `d` and the remainder in r7; the remainder is what game logic
+            # almost always wants (card%52, id%n, roll%6). Writing that as two ops (divmod d s ; mov d r7) is
+            # the single most repeated footgun in these contracts — forget the `mov` and you silently use the
+            # QUOTIENT. `rem`/`remw` make it atomic and impossible to get wrong. Guards: d must differ from s
+            # and never be r7 (the op writes both quotient->d and remainder->r7, so d==r7 is ambiguous).
             d, s = _reg(toks[1]), _reg(toks[2])
             if d == s or d == 7:
                 raise zkvm.ZkVMError(f"rem/mod dest must differ from divisor and not be r7 ({line!r})")
-            out.append(["DIVMOD", d, s, 0])
+            out.append(["DIVMODW" if op == "REMW" else "DIVMOD", d, s, 0])
             out.append(["MOV", d, 7, 0])
         elif op == "NOT":
             out.append(["NOTB", _reg(toks[1]), 0, 0])
@@ -105,7 +110,8 @@ def assemble(text):
             out.append([op, 0, s, ("@", tgt[1:])])
         elif op == "MOVI":
             out.append(["MOVI", _reg(toks[1]), 0, _imm(toks[2])])
-        elif op in ("MOV", "ADD", "SUB", "MUL", "EQ", "LT", "DIVMOD", "SLOAD", "SSTORE", "PAY"):
+        elif op in ("MOV", "ADD", "SUB", "MUL", "EQ", "LT", "DIVMOD", "DIVMODW", "SLOAD", "SSTORE", "PAY",
+                    "ARG"):
             out.append([op, _reg(toks[1]), _reg(toks[2]), 0])
         elif op in ("NEZ", "NOTB", "RANGE", "LO32", "HOUT"):
             out.append([op, _reg(toks[1]), 0, 0])

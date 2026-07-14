@@ -6,17 +6,21 @@ anything. One zkVM step = one trace row. The verifier then replays the tiny I/O 
 
 Layout (one row):
   R0..R7 · PC · IOC (I/O entries emitted so far) · IMM · H0,H1 (sponge) · WI,WJ (per-op inverse/bit witness)
-  f_op one-hot (34) · d one-hot (8) · s one-hot (8) · BL0..12 byte limbs · SL0..3 seven-bit limbs
-  M_FETCH / M_BYTE / M_7BIT (lookup multiplicities)                                        — 85 main columns
-  HF,GF (fetch bus) · HIO,GIO (I/O bus) · HB0..6,GB (byte bus, limbs paired) · HS0..1,GS · Z — 16 aux columns
+  f_op one-hot (35) · d one-hot (8) · s one-hot (8) · BL0..12 byte limbs · SL0..3 seven-bit limbs
+  M_FETCH / M_BYTE / M_7BIT / M_ARG (lookup multiplicities)                                — 87 main columns
+  HF,GF (fetch) · HIO,GIO (I/O) · HB0..6,GB (byte, limbs paired) · HS0..1,GS · HA,GA (args) · Z — 18 aux
 
-Four LogUp buses share the single accumulator Z (sound: tuples are domain-tagged, and all columns commit
+Five LogUp buses share the single accumulator Z (sound: tuples are domain-tagged, and all columns commit
 BEFORE β,γ are drawn — the two-phase protocol in stark.prove):
   fetch  (pc, op, d, s, imm) of every non-NOP row ∈ the program table (periodic, from public code)
   io     (ioc, kind, a, b) of every I/O row  =multiset=  the public log (periodic; ioc pins the ORDER)
+  args   (call, index, value) of every ARG row ∈ the public args table (periodic, from the call statement) —
+         this is what removes the 8-arg register cap: a call carries up to zkvm.MAX_ARGS args, the first 8
+         preload r0..r7, and ARG proves any indexed load against the table (a wrong pair can't verify)
   byte / 7bit   every limb ∈ [0,256) / [0,128)   (range tables as periodic columns)
-Public context (caller/value/cursor/time) is baked into the CONSTRAINTS; args pin row 0's registers; the
-program and log live in periodic columns — nothing statement-shaped is read from the proof.
+Public context (caller/value/cursor/time) is baked into the CONSTRAINTS; the first 8 args pin row 0's
+registers; the program, log, and args table live in periodic columns — nothing statement-shaped is read
+from the proof.
 """
 from execnode.stark import field as F, alghash, stark, logup
 from execnode import zkvm
@@ -33,13 +37,15 @@ BL = S0 + NR                  # 13 byte limbs
 SL = BL + zkvm.NUM_BYTE_LIMBS  # 4 seven-bit limbs
 MF = SL + zkvm.NUM_7BIT_LIMBS  # fetch multiplicity
 MB = MF + 1; MS = MB + 1      # byte / 7bit multiplicities
-W_MAIN = MS + 1
+MA = MS + 1                   # args-table multiplicity (how many times each (call,idx,val) row is loaded)
+W_MAIN = MA + 1
 HF = W_MAIN; GF = HF + 1; HIO = GF + 1; GIO = HIO + 1
 HB = GIO + 1                  # 7 paired byte helpers
 GB = HB + 7
 HS = GB + 1                   # 2 paired 7bit helpers
 GS = HS + 2
-Z = GS + 1
+HA = GS + 1; GA = HA + 1      # args bus helpers (execution side / table side)
+Z = GA + 1
 W_TOTAL = Z + 1
 NUM_AUX = W_TOTAL - W_MAIN
 
@@ -54,21 +60,30 @@ PL_CTR, PL_KIND, PL_A, PL_B, PL_ACT = range(6, 11)       # io log table row (ctr
 PB, PS = 11, 12                                          # byte / 7-bit range tables
 PC_CALLER, PC_VALUE, PC_CURSOR, PC_TIME, PC_PROG = range(13, 18)   # context of the call owning this row
 P_START, P_END = 18, 19                                  # 1 on a call's first row / last-row-before-next-call
-PA = 20                                                  # args of the owning call: PA+0 .. PA+7
-NUM_PERIODIC = PA + NR
+PA = 20                                                  # FIRST 8 args of the owning call: PA+0 .. PA+7
+PC_CALL = PA + NR                                        # index of the call owning this row (tags the args bus
+                                                         # per call — two calls sharing a program have distinct
+                                                         # args, so the bus must bind (call, idx, val))
+PT_CALL, PT_IDX, PT_VAL = PC_CALL + 1, PC_CALL + 2, PC_CALL + 3   # args table row: (call, index, value)
+NUM_PERIODIC = PT_VAL + 1
 
 TAG_FETCH = 1 << 32           # bus domain tags (outside every raw table's value range)
 TAG_IO = 1 << 33
+TAG_ARG = 1 << 34
 MAX_DEGREE = 8                # sponge x^7 under a selector; register-update mux also lands at 8
 MIN_T = 512                   # byte table (256 rows) + headroom must sit within rows 0..T-2
-MAX_T = 32768                 # zkvm.GAS_LIMIT + padding — one call is always one proof (raised for mega-contracts)
+MAX_T = 131072                # the FULL stark.MAX_TRACE_ROWS (2^17) — zkvm.GAS_LIMIT = MAX_T - 2, so any call
+                              # the VM can execute fits one proof. Small calls pad to next_pow2 of their
+                              # ACTUAL length; this ceiling costs nothing until a contract uses it.
 
 _O = zkvm.OP
 _IO_OPS = ("SLOAD", "SSTORE", "PAY", "BHASH", "BEACON", "RET")
 _IO_KIND = {"SLOAD": zkvm.IO_SLOAD, "SSTORE": zkvm.IO_SSTORE, "PAY": zkvm.IO_PAY,
             "BHASH": zkvm.IO_BHASH, "BEACON": zkvm.IO_BEACON, "RET": zkvm.IO_RET}
-_WRITE_OPS = ("MOVI", "MOV", "ADD", "SUB", "MUL", "EQ", "NEZ", "NOTB", "LT", "DIVMOD", "LO32", "CTX", "HOUT")
-_LOAD_OPS = ("SLOAD", "BHASH", "BEACON")   # dest register comes from the I/O bus, not the update mux
+_WRITE_OPS = ("MOVI", "MOV", "ADD", "SUB", "MUL", "EQ", "NEZ", "NOTB", "LT", "DIVMOD", "DIVMODW", "LO32",
+              "CTX", "HOUT")
+_LOAD_OPS = ("SLOAD", "BHASH", "BEACON", "ARG")   # dest register is bus-supplied, not from the update mux
+                                                  # (SLOAD/BHASH/BEACON via the io bus, ARG via the args bus)
 
 
 def _next_pow2(x):
@@ -125,6 +140,12 @@ _SPEC_Q = [(BL + k, 1 << (8 * k)) for k in range(6)]
 _SPEC_BM1 = [(BL + 6, 1), (SL + 1, 1 << 8)]
 _SPEC_REM = [(BL + 7, 1), (SL + 2, 1 << 8)]
 _SPEC_BR1 = [(BL + 8, 1), (SL + 3, 1 << 8)]
+# DIVMODW — the same q·b < 2^63 soundness budget cut for DATA-sized divisors: q is 32-bit (4 byte limbs),
+# b-1 / rem / b-rem-1 are 31-bit (3 bytes + 7-bit each). Uses exactly the 13 byte + 4 seven-bit limbs.
+_SPEC_QW = [(BL + k, 1 << (8 * k)) for k in range(4)]
+_SPEC_BM1W = [(BL + 4, 1), (BL + 5, 1 << 8), (BL + 6, 1 << 16), (SL + 1, 1 << 24)]
+_SPEC_REMW = [(BL + 7, 1), (BL + 8, 1 << 8), (BL + 9, 1 << 16), (SL + 2, 1 << 24)]
+_SPEC_BR1W = [(BL + 10, 1), (BL + 11, 1 << 8), (BL + 12, 1 << 16), (SL + 3, 1 << 24)]
 _SPEC_LO = [(BL + k, 1 << (8 * k)) for k in range(4)]
 _SPEC_HI = [(BL + 4 + k, 1 << (8 * k)) for k in range(4)]
 _BYTE_PAIRS = [(BL + 2 * k, BL + 2 * k + 1) for k in range(6)] + [(BL + 12, None)]   # None = literal 0
@@ -198,6 +219,17 @@ def _fetch_tuple(row, per, gamma):
                           row[IMM]], gamma)
 
 
+def _arg_tuple(row, nxt, per, gamma):
+    """The (call, index, value) an ARG row loads: index = the source register, value = the dest register ON
+    THE NEXT ROW (bus-supplied load, same trick as _io_b_expr). Tagged by the OWNING CALL (per[PC_CALL]) so an
+    epoch's args bus can't confuse two calls' argument vectors. The tuple must exist in the public args table
+    or the bus can't balance — that is the whole soundness argument for indexed args."""
+    nxt_rd = 0
+    for i in range(NR):
+        nxt_rd = F.add(nxt_rd, F.mul(row[D0 + i], nxt[R0 + i]))
+    return logup.combine([TAG_ARG, per[PC_CALL], _rs_val(row), nxt_rd], gamma)
+
+
 def _io_tuple(row, nxt, gamma):
     return logup.combine([TAG_IO, row[IOC], _io_kind_expr(row), _io_a_expr(row), _io_b_expr(row, nxt)], gamma)
 
@@ -219,6 +251,7 @@ def _res_expr(row, per):
         "NOTB": F.sub(1, rdv),
         "LT": row[WI],
         "DIVMOD": _recomp(row, _SPEC_Q),
+        "DIVMODW": _recomp(row, _SPEC_QW),
         "LO32": _recomp(row, _SPEC_LO),
         "CTX": _lagrange4(row[IMM], [per[PC_CALLER], per[PC_VALUE], per[PC_CURSOR], per[PC_TIME]]),
         "HOUT": row[H0],
@@ -292,13 +325,14 @@ def transitions():
     #    disabled on a boundary row (P_END), where the successor's START pin sets the registers instead. --
     for i in range(NR):
         def c_reg(c, n, p, ch, i=i):
-            load_i = F.mul(c[D0 + i], F.add(c[F0 + _O["SLOAD"]],
+            load_i = F.mul(c[D0 + i], F.add(F.add(c[F0 + _O["SLOAD"]], c[F0 + _O["ARG"]]),
                                             F.add(c[F0 + _O["BHASH"]], c[F0 + _O["BEACON"]])))
             write = F.mul(c[D0 + i], F.sub(_res_expr(c, p), F.mul(_wr_expr(c), c[R0 + i])))
             # write = d_i·(Σf·res - wr·R_i) = d_i·Σf·(res - R_i)
             rem7 = 0
-            if i == 7:                                       # DIVMOD deposits the remainder in r7
-                rem7 = F.mul(c[F0 + _O["DIVMOD"]], F.sub(_recomp(c, _SPEC_REM), c[R0 + 7]))
+            if i == 7:                                       # DIVMOD/DIVMODW deposit the remainder in r7
+                rem7 = F.add(F.mul(c[F0 + _O["DIVMOD"]], F.sub(_recomp(c, _SPEC_REM), c[R0 + 7])),
+                             F.mul(c[F0 + _O["DIVMODW"]], F.sub(_recomp(c, _SPEC_REMW), c[R0 + 7])))
             delta = F.sub(F.sub(F.sub(n[R0 + i], c[R0 + i]), write), rem7)
             return F.mul(F.sub(1, p[P_END]), F.mul(F.sub(1, load_i), delta))
         cons.append(c_reg)
@@ -371,6 +405,14 @@ def transitions():
     def c_dm_r(c, n, p, ch):
         return F.mul(c[F0 + _O["DIVMOD"]],
                      F.sub(F.sub(F.sub(_rs_val(c), _recomp(c, _SPEC_REM)), 1), _recomp(c, _SPEC_BR1)))
+    def c_dmw_main(c, n, p, ch):
+        q, b, rem = _recomp(c, _SPEC_QW), _rs_val(c), _recomp(c, _SPEC_REMW)
+        return F.mul(c[F0 + _O["DIVMODW"]], F.sub(F.add(F.mul(q, b), rem), _rd_val(c)))
+    def c_dmw_b(c, n, p, ch):
+        return F.mul(c[F0 + _O["DIVMODW"]], F.sub(F.sub(_rs_val(c), 1), _recomp(c, _SPEC_BM1W)))
+    def c_dmw_r(c, n, p, ch):
+        return F.mul(c[F0 + _O["DIVMODW"]],
+                     F.sub(F.sub(F.sub(_rs_val(c), _recomp(c, _SPEC_REMW)), 1), _recomp(c, _SPEC_BR1W)))
     def c_lo32(c, n, p, ch):
         v = F.add(F.mul(_recomp(c, _SPEC_HI), 1 << 32), _recomp(c, _SPEC_LO))
         return F.mul(c[F0 + _O["LO32"]], F.sub(_rd_val(c), v))
@@ -378,7 +420,8 @@ def transitions():
         hi, lo = _recomp(c, _SPEC_HI), _recomp(c, _SPEC_LO)
         gate = F.sub(1, F.mul(F.sub(hi, (1 << 32) - 1), c[WJ]))
         return F.mul(c[F0 + _O["LO32"]], F.mul(lo, gate))
-    cons.extend([c_lt, c_range, c_dm_main, c_dm_b, c_dm_r, c_lo32, c_lo32_canon])
+    cons.extend([c_lt, c_range, c_dm_main, c_dm_b, c_dm_r, c_dmw_main, c_dmw_b, c_dmw_r,
+                 c_lo32, c_lo32_canon])
 
     # -- the four LogUp buses (one shared accumulator) --
     def c_hf(c, n, p, ch):
@@ -392,7 +435,12 @@ def transitions():
     def c_gio(c, n, p, ch):
         t = logup.combine([TAG_IO, p[PL_CTR], p[PL_KIND], p[PL_A], p[PL_B]], ch[1])
         return F.sub(F.mul(c[GIO], F.add(ch[0], t)), p[PL_ACT])
-    cons.extend([c_hf, c_gf, c_hio, c_gio])
+    def c_ha(c, n, p, ch):
+        return F.sub(F.mul(c[HA], F.add(ch[0], _arg_tuple(c, n, p, ch[1]))), c[F0 + _O["ARG"]])
+    def c_ga(c, n, p, ch):
+        t = logup.combine([TAG_ARG, p[PT_CALL], p[PT_IDX], p[PT_VAL]], ch[1])
+        return F.sub(F.mul(c[GA], F.add(ch[0], t)), c[MA])
+    cons.extend([c_hf, c_gf, c_hio, c_gio, c_ha, c_ga])
     for j, (ca, cb) in enumerate(_BYTE_PAIRS):
         def c_hb(c, n, p, ch, j=j, ca=ca, cb=cb):
             la, lb = c[ca], (c[cb] if cb is not None else 0)
@@ -413,6 +461,7 @@ def transitions():
     def c_z(c, n, p, ch):
         term = F.sub(c[HF], c[GF])
         term = F.add(term, F.sub(c[HIO], c[GIO]))
+        term = F.add(term, F.sub(c[HA], c[GA]))
         for j in range(7):
             term = F.add(term, c[HB + j])
         term = F.sub(term, c[GB])
@@ -444,6 +493,9 @@ def build_epoch_trace(calls):
     epoch_io = []
     per_call = []
     ioc = 0
+    arg_base = []                                         # args-table row offset of each call (concatenated)
+    args_total = 0
+    arg_uses = []                                         # (call_index, arg_index) per executed ARG
     for call in calls:
         code, method = call["code"], call["method"]
         zkvm.validate_code(code)
@@ -459,6 +511,9 @@ def build_epoch_trace(calls):
         if key not in prog_ids:
             prog_ids[key] = len(progs); progs.append(prog)
         pid = prog_ids[key]
+        ci = len(blocks)                                  # this call's index (tags its args-table rows)
+        arg_base.append(args_total)
+        args_total += len(fargs)
         args8 = [(fargs[i] if i < len(fargs) else 0) % F.P for i in range(NR)]
         start = len(rows)
         regs, h0, h1 = args8, 0, 0
@@ -477,6 +532,8 @@ def build_epoch_trace(calls):
                 row[BL + k] = v
             for k, v in enumerate(st["sl"]):
                 row[SL + k] = v
+            if st["op"] == _O["ARG"]:                     # index = the source register's PRE-state value
+                arg_uses.append((ci, regs[st["s"]]))
             rows.append(row)
             regs, h0, h1, lioc = st["regs"], st["h0"], st["h1"], st["ioc_after"]
         ioc = base + lioc                                 # advance the global counter by this call's io count
@@ -487,7 +544,7 @@ def build_epoch_trace(calls):
 
     n = len(rows)
     total_prog = sum(len(p) for p in progs)
-    T = max(MIN_T, _next_pow2(max(n, total_prog, len(epoch_io), 256) + 2))
+    T = max(MIN_T, _next_pow2(max(n, total_prog, len(epoch_io), args_total, 256) + 2))
     if T > MAX_T:
         raise ValueError("epoch too long for one trace")
 
@@ -523,8 +580,11 @@ def build_epoch_trace(calls):
         mb[0] += 1                                        # the (BL12, literal-0) pair partner, every row
         for k in range(zkvm.NUM_7BIT_LIMBS):
             ms[r[SL + k]] += 1
+    ma = [0] * T                                          # args-table multiplicities (per ARG execution)
+    for ci, idx in arg_uses:
+        ma[arg_base[ci] + idx] += 1
     for i in range(T):
-        rows[i][MF], rows[i][MB], rows[i][MS] = mf[i], mb[i], ms[i]
+        rows[i][MF], rows[i][MB], rows[i][MS], rows[i][MA] = mf[i], mb[i], ms[i], ma[i]
     return rows, T, blocks, progs, epoch_io, per_call
 
 
@@ -549,6 +609,15 @@ def build_periodic(blocks, progs, epoch_io, T):
             raise ValueError("io log does not fit the trace")
         cols[PL_CTR][i] = i; cols[PL_KIND][i] = e[0]; cols[PL_A][i] = e[1] % F.P; cols[PL_B][i] = e[2] % F.P
         cols[PL_ACT][i] = 1
+    # args table: every call's FULL argument vector, concatenated in call order (call, index, value). This is
+    # what the ARG opcode's bus looks values up in — rebuilt from the public statement, never from the proof.
+    j = 0
+    for bi, (_start, _nrows, _pid, call) in enumerate(blocks):
+        for k, v in enumerate(call["args_f"]):
+            if j >= T:
+                raise ValueError("args do not fit the trace")
+            cols[PT_CALL][j] = bi; cols[PT_IDX][j] = k; cols[PT_VAL][j] = v % F.P
+            j += 1
     # range tables
     for i in range(T):
         cols[PB][i] = i if i < 256 else 0
@@ -561,6 +630,7 @@ def build_periodic(blocks, progs, epoch_io, T):
         for i in range(start, start + nrows):
             cols[PC_CALLER][i], cols[PC_VALUE][i], cols[PC_CURSOR][i], cols[PC_TIME][i] = ctx
             cols[PC_PROG][i] = pid
+            cols[PC_CALL][i] = bi
             for k in range(NR):
                 cols[PA + k][i] = args8[k]
         cols[P_START][start] = 1
@@ -571,7 +641,7 @@ def build_periodic(blocks, progs, epoch_io, T):
 
 
 def make_aux_builder(periodic):
-    """The prover's phase-2 witness: the 16 challenge-dependent helper/accumulator columns, built against the
+    """The prover's phase-2 witness: the 18 challenge-dependent helper/accumulator columns, built against the
     already-computed public periodic columns."""
     per_cols = periodic
 
@@ -593,7 +663,11 @@ def make_aux_builder(periodic):
             hio = F.mul(_io_active(cur), F.inv(F.add(beta, _io_tuple(cur, nxt, gamma))))
             gio_t = logup.combine([TAG_IO, p[PL_CTR], p[PL_KIND], p[PL_A], p[PL_B]], gamma)
             gio = F.mul(p[PL_ACT], F.inv(F.add(beta, gio_t)))
+            ha = F.mul(cur[F0 + _O["ARG"]], F.inv(F.add(beta, _arg_tuple(cur, nxt, p, gamma))))
+            ga_t = logup.combine([TAG_ARG, p[PT_CALL], p[PT_IDX], p[PT_VAL]], gamma)
+            ga = F.mul(cur[MA], F.inv(F.add(beta, ga_t)))
             put(HF, i, hf); put(GF, i, gf); put(HIO, i, hio); put(GIO, i, gio)
+            put(HA, i, ha); put(GA, i, ga)
             for jx, (ca, cb) in enumerate(_BYTE_PAIRS):
                 la, lb = cur[ca], (cur[cb] if cb is not None else 0)
                 put(HB + jx, i, F.add(F.inv(F.add(beta, la)), F.inv(F.add(beta, lb))))
@@ -606,6 +680,7 @@ def make_aux_builder(periodic):
             put(Z, i, z)
             term = F.sub(cols[HF - W_MAIN][i], cols[GF - W_MAIN][i])
             term = F.add(term, F.sub(cols[HIO - W_MAIN][i], cols[GIO - W_MAIN][i]))
+            term = F.add(term, F.sub(cols[HA - W_MAIN][i], cols[GA - W_MAIN][i]))
             for jx in range(7):
                 term = F.add(term, cols[HB - W_MAIN + jx][i])
             term = F.sub(term, cols[GB - W_MAIN][i])
@@ -668,6 +743,8 @@ def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES):
             zkvm.validate_code(c["code"])
             if c["method"] not in c["code"]:
                 return False, "unknown method"
+            if len(c["args_f"]) > zkvm.MAX_ARGS:          # provable == executable: the VM would refuse it
+                return False, "too many args"
         # rebuild the (blocks, progs) schedule from the public calls + the proof's declared block lengths,
         # then re-derive every periodic column and check the declared lengths against the claimed io log.
         decl = proof.get("blocks")

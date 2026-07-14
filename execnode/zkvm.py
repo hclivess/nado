@@ -7,16 +7,29 @@ reads, the return value — is an ORDERED PUBLIC I/O LOG that a verifier replays
 re-executing the contract. This replaces the string/BLAKE2b stack VM (vm.py) as the execution model that
 settlement validity proofs are built over; there is deliberately NO compatibility path between the two.
 
-Machine: 8 registers r0..r7 (call args preloaded), pc, an alghash sponge (h0,h1), and per-call flat storage
-slot(field) -> value(field). One instruction = [op, d, s, imm] (unused operands 0). Gas = executed steps
-(= trace rows), capped so a call always fits one proof.
+Machine: 8 registers r0..r7 (the FIRST 8 call args preloaded), pc, an alghash sponge (h0,h1), and per-call
+flat storage slot(field) -> value(field). One instruction = [op, d, s, imm] (unused operands 0). Gas =
+executed steps (= trace rows), capped only by what fits one proof (the 2^17-row AIR ceiling).
+
+Calls take up to MAX_ARGS (1024) arguments: the first 8 preload r0..r7 (compat with the register ABI), and
+ARG rd rs loads args[rs] into rd by DYNAMIC index — so contracts loop over arbitrarily many inputs (merkle
+proofs, batch operations) without packing hacks. ARG is proven by a dedicated LogUp lookup into the public
+args table (vm_circuit.py), exactly like program fetch: a wrong (index, value) pair makes the proof
+unverifiable. DESIGN RULE (mainnet): the VM carries as few limits as possible — no replay is enforced on
+contracts, the PROOF is the gate — so every remaining bound is either soundness-mandated (the DIVMOD/LT
+windows, which stop field wrap-around forgeries) or proof capacity (the trace ceiling), never taste.
 
 Integer semantics over a prime field (the part that must be exact for the AIR to be SOUND — the interpreter
 mirrors the constraints bit-for-bit, and reverts wherever the constraints would be unsatisfiable):
   LT/RANGE   63-bit window, byte+7bit limb decomposition; compare is deterministic for operands < 2^62
              (contract discipline: RANGE-check foreign values; all NADO amounts are far below 2^62).
-  DIVMOD     a//b with 1 <= b < 2^31 and a < b*2^32 (else revert): q,b-1,rem,b-rem-1 all limb-decomposed,
+  DIVMOD     a//b with 1 <= b < 2^15 and q < 2^48 (else revert): q,b-1,rem,b-rem-1 all limb-decomposed,
              so q*b + rem = a cannot wrap p — the classic field-division forgery is structurally excluded.
+             The 48/15 split serves big-value-by-small-constant math (stake*99/target).
+  DIVMODW    the SAME soundness budget cut the other way: 1 <= b < 2^31 and q < 2^32 (q·b < 2^63 < P still).
+             This is division by DATA-sized divisors — pro-rata pool splits (parimutuel payout =
+             stake*total//pool), price ratios — in ONE op instead of an unrolled long-division loop.
+             Remainder lands in r7 like DIVMOD. Fits the same 13-byte/4-sevenbit witness limbs exactly.
   LO32       canonical split x = hi*2^32 + lo, keeps lo. hi = 2^32-1 forces lo = 0 (the x vs x+p double
              decomposition of small values is excluded) — this is the sound "window a hash for DIVMOD" op.
 Commit-reveal / randomness: HINIT/HABS/HR0..HR7/HOUT are alghash.hashn laid out one round per row; BHASH and
@@ -24,17 +37,22 @@ BEACON read finalized chain randomness through the I/O log (public, so the verif
 """
 from execnode.stark import field as F, alghash
 
-GAS_LIMIT = 32767                # executed steps per call; keeps T = next_pow2(steps+1) <= 32768 (one proof).
-                                 # Raised from 8191 so the mega-contracts (pets ~8.6k, battleship ~16k rows)
-                                 # fit a single call. The AIR caps at stark.MAX_TRACE_ROWS = 2^17, far above.
-MAX_ARGS = 8
+GAS_LIMIT = 131070               # executed steps per call = the FULL proof capacity: the AIR ceiling is
+                                 # stark.MAX_TRACE_ROWS = 2^17 = 131072 and the trace needs 2 rows of
+                                 # padding, so this is the largest call one proof can carry. Small calls
+                                 # pad to the next power of two of their ACTUAL length, so raising the
+                                 # ceiling costs nothing until a contract actually uses it.
+MAX_ARGS = 1024                  # statement-size guard, not a semantic limit: args are part of the public
+                                 # call statement (they ride in the blob + proof statement), so this only
+                                 # bounds DoS-sized statements. The first 8 preload r0..r7; ARG reaches all.
 NUM_REGS = 8
 
-# opcode ids — FROZEN once contracts deploy against them (they are baked into program tables inside proofs)
+# opcode ids — FROZEN once contracts deploy against them (they are baked into program tables inside proofs).
+# New ops are APPENDED so existing bytecode/proof statements never shift.
 OPS = ["NOP", "MOVI", "MOV", "ADD", "SUB", "MUL", "EQ", "NEZ", "NOTB", "LT", "RANGE", "DIVMOD", "LO32",
        "JMP", "JNZ", "REQUIRE", "CTX", "HINIT", "HABS", "HOUT",
        "HR0", "HR1", "HR2", "HR3", "HR4", "HR5", "HR6", "HR7",
-       "SLOAD", "SSTORE", "PAY", "BHASH", "BEACON", "RET"]
+       "SLOAD", "SSTORE", "PAY", "BHASH", "BEACON", "RET", "ARG", "DIVMODW"]
 OP = {name: i for i, name in enumerate(OPS)}
 HR0 = OP["HR0"]
 
@@ -78,8 +96,8 @@ def validate_code(code):
                 raise ZkVMError(f"immediate out of field in {ins!r}")
             if op in ("JMP", "JNZ") and imm >= len(prog):
                 raise ZkVMError(f"jump target out of range in {ins!r}")
-            if op == "DIVMOD" and d == 7:
-                raise ZkVMError("DIVMOD dest must not be r7 (r7 receives the remainder)")
+            if op in ("DIVMOD", "DIVMODW") and d == 7:
+                raise ZkVMError(f"{op} dest must not be r7 (r7 receives the remainder)")
             if op == "CTX" and imm > 3:
                 raise ZkVMError("CTX index must be 0..3 (caller/value/cursor/time)")
     return True
@@ -114,7 +132,8 @@ def _decomp15(v):
 
 def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None, block_hashes=None,
         witness=False):
-    """Execute code[method] with r0..r7 = args (padded). `caller` is a FIELD element (the alghash address
+    """Execute code[method] with r0..r7 = the first 8 args (padded); ARG reaches all of them (up to
+    MAX_ARGS) by dynamic index. `caller` is a FIELD element (the alghash address
     digest — address strings never enter zkVM; the exec layer digests them at the call boundary). `storage` is
     {slot(int): value(int)} for this contract. Returns (ok, ret, new_storage, io_log[, steps]):
       io_log = ordered [(kind, a, b)] — SLOAD/SSTORE (slot,value), PAY (to_digest, amount),
@@ -125,8 +144,9 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
     if method not in code:
         return (False, None, storage, []) + (([],) if witness else ())
     prog = code[method]
-    regs = [(args[i] if i < len(args) else 0) % F.P for i in range(NUM_REGS)]
-    if len(args) > MAX_ARGS:
+    fargs = [a % F.P for a in args]                      # the FULL args vector — ARG indexes into it
+    regs = [(fargs[i] if i < len(fargs) else 0) for i in range(NUM_REGS)]
+    if len(fargs) > MAX_ARGS:
         return (False, None, storage, []) + (([],) if witness else ())
     caller %= F.P
     ctxv = [caller, value % F.P, cursor % F.P, timestamp % F.P]
@@ -202,6 +222,22 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
                 bl[8], sl[3] = _decomp15(b - rem - 1)
                 regs[7] = rem                                 # remainder lands in r7 (fixed convention)
                 res, wr = q, True
+            elif op_name == "DIVMODW":
+                a, b = rd, rs
+                if not (1 <= b < (1 << 31)):              # wide divisor: data-sized (pool splits, ratios)
+                    raise ZkVMRevert("DIVMODW divisor outside [1, 2^31)")
+                q, rem = a // b, a % b
+                if q >= (1 << 32):                        # 32-bit quotient keeps q·b < 2^63 (no field wrap)
+                    raise ZkVMRevert("DIVMODW quotient outside [0, 2^32)")
+                bl[0:4] = _bytes_of(q, 4)                 # q: 4 byte limbs (32 bits)
+                bw = _decomp31(b - 1)                     # b-1, rem, b-rem-1: 3 bytes + 7 bits each (31 bits)
+                bl[4:7], sl[1] = bw[0], bw[1]
+                rw = _decomp31(rem)
+                bl[7:10], sl[2] = rw[0], rw[1]
+                brw = _decomp31(b - rem - 1)
+                bl[10:13], sl[3] = brw[0], brw[1]
+                regs[7] = rem                             # remainder lands in r7 (same convention as DIVMOD)
+                res, wr = q, True
             elif op_name == "LO32":
                 hi, lo = rd >> 32, rd & 0xFFFFFFFF
                 if hi == (1 << 32) - 1 and lo != 0:           # canonical: only p-1's decomposition may top out
@@ -261,6 +297,12 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
                 bv %= F.P
                 io_entry = (IO_BEACON, rs, bv)
                 res, wr = bv, True
+            elif op_name == "ARG":
+                # indexed arg load: rd = args[rs]. Reverts out-of-range — exactly where the AIR's args-table
+                # lookup would have no satisfying row (the tuple (call, idx, val) must exist in the table).
+                if rs >= len(fargs):
+                    raise ZkVMRevert("ARG index out of range")
+                res, wr = fargs[rs], True
             elif op_name == "RET":
                 ret = rs
                 io_entry = (IO_RET, rs, 0)

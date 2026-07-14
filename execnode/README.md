@@ -44,6 +44,13 @@ at deploy with `caller = deployer`. Storage is `{"slots": {slot: value}}`; addre
 presents its flat slots as the named maps a frontend expects (`decode_view`) — so a ported game changes only
 its cid. State is canonical (integers only), so every honest node computes the same `state_root`.
 
+**Args are variadic (up to 1024).** The first 8 call args preload r0..r7; the `ARG rd rs` opcode loads
+`args[rs]` by dynamic index, proven by a dedicated LogUp lookup into the public args table — so merkle proofs
+and batch inputs are first-class call arguments, no bitmask packing. Gas/trace ceiling is the full proof
+capacity (`GAS_LIMIT = 131070` steps, one 2^17-row trace). Design rule: the VM carries as few limits as
+possible — the *proof* is the gate, not re-execution — every remaining bound is soundness-mandated (DIVMOD/LT
+windows) or proof capacity, never taste (`tests/test_zkvm_args.py` covers the soundness negatives).
+
 A blob payload is JSON:
 - deploy: `{"op":"deploy","runtime":"zkvm","code":{…}|"codez":…,"abi":{…},"nonce":"…"}` → cid = `blake2b(["deploy",deployer,code,nonce])[:32]`
 - call: `{"op":"call","contract":"<cid>","method":"<m>","args":[…],"value":<raw>}`
