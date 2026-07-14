@@ -1,14 +1,14 @@
 """
-VM2 (execnode/vm2.py + vm2asm.py): field-native semantics, the soundness windows (LT/DIVMOD/LO32) revert
+zkVM (execnode/zkvm.py + zkvmasm.py): field-native semantics, the soundness windows (LT/DIVMOD/LO32) revert
 exactly where the AIR would be unsatisfiable, the I/O log replays to the identical state WITHOUT execution,
 and malformed code/logs are rejected.
 
-Run: python3 tests/test_vm2.py
+Run: python3 tests/test_zkvm.py
 """
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import field as F, alghash
-from execnode import vm2, vm2asm
+from execnode import zkvm, zkvmasm
 
 fails = 0
 def check(name, fn):
@@ -20,9 +20,9 @@ def check(name, fn):
 
 
 def _run(text, args=(), storage=None, **kw):
-    code = {"m": vm2asm.assemble(text)}
-    vm2.validate_code(code)
-    return vm2.run(code, "m", kw.pop("caller", 7), list(args), storage or {}, **kw)
+    code = {"m": zkvmasm.assemble(text)}
+    zkvm.validate_code(code)
+    return zkvm.run(code, "m", kw.pop("caller", 7), list(args), storage or {}, **kw)
 
 def t1_arithmetic():
     ok, ret, st, io = _run("movi r1 20\n add r0 r1\n movi r2 3\n mul r0 r2\n ret r0", args=[22])
@@ -68,22 +68,22 @@ def t5_lo32():
 def t6_storage_and_replay():
     src = ("movi r1 100\n sload r2 r1\n add r2 r0\n sstore r1 r2\n"
            "movi r3 777\n movi r4 5\n pay r3 r4\n ret r2")
-    code = {"m": vm2asm.assemble(src)}
+    code = {"m": zkvmasm.assemble(src)}
     st0 = {100: 40}
-    ok, ret, st1, io = vm2.run(code, "m", 7, [2], st0)
+    ok, ret, st1, io = zkvm.run(code, "m", 7, [2], st0)
     assert ok and ret == 42 and st1 == {100: 42}
-    ok2, ret2, st2, payouts, chain = vm2.replay_io(io, st0)   # the verifier path: NO execution
+    ok2, ret2, st2, payouts, chain = zkvm.replay_io(io, st0)   # the verifier path: NO execution
     assert ok2 and ret2 == 42 and st2 == st1 and payouts == [(777, 5)] and chain == []
 
 def t7_replay_rejects():
     src = "movi r1 100\n sload r2 r1\n ret r2"
-    code = {"m": vm2asm.assemble(src)}
-    ok, ret, st1, io = vm2.run(code, "m", 7, [], {100: 9})
-    ok2, *_ = vm2.replay_io(io, {100: 8})                     # state moved -> read mismatch
+    code = {"m": zkvmasm.assemble(src)}
+    ok, ret, st1, io = zkvm.run(code, "m", 7, [], {100: 9})
+    ok2, *_ = zkvm.replay_io(io, {100: 8})                     # state moved -> read mismatch
     assert not ok2, "stale read must be rejected"
-    ok3, *_ = vm2.replay_io(io[:-1], {100: 9})                # missing RET
+    ok3, *_ = zkvm.replay_io(io[:-1], {100: 9})                # missing RET
     assert not ok3
-    ok4, *_ = vm2.replay_io(io + [(vm2.IO_RET, 0, 0)], {100: 9})   # trailing entry after RET
+    ok4, *_ = zkvm.replay_io(io + [(zkvm.IO_RET, 0, 0)], {100: 9})   # trailing entry after RET
     assert not ok4
 
 def t8_control_flow_and_gas():
@@ -98,7 +98,7 @@ def t8_control_flow_and_gas():
 
 def t9_chain_randomness():
     ok, ret, st, io = _run("movi r1 50\n bhash r2 r1\n ret r2", block_hashes={50: 123456789})
-    assert ok and ret == 123456789 and (vm2.IO_BHASH, 50, 123456789) in io
+    assert ok and ret == 123456789 and (zkvm.IO_BHASH, 50, 123456789) in io
     ok, *_ = _run("movi r1 50\n bhash r2 r1\n ret r2", block_hashes={})
     assert not ok, "missing block hash must revert"
     ok, ret, st, io = _run("movi r1 3\n beacon r2 r1\n ret r2", beacons={3: 42})
@@ -108,13 +108,13 @@ def t10_validate_code():
     for bad in ([["XX", 0, 0, 0]], [["MOVI", 9, 0, 0]], [["JMP", 0, 0, 99]], [["DIVMOD", 7, 1, 0]],
                 [["MOVI", 0, 0, F.P]]):
         try:
-            vm2.validate_code({"m": bad}); raise AssertionError(f"{bad} must be rejected")
-        except vm2.VM2Error:
+            zkvm.validate_code({"m": bad}); raise AssertionError(f"{bad} must be rejected")
+        except zkvm.ZkVMError:
             pass
 
 def t11_witness_limbs():
-    code = {"m": vm2asm.assemble("divmod r0 r1\n ret r0")}
-    ok, ret, st, io, steps = vm2.run(code, "m", 7, [1000003, 37], {}, witness=True)
+    code = {"m": zkvmasm.assemble("divmod r0 r1\n ret r0")}
+    ok, ret, st, io, steps = zkvm.run(code, "m", 7, [1000003, 37], {}, witness=True)
     assert ok and len(steps) == 2
     s = steps[0]
     q = sum(s["bl"][k] << (8 * k) for k in range(4))

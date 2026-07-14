@@ -942,6 +942,108 @@ async def h_unshield_proof(request):
     return web.json_response(p)
 
 
+def _zkvm_contract(st, cid):
+    """The (contract, error-response) pair for a zkvm-runtime contract id."""
+    c = st.contracts.get(cid)
+    if not c:
+        return None, web.json_response({"error": f"no contract {cid}"}, status=404)
+    if c.get("runtime") != "zkvm":
+        return None, web.json_response({"error": "contract is not on the zkvm runtime"}, status=400)
+    return c, None
+
+
+async def h_prove_call(request):
+    """PROVEN EXECUTION (doc/zk-execution-proofs.md): execute one zkvm call against the CURRENT finalized
+    state and return a STARK proof + the public I/O log. Any other node verifies with /exec/verify_call
+    and applies the call via the log — never executing the contract. Body: {cid, method, caller, args,
+    value?}. Returns {bundle_json, ret, cursor} — bundle_json is the self-contained proven-call bundle
+    (stringified: its field ints don't survive JS JSON)."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "bad json"}, status=400)
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
+    from execnode import runtimes as _rt
+    from execnode.stark import vm_circuit, field as _F
+    try:
+        cid, method = body["cid"], body["method"]
+        caller = body.get("caller", "prover")
+        args = body.get("args", [])
+        value = int(body.get("value", 0))
+        c, err = _zkvm_contract(st, cid)
+        if err:
+            return err
+        reg = dict(st.zk_addrs)                         # read-only path: never mutate state on a query
+        cf, fargs = _rt.zkvm_statement(caller, args, reg)
+        slots = {int(k): int(v) for k, v in (c["storage"].get("slots") or {}).items()}
+        cursor, ts = st.cursor, st.block_ts
+        beacons = {e: v % _F.P for e, v in st.beacons.items()}
+        bhashes = {h: v % _F.P for h, v in st.block_hashes.items()}
+
+        def _prove():
+            """Blocking STARK prove (~tens of seconds), run in a worker thread via asyncio.to_thread."""
+            return vm_circuit.prove_call(c["code"], method, cf, fargs, slots, value=value, cursor=cursor,
+                                         timestamp=ts, beacons=beacons, block_hashes=bhashes)
+        async with _sem():                               # H-7: bound concurrent proving
+            proof, io, ret, _new = await asyncio.to_thread(_prove)
+        bundle = {"cid": cid, "method": method, "caller": caller, "args": args, "value": value,
+                  "cursor": cursor, "timestamp": ts, "io": [list(e) for e in io], "proof": proof}
+        return web.json_response({"bundle_json": json.dumps(bundle), "ret": str(ret), "cursor": cursor})
+    except KeyError as e:
+        return web.json_response({"error": f"missing field {e}"}, status=400)
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=400)   # incl. "call reverted — nothing to prove"
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+
+async def h_verify_call(request):
+    """Verify a proven zkvm call WITHOUT executing it, then check its I/O log against THIS node's current
+    state (zkvm.replay_io + chain-randomness cross-check). Body: {bundle_json} (from /exec/prove_call) or
+    the same fields inline. Returns {ok, reason, ret, state_match, payouts} — ok = the proof is sound for
+    the stated call; state_match = the log also applies cleanly to this node's state right now."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "bad json"}, status=400)
+    st = _state_for(request)
+    if st is None:
+        return _NS404()
+    from execnode import runtimes as _rt, zkvm
+    from execnode.stark import vm_circuit, field as _F
+    try:
+        b = json.loads(body["bundle_json"]) if "bundle_json" in body else body
+        c, err = _zkvm_contract(st, b["cid"])
+        if err:
+            return err
+        cf, fargs = _rt.zkvm_statement(b.get("caller", "prover"), b.get("args", []), {})
+        io = [tuple(int(x) for x in e) for e in b["io"]]
+
+        def _verify():
+            return vm_circuit.verify_call(b["proof"], c["code"], b["method"], cf, fargs, io,
+                                          value=int(b.get("value", 0)), cursor=int(b.get("cursor", 0)),
+                                          timestamp=int(b.get("timestamp", 0)))
+        async with _sem():
+            ok, why = await asyncio.to_thread(_verify)
+        if not ok:
+            return web.json_response({"ok": False, "reason": why})
+        slots = {int(k): int(v) for k, v in (c["storage"].get("slots") or {}).items()}
+        ok2, ret, _new_slots, payouts, chain = zkvm.replay_io(io, slots)
+        chain_ok = all(
+            (k == zkvm.IO_BHASH and st.block_hashes.get(a) is not None and st.block_hashes[a] % _F.P == v) or
+            (k == zkvm.IO_BEACON and st.beacons.get(a) is not None and st.beacons[a] % _F.P == v)
+            for k, a, v in chain)
+        pays = [[st.zk_addrs.get(str(to)), amt] for to, amt in payouts]
+        return web.json_response({"ok": True, "reason": "ok", "ret": str(ret),
+                                  "state_match": bool(ok2 and chain_ok), "payouts": pays})
+    except KeyError as e:
+        return web.json_response({"error": f"missing field {e}"}, status=400)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+
 async def main():
     """Wire up the query API (CORS middleware, body-size cap), start it on BIND:PORT, then run the tail
     loop forever — the HTTP server and the L1 tail share one event loop."""
@@ -954,6 +1056,8 @@ async def main():
                     web.get("/exec/field_leaves", h_field_leaves),
                     web.post("/exec/prove_transfer", h_prove_transfer),
                     web.post("/exec/prove_transfer2", h_prove_transfer2),
+                    web.post("/exec/prove_call", h_prove_call),
+                    web.post("/exec/verify_call", h_verify_call),
                     web.get("/exec/shielded_note", h_shielded_note),
                     web.get("/exec/unshields", h_unshields),
                     web.get("/exec/unshield_proof", h_unshield_proof),

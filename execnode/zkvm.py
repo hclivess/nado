@@ -1,5 +1,5 @@
 """
-VM2 — NADO's PROVABLE execution VM (doc/zk-execution-proofs.md). A field-native register machine designed so
+zkVM — NADO's PROVABLE execution VM (doc/zk-execution-proofs.md). A field-native register machine designed so
 that one execution step = one STARK trace row (execnode/stark/vm_circuit.py): every value is a Goldilocks
 field element, the only hash is the in-circuit alghash sponge (exposed as explicit round opcodes so the AIR
 needs no round-constant lookups), and every effect on the world — storage reads/writes, payouts, randomness
@@ -46,40 +46,40 @@ CTX_CALLER, CTX_VALUE, CTX_CURSOR, CTX_TIME = 0, 1, 2, 3
 NUM_BYTE_LIMBS, NUM_7BIT_LIMBS = 13, 4
 
 
-class VM2Error(Exception):
+class ZkVMError(Exception):
     pass
 
 
-class VM2Revert(VM2Error):
+class ZkVMRevert(ZkVMError):
     """The call is a no-op AND unprovable — the interpreter reverts exactly where the AIR constraints would
     have no satisfying witness, so 'provable' and 'executes successfully' are the same set of calls."""
 
 
 def validate_code(code):
-    """Reject malformed VM2 bytecode at deploy: {method: [[op,d,s,imm],...]}, ops known, operands in range,
+    """Reject malformed zkVM bytecode at deploy: {method: [[op,d,s,imm],...]}, ops known, operands in range,
     jump targets inside the method. Deterministic across nodes (pure structural checks)."""
     if not isinstance(code, dict) or not code:
-        raise VM2Error("contract code must be a non-empty {method: [instructions]} object")
+        raise ZkVMError("contract code must be a non-empty {method: [instructions]} object")
     for method, prog in code.items():
         if not isinstance(method, str) or not isinstance(prog, list) or not prog:
-            raise VM2Error(f"bad method {method!r}")
+            raise ZkVMError(f"bad method {method!r}")
         if len(prog) > GAS_LIMIT:
-            raise VM2Error(f"method {method} longer than GAS_LIMIT")
+            raise ZkVMError(f"method {method} longer than GAS_LIMIT")
         for ins in prog:
             if (not isinstance(ins, list) or len(ins) != 4 or ins[0] not in OP
                     or not all(isinstance(x, int) and not isinstance(x, bool) and x >= 0 for x in ins[1:])):
-                raise VM2Error(f"invalid instruction {ins!r} in {method}")
+                raise ZkVMError(f"invalid instruction {ins!r} in {method}")
             op, d, s, imm = ins
             if d >= NUM_REGS or s >= NUM_REGS:
-                raise VM2Error(f"register out of range in {ins!r}")
+                raise ZkVMError(f"register out of range in {ins!r}")
             if imm >= F.P:
-                raise VM2Error(f"immediate out of field in {ins!r}")
+                raise ZkVMError(f"immediate out of field in {ins!r}")
             if op in ("JMP", "JNZ") and imm >= len(prog):
-                raise VM2Error(f"jump target out of range in {ins!r}")
+                raise ZkVMError(f"jump target out of range in {ins!r}")
             if op == "DIVMOD" and d == 7:
-                raise VM2Error("DIVMOD dest must not be r7 (r7 receives the remainder)")
+                raise ZkVMError("DIVMOD dest must not be r7 (r7 receives the remainder)")
             if op == "CTX" and imm > 3:
-                raise VM2Error("CTX index must be 0..3 (caller/value/cursor/time)")
+                raise ZkVMError("CTX index must be 0..3 (caller/value/cursor/time)")
     return True
 
 
@@ -105,7 +105,7 @@ def _decomp31(v):
 def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None, block_hashes=None,
         witness=False):
     """Execute code[method] with r0..r7 = args (padded). `caller` is a FIELD element (the alghash address
-    digest — address strings never enter VM2; the exec layer digests them at the call boundary). `storage` is
+    digest — address strings never enter zkVM; the exec layer digests them at the call boundary). `storage` is
     {slot(int): value(int)} for this contract. Returns (ok, ret, new_storage, io_log[, steps]):
       io_log = ordered [(kind, a, b)] — SLOAD/SSTORE (slot,value), PAY (to_digest, amount),
                BHASH/BEACON (height/epoch, value), RET (value, 0) — always ending in exactly one RET on ok.
@@ -130,7 +130,7 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
     try:
         while True:
             if gas >= GAS_LIMIT:
-                raise VM2Revert("gas limit exceeded")
+                raise ZkVMRevert("gas limit exceeded")
             gas += 1
             op_name, d, s, imm = prog[pc]
             op = OP[op_name]
@@ -163,29 +163,29 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
                 res, wr = (1 if rd else 0), True
             elif op_name == "NOTB":
                 if rd not in (0, 1):
-                    raise VM2Revert("NOTB on a non-bit")
+                    raise ZkVMRevert("NOTB on a non-bit")
                 res, wr = 1 - rd, True
             elif op_name == "LT":
                 b = 1 if rd < rs else 0
                 dv = (rs - rd - 1) if b else (rd - rs)
                 dec = _decomp63(dv)
                 if dec is None:
-                    raise VM2Revert("LT operands outside the 63-bit window")
+                    raise ZkVMRevert("LT operands outside the 63-bit window")
                 bl[:7], sl[0] = dec[0], dec[1]
                 wi = b                                        # the AIR's b-bit lives in the wi column
                 res, wr = b, True
             elif op_name == "RANGE":
                 dec = _decomp63(rd)
                 if dec is None:
-                    raise VM2Revert("RANGE failed (value >= 2^63)")
+                    raise ZkVMRevert("RANGE failed (value >= 2^63)")
                 bl[:7], sl[0] = dec[0], dec[1]
             elif op_name == "DIVMOD":
                 a, b = rd, rs
                 if not (1 <= b < (1 << 31)):
-                    raise VM2Revert("DIVMOD divisor outside [1, 2^31)")
+                    raise ZkVMRevert("DIVMOD divisor outside [1, 2^31)")
                 q, rem = a // b, a % b
                 if q >= (1 << 32):
-                    raise VM2Revert("DIVMOD quotient outside [0, 2^32)")
+                    raise ZkVMRevert("DIVMOD quotient outside [0, 2^32)")
                 bl[0:4] = _bytes_of(q, 4)
                 d1 = _decomp31(b - 1); bl[4:7], sl[1] = d1[0], d1[1]
                 d2 = _decomp31(rem);   bl[7:10], sl[2] = d2[0], d2[1]
@@ -195,7 +195,7 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
             elif op_name == "LO32":
                 hi, lo = rd >> 32, rd & 0xFFFFFFFF
                 if hi == (1 << 32) - 1 and lo != 0:           # canonical: only p-1's decomposition may top out
-                    raise VM2Revert("LO32 non-canonical")     # (unreachable for in-field values, kept exact)
+                    raise ZkVMRevert("LO32 non-canonical")     # (unreachable for in-field values, kept exact)
                 bl[0:4] = _bytes_of(lo, 4)
                 bl[4:8] = _bytes_of(hi, 4)
                 him = F.sub(hi, (1 << 32) - 1)
@@ -208,11 +208,11 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
                 nxt_pc = imm if rs else pc + 1
             elif op_name == "REQUIRE":
                 if not rs:
-                    raise VM2Revert("REQUIRE failed")
+                    raise ZkVMRevert("REQUIRE failed")
                 wi = F.inv(rs)
             elif op_name == "CTX":
                 if imm > 3:
-                    raise VM2Revert("bad CTX index")
+                    raise ZkVMRevert("bad CTX index")
                 res, wr = ctxv[imm], True
             elif op_name == "HINIT":
                 h0, h1 = 0, alghash.IV
@@ -240,14 +240,14 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
             elif op_name == "BHASH":
                 hv = (block_hashes or {}).get(rs)
                 if hv is None:
-                    raise VM2Revert("block hash for height not available")
+                    raise ZkVMRevert("block hash for height not available")
                 hv %= F.P
                 io_entry = (IO_BHASH, rs, hv)
                 res, wr = hv, True
             elif op_name == "BEACON":
                 bv = (beacons or {}).get(rs)
                 if bv is None:
-                    raise VM2Revert("beacon for epoch not available")
+                    raise ZkVMRevert("beacon for epoch not available")
                 bv %= F.P
                 io_entry = (IO_BEACON, rs, bv)
                 res, wr = bv, True
@@ -267,7 +267,7 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
                 break
             pc = nxt_pc
         return (True, ret, st, io) + ((steps,) if witness else ())
-    except (VM2Revert, IndexError, KeyError, ZeroDivisionError):
+    except (ZkVMRevert, IndexError, KeyError, ZeroDivisionError):
         return (False, None, storage, []) + (([],) if witness else ())
 
 

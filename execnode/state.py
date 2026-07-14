@@ -160,6 +160,12 @@ class ExecState:
         # to state_root. The BLOCKHASH opcode reads it so a game can pin its result to a FUTURE height whose hash
         # nobody can predict at bet time. Bounded ring (recent heights only).
         self.block_hashes = {}     # height(int) -> block hash(int)
+        # zkVM ADDRESS REGISTRY (doc/zk-execution-proofs.md): field digest -> L1 address, accumulated from
+        # every zkvm call boundary (sender + string args). PAY(digest) resolves through it back to a real
+        # bridge address. Derivable from the ordered blob stream (deterministic on every node) — persisted
+        # for restart, NOT committed to state_root (like beacons/block_hashes; payouts already reflect in
+        # committed bridge leaves).
+        self.zk_addrs = {}        # str(field digest) -> addr
         # STATE-ROOT CACHE: _leaves()/state_root() are pure functions of the root-committed state, but
         # were recomputed from scratch on EVERY /exec/root poll, proof request and settle (O(total
         # state), the execnode's dominant CPU cost). Cache leaves+root; every root-affecting mutator
@@ -211,6 +217,7 @@ class ExecState:
         self.beacons = {int(e): int(v) for e, v in d.get("beacons", {}).items()}
         self.beacon_floor = d.get("beacon_floor")
         self.block_hashes = {int(h): int(v) for h, v in d.get("block_hashes", {}).items()}
+        self.zk_addrs = d.get("zk_addrs", {})
         self._touch()          # also (re)creates the cache fields on a bare clone() instance
 
     def _snapshot(self):
@@ -227,7 +234,8 @@ class ExecState:
                     "field_pool": self.field_pool.to_dict(),
                     "randao_reveals": {str(e): sorted(v) for e, v in self.randao_reveals.items()},
                     "beacons": {str(e): str(v) for e, v in self.beacons.items()}, "beacon_floor": self.beacon_floor,
-                    "block_hashes": {str(h): str(v) for h, v in self.block_hashes.items()}}
+                    "block_hashes": {str(h): str(v) for h, v in self.block_hashes.items()},
+                    "zk_addrs": self.zk_addrs}
 
     def clone(self):
         """A deep, independent, DISK-FREE copy for provisional/speculative apply (the unfinalized L1 tail).
@@ -612,7 +620,8 @@ class ExecState:
                     return f"skip: contract {cid} already exists"
                 storage = {}
                 if "constructor" in code:
-                    ok, _ret, storage, _pay = rt.run(code, "constructor", sender, [], {}, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes)
+                    kw = {"registry": self.zk_addrs} if getattr(rt, "wants_registry", False) else {}
+                    ok, _ret, storage, _pay = rt.run(code, "constructor", sender, [], {}, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, **kw)
                     if not ok:
                         storage = {}                      # constructor reverted -> deploy with empty state
                 abi = payload.get("abi")   # optional, non-consensus UX metadata {method:{args,doc}}
@@ -644,8 +653,9 @@ class ExecState:
                     if self.bridge[sender] == 0:
                         del self.bridge[sender]
                     self.bridge[cid] = self.bridge.get(cid, 0) + value
+                kw = {"registry": self.zk_addrs} if getattr(rt, "wants_registry", False) else {}
                 ok, _ret, new_storage, payouts = rt.run(c["code"], method, sender, args, c["storage"],
-                                                        value=value, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes)
+                                                        value=value, cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, **kw)
                 def _refund():
                     if value > 0:
                         self.bridge[cid] = self.bridge.get(cid, 0) - value
@@ -809,5 +819,6 @@ class ExecState:
         rt = runtimes.get(c.get("runtime", runtimes.DEFAULT_RUNTIME))
         if rt is None:
             return None
-        ok, ret, _, _ = rt.run(c["code"], method, "view", args or [], c["storage"], cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes)
+        kw = {"registry": dict(self.zk_addrs)} if getattr(rt, "wants_registry", False) else {}
+        ok, ret, _, _ = rt.run(c["code"], method, "view", args or [], c["storage"], cursor=self.cursor, timestamp=self.block_ts, beacons=self.beacons, block_hashes=self.block_hashes, **kw)
         return ret if ok else None

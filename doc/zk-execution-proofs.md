@@ -1,6 +1,29 @@
 # ZK execution proofs for contracts — feasibility (issue #85)
 
-**Status: feasibility study (2026-07-14), design input only — nothing new is built.**
+**Status: BUILT (first cut live, 2026-07-14).** The proving stack from §4's build order is implemented and
+tested end-to-end:
+
+| piece | where | state |
+|---|---|---|
+| two-phase aux commitment + LogUp lookup argument | `stark/stark.py` (`aux_spec`), `stark/logup.py` | ✅ (`tests/test_stark_aux.py`; one-phase path byte-identical, shielded suites pass) |
+| zkVM — field-native provable register VM + assembler | `execnode/zkvm.py`, `execnode/zkvmasm.py` | ✅ (`tests/test_zkvm.py`) |
+| zkVM execution AIR (101 columns, 94 constraints, 4 LogUp buses) | `execnode/stark/vm_circuit.py` | ✅ (`tests/test_zkvm_circuit.py` — adversarial suite) |
+| exec-layer runtime `"zkvm"` + digest registry + slot storage | `execnode/runtimes.py`, `state.py` | ✅ (`tests/test_zkvm_runtime.py` — 3-way differential) |
+| proven-execution endpoints | `/exec/prove_call`, `/exec/verify_call` | ✅ |
+
+Measured (this host, Python + native Goldilocks): a real contract call (blockhash randomness → LO32 →
+DIVMOD → storage read/modify/write → conditional payout, T=512) **proves in ~25 s, verifies in ~0.25 s**;
+the verifier applies the call by replaying its public I/O log (`zkvm.replay_io`) — **zero re-execution**.
+Proof ~1.5 MB at 8 FRI queries (~10 MB at the protocol 64; Poseidon-Merkle/pruned openings are the known
+size lever). What this ships is the PER-CALL execution-proof primitive; the batch settlement proof
+("blobs since root R₁ yield R₂", §4 step 4) composes these and is the remaining Phase-2b step, along with
+a Rust prover port (~10× — the `wasm/goldilocks` lineage).
+
+The analysis below is the original feasibility study that led to this design — kept for the reasoning.
+
+---
+
+**Original study (2026-07-14, pre-build):**
 Question ([#85](https://github.com/hclivess/nado/issues/85)): can zk-STARKs replace redundant
 contract execution — every node re-running every contract — with a single prover and a cheap
 proof check? This note answers it *for NADO specifically*, with measured numbers from the

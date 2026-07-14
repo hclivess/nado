@@ -1,8 +1,8 @@
 """
-VM2 execution AIR (doc/zk-execution-proofs.md) — prove "running PUBLIC program `code[method]` with PUBLIC
+zkVM execution AIR (doc/zk-execution-proofs.md) — prove "running PUBLIC program `code[method]` with PUBLIC
 (caller, value, cursor, time, args) produced exactly this PUBLIC I/O log" WITHOUT the verifier executing
-anything. One VM2 step = one trace row. The verifier then replays the tiny I/O log against its state
-(vm2.replay_io) — that pair (proof + log replay) is what replaces re-execution.
+anything. One zkVM step = one trace row. The verifier then replays the tiny I/O log against its state
+(zkvm.replay_io) — that pair (proof + log replay) is what replaces re-execution.
 
 Layout (one row):
   R0..R7 · PC · IOC (I/O entries emitted so far) · IMM · H0,H1 (sponge) · WI,WJ (per-op inverse/bit witness)
@@ -19,19 +19,19 @@ Public context (caller/value/cursor/time) is baked into the CONSTRAINTS; args pi
 program and log live in periodic columns — nothing statement-shaped is read from the proof.
 """
 from execnode.stark import field as F, alghash, stark, logup
-from execnode import vm2
+from execnode import zkvm
 
 # ---- column layout -------------------------------------------------------------------------------
-NR = vm2.NUM_REGS
-NOPS = len(vm2.OPS)
+NR = zkvm.NUM_REGS
+NOPS = len(zkvm.OPS)
 R0 = 0
 PC = 8; IOC = 9; IMM = 10; H0 = 11; H1 = 12; WI = 13; WJ = 14
 F0 = 15                       # opcode one-hot base: F0 + op_id
 D0 = F0 + NOPS                # dest one-hot
 S0 = D0 + NR                  # src one-hot
 BL = S0 + NR                  # 13 byte limbs
-SL = BL + vm2.NUM_BYTE_LIMBS  # 4 seven-bit limbs
-MF = SL + vm2.NUM_7BIT_LIMBS  # fetch multiplicity
+SL = BL + zkvm.NUM_BYTE_LIMBS  # 4 seven-bit limbs
+MF = SL + zkvm.NUM_7BIT_LIMBS  # fetch multiplicity
 MB = MF + 1; MS = MB + 1      # byte / 7bit multiplicities
 W_MAIN = MS + 1
 HF = W_MAIN; GF = HF + 1; HIO = GF + 1; GIO = HIO + 1
@@ -47,12 +47,12 @@ TAG_FETCH = 1 << 32           # bus domain tags (outside every raw table's value
 TAG_IO = 1 << 33
 MAX_DEGREE = 8                # sponge x^7 under a selector; register-update mux also lands at 8
 MIN_T = 512                   # byte table (256 rows) + headroom must sit within rows 0..T-2
-MAX_T = 8192                  # vm2.GAS_LIMIT + padding — one call is always one proof
+MAX_T = 8192                  # zkvm.GAS_LIMIT + padding — one call is always one proof
 
-_O = vm2.OP
+_O = zkvm.OP
 _IO_OPS = ("SLOAD", "SSTORE", "PAY", "BHASH", "BEACON", "RET")
-_IO_KIND = {"SLOAD": vm2.IO_SLOAD, "SSTORE": vm2.IO_SSTORE, "PAY": vm2.IO_PAY,
-            "BHASH": vm2.IO_BHASH, "BEACON": vm2.IO_BEACON, "RET": vm2.IO_RET}
+_IO_KIND = {"SLOAD": zkvm.IO_SLOAD, "SSTORE": zkvm.IO_SSTORE, "PAY": zkvm.IO_PAY,
+            "BHASH": zkvm.IO_BHASH, "BEACON": zkvm.IO_BEACON, "RET": zkvm.IO_RET}
 _WRITE_OPS = ("MOVI", "MOV", "ADD", "SUB", "MUL", "EQ", "NEZ", "NOTB", "LT", "DIVMOD", "LO32", "CTX", "HOUT")
 _LOAD_OPS = ("SLOAD", "BHASH", "BEACON")   # dest register comes from the I/O bus, not the update mux
 
@@ -126,7 +126,7 @@ _LAG_INV = [F.inv(d % F.P) for d in (-6, 2, -2, 6)]          # Π_{j≠k}(k-j) f
 
 def _lagrange4(imm, vals):
     """Σ vals[k] · L_k(imm) over interpolation points {0,1,2,3} — the CTX mux (degree 3). CTX imm is
-    deploy-validated to 0..3 (vm2.validate_code), so the mux is total on real programs."""
+    deploy-validated to 0..3 (zkvm.validate_code), so the mux is total on real programs."""
     acc = 0
     for k in range(4):
         num = 1
@@ -393,9 +393,9 @@ def transitions(pub):
 def build_trace(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None,
                 block_hashes=None):
     """Run the interpreter and lay its witness out as the main trace. Returns
-    (trace, T, io_log, ret, new_storage) or raises VM2Revert-shaped ValueError if the call reverts
+    (trace, T, io_log, ret, new_storage) or raises ZkVMRevert-shaped ValueError if the call reverts
     (a reverted call is a no-op — there is nothing to prove)."""
-    r = vm2.run(code, method, caller, list(args), storage, value=value, cursor=cursor, timestamp=timestamp,
+    r = zkvm.run(code, method, caller, list(args), storage, value=value, cursor=cursor, timestamp=timestamp,
                 beacons=beacons, block_hashes=block_hashes, witness=True)
     ok, ret, new_storage, io, steps = r
     if not ok:
@@ -443,10 +443,10 @@ def build_trace(code, method, caller, args, storage, value=0, cursor=0, timestam
     ms = [0] * T
     for i in range(T - 1):
         r = rows[i]
-        for k in range(vm2.NUM_BYTE_LIMBS):
+        for k in range(zkvm.NUM_BYTE_LIMBS):
             mb[r[BL + k]] += 1
         mb[0] += 1                                        # the (BL12, literal-0) pair partner, every row
-        for k in range(vm2.NUM_7BIT_LIMBS):
+        for k in range(zkvm.NUM_7BIT_LIMBS):
             ms[r[SL + k]] += 1
     for i in range(T):
         rows[i][MF], rows[i][MB], rows[i][MS] = mf[i], mb[i], ms[i]
@@ -526,10 +526,10 @@ def _aux_spec(prog, io_log, T):
 
 def prove_call(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None,
                block_hashes=None, num_queries=stark.NUM_QUERIES):
-    """Execute + prove one VM2 call. Returns (proof, io_log, ret, new_storage). The proof attests: running
+    """Execute + prove one zkVM call. Returns (proof, io_log, ret, new_storage). The proof attests: running
     PUBLIC code[method] with PUBLIC (caller,value,cursor,time,args) emits exactly PUBLIC io_log. Any node
-    then applies the call via vm2.replay_io(io_log, ...) — no execution."""
-    vm2.validate_code(code)
+    then applies the call via zkvm.replay_io(io_log, ...) — no execution."""
+    zkvm.validate_code(code)
     trace, T, io, ret, new_storage = build_trace(code, method, caller, args, storage, value=value,
                                                  cursor=cursor, timestamp=timestamp, beacons=beacons,
                                                  block_hashes=block_hashes)
@@ -544,10 +544,10 @@ def verify_call(proof, code, method, caller, args, io_log, value=0, cursor=0, ti
                 num_queries=stark.NUM_QUERIES):
     """Verify a proven call WITHOUT executing it. The statement is entirely caller-supplied: code (public,
     deploy-validated), method, call context, args, and the claimed io_log. Geometry (T, W, program/log fit)
-    is pinned before any crypto. Returns (ok, reason). On ok, apply the call with vm2.replay_io(io_log, st)
+    is pinned before any crypto. Returns (ok, reason). On ok, apply the call with zkvm.replay_io(io_log, st)
     — which also re-checks the log against current storage and hands back payouts + chain reads."""
     try:
-        vm2.validate_code(code)
+        zkvm.validate_code(code)
         if method not in code:
             return False, "unknown method"
         prog = code[method]
@@ -560,7 +560,7 @@ def verify_call(proof, code, method, caller, args, io_log, value=0, cursor=0, ti
             if not (isinstance(e, (list, tuple)) and len(e) == 3
                     and all(isinstance(x, int) and not isinstance(x, bool) and 0 <= x < F.P for x in e)):
                 return False, "malformed io log entry"
-        if sum(1 for e in io_log if e[0] == vm2.IO_RET) != 1 or (io_log and io_log[-1][0] != vm2.IO_RET):
+        if sum(1 for e in io_log if e[0] == zkvm.IO_RET) != 1 or (io_log and io_log[-1][0] != zkvm.IO_RET):
             return False, "io log must end with exactly one RET"
         if not io_log:
             return False, "empty io log"

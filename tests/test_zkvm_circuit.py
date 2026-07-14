@@ -1,16 +1,16 @@
 """
-VM2 execution AIR (execnode/stark/vm_circuit.py): a real contract call (randomness, division, storage,
+zkVM execution AIR (execnode/stark/vm_circuit.py): a real contract call (randomness, division, storage,
 conditional payout, sponge hashing, caller context) proves and verifies WITHOUT re-execution, replay_io
 reaches the interpreter's exact state, and every statement tamper — forged log values/order, wrong args,
 wrong caller, patched code, bad geometry — is rejected. Reverted calls are unprovable.
 
-Run: python3 tests/test_vm2_circuit.py            (~1 min: two proofs at reduced query count,
+Run: python3 tests/test_zkvm_circuit.py            (~1 min: two proofs at reduced query count,
                                                    soundness comes from the statement checks not queries)
 """
 import os, sys, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode.stark import field as F, alghash, vm_circuit
-from execnode import vm2, vm2asm
+from execnode import zkvm, zkvmasm
 
 fails = 0
 def check(name, fn):
@@ -23,7 +23,7 @@ def check(name, fn):
 NQ = 8                                                    # reduced FRI queries: fast tests, same machinery
 
 # contract 1 — dice: roll from a pinned block hash, count plays, pay on a correct guess
-DICE = {"play": vm2asm.assemble("""
+DICE = {"play": zkvmasm.assemble("""
     movi r3 50
     bhash r4 r3
     lo32 r4
@@ -48,7 +48,7 @@ ROLL = (123456789123456789 & 0xFFFFFFFF) % 6
 CALLER, ARGS, ST0 = 777777, [ROLL, 4242, 100], {1: 6}
 
 # contract 2 — commit-reveal check + caller-stamped store (exercises HASH/REQUIRE/CTX)
-REVEAL = {"reveal": vm2asm.assemble("""
+REVEAL = {"reveal": zkvmasm.assemble("""
     hash r3 <- r0 r1
     eq r3 r2
     require r3
@@ -76,15 +76,15 @@ def t1_dice_proves_and_replays():
     assert ret == 1 and st1 == {1: 7}
     ok, why = _verify()
     assert ok, f"honest call must verify: {why}"
-    ok2, ret2, st2, payouts, chain = vm2.replay_io(io, ST0)  # the verifier's application path
+    ok2, ret2, st2, payouts, chain = zkvm.replay_io(io, ST0)  # the verifier's application path
     assert ok2 and ret2 == 1 and st2 == st1 and payouts == [(4242, 100)]
-    assert chain == [(vm2.IO_BHASH, 50, 123456789123456789 % F.P)]
+    assert chain == [(zkvm.IO_BHASH, 50, 123456789123456789 % F.P)]
 
 def t2_forged_payout_rejected():
     _, io, _, _ = _dice_proof()
     forged = [list(e) for e in io]
     for e in forged:
-        if e[0] == vm2.IO_PAY:
+        if e[0] == zkvm.IO_PAY:
             e[2] = 100_000                               # pay yourself more
     ok, _ = _verify(io=[tuple(e) for e in forged])
     assert not ok, "inflated payout must be rejected"
@@ -93,7 +93,7 @@ def t3_forged_read_rejected():
     _, io, _, _ = _dice_proof()
     forged = [list(e) for e in io]
     for e in forged:
-        if e[0] == vm2.IO_SLOAD:
+        if e[0] == zkvm.IO_SLOAD:
             e[2] = 999                                   # claim different pre-state
     ok, _ = _verify(io=[tuple(e) for e in forged])
     assert not ok, "forged storage read must be rejected"
@@ -147,7 +147,7 @@ def t9_reverted_call_unprovable():
 
 def t10_log_shape_pinned():
     _, io, _, _ = _dice_proof()
-    ok, _ = _verify(io=io + [(vm2.IO_RET, 1, 0)])        # second RET
+    ok, _ = _verify(io=io + [(zkvm.IO_RET, 1, 0)])        # second RET
     assert not ok
     ok, _ = _verify(io=io[:-1])                          # no RET
     assert not ok

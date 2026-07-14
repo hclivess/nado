@@ -55,16 +55,21 @@ def main():
     ap.add_argument("rest", nargs="+")
     ap.add_argument("--l1", default=os.environ.get("NADO_L1_URL", "http://127.0.0.1:9173").rstrip("/"))
     ap.add_argument("--fee", type=int, default=MIN_TX_FEE)
+    ap.add_argument("--runtime", default=None, help="contract runtime for deploy/upgrade (e.g. zkvm)")
     args = ap.parse_args()
 
     keys = load_keys()
     if args.action == "deploy":
         code = json.load(open(args.rest[0]))
         payload = {"op": "deploy", "codez": _codez(code), "nonce": os.urandom(6).hex()}
+        if args.runtime:
+            payload["runtime"] = args.runtime
     elif args.action == "upgrade":  # upgrade: <cid> contract.json
         cid = args.rest[0]
         code = json.load(open(args.rest[1]))
         payload = {"op": "upgrade", "contract": cid, "codez": _codez(code)}
+        if args.runtime:
+            payload["runtime"] = args.runtime
     else:  # call: <cid> <method> <args-json>
         cid, method = args.rest[0], args.rest[1]
         call_args = json.loads(args.rest[2]) if len(args.rest) > 2 else []
