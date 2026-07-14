@@ -10,7 +10,7 @@ import { NadoDapp, rawToNado, nadoToRaw, _m, $, base, gate, canPay, orderCards, 
 import { BankedGame } from "./bankedgame.js";
 import { chainCards, cardHTML, injectCardCSS, bjTotal } from "./cards.js";
 
-const CID = "7b240c833702a4124b7891bf8006e39a";
+const CID = "aa107e03fe84a8337e7316365f991341";
 const REAP = 1200;
 const dapp = new NadoDapp({ cid: CID, app: "Blackjack" });
 const bg = new BankedGame(dapp, { icon: "🃏" });
