@@ -14,6 +14,7 @@
 //   await dapp.refresh();                    // dapp.me, dapp.exec, dapp.l1, dapp.cursor
 //   const sto = await dapp.storage();        // the contract's storage maps
 import { loadCrypto, blake2bHash } from "./nadotx.js";
+import * as alghash from "./alghash.js";
 export { loadCrypto, blake2bHash };
 
 export const RAW = 10n ** 10n;                 // 1 NADO = 1e10 raw units
@@ -89,6 +90,19 @@ export function chainResult(shHex, sh1Hex, salt, mod) {
   if (!shHex || !sh1Hex) return null;
   const seed = BigInt("0x" + shHex) + BigInt("0x" + sh1Hex) + BigInt(salt);
   return Number(BigInt("0x" + blake2bHash(seed)) % BigInt(mod));
+}
+// chainResultAlg: the zkVM-era beacon result, byte-matching the ported contracts' in-VM alghash HASH +
+// LO32 window. The contract computes ws = alghash.hashn([(BLOCKHASH(sh)+BLOCKHASH(sh+1)+salt) mod P])'s low
+// 32 bits % mod. BLOCKHASH enters the VM reduced mod P, so the client reduces each block hash mod P too.
+let _algReady = false;
+function _ensureAlg() { if (!_algReady) { alghash.initAlghash(blake2bHash); _algReady = true; } }
+export function chainResultAlg(shHex, sh1Hex, salt, mod) {
+  if (!shHex || !sh1Hex) return null;
+  _ensureAlg();
+  const P = alghash.P;
+  const seed = ((BigInt("0x" + shHex) % P) + (BigInt("0x" + sh1Hex) % P) + (BigInt(salt) % P)) % P;
+  const h = alghash.hashn([seed]);
+  return Number((h & 0xFFFFFFFFn) % BigInt(mod));   // LO32 window, then % mod (matches DIVMOD in the contract)
 }
 // blocksToTime(blocks): render a block count as m:ss at the given block time (default 6s) — shared countdown fmt.
 export const blocksToTime = (blocks, secs = 6) => { const b = Math.max(0, blocks) * secs, m = Math.floor(b / 60), s = b % 60; return m + ":" + String(s).padStart(2, "0"); };

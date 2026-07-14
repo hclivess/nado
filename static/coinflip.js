@@ -6,11 +6,11 @@
 // is permissionless and pays the pot to the winner — a sore loser has nothing to withhold. It is an ON-CHAIN
 // CONTRACT (runtime stackvm) called via the generic exec `call` op; the stake is escrowed as VALUE and paid by
 // the contract's PAY. Login + every signature is delegated to the NADO wallet; the key never touches this origin.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, blocksToTime,
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, chainResultAlg, blocksToTime,
          lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, statusLabel, alertBar, notify,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 
-const CID = "d0c95d981fa9b0c521bdcff28662c0df";
+const CID = "426b97a4b22f439cdb0bc0e4d24e6433";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" fill="none" aria-hidden="true">     <ellipse cx="18" cy="27" rx="10.5" ry="12.5" fill="#c8901a" stroke="#8a6209" stroke-width="1.6"/>     <circle cx="28" cy="24" r="13" fill="#e3b341" stroke="#b5810f" stroke-width="2.4"/>     <circle cx="28" cy="24" r="8.6" stroke="#a9760a" stroke-width="1.3" fill="none"/>     <text x="28" y="29" text-anchor="middle" font-size="13" font-weight="800" fill="#7a5606" font-family="system-ui">N</text></svg>';
 const dapp = new NadoDapp({ cid: CID, app: "Coin Flip" });
 const BLOCK_SECS = 6;
@@ -38,7 +38,7 @@ function gameFrom(sto, gid) {
               ncom: nn, sh: _m(sto, "sh")[gid] || 0, players, id: Number(gid) };
   const cur = dapp.cursor;
   if (settled && ws) { g.winner_slot = ws; g.result = ws === 1 ? 0 : 1; }
-  else if (nn === 2 && cur != null && cur >= g.sh + 1) { const r = chainResult(dapp.bh(g.sh), dapp.bh(g.sh + 1), gid, 2); if (r != null) { g.result = r; g.winner_slot = r === 0 ? 1 : 2; g.ready = true; } }
+  else if (nn === 2 && cur != null && cur >= g.sh + 1) { const r = chainResultAlg(dapp.bh(g.sh), dapp.bh(g.sh + 1), gid, 2); if (r != null) { g.result = r; g.winner_slot = r === 0 ? 1 : 2; g.ready = true; } }
   else if (nn === 2 && cur != null) g.flipsIn = g.sh + 1 - cur;
   return g;
 }
