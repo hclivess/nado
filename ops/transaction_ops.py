@@ -641,6 +641,15 @@ def validate_transaction(transaction, logger, block_height):
     # satisfy the old check_balance comparison and corrupt the integer-satoshi ledger
     assert isinstance(transaction["amount"], int) and not isinstance(transaction["amount"], bool), "Transaction amount is not an integer"
     assert transaction["amount"] >= 0, "Transaction amount lower than zero"
+    # min_block (optional, flexibly-landing inclusion delay) must be a sane int. Without this gate a
+    # crafted non-int min_block passed admission and then raised inside match_transactions_target on
+    # EVERY node's candidate assembly -> match returns False -> production halts network-wide, and the
+    # poison tx can never age out because blocks stop advancing (max_block never passes). Deterministic
+    # (pure shape check); no historical block can carry a malformed min_block — check_target_match
+    # would have failed that block at verification.
+    _mb = transaction.get("min_block", 0)
+    assert isinstance(_mb, int) and not isinstance(_mb, bool) and 0 <= _mb <= transaction["max_block"], \
+        "Invalid min_block"
     assert len(transaction["txid"]) >= 64
 
     recipient = transaction["recipient"]

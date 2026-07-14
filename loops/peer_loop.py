@@ -96,6 +96,9 @@ class PeerClient(threading.Thread):
             self.consensus.status_pool.pop(entry, None)
             self.consensus.transaction_hash_pool.pop(entry, None)
             self.consensus.block_hash_pool.pop(entry, None)
+            # upcoming pool is rebuilt fresh each consensus pass (tip-anchored), but pop here too so
+            # a purged peer can't linger as a majority voter for even one pass.
+            self.consensus.upcoming_block_hash_pool.pop(entry, None)
 
             while entry in self.memserver.purge_peers_list:
                 self.memserver.purge_peers_list.remove(entry)

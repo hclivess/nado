@@ -52,7 +52,7 @@ class ConsensusClient(threading.Thread):
         self.block_hash_pool = {}
         self.status_pool = {}
         self.transaction_hash_pool = {}
-        self.upcoming_block_hash_pool = {}   # peer -> advertised NEXT-block tx-set hash (the determinism signal)
+        self.upcoming_block_hash_pool = {}   # SAME-TIP peers only -> advertised NEXT-block tx-set hash (rebuilt fresh per pass)
 
         self.majority_block_hash = None
         self.majority_transaction_pool_hash = None
@@ -89,9 +89,22 @@ class ConsensusClient(threading.Thread):
         get_from_pool(source="latest_block_hash",
                       target=self.block_hash_pool,
                       pool=self.status_pool)
-        get_from_pool(source="upcoming_block_hash",
-                      target=self.upcoming_block_hash_pool,
-                      pool=self.status_pool)
+
+        # UPCOMING pool is TIP-ANCHORED and rebuilt FRESH each pass: the upcoming hash embeds the
+        # peer's parent (tip) hash, so an entry is only comparable to ours when the SAME status
+        # snapshot advertises OUR tip. Without this filter a forked or merely 1-2s-stale peer's
+        # hash still entered the pool and, on a small mesh (1-2 peers = a 'majority' of one),
+        # produced a GUARANTEED mismatch — observed as a full-pool "Replacing transaction_pool"
+        # fetch every single block interval against a cross-fork peer, forever, every tx of which
+        # was then rejected ("Target block too low"). Rebuilding fresh (not get_from_pool's
+        # update-in-place) also drops purged/departed peers, which the old in-place projection
+        # kept as permanently stale majority voters.
+        _our_tip = self.memserver.latest_block["block_hash"]
+        self.upcoming_block_hash_pool = {
+            peer: st.get("upcoming_block_hash")
+            for peer, st in self.status_pool.copy().items()
+            if isinstance(st, dict) and st.get("latest_block_hash") == _our_tip
+        }
 
         # majorities FIRST, percentages second: computing the percentages against the previous
         # pass's majority graded the OLD winner for one pass after every majority flip (the
@@ -100,11 +113,12 @@ class ConsensusClient(threading.Thread):
         self.majority_transaction_pool_hash = get_pool_majority(
             self.transaction_hash_pool
         )
-        # UPCOMING-BLOCK agreement: the plurality NEXT-block tx-set hash across peers at our tip. This is
-        # what block determinism / the fast-forward actually depend on — the mempool reconcile targets THIS
-        # (not the whole-pool hash), so nodes converge on the next block's content, ignoring immature/future
-        # txs that won't be in it. Cross-tip peers advertise a different-height hash and simply don't form a
-        # majority with us (safe: no spurious reconcile), so this only bites when same-tip peers disagree.
+        # UPCOMING-BLOCK agreement: the plurality NEXT-block tx-set hash across peers AT OUR TIP (the
+        # pool above admits only same-tip statuses). This is what block determinism / the fast-forward
+        # actually depend on — the mempool reconcile targets THIS (not the whole-pool hash), so nodes
+        # converge on the next block's content, ignoring immature/future txs that won't be in it.
+        # Cross-tip/stale peers are excluded at admission, so a mismatch here means same-tip peers
+        # genuinely hold a different next-block tx set — the only case worth a reconcile.
         self.majority_upcoming_block_hash = get_pool_majority(self.upcoming_block_hash_pool)
 
         self.block_hash_pool_percentage = get_pool_percentage(
@@ -129,8 +143,11 @@ class ConsensusClient(threading.Thread):
         heavier chain; and the finality floor stops it reorging our finalized prefix."""
         # AUDIT FIX (weight-DoS): clear the transient rejection window periodically so a real heavier
         # tip we briefly couldn't fetch is retried (and a bogus one is only excluded for a bounded time).
+        # 12 passes (~12s ≈ 2 block times at 6s blocks), was 30: a single transient fetch failure
+        # benched the REAL heavier tip for ~5 blocks — nearly half the finality-depth healing window
+        # a forked node has to reorg back before its divergent prefix finalizes and wedges it.
         self._reject_clear_counter += 1
-        if self._reject_clear_counter >= 30:
+        if self._reject_clear_counter >= 12:
             self.rejected_tips = set()
             self._reject_clear_counter = 0
 

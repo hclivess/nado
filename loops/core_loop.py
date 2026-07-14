@@ -32,7 +32,8 @@ from ops.block_ops import (
 )
 from ops.mining_ops import select_producer_two_lane, epoch_of, block_fork_weight
 from ops import kv_ops
-from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW, AUTO_COLLECT_MIN_RAW
+from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW, AUTO_COLLECT_MIN_RAW, \
+    TX_INCLUSION_DELAY
 from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size
 from ops.peer_ops import check_ip, qualifies_to_sync, get_remote_status
 from ops import snapshot_ops
@@ -1262,10 +1263,16 @@ class CoreClient(threading.Thread):
             accrued = int(d.get("accrued", 0))
             if accrued < AUTO_COLLECT_MIN_RAW:
                 return
-            tx = construct_blob_tx(self.memserver.keydict, {"op": "collect_dividend"}, max_block, MIN_TX_FEE)
+            # blob lands FLEXIBLY: min_block (tip + TX_INCLUSION_DELAY) guarantees it has gossiped to
+            # every producer before any may include it (identical mempools -> identical blocks — the
+            # fork/reorg guard), and the wider max gives it a real landing window past the delay.
+            _tip = self.memserver.latest_block["block_number"]
+            tx = construct_blob_tx(self.memserver.keydict, {"op": "collect_dividend"}, _tip + 8,
+                                   MIN_TX_FEE, min_block=_tip + TX_INCLUSION_DELAY)
             self.memserver.merge_transaction(tx, user_origin=True)
             self.logger.info(
-                f"Auto-collect: swept presence dividend of {accrued} raw (fee {MIN_TX_FEE}, max_block {max_block})")
+                f"Auto-collect: swept presence dividend of {accrued} raw (fee {MIN_TX_FEE}, "
+                f"window [{_tip + TX_INCLUSION_DELAY}, {_tip + 8}])")
         except Exception as e:
             self.logger.info(f"Auto-collect skipped: {e}")
 

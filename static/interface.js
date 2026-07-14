@@ -653,7 +653,8 @@ async function collectDividend() {
   try {
     const latest = await getLatestBlock();
     if (!latest) throw new RelayUnreachable("relay unavailable");
-    const tx = buildBlobTx(state.wallet, { op: "collect_dividend" }, latest.block_number + 8, MIN_TX_FEE, nowSeconds());
+    const tx = buildBlobTx(state.wallet, { op: "collect_dividend" }, latest.block_number + 8, MIN_TX_FEE, nowSeconds(),
+      latest.block_number + TX_INCLUSION_DELAY);   // propagation delay -> identical producer mempools (anti-reorg)
     const res = await submitTransaction(tx);
     if (res.data && res.data.result) {
       state._divInFlight = { accrued: (state._divAccruedNow || "0"), ts: Date.now() };
@@ -2601,7 +2602,10 @@ async function doSend() {
   try {
     const targetBlock = await nextTargetBlock();
     // PUBKEY-ONCE: omit the 1312-byte public_key once the sender's pubkey is established on-chain.
-    const tx = buildTransferTx(state.wallet, recipient, rawAmount, fee, targetBlock, "", nowSeconds(), !pubkeyEstablished(acc));
+    // min_block (tip + TX_INCLUSION_DELAY): the transfer gossips to EVERY producer before any may
+    // include it, so all nodes build the identical block — no fork/reorg lottery on a fresh tx.
+    const tx = buildTransferTx(state.wallet, recipient, rawAmount, fee, targetBlock, "", nowSeconds(),
+      !pubkeyEstablished(acc), state.latest + TX_INCLUSION_DELAY);
     if (await submitAndReport(tx, "Transfer", "sendMsg")) { addrBookAdd(resolvedOwner || recipient, looksLikeAlias(recipient) ? recipient : ""); $("sendAmount").value = ""; show("payBanner", false); }
   } catch (e) { setMsg("sendMsg", i18("msg.sendFailed", "Send failed:") + " " + e.message, "err"); }
   finally { btn.disabled = false; }
@@ -3999,7 +4003,8 @@ async function rollupDeploy() {
   // deployed contract is self-describing in the wallet
   const abi = ($("rollupCode").value === _rollupLoadedCode) ? _rollupLoadedAbi : {};
   if (abi && Object.keys(abi).length) payload.abi = abi;
-  const tx = buildBlobTx(state.wallet, payload, latest.block_number + 8, MIN_TX_FEE, nowSeconds());
+  const tx = buildBlobTx(state.wallet, payload, latest.block_number + 8, MIN_TX_FEE, nowSeconds(),
+    latest.block_number + TX_INCLUSION_DELAY);   // propagation delay (anti-reorg)
   const res = await submitTransaction(tx);
   if (res.data && res.data.result) {
     rollupAddPending(ns, cid, Object.keys(code), payload.abi);
@@ -4018,7 +4023,8 @@ async function rollupCall() {
   if (!latest) { $("rollupCallMsg").textContent = i18("rollup.relayDown", "Relay unavailable."); return; }
   const payload = { op: "call", contract: p.cid, method: p.method, args: p.args };
   const ns = rollupNs(); if (ns !== "default") payload.ns = ns;
-  const tx = buildBlobTx(state.wallet, payload, latest.block_number + 8, MIN_TX_FEE, nowSeconds());
+  const tx = buildBlobTx(state.wallet, payload, latest.block_number + 8, MIN_TX_FEE, nowSeconds(),
+    latest.block_number + TX_INCLUSION_DELAY);   // propagation delay (anti-reorg)
   const res = await submitTransaction(tx);
   const ok = !!(res.data && res.data.result);
   const status = ok ? i18("rollup.histSent", "sent (applies at finality)") : i18("rollup.rejected", "Rejected: ") + ((res.data && res.data.message) || "");
@@ -4225,6 +4231,7 @@ async function msigPropose() {
     const body = {
       sender, recipient, amount: rawAmount, timestamp: nowSeconds(), data: "",
       nonce: randNonce(), max_block: latest.block_number + MSIG_TARGET_HEADROOM,
+      min_block: latest.block_number + TX_INCLUSION_DELAY,   // propagation delay (anti-reorg); trivially past by signing time
       chain_id: CHAIN_ID, multisig: { threshold: d.threshold, members: d.members }, fee,
     };
     const tx = { ...body, txid: createTxid(body), signature: [] };
@@ -4818,7 +4825,8 @@ async function _daSubmitFieldTransfer(bundle, execBase) {
   const latest = await getLatestBlock();
   if (!latest) throw new Error("relay unavailable");
   const tx = buildBlobTx(state.wallet, { op: "field_transfer", proof_da: commitment },
-    latest.block_number + 8, MIN_TX_FEE, nowSeconds());
+    latest.block_number + 8, MIN_TX_FEE, nowSeconds(),
+    latest.block_number + TX_INCLUSION_DELAY);   // propagation delay (anti-reorg)
   const res = await submitTransaction(tx);
   return { ok: !!(res.data && res.data.result), da: true, commitment, txid: tx.txid,
            message: res.data && res.data.message };

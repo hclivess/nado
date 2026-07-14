@@ -56,6 +56,14 @@ class MemServer:
         # fresh tx (new nonce -> new txid) on the user's action, never silently re-injected.
         self.mempool_lock = threading.RLock()
         self.transaction_pool = []
+        # GOSSIP REJECT CACHE {txid: retry_after_ts}: bodies fetched during set reconciliation that
+        # merge_transaction REFUSED (expired target, cross-fork max_block, invalid). Without it a
+        # divergent peer's pool hash never matches ours, so the SAME rejected bodies were re-fetched
+        # and re-rejected EVERY ~1s peer pass, forever (observed against a wedged cross-fork peer:
+        # its whole pool re-downloaded once a second, every tx failing "Target block too low").
+        # LOCAL policy, bounded TTL — a tx that becomes valid later (e.g. funded account) is simply
+        # retried after the cooldown; user submits via /submit_transaction never consult this.
+        self._tx_reject_cache = {}
         self.message_pool = MessagePool()   # off-chain E2E message pool (doc/messaging.md); never block-bound
         # PERSIST the message pool across restarts — it is off-chain + ephemeral, so a plain node restart
         # (systemctl restart / redeploy) otherwise silently dropped every undelivered DM + published prekey.
@@ -276,8 +284,17 @@ class MemServer:
         pool_peers = [p for p in self.peers if p not in skip_pool_peers]
         if pool_peers:
             missing = asyncio.run(self._fetch_missing_remote_txs(pool_peers))
-            if missing:
-                self.merge_transactions(missing, user_origin)
+            now = get_timestamp_seconds()
+            for tx in missing:
+                result = self.merge_transaction(tx, user_origin)
+                # REFUSED gossip body -> cool it down (see _tx_reject_cache): don't re-fetch the same
+                # rejected tx from the same divergent peer every second. 60s TTL: a transient reason
+                # (mempool full, account funded later) is retried after the cooldown.
+                if isinstance(result, dict) and not result.get("result") and isinstance(tx.get("txid"), str):
+                    self._tx_reject_cache[tx["txid"]] = now + 60
+            # bounded: drop expired entries; hard-cap so a flood of unique invalid txids can't grow it
+            if len(self._tx_reject_cache) > 20000:
+                self._tx_reject_cache = {i: t for i, t in self._tx_reject_cache.items() if t > now}
 
     async def _fetch_missing_remote_txs(self, pool_peers) -> list:
         """ids from all divergent peers in parallel -> per-peer want-lists (deduped across peers,
@@ -292,10 +309,12 @@ class MemServer:
         local = {t.get("txid") for t in self.transaction_pool}
         claimed = set()
         plans = []
+        _now = get_timestamp_seconds()
         for peer, ids in ids_by_peer.items():
             want = []
             for i in ids:
                 if (isinstance(i, str) and len(i) <= 64 and i not in local and i not in claimed
+                        and self._tx_reject_cache.get(i, 0) <= _now   # recently refused -> cooling down
                         and kv_ops.tx_get(i) is None):        # already MINED -> never re-fetch (the old flood)
                     want.append(i)
                     if len(want) >= self._RECONCILE_MAX_IDS:

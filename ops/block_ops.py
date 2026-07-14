@@ -173,27 +173,35 @@ def match_transactions_target(transaction_list, block_number, logger):
         seen = set()
 
         for transaction in transaction_list:
-            tb = transaction["max_block"]
-            txid = transaction.get("txid")
-            # AT-MOST-ONCE (2026-07): never re-select a txid already mined (in the on-chain tx-index) or
-            # already picked for THIS candidate. A flexibly-landing tx is otherwise eligible for every
-            # block up to its max_block; without this it was re-included (and re-applied) each block —
-            # the bridge-deposit double-credit. verify_block enforces the same rule for remote blocks.
-            if txid in seen or kv_ops.tx_get(txid) is not None:
-                continue
-            if _lands_flexibly(transaction):
-                # INCLUSION DELAY: a flexibly-landing tx becomes eligible only from its sender-set
-                # min_block (default 0). Set to submit_tip + a couple blocks by wallets, this guarantees
-                # the tx has gossiped to EVERY producer before any of them may include it — so all nodes
-                # hold the identical mature tx set at each height and build byte-identical blocks (the
-                # deterministic fast-forward then always hits). min_block is in the signed txid, so every
-                # node agrees on the eligibility window; absent -> 0 keeps historical blocks valid.
-                if transaction.get("min_block", 0) <= block_number <= tb:   # [min_block, max_block]
+            # PER-TX containment: one malformed tx (non-int max/min_block etc.) must SKIP, never abort
+            # the whole match — an aborted match (False) empties/refuses the ENTIRE candidate, so a
+            # single poison mempool tx would otherwise halt production on every node that holds it.
+            # (validate_transaction now rejects malformed min_block at admission; this is the belt.)
+            try:
+                tb = transaction["max_block"]
+                txid = transaction.get("txid")
+                # AT-MOST-ONCE (2026-07): never re-select a txid already mined (in the on-chain tx-index) or
+                # already picked for THIS candidate. A flexibly-landing tx is otherwise eligible for every
+                # block up to its max_block; without this it was re-included (and re-applied) each block —
+                # the bridge-deposit double-credit. verify_block enforces the same rule for remote blocks.
+                if txid in seen or kv_ops.tx_get(txid) is not None:
+                    continue
+                if _lands_flexibly(transaction):
+                    # INCLUSION DELAY: a flexibly-landing tx becomes eligible only from its sender-set
+                    # min_block (default 0). Set to submit_tip + a couple blocks by wallets, this guarantees
+                    # the tx has gossiped to EVERY producer before any of them may include it — so all nodes
+                    # hold the identical mature tx set at each height and build byte-identical blocks (the
+                    # deterministic fast-forward then always hits). min_block is in the signed txid, so every
+                    # node agrees on the eligibility window; absent -> 0 keeps historical blocks valid.
+                    if transaction.get("min_block", 0) <= block_number <= tb:   # [min_block, max_block]
+                        matched_txs.append(transaction)
+                        seen.add(txid)
+                elif tb == block_number:             # timing-critical: exact landing
                     matched_txs.append(transaction)
                     seen.add(txid)
-            elif tb == block_number:             # timing-critical: exact landing
-                matched_txs.append(transaction)
-                seen.add(txid)
+            except Exception as e:
+                logger.error(f"Skipping malformed pool tx during target match: {e}")
+                continue
 
         # AUDIT FIX: drop duplicate reserved txs (e.g. two withdraws of one unbond, two heartbeats of
         # one epoch) so an honest producer never assembles a block verify_block would reject.
