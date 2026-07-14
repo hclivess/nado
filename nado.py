@@ -139,6 +139,18 @@ def _q(request, key, default=None):
     return request.query.get(key, default)
 
 
+def _qint(request, key, default):
+    """Query-string parameter `key` parsed as an int, falling back to `default` on absence OR a
+    non-numeric value — so a malformed `?count=abc` / `?height=xyz` yields a clean default instead of
+    a ValueError-500 out of a worker thread. Callers still cap/bound the returned int (e.g. count is
+    clamped to SYNC_BATCH_MAX). A too-long digit string also falls through to default (CPython caps
+    int(str) length), so a giant-number param can't burn CPU here either."""
+    try:
+        return int(request.query.get(key, default))
+    except (TypeError, ValueError):
+        return default
+
+
 # --- pool / field dump handlers (the repetitive read-only ones) ----------------------------------
 def _dump_handler(name, getter):
     """Factory for the repetitive read-only dump endpoints (/peers, /transaction_pool, ...): a GET
@@ -480,7 +492,7 @@ async def blocks_before(request):
         return _RL
 
     def _work():
-        collected, code = _collect_block_chain(_q(request, "hash"), int(_q(request, "count", "1")),
+        collected, code = _collect_block_chain(_q(request, "hash"), _qint(request, "count", 1),
                                                link_field="parent_hash")
         collected.reverse()          # walked toward genesis; serve oldest-first
         return serialize(name="blocks_before", output=collected, compress=_q(request, "compress", "none")), code
@@ -496,7 +508,7 @@ async def blocks_after(request):
         return _RL
 
     def _work():
-        collected, code = _collect_block_chain(_q(request, "hash"), int(_q(request, "count", "1")),
+        collected, code = _collect_block_chain(_q(request, "hash"), _qint(request, "count", 1),
                                                link_field="child_hash")
         return serialize(name="blocks_after", output=collected, compress=_q(request, "compress", "none")), code
     out, code = await asyncio.to_thread(_work)
@@ -689,7 +701,13 @@ async def snapshot_chunk(request):
         except Exception:
             return None, 400
         h = _q(request, "height")
-        height = int(h) if h is not None else snapshot_ops.latest_final_checkpoint_height(memserver.finalized_height)
+        if h is not None:
+            try:
+                height = int(h)
+            except (TypeError, ValueError):
+                return None, 400          # malformed ?height= -> clean 400, not a worker-thread 500
+        else:
+            height = snapshot_ops.latest_final_checkpoint_height(memserver.finalized_height)
         if height is None:
             return None, 404
         chunk = snapshot_ops.load_checkpoint_chunk(height, cid)

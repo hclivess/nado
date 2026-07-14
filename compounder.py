@@ -51,9 +51,15 @@ async def compound_get_list_of(key, entries, port, logger, fail_storage, semapho
 
     # flatten all peers' lists; dedup belongs to sort_list_dict (the old `if entry not in
     # success_storage` compared a per-peer LIST against a flat list of ITEMS — always true, a no-op).
+    # SHAPE GUARD (untrusted): a malicious/broken peer can answer /peers with a non-list (int, str,
+    # dict) — `extend(<int>)` then raised TypeError and, escaping only at the peer-loop level, aborted
+    # the WHOLE peer pass (status refresh + purge + tx-gossip) every second while that peer stayed
+    # reachable. Skip any entry that isn't a list; the per-item consumers (check_ip, set()) still see
+    # only what a well-formed peer sent.
     success_storage = []
     for entry in result:
-        success_storage.extend(entry)
+        if isinstance(entry, list):
+            success_storage.extend(entry)
 
     return sort_list_dict(success_storage)
 

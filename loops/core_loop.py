@@ -474,6 +474,11 @@ class CoreClient(threading.Thread):
         peer_pool = self.replace_pool(peer=sync_from, key="transaction_pool")
         if not peer_pool:                     # empty peer pool or a fetch failure -> nothing to merge
             return
+        # peer_pool is an UNTRUSTED /transaction_pool body: get_from_single_target guarantees it is a
+        # list but NOT that its elements are dicts. A donor returning e.g. [1,2,3] would make
+        # tx.get("txid") raise AttributeError and abort the whole normal_mode pass (mint + drain +
+        # duties) each reconcile. Keep only dict entries; merge_transaction re-validates each anyway.
+        peer_pool = [tx for tx in peer_pool if isinstance(tx, dict)]
         with self.memserver.mempool_lock:
             local = self.memserver.transaction_pool
             seen = {tx.get("txid") for tx in local}

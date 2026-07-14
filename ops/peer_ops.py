@@ -288,7 +288,10 @@ def load_peer(logger, ip, key=None) -> [str, dict]:
 
 def check_save_peers(peers, logger, fails, unreachable):
     """persist newly-reachable peers to the peer table (skipping self, non-routable, and already-known)"""
-    good_peers = set(peers) - set(fails) - set(unreachable)
+    # `peers` may be the UNTRUSTED flattened /peers gossip (get_list_of_peers): keep only string IPs so
+    # a hostile peer's non-string element (e.g. a dict) can't raise `unhashable type` in set() and abort
+    # the whole peer-loop pass. Non-string entries could never be a valid IP anyway.
+    good_peers = {p for p in peers if isinstance(p, str)} - set(fails) - set(unreachable)
 
     local_fails = []
     candidates = asyncio.run(compound_get_status_pool(
@@ -303,7 +306,11 @@ def check_save_peers(peers, logger, fails, unreachable):
         table = _load_peers()
         changed = False
         for ip, value in candidates.items():
-            if ip != my_ip and ip not in table and check_ip(ip):
+            # value is an UNTRUSTED /status body fetched here via a SEPARATE path from the peer_loop
+            # admission gate (no isinstance guard there) — a peer answering /status with a JSON list /
+            # string / number would make value.get(...) raise AttributeError and abort the whole pass.
+            # Skip a non-dict status (a peer with no parseable address just isn't table-persisted here).
+            if ip != my_ip and ip not in table and check_ip(ip) and isinstance(value, dict):
                 table[ip] = {"peer_address": value.get("address", ""), "peer_ip": ip, "peer_port": get_port(),
                              "last_seen": get_timestamp_seconds()}
                 changed = True
