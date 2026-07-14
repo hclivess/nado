@@ -25,7 +25,7 @@ chain. Phones mine L1 and never run any of this. See `doc/execution-layer.md` fo
 | file | role |
 |------|------|
 | `zkvm.py` | the field-native, PROVABLE register VM (one step = one STARK row; alghash HASH, byte-limb arithmetic, I/O log) |
-| `zkvmasm.py` | the assembler (labels, `slot`/`hash`/`gte` macros) games compile from |
+| `zkvmasm.py` | **zkasm** — the zkVM assembly language + assembler (labels, `slot`/`hash`/`rem`/`gte`/`arg` macros) contracts are written in |
 | `zkvm_examples.py` | starter library (counter / tip-jar / commit-box) served at `/exec/examples` |
 | `stark/vm_circuit.py` | the execution AIR + per-call and epoch (`prove_epoch_calls`) provers |
 | `settlement_proofs.py` | the epoch settlement proof binding pre/post state root into the `ops.settlement_ops` seam |
@@ -98,13 +98,15 @@ The exec `state_root` is now a **Merkle root** over all state, so any leaf (a wi
 Built + tested: `tests/test_blob.py` (DA channel + per-block cap), `tests/test_zkvm*.py` (VM, execution AIR,
 epoch aggregation, runtime + 3-way differential), `tests/test_stark_aux.py` (LogUp), `tests/test_settlement.py`
 (bonded-quorum) + `tests/test_settlement_proof.py` (epoch validity proof), `tests/test_bridge.py` (Merkle +
-full deposit→withdraw→settle→release round-trip). **Provable execution is live** (per-call + epoch proofs,
-`/exec/prove_call`, the settlement seam). **Still open:** succinct proof-of-proof aggregation (O(1) proof
-size — the trace-level aggregation is built; recursion is the hedge), the DA availability/pruning window,
-and full-state (non-zkVM op families) settlement. Games: 11 ported + live on alphanet-5
-(coinflip/dice/roulette/slots/mines/blackjack + tictactoe/connect4/reversi/chess + farkle, in
-`execnode/games/`, all E2E-tested in `tests/test_games_e2e.py`); poker/pets/battleship/bet remain. See
-`doc/zk-execution-proofs.md`.
+full deposit→withdraw→settle→release round-trip), `tests/test_zkvm_args.py` (the `ARG` indexed-args bus +
+`DIVMODW`, with soundness negatives). **Provable execution is live** (per-call + epoch proofs,
+`/exec/prove_call`, the settlement seam). Epochs larger than one trace **segment and chain their state
+roots** (`prove_settlement`/`verify_settlement`), so proof coverage is unbounded-epoch-safe. **Still open:**
+**recursion** — folding the per-segment proofs into one O(1)-verify proof (needs an in-VM STARK verifier over
+a wide-sponge alghash), the DA availability/pruning window, and full-state (non-zkVM op families)
+settlement. **Games: all 15 ported + live on alphanet-5** (coinflip/dice/roulette/slots/mines/blackjack +
+tictactoe/connect4/reversi/chess + farkle + bet + battleship + pets + holdem, in `execnode/games/`, all
+E2E-tested in `tests/test_games_e2e.py`). See `doc/zk-execution-proofs.md`.
 
 **Contract upgradability (mainnet trust model).** Contracts are mutable by their owner by default and
 immutable once locked. `deploy` records an `upgradable` flag (default `true`; pass `{"upgradable": false}` to

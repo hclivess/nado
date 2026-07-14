@@ -1,7 +1,8 @@
 """
-zkVM assembler — labels, comments, and the safety/convenience macros contracts are written with
-(doc/zk-execution-proofs.md). Produces the canonical [[op, d, s, imm], ...] instruction lists zkvm.py runs
-and the execution AIR proves. Text form:
+zkasm — the NADO zkVM assembly language + assembler (doc/zk-execution-proofs.md). "zkasm" is the human-
+writable text form every on-chain contract is authored in; this module assembles it (labels, comments, and
+the safety/convenience macros below) into the canonical [[op, d, s, imm], ...] instruction lists zkvm.py
+runs and the execution AIR proves. Text form:
 
     ; dice: payout if guess == roll
     start:

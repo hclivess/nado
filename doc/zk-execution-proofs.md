@@ -31,14 +31,18 @@ only runtime, so the chain was rebooted to **alphanet-5** with every holder's ba
 forward (`tools/alphanet5_carryforward.py`; exec-side balances + dividends folded into L1, contract pots
 refunded to players, supply conserved exactly). Games return only as zkVM ports (`execnode/games/`):
 
-- **Port pattern:** contract in zkvm asm (`slot` macro → `slot = field*2^32 + key`, enumerable via a count +
-  list field); an `abi._view` schema so `ExecState.decode_view` presents the flat slots as the old named maps
-  (a ported game's frontend changes only its `cid`); `chainResultAlg` gives a client-side beacon preview that
-  byte-matches the contract's in-VM alghash. Deploy with `python -m execnode.games.deploy <name>`.
-- **Live on alphanet-5 (11):** coinflip, dice, roulette, slots, mines, blackjack (banked); tictactoe,
-  connect4, reversi, chess (PvP board); farkle (multi-seat dice). Each is verified sound (escrow + payouts)
-  and STARK-provable, with a full-game E2E in `tests/test_games_e2e.py`. **Remaining:** poker, pets,
-  battleship, and bet (bet needs a re-key away from string-concat map keys to composite ints).
+- **Port pattern:** contract in **zkasm** (the zkVM assembly, `execnode/zkvmasm.py`; `slot` macro →
+  `slot = field*2^32 + key`, enumerable via a count + list field); an `abi._view` schema so
+  `ExecState.decode_view` presents the flat slots as the old named maps (a ported game's frontend changes
+  only its `cid`); `chainResultAlg`/`algHashn` give a client-side preview that byte-matches the contract's
+  in-VM alghash. Deploy with `python -m execnode.games.deploy <name>`.
+- **Live on alphanet-5 (ALL 15):** coinflip, dice, roulette, slots, mines, blackjack (banked/beacon);
+  tictactoe, connect4, reversi, chess (PvP board); farkle (multi-seat dice); **bet** (parimutuel — string
+  metadata stored as digests, per-user positions via read-only view methods); **battleship** (alghash
+  merkle-sum board, per-shot proofs on the `ARG` bus); **pets** (tamagotchi NFTs — gene/stat/train +
+  12-turn battle, differentially verified); **holdem** (multiplayer table stakes, layered side pots, an
+  on-chain 7-card hand evaluator differentially verified EXACT on 1500+ random hands). Each is verified
+  sound (escrow + payouts) and STARK-provable, with a full-game E2E in `tests/test_games_e2e.py`.
 - **Shared lean primitives (so re-ports stay cheap):** the banked-table skeleton (`open`/`fund`/`close` +
   index-append + table view-maps) lives once in `execnode/games/_lib.py` — five banked games that used to
   carry byte-identical raw-asm copies now call it, so a VM/opcode change touches one place. And the assembler
@@ -75,10 +79,25 @@ refunded to players, supply conserved exactly). Games return only as zkVM ports 
 
 The composition insight that kept the settlement proof small: because each call's proof already binds its
 authenticated public I/O log, the epoch transition needs **no second in-circuit memory argument** — it is
-`verify-proof → replay-log → chain-root`. Two honest remainders, both noted where they live:
-- **Succinct aggregation** — folding the N per-call proofs into one O(1)-verify proof (STARK recursion). At
-  NADO's volume N is tiny and L1 verifying N sub-second proofs is fine; recursion is the scale hedge, not a
-  correctness gap. The LogUp/aux machinery (`stark/logup.py`) is the groundwork a recursive verifier reuses.
+`verify-proof → replay-log → chain-root`.
+
+**Succinctness — where it stands (the two gaps, precisely):**
+1. **Epoch size — SOLVED (`prove_settlement`/`verify_settlement`).** An epoch of any size that exceeds one
+   2^17-row trace is **segmented** into consecutive chunks that each fit a trace, and their state roots are
+   **chained** (segment j binds root_j → root_{j+1}; the batch is proven by root_0 → root_K). No new
+   cryptography — each segment is an ordinary sound aggregated epoch proof, and verification checks each
+   segment AND the chain (a tampered boundary root is rejected). So execution over an unbounded epoch is
+   fully covered.
+2. **O(1) verification — RECURSION, the remaining milestone.** After segmentation L1 still verifies K
+   segment proofs (each sub-second); folding them into ONE constant-size proof needs **in-VM STARK
+   verification** — running a FRI/Merkle/transcript verifier as a zkVM program and proving it. That is
+   genuinely gated on new cryptography, not a quick patch: the current alghash sponge is width-2 (~64-bit
+   digest = ~32-bit collision resistance — fine as an in-VM *hint* primitive, unsound as the *commitment*
+   hash of a proof being recursively verified), so recursion first needs a **wide-sponge alghash**
+   (RPO/Poseidon2-class, ≥128-bit) for the recursive layer's Merkle/transcript, then the verifier itself in
+   zkasm. The LogUp/aux + two-phase-commit machinery (`stark/logup.py`, `stark/stark.py`) is the groundwork
+   that verifier reuses. Deliberately NOT faked here — an unsound recursive proof on a money chain is worse
+   than an honest O(K) one.
 - **Full-state settlement** — this proves the zkVM-contract projection; the other blob families
   (bridge/dividend/shielded) already carry their own L1-checkable proofs/arithmetic, and a full-state proof
   composes this with those.

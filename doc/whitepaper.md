@@ -1180,19 +1180,25 @@ Additional hardening and feature items, all currently **planned/partial**:
   (256 KiB) and 6 s blocks, and rising **independently** as erasure-coded DA sampling
   raises the blob budget without making phones store more. The live mining wallet surfaces
   this at the **Settlement** tab (`/exec/settlement` + `/get_settled`).
-- **Why a quorum, not a zkVM (yet).** NADO settles with a bonded-stake quorum, not validity
-  proofs, and that is a deliberate weight decision. The quorum settles a batch by having
-  bonded validators **run a simple interpreter and attest the root** — roughly *native
-  execution* cost, an integer stake-compare on L1, a small auditable VM, and a trust
-  assumption (2/3 honest bonded stake) **identical to NADO's own finality**, so a rollup is
-  *as secure as the base chain* for ~free. A zkVM would instead **prove every executed
-  instruction**: on the order of **10⁴–10⁶× the compute**, minutes-to-hours of proving on
-  large RAM/GPU hardware, and a far larger trusted codebase — a full prover plus arithmetization
-  (the on-chain verifier itself is small) — buying exactly one thing,
-  trustlessness against a *colluding validator supermajority* (and permissionless, non-bonded
-  rollups). NADO ships the light exec-node model now and keeps the zkVM as a **drop-in
-  upgrade behind the same `settlement_justified` seam**, for when a rollup's value outgrows the
-  stake securing it. See [l2-settlement.md](l2-settlement.md) / [rollups-and-settlement.md](rollups-and-settlement.md).
+- **The execution layer is a provable zkVM (shipped).** NADO's contract runtime is a field-native,
+  STARK-**provable** register VM — the *only* runtime; there is no legacy interpreter. Contracts are
+  written in **zkasm** (the zkVM assembly, `execnode/zkvmasm.py`), one execution step maps to one STARK
+  trace row, and the sole hash is an in-circuit alghash sponge. A settled state root is accepted because a
+  **validity proof** says the ordered calls produce it (`execnode/settlement_proofs.py`), installed behind
+  the same `settlement_justified` seam the bonded-quorum path uses — so a rollup can settle **trustlessly
+  against a colluding validator supermajority**, not just under the 2/3-honest-stake assumption. An epoch of
+  N calls aggregates into **one** proof (L1 verifies once, replaying only the tiny public I/O log, never
+  re-executing); epochs larger than one trace **segment and chain their state roots**, so proof size is
+  unbounded-epoch-safe. Two honest remainders (tracked, not correctness gaps): **recursion** — folding the
+  per-segment proofs into one O(1)-verify proof, which needs an in-VM STARK verifier over a wide-sponge
+  alghash — and a **Rust prover** for throughput (~10× over the Python reference). The proving cost is the
+  price of trustlessness (10⁴–10⁶× native execution to prove, though the on-chain verify stays cheap); the
+  bonded quorum remains available for rollups whose value doesn't yet warrant it. On the zkVM as the game
+  layer: 15 example contracts — coin flip, dice, roulette, slots, mines, blackjack, tic-tac-toe, Connect
+  Four, reversi, chess, farkle, parimutuel sports betting, battleship, tamagotchi-NFT pets, and multiplayer
+  Texas hold'em (with an on-chain 7-card hand evaluator) — run live as provable zkVM contracts. See
+  [zk-execution-proofs.md](zk-execution-proofs.md) / [l2-settlement.md](l2-settlement.md) /
+  [rollups-and-settlement.md](rollups-and-settlement.md).
 - **Scaling** ([scaling-analysis.md](scaling-analysis.md)) — pluggable native-ML-DSA backend
   (shipped) + mempool O(N²) fix (shipped); the real structural fix is **aggregating the O(N)
   per-epoch consensus messages** (presence-root → PQ proof-of-threshold), since

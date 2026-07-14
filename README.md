@@ -713,11 +713,13 @@ shape is unchanged (49 chars).
   the locked, ordered design for the remaining security milestones.
 - **Storage design** — [`doc/storage-kv-migration.md`](doc/storage-kv-migration.md).
 - **Execution-layer instructions** — [`doc/exec-instructions.md`](doc/exec-instructions.md): every blob op
-  (deploy/call/upgrade with `value` escrow, bridge/dividend, emit, privacy) with params + how to submit and
-  read — plus the Coin Flip, Roulette and Sports Bet example contracts that showcase the VM's `VALUE`/`PAY`
-  escrow primitive (peer-to-peer pot vs. peer-banked fixed-odds vs. a no-house parimutuel book settled by a
-  configurable oracle; live at `coinflip.nadochain.com` / `roulette.nadochain.com` / `bet.nadochain.com`,
-  all ordinary upgradable `stackvm` contracts with no game-specific API).
+  (deploy/call/upgrade/lock with `value` escrow, bridge/dividend, emit, privacy) with params + how to submit
+  and read. Contracts run on a **STARK-provable zkVM** (the only runtime), authored in **zkasm**
+  (`execnode/zkvmasm.py`); every call is provable and a settled root is accepted from a validity proof
+  (`doc/zk-execution-proofs.md`). **15 games ship as live zkVM contracts** — coin flip, dice, roulette,
+  slots, mines, blackjack, tic-tac-toe, Connect Four, reversi, chess, farkle, parimutuel sports betting,
+  battleship, tamagotchi-NFT pets, and multiplayer Texas hold'em with an on-chain 7-card hand evaluator —
+  each an ordinary upgradable contract (opt-in immutability via `lock`) with no game-specific API.
 - **Previous-network snapshot** — [`doc/previous-network-snapshot.md`](doc/previous-network-snapshot.md):
   the prior NADO network's final account balances (2,801 holders), exported from its ledger index — the
   dev-fund premine excluded, in keeping with the no-premine relaunch.
