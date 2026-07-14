@@ -13,7 +13,7 @@ from execnode.state import ExecState
 from execnode import runtimes
 from execnode.stark import vm_circuit as V
 from execnode.games import (coinflip, dice, roulette, tictactoe as ttt, connect4 as c4,
-                            slots, mines, reversi as rv, chess)
+                            slots, mines, reversi as rv, chess, farkle as fk)
 
 fails = 0
 def check(name, fn):
@@ -207,6 +207,38 @@ def t_chess():
     assert rd(chess.SD, G) == 1 and st.bridge.get(A, 0) == ab + 200_000
 
 
+def t_farkle():
+    st, code, cid, rd = _fresh(fk, deployer=A)
+    st.credit_deposit(A, 50_000_000)
+    pack = lambda k: sum(k[f] << (3 * (f - 1)) for f in range(1, 7))
+    T, G = 5, 100
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [T, G], "value": 50_000}, A, "o")
+    import random as _r
+    _r.seed(3)
+    n = 0
+    for trial in range(20):
+        if rd(fk.GFIN, G):
+            break
+        st.cursor = 200 + trial * 40
+        st.apply_blob({"op": "call", "contract": cid, "method": "roll", "args": [G]}, A, "r")
+        grh = rd(fk.GRH, G); grn = rd(fk.GRN, G); gdl = rd(fk.GDL, G)
+        if grh == 0:
+            continue
+        h0 = _r.randint(1, 2**60); h1 = _r.randint(1, 2**60)
+        st.block_hashes[grh] = h0; st.block_hashes[grh + 1] = h1; st.cursor = grh + 2
+        dice = fk.roll_dice(h0, h1, G, grn, gdl); rolled = {f: sum(1 for d in dice if d == f) for f in range(1, 7)}
+        straight = gdl == 6 and all(rolled[f] == 1 for f in range(1, 7))
+        is_f = fk.score_counts(rolled, straight) == 0
+        keep = {f: (rolled[f] if f in (1, 5) or rolled[f] >= 3 else 0) for f in range(1, 7)}
+        gts_b = rd(fk.GTS, G)
+        st.apply_blob({"op": "call", "contract": cid, "method": "hold", "args": [G, pack(keep), 1]}, A, f"h{trial}")
+        n += 1
+        if not is_f:
+            ks = fk.score_counts(keep, gdl == 6 and all(keep[f] == 1 for f in range(1, 7)))
+            assert rd(fk.GTS, G) == gts_b + ks, "farkle push score must match"
+    assert n >= 3
+
+
 if __name__ == "__main__":
     check("coinflip: open/join/settle/cancel + escrow + view", t_coinflip)
     check("coinflip: settle proves", t_coinflip_prove)
@@ -221,5 +253,6 @@ if __name__ == "__main__":
     check("mines: bet/pick/resolve multiplier + mine-hit vs reference", t_mines)
     check("reversi: flip board matches reference", t_reversi)
     check("chess: move record + agree settlement", t_chess)
+    check("farkle: roll/hold scoring + banking vs reference", t_farkle)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)
