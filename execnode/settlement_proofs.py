@@ -53,12 +53,48 @@ def _apply_payouts(bridge, cid, payouts):
     return True
 
 
+def _run_call(contracts, bridge, registry, call, i, cursor, timestamp, beacons, block_hashes, want_rows):
+    """Execute ONE call against the mutable (contracts, bridge, registry): advance storage, resolve payouts,
+    and return (epoch_call, public_call, rows). `rows` (the executed step count = trace rows this call adds,
+    computed only when want_rows) is what the segmenter packs against MAX_T. Raises on revert/bad payout —
+    the same conditions that make the call unprovable."""
+    cid, method = call["cid"], call["method"]
+    c = contracts.get(cid)
+    if not c or c.get("runtime") != "zkvm":
+        raise ValueError(f"call {i}: no zkvm contract {cid}")
+    caller = call.get("caller", "epoch")
+    value = int(call.get("value", 0))
+    cf, fargs = runtimes.zkvm_statement(caller, call.get("args", []), registry)
+    slots = {int(k): int(v) for k, v in (c["storage"].get("slots") or {}).items()}
+    if value > 0:
+        bridge[cid] = bridge.get(cid, 0) + value
+    res = zkvm.run(c["code"], method, cf, fargs, slots, value=value, cursor=cursor, timestamp=timestamp,
+                   beacons=beacons, block_hashes=block_hashes, witness=want_rows)
+    ok, _ret, new_slots, io = res[:4]
+    if not ok:
+        raise ValueError(f"call {i} reverted — nothing to prove")
+    rows = len(res[4]) if want_rows else 0
+    payouts = [(registry[str(to)], amt) for k, to, amt in io if k == zkvm.IO_PAY and amt > 0
+               and str(to) in registry]
+    if sum(1 for k, to, amt in io if k == zkvm.IO_PAY and amt > 0) != len(payouts) \
+            or not _apply_payouts(bridge, cid, payouts):
+        raise ValueError(f"call {i}: unresolved or unaffordable payout")
+    c["storage"] = {"slots": {str(k): v for k, v in sorted(new_slots.items())}}
+    epoch_call = {"code": c["code"], "method": method, "caller_f": cf, "args_f": fargs,
+                  "caller": caller, "args": call.get("args", []), "value": value, "cursor": cursor,
+                  "timestamp": timestamp, "beacons": beacons, "block_hashes": block_hashes, "slots": slots}
+    public_call = {"cid": cid, "method": method, "caller": caller, "args": call.get("args", []),
+                   "value": value}
+    return epoch_call, public_call, rows
+
+
 def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
                 pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES):
     """Prove a batch of zkVM calls as ONE aggregated epoch proof. `pre_contracts` is the pre-state
     {cid: {"code", "storage": {"slots":{...}}, "runtime":"zkvm"}}; `calls` an ordered list of
     {cid, method, caller, args, value?}. Returns a self-contained bundle: a SINGLE proof binding
-    pre_root → post_root over the whole batch."""
+    pre_root → post_root over the whole batch. Raises ValueError if the batch exceeds one trace — use
+    prove_settlement for unbounded epochs (it segments automatically)."""
     import copy
     contracts = copy.deepcopy(pre_contracts)
     bridge = dict(pre_bridge or {})
@@ -66,33 +102,9 @@ def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_h
     pre_root = zkvm_root(contracts)
     epoch_calls, public_calls = [], []
     for i, call in enumerate(calls):
-        cid, method = call["cid"], call["method"]
-        c = contracts.get(cid)
-        if not c or c.get("runtime") != "zkvm":
-            raise ValueError(f"call {i}: no zkvm contract {cid}")
-        caller = call.get("caller", "epoch")
-        value = int(call.get("value", 0))
-        cf, fargs = runtimes.zkvm_statement(caller, call.get("args", []), registry)
-        slots = {int(k): int(v) for k, v in (c["storage"].get("slots") or {}).items()}
-        if value > 0:
-            bridge[cid] = bridge.get(cid, 0) + value        # escrow the call value into the contract
-        # run once to advance committed storage + resolve payouts (the aggregated prover re-runs internally)
-        ok, _ret, new_slots, io = zkvm.run(c["code"], method, cf, fargs, slots, value=value, cursor=cursor,
-                                           timestamp=timestamp, beacons=beacons, block_hashes=block_hashes)
-        if not ok:
-            raise ValueError(f"call {i} reverted — nothing to prove")
-        payouts = [(registry[str(to)], amt) for k, to, amt in io if k == zkvm.IO_PAY and amt > 0
-                   and str(to) in registry]
-        if sum(1 for k, to, amt in io if k == zkvm.IO_PAY and amt > 0) != len(payouts) \
-                or not _apply_payouts(bridge, cid, payouts):
-            raise ValueError(f"call {i}: unresolved or unaffordable payout")
-        c["storage"] = {"slots": {str(k): v for k, v in sorted(new_slots.items())}}
-        epoch_calls.append({"code": c["code"], "method": method, "caller_f": cf, "args_f": fargs,
-                            "caller": caller, "args": call.get("args", []), "value": value, "cursor": cursor,
-                            "timestamp": timestamp, "beacons": beacons, "block_hashes": block_hashes,
-                            "slots": slots})
-        public_calls.append({"cid": cid, "method": method, "caller": caller, "args": call.get("args", []),
-                             "value": value})
+        ec, pc, _ = _run_call(contracts, bridge, registry, call, i, cursor, timestamp, beacons,
+                              block_hashes, want_rows=False)
+        epoch_calls.append(ec); public_calls.append(pc)
     proof, epoch_io, _per = vm_circuit.prove_epoch_calls(epoch_calls, num_queries=num_queries)
     return {"cursor": cursor, "timestamp": timestamp, "pre_root": pre_root,
             "post_root": zkvm_root(contracts), "calls": public_calls,
@@ -100,6 +112,95 @@ def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_h
             "pre_contracts": {cid: {"code": c["code"], "storage": c["storage"], "runtime": "zkvm"}
                               for cid, c in pre_contracts.items() if c.get("runtime") == "zkvm"},
             "num_queries": num_queries}
+
+
+def prove_settlement(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
+                     pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES, max_rows=None):
+    """Prove an epoch of ANY size by SEGMENTING it into consecutive chunks that each fit one trace, then
+    chaining their state roots: segment j binds root_j → root_{j+1}, and the whole batch is proven by
+    root_0 → root_K. This removes the single-trace 2^17-row cap (doc/zk-execution-proofs.md scaling
+    point 1) with NO new cryptography — every segment is an ordinary, sound aggregated epoch proof.
+
+    Returns a bundle {"segments": [epoch_bundle, ...], "pre_root", "post_root", "cursor"}. L1 verifies K
+    segment proofs (still no re-execution); folding those K proofs into ONE O(1) check is the recursion
+    step (point 2), tracked separately. A single-segment epoch (the common case) yields exactly one proof —
+    identical cost to prove_epoch."""
+    import copy
+    if max_rows is None:
+        max_rows = vm_circuit.MAX_T - 2
+    contracts = copy.deepcopy(pre_contracts)
+    bridge = dict(pre_bridge or {})
+    pre_root = zkvm_root(contracts)
+    # pass 1: run every call once (chaining state) to measure its trace-row cost, packing into segments so
+    # each segment's (rows + distinct program sizes + io length + headroom) stays under one trace.
+    registry = {}
+    boundaries, rows_acc, progs_acc, io_acc = [], 0, 0, 0
+    seg_progs = set()
+    start = 0
+    for i, call in enumerate(calls):
+        c = contracts.get(call["cid"])
+        prog = c["code"][call["method"]] if c else []
+        pkey = id(prog)
+        # peek the row cost WITHOUT mutating committed state yet: run on a scratch copy
+        peek = copy.deepcopy({call["cid"]: c}) if c else {}
+        _ec, _pc, rows = _run_call(peek, dict(bridge), dict(registry), call, i, cursor, timestamp,
+                                   beacons, block_hashes, want_rows=True)
+        add_prog = 0 if pkey in seg_progs else len(prog)
+        if i > start and rows_acc + rows + progs_acc + add_prog + io_acc + 256 > max_rows:
+            boundaries.append((start, i)); start = i
+            rows_acc = progs_acc = io_acc = 0; seg_progs = set()
+            add_prog = len(prog)
+        if rows + len(prog) + 256 > max_rows:
+            raise ValueError(f"call {i} alone exceeds one trace ({rows} rows)")
+        rows_acc += rows; io_acc += rows            # io is bounded by steps; a safe over-estimate
+        if pkey not in seg_progs:
+            seg_progs.add(pkey); progs_acc += add_prog
+        # advance the REAL committed state so the next call (and the next segment's pre-state) chains
+        _run_call(contracts, bridge, registry, call, i, cursor, timestamp, beacons, block_hashes,
+                  want_rows=False)
+    boundaries.append((start, len(calls)))
+    # pass 2: prove each segment from the chained pre-state
+    contracts = copy.deepcopy(pre_contracts)
+    bridge2 = dict(pre_bridge or {})
+    segments = []
+    for (lo, hi) in boundaries:
+        seg_calls = calls[lo:hi]
+        bundle = prove_epoch(contracts, seg_calls, cursor, timestamp=timestamp, beacons=beacons,
+                             block_hashes=block_hashes, pre_bridge=bridge2, num_queries=num_queries)
+        segments.append(bundle)
+        # advance contracts + bridge to this segment's post-state (replay is cheaper than re-running)
+        reg = {}
+        for j, call in enumerate(seg_calls):
+            _run_call(contracts, bridge2, reg, call, lo + j, cursor, timestamp, beacons, block_hashes, False)
+    return {"cursor": cursor, "timestamp": timestamp, "pre_root": pre_root,
+            "post_root": zkvm_root(contracts), "segments": segments, "num_segments": len(segments)}
+
+
+def verify_settlement(bundle):
+    """Verify a segmented settlement: each segment is a valid epoch bundle AND they chain
+    (pre_root_0 = bundle.pre_root, post_root_j = pre_root_{j+1}, post_root_K = bundle.post_root).
+    Returns (ok, reason, post_root) — the chain is what proves the whole (unbounded) epoch with no
+    re-execution and no trust in any single segment's boundary."""
+    try:
+        segs = bundle.get("segments")
+        if not isinstance(segs, list) or not segs:
+            return False, "no segments", None
+        expect_pre = bundle["pre_root"]
+        post = None
+        for j, seg in enumerate(segs):
+            if seg["pre_root"] != expect_pre:
+                return False, f"segment {j} pre_root breaks the chain", None
+            ok, why, post = verify_epoch(seg)
+            if not ok:
+                return False, f"segment {j}: {why}", None
+            if post != seg["post_root"]:
+                return False, f"segment {j} post_root mismatch", None
+            expect_pre = post
+        if post != bundle["post_root"]:
+            return False, "final post_root mismatch", None
+        return True, "ok", post
+    except Exception as e:
+        return False, f"malformed settlement bundle: {e}", None
 
 
 def verify_epoch(bundle):

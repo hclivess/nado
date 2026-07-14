@@ -122,6 +122,23 @@ def t7_install_into_settlement_ops():
         settlement_ops.set_settlement_verifier(None)
 
 
+def t8_segmented_settlement():
+    """An epoch too big for one trace SEGMENTS: prove_settlement splits it, chains the roots, and reaches
+    the SAME post_root a single proof would. A broken chain link is rejected."""
+    import copy
+    calls = [{"cid": CID_C, "method": "bump", "caller": ALICE, "args": []} for _ in range(8)]
+    single = SP.prove_epoch(_pre(), calls, cursor=200, num_queries=NQ)
+    _ok, _why, single_post = SP.verify_epoch(single)
+    bundle = SP.prove_settlement(_pre(), calls, cursor=200, num_queries=NQ, max_rows=300)
+    assert bundle["num_segments"] >= 2, f"expected a split, got {bundle['num_segments']}"
+    ok, why, post = SP.verify_settlement(bundle)
+    assert ok, f"segmented settlement must verify: {why}"
+    assert post == single_post == bundle["post_root"], "segmented post_root must equal the single-proof root"
+    bad = copy.deepcopy(bundle); bad["segments"][0]["post_root"] = "00" * 32
+    ok2, _why2, _ = SP.verify_settlement(bad)
+    assert not ok2, "a broken chain link must be rejected"
+
+
 if __name__ == "__main__":
     check("epoch of 3 calls proves + verifies (no re-execution)", t1_epoch_proves_and_verifies)
     check("post_root == state_root zkVM projection", t2_post_root_matches_state_root_projection)
@@ -130,5 +147,6 @@ if __name__ == "__main__":
     check("wrong pre-state rejected", t5_wrong_pre_state_rejected)
     check("settlement seam justifies a verified root", t6_seam_accepts_verified_root)
     check("installs into ops.settlement_ops seam", t7_install_into_settlement_ops)
+    check("segmentation removes the epoch cap (multi-segment == single)", t8_segmented_settlement)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

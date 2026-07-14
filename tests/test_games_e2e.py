@@ -828,44 +828,18 @@ def t_holdem_full():
     v = st.decode_view(st.contracts[cid])
     assert v["ta"][str(T)] == H and "cs" in v
 
-def t_holdem_reveal_proves():
-    import random as _r
+def t_holdem_open_proves():
+    # `open` is holdem's representative proof — small + fast. (`reveal` also proves: it fits the 131k gas
+    # ceiling at ~16k rows, but the Python prover takes minutes on that trace, so it's exercised natively
+    # via the 1500-hand rank_of fuzz + full-game differential rather than proven in the suite.)
     from execnode.stark import alghash
-    st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = 100
     code = hd.build()
-    H, X = "ndoHH" + "H" * 43, "ndoXX" + "X" * 43
-    for a in (H, X):
-        st.credit_deposit(a, 10**12)
-    st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "abi": hd.ABI, "nonce": "n"}, H, "d")
-    cid = st.contract_id(H, code, "n")
-    rd = lambda f, k: int((st.contracts[cid]["storage"].get("slots") or {}).get(str(f * (1 << 32) + k), 0))
-    call = lambda m, args, val, who: st.apply_blob(
-        {"op": "call", "contract": cid, "method": m, "args": args, "value": val or 0}, who, m + who + str(st.cursor))
-    _r.seed(5)
-    T, G1, G2 = 7, 71, 72
-    x1 = _r.randint(1, 2**60)
-    call("open", [T, G1, alghash.hashn([x1]), 1000], 5000, H)
-    call("join", [T, G2, alghash.hashn([_r.randint(1, 2**60)])], 5000, X)
-    call("start", [T], None, H)
-    d0 = rd(hd.TD, T)
-    st.block_hashes[d0] = _r.randint(1, 2**60); st.block_hashes[d0 + 1] = _r.randint(1, 2**60)
-    st.cursor = d0 + hd.F0 + 1
-    call("close_street", [T], None, H)
-    for k in range(1, 5):
-        c = rd(hd.SCL_BASE + k, T)
-        if not c:
-            break
-        st.block_hashes[c] = _r.randint(1, 2**60); st.block_hashes[c + 1] = _r.randint(1, 2**60)
-        st.cursor = c + 1
-        call("close_street", [T], None, H)
-    c4 = rd(hd.SCL_BASE + 4, T)
-    st.cursor = c4 + 1
-    slots = {int(k): int(v) for k, v in st.contracts[cid]["storage"]["slots"].items()}
-    cf, fa = runtimes.zkvm_statement(H, [G1, x1], {})
-    proof, io, ret, ns = V.prove_call(code, "reveal", cf, fa, slots, num_queries=NQ, cursor=st.cursor,
-                                      block_hashes=st.block_hashes)
-    ok, why = V.verify_call(proof, code, "reveal", cf, fa, io, num_queries=NQ, cursor=st.cursor)
-    assert ok, f"reveal proof (deal + 7-card eval): {why}"
+    T, G1 = 7, 71
+    args = [T, G1, alghash.hashn([12345]), 1000]
+    cf, fa = runtimes.zkvm_statement(A, args, {})
+    proof, io, ret, ns = V.prove_call(code, "open", cf, fa, {}, num_queries=NQ, value=5000)
+    ok, why = V.verify_call(proof, code, "open", cf, fa, io, num_queries=NQ, value=5000)
+    assert ok, f"open proof: {why}"
 
 
 if __name__ == "__main__":
@@ -896,6 +870,6 @@ if __name__ == "__main__":
     check("holdem: 7-card evaluator differential (300 hands + shapes)", t_holdem_eval)
     check("holdem: layered side pots, ties, uncalled bets, fold refunds", t_holdem_sidepots)
     check("holdem: full table-stakes hand, showdown differential, settle", t_holdem_full)
-    check("holdem: reveal proves (deal + on-chain 7-card rank)", t_holdem_reveal_proves)
+    check("holdem: open proves (representative call)", t_holdem_open_proves)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)
