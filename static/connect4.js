@@ -5,7 +5,7 @@
 import { NadoDapp, rawToNado, _m, $, disp } from "./nadodapp.js";
 import { PvpGame } from "./pvpgame.js";
 
-const CID = "87eac9c1be9bdfa84c013d7a72f6997d";
+const CID = "67349828b38443eda30de51dea8a3d67";
 const COLS = 7, ROWS = 6;
 const dapp = new NadoDapp({ cid: CID, app: "ConnectFour" });
 
