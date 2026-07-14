@@ -98,7 +98,9 @@
   "dice.closeOutSeat": "Close out seat #{g}",
   "dice.cancelReclaim": "Cancel — reclaim bankroll",
   "dice.closeReclaim": "Close table — reclaim {amt}",
-  "dice.cryptoFail": "Crypto bundle failed to load — reload."
+  "dice.cryptoFail": "Crypto bundle failed to load — reload.",
+  "dice.showMore": "Show more",
+  "dice.showMoreN": "Show more ({n} more)"
  },
  "cs": {
   "dice.title": "NADO Dice — automatické hody, prokazatelně férové, postkvantové",
@@ -199,7 +201,9 @@
   "dice.closeOutSeat": "Uzavřít místo #{g}",
   "dice.cancelReclaim": "Zrušit — získat bankroll zpět",
   "dice.closeReclaim": "Zavřít stůl — získat zpět {amt}",
-  "dice.cryptoFail": "Kryptobalíček se nepodařilo načíst — obnovte stránku."
+  "dice.cryptoFail": "Kryptobalíček se nepodařilo načíst — obnovte stránku.",
+  "dice.showMore": "Zobrazit více",
+  "dice.showMoreN": "Zobrazit více (ještě {n})"
  },
  "es": {
   "dice.title": "NADO Dice — tiradas automáticas, demostrablemente justo, poscuántico",
@@ -300,7 +304,9 @@
   "dice.closeOutSeat": "Cerrar asiento #{g}",
   "dice.cancelReclaim": "Cancelar — recuperar la banca",
   "dice.closeReclaim": "Cerrar mesa — recuperar {amt}",
-  "dice.cryptoFail": "El paquete cripto no se cargó — recarga."
+  "dice.cryptoFail": "El paquete cripto no se cargó — recarga.",
+  "dice.showMore": "Mostrar más",
+  "dice.showMoreN": "Mostrar más ({n} más)"
  },
  "pt": {
   "dice.title": "NADO Dice — rolagens automáticas, comprovadamente justo, pós-quântico",
@@ -401,7 +407,9 @@
   "dice.closeOutSeat": "Encerrar assento #{g}",
   "dice.cancelReclaim": "Cancelar — recuperar banca",
   "dice.closeReclaim": "Fechar mesa — recuperar {amt}",
-  "dice.cryptoFail": "O pacote cripto falhou ao carregar — recarregue."
+  "dice.cryptoFail": "O pacote cripto falhou ao carregar — recarregue.",
+  "dice.showMore": "Mostrar mais",
+  "dice.showMoreN": "Mostrar mais (mais {n})"
  },
  "fr": {
   "dice.title": "NADO Dice — lancers automatiques, équité prouvable, post-quantique",
@@ -502,7 +510,9 @@
   "dice.closeOutSeat": "Clôturer le siège #{g}",
   "dice.cancelReclaim": "Annuler — récupérer la banque",
   "dice.closeReclaim": "Fermer la table — récupérer {amt}",
-  "dice.cryptoFail": "Le paquet crypto n'a pas pu se charger — rechargez."
+  "dice.cryptoFail": "Le paquet crypto n'a pas pu se charger — rechargez.",
+  "dice.showMore": "Afficher plus",
+  "dice.showMoreN": "Afficher plus (encore {n})"
  },
  "de": {
   "dice.title": "NADO Dice — automatische Würfe, beweisbar fair, post-quanten",
@@ -603,7 +613,9 @@
   "dice.closeOutSeat": "Platz #{g} abschließen",
   "dice.cancelReclaim": "Abbrechen — Bankroll zurückholen",
   "dice.closeReclaim": "Tisch schließen — {amt} zurückholen",
-  "dice.cryptoFail": "Krypto-Bundle konnte nicht geladen werden — neu laden."
+  "dice.cryptoFail": "Krypto-Bundle konnte nicht geladen werden — neu laden.",
+  "dice.showMore": "Mehr anzeigen",
+  "dice.showMoreN": "Mehr anzeigen (noch {n})"
  },
  "it": {
   "dice.title": "NADO Dice — lanci automatici, equità dimostrabile, post-quantistico",
@@ -704,7 +716,9 @@
   "dice.closeOutSeat": "Chiudi posto #{g}",
   "dice.cancelReclaim": "Annulla — recupera la banca",
   "dice.closeReclaim": "Chiudi tavolo — recupera {amt}",
-  "dice.cryptoFail": "Il pacchetto crypto non si è caricato — ricarica."
+  "dice.cryptoFail": "Il pacchetto crypto non si è caricato — ricarica.",
+  "dice.showMore": "Mostra altri",
+  "dice.showMoreN": "Mostra altri ({n} in più)"
  },
  "ru": {
   "dice.title": "NADO Dice — авто-броски, доказуемо честно, постквантово",
@@ -805,7 +819,9 @@
   "dice.closeOutSeat": "Закрыть место #{g}",
   "dice.cancelReclaim": "Отменить — вернуть банк",
   "dice.closeReclaim": "Закрыть стол — вернуть {amt}",
-  "dice.cryptoFail": "Крипто-пакет не загрузился — перезагрузите."
+  "dice.cryptoFail": "Крипто-пакет не загрузился — перезагрузите.",
+  "dice.showMore": "Показать ещё",
+  "dice.showMoreN": "Показать ещё (ещё {n})"
  },
  "zh": {
   "dice.title": "NADO Dice — 自动开骰、可证明公平、抗量子",
@@ -906,7 +922,9 @@
   "dice.closeOutSeat": "结清座位 #{g}",
   "dice.cancelReclaim": "取消 — 收回庄家资金",
   "dice.closeReclaim": "关闭桌子 — 收回 {amt}",
-  "dice.cryptoFail": "加密组件加载失败 — 请重新加载。"
+  "dice.cryptoFail": "加密组件加载失败 — 请重新加载。",
+  "dice.showMore": "显示更多",
+  "dice.showMoreN": "显示更多（还有 {n} 个）"
  },
  "ja": {
   "dice.title": "NADO Dice — 自動ロール、証明可能に公正、耐量子",
@@ -1007,7 +1025,9 @@
   "dice.closeOutSeat": "シート #{g} を清算",
   "dice.cancelReclaim": "キャンセル — バンクロールを回収",
   "dice.closeReclaim": "テーブルを閉じる — {amt} を回収",
-  "dice.cryptoFail": "暗号バンドルの読み込みに失敗 — 再読み込みしてください。"
+  "dice.cryptoFail": "暗号バンドルの読み込みに失敗 — 再読み込みしてください。",
+  "dice.showMore": "もっと見る",
+  "dice.showMoreN": "もっと見る（あと {n} 件）"
  },
  "ko": {
   "dice.title": "NADO Dice — 자동 굴림, 증명 가능하게 공정, 포스트양자",
@@ -1108,7 +1128,9 @@
   "dice.closeOutSeat": "좌석 #{g} 정리",
   "dice.cancelReclaim": "취소 — 뱅크롤 회수",
   "dice.closeReclaim": "테이블 닫기 — {amt} 회수",
-  "dice.cryptoFail": "암호 번들 로드 실패 — 새로고침하세요."
+  "dice.cryptoFail": "암호 번들 로드 실패 — 새로고침하세요.",
+  "dice.showMore": "더 보기",
+  "dice.showMoreN": "더 보기 ({n}개 더)"
  },
  "ar": {
   "dice.title": "NADO Dice — رمي تلقائي، عدالة قابلة للإثبات، ما بعد الكم",
@@ -1209,7 +1231,9 @@
   "dice.closeOutSeat": "أغلق المقعد #{g}",
   "dice.cancelReclaim": "إلغاء — استرجع رصيد البنك",
   "dice.closeReclaim": "أغلق الطاولة — استرجع {amt}",
-  "dice.cryptoFail": "فشل تحميل حزمة التشفير — أعد التحميل."
+  "dice.cryptoFail": "فشل تحميل حزمة التشفير — أعد التحميل.",
+  "dice.showMore": "عرض المزيد",
+  "dice.showMoreN": "عرض المزيد ({n} أخرى)"
  },
  "hi": {
   "dice.title": "NADO Dice — ऑटो-रोल, प्रमाणित रूप से निष्पक्ष, पोस्ट-क्वांटम",
@@ -1310,7 +1334,9 @@
   "dice.closeOutSeat": "सीट #{g} बंद करें",
   "dice.cancelReclaim": "रद्द करें — बैंकरोल वापस लें",
   "dice.closeReclaim": "टेबल बंद करें — {amt} वापस लें",
-  "dice.cryptoFail": "क्रिप्टो बंडल लोड नहीं हुआ — फिर से लोड करें।"
+  "dice.cryptoFail": "क्रिप्टो बंडल लोड नहीं हुआ — फिर से लोड करें।",
+  "dice.showMore": "और दिखाएं",
+  "dice.showMoreN": "और दिखाएँ ({n} और)"
  },
  "tr": {
   "dice.title": "NADO Dice — otomatik atış, kanıtlanabilir adil, post-kuantum",
@@ -1411,7 +1437,9 @@
   "dice.closeOutSeat": "Koltuk #{g} kapat",
   "dice.cancelReclaim": "İptal — kasayı geri al",
   "dice.closeReclaim": "Masayı kapat — {amt} geri al",
-  "dice.cryptoFail": "Kripto paketi yüklenemedi — yeniden yükle."
+  "dice.cryptoFail": "Kripto paketi yüklenemedi — yeniden yükle.",
+  "dice.showMore": "Daha fazla göster",
+  "dice.showMoreN": "Daha fazla göster ({n} daha)"
  },
  "id": {
   "dice.title": "NADO Dice — gulir otomatis, terbukti adil, pasca-kuantum",
@@ -1512,7 +1540,9 @@
   "dice.closeOutSeat": "Tutup kursi #{g}",
   "dice.cancelReclaim": "Batal — ambil kembali bankroll",
   "dice.closeReclaim": "Tutup meja — ambil kembali {amt}",
-  "dice.cryptoFail": "Bundel kripto gagal dimuat — muat ulang."
+  "dice.cryptoFail": "Bundel kripto gagal dimuat — muat ulang.",
+  "dice.showMore": "Tampilkan lebih",
+  "dice.showMoreN": "Tampilkan lagi ({n} lagi)"
  },
  "vi": {
   "dice.title": "NADO Dice — tự động tung, công bằng chứng minh được, hậu lượng tử",
@@ -1613,6 +1643,8 @@
   "dice.closeOutSeat": "Tất toán ghế #{g}",
   "dice.cancelReclaim": "Hủy — lấy lại vốn nhà cái",
   "dice.closeReclaim": "Đóng bàn — lấy lại {amt}",
-  "dice.cryptoFail": "Gói mã hóa tải thất bại — tải lại."
+  "dice.cryptoFail": "Gói mã hóa tải thất bại — tải lại.",
+  "dice.showMore": "Xem thêm",
+  "dice.showMoreN": "Hiện thêm (còn {n})"
  }
 }

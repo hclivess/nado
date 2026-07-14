@@ -87,7 +87,9 @@
   "slots.toppingMsg": "Topping up the bank…",
   "slots.closingMsg": "Closing the machine…",
   "slots.betSliderLabel": "bet ",
-  "slots.cryptoFail": "Crypto bundle failed to load — reload."
+  "slots.cryptoFail": "Crypto bundle failed to load — reload.",
+  "slots.showMore": "Show more",
+  "slots.showMoreN": "Show more ({n} more)"
  },
  "cs": {
   "slots.title": "NADO Sloty — automaty bankované hráči, prokazatelně férové",
@@ -177,7 +179,9 @@
   "slots.toppingMsg": "Dobíjení banky…",
   "slots.closingMsg": "Zavírání stroje…",
   "slots.betSliderLabel": "sázka ",
-  "slots.cryptoFail": "Kryptografický balík se nepodařilo načíst — obnov stránku."
+  "slots.cryptoFail": "Kryptografický balík se nepodařilo načíst — obnov stránku.",
+  "slots.showMore": "Zobrazit více",
+  "slots.showMoreN": "Zobrazit více (ještě {n})"
  },
  "es": {
   "slots.title": "NADO Slots — tragamonedas con banca de jugadores, comprobablemente justas",
@@ -267,7 +271,9 @@
   "slots.toppingMsg": "Recargando la banca…",
   "slots.closingMsg": "Cerrando la máquina…",
   "slots.betSliderLabel": "apuesta ",
-  "slots.cryptoFail": "No se pudo cargar el paquete criptográfico — recarga."
+  "slots.cryptoFail": "No se pudo cargar el paquete criptográfico — recarga.",
+  "slots.showMore": "Mostrar más",
+  "slots.showMoreN": "Mostrar más ({n} más)"
  },
  "pt": {
   "slots.title": "NADO Slots — caça-níqueis bancados por jogadores, comprovadamente justos",
@@ -357,7 +363,9 @@
   "slots.toppingMsg": "Recarregando a banca…",
   "slots.closingMsg": "Fechando a máquina…",
   "slots.betSliderLabel": "aposta ",
-  "slots.cryptoFail": "Falha ao carregar o pacote criptográfico — recarregue."
+  "slots.cryptoFail": "Falha ao carregar o pacote criptográfico — recarregue.",
+  "slots.showMore": "Mostrar mais",
+  "slots.showMoreN": "Mostrar mais (mais {n})"
  },
  "fr": {
   "slots.title": "NADO Slots — machines à sous banquées par les joueurs, équité prouvable",
@@ -447,7 +455,9 @@
   "slots.toppingMsg": "Rechargement de la banque…",
   "slots.closingMsg": "Fermeture de la machine…",
   "slots.betSliderLabel": "mise ",
-  "slots.cryptoFail": "Échec du chargement du module cryptographique — rechargez."
+  "slots.cryptoFail": "Échec du chargement du module cryptographique — rechargez.",
+  "slots.showMore": "Afficher plus",
+  "slots.showMoreN": "Afficher plus (encore {n})"
  },
  "de": {
   "slots.title": "NADO Slots — von Spielern bankte Spielautomaten, nachweislich fair",
@@ -537,7 +547,9 @@
   "slots.toppingMsg": "Bank wird aufgeladen…",
   "slots.closingMsg": "Automat wird geschlossen…",
   "slots.betSliderLabel": "Einsatz ",
-  "slots.cryptoFail": "Krypto-Paket konnte nicht geladen werden — neu laden."
+  "slots.cryptoFail": "Krypto-Paket konnte nicht geladen werden — neu laden.",
+  "slots.showMore": "Mehr anzeigen",
+  "slots.showMoreN": "Mehr anzeigen (noch {n})"
  },
  "it": {
   "slots.title": "NADO Slots — slot con banco dei giocatori, equità dimostrabile",
@@ -627,7 +639,9 @@
   "slots.toppingMsg": "Ricarica del banco…",
   "slots.closingMsg": "Chiusura della macchina…",
   "slots.betSliderLabel": "puntata ",
-  "slots.cryptoFail": "Impossibile caricare il pacchetto crittografico — ricarica."
+  "slots.cryptoFail": "Impossibile caricare il pacchetto crittografico — ricarica.",
+  "slots.showMore": "Mostra altri",
+  "slots.showMoreN": "Mostra altri ({n} in più)"
  },
  "ru": {
   "slots.title": "NADO Slots — слоты с банком от игроков, доказуемо честные",
@@ -717,7 +731,9 @@
   "slots.toppingMsg": "Пополнение банка…",
   "slots.closingMsg": "Закрытие машины…",
   "slots.betSliderLabel": "ставка ",
-  "slots.cryptoFail": "Не удалось загрузить крипто-модуль — перезагрузите."
+  "slots.cryptoFail": "Не удалось загрузить крипто-модуль — перезагрузите.",
+  "slots.showMore": "Показать ещё",
+  "slots.showMoreN": "Показать ещё (ещё {n})"
  },
  "zh": {
   "slots.title": "NADO 老虎机 — 玩家做庄的老虎机，可证明公平",
@@ -807,7 +823,9 @@
   "slots.toppingMsg": "正在为庄池充值…",
   "slots.closingMsg": "正在关闭机器…",
   "slots.betSliderLabel": "投注 ",
-  "slots.cryptoFail": "加密组件加载失败——请重新加载。"
+  "slots.cryptoFail": "加密组件加载失败——请重新加载。",
+  "slots.showMore": "显示更多",
+  "slots.showMoreN": "显示更多（还有 {n} 个）"
  },
  "ja": {
   "slots.title": "NADO スロット — プレイヤーがバンクするスロット、証明可能に公平",
@@ -897,7 +915,9 @@
   "slots.toppingMsg": "バンクに追加入金中…",
   "slots.closingMsg": "マシンを閉じています…",
   "slots.betSliderLabel": "ベット ",
-  "slots.cryptoFail": "暗号バンドルの読み込みに失敗しました——再読み込みしてください。"
+  "slots.cryptoFail": "暗号バンドルの読み込みに失敗しました——再読み込みしてください。",
+  "slots.showMore": "もっと見る",
+  "slots.showMoreN": "もっと見る（あと {n} 件）"
  },
  "ko": {
   "slots.title": "NADO 슬롯 — 플레이어가 뱅크하는 슬롯머신, 증명 가능하게 공정",
@@ -987,7 +1007,9 @@
   "slots.toppingMsg": "뱅크 충전 중…",
   "slots.closingMsg": "머신 닫는 중…",
   "slots.betSliderLabel": "베팅 ",
-  "slots.cryptoFail": "암호화 번들 로드 실패 — 새로고침하세요."
+  "slots.cryptoFail": "암호화 번들 로드 실패 — 새로고침하세요.",
+  "slots.showMore": "더 보기",
+  "slots.showMoreN": "더 보기 ({n}개 더)"
  },
  "ar": {
   "slots.title": "NADO سلوتس — ماكينات قمار يموّلها اللاعبون، عدالة قابلة للإثبات",
@@ -1077,7 +1099,9 @@
   "slots.toppingMsg": "جارٍ شحن البنك…",
   "slots.closingMsg": "جارٍ إغلاق الماكينة…",
   "slots.betSliderLabel": "الرهان ",
-  "slots.cryptoFail": "فشل تحميل حزمة التشفير — أعد التحميل."
+  "slots.cryptoFail": "فشل تحميل حزمة التشفير — أعد التحميل.",
+  "slots.showMore": "عرض المزيد",
+  "slots.showMoreN": "عرض المزيد ({n} أخرى)"
  },
  "hi": {
   "slots.title": "NADO स्लॉट्स — खिलाड़ी-बैंक वाली स्लॉट मशीनें, प्रमाणित रूप से निष्पक्ष",
@@ -1167,7 +1191,9 @@
   "slots.toppingMsg": "बैंक टॉप-अप हो रहा है…",
   "slots.closingMsg": "मशीन बंद हो रही है…",
   "slots.betSliderLabel": "दांव ",
-  "slots.cryptoFail": "क्रिप्टो बंडल लोड नहीं हुआ — पेज दोबारा लोड करें।"
+  "slots.cryptoFail": "क्रिप्टो बंडल लोड नहीं हुआ — पेज दोबारा लोड करें।",
+  "slots.showMore": "और दिखाएं",
+  "slots.showMoreN": "और दिखाएँ ({n} और)"
  },
  "tr": {
   "slots.title": "NADO Slot — oyuncuların kasa olduğu slot makineleri, kanıtlanabilir adil",
@@ -1257,7 +1283,9 @@
   "slots.toppingMsg": "Kasa yükleniyor…",
   "slots.closingMsg": "Makine kapatılıyor…",
   "slots.betSliderLabel": "bahis ",
-  "slots.cryptoFail": "Kripto paketi yüklenemedi — yeniden yükleyin."
+  "slots.cryptoFail": "Kripto paketi yüklenemedi — yeniden yükleyin.",
+  "slots.showMore": "Daha fazla göster",
+  "slots.showMoreN": "Daha fazla göster ({n} daha)"
  },
  "id": {
   "slots.title": "NADO Slot — mesin slot yang dibanki pemain, adil terbukti",
@@ -1347,7 +1375,9 @@
   "slots.toppingMsg": "Mengisi ulang bank…",
   "slots.closingMsg": "Menutup mesin…",
   "slots.betSliderLabel": "taruhan ",
-  "slots.cryptoFail": "Gagal memuat paket kripto — muat ulang."
+  "slots.cryptoFail": "Gagal memuat paket kripto — muat ulang.",
+  "slots.showMore": "Tampilkan lebih",
+  "slots.showMoreN": "Tampilkan lagi ({n} lagi)"
  },
  "vi": {
   "slots.title": "NADO Slots — máy đánh bạc do người chơi làm nhà cái, công bằng có thể chứng minh",
@@ -1437,6 +1467,8 @@
   "slots.toppingMsg": "Đang nạp thêm quỹ…",
   "slots.closingMsg": "Đang đóng máy…",
   "slots.betSliderLabel": "cược ",
-  "slots.cryptoFail": "Không tải được gói mã hóa — hãy tải lại."
+  "slots.cryptoFail": "Không tải được gói mã hóa — hãy tải lại.",
+  "slots.showMore": "Xem thêm",
+  "slots.showMoreN": "Hiện thêm (còn {n})"
  }
 }

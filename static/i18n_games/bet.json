@@ -122,7 +122,15 @@
   "bet.alreadyCollected": "You already collected from this match.",
   "bet.outcomeWon": "{lab} won",
   "bet.shareThis": "Bet on this match on NADO:",
-  "bet.cryptoFail": "Crypto bundle failed to load — reload."
+  "bet.cryptoFail": "Crypto bundle failed to load — reload.",
+  "bet.searchPh": "🔎 Search team or league…",
+  "bet.filterLive": "Open & upcoming",
+  "bet.filterAll": "All",
+  "bet.filterSettled": "Settled",
+  "bet.noMatchZero": "No matches match your search/filter.",
+  "bet.countShown": "Showing {shown} of {total} matches",
+  "bet.countFiltered": " (filtered from {all})",
+  "bet.showMore": "Show more ({n} more)"
  },
  "cs": {
   "bet.allGames": "🎮 Všechny hry",
@@ -247,7 +255,15 @@
   "bet.alreadyCollected": "Z tohoto zápasu jste již vybrali.",
   "bet.outcomeWon": "vyhrál {lab}",
   "bet.shareThis": "Vsaďte na tento zápas na NADO:",
-  "bet.cryptoFail": "Kryptografický balíček se nepodařilo načíst — obnovte stránku."
+  "bet.cryptoFail": "Kryptografický balíček se nepodařilo načíst — obnovte stránku.",
+  "bet.searchPh": "🔎 Hledej tým nebo ligu…",
+  "bet.filterLive": "Otevřené a nadcházející",
+  "bet.filterAll": "Vše",
+  "bet.filterSettled": "Vypořádané",
+  "bet.noMatchZero": "Žádné zápasy neodpovídají hledání/filtru.",
+  "bet.countShown": "Zobrazeno {shown} z {total} zápasů",
+  "bet.countFiltered": " (filtrováno z {all})",
+  "bet.showMore": "Zobrazit více (ještě {n})"
  },
  "es": {
   "bet.allGames": "🎮 Todos los juegos",
@@ -372,7 +388,15 @@
   "bet.alreadyCollected": "Ya has cobrado de este partido.",
   "bet.outcomeWon": "ganó {lab}",
   "bet.shareThis": "Apuesta en este partido en NADO:",
-  "bet.cryptoFail": "El paquete criptográfico no se cargó — recarga la página."
+  "bet.cryptoFail": "El paquete criptográfico no se cargó — recarga la página.",
+  "bet.searchPh": "🔎 Busca equipo o liga…",
+  "bet.filterLive": "Abiertas y próximas",
+  "bet.filterAll": "Todas",
+  "bet.filterSettled": "Liquidadas",
+  "bet.noMatchZero": "Ningún partido coincide con tu búsqueda/filtro.",
+  "bet.countShown": "Mostrando {shown} de {total} partidos",
+  "bet.countFiltered": " (filtrado de {all})",
+  "bet.showMore": "Mostrar más ({n} más)"
  },
  "pt": {
   "bet.allGames": "🎮 Todos os jogos",
@@ -497,7 +521,15 @@
   "bet.alreadyCollected": "Você já coletou desta partida.",
   "bet.outcomeWon": "{lab} venceu",
   "bet.shareThis": "Aposte nesta partida no NADO:",
-  "bet.cryptoFail": "O pacote criptográfico falhou ao carregar — recarregue."
+  "bet.cryptoFail": "O pacote criptográfico falhou ao carregar — recarregue.",
+  "bet.searchPh": "🔎 Busque time ou liga…",
+  "bet.filterLive": "Abertas e próximas",
+  "bet.filterAll": "Todas",
+  "bet.filterSettled": "Liquidadas",
+  "bet.noMatchZero": "Nenhuma partida corresponde à sua busca/filtro.",
+  "bet.countShown": "Mostrando {shown} de {total} partidas",
+  "bet.countFiltered": " (filtrado de {all})",
+  "bet.showMore": "Mostrar mais (mais {n})"
  },
  "fr": {
   "bet.allGames": "🎮 Tous les jeux",
@@ -622,7 +654,15 @@
   "bet.alreadyCollected": "Vous avez déjà encaissé sur ce match.",
   "bet.outcomeWon": "{lab} a gagné",
   "bet.shareThis": "Pariez sur ce match sur NADO :",
-  "bet.cryptoFail": "Le module cryptographique n'a pas pu se charger — rechargez."
+  "bet.cryptoFail": "Le module cryptographique n'a pas pu se charger — rechargez.",
+  "bet.searchPh": "🔎 Cherchez une équipe ou une ligue…",
+  "bet.filterLive": "Ouverts et à venir",
+  "bet.filterAll": "Tous",
+  "bet.filterSettled": "Réglés",
+  "bet.noMatchZero": "Aucun match ne correspond à votre recherche/filtre.",
+  "bet.countShown": "Affichage de {shown} sur {total} matchs",
+  "bet.countFiltered": " (filtré sur {all})",
+  "bet.showMore": "Afficher plus (encore {n})"
  },
  "de": {
   "bet.allGames": "🎮 Alle Spiele",
@@ -747,7 +787,15 @@
   "bet.alreadyCollected": "Du hast aus diesem Spiel bereits eingesammelt.",
   "bet.outcomeWon": "{lab} hat gewonnen",
   "bet.shareThis": "Wette auf dieses Spiel bei NADO:",
-  "bet.cryptoFail": "Krypto-Bundle konnte nicht geladen werden — neu laden."
+  "bet.cryptoFail": "Krypto-Bundle konnte nicht geladen werden — neu laden.",
+  "bet.searchPh": "🔎 Team oder Liga suchen…",
+  "bet.filterLive": "Offen & bevorstehend",
+  "bet.filterAll": "Alle",
+  "bet.filterSettled": "Abgerechnet",
+  "bet.noMatchZero": "Keine Spiele passen zu deiner Suche/deinem Filter.",
+  "bet.countShown": "{shown} von {total} Spielen angezeigt",
+  "bet.countFiltered": " (gefiltert aus {all})",
+  "bet.showMore": "Mehr anzeigen (noch {n})"
  },
  "it": {
   "bet.allGames": "🎮 Tutti i giochi",
@@ -872,7 +920,15 @@
   "bet.alreadyCollected": "Hai già riscosso da questa partita.",
   "bet.outcomeWon": "{lab} ha vinto",
   "bet.shareThis": "Scommetti su questa partita su NADO:",
-  "bet.cryptoFail": "Caricamento del bundle crittografico fallito — ricarica."
+  "bet.cryptoFail": "Caricamento del bundle crittografico fallito — ricarica.",
+  "bet.searchPh": "🔎 Cerca squadra o lega…",
+  "bet.filterLive": "Aperte e in arrivo",
+  "bet.filterAll": "Tutte",
+  "bet.filterSettled": "Regolate",
+  "bet.noMatchZero": "Nessuna partita corrisponde alla ricerca/al filtro.",
+  "bet.countShown": "Mostrate {shown} di {total} partite",
+  "bet.countFiltered": " (filtrate da {all})",
+  "bet.showMore": "Mostra altri ({n} in più)"
  },
  "ru": {
   "bet.allGames": "🎮 Все игры",
@@ -997,7 +1053,15 @@
   "bet.alreadyCollected": "Вы уже забрали выигрыш с этого матча.",
   "bet.outcomeWon": "{lab} победил",
   "bet.shareThis": "Ставьте на этот матч на NADO:",
-  "bet.cryptoFail": "Не удалось загрузить криптографический модуль — перезагрузите."
+  "bet.cryptoFail": "Не удалось загрузить криптографический модуль — перезагрузите.",
+  "bet.searchPh": "🔎 Найди команду или лигу…",
+  "bet.filterLive": "Открытые и предстоящие",
+  "bet.filterAll": "Все",
+  "bet.filterSettled": "Рассчитанные",
+  "bet.noMatchZero": "Ни один матч не подходит под поиск/фильтр.",
+  "bet.countShown": "Показано {shown} из {total} матчей",
+  "bet.countFiltered": " (отфильтровано из {all})",
+  "bet.showMore": "Показать ещё (ещё {n})"
  },
  "zh": {
   "bet.allGames": "🎮 所有游戏",
@@ -1122,7 +1186,15 @@
   "bet.alreadyCollected": "你已从这场比赛领取过。",
   "bet.outcomeWon": "{lab} 获胜",
   "bet.shareThis": "在 NADO 上为这场比赛下注：",
-  "bet.cryptoFail": "加密组件加载失败 — 请重新加载。"
+  "bet.cryptoFail": "加密组件加载失败 — 请重新加载。",
+  "bet.searchPh": "🔎 搜索球队或联赛…",
+  "bet.filterLive": "开放与即将开始",
+  "bet.filterAll": "全部",
+  "bet.filterSettled": "已结算",
+  "bet.noMatchZero": "没有符合搜索/筛选的比赛。",
+  "bet.countShown": "显示 {shown} / {total} 场比赛",
+  "bet.countFiltered": "（从 {all} 场中筛选）",
+  "bet.showMore": "显示更多（还有 {n} 个）"
  },
  "ja": {
   "bet.allGames": "🎮 すべてのゲーム",
@@ -1247,7 +1319,15 @@
   "bet.alreadyCollected": "この試合からはすでに受け取り済みです。",
   "bet.outcomeWon": "{lab} が勝利",
   "bet.shareThis": "NADO でこの試合に賭けよう：",
-  "bet.cryptoFail": "暗号バンドルの読み込みに失敗しました — 再読み込みしてください。"
+  "bet.cryptoFail": "暗号バンドルの読み込みに失敗しました — 再読み込みしてください。",
+  "bet.searchPh": "🔎 チームまたはリーグを検索…",
+  "bet.filterLive": "受付中・開催予定",
+  "bet.filterAll": "すべて",
+  "bet.filterSettled": "決済済み",
+  "bet.noMatchZero": "検索/フィルターに一致する試合はありません。",
+  "bet.countShown": "{total} 試合中 {shown} 件を表示",
+  "bet.countFiltered": "（{all} 件から絞り込み）",
+  "bet.showMore": "もっと見る（あと {n} 件）"
  },
  "ko": {
   "bet.allGames": "🎮 모든 게임",
@@ -1372,7 +1452,15 @@
   "bet.alreadyCollected": "이 경기에서 이미 수령했습니다.",
   "bet.outcomeWon": "{lab} 승리",
   "bet.shareThis": "NADO에서 이 경기에 베팅하세요:",
-  "bet.cryptoFail": "암호화 번들 로드 실패 — 새로고침하세요."
+  "bet.cryptoFail": "암호화 번들 로드 실패 — 새로고침하세요.",
+  "bet.searchPh": "🔎 팀 또는 리그 검색…",
+  "bet.filterLive": "진행·예정",
+  "bet.filterAll": "전체",
+  "bet.filterSettled": "정산됨",
+  "bet.noMatchZero": "검색/필터와 일치하는 경기가 없습니다.",
+  "bet.countShown": "{total}개 경기 중 {shown}개 표시",
+  "bet.countFiltered": " ({all}개에서 필터링)",
+  "bet.showMore": "더 보기 ({n}개 더)"
  },
  "ar": {
   "bet.allGames": "🎮 كل الألعاب",
@@ -1497,7 +1585,15 @@
   "bet.alreadyCollected": "لقد جمعت بالفعل من هذه المباراة.",
   "bet.outcomeWon": "فاز {lab}",
   "bet.shareThis": "راهن على هذه المباراة على NADO:",
-  "bet.cryptoFail": "فشل تحميل حزمة التشفير — أعد التحميل."
+  "bet.cryptoFail": "فشل تحميل حزمة التشفير — أعد التحميل.",
+  "bet.searchPh": "🔎 ابحث عن فريق أو دوري…",
+  "bet.filterLive": "مفتوحة وقادمة",
+  "bet.filterAll": "الكل",
+  "bet.filterSettled": "مُسوّاة",
+  "bet.noMatchZero": "لا مباريات تطابق بحثك/عامل التصفية.",
+  "bet.countShown": "عرض {shown} من {total} مباراة",
+  "bet.countFiltered": " (مصفّاة من {all})",
+  "bet.showMore": "عرض المزيد ({n} أخرى)"
  },
  "hi": {
   "bet.allGames": "🎮 सभी गेम",
@@ -1622,7 +1718,15 @@
   "bet.alreadyCollected": "आप इस मैच से पहले ही जमा कर चुके हैं।",
   "bet.outcomeWon": "{lab} जीता",
   "bet.shareThis": "NADO पर इस मैच पर दांव लगाएँ:",
-  "bet.cryptoFail": "क्रिप्टो बंडल लोड नहीं हो सका — फिर से लोड करें।"
+  "bet.cryptoFail": "क्रिप्टो बंडल लोड नहीं हो सका — फिर से लोड करें।",
+  "bet.searchPh": "🔎 टीम या लीग खोजो…",
+  "bet.filterLive": "खुले और आगामी",
+  "bet.filterAll": "सभी",
+  "bet.filterSettled": "निपटे",
+  "bet.noMatchZero": "खोज/फ़िल्टर से कोई मैच मेल नहीं खाता।",
+  "bet.countShown": "{total} में से {shown} मैच दिख रहे हैं",
+  "bet.countFiltered": " ({all} में से फ़िल्टर)",
+  "bet.showMore": "और दिखाएँ ({n} और)"
  },
  "tr": {
   "bet.allGames": "🎮 Tüm oyunlar",
@@ -1747,7 +1851,15 @@
   "bet.alreadyCollected": "Bu maçtan zaten topladın.",
   "bet.outcomeWon": "{lab} kazandı",
   "bet.shareThis": "NADO üzerinde bu maça bahis yap:",
-  "bet.cryptoFail": "Kripto paketi yüklenemedi — yeniden yükle."
+  "bet.cryptoFail": "Kripto paketi yüklenemedi — yeniden yükle.",
+  "bet.searchPh": "🔎 Takım veya lig ara…",
+  "bet.filterLive": "Açık ve yaklaşan",
+  "bet.filterAll": "Tümü",
+  "bet.filterSettled": "Sonuçlanmış",
+  "bet.noMatchZero": "Aramana/filtrene uyan maç yok.",
+  "bet.countShown": "{total} maçtan {shown} tanesi gösteriliyor",
+  "bet.countFiltered": " ({all} içinden filtrelendi)",
+  "bet.showMore": "Daha fazla göster ({n} daha)"
  },
  "id": {
   "bet.allGames": "🎮 Semua game",
@@ -1872,7 +1984,15 @@
   "bet.alreadyCollected": "Anda sudah mengumpulkan dari pertandingan ini.",
   "bet.outcomeWon": "{lab} menang",
   "bet.shareThis": "Bertaruh pada pertandingan ini di NADO:",
-  "bet.cryptoFail": "Bundel kripto gagal dimuat — muat ulang."
+  "bet.cryptoFail": "Bundel kripto gagal dimuat — muat ulang.",
+  "bet.searchPh": "🔎 Cari tim atau liga…",
+  "bet.filterLive": "Terbuka & mendatang",
+  "bet.filterAll": "Semua",
+  "bet.filterSettled": "Selesai",
+  "bet.noMatchZero": "Tidak ada pertandingan yang cocok dengan pencarian/filter.",
+  "bet.countShown": "Menampilkan {shown} dari {total} pertandingan",
+  "bet.countFiltered": " (disaring dari {all})",
+  "bet.showMore": "Tampilkan lagi ({n} lagi)"
  },
  "vi": {
   "bet.allGames": "🎮 Tất cả trò chơi",
@@ -1997,6 +2117,14 @@
   "bet.alreadyCollected": "Bạn đã thu từ trận này rồi.",
   "bet.outcomeWon": "{lab} thắng",
   "bet.shareThis": "Cược vào trận này trên NADO:",
-  "bet.cryptoFail": "Không tải được gói mã hóa — tải lại."
+  "bet.cryptoFail": "Không tải được gói mã hóa — tải lại.",
+  "bet.searchPh": "🔎 Tìm đội hoặc giải…",
+  "bet.filterLive": "Đang mở & sắp diễn ra",
+  "bet.filterAll": "Tất cả",
+  "bet.filterSettled": "Đã tất toán",
+  "bet.noMatchZero": "Không có trận nào khớp với tìm kiếm/bộ lọc.",
+  "bet.countShown": "Hiển thị {shown} / {total} trận",
+  "bet.countFiltered": " (lọc từ {all})",
+  "bet.showMore": "Hiện thêm (còn {n})"
  }
 }

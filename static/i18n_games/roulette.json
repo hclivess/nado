@@ -112,7 +112,9 @@
   "roul.closeReclaim": "Close table — reclaim {v}",
   "roul.cryptoFail": "Crypto bundle failed to load — reload.",
   "roul.yourTablesLegend": "· 🏦 you bank · 🎯 you bet",
-  "roul.openForBets": "🟢 open for bets"
+  "roul.openForBets": "🟢 open for bets",
+  "roul.showMore": "Show more",
+  "roul.showMoreN": "Show more ({n} more)"
  },
  "cs": {
   "roul.walletHead": "Peněženka",
@@ -227,7 +229,9 @@
   "roul.closeReclaim": "Zavřít stůl — získat zpět {v}",
   "roul.cryptoFail": "Kryptobalík se nepodařilo načíst — obnovte stránku.",
   "roul.yourTablesLegend": "· 🏦 vaše banka · 🎯 vaše sázka",
-  "roul.openForBets": "🟢 otevřeno pro sázky"
+  "roul.openForBets": "🟢 otevřeno pro sázky",
+  "roul.showMore": "Zobrazit více",
+  "roul.showMoreN": "Zobrazit více (ještě {n})"
  },
  "es": {
   "roul.walletHead": "Cartera",
@@ -342,7 +346,9 @@
   "roul.closeReclaim": "Cerrar la mesa — recuperar {v}",
   "roul.cryptoFail": "No se pudo cargar el paquete cripto — recarga.",
   "roul.yourTablesLegend": "· 🏦 tú bancas · 🎯 tú apuestas",
-  "roul.openForBets": "🟢 abierta a apuestas"
+  "roul.openForBets": "🟢 abierta a apuestas",
+  "roul.showMore": "Mostrar más",
+  "roul.showMoreN": "Mostrar más ({n} más)"
  },
  "pt": {
   "roul.walletHead": "Carteira",
@@ -457,7 +463,9 @@
   "roul.closeReclaim": "Fechar a mesa — recuperar {v}",
   "roul.cryptoFail": "Falha ao carregar o pacote cripto — recarregue.",
   "roul.yourTablesLegend": "· 🏦 você banca · 🎯 você aposta",
-  "roul.openForBets": "🟢 aberta a apostas"
+  "roul.openForBets": "🟢 aberta a apostas",
+  "roul.showMore": "Mostrar mais",
+  "roul.showMoreN": "Mostrar mais (mais {n})"
  },
  "fr": {
   "roul.walletHead": "Portefeuille",
@@ -572,7 +580,9 @@
   "roul.closeReclaim": "Fermer la table — récupérer {v}",
   "roul.cryptoFail": "Échec du chargement du paquet crypto — rechargez.",
   "roul.yourTablesLegend": "· 🏦 vous banquez · 🎯 vous misez",
-  "roul.openForBets": "🟢 ouverte aux paris"
+  "roul.openForBets": "🟢 ouverte aux paris",
+  "roul.showMore": "Afficher plus",
+  "roul.showMoreN": "Afficher plus (encore {n})"
  },
  "de": {
   "roul.walletHead": "Wallet",
@@ -687,7 +697,9 @@
   "roul.closeReclaim": "Tisch schließen — {v} zurückfordern",
   "roul.cryptoFail": "Krypto-Paket konnte nicht geladen werden — neu laden.",
   "roul.yourTablesLegend": "· 🏦 Sie bankieren · 🎯 Sie wetten",
-  "roul.openForBets": "🟢 offen für Wetten"
+  "roul.openForBets": "🟢 offen für Wetten",
+  "roul.showMore": "Mehr anzeigen",
+  "roul.showMoreN": "Mehr anzeigen (noch {n})"
  },
  "it": {
   "roul.walletHead": "Portafoglio",
@@ -802,7 +814,9 @@
   "roul.closeReclaim": "Chiudi il tavolo — recupera {v}",
   "roul.cryptoFail": "Caricamento del bundle crittografico fallito — ricarica.",
   "roul.yourTablesLegend": "· 🏦 tu banchi · 🎯 tu scommetti",
-  "roul.openForBets": "🟢 aperto alle puntate"
+  "roul.openForBets": "🟢 aperto alle puntate",
+  "roul.showMore": "Mostra altri",
+  "roul.showMoreN": "Mostra altri ({n} in più)"
  },
  "ru": {
   "roul.walletHead": "Кошелёк",
@@ -917,7 +931,9 @@
   "roul.closeReclaim": "Закрыть стол — вернуть {v}",
   "roul.cryptoFail": "Не удалось загрузить криптографический пакет — перезагрузите.",
   "roul.yourTablesLegend": "· 🏦 вы банк · 🎯 вы ставите",
-  "roul.openForBets": "🟢 открыт для ставок"
+  "roul.openForBets": "🟢 открыт для ставок",
+  "roul.showMore": "Показать ещё",
+  "roul.showMoreN": "Показать ещё (ещё {n})"
  },
  "zh": {
   "roul.walletHead": "钱包",
@@ -1032,7 +1048,9 @@
   "roul.closeReclaim": "关闭牌桌 — 取回 {v}",
   "roul.cryptoFail": "加密组件加载失败——请重新加载。",
   "roul.yourTablesLegend": "· 🏦 你做庄 · 🎯 你下注",
-  "roul.openForBets": "🟢 开放下注"
+  "roul.openForBets": "🟢 开放下注",
+  "roul.showMore": "显示更多",
+  "roul.showMoreN": "显示更多（还有 {n} 个）"
  },
  "ja": {
   "roul.walletHead": "ウォレット",
@@ -1147,7 +1165,9 @@
   "roul.closeReclaim": "テーブルを閉じる — {v} を取り戻す",
   "roul.cryptoFail": "暗号バンドルの読み込みに失敗しました——再読み込みしてください。",
   "roul.yourTablesLegend": "· 🏦 あなたがバンク · 🎯 あなたがベット",
-  "roul.openForBets": "🟢 ベット受付中"
+  "roul.openForBets": "🟢 ベット受付中",
+  "roul.showMore": "もっと見る",
+  "roul.showMoreN": "もっと見る（あと {n} 件）"
  },
  "ko": {
   "roul.walletHead": "지갑",
@@ -1262,7 +1282,9 @@
   "roul.closeReclaim": "테이블 닫기 — {v} 회수",
   "roul.cryptoFail": "암호 번들 로드 실패 — 새로고침하세요.",
   "roul.yourTablesLegend": "· 🏦 당신이 뱅크 · 🎯 당신이 베팅",
-  "roul.openForBets": "🟢 베팅 가능"
+  "roul.openForBets": "🟢 베팅 가능",
+  "roul.showMore": "더 보기",
+  "roul.showMoreN": "더 보기 ({n}개 더)"
  },
  "ar": {
   "roul.walletHead": "المحفظة",
@@ -1377,7 +1399,9 @@
   "roul.closeReclaim": "أغلق الطاولة — استرد {v}",
   "roul.cryptoFail": "فشل تحميل حزمة التشفير — أعد التحميل.",
   "roul.yourTablesLegend": "· 🏦 أنت تموّل · 🎯 أنت تراهن",
-  "roul.openForBets": "🟢 مفتوحة للرهان"
+  "roul.openForBets": "🟢 مفتوحة للرهان",
+  "roul.showMore": "عرض المزيد",
+  "roul.showMoreN": "عرض المزيد ({n} أخرى)"
  },
  "hi": {
   "roul.walletHead": "वॉलेट",
@@ -1492,7 +1516,9 @@
   "roul.closeReclaim": "टेबल बंद करें — {v} वापस लें",
   "roul.cryptoFail": "क्रिप्टो बंडल लोड होने में विफल — पुनः लोड करें।",
   "roul.yourTablesLegend": "· 🏦 आप बैंक हैं · 🎯 आप दांव लगाते हैं",
-  "roul.openForBets": "🟢 दांव के लिए खुला"
+  "roul.openForBets": "🟢 दांव के लिए खुला",
+  "roul.showMore": "और दिखाएं",
+  "roul.showMoreN": "और दिखाएँ ({n} और)"
  },
  "tr": {
   "roul.walletHead": "Cüzdan",
@@ -1607,7 +1633,9 @@
   "roul.closeReclaim": "Masayı kapat — {v} geri al",
   "roul.cryptoFail": "Kripto paketi yüklenemedi — yeniden yükle.",
   "roul.yourTablesLegend": "· 🏦 sen finanse ediyorsun · 🎯 sen bahis yapıyorsun",
-  "roul.openForBets": "🟢 bahse açık"
+  "roul.openForBets": "🟢 bahse açık",
+  "roul.showMore": "Daha fazla göster",
+  "roul.showMoreN": "Daha fazla göster ({n} daha)"
  },
  "id": {
   "roul.walletHead": "Dompet",
@@ -1722,7 +1750,9 @@
   "roul.closeReclaim": "Tutup meja — ambil kembali {v}",
   "roul.cryptoFail": "Bundel kripto gagal dimuat — muat ulang.",
   "roul.yourTablesLegend": "· 🏦 Anda mendanai · 🎯 Anda bertaruh",
-  "roul.openForBets": "🟢 terbuka untuk taruhan"
+  "roul.openForBets": "🟢 terbuka untuk taruhan",
+  "roul.showMore": "Tampilkan lebih",
+  "roul.showMoreN": "Tampilkan lagi ({n} lagi)"
  },
  "vi": {
   "roul.walletHead": "Ví",
@@ -1837,6 +1867,8 @@
   "roul.closeReclaim": "Đóng bàn — lấy lại {v}",
   "roul.cryptoFail": "Gói mã hóa tải thất bại — tải lại.",
   "roul.yourTablesLegend": "· 🏦 bạn cấp vốn · 🎯 bạn cược",
-  "roul.openForBets": "🟢 mở để cược"
+  "roul.openForBets": "🟢 mở để cược",
+  "roul.showMore": "Xem thêm",
+  "roul.showMoreN": "Hiện thêm (còn {n})"
  }
 }
