@@ -61,10 +61,10 @@ const seatsOfTable = (sto, t) => Object.keys(_m(sto, "gg")).filter((g) => String
 
 // the biggest stake this table can still cover for the FIRST reveal at N mines:
 // need = stake·25·99/((25−N)·100) − stake  ≤ free   =>   stake ≤ free·(25−N)·100 / (2475 − (25−N)·100)
-function maxStakeRaw() {
+function maxStakeRaw(m = mines) {
   const tb = lastTable(); if (!tb || !tb.exists || tb.closed) return null;
-  const d = 2475n - BigInt(25 - mines) * 100n;
-  return d > 0n ? tb.free * BigInt(25 - mines) * 100n / d : null;
+  const d = 2475n - BigInt(25 - m) * 100n;
+  return d > 0n ? tb.free * BigInt(25 - m) * 100n / d : null;
 }
 const lastTable = () => (lastSto && bg.active != null) ? bg.read(lastSto, bg.active) : null;
 
@@ -76,22 +76,22 @@ function newTable() {
   bg.open(raw, window.t("mines.callOpen", "bank a mines field #{t} · {amt} NADO", { t: bg.active, amt: rawToNado(raw) }));
   render();
 }
-async function startRound() {
+async function placeBet(stake, m) {
   const tb = lastTable();
   if (!tb || !tb.exists) return alertBar(dapp.whereIs("field", bg.active));
   if (tb.closed) return alertBar(window.t("mines.closedField", "That field is closed."));
-  const stake = nadoToRaw($("stakeAmt").value);
   if (!stake) return alertBar(window.t("mines.enterStake", "Enter a stake (NADO)."));
   await dapp.refresh();
   if (!canPay(dapp, stake, window.t("mines.whatRound", "This round"))) return;
-  const mx = maxStakeRaw();
-  if (mx != null && stake > mx) return alertBar(window.t("mines.stakeCap", "This field can only cover rounds up to {n} NADO at {m} mines right now.", { n: rawToNado(mx), m: mines }));
+  const mx = maxStakeRaw(m);
+  if (mx != null && stake > mx) return alertBar(window.t("mines.stakeCap", "This field can only cover rounds up to {n} NADO at {m} mines right now.", { n: rawToNado(mx), m }));
   const g = randId();
-  bg.rememberSeat(g, { stake: stake.toString(), N: mines, tiles: [] });
+  bg.rememberSeat(g, { stake: stake.toString(), N: m, tiles: [] });
   mySeat = g; sel = [];
-  dapp.call("bet", [g, bg.active, mines], stake, window.t("mines.callBet", "mines: {m} mines · {amt} NADO · field #{t}", { m: mines, amt: rawToNado(stake), t: bg.active }), { table: bg.active, seat: g, phase: "bet" });
+  dapp.call("bet", [g, bg.active, m], stake, window.t("mines.callBet", "mines: {m} mines · {amt} NADO · field #{t}", { m, amt: rawToNado(stake), t: bg.active }), { table: bg.active, seat: g, phase: "bet" });
   render();
 }
+const startRound = () => placeBet(nadoToRaw($("stakeAmt").value), mines);
 function reveal() {
   const s = mySeatObj();
   if (!s || !s.alive || s.gh || !sel.length) return;
@@ -181,7 +181,7 @@ function selectTable(id) {
 }
 
 // my newest seat at the active table (prefer a live one; else the freshest finished one, so the result
-// stays up). mySeat === 0 = the player dismissed the finished round ("New round") — only a LIVE seat
+// stays up). mySeat === 0 = the player dismissed the finished round ("Change bet") — only a LIVE seat
 // may take the stage again.
 function mySeatObj() {
   if (!lastSto || bg.active == null) return null;
@@ -288,7 +288,11 @@ function render() {
     if (!s.gh && s.gp === 0 && !sel.length && !dapp.busy("cashout")) mkBtn(window.t("mines.abandon", "Take my stake back"), cashout, false);
     if (s.ready && !dapp.busy("resolve")) mkBtn(window.t("mines.resolveNow", "Resolve now"), () => resolveSeat(s.g), false);
   }
-  if (s.done && dapp.me) mkBtn(window.t("mines.newRound", "↻ New round"), () => { mySeat = 0; sel = []; render(); }, true, true);
+  if (s.done && s.addr === dapp.me) {
+    // one tap re-bets the SAME stake & mine count; "Change bet" goes back to the builder instead
+    if (!dapp.busy("bet")) mkBtn(window.t("mines.playAgain", "↻ Play again — {amt} NADO · {m} mines", { amt: rawToNado(s.stake), m: s.N }), () => placeBet(BigInt(s.stake), s.N), true, true);
+    mkBtn(window.t("mines.changeBet", "Change bet"), () => { mySeat = 0; sel = []; render(); }, false);
+  }
   renderSeats();
 }
 function tapTile(i) {
