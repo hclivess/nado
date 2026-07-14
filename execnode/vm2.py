@@ -78,6 +78,8 @@ def validate_code(code):
                 raise VM2Error(f"jump target out of range in {ins!r}")
             if op == "DIVMOD" and d == 7:
                 raise VM2Error("DIVMOD dest must not be r7 (r7 receives the remainder)")
+            if op == "CTX" and imm > 3:
+                raise VM2Error("CTX index must be 0..3 (caller/value/cursor/time)")
     return True
 
 
