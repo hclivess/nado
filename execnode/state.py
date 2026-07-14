@@ -852,6 +852,18 @@ class ExecState:
                 m[str(k)] = val
             if m:
                 out[name] = m
+        # board maps: per-cell fields (base+cell keyed by game) presented as bd[game*stride + cell]
+        bd = view.get("board")
+        if bd:
+            keys = key_cache.get(bd.get("index"), default_keys)
+            m = {}
+            for g in keys:
+                for cell in range(bd["cells"]):
+                    val = sv(((bd["base"] + cell) << 32) + g)
+                    if val:
+                        m[str(g * bd["stride"] + cell)] = val
+            if m:
+                out[bd["name"]] = m
         return out
 
     def view(self, cid, method, args):
