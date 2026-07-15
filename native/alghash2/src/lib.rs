@@ -72,6 +72,44 @@ pub unsafe extern "C" fn hashn(els: *const u64, n: usize, out: *mut u64) {
     for i in 0..CAP { *out.add(i) = state[i]; }
 }
 
+// merkle_commit(leaves[n], n, out): build a whole alghash2 Merkle tree in native code (the STARK's Merkle
+// commit is O(N) hashes and was a Python loop calling native permute per node). Bit-identical to
+// merkle.commit over backend.ALGHASH2: leaf digest = hashn([DOM_LEAF, x]); inner = hashn([DOM_NODE, a.., b..]).
+// `n` MUST be a power of two. `out` receives ALL layer digests bottom-up concatenated (n + n/2 + … + 1 =
+// 2n-1 digests, each CAP lanes): layer 0 (n leaf digests), then n/2, …, then the single root. Python slices
+// it back into the nested `layers` list merkle.open_at expects. DOM_LEAF=1, DOM_NODE=2 (match alghash2.py).
+#[no_mangle]
+pub unsafe extern "C" fn merkle_commit(leaves: *const u64, n: usize, out: *mut u64) {
+    // leaf layer
+    for i in 0..n {
+        let els = [2u64, 1u64, *leaves.add(i)]; // [len=2, DOM_LEAF, x]
+        let mut d = [0u64; CAP];
+        hashn(els.as_ptr(), 3, d.as_mut_ptr());
+        for k in 0..CAP { *out.add(i * CAP + k) = d[k]; }
+    }
+    let mut layer_start = 0usize; // digest index of current layer's first node
+    let mut layer_len = n;
+    let mut off = n;              // next free digest slot
+    while layer_len > 1 {
+        let half = layer_len / 2;
+        for i in 0..half {
+            let a = layer_start + 2 * i;
+            let b = a + 1;
+            let mut els = [9u64, 2u64, 0, 0, 0, 0, 0, 0, 0, 0]; // [len=9, DOM_NODE, a0..3, b0..3]
+            for k in 0..CAP {
+                els[2 + k] = *out.add(a * CAP + k);
+                els[6 + k] = *out.add(b * CAP + k);
+            }
+            let mut d = [0u64; CAP];
+            hashn(els.as_ptr(), 10, d.as_mut_ptr());
+            for k in 0..CAP { *out.add((off + i) * CAP + k) = d[k]; }
+        }
+        layer_start = off;
+        off += half;
+        layer_len = half;
+    }
+}
+
 // grind(state[CAP], dom, bits): the STARK-transcript proof-of-work, run ENTIRELY in native code (the fold's
 // dominant cost — GRIND_BITS≈18 ⇒ ~2^18 hashes per proof, and doing them one-at-a-time over ctypes from
 // Python was the recursion bottleneck). Byte-identical to transcript.grind over the alghash2 backend: the PoW

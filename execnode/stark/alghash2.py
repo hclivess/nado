@@ -80,9 +80,11 @@ def _try_native():
         lib.init.argtypes = [ctypes.POINTER(ctypes.c_uint64)] * 3
         lib.hashn.argtypes = [ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint64)]
         lib.permute12.argtypes = [ctypes.POINTER(ctypes.c_uint64)]
-        try:                                          # grind is newer — tolerate an older .so without it
+        try:                                          # grind / merkle_commit are newer — tolerate an older .so
             lib.grind.argtypes = [ctypes.POINTER(ctypes.c_uint64), ctypes.c_uint64, ctypes.c_uint32]
             lib.grind.restype = ctypes.c_uint64
+            lib.merkle_commit.argtypes = [ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t,
+                                          ctypes.POINTER(ctypes.c_uint64)]
         except Exception:
             pass
         u64 = ctypes.c_uint64
@@ -157,6 +159,34 @@ def grind(state, dom, bits):
         return None
     buf = (u64 * CAPACITY)(*[int(x) % F.P for x in state])
     return int(lib.grind(buf, int(dom) % F.P, int(bits)))
+
+
+def merkle_commit(values):
+    """Native alghash2 Merkle tree build → (root, layers), bit-identical to merkle.commit over the ALGHASH2
+    backend (leaf = hashn([DOM_LEAF, x]); inner = hashn([DOM_NODE, a.., b..])). `layers[0]` = leaf digests …
+    `layers[-1]` = [root], the exact structure merkle.open_at walks. Returns None if the native lib (or its
+    merkle_commit export) is unavailable or the length is not a power of two → caller uses the Python commit."""
+    nat = _try_native()
+    if not nat:
+        return None
+    lib, u64 = nat
+    if not hasattr(lib, "merkle_commit"):
+        return None
+    n = len(values)
+    if n < 1 or (n & (n - 1)):
+        return None
+    leaves = (u64 * n)(*[int(v) % F.P for v in values])
+    out = (u64 * ((2 * n - 1) * CAPACITY))()
+    lib.merkle_commit(leaves, n, out)
+    digs = [tuple(out[i * CAPACITY + k] for k in range(CAPACITY)) for i in range(2 * n - 1)]
+    layers, start, ln = [], 0, n
+    while True:
+        layers.append(digs[start:start + ln])
+        start += ln
+        if ln == 1:
+            break
+        ln //= 2
+    return layers[-1][0], layers
 
 
 def to_int(digest):

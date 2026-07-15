@@ -14,6 +14,11 @@ def commit(values, backend=None):
     n = len(values)
     if n & (n - 1):
         raise ValueError("Merkle vector length must be a power of two")
+    if getattr(b, "name", None) == "alghash2":       # native whole-tree build (recursion/fold hot path)
+        from execnode.stark import alghash2
+        r = alghash2.merkle_commit(values)
+        if r is not None:
+            return r
     layer = [b.leaf(v) for v in values]
     layers = [layer]
     while len(layer) > 1:
