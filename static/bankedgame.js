@@ -24,13 +24,34 @@ export class BankedGame {
     this.knownTables = new Set(); this.knownSeats = new Set();
   }
 
-  // ---- the shared table schema (see vmasm.bank_table_methods) ----
+  // ---- the ONE shared banked-table reader (every banked game uses this — dice/roulette included) ----
+  // A table EXISTS iff it has a banker (ta). tk=bankroll tp=pot tc=committed tz=closed. Seat counts come from
+  // the contract's tn/tx counters WHEN it keeps them (mines); contracts that omit them (blackjack, dice,
+  // roulette) get tn/tx DERIVED from the seat maps (gg=table, gd=settled) in one pass — which also yields the
+  // soonest next settle (min gh+1 over unsettled seats) for a "next roll in …" hint. The object carries both the
+  // raw slot names (tk/tp/tc/tn/tx) and friendly aliases (bankroll/pool/committed/seatCount/settledCount) so a
+  // single reader serves every game's render without per-game duplication.
+  ids(sto) { return Object.keys(_m(sto, "ta")); }
   read(sto, t) {
     t = String(t); const bank = _m(sto, "ta")[t];
     if (!bank) return { exists: false };
-    const tb = { exists: true, id: Number(t), bank, tk: _m(sto, "tk")[t] || 0, tp: _m(sto, "tp")[t] || 0,
-      tc: _m(sto, "tc")[t] || 0, tn: _m(sto, "tn")[t] || 0, tx: _m(sto, "tx")[t] || 0, closed: !!_m(sto, "tz")[t] };
-    tb.free = BigInt(tb.tk) - BigInt(tb.tc);   // bankroll not yet reserved against open seats
+    const tk = _m(sto, "tk")[t] || 0, tp = _m(sto, "tp")[t] || 0, tc = _m(sto, "tc")[t] || 0, closed = !!_m(sto, "tz")[t];
+    let tn = _m(sto, "tn")[t] || 0, tx = _m(sto, "tx")[t] || 0, soonest = null;
+    if (!tn) {                                   // contract keeps no seat counter -> derive from the seat maps
+      const gg = _m(sto, "gg"), gd = _m(sto, "gd"), gh = _m(sto, "gh");
+      for (const g in gg) {
+        if (String(gg[g]) !== t) continue;
+        tn++;
+        if (gd[g]) { tx++; continue; }
+        const s = (gh[g] || 0) + 1;             // this seat settles one block after its gh
+        if (soonest == null || s < soonest) soonest = s;
+      }
+    }
+    const tb = { exists: true, id: Number(t), bank, tk, tp, tc, tn, tx, closed,
+      bankroll: tk, pool: tp, committed: tc, seatCount: tn, settledCount: tx,
+      phase: closed ? "done" : "betting", free: BigInt(tk) - BigInt(tc) };
+    const cur = this.dapp.cursor;
+    if (cur != null && soonest != null) { tb.nextSettle = soonest; tb.roundEndsIn = Math.max(0, soonest - cur); }
     return tb;
   }
 

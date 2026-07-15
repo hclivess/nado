@@ -9,13 +9,15 @@
 // contract, no game-specific API.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, chainResultAlg, blocksToTime,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
-         recentChips, statusLabel, tablesOf as allTables, readTable, alertBar, notify,
+         recentChips, statusLabel, alertBar, notify,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { BankedGame } from "./bankedgame.js";   // the ONE banked-table reader/lobby (shared by every house game)
 
 const CID = "0ccfa996d30b5228e702a38a29b965fe";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <circle cx="24" cy="24" r="16" fill="#0b0f14" stroke="#b5810f" stroke-width="2"/>     <g stroke="#0b0f14" stroke-width=".6">       <path d="M24 24 L24 8 A16 16 0 0 1 35.3 12.7 Z" fill="#d0362b"/>       <path d="M24 24 L35.3 12.7 A16 16 0 0 1 40 24 Z" fill="#20272f"/>       <path d="M24 24 L40 24 A16 16 0 0 1 35.3 35.3 Z" fill="#1f8f4e"/>       <path d="M24 24 L35.3 35.3 A16 16 0 0 1 24 40 Z" fill="#d0362b"/>       <path d="M24 24 L24 40 A16 16 0 0 1 12.7 35.3 Z" fill="#20272f"/>       <path d="M24 24 L12.7 35.3 A16 16 0 0 1 8 24 Z" fill="#d0362b"/>       <path d="M24 24 L8 24 A16 16 0 0 1 12.7 12.7 Z" fill="#20272f"/>       <path d="M24 24 L12.7 12.7 A16 16 0 0 1 24 8 Z" fill="#20272f"/></g>     <circle cx="24" cy="24" r="6" fill="#e3b341" stroke="#b5810f" stroke-width="1.4"/>     <circle cx="24" cy="24" r="2.2" fill="#0b0f14"/>     <circle cx="24" cy="10.5" r="2" fill="#fff"/></svg>';
 const PN = 37, MAXSLOTS = 18, BLOCK_SECS = 6, ROUND = 20;   // ROUND must match the contract
 const dapp = new NadoDapp({ cid: CID, app: "Roulette" });
+const bg = new BankedGame(dapp, { icon: "🎡" });   // shared table reader (bg.read) + id list (bg.ids)
 const RED = new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
 const colorOf = (n) => n === 0 ? "green" : (RED.has(n) ? "red" : "black");
 const colorName = (n) => { const c = colorOf(n); return c === "red" ? window.t("roul.colRed", "RED") : c === "black" ? window.t("roul.colBlack", "BLACK") : window.t("roul.colGreen", "GREEN"); };
@@ -27,7 +29,7 @@ let seatsN = 40;   // cap how many of a table's (unbounded) seats we render at o
 let knownTables = new Set(), knownSeats = new Set();
 
 function pruneAndTrack(sto) {
-  knownTables = lsPrune(LS_T, allTables(sto));
+  knownTables = lsPrune(LS_T, bg.ids(sto));
   knownSeats = lsPrune(LS_S, Object.keys(_m(sto, "gg")));
 }
 function reopenTable() {   // retry an open that never landed (same id is still fresh on-chain)
@@ -40,7 +42,7 @@ function reopenTable() {   // retry an open that never landed (same id is still 
 
 // ---- reads (roulette-specific storage schema) ----------------------------------------------------
 function coveredOf(sto, g) { const mask = BigInt(_m(sto, "gmask")[String(g)] || 0), out = []; for (let n = 0; n < PN; n++) if ((mask >> BigInt(n)) & 1n) out.push(n); return out; }
-const tableFrom = (sto, t) => readTable(sto, t, dapp.cursor, ROUND);
+const tableFrom = (sto, t) => bg.read(sto, t);
 function seatsOfTable(sto, t) {
   t = String(t); const gg = _m(sto, "gg"), cur = dapp.cursor, out = [];
   for (const g of Object.keys(gg)) if (String(gg[g]) === t) {
@@ -146,7 +148,7 @@ function boardFrom(sto) {
 const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, window.t("roul.noScores", "No settled bets yet — be the first on the board."));
 function renderLobby(sto) {
   const el = $("lobbyList"); if (!el) return;
-  const tables = allTables(sto).map((t) => tableFrom(sto, t)).filter((t) => t.exists && !t.closed);
+  const tables = bg.ids(sto).map((t) => tableFrom(sto, t)).filter((t) => t.exists && !t.closed);
   tables.sort((a, b) => b.seatCount - a.seatCount || b.id - a.id);
   const shown = tables.slice(0, 24);
   el.innerHTML = shown.length ? shown.map((t) => {

@@ -7,13 +7,15 @@
 // bankroll so the table keeps rolling. Ordinary upgradable stackvm contract, no game-specific API.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, chainResultAlg, blocksToTime,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
-         recentChips, statusLabel, tablesOf as allTables, readTable, alertBar, notify,
+         recentChips, statusLabel, alertBar, notify,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { BankedGame } from "./bankedgame.js";   // the ONE banked-table reader/lobby (shared by every house game)
 
 const CID = "b37251eb6b8bbeedd3a69cad7d6611a1";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="9" y="9" width="30" height="30" rx="7" fill="#e6edf3" stroke="#243140" stroke-width="2"/>     <circle cx="17" cy="17" r="2.8" fill="#20272f"/><circle cx="31" cy="17" r="2.8" fill="#20272f"/>     <circle cx="24" cy="24" r="2.8" fill="#00ad93"/>     <circle cx="17" cy="31" r="2.8" fill="#20272f"/><circle cx="31" cy="31" r="2.8" fill="#20272f"/></svg>';
 const PN = 100, MMIN = 2, MMAX = 98, EDGE = 99, BLOCK_SECS = 6, ROUND = 20;
 const dapp = new NadoDapp({ cid: CID, app: "Dice" });
+const bg = new BankedGame(dapp, { icon: "🎲" });   // shared table reader (bg.read) + id list (bg.ids)
 
 const LS_T = "nado_dice_tables", LS_S = "nado_dice_seats";
 let lastSto = null;
@@ -22,14 +24,14 @@ let seatsN = 40;   // cap how many of a table's (unbounded) seats we render at o
 let knownTables = new Set(), knownSeats = new Set();
 
 function pruneAndTrack(sto) {
-  knownTables = lsPrune(LS_T, allTables(sto));
+  knownTables = lsPrune(LS_T, bg.ids(sto));
   knownSeats = lsPrune(LS_S, Object.keys(_m(sto, "gg")));
 }
 const multOf = (M) => EDGE / M;
 const returnRaw = (stake, M) => BigInt(stake) * BigInt(EDGE) / BigInt(M);
 
 // ---- reads (dice-specific storage schema) --------------------------------------------------------
-const tableFrom = (sto, t) => readTable(sto, t, dapp.cursor, ROUND);
+const tableFrom = (sto, t) => bg.read(sto, t);
 function seatsOfTable(sto, t) {
   t = String(t); const gg = _m(sto, "gg"), cur = dapp.cursor, out = [];
   for (const g of Object.keys(gg)) if (String(gg[g]) === t) {
@@ -132,7 +134,7 @@ function boardFrom(sto) {
 const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, window.t("dice.noScores", "No settled rolls yet — be the first on the board."));
 function renderLobby(sto) {
   const el = $("lobbyList"); if (!el) return;
-  const tables = allTables(sto).map((t) => tableFrom(sto, t)).filter((t) => t.exists && !t.closed);
+  const tables = bg.ids(sto).map((t) => tableFrom(sto, t)).filter((t) => t.exists && !t.closed);
   tables.sort((a, b) => b.seatCount - a.seatCount || b.id - a.id);
   const shown = tables.slice(0, 24);
   el.innerHTML = shown.length ? shown.map((t) => {

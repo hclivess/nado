@@ -347,32 +347,9 @@ export function statusLabel(pend, ok, err, extra) {
 }
 
 // ---- the shared auto-rolling table schema (roulette / dice / video-table games) -------------------
-// Every table-banked beacon game stores the SAME table maps: ta=bank t0=round-anchor tk=bankroll tp=pool
-// tc=committed tn=seats tx=settled tz=closed. Read them in one place so games only read their SEAT schema.
-// Banked-table readers for the lean _lib schema (execnode/games/_lib.py): a table EXISTS iff it has a banker
-// (ta, field 1). tk=bankroll, tp=pot, tc=committed, tz=closed. There is NO table-level open-height (`t0`) and
-// NO per-table seat/settle counters (`tn`/`tx`) — dice/roulette settle PER SEAT (each game row carries its own
-// settle height gh), so seat/settle counts and the soonest next roll are derived from the seat maps (gg=table,
-// gd=settled, gh=settle height). (Contracts that DO keep t0 — farkle, holdem — ship their own readTable.)
-export const tablesOf = (sto) => Object.keys(_m(sto, "ta"));
-export function readTable(sto, t, cursor, ROUND) {
-  t = String(t); const bank = _m(sto, "ta")[t];
-  if (!bank) return { exists: false };
-  const gg = _m(sto, "gg"), gd = _m(sto, "gd"), gh = _m(sto, "gh");
-  let seatCount = 0, settledCount = 0, soonest = null;
-  for (const g in gg) {
-    if (String(gg[g]) !== t) continue;
-    seatCount++;
-    if (gd[g]) { settledCount++; continue; }
-    const s = (gh[g] || 0) + 1;                                  // this seat settles one block after its gh
-    if (soonest == null || s < soonest) soonest = s;
-  }
-  const tb = { exists: true, id: Number(t), bank, bankroll: _m(sto, "tk")[t] || 0, pool: _m(sto, "tp")[t] || 0,
-    committed: _m(sto, "tc")[t] || 0, seatCount, settledCount, closed: !!_m(sto, "tz")[t] };
-  tb.phase = tb.closed ? "done" : "betting";
-  if (cursor != null && soonest != null) { tb.nextSettle = soonest; tb.roundEndsIn = Math.max(0, soonest - cursor); }
-  return tb;
-}
+// NOTE: the banked-table reader lives in ONE place — BankedGame (static/bankedgame.js): `bg.read(sto, t)` and
+// `bg.ids(sto)`. Every house game (dice, roulette, blackjack, mines, slots, …) uses it; there is no second
+// table reader here. (Round/phase games farkle + holdem keep a t0-based reader that BUILDS ON bg.read.)
 
 // ---- sticky inputs: what the player typed survives the wallet round-trip and the next turn --------
 // stickyInputs(dapp, ids): per-game localStorage memory for bet/stake/amount fields — a 0.001-NADO bet
@@ -813,7 +790,7 @@ export class NadoDapp {
   // but missing now is held for STICKY_GRACE_MS (a real deep-reorg removal still clears after the grace). So a
   // move/shot/result you've seen never flickers away; the chain stays a background confirmer, not a flicker source.
   //
-  // The table-EXISTENCE map `ta` (banker) — what readTable/tablesOf key {exists:true} on — is ALWAYS sticky-
+  // The table-EXISTENCE map `ta` (banker) — what bg.read keys {exists:true} on — is ALWAYS sticky-
   // merged, even when a game passes no opts.append: a table you just opened is the freshest, therefore most
   // reorg-vulnerable, write, and a table blinking out of the list for a poll is exactly the "I don't see my
   // table / confirming forever" symptom. `ta` is append-only until an explicit `close` (which sets tz, keeping
