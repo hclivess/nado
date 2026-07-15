@@ -250,6 +250,16 @@ alghash2, so a forged root bundle means a forged inner proof at some level, i.e.
 a broken FRI — the same assumptions as §6. The work remaining is engineering (the fan-in driver + the per-level
 public-statement rebuild + throughput), NOT a new soundness primitive. Tracked as the O(1)-in-K milestone.
 
+**BUILT + measured (`execnode/stark/recursion_depth.py`, `tests/test_recursion_depth.py`):** the LOW-DEGREE
+depth tree — `fold_tree`/`verify_tree` over the `out_backend=RECURSION` enabler (`fri_verify.prove_fold`) that
+makes a fold proof itself rleaf/rnode-committed and thus foldable. A fold-of-folds ROOT was proven and
+**verified in ~0.2 s** — a recursion proof verifying recursion proofs, with O(1) verification regardless of tree
+depth (the goal). The PROVE side is throughput-bound exactly as §6/§7 warn (a level-1 fold measured at N=131072,
+~19 min pure Python — the recursion LDE outgrows the native NTT cap), so `test_recursion_depth` validates the
+enabler + foldability fast and gates the full fold-of-folds step behind `NADO_HEAVY=1`. This is the LOW-DEGREE
+tree; the AUTHORITATIVE (per-level composition-bound) tree and the exec-AIR wiring are the remaining plumbing,
+and the Rust prover is the throughput prerequisite for deep trees.
+
 ## 6. Soundness ledger (what each piece rests on)
 
 - **Inner proofs:** FRI/STARK soundness (already tested) over **alghash2** collision-resistance (≥128-bit).

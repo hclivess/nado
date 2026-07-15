@@ -359,11 +359,15 @@ def _transitions():
     return cons
 
 
-def prove_fold(fri_proofs, num_queries_inner=None, num_queries_outer=64, mk_transcripts=None):
+def prove_fold(fri_proofs, num_queries_inner=None, num_queries_outer=64, mk_transcripts=None, out_backend=None):
     """Fold REAL fri.prove(backend=RECURSION) proofs into ONE recursion proof. `num_queries_inner` must equal
     each inner proof's query count (defaults to len(queries) of the first). The outer proof is proven at
     `num_queries_outer` (protocol strength). `mk_transcripts[i]` (optional) rebuilds proof i's FRI-start
     transcript — needed when the inner FRI is embedded in a STARK; None = standalone (fresh 'fri' transcript).
+
+    `out_backend` sets the HASH the fold's OWN proof commits under (default ALGHASH2). Pass backend.RECURSION
+    to make the fold proof itself rleaf/rnode-committed — i.e. DEPTH-READY: its own FRI is then exactly the
+    shape prove_fold folds, so this proof can be an inner proof of ANOTHER fold (recursion_depth.fold_tree).
     Returns (recursion_proof, publics)."""
     publics = [{"roots": p["roots"], "N": p["N"], "offset": p["offset"], "blowup": p["blowup"],
                 "final": p["final"], "pow": p.get("pow")} for p in fri_proofs]
@@ -385,12 +389,13 @@ def prove_fold(fri_proofs, num_queries_inner=None, num_queries_outer=64, mk_tran
     pub_flat = [st for steps in merged["queries"] for st in steps]
     rows = _fill_trace(pub_flat, wit_flat, T, segs)
     proof = stark.prove(rows, _transitions(), bnds, periodic=per, max_degree=8,
-                        num_queries=num_queries_outer, backend=backend.ALGHASH2)
+                        num_queries=num_queries_outer, backend=out_backend or backend.ALGHASH2)
     return proof, {"publics": publics, "num_queries_inner": num_queries_inner,
                    "num_queries_outer": num_queries_outer, "seam_lo0": seam_lo0}
 
 
-def verify_fold(recursion_proof, public, mk_transcripts=None, expect_inner=None, expect_outer=None):
+def verify_fold(recursion_proof, public, mk_transcripts=None, expect_inner=None, expect_outer=None,
+                out_backend=None):
     """SOUND verification. `public` = the {publics, num_queries_inner, num_queries_outer} from prove_fold.
     Re-derives the canonical schedule from each inner proof's PUBLIC part (recomputing FS challenges, checking
     grind + final-layer low-degree + geometry), builds periodic+boundaries ITSELF, and verifies the recursion
@@ -425,6 +430,6 @@ def verify_fold(recursion_proof, public, mk_transcripts=None, expect_inner=None,
             return False, "seam value count != query count"
         per, bnds, _T, _segs, _qe = _schedule_periodic_boundaries(merged, seam)  # VERIFIER builds the schedule
         return stark.verify(recursion_proof, _transitions(), bnds, periodic=per, max_degree=8,
-                            num_queries=nqo, backend=backend.ALGHASH2)
+                            num_queries=nqo, backend=out_backend or backend.ALGHASH2)
     except Exception as e:
         return False, f"malformed recursion bundle: {e}"
