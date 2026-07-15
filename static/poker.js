@@ -12,10 +12,12 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, algHashn, ALG_P, _m
          hoist, orderCards, blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, notify, okBar,
          scoreBump, scoreSort, recentChips, statusLabel,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { BankedGame } from "./bankedgame.js";   // the ONE banked-table reader — hold'em overlays its street phases
 
 const CID = "2fb48456656d5aa253b32ff5d72401ec";   // execnode/games/holdem.py (zkVM, nonce "a5")
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="8" y="13" width="18" height="24" rx="3" fill="#e6edf3" stroke="#243140" stroke-width="1.6" transform="rotate(-9 17 25)"/>     <path d="M14 20c-2.4 2.4-4 3.4-4 5.4 0 1.4 1.1 2.2 2.2 2.2.5 0 1-.2 1.3-.5-.2 1-.6 1.7-1.2 2.2h3.4c-.6-.5-1-1.2-1.2-2.2.3.3.8.5 1.3.5 1.1 0 2.2-.8 2.2-2.2 0-2-1.6-3-4-5.4z" fill="#20272f" transform="rotate(-9 14 25)"/>     <rect x="22" y="13" width="18" height="24" rx="3" fill="#fff" stroke="#243140" stroke-width="1.6" transform="rotate(9 31 25)"/>     <path d="M31 30c-.7-.7-3.2-2.3-3.2-4.6 0-1.3 1-2.2 2.1-2.2.6 0 1.1.3 1.1.9 0-.6.5-.9 1.1-.9 1.1 0 2.1.9 2.1 2.2 0 2.3-2.5 3.9-3.2 4.6z" fill="#d0362b" transform="rotate(9 31 26)"/></svg>';
 const dapp = new NadoDapp({ cid: CID, app: "Hold'em" });
+const bg = new BankedGame(dapp, { icon: "🂠" });   // shared reader for existence + ta/tp/tn/tz; streets overlaid below
 const F0 = 14, S = 20, GRACE = 5, R = 60;         // MUST match the contract (tests/test_holdem_contract.py)
 // NO seating timer: the HOST controls the start — start(t) binds the deal to two future blocks (td).
 // b0 = td+F0: the SHUFFLE — betting opens only once hole cards are finalized (no blind pre-flop).
@@ -100,11 +102,12 @@ function eval7(cards) {
 
 // ---- reads ---------------------------------------------------------------------------------------
 function tableFrom(sto, t) {
-  t = String(t); const host = _m(sto, "ta")[t], t0 = _m(sto, "t0")[t];
-  if (!host || t0 == null) return { exists: false };
-  const tb = { exists: true, id: Number(t), host, t0, ante: _m(sto, "ts")[t] || 0, pot: _m(sto, "tp")[t] || 0,
-    seatCount: _m(sto, "tn")[t] || 0, revealCount: _m(sto, "tx")[t] || 0,
-    best: _m(sto, "tw")[t] || 0, leader: _m(sto, "tb")[t] || 0, closed: !!_m(sto, "tz")[t] };
+  const b = bg.read(sto, t);                       // ONE reader: existence (ta), pot (tp), seatCount (tn), closed (tz)
+  if (!b.exists) return { exists: false };
+  t = String(t);
+  const tb = { exists: true, id: b.id, host: b.bank, t0: _m(sto, "t0")[t], ante: _m(sto, "ts")[t] || 0, pot: b.pool,
+    seatCount: b.seatCount, revealCount: b.settledCount,
+    best: _m(sto, "tw")[t] || 0, leader: _m(sto, "tb")[t] || 0, closed: b.closed };
   tb.td = _m(sto, "td")[t] || 0;                   // deal anchor — 0 until the HOST deals
   tb.d0 = tb.td;
   tb.price = (k) => _m(sto, "ms")[String(Number(t) * 8 + k)] || 0;

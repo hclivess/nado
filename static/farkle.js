@@ -8,10 +8,12 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, 
          scoreBump, scoreSort, recentChips, statusLabel, shareInvite,
          alertBar, notify,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
+import { BankedGame } from "./bankedgame.js";   // the ONE banked-table reader — farkle overlays its round phases
 
 const CID = "b56dd48000707369be1630e41bfb038d";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="5" y="21" width="16" height="16" rx="4" fill="#e6edf3" stroke="#243140" stroke-width="1.6"/>     <circle cx="9.5" cy="25.5" r="1.6" fill="#20272f"/><circle cx="16.5" cy="32.5" r="1.6" fill="#20272f"/><circle cx="13" cy="29" r="1.6" fill="#00ad93"/>     <rect x="27" y="21" width="16" height="16" rx="4" fill="#e3b341" stroke="#8a6209" stroke-width="1.6"/>     <circle cx="31.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="31.5" cy="32.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="32.5" r="1.6" fill="#3a2a05"/>     <rect x="16" y="6" width="16" height="16" rx="4" fill="#d0362b" stroke="#8a1a12" stroke-width="1.6"/>     <circle cx="24" cy="14" r="1.9" fill="#fff"/></svg>';
 const dapp = new NadoDapp({ cid: CID, app: "Farkle" });
+const bg = new BankedGame(dapp, { icon: "🎲" });   // shared reader for existence + ta/tp/tn/tz; phases overlaid below
 const JOIN = 20, PLAY = 600, GAP = 2, MAXP = 8, TARGET = 4000;   // MUST match the contract
 const BASE = { 1: 1000, 2: 200, 3: 300, 4: 400, 5: 500, 6: 600 };
 
@@ -66,11 +68,12 @@ function keepScoreValid(keepC, rolled, diceLeft) {
 
 // ---- reads ---------------------------------------------------------------------------------------
 function tableFrom(sto, t) {
-  t = String(t); const host = _m(sto, "ta")[t], t0 = _m(sto, "t0")[t];
-  if (!host || t0 == null) return { exists: false };
-  const tb = { exists: true, id: Number(t), host, t0, ante: _m(sto, "ts")[t] || 0, pot: _m(sto, "tp")[t] || 0,
-    seatCount: _m(sto, "tn")[t] || 0, finishedCount: _m(sto, "tx")[t] || 0,
-    best: _m(sto, "tw")[t] || 0, leader: _m(sto, "tb")[t] || 0, closed: !!_m(sto, "tz")[t],
+  const base = bg.read(sto, t);                    // ONE reader: existence (ta), pot (tp), seatCount (tn), closed (tz)
+  if (!base.exists) return { exists: false };
+  t = String(t); const t0 = _m(sto, "t0")[t];
+  const tb = { exists: true, id: base.id, host: base.bank, t0, ante: _m(sto, "ts")[t] || 0, pot: base.pool,
+    seatCount: base.seatCount, finishedCount: base.settledCount,
+    best: _m(sto, "tw")[t] || 0, leader: _m(sto, "tb")[t] || 0, closed: base.closed,
     finalRound: !!_m(sto, "tfr")[t] };
   const cur = dapp.cursor;
   if (cur != null) {
