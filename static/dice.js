@@ -44,7 +44,7 @@ function seatsOfTable(sto, t) {
   }
   return out.sort((a, b) => (b.gh - a.gh) || (b.g - a.g));   // newest FIRST by bound block height (seat ids are random, not time-ordered)
 }
-async function fetchTable(t) { const sto = await dapp.storage(); return sto ? tableFrom(sto, t) : null; }
+async function fetchTable(t) { const sto = await dapp.storage({ append: ["gg", "ga", "gs", "gm", "gh", "gr", "gw", "gd"] }); return sto ? tableFrom(sto, t) : null; }
 
 // ---- actions -------------------------------------------------------------------------------------
 function openTable(t, bankrollRaw) {
@@ -100,7 +100,7 @@ const closeTable = () => dapp.call("close", [activeTable], null, window.t("dice.
 async function refreshActive() {
   await dapp.refresh();
   dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
-  const sto = await dapp.storage();
+  const sto = await dapp.storage({ append: ["gg", "ga", "gs", "gm", "gh", "gr", "gw", "gd"] });
   if (sto) {
     lastSto = sto;
     pruneAndTrack(sto);

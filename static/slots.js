@@ -110,7 +110,7 @@ const closeMachine = () => dapp.call("close", [activeTable], null, window.t("slo
 async function refreshAll() {
   await dapp.refresh();
   dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
-  const sto = await dapp.storage();
+  const sto = await dapp.storage({ append: ["gg", "ga", "gs", "gh", "gr", "gw", "gd"] });
   if (sto) {
     lastSto = sto;
     knownTables = lsPrune(LS_T, bg.ids(sto));
