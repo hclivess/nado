@@ -119,10 +119,27 @@ class _Alghash2:
         return [int(e) % F.P for e in digest]
 
 
+class _Recursion(_Alghash2):
+    """The RECURSION-READY backend: alghash2 transcript (unchanged) but Merkle leaf/node = the FIXED-ARITY
+    rleaf/rnode (ONE permutation per node — no length prefix). A proof committed with this backend has a Merkle
+    tree the in-circuit membership AIR (execnode/stark/recursion.py) spends exactly one permutation block per
+    level on — i.e. a proof `fri.prove(..., backend=RECURSION)` is directly verifiable INSIDE a recursion
+    proof. (The plain ALGHASH2 backend uses the hashn sponge for Merkle too, which the in-VM verifier would pay
+    two blocks per node for.)"""
+    name = "recursion"
+
+    def leaf(self, x):
+        return alghash2.rleaf(x)
+
+    def node(self, a, b):
+        return alghash2.rnode(tuple(a), tuple(b))
+
+
 BLAKE2B = _Blake2b()
 ALGHASH2 = _Alghash2()
+RECURSION = _Recursion()
 DEFAULT = BLAKE2B
 
 
 def get(name):
-    return {"blake2b": BLAKE2B, "alghash2": ALGHASH2}[name]
+    return {"blake2b": BLAKE2B, "alghash2": ALGHASH2, "recursion": RECURSION}[name]

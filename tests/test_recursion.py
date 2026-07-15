@@ -206,6 +206,24 @@ def _fri_bundle(N, seed):
     return {"queries": [query(1)], "final": final_val}
 
 
+def t_real_fri_in_circuit():
+    """The in-circuit FRI verifier verifies a REAL fri.prove proof (recursion backend), not a hand-built one —
+    extract_fri bridges it, and a tampered final is rejected."""
+    from execnode.stark import fri
+    import random
+    random.seed(3)
+    N, deg = 32, 4
+    coeffs = [random.randrange(F.P) for _ in range(deg)] + [0] * (N - deg)
+    off = F.GENERATOR
+    evals = [F.poly_eval(coeffs, x) for x in F.domain(N, off)]
+    proof = fri.prove(evals, off, blowup=N // deg, num_queries=3, backend=backend.RECURSION)
+    ok, why = fri.verify(proof, num_queries=3, expected_blowup=N // deg, backend=backend.RECURSION)
+    assert ok, f"native FRI check: {why}"
+    rp = recursion.prove_recursive([proof], num_queries=4)               # verify it INSIDE a proof
+    okr, whyr = recursion.verify_recursive(rp, num_queries=4)
+    assert okr, f"real FRI proof must verify in-circuit: {whyr}"
+
+
 def t_recursive_fold():
     """THE FOLD: two independent FRI proofs verified inside ONE recursion proof (a proof of proofs). Verifies;
     and corrupting one folded proof's final is rejected — the single check covers every folded proof."""
@@ -257,6 +275,7 @@ if __name__ == "__main__":
     check("integrated FRI-step AIR (membership+fold, authenticated openings link to the fold)", t_fri_step_air)
     check("chained FRI-query verifier (all layers' openings + folds -> final, in one proof)", t_fri_query_air)
     check("composition spot-check AIR (trace openings bound to the constraints)", t_comp_step_air)
+    check("REAL fri.prove proof verified IN-CIRCUIT (recursion backend + extract_fri)", t_real_fri_in_circuit)
     check("THE FOLD: one recursion proof verifies MULTIPLE FRI proofs (tamper rejected)", t_recursive_fold)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

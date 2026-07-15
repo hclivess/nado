@@ -678,16 +678,46 @@ def verify_fri_query(proof, num_queries=4):
     return verify_fri_proof(proof, num_queries=num_queries)
 
 
+def extract_fri(fri_proof):
+    """Bridge a REAL FRI proof — `fri.prove(evals, off, blowup, num_queries, backend=backend.RECURSION)` — into
+    the (queries, per-query finals) the in-circuit verifier consumes. Replays the FRI transcript (recursion
+    backend) to recover the fold challenges + domains, then reads each query's per-layer openings + rleaf/rnode
+    Merkle paths straight from the proof. Requires the RECURSION backend so the Merkle tree is rleaf/rnode."""
+    from execnode.stark.transcript import Transcript
+    b = backend.RECURSION
+    t = Transcript("fri", backend=b)
+    alphas, doms, o, n = [], [], fri_proof["offset"], fri_proof["N"]
+    for r in fri_proof["roots"]:
+        t.absorb(r); alphas.append(t.challenge()); doms.append(F.domain(n, o)); o = F.mul(o, o); n //= 2
+    Lr = len(fri_proof["roots"])
+    queries, finals = [], []
+    for q in fri_proof["queries"]:
+        a, steps, last_lo = q["idx"], [], 0
+        for Li in range(Lr):
+            dom = doms[Li]; nL = len(dom); half = nL // 2; a %= nL; lo = a % half
+            step = q["steps"][Li]
+            c2lo = True if Li + 1 >= Lr else (lo < len(doms[Li + 1]) // 2)
+            steps.append((step["lo"], lo, step["lo_path"], step["hi"], lo + half, step["hi_path"],
+                          fri_proof["roots"][Li], dom[lo], alphas[Li], c2lo))
+            last_lo = lo; a = lo
+        queries.append(steps); finals.append(fri_proof["final"][last_lo])
+    return queries, finals
+
+
 def prove_recursive(fri_proofs, num_queries=4):
-    """THE FOLD (for FRI low-degree proofs): verify MANY FRI proofs inside ONE recursion proof — a proof that
-    proves other proofs. `fri_proofs` = list of {"queries": [...], "final": value} (each in recursion-ready
-    rleaf/rnode form). Concatenates every proof's query-chains, each pinned to its OWN proof's final, into a
-    single STARK. verify_recursive checks that one proof — O(1) in the number of folded proofs, up to the trace
-    cap (beyond which fold_tree recurses). This is the aggregation step segmentation feeds into."""
+    """THE FOLD: verify MANY FRI proofs inside ONE recursion proof — a proof that proves other proofs. Accepts
+    either REAL FRI proofs (dicts with "roots"/"queries"/… from fri.prove(..., backend=RECURSION)) or the
+    pre-extracted {"queries", "final"} form. Concatenates every proof's query-chains — each pinned to its own
+    proof's final — into one STARK; verify_recursive checks that single proof (O(1) in the proof count, up to
+    the trace cap, beyond which fold_tree recurses). This is the aggregation segmentation feeds into."""
     all_queries, all_finals = [], []
     for fp in fri_proofs:
-        for q in fp["queries"]:
-            all_queries.append(q); all_finals.append(fp["final"])
+        if "roots" in fp:                            # a real FRI proof
+            qs, fs = extract_fri(fp)
+            all_queries += qs; all_finals += fs
+        else:                                        # pre-extracted {queries, final}
+            for q in fp["queries"]:
+                all_queries.append(q); all_finals.append(fp["final"])
     return _prove_fri(all_queries, all_finals, num_queries)
 
 
