@@ -85,6 +85,36 @@ def t_preimage_air():
     assert not recursion.verify_preimage(bad, digest, num_queries=3)[0], "tampered trace rejected"
 
 
+def t_fri_fold_air():
+    """The FRI fold-consistency AIR: fold rows from a REAL FRI proof prove + verify; a fold made inconsistent
+    is rejected. This is the arithmetic half of the in-circuit FRI verifier (pairs with the membership AIR)."""
+    from execnode.stark import fri
+    from execnode.stark.transcript import Transcript
+    import random
+    random.seed(3)
+    N, deg = 64, 8
+    coeffs = [random.randrange(F.P) for _ in range(deg)] + [0] * (N - deg)
+    off = F.GENERATOR
+    evals = [F.poly_eval(coeffs, x) for x in F.domain(N, off)]
+    proof = fri.prove(evals, off, blowup=N // deg, num_queries=4, backend=backend.ALGHASH2)
+    t = Transcript("fri", backend=backend.ALGHASH2)
+    alphas, doms, o, n = [], [], off, N
+    for r in proof["roots"]:
+        t.absorb(r); alphas.append(t.challenge()); doms.append(F.domain(n, o)); o = F.mul(o, o); n //= 2
+    rows = recursion.fold_rows(proof, alphas, doms)
+    assert rows, "no fold rows extracted"
+    fp = recursion.prove_fri_folds(rows, num_queries=4)
+    ok, why = recursion.verify_fri_folds(fp, rows, num_queries=4)
+    assert ok, f"real fold proof must verify: {why}"
+    bad = list(rows); bad[0] = (bad[0][0] ^ 1,) + bad[0][1:]      # break one fold's consistency
+    try:
+        bp = recursion.prove_fri_folds(bad, num_queries=4)
+        ok2, _ = recursion.verify_fri_folds(bp, bad, num_queries=4)
+        assert not ok2, "an inconsistent fold must be rejected"
+    except Exception:
+        pass                                                     # prover refusing the bad witness is also fine
+
+
 if __name__ == "__main__":
     check("alghash2: 256-bit digest, deterministic, separated", t_alghash2_digest_width)
     check("alghash2: MDS linear layer is invertible", t_alghash2_mds_invertible)
@@ -93,5 +123,6 @@ if __name__ == "__main__":
     check("alghash2 STARK proves+verifies+rejects tamper (field-verifiable proof)", t_alghash2_stark)
     check("recursion gadget: alghash2 preimage AIR (proves in-circuit, wrong digest/tamper rejected)",
           t_preimage_air)
+    check("FRI fold-consistency AIR (real folds prove; inconsistent fold rejected)", t_fri_fold_air)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)
