@@ -146,6 +146,15 @@ def rleaf(x):
     return tuple(permute([*a, 0, 0, 0, 0, *IV])[:CAPACITY])
 
 
+def rrow(values):
+    """RECURSION-tree ROW leaf: one digest for a whole trace row (W field elements) — the row-commitment
+    primitive that lets an in-circuit verifier authenticate an opened row with ONE Merkle path instead of W.
+    Just hashn with DOM_LEAF prepended (⌈(W+2)/RATE⌉ permutations, multi-chunk absorption — the exact pattern
+    the in-circuit sponge gadget replicates). Injective vs rleaf (its lane-0 is the element count ≥ 2, rleaf's
+    is DOM_LEAF=1) and vs rnode (whose lane 0..3 is a digest) by frame structure."""
+    return hashn([DOM_LEAF, *[int(v) % F.P for v in values]])
+
+
 def grind(state, dom, bits):
     """Native proof-of-work: return the SMALLEST nonce whose hashn([dom, *state, nonce]) has `bits` leading
     zero bits of its 256-bit digest — the whole 2^bits loop run in Rust (the fold's dominant cost). Returns

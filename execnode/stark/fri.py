@@ -141,14 +141,16 @@ def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backe
         b = backend or _backend.DEFAULT
         t = transcript or Transcript("fri", backend=b)
 
-        # replay the transcript to recover the same folding challenges + query positions
-        alphas, offs, doms = [], [], []
+        # replay the transcript to recover the same folding challenges + query positions. Only layer OFFSETS and
+        # SIZES are kept — domain points are computed on demand as off·ω^pos, so verification never allocates an
+        # O(N) domain (a per-query pw instead; the succinct-verifier requirement).
+        alphas, offs, sizes = [], [], []
         off = offset
         n = N
         for r in roots:
             t.absorb(r)
             alphas.append(t.challenge())
-            offs.append(off); doms.append(F.domain(n, off))
+            offs.append(off); sizes.append(n)
             off = F.mul(off, off); n //= 2
         t.absorb("final", *final)
         # C-1: the prover's proof-of-work must meet GRIND_BITS before the (transcript-derived) query positions
@@ -169,8 +171,8 @@ def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backe
             if idx != q["idx"]:
                 return False, "query index does not match transcript"
             a = idx
-            for L, (root, alpha, dom, step) in enumerate(zip(roots, alphas, doms, q["steps"])):
-                n = len(dom); half = n // 2
+            for L, (root, alpha, step) in enumerate(zip(roots, alphas, q["steps"])):
+                n = sizes[L]; half = n // 2
                 a %= n
                 lo = a % half
                 # Merkle-check both opened points against this layer's root
@@ -179,13 +181,13 @@ def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backe
                 if not merkle.verify(root, lo + half, step["hi"], step["hi_path"], b):
                     return False, f"bad Merkle opening (hi) at layer {L}"
                 # the fold of this layer's pair must equal the NEXT layer's value at position `lo`
-                x = dom[lo]
+                x = F.mul(offs[L], F.pw(F.primitive_root_of_unity(n), lo))
                 fe = F.mul(F.add(step["lo"], step["hi"]), INV2)
                 fo = F.mul(F.sub(step["lo"], step["hi"]), F.mul(INV2, F.inv(x)))
                 folded = F.add(fe, F.mul(alpha, fo))
                 if L + 1 < len(roots):
                     nxt = q["steps"][L + 1]
-                    nhalf = len(doms[L + 1]) // 2
+                    nhalf = sizes[L + 1] // 2
                     # position `lo` in the next layer (size = half): it is the opened lo if lo<nhalf, else the hi
                     expected = nxt["lo"] if lo < nhalf else nxt["hi"]
                     if folded != expected:

@@ -30,8 +30,11 @@ def t_honest_verifies():
     p = _lowdeg(5)
     assert fri.verify(p, num_queries=NQ, expected_blowup=N // DEG, backend=B.RECURSION)[0]
     rp, pub = V.prove_fold([p], num_queries_inner=NQ, num_queries_outer=8)
-    ok, why = V.verify_fold(rp, pub)
+    ok, why = V.verify_fold(rp, pub, expect_inner=NQ, expect_outer=8)
     assert ok, f"honest low-degree fold must verify: {why}"
+    # sound-by-default: a naive verify (no expected counts) uses full protocol strength and rejects this
+    # deliberately-weak (NQ=3) test proof rather than trusting the bundle's declared count.
+    assert not V.verify_fold(rp, pub)[0], "default verify must demand protocol query strength"
 
 
 def t_high_degree_rejected():
@@ -52,13 +55,13 @@ def t_high_degree_rejected():
     lying = {"publics": [{"roots": p["roots"], "N": N, "offset": off, "blowup": N // DEG,
                           "final": p["final"], "pow": p.get("pow")}],
              "num_queries_inner": NQ, "num_queries_outer": 8}
-    assert not V.verify_fold(rp, lying)[0], "verifier must reject a high-degree public statement"
+    assert not V.verify_fold(rp, lying, expect_inner=NQ, expect_outer=8)[0], "verifier must reject a high-degree public statement"
 
 
 def t_tampers_rejected():
     p = _lowdeg(7)
     rp, pub = V.prove_fold([p], num_queries_inner=NQ, num_queries_outer=8)
-    assert V.verify_fold(rp, pub)[0]
+    assert V.verify_fold(rp, pub, expect_inner=NQ, expect_outer=8)[0]
     for mut, label in [
         (lambda x: x["publics"][0].__setitem__("roots", [("11" * 8,)] + x["publics"][0]["roots"][1:]), "tampered root"),
         (lambda x: x["publics"][0].__setitem__("pow", 0), "stripped grinding PoW"),

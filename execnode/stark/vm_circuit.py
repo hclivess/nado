@@ -714,7 +714,7 @@ def _norm_call(call):
     return c
 
 
-def prove_epoch_calls(calls, num_queries=stark.NUM_QUERIES, backend=None):
+def prove_epoch_calls(calls, num_queries=stark.NUM_QUERIES, backend=None, row_commit=False):
     """Prove an ORDERED batch of zkVM calls as ONE proof (aggregation). Each call is
     {code, method, caller, args, value?, cursor?, timestamp?, beacons?, block_hashes?, slots?}; `slots` is
     that call's PRE-storage (the caller chains them). Returns (proof, epoch_io, per_call). L1 verifies this
@@ -728,7 +728,8 @@ def prove_epoch_calls(calls, num_queries=stark.NUM_QUERIES, backend=None):
     trace, T, blocks, progs, epoch_io, per_call = build_epoch_trace(calls)
     periodic = build_periodic(blocks, progs, epoch_io, T)
     proof = stark.prove(trace, transitions(), _boundaries(T), periodic=periodic, max_degree=MAX_DEGREE,
-                        num_queries=num_queries, aux_spec=_aux_spec(periodic), backend=backend)
+                        num_queries=num_queries, aux_spec=_aux_spec(periodic), backend=backend,
+                        row_commit=row_commit)
     proof["progs"] = [[list(ins) for ins in p] for p in progs]
     proof["blocks"] = [{"start": s, "n": n, "pid": pid} for (s, n, pid, _c) in blocks]
     if backend is not None:
@@ -736,58 +737,71 @@ def prove_epoch_calls(calls, num_queries=stark.NUM_QUERIES, backend=None):
     return proof, epoch_io, per_call
 
 
-def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES, backend=None):
+def epoch_statement(proof, calls, epoch_io):
+    """Rebuild the epoch AIR's PUBLIC statement — the periodic tables + boundaries — from the public calls +
+    io log + the proof's DECLARED block lengths (cross-checked for contiguity/fit; nothing else is trusted).
+    Everything verify_epoch_calls checks before the STARK itself, factored out so the RECURSIVE verifier
+    (recursive_verify over row-committed segments) can build the same statement without running stark.verify.
+    Returns (ok, reason, periodic, boundaries)."""
+    T, W = proof["T"], proof["W"]
+    if not isinstance(T, int) or not (MIN_T <= T <= MAX_T) or W != W_TOTAL:
+        return False, "bad trace geometry", None, None
+    calls = [_norm_call(c) for c in calls]
+    for c in calls:
+        zkvm.validate_code(c["code"])
+        if c["method"] not in c["code"]:
+            return False, "unknown method", None, None
+        if len(c["args_f"]) > zkvm.MAX_ARGS:          # provable == executable: the VM would refuse it
+            return False, "too many args", None, None
+    # rebuild the (blocks, progs) schedule from the public calls + the proof's declared block lengths,
+    # then re-derive every periodic column and check the declared lengths against the claimed io log.
+    decl = proof.get("blocks")
+    if not isinstance(decl, list) or len(decl) != len(calls):
+        return False, "block schedule missing/mismatched", None, None
+    prog_ids, progs, blocks = {}, [], []
+    for c, b in zip(calls, decl):
+        prog = c["code"][c["method"]]
+        key = _prog_key(prog)
+        if key not in prog_ids:
+            prog_ids[key] = len(progs); progs.append(prog)
+        if not (isinstance(b.get("start"), int) and isinstance(b.get("n"), int) and b["n"] >= 1):
+            return False, "bad block", None, None
+        blocks.append((b["start"], b["n"], prog_ids[key], c))
+    # blocks must tile [0, total) contiguously in order (no gaps/overlaps — that is what makes the
+    # concatenation a faithful sequential execution)
+    pos = 0
+    for (s, n, _pid, _c) in blocks:
+        if s != pos:
+            return False, "non-contiguous block schedule", None, None
+        pos += n
+    if pos > T - 2:
+        return False, "epoch does not fit the trace", None, None
+    for e in epoch_io:
+        if not (isinstance(e, (list, tuple)) and len(e) == 3
+                and all(isinstance(x, int) and not isinstance(x, bool) and 0 <= x < F.P for x in e)):
+            return False, "malformed io log entry", None, None
+    if len(epoch_io) > T - 2:
+        return False, "io log does not fit the trace", None, None
+    norm_io = [(e[0], e[1] % F.P, e[2] % F.P) for e in epoch_io]
+    periodic = build_periodic(blocks, progs, norm_io, T)
+    return True, "ok", periodic, _boundaries(T)
+
+
+def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES, backend=None, row_commit=False):
     """Verify a proven epoch WITHOUT executing any call. `calls` is the public statement (code/method/caller/
     args/context per call, in order); `epoch_io` the claimed global I/O log. Returns (ok, reason). The
     periodic tables (programs, log order, per-call context) are rebuilt locally — nothing is trusted from the
     proof except commitments/openings. On ok, apply the epoch by replaying epoch_io per call."""
     try:
-        T, W = proof["T"], proof["W"]
-        if not isinstance(T, int) or not (MIN_T <= T <= MAX_T) or W != W_TOTAL:
-            return False, "bad trace geometry"
-        calls = [_norm_call(c) for c in calls]
-        for c in calls:
-            zkvm.validate_code(c["code"])
-            if c["method"] not in c["code"]:
-                return False, "unknown method"
-            if len(c["args_f"]) > zkvm.MAX_ARGS:          # provable == executable: the VM would refuse it
-                return False, "too many args"
-        # rebuild the (blocks, progs) schedule from the public calls + the proof's declared block lengths,
-        # then re-derive every periodic column and check the declared lengths against the claimed io log.
-        decl = proof.get("blocks")
-        if not isinstance(decl, list) or len(decl) != len(calls):
-            return False, "block schedule missing/mismatched"
-        prog_ids, progs, blocks = {}, [], []
-        for c, b in zip(calls, decl):
-            prog = c["code"][c["method"]]
-            key = _prog_key(prog)
-            if key not in prog_ids:
-                prog_ids[key] = len(progs); progs.append(prog)
-            if not (isinstance(b.get("start"), int) and isinstance(b.get("n"), int) and b["n"] >= 1):
-                return False, "bad block"
-            blocks.append((b["start"], b["n"], prog_ids[key], c))
-        # blocks must tile [0, total) contiguously in order (no gaps/overlaps — that is what makes the
-        # concatenation a faithful sequential execution)
-        pos = 0
-        for (s, n, _pid, _c) in blocks:
-            if s != pos:
-                return False, "non-contiguous block schedule"
-            pos += n
-        if pos > T - 2:
-            return False, "epoch does not fit the trace"
-        for e in epoch_io:
-            if not (isinstance(e, (list, tuple)) and len(e) == 3
-                    and all(isinstance(x, int) and not isinstance(x, bool) and 0 <= x < F.P for x in e)):
-                return False, "malformed io log entry"
-        if len(epoch_io) > T - 2:
-            return False, "io log does not fit the trace"
-        norm_io = [(e[0], e[1] % F.P, e[2] % F.P) for e in epoch_io]
-        periodic = build_periodic(blocks, progs, norm_io, T)
+        ok, why, periodic, bnds = epoch_statement(proof, calls, epoch_io)
+        if not ok:
+            return False, why
         if backend is None and proof.get("backend"):     # honour the hash the proof was produced with
             from execnode.stark import backend as _bk
             backend = _bk.get(proof["backend"])
-        return stark.verify(proof, transitions(), _boundaries(T), periodic=periodic, max_degree=MAX_DEGREE,
-                            num_queries=num_queries, aux_spec=_aux_spec(periodic), backend=backend)
+        return stark.verify(proof, transitions(), bnds, periodic=periodic, max_degree=MAX_DEGREE,
+                            num_queries=num_queries, aux_spec=_aux_spec(periodic), backend=backend,
+                            row_commit=row_commit)
     except Exception as e:
         return False, f"malformed statement/proof: {e}"
 
