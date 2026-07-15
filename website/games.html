@@ -133,6 +133,13 @@ const SVG = {
     <path d="M24 13.5c-6.4 2-9.5 6-9.5 10.5l3 6h13l3-6c0-4.5-3.1-8.5-9.5-10.5z" fill="#00c9a7"/>
     <path d="M17.5 30h13l-1.4 4.2h-10.2z" fill="#00ad93"/>
     <rect x="14.5" y="34" width="19" height="4.4" rx="2.2" fill="#00c9a7"/></svg>`,
+  stormhold:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
+    <path d="M8 10h32l-4 6H12z" fill="#00c9a7"/>
+    <path d="M14 18h22l-4 6H18z" fill="#00ad93"/>
+    <path d="M20 26h12l-4 6h-6z" fill="#00c9a7"/>
+    <path d="M25 34h4l-2 7z" fill="#00ad93"/>
+    <rect x="33" y="26" width="7" height="12" rx="1.4" fill="#e3b341"/>
+    <path d="M33 26h7v-3.4h-2.2v1.6h-2.6v-1.6H33z" fill="#e3b341"/></svg>`,
   kostky:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
     <rect x="5" y="21" width="16" height="16" rx="4" fill="#e6edf3" stroke="#243140" stroke-width="1.6"/>
     <circle cx="9.5" cy="25.5" r="1.6" fill="#20272f"/><circle cx="16.5" cy="32.5" r="1.6" fill="#20272f"/><circle cx="13" cy="29" r="1.6" fill="#00ad93"/>
@@ -224,6 +231,9 @@ const GAMES = [
   { svg:SVG.chess, name:"Chess", tag:"Live", live:true, slug:"chess", url:"https://chess.nadochain.com",
     blurb:"Play a real game of chess for stakes — a perft-verified engine referees the board in your browser, every move is logged on-chain, and the pot settles by resign / agree / refund-timeout, so a stall can never rob you.",
     meta:["2 players","Wager escrow","Moves on-chain","Skill, not chance"] },
+  { svg:SVG.stormhold, name:"Stormhold", tag:"Live", live:true, slug:"stormhold", url:"https://stormhold.nadochain.com",
+    blurb:"A deck-building strategy duel for stakes. Start with 10 humble cards, buy engines and victory piles from a shared 17-pile supply, and out-build your opponent — attacks, reactions and all. Every move is logged on-chain and every shuffle is seeded by a future block hash, so decks are provably unriggable; the pot settles by concede / agree / refund-timeout.",
+    meta:["2 players","Deck-building","Provably fair shuffles","Skill, not chance"] },
   { svg:SVG.battleship, name:"Battleship", tag:"Live", live:true, slug:"battleship", url:"https://battleship.nadochain.com",
     blurb:"Hidden-fleet naval combat for stakes — and your board never leaves your browser. You commit a salted Merkle-sum fingerprint of your fleet; each shot is answered by a proof the contract checks against your commitment, so nobody can lie about a hit or hide a ship to be unsinkable. Sink all 17 enemy cells to take the pot — no reveal, no oracle, just post-quantum hashes.",
     meta:["2 players","Hidden boards","Provably no cheating","Winner takes the pot"] },

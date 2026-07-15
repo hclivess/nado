@@ -14,7 +14,7 @@ from execnode import runtimes
 from execnode.stark import vm_circuit as V
 from execnode.games import (coinflip, dice, roulette, tictactoe as ttt, connect4 as c4,
                             slots, mines, reversi as rv, chess, farkle as fk, blackjack as bj, bet as bt,
-                            battleship as bs, pets as ptz, holdem as hd)
+                            battleship as bs, pets as ptz, holdem as hd, stormhold as sh)
 
 fails = 0
 def check(name, fn):
@@ -221,6 +221,56 @@ def t_chess():
     ab = st.bridge.get(A, 0)
     st.apply_blob({"op": "call", "contract": cid, "method": "agree", "args": [G, 1]}, B, "a2")
     assert rd(chess.SD, G) == 1 and st.bridge.get(A, 0) == ab + 200_000
+
+
+def t_stormhold():
+    # chess-model escrow + move log, PLUS: free actor order (engine referees turns), per-move seed heights
+    # mh = (cursor+GAP)*4+side, and the join-time kingdom seed height kh — the shuffle randomness anchors.
+    st, code, cid, rd = _fresh(sh, deployer=A)
+    st.credit_deposit(A, 1_000_000); st.credit_deposit(B, 1_000_000)
+    G = 77
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [G], "value": 100_000}, A, "o")
+    st.cursor = 150
+    st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [G], "value": 100_000}, B, "j")
+    assert rd(sh.KH, G) == 150 + sh.GAP, "kingdom seed height pinned at join"
+    assert rd(sh.DL, G) == 150 + sh.MOVE_CLOCK
+    # moves in a NON-alternating order (A, A, B, A) — Dominion turns are many moves + interposed decisions
+    st.cursor = 151
+    st.apply_blob({"op": "call", "contract": cid, "method": "move", "args": [G, 17, 0]}, A, "m0")
+    st.cursor = 153
+    st.apply_blob({"op": "call", "contract": cid, "method": "move", "args": [G, 33, 1]}, A, "m1")
+    st.cursor = 155
+    st.apply_blob({"op": "call", "contract": cid, "method": "move", "args": [G, 85, 2]}, B, "m2")
+    st.apply_blob({"op": "call", "contract": cid, "method": "move", "args": [G, 4, 3]}, A, "m3")
+    v = st.decode_view(st.contracts[cid])
+    assert v["mv"][str(G * 10000 + 0)] == 17 and v["mv"][str(G * 10000 + 2)] == 85
+    assert v["mh"][str(G * 10000 + 0)] == (151 + sh.GAP) * 4 + 1     # A = side 1
+    assert v["mh"][str(G * 10000 + 2)] == (155 + sh.GAP) * 4 + 2     # B = side 2
+    assert rd(sh.MC, G) == 4 and rd(sh.DL, G) == 155 + sh.MOVE_CLOCK
+    # reverts: outsider move, wrong ply, enc 0
+    C = "ndoCCCC" + "C" * 41
+    assert "revert" in st.apply_blob({"op": "call", "contract": cid, "method": "move", "args": [G, 9, 4]}, C, "x1")
+    assert "revert" in st.apply_blob({"op": "call", "contract": cid, "method": "move", "args": [G, 9, 7]}, A, "x2")
+    assert "revert" in st.apply_blob({"op": "call", "contract": cid, "method": "move", "args": [G, 0, 4]}, A, "x3")
+    # settle: mutual agree on p2 win pays B the pot
+    st.apply_blob({"op": "call", "contract": cid, "method": "agree", "args": [G, 2]}, A, "a1")
+    bb = st.bridge.get(B, 0)
+    st.apply_blob({"op": "call", "contract": cid, "method": "agree", "args": [G, 2]}, B, "a2")
+    assert rd(sh.SD, G) == 1 and st.bridge.get(B, 0) == bb + 200_000 and st.bridge.get(cid, 0) == 0
+    # a second game: resign path + move-log cap sanity
+    G2 = 78
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [G2], "value": 50_000}, A, "o2")
+    st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [G2], "value": 50_000}, B, "j2")
+    ab = st.bridge.get(A, 0)
+    st.apply_blob({"op": "call", "contract": cid, "method": "resign", "args": [G2]}, B, "r2")
+    assert rd(sh.WR, G2) == 1 and st.bridge.get(A, 0) == ab + 100_000
+
+
+def t_stormhold_move_proves():
+    code = sh.build(); S = lambda f, k: f * (1 << 32) + k
+    slots = {S(sh.NN, 77): 2, S(sh.MC, 77): 3, S(sh.P1, 77): runtimes.zkvm_addr_digest(A),
+             S(sh.P2, 77): runtimes.zkvm_addr_digest(B)}
+    _prove(code, "move", B, [77, 12345, 3], slots, cursor=200)
 
 
 def t_farkle():
@@ -872,6 +922,8 @@ if __name__ == "__main__":
     check("mines: bet/pick/resolve multiplier + mine-hit vs reference", t_mines)
     check("reversi: flip board matches reference", t_reversi)
     check("chess: move record + agree settlement", t_chess)
+    check("stormhold: free-actor move log + seed heights + agree/resign", t_stormhold)
+    check("stormhold: move proves (seed-height record)", t_stormhold_move_proves)
     check("farkle: roll/hold scoring + banking vs reference", t_farkle)
     check("blackjack: deal/reveal/stand/settle vs dealer S17 + payouts + view", t_blackjack)
     check("blackjack: hit-then-bust loses immediately", t_blackjack_hit_bust)

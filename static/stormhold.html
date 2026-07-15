@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-i18n="storm.pageTitle">NADO Stormhold — deck-building for stakes, post-quantum</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%20width%3D%2264%22%20height%3D%2264%22%3E%3Cpath%20d%3D%22M8%2012h32l-4%206H12z%22%20fill%3D%22%2300c9a7%22/%3E%3Cpath%20d%3D%22M14%2020h22l-4%206H18z%22%20fill%3D%22%2300ad93%22/%3E%3Cpath%20d%3D%22M20%2028h12l-4%206h-6z%22%20fill%3D%22%2300c9a7%22/%3E%3Cpath%20d%3D%22M25%2036h4l-2%206z%22%20fill%3D%22%2300ad93%22/%3E%3C/svg%3E">
+<meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js?v=stormhold1"></script>
+<style>
+  :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--gold:#e3b341;--green:#3fb950;--purple:#bc8cff;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
+    color:var(--txt);font:15px/1.5 var(--sans);min-height:100vh}
+  .wrap{max-width:760px;margin:0 auto;padding:22px 16px 60px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  header h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.2px}
+  header h1 .a{color:var(--accent2)}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 16px}
+  .card{background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  .card h2{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 0;min-width:0}
+  label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
+  input{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:10px;padding:0;border:0;margin:12px 0;background:linear-gradient(90deg,var(--accent) 0,var(--accent2) 100%);border-radius:999px;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+  input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab}
+  input:focus{outline:none;border-color:var(--accent2)}
+  button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:11px;background:var(--elev2);color:var(--txt);padding:11px 15px;cursor:pointer;transition:transform .05s,border-color .15s}
+  button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
+  button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
+  @keyframes btnpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,201,167,.45)}50%{transform:scale(1.04);box-shadow:0 0 0 6px rgba(0,201,167,0)}}
+  button.pulse{animation:btnpulse 1.25s ease-in-out infinite}
+  .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
+  .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}
+  .chip.open{border-color:var(--accent2);color:var(--accent2)}.chip.live{border-color:var(--gold);color:var(--gold)}
+  .chip.pending{opacity:.6;border-style:dashed}
+  #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}#status:empty{display:none;min-height:0;margin:0}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
+  header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev);white-space:nowrap}
+  header .hub:hover{color:var(--accent2);border-color:var(--accent2)}
+  footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
+  a{color:var(--accent2)}
+  /* ---- game table ---- */
+  .hud{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0;font-size:12.5px}
+  .hud .stat{border:1px solid var(--border);background:var(--elev2);border-radius:999px;padding:4px 11px;font-weight:700}
+  .hud .stat b{color:var(--accent2)}
+  .hud .stat.vp b{color:var(--gold)}
+  .zone{border:1px solid var(--border);border-radius:12px;padding:10px;margin:8px 0;background:rgba(0,0,0,.14)}
+  .zone .zh{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);font-weight:700;margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+  #supply{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px}
+  .ctile{position:relative;border:1px solid var(--border);border-radius:10px;background:var(--elev2);padding:16px 7px 6px;cursor:pointer;
+    user-select:none;min-height:52px;transition:border-color .12s, box-shadow .12s}
+  .ctile .cname{font-weight:800;font-size:12px;line-height:1.15;word-break:break-word}
+  .ctile .ctxt{font-size:10px;color:var(--dim);line-height:1.25;margin-top:3px}
+  .ctile .cost{position:absolute;top:-7px;left:-5px;background:#22303f;border:1px solid var(--border);color:var(--gold);
+    font-weight:800;font-size:11px;border-radius:999px;min-width:20px;height:20px;display:flex;align-items:center;justify-content:center;padding:0 4px}
+  .ctile .cnt{position:absolute;top:-7px;right:-5px;background:#22303f;border:1px solid var(--border);color:var(--dim);
+    font-weight:700;font-size:10.5px;border-radius:999px;min-width:20px;height:20px;display:flex;align-items:center;justify-content:center;padding:0 4px}
+  .ctile.ty-t{background:linear-gradient(160deg,#3a3010,#241f0c);border-color:#5d4d1a}
+  .ctile.ty-v{background:linear-gradient(160deg,#12331d,#0d2415);border-color:#1f5b33}
+  .ctile.ty-c{background:linear-gradient(160deg,#2c1d3d,#1e1429);border-color:#4b3268}
+  .ctile.ty-a{background:linear-gradient(160deg,#1b2836,#141d28)}
+  .ctile.atk{border-color:#6e2a2a}
+  .ctile.re{border-color:#2a5a6e}
+  .ctile.dis{opacity:.38;cursor:default;filter:grayscale(.6)}
+  .ctile.buyable{border-color:var(--accent2);box-shadow:0 0 0 1px rgba(0,201,167,.5)}
+  .ctile.armed{border-color:var(--gold);box-shadow:0 0 0 2px rgba(227,179,65,.65)}
+  .ctile.sel{border-color:var(--accent2);box-shadow:0 0 0 2px var(--accent2)}
+  .handrow{display:flex;flex-wrap:wrap;gap:6px}
+  .handrow .ctile{flex:0 1 108px;min-width:92px}
+  .mini{display:inline-flex;gap:3px;flex-wrap:wrap}
+  .mini .mc{width:22px;height:30px;border-radius:4px;border:1px solid var(--border);
+    background:repeating-linear-gradient(45deg,#134e42,#134e42 5px,#0d3a31 5px,#0d3a31 10px)}
+  #decision{border:1px solid var(--gold);border-radius:12px;background:rgba(227,179,65,.07);padding:10px 12px;margin:8px 0}
+  #decision .dp{font-weight:700;font-size:13.5px;margin-bottom:8px}
+  #decision:empty{display:none}
+  #decisionBtns{display:flex;gap:8px;flex-wrap:wrap}
+  #decisionBtns button{padding:8px 13px;font-size:13px}
+  #logPane{font-size:12px;color:var(--dim);max-height:180px;overflow-y:auto;font-family:var(--mono);line-height:1.55}
+  #logPane .me{color:var(--accent2)}
+  .yourturn{color:var(--accent2);font-weight:800}
+  #handBtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  #handBtns button{flex:1 1 auto}
+  #oppHandWrap{cursor:pointer}
+  .turnbadge{font-size:11px;font-weight:800;border-radius:999px;padding:2px 9px;border:1px solid var(--accent2);color:var(--accent2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><span class="logo"><svg viewBox="0 0 48 48" width="28" height="28" aria-hidden="true">
+    <path d="M8 12h32l-4 6H12z" fill="#00c9a7"/><path d="M14 20h22l-4 6H18z" fill="#00ad93"/>
+    <path d="M20 28h12l-4 6h-6z" fill="#00c9a7"/><path d="M25 36h4l-2 6z" fill="#00ad93"/></svg></span>
+    <h1>NADO <span class="a">Stormhold</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="storm.allGames">🎮 All games</a></header>
+  <p class="sub" data-i18n-html="storm.sub">A <b>deck-building strategy duel for stakes</b> on the NADO execution layer. Start with 10 humble cards, buy engines and victory piles from a shared supply, and out-build your opponent. Every move is logged on-chain, every shuffle draws its randomness from <b>future L1 block hashes</b> — provably fair, nobody (not even the shuffler) can rig a deck. The full rules run in your browser; the pot settles by concede / mutual agreement / refund-timeout. Post-quantum wallet, no install.</p>
+
+  <div id="status"></div>
+
+  <div class="card" id="walletcard">
+    <h2 data-i18n="storm.wallet">Wallet</h2>
+    <p class="small dim" data-i18n-html="storm.walletHelp">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
+    <div class="kv mt"><span class="k" data-i18n="storm.playingAs">Playing as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="storm.walletL1">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="storm.tokensStakeable">🪙 Tokens (stakeable)</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="storm.signIn">Sign in with NADO wallet</button></div>
+  </div>
+
+  <!-- PLAY -->
+  <div class="card hidden" id="play">
+    <h2 data-i18n="storm.playHead">🏰 Play for stakes</h2>
+    <div class="row">
+      <input id="stakeAmt" value="1" placeholder="stake (NADO)" data-i18n-ph="storm.stakePh" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNew" style="flex:0 0 auto" data-i18n="storm.newGameBtn">New game</button>
+    </div>
+    <label class="mt" data-i18n="storm.joinByIdLabel">Join a game by ID</label>
+    <div class="row">
+      <input id="joinId" placeholder="game ID" data-i18n-ph="storm.gameIdPh" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="btnJoin" style="flex:0 0 auto" data-i18n="storm.join">Join</button>
+    </div>
+    <div class="small dim mt" data-i18n="storm.yourGames">Your games</div>
+    <div class="small dim" id="recent"></div>
+  </div>
+
+  <!-- BANKROLL -->
+  <div class="card hidden" id="bankroll">
+    <h2 data-i18n="storm.bankHead">🪙 Tokens — buy in / cash out</h2>
+    <div class="row">
+      <input id="bankAmt" value="10" placeholder="amount (NADO)" data-i18n-ph="storm.amountPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto" data-i18n="storm.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto" data-i18n="storm.withdraw">Withdraw</button>
+    </div>
+    <div class="small dim mt" data-i18n="storm.bankHelp">Deposit moves L1 → exec (stakeable); Withdraw moves exec → L1.</div>
+  </div>
+
+  <!-- LOBBY -->
+  <div class="card" id="lobby">
+    <h2 data-i18n="storm.lobbyHead">🏰 Open games</h2>
+    <p class="small dim" data-i18n="storm.lobbyHelp">Challenge anyone — join an open duel or watch one in progress.</p>
+    <div class="small mt" id="lobbyList"><span class="dim" data-i18n="storm.loading">Loading…</span></div>
+  </div>
+
+  <!-- ACTIVE GAME -->
+  <div class="card hidden" id="activeGame">
+    <h2 data-i18n="storm.gameLabel">Game <span id="gameId" class="mono"></span></h2>
+    <div id="players" class="mt"></div>
+    <div class="kv"><span class="k" data-i18n="storm.pot">Pot</span><span class="mono" id="gPot">—</span></div>
+    <div class="kv"><span class="k" data-i18n="storm.statusLabel">Status</span><span class="mono" id="gStatus">…</span></div>
+    <div id="hud" class="hud"></div>
+    <div id="decision"></div>
+
+    <div class="zone" id="oppZone">
+      <div class="zh"><span id="oppHead">—</span><span id="oppCounts" class="mono"></span></div>
+      <div id="oppHandWrap" title="tap to peek — all information in this game is public on-chain"><span id="oppHand" class="mini"></span></div>
+      <div id="oppPlay" class="handrow mt"></div>
+    </div>
+
+    <div class="zone">
+      <div class="zh"><span data-i18n="storm.supplyHead">Supply — tap a pile to buy / gain</span><span id="trashLine" class="mono"></span></div>
+      <div id="supply"></div>
+    </div>
+
+    <div class="zone" id="myZone">
+      <div class="zh"><span id="myHead" data-i18n="storm.yourHand">Your hand</span><span id="myCounts" class="mono"></span></div>
+      <div id="myPlay" class="handrow" style="opacity:.75"></div>
+      <div id="hand" class="handrow mt"></div>
+      <div id="handBtns"></div>
+    </div>
+
+    <div class="zone">
+      <div class="zh"><span data-i18n="storm.logHead">Game log</span></div>
+      <div id="logPane"></div>
+    </div>
+
+    <div id="settleHint" class="small dim"></div>
+    <div class="row mt">
+      <button class="primary hidden pulse" id="btnRematch" data-i18n="storm.playAgain">↻ Play again</button>
+      <button class="primary hidden" id="btnResign" data-i18n="storm.resign">Resign</button>
+      <button class="ghost hidden" id="btnDraw" data-i18n="storm.offerDrawStatic">Offer draw</button>
+      <button class="primary hidden" id="btnSettle" data-i18n="storm.settleStatic">Agree draw</button>
+      <button class="ghost hidden" id="btnAbort" data-i18n="storm.abort">Claim refund (opponent stalled)</button>
+      <button class="ghost hidden" id="btnCancel" data-i18n="storm.cancel">Cancel — reclaim stake</button>
+      <button class="primary hidden pulse" id="btnJoinGame" style="flex:1 1 auto" data-i18n="storm.joinThisGame">Join this game</button>
+    </div>
+    <label class="mt" data-i18n="storm.inviteLabel">Invite your opponent</label>
+    <input id="shareLink" class="mono" readonly onclick="this.select()">
+    <div class="row mt"><button class="primary" id="btnShare" style="flex:0 0 auto" data-i18n="storm.share">Share</button></div>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="storm.safeHead">How the wager is safe & fair</h2>
+    <p class="small dim" style="line-height:1.6">
+      <span data-i18n-html="storm.safe1">The contract is a pure <b>wager escrow + move log</b> — the full rules are refereed in your browser, and every move lands on-chain in order.</span>
+      <br>• <span data-i18n-html="storm.safe2"><b>Shuffles:</b> each move pins a <b>future block hash</b> as its randomness — signed before the block exists, so neither player (nor the node) can rig a deck, and both browsers re-derive identical decks.</span>
+      <br>• <span data-i18n-html="storm.safe3"><b>Decisive game:</b> the loser <b>concedes</b> and the winner is paid. <b>Draw:</b> both agree — stakes refund.</span>
+      <br>• <span data-i18n-html="storm.safe4"><b>Stall or dispute:</b> after the move deadline either player claims a <b>refund</b>. The only outcomes are concede / agree / refund — <b>no one can ever be robbed</b>; at worst a wager voids. The contract is upgradable.</span>
+    </p>
+  </div>
+
+  <footer data-i18n-html="storm.footer">Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · an original deck-building game (no affiliation with any tabletop publisher) · moves ride L1 as ordered blobs.</footer>
+</div>
+<script type="module" src="/static/stormhold.js"></script>
+</body>
+</html>
