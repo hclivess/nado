@@ -115,6 +115,39 @@ def t_fri_fold_air():
         pass                                                     # prover refusing the bad witness is also fine
 
 
+def t_fri_step_air():
+    """The INTEGRATED FRI-step AIR: prove (in one STARK, only root + x,α,nxt public) that lo,hi are Merkle-
+    authenticated under `root` AND fold to nxt — the opened values are private witness, linked to the fold by
+    carry columns. Consistent step verifies; an inconsistent fold is rejected; a leaf not in the tree can't
+    build a valid path. This is the atomic unit of the in-circuit FRI verifier (membership + fold, integrated)."""
+    import random
+    random.seed(5)
+    N = 8
+    V = [random.randrange(F.P) for _ in range(N)]
+    root, layers = recursion.rmerkle_commit(V)
+    half = N // 2; lo = 3; hi = lo + half
+    lo_val, hi_val = V[lo], V[hi]
+    plo = recursion.rmerkle_path(layers, lo); phi = recursion.rmerkle_path(layers, hi)
+    x = random.randrange(F.P); alpha = random.randrange(F.P)
+    inv2 = F.inv(2)
+    nxt = F.add(F.mul(F.add(lo_val, hi_val), inv2),
+                F.mul(alpha, F.mul(F.sub(lo_val, hi_val), F.mul(inv2, F.inv(x)))))
+    proof = recursion.prove_fri_step(lo_val, lo, plo, hi_val, hi, phi, root, x, alpha, nxt, num_queries=4)
+    ok, why = recursion.verify_fri_step(proof, root, x, alpha, nxt, num_queries=4)
+    assert ok, f"consistent FRI step must verify: {why}"
+    # inconsistent fold (same wrong nxt on both sides so the public-input check passes) must be rejected
+    bad_nxt = (nxt + 1) % F.P
+    bp = recursion.prove_fri_step(lo_val, lo, plo, hi_val, hi, phi, root, x, alpha, bad_nxt, num_queries=4)
+    okb, _ = recursion.verify_fri_step(bp, root, x, alpha, bad_nxt, num_queries=4)
+    assert not okb, "an opening pair that does not fold to nxt must be rejected"
+    # a leaf not in the tree cannot form a path that hashes to root
+    try:
+        recursion.prove_fri_step((lo_val + 1) % F.P, lo, plo, hi_val, hi, phi, root, x, alpha, nxt, num_queries=4)
+        assert False, "wrong leaf should not build a valid path"
+    except AssertionError as e:
+        assert "does not hash to root" in str(e) or "should not build" in str(e)
+
+
 if __name__ == "__main__":
     check("alghash2: 256-bit digest, deterministic, separated", t_alghash2_digest_width)
     check("alghash2: MDS linear layer is invertible", t_alghash2_mds_invertible)
@@ -124,5 +157,6 @@ if __name__ == "__main__":
     check("recursion gadget: alghash2 preimage AIR (proves in-circuit, wrong digest/tamper rejected)",
           t_preimage_air)
     check("FRI fold-consistency AIR (real folds prove; inconsistent fold rejected)", t_fri_fold_air)
+    check("integrated FRI-step AIR (membership+fold, authenticated openings link to the fold)", t_fri_step_air)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

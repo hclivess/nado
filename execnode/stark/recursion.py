@@ -314,6 +314,170 @@ def _fold_transitions():
     return [c]
 
 
+def _blocks_for(leaf_val, index, path):
+    """The permutation-snapshot blocks for one Merkle path (rleaf(leaf_val) up `path`). Returns
+    (blocks, sibs, dirs, final_digest)."""
+    s0 = [a2.DOM_LEAF, int(leaf_val) % F.P, 0, 0, 0, 0, 0, 0] + list(a2.IV)
+    blocks = [_permute_snapshots(s0)]
+    cur = tuple(blocks[0][_R][:_CAP]); idx = index; sibs, dirs = [], []
+    for sib in path:
+        d = idx & 1
+        left, right = (sib, cur) if d else (cur, sib)
+        init = [int(v) % F.P for v in left] + [int(v) % F.P for v in right] + list(a2.IV)
+        blocks.append(_permute_snapshots(init))
+        sibs.append(tuple(int(v) % F.P for v in sib)); dirs.append(d)
+        cur = tuple(blocks[-1][_R][:_CAP]); idx >>= 1
+    return blocks, sibs, dirs, cur
+
+
+# integrated FRI-STEP AIR column layout: 12 sponge lanes + 2 carry columns holding the (WITNESS) opened values
+_CLO, _CHI = _W, _W + 1
+_WSTEP = _W + 2
+
+
+def _fri_step_air(lo_val, ilo, plo, hi_val, ihi, phi, root, x, alpha, nxt):
+    """ONE integrated FRI-step, proving IN CIRCUIT: lo_val@ilo and hi_val@ihi Merkle-include under the PUBLIC
+    `root`, AND 2·x·nxt = x·(lo+hi) + α·(lo−hi). The opened lo/hi are WITNESS (only root + x,α,nxt are public):
+    two Merkle sub-traces (lo then hi) concatenated; carry columns hold the leaf values (tied to the leaf
+    lane at each path's start, held constant) and feed the fold at the final row. Roots pinned; leaf VALUES
+    are NOT pinned — the prover must find openings that both hash to root and fold, which is FRI verification."""
+    lb, lsib, ldir, lcur = _blocks_for(lo_val, ilo, plo)
+    hb, hsib, hdir, hcur = _blocks_for(hi_val, ihi, phi)
+    assert a2.eq(lcur, root) and a2.eq(hcur, root), "a path does not hash to root"
+    BR = _R + 1
+    n_lo, n_hi = len(lb), len(hb)
+    rows = []
+    for blk in lb + hb:
+        rows.extend([list(s) + [int(lo_val) % F.P, int(hi_val) % F.P] for s in blk])   # append carries
+    n_used = len(rows)
+    T = _next_pow2(n_used + 1)
+    while len(rows) < T:
+        rows.append(list(rows[-1]))
+    lo_start = 0
+    hi_start = n_lo * BR                                   # row where the hi-path's block 0 begins
+    fold_row = n_used - 1                                  # last used row carries lo/hi -> fold there
+
+    RC_lo = 0; ACT_R = _W; ACT_A = _W + 1; DIRC = _W + 2; SIB_lo = _W + 3
+    SEL_LO = SIB_lo + _CAP; SEL_HI = SEL_LO + 1; FOLD_AT = SEL_HI + 1
+    PX = FOLD_AT + 1; PALPHA = PX + 1; PNXT = PALPHA + 1
+    NPER = PNXT + 1
+    per = [[0] * T for _ in range(NPER)]
+
+    def fill_path(base, sibs, dirs, nblk):
+        for b in range(nblk):
+            for rib in range(BR):
+                i = base + b * BR + rib
+                if rib < _R:                              # round row
+                    for lane in range(_W):
+                        per[RC_lo + lane][i] = a2.RC[rib][lane]
+                    per[ACT_R][i] = 1
+                elif b + 1 < nblk:                        # boundary row -> absorb the sibling into next block
+                    per[ACT_A][i] = 1
+                    per[DIRC][i] = dirs[b]
+                    for lane in range(_CAP):
+                        per[SIB_lo + lane][i] = sibs[b][lane]
+    fill_path(lo_start, lsib, ldir, n_lo)
+    fill_path(hi_start, hsib, hdir, n_hi)
+    per[SEL_LO][lo_start] = 1                              # tie carry_lo to the lo-leaf lane here
+    per[SEL_HI][hi_start] = 1
+    per[FOLD_AT][fold_row] = 1
+    per[PX][fold_row] = int(x) % F.P
+    per[PALPHA][fold_row] = int(alpha) % F.P
+    per[PNXT][fold_row] = int(nxt) % F.P
+
+    # boundaries: each path's block-0 rleaf frame (DOM_LEAF, zeros, IV) — but NOT the leaf value — and each
+    # path's final digest == root.
+    bnds = []
+    for start in (lo_start, hi_start):
+        bnds.append((start, 0, a2.DOM_LEAF))
+        for lane in range(2, _RATE):
+            bnds.append((start, lane, 0))
+        for lane in range(_CAP):
+            bnds.append((start, _RATE + lane, a2.IV[lane]))
+    for last_block_start in (lo_start + (n_lo - 1) * BR, hi_start + (n_hi - 1) * BR):
+        frow = last_block_start + _R
+        for lane in range(_CAP):
+            bnds.append((frow, lane, int(root[lane]) % F.P))
+    cols = (RC_lo, ACT_R, ACT_A, DIRC, SIB_lo, SEL_LO, SEL_HI, FOLD_AT, PX, PALPHA, PNXT)
+    return rows, per, bnds, cols
+
+
+def _fri_step_transitions(cols):
+    RC_lo, ACT_R, ACT_A, DIRC, SIB_lo, SEL_LO, SEL_HI, FOLD_AT, PX, PALPHA, PNXT = cols
+    cons = []
+
+    def round_c(i):
+        def c(cur, nxt, per):
+            t = [F.pw(F.add(cur[j], per[RC_lo + j]), a2.ALPHA) for j in range(_W)]
+            mixed = 0
+            for j in range(_W):
+                mixed = F.add(mixed, F.mul(a2._MDS[i][j], t[j]))
+            return F.mul(per[ACT_R], F.sub(nxt[i], mixed))
+        return c
+    for i in range(_W):
+        cons.append(round_c(i))
+
+    def absorb_left(i):
+        def c(cur, nxt, per):
+            d = per[DIRC]
+            want = F.add(F.mul(F.sub(1, d), cur[i]), F.mul(d, per[SIB_lo + i]))
+            return F.mul(per[ACT_A], F.sub(nxt[i], want))
+        return c
+
+    def absorb_right(i):
+        def c(cur, nxt, per):
+            d = per[DIRC]
+            want = F.add(F.mul(F.sub(1, d), per[SIB_lo + i]), F.mul(d, cur[i]))
+            return F.mul(per[ACT_A], F.sub(nxt[_CAP + i], want))
+        return c
+
+    def absorb_cap(i):
+        def c(cur, nxt, per):
+            return F.mul(per[ACT_A], F.sub(nxt[_RATE + i], a2.IV[i]))
+        return c
+    for i in range(_CAP):
+        cons.append(absorb_left(i)); cons.append(absorb_right(i)); cons.append(absorb_cap(i))
+
+    # carry hold (lo/hi constant across the whole trace) + load (carry == leaf lane at each path start)
+    cons.append(lambda c, n, p: F.sub(n[_CLO], c[_CLO]))
+    cons.append(lambda c, n, p: F.sub(n[_CHI], c[_CHI]))
+    cons.append(lambda c, n, p: F.mul(p[SEL_LO], F.sub(c[_CLO], c[1])))   # carry_lo == leaf lane at lo-start
+    cons.append(lambda c, n, p: F.mul(p[SEL_HI], F.sub(c[_CHI], c[1])))   # carry_hi == leaf lane at hi-start
+    # fold: 2·x·nxt = x·(lo+hi) + α·(lo−hi)  on the fold row
+    def fold_c(c, n, p):
+        lhs = F.mul(F.mul(2, p[PX]), p[PNXT])
+        rhs = F.add(F.mul(p[PX], F.add(c[_CLO], c[_CHI])), F.mul(p[PALPHA], F.sub(c[_CLO], c[_CHI])))
+        return F.mul(p[FOLD_AT], F.sub(lhs, rhs))
+    cons.append(fold_c)
+    return cons
+
+
+def prove_fri_step(lo_val, ilo, plo, hi_val, ihi, phi, root, x, alpha, nxt, num_queries=4):
+    """Prove one integrated FRI step (two Merkle openings + a fold) in ONE STARK. Returns a proof bundle;
+    only root + (x, α, nxt) are public (carried in the bundle for the verifier)."""
+    rows, per, bnds, cols = _fri_step_air(lo_val, ilo, plo, hi_val, ihi, phi, root, x, alpha, nxt)
+    proof = stark.prove(rows, _fri_step_transitions(cols), bnds, periodic=per, max_degree=8,
+                        num_queries=num_queries, backend=backend.ALGHASH2)
+    proof["_per"] = per; proof["_bnds"] = bnds; proof["_cols"] = cols
+    proof["_public"] = {"root": [int(v) % F.P for v in root], "x": int(x) % F.P,
+                        "alpha": int(alpha) % F.P, "nxt": int(nxt) % F.P}
+    return proof
+
+
+def verify_fri_step(proof, root, x, alpha, nxt, num_queries=4):
+    """Verify an integrated FRI-step proof against the PUBLIC (root, x, α, nxt): the pinned root boundaries
+    must equal `root`, the fold periodic must equal (x, α, nxt), and the STARK must verify."""
+    per, bnds, cols = proof.get("_per"), proof.get("_bnds"), proof.get("_cols")
+    pub = proof.get("_public")
+    if per is None or bnds is None or cols is None or pub is None:
+        return False, "missing public AIR schedule"
+    if (pub["root"] != [int(v) % F.P for v in root] or pub["x"] != int(x) % F.P
+            or pub["alpha"] != int(alpha) % F.P or pub["nxt"] != int(nxt) % F.P):
+        return False, "public inputs do not match the bundle"
+    return stark.verify(proof, _fri_step_transitions(cols), bnds, periodic=per, max_degree=8,
+                        num_queries=num_queries, backend=backend.ALGHASH2)
+
+
 def prove_fri_folds(rows, num_queries=4):
     """Prove every fold-check row (from fold_rows) satisfies the FRI fold equation, in ONE STARK. `rows` =
     [(lo,hi,x,α,nxt)]. Returns a proof bundle. This is the fold half of the in-circuit FRI verifier."""
