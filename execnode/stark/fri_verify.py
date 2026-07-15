@@ -34,13 +34,18 @@ _CLO, _CHI, _FOLD = _W + _CAP, _W + _CAP + 1, _W + _CAP + 2
 _WTOT = _W + _CAP + 3          # 19
 
 
-def _canonical_public(pub, num_queries):
+def _canonical_public(pub, num_queries, mk_transcript=None):
     """VERIFIER SIDE. From a FRI proof's PUBLIC part only — {roots, N, offset, blowup, final, pow} — recompute
     the whole statement native fri.verify derives: geometry, the Fiat-Shamir fold challenges α, the query
     INDICES (drawn from the transcript, NOT trusted from the proof), the grinding PoW, and the final-layer
     LOW-DEGREE test. NO openings are read. Returns {queries:[[per-layer public...]], finals:[...]} or None if
     any native check fails. Each per-layer public tuple is (lo_pos, lo_len, hi_pos, hi_len, root, x, α, c2lo)
-    with path LENGTHS derived from the (public) layer sizes."""
+    with path LENGTHS derived from the (public) layer sizes.
+
+    `mk_transcript` returns the transcript positioned exactly where fri.prove began. For a STANDALONE FRI proof
+    that is a fresh Transcript('fri') (the default). For a FRI embedded in a STARK, fri.prove was handed the
+    STARK's transcript (already absorbed the trace-column roots + drew the constraint challenges), so the caller
+    must reconstruct THAT — verifier-authoritatively, from the STARK proof's public roots + AIR — and pass it."""
     b = backend.RECURSION
     try:
         N, off, blowup = pub["N"], pub["offset"], pub["blowup"]
@@ -52,7 +57,7 @@ def _canonical_public(pub, num_queries):
         exp_layers = _expected_layers(N, blowup)
         if len(roots) != exp_layers or len(final) != (N >> exp_layers):
             return None
-        t = Transcript("fri", backend=b)
+        t = mk_transcript() if mk_transcript is not None else Transcript("fri", backend=b)
         alphas, doms, o, n = [], [], off, N
         for r in roots:
             t.absorb(r); alphas.append(t.challenge()); doms.append(F.domain(n, o)); o = F.mul(o, o); n //= 2
@@ -80,14 +85,14 @@ def _canonical_public(pub, num_queries):
         return None
 
 
-def _witness_of(fri_proof, num_queries):
+def _witness_of(fri_proof, num_queries, mk_transcript=None):
     """PROVER SIDE. Extract the WITNESS (opened values + Merkle sibling paths) aligned to the FS query indices,
     from a full FRI proof. Returns [[per-layer (lo_val, lo_path, hi_val, hi_path)]] (query-major) or None if the
-    proof's declared indices disagree with Fiat-Shamir (a malformed proof the prover shouldn't be folding)."""
+    proof's declared indices disagree with Fiat-Shamir. `mk_transcript` as in _canonical_public."""
     b = backend.RECURSION
     N, off, blowup = fri_proof["N"], fri_proof["offset"], fri_proof["blowup"]
     roots, final, queries = fri_proof["roots"], fri_proof["final"], fri_proof["queries"]
-    t = Transcript("fri", backend=b)
+    t = mk_transcript() if mk_transcript is not None else Transcript("fri", backend=b)
     o = off
     for r in roots:
         t.absorb(r); t.challenge(); o = F.mul(o, o)
@@ -279,20 +284,22 @@ def _transitions():
     return cons
 
 
-def prove_fold(fri_proofs, num_queries_inner=None, num_queries_outer=64):
+def prove_fold(fri_proofs, num_queries_inner=None, num_queries_outer=64, mk_transcripts=None):
     """Fold REAL fri.prove(backend=RECURSION) proofs into ONE recursion proof. `num_queries_inner` must equal
     each inner proof's query count (defaults to len(queries) of the first). The outer proof is proven at
-    `num_queries_outer` (protocol strength). Returns (recursion_proof, publics) where `publics` is the small
-    per-inner-proof public statement the verifier re-derives from."""
+    `num_queries_outer` (protocol strength). `mk_transcripts[i]` (optional) rebuilds proof i's FRI-start
+    transcript — needed when the inner FRI is embedded in a STARK; None = standalone (fresh 'fri' transcript).
+    Returns (recursion_proof, publics)."""
     publics = [{"roots": p["roots"], "N": p["N"], "offset": p["offset"], "blowup": p["blowup"],
                 "final": p["final"], "pow": p.get("pow")} for p in fri_proofs]
     if num_queries_inner is None:
         num_queries_inner = len(fri_proofs[0]["queries"])
     merged = {"queries": [], "finals": []}
     wit_flat = []
-    for p, pub in zip(fri_proofs, publics):
-        c = _canonical_public(pub, num_queries_inner)      # public schedule (same as the verifier's)
-        w = _witness_of(p, num_queries_inner)              # openings + paths, aligned to FS indices
+    for i, (p, pub) in enumerate(zip(fri_proofs, publics)):
+        mk = mk_transcripts[i] if mk_transcripts else None
+        c = _canonical_public(pub, num_queries_inner, mk)  # public schedule (same as the verifier's)
+        w = _witness_of(p, num_queries_inner, mk)          # openings + paths, aligned to FS indices
         if c is None or w is None:
             raise ValueError("an inner FRI proof failed native verification — refusing to fold it")
         merged["queries"] += c["queries"]; merged["finals"] += c["finals"]
@@ -307,16 +314,18 @@ def prove_fold(fri_proofs, num_queries_inner=None, num_queries_outer=64):
                    "num_queries_outer": num_queries_outer}
 
 
-def verify_fold(recursion_proof, public):
+def verify_fold(recursion_proof, public, mk_transcripts=None):
     """SOUND verification. `public` = the {publics, num_queries_inner, num_queries_outer} from prove_fold.
     Re-derives the canonical schedule from each inner proof's PUBLIC part (recomputing FS challenges, checking
     grind + final-layer low-degree + geometry), builds periodic+boundaries ITSELF, and verifies the recursion
-    STARK against ITS schedule. The prover supplied only the witness. Returns (ok, reason)."""
+    STARK against ITS schedule. `mk_transcripts` as in prove_fold — the verifier must rebuild the same FRI-start
+    transcripts (from the STARK proofs' public roots + AIR) for STARK-embedded FRI. Returns (ok, reason)."""
     try:
         nqi = public["num_queries_inner"]; nqo = public["num_queries_outer"]
         merged = {"queries": [], "finals": []}
-        for pub in public["publics"]:
-            c = _canonical_public(pub, nqi)             # NATIVE checks + FS re-derivation, from public only
+        for i, pub in enumerate(public["publics"]):
+            mk = mk_transcripts[i] if mk_transcripts else None
+            c = _canonical_public(pub, nqi, mk)         # NATIVE checks + FS re-derivation, from public only
             if c is None:
                 return False, "an inner proof's public statement failed native FRI verification"
             merged["queries"] += c["queries"]; merged["finals"] += c["finals"]

@@ -181,6 +181,92 @@ def prove_settlement(pre_contracts, calls, cursor, timestamp=0, beacons=None, bl
             "post_root": zkvm_root(contracts), "segments": segments, "num_segments": len(segments)}
 
 
+# ---- recursive aggregation of the segment proofs' FRI (doc/zk-recursion.md, doc/zk-glossary.md) ------------
+# Each segment proof is an execution-AIR STARK; its cost is dominated by the FRI low-degree argument (the
+# Merkle-heavy part). `prove_settlement_recursive` proves those segments with the RECURSION hash backend (so
+# their FRI trees are rleaf/rnode) and FOLDS every segment's FRI proof into ONE recursion proof
+# (execnode.stark.fri_verify), verified by a single verifier-authoritative check.
+#
+# SCOPE / SAFETY — read before wiring into the settlement seam:
+#   * The fold proves ONLY that each segment's committed COMPOSITION polynomial is low-degree (a sound FRI
+#     verification of K proofs in one). It does NOT yet bind those FRI roots to the segment's trace / state
+#     transition — that is the STARK composition spot-check for the execution AIR, still unbuilt. So the fold
+#     CANNOT by itself justify a settled state root.
+#   * Therefore `verify_settlement_recursive` runs the fold ALONGSIDE the authoritative `verify_settlement`
+#     (full per-segment STARK verification + the state-root chain) and requires BOTH. The sound path stays the
+#     seam's source of truth; the fold is a cross-checked, non-authoritative aggregation. When the composition
+#     spot-check + roots-to-state-root binding land, the per-segment STARK verification can be dropped and this
+#     becomes the O(1) path. Until then this MUST NOT be registered as the sole settlement verifier.
+
+
+def _stark_fri_transcript_factory(stark_proof):
+    """Rebuild the transcript at the exact point the execution-AIR STARK handed it to fri.prove — from the
+    proof's PUBLIC column roots + the AIR's shape (verifier-authoritative). Mirrors stark.prove's two-phase
+    order: absorb the W_MAIN main-column roots, draw the 2 aux challenges (β,γ), absorb the NUM_AUX aux-column
+    roots, draw the (#transitions + #boundaries) constraint α's. Returns a factory `() -> Transcript`."""
+    from execnode.stark import backend as _bk
+    from execnode.stark.transcript import Transcript
+    col_roots = stark_proof["col_roots"]
+    Tlen = stark_proof["T"]
+    w_main = vm_circuit.W_MAIN
+    n_alpha = len(vm_circuit.transitions()) + len(vm_circuit._boundaries(Tlen))
+
+    def make():
+        t = Transcript("nado-stark", backend=_bk.RECURSION)
+        for r in col_roots[:w_main]:
+            t.absorb(r)
+        t.challenge(); t.challenge()                     # β, γ (aux_spec num_challenges = 2)
+        for r in col_roots[w_main:]:
+            t.absorb(r)
+        for _ in range(n_alpha):
+            t.challenge()                                # the constraint-combination α's
+        return t
+    return make
+
+
+def prove_settlement_recursive(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
+                               pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES, max_rows=None,
+                               fold_outer_queries=vm_circuit.stark.NUM_QUERIES):
+    """Segment the epoch (RECURSION backend) and fold every segment's FRI proof into one. Returns the settlement
+    bundle plus {"fri_fold": recursion_proof, "fri_fold_public": public}."""
+    from execnode.stark import backend as _bk, fri_verify
+    bundle = prove_settlement(pre_contracts, calls, cursor, timestamp=timestamp, beacons=beacons,
+                              block_hashes=block_hashes, pre_bridge=pre_bridge, num_queries=num_queries,
+                              max_rows=max_rows, backend=_bk.RECURSION)
+    fri_proofs = [seg["proof"]["fri"] for seg in bundle["segments"]]
+    mk = [_stark_fri_transcript_factory(seg["proof"]) for seg in bundle["segments"]]
+    fold, public = fri_verify.prove_fold(fri_proofs, num_queries_inner=num_queries,
+                                         num_queries_outer=fold_outer_queries, mk_transcripts=mk)
+    bundle["fri_fold"] = fold
+    bundle["fri_fold_public"] = public
+    return bundle
+
+
+def verify_settlement_recursive(bundle):
+    """Verify a recursively-aggregated settlement. Requires BOTH: (1) the FRI fold verifies (all segments'
+    compositions proven low-degree in ONE verifier-authoritative recursion check), AND (2) the authoritative
+    `verify_settlement` passes (full per-segment STARK verification + state-root chain). Returns
+    (ok, reason, post_root). Both are required because the fold does not yet bind FRI roots to the state root."""
+    from execnode.stark import fri_verify
+    try:
+        fold, public = bundle.get("fri_fold"), bundle.get("fri_fold_public")
+        if fold is None or public is None:
+            return False, "missing FRI fold", None
+        mk = [_stark_fri_transcript_factory(seg["proof"]) for seg in bundle["segments"]]   # verifier rebuilds
+        okf, whyf = fri_verify.verify_fold(fold, public, mk_transcripts=mk)
+        if not okf:
+            return False, f"FRI fold invalid: {whyf}", None
+        # cross-check the fold's public roots ARE the segments' actual FRI roots (so the fold isn't over some
+        # other proofs) — the roots the aggregation attests must be the ones the sound path verifies.
+        seg_roots = [tuple(tuple(d) for d in seg["proof"]["fri"]["roots"]) for seg in bundle["segments"]]
+        fold_roots = [tuple(tuple(d) for d in pub["roots"]) for pub in public["publics"]]
+        if seg_roots != fold_roots:
+            return False, "FRI fold does not cover the segments' roots", None
+        return verify_settlement(bundle)               # AUTHORITATIVE: full per-segment verify + chain
+    except Exception as e:
+        return False, f"malformed recursive settlement bundle: {e}", None
+
+
 def verify_settlement(bundle):
     """Verify a segmented settlement: each segment is a valid epoch bundle AND they chain
     (pre_root_0 = bundle.pre_root, post_root_j = pre_root_{j+1}, post_root_K = bundle.post_root).
