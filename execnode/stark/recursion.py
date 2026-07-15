@@ -28,6 +28,13 @@ _R = a2.ROUNDS
 _RATE = a2.RATE
 
 
+def _next_pow2(x):
+    p = 1
+    while p < x:
+        p <<= 1
+    return p
+
+
 def verify_inner(proof, transitions, boundaries, **kw):
     """The accept/reject oracle for an alghash2-backed inner STARK — stark.verify with the alghash2 backend.
     A recursion fold proves THIS returned True for its inner proof(s)."""
@@ -112,4 +119,151 @@ def verify_preimage(proof, digest, num_queries=6):
     if pinned != tuple(int(d) % F.P for d in digest):
         return False, "digest boundary does not match the claimed digest"
     return stark.verify(proof, _round_transitions(), bnds, periodic=per, max_degree=8,
+                        num_queries=num_queries, backend=backend.ALGHASH2)
+
+
+# ---- Merkle-path membership AIR: the preimage gadget chained up a tree (the FRI verifier's core) -----
+_CAP = a2.DIGEST
+
+
+def rmerkle_commit(values):
+    """A recursion Merkle tree (rleaf/rnode, one permutation per node). Returns (root, layers of digests)."""
+    layer = [a2.rleaf(v) for v in values]
+    layers = [layer]
+    while len(layer) > 1:
+        layer = [a2.rnode(layer[i], layer[i + 1]) for i in range(0, len(layer), 2)]
+        layers.append(layer)
+    return layers[-1][0], layers
+
+
+def rmerkle_path(layers, index):
+    """Sibling digests bottom-up for leaf `index`."""
+    path, idx = [], index
+    for layer in layers[:-1]:
+        path.append(layer[idx ^ 1]); idx //= 2
+    return path
+
+
+def _membership_air(leaf_val, index, path, root):
+    """Build (trace, periodic, boundaries) proving rleaf(leaf_val) hashes up `path` to `root`. One
+    permutation BLOCK per level (R+1 rows). RC/dir/sibling enter as PUBLIC periodic columns; the direction
+    bit muxes (child,sib) order at each block boundary; the final block's digest lanes are pinned to root."""
+    # ---- witness: the exact permutation snapshots at every level ----
+    blocks = []
+    s0 = [a2.DOM_LEAF, int(leaf_val) % F.P, 0, 0, 0, 0, 0, 0] + list(a2.IV)      # rleaf init
+    snaps = _permute_snapshots(s0)                                              # R+1 states
+    blocks.append(snaps)
+    cur = tuple(snaps[_R][:_CAP])
+    idx = index
+    sibs, dirs = [], []
+    for sib in path:
+        d = idx & 1
+        left = sib if d else cur
+        right = cur if d else sib
+        init = [int(x) % F.P for x in left] + [int(x) % F.P for x in right] + list(a2.IV)
+        snaps = _permute_snapshots(init)
+        blocks.append(snaps)
+        sibs.append(tuple(int(x) % F.P for x in sib)); dirs.append(d)
+        cur = tuple(snaps[_R][:_CAP]); idx >>= 1
+    assert a2.eq(cur, root), "path does not hash to root"
+
+    BR = _R + 1                                    # rows per block
+    nblk = len(blocks)
+    rows = []
+    for blk in blocks:
+        rows.extend([list(s) for s in blk])        # R+1 rows each
+    n_used = len(rows)
+    T = _next_pow2(n_used)
+    while len(rows) < T:
+        rows.append(list(rows[-1]))
+
+    # periodic: RC(W) | ractive | aactive | dir | sib(CAP)
+    RC_lo, ACT_R, ACT_A, DIRC, SIB_lo = 0, _W, _W + 1, _W + 2, _W + 3
+    NPER = SIB_lo + _CAP
+    per = [[0] * T for _ in range(NPER)]
+    for i in range(T):
+        blk = i // BR
+        rib = i % BR
+        if i < n_used and rib < _R:                # a round row: RC for round `rib`, transition active
+            for lane in range(_W):
+                per[RC_lo + lane][i] = a2.RC[rib][lane]
+            per[ACT_R][i] = 1
+        if i < n_used and rib == _R and blk + 1 < nblk:   # boundary row feeding the NEXT block's absorb
+            per[ACT_A][i] = 1
+            per[DIRC][i] = dirs[blk]                # block 0's boundary feeds level-1 with sibs[0]/dirs[0]
+            for lane in range(_CAP):
+                per[SIB_lo + lane][i] = sibs[blk][lane]
+    # boundaries: leaf init (row 0) + final digest lanes = root
+    bnds = [(0, 0, a2.DOM_LEAF), (0, 1, int(leaf_val) % F.P)]
+    for lane in range(2, _RATE):
+        bnds.append((0, lane, 0))
+    for lane in range(_CAP):
+        bnds.append((0, _RATE + lane, a2.IV[lane]))
+    final_row = (nblk - 1) * BR + _R
+    for lane in range(_CAP):
+        bnds.append((final_row, lane, int(root[lane]) % F.P))
+    return rows, per, bnds, (RC_lo, ACT_R, ACT_A, DIRC, SIB_lo)
+
+
+def _membership_transitions(cols):
+    """Round + absorb-mux constraints. cols = (RC_lo, ACT_R, ACT_A, DIRC, SIB_lo)."""
+    RC_lo, ACT_R, ACT_A, DIRC, SIB_lo = cols
+    cons = []
+
+    def round_c(i):
+        def c(cur, nxt, per):
+            t = [F.pw(F.add(cur[j], per[RC_lo + j]), a2.ALPHA) for j in range(_W)]
+            mixed = 0
+            for j in range(_W):
+                mixed = F.add(mixed, F.mul(a2._MDS[i][j], t[j]))
+            return F.mul(per[ACT_R], F.sub(nxt[i], mixed))
+        return c
+    for i in range(_W):
+        cons.append(round_c(i))
+
+    # absorb: next block's row 0 = [ ordered(cur[:CAP], sib) by dir | IV ]
+    def absorb_left(i):
+        def c(cur, nxt, per):
+            d = per[DIRC]
+            want = F.add(F.mul(F.sub(1, d), cur[i]), F.mul(d, per[SIB_lo + i]))   # (1-d)·cur + d·sib
+            return F.mul(per[ACT_A], F.sub(nxt[i], want))
+        return c
+
+    def absorb_right(i):
+        def c(cur, nxt, per):
+            d = per[DIRC]
+            want = F.add(F.mul(F.sub(1, d), per[SIB_lo + i]), F.mul(d, cur[i]))   # (1-d)·sib + d·cur
+            return F.mul(per[ACT_A], F.sub(nxt[_CAP + i], want))
+        return c
+
+    def absorb_cap(i):
+        def c(cur, nxt, per):
+            return F.mul(per[ACT_A], F.sub(nxt[_RATE + i], a2.IV[i]))
+        return c
+    for i in range(_CAP):
+        cons.append(absorb_left(i)); cons.append(absorb_right(i)); cons.append(absorb_cap(i))
+    return cons
+
+
+def prove_membership(leaf_val, index, path, root, num_queries=4):
+    """Prove, in a STARK, that leaf `leaf_val`@`index` + `path` hashes up to the public `root` under the
+    recursion Merkle tree — the alghash2 hashing-in-circuit chained up a path. Raises if the path is wrong."""
+    rows, per, bnds, cols = _membership_air(leaf_val, index, path, root)
+    proof = stark.prove(rows, _membership_transitions(cols), bnds, periodic=per, max_degree=8,
+                        num_queries=num_queries, backend=backend.ALGHASH2)
+    proof["_periodic"] = per
+    proof["_bnds"] = bnds
+    proof["_cols"] = cols
+    return proof
+
+
+def verify_membership(proof, root, num_queries=4):
+    """Verify a membership proof against the PUBLIC root (the root the boundaries pin must equal `root`)."""
+    per, bnds, cols = proof.get("_periodic"), proof.get("_bnds"), proof.get("_cols")
+    if per is None or bnds is None or cols is None:
+        return False, "missing public AIR schedule"
+    pinned = tuple(v for (_r, _l, v) in bnds[-_CAP:])
+    if pinned != tuple(int(x) % F.P for x in root):
+        return False, "root boundary does not match the claimed root"
+    return stark.verify(proof, _membership_transitions(cols), bnds, periodic=per, max_degree=8,
                         num_queries=num_queries, backend=backend.ALGHASH2)

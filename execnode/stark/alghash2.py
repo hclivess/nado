@@ -48,7 +48,14 @@ def sbox(x):
 
 
 def permute(state):
-    """One width-12 permutation: ROUNDS × (add constants → x^7 all lanes → MDS mix)."""
+    """One width-12 permutation: ROUNDS × (add constants → x^7 all lanes → MDS mix). Native Rust when
+    available (bit-identical), else pure Python."""
+    nat = _try_native()
+    if nat:
+        lib, u64 = nat
+        buf = (u64 * WIDTH)(*[int(x) % F.P for x in state])
+        lib.permute12(buf)
+        return [buf[i] for i in range(WIDTH)]
     s = list(state)
     for r in range(ROUNDS):
         s = [sbox(F.add(s[i], RC[r][i])) for i in range(WIDTH)]
@@ -72,6 +79,7 @@ def _try_native():
         lib = ctypes.CDLL(so)
         lib.init.argtypes = [ctypes.POINTER(ctypes.c_uint64)] * 3
         lib.hashn.argtypes = [ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint64)]
+        lib.permute12.argtypes = [ctypes.POINTER(ctypes.c_uint64)]
         u64 = ctypes.c_uint64
         rc = (u64 * (ROUNDS * WIDTH))(*[RC[r][i] for r in range(ROUNDS) for i in range(WIDTH)])
         iv = (u64 * CAPACITY)(*IV)
@@ -113,6 +121,22 @@ def leaf(x):
 def node(a, b):
     """Merkle inner-node digest of two child digests (each a CAPACITY-tuple)."""
     return hashn([DOM_NODE, *a, *b])
+
+
+def rnode(a, b):
+    """RECURSION-tree 2-to-1 compression: ONE permutation over [a(4) | b(4) | IV(4)], digest = first CAPACITY
+    lanes. Fixed-arity (a Merkle tree never mixes arities) so no length prefix is needed — which is what lets
+    the recursion membership AIR spend exactly ONE permutation block per tree level (recursion.py). `a`,`b`
+    are CAPACITY-tuples; RATE = 2·CAPACITY, so the two children exactly fill the rate."""
+    state = [int(x) % F.P for x in a] + [int(x) % F.P for x in b] + list(IV)
+    return tuple(permute(state)[:CAPACITY])
+
+
+def rleaf(x):
+    """RECURSION-tree leaf: rnode of (x-lane-broadcast, zero) — one permutation, digest = first CAPACITY.
+    Domain-separated from an inner node by absorbing DOM_LEAF in lane 0."""
+    a = (DOM_LEAF, int(x) % F.P, 0, 0)
+    return tuple(permute([*a, 0, 0, 0, 0, *IV])[:CAPACITY])
 
 
 def to_int(digest):

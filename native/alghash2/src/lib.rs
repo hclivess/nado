@@ -48,6 +48,14 @@ unsafe fn permute(s: &mut [u64; W]) {
     }
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn permute12(state: *mut u64) {
+    let mut s = [0u64; W];
+    for i in 0..W { s[i] = *state.add(i); }
+    permute(&mut s);
+    for i in 0..W { *state.add(i) = s[i]; }
+}
+
 // hashn(elements) with the length prefix (matches Python: els = [len] + elements). `els` already includes the
 // length prefix as els[0]; `n` is the total length. Writes the CAP-lane digest to `out`.
 #[no_mangle]
