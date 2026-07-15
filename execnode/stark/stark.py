@@ -17,7 +17,7 @@ FRI's own query points that the committed composition equals the quotient recomp
 Cheating requires a non-low-degree quotient (FRI rejects) or a trace/composition mismatch (spot-checks reject).
 Soundness assumption: BLAKE2b collision-resistance.
 """
-from execnode.stark import field as F, merkle, fri
+from execnode.stark import field as F, merkle, fri, backend as _backend
 from execnode.stark.transcript import Transcript
 from execnode.stark.fri import NUM_QUERIES
 
@@ -100,7 +100,7 @@ def _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boun
 
 
 def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None,
-          aux_spec=None):
+          aux_spec=None, backend=None):
     """Prove `trace` satisfies the AIR (transitions + boundaries [+ public periodic columns]). Interpolates
     and Merkle-commits each column's LDE, draws the constraint-combination challenges α from the committed
     roots (Fiat–Shamir), FRI-proves the composition is low-degree, and opens the cur/next trace rows at every
@@ -125,12 +125,13 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     x_lde = F.domain(N, OFF)
     deg_bound = _next_pow2(max_degree) * T
 
-    t = Transcript("nado-stark")
+    b = backend or _backend.DEFAULT
+    t = Transcript("nado-stark", backend=b)
     if aux is not None:                      # H-4: bind an extra public input (e.g. an unshield withdraw_addr)
         t.absorb("aux", str(aux))            # into the transcript so the proof only verifies for THAT value
     col_roots, col_mlayers = [], []
     for c in range(W):
-        root, ml = merkle.commit(col_lde[c])
+        root, ml = merkle.commit(col_lde[c], b)
         col_roots.append(root); col_mlayers.append(ml); t.absorb(root)
     challenges = None
     if aux_spec is not None:                 # phase 2: challenges AFTER the main commitment, then aux columns
@@ -141,7 +142,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
         for col in aux_cols:
             lde = _coset_evaluate(F.interpolate([v % F.P for v in col]), N, OFF)
             col_lde.append(lde)
-            root, ml = merkle.commit(lde)
+            root, ml = merkle.commit(lde, b)
             col_roots.append(root); col_mlayers.append(ml); t.absorb(root)
         W += aux_spec["num_aux"]
     alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
@@ -149,7 +150,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
                       challenges)
 
     fri_blowup = N // deg_bound
-    fri_proof = fri.prove(cp, OFF, fri_blowup, num_queries, transcript=t)
+    fri_proof = fri.prove(cp, OFF, fri_blowup, num_queries, transcript=t, backend=b)
 
     openings = []
     for q in fri_proof["queries"]:
@@ -166,7 +167,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
 
 
 def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None,
-           aux_spec=None):
+           aux_spec=None, backend=None):
     """Verify a STARK proof. Returns (ok, reason). The AIR itself (transitions, boundaries, periodic,
     max_degree) comes from the CALLER, never from the proof; the proof only supplies commitments and openings.
     Order of checks: LDE geometry pinned to max_degree·T before any allocation (H-7); transcript replayed to
@@ -193,7 +194,8 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         last = F.pw(gT, T - 1)
         per_coeffs = [F.interpolate(list(pc)) for pc in periodic]     # public periodic polynomials
 
-        t = Transcript("nado-stark")
+        b = backend or _backend.DEFAULT
+        t = Transcript("nado-stark", backend=b)
         if aux is not None:                  # H-4: same extra public input the prover bound (unshield addr)
             t.absorb("aux", str(aux))        # a tampered value here diverges the transcript -> proof rejected
         challenges = None
@@ -216,7 +218,7 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
 
         # fri_blowup is ALWAYS 2 for a STARK proof (N = 2·next_pow2(max_degree)·T, deg_bound = N/2), so pin it —
         # that forces the full FRI geometry and, with the fixed query count, closes the C-1 empty-proof bypass.
-        ok, why = fri.verify(proof["fri"], transcript=t, num_queries=num_queries, expected_blowup=2)
+        ok, why = fri.verify(proof["fri"], transcript=t, num_queries=num_queries, expected_blowup=2, backend=b)
         if not ok:
             return False, f"composition is not low-degree: {why}"
 
@@ -233,9 +235,9 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
             cur_row, nxt_row = [], []
             for c in range(W):
                 col = op["cols"][c]
-                if not merkle.verify(col_roots[c], lo, col["cur"], col["cur_path"]):
+                if not merkle.verify(col_roots[c], lo, col["cur"], col["cur_path"], b):
                     return False, f"bad trace opening (cur) col {c}"
-                if not merkle.verify(col_roots[c], nxt, col["nxt"], col["nxt_path"]):
+                if not merkle.verify(col_roots[c], nxt, col["nxt"], col["nxt_path"], b):
                     return False, f"bad trace opening (nxt) col {c}"
                 cur_row.append(col["cur"]); nxt_row.append(col["nxt"])
             x = x_dom[lo]

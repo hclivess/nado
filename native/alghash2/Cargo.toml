@@ -1,0 +1,15 @@
+[package]
+name = "nado-alghash2"
+version = "0.1.0"
+edition = "2021"
+description = "NADO native alghash2 wide-sponge hash — Rust cdylib for the STARK-recursion hot path (doc/zk-recursion.md)"
+license = "Apache-2.0 OR MIT"
+
+[lib]
+name = "nado_alghash2"
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = 3
+lto = true
+panic = "abort"

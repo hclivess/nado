@@ -1,43 +1,41 @@
 """
 Fiat–Shamir transcript — turns the interactive STARK/FRI protocol NON-interactive (doc/privacy.md). Every
-challenge is a BLAKE2b hash of everything absorbed so far, so a cheating prover cannot pick data to suit a
-challenge it hasn't seen. Post-quantum (hash-only) and byte-reproducible on any verifier.
+challenge derives from a hash of everything absorbed so far, so a cheating prover cannot pick data to suit a
+challenge it hasn't seen. The hash is supplied by a BACKEND (execnode/stark/backend.py): BLAKE2b by default
+(byte-identical to the original — existing proofs unchanged), or the wide-sponge `alghash2` for the
+recursion layer (doc/zk-recursion.md). Post-quantum (hash-only) and byte-reproducible.
 """
-from hashing import blake2b_hash
-from execnode.stark.field import P
+from execnode.stark import backend as _backend
 
 
 class Transcript:
-    def __init__(self, label="nado-stark"):
+    def __init__(self, label="nado-stark", backend=None):
         """Fresh transcript, domain-separated by `label`."""
-        self.state = blake2b_hash(["transcript", label])
+        self.b = backend or _backend.DEFAULT
+        self.state = self.b.t_init(label)
 
     def absorb(self, *items):
         """Fold items into the transcript state — every later challenge depends on them."""
-        self.state = blake2b_hash(["absorb", self.state, *[str(x) for x in items]])
+        self.state = self.b.t_absorb(self.state, items)
 
     def challenge(self):
         """A uniform field element derived from the transcript."""
-        self.state = blake2b_hash(["challenge", self.state])
-        return int(self.state, 16) % P
+        self.state, v = self.b.t_challenge(self.state)
+        return v
 
     def challenge_index(self, bound):
         """A uniform index in [0, bound)."""
-        self.state = blake2b_hash(["index", self.state])
-        return int(self.state, 16) % bound
+        self.state, v = self.b.t_index(self.state, bound)
+        return v
 
     def _grind_ok(self, nonce, bits):
         """True iff the PoW hash of (current state, nonce) has `bits` leading zero bits."""
-        # PoW over the CURRENT transcript state: the hash must have `bits` leading zero bits. Uses the same
-        # blake2b_hash as every other transcript op, so the browser prover (which mirrors it byte-for-byte)
-        # agrees. 64-hex digest -> 256 bits total.
-        h = int(blake2b_hash(["grind", self.state, str(nonce)]), 16)   # str(nonce): JSON string, matches JS String(nonce)
+        h = self.b.t_grind_hash(self.state, nonce)
         return (h >> (256 - bits)) == 0
 
     def grind(self, bits):
-        """Find a nonce whose PoW hash has `bits` leading zeros, fold it into the transcript, return it. This
-        multiplies a forger's cost by 2^bits UNCONDITIONALLY (independent of the FRI soundness conjecture),
-        the cheap way to raise soundness beyond what the query count alone gives (C-1)."""
+        """Find a nonce whose PoW hash has `bits` leading zeros, fold it in, return it. Multiplies a forger's
+        cost by 2^bits UNCONDITIONALLY (independent of the FRI soundness conjecture)."""
         nonce = 0
         while not self._grind_ok(nonce, bits):
             nonce += 1

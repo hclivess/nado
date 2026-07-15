@@ -1,37 +1,29 @@
 """
 Binary Merkle commitment over a vector of field elements — the polynomial-commitment primitive FRI/STARK
-stands on (doc/privacy.md). Post-quantum: the ONLY assumption is that BLAKE2b is collision-resistant, the same
-trust NADO already places in it everywhere else. Vectors are always a power of two (STARK evaluation domains),
-so no odd-node padding is ever needed.
+stands on (doc/privacy.md). Post-quantum: the only assumption is that the leaf/node hash is collision
+resistant. The hash is supplied by a BACKEND (execnode/stark/backend.py) — BLAKE2b by default (byte-identical
+to the original), or the wide-sponge `alghash2` for proofs that must be verified inside a STARK (recursion,
+doc/zk-recursion.md). Vectors are always a power of two (STARK evaluation domains).
 """
-from hashing import blake2b_hash
+from execnode.stark import backend as _backend
 
 
-def _leaf(x):
-    """Domain-separated leaf hash of one field element."""
-    return blake2b_hash(["stark-leaf", str(int(x))])
-
-
-def _node(a, b):
-    """Domain-separated inner-node hash of two child digests."""
-    return blake2b_hash(["stark-node", a, b])
-
-
-def commit(values):
-    """Return (root, layers). layers[0] = leaf hashes, layers[-1] = [root]."""
+def commit(values, backend=None):
+    """Return (root, layers). layers[0] = leaf digests, layers[-1] = [root]."""
+    b = backend or _backend.DEFAULT
     n = len(values)
     if n & (n - 1):
         raise ValueError("Merkle vector length must be a power of two")
-    layer = [_leaf(v) for v in values]
+    layer = [b.leaf(v) for v in values]
     layers = [layer]
     while len(layer) > 1:
-        layer = [_node(layer[i], layer[i + 1]) for i in range(0, len(layer), 2)]
+        layer = [b.node(layer[i], layer[i + 1]) for i in range(0, len(layer), 2)]
         layers.append(layer)
     return layers[-1][0], layers
 
 
 def open_at(layers, index):
-    """Authentication path (sibling hashes, bottom-up) for the leaf at `index`."""
+    """Authentication path (sibling digests, bottom-up) for the leaf at `index`."""
     path, idx = [], index
     for layer in layers[:-1]:
         path.append(layer[idx ^ 1])
@@ -39,10 +31,11 @@ def open_at(layers, index):
     return path
 
 
-def verify(root, index, value, path):
+def verify(root, index, value, path, backend=None):
     """Recompute the root from (index, value, path) bottom-up; True iff it equals `root`."""
-    h, idx = _leaf(value), index
+    b = backend or _backend.DEFAULT
+    h, idx = b.leaf(value), index
     for sib in path:
-        h = _node(h, sib) if idx % 2 == 0 else _node(sib, h)
+        h = b.node(h, sib) if idx % 2 == 0 else b.node(sib, h)
         idx //= 2
     return h == root

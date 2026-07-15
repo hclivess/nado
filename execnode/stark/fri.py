@@ -13,6 +13,7 @@ Soundness rests only on BLAKE2b collision-resistance (via the Merkle commitments
 """
 from execnode.stark import field as F, merkle
 from execnode.stark.transcript import Transcript
+from execnode.stark import backend as _backend
 
 INV2 = F.inv(2)
 
@@ -67,17 +68,18 @@ def _coset_interpolate(evals, offset):
     return coeffs
 
 
-def prove(evals, offset, blowup=4, num_queries=NUM_QUERIES, transcript=None):
+def prove(evals, offset, blowup=4, num_queries=NUM_QUERIES, transcript=None, backend=None):
     """Prove deg(f) < len(evals)/blowup, where `evals` are f on the coset of size N=len(evals) with shift
     `offset`. Returns a proof dict. `blowup` (the Reed–Solomon rate denominator) sets both the claimed degree
     bound and the soundness per query."""
-    t = transcript or Transcript("fri")
+    b = backend or _backend.DEFAULT
+    t = transcript or Transcript("fri", backend=b)
     N = len(evals)
     layers, roots = [], []
     cur, off = list(evals), offset
     dom = F.domain(N, off)
     while len(cur) > blowup:
-        root, mlayers = merkle.commit(cur)
+        root, mlayers = merkle.commit(cur, b)
         roots.append(root); t.absorb(root)
         alpha = t.challenge()
         layers.append({"evals": cur, "mlayers": mlayers, "dom": dom, "off": off})
@@ -108,7 +110,7 @@ def prove(evals, offset, blowup=4, num_queries=NUM_QUERIES, transcript=None):
             "pow": pow_nonce, "queries": queries}
 
 
-def verify(proof, transcript=None, num_queries=None, expected_blowup=None):
+def verify(proof, transcript=None, num_queries=None, expected_blowup=None, backend=None):
     """Verify a FRI proof. Returns (ok, reason).
 
     C-1: `num_queries` and `expected_blowup`, when given, are the caller's PROTOCOL values — the verifier
@@ -136,7 +138,8 @@ def verify(proof, transcript=None, num_queries=None, expected_blowup=None):
         if num_queries is not None and len(queries) != num_queries:
             return False, "wrong FRI query count"
 
-        t = transcript or Transcript("fri")
+        b = backend or _backend.DEFAULT
+        t = transcript or Transcript("fri", backend=b)
 
         # replay the transcript to recover the same folding challenges + query positions
         alphas, offs, doms = [], [], []
@@ -171,9 +174,9 @@ def verify(proof, transcript=None, num_queries=None, expected_blowup=None):
                 a %= n
                 lo = a % half
                 # Merkle-check both opened points against this layer's root
-                if not merkle.verify(root, lo, step["lo"], step["lo_path"]):
+                if not merkle.verify(root, lo, step["lo"], step["lo_path"], b):
                     return False, f"bad Merkle opening (lo) at layer {L}"
-                if not merkle.verify(root, lo + half, step["hi"], step["hi_path"]):
+                if not merkle.verify(root, lo + half, step["hi"], step["hi_path"], b):
                     return False, f"bad Merkle opening (hi) at layer {L}"
                 # the fold of this layer's pair must equal the NEXT layer's value at position `lo`
                 x = dom[lo]
