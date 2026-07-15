@@ -11,7 +11,16 @@ const P: u128 = 0xFFFFFFFF00000001;
 #[inline(always)] fn addf(a: u64, b: u64) -> u64 { (((a as u128) + (b as u128)) % P) as u64 }
 #[inline(always)] fn subf(a: u64, b: u64) -> u64 { (((a as u128) + P - (b as u128)) % P) as u64 }
 
+// The browser WASM prover only ever handles small traces (T ~ 1024, N <= 8192), so it keeps the tiny static
+// buffer. The NATIVE .so (the Python prover's accelerator) must handle the STARK-RECURSION domains — a fold /
+// composition proof's LDE reaches N in the 10^5-10^6 range, which used to fall back to pure-Python big-int NTT
+// (the memory/time wall). A larger static buffer lets the native u64 NTT cover them (bit-identical; the NTT
+// operates on BUF[0..n] regardless of capacity). 2^22 = 4M elements → BUF 32 MB + TW 16 MB static, fine
+// natively; the wasm32 build is unchanged.
+#[cfg(target_arch = "wasm32")]
 const NMAX: usize = 8192;
+#[cfg(not(target_arch = "wasm32"))]
+const NMAX: usize = 1 << 22;
 static mut BUF: [u64; NMAX] = [0; NMAX];
 static mut TW: [u64; NMAX / 2] = [0; NMAX / 2];
 

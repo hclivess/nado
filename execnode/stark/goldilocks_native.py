@@ -9,7 +9,11 @@ import os
 import threading
 
 _P = 0xFFFFFFFF00000001
-NMAX = 8192
+# Must match the NATIVE build's NMAX in wasm/goldilocks/src/lib.rs (the non-wasm32 branch): the native .so is
+# what this module binds, and callers gate native use on `n <= NMAX`. Raised from 8192 so the native u64 NTT
+# covers STARK-RECURSION domains (fold/composition LDEs reach N ~ 10^5-10^6) instead of falling back to the
+# pure-Python big-int NTT (the recursion memory/time wall). The browser WASM keeps 8192 (it never sees large N).
+NMAX = 1 << 22
 
 _LIB = None
 _BUF = None
