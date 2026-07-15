@@ -235,10 +235,22 @@ if [ $WITH_EXEC -eq 1 ]; then
     else
       echo "    (build failed — recursion/alghash2 paths use pure Python; still correct, just slower.)"
     fi
+    echo "==> building the native STARK composition (constraint-IR evaluator; ~10x on the composition loop)..."
+    if ( cd "$REPO_DIR/native/starkcompose" && cargo build --release >/dev/null 2>&1 ); then
+      # confirm the .so loads (its bit-identity to stark._composition is covered by tests/test_air_ir.py)
+      if "$VENV_PY" -c "import sys; sys.path.insert(0,'$REPO_DIR'); from execnode.stark import air_ir; sys.exit(0 if air_ir._native() else 1)" 2>/dev/null; then
+        echo "    built + loaded: native/starkcompose/target/release/libnado_starkcompose.so"
+      else
+        echo "    (built but the .so did not load — the prover uses the pure-Python composition; still correct.)"
+      fi
+    else
+      echo "    (build failed — the prover uses the pure-Python composition; still correct, just slower.)"
+    fi
   else
     echo "==> Rust not available — the shielded-pool node will use the pure-Python prover (correct, ~2x slower)."
     echo "    For faster proving: install Rust (https://rustup.rs), then:"
-    echo "      (cd wasm/goldilocks && cargo build --release) && (cd native/alghash2 && cargo build --release)"
+    echo "      (cd wasm/goldilocks && cargo build --release) && (cd native/alghash2 && cargo build --release) \\"
+    echo "        && (cd native/starkcompose && cargo build --release)"
   fi
 fi
 

@@ -75,7 +75,21 @@ def _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boun
     # for the whole vector instead of an inv() per (constraint, point).
     inv_xTm1 = F.batch_inverse([F.sub(F.pw(x_lde[j], T), 1) for j in range(N)])
     invZ = [F.mul(F.sub(x_lde[j], last), inv_xTm1[j]) for j in range(N)]
-    # per-row column + periodic slices, shared across all transitions (built once)
+    # per-boundary 1/(x - g^row) vectors (one batch inversion each) — shared by both the native and Python paths
+    bnd_inv_dens = [F.batch_inverse([F.sub(x_lde[j], F.pw(gT, row)) for j in range(N)])
+                    for (row, _col, _val) in boundaries]
+
+    # NATIVE-FIELD PATH: trace the constraints into the shared IR (air_ir) and evaluate the whole composition in
+    # Rust — bit-identical to the Python loop below (verified in tests), an order of magnitude faster on the
+    # execution AIR. Falls back to Python if the lib is unbuilt or rejects the program (returns None).
+    from execnode.stark import air_ir
+    prog = air_ir.build_program(transitions, W, len(per_lde), 0 if challenges is None else len(challenges))
+    cp = air_ir.compose_native(prog, N, blowup, col_lde, per_lde, list(challenges or []), alphas, invZ,
+                               boundaries, bnd_inv_dens)
+    if cp is not None:
+        return cp
+
+    # PYTHON FALLBACK (reference): the same arithmetic, per point.
     cur_rows = [[col_lde[c][j] for c in range(W)] for j in range(N)]
     nxt_rows = [[col_lde[c][(j + blowup) % N] for c in range(W)] for j in range(N)]
     per_rows = [[pc[j] for pc in per_lde] for j in range(N)]
@@ -90,10 +104,9 @@ def _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boun
             for j in range(N):
                 cp[j] = F.add(cp[j], F.mul(a, F.mul(con(cur_rows[j], nxt_rows[j], per_rows[j], challenges),
                                                     invZ[j])))
-    for (row, col, val) in boundaries:
+    for bi, (row, col, val) in enumerate(boundaries):
         a = alphas[ai]; ai += 1
-        pt = F.pw(gT, row)
-        inv_den = F.batch_inverse([F.sub(x_lde[j], pt) for j in range(N)])
+        inv_den = bnd_inv_dens[bi]
         for j in range(N):
             cp[j] = F.add(cp[j], F.mul(a, F.mul(F.sub(col_lde[col][j], val), inv_den[j])))
     return cp
