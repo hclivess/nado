@@ -12,36 +12,58 @@ Digests are opaque to the callers: a hex string for blake2b, a CAPACITY-tuple of
 `==` works for both; `to_field_elements` flattens a digest to field lanes for the transcript / an in-circuit
 verifier.
 """
+from hashlib import blake2b as _blake2b
 from hashing import blake2b_hash
 from execnode.stark import field as F, alghash2
+
+# The STARK's Merkle leaf/node hash is called MILLIONS of times per proof and is PURELY INTERNAL to a proof
+# (prove + verify use it self-consistently; it is NOT the consensus state-root hash — that is
+# hashing.merkle_root over canonical_bytes, untouched). So it skips json/canonical_bytes entirely and packs
+# bytes directly: a field element is < P < 2^64 (8 LE bytes); a digest is 32 bytes. This removed ~18s of pure
+# json.dumps overhead per execution-AIR proof (2.18M hashes). Domain-tagged so leaf/node spaces stay disjoint.
+def _b2b32(*parts):
+    return _blake2b(b"".join(parts), digest_size=32).hexdigest()
 
 
 class _Blake2b:
     name = "blake2b"
 
     def leaf(self, x):
-        return blake2b_hash(["stark-leaf", str(int(x))])
+        return _b2b32(b"\x00", (int(x) % F.P).to_bytes(8, "little"))
 
     def node(self, a, b):
-        return blake2b_hash(["stark-node", a, b])
+        return _b2b32(b"\x01", bytes.fromhex(a), bytes.fromhex(b))
 
-    # transcript: state is a hex string
+    # transcript: state is a 32-byte hex string. Items are field ints, digest hex strings, or short labels;
+    # each is encoded unambiguously (tag + bytes) so the absorb is injective — no json (hashlib is C-fast; the
+    # json.dumps was the whole cost, incl. the 2^GRIND_BITS grind hashes). Internal to a proof, same both sides.
+    def _enc(self, items):
+        out = []
+        for x in items:
+            if isinstance(x, str) and len(x) == 64 and all(c in "0123456789abcdef" for c in x):
+                out.append(b"H" + bytes.fromhex(x))                       # a digest
+            elif isinstance(x, str):
+                bs = x.encode(); out.append(b"S" + len(bs).to_bytes(2, "little") + bs)
+            else:
+                v = int(x) % F.P; out.append(b"I" + v.to_bytes(8, "little"))
+        return b"".join(out)
+
     def t_init(self, label):
-        return blake2b_hash(["transcript", label])
+        return _b2b32(b"T", str(label).encode())
 
     def t_absorb(self, state, items):
-        return blake2b_hash(["absorb", state, *[str(x) for x in items]])
+        return _b2b32(b"A", bytes.fromhex(state), self._enc(items))
 
     def t_challenge(self, state):
-        s = blake2b_hash(["challenge", state])
+        s = _b2b32(b"C", bytes.fromhex(state))
         return s, int(s, 16) % F.P
 
     def t_index(self, state, bound):
-        s = blake2b_hash(["index", state])
+        s = _b2b32(b"X", bytes.fromhex(state))
         return s, int(s, 16) % bound
 
     def t_grind_hash(self, state, nonce):
-        return int(blake2b_hash(["grind", state, str(nonce)]), 16)
+        return int(_b2b32(b"G", bytes.fromhex(state), (int(nonce) % F.P).to_bytes(8, "little")), 16)
 
     def to_field_elements(self, digest):
         # a blake2b digest is a 256-bit hex string → four 64-bit field lanes (for uniformity only)
