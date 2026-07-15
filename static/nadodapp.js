@@ -799,11 +799,21 @@ export class NadoDapp {
   // a signed action "blip" out for a poll. We STICKY-MERGE those append-only maps: any key present a moment ago
   // but missing now is held for STICKY_GRACE_MS (a real deep-reorg removal still clears after the grace). So a
   // move/shot/result you've seen never flickers away; the chain stays a background confirmer, not a flicker source.
+  //
+  // The table-EXISTENCE maps `t0` (open height) + `ta` (bank) — the two readTable requires for {exists:true},
+  // both written atomically at `open` — are ALWAYS sticky-merged, even when a game passes no opts.append: a table
+  // you just opened is the freshest, therefore most reorg-vulnerable, write, and a table blinking out of the list
+  // for a poll is exactly the "I don't see my table / confirming forever" symptom. They're append-only until an
+  // explicit `close`, which still clears after the grace. The MUTABLE per-table maps (pot/seats/bankroll) are
+  // deliberately NOT held so live figures stay live. This makes every game's table list flicker-proof from one
+  // place — no per-game opt-in — and games with a per-user existence map still add it via opts.append.
   async storage(opts) {
     try {
       const sto = (await (await fetch(base() + "/exec/contract?ns=" + this.ns + "&cid=" + this.cid + "&provisional=1", { cache: "no-store" })).json()).storage || {};
       this.online = true;
-      return this._stickMerge(sto, opts && opts.append);
+      const base_ = ["t0", "ta"], extra = (opts && opts.append) || [];
+      const append = [...base_, ...extra.filter((m) => !base_.includes(m))];
+      return this._stickMerge(sto, append);
     } catch { this.online = false; return null; }
   }
   // Read-only contract call via GET /exec/view — how a game reads hash-keyed (per-user) zkVM slots that
