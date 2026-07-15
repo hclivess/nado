@@ -77,7 +77,7 @@ async function doBet() {
   await dapp.refresh();
   if (!canPay(dapp, stake, "This roll")) { render(); return; }
   const need = returnRaw(stake, target) - stake;
-  if (BigInt(tb.bankroll) - BigInt(tb.committed) < need) { alertBar(window.t("dice.cantCover1", "This table can't cover a {m}× win right now. Lower your stake or raise your win chance.", { m: multOf(target).toFixed(2) })); render(); return; }
+  if (BigInt(tb.pool) - BigInt(tb.committed) < need) { alertBar(window.t("dice.cantCover1", "This table can't cover a {m}× win right now. Lower your stake or raise your win chance.", { m: multOf(target).toFixed(2) })); render(); return; }
   const g = randId(), S = load(LS_S);
   S[g] = { table: t, stake: stake.toString(), M: target, ts: Date.now() }; save(LS_S, S);
   render();
@@ -140,7 +140,7 @@ function renderLobby(sto) {
   el.innerHTML = shown.length ? shown.map((t) => {
     const left = t.roundEndsIn != null ? window.t("dice.nextRoll", " · next roll {time}", { time: blocksToTime(t.roundEndsIn) }) : "";
     const rolls = t.seatCount === 1 ? window.t("dice.roll", "roll") : window.t("dice.rolls", "rolls");
-    return '<button class="chip betting" data-t="' + t.id + '">' + window.t("dice.lobbyChip", "🟢 #{id} · bank {bank} · {n} {rolls}{left}", { id: t.id, bank: rawToNado(t.bankroll), n: t.seatCount, rolls, left }) + "</button>";
+    return '<button class="chip betting" data-t="' + t.id + '">' + window.t("dice.lobbyChip", "🟢 #{id} · bank {bank} · {n} {rolls}{left}", { id: t.id, bank: rawToNado(t.pool), n: t.seatCount, rolls, left }) + "</button>";
   }).join(" ") : '<span class="dim">' + window.t("dice.noTables", "No tables yet — bank one below.") + "</span>";
   el.querySelectorAll(".chip").forEach((b) => b.onclick = () => selectTable(parseInt(b.dataset.t, 10)));
 }
@@ -158,7 +158,7 @@ function selectTable(id) {
 function maxBetRaw() {
   const tb = lastTable;
   if (!tb || !tb.exists || tb.closed) return null;
-  const free = BigInt(tb.bankroll) - BigInt(tb.committed);
+  const free = BigInt(tb.pool) - BigInt(tb.committed);
   if (free <= 0n || EDGE - target <= 0) return null;
   return free * BigInt(target) / BigInt(EDGE - target);
 }
@@ -198,7 +198,7 @@ function render() {
   const tb = (activeTable != null && lastTable && lastTable.exists && !lastTable.closed) ? lastTable : null;
   const stake = nadoToRaw($("stakeAmt").value);
   const need = stake ? returnRaw(stake, target) - stake : null;
-  const covers = !(tb && need != null && (BigInt(tb.bankroll) - BigInt(tb.committed)) < need);
+  const covers = !(tb && need != null && (BigInt(tb.pool) - BigInt(tb.committed)) < need);
   const canAfford = !(signedIn && stake && dapp.exec < stake);
   const betable = !!tb && !!stake && canAfford && covers;
   if ($("btnBet")) { $("btnBet").disabled = !betable; $("btnBet").classList.toggle("pulse", betable && signedIn); }
@@ -208,7 +208,7 @@ function render() {
     else if (lastTable && lastTable.closed) hint = window.t("dice.tableClosedN", "Table #{t} is closed.", { t: activeTable });
     else if (!stake) hint = window.t("dice.enterStakeHint", "Enter a stake (NADO) and set your win chance, then Place roll — you can bet at your own table too.");
     else if (dapp.exec < stake) hint = window.t("dice.notEnough", "Not enough NADO — this rolls {need} but your exec balance is {have}. Deposit at least {short} more below.", { need: rawToNado(stake), have: rawToNado(dapp.exec), short: rawToNado(stake - dapp.exec) });
-    else if (tb && !covers) hint = window.t("dice.cantCover2", "This table's bankroll can't cover a {m}× win (free: {free} NADO). Lower your stake, raise your win chance, or Top up the bankroll.", { m: multOf(target).toFixed(2), free: rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) });
+    else if (tb && !covers) hint = window.t("dice.cantCover2", "This table's bankroll can't cover a {m}× win (free: {free} NADO). Lower your stake, raise your win chance, or Top up the bankroll.", { m: multOf(target).toFixed(2), free: rawToNado(BigInt(tb.pool) - BigInt(tb.committed)) });
   }
   const jh = $("joinHint"); if (jh) { jh.textContent = hint; jh.classList.toggle("hidden", !hint); }
   syncStakeSlider();   // keep the max-bet slider in step with the table's live free cover
@@ -243,8 +243,8 @@ function renderActive() {
   $("gameId").textContent = "#" + activeTable;
   shareInvite("table", activeTable, window.t("dice.shareText", "Roll at my dice table #{t} on NADO:", { t: activeTable }), 180);
   $("gBank").textContent = tb.exists ? (disp(tb.bank) + (iAmBank ? window.t("dice.thatsYou", " — that's you (you're the house here)") : "")) : (T.bankroll ? window.t("dice.opening", "you (opening…)") : "—");
-  $("gBankroll").textContent = tb.exists ? rawToNado(tb.bankroll) + " NADO" : (T.bankroll ? rawToNado(T.bankroll) + " NADO" : "—");
-  $("gCover").textContent = tb.exists ? window.t("dice.nadoFree", "{amt} NADO free", { amt: rawToNado(BigInt(tb.bankroll) - BigInt(tb.committed)) }) : "—";
+  $("gBankroll").textContent = tb.exists ? rawToNado(tb.pool) + " NADO" : (T.bankroll ? rawToNado(T.bankroll) + " NADO" : "—");
+  $("gCover").textContent = tb.exists ? window.t("dice.nadoFree", "{amt} NADO free", { amt: rawToNado(BigInt(tb.pool) - BigInt(tb.committed)) }) : "—";
   let phaseTxt = dapp.whereIs("table", activeTable, T.ts);
   if (tb.exists) {
     if (tb.closed) phaseTxt = window.t("dice.phaseClosed", "table closed");
