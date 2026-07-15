@@ -726,7 +726,13 @@ export class NadoDapp {
       const pct = Math.max(0, Math.min(100, parseFloat(sl.value) || 0));
       inp.value = rawToNado(pct >= 100 ? maxRaw : (BigInt(Math.round(pct * 100)) * maxRaw) / 10000n);   // % of the LIVE max; 100% = exact max
     } else if (document.activeElement !== sl) {
-      const a = parseFloat(inp.value) || 0;
+      let a = parseFloat(inp.value) || 0;
+      // HARD CAP: the typed amount can never exceed the LIVE max (e.g. raising dice leverage shrinks the
+      // coverable stake). Clamp the value itself — not just the slider — so a stale over-amount can't be
+      // submitted. Not while the user is actively typing in the field (activeElement === inp), so keystrokes
+      // aren't yanked mid-entry; the button's own cover-gate handles that transient, and this snaps it on the
+      // next refresh / max-change.
+      if (a > maxN && document.activeElement !== inp) { inp.value = rawToNado(maxRaw); a = maxN; }
       sl.value = String(maxN > 0 ? Math.max(0, Math.min(100, Math.round(a / maxN * 100))) : 0);          // reflect the typed amount as a %
     }
     const pctNow = Math.round(parseFloat(sl.value) || 0);
