@@ -126,23 +126,121 @@ choice is performance, not soundness.
    `alghash2.leaf`, the proof verifies, and a wrong digest / tampered trace are rejected. This is the atomic
    hashing-in-circuit unit a full verifier repeats.
 
-**The remaining layer (built ON this foundation, not faked):**
+**The verifier circuit — both halves built, verifier-authoritative, tested:**
 
-5. **`fold(π_a, π_b)`** — chain the gadget: (a) absorb-mux the gadget up a Merkle path → a membership circuit;
-   (b) stack membership + the field-arithmetic FRI-fold/composition checks → the full inner-STARK verifier
-   circuit; (c) `prove` that circuit over two inner proofs → one fold proof; `fold_tree` folds pairwise to
-   one root. The verifier's accept/reject oracle is already `recursion.verify_inner` (= `stark.verify` with
-   alghash2). Everything it needs is field-native (step 3) and its dominant cost is arithmetized (step 4).
-   The gate to running it at production parameters is **prover throughput** — the Python STARK prover proves
-   even the small gadget in ~tens of seconds (the field-arithmetic composition, now that hashing is native);
-   a full **native/Rust STARK prover** (the NTT half already exists in `wasm/goldilocks`) is the engineering
-   prerequisite, a throughput task, *not* a soundness one.
-6. **Wire into settlement** — `settlement_proofs.prove_recursive` folds the segment proofs into one; the seam
-   verifies the single root proof (an O(1) path on top of the shipped segmentation).
+5. ✅ **FRI low-degree half** (`fri_verify.py`, `tests/test_fri_verify.py`) — `prove_fold`/`verify_fold` fold a
+   batch of FRI proofs into ONE recursion STARK: membership (siblings-as-witness) + fold-consistency
+   `2·x·nxt = x(lo+hi)+α(lo−hi)`, chained across layers and pinned to the public final. The VERIFIER re-derives
+   the whole statement from the committed roots (`_canonical_public`: geometry, Fiat-Shamir α, query indices,
+   grinding, the final-layer low-degree test), builds the AIR periodic + boundaries itself, and the query
+   strength is the verifier's own policy (defaults to `fri.NUM_QUERIES`, never read from the prover's bundle).
+   Tests: honest folds verify; a high-degree proof is refused + rejected; tampered root/grind/final and any
+   sub-protocol query count are rejected; a naive verify demands full protocol strength.
+6. ✅ **Composition (trace↔constraints) half** (`comp_verify.py`, `tests/test_comp_verify.py`) — `prove_comp`/
+   `verify_comp` prove, per query point, that the opened trace columns are Merkle-authenticated under the
+   segment's committed column roots AND recompute the composition **by evaluating the constraint-IR (`air_ir`)
+   in-circuit** to a public layer-0 target. Same verifier-authoritative discipline (siblings-as-witness,
+   verifier builds the schedule). Generic over the AIR: the 1-column x² demo and the W=106 execution AIR share
+   the code path — only W and the program differ (2W+16 ≤ `MAX_COLUMNS`=256 fits the execution AIR). Tests:
+   honest binding verifies; a FALSE layer-0 target is rejected (the binding is authoritative); a value not in
+   the committed column tree is rejected by membership; **and it binds a GENUINE `stark.prove(x², backend=
+   RECURSION)` proof — every FRI query's Merkle-opened trace columns recompute in-circuit to that query's real
+   FRI layer-0 value** (the exact `stark.verify` spot-check, done inside a recursion proof). So both halves now
+   run against real proofs, not hand-built values.
 
-The design's soundness rests entirely on §6; steps 1–4 discharge the parts that were genuinely missing (a
-sound arithmetic hash + a field-native inner proof + in-circuit hashing), which is what made recursion
-impossible before.
+**What remains (no new soundness primitive — assembly + throughput + one optimization):**
+
+7. ✅ **Combine the halves — and collapse K→1** (`recursive_verify.py`, `tests/test_recursive_verify.py`).
+   `prove`/`verify` take ONE proof or a LIST of K (chained segments): one fold + one comp bundle covers all of
+   them (comp points carry per-proof column roots). The verifier reads only each proof's SMALL PUBLIC PART
+   (`public_part`: geometry, column roots, FRI roots/final/pow, the declared per-query layer-0 values) — never
+   openings or paths — re-derives every proof's Fiat-Shamir challenges AND query positions itself, and builds
+   both public statements. **The seam is in-circuit-validated**: the declared layer-0 value is handed to comp as
+   the composition target AND pinned as a boundary on the fold's CLO carry, whose leaf-selector ties it to the
+   Merkle-authenticated layer-0 opening — so a declared value that isn't the committed one cannot satisfy the
+   fold's membership (this closed a real gap: the value used to be trusted from the proof). Both halves passing
+   ⇒ every committed trace satisfies the AIR and its composition is low-degree ⇒ = K× `stark.verify`, proven via
+   ONE bundle. Tests: an honest K=3 chain verifies from public parts; wrong AIR, fold-root mismatch, tampered
+   layer-0 seam, and a lied segment seed are each rejected.
+7b. ✅ **The execution AIR (two-phase, W=106) — via ROW COMMITMENT.** `stark.prove(..., row_commit=True)`
+   (RECURSION backend) commits LDE ROWS instead of columns: one recursion-Merkle tree per phase whose leaf j =
+   `alghash2.rrow(row j)` (hashn-style multi-chunk absorption), so a query opens whole rows with ONE path per
+   tree — 4 paths per spot-check point instead of 2·106, which is what makes the wide AIR recursable.
+   `rowcomp_verify.py` is the row-mode composition gadget: in-circuit leaf absorption (the pinned hashn frame +
+   per-chunk carry injection) chained into the node path (witness sibling + IACC-pinned direction), generic over
+   groups (main/aux trees) and LogUp challenges (PCHAL). `recursive_verify` detects the mode, replays the
+   two-phase transcript (main root → β,γ → aux root → α's), evaluates the AIR's own periodic columns at each
+   FS-derived point (per-proof `periodic_list` — the execution AIR's program/args/io tables differ per segment),
+   and chunks the composition half (`comp_points_per_proof`) to bound each recursion trace.
+   **The settlement seam rides it**: `settlement_proofs.prove/verify_settlement_o1` — segment statements + io
+   replay + state-root chain natively (no crypto), and ONE recursion bundle in place of the K per-segment
+   `stark.verify` calls (`tests/test_settlement_o1.py`, real multi-segment epoch). Query strength is verifier
+   policy (protocol constant by default — `verify_epoch`/`verify_settlement` were also hardened to stop reading
+   the prover's declared `num_queries`).
+8. **Install the proof-checking `settlement_verifier`** (proof OR quorum; the seam + `register_epoch_proof`
+   exist). OPEN QUESTION before flipping it on: the current `settlement_verifier(zkvm_root_of_state)` shape
+   justifies a (ns, cursor) whose proof matches the local zkVM projection but IGNORES the attested full
+   state_root argument — installing it as-is would let a proven cursor justify ANY claimed root. The binding of
+   claimed-full-root → zkVM projection (or a full-state proof composition) must be decided first; since
+   "proof OR quorum" means an over-accepting verifier bypasses the quorum, this one line stays off until then.
+9. ✅ **Succinct (T-independent) verify — BUILT.** Two layers:
+   **(a) Structured periodic in the core** (`stark._per_expand`/`_per_evaluator`, `tests/test_stark_periodic.py`).
+   A periodic column may be `{"period": p, "base": [p values], "sparse": [(row, val)]}`: the verifier evaluates
+   its interpolation at a query point as `h(x^{T/p})` plus closed-form Lagrange terms `Δ·g^r(x^T−1)/(T(x−g^r))`
+   for the sparse rows — O(p + #sparse) per point instead of the O(T) interpolation at old `stark.verify:208`.
+   Proofs are BYTE-IDENTICAL to the dense form (the structured form is representation, not protocol; legacy
+   dense columns still take the old path). Verify-time domain materialization (`F.domain(N)` in `stark.verify`,
+   `fri.verify`, `fri_verify._canonical_public`) is likewise replaced by on-demand `off·ω^pos`.
+   **(b) The recursion gadgets restructured onto it** (`fri_verify.py`, `comp_verify.py`): hash blocks padded
+   from `BR = 9` to **16 rows** so every fixed pattern (round constants, round/absorb/hold/link gates) is a true
+   16-periodic base; all instance data (fold x/α, finals, selectors, check-row publics, per-path link releases)
+   is SPARSE (O(1) rows per Merkle path); and the one dense instance column — the path DIRECTION bits — moved to
+   WITNESS, pinned to the FS-derived leaf index by a boolean gate + an IACC accumulator (`IACC = 2·IACC' + d`
+   per absorb, boundary-pinned to the index at the path start and 0 at the digest row; unique over ℤ since the
+   index < 2^path_len < P). Net: gadget verification does NO O(T) work — cost is O(queries · layers),
+   independent of both inner and recursion trace lengths. In-circuit Fiat-Shamir (`fs_incircuit.py`,
+   `fs_step.py`, `fs_chain.py` — bit-identical to the backend `Transcript`, `tests/test_fs_*`) remains available
+   for the LAST native cost, the O(queries·layers) challenge re-derivation, if/when that matters.
+
+The design's soundness rests on §6; steps 1–7 discharge the parts that were genuinely missing (a sound
+arithmetic hash, a field-native inner proof, in-circuit hashing, both verifier-authoritative halves combined
+with an in-circuit-validated seam), and step 9 makes the verification succinct.
+
+## 5b. The next rung — recursion DEPTH (fold-of-folds), for true O(1) in K
+
+Everything above collapses the K segment proofs of ONE epoch into ONE bundle, but a verifier still does O(K)
+cheap work (rebuild K public statements, K FRI native-checks) and the bundle grows with K. True O(1) — constant
+in K AND across epochs — needs recursion DEPTH: a bundle that verifies OTHER bundles.
+
+The mechanism is already self-similar, so no new cryptography is required, only wiring:
+
+  * **Enabler — recursion-backed gadgets.** A gadget proof (fold / comp / rowcomp) is itself an alghash2 STARK.
+    Today it commits under `backend.ALGHASH2` (hashn Merkle). Switch it to `backend.RECURSION` (rleaf/rnode,
+    one permutation per node) and the gadget proof's OWN FRI becomes exactly the shape `fri_verify` already
+    folds and `comp_verify` already binds. A fold proof can then be an INNER proof of another fold. (Pure
+    Merkle-hash change, orthogonal to every AIR/constraint — the transcript is unchanged since RECURSION
+    extends ALGHASH2.)
+
+  * **The tree.** `recursive_verify` applied to a LIST of bundles' gadget proofs as its inner proofs yields a
+    LEVEL-1 super-bundle attesting "these B bundles all verify." Recurse: a balanced fan-in-F tree over the
+    epoch bundles has depth ⌈log_F(K)⌉ and a single ROOT bundle of fixed size. The verifier checks ONE root
+    bundle — O(1) in K — plus the O(log K) hashes to re-derive the tree's public statement (each level's inner
+    "public part" is the level-below root's small public part, chained by the same verifier-authoritative
+    discipline: the verifier rebuilds every level's statement from committed roots, never the prover's word).
+
+  * **The AIR at each level is FIXED and PUBLIC** — it is the gadget's own `_transitions()` (round + membership +
+    fold/composition), the same at every level, so the verifier program is a constant the depth verifier bakes
+    in. The only data-dependent inputs are roots (boundaries) and the FS schedule, both verifier-derived.
+
+  * **Cross-epoch chaining** rides the same seam: epoch e's post-state root is a boundary of epoch e+1's first
+    segment (already true in `settlement_proofs`), so a depth tree spanning epochs proves the WHOLE chain's
+    execution history with one root bundle — the settlement seam (`settlement_justified`) then checks that one
+    constant-size object instead of a bonded quorum.
+
+Soundness is inherited, not extended: each tree node is an ordinary verifier-authoritative recursion proof over
+alghash2, so a forged root bundle means a forged inner proof at some level, i.e. a broken alghash2 collision or
+a broken FRI — the same assumptions as §6. The work remaining is engineering (the fan-in driver + the per-level
+public-statement rebuild + throughput), NOT a new soundness primitive. Tracked as the O(1)-in-K milestone.
 
 ## 6. Soundness ledger (what each piece rests on)
 
