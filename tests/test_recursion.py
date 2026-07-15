@@ -190,6 +190,35 @@ def t_fri_query_air():
     assert not okb, "the chain must fold to the true final value"
 
 
+def _fri_bundle(N, seed):
+    """A recursion-ready FRI proof as {queries, final} (rleaf/rnode committed), for the fold test."""
+    vals, roots, trees, doms, alphas, final_val = _fri_with_rmerkle(N, seed)
+    L = len(roots)
+    def query(idx):
+        a, steps = idx, []
+        for i in range(L):
+            n_i = len(vals[i]); half = n_i // 2; a %= n_i; lo = a % half; hi = lo + half
+            plo = recursion.rmerkle_path(trees[i], lo); phi = recursion.rmerkle_path(trees[i], hi)
+            c2lo = True if i + 1 >= L else (lo < len(vals[i + 1]) // 2)
+            steps.append((vals[i][lo], lo, plo, vals[i][hi], hi, phi, roots[i], doms[i][lo], alphas[i], c2lo))
+            a = lo
+        return steps
+    return {"queries": [query(1)], "final": final_val}
+
+
+def t_recursive_fold():
+    """THE FOLD: two independent FRI proofs verified inside ONE recursion proof (a proof of proofs). Verifies;
+    and corrupting one folded proof's final is rejected — the single check covers every folded proof."""
+    p1 = _fri_bundle(8, 21); p2 = _fri_bundle(8, 99)
+    fp = recursion.prove_recursive([p1, p2], num_queries=4)
+    ok, why = recursion.verify_recursive(fp, num_queries=4)
+    assert ok, f"a fold of valid FRI proofs must verify: {why}"
+    p2bad = dict(p2, final=(p2["final"] + 1) % F.P)
+    bad = recursion.prove_recursive([p1, p2bad], num_queries=4)
+    okb, _ = recursion.verify_recursive(bad, num_queries=4)
+    assert not okb, "a fold with a corrupted proof must be rejected"
+
+
 if __name__ == "__main__":
     check("alghash2: 256-bit digest, deterministic, separated", t_alghash2_digest_width)
     check("alghash2: MDS linear layer is invertible", t_alghash2_mds_invertible)
@@ -201,5 +230,6 @@ if __name__ == "__main__":
     check("FRI fold-consistency AIR (real folds prove; inconsistent fold rejected)", t_fri_fold_air)
     check("integrated FRI-step AIR (membership+fold, authenticated openings link to the fold)", t_fri_step_air)
     check("chained FRI-query verifier (all layers' openings + folds -> final, in one proof)", t_fri_query_air)
+    check("THE FOLD: one recursion proof verifies MULTIPLE FRI proofs (tamper rejected)", t_recursive_fold)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)
