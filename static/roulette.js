@@ -197,7 +197,11 @@ function maxBetRaw() {
   if (!tb || !tb.exists || tb.closed || M <= 1) return null;
   const free = BigInt(tb.pool) - BigInt(tb.committed);
   if (free <= 0n) return null;
-  return free / BigInt(M - 1);
+  let cap = free / BigInt(M - 1);                        // exposure (M-1)*stake must fit the free bankroll
+  if (cap > free) cap = free;                            // never offer a stake bigger than the bank holds
+  const bal = dapp.exec || 0n;
+  if (bal > 0n && bal < cap) cap = bal;                  // never offer a stake you can't afford
+  return cap;
 }
 const syncStakeSlider = () => dapp.syncStakeSlider(maxBetRaw());   // shared SDK slider
 function wireUI() {

@@ -152,15 +152,24 @@ function selectTable(id) {
 }
 
 // ---- render --------------------------------------------------------------------------------------
-// MAX BET: the biggest stake this table can still cover at the current win-chance. A win pays
-// returnRaw(stake,target); the bank's exposure is that minus the stake, and it must fit the free bankroll:
-//   stake*(EDGE-target)/target <= (bankroll - committed)  =>  stake <= free*target/(EDGE-target)
+// MAX BET: the biggest stake we OFFER. Three caps, take the smallest:
+//   1. contract cover — the bank's exposure (payout-stake) must fit its free bankroll:
+//        stake*(EDGE-target)/target <= free   =>   stake <= free*target/(EDGE-target)
+//   2. the free bankroll itself — never OFFER a stake bigger than the bank holds. At low multipliers cap #1
+//      balloons (at 1.01x it is ~98*free, since the bank barely risks anything), which is solvent but absurd
+//      to offer; capping at `free` keeps "you can't stake more than the bank has". Still <= cap #1, so the
+//      chain never rejects it.
+//   3. your own playable balance — never offer a stake you can't afford.
 function maxBetRaw() {
   const tb = lastTable;
   if (!tb || !tb.exists || tb.closed) return null;
   const free = BigInt(tb.pool) - BigInt(tb.committed);
   if (free <= 0n || EDGE - target <= 0) return null;
-  return free * BigInt(target) / BigInt(EDGE - target);
+  const cover = free * BigInt(target) / BigInt(EDGE - target);
+  let cap = cover < free ? cover : free;                 // min(contract cover, bank size)
+  const bal = dapp.exec || 0n;
+  if (bal > 0n && bal < cap) cap = bal;                  // min(..., your balance)
+  return cap;
 }
 const syncStakeSlider = () => dapp.syncStakeSlider(maxBetRaw());   // shared SDK slider
 function syncSlider() {
