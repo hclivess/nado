@@ -133,6 +133,11 @@ const SVG = {
     <path d="M24 13.5c-6.4 2-9.5 6-9.5 10.5l3 6h13l3-6c0-4.5-3.1-8.5-9.5-10.5z" fill="#00c9a7"/>
     <path d="M17.5 30h13l-1.4 4.2h-10.2z" fill="#00ad93"/>
     <rect x="14.5" y="34" width="19" height="4.4" rx="2.2" fill="#00c9a7"/></svg>`,
+  scrapline:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
+    <circle cx="20" cy="24" r="8" fill="none" stroke="#00c9a7" stroke-width="4"/>
+    <g fill="#00ad93"><rect x="17.5" y="7" width="5" height="7" rx="1.6"/><rect x="17.5" y="34" width="5" height="7" rx="1.6"/>
+    <rect x="3" y="21.5" width="7" height="5" rx="1.6"/><rect x="30" y="21.5" width="7" height="5" rx="1.6"/></g>
+    <path d="M40 10l3 3-9 9-3-3z" fill="#e3b341"/><path d="M31 22l3 3-2.2 2.2-3.8.8.8-3.8z" fill="#e3b341"/></svg>`,
   stormhold:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
     <path d="M8 10h32l-4 6H12z" fill="#00c9a7"/>
     <path d="M14 18h22l-4 6H18z" fill="#00ad93"/>
@@ -231,6 +236,9 @@ const GAMES = [
   { svg:SVG.chess, name:"Chess", tag:"Live", live:true, slug:"chess", url:"https://chess.nadochain.com",
     blurb:"Play a real game of chess for stakes — a perft-verified engine referees the board in your browser, every move is logged on-chain, and the pot settles by resign / agree / refund-timeout, so a stall can never rob you.",
     meta:["2 players","Wager escrow","Moves on-chain","Skill, not chance"] },
+  { svg:SVG.scrapline, name:"Scrapline", tag:"Live", live:true, slug:"scrapline", url:"https://scrapline.nadochain.com",
+    blurb:"An auto-battler duel for stakes. Draft scrap-built weapons, shields and repair rigs from provably random offers (every offer is seeded by a future block hash), merge duplicates into higher ranks, lock a 6-slot build — then the machines fight a fully deterministic battle both browsers compute identically. An original game in the auto-battler genre.",
+    meta:["2 players","Draft & merge","Deterministic combat","Provably fair offers"] },
   { svg:SVG.stormhold, name:"Stormhold", tag:"Live", live:true, slug:"stormhold", url:"https://stormhold.nadochain.com",
     blurb:"A deck-building strategy duel for stakes. Start with 10 humble cards, buy engines and victory piles from a shared 17-pile supply, and out-build your opponent — attacks, reactions and all. Every move is logged on-chain and every shuffle is seeded by a future block hash, so decks are provably unriggable; the pot settles by concede / agree / refund-timeout.",
     meta:["2 players","Deck-building","Provably fair shuffles","Skill, not chance"] },

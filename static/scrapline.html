@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-i18n="scrap.pageTitle">NADO Scrapline — auto-battler duels for stakes, post-quantum</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%20width%3D%2264%22%20height%3D%2264%22%3E%3Ccircle%20cx%3D%2224%22%20cy%3D%2224%22%20r%3D%229%22%20fill%3D%22none%22%20stroke%3D%22%2300c9a7%22%20stroke-width%3D%225%22/%3E%3Cg%20fill%3D%22%2300ad93%22%3E%3Crect%20x%3D%2221%22%20y%3D%224%22%20width%3D%226%22%20height%3D%228%22%20rx%3D%222%22/%3E%3Crect%20x%3D%2221%22%20y%3D%2236%22%20width%3D%226%22%20height%3D%228%22%20rx%3D%222%22/%3E%3Crect%20x%3D%224%22%20y%3D%2221%22%20width%3D%228%22%20height%3D%226%22%20rx%3D%222%22/%3E%3Crect%20x%3D%2236%22%20y%3D%2221%22%20width%3D%228%22%20height%3D%226%22%20rx%3D%222%22/%3E%3C/g%3E%3C/svg%3E">
+<meta name="theme-color" content="#0b0f14">
+<script src="/static/i18n.js?v=scrapline1"></script>
+<style>
+  :root{--bg:#0b0f14;--elev:#131a23;--elev2:#1a232e;--border:#243140;--txt:#e6edf3;--dim:#93a1b0;--faint:#5d6b7a;
+    --accent:#00ad93;--accent2:#00c9a7;--danger:#f85149;--gold:#e3b341;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;background:radial-gradient(1100px 560px at 50% -12%,rgba(0,173,147,.12),var(--bg) 62%);background-attachment:fixed;
+    color:var(--txt);font:15px/1.5 var(--sans);min-height:100vh}
+  .wrap{max-width:760px;margin:0 auto;padding:22px 16px 60px}
+  header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  header h1{font-size:19px;margin:0;font-weight:800;letter-spacing:.2px}
+  header h1 .a{color:var(--accent2)}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 16px}
+  .card{background:var(--elev);border:1px solid var(--border);border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+  .card h2{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+  .row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 0;min-width:0}
+  label{display:block;font-size:12px;color:var(--dim);margin:0 0 5px}
+  input{width:100%;font-family:var(--mono);font-size:13px;background:var(--bg);color:var(--txt);border:1px solid var(--border);border-radius:10px;padding:11px 12px}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:10px;padding:0;border:0;margin:12px 0;background:linear-gradient(90deg,var(--accent) 0,var(--accent2) 100%);border-radius:999px;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.4);cursor:grab}
+  input[type=range]::-moz-range-thumb{width:24px;height:24px;border-radius:50%;background:#fff;border:3px solid var(--accent);cursor:grab}
+  input:focus{outline:none;border-color:var(--accent2)}
+  button{font:inherit;font-weight:700;border:1px solid var(--border);border-radius:11px;background:var(--elev2);color:var(--txt);padding:11px 15px;cursor:pointer;transition:transform .05s,border-color .15s}
+  button:active{transform:translateY(1px)}button:disabled{opacity:.5;cursor:not-allowed}
+  button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;color:#04110a;font-weight:800;box-shadow:0 6px 20px rgba(0,173,147,.30)}
+  button.ghost{background:transparent}button.ghost:hover:not(:disabled){border-color:var(--accent)}
+  @keyframes btnpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(0,201,167,.45)}50%{transform:scale(1.04);box-shadow:0 0 0 6px rgba(0,201,167,0)}}
+  button.pulse{animation:btnpulse 1.25s ease-in-out infinite}
+  .mono{font-family:var(--mono)}.dim{color:var(--dim)}.small{font-size:12px}.mt{margin-top:12px}.hidden{display:none!important}
+  .chip{display:inline-block;padding:5px 10px;font-size:12px;border-radius:999px;margin:2px 3px 0 0;border:1px solid var(--border);background:var(--elev2);cursor:pointer}
+  .chip.open{border-color:var(--accent2);color:var(--accent2)}.chip.live{border-color:var(--gold);color:var(--gold)}
+  .chip.pending{opacity:.6;border-style:dashed}
+  #status{min-height:18px;color:var(--accent2);font-size:13px;margin:10px 0}#status:empty{display:none;min-height:0;margin:0}
+  .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
+  header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev);white-space:nowrap}
+  header .hub:hover{color:var(--accent2);border-color:var(--accent2)}
+  footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
+  a{color:var(--accent2)}
+  /* ---- game ---- */
+  .hud{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0;font-size:12.5px}
+  .hud .stat{border:1px solid var(--border);background:var(--elev2);border-radius:999px;padding:4px 11px;font-weight:700}
+  .hud .stat.vp b{color:var(--gold)}
+  .turnbadge{font-size:11px;font-weight:800;border-radius:999px;padding:2px 9px;border:1px solid var(--accent2);color:var(--accent2)}
+  .zone{border:1px solid var(--border);border-radius:12px;padding:10px;margin:8px 0;background:rgba(0,0,0,.14)}
+  .zone .zh{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);font-weight:700;margin-bottom:6px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+  .handrow{display:flex;flex-wrap:wrap;gap:6px}
+  .handrow .ctile{flex:1 1 108px;min-width:100px}
+  .ctile{position:relative;border:1px solid var(--border);border-radius:10px;background:var(--elev2);padding:14px 8px 6px;cursor:pointer;
+    user-select:none;min-height:64px;transition:border-color .12s, box-shadow .12s}
+  .ctile .cname{font-weight:800;font-size:12px;line-height:1.15}
+  .ctile .ctxt{font-size:10.5px;color:var(--dim);line-height:1.3;margin-top:3px}
+  .ctile .cost{position:absolute;top:-7px;left:-5px;background:#22303f;border:1px solid var(--border);color:var(--gold);
+    font-weight:800;font-size:10px;border-radius:999px;min-width:20px;height:20px;display:flex;align-items:center;justify-content:center;padding:0 4px}
+  .ctile .cnt{position:absolute;top:-7px;right:-5px;background:#22303f;border:1px solid var(--border);color:var(--gold);
+    font-weight:800;font-size:10px;border-radius:999px;min-width:20px;height:20px;display:flex;align-items:center;justify-content:center;padding:0 4px}
+  .tg-blade{background:linear-gradient(160deg,#2a2f36,#1a2027)}
+  .tg-bolt{background:linear-gradient(160deg,#20303c,#16222c)}
+  .tg-spark{background:linear-gradient(160deg,#1c3340,#122530);border-color:#2a5a6e}
+  .tg-ember{background:linear-gradient(160deg,#3a2417,#241610);border-color:#6e3a2a}
+  .tg-plate{background:linear-gradient(160deg,#26323b,#18222a);border-color:#3a5a4e}
+  .tg-mend{background:linear-gradient(160deg,#12331d,#0d2415);border-color:#1f5b33}
+  .tg-core{background:linear-gradient(160deg,#3a3010,#241f0c);border-color:#5d4d1a}
+  .slot-empty{border-style:dashed;opacity:.6;display:flex;align-items:center;justify-content:center}
+  .ctile.buyable{border-color:var(--accent2);box-shadow:0 0 0 1px rgba(0,201,167,.5)}
+  .ctile.sel{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold)}
+  #offerBtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  #offerHint{font-size:12px;color:var(--dim);margin-top:6px}
+  .hpbar{position:relative;height:20px;border:1px solid var(--border);border-radius:999px;background:#0d1319;overflow:hidden;margin:3px 0}
+  .hpfill{height:100%;background:linear-gradient(90deg,#7a2b24,#c0483d);transition:width .3s}
+  .hpfill.me{background:linear-gradient(90deg,var(--accent),var(--accent2))}
+  .hplbl{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800}
+  #combatLog{font-size:12px;color:var(--dim);max-height:180px;overflow-y:auto;font-family:var(--mono);line-height:1.55}
+  #combatLog .me,#combatPane .me{color:var(--accent2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><span class="logo"><svg viewBox="0 0 48 48" width="28" height="28" aria-hidden="true">
+    <circle cx="24" cy="24" r="9" fill="none" stroke="#00c9a7" stroke-width="5"/>
+    <g fill="#00ad93"><rect x="21" y="4" width="6" height="8" rx="2"/><rect x="21" y="36" width="6" height="8" rx="2"/>
+    <rect x="4" y="21" width="8" height="6" rx="2"/><rect x="36" y="21" width="8" height="6" rx="2"/></g></svg></span>
+    <h1>NADO <span class="a">Scrapline</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="scrap.allGames">🎮 All games</a></header>
+  <p class="sub" data-i18n-html="scrap.sub">An <b>auto-battler duel for stakes</b> on the NADO execution layer. Draft scrap-built weapons, shields and repair rigs from <b>provably random offers</b> (each one is seeded by a future L1 block hash), merge duplicates into higher ranks, and lock a 6-slot build — then the machines fight on their own: a fully <b>deterministic combat</b> both browsers compute identically. Winner takes the pot; concede / agree / refund-timeout, so nobody can ever be robbed. Post-quantum wallet, no install.</p>
+
+  <div id="status"></div>
+
+  <div class="card" id="walletcard">
+    <h2 data-i18n="scrap.wallet">Wallet</h2>
+    <p class="small dim" data-i18n-html="scrap.walletHelp">Signed by your <a href="https://get.nadochain.com/">NADO wallet</a> — confirm each move there, then bounce back; your key never touches this site.</p>
+    <div class="kv mt"><span class="k" data-i18n="scrap.playingAs">Playing as</span><span class="mono" id="who">not signed in</span></div>
+    <div class="kv"><span class="k" data-i18n="scrap.walletL1">Wallet — NADO (main chain)</span><span class="mono" id="l1bal">—</span></div>
+    <div class="kv"><span class="k" data-i18n="scrap.tokensStakeable">🪙 Tokens (stakeable)</span><span class="mono" id="bal">—</span></div>
+    <div class="row mt"><button class="primary" id="btnSignIn" data-i18n="scrap.signIn">Sign in with NADO wallet</button></div>
+  </div>
+
+  <!-- PLAY -->
+  <div class="card hidden" id="play">
+    <h2 data-i18n="scrap.playHead">⚙ Fight for stakes</h2>
+    <div class="row">
+      <input id="stakeAmt" value="1" placeholder="stake (NADO)" data-i18n-ph="scrap.stakePh" inputmode="decimal" autocomplete="off">
+      <button class="primary" id="btnNew" style="flex:0 0 auto" data-i18n="scrap.newGameBtn">New fight</button>
+    </div>
+    <label class="mt" data-i18n="scrap.joinByIdLabel">Join a game by ID</label>
+    <div class="row">
+      <input id="joinId" placeholder="game ID" data-i18n-ph="scrap.gameIdPh" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="btnJoin" style="flex:0 0 auto" data-i18n="scrap.join">Join</button>
+    </div>
+    <div class="small dim mt" data-i18n="scrap.yourGames">Your fights</div>
+    <div class="small dim" id="recent"></div>
+  </div>
+
+  <!-- BANKROLL -->
+  <div class="card hidden" id="bankroll">
+    <h2 data-i18n="scrap.bankHead">🪙 Tokens — buy in / cash out</h2>
+    <div class="row">
+      <input id="bankAmt" value="10" placeholder="amount (NADO)" data-i18n-ph="scrap.amountPh" inputmode="decimal" autocomplete="off">
+      <button class="ghost" id="btnDeposit" style="flex:0 0 auto" data-i18n="scrap.deposit">Deposit</button>
+      <button class="ghost" id="btnWithdraw" style="flex:0 0 auto" data-i18n="scrap.withdraw">Withdraw</button>
+    </div>
+    <div class="small dim mt" data-i18n="scrap.bankHelp">Deposit moves L1 → exec (stakeable); Withdraw moves exec → L1.</div>
+  </div>
+
+  <!-- LOBBY -->
+  <div class="card" id="lobby">
+    <h2 data-i18n="scrap.lobbyHead">⚙ Open fights</h2>
+    <p class="small dim" data-i18n="scrap.lobbyHelp">Challenge anyone — join an open fight or watch one in progress.</p>
+    <div class="small mt" id="lobbyList"><span class="dim" data-i18n="scrap.loading">Loading…</span></div>
+  </div>
+
+  <!-- ACTIVE GAME -->
+  <div class="card hidden" id="activeGame">
+    <h2 data-i18n="scrap.gameLabel">Fight <span id="gameId" class="mono"></span></h2>
+    <div id="players" class="mt"></div>
+    <div class="kv"><span class="k" data-i18n="scrap.pot">Pot</span><span class="mono" id="gPot">—</span></div>
+    <div class="kv"><span class="k" data-i18n="scrap.statusLabel">Status</span><span class="mono" id="gStatus">…</span></div>
+    <div id="hud" class="hud"></div>
+
+    <div class="zone" id="offerZone">
+      <div class="zh"><span data-i18n="scrap.offerHead">Your offer — pick one, place it, or scrap it</span></div>
+      <div id="offer" class="handrow"></div>
+      <div id="offerBtns"></div>
+      <div id="offerHint"></div>
+    </div>
+
+    <div class="zone" id="myZone">
+      <div class="zh"><span id="myHead" data-i18n="scrap.yourGear">Your gear</span></div>
+      <div id="myGear" class="handrow"></div>
+    </div>
+
+    <div class="zone" id="oppZone">
+      <div class="zh"><span id="oppHead">—</span><span id="oppCounts" class="mono"></span></div>
+      <div id="oppGear" class="handrow"></div>
+    </div>
+
+    <div class="zone" id="combatPane"></div>
+
+    <div id="settleHint" class="small dim"></div>
+    <div class="row mt">
+      <button class="primary hidden pulse" id="btnRematch" data-i18n="scrap.playAgain">↻ Play again</button>
+      <button class="primary hidden" id="btnResign" data-i18n="scrap.resign">Resign</button>
+      <button class="ghost hidden" id="btnDraw" data-i18n="scrap.offerDrawStatic">Offer draw</button>
+      <button class="primary hidden" id="btnSettle" data-i18n="scrap.settleStatic">Agree draw</button>
+      <button class="ghost hidden" id="btnAbort" data-i18n="scrap.abort">Claim refund (opponent stalled)</button>
+      <button class="ghost hidden" id="btnCancel" data-i18n="scrap.cancel">Cancel — reclaim stake</button>
+      <button class="primary hidden pulse" id="btnJoinGame" style="flex:1 1 auto" data-i18n="scrap.joinThisGame">Join this fight</button>
+    </div>
+    <label class="mt" data-i18n="scrap.inviteLabel">Invite your opponent</label>
+    <input id="shareLink" class="mono" readonly onclick="this.select()">
+    <div class="row mt"><button class="primary" id="btnShare" style="flex:0 0 auto" data-i18n="scrap.share">Share</button></div>
+  </div>
+
+  <div class="card">
+    <h2 data-i18n="scrap.safeHead">How the wager is safe & fair</h2>
+    <p class="small dim" style="line-height:1.6">
+      <span data-i18n-html="scrap.safe1">The contract is a pure <b>wager escrow + move log</b> — the full rules run in your browser, and every draft pick lands on-chain in order.</span>
+      <br>• <span data-i18n-html="scrap.safe2"><b>Offers:</b> each pick pins a <b>future block hash</b> that seeds your next offer — signed before the block exists, so neither player (nor the node) can fish for items, and both browsers derive identical offers.</span>
+      <br>• <span data-i18n-html="scrap.safe3"><b>Combat:</b> a pure deterministic simulation of the two builds — no dice at fight time, both browsers compute the same winner. The loser <b>concedes</b>; a draw refunds by mutual agreement.</span>
+      <br>• <span data-i18n-html="scrap.safe4"><b>Stall or dispute:</b> after the move deadline either player claims a <b>refund</b>. Concede / agree / refund are the only outcomes — <b>no one can ever be robbed</b>. The contract is upgradable.</span>
+    </p>
+  </div>
+
+  <footer data-i18n-html="scrap.footer">Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · an original auto-battler, inspired by <a href="https://lokistriker.itch.io/rust" rel="noopener">From Rust To Ash</a> by LokiStriker (no code, art or content reused; go buy it!) · moves ride L1 as ordered blobs.</footer>
+</div>
+<script type="module" src="/static/scrapline.js"></script>
+</body>
+</html>

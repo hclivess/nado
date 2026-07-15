@@ -14,7 +14,7 @@ from execnode import runtimes
 from execnode.stark import vm_circuit as V
 from execnode.games import (coinflip, dice, roulette, tictactoe as ttt, connect4 as c4,
                             slots, mines, reversi as rv, chess, farkle as fk, blackjack as bj, bet as bt,
-                            battleship as bs, pets as ptz, holdem as hd, stormhold as sh)
+                            battleship as bs, pets as ptz, holdem as hd, stormhold as sh, scrapline as sc)
 
 fails = 0
 def check(name, fn):
@@ -264,6 +264,30 @@ def t_stormhold():
     ab = st.bridge.get(A, 0)
     st.apply_blob({"op": "call", "contract": cid, "method": "resign", "args": [G2]}, B, "r2")
     assert rd(sh.WR, G2) == 1 and st.bridge.get(A, 0) == ab + 100_000
+
+
+def t_scrapline():
+    # the same duel contract as stormhold with a tighter move-log cap — assert the shared paths + the cap
+    st, code, cid, rd = _fresh(sc, deployer=A)
+    st.credit_deposit(A, 1_000_000); st.credit_deposit(B, 1_000_000)
+    G = 99
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [G], "value": 40_000}, A, "o")
+    st.cursor = 200
+    st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [G], "value": 40_000}, B, "j")
+    assert rd(sc.KH, G) == 200 + sc.GAP
+    st.apply_blob({"op": "call", "contract": cid, "method": "move", "args": [G, 17, 0]}, B, "m0")   # joiner may move first
+    st.apply_blob({"op": "call", "contract": cid, "method": "move", "args": [G, 33, 1]}, A, "m1")
+    v = st.decode_view(st.contracts[cid])
+    assert v["mv"][str(G * 10000 + 0)] == 17 and v["mh"][str(G * 10000 + 0)] % 4 == 2
+    # the cap: a move at ply >= MAXMOVES reverts even with the right ply
+    st.contracts[cid]["storage"]["slots"][str(sc.MC * (1 << 32) + G)] = sc.MAXMOVES
+    r = st.apply_blob({"op": "call", "contract": cid, "method": "move", "args": [G, 5, sc.MAXMOVES]}, A, "mx")
+    assert "revert" in r
+    st.contracts[cid]["storage"]["slots"][str(sc.MC * (1 << 32) + G)] = 2
+    ab = st.bridge.get(A, 0)
+    st.apply_blob({"op": "call", "contract": cid, "method": "agree", "args": [G, 1]}, A, "a1")
+    st.apply_blob({"op": "call", "contract": cid, "method": "agree", "args": [G, 1]}, B, "a2")
+    assert rd(sc.SD, G) == 1 and st.bridge.get(A, 0) == ab + 80_000
 
 
 def t_stormhold_move_proves():
@@ -924,6 +948,7 @@ if __name__ == "__main__":
     check("chess: move record + agree settlement", t_chess)
     check("stormhold: free-actor move log + seed heights + agree/resign", t_stormhold)
     check("stormhold: move proves (seed-height record)", t_stormhold_move_proves)
+    check("scrapline: duel contract reuse + move-log cap", t_scrapline)
     check("farkle: roll/hold scoring + banking vs reference", t_farkle)
     check("blackjack: deal/reveal/stand/settle vs dealer S17 + payouts + view", t_blackjack)
     check("blackjack: hit-then-bust loses immediately", t_blackjack_hit_bust)
