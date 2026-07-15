@@ -349,15 +349,28 @@ export function statusLabel(pend, ok, err, extra) {
 // ---- the shared auto-rolling table schema (roulette / dice / video-table games) -------------------
 // Every table-banked beacon game stores the SAME table maps: ta=bank t0=round-anchor tk=bankroll tp=pool
 // tc=committed tn=seats tx=settled tz=closed. Read them in one place so games only read their SEAT schema.
-export const tablesOf = (sto) => Object.keys(_m(sto, "t0"));
+// Banked-table readers for the lean _lib schema (execnode/games/_lib.py): a table EXISTS iff it has a banker
+// (ta, field 1). tk=bankroll, tp=pot, tc=committed, tz=closed. There is NO table-level open-height (`t0`) and
+// NO per-table seat/settle counters (`tn`/`tx`) — dice/roulette settle PER SEAT (each game row carries its own
+// settle height gh), so seat/settle counts and the soonest next roll are derived from the seat maps (gg=table,
+// gd=settled, gh=settle height). (Contracts that DO keep t0 — farkle, holdem — ship their own readTable.)
+export const tablesOf = (sto) => Object.keys(_m(sto, "ta"));
 export function readTable(sto, t, cursor, ROUND) {
-  t = String(t); const bank = _m(sto, "ta")[t], t0 = _m(sto, "t0")[t];
-  if (!bank || t0 == null) return { exists: false };
+  t = String(t); const bank = _m(sto, "ta")[t];
+  if (!bank) return { exists: false };
+  const gg = _m(sto, "gg"), gd = _m(sto, "gd"), gh = _m(sto, "gh");
+  let seatCount = 0, settledCount = 0, soonest = null;
+  for (const g in gg) {
+    if (String(gg[g]) !== t) continue;
+    seatCount++;
+    if (gd[g]) { settledCount++; continue; }
+    const s = (gh[g] || 0) + 1;                                  // this seat settles one block after its gh
+    if (soonest == null || s < soonest) soonest = s;
+  }
   const tb = { exists: true, id: Number(t), bank, bankroll: _m(sto, "tk")[t] || 0, pool: _m(sto, "tp")[t] || 0,
-    committed: _m(sto, "tc")[t] || 0, t0, seatCount: _m(sto, "tn")[t] || 0,
-    settledCount: _m(sto, "tx")[t] || 0, closed: !!_m(sto, "tz")[t] };
+    committed: _m(sto, "tc")[t] || 0, seatCount, settledCount, closed: !!_m(sto, "tz")[t] };
   tb.phase = tb.closed ? "done" : "betting";
-  if (cursor != null && ROUND) { tb.nextSettle = t0 + (Math.floor((cursor - t0) / ROUND) + 1) * ROUND; tb.roundEndsIn = tb.nextSettle - cursor; }
+  if (cursor != null && soonest != null) { tb.nextSettle = soonest; tb.roundEndsIn = Math.max(0, soonest - cursor); }
   return tb;
 }
 
@@ -800,19 +813,19 @@ export class NadoDapp {
   // but missing now is held for STICKY_GRACE_MS (a real deep-reorg removal still clears after the grace). So a
   // move/shot/result you've seen never flickers away; the chain stays a background confirmer, not a flicker source.
   //
-  // The table-EXISTENCE maps `t0` (open height) + `ta` (bank) — the two readTable requires for {exists:true},
-  // both written atomically at `open` — are ALWAYS sticky-merged, even when a game passes no opts.append: a table
-  // you just opened is the freshest, therefore most reorg-vulnerable, write, and a table blinking out of the list
-  // for a poll is exactly the "I don't see my table / confirming forever" symptom. They're append-only until an
-  // explicit `close`, which still clears after the grace. The MUTABLE per-table maps (pot/seats/bankroll) are
-  // deliberately NOT held so live figures stay live. This makes every game's table list flicker-proof from one
-  // place — no per-game opt-in — and games with a per-user existence map still add it via opts.append.
+  // The table-EXISTENCE map `ta` (banker) — what readTable/tablesOf key {exists:true} on — is ALWAYS sticky-
+  // merged, even when a game passes no opts.append: a table you just opened is the freshest, therefore most
+  // reorg-vulnerable, write, and a table blinking out of the list for a poll is exactly the "I don't see my
+  // table / confirming forever" symptom. `ta` is append-only until an explicit `close` (which sets tz, keeping
+  // ta), so a real removal still clears after the grace. The MUTABLE per-table maps (bankroll/pot/committed) are
+  // deliberately NOT held so live figures stay live. This makes every banked game's table list flicker-proof
+  // from one place — no per-game opt-in — and games with a per-user existence map still add it via opts.append.
   async storage(opts) {
     try {
       const sto = (await (await fetch(base() + "/exec/contract?ns=" + this.ns + "&cid=" + this.cid + "&provisional=1", { cache: "no-store" })).json()).storage || {};
       this.online = true;
-      const base_ = ["t0", "ta"], extra = (opts && opts.append) || [];
-      const append = [...base_, ...extra.filter((m) => !base_.includes(m))];
+      const extra = (opts && opts.append) || [];
+      const append = ["ta", ...extra.filter((m) => m !== "ta")];
       return this._stickMerge(sto, append);
     } catch { this.online = false; return null; }
   }
