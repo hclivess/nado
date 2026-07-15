@@ -19,7 +19,7 @@ from ops.peer_ops import load_ips
 from ops import kv_ops
 from protocol import (CHAIN_ID, MIN_TX_FEE, EPOCH_LENGTH, SLASH_BOND_PENALTY, B_MIN, FINALITY_DEPTH,
                       BLOB_MAX_BYTES, MAX_BLOB_BYTES_PER_BLOCK, BRIDGE_ESCROW, DIVIDEND_POOL,
-                      POSW_S, POSW_K, POSW_ANCHOR_OFFSET, HTLC_MIN_TIMELOCK,
+                      POSW_S, POSW_K, POSW_ANCHOR_OFFSET, HTLC_MIN_TIMELOCK, TX_LANDING_WINDOW,
                       HTLC_MAX_TIMELOCK, SHIELD_ESCROW, RESERVED_RECIPIENTS, DEFAULT_NS, valid_namespace)
 
 
@@ -59,11 +59,10 @@ async def get_max_block(target, port, logger):
 
 def remove_outdated_transactions(transaction_list, block_number):
     """Mempool hygiene: keep only txs whose max_block is still ahead of the chain tip and within
-    the 360-block landing window — anything outside can never be included, so holding it only bloats
-    the pool."""
+    the TX_LANDING_WINDOW — anything outside can never be included, so holding it only bloats the pool."""
     cleaned = []
     for transaction in transaction_list:
-        if block_number < transaction["max_block"] < block_number + 360:
+        if block_number < transaction["max_block"] < block_number + TX_LANDING_WINDOW:
             cleaned.append(transaction)
 
     return cleaned

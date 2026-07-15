@@ -336,6 +336,7 @@ class MemServer:
 
     def merge_transaction(self, transaction, user_origin=False) -> dict:
         """warning, can get stuck if not efficient"""
+        from protocol import TX_LANDING_WINDOW
         # AUDIT FIX: a malicious peer can serve a /transaction_pool list with a malformed entry; the
         # pre-validation field accesses below (sender, max_block) would KeyError/TypeError and abort
         # the whole merge batch. Reject malformed txs up front so the rest of the batch still merges.
@@ -362,7 +363,7 @@ class MemServer:
                    "message": f"Target block too low"}
             return msg
 
-        elif transaction["max_block"] > self.latest_block["block_number"] + 360:
+        elif transaction["max_block"] > self.latest_block["block_number"] + TX_LANDING_WINDOW:
             msg = {"result": False,
                    "message": f"Target block too high"}
             return msg

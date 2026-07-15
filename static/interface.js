@@ -44,6 +44,11 @@ const MIN_TX_FEE = 1000;
 // every producer before any may include it -> identical mempools -> byte-identical blocks -> the node
 // fast-forward always hits (steady block_time). Mirror of protocol.TX_INCLUSION_DELAY.
 const TX_INCLUSION_DELAY = 2;
+// GENEROUS landing headroom for a FLEXIBLY-landing tx (value send, blob/collect, bridge, dividend_withdraw):
+// max_block = tip + this, so the tx may be mined anywhere in [min_block, max_block] and does not expire (and
+// re-gossip-flood "Target block too low") before a producer includes it. Kept below the tip+360 mempool cap.
+// Mirror of protocol.TX_TARGET_MARGIN. (Exact-landing txs — bond/unbond/register/governance — do NOT use it.)
+const TX_TARGET_MARGIN = 300;
 const BOND_UNLOCK_DELAY = 1440; // protocol.py: blocks a bond stays locked after an unbond request
 const BOND_CAP = 100_000_000_000_000n;  // protocol.py: 10,000 NADO — bonding past this buys no weight
 const ALIAS_REGISTRATION_FEE = 10_000_000; // protocol.py: 0.001 NADO anti-squat fee for `alias` register
@@ -638,7 +643,7 @@ async function claimPendingDividends(pending) {
     try {
       const pr = await (await fetch(execBase() + "/exec/dividend_proof?nonce=" + encodeURIComponent(p.nonce), { cache: "no-store" })).json();
       if (!pr || pr.state_root !== settledRoot) continue;   // proof must be against the SETTLED root; else wait
-      const tx = buildDividendWithdrawTx(state.wallet, state.wallet.address, p.amount, p.nonce, pr.proof, latest.block_number + 8, nowSeconds());
+      const tx = buildDividendWithdrawTx(state.wallet, state.wallet.address, p.amount, p.nonce, pr.proof, latest.block_number + TX_TARGET_MARGIN, nowSeconds());
       const res = await submitTransaction(tx);
       if (res.data && res.data.result) log("ok", i18("log.divCollected", "Dividend collected: +{a} NADO to your balance.", {a: rawToNado(BigInt(p.amount))}));
     } catch (e) { /* not claimable yet (unsettled) — retry next refresh */ }
@@ -653,7 +658,7 @@ async function collectDividend() {
   try {
     const latest = await getLatestBlock();
     if (!latest) throw new RelayUnreachable("relay unavailable");
-    const tx = buildBlobTx(state.wallet, { op: "collect_dividend" }, latest.block_number + 8, MIN_TX_FEE, nowSeconds(),
+    const tx = buildBlobTx(state.wallet, { op: "collect_dividend" }, latest.block_number + TX_TARGET_MARGIN, MIN_TX_FEE, nowSeconds(),
       latest.block_number + TX_INCLUSION_DELAY);   // propagation delay -> identical producer mempools (anti-reorg)
     const res = await submitTransaction(tx);
     if (res.data && res.data.result) {
@@ -2072,7 +2077,7 @@ async function resumePendingExecSign() {
         const latest = await getLatestBlock();
         if (!latest) throw new Error("relay unavailable");
         const draft = { sender: state.wallet.address, recipient: "bridge", amount: amt, timestamp: nowSeconds(),
-          data: "", nonce: randNonce(), public_key: state.wallet.publicKey, max_block: latest.block_number + 300,
+          data: "", nonce: randNonce(), public_key: state.wallet.publicKey, max_block: latest.block_number + TX_TARGET_MARGIN,
           min_block: latest.block_number + TX_INCLUSION_DELAY, chain_id: CHAIN_ID };
         return finalizeTransaction(draft, state.wallet.privateKey, MIN_TX_FEE);
       });
@@ -2524,10 +2529,22 @@ function setMsg(id, text, cls) {
 }
 
 async function nextTargetBlock() {
+  // EXACT-landing txs (alias, bond/unbond, msgkey): a small headroom so the single target block is reached
+  // quickly. (Flexibly-landing txs use nextFlexTarget for a wide expiry window instead.)
   const latest = await getLatestBlock();
   if (!latest || typeof latest.block_number !== "number") throw new RelayUnreachable("relay /get_latest_block unavailable");
   state.latest = latest.block_number;
-  return latest.block_number + 8; // headroom so the tx lands before its target block
+  return latest.block_number + 8;
+}
+
+async function nextFlexTarget() {
+  // FLEXIBLY-landing txs (value transfer, blob/collect, bridge, dividend_withdraw): max_block is a generous
+  // EXPIRY deadline (tip + TX_TARGET_MARGIN), so the tx may be mined anywhere in [min_block, max_block] and
+  // does not expire (and re-gossip-flood "Target block too low") before a producer includes it.
+  const latest = await getLatestBlock();
+  if (!latest || typeof latest.block_number !== "number") throw new RelayUnreachable("relay /get_latest_block unavailable");
+  state.latest = latest.block_number;
+  return latest.block_number + TX_TARGET_MARGIN;
 }
 
 async function submitAndReport(tx, label, msgId) {
@@ -2600,7 +2617,7 @@ async function doSend() {
   if (!okSend) { setMsg("sendMsg", i18("msg.cancelled", "Cancelled."), null); return; }
   const btn = $("btnSend"); btn.disabled = true;
   try {
-    const targetBlock = await nextTargetBlock();
+    const targetBlock = await nextFlexTarget();
     // PUBKEY-ONCE: omit the 1312-byte public_key once the sender's pubkey is established on-chain.
     // min_block (tip + TX_INCLUSION_DELAY): the transfer gossips to EVERY producer before any may
     // include it, so all nodes build the identical block — no fork/reorg lottery on a fresh tx.

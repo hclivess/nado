@@ -37,6 +37,17 @@ BLOCK_TIMESTAMP_DRIFT = 30
 # defaults to 0 (immediate), so historical blocks stay valid.
 TX_INCLUSION_DELAY = 2
 
+# TX LANDING (max_block is an EXPIRY DEADLINE, not a target). A flexibly-landing tx (value transfer, blob,
+# bridge in/out, dividend_withdraw — see block_ops._lands_flexibly) may be mined in ANY block in
+# [min_block, max_block]; only timing-critical txs (epoch-bounded RANDAO/attest, release-timed bond/unbond,
+# PoW-anchored register/msgkey, settle, governance) still land at exactly max_block. TX_LANDING_WINDOW is the
+# hard cap on how far ahead max_block may sit at admission (the mempool gate). TX_TARGET_MARGIN is the GENEROUS
+# default a wallet/CLI/auto-tx aims max_block at for a flexibly-landing tx, so it has a wide landing window and
+# does not expire (and re-gossip-flood "Target block too low") before a producer includes it. Kept well below
+# the window so a tx admitted against a slightly-behind peer still fits (max_block <= their_tip + WINDOW).
+TX_LANDING_WINDOW = 360
+TX_TARGET_MARGIN = 300
+
 # --- Reserved, keyless protocol pseudo-addresses (no private key) ---
 # "bond"/"unbond": pseudo-recipients used by the bonding transactions (see S4).
 # (The "burn" mechanic was removed entirely: no burn address, no burned counter, no

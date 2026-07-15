@@ -33,7 +33,7 @@ from ops.block_ops import (
 from ops.mining_ops import select_producer_two_lane, epoch_of, block_fork_weight
 from ops import kv_ops
 from protocol import CHAIN_ID, BASE_SUBSIDY, MIN_TX_FEE, BOND_CAP, AUTO_BOND_MIN_RAW, AUTO_COLLECT_MIN_RAW, \
-    TX_INCLUSION_DELAY
+    TX_INCLUSION_DELAY, TX_TARGET_MARGIN
 from ops.data_ops import shuffle_dict, sort_list_dict, get_byte_size
 from ops.peer_ops import check_ip, qualifies_to_sync, get_remote_status
 from ops import snapshot_ops
@@ -1322,7 +1322,9 @@ class CoreClient(threading.Thread):
             d = self._exec_get(f"/exec/dividend?address={self.memserver.address}")
             if d is None:
                 return                                  # no accrual oracle -> unknown amount -> don't burn a fee blind
-            max_block = self.memserver.latest_block["block_number"] + 2
+            # dividend_withdraw lands FLEXIBLY (proof-gated, at-most-once) — a generous window so it doesn't
+            # expire before inclusion and re-gossip-flood the network with "Target block too low".
+            max_block = self.memserver.latest_block["block_number"] + TX_TARGET_MARGIN
             # (1) CLAIM collected-but-unclaimed withdrawals whose proof matches the SETTLED root (fee-exempt,
             # so always worth sending; an unsettled one just waits for a later epoch).
             pending = d.get("pending") or []
@@ -1347,12 +1349,13 @@ class CoreClient(threading.Thread):
             # every producer before any may include it (identical mempools -> identical blocks — the
             # fork/reorg guard), and the wider max gives it a real landing window past the delay.
             _tip = self.memserver.latest_block["block_number"]
-            tx = construct_blob_tx(self.memserver.keydict, {"op": "collect_dividend"}, _tip + 8,
-                                   MIN_TX_FEE, min_block=_tip + TX_INCLUSION_DELAY)
+            tx = construct_blob_tx(self.memserver.keydict, {"op": "collect_dividend"},
+                                   _tip + TX_TARGET_MARGIN, MIN_TX_FEE,
+                                   min_block=_tip + TX_INCLUSION_DELAY)
             self.memserver.merge_transaction(tx, user_origin=True)
             self.logger.info(
                 f"Auto-collect: swept presence dividend of {accrued} raw (fee {MIN_TX_FEE}, "
-                f"window [{_tip + TX_INCLUSION_DELAY}, {_tip + 8}])")
+                f"window [{_tip + TX_INCLUSION_DELAY}, {_tip + TX_TARGET_MARGIN}])")
         except Exception as e:
             self.logger.info(f"Auto-collect skipped: {e}")
 

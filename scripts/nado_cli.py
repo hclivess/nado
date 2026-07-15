@@ -22,11 +22,15 @@ from ops import transaction_ops as T
 from ops import posw
 from config import get_timestamp_seconds
 from hashing import create_nonce
-from protocol import CHAIN_ID, MIN_TX_FEE, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET
+from protocol import CHAIN_ID, MIN_TX_FEE, POSW_T, POSW_S, POSW_K, POSW_ANCHOR_OFFSET, TX_TARGET_MARGIN
 
 DEC = 10 ** 10  # NADO has 10 decimals
-MARGIN = 6      # max_block headroom: small so the tx lands in its exact target block (the node's own txs
-                # use +2..+5); this also keeps the register PoSW anchor (target-30) in a settled epoch.
+# max_block headroom. EXACT-landing txs (bond/unbond/alias/governance — must land at exactly max_block) use a
+# SMALL margin so the wait is short; the register PoSW anchor (max_block-30) must also stay in a settled epoch.
+# FLEXIBLY-landing txs (value send, blob/collect, bridge, dividend_withdraw — land anywhere in the window) use
+# the GENEROUS TX_TARGET_MARGIN so they don't expire before inclusion and re-gossip-flood "Target block too low".
+MARGIN = 6
+FLEX_MARGIN = TX_TARGET_MARGIN
 
 
 def raw(nado):            # "12.5" NADO -> raw int
@@ -81,7 +85,7 @@ def c_send(kd, node, a):
     """Sign and submit a plain transfer to an ndo… address or an alias, with optional memo and fee override."""
     # lowercase: alias recipients are all-lowercase on-chain, and ndo… addresses are lowercase hex
     # anyway — so `send Alice 1` behaves exactly like `send alice 1`.
-    tx = T.create_transaction(_draft(kd, a.to.strip().lower(), raw(a.amount), a.memo or "", _tip(node) + MARGIN),
+    tx = T.create_transaction(_draft(kd, a.to.strip().lower(), raw(a.amount), a.memo or "", _tip(node) + FLEX_MARGIN),
                               kd["private_key"], raw(a.fee) if a.fee else MIN_TX_FEE)
     _submit(node, tx)
 
@@ -105,7 +109,7 @@ def c_alias(kd, node, a):
 def c_collect(kd, node, a):
     """Submit the collect_dividend blob op to settle the sender's accrued presence dividend."""
     # presence-dividend collection: a blob op the exec node accrues + settles (doc/presence-dividend.md)
-    _submit(node, T.construct_blob_tx(kd, {"op": "collect_dividend"}, _tip(node) + MARGIN, MIN_TX_FEE))
+    _submit(node, T.construct_blob_tx(kd, {"op": "collect_dividend"}, _tip(node) + FLEX_MARGIN, MIN_TX_FEE))
 
 
 def c_register(kd, node, a):

@@ -132,14 +132,18 @@ def valid_block_timestamp(new_block):
 
 
 def _lands_flexibly(transaction):
-    """True if a tx has NO landing-block-dependent protocol timing, so it may be included in ANY block up to
-    its max_block (a plain EXPIRY window) instead of one exact height. Value transfers, `blob` (exec-layer,
-    applied in L1 order regardless of which block), and bridge in/out simply apply when included. Everything
-    else — epoch-timed RANDAO (commit/reveal/attest), release-timed bond/unbond, PoW-anchored register, settle,
-    governance — keeps EXACT landing so its timing invariants hold. max_block still bounds the tx's life
-    (mempool gate: tip < max_block < tip+360), so an unincluded tx still expires and can't be replayed."""
+    """True if a tx has NO landing-block-dependent protocol timing, so it may be included in ANY block in its
+    [min_block, max_block] window (a plain EXPIRY window) instead of one exact height. Value transfers, `blob`
+    (exec-layer, applied in L1 order regardless of which block), bridge in/out, and `dividend_withdraw` (a
+    fee-exempt, at-most-once, Merkle-proof-against-the-SETTLED-root claim — the proof stays valid at any later
+    height since settlement is final, so pinning it to one block only made it expire and re-gossip-flood
+    "Target block too low") simply apply when included. Everything else — epoch-timed RANDAO
+    (commit/reveal/attest), release-timed bond/unbond, PoW-anchored register/msgkey, settle, governance —
+    keeps EXACT landing so its timing invariants hold. max_block still bounds the tx's life (mempool gate:
+    tip < max_block < tip + TX_LANDING_WINDOW), so an unincluded tx still expires and can't be replayed."""
     r = transaction.get("recipient")
-    return r in ("blob", "bridge", "bridge_withdraw") or (isinstance(r, str) and r.startswith("ndo"))
+    return (r in ("blob", "bridge", "bridge_withdraw", "dividend_withdraw")
+            or (isinstance(r, str) and r.startswith("ndo")))
 
 
 def check_target_match(transaction_list, block_number, logger):
