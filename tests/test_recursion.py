@@ -219,6 +219,32 @@ def t_recursive_fold():
     assert not okb, "a fold with a corrupted proof must be rejected"
 
 
+def t_comp_step_air():
+    """The composition spot-check (the trace<->constraints half of a STARK verifier): x@lo and x@nxt are
+    Merkle-authenticated under the column root (private) AND recompute the AIR composition to the PUBLIC
+    layer-0 value. A wrong composition value is rejected."""
+    import random
+    random.seed(12)
+    N = 8; seed = random.randrange(F.P)
+    X = [seed]
+    for _ in range(N - 1):
+        X.append(F.mul(X[-1], X[-1]))                    # x_{i+1} = x_i^2
+    root, tree = recursion.rmerkle_commit(X)
+    lo = 2; nxt = lo + 1
+    plo = recursion.rmerkle_path(tree, lo); pnxt = recursion.rmerkle_path(tree, nxt)
+    At, invZ, Ab, invDen = (random.randrange(F.P) for _ in range(4))
+    cp = F.add(F.mul(F.mul(At, F.sub(X[nxt], F.mul(X[lo], X[lo]))), invZ),
+               F.mul(F.mul(Ab, F.sub(X[lo], seed)), invDen))
+    proof = recursion.prove_comp_step(X[lo], lo, plo, X[nxt], nxt, pnxt, root, At, invZ, Ab, invDen, seed, cp,
+                                      num_queries=4)
+    ok, why = recursion.verify_comp_step(proof, num_queries=4)
+    assert ok, f"a correct composition spot-check must verify: {why}"
+    bad = recursion.prove_comp_step(X[lo], lo, plo, X[nxt], nxt, pnxt, root, At, invZ, Ab, invDen, seed,
+                                    (cp + 1) % F.P, num_queries=4)
+    okb, _ = recursion.verify_comp_step(bad, num_queries=4)
+    assert not okb, "a wrong composition value must be rejected"
+
+
 if __name__ == "__main__":
     check("alghash2: 256-bit digest, deterministic, separated", t_alghash2_digest_width)
     check("alghash2: MDS linear layer is invertible", t_alghash2_mds_invertible)
@@ -230,6 +256,7 @@ if __name__ == "__main__":
     check("FRI fold-consistency AIR (real folds prove; inconsistent fold rejected)", t_fri_fold_air)
     check("integrated FRI-step AIR (membership+fold, authenticated openings link to the fold)", t_fri_step_air)
     check("chained FRI-query verifier (all layers' openings + folds -> final, in one proof)", t_fri_query_air)
+    check("composition spot-check AIR (trace openings bound to the constraints)", t_comp_step_air)
     check("THE FOLD: one recursion proof verifies MULTIPLE FRI proofs (tamper rejected)", t_recursive_fold)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

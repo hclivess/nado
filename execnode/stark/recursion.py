@@ -696,6 +696,139 @@ def verify_recursive(proof, num_queries=4):
     return verify_fri_proof(proof, num_queries=num_queries)
 
 
+# ---- composition spot-check AIR: bind AUTHENTICATED trace openings to the AIR constraints -----------------
+# The other half of a STARK verifier (beyond FRI low-degree): per query, open the trace columns at the query
+# rows, RECOMPUTE the composition from them + the verifier's public periodic/challenge values, and check it
+# equals the FRI layer-0 value. This demonstrates it for a 1-column inner AIR with the transition x_next =
+# x_cur^2 and a boundary (row0 = seed): cp = At·(x_nxt − x_cur^2)·invZ + Ab·(x_cur − seed)·invDen, checked ==
+# the (public) layer-0 value. The two openings (x@lo, x@nxt) are Merkle-authenticated (private) and carried to
+# the check — the SAME membership+carry structure the FRI-step uses. For the execution AIR the fixed x^2 term
+# is replaced by an in-circuit evaluation of the constraint-IR (air_ir); the mechanism here is identical.
+def _comp_step_air(x_lo, ilo, plo, x_nxt, inxt, pnxt, col_root, At, invZ, Ab, invDen, seed, layer0):
+    lb, lsib, ldir, lcur = _blocks_for(x_lo, ilo, plo)
+    hb, hsib, hdir, hcur = _blocks_for(x_nxt, inxt, pnxt)
+    assert a2.eq(lcur, col_root) and a2.eq(hcur, col_root), "a trace opening does not hash to the column root"
+    BR = _R + 1
+    n_lo, n_hi = len(lb), len(hb)
+    rows = []
+    for blk in lb + hb:
+        rows.extend([list(s) + [int(x_lo) % F.P, int(x_nxt) % F.P] for s in blk])
+    n_used = len(rows)
+    T = _next_pow2(n_used + 1)
+    while len(rows) < T:
+        rows.append(list(rows[-1]))
+    lo_start, hi_start, chk_row = 0, n_lo * BR, n_used - 1
+
+    RC_lo = 0; ACT_R = _W; ACT_A = _W + 1; DIRC = _W + 2; SIB_lo = _W + 3
+    SEL_LO = SIB_lo + _CAP; SEL_HI = SEL_LO + 1; CHK_AT = SEL_HI + 1
+    PAT = CHK_AT + 1; PIZ = PAT + 1; PAB = PIZ + 1; PID = PAB + 1; PSEED = PID + 1; PL0 = PSEED + 1
+    NPER = PL0 + 1
+    per = [[0] * T for _ in range(NPER)]
+
+    def fill_path(base, sibs, dirs, nblk):
+        for b in range(nblk):
+            for rib in range(BR):
+                i = base + b * BR + rib
+                if rib < _R:
+                    for lane in range(_W):
+                        per[RC_lo + lane][i] = a2.RC[rib][lane]
+                    per[ACT_R][i] = 1
+                elif b + 1 < nblk:
+                    per[ACT_A][i] = 1; per[DIRC][i] = dirs[b]
+                    for lane in range(_CAP):
+                        per[SIB_lo + lane][i] = sibs[b][lane]
+    fill_path(lo_start, lsib, ldir, n_lo)
+    fill_path(hi_start, hsib, hdir, n_hi)
+    per[SEL_LO][lo_start] = 1; per[SEL_HI][hi_start] = 1; per[CHK_AT][chk_row] = 1
+    per[PAT][chk_row] = int(At) % F.P; per[PIZ][chk_row] = int(invZ) % F.P
+    per[PAB][chk_row] = int(Ab) % F.P; per[PID][chk_row] = int(invDen) % F.P
+    per[PSEED][chk_row] = int(seed) % F.P; per[PL0][chk_row] = int(layer0) % F.P
+
+    bnds = []
+    for start in (lo_start, hi_start):
+        bnds.append((start, 0, a2.DOM_LEAF))
+        for lane in range(2, _RATE):
+            bnds.append((start, lane, 0))
+        for lane in range(_CAP):
+            bnds.append((start, _RATE + lane, a2.IV[lane]))
+    for last_start in (lo_start + (n_lo - 1) * BR, hi_start + (n_hi - 1) * BR):
+        frow = last_start + _R
+        for lane in range(_CAP):
+            bnds.append((frow, lane, int(col_root[lane]) % F.P))
+    cols = (RC_lo, ACT_R, ACT_A, DIRC, SIB_lo, SEL_LO, SEL_HI, CHK_AT, PAT, PIZ, PAB, PID, PSEED, PL0)
+    return rows, per, bnds, cols
+
+
+def _comp_step_transitions(cols):
+    RC_lo, ACT_R, ACT_A, DIRC, SIB_lo, SEL_LO, SEL_HI, CHK_AT, PAT, PIZ, PAB, PID, PSEED, PL0 = cols
+    cons = []
+
+    def round_c(i):
+        def c(cur, nxt, per):
+            t = [F.pw(F.add(cur[j], per[RC_lo + j]), a2.ALPHA) for j in range(_W)]
+            mixed = 0
+            for j in range(_W):
+                mixed = F.add(mixed, F.mul(a2._MDS[i][j], t[j]))
+            return F.mul(per[ACT_R], F.sub(nxt[i], mixed))
+        return c
+    for i in range(_W):
+        cons.append(round_c(i))
+
+    def a_left(i):
+        def c(cur, nxt, per):
+            d = per[DIRC]
+            return F.mul(per[ACT_A], F.sub(nxt[i], F.add(F.mul(F.sub(1, d), cur[i]), F.mul(d, per[SIB_lo + i]))))
+        return c
+
+    def a_right(i):
+        def c(cur, nxt, per):
+            d = per[DIRC]
+            return F.mul(per[ACT_A], F.sub(nxt[_CAP + i], F.add(F.mul(F.sub(1, d), per[SIB_lo + i]), F.mul(d, cur[i]))))
+        return c
+
+    def a_cap(i):
+        def c(cur, nxt, per):
+            return F.mul(per[ACT_A], F.sub(nxt[_RATE + i], a2.IV[i]))
+        return c
+    for i in range(_CAP):
+        cons.append(a_left(i)); cons.append(a_right(i)); cons.append(a_cap(i))
+
+    cons.append(lambda c, n, p: F.sub(n[_CLO], c[_CLO]))
+    cons.append(lambda c, n, p: F.sub(n[_CHI], c[_CHI]))
+    cons.append(lambda c, n, p: F.mul(p[SEL_LO], F.sub(c[_CLO], c[1])))
+    cons.append(lambda c, n, p: F.mul(p[SEL_HI], F.sub(c[_CHI], c[1])))
+    # composition recompute: cp = At·(x_nxt − x_cur^2)·invZ + Ab·(x_cur − seed)·invDen ; check cp == layer0
+    def check_c(c, n, p):
+        xl, xn = c[_CLO], c[_CHI]
+        trans = F.mul(F.mul(p[PAT], F.sub(xn, F.mul(xl, xl))), p[PIZ])
+        bnd = F.mul(F.mul(p[PAB], F.sub(xl, p[PSEED])), p[PID])
+        cp = F.add(trans, bnd)
+        return F.mul(p[CHK_AT], F.sub(cp, p[PL0]))
+    cons.append(check_c)
+    return cons
+
+
+def prove_comp_step(x_lo, ilo, plo, x_nxt, inxt, pnxt, col_root, At, invZ, Ab, invDen, seed, layer0,
+                    num_queries=4):
+    """Prove ONE composition spot-check for the x²-AIR: x@lo, x@nxt are Merkle-authenticated under col_root
+    (private) AND recompute the composition to the PUBLIC layer-0 value. The trace-to-constraints half of an
+    in-circuit STARK verifier (the FRI half is prove_fri_proof)."""
+    rows, per, bnds, cols = _comp_step_air(x_lo, ilo, plo, x_nxt, inxt, pnxt, col_root, At, invZ, Ab, invDen,
+                                           seed, layer0)
+    proof = stark.prove(rows, _comp_step_transitions(cols), bnds, periodic=per, max_degree=8,
+                        num_queries=num_queries, backend=backend.ALGHASH2)
+    proof["_per"] = per; proof["_bnds"] = bnds; proof["_cols"] = cols
+    return proof
+
+
+def verify_comp_step(proof, num_queries=4):
+    per, bnds, cols = proof.get("_per"), proof.get("_bnds"), proof.get("_cols")
+    if per is None or bnds is None or cols is None:
+        return False, "missing public AIR schedule"
+    return stark.verify(proof, _comp_step_transitions(cols), bnds, periodic=per, max_degree=8,
+                        num_queries=num_queries, backend=backend.ALGHASH2)
+
+
 def prove_fri_folds(rows, num_queries=4):
     """Prove every fold-check row (from fold_rows) satisfies the FRI fold equation, in ONE STARK. `rows` =
     [(lo,hi,x,α,nxt)]. Returns a proof bundle. This is the fold half of the in-circuit FRI verifier."""
