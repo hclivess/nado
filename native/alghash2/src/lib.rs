@@ -71,3 +71,27 @@ pub unsafe extern "C" fn hashn(els: *const u64, n: usize, out: *mut u64) {
     }
     for i in 0..CAP { *out.add(i) = state[i]; }
 }
+
+// grind(state[CAP], dom, bits): the STARK-transcript proof-of-work, run ENTIRELY in native code (the fold's
+// dominant cost — GRIND_BITS≈18 ⇒ ~2^18 hashes per proof, and doing them one-at-a-time over ctypes from
+// Python was the recursion bottleneck). Byte-identical to transcript.grind over the alghash2 backend: the PoW
+// hash is hashn([DOM_GRIND, *state, nonce]) and the target is `bits` leading zero bits of the 256-bit digest
+// to_int = (lane0<<192)|(lane1<<128)|(lane2<<64)|lane3. For bits<=64 that is exactly lane0 >> (64-bits) == 0.
+// Scans nonce = 0,1,2,… and returns the FIRST hit — the same nonce the Python loop would find. bits is capped
+// at 64 (every real GRIND_BITS is far below that); returns u64::MAX if somehow unsatisfiable in range.
+#[no_mangle]
+pub unsafe extern "C" fn grind(state: *const u64, dom: u64, bits: u32) -> u64 {
+    let mut els = [CAP as u64 + 2, dom, *state, *state.add(1), *state.add(2), *state.add(3), 0u64];
+    let n = 7usize;                       // [len=6, dom, s0,s1,s2,s3, nonce]
+    let mut out = [0u64; CAP];
+    let shift = if bits >= 64 { 0u32 } else { 64 - bits };
+    let mut nonce: u64 = 0;
+    loop {
+        els[6] = nonce;
+        hashn(els.as_ptr(), n, out.as_mut_ptr());
+        let hit = if bits >= 64 { out[0] == 0 } else { (out[0] >> shift) == 0 };
+        if hit { return nonce; }
+        if nonce == u64::MAX { return u64::MAX; }
+        nonce += 1;
+    }
+}

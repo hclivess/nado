@@ -35,10 +35,17 @@ class Transcript:
 
     def grind(self, bits):
         """Find a nonce whose PoW hash has `bits` leading zeros, fold it in, return it. Multiplies a forger's
-        cost by 2^bits UNCONDITIONALLY (independent of the FRI soundness conjecture)."""
-        nonce = 0
-        while not self._grind_ok(nonce, bits):
-            nonce += 1
+        cost by 2^bits UNCONDITIONALLY (independent of the FRI soundness conjecture). If the backend exposes a
+        native `grind_solve` (alghash2's Rust loop), use it — the whole 2^bits scan runs in native code, the
+        recursion/fold hot path — else scan in Python. Both find the SMALLEST hit, so the nonce is identical."""
+        nonce = None
+        solve = getattr(self.b, "grind_solve", None)
+        if solve is not None:
+            nonce = solve(self.state, bits)
+        if nonce is None:
+            nonce = 0
+            while not self._grind_ok(nonce, bits):
+                nonce += 1
         self.absorb("grind", nonce)
         return nonce
 

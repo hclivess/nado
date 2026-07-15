@@ -80,6 +80,11 @@ def _try_native():
         lib.init.argtypes = [ctypes.POINTER(ctypes.c_uint64)] * 3
         lib.hashn.argtypes = [ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint64)]
         lib.permute12.argtypes = [ctypes.POINTER(ctypes.c_uint64)]
+        try:                                          # grind is newer — tolerate an older .so without it
+            lib.grind.argtypes = [ctypes.POINTER(ctypes.c_uint64), ctypes.c_uint64, ctypes.c_uint32]
+            lib.grind.restype = ctypes.c_uint64
+        except Exception:
+            pass
         u64 = ctypes.c_uint64
         rc = (u64 * (ROUNDS * WIDTH))(*[RC[r][i] for r in range(ROUNDS) for i in range(WIDTH)])
         iv = (u64 * CAPACITY)(*IV)
@@ -137,6 +142,21 @@ def rleaf(x):
     Domain-separated from an inner node by absorbing DOM_LEAF in lane 0."""
     a = (DOM_LEAF, int(x) % F.P, 0, 0)
     return tuple(permute([*a, 0, 0, 0, 0, *IV])[:CAPACITY])
+
+
+def grind(state, dom, bits):
+    """Native proof-of-work: return the SMALLEST nonce whose hashn([dom, *state, nonce]) has `bits` leading
+    zero bits of its 256-bit digest — the whole 2^bits loop run in Rust (the fold's dominant cost). Returns
+    None if the native lib (or its grind export) is unavailable, so the caller falls back to the Python loop.
+    Byte-identical to that loop: same PoW hash, same scan order (0,1,2,…), so the same nonce."""
+    nat = _try_native()
+    if not nat:
+        return None
+    lib, u64 = nat
+    if not hasattr(lib, "grind"):
+        return None
+    buf = (u64 * CAPACITY)(*[int(x) % F.P for x in state])
+    return int(lib.grind(buf, int(dom) % F.P, int(bits)))
 
 
 def to_int(digest):

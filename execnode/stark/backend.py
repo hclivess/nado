@@ -88,6 +88,11 @@ class _Alghash2:
     def t_grind_hash(self, state, nonce):
         return alghash2.to_int(alghash2.hashn([alghash2.DOM_GRIND, *state, int(nonce) % F.P]))
 
+    def grind_solve(self, state, bits):
+        """Native fast-path for the transcript PoW: the whole nonce scan in Rust. Returns the nonce, or None to
+        fall back to the generic Python loop. Byte-identical (same DOM_GRIND hash, same 0,1,2,… scan)."""
+        return alghash2.grind(state, alghash2.DOM_GRIND, bits)
+
     def to_field_elements(self, digest):
         return [int(e) % F.P for e in digest]
 
