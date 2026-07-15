@@ -63,6 +63,41 @@ NO_SYNCABLE_LOG_INTERVAL = 30
 # failing import can't hammer the seed every pass.
 REANCHOR_COOLDOWN = 30
 
+# Consecutive failed re-anchor attempts (each REANCHOR_COOLDOWN apart) after which the finality-floor
+# restriction on the re-anchor target is DROPPED. A wedge that persists across this many weight-selected
+# attempts proves our local floors sit on a minority fork (under partition even the FFG signal is subjective
+# — the inactivity leak lets each side "quorum" its own branch), and the only remaining objective ordering
+# is cumulative weight: follow the strictly-heavier chain, re-verifying every tail block after the import.
+REANCHOR_ESCALATE = 3
+
+
+def majority_on_our_canonical(majority_hash, get_block_fn, canonical_hash_at_fn):
+    """CORROBORATED DEPTH FINALITY predicate, extracted for direct testing. True when the peer-majority tip
+    hash lies ON OUR CANONICAL CHAIN (it is our tip or one of its ancestors — peers lagging a healthy
+    producer by a block still corroborate it). False when we don't have that block (we are behind another
+    chain) or when we have it only as an orphan (it is on a different fork). The depth-based finality floor
+    must only advance under this corroboration: a node producing alone on a minority fork otherwise
+    self-finalizes it (max(prev, tip - FINALITY_DEPTH)) and becomes permanently unable to reorg back — the
+    partition wedge. Two KV reads; no network."""
+    blk = get_block_fn(majority_hash)
+    if not blk:
+        return False
+    return canonical_hash_at_fn(blk["block_number"]) == majority_hash
+
+
+def reanchor_candidates(peers, statuses, our_weight, floor):
+    """Weight-selected RE-ANCHOR candidates, extracted for direct testing: (weight, snapshot_height,
+    snapshot_hash, ip) for every peer advertising a chain STRICTLY heavier than ours whose snapshot sits
+    above `floor`. Normal wedge recovery passes the local finality floor; ESCALATED recovery (the wedge
+    persisted across REANCHOR_ESCALATE cooldowns) passes 0 — any snapshot on the heavier chain qualifies,
+    because a floor that keeps pinning us to a lighter chain is itself the fault being recovered from."""
+    return [(st["latest_block_weight"], st["snapshot_height"], st["snapshot_hash"], ip)
+            for ip, st in zip(peers, statuses)
+            if st and st.get("latest_block_weight") is not None
+            and st.get("snapshot_hash") and st.get("snapshot_height") is not None
+            and st["latest_block_weight"] > our_weight
+            and st["snapshot_height"] > floor]
+
 
 def peer_claims_heavier_tip(statuses, our_weight, have_peers, rejected_tips):
     """The caught-up production gate's predicate, extracted for direct testing (Sybil-stall guard).
@@ -134,6 +169,7 @@ class CoreClient(threading.Thread):
         # cooldown for the seed-anchored RE-ANCHOR (wedge recovery): re-importing a seed's snapshot is
         # expensive, so a wedged node attempts it at most once per this interval rather than every ~1s pass.
         self._last_reanchor_ts = 0
+        self._reanchor_failures = 0        # consecutive failed wedge re-anchors (drives REANCHOR_ESCALATE)
         # throttle the once-per-block-interval consensus mempool reconcile (normal_mode).
         self._last_reconcile = 0
         # once-per-new-block throttle for the periodic duties in normal_mode (FFG/RANDAO/auto-*).
@@ -499,7 +535,7 @@ class CoreClient(threading.Thread):
         else:
             self.logger.info(f"Could not replace {key} from {peer}")
 
-    def snapshot_bootstrap(self, force_reanchor: bool = False) -> bool:
+    def snapshot_bootstrap(self, force_reanchor: bool = False, allow_below_floor: bool = False) -> bool:
         """For a fresh node (still at genesis), bulk-download verified account state from peers instead of
         replaying the entire chain. Strictly additive and fully guarded: it runs ONLY while latest_block is
         genesis and ANY failure returns False so the normal block-by-block replay proceeds — it can never
@@ -516,7 +552,17 @@ class CoreClient(threading.Thread):
         the peer on the strictly-heaviest chain, above our finality floor. A lighter fork majority can never
         win a weight comparison regardless of headcount, so it can no longer pin us — which is what the old
         count-based agree_snapshot allowed. Everything below the new earliest block (our dead fork's blocks)
-        is simply orphaned in the block store — never referenced."""
+        is simply orphaned in the block store — never referenced.
+
+        allow_below_floor=True (ESCALATED wedge recovery, set by _maybe_reanchor after REANCHOR_ESCALATE
+        consecutive failed attempts): the heavier chain's advertised snapshots all sit BELOW our finality
+        floor — the exact geometry that used to wedge a node for as long as the donors' snapshot cadence
+        lagged (observed live: a self-finalized minority fork pinned until a peer crossed the floor ~25 min
+        later). A wedge that persists across multiple weight-selected attempts proves the floor itself is on
+        a minority fork, so the floor restriction is dropped: weight is the only objective ordering left
+        (under partition even FFG is subjective — the inactivity leak lets each side quorum its own branch).
+        Every tail block after the import is still fully re-verified, so a fabricated weight hint cannot be
+        extended into an accepted chain."""
         if self.memserver.latest_block["block_number"] != 0 and not force_reanchor:
             return False   # genesis-only for normal bootstrap; force_reanchor re-anchors an established node
         try:
@@ -548,17 +594,18 @@ class CoreClient(threading.Thread):
                 # and every tail block after the import is re-verified by verify_block, so a bogus checkpoint
                 # cannot be extended and the real heaviest chain re-triggers.
                 our_weight = self.memserver.latest_block.get("cumulative_weight", 0)
-                cand = [(st["latest_block_weight"], st["snapshot_height"], st["snapshot_hash"], ip)
-                        for ip, st in zip(peers, statuses)
-                        if st and st.get("latest_block_weight") is not None
-                        and st.get("snapshot_hash") and st.get("snapshot_height") is not None
-                        and st["latest_block_weight"] > our_weight
-                        and st["snapshot_height"] > self.memserver.finalized_height]
+                floor = 0 if allow_below_floor else self.memserver.finalized_height
+                cand = reanchor_candidates(peers, statuses, our_weight, floor)
                 if not cand:
                     self.logger.info("Re-anchor: no peer advertises a strictly-heavier chain with a snapshot "
-                                     "above our finality floor; staying put")
+                                     f"above {'0 (ESCALATED)' if allow_below_floor else 'our finality floor'};"
+                                     " staying put")
                     return False
                 _, target_height, target_hash, source = max(cand)
+                if allow_below_floor and target_height <= self.memserver.finalized_height:
+                    self.logger.warning(f"ESCALATED re-anchor: crossing the local finality floor "
+                                        f"{self.memserver.finalized_height} down to snapshot height "
+                                        f"{target_height} — local floors were on a minority fork")
                 self.logger.warning(f"Re-anchoring to heaviest-chain peer {source} snapshot at height "
                                     f"{target_height} (weight-selected)")
             else:
@@ -649,6 +696,21 @@ class CoreClient(threading.Thread):
             self.logger.error(f"Snapshot bootstrap failed, falling back to full sync: {e}")
             return False
 
+    def _depth_floor_corroborated(self) -> bool:
+        """Whether the depth-based finality floor may advance right now: the visible network's majority tip
+        must lie ON OUR CANONICAL CHAIN (majority_on_our_canonical — our tip or a recent ancestor of it,
+        so peers lagging a healthy producer by a block still corroborate). No peers reporting = solo /
+        bootstrap: nothing to disagree with, advance as before. A Sybil can only WITHHOLD corroboration
+        (delaying our floor — the safe direction, it merely widens the honest-reorg window); it can never
+        use this to force a floor onto a fork."""
+        pool = self.consensus.block_hash_pool
+        if not pool:
+            return True
+        majority = self.consensus.majority_block_hash
+        if not majority:
+            return True
+        return majority_on_our_canonical(majority, get_block, get_block_hash_by_number)
+
     def _heavier_chain_exists(self) -> bool:
         """True if ANY peer advertises a chain STRICTLY heavier than our tip. This is the objective trigger
         for a re-anchor — the heaviest valid chain wins, with no privileged voter. Weight units match
@@ -664,22 +726,30 @@ class CoreClient(threading.Thread):
         can't serve our (forked) root, or the reorg leg hit a floor it can't cross. If a strictly-heavier
         chain exists, our snapshot/finality floor is on a minority fork: re-import that heavier chain's
         snapshot (weight-selected, see snapshot_bootstrap) and tail-sync onto it. Rate-limited
-        (REANCHOR_COOLDOWN) so a failing import can't hammer peers. Returns True iff we re-anchored (caller
-        then resumes the loop on the new chain)."""
+        (REANCHOR_COOLDOWN) so a failing import can't hammer peers. ESCALATION: after REANCHOR_ESCALATE
+        consecutive failures the finality-floor restriction on the target snapshot is dropped — the wedge
+        persisting across cooldowns proves the floor itself sits on a minority fork, so waiting for a donor
+        snapshot to cross it (the old behavior) just stalls the node for the donors' snapshot cadence.
+        Returns True iff we re-anchored (caller then resumes the loop on the new chain)."""
         if not self._heavier_chain_exists():
+            self._reanchor_failures = 0
             return False
         now = get_timestamp_seconds()
         if now - self._last_reanchor_ts < REANCHOR_COOLDOWN:
             return False
         self._last_reanchor_ts = now
+        escalate = self._reanchor_failures >= REANCHOR_ESCALATE
         self.logger.warning("Wedged behind a strictly-heavier chain and normal sync cannot reconcile "
-                            "(our snapshot/finality floor is on a minority fork) — re-anchoring by weight")
-        if self.snapshot_bootstrap(force_reanchor=True):
+                            "(our snapshot/finality floor is on a minority fork) — re-anchoring by weight"
+                            + (" [ESCALATED: floor restriction dropped]" if escalate else ""))
+        if self.snapshot_bootstrap(force_reanchor=True, allow_below_floor=escalate):
             # our chain identity changed under us: drop stale fork-choice exclusions and the rollback burst
             # counter so the fresh tail sync starts clean.
+            self._reanchor_failures = 0
             self.consensus.rejected_tips = set()
             self.memserver.rollbacks = 0
             return True
+        self._reanchor_failures += 1
         return False
 
     def emergency_mode(self):
@@ -1037,16 +1107,21 @@ class CoreClient(threading.Thread):
         # REFUSES to cross it. Monotonic (max), recomputable, and crash-conservative: a crash between
         # the block commit above and this write leaves the floor one behind (never ahead) and it
         # re-advances on the next block — it can never finalize something that wasn't committed.
-        # The floor is the DEEPER (higher) of two guarantees: the always-advancing time/depth floor
-        # (tip - finality_depth, subjective but live), and the FFG checkpoint (block E*EPOCH_LENGTH that a
-        # >2/3 bonded-stake quorum attested — OBJECTIVE, accountable, slashable). Folding FFG in makes a
-        # stake-finalized checkpoint UN-REORGABLE (rollback_one_block refuses to cross finalized_height),
-        # so remote sync can never adopt a heavier chain that conflicts with it — the safety FFG was built
-        # for, now enforced instead of merely observed. FFG normally trails the depth floor, so on a healthy
-        # synced node this is the depth floor; it binds when FFG is ahead (e.g. a shallow finality_depth, or
-        # a node catching up whose depth floor hasn't advanced yet).
-        new_final = max(self.memserver.finalized_height,
-                        block["block_number"] - self.memserver.finality_depth,
+        # The floor is the DEEPER (higher) of two guarantees: the CORROBORATED time/depth floor
+        # (tip - finality_depth, advanced only while the peer-majority tip lies on OUR canonical chain —
+        # see _depth_floor_corroborated: a node producing alone on a minority fork must never self-finalize
+        # it, which is how a partition wedged a node permanently below its own floor), and the FFG
+        # checkpoint (block E*EPOCH_LENGTH that a >2/3 bonded-stake quorum attested — OBJECTIVE,
+        # accountable, slashable). Folding FFG in makes a stake-finalized checkpoint UN-REORGABLE
+        # (rollback_one_block refuses to cross finalized_height), so remote sync can never adopt a heavier
+        # chain that conflicts with it — the safety FFG was built for, now enforced instead of merely
+        # observed. FFG normally trails the depth floor, so on a healthy synced node this is the depth
+        # floor; it binds when FFG is ahead (e.g. a shallow finality_depth, or a node catching up whose
+        # depth floor hasn't advanced yet).
+        depth_final = block["block_number"] - self.memserver.finality_depth
+        if not self._depth_floor_corroborated():
+            depth_final = 0                     # uncorroborated (minority/solo-fork) tip: FFG alone may bind
+        new_final = max(self.memserver.finalized_height, depth_final,
                         int(getattr(self.memserver, "ffg_finalized", 0) or 0))
         if new_final > self.memserver.finalized_height:
             set_finalized_height(new_final)
