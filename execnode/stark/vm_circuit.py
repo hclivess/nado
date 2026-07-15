@@ -714,22 +714,29 @@ def _norm_call(call):
     return c
 
 
-def prove_epoch_calls(calls, num_queries=stark.NUM_QUERIES):
+def prove_epoch_calls(calls, num_queries=stark.NUM_QUERIES, backend=None):
     """Prove an ORDERED batch of zkVM calls as ONE proof (aggregation). Each call is
     {code, method, caller, args, value?, cursor?, timestamp?, beacons?, block_hashes?, slots?}; `slots` is
     that call's PRE-storage (the caller chains them). Returns (proof, epoch_io, per_call). L1 verifies this
-    single proof for the whole epoch instead of N proofs."""
+    single proof for the whole epoch instead of N proofs.
+
+    `backend` selects the proof's hash (doc/zk-recursion.md): None/blake2b (default, the fast native-hash
+    proof L1 + browsers verify directly) or the alghash2 wide sponge, which makes THIS proof's verification
+    field-native — i.e. RECURSION-READY, so a fold circuit can verify it inside another proof. The hybrid
+    wrap: prove segment/inner proofs with alghash2, fold them, and let the OUTERMOST proof stay blake2b."""
     calls = [_norm_call(c) for c in calls]
     trace, T, blocks, progs, epoch_io, per_call = build_epoch_trace(calls)
     periodic = build_periodic(blocks, progs, epoch_io, T)
     proof = stark.prove(trace, transitions(), _boundaries(T), periodic=periodic, max_degree=MAX_DEGREE,
-                        num_queries=num_queries, aux_spec=_aux_spec(periodic))
+                        num_queries=num_queries, aux_spec=_aux_spec(periodic), backend=backend)
     proof["progs"] = [[list(ins) for ins in p] for p in progs]
     proof["blocks"] = [{"start": s, "n": n, "pid": pid} for (s, n, pid, _c) in blocks]
+    if backend is not None:
+        proof["backend"] = getattr(backend, "name", str(backend))
     return proof, epoch_io, per_call
 
 
-def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES):
+def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES, backend=None):
     """Verify a proven epoch WITHOUT executing any call. `calls` is the public statement (code/method/caller/
     args/context per call, in order); `epoch_io` the claimed global I/O log. Returns (ok, reason). The
     periodic tables (programs, log order, per-call context) are rebuilt locally — nothing is trusted from the
@@ -776,22 +783,26 @@ def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES):
             return False, "io log does not fit the trace"
         norm_io = [(e[0], e[1] % F.P, e[2] % F.P) for e in epoch_io]
         periodic = build_periodic(blocks, progs, norm_io, T)
+        if backend is None and proof.get("backend"):     # honour the hash the proof was produced with
+            from execnode.stark import backend as _bk
+            backend = _bk.get(proof["backend"])
         return stark.verify(proof, transitions(), _boundaries(T), periodic=periodic, max_degree=MAX_DEGREE,
-                            num_queries=num_queries, aux_spec=_aux_spec(periodic))
+                            num_queries=num_queries, aux_spec=_aux_spec(periodic), backend=backend)
     except Exception as e:
         return False, f"malformed statement/proof: {e}"
 
 
 # ---- single-call convenience (the N=1 epoch) — the endpoints' interface ------------------------------
 def prove_call(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, beacons=None,
-               block_hashes=None, num_queries=stark.NUM_QUERIES):
+               block_hashes=None, num_queries=stark.NUM_QUERIES, backend=None):
     """Execute + prove ONE zkVM call (the N=1 epoch). Returns (proof, io_log, ret, new_storage). `caller`/
-    `args` are already field-form (the runtime digests them at the boundary)."""
+    `args` are already field-form (the runtime digests them at the boundary). `backend` as in
+    prove_epoch_calls (alghash2 ⇒ a recursion-ready, field-verifiable proof)."""
     call = {"code": code, "method": method, "caller_f": caller % F.P,
             "args_f": [a % F.P for a in args], "caller": caller, "args": list(args),
             "value": value, "cursor": cursor, "timestamp": timestamp, "beacons": beacons,
             "block_hashes": block_hashes, "slots": storage}
-    proof, epoch_io, per_call = prove_epoch_calls([call], num_queries=num_queries)
+    proof, epoch_io, per_call = prove_epoch_calls([call], num_queries=num_queries, backend=backend)
     pc0 = per_call[0]
     return proof, pc0["io"], pc0["ret"], pc0["new_slots"]
 

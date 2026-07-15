@@ -40,6 +40,25 @@ the transcript chain. Every one is a hash, and **that is what a recursion circui
 
 ## 3. The two hard requirements
 
+### 3.0 "But BLAKE2b isn't arithmetizable" — the three options, and which we take
+
+BLAKE2b is ARX (64-bit add / xor / rotate). Three ways to deal with it:
+
+- **Arithmetize it directly** — *possible but ~1000× too costly.* ~1,150 word-ops/compression as 8-bit
+  XOR/ADD LogUp lookups ⇒ ~30–60k trace rows per compression; a verifier needs hundreds of Merkle-path
+  compressions ⇒ tens of millions of rows to verify one proof. That is why "not arithmetizable" is the
+  *practical* truth. Rejected.
+- **Swap the hash in the recursed layer** — *the industry-standard move (Plonky2/Poseidon, Miden/RPO,
+  RISC Zero/Poseidon2), and what we do.* A byte-oriented hash stays where proofs are verified *natively*;
+  anything verified *in-circuit* uses an algebraic hash (`alghash2`, §3.1). ~8 rows per round vs ~30–60k.
+- **Hybrid wrap** — *shipped.* Recursion only needs the **inner** proofs algebraic, so:
+  `prove_epoch_calls(..., backend=ALGHASH2)` (and `prove_epoch`/`prove_settlement`) emit a **recursion-ready**
+  proof whose verification is field-native; a fold circuit consumes those; and the **outermost** root proof
+  keeps `blake2b` (the default), so L1 + browsers verify one proof with fast native hashing and conservative
+  cryptanalysis at the boundary. `verify_epoch_calls` reads the hash from the proof's `backend` tag, so a
+  mixed batch just works. Tested: an execution-AIR epoch proof under alghash2 verifies field-natively and a
+  forced-blake2b verifier rejects it.
+
 ### 3.1 The hash must be arithmetization-friendly *and* sound
 
 Today `merkle.py`/`transcript.py`/`fri.py` use **BLAKE2b**. BLAKE2b is byte-oriented — expressing one

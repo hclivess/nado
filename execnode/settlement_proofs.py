@@ -89,12 +89,16 @@ def _run_call(contracts, bridge, registry, call, i, cursor, timestamp, beacons, 
 
 
 def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
-                pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES):
+                pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES, backend=None):
     """Prove a batch of zkVM calls as ONE aggregated epoch proof. `pre_contracts` is the pre-state
     {cid: {"code", "storage": {"slots":{...}}, "runtime":"zkvm"}}; `calls` an ordered list of
     {cid, method, caller, args, value?}. Returns a self-contained bundle: a SINGLE proof binding
     pre_root → post_root over the whole batch. Raises ValueError if the batch exceeds one trace — use
-    prove_settlement for unbounded epochs (it segments automatically)."""
+    prove_settlement for unbounded epochs (it segments automatically).
+
+    `backend` (doc/zk-recursion.md): None/blake2b is the fast native-hash proof L1 verifies directly;
+    pass the alghash2 backend to produce a RECURSION-READY proof (field-native verification), the hybrid-wrap
+    inner layer a fold circuit consumes. verify_epoch reads the hash from the proof, so no need to thread it."""
     import copy
     contracts = copy.deepcopy(pre_contracts)
     bridge = dict(pre_bridge or {})
@@ -105,7 +109,7 @@ def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_h
         ec, pc, _ = _run_call(contracts, bridge, registry, call, i, cursor, timestamp, beacons,
                               block_hashes, want_rows=False)
         epoch_calls.append(ec); public_calls.append(pc)
-    proof, epoch_io, _per = vm_circuit.prove_epoch_calls(epoch_calls, num_queries=num_queries)
+    proof, epoch_io, _per = vm_circuit.prove_epoch_calls(epoch_calls, num_queries=num_queries, backend=backend)
     return {"cursor": cursor, "timestamp": timestamp, "pre_root": pre_root,
             "post_root": zkvm_root(contracts), "calls": public_calls,
             "io": [list(e) for e in epoch_io], "proof": proof,
@@ -115,7 +119,7 @@ def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_h
 
 
 def prove_settlement(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
-                     pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES, max_rows=None):
+                     pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES, max_rows=None, backend=None):
     """Prove an epoch of ANY size by SEGMENTING it into consecutive chunks that each fit one trace, then
     chaining their state roots: segment j binds root_j → root_{j+1}, and the whole batch is proven by
     root_0 → root_K. This removes the single-trace 2^17-row cap (doc/zk-execution-proofs.md scaling
@@ -166,7 +170,8 @@ def prove_settlement(pre_contracts, calls, cursor, timestamp=0, beacons=None, bl
     for (lo, hi) in boundaries:
         seg_calls = calls[lo:hi]
         bundle = prove_epoch(contracts, seg_calls, cursor, timestamp=timestamp, beacons=beacons,
-                             block_hashes=block_hashes, pre_bridge=bridge2, num_queries=num_queries)
+                             block_hashes=block_hashes, pre_bridge=bridge2, num_queries=num_queries,
+                             backend=backend)
         segments.append(bundle)
         # advance contracts + bridge to this segment's post-state (replay is cheaper than re-running)
         reg = {}
