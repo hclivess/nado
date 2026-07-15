@@ -85,7 +85,10 @@ def fund_table():
 
 
 def close_table():
-    """close(tableId): banker-only, not already closed — pay out the pot (tp) and mark the table closed (tz)."""
+    """close(tableId): banker-only, not already closed, and NO OPEN BETS (tc==0) — pay out the pot (tp) and
+    mark the table closed (tz). The tc==0 guard is a solvency invariant: without it a banker could close over
+    unsettled bets, pay themselves the pot (which still holds those bets' committed cover) and strand the
+    players — see the escrow-accounting fix (every banked game shares this close)."""
     return """
         ctx r1 caller
         slot r4 1 r0
@@ -93,6 +96,11 @@ def close_table():
         eq r5 r1
         require r5
         slot r4 6 r0
+        sload r5 r4
+        nez r5
+        notb r5
+        require r5
+        slot r4 4 r0
         sload r5 r4
         nez r5
         notb r5

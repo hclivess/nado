@@ -55,21 +55,18 @@ SRC = {
         movi r6 99
         mul r5 r6
         divmod r5 r2
-        sub r5 r3
         slot r4 4 r1
         sload r6 r4
         add r6 r5
-        slot r4 2 r1
-        sload r4 r4
-        lt r4 r6
-        notb r4
-        require r4
         slot r4 4 r1
         sstore r4 r6
         slot r4 3 r1
-        sload r6 r4
-        add r6 r3
-        sstore r4 r6
+        sload r5 r4
+        add r5 r3
+        sstore r4 r5
+        lt r5 r6
+        notb r5
+        require r5
         slot r4 8 r0
         sstore r4 r2
         slot r4 9 r0
@@ -157,7 +154,6 @@ SRC = {
         slot r4 8 r0
         sload r6 r4
         divmod r5 r6
-        sub r5 r3
         slot r4 4 r1
         sload r6 r4
         sub r6 r5

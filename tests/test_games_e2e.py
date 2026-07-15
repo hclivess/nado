@@ -90,9 +90,24 @@ def _banked(mod, betargs, winnable):
     assert v["ta"]["3"] == A and set(v["gg"]) == {"88"}
 
 def t_dice():
-    _banked(dice, [88, 3, 50], 100_000 * 99 // 50 - 100_000)
+    # tc reserves the FULL payout (solvency fix): pot must cover every open bet's max win, not just the net.
+    _banked(dice, [88, 3, 50], 100_000 * 99 // 50)
 def t_roulette():
-    _banked(roulette, [88, 3, (1 << 7) | (1 << 17)], 100_000 * 36 // 2 - 100_000)
+    _banked(roulette, [88, 3, (1 << 7) | (1 << 17)], 100_000 * 36 // 2)
+
+def t_dice_overbet_reverts():
+    # After a bet reserves its full payout, a second bet whose payout would push tc past the pot MUST revert
+    # (the "bet above balance" the contract now rejects). And close with an open bet (tc>0) must revert.
+    st, code, cid, rd = _fresh(dice, deployer=A)
+    st.credit_deposit(A, 100_000_000)
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [3], "value": 70}, A, "1")
+    r = st.apply_blob({"op": "call", "contract": cid, "method": "bet", "args": [88, 3, 25], "value": 20}, A, "2")
+    assert "revert" not in r and rd(dice.TP, 3) == 90 and rd(dice.TC, 3) == 20 * 99 // 25   # full payout 79 reserved
+    r2 = st.apply_blob({"op": "call", "contract": cid, "method": "bet", "args": [89, 3, 25], "value": 20}, A, "3")
+    assert "revert" in r2, "over-bet past the pot must revert"                 # tc 158 > tp 110
+    assert rd(dice.TP, 3) == 90 and rd(dice.TC, 3) == 79                        # state unchanged by the reverted bet
+    rc = st.apply_blob({"op": "call", "contract": cid, "method": "close", "args": [3]}, A, "4")
+    assert "revert" in rc, "close with an open bet (tc>0) must revert"
 
 def t_dice_prove():
     code = dice.build(); S = lambda f, k: f * (1 << 32) + k
@@ -848,6 +863,7 @@ if __name__ == "__main__":
     check("dice: open/bet/settle/close banker accounting + view", t_dice)
     check("roulette: masked bet/settle/close + view", t_roulette)
     check("dice: bet proves (divmod + bankroll)", t_dice_prove)
+    check("dice: over-max bet + unsafe close revert (solvency)", t_dice_overbet_reverts)
     check("tictactoe: full game, p1 wins, pot paid + view", t_tictactoe)
     check("connect4: vertical win, pot paid + view", t_connect4)
     check("tictactoe: wrong turn / wrong ply revert", t_tictactoe_wrongturn_reverts)
