@@ -8,10 +8,12 @@
 import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate, canPay, orderCards, alertBar, okBar,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
          recentChips, statusLabel, loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { BankedGame } from "./bankedgame.js";   // the ONE banked-table reader/id-list (shared by every house game)
 
 const CID = "d687d1178219753b9d48b9b8cdf25e1a";
 const GICON = "🎰";
 const dapp = new NadoDapp({ cid: CID, app: "Slots" });
+const bg = new BankedGame(dapp, { icon: "🎰" });   // shared table reader (bg.read) + id list (bg.ids)
 const SPIN_D = 2, MAXM2 = 300, COVER = (MAXM2 - 2) / 2;   // cover per spin = stake * 149
 const SYM = ["🍒", "🍋", "🍊", "🍇", "🔔", "💎", "7️⃣"];
 const LS_T = "nado_slots_machines", LS_S = "nado_slots_spins";
@@ -41,12 +43,7 @@ function spinResult(bh0, bh1, g) {
 const stopsFromGr = (gr) => { const v = gr - 1; return [v % 64, Math.floor(v / 64) % 64, Math.floor(v / 4096) % 64]; };
 
 // ---- reads -----------------------------------------------------------------------------------------
-function machineFrom(sto, t) {
-  t = String(t); const bank = _m(sto, "ta")[t];
-  if (!bank) return { exists: false };
-  return { exists: true, id: Number(t), bank, tk: _m(sto, "tk")[t] || 0, tp: _m(sto, "tp")[t] || 0,
-    tc: _m(sto, "tc")[t] || 0, tn: _m(sto, "tn")[t] || 0, tx: _m(sto, "tx")[t] || 0, closed: !!_m(sto, "tz")[t] };
-}
+const machineFrom = (sto, t) => bg.read(sto, t);   // ONE reader — a slot machine IS a banked table
 const maxBet = (mc) => Math.max(0, Math.floor((mc.tk - mc.tc) / COVER));   // biggest bet the bank can 150×-cover (raw)
 const maxBetRaw = () => { const mc = lastTable; return (mc && mc.exists && !mc.closed) ? BigInt(maxBet(mc)) : null; };
 const syncStakeSlider = () => dapp.syncStakeSlider(maxBetRaw(), { label: window.t("slots.betSliderLabel", "bet ") });   // shared SDK slider
@@ -116,7 +113,7 @@ async function refreshAll() {
   const sto = await dapp.storage();
   if (sto) {
     lastSto = sto;
-    knownTables = lsPrune(LS_T, Object.keys(_m(sto, "ta")));
+    knownTables = lsPrune(LS_T, bg.ids(sto));
     knownSeats = lsPrune(LS_S, Object.keys(_m(sto, "gg")));
     if (activeTable != null) {
       lastTable = machineFrom(sto, activeTable);
@@ -166,7 +163,7 @@ function boardFrom(sto) {
 }
 function renderLobby(sto) {
   const el = $("lobbyList");
-  const ms = Object.keys(_m(sto, "ta")).map((t) => machineFrom(sto, t)).filter((m) => m.exists && !m.closed);
+  const ms = bg.ids(sto).map((t) => machineFrom(sto, t)).filter((m) => m.exists && !m.closed);
   ms.sort((a, b) => b.tk - a.tk);
   el.innerHTML = ms.length ? ms.slice(0, lobbyN).map((m) =>
     '<button class="chip betting" data-t="' + m.id + '">' + window.t("slots.chip", "🎰 #{id} · bank {bank} · max bet {max}", { id: m.id, bank: rawToNado(m.tk), max: rawToNado(maxBet(m)) }) + "</button>").join(" ")
