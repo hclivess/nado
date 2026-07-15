@@ -213,7 +213,9 @@ if [ "$_pq_want" = "1" ]; then
   fi
 fi
 
-# ---- native Goldilocks lib (optional; speeds up shielded proving ~2x on top of the pure-Python batch path) ---
+# ---- native STARK-prover libs (optional; speed up shielded proving + the alghash2 recursion hot path) ---
+# Both are cdylibs bound via ctypes and are BIT-IDENTICAL to their pure-Python counterparts (they just run
+# the same field/hash arithmetic faster), so the node stays correct whether or not they build.
 if [ $WITH_EXEC -eq 1 ]; then
   if ensure_rust "ask"; then
     echo "==> building the native Goldilocks NTT (faster shielded proving)..."
@@ -222,9 +224,21 @@ if [ $WITH_EXEC -eq 1 ]; then
     else
       echo "    (build failed — the shielded-pool node will use the pure-Python prover; still correct, just slower.)"
     fi
+    echo "==> building the native alghash2 hash (recursion hot path; ~20x faster)..."
+    if ( cd "$REPO_DIR/native/alghash2" && cargo build --release >/dev/null 2>&1 ); then
+      # confirm the .so loads + initializes (its bit-identity to Python is covered by tests/test_recursion.py)
+      if "$VENV_PY" -c "import sys; sys.path.insert(0,'$REPO_DIR'); from execnode.stark import alghash2 as a; sys.exit(0 if a._try_native() and len(a.hashn([1,2,3]))==a.CAPACITY else 1)" 2>/dev/null; then
+        echo "    built + loaded: native/alghash2/target/release/libnado_alghash2.so"
+      else
+        echo "    (built but the .so did not load — recursion/alghash2 paths use pure Python; still correct.)"
+      fi
+    else
+      echo "    (build failed — recursion/alghash2 paths use pure Python; still correct, just slower.)"
+    fi
   else
     echo "==> Rust not available — the shielded-pool node will use the pure-Python prover (correct, ~2x slower)."
-    echo "    For faster proving: install Rust (https://rustup.rs), then: (cd wasm/goldilocks && cargo build --release)"
+    echo "    For faster proving: install Rust (https://rustup.rs), then:"
+    echo "      (cd wasm/goldilocks && cargo build --release) && (cd native/alghash2 && cargo build --release)"
   fi
 fi
 
