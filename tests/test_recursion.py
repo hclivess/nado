@@ -148,6 +148,48 @@ def t_fri_step_air():
         assert "does not hash to root" in str(e) or "should not build" in str(e)
 
 
+def _fri_with_rmerkle(N, seed):
+    """A FRI proof committed with rleaf/rnode (recursion-ready), returned as the per-layer values + trees +
+    domains + alphas + final. This is what a recursion-bound inner proof commits with."""
+    import random
+    random.seed(seed)
+    inv2 = F.inv(2)
+    def fold(lo, hi, x, al):
+        return F.add(F.mul(F.add(lo, hi), inv2), F.mul(al, F.mul(F.sub(lo, hi), F.mul(inv2, F.inv(x)))))
+    off = F.GENERATOR
+    cur = [random.randrange(F.P) for _ in range(N)]
+    alphas = [random.randrange(F.P) for _ in range(N.bit_length())]
+    vals, roots, trees, doms, o = [], [], [], [], off
+    while len(cur) > 1:
+        rt, mt = recursion.rmerkle_commit(cur)
+        roots.append(rt); trees.append(mt); vals.append(cur); doms.append(F.domain(len(cur), o))
+        half = len(cur) // 2
+        cur = [fold(cur[k], cur[k + half], doms[-1][k], alphas[len(roots) - 1]) for k in range(half)]
+        o = F.mul(o, o)
+    return vals, roots, trees, doms, alphas, cur[0]
+
+
+def t_fri_query_air():
+    """The CHAINED FRI-query verifier: a whole query's fold chain (all layers) verified in ONE STARK — every
+    layer's two openings Merkle-authenticated (private) and the folds chained to the PUBLIC final value.
+    Sound: a wrong final value is rejected."""
+    vals, roots, trees, doms, alphas, final_val = _fri_with_rmerkle(8, 11)
+    L = len(roots)
+    idx, a, steps = 3, 3, []
+    for i in range(L):
+        n_i = len(vals[i]); half = n_i // 2; a %= n_i; lo = a % half; hi = lo + half
+        plo = recursion.rmerkle_path(trees[i], lo); phi = recursion.rmerkle_path(trees[i], hi)
+        c2lo = True if i + 1 >= L else (lo < len(vals[i + 1]) // 2)
+        steps.append((vals[i][lo], lo, plo, vals[i][hi], hi, phi, roots[i], doms[i][lo], alphas[i], c2lo))
+        a = lo
+    proof = recursion.prove_fri_query(steps, final_val, num_queries=4)
+    ok, why = recursion.verify_fri_query(proof, num_queries=4)
+    assert ok, f"a real FRI-query chain must verify: {why}"
+    bad = recursion.prove_fri_query(steps, (final_val + 1) % F.P, num_queries=4)
+    okb, _ = recursion.verify_fri_query(bad, num_queries=4)
+    assert not okb, "the chain must fold to the true final value"
+
+
 if __name__ == "__main__":
     check("alghash2: 256-bit digest, deterministic, separated", t_alghash2_digest_width)
     check("alghash2: MDS linear layer is invertible", t_alghash2_mds_invertible)
@@ -158,5 +200,6 @@ if __name__ == "__main__":
           t_preimage_air)
     check("FRI fold-consistency AIR (real folds prove; inconsistent fold rejected)", t_fri_fold_air)
     check("integrated FRI-step AIR (membership+fold, authenticated openings link to the fold)", t_fri_step_air)
+    check("chained FRI-query verifier (all layers' openings + folds -> final, in one proof)", t_fri_query_air)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

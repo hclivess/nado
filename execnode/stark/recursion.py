@@ -478,6 +478,186 @@ def verify_fri_step(proof, root, x, alpha, nxt, num_queries=4):
                         num_queries=num_queries, backend=backend.ALGHASH2)
 
 
+# ---- chained multi-layer FRI verifier for ONE query: steps concatenated, folded value PRIVATE + linked ----
+# Columns: 12 sponge lanes + CLO,CHI (opened values, per-step) + FOLDED (the fold result, per-step). Per-step
+# carries reset at each step boundary (HOLD off on a step's last row); FOLDED of step i is tied to step i+1's
+# opening (CHAIN), and the LAST step's FOLDED is pinned to the public final value. Only the layer roots + the
+# public (x,α) schedule + the final value are public — every opened evaluation stays witness.
+_QLO, _QHI, _QFOLD = _W, _W + 1, _W + 2
+_WQ = _W + 3
+
+
+def _fri_query_air(steps, final_val):
+    """steps[i] = (lo_val, ilo, plo, hi_val, ihi, phi, root, x, alpha, chain_to_lo). Proves the whole fold
+    chain of one FRI query: each layer's two openings Merkle-include under its root AND fold to a value that IS
+    the next layer's opening (chain_to_lo picks lo/hi), the last folding to `final_val`."""
+    BR = _R + 1
+    # build every step's rows; remember per-step landmarks
+    seg = []          # (lo_start, hi_start, fold_row, lsib,ldir,n_lo, hsib,hdir,n_hi)
+    rows = []
+    for (lo_val, ilo, plo, hi_val, ihi, phi, root, x, alpha, _c2lo) in steps:
+        lb, lsib, ldir, lcur = _blocks_for(lo_val, ilo, plo)
+        hb, hsib, hdir, hcur = _blocks_for(hi_val, ihi, phi)
+        assert a2.eq(lcur, root) and a2.eq(hcur, root), "a path does not hash to root"
+        lo_start = len(rows)
+        for blk in lb:
+            rows.extend([list(s) + [int(lo_val) % F.P, int(hi_val) % F.P, 0] for s in blk])
+        hi_start = len(rows)
+        for blk in hb:
+            rows.extend([list(s) + [int(lo_val) % F.P, int(hi_val) % F.P, 0] for s in blk])
+        fold_row = len(rows) - 1
+        seg.append((lo_start, hi_start, fold_row, lsib, ldir, len(lb), hsib, hdir, len(hb)))
+    n_used = len(rows)
+    T = _next_pow2(n_used + 1)
+    # fill FOLDED witness per step (constant within the step = the correct fold), padded rows copy last
+    INV2 = F.inv(2)
+    for si, (lo_start, hi_start, fold_row, *_r) in enumerate(seg):
+        lo_val, hi_val, x, alpha = steps[si][0], steps[si][3], steps[si][6 + 1], steps[si][6 + 2]
+        # steps[si] = (lo,ilo,plo,hi,ihi,phi,root,x,alpha,c2lo) -> x=idx7, alpha=idx8
+        x = steps[si][7]; alpha = steps[si][8]
+        fv = F.add(F.mul(F.add(lo_val, hi_val), INV2),
+                   F.mul(alpha, F.mul(F.sub(lo_val, hi_val), F.mul(INV2, F.inv(x)))))
+        for i in range(lo_start, fold_row + 1):
+            rows[i][_QFOLD] = fv % F.P
+    while len(rows) < T:
+        rows.append(list(rows[-1]))
+
+    RC_lo = 0; ACT_R = _W; ACT_A = _W + 1; DIRC = _W + 2; SIB_lo = _W + 3
+    SEL_LO = SIB_lo + _CAP; SEL_HI = SEL_LO + 1; HOLD = SEL_HI + 1; FOLD_AT = HOLD + 1
+    PX = FOLD_AT + 1; PALPHA = PX + 1; CHAIN_LO = PALPHA + 1; CHAIN_HI = CHAIN_LO + 1
+    FINAL_AT = CHAIN_HI + 1; PFINAL = FINAL_AT + 1
+    NPER = PFINAL + 1
+    per = [[0] * T for _ in range(NPER)]
+
+    def fill_path(base, sibs, dirs, nblk):
+        for b in range(nblk):
+            for rib in range(BR):
+                i = base + b * BR + rib
+                if rib < _R:
+                    for lane in range(_W):
+                        per[RC_lo + lane][i] = a2.RC[rib][lane]
+                    per[ACT_R][i] = 1
+                elif b + 1 < nblk:
+                    per[ACT_A][i] = 1; per[DIRC][i] = dirs[b]
+                    for lane in range(_CAP):
+                        per[SIB_lo + lane][i] = sibs[b][lane]
+
+    for si, (lo_start, hi_start, fold_row, lsib, ldir, n_lo, hsib, hdir, n_hi) in enumerate(seg):
+        fill_path(lo_start, lsib, ldir, n_lo)
+        fill_path(hi_start, hsib, hdir, n_hi)
+        per[SEL_LO][lo_start] = 1
+        per[SEL_HI][hi_start] = 1
+        per[FOLD_AT][fold_row] = 1
+        per[PX][fold_row] = steps[si][7] % F.P
+        per[PALPHA][fold_row] = steps[si][8] % F.P
+        # HOLD on within-step (carry lo/hi/folded constant) — every used row of the step EXCEPT its last row
+        for i in range(lo_start, fold_row):
+            per[HOLD][i] = 1
+        if si + 1 < len(seg):                        # chain FOLDED_i -> next step's opening (lo or hi)
+            if steps[si][9]:
+                per[CHAIN_LO][fold_row] = 1
+            else:
+                per[CHAIN_HI][fold_row] = 1
+        else:                                        # last step: FOLDED == public final value
+            per[FINAL_AT][fold_row] = 1
+            per[PFINAL][fold_row] = int(final_val) % F.P
+
+    bnds = []
+    for si, (lo_start, hi_start, fold_row, lsib, ldir, n_lo, hsib, hdir, n_hi) in enumerate(seg):
+        # each path's block-0 rleaf frame (DOM_LEAF, zeros, IV) — the leaf VALUE stays witness
+        for start in (lo_start, hi_start):
+            bnds.append((start, 0, a2.DOM_LEAF))
+            for lane in range(2, _RATE):
+                bnds.append((start, lane, 0))
+            for lane in range(_CAP):
+                bnds.append((start, _RATE + lane, a2.IV[lane]))
+        # each path's final digest == this step's (public) root
+        rt = steps[si][6]
+        for last_start in (lo_start + (n_lo - 1) * BR, hi_start + (n_hi - 1) * BR):
+            frow = last_start + _R
+            for lane in range(_CAP):
+                bnds.append((frow, lane, int(rt[lane]) % F.P))
+    cols = (RC_lo, ACT_R, ACT_A, DIRC, SIB_lo, SEL_LO, SEL_HI, HOLD, FOLD_AT, PX, PALPHA,
+            CHAIN_LO, CHAIN_HI, FINAL_AT, PFINAL)
+    return rows, per, bnds, cols
+
+
+def _fri_query_transitions(cols):
+    (RC_lo, ACT_R, ACT_A, DIRC, SIB_lo, SEL_LO, SEL_HI, HOLD, FOLD_AT, PX, PALPHA,
+     CHAIN_LO, CHAIN_HI, FINAL_AT, PFINAL) = cols
+    cons = []
+
+    def round_c(i):
+        def c(cur, nxt, per):
+            t = [F.pw(F.add(cur[j], per[RC_lo + j]), a2.ALPHA) for j in range(_W)]
+            mixed = 0
+            for j in range(_W):
+                mixed = F.add(mixed, F.mul(a2._MDS[i][j], t[j]))
+            return F.mul(per[ACT_R], F.sub(nxt[i], mixed))
+        return c
+    for i in range(_W):
+        cons.append(round_c(i))
+
+    def a_left(i):
+        def c(cur, nxt, per):
+            d = per[DIRC]
+            return F.mul(per[ACT_A], F.sub(nxt[i], F.add(F.mul(F.sub(1, d), cur[i]), F.mul(d, per[SIB_lo + i]))))
+        return c
+
+    def a_right(i):
+        def c(cur, nxt, per):
+            d = per[DIRC]
+            return F.mul(per[ACT_A], F.sub(nxt[_CAP + i], F.add(F.mul(F.sub(1, d), per[SIB_lo + i]), F.mul(d, cur[i]))))
+        return c
+
+    def a_cap(i):
+        def c(cur, nxt, per):
+            return F.mul(per[ACT_A], F.sub(nxt[_RATE + i], a2.IV[i]))
+        return c
+    for i in range(_CAP):
+        cons.append(a_left(i)); cons.append(a_right(i)); cons.append(a_cap(i))
+
+    # per-step carries hold while HOLD=1 (reset at each step's last row)
+    cons.append(lambda c, n, p: F.mul(p[HOLD], F.sub(n[_QLO], c[_QLO])))
+    cons.append(lambda c, n, p: F.mul(p[HOLD], F.sub(n[_QHI], c[_QHI])))
+    cons.append(lambda c, n, p: F.mul(p[HOLD], F.sub(n[_QFOLD], c[_QFOLD])))
+    # load carries from the authenticated leaf lane at each step's path starts
+    cons.append(lambda c, n, p: F.mul(p[SEL_LO], F.sub(c[_QLO], c[1])))
+    cons.append(lambda c, n, p: F.mul(p[SEL_HI], F.sub(c[_QHI], c[1])))
+    # fold correctness: 2·x·folded = x·(lo+hi) + α·(lo−hi)
+    def fold_c(c, n, p):
+        lhs = F.mul(F.mul(2, p[PX]), c[_QFOLD])
+        rhs = F.add(F.mul(p[PX], F.add(c[_QLO], c[_QHI])), F.mul(p[PALPHA], F.sub(c[_QLO], c[_QHI])))
+        return F.mul(p[FOLD_AT], F.sub(lhs, rhs))
+    cons.append(fold_c)
+    # chain: this step's folded value is the NEXT step's opening (lo or hi), across the step boundary
+    cons.append(lambda c, n, p: F.mul(p[CHAIN_LO], F.sub(n[_QLO], c[_QFOLD])))
+    cons.append(lambda c, n, p: F.mul(p[CHAIN_HI], F.sub(n[_QHI], c[_QFOLD])))
+    # last step: folded == public final value
+    cons.append(lambda c, n, p: F.mul(p[FINAL_AT], F.sub(c[_QFOLD], p[PFINAL])))
+    return cons
+
+
+def prove_fri_query(steps, final_val, num_queries=4):
+    """Prove one FRI query's whole fold chain in ONE STARK (all layers' openings authenticated + folds chained
+    to the public final value). Only the roots + (x,α) schedule + final are public."""
+    rows, per, bnds, cols = _fri_query_air(steps, final_val)
+    proof = stark.prove(rows, _fri_query_transitions(cols), bnds, periodic=per, max_degree=8,
+                        num_queries=num_queries, backend=backend.ALGHASH2)
+    proof["_per"] = per; proof["_bnds"] = bnds; proof["_cols"] = cols
+    return proof
+
+
+def verify_fri_query(proof, num_queries=4):
+    """Verify a chained FRI-query proof. The roots + fold schedule + final value are pinned in the AIR's
+    boundaries/periodic (the caller supplied the same public statement when proving)."""
+    per, bnds, cols = proof.get("_per"), proof.get("_bnds"), proof.get("_cols")
+    if per is None or bnds is None or cols is None:
+        return False, "missing public AIR schedule"
+    return stark.verify(proof, _fri_query_transitions(cols), bnds, periodic=per, max_degree=8,
+                        num_queries=num_queries, backend=backend.ALGHASH2)
+
+
 def prove_fri_folds(rows, num_queries=4):
     """Prove every fold-check row (from fold_rows) satisfies the FRI fold equation, in ONE STARK. `rows` =
     [(lo,hi,x,α,nxt)]. Returns a proof bundle. This is the fold half of the in-circuit FRI verifier."""
