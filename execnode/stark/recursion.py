@@ -487,11 +487,17 @@ _QLO, _QHI, _QFOLD = _W, _W + 1, _W + 2
 _WQ = _W + 3
 
 
-def _fri_query_air(steps, final_val):
-    """steps[i] = (lo_val, ilo, plo, hi_val, ihi, phi, root, x, alpha, chain_to_lo). Proves the whole fold
-    chain of one FRI query: each layer's two openings Merkle-include under its root AND fold to a value that IS
-    the next layer's opening (chain_to_lo picks lo/hi), the last folding to `final_val`."""
+def _fri_query_air(queries, final_val):
+    """queries = list of query step-lists; step = (lo_val, ilo, plo, hi_val, ihi, phi, root, x, alpha,
+    chain_to_lo). Proves EVERY query's whole fold chain in one STARK: each layer's two openings Merkle-include
+    under its root AND fold to the next layer's opening (chain_to_lo picks lo/hi); each query's LAST layer
+    folds to the PUBLIC `final_val`. All openings are witness — only roots + (x,α) + final are public."""
     BR = _R + 1
+    # flatten steps, remembering which are a query's LAST layer (fold -> final, no chain)
+    steps, query_end = [], []
+    for q in queries:
+        for j, st in enumerate(q):
+            steps.append(st); query_end.append(j == len(q) - 1)
     # build every step's rows; remember per-step landmarks
     seg = []          # (lo_start, hi_start, fold_row, lsib,ldir,n_lo, hsib,hdir,n_hi)
     rows = []
@@ -553,14 +559,14 @@ def _fri_query_air(steps, final_val):
         # HOLD on within-step (carry lo/hi/folded constant) — every used row of the step EXCEPT its last row
         for i in range(lo_start, fold_row):
             per[HOLD][i] = 1
-        if si + 1 < len(seg):                        # chain FOLDED_i -> next step's opening (lo or hi)
+        if query_end[si]:                            # a query's last layer: FOLDED == public final value
+            per[FINAL_AT][fold_row] = 1
+            per[PFINAL][fold_row] = int(final_val) % F.P
+        else:                                        # chain FOLDED_i -> next step's opening (lo or hi)
             if steps[si][9]:
                 per[CHAIN_LO][fold_row] = 1
             else:
                 per[CHAIN_HI][fold_row] = 1
-        else:                                        # last step: FOLDED == public final value
-            per[FINAL_AT][fold_row] = 1
-            per[PFINAL][fold_row] = int(final_val) % F.P
 
     bnds = []
     for si, (lo_start, hi_start, fold_row, lsib, ldir, n_lo, hsib, hdir, n_hi) in enumerate(seg):
@@ -638,24 +644,34 @@ def _fri_query_transitions(cols):
     return cons
 
 
-def prove_fri_query(steps, final_val, num_queries=4):
-    """Prove one FRI query's whole fold chain in ONE STARK (all layers' openings authenticated + folds chained
-    to the public final value). Only the roots + (x,α) schedule + final are public."""
-    rows, per, bnds, cols = _fri_query_air(steps, final_val)
+def prove_fri_proof(queries, final_val, num_queries=4):
+    """Prove a whole FRI proof IN CIRCUIT: every query's fold chain in ONE STARK (all openings Merkle-
+    authenticated + folds chained to the public final). `queries` = list of query step-lists. This is a
+    complete in-circuit FRI low-degree verifier — the heart of a STARK verifier."""
+    rows, per, bnds, cols = _fri_query_air(queries, final_val)
     proof = stark.prove(rows, _fri_query_transitions(cols), bnds, periodic=per, max_degree=8,
                         num_queries=num_queries, backend=backend.ALGHASH2)
     proof["_per"] = per; proof["_bnds"] = bnds; proof["_cols"] = cols
     return proof
 
 
-def verify_fri_query(proof, num_queries=4):
-    """Verify a chained FRI-query proof. The roots + fold schedule + final value are pinned in the AIR's
-    boundaries/periodic (the caller supplied the same public statement when proving)."""
+def verify_fri_proof(proof, num_queries=4):
+    """Verify an in-circuit FRI-proof. Roots + fold schedule + final are pinned in the AIR (the same public
+    statement the prover used)."""
     per, bnds, cols = proof.get("_per"), proof.get("_bnds"), proof.get("_cols")
     if per is None or bnds is None or cols is None:
         return False, "missing public AIR schedule"
     return stark.verify(proof, _fri_query_transitions(cols), bnds, periodic=per, max_degree=8,
                         num_queries=num_queries, backend=backend.ALGHASH2)
+
+
+def prove_fri_query(steps, final_val, num_queries=4):
+    """One-query convenience wrapper over prove_fri_proof."""
+    return prove_fri_proof([steps], final_val, num_queries=num_queries)
+
+
+def verify_fri_query(proof, num_queries=4):
+    return verify_fri_proof(proof, num_queries=num_queries)
 
 
 def prove_fri_folds(rows, num_queries=4):
