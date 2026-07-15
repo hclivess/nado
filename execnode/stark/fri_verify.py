@@ -314,14 +314,23 @@ def prove_fold(fri_proofs, num_queries_inner=None, num_queries_outer=64, mk_tran
                    "num_queries_outer": num_queries_outer}
 
 
-def verify_fold(recursion_proof, public, mk_transcripts=None):
+def verify_fold(recursion_proof, public, mk_transcripts=None, expect_inner=None, expect_outer=None):
     """SOUND verification. `public` = the {publics, num_queries_inner, num_queries_outer} from prove_fold.
     Re-derives the canonical schedule from each inner proof's PUBLIC part (recomputing FS challenges, checking
     grind + final-layer low-degree + geometry), builds periodic+boundaries ITSELF, and verifies the recursion
-    STARK against ITS schedule. `mk_transcripts` as in prove_fold — the verifier must rebuild the same FRI-start
-    transcripts (from the STARK proofs' public roots + AIR) for STARK-embedded FRI. Returns (ok, reason)."""
+    STARK against ITS schedule. `mk_transcripts` as in prove_fold. `expect_inner`/`expect_outer` are the
+    verifier's PROTOCOL query counts — the number of FRI spot-checks IS the soundness, so they must NOT be taken
+    on the prover's word: if given, the bundle's declared counts must match exactly (the caller pins them to the
+    protocol constant, e.g. stark.NUM_QUERIES). A count of 0 (no spot-checks) is always rejected. Returns
+    (ok, reason)."""
     try:
         nqi = public["num_queries_inner"]; nqo = public["num_queries_outer"]
+        if not isinstance(nqi, int) or not isinstance(nqo, int) or nqi < 1 or nqo < 1:
+            return False, "fold query count must be a positive integer"
+        if expect_inner is not None and nqi != expect_inner:
+            return False, f"inner query count {nqi} != protocol {expect_inner}"
+        if expect_outer is not None and nqo != expect_outer:
+            return False, f"outer query count {nqo} != protocol {expect_outer}"
         merged = {"queries": [], "finals": []}
         for i, pub in enumerate(public["publics"]):
             mk = mk_transcripts[i] if mk_transcripts else None

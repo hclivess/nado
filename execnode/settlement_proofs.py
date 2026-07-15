@@ -253,7 +253,10 @@ def verify_settlement_recursive(bundle):
         if fold is None or public is None:
             return False, "missing FRI fold", None
         mk = [_stark_fri_transcript_factory(seg["proof"]) for seg in bundle["segments"]]   # verifier rebuilds
-        okf, whyf = fri_verify.verify_fold(fold, public, mk_transcripts=mk)
+        # PIN the fold's query strength to the protocol constant — the number of FRI spot-checks IS the
+        # soundness, so it is never taken on the prover's word.
+        nq = vm_circuit.stark.NUM_QUERIES
+        okf, whyf = fri_verify.verify_fold(fold, public, mk_transcripts=mk, expect_inner=nq, expect_outer=nq)
         if not okf:
             return False, f"FRI fold invalid: {whyf}", None
         # cross-check the fold's public roots ARE the segments' actual FRI roots (so the fold isn't over some

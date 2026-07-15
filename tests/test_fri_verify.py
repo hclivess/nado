@@ -63,9 +63,12 @@ def t_tampers_rejected():
         (lambda x: x["publics"][0].__setitem__("roots", [("11" * 8,)] + x["publics"][0]["roots"][1:]), "tampered root"),
         (lambda x: x["publics"][0].__setitem__("pow", 0), "stripped grinding PoW"),
         (lambda x: x["publics"][0].__setitem__("final", [(v + 1) % F.P for v in x["publics"][0]["final"]]), "corrupted final layer"),
+        (lambda x: x.__setitem__("num_queries_inner", 0), "zero inner query count (no spot-checks)"),
+        (lambda x: x.__setitem__("num_queries_inner", NQ + 1), "inner query count != protocol"),
     ]:
         bad = copy.deepcopy(pub); mut(bad)
-        ok, _ = V.verify_fold(rp, bad)
+        # the last two pin against the protocol count; the rest are rejected outright
+        ok, _ = V.verify_fold(rp, bad, expect_inner=NQ, expect_outer=8)
         assert not ok, f"{label} must be rejected"
 
 
