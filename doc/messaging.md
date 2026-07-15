@@ -1,6 +1,9 @@
-# NADO messaging — off-chain, end-to-end-encrypted, free (design draft)
+# NADO messaging — off-chain, end-to-end-encrypted, free
 
-**Status:** design draft. Nothing here is implemented.
+**Status:** LIVE — implemented and running (message pool + gossip: `ops/message_pool.py`, node endpoints;
+E2E crypto: ML-KEM-768 encapsulation + blake2b-CTR AEAD + ML-DSA-44 signatures + hashcash PoW; wallet UI with
+local history; tests: `tests/test_message_pool*.py`, `tests/test_msgkey.py`). This document is the design it
+was built from; sections read as design language but describe the shipped system.
 
 **Brief (owner).** Address-to-address messaging, **off-chain**. Nodes keep a shared **message pool/stack**
 gossiped between them but **never written to a block**. **100% encrypted** (nodes can't read it), **free**
