@@ -89,7 +89,7 @@ def _run_call(contracts, bridge, registry, call, i, cursor, timestamp, beacons, 
 
 
 def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
-                pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES, backend=None):
+                pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES, backend=None, row_commit=False):
     """Prove a batch of zkVM calls as ONE aggregated epoch proof. `pre_contracts` is the pre-state
     {cid: {"code", "storage": {"slots":{...}}, "runtime":"zkvm"}}; `calls` an ordered list of
     {cid, method, caller, args, value?}. Returns a self-contained bundle: a SINGLE proof binding
@@ -109,7 +109,8 @@ def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_h
         ec, pc, _ = _run_call(contracts, bridge, registry, call, i, cursor, timestamp, beacons,
                               block_hashes, want_rows=False)
         epoch_calls.append(ec); public_calls.append(pc)
-    proof, epoch_io, _per = vm_circuit.prove_epoch_calls(epoch_calls, num_queries=num_queries, backend=backend)
+    proof, epoch_io, _per = vm_circuit.prove_epoch_calls(epoch_calls, num_queries=num_queries, backend=backend,
+                                                         row_commit=row_commit)
     return {"cursor": cursor, "timestamp": timestamp, "pre_root": pre_root,
             "post_root": zkvm_root(contracts), "calls": public_calls,
             "io": [list(e) for e in epoch_io], "proof": proof,
@@ -119,7 +120,8 @@ def prove_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_h
 
 
 def prove_settlement(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
-                     pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES, max_rows=None, backend=None):
+                     pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES, max_rows=None, backend=None,
+                     row_commit=False):
     """Prove an epoch of ANY size by SEGMENTING it into consecutive chunks that each fit one trace, then
     chaining their state roots: segment j binds root_j → root_{j+1}, and the whole batch is proven by
     root_0 → root_K. This removes the single-trace 2^17-row cap (doc/zk-execution-proofs.md scaling
@@ -171,7 +173,7 @@ def prove_settlement(pre_contracts, calls, cursor, timestamp=0, beacons=None, bl
         seg_calls = calls[lo:hi]
         bundle = prove_epoch(contracts, seg_calls, cursor, timestamp=timestamp, beacons=beacons,
                              block_hashes=block_hashes, pre_bridge=bridge2, num_queries=num_queries,
-                             backend=backend)
+                             backend=backend, row_commit=row_commit)
         segments.append(bundle)
         # advance contracts + bridge to this segment's post-state (replay is cheaper than re-running)
         reg = {}
@@ -270,11 +272,80 @@ def verify_settlement_recursive(bundle):
         return False, f"malformed recursive settlement bundle: {e}", None
 
 
-def verify_settlement(bundle):
+def prove_settlement_o1(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
+                        pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES, max_rows=None,
+                        outer_queries=vm_circuit.stark.NUM_QUERIES, comp_points_per_proof=None):
+    """The AUTHORITATIVE recursive settlement (doc/zk-recursion.md §5 step 7 applied to the money path).
+    Segments the epoch with ROW-COMMITTED recursion-backend proofs and produces ONE recursion bundle
+    (fold + row-mode composition) that re-verifies EVERY segment STARK — so `verify_settlement_o1` never runs
+    a per-segment stark.verify. `comp_points_per_proof` bounds each composition proof's trace (K·queries spot
+    checks split across chunks). Returns the settlement bundle with {"recursive": ...} attached."""
+    from execnode.stark import backend as _bk, recursive_verify as RV
+    bundle = prove_settlement(pre_contracts, calls, cursor, timestamp=timestamp, beacons=beacons,
+                              block_hashes=block_hashes, pre_bridge=pre_bridge, num_queries=num_queries,
+                              max_rows=max_rows, backend=_bk.RECURSION, row_commit=True)
+    proofs, bnds, pers = [], [], []
+    for seg in bundle["segments"]:
+        pub_calls, epoch_io = _epoch_pub_statement(seg)
+        ok, why, periodic, bl = vm_circuit.epoch_statement(seg["proof"], pub_calls, epoch_io)
+        if not ok:
+            raise ValueError(f"segment statement: {why}")
+        proofs.append(seg["proof"]); bnds.append(bl); pers.append(periodic)
+    bundle["recursive"] = RV.prove(proofs, vm_circuit.transitions(), bnds, num_queries_outer=outer_queries,
+                                   periodic_list=pers, num_challenges=2, num_aux=vm_circuit.NUM_AUX,
+                                   comp_points_per_proof=comp_points_per_proof)
+    bundle["comp_points_per_proof"] = comp_points_per_proof
+    return bundle
+
+
+def verify_settlement_o1(bundle, num_queries=None, outer_queries=None):
+    """Verify an authoritative recursive settlement: the segment STATEMENTS (pre-root, io replay → post-root,
+    chain) natively — cheap, no cryptography — and ONE recursion bundle in place of the K per-segment STARK
+    verifications. The recursion bundle's soundness: the fold proves every segment's composition FRI is
+    low-degree AND the row-mode composition half proves the Merkle-authenticated trace rows recompute the AIR
+    composition to the (in-circuit-validated) FRI layer-0 values, at Fiat-Shamir positions the verifier
+    derives itself — i.e. it re-establishes exactly what stark.verify establishes, per segment, in one check.
+    `num_queries`/`outer_queries` are the VERIFIER'S policy (None = the protocol constant — never read from
+    the bundle). Returns (ok, reason, post_root)."""
+    from execnode.stark import recursive_verify as RV
+    try:
+        rb = bundle.get("recursive")
+        if rb is None:
+            return False, "missing recursion bundle", None
+        nqi = int(num_queries) if num_queries is not None else vm_circuit.stark.NUM_QUERIES
+        nqo = int(outer_queries) if outer_queries is not None else vm_circuit.stark.NUM_QUERIES
+        # 1) segment statements + io replay + state-root chain (no per-segment proof checks)
+        ok, why, post = verify_settlement(bundle, check_proofs=False)
+        if not ok:
+            return False, why, None
+        # 2) rebuild every segment's public statement and verify the ONE recursion bundle against it
+        pubs, bnds, pers = [], [], []
+        for seg in bundle["segments"]:
+            pub_calls, epoch_io = _epoch_pub_statement(seg)
+            ok2, why2, periodic, bl = vm_circuit.epoch_statement(seg["proof"], pub_calls, epoch_io)
+            if not ok2:
+                return False, f"segment statement: {why2}", None
+            pubs.append(RV.public_part(seg["proof"])); bnds.append(bl); pers.append(periodic)
+        cpp = bundle.get("comp_points_per_proof")
+        if cpp is not None and (not isinstance(cpp, int) or cpp < 1):
+            return False, "bad comp chunk size", None
+        okr, whyr = RV.verify(pubs, vm_circuit.transitions(), bnds, rb, num_queries_outer=nqo,
+                              periodic_list=pers, num_challenges=2, num_aux=vm_circuit.NUM_AUX,
+                              comp_points_per_proof=cpp, num_queries_inner=nqi)
+        if not okr:
+            return False, f"recursive verification failed: {whyr}", None
+        return True, "ok (authoritative recursive)", post
+    except Exception as e:
+        return False, f"malformed recursive settlement bundle: {e}", None
+
+
+def verify_settlement(bundle, num_queries=None, check_proofs=True):
     """Verify a segmented settlement: each segment is a valid epoch bundle AND they chain
     (pre_root_0 = bundle.pre_root, post_root_j = pre_root_{j+1}, post_root_K = bundle.post_root).
     Returns (ok, reason, post_root) — the chain is what proves the whole (unbounded) epoch with no
-    re-execution and no trust in any single segment's boundary."""
+    re-execution and no trust in any single segment's boundary. `num_queries` is the VERIFIER'S policy
+    (None = the protocol constant); `check_proofs=False` runs only the statement/replay/chain checks — for
+    the recursive path, whose ONE bundle replaces the per-segment STARK verifications."""
     try:
         segs = bundle.get("segments")
         if not isinstance(segs, list) or not segs:
@@ -284,7 +355,7 @@ def verify_settlement(bundle):
         for j, seg in enumerate(segs):
             if seg["pre_root"] != expect_pre:
                 return False, f"segment {j} pre_root breaks the chain", None
-            ok, why, post = verify_epoch(seg)
+            ok, why, post = verify_epoch(seg, num_queries=num_queries, check_proof=check_proofs)
             if not ok:
                 return False, f"segment {j}: {why}", None
             if post != seg["post_root"]:
@@ -297,32 +368,49 @@ def verify_settlement(bundle):
         return False, f"malformed settlement bundle: {e}", None
 
 
-def verify_epoch(bundle):
+def _epoch_pub_statement(bundle):
+    """(pub_calls, epoch_io) — an epoch bundle's public statement, reconstructed from the bundle's pre-state +
+    public calls (the same reconstruction verify_epoch runs before checking the proof)."""
+    import copy
+    contracts = copy.deepcopy(bundle["pre_contracts"])
+    cursor, ts = int(bundle["cursor"]), int(bundle.get("timestamp", 0))
+    epoch_io = [tuple(int(x) for x in e) for e in bundle["io"]]
+    pub_calls = []
+    for call in bundle["calls"]:
+        c = contracts.get(call["cid"])
+        if not c or c.get("runtime") != "zkvm":
+            raise ValueError("unknown contract")
+        pub_calls.append({"code": c["code"], "method": call["method"], "caller": call.get("caller", "epoch"),
+                          "args": call.get("args", []), "value": int(call.get("value", 0)),
+                          "cursor": cursor, "timestamp": ts})
+    return pub_calls, epoch_io
+
+
+def verify_epoch(bundle, num_queries=None, check_proof=True):
     """Verify an aggregated epoch bundle with NO contract re-execution. Returns (ok, reason, post_root):
     the pre-state must hash to pre_root; the SINGLE proof must verify for the ordered public calls +
-    global I/O log; replaying that log advances each contract's storage to a state hashing to post_root."""
+    global I/O log; replaying that log advances each contract's storage to a state hashing to post_root.
+
+    `num_queries` is the VERIFIER'S policy — None means the protocol constant (fri.NUM_QUERIES). It is NEVER
+    read from the bundle: the query count IS the proof's soundness, so a prover must not choose it. Callers
+    with a deliberate non-default policy (tests) pass it explicitly. `check_proof=False` skips only the STARK
+    verification (the recursive settlement path re-verifies it inside ONE recursion bundle instead)."""
     try:
         import copy
         pre = bundle["pre_contracts"]
         if zkvm_root(pre) != bundle["pre_root"]:
             return False, "pre-state does not match pre_root", None
-        cursor, ts = int(bundle["cursor"]), int(bundle.get("timestamp", 0))
-        nq = int(bundle.get("num_queries", vm_circuit.stark.NUM_QUERIES))
-        contracts = copy.deepcopy(pre)
-        epoch_io = [tuple(int(x) for x in e) for e in bundle["io"]]
+        nq = int(num_queries) if num_queries is not None else vm_circuit.stark.NUM_QUERIES
+        pub_calls, epoch_io = _epoch_pub_statement(bundle)
         # 1) the single aggregated proof must verify for the whole ordered batch
-        pub_calls = []
-        for call in bundle["calls"]:
-            c = contracts.get(call["cid"])
-            if not c or c.get("runtime") != "zkvm":
-                return False, "unknown contract", None
-            pub_calls.append({"code": c["code"], "method": call["method"], "caller": call.get("caller", "epoch"),
-                              "args": call.get("args", []), "value": int(call.get("value", 0)),
-                              "cursor": cursor, "timestamp": ts})
-        ok, why = vm_circuit.verify_epoch_calls(bundle["proof"], pub_calls, epoch_io, num_queries=nq)
-        if not ok:
-            return False, f"epoch proof invalid: {why}", None
+        if check_proof:
+            row_commit = "row_roots" in bundle["proof"]
+            ok, why = vm_circuit.verify_epoch_calls(bundle["proof"], pub_calls, epoch_io, num_queries=nq,
+                                                    row_commit=row_commit)
+            if not ok:
+                return False, f"epoch proof invalid: {why}", None
         # 2) split the global log back per call (by RET markers) and replay to recompute the post root
+        contracts = copy.deepcopy(pre)
         segs, cur = [], []
         for e in epoch_io:
             cur.append(e)
@@ -349,11 +437,12 @@ def verify_epoch(bundle):
 _EPOCH_PROOFS = {}          # (ns, cursor) -> verified post_root  (populated as bundles arrive + verify)
 
 
-def register_epoch_proof(ns, bundle):
+def register_epoch_proof(ns, bundle, num_queries=None):
     """Verify an epoch bundle and, if valid, record its (ns, cursor)->post_root so the installed settlement
     verifier can justify that root. Returns (ok, reason). This is what an exec node calls when it receives a
-    settlement proof for its namespace (the transport — a blob op or a gossip endpoint — is separate)."""
-    ok, why, post_root = verify_epoch(bundle)
+    settlement proof for its namespace (the transport — a blob op or a gossip endpoint — is separate).
+    `num_queries` = the verifier's policy (None ⇒ the protocol constant; never the bundle's word)."""
+    ok, why, post_root = verify_epoch(bundle, num_queries=num_queries)
     if ok:
         _EPOCH_PROOFS[(ns, int(bundle["cursor"]))] = post_root
     return ok, why

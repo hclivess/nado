@@ -50,7 +50,7 @@ def t1_epoch_proves_and_verifies():
         {"cid": CID_V, "method": "deposit", "caller": ALICE, "args": [], "value": 500},
     ]
     bundle = SP.prove_epoch(_pre(), calls, cursor=200, pre_bridge={ALICE: 500}, num_queries=NQ)
-    ok, why, post = SP.verify_epoch(bundle)
+    ok, why, post = SP.verify_epoch(bundle, num_queries=NQ)
     assert ok, f"honest epoch must verify: {why}"
     assert bundle["pre_root"] != bundle["post_root"]
 
@@ -78,7 +78,7 @@ def t3_tampered_post_root_rejected():
     calls = [{"cid": CID_C, "method": "bump", "caller": ALICE, "args": []}]
     bundle = SP.prove_epoch(_pre(), calls, cursor=200, num_queries=NQ)
     bundle["post_root"] = "00" * 32
-    ok, why, _ = SP.verify_epoch(bundle)
+    ok, why, _ = SP.verify_epoch(bundle, num_queries=NQ)
     assert not ok, "forged post_root must be rejected"
 
 def t4_tampered_log_rejected():
@@ -87,20 +87,20 @@ def t4_tampered_log_rejected():
     for e in bundle["io"]:
         if e[0] == 2:            # IO_SSTORE: claim a different stored value
             e[2] = 99
-    ok, why, _ = SP.verify_epoch(bundle)
+    ok, why, _ = SP.verify_epoch(bundle, num_queries=NQ)
     assert not ok, "tampered log must be rejected"
 
 def t5_wrong_pre_state_rejected():
     calls = [{"cid": CID_C, "method": "bump", "caller": ALICE, "args": []}]
     bundle = SP.prove_epoch(_pre(), calls, cursor=200, num_queries=NQ)
     bundle["pre_contracts"][CID_C]["storage"] = {"slots": {"0": 7}}    # pre_root now stale
-    ok, why, _ = SP.verify_epoch(bundle)
+    ok, why, _ = SP.verify_epoch(bundle, num_queries=NQ)
     assert not ok, "pre-state not matching pre_root must be rejected"
 
 def t6_seam_accepts_verified_root():
     calls = [{"cid": CID_C, "method": "bump", "caller": ALICE, "args": []}]
     bundle = SP.prove_epoch(_pre(), calls, cursor=321, num_queries=NQ)
-    ok, why = SP.register_epoch_proof("default", bundle)
+    ok, why = SP.register_epoch_proof("default", bundle, num_queries=NQ)
     assert ok, why
     verifier = SP.settlement_verifier(lambda ns, cur: bundle["post_root"])
     assert verifier("default", 321, "ignored-full-root")          # matches registered post_root
@@ -114,7 +114,7 @@ def t7_install_into_settlement_ops():
     from ops import settlement_ops
     calls = [{"cid": CID_C, "method": "bump", "caller": ALICE, "args": []}]
     bundle = SP.prove_epoch(_pre(), calls, cursor=77, num_queries=NQ)
-    SP.register_epoch_proof("default", bundle)
+    SP.register_epoch_proof("default", bundle, num_queries=NQ)
     settlement_ops.set_settlement_verifier(SP.settlement_verifier(lambda ns, cur: bundle["post_root"]))
     try:
         assert settlement_ops._PROOF_VERIFIER("default", 77, "whatever-l1-root")
@@ -128,14 +128,14 @@ def t8_segmented_settlement():
     import copy
     calls = [{"cid": CID_C, "method": "bump", "caller": ALICE, "args": []} for _ in range(8)]
     single = SP.prove_epoch(_pre(), calls, cursor=200, num_queries=NQ)
-    _ok, _why, single_post = SP.verify_epoch(single)
+    _ok, _why, single_post = SP.verify_epoch(single, num_queries=NQ)
     bundle = SP.prove_settlement(_pre(), calls, cursor=200, num_queries=NQ, max_rows=300)
     assert bundle["num_segments"] >= 2, f"expected a split, got {bundle['num_segments']}"
-    ok, why, post = SP.verify_settlement(bundle)
+    ok, why, post = SP.verify_settlement(bundle, num_queries=NQ)
     assert ok, f"segmented settlement must verify: {why}"
     assert post == single_post == bundle["post_root"], "segmented post_root must equal the single-proof root"
     bad = copy.deepcopy(bundle); bad["segments"][0]["post_root"] = "00" * 32
-    ok2, _why2, _ = SP.verify_settlement(bad)
+    ok2, _why2, _ = SP.verify_settlement(bad, num_queries=NQ)
     assert not ok2, "a broken chain link must be rejected"
 
 
