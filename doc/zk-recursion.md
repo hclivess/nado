@@ -363,10 +363,22 @@ what looked like two bindings into ONE real piece:
     fold or an in-circuit hash. Cost: one degree-2 aux column added to the W=106 two-phase exec AIR — a delicate,
     opt-in, differentially-validated money-path change (the deliberate next build).
 
-Until piece 2 lands, `verify_bound_epoch_replay` keeps the native O(#io) binding as the verified fallback
-(soundness-first — no partial O(1) shipped as complete). `verify_epoch_o1` is a validated CAPABILITY (the exec
-verify is already off the O(#io) periodic-table cost); the RLC fingerprint is what makes wiring it into settlement
-sound end-to-end.
+**Stage 1 of piece 2 is BUILT** (`vm_circuit.bind_io`, `tests/test_io_fingerprint.py`): an opt-in FIO aux column
+proves the ordered io fingerprint `fp_exec = Σ combine([TAG_IO, ioc, kind, a, b], γ_fp)` as an O(1) boundary
+(`proof["io_fingerprint"]`), byte-identical when off; `io_log_fingerprint` recomputes the same value from the
+public log (the io bus forces IOC=PL_CTR, so trace fp == log fp).
+
+**Rigorous soundness result (why the rest needs the fold, 2026-07-16).** A fingerprint match `fp_exec == fp_replay`
+binds the two ios ONLY if γ_fp post-dates BOTH commitments (Fiat–Shamir): with a one-sided γ_fp (derived from just
+the exec's `per_root`, or just the io commitment) the OTHER proof's io is chosen after γ_fp is fixed and can be
+adapted to force a collision (its io values are free witness) — UNSOUND. A γ_fp = H(exec_commit ‖ replay_commit)
+is sound, but each proof needs γ_fp to compute its own fingerprint, and neither knows the other's commitment at
+prove time ⇒ the binding CANNOT live in the leaves. It must be enforced in the RECURSION/FOLD layer, whose shared
+transcript absorbs both leaves' roots before drawing γ_fp (or, equivalently, a recursive multiset/permutation
+argument over the leaves' committed io). This is the deepest part of recursive proof composition and the single
+remaining construction for asymptotic end-to-end O(1). Everything else — exec verify off O(#io), all primitives,
+the fingerprint capability — is built and validated; `verify_bound_epoch_replay` keeps the native O(#io) binding
+as the verified fallback until the fold-layer binding lands (soundness-first — no partial O(1) shipped as complete).
 
 **DEPLOYMENT.** Swapping the sparse root in as THE consensus settled root (settle-tx `state_root`,
 `ops/transaction_ops` bridge/dividend/unshield exits, `state.py`) is a genesis-level state-root-scheme change,
