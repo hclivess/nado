@@ -70,8 +70,8 @@ each is a strictly stronger security claim behind the same predicate.
 | Regime | `settlement_justified` body | Trust | Status |
 |---|---|---|---|
 | **2a — bonded quorum** | 2/3 of bonded stake attested `(ns, cursor, root)` | a validator committee is honest | **BUILT** |
-| **2b — validity proof** | one succinct **STARK** proves `apply(blobs[prev..new]) : prev_root → new_root` verifies | cryptographic soundness only | seam ready |
-| **2c — recursive aggregation** | one STARK proves **many** rollups' batches at once (proof-of-proofs) | cryptographic; **O(1) L1 cost for the whole ecosystem** | design |
+| **2b — validity proof** | one succinct **STARK** proves `apply(blobs[prev..new]) : prev_root → new_root` verifies | cryptographic soundness only | seam ready; recursion **BUILT off-path** (`doc/zk-recursion.md`), not yet wired as the settlement rule |
+| **2c — recursive aggregation** | one STARK proves **many** rollups' batches at once (proof-of-proofs) | cryptographic; **O(1) L1 cost for the whole ecosystem** | **mechanism BUILT + tested** (verify ~0.2 s at any depth); prover throughput Rust-gated |
 
 **2b — single validity proof (the trust flip).** The exec layer periodically posts `new_root` + a STARK that
 re-executing the ordered blobs from `prev_root` yields `new_root`. L1 verifies the proof; it never re-executes
@@ -88,6 +88,18 @@ verifies a **single** proof per epoch and advances every `latest_settled(ns)` it
 cost is **constant regardless of how many rollups exist or how many transactions they processed** — the
 verification cost is decoupled from aggregate throughput entirely. This is the mechanism by which "ordering +
 DA + one proof" scales without bound on the execution side.
+
+**Status (2026-07, `doc/zk-recursion.md`).** The recursion MECHANISM is **built and tested off the L1 path**: a
+verifier-authoritative in-circuit STARK verifier over the wide-sponge **alghash2**; T-independent ("succinct")
+verification; a **K→1** collapse (one bundle re-verifies K chained segment proofs from their public parts); an
+in-circuit Fiat-Shamir transcript; and **fold-of-folds depth** whose root **verifies in ~0.2 s regardless of
+tree depth** — the O(1)-verify goal, demonstrated. The asymmetry is the whole point and matches the cost table
+above: **heavy to PROVE (specialized exec/settlement nodes with tens of GB — never a phone), trivial to
+VERIFY (~0.1–0.2 s, low memory — a phone could).** The two open items are engineering, not soundness: the
+**native Rust prover** for throughput (the pure-Python reference hits a memory/time wall at execution-AIR scale;
+the native NTT already cut recursion-prover memory ~4.5×) and **wiring the proof verifier as the authoritative
+settlement rule** (the `settlement_verifier` seam exists; it needs a decision on binding the claimed full-state
+root — until then the bonded quorum governs and nothing on the money path depends on a proof).
 
 ---
 

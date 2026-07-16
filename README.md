@@ -524,6 +524,16 @@ code.
   (`FINALITY_DEPTH = 12`); rollback **refuses** to cross the persisted, monotonic finalized height
   (raises `FinalityViolation`). The ordering `max_rollbacks (10) < FINALITY_DEPTH (12) < EPOCH_LENGTH
   (60)` means honest reorgs never hit the floor while a long-range reorg is capped below one epoch.
+- **Corroborated finality + escalated re-anchor (partition-wedge recovery)** — the depth floor now advances
+  **only while the peer-majority tip lies on our canonical chain** (`_depth_floor_corroborated`); a node that
+  briefly loses the majority (e.g. under load) and keeps producing on its own branch no longer *self-finalizes*
+  that minority fork, so partition forks stay reorgable and heal through the normal weight-based reorg (a Sybil
+  can only *withhold* corroboration — delay the floor, the safe direction). And if a node is ever wedged anyway
+  (its snapshot/finality floor stuck on a minority fork below the heaviest chain's snapshots), after
+  `REANCHOR_ESCALATE = 3` cooldown-spaced failed re-anchors it **drops the snapshot-above-floor restriction** and
+  re-anchors to the strictly-heaviest chain (every tail block still re-verified). Observed live and fixed; both
+  are node-local safety/fork-choice rules (they change only when a node advances its *own* floor, never block
+  validity). Unit-tested (`tests/test_wedge_recovery.py`).
 - **Fail-loud epoch beacon** — `epoch_beacon` chains from the hash of the first block of the previous
   epoch (a finalized, non-parent anchor), and now **raises instead of silently substituting**
   `GENESIS_BEACON` when the anchor is missing (a missing anchor means this node is under-synced).
@@ -715,11 +725,24 @@ shape is unchanged (49 chars).
 - **Execution-layer instructions** — [`doc/exec-instructions.md`](doc/exec-instructions.md): every blob op
   (deploy/call/upgrade/lock with `value` escrow, bridge/dividend, emit, privacy) with params + how to submit
   and read. Contracts run on a **STARK-provable zkVM** (the only runtime), authored in **zkasm**
-  (`execnode/zkvmasm.py`); every call is provable and a settled root is accepted from a validity proof
-  (`doc/zk-execution-proofs.md`). **15 games ship as live zkVM contracts** — coin flip, dice, roulette,
+  (`execnode/zkvmasm.py`); every call is provable (`doc/zk-execution-proofs.md`). **Settlement is currently a
+  bonded-stake quorum** (`settlement_justified`, the same >2/3 shape as finality); a **validity-proof path
+  exists as capability** but is **not yet the authoritative settlement rule** (see the recursion note below).
+  **15 games ship as live zkVM contracts** — coin flip, dice, roulette,
   slots, mines, blackjack, tic-tac-toe, Connect Four, reversi, chess, farkle, parimutuel sports betting,
   battleship, tamagotchi-NFT pets, and multiplayer Texas hold'em with an on-chain 7-card hand evaluator —
   each an ordinary upgradable contract (opt-in immutability via `lock`) with no game-specific API.
+- **STARK recursion — succinct, K→1, O(1) verify** — [`doc/zk-recursion.md`](doc/zk-recursion.md): the path to
+  verifying an epoch of execution in constant time. **Built + tested (off the L1 consensus path):** a
+  verifier-authoritative in-circuit STARK verifier over an algebraic hash (**alghash2**); **T-independent
+  ("succinct") verification** (structured periodic columns — no per-proof O(T) work); a **K→1 collapse** (one
+  recursion bundle re-verifies K chained segment proofs from their public parts alone); an **in-circuit
+  Fiat-Shamir transcript**; and **recursion depth** (fold-of-folds) whose root **verifies in ~0.2 s regardless
+  of tree size** — the O(1)-verification goal, realized. **Honest status:** the *verify* side is O(1) and the
+  mechanisms are validated at small scale, but *proving* at the full execution-AIR scale is memory/throughput-
+  bound in pure Python (the native Rust prover is the throughput prerequisite), and the pipeline is **capability
+  — not wired as the authoritative settlement verifier** (the bonded quorum still governs). None of this touches
+  L1 block validity.
 - **Previous-network snapshot** — [`doc/previous-network-snapshot.md`](doc/previous-network-snapshot.md):
   the prior NADO network's final account balances (2,801 holders), exported from its ledger index — the
   dev-fund premine excluded, in keeping with the no-premine relaunch.

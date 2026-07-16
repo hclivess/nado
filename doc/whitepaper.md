@@ -849,9 +849,15 @@ safety core sound. The fixes are reflected throughout this section.
   IPs/trust carry zero weight), an **enforced finality floor** refuses to reorg below
   `tip − FINALITY_DEPTH`, and an **enforced FFG** stake-attested finality layer folds the
   stronger >2/3-bonded finalized checkpoint into that floor, making it objectively
-  un-reorgable (Section 7.2). So a
-  zero-bond Sybil/IP fleet cannot reorg honest nodes and a long-range reorg is capped
-  below one epoch. What remains is a **subset of eclipse hardening** (ASN-level
+  un-reorgable (Section 7.2). The depth floor is additionally **corroboration-gated**: it
+  advances only while the peer-majority tip lies on the node's own canonical chain, so a
+  node that briefly loses the majority and keeps producing does **not** self-finalize its
+  minority fork (which would wedge it permanently below its own floor); and a node already
+  wedged escalates, after a few failed weight-selected re-anchors, to re-anchor onto the
+  strictly-heaviest chain even below its snapshot floor (every tail block re-verified). So a
+  zero-bond Sybil/IP fleet cannot reorg honest nodes, a long-range reorg is capped
+  below one epoch, and a partitioned honest node self-heals rather than wedging. What remains
+  is a **subset of eclipse hardening** (ASN-level
   diversity, pinned multi-seed bootstrap, snapshot-bootstrap binding — 7.2–7.3), and
   the cross-epoch behaviour of FFG is only lightly exercised, so this paper does not
   yet claim complete 51%/eclipse resistance.
@@ -1140,7 +1146,10 @@ Additional hardening and feature items, all currently **planned/partial**:
 - **Snapshot-bootstrap hardening** items (allocation bound, quorum floor /
   state-root binding).
 - **Programmability via a separate execution layer** (Phase 1 sovereign + Phase 2a
-  settlement **built**; validity-proof Phase 2b designed) — RISC-V smart contracts are
+  settlement **built**; validity-proof Phase 2b **built as capability** — provable zkVM + the
+  recursion that verifies an epoch in O(1) are implemented and tested off the L1 path, with a
+  native Rust prover for throughput and the settlement-verifier wiring as the remaining steps;
+  see [zk-recursion.md](zk-recursion.md)) — RISC-V smart contracts are
   explicitly kept *off* L1; the shape is a sovereign DA+ordering layer that touches
   consensus, at most, through one bounded proof verifier, so
   phone-mining/finality/simplicity are preserved. The contract engine is **pluggable**
@@ -1183,17 +1192,24 @@ Additional hardening and feature items, all currently **planned/partial**:
 - **The execution layer is a provable zkVM (shipped).** NADO's contract runtime is a field-native,
   STARK-**provable** register VM — the *only* runtime; there is no legacy interpreter. Contracts are
   written in **zkasm** (the zkVM assembly, `execnode/zkvmasm.py`), one execution step maps to one STARK
-  trace row, and the sole hash is an in-circuit alghash sponge. A settled state root is accepted because a
-  **validity proof** says the ordered calls produce it (`execnode/settlement_proofs.py`), installed behind
-  the same `settlement_justified` seam the bonded-quorum path uses — so a rollup can settle **trustlessly
-  against a colluding validator supermajority**, not just under the 2/3-honest-stake assumption. An epoch of
-  N calls aggregates into **one** proof (L1 verifies once, replaying only the tiny public I/O log, never
-  re-executing); epochs larger than one trace **segment and chain their state roots**, so proof size is
-  unbounded-epoch-safe. Two honest remainders (tracked, not correctness gaps): **recursion** — folding the
-  per-segment proofs into one O(1)-verify proof, which needs an in-VM STARK verifier over a wide-sponge
-  alghash — and a **Rust prover** for throughput (~10× over the Python reference). The proving cost is the
-  price of trustlessness (10⁴–10⁶× native execution to prove, though the on-chain verify stays cheap); the
-  bonded quorum remains available for rollups whose value doesn't yet warrant it. On the zkVM as the game
+  trace row, and the sole hash is an in-circuit alghash sponge. A **validity proof** can attest that the
+  ordered calls produce a settled state root (`execnode/settlement_proofs.py`); an epoch of N calls
+  aggregates into **one** proof (verify once, replaying only the tiny public I/O log, never re-executing),
+  and epochs larger than one trace **segment and chain their state roots**, so proof size is
+  unbounded-epoch-safe. **Honest status:** today the settled root is accepted by the **bonded-stake quorum**
+  (`settlement_justified`); the validity-proof pipeline is **built as capability but NOT yet installed as the
+  settlement rule** (the `settlement_verifier` seam exists; wiring it needs a decision on binding the claimed
+  full-state root, so the quorum still governs). The **recursion** that makes an epoch verify in O(1) is now
+  **built and tested off the L1 path** (`doc/zk-recursion.md`): a verifier-authoritative in-circuit STARK
+  verifier over the wide-sponge **alghash2**, T-independent ("succinct") verification, a **K→1** collapse of
+  the K segment proofs into one bundle, an in-circuit Fiat-Shamir transcript, and **recursion depth**
+  (fold-of-folds) whose root **verifies in ~0.2 s regardless of depth** — the O(1)-verify goal, realized on
+  the verify side. What remains is a **Rust prover for throughput**: proving is asymmetric by design — **heavy
+  to produce, trivial to verify.** The 10⁴–10⁶× proving overhead lives on **specialized exec/settlement nodes
+  with real hardware, never on a phone** (a phone only ever *verifies*, cheaply, or mines — which is a draw /
+  a sequential hash, no STARKs); the pure-Python reference hits a memory/time wall at execution-AIR scale
+  (measured; the native prover is the fix, and the native NTT already cut recursion-prover memory ~4.5×). The
+  bonded quorum remains available for rollups whose value doesn't yet warrant a proof. On the zkVM as the game
   layer: 15 example contracts — coin flip, dice, roulette, slots, mines, blackjack, tic-tac-toe, Connect
   Four, reversi, chess, farkle, parimutuel sports betting, battleship, tamagotchi-NFT pets, and multiplayer
   Texas hold'em (with an on-chain 7-card hand evaluator) — run live as provable zkVM contracts. See
