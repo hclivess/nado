@@ -11,9 +11,18 @@
 // coset-eval = zero-pad to N, scale coeff j by OFF^j, forward NTT). Verified field-for-field by
 // tests/test_starkprove.py before anything depends on it.
 //
-// Step 1 (this file): the arena + fused native LDE + read-back. Steps 2+ (Merkle-from-arena, compose-from-arena,
-// FRI, openings) build on the same retained buffers. Default stark.prove is untouched until the whole path is
-// proven.
+// ROADMAP (each stage bit-identity-gated by tests/test_starkprove.py before anything depends on it):
+//   [DONE] step 1  persistent LDE arena + fused native interpolate→coset-eval (sp_lde_column / sp_read).
+//   [DONE] step 2  Merkle commit + open from the arena, RECURSION backend rleaf/rnode (sp_commit_col / sp_open).
+//   [TODO] step 3  composition from the arena: compute invZ + boundary denominators + x_lde in Rust, evaluate
+//                  the air_ir constraint program over the retained col/periodic LDEs, retain cp — so col_lde /
+//                  per_lde never become Python lists (the linchpin: this is what actually lowers PEAK memory).
+//   [TODO] step 4  FRI (fold layers + commit + query) over the retained cp.
+//   [TODO] step 5  openings straight from the retained trees at the FRI query positions.
+//   [TODO] step 6  an opt-in orchestrator (execnode/stark) that runs the whole prove via the arena — transcript
+//                  stays in Python (a few hashes) — and an END-TO-END bit-identity test vs stark.prove, then
+//                  row-commit + two-phase. Only when that passes does the default prover switch over.
+// Default stark.prove is untouched until the whole path is proven byte-for-byte.
 
 use std::sync::Mutex;
 
