@@ -176,15 +176,18 @@ choice is performance, not soundness.
    replay + state-root chain natively (no crypto), and ONE recursion bundle in place of the K per-segment
    `stark.verify` calls. Query strength is verifier policy (protocol constant by default —
    `verify_epoch`/`verify_settlement` were also hardened to stop reading the prover's declared `num_queries`).
-   **Validated pieces vs. the throughput wall (measured):** the ROW-COMMITTED W=106 segment proofs prove+verify
-   in ~10 s (native NTT, `tests/test_settlement_o1.py` default), and the recursion MECHANISM is validated
-   small-scale (`tests/test_recursive_row.py` two-phase row-mode K→1; `tests/test_rowcomp_verify.py` W=10). But
-   the FULL W=106 recursion BUNDLE is memory/throughput-bound in pure Python — its recursion LDE outgrows the
-   native NTT cap (`goldilocks_native.NMAX`) and falls back to Python big-int NTTs across many large arrays
-   (measured: OOM at ~40 GB / >20 min). So `test_settlement_o1`'s full path is gated behind `NADO_HEAVY=1`; the
-   Rust prover is the prerequisite to run it at exec-AIR scale (the §6 "throughput, not soundness" caveat, now
-   with a concrete number). The wrapper is committed as CAPABILITY, NOT wired as the authoritative settlement
-   verifier (step 8 remains open), so nothing on the money path depends on a proof that can't yet be produced.
+   **VALIDATED END-TO-END (2026-07-16):** the FULL W=106 recursion bundle now **completes AND verifies** — a
+   real multi-segment execution-AIR epoch settled by ONE recursion bundle in place of the K per-segment
+   `stark.verify` calls, with the tamper/policy negatives rejected (`tests/test_settlement_o1.py` under
+   `NADO_HEAVY=1`: ~15 GB, minutes). Two things made this real. (a) **Native prover:** NTT cap → 2^22, native
+   `rleaf`/`rnode` Merkle (`rmerkle_commit`), and a division-free Goldilocks reduction across all three native
+   crates — ~5× faster / 4.5× less memory, bit-identical, so it stopped OOMing (it used to die at ~40 GB in
+   pure Python). (b) Completing it exposed and let us fix a real latent bug: the composition gadget's degree
+   overflow when RE-EVALUATING the degree-8 exec AIR under sparse periodic gating — fixed by
+   `air_ir.gadget_max_degree`, which gives the gadget exactly the `max_degree` headroom the inner AIR needs
+   (prover + verifier derive it identically). The wrapper is still committed as CAPABILITY, NOT wired as the
+   authoritative settlement verifier (step 8 open — the fork-safe on-chain-proof path), so nothing on the money
+   path yet depends on it; but the proof it would check is now producible + verifiable at real scale.
 8. **Install the proof-checking `settlement_verifier`** (proof OR quorum; the seam + `register_epoch_proof`
    exist). OPEN QUESTION before flipping it on: the current `settlement_verifier(zkvm_root_of_state)` shape
    justifies a (ns, cursor) whose proof matches the local zkVM projection but IGNORES the attested full

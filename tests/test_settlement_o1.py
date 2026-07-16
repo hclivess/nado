@@ -18,16 +18,15 @@ import os, sys, copy, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from execnode import settlement_proofs as SP, zkvmasm
 
-# HEAVY / THROUGHPUT-GATED. Building the W=106 execution-AIR recursion bundle (fold + row-mode composition over
-# a real multi-segment epoch) needs ~25-40 GB and does not complete in reasonable time in PURE PYTHON — the
-# recursion LDE outgrows the native NTT cap (goldilocks_native.NMAX) and falls back to Python big-int NTTs
-# across many large arrays (measured: OOM-killed at ~40 GB / >20 min). This is the documented throughput wall
-# (doc/zk-recursion.md §6): the RUST prover is the prerequisite to run it at the W=106 exec-AIR scale.
+# HEAVY (opt-in). Building the W=106 execution-AIR recursion bundle (fold + row-mode composition over a real
+# multi-segment epoch) COMPLETES + VERIFIES end-to-end with the native prover (native NTT to NMAX=2^22, native
+# rleaf/rnode Merkle, fast division-free Goldilocks reduction) — ~15 GB and a handful of minutes on this box.
+# (It used to OOM at ~40 GB in pure Python; the native prover fixed that, and completing it surfaced + let us
+# fix the composition-gadget degree overflow — see doc/zk-recursion.md and air_ir.gadget_max_degree.)
 #
-# So this test is OPT-IN: it runs the real proof only under NADO_HEAVY=1 (for a big box / the Rust prover). The
-# O(1)-settlement MECHANISM it exercises is already validated at small scale by tests/test_recursive_row.py
-# (two-phase row-mode K→1) and tests/test_rowcomp_verify.py (W=10 multi-chunk row absorption) — those run in
-# the normal suite. By default this file just reports SKIP so it never OOMs a CI box.
+# It is still opt-in via NADO_HEAVY=1 because it's minutes, not CI-fast. By default this file runs the fast
+# row-committed SEGMENT path (~10 s) and reports SKIP for the full bundle; the recursion MECHANISM is also
+# covered small-scale by tests/test_recursive_row.py (two-phase row-mode K→1) and tests/test_rowcomp_verify.py.
 HEAVY = os.environ.get("NADO_HEAVY") == "1"
 
 fails = 0
@@ -119,9 +118,9 @@ def t_default_policy_demands_protocol_strength():
 if __name__ == "__main__":
     check("row-committed W=106 segments prove + verify (sound path)", t_row_committed_segments)
     if not HEAVY:
-        print("SKIP  full recursion bundle: W=106 exec-AIR recursion is memory/throughput-gated in pure "
-              "Python (~25-40 GB, >20 min — needs the Rust prover). Set NADO_HEAVY=1 to run it.")
-        print("      Its MECHANISM is validated by test_recursive_row.py (two-phase row-mode K→1) and "
+        print("SKIP  full recursion bundle: it COMPLETES + VERIFIES with the native prover (~15 GB, minutes) "
+              "but is opt-in for speed. Set NADO_HEAVY=1 to run the real W=106 O(1) settlement end-to-end.")
+        print("      Its MECHANISM is also validated by test_recursive_row.py (two-phase row-mode K→1) and "
               "test_rowcomp_verify.py (W=10 row absorption).")
         print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
         sys.exit(1 if fails else 0)

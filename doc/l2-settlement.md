@@ -71,7 +71,7 @@ each is a strictly stronger security claim behind the same predicate.
 |---|---|---|---|
 | **2a — bonded quorum** | 2/3 of bonded stake attested `(ns, cursor, root)` | a validator committee is honest | **BUILT** |
 | **2b — validity proof** | one succinct **STARK** proves `apply(blobs[prev..new]) : prev_root → new_root` verifies | cryptographic soundness only | seam ready; recursion **BUILT off-path** (`doc/zk-recursion.md`), not yet wired as the settlement rule |
-| **2c — recursive aggregation** | one STARK proves **many** rollups' batches at once (proof-of-proofs) | cryptographic; **O(1) L1 cost for the whole ecosystem** | **mechanism BUILT + tested** (verify ~0.2 s at any depth); prover throughput Rust-gated |
+| **2c — recursive aggregation** | one STARK proves **many** rollups' batches at once (proof-of-proofs) | cryptographic; **O(1) L1 cost for the whole ecosystem** | **BUILT + tested**; the full W=106 exec-AIR bundle now COMPLETES + VERIFIES with the native prover (`test_settlement_o1.py NADO_HEAVY=1`) |
 
 **2b — single validity proof (the trust flip).** The exec layer periodically posts `new_root` + a STARK that
 re-executing the ordered blobs from `prev_root` yields `new_root`. L1 verifies the proof; it never re-executes
