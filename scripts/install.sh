@@ -23,10 +23,13 @@
 #
 # Auto-update (needs --service): install a systemd timer that fast-forwards this checkout to origin and
 # restarts the node whenever new code lands, so the fleet stays current hands-free. SAFE: fast-forward ONLY,
-# refuses a dirty/diverged tree, never touches the (gitignored) chain data (scripts/nado_autoupdate.sh):
+# refuses a dirty/diverged tree, never touches the (gitignored) chain data (scripts/nado_autoupdate.sh).
+# With --service, install.sh PROMPTS for this interactively; --auto-update / --no-auto-update decide up-front:
 #
-#   sudo scripts/install.sh --service --auto-update            # check + update every 15 min (default)
-#   sudo scripts/install.sh --service --auto-update=30min      # ... custom interval (any systemd time)
+#   sudo scripts/install.sh --service                         # asks: "Enable auto-update? [y/N]"
+#   sudo scripts/install.sh --service --auto-update           # yes, every 15 min (default, no prompt)
+#   sudo scripts/install.sh --service --auto-update=30min     # ... custom interval (any systemd time)
+#   sudo scripts/install.sh --service --no-auto-update        # never (skip the prompt)
 #
 # Data directory: the node keeps its chain under $HOME/nado. Pass --home <dir> to put it elsewhere
 # (the services then run with HOME=<dir>, so chain data lands in <dir>/nado). Recommended whenever the
@@ -66,8 +69,9 @@ PQ_NATIVE=""
 # an unconditional =0 here would silently switch auto-bond off on nodes that rely on the default.
 AUTO_BOND="${NADO_AUTO_BOND_PERCENT:-}"
 # Auto-update: a systemd timer that fast-forwards this checkout to origin and restarts the node when new code
-# lands (scripts/nado_autoupdate.sh). Off unless --auto-update; interval is any systemd time (default 15min).
-AUTO_UPDATE=0
+# lands (scripts/nado_autoupdate.sh). Empty = ASK interactively when --service is set (or default off when
+# non-interactive); 1 = on; 0 = off. --auto-update / --no-auto-update force it. Interval = any systemd time.
+AUTO_UPDATE=""
 UPDATE_INTERVAL="15min"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -75,6 +79,7 @@ while [ $# -gt 0 ]; do
     --service)     WITH_SERVICE=1 ;;
     --auto-update)   AUTO_UPDATE=1 ;;                              # keep the node current: pull origin + restart on new code
     --auto-update=*) AUTO_UPDATE=1; UPDATE_INTERVAL="${1#*=}" ;;   # ... every <systemd-time>, e.g. --auto-update=30min
+    --no-auto-update) AUTO_UPDATE=0 ;;                             # never prompt / never install the update timer
     --update-interval)   shift; UPDATE_INTERVAL="${1:-15min}" ;;
     --update-interval=*) UPDATE_INTERVAL="${1#*=}" ;;
     --pq-native)   PQ_NATIVE=1 ;;            # build the native Rust ML-DSA verify backend (55x faster)
@@ -100,8 +105,8 @@ if [ -n "$AUTO_BOND" ]; then
   fi
 fi
 
-# auto-update rides on systemd (it restarts the node service) — require --service
-if [ $AUTO_UPDATE -eq 1 ] && [ $WITH_SERVICE -eq 0 ]; then
+# auto-update rides on systemd (it restarts the node service) — require --service when EXPLICITLY requested
+if [ "$AUTO_UPDATE" = "1" ] && [ $WITH_SERVICE -eq 0 ]; then
   echo "ERROR: --auto-update needs --service (it installs a systemd timer that restarts the node service)." >&2; exit 2
 fi
 
@@ -122,7 +127,18 @@ echo "    service:     $([ $WITH_SERVICE -eq 1 ] && echo yes || echo no)"
 echo "    exec node:   $([ $WITH_EXEC -eq 1 ] && echo "yes (shielded pool :9273$([ $EXEC_SETTLE -eq 1 ] && echo ", settles to L1"))" || echo no)"
 echo "    data home:   $([ -n "$DATA_HOME" ] && echo "$DATA_HOME (chain data in $DATA_HOME/nado)" || echo "(user home — chain data in ~/nado)")"
 echo "    auto-bond:   $([ -n "$AUTO_BOND" ] && echo "${AUTO_BOND}%" || echo "(node default: 80%, see auto_bond_percent in private/config.dat)")"
-echo "    auto-update: $([ $AUTO_UPDATE -eq 1 ] && echo "yes (fast-forward origin + restart every $UPDATE_INTERVAL)" || echo no)"
+echo "    auto-update: $([ "$AUTO_UPDATE" = "1" ] && echo "yes (fast-forward origin + restart every $UPDATE_INTERVAL)" || { [ "$AUTO_UPDATE" = "0" ] && echo no || { [ $WITH_SERVICE -eq 1 ] && echo "(will prompt)" || echo no; }; })"
+
+# Resolve auto-update: explicit flag wins; else ASK when installing a service interactively, off when not.
+if [ -z "$AUTO_UPDATE" ]; then
+  if [ $WITH_SERVICE -eq 1 ] && [ -t 0 ]; then
+    printf "==> Enable auto-update? A systemd timer fast-forwards this checkout to origin and restarts the node when new code lands (safe: ff-only, checks every %s). [y/N] " "$UPDATE_INTERVAL"
+    read -r _au_ans || _au_ans=""
+    case "$_au_ans" in y|Y|yes|YES) AUTO_UPDATE=1 ;; *) AUTO_UPDATE=0 ;; esac
+  else
+    AUTO_UPDATE=0   # non-interactive, or no --service: leave it off unless --auto-update was passed
+  fi
+fi
 
 # ---- pick a Python >= 3.10 -----------------------------------------------------------------------
 pick_python() {
@@ -377,7 +393,7 @@ EXECEOF
   fi
 
   # ---- auto-update timer (optional) --------------------------------------------------------------
-  if [ $AUTO_UPDATE -eq 1 ]; then
+  if [ "$AUTO_UPDATE" = "1" ]; then
     chmod +x "$REPO_DIR/scripts/nado_autoupdate.sh" 2>/dev/null || true
     UPUNIT=/etc/systemd/system/nado-update.service
     echo "==> writing $UPUNIT + nado-update.timer (fast-forward origin + restart node every $UPDATE_INTERVAL)"
