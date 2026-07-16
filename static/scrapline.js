@@ -6,7 +6,7 @@
 // unpredictable when you signed, replayable by every browser); once both have drafted 9 rounds the fight
 // resolves as a pure deterministic simulation and the wager settles concede / agree / refund-timeout.
 // This module owns ONLY the Scrapline half: offers, gear slots, and the combat report.
-import { NadoDapp, $, notify, disp, _m, renderTopScores } from "./nadodapp.js";
+import { NadoDapp, $, notify, disp, _m, renderTopScores, share, base } from "./nadodapp.js";
 import { DuelGame } from "./duelgame.js";
 import * as E from "./scrapline-engine.js";
 import { ART } from "./scrapline-art.js";
@@ -240,10 +240,13 @@ function renderSolo() {
   if (run.over) {
     $("soloOffer").innerHTML = '<span class="dim">' + T("runOverMsg", "The wrecks got you at stage {n}. Start another run — or take this build style into a PvP fight for stakes above.", { n: run.stage }) + "</span>";
     $("soloHint").textContent = "";
-    const share = document.createElement("button"); share.className = "primary";
-    share.textContent = T("shareRun", "📣 Share my score");
-    share.onclick = () => { try { navigator.clipboard.writeText(T("shareRunText", "I cleared {n} stages in the Scrapline {kind} gauntlet — beat that: https://scrapline.nadochain.com", { n: run.score, kind: isDaily ? T("daily", "daily") : T("random", "random") })); notify(T("copied", "Copied to clipboard.")); } catch {} };
-    ob.appendChild(share);
+    const shareBtn = document.createElement("button"); shareBtn.className = "primary";
+    shareBtn.textContent = T("shareRun", "📣 Share my score");
+    // the SDK share(): native share sheet on mobile, clipboard fallback + button feedback elsewhere
+    shareBtn.onclick = () => share(base(),
+      T("shareRunText", "I cleared {n} stages in the Scrapline {kind} gauntlet — beat that: https://scrapline.nadochain.com", { n: run.score, kind: isDaily ? T("daily", "daily") : T("random", "random") }),
+      shareBtn);
+    ob.appendChild(shareBtn);
     // post a finished DAILY run on the global board: the claim is the packed choice list — every
     // browser re-verifies it by replaying, so a fake score simply never renders.
     const day = Math.floor(Date.now() / 86400000);
