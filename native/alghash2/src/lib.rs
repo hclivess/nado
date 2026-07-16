@@ -9,6 +9,8 @@
 fn panic(_: &core::panic::PanicInfo) -> ! { loop {} }
 
 const P: u128 = 0xFFFFFFFF00000001;   // Goldilocks 2^64 - 2^32 + 1
+const PU64: u64 = 0xFFFFFFFF00000001;
+const EPSILON: u64 = 0xFFFFFFFF;      // 2^32 - 1  ( = 2^64 mod p )
 const W: usize = 12;
 const R: usize = 8;
 const RATE: usize = 8;
@@ -18,7 +20,26 @@ static mut RC: [[u64; W]; R] = [[0; W]; R];
 static mut IV: [u64; CAP] = [0; CAP];
 static mut MDS: [[u64; W]; W] = [[0; W]; W];
 
-#[inline(always)] fn mulf(a: u64, b: u64) -> u64 { (((a as u128) * (b as u128)) % P) as u64 }
+// Fast Goldilocks reduction of a 128-bit product to [0, p), NO division (p = 2^64 - 2^32 + 1, so
+// 2^64 ≡ 2^32-1 and 2^96 ≡ -1 mod p). Bit-identical to (x % p) — verified exhaustively against the Python
+// `% P` via the native==Python hash/NTT/Merkle/composition tests. This is the field-multiply hot path of the
+// whole prover (permute/NTT/composition), and the generic u128 `%` (a division) was the dominant cost.
+#[inline(always)]
+fn reduce128(x: u128) -> u64 {
+    let x_lo = x as u64;
+    let x_hi = (x >> 64) as u64;
+    let x_hi_hi = x_hi >> 32;
+    let x_hi_lo = x_hi & 0xFFFFFFFF;
+    let (mut t0, borrow) = x_lo.overflowing_sub(x_hi_hi);
+    if borrow { t0 = t0.wrapping_sub(EPSILON); }
+    let t1 = x_hi_lo.wrapping_mul(EPSILON);
+    let (res, carry) = t0.overflowing_add(t1);
+    let mut r = res.wrapping_add(EPSILON * (carry as u64));
+    if r >= PU64 { r -= PU64; }
+    r
+}
+
+#[inline(always)] fn mulf(a: u64, b: u64) -> u64 { reduce128((a as u128) * (b as u128)) }
 #[inline(always)] fn addf(a: u64, b: u64) -> u64 { (((a as u128) + (b as u128)) % P) as u64 }
 
 #[inline(always)] fn pow7(x: u64) -> u64 {         // x^7 = x·(x^2)·(x^4)

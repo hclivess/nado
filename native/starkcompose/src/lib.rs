@@ -9,10 +9,29 @@
 // cp[j] = ( Σ_t alphas[t]·con_t(j) )·invZ[j]  +  Σ_b alphas[nt+b]·(col_{cb}[j] − val_b)·invden_b[j].
 
 const P: u128 = 0xFFFFFFFF00000001; // 2^64 - 2^32 + 1
+const PU64: u64 = 0xFFFFFFFF00000001;
+const EPSILON: u64 = 0xFFFFFFFF;    // 2^32 - 1 ( = 2^64 mod p )
+
+// Fast Goldilocks reduction of a 128-bit product to [0, p), NO division — the composition's multiply hot path.
+// Bit-identical to (x % p); verified by the native==Python composition test (tests/test_air_ir.py).
+#[inline(always)]
+fn reduce128(x: u128) -> u64 {
+    let x_lo = x as u64;
+    let x_hi = (x >> 64) as u64;
+    let x_hi_hi = x_hi >> 32;
+    let x_hi_lo = x_hi & 0xFFFFFFFF;
+    let (mut t0, borrow) = x_lo.overflowing_sub(x_hi_hi);
+    if borrow { t0 = t0.wrapping_sub(EPSILON); }
+    let t1 = x_hi_lo.wrapping_mul(EPSILON);
+    let (res, carry) = t0.overflowing_add(t1);
+    let mut r = res.wrapping_add(EPSILON * (carry as u64));
+    if r >= PU64 { r -= PU64; }
+    r
+}
 
 #[inline(always)]
 fn mulf(a: u64, b: u64) -> u64 {
-    (((a as u128) * (b as u128)) % P) as u64
+    reduce128((a as u128) * (b as u128))
 }
 #[inline(always)]
 fn addf(a: u64, b: u64) -> u64 {
