@@ -127,8 +127,8 @@ export function applyMove(st, side, enc) {
 // Deciseconds 1..900. Items fire when (t + slot) % cd == 0. Burn: every 10ds take `stacks` damage, then
 // stacks-1. Meltdown after 600ds: both take escalating damage every 10ds. SPARK weapons deal DOUBLE to a
 // shielded target; spc2 pierces shields; spc3 +50% vs burning; spc4 reflects BLADE hits; spc1 fires twice.
-export function buildFighter(st, p) {
-  const z = st.ps[p];
+export function buildFighter(st, p) { return buildFighterFrom(st.ps[p], p); }
+export function buildFighterFrom(z, p) {
   const items = [];
   let maxhp = z.maxhp, cdCut = 0;
   const buf = { tag: [0, 0, 0, 0, 0, 0, 0], all: 0, burn: 0 };
@@ -158,8 +158,10 @@ export function buildFighter(st, p) {
   return { p, maxhp, hp: maxhp, shield: 0, burn: 0, items,
     reflect: items.reduce((m, i) => m + (i.spc === 4 ? i.ref : 0), 0) };
 }
-export function simulate(st) {
-  const F = [buildFighter(st, 0), buildFighter(st, 1)];
+export function simulate(st) { return simulateBuilds(st.ps[0], st.ps[1]); }
+// simulateBuilds(z0, z1): fight two raw builds ({gear, maxhp}) — the PvP settle AND the solo gauntlet.
+export function simulateBuilds(z0, z1) {
+  const F = [buildFighterFrom(z0, 0), buildFighterFrom(z1, 1)];
   const ev = [];
   const push = (t, p, e, x, n) => { if (ev.length < 900) ev.push({ t, p, e, x, n }); };
   const hit = (t, from, to, item, amount) => {
@@ -208,6 +210,119 @@ export function simulate(st) {
     result = r0 === r1 ? 3 : r0 > r1 ? 1 : 2;
   }
   return { result, hp: [Math.max(0, F[0].hp), Math.max(0, F[1].hp)], maxhp: [F[0].maxhp, F[1].maxhp], ev };
+}
+
+// ---- SOLO GAUNTLET -------------------------------------------------------------------------------------
+// The free single-player roguelike mode: endless stages vs procedurally generated enemy builds, run
+// entirely client-side (no stake, no chain — staked play stays PvP: a house-banked SKILL game would let
+// any decent drafter drain the bank). Deterministic from a seed string, so a shared "daily" seed gives
+// everyone the same gauntlet to race on. Loop per attempt: draw an offer (seeded by the attempt counter,
+// so a lost fight still changes your options) → pick / merge / scrap / skip → fight the current stage.
+// Win → next stage. Lose → lose a life; out of lives → run over, score = stages cleared.
+export const SOLO_LIVES = 2, PICKS_PER_FIGHT = 2, GRIT_HP = 25;
+const SOLO_SALT = 777216n;                               // keeps solo streams disjoint from PvP offers
+export const soloQ = (seed) => H("scrapline-solo:" + seed);
+
+// offer tiers key off the STAGE you're fighting, so counters unlock when the enemies escalate.
+export function soloOffer(seed, offerN, stage) {
+  const q = soloQ(seed);
+  const ok = stage <= 2 ? [1] : stage <= 5 ? [1, 2] : [2, 3];
+  const pool = ITEMS.map((it, i) => (ok.includes(it.tier) ? i : -1)).filter((i) => i >= 0);
+  const salt = SOLO_SALT + BigInt(offerN) * 4096n;
+  return [0, 1, 2].map((i) => pool[Number(H(q + salt + BigInt(i)) % BigInt(pool.length))]);
+}
+// the stage-s enemy: item count, ranks and hull all escalate — unbounded, so every run ends eventually.
+export function enemyBuild(seed, stage) {
+  const q = soloQ(seed);
+  const salt = SOLO_SALT + 1n + BigInt(stage) * 65536n;
+  const ok = stage <= 2 ? [1] : stage <= 5 ? [1, 2] : [1, 2, 3];
+  const pool = ITEMS.map((it, i) => (ok.includes(it.tier) ? i : -1)).filter((i) => i >= 0);
+  const n = Math.min(SLOTS, 2 + Math.floor((stage - 1) / 2));
+  const rank = Math.min(MAXRANK, 1 + Math.floor(stage / 4));
+  const gear = Array(SLOTS).fill(null);
+  for (let i = 0; i < n; i++) {
+    let id = pool[Number(H(q + salt + BigInt(i)) % BigInt(pool.length))];
+    if (i === 0) { // guarantee a weapon so stage 1 can't be a pacifist stall
+      const dPool = pool.filter((x) => ITEMS[x].kind === "d");
+      id = dPool[Number(H(q + salt + BigInt(i)) % BigInt(dPool.length))];
+    }
+    const bump = stage >= 4 ? Number(H(q + salt + 100n + BigInt(i)) % 2n) : 0;
+    gear[i] = { id, rank: Math.min(MAXRANK, rank + bump) };
+  }
+  return { gear, maxhp: 220 + 60 * (stage - 1) };
+}
+export function soloNew(seed) {
+  const gear = Array(SLOTS).fill(null);
+  gear[0] = { id: 0, rank: 1 };                          // every wreck starts with a Shiv
+  return { seed: String(seed), stage: 1, lives: SOLO_LIVES, offerN: 0, choices: [],
+    gear, maxhp: BASE_HP, over: false, score: 0, lastCombat: null, picks: PICKS_PER_FIGHT };
+}
+export const soloOfferFor = (run) => (run.over || run.picks <= 0 ? null : soloOffer(run.seed, run.offerN, run.stage));
+// choice: 0..2 into a slot, or -1 = scrap the offer (+12 max HP). Mirrors the PvP pick/merge/replace
+// rules. TWO offers precede every fight (the salvage economy that makes the curve climbable). Every
+// attempt is RECORDED (5 bits: c + 4·slot, c=3 for scrap) — the run's choice list IS the whole run, so
+// a daily score claim = (day, choices) and anyone can verify it by replaying.
+export function soloPick(run, choice, slot) {
+  if (run.over || run.picks <= 0) return false;
+  if (choice === -1) { run.maxhp += 12; run.offerN++; run.picks--; run.choices.push(3); return true; }
+  const offer = soloOffer(run.seed, run.offerN, run.stage);
+  if (choice > 2 || slot >= SLOTS) return false;
+  const id = offer[choice], cur = run.gear[slot];
+  if (cur && cur.id === id && cur.rank < MAXRANK) cur.rank++;
+  else {
+    if (cur) run.maxhp += 15 + 10 * (cur.rank - 1);
+    run.gear[slot] = { id, rank: 1 };
+  }
+  run.offerN++; run.picks--; run.choices.push(choice + 4 * slot);
+  return true;
+}
+// ---- daily highscore claims (packing + client-side verification) ----------------------------------------
+// packChoices: 10 five-bit attempts per word (words < 2^50 — safe through JSON number decoding), 8 words
+// max = 80 attempts (two picks per fight doubles the choice count of a deep run). The contract stores
+// claims blindly; every browser verifies by REPLAYING the run and silently drops claims that don't
+// reproduce (posting costs a tx fee, which caps spam).
+export const ATT_PER_WORD = 10, MAX_WORDS = 8, MAX_ATT = ATT_PER_WORD * MAX_WORDS;
+export function packChoices(choices) {
+  const words = [];
+  for (let w = 0; w < MAX_WORDS; w++) {
+    let v = 0n;
+    for (let i = ATT_PER_WORD - 1; i >= 0; i--) v = v * 32n + BigInt(choices[w * ATT_PER_WORD + i] || 0);
+    words.push(v);
+  }
+  return words;
+}
+export function unpackChoices(words, n) {
+  const out = [];
+  for (let w = 0; w < MAX_WORDS && out.length < n; w++) {
+    let v = BigInt(words[w] || 0);
+    for (let i = 0; i < ATT_PER_WORD && out.length < n; i++) { out.push(Number(v % 32n)); v /= 32n; }
+  }
+  return out;
+}
+export const seedOfDay = (day) => "daily-" + new Date(day * 86400000).toISOString().slice(0, 10);
+// verifyClaim: replay a posted (day, n, words) claim; returns the true score, or -1 if the claim is bogus.
+export function verifyClaim(day, n, words) {
+  if (!(n > 0 && n <= MAX_ATT)) return -1;
+  const atts = unpackChoices(words, n);
+  const run = soloNew(seedOfDay(day));
+  for (const att of atts) {
+    if (run.over) return -1;                             // trailing choices past death
+    const c = att % 4, slot = Math.floor(att / 4);
+    if (slot >= SLOTS) return -1;
+    if (!soloPick(run, c === 3 ? -1 : c, slot)) return -1;
+    soloFight(run);
+  }
+  return run.over ? run.score : -1;                      // only finished runs count
+}
+export function soloFight(run) {
+  if (run.over || run.picks > 0) return null;
+  const enemy = enemyBuild(run.seed, run.stage);
+  const c = simulateBuilds({ gear: run.gear, maxhp: run.maxhp }, enemy);
+  run.lastCombat = { ...c, stage: run.stage, enemy };
+  run.picks = PICKS_PER_FIGHT;                            // fresh salvage precedes the next fight either way
+  if (c.result === 1 || c.result === 3) { run.score = run.stage; run.stage++; }
+  else { run.lives--; run.maxhp += GRIT_HP; if (run.lives < 0) run.over = true; }   // grit: retries hit harder
+  return run.lastCombat;
 }
 
 // ---- replay --------------------------------------------------------------------------------------------

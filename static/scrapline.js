@@ -6,9 +6,10 @@
 // unpredictable when you signed, replayable by every browser); once both have drafted 9 rounds the fight
 // resolves as a pure deterministic simulation and the wager settles concede / agree / refund-timeout.
 // This module owns ONLY the Scrapline half: offers, gear slots, and the combat report.
-import { NadoDapp, $, notify, disp } from "./nadodapp.js";
+import { NadoDapp, $, notify, disp, _m, renderTopScores } from "./nadodapp.js";
 import { DuelGame } from "./duelgame.js";
 import * as E from "./scrapline-engine.js";
+import { ART } from "./scrapline-art.js";
 
 const CID = "72a195822ef32caa9680eee51eb95dc9";
 const dapp = new NadoDapp({ cid: CID, app: "Scrapline" });
@@ -19,6 +20,8 @@ const TAGC = ["tg-blade", "tg-bolt", "tg-spark", "tg-ember", "tg-plate", "tg-men
 
 const duel = new DuelGame(dapp, {
   prefix: "scrap", icon: "⚙", marks: ["⚙", "🔩"],
+  appendMaps: ["eday", "eaddr", "escore", "en", "ea0", "ea1", "ea2", "ea3", "ea4", "ea5", "ea6", "ea7"],
+  onStorage(sto) { renderSoloBoard(sto); },
   rebuild(gm) {
     if (!gm.kh) return null;
     return E.replay(gm.id, this.qOf(gm.kh), (gm.recs || []).map((r) => ({ enc: r.enc, side: r.side, q: this.qOf(r.rh) })));
@@ -59,6 +62,7 @@ function itemTile(id, rank, extra, data) {
   return '<div class="ctile ' + TAGC[it.tag] + (extra || "") + '" ' + (data || "") + ' title="' + it.txt + '">'
     + '<span class="cost">T' + it.tier + "</span>"
     + (rank > 1 ? '<span class="cnt">' + stars(rank) + "</span>" : "")
+    + '<div class="cart">' + (ART[it.k] || "") + "</div>"
     + '<div class="cname">' + it.n + "</div>"
     + '<div class="ctxt">' + statLine(it, rank) + "</div>"
     + '<div class="ctxt dim">' + E.TAGS[it.tag] + " · " + it.txt + "</div>"
@@ -170,4 +174,156 @@ function renderGame(gm, eng) {
   } else cp.innerHTML = "";
 }
 
-duel.boot(["activeGame", "lobby", "play", "walletcard", "bankroll"]);
+// ---- SOLO GAUNTLET (free, fully client-side — no wallet, no stake; deterministic per seed) --------------
+const LS_SOLO = "nado_scrapline_solo", LS_BEST = "nado_scrapline_solo_best";
+let soloSel = null;
+const dailySeed = () => "daily-" + new Date().toISOString().slice(0, 10);
+const soloLoad = () => { try { return JSON.parse(localStorage.getItem(LS_SOLO) || "null"); } catch { return null; } };
+const soloSave = (r) => { try { localStorage.setItem(LS_SOLO, JSON.stringify(r)); } catch {} };
+const bestLoad = () => { try { return JSON.parse(localStorage.getItem(LS_BEST) || "{}"); } catch { return {}; } };
+let soloRun = soloLoad();
+if (soloRun && (soloRun.picks === undefined || !Array.isArray(soloRun.choices))) soloRun = null;   // pre-rebalance run shape
+
+function soloStart(seed) {
+  soloRun = E.soloNew(seed); soloSel = null; soloSave(soloRun); renderSolo();
+}
+function soloBank() {   // record a finished run's score on the local best-board
+  if (!soloRun || !soloRun.over) return;
+  const b = bestLoad(), k = soloRun.seed.startsWith("daily-") ? soloRun.seed : "random";
+  if ((b[k] || 0) < soloRun.score) { b[k] = soloRun.score; try { localStorage.setItem(LS_BEST, JSON.stringify(b)); } catch {} }
+}
+function soloGearRow(gear, clickable) {
+  return gear.map((gitem, slot) => {
+    if (!gitem) return '<div class="ctile slot-empty' + (clickable && soloSel != null ? " buyable" : "") + '" data-sslot="' + slot + '"><div class="cname dim">' + T("emptySlot", "empty") + "</div></div>";
+    let extra = "";
+    if (clickable && soloSel != null) {
+      const offer = E.soloOfferFor(soloRun);
+      if (offer) extra = offer[soloSel] === gitem.id && gitem.rank < E.MAXRANK ? " sel" : " buyable";
+    }
+    return itemTile(gitem.id, gitem.rank, extra, 'data-sslot="' + slot + '"');
+  }).join("");
+}
+function renderSolo() {
+  const top = $("soloTop"), hud = $("soloHud"), zones = $("soloZones");
+  if (!top) return;
+  const b = bestLoad(), bd = b[dailySeed()] || 0, br = b.random || 0;
+  top.innerHTML = "";
+  const mkBtn = (txt, fn, primary) => { const x = document.createElement("button"); x.className = primary ? "primary" : "ghost"; x.textContent = txt; x.onclick = fn; top.appendChild(x); };
+  const isDaily = soloRun && soloRun.seed === dailySeed();
+  mkBtn(T("dailyRun", "📅 Daily gauntlet") + (bd ? " · " + T("bestN", "best {n}", { n: bd }) : ""), () => soloStart(dailySeed()), !soloRun || (soloRun.over && isDaily));
+  mkBtn(T("randomRun", "🎲 Random gauntlet") + (br ? " · " + T("bestN", "best {n}", { n: br }) : ""), () => soloStart("rnd-" + Math.random().toString(36).slice(2, 10)));
+  if (!soloRun) { hud.innerHTML = ""; zones.classList.add("hidden"); return; }
+  zones.classList.remove("hidden");
+  const run = soloRun;
+  hud.innerHTML =
+    '<span class="turnbadge">' + (run.over ? T("runOver", "RUN OVER — score {n}", { n: run.score }) : T("stageN", "STAGE {n}", { n: run.stage })) + "</span>"
+    + '<span class="stat">' + T("lives", "Lives") + " <b>" + "❤".repeat(Math.max(0, run.lives)) + (run.lives <= 0 ? "0" : "") + "</b></span>"
+    + '<span class="stat vp">' + T("hpYou", "Your max HP") + " <b>" + run.maxhp + "</b></span>"
+    + '<span class="stat vp">' + T("scoreN", "Score") + " <b>" + run.score + "</b></span>"
+    + (isDaily ? '<span class="stat">' + T("dailyTag", "daily — same for everyone") + "</span>" : "");
+  // offer
+  const offer = E.soloOfferFor(run), ob = $("soloBtns");
+  ob.innerHTML = "";
+  if (run.over) {
+    $("soloOffer").innerHTML = '<span class="dim">' + T("runOverMsg", "The wrecks got you at stage {n}. Start another run — or take this build style into a PvP fight for stakes above.", { n: run.stage }) + "</span>";
+    $("soloHint").textContent = "";
+    const share = document.createElement("button"); share.className = "primary";
+    share.textContent = T("shareRun", "📣 Share my score");
+    share.onclick = () => { try { navigator.clipboard.writeText(T("shareRunText", "I cleared {n} stages in the Scrapline {kind} gauntlet — beat that: https://scrapline.nadochain.com", { n: run.score, kind: isDaily ? T("daily", "daily") : T("random", "random") })); notify(T("copied", "Copied to clipboard.")); } catch {} };
+    ob.appendChild(share);
+    // post a finished DAILY run on the global board: the claim is the packed choice list — every
+    // browser re-verifies it by replaying, so a fake score simply never renders.
+    const day = Math.floor(Date.now() / 86400000);
+    if (isDaily && run.seed === E.seedOfDay(day) && run.score > 0 && (run.choices || []).length <= E.MAX_ATT) {
+      const post = document.createElement("button"); post.className = "ghost";
+      post.textContent = dapp.me ? T("postScore", "🏆 Post my score on the daily board") : T("postScoreSign", "🏆 Sign in to post my score");
+      post.onclick = () => {
+        if (!dapp.me) return dapp.signIn();
+        const words = E.packChoices(run.choices);
+        dapp.call("post", [day, run.score, run.choices.length].concat(words), null,
+          "post daily gauntlet score " + run.score, { phase: "post" });
+        notify(T("postSent", "Score submitted — it appears on the board once verified on-chain."));
+      };
+      ob.appendChild(post);
+    }
+  } else if (offer) {
+    $("soloOffer").innerHTML = offer.map((id, i) => itemTile(id, 1, soloSel === i ? " sel" : " buyable", 'data-soff="' + i + '"')).join("");
+    $("soloOffer").querySelectorAll("[data-soff]").forEach((d) => d.onclick = () => { const i = parseInt(d.dataset.soff, 10); soloSel = soloSel === i ? null : i; renderSolo(); });
+    const skip = document.createElement("button"); skip.className = "ghost";
+    skip.textContent = T("skipOffer", "♻ Scrap this offer (+12 max HP)");
+    skip.onclick = () => { E.soloPick(soloRun, -1, 0); soloSel = null; soloSave(soloRun); renderSolo(); };
+    ob.appendChild(skip);
+    $("soloHint").textContent = soloSel == null ? T("offerHintPick", "Tap an item, then a gear slot. Same item on the slot = MERGE (rank up); a different one replaces it (old is scrapped for max HP).") : T("offerHintSlot", "Now tap a gear slot to place it.");
+  } else {
+    $("soloOffer").innerHTML = '<span class="dim">' + T("readyToFight", "Gear locked in — fight when ready.") + "</span>";
+    $("soloHint").textContent = "";
+  }
+  // gear + enemy
+  $("soloGear").innerHTML = soloGearRow(run.gear, !run.over);
+  $("soloGear").querySelectorAll("[data-sslot]").forEach((d) => d.onclick = () => {
+    if (run.over || soloSel == null) return;
+    E.soloPick(soloRun, soloSel, parseInt(d.dataset.sslot, 10));
+    soloSel = null; soloSave(soloRun); renderSolo();
+  });
+  const enemy = run.over ? (run.lastCombat && run.lastCombat.enemy) : E.enemyBuild(run.seed, run.stage);
+  $("soloEnemyHead").textContent = T("soloEnemyN", "Wreck #{n}", { n: run.over ? (run.lastCombat ? run.lastCombat.stage : run.stage) : run.stage });
+  $("soloEnemyHp").textContent = enemy ? enemy.maxhp + " HP" : "";
+  $("soloEnemy").innerHTML = enemy ? enemy.gear.filter(Boolean).map((gi) => itemTile(gi.id, gi.rank)).join("") : "";
+  // fight
+  const fb = $("btnSoloFight");
+  fb.classList.toggle("hidden", run.over);
+  fb.disabled = run.picks > 0;
+  fb.textContent = run.picks > 0
+    ? T("fightNeedsPicks", "⚔ Fight — {n} salvage offer(s) to resolve first", { n: run.picks })
+    : T("fightBtn", "⚔ Fight");
+  fb.onclick = () => {
+    if (run.over || run.picks > 0) return;
+    const c = E.soloFight(soloRun);
+    soloBank(); soloSave(soloRun); renderSolo();
+    const cp = $("soloCombat");
+    if (c) {
+      cp.classList.remove("hidden");
+      const won = c.result === 1 || c.result === 3;
+      cp.innerHTML = '<div class="zh">' + (won ? T("soloWin", "✔ Wreck #{n} destroyed!", { n: c.stage }) : T("soloLoss", "✘ Wreck #{n} took you down — {l}", { n: c.stage, l: soloRun.over ? T("runEnded", "run over") : T("lifeLost", "you lost a life") })) + "</div>"
+        + '<div class="small">' + T("you", "You") + "</div>" + hpBar(c.hp[0], c.maxhp[0], "me")
+        + '<div class="small mt">' + T("soloEnemyN", "Wreck #{n}", { n: c.stage }) + "</div>" + hpBar(c.hp[1], c.maxhp[1])
+        + '<div id="combatLog" class="mt">' + c.ev.slice(-30).map((e) => {
+          const it = e.x != null ? E.ITEMS[e.x].n : "";
+          const M = { hit: T("cHit", "{w}: {i} hits for {n}"), burn: T("cBurn", "{w} burns for {n}"),
+            shield: T("cShield", "{w}: {i} shields {n}"), heal: T("cHeal", "{w}: {i} repairs {n}"),
+            ignite: T("cIgnite", "{w}: {i} ignites +{n}") };
+          const w = e.p === 0 ? T("you", "You") : T("wreck", "Wreck");
+          return '<div class="' + (e.p === 0 ? "me" : "") + '"><span class="dim">' + (e.t / 10).toFixed(1) + "s</span> " + (M[e.e] || e.e).replace("{w}", w).replace("{i}", it).replace("{n}", e.n) + "</div>";
+        }).join("") + "</div>";
+    }
+  };
+}
+renderSolo();
+
+// ---- daily highscore board (verified client-side) ------------------------------------------------------
+const claimCache = new Map();    // entry id -> verified score (or -1) — replays are cheap but not free
+function renderSoloBoard(sto) {
+  const el = $("soloScoreList"); if (!el) return;
+  const today = Math.floor(Date.now() / 86400000);
+  const eday = _m(sto, "eday"), eaddr = _m(sto, "eaddr"), escore = _m(sto, "escore"), en = _m(sto, "en");
+  const ea = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => _m(sto, "ea" + i));
+  const best = {};
+  for (const e of Object.keys(eday)) {
+    if (eday[e] !== today) continue;
+    const claimed = escore[e] || 0, addr = eaddr[e];
+    if (!addr) continue;
+    if (!claimCache.has(e)) {
+      let v = -1;
+      try { v = E.verifyClaim(today, en[e] || 0, ea.map((m) => m[e] || 0)); } catch {}
+      claimCache.set(e, v);
+    }
+    if (claimCache.get(e) !== claimed || claimed <= 0) continue;   // bogus claim — never renders
+    if (!best[addr] || best[addr].score < claimed) best[addr] = { addr, score: claimed };
+  }
+  const rows = Object.values(best).sort((a, b) => b.score - a.score);
+  renderTopScores(el, rows, dapp.me,
+    T("noSoloScores", "No verified scores today — finish a daily run and post yours."),
+    T("stagesHead", "Stages"));
+}
+
+duel.boot(["activeGame", "solo", "lobby", "play", "walletcard", "bankroll", "scoreboard"]);

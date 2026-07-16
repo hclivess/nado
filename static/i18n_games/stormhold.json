@@ -203,7 +203,11 @@
   "storm.yourGames": "Your games",
   "storm.yourHand": "Your hand",
   "storm.yourMove": "▶ YOUR MOVE",
-  "storm.yourTurn": "YOUR TURN"
+  "storm.yourTurn": "YOUR TURN",
+  "storm.noFinished": "No settled duels yet — win the first one.",
+  "storm.waitingBoth": "waiting…",
+  "storm.scoreboardHead": "🏆 Scoreboard",
+  "storm.loading2": "Loading…"
  },
  "cs": {
   "storm.abort": "Nárokovat vrácení vkladu (soupeř nehraje)",
@@ -409,7 +413,11 @@
   "storm.yourGames": "Tvoje hry",
   "storm.yourHand": "Tvoje ruka",
   "storm.yourMove": "▶ TVŮJ TAH",
-  "storm.yourTurn": "JSI NA TAHU"
+  "storm.yourTurn": "JSI NA TAHU",
+  "storm.noFinished": "Zatím žádné dohrané duely — vyhraj ten první.",
+  "storm.waitingBoth": "čekání…",
+  "storm.scoreboardHead": "🏆 Tabule skóre",
+  "storm.loading2": "Načítání…"
  },
  "es": {
   "storm.abort": "Reclamar reembolso (el rival no juega)",
@@ -615,7 +623,11 @@
   "storm.yourGames": "Tus partidas",
   "storm.yourHand": "Tu mano",
   "storm.yourMove": "▶ TU JUGADA",
-  "storm.yourTurn": "TU TURNO"
+  "storm.yourTurn": "TU TURNO",
+  "storm.noFinished": "Aún no hay duelos resueltos — gana el primero.",
+  "storm.waitingBoth": "esperando…",
+  "storm.scoreboardHead": "🏆 Tabla de puntuaciones",
+  "storm.loading2": "Cargando…"
  },
  "pt": {
   "storm.abort": "Reivindicar reembolso (adversário parou de jogar)",
@@ -821,7 +833,11 @@
   "storm.yourGames": "Suas partidas",
   "storm.yourHand": "Sua mão",
   "storm.yourMove": "▶ SUA JOGADA",
-  "storm.yourTurn": "SEU TURNO"
+  "storm.yourTurn": "SEU TURNO",
+  "storm.noFinished": "Nenhum duelo concluído ainda — vença o primeiro.",
+  "storm.waitingBoth": "aguardando…",
+  "storm.scoreboardHead": "🏆 Placar",
+  "storm.loading2": "Carregando…"
  },
  "fr": {
   "storm.abort": "Réclamer le remboursement (adversaire inactif)",
@@ -1027,7 +1043,11 @@
   "storm.yourGames": "Vos parties",
   "storm.yourHand": "Votre main",
   "storm.yourMove": "▶ À VOUS DE JOUER",
-  "storm.yourTurn": "À VOTRE TOUR"
+  "storm.yourTurn": "À VOTRE TOUR",
+  "storm.noFinished": "Aucun duel réglé pour l'instant — gagnez le premier.",
+  "storm.waitingBoth": "en attente…",
+  "storm.scoreboardHead": "🏆 Tableau des scores",
+  "storm.loading2": "Chargement…"
  },
  "de": {
   "storm.abort": "Rückerstattung fordern (Gegner untätig)",
@@ -1233,7 +1253,11 @@
   "storm.yourGames": "Deine Spiele",
   "storm.yourHand": "Deine Hand",
   "storm.yourMove": "▶ DEIN ZUG",
-  "storm.yourTurn": "DU BIST DRAN"
+  "storm.yourTurn": "DU BIST DRAN",
+  "storm.noFinished": "Noch keine entschiedenen Duelle — gewinne das erste.",
+  "storm.waitingBoth": "warten…",
+  "storm.scoreboardHead": "🏆 Rangliste",
+  "storm.loading2": "Lädt…"
  },
  "it": {
   "storm.abort": "Richiedi il rimborso (avversario inattivo)",
@@ -1439,7 +1463,11 @@
   "storm.yourGames": "Le tue partite",
   "storm.yourHand": "La tua mano",
   "storm.yourMove": "▶ TOCCA A TE",
-  "storm.yourTurn": "IL TUO TURNO"
+  "storm.yourTurn": "IL TUO TURNO",
+  "storm.noFinished": "Nessun duello concluso — vinci il primo.",
+  "storm.waitingBoth": "in attesa…",
+  "storm.scoreboardHead": "🏆 Classifica",
+  "storm.loading2": "Caricamento…"
  },
  "ru": {
   "storm.abort": "Запросить возврат (соперник затягивает)",
@@ -1645,7 +1673,11 @@
   "storm.yourGames": "Ваши игры",
   "storm.yourHand": "Ваша рука",
   "storm.yourMove": "▶ ВАШ ХОД",
-  "storm.yourTurn": "ВАШ ХОД"
+  "storm.yourTurn": "ВАШ ХОД",
+  "storm.noFinished": "Завершённых дуэлей пока нет — выиграйте первую.",
+  "storm.waitingBoth": "ожидание…",
+  "storm.scoreboardHead": "🏆 Таблица результатов",
+  "storm.loading2": "Загрузка…"
  },
  "zh": {
   "storm.abort": "申请退款（对手拖延）",
@@ -1851,7 +1883,11 @@
   "storm.yourGames": "你的游戏",
   "storm.yourHand": "你的手牌",
   "storm.yourMove": "▶ 该你行动",
-  "storm.yourTurn": "你的回合"
+  "storm.yourTurn": "你的回合",
+  "storm.noFinished": "还没有已结算的对决 — 去赢下第一场。",
+  "storm.waitingBoth": "等待中…",
+  "storm.scoreboardHead": "🏆 排行榜",
+  "storm.loading2": "加载中…"
  },
  "ja": {
   "storm.abort": "返金を請求（相手が停滞）",
@@ -2057,7 +2093,11 @@
   "storm.yourGames": "あなたのゲーム",
   "storm.yourHand": "あなたの手札",
   "storm.yourMove": "▶ あなたの手番",
-  "storm.yourTurn": "あなたのターン"
+  "storm.yourTurn": "あなたのターン",
+  "storm.noFinished": "決着した対戦はまだありません — 最初の勝者になろう。",
+  "storm.waitingBoth": "待機中…",
+  "storm.scoreboardHead": "🏆 スコアボード",
+  "storm.loading2": "読み込み中…"
  },
  "ko": {
   "storm.abort": "환불 청구 (상대 지연)",
@@ -2263,7 +2303,11 @@
   "storm.yourGames": "내 게임",
   "storm.yourHand": "내 손패",
   "storm.yourMove": "▶ 당신의 수",
-  "storm.yourTurn": "당신의 턴"
+  "storm.yourTurn": "당신의 턴",
+  "storm.noFinished": "아직 끝난 대결이 없습니다 — 첫 승리를 차지하세요.",
+  "storm.waitingBoth": "대기 중…",
+  "storm.scoreboardHead": "🏆 순위표",
+  "storm.loading2": "불러오는 중…"
  },
  "ar": {
   "storm.abort": "المطالبة بالاسترداد (الخصم توقّف)",
@@ -2469,7 +2513,11 @@
   "storm.yourGames": "ألعابك",
   "storm.yourHand": "يدك",
   "storm.yourMove": "▶ حركتك",
-  "storm.yourTurn": "دورك"
+  "storm.yourTurn": "دورك",
+  "storm.noFinished": "لا مبارزات محسومة بعد — افز بالأولى.",
+  "storm.waitingBoth": "بانتظار…",
+  "storm.scoreboardHead": "🏆 لوحة النتائج",
+  "storm.loading2": "جارٍ التحميل…"
  },
  "hi": {
   "storm.abort": "रिफ़ंड का दावा करें (प्रतिद्वंद्वी रुका हुआ है)",
@@ -2675,7 +2723,11 @@
   "storm.yourGames": "आपके गेम",
   "storm.yourHand": "आपका हाथ",
   "storm.yourMove": "▶ आपकी चाल",
-  "storm.yourTurn": "आपकी बारी"
+  "storm.yourTurn": "आपकी बारी",
+  "storm.noFinished": "अभी कोई द्वंद्व तय नहीं हुआ — पहला जीतें।",
+  "storm.waitingBoth": "प्रतीक्षा…",
+  "storm.scoreboardHead": "🏆 स्कोरबोर्ड",
+  "storm.loading2": "लोड हो रहा है…"
  },
  "tr": {
   "storm.abort": "İade talep et (rakip oyalandı)",
@@ -2881,7 +2933,11 @@
   "storm.yourGames": "Oyunların",
   "storm.yourHand": "Elin",
   "storm.yourMove": "▶ HAMLE SENDE",
-  "storm.yourTurn": "SIRA SENDE"
+  "storm.yourTurn": "SIRA SENDE",
+  "storm.noFinished": "Henüz sonuçlanmış düello yok — ilkini kazan.",
+  "storm.waitingBoth": "bekleniyor…",
+  "storm.scoreboardHead": "🏆 Skor tablosu",
+  "storm.loading2": "Yükleniyor…"
  },
  "id": {
   "storm.abort": "Klaim refund (lawan mengulur)",
@@ -3087,7 +3143,11 @@
   "storm.yourGames": "Game kamu",
   "storm.yourHand": "Tanganmu",
   "storm.yourMove": "▶ LANGKAHMU",
-  "storm.yourTurn": "GILIRANMU"
+  "storm.yourTurn": "GILIRANMU",
+  "storm.noFinished": "Belum ada duel yang selesai — menangkan yang pertama.",
+  "storm.waitingBoth": "menunggu…",
+  "storm.scoreboardHead": "🏆 Papan skor",
+  "storm.loading2": "Memuat…"
  },
  "vi": {
   "storm.abort": "Yêu cầu hoàn tiền (đối thủ trì hoãn)",
@@ -3293,6 +3353,10 @@
   "storm.yourGames": "Ván của bạn",
   "storm.yourHand": "Bài trên tay",
   "storm.yourMove": "▶ ĐẾN LƯỢT BẠN",
-  "storm.yourTurn": "LƯỢT CỦA BẠN"
+  "storm.yourTurn": "LƯỢT CỦA BẠN",
+  "storm.noFinished": "Chưa có trận đấu nào kết thúc — hãy thắng trận đầu tiên.",
+  "storm.waitingBoth": "đang chờ…",
+  "storm.scoreboardHead": "🏆 Bảng điểm",
+  "storm.loading2": "Đang tải…"
  }
 }

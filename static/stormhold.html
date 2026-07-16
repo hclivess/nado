@@ -42,6 +42,15 @@
   .kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:4px 0}.kv .k{color:var(--dim)}
   header .hub{margin-left:auto;font-size:12px;font-weight:700;color:var(--dim);text-decoration:none;border:1px solid var(--border);border-radius:999px;padding:6px 12px;background:var(--elev);white-space:nowrap}
   header .hub:hover{color:var(--accent2);border-color:var(--accent2)}
+  table.score{width:100%;border-collapse:collapse;font-size:13px}
+  table.score th,table.score td{text-align:left;padding:6px 6px;border-bottom:1px solid var(--border)}
+  table.score th{color:var(--dim);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+  table.score tr.me td{background:rgba(0,201,167,.08)}
+  table.score .pos{color:var(--accent2)}table.score .neg{color:var(--danger)}
+  .cart{width:26px;height:26px;margin:1px auto 3px;color:var(--dim)}
+  .cart svg{width:100%;height:100%;display:block}
+  .ty-t .cart{color:var(--gold)}.ty-v .cart{color:var(--green)}.ty-c .cart{color:var(--purple)}
+  .ty-a .cart{color:var(--accent2)}.ty-a.atk .cart{color:#e0705f}
   footer{color:var(--faint);font-size:11.5px;text-align:center;margin-top:22px}
   a{color:var(--accent2)}
   /* ---- game table ---- */
@@ -187,6 +196,12 @@
     <label class="mt" data-i18n="storm.inviteLabel">Invite your opponent</label>
     <input id="shareLink" class="mono" readonly onclick="this.select()">
     <div class="row mt"><button class="primary" id="btnShare" style="flex:0 0 auto" data-i18n="storm.share">Share</button></div>
+  </div>
+
+  <!-- SCOREBOARD -->
+  <div class="card" id="scoreboard">
+    <h2 data-i18n="storm.scoreboardHead">🏆 Scoreboard</h2>
+    <div id="scoreList"><span class="dim" data-i18n="storm.loading2">Loading…</span></div>
   </div>
 
   <div class="card">

@@ -24,7 +24,7 @@
 //   duel.boot(["activeGame", "lobby", "play", "walletcard", "bankroll"]);
 import { rawToNado, nadoToRaw, randId, rematchId, _m, $, base, canPay, alertBar, orderCards,
          resolveAliases, disp, share, wireWallet, inviteGate, stickyInputs, renderWallet, notify,
-         blocksToTime } from "./nadodapp.js";
+         blocksToTime, renderScore, scoreBump, scoreSort } from "./nadodapp.js";
 
 const T0 = (p, k, d, v) => (typeof window !== "undefined" && window.t) ? window.t(p + "." + k, d, v) : d;
 
@@ -183,9 +183,25 @@ export class DuelGame {
           : (g.settled || !g.exists);
       });
       this.renderLobby(sto);
+      renderScore($("scoreList"), this.boardFrom(sto), dapp.me,
+        this.T("noFinished", "No settled duels yet — win the first one."));
+      if (this.cfg.onStorage) this.cfg.onStorage.call(this, sto);
     }
     await resolveAliases([dapp.me].concat(this.last ? [this.last.p1, this.last.p2] : []).filter(Boolean));
     this.render();
+  }
+  // the shared duel leaderboard: every settled decisive game moves one stake from loser to winner.
+  boardFrom(sto) {
+    const stats = {};
+    for (const g of Object.keys(_m(sto, "nn"))) {
+      if (!_m(sto, "sd")[g]) continue;
+      const wr = _m(sto, "wr")[g] || 0, st = _m(sto, "st")[g] || 0;
+      const p1 = _m(sto, "p1")[g], p2 = _m(sto, "p2")[g];
+      if (!p2 || !wr || wr === 3) continue;              // cancelled / draw / void games don't rank
+      scoreBump(stats, wr === 1 ? p1 : p2, st);
+      scoreBump(stats, wr === 1 ? p2 : p1, -st);
+    }
+    return scoreSort(stats);
   }
   renderLobby(sto) {
     const el = $("lobbyList"), T = this.T; if (!el) return;

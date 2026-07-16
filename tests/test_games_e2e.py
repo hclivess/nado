@@ -288,6 +288,22 @@ def t_scrapline():
     st.apply_blob({"op": "call", "contract": cid, "method": "agree", "args": [G, 1]}, A, "a1")
     st.apply_blob({"op": "call", "contract": cid, "method": "agree", "args": [G, 1]}, B, "a2")
     assert rd(sc.SD, G) == 1 and st.bridge.get(A, 0) == ab + 80_000
+    # solo daily highscore posts: append log + day window vs chain time + bounds
+    st.block_ts = 20650 * 86400 + 5000
+    st.apply_blob({"op": "call", "contract": cid, "method": "post",
+                   "args": [20650, 7, 12, 111, 222, 0, 0, 0, 0, 0, 5]}, A, "p0")
+    st.apply_blob({"op": "call", "contract": cid, "method": "post",
+                   "args": [20649, 3, 4, 99, 0, 0, 0, 0, 0, 0, 0]}, B, "p1")            # yesterday: inside ±1 window
+    v = st.decode_view(st.contracts[cid])
+    assert v["eday"]["0"] == 20650 and v["escore"]["0"] == 7 and v["en"]["0"] == 12 and v["ea0"]["0"] == 111
+    assert v["ea7"]["0"] == 5
+    assert v["eaddr"]["0"] == A and v["eaddr"]["1"] == B and v["eday"]["1"] == 20649
+    assert "revert" in st.apply_blob({"op": "call", "contract": cid, "method": "post",
+                                      "args": [20600, 7, 12, 1, 0, 0, 0, 0, 0, 0, 0]}, A, "px1")   # stale day
+    assert "revert" in st.apply_blob({"op": "call", "contract": cid, "method": "post",
+                                      "args": [20650, 7, 99, 1, 0, 0, 0, 0, 0, 0, 0]}, A, "px2")   # n > cap
+    assert "revert" in st.apply_blob({"op": "call", "contract": cid, "method": "post",
+                                      "args": [20650, 7, 0, 1, 0, 0, 0, 0, 0, 0, 0]}, A, "px3")    # n = 0
 
 
 def t_stormhold_move_proves():

@@ -9,6 +9,7 @@
 import { NadoDapp, $, notify, disp } from "./nadodapp.js";
 import { DuelGame } from "./duelgame.js";
 import * as E from "./stormhold-engine.js";
+import { ART } from "./stormhold-art.js";
 
 const CID = "9f66d438dcbc87adc748f0cbe13a701b";
 const dapp = new NadoDapp({ cid: CID, app: "Stormhold" });
@@ -105,9 +106,10 @@ const tileCls = (id) => {
   return "ctile " + (c.t & E.T ? "ty-t" : c.t & E.V ? "ty-v" : c.t & E.CU ? "ty-c" : "ty-a")
     + (c.t & E.ATK ? " atk" : "") + (c.t & E.RE ? " re" : "");
 };
+const art = (id) => '<div class="cart">' + (ART[E.CARDS[id].k] || "") + "</div>";
 const tile = (id) =>
   '<div class="' + tileCls(id) + '" title="' + (E.CARDS[id].txt || "") + '">'
-  + '<span class="cost">' + E.CARDS[id].c + "</span>"
+  + '<span class="cost">' + E.CARDS[id].c + "</span>" + art(id)
   + '<div class="cname">' + NAME(id) + "</div></div>";
 
 function renderSupply(gm, eng) {
@@ -125,7 +127,7 @@ function renderSupply(gm, eng) {
     const cls = (n === 0 ? " dis" : "") + (gainOk ? " sel" : buyable ? " buyable" : "")
       + (duel.armed && duel.armed.key === "buy" + id ? " armed" : "");
     return '<div class="' + tileCls(id) + cls + '" data-sid="' + id + '" title="' + (c.txt || "") + '">'
-      + '<span class="cost">' + c.c + '</span><span class="cnt">' + n + "</span>"
+      + '<span class="cost">' + c.c + '</span><span class="cnt">' + n + "</span>" + art(id)
       + '<div class="cname">' + c.n + "</div>"
       + (c.txt ? '<div class="ctxt">' + c.txt + "</div>" : (c.coin ? '<div class="ctxt">🪙 ' + c.coin + "</div>" : c.vp != null ? '<div class="ctxt">🏆 ' + c.vp + "</div>" : ""))
       + "</div>";
@@ -267,7 +269,8 @@ function renderGame(gm, eng) {
       if (dsel.has(i)) cls = " sel";
       else if (selectable && !f && eng.phase === 0 && eng.actions > 0 && isA(c)) cls = " buyable";
       return '<div class="' + tileCls(c) + cls + '" data-h="' + i + '" title="' + (E.CARDS[c].txt || "") + '">'
-        + '<span class="cost">' + E.CARDS[c].c + '</span><div class="cname">' + NAME(c) + "</div>"
+        + '<span class="cost">' + E.CARDS[c].c + "</span>" + art(c)
+        + '<div class="cname">' + NAME(c) + "</div>"
         + (E.CARDS[c].txt ? '<div class="ctxt">' + E.CARDS[c].txt + "</div>" : (E.CARDS[c].coin ? '<div class="ctxt">🪙 ' + E.CARDS[c].coin + "</div>" : '<div class="ctxt">🏆 ' + (E.CARDS[c].vp || 0) + "</div>"))
         + "</div>";
     }).join("");
@@ -289,4 +292,4 @@ function renderGame(gm, eng) {
   }
 }
 
-duel.boot(["activeGame", "lobby", "play", "walletcard", "bankroll"]);
+duel.boot(["activeGame", "lobby", "play", "walletcard", "bankroll", "scoreboard"]);

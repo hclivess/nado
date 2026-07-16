@@ -138,5 +138,88 @@ check("combat: deterministic, symmetric builds draw, more gear beats none", () =
   if (simulate(st).result !== 1) throw new Error("spark should beat pure shield (meltdown otherwise)");
 });
 
+check("solo gauntlet: deterministic, escalating, always terminates", () => {
+  // determinism: same seed + same choices => identical runs
+  const play = (seed, seedRnd, maxIters) => {
+    const rnd = prng(seedRnd);
+    const run = E.soloNew(seed);
+    let iters = 0;
+    while (!run.over && iters++ < maxIters) {
+      while (run.picks > 0 && !run.over) {
+        const offer = E.soloOfferFor(run);
+        if (!offer) throw new Error("no offer while alive with picks left");
+        if (rnd() < 0.1) E.soloPick(run, -1, 0);
+        else {
+          const choice = Math.floor(rnd() * 3);
+          let slot = run.gear.findIndex((g) => g && g.id === offer[choice] && g.rank < E.MAXRANK);
+          if (slot < 0) slot = run.gear.findIndex((g) => !g);
+          if (slot < 0) slot = Math.floor(rnd() * E.SLOTS);
+          E.soloPick(run, choice, slot);
+        }
+      }
+      E.soloFight(run);
+    }
+    return { run, iters };
+  };
+  const a = play("daily-2026-07-16", 42, 600), b = play("daily-2026-07-16", 42, 600);
+  if (JSON.stringify(a.run) !== JSON.stringify(b.run)) throw new Error("solo run not deterministic");
+  const c = play("other-seed", 42, 600);
+  if (JSON.stringify(a.run.gear) === JSON.stringify(c.run.gear)) throw new Error("seed ignored");
+  // 200 random runs: all terminate, scores are sane, enemies escalate
+  let best = 0, total = 0, clear1 = 0;
+  for (let i = 0; i < 200; i++) {
+    const { run, iters } = play("fuzz-" + i, 977 * i + 5, 800);
+    if (!run.over) throw new Error("run " + i + " never ended (" + iters + " iters, stage " + run.stage + ")");
+    if (run.score !== run.stage - 1) throw new Error("score bookkeeping");
+    if (run.score >= 1) clear1++;
+    best = Math.max(best, run.score); total += run.score;
+  }
+  console.log(`      (200 RANDOM-bot runs: avg ${(total / 200).toFixed(1)}, best ${best}, stage-1 clear ${(clear1 / 2).toFixed(0)}%)`);
+  // the curve contract (random bot is a weak lower bound on a human):
+  if (clear1 < 150) throw new Error("stage 1 too brutal (" + clear1 + "/200 clears)");
+  if (total / 200 < 3) throw new Error("gauntlet too hard — tune the curve (avg " + (total / 200).toFixed(1) + ")");
+  if (total / 200 > 15 || best > 60) throw new Error("gauntlet too easy — tune the curve");
+  const e1 = E.enemyBuild("x", 1), e9 = E.enemyBuild("x", 9);
+  if (!(e9.maxhp > e1.maxhp)) throw new Error("enemy hull should escalate");
+  if (JSON.stringify(E.enemyBuild("x", 4)) !== JSON.stringify(E.enemyBuild("x", 4))) throw new Error("enemy not deterministic");
+  if (!e1.gear.some((g) => g && E.ITEMS[g.id].kind === "d")) throw new Error("stage-1 enemy must carry a weapon");
+});
+
+check("daily claims: pack/unpack roundtrip, honest claims verify, fakes rejected", () => {
+  const day = 20650, seed = E.seedOfDay(day);
+  // play an honest daily run recording choices
+  const rnd = prng(99);
+  const run = E.soloNew(seed);
+  let guard = 0;
+  while (!run.over && guard++ < 300) {
+    const offer = E.soloOfferFor(run);
+    if (rnd() < 0.1) E.soloPick(run, -1, 0);
+    else {
+      const choice = Math.floor(rnd() * 3);
+      let slot = run.gear.findIndex((g) => g && g.id === offer[choice] && g.rank < E.MAXRANK);
+      if (slot < 0) slot = run.gear.findIndex((g) => !g);
+      if (slot < 0) slot = Math.floor(rnd() * E.SLOTS);
+      E.soloPick(run, choice, slot);
+    }
+    E.soloFight(run);
+  }
+  if (!run.over) throw new Error("run never ended");
+  if (run.choices.length !== run.offerN) throw new Error("choice recording out of sync");
+  const words = E.packChoices(run.choices);
+  if (words.some((w) => w >= 2n ** 50n)) throw new Error("packed word too big for JSON numbers");
+  const back = E.unpackChoices(words.map(Number), run.choices.length);
+  if (JSON.stringify(back) !== JSON.stringify(run.choices)) throw new Error("pack/unpack roundtrip");
+  // honest claim verifies to the true score (via JSON-number words, like the chain view returns them)
+  if (E.verifyClaim(day, run.choices.length, words.map(Number)) !== run.score) throw new Error("honest claim rejected");
+  // fakes: inflated score is exposed (verify returns the TRUE score, board compares), wrong day rejected,
+  // truncated run (not over) rejected, garbage rejected
+  if (E.verifyClaim(day, run.choices.length, words.map(Number)) === run.score + 5) throw new Error("inflated score verified?!");
+  if (E.verifyClaim(day + 1, run.choices.length, words.map(Number)) === run.score) throw new Error("wrong-day claim verified");
+  if (run.choices.length > 3 && E.verifyClaim(day, 2, words.map(Number)) !== -1) throw new Error("unfinished run accepted");
+  if (E.verifyClaim(day, 50, [31, 31, 31, 31, 31]) !== -1 && E.verifyClaim(day, 50, [31, 31, 31, 31, 31]) > 0)
+    throw new Error("garbage produced a positive score");
+  if (E.verifyClaim(day, 0, words.map(Number)) !== -1) throw new Error("n=0 accepted");
+});
+
 console.log(fails ? fails + " FAILURES" : "ALL PASS");
 process.exit(fails ? 1 : 0);

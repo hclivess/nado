@@ -321,6 +321,19 @@ export async function renderScore(el, board, me, empty) {
     + top.map((r, i) => { const net = (r.net < 0 ? "-" : "+") + rawToNado(Math.abs(r.net)) + " NADO", you = r.addr === me;
         return '<tr' + (you ? ' class="me"' : "") + '><td>' + (i + 1) + '</td><td>' + disp(r.addr) + (you ? " (you)" : "") + '</td><td>W' + r.wins + "–L" + r.losses + '</td><td class="' + (r.net >= 0 ? "pos" : "neg") + '">' + net + "</td></tr>"; }).join("") + "</tbody></table>";
 }
+// renderTopScores(el, rows, me, empty, scoreHead): the shared HIGH-SCORE table template — rank/player/score
+// (renderScore is the win-loss/net-NADO sibling). rows: [{addr, score, tag?}] already sorted best-first.
+export async function renderTopScores(el, rows, me, empty, scoreHead) {
+  if (!el) return;
+  if (!rows.length) { el.innerHTML = '<span class="dim">' + (empty || _t("noScores", "No scores yet — be the first on the board.")) + "</span>"; return; }
+  const top = rows.slice(0, 10); await resolveAliases(top.map((r) => r.addr));
+  el.innerHTML = '<table class="score"><thead><tr><th>#</th><th>' + _t("player", "Player") + "</th><th>"
+    + (scoreHead || _t("score", "Score")) + "</th></tr></thead><tbody>"
+    + top.map((r, i) => { const you = r.addr === me;
+        return '<tr' + (you ? ' class="me"' : "") + '><td>' + (i + 1) + "</td><td>" + disp(r.addr) + (you ? " (you)" : "")
+          + (r.tag ? ' <span class="dim">' + r.tag + "</span>" : "") + '</td><td class="pos">' + r.score + "</td></tr>"; }).join("")
+    + "</tbody></table>";
+}
 // scoreBump(stats, addr, net): accumulate one settled result into a leaderboard stats map.
 export function scoreBump(stats, addr, net) {
   const x = stats[addr] || (stats[addr] = { addr, wins: 0, losses: 0, games: 0, net: 0 });
