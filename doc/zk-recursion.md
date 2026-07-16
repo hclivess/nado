@@ -344,15 +344,29 @@ an O(T) `poly_eval` per query per column, the residual O(#io). Now:
     STARK's O(queries·log N). `tests/test_exec_commit_periodic.py` (accepts from roots alone, no io log; a wrong
     root is rejected). Differentially validated: the committed proof accepts iff the public proof does.
 
-**The remaining glue for end-to-end O(1) settlement.** Two in-circuit bindings remain, both mechanism-composition
-(no new soundness primitive): (1) bind `per_roots` to the epoch's commitments so `verify_epoch_o1`'s trust in them
-is discharged — the committed io/args columns' roots ↔ `io_commitment`/`calls_commitment` (a foldable chain proof,
-calls_commit-style, or unify the two so the committed root IS the commitment); (2) bind the io replay to the
-COMMITTED io (a `logup_bind` multiset-equality between the replay's (kind,slot,value) steps and the committed io
-columns) so the state transition is tied to the exact committed io without the native O(#io) binding loop. Both
-compose the existing pieces into ONE bundle via `recursive_verify_hetero` generalized to row-mode + two-phase
-(the exec proof is row-committed two-phase; the replay/multiset are column). Until then, `verify_bound_epoch_replay`
-keeps the native O(#io) binding as the verified fallback (soundness-first — no partial O(1) shipped as complete).
+**The remaining glue for end-to-end O(1) settlement — the sharpened frontier.** Analysis (2026-07-16) collapsed
+what looked like two bindings into ONE real piece:
+  * Piece 1 (bind `per_roots` to the commitment) largely DISSOLVES: `per_root` IS the io/args/program commitment,
+    and the exec AIR's five LogUp buses already bind the committed columns to the trace (the comp spot-check
+    re-checks each bus at the query points using the OPENED committed values). A prover committing a different io
+    table just yields a valid proof of a DIFFERENT execution — soundness at the exec level is "correct execution
+    of the committed io", not "the io is the real one". So no separate chain proof is needed; the settlement uses
+    `per_root` (or a fingerprint of it) as the io commitment directly.
+  * Piece 2 (bind the STATE replay to the exec's committed io) is the real remaining piece. It cannot open the
+    committed columns at the trace rows (they live on a coset LDE, not at gᵀⁱ), and it must avoid computing
+    `slot_key` (blake2b) in-circuit. The clean, arithmetization-friendly route is an ORDERED RLC FINGERPRINT:
+    add a phase-2 aux column to the exec AIR accumulating `F_exec = Σ r^i · combine(ctr,kind,a,b)` over io rows
+    (r = a challenge drawn after the io commitment), pinned as a public boundary; the io_replay accumulates the
+    SAME `F_exec` over its raw (kind,slot,value) steps (pinned in the folded bundle); settlement checks the two
+    boundaries equal (O(1)). Schwartz–Zippel makes F equal ⇒ same ordered io w.h.p.; the call/cid schedule is
+    bound separately by `calls_commitment`, so together they bind (cid,kind,slot,value) WITHOUT a shared-transcript
+    fold or an in-circuit hash. Cost: one degree-2 aux column added to the W=106 two-phase exec AIR — a delicate,
+    opt-in, differentially-validated money-path change (the deliberate next build).
+
+Until piece 2 lands, `verify_bound_epoch_replay` keeps the native O(#io) binding as the verified fallback
+(soundness-first — no partial O(1) shipped as complete). `verify_epoch_o1` is a validated CAPABILITY (the exec
+verify is already off the O(#io) periodic-table cost); the RLC fingerprint is what makes wiring it into settlement
+sound end-to-end.
 
 **DEPLOYMENT.** Swapping the sparse root in as THE consensus settled root (settle-tx `state_root`,
 `ops/transaction_ops` bridge/dividend/unshield exits, `state.py`) is a genesis-level state-root-scheme change,
