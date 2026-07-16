@@ -6,6 +6,7 @@
 import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, canPay, alertBar, hoist, orderCards, resolveAliases, disp, share,
          wireWallet, inviteGate, stickyInputs, renderWallet, notify } from "./nadodapp.js";
 import { Chess } from "./chess-engine.js";
+import { Practice } from "./practice.js";   // free in-browser practice vs the computer
 
 const CID = "8df88a535f84174b0841286859767161";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="22.4" y="6" width="3.2" height="8" rx="1" fill="#00c9a7"/>     <rect x="18.6" y="8.4" width="10.8" height="3.2" rx="1.2" fill="#00c9a7"/>     <path d="M24 13.5c-6.4 2-9.5 6-9.5 10.5l3 6h13l3-6c0-4.5-3.1-8.5-9.5-10.5z" fill="#00c9a7"/>     <path d="M17.5 30h13l-1.4 4.2h-10.2z" fill="#00ad93"/>     <rect x="14.5" y="34" width="19" height="4.4" rx="2.2" fill="#00c9a7"/></svg>';
@@ -384,7 +385,7 @@ dapp.onReturn((pend, ok, err) => {
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(window.t("chess.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
-  wireUI(); orderCards(["activeGame","lobby","play","walletcard","bankroll"]);
+  wireUI(); orderCards(["activeGame","lobby","play","practice","walletcard","bankroll"]);
   const q = new URLSearchParams(location.search).get("game");
   if (q) { $("joinId").value = q; if (activeGame == null) { activeGame = parseInt(q, 10); haveState = false; } }
   if (q && !dapp.me) { const sto = await dapp.storage({ append: ["wr", "mv", "mc", "p2", "nn"] }); const gm = sto ? gameFrom(sto, parseInt(q,10)) : null;
@@ -396,3 +397,88 @@ async function boot() {
   setInterval(refreshActive, 3000);
 }
 boot();
+
+// ---- PRACTICE MODE (free, in-browser — you are White vs a depth-2 material bot; nothing on-chain) -------
+const prac = new Practice("chess");
+const P_VAL = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+let pEng = new Chess(), pSel = null, pOver = false, pThinking = false, pLast = null;
+function pMaterial(e) {                        // + is good for White
+  let s = 0;
+  for (const row of e.board()) for (const p of row) if (p) s += (p.color === "w" ? 1 : -1) * P_VAL[p.type];
+  return s;
+}
+// Black's move: depth-2 negamax over the engine's legal moves — for each black move take White's best
+// (max-material) reply and play the black move minimizing it; random tie-break between equal moves.
+// Move-count guards keep it instant: material eval only, replies capped (the engine is perft-verified).
+function pAiMove() {
+  let best = null, bestS = Infinity;
+  for (const m of pEng.moves().slice(0, 64)) {
+    pEng.move(m);
+    let s;
+    if (pEng.isCheckmate()) s = -999;          // Black mates — take it
+    else if (pEng.isGameOver()) s = 0;         // stalemate / draw
+    else {
+      s = -Infinity;
+      for (const r of pEng.moves().slice(0, 40)) {
+        pEng.move(r);
+        const v = pEng.isCheckmate() ? 999 : pMaterial(pEng);
+        pEng.undo();
+        if (v > s) s = v;
+      }
+    }
+    pEng.undo();
+    s += Math.random() * 0.1;
+    if (s < bestS) { bestS = s; best = m; }
+  }
+  if (best) { pEng.move(best); pLast = best; }
+}
+function pRenderBoard() {
+  prac.strip($("pStrip"), { chips: false, tally: true });
+  const board = pEng.board();                  // same square/piece approach as the real board (White at bottom)
+  const targets = pSel ? new Set(pEng.moves({ square: pSel }).map((m) => m.to)) : new Set();
+  let html = "";
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+    const sq = FILES[c] + (8 - r), p = board[r][c];
+    const cls = ["sq", (r + c) % 2 === 1 ? "dark" : "light"];
+    if (sq === pSel) cls.push("sel");
+    if (targets.has(sq)) cls.push(p ? "capture" : "target");
+    if (pLast && (sq === pLast.from || sq === pLast.to)) cls.push("last");
+    if (p && p.type === "k" && p.color === pEng.turn() && pEng.inCheck()) cls.push("check");
+    html += '<div class="' + cls.join(" ") + '" data-psq="' + sq + '">' + (p ? '<span class="pc ' + p.color + '">' + pieceSVG(p.type) + "</span>" : "") + "</div>";
+  }
+  $("pBoard").innerHTML = html;
+  $("pBoard").querySelectorAll("[data-psq]").forEach((el) => el.onclick = () => pTap(el.dataset.psq));
+}
+function pEnd(msg, res) { pOver = true; prac.tally(res); $("pResult").innerHTML = msg; pRenderBoard(); }
+function pCheckOver() {                        // engine-detected mate/stalemate/draw → tally w/l/d
+  if (pEng.isCheckmate()) { pEnd(pEng.turn() === "b" ? "🏆 " + window.t("sdk.prYouWin", "You win!") : "💀 " + window.t("sdk.prAiWins", "The computer wins."), pEng.turn() === "b" ? "w" : "l"); return true; }
+  if (pEng.isGameOver()) { pEnd("🤝 " + window.t("sdk.prDraw", "Draw."), "d"); return true; }
+  return false;
+}
+function pTap(sq) {
+  if (pOver || pThinking || pEng.turn() !== "w") return;
+  const piece = pEng.get(sq);
+  if (pSel) {
+    const legal = pEng.moves({ square: pSel }).filter((m) => m.to === sq);
+    if (legal.length) {
+      pEng.move(legal.find((m) => m.promotion === "q") || legal[0]);   // promotions auto-queen in practice
+      pSel = null; pLast = null;
+      if (pCheckOver()) return;
+      pThinking = true;
+      $("pResult").textContent = window.t("sdk.prCpuThinking", "computer to move…");
+      pRenderBoard();
+      setTimeout(() => {
+        pAiMove(); pThinking = false;
+        if (!pCheckOver()) { $("pResult").textContent = window.t("sdk.prYourMove", "▶ YOUR MOVE (practice)"); pRenderBoard(); }
+      }, 60);
+      return;
+    }
+  }
+  pSel = (piece && piece.color === "w") ? sq : null;
+  pRenderBoard();
+}
+if ($("pBoard")) {
+  $("pNew").onclick = () => { pEng = new Chess(); pSel = null; pOver = false; pThinking = false; pLast = null; $("pResult").textContent = window.t("sdk.prYourMove", "▶ YOUR MOVE (practice)"); pRenderBoard(); };
+  $("pResult").textContent = window.t("sdk.prYourMove", "▶ YOUR MOVE (practice)");
+  pRenderBoard();
+}

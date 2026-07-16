@@ -9,6 +9,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m,
          hoist, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore,
          scoreBump, scoreSort, recentChips, statusLabel, inviteGate, loadQR, drawQR, resolveAliases, disp, share, shareInvite,
          blocksToTime } from "./nadodapp.js";
+import { Practice } from "./practice.js";   // free in-browser practice vs the computer
 
 const CID = "9c3d01b6b70f507ecc0bbf75b0615940";   // execnode/games/battleship.py (zkVM, nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Battleship" });
@@ -404,7 +405,7 @@ dapp.onReturn((pend, ok, err) => {
 });
 async function boot() {
   wireUI();
-  orderCards(["activeGame", "setup", "lobby", "walletcard", "bankroll"]);
+  orderCards(["activeGame", "setup", "lobby", "practice", "walletcard", "bankroll"]);
   render();                                     // draw the fleet-placement UI immediately (needs no crypto/network)
   try { await dapp.init(); } catch (e) { alertBar(window.t("bs.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   loadQR();
@@ -414,3 +415,60 @@ async function boot() {
   setInterval(refreshAll, 3000);
 }
 if ($("btnOpen")) boot();
+
+// ---- PRACTICE MODE (free, in-browser — random fleets, hunt/target computer; nothing on-chain) -----------
+const prac = new Practice("battleship");
+let pMyFleet, pMyBoard, pEnBoard, pMyShots, pEnShots, pQueue, pHits, pEnHits, pPracOver;
+function pAiShot() {           // random hunt; after a hit, target adjacent cells until that ship sinks
+  let c;
+  while (pQueue.length && pEnShots.has(pQueue[0])) pQueue.shift();
+  if (pQueue.length) c = pQueue.shift();
+  else do { c = Math.floor(Math.random() * CELLS); } while (pEnShots.has(c));
+  pEnShots.add(c);
+  if (!pMyBoard[c]) return;
+  pEnHits++;
+  const ship = shipAt(pMyFleet, c);
+  if (ship && ship.cells.every((x) => pEnShots.has(x))) { pQueue = []; return; }   // sunk — back to hunting
+  const r = Math.floor(c / N), col = c % N;
+  for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+    const nr = r + dr, nc = col + dc;
+    if (nr >= 0 && nr < N && nc >= 0 && nc < N && !pEnShots.has(nr * N + nc)) pQueue.push(nr * N + nc);
+  }
+}
+function pPracEnd(won) {
+  pPracOver = true; prac.tally(won ? "w" : "l");
+  $("pResult").innerHTML = won ? "🏆 " + window.t("sdk.prYouWin", "You win!") : "💀 " + window.t("sdk.prAiWins", "The computer wins.");
+  pPracRender();
+}
+function pFire(c) {            // tap an enemy cell to fire; the computer answers with its own shot
+  if (pPracOver || pMyShots.has(c)) return;
+  pMyShots.add(c);
+  if (pEnBoard[c] && ++pHits >= SHIPS) return pPracEnd(true);
+  pAiShot();
+  if (pEnHits >= SHIPS) return pPracEnd(false);
+  pPracRender();
+}
+function pPracRender() {
+  prac.strip($("pStrip"), { chips: false, tally: true });
+  let he = "";                 // enemy waters: my shots + results (same cell CSS as the real boards)
+  for (let c = 0; c < CELLS; c++) {
+    const fired = pMyShots.has(c), hit = fired && pEnBoard[c];
+    he += gridCell(fired ? (hit ? "hit" : "miss") : "fog", hit ? "✸" : fired ? "•" : "", c, !pPracOver && !fired);
+  }
+  $("pEnemyGrid").innerHTML = he;
+  $("pEnemyGrid").querySelectorAll("[data-fire]").forEach((el) => el.onclick = () => pFire(Number(el.dataset.fire)));
+  let hm = "";                 // my fleet + the computer's shots
+  for (let c = 0; c < CELLS; c++) {
+    const ship = pMyBoard[c], shot = pEnShots.has(c);
+    hm += gridCell(shot ? (ship ? "hit" : "miss") : (ship ? "ship" : "sea"), shot ? (ship ? "✸" : "•") : "", c, false);
+  }
+  $("pMyGrid").innerHTML = hm;
+  $("pTally").textContent = window.t("bs.tally", "Your hits: {me}/{total} · Enemy hits: {them}/{total}", { me: pHits, them: pEnHits, total: SHIPS });
+  if (!pPracOver) $("pResult").textContent = window.t("bs.yourTurnFire", "🎯 Your turn — fire!");
+}
+function pNewBattle() {        // randomize YOUR fleet (same ship set + no-overlap rules) + a hidden enemy fleet
+  pMyFleet = randFleetShips(); pMyBoard = boardOf(pMyFleet); pEnBoard = boardOf(randFleetShips());
+  pMyShots = new Set(); pEnShots = new Set(); pQueue = []; pHits = 0; pEnHits = 0; pPracOver = false;
+  pPracRender();
+}
+if ($("pEnemyGrid")) { $("pNew").onclick = pNewBattle; pNewBattle(); }

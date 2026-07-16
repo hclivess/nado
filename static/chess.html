@@ -153,6 +153,16 @@
     </p>
   </div>
 
+  <!-- PRACTICE — free vs-computer game, fully in-browser -->
+  <div class="card" id="practice" style="--gold:#e3b341">
+    <h2 data-i18n="sdk.prHead">🎯 Practice — free, in your browser</h2>
+    <p class="small dim" data-i18n="sdk.prHelpBoard">Same game vs the computer: nothing touches the chain, no wallet needed. For real stakes, use the game above.</p>
+    <div id="pStrip" class="small mt"></div>
+    <div id="pBoard" style="display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);width:100%;max-width:440px;margin:10px auto;aspect-ratio:1/1;border:3px solid #2a3947;border-radius:6px;overflow:hidden;touch-action:manipulation"></div>
+    <div id="pResult" class="mt" style="min-height:22px;text-align:center"></div>
+    <div class="row"><button class="ghost" id="pNew" style="flex:1" data-i18n="sdk.prNewGame">↻ New practice game</button></div>
+  </div>
+
   <footer data-i18n-html="chess.footer">Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · moves ride L1 as ordered blobs (a move confirms in ~1 min).</footer>
 </div>
 <script type="module" src="/static/chess.js"></script>

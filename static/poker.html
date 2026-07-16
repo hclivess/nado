@@ -219,6 +219,29 @@
     </p>
   </div>
 
+  <!-- PRACTICE — free heads-up hand vs the computer, fully in-browser -->
+  <div class="card-box" id="practice" style="--gold:#e3b341">
+    <h2 data-i18n="sdk.prHead">🎯 Practice — free, in your browser</h2>
+    <p class="small dim" data-i18n="sdk.prHelp">Same game, play chips: nothing touches the chain, no wallet needed. When you're ready for real NADO, use the tables above.</p>
+    <div id="pStrip" class="small mt"></div>
+    <div class="felt mt">
+      <div class="lbl" data-i18n="poker.communityCards">Community cards</div>
+      <div class="hand" id="pCommunity"></div>
+      <div class="lbl" style="margin-top:12px" data-i18n="poker.holeCards">Your hole cards</div>
+      <div class="hand" id="pHole"></div>
+      <div class="lbl" style="margin-top:12px" data-i18n="sdk.prCpu">Computer</div>
+      <div class="hand" id="pBotHole"></div>
+    </div>
+    <div id="pInfo" class="small dim mt" style="text-align:center"></div>
+    <div id="pResult" class="mt" style="min-height:22px;text-align:center;font-weight:700"></div>
+    <div class="row mt" id="pActions">
+      <button class="primary" id="pDeal">🃏 Deal</button>
+      <button class="primary hidden" id="pCheck"></button>
+      <button class="ghost hidden" id="pBet"></button>
+      <button class="ghost hidden" id="pFold" data-i18n="poker.foldBtn">🙅 Fold</button>
+    </div>
+  </div>
+
   <footer data-i18n-html="poker.footer">Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · <a href="https://get.nadochain.com/rollup">see the contract</a>.</footer>
 </div>
 <script type="module" src="/static/poker.js"></script>

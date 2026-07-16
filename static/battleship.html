@@ -159,6 +159,20 @@
     <p class="small dim" data-i18n-html="bs.fairBody">When you open or join, your browser builds a salted <b>Merkle-sum</b> fingerprint of your 100-cell board and commits only its root. Each time you're fired on, you reveal <b>just that one cell</b> plus a short proof; the contract checks it against your committed root — so a "miss" on a real ship is mathematically impossible, and the same proof binds your fleet to exactly 17 cells (you can't hide ships to be unsinkable). Stalling can't win: past the move clock the waiting player claims the pot. No reveal at the end, no oracle, no trusted party.</p>
   </div>
 
+  <!-- PRACTICE — free vs-computer battle, fully in-browser -->
+  <div class="card" id="practice">
+    <h2 data-i18n="sdk.prHead">🎯 Practice — free, in your browser</h2>
+    <p class="small dim" data-i18n="sdk.prHelpBoard">Same game vs the computer: nothing touches the chain, no wallet needed. For real stakes, use the game above.</p>
+    <div id="pStrip" class="small mt"></div>
+    <div class="gridwrap">
+      <div class="gridbox"><div class="gridtitle" data-i18n="bs.enemyWaters">🎯 Enemy waters — tap to fire</div><div class="bgrid" id="pEnemyGrid"></div></div>
+      <div class="gridbox"><div class="gridtitle" data-i18n="bs.yourFleet">🚢 Your fleet — enemy shots</div><div class="bgrid" id="pMyGrid"></div></div>
+    </div>
+    <div id="pTally" style="text-align:center;color:var(--dim);font-size:12.5px;margin-top:8px;font-family:var(--mono)"></div>
+    <div id="pResult" class="mt" style="min-height:22px;text-align:center;font-weight:700"></div>
+    <div class="row"><button class="ghost" id="pNew" style="flex:1" data-i18n="sdk.prNewGame">↻ New practice game</button></div>
+  </div>
+
   <footer data-i18n="bs.footer">NADO Battleship · trustless commit-reveal · post-quantum signatures · no house</footer>
 </div>
 <script type="module" src="/static/battleship.js"></script>
