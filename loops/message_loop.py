@@ -130,7 +130,7 @@ class MessageClient(threading.Thread):
                 self.logger.debug(
                     f"Mempool: {len(self.memserver.transaction_pool)} tx")
                 self.logger.debug(
-                    f"Tx hash agreement: {int(self.consensus.transaction_hash_pool_percentage)}%")
+                    f"Tx volatility index: {int(100 - self.consensus.transaction_hash_pool_percentage)}%")
                 self.logger.debug(
                     f"Upcoming-block agreement: {int(self.consensus.upcoming_block_hash_pool_percentage)}% "
                     f"(next-block tx set — what the fast-forward depends on)")
