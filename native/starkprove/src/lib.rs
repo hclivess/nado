@@ -14,15 +14,14 @@
 // ROADMAP (each stage bit-identity-gated by tests/test_starkprove.py before anything depends on it):
 //   [DONE] step 1  persistent LDE arena + fused native interpolate→coset-eval (sp_lde_column / sp_read).
 //   [DONE] step 2  Merkle commit + open from the arena, RECURSION backend rleaf/rnode (sp_commit_col / sp_open).
-//   [TODO] step 3  composition from the arena: compute invZ + boundary denominators + x_lde in Rust, evaluate
-//                  the air_ir constraint program over the retained col/periodic LDEs, retain cp — so col_lde /
-//                  per_lde never become Python lists (the linchpin: this is what actually lowers PEAK memory).
-//   [TODO] step 4  FRI (fold layers + commit + query) over the retained cp.
-//   [TODO] step 5  openings straight from the retained trees at the FRI query positions.
-//   [TODO] step 6  an opt-in orchestrator (execnode/stark) that runs the whole prove via the arena — transcript
-//                  stays in Python (a few hashes) — and an END-TO-END bit-identity test vs stark.prove, then
-//                  row-commit + two-phase. Only when that passes does the default prover switch over.
-// Default stark.prove is untouched until the whole path is proven byte-for-byte.
+//   [DONE] step 3  composition from the arena (sp_compose): invZ + boundary denominators + coset domain in
+//                  Rust, air_ir SSA program over the retained col/periodic LDEs, cp retained — the linchpin.
+//   [DONE] step 4  FRI over the retained cp (sp_fold + sp_commit_col + sp_open; transcript stays in Python).
+//   [DONE] step 5  openings straight from the retained columns/trees (sp_read / sp_open).
+//   [DONE] step 6  stark_native.prove — the whole prove via the arena, ALL modes (column + row-commit
+//                  sp_commit_rows/rrow, single- + two-phase), byte-identical end-to-end vs stark.prove and the
+//                  proofs verify (tests/test_starkprove.py). Wired into stark.prove for the RECURSION backend.
+// COMPLETE: every stage bit-identical, gated by tests/test_starkprove.py.
 
 use std::sync::Mutex;
 
@@ -239,6 +238,28 @@ fn rnode(a: &[u64; CAP], b: &[u64; CAP]) -> [u64; CAP] {
     [s[0], s[1], s[2], s[3]]
 }
 
+// hashn(els) — the sponge with els already carrying its length prefix as els[0] (matches alghash2.py: els =
+// [len] + elements). State = [0;RATE] ++ IV; absorb RATE lanes at a time (add into rate, permute); squeeze
+// the first CAP lanes. Used by rrow (whole-row leaf) = hashn([len, DOM_LEAF, *row]).
+fn hashn(els: &[u64]) -> [u64; CAP] {
+    let mut state = [0u64; HW];
+    unsafe {
+        for k in 0..CAP {
+            state[RATE + k] = IVH[k];
+        }
+    }
+    let mut off = 0usize;
+    while off < els.len() {
+        let end = core::cmp::min(off + RATE, els.len());
+        for i in 0..(end - off) {
+            state[i] = addf(state[i], els[off + i]);
+        }
+        permute(&mut state);
+        off += RATE;
+    }
+    [state[0], state[1], state[2], state[3]]
+}
+
 /// Install the alghash2 round constants / IV / MDS (Python passes the SAME arrays it passes to native/alghash2).
 ///
 /// # Safety
@@ -424,6 +445,66 @@ pub unsafe extern "C" fn sp_commit_col(col: usize, root_ptr: *mut u64) -> i64 {
         digs.push(rleaf(arena.cols[col][i]));
     }
     // inner layers, bottom-up, appended after the leaves (same flat layout as native rmerkle_commit)
+    let mut layer_start = 0usize;
+    let mut layer_len = n;
+    while layer_len > 1 {
+        let half = layer_len / 2;
+        for i in 0..half {
+            let a = digs[layer_start + 2 * i];
+            let b = digs[layer_start + 2 * i + 1];
+            digs.push(rnode(&a, &b));
+        }
+        layer_start += layer_len;
+        layer_len = half;
+    }
+    let root = digs[digs.len() - 1];
+    if !root_ptr.is_null() {
+        for k in 0..CAP {
+            *root_ptr.add(k) = root[k];
+        }
+    }
+    arena.trees.push(Tree { n, digs });
+    (arena.trees.len() - 1) as i64
+}
+
+/// ROW-commit: build ONE Merkle tree whose leaf j = rrow(row j) = hashn([1+w, DOM_LEAF, cols[ids[0]][j], …,
+/// cols[ids[w-1]][j]]) across the given column group, inner nodes = rnode — the wide-trace enabler (one path
+/// authenticates a whole opened row). Retains the tree, writes the CAP-lane root, returns the tree id (or -1).
+/// Byte-identical to stark._row_tree(group, N) → merkle.commit_digests over RECURSION.
+///
+/// # Safety
+/// `col_ids` must point to `w` usize; each must index a retained column of length arena.n; `root_ptr`, if
+/// non-null, to CAP writable u64.
+#[no_mangle]
+pub unsafe extern "C" fn sp_commit_rows(col_ids: *const usize, w: usize, root_ptr: *mut u64) -> i64 {
+    let mut g = ARENA.lock().unwrap();
+    let arena = match g.as_mut() {
+        Some(a) => a,
+        None => return -1,
+    };
+    if !HASH_READY || w == 0 {
+        return -1;
+    }
+    let ids = std::slice::from_raw_parts(col_ids, w);
+    for &c in ids {
+        if c >= arena.cols.len() {
+            return -1;
+        }
+    }
+    let n = arena.cols[ids[0]].len();
+    if n < 1 || (n & (n - 1)) != 0 {
+        return -1;
+    }
+    let mut digs: Vec<[u64; CAP]> = Vec::with_capacity(2 * n - 1);
+    let mut els = vec![0u64; w + 2];
+    els[0] = (w as u64) + 1; // len([DOM_LEAF, *row]) = 1 + w
+    els[1] = 1; // DOM_LEAF
+    for j in 0..n {
+        for (k, &c) in ids.iter().enumerate() {
+            els[2 + k] = arena.cols[c][j];
+        }
+        digs.push(hashn(&els));
+    }
     let mut layer_start = 0usize;
     let mut layer_len = n;
     while layer_len > 1 {

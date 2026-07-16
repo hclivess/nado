@@ -62,6 +62,8 @@ def available():
                 lib.sp_fold.restype = ctypes.c_int64
                 lib.sp_load_col.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
                 lib.sp_load_col.restype = ctypes.c_int64
+                lib.sp_commit_rows.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p]
+                lib.sp_commit_rows.restype = ctypes.c_int64
                 _init_hash(lib)
                 _LIB, _state = lib, True
                 return True
@@ -111,6 +113,18 @@ def commit_col(col_id):
     tid = _LIB.sp_commit_col(int(col_id), ctypes.cast(root, ctypes.c_void_p))
     if tid < 0:
         raise RuntimeError("sp_commit_col failed")
+    return tid, tuple(root)
+
+
+def commit_rows(col_ids):
+    """Row-commit a group of retained columns into ONE tree (leaf = rrow of the row across the group). Returns
+    (tree_id, root). Bit-identical to stark._row_tree(group, N)."""
+    n = len(col_ids)
+    ids = (ctypes.c_size_t * n)(*[int(c) for c in col_ids])
+    root = (ctypes.c_uint64 * _CAP)()
+    tid = _LIB.sp_commit_rows(ctypes.cast(ids, ctypes.c_void_p), n, ctypes.cast(root, ctypes.c_void_p))
+    if tid < 0:
+        raise RuntimeError("sp_commit_rows failed")
     return tid, tuple(root)
 
 
@@ -226,13 +240,15 @@ def fri_prove(cp_col, offset, blowup, num_queries, transcript):
             "pow": pow_nonce, "queries": queries}
 
 
-def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=None, aux=None):
-    """HOLISTIC prove (step 6) — reproduces stark.prove single-phase COLUMN mode entirely through the arena:
-    trace/periodic LDEs, per-column Merkle commits, composition, and FRI all stay in Rust; only the transcript
-    (a handful of hashes) is Python. Backend is RECURSION (the arena's alghash2 hash). Bit-identical to
-    stark.prove(trace, transitions, boundaries, periodic, max_degree, num_queries, backend=RECURSION).
-    Returns the same proof dict. (row_commit + two-phase are added next.)"""
-    from execnode.stark import stark, fri, air_ir, backend as _B
+def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=None, aux=None,
+          aux_spec=None, row_commit=False):
+    """HOLISTIC prove (step 6) — reproduces stark.prove(..., backend=RECURSION) ENTIRELY through the arena:
+    trace/aux/periodic LDEs, Merkle commits (per-column, or ONE row tree per phase when row_commit), the
+    composition, FRI, and the openings all stay in Rust u64 buffers; only the transcript (a handful of hashes)
+    and the two-phase aux BUILDER — an AIR-specific Python callback over small T-length columns — run in Python.
+    Handles single- and two-phase (aux_spec), column- and row-commit. Byte-identical proof dict to stark.prove;
+    tests/test_starkprove.py gates it field-for-field end-to-end + verifies under stark.verify."""
+    from execnode.stark import stark, air_ir, backend as _B
     from execnode.stark.transcript import Transcript
     periodic = periodic or []
     if num_queries is None:
@@ -243,40 +259,68 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     OFF = stark.OFF
 
     reset(T, N, OFF)
-    # LDE the W trace columns (arena ids 0..W), then the periodic columns (ids W..W+nper) — the order sp_compose
-    # expects. Nothing marshals back to Python.
-    for c in range(W):
+    for c in range(W):                                   # main trace columns → arena ids 0..W
         lde_column([trace[i][c] for i in range(T)], N, want_out=False)
-    for pc in periodic:
-        lde_column(stark._per_expand(pc, T), N, want_out=False)
 
     t = Transcript("nado-stark", backend=_B.RECURSION)
     if aux is not None:
         t.absorb("aux", str(aux))
-    col_roots, trees = [], []
-    for c in range(W):
-        tid, root = commit_col(c)
-        col_roots.append(root); trees.append(tid); t.absorb(root)
+    col_roots, row_roots, trees, row_trees = [], [], [], []
+    if row_commit:
+        tid, root = commit_rows(list(range(W)))
+        row_roots.append(root); row_trees.append(tid); t.absorb(root)
+    else:
+        for c in range(W):
+            tid, root = commit_col(c); col_roots.append(root); trees.append(tid); t.absorb(root)
+
+    challenges = None
+    Wtot = W
+    if aux_spec is not None:                             # phase 2: challenges AFTER the main commit, then aux
+        challenges = [t.challenge() for _ in range(aux_spec["num_challenges"])]
+        aux_cols = aux_spec["build"](trace, challenges)
+        if len(aux_cols) != aux_spec["num_aux"] or any(len(c) != T for c in aux_cols):
+            raise ValueError("aux builder returned wrong geometry")
+        aux_ids = [lde_column([v % _P for v in col], N, want_out=False)[0] for col in aux_cols]
+        if row_commit:
+            tid, root = commit_rows(aux_ids); row_roots.append(root); row_trees.append(tid); t.absorb(root)
+        else:
+            for cid in aux_ids:
+                tid, root = commit_col(cid); col_roots.append(root); trees.append(tid); t.absorb(root)
+        Wtot += aux_spec["num_aux"]
+
+    for pc in periodic:                                  # periodic columns → arena ids Wtot..Wtot+nper
+        lde_column(stark._per_expand(pc, T), N, want_out=False)
 
     alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
-    prog = air_ir.build_program(transitions, W, len(periodic), 0)
-    cp_col, _ = compose(prog, boundaries, alphas, [], T, N, blowup, want_out=False)
+    prog = air_ir.build_program(transitions, Wtot, len(periodic), 0 if challenges is None else len(challenges))
+    cp_col, _ = compose(prog, boundaries, alphas, challenges or [], T, N, blowup, want_out=False)
 
     fri_blowup = N // deg_bound
     fri_proof = fri_prove(cp_col, OFF, fri_blowup, num_queries, t)
 
-    openings = []
+    openings, plen = [], N.bit_length() - 1
     for q in fri_proof["queries"]:
         lo = q["idx"] % (N // 2)
         nxt = (lo + blowup) % N
-        plen = N.bit_length() - 1
-        cols = [{"cur": read(c, lo), "cur_path": open_at(trees[c], lo, plen),
-                 "nxt": read(c, nxt), "nxt_path": open_at(trees[c], nxt, plen)} for c in range(W)]
-        openings.append({"lo": lo, "cols": cols})
+        if row_commit:
+            openings.append({"lo": lo,
+                             "cur": [read(c, lo) for c in range(Wtot)],
+                             "nxt": [read(c, nxt) for c in range(Wtot)],
+                             "cur_paths": [open_at(tid, lo, plen) for tid in row_trees],
+                             "nxt_paths": [open_at(tid, nxt, plen) for tid in row_trees]})
+        else:
+            cols = [{"cur": read(c, lo), "cur_path": open_at(trees[c], lo, plen),
+                     "nxt": read(c, nxt), "nxt_path": open_at(trees[c], nxt, plen)} for c in range(Wtot)]
+            openings.append({"lo": lo, "cols": cols})
 
     free()
-    return {"T": T, "W": W, "N": N, "blowup": blowup, "deg_bound": deg_bound,
-            "boundaries": boundaries, "fri": fri_proof, "openings": openings, "col_roots": col_roots}
+    out = {"T": T, "W": Wtot, "N": N, "blowup": blowup, "deg_bound": deg_bound,
+           "boundaries": boundaries, "fri": fri_proof, "openings": openings}
+    if row_commit:
+        out["row_roots"] = row_roots
+    else:
+        out["col_roots"] = col_roots
+    return out
 
 
 def read(col, pos):

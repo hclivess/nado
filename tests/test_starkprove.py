@@ -209,6 +209,64 @@ def t_prove_end_to_end():
         assert ok, f"holistic-proved proof must verify under stark.verify: {why}"
 
 
+def t_prove_row_commit():
+    """HOLISTIC prove == stark.prove in ROW-COMMIT mode (ONE row tree; openings authenticate a whole row with
+    one path), byte-identical + verifies."""
+    PER0 = {"period": 4, "base": [3, 1, 4, 1]}
+    TRANS = [lambda c, n, p: F.sub(n[0], F.add(F.mul(c[0], c[0]), p[0])),
+             lambda c, n, p: F.sub(c[1], F.mul(c[0], c[0]))]
+    for T, NQ in [(8, 3), (64, 6)]:
+        random.seed(7000 + T)
+        PD = [PER0["base"][i % 4] for i in range(T)]
+        col0 = [random.randrange(F.P)]
+        for i in range(T - 1):
+            col0.append(F.add(F.mul(col0[-1], col0[-1]), PD[i]))
+        trace = [[v, F.mul(v, v)] for v in col0]
+        BND = [(0, 0, col0[0]), (0, 1, F.mul(col0[0], col0[0]))]
+        want = stark.prove(trace, TRANS, BND, periodic=[PER0], max_degree=2, num_queries=NQ,
+                           backend=B.RECURSION, row_commit=True)
+        got = SN.prove(trace, TRANS, BND, periodic=[PER0], max_degree=2, num_queries=NQ, row_commit=True)
+        _proofs_equal(got, want)
+        ok, why = stark.verify(got, TRANS, BND, periodic=[PER0], max_degree=2, num_queries=NQ,
+                               backend=B.RECURSION, row_commit=True)
+        assert ok, f"row-committed holistic proof must verify: {why}"
+
+
+def t_prove_two_phase():
+    """HOLISTIC prove == stark.prove for a TWO-PHASE (LogUp-style) AIR: main commit → challenge γ → aux
+    running-sum column → composition with γ. The aux BUILDER stays in Python (small T-length columns); the
+    LDEs/commit/compose/FRI stay in the arena. Byte-identical + verifies. This is the execution/segment shape."""
+    PER0 = {"period": 4, "base": [3, 1, 4, 1]}
+    TRANS = [lambda c, n, p, ch: F.sub(n[0], F.add(F.mul(c[0], c[0]), p[0])),
+             lambda c, n, p, ch: F.sub(c[1], F.mul(c[0], c[0])),
+             lambda c, n, p, ch: F.sub(n[2], F.add(c[2], F.mul(ch[0], n[0])))]
+
+    def build_aux(trace, chals):
+        g = chals[0]; acc = 0; out = []
+        for i, row in enumerate(trace):
+            if i > 0:
+                acc = F.add(acc, F.mul(g, row[0]))
+            out.append(acc)
+        return [out]
+    SPEC = {"num_challenges": 1, "num_aux": 1, "build": build_aux}
+    for T, NQ in [(8, 3), (64, 6)]:
+        random.seed(8000 + T)
+        PD = [PER0["base"][i % 4] for i in range(T)]
+        col0 = [random.randrange(F.P)]
+        for i in range(T - 1):
+            col0.append(F.add(F.mul(col0[-1], col0[-1]), PD[i]))
+        trace = [[v, F.mul(v, v)] for v in col0]
+        BND = [(0, 0, col0[0]), (0, 2, 0)]
+        want = stark.prove(trace, TRANS, BND, periodic=[PER0], max_degree=2, num_queries=NQ,
+                           aux_spec=SPEC, backend=B.RECURSION, row_commit=True)
+        got = SN.prove(trace, TRANS, BND, periodic=[PER0], max_degree=2, num_queries=NQ,
+                       aux_spec=SPEC, row_commit=True)
+        _proofs_equal(got, want)
+        ok, why = stark.verify(got, TRANS, BND, periodic=[PER0], max_degree=2, num_queries=NQ,
+                               aux_spec=SPEC, backend=B.RECURSION, row_commit=True)
+        assert ok, f"two-phase holistic proof must verify: {why}"
+
+
 if __name__ == "__main__":
     if not SN.available():
         print("SKIP  native/starkprove not built (cd native/starkprove && cargo build --release). "
@@ -221,5 +279,7 @@ if __name__ == "__main__":
     check("native arena composition bit-identical with a challenge (CHAL opcode)", t_compose_with_challenge)
     check("native arena FRI bit-identical to fri.prove (fold+commit+open+queries)", t_fri_bit_identical)
     check("HOLISTIC prove == stark.prove end-to-end (single-phase column, verifies)", t_prove_end_to_end)
+    check("HOLISTIC prove == stark.prove (row-commit, verifies)", t_prove_row_commit)
+    check("HOLISTIC prove == stark.prove (two-phase LogUp, verifies)", t_prove_two_phase)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)
