@@ -368,17 +368,37 @@ proves the ordered io fingerprint `fp_exec = Σ combine([TAG_IO, ioc, kind, a, b
 (`proof["io_fingerprint"]`), byte-identical when off; `io_log_fingerprint` recomputes the same value from the
 public log (the io bus forces IOC=PL_CTR, so trace fp == log fp).
 
-**Rigorous soundness result (why the rest needs the fold, 2026-07-16).** A fingerprint match `fp_exec == fp_replay`
-binds the two ios ONLY if γ_fp post-dates BOTH commitments (Fiat–Shamir): with a one-sided γ_fp (derived from just
-the exec's `per_root`, or just the io commitment) the OTHER proof's io is chosen after γ_fp is fixed and can be
-adapted to force a collision (its io values are free witness) — UNSOUND. A γ_fp = H(exec_commit ‖ replay_commit)
-is sound, but each proof needs γ_fp to compute its own fingerprint, and neither knows the other's commitment at
-prove time ⇒ the binding CANNOT live in the leaves. It must be enforced in the RECURSION/FOLD layer, whose shared
-transcript absorbs both leaves' roots before drawing γ_fp (or, equivalently, a recursive multiset/permutation
-argument over the leaves' committed io). This is the deepest part of recursive proof composition and the single
-remaining construction for asymptotic end-to-end O(1). Everything else — exec verify off O(#io), all primitives,
-the fingerprint capability — is built and validated; `verify_bound_epoch_replay` keeps the native O(#io) binding
-as the verified fallback until the fold-layer binding lands (soundness-first — no partial O(1) shipped as complete).
+**Rigorous soundness result (2026-07-16).** A fingerprint/multiset match binds two ios ONLY if its challenge
+post-dates BOTH commitments (Fiat–Shamir): a one-sided challenge lets the other proof's free-witness io adapt to
+collide. A challenge over both commitments can't be computed inside either leaf (neither knows the other's root at
+prove time), so the binding must be enforced where both roots are already committed.
+
+**The fold-layer binding — BUILT (the efficient, no-shortcut construction).** Rather than a shared prover
+transcript, the binding uses DEEP out-of-domain evaluation, the standard PLONK/DEEP technique:
+  * `deep_eval.py` (`prove_eval`/`verify_eval`) — proves `P(z)=v` for a committed column `P` at a random OOD point
+    `z`, in O(polylog): commit `q=(P−v)/(x−z)`, FRI-prove `deg(q)<T`, check `q·(x−z)=P−v` at the query points (a
+    low-degree `q` obeying the relation forces `P(z)=v`; a wrong `v` makes `q` non-polynomial ⇒ FRI rejects).
+    `commit_column` exposes the root so a caller ties `P` to an already-committed column by root equality.
+    `tests/test_deep_eval.py`.
+  * `io_bind.py` (`prove_io_bind`/`verify_io_bind`) — commits both sides' io columns, draws `z` from a transcript
+    absorbing ALL roots (post-both — the soundness crux), and DEEP-evals every column pair at `z`; equal
+    evaluations at one random OOD point bind the whole polynomials (Schwartz–Zippel). No public io (no DA
+    shortcut), no shared prover transcript, no combined mega-AIR. `tests/test_io_bind.py`: matching io binds, ANY
+    replay-io difference is rejected (the prover can't adapt — `z` is fixed after both commitments).
+  * `tests/test_io_bind_exec.py` — the END-TO-END tie: `commit_column` at the exec proof's geometry reproduces
+    bit-for-bit the io-table roots (PL_CTR/KIND/A/B/ACT) that `build_periodic` commits inside a real
+    `prove_epoch_calls(commit_periodic=…)` proof, so the binding attaches to the exec's ACTUAL committed io (which
+    `verify_epoch_o1` never re-derives) and binds it to the replay's io without the verifier seeing the log.
+
+**Remaining assembly (finite integration, not research).** The binding chain is: (1) exec proves execution of its
+committed io [`verify_epoch_o1`]; (2) `io_bind` ties the exec's committed io == the replay's committed io columns;
+(3) the replay's committed io columns == the io its merkle-updates APPLY; (4) the replay's updates advance
+pre_root→post_root [`io_replay`, folded]. (1),(2),(4) are built. Piece (3) needs the replay to commit its io
+columns and prove its position-pinned updates read exactly them — plus the slot↔`slot_key` map made in-circuit
+(swap `exec_state_bind.slot_key` from blake2b to alghash so `key = slot_key(cid, slot)` is a cheap in-circuit
+hash, or a preimage binding). Folding `io_bind` into the settlement bundle uses `recursive_verify_hetero` (now
+row+two-phase, §5b). Until (3) lands, `verify_bound_epoch_replay` keeps the native O(#io) binding as the verified
+fallback (soundness-first — no partial O(1) shipped as complete).
 
 **DEPLOYMENT.** Swapping the sparse root in as THE consensus settled root (settle-tx `state_root`,
 `ops/transaction_ops` bridge/dividend/unshield exits, `state.py`) is a genesis-level state-root-scheme change,
