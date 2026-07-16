@@ -80,11 +80,13 @@ def _try_native():
         lib.init.argtypes = [ctypes.POINTER(ctypes.c_uint64)] * 3
         lib.hashn.argtypes = [ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint64)]
         lib.permute12.argtypes = [ctypes.POINTER(ctypes.c_uint64)]
-        try:                                          # grind / merkle_commit are newer — tolerate an older .so
+        try:                                          # grind / merkle_commit / rmerkle_commit are newer —
             lib.grind.argtypes = [ctypes.POINTER(ctypes.c_uint64), ctypes.c_uint64, ctypes.c_uint32]
-            lib.grind.restype = ctypes.c_uint64
+            lib.grind.restype = ctypes.c_uint64       # tolerate an older .so that lacks them
             lib.merkle_commit.argtypes = [ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t,
                                           ctypes.POINTER(ctypes.c_uint64)]
+            lib.rmerkle_commit.argtypes = [ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t,
+                                           ctypes.POINTER(ctypes.c_uint64)]
         except Exception:
             pass
         u64 = ctypes.c_uint64
@@ -187,6 +189,35 @@ def merkle_commit(values):
     leaves = (u64 * n)(*[int(v) % F.P for v in values])
     out = (u64 * ((2 * n - 1) * CAPACITY))()
     lib.merkle_commit(leaves, n, out)
+    digs = [tuple(out[i * CAPACITY + k] for k in range(CAPACITY)) for i in range(2 * n - 1)]
+    layers, start, ln = [], 0, n
+    while True:
+        layers.append(digs[start:start + ln])
+        start += ln
+        if ln == 1:
+            break
+        ln //= 2
+    return layers[-1][0], layers
+
+
+def rmerkle_commit(values):
+    """Native RECURSION-backend (rleaf/rnode) whole-tree Merkle build → (root, layers), bit-identical to
+    merkle.commit over backend.RECURSION (leaf = rleaf(x), inner = rnode(a,b) — one permutation per node). One
+    FFI call replaces the ~2N per-node permute crossings that dominated recursion-backend proving. `layers[0]`
+    = leaf digests … `layers[-1]` = [root], the structure merkle.open_at walks. Returns None if the native lib
+    (or its rmerkle_commit export) is unavailable or the length is not a power of two → caller falls back."""
+    nat = _try_native()
+    if not nat:
+        return None
+    lib, u64 = nat
+    if not hasattr(lib, "rmerkle_commit"):
+        return None
+    n = len(values)
+    if n < 1 or (n & (n - 1)):
+        return None
+    leaves = (u64 * n)(*[int(v) % F.P for v in values])
+    out = (u64 * ((2 * n - 1) * CAPACITY))()
+    lib.rmerkle_commit(leaves, n, out)
     digs = [tuple(out[i * CAPACITY + k] for k in range(CAPACITY)) for i in range(2 * n - 1)]
     layers, start, ln = [], 0, n
     while True:

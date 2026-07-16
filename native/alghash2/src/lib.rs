@@ -110,6 +110,48 @@ pub unsafe extern "C" fn merkle_commit(leaves: *const u64, n: usize, out: *mut u
     }
 }
 
+// rmerkle_commit(leaves[n], n, out): the RECURSION-backend (rleaf/rnode) whole tree in native code. The
+// recursion backend commits with ONE permutation per node (no hashn length prefix), and building it was a
+// Python loop calling native permute per node — ~2N FFI crossings, the dominant cost of recursion-backend
+// proving (fold/comp/segment proofs, which MUST use this backend to be foldable). Bit-identical to
+// merkle.commit over backend.RECURSION: leaf = rleaf(x) = permute([DOM_LEAF, x, 0,0,0,0,0,0, IV])[:CAP];
+// inner = rnode(a,b) = permute([a0..3, b0..3, IV])[:CAP]. `n` MUST be a power of two; `out` receives all
+// 2n-1 layer digests bottom-up concatenated (CAP lanes each), same layout as merkle_commit. DOM_LEAF = 1.
+#[no_mangle]
+pub unsafe extern "C" fn rmerkle_commit(leaves: *const u64, n: usize, out: *mut u64) {
+    // leaf layer: rleaf(x)
+    for i in 0..n {
+        let mut s = [0u64; W];
+        s[0] = 1;                 // DOM_LEAF
+        s[1] = *leaves.add(i);
+        for k in 0..CAP { s[RATE + k] = IV[k]; }   // lanes 2..7 stay 0
+        permute(&mut s);
+        for k in 0..CAP { *out.add(i * CAP + k) = s[k]; }
+    }
+    // inner layers: rnode(a,b)
+    let mut layer_start = 0usize;
+    let mut layer_len = n;
+    let mut off = n;
+    while layer_len > 1 {
+        let half = layer_len / 2;
+        for i in 0..half {
+            let a = layer_start + 2 * i;
+            let b = a + 1;
+            let mut s = [0u64; W];
+            for k in 0..CAP {
+                s[k] = *out.add(a * CAP + k);          // a in lanes 0..3
+                s[CAP + k] = *out.add(b * CAP + k);    // b in lanes 4..7
+                s[RATE + k] = IV[k];                   // IV in lanes 8..11
+            }
+            permute(&mut s);
+            for k in 0..CAP { *out.add((off + i) * CAP + k) = s[k]; }
+        }
+        layer_start = off;
+        off += half;
+        layer_len = half;
+    }
+}
+
 // grind(state[CAP], dom, bits): the STARK-transcript proof-of-work, run ENTIRELY in native code (the fold's
 // dominant cost — GRIND_BITS≈18 ⇒ ~2^18 hashes per proof, and doing them one-at-a-time over ctypes from
 // Python was the recursion bottleneck). Byte-identical to transcript.grind over the alghash2 backend: the PoW
