@@ -340,3 +340,6 @@ function renderSoloBoard(sto) {
 }
 
 duel.boot(["activeGame", "solo", "lobby", "play", "walletcard", "bankroll", "scoreboard"]);
+
+// test hook: the UI E2E harness (tests/*_ui_e2e.mjs) drives the real DOM against crafted engine states
+if (typeof window !== "undefined") window.__duel = duel;

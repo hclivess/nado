@@ -146,29 +146,31 @@ function renderSupply(gm, eng) {
 function decisionPrompt(gm, eng, f) {
   const me = duel.myIdx(gm), mine = f.p === me;
   const who = mine ? "" : T("oppDeciding", "Waiting for {who} to decide — ", { who: disp(f.p === 0 ? gm.p1 : gm.p2) });
+  // LAZY table: each entry is a thunk — eager evaluation crashed on frame-specific fields
+  // (e.g. NAME(f.atk) exists only for moat frames) and killed the whole decision bar.
   const P = {
-    cel: T("dCel", "Winnow: select any cards to discard, then draw that many."),
-    chp: T("dChp", "Purifier: select up to 4 cards to trash."),
-    har: T("dHar", "Undertow: you may put a card from your discard pile on top of your deck."),
-    vas: T("dVas", "Whirlwind revealed {card} — play it?", { card: f.card != null ? NAME(f.card) : "" }),
-    mil: T("dMil", "Raiders attack! Select {n} card(s) to discard (down to 3).", { n: Math.max(0, (eng.ps[f.p].hand.length - 3)) }),
-    bur: T("dBur", "Collector attack! Tap a Victory card to put on top of your deck."),
-    ban: T("dBan", "Storm Riders attack! Tap the revealed treasure to trash."),
-    mon: T("dMon", "Smelter: trash a Copper for +3 🪙?"),
-    poa: T("dPoa", "Drifter: select {n} card(s) to discard.", { n: f.n }),
-    remT: T("dRemT", "Reforge: tap a card to trash (you'll gain up to its cost +2)."),
-    remG: T("dRemG", "Reforge: tap a supply pile costing up to {max} to gain.", { max: f.max }),
-    thr: T("dThr", "Echo: tap an Action card to play it twice."),
-    minT: T("dMinT", "Refinery: tap a Treasure to trash (gain one costing up to +3, to your hand)."),
-    minG: T("dMinG", "Refinery: tap a Treasure pile costing up to {max} — it goes to your hand.", { max: f.max }),
-    sen: T("dSen", "Skywatch: choose what happens to your top card(s)."),
-    lib: T("dLib", "Almanac revealed {card} — keep it in hand or set it aside?", { card: f.card != null ? NAME(f.card) : "" }),
-    artG: T("dArtG", "Atelier: tap a pile costing up to 5 — the card goes to your hand."),
-    artT: T("dArtT", "Atelier: tap a hand card to put on top of your deck."),
-    wsh: T("dWsh", "Foundry: tap a supply pile costing up to 4 to gain."),
-    moat: T("dMoat", "{card} attacks you — reveal your Windbreak to be unaffected?", { card: NAME(f.atk) }),
+    cel: () => T("dCel", "Winnow: select any cards to discard, then draw that many."),
+    chp: () => T("dChp", "Purifier: select up to 4 cards to trash."),
+    har: () => T("dHar", "Undertow: you may put a card from your discard pile on top of your deck."),
+    vas: () => T("dVas", "Whirlwind revealed {card} — play it?", { card: f.card != null ? NAME(f.card) : "" }),
+    mil: () => T("dMil", "Raiders attack! Select {n} card(s) to discard (down to 3).", { n: Math.max(0, (eng.ps[f.p].hand.length - 3)) }),
+    bur: () => T("dBur", "Collector attack! Tap a Victory card to put on top of your deck."),
+    ban: () => T("dBan", "Storm Riders attack! Tap the revealed treasure to trash."),
+    mon: () => T("dMon", "Smelter: trash a Copper for +3 🪙?"),
+    poa: () => T("dPoa", "Drifter: select {n} card(s) to discard.", { n: f.n }),
+    remT: () => T("dRemT", "Reforge: tap a card to trash (you'll gain up to its cost +2)."),
+    remG: () => T("dRemG", "Reforge: tap a supply pile costing up to {max} to gain.", { max: f.max }),
+    thr: () => T("dThr", "Echo: tap an Action card to play it twice."),
+    minT: () => T("dMinT", "Refinery: tap a Treasure to trash (gain one costing up to +3, to your hand)."),
+    minG: () => T("dMinG", "Refinery: tap a Treasure pile costing up to {max} — it goes to your hand.", { max: f.max }),
+    sen: () => T("dSen", "Skywatch: choose what happens to your top card(s)."),
+    lib: () => T("dLib", "Almanac revealed {card} — keep it in hand or set it aside?", { card: f.card != null ? NAME(f.card) : "" }),
+    artG: () => T("dArtG", "Atelier: tap a pile costing up to 5 — the card goes to your hand."),
+    artT: () => T("dArtT", "Atelier: tap a hand card to put on top of your deck."),
+    wsh: () => T("dWsh", "Foundry: tap a supply pile costing up to 4 to gain."),
+    moat: () => T("dMoat", "{card} attacks you — reveal your Windbreak to be unaffected?", { card: NAME(f.atk) }),
   };
-  return who + (P[f.t] || f.t);
+  return who + (P[f.t] ? P[f.t]() : f.t);
 }
 function renderDecision(gm, eng) {
   const el = $("decision"); if (!el) return;
@@ -301,3 +303,6 @@ function renderGame(gm, eng) {
 }
 
 duel.boot(["activeGame", "lobby", "play", "walletcard", "bankroll", "scoreboard"]);
+
+// test hook: the UI E2E harness (tests/*_ui_e2e.mjs) drives the real DOM against crafted engine states
+if (typeof window !== "undefined") window.__duel = duel;
