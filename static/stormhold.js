@@ -268,7 +268,23 @@ function renderGame(gm, eng) {
     $("oppCounts").textContent = T("counts", "deck {d} · discard {x} · hand {h}", { d: zo.deck.length, x: zo.disc.length, h: zo.hand.length });
     $("oppHand").innerHTML = peekOpp ? zo.hand.map((c) => tile(c)).join("") : zo.hand.map(() => '<span class="mc"></span>').join("");
     $("oppHand").className = peekOpp ? "handrow" : "mini";
-    $("oppPlay").innerHTML = eng.turn === op ? zo.play.map((c) => tile(c)).join("") : "";
+    // While it's their turn: the live play area. Otherwise: what they played/bought LAST turn — a bot
+    // (practice) resolves its whole turn between two renders, and on-chain you usually poll after the
+    // turn passed, so without this the opponent's cards were never visible at all.
+    if (eng.turn === op) $("oppPlay").innerHTML = zo.play.map((c) => tile(c)).join("");
+    else {
+      const L = eng.log, cards = [];
+      let end = -1;
+      for (let i = L.length - 1; i >= 0; i--) if (L[i].ev === "endturn" && L[i].p === op) { end = i; break; }
+      for (let i = end - 1; i >= 0; i--) {
+        const e = L[i];
+        if (e.ev === "endturn") break;
+        if (e.p === op && e.c != null && (e.ev === "play" || e.ev === "play2" || e.ev === "playT" || e.ev === "buy")) cards.unshift(e.c);
+      }
+      $("oppPlay").innerHTML = cards.length
+        ? '<span class="small dim" style="align-self:center;margin-right:4px">' + T("lastTurn", "last turn:") + "</span>" + cards.map((c) => tile(c)).join("")
+        : "";
+    }
     const mp = me != null ? me : 0, zm = eng.ps[mp];
     $("myHead").textContent = me != null ? T("yourHand", "Your hand") : disp(gm.p1);
     $("myCounts").textContent = T("counts", "deck {d} · discard {x} · hand {h}", { d: zm.deck.length, x: zm.disc.length, h: zm.hand.length });
