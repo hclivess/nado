@@ -72,8 +72,24 @@ def t_tampered_chain_rejected():
     assert not ok, "a tampered chain root must be rejected"
 
 
+def t_folded_replay():
+    """OPT-IN (NADO_HEAVY=1): fold the K step proofs into ONE recursion bundle — the state-binding crypto is
+    then O(1) (recursive_verify re-verifies every step from public parts)."""
+    if os.environ.get("NADO_HEAVY") != "1":
+        print("SKIP  folded io replay (set NADO_HEAVY=1; minutes — recursion throughput wall)")
+        return
+    store = _store(); pre_root = store.root()
+    cid_io = [(CID, IO_SSTORE, 0, 111), (CID, IO_SSTORE, 5, 222)]
+    bundle = IR.prove_io_replay(store, cid_io, D, num_queries=2, outer_queries=2, fold=True)
+    post_root = store.root()
+    assert "fold_bundle" in bundle
+    ok, why = IR.verify_io_replay(bundle, pre_root, post_root, num_queries=2)
+    assert ok, f"folded replay must verify: {why}"
+
+
 if __name__ == "__main__":
     check("in-circuit replay verifies + post_root matches native", t_replay_verifies_and_matches)
+    check("folded (K->1) replay — O(1) crypto (opt-in)", t_folded_replay)
     check("lied SLOAD rejected (membership can't fold)", t_lied_read_rejected)
     check("tampered chain root rejected", t_tampered_chain_rejected)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
