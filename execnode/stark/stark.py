@@ -184,7 +184,7 @@ def _row_tree(col_lde_group, N):
 
 
 def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None,
-          aux_spec=None, backend=None, row_commit=False):
+          aux_spec=None, backend=None, row_commit=False, commit_periodic=None):
     """Prove `trace` satisfies the AIR (transitions + boundaries [+ public periodic columns]). Interpolates
     and Merkle-commits each column's LDE, draws the constraint-combination challenges α from the committed
     roots (Fiat–Shamir), FRI-proves the composition is low-degree, and opens the cur/next trace rows at every
@@ -211,7 +211,8 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     # below (tests/test_starkprove.py gates the whole proof dict + verify, all modes); falls back to Python on
     # ANY error, and NADO_NO_HOLISTIC=1 forces the Python path (used to cross-check byte-identity).
     _b = backend or _backend.DEFAULT
-    if getattr(_b, "name", "") in ("recursion", "alghash2") and not os.environ.get("NADO_NO_HOLISTIC"):
+    if (getattr(_b, "name", "") in ("recursion", "alghash2") and not os.environ.get("NADO_NO_HOLISTIC")
+            and not commit_periodic):                     # committed-periodic runs the Python path (native TODO)
         try:
             from execnode.stark import stark_native
             if stark_native.available():
@@ -221,6 +222,11 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
         except Exception:
             pass                                          # correctness-preserving fallback to pure Python
     periodic = periodic or []
+    commit_periodic = sorted(set(commit_periodic or []))  # periodic-column indices to COMMIT instead of publish
+    if commit_periodic and (commit_periodic[0] < 0 or commit_periodic[-1] >= len(periodic)):
+        raise ValueError("commit_periodic index out of range")
+    if commit_periodic and row_commit:
+        raise ValueError("commit_periodic is column-mode only (row_commit not yet supported)")
     T = len(trace); W = len(trace[0])
     blowup = _blowup(max_degree); N = blowup * T
     gT = F.primitive_root_of_unity(T)
@@ -236,6 +242,14 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     t = Transcript("nado-stark", backend=b)
     if aux is not None:                      # H-4: bind an extra public input (e.g. an unshield withdraw_addr)
         t.absorb("aux", str(aux))            # into the transcript so the proof only verifies for THAT value
+    # COMMITTED periodic columns (succinct verify): commit the listed columns' LDE and absorb their roots here,
+    # as a public-parameter position BEFORE the main trace commitment (so the FS challenges depend on them). The
+    # verifier opens these at each query point (O(log N)) instead of an O(T) dense poly_eval — the caller binds
+    # each per-root to the public statement (io_commitment / program root). Non-committed columns stay public.
+    per_roots, per_mlayers = [], []
+    for idx in commit_periodic:
+        root, ml = merkle.commit(per_lde[idx], b)
+        per_roots.append(root); per_mlayers.append(ml); t.absorb(root)
     col_roots, col_mlayers = [], []
     row_roots, row_layers = [], []
     if row_commit:
@@ -283,7 +297,11 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
                 "cur": col_lde[c][lo], "cur_path": merkle.open_at(col_mlayers[c], lo),
                 "nxt": col_lde[c][nxt], "nxt_path": merkle.open_at(col_mlayers[c], nxt),
             } for c in range(W)]
-            openings.append({"lo": lo, "cols": cols})
+            op = {"lo": lo, "cols": cols}
+            if commit_periodic:                          # open each committed periodic column at the query point
+                op["per"] = [{"val": per_lde[idx][lo], "path": merkle.open_at(per_mlayers[k], lo)}
+                             for k, idx in enumerate(commit_periodic)]
+            openings.append(op)
 
     out = {"T": T, "W": W, "N": N, "blowup": blowup, "deg_bound": deg_bound,
            "boundaries": boundaries, "fri": fri_proof, "openings": openings}
@@ -291,11 +309,13 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
         out["row_roots"] = row_roots
     else:
         out["col_roots"] = col_roots
+    if commit_periodic:
+        out["per_roots"] = per_roots
     return out
 
 
 def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_queries=NUM_QUERIES, aux=None,
-           aux_spec=None, backend=None, row_commit=False):
+           aux_spec=None, backend=None, row_commit=False, commit_periodic=None, periodic_roots=None):
     """Verify a STARK proof. Returns (ok, reason). The AIR itself (transitions, boundaries, periodic,
     max_degree) comes from the CALLER, never from the proof; the proof only supplies commitments and openings.
     Order of checks: LDE geometry pinned to max_degree·T before any allocation (H-7); transcript replayed to
@@ -305,6 +325,12 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
     low-degree polynomial FRI accepted to the committed trace actually satisfying the constraints."""
     try:
         periodic = periodic or []
+        commit_periodic = sorted(set(commit_periodic or []))
+        committed_set = set(commit_periodic)
+        if commit_periodic and (commit_periodic[0] < 0 or commit_periodic[-1] >= len(periodic)):
+            return False, "commit_periodic index out of range"
+        if commit_periodic and row_commit:
+            return False, "commit_periodic is column-mode only"
         T, W, N, blowup = proof["T"], proof["W"], proof["N"], proof["blowup"]
         # H-7: validate the LDE geometry — which is fully determined by max_degree and T — BEFORE allocating
         # F.domain(N). Otherwise an oversized N (verbatim from the proof) OOMs the process ahead of every check.
@@ -319,8 +345,14 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         gT = F.primitive_root_of_unity(T)
         wN = F.primitive_root_of_unity(N)        # query points computed as OFF·ω^lo — no O(N) domain allocation
         last = F.pw(gT, T - 1)
-        per_evals = [_per_evaluator(pc, T, gT) for pc in periodic]    # public periodic polynomials
-        # (structured {period, base, sparse} columns evaluate in O(period + entries) per query — T-independent)
+        # public periodic polynomials — but NOT for committed columns (those come from opened committed cells,
+        # skipping the O(T) dense poly_eval). (structured {period,base,sparse} columns are O(period+entries)/query.)
+        per_evals = [None if i in committed_set else _per_evaluator(pc, T, gT) for i, pc in enumerate(periodic)]
+        # committed-periodic roots: caller-supplied public inputs (bound to the statement) take precedence; else
+        # read from the proof (the caller is then responsible for binding proof["per_roots"] to the statement).
+        per_roots = list(periodic_roots) if periodic_roots is not None else list(proof.get("per_roots", []))
+        if len(per_roots) != len(commit_periodic):
+            return False, "committed-periodic root count mismatch"
 
         b = backend or _backend.DEFAULT
         if row_commit and getattr(b, "name", "") != "recursion":
@@ -341,6 +373,8 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
         t = Transcript("nado-stark", backend=b)
         if aux is not None:                  # H-4: same extra public input the prover bound (unshield addr)
             t.absorb("aux", str(aux))        # a tampered value here diverges the transcript -> proof rejected
+        for r in per_roots:                  # committed-periodic roots: same public-parameter position as prove
+            t.absorb(r)
         challenges = None
         if aux_spec is not None:
             # Two-phase replay: the aux geometry comes from the CALLER's protocol (aux_spec), never the proof.
@@ -397,7 +431,18 @@ def verify(proof, transitions, boundaries, periodic=None, max_degree=2, num_quer
                     cur_row.append(col["cur"]); nxt_row.append(col["nxt"])
             x = F.mul(OFF, F.pw(wN, lo))
             xT = F.pw(x, T)
-            per = [pe(x, xT) for pe in per_evals]                    # verifier recomputes periodic values
+            opened = {}
+            if commit_periodic:                                     # verify + collect the committed periodic cells
+                perops = op.get("per", [])
+                if len(perops) != len(commit_periodic):
+                    return False, "wrong committed-periodic opening count"
+                for k, idx in enumerate(commit_periodic):
+                    po = perops[k]
+                    if not merkle.verify(per_roots[k], lo, po["val"], po["path"], b):
+                        return False, f"bad periodic opening col {idx}"
+                    opened[idx] = int(po["val"]) % F.P
+            # periodic row at x: opened committed cell where committed, else the verifier's O(T) dense eval
+            per = [opened[i] if i in committed_set else per_evals[i](x, xT) for i in range(len(periodic))]
             cp = 0; ai = 0
             for con in transitions:
                 a = alphas[ai]; ai += 1
