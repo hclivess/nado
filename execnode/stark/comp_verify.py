@@ -33,6 +33,7 @@ W=106 execution AIR share this code path — only W and the program differ.
 from execnode.stark import alghash2 as a2, field as F, stark, backend
 from execnode.stark.recursion import _permute_snapshots, _blocks_for, rmerkle_commit, rmerkle_path
 from execnode.stark.fri_verify import _fill_block, _fill_path, _junk_absorb, _B
+from execnode.stark import air_ir
 from execnode.stark.air_ir import CUR, NXT, PER, CHAL, CONST, ADD, SUB, MUL, POW
 
 _W, _R, _RATE, _CAP = a2.WIDTH, a2.ROUNDS, a2.RATE, a2.DIGEST
@@ -300,7 +301,8 @@ def prove_comp(prog, W, boundaries, points, col_roots, num_queries=stark.NUM_QUE
     is the shared/default root set. Returns (proof, public)."""
     per, bnds, T, segs, _chk, L = _schedule(prog, W, boundaries, points, col_roots)
     rows = _fill_trace(W, points, T, segs, _chk)
-    proof = stark.prove(rows, _transitions(prog, W, boundaries, L), bnds, periodic=per, max_degree=8,
+    md = air_ir.gadget_max_degree(prog)   # headroom for the gated recompute of a degree-D inner AIR
+    proof = stark.prove(rows, _transitions(prog, W, boundaries, L), bnds, periodic=per, max_degree=md,
                         num_queries=num_queries, backend=backend.ALGHASH2)
     public = {"col_roots": [[int(v) % F.P for v in r] for r in col_roots] if col_roots else None,
               "points_public": [_point_public(p, W) for p in points], "num_queries": num_queries,
@@ -351,7 +353,8 @@ def verify_comp(proof, prog, W, boundaries, public):
                 pt["roots"] = pp["roots"]
             pts.append(pt)
         per, bnds, _T, _segs, _chk, L = _schedule(prog, W, boundaries, pts, col_roots)
-        return stark.verify(proof, _transitions(prog, W, boundaries, L), bnds, periodic=per, max_degree=8,
+        md = air_ir.gadget_max_degree(prog)   # verifier derives the SAME max_degree from the same program
+        return stark.verify(proof, _transitions(prog, W, boundaries, L), bnds, periodic=per, max_degree=md,
                             num_queries=public["num_queries"], backend=backend.ALGHASH2)
     except Exception as e:
         return False, f"malformed composition bundle: {e}"

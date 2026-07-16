@@ -241,6 +241,42 @@ def compose_python(prog, N, blowup, col_lde, per_lde, chals, alphas, invZ, bound
     return cp
 
 
+def program_degree(prog):
+    """The polynomial DEGREE (in trace columns) of the AIR's highest-degree transition constraint, computed by
+    propagating degrees through the SSA: CUR/NXT are degree-1 columns; PER/CHAL/CONST are degree 0 (public);
+    ADD/SUB take the max; MUL adds; POW multiplies by the exponent. The composition gadgets need this to pick
+    a `max_degree` with enough headroom — a composition gadget RE-EVALUATES this program and then GATES the
+    result (check-row selector · alpha · invZ), which adds degree, so a gadget proving the recompute of a
+    degree-D inner AIR must give itself deg_bound > (D+1)·T or its own composition isn't low-degree."""
+    ops = prog["ops"]
+    deg = [0] * len(ops)
+    for i, (op, a, b) in enumerate(ops):
+        if op in (CUR, NXT):
+            deg[i] = 1
+        elif op in (PER, CHAL, CONST):
+            deg[i] = 0
+        elif op in (ADD, SUB):
+            deg[i] = max(deg[a], deg[b])
+        elif op == MUL:
+            deg[i] = deg[a] + deg[b]
+        else:  # POW
+            deg[i] = deg[a] * b
+    return max((deg[o] for o in prog["outputs"]), default=0)
+
+
+def gadget_max_degree(prog, floor=8):
+    """The `max_degree` a composition gadget must prove at so its gated recompute of `prog` stays low-degree.
+    The check constraint reaches ≈ (program_degree + 1)·T, so pick the smallest max_degree whose deg_bound
+    (next_pow2(max_degree)·T) strictly exceeds that — floored at `floor` (the gadget's own round/mux
+    constraints are degree ≤ 8, and prover+verifier both derive this from the SAME program so they agree)."""
+    from execnode.stark.stark import _next_pow2
+    need = program_degree(prog) + 2         # deg_bound (in T units) must exceed check_c ≈ program_degree+1
+    md = floor
+    while _next_pow2(md) < need:
+        md = _next_pow2(md) + 1
+    return md
+
+
 def eval_program_point(prog, cur_row, nxt_row, per_row, chals):
     """Pure-Python interpreter: evaluate all outputs at ONE point given the row/periodic/challenge values.
     Returns a list (one value per output). Reference for the native interpreter's bit-identity test."""

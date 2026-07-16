@@ -19,7 +19,7 @@ public statement (indices FS-derived upstream, roots, alphas/challenges/invZ/bou
 all periodic columns are STRUCTURED (16-row block pattern + O(1) sparse rows per path); the proof carries only
 witness. Supports per-point roots (K→1 across proofs) and two-phase groups (main + aux trees).
 """
-from execnode.stark import alghash2 as a2, field as F, stark, backend
+from execnode.stark import alghash2 as a2, field as F, stark, backend, air_ir
 from execnode.stark.recursion import _permute_snapshots
 from execnode.stark.fri_verify import _fill_block, _junk_absorb, _B
 from execnode.stark.air_ir import CUR, NXT, PER, CHAL, CONST, ADD, SUB, MUL, POW
@@ -413,7 +413,8 @@ def prove_comp(prog, W, n_aux, boundaries, points, num_queries=stark.NUM_QUERIES
     roots, path lengths, and the public per/chal/alpha/invZ/boundary/layer0 values. Returns (proof, public)."""
     per, bnds, T, segs, chk, L = _schedule(prog, W, n_aux, boundaries, points)
     rows = _fill_trace(W, n_aux, points, T, segs, chk)
-    proof = stark.prove(rows, _transitions(prog, W, n_aux, boundaries, L), bnds, periodic=per, max_degree=8,
+    md = air_ir.gadget_max_degree(prog)   # headroom for the gated recompute of a degree-D inner AIR (W=106 → 16)
+    proof = stark.prove(rows, _transitions(prog, W, n_aux, boundaries, L), bnds, periodic=per, max_degree=md,
                         num_queries=num_queries, backend=backend.ALGHASH2)
     public = {"points_public": [_point_public(p) for p in points], "num_queries": num_queries}
     return proof, public
@@ -440,7 +441,8 @@ def verify_comp(proof, prog, W, n_aux, boundaries, public):
                         "path_lens": pp["path_lens"], "per": pp["per"], "chal": pp["chal"],
                         "alphas": pp["alphas"], "invZ": pp["invZ"], "bnd": pp["bnd"], "layer0": pp["layer0"]})
         per, bnds, _T, _segs, _chk, L = _schedule(prog, W, n_aux, boundaries, pts)
+        md = air_ir.gadget_max_degree(prog)   # verifier derives the SAME max_degree from the same program
         return stark.verify(proof, _transitions(prog, W, n_aux, boundaries, L), bnds, periodic=per,
-                            max_degree=8, num_queries=public["num_queries"], backend=backend.ALGHASH2)
+                            max_degree=md, num_queries=public["num_queries"], backend=backend.ALGHASH2)
     except Exception as e:
         return False, f"malformed row-composition bundle: {e}"
