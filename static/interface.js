@@ -3564,9 +3564,61 @@ function laneBar(id, open, bonded) {
   svg.appendChild(_mk("text", { x: W - 4, y: 45, fill: _CGOLD, "font-size": 10, "text-anchor": "end" }, `${i18("lane.bonded", "Savings")}: ${bonded}`));
 }
 
+const _CRED = "#ff5d5d";
+async function renderGeoMap() {
+  // Peer world map (same equirectangular projection as the /static/world.svg backdrop: x=lon+180, y=90-lat).
+  // Geolocation is done SERVER-side by the relay (/geo_peers, TTL-cached) — the browser never talks to the
+  // http-only geo API, and the page stays free of external hosts.
+  const svg = _svgClear("chartGeo"); if (!svg) return;
+  const legend = $("geoLegend"), ctry = $("geoCountries");
+  if (legend) legend.innerHTML = "";
+  if (ctry) ctry.textContent = "";
+  let g = null;
+  try { g = await (await fetch(relayBase() + "/geo_peers", { cache: "no-store" })).json(); } catch {}
+  const W = 640, H = 320;
+  const img = _mk("image", { x: 0, y: 0, width: W, height: H, href: "/static/world.svg", preserveAspectRatio: "none" });
+  img.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", "/static/world.svg"); // legacy engines
+  svg.appendChild(img);
+  for (let lon = -150; lon <= 150; lon += 30) { const x = ((lon + 180) / 360 * W).toFixed(1); svg.appendChild(_mk("line", { x1: x, y1: 0, x2: x, y2: H, stroke: _CGRID, "stroke-opacity": 0.6 })); }
+  for (let lat = -60; lat <= 60; lat += 30) { const y = ((90 - lat) / 180 * H).toFixed(1); svg.appendChild(_mk("line", { x1: 0, y1: y, x2: W, y2: y, stroke: _CGRID, "stroke-opacity": 0.6 })); }
+  const pts = (g && g.points) || [];
+  if (!pts.length) {
+    const msg = g && g.status === "computing" ? i18("stats.geoComputing", "locating peers… (check back in a minute)") : i18("stats.nodata", "no data yet");
+    svg.appendChild(_mk("text", { x: W / 2, y: H / 2, fill: _CMUT, "font-size": 12, "text-anchor": "middle" }, msg));
+    return;
+  }
+  const COL = { connected: _CACC, known: _CMUT, unreachable: _CRED };
+  // unreachable drawn last (on top) so they're never hidden under a connected dot at the same location
+  const order = { connected: 0, known: 1, unreachable: 2 };
+  pts.slice().sort((a, b) => (order[a.status] || 0) - (order[b.status] || 0)).forEach((p) => {
+    const x = ((p.lon + 180) / 360 * W).toFixed(1), y = ((90 - p.lat) / 180 * H).toFixed(1);
+    const st = p.status || "connected", c = COL[st] || _CACC, r = st === "connected" ? 4 : 3;
+    svg.appendChild(_mk("circle", { cx: x, cy: y, r: r + 4, fill: c, "fill-opacity": 0.16 }));
+    const dot = _mk("circle", { cx: x, cy: y, r: r, fill: c, "fill-opacity": st === "known" ? 0.6 : 0.95, stroke: "#0b1016", "stroke-width": 0.5 });
+    dot.appendChild(_mk("title", {}, `${st} · ${(p.city ? p.city + ", " : "") + (p.country || "?")} — ${p.ip}`));
+    svg.appendChild(dot);
+  });
+  const sc = (g && g.status_counts) || {};
+  if (legend) {
+    const sw = (color, label, n) => {
+      const s = document.createElement("span"); s.style.marginRight = "14px";
+      const d = document.createElement("span");
+      d.style.cssText = `display:inline-block;width:9px;height:9px;border-radius:50%;background:${color};margin-right:5px`;
+      s.appendChild(d); s.appendChild(document.createTextNode(`${label}: ${n}`)); return s;
+    };
+    legend.appendChild(sw(_CACC, i18("stats.geoConnected", "Connected"), sc.connected || 0));
+    legend.appendChild(sw(_CMUT, i18("stats.geoKnown", "Known"), sc.known || 0));
+    legend.appendChild(sw(_CRED, i18("stats.geoUnreachable", "Unreachable"), sc.unreachable || 0));
+  }
+  if (ctry && g.countries && g.countries.length) {
+    ctry.textContent = g.countries.slice(0, 10).map((c) => `${c.country || c.cc || "?"} ${c.count}`).join(" · ");
+  }
+}
+
 async function renderStats() {
   if (!state.wallet) return;
   const head = $("statsHeadline"); if (head) head.innerHTML = "";
+  renderGeoMap().catch(() => {});   // independent of the block charts — paint it in parallel
   let tip = state.latest;
   try { const lb = await getLatestBlock(); if (lb && typeof lb.block_number === "number") tip = lb.block_number; } catch {}
   const N = 16, nums = [];

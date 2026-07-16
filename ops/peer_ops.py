@@ -160,6 +160,12 @@ def delete_peer(ip, logger):
             logger.warning(f"Deleted peer {ip}")
 
 
+def known_peer_ips() -> list:
+    """Every IP in the persistent peer table (peers.dat) — a read-only snapshot for the stats geomap."""
+    with _PEERS_LOCK:
+        return list(_load_peers().keys())
+
+
 def save_peer(ip, port, address, overwrite=False):
     """add one peer to the table (lock-serialized read-modify-write, atomic persist). Silently refuses our
     OWN ip — self is NEVER a peer (self is advertised via me_to() in /peers; storing it created the old

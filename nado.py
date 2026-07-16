@@ -38,7 +38,7 @@ from ops.block_ops import get_block, recommended_fee, get_block_number, SYNC_BAT
 from ops.data_ops import get_home, allow_async, get_byte_size
 from ops.key_ops import keyfile_found, generate_keys, save_keys
 from ops.log_ops import get_logger
-from ops.peer_ops import save_peer, get_remote_status, check_ip, me_to
+from ops.peer_ops import save_peer, get_remote_status, check_ip, me_to, known_peer_ips
 from ops.transaction_ops import get_transaction, get_transactions_of_account, to_readable_amount
 from ops import snapshot_ops
 from protocol import GENESIS_ADDRESS, TREASURY_ADDRESS, TREASURY_GENESIS, GENESIS_TIMESTAMP, CHAIN_ID
@@ -786,6 +786,134 @@ async def get_wealth_stats(request):
     return _resp(await asyncio.to_thread(_work))
 
 
+# ------------------------------------------------ peer geolocation (interface stats world map) ----
+GEO_API = "http://ip-api.com/batch"   # free tier: http-only, 100 IPs/batch — fine: server-side + TTL-cached
+GEO_TTL = 6 * 3600                    # re-geolocate peers at most every 6 hours (IPs rarely move)
+_geo_state = {"cache": None, "computing": False}
+
+
+def _geo_cache_path():
+    return f"{get_home()}/index/geo_peers.json"
+
+
+def _geo_peer_status() -> dict:
+    """Every peer IP this node knows -> 'connected' | 'unreachable' | 'known'. Connected = the live peer
+    set; unreachable = the temp-exiled set; known = the persistent peer table (peers.dat) + the admission
+    buffer. Non-routable/own IPs are dropped via check_ip (not geolocatable), and the set is capped so a
+    hostile peer-table flood can't turn the geolocation batch into unbounded outbound traffic."""
+    connected = set(memserver.peers)
+    unreachable = set(memserver.unreachable.keys())
+    known = set(known_peer_ips()) | set(memserver.peer_buffer)
+    status = {}
+    for ip in known | connected | unreachable:
+        ip = str(ip)
+        if not check_ip(ip):
+            continue
+        # precedence: a currently-connected peer wins; unreachable beats merely-known
+        status[ip] = "connected" if ip in connected else ("unreachable" if ip in unreachable else "known")
+    return dict(sorted(status.items())[:500])
+
+
+def _geo_fetch(ips):
+    """Batch-geolocate up to 100 IPs per ip-api.com call (SERVER-side, so the browser never talks to the
+    http-only free tier — no mixed content). Returns {ip: {country, cc, lat, lon, city}}; best-effort —
+    a failed/rate-limited batch just stops and yields what we have so far."""
+    import json as _json
+    import time as _time
+    import urllib.request
+    out = {}
+    for i in range(0, len(ips), 100):
+        batch = ips[i:i + 100]
+        body = _json.dumps([{"query": ip, "fields": "query,status,country,countryCode,lat,lon,city"}
+                            for ip in batch]).encode("utf-8")
+        try:
+            req = urllib.request.Request(GEO_API, data=body, method="POST",
+                                         headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                arr = _json.loads(r.read().decode("utf-8"))
+            for rec in arr:
+                if rec.get("status") == "success" and rec.get("query"):
+                    out[rec["query"]] = {"country": rec.get("country"), "cc": rec.get("countryCode"),
+                                         "lat": rec.get("lat"), "lon": rec.get("lon"), "city": rec.get("city")}
+        except Exception:
+            break               # rate-limited / offline: stop, use what we have
+        _time.sleep(1.0)        # stay well under the free-tier rate limit
+    return out
+
+
+def _geo_compute():
+    """Kick ONE background re-geolocation; callers keep serving the stale cache meanwhile."""
+    if _geo_state["computing"]:
+        return
+    _geo_state["computing"] = True
+
+    def work():
+        try:
+            import json as _json
+            import time as _time
+            ips = list(_geo_peer_status().keys())
+            geo = _geo_fetch(ips) if ips else {}
+            old = _geo_state["cache"]
+            if not geo and old and old.get("geo"):
+                geo = old["geo"]    # ip-api down: keep the last good locations rather than blanking the map
+            cache = {"ts": int(_time.time()), "geo": geo}
+            _geo_state["cache"] = cache
+            try:
+                tmp = _geo_cache_path() + ".tmp"
+                with open(tmp, "w") as f:
+                    _json.dump(cache, f)
+                os.replace(tmp, _geo_cache_path())
+            except Exception:
+                pass            # persistence is best-effort; the in-memory cache still serves
+        except Exception as e:
+            logger.warning(f"geo compute failed: {e}")
+        finally:
+            _geo_state["computing"] = False
+
+    _threading.Thread(target=work, daemon=True).start()
+
+
+async def geo_peers(request):
+    """GET /geo_peers: geolocated peers for the interface's stats world map — {status, ts, count,
+    status_counts, points:[{ip,lat,lon,country,cc,city,status}], countries}. Geolocation is TTL-cached
+    server-side + persisted across restarts; each peer's live status (connected|known|unreachable) is
+    recomputed fresh per call. The first (cold) call kicks a background lookup and returns 'computing'.
+    Exposes nothing new: /peers and /unreachable already publish these IPs."""
+    def _work():
+        import json as _json
+        import time as _time
+        cache = _geo_state["cache"]
+        if cache is None:
+            try:
+                with open(_geo_cache_path()) as f:
+                    cache = _json.load(f)
+                _geo_state["cache"] = cache
+            except Exception:
+                cache = None
+        if cache is None or int(_time.time()) - int(cache.get("ts", 0)) >= GEO_TTL:
+            _geo_compute()      # refresh in the background; serve stale meanwhile if we have it
+        if cache is None:
+            return {"status": "computing", "points": [], "countries": []}
+        geo = cache.get("geo", {}) or {}
+        status_map = _geo_peer_status()
+        points, by_country = [], {}
+        counts = {"connected": 0, "known": 0, "unreachable": 0}
+        for ip, g in geo.items():
+            if g.get("lat") is None or g.get("lon") is None:
+                continue
+            st = status_map.get(ip, "known")    # located earlier but no longer in any set -> merely known
+            points.append({"ip": ip, "lat": g["lat"], "lon": g["lon"], "country": g.get("country"),
+                           "cc": g.get("cc"), "city": g.get("city"), "status": st})
+            counts[st] = counts.get(st, 0) + 1
+            key = (g.get("cc") or "??", g.get("country") or "Unknown")
+            by_country[key] = by_country.get(key, 0) + 1
+        countries = [{"cc": cc, "country": c, "count": n}
+                     for (cc, c), n in sorted(by_country.items(), key=lambda kv: -kv[1])]
+        return {"status": "ok", "ts": cache.get("ts"), "count": len(points),
+                "status_counts": counts, "points": points, "countries": countries}
+    return _resp(await asyncio.to_thread(_work))
+
+
 async def get_treasury_status(request):
     """GET /treasury_status: treasury governance snapshot for the Quorum tab — balance, spend cap
     (bps of balance), burn schedule, activated-stake quorum bar, and every live proposal with its
@@ -1327,6 +1455,7 @@ async def make_app(port):
         web.get("/mining_status", mining_status),
         web.get("/status", status),
         web.get("/peers", _dump_handler("peers", lambda: me_to(list(memserver.peers)))),
+        web.get("/geo_peers", geo_peers),
         web.get("/peer_buffer", _dump_handler("peer_buffer", lambda: list(memserver.peer_buffer))),
         web.get("/unreachable", _dump_handler("unreachable", lambda: memserver.unreachable)),
         web.get("/block_hash_pool", _dump_handler("block_hash_pool", lambda: {
