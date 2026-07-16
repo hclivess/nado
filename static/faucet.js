@@ -12,18 +12,17 @@ export const FAUCET_CID = "faucet";
 export const FAUCET_GAMES = { dice: 0, scrapline: 1, stormhold: 2 };
 
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("sdk." + k, d, v) : d;
-const S = (f, k) => String(BigInt(f) * 4294967296n + BigInt(k));
 // the VM's address digest (runtimes.zkvm_addr_digest): blake2b(["zkvmaddr", addr]) reduced into the field
 export const addrDigest = (addr) => BigInt("0x" + blake2bHash(["zkvmaddr", addr])) % ALG_P();
 
-let _sto = { t: 0, slots: null };
-async function faucetSlots() {
-  if (Date.now() - _sto.t < 30_000 && _sto.slots) return _sto.slots;
+let _sto = { t: 0, maps: null };
+async function faucetMaps() {
+  if (Date.now() - _sto.t < 30_000 && _sto.maps) return _sto.maps;
   try {
     const r = await (await fetch(base() + "/exec/contract?ns=default&cid=" + FAUCET_CID + "&provisional=1", { cache: "no-store" })).json();
-    _sto = { t: Date.now(), slots: (r.storage && r.storage.slots) || (r.contract && r.contract.storage && r.contract.storage.slots) || r.slots || {} };
-  } catch { _sto = { t: Date.now(), slots: null }; }
-  return _sto.slots;
+    _sto = { t: Date.now(), maps: r.storage || {} };
+  } catch { _sto = { t: Date.now(), maps: null }; }
+  return _sto.maps;
 }
 async function faucetBalance() {
   try {
@@ -35,12 +34,12 @@ async function faucetBalance() {
 export async function faucetInfo(slug) {
   const idx = FAUCET_GAMES[slug];
   if (idx == null) return null;
-  const slots = await faucetSlots();
-  if (!slots) return null;
-  const grant = BigInt(Math.round(slots[S(11, idx)] || 0));
+  const m = await faucetMaps();
+  if (!m) return null;
+  const grant = BigInt(Math.round((m.ggrant || {})[idx] || 0));
   if (grant <= 0n) return null;                                  // not enrolled / paused
-  const cap = Number(slots[S(12, idx)] || 0);
-  const pow = BigInt(Math.round(slots[S(13, idx)] || 0));
+  const cap = Number((m.gcap || {})[idx] || 0);
+  const pow = BigInt(Math.round((m.gpow || {})[idx] || 0));
   return { idx, grant, cap, pow };
 }
 

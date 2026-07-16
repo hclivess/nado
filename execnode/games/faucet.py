@@ -117,7 +117,7 @@ ABI = {
     "claim": {"args": ["idx", "nonce"]},
     "_view": {
         "maps": {"gdig": GDIG, "ggrant": GGRANT, "gcap": GCAP, "gpow": GPOW, "gused": GUSED},
-        "index": {"cnt": 0},
+        "index": {"cnt": 0, "range": True},
     },
 }
 

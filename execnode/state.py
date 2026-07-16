@@ -867,6 +867,8 @@ class ExecState:
             return int(slots.get(str(s), 0))
         def enum(idx):                                     # the key set of one index (cnt slot + list field)
             cnt = sv(idx["cnt"]) if "cnt" in idx else 0
+            if idx.get("range"):                           # keys ARE 0..cnt-1 (indexed registries, e.g. faucet)
+                return list(range(cnt))
             lf = idx.get("list")
             return [sv((lf << 32) + i) for i in range(cnt)] if lf is not None else []
         indexes = view.get("indexes")
