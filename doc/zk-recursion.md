@@ -280,6 +280,52 @@ recursion LDE outgrows the native NTT cap), so `test_recursion_depth` validates 
 and gates the full fold-of-folds step behind `NADO_HEAVY=1`; the Rust prover is the throughput prerequisite for
 deep trees.
 
+## 5c. O(1) SETTLEMENT — the assembled architecture (built + validated 2026-07-16)
+
+The whole point of the above is an L1 that settles an epoch of arbitrary execution by checking a fixed-size
+object. Everything below the final in-circuit statement-rebuild is now BUILT and validated; the remaining piece
+is scoped precisely.
+
+**Holistic native prover (`native/starkprove`, `execnode/stark/stark_native.py`).** A persistent Rust LDE arena
+runs the whole prove (LDE → Merkle → composition → FRI → openings) in u64 buffers, so the Python prover never
+materializes N-sized column lists — the recursion memory wall. Byte-identical to `stark.prove` for every mode
+(column/row, single/two-phase, RECURSION + ALGHASH2), wired into `stark.prove`, shielded/BLAKE2B untouched.
+`tests/test_starkprove.py`, `tests/test_holistic_wired.py`. This is what makes recursion proofs memory-feasible.
+
+**Authoritative depth (`execnode/stark/recursion_authdepth.py`).** `recursive_verify` applied to a bundle's own
+fold_0 + comp_0 (RECURSION-committed) → a root that attests the bundle verifies — the fold/comp CRYPTO collapsed
+to a constant-size object (the §5b binding, one level). `tests/test_recursion_authdepth.py`.
+
+**State-root binding — the dominant O(K) removed.** The settled root was a FLAT blake2b merkle over EVERY leaf,
+forcing verify_epoch to re-merkleize the whole state + REPLAY the io (O(state)). Replaced by a sparse alghash
+storage root the recursion can bind, verified by a bound state-transition instead of a replay:
+  * `storage_tree.py` — sparse alghash Merkle; `verify_transition` applies the io as O(touched·depth) folds.
+  * `merkle_update.py` — the IN-CIRCUIT core: proves `old→pre_root` AND `new→post_root` sharing ONE path (two
+    parallel alghash sponge folds over shared sib/dir cols — the shared path is the soundness crux). Foldable.
+  * `state_transition.py` — chain K updates (post_i = pre_{i+1}); the K proofs share the merkle-update AIR so
+    they fold K→1 via `recursive_verify` → authoritative depth → O(1).
+  * `exec_state_bind.py` — `net_updates` derives the epoch's net writes from its (proven) io; `bind_and_verify`
+    requires the transition to prove EXACTLY those, so it provably IS the epoch's transition.
+  * `settlement_sparse.py` — `verify_bound_epoch` = exec proof (io valid) + bound transition, NO replay/whole-
+    state merkle; `verify_withdrawal` = membership in the same root (bridge/dividend/unshield exits).
+  `tests/test_{storage_tree,merkle_update,state_transition,exec_state_bind,settlement_sparse}.py`, all green:
+  a real epoch verifies via the sparse root with no replay, its post_root equals an independent full
+  re-projection, and withdrawals prove against the same root.
+
+**Calls commitment (`execnode/stark/calls_commit.py`).** The epoch's K ordered calls collapse to ONE field
+element (a `merkle_node` chain over the call leaves = a `membership.py` fold, hence provable + foldable), so the
+settlement public statement is the O(1)-shaped triple `(calls_commitment, sparse_pre_root, sparse_post_root)`
+(`settlement_sparse.public_statement`). `tests/test_calls_commit.py`.
+
+**What remains for full asymptotic O(1).**
+  (i) IN-CIRCUIT statement rebuild: today `verify_bound_epoch` still rebuilds the exec periodic tables + derives
+      `net_updates` from the calls/io (O(#io) — the calldata cost). Proving that derivation in-circuit against the
+      calls_commitment (so the verifier never processes calls) is a dedicated build on the core W=106 exec AIR
+      (bind its statement to the commitment via LogUp + a table-derivation circuit) — the deep frontier.
+  (ii) DEPLOYMENT: swapping the sparse root in as THE consensus settled root (settle-tx `state_root`,
+       `ops/transaction_ops` bridge/dividend/unshield exits, `state.py`) is a genesis-level state-root-scheme
+       change, NOT inert on the live chain, so it rides the reroll (with CHAIN_ID→alphanet-6 + settle-with-proof).
+
 ## 6. Soundness ledger (what each piece rests on)
 
 - **Inner proofs:** FRI/STARK soundness (already tested) over **alghash2** collision-resistance (≥128-bit).
