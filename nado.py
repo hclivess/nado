@@ -1279,6 +1279,14 @@ async def favicon(request):
     return web.FileResponse(p) if os.path.isfile(p) else web.Response(status=404)
 
 
+async def robots_txt(request):
+    """GET /robots.txt: allow-all + the shared sitemap. The node answers this for EVERY domain that
+    fronts it (get.nadochain.com and all the game subdomains), and the sitemap reference is what makes
+    nadochain.com/sitemap.xml's cross-host entries valid for crawlers (sitemaps.org cross-submits)."""
+    return web.Response(text="User-agent: *\nAllow: /\n\nSitemap: https://nadochain.com/sitemap.xml\n",
+                        content_type="text/plain")
+
+
 # --- off-chain messaging (doc/messaging.md): a gossiped, ephemeral, E2E-encrypted message pool. The node
 #     is a BLIND relay — it stores/serves opaque ciphertext and only gates on shape/size/PoW + a REGISTERED
 #     sender with a valid ML-DSA signature. It never decrypts, and none of this touches consensus. --------
@@ -1483,6 +1491,7 @@ async def make_app(port):
         web.get("/whats_my_ip", whats_my_ip),
         web.get("/force_sync", force_sync),
         web.get("/favicon.ico", favicon),
+        web.get("/robots.txt", robots_txt),
         web.get("/static/miner.{ext:html|js|css}", legacy_static_redirect),   # old name -> interface.*
         web.get("/static/{path:.*}", static_handler),
     ])

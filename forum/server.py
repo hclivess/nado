@@ -779,6 +779,12 @@ async def index(request):
     """GET / — serve the single-page UI (static/index.html)."""
     return web.FileResponse(os.path.join(HERE, "static", "index.html"))
 
+async def robots_txt(request):
+    """GET /robots.txt — allow-all + the shared sitemap (makes nadochain.com/sitemap.xml's cross-host
+    forum entry valid for crawlers)."""
+    return web.Response(text="User-agent: *\nAllow: /\n\nSitemap: https://nadochain.com/sitemap.xml\n",
+                        content_type="text/plain")
+
 _HTTP = None
 async def _on_start(app):
     """Startup hook: create the shared aiohttp ClientSession used for node calls."""
@@ -811,6 +817,7 @@ def build_app():
         web.get("/api/profile", api_profile),
         web.post("/api/set_alias", api_set_alias),
         web.get("/", index),
+        web.get("/robots.txt", robots_txt),
         web.static("/static", os.path.join(HERE, "static")),
     ])
     return app
