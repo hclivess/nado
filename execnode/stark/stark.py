@@ -17,6 +17,7 @@ FRI's own query points that the committed composition equals the quotient recomp
 Cheating requires a non-low-degree quotient (FRI rejects) or a trace/composition mismatch (spot-checks reject).
 Soundness assumption: BLAKE2b collision-resistance.
 """
+import os
 from execnode.stark import field as F, merkle, fri, backend as _backend
 from execnode.stark.transcript import Transcript
 from execnode.stark.fri import NUM_QUERIES
@@ -204,6 +205,21 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     each FRI query opens whole rows with ONE path per tree — 2 (or 4, two-phase) paths per query instead of
     2W, which is what makes recursing a wide (W=106) trace feasible. A DIFFERENT proof format ("row_roots" /
     row openings), verified by the matching verify(row_commit=True); column-mode proofs are untouched."""
+    # HOLISTIC NATIVE PROVER (native/starkprove): for the RECURSION backend, run the whole pipeline
+    # (LDE → Merkle → composition → FRI → openings) in a PERSISTENT Rust arena instead of materializing every
+    # LDE column as a Python int list — the recursion/settlement memory wall. Byte-identical to the Python path
+    # below (tests/test_starkprove.py gates the whole proof dict + verify, all modes); falls back to Python on
+    # ANY error, and NADO_NO_HOLISTIC=1 forces the Python path (used to cross-check byte-identity).
+    _b = backend or _backend.DEFAULT
+    if getattr(_b, "name", "") == "recursion" and not os.environ.get("NADO_NO_HOLISTIC"):
+        try:
+            from execnode.stark import stark_native
+            if stark_native.available():
+                return stark_native.prove(trace, transitions, boundaries, periodic=periodic,
+                                          max_degree=max_degree, num_queries=num_queries, aux=aux,
+                                          aux_spec=aux_spec, row_commit=row_commit)
+        except Exception:
+            pass                                          # correctness-preserving fallback to pure Python
     periodic = periodic or []
     T = len(trace); W = len(trace[0])
     blowup = _blowup(max_degree); N = blowup * T
