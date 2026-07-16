@@ -293,17 +293,19 @@ def _transitions(prog, W, boundaries, L):
     return cons
 
 
-def prove_comp(prog, W, boundaries, points, col_roots, num_queries=stark.NUM_QUERIES):
+def prove_comp(prog, W, boundaries, points, col_roots, num_queries=stark.NUM_QUERIES, out_backend=None):
     """Prove a batch of composition spot-checks. `prog` = air_ir.build_program(transitions, W, nper, nchal);
     `boundaries` = [(row, col, val)]; each `points[i]` carries the opened columns (val,index,path) at the cur and
     nxt rows plus the PUBLIC per/chal/alpha/invZ/boundary/layer0 values at that point — and optionally its own
     `roots` (K→1: points from different inner proofs authenticate against different column roots). `col_roots`
-    is the shared/default root set. Returns (proof, public)."""
+    is the shared/default root set. `out_backend` sets the HASH this comp proof commits under (default ALGHASH2);
+    pass backend.RECURSION to make it rleaf/rnode-committed — i.e. itself recursively verifiable (DEPTH: an
+    authoritative tree level re-verifies this comp proof). Returns (proof, public)."""
     per, bnds, T, segs, _chk, L = _schedule(prog, W, boundaries, points, col_roots)
     rows = _fill_trace(W, points, T, segs, _chk)
     md = air_ir.gadget_max_degree(prog)   # headroom for the gated recompute of a degree-D inner AIR
     proof = stark.prove(rows, _transitions(prog, W, boundaries, L), bnds, periodic=per, max_degree=md,
-                        num_queries=num_queries, backend=backend.ALGHASH2)
+                        num_queries=num_queries, backend=out_backend or backend.ALGHASH2)
     public = {"col_roots": [[int(v) % F.P for v in r] for r in col_roots] if col_roots else None,
               "points_public": [_point_public(p, W) for p in points], "num_queries": num_queries,
               "path_len": len(points[0]["cur"][0][2]) if points else 0}
@@ -333,28 +335,42 @@ def public_from_point_publics(points_public, col_roots, path_len, num_queries=st
             "points_public": points_public, "num_queries": num_queries, "path_len": path_len}
 
 
-def verify_comp(proof, prog, W, boundaries, public):
+def _pts_from_public(public, W):
+    """Rebuild the schedule-shaping "points" from the PUBLIC halves (paths are witness — their length is fixed by
+    the tree depth the verifier already knows, carried per point with the bundle path_len as fallback)."""
+    pts = []
+    for pp in public["points_public"]:
+        plen = pp.get("path_len", public.get("path_len"))
+        cur = [(0, pp["cur_index"], [0] * plen) for _ in range(W)]
+        nxt = [(0, pp["nxt_index"], [0] * plen) for _ in range(W)]
+        pt = {"cur": cur, "nxt": nxt, "per": pp["per"], "chal": pp["chal"],
+              "alphas": pp["alphas"], "invZ": pp["invZ"], "bnd": pp["bnd"], "layer0": pp["layer0"]}
+        if "roots" in pp:
+            pt["roots"] = pp["roots"]
+        pts.append(pt)
+    return pts
+
+
+def comp_air(prog, W, boundaries, public):
+    """Reconstruct the comp proof's AIR — (transitions, boundaries, periodic, max_degree) — from its PUBLIC
+    statement, exactly as verify_comp rebuilds it. Lets a DEPTH level authoritatively RE-VERIFY the comp proof
+    via recursive_verify (recursion_authdepth). Returns (transitions, boundaries, periodic, max_degree)."""
+    pts = _pts_from_public(public, W)
+    per, bnds, _T, _segs, _chk, L = _schedule(prog, W, boundaries, pts, public["col_roots"])
+    return _transitions(prog, W, boundaries, L), bnds, per, air_ir.gadget_max_degree(prog)
+
+
+def verify_comp(proof, prog, W, boundaries, public, out_backend=None):
     """SOUND verification. Rebuilds the recursion-AIR schedule from the PUBLIC statement only (column roots +
     each point's public geometry/values), then verifies the recursion STARK against ITS schedule. The proof
-    supplies only witness (openings, siblings, directions, sponge states). Returns (ok, reason)."""
+    supplies only witness (openings, siblings, directions, sponge states). `out_backend` must match the one
+    prove_comp committed under (default ALGHASH2; backend.RECURSION for a depth-ready comp proof). Returns
+    (ok, reason)."""
     try:
-        col_roots = public["col_roots"]
-        # reconstruct the schedule-shaping "points" from the public halves (paths are witness -> length is fixed
-        # by the tree depth = log2 of the leaf count, which is pinned by the committed geometry the verifier
-        # already knows; carried per point, with the bundle-level path_len as the fallback).
-        pts = []
-        for pp in public["points_public"]:
-            plen = pp.get("path_len", public.get("path_len"))
-            cur = [(0, pp["cur_index"], [0] * plen) for _ in range(W)]
-            nxt = [(0, pp["nxt_index"], [0] * plen) for _ in range(W)]
-            pt = {"cur": cur, "nxt": nxt, "per": pp["per"], "chal": pp["chal"],
-                  "alphas": pp["alphas"], "invZ": pp["invZ"], "bnd": pp["bnd"], "layer0": pp["layer0"]}
-            if "roots" in pp:
-                pt["roots"] = pp["roots"]
-            pts.append(pt)
-        per, bnds, _T, _segs, _chk, L = _schedule(prog, W, boundaries, pts, col_roots)
+        pts = _pts_from_public(public, W)
+        per, bnds, _T, _segs, _chk, L = _schedule(prog, W, boundaries, pts, public["col_roots"])
         md = air_ir.gadget_max_degree(prog)   # verifier derives the SAME max_degree from the same program
         return stark.verify(proof, _transitions(prog, W, boundaries, L), bnds, periodic=per, max_degree=md,
-                            num_queries=public["num_queries"], backend=backend.ALGHASH2)
+                            num_queries=public["num_queries"], backend=out_backend or backend.ALGHASH2)
     except Exception as e:
         return False, f"malformed composition bundle: {e}"

@@ -407,15 +407,16 @@ def _transitions(prog, W, n_aux, boundaries, L):
     return cons
 
 
-def prove_comp(prog, W, n_aux, boundaries, points, num_queries=stark.NUM_QUERIES):
+def prove_comp(prog, W, n_aux, boundaries, points, num_queries=stark.NUM_QUERIES, out_backend=None):
     """Prove a batch of row-mode composition spot-checks. Each `points[i]` carries the opened cur/nxt ROWS
     (full W values), one Merkle path per row tree (`cur_paths`/`nxt_paths`), the public indices, the row-tree
-    roots, path lengths, and the public per/chal/alpha/invZ/boundary/layer0 values. Returns (proof, public)."""
+    roots, path lengths, and the public per/chal/alpha/invZ/boundary/layer0 values. `out_backend` sets the hash
+    this comp proof commits under (default ALGHASH2; backend.RECURSION ⇒ depth-ready). Returns (proof, public)."""
     per, bnds, T, segs, chk, L = _schedule(prog, W, n_aux, boundaries, points)
     rows = _fill_trace(W, n_aux, points, T, segs, chk)
     md = air_ir.gadget_max_degree(prog)   # headroom for the gated recompute of a degree-D inner AIR (W=106 → 16)
     proof = stark.prove(rows, _transitions(prog, W, n_aux, boundaries, L), bnds, periodic=per, max_degree=md,
-                        num_queries=num_queries, backend=backend.ALGHASH2)
+                        num_queries=num_queries, backend=out_backend or backend.ALGHASH2)
     public = {"points_public": [_point_public(p) for p in points], "num_queries": num_queries}
     return proof, public
 
@@ -431,18 +432,30 @@ def _point_public(point):
             "layer0": int(point["layer0"]) % F.P}
 
 
-def verify_comp(proof, prog, W, n_aux, boundaries, public):
+def _pts_from_public(public):
+    """Rebuild the schedule-shaping row points from the PUBLIC halves (paths/rows are witness)."""
+    return [{"cur_index": pp["cur_index"], "nxt_index": pp["nxt_index"], "roots": pp["roots"],
+             "path_lens": pp["path_lens"], "per": pp["per"], "chal": pp["chal"], "alphas": pp["alphas"],
+             "invZ": pp["invZ"], "bnd": pp["bnd"], "layer0": pp["layer0"]} for pp in public["points_public"]]
+
+
+def comp_air(prog, W, n_aux, boundaries, public):
+    """Reconstruct the row-mode comp proof's AIR — (transitions, boundaries, periodic, max_degree) — from its
+    PUBLIC statement, as verify_comp rebuilds it. For an authoritative DEPTH re-verification via recursive_verify."""
+    pts = _pts_from_public(public)
+    per, bnds, _T, _segs, _chk, L = _schedule(prog, W, n_aux, boundaries, pts)
+    return _transitions(prog, W, n_aux, boundaries, L), bnds, per, air_ir.gadget_max_degree(prog)
+
+
+def verify_comp(proof, prog, W, n_aux, boundaries, public, out_backend=None):
     """SOUND verification. Rebuilds the schedule from the PUBLIC statement only, then verifies the recursion
-    STARK against ITS schedule. Returns (ok, reason)."""
+    STARK against ITS schedule. `out_backend` must match prove_comp's (default ALGHASH2; RECURSION ⇒ depth-ready).
+    Returns (ok, reason)."""
     try:
-        pts = []
-        for pp in public["points_public"]:
-            pts.append({"cur_index": pp["cur_index"], "nxt_index": pp["nxt_index"], "roots": pp["roots"],
-                        "path_lens": pp["path_lens"], "per": pp["per"], "chal": pp["chal"],
-                        "alphas": pp["alphas"], "invZ": pp["invZ"], "bnd": pp["bnd"], "layer0": pp["layer0"]})
+        pts = _pts_from_public(public)
         per, bnds, _T, _segs, _chk, L = _schedule(prog, W, n_aux, boundaries, pts)
         md = air_ir.gadget_max_degree(prog)   # verifier derives the SAME max_degree from the same program
         return stark.verify(proof, _transitions(prog, W, n_aux, boundaries, L), bnds, periodic=per,
-                            max_degree=md, num_queries=public["num_queries"], backend=backend.ALGHASH2)
+                            max_degree=md, num_queries=public["num_queries"], backend=out_backend or backend.ALGHASH2)
     except Exception as e:
         return False, f"malformed row-composition bundle: {e}"

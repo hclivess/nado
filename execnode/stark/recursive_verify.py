@@ -134,7 +134,7 @@ def _per_of(periodic, periodic_list, i):
 
 
 def prove(stark_proofs, transitions, boundaries, num_queries_outer=stark.NUM_QUERIES, periodic=None,
-          num_challenges=0, num_aux=0, periodic_list=None, comp_points_per_proof=None):
+          num_challenges=0, num_aux=0, periodic_list=None, comp_points_per_proof=None, out_backend=None):
     """Produce ONE recursion bundle {fold, fold_public, comp, comp_public, row_mode} that authoritatively
     re-verifies ALL of `stark_proofs` (each built with backend=RECURSION; column- or row-committed — detected
     from the proof; two-phase AIRs pass num_challenges/num_aux/periodic). `stark_proofs` may be one proof or a
@@ -182,15 +182,17 @@ def prove(stark_proofs, transitions, boundaries, num_queries_outer=stark.NUM_QUE
                                "roots": p["col_roots"]})
     nqi = len(fri_proofs[0]["queries"])
     fold, fold_public = fri_verify.prove_fold(fri_proofs, num_queries_inner=nqi,
-                                              num_queries_outer=num_queries_outer, mk_transcripts=mks)
+                                              num_queries_outer=num_queries_outer, mk_transcripts=mks,
+                                              out_backend=out_backend)
     chunks = _chunk(points, comp_points_per_proof)
     comps, comp_pubs = [], []
     for ch in chunks:
         if row_mode:
             c, cp = rowcomp_verify.prove_comp(prog, W, num_aux, bnds_list[0], ch,
-                                              num_queries=num_queries_outer)
+                                              num_queries=num_queries_outer, out_backend=out_backend)
         else:
-            c, cp = comp_verify.prove_comp(prog, W, bnds_list[0], ch, None, num_queries=num_queries_outer)
+            c, cp = comp_verify.prove_comp(prog, W, bnds_list[0], ch, None,
+                                           num_queries=num_queries_outer, out_backend=out_backend)
         comps.append(c); comp_pubs.append(cp)
     one = comp_points_per_proof is None
     return {"fold": fold, "fold_public": fold_public, "comp": comps[0] if one else comps,
@@ -205,7 +207,7 @@ def _chunk(points, size):
 
 def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=stark.NUM_QUERIES, periodic=None,
            num_challenges=0, num_aux=0, periodic_list=None, comp_points_per_proof=None,
-           num_queries_inner=None):
+           num_queries_inner=None, out_backend=None):
     """AUTHORITATIVE verification of K inner proofs from their PUBLIC PARTS alone (`public_part(proof)` — full
     proofs are also accepted and reduced). Re-derives every proof's Fiat-Shamir challenges + query positions;
     verifies the FRI low-degree half against a verifier-built schedule (with the layer-0 seam values pinned as
@@ -260,7 +262,8 @@ def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=sta
         fold_public = {"publics": [pub["fri_public"] for pub in pubs], "num_queries_inner": nqi,
                        "num_queries_outer": num_queries_outer, "seam_lo0": seam}
         okf, whyf = fri_verify.verify_fold(bundle["fold"], fold_public, mk_transcripts=mks,
-                                           expect_inner=nqi, expect_outer=num_queries_outer)
+                                           expect_inner=nqi, expect_outer=num_queries_outer,
+                                           out_backend=out_backend)
         if not okf:
             return False, f"FRI low-degree half failed: {whyf}"
 
@@ -276,10 +279,12 @@ def verify(stark_publics, transitions, boundaries, bundle, num_queries_outer=sta
         for c, ch in zip(comps, chunks):
             if row_mode:
                 auth_public = {"points_public": ch, "num_queries": num_queries_outer}
-                okc, whyc = rowcomp_verify.verify_comp(c, prog, W, num_aux, bnds_list[0], auth_public)
+                okc, whyc = rowcomp_verify.verify_comp(c, prog, W, num_aux, bnds_list[0], auth_public,
+                                                       out_backend=out_backend)
             else:
                 auth_public = comp_verify.public_from_point_publics(ch, None, None, num_queries_outer)
-                okc, whyc = comp_verify.verify_comp(c, prog, W, bnds_list[0], auth_public)
+                okc, whyc = comp_verify.verify_comp(c, prog, W, bnds_list[0], auth_public,
+                                                    out_backend=out_backend)
             if not okc:
                 return False, f"composition half failed: {whyc}"
         return True, "authoritatively verified (K proofs: FRI low-degree + composition binding, verifier-built)"

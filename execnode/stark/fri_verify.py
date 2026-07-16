@@ -394,6 +394,27 @@ def prove_fold(fri_proofs, num_queries_inner=None, num_queries_outer=64, mk_tran
                    "num_queries_outer": num_queries_outer, "seam_lo0": seam_lo0}
 
 
+def fold_air(public, mk_transcripts=None, expect_inner=None):
+    """Reconstruct the fold proof's AIR — (transitions, boundaries, periodic) — from its PUBLIC statement alone,
+    exactly as verify_fold rebuilds it (verifier-authoritative: the schedule comes from the inner proofs' public
+    parts + Fiat-Shamir, never the prover's word). This is what lets a DEPTH level authoritatively RE-VERIFY the
+    fold proof via recursive_verify (recursion_authdepth): fold proof + this AIR → recursive_verify.prove.
+    Returns (transitions, boundaries, periodic) or raises. Max_degree is the fixed fold-AIR 8."""
+    nqi = expect_inner if expect_inner is not None else NUM_QUERIES
+    merged = {"queries": [], "finals": []}
+    for i, pub in enumerate(public["publics"]):
+        mk = mk_transcripts[i] if mk_transcripts else None
+        c = _canonical_public(pub, nqi, mk)
+        if c is None:
+            raise ValueError("an inner FRI public statement failed native verification")
+        merged["queries"] += c["queries"]; merged["finals"] += c["finals"]
+    seam = public.get("seam_lo0")
+    if seam is not None and len(seam) != len(merged["queries"]):
+        raise ValueError("seam value count != query count")
+    per, bnds, _T, _segs, _qe = _schedule_periodic_boundaries(merged, seam)
+    return _transitions(), bnds, per
+
+
 def verify_fold(recursion_proof, public, mk_transcripts=None, expect_inner=None, expect_outer=None,
                 out_backend=None):
     """SOUND verification. `public` = the {publics, num_queries_inner, num_queries_outer} from prove_fold.
