@@ -103,9 +103,30 @@ def t_calls_commitment_public_statement():
     assert not ok, "a tampered calls_commitment must be rejected"
 
 
+def t_replay_bound_epoch():
+    """The fully in-circuit-bound settlement: exec proof + io_replay (the state transition proven in-circuit,
+    step by step) + the O(1)-shaped statement (calls_commitment, io_commitment, pre_root, post_root). A tampered
+    io_commitment or a tampered replay is rejected. (Heavier: one membership/update STARK per storage io entry.)"""
+    b = SS.prove_bound_epoch_replay(_pre(), CALLS, cursor=200, num_queries=NQ, depth=DEPTH)
+    ok, why, post = SS.verify_bound_epoch_replay(b, num_queries=NQ)
+    assert ok, f"replay-bound epoch must verify: {why}"
+    cc, ioc, pre, post2 = SS.public_statement_o1(b)
+    assert post == post2 == b["sparse_post_root"]
+    assert post2 == _replay_post_sparse(b)                       # matches the independent full re-projection
+    bad = copy.deepcopy(b)
+    bad["io_commitment"] = (int(ioc) + 1) % (2 ** 61)
+    assert not SS.verify_bound_epoch_replay(bad, num_queries=NQ)[0], "tampered io_commitment rejected"
+
+
+def _replay_post_sparse(bundle):
+    post = _replay_post(bundle)
+    return SS.sparse_root(post, DEPTH)
+
+
 if __name__ == "__main__":
     check("bound epoch verifies (no replay, no whole-state merkle)", t_bound_epoch_verifies)
     check("O(1)-shaped public statement + calls_commitment checked", t_calls_commitment_public_statement)
+    check("replay-bound epoch: exec + in-circuit io replay + O(1) commitments", t_replay_bound_epoch)
     check("sparse post_root == independent full re-projection", t_post_root_matches_full_reprojection)
     check("withdrawal membership against the settled sparse root", t_withdrawal_membership)
     check("tampered transition root rejected", t_tampered_transition_rejected)

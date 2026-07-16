@@ -111,6 +111,72 @@ def verify_bound_epoch(bundle, num_queries=None):
         return False, f"malformed bound epoch: {e}", None
 
 
+def prove_bound_epoch_replay(pre_contracts, calls, cursor, timestamp=0, beacons=None, block_hashes=None,
+                             pre_bridge=None, num_queries=vm_circuit.stark.NUM_QUERIES, depth=DEFAULT_DEPTH,
+                             backend=None, row_commit=False):
+    """Like prove_bound_epoch, but the state binding is the fully IN-CIRCUIT io replay (io_replay) — the state
+    half of the in-circuit statement rebuild — and the public statement is the O(1)-shaped
+    (calls_commitment, io_commitment, sparse_pre_root, sparse_post_root). One proof per storage io entry
+    (heavier to prove than the net-update transition; all foldable)."""
+    from execnode.stark import io_replay as IR, calls_commit as CC
+    bundle = SP.prove_epoch(pre_contracts, calls, cursor, timestamp=timestamp, beacons=beacons,
+                            block_hashes=block_hashes, pre_bridge=pre_bridge, num_queries=num_queries,
+                            backend=backend, row_commit=row_commit)
+    cid_io = _cid_io(bundle)
+    pre_store = ST.SparseStore(depth, sparse_projection(pre_contracts, depth))
+    sparse_pre = pre_store.root()
+    replay = IR.prove_io_replay(pre_store, cid_io, depth, num_queries=num_queries)   # mutates pre_store
+    bundle.update(sparse_pre_root=sparse_pre, sparse_post_root=pre_store.root(), replay=replay, cid_io=cid_io,
+                  depth=depth, calls_commitment=CC.calls_commitment(bundle["calls"], cursor, timestamp),
+                  io_commitment=CC.io_commitment(cid_io))
+    return bundle
+
+
+def verify_bound_epoch_replay(bundle, num_queries=None):
+    """Verify a replay-bound epoch: (1) exec proof — the io is a valid execution of the calls; (2) the storage
+    steps of the io replay correspond to the epoch's storage io (binds the replay to the exec's io); (3) the
+    io replay chains sparse_pre_root → sparse_post_root IN-CIRCUIT (foldable → O(1) crypto); (4) the O(1)-shaped
+    commitments match. Returns (ok, reason, sparse_post_root). NOTE: (1),(2),(4) are still native O(#io) — moving
+    them in-circuit against the commitments (bind the exec AIR's io/calls to them) is the last O(1) step."""
+    from execnode.stark import io_replay as IR, calls_commit as CC
+    try:
+        nq = int(num_queries) if num_queries is not None else vm_circuit.stark.NUM_QUERIES
+        pub_calls, epoch_io = SP._epoch_pub_statement(bundle)
+        row_commit = "row_roots" in bundle["proof"]
+        ok, why = vm_circuit.verify_epoch_calls(bundle["proof"], pub_calls, epoch_io, num_queries=nq,
+                                                row_commit=row_commit)
+        if not ok:
+            return False, f"epoch proof invalid: {why}", None
+        cursor, ts = int(bundle["cursor"]), int(bundle.get("timestamp", 0))
+        if bundle["calls_commitment"] != CC.calls_commitment(bundle["calls"], cursor, ts):
+            return False, "calls_commitment mismatch", None
+        if bundle["io_commitment"] != CC.io_commitment(bundle["cid_io"]):
+            return False, "io_commitment mismatch", None
+        # bind the replay to the exec's io: the replay's storage steps == the storage entries of cid_io, in order
+        storage_io = [(k, s, v) for (_c, k, s, v) in bundle["cid_io"] if k in (zkvm.IO_SLOAD, zkvm.IO_SSTORE)]
+        steps = bundle["replay"]["steps"]
+        if len(steps) != len(storage_io):
+            return False, "replay step count != storage io count", None
+        for step, (kind, _slot, value) in zip(steps, storage_io):
+            want_kind = "load" if kind == zkvm.IO_SLOAD else "store"
+            got_val = step["value"] if step["kind"] == "load" else step["new"]
+            if step["kind"] != want_kind or got_val != int(value) % F.P:
+                return False, "replay step does not match the epoch's io", None
+        okr, whyr = IR.verify_io_replay(bundle["replay"], bundle["sparse_pre_root"], bundle["sparse_post_root"],
+                                        num_queries=nq)
+        if not okr:
+            return False, f"io replay failed: {whyr}", None
+        return True, "ok (sparse-root bound via in-circuit io replay)", bundle["sparse_post_root"]
+    except Exception as e:
+        return False, f"malformed replay-bound epoch: {e}", None
+
+
+def public_statement_o1(bundle):
+    """The O(1)-shaped public statement of a replay-bound epoch: (calls_commitment, io_commitment,
+    sparse_pre_root, sparse_post_root) — four field elements, independent of the epoch size."""
+    return (bundle["calls_commitment"], bundle["io_commitment"], bundle["sparse_pre_root"], bundle["sparse_post_root"])
+
+
 def verify_withdrawal(settled_root, cid, slot, value, siblings, depth=DEFAULT_DEPTH):
     """A bridge/dividend/unshield exit proves its record (a specific contract slot = value) is a member of the
     settled SPARSE root — storage_tree membership, the sparse replacement for hashing.verify_merkle_proof

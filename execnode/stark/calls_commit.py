@@ -30,6 +30,21 @@ def leaves(calls, cursor=0, timestamp=0):
     return [call_leaf(c, cursor, timestamp) for c in calls]
 
 
+def io_leaf(cid, kind, slot, value):
+    """A field element committing to one io entry (cid, kind, slot, value) — the leaf the io-commitment chains."""
+    return int(blake2b_hash(["io", str(cid), int(kind), int(slot), int(value)]), 16) % F.P
+
+
+def io_commitment(cid_io):
+    """The epoch's ordered io as ONE field element (the O(1) io public input). Domain-separated from the calls
+    commitment by starting the chain at merkle_node(IV, IV) and using io-prefixed leaves, so the two chains
+    never collide. Provable + foldable the same way (a membership fold over the io leaves)."""
+    node = alghash.merkle_node(alghash.IV, alghash.IV)          # io-domain start (distinct from the calls IV)
+    for (cid, kind, slot, value) in cid_io:
+        node = alghash.merkle_node(node, io_leaf(cid, kind, slot, value))
+    return node
+
+
 def calls_commitment(calls, cursor=0, timestamp=0):
     """The epoch's ordered calls as ONE field element: fold IV through merkle_node(node, leaf_i). Equal to
     membership.merkle_root_from_path(IV, leaves, [0]*K), hence provable + foldable via prove_calls_commitment."""
