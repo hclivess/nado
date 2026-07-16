@@ -1096,6 +1096,7 @@ function renderAllowedOrigins() {
   el.innerHTML =
     '<div class="faint">' + i18("settings.officialGames", "Official games (always allowed):") + '</div>'
     + '<div style="margin:4px 0 8px">' + EXEC_SIGN_ALLOW.map((o) => chip(o, false)).join("") + '</div>'
+    + '<div class="faint" style="margin:0 0 8px">' + i18("settings.officialWildcard", "…and every official *.nadochain.com subdomain is trusted automatically.") + '</div>'
     + '<div class="faint">' + i18("settings.yourSites", "Your added sites:") + '</div>'
     + '<div style="margin-top:4px">' + (user.length ? user.map((o) => chip(o, true)).join("") : '<span class="faint">' + i18("settings.noneAdded", "none yet") + '</span>') + '</div>';
   el.querySelectorAll("[data-rm]").forEach((a) => a.onclick = (ev) => {
@@ -1972,7 +1973,7 @@ async function resumePendingForumLogin() {
 // ONE execution-layer contract call with their wallet, then returns. Same redirect pattern as the forum SSO,
 // but this signs a REAL (fee-only) blob tx — so we confirm explicitly, only return to an ALLOWLISTED dApp
 // origin, and it can never move funds beyond the network fee (a `blob` tx has amount 0).
-const EXEC_SIGN_ALLOW = ["https://coinflip.nadochain.com", "https://roulette.nadochain.com", "https://dice.nadochain.com", "https://chess.nadochain.com", "https://poker.nadochain.com", "https://farkle.nadochain.com", "https://pets.nadochain.com", "https://slots.nadochain.com", "https://tictactoe.nadochain.com", "https://bet.nadochain.com", "https://battleship.nadochain.com", "https://mines.nadochain.com", "https://blackjack.nadochain.com", "https://connect4.nadochain.com", "https://reversi.nadochain.com"];
+const EXEC_SIGN_ALLOW = ["https://coinflip.nadochain.com", "https://roulette.nadochain.com", "https://dice.nadochain.com", "https://chess.nadochain.com", "https://poker.nadochain.com", "https://farkle.nadochain.com", "https://pets.nadochain.com", "https://slots.nadochain.com", "https://tictactoe.nadochain.com", "https://bet.nadochain.com", "https://battleship.nadochain.com", "https://mines.nadochain.com", "https://blackjack.nadochain.com", "https://connect4.nadochain.com", "https://reversi.nadochain.com", "https://scrapline.nadochain.com", "https://stormhold.nadochain.com"];
 // USER-CONFIGURABLE allowlist (Settings → "Allowed dApp sites"): extra origins the user trusts to request
 // signatures, on TOP of the built-in official games above. Stored as a JSON array of "https://host" origins.
 const ALLOW_LS = "nado_allowed_origins";
