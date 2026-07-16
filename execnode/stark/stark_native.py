@@ -226,6 +226,59 @@ def fri_prove(cp_col, offset, blowup, num_queries, transcript):
             "pow": pow_nonce, "queries": queries}
 
 
+def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=None, aux=None):
+    """HOLISTIC prove (step 6) — reproduces stark.prove single-phase COLUMN mode entirely through the arena:
+    trace/periodic LDEs, per-column Merkle commits, composition, and FRI all stay in Rust; only the transcript
+    (a handful of hashes) is Python. Backend is RECURSION (the arena's alghash2 hash). Bit-identical to
+    stark.prove(trace, transitions, boundaries, periodic, max_degree, num_queries, backend=RECURSION).
+    Returns the same proof dict. (row_commit + two-phase are added next.)"""
+    from execnode.stark import stark, fri, air_ir, backend as _B
+    from execnode.stark.transcript import Transcript
+    periodic = periodic or []
+    if num_queries is None:
+        num_queries = stark.NUM_QUERIES
+    T = len(trace); W = len(trace[0])
+    blowup = stark._blowup(max_degree); N = blowup * T
+    deg_bound = stark._next_pow2(max_degree) * T
+    OFF = stark.OFF
+
+    reset(T, N, OFF)
+    # LDE the W trace columns (arena ids 0..W), then the periodic columns (ids W..W+nper) — the order sp_compose
+    # expects. Nothing marshals back to Python.
+    for c in range(W):
+        lde_column([trace[i][c] for i in range(T)], N, want_out=False)
+    for pc in periodic:
+        lde_column(stark._per_expand(pc, T), N, want_out=False)
+
+    t = Transcript("nado-stark", backend=_B.RECURSION)
+    if aux is not None:
+        t.absorb("aux", str(aux))
+    col_roots, trees = [], []
+    for c in range(W):
+        tid, root = commit_col(c)
+        col_roots.append(root); trees.append(tid); t.absorb(root)
+
+    alphas = [t.challenge() for _ in range(len(transitions) + len(boundaries))]
+    prog = air_ir.build_program(transitions, W, len(periodic), 0)
+    cp_col, _ = compose(prog, boundaries, alphas, [], T, N, blowup, want_out=False)
+
+    fri_blowup = N // deg_bound
+    fri_proof = fri_prove(cp_col, OFF, fri_blowup, num_queries, t)
+
+    openings = []
+    for q in fri_proof["queries"]:
+        lo = q["idx"] % (N // 2)
+        nxt = (lo + blowup) % N
+        plen = N.bit_length() - 1
+        cols = [{"cur": read(c, lo), "cur_path": open_at(trees[c], lo, plen),
+                 "nxt": read(c, nxt), "nxt_path": open_at(trees[c], nxt, plen)} for c in range(W)]
+        openings.append({"lo": lo, "cols": cols})
+
+    free()
+    return {"T": T, "W": W, "N": N, "blowup": blowup, "deg_bound": deg_bound,
+            "boundaries": boundaries, "fri": fri_proof, "openings": openings, "col_roots": col_roots}
+
+
 def read(col, pos):
     """One retained LDE value ARENA[col][pos]."""
     return _LIB.sp_read(int(col), int(pos))

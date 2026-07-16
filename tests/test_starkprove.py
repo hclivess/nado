@@ -172,6 +172,43 @@ def t_fri_bit_identical():
         SN.free()
 
 
+def _proofs_equal(a, b, path="proof"):
+    """Deep byte-equality of two proof dicts (tuples vs lists normalized)."""
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        assert len(a) == len(b), f"{path}: length {len(a)} != {len(b)}"
+        for i, (x, y) in enumerate(zip(a, b)):
+            _proofs_equal(x, y, f"{path}[{i}]")
+    elif isinstance(a, dict) and isinstance(b, dict):
+        assert set(a) == set(b), f"{path}: keys {set(a)} != {set(b)}"
+        for k in a:
+            _proofs_equal(a[k], b[k], f"{path}.{k}")
+    else:
+        assert a == b, f"{path}: {a} != {b}"
+
+
+def t_prove_end_to_end():
+    """HOLISTIC prove == stark.prove, single-phase column mode, RECURSION backend — the WHOLE proof dict
+    field-for-field (col_roots, fri roots/final/pow/queries, and every opening path), and the native proof
+    verifies under the real stark.verify."""
+    PER0 = {"period": 4, "base": [3, 1, 4, 1]}
+    TRANS = [lambda c, n, p: F.sub(n[0], F.add(F.mul(c[0], c[0]), p[0])),
+             lambda c, n, p: F.sub(c[1], F.mul(c[0], c[0]))]
+    for T, NQ in [(8, 3), (64, 8)]:
+        random.seed(6000 + T)
+        # a trace that actually satisfies the AIR (col0 evolves by col0^2+per0; col1 = col0^2) so it verifies
+        PER0_DENSE = [PER0["base"][i % 4] for i in range(T)]
+        col0 = [random.randrange(F.P)]
+        for i in range(T - 1):
+            col0.append(F.add(F.mul(col0[-1], col0[-1]), PER0_DENSE[i]))
+        trace = [[v, F.mul(v, v)] for v in col0]
+        BND = [(0, 0, col0[0]), (0, 1, F.mul(col0[0], col0[0]))]
+        want = stark.prove(trace, TRANS, BND, periodic=[PER0], max_degree=2, num_queries=NQ, backend=B.RECURSION)
+        got = SN.prove(trace, TRANS, BND, periodic=[PER0], max_degree=2, num_queries=NQ)
+        _proofs_equal(got, want)
+        ok, why = stark.verify(got, TRANS, BND, periodic=[PER0], max_degree=2, num_queries=NQ, backend=B.RECURSION)
+        assert ok, f"holistic-proved proof must verify under stark.verify: {why}"
+
+
 if __name__ == "__main__":
     if not SN.available():
         print("SKIP  native/starkprove not built (cd native/starkprove && cargo build --release). "
@@ -183,5 +220,6 @@ if __name__ == "__main__":
     check("native arena composition bit-identical to stark._composition (single-phase)", t_compose_single_phase)
     check("native arena composition bit-identical with a challenge (CHAL opcode)", t_compose_with_challenge)
     check("native arena FRI bit-identical to fri.prove (fold+commit+open+queries)", t_fri_bit_identical)
+    check("HOLISTIC prove == stark.prove end-to-end (single-phase column, verifies)", t_prove_end_to_end)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)
