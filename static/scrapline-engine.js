@@ -315,34 +315,26 @@ export function soloPick(run, choice, slot) {
   return true;
 }
 // ---- daily highscore claims (packing + client-side verification) ----------------------------------------
-// packChoices: 10 five-bit attempts per word (words < 2^50 — safe through JSON number decoding), 8 words
-// max = 80 attempts (two picks per fight doubles the choice count of a deep run). The contract stores
-// claims blindly; every browser verifies by REPLAYING the run and silently drops claims that don't
-// reproduce (posting costs a tx fee, which caps spam).
+// The packed-claim codec + the HARDENED daily seed live in the provable-runs SDK (static/provable.js):
+// the seed binds the FIRST FINALIZED L1 BLOCK of the UTC day (no pre-grinding tomorrow's run) AND the
+// POSTER'S ADDRESS (claims are non-transferable — copying the day's best move list verifies only for its
+// owner). The contract stores claims blindly; every browser verifies by REPLAYING the run and silently
+// drops claims that don't reproduce (posting costs a tx fee, which caps spam).
+import { packMoves, unpackMoves, provableSeed } from "./provable.js";
 export const ATT_PER_WORD = 10, MAX_WORDS = 8, MAX_ATT = ATT_PER_WORD * MAX_WORDS;
-export function packChoices(choices) {
-  const words = [];
-  for (let w = 0; w < MAX_WORDS; w++) {
-    let v = 0n;
-    for (let i = ATT_PER_WORD - 1; i >= 0; i--) v = v * 32n + BigInt(choices[w * ATT_PER_WORD + i] || 0);
-    words.push(v);
-  }
-  return words;
-}
-export function unpackChoices(words, n) {
-  const out = [];
-  for (let w = 0; w < MAX_WORDS && out.length < n; w++) {
-    let v = BigInt(words[w] || 0);
-    for (let i = 0; i < ATT_PER_WORD && out.length < n; i++) { out.push(Number(v % 32n)); v /= 32n; }
-  }
-  return out;
-}
-export const seedOfDay = (day) => "daily-" + new Date(day * 86400000).toISOString().slice(0, 10);
+export const packChoices = (choices) => {
+  const padded = choices.slice();
+  while (padded.length < MAX_ATT) padded.push(0);         // fixed 8-word layout (the contract's arg shape)
+  return packMoves(padded, 5).map(BigInt);
+};
+export const unpackChoices = (words, n) => unpackMoves(words.map(Number), 5, n);
+// CONSENSUS seed for daily claims (v2, 2026-07-16 — old "daily-YYYY-MM-DD" claims no longer verify):
+export const seedOfDay = (day, anchor, addr) => provableSeed("scrapline", day, anchor, addr);
 // verifyClaim: replay a posted (day, n, words) claim; returns the true score, or -1 if the claim is bogus.
-export function verifyClaim(day, n, words) {
+export function verifyClaim(day, n, words, anchor, addr) {
   if (!(n > 0 && n <= MAX_ATT)) return -1;
   const atts = unpackChoices(words, n);
-  const run = soloNew(seedOfDay(day));
+  const run = soloNew(seedOfDay(day, anchor, addr));
   for (const att of atts) {
     if (run.over) return -1;                             // trailing choices past death
     const c = att % 4, slot = Math.floor(att / 4);

@@ -11,6 +11,7 @@ import { DuelGame } from "./duelgame.js";
 import * as E from "./scrapline-engine.js";
 import { ART } from "./scrapline-art.js";
 import { prand, Practice } from "./practice.js";   // practice-vs-computer + solo persistence
+import { dayAnchor, verifyEntries, entriesFrom } from "./provable.js";   // provable daily claims (see doc/provable-practice.md)
 
 const CID = "72a195822ef32caa9680eee51eb95dc9";
 const dapp = new NadoDapp({ cid: CID, app: "Scrapline" });
@@ -220,8 +221,21 @@ function renderGame(gm, eng) {
 // ---- SOLO GAUNTLET (free, fully client-side — no wallet, no stake; deterministic per seed) --------------
 const soloPrac = new Practice("scrapline_solo");     // SDK persistence: run state + local bests
 let soloSel = null;
-// NB: the daily seed string is CONSENSUS for on-chain claims (engine seedOfDay) — do not restyle it.
-const dailySeed = () => "daily-" + new Date().toISOString().slice(0, 10);
+// The daily seed (engine seedOfDay = provable.js provableSeed) is CONSENSUS for on-chain claims. It
+// binds (a) the FIRST FINALIZED L1 BLOCK of the UTC day — nobody can pre-grind tomorrow's run — and
+// (b) YOUR ADDRESS — a copied move list verifies only for its owner. Signed-out players get an "anon"
+// run they can play but never post; the daily button hints to sign in first.
+const today = () => Math.floor(Date.now() / 86400000);
+let _anch = { day: 0, hash: null };
+async function anchorOf(day) {
+  if (_anch.day !== day) _anch = { day, hash: await dayAnchor(base(), day).catch(() => null) };
+  return _anch.hash;
+}
+const isDailySeed = (seed) => typeof seed === "string" && seed.startsWith("daily2-scrapline-" + today() + "-");
+async function dailySeed() {
+  const day = today(), anch = await anchorOf(day);
+  return anch ? E.seedOfDay(day, anch, dapp.me || "anon") : null;
+}
 const soloLoad = () => soloPrac.run();
 const soloSave = (r) => soloPrac.saveRun(r);
 let soloRun = soloLoad();
@@ -248,11 +262,16 @@ function soloGearRow(gear, clickable) {
 function renderSolo() {
   const top = $("soloTop"), hud = $("soloHud"), zones = $("soloZones");
   if (!top) return;
-  const bd = soloPrac.best(dailySeed()), br = soloPrac.best("random");
+  const bd = soloPrac.best("daily-" + today()), br = soloPrac.best("random");
   top.innerHTML = "";
   const mkBtn = (txt, fn, primary) => { const x = document.createElement("button"); x.className = primary ? "primary" : "ghost"; x.textContent = txt; x.onclick = fn; top.appendChild(x); };
-  const isDaily = soloRun && soloRun.seed === dailySeed();
-  mkBtn(T("dailyRun", "📅 Daily gauntlet") + (bd ? " · " + T("bestN", "best {n}", { n: bd }) : ""), () => soloStart(dailySeed()), !soloRun || (soloRun.over && isDaily));
+  const isDaily = soloRun && isDailySeed(soloRun.seed);
+  mkBtn(T("dailyRun", "📅 Daily gauntlet") + (bd ? " · " + T("bestN", "best {n}", { n: bd }) : ""), async () => {
+    if (!dapp.me) notify(T("dailyAnonHint", "Playing signed out — sign in BEFORE starting if you want this run to count on the board."));
+    const seed = await dailySeed();
+    if (!seed) return notify(T("dailyNotReady", "Today's gauntlet is still being seeded by the chain — try again in a minute."));
+    soloStart(seed);
+  }, !soloRun || (soloRun.over && isDaily));
   mkBtn(T("randomRun", "🎲 Random gauntlet") + (br ? " · " + T("bestN", "best {n}", { n: br }) : ""), () => soloStart("rnd-" + Math.random().toString(36).slice(2, 10)));
   if (!soloRun) { hud.innerHTML = ""; zones.classList.add("hidden"); return; }
   zones.classList.remove("hidden");
@@ -262,7 +281,7 @@ function renderSolo() {
     + '<span class="stat">' + T("lives", "Lives") + " <b>" + "❤".repeat(Math.max(0, run.lives)) + (run.lives <= 0 ? "0" : "") + "</b></span>"
     + '<span class="stat vp">' + T("hpYou", "Your max HP") + " <b>" + run.maxhp + "</b></span>"
     + '<span class="stat vp">' + T("scoreN", "Score") + " <b>" + run.score + "</b></span>"
-    + (isDaily ? '<span class="stat">' + T("dailyTag", "daily — same for everyone") + "</span>" : "");
+    + (isDaily ? '<span class="stat">' + T("dailyTag2", "daily gauntlet") + "</span>" : "");
   // offer
   const offer = E.soloOfferFor(run), ob = $("soloBtns");
   ob.innerHTML = "";
@@ -278,12 +297,17 @@ function renderSolo() {
     ob.appendChild(shareBtn);
     // post a finished DAILY run on the global board: the claim is the packed choice list — every
     // browser re-verifies it by replaying, so a fake score simply never renders.
-    const day = Math.floor(Date.now() / 86400000);
-    if (isDaily && run.seed === E.seedOfDay(day) && run.score > 0 && (run.choices || []).length <= E.MAX_ATT) {
+    const day = today();
+    if (isDaily && run.score > 0 && (run.choices || []).length <= E.MAX_ATT) {
+      // postable ONLY if the run was seeded with MY signed-in address (the claim verifies against the
+      // poster's address on every browser — an anon or copied run can never land on the board)
+      const mine = dapp.me && _anch.day === day && _anch.hash && run.seed === E.seedOfDay(day, _anch.hash, dapp.me);
       const post = document.createElement("button"); post.className = "ghost";
-      post.textContent = dapp.me ? T("postScore", "🏆 Post my score on the daily board") : T("postScoreSign", "🏆 Sign in to post my score");
+      post.textContent = mine ? T("postScore", "🏆 Post my score on the daily board")
+        : T("postScoreAnon", "🏆 Board runs must start signed in — sign in and start a fresh daily");
+      post.disabled = !mine;
       post.onclick = () => {
-        if (!dapp.me) return dapp.signIn();
+        if (!mine) return;
         const words = E.packChoices(run.choices);
         dapp.call("post", [day, run.score, run.choices.length].concat(words), null,
           "post daily gauntlet score " + run.score, { phase: "post" });
@@ -346,29 +370,21 @@ function renderSolo() {
 renderSolo();
 
 // ---- daily highscore board (verified client-side) ------------------------------------------------------
-const claimCache = new Map();    // entry id -> verified score (or -1) — replays are cheap but not free
-function renderSoloBoard(sto) {
-  const el = $("soloScoreList"); if (!el) return;
-  const today = Math.floor(Date.now() / 86400000);
-  const eday = _m(sto, "eday"), eaddr = _m(sto, "eaddr"), escore = _m(sto, "escore"), en = _m(sto, "en");
-  const ea = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => _m(sto, "ea" + i));
-  const best = {};
-  for (const e of Object.keys(eday)) {
-    if (eday[e] !== today) continue;
-    const claimed = escore[e] || 0, addr = eaddr[e];
-    if (!addr) continue;
-    if (!claimCache.has(e)) {
-      let v = -1;
-      try { v = E.verifyClaim(today, en[e] || 0, ea.map((m) => m[e] || 0)); } catch {}
-      claimCache.set(e, v);
-    }
-    if (claimCache.get(e) !== claimed || claimed <= 0) continue;   // bogus claim — never renders
-    if (!best[addr] || best[addr].score < claimed) best[addr] = { addr, score: claimed };
-  }
-  const rows = Object.values(best).sort((a, b) => b.score - a.score);
-  renderTopScores(el, rows, dapp.me,
-    T("noSoloScores", "No verified scores today — finish a daily run and post yours."),
-    T("stagesHead", "Stages"));
+let _boardBusy = false;
+async function renderSoloBoard(sto) {
+  const el = $("soloScoreList"); if (!el || _boardBusy) return;
+  _boardBusy = true;
+  try {
+    const day = today(), anch = await anchorOf(day);
+    if (!anch) { el.innerHTML = '<span class="dim">' + T("boardSeeding", "Today's board is being seeded by the chain…") + "</span>"; return; }
+    // provable.js pipeline: read today's entries, REPLAY each claim with the poster's own
+    // address-bound seed (verdicts cached per entry) — a forged or copied claim never renders.
+    const entries = entriesFrom(sto, _m, day, [0, 1, 2, 3, 4, 5, 6, 7].map((i) => "ea" + i));
+    const rows = await verifyEntries(entries, (en) => E.verifyClaim(day, en.n, en.words, anch, en.addr));
+    renderTopScores(el, rows, dapp.me,
+      T("noSoloScores", "No verified scores today — finish a daily run and post yours."),
+      T("stagesHead", "Stages"));
+  } finally { _boardBusy = false; }
 }
 
 duel.boot(["activeGame", "solo", "lobby", "play", "walletcard", "bankroll", "scoreboard"]);

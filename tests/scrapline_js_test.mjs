@@ -219,8 +219,9 @@ check("solo gauntlet: deterministic, escalating, always terminates", () => {
   if (!e1.gear.some((g) => g && E.ITEMS[g.id].kind === "d")) throw new Error("stage-1 enemy must carry a weapon");
 });
 
-check("daily claims: pack/unpack roundtrip, honest claims verify, fakes rejected", () => {
-  const day = 20650, seed = E.seedOfDay(day);
+check("daily claims: pack/unpack roundtrip, honest claims verify, fakes + copies rejected", () => {
+  const day = 20650, anchor = "ab12cd34ef56ab78" + "0".repeat(48), addr = "ndotestplayer" + "a".repeat(36);
+  const seed = E.seedOfDay(day, anchor, addr);
   // play an honest daily run recording choices
   const rnd = prng(99);
   const run = E.soloNew(seed);
@@ -244,15 +245,22 @@ check("daily claims: pack/unpack roundtrip, honest claims verify, fakes rejected
   const back = E.unpackChoices(words.map(Number), run.choices.length);
   if (JSON.stringify(back) !== JSON.stringify(run.choices)) throw new Error("pack/unpack roundtrip");
   // honest claim verifies to the true score (via JSON-number words, like the chain view returns them)
-  if (E.verifyClaim(day, run.choices.length, words.map(Number)) !== run.score) throw new Error("honest claim rejected");
+  if (E.verifyClaim(day, run.choices.length, words.map(Number), anchor, addr) !== run.score) throw new Error("honest claim rejected");
   // fakes: inflated score is exposed (verify returns the TRUE score, board compares), wrong day rejected,
   // truncated run (not over) rejected, garbage rejected
-  if (E.verifyClaim(day, run.choices.length, words.map(Number)) === run.score + 5) throw new Error("inflated score verified?!");
-  if (E.verifyClaim(day + 1, run.choices.length, words.map(Number)) === run.score) throw new Error("wrong-day claim verified");
-  if (run.choices.length > 3 && E.verifyClaim(day, 2, words.map(Number)) !== -1) throw new Error("unfinished run accepted");
-  if (E.verifyClaim(day, 50, [31, 31, 31, 31, 31]) !== -1 && E.verifyClaim(day, 50, [31, 31, 31, 31, 31]) > 0)
-    throw new Error("garbage produced a positive score");
-  if (E.verifyClaim(day, 0, words.map(Number)) !== -1) throw new Error("n=0 accepted");
+  if (E.verifyClaim(day, run.choices.length, words.map(Number), anchor, addr) === run.score + 5) throw new Error("inflated score verified?!");
+  if (E.verifyClaim(day + 1, run.choices.length, words.map(Number), anchor, addr) === run.score) throw new Error("wrong-day claim verified");
+  if (run.choices.length > 3 && E.verifyClaim(day, 2, words.map(Number), anchor, addr) !== -1) throw new Error("unfinished run accepted");
+  const g = E.verifyClaim(day, 50, [31, 31, 31, 31, 31], anchor, addr);
+  if (g !== -1 && g > 0) throw new Error("garbage produced a positive score");
+  if (E.verifyClaim(day, 0, words.map(Number), anchor, addr) !== -1) throw new Error("n=0 accepted");
+  // COPY-THEFT: the same move list must NOT verify for a different poster (the seed binds the address)
+  const thief = "ndothiefthief" + "b".repeat(36);
+  if (E.verifyClaim(day, run.choices.length, words.map(Number), anchor, thief) === run.score)
+    throw new Error("copied claim verified for a different address");
+  // PRE-GRIND: a different day anchor (i.e. a run ground against a guessed anchor) must not verify
+  if (E.verifyClaim(day, run.choices.length, words.map(Number), "ff".repeat(32), addr) === run.score)
+    throw new Error("wrong-anchor claim verified");
 });
 
 console.log(fails ? fails + " FAILURES" : "ALL PASS");

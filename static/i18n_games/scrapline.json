@@ -165,7 +165,7 @@
     "scrap.lifeLost": "you lost a life",
     "scrap.wreck": "Wreck",
     "scrap.soloHead": "🤖 Solo gauntlet — free practice",
-    "scrap.soloBlurb": "Fight an endless line of scrap-built wrecks, right here in your browser — no wallet, no stake. Draft after every fight, merge duplicates, survive as deep as you can. The daily gauntlet is the same for everyone: race your friends.",
+    "scrap.soloBlurb": "Fight an endless line of scrap-built wrecks, right here in your browser — no stake needed. Draft after every fight, merge duplicates, survive as deep as you can. Each day the chain seeds a fresh personal gauntlet for every player — post your score and race on the daily board (every entry is replay-verified by every browser: cheating is impossible).",
     "scrap.soloOfferHead": "Salvage offer — pick one, place it, or scrap it",
     "scrap.soloGearHead": "Your gear",
     "scrap.soloEnemyHead": "Next wreck",
@@ -194,7 +194,12 @@
     "scrap.fxMaxHp": "max HP",
     "scrap.fxCd": "cooldowns",
     "scrap.fxAllWeapons": "ALL weapons",
-    "scrap.fxBurnEmber": "burn on EMBER"
+    "scrap.fxBurnEmber": "burn on EMBER",
+    "scrap.dailyAnonHint": "Playing signed out — sign in BEFORE starting if you want this run to count on the board.",
+    "scrap.dailyNotReady": "Today's gauntlet is still being seeded by the chain — try again in a minute.",
+    "scrap.dailyTag2": "daily gauntlet",
+    "scrap.postScoreAnon": "🏆 Board runs must start signed in — sign in and start a fresh daily",
+    "scrap.boardSeeding": "Today's board is being seeded by the chain…"
   },
   "cs": {
     "scrap.abort": "Nárokovat vrácení (soupeř nehraje)",
@@ -362,7 +367,7 @@
     "scrap.lifeLost": "ztratil jsi život",
     "scrap.wreck": "Vrak",
     "scrap.soloHead": "🤖 Sólo výzva — trénink zdarma",
-    "scrap.soloBlurb": "Bojuj s nekonečnou řadou vraků poskládaných ze šrotu, přímo v prohlížeči — bez peněženky, bez sázky. Po každém boji si vyber posilu, slučuj duplikáty a přežij co nejdéle. Denní výzva je pro všechny stejná: závoď s přáteli.",
+    "scrap.soloBlurb": "Bojuj proti nekonečné řadě vraků přímo v prohlížeči — bez sázky. Po každém boji draftuj, spojuj duplikáty a přežij co nejdéle. Řetězec každý den naseeduje každému hráči vlastní gauntlet — pošli skóre a závoď na denním žebříčku (každý zápis si každý prohlížeč ověří přehráním: podvádět nelze).",
     "scrap.soloOfferHead": "Nabídka šrotu — vyber si díl, umísti ho, nebo rozeber",
     "scrap.soloGearHead": "Tvoje výbava",
     "scrap.soloEnemyHead": "Další vrak",
@@ -391,7 +396,12 @@
     "scrap.fxMaxHp": "max. HP",
     "scrap.fxCd": "přebíjení",
     "scrap.fxAllWeapons": "VŠECHNY zbraně",
-    "scrap.fxBurnEmber": "hoření pro EMBER"
+    "scrap.fxBurnEmber": "hoření pro EMBER",
+    "scrap.dailyAnonHint": "Hraješ nepřihlášen — přihlas se PŘED startem, pokud má běh platit na žebříčku.",
+    "scrap.dailyNotReady": "Dnešní gauntlet řetězec teprve seeduje — zkus to za minutu.",
+    "scrap.dailyTag2": "denní gauntlet",
+    "scrap.postScoreAnon": "🏆 Běhy pro žebříček musí začít přihlášené — přihlas se a začni nový denní",
+    "scrap.boardSeeding": "Dnešní žebříček řetězec teprve seeduje…"
   },
   "es": {
     "scrap.abort": "Reclamar reembolso (el rival no juega)",
@@ -559,7 +569,7 @@
     "scrap.lifeLost": "perdiste una vida",
     "scrap.wreck": "Carcasa",
     "scrap.soloHead": "🤖 Desafío en solitario — práctica gratis",
-    "scrap.soloBlurb": "Lucha contra una fila interminable de carcasas hechas de chatarra, aquí mismo en tu navegador — sin billetera, sin apuesta. Elige refuerzos tras cada combate, fusiona duplicados y sobrevive lo más lejos posible. El desafío diario es igual para todos: compite con tus amigos.",
+    "scrap.soloBlurb": "Lucha contra una fila interminable de chatarras en tu navegador — sin apuesta. Draftea tras cada combate, fusiona duplicados y sobrevive. Cada día la cadena siembra un guantelete personal para cada jugador — publica tu puntuación y compite en la tabla diaria (cada entrada se verifica reproduciéndola en cada navegador: hacer trampa es imposible).",
     "scrap.soloOfferHead": "Oferta de chatarra — elige una pieza, colócala o desguázala",
     "scrap.soloGearHead": "Tu equipo",
     "scrap.soloEnemyHead": "Próxima carcasa",
@@ -588,7 +598,12 @@
     "scrap.fxMaxHp": "HP máx",
     "scrap.fxCd": "recargas",
     "scrap.fxAllWeapons": "TODAS las armas",
-    "scrap.fxBurnEmber": "quemadura para EMBER"
+    "scrap.fxBurnEmber": "quemadura para EMBER",
+    "scrap.dailyAnonHint": "Juegas sin sesión — inicia sesión ANTES de empezar si quieres que la partida cuente en la tabla.",
+    "scrap.dailyNotReady": "La cadena aún está sembrando el guantelete de hoy — prueba en un minuto.",
+    "scrap.dailyTag2": "guantelete diario",
+    "scrap.postScoreAnon": "🏆 Las partidas de tabla deben empezar con sesión — inicia sesión y empieza una diaria nueva",
+    "scrap.boardSeeding": "La cadena está sembrando la tabla de hoy…"
   },
   "pt": {
     "scrap.abort": "Reivindicar reembolso (oponente parou de jogar)",
@@ -756,7 +771,7 @@
     "scrap.lifeLost": "você perdeu uma vida",
     "scrap.wreck": "Destroço",
     "scrap.soloHead": "🤖 Desafio solo — treino grátis",
-    "scrap.soloBlurb": "Enfrente uma fila infinita de destroços montados com sucata, direto no seu navegador — sem carteira, sem aposta. Escolha reforços após cada luta, combine duplicados e sobreviva o máximo que puder. O desafio diário é igual para todos: dispute com seus amigos.",
+    "scrap.soloBlurb": "Enfrente uma fila infinita de sucatas no seu navegador — sem aposta. Drafte após cada luta, funda duplicatas e sobreviva. A cada dia a cadeia semeia um desafio pessoal para cada jogador — publique sua pontuação e dispute o placar diário (cada entrada é verificada por replay em todo navegador: trapacear é impossível).",
     "scrap.soloOfferHead": "Oferta de sucata — escolha uma peça, posicione ou sucateie",
     "scrap.soloGearHead": "Seu equipamento",
     "scrap.soloEnemyHead": "Próximo destroço",
@@ -785,7 +800,12 @@
     "scrap.fxMaxHp": "HP máx",
     "scrap.fxCd": "recargas",
     "scrap.fxAllWeapons": "TODAS as armas",
-    "scrap.fxBurnEmber": "queimadura para EMBER"
+    "scrap.fxBurnEmber": "queimadura para EMBER",
+    "scrap.dailyAnonHint": "Jogando sem sessão — entre ANTES de começar se quiser que a corrida conte no placar.",
+    "scrap.dailyNotReady": "A cadeia ainda está semeando o desafio de hoje — tente em um minuto.",
+    "scrap.dailyTag2": "desafio diário",
+    "scrap.postScoreAnon": "🏆 Corridas de placar exigem sessão — entre e comece um diário novo",
+    "scrap.boardSeeding": "A cadeia está semeando o placar de hoje…"
   },
   "fr": {
     "scrap.abort": "Réclamer le remboursement (adversaire inactif)",
@@ -953,7 +973,7 @@
     "scrap.lifeLost": "tu as perdu une vie",
     "scrap.wreck": "Épave",
     "scrap.soloHead": "🤖 Défi solo — entraînement gratuit",
-    "scrap.soloBlurb": "Affronte une file sans fin d'épaves bricolées en ferraille, directement dans ton navigateur — sans wallet, sans mise. Choisis un renfort après chaque combat, fusionne les doublons et survis le plus longtemps possible. Le défi quotidien est identique pour tous : défie tes amis.",
+    "scrap.soloBlurb": "Affrontez une file infinie d'épaves dans votre navigateur — sans mise. Draftez après chaque combat, fusionnez les doublons, survivez. Chaque jour, la chaîne sème un gantelet personnel pour chaque joueur — publiez votre score et courez au classement quotidien (chaque entrée est vérifiée par rejeu dans chaque navigateur : tricher est impossible).",
     "scrap.soloOfferHead": "Offre de récup — choisis une pièce, place-la ou recycle-la",
     "scrap.soloGearHead": "Ton équipement",
     "scrap.soloEnemyHead": "Prochaine épave",
@@ -982,7 +1002,12 @@
     "scrap.fxMaxHp": "PV max",
     "scrap.fxCd": "temps de recharge",
     "scrap.fxAllWeapons": "TOUTES les armes",
-    "scrap.fxBurnEmber": "brûlure pour EMBER"
+    "scrap.fxBurnEmber": "brûlure pour EMBER",
+    "scrap.dailyAnonHint": "Vous jouez hors session — connectez-vous AVANT de commencer pour que la partie compte au classement.",
+    "scrap.dailyNotReady": "La chaîne sème encore le gantelet du jour — réessayez dans une minute.",
+    "scrap.dailyTag2": "gantelet quotidien",
+    "scrap.postScoreAnon": "🏆 Les parties classées doivent commencer connecté — connectez-vous et lancez un quotidien neuf",
+    "scrap.boardSeeding": "La chaîne sème le classement du jour…"
   },
   "de": {
     "scrap.abort": "Rückerstattung einfordern (Gegner reagiert nicht)",
@@ -1150,7 +1175,7 @@
     "scrap.lifeLost": "du hast ein Leben verloren",
     "scrap.wreck": "Wrack",
     "scrap.soloHead": "🤖 Solo-Herausforderung — freies Training",
-    "scrap.soloBlurb": "Kämpfe gegen eine endlose Reihe aus Schrott gebauter Wracks, direkt im Browser — ohne Wallet, ohne Einsatz. Wähle nach jedem Kampf Verstärkung, verschmelze Duplikate und überlebe so lange wie möglich. Die tägliche Herausforderung ist für alle gleich: Tritt gegen deine Freunde an.",
+    "scrap.soloBlurb": "Kämpfe im Browser gegen eine endlose Reihe von Schrottwracks — ohne Einsatz. Drafte nach jedem Kampf, verschmelze Duplikate, überlebe. Jeden Tag sät die Kette für jeden Spieler einen persönlichen Gauntlet — poste deinen Score und race auf dem Tagesboard (jeder Eintrag wird in jedem Browser per Replay verifiziert: Schummeln ist unmöglich).",
     "scrap.soloOfferHead": "Schrott-Angebot — wähle ein Teil, setze es ein oder verschrotte es",
     "scrap.soloGearHead": "Deine Ausrüstung",
     "scrap.soloEnemyHead": "Nächstes Wrack",
@@ -1179,7 +1204,12 @@
     "scrap.fxMaxHp": "max. HP",
     "scrap.fxCd": "Abklingzeiten",
     "scrap.fxAllWeapons": "ALLE Waffen",
-    "scrap.fxBurnEmber": "Brand für EMBER"
+    "scrap.fxBurnEmber": "Brand für EMBER",
+    "scrap.dailyAnonHint": "Du spielst ausgeloggt — melde dich VOR dem Start an, wenn der Lauf fürs Board zählen soll.",
+    "scrap.dailyNotReady": "Die Kette sät den heutigen Spießrutenlauf noch — versuch es in einer Minute.",
+    "scrap.dailyTag2": "Tages-Gauntlet",
+    "scrap.postScoreAnon": "🏆 Board-Läufe müssen angemeldet starten — anmelden und einen frischen Tageslauf beginnen",
+    "scrap.boardSeeding": "Das heutige Board wird von der Kette gesät…"
   },
   "it": {
     "scrap.abort": "Richiedi il rimborso (avversario fermo)",
@@ -1347,7 +1377,7 @@
     "scrap.lifeLost": "hai perso una vita",
     "scrap.wreck": "Relitto",
     "scrap.soloHead": "🤖 Sfida in solitaria — pratica gratuita",
-    "scrap.soloBlurb": "Combatti contro una fila infinita di relitti costruiti con rottami, direttamente nel browser — niente wallet, niente puntata. Scegli un rinforzo dopo ogni scontro, fondi i duplicati e sopravvivi il più a lungo possibile. La sfida giornaliera è uguale per tutti: sfida i tuoi amici.",
+    "scrap.soloBlurb": "Affronta una fila infinita di rottami nel tuo browser — senza puntata. Drafta dopo ogni scontro, fondi i duplicati, sopravvivi. Ogni giorno la catena semina un guanto personale per ogni giocatore — pubblica il punteggio e gareggia in classifica (ogni voce è verificata col replay in ogni browser: barare è impossibile).",
     "scrap.soloOfferHead": "Offerta di recupero — scegli un pezzo, piazzalo o rottamalo",
     "scrap.soloGearHead": "Il tuo equipaggiamento",
     "scrap.soloEnemyHead": "Prossimo relitto",
@@ -1376,7 +1406,12 @@
     "scrap.fxMaxHp": "HP max",
     "scrap.fxCd": "ricariche",
     "scrap.fxAllWeapons": "TUTTE le armi",
-    "scrap.fxBurnEmber": "bruciatura per EMBER"
+    "scrap.fxBurnEmber": "bruciatura per EMBER",
+    "scrap.dailyAnonHint": "Stai giocando senza accesso — accedi PRIMA di iniziare se vuoi che la corsa conti in classifica.",
+    "scrap.dailyNotReady": "La catena sta ancora seminando il guanto di oggi — riprova tra un minuto.",
+    "scrap.dailyTag2": "guanto quotidiano",
+    "scrap.postScoreAnon": "🏆 Le corse da classifica devono iniziare con l'accesso — accedi e inizia un quotidiano nuovo",
+    "scrap.boardSeeding": "La catena sta seminando la classifica di oggi…"
   },
   "ru": {
     "scrap.abort": "Забрать возврат (соперник тянет время)",
@@ -1544,7 +1579,7 @@
     "scrap.lifeLost": "ты потерял жизнь",
     "scrap.wreck": "Развалина",
     "scrap.soloHead": "🤖 Одиночное испытание — бесплатная практика",
-    "scrap.soloBlurb": "Сражайся с бесконечной чередой развалин, собранных из металлолома, прямо в браузере — без кошелька и без ставок. Выбирай усиление после каждого боя, объединяй дубликаты и продержись как можно дольше. Ежедневное испытание одно для всех: соревнуйся с друзьями.",
+    "scrap.soloBlurb": "Сражайтесь с бесконечной чередой рухляди прямо в браузере — без ставки. Драфт после каждого боя, слияние дубликатов, выживание. Каждый день цепь сеет каждому игроку личный забег — публикуйте счёт и соревнуйтесь в дневной таблице (каждую запись каждый браузер проверяет реплеем: смошенничать невозможно).",
     "scrap.soloOfferHead": "Трофейное предложение — выбери деталь, установи или разбери её",
     "scrap.soloGearHead": "Твоё снаряжение",
     "scrap.soloEnemyHead": "Следующая развалина",
@@ -1573,7 +1608,12 @@
     "scrap.fxMaxHp": "макс. HP",
     "scrap.fxCd": "перезарядки",
     "scrap.fxAllWeapons": "ВСЁ оружие",
-    "scrap.fxBurnEmber": "горение для EMBER"
+    "scrap.fxBurnEmber": "горение для EMBER",
+    "scrap.dailyAnonHint": "Вы играете без входа — войдите ДО старта, чтобы забег засчитался в таблицу.",
+    "scrap.dailyNotReady": "Цепь ещё сеет сегодняшний забег — попробуйте через минуту.",
+    "scrap.dailyTag2": "дневной забег",
+    "scrap.postScoreAnon": "🏆 Забеги для таблицы начинаются со входом — войдите и начните новый дневной",
+    "scrap.boardSeeding": "Цепь сеет сегодняшнюю таблицу…"
   },
   "zh": {
     "scrap.abort": "领取退款（对手拖延不动）",
@@ -1741,7 +1781,7 @@
     "scrap.lifeLost": "你失去了一条生命",
     "scrap.wreck": "残骸",
     "scrap.soloHead": "🤖 单人挑战——免费练习",
-    "scrap.soloBlurb": "在浏览器里直接迎战一列无尽的废铁残骸——无需钱包，无需赌注。每场战斗后挑选零件，合并重复件，尽力活到更深的关卡。每日挑战人人相同：和朋友比拼吧。",
+    "scrap.soloBlurb": "在浏览器里迎战无尽的废铁残骸——无需下注。每战后选牌、合并同名装备、尽力深入。链每天为每位玩家播种专属挑战——发布分数、竞逐每日榜（每条记录都会被所有浏览器重放验证：作弊不可能）。",
     "scrap.soloOfferHead": "拾荒补给——选一件装上，或拆解它",
     "scrap.soloGearHead": "你的装备",
     "scrap.soloEnemyHead": "下一个残骸",
@@ -1770,7 +1810,12 @@
     "scrap.fxMaxHp": "最大生命",
     "scrap.fxCd": "冷却",
     "scrap.fxAllWeapons": "所有武器",
-    "scrap.fxBurnEmber": "EMBER燃烧"
+    "scrap.fxBurnEmber": "EMBER燃烧",
+    "scrap.dailyAnonHint": "当前未登录——若想让本局计入排行榜，请先登录再开始。",
+    "scrap.dailyNotReady": "链上还在生成今日挑战——请一分钟后再试。",
+    "scrap.dailyTag2": "每日挑战",
+    "scrap.postScoreAnon": "🏆 上榜对局须登录后开始——请登录并开始新的每日挑战",
+    "scrap.boardSeeding": "链上正在生成今日排行榜…"
   },
   "ja": {
     "scrap.abort": "返金を請求（相手が停滞）",
@@ -1938,7 +1983,7 @@
     "scrap.lifeLost": "ライフを1つ失った",
     "scrap.wreck": "残骸",
     "scrap.soloHead": "🤖 ソロガントレット — 無料練習",
-    "scrap.soloBlurb": "ブラウザだけで、廃品から組み上げられた残骸の無限の列と戦おう — ウォレット不要、賭け金なし。戦闘のたびにパーツをドラフトし、重複を合成して、どこまでも生き延びろ。デイリーガントレットは全員共通：フレンドと競い合おう。",
+    "scrap.soloBlurb": "ブラウザだけで果てなきスクラップの残骸と戦おう — 賭け不要。毎戦後にドラフト、重複を合成、どこまでも生き延びろ。チェーンが毎日プレイヤーごとの専用ガントレットを生成 — スコアを投稿してデイリーボードで競おう（全エントリは各ブラウザがリプレイ検証：チートは不可能）。",
     "scrap.soloOfferHead": "サルベージ候補 — 1つ選んで配置するか、スクラップに",
     "scrap.soloGearHead": "自分の装備",
     "scrap.soloEnemyHead": "次の残骸",
@@ -1967,7 +2012,12 @@
     "scrap.fxMaxHp": "最大HP",
     "scrap.fxCd": "クールダウン",
     "scrap.fxAllWeapons": "全武器",
-    "scrap.fxBurnEmber": "EMBERの燃焼"
+    "scrap.fxBurnEmber": "EMBERの燃焼",
+    "scrap.dailyAnonHint": "未ログインでプレイ中 — ボードに載せたいなら開始前にログインを。",
+    "scrap.dailyNotReady": "チェーンが本日のガントレットを生成中 — 1分後に再試行してください。",
+    "scrap.dailyTag2": "デイリーガントレット",
+    "scrap.postScoreAnon": "🏆 ボード対象のランはログイン後に開始 — ログインして新しいデイリーを",
+    "scrap.boardSeeding": "チェーンが本日のボードを生成中…"
   },
   "ko": {
     "scrap.abort": "환불 청구 (상대가 지연 중)",
@@ -2135,7 +2185,7 @@
     "scrap.lifeLost": "목숨을 하나 잃었습니다",
     "scrap.wreck": "잔해",
     "scrap.soloHead": "🤖 솔로 건틀릿 — 무료 연습",
-    "scrap.soloBlurb": "브라우저에서 바로, 고철로 조립된 잔해들의 끝없는 행렬과 싸우세요 — 지갑도 판돈도 필요 없습니다. 전투마다 부품을 고르고, 중복을 합성하고, 최대한 깊이 살아남으세요. 일일 건틀릿은 모두에게 동일합니다: 친구와 경쟁해 보세요.",
+    "scrap.soloBlurb": "브라우저에서 끝없는 고철 잔해와 싸우세요 — 판돈 불필요. 매 전투 후 드래프트, 중복 합성, 최대한 생존. 체인이 매일 각 플레이어의 전용 건틀릿을 시딩 — 점수를 올려 데일리 보드에서 경쟁하세요(모든 기록은 모든 브라우저가 리플레이 검증: 치팅 불가).",
     "scrap.soloOfferHead": "샐비지 제안 — 하나를 골라 배치하거나 분해하세요",
     "scrap.soloGearHead": "내 장비",
     "scrap.soloEnemyHead": "다음 잔해",
@@ -2164,7 +2214,12 @@
     "scrap.fxMaxHp": "최대 HP",
     "scrap.fxCd": "재사용 대기시간",
     "scrap.fxAllWeapons": "모든 무기",
-    "scrap.fxBurnEmber": "EMBER 화상"
+    "scrap.fxBurnEmber": "EMBER 화상",
+    "scrap.dailyAnonHint": "로그아웃 상태로 플레이 중 — 보드에 기록하려면 시작 전에 로그인하세요.",
+    "scrap.dailyNotReady": "체인이 오늘의 건틀릿을 시딩 중 — 1분 후 다시 시도하세요.",
+    "scrap.dailyTag2": "데일리 건틀릿",
+    "scrap.postScoreAnon": "🏆 보드용 런은 로그인 후 시작 — 로그인하고 새 데일리를 시작하세요",
+    "scrap.boardSeeding": "체인이 오늘의 보드를 시딩 중…"
   },
   "ar": {
     "scrap.abort": "المطالبة باسترداد المال (الخصم متوقف)",
@@ -2332,7 +2387,7 @@
     "scrap.lifeLost": "خسرت روحًا",
     "scrap.wreck": "الحطام",
     "scrap.soloHead": "🤖 تحدٍّ فردي — تدريب مجاني",
-    "scrap.soloBlurb": "قاتل صفًا لا ينتهي من الحطام المُجمَّع من الخردة، مباشرة في متصفحك — بلا محفظة وبلا رهان. اختر قطعة بعد كل معركة، وادمج المكررات، واصمد لأبعد ما تستطيع. التحدي اليومي نفسه للجميع: نافس أصدقاءك.",
+    "scrap.soloBlurb": "قاتل صفًا لا ينتهي من الحطام في متصفحك — دون رهان. اختر بعد كل معركة وادمج المكررات وانجُ بأقصى عمق. كل يوم تبذر السلسلة تحديًا شخصيًا لكل لاعب — انشر نتيجتك وتنافس على لوحة اليوم (كل إدخال يُتحقق منه بإعادة التشغيل في كل متصفح: الغش مستحيل).",
     "scrap.soloOfferHead": "عرض الخردة — اختر قطعة وضعها، أو فكّكها",
     "scrap.soloGearHead": "عتادك",
     "scrap.soloEnemyHead": "الحطام التالي",
@@ -2361,7 +2416,12 @@
     "scrap.fxMaxHp": "أقصى نقاط حياة",
     "scrap.fxCd": "فترات التبريد",
     "scrap.fxAllWeapons": "كل الأسلحة",
-    "scrap.fxBurnEmber": "حرق لعناصر EMBER"
+    "scrap.fxBurnEmber": "حرق لعناصر EMBER",
+    "scrap.dailyAnonHint": "تلعب دون تسجيل دخول — سجّل الدخول قبل البدء إن أردت احتساب الجولة في اللوحة.",
+    "scrap.dailyNotReady": "السلسلة ما تزال تبذر تحدي اليوم — جرّب بعد دقيقة.",
+    "scrap.dailyTag2": "تحدي اليوم",
+    "scrap.postScoreAnon": "🏆 جولات اللوحة تبدأ بتسجيل الدخول — سجّل وابدأ تحديًا يوميًا جديدًا",
+    "scrap.boardSeeding": "السلسلة تبذر لوحة اليوم…"
   },
   "hi": {
     "scrap.abort": "रिफ़ंड का दावा करें (प्रतिद्वंद्वी रुका हुआ है)",
@@ -2529,7 +2589,7 @@
     "scrap.lifeLost": "आपकी एक जान गई",
     "scrap.wreck": "मलबा",
     "scrap.soloHead": "🤖 सोलो चुनौती — मुफ़्त अभ्यास",
-    "scrap.soloBlurb": "कबाड़ से बने मलबों की अंतहीन कतार से लड़ें, सीधे अपने ब्राउज़र में — न वॉलेट, न दांव। हर लड़ाई के बाद पुर्ज़ा चुनें, डुप्लिकेट मिलाएँ और जितनी दूर जा सकें उतना टिके रहें। दैनिक चुनौती सबके लिए एक जैसी है: दोस्तों से होड़ लगाएँ।",
+    "scrap.soloBlurb": "ब्राउज़र में ही कबाड़-वाहनों की अंतहीन कतार से लड़ें — बिना दाँव। हर लड़ाई के बाद ड्राफ्ट, डुप्लिकेट मिलाएँ, गहराई तक टिकें। चेन हर दिन हर खिलाड़ी के लिए निजी गौंटलेट सीड करती है — स्कोर पोस्ट करें और दैनिक बोर्ड पर दौड़ें (हर एंट्री को हर ब्राउज़र रीप्ले से जाँचता है: धोखा असंभव)।",
     "scrap.soloOfferHead": "कबाड़ ऑफ़र — एक चुनें, लगाएँ, या कबाड़ करें",
     "scrap.soloGearHead": "आपका गियर",
     "scrap.soloEnemyHead": "अगला मलबा",
@@ -2558,7 +2618,12 @@
     "scrap.fxMaxHp": "अधिकतम HP",
     "scrap.fxCd": "कूलडाउन",
     "scrap.fxAllWeapons": "सभी हथियार",
-    "scrap.fxBurnEmber": "EMBER पर जलन"
+    "scrap.fxBurnEmber": "EMBER पर जलन",
+    "scrap.dailyAnonHint": "बिना साइन-इन खेल रहे हैं — बोर्ड पर गिनती चाहिए तो शुरू करने से पहले साइन इन करें।",
+    "scrap.dailyNotReady": "चेन आज का गौंटलेट अभी सीड कर रही है — एक मिनट में फिर आज़माएँ।",
+    "scrap.dailyTag2": "दैनिक गौंटलेट",
+    "scrap.postScoreAnon": "🏆 बोर्ड की दौड़ें साइन-इन से शुरू हों — साइन इन कर नई दैनिक शुरू करें",
+    "scrap.boardSeeding": "चेन आज का बोर्ड सीड कर रही है…"
   },
   "tr": {
     "scrap.abort": "İade talep et (rakip oyalanıyor)",
@@ -2726,7 +2791,7 @@
     "scrap.lifeLost": "bir can kaybettin",
     "scrap.wreck": "Enkaz",
     "scrap.soloHead": "🤖 Tek kişilik meydan okuma — ücretsiz antrenman",
-    "scrap.soloBlurb": "Hurdadan derlenmiş enkazların bitmeyen sırasına karşı savaş, doğrudan tarayıcında — cüzdan yok, bahis yok. Her dövüşten sonra parça seç, kopyaları birleştir, gidebildiğin kadar derine in. Günlük meydan okuma herkes için aynı: arkadaşlarınla yarış.",
+    "scrap.soloBlurb": "Tarayıcında bitmez tükenmez hurda enkazlarıyla savaş — bahissiz. Her dövüşten sonra draft yap, kopyaları birleştir, olabildiğince derine dayan. Zincir her gün her oyuncuya kişisel bir parkur tohumlar — skorunu gönder, günlük tabloda yarış (her kayıt her tarayıcıda tekrarla doğrulanır: hile imkânsız).",
     "scrap.soloOfferHead": "Hurda teklifi — birini seç, yerleştir ya da hurdaya ayır",
     "scrap.soloGearHead": "Donanımın",
     "scrap.soloEnemyHead": "Sıradaki enkaz",
@@ -2755,7 +2820,12 @@
     "scrap.fxMaxHp": "maks HP",
     "scrap.fxCd": "bekleme süreleri",
     "scrap.fxAllWeapons": "TÜM silahlar",
-    "scrap.fxBurnEmber": "EMBER için yanma"
+    "scrap.fxBurnEmber": "EMBER için yanma",
+    "scrap.dailyAnonHint": "Oturum açmadan oynuyorsun — koşunun tabloya sayılmasını istiyorsan başlamadan ÖNCE giriş yap.",
+    "scrap.dailyNotReady": "Zincir bugünün parkurunu hâlâ tohumluyor — bir dakika sonra dene.",
+    "scrap.dailyTag2": "günlük parkur",
+    "scrap.postScoreAnon": "🏆 Tablo koşuları girişle başlamalı — giriş yap ve yeni bir günlük başlat",
+    "scrap.boardSeeding": "Zincir bugünün tablosunu tohumluyor…"
   },
   "id": {
     "scrap.abort": "Klaim refund (lawan menunda)",
@@ -2923,7 +2993,7 @@
     "scrap.lifeLost": "kamu kehilangan satu nyawa",
     "scrap.wreck": "Bangkai",
     "scrap.soloHead": "🤖 Tantangan solo — latihan gratis",
-    "scrap.soloBlurb": "Lawan barisan bangkai rakitan rongsokan yang tak ada habisnya, langsung di browser — tanpa dompet, tanpa taruhan. Pilih suku cadang setiap usai bertarung, gabungkan duplikat, dan bertahanlah sejauh mungkin. Tantangan harian sama untuk semua orang: adu skor dengan temanmu.",
+    "scrap.soloBlurb": "Lawan barisan rongsokan tanpa akhir di browser — tanpa taruhan. Draft usai tiap duel, gabungkan duplikat, bertahan sedalam mungkin. Tiap hari chain menyemai gauntlet pribadi untuk tiap pemain — unggah skor dan balapan di papan harian (setiap entri diverifikasi ulang oleh semua browser: curang mustahil).",
     "scrap.soloOfferHead": "Tawaran rongsokan — pilih satu, pasang, atau bongkar",
     "scrap.soloGearHead": "Perlengkapanmu",
     "scrap.soloEnemyHead": "Bangkai berikutnya",
@@ -2952,7 +3022,12 @@
     "scrap.fxMaxHp": "HP maks",
     "scrap.fxCd": "cooldown",
     "scrap.fxAllWeapons": "SEMUA senjata",
-    "scrap.fxBurnEmber": "bakaran untuk EMBER"
+    "scrap.fxBurnEmber": "bakaran untuk EMBER",
+    "scrap.dailyAnonHint": "Bermain tanpa masuk — masuk SEBELUM mulai jika ingin run ini dihitung di papan.",
+    "scrap.dailyNotReady": "Chain masih menyemai gauntlet hari ini — coba lagi semenit lagi.",
+    "scrap.dailyTag2": "gauntlet harian",
+    "scrap.postScoreAnon": "🏆 Run papan harus dimulai saat masuk — masuk dan mulai harian baru",
+    "scrap.boardSeeding": "Chain sedang menyemai papan hari ini…"
   },
   "vi": {
     "scrap.abort": "Đòi hoàn tiền (đối thủ trì hoãn)",
@@ -3120,7 +3195,7 @@
     "scrap.lifeLost": "bạn mất một mạng",
     "scrap.wreck": "Xác máy",
     "scrap.soloHead": "🤖 Thử thách đơn — luyện tập miễn phí",
-    "scrap.soloBlurb": "Chiến đấu với hàng dài vô tận những xác máy ghép từ phế liệu, ngay trong trình duyệt — không cần ví, không cần cược. Chọn linh kiện sau mỗi trận, hợp nhất món trùng, sống sót càng sâu càng tốt. Thử thách hằng ngày giống nhau cho mọi người: đua điểm cùng bạn bè.",
+    "scrap.soloBlurb": "Chiến đấu với hàng dài xác sắt vụn ngay trong trình duyệt — không cần cược. Draft sau mỗi trận, ghép trùng, sống sót càng sâu càng tốt. Mỗi ngày chuỗi gieo cho mỗi người chơi một thử thách riêng — đăng điểm và đua trên bảng ngày (mọi mục đều được mọi trình duyệt phát lại kiểm chứng: gian lận là bất khả).",
     "scrap.soloOfferHead": "Hàng nhặt được — chọn một món, lắp vào, hoặc rã nó",
     "scrap.soloGearHead": "Trang bị của bạn",
     "scrap.soloEnemyHead": "Xác máy tiếp theo",
@@ -3149,6 +3224,11 @@
     "scrap.fxMaxHp": "HP tối đa",
     "scrap.fxCd": "hồi chiêu",
     "scrap.fxAllWeapons": "MỌI vũ khí",
-    "scrap.fxBurnEmber": "cháy cho EMBER"
+    "scrap.fxBurnEmber": "cháy cho EMBER",
+    "scrap.dailyAnonHint": "Đang chơi chưa đăng nhập — hãy đăng nhập TRƯỚC khi bắt đầu nếu muốn lượt chạy được tính lên bảng.",
+    "scrap.dailyNotReady": "Chuỗi vẫn đang gieo thử thách hôm nay — thử lại sau một phút.",
+    "scrap.dailyTag2": "thử thách hằng ngày",
+    "scrap.postScoreAnon": "🏆 Lượt chạy lên bảng phải bắt đầu khi đã đăng nhập — đăng nhập và bắt đầu lượt mới",
+    "scrap.boardSeeding": "Chuỗi đang gieo bảng xếp hạng hôm nay…"
   }
 }
