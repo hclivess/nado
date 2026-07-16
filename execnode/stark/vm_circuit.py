@@ -49,6 +49,13 @@ Z = GA + 1
 W_TOTAL = Z + 1
 NUM_AUX = W_TOTAL - W_MAIN
 
+# OPTIONAL io-fingerprint column (bind_io=True) — an ordered RLC of the trace's io, APPENDED after Z so the
+# default geometry is untouched. It lets a settlement bind the state transition to THIS epoch's exact io by
+# matching one field element (the fingerprint) instead of re-checking the whole io log (doc/zk-recursion.md §5c,
+# piece 2). FIO[0]=0; FIO[i+1]=FIO[i]+io_active(row_i)·combine([TAG_IO, ioc, kind, a, b], γ_fp) — the io tuple
+# already carries IOC (the global order counter), so a plain sum is order-binding. FIO[T-1] is the fingerprint.
+FIO = W_TOTAL                              # index when bind_io; effective width is then W_TOTAL+1, aux NUM_AUX+1
+
 # ---- periodic (public) column layout ---------------------------------------------------------------
 # The verifier rebuilds ALL of these from the public EPOCH statement (the ordered call list + each call's
 # program) — nothing statement-shaped is read from the proof. An EPOCH is N calls concatenated into one
@@ -219,6 +226,23 @@ def _io_active(row):
     return acc
 
 
+def _io_leaf_expr(cur, nxt, gamma_fp):
+    """The fingerprint leaf for one row = the io bus tuple (TAG_IO, ioc, kind, a, b) under the fingerprint
+    challenge γ_fp. Same (kind, a, b) the io bus reads, so the fingerprint covers the SAME io the exec proves."""
+    return logup.combine([TAG_IO, cur[IOC], _io_kind_expr(cur), _io_a_expr(cur), _io_b_expr(cur, nxt)], gamma_fp)
+
+
+def _io_fingerprint(trace, gamma_fp):
+    """Native ordered RLC fingerprint of a trace's io — the value FIO[T-1] the aux column accumulates to.
+    Σ over rows 0..T-2 of io_active(row)·_io_leaf_expr(row). Deterministic given γ_fp (public)."""
+    Fv, T = 0, len(trace)
+    for i in range(T - 1):
+        cur, nxt = trace[i], trace[i + 1]
+        if _io_active(cur):                                  # io_active is 0/1 on a well-formed trace
+            Fv = F.add(Fv, _io_leaf_expr(cur, nxt, gamma_fp))
+    return Fv
+
+
 def _fetch_tuple(row, per, gamma):
     """The instruction fetched at this row, tagged by which PROGRAM the owning call runs (per[PC_PROG]) so a
     multi-contract epoch's fetch bus can't confuse two programs' instructions."""
@@ -277,13 +301,16 @@ def _wr_expr(row):
 
 
 # ---- the transition constraints -------------------------------------------------------------------
-def transitions():
+def transitions(bind_io=False, gamma_fp=0):
     """The full constraint list. All per-call context is PERIODIC (public), so ONE constraint set proves an
     EPOCH of N concatenated calls (aggregation) as well as a single call. Every constraint is
     c(cur, nxt, per, chal), chal = (β, γ). P_START(cur) pins a call's first row (registers←args, pc←0,
     sponge←0); P_END(cur) disables the held/step transitions on the last row of a call whose successor is a
     fresh call, so the reset is exactly at the boundary. The io counter is NEVER reset — it serializes the
-    whole epoch's I/O in one global order."""
+    whole epoch's I/O in one global order.
+
+    `bind_io=True` appends the FIO fingerprint accumulator constraint (γ_fp is the public fingerprint challenge)
+    — an opt-in extra column, default OFF so the live proof is byte-identical."""
     cons = []
 
     # -- selector well-formedness: every one-hot group is bits summing to 1 --
@@ -476,6 +503,11 @@ def transitions():
         term = F.sub(term, c[GS])
         return F.sub(n[Z], F.add(c[Z], term))
     cons.append(c_z)
+
+    if bind_io:                                              # opt-in io fingerprint accumulator (piece 2)
+        def c_fio(c, n, p, ch):
+            return F.sub(n[FIO], F.add(c[FIO], F.mul(_io_active(c), _io_leaf_expr(c, n, gamma_fp))))
+        cons.append(c_fio)
     return cons
 
 
@@ -652,16 +684,16 @@ def build_periodic(blocks, progs, epoch_io, T):
     return cols
 
 
-def make_aux_builder(periodic):
+def make_aux_builder(periodic, bind_io=False, gamma_fp=0):
     """The prover's phase-2 witness: the 18 challenge-dependent helper/accumulator columns, built against the
-    already-computed public periodic columns."""
+    already-computed public periodic columns. With `bind_io`, ALSO fills the appended FIO fingerprint column."""
     def build(trace, chal):
         beta, gamma = chal
         T = len(trace)
         # dense-expand every periodic column (structured {period,base,sparse} range/selector columns → their
         # length-T form) so the row reader below can index per_cols[c][i] uniformly.
         per_cols = [stark._per_expand(pc, T) for pc in periodic]
-        cols = [[0] * T for _ in range(NUM_AUX)]
+        cols = [[0] * T for _ in range(NUM_AUX + (1 if bind_io else 0))]
         def put(idx, row, val):
             cols[idx - W_MAIN][row] = val
         def perrow(i):
@@ -700,19 +732,31 @@ def make_aux_builder(periodic):
             term = F.add(term, F.add(cols[HS - W_MAIN][i], cols[HS - W_MAIN + 1][i]))
             term = F.sub(term, cols[GS - W_MAIN][i])
             z = F.add(z, term)
+        if bind_io:                                          # FIO[0]=0; FIO[i+1]=FIO[i]+active·leaf
+            Fv = 0
+            for i in range(T):
+                cols[FIO - W_MAIN][i] = Fv
+                cur = trace[i]; nxt = trace[i + 1] if i + 1 < T else trace[i]
+                if _io_active(cur):
+                    Fv = F.add(Fv, _io_leaf_expr(cur, nxt, gamma_fp))
         return cols
     return build
 
 
-def _boundaries(T):
+def _boundaries(T, bind_io=False, fp_exec=0):
     """Only the GLOBAL boundaries — per-call resets are enforced by the P_START pins inside the constraints.
     Row 0 is the first call's start (pc/ioc/sponge zero); Z telescopes to 0 at both ends (the LogUp buses
-    balance over the whole epoch)."""
-    return [(0, PC, 0), (0, IOC, 0), (0, H0, 0), (0, H1, 0), (0, Z, 0), (T - 1, Z, 0)]
+    balance over the whole epoch). With `bind_io`, pin FIO[0]=0 and FIO[T-1]=fp_exec (the io fingerprint,
+    the O(1) public output that a settlement matches against the replay's fingerprint)."""
+    bnds = [(0, PC, 0), (0, IOC, 0), (0, H0, 0), (0, H1, 0), (0, Z, 0), (T - 1, Z, 0)]
+    if bind_io:
+        bnds += [(0, FIO, 0), (T - 1, FIO, int(fp_exec) % F.P)]
+    return bnds
 
 
-def _aux_spec(periodic):
-    return {"num_challenges": 2, "num_aux": NUM_AUX, "build": make_aux_builder(periodic)}
+def _aux_spec(periodic, bind_io=False, gamma_fp=0):
+    return {"num_challenges": 2, "num_aux": NUM_AUX + (1 if bind_io else 0),
+            "build": make_aux_builder(periodic, bind_io, gamma_fp)}
 
 
 def _norm_call(call):
@@ -728,7 +772,7 @@ def _norm_call(call):
 
 
 def prove_epoch_calls(calls, num_queries=stark.NUM_QUERIES, backend=None, row_commit=False,
-                      commit_periodic=None):
+                      commit_periodic=None, bind_io=False, gamma_fp=0):
     """Prove an ORDERED batch of zkVM calls as ONE proof (aggregation). Each call is
     {code, method, caller, args, value?, cursor?, timestamp?, beacons?, block_hashes?, slots?}; `slots` is
     that call's PRE-storage (the caller chains them). Returns (proof, epoch_io, per_call). L1 verifies this
@@ -737,28 +781,36 @@ def prove_epoch_calls(calls, num_queries=stark.NUM_QUERIES, backend=None, row_co
     `backend` selects the proof's hash (doc/zk-recursion.md): None/blake2b (default, the fast native-hash
     proof L1 + browsers verify directly) or the alghash2 wide sponge, which makes THIS proof's verification
     field-native — i.e. RECURSION-READY, so a fold circuit can verify it inside another proof. The hybrid
-    wrap: prove segment/inner proofs with alghash2, fold them, and let the OUTERMOST proof stay blake2b."""
+    wrap: prove segment/inner proofs with alghash2, fold them, and let the OUTERMOST proof stay blake2b.
+
+    `bind_io=True` also proves the io FINGERPRINT (an ordered RLC of the epoch's io under the public challenge
+    `gamma_fp`) as an appended column pinned to a boundary — `proof["io_fingerprint"]` is that O(1) value a
+    settlement matches against the state replay's fingerprint (piece 2). Default OFF ⇒ byte-identical proof."""
     calls = [_norm_call(c) for c in calls]
     trace, T, blocks, progs, epoch_io, per_call = build_epoch_trace(calls)
     periodic = build_periodic(blocks, progs, epoch_io, T)
-    proof = stark.prove(trace, transitions(), _boundaries(T), periodic=periodic, max_degree=MAX_DEGREE,
-                        num_queries=num_queries, aux_spec=_aux_spec(periodic), backend=backend,
+    fp_exec = _io_fingerprint(trace, gamma_fp) if bind_io else 0
+    proof = stark.prove(trace, transitions(bind_io, gamma_fp), _boundaries(T, bind_io, fp_exec),
+                        periodic=periodic, max_degree=MAX_DEGREE, num_queries=num_queries,
+                        aux_spec=_aux_spec(periodic, bind_io, gamma_fp), backend=backend,
                         row_commit=row_commit, commit_periodic=commit_periodic)
     proof["progs"] = [[list(ins) for ins in p] for p in progs]
     proof["blocks"] = [{"start": s, "n": n, "pid": pid} for (s, n, pid, _c) in blocks]
+    if bind_io:
+        proof["io_fingerprint"] = fp_exec
     if backend is not None:
         proof["backend"] = getattr(backend, "name", str(backend))
     return proof, epoch_io, per_call
 
 
-def epoch_statement(proof, calls, epoch_io):
+def epoch_statement(proof, calls, epoch_io, bind_io=False):
     """Rebuild the epoch AIR's PUBLIC statement — the periodic tables + boundaries — from the public calls +
     io log + the proof's DECLARED block lengths (cross-checked for contiguity/fit; nothing else is trusted).
     Everything verify_epoch_calls checks before the STARK itself, factored out so the RECURSIVE verifier
     (recursive_verify over row-committed segments) can build the same statement without running stark.verify.
-    Returns (ok, reason, periodic, boundaries)."""
+    Returns (ok, reason, periodic, boundaries). `bind_io` widens the expected trace by the FIO column."""
     T, W = proof["T"], proof["W"]
-    if not isinstance(T, int) or not (MIN_T <= T <= MAX_T) or W != W_TOTAL:
+    if not isinstance(T, int) or not (MIN_T <= T <= MAX_T) or W != W_TOTAL + (1 if bind_io else 0):
         return False, "bad trace geometry", None, None
     calls = [_norm_call(c) for c in calls]
     for c in calls:
@@ -802,21 +854,29 @@ def epoch_statement(proof, calls, epoch_io):
 
 
 def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES, backend=None, row_commit=False,
-                       commit_periodic=None, periodic_roots=None):
+                       commit_periodic=None, periodic_roots=None, bind_io=False, gamma_fp=0):
     """Verify a proven epoch WITHOUT executing any call. `calls` is the public statement (code/method/caller/
     args/context per call, in order); `epoch_io` the claimed global I/O log. Returns (ok, reason). The
     periodic tables (programs, log order, per-call context) are rebuilt locally — nothing is trusted from the
-    proof except commitments/openings. On ok, apply the epoch by replaying epoch_io per call."""
+    proof except commitments/openings. On ok, apply the epoch by replaying epoch_io per call.
+
+    `bind_io=True` also enforces the io-fingerprint column: the boundary pins FIO[T-1] to the proof's claimed
+    `io_fingerprint` (and c_fio + FIO[0]=0 force that to be the real ordered RLC under `gamma_fp`), so the
+    fingerprint the settlement matches against is itself proven."""
     try:
-        ok, why, periodic, bnds = epoch_statement(proof, calls, epoch_io)
+        ok, why, periodic, bnds = epoch_statement(proof, calls, epoch_io, bind_io=bind_io)
         if not ok:
             return False, why
+        if bind_io:                                       # rebuild the boundaries with the proven fingerprint
+            fp = int(proof.get("io_fingerprint", 0)) % F.P
+            bnds = _boundaries(proof["T"], bind_io=True, fp_exec=fp)
         if backend is None and proof.get("backend"):     # honour the hash the proof was produced with
             from execnode.stark import backend as _bk
             backend = _bk.get(proof["backend"])
-        return stark.verify(proof, transitions(), bnds, periodic=periodic, max_degree=MAX_DEGREE,
-                            num_queries=num_queries, aux_spec=_aux_spec(periodic), backend=backend,
-                            row_commit=row_commit, commit_periodic=commit_periodic, periodic_roots=periodic_roots)
+        return stark.verify(proof, transitions(bind_io, gamma_fp), bnds, periodic=periodic, max_degree=MAX_DEGREE,
+                            num_queries=num_queries, aux_spec=_aux_spec(periodic, bind_io, gamma_fp),
+                            backend=backend, row_commit=row_commit, commit_periodic=commit_periodic,
+                            periodic_roots=periodic_roots)
     except Exception as e:
         return False, f"malformed statement/proof: {e}"
 
