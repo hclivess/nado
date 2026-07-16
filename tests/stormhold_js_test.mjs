@@ -13,7 +13,7 @@
 import { loadCrypto } from "../static/nadotx.js";
 await loadCrypto(".");
 const E = await import("../static/stormhold-engine.js");
-const { CARDS, applyMove, init, replay, legalActor, encMove, computeResult, allCards, gainable, scoreOf } = E;
+const { CARDS, applyMove, init, replay, legalActor, encMove, computeResult, allCards, gainable, scoreOf, maskToKingdom, kingdomToMask } = E;
 
 const isA = (id) => !!(CARDS[id].t & 1), isT = (id) => !!(CARDS[id].t & 2), isV = (id) => !!(CARDS[id].t & 4);
 const SKIP = 4095;
@@ -136,6 +136,26 @@ check("kingdom: 10 distinct piles, seed-determined", () => {
   if (JSON.stringify(a.kingdom) !== JSON.stringify(b.kingdom)) throw new Error("not deterministic");
   if (JSON.stringify(a.kingdom) === JSON.stringify(c.kingdom)) throw new Error("seed ignored");
   if (a.ps[0].hand.length !== 5 || a.ps[1].hand.length !== 5) throw new Error("opening hands");
+});
+
+check("kingdom mask: creator-picked piles, roundtrip, invalid masks corrupt", () => {
+  const E = { maskToKingdom, kingdomToMask };
+  const picks = [7, 28, 11, 17, 29, 9, 20, 21, 13, 14];               // the "first duel" preset
+  const mask = E.kingdomToMask(picks);
+  if (JSON.stringify(E.maskToKingdom(mask).slice().sort((x, y) => x - y))
+      !== JSON.stringify(picks.slice().sort((x, y) => x - y))) throw new Error("mask roundtrip");
+  const st = init(77, qOf(3, -1), mask);
+  if (st.corrupt) throw new Error("valid mask corrupted: " + st.corruptWhy);
+  if (JSON.stringify(st.kingdom.slice().sort((x, y) => x - y))
+      !== JSON.stringify(picks.slice().sort((x, y) => x - y))) throw new Error("picked kingdom not honored");
+  if (st.ps[0].hand.length !== 5 || st.supply[28] !== 10) throw new Error("setup incomplete under mask");
+  // masked and random games must be independently deterministic
+  const st2 = init(77, qOf(3, -1), mask);
+  if (JSON.stringify(st.ps[0].deck) !== JSON.stringify(st2.ps[0].deck)) throw new Error("mask setup not deterministic");
+  // invalid masks: wrong popcount / out-of-range bits
+  if (!init(78, qOf(3, -1), E.kingdomToMask([7, 8, 9])).corrupt) throw new Error("3-pile mask accepted");
+  if (!init(79, qOf(3, -1), Math.pow(2, 26)).corrupt) throw new Error("out-of-range mask accepted");
+  if (init(80, qOf(3, -1), 0).corrupt) throw new Error("0 must mean random, not corrupt");
 });
 
 console.log(fails ? fails + " FAILURES" : "ALL PASS");

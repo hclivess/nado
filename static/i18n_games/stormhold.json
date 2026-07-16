@@ -208,7 +208,18 @@
     "storm.waitingBoth": "waiting…",
     "storm.scoreboardHead": "🏆 Scoreboard",
     "storm.loading2": "Loading…",
-    "storm.lastTurn": "last turn:"
+    "storm.lastTurn": "last turn:",
+    "storm.kingdomLbl": "Kingdom:",
+    "storm.kingdomPickBtn": "⚒ Pick the 10 piles",
+    "storm.kingdomRandomBtn": "🎲 Back to random",
+    "storm.kingdomRandom": "🎲 random (seeded at join)",
+    "storm.kingdomUse": "✓ Use these piles ({n}/10)",
+    "storm.kingdomFull": "10 piles max — deselect one first.",
+    "storm.kingdomPreview": "⚒ The creator picked this kingdom:",
+    "storm.kingdomBad": "⚠ invalid kingdom config — don't join this game",
+    "storm.kpStarter": "🏁 First duel",
+    "storm.kpBig": "🏗 Sprawl",
+    "storm.kpControl": "🔭 Deck control"
   },
   "cs": {
     "storm.abort": "Nárokovat vrácení vkladu (soupeř nehraje)",
@@ -419,7 +430,18 @@
     "storm.waitingBoth": "čekání…",
     "storm.scoreboardHead": "🏆 Tabule skóre",
     "storm.loading2": "Načítání…",
-    "storm.lastTurn": "minulý tah:"
+    "storm.lastTurn": "minulý tah:",
+    "storm.kingdomLbl": "Království:",
+    "storm.kingdomPickBtn": "⚒ Vybrat 10 hromádek",
+    "storm.kingdomRandomBtn": "🎲 Zpět na náhodné",
+    "storm.kingdomRandom": "🎲 náhodné (seed při připojení)",
+    "storm.kingdomUse": "✓ Použít tyto hromádky ({n}/10)",
+    "storm.kingdomFull": "Max 10 hromádek — nejdřív jednu odeber.",
+    "storm.kingdomPreview": "⚒ Zakladatel vybral toto království:",
+    "storm.kingdomBad": "⚠ neplatná konfigurace království — nepřipojuj se",
+    "storm.kpStarter": "🏁 První duel",
+    "storm.kpBig": "🏗 Rozmach",
+    "storm.kpControl": "🔭 Kontrola balíčku"
   },
   "es": {
     "storm.abort": "Reclamar reembolso (el rival no juega)",
@@ -630,7 +652,18 @@
     "storm.waitingBoth": "esperando…",
     "storm.scoreboardHead": "🏆 Tabla de puntuaciones",
     "storm.loading2": "Cargando…",
-    "storm.lastTurn": "último turno:"
+    "storm.lastTurn": "último turno:",
+    "storm.kingdomLbl": "Reino:",
+    "storm.kingdomPickBtn": "⚒ Elegir las 10 pilas",
+    "storm.kingdomRandomBtn": "🎲 Volver a aleatorio",
+    "storm.kingdomRandom": "🎲 aleatorio (semilla al unirse)",
+    "storm.kingdomUse": "✓ Usar estas pilas ({n}/10)",
+    "storm.kingdomFull": "Máximo 10 pilas — deselecciona una primero.",
+    "storm.kingdomPreview": "⚒ El creador eligió este reino:",
+    "storm.kingdomBad": "⚠ configuración de reino inválida — no te unas",
+    "storm.kpStarter": "🏁 Primer duelo",
+    "storm.kpBig": "🏗 Expansión",
+    "storm.kpControl": "🔭 Control del mazo"
   },
   "pt": {
     "storm.abort": "Reivindicar reembolso (adversário parou de jogar)",
@@ -841,7 +874,18 @@
     "storm.waitingBoth": "aguardando…",
     "storm.scoreboardHead": "🏆 Placar",
     "storm.loading2": "Carregando…",
-    "storm.lastTurn": "último turno:"
+    "storm.lastTurn": "último turno:",
+    "storm.kingdomLbl": "Reino:",
+    "storm.kingdomPickBtn": "⚒ Escolher as 10 pilhas",
+    "storm.kingdomRandomBtn": "🎲 Voltar ao aleatório",
+    "storm.kingdomRandom": "🎲 aleatório (semente ao entrar)",
+    "storm.kingdomUse": "✓ Usar estas pilhas ({n}/10)",
+    "storm.kingdomFull": "Máximo de 10 pilhas — desmarque uma primeiro.",
+    "storm.kingdomPreview": "⚒ O criador escolheu este reino:",
+    "storm.kingdomBad": "⚠ configuração de reino inválida — não entre",
+    "storm.kpStarter": "🏁 Primeiro duelo",
+    "storm.kpBig": "🏗 Expansão",
+    "storm.kpControl": "🔭 Controle do baralho"
   },
   "fr": {
     "storm.abort": "Réclamer le remboursement (adversaire inactif)",
@@ -1052,7 +1096,18 @@
     "storm.waitingBoth": "en attente…",
     "storm.scoreboardHead": "🏆 Tableau des scores",
     "storm.loading2": "Chargement…",
-    "storm.lastTurn": "dernier tour :"
+    "storm.lastTurn": "dernier tour :",
+    "storm.kingdomLbl": "Royaume :",
+    "storm.kingdomPickBtn": "⚒ Choisir les 10 piles",
+    "storm.kingdomRandomBtn": "🎲 Revenir à l'aléatoire",
+    "storm.kingdomRandom": "🎲 aléatoire (graine à l'entrée)",
+    "storm.kingdomUse": "✓ Utiliser ces piles ({n}/10)",
+    "storm.kingdomFull": "10 piles max — désélectionnez-en une d'abord.",
+    "storm.kingdomPreview": "⚒ Le créateur a choisi ce royaume :",
+    "storm.kingdomBad": "⚠ configuration du royaume invalide — ne rejoignez pas",
+    "storm.kpStarter": "🏁 Premier duel",
+    "storm.kpBig": "🏗 Étalement",
+    "storm.kpControl": "🔭 Contrôle du deck"
   },
   "de": {
     "storm.abort": "Rückerstattung fordern (Gegner untätig)",
@@ -1263,7 +1318,18 @@
     "storm.waitingBoth": "warten…",
     "storm.scoreboardHead": "🏆 Rangliste",
     "storm.loading2": "Lädt…",
-    "storm.lastTurn": "letzter Zug:"
+    "storm.lastTurn": "letzter Zug:",
+    "storm.kingdomLbl": "Königreich:",
+    "storm.kingdomPickBtn": "⚒ Die 10 Stapel wählen",
+    "storm.kingdomRandomBtn": "🎲 Zurück zu zufällig",
+    "storm.kingdomRandom": "🎲 zufällig (Seed beim Beitritt)",
+    "storm.kingdomUse": "✓ Diese Stapel nutzen ({n}/10)",
+    "storm.kingdomFull": "Max. 10 Stapel — erst einen abwählen.",
+    "storm.kingdomPreview": "⚒ Der Ersteller wählte dieses Königreich:",
+    "storm.kingdomBad": "⚠ ungültige Königreich-Konfiguration — nicht beitreten",
+    "storm.kpStarter": "🏁 Erstes Duell",
+    "storm.kpBig": "🏗 Ausbau",
+    "storm.kpControl": "🔭 Deck-Kontrolle"
   },
   "it": {
     "storm.abort": "Richiedi il rimborso (avversario inattivo)",
@@ -1474,7 +1540,18 @@
     "storm.waitingBoth": "in attesa…",
     "storm.scoreboardHead": "🏆 Classifica",
     "storm.loading2": "Caricamento…",
-    "storm.lastTurn": "ultimo turno:"
+    "storm.lastTurn": "ultimo turno:",
+    "storm.kingdomLbl": "Regno:",
+    "storm.kingdomPickBtn": "⚒ Scegli le 10 pile",
+    "storm.kingdomRandomBtn": "🎲 Torna al casuale",
+    "storm.kingdomRandom": "🎲 casuale (seme all'ingresso)",
+    "storm.kingdomUse": "✓ Usa queste pile ({n}/10)",
+    "storm.kingdomFull": "Massimo 10 pile — deselezionane una prima.",
+    "storm.kingdomPreview": "⚒ Il creatore ha scelto questo regno:",
+    "storm.kingdomBad": "⚠ configurazione del regno non valida — non unirti",
+    "storm.kpStarter": "🏁 Primo duello",
+    "storm.kpBig": "🏗 Espansione",
+    "storm.kpControl": "🔭 Controllo del mazzo"
   },
   "ru": {
     "storm.abort": "Запросить возврат (соперник затягивает)",
@@ -1685,7 +1762,18 @@
     "storm.waitingBoth": "ожидание…",
     "storm.scoreboardHead": "🏆 Таблица результатов",
     "storm.loading2": "Загрузка…",
-    "storm.lastTurn": "прошлый ход:"
+    "storm.lastTurn": "прошлый ход:",
+    "storm.kingdomLbl": "Королевство:",
+    "storm.kingdomPickBtn": "⚒ Выбрать 10 стопок",
+    "storm.kingdomRandomBtn": "🎲 Вернуть случайное",
+    "storm.kingdomRandom": "🎲 случайное (сид при входе)",
+    "storm.kingdomUse": "✓ Использовать эти стопки ({n}/10)",
+    "storm.kingdomFull": "Максимум 10 стопок — сначала снимите одну.",
+    "storm.kingdomPreview": "⚒ Создатель выбрал это королевство:",
+    "storm.kingdomBad": "⚠ неверная конфигурация королевства — не вступайте",
+    "storm.kpStarter": "🏁 Первая дуэль",
+    "storm.kpBig": "🏗 Размах",
+    "storm.kpControl": "🔭 Контроль колоды"
   },
   "zh": {
     "storm.abort": "申请退款（对手拖延）",
@@ -1896,7 +1984,18 @@
     "storm.waitingBoth": "等待中…",
     "storm.scoreboardHead": "🏆 排行榜",
     "storm.loading2": "加载中…",
-    "storm.lastTurn": "上一回合："
+    "storm.lastTurn": "上一回合：",
+    "storm.kingdomLbl": "王国：",
+    "storm.kingdomPickBtn": "⚒ 挑选10叠牌",
+    "storm.kingdomRandomBtn": "🎲 恢复随机",
+    "storm.kingdomRandom": "🎲 随机（加入时定种子）",
+    "storm.kingdomUse": "✓ 使用这些牌叠（{n}/10）",
+    "storm.kingdomFull": "最多10叠——请先取消一个。",
+    "storm.kingdomPreview": "⚒ 创建者选择了这个王国：",
+    "storm.kingdomBad": "⚠ 王国配置无效——请勿加入",
+    "storm.kpStarter": "🏁 首次对决",
+    "storm.kpBig": "🏗 扩张",
+    "storm.kpControl": "🔭 牌库控制"
   },
   "ja": {
     "storm.abort": "返金を請求（相手が停滞）",
@@ -2107,7 +2206,18 @@
     "storm.waitingBoth": "待機中…",
     "storm.scoreboardHead": "🏆 スコアボード",
     "storm.loading2": "読み込み中…",
-    "storm.lastTurn": "前のターン："
+    "storm.lastTurn": "前のターン：",
+    "storm.kingdomLbl": "王国：",
+    "storm.kingdomPickBtn": "⚒ 10山を選ぶ",
+    "storm.kingdomRandomBtn": "🎲 ランダムに戻す",
+    "storm.kingdomRandom": "🎲 ランダム（参加時にシード）",
+    "storm.kingdomUse": "✓ この山を使う（{n}/10）",
+    "storm.kingdomFull": "最大10山 — 先に1つ外してください。",
+    "storm.kingdomPreview": "⚒ 作成者が選んだ王国：",
+    "storm.kingdomBad": "⚠ 王国設定が不正 — 参加しないでください",
+    "storm.kpStarter": "🏁 初めての決闘",
+    "storm.kpBig": "🏗 拡張",
+    "storm.kpControl": "🔭 デッキ制御"
   },
   "ko": {
     "storm.abort": "환불 청구 (상대 지연)",
@@ -2318,7 +2428,18 @@
     "storm.waitingBoth": "대기 중…",
     "storm.scoreboardHead": "🏆 순위표",
     "storm.loading2": "불러오는 중…",
-    "storm.lastTurn": "지난 턴:"
+    "storm.lastTurn": "지난 턴:",
+    "storm.kingdomLbl": "왕국:",
+    "storm.kingdomPickBtn": "⚒ 10더미 고르기",
+    "storm.kingdomRandomBtn": "🎲 랜덤으로 되돌리기",
+    "storm.kingdomRandom": "🎲 랜덤 (참가 시 시드)",
+    "storm.kingdomUse": "✓ 이 더미 사용 ({n}/10)",
+    "storm.kingdomFull": "최대 10더미 — 먼저 하나를 해제하세요.",
+    "storm.kingdomPreview": "⚒ 개설자가 고른 왕국:",
+    "storm.kingdomBad": "⚠ 왕국 설정이 잘못됨 — 참가하지 마세요",
+    "storm.kpStarter": "🏁 첫 결투",
+    "storm.kpBig": "🏗 확장",
+    "storm.kpControl": "🔭 덱 컨트롤"
   },
   "ar": {
     "storm.abort": "المطالبة بالاسترداد (الخصم توقّف)",
@@ -2529,7 +2650,18 @@
     "storm.waitingBoth": "بانتظار…",
     "storm.scoreboardHead": "🏆 لوحة النتائج",
     "storm.loading2": "جارٍ التحميل…",
-    "storm.lastTurn": "الدور السابق:"
+    "storm.lastTurn": "الدور السابق:",
+    "storm.kingdomLbl": "المملكة:",
+    "storm.kingdomPickBtn": "⚒ اختر الأكوام العشرة",
+    "storm.kingdomRandomBtn": "🎲 العودة إلى العشوائي",
+    "storm.kingdomRandom": "🎲 عشوائي (البذرة عند الانضمام)",
+    "storm.kingdomUse": "✓ استخدم هذه الأكوام ({n}/10)",
+    "storm.kingdomFull": "الحد الأقصى 10 أكوام — ألغِ اختيار واحدة أولاً.",
+    "storm.kingdomPreview": "⚒ اختار المنشئ هذه المملكة:",
+    "storm.kingdomBad": "⚠ إعداد مملكة غير صالح — لا تنضم",
+    "storm.kpStarter": "🏁 أول مبارزة",
+    "storm.kpBig": "🏗 التوسع",
+    "storm.kpControl": "🔭 التحكم بالمجموعة"
   },
   "hi": {
     "storm.abort": "रिफ़ंड का दावा करें (प्रतिद्वंद्वी रुका हुआ है)",
@@ -2740,7 +2872,18 @@
     "storm.waitingBoth": "प्रतीक्षा…",
     "storm.scoreboardHead": "🏆 स्कोरबोर्ड",
     "storm.loading2": "लोड हो रहा है…",
-    "storm.lastTurn": "पिछली बारी:"
+    "storm.lastTurn": "पिछली बारी:",
+    "storm.kingdomLbl": "राज्य:",
+    "storm.kingdomPickBtn": "⚒ 10 ढेर चुनें",
+    "storm.kingdomRandomBtn": "🎲 वापस रैंडम पर",
+    "storm.kingdomRandom": "🎲 रैंडम (जुड़ने पर सीड)",
+    "storm.kingdomUse": "✓ ये ढेर इस्तेमाल करें ({n}/10)",
+    "storm.kingdomFull": "अधिकतम 10 ढेर — पहले एक हटाएँ।",
+    "storm.kingdomPreview": "⚒ निर्माता ने यह राज्य चुना:",
+    "storm.kingdomBad": "⚠ अमान्य राज्य सेटिंग — शामिल न हों",
+    "storm.kpStarter": "🏁 पहला द्वंद्व",
+    "storm.kpBig": "🏗 विस्तार",
+    "storm.kpControl": "🔭 डेक नियंत्रण"
   },
   "tr": {
     "storm.abort": "İade talep et (rakip oyalandı)",
@@ -2951,7 +3094,18 @@
     "storm.waitingBoth": "bekleniyor…",
     "storm.scoreboardHead": "🏆 Skor tablosu",
     "storm.loading2": "Yükleniyor…",
-    "storm.lastTurn": "son tur:"
+    "storm.lastTurn": "son tur:",
+    "storm.kingdomLbl": "Krallık:",
+    "storm.kingdomPickBtn": "⚒ 10 desteyi seç",
+    "storm.kingdomRandomBtn": "🎲 Rastgeleye dön",
+    "storm.kingdomRandom": "🎲 rastgele (katılırken tohumlanır)",
+    "storm.kingdomUse": "✓ Bu desteleri kullan ({n}/10)",
+    "storm.kingdomFull": "En fazla 10 deste — önce birini kaldır.",
+    "storm.kingdomPreview": "⚒ Kurucu bu krallığı seçti:",
+    "storm.kingdomBad": "⚠ geçersiz krallık ayarı — katılma",
+    "storm.kpStarter": "🏁 İlk düello",
+    "storm.kpBig": "🏗 Yayılma",
+    "storm.kpControl": "🔭 Deste kontrolü"
   },
   "id": {
     "storm.abort": "Klaim refund (lawan mengulur)",
@@ -3162,7 +3316,18 @@
     "storm.waitingBoth": "menunggu…",
     "storm.scoreboardHead": "🏆 Papan skor",
     "storm.loading2": "Memuat…",
-    "storm.lastTurn": "giliran lalu:"
+    "storm.lastTurn": "giliran lalu:",
+    "storm.kingdomLbl": "Kerajaan:",
+    "storm.kingdomPickBtn": "⚒ Pilih 10 tumpukan",
+    "storm.kingdomRandomBtn": "🎲 Kembali ke acak",
+    "storm.kingdomRandom": "🎲 acak (seed saat bergabung)",
+    "storm.kingdomUse": "✓ Pakai tumpukan ini ({n}/10)",
+    "storm.kingdomFull": "Maksimal 10 tumpukan — batalkan satu dulu.",
+    "storm.kingdomPreview": "⚒ Pembuat memilih kerajaan ini:",
+    "storm.kingdomBad": "⚠ konfigurasi kerajaan tidak valid — jangan bergabung",
+    "storm.kpStarter": "🏁 Duel pertama",
+    "storm.kpBig": "🏗 Perluasan",
+    "storm.kpControl": "🔭 Kontrol dek"
   },
   "vi": {
     "storm.abort": "Yêu cầu hoàn tiền (đối thủ trì hoãn)",
@@ -3373,6 +3538,17 @@
     "storm.waitingBoth": "đang chờ…",
     "storm.scoreboardHead": "🏆 Bảng điểm",
     "storm.loading2": "Đang tải…",
-    "storm.lastTurn": "lượt trước:"
+    "storm.lastTurn": "lượt trước:",
+    "storm.kingdomLbl": "Vương quốc:",
+    "storm.kingdomPickBtn": "⚒ Chọn 10 chồng bài",
+    "storm.kingdomRandomBtn": "🎲 Quay lại ngẫu nhiên",
+    "storm.kingdomRandom": "🎲 ngẫu nhiên (gieo hạt khi tham gia)",
+    "storm.kingdomUse": "✓ Dùng các chồng này ({n}/10)",
+    "storm.kingdomFull": "Tối đa 10 chồng — bỏ chọn một cái trước.",
+    "storm.kingdomPreview": "⚒ Người tạo đã chọn vương quốc này:",
+    "storm.kingdomBad": "⚠ cấu hình vương quốc không hợp lệ — đừng tham gia",
+    "storm.kpStarter": "🏁 Trận đầu",
+    "storm.kpBig": "🏗 Mở rộng",
+    "storm.kpControl": "🔭 Kiểm soát bộ bài"
   }
 }

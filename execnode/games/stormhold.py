@@ -27,6 +27,7 @@ from execnode.games import tictactoe as _t
 from execnode.games import chess as _c
 
 NN, ST, PT, P1, P2, SD, WR, MC, DL, LIST, A1, A2, KH = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
+CFG = 14               # creator's game configuration word: 26-bit kingdom-card mask (0 = random kingdom)
 MV_BASE = 1000
 MH_BASE = 2000
 MAXMOVES = 768
@@ -124,11 +125,20 @@ MOVE = f"""
     ret r0
 """
 
-SRC = {"open": _t.SRC["open"], "join": JOIN, "move": MOVE, "agree": _c.AGREE,
+# open(g, cfg): tictactoe's open (stake escrow, seat, lobby index) prefixed with ONE store — the creator's
+# cfg word (26-bit kingdom mask, 0 = random). Stored FIRST because the base body clobbers r1 with `ctx
+# value`; a failed require later reverts the whole call, so the early write is safe. Old games (and a
+# cfg-less rematch) read slot 14 as 0 → random kingdom: fully back-compatible.
+OPEN = """
+        slot r4 14 r0
+        sstore r4 r1
+""" + _t.SRC["open"]
+
+SRC = {"open": OPEN, "join": JOIN, "move": MOVE, "agree": _c.AGREE,
        "resign": _t.SRC["resign"], "abort": _t.SRC["abort"], "cancel": _t.SRC["cancel"]}
 
 ABI = {
-    "open": {"args": ["gameId"], "value": True},
+    "open": {"args": ["gameId", "cfg"], "value": True},
     "join": {"args": ["gameId"], "value": True},
     "move": {"args": ["gameId", "enc", "ply"]},
     "agree": {"args": ["gameId", "result"]},
@@ -137,7 +147,7 @@ ABI = {
     "cancel": {"args": ["gameId"]},
     "_view": {
         "maps": {"nn": NN, "st": ST, "pt": PT, "p1": P1, "p2": P2, "sd": SD, "wr": WR, "mc": MC, "dl": DL,
-                 "a1": A1, "a2": A2, "kh": KH},
+                 "a1": A1, "a2": A2, "kh": KH, "cfg": CFG},
         "index": {"cnt": 0, "list": LIST},
         "board": {"name": "mv", "base": MV_BASE, "cells": MAXMOVES, "stride": 10000},
         "board2": {"name": "mh", "base": MH_BASE, "cells": MAXMOVES, "stride": 10000},

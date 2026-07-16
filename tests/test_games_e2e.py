@@ -229,7 +229,9 @@ def t_stormhold():
     st, code, cid, rd = _fresh(sh, deployer=A)
     st.credit_deposit(A, 1_000_000); st.credit_deposit(B, 1_000_000)
     G = 77
-    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [G], "value": 100_000}, A, "o")
+    MASK = 0b1010101010101010101 & ((1 << 26) - 1)   # any 26-bit cfg word — contract stores it verbatim
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [G, MASK], "value": 100_000}, A, "o")
+    assert rd(sh.CFG, G) == MASK, "creator's kingdom-mask cfg word stored at open"
     st.cursor = 150
     st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [G], "value": 100_000}, B, "j")
     assert rd(sh.KH, G) == 150 + sh.GAP, "kingdom seed height pinned at join"
@@ -264,6 +266,9 @@ def t_stormhold():
     ab = st.bridge.get(A, 0)
     st.apply_blob({"op": "call", "contract": cid, "method": "resign", "args": [G2]}, B, "r2")
     assert rd(sh.WR, G2) == 1 and st.bridge.get(A, 0) == ab + 100_000
+    # back-compat: a cfg-less open (old clients / rematch of a pre-upgrade game) reads cfg = 0 (random)
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [790], "value": 100_000}, A, "o790")
+    assert rd(sh.CFG, 790) == 0, "cfg-less open must default to 0 (random kingdom)"
 
 
 def t_scrapline():

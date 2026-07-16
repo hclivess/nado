@@ -135,7 +135,17 @@ const emptyPiles = (st) => piles(st).filter((id) => st.supply[id] === 0).length;
 export const gainable = (st, max, treasureOnly) =>
   piles(st).filter((id) => st.supply[id] > 0 && CARDS[id].c <= max && (!treasureOnly || isT(id)));
 
-export function init(g, khQ) {
+// mask: optional 26-bit kingdom selection (bit b = kingdom card id 7+b), chosen by the game creator at
+// open time and stored on-chain (cfg word). 0/absent = the classic kh-seeded random kingdom. An invalid
+// mask (not exactly 10 kingdom bits) marks the game corrupt — the client refuses it before anyone joins.
+export const maskToKingdom = (mask) => {
+  const m = BigInt(mask || 0), pick = [];
+  for (let b = 0n; b < 26n; b++) if ((m >> b) & 1n) pick.push(7 + Number(b));
+  return m > 0n && m < (1n << 26n) && pick.length === 10 ? pick : null;
+};
+export const kingdomToMask = (ids) => ids.reduce((m, id) => m + Math.pow(2, id - 7), 0);
+
+export function init(g, khQ, mask) {
   const st = {
     g: Number(g), kingdom: [], supply: {}, trash: [],
     ps: [{ deck: [], hand: [], disc: [], play: [], turns: 0 }, { deck: [], hand: [], disc: [], play: [], turns: 0 }],
@@ -144,7 +154,13 @@ export function init(g, khQ) {
     shufN: 0, mi: 0, blocked: false, blockedAt: -1, log: [],
   };
   st._q = khQ;
-  const pick = shuffled(st, KINGDOM).slice(0, 10);
+  let pick;
+  if (mask && Number(mask) !== 0) {
+    pick = maskToKingdom(mask);
+    if (!pick) { st.corrupt = true; st.corruptWhy = "invalid kingdom mask"; st.setup = false; return st; }
+  } else {
+    pick = shuffled(st, KINGDOM).slice(0, 10);
+  }
   pick.sort((a, b) => (CARDS[a].c - CARDS[b].c) || (a - b));
   st.kingdom = pick;
   st.supply = { [COPPER]: 46, [SILVER]: 40, [GOLD]: 30, [HOMESTEAD]: 8, [VALLEY]: 8, [CITADEL]: 8, [BLIGHT]: 10 };
@@ -403,9 +419,10 @@ export function computeResult(st) {   // 1 = p1 wins, 2 = p2 wins, 3 = draw (few
 // recs = [{enc, side, q}] where q = BigInt(bh(rh)) + BigInt(bh(rh+1)) or null while the seed block is
 // pending. khQ likewise for the kingdom/setup seed. Replays as far as the available randomness allows;
 // state.blocked/blockedAt mark where it stopped (the UI shows "shuffling…" and retries next poll).
-export function replay(g, khQ, recs) {
+export function replay(g, khQ, recs, mask) {
   let st;
-  try { st = init(g, khQ); } catch (e) { if (e.blocked) return { blocked: true, blockedAt: -1, setup: true }; throw e; }
+  try { st = init(g, khQ, mask); } catch (e) { if (e.blocked) return { blocked: true, blockedAt: -1, setup: true }; throw e; }
+  if (st.corrupt) return st;
   for (let i = 0; i < recs.length; i++) {
     const snap = structuredClone(st);
     st._q = recs[i].q;

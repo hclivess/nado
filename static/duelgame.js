@@ -99,7 +99,8 @@ export class DuelGame {
     return { exists: true, id: Number(g), p1: _m(sto, "p1")[g], p2: _m(sto, "p2")[g] || null,
       stake: _m(sto, "st")[g] || 0, pot: _m(sto, "pt")[g] || 0, nn, settled: !!_m(sto, "sd")[g],
       dl: _m(sto, "dl")[g] || 0, mc: _m(sto, "mc")[g] || 0, kh: _m(sto, "kh")[g] || 0,
-      a1: _m(sto, "a1")[g] || 0, a2: _m(sto, "a2")[g] || 0, wr: _m(sto, "wr")[g] || 0 };
+      a1: _m(sto, "a1")[g] || 0, a2: _m(sto, "a2")[g] || 0, wr: _m(sto, "wr")[g] || 0,
+      cfg: _m(sto, "cfg")[g] || 0 };   // creator's config word (games without a cfg map read 0)
   }
   gameFrom(sto, g) {
     const h = this.gameHead(sto, g);
@@ -150,7 +151,9 @@ export class DuelGame {
     if (!canPay(dapp, raw, T("whatOpen", "Opening this game"))) return;
     const g = randId(), G = this.lsLoad(); G[g] = { role: "p1", stake: raw.toString(), ts: Date.now() }; this.lsSave(G);
     this.active = g; this.resetLocal(); this.render();
-    dapp.call("open", [g], raw, "open " + dapp.app.toLowerCase() + " game #" + g + " · " + rawToNado(raw) + " NADO stake", { game: g, phase: "open" });
+    // openExtra(): a game may append extra open() args (e.g. stormhold's kingdom-mask cfg word)
+    const extra = this.cfg.openExtra ? this.cfg.openExtra(null) : [];
+    dapp.call("open", [g].concat(extra), raw, "open " + dapp.app.toLowerCase() + " game #" + g + " · " + rawToNado(raw) + " NADO stake", { game: g, phase: "open" });
   }
   async joinGame() {
     const T = this.T, dapp = this.dapp;
@@ -160,6 +163,9 @@ export class DuelGame {
     const gm = sto ? this.gameHead(sto, g) : null;
     if (!gm || !gm.exists) { alertBar(dapp.whereIs(T("gameWord", "game"), g)); if (gm) dapp.clearInvite(); return; }
     if (gm.nn >= 2 || gm.settled) { alertBar(T("fullOrFinished", "That game is full or finished.")); dapp.clearInvite(); return; }
+    // joinGate(gm): a game may veto joining (e.g. stormhold refuses a malformed kingdom config) —
+    // returns an error string to show, or falsy to proceed. Protects the joiner's stake up front.
+    if (this.cfg.joinGate) { const veto = this.cfg.joinGate(gm); if (veto) { alertBar(veto); dapp.clearInvite(); return; } }
     await dapp.refresh();
     const stake = BigInt(gm.stake);
     if (!canPay(dapp, stake, T("whatJoin", "Joining this game"))) { this.render(); return; }
@@ -183,7 +189,9 @@ export class DuelGame {
       dapp.call("join", [rid], stake, "join rematch #" + rid, { game: rid, phase: "join" });
     } else {
       G[rid] = { role: "p1", stake: stake.toString(), ts: Date.now() }; this.lsSave(G);
-      dapp.call("open", [rid], stake, "rematch #" + rid + " · stake " + rawToNado(stake) + " NADO", { game: rid, phase: "open" });
+      // a rematch keeps the original game's config (openExtra(gm) — e.g. the same picked kingdom)
+      const extra = this.cfg.openExtra ? this.cfg.openExtra(this.last) : [];
+      dapp.call("open", [rid].concat(extra), stake, "rematch #" + rid + " · stake " + rawToNado(stake) + " NADO", { game: rid, phase: "open" });
     }
     this.render();
   }

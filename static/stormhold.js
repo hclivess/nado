@@ -31,10 +31,15 @@ const GAIN_FRAMES = { remG: 1, minG: 1, wsh: 1, artG: 1 };
 
 const duel = new DuelGame(dapp, {
   prefix: "storm", icon: "🏰", marks: ["🏰", "⚔"],
+  appendMaps: ["cfg"],
   rebuild(gm) {
     if (!gm.kh) return null;
-    return E.replay(gm.id, this.qOf(gm.kh), (gm.recs || []).map((r) => ({ enc: r.enc, side: r.side, q: this.qOf(r.rh) })));
+    const mask = gm.practice ? kMask : gm.cfg;   // practice honors your current picker choice too
+    return E.replay(gm.id, this.qOf(gm.kh), (gm.recs || []).map((r) => ({ enc: r.enc, side: r.side, q: this.qOf(r.rh) })), mask);
   },
+  // extra open() arg: the kingdom-mask cfg word — a rematch (gm != null) keeps the original game's kingdom
+  openExtra: (gm) => [gm ? (gm.cfg || 0) : kMask],
+  joinGate: (gm) => gm.cfg && !E.maskToKingdom(gm.cfg) ? T("kingdomBad", "⚠ invalid kingdom config — don't join this game") : null,
   canAct: (eng, me) => E.legalActor(eng) === me,
   // practice-vs-computer (duelgame.js SDK feature): direct local apply + the shared fuzz/oracle bot
   applyLocal(eng, side, enc, q) { eng._q = q; E.applyMove(eng, side, enc); eng.mi++; },
@@ -51,7 +56,7 @@ const duel = new DuelGame(dapp, {
   shareText: (gm, id) => T("shareText", "Duel me at Stormhold for {stake}on NADO — game #{id}:", { stake: gm && gm.exists ? (Number(gm.stake) / 1e10) + " NADO " : "", id }),
   inviteTitle: T("inviteTitle", "You're invited to a Stormhold duel"),
   inviteBody: (gm) => T("inviteBody", "Duel {who} for <b>{amt} NADO</b> — winner takes the pot.", { who: disp(gm.p1), amt: Number(gm.stake) / 1e10 }),
-  wire() { $("oppHandWrap").onclick = () => { peekOpp = !peekOpp; this.render(); }; },
+  wire() { $("oppHandWrap").onclick = () => { peekOpp = !peekOpp; this.render(); }; wireKingdomPicker(); },
   renderGame,
 });
 
@@ -119,6 +124,63 @@ const tile = (id) =>
   '<div class="' + tileCls(id) + '" title="' + (E.CARDS[id].txt || "") + '">'
   + '<span class="cost">' + E.CARDS[id].c + "</span>" + art(id)
   + '<div class="cname">' + NAME(id) + "</div></div>";
+
+// ---- kingdom picker (game creator chooses the 10 piles; random stays the default) -----------------------
+let kMask = 0;                          // the cfg word sent with open(); 0 = random kingdom
+let kSel = new Set();                   // picker working selection (card ids 7..32)
+const KINGDOM_IDS = Array.from({ length: 26 }, (_, i) => 7 + i);
+// curated presets (original combos in the spirit of the genre's recommended first sets)
+const K_PRESETS = () => [
+  [T("kpStarter", "🏁 First duel"), [7, 28, 11, 17, 29, 9, 20, 21, 13, 14]],
+  [T("kpBig", "🏗 Sprawl"), [32, 23, 15, 8, 25, 16, 30, 22, 31, 14]],
+  [T("kpControl", "🔭 Deck control"), [32, 15, 24, 25, 10, 26, 18, 30, 12, 13]],
+];
+function kingdomStateLine() {
+  const el = $("kingdomState"); if (!el) return;
+  el.innerHTML = kMask === 0 ? T("kingdomRandom", "🎲 random (seeded at join)")
+    : E.maskToKingdom(kMask).map((id) => NAME(id)).join(" · ");
+}
+function renderKingdomPicker() {
+  const grid = $("kingdomGrid"); if (!grid) return;
+  grid.innerHTML = KINGDOM_IDS.map((id) => {
+    const s = kSel.has(id) ? " sel" : "";
+    return '<div class="' + tileCls(id) + s + '" data-k="' + id + '" title="' + (E.CARDS[id].txt || "") + '">'
+      + '<span class="cost">' + E.CARDS[id].c + "</span>" + art(id)
+      + '<div class="cname">' + NAME(id) + "</div></div>";
+  }).join("");
+  grid.querySelectorAll("[data-k]").forEach((d) => d.onclick = () => {
+    const id = parseInt(d.dataset.k, 10);
+    if (kSel.has(id)) kSel.delete(id);
+    else if (kSel.size < 10) kSel.add(id);
+    else return notify(T("kingdomFull", "10 piles max — deselect one first."));
+    renderKingdomPicker();
+  });
+  const use = $("btnKingdomUse");
+  use.textContent = T("kingdomUse", "✓ Use these piles ({n}/10)", { n: kSel.size });
+  use.disabled = kSel.size !== 10;
+}
+function wireKingdomPicker() {
+  if (!$("btnKingdom")) return;
+  $("btnKingdom").onclick = () => {
+    $("kingdomPicker").classList.toggle("hidden");
+    const pr = $("kingdomPresets");
+    pr.innerHTML = "";
+    for (const [label, ids] of K_PRESETS()) {
+      const b = document.createElement("button"); b.className = "ghost"; b.textContent = label;
+      b.onclick = () => { kSel = new Set(ids); renderKingdomPicker(); };
+      pr.appendChild(b);
+    }
+    renderKingdomPicker();
+  };
+  $("btnKingdomUse").onclick = () => {
+    if (kSel.size !== 10) return;
+    kMask = E.kingdomToMask([...kSel]);
+    $("kingdomPicker").classList.add("hidden");
+    kingdomStateLine();
+  };
+  $("btnKingdomRandom").onclick = () => { kMask = 0; kSel = new Set(); $("kingdomPicker").classList.add("hidden"); kingdomStateLine(); };
+  kingdomStateLine();
+}
 
 function renderSupply(gm, eng) {
   const el = $("supply"); if (!el || !eng || eng.setup) { if (el) el.innerHTML = ""; return; }
@@ -315,6 +377,13 @@ function renderGame(gm, eng) {
     oz.classList.add("hidden");
     $("hand").innerHTML = ""; $("myPlay").innerHTML = ""; $("handBtns").innerHTML = ""; $("logPane").innerHTML = ""; $("supply").innerHTML = "";
     $("myCounts").textContent = ""; $("trashLine").textContent = "";
+    // pre-join preview: the creator picked these 10 piles — the joiner sees exactly what they'd play
+    if (gm && gm.exists && gm.nn === 1 && gm.cfg) {
+      const pick = E.maskToKingdom(gm.cfg);
+      $("supply").innerHTML = pick
+        ? '<div class="small dim" style="flex-basis:100%">' + T("kingdomPreview", "⚒ The creator picked this kingdom:") + "</div>" + pick.map((id) => tile(id)).join("")
+        : '<span class="small dim">' + T("kingdomBad", "⚠ invalid kingdom config — don't join this game") + "</span>";
+    }
   }
 }
 
