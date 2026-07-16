@@ -66,7 +66,7 @@ check("offers: seed-determined, tier gates respected", () => {
   }
 });
 
-check("merge ranks up, replace scraps for max HP, skip pays 12", () => {
+check("merge adds offer rank, replace scraps for max HP, skip pays scaled HP", () => {
   const g = 55, khQ = qOf(3, -1);
   let st = init(g, khQ);
   const off1 = offerFor(st, 0);
@@ -78,10 +78,11 @@ check("merge ranks up, replace scraps for max HP, skip pays 12", () => {
     const off = offerFor(st, 0);
     const j = off.indexOf(st.ps[0].gear[2].id);
     st._q = qOf(3, 10 + r);
-    if (j >= 0) { applyMove(st, 1, encMove(1, j + 4 * 2)); merged = true; }
+    const expect = st.ps[0].gear[2].rank + E.offerRank(st.ps[0].round + 1);   // merge ADDS the offered rank
+    if (j >= 0) { applyMove(st, 1, encMove(1, j + 4 * 2)); merged = true;
+      if (st.ps[0].gear[2].rank !== Math.min(E.MAXRANK, expect)) throw new Error("merge didn't add offer rank"); }
     else applyMove(st, 1, encMove(2, 0));                                 // skip
   }
-  if (merged && st.ps[0].gear[2].rank !== 2) throw new Error("merge didn't rank up");
   // replace: put a DIFFERENT item onto slot 2 → maxhp grows by 15+10*(rank-1)
   for (let r = st.ps[0].round; r < ROUNDS - 1; r++) {
     const off = offerFor(st, 0);
@@ -95,10 +96,11 @@ check("merge ranks up, replace scraps for max HP, skip pays 12", () => {
     }
     applyMove(st, 1, encMove(2, 0));
   }
-  // skip pays 12
+  // skip pays scaled max HP: 8 + 4·(round being drafted), capped at 50
   const hp0 = st.ps[0].maxhp;
-  if (st.ps[0].round < ROUNDS) { st._q = qOf(3, 99); applyMove(st, 1, encMove(2, 0));
-    if (st.ps[0].maxhp !== hp0 + 12) throw new Error("skip credit wrong"); }
+  if (st.ps[0].round < ROUNDS) { const exp = Math.min(50, 8 + 4 * (st.ps[0].round + 1));
+    st._q = qOf(3, 99); applyMove(st, 1, encMove(2, 0));
+    if (st.ps[0].maxhp !== hp0 + exp) throw new Error("skip credit wrong"); }
   if (st.corrupt) throw new Error("corrupt: " + st.corruptWhy);
 });
 
@@ -175,10 +177,42 @@ check("solo gauntlet: deterministic, escalating, always terminates", () => {
     best = Math.max(best, run.score); total += run.score;
   }
   console.log(`      (200 RANDOM-bot runs: avg ${(total / 200).toFixed(1)}, best ${best}, stage-1 clear ${(clear1 / 2).toFixed(0)}%)`);
-  // the curve contract (random bot is a weak lower bound on a human):
+  // the curve contract (validated by tests/scrapline_sim_lab.mjs — random is the floor, synergy must beat it):
   if (clear1 < 150) throw new Error("stage 1 too brutal (" + clear1 + "/200 clears)");
   if (total / 200 < 3) throw new Error("gauntlet too hard — tune the curve (avg " + (total / 200).toFixed(1) + ")");
-  if (total / 200 > 15 || best > 60) throw new Error("gauntlet too easy — tune the curve");
+  if (total / 200 > 15 || best > 60) throw new Error("gauntlet too easy / immortal build — tune the curve");
+  // SYNERGY FLOOR (the brick-wall + depth regression guard): a merge-first single-tag drafter must
+  // clearly beat random — this is the cheap in-CI proxy for the sim lab's 2x depth requirement.
+  const arch = (tag) => (run) => {
+    const offer = E.soloOfferFor(run);
+    for (let c = 0; c < 3; c++) {
+      const s = run.gear.findIndex((g) => g && g.id === offer[c] && g.rank < E.MAXRANK);
+      if (s >= 0) return { c, s };
+    }
+    for (let c = 0; c < 3; c++) {
+      const it = E.ITEMS[offer[c]];
+      if (it.tag === tag || (it.kind === "c" && (it.ctag === tag || it.call))) {
+        const s = run.gear.findIndex((g) => !g);
+        if (s >= 0) return { c, s };
+      }
+    }
+    return { c: -1, s: 0 };
+  };
+  let archTotal = 0, archBest = 0;
+  for (let i = 0; i < 120; i++) {
+    const run = E.soloNew("arch-" + i), pol = arch(i % 2);   // blade / bolt
+    let guard = 0;
+    while (!run.over && guard++ < 300) {
+      while (run.picks > 0 && !run.over) { const a = pol(run); if (!E.soloPick(run, a.c, a.s)) E.soloPick(run, -1, 0); }
+      E.soloFight(run);
+    }
+    if (!run.over) throw new Error("arch run " + i + " never ended (immortal build leak)");
+    archTotal += run.score; archBest = Math.max(archBest, run.score);
+  }
+  const archAvg = archTotal / 120, rndAvg = total / 200;
+  console.log(`      (120 SYNERGY-bot runs: avg ${archAvg.toFixed(1)}, best ${archBest} — vs random avg ${rndAvg.toFixed(1)})`);
+  if (archAvg < rndAvg * 1.4) throw new Error("interplay too shallow — synergy drafting must beat random (lab target 2x)");
+  if (archBest > 100) throw new Error("immortal build — late-game pressure failed");
   const e1 = E.enemyBuild("x", 1), e9 = E.enemyBuild("x", 9);
   if (!(e9.maxhp > e1.maxhp)) throw new Error("enemy hull should escalate");
   if (JSON.stringify(E.enemyBuild("x", 4)) !== JSON.stringify(E.enemyBuild("x", 4))) throw new Error("enemy not deterministic");

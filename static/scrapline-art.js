@@ -33,4 +33,18 @@ export const ART = {
   welddrone: S(`<circle cx="12" cy="11" r="4" ${N}/><path d="M8.2 8.2 5 5M15.8 8.2 19 5M5 5h3M5 5v3M19 5h-3M19 5v3" ${N}/><path d="M11 15.5h2l-.4 3h-1.2z" ${F}/>`),
   overclock: S(`<rect x="7" y="7" width="10" height="10" rx="1.6" ${N}/><path d="M9 4v2M15 4v2M9 18v2M15 18v2M4 9h2M4 15h2M18 9h2M18 15h2" ${N}/><path d="M12 9.5v3l2 1.5" ${N}/>`),
   magnetrig: S(`<path d="M7 4v7a5 5 0 0 0 10 0V4" ${N}/><path d="M6 4h3v4H6zM15 4h3v4h-3z" ${F}/>`),
+  // ---- arsenal wave 2 ----
+  ripsaw: S(`<circle cx="9" cy="12" r="4.5" ${N}/><circle cx="16.5" cy="12" r="4.5" ${N}/><path d="M9 5.5l1 2-2 .2zM16.5 5.5l1 2-2 .2zM9 18.5l-1-2 2-.2zM16.5 18.5l-1-2 2-.2z" ${F}/>`),
+  guillotine: S(`<path d="M6 3h12M6 3v18M18 3v18" ${N}/><path d="M7.5 6h9l-1.5 6h-6z" ${F}/><path d="M6 21h12" ${N}/>`),
+  flakcannon: S(`<path d="M4 14h8l6-6" ${N}/><path d="M16 6l4 4-2 2-4-4z" ${F}/><circle cx="19" cy="14" r=".9" ${F}/><circle cx="16" cy="17" r=".9" ${F}/><circle cx="20" cy="18" r=".9" ${F}/><path d="M4 14v4h5v-4" ${N}/>`),
+  railspike: S(`<path d="M3 12h13" ${N}/><path d="M16 9l6 3-6 3z" ${F}/><path d="M6 9v6M10 9v6" ${N}/>`),
+  teslacoil: S(`<path d="M8 20V9a4 4 0 0 1 8 0v11" ${N}/><path d="M8 12h8M8 16h8" ${N}/><path d="M12 3l-1.5 2.5h3L12 8" ${F}/>`),
+  arclance: S(`<path d="M4 20L15 9" ${N}/><path d="M14 5l5 5 1-5.5z" ${F}/><path d="M9 12l1.5 1.5M12 9l1.5 1.5" ${N}/><path d="M18 13l2 3-3-.5" ${F}/>`),
+  flareburst: S(`<circle cx="12" cy="13" r="3" ${F}/><path d="M12 4v4M12 18v3M4 13h4M16 13h4M6.5 7.5l2.5 2.5M17.5 7.5L15 10M6.5 18.5L9 16M17.5 18.5L15 16" ${N}/>`),
+  infernojet: S(`<path d="M5 8h7v5H5z" ${N}/><path d="M12 10h2" ${N}/><path d="M14.5 10.5c2-2.5 4.5-2 6-.5-1 .3-1.6 1-2.2 1.9.9.3 1.7.2 2.7-.2-.7 2.3-3 3.4-5.4 2.3-1-.5-1.5-2.1-1.1-3.5z" ${F}/><circle cx="8" cy="17.5" r="1" ${F}/><circle cx="11.5" cy="18.5" r=".8" ${F}/>`),
+  ramplate: S(`<path d="M4 6v12l7-2V8z" ${N}/><path d="M12 10h4l4 2-4 2h-4z" ${F}/>`),
+  siegehull: S(`<path d="M5 7l7-3 7 3v6c0 3.6-2.7 6-7 7.5C7.7 19 5 16.6 5 13z" ${N}/><path d="M10 11h6l3 1.5-3 1.5h-6z" ${F}/>`),
+  triagekit: S(`<rect x="4" y="6" width="16" height="13" rx="2" ${N}/><path d="M10.5 9h3v2.5H16v3h-2.5V17h-3v-2.5H8v-3h2.5z" ${F}/><path d="M4 12h2M18 12h2" ${N}/>`),
+  fieldforge: S(`<path d="M5 18V9a7 7 0 0 1 14 0v9" ${N}/><path d="M9 18v-5h6v5" ${N}/><path d="M12 6.5c1 1 1.3 1.9.6 2.7-.5.6-1.6.6-2 0-.4-.7 0-1.7 1.4-2.7z" ${F}/><path d="M3 18h18v2H3z" ${F}/>`),
+  burnchamber: S(`<rect x="5" y="5" width="14" height="14" rx="3" ${N}/><path d="M12 8c2 1.8 2.8 3.5 1.5 5-.9 1.1-2.9 1-3.5-.2-.6-1.3.2-3.2 2-4.8z" ${F}/><path d="M5 12h2M17 12h2M12 17v2" ${N}/>`),
 };

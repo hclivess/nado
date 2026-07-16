@@ -434,6 +434,11 @@ export class NadoDapp {
     this._bh = {};        // height -> block hash hex (BLOCKHASH randomness cache; provisional or finalized)
     this._bhFinal = {};   // height -> 1 once its FINALIZED hash is cached (a frozen value; provisional stays re-checkable)
     this.inflight = null;   // a submitted-but-not-yet-confirmed action (see busy())
+    // Sign-in must work the INSTANT the page shows the button — it's a pure wallet redirect, no crypto
+    // needed. Games wire the rest post-init(); if this ran only there, the button is dead for the whole
+    // module-load + crypto window (seconds on a loaded node) and users read the silence as "stuck".
+    const sb = document.getElementById("btnSignIn");
+    if (sb) sb.onclick = () => this.signIn();
   }
   // blockHashes(heights, {fast}): fetch + CACHE L1 block hashes for these heights (from /exec/blockhash),
   // so a beacon game can compute the same result the contract will. bh(h) reads the cache (hex|null|undefined).

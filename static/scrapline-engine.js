@@ -15,48 +15,68 @@
 //
 // MOVE ENCODING (enc = op + payload·16):
 //   op 1 PICK  payload = choice(0..2) + 4·slot(0..5)
-//   op 2 SKIP  scrap the whole offer for +12 max HP
+//   op 2 SKIP  scrap the whole offer for max HP (8 + 4·round, cap 50)
 import { blake2bHash } from "./nadotx.js";
 
 const H = (v) => BigInt("0x" + blake2bHash(v));
 
-export const ROUNDS = 9, SLOTS = 6, BASE_HP = 350, SHIELD_CAP = 250, MAXRANK = 4;
+export const ROUNDS = 9, SLOTS = 6, BASE_HP = 350, SHIELD_CAP = 250, MAXRANK = 9;
 export const TAGS = ["BLADE", "BOLT", "SPARK", "EMBER", "PLATE", "MEND", "CORE"];
 
 // kind: d=damage s=shield h=heal (burn rides on any weapon) c=core(passive)
-// spc: 1 twin-fire · 2 pierces shields · 3 +50% vs burning target · 4 reflect on melee hits ·
-//      5 also shields self · (SPARK weapons always deal DOUBLE damage to a shielded target)
+// spc: 1 twin-fire · 2 pierces shields · 3 +50% vs burning target · 4 reflect every hit while shielded ·
+//      5 also shields self · 6 detonate burn ×4 · 7 ram (+shield% dmg) · 8 overheal→shield ·
+//      (SPARK weapons always deal DOUBLE damage to a shielded target)
 export const ITEMS = [
   { k: "shiv", n: "Shiv", tier: 1, tag: 0, cd: 20, kind: "d", b: 20, a: 12, txt: "Quick scrap blade." },
   { k: "scrappistol", n: "Scrap Pistol", tier: 1, tag: 1, cd: 25, kind: "d", b: 26, a: 14, txt: "Bolt-thrower built from plumbing." },
-  { k: "blowtorch", n: "Blowtorch", tier: 1, tag: 3, cd: 30, kind: "d", b: 10, a: 6, burn: 2, txt: "Light damage, sets 2 burn." },
+  { k: "blowtorch", n: "Blowtorch", tier: 1, tag: 3, cd: 30, kind: "d", b: 10, a: 6, burn: 2, burna: 2, txt: "Light damage, sets burn." },
   { k: "buckler", n: "Scrap Buckler", tier: 1, tag: 4, cd: 30, kind: "s", b: 26, a: 14, txt: "Raises a small shield." },
   { k: "patchkit", n: "Patch Kit", tier: 1, tag: 5, cd: 45, kind: "h", b: 34, a: 18, txt: "Repairs hull points." },
-  { k: "grindstone", n: "Grindstone", tier: 1, tag: 6, kind: "c", b: 10, a: 6, ctag: 0, txt: "All your BLADE items +damage." },
-  { k: "powderpack", n: "Powder Pack", tier: 1, tag: 6, kind: "c", b: 10, a: 6, ctag: 1, txt: "All your BOLT items +damage." },
-  { k: "ballast", n: "Ballast Slab", tier: 1, tag: 6, kind: "c", b: 60, a: 30, chp: 1, txt: "Raises your max HP." },
+  { k: "grindstone", n: "Grindstone", tier: 1, tag: 6, kind: "c", b: 12, a: 12, ctag: 0, txt: "All your BLADE items +damage." },
+  { k: "powderpack", n: "Powder Pack", tier: 1, tag: 6, kind: "c", b: 12, a: 12, ctag: 1, txt: "All your BOLT items +damage." },
+  { k: "ballast", n: "Ballast Slab", tier: 1, tag: 6, kind: "c", b: 60, a: 45, chp: 1, txt: "Raises your max HP." },
   { k: "buzzsaw", n: "Buzz Saw", tier: 2, tag: 0, cd: 35, kind: "d", b: 44, a: 22, txt: "Chews through hulls." },
   { k: "nailrifle", n: "Nail Rifle", tier: 2, tag: 1, cd: 45, kind: "d", b: 56, a: 26, txt: "Heavy nails at range." },
   { k: "arcwelder", n: "Arc Welder", tier: 2, tag: 2, cd: 40, kind: "d", b: 36, a: 18, txt: "SPARK: double damage vs shields." },
-  { k: "tarsprayer", n: "Tar Sprayer", tier: 2, tag: 3, cd: 50, kind: "d", b: 0, a: 0, burn: 5, burna: 2, txt: "No damage — heavy burn." },
-  { k: "boilerplate", n: "Boiler Plate", tier: 2, tag: 4, cd: 55, kind: "s", b: 56, a: 26, txt: "A slab of shielding." },
+  { k: "tarsprayer", n: "Tar Sprayer", tier: 2, tag: 3, cd: 50, kind: "d", b: 0, a: 0, burn: 5, burna: 5, txt: "No damage — heavy burn." },
+  { k: "boilerplate", n: "Boiler Plate", tier: 2, tag: 4, cd: 55, kind: "s", b: 56, a: 30, txt: "A slab of shielding." },
   { k: "coolantpump", n: "Coolant Pump", tier: 2, tag: 5, cd: 70, kind: "h", b: 66, a: 30, txt: "Big slow repair." },
   { k: "twinslingers", n: "Twin Slingers", tier: 2, tag: 1, cd: 30, kind: "d", b: 16, a: 8, spc: 1, txt: "Fires twice per trigger." },
   { k: "staticcoil", n: "Static Coil", tier: 2, tag: 2, cd: 55, kind: "d", b: 20, a: 10, spc: 5, sh: 24, sha: 12, txt: "Zaps and shields you." },
-  { k: "rivetkit", n: "Rivet Kit", tier: 2, tag: 6, kind: "c", b: 12, a: 6, ctag: 4, txt: "All your PLATE items +shield." },
-  { k: "capacitor", n: "Capacitor Bank", tier: 2, tag: 6, kind: "c", b: 12, a: 6, ctag: 2, txt: "All your SPARK items +damage." },
-  { k: "accelerant", n: "Accelerant Tank", tier: 2, tag: 6, kind: "c", b: 2, a: 1, cburn: 1, txt: "All your EMBER items +burn." },
+  { k: "rivetkit", n: "Rivet Kit", tier: 2, tag: 6, kind: "c", b: 14, a: 14, ctag: 4, txt: "All your PLATE items +shield." },
+  { k: "capacitor", n: "Capacitor Bank", tier: 2, tag: 6, kind: "c", b: 14, a: 12, ctag: 2, txt: "All your SPARK items +damage." },
+  { k: "accelerant", n: "Accelerant Tank", tier: 2, tag: 6, kind: "c", b: 3, a: 3, cburn: 1, txt: "All your EMBER items +burn." },
   { k: "pipecleaver", n: "Pipe Cleaver", tier: 2, tag: 0, cd: 50, kind: "d", b: 72, a: 34, txt: "Slow, brutal chop." },
   { k: "junkmortar", n: "Junk Mortar", tier: 3, tag: 1, cd: 90, kind: "d", b: 140, a: 60, spc: 2, txt: "Pierces shields entirely." },
   { k: "rebarlance", n: "Rebar Lance", tier: 3, tag: 0, cd: 80, kind: "d", b: 120, a: 55, spc: 3, txt: "+50% damage to a burning target." },
   { k: "teslafist", n: "Tesla Fist", tier: 3, tag: 2, cd: 60, kind: "d", b: 66, a: 30, txt: "SPARK: double damage vs shields." },
-  { k: "furnaceheart", n: "Furnace Heart", tier: 3, tag: 3, cd: 70, kind: "d", b: 36, a: 16, burn: 4, burna: 2, txt: "Damage plus 4 burn." },
-  { k: "mirrorguard", n: "Mirror Guard", tier: 3, tag: 4, cd: 70, kind: "s", b: 50, a: 24, spc: 4, ref: 8, refa: 4, txt: "Shields; reflects BLADE hits." },
+  { k: "furnaceheart", n: "Furnace Heart", tier: 3, tag: 3, cd: 70, kind: "d", b: 36, a: 16, burn: 4, burna: 5, txt: "Damage plus burn." },
+  { k: "mirrorguard", n: "Mirror Guard", tier: 3, tag: 4, cd: 70, kind: "s", b: 50, a: 24, spc: 4, ref: 8, refa: 7, txt: "Shields; while shielded, every hit is reflected." },
   { k: "welddrone", n: "Weld Drone", tier: 3, tag: 5, cd: 60, kind: "h", b: 36, a: 16, spc: 5, sh: 12, sha: 6, txt: "Repairs and shields a little." },
-  { k: "overclock", n: "Overclock Chip", tier: 3, tag: 6, kind: "c", b: 8, a: 4, ccd: 1, txt: "All your cooldowns run faster (%)." },
-  { k: "magnetrig", n: "Magnet Rig", tier: 3, tag: 6, kind: "c", b: 4, a: 2, call: 1, txt: "ALL your weapons +damage." },
+  { k: "overclock", n: "Overclock Chip", tier: 3, tag: 6, kind: "c", b: 10, a: 6, ccd: 1, txt: "All your cooldowns run faster (%)." },
+  { k: "magnetrig", n: "Magnet Rig", tier: 3, tag: 6, kind: "c", b: 5, a: 5, call: 1, txt: "ALL your weapons +damage." },
+  // ---- arsenal wave 2 (2026-07-16): every school gets a WIN CONDITION, not just blade/bolt ----
+  // spc6 DETONATE: the hit consumes ALL of the target's burn stacks for burn×3 bonus damage (EMBER finisher).
+  // spc7 RAM: the hit adds ram% of YOUR CURRENT SHIELD as damage (PLATE turns defense into offense).
+  // spc8 OVERHEAL: repair beyond max HP converts into shield (MEND stops wasting late-fight heals).
+  { k: "ripsaw", n: "Rip Saw", tier: 2, tag: 0, cd: 40, kind: "d", b: 30, a: 16, spc: 1, txt: "Twin blade hits per trigger." },
+  { k: "guillotine", n: "Guillotine", tier: 3, tag: 0, cd: 85, kind: "d", b: 150, a: 70, txt: "One slow, enormous chop." },
+  { k: "flakcannon", n: "Flak Cannon", tier: 2, tag: 1, cd: 45, kind: "d", b: 52, a: 26, txt: "Wide burst of shrapnel." },
+  { k: "railspike", n: "Rail Spike", tier: 3, tag: 1, cd: 70, kind: "d", b: 84, a: 40, spc: 2, txt: "Pierces shields entirely." },
+  { k: "teslacoil", n: "Tesla Coil", tier: 2, tag: 2, cd: 50, kind: "d", b: 40, a: 20, txt: "SPARK: double damage vs shields." },
+  { k: "arclance", n: "Arc Lance", tier: 3, tag: 2, cd: 65, kind: "d", b: 58, a: 28, spc: 2, txt: "SPARK pierce — ignores shields." },
+  { k: "flareburst", n: "Flare Burst", tier: 2, tag: 3, cd: 55, kind: "d", b: 14, a: 8, spc: 6, txt: "DETONATES all burn: burn ×4 bonus damage." },
+  { k: "infernojet", n: "Inferno Jet", tier: 3, tag: 3, cd: 60, kind: "d", b: 34, a: 18, burn: 4, burna: 4, spc: 6, txt: "Ignites, then detonates burn ×4." },
+  { k: "ramplate", n: "Ram Plate", tier: 2, tag: 4, cd: 50, kind: "d", b: 12, a: 8, spc: 7, ram: 45, txt: "Rams for +45% of your shield." },
+  { k: "siegehull", n: "Siege Hull", tier: 3, tag: 4, cd: 75, kind: "s", b: 74, a: 36, spc: 7, ram: 35, txt: "Shields, then rams for +35% of your shield." },
+  { k: "triagekit", n: "Triage Kit", tier: 2, tag: 5, cd: 60, kind: "h", b: 50, a: 24, spc: 8, txt: "Repairs; overheal becomes shield." },
+  { k: "fieldforge", n: "Field Forge", tier: 3, tag: 5, cd: 70, kind: "h", b: 72, a: 34, spc: 8, txt: "Big repair; overheal becomes shield." },
+  { k: "burnchamber", n: "Burn Chamber", tier: 3, tag: 6, kind: "c", b: 14, a: 12, ctag: 3, txt: "All your EMBER items +damage." },
 ];
 
+// offerRank: picks arrive at the era's rank (solo: stage; PvP: draft round) — late offers stay live
+export const offerRank = (era) => Math.min(MAXRANK, 1 + Math.floor((era - 1) / 4));
 export const encMove = (op, payload) => op + (payload || 0) * 16;
 export const decMove = (enc) => ({ op: enc % 16, payload: Math.floor(enc / 16) });
 const val = (it, rank) => it.b + it.a * (rank - 1);
@@ -97,20 +117,20 @@ export function applyMove(st, side, enc) {
   if (op === 1) {
     const choice = payload % 4, slot = Math.floor(payload / 4);
     if (choice > 2 || slot >= SLOTS) return corrupt(st, "pick payload");
-    const id = offer[choice], cur = z.gear[slot];
-    if (cur && cur.id === id && cur.rank < MAXRANK) {   // merge: same item on the slot — rank up (capped)
-      cur.rank++; log(st, p, "merge", id, cur.rank);
+    const id = offer[choice], cur = z.gear[slot], r = offerRank(z.round + 1);
+    if (cur && cur.id === id && cur.rank < MAXRANK) {   // merge: same item on the slot — ADD the offered rank
+      cur.rank = Math.min(MAXRANK, cur.rank + r); log(st, p, "merge", id, cur.rank);
     } else if (cur) {
       z.maxhp += 15 + 10 * (cur.rank - 1);
       log(st, p, "scrap", cur.id, cur.rank);
-      z.gear[slot] = { id, rank: 1 };
+      z.gear[slot] = { id, rank: r };
       log(st, p, "pick", id, slot);
     } else {
-      z.gear[slot] = { id, rank: 1 };
+      z.gear[slot] = { id, rank: r };
       log(st, p, "pick", id, slot);
     }
   } else if (op === 2) {
-    z.maxhp += 12; log(st, p, "skip");
+    z.maxhp += Math.min(50, 8 + 4 * (z.round + 1)); log(st, p, "skip");   // scales like solo — late skips stay live
   } else return corrupt(st, "bad op " + op);
   z.round++;
   z.pendq = st._q === undefined ? null : st._q;   // next offer derives from THIS move's seed
@@ -150,7 +170,7 @@ export function buildFighterFrom(z, p) {
       burn: it.burn ? it.burn + (it.burna || 0) * (gitem.rank - 1) + buf.burn : 0,
       sh: it.sh ? it.sh + (it.sha || 0) * (gitem.rank - 1) : 0,
       ref: it.ref ? it.ref + (it.refa || 0) * (gitem.rank - 1) : 0,
-      spc: it.spc || 0, tag: it.tag });
+      spc: it.spc || 0, ram: it.ram || 0, tag: it.tag });
   });
   return { p, maxhp, hp: maxhp, shield: 0, burn: 0, items,
     reflect: items.reduce((m, i) => m + (i.spc === 4 ? i.ref : 0), 0) };
@@ -159,6 +179,7 @@ export function simulate(st) { return simulateBuilds(st.ps[0], st.ps[1]); }
 // simulateBuilds(z0, z1): fight two raw builds ({gear, maxhp}) — the PvP settle AND the solo gauntlet.
 export function simulateBuilds(z0, z1) {
   const F = [buildFighterFrom(z0, 0), buildFighterFrom(z1, 1)];
+  const cap = (f) => Math.max(SHIELD_CAP, Math.floor(f.maxhp * 3 / 4));   // shield ceiling scales with hull — PLATE's growth vector
   const ev = [];
   const push = (t, p, e, x, n) => { if (ev.length < 900) ev.push({ t, p, e, x, n }); };
   const hit = (t, from, to, item, amount) => {
@@ -170,7 +191,7 @@ export function simulateBuilds(z0, z1) {
       const absorbed = Math.min(to.shield, dmg);
       to.shield -= absorbed; to.hp -= dmg - absorbed;
     }
-    if (item.tag === 0 && to.reflect > 0) from.hp -= to.reflect;
+    if (to.reflect > 0 && to.shield > 0) from.hp -= to.reflect;   // mirror: bounce while shielded
     push(t, from.p, "hit", item.id, dmg);
   };
   let result = 0;
@@ -185,17 +206,30 @@ export function simulateBuilds(z0, z1) {
         if (item.slot !== slot || (t + slot) % item.cd !== 0) continue;
         if (item.kind === "d") {
           const times = item.spc === 1 ? 2 : 1;
-          for (let i = 0; i < times; i++) if (item.v > 0) hit(t, f, o, item, item.v);
+          for (let i = 0; i < times; i++) {
+            let v = item.v;
+            if (item.spc === 6 && o.burn > 0) {          // DETONATE: consume all burn for ×3 bonus
+              v += o.burn * 4; push(t, f.p, "det", item.id, o.burn * 4); o.burn = 0;
+            }
+            if (item.spc === 7) v += Math.floor(f.shield * item.ram / 100);   // RAM: shield → damage
+            if (v > 0) hit(t, f, o, item, v);
+          }
           if (item.burn) { o.burn += item.burn; push(t, f.p, "ignite", item.id, item.burn); }
-          if (item.spc === 5 && item.sh) f.shield = Math.min(SHIELD_CAP, f.shield + item.sh);
+          if (item.spc === 5 && item.sh) f.shield = Math.min(cap(f), f.shield + item.sh);
         } else if (item.kind === "s") {
-          f.shield = Math.min(SHIELD_CAP, f.shield + item.v);
+          f.shield = Math.min(cap(f), f.shield + item.v);
           push(t, f.p, "shield", item.id, item.v);
+          if (item.spc === 7) {                          // SIEGE: shield up, then ram with it
+            const v = Math.floor(f.shield * item.ram / 100);
+            if (v > 0) hit(t, f, o, item, v);
+          }
         } else if (item.kind === "h") {
           const healed = Math.min(f.maxhp - f.hp, item.v);
           if (healed > 0) push(t, f.p, "heal", item.id, healed);
           f.hp += healed;
-          if (item.spc === 5 && item.sh) f.shield = Math.min(SHIELD_CAP, f.shield + item.sh);
+          if (item.spc === 8 && item.v > healed)          // OVERHEAL: the spill becomes shield
+            f.shield = Math.min(cap(f), f.shield + (item.v - healed));
+          if (item.spc === 5 && item.sh) f.shield = Math.min(cap(f), f.shield + item.sh);
         }
       }
     }
@@ -234,9 +268,12 @@ export function enemyBuild(seed, stage) {
   const salt = SOLO_SALT + 1n + BigInt(stage) * 65536n;
   const ok = stage <= 2 ? [1] : stage <= 5 ? [1, 2] : [1, 2, 3];
   const pool = ITEMS.map((it, i) => (ok.includes(it.tier) ? i : -1)).filter((i) => i >= 0);
-  const n = Math.min(SLOTS, 2 + Math.floor((stage - 1) / 2));
-  const rank = Math.min(MAXRANK, 1 + Math.floor(stage / 4));
-  const gear = Array(SLOTS).fill(null);
+  // ELITE OVERLOAD: from stage 13 wrecks mount up to 8 hardpoints — two more than any player build.
+  // With player ranks capped at MAXRANK and enemy ranks uncapped, this guarantees every run ENDS
+  // (a lab seed once ran 398 stages on pure outscaling) while arriving gradually, not as a cliff.
+  const n = Math.min(stage >= 13 ? 8 : SLOTS, 2 + Math.floor((stage - 1) / 2));
+  const rank = 1 + Math.floor(stage / 3);               // UNCAPPED — enemy pressure never plateaus
+  const gear = Array(Math.max(SLOTS, n)).fill(null);
   for (let i = 0; i < n; i++) {
     let id = pool[Number(H(q + salt + BigInt(i)) % BigInt(pool.length))];
     if (i === 0) { // guarantee a weapon so stage 1 can't be a pacifist stall
@@ -246,7 +283,11 @@ export function enemyBuild(seed, stage) {
     const bump = stage >= 4 ? Number(H(q + salt + 100n + BigInt(i)) % 2n) : 0;
     gear[i] = { id, rank: Math.min(MAXRANK, rank + bump) };
   }
-  return { gear, maxhp: 220 + 60 * (stage - 1) };
+  // QUADRATIC hull: any player strategy has a bounded per-fight damage budget (ranks cap at 9, a
+  // fight lasts ≤900ds, reflect scales with hit COUNT) — a linear hull was still beatable forever
+  // (a reflect/skip-HP build rode it to stage 114). The quadratic term passes every fixed ceiling,
+  // so every run ends; it stays negligible before ~stage 15 (s=10: +162, s=30: +1682).
+  return { gear, maxhp: 220 + 60 * (stage - 1) + 2 * (stage - 1) * (stage - 1) };
 }
 export function soloNew(seed) {
   const gear = Array(SLOTS).fill(null);
@@ -261,14 +302,14 @@ export const soloOfferFor = (run) => (run.over || run.picks <= 0 ? null : soloOf
 // a daily score claim = (day, choices) and anyone can verify it by replaying.
 export function soloPick(run, choice, slot) {
   if (run.over || run.picks <= 0) return false;
-  if (choice === -1) { run.maxhp += 12; run.offerN++; run.picks--; run.choices.push(3); return true; }
+  if (choice === -1) { run.maxhp += Math.min(50, 8 + 4 * run.stage); run.offerN++; run.picks--; run.choices.push(3); return true; }
   const offer = soloOffer(run.seed, run.offerN, run.stage);
   if (choice > 2 || slot >= SLOTS) return false;
-  const id = offer[choice], cur = run.gear[slot];
-  if (cur && cur.id === id && cur.rank < MAXRANK) cur.rank++;
+  const id = offer[choice], cur = run.gear[slot], r = offerRank(run.stage);
+  if (cur && cur.id === id && cur.rank < MAXRANK) cur.rank = Math.min(MAXRANK, cur.rank + r);
   else {
     if (cur) run.maxhp += 15 + 10 * (cur.rank - 1);
-    run.gear[slot] = { id, rank: 1 };
+    run.gear[slot] = { id, rank: r };
   }
   run.offerN++; run.picks--; run.choices.push(choice + 4 * slot);
   return true;
@@ -317,7 +358,10 @@ export function soloFight(run) {
   const c = simulateBuilds({ gear: run.gear, maxhp: run.maxhp }, enemy);
   run.lastCombat = { ...c, stage: run.stage, enemy };
   run.picks = PICKS_PER_FIGHT;                            // fresh salvage precedes the next fight either way
-  if (c.result === 1 || c.result === 3) { run.score = run.stage; run.stage++; }
+  // Advance ONLY on a clean kill (result 1). A timeout ratio-win or mutual KO (3) does NOT clear the
+  // stage — otherwise an unkillable shield/heal build that never destroys the wreck coasts on hp-ratio
+  // forever (a lab bot rode that to stage 291). PvP keeps ratio rules; the gauntlet demands the kill.
+  if (c.result === 1) { run.score = run.stage; run.stage++; }
   else { run.lives--; run.maxhp += GRIT_HP; if (run.lives < 0) run.over = true; }   // grit: retries hit harder
   return run.lastCombat;
 }

@@ -59,17 +59,44 @@ const duel = new DuelGame(dapp, {
 });
 
 // ---- tiles ---------------------------------------------------------------------------------------------
-const stars = (rank) => "★".repeat(rank);
+const stars = (rank) => (rank <= 4 ? "★".repeat(rank) : "★" + rank);   // ranks reach 9 — keep the badge compact
 function statLine(it, rank) {
   const v = E.itemVal(it, rank);
-  if (it.kind === "c") return "⚙ " + v;
+  // CORES spell out EXACTLY what they add at this rank (the old "⚙ 12" told the player nothing)
+  if (it.kind === "c") {
+    if (it.chp) return "➕ " + v + " " + T("fxMaxHp", "max HP");
+    if (it.ccd) return "⏩ −" + Math.min(40, v) + "% " + T("fxCd", "cooldowns");
+    if (it.call) return "⚔ +" + v + " " + T("fxAllWeapons", "ALL weapons");
+    if (it.cburn) return "🔥 +" + v + " " + T("fxBurnEmber", "burn on EMBER");
+    if (it.ctag === 4) return "🛡 +" + v + " " + E.TAGS[it.ctag];
+    return "⚔ +" + v + " " + E.TAGS[it.ctag];
+  }
   const bits = [];
   if (it.kind === "d" && v > 0) bits.push("⚔ " + v);
   if (it.kind === "s") bits.push("🛡 " + v);
   if (it.kind === "h") bits.push("➕ " + v);
   if (it.burn) bits.push("🔥 " + (it.burn + (it.burna || 0) * (rank - 1)));
   if (it.sh) bits.push("🛡 " + (it.sh + (it.sha || 0) * (rank - 1)));
+  if (it.ref) bits.push("↩ " + (it.ref + (it.refa || 0) * (rank - 1)));
+  if (it.spc === 7) bits.push("💥 +" + it.ram + "% 🛡");
   return bits.join(" ") + (it.cd ? " · " + (it.cd / 10) + "s" : "");
+}
+// one short, translated, NUMERIC effect line per special — replaces the untranslated prose for known effects
+function fxLine(it, rank) {
+  const P = {
+    1: () => T("fx1", "fires ×2 per trigger"),
+    2: () => T("fx2", "pierces shields"),
+    3: () => T("fx3", "+50% vs burning"),
+    4: () => T("fx4", "reflects {n} per hit while shielded", { n: it.ref + (it.refa || 0) * (rank - 1) }),
+    5: () => T("fx5", "+{n} shield to self", { n: (it.sh || 0) + (it.sha || 0) * (rank - 1) }),
+    6: () => T("fx6", "detonates burn: ×4 damage"),
+    7: () => T("fx7", "ram: +{n}% of your shield as damage", { n: it.ram }),
+    8: () => T("fx8", "overheal becomes shield"),
+  };
+  if (it.spc && P[it.spc]) return P[it.spc]();
+  if (it.tag === 2 && it.kind === "d") return T("fxSpark", "double damage vs shielded");
+  if (it.burn) return T("fxBurn", "burn: {n} damage per second, fading", { n: it.burn + (it.burna || 0) * (rank - 1) });
+  return it.txt;
 }
 function itemTile(id, rank, extra, data) {
   const it = E.ITEMS[id];
@@ -79,7 +106,7 @@ function itemTile(id, rank, extra, data) {
     + '<div class="cart">' + (ART[it.k] || "") + "</div>"
     + '<div class="cname">' + it.n + "</div>"
     + '<div class="ctxt">' + statLine(it, rank) + "</div>"
-    + '<div class="ctxt dim">' + E.TAGS[it.tag] + " · " + it.txt + "</div>"
+    + '<div class="ctxt dim">' + E.TAGS[it.tag] + " · " + fxLine(it, rank) + "</div>"
     + "</div>";
 }
 
@@ -99,7 +126,8 @@ function onSlotTap(slot) {
 }
 function skipOffer() {
   if (!duel.canAct()) return;
-  duel.arm("skip", T("tapAgainSkip", "Tap again to scrap this offer (+12 max HP)"), () => duel.submit(2, 0, "scrap offer"));
+  const n = Math.min(50, 8 + 4 * (duel.eng.ps[duel.myIdx(duel.last)].round + 1));
+  duel.arm("skip", T("tapAgainSkip", "Tap again to scrap this offer (+{n} max HP)", { n }), () => duel.submit(2, 0, "scrap offer"));
 }
 
 // ---- render --------------------------------------------------------------------------------------------
@@ -164,7 +192,8 @@ function renderGame(gm, eng) {
       $("offer").innerHTML = offer.map((id, i) => itemTile(id, 1, sel === i ? " sel" : " buyable", 'data-off="' + i + '"')).join("");
       $("offer").querySelectorAll("[data-off]").forEach((d) => d.onclick = () => onOfferTap(parseInt(d.dataset.off, 10)));
       const b = document.createElement("button"); b.className = "ghost";
-      b.textContent = duel.armed && duel.armed.key === "skip" ? duel.armed.label : T("skipOffer", "♻ Scrap this offer (+12 max HP)");
+      b.textContent = duel.armed && duel.armed.key === "skip" ? duel.armed.label
+        : T("skipOffer", "♻ Scrap this offer (+{n} max HP)", { n: Math.min(50, 8 + 4 * (duel.eng.ps[duel.myIdx(duel.last)].round + 1)) });
       if (duel.armed && duel.armed.key === "skip") b.classList.add("pulse");
       b.onclick = skipOffer; ob.appendChild(b);
       $("offerHint").textContent = sel == null ? T("offerHintPick", "Tap an item, then a gear slot. Same item on the slot = MERGE (rank up); a different one replaces it (old is scrapped for max HP).") : T("offerHintSlot", "Now tap a gear slot to place it.");
@@ -266,7 +295,7 @@ function renderSolo() {
     $("soloOffer").innerHTML = offer.map((id, i) => itemTile(id, 1, soloSel === i ? " sel" : " buyable", 'data-soff="' + i + '"')).join("");
     $("soloOffer").querySelectorAll("[data-soff]").forEach((d) => d.onclick = () => { const i = parseInt(d.dataset.soff, 10); soloSel = soloSel === i ? null : i; renderSolo(); });
     const skip = document.createElement("button"); skip.className = "ghost";
-    skip.textContent = T("skipOffer", "♻ Scrap this offer (+12 max HP)");
+    skip.textContent = T("skipOffer", "♻ Scrap this offer (+{n} max HP)", { n: Math.min(50, 8 + 4 * soloRun.stage) });
     skip.onclick = () => { E.soloPick(soloRun, -1, 0); soloSel = null; soloSave(soloRun); renderSolo(); };
     ob.appendChild(skip);
     $("soloHint").textContent = soloSel == null ? T("offerHintPick", "Tap an item, then a gear slot. Same item on the slot = MERGE (rank up); a different one replaces it (old is scrapped for max HP).") : T("offerHintSlot", "Now tap a gear slot to place it.");
