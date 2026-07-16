@@ -28,6 +28,10 @@ from execnode.games import chess as _c
 
 NN, ST, PT, P1, P2, SD, WR, MC, DL, LIST, A1, A2, KH = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
 CFG = 14               # creator's game configuration word: 26-bit kingdom-card mask (0 = random kingdom)
+C1, C2 = 15, 16        # hidden-hands commits H(secret) per seat (0 = classic open-hand game)
+# revealed secrets, stored SPLIT into 32-bit halves (hi/lo): the JSON view coerces slot values to JS
+# numbers, and a field-sized secret would lose precision past 2^53 — split halves survive exactly.
+R1H, R2H, R1L, R2L = 17, 18, 19, 20
 MV_BASE = 1000
 MH_BASE = 2000
 MAXMOVES = 768
@@ -56,6 +60,70 @@ JOIN = _t.SRC["join"].replace(
         sstore r4 r5
         ret r0""")
 assert JOIN != _t.SRC["join"], "tictactoe join changed shape — update dominion JOIN splice"
+# join(g, commit): the joiner's hidden-hands commit rides as arg 2 (r1), stored before the base body
+# (which clobbers r1 with `ctx value`). A hidden game needs BOTH commits nonzero; clients enforce the
+# pairing (an opener who set c1 shows the game as hidden; an old client simply can't join it correctly —
+# its join leaves c2 = 0 and every client then treats the game as OPEN-HAND, which both can still play).
+JOIN = f"""
+        slot r4 {C2} r0
+        sstore r4 r1
+""" + JOIN
+
+# reveal(g, x): post the pre-committed secret once the game is decided — every client re-derives the whole
+# hidden game and verifies every claim (engine verifyHidden). Requires: both seats filled, caller seated,
+# caller committed (hidden game), and alghash(x) == commit. Storing into R1/R2 by seat; idempotent
+# re-reveals just overwrite with the same value (a DIFFERENT x can't hash to the same commit).
+REVEAL = f"""
+    slot r4 {NN} r0
+    sload r5 r4
+    movi r6 2
+    eq r5 r6
+    require r5              ; both seats filled
+    ctx r6 caller
+    slot r4 {P1} r0
+    sload r5 r4
+    eq r5 r6                ; r5 = caller==p1
+    slot r4 {P2} r0
+    sload r7 r4
+    eq r7 r6                ; r7 = caller==p2
+    mov r2 r5
+    add r2 r7
+    require r2              ; caller seated
+    movi r2 {C1 << 32}
+    mul r2 r5
+    movi r4 {C2 << 32}
+    mul r4 r7
+    add r2 r4
+    add r2 r0               ; r2 = my commit's storage key
+    sload r3 r2
+    mov r6 r3
+    nez r6
+    require r6              ; this seat committed (hidden game)
+    hash r4 <- r1
+    eq r4 r3
+    require r4              ; alghash(x) == commit
+    movi r2 {R1H << 32}
+    mul r2 r5
+    movi r4 {R2H << 32}
+    mul r4 r7
+    add r2 r4
+    add r2 r0               ; r2 = my hi-half slot key
+    movi r3 {R1L << 32}
+    mul r3 r5
+    movi r4 {R2L << 32}
+    mul r4 r7
+    add r3 r4
+    add r3 r0               ; r3 = my lo-half slot key (r5/r7 free from here)
+    mov r6 r1
+    lo32 r6                 ; r6 = x & 0xffffffff (canonical low half)
+    mov r5 r1
+    sub r5 r6               ; r5 = hi·2^32 (an exact multiple)
+    movi r7 18446744065119617026
+    mul r5 r7               ; r5 = hi — the field inverse of 2^32 undoes the exact factor
+    sstore r2 r5            ; hi half
+    sstore r3 r6            ; lo half
+    ret r0
+"""
 
 # move(g, enc, ply): r0=g r1=enc r2=ply. Caller may be EITHER player (the engine referees whose decision
 # it is); the record keeps (seed height, actor) so replay is deterministic and misattribution impossible.
@@ -125,29 +193,33 @@ MOVE = f"""
     ret r0
 """
 
-# open(g, cfg): tictactoe's open (stake escrow, seat, lobby index) prefixed with ONE store — the creator's
-# cfg word (26-bit kingdom mask, 0 = random). Stored FIRST because the base body clobbers r1 with `ctx
-# value`; a failed require later reverts the whole call, so the early write is safe. Old games (and a
-# cfg-less rematch) read slot 14 as 0 → random kingdom: fully back-compatible.
-OPEN = """
-        slot r4 14 r0
+# open(g, cfg, commit): tictactoe's open (stake escrow, seat, lobby index) prefixed with TWO stores — the
+# creator's cfg word (26-bit kingdom mask, 0 = random) and their hidden-hands commit H(secret) (0 = classic
+# open-hand play). Stored FIRST because the base body clobbers r1 with `ctx value`; a failed require later
+# reverts the whole call, so the early writes are safe. Missing args pad to 0 → fully back-compatible.
+OPEN = f"""
+        slot r4 {CFG} r0
         sstore r4 r1
+        slot r4 {C1} r0
+        sstore r4 r2
 """ + _t.SRC["open"]
 
-SRC = {"open": OPEN, "join": JOIN, "move": MOVE, "agree": _c.AGREE,
+SRC = {"open": OPEN, "join": JOIN, "move": MOVE, "agree": _c.AGREE, "reveal": REVEAL,
        "resign": _t.SRC["resign"], "abort": _t.SRC["abort"], "cancel": _t.SRC["cancel"]}
 
 ABI = {
-    "open": {"args": ["gameId", "cfg"], "value": True},
-    "join": {"args": ["gameId"], "value": True},
+    "open": {"args": ["gameId", "cfg", "commit"], "value": True},
+    "join": {"args": ["gameId", "commit"], "value": True},
     "move": {"args": ["gameId", "enc", "ply"]},
     "agree": {"args": ["gameId", "result"]},
+    "reveal": {"args": ["gameId", "x"]},
     "resign": {"args": ["gameId"]},
     "abort": {"args": ["gameId"]},
     "cancel": {"args": ["gameId"]},
     "_view": {
         "maps": {"nn": NN, "st": ST, "pt": PT, "p1": P1, "p2": P2, "sd": SD, "wr": WR, "mc": MC, "dl": DL,
-                 "a1": A1, "a2": A2, "kh": KH, "cfg": CFG},
+                 "a1": A1, "a2": A2, "kh": KH, "cfg": CFG, "c1": C1, "c2": C2,
+                 "r1h": R1H, "r2h": R2H, "r1l": R1L, "r2l": R2L},
         "index": {"cnt": 0, "list": LIST},
         "board": {"name": "mv", "base": MV_BASE, "cells": MAXMOVES, "stride": 10000},
         "board2": {"name": "mh", "base": MH_BASE, "cells": MAXMOVES, "stride": 10000},

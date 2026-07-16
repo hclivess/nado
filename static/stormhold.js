@@ -6,7 +6,7 @@
 // rigged. All information is public on-chain (open-hand play); the skill is the deck-building itself.
 // This module owns ONLY the Stormhold-specific half: engine replay, the supply/hand/decision UI, and the
 // move encodings; everything else (escrow actions, lobby, invites, settle chrome) lives in duelgame.js.
-import { NadoDapp, $, notify, disp } from "./nadodapp.js";
+import { NadoDapp, $, notify, disp, randSecret, algHashn, ALG_P } from "./nadodapp.js";
 import { DuelGame } from "./duelgame.js";
 import * as E from "./stormhold-engine.js";
 import { ART } from "./stormhold-art.js";
@@ -26,19 +26,48 @@ const isA = (id) => !!(E.CARDS[id].t & E.A), isT = (id) => !!(E.CARDS[id].t & E.
 const NAME = (id) => E.CARDS[id].n;
 const maskOf = (set) => [...set].reduce((m, i) => m + 2 ** i, 0);
 const MASK_FRAMES = { cel: 1, chp: 1, mil: 1, poa: 1 };
-const PICK_FRAMES = { bur: 1, remT: 1, minT: 1, thr: 1, artT: 1 };
+const PICK_FRAMES = { bur: 1, burH: 1, remT: 1, minT: 1, thr: 1, artT: 1 };
 const GAIN_FRAMES = { remG: 1, minG: 1, wsh: 1, artG: 1 };
+
+// ---- hidden hands (commit-reveal) ------------------------------------------------------------------
+// The per-game SECRET lives only in this browser (localStorage). Its alghash commit rides open()/join();
+// at game end reveal() posts the secret and every client runs the exact verification replay.
+let hiddenWant = false;                                   // the "hidden hands" toggle for NEW games
+const SKEY = (g) => "nado_stormhold_secret_" + g;
+function mySecret(g) {
+  let s = null;
+  try { s = localStorage.getItem(SKEY(g)); } catch {}
+  if (!s) { s = (randSecret() % ALG_P()).toString(); try { localStorage.setItem(SKEY(g), s); } catch {} }
+  return BigInt(s);
+}
+const isHiddenGame = (gm) => !!(gm && !gm.practice && gm.c1 && gm.c2);
+const hid = () => isHiddenGame(duel.last);                // is the ACTIVE game a hidden one?
+const encClaim = (idx, id) => idx + id * 32;              // 5-bit index + card id (engine's claim format)
 
 const duel = new DuelGame(dapp, {
   prefix: "storm", icon: "🏰", marks: ["🏰", "⚔"],
-  appendMaps: ["cfg"],
+  appendMaps: ["cfg", "c1", "c2", "r1h", "r1l", "r2h", "r2l"],
   rebuild(gm) {
     if (!gm.kh) return null;
     const mask = gm.practice ? kMask : gm.cfg;   // practice honors your current picker choice too
-    return E.replay(gm.id, this.qOf(gm.kh), (gm.recs || []).map((r) => ({ enc: r.enc, side: r.side, q: this.qOf(r.rh) })), mask);
+    const recsQ = (gm.recs || []).map((r) => ({ enc: r.enc, side: r.side, q: this.qOf(r.rh) }));
+    if (isHiddenGame(gm)) {
+      // both secrets revealed → the authoritative EXACT replay: hands go public, claims verified,
+      // st.cheater/st.result decide the settle. Until then: my pov (my zones real, theirs face-down).
+      if (gm.r1 && gm.r2) return E.verifyHidden(gm.id, this.qOf(gm.kh), recsQ, mask, [gm.r1, gm.r2]);
+      const me = this.myIdx(gm);
+      if (me == null) return null;                        // spectators can't derive either hidden hand
+      const sec = mySecret(gm.id);
+      const wrap = (q) => (q == null ? null : { pub: q, [me]: E.mixQ(q, sec), [1 - me]: null });
+      return E.replay(gm.id, wrap(this.qOf(gm.kh)), recsQ.map((r) => ({ ...r, q: wrap(r.q) })), mask, { pov: me });
+    }
+    return E.replay(gm.id, this.qOf(gm.kh), recsQ, mask);
   },
-  // extra open() arg: the kingdom-mask cfg word — a rematch (gm != null) keeps the original game's kingdom
-  openExtra: (gm) => [gm ? (gm.cfg || 0) : kMask],
+  // extra open() args: the kingdom-mask cfg word + the hidden-hands commit (0 = open-hand). A rematch
+  // (gm != null) keeps the original game's kingdom AND hiddenness, with a FRESH secret for the new id.
+  openExtra: (gm, id) => [gm ? (gm.cfg || 0) : kMask,
+    (gm ? !!gm.c1 : hiddenWant) ? algHashn([mySecret(id)]) : 0],
+  joinExtra: (gm, id) => (gm.c1 ? [algHashn([mySecret(id)])] : []),
   joinGate: (gm) => gm.cfg && !E.maskToKingdom(gm.cfg) ? T("kingdomBad", "⚠ invalid kingdom config — don't join this game") : null,
   canAct: (eng, me) => E.legalActor(eng) === me,
   // practice-vs-computer (duelgame.js SDK feature): direct local apply + the shared fuzz/oracle bot
@@ -56,7 +85,8 @@ const duel = new DuelGame(dapp, {
   shareText: (gm, id) => T("shareText", "Duel me at Stormhold for {stake}on NADO — game #{id}:", { stake: gm && gm.exists ? (Number(gm.stake) / 1e10) + " NADO " : "", id }),
   inviteTitle: T("inviteTitle", "You're invited to a Stormhold duel"),
   inviteBody: (gm) => T("inviteBody", "Duel {who} for <b>{amt} NADO</b> — winner takes the pot.", { who: disp(gm.p1), amt: Number(gm.stake) / 1e10 }),
-  wire() { $("oppHandWrap").onclick = () => { peekOpp = !peekOpp; this.render(); }; wireKingdomPicker(); },
+  wire() { $("oppHandWrap").onclick = () => { peekOpp = !peekOpp; this.render(); }; wireKingdomPicker();
+    if ($("hiddenToggle")) $("hiddenToggle").onchange = (e) => { hiddenWant = !!e.target.checked; }; },
   renderGame,
 });
 
@@ -70,15 +100,17 @@ function onHandTap(idx) {
   const f = topFrame(), hand = eng.ps[duel.myIdx(duel.last)].hand, id = hand[idx];
   if (f && MASK_FRAMES[f.t]) { dsel.has(idx) ? dsel.delete(idx) : dsel.add(idx); duel.render(); return; }
   if (f && PICK_FRAMES[f.t]) {
-    if (f.t === "bur" && !isV(id)) return notify(T("pickVictory", "Pick a Victory card."));
+    if ((f.t === "bur" || f.t === "burH") && !isV(id)) return notify(T("pickVictory", "Pick a Victory card."));
     if (f.t === "minT" && !isT(id)) return notify(T("pickTreasure", "Pick a Treasure."));
     if (f.t === "thr" && !isA(id)) return notify(T("pickAction", "Pick an Action card."));
-    decide(idx, "choose " + NAME(id)); return;
+    if (f.t === "burH") { decide(1 + 2 * encClaim(idx, id), "topdeck " + NAME(id)); return; }
+    const claimed = hid() && (f.t === "thr" || f.t === "remT" || f.t === "minT");
+    decide(claimed ? encClaim(idx, id) : idx, "choose " + NAME(id)); return;
   }
   if (f) return;
   if (eng.phase === 0 && isA(id)) {
     if (eng.actions < 1) return notify(T("noActions", "No actions left — play treasures or buy."));
-    duel.submit(1, idx, "play " + NAME(id)); return;
+    duel.submit(1, hid() ? encClaim(idx, id) : idx, "play " + NAME(id)); return;
   }
   if (isT(id)) { dsel.has(idx) ? dsel.delete(idx) : dsel.add(idx); duel.render(); return; }
   if (isA(id)) return notify(T("actionsOver", "The action phase is over this turn."));
@@ -106,7 +138,13 @@ function playTreasures() {
   if (idxs.some((i) => !isT(hand[i]))) { dsel = new Set(); return duel.render(); }
   if (!idxs.length) idxs = hand.map((c, i) => (isT(c) ? i : -1)).filter((i) => i >= 0);
   if (!idxs.length) return;
-  duel.submit(2, maskOf(new Set(idxs)), "play treasures");
+  let payload = maskOf(new Set(idxs));
+  if (hid()) {
+    const cnt = { 0: 0, 1: 0, 2: 0 };
+    idxs.forEach((i) => cnt[hand[i]]++);
+    payload += 16777216 * (cnt[0] + 32 * cnt[1] + 1024 * cnt[2]);
+  }
+  duel.submit(2, payload, "play treasures");
 }
 function endTurn() {
   if (!duel.canAct() || topFrame()) return;
@@ -231,9 +269,45 @@ function decisionPrompt(gm, eng, f) {
     artT: () => T("dArtT", "Atelier: tap a hand card to put on top of your deck."),
     wsh: () => T("dWsh", "Foundry: tap a supply pile costing up to 4 to gain."),
     moat: () => T("dMoat", "{card} attacks you — reveal your Windbreak to be unaffected?", { card: NAME(f.atk) }),
+    vasH: () => (mine && f.card != null && f.card !== E.UNKNOWN)
+      ? T("dVas", "Whirlwind revealed {card} — play it?", { card: NAME(f.card) })
+      : T("dVasH", "Whirlwind: deciding on the revealed top card…"),
+    burH: () => T("dBurH", "Collector attack! Tap a Victory card to put on your deck — or reveal a hand without one."),
+    banH: () => T("dBan", "Storm Riders attack! Tap the revealed treasure to trash."),
   };
   return who + (P[f.t] ? P[f.t]() : f.t);
 }
+// hidden games: once the log says GAME OVER, both secrets must be revealed on-chain before anyone can
+// score it — this bar drives that: reveal mine → wait for theirs → verified verdict (result or CHEATER).
+function renderReveal(gm, eng) {
+  const el = $("revealBar"); if (!el) return;
+  el.innerHTML = "";
+  if (!eng || !gm || !isHiddenGame(gm) || !eng.over || gm.settled) return;
+  const me = duel.myIdx(gm);
+  const myR = me === 0 ? gm.r1 : gm.r2, theirR = me === 0 ? gm.r2 : gm.r1;
+  if (gm.r1 && gm.r2) {
+    if (eng.cheater) {
+      const iCheated = eng.cheater - 1 === me;
+      el.innerHTML = '<div class="dp" style="color:var(--danger)">' + (iCheated
+        ? T("youCheatFlag", "⚠ Your claims failed verification — the game is void; your opponent will claim the refund.")
+        : T("oppCheatFlag", "🚨 {who} CHEATED — a claim failed verification. Don't agree to anything: claim the refund when the move clock runs out.", { who: disp(eng.cheater === 1 ? gm.p1 : gm.p2) }))
+        + "</div>";
+    }
+    return;                                              // verified honest game: the normal settle chrome applies
+  }
+  if (me == null) { el.innerHTML = '<div class="dp">' + T("revealWait", "Waiting for the players to reveal their hands…") + "</div>"; return; }
+  const b = document.createElement("button");
+  if (!myR) {
+    b.className = "primary"; b.textContent = T("revealBtn", "🔓 Reveal your hand — settle the game");
+    b.onclick = () => dapp.call("reveal", [gm.id, mySecret(gm.id)], null,
+      T("revealDesc", "reveal your Stormhold hand · game #{g}", { g: gm.id }), { game: gm.id, phase: "reveal" });
+    el.innerHTML = '<div class="dp">' + T("revealMine", "Game over — reveal your hand so the result can be verified.") + "</div>";
+    el.appendChild(b);
+  } else if (!theirR) {
+    el.innerHTML = '<div class="dp">' + T("revealTheirs", "✓ Your hand is revealed — waiting for your opponent (the refund clock protects you if they stall).") + "</div>";
+  }
+}
+
 function renderDecision(gm, eng) {
   const el = $("decision"); if (!el) return;
   const f = topFrame(), me = duel.myIdx(gm);
@@ -247,6 +321,15 @@ function renderDecision(gm, eng) {
       const ok = need == null ? (f.t === "chp" ? dsel.size <= 4 : true) : dsel.size === need;
       btns = B("dConfirm", T("dConfirmN", "Confirm ({n} selected)", { n: dsel.size }), ok, !ok);
     } else if (f.t === "vas") btns = B("dYes", T("playIt", "▶ Play it"), 1) + B("dNo", T("discardIt", "Discard it"));
+    else if (f.t === "vasH") btns = (f.card !== E.UNKNOWN && isA(f.card) ? B("dYes", T("playIt", "▶ Play it"), 1) : "") + B("dNo", T("discardIt", "Discard it"));
+    else if (f.t === "burH") { if (!eng.ps[f.p].hand.some(isV)) btns = B("dNoVic", T("revealNoVictory", "Reveal — no Victory cards"), 1); }
+    else if (f.t === "banH") {
+      btns = f.cards.map((c, i) => {
+        const ok = isT(c) && c !== E.COPPER;
+        return '<button class="' + (ok ? "primary" : "ghost") + '" data-banh="' + i + '" ' + (ok ? "" : "disabled") + ">🔥 " + NAME(c) + "</button>";
+      }).join("");
+      if (!f.cards.some((c) => isT(c) && c !== E.COPPER)) btns += B("dBanNone", T("nothingToTrash", "Nothing to trash — continue"), 1);
+    }
     else if (f.t === "lib") btns = B("dNo", T("keepIt", "Keep in hand"), 1) + B("dYes", T("setAside", "Set aside"));
     else if (f.t === "mon") btns = B("dYes", T("trashCopper", "🔥 Trash a Copper (+3 🪙)"), 1) + B("dNo", T("skip", "Skip"));
     else if (f.t === "moat") btns = B("dYes", T("revealBlock", "🛡 Reveal — block the attack"), 1) + B("dNo", T("takeHit", "Take the hit"));
@@ -277,12 +360,18 @@ function renderDecision(gm, eng) {
     if (f.t === "sen") decide(senD[0] + 3 * (senD[1] || 0) + 9 * (senD[0] === 0 && senD[1] === 0 && f.cards.length === 2 ? senSwap : 0), "skywatch");
     else decide(maskOf(dsel), "confirm");
   });
-  on("dYes", () => decide(1, "yes"));
+  on("dYes", () => decide(f.t === "vasH" ? 1 + 2 * f.card : 1, "yes"));
+  on("dNoVic", () => decide(0, "reveal none"));
+  on("dBanNone", () => { const b = 3 * (f.cards[0] + 64 * (f.cards[1] ?? 0)); decide(2 + b, "continue"); });
   on("dNo", () => decide(f.t === "har" ? 0 : f.t === "thr" || f.t === "minT" ? SKIP : 0, "skip"));
   on("dSkipGain", () => decide(SKIP, "skip gain"));
   on("dSwap", () => { senSwap = 1 - senSwap; duel.render(); });
   el.querySelectorAll("[data-har]").forEach((b) => b.onclick = () => decide(parseInt(b.dataset.har, 10), "topdeck"));
   el.querySelectorAll("[data-ban]").forEach((b) => b.onclick = () => decide(parseInt(b.dataset.ban, 10), "trash"));
+  el.querySelectorAll("[data-banh]").forEach((b) => b.onclick = () => {
+    const base = 3 * (f.cards[0] + 64 * (f.cards[1] ?? 0));
+    decide(parseInt(b.dataset.banh, 10) + base, "trash");
+  });
   el.querySelectorAll("[data-sen]").forEach((b) => b.onclick = () => { const i = parseInt(b.dataset.sen, 10); senD[i] = (senD[i] + 1) % 3; duel.render(); });
 }
 
@@ -317,9 +406,11 @@ function renderGame(gm, eng) {
       + '<span class="stat">' + T("buys", "Buys") + " <b>" + eng.buys + "</b></span>"
       + '<span class="stat">🪙 <b>' + eng.coins + "</b></span>"
       + (me != null ? '<span class="stat vp">' + T("vpYou", "Your VP") + " <b>" + E.scoreOf(eng, me) + "</b></span>"
-          + '<span class="stat vp">' + T("vpThem", "Their VP") + " <b>" + E.scoreOf(eng, 1 - me) + "</b></span>"
-        : '<span class="stat vp">VP <b>' + E.scoreOf(eng, 0) + " : " + E.scoreOf(eng, 1) + "</b></span>");
+          + '<span class="stat vp">' + T("vpThem", "Their VP") + " <b>" + (isHiddenGame(gm) && !(gm.r1 && gm.r2) ? "?" : E.scoreOf(eng, 1 - me)) + "</b></span>"
+        : '<span class="stat vp">VP <b>' + E.scoreOf(eng, 0) + " : " + E.scoreOf(eng, 1) + "</b></span>")
+      + (isHiddenGame(gm) ? '<span class="stat">🂠 ' + T("hiddenBadge", "hidden hands") + "</span>" : "");
   } else hud.innerHTML = "";
+  renderReveal(gm, eng);
   renderDecision(gm, eng);
   renderSupply(gm, eng);
   const oz = $("oppZone");

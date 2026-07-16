@@ -69,3 +69,53 @@ export function randomMove(st, rnd) {
   return M(4, 0);
 }
 
+// randomMoveHidden: legal-move generator for HIDDEN games. `st` must be a state where the current actor's
+// zones are REAL (the exact verify-mode state in tests, or the local pov state in a real client) — the
+// emitted encs carry the claim bits the hidden protocol requires.
+export function randomMoveHidden(st, rnd) {
+  const enc32 = (i, c) => i + c * 32;
+  if (st.frames.length) {
+    const f = st.frames[st.frames.length - 1], z = st.ps[f.p];
+    const D = (payload) => ({ side: f.p + 1, enc: encMove(5, payload) });
+    switch (f.t) {
+      case "moat": return D(z.hand.includes(E.WINDBREAK) && rnd() < 0.7 ? 1 : 0);
+      case "mon": return D(z.hand.includes(0) && rnd() < 0.7 ? 1 : 0);   // always-framed in hidden mode
+      case "vasH": return isA(f.card) && rnd() < 0.6 ? D(1 + 2 * f.card) : D(0);
+      case "burH": { const vi = z.hand.map((c, i) => [c, i]).filter(([c]) => isV(c));
+        if (!vi.length) return D(0);
+        const [c, i] = pick(rnd, vi); return D(1 + 2 * enc32(i, c)); }
+      case "banH": { const claims = f.cards;
+        const base = 3 * (claims[0] + 64 * (claims[1] ?? 0));
+        const elig = claims.map((c, i) => (isT(c) && c !== 0 ? i : -1)).filter((i) => i >= 0);
+        if (!elig.length) return D(2 + base);
+        const pi = elig.length === 2 && claims[0] !== claims[1] ? pick(rnd, elig) : elig[0];
+        return D(pi + base); }
+      case "thr": { const av = z.hand.map((c, i) => [c, i]).filter(([c]) => isA(c));
+        if (!av.length || rnd() >= 0.8) return D(SKIP);
+        const [c, i] = pick(rnd, av); return D(enc32(i, c)); }
+      case "remT": { const i = Math.floor(rnd() * z.hand.length); return D(enc32(i, z.hand[i])); }
+      case "minT": { const tv = z.hand.map((c, i) => [c, i]).filter(([c]) => isT(c));
+        if (!tv.length || rnd() >= 0.8) return D(SKIP);
+        const [c, i] = pick(rnd, tv); return D(enc32(i, c)); }
+      default: return randomMove(st, rnd);   // cel/chp/har/mil/poa/remG/minG/sen/artG/artT/wsh are mechanical
+    }
+  }
+  const p = st.turn, z = st.ps[p];
+  const M = (op, payload) => ({ side: p + 1, enc: encMove(op, payload) });
+  const acts = z.hand.map((c, i) => [c, i]).filter(([c]) => isA(c));
+  if (st.phase === 0 && st.actions > 0 && acts.length && rnd() < 0.75) {
+    const [c, i] = pick(rnd, acts); return M(1, enc32(i, c));
+  }
+  const ts = z.hand.map((c, i) => [c, i]).filter(([c]) => isT(c));
+  if (ts.length && rnd() < 0.85) {
+    const cnt = { 0: 0, 1: 0, 2: 0 }; ts.forEach(([c]) => cnt[c]++);
+    return M(2, maskOf(ts.map(([, i]) => i)) + 16777216 * (cnt[0] + 32 * cnt[1] + 1024 * cnt[2]));
+  }
+  const afford = Object.keys(st.supply).map(Number).filter((id) => st.supply[id] > 0 && CARDS[id].c <= st.coins);
+  if (st.buys > 0 && afford.length && rnd() < 0.9) {
+    afford.sort((a, b) => CARDS[b].c - CARDS[a].c);
+    return M(3, rnd() < 0.7 ? afford[0] : pick(rnd, afford));
+  }
+  return M(4, 0);
+}
+

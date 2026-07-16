@@ -86,6 +86,35 @@ export const WINDBREAK = 9, TERRACES = 16;
 const KINGDOM = Array.from({ length: 26 }, (_, i) => 7 + i);
 const SKIP = 4095;   // "may" sentinel for index-pick frames (Echo / Refinery)
 
+// ---- HIDDEN HANDS (commit-reveal privacy) ---------------------------------------------------------------
+// A hidden game derives each player's shuffle stream from a SECRET only their browser knows (committed as
+// H(secret) on-chain at open/join, revealed at game end — the poker model). The engine then runs in one of
+// three modes, sharing this one code path:
+//   open  (st.hidden falsy)          — classic public game, exactly as before
+//   pov   (st.hidden, st.pov = 0|1)  — MY zones exact (my secret mixed into my q stream); the opponent's
+//                                       hidden cards are UNKNOWN placeholders (counts + public claims)
+//   exact (st.hidden, st.pov = null) — reveal-time verification: both secrets known, every claim CHECKED;
+//                                       a mismatch marks st.cheater = the mover's side
+// Every move that lifts one of the mover's HIDDEN cards into PUBLIC view carries a CLAIM (the card id) in
+// the payload's high bits — plays stay visible like the real game; claims are verified at reveal. Frames
+// whose CREATION depends on hidden info (reactions, reveals) always fire in hidden mode, so both replays
+// derive the identical frame sequence.
+export const UNKNOWN = 33;                 // opaque card in a hidden opponent's zones (observer mode)
+CARDS.push({ k: "unknown", n: "🂠", c: 0, t: 0, txt: "A face-down card." });
+const known = (st, p) => !st.hidden || st.pov === null || st.pov === p;
+// PLAY/frame claims: payload = index (low 5 bits) + card id · 32
+const clX = (payload) => payload % 32, clC = (payload) => Math.floor(payload / 32) % 64;
+export const encClaim = (idx, cardId) => idx + cardId * 32;
+// materialize(z.hand, idx, claim): observer replaces the UNKNOWN at idx with the claimed card; the owner's
+// replay instead ASSERTS the claim (returns false on a lie — reveal-time cheat detection).
+function materialize(st, p, arr, idx, claim) {
+  if (idx >= arr.length) return false;
+  if (known(st, p)) return arr[idx] === claim;
+  if (arr[idx] === UNKNOWN) arr[idx] = claim;
+  return arr[idx] === claim;
+}
+function cheat(st, p, why) { st.cheater = p + 1; corrupt(st, "claim mismatch: " + why); }
+
 export const encMove = (op, payload) => op + (payload || 0) * 16;
 export const decMove = (enc) => ({ op: enc % 16, payload: Math.floor(enc / 16) });
 const isA = (id) => !!(CARDS[id].t & A), isT = (id) => !!(CARDS[id].t & T), isV = (id) => !!(CARDS[id].t & V);
@@ -94,13 +123,16 @@ const bits = (mask) => { const r = []; for (let i = 0; mask; i++, mask = Math.fl
 // ---- state -------------------------------------------------------------------------------------------
 function blockedErr() { const e = new Error("waiting for seed block"); e.blocked = true; return e; }
 
-function shuffled(st, arr) {
-  if (st._q == null) throw blockedErr();
+function shuffled(st, arr, p) {
+  // hidden mode: q is a per-player stream {0: q0, 1: q1} (secret-mixed); an OPAQUE player's shuffle is a
+  // no-op — their cards dissolve into UNKNOWNs at the call site, so no randomness is consumed for them.
+  const q = st.hidden ? (st._q && (p != null ? st._q[p] : st._q.pub)) : st._q;
+  if (q == null) throw blockedErr();
   st.shufN++;
   const salt = BigInt(st.g) * 16777216n + BigInt(st.shufN) * 4096n;
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {
-    const j = Number(H(st._q + salt + BigInt(i)) % BigInt(i + 1));
+    const j = Number(H(q + salt + BigInt(i)) % BigInt(i + 1));
     const t_ = a[i]; a[i] = a[j]; a[j] = t_;
   }
   return a;
@@ -113,7 +145,9 @@ function takeTop(st, p) {
   const z = st.ps[p];
   if (!z.deck.length) {
     if (!z.disc.length) return null;
-    z.deck = shuffled(st, z.disc); z.disc = []; log(st, p, "shuffle");
+    if (known(st, p)) z.deck = shuffled(st, z.disc, p);
+    else { st.shufN++; z.deck = z.disc.map(() => UNKNOWN); }   // dissolution still COUNTS as a shuffle
+    z.disc = []; log(st, p, "shuffle");        // event, so every mode's shufN salt sequence stays aligned
   }
   return z.deck.pop();
 }
@@ -145,13 +179,17 @@ export const maskToKingdom = (mask) => {
 };
 export const kingdomToMask = (ids) => ids.reduce((m, id) => m + Math.pow(2, id - 7), 0);
 
-export function init(g, khQ, mask) {
+// hid: falsy for classic public games; { pov: 0|1 } for a hidden game seen from one seat (khQ/move qs are
+// then per-player streams {pub, 0, 1} — the pov's mixed with their secret, the other side's null); or
+// { pov: null } for the reveal-time EXACT verification pass (both streams secret-mixed, claims asserted).
+export function init(g, khQ, mask, hid) {
   const st = {
     g: Number(g), kingdom: [], supply: {}, trash: [],
     ps: [{ deck: [], hand: [], disc: [], play: [], turns: 0 }, { deck: [], hand: [], disc: [], play: [], turns: 0 }],
     turn: 0, phase: 0, actions: 1, buys: 1, coins: 0, merch: 0, silverDone: false,
-    frames: [], over: false, result: 0, corrupt: false, corruptWhy: "",
+    frames: [], over: false, result: 0, corrupt: false, corruptWhy: "", cheater: 0,
     shufN: 0, mi: 0, blocked: false, blockedAt: -1, log: [],
+    hidden: !!hid, pov: hid ? (hid.pov != null ? hid.pov : null) : undefined,
   };
   st._q = khQ;
   let pick;
@@ -167,7 +205,8 @@ export function init(g, khQ, mask) {
   for (const id of pick) st.supply[id] = isV(id) ? 8 : 10;
   for (let p = 0; p < 2; p++) {
     const cards = [COPPER, COPPER, COPPER, COPPER, COPPER, COPPER, COPPER, HOMESTEAD, HOMESTEAD, HOMESTEAD];
-    st.ps[p].deck = shuffled(st, cards);
+    if (known(st, p)) st.ps[p].deck = shuffled(st, cards, p);
+    else { st.shufN++; st.ps[p].deck = cards.map(() => UNKNOWN); }   // keep shufN aligned across modes
     draw(st, p, 5);
   }
   st.log = [];   // opening shuffles/draws aren't interesting
@@ -178,7 +217,10 @@ export function init(g, khQ, mask) {
 // The defender first gets a Windbreak decision if they hold one; otherwise (or on decline) the effect applies.
 function attack(st, p, id) {
   const d = 1 - p;
-  if (st.ps[d].hand.includes(WINDBREAK)) st.frames.push({ t: "moat", p: d, atk: id });
+  // hidden mode: whether the defender HOLDS a Windbreak is their secret — the reaction window always
+  // opens (their claim to block is verified at reveal), so both replays derive the same frame sequence.
+  if (st.hidden ? st.ps[d].hand.length > 0 : st.ps[d].hand.includes(WINDBREAK))
+    st.frames.push({ t: "moat", p: d, atk: id });
   else applyAttack(st, id, d);
 }
 function applyAttack(st, id, d) {
@@ -188,6 +230,11 @@ function applyAttack(st, id, d) {
   } else if (id === 31) {                                   // Stormcaller
     gain(st, d, BLIGHT, z.disc, "curse");
   } else if (id === 15) {                                   // Collector
+    if (st.hidden) {                                        // hand contents are secret → defender claims
+      if (z.hand.length) st.frames.push({ t: "burH", p: d });
+      else log(st, d, "reveal");
+      return;
+    }
     const vs = z.hand.filter(isV);
     if (!vs.length) log(st, d, "reveal");                   // reveals a hand with no Victory cards
     else if (new Set(vs).size === 1) {                      // only one kind — no real choice
@@ -196,7 +243,12 @@ function applyAttack(st, id, d) {
   } else if (id === 23) {                                   // Storm Riders
     const rev = [];
     for (let i = 0; i < 2; i++) { const c = takeTop(st, d); if (c != null) rev.push(c); }
-    log(st, d, "reveal2", null, rev.length); for (const c of rev) log(st, d, "revealc", c);
+    log(st, d, "reveal2", null, rev.length);
+    if (st.hidden) {                                        // revealed identities are the defender's claim
+      if (rev.length) st.frames.push({ t: "banH", p: d, cards: rev });
+      return;
+    }
+    for (const c of rev) log(st, d, "revealc", c);
     const elig = rev.filter((c) => isT(c) && c !== COPPER);
     if (elig.length === 2 && rev[0] !== rev[1]) st.frames.push({ t: "ban", p: d, cards: rev });
     else {
@@ -227,26 +279,29 @@ function resolveCard(st, p, id) {
     case 11: draw(st, p, 1); st.actions++; st.merch++; break;
     case 12: { st.coins += 2; const c = takeTop(st, p);
       if (c == null) break;
-      if (isA(c)) st.frames.push({ t: "vas", p, card: c });
+      // hidden: whether the revealed top is an Action is the owner's secret → they always decide (claim)
+      if (st.hidden) st.frames.push({ t: "vasH", p, card: c });
+      else if (isA(c)) st.frames.push({ t: "vas", p, card: c });
       else { z.disc.push(c); log(st, p, "discard1", c); } break; }
     case 13: draw(st, p, 1); st.actions += 2; break;
     case 14: st.frames.push({ t: "wsh", p }); break;
     case 15: { const got = gain(st, p, SILVER, z.deck, "gaindeck"); if (!got) log(st, p, "supplyout", SILVER); attack(st, p, id); break; }
     case 17: st.coins += 2; attack(st, p, id); break;
-    case 18: if (z.hand.includes(COPPER)) st.frames.push({ t: "mon", p }); break;
+    case 18: if (st.hidden ? z.hand.length > 0 : z.hand.includes(COPPER)) st.frames.push({ t: "mon", p }); break;
     case 19: { draw(st, p, 1); st.actions++; st.coins++;
       const n = Math.min(emptyPiles(st), z.hand.length);
       if (n > 0) st.frames.push({ t: "poa", p, n }); break; }
     case 20: if (z.hand.length) st.frames.push({ t: "remT", p }); break;
     case 21: draw(st, p, 3); break;
-    case 22: if (z.hand.some(isA)) st.frames.push({ t: "thr", p }); break;
+    case 22: if (st.hidden ? z.hand.length > 0 : z.hand.some(isA)) st.frames.push({ t: "thr", p }); break;
     case 23: gain(st, p, GOLD, z.disc); attack(st, p, id); break;
     case 24: draw(st, p, 4); st.buys++; draw(st, 1 - p, 1); break;
     case 25: st.actions += 2; st.buys++; st.coins += 2; break;
     case 26: draw(st, p, 2); st.actions++; break;
-    case 27: libraryLoop(st, p, []); break;
+    case 27: if (st.hidden) { const want = 7 - z.hand.length; if (want > 0) draw(st, p, want); }
+      else libraryLoop(st, p, []); break;
     case 28: draw(st, p, 1); st.actions++; st.buys++; st.coins++; break;
-    case 29: if (z.hand.some(isT)) st.frames.push({ t: "minT", p }); break;
+    case 29: if (st.hidden ? z.hand.length > 0 : z.hand.some(isT)) st.frames.push({ t: "minT", p }); break;
     case 30: { draw(st, p, 1); st.actions++;
       const cards = [];
       for (let i = 0; i < 2; i++) { const c = takeTop(st, p); if (c != null) cards.push(c); }
@@ -287,6 +342,13 @@ function resolveFrame(st, payload) {
       const c = z.disc.splice(i, 1)[0]; z.deck.push(c); log(st, p, "topdeck", c); break; }
     case "vas": { if (payload === 1) { z.play.push(f.card); log(st, p, "play2", f.card); resolveCard(st, p, f.card); }
       else { z.disc.push(f.card); log(st, p, "discard1", f.card); } break; }
+    case "vasH": {   // hidden Whirlwind: 0 = discard the (still-secret) top · 1 + 2·cardId = play the claimed Action
+      if (payload === 0) { z.disc.push(f.card); log(st, p, "discard", null, 1); break; }
+      if (payload % 2 !== 1) return corrupt(st, "vasH payload");
+      const c = Math.floor(payload / 2) % 64;
+      if (!CARDS[c] || !isA(c)) return corrupt(st, "vasH claim not an action");
+      if (known(st, p) && f.card !== c) return cheat(st, p, "whirlwind reveal");
+      z.play.push(c); log(st, p, "play2", c); resolveCard(st, p, c); break; }
     case "mil": { if (discardMask(st, p, payload, z.hand.length - 3) < 0) return corrupt(st, "militia mask"); break; }
     case "bur": { if (payload >= z.hand.length || !isV(z.hand[payload])) return corrupt(st, "bureaucrat idx");
       const c = z.hand.splice(payload, 1)[0]; z.deck.push(c); log(st, p, "topdeck", c); break; }
@@ -295,23 +357,73 @@ function resolveFrame(st, payload) {
       if (!(isT(c) && c !== COPPER)) return corrupt(st, "bandit pick not eligible");
       st.trash.push(c); log(st, p, "trash", c);
       z.disc.push(f.cards[1 - payload]); break; }
-    case "mon": { if (payload === 1) { const i = z.hand.indexOf(COPPER); if (i < 0) return corrupt(st, "no copper");
+    case "banH": {   // hidden Storm Riders: defender claims the revealed cards + which eligible one burns
+      // payload = pick(0..2; 2 = "no eligible treasure") + 3·(c0 + 64·c1) — c_i are the claimed reveals
+      const pick = payload % 3, c0 = Math.floor(payload / 3) % 64, c1 = Math.floor(payload / 192) % 64;
+      const claims = f.cards.length === 2 ? [c0, c1] : [c0];
+      if (claims.some((c) => !CARDS[c] || c === UNKNOWN)) return corrupt(st, "banH claim ids");
+      if (known(st, p) && claims.some((c, i) => f.cards[i] !== c)) return cheat(st, p, "storm riders reveal");
+      for (const c of claims) log(st, p, "revealc", c);
+      const elig = claims.map((c, i) => (isT(c) && c !== COPPER ? i : -1)).filter((i) => i >= 0);
+      if (pick === 2) {                                     // claim: nothing eligible to trash
+        if (elig.length) return corrupt(st, "banH must trash");
+        for (const c of claims) z.disc.push(c);
+      } else {
+        if (pick >= claims.length || !elig.includes(pick)) return corrupt(st, "banH pick");
+        // choice only exists between two DIFFERENT eligible treasures; otherwise the lowest index burns
+        if (elig.length === 2 && claims[0] === claims[1] && pick !== 0) return corrupt(st, "banH pick");
+        if (elig.length === 1 && pick !== elig[0]) return corrupt(st, "banH pick");
+        st.trash.push(claims[pick]); log(st, p, "trash", claims[pick]);
+        claims.forEach((c, i) => { if (i !== pick) z.disc.push(c); });
+      }
+      break; }
+    case "burH": {   // hidden Collector: 0 = "no Victory card in hand" · 1 + 2·(idx + 16·cardId) topdecks it
+      if (payload === 0) {
+        if (known(st, p) && z.hand.some(isV)) return cheat(st, p, "collector dodge");
+        log(st, p, "reveal"); break;
+      }
+      if (payload % 2 !== 1) return corrupt(st, "burH payload");
+      const rest = Math.floor(payload / 2), i = clX(rest), c = clC(rest);
+      if (!CARDS[c] || !isV(c)) return corrupt(st, "burH claim not victory");
+      if (!materialize(st, p, z.hand, i, c)) return cheat(st, p, "collector topdeck");
+      z.deck.push(z.hand.splice(i, 1)[0]); log(st, p, "topdeck", c); break; }
+    case "mon": { if (payload === 1) {
+      if (st.hidden && !known(st, p)) {   // observer: trust the claim, burn one hidden card as the Copper
+        if (!z.hand.length) return corrupt(st, "no copper");
+        z.hand.pop(); st.trash.push(COPPER); log(st, p, "trash", COPPER); st.coins += 3; break;
+      }
+      const i = z.hand.indexOf(COPPER); if (i < 0) return st.hidden ? cheat(st, p, "smelter copper") : corrupt(st, "no copper");
       st.trash.push(z.hand.splice(i, 1)[0]); log(st, p, "trash", COPPER); st.coins += 3; } break; }
     case "poa": { if (discardMask(st, p, payload, f.n) < 0) return corrupt(st, "poacher mask"); break; }
-    case "remT": { if (payload >= z.hand.length) return corrupt(st, "remodel idx");
-      const c = z.hand.splice(payload, 1)[0]; st.trash.push(c); log(st, p, "trash", c);
+    case "remT": {
+      const i = st.hidden ? clX(payload) : payload, claim = st.hidden ? clC(payload) : null;
+      if (i >= z.hand.length) return corrupt(st, "remodel idx");
+      if (st.hidden && !materialize(st, p, z.hand, i, claim)) return cheat(st, p, "reforge trash");
+      const c = z.hand.splice(i, 1)[0]; st.trash.push(c); log(st, p, "trash", c);
       st.frames.push({ t: "remG", p, max: CARDS[c].c + 2 }); break; }
     case "remG": { if (payload === SKIP) { if (gainable(st, f.max).length) return corrupt(st, "remodel must gain"); break; }
       if (!CARDS[payload] || CARDS[payload].c > f.max || !(st.supply[payload] > 0)) return corrupt(st, "remodel gain");
       gain(st, p, payload, z.disc); break; }
-    case "thr": { if (payload === SKIP) break;
-      if (payload >= z.hand.length || !isA(z.hand[payload])) return corrupt(st, "throne idx");
-      const c = z.hand.splice(payload, 1)[0]; z.play.push(c); log(st, p, "play", c);
+    case "thr": { if (payload === SKIP) {
+        // open games only frame Echo when an Action is in hand — SKIP there means a UI bug, not a choice;
+        // hidden games always frame (hand secret), so SKIP is a legitimate "nothing to double" claim.
+        if (!st.hidden && z.hand.some(isA)) { /* allowed: Echo is a 'may' */ }
+        break; }
+      const i = st.hidden ? clX(payload) : payload, claim = st.hidden ? clC(payload) : null;
+      if (i >= z.hand.length) return corrupt(st, "throne idx");
+      if (st.hidden) { if (!CARDS[claim] || !isA(claim)) return corrupt(st, "throne claim");
+        if (!materialize(st, p, z.hand, i, claim)) return cheat(st, p, "echo pick"); }
+      else if (!isA(z.hand[i])) return corrupt(st, "throne idx");
+      const c = z.hand.splice(i, 1)[0]; z.play.push(c); log(st, p, "play", c);
       st.frames.push({ t: "tr2", p, card: c });
       resolveCard(st, p, c); break; }
     case "minT": { if (payload === SKIP) break;
-      if (payload >= z.hand.length || !isT(z.hand[payload])) return corrupt(st, "mine trash");
-      const c = z.hand.splice(payload, 1)[0]; st.trash.push(c); log(st, p, "trash", c);
+      const i = st.hidden ? clX(payload) : payload, claim = st.hidden ? clC(payload) : null;
+      if (i >= z.hand.length) return corrupt(st, "mine trash");
+      if (st.hidden) { if (!CARDS[claim] || !isT(claim)) return corrupt(st, "mine claim");
+        if (!materialize(st, p, z.hand, i, claim)) return cheat(st, p, "refinery trash"); }
+      else if (!isT(z.hand[i])) return corrupt(st, "mine trash");
+      const c = z.hand.splice(i, 1)[0]; st.trash.push(c); log(st, p, "trash", c);
       st.frames.push({ t: "minG", p, max: CARDS[c].c + 3 }); break; }
     case "minG": { if (payload === SKIP) { if (gainable(st, f.max, true).length) return corrupt(st, "mine must gain"); break; }
       if (!CARDS[payload] || !isT(payload) || CARDS[payload].c > f.max || !(st.supply[payload] > 0)) return corrupt(st, "mine gain");
@@ -341,8 +453,11 @@ function resolveFrame(st, payload) {
     case "wsh": { if (payload === SKIP) { if (gainable(st, 4).length) return corrupt(st, "workshop must gain"); break; }
       if (!CARDS[payload] || CARDS[payload].c > 4 || !(st.supply[payload] > 0)) return corrupt(st, "workshop gain");
       gain(st, p, payload, z.disc); break; }
-    case "moat": { if (payload === 1) log(st, p, "immune", WINDBREAK);
-      else applyAttack(st, f.atk, p); break; }
+    case "moat": { if (payload === 1) {
+        // hidden: blocking CLAIMS a Windbreak in the secret hand — the owner's replay verifies it
+        if (st.hidden && known(st, p) && !z.hand.includes(WINDBREAK)) return cheat(st, p, "windbreak bluff");
+        log(st, p, "immune", WINDBREAK);
+      } else applyAttack(st, f.atk, p); break; }
     default: corrupt(st, "unknown frame " + f.t);
   }
 }
@@ -360,20 +475,52 @@ export function applyMove(st, side, enc) {
     resolveFrame(st, payload);
   } else {
     const z = st.ps[p];
-    if (op === 1) {                                        // PLAY an action
+    if (op === 1) {                                        // PLAY an action (hidden: payload = idx + 16·cardId claim)
       if (st.phase !== 0) return corrupt(st, "not action phase");
       if (st.actions < 1) return corrupt(st, "no actions left");
-      if (payload >= z.hand.length || !isA(z.hand[payload])) return corrupt(st, "play idx");
-      const c = z.hand.splice(payload, 1)[0]; z.play.push(c);
+      const i = st.hidden ? clX(payload) : payload, claim = st.hidden ? clC(payload) : null;
+      if (i >= z.hand.length) return corrupt(st, "play idx");
+      if (st.hidden) { if (!CARDS[claim] || !isA(claim)) return corrupt(st, "play claim");
+        if (!materialize(st, p, z.hand, i, claim)) return cheat(st, p, "action play"); }
+      else if (!isA(z.hand[i])) return corrupt(st, "play idx");
+      const c = z.hand.splice(i, 1)[0]; z.play.push(c);
       st.actions--; log(st, p, "play", c);
       resolveCard(st, p, c);
     } else if (op === 2) {                                 // COINS — play treasures
-      const idxs = bits(payload);
-      if (!idxs.length || idxs.some((i) => i >= z.hand.length || !isT(z.hand[i]))) return corrupt(st, "coins mask");
+      // hidden: payload = handMask (24 bits) + 2^24·(copper + 32·silver + 1024·gold) claimed counts
+      const idxs = bits(st.hidden ? payload % 16777216 : payload);
+      if (!idxs.length || idxs.some((i) => i >= z.hand.length)) return corrupt(st, "coins mask");
+      let claimed = null;
+      if (st.hidden) {
+        const cc = Math.floor(payload / 16777216);
+        claimed = { [COPPER]: cc % 32, [SILVER]: Math.floor(cc / 32) % 32, [GOLD]: Math.floor(cc / 1024) % 32 };
+        if (claimed[COPPER] + claimed[SILVER] + claimed[GOLD] !== idxs.length) return corrupt(st, "coins claim count");
+      }
       st.phase = 1;
       let silver = false;
-      for (const i of idxs.slice().reverse()) { const c = z.hand.splice(i, 1)[0]; z.play.push(c);
-        st.coins += CARDS[c].coin; if (c === SILVER) silver = true; log(st, p, "playT", c); }
+      if (st.hidden && !known(st, p)) {
+        // observer: burn |mask| hidden cards, materialize the claimed treasures into the public play area
+        for (const i of idxs.slice().reverse()) z.hand.splice(i, 1);
+        for (const id of [COPPER, SILVER, GOLD]) for (let k = 0; k < claimed[id]; k++) {
+          z.play.push(id); st.coins += CARDS[id].coin; if (id === SILVER) silver = true; log(st, p, "playT", id);
+        }
+      } else {
+        if (idxs.some((i) => !isT(z.hand[i]))) return st.hidden ? cheat(st, p, "treasure mask") : corrupt(st, "coins mask");
+        if (st.hidden) {   // the claimed counts must match the real cards under the mask
+          const real = { [COPPER]: 0, [SILVER]: 0, [GOLD]: 0 };
+          for (const i of idxs) real[z.hand[i]] = (real[z.hand[i]] || 0) + 1;
+          if (real[COPPER] !== claimed[COPPER] || real[SILVER] !== claimed[SILVER] || real[GOLD] !== claimed[GOLD])
+            return cheat(st, p, "treasure counts");
+          // canonical play order (copper→silver→gold), so the observer's materialized play area is identical
+          for (const i of idxs.slice().reverse()) z.hand.splice(i, 1);
+          for (const id of [COPPER, SILVER, GOLD]) for (let k = 0; k < real[id]; k++) {
+            z.play.push(id); st.coins += CARDS[id].coin; if (id === SILVER) silver = true; log(st, p, "playT", id);
+          }
+        } else {
+          for (const i of idxs.slice().reverse()) { const c = z.hand.splice(i, 1)[0]; z.play.push(c);
+            st.coins += CARDS[c].coin; if (c === SILVER) silver = true; log(st, p, "playT", c); }
+        }
+      }
       if (silver && !st.silverDone) { st.coins += st.merch; st.silverDone = true; if (st.merch) log(st, p, "merchant", SILVER, st.merch); }
     } else if (op === 3) {                                 // BUY
       const id = payload;
@@ -390,7 +537,9 @@ export function applyMove(st, side, enc) {
       z.hand = []; z.play = []; z.turns++;
       log(st, p, "endturn", null, z.turns);
       if (st.supply[CITADEL] === 0 || emptyPiles(st) >= 3) {
-        st.over = true; st.result = computeResult(st); log(st, p, "gameover", null, st.result);
+        st.over = true;
+        st.result = st.hidden && st.pov !== null ? 0 : computeResult(st);   // pov can't score hidden decks
+        log(st, p, "gameover", null, st.result);
       } else {
         draw(st, p, 5);
         st.turn = 1 - p; st.phase = 0; st.actions = 1; st.buys = 1; st.coins = 0; st.merch = 0; st.silverDone = false;
@@ -419,9 +568,9 @@ export function computeResult(st) {   // 1 = p1 wins, 2 = p2 wins, 3 = draw (few
 // recs = [{enc, side, q}] where q = BigInt(bh(rh)) + BigInt(bh(rh+1)) or null while the seed block is
 // pending. khQ likewise for the kingdom/setup seed. Replays as far as the available randomness allows;
 // state.blocked/blockedAt mark where it stopped (the UI shows "shuffling…" and retries next poll).
-export function replay(g, khQ, recs, mask) {
+export function replay(g, khQ, recs, mask, hid) {
   let st;
-  try { st = init(g, khQ, mask); } catch (e) { if (e.blocked) return { blocked: true, blockedAt: -1, setup: true }; throw e; }
+  try { st = init(g, khQ, mask, hid); } catch (e) { if (e.blocked) return { blocked: true, blockedAt: -1, setup: true }; throw e; }
   if (st.corrupt) return st;
   for (let i = 0; i < recs.length; i++) {
     const snap = structuredClone(st);
@@ -436,4 +585,19 @@ export function replay(g, khQ, recs, mask) {
   }
   delete st._q;
   return st;
+}
+
+// mixQ(baseQ, secret): a player's PRIVATE shuffle stream for one seed — H over the public block-hash draw
+// and their revealed/held secret. The commit on-chain is H(secret) (alghash, checked by the contract).
+export const mixQ = (baseQ, secret) => (baseQ == null || secret == null ? null : H((baseQ % (1n << 200n)).toString(16) + ":" + BigInt(secret).toString(16)));
+
+// verifyHidden: the REVEAL-TIME truth pass. Given both secrets, replays the whole log in exact mode with
+// every claim asserted. Returns the final state: st.cheater = 1|2 if a player's claim was a lie (the
+// honest player then refuses to agree and takes the timeout/refund path — or the liar concedes), else
+// st.result is the authoritative outcome to agree on.
+export function verifyHidden(g, khQ, recs, mask, secrets) {
+  const kq = { pub: khQ, 0: mixQ(khQ, secrets[0]), 1: mixQ(khQ, secrets[1]) };
+  const rs = recs.map((r) => ({ enc: r.enc, side: r.side,
+    q: { pub: r.q, 0: mixQ(r.q, secrets[0]), 1: mixQ(r.q, secrets[1]) } }));
+  return replay(g, kq, rs, mask, { pov: null });
 }

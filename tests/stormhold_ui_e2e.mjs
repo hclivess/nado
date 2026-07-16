@@ -68,8 +68,13 @@ async function scenario(name, fn) {
 function assert(cond, msg) { if (!cond) throw new Error(msg); }
 
 try {
-  await sleep(6000);
-  const v = await (await fetch(`http://127.0.0.1:${PORT}/json/version`)).json();
+  // poll for the debugger endpoint — a fixed sleep flakes when the box is loaded / snap cold-starts
+  let v = null;
+  for (let i = 0; i < 30 && !v; i++) {
+    await sleep(1500);
+    try { v = await (await fetch(`http://127.0.0.1:${PORT}/json/version`)).json(); } catch {}
+  }
+  if (!v) throw new Error("chromium debugger never came up on :" + PORT);
   ws = new WebSocket(v.webSocketDebuggerUrl);
   await new Promise((r) => (ws.onopen = r));
   ws.onmessage = (m) => { const d = JSON.parse(m.data);

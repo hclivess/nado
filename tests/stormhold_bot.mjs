@@ -4,4 +4,4 @@
  */
 import { loadCrypto } from "../static/nadotx.js";
 await loadCrypto(".");
-export { prng, randomMove } from "../static/stormhold-bot.js";
+export { prng, randomMove, randomMoveHidden } from "../static/stormhold-bot.js";

@@ -100,7 +100,11 @@ export class DuelGame {
       stake: _m(sto, "st")[g] || 0, pot: _m(sto, "pt")[g] || 0, nn, settled: !!_m(sto, "sd")[g],
       dl: _m(sto, "dl")[g] || 0, mc: _m(sto, "mc")[g] || 0, kh: _m(sto, "kh")[g] || 0,
       a1: _m(sto, "a1")[g] || 0, a2: _m(sto, "a2")[g] || 0, wr: _m(sto, "wr")[g] || 0,
-      cfg: _m(sto, "cfg")[g] || 0 };   // creator's config word (games without a cfg map read 0)
+      cfg: _m(sto, "cfg")[g] || 0,     // creator's config word (games without a cfg map read 0)
+      // hidden-hands protocol fields (stormhold): commits + split-stored reveals (0 when absent)
+      c1: _m(sto, "c1")[g] || 0, c2: _m(sto, "c2")[g] || 0,
+      r1: (_m(sto, "r1h")[g] || _m(sto, "r1l")[g]) ? BigInt(_m(sto, "r1h")[g] || 0) * 4294967296n + BigInt(_m(sto, "r1l")[g] || 0) : 0n,
+      r2: (_m(sto, "r2h")[g] || _m(sto, "r2l")[g]) ? BigInt(_m(sto, "r2h")[g] || 0) * 4294967296n + BigInt(_m(sto, "r2l")[g] || 0) : 0n };
   }
   gameFrom(sto, g) {
     const h = this.gameHead(sto, g);
@@ -151,8 +155,8 @@ export class DuelGame {
     if (!canPay(dapp, raw, T("whatOpen", "Opening this game"))) return;
     const g = randId(), G = this.lsLoad(); G[g] = { role: "p1", stake: raw.toString(), ts: Date.now() }; this.lsSave(G);
     this.active = g; this.resetLocal(); this.render();
-    // openExtra(): a game may append extra open() args (e.g. stormhold's kingdom-mask cfg word)
-    const extra = this.cfg.openExtra ? this.cfg.openExtra(null) : [];
+    // openExtra(gm, id): a game may append extra open() args (e.g. stormhold's kingdom cfg + commit)
+    const extra = this.cfg.openExtra ? this.cfg.openExtra(null, g) : [];
     dapp.call("open", [g].concat(extra), raw, "open " + dapp.app.toLowerCase() + " game #" + g + " · " + rawToNado(raw) + " NADO stake", { game: g, phase: "open" });
   }
   async joinGame() {
@@ -172,7 +176,9 @@ export class DuelGame {
     dapp.clearInvite();
     const G = this.lsLoad(); G[g] = { role: "p2", stake: stake.toString(), ts: Date.now() }; this.lsSave(G);
     this.active = g; this.resetLocal(); this.render();
-    dapp.call("join", [g], stake, "join " + dapp.app.toLowerCase() + " game #" + g + " · " + rawToNado(stake) + " NADO stake", { game: g, phase: "join" });
+    // joinExtra(gm, id): extra join() args (e.g. stormhold's hidden-hands commit)
+    const jextra = this.cfg.joinExtra ? this.cfg.joinExtra(gm, g) : [];
+    dapp.call("join", [g].concat(jextra), stake, "join " + dapp.app.toLowerCase() + " game #" + g + " · " + rawToNado(stake) + " NADO stake", { game: g, phase: "join" });
   }
   async rematch() {
     const T = this.T, dapp = this.dapp;
@@ -189,8 +195,8 @@ export class DuelGame {
       dapp.call("join", [rid], stake, "join rematch #" + rid, { game: rid, phase: "join" });
     } else {
       G[rid] = { role: "p1", stake: stake.toString(), ts: Date.now() }; this.lsSave(G);
-      // a rematch keeps the original game's config (openExtra(gm) — e.g. the same picked kingdom)
-      const extra = this.cfg.openExtra ? this.cfg.openExtra(this.last) : [];
+      // a rematch keeps the original game's config (openExtra(gm, id) — e.g. the same picked kingdom)
+      const extra = this.cfg.openExtra ? this.cfg.openExtra(this.last, rid) : [];
       dapp.call("open", [rid].concat(extra), stake, "rematch #" + rid + " · stake " + rawToNado(stake) + " NADO", { game: rid, phase: "open" });
     }
     this.render();

@@ -269,6 +269,25 @@ def t_stormhold():
     # back-compat: a cfg-less open (old clients / rematch of a pre-upgrade game) reads cfg = 0 (random)
     st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [790], "value": 100_000}, A, "o790")
     assert rd(sh.CFG, 790) == 0, "cfg-less open must default to 0 (random kingdom)"
+    assert rd(sh.C1, 790) == 0, "commit-less open must default to 0 (open-hand)"
+
+    # HIDDEN HANDS: commits stored at open/join; reveal requires alghash(x) == commit; a wrong x reverts
+    from execnode.stark import alghash
+    XA, XB = 123456789, 987654321
+    ca, cb = alghash.hashn([XA]), alghash.hashn([XB])
+    G3 = 79
+    st.apply_blob({"op": "call", "contract": cid, "method": "open", "args": [G3, 0, ca], "value": 10_000}, A, "oh")
+    assert rd(sh.C1, G3) == ca, "opener commit stored"
+    st.apply_blob({"op": "call", "contract": cid, "method": "join", "args": [G3, cb], "value": 10_000}, B, "jh")
+    assert rd(sh.C2, G3) == cb, "joiner commit stored"
+    assert "revert" in st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [G3, XA + 1]}, A, "rv0")
+    assert "revert" in st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [G3, XA]}, C, "rv1")
+    st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [G3, XA]}, A, "rv2")
+    st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [G3, XB]}, B, "rv3")
+    assert rd(sh.R1H, G3) * 2**32 + rd(sh.R1L, G3) == XA, "p1 reveal stored (hi/lo)"
+    assert rd(sh.R2H, G3) * 2**32 + rd(sh.R2L, G3) == XB, "p2 reveal stored (hi/lo)"
+    # an OPEN-HAND game (commit 0) cannot reveal (nothing committed)
+    assert "revert" in st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [G2, 5]}, A, "rv4")
 
 
 def t_scrapline():
