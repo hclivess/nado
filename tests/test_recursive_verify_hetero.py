@@ -61,9 +61,61 @@ def t_tampered_seam_rejected():
     assert not ok, "a tampered layer-0 seam must be rejected"
 
 
+# --- a tiny TWO-PHASE ROW-committed AIR (z = running sum of β·a) folded WITH a column proof --------------
+# This is the shape that matters for the fold-layer binding: the exec proof is row-committed two-phase, the
+# replay/binding proofs are column — they must fold into ONE shared-transcript bundle.
+TRANS_AZ = [lambda c, n, p, ch: F.sub(n[1], F.add(c[1], F.mul(ch[0], c[0])))]   # z' = z + β·a
+BND_AZ = [(0, 1, 0)]                                                            # z[0] = 0
+
+
+def _aux_az():
+    def build(trace, chal):
+        z = [0]
+        for i in range(len(trace) - 1):
+            z.append(F.add(z[-1], F.mul(chal[0], trace[i][0])))
+        return [z]                                                             # one aux column, length T
+    return {"num_challenges": 1, "num_aux": 1, "build": build}
+
+
+def _row_two_phase_proof():
+    a = [(i * 13 + 5) % F.P for i in range(T)]
+    p = stark.prove([[v] for v in a], TRANS_AZ, BND_AZ, max_degree=MD, num_queries=NQ, backend=B.RECURSION,
+                    row_commit=True, aux_spec=_aux_az())
+    return p
+
+
+def _col_x2_md():
+    col = [42]
+    for _ in range(T - 1):
+        col.append(F.mul(col[-1], col[-1]))
+    p = stark.prove([[v] for v in col], TRANS_X2, [(0, 0, 42)], max_degree=MD, num_queries=NQ, backend=B.RECURSION)
+    return p, [(0, 0, 42)]
+
+
+def t_row_twophase_plus_column_fold():
+    """A ROW-committed TWO-PHASE proof and a COLUMN single-phase proof fold into ONE bundle and re-verify —
+    the mixed-mode fold the exec(row/2-phase)+replay(col) binding rides on."""
+    pr = _row_two_phase_proof()
+    pc, bc = _col_x2_md()
+    items = [{"proof": pr, "transitions": TRANS_AZ, "boundaries": BND_AZ, "num_challenges": 1, "num_aux": 1},
+             {"proof": pc, "transitions": TRANS_X2, "boundaries": bc}]
+    bundle = RVH.prove_hetero(items, num_queries_outer=NQO)
+    pubs = [RV.public_part(pr), RV.public_part(pc)]
+    airs = [{"transitions": TRANS_AZ, "boundaries": BND_AZ, "num_challenges": 1, "num_aux": 1},
+            {"transitions": TRANS_X2, "boundaries": bc}]
+    ok, why = RVH.verify_hetero(pubs, airs, bundle, num_queries_outer=NQO, num_queries_inner=NQ)
+    assert ok, f"mixed row-two-phase + column bundle must verify: {why}"
+    # soundness: a tampered seam on the row proof is caught
+    bad = copy.deepcopy(pubs)
+    bad[0]["layer0"][0] = (int(bad[0]["layer0"][0]) + 1) % F.P
+    ok2, _ = RVH.verify_hetero(bad, airs, bundle, num_queries_outer=NQO, num_queries_inner=NQ)
+    assert not ok2, "a tampered row-proof seam must be rejected"
+
+
 if __name__ == "__main__":
     check("two different AIRs fold into one bundle + verify", t_hetero_verifies)
     check("wrong AIR for a proof rejected", t_wrong_air_rejected)
     check("tampered fold seam rejected", t_tampered_seam_rejected)
+    check("row two-phase + column fold into one bundle", t_row_twophase_plus_column_fold)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)
