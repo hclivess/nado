@@ -23,6 +23,7 @@
 //                  proofs verify (tests/test_starkprove.py). Wired into stark.prove for the RECURSION backend.
 // COMPLETE: every stage bit-identical, gated by tests/test_starkprove.py.
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 const P: u128 = 0xFFFFFFFF00000001;
@@ -81,6 +82,29 @@ fn powf(mut base: u64, mut exp: u64) -> u64 {
 #[inline]
 fn inv(x: u64) -> u64 {
     powf(x, PU64 - 2)
+}
+
+// Batch inverse (Montgomery's trick): one field inversion + 3n muls instead of n Fermat inversions. The RESULT
+// is the unique inverse of each element, so it is byte-identical to inverting each individually / to
+// field.batch_inverse — just far cheaper (the composition's dominant setup cost at recursion scale). Inputs
+// must be nonzero (the coset offset guarantees the composition denominators never vanish, exactly as the
+// Python path assumes).
+fn batch_inverse(vals: &[u64]) -> Vec<u64> {
+    let n = vals.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let mut prefix = vec![1u64; n + 1];
+    for i in 0..n {
+        prefix[i + 1] = mulf(prefix[i], vals[i]);
+    }
+    let mut acc = inv(prefix[n]);
+    let mut out = vec![0u64; n];
+    for i in (0..n).rev() {
+        out[i] = mulf(prefix[i], acc);
+        acc = mulf(acc, vals[i]);
+    }
+    out
 }
 
 // Primitive n-th root of unity, n a power of two — identical to field.primitive_root_of_unity.
@@ -420,14 +444,25 @@ pub extern "C" fn sp_fold(col: usize, offset: u64, alpha: u64) -> i64 {
     (arena.cols.len() - 1) as i64
 }
 
-/// Merkle-commit a RETAINED LDE column (RECURSION backend: leaf = rleaf(value), inner = rnode(l,r)). Retains
-/// the whole tree for opening, writes the CAP-lane root to `root_ptr`, returns the tree id (or -1 on error).
-/// Byte-identical to merkle.commit(col_lde[col], backend.RECURSION).
+// ALGHASH2-backend Merkle (the DEFAULT backend): leaf = hashn([2, DOM_LEAF, x]); inner = hashn([9, DOM_NODE,
+// a(4), b(4)]) — byte-identical to alghash2.leaf/node (merkle.commit over backend.ALGHASH2).
+#[inline]
+fn a2_leaf(x: u64) -> [u64; CAP] {
+    hashn(&[2, 1, x % PU64])
+}
+#[inline]
+fn a2_node(a: &[u64; CAP], b: &[u64; CAP]) -> [u64; CAP] {
+    hashn(&[9, 2, a[0], a[1], a[2], a[3], b[0], b[1], b[2], b[3]])
+}
+
+/// Merkle-commit a RETAINED LDE column. `hash_mode` 0 = RECURSION (leaf rleaf, inner rnode), 1 = ALGHASH2
+/// (leaf hashn([2,1,x]), inner hashn([9,2,a,b])) — the DEFAULT backend. Retains the whole tree for opening,
+/// writes the CAP-lane root, returns the tree id (or -1). Byte-identical to merkle.commit(col_lde[col], b).
 ///
 /// # Safety
 /// `root_ptr`, if non-null, must point to at least CAP writable u64.
 #[no_mangle]
-pub unsafe extern "C" fn sp_commit_col(col: usize, root_ptr: *mut u64) -> i64 {
+pub unsafe extern "C" fn sp_commit_col(col: usize, root_ptr: *mut u64, hash_mode: u32) -> i64 {
     let mut g = ARENA.lock().unwrap();
     let arena = match g.as_mut() {
         Some(a) => a,
@@ -440,9 +475,11 @@ pub unsafe extern "C" fn sp_commit_col(col: usize, root_ptr: *mut u64) -> i64 {
     if n < 1 || (n & (n - 1)) != 0 {
         return -1;
     }
+    let a2 = hash_mode == 1;
     let mut digs: Vec<[u64; CAP]> = Vec::with_capacity(2 * n - 1);
     for i in 0..n {
-        digs.push(rleaf(arena.cols[col][i]));
+        let x = arena.cols[col][i];
+        digs.push(if a2 { a2_leaf(x) } else { rleaf(x) });
     }
     // inner layers, bottom-up, appended after the leaves (same flat layout as native rmerkle_commit)
     let mut layer_start = 0usize;
@@ -452,7 +489,7 @@ pub unsafe extern "C" fn sp_commit_col(col: usize, root_ptr: *mut u64) -> i64 {
         for i in 0..half {
             let a = digs[layer_start + 2 * i];
             let b = digs[layer_start + 2 * i + 1];
-            digs.push(rnode(&a, &b));
+            digs.push(if a2 { a2_node(&a, &b) } else { rnode(&a, &b) });
         }
         layer_start += layer_len;
         layer_len = half;
@@ -646,12 +683,43 @@ pub unsafe extern "C" fn sp_compose(
     let omega = rou(n);
     let g_t = rou(t);
     let last = powf(g_t, (t - 1) as u64);
-    // g_t^row per boundary (small; dedup would help but the value is what matters, not the count)
-    let grow: Vec<u64> = (0..n_bnd).map(|bi| powf(g_t, bnd_row[bi])).collect();
+    // coset domain xs[j] = offset·ω^j
+    let mut xs = vec![0u64; n];
+    {
+        let mut x = offset % PU64;
+        for j in 0..n {
+            xs[j] = x;
+            x = mulf(x, omega);
+        }
+    }
+    // invZ[j] = (xs[j] - last)/(xs[j]^T - 1) — one BATCH inverse over j (byte-identical to field.batch_inverse)
+    let xtm1: Vec<u64> = xs.iter().map(|&x| subf(powf(x, t as u64), 1)).collect();
+    let inv_xtm1 = batch_inverse(&xtm1);
+    let inv_z: Vec<u64> = (0..n).map(|j| mulf(subf(xs[j], last), inv_xtm1[j])).collect();
+    // boundary denominators, DEDUPED by row (recursion AIRs pin many lanes at the same row) — one batch inverse
+    // per UNIQUE row, plus a per-boundary index into them. Same values the Python _den_by_row cache produces.
+    let mut uniq: Vec<u64> = Vec::new();
+    let mut row_to_idx: HashMap<u64, usize> = HashMap::new();
+    let mut bnd_den_idx = vec![0usize; n_bnd];
+    for bi in 0..n_bnd {
+        let r = bnd_row[bi];
+        let idx = *row_to_idx.entry(r).or_insert_with(|| {
+            uniq.push(r);
+            uniq.len() - 1
+        });
+        bnd_den_idx[bi] = idx;
+    }
+    let den_vecs: Vec<Vec<u64>> = uniq
+        .iter()
+        .map(|&r| {
+            let grow_r = powf(g_t, r);
+            let diffs: Vec<u64> = xs.iter().map(|&x| subf(x, grow_r)).collect();
+            batch_inverse(&diffs)
+        })
+        .collect();
 
     let mut cp = vec![0u64; n];
     let mut temp = vec![0u64; n_ops];
-    let mut x = offset % PU64;
     for j in 0..n {
         let jn = (j + blowup) % n;
         for i in 0..n_ops {
@@ -669,23 +737,20 @@ pub unsafe extern "C" fn sp_compose(
                 _ => 0,
             };
         }
-        // transition part: (Σ_t alpha_t · con_t) · invZ,  invZ = (x - last)/(x^T - 1)
+        // transition part: (Σ_t alpha_t · con_t) · invZ
         let mut acc = 0u64;
         for k in 0..n_out {
             acc = addf(acc, mulf(alphas[k], temp[outputs[k] as usize]));
         }
-        let xt = powf(x, t as u64);
-        let inv_z = mulf(subf(x, last), inv(subf(xt, 1)));
-        let mut v = mulf(acc, inv_z);
-        // boundary part: Σ_b alpha_{nout+b} · (col_b[j] - val_b) / (x - g_t^row_b)
+        let mut v = mulf(acc, inv_z[j]);
+        // boundary part: Σ_b alpha_{nout+b} · (col_b[j] - val_b) / (xs[j] - g_t^row_b)
         for bi in 0..n_bnd {
             let col = bnd_col[bi] as usize;
             let diff = subf(arena.cols[col][j], bnd_val[bi]);
-            let invden = inv(subf(x, grow[bi]));
+            let invden = den_vecs[bnd_den_idx[bi]][j];
             v = addf(v, mulf(mulf(alphas[n_out + bi], diff), invden));
         }
         cp[j] = v;
-        x = mulf(x, omega);
     }
     if !out_ptr.is_null() {
         std::ptr::copy_nonoverlapping(cp.as_ptr(), out_ptr, n);

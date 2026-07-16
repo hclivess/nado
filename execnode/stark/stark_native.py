@@ -46,7 +46,7 @@ def available():
                 lib.sp_read.argtypes = [ctypes.c_size_t, ctypes.c_size_t]
                 lib.sp_read.restype = ctypes.c_uint64
                 lib.sp_init.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
-                lib.sp_commit_col.argtypes = [ctypes.c_size_t, ctypes.c_void_p]
+                lib.sp_commit_col.argtypes = [ctypes.c_size_t, ctypes.c_void_p, ctypes.c_uint32]
                 lib.sp_commit_col.restype = ctypes.c_int64
                 lib.sp_open.argtypes = [ctypes.c_size_t, ctypes.c_size_t, ctypes.c_void_p]
                 lib.sp_open.restype = ctypes.c_int64
@@ -105,12 +105,12 @@ def lde_column(col_values, N, want_out=True):
     return col_id, (list(outbuf) if want_out else None)
 
 
-def commit_col(col_id):
-    """Merkle-commit a retained LDE column (RECURSION backend) from the arena — no Python round-trip of the
-    column. Returns (tree_id, root) where root is a CAPACITY-tuple. Bit-identical to
-    merkle.commit(col_lde[col_id], backend.RECURSION)."""
+def commit_col(col_id, hash_mode=0):
+    """Merkle-commit a retained LDE column from the arena — no Python round-trip of the column. `hash_mode`
+    0 = RECURSION (rleaf/rnode), 1 = ALGHASH2 (hashn leaf/node, the default backend). Returns (tree_id, root)
+    with root a CAPACITY-tuple. Bit-identical to merkle.commit(col_lde[col_id], b)."""
     root = (ctypes.c_uint64 * _CAP)()
-    tid = _LIB.sp_commit_col(int(col_id), ctypes.cast(root, ctypes.c_void_p))
+    tid = _LIB.sp_commit_col(int(col_id), ctypes.cast(root, ctypes.c_void_p), int(hash_mode))
     if tid < 0:
         raise RuntimeError("sp_commit_col failed")
     return tid, tuple(root)
@@ -203,18 +203,18 @@ def fold(col, offset, alpha):
     return cid
 
 
-def fri_prove(cp_col, offset, blowup, num_queries, transcript):
+def fri_prove(cp_col, offset, blowup, num_queries, transcript, hash_mode=0):
     """FRI over a retained composition column (step 4): the heavy per-layer work — Merkle commit, fold, and
     query openings — runs in the arena; the TRANSCRIPT (a handful of absorbs/challenges/grind) stays in Python,
-    identical to fri.prove. Produces the same proof dict fri.prove returns. Bit-identical to
-    fri.prove(cp, offset, blowup, num_queries, transcript, backend.RECURSION)."""
+    identical to fri.prove. `hash_mode` selects the arena Merkle (0 RECURSION, 1 ALGHASH2) to match the
+    transcript's backend. Produces the same proof dict, bit-identical to fri.prove(cp, offset, blowup, nq, t, b)."""
     from execnode.stark import fri
     t = transcript
     N = col_len(cp_col)
     roots, layers_meta = [], []          # layers_meta: (col_id, tree_id, size)
     cur, off = cp_col, int(offset) % _P
     while col_len(cur) > blowup:
-        tree_id, root = commit_col(cur)
+        tree_id, root = commit_col(cur, hash_mode)
         roots.append(root); t.absorb(root)
         alpha = t.challenge()
         layers_meta.append((cur, tree_id, col_len(cur)))
@@ -241,18 +241,20 @@ def fri_prove(cp_col, offset, blowup, num_queries, transcript):
 
 
 def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queries=None, aux=None,
-          aux_spec=None, row_commit=False):
-    """HOLISTIC prove (step 6) — reproduces stark.prove(..., backend=RECURSION) ENTIRELY through the arena:
-    trace/aux/periodic LDEs, Merkle commits (per-column, or ONE row tree per phase when row_commit), the
-    composition, FRI, and the openings all stay in Rust u64 buffers; only the transcript (a handful of hashes)
-    and the two-phase aux BUILDER — an AIR-specific Python callback over small T-length columns — run in Python.
-    Handles single- and two-phase (aux_spec), column- and row-commit. Byte-identical proof dict to stark.prove;
+          aux_spec=None, row_commit=False, backend=None):
+    """HOLISTIC prove (step 6) — reproduces stark.prove ENTIRELY through the arena for the two alghash2
+    backends (RECURSION and the default ALGHASH2): trace/aux/periodic LDEs, Merkle commits (per-column, or ONE
+    row tree per phase when row_commit — RECURSION only), the composition, FRI, and the openings all stay in
+    Rust u64 buffers; only the transcript (a handful of hashes) and the two-phase aux BUILDER — an AIR-specific
+    Python callback over small T-length columns — run in Python. Byte-identical proof dict to stark.prove;
     tests/test_starkprove.py gates it field-for-field end-to-end + verifies under stark.verify."""
     from execnode.stark import stark, air_ir, backend as _B
     from execnode.stark.transcript import Transcript
     periodic = periodic or []
     if num_queries is None:
         num_queries = stark.NUM_QUERIES
+    b = backend or _B.RECURSION
+    hmode = 1 if getattr(b, "name", "") == "alghash2" else 0     # arena Merkle: 0 rleaf/rnode, 1 hashn
     T = len(trace); W = len(trace[0])
     blowup = stark._blowup(max_degree); N = blowup * T
     deg_bound = stark._next_pow2(max_degree) * T
@@ -262,7 +264,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     for c in range(W):                                   # main trace columns → arena ids 0..W
         lde_column([trace[i][c] for i in range(T)], N, want_out=False)
 
-    t = Transcript("nado-stark", backend=_B.RECURSION)
+    t = Transcript("nado-stark", backend=b)
     if aux is not None:
         t.absorb("aux", str(aux))
     col_roots, row_roots, trees, row_trees = [], [], [], []
@@ -271,7 +273,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
         row_roots.append(root); row_trees.append(tid); t.absorb(root)
     else:
         for c in range(W):
-            tid, root = commit_col(c); col_roots.append(root); trees.append(tid); t.absorb(root)
+            tid, root = commit_col(c, hmode); col_roots.append(root); trees.append(tid); t.absorb(root)
 
     challenges = None
     Wtot = W
@@ -285,7 +287,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
             tid, root = commit_rows(aux_ids); row_roots.append(root); row_trees.append(tid); t.absorb(root)
         else:
             for cid in aux_ids:
-                tid, root = commit_col(cid); col_roots.append(root); trees.append(tid); t.absorb(root)
+                tid, root = commit_col(cid, hmode); col_roots.append(root); trees.append(tid); t.absorb(root)
         Wtot += aux_spec["num_aux"]
 
     for pc in periodic:                                  # periodic columns → arena ids Wtot..Wtot+nper
@@ -296,7 +298,7 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     cp_col, _ = compose(prog, boundaries, alphas, challenges or [], T, N, blowup, want_out=False)
 
     fri_blowup = N // deg_bound
-    fri_proof = fri_prove(cp_col, OFF, fri_blowup, num_queries, t)
+    fri_proof = fri_prove(cp_col, OFF, fri_blowup, num_queries, t, hmode)
 
     openings, plen = [], N.bit_length() - 1
     for q in fri_proof["queries"]:

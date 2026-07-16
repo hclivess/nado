@@ -211,13 +211,13 @@ def prove(trace, transitions, boundaries, periodic=None, max_degree=2, num_queri
     # below (tests/test_starkprove.py gates the whole proof dict + verify, all modes); falls back to Python on
     # ANY error, and NADO_NO_HOLISTIC=1 forces the Python path (used to cross-check byte-identity).
     _b = backend or _backend.DEFAULT
-    if getattr(_b, "name", "") == "recursion" and not os.environ.get("NADO_NO_HOLISTIC"):
+    if getattr(_b, "name", "") in ("recursion", "alghash2") and not os.environ.get("NADO_NO_HOLISTIC"):
         try:
             from execnode.stark import stark_native
             if stark_native.available():
                 return stark_native.prove(trace, transitions, boundaries, periodic=periodic,
                                           max_degree=max_degree, num_queries=num_queries, aux=aux,
-                                          aux_spec=aux_spec, row_commit=row_commit)
+                                          aux_spec=aux_spec, row_commit=row_commit, backend=_b)
         except Exception:
             pass                                          # correctness-preserving fallback to pure Python
     periodic = periodic or []
