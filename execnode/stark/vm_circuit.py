@@ -243,6 +243,17 @@ def _io_fingerprint(trace, gamma_fp):
     return Fv
 
 
+def io_log_fingerprint(epoch_io, gamma_fp):
+    """The SAME fingerprint computed from the PUBLIC io log [(kind, a, b), ...] instead of the trace: the i-th
+    entry contributes combine([TAG_IO, i, kind, a, b], γ_fp). Equals _io_fingerprint(trace, γ_fp) because the io
+    bus forces the trace's k-th io row (IOC=k) to equal epoch_io[k] (PL_CTR=k) — a counter-preserving bijection.
+    This is what a settlement computes to match the exec proof's proven fingerprint (piece 2)."""
+    Fv = 0
+    for i, e in enumerate(epoch_io):
+        Fv = F.add(Fv, logup.combine([TAG_IO, i, int(e[0]) % F.P, int(e[1]) % F.P, int(e[2]) % F.P], gamma_fp))
+    return Fv
+
+
 def _fetch_tuple(row, per, gamma):
     """The instruction fetched at this row, tagged by which PROGRAM the owning call runs (per[PC_PROG]) so a
     multi-contract epoch's fetch bus can't confuse two programs' instructions."""

@@ -39,6 +39,9 @@ def t_bind_io_verifies_and_fingerprint_correct():
     trace, T, *_ = VC.build_epoch_trace(calls)
     assert proof["io_fingerprint"] == VC._io_fingerprint(trace, GAMMA_FP), "fingerprint != native RLC"
     assert proof["io_fingerprint"] != 0, "a non-empty io log has a non-zero fingerprint"
+    # the CRUX for the settlement binding: the fingerprint from the PUBLIC io log equals the trace's (the io bus
+    # forces IOC=PL_CTR, so the k-th trace io == epoch_io[k]) — so a settlement can match it without the trace
+    assert proof["io_fingerprint"] == VC.io_log_fingerprint(io, GAMMA_FP), "trace fp != public-log fp"
 
 
 def t_tampered_fingerprint_rejected():
