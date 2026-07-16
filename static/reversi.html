@@ -147,6 +147,17 @@
     <p class="small dim" data-i18n-html="rv.fairBody">Every move is a signed transaction bound to its exact turn number — replays and stale retries bounce off. The contract enforces whose turn it is, validates the placement (it must bracket and flip at least one enemy disc — the real Othello rule) and performs every flip itself. Two consecutive passes make the contract count the board and pay the majority in the same instant; an equal count refunds both stakes. If your opponent walks away, the move clock (~30&nbsp;min) lets anyone refund the game — stalling only ever voids, never wins.</p>
   </div>
 
+  <!-- PRACTICE — free vs-computer game, fully in-browser -->
+  <div class="card" id="practice">
+    <h2 data-i18n="sdk.prHead">🎯 Practice — free, in your browser</h2>
+    <p class="small dim" data-i18n="sdk.prHelpBoard">Same game vs the computer: nothing touches the chain, no wallet needed. For real stakes, use the game above.</p>
+    <div id="pStrip" class="small mt"></div>
+    <div id="pCounts" style="text-align:center;font-size:14px;min-height:20px;margin:8px 0 0"></div>
+    <div id="pBoard" style="display:grid;grid-template-columns:repeat(8,1fr);gap:3px;justify-content:center;max-width:440px;margin:12px auto;background:linear-gradient(160deg,#17603f,#0f402b);border:1px solid #1d6b4b;border-radius:14px;padding:8px"></div>
+    <div id="pResult" class="mt" style="min-height:22px;text-align:center"></div>
+    <div class="row"><button class="ghost" id="pNew" style="flex:1" data-i18n="sdk.prNewGame">↻ New practice game</button></div>
+  </div>
+
   <footer data-i18n="rv.footer">NADO Reversi · contract-refereed wagers · post-quantum signatures · no house</footer>
 </div>
 <script type="module" src="/static/reversi.js"></script>

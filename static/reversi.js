@@ -5,6 +5,7 @@
 // file is ONLY the reversi board: its decode, its render, its move/pass encoding.
 import { NadoDapp, rawToNado, _m, $, disp } from "./nadodapp.js";
 import { PvpGame } from "./pvpgame.js";
+import { Practice } from "./practice.js";   // free in-browser practice vs the computer
 
 const CID = "eb12360a240be03382f2d0b33b345653";
 const PASS = 64;
@@ -99,4 +100,70 @@ function passMove() {
   pvp.move([PASS], (gm.turn === 1 ? "⚫" : "⚪") + " passes · game #" + pvp.active, { pos: PASS });
 }
 
-pvp.boot(["activeGame", "lobby", "opencard", "walletcard", "bankroll", "scoreboard"]);
+pvp.boot(["activeGame", "lobby", "opencard", "practice", "walletcard", "bankroll", "scoreboard"]);
+
+// ---- PRACTICE MODE (free, in-browser — you are ⚫ vs a greedy corner-hungry ⚪; nothing on-chain) -------
+const prac = new Practice("reversi");
+let pb, pOver;
+function pReset() {
+  pb = Array.from({ length: 8 }, () => Array(8).fill(0));
+  pb[3][3] = 2; pb[4][4] = 2; pb[3][4] = 1; pb[4][3] = 1;   // the standard opening cross
+  pOver = false;
+}
+const pLegal = (k) => { const out = []; for (let c = 0; c < 8; c++) for (let r = 0; r < 8; r++) if (flipsFor(pb, c, r, k).length) out.push(c * 8 + r); return out; };
+function pPlace(c, r, k) { const fl = flipsFor(pb, c, r, k); pb[c][r] = k; for (const [fc, fr] of fl) pb[fc][fr] = k; }
+const pCount = () => { let n1 = 0, n2 = 0; for (const col of pb) for (const k of col) { if (k === 1) n1++; else if (k === 2) n2++; } return [n1, n2]; };
+function pAiMove() {                        // greedy max-flips, corners heavily preferred, edges mildly
+  let best = null, bestS = -1;
+  for (const p of pLegal(2)) {
+    const c = Math.floor(p / 8), r = p % 8;
+    const corner = (c === 0 || c === 7) && (r === 0 || r === 7), edge = c === 0 || c === 7 || r === 0 || r === 7;
+    const s = flipsFor(pb, c, r, 2).length + (corner ? 8 : edge ? 2 : 0);
+    if (s > bestS) { bestS = s; best = [c, r]; }
+  }
+  pPlace(best[0], best[1], 2);
+}
+function pEnd() {                           // neither side can move — count the discs
+  const [n1, n2] = pCount();
+  pOver = true;
+  prac.tally(n1 > n2 ? "w" : n1 < n2 ? "l" : "d");
+  $("pResult").innerHTML = (n1 > n2 ? "🏆 " + window.t("sdk.prYouWin", "You win!")
+    : n1 < n2 ? "💀 " + window.t("sdk.prAiWins", "The computer wins.")
+    : "🤝 " + window.t("sdk.prDraw", "Draw.")) + " ⚫ " + n1 + " · ⚪ " + n2;
+  pRender();
+}
+function pStep() {                          // the computer answers; it keeps moving while you have no reply
+  let note = "";
+  for (;;) {
+    if (pLegal(2).length) pAiMove();
+    else note = "🤖 " + window.t("sdk.prAiPasses", "The computer has no move — it passes.");
+    if (pLegal(1).length) { $("pResult").innerHTML = note || window.t("sdk.prYourMove", "▶ YOUR MOVE (practice)"); return pRender(); }
+    if (!pLegal(2).length) return pEnd();
+    note = window.t("sdk.prYouPass", "You have no move — you pass.");
+  }
+}
+function pTap(p) {
+  if (pOver) return;
+  const c = Math.floor(p / 8), r = p % 8;
+  if (!flipsFor(pb, c, r, 1).length) return;
+  pPlace(c, r, 1);
+  pStep();
+}
+function pRender() {
+  prac.strip($("pStrip"), { chips: false, tally: true });
+  const legal = pOver ? [] : pLegal(1);
+  let html = "";
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+    const k = pb[c][r], p = c * 8 + r, canGo = legal.includes(p);
+    html += '<div class="rvc' + (k === 1 ? " p1" : k === 2 ? " p2" : "") + (canGo ? " legal" : "")
+      + '" data-pp="' + p + '">' + (k ? '<div class="d"></div>' : canGo ? '<div class="hint"></div>' : "") + "</div>";
+  }
+  $("pBoard").innerHTML = html;
+  $("pBoard").querySelectorAll("[data-pp]").forEach((el) => el.onclick = () => pTap(parseInt(el.dataset.pp, 10)));
+  const [n1, n2] = pCount();
+  $("pCounts").innerHTML = "⚫ <b>" + n1 + "</b> · ⚪ <b>" + n2 + "</b>";
+}
+if ($("pBoard")) {
+  $("pNew").onclick = () => { pReset(); $("pResult").textContent = ""; pRender(); };
+  pReset(); pRender();
+}
