@@ -573,7 +573,9 @@ export class NadoDapp {
   // Learned flags (_bgOff / _bgValueUI) route straight to the redirect once the wallet says it can't autosign,
   // so a non-autosign wallet never eats the iframe→redirect double-load twice.
   call(method, args, valueRaw, label, pend, opts) {
-    const p = { op: "call", contract: this.cid, method, args };
+    // opts.cid: call a DIFFERENT contract with this dapp's session (e.g. the shared faucet system
+    // contract from any game page) — everything else (signing, lifecycle, invites) stays identical.
+    const p = { op: "call", contract: (opts && opts.cid) || this.cid, method, args };
     const isValue = valueRaw != null;
     if (isValue) p.value = valueRaw;
     let bg = !(opts && opts.confirm) && !this._bgOff;

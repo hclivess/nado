@@ -212,6 +212,13 @@ async def _apply_block(session, states_map, default_state, block, verbose=True):
             default_state.credit_deposit(tx.get("sender"), tx.get("amount", 0))
             if verbose:
                 print(f"[execnode] block {h}: bridge deposit {tx.get('amount')} by {(tx.get('sender') or '')[:12]}…", flush=True)
+        elif r == "faucet":
+            # FAUCET DONATION (doc/faucet.md): an L1 tx to the reserved name locked `amount` in the L1
+            # faucet escrow; mirror it as spendable balance of the FIXED-NAME faucet CONTRACT ("faucet"
+            # is its literal cid — see state.FIXED_CIDS), whose claim() method PAYs grants to players.
+            default_state.credit_deposit("faucet", tx.get("amount", 0))
+            if verbose:
+                print(f"[execnode] block {h}: faucet donation {tx.get('amount')} by {(tx.get('sender') or '')[:12]}…", flush=True)
         elif r == "shield":
             d = tx.get("data") or {}
             if d.get("field"):

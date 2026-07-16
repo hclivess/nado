@@ -54,7 +54,7 @@ TX_TARGET_MARGIN = 300
 #  burn-to-bribe. Fees are still destroyed — that is the separate fee mechanic, not "burn".)
 # "bond"/"unbond": bonded-lane stake txs. "register": the OPEN-lane (no-coin) mining lease tx
 # (see the two-lane mining design in doc/mining.md). All are keyless protocol pseudo-recipients.
-RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "slash", "attest", "commit", "reveal", "duty", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury", "treasury_vote", "treasury_execute", "msgkey", "xmsg"})
+RESERVED_RECIPIENTS = frozenset({"bond", "unbond", "withdraw", "register", "slash", "attest", "commit", "reveal", "duty", "alias", "blob", "settle", "bridge", "bridge_withdraw", "dividend", "dividend_withdraw", "htlc", "htlc_lock", "htlc_claim", "htlc_refund", "shield", "unshield", "treasury", "treasury_vote", "treasury_execute", "msgkey", "xmsg", "faucet"})
 
 # --- SHIELDED POOL (post-quantum zk-STARK privacy, doc/privacy.md) — L1 side of an EXECUTION-LAYER feature ---
 # L1 never sees a note or verifies a proof; it only escrows the transparent coins that enter/leave the pool
@@ -92,6 +92,8 @@ HTLC_MAX_TIMELOCK = 1_000_000         # and <= lock height + this (bounds indefi
 #   nullifier, and releases the escrowed coins. This is the trust-minimized link: L1 never runs the VM,
 #   it only verifies a Merkle proof against a root the bonded stake has settled (settlement_ops).
 BRIDGE_ESCROW = "bridge"          # the escrow pseudo-account holding all bridged (locked) L1 coins
+FAUCET_ESCROW = "faucet"          # keyless reserved account locking faucet donations (doc/faucet.md);
+                                  # the exec layer mirrors each donation as balance of the `faucet` contract
 
 # --- Execution-layer SETTLEMENT (doc/execution-layer.md, Phase 2) ---
 # "settle": a keyless reserved recipient. A BONDED validator that also runs an execution node attests an

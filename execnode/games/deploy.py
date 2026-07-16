@@ -24,7 +24,8 @@ from protocol import MIN_TX_FEE, TX_INCLUSION_DELAY
 from execnode.state import ExecState
 
 GAMES = ["coinflip", "dice", "roulette", "mines", "slots", "reversi", "connect4", "tictactoe",
-         "farkle", "chess", "blackjack", "bet", "battleship", "pets", "holdem", "stormhold", "scrapline"]
+         "farkle", "chess", "blackjack", "bet", "battleship", "pets", "holdem", "stormhold", "scrapline",
+         "faucet"]
 
 
 def _codez(code):
@@ -44,14 +45,19 @@ def _post(l1, path, body):
         return json.loads(r.read().decode())
 
 
-def deploy_one(name, l1, nonce, fee, upgrade_cid=None):
+def deploy_one(name, l1, nonce, fee, upgrade_cid=None, at=None):
     mod = importlib.import_module(f"execnode.games.{name}")
     code = mod.build()
     abi = getattr(mod, "ABI", {})
     keys = load_keys()
+    if name == "faucet" and not upgrade_cid:
+        at = at or "faucet"                                # the faucet always deploys at its fixed name
     if upgrade_cid:                                        # replace an existing contract's code (deployer-only)
         payload = {"op": "upgrade", "contract": upgrade_cid, "codez": _codez(code)}
         cid = upgrade_cid
+    elif at:                                               # FIXED-NAME system contract (state.FIXED_CIDS allowlist)
+        payload = {"op": "deploy", "runtime": "zkvm", "codez": _codez(code), "nonce": nonce, "at": at}
+        cid = at
     else:
         payload = {"op": "deploy", "runtime": "zkvm", "codez": _codez(code), "nonce": nonce}
         cid = ExecState.contract_id(ExecState.__new__(ExecState), keys["address"], code, nonce)
@@ -74,6 +80,7 @@ def main():
     ap.add_argument("--nonce", default="a5")
     ap.add_argument("--fee", type=int, default=MIN_TX_FEE)
     ap.add_argument("--upgrade", default=None, help="cid to upgrade in place (single game only)")
+    ap.add_argument("--at", default=None, help="fixed-name cid for system contracts (allowlisted, e.g. faucet)")
     a = ap.parse_args()
     names = GAMES if a.all else a.games
     if not names:
@@ -81,7 +88,8 @@ def main():
     out = {}
     for n in names:
         try:
-            _, cid = deploy_one(n, a.l1, a.nonce, a.fee, upgrade_cid=a.upgrade if len(names) == 1 else None)
+            _, cid = deploy_one(n, a.l1, a.nonce, a.fee, upgrade_cid=a.upgrade if len(names) == 1 else None,
+                                at=a.at if len(names) == 1 else None)
             out[n] = cid
         except Exception as e:
             print(f"{n}: FAILED {e}")

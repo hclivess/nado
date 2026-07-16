@@ -290,6 +290,57 @@ def t_stormhold():
     assert "revert" in st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [G2, 5]}, A, "rv4")
 
 
+def t_faucet():
+    # the fixed-name system contract (doc/faucet.md): donations credited by the exec node, operator-
+    # curated registry, PoW-gated once-per-(address,game) claims under per-window budgets, solvent PAY.
+    from execnode.games import faucet as fc
+    from execnode.stark import alghash
+    st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = 100_000
+    code = fc.build()
+    OP = fc.OPERATOR
+    r = st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "abi": fc.ABI, "nonce": "f", "at": "faucet"}, OP, "d")
+    assert "deploy faucet" in r, r
+    assert "not authorized" in st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "nonce": "g", "at": "faucet"}, A, "d2")
+    st.credit_deposit("faucet", 1_000_000)                    # what the L1 `faucet` reserved tx mirrors
+    EASY = 1 << 63
+    assert "ok" in st.apply_blob({"op": "call", "contract": "faucet", "method": "set_game", "args": [0, 1234, 500, 2, EASY]}, OP, "s0")
+    assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "set_game", "args": [0, 1, 1, 1, 1]}, A, "s1")
+    slots = st.contracts["faucet"]["storage"]["slots"]
+    assert int(slots.get("0", 0)) == 1, "gcnt"
+    def grind(addr, idx, easy=EASY, want_below=True):
+        d = runtimes.zkvm_addr_digest(addr); n = 0
+        while (alghash.hashn([d, idx, n]) < easy) != want_below: n += 1
+        return n
+    n1 = grind(A, 0)
+    assert "paid=500" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [0, n1]}, A, "c1")
+    assert st.bridge.get(A) == 500 and st.bridge.get("faucet") == 999_500
+    assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [0, n1]}, A, "c2"), "double claim"
+    assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [0, grind(B, 0, want_below=False)]}, B, "c3"), "bad PoW"
+    assert "paid=500" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [0, grind(B, 0)]}, B, "c4")
+    C2 = "ndoCCCC" + "C" * 41
+    assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [0, grind(C2, 0)]}, C2, "c5"), "window cap"
+    st.cursor += 14_400
+    assert "paid=500" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [0, grind(C2, 0)]}, C2, "c6"), "window reset"
+    # pause + underfunded fail closed
+    assert "ok" in st.apply_blob({"op": "call", "contract": "faucet", "method": "set_game", "args": [0, 1234, 0, 2, EASY]}, OP, "s2")
+    D2 = "ndoDDDD" + "D" * 41
+    assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [0, grind(D2, 0)]}, D2, "c7"), "paused"
+    assert "ok" in st.apply_blob({"op": "call", "contract": "faucet", "method": "set_game", "args": [1, 99, 10 ** 9, 2, EASY]}, OP, "s3")
+    assert "revert" in st.apply_blob({"op": "call", "contract": "faucet", "method": "claim", "args": [1, grind(D2, 1)]}, D2, "c8"), "underfunded"
+
+
+def t_faucet_claim_proves():
+    from execnode.games import faucet as fc
+    from execnode.stark import alghash
+    code = fc.build()
+    EASY = 1 << 63
+    d = runtimes.zkvm_addr_digest(A); n = 0
+    while alghash.hashn([d, 0, n]) >= EASY: n += 1
+    S = lambda f, k: f * (1 << 32) + k
+    slots = {S(fc.GGRANT, 0): 500, S(fc.GCAP, 0): 5, S(fc.GPOW, 0): EASY}
+    _prove(code, "claim", A, [0, n], slots, cursor=100_000)
+
+
 def t_scrapline():
     # the same duel contract as stormhold with a tighter move-log cap — assert the shared paths + the cap
     st, code, cid, rd = _fresh(sc, deployer=A)
@@ -989,6 +1040,8 @@ if __name__ == "__main__":
     check("stormhold: free-actor move log + seed heights + agree/resign", t_stormhold)
     check("stormhold: move proves (seed-height record)", t_stormhold_move_proves)
     check("scrapline: duel contract reuse + move-log cap", t_scrapline)
+    check("faucet: fixed-name deploy, PoW claims, budgets, pause, solvency", t_faucet)
+    check("faucet: claim proves", t_faucet_claim_proves)
     check("farkle: roll/hold scoring + banking vs reference", t_farkle)
     check("blackjack: deal/reveal/stand/settle vs dealer S17 + payouts + view", t_blackjack)
     check("blackjack: hit-then-bust loses immediately", t_blackjack_hit_bust)

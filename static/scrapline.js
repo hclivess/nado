@@ -8,6 +8,7 @@
 // This module owns ONLY the Scrapline half: offers, gear slots, and the combat report.
 import { NadoDapp, $, notify, disp, _m, renderTopScores, share, base } from "./nadodapp.js";
 import { DuelGame } from "./duelgame.js";
+import { faucetAttach } from "./faucet.js";   // free-play claims for broke newcomers (doc/faucet.md)
 import * as E from "./scrapline-engine.js";
 import { ART } from "./scrapline-art.js";
 import { prand, Practice } from "./practice.js";   // practice-vs-computer + solo persistence
@@ -391,3 +392,5 @@ duel.boot(["activeGame", "solo", "lobby", "play", "walletcard", "bankroll", "sco
 
 // test hook: the UI E2E harness (tests/*_ui_e2e.mjs) drives the real DOM against crafted engine states
 if (typeof window !== "undefined") window.__duel = duel;
+
+faucetAttach(dapp, "scrapline", $("faucetBar"));

@@ -1,5 +1,5 @@
 from ops import kv_ops
-from protocol import B_MIN, EPOCH_LENGTH, FIDELITY_GAIN, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS, HTLC_ESCROW, SHIELD_ESCROW
+from protocol import B_MIN, EPOCH_LENGTH, FIDELITY_GAIN, SLASH_BOND_PENALTY, BOND_UNLOCK_DELAY, BRIDGE_ESCROW, FAUCET_ESCROW, DIVIDEND_POOL, POSW_LEASE_EPOCHS, HTLC_ESCROW, SHIELD_ESCROW
 
 # Account state lives in the schemaless `accounts` sub-DB as a msgpack document keyed by address
 # (see ops/kv_ops.py). Missing fields default to 0 on read, so adding a field (as we did with
@@ -195,6 +195,13 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
     if recipient == "bridge":
         change_balance(address=sender, amount=-(amount + fee), logger=logger, revert=revert)
         change_balance(address=BRIDGE_ESCROW, amount=amount, logger=logger, revert=revert)
+        return
+
+    # --- FAUCET DONATION (doc/faucet.md): lock `amount` in the faucet escrow, burn the fee. The exec
+    # layer reads this from the ordered stream and credits the faucet CONTRACT's balance. ---
+    if recipient == "faucet":
+        change_balance(address=sender, amount=-(amount + fee), logger=logger, revert=revert)
+        change_balance(address=FAUCET_ESCROW, amount=amount, logger=logger, revert=revert)
         return
 
     # --- BRIDGE EXIT (Phase 2): release `amount` from escrow to the proven addr and burn the nullifier.

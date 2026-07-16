@@ -100,6 +100,12 @@ def _normalize_bundle(bundle):
 
 
 
+# Fixed-name SYSTEM contracts (doc/faucet.md §4): literal cid -> the ONLY address allowed to deploy it.
+# The operator key that deployed the game-contract fleet; a constant, so the rule is identical on every
+# exec node replaying the same blob stream.
+FIXED_CIDS = {"faucet": "ndoebd27698662f14ee2389e509781d5ff57487f4289a2bf2"}
+
+
 class ExecState:
     def __init__(self, path):
         """Initialise every state component empty, then load() the last snapshot from `path` if one
@@ -615,7 +621,17 @@ class ExecState:
                 if rt is None:
                     return f"skip: unknown runtime {rt_name!r}"
                 rt.validate_code(code)                    # raises ZkVMError on bad code (caught below)
-                cid = self.contract_id(sender, code, payload.get("nonce", txid))
+                # FIXED-NAME deploy (doc/faucet.md §4): a SYSTEM contract may claim a well-known literal
+                # cid instead of the derived hash, so the L1 reserved recipient, the exec ledger key and
+                # the contract address are all the same word. Allowlisted per name to a sole deployer —
+                # deterministic on every exec node, and the reserved-name namespace can't be squatted.
+                at = payload.get("at")
+                if at is not None:
+                    if FIXED_CIDS.get(at) != sender:
+                        return f"skip: fixed-name deploy {at!r} not authorized for {sender[:12]}…"
+                    cid = at
+                else:
+                    cid = self.contract_id(sender, code, payload.get("nonce", txid))
                 if cid in self.contracts:
                     return f"skip: contract {cid} already exists"
                 storage = {}

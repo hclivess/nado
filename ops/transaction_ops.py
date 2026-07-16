@@ -448,6 +448,18 @@ def construct_bridge_deposit_tx(keydict, amount, max_block, fee):
     return tx
 
 
+def construct_faucet_tx(keydict, amount, max_block, fee):
+    """Build a SIGNED faucet DONATION: recipient 'faucet', amount locked into the faucet escrow; the exec
+    layer credits it to the faucet contract (doc/faucet.md). Anyone can fund the faucet from any wallet."""
+    tx = {"sender": keydict["address"], "recipient": "faucet", "amount": int(amount),
+          "timestamp": get_timestamp_seconds(), "data": "", "nonce": create_nonce(),
+          "public_key": keydict["public_key"], "max_block": int(max_block),
+          "chain_id": CHAIN_ID, "fee": int(fee)}
+    tx["txid"] = create_txid(tx)
+    tx["signature"] = sign(private_key=keydict["private_key"], message=unhex(tx["txid"]))
+    return tx
+
+
 def construct_bridge_withdraw_tx(keydict, addr, amount, nonce, proof, max_block, ns=DEFAULT_NS):
     """Build a SIGNED bridge EXIT: recipient 'bridge_withdraw', fee-exempt, data carries the Merkle proof
     that {addr, amount, nonce} is in namespace `ns`'s settled execution-layer root (default ns omitted)."""
@@ -835,6 +847,11 @@ def validate_transaction(transaction, logger, block_height):
         # BRIDGE DEPOSIT (Phase 2): lock L1 coins into escrow; an exec node credits the sender exec-side.
         assert transaction["amount"] > 0, "Bridge deposit amount must be positive"
         assert transaction["fee"] >= MIN_TX_FEE, f"Bridge deposit fee below minimum {MIN_TX_FEE}"
+    elif recipient == "faucet":
+        # FAUCET DONATION (doc/faucet.md): lock L1 coins into the faucet escrow; the exec layer credits
+        # the faucet contract's balance. Same shape as a bridge deposit — anyone can fund it from any wallet.
+        assert transaction["amount"] > 0, "Faucet donation amount must be positive"
+        assert transaction["fee"] >= MIN_TX_FEE, f"Faucet donation fee below minimum {MIN_TX_FEE}"
     elif recipient == "bridge_withdraw":
         # BRIDGE EXIT (Phase 2): prove the withdrawal {addr, amount, nonce} is in the bonded-quorum SETTLED
         # execution-layer root; L1 verifies that ONE Merkle proof, checks the nullifier + escrow, releases.

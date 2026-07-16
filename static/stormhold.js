@@ -8,6 +8,7 @@
 // move encodings; everything else (escrow actions, lobby, invites, settle chrome) lives in duelgame.js.
 import { NadoDapp, $, notify, disp, randSecret, algHashn, ALG_P } from "./nadodapp.js";
 import { DuelGame } from "./duelgame.js";
+import { faucetAttach } from "./faucet.js";   // free-play claims for broke newcomers (doc/faucet.md)
 import * as E from "./stormhold-engine.js";
 import { ART } from "./stormhold-art.js";
 import { prng, randomMove } from "./stormhold-bot.js";   // powers the free practice-vs-computer mode
@@ -482,3 +483,5 @@ duel.boot(["activeGame", "lobby", "play", "walletcard", "bankroll", "scoreboard"
 
 // test hook: the UI E2E harness (tests/*_ui_e2e.mjs) drives the real DOM against crafted engine states
 if (typeof window !== "undefined") window.__duel = duel;
+
+faucetAttach(dapp, "stormhold", $("faucetBar"));
