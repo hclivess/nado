@@ -129,9 +129,16 @@ def _composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boun
     # for the whole vector instead of an inv() per (constraint, point).
     inv_xTm1 = F.batch_inverse([F.sub(F.pw(x_lde[j], T), 1) for j in range(N)])
     invZ = [F.mul(F.sub(x_lde[j], last), inv_xTm1[j]) for j in range(N)]
-    # per-boundary 1/(x - g^row) vectors (one batch inversion each) — shared by both the native and Python paths
-    bnd_inv_dens = [F.batch_inverse([F.sub(x_lde[j], F.pw(gT, row)) for j in range(N)])
-                    for (row, _col, _val) in boundaries]
+    # per-boundary 1/(x - g^row) vectors (one batch inversion each) — shared by both the native and Python
+    # paths. DEDUP by row: the denominator depends only on `row`, and the recursion AIRs carry MANY boundaries
+    # at the SAME rows (a leaf frame pins ~6 lanes at one row; column roots repeat), so computing the size-N
+    # batch inverse once per UNIQUE row instead of per boundary saves the bulk of the setup (bit-identical —
+    # boundaries sharing a row map to the same vector).
+    _den_by_row = {}
+    for (row, _col, _val) in boundaries:
+        if row not in _den_by_row:
+            _den_by_row[row] = F.batch_inverse([F.sub(x_lde[j], F.pw(gT, row)) for j in range(N)])
+    bnd_inv_dens = [_den_by_row[row] for (row, _col, _val) in boundaries]
 
     # NATIVE-FIELD PATH: trace the constraints into the shared IR (air_ir) and evaluate the whole composition in
     # Rust — bit-identical to the Python loop below (verified in tests), an order of magnitude faster on the

@@ -187,16 +187,26 @@ def compose_native(prog, N, blowup, col_lde, per_lde, chals, alphas, invZ, bound
     ops_flat = (u32 * (n_ops * 3))()
     for i, (op, a, b) in enumerate(ops):
         ops_flat[i * 3] = op; ops_flat[i * 3 + 1] = a % (1 << 32); ops_flat[i * 3 + 2] = b % (1 << 32)
-    consts_a = (u64 * max(1, len(consts)))(*consts)
-    out_idx = (u32 * n_out)(*outputs)
-    cols_a = (u64 * (W * N))(*[col_lde[c][j] for c in range(W) for j in range(N)])
-    per_a = (u64 * max(1, nper * N))(*[per_lde[c][j] for c in range(nper) for j in range(N)])
-    chals_a = (u64 * max(1, nchal))(*chals)
-    alphas_a = (u64 * (n_out + n_bnd))(*alphas)
-    invz_a = (u64 * N)(*invZ)
-    bcol = (u32 * max(1, n_bnd))(*[c for (_r, c, _v) in boundaries])
-    bval = (u64 * max(1, n_bnd))(*[v % F.P for (_r, _c, v) in boundaries])
-    binv = (u64 * max(1, n_bnd * N))(*[bnd_inv_dens[bi][j] for bi in range(n_bnd) for j in range(N)])
+    # slice-assignment (arr[:] = list) marshals the big LDE arrays far faster than the (u64*n)(*list)
+    # constructor unpack — the dominant setup cost at recursion scale (cols/per/binv are O((W+nper+n_bnd)·N)).
+    def _arr(size, vals):
+        m = max(1, size)
+        a = (u64 * m)()
+        vals = list(vals)
+        if len(vals) < m:
+            vals = vals + [0] * (m - len(vals))
+        a[:] = vals[:m]
+        return a
+    consts_a = _arr(len(consts), consts)
+    out_idx = (u32 * n_out)(); out_idx[:] = list(outputs)
+    cols_a = _arr(W * N, [col_lde[c][j] for c in range(W) for j in range(N)])
+    per_a = _arr(nper * N, [per_lde[c][j] for c in range(nper) for j in range(N)])
+    chals_a = _arr(nchal, [int(x) % F.P for x in chals])
+    alphas_a = _arr(n_out + n_bnd, list(alphas))
+    invz_a = _arr(N, list(invZ))
+    bcol = (u32 * max(1, n_bnd))(); bcol[:len(boundaries)] = [c for (_r, c, _v) in boundaries]
+    bval = _arr(n_bnd, [v % F.P for (_r, _c, v) in boundaries])
+    binv = _arr(n_bnd * N, [bnd_inv_dens[bi][j] for bi in range(n_bnd) for j in range(N)])
     out_a = (u64 * N)()
 
     rc = lib.compose(n_ops, ops_flat, len(consts), consts_a, n_out, out_idx, W, nper, nchal, N, blowup,

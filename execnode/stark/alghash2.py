@@ -186,10 +186,11 @@ def merkle_commit(values):
     n = len(values)
     if n < 1 or (n & (n - 1)):
         return None
-    leaves = (u64 * n)(*[int(v) % F.P for v in values])
+    leaves = (u64 * n)(); leaves[:] = [int(v) % F.P for v in values]   # slice-assign > *-unpack for large n
     out = (u64 * ((2 * n - 1) * CAPACITY))()
     lib.merkle_commit(leaves, n, out)
-    digs = [tuple(out[i * CAPACITY + k] for k in range(CAPACITY)) for i in range(2 * n - 1)]
+    flat = out[:]                                                      # ONE bulk read of the native buffer
+    digs = [tuple(flat[i * CAPACITY:(i + 1) * CAPACITY]) for i in range(2 * n - 1)]
     layers, start, ln = [], 0, n
     while True:
         layers.append(digs[start:start + ln])
@@ -215,10 +216,11 @@ def rmerkle_commit(values):
     n = len(values)
     if n < 1 or (n & (n - 1)):
         return None
-    leaves = (u64 * n)(*[int(v) % F.P for v in values])
+    leaves = (u64 * n)(); leaves[:] = [int(v) % F.P for v in values]   # slice-assign > *-unpack for large n
     out = (u64 * ((2 * n - 1) * CAPACITY))()
     lib.rmerkle_commit(leaves, n, out)
-    digs = [tuple(out[i * CAPACITY + k] for k in range(CAPACITY)) for i in range(2 * n - 1)]
+    flat = out[:]                                                      # ONE bulk read of the native buffer
+    digs = [tuple(flat[i * CAPACITY:(i + 1) * CAPACITY]) for i in range(2 * n - 1)]
     layers, start, ln = [], 0, n
     while True:
         layers.append(digs[start:start + ln])
