@@ -9,6 +9,7 @@
 import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, gate, canPay, hoist, orderCards, chainResult, chainResultAlg, blocksToTime,
          lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, statusLabel, alertBar, notify,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
 const CID = "426b97a4b22f439cdb0bc0e4d24e6433";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" fill="none" aria-hidden="true">     <ellipse cx="18" cy="27" rx="10.5" ry="12.5" fill="#c8901a" stroke="#8a6209" stroke-width="1.6"/>     <circle cx="28" cy="24" r="13" fill="#e3b341" stroke="#b5810f" stroke-width="2.4"/>     <circle cx="28" cy="24" r="8.6" stroke="#a9760a" stroke-width="1.3" fill="none"/>     <text x="28" y="29" text-anchor="middle" font-size="13" font-weight="800" fill="#7a5606" font-family="system-ui">N</text></svg>';
@@ -271,10 +272,47 @@ dapp.onReturn((pend, ok, err) => {
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(window.t("coinflip.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
-  wireUI(); loadQR(); orderCards(["activeGame","lobby","play","walletcard","bankroll","scoreboard"]);
+  wireUI(); loadQR(); orderCards(["activeGame","lobby","play","practice","walletcard","bankroll","scoreboard"]);
   const q = new URLSearchParams(location.search).get("game");
   if (q) { $("joinId").value = q; if (active == null) active = parseInt(q, 10); }
   render(); refreshActive();
   setInterval(refreshActive, 3000);
 }
 boot();
+
+// ---- PRACTICE MODE (free, fully in-browser — play chips, local RNG, nothing on-chain) -------------------
+// The real game is PvP: two equal stakes, winner takes the whole pot — a fair 50/50 with NO house edge.
+// Practice mirrors that as double-or-nothing vs Math.random (nothing is at stake, so no beacon needed).
+const prac = new Practice("coinflip");
+let pStreak = 0, pFlipping = false;
+function pracStrip() { prac.strip($("pStrip"), { chips: true, onReset: pracStrip }); }
+function pracFlip(pick) {   // 0 = heads, 1 = tails — same faces as the chain's parity flip
+  if (pFlipping) return;
+  const bet = parseInt($("pStake").value, 10) || 0;
+  if (!prac.canBet(bet, notify)) return;
+  pFlipping = true;
+  prac.addChips(-bet);
+  $("pCoin").className = "coin spin"; $("pCoin").textContent = "?";
+  $("pResult").innerHTML = "";
+  pracStrip();
+  setTimeout(() => {
+    pFlipping = false;
+    const r = Math.random() < 0.5 ? 0 : 1;
+    const win = r === pick;
+    if (win) prac.addChips(bet * 2);   // winner takes the pot: your stake back + the same again (2×)
+    pStreak = win ? pStreak + 1 : 0;
+    $("pCoin").className = "coin " + (r === 0 ? "heads" : "tails"); $("pCoin").textContent = r === 0 ? "H" : "T";
+    const face = r === 0 ? window.t("coinflip.heads", "HEADS") : window.t("coinflip.tails", "TAILS");
+    $("pResult").innerHTML = win
+      ? '<span style="color:var(--accent2);font-weight:800">🪙 ' + face + " — " + window.t("sdk.prFlipWin", "you WON +{n} play chips! 🎉", { n: bet }) + "</span>"
+      : '<span style="color:var(--danger);font-weight:800">🪙 ' + face + " — " + window.t("sdk.prFlipLose", "lost {n} play chips.", { n: bet }) + "</span>";
+    $("pStreak").textContent = window.t("sdk.prStreak", "Win streak: {n}", { n: pStreak });
+    pracStrip();
+  }, 700);
+}
+if ($("pStrip")) {
+  $("pHeads").onclick = () => pracFlip(0);
+  $("pTails").onclick = () => pracFlip(1);
+  $("pStreak").textContent = window.t("sdk.prStreak", "Win streak: {n}", { n: 0 });
+  pracStrip();
+}

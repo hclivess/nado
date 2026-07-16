@@ -5,6 +5,7 @@
 // scaffold (pvpgame.js) — this file is ONLY the tic-tac-toe board: its decode, its render, its move.
 import { NadoDapp, rawToNado, _m, $, disp } from "./nadodapp.js";
 import { PvpGame } from "./pvpgame.js";
+import { Practice } from "./practice.js";   // free in-browser practice vs the computer
 
 const CID = "d7744c41300ef02b6cc944f0cf1ccdae";
 const dapp = new NadoDapp({ cid: CID, app: "TicTacToe" });
@@ -45,4 +46,48 @@ function moveCell(i) {
   pvp.move([i], (gm.mc % 2 === 0 ? "✕" : "◯") + " on cell " + (i + 1) + " · game #" + pvp.active, { cell: i });
 }
 
-pvp.boot(["activeGame", "lobby", "opencard", "walletcard", "bankroll", "scoreboard"]);
+pvp.boot(["activeGame", "lobby", "opencard", "practice", "walletcard", "bankroll", "scoreboard"]);
+
+// ---- PRACTICE MODE (free, in-browser — you are X vs a perfect-play minimax O; nothing on-chain) --------
+const prac = new Practice("tictactoe");
+let pb = Array(9).fill(0), pOver = false;
+const pWin = (b, m) => LINES.find((ln) => b[ln[0]] === m && b[ln[1]] === m && b[ln[2]] === m) || null;
+function pMinimax(b, me, depth) {           // returns [score, move] for the player `me` (1=X human, 2=O ai)
+  if (pWin(b, 2)) return [10 - depth, -1];
+  if (pWin(b, 1)) return [depth - 10, -1];
+  if (!b.includes(0)) return [0, -1];
+  let best = me === 2 ? [-99, -1] : [99, -1];
+  for (let i = 0; i < 9; i++) {
+    if (b[i]) continue;
+    b[i] = me;
+    const [s] = pMinimax(b, 3 - me, depth + 1);
+    b[i] = 0;
+    if (me === 2 ? s > best[0] : s < best[0]) best = [s, i];
+  }
+  return best;
+}
+function pRender() {
+  prac.strip($("pStrip"), { chips: false, tally: true });
+  const wl = pWin(pb, 1) || pWin(pb, 2);
+  $("pBoard").innerHTML = pb.map((c, i) =>
+    '<div class="cell ' + (c === 1 ? "x" : c === 2 ? "o" : "") + (wl && wl.includes(i) ? " win" : "")
+    + (c || pOver ? " dead" : "") + '" data-p="' + i + '">' + ["", "✕", "◯"][c] + "</div>").join("");
+  $("pBoard").querySelectorAll("[data-p]").forEach((el) => el.onclick = () => pTap(parseInt(el.dataset.p, 10)));
+}
+function pEnd(msg, res) { pOver = true; prac.tally(res); $("pResult").innerHTML = msg; pRender(); }
+function pTap(i) {
+  if (pOver || pb[i]) return;
+  pb[i] = 1;
+  if (pWin(pb, 1)) return pEnd("🏆 " + window.t("sdk.prYouWin", "You win!"), "w");
+  if (!pb.includes(0)) return pEnd("🤝 " + window.t("sdk.prDraw", "Draw."), "d");
+  const [, mv] = pMinimax(pb.slice(), 2, 0);
+  pb[mv] = 2;
+  if (pWin(pb, 2)) return pEnd("💀 " + window.t("sdk.prAiWins", "The computer wins."), "l");
+  if (!pb.includes(0)) return pEnd("🤝 " + window.t("sdk.prDraw", "Draw."), "d");
+  $("pResult").textContent = "";
+  pRender();
+}
+if ($("pBoard")) {
+  $("pNew").onclick = () => { pb = Array(9).fill(0); pOver = false; $("pResult").textContent = ""; pRender(); };
+  pRender();
+}

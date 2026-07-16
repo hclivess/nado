@@ -203,7 +203,22 @@
     </p>
   </div>
 
-  <footer data-i18n-html="dice.footer">Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · <a href="https://get.nadochain.com/rollup">see the contract</a>.</footer>
+    <!-- PRACTICE — free, fully in-browser, nothing on-chain -->
+  <div class="card" id="practice">
+    <h2 data-i18n="sdk.prHead">🎯 Practice — free, in your browser</h2>
+    <p class="small dim" data-i18n="sdk.prHelp">Same game, play chips: nothing touches the chain, no wallet needed. When you're ready for real NADO, use the tables above.</p>
+    <div id="pStrip" class="small mt"></div>
+    <label class="mt" data-i18n="dice.winChance">win chance</label>
+    <input type="range" id="pSlider" min="2" max="98" value="50">
+    <div class="row">
+      <input id="pStake" value="50" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="pRoll" style="flex:0 0 auto">🎲 <span data-i18n="sdk.prPlay">Play</span> <span id="pOdds" class="mono"></span></button>
+    </div>
+    <div id="pResult" class="mt" style="min-height:22px"></div>
+    <div id="pHist" class="small dim"></div>
+  </div>
+
+<footer data-i18n-html="dice.footer">Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="/games">more games</a> · <a href="https://get.nadochain.com/rollup">see the contract</a>.</footer>
 </div>
 <script type="module" src="/static/dice.js"></script>
 </body>

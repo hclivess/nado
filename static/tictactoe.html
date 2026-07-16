@@ -142,6 +142,16 @@
     <p class="small dim" data-i18n-html="ttt.fairBody">Every move is a signed transaction bound to its exact turn number — replays and stale retries bounce off. The contract enforces whose turn it is, that the cell is free, and detects three-in-a-row itself, paying the winner in the same instant. A full board refunds both stakes automatically. If your opponent walks away, the move clock (~30&nbsp;min) lets anyone refund the game — stalling only ever voids, never wins.</p>
   </div>
 
+  <!-- PRACTICE — free vs-computer game, fully in-browser -->
+  <div class="card" id="practice">
+    <h2 data-i18n="sdk.prHead">🎯 Practice — free, in your browser</h2>
+    <p class="small dim" data-i18n="sdk.prHelpBoard">Same game vs the computer: nothing touches the chain, no wallet needed. For real stakes, use the game above.</p>
+    <div id="pStrip" class="small mt"></div>
+    <div id="pBoard" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:320px;margin:12px auto;aspect-ratio:1/1"></div>
+    <div id="pResult" class="mt" style="min-height:22px;text-align:center"></div>
+    <div class="row"><button class="ghost" id="pNew" style="flex:1" data-i18n="sdk.prNewGame">↻ New practice game</button></div>
+  </div>
+
   <footer data-i18n="ttt.footer">NADO Tic-Tac-Toe · contract-refereed wagers · post-quantum signatures · no house</footer>
 </div>
 <script type="module" src="/static/tictactoe.js"></script>

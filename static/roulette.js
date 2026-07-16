@@ -12,6 +12,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hois
          recentChips, statusLabel, alertBar, notify,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";   // the ONE banked-table reader/lobby (shared by every house game)
+import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
 const CID = "0ccfa996d30b5228e702a38a29b965fe";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <circle cx="24" cy="24" r="16" fill="#0b0f14" stroke="#b5810f" stroke-width="2"/>     <g stroke="#0b0f14" stroke-width=".6">       <path d="M24 24 L24 8 A16 16 0 0 1 35.3 12.7 Z" fill="#d0362b"/>       <path d="M24 24 L35.3 12.7 A16 16 0 0 1 40 24 Z" fill="#20272f"/>       <path d="M24 24 L40 24 A16 16 0 0 1 35.3 35.3 Z" fill="#1f8f4e"/>       <path d="M24 24 L35.3 35.3 A16 16 0 0 1 24 40 Z" fill="#d0362b"/>       <path d="M24 24 L24 40 A16 16 0 0 1 12.7 35.3 Z" fill="#20272f"/>       <path d="M24 24 L12.7 35.3 A16 16 0 0 1 8 24 Z" fill="#d0362b"/>       <path d="M24 24 L8 24 A16 16 0 0 1 12.7 12.7 Z" fill="#20272f"/>       <path d="M24 24 L12.7 12.7 A16 16 0 0 1 24 8 Z" fill="#20272f"/></g>     <circle cx="24" cy="24" r="6" fill="#e3b341" stroke="#b5810f" stroke-width="1.4"/>     <circle cx="24" cy="24" r="2.2" fill="#0b0f14"/>     <circle cx="24" cy="10.5" r="2" fill="#fff"/></svg>';
@@ -335,10 +336,60 @@ dapp.onReturn((pend, ok, err) => {
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(window.t("roul.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
-  wireUI(); loadQR(); orderCards(["activeGame","lobby","play","bankcard","walletcard","bankroll","scoreboard"]);
+  wireUI(); loadQR(); orderCards(["activeGame","lobby","play","practice","bankcard","walletcard","bankroll","scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (activeTable == null) activeTable = parseInt(q, 10); }
   paintTable(); render(); refreshActive();
   setInterval(refreshActive, 3000);
 }
 boot();
+
+// ---- PRACTICE MODE (free, fully in-browser — play chips, local RNG, nothing on-chain) -------------------
+// Same payout as the contract: a win returns stake × floor(36 ÷ numbers-covered) (see seatsOfTable's
+// `mult` and boardFrom's net). Math.random is fine here because nothing is at stake.
+const prac = new Practice("roulette");
+let pracSel = new Set(), pracHist = [];
+function pracBuildGrid() {
+  const grid = $("pGrid"); if (!grid || grid.dataset.built) return; grid.dataset.built = "1";
+  let html = "";
+  for (let n = 0; n < PN; n++) html += '<button class="cell ' + colorOf(n) + '" data-pn="' + n + '" style="height:30px;font-size:12px">' + n + "</button>";
+  grid.innerHTML = html;
+  grid.querySelectorAll("[data-pn]").forEach((b) => b.onclick = () => {
+    const n = parseInt(b.dataset.pn, 10);
+    if (pracSel.has(n)) pracSel.delete(n); else if (pracSel.size < MAXSLOTS) pracSel.add(n);
+    pracRender();
+  });
+}
+function pracRender() {
+  prac.strip($("pStrip"), { chips: true, onReset: pracRender });
+  document.querySelectorAll("#pGrid [data-pn]").forEach((b) => b.classList.toggle("sel", pracSel.has(parseInt(b.dataset.pn, 10))));
+  const c = pracSel.size, m = c ? Math.floor(36 / c) : 0;
+  $("pInfo").innerHTML = c
+    ? window.t("roul.covering", "Covering <b>{c}</b> {nWord} · pays <b>{m}×</b>", { c, nWord: c > 1 ? window.t("roul.numbersWord", "numbers") : window.t("roul.numberWord", "number"), m })
+    : '<span class="dim">' + window.t("roul.tapToBuild", "Tap numbers or a bet region on the table to build your bet.") + "</span>";
+  $("pHist").innerHTML = pracHist.slice(0, 10).map((h) =>
+    '<span class="pip ' + colorOf(h.n) + '"' + (h.win ? ' style="box-shadow:0 0 0 2px var(--accent2)"' : "") + ">" + h.n + "</span>").join("");
+}
+function pracSpin() {
+  const bet = parseInt($("pStake").value, 10) || 0;
+  if (!pracSel.size) return notify(window.t("roul.pickNumber", "Pick at least one number on the table to bet on."));
+  if (!prac.canBet(bet, notify)) return;
+  const n = Math.floor(Math.random() * PN);                       // 0..36, same wheel as the chain's mod 37
+  const win = pracSel.has(n), mult = Math.floor(36 / pracSel.size);   // contract payout: stake × floor(36/covered)
+  const net = win ? bet * (mult - 1) : -bet;
+  prac.addChips(net);
+  pracHist.unshift({ n, win });
+  document.querySelectorAll("#pGrid [data-pn]").forEach((b) => { b.style.outline = ""; b.style.boxShadow = ""; });
+  const cell = document.querySelector('#pGrid [data-pn="' + n + '"]');
+  if (cell) { cell.style.outline = "3px solid var(--accent2)"; cell.style.boxShadow = "0 0 10px rgba(0,201,167,.7)"; }
+  $("pResult").innerHTML = win
+    ? '<span style="color:var(--accent2)">🎉 ' + window.t("sdk.prRlWin", "Ball landed on {n} ({color}) — WIN +{net} chips ({m}×)!", { n, color: colorName(n), net, m: mult }) + "</span>"
+    : '<span style="color:var(--danger)">' + window.t("sdk.prRlLose", "Ball landed on {n} ({color}) — lost {net} chips.", { n, color: colorName(n), net: -net }) + "</span>";
+  pracRender();
+}
+if ($("pSpin")) {
+  pracBuildGrid();
+  $("pSpin").onclick = pracSpin;
+  $("pClear").onclick = () => { pracSel = new Set(); pracRender(); };
+  pracRender();
+}

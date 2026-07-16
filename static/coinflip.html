@@ -180,6 +180,23 @@
     </p>
   </div>
 
+  <!-- PRACTICE — free, fully in-browser, nothing on-chain -->
+  <div class="card" id="practice">
+    <h2 data-i18n="sdk.prHead">🎯 Practice — free, in your browser</h2>
+    <p class="small dim" data-i18n="sdk.prHelp">Same game, play chips: nothing touches the chain, no wallet needed. When you're ready for real NADO, use the tables above.</p>
+    <div id="pStrip" class="small mt"></div>
+    <div class="coinwrap">
+      <div class="coin" id="pCoin">?</div>
+      <div id="pResult" style="min-height:22px"></div>
+    </div>
+    <div class="row">
+      <input id="pStake" value="50" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="pHeads" style="flex:0 0 auto">🪙 <span data-i18n="coinflip.heads">HEADS</span></button>
+      <button class="primary" id="pTails" style="flex:0 0 auto">🪙 <span data-i18n="coinflip.tails">TAILS</span></button>
+    </div>
+    <div id="pStreak" class="small dim mt"></div>
+  </div>
+
   <footer data-i18n-html="coinflip.footer">
     Runs on <a href="https://get.nadochain.com/">NADO</a> · contract calls ride L1 as ordered blobs, apply at finality (a few minutes).
     The coin is decided by finalized block hashes — no secrets, no reveal. <a href="https://get.nadochain.com/rollup">See the contract</a>.

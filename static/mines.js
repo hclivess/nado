@@ -9,6 +9,7 @@ import { NadoDapp, rawToNado, nadoToRaw, blake2bHash, _m, $, base, gate, canPay,
          lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
          randId, loadQR, resolveAliases, disp, share, shareInvite, blocksToTime } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
+import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
 const CID = "ed48a2011d1c9f563725bed90128be3e";
 const T = 25, NMIN = 1, NMAX = 24, PICK_D = 2, REAP = 1200;
@@ -357,10 +358,82 @@ function wireUI() {
 async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(window.t("mines.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR();
-  orderCards(["activeGame", "lobby", "play", "bankcard", "walletcard", "bankroll", "scoreboard"]);
+  orderCards(["activeGame", "lobby", "play", "practice", "bankcard", "walletcard", "bankroll", "scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (bg.active == null) bg.active = parseInt(q, 10); }
   render(); refreshAll();
   setInterval(refreshAll, 3000);
 }
 boot();
+
+// ---- PRACTICE MODE (free, fully in-browser — play chips, local RNG, nothing on-chain) -------------------
+// EXACT contract payout chain (valueAfter: ×(tilesLeft·99)/((tilesLeft−N)·100) per safe tile, integer floor
+// every step, T=25 tiles); Math.random places the mines because nothing is at stake.
+const prac = new Practice("mines");
+const P_UNIT = 1000000n;   // chips play in fixed-point so the integer chain floors exactly like raw units
+let pRun = null;           // {N, bet, mines:Set, open:[], dead, boomAt}
+const pracVal = () => pRun ? valueAfter(BigInt(pRun.bet) * P_UNIT, 0, pRun.N, pRun.open.length) : 0n;
+const pracMult = (v) => (Number(v * 1000n / (BigInt(pRun.bet) * P_UNIT)) / 1000).toFixed(3);
+function pracStart() {
+  const N = Math.min(NMAX, Math.max(NMIN, parseInt($("pMinesN").value, 10) || 3));
+  const bet = parseInt($("pStake").value, 10) || 0;
+  if (!prac.canBet(bet, notify)) return;
+  prac.addChips(-bet);
+  const pm = new Set();
+  while (pm.size < N) pm.add(Math.floor(Math.random() * T));
+  pRun = { N, bet, mines: pm, open: [], dead: false, boomAt: null };
+  pracRender();
+}
+function pracCash() {
+  if (!pRun || pRun.dead || !pRun.open.length) return;
+  const v = pracVal(), won = Number(v / P_UNIT);
+  prac.addChips(won);
+  pRun.dead = true;
+  pracRender();
+  $("pResult").innerHTML = '<span class="win">' + window.t("sdk.prMinesCash", "💰 Cashed out {n} play chips (×{m}).", { n: won, m: pracMult(v) }) + "</span>";
+}
+function pracTap(i) {
+  if (!pRun || pRun.dead || pRun.open.includes(i)) return;
+  if (pRun.mines.has(i)) {
+    pRun.dead = true; pRun.boomAt = i;
+    pracRender();
+    $("pResult").innerHTML = '<span class="lose">' + window.t("sdk.prMinesBoom", "💥 BOOM — a mine. Lost {n} play chips.", { n: pRun.bet }) + "</span>";
+    return;
+  }
+  pRun.open.push(i);
+  if (pRun.open.length === T - pRun.N) return pracCash();   // cleared every safe tile — bank it
+  pracRender();
+}
+function pracRender() {
+  prac.strip($("pStrip"), { chips: true, onReset: pracRender });
+  const N = Math.min(NMAX, Math.max(NMIN, parseInt($("pMinesN").value, 10) || 3));
+  $("pMinesVal").textContent = N;
+  $("pNextMult").textContent = "×" + multAfter(N, 1).toFixed(3);
+  $("pRun5Mult").textContent = "×" + multAfter(N, Math.min(5, T - N)).toFixed(2);
+  $("pMeter").classList.toggle("hidden", !pRun);
+  $("pGrid").classList.toggle("hidden", !pRun);
+  $("pActions").innerHTML = "";
+  if (!pRun) { $("pResult").innerHTML = ""; return; }
+  const live = !pRun.dead, v = pracVal();
+  $("pmMines").textContent = pRun.N;
+  $("pmRevealed").textContent = pRun.open.length + " / " + (T - pRun.N);
+  $("pmMult").textContent = "×" + pracMult(v);
+  $("pmValue").textContent = Number(v / P_UNIT) + " 🪙";
+  $("pGrid").innerHTML = Array.from({ length: T }, (_, i) => {
+    const st = pRun.boomAt === i ? "boom" : pRun.open.includes(i) ? "gem" : (pRun.dead && pRun.mines.has(i)) ? "boom" : "";
+    return '<div class="tile ' + st + (live && !st ? " live" : "") + '" data-pi="' + i + '">' + (st === "gem" ? "💎" : st === "boom" ? "💥" : "") + "</div>";
+  }).join("");
+  if (live && pRun.open.length) {
+    const b = document.createElement("button"); b.className = "primary"; b.style.flex = "1 1 auto";
+    b.textContent = window.t("sdk.prCashOut", "💰 Cash out {n} chips (×{m})", { n: Number(v / P_UNIT), m: pracMult(v) });
+    b.onclick = pracCash; $("pActions").appendChild(b);
+  }
+  if (live) $("pResult").innerHTML = window.t("mines.tapTiles", "Tap tiles to reveal ({left} safe left) — next tile pays ×{m} — or cash out.",
+    { left: T - pRun.N - pRun.open.length, m: (Number(valueAfter(10n ** 12n, pRun.open.length, pRun.N, 1)) / 1e12).toFixed(3) });
+}
+if ($("pStrip")) {
+  $("pStart").onclick = pracStart;
+  $("pMinesN").oninput = pracRender;
+  $("pGrid").addEventListener("click", (e) => { const el = e.target.closest("[data-pi]"); if (el) pracTap(parseInt(el.dataset.pi, 10)); });
+  pracRender();
+}

@@ -10,6 +10,7 @@ import { NadoDapp, $, notify, disp, _m, renderTopScores } from "./nadodapp.js";
 import { DuelGame } from "./duelgame.js";
 import * as E from "./scrapline-engine.js";
 import { ART } from "./scrapline-art.js";
+import { prand, Practice } from "./practice.js";   // practice-vs-computer + solo persistence
 
 const CID = "72a195822ef32caa9680eee51eb95dc9";
 const dapp = new NadoDapp({ cid: CID, app: "Scrapline" });
@@ -28,6 +29,19 @@ const duel = new DuelGame(dapp, {
   },
   // drafting is concurrent: it's "my move" whenever I still have rounds left
   canAct: (eng, me) => eng.ps[me].round < E.ROUNDS,
+  // practice-vs-computer (duelgame.js SDK feature): direct local apply + a greedy merge-first drafter
+  applyLocal(eng, side, enc, q) { eng._q = q; E.applyMove(eng, side, enc); eng.mi++; },
+  botMove(eng, k) {
+    const offer = E.offerFor(eng, 1);
+    if (!offer) return null;
+    const rnd = prand(this.practice.seed + ":bot:" + k);
+    if (rnd() < 0.08) return E.encMove(2, 0);                        // occasional scrap for max HP
+    const choice = Math.floor(rnd() * 3), z = eng.ps[1];
+    let slot = z.gear.findIndex((g) => g && g.id === offer[choice] && g.rank < E.MAXRANK);
+    if (slot < 0) slot = z.gear.findIndex((g) => !g);
+    if (slot < 0) slot = Math.floor(rnd() * E.SLOTS);
+    return E.encMove(1, choice + 4 * slot);
+  },
   turnOf: (eng) => (eng.ps[0].round < E.ROUNDS && eng.ps[1].round < E.ROUNDS) ? null
     : eng.ps[0].round < E.ROUNDS ? 0 : eng.ps[1].round < E.ROUNDS ? 1 : null,
   resultOf: (eng) => eng.result,
@@ -175,12 +189,12 @@ function renderGame(gm, eng) {
 }
 
 // ---- SOLO GAUNTLET (free, fully client-side — no wallet, no stake; deterministic per seed) --------------
-const LS_SOLO = "nado_scrapline_solo", LS_BEST = "nado_scrapline_solo_best";
+const soloPrac = new Practice("scrapline_solo");     // SDK persistence: run state + local bests
 let soloSel = null;
+// NB: the daily seed string is CONSENSUS for on-chain claims (engine seedOfDay) — do not restyle it.
 const dailySeed = () => "daily-" + new Date().toISOString().slice(0, 10);
-const soloLoad = () => { try { return JSON.parse(localStorage.getItem(LS_SOLO) || "null"); } catch { return null; } };
-const soloSave = (r) => { try { localStorage.setItem(LS_SOLO, JSON.stringify(r)); } catch {} };
-const bestLoad = () => { try { return JSON.parse(localStorage.getItem(LS_BEST) || "{}"); } catch { return {}; } };
+const soloLoad = () => soloPrac.run();
+const soloSave = (r) => soloPrac.saveRun(r);
 let soloRun = soloLoad();
 if (soloRun && (soloRun.picks === undefined || !Array.isArray(soloRun.choices))) soloRun = null;   // pre-rebalance run shape
 
@@ -189,8 +203,7 @@ function soloStart(seed) {
 }
 function soloBank() {   // record a finished run's score on the local best-board
   if (!soloRun || !soloRun.over) return;
-  const b = bestLoad(), k = soloRun.seed.startsWith("daily-") ? soloRun.seed : "random";
-  if ((b[k] || 0) < soloRun.score) { b[k] = soloRun.score; try { localStorage.setItem(LS_BEST, JSON.stringify(b)); } catch {} }
+  soloPrac.bump(soloRun.seed.startsWith("daily-") ? soloRun.seed : "random", soloRun.score);
 }
 function soloGearRow(gear, clickable) {
   return gear.map((gitem, slot) => {
@@ -206,7 +219,7 @@ function soloGearRow(gear, clickable) {
 function renderSolo() {
   const top = $("soloTop"), hud = $("soloHud"), zones = $("soloZones");
   if (!top) return;
-  const b = bestLoad(), bd = b[dailySeed()] || 0, br = b.random || 0;
+  const bd = soloPrac.best(dailySeed()), br = soloPrac.best("random");
   top.innerHTML = "";
   const mkBtn = (txt, fn, primary) => { const x = document.createElement("button"); x.className = primary ? "primary" : "ghost"; x.textContent = txt; x.onclick = fn; top.appendChild(x); };
   const isDaily = soloRun && soloRun.seed === dailySeed();

@@ -25,8 +25,10 @@
 import { rawToNado, nadoToRaw, randId, rematchId, _m, $, base, canPay, alertBar, orderCards,
          resolveAliases, disp, share, wireWallet, inviteGate, stickyInputs, renderWallet, notify,
          blocksToTime, renderScore, scoreBump, scoreSort } from "./nadodapp.js";
+import { Practice, prand, randomSeed } from "./practice.js";
 
 const T0 = (p, k, d, v) => (typeof window !== "undefined" && window.t) ? window.t(p + "." + k, d, v) : d;
+const TS = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("sdk." + k, d, v) : d;
 
 export class DuelGame {
   constructor(dapp, cfg) {
@@ -39,7 +41,60 @@ export class DuelGame {
     this.pendingMove = null; this.armed = null;
     this.lastMi = -1; this.lastDrawOffer = null; this.nudgeJoin = false;
     this.knownGames = new Set();
+    this.practice = null;                    // {seed, recs} — the free vs-computer mode (nothing on-chain)
+    this.prac = new Practice(slug + "_duel");
   }
+
+  // ---- PRACTICE vs COMPUTER (free, fully in-browser — an SDK feature every duel game inherits) --------
+  // The game's own engine + renderGame are reused unchanged: qOf() is overridden with a deterministic
+  // seeded stream, the move log lives in localStorage, and cfg.botMove(eng, k) answers for side 2.
+  _pracQ(h) {
+    const rnd = prand(this.practice.seed + ":" + h);
+    return (BigInt(Math.floor(rnd() * 2 ** 30)) << 60n) + (BigInt(Math.floor(rnd() * 2 ** 30)) << 30n) + BigInt(Math.floor(rnd() * 2 ** 30));
+  }
+  pracGm() {
+    const recs = (this.practice.recs || []).map((r, i) => ({ enc: r.enc, side: r.side, rh: 1000 + i }));
+    return { exists: true, practice: true, id: 0, p1: "you", p2: "cpu", nn: 2, settled: false,
+      stake: 0, pot: 0, mc: recs.length, kh: 999, a1: 0, a2: 0, wr: 0, dl: Number.MAX_SAFE_INTEGER, recs };
+  }
+  _pracApply(side, enc) {
+    const i = this.practice.recs.length;
+    this.practice.recs.push({ enc, side });
+    if (this.cfg.applyLocal && this.eng && !this.eng.setup) this.cfg.applyLocal.call(this, this.eng, side, enc, this._pracQ(1000 + i));
+    else this.eng = this.cfg.rebuild.call(this, this.pracGm());
+  }
+  _pracBot() {
+    if (!this.eng || this.eng.setup || this.eng.blocked) return;
+    let guard = 0;
+    while (this.eng && !this.eng.over && !this.eng.corrupt && guard++ < 500
+           && this.cfg.canAct(this.eng, 1, this.pracGm())
+           && !(this.cfg.turnOf(this.eng) === 0)) {
+      const enc = this.cfg.botMove.call(this, this.eng, this.practice.recs.length);
+      if (!enc) break;
+      this._pracApply(2, enc);
+    }
+    // concurrent games (turnOf null): let the bot act whenever it legally can
+    guard = 0;
+    while (this.eng && !this.eng.over && !this.eng.corrupt && guard++ < 500
+           && this.cfg.turnOf(this.eng) == null && this.cfg.canAct(this.eng, 1, this.pracGm())) {
+      const enc = this.cfg.botMove.call(this, this.eng, this.practice.recs.length);
+      if (!enc) break;
+      this._pracApply(2, enc);
+    }
+  }
+  startPractice(seed) {
+    if (!this.cfg.botMove) return;
+    this.practice = { seed: seed || randomSeed(this.dapp.app.toLowerCase()) };
+    this.practice.recs = [];
+    this.eng = this.cfg.rebuild.call(this, this.pracGm());
+    this.last = this.pracGm();               // game modules read duel.last in their tap handlers
+    this._pracBot();
+    this.prac.saveRun(this.practice);
+    this.armed = null;
+    this.render();
+    try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
+  }
+  exitPractice() { this.practice = null; this.prac.clearRun(); this.eng = null; this.render(); }
   lsLoad() { try { return JSON.parse(localStorage.getItem(this.LS_G) || "{}"); } catch { return {}; } }
   lsSave(v) { try { localStorage.setItem(this.LS_G, JSON.stringify(v)); } catch {} }
 
@@ -64,7 +119,10 @@ export class DuelGame {
     }
     return h;
   }
-  qOf(h) { const a = this.dapp.bh(h), b = this.dapp.bh(h + 1); return a && b ? BigInt("0x" + a) + BigInt("0x" + b) : null; }
+  qOf(h) {
+    if (this.practice) return this._pracQ(h);            // practice: deterministic seeded stream, no chain
+    const a = this.dapp.bh(h), b = this.dapp.bh(h + 1); return a && b ? BigInt("0x" + a) + BigInt("0x" + b) : null;
+  }
   async ensureSeeds(gm) {
     const want = [], dapp = this.dapp;
     const add = (h) => { if (h && dapp.cursor != null && dapp.cursor >= h + 1) want.push(h, h + 1); };
@@ -74,8 +132,15 @@ export class DuelGame {
     // seed heights are PUBLIC randomness -> provisional (fast) is safe: a reorg just replays visibly
     if (missing.length) await dapp.blockHashes(missing.slice(0, 120), { fast: true });
   }
-  myIdx(gm) { return gm && gm.p1 === this.dapp.me ? 0 : gm && gm.p2 === this.dapp.me ? 1 : null; }
+  myIdx(gm) {
+    if (gm && gm.practice) return 0;
+    return gm && gm.p1 === this.dapp.me ? 0 : gm && gm.p2 === this.dapp.me ? 1 : null;
+  }
   canAct() {
+    if (this.practice) {
+      const eng = this.eng;
+      return !!(eng && !eng.setup && !eng.corrupt && !eng.over && this.cfg.canAct(eng, 0, this.pracGm()));
+    }
     const gm = this.last, eng = this.eng;
     if (!gm || !gm.exists || gm.nn !== 2 || gm.settled || this.pendingMove) return false;
     if (!eng || eng.setup || eng.blocked || eng.corrupt || eng.over || eng.mi !== gm.mc) return false;
@@ -131,6 +196,16 @@ export class DuelGame {
   // submit(op, payload, label): enc = op + payload·16 with PLY BINDING — a stale wallet retry can never
   // land turns later against a changed game.
   submit(op, payload, label) {
+    if (this.practice) {                                  // practice: apply locally, then the bot answers
+      if (!this.canAct()) return;
+      this._pracApply(1, op + (payload || 0) * 16);
+      this._pracBot();
+      this.prac.saveRun(this.practice);
+      this.armed = null;
+      if (this.cfg.onSubmit) this.cfg.onSubmit();
+      this.render();
+      return;
+    }
     const gm = this.last; if (!this.canAct()) return;
     const enc = op + (payload || 0) * 16, ply = gm.mc;
     this.pendingMove = { ply }; this.armed = null;
@@ -142,7 +217,11 @@ export class DuelGame {
   agree(r) { this.dapp.call("agree", [this.active, r], null, (r === 3 ? "agree a draw" : "confirm the result") + " · game #" + this.active, { game: this.active, phase: "agree" }); }
   abort() { this.dapp.call("abort", [this.active], null, "claim refund (stalled) · game #" + this.active, { game: this.active, phase: "abort" }); }
   cancel() { this.dapp.call("cancel", [this.active], null, "cancel game #" + this.active, { game: this.active, phase: "cancel" }); }
-  resetLocal() { this.pendingMove = null; this.armed = null; this.lastMi = -1; this.eng = null; if (this.cfg.onReset) this.cfg.onReset(); }
+  resetLocal() {
+    this.pendingMove = null; this.armed = null; this.lastMi = -1; this.eng = null;
+    if (this.practice) { this.practice = null; this.prac.clearRun(); }   // picking a real game leaves practice
+    if (this.cfg.onReset) this.cfg.onReset();
+  }
   // arm(key,label,fn): first tap arms (button shows label), second tap within 6s fires — misclick guard.
   arm(key, label, fn) {
     if (this.armed && this.armed.key === key && Date.now() - this.armed.ts < 6000) { this.armed = null; fn(); return; }
@@ -161,7 +240,7 @@ export class DuelGame {
       const G = this.lsLoad(); let c = false;
       for (const g of Object.keys(G)) if (!this.knownGames.has(g) && Date.now() - (G[g].ts || 0) > 600000) { delete G[g]; c = true; }
       if (c) this.lsSave(G);
-      if (this.active != null) {
+      if (this.active != null && !this.practice) {
         const ng = this.gameFrom(sto, this.active);
         const prog = (ng.settled ? 1e9 : 0) + (ng.nn || 0) * 100000 + (ng.mc || 0);
         if (dapp.accept(dapp.app + ":" + this.active, prog) && !ng.gap) {
@@ -232,9 +311,51 @@ export class DuelGame {
     $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { this.active = parseInt(b.dataset.g, 10); this.resetLocal(); this.haveState = false; this.refreshActive(); });
     this.renderActive();
   }
+  // the practice chrome: same card, same cfg.renderGame — chain lifecycle buttons swapped for
+  // "new practice game / back to real play" (and nothing here ever signs or sends anything).
+  renderPractice() {
+    const cfg = this.cfg, box = $("activeGame");
+    box.classList.remove("hidden");
+    const gm = this.pracGm(), eng = this.eng;
+    this.last = gm;
+    $("gameId").textContent = "🎯";
+    $("shareLink").value = base();
+    const shareLbl = $("shareLink").previousElementSibling;
+    if (shareLbl) shareLbl.classList.add("hidden");
+    $("shareLink").classList.add("hidden"); $("btnShare").parentElement.classList.add("hidden");
+    $("gPot").textContent = TS("prBanner", "PRACTICE — free play, nothing on-chain");
+    $("players").innerHTML = '<span class="chip">' + cfg.marks[0] + " " + TS("prYou", "You") + '</span> <span class="chip">' + cfg.marks[1] + " 🤖 " + TS("prCpu", "Computer") + "</span>";
+    const over = eng && eng.over, rc = over ? cfg.resultOf(eng) : 0;
+    $("gStatus").innerHTML = !eng ? "…"
+      : over ? (rc === 1 ? "🏆 " + TS("prYouWin", "You win!") : rc === 2 ? "💀 " + TS("prAiWins", "The computer wins.") : "🤝 " + TS("prDraw", "Draw."))
+      : this.canAct() ? TS("prYourMove", "▶ YOUR MOVE (practice)")
+      : TS("prCpuThinking", "computer to move…");
+    if (over && !this.practice.tallied) { this.practice.tallied = true; this.prac.tally(rc === 1 ? "w" : rc === 2 ? "l" : "d"); this.prac.saveRun(this.practice); }
+    cfg.renderGame.call(this, gm, eng);
+    for (const id of ["btnResign", "btnDraw", "btnSettle", "btnAbort", "btnCancel", "btnJoinGame", "btnRematch"]) $(id).classList.add("hidden");
+    $("settleHint").textContent = (over && cfg.overHint ? cfg.overHint(eng, 0) + " " : "") + TS("prTally", "W{w}–L{l}–D{d} vs computer", this.prac.tallies());
+    const row = $("btnResign").parentElement;
+    let bNew = $("btnPracNew"), bExit = $("btnPracExit");
+    if (!bNew) {
+      bNew = document.createElement("button"); bNew.id = "btnPracNew"; bNew.className = "primary";
+      bExit = document.createElement("button"); bExit.id = "btnPracExit"; bExit.className = "ghost";
+      row.appendChild(bNew); row.appendChild(bExit);
+      bNew.onclick = () => this.startPractice();
+      bExit.onclick = () => this.exitPractice();
+    }
+    bNew.classList.remove("hidden"); bExit.classList.remove("hidden");
+    bNew.textContent = "↻ " + TS("prNewGame", "New practice game");
+    bExit.textContent = TS("prExit", "Back to real play");
+  }
   renderActive() {
     const dapp = this.dapp, T = this.T, cfg = this.cfg;
     const box = $("activeGame");
+    if (this.practice) return this.renderPractice();
+    const bNew = $("btnPracNew"), bExit = $("btnPracExit");
+    if (bNew) { bNew.classList.add("hidden"); bExit.classList.add("hidden"); }
+    const shareLbl = $("shareLink").previousElementSibling;
+    if (shareLbl) shareLbl.classList.remove("hidden");
+    $("shareLink").classList.remove("hidden"); $("btnShare").parentElement.classList.remove("hidden");
     if (this.active == null) { box.classList.add("hidden"); return; }
     box.classList.remove("hidden");
     const gm = this.last || {}, local = this.lsLoad()[this.active] || {}, me = this.myIdx(gm), eng = this.eng;
@@ -328,6 +449,7 @@ export class DuelGame {
     $("btnCancel").onclick = () => this.cancel();
     $("btnJoinGame").onclick = () => { if (!dapp.me) return dapp.signIn(); $("joinId").value = String(this.active); this.joinGame(); };
     $("btnShare").onclick = () => share(base() + "/?game=" + this.active, this.cfg.shareText(this.last, this.active), $("btnShare"));
+    if ($("btnPractice") && this.cfg.botMove) $("btnPractice").onclick = () => this.startPractice();
     if (this.cfg.wire) this.cfg.wire.call(this);
   }
   async boot(orderIds) {
@@ -348,6 +470,13 @@ export class DuelGame {
     });
     try { await dapp.init(); } catch (e) { alertBar(T("cryptoFail", "Crypto bundle failed to load — reload.")); return; }
     this.wire(); orderCards(orderIds || ["activeGame", "lobby", "play", "walletcard", "bankroll"]);
+    // resume an in-progress practice run (free mode — available before sign-in); a ?game= deep link wins
+    const savedPrac = this.cfg.botMove && !new URLSearchParams(location.search).get("game") && this.prac.run();
+    if (savedPrac && savedPrac.seed && Array.isArray(savedPrac.recs)) {
+      this.practice = savedPrac;
+      this.eng = this.cfg.rebuild.call(this, this.pracGm());
+      if (this.eng && this.eng.corrupt) { this.practice = null; this.prac.clearRun(); this.eng = null; }
+    }
     const q = new URLSearchParams(location.search).get("game");
     if (q) { $("joinId").value = q; if (this.active == null) { this.active = parseInt(q, 10); this.haveState = false; } }
     if (q && !dapp.me) { const sto = await dapp.storage({ append: this.MAPS }); const gm = sto ? this.gameHead(sto, parseInt(q, 10)) : null;

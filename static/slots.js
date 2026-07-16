@@ -9,6 +9,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, base, gate,
          lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
          recentChips, statusLabel, loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";   // the ONE banked-table reader/id-list (shared by every house game)
+import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
 const CID = "d687d1178219753b9d48b9b8cdf25e1a";
 const GICON = "🎰";
@@ -277,10 +278,46 @@ function wireUI() {
 async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(window.t("slots.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR();
-  orderCards(["activeGame", "lobby", "opencard", "paytableCard", "walletcard", "bankroll", "scoreboard"]);
+  orderCards(["activeGame", "lobby", "practice", "opencard", "paytableCard", "walletcard", "bankroll", "scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");
   if (q) activeTable = parseInt(q, 10);
   render(); refreshAll();
   setInterval(refreshAll, 3000);
 }
 boot();
+
+// ---- PRACTICE MODE (free, fully in-browser — play chips, local RNG, nothing on-chain) -------------------
+// Same weighted 64-stop reels (symOf) + paytable (m2Of — the contract's halved multiplier) as the
+// derivation mirror above: payout = floor(stake × m2 ÷ 2). Math.random is fine — nothing is at stake.
+const prac = new Practice("slots");
+let pracSpinning = false;
+function pracSetReels(syms, spinning, winning) {
+  for (let i = 0; i < 3; i++) {
+    const el = $("pReel" + i); if (!el) return;
+    el.classList.toggle("spin", !!spinning);
+    el.classList.toggle("hit", !!winning);
+    el.innerHTML = "<span>" + (syms && syms[i] != null ? SYM[syms[i]] : "❔") + "</span>";
+  }
+}
+function pracRender() { prac.strip($("pStrip"), { chips: true, onReset: pracRender }); }
+function pracSpin() {
+  if (pracSpinning) return;
+  const bet = parseInt($("pStake").value, 10) || 0;
+  if (!prac.canBet(bet, alertBar)) return;
+  const stops = [0, 1, 2].map(() => Math.floor(Math.random() * 64));   // uniform 0..63 stops, same as the chain's % 64
+  const syms = stops.map(symOf), m2 = m2Of(...syms);
+  pracSpinning = true; $("pSpin").disabled = true;
+  pracSetReels(null, true, false); $("pResult").textContent = "";
+  setTimeout(() => {
+    pracSpinning = false; $("pSpin").disabled = false;
+    const net = Math.floor(bet * m2 / 2) - bet;   // contract payout: stake × m2 ÷ 2 (m2 is the halved multiplier)
+    prac.addChips(net);
+    const line = syms.map((s) => SYM[s]).join(" ");
+    pracSetReels(syms, false, m2 > 0);
+    $("pResult").innerHTML = m2 > 0
+      ? '<span style="color:var(--gold);text-shadow:0 0 12px rgba(227,179,65,.6)">' + window.t("sdk.prSlWin", "{syms} — WIN +{net} chips ({m}×)!", { syms: line, net, m: m2 / 2 }) + "</span>"
+      : '<span style="color:var(--danger)">' + window.t("sdk.prSlLose", "{syms} — no luck, lost {net} chips.", { syms: line, net: -net }) + "</span>";
+    pracRender();
+  }, 700);
+}
+if ($("pSpin")) { $("pSpin").onclick = pracSpin; pracRender(); }

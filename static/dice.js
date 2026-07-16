@@ -10,6 +10,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, hois
          recentChips, statusLabel, alertBar, notify,
          loadQR, drawQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";   // the ONE banked-table reader/lobby (shared by every house game)
+import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
 const CID = "b37251eb6b8bbeedd3a69cad7d6611a1";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="9" y="9" width="30" height="30" rx="7" fill="#e6edf3" stroke="#243140" stroke-width="2"/>     <circle cx="17" cy="17" r="2.8" fill="#20272f"/><circle cx="31" cy="17" r="2.8" fill="#20272f"/>     <circle cx="24" cy="24" r="2.8" fill="#00ad93"/>     <circle cx="17" cy="31" r="2.8" fill="#20272f"/><circle cx="31" cy="31" r="2.8" fill="#20272f"/></svg>';
@@ -300,10 +301,40 @@ dapp.onReturn((pend, ok, err) => {
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(window.t("dice.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
-  wireUI(); loadQR(); syncSlider(); orderCards(["activeGame","lobby","play","bankcard","walletcard","bankroll","scoreboard"]);
+  wireUI(); loadQR(); syncSlider(); orderCards(["activeGame","lobby","play","practice","bankcard","walletcard","bankroll","scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (activeTable == null) activeTable = parseInt(q, 10); }
   render(); refreshActive();
   setInterval(refreshActive, 3000);
 }
 boot();
+
+// ---- PRACTICE MODE (free, fully in-browser — play chips, local RNG, nothing on-chain) -------------------
+// Same 99÷chance payout as the contract; Math.random is fine here because nothing is at stake.
+const prac = new Practice("dice");
+let pracHist = [];
+function pracRender() {
+  prac.strip($("pStrip"), { chips: true, onReset: pracRender });
+  const M = parseInt($("pSlider").value, 10);
+  $("pOdds").textContent = M + "% · " + multOf(M).toFixed(2) + "×";
+  $("pHist").innerHTML = pracHist.slice(0, 10).map((h) =>
+    '<span class="chip" style="border-color:' + (h.win ? "var(--accent2)" : "var(--danger)") + '">' + h.roll + "</span>").join(" ");
+}
+function pracRoll() {
+  const M = parseInt($("pSlider").value, 10), bet = parseInt($("pStake").value, 10) || 0;
+  if (!prac.canBet(bet, notify)) return;
+  const roll = Math.floor(Math.random() * PN);
+  const win = roll < M;
+  const net = win ? Math.floor(bet * EDGE / M) - bet : -bet;
+  prac.addChips(net);
+  pracHist.unshift({ roll, win });
+  $("pResult").innerHTML = win
+    ? '<span style="color:var(--accent2)">🎉 ' + window.t("sdk.prWin", "Rolled {r} — WIN +{n} chips!", { r: roll, n: net }) + "</span>"
+    : '<span style="color:var(--danger)">' + window.t("sdk.prLose", "Rolled {r} — lost {n} chips.", { r: roll, n: -net }) + "</span>";
+  pracRender();
+}
+if ($("pRoll")) {
+  $("pRoll").onclick = pracRoll;
+  $("pSlider").oninput = pracRender;
+  pracRender();
+}

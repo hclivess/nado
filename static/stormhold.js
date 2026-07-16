@@ -10,6 +10,8 @@ import { NadoDapp, $, notify, disp } from "./nadodapp.js";
 import { DuelGame } from "./duelgame.js";
 import * as E from "./stormhold-engine.js";
 import { ART } from "./stormhold-art.js";
+import { prng, randomMove } from "./stormhold-bot.js";   // powers the free practice-vs-computer mode
+import { prand } from "./practice.js";
 
 const CID = "9f66d438dcbc87adc748f0cbe13a701b";
 const dapp = new NadoDapp({ cid: CID, app: "Stormhold" });
@@ -34,6 +36,12 @@ const duel = new DuelGame(dapp, {
     return E.replay(gm.id, this.qOf(gm.kh), (gm.recs || []).map((r) => ({ enc: r.enc, side: r.side, q: this.qOf(r.rh) })));
   },
   canAct: (eng, me) => E.legalActor(eng) === me,
+  // practice-vs-computer (duelgame.js SDK feature): direct local apply + the shared fuzz/oracle bot
+  applyLocal(eng, side, enc, q) { eng._q = q; E.applyMove(eng, side, enc); eng.mi++; },
+  botMove(eng, k) {
+    const mv = randomMove(eng, prng((Math.floor(prand(this.practice.seed)() * 1e9) + k * 977) >>> 0));
+    return mv && mv.side === 2 ? mv.enc : null;
+  },
   turnOf: (eng) => E.legalActor(eng),
   resultOf: (eng) => eng.result,
   overHint: (eng) => T("finalScore", "Final score {a} : {b} VP.", { a: E.scoreOf(eng, 0), b: E.scoreOf(eng, 1) }),

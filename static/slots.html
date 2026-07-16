@@ -187,6 +187,23 @@
     <p class="small dim" data-i18n-html="slots.fairBody">A spin that lands in block <span class="mono">B</span> is decided by <span class="mono">HASH(blockhash(B+2) ‖ blockhash(B+3) ‖ spinId)</span> — two blocks that <b>don't exist yet</b> when you sign, mixed so no single producer can steer them. Three stops (0–63) map to weighted reels, and the contract recomputes the exact same stops and pays the published paytable on-chain. The bank commits a full 150× cover for every open spin, so the machine can never welsh. No house — machines are owned and banked by players.</p>
   </div>
 
+  <!-- PRACTICE — free, fully in-browser, nothing on-chain -->
+  <div class="card" id="practice">
+    <h2 data-i18n="sdk.prHead">🎯 Practice — free, in your browser</h2>
+    <p class="small dim" data-i18n="sdk.prHelp">Same game, play chips: nothing touches the chain, no wallet needed. When you're ready for real NADO, use the tables above.</p>
+    <div id="pStrip" class="small mt"></div>
+    <div class="reels mt">
+      <div class="reel" id="pReel0"><span>❔</span></div>
+      <div class="reel" id="pReel1"><span>❔</span></div>
+      <div class="reel" id="pReel2"><span>❔</span></div>
+    </div>
+    <div class="row mt">
+      <input id="pStake" value="50" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="pSpin" style="flex:0 0 auto">🎰 <span data-i18n="sdk.prPlay">Play</span></button>
+    </div>
+    <div id="pResult" class="mt" style="min-height:22px;text-align:center;font-weight:800"></div>
+  </div>
+
   <footer data-i18n="slots.footer">NADO Slots · player-banked machines · post-quantum signatures · no house</footer>
 </div>
 <script type="module" src="/static/slots.js"></script>

@@ -211,6 +211,32 @@
     </p>
   </div>
 
+  <!-- PRACTICE — free, fully in-browser, nothing on-chain -->
+  <div class="card" id="practice">
+    <h2 data-i18n="sdk.prHead">🎯 Practice — free, in your browser</h2>
+    <p class="small dim" data-i18n="sdk.prHelp">Same game, play chips: nothing touches the chain, no wallet needed. When you're ready for real NADO, use the tables above.</p>
+    <div id="pStrip" class="small mt"></div>
+    <div class="meter mt">
+      <div class="m"><b class="under"><span id="pMinesVal">3</span> 💣</b><span data-i18n="mines.minesCount">mines on the field</span></div>
+      <div class="m"><b id="pNextMult">×1.125</b><span data-i18n="mines.firstTile">first tile pays</span></div>
+      <div class="m"><b id="pRun5Mult">×1.80</b><span data-i18n="mines.fiveTiles">5 safe tiles pay</span></div>
+    </div>
+    <input type="range" id="pMinesN" min="1" max="24" value="3">
+    <div class="row">
+      <input id="pStake" value="50" inputmode="numeric" autocomplete="off">
+      <button class="primary" id="pStart" style="flex:0 0 auto">💣 <span data-i18n="sdk.prPlay">Play</span></button>
+    </div>
+    <div class="meter mt hidden" id="pMeter">
+      <div class="m"><b id="pmMines">—</b><span data-i18n="mines.minesLbl">mines</span></div>
+      <div class="m"><b id="pmRevealed">—</b><span data-i18n="mines.revealedLbl">revealed</span></div>
+      <div class="m"><b id="pmMult">—</b><span data-i18n="mines.multLbl">multiplier</span></div>
+      <div class="m"><b id="pmValue">—</b><span data-i18n="mines.valueLbl">cash-out value</span></div>
+    </div>
+    <div id="pGrid" class="hidden" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:14px auto;max-width:420px"></div>
+    <div id="pResult" style="text-align:center;font-size:14.5px;min-height:20px;margin:8px 0"></div>
+    <div class="row" id="pActions"></div>
+  </div>
+
   <footer data-i18n-html="mines.footer">Runs on <a href="https://get.nadochain.com/">NADO</a> · <a href="https://nadochain.com/games">more games</a> · <a href="https://get.nadochain.com/rollup">see the contract</a>.</footer>
 </div>
 <script type="module" src="/static/mines.js"></script>

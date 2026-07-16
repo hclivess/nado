@@ -239,6 +239,22 @@
     </p>
   </div>
 
+  <!-- PRACTICE — free, fully in-browser, nothing on-chain -->
+  <div class="card" id="practice">
+    <h2 data-i18n="sdk.prHead">🎯 Practice — free, in your browser</h2>
+    <p class="small dim" data-i18n="sdk.prHelp">Same game, play chips: nothing touches the chain, no wallet needed. When you're ready for real NADO, use the tables above.</p>
+    <div id="pStrip" class="small mt"></div>
+    <div id="pGrid" class="mt" style="display:grid;grid-template-columns:repeat(13,1fr);grid-auto-rows:30px;gap:3px"></div>
+    <div id="pInfo" class="small mt" style="min-height:18px"></div>
+    <div class="row mt" style="align-items:center">
+      <input id="pStake" value="50" inputmode="numeric" autocomplete="off">
+      <button class="ghost" id="pClear" style="flex:0 0 auto" data-i18n="roul.clear">Clear</button>
+      <button class="primary" id="pSpin" style="flex:0 0 auto">🎡 <span data-i18n="sdk.prPlay">Play</span></button>
+    </div>
+    <div id="pResult" class="mt" style="min-height:22px"></div>
+    <div id="pHist" class="small dim mt"></div>
+  </div>
+
   <footer data-i18n-html="roul.footer">
     Runs on <a href="https://get.nadochain.com/">NADO</a> · contract calls ride L1 as ordered blobs, apply at finality (a few minutes).
     <a href="https://get.nadochain.com/rollup">See the contract</a>.
