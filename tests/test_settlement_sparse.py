@@ -90,8 +90,22 @@ def t_tampered_transition_rejected():
     assert not ok, "a tampered sparse post_root must be rejected"
 
 
+def t_calls_commitment_public_statement():
+    """The bound epoch's public statement is O(1)-shaped — (calls_commitment, sparse_pre_root, sparse_post_root)
+    — and verify checks the commitment; a tampered calls_commitment is rejected."""
+    from execnode.stark import calls_commit as CC
+    cc, pre, post = SS.public_statement(_BUNDLE)
+    assert cc == CC.calls_commitment(_BUNDLE["calls"], _BUNDLE["cursor"], _BUNDLE.get("timestamp", 0))
+    assert pre == _BUNDLE["sparse_pre_root"] and post == _BUNDLE["sparse_post_root"]
+    bad = copy.deepcopy(_BUNDLE)
+    bad["calls_commitment"] = (int(cc) + 1) % (2 ** 61)
+    ok, _why, _ = SS.verify_bound_epoch(bad, num_queries=NQ)
+    assert not ok, "a tampered calls_commitment must be rejected"
+
+
 if __name__ == "__main__":
     check("bound epoch verifies (no replay, no whole-state merkle)", t_bound_epoch_verifies)
+    check("O(1)-shaped public statement + calls_commitment checked", t_calls_commitment_public_statement)
     check("sparse post_root == independent full re-projection", t_post_root_matches_full_reprojection)
     check("withdrawal membership against the settled sparse root", t_withdrawal_membership)
     check("tampered transition root rejected", t_tampered_transition_rejected)

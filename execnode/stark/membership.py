@@ -151,21 +151,26 @@ def _transitions():
     return [c_s1, c_s0, c_ab, c_carry, c_dirbit, c_sib, c_dir]
 
 
-def prove_membership(leaf, siblings, dirs, num_queries=stark.NUM_QUERIES):
+def prove_membership(leaf, siblings, dirs, num_queries=stark.NUM_QUERIES, backend=None):
     """Prove the PRIVATE (leaf, siblings, dirs) fold to the returned PUBLIC root. Boundary pins: sponge start
-    (DOM_NODE, IV) at row 0 and the root cell at row D·RPL. Returns (proof, root); proof["D"] is public."""
+    (DOM_NODE, IV) at row 0 and the root cell at row D·RPL. `backend` sets the commitment hash (default; pass
+    backend.RECURSION to make the proof rleaf/rnode-committed → foldable, e.g. the calls-commitment chain).
+    Returns (proof, root); proof["D"] is public."""
     trace, T, D, root = build_trace(leaf, siblings, dirs)
     periodic = _periodic(T, D)
     bnd = [(0, S1, alghash.IV), (0, S0, alghash.DOM_NODE), (0, AB, alghash.DOM_NODE), (D * RPL, S0, root)]
-    proof = stark.prove(trace, _transitions(), bnd, periodic=periodic, max_degree=MAX_DEGREE, num_queries=num_queries)
+    proof = stark.prove(trace, _transitions(), bnd, periodic=periodic, max_degree=MAX_DEGREE,
+                        num_queries=num_queries, backend=backend)
     proof["D"] = D
     return proof, root
 
 
-def verify_membership(proof, root, root_is_known):
+def verify_membership(proof, root, root_is_known, backend=None, num_queries=stark.NUM_QUERIES):
     """Verify a membership proof against the PUBLIC root: the root must be a known anchor, the trace geometry
     must be exactly what the public depth D implies (H-1), and the periodic schedule + boundaries are rebuilt
-    locally — nothing constraint-shaped is taken from the proof. Returns (ok, reason)."""
+    locally — nothing constraint-shaped is taken from the proof. `backend`/`num_queries` must match
+    prove_membership's (num_queries is the verifier's policy — the protocol constant by default). Returns
+    (ok, reason)."""
     if not root_is_known(root):
         return False, "unknown anchor root"
     D, T = proof["D"], proof["T"]
@@ -175,4 +180,5 @@ def verify_membership(proof, root, root_is_known):
         return False, "bad trace geometry"
     periodic = _periodic(T, D)
     bnd = [(0, S1, alghash.IV), (0, S0, alghash.DOM_NODE), (0, AB, alghash.DOM_NODE), (D * RPL, S0, root % F.P)]
-    return stark.verify(proof, _transitions(), bnd, periodic=periodic, max_degree=MAX_DEGREE)
+    return stark.verify(proof, _transitions(), bnd, periodic=periodic, max_degree=MAX_DEGREE,
+                        num_queries=num_queries, backend=backend)

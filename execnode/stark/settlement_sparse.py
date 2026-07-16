@@ -16,7 +16,7 @@ Wiring this in as THE consensus settled root (settle tx state_root, ops/transact
 projection) is the deploy step that rides the reroll (a new state-root scheme = a genesis change; forking cleared).
 """
 from execnode.stark import (field as F, storage_tree as ST, state_transition as SX, exec_state_bind as ESB,
-                            vm_circuit)
+                            vm_circuit, calls_commit as CC)
 from execnode import settlement_proofs as SP, zkvm
 
 DEFAULT_DEPTH = 24                       # sparse-tree depth: 2^24 slot positions (raise toward 2^256 in prod)
@@ -70,8 +70,16 @@ def prove_bound_epoch(pre_contracts, calls, cursor, timestamp=0, beacons=None, b
     net = ESB.net_updates(pre_get, cid_io, depth)
     tr = SX.prove_transition(pre_store, [(k, n) for (k, _o, n) in net], num_queries=num_queries)
     bundle.update(sparse_pre_root=sparse_pre, sparse_post_root=pre_store.root(),
-                  transition=tr, cid_io=cid_io, depth=depth)
+                  transition=tr, cid_io=cid_io, depth=depth,
+                  calls_commitment=CC.calls_commitment(bundle["calls"], cursor, timestamp))
     return bundle
+
+
+def public_statement(bundle):
+    """The O(1)-SHAPED public statement of a bound epoch — three field elements: (calls_commitment,
+    sparse_pre_root, sparse_post_root). A verifier checks calls_commitment against the on-chain calldata's
+    running commitment (O(1)) and the two roots against the settled chain — no per-call data in the statement."""
+    return (bundle["calls_commitment"], bundle["sparse_pre_root"], bundle["sparse_post_root"])
 
 
 def verify_bound_epoch(bundle, num_queries=None):
@@ -86,6 +94,12 @@ def verify_bound_epoch(bundle, num_queries=None):
                                                 row_commit=row_commit)
         if not ok:
             return False, f"epoch proof invalid: {why}", None
+        # the O(1)-shaped public input: the epoch's calls collapse to one commitment (checked against the
+        # calldata's running commitment on-chain). Here we confirm the bundle's commitment matches its calls.
+        if "calls_commitment" in bundle:
+            want = CC.calls_commitment(bundle["calls"], int(bundle["cursor"]), int(bundle.get("timestamp", 0)))
+            if bundle["calls_commitment"] != want:
+                return False, "calls_commitment does not match the epoch's calls", None
         depth = bundle["depth"]
         pre_get = lambda cid, slot: ((bundle["pre_contracts"].get(cid) or {}).get("storage") or {}).get("slots", {}).get(str(int(slot)), 0)
         okb, whyb = ESB.bind_and_verify(bundle["transition"], bundle["sparse_pre_root"], bundle["sparse_post_root"],
