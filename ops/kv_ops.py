@@ -555,6 +555,39 @@ def settlement_del(ns: str, cursor: int, validator: str, state_root: str):
     meta_del(_settle_unique_key(ns, validator, cursor))
 
 
+def _settle_proof_key(ns: str, cursor: int, state_root: str) -> str:
+    """meta key of the on-chain VALIDITY-PROOF marker. A `settle`-with-proof tx whose recursion proof
+    verified DETERMINISTICALLY at block-validation records (ns, cursor, state_root) as proven. This is the
+    committed-state replacement for the old node-local proof cache: settlement_justified reads it, so a
+    validity-proven root justifies WITHOUT a bonded quorum and IDENTICALLY on every node (no fork). Stored
+    as an integer REFCOUNT (not a bool) so it is revert-symmetric even if two validators land a proof for
+    the same (ns, cursor, root) in one block — deleting one leaves the marker set while the other stands."""
+    return f"settleproof:{ns}:{int(cursor)}:{state_root}"
+
+
+def settlement_proven(ns: str, cursor: int, state_root: str) -> bool:
+    """True iff an on-chain settle-with-proof committed a VERIFIED recursion proof for exactly
+    (ns, cursor, state_root). Pure committed-state read — the cryptography ran once, at the settling
+    block's validation; every node just reads the same marker."""
+    return meta_get_int(_settle_proof_key(ns, cursor, state_root), 0) > 0
+
+
+def settlement_proof_put(ns: str, cursor: int, state_root: str):
+    """Mark (ns, cursor, state_root) validity-PROVEN on-chain (a settle-with-proof tx applied). Refcount++."""
+    k = _settle_proof_key(ns, cursor, state_root)
+    meta_set_int(k, meta_get_int(k, 0) + 1)
+
+
+def settlement_proof_del(ns: str, cursor: int, state_root: str):
+    """Revert settlement_proof_put exactly (rollback). Refcount--; clears the marker at zero."""
+    k = _settle_proof_key(ns, cursor, state_root)
+    n = meta_get_int(k, 0) - 1
+    if n > 0:
+        meta_set_int(k, n)
+    else:
+        meta_del(k)
+
+
 def settlements_for_cursor(ns: str, cursor: int):
     """List (validator, state_root) settlement attestations recorded for (ns, cursor), DUPSORT order."""
     def _do(txn):
@@ -1294,6 +1327,46 @@ def tx_index_del(txid: str, block_number: int, sender: str, recipient: str):
         txn.delete(sender.encode(), dv, db=_dbs()["tx_by_sender"])
         txn.delete(recipient.encode(), dv, db=_dbs()["tx_by_recipient"])
     _write(_do)
+
+
+def index_drop_above(block_number: int) -> int:
+    """Purge every HISTORY-index row recorded ABOVE `block_number`: tx primary, both tx DUPSORT
+    secondaries, and both block-number indexes. RE-ANCHOR REPAIR: a snapshot re-import resets chain
+    state to the checkpoint but (by design) does not ship history indexes — so rows this node wrote on
+    its own ABANDONED fork above the checkpoint survive, and any tx the canonical chain re-mines then
+    trips the at-most-once gate ("Block replays already-mined tx") on every tail block: a permanent
+    sync/production wedge (2026-07-16). One write txn; returns rows removed."""
+    def _do(txn):
+        removed = 0
+        with txn.cursor(db=_dbs()["tx"]) as cur:
+            ok = cur.first()
+            while ok:
+                if _unpack(cur.value()).get("block_number", 0) > block_number:
+                    ok = cur.delete()          # delete positions the cursor on the NEXT row
+                    removed += 1
+                else:
+                    ok = cur.next()
+        for name in ("tx_by_sender", "tx_by_recipient"):
+            with txn.cursor(db=_dbs()[name]) as cur:
+                ok = cur.first()
+                while ok:
+                    bn, _txid = _split_dup_tx_value(cur.value())
+                    if bn > block_number:
+                        ok = cur.delete()
+                        removed += 1
+                    else:
+                        ok = cur.next()
+        with txn.cursor(db=_dbs()["block_by_num"]) as cur:
+            ok = cur.first()
+            while ok:
+                if un_be8(cur.key()) > block_number:
+                    txn.delete(bytes(cur.value()), db=_dbs()["block_by_hash"])
+                    ok = cur.delete()
+                    removed += 1
+                else:
+                    ok = cur.next()
+        return removed
+    return _write(_do)
 
 
 def tx_get(txid: str):

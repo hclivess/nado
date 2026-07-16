@@ -186,14 +186,20 @@ choice is performance, not soundness.
    overflow when RE-EVALUATING the degree-8 exec AIR under sparse periodic gating — fixed by
    `air_ir.gadget_max_degree`, which gives the gadget exactly the `max_degree` headroom the inner AIR needs
    (prover + verifier derive it identically). The wrapper is still committed as CAPABILITY, NOT wired as the
-   authoritative settlement verifier (step 8 open — the fork-safe on-chain-proof path), so nothing on the money
-   path yet depends on it; but the proof it would check is now producible + verifiable at real scale.
-8. **Install the proof-checking `settlement_verifier`** (proof OR quorum; the seam + `register_epoch_proof`
-   exist). OPEN QUESTION before flipping it on: the current `settlement_verifier(zkvm_root_of_state)` shape
-   justifies a (ns, cursor) whose proof matches the local zkVM projection but IGNORES the attested full
-   state_root argument — installing it as-is would let a proven cursor justify ANY claimed root. The binding of
-   claimed-full-root → zkVM projection (or a full-state proof composition) must be decided first; since
-   "proof OR quorum" means an over-accepting verifier bypasses the quorum, this one line stays off until then.
+   authoritative settlement verifier UNTIL step 8; the proof it checks is producible + verifiable at real scale.
+8. ✅ **On-chain settle-with-proof — DONE (`ops/transaction_ops.py` `settle` branch, `ops/settlement_ops.py`,
+   `ops/kv_ops.py`, `tests/test_settle_with_proof.py`).** A `settle` tx MAY carry the recursion bundle; EVERY
+   node verifies it deterministically at block-validation — at the PROTOCOL query strength (never the bundle's
+   own count), binding the proof's `post_root` to the tx's attested `state_root`, its `cursor` to `exec_cursor`,
+   and its `pre_root` to the namespace's committed settled tip (`EXEC_GENESIS_ROOT` for the first settlement, so
+   a proof can never start from a fabricated pre-state). On success it records the on-chain marker
+   `kv_ops.settlement_proven`, and `settlement_ops.settlement_justified` accepts a root when that marker is set
+   OR the bonded quorum is met — both PURE functions of committed on-chain state, so no node diverges (this is
+   what makes it fork-safe: the old node-local `_EPOCH_PROOFS`/`settlement_verifier` callback — which would have
+   forked a node that had a proof from one that didn't — is REMOVED). The soundness hole flagged here before
+   (a verifier that ignored the attested full root) is closed: the exact `state_root` is the binding.
+   Universal rule, no activation gate; the proof must fit the same universal `MAX_PEER_BODY` block bound every
+   tx does, which ties its practicality to proof SIZE — the §5b authoritative-depth frontier.
 9. ✅ **Succinct (T-independent) verify — BUILT.** Two layers:
    **(a) Structured periodic in the core** (`stark._per_expand`/`_per_evaluator`, `tests/test_stark_periodic.py`).
    A periodic column may be `{"period": p, "base": [p values], "sparse": [(row, val)]}`: the verifier evaluates
@@ -255,13 +261,24 @@ public-statement rebuild + throughput), NOT a new soundness primitive. Tracked a
 
 **BUILT + measured (`execnode/stark/recursion_depth.py`, `tests/test_recursion_depth.py`):** the LOW-DEGREE
 depth tree — `fold_tree`/`verify_tree` over the `out_backend=RECURSION` enabler (`fri_verify.prove_fold`) that
-makes a fold proof itself rleaf/rnode-committed and thus foldable. A fold-of-folds ROOT was proven and
-**verified in ~0.2 s** — a recursion proof verifying recursion proofs, with O(1) verification regardless of tree
-depth (the goal). The PROVE side is throughput-bound exactly as §6/§7 warn (a level-1 fold measured at N=131072,
-~19 min pure Python — the recursion LDE outgrows the native NTT cap), so `test_recursion_depth` validates the
-enabler + foldability fast and gates the full fold-of-folds step behind `NADO_HEAVY=1`. This is the LOW-DEGREE
-tree; the AUTHORITATIVE (per-level composition-bound) tree and the exec-AIR wiring are the remaining plumbing,
-and the Rust prover is the throughput prerequisite for deep trees.
+makes a fold proof itself rleaf/rnode-committed and thus foldable. A fold-of-folds ROOT was proven, and a
+single fold node **verifies in ~0.2 s** — a recursion proof verifying recursion proofs.
+
+**Honest accounting of the O(1) claim.** A plain fold attests only that its OWN trace is low-degree — NOT that
+the children it folded were themselves valid. So verifying just the root is NOT sound for the low-degree tree:
+`verify_tree` correctly RE-VERIFIES every node (and cross-checks that each parent folds the roots it names),
+which is O(N) *cheap* fold-checks — a big constant-factor win over O(N) *expensive* `stark.verify`s and a bundle
+that shrinks the per-node cost, but NOT asymptotic O(1). **True root-only O(1) requires the AUTHORITATIVE tree:**
+each level must ALSO bind the composition half (prove, in-circuit, that the child proofs' authenticated openings
+satisfy the child AIR — `recursive_verify` applied to the level below, across the fold-AIR and comp-AIR
+together), so the root TRANSITIVELY attests every descendant verified and the verifier checks the root alone.
+That per-level composition binding — a heterogeneous-AIR recursion step with a verifier-rebuilt per-level
+schedule — is the genuine remaining cryptographic frontier (not just wiring), and it is what would shrink the
+settlement proof enough to sit comfortably inside a normal tx (step 8's transport bound). The PROVE side is
+also throughput-bound exactly as §6/§7 warn (a level-1 fold measured at N=131072, ~19 min pure Python — the
+recursion LDE outgrows the native NTT cap), so `test_recursion_depth` validates the enabler + foldability fast
+and gates the full fold-of-folds step behind `NADO_HEAVY=1`; the Rust prover is the throughput prerequisite for
+deep trees.
 
 ## 6. Soundness ledger (what each piece rests on)
 

@@ -176,10 +176,18 @@ def reflect_transaction(transaction, logger, block_height=None, revert=False):
         data = transaction.get("data") or {}
         cursor, root = data["exec_cursor"], data["state_root"]
         ns = data.get("ns", DEFAULT_NS)
+        # A settle-with-proof also records the on-chain VALIDITY marker (validation already verified the proof
+        # deterministically, so a settle tx that reached apply with a `proof` is proven). settlement_justified
+        # then reads this committed marker — the trustless, fork-free replacement for the old node-local cache.
+        proven = "proof" in data
         if revert:
             kv_ops.settlement_del(ns, cursor, sender, root)
+            if proven:
+                kv_ops.settlement_proof_del(ns, cursor, root)
         else:
             kv_ops.settlement_put(ns, cursor, sender, root)
+            if proven:
+                kv_ops.settlement_proof_put(ns, cursor, root)
         return
 
     # --- BRIDGE DEPOSIT (Phase 2): move amount+fee from sender, LOCK `amount` in the escrow, burn the fee.

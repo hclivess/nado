@@ -97,37 +97,11 @@ def t5_wrong_pre_state_rejected():
     ok, why, _ = SP.verify_epoch(bundle, num_queries=NQ)
     assert not ok, "pre-state not matching pre_root must be rejected"
 
-def t6_seam_binds_the_exact_root():
-    """SOUNDNESS: a settlement proof justifies EXACTLY the root it proves, and ONLY that root — the verifier
-    binds to the `state_root` L1 asks about (the old version ignored it and would justify any root at a proven
-    cursor)."""
-    calls = [{"cid": CID_C, "method": "bump", "caller": ALICE, "args": []}]
-    bundle = SP.prove_epoch(_pre(), calls, cursor=321, num_queries=NQ)
-    ok, why = SP.register_epoch_proof("default", bundle, num_queries=NQ)
-    assert ok, why
-    verifier = SP.settlement_verifier()
-    assert verifier("default", 321, bundle["post_root"]), "the proven root must be justified"
-    assert not verifier("default", 321, "some-other-root"), "a DIFFERENT root must NOT be justified (soundness)"
-    assert not verifier("default", 999, bundle["post_root"]), "no proof for that cursor -> not justified"
-    # optional local-projection cross-check: proven root must also equal the projection
-    v_ok = SP.settlement_verifier(lambda ns, cur: bundle["post_root"])
-    assert v_ok("default", 321, bundle["post_root"])
-    v_bad = SP.settlement_verifier(lambda ns, cur: "different-projection")
-    assert not v_bad("default", 321, bundle["post_root"]), "projection mismatch -> not justified"
-
-def t7_install_into_settlement_ops():
-    """The verifier plugs into the real ops.settlement_ops seam without error."""
-    from ops import settlement_ops
-    calls = [{"cid": CID_C, "method": "bump", "caller": ALICE, "args": []}]
-    bundle = SP.prove_epoch(_pre(), calls, cursor=77, num_queries=NQ)
-    SP.register_epoch_proof("default", bundle, num_queries=NQ)
-    settlement_ops.set_settlement_verifier(SP.settlement_verifier())
-    try:
-        # binds to the exact proven root (see the CONSENSUS-DETERMINISM caveat before installing on a live net)
-        assert settlement_ops._PROOF_VERIFIER("default", 77, bundle["post_root"])
-        assert not settlement_ops._PROOF_VERIFIER("default", 77, "whatever-l1-root")
-    finally:
-        settlement_ops.set_settlement_verifier(None)
+#  The settlement SEAM is no longer a node-local verifier callback — proof authority moved ON-CHAIN (a
+#  settle-with-proof tx verified deterministically at block-validation, recorded via kv_ops.settlement_proven,
+#  read by settlement_ops.settlement_justified). That full tx→validate→apply→justified flow, its exact-root
+#  binding, chain-extension, tamper rejection, and revert symmetry live in tests/test_settle_with_proof.py
+#  (which stands up a DB harness). This file stays focused on the pure proof mechanics above.
 
 
 def t8_segmented_settlement():
@@ -153,8 +127,6 @@ if __name__ == "__main__":
     check("forged post_root rejected", t3_tampered_post_root_rejected)
     check("tampered log rejected", t4_tampered_log_rejected)
     check("wrong pre-state rejected", t5_wrong_pre_state_rejected)
-    check("settlement seam binds the EXACT proven root (soundness)", t6_seam_binds_the_exact_root)
-    check("installs into ops.settlement_ops seam", t7_install_into_settlement_ops)
     check("segmentation removes the epoch cap (multi-segment == single)", t8_segmented_settlement)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

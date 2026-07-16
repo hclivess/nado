@@ -375,14 +375,22 @@ def construct_dividend_withdraw_tx(keydict, amount, nonce, proof, max_block):
     return tx
 
 
-def construct_settle_tx(keydict, exec_cursor, state_root, max_block, ns=DEFAULT_NS):
+def construct_settle_tx(keydict, exec_cursor, state_root, max_block, ns=DEFAULT_NS, proof=None):
     """Build a SIGNED execution-layer settlement attestation: recipient 'settle', data
-    {exec_cursor, state_root[, ns]}, fee-exempt (fee 0). Posted by a bonded validator running an exec node.
-    `ns` names the rollup namespace; the default namespace is omitted from `data` so default-layer settle txs
-    stay byte-identical to the pre-namespace format."""
+    {exec_cursor, state_root[, ns][, proof]}, fee-exempt (fee 0). Posted by a bonded validator running an
+    exec node. `ns` names the rollup namespace; the default namespace is omitted from `data` so default-layer
+    settle txs stay byte-identical to the pre-namespace format.
+
+    `proof` (optional) is the succinct recursion settlement bundle (execnode.settlement_proofs.prove_settlement
+    _o1). When present, EVERY node verifies it deterministically at block-validation and, on success, the root
+    is settled TRUSTLESSLY (no bonded quorum needed) — see validate_transaction's `settle` branch. The proof's
+    pre_root must extend the namespace's committed settled tip (or EXEC_GENESIS_ROOT for the first settlement),
+    its cursor must equal exec_cursor, and its post_root must equal state_root."""
     d = {"exec_cursor": int(exec_cursor), "state_root": state_root}
     if ns != DEFAULT_NS:
         d["ns"] = ns
+    if proof is not None:
+        d["proof"] = proof
     tx = {"sender": keydict["address"], "recipient": "settle", "amount": 0,
           "timestamp": get_timestamp_seconds(),
           "data": d,
@@ -800,6 +808,29 @@ def validate_transaction(transaction, logger, block_height):
         acc = get_account(transaction["sender"], create_on_error=False)
         assert acc and acc.get("bonded", 0) >= B_MIN, "Settle sender is not a bonded validator"
         assert not kv_ops.settlement_exists(ns, cursor, transaction["sender"]), "Validator already settled this (ns, exec_cursor)"
+        proof = data.get("proof")
+        if proof is not None:
+            # PHASE-2b VALIDITY SETTLEMENT — a universal, deterministic consensus rule (NO activation gate, no
+            # block-height special-casing): the carried recursion bundle must PROVE exactly this checkpoint and
+            # STRICTLY EXTEND the namespace's settled chain, verified identically on every node. On success this
+            # tx settles the root TRUSTLESSLY at apply-time (kv_ops.settlement_proof_put), no bonded quorum needed.
+            from ops.settlement_ops import latest_settled
+            from execnode import settlement_proofs as SP
+            from protocol import EXEC_GENESIS_ROOT
+            assert isinstance(proof, dict), "Settle proof must be an object"
+            # CHAIN: pre_root must be the namespace's committed settled tip (EXEC_GENESIS_ROOT before the first
+            # settlement) — a proof can never start from a fabricated pre-state, and only one settlement extends
+            # the tip per block (the tip is read from pre-block committed state).
+            _tip_cursor, tip_root = latest_settled(ns)
+            expected_pre = tip_root if tip_root is not None else EXEC_GENESIS_ROOT
+            assert proof.get("pre_root") == expected_pre, "Settle proof pre_root must extend the settled tip"
+            assert int(proof.get("cursor", -1)) == cursor, "Settle proof cursor must equal exec_cursor"
+            # Verify at the PROTOCOL query strength (None ⇒ fri.NUM_QUERIES — never the bundle's own word) and
+            # deterministically (Fiat-Shamir transcript, integer field arithmetic, bit-identical hash): the ONE
+            # recursion bundle re-establishes every segment STARK, so no re-execution of the epoch.
+            ok, why, post = SP.verify_settlement_o1(proof)
+            assert ok, f"Settle proof invalid: {why}"
+            assert post == root, "Settle proof post_root must equal state_root"
     elif recipient == "bridge":
         # BRIDGE DEPOSIT (Phase 2): lock L1 coins into escrow; an exec node credits the sender exec-side.
         assert transaction["amount"] > 0, "Bridge deposit amount must be positive"
@@ -1013,10 +1044,19 @@ def validate_transaction(transaction, logger, block_height):
 
 
 def sort_transaction_pool(transactions: list, key="txid") -> list:
-    """sorts list of dictionaries based on a dictionary value"""
-    return sorted(
-        sort_list_dict(transactions), key=lambda transaction: transaction[key]
-    )
+    """dedup + sort a tx list by `key` (txid). Dedup is BY TXID, not by deep content — every pooled tx
+    passed validate_txid (the txid is the content hash), so txid-equality IS content-equality; the old
+    sort_list_dict deep-froze the full posw payloads (~36 KiB/tx) on a per-second consensus path, which
+    starved the event loop at mempool scale. Output is identical for validated inputs."""
+    seen = set()
+    unique = []
+    for transaction in transactions:
+        k = transaction[key]
+        if k in seen:
+            continue
+        seen.add(k)
+        unique.append(transaction)
+    return sorted(unique, key=lambda transaction: transaction[key])
 
 
 def get_transactions_of_account(account, min_block: int, limit: int = 1000):

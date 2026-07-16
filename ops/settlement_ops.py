@@ -4,36 +4,21 @@ validators' settlement attestations. A (exec_cursor, state_root) is SETTLED when
 attesting it strictly exceed SETTLE_NUM/SETTLE_DEN of the total bonded shares — the same stake-quorum
 shape as FFG-lite finality (ops/attestation_ops). Pure, deterministic, integer-only over committed state.
 
-This module IS the pluggable verifier seam. settlement_justified() is the single predicate L1 uses to
-accept an execution-layer state root. Phase-2a implements it as a bonded-stake quorum; Phase-2b can
-replace it with verification of ONE succinct validity proof (a STARK over the blob→state transition)
-behind the exact same signature — nothing else in L1 changes.
+settlement_justified() is the single predicate L1 uses to accept an execution-layer state root. It is
+justified TWO ways, both pure functions of committed on-chain state (so every node agrees — no fork):
+  • VALIDITY PROOF (Phase-2b, trustless): a `settle`-with-proof tx carried a succinct recursion proof that
+    every node verified DETERMINISTICALLY at block-validation, recording the on-chain marker
+    kv_ops.settlement_proven(ns, cursor, root). One proven root justifies with NO quorum.
+  • BONDED QUORUM (Phase-2a, liveness floor): bonded shares attesting the same (cursor, root) exceed
+    SETTLE_NUM/SETTLE_DEN of the ACTIVE settler shares (the participation-windowed inactivity leak).
+The proof path is checked first (cheapest + trustless); the quorum path keeps settlement live when no proof
+has landed yet. The old node-local verifier callback is GONE — proof authority now lives on-chain, where
+transaction-validation reads (cross-msg / dividend / unshield / bridge exit) stay deterministic by construction.
 """
 from ops import kv_ops
 from ops.account_ops import get_bonded_registry
 from ops.mining_ops import total_bonded_shares, selection_shares
 from protocol import SETTLE_NUM, SETTLE_DEN, DEFAULT_NS, SETTLE_ACTIVITY_CURSORS
-
-# PHASE-2b SEAM. A validity-proof verifier can be registered here to justify a settled root WITHOUT a bonded
-# quorum: a callable (ns, cursor, state_root) -> bool that checks a single succinct STARK over the
-# blob→state transition. Default None ⇒ Phase-2a bonded-quorum only. When set, a root is justified if the
-# proof verifies OR the quorum is met (proof-preferred, quorum as liveness fallback during rollout).
-#
-# ⚠️ CONSENSUS-DETERMINISM (why this is still None on the live net). settlement_justified feeds latest_settled,
-# which is read during TRANSACTION VALIDATION (cross-msg / dividend / unshield claims), so it must be a
-# deterministic function of ON-CHAIN state on every node. A verifier that reads node-local proof-ingestion
-# state (execnode.settlement_proofs._EPOCH_PROOFS) would make latest_settled diverge between a node that has a
-# proof and one that doesn't — a FORK. A safe install therefore requires the settlement proof to be committed
-# ON-CHAIN (a `settle`-with-proof tx whose bounded O(1) proof every node verifies deterministically at
-# block-validation time), not just a registered callback. Flipping THIS variable is the last line; making it
-# safe is the settle-with-proof + fast-prover work (doc/zk-recursion.md, doc/settlement-layer.md).
-_PROOF_VERIFIER = None
-
-
-def set_settlement_verifier(fn):
-    """Install (or clear, with None) the Phase-2b validity-proof verifier. fn(ns, cursor, state_root)->bool."""
-    global _PROOF_VERIFIER
-    _PROOF_VERIFIER = fn
 
 
 def active_settler_shares(ns: str, bonded_registry: dict) -> int:
@@ -51,17 +36,14 @@ def active_settler_shares(ns: str, bonded_registry: dict) -> int:
 
 
 def settlement_justified(ns: str, cursor: int, state_root: str, bonded_registry: dict) -> bool:
-    """True when (ns, cursor, state_root) is justified: a Phase-2b validity proof verifies (if a verifier is
-    installed) OR the bonded shares attesting it STRICTLY EXCEED SETTLE_NUM/SETTLE_DEN of the ACTIVE
-    settler shares (the inactivity leak above — the denominator was ALL bonded stake, which froze
-    settlement, and with it every dividend/bridge/unshield claim, as soon as non-settling validators
-    bonded past 1/3). Integer comparison (attesting*SETTLE_DEN > total*SETTLE_NUM) — no floats."""
-    if _PROOF_VERIFIER is not None:
-        try:
-            if _PROOF_VERIFIER(ns, cursor, state_root):
-                return True
-        except Exception:
-            pass   # a broken/absent proof falls through to the bonded-quorum path (never blocks settlement)
+    """True when (ns, cursor, state_root) is justified: an ON-CHAIN validity-proof marker is set for it
+    (a settle-with-proof verified deterministically at block-validation) OR the bonded shares attesting it
+    STRICTLY EXCEED SETTLE_NUM/SETTLE_DEN of the ACTIVE settler shares (the inactivity leak above — the
+    denominator was ALL bonded stake, which froze settlement, and with it every dividend/bridge/unshield
+    claim, as soon as non-settling validators bonded past 1/3). Both branches read only committed on-chain
+    state, so the result is identical on every node. Integer comparison (attesting*SETTLE_DEN > total*SETTLE_NUM)."""
+    if kv_ops.settlement_proven(ns, cursor, state_root):
+        return True   # trustless: a recursion proof was verified on-chain for exactly this root
     total = active_settler_shares(ns, bonded_registry)
     if total == 0:
         return False

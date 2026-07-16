@@ -434,47 +434,9 @@ def verify_epoch(bundle, num_queries=None, check_proof=True):
 
 
 # ---- settlement-seam integration ------------------------------------------------------------------
-_EPOCH_PROOFS = {}          # (ns, cursor) -> verified post_root  (populated as bundles arrive + verify)
-
-
-def register_epoch_proof(ns, bundle, num_queries=None):
-    """Verify an epoch bundle and, if valid, record its (ns, cursor)->post_root so the installed settlement
-    verifier can justify that root. Returns (ok, reason). This is what an exec node calls when it receives a
-    settlement proof for its namespace (the transport — a blob op or a gossip endpoint — is separate).
-    `num_queries` = the verifier's policy (None ⇒ the protocol constant; never the bundle's word)."""
-    ok, why, post_root = verify_epoch(bundle, num_queries=num_queries)
-    if ok:
-        _EPOCH_PROOFS[(ns, int(bundle["cursor"]))] = post_root
-    return ok, why
-
-
-def settlement_verifier(zkvm_root_of_state=None):
-    """Build the fn(ns, cursor, state_root)->bool to hand to ops.settlement_ops.set_settlement_verifier.
-
-    SOUNDNESS (fixed 2026-07-16): the proof justifies **exactly the root L1 asks about** — it returns True iff a
-    verified epoch bundle recorded for (ns, cursor) proved `post_root == state_root`. The old version ignored
-    `state_root` and compared the proven root to a *local projection* (`zkvm_root_of_state`), so it would
-    green-light ANY root at a cursor where a valid proof existed — a hole, since `settlement_justified` accepts
-    the root it is handed. `state_root` is now the binding; `zkvm_root_of_state`, if given, is only an optional
-    belt-and-suspenders cross-check that the proven root also equals the node's local zkVM projection.
-
-    ⚠️ CONSENSUS-DETERMINISM — READ BEFORE `set_settlement_verifier(...)`. `settlement_justified` feeds
-    `latest_settled`, which is used in **transaction validation** (cross-msg / dividend / unshield claims), so
-    it MUST be a deterministic function of ON-CHAIN state on every node. `_EPOCH_PROOFS` is a **node-local**
-    dict (populated when a node happens to receive+verify a proof), so installing this as-is makes
-    `latest_settled` diverge between a node that has the proof and one that doesn't → a **chain fork**. A safe
-    install requires the proof to be committed ON-CHAIN (a `settle`-with-proof tx whose O(1) proof every node
-    verifies deterministically at block-validation time — the single bounded verifier the design anticipates),
-    so `_EPOCH_PROOFS` must be replaced by an on-chain marker before this is registered on a multi-node net.
-    Until then it stays UNINSTALLED and the bonded quorum governs."""
-    def _verify(ns, cursor, state_root):
-        want = _EPOCH_PROOFS.get((ns, int(cursor)))
-        if want is None or want != state_root:                 # bind to the EXACT root L1 asks about
-            return False
-        if zkvm_root_of_state is not None:                     # optional local-projection cross-check
-            try:
-                return want == zkvm_root_of_state(ns, int(cursor))
-            except Exception:
-                return False
-        return True
-    return _verify
+# There is NO node-local verifier callback any more. Settlement-proof authority lives ON-CHAIN: a
+# `settle`-with-proof transaction carries a bundle produced by prove_settlement_o1 (below); every node
+# verifies it deterministically at block-validation (ops.transaction_ops, the `settle` branch, calls
+# verify_settlement_o1 at the protocol query strength) and records kv_ops.settlement_proven(ns, cursor,
+# root). ops.settlement_ops.settlement_justified reads that committed marker — so a validity-proven root is
+# justified identically on every node, with no _EPOCH_PROOFS cache to diverge and fork the chain.

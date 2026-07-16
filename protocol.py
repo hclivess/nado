@@ -98,9 +98,12 @@ BRIDGE_ESCROW = "bridge"          # the escrow pseudo-account holding all bridge
 # execution-layer checkpoint {exec_cursor, state_root} (fee-exempt duty, like `attest`). When the bonded
 # shares attesting the SAME (exec_cursor, state_root) exceed SETTLE_NUM/SETTLE_DEN of total bonded shares,
 # L1 treats that root as the CANONICAL SETTLED execution-layer state (objective, stake-backed) — upgrading
-# the execution layer from sovereign (Phase 1) to SETTLED. This is the pluggable verifier seam: the
-# bonded-quorum check here is Phase-2a; a single succinct VALIDITY PROOF (STARK) can replace the quorum in
-# Phase-2b behind the same interface (settlement_ops.settlement_justified). 2/3 stake quorum, like FFG.
+# the execution layer from sovereign (Phase 1) to SETTLED. Phase-2b is now LIVE ALONGSIDE the quorum: a
+# `settle` tx MAY carry a succinct recursion VALIDITY PROOF, which every node verifies deterministically at
+# block-validation and records as an on-chain marker (kv_ops.settlement_proven); settlement_ops.settlement_
+# justified accepts a root when that marker is set OR the bonded quorum is met (proof = trustless finality,
+# quorum = liveness floor). Both are pure functions of committed on-chain state, so no node ever diverges.
+# 2/3 stake quorum, like FFG.
 SETTLE_NUM = 2
 SETTLE_DEN = 3
 # SETTLEMENT INACTIVITY LEAK (the participation-windowed quorum pattern, like the FFG duty committee): the quorum
@@ -115,6 +118,15 @@ SETTLE_DEN = 3
 # for the whole window (~2.4h at 6s blocks; systemd restarts make that an outage, not an accident).
 # The optimistic fraud proof (doc/dividend-fraud-proof.md) is the planned trust upgrade on top.
 SETTLE_ACTIVITY_CURSORS = 1440
+
+# The exec-layer GENESIS state root every namespace's settled chain extends from. A settle-with-proof for a
+# namespace with no prior settled tip must carry a proof whose pre_root is EXACTLY this — so the very first
+# settlement cannot start from a fabricated pre-state (the same strict chaining every later settlement gets
+# by extending the committed tip). It is zkvm_root({}) — the Merkle root of the EMPTY zkVM-storage projection
+# — because the exec layer boots with no zkVM contracts (they are deployed post-genesis by ordinary calls).
+# Hardcoded (protocol.py stays a leaf: no execnode import); tests/test_settle_with_proof.py asserts it still
+# equals execnode.settlement_proofs.zkvm_root({}) so a hash change can never silently desync this constant.
+EXEC_GENESIS_ROOT = "6ab2f848c39c8acaacf66fc0c8124f4d01f2577ae728229c023c04472cfc52f1"
 
 # --- CONSENSUS-LOAD AGGREGATION (doc/consensus-aggregation.md — the O(N)-messages scaling fix) ---
 # 1. MERGED DUTY TX: a bonded validator's whole per-epoch consensus participation — FFG attest(X) +
