@@ -5,10 +5,14 @@
  * bot), or the game's terminal/blocked status. The python driver submits the move with the right key.
  * Usage: node tests/stormhold_next_move.mjs <gameId> <cid> [seed] [execUrl]
  */
-import { prng, randomMove } from "./stormhold_bot.mjs";
+import { prng, randomMove, randomMoveHidden } from "./stormhold_bot.mjs";
 const E = await import("../static/stormhold-engine.js");
 
-const [g, cid, seedArg, exec] = [process.argv[2], process.argv[3], process.argv[4] || "1", process.argv[5] || "http://127.0.0.1:9273"];
+// argv: g cid [seed] [execUrl] [x1 x2]  — x1/x2 (both secrets) switch the oracle to HIDDEN mode: it
+// replays in exact verify mode (the E2E driver plays both sides, so it legitimately knows both) and
+// emits claim-carrying hidden encs.
+const [g, cid, seedArg, exec, x1, x2] = [process.argv[2], process.argv[3], process.argv[4] || "1",
+  process.argv[5] || "http://127.0.0.1:9273", process.argv[6], process.argv[7]];
 const out = (o) => { console.log(JSON.stringify(o)); process.exit(0); };
 const J = async (u) => (await fetch(u)).json();
 
@@ -26,10 +30,14 @@ const heights = [kh, kh + 1, ...recs.flatMap((r) => [r.rh, r.rh + 1])];
 const bh = (await J(`${exec}/exec/blockhash?ns=default&provisional=1&heights=${[...new Set(heights)].join(",")}`)).hashes || {};
 const qOf = (h) => (bh[String(h)] && bh[String(h + 1)]) ? BigInt("0x" + bh[String(h)]) + BigInt("0x" + bh[String(h + 1)]) : null;
 
-const st = E.replay(Number(g), qOf(kh), recs.map((r) => ({ enc: r.enc, side: r.side, q: qOf(r.rh) })));
+const hidden = x1 != null && x2 != null;
+const cfg = m("cfg")[g] || 0;
+const st = hidden
+  ? E.verifyHidden(Number(g), qOf(kh), recs.map((r) => ({ enc: r.enc, side: r.side, q: qOf(r.rh) })), cfg, [BigInt(x1), BigInt(x2)])
+  : E.replay(Number(g), qOf(kh), recs.map((r) => ({ enc: r.enc, side: r.side, q: qOf(r.rh) })), cfg);
 if (st.setup || st.blocked) out({ blocked: true, at: st.blockedAt });
-if (st.corrupt) out({ corrupt: true, why: st.corruptWhy });
-if (st.over) out({ over: true, result: st.result, vp: [E.scoreOf(st, 0), E.scoreOf(st, 1)], mc });
-const mv = randomMove(st, prng((Number(seedArg) * 7919 + mc) >>> 0));
+if (st.corrupt) out({ corrupt: true, why: st.corruptWhy, cheater: st.cheater || 0 });
+if (st.over) out({ over: true, result: st.result, vp: [E.scoreOf(st, 0), E.scoreOf(st, 1)], mc, kingdom: st.kingdom });
+const mv = (hidden ? randomMoveHidden : randomMove)(st, prng((Number(seedArg) * 7919 + mc) >>> 0));
 out({ actor: mv.side - 1, enc: mv.enc, ply: mc, phase: st.phase, frames: st.frames.length,
-      vp: [E.scoreOf(st, 0), E.scoreOf(st, 1)] });
+      vp: [E.scoreOf(st, 0), E.scoreOf(st, 1)], kingdom: st.kingdom });
