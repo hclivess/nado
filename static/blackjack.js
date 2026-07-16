@@ -4,9 +4,7 @@
 // to rig. Your cards bind to future blocks at deal/hit time; every card is stored on-chain (pc/dk maps)
 // so the exact hand reconstructs from chain state alone. Win pays 2×, push refunds, natural blackjack
 // 5:2; European no-hole-card timing. See tests/test_blackjack_contract.py.
-import { NadoDapp, rawToNado, nadoToRaw, _m, $, base, gate, canPay, orderCards, alertBar, notify,
-         lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort,
-         randId, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
 import { chainCards, cardHTML, injectCardCSS, bjTotal } from "./cards.js";
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
@@ -312,11 +310,12 @@ const pDealerTotal = () => bjTotal([pState.up].concat(pState.dealer));
 function pFinish(res, pay) { pState.done = true; pState.res = res; if (pay) prac.addChips(pay); pracRender(); }
 function pDeal() {
   const bet = parseInt($("pStake").value, 10) || 0;
-  if (!prac.canBet(bet, notify)) return;
+  if (!prac.canBet(bet, notify)) return false;
   prac.addChips(-bet);
   pState = { bet, cards: [pDraw(), pDraw()], up: pDraw(), dealer: [], done: false, res: 0 };
-  if (bjTotal(pState.cards).natural) return pFinish(3, Math.floor(bet * 5 / 2));   // reveal pays 5:2 instantly — the dealer never plays (contract)
+  if (bjTotal(pState.cards).natural) { pFinish(3, Math.floor(bet * 5 / 2)); return true; }   // reveal pays 5:2 instantly — the dealer never plays (contract)
   pracRender();
+  return true;
 }
 function pHit() {
   pState.cards.push(pDraw());
@@ -354,6 +353,7 @@ function pracRender() {
   if (!s.done) {
     if (s.cards.length < 11) mk(window.t("bj.hit", "🂠 Hit"), pHit, false);
     mk(window.t("bj.stand", "✋ Stand on {n}", { n: pt.total }), pStand, true);
-  } else mk("↻ " + window.t("sdk.prNewGame", "New practice game"), () => { pState = null; pracRender(); }, true);
+  } else mk("↻ " + window.t("sdk.prDealAgain", "Deal again — {n} play chips", { n: s.bet }),
+    () => { if (!pDeal()) { pState = null; pracRender(); } }, true);   // redeal in place — never collapse the felt
 }
 if ($("pDeal")) { $("pDeal").onclick = pDeal; pracRender(); }

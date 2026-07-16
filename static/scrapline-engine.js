@@ -87,8 +87,6 @@ export function init(g, khQ) {
   };
 }
 
-export const legalActor = (st) => null;   // draft is concurrent — both players may move (UI/tests gate on rounds)
-
 export function applyMove(st, side, enc) {
   if (st.corrupt) return;
   if (st.over) return corrupt(st, "move after game over");
@@ -127,7 +125,6 @@ export function applyMove(st, side, enc) {
 // Deciseconds 1..900. Items fire when (t + slot) % cd == 0. Burn: every 10ds take `stacks` damage, then
 // stacks-1. Meltdown after 600ds: both take escalating damage every 10ds. SPARK weapons deal DOUBLE to a
 // shielded target; spc2 pierces shields; spc3 +50% vs burning; spc4 reflects BLADE hits; spc1 fires twice.
-export function buildFighter(st, p) { return buildFighterFrom(st.ps[p], p); }
 export function buildFighterFrom(z, p) {
   const items = [];
   let maxhp = z.maxhp, cdCut = 0;

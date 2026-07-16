@@ -2,11 +2,9 @@
 // browser and NEVER touches the chain (no wallet, no stakes, no txs). Games mount a self-contained
 // "🎯 Practice" card built from these primitives, so the real staked game above is never modified:
 //
-//   - prand(seed): deterministic seeded RNG (practice-grade, NOT consensus randomness)
-//   - dailySeed(slug): the shared everyone-gets-the-same-run seed for daily challenges
-//   - Practice(slug): play-money CHIPS bank + persisted run state + local best scores + the shared
-//     header strip (chips balance, reset, "nothing on-chain" note) — all in localStorage
-//   - renderLocalBest(el, rows): the local high-score list (same table.score look as the SDK boards)
+//   - prand(seed) / randomSeed(slug): deterministic seeded RNG (practice-grade, NOT consensus)
+//   - Practice(slug): play-money CHIPS bank + persisted run state + local best scores + W-L-D tally +
+//     the shared header strip (chips balance, reset, "nothing on-chain" note) — all in localStorage
 //
 // i18n: every shared string lives under the sdk.* bundle so new games add ZERO translation keys for
 // the common chrome. The distinction from real play is loud by design (see [[ux-is-priority]]): the
@@ -30,8 +28,6 @@ export function prand(seedStr) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-export const rint = (rnd, n) => Math.floor(rnd() * n);
-export const dailySeed = (slug) => slug + "-daily-" + new Date().toISOString().slice(0, 10);
 export const randomSeed = (slug) => slug + "-rnd-" + Math.random().toString(36).slice(2, 10);
 
 export const START_CHIPS = 1000;
@@ -93,14 +89,4 @@ export class Practice {
       el.appendChild(b);
     }
   }
-}
-
-// renderLocalBest(el, rows): rows = [{label, score}] best-first — the local sibling of renderTopScores.
-export function renderLocalBest(el, rows, empty) {
-  if (!el) return;
-  if (!rows.length) { el.innerHTML = '<span class="dim">' + (empty || T("prNoBests", "No practice scores yet.")) + "</span>"; return; }
-  el.innerHTML = '<table class="score"><thead><tr><th>#</th><th>' + T("prWhen", "Run") + "</th><th>"
-    + T("score", "Score") + "</th></tr></thead><tbody>"
-    + rows.slice(0, 8).map((r, i) => "<tr><td>" + (i + 1) + "</td><td>" + r.label + '</td><td class="pos">' + r.score + "</td></tr>").join("")
-    + "</tbody></table>";
 }

@@ -37,7 +37,7 @@ export class DuelGame {
     const slug = dapp.app.replace(/\W+/g, "").toLowerCase();
     this.LS_G = "nado_" + slug + "_games";
     this.MAPS = ["wr", "mv", "mh", "mc", "p2", "nn", "a1", "a2", "kh", "dl"].concat(cfg.appendMaps || []);
-    this.active = null; this.last = null; this.lastSto = null; this.eng = null; this.haveState = false;
+    this.active = null; this.last = null; this.lastSto = null; this.eng = null;
     this.pendingMove = null; this.armed = null;
     this.lastMi = -1; this.lastDrawOffer = null; this.nudgeJoin = false;
     this.knownGames = new Set();
@@ -65,18 +65,12 @@ export class DuelGame {
   }
   _pracBot() {
     if (!this.eng || this.eng.setup || this.eng.blocked) return;
+    // runs while the bot may legally act and it isn't strictly the player's turn — covers both
+    // turn-based games (turnOf 1) and concurrent drafts (turnOf null while the bot still picks)
     let guard = 0;
     while (this.eng && !this.eng.over && !this.eng.corrupt && guard++ < 500
            && this.cfg.canAct(this.eng, 1, this.pracGm())
-           && !(this.cfg.turnOf(this.eng) === 0)) {
-      const enc = this.cfg.botMove.call(this, this.eng, this.practice.recs.length);
-      if (!enc) break;
-      this._pracApply(2, enc);
-    }
-    // concurrent games (turnOf null): let the bot act whenever it legally can
-    guard = 0;
-    while (this.eng && !this.eng.over && !this.eng.corrupt && guard++ < 500
-           && this.cfg.turnOf(this.eng) == null && this.cfg.canAct(this.eng, 1, this.pracGm())) {
+           && this.cfg.turnOf(this.eng) !== 0) {
       const enc = this.cfg.botMove.call(this, this.eng, this.practice.recs.length);
       if (!enc) break;
       this._pracApply(2, enc);
@@ -182,7 +176,7 @@ export class DuelGame {
     const rid = rematchId(this.active);
     const sto = await dapp.storage({ append: this.MAPS });
     const rg = sto ? this.gameHead(sto, rid) : null;
-    this.active = rid; this.resetLocal(); this.haveState = false; $("joinId").value = String(rid);
+    this.active = rid; this.resetLocal(); $("joinId").value = String(rid);
     const G = this.lsLoad();
     if (rg && rg.exists && rg.nn === 1 && !rg.settled) {
       G[rid] = { role: "p2", stake: stake.toString(), ts: Date.now() }; this.lsSave(G);
@@ -251,7 +245,6 @@ export class DuelGame {
             this.eng = this.cfg.rebuild.call(this, ng);
             if (this.eng && this.eng.mi !== this.lastMi) { this.armed = null; this.lastMi = this.eng.mi; if (this.cfg.onAdvance) this.cfg.onAdvance(this.eng); }
           } else this.eng = null;
-          this.haveState = true;
         }
       }
       dapp.settleInflight((f) => {
@@ -291,7 +284,7 @@ export class DuelGame {
       const verb = g.nn < 2 ? T("joinSuffix", " · join") : T("watchSuffix", " · watch");
       return '<button class="chip ' + (g.nn < 2 ? "open" : "live") + '" data-g="' + g.id + '">' + (g.nn < 2 ? this.cfg.icon : "▶") + " #" + g.id + " · " + rawToNado(g.stake) + " NADO" + verb + "</button>";
     }).join(" ") : '<span class="dim">' + T("noGamesLobby", "No games yet — open one above.") + "</span>";
-    el.querySelectorAll(".chip").forEach((b) => b.onclick = () => { this.active = parseInt(b.dataset.g, 10); this.resetLocal(); this.haveState = false; $("joinId").value = b.dataset.g;
+    el.querySelectorAll(".chip").forEach((b) => b.onclick = () => { this.active = parseInt(b.dataset.g, 10); this.resetLocal(); $("joinId").value = b.dataset.g;
       notify(T("gameSelected", "Game #{id} selected.", { id: this.active })); this.refreshActive(); try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {} });
   }
 
@@ -308,7 +301,7 @@ export class DuelGame {
       if (live && this.lastSto) { const gm = this.gameHead(this.lastSto, g); if (gm.exists) tag = gm.settled ? T("tagFinished", " · finished ✓") : gm.nn < 2 ? T("tagWaiting", " · waiting for opponent") : T("tagLive", " · live"); }
       return '<button class="chip' + (live ? "" : " pending") + '" data-g="' + g + '">' + this.cfg.icon + " #" + g + (live ? tag : T("confirmingTag", " · confirming ⏳")) + "</button>"; }).join(" ")
       : '<span class="dim">' + T("noGames", "No games yet.") + "</span>";
-    $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { this.active = parseInt(b.dataset.g, 10); this.resetLocal(); this.haveState = false; this.refreshActive(); });
+    $("recent").querySelectorAll(".chip").forEach((b) => b.onclick = () => { this.active = parseInt(b.dataset.g, 10); this.resetLocal(); this.refreshActive(); });
     this.renderActive();
   }
   // the practice chrome: same card, same cfg.renderGame — chain lifecycle buttons swapped for
@@ -478,7 +471,7 @@ export class DuelGame {
       if (this.eng && this.eng.corrupt) { this.practice = null; this.prac.clearRun(); this.eng = null; }
     }
     const q = new URLSearchParams(location.search).get("game");
-    if (q) { $("joinId").value = q; if (this.active == null) { this.active = parseInt(q, 10); this.haveState = false; } }
+    if (q) { $("joinId").value = q; if (this.active == null) { this.active = parseInt(q, 10); } }
     if (q && !dapp.me) { const sto = await dapp.storage({ append: this.MAPS }); const gm = sto ? this.gameHead(sto, parseInt(q, 10)) : null;
       inviteGate(dapp, { id: parseInt(q, 10), title: this.cfg.inviteTitle,
         body: gm && gm.exists ? this.cfg.inviteBody(gm) : T("inviteBodySignin", "Sign in to join this game."),

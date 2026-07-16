@@ -179,7 +179,8 @@
   "scrap.loading2b": "Loading…",
   "scrap.soloBoardHelp": "Every entry on this board is a replayable proof: the posted run is re-played by your own browser, so a faked score can never appear here.",
   "scrap.scoreboardHead": "🏆 PvP scoreboard",
-  "scrap.loading2": "Loading…"
+  "scrap.loading2": "Loading…",
+  "scrap.fightNeedsPicks": "⚔ Fight — {n} salvage offer(s) to resolve first"
  },
  "cs": {
   "scrap.abort": "Nárokovat vrácení (soupeř nehraje)",
@@ -361,7 +362,8 @@
   "scrap.loading2b": "Načítání…",
   "scrap.soloBoardHelp": "Každý záznam na této tabuli je přehratelný důkaz: zveřejněný běh si tvůj vlastní prohlížeč přehraje znovu, takže falešné skóre se sem nikdy nedostane.",
   "scrap.scoreboardHead": "🏆 PvP tabule",
-  "scrap.loading2": "Načítání…"
+  "scrap.loading2": "Načítání…",
+  "scrap.fightNeedsPicks": "⚔ Boj — nejdřív vyřiď {n} nabídku/y šrotu"
  },
  "es": {
   "scrap.abort": "Reclamar reembolso (el rival no juega)",
@@ -543,7 +545,8 @@
   "scrap.loading2b": "Cargando…",
   "scrap.soloBoardHelp": "Cada entrada de esta tabla es una prueba reproducible: tu propio navegador vuelve a reproducir la partida publicada, así que una puntuación falsa nunca puede aparecer aquí.",
   "scrap.scoreboardHead": "🏆 Tabla PvP",
-  "scrap.loading2": "Cargando…"
+  "scrap.loading2": "Cargando…",
+  "scrap.fightNeedsPicks": "⚔ Luchar — primero resuelve {n} oferta(s) de chatarra"
  },
  "pt": {
   "scrap.abort": "Reivindicar reembolso (oponente parou de jogar)",
@@ -725,7 +728,8 @@
   "scrap.loading2b": "Carregando…",
   "scrap.soloBoardHelp": "Cada entrada neste quadro é uma prova reproduzível: a corrida publicada é reexecutada pelo seu próprio navegador, então uma pontuação falsa nunca pode aparecer aqui.",
   "scrap.scoreboardHead": "🏆 Quadro PvP",
-  "scrap.loading2": "Carregando…"
+  "scrap.loading2": "Carregando…",
+  "scrap.fightNeedsPicks": "⚔ Lutar — resolva primeiro {n} oferta(s) de sucata"
  },
  "fr": {
   "scrap.abort": "Réclamer le remboursement (adversaire inactif)",
@@ -907,7 +911,8 @@
   "scrap.loading2b": "Chargement…",
   "scrap.soloBoardHelp": "Chaque entrée de ce tableau est une preuve rejouable : la partie publiée est rejouée par votre propre navigateur, un score truqué ne peut donc jamais apparaître ici.",
   "scrap.scoreboardHead": "🏆 Tableau PvP",
-  "scrap.loading2": "Chargement…"
+  "scrap.loading2": "Chargement…",
+  "scrap.fightNeedsPicks": "⚔ Combattre — résolvez d'abord {n} offre(s) de récup"
  },
  "de": {
   "scrap.abort": "Rückerstattung einfordern (Gegner reagiert nicht)",
@@ -1089,7 +1094,8 @@
   "scrap.loading2b": "Lädt…",
   "scrap.soloBoardHelp": "Jeder Eintrag auf diesem Board ist ein wiederabspielbarer Beweis: Der gepostete Lauf wird von deinem eigenen Browser erneut abgespielt, ein gefälschter Score kann hier also nie erscheinen.",
   "scrap.scoreboardHead": "🏆 PvP-Rangliste",
-  "scrap.loading2": "Lädt…"
+  "scrap.loading2": "Lädt…",
+  "scrap.fightNeedsPicks": "⚔ Kämpfen — erst {n} Schrott-Angebot(e) abhandeln"
  },
  "it": {
   "scrap.abort": "Richiedi il rimborso (avversario fermo)",
@@ -1271,7 +1277,8 @@
   "scrap.loading2b": "Caricamento…",
   "scrap.soloBoardHelp": "Ogni voce di questa classifica è una prova riproducibile: la run pubblicata viene rigiocata dal tuo stesso browser, quindi un punteggio falso non può mai apparire qui.",
   "scrap.scoreboardHead": "🏆 Classifica PvP",
-  "scrap.loading2": "Caricamento…"
+  "scrap.loading2": "Caricamento…",
+  "scrap.fightNeedsPicks": "⚔ Combatti — prima risolvi {n} offerta/e di rottami"
  },
  "ru": {
   "scrap.abort": "Забрать возврат (соперник тянет время)",
@@ -1453,7 +1460,8 @@
   "scrap.loading2b": "Загрузка…",
   "scrap.soloBoardHelp": "Каждая запись на этой доске — воспроизводимое доказательство: опубликованный забег заново проигрывается вашим собственным браузером, поэтому поддельный счёт здесь появиться не может.",
   "scrap.scoreboardHead": "🏆 PvP-таблица",
-  "scrap.loading2": "Загрузка…"
+  "scrap.loading2": "Загрузка…",
+  "scrap.fightNeedsPicks": "⚔ Бой — сначала разберите {n} предложение(я) утиля"
  },
  "zh": {
   "scrap.abort": "领取退款（对手拖延不动）",
@@ -1635,7 +1643,8 @@
   "scrap.loading2b": "加载中…",
   "scrap.soloBoardHelp": "本榜上的每条记录都是可重放的证明：发布的对局会由你自己的浏览器重新回放验证，因此伪造的分数绝不会出现在这里。",
   "scrap.scoreboardHead": "🏆 PvP 排行榜",
-  "scrap.loading2": "加载中…"
+  "scrap.loading2": "加载中…",
+  "scrap.fightNeedsPicks": "⚔ 开战 — 先处理 {n} 个废料补给"
  },
  "ja": {
   "scrap.abort": "返金を請求（相手が停滞）",
@@ -1817,7 +1826,8 @@
   "scrap.loading2b": "読み込み中…",
   "scrap.soloBoardHelp": "このボードの記録はすべて再生可能な証明です。投稿されたランはあなた自身のブラウザで再実行されるため、偽のスコアがここに載ることはありません。",
   "scrap.scoreboardHead": "🏆 PvP スコアボード",
-  "scrap.loading2": "読み込み中…"
+  "scrap.loading2": "読み込み中…",
+  "scrap.fightNeedsPicks": "⚔ 戦う — 先にサルベージ提示{n}件を処理"
  },
  "ko": {
   "scrap.abort": "환불 청구 (상대가 지연 중)",
@@ -1999,7 +2009,8 @@
   "scrap.loading2b": "불러오는 중…",
   "scrap.soloBoardHelp": "이 보드의 모든 기록은 재생 가능한 증명입니다. 올라온 런을 당신의 브라우저가 직접 다시 재생하므로 조작된 점수는 결코 여기에 오를 수 없습니다.",
   "scrap.scoreboardHead": "🏆 PvP 순위표",
-  "scrap.loading2": "불러오는 중…"
+  "scrap.loading2": "불러오는 중…",
+  "scrap.fightNeedsPicks": "⚔ 전투 — 먼저 고철 제안 {n}개를 처리하세요"
  },
  "ar": {
   "scrap.abort": "المطالبة باسترداد المال (الخصم متوقف)",
@@ -2181,7 +2192,8 @@
   "scrap.loading2b": "جارٍ التحميل…",
   "scrap.soloBoardHelp": "كل إدخال في هذه اللوحة إثباتٌ قابل لإعادة التشغيل: يعيد متصفحك بنفسه تشغيل الجولة المنشورة، لذا لا يمكن أبدًا أن تظهر هنا نتيجة مزيّفة.",
   "scrap.scoreboardHead": "🏆 لوحة PvP",
-  "scrap.loading2": "جارٍ التحميل…"
+  "scrap.loading2": "جارٍ التحميل…",
+  "scrap.fightNeedsPicks": "⚔ قاتل — عالج أولاً {n} من عروض الخردة"
  },
  "hi": {
   "scrap.abort": "रिफ़ंड का दावा करें (प्रतिद्वंद्वी रुका हुआ है)",
@@ -2363,7 +2375,8 @@
   "scrap.loading2b": "लोड हो रहा है…",
   "scrap.soloBoardHelp": "इस बोर्ड की हर प्रविष्टि एक री-प्ले होने योग्य प्रमाण है: पोस्ट किया गया रन आपका अपना ब्राउज़र दोबारा चलाकर जाँचता है, इसलिए नकली स्कोर यहाँ कभी नहीं दिख सकता।",
   "scrap.scoreboardHead": "🏆 PvP स्कोरबोर्ड",
-  "scrap.loading2": "लोड हो रहा है…"
+  "scrap.loading2": "लोड हो रहा है…",
+  "scrap.fightNeedsPicks": "⚔ लड़ो — पहले {n} कबाड़ ऑफ़र निपटाएँ"
  },
  "tr": {
   "scrap.abort": "İade talep et (rakip oyalanıyor)",
@@ -2545,7 +2558,8 @@
   "scrap.loading2b": "Yükleniyor…",
   "scrap.soloBoardHelp": "Bu panodaki her kayıt yeniden oynatılabilir bir kanıttır: gönderilen koşu kendi tarayıcın tarafından yeniden oynatılır, bu yüzden sahte bir skor burada asla görünemez.",
   "scrap.scoreboardHead": "🏆 PvP skor tablosu",
-  "scrap.loading2": "Yükleniyor…"
+  "scrap.loading2": "Yükleniyor…",
+  "scrap.fightNeedsPicks": "⚔ Savaş — önce {n} hurda teklifini sonuçlandır"
  },
  "id": {
   "scrap.abort": "Klaim refund (lawan menunda)",
@@ -2727,7 +2741,8 @@
   "scrap.loading2b": "Memuat…",
   "scrap.soloBoardHelp": "Setiap entri di papan ini adalah bukti yang bisa diputar ulang: run yang dikirim diputar ulang oleh browser-mu sendiri, jadi skor palsu tidak akan pernah muncul di sini.",
   "scrap.scoreboardHead": "🏆 Papan skor PvP",
-  "scrap.loading2": "Memuat…"
+  "scrap.loading2": "Memuat…",
+  "scrap.fightNeedsPicks": "⚔ Bertarung — selesaikan dulu {n} tawaran rongsok"
  },
  "vi": {
   "scrap.abort": "Đòi hoàn tiền (đối thủ trì hoãn)",
@@ -2909,6 +2924,7 @@
   "scrap.loading2b": "Đang tải…",
   "scrap.soloBoardHelp": "Mỗi mục trên bảng này là một bằng chứng có thể phát lại: lượt chơi đã đăng sẽ được chính trình duyệt của bạn chạy lại, nên điểm giả không bao giờ xuất hiện ở đây.",
   "scrap.scoreboardHead": "🏆 Bảng điểm PvP",
-  "scrap.loading2": "Đang tải…"
+  "scrap.loading2": "Đang tải…",
+  "scrap.fightNeedsPicks": "⚔ Chiến đấu — xử lý {n} lượt đồ phế liệu trước"
  }
 }

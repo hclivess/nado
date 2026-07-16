@@ -98,7 +98,8 @@
   "sdk.prHelp": "Same game, play chips: nothing touches the chain, no wallet needed. When you're ready for real NADO, use the tables above.",
   "sdk.prPlay": "Play",
   "sdk.prHelpBoard": "Same game vs the computer: nothing touches the chain, no wallet needed. For real stakes, use the game above.",
-  "sdk.prVsCpu": "🎯 Practice vs computer — free, no wallet"
+  "sdk.prVsCpu": "🎯 Practice vs computer — free, no wallet",
+  "sdk.prDealAgain": "Deal again — {n} play chips"
  },
  "cs": {
   "sdk.connect": "Přihlášeno.",
@@ -199,7 +200,8 @@
   "sdk.prHelp": "Stejná hra, cvičné žetony: nic se nedotkne blockchainu, peněženka není potřeba. Až budeš připraven na skutečné NADO, použij stoly výše.",
   "sdk.prPlay": "Hrát",
   "sdk.prHelpBoard": "Stejná hra proti počítači: nic se nedotkne blockchainu, peněženka není potřeba. O skutečné sázky hraj ve hře výše.",
-  "sdk.prVsCpu": "🎯 Trénink proti počítači — zdarma, bez peněženky"
+  "sdk.prVsCpu": "🎯 Trénink proti počítači — zdarma, bez peněženky",
+  "sdk.prDealAgain": "Rozdat znovu — {n} herních žetonů"
  },
  "es": {
   "sdk.connect": "Sesión iniciada.",
@@ -300,7 +302,8 @@
   "sdk.prHelp": "El mismo juego con fichas de práctica: nada toca la cadena, no necesitas wallet. Cuando estés listo para NADO real, usa las mesas de arriba.",
   "sdk.prPlay": "Jugar",
   "sdk.prHelpBoard": "El mismo juego contra la computadora: nada toca la cadena, no necesitas wallet. Para apuestas reales, usa el juego de arriba.",
-  "sdk.prVsCpu": "🎯 Práctica vs computadora — gratis, sin wallet"
+  "sdk.prVsCpu": "🎯 Práctica vs computadora — gratis, sin wallet",
+  "sdk.prDealAgain": "Repartir de nuevo — {n} fichas de práctica"
  },
  "pt": {
   "sdk.connect": "Sessão iniciada.",
@@ -401,7 +404,8 @@
   "sdk.prHelp": "O mesmo jogo com fichas de treino: nada toca a blockchain, sem precisar de carteira. Quando estiver pronto para o NADO de verdade, use as mesas acima.",
   "sdk.prPlay": "Jogar",
   "sdk.prHelpBoard": "O mesmo jogo contra o computador: nada toca a blockchain, sem precisar de carteira. Para apostas reais, use o jogo acima.",
-  "sdk.prVsCpu": "🎯 Treino vs computador — grátis, sem carteira"
+  "sdk.prVsCpu": "🎯 Treino vs computador — grátis, sem carteira",
+  "sdk.prDealAgain": "Dar cartas de novo — {n} fichas de treino"
  },
  "fr": {
   "sdk.connect": "Connecté.",
@@ -502,7 +506,8 @@
   "sdk.prHelp": "Le même jeu avec des jetons d'entraînement : rien ne touche la chaîne, aucun wallet requis. Quand tu es prêt pour du vrai NADO, utilise les tables ci-dessus.",
   "sdk.prPlay": "Jouer",
   "sdk.prHelpBoard": "Le même jeu contre l'ordinateur : rien ne touche la chaîne, aucun wallet requis. Pour de vraies mises, utilise le jeu ci-dessus.",
-  "sdk.prVsCpu": "🎯 Entraînement contre l'ordinateur — gratuit, sans wallet"
+  "sdk.prVsCpu": "🎯 Entraînement contre l'ordinateur — gratuit, sans wallet",
+  "sdk.prDealAgain": "Redistribuer — {n} jetons d'entraînement"
  },
  "de": {
   "sdk.connect": "Angemeldet.",
@@ -603,7 +608,8 @@
   "sdk.prHelp": "Dasselbe Spiel mit Übungschips: nichts berührt die Chain, kein Wallet nötig. Wenn du bereit für echtes NADO bist, nutze die Tische oben.",
   "sdk.prPlay": "Spielen",
   "sdk.prHelpBoard": "Dasselbe Spiel gegen den Computer: nichts berührt die Chain, kein Wallet nötig. Für echte Einsätze nutze das Spiel oben.",
-  "sdk.prVsCpu": "🎯 Übung gegen den Computer — gratis, ohne Wallet"
+  "sdk.prVsCpu": "🎯 Übung gegen den Computer — gratis, ohne Wallet",
+  "sdk.prDealAgain": "Neu geben — {n} Übungschips"
  },
  "it": {
   "sdk.connect": "Accesso effettuato.",
@@ -704,7 +710,8 @@
   "sdk.prHelp": "Lo stesso gioco con fiche di prova: nulla tocca la chain, nessun wallet richiesto. Quando sei pronto per il vero NADO, usa i tavoli qui sopra.",
   "sdk.prPlay": "Gioca",
   "sdk.prHelpBoard": "Lo stesso gioco contro il computer: nulla tocca la chain, nessun wallet richiesto. Per puntate vere usa il gioco qui sopra.",
-  "sdk.prVsCpu": "🎯 Pratica contro il computer — gratis, senza wallet"
+  "sdk.prVsCpu": "🎯 Pratica contro il computer — gratis, senza wallet",
+  "sdk.prDealAgain": "Ridai le carte — {n} gettoni di prova"
  },
  "ru": {
   "sdk.connect": "Вход выполнен.",
@@ -805,7 +812,8 @@
   "sdk.prHelp": "Та же игра на тренировочные фишки: ничего не касается блокчейна, кошелёк не нужен. Когда будешь готов к настоящему NADO — столы выше.",
   "sdk.prPlay": "Играть",
   "sdk.prHelpBoard": "Та же игра против компьютера: ничего не касается блокчейна, кошелёк не нужен. Для реальных ставок — игра выше.",
-  "sdk.prVsCpu": "🎯 Тренировка против компьютера — бесплатно, без кошелька"
+  "sdk.prVsCpu": "🎯 Тренировка против компьютера — бесплатно, без кошелька",
+  "sdk.prDealAgain": "Раздать снова — {n} игровых фишек"
  },
  "zh": {
   "sdk.connect": "已登录。",
@@ -906,7 +914,8 @@
   "sdk.prHelp": "同样的游戏，用练习筹码：完全不上链，无需钱包。准备好玩真正的 NADO 时，请使用上方的牌桌。",
   "sdk.prPlay": "开始",
   "sdk.prHelpBoard": "同样的游戏，对手是电脑：完全不上链，无需钱包。要玩真实赌注，请使用上方的游戏。",
-  "sdk.prVsCpu": "🎯 与电脑练习 — 免费，无需钱包"
+  "sdk.prVsCpu": "🎯 与电脑练习 — 免费，无需钱包",
+  "sdk.prDealAgain": "再发一局 — {n} 练习筹码"
  },
  "ja": {
   "sdk.connect": "サインインしました。",
@@ -1007,7 +1016,8 @@
   "sdk.prHelp": "同じゲームを練習チップで：チェーンには一切触れず、ウォレット不要。本物の NADO の準備ができたら、上のテーブルへ。",
   "sdk.prPlay": "プレイ",
   "sdk.prHelpBoard": "同じゲームをコンピュータ相手に：チェーンには一切触れず、ウォレット不要。実際に賭けるなら上のゲームへ。",
-  "sdk.prVsCpu": "🎯 コンピュータと練習 — 無料、ウォレット不要"
+  "sdk.prVsCpu": "🎯 コンピュータと練習 — 無料、ウォレット不要",
+  "sdk.prDealAgain": "もう一度配る — 練習チップ{n}枚"
  },
  "ko": {
   "sdk.connect": "로그인됨.",
@@ -1108,7 +1118,8 @@
   "sdk.prHelp": "같은 게임을 연습 칩으로: 체인에 아무것도 기록되지 않고 지갑도 필요 없습니다. 진짜 NADO를 즐길 준비가 되면 위의 테이블을 이용하세요.",
   "sdk.prPlay": "플레이",
   "sdk.prHelpBoard": "같은 게임을 컴퓨터와: 체인에 아무것도 기록되지 않고 지갑도 필요 없습니다. 실제 판돈은 위의 게임을 이용하세요.",
-  "sdk.prVsCpu": "🎯 컴퓨터와 연습 — 무료, 지갑 불필요"
+  "sdk.prVsCpu": "🎯 컴퓨터와 연습 — 무료, 지갑 불필요",
+  "sdk.prDealAgain": "다시 딜 — 연습 칩 {n}개"
  },
  "ar": {
   "sdk.connect": "تم تسجيل الدخول.",
@@ -1209,7 +1220,8 @@
   "sdk.prHelp": "اللعبة نفسها بفيشات تدريب: لا شيء يمس السلسلة، ولا حاجة لمحفظة. عندما تكون جاهزًا لـ NADO الحقيقي، استخدم الطاولات أعلاه.",
   "sdk.prPlay": "العب",
   "sdk.prHelpBoard": "اللعبة نفسها ضد الكمبيوتر: لا شيء يمس السلسلة، ولا حاجة لمحفظة. للرهانات الحقيقية استخدم اللعبة أعلاه.",
-  "sdk.prVsCpu": "🎯 تدريب ضد الكمبيوتر — مجاني، بلا محفظة"
+  "sdk.prVsCpu": "🎯 تدريب ضد الكمبيوتر — مجاني، بلا محفظة",
+  "sdk.prDealAgain": "وزّع من جديد — {n} من رقاقات التدريب"
  },
  "hi": {
   "sdk.connect": "साइन इन हो गया।",
@@ -1310,7 +1322,8 @@
   "sdk.prHelp": "वही खेल, प्रैक्टिस चिप्स के साथ: चेन को कुछ नहीं छूता, वॉलेट की ज़रूरत नहीं। असली NADO के लिए तैयार हों तो ऊपर की टेबलें इस्तेमाल करें।",
   "sdk.prPlay": "खेलें",
   "sdk.prHelpBoard": "वही खेल कंप्यूटर के विरुद्ध: चेन को कुछ नहीं छूता, वॉलेट की ज़रूरत नहीं। असली दांव के लिए ऊपर का गेम इस्तेमाल करें।",
-  "sdk.prVsCpu": "🎯 कंप्यूटर के साथ प्रैक्टिस — मुफ़्त, बिना वॉलेट"
+  "sdk.prVsCpu": "🎯 कंप्यूटर के साथ प्रैक्टिस — मुफ़्त, बिना वॉलेट",
+  "sdk.prDealAgain": "फिर से बाँटें — {n} प्रैक्टिस चिप्स"
  },
  "tr": {
   "sdk.connect": "Giriş yapıldı.",
@@ -1411,7 +1424,8 @@
   "sdk.prHelp": "Aynı oyun, deneme çipleriyle: zincire hiçbir şey dokunmaz, cüzdan gerekmez. Gerçek NADO'ya hazır olduğunda yukarıdaki masaları kullan.",
   "sdk.prPlay": "Oyna",
   "sdk.prHelpBoard": "Aynı oyun bilgisayara karşı: zincire hiçbir şey dokunmaz, cüzdan gerekmez. Gerçek bahisler için yukarıdaki oyunu kullan.",
-  "sdk.prVsCpu": "🎯 Bilgisayara karşı deneme — ücretsiz, cüzdansız"
+  "sdk.prVsCpu": "🎯 Bilgisayara karşı deneme — ücretsiz, cüzdansız",
+  "sdk.prDealAgain": "Yeniden dağıt — {n} antrenman fişi"
  },
  "id": {
   "sdk.connect": "Masuk berhasil.",
@@ -1512,7 +1526,8 @@
   "sdk.prHelp": "Permainan yang sama dengan chip latihan: tidak menyentuh chain sama sekali, tanpa wallet. Kalau sudah siap main NADO sungguhan, pakai meja di atas.",
   "sdk.prPlay": "Main",
   "sdk.prHelpBoard": "Permainan yang sama melawan komputer: tidak menyentuh chain sama sekali, tanpa wallet. Untuk taruhan sungguhan, pakai game di atas.",
-  "sdk.prVsCpu": "🎯 Latihan vs komputer — gratis, tanpa wallet"
+  "sdk.prVsCpu": "🎯 Latihan vs komputer — gratis, tanpa wallet",
+  "sdk.prDealAgain": "Bagikan lagi — {n} chip latihan"
  },
  "vi": {
   "sdk.connect": "Đã đăng nhập.",
@@ -1613,6 +1628,7 @@
   "sdk.prHelp": "Cùng một trò chơi với chip tập: không chạm gì tới chuỗi, không cần ví. Khi sẵn sàng chơi NADO thật, hãy dùng các bàn phía trên.",
   "sdk.prPlay": "Chơi",
   "sdk.prHelpBoard": "Cùng một trò chơi đấu với máy: không chạm gì tới chuỗi, không cần ví. Muốn cược thật, hãy dùng trò chơi phía trên.",
-  "sdk.prVsCpu": "🎯 Tập đấu với máy — miễn phí, không cần ví"
+  "sdk.prVsCpu": "🎯 Tập đấu với máy — miễn phí, không cần ví",
+  "sdk.prDealAgain": "Chia lại — {n} chip luyện tập"
  }
 }

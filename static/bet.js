@@ -14,10 +14,7 @@
 // -> every stake refunds 1:1; an unbacked winner auto-voids. Payouts are pull-based (each bettor calls
 // claim). Outcomes are integers 0..nout-1 everywhere. Per-user positions are read through the contract's
 // /exec/view methods (claimable_of etc.) — see the myCache notes below.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay,
-         wireWallet, stickyInputs, renderWallet, statusLabel, disp, resolveAliases,
-         alertBar, notify,
-         loadQR, share, shareInvite } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, wireWallet, stickyInputs, renderWallet, resolveAliases, alertBar, notify, loadQR, share, shareInvite } from "./nadodapp.js";
 
 const CID = "066b76360e669c91d81e57197d0c88e3";   // execnode/games/bet.py (zkVM), deployed by the node key (nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Bet" });

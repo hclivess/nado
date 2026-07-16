@@ -63,5 +63,19 @@ def main():
     open(I18N, "w", encoding="utf-8").write(src)
     print(f"inlined {len(games)} games ({', '.join(games)}) x {len(LANGS)} langs into i18n.js")
 
+
+def bust_pages():
+    """Stamp every static/*.html i18n.js reference with a content hash — Cloudflare caches /static js,
+    so without this the freshly merged bundle never reaches visitors (the 'translations missing' bug)."""
+    import hashlib, re as _re
+    h = hashlib.md5(open(I18N, "rb").read()).hexdigest()[:8]
+    for page in glob.glob(os.path.join(HERE, "..", "*.html")):
+        src = open(page, encoding="utf-8").read()
+        out = _re.sub(r'src="/static/i18n\.js[^"]*"', 'src="/static/i18n.js?v=%s"' % h, src)
+        if out != src:
+            open(page, "w", encoding="utf-8").write(out)
+    print("stamped i18n.js?v=%s into game pages" % h)
+
 if __name__ == "__main__":
     main()
+    bust_pages()
