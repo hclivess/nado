@@ -78,40 +78,44 @@ transition valid?" in O(1) and the chain-extension + fork-choice rules answer "i
 cheaply — so a phone can confirm not just that a history is sound but that it is THE history, without re-running
 any of it. Making that collapse unambiguous and constant-cost is an explicit goal, not an afterthought.
 
-## 6. Throughput — VISA-scale that is VALIDATED, not trusted
+## 6. Throughput — what proofs buy (verification), and what they don't (bandwidth)
 
-**Scale by making validation cheap, not by centralizing trust.** VISA clears tens of thousands of transactions
-a second by asking almost no one to check the work — a handful of trusted operators do, everyone else takes
-their word. A blockchain that copies that shape (a few big sequencers/validators everyone trusts) buys
-throughput by spending the one thing it exists to protect. The four goals above buy the same throughput the
-opposite way: if verifying an epoch is O(1) and independent of what it executed (goals 1 & 4), then a phone
-can keep validating no matter how much execution the network does — so throughput can grow without pricing
-anyone out of verifying. Decentralization survives the scale because checking got cheap, not because trust got
-concentrated.
+**Proofs remove the re-execution bottleneck. They do NOT remove the data bottleneck.** Be precise about this,
+because overclaiming here is how a roadmap starts to read as fantasy. In a re-execution chain every node reruns
+every transaction, so throughput is capped by the slowest validator's CPU. Succinct proofs lift that cap off
+*validation*: a validator checks a proof in O(1) instead of re-executing the work (goals 1 & 4), so a phone can
+confirm an epoch of arbitrary execution without ever having had the CPU to run it. That decouples *verification*
+from *execution* — the real, defensible win, and it is genuinely in the code (`build_epoch_trace` aggregates N
+calls into one proof; `recursive_verify` folds independent epochs; extending the settled tip is an O(1) root
+check, `ops/settlement_ops.settlement_justified`, not a re-run).
 
-The lever is that **proofs decouple global throughput from any single node's capacity.** In a re-execution
-chain, every node must re-run every transaction, so the whole network's throughput is capped at what the
-*slowest* validator can execute. Here, execution and validation are different jobs: execution FANS OUT (many
-provers, many epochs, produced concurrently — nothing forces them through one machine) and validation FANS IN
-(K→1 recursion, goal 3, collapses all of it into one O(1) check). Adding execution capacity raises throughput
-without raising any verifier's burden. Concretely in this repo the pieces already point this way: an epoch is
-already N calls aggregated into ONE proof (`build_epoch_trace`), independent epochs fold with `recursive_verify`,
-and the only thing that is inherently serial is the settled-tip chain — extending it is an O(1) root check
-(`ops/settlement_ops.settlement_justified`), not a re-execution. So the serial bottleneck is a hash comparison,
-not the workload.
+What no proof removes is the cost of the DATA itself. Someone still has to transmit and store the transactions;
+verifying them cheaply doesn't make them cheap to move. VISA-rate transaction data — tens of thousands of tx/s —
+is a large, sustained bandwidth and storage load, well beyond a home connection and nowhere near a phone. So
+"VISA-scale on every node" is not a claim this design makes. The honest scaling story separates two roles a
+re-execution chain wrongly conflates:
 
-The direction we are heading connects this straight back to §5. The many valid tips a proof system admits are,
-viewed together, a DAG of proven transitions: different proposers execute different (equally valid) slices of
-the mempool in parallel, each slice carrying its own succinct proof, referencing the tips it builds on. Nothing
-about validity forces them into a line — the linearization is a separate, cheap step. A DAG-ordered mempool
-(narwhal/DAG-BFT-style: decouple "disseminate + prove availability" from "order") is a natural fit, because the
-expensive part of ordering — "is each of these blocks real and its execution correct?" — is already answered in
-O(1) by the vertex's proof, and admission also requires it to extend a valid settled root (§5). A deterministic
-fork-choice then collapses the whole DAG to one canonical settled history. The width of the DAG (how many
-proposers work in parallel) sets the throughput; the cost to validate any one vertex stays constant no matter
-how wide it gets. We don't need to commit to a specific DAG protocol yet — the point is that the proof stack is
-being built so that when we scale out to many concurrent proposers, validation cost per vertex does not move.
-That is the whole game: VISA-scale numbers with phone-scale validation, and no trusted operator in the middle.
+- **Verification** — deciding the chain is correct. Proofs make this O(1) and data-light: a light client checks
+  the settlement proof and *samples* data availability (downloads a few random pieces, not the whole block) to be
+  convinced the data exists without holding it. This stays cheap for everyone, phones included, however high
+  throughput climbs — so the *right to verify* is never priced out, which is the property that actually keeps a
+  chain decentralized.
+- **Data carrying** — disseminating and storing the transactions. This scales with throughput and is bounded by
+  real bandwidth and disk. It is borne by a smaller set of provisioned producer/data nodes, and the honest way to
+  push it further is engineering, not magic: data-availability sampling to keep light clients cheap, and
+  eventually sharding the data so no single node carries all of it.
+
+So "VISA-scale that is validated, not trusted" means the achievable thing: as throughput rises, the cost to
+*verify* the chain and to *check its data is available* stays flat for every participant — nobody is forced to
+trust a handful of operators — even though the data-carrying nodes are necessarily better-provisioned. VISA-rate
+*validation* on a phone is realistic; VISA-rate *data on every node* is not, and the design says which it delivers.
+
+On the DAG/mempool idea from §5: a DAG of proven transitions is a reasonable way to *order* concurrent proposals
+(narwhal/DAG-BFT-style — decouple "make data available" from "agree on order"), but only among the provisioned
+producer nodes that already carry the data. It does not let a phone ingest the mempool and it does not repeal
+bandwidth limits — it is a throughput technique for the producer layer, and one we are not committing to. The
+part that survives is narrow and solid: because every vertex carries its own O(1) proof, ordering never
+re-imposes an execution cost, so that layer scales with the producers' bandwidth rather than with anyone's CPU.
 
 ---
 
