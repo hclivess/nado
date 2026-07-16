@@ -418,6 +418,136 @@ pub unsafe extern "C" fn sp_open(tree: usize, pos: usize, out_ptr: *mut u64) -> 
     written
 }
 
+// air_ir SSA opcodes — MUST match execnode/stark/air_ir.py (and native/starkcompose).
+const OP_CUR: u32 = 0;
+const OP_NXT: u32 = 1;
+const OP_PER: u32 = 2;
+const OP_CHAL: u32 = 3;
+const OP_CONST: u32 = 4;
+const OP_ADD: u32 = 5;
+const OP_SUB: u32 = 6;
+const OP_MUL: u32 = 7;
+const OP_POW: u32 = 8;
+
+/// Composition polynomial straight from the arena (step 3). Reads the retained LDE columns (trace/aux at arena
+/// indices 0..w, periodic at w..w+nper), computes invZ + boundary denominators + the coset domain IN RUST, runs
+/// the air_ir SSA program over the size-N domain, and RETAINS cp as a new arena column (returns its id; also
+/// writes it to `out_ptr` if non-null). Byte-identical to stark._composition → air_ir.compose_native: the field
+/// inverses are unique so invZ/denominators match regardless of method, and the SSA loop mirrors starkcompose.
+///
+/// # Safety
+/// All pointers must reference the stated element counts; the arena must already hold ≥ w+nper columns.
+#[no_mangle]
+pub unsafe extern "C" fn sp_compose(
+    n_ops: usize, ops: *const u32,
+    n_consts: usize, consts: *const u64,
+    n_out: usize, outputs: *const u32,
+    w: usize, nper: usize, nchal: usize,
+    chals: *const u64,
+    alphas: *const u64,          // n_out + n_bnd
+    n_bnd: usize,
+    bnd_col: *const u32,         // n_bnd
+    bnd_val: *const u64,         // n_bnd
+    bnd_row: *const u64,         // n_bnd (trace-domain row index of each boundary)
+    t: usize, blowup: usize, offset: u64,
+    out_ptr: *mut u64,
+) -> i64 {
+    let mut g = ARENA.lock().unwrap();
+    let arena = match g.as_mut() {
+        Some(a) => a,
+        None => return -1,
+    };
+    let n = arena.n;
+    if n == 0 || t == 0 || w + nper > arena.cols.len() {
+        return -1;
+    }
+    let ops = std::slice::from_raw_parts(ops, n_ops * 3);
+    let consts = std::slice::from_raw_parts(consts, n_consts.max(1));
+    let outputs = std::slice::from_raw_parts(outputs, n_out.max(1));
+    let chals = std::slice::from_raw_parts(chals, nchal.max(1));
+    let alphas = std::slice::from_raw_parts(alphas, n_out + n_bnd);
+    let bnd_col = std::slice::from_raw_parts(bnd_col, n_bnd.max(1));
+    let bnd_val = std::slice::from_raw_parts(bnd_val, n_bnd.max(1));
+    let bnd_row = std::slice::from_raw_parts(bnd_row, n_bnd.max(1));
+
+    // operand-bounds validation (same codes as native/starkcompose)
+    for i in 0..n_ops {
+        let (op, a, b) = (ops[i * 3], ops[i * 3 + 1] as usize, ops[i * 3 + 2] as usize);
+        let bad = match op {
+            OP_CUR | OP_NXT => a >= w,
+            OP_PER => a >= nper,
+            OP_CHAL => a >= nchal,
+            OP_CONST => a >= n_consts,
+            OP_ADD | OP_SUB | OP_MUL => a >= i || b >= i,
+            OP_POW => a >= i,
+            _ => true,
+        };
+        if bad {
+            return 2;
+        }
+    }
+    for &o in outputs.iter().take(n_out) {
+        if (o as usize) >= n_ops {
+            return 3;
+        }
+    }
+    for bi in 0..n_bnd {
+        if (bnd_col[bi] as usize) >= w {
+            return 4;
+        }
+    }
+
+    let omega = rou(n);
+    let g_t = rou(t);
+    let last = powf(g_t, (t - 1) as u64);
+    // g_t^row per boundary (small; dedup would help but the value is what matters, not the count)
+    let grow: Vec<u64> = (0..n_bnd).map(|bi| powf(g_t, bnd_row[bi])).collect();
+
+    let mut cp = vec![0u64; n];
+    let mut temp = vec![0u64; n_ops];
+    let mut x = offset % PU64;
+    for j in 0..n {
+        let jn = (j + blowup) % n;
+        for i in 0..n_ops {
+            let (op, a, b) = (ops[i * 3], ops[i * 3 + 1] as usize, ops[i * 3 + 2] as usize);
+            temp[i] = match op {
+                OP_CUR => arena.cols[a][j],
+                OP_NXT => arena.cols[a][jn],
+                OP_PER => arena.cols[w + a][j],
+                OP_CHAL => chals[a],
+                OP_CONST => consts[a],
+                OP_ADD => addf(temp[a], temp[b]),
+                OP_SUB => subf(temp[a], temp[b]),
+                OP_MUL => mulf(temp[a], temp[b]),
+                OP_POW => powf(temp[a], b as u64),
+                _ => 0,
+            };
+        }
+        // transition part: (Σ_t alpha_t · con_t) · invZ,  invZ = (x - last)/(x^T - 1)
+        let mut acc = 0u64;
+        for k in 0..n_out {
+            acc = addf(acc, mulf(alphas[k], temp[outputs[k] as usize]));
+        }
+        let xt = powf(x, t as u64);
+        let inv_z = mulf(subf(x, last), inv(subf(xt, 1)));
+        let mut v = mulf(acc, inv_z);
+        // boundary part: Σ_b alpha_{nout+b} · (col_b[j] - val_b) / (x - g_t^row_b)
+        for bi in 0..n_bnd {
+            let col = bnd_col[bi] as usize;
+            let diff = subf(arena.cols[col][j], bnd_val[bi]);
+            let invden = inv(subf(x, grow[bi]));
+            v = addf(v, mulf(mulf(alphas[n_out + bi], diff), invden));
+        }
+        cp[j] = v;
+        x = mulf(x, omega);
+    }
+    if !out_ptr.is_null() {
+        std::ptr::copy_nonoverlapping(cp.as_ptr(), out_ptr, n);
+    }
+    arena.cols.push(cp);
+    (arena.cols.len() - 1) as i64
+}
+
 /// Release the arena (free retained columns + trees).
 #[no_mangle]
 pub extern "C" fn sp_free() {

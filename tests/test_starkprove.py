@@ -11,7 +11,7 @@ Run: python3 tests/test_starkprove.py   (build first: cd native/starkprove && ca
 """
 import os, sys, random, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from execnode.stark import field as F, stark, stark_native as SN, merkle, backend as B
+from execnode.stark import field as F, stark, stark_native as SN, merkle, backend as B, air_ir
 
 fails = 0
 def check(name, fn):
@@ -89,6 +89,53 @@ def t_merkle_col_bit_identical():
     SN.free()
 
 
+def _compose_case(W, T, transitions, boundaries, periodic, num_challenges, chals, seed):
+    """Compute cp both ways for one AIR/trace and assert byte-identity. col/per LDEs built the Python way;
+    the arena adds the same columns then runs sp_compose; alphas are shared."""
+    max_degree = 2
+    blowup = stark._blowup(max_degree); N = blowup * T
+    gT = F.primitive_root_of_unity(T)
+    random.seed(seed)
+    trace = [[random.randrange(F.P) for _ in range(W)] for _ in range(T)]
+    prog = air_ir.build_program(transitions, W, len(periodic), num_challenges)
+    alphas = [random.randrange(F.P) for _ in range(len(transitions) + len(boundaries))]
+    col_lde = [stark._coset_evaluate(F.interpolate([trace[i][c] for i in range(T)]), N, stark.OFF)
+               for c in range(W)]
+    per_lde = [stark._coset_evaluate(F.interpolate(stark._per_expand(pc, T)), N, stark.OFF) for pc in periodic]
+    x_lde = F.domain(N, stark.OFF)
+    cp_py = stark._composition(T, W, N, blowup, gT, col_lde, per_lde, x_lde, transitions, boundaries,
+                               alphas, chals if num_challenges else None)
+    SN.reset(T, N, stark.OFF)
+    for c in range(W):
+        SN.lde_column([trace[i][c] for i in range(T)], N, want_out=False)
+    for pc in periodic:
+        SN.lde_column(stark._per_expand(pc, T), N, want_out=False)
+    _, cp_native = SN.compose(prog, boundaries, alphas, chals if num_challenges else [], T, N, blowup)
+    assert cp_native == cp_py, "composition mismatch: first diff " + \
+        str(next(((i, a, b) for i, (a, b) in enumerate(zip(cp_native, cp_py)) if a != b), None))
+    SN.free()
+
+
+def t_compose_single_phase():
+    """Composition from the arena == stark._composition, single-phase, with a structured periodic + boundaries."""
+    PER0 = {"period": 4, "base": [3, 1, 4, 1]}
+    TRANS = [lambda c, n, p: F.sub(n[0], F.add(F.mul(c[0], c[0]), p[0])),
+             lambda c, n, p: F.sub(c[1], F.mul(c[0], c[0]))]
+    BND = [(0, 0, 12345), (0, 1, 6789), (3, 0, 42)]
+    for T in (8, 64, 256):
+        _compose_case(2, T, TRANS, BND, [PER0], 0, [], seed=500 + T)
+
+
+def t_compose_with_challenge():
+    """Exercise the CHAL opcode: a constraint reads a challenge γ; cp matches with challenges passed through."""
+    PER0 = {"period": 4, "base": [3, 1, 4, 1]}
+    TRANS = [lambda c, n, p, ch: F.sub(n[0], F.add(F.mul(c[0], c[0]), p[0])),
+             lambda c, n, p, ch: F.sub(n[2], F.add(c[2], F.mul(ch[0], n[0])))]   # aux-style, γ-weighted
+    BND = [(0, 0, 111), (0, 2, 0)]
+    for T in (8, 64):
+        _compose_case(3, T, TRANS, BND, [PER0], 1, [F.GENERATOR + 7], seed=900 + T)
+
+
 if __name__ == "__main__":
     if not SN.available():
         print("SKIP  native/starkprove not built (cd native/starkprove && cargo build --release). "
@@ -97,5 +144,7 @@ if __name__ == "__main__":
     check("native fused LDE is bit-identical to interpolate+coset_evaluate", t_lde_bit_identical)
     check("arena retains columns + reads back identically", t_arena_retains_and_reads)
     check("native arena Merkle (rleaf/rnode) bit-identical to merkle.commit(RECURSION)", t_merkle_col_bit_identical)
+    check("native arena composition bit-identical to stark._composition (single-phase)", t_compose_single_phase)
+    check("native arena composition bit-identical with a challenge (CHAL opcode)", t_compose_with_challenge)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

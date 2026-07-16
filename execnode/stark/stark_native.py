@@ -50,6 +50,12 @@ def available():
                 lib.sp_commit_col.restype = ctypes.c_int64
                 lib.sp_open.argtypes = [ctypes.c_size_t, ctypes.c_size_t, ctypes.c_void_p]
                 lib.sp_open.restype = ctypes.c_int64
+                lib.sp_compose.argtypes = [
+                    ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p,
+                    ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_size_t,
+                    ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_void_p,
+                    ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_uint64, ctypes.c_void_p]
+                lib.sp_compose.restype = ctypes.c_int64
                 _init_hash(lib)
                 _LIB, _state = lib, True
                 return True
@@ -111,6 +117,43 @@ def open_at(tree_id, pos, path_len):
         raise RuntimeError("sp_open failed")
     flat = list(buf)
     return [tuple(flat[i * _CAP:(i + 1) * _CAP]) for i in range(int(got))]
+
+
+def compose(prog, boundaries, alphas, chals, T, N, blowup, want_out=True):
+    """Composition polynomial from the arena (step 3). The arena must already hold the W trace/aux columns
+    (ids 0..W) then the `nper` periodic-LDE columns (ids W..W+nper), added via lde_column in that order. Reads
+    them + computes invZ/boundary-denominators/domain in Rust; retains cp as a new arena column. Returns
+    (cp_col_id, cp_list or None). Bit-identical to stark._composition → air_ir.compose_native."""
+    u32, u64 = ctypes.c_uint32, ctypes.c_uint64
+    ops = prog["ops"]; consts = prog["consts"]; outputs = prog["outputs"]
+    W, nper, nchal = prog["W"], prog["P"], len(chals)
+    n_ops, n_out, n_bnd = len(ops), len(outputs), len(boundaries)
+    ops_flat = (u32 * (n_ops * 3))()
+    for i, (op, a, b) in enumerate(ops):
+        ops_flat[i * 3] = op; ops_flat[i * 3 + 1] = a % (1 << 32); ops_flat[i * 3 + 2] = b % (1 << 32)
+    def _u64(size, vals):
+        m = max(1, size); a = (u64 * m)(); v = [int(x) % _P for x in vals]; a[:len(v)] = v[:m]; return a
+    consts_a = _u64(len(consts), consts)
+    out_idx = (u32 * max(1, n_out))(); out_idx[:n_out] = list(outputs)
+    chals_a = _u64(nchal, chals)
+    alphas_a = _u64(n_out + n_bnd, alphas)
+    bcol = (u32 * max(1, n_bnd))(); bcol[:n_bnd] = [c for (_r, c, _v) in boundaries]
+    bval = _u64(n_bnd, [v for (_r, _c, v) in boundaries])
+    brow = _u64(n_bnd, [r for (r, _c, _v) in boundaries])
+    outbuf = (u64 * N)() if want_out else None
+    out_ptr = ctypes.cast(outbuf, ctypes.c_void_p) if want_out else None
+    P = lambda x: ctypes.cast(x, ctypes.c_void_p)
+    cid = _LIB.sp_compose(n_ops, P(ops_flat), len(consts), P(consts_a), n_out, P(out_idx),
+                          W, nper, nchal, P(chals_a), P(alphas_a), n_bnd, P(bcol), P(bval), P(brow),
+                          int(T), int(blowup), int(stark_OFF()), out_ptr)
+    if cid < 0:
+        raise RuntimeError(f"sp_compose failed (code {cid})")
+    return cid, (list(outbuf) if want_out else None)
+
+
+def stark_OFF():
+    from execnode.stark import stark
+    return stark.OFF % _P
 
 
 def read(col, pos):
