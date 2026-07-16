@@ -67,6 +67,13 @@ PC_CALL = PA + NR                                        # index of the call own
 PT_CALL, PT_IDX, PT_VAL = PC_CALL + 1, PC_CALL + 2, PC_CALL + 3   # args table row: (call, index, value)
 NUM_PERIODIC = PT_VAL + 1
 
+# The epoch-DATA periodic columns — the ones whose SIZE scales with the epoch (fetch/io/args tables + per-row
+# context/args). These are what make a public verify O(epoch): each is a dense length-T column the verifier
+# poly_evals per query. COMMIT them (stark commit_periodic) so the verify opens them O(log N) instead, and bind
+# their roots to the epoch's commitments (io_commitment / calls_commitment) — the O(1)-verify path. The range
+# tables (PB, PS) and the sparse boundary selectors (P_START, P_END) stay public (fixed / structured, cheap).
+COMMIT_PERIODIC = [i for i in range(NUM_PERIODIC) if i not in (PB, PS, P_START, P_END)]
+
 TAG_FETCH = 1 << 32           # bus domain tags (outside every raw table's value range)
 TAG_IO = 1 << 33
 TAG_ARG = 1 << 34
@@ -714,7 +721,8 @@ def _norm_call(call):
     return c
 
 
-def prove_epoch_calls(calls, num_queries=stark.NUM_QUERIES, backend=None, row_commit=False):
+def prove_epoch_calls(calls, num_queries=stark.NUM_QUERIES, backend=None, row_commit=False,
+                      commit_periodic=None):
     """Prove an ORDERED batch of zkVM calls as ONE proof (aggregation). Each call is
     {code, method, caller, args, value?, cursor?, timestamp?, beacons?, block_hashes?, slots?}; `slots` is
     that call's PRE-storage (the caller chains them). Returns (proof, epoch_io, per_call). L1 verifies this
@@ -729,7 +737,7 @@ def prove_epoch_calls(calls, num_queries=stark.NUM_QUERIES, backend=None, row_co
     periodic = build_periodic(blocks, progs, epoch_io, T)
     proof = stark.prove(trace, transitions(), _boundaries(T), periodic=periodic, max_degree=MAX_DEGREE,
                         num_queries=num_queries, aux_spec=_aux_spec(periodic), backend=backend,
-                        row_commit=row_commit)
+                        row_commit=row_commit, commit_periodic=commit_periodic)
     proof["progs"] = [[list(ins) for ins in p] for p in progs]
     proof["blocks"] = [{"start": s, "n": n, "pid": pid} for (s, n, pid, _c) in blocks]
     if backend is not None:
@@ -787,7 +795,8 @@ def epoch_statement(proof, calls, epoch_io):
     return True, "ok", periodic, _boundaries(T)
 
 
-def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES, backend=None, row_commit=False):
+def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES, backend=None, row_commit=False,
+                       commit_periodic=None, periodic_roots=None):
     """Verify a proven epoch WITHOUT executing any call. `calls` is the public statement (code/method/caller/
     args/context per call, in order); `epoch_io` the claimed global I/O log. Returns (ok, reason). The
     periodic tables (programs, log order, per-call context) are rebuilt locally — nothing is trusted from the
@@ -801,7 +810,7 @@ def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES, ba
             backend = _bk.get(proof["backend"])
         return stark.verify(proof, transitions(), bnds, periodic=periodic, max_degree=MAX_DEGREE,
                             num_queries=num_queries, aux_spec=_aux_spec(periodic), backend=backend,
-                            row_commit=row_commit)
+                            row_commit=row_commit, commit_periodic=commit_periodic, periodic_roots=periodic_roots)
     except Exception as e:
         return False, f"malformed statement/proof: {e}"
 
