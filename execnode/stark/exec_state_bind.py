@@ -13,15 +13,29 @@ This is the VERIFIER-side binding (native, O(#io) — the cost of reading the ca
 in-circuit LogUp that folds the derivation into the proof (so verify is O(1)) is the succinctness step on top.
 Key(cid, slot) maps a contract slot to a sparse-tree position deterministically.
 """
-from execnode.stark import field as F
+from execnode.stark import field as F, alghash as A
 from hashing import blake2b_hash
+
+DOM_KVPOS = 5                                    # alghash domain tag for slot positions (disjoint from 1..4)
+
+
+def cid_limbs(cid):
+    """A contract id as 8×32-bit field limbs — the alghash-friendly encoding of its 256-bit id. Deterministic;
+    a hex cid decodes directly, anything else is blake2b-folded first so any id maps into the field cleanly."""
+    try:
+        n = int(str(cid), 16)
+    except ValueError:
+        n = int(blake2b_hash(["cid", str(cid)]), 16)
+    return [(n >> (32 * i)) & 0xFFFFFFFF for i in range(8)]
 
 
 def slot_key(cid, slot, depth):
-    """Deterministic sparse-tree position for a contract slot. blake2b(cid, slot) → the low `depth` bits — a
-    collision-resistant map (a real deployment uses depth ~ 256 so distinct (cid, slot) never share a leaf)."""
-    h = int(blake2b_hash(["kvpos", str(cid), int(slot)]), 16)
-    return h & ((1 << depth) - 1)
+    """Deterministic sparse-tree position for a contract slot, via ALGHASH so the (cid, slot) → position map is
+    ARITHMETIZATION-FRIENDLY (provable in-circuit — the replay proves `key = slot_key(cid, slot)` cheaply, closing
+    the fold-layer io binding). key = alghash.hashn([DOM_KVPOS, cid limbs…, slot]) truncated to `depth` bits; a
+    real deployment uses depth ~ 256 so distinct (cid, slot) never share a leaf."""
+    h = A.hashn([DOM_KVPOS, *cid_limbs(cid), int(slot) % F.P])
+    return int(h) & ((1 << depth) - 1)
 
 
 def net_updates(pre_get, cid_io, depth):
