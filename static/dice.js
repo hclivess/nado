@@ -5,7 +5,7 @@
 //     roll_g = HASH( BLOCKHASH(sh) + BLOCKHASH(sh+1) + seatId ) % 100
 // Once the settle block is final, anyone can settle a seat (it pays the bettor); losing stakes fold into the
 // bankroll so the table keeps rolling. Ordinary upgradable stackvm contract, no game-specific API.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, recentChips, alertBar, notify, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, chainResultAlg, blocksToTime, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, alertBar, notify, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";   // the ONE banked-table reader/lobby (shared by every house game)
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
@@ -13,49 +13,39 @@ const CID = "b37251eb6b8bbeedd3a69cad7d6611a1";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="9" y="9" width="30" height="30" rx="7" fill="#e6edf3" stroke="#243140" stroke-width="2"/>     <circle cx="17" cy="17" r="2.8" fill="#20272f"/><circle cx="31" cy="17" r="2.8" fill="#20272f"/>     <circle cx="24" cy="24" r="2.8" fill="#00ad93"/>     <circle cx="17" cy="31" r="2.8" fill="#20272f"/><circle cx="31" cy="31" r="2.8" fill="#20272f"/></svg>';
 const PN = 100, MMIN = 2, MMAX = 98, EDGE = 99, BLOCK_SECS = 6, ROUND = 20;
 const dapp = new NadoDapp({ cid: CID, app: "Dice" });
-const bg = new BankedGame(dapp, { icon: "🎲" });   // shared table reader (bg.read) + id list (bg.ids)
+const bg = new BankedGame(dapp, { icon: "🎲" });   // shared table reader/actions/lobby/tracking (bg.active = selected table)
 
-const LS_T = "nado_dice_tables", LS_S = "nado_dice_seats";
 let lastSto = null;
-let activeTable = null, lastTable = null, lastSeats = [], target = 50;
+let lastTable = null, lastSeats = [], target = 50;
 let seatsN = 40;   // cap how many of a table's (unbounded) seats we render at once; "Show more" grows it
-let knownTables = new Set(), knownSeats = new Set();
 
-function pruneAndTrack(sto) {
-  knownTables = lsPrune(LS_T, bg.ids(sto));
-  knownSeats = lsPrune(LS_S, Object.keys(_m(sto, "gg")));
-}
 const multOf = (M) => EDGE / M;
 const returnRaw = (stake, M) => BigInt(stake) * BigInt(EDGE) / BigInt(M);
 
 // ---- reads (dice-specific storage schema) --------------------------------------------------------
 const tableFrom = (sto, t) => bg.read(sto, t);
-function seatsOfTable(sto, t) {
-  t = String(t); const gg = _m(sto, "gg"), cur = dapp.cursor, out = [];
-  for (const g of Object.keys(gg)) if (String(gg[g]) === t) {
-    const M = _m(sto, "gm")[g] || 0, gh = _m(sto, "gh")[g] || 0, settled = !!_m(sto, "gd")[g];
-    const s = { g: Number(g), addr: _m(sto, "ga")[g], stake: _m(sto, "gs")[g] || 0, M, gh, settled };
-    if (settled) { const gr = _m(sto, "gr")[g] || 0; s.roll = gr ? gr - 1 : null; s.win = !!_m(sto, "gw")[g]; }
-    else if (cur != null && cur >= gh + 1) { s.roll = chainResultAlg(dapp.bh(gh), dapp.bh(gh + 1), g, PN); s.ready = true; s.win = s.roll != null ? s.roll < M : null; }
-    else { s.pending = true; s.spinsIn = cur != null ? gh - cur : null; }
-    out.push(s);
-  }
-  return out.sort((a, b) => (b.gh - a.gh) || (b.g - a.g));   // newest FIRST by bound block height (seat ids are random, not time-ordered)
-}
+// bg.seats walks the seats + sorts newest-first by bound block height; we add the dice fields (target, roll, win)
+const seatsOfTable = (sto, t) => bg.seats(sto, t, (g, s) => {
+  s.M = _m(sto, "gm")[g] || 0;
+  if (s.settled) { const gr = _m(sto, "gr")[g] || 0; s.roll = gr ? gr - 1 : null; s.win = !!_m(sto, "gw")[g]; }
+  else if (s.ready) { s.roll = chainResultAlg(dapp.bh(s.gh), dapp.bh(s.gh + 1), g, PN); s.win = s.roll != null ? s.roll < s.M : null; }
+  else { s.pending = true; s.spinsIn = dapp.cursor != null ? s.gh - dapp.cursor : null; }
+  return s;
+});
 async function fetchTable(t) { const sto = await dapp.storage({ append: ["gg", "ga", "gs", "gm", "gh", "gr", "gw", "gd"] }); return sto ? tableFrom(sto, t) : null; }
 
 // ---- actions -------------------------------------------------------------------------------------
 function openTable(t, bankrollRaw) {
-  const T = load(LS_T); T[t] = { bankroll: bankrollRaw.toString(), ts: Date.now() }; save(LS_T, T);
-  activeTable = t; $("joinId").value = String(t);
+  // bg.reopen (bg.open with OUR id, same bytecode) — we mint t first so the signing label's #{t} is the real table id
+  bg.reopen(t, bankrollRaw, window.t("dice.callOpen", "bank a dice table #{t} · {amt} NADO", { t, amt: rawToNado(bankrollRaw) }));
+  $("joinId").value = String(t);
   render();
-  dapp.call("open", [t], bankrollRaw, window.t("dice.callOpen", "bank a dice table #{t} · {amt} NADO", { t, amt: rawToNado(bankrollRaw) }), { table: t, phase: "open" });
 }
 function reopenTable() {
-  const T = load(LS_T)[activeTable]; if (!T || !T.bankroll) return;
+  const T = bg.tableRec(bg.active); if (!T || !T.bankroll) return;
   const raw = BigInt(T.bankroll);
   if (!canPay(dapp, raw, "Re-opening this table")) return;
-  openTable(activeTable, raw);
+  openTable(bg.active, raw);
 }
 async function newTable() {
   const raw = nadoToRaw($("bankrollAmt").value);
@@ -65,7 +55,7 @@ async function newTable() {
   openTable(randId(), raw);
 }
 async function doBet() {
-  const t = activeTable;
+  const t = bg.active;
   if (!t) return alertBar(window.t("dice.pickFirst", "Pick a table first."));
   const stake = nadoToRaw($("stakeAmt").value);
   if (!stake) return alertBar(window.t("dice.enterStake", "Enter a stake (NADO)."));
@@ -76,8 +66,8 @@ async function doBet() {
   if (!canPay(dapp, stake, "This roll")) { render(); return; }
   const need = returnRaw(stake, target) - stake;
   if (BigInt(tb.pool) - BigInt(tb.committed) < need) { alertBar(window.t("dice.cantCover1", "This table can't cover a {m}× win right now. Lower your stake or raise your win chance.", { m: multOf(target).toFixed(2) })); render(); return; }
-  const g = randId(), S = load(LS_S);
-  S[g] = { table: t, stake: stake.toString(), M: target, ts: Date.now() }; save(LS_S, S);
+  const g = randId();
+  bg.rememberSeat(g, { table: t, stake: stake.toString(), M: target });   // pin t — bg.active may move during the awaits above
   render();
   dapp.call("bet", [g, t, target], stake, window.t("dice.callBet", "roll under {target} for {amt} NADO · table #{t}", { target, amt: rawToNado(stake), t }), { table: t, seat: g, phase: "bet" });
 }
@@ -85,15 +75,15 @@ function fundTable() {
   const raw = nadoToRaw($("fundAmt").value);
   if (!raw) return alertBar(window.t("dice.enterFund", "Enter an amount to add to this table's bankroll."));
   if (!canPay(dapp, raw, "The top-up")) return;
-  dapp.call("fund", [activeTable], raw, window.t("dice.callFund", "top up table #{t} bankroll · {amt} NADO", { t: activeTable, amt: rawToNado(raw) }), { table: activeTable, phase: "fund" });
+  bg.fund(raw, window.t("dice.callFund", "top up table #{t} bankroll · {amt} NADO", { t: bg.active, amt: rawToNado(raw) }));
 }
-const settleSeat = (g) => dapp.call("settle", [g], null, window.t("dice.callSettle", "collect seat #{g}", { g }), { table: activeTable, phase: "settle" });
+const settleSeat = (g) => dapp.call("settle", [g], null, window.t("dice.callSettle", "collect seat #{g}", { g }), { table: bg.active, phase: "settle" });
 // AUTO-COLLECT a resolved WINNING seat (shared SDK tick — opt-out slider, one-per-refresh, autoTried dedup)
 function maybeAutoSettle() {
   if (!lastTable || !lastTable.exists) return;
   dapp.autoCollect(lastSeats.filter((s) => s.addr === dapp.me && !s.settled && s.ready && s.win), (s) => settleSeat(s.g));
 }
-const closeTable = () => dapp.call("close", [activeTable], null, window.t("dice.callClose", "close table #{t}", { t: activeTable }), { table: activeTable, phase: "close" });
+const closeTable = () => bg.close(window.t("dice.callClose", "close table #{t}", { t: bg.active }));
 
 async function refreshActive() {
   await dapp.refresh();
@@ -101,15 +91,15 @@ async function refreshActive() {
   const sto = await dapp.storage({ append: ["gg", "ga", "gs", "gm", "gh", "gr", "gw", "gd"] });
   if (sto) {
     lastSto = sto;
-    pruneAndTrack(sto);
-    if (activeTable != null) {
-      lastTable = tableFrom(sto, activeTable);
+    bg.track(sto);
+    if (bg.active != null) {
+      lastTable = tableFrom(sto, bg.active);
       const cur = dapp.cursor, need = [];
-      for (const g of Object.keys(_m(sto, "gg"))) if (String(_m(sto, "gg")[g]) === String(activeTable)) {
+      for (const g of Object.keys(_m(sto, "gg"))) if (String(_m(sto, "gg")[g]) === String(bg.active)) {
         const gh = _m(sto, "gh")[g] || 0; if (!_m(sto, "gd")[g] && cur != null && cur >= gh + 1) need.push(gh, gh + 1);
       }
       if (need.length) await dapp.blockHashes(need, { fast: true });   // dice rolls: PUBLIC + on-chain-validated -> provisional (fast) is safe; results show ~one block after the roll instead of waiting out finality
-      lastSeats = seatsOfTable(sto, activeTable);
+      lastSeats = seatsOfTable(sto, bg.active);
     }
     renderLobby(sto); renderScoreboard(boardFrom(sto));
   }
@@ -131,19 +121,14 @@ function boardFrom(sto) {
 }
 const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, window.t("dice.noScores", "No settled rolls yet — be the first on the board."));
 function renderLobby(sto) {
-  const el = $("lobbyList"); if (!el) return;
-  const tables = bg.ids(sto).map((t) => tableFrom(sto, t)).filter((t) => t.exists && !t.closed);
-  tables.sort((a, b) => b.seatCount - a.seatCount || b.id - a.id);
-  const shown = tables.slice(0, 24);
-  el.innerHTML = shown.length ? shown.map((t) => {
+  bg.lobby($("lobbyList"), sto, (t) => {
     const left = t.roundEndsIn != null ? window.t("dice.nextRoll", " · next roll {time}", { time: blocksToTime(t.roundEndsIn) }) : "";
     const rolls = t.seatCount === 1 ? window.t("dice.roll", "roll") : window.t("dice.rolls", "rolls");
-    return '<button class="chip betting" data-t="' + t.id + '">' + window.t("dice.lobbyChip", "🟢 #{id} · bank {bank} · {n} {rolls}{left}", { id: t.id, bank: rawToNado(t.pool), n: t.seatCount, rolls, left }) + "</button>";
-  }).join(" ") : '<span class="dim">' + window.t("dice.noTables", "No tables yet — bank one below.") + "</span>";
-  el.querySelectorAll(".chip").forEach((b) => b.onclick = () => selectTable(parseInt(b.dataset.t, 10)));
+    return window.t("dice.lobbyChip", "🟢 #{id} · bank {bank} · {n} {rolls}{left}", { id: t.id, bank: rawToNado(t.pool), n: t.seatCount, rolls, left });
+  }, selectTable, (a, b) => (b.seatCount - a.seatCount) || (b.id - a.id));   // busiest tables first
 }
 function selectTable(id) {
-  activeTable = id; seatsN = 40; $("joinId").value = String(id);
+  bg.active = id; seatsN = 40; $("joinId").value = String(id);
   notify(window.t("dice.tableSelected", "Table #{id} — set your stake and win chance, then Place roll.", { id }));
   refreshActive();
   try { $("activeGame").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
@@ -190,19 +175,19 @@ function wireUI() {
   dapp.wireAutoCollect();
   $("btnReopen").onclick = reopenTable;
   $("btnFund").onclick = fundTable;
-  $("btnShare").onclick = () => share(base() + "/?table=" + activeTable, window.t("dice.shareText", "Roll at my dice table #{t} on NADO:", { t: activeTable }), $("btnShare"));
+  $("btnShare").onclick = () => share(base() + "/?table=" + bg.active, window.t("dice.shareText", "Roll at my dice table #{t} on NADO:", { t: bg.active }), $("btnShare"));
   $("target").oninput = () => { syncSlider(); render(); };
   dapp.wireStakeSlider(maxBetRaw, () => { syncSlider(); render(); });   // owns stakeAmt input + the % slider + Max
   dapp.wirePctSlider("bankroll", { slider: "bankrollSlider", input: "bankrollAmt" }, () => dapp.exec, render);   // bank a table: % of your playable balance
   dapp.wirePctSlider("fund", { slider: "fundSlider", input: "fundAmt" }, () => dapp.exec, render);   // top up the bankroll: % of your playable balance
 }
 function render() {
-  dapp.reflectUrl("table", activeTable);   // address bar = the shareable link to the selected table
+  dapp.reflectUrl("table", bg.active);   // address bar = the shareable link to the selected table
   dapp.syncPctSlider("bankroll", { slider: "bankrollSlider", input: "bankrollAmt" }, dapp.exec);
   dapp.syncPctSlider("fund", { slider: "fundSlider", input: "fundAmt" }, dapp.exec);
   const signedIn = renderWallet(dapp);
-  gate({ play: signedIn, bankcard: signedIn, bankroll: signedIn, activeGame: activeTable != null });
-  const tb = (activeTable != null && lastTable && lastTable.exists && !lastTable.closed) ? lastTable : null;
+  gate({ play: signedIn, bankcard: signedIn, bankroll: signedIn, activeGame: bg.active != null });
+  const tb = (bg.active != null && lastTable && lastTable.exists && !lastTable.closed) ? lastTable : null;
   const stake = nadoToRaw($("stakeAmt").value);
   const need = stake ? returnRaw(stake, target) - stake : null;
   const covers = !(tb && need != null && (BigInt(tb.pool) - BigInt(tb.committed)) < need);
@@ -210,49 +195,37 @@ function render() {
   const betable = !!tb && !!stake && canAfford && covers;
   if ($("btnBet")) { $("btnBet").disabled = !betable; $("btnBet").classList.toggle("pulse", betable && signedIn); }
   let hint = "";
-  if (signedIn && activeTable != null) {
-    if (!tb && !lastTable?.exists) hint = dapp.whereIs("table", activeTable, (load(LS_T)[activeTable] || {}).ts);
-    else if (lastTable && lastTable.closed) hint = window.t("dice.tableClosedN", "Table #{t} is closed.", { t: activeTable });
+  if (signedIn && bg.active != null) {
+    if (!tb && !lastTable?.exists) hint = dapp.whereIs("table", bg.active, (bg.tableRec(bg.active) || {}).ts);
+    else if (lastTable && lastTable.closed) hint = window.t("dice.tableClosedN", "Table #{t} is closed.", { t: bg.active });
     else if (!stake) hint = window.t("dice.enterStakeHint", "Enter a stake (NADO) and set your win chance, then Place roll — you can bet at your own table too.");
     else if (dapp.exec < stake) hint = window.t("dice.notEnough", "Not enough NADO — this rolls {need} but your exec balance is {have}. Deposit at least {short} more below.", { need: rawToNado(stake), have: rawToNado(dapp.exec), short: rawToNado(stake - dapp.exec) });
     else if (tb && !covers) hint = window.t("dice.cantCover2", "This table's bankroll can't cover a {m}× win (free: {free} NADO). Lower your stake, raise your win chance, or Top up the bankroll.", { m: multOf(target).toFixed(2), free: rawToNado(BigInt(tb.pool) - BigInt(tb.committed)) });
   }
   const jh = $("joinHint"); if (jh) { jh.textContent = hint; jh.classList.toggle("hidden", !hint); }
   syncStakeSlider();   // keep the max-bet slider in step with the table's live free cover
-  const T = load(LS_T), S = load(LS_S), mine = [];
-  for (const t of Object.keys(T)) mine.push({ id: +t, role: "bank", ts: T[t].ts });
-  for (const g of Object.keys(S)) mine.push({ id: S[g].table, seat: g, role: "bet", ts: S[g].ts });
-  mine.sort((a, b) => b.ts - a.ts); const seen = new Set();
-  const shown = mine.filter((x) => {
-    x.live = x.role === "bank" ? knownTables.has(String(x.id)) : knownSeats.has(String(x.seat));
-    x.icon = x.role === "bank" ? "🏦" : "🎲";
-    const k = String(x.id); if (seen.has(k)) return false; seen.add(k); return true;
-  }).slice(0, 8);
-  for (const x of shown) {
-    if (!x.live || !lastSto) continue;
+  bg.recent($("recent"), selectTable, (x) => {   // my banked tables + bets, tagged with what needs me
+    if (!lastSto) return null;
     const tb = tableFrom(lastSto, x.id);
-    if (!tb.exists) continue;
-    if (tb.closed) x.tag = "finished ✓";
-    else {
-      x.tag = "live";
-      const mySeats = seatsOfTable(lastSto, x.id).filter((st) => st.addr === dapp.me);
-      if (mySeats.some((st) => !st.settled && st.ready && st.win)) x.tag = "💰 win to collect";
-      else if (mySeats.some((st) => st.pending)) x.tag = "your bet spins soon";
-    }
-  }
-  recentChips($("recent"), shown, selectTable, "No tables yet.");
+    if (!tb.exists) return null;
+    if (tb.closed) return "finished ✓";
+    const mySeats = seatsOfTable(lastSto, x.id).filter((st) => st.addr === dapp.me);
+    if (mySeats.some((st) => !st.settled && st.ready && st.win)) return "💰 win to collect";
+    if (mySeats.some((st) => st.pending)) return "your bet spins soon";
+    return "live";
+  });
   renderActive();
 }
 function renderActive() {
-  if (activeTable == null) return;
-  const tb = lastTable || {}, T = load(LS_T)[activeTable] || {};
+  if (bg.active == null) return;
+  const tb = lastTable || {}, T = bg.tableRec(bg.active) || {};
   const iAmBank = tb.bank === dapp.me, mySeats = lastSeats.filter((s) => s.addr === dapp.me);
-  $("gameId").textContent = "#" + activeTable;
-  shareInvite("table", activeTable, window.t("dice.shareText", "Roll at my dice table #{t} on NADO:", { t: activeTable }), 180);
+  $("gameId").textContent = "#" + bg.active;
+  shareInvite("table", bg.active, window.t("dice.shareText", "Roll at my dice table #{t} on NADO:", { t: bg.active }), 180);
   $("gBank").textContent = tb.exists ? (disp(tb.bank) + (iAmBank ? window.t("dice.thatsYou", " — that's you (you're the house here)") : "")) : (T.bankroll ? window.t("dice.opening", "you (opening…)") : "—");
   $("gBankroll").textContent = tb.exists ? rawToNado(tb.pool) + " NADO" : (T.bankroll ? rawToNado(T.bankroll) + " NADO" : "—");
   $("gCover").textContent = tb.exists ? window.t("dice.nadoFree", "{amt} NADO free", { amt: rawToNado(BigInt(tb.pool) - BigInt(tb.committed)) }) : "—";
-  let phaseTxt = dapp.whereIs("table", activeTable, T.ts);
+  let phaseTxt = dapp.whereIs("table", bg.active, T.ts);
   if (tb.exists) {
     if (tb.closed) phaseTxt = window.t("dice.phaseClosed", "table closed");
     else phaseTxt = window.t("dice.phaseRolling", "🟢 rolling every {every} — next roll in {next} · {n} {rolls}", { every: blocksToTime(ROUND), next: tb.roundEndsIn != null ? blocksToTime(tb.roundEndsIn) : "…", n: tb.seatCount, rolls: tb.seatCount === 1 ? window.t("dice.roll", "roll") : window.t("dice.rolls", "rolls") });
@@ -293,14 +266,14 @@ function renderActive() {
 
 // ---- boot ----------------------------------------------------------------------------------------
 dapp.onReturn((pend, ok, err) => {
-  if (pend && pend.table != null) activeTable = pend.table;
+  if (pend && pend.table != null) bg.active = pend.table;
   dapp.showReturn(pend, ok, err);
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(window.t("dice.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wireUI(); loadQR(); syncSlider(); orderCards(["activeGame","lobby","play","practice","bankcard","walletcard","bankroll","scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");
-  if (q) { $("joinId").value = q; if (activeTable == null) activeTable = parseInt(q, 10); }
+  if (q) { $("joinId").value = q; if (bg.active == null) bg.active = parseInt(q, 10); }
   render(); refreshActive();
   setInterval(refreshActive, 3000);
 }

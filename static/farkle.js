@@ -3,26 +3,19 @@
 // roll FARKLES your turn. No autoplay. Each roll's randomness is pinned to a FUTURE block hash nobody can
 // predict, so the dice are objective and unriggable. Highest banked score when the table's play window ends
 // takes the whole pot. Built on the shared SDK (nadodapp.js) — matches tests/test_farkle_contract.py exactly.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, orderCards, blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, recentChips, shareInvite, alertBar, notify, loadQR, resolveAliases, disp } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, base, gate, canPay, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, shareInvite, alertBar, notify, loadQR, resolveAliases, disp } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";   // the ONE banked-table reader — farkle overlays its round phases
 import { Practice } from "./practice.js";      // free in-browser practice (solo score-attack, no chain)
 
 const CID = "b56dd48000707369be1630e41bfb038d";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="5" y="21" width="16" height="16" rx="4" fill="#e6edf3" stroke="#243140" stroke-width="1.6"/>     <circle cx="9.5" cy="25.5" r="1.6" fill="#20272f"/><circle cx="16.5" cy="32.5" r="1.6" fill="#20272f"/><circle cx="13" cy="29" r="1.6" fill="#00ad93"/>     <rect x="27" y="21" width="16" height="16" rx="4" fill="#e3b341" stroke="#8a6209" stroke-width="1.6"/>     <circle cx="31.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="31.5" cy="32.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="32.5" r="1.6" fill="#3a2a05"/>     <rect x="16" y="6" width="16" height="16" rx="4" fill="#d0362b" stroke="#8a1a12" stroke-width="1.6"/>     <circle cx="24" cy="14" r="1.9" fill="#fff"/></svg>';
 const dapp = new NadoDapp({ cid: CID, app: "Farkle" });
-const bg = new BankedGame(dapp, { icon: "🎲" });   // shared reader for existence + ta/tp/tn/tz; phases overlaid below
+const bg = new BankedGame(dapp, { icon: GICON, bankIcon: GICON });   // shared reader for existence + ta/tp/tn/tz; phases overlaid below (both recent-chip roles use the dice mark)
 const JOIN = 20, PLAY = 600, GAP = 2, MAXP = 8, TARGET = 4000;   // MUST match the contract
 const BASE = { 1: 1000, 2: 200, 3: 300, 4: 400, 5: 500, 6: 600 };
 
-const LS_T = "nado_farkle_tables", LS_S = "nado_farkle_seats";
 let activeTable = null, lastTable = null, lastSeats = [], lastSto = null;
-let knownTables = new Set(), knownSeats = new Set();
 let keep = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };        // client-side "dice set aside this roll"
-
-function pruneAndTrack(sto) {
-  knownTables = lsPrune(LS_T, Object.keys(_m(sto, "ta")));
-  knownSeats = lsPrune(LS_S, Object.keys(_m(sto, "gg")));
-}
 
 // ---- dice + scoring (mirror of tests/test_farkle_contract.py) -------------------------------------
 const H = (v) => BigInt("0x" + blake2bHash(v));           // vm HASH on a BigInt
@@ -81,6 +74,8 @@ function tableFrom(sto, t) {
   }
   return tb;
 }
+// NOT bg.seats: farkle seats live in the ti[t*16+i] turn-order index (not a gg walk), carry per-ROLL state
+// (gts/ggs/gdl/grh/grn — gh rebinds every roll) with gfin/gsc instead of gd, and sort by seat idx ASC.
 function seatsOfTable(sto, t) {
   t = String(t); const tn = _m(sto, "tn")[t] || 0, out = [];
   for (let i = 0; i < tn; i++) {
@@ -98,10 +93,12 @@ async function fetchTable(t) { const sto = await dapp.storage(); return sto ? ta
 const mySeat = () => lastSeats.find((s) => s.addr === dapp.me);
 
 // ---- actions -------------------------------------------------------------------------------------
+// NOT bg.open: farkle's open signs open(t, g) — the host ALSO takes a seat and antes — and the table record
+// keeps the ANTE (per-player buy-in), not a bankroll. bg.open signs open(t) alone and records { bankroll }.
 function openTable(t, g, anteRaw) {
-  const T = load(LS_T), S = load(LS_S);
-  T[t] = { ante: anteRaw.toString(), ts: Date.now() }; save(LS_T, T);
-  S[g] = { table: t, ts: Date.now() }; save(LS_S, S);
+  const T = load(bg.LS_T);
+  T[t] = { ante: anteRaw.toString(), ts: Date.now() }; save(bg.LS_T, T);
+  bg.rememberSeat(g, { table: t });
   activeTable = t; render();
   dapp.call("open", [t, g], anteRaw, window.t("farkle.callOpen", "open a Farkle table #{t} · ante {a} NADO", { t, a: rawToNado(anteRaw) }), { table: t, seat: g, phase: "open" });
 }
@@ -122,18 +119,20 @@ async function joinTable() {
   await dapp.refresh();
   const ante = BigInt(tb.ante);
   if (!canPay(dapp, ante, "Joining this table")) { render(); return; }
-  const g = randId(), S = load(LS_S); S[g] = { table: t, ts: Date.now() }; save(LS_S, S);
+  const g = randId(); bg.rememberSeat(g, { table: t });
   activeTable = t; render();
   dapp.call("join", [t, g], ante, window.t("farkle.callJoin", "join Farkle table #{t} · ante {a} NADO", { t, a: rawToNado(ante) }), { table: t, seat: g, phase: "join" });
 }
+// NOT bg.reopen: farkle retries with the recorded ANTE via its own open(t, g) (or falls back to a join);
+// bg.reopen would re-sign open(t) with a bankroll — a different call for a different table shape.
 function reopenTable() {   // retry an open/join that didn't confirm (same ante, fresh attempt)
-  const T = load(LS_T)[activeTable];
+  const T = bg.tableRec(activeTable);
   if (T && T.ante) { const raw = BigInt(T.ante); if (!canPay(dapp, raw, "Re-opening this table")) return; openTable(activeTable, randId(), raw); return; }
   // otherwise retry joining
   joinTable();
 }
 async function rematch() {
-  const tb = lastTable || {}, T = load(LS_T)[activeTable] || {};
+  const tb = lastTable || {}, T = bg.tableRec(activeTable) || {};
   const ante = tb.exists ? BigInt(tb.ante) : (T.ante ? BigInt(T.ante) : null);
   if (!ante) return alertBar(window.t("farkle.openFromPanel", "Open a new table from the panel above."));
   await dapp.refresh();
@@ -141,7 +140,7 @@ async function rematch() {
   const rtid = rematchId(activeTable), rt = await fetchTable(rtid);
   if (rt && rt.exists && rt.phase === "join") {   // someone already opened the rematch -> take a seat instead of colliding
     activeTable = rtid; $("joinId").value = String(rtid); render();
-    const g = randId(), S = load(LS_S); S[g] = { table: rtid, ts: Date.now() }; save(LS_S, S);
+    const g = randId(); bg.rememberSeat(g, { table: rtid });
     dapp.call("join", [rtid, g], ante, window.t("farkle.callJoin", "join Farkle table #{t} · ante {a} NADO", { t: rtid, a: rawToNado(ante) }), { table: rtid, seat: g, phase: "join" });
     return;
   }
@@ -162,7 +161,7 @@ async function refreshActive() {
   dapp.settleInflight();   // SDK: retire the optimistic 'confirming…' status once the action lands
   const sto = await dapp.storage();
   if (sto) {
-    lastSto = sto; pruneAndTrack(sto);
+    lastSto = sto; bg.track(sto);
     if (activeTable != null) {
       lastTable = tableFrom(sto, activeTable);
       lastSeats = seatsOfTable(sto, activeTable);
@@ -191,6 +190,8 @@ function boardFrom(sto) {
   return scoreSort(stats);
 }
 const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, window.t("farkle.noTablesBoard", "No finished tables yet — be the first on the board."));
+// NOT bg.lobby: farkle chips need the t0 phase windows (join/play/over via tableFrom, which bg.read lacks),
+// sort join-phase tables first, and only join-phase chips get the "betting" class (bg.lobby styles them all).
 function renderLobby(sto) {
   const el = $("lobbyList"); if (!el) return;
   const tables = Object.keys(_m(sto, "ta")).map((t) => tableFrom(sto, t)).filter((t) => t.exists && !t.closed);
@@ -248,18 +249,16 @@ function wireUI() {
 function render() {
   const signedIn = renderWallet(dapp);
   gate({ play: signedIn, opencard: signedIn, bankroll: signedIn, activeGame: activeTable != null });
-  const T = load(LS_T), S = load(LS_S), mine = [];
-  for (const t of Object.keys(T)) mine.push({ id: +t, role: "host", ts: T[t].ts });
-  for (const g of Object.keys(S)) mine.push({ id: S[g].table, seat: g, role: "seat", ts: S[g].ts });
-  mine.sort((a, b) => b.ts - a.ts); const seen = new Set();
-  const shown = mine.filter((x) => { x.live = x.role === "host" ? knownTables.has(String(x.id)) : knownSeats.has(String(x.seat)); x.icon = GICON; const k = String(x.id); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 8);
-  for (const x of shown) { if (x.live && lastSto) { const tb = tableFrom(lastSto, x.id); if (tb.exists) x.tag = tb.closed ? "finished ✓" : tb.phase === "join" ? "joining" : tb.phase === "play" ? "in play" : "settle!"; } }
-  recentChips($("recent"), shown, selectTable, "No tables yet.");
+  bg.recent($("recent"), selectTable, (x) => {
+    if (!lastSto) return;
+    const tb = tableFrom(lastSto, x.id);
+    if (tb.exists) return tb.closed ? "finished ✓" : tb.phase === "join" ? "joining" : tb.phase === "play" ? "in play" : "settle!";
+  });
   renderActive();
 }
 function renderActive() {
   if (activeTable == null) return;
-  const tb = lastTable || {}, T = load(LS_T)[activeTable] || {}, me = mySeat(), iAmHost = tb.host === dapp.me;
+  const tb = lastTable || {}, T = bg.tableRec(activeTable) || {}, me = mySeat(), iAmHost = tb.host === dapp.me;
   $("gameId").textContent = "#" + activeTable;
   shareInvite("table", activeTable, window.t("farkle.shareMsg", "Join my Farkle table #{t} on NADO:", { t: activeTable }), 180);
   $("gPot").textContent = tb.exists ? rawToNado(tb.pot) + " NADO" : "—";

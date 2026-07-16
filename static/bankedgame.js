@@ -75,6 +75,33 @@ export class BankedGame {
   }
   fund(raw, label) { this.dapp.call("fund", [this.active], raw, label, { table: this.active, phase: "fund" }); }
   close(label, opts) { this.dapp.call("close", [this.active], null, label, { table: this.active, phase: "close" }, opts); }
+  // reopen(t, bankRaw, label): re-bank a CLOSED table id you already own (same id keeps the history/link).
+  reopen(t, bankRaw, label) {
+    const T = lsLoad(this.LS_T); T[t] = { bankroll: bankRaw.toString(), ts: Date.now() }; lsSave(this.LS_T, T);
+    this.active = t;
+    this.dapp.call("open", [t], bankRaw, label, { table: t, phase: "open" });
+    return t;
+  }
+
+  // seats(sto, t, readSeat): the shared per-seat iteration every banked game re-implemented — walk this
+  // table's seats (gg), hand each to readSeat(g, base) where base carries the common fields + phase
+  // (settled / ready-to-resolve / pending), and return them newest-first by bound block height. readSeat
+  // returns the game's enriched seat object (or null/undefined to drop it).
+  seats(sto, t, readSeat) {
+    const gg = _m(sto, "gg"), cur = this.dapp.cursor, out = [];
+    for (const g of Object.keys(gg)) {
+      if (String(gg[g]) !== String(t)) continue;
+      const gh = _m(sto, "gh")[g] || 0, settled = !!_m(sto, "gd")[g];
+      const base = { g: Number(g), table: Number(t), gh, settled,
+        addr: _m(sto, "ga")[g], stake: _m(sto, "gs")[g] || 0,
+        ready: !settled && !!gh && cur != null && cur >= gh + 1,
+        phase: settled ? "settled" : (!!gh && cur != null && cur >= gh + 1) ? "ready" : "pending" };
+      const s = readSeat ? readSeat(g, base, sto) : base;
+      if (s) out.push(s);
+    }
+    out.sort((a, b) => ((b.gh || 0) - (a.gh || 0)) || (b.g - a.g));   // newest FIRST by bound block height
+    return out;
+  }
 
   // ---- discovery: the public lobby + "your tables/seats" chips ----
   lobby(el, sto, chipText, onSelect, sort) {

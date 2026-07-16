@@ -4,7 +4,7 @@
 // alive, trains with a rarity-scaled limit-function success chance, battles other pets for stakes (loser
 // has a 20% chance to die), and transfers between wallets like any NFT. All money moves happen in the
 // contract (execnode/contracts/pets.json); this file is reads + UI + the wallet-signed calls.
-import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shareInvite } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shareInvite, esc } from "./nadodapp.js";
 import * as G from "./pets-genes.js";
 import { loadCrypto } from "./nadotx.js";
 
@@ -12,7 +12,7 @@ const CID = "272faddf8fc7f4fe1bcbe746da8b7839";   // execnode/games/pets.py (zkV
 const dapp = new NadoDapp({ cid: CID, app: "Pets" });
 const BLOCK_SECS = 6, BLOCKS_PER_DAY = 86400 / BLOCK_SECS;
 const LS_P = "nado_pets_mine";                    // {pid: {ts, hatchPending?, trainPending?}} local flags
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
 
 let active = null, activeBattle = null;
 let PETS = {}, BATTLES = {}, OFFERS = {}, hatchPlaying = false, battlePlaying = null;

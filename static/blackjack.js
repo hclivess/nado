@@ -60,7 +60,8 @@ function newTable() {
   const raw = nadoToRaw($("bankrollAmt").value);
   if (!raw) return alertBar(window.t("bj.enterBankroll", "Enter a bankroll (NADO)."));
   if (!canPay(dapp, raw, window.t("bj.whatBank", "Banking this table"))) return;
-  bg.open(raw, window.t("bj.callOpen", "bank a blackjack table #{t} · {amt} NADO", { t: bg.active, amt: rawToNado(raw) }));
+  const t = randId();   // mint the id FIRST — bg.open picks its id after the label is built (stale #{t})
+  bg.reopen(t, raw, window.t("bj.callOpen", "bank a blackjack table #{t} · {amt} NADO", { t, amt: rawToNado(raw) }));
   render();
 }
 async function deal() {

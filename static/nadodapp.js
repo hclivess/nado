@@ -256,6 +256,8 @@ export async function resolveAliases(addrs) {
     catch { _aliasCache[a] = null; }
   }));
 }
+// esc(s): minimal HTML-escaper for user-influenced strings interpolated into innerHTML
+export const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 export const disp = (addr) => !addr ? "—" : (_aliasCache[addr] ? "@" + _aliasCache[addr] : addr.slice(0, 8) + "…" + addr.slice(-4));
 
 // ---- shared UI blocks (every game has these exact elements — keep them in ONE place) --------------

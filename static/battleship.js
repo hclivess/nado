@@ -5,7 +5,7 @@
 // ship count to exactly 17). 17 proven hits sinks the enemy fleet and takes the pot. No oracle, no reveal, no
 // oracle beyond the math — field-native alghash, byte-identical to the zkVM contract's in-VM HASH
 // (execnode/games/battleship.py; every method call is STARK-provable). See tests/test_games_e2e.py.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, notify, orderCards, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, recentChips, inviteGate, loadQR, resolveAliases, disp, share, shareInvite, esc } from "./nadodapp.js";
 import { Practice } from "./practice.js";   // free in-browser practice vs the computer
 
 const CID = "9c3d01b6b70f507ecc0bbf75b0615940";   // execnode/games/battleship.py (zkVM, nonce "a5")
@@ -13,7 +13,7 @@ const dapp = new NadoDapp({ cid: CID, app: "Battleship" });
 const N = 10, CELLS = 100, SHIPS = 17, WINDOW = 600, BLOCK_SECS = 6;
 const FLEET = [5, 4, 3, 3, 2];                 // ship lengths (17 cells)
 const LS_G = "nado_bs_games";                  // gameId -> { role, board:[128], salts:[128 dec-strings], stake, ts }
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
 
 // ---- merkle client (MUST byte-match the zkVM contract, execnode/games/battleship.py):
 //   salt(seed,c) = H(1, seed, c) · leaf(c,ship,salt) = H(2, salt, 2c+ship) · node(L,R,s) = H(3, L, R, s)

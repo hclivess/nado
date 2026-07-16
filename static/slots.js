@@ -5,21 +5,21 @@
 // Symbols come off weighted 64-stop virtual reels; the paytable pays up to 150x (exact RTP 95.796%,
 // full-enumeration-proven — see tests/test_slots_contract.py). The machine's bank commits a 150x cover
 // for every open spin, so it can never welsh. Settle is permissionless; a pruned spin refunds via claim.
-import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, okBar, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, recentChips, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, blake2bHash, _m, $, gate, canPay, orderCards, alertBar, okBar, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";   // the ONE banked-table reader/id-list (shared by every house game)
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
 const CID = "d687d1178219753b9d48b9b8cdf25e1a";
-const GICON = "🎰";
 const dapp = new NadoDapp({ cid: CID, app: "Slots" });
-const bg = new BankedGame(dapp, { icon: "🎰" });   // shared table reader (bg.read) + id list (bg.ids)
+const bg = new BankedGame(dapp, { icon: "🎰", bankIcon: "🎰" });   // shared banked-table SDK (reader/actions/tracking/chips); slots shows 🎰 for banked machines too
 const SPIN_D = 2, MAXM2 = 300, COVER = (MAXM2 - 2) / 2;   // cover per spin = stake * 149
 const SYM = ["🍒", "🍋", "🍊", "🍇", "🔔", "💎", "7️⃣"];
-const LS_T = "nado_slots_machines", LS_S = "nado_slots_spins";
+const LS_S = "nado_slots_spins";
+bg.LS_T = "nado_slots_machines"; bg.LS_S = LS_S;   // keep slots' pre-SDK localStorage keys — existing machine/spin records survive the upgrade
 
-let lastSto = null, activeTable = null, lastTable = null, mySpins = [];
+let lastSto = null, lastTable = null, mySpins = [];
 let lobbyN = 24;   // the lobby is the only discovery path (no go-to-id box), so cap + "Show more" keeps it browsable
-let knownTables = new Set(), knownSeats = new Set(), watch = null, reelAnim = null;
+let watch = null, reelAnim = null;
 
 // ---- derivation (mirror of the contract — display only; settle recomputes it on-chain) --------------
 const H = (v) => BigInt("0x" + blake2bHash(v));
@@ -46,28 +46,23 @@ const machineFrom = (sto, t) => bg.read(sto, t);   // ONE reader — a slot mach
 const maxBet = (mc) => Math.max(0, Math.floor((mc.tk - mc.tc) / COVER));   // biggest bet the bank can 150×-cover (raw)
 const maxBetRaw = () => { const mc = lastTable; return (mc && mc.exists && !mc.closed) ? BigInt(maxBet(mc)) : null; };
 const syncStakeSlider = () => dapp.syncStakeSlider(maxBetRaw(), { label: window.t("slots.betSliderLabel", "bet ") });   // shared SDK slider
-function spinsOf(sto, t) {
-  t = String(t); const gg = _m(sto, "gg"), cur = dapp.cursor, out = [];
-  for (const g of Object.keys(gg)) if (String(gg[g]) === t) {
-    const s = { g: Number(g), addr: _m(sto, "ga")[g], stake: _m(sto, "gs")[g] || 0,
-      gh: _m(sto, "gh")[g] || 0, settled: !!_m(sto, "gd")[g] };
-    if (s.settled) { const gr = _m(sto, "gr")[g] || 0; if (gr) { s.stops = stopsFromGr(gr); s.syms = s.stops.map(symOf); } s.m2 = _m(sto, "gw")[g] || 0; }
-    else if (cur != null && cur >= s.gh + 1) { const r = spinResult(dapp.bh(s.gh), dapp.bh(s.gh + 1), s.g); if (r) { Object.assign(s, r); s.ready = true; } else s.pending = true; }
-    else s.pending = true;
-    out.push(s);
-  }
-  return out.sort((a, b) => (b.gh - a.gh) || (b.g - a.g));   // newest FIRST by bound block height (seat ids are random, not time-ordered)
-}
+// per-seat walk + newest-first sort = bg.seats; slots only enriches with reel stops / payout multiplier.
+// A "ready" spin still needs both block hashes locally — without them it stays pending (bg.ready flips off).
+const spinsOf = (sto, t) => bg.seats(sto, t, (g, s) => {
+  if (s.settled) { const gr = _m(sto, "gr")[g] || 0; if (gr) { s.stops = stopsFromGr(gr); s.syms = s.stops.map(symOf); } s.m2 = _m(sto, "gw")[g] || 0; }
+  else if (s.ready) { const r = spinResult(dapp.bh(s.gh), dapp.bh(s.gh + 1), s.g); if (r) Object.assign(s, r); else { s.ready = false; s.pending = true; } }
+  else s.pending = true;
+  return s;
+});
 
 // ---- actions ---------------------------------------------------------------------------------------
 function openMachine() {
   const raw = nadoToRaw($("bankrollAmt").value);
   if (!raw) return alertBar(window.t("slots.enterBank", "Enter the bank in NADO — the machine can accept bets up to bank ÷ 149 (it must always cover a 150× jackpot)."));
   if (!canPay(dapp, raw, "Banking a machine")) return;
+  // bg.reopen = bg.open with the id chosen by the CALLER — slots picks it up front so the signing label can name it
   const t = randId();
-  const T = load(LS_T); T[t] = { ts: Date.now() }; save(LS_T, T);
-  activeTable = t;
-  dapp.call("open", [t], raw, window.t("slots.openLabel", "open slot machine #{t} · bank {n} NADO", { t, n: rawToNado(raw) }), { table: t, phase: "open" });
+  bg.reopen(t, raw, window.t("slots.openLabel", "open slot machine #{t} · bank {n} NADO", { t, n: rawToNado(raw) }));
 }
 async function doSpin() {
   const mc = lastTable; if (!mc || !mc.exists) return;
@@ -77,17 +72,17 @@ async function doSpin() {
   if (raw > BigInt(mb)) return alertBar(window.t("slots.bankCap", "This machine's bank can only cover bets up to {n} NADO right now (every spin reserves a 150× jackpot cover).", { n: rawToNado(mb) }));
   if (!canPay(dapp, raw, "This spin")) return;
   const g = randId();
-  const S = load(LS_S); S[g] = { table: activeTable, ts: Date.now() }; save(LS_S, S);
-  dapp.call("spin", [g, activeTable], raw, window.t("slots.spinLabel", "🎰 spin machine #{t} · {n} NADO", { t: activeTable, n: rawToNado(raw) }), { table: activeTable, seat: g, phase: "spin" });
+  bg.rememberSeat(g);
+  dapp.call("spin", [g, bg.active], raw, window.t("slots.spinLabel", "🎰 spin machine #{t} · {n} NADO", { t: bg.active, n: rawToNado(raw) }), { table: bg.active, seat: g, phase: "spin" });
 }
 const settleSpin = (g, m2, stake) => dapp.call("settle", [g], null,
-  (m2 > 0 ? window.t("slots.collectLabel", "💰 collect {n} NADO", { n: rawToNado(BigInt(stake) * BigInt(m2) / 2n) }) : window.t("slots.finishLabel", "finish spin #{g}", { g })), { table: activeTable, seat: g, phase: "settle" });
-const claimSpin = (g) => dapp.call("claim", [g], null, window.t("slots.refundLabel", "refund pruned spin #{g}", { g }), { table: activeTable, seat: g, phase: "settle" });
+  (m2 > 0 ? window.t("slots.collectLabel", "💰 collect {n} NADO", { n: rawToNado(BigInt(stake) * BigInt(m2) / 2n) }) : window.t("slots.finishLabel", "finish spin #{g}", { g })), { table: bg.active, seat: g, phase: "settle" });
+const claimSpin = (g) => dapp.call("claim", [g], null, window.t("slots.refundLabel", "refund pruned spin #{g}", { g }), { table: bg.active, seat: g, phase: "settle" });
 function fundMachine() {
   const raw = nadoToRaw($("fundAmt").value);
   if (!raw) return alertBar(window.t("slots.enterFund", "Enter how much NADO to add to the bank."));
   if (!canPay(dapp, raw, "Topping up the bank")) return;
-  dapp.call("fund", [activeTable], raw, window.t("slots.fundLabel", "top up machine #{t} · {n} NADO", { t: activeTable, n: rawToNado(raw) }), { table: activeTable, phase: "fund" });
+  bg.fund(raw, window.t("slots.fundLabel", "top up machine #{t} · {n} NADO", { t: bg.active, n: rawToNado(raw) }));
 }
 // AUTO-SETTLE via the shared SDK tick (opt-out slider, one-per-refresh, autoTried dedup). As the bank:
 // settle ANY ready spin on my machine (pays winners, frees my cover). Otherwise: settle my OWN ready spins.
@@ -103,7 +98,7 @@ function collectWins() {
   if (!w.length) return;
   settleSpin(w[0].g, w[0].m2, w[0].stake);   // one tx per settle; the button re-offers the next on return
 }
-const closeMachine = () => dapp.call("close", [activeTable], null, window.t("slots.closeLabel", "close machine #{t} — cash the bank out", { t: activeTable }), { table: activeTable, phase: "close" }, { confirm: 1 });
+const closeMachine = () => bg.close(window.t("slots.closeLabel", "close machine #{t} — cash the bank out", { t: bg.active }), { confirm: 1 });
 
 // ---- refresh ---------------------------------------------------------------------------------------
 async function refreshAll() {
@@ -112,19 +107,12 @@ async function refreshAll() {
   const sto = await dapp.storage({ append: ["gg", "ga", "gs", "gh", "gr", "gw", "gd"] });
   if (sto) {
     lastSto = sto;
-    knownTables = lsPrune(LS_T, bg.ids(sto));
-    knownSeats = lsPrune(LS_S, Object.keys(_m(sto, "gg")));
-    if (activeTable != null) {
-      lastTable = machineFrom(sto, activeTable);
+    bg.track(sto);
+    if (bg.active != null) {
+      lastTable = machineFrom(sto, bg.active);
       // FAST provisional hashes: slot results are PUBLIC + re-validated on-chain at settle
-      const cur = dapp.cursor, need = [];
-      for (const g of Object.keys(_m(sto, "gg"))) {
-        if (String(_m(sto, "gg")[g]) !== String(activeTable) || _m(sto, "gd")[g]) continue;
-        const gh = _m(sto, "gh")[g] || 0;
-        if (cur != null && cur >= gh + 1) need.push(gh, gh + 1);
-      }
-      if (need.length) await dapp.blockHashes(need.slice(0, 30), { fast: true });
-      mySpins = spinsOf(sto, activeTable);
+      await bg.prefetchHashes(sto);
+      mySpins = spinsOf(sto, bg.active);
     }
     if (watch) {
       const done =
@@ -160,6 +148,8 @@ function boardFrom(sto) {
   }
   return scoreSort(stats);
 }
+// NOT bg.lobby: slots keeps its own empty-floor copy, a "Show more ({n} more)" counter on the button,
+// and a bank-size sort — bg.lobby hardcodes the generic empty message and plain "Show more".
 function renderLobby(sto) {
   const el = $("lobbyList");
   const ms = bg.ids(sto).map((t) => machineFrom(sto, t)).filter((m) => m.exists && !m.closed);
@@ -172,7 +162,7 @@ function renderLobby(sto) {
     bm.classList.toggle("hidden", ms.length <= lobbyN);
     if (ms.length > lobbyN) bm.textContent = window.t("slots.showMoreN", "Show more ({n} more)", { n: ms.length - lobbyN });
   }
-  if (!el._deleg) { el._deleg = true; el.addEventListener("click", (e) => { const b = e.target.closest(".chip"); if (b) { activeTable = parseInt(b.dataset.t, 10); refreshAll(); } }); }
+  if (!el._deleg) { el._deleg = true; el.addEventListener("click", (e) => { const b = e.target.closest(".chip"); if (b) { bg.active = parseInt(b.dataset.t, 10); refreshAll(); } }); }
 }
 
 // ---- render ----------------------------------------------------------------------------------------
@@ -185,25 +175,17 @@ function setReels(syms, spinning, winning) {
   }
 }
 function render() {
-  dapp.reflectUrl("table", activeTable);   // address bar = the shareable link to the selected machine
+  dapp.reflectUrl("table", bg.active);   // address bar = the shareable link to the selected machine
   dapp.syncPctSlider("bankroll", { slider: "bankrollSlider", input: "bankrollAmt" }, dapp.exec);
   dapp.syncPctSlider("fund", { slider: "fundSlider", input: "fundAmt" }, dapp.exec);
   const signedIn = renderWallet(dapp);
-  gate({ opencard: signedIn, bankroll: signedIn, activeGame: activeTable != null });
-  // my machines / spins chips
-  const T = load(LS_T), Ssto = load(LS_S), mine = [];
-  for (const t of Object.keys(T)) mine.push({ id: +t, role: "bank", ts: T[t].ts });
-  for (const g of Object.keys(Ssto)) mine.push({ id: Ssto[g].table, seat: g, role: "spin", ts: Ssto[g].ts });
-  mine.sort((a, b) => b.ts - a.ts);
-  const seen = new Set();
-  const shown = mine.filter((x) => { x.live = x.role === "bank" ? knownTables.has(String(x.id)) : knownSeats.has(String(x.seat));
-    x.icon = GICON; const k = String(x.id); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 8);
-  recentChips($("recent"), shown, (id) => { activeTable = id; refreshAll(); }, "");
-  if (activeTable == null) return;
+  gate({ opencard: signedIn, bankroll: signedIn, activeGame: bg.active != null });
+  bg.recent($("recent"), (id) => { bg.active = id; refreshAll(); });   // my machines / spins chips
+  if (bg.active == null) return;
   const mc = lastTable || {};
-  $("gameId").textContent = "#" + activeTable;
-  shareInvite("table", activeTable, window.t("slots.shareMsg", "Spin my slot machine #{t} on NADO — up to 150×:", { t: activeTable }), 180);
-  if (!mc.exists) { $("spinVerdict").textContent = dapp.whereIs("machine", activeTable, (load(LS_T)[activeTable] || {}).ts); setReels(null, false, false); return; }
+  $("gameId").textContent = "#" + bg.active;
+  shareInvite("table", bg.active, window.t("slots.shareMsg", "Spin my slot machine #{t} on NADO — up to 150×:", { t: bg.active }), 180);
+  if (!mc.exists) { $("spinVerdict").textContent = dapp.whereIs("machine", bg.active, (bg.tableRec(bg.active) || {}).ts); setReels(null, false, false); return; }
   const iAmBank = mc.bank === dapp.me;
   $("bankTag").textContent = window.t("slots.bankedBy", "— banked by {who}", { who: iAmBank ? window.t("slots.you", "YOU") : disp(mc.bank) }) + (mc.closed ? window.t("slots.closedTag", " · CLOSED") : "");
   $("gBank").textContent = rawToNado(mc.tk) + " NADO" + (mc.tc ? window.t("slots.reserved", " ({n} reserved)", { n: rawToNado(mc.tc) }) : "");
@@ -253,7 +235,7 @@ function render() {
 
 // ---- boot ------------------------------------------------------------------------------------------
 dapp.onReturn((pend, ok, err) => {
-  if (pend && pend.table != null) activeTable = pend.table;
+  if (pend && pend.table != null) bg.active = pend.table;
   if (ok && pend && ["open", "spin", "settle", "close", "fund"].includes(pend.phase)) watch = pend;
   dapp.showReturn(pend, ok, err, {
     open: window.t("slots.openingMsg", "Machine opening — confirming…"), spin: window.t("slots.spinSubmittedMsg", "🎰 Spin submitted — the reels lock to the next blocks…"),
@@ -278,7 +260,7 @@ async function boot() {
   wireUI(); loadQR();
   orderCards(["activeGame", "lobby", "practice", "opencard", "paytableCard", "walletcard", "bankroll", "scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");
-  if (q) activeTable = parseInt(q, 10);
+  if (q) bg.active = parseInt(q, 10);
   render(); refreshAll();
   setInterval(refreshAll, 3000);
 }

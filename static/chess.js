@@ -3,7 +3,7 @@
 // full legality run in your browser; every move is recorded ON-CHAIN (a trustless, ordered game log with a move
 // clock), and the wager settles by resignation / mutual agreement / refund-on-timeout — so nobody can ever be
 // robbed (a stall or a disputed move at worst refunds both). Correspondence-style: a move confirms in ~1 min.
-import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, canPay, alertBar, orderCards, resolveAliases, disp, share, wireWallet, inviteGate, stickyInputs, renderWallet, notify } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, _m, $, base, canPay, alertBar, orderCards, resolveAliases, disp, share, wireWallet, inviteGate, stickyInputs, renderWallet, notify, lsLoad, lsSave } from "./nadodapp.js";
 import { Chess } from "./chess-engine.js";
 import { Practice } from "./practice.js";   // free in-browser practice vs the computer
 
@@ -11,8 +11,8 @@ const CID = "8df88a535f84174b0841286859767161";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="22.4" y="6" width="3.2" height="8" rx="1" fill="#00c9a7"/>     <rect x="18.6" y="8.4" width="10.8" height="3.2" rx="1.2" fill="#00c9a7"/>     <path d="M24 13.5c-6.4 2-9.5 6-9.5 10.5l3 6h13l3-6c0-4.5-3.1-8.5-9.5-10.5z" fill="#00c9a7"/>     <path d="M17.5 30h13l-1.4 4.2h-10.2z" fill="#00ad93"/>     <rect x="14.5" y="34" width="19" height="4.4" rx="2.2" fill="#00c9a7"/></svg>';
 const dapp = new NadoDapp({ cid: CID, app: "Chess" });
 const LS_G = "nado_chess_games";
-const load = () => { try { return JSON.parse(localStorage.getItem(LS_G) || "{}"); } catch { return {}; } };
-const save = (v) => { try { localStorage.setItem(LS_G, JSON.stringify(v)); } catch {} };
+const load = () => lsLoad(LS_G);
+const save = (v) => lsSave(LS_G, v);
 let activeGame = null, lastGame = null, engine = new Chess(), selected = null, pendingEnc = null, flipBoard = false, haveState = false, replayPly = null, lastDrawOffer = null;
 const LS_POS = "nado_chess_fen_";
 let knownGames = new Set();   // game ids that exist on-chain (for "Your games")

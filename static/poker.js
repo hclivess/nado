@@ -8,28 +8,24 @@
 //   · at SHOWDOWN one click reveals your secret; the CONTRACT re-derives your 7 cards and ranks the full
 //     hand on-chain (straight flush … high card, kickers included — 4000/4000 differential-verified).
 //     Best hand takes the pot. Board + each hand draw from independent decks (exact duplicates are legal).
-import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, inviteGate, orderCards, blocksToTime, lsLoad as load, lsSave as save, lsPrune, wireWallet, stickyInputs, renderWallet, renderScore, notify, okBar, scoreBump, scoreSort, recentChips, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
+import { NadoDapp, rawToNado, nadoToRaw, randId, randSecret, algHashn, ALG_P, _m, $, base, gate, canPay, alertBar, inviteGate, orderCards, blocksToTime, lsLoad as load, lsSave as save, wireWallet, stickyInputs, renderWallet, renderScore, notify, okBar, scoreBump, scoreSort, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";   // the ONE banked-table reader — hold'em overlays its street phases
 import { Practice } from "./practice.js";       // free in-browser practice (play chips, no chain)
 
 const CID = "2fb48456656d5aa253b32ff5d72401ec";   // execnode/games/holdem.py (zkVM, nonce "a5")
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="8" y="13" width="18" height="24" rx="3" fill="#e6edf3" stroke="#243140" stroke-width="1.6" transform="rotate(-9 17 25)"/>     <path d="M14 20c-2.4 2.4-4 3.4-4 5.4 0 1.4 1.1 2.2 2.2 2.2.5 0 1-.2 1.3-.5-.2 1-.6 1.7-1.2 2.2h3.4c-.6-.5-1-1.2-1.2-2.2.3.3.8.5 1.3.5 1.1 0 2.2-.8 2.2-2.2 0-2-1.6-3-4-5.4z" fill="#20272f" transform="rotate(-9 14 25)"/>     <rect x="22" y="13" width="18" height="24" rx="3" fill="#fff" stroke="#243140" stroke-width="1.6" transform="rotate(9 31 25)"/>     <path d="M31 30c-.7-.7-3.2-2.3-3.2-4.6 0-1.3 1-2.2 2.1-2.2.6 0 1.1.3 1.1.9 0-.6.5-.9 1.1-.9 1.1 0 2.1.9 2.1 2.2 0 2.3-2.5 3.9-3.2 4.6z" fill="#d0362b" transform="rotate(9 31 26)"/></svg>';
 const dapp = new NadoDapp({ cid: CID, app: "Hold'em" });
-const bg = new BankedGame(dapp, { icon: "🂠" });   // shared reader for existence + ta/tp/tn/tz; streets overlaid below
+const bg = new BankedGame(dapp, { icon: GICON, bankIcon: GICON });   // shared reader for existence + ta/tp/tn/tz; streets overlaid below
 const F0 = 14, S = 20, GRACE = 5, R = 60;         // MUST match the contract (tests/test_holdem_contract.py)
 // NO seating timer: the HOST controls the start — start(t) binds the deal to two future blocks (td).
 // b0 = td+F0: the SHUFFLE — betting opens only once hole cards are finalized (no blind pre-flop).
 // Streets are CEILINGS: the host may close_street() the moment nobody owes a call (c_k = sc[t*8+k]).
 
-const LS_T = "nado_holdem_tables", LS_S = "nado_holdem_seats";
+// table records keep poker's own {ante, ts} shape (bg.open's {bankroll} doesn't fit — the host SITS, it
+// doesn't bank); the key equals bg.LS_T so bg.track/recent/tableRec see them. Seat records live in bg.
+const LS_T = "nado_holdem_tables";
 let lastSto = null;
 let activeTable = null, lastTable = null, lastSeats = [];
-let knownTables = new Set(), knownSeats = new Set();
-
-function pruneAndTrack(sto) {
-  knownTables = lsPrune(LS_T, Object.keys(_m(sto, "ta")));
-  knownSeats = lsPrune(LS_S, Object.keys(_m(sto, "gg")));
-}
 
 // ---- card math (MUST mirror execnode/games/holdem.py exactly — this is what the zkVM contract computes) --
 // roll32(x) = LO32(alghash HASH(x)); commit = H(x) = algHashn([x]); seeds are reduced mod the field.
@@ -169,9 +165,10 @@ async function fetchTable(t) { const sto = await dapp.storage(); return sto ? ta
 // ---- actions -------------------------------------------------------------------------------------
 function sit(t, method, buyinRaw, anteRaw) {         // open or join: generate the secret (the "draw") locally
   const g = randId(), x = randSecret() % ALG_P();   // field-sized: reveal passes x as a zkVM int arg (< P)
-  const Ssto = load(LS_S); Ssto[g] = { table: t, secret: x.toString(), ts: Date.now() }; save(LS_S, Ssto);
+  activeTable = bg.active = t;                      // bg.active feeds rememberSeat's {table} field
+  bg.rememberSeat(g, { secret: x.toString() });     // SDK seat record: { table, ts, secret }
   if (method === "open") { const T = load(LS_T); T[t] = { ante: anteRaw.toString(), ts: Date.now() }; save(LS_T, T); }
-  activeTable = t; render();
+  render();
   const args = method === "open" ? [t, g, algHashn([x]), anteRaw] : [t, g, algHashn([x])];
   const vars = { t, b: rawToNado(buyinRaw), a: rawToNado(anteRaw), s: rawToNado(buyinRaw - anteRaw) };
   const desc = method === "open"
@@ -194,7 +191,7 @@ async function newTable() {
   sit(randId(), "open", buyin, ante);
 }
 function reopenTable() {   // retry an open that didn't confirm within ~2 min
-  const T = load(LS_T)[activeTable]; if (!T || !T.ante) return;
+  const T = bg.tableRec(activeTable); if (!T || !T.ante) return;
   const buyin = nadoToRaw($("buyinAmt").value) || BigInt(T.ante);
   if (!canPay(dapp, buyin, window.t("poker.ctxReopening", "Re-opening this table"))) return;
   sit(activeTable, "open", buyin, BigInt(T.ante));
@@ -223,7 +220,7 @@ function doBet(amountRaw, label) {
 }
 function doReveal() {
   const s = mySeat(); if (!s) return;
-  const rec = load(LS_S)[s.g];
+  const rec = bg.seatRec(s.g);
   if (!rec || !rec.secret) return alertBar(window.t("poker.noSecretHere", "This browser doesn't hold the secret for seat #{g} — show your cards from the device you joined with.", { g: s.g }));
   dapp.call("reveal", [s.g, BigInt(rec.secret)], null, window.t("poker.revealDesc", "showdown — show your cards · table #{t}", { t: activeTable }), { table: activeTable, seat: s.g, phase: "reveal" });
 }
@@ -254,7 +251,7 @@ async function refreshActive() {
   const sto = await dapp.storage();
   if (sto) {
     lastSto = sto;
-    pruneAndTrack(sto);
+    bg.track(sto);
     if (activeTable != null) {
       lastTable = tableFrom(sto, activeTable);
       if (lastTable.exists && lastTable.td && dapp.cursor != null) {
@@ -405,18 +402,12 @@ function render() {
   dapp.reflectUrl("table", activeTable);   // address bar = the shareable link to the selected table
   const signedIn = renderWallet(dapp);
   gate({ play: signedIn, opencard: signedIn, bankroll: signedIn, activeGame: activeTable != null });
-  const T = load(LS_T), Ssto = load(LS_S), mine = [];
-  for (const t of Object.keys(T)) mine.push({ id: +t, role: "host", ts: T[t].ts });
-  for (const g of Object.keys(Ssto)) mine.push({ id: Ssto[g].table, seat: g, role: "seat", ts: Ssto[g].ts });
-  mine.sort((a, b) => b.ts - a.ts); const seen = new Set();
-  const shown = mine.filter((x) => { x.live = x.role === "host" ? knownTables.has(String(x.id)) : knownSeats.has(String(x.seat)); x.icon = GICON; const k = String(x.id); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 8);
-  for (const x of shown) {
-    if (!x.live || !lastSto) continue;
+  bg.recent($("recent"), selectTable, (x) => {   // SDK "your tables/seats" chips; the tag is the hand's phase
+    if (!lastSto) return;
     const tb = tableFrom(lastSto, x.id);
-    if (!tb.exists) continue;
-    x.tag = tb.closed ? window.t("poker.tagFinished", "finished ✓") : tb.phase === "join" ? window.t("poker.tagSeating", "seating") : tb.phase === "street" ? streetName(tb.street) : tb.phase === "showdown" ? window.t("poker.tagShowdown", "SHOWDOWN") : window.t("poker.tagSettle", "settle!");
-  }
-  recentChips($("recent"), shown, selectTable, window.t("poker.noTablesShort", "No tables yet."));
+    if (!tb.exists) return;
+    return tb.closed ? window.t("poker.tagFinished", "finished ✓") : tb.phase === "join" ? window.t("poker.tagSeating", "seating") : tb.phase === "street" ? streetName(tb.street) : tb.phase === "showdown" ? window.t("poker.tagShowdown", "SHOWDOWN") : window.t("poker.tagSettle", "settle!");
+  });
   renderActive();
 }
 const STREETS = ["", "pre-flop", "flop", "turn", "river"];
@@ -424,7 +415,7 @@ const STREET_KEYS = ["", "preflop", "flop", "turn", "river"];
 const streetName = (k) => window.t("poker.street_" + STREET_KEYS[k], STREETS[k]);
 function renderActive() {
   if (activeTable == null) return;
-  const tb = lastTable || {}, T = load(LS_T)[activeTable] || {};
+  const tb = lastTable || {}, T = bg.tableRec(activeTable) || {};
   const me = mySeat(), iAmHost = tb.host === dapp.me;
   $("gameId").textContent = "#" + activeTable;
   shareInvite("table", activeTable, window.t("poker.shareMsg2", "Sit down at my hold em table #{t} on NADO:", { t: activeTable }), 180);
@@ -460,7 +451,7 @@ function renderActive() {
   let hole = null, holeTxt = "";
   const fk = me && tb.exists ? foldedAt(me, tb) : 0;
   if (me && tb.exists && tb.td) {
-    const rec = load(LS_S)[me.g];
+    const rec = bg.seatRec(me.g);
     if (rec && rec.secret) hole = holeCards(dapp.bh(tb.d0), dapp.bh(tb.d0 + 1), BigInt(rec.secret));
     holeTxt = !rec || !rec.secret ? window.t("poker.secretElsewhere", "your secret lives in the browser you joined with — open this page there to see your cards")
       : !hole ? window.t("poker.holePending", "your hole cards land when the deal blocks finalize…") : "";
@@ -533,9 +524,9 @@ function renderActive() {
       note.textContent = window.t("poker.shufflingNote", "🂠 Shuffling — your hole cards lock to blocks {a}–{b} and appear once final; betting opens right after.", { a: tb.d0, b: tb.d0 + 1 });
       wrap.appendChild(note);
     }
-    const rec = me ? (load(LS_S)[me.g] || {}) : {};
+    const rec = me ? (bg.seatRec(me.g) || {}) : {};
     const localFold = !!rec.folded;
-    const setFold = (v) => { const S = load(LS_S); if (S[me.g]) { S[me.g].folded = v ? Date.now() : 0; save(LS_S, S); } render(); };
+    const setFold = (v) => { bg.patchSeat(me.g, { folded: v ? Date.now() : 0 }); render(); };
     if (tb.phase === "street" && me && !fk && localFold) {
       const note = document.createElement("div"); note.className = "small"; note.style.cssText = "flex:1 1 100%;color:var(--dim);font-weight:700";
       note.textContent = window.t("poker.foldedSitOut", "✋ You folded — sitting this hand out. Your chips stay in the pot.");
