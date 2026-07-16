@@ -152,16 +152,21 @@ def verify_bound_epoch_replay(bundle, num_queries=None):
             return False, "calls_commitment mismatch", None
         if bundle["io_commitment"] != CC.io_commitment(bundle["cid_io"]):
             return False, "io_commitment mismatch", None
-        # bind the replay to the exec's io: the replay's storage steps == the storage entries of cid_io, in order
-        storage_io = [(k, s, v) for (_c, k, s, v) in bundle["cid_io"] if k in (zkvm.IO_SLOAD, zkvm.IO_SSTORE)]
+        # bind the replay to the exec's io: each replay storage step must match the storage io entry's KIND,
+        # POSITION (slot_key) and VALUE, in order — so the replay is exactly this epoch's (slot, value) writes.
+        depth = bundle["depth"]
+        storage_io = [(c, k, s, v) for (c, k, s, v) in bundle["cid_io"] if k in (zkvm.IO_SLOAD, zkvm.IO_SSTORE)]
         steps = bundle["replay"]["steps"]
         if len(steps) != len(storage_io):
             return False, "replay step count != storage io count", None
-        for step, (kind, _slot, value) in zip(steps, storage_io):
+        for step, (cid, kind, slot, value) in zip(steps, storage_io):
             want_kind = "load" if kind == zkvm.IO_SLOAD else "store"
-            got_val = step["value"] if step["kind"] == "load" else step["new"]
-            if step["kind"] != want_kind or got_val != int(value) % F.P:
-                return False, "replay step does not match the epoch's io", None
+            if step["kind"] != want_kind:
+                return False, "replay step kind != io", None
+            if step["key"] != ESB.slot_key(cid, int(slot), depth):
+                return False, "replay step position != io slot", None
+            if step["new"] != int(value) % F.P:                  # new == the io value (load: the read; store: the write)
+                return False, "replay step value != io", None
         okr, whyr = IR.verify_io_replay(bundle["replay"], bundle["sparse_pre_root"], bundle["sparse_post_root"],
                                         num_queries=nq)
         if not okr:

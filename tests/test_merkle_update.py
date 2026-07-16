@@ -47,7 +47,7 @@ def t_roots_match_storage_tree():
 def t_update_proof_verifies():
     store, k, old, new, siblings, dirs = _case(2)
     proof, pre_root, post_root = MU.prove_update(old, new, siblings, dirs, num_queries=NQ, backend=B.ALGHASH2)
-    ok, why = MU.verify_update(proof, old, new, pre_root, post_root, num_queries=NQ, backend=B.ALGHASH2)
+    ok, why = MU.verify_update(proof, old, new, pre_root, post_root, dirs, num_queries=NQ, backend=B.ALGHASH2)
     assert ok, f"honest update proof must verify: {why}"
 
 
@@ -61,7 +61,7 @@ def t_fresh_slot_update():
     assert pre_root == store.root()
     store.set(empty, 4242)
     assert post_root == store.root()
-    ok, why = MU.verify_update(proof, 0, 4242, pre_root, post_root, num_queries=NQ, backend=B.ALGHASH2)
+    ok, why = MU.verify_update(proof, 0, 4242, pre_root, post_root, dirs, num_queries=NQ, backend=B.ALGHASH2)
     assert ok, why
 
 
@@ -70,10 +70,12 @@ def t_soundness():
     store, k, old, new, siblings, dirs = _case(4)
     proof, pre_root, post_root = MU.prove_update(old, new, siblings, dirs, num_queries=NQ, backend=B.ALGHASH2)
     P = F.P
-    assert not MU.verify_update(proof, old, new, pre_root, (post_root + 1) % P, num_queries=NQ, backend=B.ALGHASH2)[0], "wrong post_root"
-    assert not MU.verify_update(proof, old, new, (pre_root + 1) % P, post_root, num_queries=NQ, backend=B.ALGHASH2)[0], "wrong pre_root"
-    assert not MU.verify_update(proof, (old + 1) % P, new, pre_root, post_root, num_queries=NQ, backend=B.ALGHASH2)[0], "wrong old_val"
-    assert not MU.verify_update(proof, old, (new + 1) % P, pre_root, post_root, num_queries=NQ, backend=B.ALGHASH2)[0], "wrong new_val"
+    assert not MU.verify_update(proof, old, new, pre_root, (post_root + 1) % P, dirs, num_queries=NQ, backend=B.ALGHASH2)[0], "wrong post_root"
+    assert not MU.verify_update(proof, old, new, (pre_root + 1) % P, post_root, dirs, num_queries=NQ, backend=B.ALGHASH2)[0], "wrong pre_root"
+    assert not MU.verify_update(proof, (old + 1) % P, new, pre_root, post_root, dirs, num_queries=NQ, backend=B.ALGHASH2)[0], "wrong old_val"
+    assert not MU.verify_update(proof, old, (new + 1) % P, pre_root, post_root, dirs, num_queries=NQ, backend=B.ALGHASH2)[0], "wrong new_val"
+    wrong_dirs = list(dirs); wrong_dirs[0] ^= 1                  # flip one position bit
+    assert not MU.verify_update(proof, old, new, pre_root, post_root, wrong_dirs, num_queries=NQ, backend=B.ALGHASH2)[0], "wrong position"
 
 
 def t_tampered_trace_rejected():
@@ -83,7 +85,7 @@ def t_tampered_trace_rejected():
     bad = copy.deepcopy(proof)
     q = bad["openings"][0]["cols"][MU.SIB]
     q["cur"] = (int(q["cur"]) + 1) % F.P
-    ok, _ = MU.verify_update(bad, old, new, pre_root, post_root, num_queries=NQ, backend=B.ALGHASH2)
+    ok, _ = MU.verify_update(bad, old, new, pre_root, post_root, dirs, num_queries=NQ, backend=B.ALGHASH2)
     assert not ok, "a tampered committed cell must be rejected"
 
 
@@ -91,7 +93,7 @@ def t_recursion_committed():
     """Provable under the RECURSION backend too (rleaf/rnode) → foldable into settlement later."""
     store, k, old, new, siblings, dirs = _case(6)
     proof, pre_root, post_root = MU.prove_update(old, new, siblings, dirs, num_queries=NQ, backend=B.RECURSION)
-    ok, why = MU.verify_update(proof, old, new, pre_root, post_root, num_queries=NQ, backend=B.RECURSION)
+    ok, why = MU.verify_update(proof, old, new, pre_root, post_root, dirs, num_queries=NQ, backend=B.RECURSION)
     assert ok, f"RECURSION-committed update must verify: {why}"
 
 

@@ -138,34 +138,40 @@ def _transitions():
             + [c_dirbit, c_sib, c_dir])
 
 
-def prove_update(old_val, new_val, siblings, dirs, num_queries=stark.NUM_QUERIES, backend=None):
-    """Prove old_val at position `dirs` (private path `siblings`) folds to pre_root AND new_val folds to
-    post_root through the SAME path. Public: old_val, new_val, pre_root, post_root (pinned as boundaries).
-    Returns (proof, pre_root, post_root); proof['D'] is the public depth."""
-    trace, T, D, pre_root, post_root = build_trace(old_val, new_val, siblings, dirs)
+def _boundaries(old_val, new_val, pre_root, post_root, dirs, D):
+    """The public boundaries: the two sponge starts + the pinned leaves + the two roots, PLUS the POSITION —
+    the DIR column pinned to each level's key bit at the level-start row. Pinning the position is what binds the
+    update to a SPECIFIC slot (without it a prover could prove old→pre_root / new→post_root at ANOTHER position)."""
     bnd = [(0, OS1, alghash.IV), (0, OS0, alghash.DOM_NODE), (0, OAB, alghash.DOM_NODE), (0, OCARRY, old_val % F.P),
            (0, NS1, alghash.IV), (0, NS0, alghash.DOM_NODE), (0, NAB, alghash.DOM_NODE), (0, NCARRY, new_val % F.P),
-           (D * RPL, OS0, pre_root), (D * RPL, NS0, post_root)]
+           (D * RPL, OS0, pre_root % F.P), (D * RPL, NS0, post_root % F.P)]
+    for level in range(D):
+        bnd.append((level * RPL, DIR, int(dirs[level]) % F.P))       # position: DIR held per level, pinned here
+    return bnd
+
+
+def prove_update(old_val, new_val, siblings, dirs, num_queries=stark.NUM_QUERIES, backend=None):
+    """Prove old_val at PUBLIC position `dirs` (private path `siblings`) folds to pre_root AND new_val folds to
+    post_root through the SAME path. Public: old_val, new_val, pre_root, post_root, dirs (all pinned as
+    boundaries). Returns (proof, pre_root, post_root); proof['D'] is the public depth."""
+    trace, T, D, pre_root, post_root = build_trace(old_val, new_val, siblings, dirs)
+    bnd = _boundaries(old_val, new_val, pre_root, post_root, dirs, D)
     proof = stark.prove(trace, _transitions(), bnd, periodic=_periodic(T, D), max_degree=MAX_DEGREE,
                         num_queries=num_queries, backend=backend)
     proof["D"] = D
     return proof, pre_root, post_root
 
 
-def verify_update(proof, old_val, new_val, pre_root, post_root, num_queries=stark.NUM_QUERIES, backend=None):
-    """Verify a Merkle-update proof against the PUBLIC (old_val, new_val, pre_root, post_root). The trace
-    geometry is fixed by the public depth D, the periodic schedule + boundaries are rebuilt locally (nothing
-    constraint-shaped comes from the proof), so a valid proof means: pre_root and post_root are the same tree
-    with ONE leaf rewritten old_val → new_val at some shared position. Returns (ok, reason)."""
+def verify_update(proof, old_val, new_val, pre_root, post_root, dirs, num_queries=stark.NUM_QUERIES, backend=None):
+    """Verify a Merkle-update proof against the PUBLIC (old_val, new_val, pre_root, post_root, dirs). Geometry is
+    fixed by the public depth D; the periodic schedule + boundaries (incl. the position pins) are rebuilt locally.
+    A valid proof means: pre_root and post_root are the same tree with the leaf at POSITION `dirs` rewritten
+    old_val → new_val. Returns (ok, reason)."""
     try:
         D = proof.get("D")
-        if not isinstance(D, int) or D < 1 or proof.get("T") != _next_pow2(D * RPL + 1):
-            return False, "bad depth / trace geometry"
-        bnd = [(0, OS1, alghash.IV), (0, OS0, alghash.DOM_NODE), (0, OAB, alghash.DOM_NODE),
-               (0, OCARRY, old_val % F.P),
-               (0, NS1, alghash.IV), (0, NS0, alghash.DOM_NODE), (0, NAB, alghash.DOM_NODE),
-               (0, NCARRY, new_val % F.P),
-               (D * RPL, OS0, pre_root % F.P), (D * RPL, NS0, post_root % F.P)]
+        if not isinstance(D, int) or D < 1 or proof.get("T") != _next_pow2(D * RPL + 1) or len(dirs) != D:
+            return False, "bad depth / trace geometry / dirs length"
+        bnd = _boundaries(old_val, new_val, pre_root, post_root, dirs, D)
         return stark.verify(proof, _transitions(), bnd, periodic=_periodic(proof["T"], D),
                             max_degree=MAX_DEGREE, num_queries=num_queries, backend=backend)
     except Exception as e:

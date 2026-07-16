@@ -15,13 +15,8 @@ the settled root is the settlement integration (piece (c)).
 from execnode.stark import merkle_update as MU, alghash as A, field as F, backend as B, recursive_verify as RV
 
 
-def _boundaries(D, old_val, new_val, pre_root, post_root):
-    """The exact boundary list merkle_update.prove_update pins for a depth-D update (shape identical across all
-    updates — only the values differ — so recursive_verify can fold them as one shared AIR)."""
-    RPL = MU.RPL
-    return [(0, MU.OS1, A.IV), (0, MU.OS0, A.DOM_NODE), (0, MU.OAB, A.DOM_NODE), (0, MU.OCARRY, old_val % F.P),
-            (0, MU.NS1, A.IV), (0, MU.NS0, A.DOM_NODE), (0, MU.NAB, A.DOM_NODE), (0, MU.NCARRY, new_val % F.P),
-            (D * RPL, MU.OS0, pre_root % F.P), (D * RPL, MU.NS0, post_root % F.P)]
+def _dirs(key, depth):
+    return [(int(key) >> i) & 1 for i in range(depth)]
 
 
 def prove_transition(pre_store, updates, num_queries=MU.stark.NUM_QUERIES, outer_queries=MU.stark.NUM_QUERIES,
@@ -35,13 +30,13 @@ def prove_transition(pre_store, updates, num_queries=MU.stark.NUM_QUERIES, outer
     for key, new_value in updates:
         old = pre_store.get(key)
         sibs = pre_store.path(key)
-        dirs = [(int(key) >> i) & 1 for i in range(depth)]
+        dirs = _dirs(key, depth)
         proof, pre_root, post_root = MU.prove_update(old, new_value, sibs, dirs, num_queries=num_queries,
                                                      backend=B.RECURSION)
         if pre_root != roots[-1]:
             raise ValueError("internal: update pre_root breaks the chain")
         proofs.append(proof)
-        bnds.append(_boundaries(depth, old, new_value, pre_root, post_root))
+        bnds.append(MU._boundaries(old, new_value, pre_root, post_root, dirs, depth))
         roots.append(post_root)
         upd.append((int(key), old % F.P, new_value % F.P))
         pre_store.set(key, new_value)
@@ -80,9 +75,9 @@ def verify_transition(tr, pre_root, post_root, num_queries=None, outer_queries=N
             if not okr:
                 return False, f"K->1 bundle failed: {whyr}"
         else:                                                # native: re-verify each update proof + its roots
-            for i, (proof, bl) in enumerate(zip(proofs, tr["bnds"])):
-                old_v = bl[3][2]; new_v = bl[7][2]           # OCARRY / NCARRY boundary values
-                ok, why = MU.verify_update(proof, old_v, new_v, roots[i], roots[i + 1],
+            depth = tr["depth"]
+            for i, (proof, (key, old_v, new_v)) in enumerate(zip(proofs, tr["updates"])):
+                ok, why = MU.verify_update(proof, old_v, new_v, roots[i], roots[i + 1], _dirs(key, depth),
                                            num_queries=nqi, backend=B.RECURSION)
                 if not ok:
                     return False, f"update {i} failed: {why}"
