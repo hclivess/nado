@@ -56,6 +56,12 @@ def available():
                     ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_void_p,
                     ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t, ctypes.c_uint64, ctypes.c_void_p]
                 lib.sp_compose.restype = ctypes.c_int64
+                lib.sp_col_len.argtypes = [ctypes.c_size_t]
+                lib.sp_col_len.restype = ctypes.c_int64
+                lib.sp_fold.argtypes = [ctypes.c_size_t, ctypes.c_uint64, ctypes.c_uint64]
+                lib.sp_fold.restype = ctypes.c_int64
+                lib.sp_load_col.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+                lib.sp_load_col.restype = ctypes.c_int64
                 _init_hash(lib)
                 _LIB, _state = lib, True
                 return True
@@ -154,6 +160,70 @@ def compose(prog, boundaries, alphas, chals, T, N, blowup, want_out=True):
 def stark_OFF():
     from execnode.stark import stark
     return stark.OFF % _P
+
+
+def load_col(values):
+    """Load a vector verbatim as a new arena column (no LDE); returns its id."""
+    n = len(values)
+    buf = (ctypes.c_uint64 * n)(*[int(v) % _P for v in values])
+    cid = _LIB.sp_load_col(ctypes.cast(buf, ctypes.c_void_p), n)
+    if cid < 0:
+        raise RuntimeError("sp_load_col failed")
+    return cid
+
+
+def col_len(col):
+    """Length of a retained column (FRI layers shrink by half each fold)."""
+    n = _LIB.sp_col_len(int(col))
+    if n < 0:
+        raise RuntimeError("sp_col_len: bad column")
+    return int(n)
+
+
+def fold(col, offset, alpha):
+    """One FRI fold of a retained column → a new (half-length) arena column; returns its id. Bit-identical to
+    fri._fold(evals, F.domain(m, offset), alpha)."""
+    cid = _LIB.sp_fold(int(col), int(offset) % _P, int(alpha) % _P)
+    if cid < 0:
+        raise RuntimeError("sp_fold failed")
+    return cid
+
+
+def fri_prove(cp_col, offset, blowup, num_queries, transcript):
+    """FRI over a retained composition column (step 4): the heavy per-layer work — Merkle commit, fold, and
+    query openings — runs in the arena; the TRANSCRIPT (a handful of absorbs/challenges/grind) stays in Python,
+    identical to fri.prove. Produces the same proof dict fri.prove returns. Bit-identical to
+    fri.prove(cp, offset, blowup, num_queries, transcript, backend.RECURSION)."""
+    from execnode.stark import fri
+    t = transcript
+    N = col_len(cp_col)
+    roots, layers_meta = [], []          # layers_meta: (col_id, tree_id, size)
+    cur, off = cp_col, int(offset) % _P
+    while col_len(cur) > blowup:
+        tree_id, root = commit_col(cur)
+        roots.append(root); t.absorb(root)
+        alpha = t.challenge()
+        layers_meta.append((cur, tree_id, col_len(cur)))
+        cur = fold(cur, off, alpha)
+        off = (off * off) % _P
+    final = [read(cur, i) for i in range(col_len(cur))]
+    t.absorb("final", *final)
+    pow_nonce = t.grind(fri.GRIND_BITS)
+    queries = []
+    for _ in range(num_queries):
+        idx = t.challenge_index(N)
+        steps, a = [], idx
+        for (col_id, tree_id, size) in layers_meta:
+            half = size // 2
+            a %= size
+            lo = a % half
+            plen = size.bit_length() - 1
+            steps.append({"lo": read(col_id, lo), "lo_path": open_at(tree_id, lo, plen),
+                          "hi": read(col_id, lo + half), "hi_path": open_at(tree_id, lo + half, plen)})
+            a = lo
+        queries.append({"idx": idx, "steps": steps})
+    return {"N": N, "offset": offset, "blowup": blowup, "roots": roots, "final": final,
+            "pow": pow_nonce, "queries": queries}
 
 
 def read(col, pos):

@@ -11,7 +11,8 @@ Run: python3 tests/test_starkprove.py   (build first: cd native/starkprove && ca
 """
 import os, sys, random, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from execnode.stark import field as F, stark, stark_native as SN, merkle, backend as B, air_ir
+from execnode.stark import field as F, stark, stark_native as SN, merkle, backend as B, air_ir, fri
+from execnode.stark.transcript import Transcript
 
 fails = 0
 def check(name, fn):
@@ -136,6 +137,41 @@ def t_compose_with_challenge():
         _compose_case(3, T, TRANS, BND, [PER0], 1, [F.GENERATOR + 7], seed=900 + T)
 
 
+def t_fri_bit_identical():
+    """stark_native.fri_prove (fold + Merkle + openings from the arena; transcript in Python) produces the
+    IDENTICAL FRI proof to fri.prove over the RECURSION backend — roots, final, pow nonce, and every query
+    step (values + paths) field-for-field — over a real low-degree evals vector."""
+    for T, DEG, blowup, NQ in [(64, 8, 4, 3), (256, 16, 2, 5), (512, 64, 4, 8)]:
+        N = T
+        random.seed(3000 + T + DEG)
+        # a genuinely low-degree poly on the coset (so FRI's final layer really is low-degree)
+        coeffs = [random.randrange(F.P) for _ in range(N // blowup)] + [0] * (N - N // blowup)
+        off = F.GENERATOR
+        evals = [F.poly_eval(coeffs, x) for x in F.domain(N, off)]
+        proof_py = fri.prove(evals, off, blowup=blowup, num_queries=NQ,
+                             transcript=Transcript("fri", backend=B.RECURSION), backend=B.RECURSION)
+        SN.reset(1, N, off)
+        cid = SN.load_col(evals)
+        proof_nat = SN.fri_prove(cid, off, blowup, NQ, Transcript("fri", backend=B.RECURSION))
+        for k in ("N", "offset", "blowup", "pow"):
+            assert proof_nat[k] == proof_py[k], f"FRI {k} mismatch: {proof_nat[k]} != {proof_py[k]}"
+        assert [tuple(r) for r in proof_nat["roots"]] == [tuple(r) for r in proof_py["roots"]], "FRI roots mismatch"
+        assert list(proof_nat["final"]) == list(proof_py["final"]), "FRI final mismatch"
+        assert len(proof_nat["queries"]) == len(proof_py["queries"]) == NQ
+        for qn, qp in zip(proof_nat["queries"], proof_py["queries"]):
+            assert qn["idx"] == qp["idx"], "FRI query idx mismatch"
+            assert len(qn["steps"]) == len(qp["steps"])
+            for sn, sp in zip(qn["steps"], qp["steps"]):
+                assert sn["lo"] == sp["lo"] and sn["hi"] == sp["hi"], "FRI step value mismatch"
+                assert [tuple(d) for d in sn["lo_path"]] == [tuple(d) for d in sp["lo_path"]], "FRI lo_path mismatch"
+                assert [tuple(d) for d in sn["hi_path"]] == [tuple(d) for d in sp["hi_path"]], "FRI hi_path mismatch"
+        # and the native proof VERIFIES under the real verifier (defense in depth)
+        ok, why = fri.verify(proof_nat, transcript=Transcript("fri", backend=B.RECURSION),
+                             num_queries=NQ, expected_blowup=blowup, backend=B.RECURSION)
+        assert ok, f"native FRI proof must verify: {why}"
+        SN.free()
+
+
 if __name__ == "__main__":
     if not SN.available():
         print("SKIP  native/starkprove not built (cd native/starkprove && cargo build --release). "
@@ -146,5 +182,6 @@ if __name__ == "__main__":
     check("native arena Merkle (rleaf/rnode) bit-identical to merkle.commit(RECURSION)", t_merkle_col_bit_identical)
     check("native arena composition bit-identical to stark._composition (single-phase)", t_compose_single_phase)
     check("native arena composition bit-identical with a challenge (CHAL opcode)", t_compose_with_challenge)
+    check("native arena FRI bit-identical to fri.prove (fold+commit+open+queries)", t_fri_bit_identical)
     print("ALL PASS" if fails == 0 else f"{fails} FAILURES")
     sys.exit(1 if fails else 0)

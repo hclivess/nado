@@ -317,6 +317,26 @@ pub unsafe extern "C" fn sp_lde_column(in_ptr: *const u64, out_ptr: *mut u64) ->
     (arena.cols.len() - 1) as i64
 }
 
+/// Load `len` values as a new arena column verbatim (no LDE) — e.g. a composition/evals vector computed
+/// elsewhere, so FRI can fold it from the arena. Returns the column id.
+///
+/// # Safety
+/// `in_ptr` must point to at least `len` readable u64.
+#[no_mangle]
+pub unsafe extern "C" fn sp_load_col(in_ptr: *const u64, len: usize) -> i64 {
+    let mut g = ARENA.lock().unwrap();
+    let arena = match g.as_mut() {
+        Some(a) => a,
+        None => return -1,
+    };
+    if in_ptr.is_null() || len == 0 {
+        return -1;
+    }
+    let vals = std::slice::from_raw_parts(in_ptr, len);
+    arena.cols.push(vals.iter().map(|v| v % PU64).collect());
+    (arena.cols.len() - 1) as i64
+}
+
 /// Number of columns retained.
 #[no_mangle]
 pub extern "C" fn sp_num_cols() -> i64 {
@@ -324,14 +344,59 @@ pub extern "C" fn sp_num_cols() -> i64 {
     g.as_ref().map(|a| a.cols.len() as i64).unwrap_or(-1)
 }
 
-/// One retained LDE value ARENA[col][pos] (for openings + byte-identity checks). u64::MAX on out-of-range.
+/// One retained value ARENA[col][pos] (for openings + byte-identity checks). Uses the COLUMN's own length
+/// (FRI fold layers are shorter than N). u64::MAX on out-of-range.
 #[no_mangle]
 pub extern "C" fn sp_read(col: usize, pos: usize) -> u64 {
     let g = ARENA.lock().unwrap();
     match g.as_ref() {
-        Some(a) if col < a.cols.len() && pos < a.n => a.cols[col][pos],
+        Some(a) if col < a.cols.len() && pos < a.cols[col].len() => a.cols[col][pos],
         _ => u64::MAX,
     }
+}
+
+/// Length of a retained column (FRI layers shrink by half each fold). -1 on out-of-range.
+#[no_mangle]
+pub extern "C" fn sp_col_len(col: usize) -> i64 {
+    let g = ARENA.lock().unwrap();
+    match g.as_ref() {
+        Some(a) if col < a.cols.len() => a.cols[col].len() as i64,
+        _ => -1,
+    }
+}
+
+/// One FRI fold of a retained column (step 4): evals of f on the coset {offset·ω^i} (size m) → evals of g on
+/// the squared coset (size m/2), g(x²) = (f(x)+f(-x))/2 + α·(f(x)-f(-x))/(2x), the pair (x,−x) at (i, i+m/2).
+/// Retains the folded column, returns its id. Byte-identical to fri._fold(evals, F.domain(m, offset), alpha).
+#[no_mangle]
+pub extern "C" fn sp_fold(col: usize, offset: u64, alpha: u64) -> i64 {
+    let mut g = ARENA.lock().unwrap();
+    let arena = match g.as_mut() {
+        Some(a) => a,
+        None => return -1,
+    };
+    if col >= arena.cols.len() {
+        return -1;
+    }
+    let m = arena.cols[col].len();
+    if m < 2 || (m & (m - 1)) != 0 {
+        return -1;
+    }
+    let half = m / 2;
+    let inv2 = inv(2);
+    let omega = rou(m);
+    let mut x = offset % PU64;
+    let mut out = vec![0u64; half];
+    for i in 0..half {
+        let fx = arena.cols[col][i];
+        let fmx = arena.cols[col][i + half];
+        let fe = mulf(addf(fx, fmx), inv2);
+        let fo = mulf(subf(fx, fmx), mulf(inv2, inv(x)));
+        out[i] = addf(fe, mulf(alpha, fo));
+        x = mulf(x, omega);
+    }
+    arena.cols.push(out);
+    (arena.cols.len() - 1) as i64
 }
 
 /// Merkle-commit a RETAINED LDE column (RECURSION backend: leaf = rleaf(value), inner = rnode(l,r)). Retains
