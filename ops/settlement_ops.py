@@ -17,9 +17,16 @@ from protocol import SETTLE_NUM, SETTLE_DEN, DEFAULT_NS, SETTLE_ACTIVITY_CURSORS
 # PHASE-2b SEAM. A validity-proof verifier can be registered here to justify a settled root WITHOUT a bonded
 # quorum: a callable (ns, cursor, state_root) -> bool that checks a single succinct STARK over the
 # blob→state transition. Default None ⇒ Phase-2a bonded-quorum only. When set, a root is justified if the
-# proof verifies OR the quorum is met (proof-preferred, quorum as liveness fallback during rollout). This is
-# the ONLY line that changes to flip the settlement layer from committee-trust to cryptographic-trust; the
-# arbitrary-execution zkVM prover that would back it is a separate crypto build (see doc/settlement-layer.md).
+# proof verifies OR the quorum is met (proof-preferred, quorum as liveness fallback during rollout).
+#
+# ⚠️ CONSENSUS-DETERMINISM (why this is still None on the live net). settlement_justified feeds latest_settled,
+# which is read during TRANSACTION VALIDATION (cross-msg / dividend / unshield claims), so it must be a
+# deterministic function of ON-CHAIN state on every node. A verifier that reads node-local proof-ingestion
+# state (execnode.settlement_proofs._EPOCH_PROOFS) would make latest_settled diverge between a node that has a
+# proof and one that doesn't — a FORK. A safe install therefore requires the settlement proof to be committed
+# ON-CHAIN (a `settle`-with-proof tx whose bounded O(1) proof every node verifies deterministically at
+# block-validation time), not just a registered callback. Flipping THIS variable is the last line; making it
+# safe is the settle-with-proof + fast-prover work (doc/zk-recursion.md, doc/settlement-layer.md).
 _PROOF_VERIFIER = None
 
 

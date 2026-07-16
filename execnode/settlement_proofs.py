@@ -448,12 +448,33 @@ def register_epoch_proof(ns, bundle, num_queries=None):
     return ok, why
 
 
-def settlement_verifier(zkvm_root_of_state):
+def settlement_verifier(zkvm_root_of_state=None):
     """Build the fn(ns, cursor, state_root)->bool to hand to ops.settlement_ops.set_settlement_verifier.
-    `zkvm_root_of_state(ns, cursor)` returns the zkVM sub-root L1 expects at that (ns, cursor) — the proof
-    justifies the settled root iff a verified epoch bundle's post_root matches it. (Full-state settlement
-    composes this with proofs for the other op families; see the module docstring.)"""
+
+    SOUNDNESS (fixed 2026-07-16): the proof justifies **exactly the root L1 asks about** — it returns True iff a
+    verified epoch bundle recorded for (ns, cursor) proved `post_root == state_root`. The old version ignored
+    `state_root` and compared the proven root to a *local projection* (`zkvm_root_of_state`), so it would
+    green-light ANY root at a cursor where a valid proof existed — a hole, since `settlement_justified` accepts
+    the root it is handed. `state_root` is now the binding; `zkvm_root_of_state`, if given, is only an optional
+    belt-and-suspenders cross-check that the proven root also equals the node's local zkVM projection.
+
+    ⚠️ CONSENSUS-DETERMINISM — READ BEFORE `set_settlement_verifier(...)`. `settlement_justified` feeds
+    `latest_settled`, which is used in **transaction validation** (cross-msg / dividend / unshield claims), so
+    it MUST be a deterministic function of ON-CHAIN state on every node. `_EPOCH_PROOFS` is a **node-local**
+    dict (populated when a node happens to receive+verify a proof), so installing this as-is makes
+    `latest_settled` diverge between a node that has the proof and one that doesn't → a **chain fork**. A safe
+    install requires the proof to be committed ON-CHAIN (a `settle`-with-proof tx whose O(1) proof every node
+    verifies deterministically at block-validation time — the single bounded verifier the design anticipates),
+    so `_EPOCH_PROOFS` must be replaced by an on-chain marker before this is registered on a multi-node net.
+    Until then it stays UNINSTALLED and the bonded quorum governs."""
     def _verify(ns, cursor, state_root):
         want = _EPOCH_PROOFS.get((ns, int(cursor)))
-        return want is not None and want == zkvm_root_of_state(ns, int(cursor))
+        if want is None or want != state_root:                 # bind to the EXACT root L1 asks about
+            return False
+        if zkvm_root_of_state is not None:                     # optional local-projection cross-check
+            try:
+                return want == zkvm_root_of_state(ns, int(cursor))
+            except Exception:
+                return False
+        return True
     return _verify
