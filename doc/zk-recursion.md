@@ -390,15 +390,25 @@ transcript, the binding uses DEEP out-of-domain evaluation, the standard PLONK/D
     `prove_epoch_calls(commit_periodic=…)` proof, so the binding attaches to the exec's ACTUAL committed io (which
     `verify_epoch_o1` never re-derives) and binds it to the replay's io without the verifier seeing the log.
 
-**Remaining assembly (finite integration, not research).** The binding chain is: (1) exec proves execution of its
-committed io [`verify_epoch_o1`]; (2) `io_bind` ties the exec's committed io == the replay's committed io columns;
-(3) the replay's committed io columns == the io its merkle-updates APPLY; (4) the replay's updates advance
-pre_root→post_root [`io_replay`, folded]. (1),(2),(4) are built. Piece (3) needs the replay to commit its io
-columns and prove its position-pinned updates read exactly them — plus the slot↔`slot_key` map made in-circuit
-(swap `exec_state_bind.slot_key` from blake2b to alghash so `key = slot_key(cid, slot)` is a cheap in-circuit
-hash, or a preimage binding). Folding `io_bind` into the settlement bundle uses `recursive_verify_hetero` (now
-row+two-phase, §5b). Until (3) lands, `verify_bound_epoch_replay` keeps the native O(#io) binding as the verified
-fallback (soundness-first — no partial O(1) shipped as complete).
+**The binding chain — COMPLETE + validated (2026-07-17).** Every leg is built and green:
+  1. **exec** — `vm_circuit.verify_epoch_o1(proof, per_roots)` checks the exec with committed periodic tables in
+     O(#calls); it never rebuilds the io log. `tests/test_exec_commit_periodic.py`.
+  2. **exec io == replay io** — `bound_epoch_o1.prove/verify_bound_epoch_o1` binds the exec's COMMITTED io-table
+     columns to the replay's io columns via `io_bind` (DEEP eval, O(polylog), no public io). A divergent replay io
+     is rejected without the verifier seeing the log. `tests/test_bound_epoch_o1.py`.
+  3. **io columns → state** — `slot_key` is now alghash (`exec_state_bind`), so `slot_key_air.py` proves
+     `key = slot_key(cid, slot)` IN-CIRCUIT (`tests/test_slot_key_air.py`); `state_io_tie.py` ties every
+     `io_replay` step to its proven `slot_key` AND to the io entry's kind+value, so the bound io columns provably
+     drive the transition without the verifier recomputing the position hash. `tests/test_state_io_tie.py`.
+  4. **state** — `io_replay` advances pre_root→post_root by a position-pinned merkle-update per storage entry,
+     folded K→1. `tests/test_io_replay.py`.
+
+Sound, fully succinct, no public io, no shortcut (the DEEP out-of-domain construction, the standard efficient
+one). What remains is AGGREGATION, not soundness: fold the whole set (exec + `io_bind`'s DEEP evals + the K
+`slot_key_air`/merkle-update proofs) into ONE bundle via `recursive_verify_hetero` (now row+two-phase, §5b) — the
+pieces are RECURSION-committed; the only wrinkle is that `deep_eval` uses `fri.prove` directly, so it wraps as a
+FRI leaf rather than a stark leaf. `verify_bound_epoch_replay` keeps the native O(#io) binding as the verified
+fallback until the single-bundle aggregation lands (soundness-first — no partial O(1) shipped as complete).
 
 **DEPLOYMENT.** Swapping the sparse root in as THE consensus settled root (settle-tx `state_root`,
 `ops/transaction_ops` bridge/dividend/unshield exits, `state.py`) is a genesis-level state-root-scheme change,
