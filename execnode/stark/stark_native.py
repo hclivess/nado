@@ -45,12 +45,31 @@ def available():
                 lib.sp_num_cols.restype = ctypes.c_int64
                 lib.sp_read.argtypes = [ctypes.c_size_t, ctypes.c_size_t]
                 lib.sp_read.restype = ctypes.c_uint64
+                lib.sp_init.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+                lib.sp_commit_col.argtypes = [ctypes.c_size_t, ctypes.c_void_p]
+                lib.sp_commit_col.restype = ctypes.c_int64
+                lib.sp_open.argtypes = [ctypes.c_size_t, ctypes.c_size_t, ctypes.c_void_p]
+                lib.sp_open.restype = ctypes.c_int64
+                _init_hash(lib)
                 _LIB, _state = lib, True
                 return True
             except Exception:
                 continue
     _state = False
     return False
+
+
+_CAP = 4
+
+
+def _init_hash(lib):
+    """Install the alghash2 round constants / IV / MDS — the SAME nothing-up-my-sleeve values Python hands to
+    native/alghash2 — so the arena's Merkle permute is byte-identical to alghash2.py."""
+    from execnode.stark import alghash2 as A
+    rc = (ctypes.c_uint64 * (A.ROUNDS * A.WIDTH))(*[A.RC[r][i] for r in range(A.ROUNDS) for i in range(A.WIDTH)])
+    iv = (ctypes.c_uint64 * A.CAPACITY)(*A.IV)
+    mds = (ctypes.c_uint64 * (A.WIDTH * A.WIDTH))(*[A._MDS[i][j] for i in range(A.WIDTH) for j in range(A.WIDTH)])
+    lib.sp_init(ctypes.cast(rc, ctypes.c_void_p), ctypes.cast(iv, ctypes.c_void_p), ctypes.cast(mds, ctypes.c_void_p))
 
 
 def reset(T, N, offset):
@@ -70,6 +89,28 @@ def lde_column(col_values, N, want_out=True):
     if col_id < 0:
         raise RuntimeError("sp_lde_column failed (arena not reset?)")
     return col_id, (list(outbuf) if want_out else None)
+
+
+def commit_col(col_id):
+    """Merkle-commit a retained LDE column (RECURSION backend) from the arena — no Python round-trip of the
+    column. Returns (tree_id, root) where root is a CAPACITY-tuple. Bit-identical to
+    merkle.commit(col_lde[col_id], backend.RECURSION)."""
+    root = (ctypes.c_uint64 * _CAP)()
+    tid = _LIB.sp_commit_col(int(col_id), ctypes.cast(root, ctypes.c_void_p))
+    if tid < 0:
+        raise RuntimeError("sp_commit_col failed")
+    return tid, tuple(root)
+
+
+def open_at(tree_id, pos, path_len):
+    """Authentication path for leaf `pos` of a retained tree — a list of `path_len` CAPACITY-tuples, bottom-up.
+    Bit-identical to merkle.open_at(layers, pos)."""
+    buf = (ctypes.c_uint64 * (path_len * _CAP))()
+    got = _LIB.sp_open(int(tree_id), int(pos), ctypes.cast(buf, ctypes.c_void_p))
+    if got < 0:
+        raise RuntimeError("sp_open failed")
+    flat = list(buf)
+    return [tuple(flat[i * _CAP:(i + 1) * _CAP]) for i in range(int(got))]
 
 
 def read(col, pos):
