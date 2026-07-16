@@ -54,6 +54,28 @@ This is what the other three goals compose into: succinct verification (no per-p
 ONE constant-size, constant-time check — and a settlement seam (`ops/settlement_ops.settlement_justified`)
 where that one check can stand in for the bonded quorum (proof OR quorum, never proof-blocks-liveness).
 
+## 5. Validity is not canonicity — collapsing the many valid tips
+
+A validity proof establishes that a state transition is CORRECT, not that it is THE ONE — and that distinction
+is easy to miss. Just as proof-of-work admits many valid blocks at the same height (any tx set/ordering that
+meets the difficulty target is a legitimate tip), a validity proof admits many valid tips: any ordering or
+selection of L2 calls that executes honestly has an equally sound proof. Two proposers who order the same
+mempool differently both hold real proofs of real transitions. So proofs, on their own, do not hand you a
+single chain — they filter out INVALID histories and leave potentially many valid ones. Uniqueness is still a
+consensus problem, exactly as under PoW; zk removes "did this execute correctly?" from the fork-choice's plate
+but not "which of these correct histories is canonical?".
+
+The direction we are heading is to bind those two answers tightly and cheaply. The on-chain settle-with-proof
+path (`ops/transaction_ops.py`, `doc/zk-recursion.md` §5 step 8) already requires every proof to EXTEND the one
+committed settled tip — a settlement's `pre_root` must equal the namespace's current settled root (or
+`EXEC_GENESIS_ROOT` for the first) — so among all the valid proofs a proposer could produce, only the one
+continuing the canonical settled history is accepted; the rest are valid but off-tip. Layered with the
+weight-based fork choice that already orders L1 (and the bonded quorum as a liveness floor), the many valid
+tips collapse back to a single canonical settled chain. The endgame is that the proof answers "is this
+transition valid?" in O(1) and the chain-extension + fork-choice rules answer "is it canonical?" just as
+cheaply — so a phone can confirm not just that a history is sound but that it is THE history, without re-running
+any of it. Making that collapse unambiguous and constant-cost is an explicit goal, not an afterthought.
+
 ---
 
 **Non-negotiables while pursuing these** (from hard lessons, see the audit history in doc/zk-recursion.md):
