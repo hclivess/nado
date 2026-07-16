@@ -1,0 +1,15 @@
+[package]
+name = "nado-starkprove"
+version = "0.1.0"
+edition = "2021"
+description = "NADO holistic native STARK prover — a PERSISTENT LDE arena that keeps the low-degree-extension columns (and, later, Merkle trees + composition) in Rust u64 buffers across the whole prove, so the Python prover never materializes N-sized column lists (the recursion memory wall). Bit-identical to execnode/stark/stark.py; native-only (the browser keeps the per-kernel wasm path). Opt-in until fully validated."
+license = "Apache-2.0 OR MIT"
+
+[lib]
+name = "nado_starkprove"
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
