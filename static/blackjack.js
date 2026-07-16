@@ -9,6 +9,7 @@ import { NadoDapp, rawToNado, nadoToRaw, _m, $, base, gate, canPay, orderCards, 
          randId, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
 import { chainCards, cardHTML, injectCardCSS, bjTotal } from "./cards.js";
+import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
 const CID = "aa107e03fe84a8337e7316365f991341";
 const REAP = 1200;
@@ -291,10 +292,68 @@ async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(window.t("bj.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   injectCardCSS();
   wireUI(); loadQR();
-  orderCards(["activeGame", "lobby", "play", "bankcard", "walletcard", "bankroll", "scoreboard"]);
+  orderCards(["activeGame", "lobby", "play", "practice", "bankcard", "walletcard", "bankroll", "scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (bg.active == null) bg.active = parseInt(q, 10); }
   render(); refreshAll();
   setInterval(refreshAll, 3000);
 }
 boot();
+
+// ---- PRACTICE MODE (free, fully in-browser — play chips, local RNG, nothing on-chain) -----------------
+// Mirrors the contract exactly (execnode/games/blackjack.py): infinite shoe (independent draws, same as
+// the chain's per-card hashes), European no-hole-card, a natural pays 5:2 at the deal WITHOUT the dealer
+// playing, the dealer draws to S17 (soft 17 stands — same bjTotal), win pays 2×, push refunds.
+// Math.random is fine here because nothing is at stake.
+const prac = new Practice("blackjack");
+let pState = null;
+const pDraw = () => Math.floor(Math.random() * 52);
+const pDealerTotal = () => bjTotal([pState.up].concat(pState.dealer));
+function pFinish(res, pay) { pState.done = true; pState.res = res; if (pay) prac.addChips(pay); pracRender(); }
+function pDeal() {
+  const bet = parseInt($("pStake").value, 10) || 0;
+  if (!prac.canBet(bet, notify)) return;
+  prac.addChips(-bet);
+  pState = { bet, cards: [pDraw(), pDraw()], up: pDraw(), dealer: [], done: false, res: 0 };
+  if (bjTotal(pState.cards).natural) return pFinish(3, Math.floor(bet * 5 / 2));   // reveal pays 5:2 instantly — the dealer never plays (contract)
+  pracRender();
+}
+function pHit() {
+  pState.cards.push(pDraw());
+  if (bjTotal(pState.cards).bust) return pFinish(5, 0);
+  pracRender();
+}
+function pStand() {
+  while (pState.dealer.length < 16 && pDealerTotal().total < 17) pState.dealer.push(pDraw());   // S17 — the same loop as SETTLE
+  const dt = pDealerTotal(), pt = bjTotal(pState.cards);
+  if (dt.bust || pt.total > dt.total) pFinish(1, 2 * pState.bet);
+  else if (pt.total === dt.total) pFinish(2, pState.bet);
+  else pFinish(4, 0);
+}
+function pracRender() {
+  prac.strip($("pStrip"), { chips: true, onReset: pracRender });
+  const s = pState;
+  $("pFelt").classList.toggle("hidden", !s);
+  $("pBetRow").classList.toggle("hidden", !!(s && !s.done));
+  if (!s) return;
+  const dcards = [s.up].concat(s.done ? s.dealer : [null]);
+  $("pDealerRow").innerHTML = dcards.map((c) => cardHTML(c)).join("");
+  $("pDealerNote").textContent = s.done
+    ? (s.dealer.length ? window.t("bj.dealerShows", "dealer: {n}", { n: pDealerTotal().total }) : "")
+    : window.t("bj.dealerHole", "hole card is drawn after you stand");
+  $("pPlayerRow").innerHTML = s.cards.map((c) => cardHTML(c, true)).join("");
+  const pt = bjTotal(s.cards);
+  $("pPlayerTotal").textContent = pt.total + (pt.soft ? window.t("bj.soft", " soft") : "");
+  $("pHandStake").textContent = "🪙 " + s.bet;
+  const net = s.res === 1 ? s.bet : s.res === 3 ? Math.floor(s.bet * 5 / 2) - s.bet : 0;
+  $("pResult").innerHTML = !s.done ? "" : (RES_TEXT()[s.res] || "")
+    + (s.res === 1 || s.res === 3 ? ' <span class="chip" style="border-color:var(--win);color:var(--win)">🪙 ' + window.t("sdk.prWonChips", "+{n} play chips", { n: net }) + "</span>"
+      : s.res === 2 ? "" : ' <span class="chip">🪙 ' + window.t("sdk.prLostChips", "−{n} play chips", { n: s.bet }) + "</span>");
+  const acts = $("pActions"); acts.innerHTML = "";
+  const mk = (txt, fn, primary) => { const b = document.createElement("button"); b.className = primary ? "primary" : "ghost"; b.style.flex = "1 1 auto"; b.textContent = txt; b.onclick = fn; acts.appendChild(b); return b; };
+  if (!s.done) {
+    if (s.cards.length < 11) mk(window.t("bj.hit", "🂠 Hit"), pHit, false);
+    mk(window.t("bj.stand", "✋ Stand on {n}", { n: pt.total }), pStand, true);
+  } else mk("↻ " + window.t("sdk.prNewGame", "New practice game"), () => { pState = null; pracRender(); }, true);
+}
+if ($("pDeal")) { $("pDeal").onclick = pDeal; pracRender(); }

@@ -9,6 +9,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, rematchId, blake2bHash, _m, $, 
          alertBar, notify,
          loadQR, drawQR, resolveAliases, disp, share } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";   // the ONE banked-table reader — farkle overlays its round phases
+import { Practice } from "./practice.js";      // free in-browser practice (solo score-attack, no chain)
 
 const CID = "b56dd48000707369be1630e41bfb038d";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="5" y="21" width="16" height="16" rx="4" fill="#e6edf3" stroke="#243140" stroke-width="1.6"/>     <circle cx="9.5" cy="25.5" r="1.6" fill="#20272f"/><circle cx="16.5" cy="32.5" r="1.6" fill="#20272f"/><circle cx="13" cy="29" r="1.6" fill="#00ad93"/>     <rect x="27" y="21" width="16" height="16" rx="4" fill="#e3b341" stroke="#8a6209" stroke-width="1.6"/>     <circle cx="31.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="25.5" r="1.6" fill="#3a2a05"/><circle cx="31.5" cy="32.5" r="1.6" fill="#3a2a05"/><circle cx="38.5" cy="32.5" r="1.6" fill="#3a2a05"/>     <rect x="16" y="6" width="16" height="16" rx="4" fill="#d0362b" stroke="#8a1a12" stroke-width="1.6"/>     <circle cx="24" cy="14" r="1.9" fill="#fff"/></svg>';
@@ -366,10 +367,88 @@ dapp.onReturn((pend, ok, err) => {
 });
 async function boot() {
   try { await dapp.init(); } catch (e) { alertBar(window.t("farkle.cryptoFail", "Crypto bundle failed to load — reload.")); return; }
-  wireUI(); loadQR(); orderCards(["activeGame", "lobby", "play", "opencard", "walletcard", "bankroll", "scoreboard"]);
+  wireUI(); loadQR(); orderCards(["activeGame", "lobby", "play", "practice", "opencard", "walletcard", "bankroll", "scoreboard"]);
   const q = new URLSearchParams(location.search).get("table");
   if (q) { $("joinId").value = q; if (activeTable == null) activeTable = parseInt(q, 10); }
   render(); refreshActive();
   setInterval(refreshActive, 3000);
 }
 boot();
+
+// ---- PRACTICE MODE (free, fully in-browser — solo score-attack, local dice, nothing on-chain) ----------
+// 10 turns of push-your-luck scored by the EXACT rules the contract enforces (the same countsOf /
+// greedyScore / keepScoreValid above validate every keep — straights, hot dice and all; see
+// execnode/games/farkle.py). Math.random is fine here because nothing is at stake.
+const prac = new Practice("farkle");
+const P_TURNS = 10;
+const P_KEEP0 = () => ({ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 });
+let pr = null;
+function pNewRun() { pr = { turn: 1, total: 0, turnScore: 0, diceLeft: 6, dice: null, keep: P_KEEP0(), over: false, isBest: false }; pracRender(); }
+function pRoll() {
+  pr.keep = P_KEEP0();
+  pr.dice = Array.from({ length: pr.diceLeft }, () => 1 + Math.floor(Math.random() * 6));
+  pracRender();
+}
+function pNextTurn(banked) {
+  pr.total += banked;
+  pr.turn++; pr.turnScore = 0; pr.diceLeft = 6; pr.dice = null; pr.keep = P_KEEP0();
+  if (pr.turn > P_TURNS) { pr.over = true; pr.isBest = prac.bump("best", pr.total); }
+  pracRender();
+}
+function pKeepRoll() {   // set aside & roll on — mirror of hold(cont=1) incl. HOT DICE (nd==0 → 6 fresh dice)
+  const ks = keepScoreValid(pr.keep, countsOf(pr.dice), pr.diceLeft);
+  if (!ks.valid) return;
+  pr.turnScore += ks.score;
+  const nd = pr.diceLeft - ks.kept;
+  pr.diceLeft = nd === 0 ? 6 : nd;
+  pRoll();
+}
+function pBank() {   // mirror of hold(cont=0): the turn score + this keep bank into the grand total
+  const ks = keepScoreValid(pr.keep, countsOf(pr.dice), pr.diceLeft);
+  if (!ks.valid) return;
+  pNextTurn(pr.turnScore + ks.score);
+}
+function pToggle(face) {   // same keep semantics as toggleKeep (1s/5s singly, other faces jump to 3-of-a-kind)
+  const rolled = countsOf(pr.dice), k = pr.keep;
+  if (face === 1 || face === 5) { k[face] = k[face] >= rolled[face] ? 0 : k[face] + 1; }
+  else { k[face] = k[face] >= rolled[face] ? 0 : (k[face] < 3 ? 3 : k[face] + 1); if (k[face] > rolled[face]) k[face] = 0; }
+  pracRender();
+}
+function pracRender() {
+  prac.strip($("pStrip"), { chips: false });
+  const feat = $("pFeature"), acts = $("pActions"); if (!feat) return;
+  acts.innerHTML = "";
+  const mk = (txt, fn, primary) => { const b = document.createElement("button"); b.className = primary ? "primary" : "ghost"; b.style.flex = "1 1 auto"; b.innerHTML = txt; b.onclick = fn; acts.appendChild(b); return b; };
+  const bb = prac.best("best");
+  $("pBest").textContent = bb ? window.t("sdk.prBest", "Personal best: {n}", { n: bb }) : "";
+  if (!pr || pr.over) {
+    feat.innerHTML = pr && pr.over
+      ? '<div class="turnhdr">' + window.t("sdk.prFinal", "🏁 Run over — final score {n}", { n: pr.total }) + (pr.isBest ? ' <span class="sc">' + window.t("sdk.prNewBest", "🏆 New personal best!") + "</span>" : "") + "</div>"
+      : '<div class="turnhdr dim">' + window.t("sdk.prSoloHelp", "Solo score-attack: 10 turns of roll / set aside / bank — a farkle ends the turn at 0.") + "</div>";
+    mk(pr ? "↻ " + window.t("sdk.prNewGame", "New practice game") : "🎲 " + window.t("sdk.prPlay", "Play"), pNewRun, true);
+    return;
+  }
+  const hdr = '<div class="turnhdr">' + window.t("sdk.prTurn", "Turn {n} of {total}", { n: pr.turn, total: P_TURNS }) + " · " + window.t("farkle.grandTotal", "Your grand total") + ' <b class="sc">' + pr.total + "</b></div>";
+  if (!pr.dice) {
+    feat.innerHTML = hdr + '<div class="turnhdr mt">' + window.t("farkle.thisTurnLabel", "This turn:") + ' <b class="sc">' + pr.turnScore + "</b> · <b>" + pr.diceLeft + "</b> " + window.t("farkle.diceInHand", "dice in hand") + "</div>";
+    mk(window.t("farkle.rollDiceBtn", "🎲 Roll {n} dice", { n: pr.diceLeft }), pRoll, true);
+    return;
+  }
+  const rolled = countsOf(pr.dice), farkled = greedyScore(pr.dice) === 0;
+  const ks = keepScoreValid(pr.keep, rolled, pr.diceLeft);
+  const keptLeft = Object.assign({}, pr.keep);
+  const diceHtml = pr.dice.map((d) => { const aside = keptLeft[d] > 0; if (aside) keptLeft[d]--;
+    return '<span class="die ' + (aside ? "kept" : "") + '" data-pf="' + d + '">' + dieSVG(d) + "</span>"; }).join("");
+  feat.innerHTML = hdr + '<div class="turnhdr mt">' + window.t("farkle.thisTurnSoFar", "This turn so far") + ' <b class="sc">' + pr.turnScore + "</b> · " + window.t("farkle.thisRollLabel", "this roll:") + "</div>"
+    + '<div class="dicerow">' + diceHtml + "</div>"
+    + (farkled ? '<div class="farkle mt">' + window.t("farkle.farkleMsg", "💥 FARKLE — no scoring dice. This turn ends at 0 (grand total {grand} stays).", { grand: pr.total }) + "</div>"
+        : '<div class="mt small">' + window.t("farkle.setAsideLabel", "Set aside:") + ' <b class="sc">' + ks.score + "</b> " + window.t(ks.score === 1 ? "farkle.pt" : "farkle.pts", ks.score === 1 ? "pt" : "pts")
+          + (ks.kept ? "" : ' <span class="dim">' + window.t("farkle.tapScoring", "(tap scoring dice — 1s & 5s, or three+ of a kind)") + "</span>") + "</div>");
+  feat.querySelectorAll(".die").forEach((el) => el.onclick = () => pToggle(parseInt(el.dataset.pf, 10)));
+  if (farkled) mk(window.t("farkle.endTurnFarkled", "💥 End turn (farkled)"), () => pNextTurn(0), true);
+  else {
+    mk(window.t("farkle.bankTo", "💰 Bank to {n}", { n: pr.total + pr.turnScore + ks.score }), pBank, true).disabled = !ks.valid;
+    mk(window.t("farkle.setAsideRollOn", "🎲 Set aside & roll on"), pKeepRoll, false).disabled = !ks.valid;
+  }
+}
+if ($("pStrip")) pracRender();
