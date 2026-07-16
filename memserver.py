@@ -55,6 +55,8 @@ class MemServer:
         # reintroduce or re-mine. A tx that misses its max_block simply expires; the wallet re-submits a
         # fresh tx (new nonce -> new txid) on the user's action, never silently re-injected.
         self.mempool_lock = threading.RLock()
+        self.pool_gen = 0                 # bumped on EVERY pool mutation (see transaction_pool property)
+        self._txid_set_cache = None        # (pool_gen, {txid}) — O(1) duplicate checks between mutations
         self.transaction_pool = []
         # GOSSIP REJECT CACHE {txid: retry_after_ts}: bodies fetched during set reconciliation that
         # merge_transaction REFUSED (expired target, cross-fork max_block, invalid). Without it a
@@ -216,8 +218,31 @@ class MemServer:
     # (same object, same length) proves the tx set is unchanged and the cached hash is exact. This
     # turns the old O(pool)·sort + canonical-serialize EVERY SECOND into O(1) between pool changes —
     # the whole-mempool rehash was the classic hot-loop serialization cost at mempool scale.
-    _pool_hash_cache = None            # (pool_obj, len, hash)
-    _upcoming_hash_cache = None        # (pool_obj, len, parent_hash, kv_write_gen, hash)
+    _pool_hash_cache = None            # (pool_gen, hash)
+    _upcoming_hash_cache = None        # (pool_gen, parent_hash, kv_write_gen, hash)
+
+    # The pool is a property so EVERY reassignment (merge append path, purges, the core loop's
+    # drain/cull swaps) bumps pool_gen — the one content-change signal all pool-derived caches key on.
+    # (Object identity is NOT a safe key: CPython reuses freed list addresses, and in-place appends
+    # keep identity while changing content. In-place mutation sites bump pool_gen explicitly.)
+    @property
+    def transaction_pool(self):
+        return self._transaction_pool
+
+    @transaction_pool.setter
+    def transaction_pool(self, value):
+        self._transaction_pool = value
+        self.pool_gen += 1
+
+    def _pool_txid_set(self):
+        """set of pooled txids at the current pool_gen — rebuilt only after a mutation, so the
+        per-second re-gossip storm (peers re-serve their whole pool) dedups in O(1) per tx instead
+        of an O(pool) deep-compare over the full posw payloads."""
+        c = self._txid_set_cache
+        if c is None or c[0] != self.pool_gen:
+            c = (self.pool_gen, {t.get("txid") for t in self._transaction_pool})
+            self._txid_set_cache = c
+        return c[1]
 
     def get_transaction_pool_hash(self) -> [str, None]:
         """blake2b of the SORTED transaction pool (None when empty). Sorting first makes the hash
@@ -229,11 +254,11 @@ class MemServer:
         if not pool:
             return None
         cached = self._pool_hash_cache
-        if cached is not None and cached[0] is pool and cached[1] == len(pool):
-            return cached[2]
-        snapshot = pool.copy()
-        pool_hash = blake2b_hash(sort_transaction_pool(snapshot))
-        self._pool_hash_cache = (pool, len(snapshot), pool_hash)
+        gen = self.pool_gen
+        if cached is not None and cached[0] == gen:
+            return cached[1]
+        pool_hash = blake2b_hash(sort_transaction_pool(pool.copy()))
+        self._pool_hash_cache = (gen, pool_hash)
         return pool_hash
 
     def get_upcoming_block_hash(self):
@@ -252,16 +277,16 @@ class MemServer:
         parent = self.latest_block
         pool = self.transaction_pool
         cached = self._upcoming_hash_cache
-        key = (len(pool), parent["block_hash"], kv_ops.write_generation())
-        if cached is not None and cached[0] is pool and cached[1:4] == key:
-            return cached[4]
+        key = (self.pool_gen, parent["block_hash"], kv_ops.write_generation())
+        if cached is not None and cached[0:3] == key:
+            return cached[3]
         next_height = parent["block_number"] + 1
         matched = match_transactions_target(transaction_list=pool.copy(),
                                             block_number=next_height, logger=self.logger) if pool else []
         if matched is False:                              # a match error -> treat as empty
             matched = []
         upcoming = blake2b_hash([parent["block_hash"], next_height, sort_transaction_pool(matched)])
-        self._upcoming_hash_cache = (pool, *key, upcoming)
+        self._upcoming_hash_cache = (*key, upcoming)
         return upcoming
 
     def get_uptime(self) -> int:
@@ -345,6 +370,15 @@ class MemServer:
                 or isinstance(transaction.get("max_block"), bool)):
             return {"result": False, "message": "Malformed transaction"}
 
+        # RE-GOSSIP FAST PATH: peers re-serve their whole pool every second, so the overwhelmingly
+        # common case is a tx we already hold. O(1) txid-set check BEFORE any validation or DB read —
+        # the old path deep-compared against the full 25 MiB pool (line: `transaction in pool`) and
+        # re-hashed the 36 KiB posw body per duplicate, which alone saturated the GIL at fleet scale.
+        # Success, not error: it IS present (same contract as the late "Already present" branch).
+        _txid = transaction.get("txid")
+        if isinstance(_txid, str) and _txid in self._pool_txid_set():
+            return {"message": "Already present", "result": True}
+
         # Anti-DoS: hard-cap the mempool so a flood (incl. fee-exempt register/heartbeat spam) cannot
         # grow it unbounded and OOM the node. Pairs with the per-IP HTTP rate limiter. The lane cap
         # already stops spam from buying extra block share; this stops it taking the node down.
@@ -424,9 +458,9 @@ class MemServer:
                     # must be atomic vs the core loop's drain/production swaps and vs sibling
                     # merge_transaction calls on other threads (double-accept / lost-append races).
                     with self.mempool_lock:
-                        if transaction not in self.transaction_pool:
-                            self.transaction_pool.append(transaction)
-                            self.transaction_pool = sort_list_dict(self.transaction_pool)
+                        if _txid not in self._pool_txid_set():
+                            self._transaction_pool.append(transaction)
+                            self.pool_gen += 1   # in-place append — bump the content signal by hand
 
                 except Exception as e:
                     msg = f"Remote transaction failed to validate: {e}"

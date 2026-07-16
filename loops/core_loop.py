@@ -665,6 +665,16 @@ class CoreClient(threading.Thread):
             # from the real base and /status stops advertising finalized_height=0 until the first tail block.
             self.memserver.finalized_height = get_finalized_height()
 
+            # HISTORY-INDEX PURGE (wedge fix 2026-07-16): tx/block index rows this node wrote on its own
+            # now-abandoned fork ABOVE the checkpoint survive the snapshot import (tx history indexes are
+            # not part of the snapshot; block indexes ship only up to C). Any tx the canonical chain
+            # re-mines above C then trips the at-most-once gate ("Block N replays already-mined tx") and
+            # rejects EVERY tail block — the re-anchor-then-wedge loop observed live at #23042. The tail
+            # replay re-writes fresh rows for the canonical blocks as they incorporate.
+            stale = kv_ops.index_drop_above(target_height)
+            if stale:
+                self.logger.warning(f"Purged {stale} stale history-index rows above checkpoint {target_height}")
+
             # BACKFILL the recent block BODIES the C+1..tip tail replay can NOT rebuild. block_by_num/hash
             # arrived in the snapshot, so HASH lookbacks (beacon anchor (epoch-1)*EPOCH_LENGTH, FFG/PoSW
             # epoch boundaries) already resolve — but rollback and block serving read block BODIES just
