@@ -78,9 +78,10 @@ transition valid?" in O(1) and the chain-extension + fork-choice rules answer "i
 cheaply — so a phone can confirm not just that a history is sound but that it is THE history, without re-running
 any of it. Making that collapse unambiguous and constant-cost is an explicit goal, not an afterthought.
 
-## 6. Throughput — what proofs buy (verification), and what they don't (bandwidth)
+## 6. Throughput — SCALE-OUT (O(1) per node, Θ(N) total)
 
-**Proofs remove the re-execution bottleneck. They do NOT remove the data bottleneck.** Be precise about this,
+**Proofs remove the re-execution bottleneck. They do NOT remove the data bottleneck — so the goal is to make the
+data bottleneck scale OUT.** Be precise about this,
 because overclaiming here is how a roadmap starts to read as fantasy. In a re-execution chain every node reruns
 every transaction, so throughput is capped by the slowest validator's CPU. Succinct proofs lift that cap off
 *validation*: a validator checks a proof in O(1) instead of re-executing the work (goals 1 & 4), so a phone can
@@ -90,32 +91,39 @@ calls into one proof; `recursive_verify` folds independent epochs; extending the
 check, `ops/settlement_ops.settlement_justified`, not a re-run).
 
 What no proof removes is the cost of the DATA itself. Someone still has to transmit and store the transactions;
-verifying them cheaply doesn't make them cheap to move. VISA-rate transaction data — tens of thousands of tx/s —
-is a large, sustained bandwidth and storage load, well beyond a home connection and nowhere near a phone. So
-"VISA-scale on every node" is not a claim this design makes. The honest scaling story separates two roles a
-re-execution chain wrongly conflates:
+verifying them cheaply doesn't make them cheap to move. So the naive picture — every node ingests every
+transaction — *does* hit a bandwidth wall, and VISA-rate data on a single home connection is not realistic. But
+that picture is the thing to get rid of, not to accept: the workaround is that **no node has to hold all the
+data.** Two modern, deployed techniques do this:
 
-- **Verification** — deciding the chain is correct. Proofs make this O(1) and data-light: a light client checks
-  the settlement proof and *samples* data availability (downloads a few random pieces, not the whole block) to be
-  convinced the data exists without holding it. This stays cheap for everyone, phones included, however high
-  throughput climbs — so the *right to verify* is never priced out, which is the property that actually keeps a
-  chain decentralized.
-- **Data carrying** — disseminating and storing the transactions. This scales with throughput and is bounded by
-  real bandwidth and disk. It is borne by a smaller set of provisioned producer/data nodes, and the honest way to
-  push it further is engineering, not magic: data-availability sampling to keep light clients cheap, and
-  eventually sharding the data so no single node carries all of it.
+- **Erasure-coded data availability + sampling (DAS).** The block's data is Reed–Solomon-extended so any ~50% of
+  the pieces reconstruct the whole; a light client then downloads a handful of *random* pieces and, if they're
+  all present, is convinced (to overwhelming probability) that the entire block is recoverable — without ever
+  downloading it. Checking availability becomes O(1) samples, independent of block size. This is live in Celestia
+  and is the core of Ethereum's danksharding.
+- **Sharded storage / dissemination.** The pieces are spread across the network so each node stores and serves a
+  *fraction* of the data, not all of it. Per-node load is `total ÷ N`, so it stays bounded as throughput grows —
+  aggregate capacity is the sum of many ordinary nodes, not the ceiling of one.
 
-So "VISA-scale that is validated, not trusted" means the achievable thing: as throughput rises, the cost to
-*verify* the chain and to *check its data is available* stays flat for every participant — nobody is forced to
-trust a handful of operators — even though the data-carrying nodes are necessarily better-provisioned. VISA-rate
-*validation* on a phone is realistic; VISA-rate *data on every node* is not, and the design says which it delivers.
+Put together, these turn the data problem from "one machine must go faster" into "add machines." That is the
+target term this section aims at, the throughput analogue of O(1):
 
-On the DAG/mempool idea from §5: a DAG of proven transitions is a reasonable way to *order* concurrent proposals
-(narwhal/DAG-BFT-style — decouple "make data available" from "agree on order"), but only among the provisioned
-producer nodes that already carry the data. It does not let a phone ingest the mempool and it does not repeal
-bandwidth limits — it is a throughput technique for the producer layer, and one we are not committing to. The
-part that survives is narrow and solid: because every vertex carries its own O(1) proof, ordering never
-re-imposes an execution cost, so that layer scales with the producers' bandwidth rather than with anyone's CPU.
+> **SCALE-OUT — per-participant cost stays O(1) while total throughput grows with the network (Θ(N)).**
+
+Verification is O(1) via proofs (goals 1 & 4); data *availability* is O(1) via sampling; storage and bandwidth per
+node are O(total ÷ N) → bounded. So every participant's cost stays flat as the network grows, and the way you get
+more throughput is more nodes, each doing a constant amount — horizontal scale, not a faster monolith. VISA-scale
+stops being a per-node heroics problem and becomes a network-size problem, which is the tractable kind. That is a
+real and defensible destination — not "every phone is a VISA-throughput full node," but "no participant's cost
+rises as throughput does, so throughput can rise as far as the network is wide."
+
+The DAG/mempool idea from §5 slots in here as the *ordering* layer for that scaled-out data: a DAG of proven
+transitions (narwhal/DAG-BFT-style — decouple "make data available" from "agree on order") lets many producers
+disseminate and reference each other's data in parallel, and because every vertex already carries its own O(1)
+proof, ordering never re-imposes an execution cost — the ordering layer scales with aggregate producer bandwidth
+(itself sharded), not with any one node's CPU. We are not committing to a specific DAG protocol; the durable
+point is that O(1) verification, O(1) data-availability sampling, and Θ(N) sharded data are mutually compatible —
+so SCALE-OUT is an engineering target to build toward, the same way O(1) is.
 
 ---
 
