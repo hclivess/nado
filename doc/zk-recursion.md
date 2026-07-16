@@ -312,19 +312,34 @@ storage root the recursion can bind, verified by a bound state-transition instea
   a real epoch verifies via the sparse root with no replay, its post_root equals an independent full
   re-projection, and withdrawals prove against the same root.
 
-**Calls commitment (`execnode/stark/calls_commit.py`).** The epoch's K ordered calls collapse to ONE field
-element (a `merkle_node` chain over the call leaves = a `membership.py` fold, hence provable + foldable), so the
-settlement public statement is the O(1)-shaped triple `(calls_commitment, sparse_pre_root, sparse_post_root)`
-(`settlement_sparse.public_statement`). `tests/test_calls_commit.py`.
+**Commitments — the O(1)-shaped public input (`execnode/stark/calls_commit.py`).** The epoch's K ordered calls
+collapse to ONE field element (`calls_commitment` = a `merkle_node` chain over the call leaves = a `membership.py`
+fold, hence provable + foldable); the io collapses the same way (`io_commitment`, domain-separated). So the
+settlement public statement is the O(1)-shaped `(calls_commitment, io_commitment, sparse_pre_root,
+sparse_post_root)` (`settlement_sparse.public_statement_o1`). `tests/test_calls_commit.py`.
 
-**What remains for full asymptotic O(1).**
-  (i) IN-CIRCUIT statement rebuild: today `verify_bound_epoch` still rebuilds the exec periodic tables + derives
-      `net_updates` from the calls/io (O(#io) — the calldata cost). Proving that derivation in-circuit against the
-      calls_commitment (so the verifier never processes calls) is a dedicated build on the core W=106 exec AIR
-      (bind its statement to the commitment via LogUp + a table-derivation circuit) — the deep frontier.
-  (ii) DEPLOYMENT: swapping the sparse root in as THE consensus settled root (settle-tx `state_root`,
-       `ops/transaction_ops` bridge/dividend/unshield exits, `state.py`) is a genesis-level state-root-scheme
-       change, NOT inert on the live chain, so it rides the reroll (with CHAIN_ID→alphanet-6 + settle-with-proof).
+**In-circuit statement rebuild — the STATE half + the binding primitive (built).**
+  * `logup_bind.py` — LogUp multiset-equality: two lists of tuples are the same multiset inside a proof (the
+    primitive that binds the exec's storage writes to the transition's updates in-circuit). `tests/test_logup_bind.py`.
+  * `io_replay.py` — the state transition proven fully IN-CIRCUIT: process the epoch's io directly (SLOAD =
+    membership, SSTORE = merkle-update) against the running sparse root, chained pre_root → post_root, every step
+    RECURSION-committed (foldable → O(1)). `tests/test_io_replay.py`.
+  * `settlement_sparse.prove/verify_bound_epoch_replay` — the assembled O(1) settlement: exec proof + io replay +
+    the O(1)-shaped commitments; the CRYPTO is O(1) (folded). `tests/test_settlement_sparse.py`.
+
+**The one remaining step for full asymptotic O(1) — committed exec periodic tables.** `verify_bound_epoch_replay`
+is now O(1) in CRYPTO; the residual O(#io) is native: the exec AIR proves its trace against DENSE per-epoch
+periodic tables (the public program/io/args log — the exec has FIVE LogUp buses binding the trace to them, see
+vm_circuit.py), and the verifier REBUILDS + evaluates those tables (O(#io)) plus checks the commitments/replay-io
+binding natively. The fix is the succinct-periodic move of §5 step 9 applied to the PER-EPOCH tables: commit the
+io/args/program tables as Merkle roots (= io_commitment / args_commitment / the public program root) and OPEN them
+at the FRI query points (O(queries·log #io)) instead of dense-evaluating, so the exec verify reads the committed
+tables and the whole statement is the O(1) commitments. That is the last dedicated exec-AIR/verifier change; every
+other layer of the O(1) settlement is built and validated above it.
+
+**DEPLOYMENT.** Swapping the sparse root in as THE consensus settled root (settle-tx `state_root`,
+`ops/transaction_ops` bridge/dividend/unshield exits, `state.py`) is a genesis-level state-root-scheme change,
+NOT inert on the live chain, so it rides the reroll (with CHAIN_ID→alphanet-6 + settle-with-proof).
 
 ## 6. Soundness ledger (what each piece rests on)
 
