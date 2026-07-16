@@ -13,6 +13,7 @@
  * Protocol constants (mirror protocol.py — consensus-critical)
  * -------------------------------------------------------------------------------------------- */
 import { poswProveAsync, challengeBytes } from "./posw.js";
+import { share as sdkShare } from "./nadodapp.js";   // THE one share implementation (SDK)
 import * as shielded from "./shielded.js";
 import * as alghash from "./alghash.js";
 import * as sfield from "./stark/field.js";
@@ -3028,53 +3029,25 @@ function currentZrecvAmount() { return _reqAmount("zrecvAmount"); }   // Shield 
 // Share the payment link via the native share sheet (mobile); else copy it to the clipboard.
 async function sharePayLink() {
   if (!state.wallet) return;
-  const link = payLink(state.wallet.address, currentRecvAmount());
-  if (navigator.share) {
-    try { await navigator.share({ title: "NADO payment request", text: "Pay me on NADO", url: link }); return; }
-    catch (e) { if (e && e.name === "AbortError") return; /* dismissed sheet isn't an error; else fall through */ }
-  }
-  const btn = $("btnSharePay");
-  const ok = await copyToClipboard(link);
-  if (btn) { btn.textContent = ok ? i18("copy.copied", "Copied ✓") : i18("copy.select", "select & copy"); setTimeout(() => (btn.textContent = i18("btn.share", "Share")), ok ? 1200 : 1600); }
+  sdkShare(payLink(state.wallet.address, currentRecvAmount()), i18("share.payMsg", "Pay me on NADO"), $("btnSharePay"), "NADO payment request");
 }
 
 // Share the banknote claim LINK (auto-receives on open) — never just the raw code (that needs pasting).
 async function shareZcodeLink() {
   const code = (($("zsendCode") || {}).textContent) || "";
   if (!code) return;
-  const link = claimLink(code);
-  if (navigator.share) {
-    try { await navigator.share({ title: "NADO shielded claim link", text: i18("share.zcodeMsg", "A private NADO banknote for you — open to claim:"), url: link }); return; }
-    catch (e) { if (e && e.name === "AbortError") return; }
-  }
-  const btn = $("btnZcodeShare");
-  const ok = await copyToClipboard(link);
-  if (btn) { btn.textContent = ok ? i18("copy.copied", "Copied ✓") : i18("copy.select", "select & copy"); setTimeout(() => (btn.textContent = i18("btn.share", "Share")), ok ? 1200 : 1600); }
+  sdkShare(claimLink(code), i18("share.zcodeMsg", "A private NADO banknote for you — open to claim:"), $("btnZcodeShare"), "NADO shielded claim link");
 }
 
 // The shielded twin of sharePayLink — the same #pay deep link, carrying the znado… address instead.
 async function shareZpayLink() {
   if (!state.wallet) return;
-  const link = payLink(shieldAddr(), currentZrecvAmount());
-  if (navigator.share) {
-    try { await navigator.share({ title: "NADO private payment request", text: i18("share.zpayMsg", "Pay me privately on NADO — shielded payment link:"), url: link }); return; }
-    catch (e) { if (e && e.name === "AbortError") return; }
-  }
-  const btn = $("btnZaddrShare");
-  const ok = await copyToClipboard(link);
-  if (btn) { btn.textContent = ok ? i18("copy.copied", "Copied ✓") : i18("copy.select", "select & copy"); setTimeout(() => (btn.textContent = i18("btn.share", "Share")), ok ? 1200 : 1600); }
+  sdkShare(payLink(shieldAddr(), currentZrecvAmount()), i18("share.zpayMsg", "Pay me privately on NADO — shielded payment link:"), $("btnZaddrShare"), "NADO private payment request");
 }
 
 // Share the MINER itself (the site URL) — the growth loop: whoever opens it can mine + share it again.
 async function shareMiner() {
-  const url = shareUrl();
-  if (navigator.share) {
-    try { await navigator.share({ title: "NADO", text: i18("share.msg", "Mine NADO in your browser — no install, no signup. Open and go:"), url }); return; }
-    catch (e) { if (e && e.name === "AbortError") return; }
-  }
-  const btn = $("btnShareMiner");
-  const ok = await copyToClipboard(url);
-  if (btn) { btn.textContent = ok ? i18("copy.copied", "Copied ✓") : i18("copy.select", "select & copy"); setTimeout(() => (btn.textContent = i18("btn.share", "Share")), ok ? 1200 : 1600); }
+  sdkShare(shareUrl(), i18("share.msg", "Mine NADO in your browser — no install, no signup. Open and go:"), $("btnShareMiner"));
 }
 
 /* Receive: amount-aware QR + shareable payment link (degrades to the link text if QR is unavailable). */

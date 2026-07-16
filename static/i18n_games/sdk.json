@@ -99,7 +99,9 @@
   "sdk.prPlay": "Play",
   "sdk.prHelpBoard": "Same game vs the computer: nothing touches the chain, no wallet needed. For real stakes, use the game above.",
   "sdk.prVsCpu": "🎯 Practice vs computer — free, no wallet",
-  "sdk.prDealAgain": "Deal again — {n} play chips"
+  "sdk.prDealAgain": "Deal again — {n} play chips",
+  "sdk.copied": "Copied ✓",
+  "sdk.copyFailed": "copy failed — use the link above"
  },
  "cs": {
   "sdk.connect": "Přihlášeno.",
@@ -201,7 +203,9 @@
   "sdk.prPlay": "Hrát",
   "sdk.prHelpBoard": "Stejná hra proti počítači: nic se nedotkne blockchainu, peněženka není potřeba. O skutečné sázky hraj ve hře výše.",
   "sdk.prVsCpu": "🎯 Trénink proti počítači — zdarma, bez peněženky",
-  "sdk.prDealAgain": "Rozdat znovu — {n} herních žetonů"
+  "sdk.prDealAgain": "Rozdat znovu — {n} herních žetonů",
+  "sdk.copied": "Zkopírováno ✓",
+  "sdk.copyFailed": "kopírování selhalo — použij odkaz výše"
  },
  "es": {
   "sdk.connect": "Sesión iniciada.",
@@ -303,7 +307,9 @@
   "sdk.prPlay": "Jugar",
   "sdk.prHelpBoard": "El mismo juego contra la computadora: nada toca la cadena, no necesitas wallet. Para apuestas reales, usa el juego de arriba.",
   "sdk.prVsCpu": "🎯 Práctica vs computadora — gratis, sin wallet",
-  "sdk.prDealAgain": "Repartir de nuevo — {n} fichas de práctica"
+  "sdk.prDealAgain": "Repartir de nuevo — {n} fichas de práctica",
+  "sdk.copied": "Copiado ✓",
+  "sdk.copyFailed": "no se pudo copiar — usa el enlace de arriba"
  },
  "pt": {
   "sdk.connect": "Sessão iniciada.",
@@ -405,7 +411,9 @@
   "sdk.prPlay": "Jogar",
   "sdk.prHelpBoard": "O mesmo jogo contra o computador: nada toca a blockchain, sem precisar de carteira. Para apostas reais, use o jogo acima.",
   "sdk.prVsCpu": "🎯 Treino vs computador — grátis, sem carteira",
-  "sdk.prDealAgain": "Dar cartas de novo — {n} fichas de treino"
+  "sdk.prDealAgain": "Dar cartas de novo — {n} fichas de treino",
+  "sdk.copied": "Copiado ✓",
+  "sdk.copyFailed": "falha ao copiar — use o link acima"
  },
  "fr": {
   "sdk.connect": "Connecté.",
@@ -507,7 +515,9 @@
   "sdk.prPlay": "Jouer",
   "sdk.prHelpBoard": "Le même jeu contre l'ordinateur : rien ne touche la chaîne, aucun wallet requis. Pour de vraies mises, utilise le jeu ci-dessus.",
   "sdk.prVsCpu": "🎯 Entraînement contre l'ordinateur — gratuit, sans wallet",
-  "sdk.prDealAgain": "Redistribuer — {n} jetons d'entraînement"
+  "sdk.prDealAgain": "Redistribuer — {n} jetons d'entraînement",
+  "sdk.copied": "Copié ✓",
+  "sdk.copyFailed": "échec de la copie — utilisez le lien ci-dessus"
  },
  "de": {
   "sdk.connect": "Angemeldet.",
@@ -609,7 +619,9 @@
   "sdk.prPlay": "Spielen",
   "sdk.prHelpBoard": "Dasselbe Spiel gegen den Computer: nichts berührt die Chain, kein Wallet nötig. Für echte Einsätze nutze das Spiel oben.",
   "sdk.prVsCpu": "🎯 Übung gegen den Computer — gratis, ohne Wallet",
-  "sdk.prDealAgain": "Neu geben — {n} Übungschips"
+  "sdk.prDealAgain": "Neu geben — {n} Übungschips",
+  "sdk.copied": "Kopiert ✓",
+  "sdk.copyFailed": "Kopieren fehlgeschlagen — nutze den Link oben"
  },
  "it": {
   "sdk.connect": "Accesso effettuato.",
@@ -711,7 +723,9 @@
   "sdk.prPlay": "Gioca",
   "sdk.prHelpBoard": "Lo stesso gioco contro il computer: nulla tocca la chain, nessun wallet richiesto. Per puntate vere usa il gioco qui sopra.",
   "sdk.prVsCpu": "🎯 Pratica contro il computer — gratis, senza wallet",
-  "sdk.prDealAgain": "Ridai le carte — {n} gettoni di prova"
+  "sdk.prDealAgain": "Ridai le carte — {n} gettoni di prova",
+  "sdk.copied": "Copiato ✓",
+  "sdk.copyFailed": "copia non riuscita — usa il link qui sopra"
  },
  "ru": {
   "sdk.connect": "Вход выполнен.",
@@ -813,7 +827,9 @@
   "sdk.prPlay": "Играть",
   "sdk.prHelpBoard": "Та же игра против компьютера: ничего не касается блокчейна, кошелёк не нужен. Для реальных ставок — игра выше.",
   "sdk.prVsCpu": "🎯 Тренировка против компьютера — бесплатно, без кошелька",
-  "sdk.prDealAgain": "Раздать снова — {n} игровых фишек"
+  "sdk.prDealAgain": "Раздать снова — {n} игровых фишек",
+  "sdk.copied": "Скопировано ✓",
+  "sdk.copyFailed": "не удалось скопировать — используйте ссылку выше"
  },
  "zh": {
   "sdk.connect": "已登录。",
@@ -915,7 +931,9 @@
   "sdk.prPlay": "开始",
   "sdk.prHelpBoard": "同样的游戏，对手是电脑：完全不上链，无需钱包。要玩真实赌注，请使用上方的游戏。",
   "sdk.prVsCpu": "🎯 与电脑练习 — 免费，无需钱包",
-  "sdk.prDealAgain": "再发一局 — {n} 练习筹码"
+  "sdk.prDealAgain": "再发一局 — {n} 练习筹码",
+  "sdk.copied": "已复制 ✓",
+  "sdk.copyFailed": "复制失败 — 请使用上方链接"
  },
  "ja": {
   "sdk.connect": "サインインしました。",
@@ -1017,7 +1035,9 @@
   "sdk.prPlay": "プレイ",
   "sdk.prHelpBoard": "同じゲームをコンピュータ相手に：チェーンには一切触れず、ウォレット不要。実際に賭けるなら上のゲームへ。",
   "sdk.prVsCpu": "🎯 コンピュータと練習 — 無料、ウォレット不要",
-  "sdk.prDealAgain": "もう一度配る — 練習チップ{n}枚"
+  "sdk.prDealAgain": "もう一度配る — 練習チップ{n}枚",
+  "sdk.copied": "コピーしました ✓",
+  "sdk.copyFailed": "コピー失敗 — 上のリンクをご利用ください"
  },
  "ko": {
   "sdk.connect": "로그인됨.",
@@ -1119,7 +1139,9 @@
   "sdk.prPlay": "플레이",
   "sdk.prHelpBoard": "같은 게임을 컴퓨터와: 체인에 아무것도 기록되지 않고 지갑도 필요 없습니다. 실제 판돈은 위의 게임을 이용하세요.",
   "sdk.prVsCpu": "🎯 컴퓨터와 연습 — 무료, 지갑 불필요",
-  "sdk.prDealAgain": "다시 딜 — 연습 칩 {n}개"
+  "sdk.prDealAgain": "다시 딜 — 연습 칩 {n}개",
+  "sdk.copied": "복사됨 ✓",
+  "sdk.copyFailed": "복사 실패 — 위 링크를 사용하세요"
  },
  "ar": {
   "sdk.connect": "تم تسجيل الدخول.",
@@ -1221,7 +1243,9 @@
   "sdk.prPlay": "العب",
   "sdk.prHelpBoard": "اللعبة نفسها ضد الكمبيوتر: لا شيء يمس السلسلة، ولا حاجة لمحفظة. للرهانات الحقيقية استخدم اللعبة أعلاه.",
   "sdk.prVsCpu": "🎯 تدريب ضد الكمبيوتر — مجاني، بلا محفظة",
-  "sdk.prDealAgain": "وزّع من جديد — {n} من رقاقات التدريب"
+  "sdk.prDealAgain": "وزّع من جديد — {n} من رقاقات التدريب",
+  "sdk.copied": "تم النسخ ✓",
+  "sdk.copyFailed": "فشل النسخ — استخدم الرابط أعلاه"
  },
  "hi": {
   "sdk.connect": "साइन इन हो गया।",
@@ -1323,7 +1347,9 @@
   "sdk.prPlay": "खेलें",
   "sdk.prHelpBoard": "वही खेल कंप्यूटर के विरुद्ध: चेन को कुछ नहीं छूता, वॉलेट की ज़रूरत नहीं। असली दांव के लिए ऊपर का गेम इस्तेमाल करें।",
   "sdk.prVsCpu": "🎯 कंप्यूटर के साथ प्रैक्टिस — मुफ़्त, बिना वॉलेट",
-  "sdk.prDealAgain": "फिर से बाँटें — {n} प्रैक्टिस चिप्स"
+  "sdk.prDealAgain": "फिर से बाँटें — {n} प्रैक्टिस चिप्स",
+  "sdk.copied": "कॉपी हो गया ✓",
+  "sdk.copyFailed": "कॉपी विफल — ऊपर दिया लिंक इस्तेमाल करें"
  },
  "tr": {
   "sdk.connect": "Giriş yapıldı.",
@@ -1425,7 +1451,9 @@
   "sdk.prPlay": "Oyna",
   "sdk.prHelpBoard": "Aynı oyun bilgisayara karşı: zincire hiçbir şey dokunmaz, cüzdan gerekmez. Gerçek bahisler için yukarıdaki oyunu kullan.",
   "sdk.prVsCpu": "🎯 Bilgisayara karşı deneme — ücretsiz, cüzdansız",
-  "sdk.prDealAgain": "Yeniden dağıt — {n} antrenman fişi"
+  "sdk.prDealAgain": "Yeniden dağıt — {n} antrenman fişi",
+  "sdk.copied": "Kopyalandı ✓",
+  "sdk.copyFailed": "kopyalanamadı — yukarıdaki bağlantıyı kullan"
  },
  "id": {
   "sdk.connect": "Masuk berhasil.",
@@ -1527,7 +1555,9 @@
   "sdk.prPlay": "Main",
   "sdk.prHelpBoard": "Permainan yang sama melawan komputer: tidak menyentuh chain sama sekali, tanpa wallet. Untuk taruhan sungguhan, pakai game di atas.",
   "sdk.prVsCpu": "🎯 Latihan vs komputer — gratis, tanpa wallet",
-  "sdk.prDealAgain": "Bagikan lagi — {n} chip latihan"
+  "sdk.prDealAgain": "Bagikan lagi — {n} chip latihan",
+  "sdk.copied": "Tersalin ✓",
+  "sdk.copyFailed": "gagal menyalin — gunakan tautan di atas"
  },
  "vi": {
   "sdk.connect": "Đã đăng nhập.",
@@ -1629,6 +1659,8 @@
   "sdk.prPlay": "Chơi",
   "sdk.prHelpBoard": "Cùng một trò chơi đấu với máy: không chạm gì tới chuỗi, không cần ví. Muốn cược thật, hãy dùng trò chơi phía trên.",
   "sdk.prVsCpu": "🎯 Tập đấu với máy — miễn phí, không cần ví",
-  "sdk.prDealAgain": "Chia lại — {n} chip luyện tập"
+  "sdk.prDealAgain": "Chia lại — {n} chip luyện tập",
+  "sdk.copied": "Đã sao chép ✓",
+  "sdk.copyFailed": "sao chép thất bại — dùng liên kết ở trên"
  }
 }

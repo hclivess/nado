@@ -382,10 +382,16 @@ export function stickyInputs(dapp, ids) {
 }
 
 // ---- Share (Web Share API -> clipboard fallback), with button feedback ---------------------------
-export async function share(url, text, btn) {
-  if (navigator.share) { try { await navigator.share({ title: "NADO", text, url }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
+// THE one share implementation (user directive: every share goes through this — never hand-roll
+// navigator.share/clipboard). Native share sheet where available; else copy the url + button feedback.
+export async function share(url, text, btn, title) {
+  if (navigator.share) { try { await navigator.share({ title: title || "NADO", text, url }); return; } catch (e) { if (e && e.name === "AbortError") return; } }
   let ok = false; try { await navigator.clipboard.writeText(url); ok = true; } catch {}
-  if (btn) { const t = btn.textContent; btn.textContent = ok ? "Copied ✓" : "copy failed"; setTimeout(() => (btn.textContent = t.replace("Copied ✓", "Share").replace("copy failed", "Share") || "Share"), 1400); }
+  if (btn) {
+    if (!btn.dataset.shareLabel) btn.dataset.shareLabel = btn.textContent;
+    btn.textContent = ok ? _t("copied", "Copied ✓") : _t("copyFailed", "copy failed — use the link above");
+    setTimeout(() => (btn.textContent = btn.dataset.shareLabel), 1400);
+  }
 }
 // shareInvite(kind, id, text, qrpx): the ONE invite block every game shows — populate #shareLink, render
 // #shareQR, and wire #btnShare, all from the active game/table id. Guards the empty-field case: a null id
