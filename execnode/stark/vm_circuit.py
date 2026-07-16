@@ -625,11 +625,8 @@ def build_periodic(blocks, progs, epoch_io, T):
                 raise ValueError("args do not fit the trace")
             cols[PT_CALL][j] = bi; cols[PT_IDX][j] = k; cols[PT_VAL][j] = v % F.P
             j += 1
-    # range tables
-    for i in range(T):
-        cols[PB][i] = i if i < 256 else 0
-        cols[PS][i] = i if i < 128 else 0
-    # per-execution-row context + args + boundary selectors
+    # per-execution-row context + args (dense, epoch-sized — these live in COMMIT_PERIODIC)
+    starts, ends = [], []
     for bi, (start, nrows, pid, call) in enumerate(blocks):
         args8 = [(call["args_f"][k] if k < len(call["args_f"]) else 0) % F.P for k in range(NR)]
         ctx = (call["caller_f"] % F.P, call.get("value", 0) % F.P,
@@ -640,21 +637,30 @@ def build_periodic(blocks, progs, epoch_io, T):
             cols[PC_CALL][i] = bi
             for k in range(NR):
                 cols[PA + k][i] = args8[k]
-        cols[P_START][start] = 1
+        starts.append((start, 1))
         # END on this call's last row iff a NEXT call follows (its start row is the reset target)
         if bi + 1 < len(blocks):
-            cols[P_END][start + nrows - 1] = 1
+            ends.append((start + nrows - 1, 1))
+    # The FIXED range tables and the SPARSE boundary selectors go out in structured {period,base,sparse} form,
+    # not dense length-T lists: stark._per_expand rebuilds them to the SAME dense column (proofs byte-identical,
+    # test_periodic_structured_identity), but the verifier evaluates them in O(256)/O(#calls) per query instead
+    # of an O(T) interpolation — so nothing the settlement verifier rebuilds here is O(T).
+    cols[PB] = {"period": 1, "base": [0], "sparse": [(i, i) for i in range(256)]}
+    cols[PS] = {"period": 1, "base": [0], "sparse": [(i, i) for i in range(128)]}
+    cols[P_START] = {"period": 1, "base": [0], "sparse": starts}
+    cols[P_END] = {"period": 1, "base": [0], "sparse": ends}
     return cols
 
 
 def make_aux_builder(periodic):
     """The prover's phase-2 witness: the 18 challenge-dependent helper/accumulator columns, built against the
     already-computed public periodic columns."""
-    per_cols = periodic
-
     def build(trace, chal):
         beta, gamma = chal
         T = len(trace)
+        # dense-expand every periodic column (structured {period,base,sparse} range/selector columns → their
+        # length-T form) so the row reader below can index per_cols[c][i] uniformly.
+        per_cols = [stark._per_expand(pc, T) for pc in periodic]
         cols = [[0] * T for _ in range(NUM_AUX)]
         def put(idx, row, val):
             cols[idx - W_MAIN][row] = val
@@ -811,6 +817,61 @@ def verify_epoch_calls(proof, calls, epoch_io, num_queries=stark.NUM_QUERIES, ba
         return stark.verify(proof, transitions(), bnds, periodic=periodic, max_degree=MAX_DEGREE,
                             num_queries=num_queries, aux_spec=_aux_spec(periodic), backend=backend,
                             row_commit=row_commit, commit_periodic=commit_periodic, periodic_roots=periodic_roots)
+    except Exception as e:
+        return False, f"malformed statement/proof: {e}"
+
+
+def _o1_periodic(blocks_decl, T):
+    """The verifier-cheap periodic columns for the O(1) path: ONLY the fixed range tables + the sparse block
+    selectors, in structured (T-independent) form. The epoch-DATA columns (COMMIT_PERIODIC) are committed — their
+    values come from the proof's openings, so they are placeholders here (stark.verify ignores committed slots).
+    `blocks_decl` = proof["blocks"] (the declared call schedule). Cost is O(#calls), never O(#io)/O(#program)."""
+    per = [0] * NUM_PERIODIC
+    per[PB] = {"period": 1, "base": [0], "sparse": [(i, i) for i in range(256)]}
+    per[PS] = {"period": 1, "base": [0], "sparse": [(i, i) for i in range(128)]}
+    starts = [(int(b["start"]), 1) for b in blocks_decl]
+    ends = [(int(b["start"]) + int(b["n"]) - 1, 1)
+            for i, b in enumerate(blocks_decl) if i + 1 < len(blocks_decl)]
+    per[P_START] = {"period": 1, "base": [0], "sparse": starts}
+    per[P_END] = {"period": 1, "base": [0], "sparse": ends}
+    return per
+
+
+def verify_epoch_o1(proof, per_roots, num_queries=stark.NUM_QUERIES, backend=None):
+    """O(1)-SHAPED exec verify: the epoch-data periodic tables (program/io/args/context) are COMMITTED and their
+    roots are taken from `per_roots` (the on-chain statement) — the verifier NEVER rebuilds them, so it does no
+    O(#io)/O(#program) work. It builds only the fixed range tables + the sparse block selectors (from the proof's
+    declared schedule, O(#calls)) and checks the STARK, opening the committed columns O(log N) per query.
+
+    SOUNDNESS: this trusts `per_roots`. The caller MUST bind them to the epoch's commitments (io_commitment /
+    calls_commitment / program root) via a folded chain proof — WITHOUT that binding a prover could commit
+    arbitrary tables. (Unlike verify_epoch_calls, which rebuilds every table from the public calls + io log and
+    is self-contained but O(epoch).) Returns (ok, reason)."""
+    try:
+        T, W = proof["T"], proof["W"]
+        if not isinstance(T, int) or not (MIN_T <= T <= MAX_T) or W != W_TOTAL:
+            return False, "bad trace geometry"
+        if len(per_roots) != len(COMMIT_PERIODIC):
+            return False, "wrong committed-root count"
+        decl = proof.get("blocks")
+        if not isinstance(decl, list) or not decl:
+            return False, "block schedule missing"
+        pos = 0                                          # the schedule must tile [0,total) contiguously (as in
+        for b in decl:                                   # epoch_statement) — a faithful sequential concatenation
+            if not (isinstance(b.get("start"), int) and isinstance(b.get("n"), int) and b["n"] >= 1):
+                return False, "bad block"
+            if b["start"] != pos:
+                return False, "non-contiguous block schedule"
+            pos += b["n"]
+        if pos > T - 2:
+            return False, "epoch does not fit the trace"
+        periodic = _o1_periodic(decl, T)
+        if backend is None and proof.get("backend"):
+            from execnode.stark import backend as _bk
+            backend = _bk.get(proof["backend"])
+        return stark.verify(proof, transitions(), _boundaries(T), periodic=periodic, max_degree=MAX_DEGREE,
+                            num_queries=num_queries, aux_spec=_aux_spec(periodic), backend=backend,
+                            commit_periodic=COMMIT_PERIODIC, periodic_roots=list(per_roots))
     except Exception as e:
         return False, f"malformed statement/proof: {e}"
 

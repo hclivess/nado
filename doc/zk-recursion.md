@@ -327,15 +327,32 @@ sparse_post_root)` (`settlement_sparse.public_statement_o1`). `tests/test_calls_
   * `settlement_sparse.prove/verify_bound_epoch_replay` — the assembled O(1) settlement: exec proof + io replay +
     the O(1)-shaped commitments; the CRYPTO is O(1) (folded). `tests/test_settlement_sparse.py`.
 
-**The one remaining step for full asymptotic O(1) — committed exec periodic tables.** `verify_bound_epoch_replay`
-is now O(1) in CRYPTO; the residual O(#io) is native: the exec AIR proves its trace against DENSE per-epoch
-periodic tables (the public program/io/args log — the exec has FIVE LogUp buses binding the trace to them, see
-vm_circuit.py), and the verifier REBUILDS + evaluates those tables (O(#io)) plus checks the commitments/replay-io
-binding natively. The fix is the succinct-periodic move of §5 step 9 applied to the PER-EPOCH tables: commit the
-io/args/program tables as Merkle roots (= io_commitment / args_commitment / the public program root) and OPEN them
-at the FRI query points (O(queries·log #io)) instead of dense-evaluating, so the exec verify reads the committed
-tables and the whole statement is the O(1) commitments. That is the last dedicated exec-AIR/verifier change; every
-other layer of the O(1) settlement is built and validated above it.
+**Committed exec periodic tables — BUILT (the exec verify is no longer O(#io)).** The exec AIR proves its trace
+against per-epoch periodic tables (the program/io/args log + per-row context — the exec has FIVE LogUp buses
+binding the trace to them, see vm_circuit.py). A public verifier used to REBUILD + dense-evaluate those tables —
+an O(T) `poly_eval` per query per column, the residual O(#io). Now:
+  * `stark.prove/verify(commit_periodic=[...])` — opt-in COMMITTED periodic columns: the listed columns' LDE is
+    Merkle-committed (root absorbed as a public parameter before the main trace) and OPENED at each FRI query
+    point (O(log N)) instead of dense-evaluated; caller-supplied `periodic_roots` bind them to the statement.
+    `commit_periodic=None` is byte-identical to before. `tests/test_commit_periodic.py`.
+  * `vm_circuit.COMMIT_PERIODIC` — the epoch-DATA columns (program/io/args tables + per-row context/args), threaded
+    through `prove_epoch_calls`/`verify_epoch_calls`. The fixed range tables + sparse block selectors moved to the
+    structured `{period,base,sparse}` form (T-independent eval, bit-identical LDE — `test_exec_commit_periodic`),
+    so NOTHING the verifier rebuilds is O(T).
+  * `vm_circuit.verify_epoch_o1(proof, per_roots)` — the O(1)-SHAPED exec verify: takes the committed roots from
+    the on-chain statement, never rebuilds a data table, does only O(#calls) work (the block schedule) + the
+    STARK's O(queries·log N). `tests/test_exec_commit_periodic.py` (accepts from roots alone, no io log; a wrong
+    root is rejected). Differentially validated: the committed proof accepts iff the public proof does.
+
+**The remaining glue for end-to-end O(1) settlement.** Two in-circuit bindings remain, both mechanism-composition
+(no new soundness primitive): (1) bind `per_roots` to the epoch's commitments so `verify_epoch_o1`'s trust in them
+is discharged — the committed io/args columns' roots ↔ `io_commitment`/`calls_commitment` (a foldable chain proof,
+calls_commit-style, or unify the two so the committed root IS the commitment); (2) bind the io replay to the
+COMMITTED io (a `logup_bind` multiset-equality between the replay's (kind,slot,value) steps and the committed io
+columns) so the state transition is tied to the exact committed io without the native O(#io) binding loop. Both
+compose the existing pieces into ONE bundle via `recursive_verify_hetero` generalized to row-mode + two-phase
+(the exec proof is row-committed two-phase; the replay/multiset are column). Until then, `verify_bound_epoch_replay`
+keeps the native O(#io) binding as the verified fallback (soundness-first — no partial O(1) shipped as complete).
 
 **DEPLOYMENT.** Swapping the sparse root in as THE consensus settled root (settle-tx `state_root`,
 `ops/transaction_ops` bridge/dividend/unshield exits, `state.py`) is a genesis-level state-root-scheme change,
