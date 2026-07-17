@@ -138,7 +138,7 @@ export const ART_SEAMONSTERS = {
   // ── Rusalka — pale water-spirit: translucent body dissolving into curls, streaming hair, a single tear (t3)
   rusalka: (c) => { const B = belly(c), SKIN = tint(c.body, 0.6); return `
     <g class="tail-wag">
-      <path d="M40 60 Q18 58 8 68 Q22 66 30 70 Q16 74 10 84 Q30 76 44 68 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round" opacity=".85"/>
+      <path d="M54 62 Q30 60 12 66 Q26 66 34 70 Q18 74 12 84 Q34 78 52 72 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round" opacity=".85"/>
     </g>
     <g class="breathe">
       <path d="M44 56 Q44 42 62 42 Q78 42 80 58 Q80 72 74 80 Q68 74 62 80 Q56 74 50 80 Q44 74 44 56 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round" opacity=".9"/>

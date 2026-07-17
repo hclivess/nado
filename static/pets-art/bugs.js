@@ -413,7 +413,7 @@ export const ART_BUGS = {
     </g>
     <g class="tail-wag">
       <circle cx="52" cy="56" r="30" fill="${c.body}" stroke="${c.line}" stroke-width="2.6"/>
-      <path d="M68 56 A16 16 0 1 1 52 40 A22 22 0 1 0 74 62 A9 9 0 1 1 61 55 A15 15 0 1 0 74 62" fill="none" stroke="${c.line}" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M74.3 44.7 L75.8 49.7 L76.3 54.8 L75.6 59.9 L74.0 64.6 L71.4 68.8 L68.0 72.3 L64.1 75.0 L59.7 76.8 L55.1 77.6 L50.5 77.4 L46.2 76.3 L42.2 74.3 L38.8 71.6 L36.1 68.3 L34.2 64.5 L33.2 60.5 L33.0 56.5 L33.7 52.5 L35.1 48.9 L37.3 45.7 L40.0 43.1 L43.1 41.2 L46.5 40.0 L50.1 39.6 L53.5 39.9 L56.8 40.9 L59.6 42.5 L62.1 44.7 L63.9 47.2 L65.2 50.1 L65.8 53.0 L65.8 56.0 L65.1 58.8 L63.9 61.3 L62.2 63.5 L60.2 65.2 L57.9 66.4 L55.5 67.1 L53.1 67.2 L50.7 66.9 L48.6 66.0 L46.7 64.8 L45.3 63.2 L44.2 61.4 L43.5 59.6 L43.3 57.6 L43.5 55.8 L44.1 54.1 L45.0 52.6 L46.1 51.5 L47.4 50.6 L48.8 50.1 L50.2 49.9 L51.6 50.0 L52.8 50.4 L53.8 51.0 L54.7 51.8 L55.2 52.7 L55.6 53.7 L55.6 54.6 L55.5 55.4 L55.2 56.2 L54.8 56.7 L54.2 57.1" fill="none" stroke="${c.line}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
     </g>
     <g class="head-tilt">
       <path d="M84 78 Q98 78 100 64 Q102 54 92 52 Q84 52 82 60 Q82 72 84 78 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>

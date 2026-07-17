@@ -324,7 +324,7 @@ export const ART_FARM = {
   // ── POULTRY ─────────────────────────────────────────────────────────────
   // Chicken — plump body, tucked wing, red comb & wattle, orange beak & feet, perky tail
   chicken: (c) => `
-    <g class="tail-wag"><path d="M34 70 Q16 60 20 42 Q30 52 40 62 Q30 60 34 70 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/></g>
+    <g class="tail-wag"><path d="M52 60 Q28 54 17 39 Q26 51 35 59 Q27 64 31 73 Q42 77 54 73 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/></g>
     <g class="breathe"><ellipse cx="63" cy="78" rx="23" ry="20" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M56 68 Q74 66 79 84 Q66 90 56 82 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/></g>
     ${[58, 70].map((x) => `<path d="M${x} 96 l0 10 M${x} 106 l-4 4 M${x} 106 l4 4 M${x} 106 l0 5" stroke="${BEAK}" stroke-width="2.2" stroke-linecap="round"/>`).join("")}
