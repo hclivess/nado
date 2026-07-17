@@ -9,10 +9,14 @@ import { ART_FARM } from "./pets-art/farm.js";
 import { ART_WOODLAND } from "./pets-art/woodland.js";
 import { ART_SAVANNA } from "./pets-art/savanna.js";
 import { ART_SEA } from "./pets-art/sea.js";
+import { ART_BIRDS } from "./pets-art/birds.js";
+import { ART_MYTHICAL } from "./pets-art/mythical.js";
 
 export const HAND_ART = {
   ...ART_FARM,
   ...ART_WOODLAND,
   ...ART_SAVANNA,
   ...ART_SEA,
+  ...ART_BIRDS,
+  ...ART_MYTHICAL,
 };
