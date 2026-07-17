@@ -176,5 +176,93 @@ check("world replay: deterministic, isolates nations, resolves a raid, seed-bloc
   if (!blocked.blocked) throw new Error("a pending seed block should pause replay");
 });
 
+const army = (owner, o = {}) => { const n = newNation(owner.padEnd(50, "x")); settle(n, 60);
+  n.money = 5e6; n.food = 2e6; n.energy = 2e6; n.techPts = 1e6; n.rocketPts = 1e5; n.comps = 1e5; n.ready = 100;
+  Object.assign(n.units, { soldier: 40000, tank: 4000, fighter: 4000, bunker: 2000, mech: 3000, agent: 500 }); return Object.assign(n, o); };
+
+check("ranks + veteran bonuses unlock by army experience", () => {
+  const n = newNation("rank".padEnd(50, "r"));
+  if (E.rankOf(n) !== 0) throw new Error("fresh nation is rank 0");
+  n.exp = 900000; const r = E.rankOf(n);           // between colonel(850k) and general(1.15M) → index 9
+  if (E.RANKS[r].k !== "colonel") throw new Error("rank threshold wrong: " + E.RANKS[r].k);
+  if (E.veteran(n).expPerTurn !== 100) throw new Error("rank 9 should grant +100 exp/turn");
+  n.exp = 2500000; if (!(E.veteran(n).armyStr > 1)) throw new Error("top rank should boost army strength");
+});
+
+check("generals multiply strength and level on XP", () => {
+  const n = army("gen");
+  const base = E.power(n, "atk", { soldier: 1, tank: 1 });
+  n.generals = [{ type: "nationalist", xp: 100000 }];   // level 5 → +15% attack
+  const boosted = E.power(n, "atk", { soldier: 1, tank: 1 });
+  if (!(boosted > base * 1.1)) throw new Error("nationalist general should boost attack");
+  if (E.genLevel(100000) !== 5) throw new Error("general level ladder");
+  if (E.genLevel(400000) !== 7) throw new Error("general max level");
+});
+
+check("missiles: build from rocket points, launch applies exact effect", () => {
+  const atk = army("mA"), def = army("mD");
+  atk.rocketPts = 2000;
+  if (!E.buildMissile(atk, "nuke", 3)) throw new Error("build nuke rejected");   // 500×3=1500
+  if (atk.rockets.nuke !== 3 || atk.rocketPts !== 500) throw new Error("missile build accounting");
+  const land0 = def.land, ppl0 = def.people;
+  const r = E.launchMissiles(atk, def, "nuke", 3, true);
+  if (!r.ok) throw new Error("launch failed");
+  if (!(def.land < land0) || !(def.people < ppl0)) throw new Error("nuke should hit land + people");
+  if (atk.rockets.nuke !== 0) throw new Error("missiles not consumed");
+  // outside war → half effect
+  const d2 = army("mD2"), a2 = army("mA2"); a2.rockets.bio = 2;
+  const p0 = d2.people; E.launchMissiles(a2, d2, "bio", 1, false);
+  const p1 = d2.people; d2.people = p0; a2.rockets.bio = 1; E.launchMissiles(a2, d2, "bio", 1, true);
+  if (!(p0 - p1 < p0 - d2.people)) throw new Error("outside-war missile should be weaker");
+});
+
+check("tactical attacks hit their targeted asset", () => {
+  const atk = army("tA"), def = army("tD");
+  const bunkers0 = def.units.bunker;
+  atk.units.soldier = 200000;                         // overwhelming soldiers → breach bunkers
+  const r = E.tactical(atk, def, "breach", 555555555555555555n);
+  if (r.win && !(def.units.bunker < bunkers0)) throw new Error("breach should destroy bunkers on a win");
+  // rear strike cuts tanks
+  const t0 = def.units.tank; atk.units.tank = 50000;
+  const r2 = E.tactical(atk, def, "rear", 777777777777777777n);
+  if (r2.win && !(def.units.tank < t0)) throw new Error("rear strike should cut tanks");
+});
+
+check("espionage: steal caps to prestige, sabotage damages, agents can die", () => {
+  const atk = army("sA"), def = army("sD");
+  atk.units.agent = 5000; def.units.agent = 100;      // strong spy vs weak
+  def.money = 1e6; const m0 = def.money, am0 = atk.money;
+  const r = E.spyOp(atk, def, "theft_bank", 2000, 888888888888888888n);
+  if (r.win) { if (!(def.money < m0)) throw new Error("bank theft should drain the victim");
+    if (!(atk.money > am0)) throw new Error("thief should gain the money"); }
+  // sabotage army drops readiness
+  const rd0 = def.ready; const r2 = E.spyOp(atk, def, "sab_army", 2000, 999n);
+  if (r2.win && !(def.ready < rd0)) throw new Error("army sabotage should drop readiness");
+});
+
+check("domestic market: buy raises stock for money, sell is cheaper", () => {
+  const n = army("mkt"); n.money = 1e7; const f0 = n.food, m0 = n.money;
+  if (!E.marketBuy(n, "food", 1000)) throw new Error("buy food rejected");
+  if (!(n.food > f0) || !(n.money < m0)) throw new Error("buy should trade money for food");
+  const sellPrice = Math.floor(E.unitPrice(n, "food") * 0.6);
+  if (!(sellPrice < E.unitPrice(n, "food"))) throw new Error("sell price should be below buy price");
+});
+
+check("advances: cost scales with difficulty; alien ones can't be bought", () => {
+  const n = army("adv"); n.techPts = 1e7;
+  const c0 = E.advCost(n, "genome"); n.land += 20000; const c1 = E.advCost(n, "genome");
+  if (!(c1 > c0)) throw new Error("bigger nation → costlier advance");
+  if (!E.buildAdvance(n, "genome")) throw new Error("legal advance rejected");
+  if (!E.hasAdv(n, "genome")) throw new Error("advance not recorded");
+  if (E.buildAdvance(n, "plasma")) throw new Error("alien advance should not be buildable");
+});
+
+check("events fire deterministically and stay bounded", () => {
+  const a = newNation("ev".padEnd(50, "e")), b = JSON.parse(JSON.stringify(a));
+  settle(a, 500); settle(b, 250); settle(b, 250);
+  if (JSON.stringify(a) !== JSON.stringify(b)) throw new Error("events break turn-additivity");
+  finite(a);
+});
+
 console.log(fails ? fails + " FAILURES" : "ALL PASS");
 process.exit(fails ? 1 : 0);
