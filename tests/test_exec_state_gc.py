@@ -11,8 +11,8 @@ Run: python3 tests/test_exec_state_gc.py
 """
 import os, sys, tempfile, traceback
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from execnode.state import ExecState, _outbox_leaf
-from hashing import verify_merkle_proof
+from execnode.state import ExecState
+from execnode import exec_root as ER
 
 fails = 0
 def check(name, fn):
@@ -40,8 +40,7 @@ def t1_drop_claimed():
     assert "1" not in st.withdrawals and "3" not in st.dividend_withdrawals and "4" not in st.unshield_withdrawals
     assert st.state_root() != r0, "claimed leaves must leave the root"
     p = st.withdrawal_proof("2")
-    assert p and verify_merkle_proof(
-        __import__("hashing").withdrawal_leaf("ndoB", 7, "2"), p["proof"], st.state_root()), \
+    assert p and ER.verify_withdrawal(st.state_root(), "ndoB", 7, "2", p["proof"]), \
         "UNclaimed exits must stay provable"
     st.drop_claimed("bridge_withdraw", 999)        # unknown nonce -> no-op, no error
     st.drop_claimed("nonsense", 1)                 # unknown kind -> no-op
@@ -58,7 +57,8 @@ def t2_drop_consumed_outbox_and_monotonic_seq():
     st.apply_blob({"op": "emit", "to_ns": "b", "data": "m2"}, sender="ndoA", txid="t2")
     assert "2" in st.outbox and st.outbox["2"]["seq"] == 2, "seq counter is monotonic after GC (no reuse)"
     p = st.outbox_proof(1)
-    assert p and verify_merkle_proof(_outbox_leaf(p["message"]), p["proof"], st.state_root()), \
+    m = p["message"]
+    assert p and ER.verify_outbox_msg(st.state_root(), m["seq"], m["from"], m["to_ns"], m.get("data"), p["proof"]), \
         "surviving outbox messages stay provable"
     assert st.outbox_proof(0) is None, "consumed message is gone"
     st.drop_consumed_outbox("bogus")               # malformed seq -> no-op
@@ -71,11 +71,11 @@ def t3_field_nfset_digest_bounded():
     st._touch()
     r_full = st.state_root()
     assert r_full != r_empty, "the digest still BINDS the nullifier set"
-    # the leaf list stays the same LENGTH regardless of set size (one digest leaf, not one per nf)
-    n_leaves_full = len(st._compute_leaves())
+    # the committed projection stays the same SIZE regardless of set size (one digest record, not one per nf)
+    n_records_full = len(ER.records_projection(st))
     st.field_pool.nullifiers.update(range(500, 1000))
     st._touch()
-    assert len(st._compute_leaves()) == n_leaves_full, "leaf count must not grow with the nullifier set"
+    assert len(ER.records_projection(st)) == n_records_full, "record count must not grow with the nullifier set"
     assert st.state_root() != r_full, "...but the digest changes with the set"
 
 

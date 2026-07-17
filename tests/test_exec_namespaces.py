@@ -91,8 +91,7 @@ def t4_default_determinism_preserved():
 
 def t5_outbox_emit_commit_and_proof():
     """Prove `emit` commits a cross-domain message in state_root and outbox_proof verifies against it."""
-    from hashing import verify_merkle_proof
-    from execnode.state import _outbox_leaf
+    from execnode import exec_root as ER
     st = _states(["default"])["default"]
     r0 = st.state_root()
     st.apply_blob({"op": "emit", "to_ns": "rollupb", "data": {"hello": 1}}, A, "e1")
@@ -101,7 +100,8 @@ def t5_outbox_emit_commit_and_proof():
     assert st.state_root() != r0, "emitting a message changes the committed root"
     p = st.outbox_proof(0)
     assert p is not None and p["message"]["from"] == A and p["message"]["to_ns"] == "rollupb"
-    assert verify_merkle_proof(_outbox_leaf(p["message"]), p["proof"], st.state_root()), \
+    m = p["message"]
+    assert ER.verify_outbox_msg(st.state_root(), m["seq"], m["from"], m["to_ns"], m.get("data"), p["proof"]), \
         "message proves against state_root"
     assert st.outbox_proof(9) is None, "unknown seq -> None"
 

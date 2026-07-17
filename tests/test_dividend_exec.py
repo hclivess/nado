@@ -55,7 +55,8 @@ def t3_collect_burns_and_proves():
     w = st.dividend_withdrawals["1"]
     assert w["addr"] == "A" and w["amount"] == 1000, "records the provable withdrawal"
     p = st.dividend_withdrawal_proof("1")
-    assert verify_merkle_proof(dividend_leaf("A", 1000, "1"), p["proof"], st.state_root()), \
+    from execnode import exec_root as ER
+    assert ER.verify_dividend(st.state_root(), "A", 1000, "1", p["proof"]), \
         "the collection proves against the state_root (== what L1 checks vs the settled root)"
 
 def t4_collect_nothing_is_noop():

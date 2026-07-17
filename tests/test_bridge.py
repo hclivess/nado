@@ -72,7 +72,8 @@ def t2_full_bridge_roundtrip():
     p = st.withdrawal_proof("1")
     assert p and p["addr"] == U["address"] and p["amount"] == W and p["nonce"] == "1"
     root = st.state_root()
-    assert verify_merkle_proof(withdrawal_leaf(U["address"], W, "1"), p["proof"], root), "exec proof self-consistent"
+    from execnode import exec_root as ER
+    assert ER.verify_withdrawal(root, U["address"], W, "1", p["proof"]), "exec proof self-consistent"
 
     # 3) SETTLE the exec root on L1 (bonded quorum: V alone = 4/4 > 2/3)
     reflect_transaction(construct_settle_tx(V, exec_cursor=7, state_root=root, max_block=1), logger, 1)

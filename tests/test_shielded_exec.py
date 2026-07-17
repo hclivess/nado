@@ -75,7 +75,8 @@ def t4_unshield_provable_exit():
     assert "unshield 40" in res, res
     p = st.unshield_withdrawal_proof("1")
     assert p and p["amount"] == 40 and p["addr"] == "ndoAlice", p
-    assert verify_merkle_proof(unshield_leaf(p["addr"], p["amount"], p["nonce"]), p["proof"], st.state_root()), \
+    from execnode import exec_root as ER
+    assert ER.verify_unshield(st.state_root(), p["addr"], p["amount"], p["nonce"], p["proof"]), \
         "unshield exit must be provable against state_root"
 
 def t5_double_spend_rejected():
