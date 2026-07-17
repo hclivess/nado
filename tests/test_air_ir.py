@@ -37,14 +37,16 @@ def _real_trace():
 
 def t_ir_matches_closures():
     """eval_program_point == the constraint closures, at random rows."""
+    from execnode.stark import stark as _stark
     full, periodic, T, chal = _real_trace()
+    dense = [_stark._per_expand(pc, T) for pc in periodic]   # structured range/selector columns → dense
     trans = V.transitions()
     prog = air_ir.build_program(trans, V.W_TOTAL, V.NUM_PERIODIC, 2)
     random.seed(1)
     for _ in range(30):
         j = random.randrange(T)
         cur, nxt = full[j], full[(j + 1) % T]
-        per = [periodic[c][j] for c in range(V.NUM_PERIODIC)]
+        per = [dense[c][j] for c in range(V.NUM_PERIODIC)]
         ir = air_ir.eval_program_point(prog, cur, nxt, per, list(chal))
         direct = [con(cur, nxt, per, chal) % F.P for con in trans]
         assert ir == direct, f"row {j}: IR != closures"
