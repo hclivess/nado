@@ -91,6 +91,22 @@ def t_tampered_transition_rejected():
     assert not ok, "a tampered sparse post_root must be rejected"
 
 
+def t_pre_contracts_bound_to_pre_root():
+    """SOUND-READ BINDING (regression): pre_get reads the epoch's initial storage from the prover-supplied
+    pre_contracts, so pre_contracts MUST be the pre-image of the committed sparse_pre_root. Otherwise a slot the
+    epoch only READS (or, as here, never touches) could hold a value the prover invented — the transition
+    re-authenticates WRITES against sparse_pre_root but never sees a read-only/untouched slot, so a forged read
+    would drive the execution while sparse_pre_root stayed pinned to the settled tip. Add an UNTOUCHED slot to
+    pre_contracts (net_updates is blind to it — only the whole-pre-state binding can catch it): reject."""
+    bad = copy.deepcopy(_BUNDLE)
+    bad["pre_contracts"][CID_S]["storage"]["slots"]["99"] = 7   # a slot no call in the epoch reads or writes
+    ok, why, _ = SS.verify_bound_epoch(bad, num_queries=NQ)
+    assert not ok, f"pre_contracts inconsistent with sparse_pre_root must be rejected (unbound reads); got ok ({why})"
+    # and the honest bundle (pre_contracts == pre-image of sparse_pre_root) still verifies
+    ok2, why2, _ = SS.verify_bound_epoch(_BUNDLE, num_queries=NQ)
+    assert ok2, f"the honest bundle must still verify: {why2}"
+
+
 def t_calls_commitment_public_statement():
     """The bound epoch's public statement is O(1)-shaped — (calls_commitment, sparse_pre_root, sparse_post_root)
     — and verify checks the commitment; a tampered calls_commitment is rejected."""
@@ -126,6 +142,7 @@ def _replay_post_sparse(bundle):
 
 if __name__ == "__main__":
     check("bound epoch verifies (no replay, no whole-state merkle)", t_bound_epoch_verifies)
+    check("pre_contracts bound to sparse_pre_root (read-only SLOAD soundness)", t_pre_contracts_bound_to_pre_root)
     check("O(1)-shaped public statement + calls_commitment checked", t_calls_commitment_public_statement)
     check("replay-bound epoch: exec + in-circuit io replay + O(1) commitments", t_replay_bound_epoch)
     check("sparse post_root == independent full re-projection", t_post_root_matches_full_reprojection)

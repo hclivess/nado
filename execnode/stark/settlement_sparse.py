@@ -119,6 +119,16 @@ def verify_bound_epoch(bundle, num_queries=None):
             if bundle["calls_commitment"] != want:
                 return False, "calls_commitment does not match the epoch's calls", None
         depth = bundle["depth"]
+        # SOUND-READ BINDING: pre_get below reads the epoch's initial storage values from the prover-supplied
+        # pre_contracts. The state transition re-authenticates every WRITTEN slot's old value against
+        # sparse_pre_root, but a slot the epoch only READS (never writes) would otherwise take its value on the
+        # prover's word — letting a forged read drive the execution while sparse_pre_root stays pinned to the
+        # settled tip. Pin the WHOLE pre-state: sparse_pre_root MUST be the root of pre_contracts' projection, so
+        # every slot — read-only included — is the committed one. (This native path's O(state) cost; it already
+        # carries the full pre_contracts. The succinct io-replay path binds each read via in-circuit membership.)
+        want_pre = tuple(int(x) % F.P for x in bundle["sparse_pre_root"])
+        if tuple(int(x) % F.P for x in sparse_root(bundle["pre_contracts"], depth)) != want_pre:
+            return False, "pre_contracts do not match sparse_pre_root (unbound storage reads)", None
         pre_get = lambda cid, slot: ((bundle["pre_contracts"].get(cid) or {}).get("storage") or {}).get("slots", {}).get(str(int(slot)), 0)
         okb, whyb = ESB.bind_and_verify(bundle["transition"], bundle["sparse_pre_root"], bundle["sparse_post_root"],
                                         pre_get, bundle["cid_io"], depth, num_queries=nq)
