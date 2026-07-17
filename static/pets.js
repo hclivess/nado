@@ -6,6 +6,7 @@
 // contract (execnode/contracts/pets.json); this file is reads + UI + the wallet-signed calls.
 import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orderCards, alertBar, blocksToTime, lsLoad, lsSave, wireWallet, stickyInputs, renderWallet, loadQR, drawQR, resolveAliases, disp, shareInvite, esc } from "./nadodapp.js";
 import * as G from "./pets-genes.js";
+import { HAND_ART } from "./pets-art-hand.js";   // bespoke per-animal art (grows toward the full roster)
 import { loadCrypto } from "./nadotx.js";
 
 const CID = "5db6cb731ec1f39cc19a418475517829";   // execnode/games/pets.py (zkVM, nonce "a5")
@@ -76,6 +77,10 @@ function quadArt(c, v) {
   if (v.ears === "round") H.push(`<circle cx="67" cy="33" r="7.5" fill="${v.panda ? c.line : c.body}" stroke="${c.line}" stroke-width="2"/><circle cx="93" cy="33" r="7.5" fill="${v.panda ? c.line : c.body}" stroke="${c.line}" stroke-width="2"/>${v.panda ? "" : `<circle cx="67" cy="33" r="4" fill="${c.shade}"/><circle cx="93" cy="33" r="4" fill="${c.shade}"/>`}`);
   if (v.ears === "tall") H.push(`<ellipse cx="72" cy="21" rx="5.6" ry="15" fill="${c.body}" stroke="${c.line}" stroke-width="2" transform="rotate(-7 72 21)"/><ellipse cx="88" cy="21" rx="5.6" ry="15" fill="${c.body}" stroke="${c.line}" stroke-width="2" transform="rotate(7 88 21)"/><ellipse cx="72" cy="23" rx="2.6" ry="10" fill="${c.shade}" transform="rotate(-7 72 23)"/><ellipse cx="88" cy="23" rx="2.6" ry="10" fill="${c.shade}" transform="rotate(7 88 23)"/>`);
   if (v.horns) H.push(`<path d="M70 34 C66 26 68 20 75 19 C71 24 72 29 74 33 Z M90 34 C94 26 92 20 85 19 C89 24 88 29 86 33 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6"/>`);
+  // ANTLERS: branched deer/moose/elk rack (drawn behind the head)
+  if (v.antlers) H.push(`<g stroke="${c.shade}" stroke-width="2.6" fill="none" stroke-linecap="round"><path d="M72 33 C66 22 64 14 66 6 M67 18 l-7 -4 M65 11 l-8 -2 M69 24 l-8 -3"/><path d="M88 33 C94 22 96 14 94 6 M93 18 l7 -4 M95 11 l8 -2 M91 24 l8 -3"/></g>`);
+  // BIG EARS: elephant / fennec / bat — broad ears fanning out behind the head
+  if (v.bigear) H.push(`<ellipse cx="60" cy="44" rx="13" ry="16" fill="${c.shade}" stroke="${c.line}" stroke-width="2" transform="rotate(18 60 44)"/><ellipse cx="100" cy="44" rx="13" ry="16" fill="${c.shade}" stroke="${c.line}" stroke-width="2" transform="rotate(-18 100 44)"/>`);
   // MANE: a full crest running from the poll down the neck to the withers, its outer edge broken into
   // three overlapping locks (+ hair lines) so it reads as a mane of many strands, not the single hanging
   // strand it used to be. Drawn behind the head; the forelock (below, after the face) completes it in front.
@@ -464,6 +469,7 @@ const ART = { poodle: poodleArt, quad: quadArt, bird: birdArt, parrot: parrotArt
   fishy: fishArt, whale: whaleArt, octo: octoArt, jelly: jellyArt, turtle: turtleArt, snail: snailArt,
   crab: crabArt, bug: bugArt, butterfly: butterflyArt, frog: frogArt, snake: snakeArt, lizard: lizardArt,
   monkey: monkeyArt, wiggler: wigglerArt, dragon: dragonArt };
+Object.assign(ART, HAND_ART);   // bespoke hand-drawn per-animal art (pets-art-hand.js) overrides archetypes
 const FLOATERS = new Set(["fishy", "whale", "octo", "jelly", "butterfly"]);   // these drift; land pets bob
 const wrap = (cls, inner, floats) => `<svg viewBox="0 0 120 120">
   <ellipse class="gshadow" cx="60" cy="107" rx="${floats ? 17 : 25}" ry="4.2" fill="#000" opacity="${floats ? ".1" : ".2"}"/>
@@ -489,11 +495,12 @@ function graveSvg() {
     <g class="ghostup"><text x="60" y="30" text-anchor="middle" font-size="16">👻</text></g></g></svg>`;
 }
 // draw a pet: its animal's archetype body in its gene-derived coat, inside a rarity-aura span
+function drawOf(a) { return ART[petSlug(a.n)] || ART[a.a] || quadArt; }   // per-animal HAND art wins; archetype is the fallback
 function petBody(p, cls = "pet-idle") {
   const a = p.animal, coat = G.coatOf(p.gene, a);
   const aura = G.auraOf(p.sp, coat.shiny);
-  const floats = FLOATERS.has(a.a);
-  return `<span class="aura ${aura}">${wrap(cls + (floats && cls ? " swim" : ""), (ART[a.a] || quadArt)(coat, a.v || {}), floats)}</span>`;
+  const floats = a.float || FLOATERS.has(a.a);
+  return `<span class="aura ${aura}">${wrap(cls + (floats && cls ? " swim" : ""), drawOf(a)(coat, a.v || {}), floats)}</span>`;
 }
 const petArt = (p, cls = "pet-idle") => p.dead ? graveSvg() : (p.hatched ? petBody(p, cls) : eggSvg(p.hatchReady ? "egg-ready egg-glow" : "egg-idle", 0));
 
@@ -502,7 +509,7 @@ const rr = (x, y, w, h, r) => { const p = new Path2D(); p.roundRect(x, y, w, h, 
 async function challengerCanvas(p) {
   const an = p.animal, coat = G.coatOf(p.gene, an), tier = p.tier;
   FIERCE = 1;                                    // same body, angry face
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 112 112">${(ART[an.a] || quadArt)(coat, an.v || {})}</svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 4 112 112">${drawOf(an)(coat, an.v || {})}</svg>`;
   FIERCE = 0;
   const img = new Image();
   const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));

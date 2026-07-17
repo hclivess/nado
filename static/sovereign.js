@@ -260,7 +260,7 @@ function renderBuild(el) {
   const unit = E.buildCost(n, 1);          // money for the NEXT building (same for every type; rises as you grow)
   let h = '<p class="hint">' + T("buildHint2", "Up to {per} buildings PER TURN (shared across all types). Cost rises as you grow. Colonize for more land — but not while over half sits empty.", { per }) + "</p>";
   h += '<div class="row2">'
-    + '<button class="primary" id="btnColonize">🧭 ' + T("colonize", "Colonize — claim more land") + "</button>"
+    + '<button class="primary" id="btnColonize" style="padding:12px 20px;line-height:1.2;white-space:nowrap">🧭 ' + T("colonize", "Colonize — claim more land") + "</button>"
     + '<span class="landchip">🟩 ' + T("openLand", "open land") + " <b>" + fmt(n.bld.unbuilt) + "</b></span>"
     + (practice ? "" : '<span class="landchip">🏗 ' + T("buildsLeft", "builds left this turn") + " <b>" + left + "/" + per + "</b></span>")
     + "</div>";
