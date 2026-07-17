@@ -48,9 +48,9 @@ DIE_PCT = 10
 CAP_BATTLE = 12
 HP_OFF = 1024                 # HP values ride shifted by +1024 so a one-hit overshoot below zero stays
                               # field-positive (max damage < 1024) — branchless signed math in a prime field
-TIER_CUM = [78000, 95000, 98900, 99750, 99960]
-TIER_BASE = {1: 1, 2: 71, 3: 96, 4: 101, 5: 105, 6: 107}
-TIER_COUNT = {1: 70, 2: 25, 3: 5, 4: 4, 5: 2, 6: 1}
+TIER_CUM = [78000, 95000, 98900, 99750, 99960]                                     # tier odds (fixed forever)
+TIER_BASE = {1: 1, 2: 205, 3: 570, 4: 839, 5: 964, 6: 1001}                        # first si of each tier band
+TIER_COUNT = {1: 204, 2: 365, 3: 269, 4: 125, 5: 37, 6: 7}                         # species per tier (sum 1007)
 STAT_TIER_BONUS = 6
 
 BURN_SLOT = 1
@@ -191,14 +191,17 @@ def _hatch():
     for t in TIER_CUM:
         L += ["mov r6 r5", f"movi r4 {t}", "lt r6 r4", "notb r6", "add r2 r6"]
     L += _sl(SP) + ["sstore r4 r2"]
-    # species band: count = 70 - Σ flags·k ; base = 1 + Σ flags·k ; si = base + roll32(gn+777) % count
-    L += ["movi r1 70", "movi r6 1", f"movi r4 {_sc(0)}", "sstore r4 r6"]        # SC0 = base accumulator
-    for k, (dc, db) in enumerate(zip((45, 20, 1, 2, 1), (70, 25, 5, 4, 2))):
-        thr = k + 2
-        L += ["mov r5 r2", f"movi r6 {thr}", "lt r5 r6", "notb r5",              # sp >= thr
-              "mov r6 r5", f"movi r4 {dc}", "mul r6 r4", "sub r1 r6",            # count -= dc·flag
-              f"movi r4 {db}", "mul r5 r4",
-              f"movi r4 {_sc(0)}", "sload r6 r4", "add r6 r5", "sstore r4 r6"]   # base += db·flag
+    # species band (values-driven, so ANY TIER_COUNT works — the counts need not decrease monotonically):
+    #   count = Σ_{t=1..6} (sp==t)·COUNT[t]  ;  base = 1 + Σ_{t=2..6} (sp>=t)·COUNT[t-1]  (= TIER_BASE[sp])
+    L += ["movi r1 0"]                                                           # r1 = count accumulator
+    for t in range(1, 7):
+        L += ["mov r5 r2", f"movi r6 {t}", "eq r5 r6",                           # sp == t
+              f"movi r6 {TIER_COUNT[t]}", "mul r5 r6", "add r1 r5"]
+    L += ["movi r6 1", f"movi r4 {_sc(0)}", "sstore r4 r6"]                      # SC0 = base = 1
+    for t in range(2, 7):
+        L += ["mov r5 r2", f"movi r6 {t}", "lt r5 r6", "notb r5",               # sp >= t
+              f"movi r6 {TIER_COUNT[t - 1]}", "mul r5 r6",
+              f"movi r4 {_sc(0)}", "sload r6 r4", "add r6 r5", "sstore r4 r6"]   # base += COUNT[t-1]·flag
     L += ["mov r5 r3", "movi r6 777", "add r5 r6"] + _roll32("r5", "r5")
     L += ["divmod r5 r1", f"movi r4 {_sc(0)}", "sload r6 r4", "add r6 r7"]       # si = base + roll%count
     L += _sl(SI) + ["sstore r4 r6"]

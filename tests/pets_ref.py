@@ -14,8 +14,8 @@ def ref_gene(bh, b, pid):       return vm_hash(bh[b] + bh[b + 1] + pid)
 # slice, independent of the species pick, so odds are decoupled from how many animals live in each tier.
 # TIER_CUM = cumulative thresholds; sp = 1 + how many you clear. Odds: 78 / 17 / 3.9 / 0.85 / 0.21 / 0.04 %.
 TIER_CUM   = [78000, 95000, 98900, 99750, 99960]          # mod 100000
-TIER_BASE  = {1: 1, 2: 71, 3: 96, 4: 101, 5: 105, 6: 107}  # first si of each tier's roster band
-TIER_COUNT = {1: 70, 2: 25, 3: 5, 4: 4, 5: 2, 6: 1}        # animals in each tier (sum = 107)
+TIER_BASE  = {1: 1, 2: 205, 3: 570, 4: 839, 5: 964, 6: 1001}  # first si of each tier's roster band
+TIER_COUNT = {1: 204, 2: 365, 3: 269, 4: 125, 5: 37, 6: 7}    # animals in each tier (sum = 1007)
 STAT_TIER_BONUS = 6                                         # +6/stat per tier (Elo-validated ~76% adjacent)
 
 def ref_tier(gene):

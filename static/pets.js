@@ -611,8 +611,10 @@ function petsFrom(sto) {
     if (gs) {   // memoized immutable decode (gene / species / base stats) — keyed by the immutable gene
       const k = pid + "|" + gs;
       let d = _geneCache[k];
-      if (!d) { const gene = BigInt(gs); d = _geneCache[k] = { gene, animal: G.animalOf(p.si, p.sp), base: G.baseStats(gene, p.sp) }; }
-      p.gene = d.gene; p.animal = d.animal; p.base = d.base;   // si==0 -> legacy pet -> the OG three
+      // species is re-derived from the IMMUTABLE gene (not the stored si) so the 1007-animal roster remap
+      // applies to every pet with zero on-chain writes — stored si is legacy/ignored. sp is unchanged (TIER_CUM).
+      if (!d) { const gene = BigInt(gs); d = _geneCache[k] = { gene, animal: G.animalOf(G.speciesIdOf(gene, p.sp), p.sp), base: G.baseStats(gene, p.sp) }; }
+      p.gene = d.gene; p.animal = d.animal; p.base = d.base;
     } else { p.gene = null; p.animal = null; p.base = null; }
     p.dead = cur != null && cur > p.fu;
     p.tier = G.TIERS[p.sp] || null;
