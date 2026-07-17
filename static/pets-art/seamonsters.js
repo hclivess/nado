@@ -136,21 +136,26 @@ export const ART_SEAMONSTERS = {
     </g>`; },
 
   // ── Rusalka — pale water-spirit: translucent body dissolving into curls, streaming hair, a single tear (t3)
-  rusalka: (c) => { const B = belly(c), SKIN = tint(c.body, 0.6); return `
-    <g class="tail-wag">
-      <path d="M54 62 Q30 60 12 66 Q26 66 34 70 Q18 74 12 84 Q34 78 52 72 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round" opacity=".85"/>
-    </g>
+  // Rusalka — the melancholic Slavic water-maiden, after Bilibin: long streaming hair as the centrepiece,
+  // pale reclining figure, a curling fish tail below, bold contours, a water-lily tucked in her hair.
+  rusalka: (c) => { const SKIN = tint(c.body, 0.62), HAIR = c.body, TAIL = c.shade, B = belly(c); return `
     <g class="breathe">
-      <path d="M44 56 Q44 42 62 42 Q78 42 80 58 Q80 72 74 80 Q68 74 62 80 Q56 74 50 80 Q44 74 44 56 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round" opacity=".9"/>
-      <path d="M52 58 Q62 66 72 58 Q62 62 52 58 Z" fill="${B}" opacity=".6"/>
+      <path d="M46 24 Q28 30 24 50 Q20 68 29 82 Q34 92 43 93 Q40 80 40 65 Q40 49 49 39 Q52 31 46 24 Z" fill="${HAIR}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M66 24 Q84 30 88 50 Q92 68 83 82 Q78 92 69 93 Q72 80 72 65 Q72 49 63 39 Q60 31 66 24 Z" fill="${HAIR}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M31 58 Q34 44 44 34 M83 58 Q80 44 70 34 M28 76 Q31 60 39 50 M86 76 Q83 60 75 50" fill="none" stroke="${c.line}" stroke-width="1.3" opacity=".38" stroke-linecap="round"/>
+      <path d="M50 62 Q44 76 51 86 Q44 90 39 98 Q53 96 57 87 Q61 96 71 97 Q64 88 62 81 Q67 72 60 62 Z" fill="${TAIL}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M52 71 Q56 75 60 71 M50 79 Q56 83 61 79" fill="none" stroke="${c.line}" stroke-width="1.3" opacity=".5"/>
+      <path d="M49 38 Q56 33 63 38 Q67 47 64 58 Q61 68 56 71 Q50 68 48 58 Q45 47 49 38 Z" fill="${SKIN}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M53 46 Q56 51 60 46 Q56 50 53 46 Z" fill="${B}" opacity=".5"/>
     </g>
     <g class="head-tilt">
-      <path d="M78 40 Q60 42 58 60 Q66 50 76 50 Q66 56 62 66 Q76 56 84 50 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round" opacity=".9"/>
-      <circle cx="84" cy="44" r="10" fill="${SKIN}" stroke="${c.line}" stroke-width="2.4"/>
-      <path d="M74 42 Q76 30 86 31 Q95 32 95 43 Q88 36 82 37 Q76 38 74 42 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
-      ${eyes(80, 88, 44, 2.8, INK)}
-      <path d="M84 50 q2 2 4 0" fill="none" stroke="${INK}" stroke-width="1.2" opacity=".7"/>
-      <path d="M81 47 q-1.4 3 0.4 4.4 q2.2 -1 0.6 -4.4 Z" fill="${GLOW}" stroke="${c.line}" stroke-width="0.5"/>
+      <path d="M45 26 Q50 13 61 14 Q73 15 75 28 Q68 19 60 20 Q51 20 45 26 Z" fill="${HAIR}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M46 27 Q41 38 47 49 Q49 39 52 33 Z" fill="${HAIR}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M66 27 Q71 38 65 49 Q63 39 60 33 Z" fill="${HAIR}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <circle cx="56" cy="30" r="11" fill="${SKIN}" stroke="${c.line}" stroke-width="2.5"/>
+      <g transform="translate(68,20)">${[18,90,162,234,306].map((a)=>`<circle cx="${(Math.cos(a*Math.PI/180)*3).toFixed(1)}" cy="${(Math.sin(a*Math.PI/180)*3).toFixed(1)}" r="2" fill="#f3d0e0" stroke="${c.line}" stroke-width="0.7"/>`).join("")}<circle r="1.6" fill="#f2cf4e"/></g>
+      ${eyes(52, 60, 30, 2.4, INK)}
+      ${smile(56, 35, 2, INK)}
     </g>`; },
 
   // ── Cetus — whale-monster: stout body, spined back, curled fin, long fanged snout gaping maw (t4)
