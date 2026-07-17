@@ -86,7 +86,9 @@ def t3_unshield_validation_rejects_bad_proof_and_spent_nullifier():
     kd = generate_keydict(); create_account(kd["address"], balance=0)
     kv_ops.account_set_field(kd["address"], "public_key", kd["public_key"])
     create_account(SHIELD_ESCROW, balance=500_000)
-    data = {"addr": kd["address"], "amount": 100_000, "nonce": "nf_xyz", "proof": ["deadbeef" * 8]}
+    # a well-formed (sparse-format) but unprovable proof: shape passes, settlement/membership must reject
+    data = {"addr": kd["address"], "amount": 100_000, "nonce": "nf_xyz",
+            "proof": {"kv": "0" * 64, "path": {"d": 256, "s": {}}}}
     tx = signed(kd, "unshield", 0, 0, data)
     # no settled root / bad proof -> rejected (either "no settled" or "not proven")
     try:
