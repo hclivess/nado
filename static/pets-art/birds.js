@@ -214,8 +214,8 @@ export const ART_BIRDS = {
       ${tube("M40 78 Q24 66 33 44 Q39 30 52 34", c.body, c.line, 8)}
       <ellipse cx="52" cy="34" rx="9" ry="8" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M50 34 L36 37 L50 41 Z" fill="${BEAK}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
-      <path d="M50 30 Q46 28 45 33 Q49 34 52 33 Z" fill="${INK}"/>
-      ${eye(53, 32, 2.4, eyeInk(c))}
+      <path d="M48 32 Q44 30 43 34 Q46 35 49 34 Z" fill="${INK}"/>
+      ${eye(55, 31, 2.2, eyeInk(c))}
     </g>`,
 
   // Pelican — chunky body, short legs, enormous pouched bill with a hooked tip
@@ -379,9 +379,9 @@ export const ART_BIRDS = {
     <g class="head-tilt">
       <circle cx="58" cy="44" r="16" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
       <path d="M50 30 l-2 -8 l6 4 M56 28 l0 -9 l4 6 M62 30 l3 -8 l1 7" stroke="${c.shade}" stroke-width="2" fill="none" stroke-linecap="round"/>
-      <path d="M48 46 Q34 44 18 42 Q34 50 48 50 Z" fill="${BEAK}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
-      <ellipse cx="54" cy="52" rx="6" ry="4" fill="${c.shade}" opacity=".7"/>
-      ${eye(56, 42, 3.1, eyeInk(c))}
+      <path d="M50 42 Q30 42 10 38 Q30 55 50 51 Q53 47 50 42 Z" fill="${BEAK}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
+      <ellipse cx="55" cy="52" rx="6" ry="4" fill="${c.shade}" opacity=".7"/>
+      ${eye(57, 42, 3.1, eyeInk(c))}
     </g>`,
 
   // Puffin — upright chunky seabird, white cheek discs, big triangular banded beak, bright webbed feet

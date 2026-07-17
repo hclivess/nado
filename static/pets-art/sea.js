@@ -84,9 +84,9 @@ export const ART_SEA = {
       <path d="M78 52 q-2 8 0 16 M83 52 q-2 8 0 16 M88 54 q-2 6 0 12" fill="none" stroke="${c.line}" stroke-width="1.3" opacity=".7"/>
     </g>
     <g class="head-tilt">
-      <path d="M78 70 Q90 76 102 66" fill="none" stroke="${c.line}" stroke-width="1.8"/>
-      ${teeth}
-      ${eye(92, 58, 2.6, E)}
+      <path d="M78 66 Q92 80 104 63 Q96 72 84 71 Q80 69 78 66 Z" fill="${INK}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
+      ${Array.from({ length: 5 }, (_, i) => `<path d="M${82 + i * 4} 67 l1.6 4.4 l1.6 -4.4 Z" fill="#fff" stroke="${c.line}" stroke-width="0.6" stroke-linejoin="round"/>`).join("")}
+      ${eye(90, 55, 2.6, E)}
     </g>`;
   },
 
@@ -114,16 +114,16 @@ export const ART_SEA = {
     return `
     <g class="tail-wag"><path d="M24 62 Q11 51 5 47 Q13 62 5 77 Q11 73 24 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/></g>
     <g class="breathe">
-      <path d="M22 62 Q28 46 52 44 Q86 42 106 60 Q98 74 86 76 Q84 80 74 80 Q40 82 22 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
-      <path d="M42 71 Q72 86 104 62 Q72 82 42 71 Z" fill="#fff" stroke="${c.line}" stroke-width="1.3"/>
-      <path d="M58 44 L59 16 L78 44 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
-      <path d="M60 73 Q68 90 82 76 Q70 74 66 72 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.1" stroke-linejoin="round"/>
-      <ellipse cx="50" cy="56" rx="11" ry="6.5" fill="#fff" opacity=".9" transform="rotate(-16 50 56)"/>
+      <path d="M22 62 Q26 44 52 43 Q84 42 98 52 Q105 57 98 63 Q104 71 92 74 Q84 80 52 81 Q26 80 22 62 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M40 71 Q70 85 98 63 Q70 80 40 71 Z" fill="#fff" stroke="${c.line}" stroke-width="1.3"/>
+      <path d="M58 43 L59 15 L79 44 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M56 73 Q64 91 79 77 Q66 74 62 72 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.1" stroke-linejoin="round"/>
+      <ellipse cx="45" cy="53" rx="13" ry="7" fill="#fff" opacity=".85" transform="rotate(-13 45 53)"/>
     </g>
     <g class="head-tilt">
-      <ellipse cx="93" cy="55" rx="6.5" ry="4.4" fill="#fff" stroke="${c.line}" stroke-width="1.2" transform="rotate(-12 93 55)"/>
-      <path d="M88 67 q9 4 15 -3" fill="none" stroke="${c.line}" stroke-width="1.8" stroke-linecap="round"/>
-      ${eye(93, 56, 2.4, INK)}
+      <ellipse cx="85" cy="51" rx="8.5" ry="5" fill="#fff" stroke="${c.line}" stroke-width="1.3" transform="rotate(-22 85 51)"/>
+      <path d="M84 66 q8 4 14 -3" fill="none" stroke="${c.line}" stroke-width="1.8" stroke-linecap="round"/>
+      ${eye(90, 58, 2.4, INK)}
     </g>`;
   },
 
@@ -222,18 +222,19 @@ export const ART_SEA = {
     const E = eyeInk(c);
     return `
     <g class="tail-wag">
-      <path d="M52 78 Q40 82 42 92 Q44 100 54 98 Q60 96 58 90 Q56 94 50 93 Q46 92 47 87 Q48 82 54 82 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M53 76 Q40 80 42 90 Q44 98 53 96 Q60 94 58 87 Q56 91 50 90 Q46 89 47 84 Q48 80 54 80 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
     </g>
     <g class="breathe">
-      <path d="M52 32 Q68 32 70 48 Q71 60 60 66 Q50 71 52 81 L44 82 Q40 70 50 62 Q60 57 58 47 Q56 39 47 41 Q48 33 52 32 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M66 42 Q76 46 73 58 Q69 51 63 50 Q66 46 66 42 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
-      ${[44,51,58,64].map(y=>`<path d="M48 ${y} q7 1 11 -2" fill="none" stroke="${c.shade}" stroke-width="1.5" opacity=".65"/>`).join("")}
+      <path d="M55 36 Q70 38 70 52 Q70 62 60 66 Q52 70 53 78 L45 80 Q42 68 51 62 Q60 58 58 48 Q57 40 50 42 Q50 37 55 36 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M67 44 Q79 48 75 60 Q70 52 63 51 Q67 47 67 44 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
+      ${[44,51,58].map(y=>`<path d="M50 ${y} q8 1 12 -2" fill="none" stroke="${c.shade}" stroke-width="1.6" opacity=".7"/>`).join("")}
     </g>
     <g class="head-tilt">
-      <path d="M49 31 l-3 -7 M54 29 l0 -8 M59 30 l4 -6" stroke="${c.shade}" stroke-width="1.8" stroke-linecap="round"/>
-      <path d="M49 33 Q47 24 55 23 Q63 24 63 33 Q63 41 54 40 Q46 40 49 33 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
-      <path d="M60 35 Q82 33 86 41 Q78 44 62 41 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      ${eye(56, 33, 2.6, E)}
+      <path d="M52 28 l-3 -8 M57 26 l0 -9 M62 28 l4 -7" stroke="${c.shade}" stroke-width="2" stroke-linecap="round"/>
+      <path d="M50 30 Q49 20 58 20 Q67 21 67 31 Q66 40 56 40 Q47 40 50 30 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M64 30 Q88 28 92 37 Q84 42 65 39 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M78 33 q7 1 10 3" fill="none" stroke="${c.line}" stroke-width="1" opacity=".5"/>
+      ${eye(58, 30, 2.8, E)}
     </g>`;
   },
 
@@ -405,8 +406,9 @@ export const ART_SEA = {
       <path d="M46 44 Q52 34 58 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="1.6"/>
     </g>
     <g class="head-tilt">
-      <path d="M56 58 Q76 52 92 62 Q76 78 56 70 Q52 64 56 58 Z" fill="${INK}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      ${teeth}${lowteeth}
+      <path d="M54 56 Q74 50 91 60 Q93 64 91 67 Q74 80 56 72 Q50 64 54 56 Z" fill="${INK}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      ${Array.from({ length: 6 }, (_, i) => `<path d="M${60 + i * 4} 59 l1.5 4.6 l1.5 -4.6 Z" fill="#fff" stroke="${c.line}" stroke-width="0.6" stroke-linejoin="round"/>`).join("")}
+      ${Array.from({ length: 5 }, (_, i) => `<path d="M${62 + i * 4} 72 l1.5 -4.6 l1.5 4.6 Z" fill="#fff" stroke="${c.line}" stroke-width="0.6" stroke-linejoin="round"/>`).join("")}
       ${eye(64, 50, 2.6, "#e9edf2")}
       <path d="M58 40 Q52 20 68 16" fill="none" stroke="${c.line}" stroke-width="2.2" stroke-linecap="round"/>
       <circle cx="70" cy="14" r="6" fill="#f2c94c" stroke="${c.line}" stroke-width="1.6"/>

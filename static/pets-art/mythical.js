@@ -98,56 +98,56 @@ export const ART_MYTHICAL = {
   // ── Unicorn — graceful pony, single golden spiral horn, flowing mane + tail, cloven-free hooves, sparkle (profile, right)
   unicorn: (c) => {
     const E = eyeInk(c);
-    const spiral = Array.from({ length: 4 }, (_, i) => `<path d="M${89 + i*2.4} ${40 - i*6} h5" stroke="${c.line}" stroke-width="0.9" opacity=".75"/>`).join("");
+    const spiral = Array.from({ length: 4 }, (_, i) => `<path d="M${94 - i*1.4} ${31 - i*5} l4 1.6" stroke="${c.line}" stroke-width="0.9" opacity=".75"/>`).join("");
     return `
     <g class="tail-wag">
-      <path d="M32 64 Q16 62 10 82 Q18 75 24 71 Q14 86 24 92 Q26 77 36 72 Q43 68 36 62 Z" fill="${MANE}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M30 66 Q13 65 8 84 Q16 78 22 74 Q12 89 22 95 Q24 78 34 73 Q42 69 34 63 Z" fill="${MANE}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
     </g>
     <g class="breathe">
-      <path d="M28 66 C28 52 44 47 63 48 C77 49 85 53 88 62 C88 75 79 82 62 82 C42 82 28 79 28 66 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
-      <rect x="40" y="78" width="8" height="22" rx="3" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/><rect x="39.5" y="97" width="9" height="4.5" rx="1.5" fill="${c.line}"/>
-      <rect x="66" y="78" width="8" height="22" rx="3" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/><rect x="65.5" y="97" width="9" height="4.5" rx="1.5" fill="${c.line}"/>
-      <rect x="49" y="80" width="8" height="20" rx="3" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/><rect x="48.5" y="96" width="9" height="4.5" rx="1.5" fill="${c.line}"/>
-      <rect x="75" y="80" width="8" height="20" rx="3" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/><rect x="74.5" y="96" width="9" height="4.5" rx="1.5" fill="${c.line}"/>
+      <path d="M28 72 C28 58 44 54 62 55 C74 56 80 60 80 68 C80 80 70 82 58 82 C40 82 28 80 28 72 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
+      <rect x="36" y="78" width="8" height="22" rx="3" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/><rect x="35.5" y="97" width="9" height="4.5" rx="1.5" fill="${c.line}"/>
+      <rect x="62" y="78" width="8" height="22" rx="3" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/><rect x="61.5" y="97" width="9" height="4.5" rx="1.5" fill="${c.line}"/>
+      <rect x="46" y="80" width="8" height="20" rx="3" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/><rect x="45.5" y="96" width="9" height="4.5" rx="1.5" fill="${c.line}"/>
+      <rect x="70" y="80" width="8" height="20" rx="3" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/><rect x="69.5" y="96" width="9" height="4.5" rx="1.5" fill="${c.line}"/>
     </g>
     <g class="head-tilt">
-      <path d="M76 60 Q74 48 83 44 Q88 42 91 43 L103 49 Q107 54 104 60 Q101 66 93 65 L84 67 Q76 67 76 60 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
-      <path d="M100 55 Q107 57 104 63 Q99 65 95 62 Z" fill="${c.shade}"/>
-      <ellipse cx="101" cy="58" rx="1.3" ry="1" fill="${INK}"/>
-      <path d="M85 46 Q81 35 88 31 Q93 38 92 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M88 45 L95 15 L101 45 Z" fill="${HORN}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
+      ${tube("M72 64 Q80 54 88 46", c.body, c.line, 13)}
+      <path d="M83 46 Q80 36 89 33 Q97 33 101 40 L105 49 Q108 53 103 57 Q97 59 91 57 Q82 55 83 46 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M101 51 Q108 53 105 59 Q100 61 96 57 Z" fill="${c.shade}"/>
+      <ellipse cx="102" cy="53" rx="1.3" ry="1" fill="${INK}"/>
+      <path d="M85 37 Q81 27 88 23 Q93 31 92 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M91 37 L98 9 L103 38 Z" fill="${HORN}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
       ${spiral}
-      <path d="M84 48 Q89 42 93 47 Q90 52 85 53 Z" fill="${MANE}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
-      <path d="M79 62 Q64 60 57 71 Q69 65 74 72 Q59 70 54 81 Q73 75 82 63 Z" fill="${MANE}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M40 20 l1.5 4 l4 1.5 l-4 1.5 l-1.5 4 l-1.5 -4 l-4 -1.5 l4 -1.5 Z" fill="${GLOW}" stroke="${HORN}" stroke-width="0.8" stroke-linejoin="round"/>
-      ${eye(94, 54, 2.8, E)}
+      <path d="M84 40 Q75 43 78 54 Q70 50 66 58 Q75 56 78 63 Q67 63 63 71 Q77 65 85 59 Z" fill="${MANE}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      ${eye(94, 47, 2.8, E)}
+      <path d="M36 18 l1.5 4 l4 1.5 l-4 1.5 l-1.5 4 l-1.5 -4 l-4 -1.5 l4 -1.5 Z" fill="${GLOW}" stroke="${HORN}" stroke-width="0.8" stroke-linejoin="round"/>
     </g>`;
   },
 
   // ── Pegasus — winged stallion, broad feathered wings, streaming mane + tail, galloping legs (float, head right)
   pegasus: (c) => {
     const E = eyeInk(c);
-    const wing = `<path d="M62 58 Q42 32 18 26 Q30 42 34 52 Q24 48 16 52 Q30 60 42 62 Q30 64 22 72 Q44 74 62 64 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.3" stroke-linejoin="round"/>
-      <path d="M56 58 Q42 44 28 38 M54 60 Q42 52 32 52 M52 62 Q42 58 34 62" fill="none" stroke="${c.line}" stroke-width="1.1" opacity=".55"/>`;
+    const wing = `<path d="M66 60 Q46 30 16 22 Q28 40 33 52 Q21 47 11 51 Q27 61 42 62 Q27 66 19 76 Q45 76 68 62 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M60 60 Q44 42 28 36 M58 62 Q44 54 32 54 M56 64 Q44 61 34 65" fill="none" stroke="${c.line}" stroke-width="1.1" opacity=".55"/>`;
     return `
     <g class="tail-wag">
-      <path d="M32 64 Q16 62 10 82 Q18 75 24 71 Q14 86 24 92 Q26 77 36 72 Q43 68 36 62 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M30 66 Q13 65 8 84 Q16 78 22 74 Q12 89 22 95 Q24 78 34 73 Q42 69 34 63 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
     </g>
     <g class="breathe">
-      <path d="M28 66 C28 52 44 47 63 48 C77 49 85 53 88 62 C88 75 79 82 62 82 C42 82 28 79 28 66 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
-      <rect x="40" y="78" width="8" height="22" rx="3" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/><rect x="39.5" y="97" width="9" height="4.5" rx="1.5" fill="${c.line}"/>
-      <rect x="66" y="78" width="8" height="22" rx="3" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/><rect x="65.5" y="97" width="9" height="4.5" rx="1.5" fill="${c.line}"/>
-      <rect x="49" y="80" width="8" height="20" rx="3" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/><rect x="48.5" y="96" width="9" height="4.5" rx="1.5" fill="${c.line}"/>
-      <rect x="75" y="80" width="8" height="20" rx="3" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/><rect x="74.5" y="96" width="9" height="4.5" rx="1.5" fill="${c.line}"/>
+      <path d="M28 72 C28 58 44 54 62 55 C74 56 80 60 80 68 C80 80 70 82 58 82 C40 82 28 80 28 72 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
+      <rect x="36" y="78" width="8" height="22" rx="3" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/><rect x="35.5" y="97" width="9" height="4.5" rx="1.5" fill="${c.line}"/>
+      <rect x="62" y="78" width="8" height="22" rx="3" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/><rect x="61.5" y="97" width="9" height="4.5" rx="1.5" fill="${c.line}"/>
+      <rect x="46" y="80" width="8" height="20" rx="3" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/><rect x="45.5" y="96" width="9" height="4.5" rx="1.5" fill="${c.line}"/>
+      <rect x="70" y="80" width="8" height="20" rx="3" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/><rect x="69.5" y="96" width="9" height="4.5" rx="1.5" fill="${c.line}"/>
     </g>
     <g class="head-tilt">
-      <path d="M76 60 Q74 48 83 44 Q88 42 91 43 L103 49 Q107 54 104 60 Q101 66 93 65 L84 67 Q76 67 76 60 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
-      <path d="M100 55 Q107 57 104 63 Q99 65 95 62 Z" fill="${c.shade}"/>
-      <ellipse cx="101" cy="58" rx="1.3" ry="1" fill="${INK}"/>
-      <path d="M85 46 Q81 35 88 31 Q93 38 92 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M84 48 Q89 42 93 47 Q90 52 85 53 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
-      <path d="M79 62 Q64 60 57 71 Q69 65 74 72 Q59 70 54 81 Q73 75 82 63 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
-      ${eye(94, 54, 2.8, E)}
+      ${tube("M72 64 Q80 54 88 46", c.body, c.line, 13)}
+      <path d="M83 46 Q80 36 89 33 Q97 33 101 40 L105 49 Q108 53 103 57 Q97 59 91 57 Q82 55 83 46 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M101 51 Q108 53 105 59 Q100 61 96 57 Z" fill="${c.shade}"/>
+      <ellipse cx="102" cy="53" rx="1.3" ry="1" fill="${INK}"/>
+      <path d="M85 37 Q81 27 88 23 Q93 31 92 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M84 40 Q75 43 78 54 Q70 50 66 58 Q75 56 78 63 Q67 63 63 71 Q77 65 85 59 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      ${eye(94, 47, 2.8, E)}
     </g>
     <g class="tail-wag">${wing}</g>`;
   },
@@ -265,10 +265,12 @@ export const ART_MYTHICAL = {
       ${eye(13, 62, 1.6, "#e9edf2")}
     </g>
     <g class="tail-wag">
-      <path d="M50 56 Q44 40 34 34 Q40 32 46 34 Q42 26 46 20 Q52 30 54 42 Q56 34 62 32 Q60 44 58 54 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
-      <path d="M40 34 Q36 26 40 22 M46 20 Q44 14 48 12" fill="none" stroke="${IVORY}" stroke-width="2.4" stroke-linecap="round"/>
-      <ellipse cx="42" cy="44" rx="1.4" ry="1.2" fill="${INK}"/>
-      ${eye(45, 40, 2, E)}
+      ${tube("M52 62 Q47 48 43 40", c.shade, c.line, 6)}
+      <path d="M43 42 Q35 34 39 26 Q45 30 49 30 Q55 26 57 34 Q57 44 49 46 Q42 46 43 42 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M41 30 Q35 22 39 16 M51 30 Q57 22 55 15" fill="none" stroke="${IVORY}" stroke-width="2.6" stroke-linecap="round"/>
+      <path d="M47 45 q0 6 -3 9" fill="none" stroke="${c.shade}" stroke-width="2.4" stroke-linecap="round"/>
+      <ellipse cx="46" cy="40" rx="1.4" ry="1.2" fill="${INK}"/>
+      ${eye(51, 38, 2, E)}
     </g>
     <g class="breathe">
       <path d="M34 78 Q34 58 60 58 Q86 58 88 74 Q84 90 58 90 Q34 90 34 78 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
@@ -347,8 +349,8 @@ export const ART_MYTHICAL = {
     <g class="breathe">
       <path d="M38 66 Q38 48 62 48 Q84 48 88 64 Q84 80 60 82 Q38 80 38 66 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
       <path d="M46 76 Q62 84 80 76 Q62 82 46 76 Z" fill="${c.shade}"/>
-      ${tube("M56 80 q-2 10 4 16", c.body, c.line, 6)}
-      <path d="M58 96 l-3 3 m3 -3 l0 4 m0 -4 l3 3" stroke="${IVORY}" stroke-width="1.5" stroke-linecap="round"/>
+      ${tube("M50 80 q-3 10 1 18", c.body, c.line, 6)}${tube("M66 80 q3 10 -1 18", c.body, c.line, 6)}
+      <path d="M51 97 l-4 3 m4 -3 l0 5 m0 -5 l4 3 M65 97 l-4 3 m4 -3 l0 5 m0 -5 l4 3" stroke="${IVORY}" stroke-width="1.5" stroke-linecap="round"/>
     </g>
     <g class="head-tilt">
       <path d="M82 44 Q80 30 70 26 Q76 36 78 48 Z" fill="${HORN}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
@@ -509,7 +511,8 @@ export const ART_MYTHICAL = {
     const E = eyeInk(c);
     return `
     <g class="tail-wag">
-      ${tube("M34 74 Q18 78 16 92", c.body, c.line, 6)}${tube("M86 74 Q102 78 104 92", c.body, c.line, 6)}
+      ${tube("M46 72 Q28 76 22 90", c.body, c.line, 7)}<circle cx="22" cy="90" r="5" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
+      ${tube("M74 72 Q92 76 98 90", c.body, c.line, 7)}<circle cx="98" cy="90" r="5" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
     </g>
     <g class="breathe">
       <path d="M40 96 Q36 66 60 64 Q84 66 80 96 Q60 104 40 96 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
@@ -519,8 +522,8 @@ export const ART_MYTHICAL = {
     <g class="head-tilt">
       <path d="M60 22 q-3 -6 2 -8 q4 3 3 8 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>
       <circle cx="60" cy="44" r="22" fill="${c.body}" stroke="${c.line}" stroke-width="2.6"/>
-      <path d="M42 40 q18 -8 36 0" fill="none" stroke="${c.line}" stroke-width="2" stroke-linecap="round" opacity=".6"/>
-      <circle cx="60" cy="42" r="12" fill="#fff" stroke="${c.line}" stroke-width="2.2"/>
+      <path d="M46 29 L60 34 L74 29" fill="none" stroke="${c.line}" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="60" cy="44" r="11" fill="#fff" stroke="${c.line}" stroke-width="2.2"/>
       <circle cx="60" cy="43" r="6" fill="${MAGIC}"/>
       <circle cx="60" cy="43" r="3.4" fill="${INK}"/>
       <circle cx="57.6" cy="40.6" r="1.6" fill="#fff"/>
