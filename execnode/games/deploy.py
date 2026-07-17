@@ -25,7 +25,7 @@ from execnode.state import ExecState
 
 GAMES = ["coinflip", "dice", "roulette", "mines", "slots", "reversi", "connect4", "tictactoe",
          "farkle", "chess", "blackjack", "bet", "battleship", "pets", "holdem", "stormhold", "scrapline",
-         "faucet"]
+         "faucet", "sovereign"]
 
 
 def _codez(code):
@@ -50,8 +50,8 @@ def deploy_one(name, l1, nonce, fee, upgrade_cid=None, at=None):
     code = mod.build()
     abi = getattr(mod, "ABI", {})
     keys = load_keys()
-    if name == "faucet" and not upgrade_cid:
-        at = at or "faucet"                                # the faucet always deploys at its fixed name
+    if name in ("faucet", "sovereign") and not upgrade_cid:
+        at = at or name                                # the faucet always deploys at its fixed name
     if upgrade_cid:                                        # replace an existing contract's code (deployer-only)
         payload = {"op": "upgrade", "contract": upgrade_cid, "codez": _codez(code)}
         cid = upgrade_cid

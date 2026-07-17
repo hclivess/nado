@@ -90,7 +90,8 @@ def _normalize_bundle(bundle):
 # Fixed-name SYSTEM contracts (doc/faucet.md §4): literal cid -> the ONLY address allowed to deploy it.
 # The operator key that deployed the game-contract fleet; a constant, so the rule is identical on every
 # exec node replaying the same blob stream.
-FIXED_CIDS = {"faucet": "ndoebd27698662f14ee2389e509781d5ff57487f4289a2bf2"}
+FIXED_CIDS = {"faucet": "ndoebd27698662f14ee2389e509781d5ff57487f4289a2bf2",
+              "sovereign": "ndoebd27698662f14ee2389e509781d5ff57487f4289a2bf2"}
 
 
 class ExecState:
