@@ -98,6 +98,11 @@ def _player_total(php_reg, pac_reg, out):
 
 
 REVEAL = f"""
+    slot r4 14 r0
+    sload r5 r4
+    nez r5
+    notb r5
+    require r5
     slot r4 12 r0
     sload r5 r4
     movi r6 1
@@ -147,6 +152,11 @@ REVEAL = f"""
 
 
 SETTLE = f"""
+    slot r4 14 r0
+    sload r5 r4
+    nez r5
+    notb r5
+    require r5
     slot r4 12 r0
     sload r5 r4
     movi r6 4
@@ -350,7 +360,8 @@ SRC = {
 
 def _draw():
     """draw(g): the requested hit card; on bust the hand is lost immediately (bank keeps the stake)."""
-    L = ["slot r4 12 r0", "sload r5 r4", "movi r6 3", "eq r5 r6", "require r5",   # gf==3
+    L = ["slot r4 14 r0", "sload r5 r4", "nez r5", "notb r5", "require r5",       # gd==0 (not settled — no re-pay)
+         "slot r4 12 r0", "sload r5 r4", "movi r6 3", "eq r5 r6", "require r5",   # gf==3
          "slot r4 11 r0", "sload r5 r4", "movi r6 1", "add r5 r6", "ctx r6 cursor", "lt r6 r5", "notb r6", "require r6"]
     L += _seed_q()
     # card at q + gn ; store pc[gn] = c+1 ; add to php/pac ; gn++

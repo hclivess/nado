@@ -132,7 +132,10 @@ def _validate_commit_fields(data: dict, tb: int, sender: str):
     acc = get_account(sender, create_on_error=False)
     assert acc and acc.get("bonded", 0) >= B_MIN, "Commit/reveal sender is not a bonded validator"
     assert epoch_of(tb) == E - 2, "Commit must target a block in epoch E-2"
-    assert data.get("commitment"), "Commit missing commitment"
+    # MUST be a str: commit_put does commitment.encode() at apply-time — a non-string (int/list/dict) passes
+    # this truthiness gate but raises AttributeError inside incorporate_block on every node = network halt
+    # (same poison class as the min_block/settle fixes).
+    assert isinstance(data.get("commitment"), str) and data.get("commitment"), "Commit commitment must be a non-empty string"
     assert kv_ops.commit_get(sender, E) is None, "Already committed for this epoch"
 
 
@@ -148,9 +151,12 @@ def _validate_reveal_fields(data: dict, tb: int, sender: str):
     hi = E * EPOCH_LENGTH - FINALITY_DEPTH - 1
     assert lo <= tb <= hi, "Reveal must land in epoch E-1's finalized window"
     secret = data.get("secret")
+    # MUST be a str: reveal_put does secret.encode() at apply-time (halt-class poison if non-string), and
+    # beacon_commitment hashes a list so it tolerates non-strings — so the type check has to be explicit here.
+    assert isinstance(secret, str) and secret, "Reveal secret must be a non-empty string"
     commitment = kv_ops.commit_get(sender, E)
     assert commitment, "No matching commit for this reveal"
-    assert secret and beacon_commitment(secret) == commitment, "Reveal does not open the commitment"
+    assert beacon_commitment(secret) == commitment, "Reveal does not open the commitment"
     assert secret not in kv_ops.reveals_for_epoch(E), "This secret is already revealed for the epoch"
 
 
