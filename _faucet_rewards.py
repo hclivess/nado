@@ -31,6 +31,8 @@ GAMES = [
     (3, "b56dd48000707369be1630e41bfb038d", "banked"),    # farkle
     (4, "3d775ee563baae7c20ec39596fcd4f28", "banked"),    # blackjack
     (5, "9c3d01b6b70f507ecc0bbf75b0615940", "battleship"), # battleship (efficiency: fewest shots to sink)
+    (6, "d4855b5b4c52bb65fdf7ec7a65c8b9f0", "banked"),     # slots
+    (7, "d9d271f3a3e8a68ef33cb8e89ee650c9", "banked"),     # mines
 ]
 SHIPS = 17
 

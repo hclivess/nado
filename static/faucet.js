@@ -9,7 +9,7 @@ import { $, algHashn, ALG_P, base, notify, rawToNado } from "./nadodapp.js";
 
 export const FAUCET_CID = "faucet";
 // idx ↔ game registry (mirror of the operator's set_game enrollment — keep in lockstep)
-export const FAUCET_GAMES = { dice: 0, scrapline: 1, stormhold: 2, farkle: 3, blackjack: 4, battleship: 5 };
+export const FAUCET_GAMES = { dice: 0, scrapline: 1, stormhold: 2, farkle: 3, blackjack: 4, battleship: 5, slots: 6, mines: 7 };
 
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("sdk." + k, d, v) : d;
 // the VM's address digest (runtimes.zkvm_addr_digest): blake2b(["zkvmaddr", addr]) reduced into the field
