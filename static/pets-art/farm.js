@@ -68,7 +68,7 @@ export const ART_FARM = {
 
   // Poodle — pompoms everywhere: top-knot, ear puffs, ankle cuffs, tail bobble
   poodle: (c) => `
-    <g class="tail-wag">${tube("M32 78 Q22 72 22 62", c.body, c.line, 5)}${pom(21, 60, 8, c.body, c.line, 8, 1.8)}</g>
+    <g class="tail-wag">${tube("M42 82 Q26 76 22 62", c.body, c.line, 6)}${pom(21, 59, 8.5, c.body, c.line, 8, 1.8)}</g>
     ${tube("M46 90 L44 104", c.body, c.line, 5)}${tube("M74 90 L76 104", c.body, c.line, 5)}
     ${pom(44, 106, 6, c.body, c.line, 7, 1.8)}${pom(76, 106, 6, c.body, c.line, 7, 1.8)}
     <g class="breathe"><ellipse cx="60" cy="82" rx="24" ry="16" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>

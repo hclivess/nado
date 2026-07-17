@@ -337,7 +337,10 @@
     "ab_atk": "attack",
     "ab_spy": "espionage",
     "allyActive": "Active alliance bonus:",
-    "allySolo": "No bonus yet — an alliance grants shared bonuses only with 2+ members (scales with size). Recruit allies into #{id}."
+    "allySolo": "No bonus yet — an alliance grants shared bonuses only with 2+ members (scales with size). Recruit allies into #{id}.",
+    "sov.colonizeShort": "Colonize",
+    "sov.claimLand": "claim more land",
+    "sov.openLandShort": "open"
   },
   "cs": {
     "sov.tac_partisan": "Partyzáni",
@@ -677,7 +680,10 @@
     "ab_atk": "útok",
     "ab_spy": "špionáž",
     "allyActive": "Aktivní bonus aliance:",
-    "allySolo": "Zatím žádný bonus — aliance dává sdílené bonusy až od 2 členů (roste s velikostí). Získej spojence do #{id}."
+    "allySolo": "Zatím žádný bonus — aliance dává sdílené bonusy až od 2 členů (roste s velikostí). Získej spojence do #{id}.",
+    "sov.colonizeShort": "Kolonizovat",
+    "sov.claimLand": "získej další půdu",
+    "sov.openLandShort": "volné"
   },
   "es": {
     "sov.tac_partisan": "Partisanos",
@@ -1017,7 +1023,10 @@
     "ab_atk": "ataque",
     "ab_spy": "espionaje",
     "allyActive": "Bono de alianza activo:",
-    "allySolo": "Aún sin bono — una alianza otorga bonos compartidos solo con 2+ miembros (escala con el tamaño). Recluta aliados en #{id}."
+    "allySolo": "Aún sin bono — una alianza otorga bonos compartidos solo con 2+ miembros (escala con el tamaño). Recluta aliados en #{id}.",
+    "sov.colonizeShort": "Colonizar",
+    "sov.claimLand": "reclama más tierra",
+    "sov.openLandShort": "libre"
   },
   "pt": {
     "sov.tac_partisan": "Partisanos",
@@ -1357,7 +1366,10 @@
     "ab_atk": "ataque",
     "ab_spy": "espionagem",
     "allyActive": "Bônus de aliança ativo:",
-    "allySolo": "Ainda sem bônus — uma aliança concede bônus compartilhados só com 2+ membros (escala com o tamanho). Recrute aliados para #{id}."
+    "allySolo": "Ainda sem bônus — uma aliança concede bônus compartilhados só com 2+ membros (escala com o tamanho). Recrute aliados para #{id}.",
+    "sov.colonizeShort": "Colonizar",
+    "sov.claimLand": "reivindique mais terra",
+    "sov.openLandShort": "livre"
   },
   "fr": {
     "sov.tac_partisan": "Partisans",
@@ -1697,7 +1709,10 @@
     "ab_atk": "attaque",
     "ab_spy": "espionnage",
     "allyActive": "Bonus d'alliance actif :",
-    "allySolo": "Pas encore de bonus — une alliance n'accorde des bonus partagés qu'à partir de 2 membres (selon la taille). Recrutez des alliés dans #{id}."
+    "allySolo": "Pas encore de bonus — une alliance n'accorde des bonus partagés qu'à partir de 2 membres (selon la taille). Recrutez des alliés dans #{id}.",
+    "sov.colonizeShort": "Coloniser",
+    "sov.claimLand": "revendiquez des terres",
+    "sov.openLandShort": "libre"
   },
   "de": {
     "sov.tac_partisan": "Partisanen",
@@ -2037,7 +2052,10 @@
     "ab_atk": "Angriff",
     "ab_spy": "Spionage",
     "allyActive": "Aktiver Bündnisbonus:",
-    "allySolo": "Noch kein Bonus — ein Bündnis gewährt geteilte Boni erst ab 2 Mitgliedern (skaliert mit der Größe). Wirb Verbündete für #{id}."
+    "allySolo": "Noch kein Bonus — ein Bündnis gewährt geteilte Boni erst ab 2 Mitgliedern (skaliert mit der Größe). Wirb Verbündete für #{id}.",
+    "sov.colonizeShort": "Kolonisieren",
+    "sov.claimLand": "mehr Land beanspruchen",
+    "sov.openLandShort": "frei"
   },
   "it": {
     "sov.tac_partisan": "Partigiani",
@@ -2377,7 +2395,10 @@
     "ab_atk": "attacco",
     "ab_spy": "spionaggio",
     "allyActive": "Bonus alleanza attivo:",
-    "allySolo": "Ancora nessun bonus — un'alleanza dà bonus condivisi solo con 2+ membri (scala con la dimensione). Recluta alleati in #{id}."
+    "allySolo": "Ancora nessun bonus — un'alleanza dà bonus condivisi solo con 2+ membri (scala con la dimensione). Recluta alleati in #{id}.",
+    "sov.colonizeShort": "Colonizza",
+    "sov.claimLand": "rivendica più terra",
+    "sov.openLandShort": "libero"
   },
   "ru": {
     "sov.tac_partisan": "Партизаны",
@@ -2717,7 +2738,10 @@
     "ab_atk": "атака",
     "ab_spy": "шпионаж",
     "allyActive": "Активный бонус альянса:",
-    "allySolo": "Пока нет бонуса — альянс даёт общие бонусы только при 2+ участниках (растёт с размером). Наберите союзников в #{id}."
+    "allySolo": "Пока нет бонуса — альянс даёт общие бонусы только при 2+ участниках (растёт с размером). Наберите союзников в #{id}.",
+    "sov.colonizeShort": "Колонизировать",
+    "sov.claimLand": "занять больше земли",
+    "sov.openLandShort": "свободно"
   },
   "zh": {
     "sov.tac_partisan": "游击队",
@@ -3057,7 +3081,10 @@
     "ab_atk": "攻击",
     "ab_spy": "间谍",
     "allyActive": "当前联盟加成：",
-    "allySolo": "暂无加成——联盟需 2 名以上成员才有共享加成（随规模增长）。招募盟友加入 #{id}。"
+    "allySolo": "暂无加成——联盟需 2 名以上成员才有共享加成（随规模增长）。招募盟友加入 #{id}。",
+    "sov.colonizeShort": "殖民",
+    "sov.claimLand": "占领更多土地",
+    "sov.openLandShort": "空地"
   },
   "ja": {
     "sov.tac_partisan": "パルチザン",
@@ -3397,7 +3424,10 @@
     "ab_atk": "攻撃",
     "ab_spy": "諜報",
     "allyActive": "有効な同盟ボーナス：",
-    "allySolo": "まだボーナスなし——同盟は2人以上で共有ボーナスが発生（規模で増加）。#{id} に仲間を集めよう。"
+    "allySolo": "まだボーナスなし——同盟は2人以上で共有ボーナスが発生（規模で増加）。#{id} に仲間を集めよう。",
+    "sov.colonizeShort": "入植",
+    "sov.claimLand": "土地を広げる",
+    "sov.openLandShort": "空き"
   },
   "ko": {
     "sov.tac_partisan": "빨치산",
@@ -3737,7 +3767,10 @@
     "ab_atk": "공격",
     "ab_spy": "첩보",
     "allyActive": "활성 동맹 보너스:",
-    "allySolo": "아직 보너스 없음 — 동맹은 2인 이상일 때만 공유 보너스를 줍니다(규모에 비례). #{id}로 동맹을 모으세요."
+    "allySolo": "아직 보너스 없음 — 동맹은 2인 이상일 때만 공유 보너스를 줍니다(규모에 비례). #{id}로 동맹을 모으세요.",
+    "sov.colonizeShort": "개척",
+    "sov.claimLand": "땅을 더 확보",
+    "sov.openLandShort": "빈 땅"
   },
   "ar": {
     "sov.tac_partisan": "الأنصار",
@@ -4077,7 +4110,10 @@
     "ab_atk": "هجوم",
     "ab_spy": "تجسس",
     "allyActive": "مكافأة التحالف الفعّالة:",
-    "allySolo": "لا مكافأة بعد — يمنح التحالف مكافآت مشتركة فقط بوجود عضوين فأكثر (تتناسب مع الحجم). جنّد حلفاء في #{id}."
+    "allySolo": "لا مكافأة بعد — يمنح التحالف مكافآت مشتركة فقط بوجود عضوين فأكثر (تتناسب مع الحجم). جنّد حلفاء في #{id}.",
+    "sov.colonizeShort": "استعمار",
+    "sov.claimLand": "طالب بمزيد من الأرض",
+    "sov.openLandShort": "فارغ"
   },
   "hi": {
     "sov.tac_partisan": "छापामार",
@@ -4417,7 +4453,10 @@
     "ab_atk": "आक्रमण",
     "ab_spy": "जासूसी",
     "allyActive": "सक्रिय गठबंधन बोनस:",
-    "allySolo": "अभी कोई बोनस नहीं — गठबंधन 2+ सदस्यों पर ही साझा बोनस देता है (आकार के साथ बढ़ता है)। #{id} में सहयोगी जोड़ें।"
+    "allySolo": "अभी कोई बोनस नहीं — गठबंधन 2+ सदस्यों पर ही साझा बोनस देता है (आकार के साथ बढ़ता है)। #{id} में सहयोगी जोड़ें।",
+    "sov.colonizeShort": "उपनिवेश",
+    "sov.claimLand": "और भूमि लें",
+    "sov.openLandShort": "खाली"
   },
   "tr": {
     "sov.tac_partisan": "Partizanlar",
@@ -4757,7 +4796,10 @@
     "ab_atk": "saldırı",
     "ab_spy": "casusluk",
     "allyActive": "Etkin ittifak bonusu:",
-    "allySolo": "Henüz bonus yok — ittifak yalnızca 2+ üyeyle paylaşılan bonus verir (boyutla ölçeklenir). #{id} için müttefik topla."
+    "allySolo": "Henüz bonus yok — ittifak yalnızca 2+ üyeyle paylaşılan bonus verir (boyutla ölçeklenir). #{id} için müttefik topla.",
+    "sov.colonizeShort": "Koloni kur",
+    "sov.claimLand": "daha fazla toprak al",
+    "sov.openLandShort": "boş"
   },
   "id": {
     "sov.tac_partisan": "Partisan",
@@ -5097,7 +5139,10 @@
     "ab_atk": "serangan",
     "ab_spy": "mata-mata",
     "allyActive": "Bonus aliansi aktif:",
-    "allySolo": "Belum ada bonus — aliansi memberi bonus bersama hanya dengan 2+ anggota (naik sesuai ukuran). Rekrut sekutu ke #{id}."
+    "allySolo": "Belum ada bonus — aliansi memberi bonus bersama hanya dengan 2+ anggota (naik sesuai ukuran). Rekrut sekutu ke #{id}.",
+    "sov.colonizeShort": "Kolonisasi",
+    "sov.claimLand": "klaim lebih banyak lahan",
+    "sov.openLandShort": "kosong"
   },
   "vi": {
     "sov.tac_partisan": "Du kích",
@@ -5437,6 +5482,9 @@
     "ab_atk": "tấn công",
     "ab_spy": "gián điệp",
     "allyActive": "Thưởng liên minh đang hoạt động:",
-    "allySolo": "Chưa có thưởng — liên minh chỉ cho thưởng chung khi có 2+ thành viên (tăng theo quy mô). Chiêu mộ đồng minh vào #{id}."
+    "allySolo": "Chưa có thưởng — liên minh chỉ cho thưởng chung khi có 2+ thành viên (tăng theo quy mô). Chiêu mộ đồng minh vào #{id}.",
+    "sov.colonizeShort": "Khai hoang",
+    "sov.claimLand": "chiếm thêm đất",
+    "sov.openLandShort": "trống"
   }
 }

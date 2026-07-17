@@ -259,17 +259,20 @@ function renderBuild(el) {
   const per = E.buildsPerTurn(me), left = E.buildsLeft(me), n = me;
   const unit = E.buildCost(n, 1);          // money for the NEXT building (same for every type; rises as you grow)
   let h = '<p class="hint">' + T("buildHint2", "Up to {per} buildings PER TURN (shared across all types). Cost rises as you grow. Colonize for more land — but not while over half sits empty.", { per }) + "</p>";
-  h += '<div class="row2">'
-    + '<button class="primary" id="btnColonize" style="padding:12px 20px;line-height:1.2;white-space:nowrap">🧭 ' + T("colonize", "Colonize — claim more land") + "</button>"
-    + '<span class="landchip">🟩 ' + T("openLand", "open land") + " <b>" + fmt(n.bld.unbuilt) + "</b></span>"
-    + (practice ? "" : '<span class="landchip">🏗 ' + T("buildsLeft", "builds left this turn") + " <b>" + left + "/" + per + "</b></span>")
-    + "</div>";
-  h += '<div class="grid">' + E.BUILDABLE.map((k) => tile(
+  // Colonize is a TILE like the buildings (same size/shape) but with its own accent background, and it holds
+  // the two live counters (open land + builds left this turn) INSIDE it.
+  const colTile = '<div class="tile colonize" data-colonize="1">'
+    + '<span class="gi" style="font-size:24px;line-height:26px">🧭</span>'
+    + '<div class="tn">' + T("colonizeShort", "Colonize") + '</div>'
+    + '<div class="tx dim">' + T("claimLand", "claim more land") + '</div>'
+    + '<div class="tcost">🟩 <b>' + fmt(n.bld.unbuilt) + "</b> " + T("openLandShort", "open")
+    + (practice ? "" : " · 🏗 <b>" + left + "/" + per + "</b>") + "</div></div>";
+  h += '<div class="grid">' + colTile + E.BUILDABLE.map((k) => tile(
       gicon(k) + '<div class="tn">' + T("b_" + k, E.B[k].k) + '</div><div class="tc">' + n.bld[k] + "</div>"
       + '<div class="tx dim">' + T("bx_" + k, E.B[k].txt) + '</div><div class="tcost">💰 ' + fmt(unit) + " " + T("each", "each") + "</div>",
       "b-" + k + (n.money >= unit && n.bld.unbuilt > 0 && left > 0 ? " ready" : ""), 'data-build="' + k + '"')).join("") + "</div>";
   el.innerHTML = h;
-  $("btnColonize").onclick = () => act(E.encAction(E.OP.colonize), 0, T("cfColonize", "colonize"));
+  el.querySelector("[data-colonize]").onclick = () => act(E.encAction(E.OP.colonize), 0, T("cfColonize", "colonize"));
   el.querySelectorAll("[data-build]").forEach((d) => d.onclick = () => promptCount(d.dataset.build, per));
 }
 async function promptCount(type, per) {
