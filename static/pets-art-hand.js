@@ -38,6 +38,14 @@ import { ART_CRUSTACEANS } from "./pets-art/crustaceans.js";
 import { ART_CELESTIAL } from "./pets-art/celestial.js";
 import { ART_DINOS2 } from "./pets-art/dinos2.js";
 import { ART_PREHISTORICMAMMALS } from "./pets-art/prehistoricmammals.js";
+import { ART_WATERFOWL } from "./pets-art/waterfowl.js";
+import { ART_RAPTORS } from "./pets-art/raptors.js";
+import { ART_REPTILES2 } from "./pets-art/reptiles2.js";
+import { ART_DRAGONS } from "./pets-art/dragons.js";
+import { ART_YOKAI } from "./pets-art/yokai.js";
+import { ART_GEMSTONE } from "./pets-art/gemstone.js";
+import { ART_PLANTS } from "./pets-art/plants.js";
+import { ART_CANDY } from "./pets-art/candy.js";
 
 export const HAND_ART = {
   ...ART_FARM,
@@ -73,4 +81,12 @@ export const HAND_ART = {
   ...ART_CELESTIAL,
   ...ART_DINOS2,
   ...ART_PREHISTORICMAMMALS,
+  ...ART_WATERFOWL,
+  ...ART_RAPTORS,
+  ...ART_REPTILES2,
+  ...ART_DRAGONS,
+  ...ART_YOKAI,
+  ...ART_GEMSTONE,
+  ...ART_PLANTS,
+  ...ART_CANDY,
 };
