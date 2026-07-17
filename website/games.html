@@ -133,6 +133,10 @@ const SVG = {
     <path d="M24 13.5c-6.4 2-9.5 6-9.5 10.5l3 6h13l3-6c0-4.5-3.1-8.5-9.5-10.5z" fill="#00c9a7"/>
     <path d="M17.5 30h13l-1.4 4.2h-10.2z" fill="#00ad93"/>
     <rect x="14.5" y="34" width="19" height="4.4" rx="2.2" fill="#00c9a7"/></svg>`,
+  sovereign:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
+    <path d="M24 4l16 8v9c0 10-7 15.5-16 18.5C15 36.5 8 31 8 21v-9z" fill="#00ad93"/>
+    <path d="M24 12v18M15 21h18" stroke="#04110a" stroke-width="3.4" fill="none" stroke-linecap="round"/>
+    <circle cx="24" cy="21" r="3.4" fill="#e3b341"/></svg>`,
   scrapline:`<svg viewBox="0 0 48 48" width="46" height="46" aria-hidden="true">
     <rect x="22.4" y="7" width="3.2" height="7" fill="#e3b341"/><circle cx="24" cy="6.5" r="2.8" fill="#e3b341"/>
     <rect x="10" y="14" width="28" height="24" rx="5" fill="#00ad93"/>
@@ -231,6 +235,9 @@ const GAMES = [
   { svg:SVG.chess, name:"Chess", tag:"Live", live:true, slug:"chess", url:"https://chess.nadochain.com",
     blurb:"Play a real game of chess for stakes — a perft-verified engine referees the board in your browser, every move is logged on-chain, and the pot settles by resign / agree / refund-timeout, so a stall can never rob you.",
     meta:["2 players","Wager escrow","Moves on-chain","Skill, not chance"] },
+  { svg:SVG.sovereign, name:"Sovereign", tag:"Live", live:true, slug:"sovereign", faucet:true, url:"https://sovereign.nadochain.com",
+    blurb:"An always-on nation-strategy world: build a country, raise an army, and raid rivals for land and loot. Free, provable, post-quantum.",
+    meta:["Persistent MMO","PvP raids","Practice vs bots"] },
   { svg:SVG.scrapline, name:"Scrapline", tag:"Live", live:true, slug:"scrapline", faucet:true, url:"https://scrapline.nadochain.com",
     blurb:"An auto-battler duel for stakes. Draft scrap-built weapons, shields and repair rigs from provably random offers (every offer is seeded by a future block hash), merge duplicates into higher ranks, lock a 6-slot build — then the machines fight a fully deterministic battle both browsers compute identically. An original game in the auto-battler genre.",
     meta:["2 players","Draft & merge","Deterministic combat","Provably fair offers"] },
