@@ -162,15 +162,22 @@ def verify_hetero(publics, item_airs, bundle, num_queries_outer=fri_verify.NUM_Q
             pts_public = []
             for idx in g["idxs"]:
                 pub = pubs[idx]
+                # per-ITEM boundaries + periodic (values differ across a group — e.g. each merkle-update pins its
+                # own roots/DIRs, each slot_key its own inputs; only the boundary/periodic SHAPE is shared, which
+                # is what the group's program/comp structure uses). Mirrors prove_hetero's _points_of(it).
+                iair = item_airs[idx]
                 if _is_row(pub) != row_mode or pub["W"] != W:
                     return False, "group members must share the AIR mode/shape"
-                _mk, chals, alphas = RV._fs(pub, air.get("num_challenges", 0),
-                                            len(air["transitions"]) + len(air["boundaries"]), b)
+                if len(iair["boundaries"]) != len(air["boundaries"]) \
+                        or len(iair.get("periodic") or []) != len(air.get("periodic") or []):
+                    return False, "group members must share the AIR shape (boundary/periodic count)"
+                _mk, chals, alphas = RV._fs(pub, iair.get("num_challenges", 0),
+                                            len(iair["transitions"]) + len(iair["boundaries"]), b)
                 positions = RV._canon_positions(pub, nqi, _mk)
                 T = pub["T"]; gTp = F.primitive_root_of_unity(T)
-                per_evals = [stark._per_evaluator(pc, T, gTp) for pc in (air.get("periodic") or [])]
+                per_evals = [stark._per_evaluator(pc, T, gTp) for pc in (iair.get("periodic") or [])]
                 for lo, l0 in zip(positions, pub["layer0"]):
-                    vals = RV._point_values(pub, air["boundaries"], alphas, chals, per_evals, lo, l0)
+                    vals = RV._point_values(pub, iair["boundaries"], alphas, chals, per_evals, lo, l0)
                     if row_mode:
                         vals["roots"] = pub["row_roots"]
                         vals["path_lens"] = [pub["N"].bit_length() - 1] * len(pub["row_roots"])
