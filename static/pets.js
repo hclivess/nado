@@ -8,7 +8,7 @@ import { NadoDapp, rawToNado, nadoToRaw, randId, _m, $, base, gate, canPay, orde
 import * as G from "./pets-genes.js";
 import { loadCrypto } from "./nadotx.js";
 
-const CID = "272faddf8fc7f4fe1bcbe746da8b7839";   // execnode/games/pets.py (zkVM, nonce "a5")
+const CID = "5db6cb731ec1f39cc19a418475517829";   // execnode/games/pets.py (zkVM, nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Pets" });
 const BLOCK_SECS = 6, BLOCKS_PER_DAY = 86400 / BLOCK_SECS;
 const LS_P = "nado_pets_mine";                    // {pid: {ts, hatchPending?, trainPending?}} local flags

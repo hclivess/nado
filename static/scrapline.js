@@ -14,7 +14,7 @@ import { ART } from "./scrapline-art.js";
 import { prand, Practice } from "./practice.js";   // practice-vs-computer + solo persistence
 import { dayAnchor, verifyEntries, entriesFrom } from "./provable.js";   // provable daily claims (see doc/provable-practice.md)
 
-const CID = "72a195822ef32caa9680eee51eb95dc9";
+const CID = "634dc7c3eda3fea16fddfaca47a0c8aa";
 const dapp = new NadoDapp({ cid: CID, app: "Scrapline" });
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("scrap." + k, d, v) : d;
 

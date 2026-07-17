@@ -10,7 +10,7 @@ import { BankedGame } from "./bankedgame.js";
 import { faucetAttach } from "./faucet.js";   // free-play claims for broke newcomers (doc/faucet.md)   // the ONE banked-table reader/lobby (shared by every house game)
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
-const CID = "b37251eb6b8bbeedd3a69cad7d6611a1";
+const CID = "044be49f754c62fb7222d32ba84db81e";
 const GICON = '<svg style="vertical-align:-3px" viewBox="0 0 48 48" width="16" height="16" aria-hidden="true">     <rect x="9" y="9" width="30" height="30" rx="7" fill="#e6edf3" stroke="#243140" stroke-width="2"/>     <circle cx="17" cy="17" r="2.8" fill="#20272f"/><circle cx="31" cy="17" r="2.8" fill="#20272f"/>     <circle cx="24" cy="24" r="2.8" fill="#00ad93"/>     <circle cx="17" cy="31" r="2.8" fill="#20272f"/><circle cx="31" cy="31" r="2.8" fill="#20272f"/></svg>';
 const PN = 100, MMIN = 2, MMAX = 98, EDGE = 99, BLOCK_SECS = 6, ROUND = 20;
 const dapp = new NadoDapp({ cid: CID, app: "Dice" });
