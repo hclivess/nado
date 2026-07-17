@@ -290,6 +290,35 @@ def t_stormhold():
     assert "revert" in st.apply_blob({"op": "call", "contract": cid, "method": "reveal", "args": [G2, 5]}, A, "rv4")
 
 
+def t_sovereign():
+    # the persistent nation-world: ONE global append log, ply-bound, actor+target address resolution.
+    from execnode.games import sovereign as sv
+    st = ExecState(os.path.join(tempfile.mkdtemp(), "s.json")); st.cursor = 100
+    code = sv.build()
+    st.apply_blob({"op": "deploy", "runtime": "zkvm", "code": code, "abi": sv.ABI, "nonce": "s"}, A, "d")
+    cid = st.contract_id(A, code, "s")
+    C = "ndoCCCC" + "C" * 41
+    assert "ok" in st.apply_blob({"op": "call", "contract": cid, "method": "act", "args": [0, 0, 0]}, A, "f0")   # A founds
+    assert "ok" in st.apply_blob({"op": "call", "contract": cid, "method": "act", "args": [0, 0, 1]}, C, "f1")   # C founds
+    assert "revert" in st.apply_blob({"op": "call", "contract": cid, "method": "act", "args": [6, 0, 9]}, A, "fx")  # stale ply
+    assert "ok" in st.apply_blob({"op": "call", "contract": cid, "method": "act", "args": [6, 0, 2]}, A, "f2")   # A colonize (op6)
+    st.cursor = 5000
+    assert "ok" in st.apply_blob({"op": "call", "contract": cid, "method": "act", "args": [7 + 16 * 1, C, 3]}, A, "f3")  # A raids C (target string)
+    v = st.decode_view(st.contracts[cid])
+    assert len(v["la"]) == 4, "four log entries"
+    assert v["la"]["0"] == A and v["la"]["1"] == C, "actors resolve to addresses"
+    assert v["lt"]["3"] == C, "raid target resolves to its address"
+    assert v["le"]["2"] == 6 and v["le"]["3"] == 23, "encoded actions stored"
+    assert v["lc"]["3"] == 5000 + sv.GAP, "raid pins a future seed height"
+
+
+def t_sovereign_act_proves():
+    from execnode.games import sovereign as sv
+    code = sv.build()
+    S = lambda f, k: f * (1 << 32) + k
+    _prove(code, "act", A, [6, 0, 0], {S(sv.MC, 0): 0}, cursor=100)
+
+
 def t_faucet():
     # the fixed-name system contract (doc/faucet.md): donations credited by the exec node, operator-
     # curated registry, PoW-gated once-per-(address,game) claims under per-window budgets, solvent PAY.
@@ -1040,6 +1069,8 @@ if __name__ == "__main__":
     check("stormhold: free-actor move log + seed heights + agree/resign", t_stormhold)
     check("stormhold: move proves (seed-height record)", t_stormhold_move_proves)
     check("scrapline: duel contract reuse + move-log cap", t_scrapline)
+    check("sovereign: persistent nation world — global log, ply binding, address resolution", t_sovereign)
+    check("sovereign: act proves", t_sovereign_act_proves)
     check("faucet: fixed-name deploy, PoW claims, budgets, pause, solvency", t_faucet)
     check("faucet: claim proves", t_faucet_claim_proves)
     check("farkle: roll/hold scoring + banking vs reference", t_farkle)
