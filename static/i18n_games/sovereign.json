@@ -326,7 +326,9 @@
     "sov.raidedHeld": "You repelled {who}'s raid!",
     "sov.tacVictim": "{who} hit you with a tactical strike.",
     "sov.misVictim": "{who} struck you with missiles.",
-    "sov.spyVictim": "{who} ran a spy op against you."
+    "sov.spyVictim": "{who} ran a spy op against you.",
+    "sov.roundN": "round",
+    "sov.banked": "banked"
   },
   "cs": {
     "sov.tac_partisan": "Partyzáni",
@@ -655,7 +657,9 @@
     "sov.raidedHeld": "Odrazil jsi nájezd od {who}!",
     "sov.tacVictim": "{who} tě zasáhl taktickým úderem.",
     "sov.misVictim": "{who} tě zasáhl raketami.",
-    "sov.spyVictim": "{who} proti tobě provedl špionáž."
+    "sov.spyVictim": "{who} proti tobě provedl špionáž.",
+    "sov.roundN": "kolo",
+    "sov.banked": "nasbíráno"
   },
   "es": {
     "sov.tac_partisan": "Partisanos",
@@ -984,7 +988,9 @@
     "sov.raidedHeld": "¡Rechazaste la incursión de {who}!",
     "sov.tacVictim": "{who} te golpeó con un ataque táctico.",
     "sov.misVictim": "{who} te golpeó con misiles.",
-    "sov.spyVictim": "{who} realizó espionaje contra ti."
+    "sov.spyVictim": "{who} realizó espionaje contra ti.",
+    "sov.roundN": "ronda",
+    "sov.banked": "acumulado"
   },
   "pt": {
     "sov.tac_partisan": "Partisanos",
@@ -1313,7 +1319,9 @@
     "sov.raidedHeld": "Você repeliu o ataque de {who}!",
     "sov.tacVictim": "{who} atingiu você com um golpe tático.",
     "sov.misVictim": "{who} atingiu você com mísseis.",
-    "sov.spyVictim": "{who} espionou você."
+    "sov.spyVictim": "{who} espionou você.",
+    "sov.roundN": "rodada",
+    "sov.banked": "acumulado"
   },
   "fr": {
     "sov.tac_partisan": "Partisans",
@@ -1642,7 +1650,9 @@
     "sov.raidedHeld": "Vous avez repoussé le raid de {who} !",
     "sov.tacVictim": "{who} vous a frappé d'une frappe tactique.",
     "sov.misVictim": "{who} vous a frappé de missiles.",
-    "sov.spyVictim": "{who} a mené un espionnage contre vous."
+    "sov.spyVictim": "{who} a mené un espionnage contre vous.",
+    "sov.roundN": "tour",
+    "sov.banked": "en réserve"
   },
   "de": {
     "sov.tac_partisan": "Partisanen",
@@ -1971,7 +1981,9 @@
     "sov.raidedHeld": "Du hast {who}s Überfall abgewehrt!",
     "sov.tacVictim": "{who} traf dich mit einem taktischen Schlag.",
     "sov.misVictim": "{who} traf dich mit Raketen.",
-    "sov.spyVictim": "{who} hat gegen dich spioniert."
+    "sov.spyVictim": "{who} hat gegen dich spioniert.",
+    "sov.roundN": "Runde",
+    "sov.banked": "angespart"
   },
   "it": {
     "sov.tac_partisan": "Partigiani",
@@ -2300,7 +2312,9 @@
     "sov.raidedHeld": "Hai respinto la razzia di {who}!",
     "sov.tacVictim": "{who} ti ha colpito con un attacco tattico.",
     "sov.misVictim": "{who} ti ha colpito con missili.",
-    "sov.spyVictim": "{who} ha spiato contro di te."
+    "sov.spyVictim": "{who} ha spiato contro di te.",
+    "sov.roundN": "round",
+    "sov.banked": "in banca"
   },
   "ru": {
     "sov.tac_partisan": "Партизаны",
@@ -2629,7 +2643,9 @@
     "sov.raidedHeld": "Вы отбили набег {who}!",
     "sov.tacVictim": "{who} нанёс тактический удар по вам.",
     "sov.misVictim": "{who} ударил по вам ракетами.",
-    "sov.spyVictim": "{who} провёл шпионаж против вас."
+    "sov.spyVictim": "{who} провёл шпионаж против вас.",
+    "sov.roundN": "раунд",
+    "sov.banked": "в запасе"
   },
   "zh": {
     "sov.tac_partisan": "游击队",
@@ -2958,7 +2974,9 @@
     "sov.raidedHeld": "你击退了 {who} 的突袭！",
     "sov.tacVictim": "{who} 对你发动了战术打击。",
     "sov.misVictim": "{who} 用导弹击中了你。",
-    "sov.spyVictim": "{who} 对你进行了间谍活动。"
+    "sov.spyVictim": "{who} 对你进行了间谍活动。",
+    "sov.roundN": "回合",
+    "sov.banked": "存量"
   },
   "ja": {
     "sov.tac_partisan": "パルチザン",
@@ -3287,7 +3305,9 @@
     "sov.raidedHeld": "{who} の襲撃を撃退した！",
     "sov.tacVictim": "{who} が戦術攻撃を仕掛けた。",
     "sov.misVictim": "{who} がミサイルで攻撃した。",
-    "sov.spyVictim": "{who} があなたに諜報を仕掛けた。"
+    "sov.spyVictim": "{who} があなたに諜報を仕掛けた。",
+    "sov.roundN": "ラウンド",
+    "sov.banked": "貯蓄"
   },
   "ko": {
     "sov.tac_partisan": "빨치산",
@@ -3616,7 +3636,9 @@
     "sov.raidedHeld": "{who}의 습격을 막아냈습니다!",
     "sov.tacVictim": "{who}가 전술 타격을 가했습니다.",
     "sov.misVictim": "{who}가 미사일로 타격했습니다.",
-    "sov.spyVictim": "{who}가 당신을 상대로 첩보를 벌였습니다."
+    "sov.spyVictim": "{who}가 당신을 상대로 첩보를 벌였습니다.",
+    "sov.roundN": "라운드",
+    "sov.banked": "보유"
   },
   "ar": {
     "sov.tac_partisan": "الأنصار",
@@ -3945,7 +3967,9 @@
     "sov.raidedHeld": "صددت غارة {who}!",
     "sov.tacVictim": "ضربك {who} بضربة تكتيكية.",
     "sov.misVictim": "ضربك {who} بالصواريخ.",
-    "sov.spyVictim": "نفّذ {who} عملية تجسس ضدك."
+    "sov.spyVictim": "نفّذ {who} عملية تجسس ضدك.",
+    "sov.roundN": "جولة",
+    "sov.banked": "مُدَّخر"
   },
   "hi": {
     "sov.tac_partisan": "छापामार",
@@ -4274,7 +4298,9 @@
     "sov.raidedHeld": "आपने {who} का छापा नाकाम किया!",
     "sov.tacVictim": "{who} ने आप पर सामरिक वार किया।",
     "sov.misVictim": "{who} ने आप पर मिसाइलें दागीं।",
-    "sov.spyVictim": "{who} ने आपके विरुद्ध जासूसी की।"
+    "sov.spyVictim": "{who} ने आपके विरुद्ध जासूसी की।",
+    "sov.roundN": "राउंड",
+    "sov.banked": "संचित"
   },
   "tr": {
     "sov.tac_partisan": "Partizanlar",
@@ -4603,7 +4629,9 @@
     "sov.raidedHeld": "{who} baskınını püskürttün!",
     "sov.tacVictim": "{who} sana taktik vuruş yaptı.",
     "sov.misVictim": "{who} sana füzeyle vurdu.",
-    "sov.spyVictim": "{who} sana karşı casusluk yaptı."
+    "sov.spyVictim": "{who} sana karşı casusluk yaptı.",
+    "sov.roundN": "tur",
+    "sov.banked": "biriken"
   },
   "id": {
     "sov.tac_partisan": "Partisan",
@@ -4932,7 +4960,9 @@
     "sov.raidedHeld": "Anda menghalau serbuan {who}!",
     "sov.tacVictim": "{who} menyerang taktis Anda.",
     "sov.misVictim": "{who} menghantam Anda dengan rudal.",
-    "sov.spyVictim": "{who} memata-matai Anda."
+    "sov.spyVictim": "{who} memata-matai Anda.",
+    "sov.roundN": "ronde",
+    "sov.banked": "tersimpan"
   },
   "vi": {
     "sov.tac_partisan": "Du kích",
@@ -5261,6 +5291,8 @@
     "sov.raidedHeld": "Bạn đã đẩy lui đợt đột kích của {who}!",
     "sov.tacVictim": "{who} tung đòn chiến thuật vào bạn.",
     "sov.misVictim": "{who} bắn tên lửa vào bạn.",
-    "sov.spyVictim": "{who} do thám bạn."
+    "sov.spyVictim": "{who} do thám bạn.",
+    "sov.roundN": "vòng",
+    "sov.banked": "tích lũy"
   }
 }

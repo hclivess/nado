@@ -915,9 +915,13 @@ export class NadoDapp {
     try {
       const sto = (await (await fetch(base() + "/exec/contract?ns=" + this.ns + "&cid=" + this.cid + "&provisional=1", { cache: "no-store" })).json()).storage || {};
       this.online = true;
-      const extra = (opts && opts.append) || [];
-      const append = ["ta", ...extra.filter((m) => m !== "ta")];
-      return this._stickMerge(sto, append);
+      // CENTRAL anti-flicker: protect EVERY map from provisional-read blips (a key that momentarily vanishes is
+      // held for the grace window), so nothing jitters — egg↔pet, tables/games appearing+vanishing, etc. Games
+      // no longer need to hand-list sticky maps; opts.append is still honoured (useful before a map first appears).
+      const names = new Set(["ta", ...((opts && opts.append) || [])]);
+      for (const k in sto) if (sto[k] && typeof sto[k] === "object") names.add(k);
+      const prev = this._stickyPrev; if (prev) for (const k in prev) if (prev[k] && typeof prev[k] === "object") names.add(k);
+      return this._stickMerge(sto, [...names]);
     } catch { this.online = false; return null; }
   }
   // Read-only contract call via GET /exec/view — how a game reads hash-keyed (per-user) zkVM slots that
@@ -936,7 +940,10 @@ export class NadoDapp {
     if (!append || !append.length) return sto;
     const now = this._nowMs(), prev = this._stickyPrev || {}, held = this._stickyHeld || (this._stickyHeld = {});
     for (const m of append) {
-      const cur = sto[m] || (sto[m] = {}), pv = prev[m] || {};
+      const pv = prev[m];
+      if (!pv || typeof pv !== "object") continue;             // only object MAPS are sticky (skip scalar slots)
+      if (sto[m] != null && typeof sto[m] !== "object") continue;
+      const cur = sto[m] || (sto[m] = {});
       for (const k in pv) {
         const hk = m + " " + k;
         if (k in cur) { delete held[hk]; continue; }          // still there → clear any grace timer

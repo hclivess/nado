@@ -10,6 +10,10 @@ import { loadCrypto } from "./nadotx.js";
 
 const CID = "5db6cb731ec1f39cc19a418475517829";   // execnode/games/pets.py (zkVM, nonce "a5")
 const dapp = new NadoDapp({ cid: CID, app: "Pets" });
+
+const petSlug = (x) => String(x).toLowerCase().replace(/[^a-z0-9]+/g, "");
+const AN = (a) => a ? window.t("pets.an_" + petSlug(a.n), a.n) : "";     // translated animal name
+const CN = (c) => c ? window.t("pets.coat_" + petSlug(c.name), c.name) : "";  // translated coat name
 const BLOCK_SECS = 6, BLOCKS_PER_DAY = 86400 / BLOCK_SECS;
 const LS_P = "nado_pets_mine";                    // {pid: {ts, hatchPending?, trainPending?}} local flags
 
@@ -535,7 +539,7 @@ async function challengerCanvas(p) {
   x.fillText(name, W / 2, name.length > 14 ? 130 : 138, W - 90);
   x.shadowBlur = 0;
   x.fillStyle = tier.color; x.font = "700 24px system-ui";
-  x.fillText(`${an.e}  ${coat.name} ${an.n} · ${tier.rarity}${coat.shiny ? " ✦" : ""}`, W / 2, 176, W - 80);
+  x.fillText(`${an.e}  ${CN(coat)} ${AN(an)} · ${tier.rarity}${coat.shiny ? " ✦" : ""}`, W / 2, 176, W - 80);
   // the warrior
   x.drawImage(img, W / 2 - 190, 192, 380, 380);
   URL.revokeObjectURL(url);
@@ -612,7 +616,7 @@ function petsFrom(sto) {
     p.stale = !p.hatched && cur != null && cur >= p.bh + G.STALE;         // gene block pruned -> rebirth
     p.bonus = p.gene ? G.STAT_NAMES.map((_n, i) => _m(sto, "tb")[pid + "|" + i] || 0) : null;
     p.level = G.levelOf(p.tf || 0);
-    p.label = p.nm ? p.nm : (p.hatched ? p.animal.n : "Egg") + " #" + String(pid).slice(-4);
+    p.label = p.nm ? p.nm : (p.hatched ? AN(p.animal) : window.t("pets.egg", "Egg")) + " #" + String(pid).slice(-4);
     out[pid] = p;
   }
   return out;
@@ -866,7 +870,7 @@ function renderActive() {
   $("petName").textContent = p.label + (p.dead ? " ✝" : "");
   const coat = p.gene && an ? G.coatOf(p.gene, an) : null;
   $("petSpecies").innerHTML = p.hatched
-    ? an.e + " " + esc(coat.name) + " " + esc(an.n) + (coat.shiny ? ' <span style="color:#ffd35a">' + window.t("pets.shiny", "✦ shiny") + '</span>' : "") + ' · <span class="dim">' + window.t("pets.oneOf107", "1 of 107 animals") + '</span>' + (p.nm ? ' · <span class="dim">#' + p.id + "</span>" : "")
+    ? an.e + " " + esc(CN(coat)) + " " + esc(AN(an)) + (coat.shiny ? ' <span style="color:#ffd35a">' + window.t("pets.shiny", "✦ shiny") + '</span>' : "") + ' · <span class="dim">' + window.t("pets.oneOf107", "1 of 107 animals") + '</span>' + (p.nm ? ' · <span class="dim">#' + p.id + "</span>" : "")
     : window.t("pets.unhatchedEgg", "Unhatched egg");
   $("petOwner").innerHTML = esc(disp(p.owner)) + (p.mine ? ' <span class="b ok">' + window.t("pets.yours", "yours") + '</span>' : "");
   $("petLp").textContent = p.hatched ? "Lv " + p.level + " · ⚡ " + p.pw + " · " + recordOf(p) : "—";
@@ -973,7 +977,7 @@ function renderActive() {
     $("nameInput").classList.toggle("hidden", named);
     $("btnRename").classList.toggle("hidden", named);
   }
-  shareInvite("pet", p.id, (p.hatched ? window.t("pets.shareMeet", "Meet {label}, my {rarity} {animal} on NADO Pets:", { label: p.label, rarity: tier.rarity, animal: an.n }) : window.t("pets.shareEgg", "My NADO Pets egg is incubating:")));
+  shareInvite("pet", p.id, (p.hatched ? window.t("pets.shareMeet", "Meet {label}, my {rarity} {animal} on NADO Pets:", { label: p.label, rarity: tier.rarity, animal: AN(an) }) : window.t("pets.shareEgg", "My NADO Pets egg is incubating:")));
   $("btnCard").classList.toggle("hidden", !(p.hatched && !p.dead));
   maybePlayHatch(p);
 }
@@ -999,7 +1003,7 @@ function matches(p, q) {
   if (!q) return true;
   q = q.toLowerCase().replace(/^[@#]/, "");
   return (p.nm && p.nm.toLowerCase().includes(q)) || p.id.includes(q)
-    || (p.hatched && p.animal.n.toLowerCase().includes(q))
+    || (p.hatched && (p.animal.n.toLowerCase().includes(q) || AN(p.animal).toLowerCase().includes(q)))
     || (p.hatched && p.tier.rarity.toLowerCase().includes(q))
     || p.owner.toLowerCase().startsWith(q) || disp(p.owner).toLowerCase().replace(/^@/, "").includes(q);
 }
@@ -1043,7 +1047,7 @@ function renderGrids() {
   // hall of fame
   const top = Object.values(PETS).filter((p) => p.hatched && !p.dead).sort((a, b) => b.pw - a.pw).slice(0, 10);
   $("fameList").innerHTML = top.length ? '<table class="score"><thead><tr><th>#</th><th>' + window.t("pets.thPet", "Pet") + '</th><th>' + window.t("pets.thAnimal", "Animal") + '</th><th>' + window.t("pets.thPower", "Power") + '</th><th>' + window.t("pets.thOwner", "Owner") + '</th></tr></thead><tbody>'
-    + top.map((p, i) => `<tr${p.mine ? ' class="me"' : ""}><td>${i + 1}</td><td>${p.animal.e} ${esc(p.label)}</td><td style="color:${p.tier.color}">${esc(p.animal.n)}</td><td class="mono">⚡${p.pw} · Lv${p.level}</td><td>${esc(disp(p.owner))}</td></tr>`).join("") + "</tbody></table>"
+    + top.map((p, i) => `<tr${p.mine ? ' class="me"' : ""}><td>${i + 1}</td><td>${p.animal.e} ${esc(p.label)}</td><td style="color:${p.tier.color}">${esc(AN(p.animal))}</td><td class="mono">⚡${p.pw} · Lv${p.level}</td><td>${esc(disp(p.owner))}</td></tr>`).join("") + "</tbody></table>"
     : '<span class="dim small">' + window.t("pets.noLivingPets", "No living pets yet.") + '</span>';
 }
 function renderBattles() {
@@ -1167,7 +1171,7 @@ function maybePlayHatch(p) {
     }
     const an = p.animal, coat = G.coatOf(p.gene, an);
     alertBar(window.t("pets.hatchReveal", "🎉 It's a {rarity} — {coat} {emoji} {animal}{shiny}! One of 107 possible animals across six rarity tiers — its species, coat and 10 abilities are all written into its gene, locked forever. Name it, feed it, train it.",
-      { rarity: p.tier.rarity.toUpperCase(), coat: coat.name, emoji: an.e, animal: an.n, shiny: coat.shiny ? window.t("pets.shinySuffix", " ✦ SHINY") : "" }));
+      { rarity: p.tier.rarity.toUpperCase(), coat: CN(coat), emoji: an.e, animal: AN(an), shiny: coat.shiny ? window.t("pets.shinySuffix", " ✦ SHINY") : "" }));
   }, t + 600);
   setTimeout(() => { hatchPlaying = false; render(); }, t + 2400);
 }

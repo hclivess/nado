@@ -41,7 +41,7 @@ function logFromSto(sto) {
   return log;
 }
 async function refresh() {
-  if (practice) return renderPractice();
+  if (practice) { pracReplay(); render(); return; }   // practice advances on the same wall-clock as live
   await dapp.refresh();          // keep dapp.cursor advancing (lazy production settles forward) + balances live
   const sto = await dapp.storage({ append: MAPS });
   if (!sto) return;
@@ -109,43 +109,59 @@ function act(enc, tgt, label) {
 }
 const found = () => act(E.encAction(E.OP.found), 0, T("cfFound", "found your nation"));
 
-// ---- practice (offline): a local log over bot nations, same engine -----------------------------------
+// ---- practice (offline): a local log over bot nations, SAME real-time cadence as live -----------------
+// The world clock is wall-clock, exactly like live: 1 round every 15 min. Your nation founds fresh at the
+// world's current age (bots have PRAC_HEAD rounds of head-start so there are rivals to raid); production
+// accrues in real time as the clock advances. Nothing is fast-forwarded — practice IS the live pace, offline.
+const PRAC_HEAD = 180;                                  // rounds of pre-history the bot rivals already have
 function pracSeedOf(rh) { const r = prand(practice.seed + ":seed:" + rh); return BigInt(Math.floor(r() * 1e15)) * 1000003n + 7n; }
+function pracNow() { return PRAC_HEAD * E.TURN_BLOCKS + Math.floor((Date.now() - practice.startWall) / (BLOCK_SECS * 1000)); }
+// extend the bot action log deterministically for every round boundary passed since we last generated
+function pracGenBots(now) {
+  const endRound = Math.floor(now / E.TURN_BLOCKS);
+  let startRound = Math.max(practice.lastGen, endRound - 400);   // cap catch-up work after a long absence
+  for (let t = startRound + 1; t <= endRound; t++) {
+    if (t % 3 !== 0) continue;                          // bots act every 3rd round
+    practice.bots.forEach((b, i) => {
+      const cur = t * E.TURN_BLOCKS, r = prand(practice.seed + ":bot:" + t + ":" + i);
+      if (r() < 0.28) practice.log.push({ actor: b, cursor: cur, rh: cur, enc: E.encAction(E.OP.colonize), target: 0 });
+      else { const pick = ["village", "barracks", "farm", "lab", "market", "plant", "base", "factory"][Math.floor(r() * 8)];
+        practice.log.push({ actor: b, cursor: cur, rh: cur, enc: E.encAction(E.OP.build, E.BUILDABLE.indexOf(pick), 5), target: 0 }); }
+    });
+  }
+  practice.lastGen = Math.max(practice.lastGen, endRound);
+}
 function pracReplay() {
-  const rr = E.replayWorld(practice.log, practice.now, pracSeedOf); world = rr.world; me = world.you || null;
+  const now = pracNow(); pracGenBots(now);
+  const rr = E.replayWorld(practice.log, now, pracSeedOf); world = rr.world; me = world.you || null;
+  nowCur = now; lastWall = performance.now();
+  myLastCur = practice.log.reduce((m, e) => e.actor === "you" && e.cursor > m ? e.cursor : m, 0);
   showFeed(rr.feed);
+  prac.saveRun(practice);
 }
 function pracAct(enc, tgt) {
-  practice.log.push({ actor: "you", cursor: practice.now, rh: practice.now, enc, target: tgt || 0 });
-  practice.now += E.TURN_BLOCKS;                       // each of your actions advances the world a turn
-  practice.bots.forEach((b, i) => { if (Math.random() < 0.5) practice.log.push({ actor: b, cursor: practice.now, rh: practice.now, enc: botMove(world[b], i), target: 0 }); });
-  practice.now += E.TURN_BLOCKS * 3;
-  prac.saveRun(practice); pracReplay(); renderPractice();
-}
-function botMove(n, i) {
-  if (!n) return E.encAction(E.OP.found);
-  // a simple builder bot: keep raising villages/barracks/labs, colonize when it can
-  if (n.bld.unbuilt / Math.max(1, n.land) <= 0.5 && Math.random() < 0.3) return E.encAction(E.OP.colonize);
-  const pick = ["village", "barracks", "farm", "lab", "market", "plant"][Math.floor(Math.random() * 6)];
-  return E.encAction(E.OP.build, E.BUILDABLE.indexOf(pick), Math.max(1, Math.floor(E.buildsPerTurn(n) / 2)));
+  practice.log.push({ actor: "you", cursor: pracNow(), rh: pracNow(), enc, target: tgt || 0 });
+  pracReplay(); render();
 }
 function startPractice() {
   const seed = "sov-" + Math.random().toString(36).slice(2, 9);
   const bots = ["Ferralis", "Kaltberg", "Osmara", "Venturia", "Drakov"];
-  const log = [{ actor: "you", cursor: 0, rh: 0, enc: E.encAction(E.OP.found), target: 0 }];
+  const log = [];
   bots.forEach((b) => log.push({ actor: b, cursor: 0, rh: 0, enc: E.encAction(E.OP.found), target: 0 }));
-  // bot head start — a STATELESS deterministic build pattern (no per-turn replay; keeps it O(n))
+  // bot head start — a STATELESS deterministic build pattern (bots founded at round 0, built up to PRAC_HEAD)
   const pattern = ["village", "village", "farm", "barracks", "market", "plant", "lab", "base", "factory", "builder"];
-  for (let t = 3; t < 180; t += 3) bots.forEach((b, i) => {
+  for (let t = 3; t < PRAC_HEAD; t += 3) bots.forEach((b, i) => {
     const cur = t * E.TURN_BLOCKS;
     if ((t / 3 + i) % 5 === 0) { log.push({ actor: b, cursor: cur, rh: cur, enc: E.encAction(E.OP.colonize), target: 0 }); return; }
     const what = pattern[(Math.floor(t / 3) + i) % pattern.length];
     log.push({ actor: b, cursor: cur, rh: cur, enc: E.encAction(E.OP.build, E.BUILDABLE.indexOf(what), 10), target: 0 });
   });
-  practice = { seed, bots, log, now: 180 * E.TURN_BLOCKS };
-  prac.saveRun(practice); pracReplay(); render();
+  // YOU found fresh at the world's current age (PRAC_HEAD rounds in), then grow in real wall-clock time
+  log.push({ actor: "you", cursor: PRAC_HEAD * E.TURN_BLOCKS, rh: PRAC_HEAD * E.TURN_BLOCKS, enc: E.encAction(E.OP.found), target: 0 });
+  practice = { seed, bots, log, startWall: Date.now(), lastGen: PRAC_HEAD };
+  pracReplay(); render();
+  try { $("nationCard").scrollIntoView({ behavior: "smooth", block: "start" }); } catch {}
 }
-function pracSeedOfFor(seed) { return (rh) => { const r = prand(seed + ":seed:" + rh); return BigInt(Math.floor(r() * 1e15)) * 1000003n + 7n; }; }
 function exitPractice() { practice = null; prac.clearRun(); refresh(); }
 
 // ---- rendering ---------------------------------------------------------------------------------------
@@ -168,7 +184,9 @@ function nationHead(n) {
     + '<div class="stats mt">'
     + '<span class="stat">🎖 <b>' + T("rank_" + E.RANKS[E.rankOf(n)].k, E.RANKS[E.rankOf(n)].k) + "</b> · " + fmt(n.exp) + " XP</span>"
     + '<span class="stat">🛡 ' + T("ready", "readiness") + " <b>" + Math.round(n.ready) + "%</b></span>"
-    + '<span class="stat">⏳ ' + T("turnN", "turn") + " <b>" + fmtInt(n.tick) + "</b>" + turnClock() + "</span>"
+    + '<span class="stat">⏳ ' + T("roundN", "round") + " <b>" + fmtInt(n.tick) + "</b>" + turnClock() + "</span>"
+    + (function () { const b = bankedRounds(), hot = b >= E.MAX_BANK * 0.85;
+        return '<span class="stat" style="' + (hot ? "border-color:var(--gold)" : "") + '">🎟 ' + T("banked", "banked") + ' <b style="' + (hot ? "color:var(--gold)" : "") + '">' + b + "/" + E.MAX_BANK + "</b></span>"; })()
     + (n.generals && n.generals.length ? '<span class="stat">⭐ ' + n.generals.map((gn) => T("gen_" + gn.type, E.GENERALS[gn.type].k) + " " + genLvl(gn)).join(", ") + "</span>" : "")
     + (n.ally ? '<span class="stat">🤝 ' + T("alliance", "alliance") + " #" + n.ally + "</span>" : "")
     + (n.ufoExplore > 0 ? '<span class="stat">👽 ' + Math.round(n.ufoExplore) + "%</span>" : "")
@@ -180,9 +198,15 @@ function genLvl(gn) { return "L" + (E.genLevel ? E.genLevel(gn.xp) : 0); }
 // estimated live cursor: last polled cursor + wall-clock blocks elapsed since (so the countdown ticks every
 // second between the 8s network refreshes, instead of jumping in 8s steps).
 function estCur() { return nowCur + (lastWall ? Math.floor((performance.now() - lastWall) / (BLOCK_SECS * 1000)) : 0); }
-// how long until the next economy turn ticks (production settles every TURN_BLOCKS blocks from your last touch)
+// rounds accumulated since your last action — this is exactly what the 140-round bank caps (act before it
+// fills or the overflow production is forfeit). Works in practice + live (both set nowCur/myLastCur).
+function bankedRounds() {
+  if (!myLastCur || !nowCur) return 0;
+  return Math.min(E.MAX_BANK, Math.floor((Math.max(nowCur, estCur()) - myLastCur) / E.TURN_BLOCKS));
+}
+// how long until the next economy round ticks (production settles every TURN_BLOCKS blocks from your last touch)
 function turnClock() {
-  if (practice || !myLastCur || !nowCur) return "";
+  if (!myLastCur || !nowCur) return "";
   const cur = Math.max(nowCur, estCur());
   const into = (cur - myLastCur) % E.TURN_BLOCKS;
   const left = (E.TURN_BLOCKS - into) % E.TURN_BLOCKS || E.TURN_BLOCKS;
@@ -233,8 +257,9 @@ function renderBuild(el) {
   const per = E.buildsPerTurn(me), left = E.buildsLeft(me), n = me;
   const unit = E.buildCost(n, 1);          // money for the NEXT building (same for every type; rises as you grow)
   let h = '<p class="hint">' + T("buildHint2", "Up to {per} buildings PER TURN (shared across all types). Cost rises as you grow. Colonize for more land — but not while over half sits empty.", { per }) + "</p>";
-  h += '<div class="colonizeRow"><button class="primary colonizeBtn" id="btnColonize">🧭 ' + T("colonize", "Colonize — claim more land") + ' · 🟩 ' + fmt(n.bld.unbuilt) + "</button></div>";
-  h += '<div class="chips">'
+  h += '<div class="row2">'
+    + '<button class="primary" id="btnColonize">🧭 ' + T("colonize", "Colonize — claim more land") + "</button>"
+    + '<span class="landchip">🟩 ' + T("openLand", "open land") + " <b>" + fmt(n.bld.unbuilt) + "</b></span>"
     + (practice ? "" : '<span class="landchip">🏗 ' + T("buildsLeft", "builds left this turn") + " <b>" + left + "/" + per + "</b></span>")
     + "</div>";
   h += '<div class="grid">' + E.BUILDABLE.map((k) => tile(
@@ -447,14 +472,15 @@ async function boot() {
   try { await dapp.init(); } catch { alertBar(T("cryptoFail", "Crypto bundle failed to load — reload.")); return; }
   wire(); orderCards(["pracBanner", "nationCard", "walletcard"]);
   const saved = prac.run();
-  if (saved && saved.log) { practice = saved; pracReplay(); }
+  if (saved && saved.log && saved.startWall) { practice = saved; pracReplay(); }   // startWall = new real-time format
+  else if (saved) prac.clearRun();                                                 // drop any stale fast-forward save
   render();
   await refresh();
   setInterval(() => { if (!document.hidden && !raidOwner) refresh(); }, 8000);  // don't wipe an open war council
   // smooth 1s tick: refresh JUST the dashboard header so the turn countdown ticks down every second between
   // network polls (no network). When the estimated cursor crosses a turn boundary, pull real state early.
   setInterval(() => {
-    if (document.hidden || practice || raidOwner || !me || !$("dash")) return;
+    if (document.hidden || raidOwner || !me || !$("dash")) return;
     if (estCur() - myLastCur >= (Math.floor((nowCur - myLastCur) / E.TURN_BLOCKS) + 1) * E.TURN_BLOCKS) { refresh(); return; }
     $("dash").innerHTML = nationHead(me);
   }, 1000);

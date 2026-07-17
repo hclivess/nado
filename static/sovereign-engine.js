@@ -285,6 +285,7 @@ export function upkeep(n) {
 // Deterministic and idempotent given (nation, turns). Starvation/blackout bite when a stock hits zero.
 export function settle(n, turns) {
   turns = Math.max(0, Math.floor(turns));
+  turns = Math.min(turns, MAX_BANK);                  // the source's bank cap: at most 140 unplayed rounds
   if (!turns || n.over) { n.tick += turns; return n; }
   for (let t = 0; t < turns && !n.over; t++) {
     const p = production(n), pay = upkeep(n), vet = veteran(n);
@@ -650,7 +651,8 @@ export function spyOp(atk, def, opKey, send, seed) {
 // through this engine to derive the world — settling each nation lazily between the actions that touch it,
 // and resolving raids against a block-hash roll pinned by the entry's cursor. enc packs op + three 12-bit
 // params; ATTACK carries the target address in its own field.
-export const TURN_BLOCKS = 20;                    // one economy turn per 20 L1 blocks (~2 min at 6s)
+export const TURN_BLOCKS = 150;                   // one round per 150 L1 blocks = 15 min at 6s (faithful to Webgame: "nové kolo každých 15 minut", 96/day)
+export const MAX_BANK = 140;                      // max unplayed rounds banked (the source's 140 cap) — offline production beyond this is forfeit
 export const OP = { found: 0, build: 1, demolish: 2, recruit: 3, research: 4, revolt: 5, colonize: 6, attack: 7,
   missile: 8, tactical: 9, launch: 10, spy: 11, market: 12, advance: 13, alliance: 14, warcry: 15 };
 const P = 4096;
