@@ -107,7 +107,8 @@
     "sdk.fctGrinding": "⛏ proving… {n}k hashes",
     "sdk.fctSubmitting": "✓ proof found — claiming…",
     "sdk.fctCallLabel": "claim {amt} NADO airdrop play ({slug})",
-    "sdk.fctSent": "Claim submitted — your airdrop play lands with the next block."
+    "sdk.fctSent": "Claim submitted — your airdrop play lands with the next block.",
+    "sdk.prizeNote": "🏆 Top ranks earn NADO daily from the faucet prize pool."
   },
   "cs": {
     "sdk.connect": "Přihlášeno.",
@@ -217,7 +218,8 @@
     "sdk.fctGrinding": "⛏ dokazuji… {n}k hashů",
     "sdk.fctSubmitting": "✓ důkaz nalezen — žádám…",
     "sdk.fctCallLabel": "získat {amt} NADO zdarma ({slug})",
-    "sdk.fctSent": "Žádost odeslána — kredit dorazí s dalším blokem."
+    "sdk.fctSent": "Žádost odeslána — kredit dorazí s dalším blokem.",
+    "sdk.prizeNote": "🏆 Nejlepší pozice získávají denně NADO z faucet fondu."
   },
   "es": {
     "sdk.connect": "Sesión iniciada.",
@@ -327,7 +329,8 @@
     "sdk.fctGrinding": "⛏ probando… {n}k hashes",
     "sdk.fctSubmitting": "✓ prueba hallada — reclamando…",
     "sdk.fctCallLabel": "reclamar {amt} NADO gratis ({slug})",
-    "sdk.fctSent": "Reclamo enviado — tu saldo llega con el próximo bloque."
+    "sdk.fctSent": "Reclamo enviado — tu saldo llega con el próximo bloque.",
+    "sdk.prizeNote": "🏆 Los primeros puestos ganan NADO a diario del fondo del faucet."
   },
   "pt": {
     "sdk.connect": "Sessão iniciada.",
@@ -437,7 +440,8 @@
     "sdk.fctGrinding": "⛏ provando… {n}k hashes",
     "sdk.fctSubmitting": "✓ prova achada — resgatando…",
     "sdk.fctCallLabel": "resgatar {amt} NADO grátis ({slug})",
-    "sdk.fctSent": "Resgate enviado — o crédito chega no próximo bloco."
+    "sdk.fctSent": "Resgate enviado — o crédito chega no próximo bloco.",
+    "sdk.prizeNote": "🏆 As primeiras posições ganham NADO diariamente do fundo do faucet."
   },
   "fr": {
     "sdk.connect": "Connecté.",
@@ -547,7 +551,8 @@
     "sdk.fctGrinding": "⛏ preuve… {n}k hachages",
     "sdk.fctSubmitting": "✓ preuve trouvée — réclamation…",
     "sdk.fctCallLabel": "réclamer {amt} NADO gratuits ({slug})",
-    "sdk.fctSent": "Réclamation envoyée — le crédit arrive au prochain bloc."
+    "sdk.fctSent": "Réclamation envoyée — le crédit arrive au prochain bloc.",
+    "sdk.prizeNote": "🏆 Les meilleurs rangs gagnent des NADO chaque jour depuis la cagnotte du faucet."
   },
   "de": {
     "sdk.connect": "Angemeldet.",
@@ -657,7 +662,8 @@
     "sdk.fctGrinding": "⛏ beweise… {n}k Hashes",
     "sdk.fctSubmitting": "✓ Beweis gefunden — fordere an…",
     "sdk.fctCallLabel": "{amt} NADO Gratis-Guthaben holen ({slug})",
-    "sdk.fctSent": "Anspruch gesendet — das Guthaben kommt mit dem nächsten Block."
+    "sdk.fctSent": "Anspruch gesendet — das Guthaben kommt mit dem nächsten Block.",
+    "sdk.prizeNote": "🏆 Top-Ränge erhalten täglich NADO aus dem Faucet-Preistopf."
   },
   "it": {
     "sdk.connect": "Accesso effettuato.",
@@ -767,7 +773,8 @@
     "sdk.fctGrinding": "⛏ provo… {n}k hash",
     "sdk.fctSubmitting": "✓ prova trovata — riscatto…",
     "sdk.fctCallLabel": "riscatta {amt} NADO gratis ({slug})",
-    "sdk.fctSent": "Richiesta inviata — il credito arriva col prossimo blocco."
+    "sdk.fctSent": "Richiesta inviata — il credito arriva col prossimo blocco.",
+    "sdk.prizeNote": "🏆 Le prime posizioni guadagnano NADO ogni giorno dal montepremi del faucet."
   },
   "ru": {
     "sdk.connect": "Вход выполнен.",
@@ -877,7 +884,8 @@
     "sdk.fctGrinding": "⛏ доказываю… {n}k хешей",
     "sdk.fctSubmitting": "✓ доказательство найдено — запрашиваю…",
     "sdk.fctCallLabel": "получить {amt} NADO бесплатно ({slug})",
-    "sdk.fctSent": "Заявка отправлена — средства придут со следующим блоком."
+    "sdk.fctSent": "Заявка отправлена — средства придут со следующим блоком.",
+    "sdk.prizeNote": "🏆 Лучшие места ежедневно получают NADO из призового фонда faucet."
   },
   "zh": {
     "sdk.connect": "已登录。",
@@ -987,7 +995,8 @@
     "sdk.fctGrinding": "⛏ 证明中… {n}k 次哈希",
     "sdk.fctSubmitting": "✓ 证明完成——领取中…",
     "sdk.fctCallLabel": "领取 {amt} NADO 免费额度（{slug}）",
-    "sdk.fctSent": "申请已提交——额度将随下一个区块到账。"
+    "sdk.fctSent": "申请已提交——额度将随下一个区块到账。",
+    "sdk.prizeNote": "🏆 排行榜前列每天从水龙头奖池获得 NADO。"
   },
   "ja": {
     "sdk.connect": "サインインしました。",
@@ -1097,7 +1106,8 @@
     "sdk.fctGrinding": "⛏ 証明中… {n}k ハッシュ",
     "sdk.fctSubmitting": "✓ 証明完了 — 申請中…",
     "sdk.fctCallLabel": "{amt} NADO 無料プレイを受け取る（{slug}）",
-    "sdk.fctSent": "申請を送信 — 次のブロックで反映されます。"
+    "sdk.fctSent": "申請を送信 — 次のブロックで反映されます。",
+    "sdk.prizeNote": "🏆 上位ランクは毎日フォーセットの賞金プールから NADO を獲得。"
   },
   "ko": {
     "sdk.connect": "로그인됨.",
@@ -1207,7 +1217,8 @@
     "sdk.fctGrinding": "⛏ 증명 중… {n}k 해시",
     "sdk.fctSubmitting": "✓ 증명 완료 — 청구 중…",
     "sdk.fctCallLabel": "{amt} NADO 무료 플레이 받기 ({slug})",
-    "sdk.fctSent": "청구 제출 — 다음 블록에서 잔액이 반영됩니다."
+    "sdk.fctSent": "청구 제출 — 다음 블록에서 잔액이 반영됩니다.",
+    "sdk.prizeNote": "🏆 상위 순위는 매일 faucet 상금 풀에서 NADO를 받습니다."
   },
   "ar": {
     "sdk.connect": "تم تسجيل الدخول.",
@@ -1317,7 +1328,8 @@
     "sdk.fctGrinding": "⛏ إثبات… {n}k تجزئة",
     "sdk.fctSubmitting": "✓ وُجد الإثبات — جارٍ الطلب…",
     "sdk.fctCallLabel": "طلب {amt} NADO مجانًا ({slug})",
-    "sdk.fctSent": "أُرسل الطلب — يصل الرصيد مع الكتلة التالية."
+    "sdk.fctSent": "أُرسل الطلب — يصل الرصيد مع الكتلة التالية.",
+    "sdk.prizeNote": "🏆 تكسب المراكز الأولى NADO يوميًا من صندوق جوائز الصنبور."
   },
   "hi": {
     "sdk.connect": "साइन इन हो गया।",
@@ -1427,7 +1439,8 @@
     "sdk.fctGrinding": "⛏ प्रमाण… {n}k हैश",
     "sdk.fctSubmitting": "✓ प्रमाण मिला — दावा जारी…",
     "sdk.fctCallLabel": "{amt} NADO मुफ़्त पाएँ ({slug})",
-    "sdk.fctSent": "दावा भेजा गया — अगले ब्लॉक के साथ राशि आएगी।"
+    "sdk.fctSent": "दावा भेजा गया — अगले ब्लॉक के साथ राशि आएगी।",
+    "sdk.prizeNote": "🏆 शीर्ष रैंक फ़ॉसेट पुरस्कार पूल से रोज़ NADO कमाते हैं।"
   },
   "tr": {
     "sdk.connect": "Giriş yapıldı.",
@@ -1537,7 +1550,8 @@
     "sdk.fctGrinding": "⛏ kanıtlanıyor… {n}k hash",
     "sdk.fctSubmitting": "✓ kanıt bulundu — talep ediliyor…",
     "sdk.fctCallLabel": "{amt} NADO ücretsiz talep ({slug})",
-    "sdk.fctSent": "Talep gönderildi — bakiye bir sonraki blokla gelir."
+    "sdk.fctSent": "Talep gönderildi — bakiye bir sonraki blokla gelir.",
+    "sdk.prizeNote": "🏆 En üst sıralar her gün faucet ödül havuzundan NADO kazanır."
   },
   "id": {
     "sdk.connect": "Masuk berhasil.",
@@ -1647,7 +1661,8 @@
     "sdk.fctGrinding": "⛏ membuktikan… {n}k hash",
     "sdk.fctSubmitting": "✓ bukti ditemukan — mengklaim…",
     "sdk.fctCallLabel": "klaim {amt} NADO gratis ({slug})",
-    "sdk.fctSent": "Klaim terkirim — saldo tiba di blok berikutnya."
+    "sdk.fctSent": "Klaim terkirim — saldo tiba di blok berikutnya.",
+    "sdk.prizeNote": "🏆 Peringkat teratas mendapat NADO harian dari kolam hadiah faucet."
   },
   "vi": {
     "sdk.connect": "Đã đăng nhập.",
@@ -1757,6 +1772,7 @@
     "sdk.fctGrinding": "⛏ đang chứng minh… {n}k băm",
     "sdk.fctSubmitting": "✓ tìm thấy bằng chứng — đang nhận…",
     "sdk.fctCallLabel": "nhận {amt} NADO miễn phí ({slug})",
-    "sdk.fctSent": "Đã gửi yêu cầu — số dư sẽ đến ở khối kế tiếp."
+    "sdk.fctSent": "Đã gửi yêu cầu — số dư sẽ đến ở khối kế tiếp.",
+    "sdk.prizeNote": "🏆 Thứ hạng cao nhận NADO mỗi ngày từ quỹ thưởng faucet."
   }
 }

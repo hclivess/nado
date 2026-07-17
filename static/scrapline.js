@@ -18,11 +18,13 @@ const CID = "634dc7c3eda3fea16fddfaca47a0c8aa";
 const dapp = new NadoDapp({ cid: CID, app: "Scrapline" });
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("scrap." + k, d, v) : d;
 
+const IN = (it) => T("it_" + it.k, it.n);            // item name (translatable)
+const IX = (it) => T("itx_" + it.k, it.txt);           // item description (translatable)
 let sel = null;                                            // selected offer choice (0..2)
 const TAGC = ["tg-blade", "tg-bolt", "tg-spark", "tg-ember", "tg-plate", "tg-mend", "tg-core"];
 
 const duel = new DuelGame(dapp, {
-  prefix: "scrap", icon: "⚙", marks: ["⚙", "🔩"],
+  prefix: "scrap", icon: "⚙", marks: ["⚙", "🔩"], prize: true,
   appendMaps: ["eday", "eaddr", "escore", "en", "ea0", "ea1", "ea2", "ea3", "ea4", "ea5", "ea6", "ea7"],
   onStorage(sto) { renderSoloBoard(sto); },
   rebuild(gm) {
@@ -98,15 +100,15 @@ function fxLine(it, rank) {
   if (it.spc && P[it.spc]) return P[it.spc]();
   if (it.tag === 2 && it.kind === "d") return T("fxSpark", "double damage vs shielded");
   if (it.burn) return T("fxBurn", "burn: {n} damage per second, fading", { n: it.burn + (it.burna || 0) * (rank - 1) });
-  return it.txt;
+  return IX(it);
 }
 function itemTile(id, rank, extra, data) {
   const it = E.ITEMS[id];
-  return '<div class="ctile ' + TAGC[it.tag] + (extra || "") + '" ' + (data || "") + ' title="' + it.txt + '">'
+  return '<div class="ctile ' + TAGC[it.tag] + (extra || "") + '" ' + (data || "") + ' title="' + IX(it) + '">'
     + '<span class="cost">T' + it.tier + "</span>"
     + (rank > 1 ? '<span class="cnt">' + stars(rank) + "</span>" : "")
     + '<div class="cart">' + (ART[it.k] || "") + "</div>"
-    + '<div class="cname">' + it.n + "</div>"
+    + '<div class="cname">' + IN(it) + "</div>"
     + '<div class="ctxt">' + statLine(it, rank) + "</div>"
     + '<div class="ctxt dim">' + E.TAGS[it.tag] + " · " + fxLine(it, rank) + "</div>"
     + "</div>";
@@ -384,7 +386,7 @@ async function renderSoloBoard(sto) {
     const rows = await verifyEntries(entries, (en) => E.verifyClaim(day, en.n, en.words, anch, en.addr));
     renderTopScores(el, rows, dapp.me,
       T("noSoloScores", "No verified scores today — finish a daily run and post yours."),
-      T("stagesHead", "Stages"));
+      T("stagesHead", "Stages"), true);
   } finally { _boardBusy = false; }
 }
 

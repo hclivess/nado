@@ -24,7 +24,8 @@ let senD = [0, 0], senSwap = 0;    // Skywatch chooser
 let peekOpp = false;
 
 const isA = (id) => !!(E.CARDS[id].t & E.A), isT = (id) => !!(E.CARDS[id].t & E.T), isV = (id) => !!(E.CARDS[id].t & E.V);
-const NAME = (id) => E.CARDS[id].n;
+const NAME = (id) => T("card_" + E.CARDS[id].k, E.CARDS[id].n);
+const CTXT = (id) => E.CARDS[id].txt ? T("cardx_" + E.CARDS[id].k, E.CARDS[id].txt) : "";
 const maskOf = (set) => [...set].reduce((m, i) => m + 2 ** i, 0);
 const MASK_FRAMES = { cel: 1, chp: 1, mil: 1, poa: 1 };
 const PICK_FRAMES = { bur: 1, burH: 1, remT: 1, minT: 1, thr: 1, artT: 1 };
@@ -46,7 +47,7 @@ const hid = () => isHiddenGame(duel.last);                // is the ACTIVE game 
 const encClaim = (idx, id) => idx + id * 32;              // 5-bit index + card id (engine's claim format)
 
 const duel = new DuelGame(dapp, {
-  prefix: "storm", icon: "🏰", marks: ["🏰", "⚔"],
+  prefix: "storm", icon: "🏰", marks: ["🏰", "⚔"], prize: true,
   appendMaps: ["cfg", "c1", "c2", "r1h", "r1l", "r2h", "r2l"],
   rebuild(gm) {
     if (!gm.kh) return null;
@@ -238,7 +239,7 @@ function renderSupply(gm, eng) {
     return '<div class="' + tileCls(id) + cls + '" data-sid="' + id + '" title="' + (c.txt || "") + '">'
       + '<span class="cost">' + c.c + '</span><span class="cnt">' + n + "</span>" + art(id)
       + '<div class="cname">' + c.n + "</div>"
-      + (c.txt ? '<div class="ctxt">' + c.txt + "</div>" : (c.coin ? '<div class="ctxt">🪙 ' + c.coin + "</div>" : c.vp != null ? '<div class="ctxt">🏆 ' + c.vp + "</div>" : ""))
+      + (c.txt ? '<div class="ctxt">' + CTXT(id) + "</div>" : (c.coin ? '<div class="ctxt">🪙 ' + c.coin + "</div>" : c.vp != null ? '<div class="ctxt">🏆 ' + c.vp + "</div>" : ""))
       + "</div>";
   }).join("");
   el.querySelectorAll("[data-sid]").forEach((d) => d.onclick = () => onSupplyTap(parseInt(d.dataset.sid, 10)));
@@ -451,7 +452,7 @@ function renderGame(gm, eng) {
       return '<div class="' + tileCls(c) + cls + '" data-h="' + i + '" title="' + (E.CARDS[c].txt || "") + '">'
         + '<span class="cost">' + E.CARDS[c].c + "</span>" + art(c)
         + '<div class="cname">' + NAME(c) + "</div>"
-        + (E.CARDS[c].txt ? '<div class="ctxt">' + E.CARDS[c].txt + "</div>" : (E.CARDS[c].coin ? '<div class="ctxt">🪙 ' + E.CARDS[c].coin + "</div>" : '<div class="ctxt">🏆 ' + (E.CARDS[c].vp || 0) + "</div>"))
+        + (E.CARDS[c].txt ? '<div class="ctxt">' + CTXT(c) + "</div>" : (E.CARDS[c].coin ? '<div class="ctxt">🪙 ' + E.CARDS[c].coin + "</div>" : '<div class="ctxt">🏆 ' + (E.CARDS[c].vp || 0) + "</div>"))
         + "</div>";
     }).join("");
     $("hand").querySelectorAll("[data-h]").forEach((d) => d.onclick = () => onHandTap(parseInt(d.dataset.h, 10)));

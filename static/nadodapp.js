@@ -314,18 +314,19 @@ export function renderWallet(dapp) {
   const cm = document.getElementById("cashoutSliderM"); if (cm) cm.textContent = _t("sdk.ofPlayable", "of {n} playable", { n: rawToNado(dapp.exec) });
   return signedIn;
 }
+const _prizeNote = (prize) => prize ? '<div class="small" style="margin-top:8px;color:var(--gold,#e3b341)">🏆 ' + _t("prizeNote", "Top ranks earn NADO daily from the faucet prize pool.") + "</div>" : "";
 // renderScore(el, board, me, empty): the shared win/loss leaderboard table.
-export async function renderScore(el, board, me, empty) {
+export async function renderScore(el, board, me, empty, prize) {
   if (!el) return;
   if (!board.length) { el.innerHTML = '<span class="dim">' + (empty || "No settled games yet — be the first on the board.") + "</span>"; return; }
   const top = board.slice(0, 10); await resolveAliases(top.map((r) => r.addr));
   el.innerHTML = '<table class="score"><thead><tr><th>#</th><th>Player</th><th>W–L</th><th>Net</th></tr></thead><tbody>'
     + top.map((r, i) => { const net = (r.net < 0 ? "-" : "+") + rawToNado(Math.abs(r.net)) + " NADO", you = r.addr === me;
-        return '<tr' + (you ? ' class="me"' : "") + '><td>' + (i + 1) + '</td><td>' + disp(r.addr) + (you ? " (you)" : "") + '</td><td>W' + r.wins + "–L" + r.losses + '</td><td class="' + (r.net >= 0 ? "pos" : "neg") + '">' + net + "</td></tr>"; }).join("") + "</tbody></table>";
+        return '<tr' + (you ? ' class="me"' : "") + '><td>' + (i + 1) + '</td><td>' + disp(r.addr) + (you ? " (you)" : "") + '</td><td>W' + r.wins + "–L" + r.losses + '</td><td class="' + (r.net >= 0 ? "pos" : "neg") + '">' + net + "</td></tr>"; }).join("") + "</tbody></table>" + _prizeNote(prize);
 }
 // renderTopScores(el, rows, me, empty, scoreHead): the shared HIGH-SCORE table template — rank/player/score
 // (renderScore is the win-loss/net-NADO sibling). rows: [{addr, score, tag?}] already sorted best-first.
-export async function renderTopScores(el, rows, me, empty, scoreHead) {
+export async function renderTopScores(el, rows, me, empty, scoreHead, prize) {
   if (!el) return;
   if (!rows.length) { el.innerHTML = '<span class="dim">' + (empty || _t("noScores", "No scores yet — be the first on the board.")) + "</span>"; return; }
   const top = rows.slice(0, 10); await resolveAliases(top.map((r) => r.addr));
@@ -334,7 +335,7 @@ export async function renderTopScores(el, rows, me, empty, scoreHead) {
     + top.map((r, i) => { const you = r.addr === me;
         return '<tr' + (you ? ' class="me"' : "") + '><td>' + (i + 1) + "</td><td>" + disp(r.addr) + (you ? " (you)" : "")
           + (r.tag ? ' <span class="dim">' + r.tag + "</span>" : "") + '</td><td class="pos">' + r.score + "</td></tr>"; }).join("")
-    + "</tbody></table>";
+    + "</tbody></table>" + _prizeNote(prize);
 }
 // scoreBump(stats, addr, net): accumulate one settled result into a leaderboard stats map.
 export function scoreBump(stats, addr, net) {

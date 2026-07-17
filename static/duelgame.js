@@ -270,7 +270,7 @@ export class DuelGame {
       });
       this.renderLobby(sto);
       renderScore($("scoreList"), this.boardFrom(sto), dapp.me,
-        this.T("noFinished", "No settled duels yet — win the first one."));
+        this.T("noFinished", "No settled duels yet — win the first one."), this.cfg.prize);
       if (this.cfg.onStorage) this.cfg.onStorage.call(this, sto);
     }
     await resolveAliases([dapp.me].concat(this.last ? [this.last.p1, this.last.p2] : []).filter(Boolean));

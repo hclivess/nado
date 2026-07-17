@@ -129,7 +129,7 @@ async function refreshAll() {
     const hands = bg.active != null ? handsOfTable(sto, bg.active) : [];
     maybeAutoResolve(hands);
     bg.lobby($("lobbyList"), sto, (m) => window.t("bj.lobbyChip", "🃏 #{id} · bank {bank} · {n} hands", { id: m.id, bank: rawToNado(m.tk), n: m.tn }), selectTable);
-    renderScore($("scoreList"), boardFrom(sto), dapp.me, window.t("bj.noScores", "No finished hands yet — be the first on the board."));
+    renderScore($("scoreList"), boardFrom(sto), dapp.me, window.t("bj.noScores", "No finished hands yet — be the first on the board."), true);
     const tb = lastTable();
     await resolveAliases([dapp.me, tb && tb.exists ? tb.bank : null].concat(hands.slice(0, 12).map((s) => s.addr)).filter(Boolean));
   }

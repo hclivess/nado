@@ -120,7 +120,7 @@ function boardFrom(sto) {
   }
   return scoreSort(stats);
 }
-const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, window.t("dice.noScores", "No settled rolls yet — be the first on the board."));
+const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, window.t("dice.noScores", "No settled rolls yet — be the first on the board."), true);
 function renderLobby(sto) {
   bg.lobby($("lobbyList"), sto, (t) => {
     const left = t.roundEndsIn != null ? window.t("dice.nextRoll", " · next roll {time}", { time: blocksToTime(t.roundEndsIn) }) : "";

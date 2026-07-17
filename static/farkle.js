@@ -190,7 +190,7 @@ function boardFrom(sto) {
   }
   return scoreSort(stats);
 }
-const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, window.t("farkle.noTablesBoard", "No finished tables yet — be the first on the board."));
+const renderScoreboard = (board) => renderScore($("scoreList"), board, dapp.me, window.t("farkle.noTablesBoard", "No finished tables yet — be the first on the board."), true);
 // NOT bg.lobby: farkle chips need the t0 phase windows (join/play/over via tableFrom, which bg.read lacks),
 // sort join-phase tables first, and only join-phase chips get the "betting" class (bg.lobby styles them all).
 function renderLobby(sto) {
