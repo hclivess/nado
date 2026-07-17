@@ -290,22 +290,19 @@ export const ART_MYTHICAL = {
   basilisk: (c) => {
     const E = eyeInk(c);
     return `
-    <g class="tail-wag">
-      ${tube("M62 84 Q86 88 88 70 Q88 58 76 58", c.body, c.line, 9)}
-      <path d="M88 62 l6 -3 l-2 6 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>
-    </g>
     <g class="breathe">
-      <path d="M30 66 Q30 84 52 86 Q74 86 76 70 Q76 56 58 56 Q40 56 40 66 Q40 74 52 74 Q62 74 62 68" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
-      ${[36,46,56,66].map((x,i)=>`<path d="M${x} ${78+(i%2)*2} q4 3 8 0" fill="none" stroke="${c.line}" stroke-width="1" opacity=".5"/>`).join("")}
+      ${tube("M40 52 Q28 64 44 74 Q64 84 80 74 Q92 64 80 54 Q72 48 62 54", c.body, c.line, 12)}
+      <path d="M62 54 l-9 -3 l4 9 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>
+      ${[42,54,66].map((x,i)=>`<path d="M${x} ${74-(i%2)*2} q4 3 8 0" fill="none" stroke="${c.line}" stroke-width="1" opacity=".5"/>`).join("")}
     </g>
     <g class="head-tilt">
-      ${[0,1,2].map(i=>`<path d="M${34+i*7} 34 L${37+i*7} 22 L${41+i*7} 34 Z" fill="${GEM}" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>`).join("")}
-      <path d="M30 48 Q30 32 48 32 Q64 32 64 46 Q64 58 46 58 Q30 58 30 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
-      <path d="M30 50 Q16 50 10 46 M30 54 Q16 56 10 60" fill="none" stroke="${GEM}" stroke-width="1.8" stroke-linecap="round"/>
-      <path d="M28 52 Q34 56 42 54" fill="none" stroke="${c.line}" stroke-width="1.4"/>
-      <path d="M36 44 q6 -3 12 0" fill="none" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round"/>
-      <circle cx="46" cy="46" r="4.2" fill="${GLOW}" stroke="${c.line}" stroke-width="1.6"/>
-      <path d="M46 43 v6" stroke="${INK}" stroke-width="1.8"/>
+      ${[0,1,2].map(i=>`<path d="M${30+i*7} 32 L${33+i*7} 20 L${37+i*7} 32 Z" fill="#d94141" stroke="${c.line}" stroke-width="1.4" stroke-linejoin="round"/>`).join("")}
+      <path d="M24 46 Q24 30 42 30 Q60 30 60 46 Q60 60 42 60 Q24 58 24 46 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
+      <path d="M24 48 Q12 48 6 44 M24 52 Q12 54 6 58" fill="none" stroke="#d94141" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M32 42 q6 -3 12 0" fill="none" stroke="${c.line}" stroke-width="1.6" stroke-linecap="round"/>
+      <circle cx="44" cy="46" r="4.4" fill="${GLOW}" stroke="${c.line}" stroke-width="1.6"/>
+      <path d="M44 42 v8" stroke="${INK}" stroke-width="1.9"/>
+      <ellipse cx="44" cy="46" rx="1.7" ry="4.4" fill="${INK}"/>
     </g>`;
   },
 

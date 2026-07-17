@@ -197,8 +197,8 @@ export const ART_WILDCATS = {
       <path d="M48 92 q12 8 24 0" fill="${c.shade}" opacity=".6"/>
       ${["", "s"].map((_, i) => `<rect x="${i ? 66 : 47}" y="94" width="8" height="16" rx="3.4" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`).join("")}</g>
     <g class="head-tilt">
-      <path d="M45 46 L41 22 L57 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M47 42 L45 28 L54 40 Z" fill="${c.shade}"/>
-      ${mirror(`<path d="M45 46 L41 22 L57 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M47 42 L45 28 L54 40 Z" fill="${c.shade}"/>`)}
+      <path d="M45 54 L41 22 L57 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M47 42 L45 28 L54 40 Z" fill="${c.shade}"/>
+      ${mirror(`<path d="M45 54 L41 22 L57 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M47 42 L45 28 L54 40 Z" fill="${c.shade}"/>`)}
       <path d="M42 54 Q42 74 60 76 Q78 74 78 54 Q60 46 42 54 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M54 60 Q60 78 66 60 Q64 82 60 82 Q56 82 54 60 Z" fill="${c.shade}"/>
       <ellipse cx="60" cy="74" rx="2.8" ry="2.2" fill="${INK}"/>
@@ -210,11 +210,11 @@ export const ART_WILDCATS = {
   jackal: (c) => `
     <g class="tail-wag"><path d="M30 90 C12 92 10 72 24 66 C28 74 30 82 40 86 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/></g>
     <g class="breathe"><path d="M40 96 Q40 70 60 68 Q80 70 80 96 Q60 103 40 96 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M44 74 Q60 66 76 74 Q72 84 60 84 Q48 84 44 74 Z" fill="${INK}" opacity=".55"/>
+      <path d="M44 72 Q60 62 76 72 Q72 86 60 86 Q48 86 44 72 Z" fill="${INK}" opacity=".82"/>
       ${["", "s"].map((_, i) => `<rect x="${i ? 65 : 47}" y="94" width="8" height="15" rx="3.4" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`).join("")}</g>
     <g class="head-tilt">
-      <path d="M46 46 L44 20 L58 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M48 42 L47 26 L55 40 Z" fill="${c.shade}"/>
-      ${mirror(`<path d="M46 46 L44 20 L58 40 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M48 42 L47 26 L55 40 Z" fill="${c.shade}"/>`)}
+      <path d="M46 54 L44 12 L58 46 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M48 42 L47 26 L55 40 Z" fill="${c.shade}"/>
+      ${mirror(`<path d="M46 54 L44 12 L58 46 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M48 42 L47 26 L55 40 Z" fill="${c.shade}"/>`)}
       <path d="M44 54 Q46 70 60 76 Q74 70 76 54 Q60 46 44 54 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M53 60 Q60 76 67 60 Q65 80 60 80 Q55 80 53 60 Z" fill="${c.shade}"/>
       <ellipse cx="60" cy="72" rx="2.6" ry="2" fill="${INK}"/>

@@ -108,7 +108,7 @@ export const ART_DINOS2 = {
     <g class="breathe"><path d="M36 74 Q38 56 60 54 Q80 56 82 70 Q82 82 60 84 Q40 84 36 74 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
       <ellipse cx="59" cy="76" rx="18" ry="7" fill="${B}" opacity=".7"/></g>
     <path d="M60 82 Q54 98 60 106 L68 104 L64 82 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
-    <path d="M52 106 Q44 108 42 104 Q48 104 52 106 Z" fill="${IVORY}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M55 102 l6 3 M59 101 l5 2" stroke="${c.line}" stroke-width="2.2" fill="none" stroke-linecap="round"/>
     <path d="M60 106 l6 3 M64 106 l5 2" stroke="${c.line}" stroke-width="2.2" fill="none" stroke-linecap="round"/>
     <path d="M72 62 q9 5 6 12" fill="none" stroke="${c.line}" stroke-width="4" stroke-linecap="round"/>
     <path d="M72 62 q9 5 6 12" fill="none" stroke="${c.body}" stroke-width="2.4" stroke-linecap="round"/>
