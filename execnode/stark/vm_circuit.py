@@ -84,6 +84,13 @@ COMMIT_PERIODIC = [i for i in range(NUM_PERIODIC) if i not in (PB, PS, P_START, 
 TAG_FETCH = 1 << 32           # bus domain tags (outside every raw table's value range)
 TAG_IO = 1 << 33
 TAG_ARG = 1 << 34
+# SOUNDNESS: the byte range table is 0..255 and the 7-bit table is 0..127, and BOTH range buses feed the one
+# shared LogUp accumulator Z with RAW values. Because {0..127} ⊂ {0..255}, an out-of-range 7-bit limb v∈[128,256)
+# would otherwise be absorbable by the byte table (the prover just inflates the free byte-multiplicity MB[v]) —
+# so 7-bit limbs would only be pinned to [0,256), silently widening every windowed op (LT/RANGE window to 2^64,
+# DIVMOD divisor to 2^16 → field-wrap division forgery). Domain-separate the 7-bit bus by adding a large tag to
+# BOTH its use side and its table side, so a 7-bit value can only ever match the 7-bit table, never the byte one.
+TAG_7BIT = 1 << 35
 MAX_DEGREE = 8                # sponge x^7 under a selector; register-update mux also lands at 8
 MIN_T = 512                   # byte table (256 rows) + headroom must sit within rows 0..T-2
 MAX_T = 131072                # the FULL stark.MAX_TRACE_ROWS (2^17) — zkvm.GAS_LIMIT = MAX_T - 2, so any call
@@ -147,11 +154,7 @@ def _recomp(row, spec):
     return acc
 
 
-_SPEC63 = [(BL + k, 1 << (8 * k)) for k in range(7)] + [(SL + 0, 1 << 56)]      # RANGE: pure 63-bit bound
-# LT decomposes the DIFFERENCE in a strictly narrower 62-bit window (6 byte + 2 seven-bit limbs) so the
-# comparison bit is unforgeable: for operands < 2^63 the wrong bit's field-wrapped diff is >= P-2^63 ~ 2^63
-# and cannot decompose here, leaving only the honest bit. Reuses the same byte/7-bit limb columns + tables.
-_SPEC62 = [(BL + k, 1 << (8 * k)) for k in range(6)] + [(SL + 0, 1 << 48), (SL + 1, 1 << 55)]
+_SPEC63 = [(BL + k, 1 << (8 * k)) for k in range(7)] + [(SL + 0, 1 << 56)]
 # DIVMOD (widened): q is 48-bit (6 byte limbs); b-1 / rem / b-rem-1 are 15-bit (byte + 7-bit) so a small
 # divisor keeps q·b < 2^63 < P — field division cannot wrap. LO32 keeps its own independent lo/hi window.
 _SPEC_Q = [(BL + k, 1 << (8 * k)) for k in range(6)]
@@ -443,7 +446,7 @@ def transitions(bind_io=False, gamma_fp=0):
     def c_lt(c, n, p, ch):
         rdv, rsv, b = _rd_val(c), _rs_val(c), c[WI]
         D = F.add(F.mul(b, F.sub(F.sub(rsv, rdv), 1)), F.mul(F.sub(1, b), F.sub(rdv, rsv)))
-        return F.mul(c[F0 + _O["LT"]], F.sub(D, _recomp(c, _SPEC62)))       # 62-bit diff window (unforgeable bit)
+        return F.mul(c[F0 + _O["LT"]], F.sub(D, _recomp(c, _SPEC63)))
     def c_range(c, n, p, ch):
         return F.mul(c[F0 + _O["RANGE"]], F.sub(_rd_val(c), _recomp(c, _SPEC63)))
     def c_dm_main(c, n, p, ch):
@@ -501,11 +504,12 @@ def transitions(bind_io=False, gamma_fp=0):
     cons.append(c_gb)
     for j, (ca, cb) in enumerate(_7BIT_PAIRS):
         def c_hs(c, n, p, ch, j=j, ca=ca, cb=cb):
-            lhs = F.mul(c[HS + j], F.mul(F.add(ch[0], c[ca]), F.add(ch[0], c[cb])))
-            return F.sub(lhs, F.add(F.add(F.mul(2, ch[0]), c[ca]), c[cb]))
+            va, vb = F.add(c[ca], TAG_7BIT), F.add(c[cb], TAG_7BIT)   # 7-bit values live in a byte-disjoint domain
+            lhs = F.mul(c[HS + j], F.mul(F.add(ch[0], va), F.add(ch[0], vb)))
+            return F.sub(lhs, F.add(F.add(F.mul(2, ch[0]), va), vb))
         cons.append(c_hs)
     def c_gs(c, n, p, ch):
-        return F.sub(F.mul(c[GS], F.add(ch[0], p[PS])), c[MS])
+        return F.sub(F.mul(c[GS], F.add(ch[0], F.add(p[PS], TAG_7BIT))), c[MS])
     cons.append(c_gs)
     def c_z(c, n, p, ch):
         term = F.sub(c[HF], c[GF])
@@ -733,8 +737,9 @@ def make_aux_builder(periodic, bind_io=False, gamma_fp=0):
                 put(HB + jx, i, F.add(F.inv(F.add(beta, la)), F.inv(F.add(beta, lb))))
             put(GB, i, F.mul(cur[MB], F.inv(F.add(beta, p[PB]))))
             for jx, (ca, cb) in enumerate(_7BIT_PAIRS):
-                put(HS + jx, i, F.add(F.inv(F.add(beta, cur[ca])), F.inv(F.add(beta, cur[cb]))))
-            put(GS, i, F.mul(cur[MS], F.inv(F.add(beta, p[PS]))))
+                put(HS + jx, i, F.add(F.inv(F.add(beta, F.add(cur[ca], TAG_7BIT))),
+                                      F.inv(F.add(beta, F.add(cur[cb], TAG_7BIT)))))
+            put(GS, i, F.mul(cur[MS], F.inv(F.add(beta, F.add(p[PS], TAG_7BIT)))))
         z = 0
         for i in range(T):
             put(Z, i, z)
