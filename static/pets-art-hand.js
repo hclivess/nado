@@ -22,6 +22,14 @@ import { ART_EXOTICBIRDS } from "./pets-art/exoticbirds.js";
 import { ART_RODENTS } from "./pets-art/rodents.js";
 import { ART_POLAR } from "./pets-art/polar.js";
 import { ART_ODDBALLS } from "./pets-art/oddballs.js";
+import { ART_DOGBREEDS } from "./pets-art/dogbreeds.js";
+import { ART_CATBREEDS } from "./pets-art/catbreeds.js";
+import { ART_UNDEAD } from "./pets-art/undead.js";
+import { ART_ELEMENTALS } from "./pets-art/elementals.js";
+import { ART_CRYPTIDS } from "./pets-art/cryptids.js";
+import { ART_ROBOTS } from "./pets-art/robots.js";
+import { ART_FANTASYBEASTS } from "./pets-art/fantasybeasts.js";
+import { ART_SEAMONSTERS } from "./pets-art/seamonsters.js";
 
 export const HAND_ART = {
   ...ART_FARM,
@@ -41,4 +49,12 @@ export const HAND_ART = {
   ...ART_RODENTS,
   ...ART_POLAR,
   ...ART_ODDBALLS,
+  ...ART_DOGBREEDS,
+  ...ART_CATBREEDS,
+  ...ART_UNDEAD,
+  ...ART_ELEMENTALS,
+  ...ART_CRYPTIDS,
+  ...ART_ROBOTS,
+  ...ART_FANTASYBEASTS,
+  ...ART_SEAMONSTERS,
 };
