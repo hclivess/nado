@@ -156,6 +156,8 @@ function startPractice() {
     const what = pattern[(Math.floor(t / 3) + i) % pattern.length];
     log.push({ actor: b, cursor: cur, rh: cur, enc: E.encAction(E.OP.build, E.BUILDABLE.indexOf(what), 10), target: 0 });
   });
+  // three bots form alliance #7 — so joining #7 in practice actually shows a working, member-scaled bonus
+  ["Ferralis", "Kaltberg", "Osmara"].forEach((b) => log.push({ actor: b, cursor: 30 * E.TURN_BLOCKS, rh: 30 * E.TURN_BLOCKS, enc: E.encAction(E.OP.alliance, 0, 7), target: 0 }));
   // YOU found fresh at the world's current age (PRAC_HEAD rounds in), then grow in real wall-clock time
   log.push({ actor: "you", cursor: PRAC_HEAD * E.TURN_BLOCKS, rh: PRAC_HEAD * E.TURN_BLOCKS, enc: E.encAction(E.OP.found), target: 0 });
   practice = { seed, bots, log, startWall: Date.now(), lastGen: PRAC_HEAD };
@@ -396,6 +398,13 @@ function renderDiplo(el) {
     : '<div class="myrank">' + T("noAlliance", "You are unaligned.") + "</div>";
   h += '<div class="row2"><input id="allyId" placeholder="' + T("allianceId", "alliance # (1–4095)") + '" inputmode="numeric"><button class="primary" id="btnJoinAlly">' + T("joinAlliance", "Join / create") + "</button>"
     + (n.ally ? '<button class="ghost" id="btnLeaveAlly">' + T("leaveAlliance", "Leave (−⅓ XP)") + "</button>" : "") + "</div>";
+  // active bonus (scaled by ×floor(members/2), so a SOLO alliance grants nothing — make that explicit)
+  if (n.ally) {
+    const b = (n._ally && n._ally.bonus) || {}, parts = Object.keys(b).filter((k) => b[k]).map((k) => "+" + Math.round(b[k] * 100) + "% " + T("ab_" + k, k));
+    h += parts.length
+      ? '<div class="mt small"><b style="color:var(--green)">' + T("allyActive", "Active alliance bonus:") + "</b> " + parts.join(" · ") + "</div>"
+      : '<div class="mt small" style="color:var(--gold)">⚠ ' + T("allySolo", "No bonus yet — an alliance grants shared bonuses only with 2+ members (scales with size). Recruit allies into #{id}.", { id: n.ally }) + "</div>";
+  }
   // alliance roster
   const mates = Object.values(world).filter((x) => x && x.ally && x.ally === n.ally);
   if (n.ally && mates.length) h += '<div class="mt small dim">' + T("roster", "Roster") + ": " + mates.map((x) => (practice ? x.owner : disp(x.owner))).join(", ") + "</div>";

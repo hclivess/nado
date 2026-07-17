@@ -1171,7 +1171,7 @@ function maybePlayHatch(p) {
     }
     const an = p.animal, coat = G.coatOf(p.gene, an);
     alertBar(window.t("pets.hatchReveal", "🎉 It's a {rarity} — {coat} {emoji} {animal}{shiny}! One of 107 possible animals across six rarity tiers — its species, coat and 10 abilities are all written into its gene, locked forever. Name it, feed it, train it.",
-      { rarity: p.tier.rarity.toUpperCase(), coat: CN(coat), emoji: an.e, animal: AN(an), shiny: coat.shiny ? window.t("pets.shinySuffix", " ✦ SHINY") : "" }));
+      { rarity: p.tier.rarity.toUpperCase(), coat: CN(coat), emoji: an.e, animal: AN(an), shiny: coat.shiny ? window.t("pets.shinySuffix", " ✦ SHINY") : "" }), null, null, { tone: "ok" });
   }, t + 600);
   setTimeout(() => { hatchPlaying = false; render(); }, t + 2400);
 }
