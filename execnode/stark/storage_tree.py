@@ -185,6 +185,23 @@ def verify_transition(pre_root, ops):
     return root
 
 
+# -- digest wire codec ---------------------------------------------------------------------------------
+def digest_hex(d):
+    """Serialize a CAPACITY-tuple digest to 64 hex chars (16 per lane, each lane < p < 2^64) — the on-chain
+    64-hex root format, carrying the full 256-bit / 128-bit-secure digest."""
+    return "".join(format(int(x) % F.P, "016x") for x in d)
+
+
+def digest_from_hex(h):
+    """Inverse of digest_hex. Raises on anything that isn't exactly DIGEST in-field lanes."""
+    if not (isinstance(h, str) and len(h) == 16 * DIGEST):
+        raise ValueError("bad digest hex length")
+    out = tuple(int(h[i * 16:(i + 1) * 16], 16) for i in range(DIGEST))
+    if any(not (0 <= v < F.P) for v in out):
+        raise ValueError("digest lane out of field")
+    return out
+
+
 # -- compressed authentication paths (wire format for exit proofs) ------------------------------------
 def pack_path(siblings, depth):
     """Compress a bottom-up sibling list: only levels whose sibling differs from the canonical empty root are

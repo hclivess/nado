@@ -44,16 +44,13 @@ def sparse_root(contracts, depth=DEFAULT_DEPTH):
 
 
 def root_hex(root):
-    """Serialize a sparse root (alghash2 CAPACITY-tuple) to 64 hex chars — 16 per lane (each lane < p < 2^64), so
-    it fits the on-chain state_root format (64-hex) while carrying the full 256-bit / 128-bit-secure digest."""
-    return "".join(format(int(x) % F.P, "016x") for x in root)
+    """Serialize a sparse root (alghash2 CAPACITY-tuple) to the on-chain 64-hex form (storage_tree.digest_hex)."""
+    return ST.digest_hex(root)
 
 
 def root_from_hex(h):
-    """Inverse of root_hex — parse a 64-hex settled state_root back to the CAPACITY-tuple."""
-    if not (isinstance(h, str) and len(h) == 16 * ST.DIGEST):
-        raise ValueError("bad sparse root hex length")
-    return tuple(int(h[i * 16:(i + 1) * 16], 16) for i in range(ST.DIGEST))
+    """Inverse of root_hex (storage_tree.digest_from_hex)."""
+    return ST.digest_from_hex(h)
 
 
 def sparse_root_hex(contracts, depth=DEFAULT_DEPTH):
