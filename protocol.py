@@ -13,12 +13,15 @@ from hashing import blake2b_hash  # leaf module (stdlib only) -> no import cycle
 # chain (or the pre-relaunch chain) can never replay here (closes audit item M3).
 # relaunch-2: hardfork that removed the vestigial IP block_producers system (block_producers_hash +
 # block_ip fields) from the block body — a block-format change, so the chain resets from a fresh genesis.
-CHAIN_ID = "alphanet-5"
+CHAIN_ID = "alphanet-6"
 
 # 1 NADO in raw (smallest) units. All on-chain amounts are integers in raw units.
 DENOMINATION = 10_000_000_000  # 1e10
 
-GENESIS_TIMESTAMP = 1784046000  # 2026-07-14 — alphanet-5 (zkVM-only exec layer; balances/stake carried forward)
+GENESIS_TIMESTAMP = 1784260000  # 2026-07-17 — alphanet-6 (FROZEN sparse alghash2 settled root, exec_root.py;
+                                # balances/stake carried forward). The root scheme is final: depth 256 saturates
+                                # the hash's collision resistance and every future proof extension rides the
+                                # SAME tree — no further genesis reroll or hard fork is needed for vision.md.
 
 # Clock-skew allowance for block timestamps: a block may be stamped up to this many seconds in the
 # FUTURE of the local clock and still validate. Zero tolerance rejected honest blocks whenever the
@@ -124,11 +127,16 @@ SETTLE_ACTIVITY_CURSORS = 1440
 # The exec-layer GENESIS state root every namespace's settled chain extends from. A settle-with-proof for a
 # namespace with no prior settled tip must carry a proof whose pre_root is EXACTLY this — so the very first
 # settlement cannot start from a fabricated pre-state (the same strict chaining every later settlement gets
-# by extending the committed tip). It is zkvm_root({}) — the Merkle root of the EMPTY zkVM-storage projection
-# — because the exec layer boots with no zkVM contracts (they are deployed post-genesis by ordinary calls).
-# Hardcoded (protocol.py stays a leaf: no execnode import); tests/test_settle_with_proof.py asserts it still
-# equals execnode.settlement_proofs.zkvm_root({}) so a hash change can never silently desync this constant.
-EXEC_GENESIS_ROOT = "6ab2f848c39c8acaacf66fc0c8124f4d01f2577ae728229c023c04472cfc52f1"
+# by extending the committed tip). It is the FROZEN alphanet-6 root of an EMPTY execution state
+# (execnode/exec_root.state_root_hex({}, empty ExecState): rnode(empty KV half, records half holding only the
+# empty shielded/field-pool digest records) over the two depth-256 sparse alghash2 trees).
+# Hardcoded (protocol.py stays a leaf: no execnode import); tests/test_exec_root.py + the settle tests assert
+# it still equals the recomputed empty-state root so a scheme change can never silently desync this constant.
+EXEC_GENESIS_ROOT = "0dd0b4378e5b7a68b325bf3dc13dcd62a1eda80524f342f9661b90312c5bcb5c"
+
+# The FROZEN depth of the two sparse halves of the settled root (see exec_root.DEPTH — kept equal by test).
+# 256 = the full alghash2 digest: position security saturates the hash itself, so this never changes.
+EXEC_TREE_DEPTH = 256
 
 # --- CONSENSUS-LOAD AGGREGATION (doc/consensus-aggregation.md — the O(N)-messages scaling fix) ---
 # 1. MERGED DUTY TX: a bonded validator's whole per-epoch consensus participation — FFG attest(X) +
