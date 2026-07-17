@@ -181,11 +181,17 @@ def t10_real_proof_end_to_end():
         return
     SS.verify_settlement_sparse = _REAL_VERIFY
     import execnode.stark.fri as fri
+    from execnode.stark import stark as _stark
     from execnode import zkvmasm
     D8 = 8
-    saved_q, saved_depth, saved_gen = fri.NUM_QUERIES, protocol.EXEC_TREE_DEPTH, protocol.EXEC_GENESIS_ROOT
+    # The settle verify path pins its query strength to vm_circuit.stark.NUM_QUERIES (never the prover's word).
+    # stark.py binds NUM_QUERIES BY VALUE at import (from ...fri import NUM_QUERIES), so patching only fri leaves
+    # verify at 64 while the proof is built at 2 -> "wrong FRI query count". Patch BOTH so prove and the
+    # protocol-pinned verify agree at the small test count.
+    saved_q, saved_sq, saved_depth, saved_gen = fri.NUM_QUERIES, _stark.NUM_QUERIES, protocol.EXEC_TREE_DEPTH, protocol.EXEC_GENESIS_ROOT
     try:
         fri.NUM_QUERIES = 2
+        _stark.NUM_QUERIES = 2
         protocol.EXEC_TREE_DEPTH = D8
         kv_g8 = SST.SparseStore(D8, {}).root()
         rec_g8 = SST.SparseStore(D8, ER.records_projection(ExecState(tempfile.mktemp(suffix=".json")))).root()
@@ -205,6 +211,7 @@ def t10_real_proof_end_to_end():
         assert settlement_justified("proofns", 0, root, get_bonded_registry())
     finally:
         fri.NUM_QUERIES = saved_q
+        _stark.NUM_QUERIES = saved_sq
         protocol.EXEC_TREE_DEPTH = saved_depth
         protocol.EXEC_GENESIS_ROOT = saved_gen
         SS.verify_settlement_sparse = _stub_verify
