@@ -118,14 +118,14 @@ export const ART_SAVANNA = {
     ${patch(48,64)}${patch(46,48)}${patch(50,36)}
     <path d="M46 46 Q40 44 40 54" fill="none" stroke="${c.shade}" stroke-width="4" stroke-linecap="round" opacity=".7"/>
     <g class="head-tilt">
-      ${mirror(`<line x1="52" y1="24" x2="49" y2="14" stroke="${c.line}" stroke-width="3"/><circle cx="48" cy="12" r="4" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>`)}
-      <line x1="52" y1="24" x2="49" y2="14" stroke="${c.line}" stroke-width="3"/><circle cx="48" cy="12" r="4" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
-      ${mirror(`<path d="M50 26 Q42 24 42 30 Q46 32 50 30 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`)}
-      <path d="M50 26 Q42 24 42 30 Q46 32 50 30 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
-      <path d="M50 22 Q66 22 68 34 Q70 44 58 44 Q48 42 48 30 Q48 24 50 22 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M58 40 Q68 42 66 34 Q60 36 58 40 Z" fill="${c.shade}"/>
-      <ellipse cx="63" cy="39" rx="1.6" ry="1.2" fill="${INK}"/><ellipse cx="60" cy="41" rx="1.6" ry="1.2" fill="${INK}"/>
-      ${eyes(53, 60, 31, 2.4, eyeInk(c))}
+      <line x1="55" y1="26" x2="52" y2="15" stroke="${c.line}" stroke-width="3"/><circle cx="51" cy="13" r="4" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
+      <line x1="64" y1="27" x2="63" y2="16" stroke="${c.line}" stroke-width="3"/><circle cx="63" cy="14" r="4" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>
+      <path d="M50 30 Q41 27 41 34 Q46 36 51 33 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M68 30 Q77 27 77 34 Q72 36 67 33 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M51 26 Q59 21 67 26 Q72 34 68 43 Q59 48 51 43 Q46 34 51 26 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M56 42 Q59 47 63 42 Q59 45 56 42 Z" fill="${c.shade}"/>
+      <ellipse cx="56" cy="40" rx="1.5" ry="1.2" fill="${INK}"/><ellipse cx="62" cy="40" rx="1.5" ry="1.2" fill="${INK}"/>
+      ${eyes(54, 64, 32, 2.4, eyeInk(c))}
     </g>`;
   },
 
@@ -194,8 +194,10 @@ export const ART_SAVANNA = {
       ${mirror(`<path d="M40 44 Q26 46 24 60 Q34 62 42 56 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`)}
       <path d="M40 44 Q26 46 24 60 Q34 62 42 56 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>
       <ellipse cx="60" cy="58" rx="21" ry="19" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
-      <path d="M60 38 Q44 34 40 42 Q36 52 30 46 Q40 26 60 30 Q80 26 90 46 Q84 52 80 42 Q76 34 60 38 Z" fill="${HORN}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
-      <path d="M44 40 q16 -6 32 0" fill="none" stroke="${c.line}" stroke-width="1.4" opacity=".6"/>
+      <path d="M46 40 Q60 32 74 40 Q74 47 60 47 Q46 47 46 40 Z" fill="${HORN}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M48 44 Q32 44 24 56 Q20 62 23 51 Q27 46 39 46 Q45 46 48 44 Z" fill="${HORN}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
+      ${mirror(`<path d="M48 44 Q32 44 24 56 Q20 62 23 51 Q27 46 39 46 Q45 46 48 44 Z" fill="${HORN}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>`)}
+      <path d="M50 40 q10 -4 20 0" fill="none" stroke="${c.line}" stroke-width="1.4" opacity=".6"/>
       <path d="M50 62 Q60 74 70 62 Q70 70 60 72 Q50 70 50 62 Z" fill="${c.shade}"/>
       <ellipse cx="54" cy="66" rx="2" ry="1.4" fill="${INK}"/><ellipse cx="66" cy="66" rx="2" ry="1.4" fill="${INK}"/>
       ${eyes(52, 68, 54, 2.8, eyeInk(c))}
@@ -310,7 +312,7 @@ export const ART_SAVANNA = {
   // ── Panda — round body, dark ears, teardrop eye-patches, dark arms ───────────────────────
   panda: (c) => `
     <g class="breathe"><ellipse cx="60" cy="84" rx="24" ry="19" fill="${c.body}" stroke="${c.line}" stroke-width="2.4"/>
-      ${["", "s"].map((_, i) => `<path d="M${i ? 60 : 36} 74 q${i ? 22 : -22} 6 ${i ? 20 : -20} 22 l-6 -2 q0 -12 6 -20 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>`).join("")}
+      ${["", "s"].map((_, i) => `<path d="M${i ? 76 : 44} 80 Q${i ? 96 : 24} 84 ${i ? 88 : 32} 98 Q${i ? 80 : 40} 99 ${i ? 76 : 44} 90 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>`).join("")}
       ${["", "s"].map((_, i) => `<ellipse cx="${i ? 68 : 52}" cy="102" rx="7" ry="5" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2"/>`).join("")}</g>
     <g class="head-tilt">
       ${mirror(`<circle cx="44" cy="34" r="8" fill="${c.shade}" stroke="${c.line}" stroke-width="2.2"/>`)}
@@ -325,18 +327,21 @@ export const ART_SAVANNA = {
 
   // ── Camel — two Bactrian humps, long curved neck, drooping lip, knobby knees ─────────────
   camel: (c) => `
-    <g class="tail-wag"><path d="M84 74 Q92 78 90 92" fill="none" stroke="${c.line}" stroke-width="3" stroke-linecap="round"/><circle cx="90" cy="92" r="2.6" fill="${c.shade}"/></g>
-    <g class="breathe"><path d="M34 82 Q34 70 44 66 Q48 54 56 66 Q62 54 70 66 Q86 68 86 82 Q86 92 60 92 Q34 92 34 82 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
-      ${["", "s"].map((_, i) => `<rect x="${i ? 64 : 42}" y="90" width="8" height="20" rx="3" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/><path d="M${i ? 64 : 42} 100 q4 2 8 0" stroke="${c.line}" stroke-width="1.6"/>`).join("")}</g>
-    <path d="M40 74 Q30 52 40 34" fill="none" stroke="${c.line}" stroke-width="12" stroke-linecap="round"/>
-    <path d="M40 74 Q30 52 40 34" fill="none" stroke="${c.body}" stroke-width="8" stroke-linecap="round"/>
+    <g class="tail-wag"><path d="M84 76 Q92 80 90 94" fill="none" stroke="${c.line}" stroke-width="3" stroke-linecap="round"/><circle cx="90" cy="94" r="2.6" fill="${c.shade}"/></g>
+    <g class="breathe">
+      <path d="M32 84 Q34 72 44 70 Q47 55 54 70 L64 70 Q67 55 74 70 Q86 72 86 84 Q86 92 60 92 Q34 92 32 84 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
+      ${["", "s"].map((_, i) => `<rect x="${i ? 58 : 48}" y="90" width="7" height="20" rx="3" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>`).join("")}
+      ${["", "s"].map((_, i) => `<rect x="${i ? 68 : 40}" y="88" width="8" height="22" rx="3" fill="${c.body}" stroke="${c.line}" stroke-width="2.2"/><rect x="${i ? 67 : 39}" y="106" width="10" height="4" rx="1.4" fill="${c.shade}" stroke="${c.line}" stroke-width="1.4"/>`).join("")}
+    </g>
+    <path d="M40 80 Q28 54 42 34" fill="none" stroke="${c.line}" stroke-width="13" stroke-linecap="round"/>
+    <path d="M40 80 Q28 54 42 34" fill="none" stroke="${c.body}" stroke-width="9" stroke-linecap="round"/>
     <g class="head-tilt">
-      ${mirror(`<path d="M42 30 Q38 24 44 24 Q46 28 45 32 Z" fill="${c.body}" stroke="${c.line}" stroke-width="1.8"/>`)}
-      <path d="M42 30 Q38 24 44 24 Q46 28 45 32 Z" fill="${c.body}" stroke="${c.line}" stroke-width="1.8"/>
-      <path d="M46 30 Q54 26 56 34 Q58 44 50 48 Q42 48 40 40 Q40 32 46 30 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
-      <path d="M46 46 Q50 52 44 50 Q42 48 44 46 Z" fill="${c.shade}"/>
-      <ellipse cx="45" cy="44" rx="1.4" ry="1" fill="${INK}"/>
-      ${eye(48, 36, 2.6, eyeInk(c))}
+      <path d="M45 30 Q41 22 48 22 Q50 27 49 33 Z" fill="${c.body}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M53 29 Q50 21 56 22 Q57 27 55 33 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M42 34 Q40 24 48 24 Q56 26 56 36 Q58 47 49 50 Q41 50 39 42 Q39 36 42 34 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M42 46 Q47 52 40 51 Q37 48 39 45 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.6" stroke-linejoin="round"/>
+      <ellipse cx="42" cy="45" rx="1.4" ry="1" fill="${INK}"/>
+      ${eye(49, 36, 2.6, eyeInk(c))}
     </g>`,
 
   // ── Llama — long upright neck, tall banana ears, fluffy topknot, calm long face ──────────

@@ -162,10 +162,8 @@ export const ART_WOODLAND = {
       ${[[52, 84], [66, 80], [58, 90]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="2.4" fill="${c.shade}"/>`).join("")}
       ${["", "s"].map((_, i) => `<rect x="${i ? 66 : 50}" y="96" width="5" height="12" rx="2" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8"/>`).join("")}</g>
     <g class="head-tilt">
-      <g class="tail-wag">
-        <path d="M50 40 Q46 22 42 14 M46 24 Q40 20 36 22 M48 30 Q42 28 38 32" stroke="${ANTLER}" stroke-width="3" fill="none" stroke-linecap="round"/>
-        ${mirror(`<path d="M50 40 Q46 22 42 14 M46 24 Q40 20 36 22 M48 30 Q42 28 38 32" stroke="${ANTLER}" stroke-width="3" fill="none" stroke-linecap="round"/>`)}
-      </g>
+      <path d="M55 47 Q51 26 46 15 M52 30 Q45 26 40 28 M53 37 Q46 35 42 39" stroke="${ANTLER}" stroke-width="3" fill="none" stroke-linecap="round"/>
+      ${mirror(`<path d="M55 47 Q51 26 46 15 M52 30 Q45 26 40 28 M53 37 Q46 35 42 39" stroke="${ANTLER}" stroke-width="3" fill="none" stroke-linecap="round"/>`)}
       <path d="M44 46 Q34 40 34 52 Q40 56 46 52 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>
       ${mirror(`<path d="M44 46 Q34 40 34 52 Q40 56 46 52 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2" stroke-linejoin="round"/>`)}
       <path d="M50 48 Q48 66 60 72 Q72 66 70 48 Q60 42 50 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
@@ -179,11 +177,9 @@ export const ART_WOODLAND = {
     <g class="breathe"><path d="M40 100 Q38 68 60 66 Q82 68 80 100 Q60 108 40 100 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6"/>
       ${["", "s"].map((_, i) => `<rect x="${i ? 68 : 46}" y="96" width="7" height="12" rx="2.6" fill="${c.shade}" stroke="${c.line}" stroke-width="2"/>`).join("")}</g>
     <g class="head-tilt">
-      <g class="tail-wag">
-        <path d="M46 40 Q26 34 16 40 Q22 26 40 30 Z" fill="${ANTLER}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M20 40 l-6 -2 M26 34 l-6 -4 M32 30 l-4 -6 M40 30 l-2 -6" stroke="${c.line}" stroke-width="1.6"/>
-        ${mirror(`<path d="M46 40 Q26 34 16 40 Q22 26 40 30 Z" fill="${ANTLER}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M20 40 l-6 -2 M26 34 l-6 -4 M32 30 l-4 -6 M40 30 l-2 -6" stroke="${c.line}" stroke-width="1.6"/>`)}
-      </g>
+      <path d="M56 44 Q32 38 20 44 Q26 28 50 34 Z" fill="${ANTLER}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/>
+      <path d="M24 44 l-6 -2 M30 38 l-6 -4 M36 33 l-4 -6 M46 33 l-2 -6" stroke="${c.line}" stroke-width="1.6"/>
+      ${mirror(`<path d="M56 44 Q32 38 20 44 Q26 28 50 34 Z" fill="${ANTLER}" stroke="${c.line}" stroke-width="2.2" stroke-linejoin="round"/><path d="M24 44 l-6 -2 M30 38 l-6 -4 M36 33 l-4 -6 M46 33 l-2 -6" stroke="${c.line}" stroke-width="1.6"/>`)}
       <path d="M50 46 Q46 42 42 46 Q46 52 50 50 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>${mirror(`<path d="M50 46 Q46 42 42 46 Q46 52 50 50 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2"/>`)}
       <path d="M50 46 Q48 60 54 66 L54 82 Q60 88 66 82 L66 62 Q72 58 70 46 Q60 40 50 46 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.6" stroke-linejoin="round"/>
       <path d="M55 74 Q60 84 65 74 Q60 78 55 74 Z" fill="${c.shade}"/>
@@ -199,10 +195,8 @@ export const ART_WOODLAND = {
       <ellipse cx="60" cy="94" rx="12" ry="9" fill="${c.shade}" opacity=".7"/>
       ${["", "s"].map((_, i) => `<rect x="${i ? 66 : 50}" y="96" width="6" height="12" rx="2.4" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8"/>`).join("")}</g>
     <g class="head-tilt">
-      <g class="tail-wag">
-        <path d="M50 42 Q42 16 34 8 M44 26 Q34 22 28 26 M46 18 Q38 14 32 16 M42 34 Q34 32 30 38" stroke="${ANTLER}" stroke-width="2.8" fill="none" stroke-linecap="round"/>
-        ${mirror(`<path d="M50 42 Q42 16 34 8 M44 26 Q34 22 28 26 M46 18 Q38 14 32 16 M42 34 Q34 32 30 38" stroke="${ANTLER}" stroke-width="2.8" fill="none" stroke-linecap="round"/>`)}
-      </g>
+      <path d="M54 47 Q46 20 38 10 M49 30 Q39 26 33 30 M51 21 Q43 17 37 19 M46 38 Q38 36 34 42" stroke="${ANTLER}" stroke-width="2.8" fill="none" stroke-linecap="round"/>
+      ${mirror(`<path d="M54 47 Q46 20 38 10 M49 30 Q39 26 33 30 M51 21 Q43 17 37 19 M46 38 Q38 36 34 42" stroke="${ANTLER}" stroke-width="2.8" fill="none" stroke-linecap="round"/>`)}
       <path d="M48 52 Q40 68 48 84 Q52 70 54 56 Z" fill="${c.shade}" stroke="${c.line}" stroke-width="1.8"/>
       <path d="M50 48 Q48 66 60 74 Q72 66 70 48 Q60 42 50 48 Z" fill="${c.body}" stroke="${c.line}" stroke-width="2.4" stroke-linejoin="round"/>
       <path d="M54 68 q6 5 12 0 Q60 74 54 68 Z" fill="${c.shade}"/>
