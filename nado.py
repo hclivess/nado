@@ -1663,7 +1663,7 @@ def _daily_update_loop():
     """Integrated auto-updater cadence: check origin/main once a day (plus whenever someone hits
     /update). First check 10 minutes after boot so a freshly restarted node settles/syncs first; a
     check that pulls new code schedules its own restart, after which the node is up to date and the
-    next boot's timer re-arms. Opt out with \"auto_update\": false in private/config.dat."""
+    next boot's timer re-arms. Opt out with \"auto_update\": false in private/config.json."""
     time.sleep(600)
     while True:
         try:

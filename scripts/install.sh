@@ -24,7 +24,7 @@
 # Auto-update is BUILT INTO THE NODE (ops/self_update.py): a daily fast-forward check against origin/main
 # of the official repo, plus a remote GET /update trigger any peer can send (safe: ff-only, pinned repo +
 # branch, refuses a dirty/diverged tree, never touches the gitignored chain data). Default ON; opt out with
-# "auto_update": false in private/config.dat. The old nado-update.service/.timer pair is retired — this
+# "auto_update": false in private/config.json. The old nado-update.service/.timer pair is retired — this
 # installer removes it if found. Legacy --auto-update flags are accepted and ignored.
 #
 # Data directory: the node keeps its chain under $HOME/nado. Pass --home <dir> to put it elsewhere
@@ -112,8 +112,8 @@ echo "    wallet deps: $([ $WITH_WALLET -eq 1 ] && echo yes || echo no)"
 echo "    service:     $([ $WITH_SERVICE -eq 1 ] && echo yes || echo no)"
 echo "    exec node:   $([ $WITH_EXEC -eq 1 ] && echo "yes (shielded pool :9273$([ $EXEC_SETTLE -eq 1 ] && echo ", settles to L1"))" || echo no)"
 echo "    data home:   $([ -n "$DATA_HOME" ] && echo "$DATA_HOME (chain data in $DATA_HOME/nado)" || echo "(user home — chain data in ~/nado)")"
-echo "    auto-bond:   $([ -n "$AUTO_BOND" ] && echo "${AUTO_BOND}%" || echo "(node default: 80%, see auto_bond_percent in private/config.dat)")"
-echo "    auto-update: built into the node (daily origin/main check + remote /update trigger; disable with \"auto_update\": false in private/config.dat)"
+echo "    auto-bond:   $([ -n "$AUTO_BOND" ] && echo "${AUTO_BOND}%" || echo "(node default: 80%, see auto_bond_percent in private/config.json)")"
+echo "    auto-update: built into the node (daily origin/main check + remote /update trigger; disable with \"auto_update\": false in private/config.json)"
 
 # ---- pick a Python >= 3.10 -----------------------------------------------------------------------
 pick_python() {

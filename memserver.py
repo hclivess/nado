@@ -24,7 +24,7 @@ class MemServer:
 
     def __init__(self, logger):
         """Assemble the node's ENTIRE shared runtime state in one place: keys, config (env vars
-        override config.dat for every headless knob), tx/message pools, pacing state, and the
+        override config.json for every headless knob), tx/message pools, pacing state, and the
         persisted safety floors (finalized_height). Constructed ONCE at startup and then shared by
         every loop thread. Cross-config invariants — notably max_rollbacks < finality_depth <
         EPOCH_LENGTH, which makes the epoch-beacon anchor un-reorgable — are asserted HERE so a

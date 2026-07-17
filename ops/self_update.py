@@ -17,7 +17,7 @@ SAFE BY DESIGN (this runs unattended on a live money node whose repo dir IS the 
     out before this process dies; systemd waits for the node's graceful shutdown.
 
 Triggers: GET /update (remote, cascades to peers), the 24h in-node timer (nado.py), or the CLI
-(`nado_cli.py update`). Opt out with "auto_update": false in private/config.dat.
+(`nado_cli.py update`). Opt out with "auto_update": false in private/config.json.
 """
 import os
 import re
@@ -31,7 +31,7 @@ _OFFICIAL_REPO_RE = re.compile(r"github\.com[:/]hclivess/nado(?:\.git)?/?$", re.
 _BRANCH = "main"                      # the single release channel this updater will ever advance
 _MIN_INTERVAL = 30                    # s between checks — spam does at most one fetch per this window
 _RESTART_DELAY = 5                    # s between "updated" and the service restart (lets the wave out)
-_SERVICES = ("nado", "nado-exec")     # restarted after an update (same set the old shell script used)
+_SERVICES = ("nado", "nado-exec", "forum")   # every service that runs repo code (only installed ones restart)
 _CRATES = ("native/mldsa44", "native/alghash2", "native/starkcompose", "native/starkprove", "wasm/goldilocks")
 
 _lock = threading.Lock()

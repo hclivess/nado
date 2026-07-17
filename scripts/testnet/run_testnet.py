@@ -49,7 +49,7 @@ def seed_node(home, i, all_keys, bond_manifest):
                # Override with NADO_TESTNET_BLOCKTIME to model realistic blocks where the mempool
                # gossip-converges between blocks (so per-node FFG/RANDAO txs don't fork same-height blocks).
                "block_time": int(os.environ.get("NADO_TESTNET_BLOCKTIME", "2"))},
-              open(os.path.join(base, "private", "config.dat"), "w"))
+              open(os.path.join(base, "private", "config.json"), "w"))
 
     # pre-generate the key so we know every node's address up front and can fully mesh them
     json.dump(all_keys[i], open(os.path.join(base, "private", "keys.dat"), "w"))

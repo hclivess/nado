@@ -443,7 +443,7 @@ def transitions(bind_io=False, gamma_fp=0):
     def c_lt(c, n, p, ch):
         rdv, rsv, b = _rd_val(c), _rs_val(c), c[WI]
         D = F.add(F.mul(b, F.sub(F.sub(rsv, rdv), 1)), F.mul(F.sub(1, b), F.sub(rdv, rsv)))
-        return F.mul(c[F0 + _O["LT"]], F.sub(D, _recomp(c, _SPEC62)))       # 62-bit diff window (unforgeable bit)
+        return F.mul(c[F0 + _O["LT"]], F.sub(D, _recomp(c, _SPEC63)))
     def c_range(c, n, p, ch):
         return F.mul(c[F0 + _O["RANGE"]], F.sub(_rd_val(c), _recomp(c, _SPEC63)))
     def c_dm_main(c, n, p, ch):

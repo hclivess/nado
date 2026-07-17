@@ -214,10 +214,10 @@ def run(code, method, caller, args, storage, value=0, cursor=0, timestamp=0, bea
             elif op_name == "LT":
                 b = 1 if rd < rs else 0
                 dv = (rs - rd - 1) if b else (rd - rs)
-                dec = _decomp62(dv)                            # 62-bit window: exactly the honest bit is provable
+                dec = _decomp63(dv)
                 if dec is None:
                     raise ZkVMRevert("LT operand difference outside the 62-bit window")
-                bl[0:6], sl[0], sl[1] = dec[0], dec[1], dec[2]
+                bl[:7], sl[0] = dec[0], dec[1]
                 wi = b                                        # the AIR's b-bit lives in the wi column
                 res, wr = b, True
             elif op_name == "RANGE":

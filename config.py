@@ -7,13 +7,27 @@ from hashing import create_nonce
 from ops.data_ops import get_home
 
 
-def config_found(file=f"{get_home()}/private/config.dat"):
-    """Does config.dat exist? The 'is this a fresh node?' probe — genesis only network-probes for a
+def _config_path():
+    """Canonical config path: private/config.json — the file has ALWAYS been JSON, the historical name
+    (config.dat) just hid it. One-time seamless MIGRATION on first touch: rename config.dat ->
+    config.json and leave a config.dat SYMLINK to it, so any not-yet-restarted process running older
+    code (forum, a mid-update mixed-version window, operator scripts) keeps resolving the same single
+    physical file — no divergence, no missing-file crash."""
+    base = f"{get_home()}/private"
+    canon, legacy = f"{base}/config.json", f"{base}/config.dat"
+    if not os.path.exists(canon) and os.path.isfile(legacy):
+        try:
+            os.replace(legacy, canon)
+            os.symlink("config.json", legacy)
+        except Exception:
+            return legacy          # migration failed (read-only fs?) — keep working off the legacy file
+    return canon
+
+
+def config_found(file=None):
+    """Does the config exist? The 'is this a fresh node?' probe — genesis only network-probes for a
     public IP (and writes defaults) when this is False, so re-runs never clobber an existing config."""
-    if os.path.isfile(file):
-        return True
-    else:
-        return False
+    return os.path.isfile(file or _config_path())
 
 
 def get_timestamp_seconds():
@@ -31,7 +45,7 @@ def get_protcol():
 
 def get_port():
     # Port is CONFIGURABLE: NADO_PORT env wins (handy for local multi-node testing), else the "port" field
-    # in config.dat, else the 9173 default. Read the file DIRECTLY (not via get_config) — get_config seeds
+    # in config.json, else the 9173 default. Read the file DIRECTLY (not via get_config) — get_config seeds
     # "port" from get_port() at create time, so calling it here would recurse. Every node on a network must
     # still agree on the port (peer dialing uses the local node's port for all peers).
     env = os.environ.get("NADO_PORT")
@@ -41,7 +55,7 @@ def get_port():
         except ValueError:
             pass
     try:
-        with open(f"{get_home()}/private/config.dat") as infile:
+        with open(_config_path()) as infile:
             return int(json.loads(infile.read()).get("port", 9173))
     except Exception:
         return 9173
@@ -66,19 +80,20 @@ def test_self_port(ip, port):
         return not result
 
 
-def get_config(config_path: str = f"{get_home()}/private/config.dat"):
-    """Load the node config dict from private/config.dat. Deliberately uncached and raising on a
+def get_config(config_path: str = None):
+    """Load the node config dict from private/config.json. Deliberately uncached and raising on a
     missing file — callers either checked config_found() first or WANT the loud failure (a node
     without a config must not limp along on invented defaults)."""
-    with open(config_path) as infile:
+    with open(config_path or _config_path()) as infile:
         return json.loads(infile.read())
 
 
-def update_config(new_config: dict, config_path: str = f"{get_home()}/private/config.dat"):
+def update_config(new_config: dict, config_path: str = None):
     """Read-merge-write: overlay `new_config` keys onto the existing config and persist. Keys not
     mentioned pass through untouched, so a caller can flip one knob without knowing (or wiping)
     the full schema. NOT crash-atomic — a plain truncate-and-rewrite of a non-consensus file."""
-    config = get_config()
+    config_path = config_path or _config_path()
+    config = get_config(config_path)
     for key, value in new_config.items():
         config[key] = value
 
@@ -86,11 +101,12 @@ def update_config(new_config: dict, config_path: str = f"{get_home()}/private/co
         json.dump(config, outfile)
 
 
-def create_config(ip: str, config_path: str = f"{get_home()}/private/config.dat"):
-    """Write the initial config.dat with every default knob (all NON-consensus, operator-tunable).
+def create_config(ip: str, config_path: str = None):
+    """Write the initial config.json with every default knob (all NON-consensus, operator-tunable).
     Strictly create-only: an existing file is NEVER overwritten, so re-running genesis/bootstrap
     over an initialized node cannot clobber operator edits. The freshly generated server_key is
     this node's local auth secret — the file lives in private/ (gitignored) for a reason."""
+    config_path = config_path or _config_path()
     config_contents = {
         "port": get_port(),
         "ip": ip,

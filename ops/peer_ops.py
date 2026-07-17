@@ -400,13 +400,13 @@ def announce_me(targets, port, my_ip, logger, fail_storage) -> None:
 
 
 # own-IP cache for check_ip (audit): check_ip runs per peer per ~1s pass on two hot loops (donor
-# selection, peer gossip), and get_config() deliberately re-reads config.dat from disk every call —
+# selection, peer gossip), and get_config() deliberately re-reads the config from disk every call —
 # dozens of file reads + JSON parses per second for a value that effectively never changes.
 # update_local_ip() invalidates on the one code path that rewrites the IP.
 _own_ip_cache = {"v": None}
 
 def _own_ip_cached():
-    """the node's configured public IP, read from config.dat once and cached (see above)."""
+    """the node's configured public IP, read from the config once and cached (see above)."""
     if _own_ip_cache["v"] is None:
         _own_ip_cache["v"] = get_config()["ip"]
     return _own_ip_cache["v"]
