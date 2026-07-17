@@ -692,7 +692,7 @@ function maybeAutoMint() {
   mintNext();
 }
 function hatch(pid) {
-  const l = L(); (l[pid] = l[pid] || { ts: Date.now() }).hatchPending = 1; Lsave(l);
+  const l = L(); (l[pid] = l[pid] || { ts: Date.now() }).hatchPending = Date.now(); Lsave(l);   // stamp: keeps the Hatch button disabled until the pet actually hatches (see render), self-expires for retry
   dapp.call("hatch", [Number(pid)], null, "hatch egg #" + pid, { pid, phase: "hatch" });   // pid MUST be an int: the contract computes gene = HASH(bh0+bh1+pid); a string pid reverts on the ADD
 }
 // HATCH ALL: spam-adopting leaves several ready eggs; hatching them one card at a time feels stuck. This
@@ -879,7 +879,7 @@ function renderActive() {
   $("petName").textContent = p.label + (p.dead ? " ✝" : "");
   const coat = p.gene && an ? G.coatOf(p.gene, an) : null;
   $("petSpecies").innerHTML = p.hatched
-    ? an.e + " " + esc(CN(coat)) + " " + esc(AN(an)) + (coat.shiny ? ' <span style="color:#ffd35a">' + window.t("pets.shiny", "✦ shiny") + '</span>' : "") + ' · <span class="dim">' + window.t("pets.oneOf107", "1 of 107 animals") + '</span>' + (p.nm ? ' · <span class="dim">#' + p.id + "</span>" : "")
+    ? an.e + " " + esc(CN(coat)) + " " + esc(AN(an)) + (coat.shiny ? ' <span style="color:#ffd35a">' + window.t("pets.shiny", "✦ shiny") + '</span>' : "") + ' · <span class="dim">' + window.t("pets.oneOfN", "1 of {n} animals", { n: G.ANIMALS.length }) + '</span>' + (p.nm ? ' · <span class="dim">#' + p.id + "</span>" : "")
     : window.t("pets.unhatchedEgg", "Unhatched egg");
   $("petOwner").innerHTML = esc(disp(p.owner)) + (p.mine ? ' <span class="b ok">' + window.t("pets.yours", "yours") + '</span>' : "");
   $("petLp").textContent = p.hatched ? "Lv " + p.level + " · ⚡ " + p.pw + " · " + recordOf(p) : "—";
@@ -931,9 +931,15 @@ function renderActive() {
     if (p.price) $("btnUnlist").textContent = window.t("pets.removeListingPrice", "Remove listing (ask {price} NADO)", { price: rawToNado(p.price) });
   }
   if (!p.hatched && !p.dead) {
-    $("btnHatch").disabled = !p.hatchReady || dapp.busy("hatch", "pid", p.id);
-    $("btnHatch").classList.toggle("pulse", p.hatchReady && !dapp.busy("hatch", "pid", p.id));
-    $("btnHatch").textContent = dapp.busy("hatch", "pid", p.id) ? window.t("pets.hatchingConfirm", "⏳ Hatching — confirming on-chain…") : window.t("pets.hatchEgg", "🐣 Hatch the egg");
+    // busy() clears when the SDK stops tracking the call — but the egg stays hatchReady until the tx MINES,
+    // so the button would re-enable while the hatch still sits in the mempool. Also gate on the local
+    // hatchPending stamp (set on click, cleared when the pet actually hatches); expire it after 2 min so a
+    // failed/dropped hatch can still be retried.
+    const _hp = (L()[p.id] || {}).hatchPending;
+    const _hatchBusy = dapp.busy("hatch", "pid", p.id) || (!!_hp && Date.now() - _hp < 120000);
+    $("btnHatch").disabled = !p.hatchReady || _hatchBusy;
+    $("btnHatch").classList.toggle("pulse", p.hatchReady && !_hatchBusy);
+    $("btnHatch").textContent = _hatchBusy ? window.t("pets.hatchingConfirm", "⏳ Hatching — confirming on-chain…") : window.t("pets.hatchEgg", "🐣 Hatch the egg");
     $("hatchHint").textContent = p.hatchReady ? window.t("pets.hatchReadyHint", "Anyone may hatch it; the animal was already decided by blocks {a}–{b}.", { a: p.bh, b: p.bh + 1 })
       : window.t("pets.hatchWaitHint", "Hatchable once blocks {a}–{b} are finalized", { a: p.bh, b: p.bh + 1 }) + (dapp.cursor ? window.t("pets.hatchWaitNow", " (now at {cur}, ~{time} + finality)", { cur: dapp.cursor, time: blocksToTime(Math.max(0, p.bh + 1 - dapp.cursor)) }) : "") + ".";
     $("btnRebirth").classList.toggle("hidden", !(p.stale && p.mine));
@@ -1179,8 +1185,8 @@ function maybePlayHatch(p) {
       setTimeout(() => sp.remove(), 1100);
     }
     const an = p.animal, coat = G.coatOf(p.gene, an);
-    alertBar(window.t("pets.hatchReveal", "🎉 It's a {rarity} — {coat} {emoji} {animal}{shiny}! One of 107 possible animals across six rarity tiers — its species, coat and 10 abilities are all written into its gene, locked forever. Name it, feed it, train it.",
-      { rarity: p.tier.rarity.toUpperCase(), coat: CN(coat), emoji: an.e, animal: AN(an), shiny: coat.shiny ? window.t("pets.shinySuffix", " ✦ SHINY") : "" }), null, null, { tone: "ok" });
+    alertBar(window.t("pets.hatchReveal", "🎉 It's a {rarity} — {coat} {emoji} {animal}{shiny}! One of {total} possible animals across six rarity tiers — its species, coat and 10 abilities are all written into its gene, locked forever. Name it, feed it, train it.",
+      { rarity: p.tier.rarity.toUpperCase(), coat: CN(coat), emoji: an.e, animal: AN(an), total: G.ANIMALS.length, shiny: coat.shiny ? window.t("pets.shinySuffix", " ✦ SHINY") : "" }), null, null, { tone: "ok" });
   }, t + 600);
   setTimeout(() => { hatchPlaying = false; render(); }, t + 2400);
 }
