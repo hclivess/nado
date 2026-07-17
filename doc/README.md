@@ -68,7 +68,7 @@ analysis + the lighter fraud-proof middle option: [l2-settlement.md](l2-settleme
 | **#16/#17** | Objective stake-weighted heaviest-chain fork-choice + grind-proof `cumulative_weight` header + enforced finality floor (`FINALITY_DEPTH=30`, `FinalityViolation`) | ✅ implemented & testnet-validated |
 | **#18 (partial)** | Fail-loud epoch beacon (silent `GENESIS_BEACON` fallback removed); `/announce_peer` rate-limit | ✅ implemented |
 | **#15/#19 (partial)** | Detached **optional** winner block signature (off the hash/validity path); pubkey-once (`public_key` excluded from txid) | ✅ implemented |
-| **Remaining hardening** | Equivocation/attestation slashing actions; FFG-lite >2/3-bonded finality; full on-chain commit-reveal RANDAO; broad eclipse hardening (ASN/subnet diversity, multi-seed bootstrap) | ⏳ planned (see [consensus-hardening-plan.md](consensus-hardening-plan.md)) |
+| **Consensus hardening** | IMPLEMENTED: equivocation + attestation slashing (fee-exempt `slash` tx, bond burn), enforced FFG >2/3-bonded finality with the inactivity leak, on-chain commit-reveal RANDAO, `/announce_peer` rate-limit + per-/16 subnet diversity. Remaining (post-launch ops): ASN-level peer diversity, pinned anchor slots + multi-seed bootstrap, checkpoint-bound snapshot bootstrap | ✅ live (tail ⏳, see [consensus-hardening-plan.md](consensus-hardening-plan.md)) |
 
 "Unit-tested" = verified by `tests/test_s*.py` under a venv + temporary `$HOME` (no live
 network). The S4.3 integration and the browser client are deliberately **not** written yet
