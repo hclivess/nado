@@ -9,7 +9,7 @@ import { $, algHashn, ALG_P, base, notify, rawToNado } from "./nadodapp.js";
 
 export const FAUCET_CID = "faucet";
 // idx ↔ game registry (mirror of the operator's set_game enrollment — keep in lockstep)
-export const FAUCET_GAMES = { dice: 0, scrapline: 1, stormhold: 2 };
+export const FAUCET_GAMES = { dice: 0, scrapline: 1, stormhold: 2, farkle: 3, blackjack: 4 };
 
 const T = (k, d, v) => (typeof window !== "undefined" && window.t) ? window.t("sdk." + k, d, v) : d;
 // the VM's address digest (runtimes.zkvm_addr_digest): blake2b(["zkvmaddr", addr]) reduced into the field
@@ -77,9 +77,9 @@ export function faucetAttach(dapp, slug, elArg) {
   const LSK = "nado_faucet_claimed_" + slug;
   let busy = false, shown = false, info = null;
   const build = () => {
-    el.innerHTML = '<div class="dp">🚰 ' + T("fctOffer", "New here? Claim {amt} NADO of free play for this game — your browser proves you're human with ~a minute of hashing.", { amt: rawToNado(info.grant) }) + "</div>";
+    el.innerHTML = '<div class="dp">🚰 ' + T("fctOffer", "New here? Claim {amt} NADO of airdrop play for this game — your browser proves you're human with ~a minute of hashing.", { amt: rawToNado(info.grant) }) + "</div>";
     const b = document.createElement("button"); b.className = "primary";
-    b.textContent = T("fctClaim", "🚰 Claim {amt} NADO free play", { amt: rawToNado(info.grant) });
+    b.textContent = T("fctClaim", "🪂 Claim {amt} NADO airdrop play", { amt: rawToNado(info.grant) });
     b.onclick = async () => {
       if (busy) return;
       busy = true; b.disabled = true;
@@ -88,10 +88,10 @@ export function faucetAttach(dapp, slug, elArg) {
           (h) => { b.textContent = T("fctGrinding", "⛏ proving… {n}k hashes", { n: Math.round(h / 1000) }); });
         b.textContent = T("fctSubmitting", "✓ proof found — claiming…");
         dapp.call("claim", [info.idx, nonce], null,
-          T("fctCallLabel", "claim {amt} NADO free play ({slug})", { amt: rawToNado(info.grant), slug }),
+          T("fctCallLabel", "claim {amt} NADO airdrop play ({slug})", { amt: rawToNado(info.grant), slug }),
           { phase: "faucet" }, { cid: FAUCET_CID });
         try { localStorage.setItem(LSK, dapp.me); } catch {}
-        notify(T("fctSent", "Claim submitted — your free play lands with the next block."));
+        notify(T("fctSent", "Claim submitted — your airdrop lands with the next block."));
       } finally { busy = false; b.disabled = false; }
     };
     el.appendChild(b);

@@ -102,12 +102,12 @@
     "sdk.prDealAgain": "Deal again — {n} play chips",
     "sdk.copied": "Copied ✓",
     "sdk.copyFailed": "copy failed — use the link above",
-    "sdk.fctOffer": "New here? Claim {amt} NADO of free play for this game — your browser proves you're human with ~a minute of hashing.",
-    "sdk.fctClaim": "🚰 Claim {amt} NADO free play",
+    "sdk.fctOffer": "New here? Claim {amt} NADO of airdrop play for this game — your browser proves you're human with ~a minute of hashing.",
+    "sdk.fctClaim": "🪂 Claim {amt} NADO airdrop play",
     "sdk.fctGrinding": "⛏ proving… {n}k hashes",
     "sdk.fctSubmitting": "✓ proof found — claiming…",
-    "sdk.fctCallLabel": "claim {amt} NADO free play ({slug})",
-    "sdk.fctSent": "Claim submitted — your free play lands with the next block."
+    "sdk.fctCallLabel": "claim {amt} NADO airdrop play ({slug})",
+    "sdk.fctSent": "Claim submitted — your airdrop play lands with the next block."
   },
   "cs": {
     "sdk.connect": "Přihlášeno.",
@@ -322,7 +322,7 @@
     "sdk.prDealAgain": "Repartir de nuevo — {n} fichas de práctica",
     "sdk.copied": "Copiado ✓",
     "sdk.copyFailed": "no se pudo copiar — usa el enlace de arriba",
-    "sdk.fctOffer": "¿Nuevo aquí? Reclama {amt} NADO de juego gratis — tu navegador lo demuestra con ~un minuto de hashing.",
+    "sdk.fctOffer": "¿Nuevo aquí? Reclama {amt} NADO de juego airdrop — tu navegador lo demuestra con ~un minuto de hashing.",
     "sdk.fctClaim": "🚰 Reclamar {amt} NADO gratis",
     "sdk.fctGrinding": "⛏ probando… {n}k hashes",
     "sdk.fctSubmitting": "✓ prueba hallada — reclamando…",

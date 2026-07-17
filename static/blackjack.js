@@ -6,6 +6,7 @@
 // 5:2; European no-hole-card timing. See tests/test_blackjack_contract.py.
 import { NadoDapp, rawToNado, nadoToRaw, _m, $, gate, canPay, orderCards, alertBar, notify, lsLoad as load, wireWallet, stickyInputs, renderWallet, renderScore, scoreBump, scoreSort, randId, loadQR, resolveAliases, disp, share, shareInvite } from "./nadodapp.js";
 import { BankedGame } from "./bankedgame.js";
+import { faucetAttach } from "./faucet.js";   // airdrop free-play claims for newcomers
 import { chainCards, cardHTML, injectCardCSS, bjTotal } from "./cards.js";
 import { Practice } from "./practice.js";      // free in-browser practice (play chips, no chain)
 
@@ -358,3 +359,4 @@ function pracRender() {
     () => { if (!pDeal()) { pState = null; pracRender(); } }, true);   // redeal in place — never collapse the felt
 }
 if ($("pDeal")) { $("pDeal").onclick = pDeal; pracRender(); }
+faucetAttach(dapp, "blackjack");
