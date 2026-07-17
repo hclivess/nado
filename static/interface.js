@@ -26,7 +26,11 @@ import * as sjoinsplit2 from "./stark/joinsplit2.js";
 import * as sstark from "./stark/stark.js";
 import { treePath } from "./stark/tree.js";
 import { seedToMnemonic, mnemonicToSeed, looksLikeMnemonic } from "./bip39.js";
-const CHAIN_ID = "alphanet-5";
+/* The chain this wallet signs for. ADOPTED DYNAMICALLY from the relay's /status at boot (initNetTag) so the
+ * wallet self-resolves across chain upgrades — the literal below is only the pre-fetch fallback. Signing with
+ * the relay's declared chain_id preserves replay protection (a tx binds to exactly the chain it lands on) and
+ * adds no trust: the relay already supplies balances, fees and block targets. */
+let CHAIN_ID = "alphanet-6";
 const EPOCH_LENGTH = 60;
 const FINALITY_DEPTH = 30;     // protocol.py: reveal window for epoch E ends at E*EPOCH_LENGTH - FINALITY_DEPTH - 1
 const REGISTER_POW_BITS = 16;  // legacy hashcash (retired) — kept only for the self-test vector
@@ -5311,20 +5315,22 @@ function installBgSignListener() {
   });
 }
 
-/* Network tag (header, upper right): which chain THIS wallet build signs for (CHAIN_ID). One
- * startup /status fetch cross-checks the relay's chain_id — a mismatched relay would reject every
- * tx with "Wrong or missing chain id", so surface the mismatch loudly instead of failing quietly. */
+/* Network tag (header, upper right): which chain this wallet signs for. The relay's /status is the source of
+ * truth — the wallet ADOPTS its chain_id at boot, so chain upgrades resolve automatically (no more
+ * "alphanet-N ≠ alphanet-M" limbo after a reroll). The fallback literal only covers the pre-fetch window;
+ * a failed fetch keeps the fallback and the next signed tx surfaces any real problem via the node's own
+ * "Wrong or missing chain id" rejection. */
 async function initNetTag() {
   const el = $("netTag");
-  if (!el) return;
-  el.textContent = CHAIN_ID;
-  el.title = i18("net.tagTip", "The network this wallet signs for.");
+  if (el) {
+    el.textContent = CHAIN_ID;
+    el.title = i18("net.tagTip", "The network this wallet signs for.");
+  }
   try {
     const st = (await rpcJSON("/status")).data;
     if (st && st.chain_id && st.chain_id !== CHAIN_ID) {
-      el.textContent = CHAIN_ID + " ≠ " + st.chain_id;
-      el.classList.add("mismatch");
-      el.title = i18("net.mismatch", "The relay node runs a different chain — transactions will be rejected. Change the relay in Settings.");
+      CHAIN_ID = st.chain_id;                       // adopt the relay's chain — self-resolving upgrades
+      if (el) el.textContent = CHAIN_ID;
     }
   } catch (e) {}
 }
