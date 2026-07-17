@@ -29,7 +29,7 @@
 <meta name="twitter:title" content="NADO Stormhold — deck-building for stakes, post-quantum">
 <meta name="twitter:image" content="https://nadochain.com/og-image.png">
 <script type="application/ld+json">{"@context": "https://schema.org", "@type": "VideoGame", "name": "NADO Stormhold", "url": "https://stormhold.nadochain.com/", "description": "Stormhold — an on-chain deck-building duel on the NADO blockchain: draft cards, out-build your rival and settle every match with provable fairness and post-quantum signatures.", "gamePlatform": "Web browser", "isAccessibleForFree": true, "publisher": {"@type": "Organization", "name": "NADO", "url": "https://nadochain.com/"}}</script>
-<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2048%2048%22%20width%3D%2264%22%20height%3D%2264%22%3E%3Cpath%20d%3D%22M8%2012h32l-4%206H12z%22%20fill%3D%22%2300c9a7%22/%3E%3Cpath%20d%3D%22M14%2020h22l-4%206H18z%22%20fill%3D%22%2300ad93%22/%3E%3Cpath%20d%3D%22M20%2028h12l-4%206h-6z%22%20fill%3D%22%2300c9a7%22/%3E%3Cpath%20d%3D%22M25%2036h4l-2%206z%22%20fill%3D%22%2300ad93%22/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20viewBox=%220%200%2048%2048%22%20width=%2264%22%20height=%2264%22%20aria-hidden=%22true%22%3E%3Crect%20x=%228%22%20y=%2218%22%20width=%229%22%20height=%2222%22%20fill=%22%2300c9a7%22/%3E%3Crect%20x=%2231%22%20y=%2218%22%20width=%229%22%20height=%2222%22%20fill=%22%2300c9a7%22/%3E%3Crect%20x=%2215%22%20y=%2224%22%20width=%2218%22%20height=%2216%22%20fill=%22%2300ad93%22/%3E%3Crect%20x=%228%22%20y=%2215%22%20width=%223%22%20height=%223%22%20fill=%22%2300c9a7%22/%3E%3Crect%20x=%2214%22%20y=%2215%22%20width=%223%22%20height=%223%22%20fill=%22%2300c9a7%22/%3E%3Crect%20x=%2231%22%20y=%2215%22%20width=%223%22%20height=%223%22%20fill=%22%2300c9a7%22/%3E%3Crect%20x=%2237%22%20y=%2215%22%20width=%223%22%20height=%223%22%20fill=%22%2300c9a7%22/%3E%3Crect%20x=%2215%22%20y=%2221%22%20width=%223%22%20height=%223%22%20fill=%22%2300ad93%22/%3E%3Crect%20x=%2221%22%20y=%2221%22%20width=%223%22%20height=%223%22%20fill=%22%2300ad93%22/%3E%3Crect%20x=%2227%22%20y=%2221%22%20width=%223%22%20height=%223%22%20fill=%22%2300ad93%22/%3E%3Cpath%20d=%22M20%2040v-7a4%204%200%200%201%208%200v7z%22%20fill=%22%230b3d36%22/%3E%3Crect%20x=%2223.2%22%20y=%227%22%20width=%221.6%22%20height=%228%22%20fill=%22%23e3b341%22/%3E%3Cpath%20d=%22M24.8%207.5%2030%209.5%2024.8%2011.5z%22%20fill=%22%23e3b341%22/%3E%3C/svg%3E">
 <meta name="theme-color" content="#0b0f14">
 <script src="/static/i18n.js?v=d7d4c08b"></script>
 <style>
@@ -125,9 +125,7 @@
 </head>
 <body>
 <div class="wrap">
-  <header><span class="logo"><svg viewBox="0 0 48 48" width="28" height="28" aria-hidden="true">
-    <path d="M8 12h32l-4 6H12z" fill="#00c9a7"/><path d="M14 20h22l-4 6H18z" fill="#00ad93"/>
-    <path d="M20 28h12l-4 6h-6z" fill="#00c9a7"/><path d="M25 36h4l-2 6z" fill="#00ad93"/></svg></span>
+  <header><span class="logo"><svg viewBox="0 0 48 48" width="28" height="28" aria-hidden="true"><rect x="8" y="18" width="9" height="22" fill="#00c9a7"/><rect x="31" y="18" width="9" height="22" fill="#00c9a7"/><rect x="15" y="24" width="18" height="16" fill="#00ad93"/><rect x="8" y="15" width="3" height="3" fill="#00c9a7"/><rect x="14" y="15" width="3" height="3" fill="#00c9a7"/><rect x="31" y="15" width="3" height="3" fill="#00c9a7"/><rect x="37" y="15" width="3" height="3" fill="#00c9a7"/><rect x="15" y="21" width="3" height="3" fill="#00ad93"/><rect x="21" y="21" width="3" height="3" fill="#00ad93"/><rect x="27" y="21" width="3" height="3" fill="#00ad93"/><path d="M20 40v-7a4 4 0 0 1 8 0v7z" fill="#0b3d36"/><rect x="23.2" y="7" width="1.6" height="8" fill="#e3b341"/><path d="M24.8 7.5 30 9.5 24.8 11.5z" fill="#e3b341"/></svg></span>
     <h1>NADO <span class="a">Stormhold</span></h1><a class="hub" href="https://nadochain.com/games" data-i18n="storm.allGames">🎮 All games</a></header>
   <p class="sub" data-i18n-html="storm.sub">A <b>deck-building strategy duel for stakes</b> on the NADO execution layer. Start with 10 humble cards, buy engines and victory piles from a shared supply, and out-build your opponent. Every move is logged on-chain, every shuffle draws its randomness from <b>future L1 block hashes</b> — provably fair, nobody (not even the shuffler) can rig a deck. The full rules run in your browser; the pot settles by concede / mutual agreement / refund-timeout. Post-quantum wallet, no install.</p>
 
@@ -145,23 +143,9 @@
   <!-- PLAY -->
   <div class="card hidden" id="play">
     <h2 data-i18n="storm.playHead">🏰 Play for stakes</h2>
-    <div id="faucetBar"></div>
     <div class="row">
       <input id="stakeAmt" value="1" placeholder="stake (NADO)" data-i18n-ph="storm.stakePh" inputmode="decimal" autocomplete="off">
       <button class="primary" id="btnNew" style="flex:0 0 auto" data-i18n="storm.newGameBtn">New game</button>
-    </div>
-    <div class="row mt" style="align-items:center;gap:8px;flex-wrap:wrap">
-      <span class="small dim" data-i18n="storm.kingdomLbl">Kingdom:</span>
-      <span id="kingdomState" class="small"></span>
-      <button class="ghost" id="btnKingdom" style="flex:0 0 auto" data-i18n="storm.kingdomPickBtn">⚒ Pick the 10 piles</button>
-    </div>
-    <div id="kingdomPicker" class="hidden">
-      <div class="row" id="kingdomPresets" style="flex-wrap:wrap;gap:6px;margin-top:6px"></div>
-      <div id="kingdomGrid" class="handrow" style="flex-wrap:wrap;margin-top:8px"></div>
-      <div class="row mt">
-        <button class="primary" id="btnKingdomUse" style="flex:0 0 auto"></button>
-        <button class="ghost" id="btnKingdomRandom" style="flex:0 0 auto" data-i18n="storm.kingdomRandomBtn">🎲 Back to random</button>
-      </div>
     </div>
     <div class="row mt" style="align-items:center;gap:8px">
       <label class="small dim" style="display:flex;align-items:center;gap:7px;margin:0;cursor:pointer">
@@ -193,6 +177,20 @@
     <h2 data-i18n="storm.lobbyHead">🏰 Open games</h2>
     <p class="small dim" data-i18n="storm.lobbyHelp">Challenge anyone — join an open duel or watch one in progress.</p>
     <div class="row" style="margin-bottom:8px"><button class="ghost" id="btnPractice" data-i18n="sdk.prVsCpu">🎯 Practice vs computer — free, no wallet</button></div>
+    <!-- kingdom picker: applies to BOTH practice and staked games (no wallet needed to pick) -->
+    <div class="row" style="align-items:center;gap:8px;flex-wrap:wrap">
+      <span class="small dim" data-i18n="storm.kingdomLbl">Kingdom:</span>
+      <span id="kingdomState" class="small"></span>
+      <button class="ghost" id="btnKingdom" style="flex:0 0 auto" data-i18n="storm.kingdomPickBtn">⚒ Pick the 10 piles</button>
+    </div>
+    <div id="kingdomPicker" class="hidden">
+      <div class="row" id="kingdomPresets" style="flex-wrap:wrap;gap:6px;margin-top:6px"></div>
+      <div id="kingdomGrid" class="handrow" style="flex-wrap:wrap;margin-top:8px"></div>
+      <div class="row mt">
+        <button class="primary" id="btnKingdomUse" style="flex:0 0 auto"></button>
+        <button class="ghost" id="btnKingdomRandom" style="flex:0 0 auto" data-i18n="storm.kingdomRandomBtn">🎲 Back to random</button>
+      </div>
+    </div>
     <div class="small mt" id="lobbyList"><span class="dim" data-i18n="storm.loading">Loading…</span></div>
   </div>
 

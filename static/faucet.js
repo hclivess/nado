@@ -57,21 +57,26 @@ export async function grindClaim(addr, idx, pow, onProgress) {
   }
 }
 
-// faucetAttach(dapp, slug, el): render (and keep refreshed) the claim bar into `el`.
-export function faucetAttach(dapp, slug, el) {
-  if (!el) return;
+// faucetAttach(dapp, slug): show a claim banner when it can help. SDK-OWNED PLACEMENT — the SDK inserts
+// its own banner card at a consistent spot (top of the page, right under the header) in every game, so no
+// game hand-places it. IDEMPOTENT + STABLE — the DOM is rebuilt ONLY when the show/hide decision actually
+// flips (never every poll), a mid-grind bar is never wiped, a transient balance-fetch failure keeps the
+// current state instead of blinking the bar off, and the empty container is display:none (no ghost card).
+export function faucetAttach(dapp, slug, elArg) {
+  // consistent placement: a dedicated banner card as the first content under <header> inside .wrap.
+  let el = elArg || document.getElementById("faucetBar");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "faucetBar"; el.className = "card";
+    const wrap = document.querySelector(".wrap") || document.body;
+    const header = wrap.querySelector("header");
+    if (header && header.nextSibling) wrap.insertBefore(el, header.nextSibling);
+    else wrap.insertBefore(el, wrap.firstChild);
+  }
+  el.style.display = "none";                                   // hidden until we decide to show it
   const LSK = "nado_faucet_claimed_" + slug;
-  let busy = false;
-  async function render() {
-    if (busy) return;
-    if (!dapp.me) { el.innerHTML = ""; return; }
-    let claimedHere = null;
-    try { claimedHere = localStorage.getItem(LSK); } catch {}
-    if (claimedHere === dapp.me) { el.innerHTML = ""; return; }  // this browser already claimed for this addr
-    const info = await faucetInfo(slug);
-    if (!info) { el.innerHTML = ""; return; }
-    if (dapp.exec >= info.grant) { el.innerHTML = ""; return; }  // the bar exists to unblock broke players
-    if ((await faucetBalance()) < info.grant) { el.innerHTML = ""; return; }
+  let busy = false, shown = false, info = null;
+  const build = () => {
     el.innerHTML = '<div class="dp">🚰 ' + T("fctOffer", "New here? Claim {amt} NADO of free play for this game — your browser proves you're human with ~a minute of hashing.", { amt: rawToNado(info.grant) }) + "</div>";
     const b = document.createElement("button"); b.className = "primary";
     b.textContent = T("fctClaim", "🚰 Claim {amt} NADO free play", { amt: rawToNado(info.grant) });
@@ -90,8 +95,28 @@ export function faucetAttach(dapp, slug, el) {
       } finally { busy = false; b.disabled = false; }
     };
     el.appendChild(b);
+  };
+  async function refresh() {
+    if (busy) return;                                          // never disturb a bar the user is grinding
+    // decide want=show without touching the DOM
+    let want = false;
+    if (dapp.me) {
+      let claimedHere = null;
+      try { claimedHere = localStorage.getItem(LSK); } catch {}
+      if (claimedHere !== dapp.me) {
+        info = await faucetInfo(slug);
+        if (info && dapp.exec < info.grant) {
+          const bal = await faucetBalance();
+          want = bal >= info.grant;
+        }
+      }
+    }
+    if (want === shown) return;                                // NO-OP unless the decision actually flipped
+    shown = want;
+    if (want) { build(); el.style.display = ""; }
+    else { el.innerHTML = ""; el.style.display = "none"; }     // hide the whole card — no empty ghost box
   }
-  render();
-  setInterval(render, 30_000);
-  return render;
+  refresh();
+  setInterval(refresh, 20_000);
+  return refresh;
 }

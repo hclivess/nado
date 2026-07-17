@@ -310,4 +310,4 @@ if ($("pRoll")) {
   pracRender();
 }
 
-faucetAttach(dapp, "dice", $("faucetBar"));
+faucetAttach(dapp, "dice");
