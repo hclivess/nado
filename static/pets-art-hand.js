@@ -30,6 +30,14 @@ import { ART_CRYPTIDS } from "./pets-art/cryptids.js";
 import { ART_ROBOTS } from "./pets-art/robots.js";
 import { ART_FANTASYBEASTS } from "./pets-art/fantasybeasts.js";
 import { ART_SEAMONSTERS } from "./pets-art/seamonsters.js";
+import { ART_SONGBIRDS } from "./pets-art/songbirds.js";
+import { ART_FRESHWATERFISH } from "./pets-art/freshwaterfish.js";
+import { ART_DEEPSEA } from "./pets-art/deepsea.js";
+import { ART_MINIBEASTS } from "./pets-art/minibeasts.js";
+import { ART_CRUSTACEANS } from "./pets-art/crustaceans.js";
+import { ART_CELESTIAL } from "./pets-art/celestial.js";
+import { ART_DINOS2 } from "./pets-art/dinos2.js";
+import { ART_PREHISTORICMAMMALS } from "./pets-art/prehistoricmammals.js";
 
 export const HAND_ART = {
   ...ART_FARM,
@@ -57,4 +65,12 @@ export const HAND_ART = {
   ...ART_ROBOTS,
   ...ART_FANTASYBEASTS,
   ...ART_SEAMONSTERS,
+  ...ART_SONGBIRDS,
+  ...ART_FRESHWATERFISH,
+  ...ART_DEEPSEA,
+  ...ART_MINIBEASTS,
+  ...ART_CRUSTACEANS,
+  ...ART_CELESTIAL,
+  ...ART_DINOS2,
+  ...ART_PREHISTORICMAMMALS,
 };
