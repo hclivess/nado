@@ -179,8 +179,8 @@ a { color: var(--accent-2); }
 
 /* tab bar */
 .tabbar {
-  display: flex; gap: 6px; flex-wrap: wrap;   /* wrap so every tab is reachable without horizontal scroll (touchless) */
-  padding: 8px; margin: 14px 0;
+  display: flex; gap: 2px; flex-wrap: wrap;   /* wrap so every tab is reachable without horizontal scroll (touchless) */
+  padding: 6px; margin: 14px 0;
   background: var(--bg-elev); border: 1px solid var(--border);
   border-radius: var(--radius); box-shadow: var(--shadow);
   scrollbar-width: none;
@@ -188,27 +188,35 @@ a { color: var(--accent-2); }
 .tabbar::-webkit-scrollbar { display: none; }
 .tabbar .tab {
   flex: 0 0 auto; font-size: 13px; font-weight: 700;
-  padding: 9px 14px; border-radius: 10px;
+  padding: 8px 10px; border-radius: 10px;
   background: transparent; border: 1px solid transparent; color: var(--txt-dim);
 }
 .tabbar .tab.active { background: var(--bg-elev2); border-color: var(--border); color: var(--txt); }
+/* a plain link in the tab bar (Web) must look exactly like the sibling tab buttons, not like body text */
+.tabbar a.tab { text-decoration: none; color: var(--txt-dim); line-height: normal; }
+.tabbar a.tab:hover { color: var(--txt); background: var(--bg-elev2); }
 
 /* grouped tab dropdowns — collapse many tabs into a few labelled menus (hover on desktop, tap/focus on mobile) */
 .tabgroup { position: relative; }
 .tabgroup-btn {
   flex: 0 0 auto; font-size: 13px; font-weight: 700; cursor: pointer;
-  padding: 9px 14px; border-radius: 10px;
+  padding: 8px 10px; border-radius: 10px;
   background: transparent; border: 1px solid transparent; color: var(--txt-dim);
 }
 .tabgroup-btn::after { content: "▾"; margin-left: 5px; opacity: .55; font-size: 10px; }
-.tabgroup:hover .tabgroup-btn, .tabgroup:focus-within .tabgroup-btn { color: var(--txt); }
+.tabgroup:hover .tabgroup-btn, .tabgroup:focus-within .tabgroup-btn, .tabgroup.open .tabgroup-btn { color: var(--txt); }
 .tabgroup:has(.tab.active) .tabgroup-btn { background: var(--bg-elev2); border-color: var(--border); color: var(--txt); }
 .tabmenu {
-  display: none; position: absolute; top: 100%; left: 0; z-index: 30;
-  flex-direction: column; gap: 4px; min-width: 168px; padding: 6px; margin-top: 4px;
+  display: none; position: absolute; top: calc(100% + 4px); left: 0; z-index: 30;
+  flex-direction: column; gap: 4px; min-width: 168px; padding: 6px;
   background: var(--bg-elev); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow);
 }
-.tabgroup:hover .tabmenu, .tabgroup:focus-within .tabmenu { display: flex; }
+/* invisible hover bridge over the button→menu gap: crossing it must not break :hover and snap the menu shut */
+.tabmenu::before { content: ""; position: absolute; top: -6px; left: 0; right: 0; height: 6px; }
+/* .open = the JS-managed state (hover-intent grace on desktop, tap-toggle on touch); :hover/:focus-within
+   stay as instant, JS-free openers. .closing wins over both so a just-picked menu folds even under the cursor. */
+.tabgroup:hover .tabmenu, .tabgroup:focus-within .tabmenu, .tabgroup.open .tabmenu { display: flex; }
+.tabgroup.closing .tabmenu { display: none !important; }
 .tabmenu .tab { width: 100%; text-align: left; }
 .tabmenu .tab:hover { background: var(--bg-elev2); color: var(--txt); }
 

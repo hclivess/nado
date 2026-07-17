@@ -5164,7 +5164,48 @@ function wireEvents() {
     e.target.value = "";                               // allow re-selecting the same file later
   };
 
-  document.querySelectorAll("#tabbar .tab").forEach((b) => { b.onclick = () => { showTab(b.dataset.tabbtn); b.blur(); }; });
+  document.querySelectorAll("#tabbar .tab").forEach((b) => {
+    if (!b.dataset.tabbtn) return;                       // plain links in the bar (e.g. Web ↗) keep their default
+    b.onclick = () => { showTab(b.dataset.tabbtn); b.blur(); tgCloseAll(true); };
+  });
+
+  /* Tab-group dropdowns: CSS :hover alone was flaky — a pixel of pointer drift (or the button→menu gap)
+   * snapped the menu shut, so in practice they had to be clicked. JS-managed `.open` fixes that:
+   * open instantly on mouseenter, close only after a 350ms grace on mouseleave (survives drift/gap),
+   * click/tap toggles for touch and click-first users, a picked tab folds the menu (`.closing` outranks
+   * :hover while the cursor is still on it), and outside-click/Escape dismiss. */
+  const tgGroups = [...document.querySelectorAll("#tabbar .tabgroup")];
+  function tgCloseAll(instant) {
+    tgGroups.forEach((g) => {
+      g.classList.remove("open");
+      if (instant && g.matches(":hover")) {              // fold even under the cursor; re-arm on next entry
+        g.classList.add("closing");
+        g.addEventListener("mouseleave", () => g.classList.remove("closing"), { once: true });
+      }
+    });
+  }
+  tgGroups.forEach((g) => {
+    let closeT = null;
+    g.addEventListener("mouseenter", () => {
+      clearTimeout(closeT);
+      g.classList.remove("closing");
+      tgGroups.forEach((o) => { if (o !== g) o.classList.remove("open"); });
+      g.classList.add("open");
+    });
+    g.addEventListener("mouseleave", () => {
+      clearTimeout(closeT);
+      closeT = setTimeout(() => g.classList.remove("open"), 350);
+    });
+    const btn = g.querySelector(".tabgroup-btn");
+    if (btn) btn.onclick = () => {                       // tap/click toggle (touch has no hover)
+      const was = g.classList.contains("open");
+      tgCloseAll(false);
+      g.classList.remove("closing");
+      g.classList.toggle("open", !was);
+    };
+  });
+  document.addEventListener("click", (e) => { if (!e.target.closest("#tabbar .tabgroup")) tgCloseAll(false); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") tgCloseAll(true); });
 
   $("btnSend").onclick = () => doSend();
   if ($("btnSendAll")) $("btnSendAll").onclick = () => sendAllToAmount();
