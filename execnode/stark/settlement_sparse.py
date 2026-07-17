@@ -19,7 +19,9 @@ from execnode.stark import (field as F, storage_tree as ST, state_transition as 
                             vm_circuit, calls_commit as CC)
 from execnode import settlement_proofs as SP, zkvm
 
-DEFAULT_DEPTH = 24                       # sparse-tree depth: 2^24 slot positions (raise toward 2^256 in prod)
+DEFAULT_DEPTH = 256                      # sparse-tree depth = full 128-bit-secure slot space (2^256 positions):
+                                         # distinct (cid, slot) never collide, so the scheme is production-final
+                                         # (no future reroll for depth). Tests pass their own small depth.
 
 
 def sparse_projection(contracts, depth=DEFAULT_DEPTH):
